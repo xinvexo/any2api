@@ -1,0 +1,19 @@
+[package]
+name = "any2api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+any2api-runtime = { path = "../../crates/runtime" }
+any2api-server = { path = "../../crates/server" }
+any2api-storage = { path = "../../crates/storage" }
+anyhow.workspace = true
+axum.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

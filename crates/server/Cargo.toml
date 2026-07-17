@@ -1,0 +1,15 @@
+[package]
+name = "any2api-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+any2api-runtime = { path = "../runtime" }
+axum.workspace = true
+serde.workspace = true
+tower-http.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "any2api-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+any2api-domain = { path = "../domain" }
+async-trait.workspace = true
+bytes.workspace = true
+futures-core.workspace = true
+http.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
+

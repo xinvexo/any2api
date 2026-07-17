@@ -1,0 +1,49 @@
+# IDE / OS
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+
+# External read-only reference sources
+/reference/
+
+# Rust
+/target/
+**/target/
+*.profraw
+
+# Node / React
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+**/coverage/
+.vite/
+**/.vite/
+.turbo/
+**/.turbo/
+.eslintcache
+
+# Local runtime data
+/data/
+/logs/
+/secrets/
+/master.key
+/.any2api-master-key
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.log
+
+# Local environment and temporary files
+.env
+.env.*
+!.env.example
+*.tmp
+*.swp
+*~
+

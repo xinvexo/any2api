@@ -1,0 +1,17 @@
+[package]
+name = "any2api-provider"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+any2api-domain = { path = "../domain" }
+http.workspace = true
+secrecy.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true
+
