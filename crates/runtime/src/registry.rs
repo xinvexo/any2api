@@ -21,6 +21,21 @@ impl RuntimeRegistry {
     pub fn advance_scheduler_epoch(&self) -> u64 {
         self.scheduler_epoch.fetch_add(1, Ordering::AcqRel) + 1
     }
+
+    pub(crate) fn reconcile_configuration(&self) -> ConfigurationActivation<'_> {
+        ConfigurationActivation { registry: self }
+    }
+}
+
+#[must_use]
+pub(crate) struct ConfigurationActivation<'a> {
+    registry: &'a RuntimeRegistry,
+}
+
+impl ConfigurationActivation<'_> {
+    pub(crate) fn notify_after_snapshot_swap(self) {
+        self.registry.advance_scheduler_epoch();
+    }
 }
 
 #[cfg(test)]

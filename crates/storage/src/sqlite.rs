@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use any2api_domain::ConfigRevision;
 use sqlx::{
     SqlitePool,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
@@ -40,20 +39,7 @@ impl SqliteStore {
     }
 
     #[must_use]
-    pub fn pool(&self) -> &SqlitePool {
+    pub(crate) fn pool(&self) -> &SqlitePool {
         &self.pool
-    }
-
-    pub async fn load_config_revision(&self) -> Result<ConfigRevision, StorageError> {
-        let revision: i64 =
-            sqlx::query_scalar("SELECT revision FROM config_state WHERE singleton_id = 1")
-                .fetch_one(&self.pool)
-                .await?;
-        let revision = u64::try_from(revision)
-            .ok()
-            .and_then(|value| ConfigRevision::new(value).ok())
-            .ok_or(StorageError::InvalidRevision(revision))?;
-
-        Ok(revision)
     }
 }

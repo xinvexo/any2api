@@ -3,13 +3,14 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost";
+  variant?: "primary" | "secondary" | "ghost" | "danger";
 }
 
 const variants = {
   primary: "bg-accent text-on-accent hover:bg-accent-strong shadow-accent",
   secondary: "border border-subtle bg-surface text-primary hover:bg-surface-hover shadow-hairline",
   ghost: "text-secondary hover:bg-surface-hover hover:text-primary",
+  danger: "bg-danger text-on-danger hover:opacity-90 shadow-hairline",
 };
 
 export function Button({ className, type = "button", variant = "secondary", ...props }: ButtonProps) {

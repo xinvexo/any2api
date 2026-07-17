@@ -66,7 +66,9 @@ name = "any2api-domain"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
+ "url",
  "uuid",
 ]
 
@@ -96,7 +98,9 @@ name = "any2api-runtime"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "any2api-storage",
  "arc-swap",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -105,10 +109,12 @@ dependencies = [
 name = "any2api-server"
 version = "0.1.0"
 dependencies = [
+ "any2api-domain",
  "any2api-runtime",
  "axum",
  "serde",
  "tower-http",
+ "tracing",
 ]
 
 [[package]]
@@ -116,7 +122,9 @@ name = "any2api-storage"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "async-trait",
  "sqlx",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
 ]

@@ -4,6 +4,7 @@ import { AppShell } from "@/app/shell/AppShell";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
+import { ProxiesPage } from "@/pages/ProxiesPage";
 
 export const router = createBrowserRouter([
   {
@@ -11,7 +12,7 @@ export const router = createBrowserRouter([
     element: <AppShell />,
     children: [
       { index: true, element: <OverviewPage /> },
-      { path: "proxies", element: <PlaceholderPage title="代理" /> },
+      { path: "proxies", element: <ProxiesPage /> },
       { path: "providers", element: <PlaceholderPage title="Provider" /> },
       { path: "routes", element: <PlaceholderPage title="模型路由" /> },
       { path: "balancing", element: <PlaceholderPage title="负载均衡" /> },

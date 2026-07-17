@@ -58,6 +58,10 @@ define_id!(ModelRouteId);
 define_id!(RouteTargetId);
 define_id!(GatewayApiKeyId);
 
+impl ProxyProfileId {
+    pub const DIRECT: Self = Self(Uuid::nil());
+}
+
 #[cfg(test)]
 mod tests {
     use super::RequestId;

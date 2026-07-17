@@ -16,6 +16,7 @@
   --success: #18864b;
   --warning: #a66200;
   --danger: #c93434;
+  --on-danger: #ffffff;
   --panel-shadow: 0 18px 50px rgb(24 24 29 / 10%);
   --accent-shadow: 0 8px 22px rgb(8 120 209 / 24%);
   --hairline-shadow: 0 0 0 1px rgb(23 23 26 / 5%), 0 1px 2px rgb(23 23 26 / 6%);
@@ -41,6 +42,7 @@ html[data-theme="dark"] {
   --success: #48b978;
   --warning: #e0a143;
   --danger: #ef6a6a;
+  --on-danger: #1b0909;
   --panel-shadow: 0 20px 54px rgb(0 0 0 / 30%);
   --accent-shadow: 0 8px 22px rgb(57 151 230 / 18%);
   --hairline-shadow: 0 0 0 1px rgb(255 255 255 / 6%), 0 1px 2px rgb(0 0 0 / 25%);
@@ -63,6 +65,7 @@ html[data-theme="dark"] {
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
+  --color-on-danger: var(--on-danger);
   --radius-panel: var(--panel-radius);
   --radius-control: var(--control-radius);
   --shadow-panel: var(--panel-shadow);

@@ -1,17 +1,26 @@
 use std::sync::Arc;
 
-use any2api_runtime::api::{RuntimeRegistry, SnapshotStore};
+use any2api_runtime::api::{ConfigPublisher, RuntimeRegistry, SnapshotStore};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppState {
     snapshots: Arc<SnapshotStore>,
     runtime: Arc<RuntimeRegistry>,
+    publisher: Arc<ConfigPublisher>,
 }
 
 impl AppState {
     #[must_use]
-    pub fn new(snapshots: Arc<SnapshotStore>, runtime: Arc<RuntimeRegistry>) -> Self {
-        Self { snapshots, runtime }
+    pub fn new(
+        snapshots: Arc<SnapshotStore>,
+        runtime: Arc<RuntimeRegistry>,
+        publisher: Arc<ConfigPublisher>,
+    ) -> Self {
+        Self {
+            snapshots,
+            runtime,
+            publisher,
+        }
     }
 
     #[must_use]
@@ -22,5 +31,10 @@ impl AppState {
     #[must_use]
     pub fn runtime(&self) -> &RuntimeRegistry {
         &self.runtime
+    }
+
+    #[must_use]
+    pub fn publisher(&self) -> &ConfigPublisher {
+        &self.publisher
     }
 }

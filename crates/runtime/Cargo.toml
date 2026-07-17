@@ -7,9 +7,13 @@ publish.workspace = true
 
 [dependencies]
 any2api-domain = { path = "../domain" }
+any2api-storage = { path = "../storage" }
 arc-swap.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

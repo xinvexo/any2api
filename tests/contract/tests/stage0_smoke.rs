@@ -1,8 +1,8 @@
 use std::{fs, sync::Arc};
 
-use any2api_runtime::api::{PublishedSnapshot, RuntimeRegistry, SnapshotStore};
+use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::SqliteStore;
+use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{body::Body, http::Request};
 use http_body_util::BodyExt;
 use tempfile::tempdir;
@@ -11,19 +11,26 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
     let directory = tempdir().expect("temporary directory");
-    let storage = SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-        .await
-        .expect("sqlite bootstrap");
-    let revision = storage
-        .load_config_revision()
-        .await
-        .expect("configuration revision");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
+            .await
+            .expect("sqlite bootstrap"),
+    );
+    let configuration = storage.load_configuration().await.expect("configuration");
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(revision)));
+    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
+        configuration.revision(),
+        configuration.proxies().clone(),
+    )));
     let runtime = Arc::new(RuntimeRegistry::new());
-    let app = build_router(AppState::new(snapshots, runtime), web_root);
+    let publisher = Arc::new(ConfigPublisher::new(
+        storage,
+        Arc::clone(&snapshots),
+        Arc::clone(&runtime),
+    ));
+    let app = build_router(AppState::new(snapshots, runtime, publisher), web_root);
     let response = app
         .clone()
         .oneshot(

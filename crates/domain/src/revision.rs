@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use thiserror::Error;
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct ConfigRevision(u64);
 
@@ -24,8 +24,18 @@ impl ConfigRevision {
     pub fn checked_next(self) -> Result<Self, ConfigRevisionError> {
         self.0
             .checked_add(1)
-            .map(Self)
             .ok_or(ConfigRevisionError::Overflow)
+            .and_then(Self::new)
+    }
+}
+
+impl<'de> Deserialize<'de> for ConfigRevision {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = u64::deserialize(deserializer)?;
+        Self::new(value).map_err(de::Error::custom)
     }
 }
 
