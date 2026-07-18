@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
-    ProxyConfiguration, ProxyProfile,
+    ConfigRevision, CredentialId, ModelRouteConfiguration, ProviderCredentialConfiguration,
+    ProviderEndpointConfiguration, ProxyConfiguration, ProxyProfile,
 };
 use any2api_storage::api::StoredConfiguration;
 use arc_swap::ArcSwap;
@@ -20,6 +20,7 @@ pub struct PublishedSnapshot {
     proxies: ProxyConfiguration,
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
+    model_routes: ModelRouteConfiguration,
     credential_runtimes: CredentialRuntimeBindings,
 }
 
@@ -36,6 +37,7 @@ impl PublishedSnapshot {
             proxies: parts.proxies,
             provider_endpoints: parts.provider_endpoints,
             provider_credentials: parts.provider_credentials,
+            model_routes: parts.model_routes,
             credential_runtimes,
         }
     }
@@ -58,6 +60,11 @@ impl PublishedSnapshot {
     #[must_use]
     pub const fn provider_credentials(&self) -> &ProviderCredentialConfiguration {
         &self.provider_credentials
+    }
+
+    #[must_use]
+    pub const fn model_routes(&self) -> &ModelRouteConfiguration {
+        &self.model_routes
     }
 
     #[must_use]

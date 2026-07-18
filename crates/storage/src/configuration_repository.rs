@@ -6,13 +6,14 @@ use async_trait::async_trait;
 
 use crate::{
     configuration::StoredConfiguration, error::StorageError,
+    model_route_repository::ModelRouteRepository,
     provider_credential_mutation::ProviderCredentialMutation,
     provider_endpoint_mutation::ProviderEndpointMutation, proxy_mutation::ProxyMutation,
     proxy_rows::load_configuration_from, sqlite::SqliteStore, vault::SecretBytes,
 };
 
 #[async_trait]
-pub trait ConfigurationRepository: Send + Sync {
+pub trait ConfigurationRepository: ModelRouteRepository + Send + Sync {
     async fn load_configuration(&self) -> Result<StoredConfiguration, StorageError>;
 
     async fn create_proxy(

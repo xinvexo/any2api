@@ -7,6 +7,7 @@ use sqlx::{FromRow, SqliteConnection};
 
 use crate::{
     configuration::StoredConfiguration, error::StorageError,
+    model_route_rows::load_model_routes_from,
     provider_credential_rows::load_provider_credentials_from,
     provider_endpoint_rows::load_provider_endpoints_from, proxy_mutation::DatabaseChange,
     vault::SecretVault,
@@ -53,6 +54,7 @@ pub(crate) async fn load_configuration_from(
     let proxies = ProxyConfiguration::new(profiles, global_id)
         .map_err(|_| StorageError::CorruptConfiguration)?;
     let provider_endpoints = load_provider_endpoints_from(connection).await?;
+    let model_routes = load_model_routes_from(connection, &provider_endpoints).await?;
     let (provider_credentials, provider_credential_secrets) =
         load_provider_credentials_from(connection, vault, &provider_endpoints, &proxies).await?;
 
@@ -61,6 +63,7 @@ pub(crate) async fn load_configuration_from(
         proxies,
         provider_endpoints,
         provider_credentials,
+        model_routes,
         provider_credential_secrets,
     ))
 }

@@ -34,6 +34,10 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn invalid_model_route(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid_model_route", message)
+    }
+
     pub(crate) fn provider_endpoint_not_found() -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
@@ -47,6 +51,14 @@ impl AdminApiError {
             StatusCode::NOT_FOUND,
             "provider_credential_not_found",
             "provider credential was not found",
+        )
+    }
+
+    pub(crate) fn model_route_not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "model_route_not_found",
+            "model route was not found",
         )
     }
 
@@ -126,12 +138,12 @@ impl From<ConfigPublishError> for AdminApiError {
             ConfigPublishError::ProviderEndpointInUse => Self::new(
                 StatusCode::CONFLICT,
                 "provider_endpoint_in_use",
-                "provider endpoint is referenced by a provider credential",
+                "provider endpoint is referenced by a provider credential or model route",
             ),
             ConfigPublishError::ProviderEndpointIdentityInUse => Self::new(
                 StatusCode::CONFLICT,
                 "provider_endpoint_identity_in_use",
-                "provider and protocol cannot change while credentials exist",
+                "provider and protocol cannot change while credentials or model routes exist",
             ),
             ConfigPublishError::InvalidProviderEndpoint(error) => Self::new(
                 StatusCode::BAD_REQUEST,
@@ -162,6 +174,27 @@ impl From<ConfigPublishError> for AdminApiError {
             ConfigPublishError::InvalidProviderApiKey(error) => Self::new(
                 StatusCode::BAD_REQUEST,
                 "invalid_provider_api_key",
+                error.to_string(),
+            ),
+            ConfigPublishError::ModelRouteNotFound => Self::model_route_not_found(),
+            ConfigPublishError::ModelRouteVersionConflict => Self::new(
+                StatusCode::CONFLICT,
+                "model_route_version_conflict",
+                "model route changed; review the latest values before saving",
+            ),
+            ConfigPublishError::ModelRouteNameConflict => Self::new(
+                StatusCode::CONFLICT,
+                "model_route_name_conflict",
+                "public model is already in use for this ingress protocol",
+            ),
+            ConfigPublishError::RouteTargetIdentityConflict => Self::new(
+                StatusCode::CONFLICT,
+                "route_target_identity_conflict",
+                "route target endpoint or upstream model cannot change under the same id",
+            ),
+            ConfigPublishError::InvalidModelRoute(error) => Self::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_model_route",
                 error.to_string(),
             ),
             internal => {

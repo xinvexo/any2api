@@ -1,5 +1,7 @@
 mod error;
 mod loopback;
+mod model_route_dto;
+mod model_route_handlers;
 mod no_store;
 mod provider_credential_dto;
 mod provider_credential_handlers;
@@ -15,6 +17,14 @@ use crate::state::AppState;
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
+        .route(
+            "/model-routes",
+            get(model_route_handlers::list).post(model_route_handlers::create),
+        )
+        .route(
+            "/model-routes/{id}",
+            axum::routing::patch(model_route_handlers::update).delete(model_route_handlers::delete),
+        )
         .route(
             "/proxies",
             get(proxy_handlers::list).post(proxy_handlers::create),

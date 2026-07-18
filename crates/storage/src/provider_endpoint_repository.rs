@@ -47,6 +47,7 @@ async fn mutate_connection(
     let Some(prepared) = prepare_provider_endpoint_mutation(
         current.provider_endpoints(),
         current.provider_credentials(),
+        current.model_routes(),
         current.proxies(),
         mutation,
     )?

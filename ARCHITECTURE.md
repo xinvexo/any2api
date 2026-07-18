@@ -616,7 +616,9 @@ model_routes
 ├─ id
 ├─ public_model
 ├─ ingress_protocol
+├─ fallback_on_saturation  # null=继承全局；0=不溢出；1=进入下一 tier
 ├─ enabled
+├─ config_version          # Route 聚合版本，覆盖全部 Target 变化
 └─ created_at
 
 route_targets
@@ -636,10 +638,16 @@ route_targets
 约束：
 
 - `(ingress_protocol, public_model)` 唯一；
+- `public_model` 与 `upstream_model` 均为首尾无空白、最长 255 个 Unicode 字符的精确名称；首版区分大小写，不支持 wildcard、前缀规则、别名链或 Route 到 Route 的引用；
+- 每条 Route 至少包含一个 Target；启用的 Route 至少包含一个启用的 Target；
+- `fallback_tier=0` 是主 tier，数值递增表示更低优先级；tier 不要求连续，同一 tier 内由 Credential 负载率调度；
 - Route Target 的 ProtocolDialect、CredentialKind 和 TransportMode 必须符合 Provider CapabilitySet；
 - 每条 Route 明确配置主 tier 满载时是等待、拒绝还是进入下一 tier；
 - 跨协议 target 没有已注册 Adapter 时拒绝发布；
 - Route Target 的稳定 ID 用于硬粘性，禁止通过数组位置表达身份。
+- Route 是管理与持久化聚合根：创建、修改 Route 元数据和替换 Target 集合在同一配置事务中原子提交，并共同增加 Route 的 `config_version`；
+- 同一 Target ID 下的 `provider_endpoint_id` 与 `upstream_model` 是身份字段，只允许修改 `fallback_tier` 与 `enabled`；更换 Endpoint 或上游模型必须删除旧 Target 并创建新 ID；
+- 删除 Route 级联删除其 Target；删除被任意 Target 引用的 Provider Endpoint 必须拒绝。
 
 ### 9.5 CredentialModelRuntime
 

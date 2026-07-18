@@ -14,4 +14,6 @@ mod scheduler_epoch;
 #[cfg(test)]
 mod credential_runtime_tests;
 #[cfg(test)]
+mod model_route_publisher_tests;
+#[cfg(test)]
 mod publisher_tests;

@@ -3,6 +3,7 @@ import { createBrowserRouter } from "react-router-dom";
 import { AppShell } from "@/app/shell/AppShell";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { ModelRoutesPage } from "@/pages/ModelRoutesPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { ProxiesPage } from "@/pages/ProxiesPage";
 import { ProviderCredentialsPage } from "@/pages/ProviderCredentialsPage";
@@ -17,7 +18,7 @@ export const router = createBrowserRouter([
       { path: "proxies", element: <ProxiesPage /> },
       { path: "providers", element: <ProvidersPage /> },
       { path: "providers/:endpointId", element: <ProviderCredentialsPage /> },
-      { path: "routes", element: <PlaceholderPage title="模型路由" /> },
+      { path: "routes", element: <ModelRoutesPage /> },
       { path: "balancing", element: <PlaceholderPage title="负载均衡" /> },
       { path: "affinity", element: <PlaceholderPage title="会话粘性" /> },
       { path: "keys", element: <PlaceholderPage title="网关密钥" /> },

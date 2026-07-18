@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
-    ProxyConfiguration,
+    ConfigRevision, ModelRouteConfiguration, ProviderCredentialConfiguration,
+    ProviderEndpointConfiguration, ProxyConfiguration,
 };
 
 use crate::provider_credential_secret_material::StoredProviderCredentialSecrets;
@@ -11,6 +11,7 @@ pub struct StoredConfiguration {
     proxies: ProxyConfiguration,
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
+    model_routes: ModelRouteConfiguration,
     provider_credential_secrets: StoredProviderCredentialSecrets,
 }
 
@@ -21,6 +22,7 @@ impl StoredConfiguration {
         proxies: ProxyConfiguration,
         provider_endpoints: ProviderEndpointConfiguration,
         provider_credentials: ProviderCredentialConfiguration,
+        model_routes: ModelRouteConfiguration,
         provider_credential_secrets: StoredProviderCredentialSecrets,
     ) -> Self {
         Self {
@@ -28,6 +30,7 @@ impl StoredConfiguration {
             proxies,
             provider_endpoints,
             provider_credentials,
+            model_routes,
             provider_credential_secrets,
         }
     }
@@ -52,6 +55,11 @@ impl StoredConfiguration {
         &self.provider_credentials
     }
 
+    #[must_use]
+    pub const fn model_routes(&self) -> &ModelRouteConfiguration {
+        &self.model_routes
+    }
+
     #[cfg(test)]
     pub(crate) const fn provider_credential_secrets(&self) -> &StoredProviderCredentialSecrets {
         &self.provider_credential_secrets
@@ -64,6 +72,7 @@ impl StoredConfiguration {
             proxies: self.proxies,
             provider_endpoints: self.provider_endpoints,
             provider_credentials: self.provider_credentials,
+            model_routes: self.model_routes,
             provider_credential_secrets: self.provider_credential_secrets,
         }
     }
@@ -74,5 +83,6 @@ pub struct StoredConfigurationParts {
     pub proxies: ProxyConfiguration,
     pub provider_endpoints: ProviderEndpointConfiguration,
     pub provider_credentials: ProviderCredentialConfiguration,
+    pub model_routes: ModelRouteConfiguration,
     pub provider_credential_secrets: StoredProviderCredentialSecrets,
 }

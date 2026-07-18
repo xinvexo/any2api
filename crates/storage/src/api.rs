@@ -1,6 +1,7 @@
 pub use crate::configuration::{StoredConfiguration, StoredConfigurationParts};
 pub use crate::configuration_repository::ConfigurationRepository;
 pub use crate::error::StorageError;
+pub use crate::model_route_repository::ModelRouteRepository;
 pub use crate::provider_api_key::ProviderApiKeyValidationError;
 pub use crate::provider_credential_secret_material::{
     StoredProviderCredentialSecret, StoredProviderCredentialSecrets,

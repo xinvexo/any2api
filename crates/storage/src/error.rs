@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ProviderCredentialValidationError, ProviderEndpointId,
-    ProviderEndpointValidationError, ProxyProfileId, ProxyValidationError,
+    ConfigRevision, CredentialId, ModelRouteId, ModelRouteValidationError,
+    ProviderCredentialValidationError, ProviderEndpointId, ProviderEndpointValidationError,
+    ProxyProfileId, ProxyValidationError,
 };
 use thiserror::Error;
 
@@ -56,6 +57,16 @@ pub enum StorageError {
     ProviderEndpointIdentityInUse,
     #[error("provider endpoint configuration is invalid: {0}")]
     ProviderEndpointValidation(#[from] ProviderEndpointValidationError),
+    #[error("model route was not found")]
+    ModelRouteNotFound(ModelRouteId),
+    #[error("model route version conflict")]
+    ModelRouteVersionConflict { expected: u64, actual: u64 },
+    #[error("public model is already in use for this ingress protocol")]
+    ModelRouteNameConflict,
+    #[error("route target identity cannot change under the same id")]
+    RouteTargetIdentityConflict,
+    #[error("model route configuration is invalid: {0}")]
+    ModelRouteValidation(#[from] ModelRouteValidationError),
     #[error("provider credential was not found")]
     ProviderCredentialNotFound(CredentialId),
     #[error("provider credential version conflict")]

@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 1「配置与代理」。
+- 当前阶段：阶段 1「配置、代理与模型路由」。
 - 最近完成：DIRECT/HTTP/SOCKS5h TransportManager、连接池代际与 fail-closed 契约。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
@@ -13,7 +13,8 @@
 - ProviderCredential 切片：`f3ca1fc feat: add provider credential management`。
 - Credential Runtime 切片：`bc71133 feat: add credential runtime capacity`。
 - Credential Auth Material 切片：`fbfc6ef feat: load credential auth material`。
-- 本切片提交主题：`feat: add proxy transport manager`。
+- Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
+- 本切片提交主题：`feat: add model route configuration`。
 
 ## 已完成
 
@@ -117,9 +118,26 @@
 - 公共 API 契约测试确认目标本机可达时，指定不可用代理仍然失败且目标端口没有收到连接。
 - 本切片尚未把 TransportManager 装配进公开模型请求入口，也未实现代理用户名/密码、严格 SSRF 本地 DNS 或代理健康熔断。
 
+### ModelRoute 配置切片
+
+- 新增 `ModelRoute`、`RouteTarget`、模型名校验和 `ModelRouteConfiguration` 领域模型；Route 是管理与持久化聚合根，Target ID 由服务端生成并在策略修改时保持稳定。
+- 同一入口协议下公开模型名精确、区分大小写唯一；首版拒绝 wildcard、别名链、跨协议 Target 和不完整聚合，启用 Route 必须至少包含一个启用 Target。
+- 新增 SQLite `model_routes` 与 `route_targets` migration；Route 元数据和完整 Target 集合在同一 `BEGIN IMMEDIATE` 事务中保存，Route `config_version` 覆盖所有聚合变化。
+- 更新已有 Target 时要求携带当前 ID；只允许改变 `fallback_tier` 与 `enabled`。更换 Endpoint 或上游模型必须省略旧 ID，由服务端生成新 Target，避免硬粘性身份被静默改写。
+- `ProviderEndpoint` 删除、Provider/协议身份修改均检查 ModelRoute 引用；ModelRoute 写入、删除和 Endpoint 引用保护均有 Storage、Runtime 与 HTTP 契约测试。
+- 新增管理 API：
+  - `GET /api/admin/model-routes`
+  - `POST /api/admin/model-routes`
+  - `PATCH /api/admin/model-routes/{id}`
+  - `DELETE /api/admin/model-routes/{id}?expected_revision=N&expected_config_version=N`
+- React `/routes` 已替换占位页：支持 URL deep link、完整 Route/Target 聚合编辑、同协议 Endpoint 过滤、三态主 tier 满载策略、响应式窄屏编辑、行内删除确认和 revision/config version 冲突保护。
+- Web 测试覆盖响应解析、缓存代际、新建请求不携带客户端 Target ID、策略修改保留 ID、身份变化生成新 ID、延迟 Endpoint、深链刷新、移动端无效链接和旧保存回调。
+- 当前仍只完成配置面；ModelRoute 尚未接入 Codex Responses、Claude Messages、真实调度、会话粘性或公开 `/v1/models` 数据面。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已实现，但尚未接入公开模型请求、管理面代理测试按钮和代理健康状态。
+- ModelRoute 配置与管理面已实现，但尚未接入公开 `/v1/models`、Codex Responses 或 Claude Messages 请求执行。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
 - 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
@@ -127,8 +145,8 @@
 
 ## 下一步
 
-1. 增加最小模型 Route/Route Target 配置，为公开模型和上游模型建立可发布映射。
-2. 实现多 `GatewayApiKey` 管理和客户端认证头剥离，再接 Codex Responses 与 Claude Messages 原生请求链路。
+1. 实现多 `GatewayApiKey` 管理和客户端认证头剥离，再接 Codex Responses 与 Claude Messages 原生请求链路。
+2. 将已发布 ModelRoute 接入 `/v1/models`、同协议 Provider Driver 和公开请求入口。
 3. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
 4. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
 
@@ -150,4 +168,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3211`，验证后端管理 API、Endpoint 详情页和 390px 响应式布局。
+以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3211`，验证 ModelRoute 创建/删除、桌面双栏、390px 窄屏编辑和无水平溢出。

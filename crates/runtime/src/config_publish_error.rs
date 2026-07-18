@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, ProviderCredentialValidationError, ProviderEndpointValidationError,
-    ProxyValidationError,
+    ConfigRevision, ModelRouteValidationError, ProviderCredentialValidationError,
+    ProviderEndpointValidationError, ProxyValidationError,
 };
 use any2api_storage::api::{ProviderApiKeyValidationError, StorageError};
 use thiserror::Error;
@@ -52,6 +52,16 @@ pub enum ConfigPublishError {
     InvalidProviderCredential(ProviderCredentialValidationError),
     #[error("invalid provider API Key: {0}")]
     InvalidProviderApiKey(ProviderApiKeyValidationError),
+    #[error("model route was not found")]
+    ModelRouteNotFound,
+    #[error("model route version conflict")]
+    ModelRouteVersionConflict,
+    #[error("public model is already in use for this ingress protocol")]
+    ModelRouteNameConflict,
+    #[error("route target identity cannot change under the same id")]
+    RouteTargetIdentityConflict,
+    #[error("invalid model route: {0}")]
+    InvalidModelRoute(ModelRouteValidationError),
     #[error("configuration storage failed")]
     Internal(#[source] StorageError),
 }
@@ -90,6 +100,11 @@ impl From<StorageError> for ConfigPublishError {
                 Self::InvalidProviderCredential(error)
             }
             StorageError::ProviderApiKeyValidation(error) => Self::InvalidProviderApiKey(error),
+            StorageError::ModelRouteNotFound(_) => Self::ModelRouteNotFound,
+            StorageError::ModelRouteVersionConflict { .. } => Self::ModelRouteVersionConflict,
+            StorageError::ModelRouteNameConflict => Self::ModelRouteNameConflict,
+            StorageError::RouteTargetIdentityConflict => Self::RouteTargetIdentityConflict,
+            StorageError::ModelRouteValidation(error) => Self::InvalidModelRoute(error),
             other => Self::Internal(other),
         }
     }

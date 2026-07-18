@@ -4,6 +4,11 @@ mod configuration;
 mod configuration_repository;
 mod error;
 mod migration;
+mod model_route_mutation;
+mod model_route_repository;
+#[cfg(test)]
+mod model_route_repository_tests;
+mod model_route_rows;
 mod provider_endpoint_mutation;
 mod provider_endpoint_repository;
 mod provider_endpoint_rows;

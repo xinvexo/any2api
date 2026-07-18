@@ -1,6 +1,7 @@
 use any2api_domain::{
-    ProviderCredentialConfiguration, ProviderEndpoint, ProviderEndpointConfiguration,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderEndpointValidationError, ProxyConfiguration,
+    ModelRouteConfiguration, ProviderCredentialConfiguration, ProviderEndpoint,
+    ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderEndpointValidationError, ProxyConfiguration,
 };
 
 use crate::error::StorageError;
@@ -63,6 +64,7 @@ impl PreparedProviderEndpointMutation {
 pub(crate) fn prepare_provider_endpoint_mutation(
     current: &ProviderEndpointConfiguration,
     credentials: &ProviderCredentialConfiguration,
+    routes: &ModelRouteConfiguration,
     proxies: &ProxyConfiguration,
     mutation: ProviderEndpointMutation,
 ) -> Result<Option<PreparedProviderEndpointMutation>, StorageError> {
@@ -77,12 +79,15 @@ pub(crate) fn prepare_provider_endpoint_mutation(
         } => update(
             current,
             credentials,
+            routes,
             proxies,
             id,
             expected_config_version,
             draft,
         ),
-        ProviderEndpointMutation::Delete { id } => delete(current, credentials, id).map(Some),
+        ProviderEndpointMutation::Delete { id } => {
+            delete(current, credentials, routes, id).map(Some)
+        }
     }
 }
 
@@ -107,6 +112,7 @@ fn create(
 fn update(
     current: &ProviderEndpointConfiguration,
     credentials: &ProviderCredentialConfiguration,
+    routes: &ModelRouteConfiguration,
     proxies: &ProxyConfiguration,
     id: ProviderEndpointId,
     expected_config_version: u64,
@@ -126,7 +132,8 @@ fn update(
         return Ok(None);
     }
     let has_credentials = credentials.references_endpoint(id);
-    if has_credentials
+    let identity_in_use = has_credentials || routes.references_endpoint(id);
+    if identity_in_use
         && (existing.provider_kind() != updated.provider_kind()
             || existing.protocol_dialect() != updated.protocol_dialect())
     {
@@ -163,12 +170,13 @@ fn update(
 fn delete(
     current: &ProviderEndpointConfiguration,
     credentials: &ProviderCredentialConfiguration,
+    routes: &ModelRouteConfiguration,
     id: ProviderEndpointId,
 ) -> Result<PreparedProviderEndpointMutation, StorageError> {
     if current.get(id).is_none() {
         return Err(StorageError::ProviderEndpointNotFound(id));
     }
-    if credentials.references_endpoint(id) {
+    if credentials.references_endpoint(id) || routes.references_endpoint(id) {
         return Err(StorageError::ProviderEndpointInUse);
     }
     let endpoints = current
