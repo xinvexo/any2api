@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ModelRouteId, ModelRouteValidationError,
-    ProviderCredentialValidationError, ProviderEndpointId, ProviderEndpointValidationError,
-    ProxyProfileId, ProxyValidationError,
+    ConfigRevision, CredentialId, GatewayApiKeyId, GatewayApiKeyValidationError, ModelRouteId,
+    ModelRouteValidationError, ProviderCredentialValidationError, ProviderEndpointId,
+    ProviderEndpointValidationError, ProxyProfileId, ProxyValidationError,
 };
 use thiserror::Error;
 
@@ -79,6 +79,22 @@ pub enum StorageError {
     ProviderCredentialValidation(#[from] ProviderCredentialValidationError),
     #[error("provider API Key is invalid: {0}")]
     ProviderApiKeyValidation(#[from] ProviderApiKeyValidationError),
+    #[error("gateway API Key was not found")]
+    GatewayApiKeyNotFound(GatewayApiKeyId),
+    #[error("gateway API Key version conflict")]
+    GatewayApiKeyVersionConflict { expected: u64, actual: u64 },
+    #[error("gateway API Key token version conflict")]
+    GatewayApiKeyTokenVersionConflict { expected: u64, actual: u64 },
+    #[error("gateway API Key name is already in use")]
+    GatewayApiKeyNameConflict,
+    #[error("gateway API Key was revoked")]
+    GatewayApiKeyRevoked,
+    #[error("gateway API Key configuration is invalid: {0}")]
+    GatewayApiKeyValidation(#[from] GatewayApiKeyValidationError),
+    #[error("generated gateway API Key token is invalid")]
+    InvalidGatewayApiKeyToken,
+    #[error("stored gateway API Key hash key does not match the current vault")]
+    GatewayApiKeyHashKeyMismatch,
     #[error("stored proxy configuration is invalid")]
     CorruptConfiguration,
     #[error("secret vault initialization failed: {0}")]

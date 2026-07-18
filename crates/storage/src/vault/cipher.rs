@@ -17,6 +17,7 @@ use super::{
     error::SecretVaultError,
     master_key::MasterKey,
 };
+use crate::gateway_api_key_verifier::GatewayApiKeyVerifier;
 
 const VERIFIER_AAD: &[u8] = b"any2api-secret-vault-verifier-aad-v1";
 const VERIFIER_PLAINTEXT: &[u8] = b"any2api-secret-vault-verifier-v1";
@@ -39,6 +40,10 @@ impl SecretVault {
     #[must_use]
     pub fn key_id(&self) -> &str {
         self.master_key.key_id()
+    }
+
+    pub(crate) fn gateway_api_key_verifier(&self) -> GatewayApiKeyVerifier {
+        GatewayApiKeyVerifier::from_master_key(self.master_key.expose(), self.master_key.key_id())
     }
 
     pub fn seal(

@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ModelRouteConfiguration, ProviderCredentialConfiguration,
-    ProviderEndpointConfiguration, ProxyConfiguration, ProxyProfile,
+    ConfigRevision, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId,
+    ModelRouteConfiguration, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
+    ProxyConfiguration, ProxyProfile,
 };
-use any2api_storage::api::StoredConfiguration;
+use any2api_storage::api::{GatewayApiKeyVerifier, StoredConfiguration};
 use arc_swap::ArcSwap;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -21,6 +22,8 @@ pub struct PublishedSnapshot {
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
     model_routes: ModelRouteConfiguration,
+    gateway_api_keys: GatewayApiKeyConfiguration,
+    gateway_api_key_verifier: GatewayApiKeyVerifier,
     credential_runtimes: CredentialRuntimeBindings,
 }
 
@@ -38,6 +41,8 @@ impl PublishedSnapshot {
             provider_endpoints: parts.provider_endpoints,
             provider_credentials: parts.provider_credentials,
             model_routes: parts.model_routes,
+            gateway_api_keys: parts.gateway_api_keys,
+            gateway_api_key_verifier: parts.gateway_api_key_verifier,
             credential_runtimes,
         }
     }
@@ -65,6 +70,25 @@ impl PublishedSnapshot {
     #[must_use]
     pub const fn model_routes(&self) -> &ModelRouteConfiguration {
         &self.model_routes
+    }
+
+    #[must_use]
+    pub const fn gateway_api_keys(&self) -> &GatewayApiKeyConfiguration {
+        &self.gateway_api_keys
+    }
+
+    #[must_use]
+    pub fn authenticate_gateway_api_key(&self, token: &str) -> Option<GatewayApiKeyId> {
+        self.gateway_api_keys
+            .keys()
+            .iter()
+            .find(|key| {
+                key.is_active()
+                    && self
+                        .gateway_api_key_verifier
+                        .verify(token.as_bytes(), key.token_hash())
+            })
+            .map(|key| key.id())
     }
 
     #[must_use]

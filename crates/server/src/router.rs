@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use axum::{Router, http::StatusCode, routing::get};
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::{admin, health::health, state::AppState};
+use crate::{admin, health::health, public, state::AppState};
 
 pub fn build_router(state: AppState, web_root: impl Into<PathBuf>) -> Router {
     let web_root = web_root.into();
@@ -11,7 +11,8 @@ pub fn build_router(state: AppState, web_root: impl Into<PathBuf>) -> Router {
         ServeDir::new(&web_root).fallback(ServeFile::new(web_root.join("index.html")));
 
     Router::new()
-        .nest("/api", build_api_router(state))
+        .nest("/api", build_api_router(state.clone()))
+        .nest("/v1", public::routes(state))
         .fallback_service(web_service)
 }
 

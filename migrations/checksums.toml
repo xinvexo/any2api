@@ -5,3 +5,4 @@
 "0004_secret_vault.sql" = "d3b3b3889c9bf55c18e724dbc5de1e2dd165b511eea5f8ae5b108b73e1b3224c"
 "0005_provider_credentials.sql" = "8f5125c6e4fcb60555afe5c5654e74a966c813eb8bc5339719079f2dcf8ab4fc"
 "0006_model_routes.sql" = "3db8b6ec426f835d48f6a9d190fb9210158b41bf3d8b2ec326b0532923faf35d"
+"0007_gateway_api_keys.sql" = "0dc313350b58f9a5f69e47011c2c57667406e765395d928b4e8172c030dbdc8b"

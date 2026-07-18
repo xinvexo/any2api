@@ -1,4 +1,6 @@
 mod error;
+mod gateway_api_key_dto;
+mod gateway_api_key_handlers;
 mod loopback;
 mod model_route_dto;
 mod model_route_handlers;
@@ -17,6 +19,22 @@ use crate::state::AppState;
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
+        .route(
+            "/gateway-api-keys",
+            get(gateway_api_key_handlers::list).post(gateway_api_key_handlers::create),
+        )
+        .route(
+            "/gateway-api-keys/{id}",
+            axum::routing::patch(gateway_api_key_handlers::update),
+        )
+        .route(
+            "/gateway-api-keys/{id}/rotate",
+            axum::routing::post(gateway_api_key_handlers::rotate),
+        )
+        .route(
+            "/gateway-api-keys/{id}/revoke",
+            axum::routing::post(gateway_api_key_handlers::revoke),
+        )
         .route(
             "/model-routes",
             get(model_route_handlers::list).post(model_route_handlers::create),

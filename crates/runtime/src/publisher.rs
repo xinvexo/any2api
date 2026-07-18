@@ -15,9 +15,9 @@ use crate::{
 };
 
 pub struct ConfigPublisher {
-    repository: Arc<dyn ConfigurationRepository>,
-    snapshots: Arc<SnapshotStore>,
-    runtime: Arc<RuntimeRegistry>,
+    pub(crate) repository: Arc<dyn ConfigurationRepository>,
+    pub(crate) snapshots: Arc<SnapshotStore>,
+    pub(crate) runtime: Arc<RuntimeRegistry>,
 }
 
 impl ConfigPublisher {
@@ -247,9 +247,17 @@ impl ConfigPublisher {
             });
         }
         let committed = execute(self.repository.as_ref(), expected, command).await?;
+        Ok(self.publish_committed(current, expected, committed))
+    }
 
+    pub(crate) fn publish_committed(
+        &self,
+        current: Arc<PublishedSnapshot>,
+        expected: ConfigRevision,
+        committed: any2api_storage::api::StoredConfiguration,
+    ) -> Arc<PublishedSnapshot> {
         if committed.revision() == expected {
-            return Ok(current);
+            return current;
         }
         let next = expected
             .checked_next()
@@ -262,6 +270,6 @@ impl ConfigPublisher {
         let snapshot = PublishedSnapshot::new(committed, self.runtime.as_ref());
         let published = self.snapshots.replace(snapshot);
         self.runtime.advance_scheduler_epoch();
-        Ok(published)
+        published
     }
 }

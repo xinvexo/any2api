@@ -1,6 +1,6 @@
 # any2api 实施状态
 
-> 最后更新：2026-07-18
+> 最后更新：2026-07-19
 > 用途：简要记录已经完成的代码、当前边界和下一步顺序。架构真相仍以根目录 `ARCHITECTURE.md` 为准。
 
 ## 当前状态
@@ -134,6 +134,22 @@
 - Web 测试覆盖响应解析、缓存代际、新建请求不携带客户端 Target ID、策略修改保留 ID、身份变化生成新 ID、延迟 Endpoint、深链刷新、移动端无效链接和旧保存回调。
 - 当前仍只完成配置面；ModelRoute 尚未接入 Codex Responses、Claude Messages、真实调度、会话粘性或公开 `/v1/models` 数据面。
 
+### GatewayApiKey 管理与公开鉴权切片
+
+- 新增 `GatewayApiKey`、独立 HMAC verifier 和 `gateway_api_keys` SQLite migration；数据库只保存前缀、摘要、版本和状态，不保存明文 Token。
+- Token 由 Runtime 使用 256 位 CSPRNG 生成，格式固定为 `a2k_v1_...`；创建和轮换成功后通过独立响应只返回一次明文。
+- 管理 API 已接入：
+  - `GET/POST /api/admin/gateway-api-keys`
+  - `PATCH /api/admin/gateway-api-keys/{id}`
+  - `POST /api/admin/gateway-api-keys/{id}/rotate`
+  - `POST /api/admin/gateway-api-keys/{id}/revoke`
+- 管理写入继续使用全局 revision、资源 config version 和轮换 token version CAS；撤销是终态，重复无变化不会推进 revision。
+- `PublishedSnapshot` 现在携带 Gateway Key 配置和 HMAC verifier；鉴权、路由和 revision 使用同一快照，旧请求持有旧快照时不会被热更新中途改变。
+- `/v1/models`、`/v1/responses`、`/v1/responses/compact`、`/v1/messages` 和 `/v1/messages/count_tokens` 已建立认证边界；合法 Token 当前返回明确的 `public_api_not_implemented`，未知 `/v1/*` 不再回落到 SPA。
+- `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
+- React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、撤销、deep link、响应式布局和一次性回执；明文 Token 不进入 Query/Mutation Cache、URL、Storage 或普通 DTO。
+- Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本和缓存脱敏。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已实现，但尚未接入公开模型请求、管理面代理测试按钮和代理健康状态。
@@ -145,10 +161,10 @@
 
 ## 下一步
 
-1. 实现多 `GatewayApiKey` 管理和客户端认证头剥离，再接 Codex Responses 与 Claude Messages 原生请求链路。
-2. 将已发布 ModelRoute 接入 `/v1/models`、同协议 Provider Driver 和公开请求入口。
-3. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
-4. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
+1. 将已发布 ModelRoute 接入 `/v1/models`、同协议 Provider Driver 和公开请求入口。
+2. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
+3. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
+4. 接入 Codex Responses 与 Claude Messages 原生协议链路，并补齐 Transport/Provider 契约。
 
 ## 验证结果
 
@@ -168,4 +184,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3211`，验证 ModelRoute 创建/删除、桌面双栏、390px 窄屏编辑和无水平溢出。
+以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3212`，验证 ModelRoute 创建/删除、Gateway Key 创建/编辑/停用/轮换/撤销、一次性 Token 回执、deep link、桌面布局、390px 窄屏和无水平溢出。

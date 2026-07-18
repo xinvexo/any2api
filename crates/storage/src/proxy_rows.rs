@@ -7,7 +7,7 @@ use sqlx::{FromRow, SqliteConnection};
 
 use crate::{
     configuration::StoredConfiguration, error::StorageError,
-    model_route_rows::load_model_routes_from,
+    gateway_api_key_rows::load_gateway_api_keys_from, model_route_rows::load_model_routes_from,
     provider_credential_rows::load_provider_credentials_from,
     provider_endpoint_rows::load_provider_endpoints_from, proxy_mutation::DatabaseChange,
     vault::SecretVault,
@@ -57,6 +57,9 @@ pub(crate) async fn load_configuration_from(
     let model_routes = load_model_routes_from(connection, &provider_endpoints).await?;
     let (provider_credentials, provider_credential_secrets) =
         load_provider_credentials_from(connection, vault, &provider_endpoints, &proxies).await?;
+    let gateway_api_key_verifier = vault.gateway_api_key_verifier();
+    let gateway_api_keys =
+        load_gateway_api_keys_from(connection, &gateway_api_key_verifier).await?;
 
     Ok(StoredConfiguration::new(
         revision,
@@ -64,6 +67,8 @@ pub(crate) async fn load_configuration_from(
         provider_endpoints,
         provider_credentials,
         model_routes,
+        gateway_api_keys,
+        gateway_api_key_verifier,
         provider_credential_secrets,
     ))
 }

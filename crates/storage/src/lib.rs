@@ -3,6 +3,14 @@ pub mod api;
 mod configuration;
 mod configuration_repository;
 mod error;
+mod gateway_api_key_mutation;
+mod gateway_api_key_repository;
+#[cfg(test)]
+mod gateway_api_key_repository_tests;
+mod gateway_api_key_rows;
+mod gateway_api_key_token;
+mod gateway_api_key_verifier;
+mod gateway_api_key_writes;
 mod migration;
 mod model_route_mutation;
 mod model_route_repository;

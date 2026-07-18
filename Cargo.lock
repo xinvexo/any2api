@@ -117,6 +117,8 @@ dependencies = [
  "any2api-provider",
  "any2api-storage",
  "arc-swap",
+ "base64",
+ "getrandom 0.4.3",
  "secrecy",
  "tempfile",
  "thiserror 2.0.18",

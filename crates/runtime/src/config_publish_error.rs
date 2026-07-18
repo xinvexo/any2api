@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, ModelRouteValidationError, ProviderCredentialValidationError,
-    ProviderEndpointValidationError, ProxyValidationError,
+    ConfigRevision, GatewayApiKeyValidationError, ModelRouteValidationError,
+    ProviderCredentialValidationError, ProviderEndpointValidationError, ProxyValidationError,
 };
 use any2api_storage::api::{ProviderApiKeyValidationError, StorageError};
 use thiserror::Error;
@@ -52,6 +52,20 @@ pub enum ConfigPublishError {
     InvalidProviderCredential(ProviderCredentialValidationError),
     #[error("invalid provider API Key: {0}")]
     InvalidProviderApiKey(ProviderApiKeyValidationError),
+    #[error("gateway API Key was not found")]
+    GatewayApiKeyNotFound,
+    #[error("gateway API Key version conflict")]
+    GatewayApiKeyVersionConflict,
+    #[error("gateway API Key token version conflict")]
+    GatewayApiKeyTokenVersionConflict,
+    #[error("gateway API Key name is already in use")]
+    GatewayApiKeyNameConflict,
+    #[error("gateway API Key was revoked")]
+    GatewayApiKeyRevoked,
+    #[error("invalid gateway API Key configuration: {0}")]
+    InvalidGatewayApiKey(GatewayApiKeyValidationError),
+    #[error("gateway API Key token generation failed")]
+    GatewayApiKeyTokenGeneration,
     #[error("model route was not found")]
     ModelRouteNotFound,
     #[error("model route version conflict")]
@@ -100,6 +114,14 @@ impl From<StorageError> for ConfigPublishError {
                 Self::InvalidProviderCredential(error)
             }
             StorageError::ProviderApiKeyValidation(error) => Self::InvalidProviderApiKey(error),
+            StorageError::GatewayApiKeyNotFound(_) => Self::GatewayApiKeyNotFound,
+            StorageError::GatewayApiKeyVersionConflict { .. } => Self::GatewayApiKeyVersionConflict,
+            StorageError::GatewayApiKeyTokenVersionConflict { .. } => {
+                Self::GatewayApiKeyTokenVersionConflict
+            }
+            StorageError::GatewayApiKeyNameConflict => Self::GatewayApiKeyNameConflict,
+            StorageError::GatewayApiKeyRevoked => Self::GatewayApiKeyRevoked,
+            StorageError::GatewayApiKeyValidation(error) => Self::InvalidGatewayApiKey(error),
             StorageError::ModelRouteNotFound(_) => Self::ModelRouteNotFound,
             StorageError::ModelRouteVersionConflict { .. } => Self::ModelRouteVersionConflict,
             StorageError::ModelRouteNameConflict => Self::ModelRouteNameConflict,

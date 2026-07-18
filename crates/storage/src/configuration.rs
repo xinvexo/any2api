@@ -1,9 +1,12 @@
 use any2api_domain::{
-    ConfigRevision, ModelRouteConfiguration, ProviderCredentialConfiguration,
-    ProviderEndpointConfiguration, ProxyConfiguration,
+    ConfigRevision, GatewayApiKeyConfiguration, ModelRouteConfiguration,
+    ProviderCredentialConfiguration, ProviderEndpointConfiguration, ProxyConfiguration,
 };
 
-use crate::provider_credential_secret_material::StoredProviderCredentialSecrets;
+use crate::{
+    gateway_api_key_verifier::GatewayApiKeyVerifier,
+    provider_credential_secret_material::StoredProviderCredentialSecrets,
+};
 
 #[derive(Debug)]
 pub struct StoredConfiguration {
@@ -12,10 +15,13 @@ pub struct StoredConfiguration {
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
     model_routes: ModelRouteConfiguration,
+    gateway_api_keys: GatewayApiKeyConfiguration,
+    gateway_api_key_verifier: GatewayApiKeyVerifier,
     provider_credential_secrets: StoredProviderCredentialSecrets,
 }
 
 impl StoredConfiguration {
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub const fn new(
         revision: ConfigRevision,
@@ -23,6 +29,8 @@ impl StoredConfiguration {
         provider_endpoints: ProviderEndpointConfiguration,
         provider_credentials: ProviderCredentialConfiguration,
         model_routes: ModelRouteConfiguration,
+        gateway_api_keys: GatewayApiKeyConfiguration,
+        gateway_api_key_verifier: GatewayApiKeyVerifier,
         provider_credential_secrets: StoredProviderCredentialSecrets,
     ) -> Self {
         Self {
@@ -31,6 +39,8 @@ impl StoredConfiguration {
             provider_endpoints,
             provider_credentials,
             model_routes,
+            gateway_api_keys,
+            gateway_api_key_verifier,
             provider_credential_secrets,
         }
     }
@@ -60,6 +70,15 @@ impl StoredConfiguration {
         &self.model_routes
     }
 
+    #[must_use]
+    pub const fn gateway_api_keys(&self) -> &GatewayApiKeyConfiguration {
+        &self.gateway_api_keys
+    }
+
+    pub(crate) const fn gateway_api_key_verifier(&self) -> &GatewayApiKeyVerifier {
+        &self.gateway_api_key_verifier
+    }
+
     #[cfg(test)]
     pub(crate) const fn provider_credential_secrets(&self) -> &StoredProviderCredentialSecrets {
         &self.provider_credential_secrets
@@ -73,6 +92,8 @@ impl StoredConfiguration {
             provider_endpoints: self.provider_endpoints,
             provider_credentials: self.provider_credentials,
             model_routes: self.model_routes,
+            gateway_api_keys: self.gateway_api_keys,
+            gateway_api_key_verifier: self.gateway_api_key_verifier,
             provider_credential_secrets: self.provider_credential_secrets,
         }
     }
@@ -84,5 +105,7 @@ pub struct StoredConfigurationParts {
     pub provider_endpoints: ProviderEndpointConfiguration,
     pub provider_credentials: ProviderCredentialConfiguration,
     pub model_routes: ModelRouteConfiguration,
+    pub gateway_api_keys: GatewayApiKeyConfiguration,
+    pub gateway_api_key_verifier: GatewayApiKeyVerifier,
     pub provider_credential_secrets: StoredProviderCredentialSecrets,
 }

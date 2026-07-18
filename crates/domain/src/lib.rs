@@ -1,6 +1,9 @@
 mod credential_concurrency;
 mod credential_fingerprint;
 mod error;
+mod gateway_api_key;
+mod gateway_api_key_configuration;
+mod gateway_api_key_validation;
 mod id;
 mod kind;
 mod model_name;
@@ -24,6 +27,12 @@ pub use credential_fingerprint::{
     CredentialSecretFingerprint,
 };
 pub use error::{ErrorClass, PublicError, PublicErrorCode};
+pub use gateway_api_key::{GatewayApiKey, GatewayApiKeyDraft};
+pub use gateway_api_key_configuration::GatewayApiKeyConfiguration;
+pub use gateway_api_key_validation::{
+    GATEWAY_TOKEN_HASH_VERSION, GATEWAY_TOKEN_PREFIX, GATEWAY_TOKEN_RANDOM_BYTES,
+    GATEWAY_TOKEN_VERSION, GatewayApiKeyValidationError,
+};
 pub use id::{
     CredentialId, GatewayApiKeyId, ModelRouteId, ProviderEndpointId, ProxyProfileId, RequestId,
     RouteTargetId,

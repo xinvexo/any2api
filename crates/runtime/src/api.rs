@@ -2,6 +2,8 @@ pub use crate::config_publish_error::ConfigPublishError;
 pub use crate::credential_runtime::{
     ConcurrencyPermit, CredentialCapacity, CredentialGenerationRuntime, CredentialRuntimeBinding,
 };
+pub use crate::gateway_api_key_publisher::GatewayApiKeyPublishResult;
+pub use crate::gateway_api_key_token::{GatewayApiKeyToken, GatewayApiKeyTokenGenerationError};
 pub use crate::provider_api_key_secret::ProviderApiKeySecret;
 pub use crate::published_snapshot::{PublishedSnapshot, SnapshotStore};
 pub use crate::publisher::ConfigPublisher;

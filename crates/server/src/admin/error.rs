@@ -38,6 +38,10 @@ impl AdminApiError {
         Self::new(StatusCode::BAD_REQUEST, "invalid_model_route", message)
     }
 
+    pub(crate) fn invalid_gateway_api_key(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid_gateway_api_key", message)
+    }
+
     pub(crate) fn provider_endpoint_not_found() -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
@@ -174,6 +178,36 @@ impl From<ConfigPublishError> for AdminApiError {
             ConfigPublishError::InvalidProviderApiKey(error) => Self::new(
                 StatusCode::BAD_REQUEST,
                 "invalid_provider_api_key",
+                error.to_string(),
+            ),
+            ConfigPublishError::GatewayApiKeyNotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                "gateway_api_key_not_found",
+                "gateway API Key was not found",
+            ),
+            ConfigPublishError::GatewayApiKeyVersionConflict => Self::new(
+                StatusCode::CONFLICT,
+                "gateway_api_key_version_conflict",
+                "gateway API Key changed; review the latest values before saving",
+            ),
+            ConfigPublishError::GatewayApiKeyTokenVersionConflict => Self::new(
+                StatusCode::CONFLICT,
+                "gateway_api_key_token_version_conflict",
+                "gateway API Key token changed; refresh before rotating again",
+            ),
+            ConfigPublishError::GatewayApiKeyNameConflict => Self::new(
+                StatusCode::CONFLICT,
+                "gateway_api_key_name_conflict",
+                "gateway API Key name is already in use",
+            ),
+            ConfigPublishError::GatewayApiKeyRevoked => Self::new(
+                StatusCode::CONFLICT,
+                "gateway_api_key_revoked",
+                "a revoked gateway API Key cannot be re-enabled or rotated",
+            ),
+            ConfigPublishError::InvalidGatewayApiKey(error) => Self::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_gateway_api_key",
                 error.to_string(),
             ),
             ConfigPublishError::ModelRouteNotFound => Self::model_route_not_found(),

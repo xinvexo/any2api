@@ -701,6 +701,8 @@ gateway_api_keys
 ├─ token_hash
 ├─ hash_version
 ├─ hash_key_id
+├─ token_version
+├─ config_version
 ├─ enabled
 ├─ revoked_at
 ├─ created_at
@@ -711,12 +713,25 @@ gateway_api_keys
 
 - 支持创建多个网关 API Key；
 - 每个网关 API Key 独立生成、禁用和撤销；
-- 明文只在创建或轮换成功时返回一次，数据库只保存前缀和不可逆摘要；
-- Key 使用至少 256 位 CSPRNG 随机值和版本化格式，摘要校验采用常量时间比较；
+- 明文只在创建或轮换成功时返回一次，数据库只保存前缀和不可逆摘要；撤销记录保留，不提供 Secret 导出；
+- Key 使用至少 256 位 CSPRNG 随机值和 `a2k_v1_` 版本化格式，摘要使用由 Secret Vault 主密钥派生的独立 HMAC-SHA256 密钥，校验采用常量时间比较；
+- `hash_key_id` 用于确认当前 Vault 主密钥派生代际，启动时不匹配必须拒绝加载；`token_version` 在轮换时递增，`config_version` 在元数据、启停、撤销或轮换变化时递增；
 - `token_prefix` 仅用于管理界面识别密钥，不能用于认证；
 - 首批所有网关 API Key 权限等价，只做实例级访问控制；
 - 不包含 `user_id`、`tenant_id`、套餐、额度、余额和计费字段；
 - 请求统计可以按 `GatewayApiKey` 记录，但只用于本地观测，不参与收费、配额限制或上游路由。
+
+网关 Key 管理 API：
+
+```text
+GET  /api/admin/gateway-api-keys
+POST /api/admin/gateway-api-keys
+PATCH /api/admin/gateway-api-keys/{id}
+POST /api/admin/gateway-api-keys/{id}/rotate
+POST /api/admin/gateway-api-keys/{id}/revoke
+```
+
+创建和轮换响应使用独立的一次性 Secret 回执结构；普通列表、更新和撤销响应绝不包含明文。`GatewayApiKey` 不能访问管理 API，也不能选择 `ProviderCredential`。
 
 ### 9.8 RequestLog
 
@@ -1015,6 +1030,8 @@ trait ProtocolAdapter: Send + Sync {
 - 鉴权成功后，进入 Provider Driver 前必须移除客户端的 `Authorization`、`x-api-key`、`Proxy-Authorization`、Cookie 和已知 Provider 认证头；
 - 只有选中的 `ProviderCredential` 可以重新注入上游认证字段；
 - Gateway Key 永远不会被转发给 Provider，也不能影响 ProviderCredential 选择。
+
+首版公开入口认证边界先行实现：`/v1/*` 在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；后续公开请求 Handler 只能使用该扩展，不能重新读取客户端认证头。本切片只提供认证门和明确的未实现响应，Codex/Claude 协议执行在后续切片接入。
 
 ### 11.7 Provider URL 语义
 
@@ -2155,6 +2172,10 @@ No Runtime Recovery / Queue Recovery / Session Recovery
 Effective Setting = Web Override If Present, Otherwise Versioned Default
 Generic Config/Secret Import/Export = Disabled
 Future OAuth2 JSON Import = Provider-Specific Exception
+
+Gateway API Key = Server-Generated CSPRNG Token + Vault-Keyed HMAC Digest
+Gateway Token Plaintext = Create/Rotate Response Once Only
+Public Ingress Auth = Same PublishedSnapshot Revision + Header Strip Before Driver
 
 New Feature ──> New Module + Stable Interface + Contract Test
 No Giant Files / No Central Provider Match / No Cross-Layer Logic
