@@ -11,7 +11,9 @@ any2api-provider = { path = "../../crates/provider" }
 any2api-runtime = { path = "../../crates/runtime" }
 any2api-server = { path = "../../crates/server" }
 any2api-storage = { path = "../../crates/storage" }
+any2api-transport = { path = "../../crates/transport" }
 axum.workspace = true
+bytes.workspace = true
 http-body-util.workspace = true
 serde_json.workspace = true
 secrecy.workspace = true

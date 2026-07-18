@@ -6,13 +6,14 @@
 ## 当前状态
 
 - 当前阶段：阶段 1「配置与代理」。
-- 最近完成：Credential API Key 的 generation-scoped 运行时装配与 Permit 认证头边界。
+- 最近完成：DIRECT/HTTP/SOCKS5h TransportManager、连接池代际与 fail-closed 契约。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
 - ProviderCredential 切片：`f3ca1fc feat: add provider credential management`。
 - Credential Runtime 切片：`bc71133 feat: add credential runtime capacity`。
-- 本切片提交主题：`feat: load credential auth material`。
+- Credential Auth Material 切片：`fbfc6ef feat: load credential auth material`。
+- 本切片提交主题：`feat: add proxy transport manager`。
 
 ## 已完成
 
@@ -104,9 +105,21 @@
 - Provider API Key 不进入管理 DTO、日志或 `PublishedSnapshot` 的原始字段；Runtime/Storage 的 Debug 输出均脱敏，Secret 只在内存代际对象中存在并由 `secrecy` 清理。
 - 模块测试覆盖 generation 轮换、旧/新 Secret 隔离和 Debug 脱敏；Storage 测试覆盖写入、重启解密和材料脱敏；契约测试覆盖真实发布、重启后重新装配、Permit 认证头和 scheduler epoch 从零开始。
 
+### Proxy Transport 切片
+
+- 新增基于 `reqwest` + Rustls 系统证书根的 `ReqwestTransportManager`，支持 DIRECT、HTTP 和 SOCKS5h；Client 禁用系统代理、Cookie Store、自动重定向和 `reqwest` 内建协议重试。
+- Transport 只执行 Runtime 已解析的实际 `ProxyProfile`。显式 HTTP/SOCKS5 失败直接返回类型化错误，不存在回退全局代理或本机 DIRECT 的代码路径。
+- `PublishedSnapshot::resolved_proxy_for_credential` 固定实现 `Credential DIRECT -> 全局代理 -> 本机 DIRECT`，后续数据面不重复解释代理继承规则。
+- Client 按代理 ID/版本/类型与连接超时、TLS/HTTP 策略、池参数和池策略版本组成的完整 key 复用连接池；缓存使用有界 LRU，代理或网络策略热更新产生新 Client 代际，旧请求继续持有旧 Client。
+- 请求 Body 使用 `Bytes`，响应 Body 是异步字节流；`TransportRequest` Debug 不显示 Header 内容或 Body 内容，错误消息不包含代理地址、目标 URL 或认证字段。
+- 连接前错误标记 `DefinitelyNotSent`，等待响应头和读取 Body 的不确定错误标记 `Ambiguous`；更精确的 DNS/TLS/代理归因在熔断实现前继续完善。
+- 模块网络测试覆盖真实 DIRECT、HTTP absolute URI、HTTPS 经 HTTP CONNECT 完成 TLS 隧道、SOCKS5h 远端 DNS、禁重定向、缓存代际、授权头 Debug 脱敏和 fail-closed。
+- 公共 API 契约测试确认目标本机可达时，指定不可用代理仍然失败且目标端口没有收到连接。
+- 本切片尚未把 TransportManager 装配进公开模型请求入口，也未实现代理用户名/密码、严格 SSRF 本地 DNS 或代理健康熔断。
+
 ## 当前边界
 
-- 尚未实现真实 HTTP/SOCKS5 网络转发、连接池、代理连通性测试和代理健康状态。
+- DIRECT/HTTP/SOCKS5h 网络执行与连接池已实现，但尚未接入公开模型请求、管理面代理测试按钮和代理健康状态。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
 - 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
@@ -114,11 +127,10 @@
 
 ## 下一步
 
-1. 实现 `DIRECT → 全局代理` 的实际解析，以及 HTTP/SOCKS5 `TransportManager`、连接池和 fail-closed 代理错误。
-2. 增加最小模型 Route/Route Target 配置，为公开模型和上游模型建立可发布映射。
-3. 实现多 `GatewayApiKey` 管理和客户端认证头剥离，再接 Codex Responses 与 Claude Messages 原生请求链路。
-4. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
-5. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
+1. 增加最小模型 Route/Route Target 配置，为公开模型和上游模型建立可发布映射。
+2. 实现多 `GatewayApiKey` 管理和客户端认证头剥离，再接 Codex Responses 与 Claude Messages 原生请求链路。
+3. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
+4. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
 
 ## 验证结果
 

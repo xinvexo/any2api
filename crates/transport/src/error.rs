@@ -1,6 +1,12 @@
 use any2api_domain::RetrySafety;
 use thiserror::Error;
 
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum TransportConfigurationError {
+    #[error("transport client cache capacity must be greater than zero")]
+    EmptyClientCache,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TransportErrorStage {
     Dns,
@@ -32,5 +38,13 @@ impl TransportError {
             retry_safety,
             message: message.into(),
         }
+    }
+
+    pub(crate) fn proxy_unavailable(message: impl Into<String>) -> Self {
+        Self::new(
+            TransportErrorStage::ProxyHandshake,
+            RetrySafety::DefinitelyNotSent,
+            message,
+        )
     }
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
-    ProxyConfiguration,
+    ProxyConfiguration, ProxyProfile,
 };
 use any2api_storage::api::StoredConfiguration;
 use arc_swap::ArcSwap;
@@ -68,6 +68,12 @@ impl PublishedSnapshot {
     #[must_use]
     pub fn credential_runtimes(&self) -> &[CredentialRuntimeBinding] {
         self.credential_runtimes.as_slice()
+    }
+
+    #[must_use]
+    pub fn resolved_proxy_for_credential(&self, id: CredentialId) -> Option<&ProxyProfile> {
+        let credential = self.provider_credentials.get(id)?;
+        self.proxies.resolve(credential.proxy_profile_id())
     }
 }
 

@@ -166,6 +166,47 @@ async fn provider_credential_publish_switches_the_complete_snapshot() {
 }
 
 #[tokio::test]
+async fn direct_credential_binding_resolves_the_published_global_proxy() {
+    let context = TestContext::new().await;
+    let proxy_id = ProxyProfileId::new();
+    let endpoint_id = ProviderEndpointId::new();
+    let credential_id = CredentialId::new();
+    let proxy = context
+        .publisher
+        .create_proxy(ConfigRevision::INITIAL, proxy_id, proxy_draft("Hong Kong"))
+        .await
+        .expect("publish proxy");
+    let global = context
+        .publisher
+        .set_global_proxy(proxy.revision(), proxy_id)
+        .await
+        .expect("publish global proxy");
+    let endpoint = context
+        .publisher
+        .create_provider_endpoint(global.revision(), endpoint_id, codex_endpoint_draft())
+        .await
+        .expect("publish endpoint");
+    let credential = context
+        .publisher
+        .create_provider_credential(
+            endpoint.revision(),
+            credential_id,
+            endpoint_id,
+            credential_draft(),
+            ProviderApiKeySecret::new("sk-runtime-proxy".to_owned()),
+        )
+        .await
+        .expect("publish credential");
+
+    assert_eq!(
+        credential
+            .resolved_proxy_for_credential(credential_id)
+            .map(|profile| profile.id()),
+        Some(proxy_id)
+    );
+}
+
+#[tokio::test]
 async fn publishers_sharing_a_snapshot_store_are_serialized() {
     let context = TestContext::new().await;
     let second_publisher = ConfigPublisher::new(
