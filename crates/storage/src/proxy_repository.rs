@@ -1,9 +1,13 @@
-use any2api_domain::{ConfigRevision, ProxyConfiguration, ProxyDraft, ProxyProfileId};
+use any2api_domain::{
+    ConfigRevision, ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId,
+    ProxyConfiguration, ProxyDraft, ProxyProfileId,
+};
 use async_trait::async_trait;
 use sqlx::SqliteConnection;
 
 use crate::{
     error::StorageError,
+    provider_endpoint_mutation::ProviderEndpointMutation,
     proxy_mutation::{ProxyMutation, prepare_mutation},
     proxy_rows::{execute_change, load_configuration_from},
     sqlite::SqliteStore,
@@ -13,12 +17,21 @@ use crate::{
 pub struct StoredConfiguration {
     revision: ConfigRevision,
     proxies: ProxyConfiguration,
+    provider_endpoints: ProviderEndpointConfiguration,
 }
 
 impl StoredConfiguration {
     #[must_use]
-    pub const fn new(revision: ConfigRevision, proxies: ProxyConfiguration) -> Self {
-        Self { revision, proxies }
+    pub const fn new(
+        revision: ConfigRevision,
+        proxies: ProxyConfiguration,
+        provider_endpoints: ProviderEndpointConfiguration,
+    ) -> Self {
+        Self {
+            revision,
+            proxies,
+            provider_endpoints,
+        }
     }
 
     #[must_use]
@@ -32,8 +45,19 @@ impl StoredConfiguration {
     }
 
     #[must_use]
-    pub fn into_parts(self) -> (ConfigRevision, ProxyConfiguration) {
-        (self.revision, self.proxies)
+    pub const fn provider_endpoints(&self) -> &ProviderEndpointConfiguration {
+        &self.provider_endpoints
+    }
+
+    #[must_use]
+    pub fn into_parts(
+        self,
+    ) -> (
+        ConfigRevision,
+        ProxyConfiguration,
+        ProviderEndpointConfiguration,
+    ) {
+        (self.revision, self.proxies, self.provider_endpoints)
     }
 }
 
@@ -66,6 +90,27 @@ pub trait ConfigurationRepository: Send + Sync {
         expected: ConfigRevision,
         id: ProxyProfileId,
     ) -> Result<StoredConfiguration, StorageError>;
+
+    async fn create_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+        draft: ProviderEndpointDraft,
+    ) -> Result<StoredConfiguration, StorageError>;
+
+    async fn update_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+        expected_config_version: u64,
+        draft: ProviderEndpointDraft,
+    ) -> Result<StoredConfiguration, StorageError>;
+
+    async fn delete_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+    ) -> Result<StoredConfiguration, StorageError>;
 }
 
 #[async_trait]
@@ -83,7 +128,7 @@ impl ConfigurationRepository for SqliteStore {
         id: ProxyProfileId,
         draft: ProxyDraft,
     ) -> Result<StoredConfiguration, StorageError> {
-        self.mutate(expected, ProxyMutation::Create { id, draft })
+        self.mutate_proxy(expected, ProxyMutation::Create { id, draft })
             .await
     }
 
@@ -93,7 +138,7 @@ impl ConfigurationRepository for SqliteStore {
         id: ProxyProfileId,
         draft: ProxyDraft,
     ) -> Result<StoredConfiguration, StorageError> {
-        self.mutate(expected, ProxyMutation::Update { id, draft })
+        self.mutate_proxy(expected, ProxyMutation::Update { id, draft })
             .await
     }
 
@@ -102,7 +147,8 @@ impl ConfigurationRepository for SqliteStore {
         expected: ConfigRevision,
         id: ProxyProfileId,
     ) -> Result<StoredConfiguration, StorageError> {
-        self.mutate(expected, ProxyMutation::Delete { id }).await
+        self.mutate_proxy(expected, ProxyMutation::Delete { id })
+            .await
     }
 
     async fn set_global_proxy(
@@ -110,12 +156,50 @@ impl ConfigurationRepository for SqliteStore {
         expected: ConfigRevision,
         id: ProxyProfileId,
     ) -> Result<StoredConfiguration, StorageError> {
-        self.mutate(expected, ProxyMutation::SetGlobal { id }).await
+        self.mutate_proxy(expected, ProxyMutation::SetGlobal { id })
+            .await
+    }
+
+    async fn create_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+        draft: ProviderEndpointDraft,
+    ) -> Result<StoredConfiguration, StorageError> {
+        self.mutate_provider_endpoint(expected, ProviderEndpointMutation::Create { id, draft })
+            .await
+    }
+
+    async fn update_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+        expected_config_version: u64,
+        draft: ProviderEndpointDraft,
+    ) -> Result<StoredConfiguration, StorageError> {
+        self.mutate_provider_endpoint(
+            expected,
+            ProviderEndpointMutation::Update {
+                id,
+                expected_config_version,
+                draft,
+            },
+        )
+        .await
+    }
+
+    async fn delete_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+    ) -> Result<StoredConfiguration, StorageError> {
+        self.mutate_provider_endpoint(expected, ProviderEndpointMutation::Delete { id })
+            .await
     }
 }
 
 impl SqliteStore {
-    async fn mutate(
+    async fn mutate_proxy(
         &self,
         expected: ConfigRevision,
         mutation: ProxyMutation,
@@ -153,12 +237,16 @@ async fn mutate_connection(
     let revision = bump_revision(connection, expected).await?;
 
     Ok((
-        StoredConfiguration::new(revision, prepared.into_configuration()),
+        StoredConfiguration::new(
+            revision,
+            prepared.into_configuration(),
+            current.provider_endpoints().clone(),
+        ),
         true,
     ))
 }
 
-async fn bump_revision(
+pub(crate) async fn bump_revision(
     connection: &mut SqliteConnection,
     expected: ConfigRevision,
 ) -> Result<ConfigRevision, StorageError> {

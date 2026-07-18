@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use any2api_domain::{ConfigRevision, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId};
+use any2api_domain::{
+    ConfigRevision, ProtocolDialect, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId,
+};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::{TempDir, tempdir};
 
@@ -87,6 +90,40 @@ async fn no_op_publish_keeps_revision_and_scheduler_epoch() {
 }
 
 #[tokio::test]
+async fn provider_endpoint_publish_switches_the_complete_snapshot() {
+    let context = TestContext::new().await;
+    let id = ProviderEndpointId::new();
+    let published = context
+        .publisher
+        .create_provider_endpoint(
+            ConfigRevision::INITIAL,
+            id,
+            ProviderEndpointDraft::new(
+                "Codex Primary",
+                ProviderKind::Codex,
+                "https://api.example.com/v1/",
+                ProtocolDialect::OpenAiResponses,
+                false,
+                false,
+                true,
+            )
+            .expect("endpoint draft"),
+        )
+        .await
+        .expect("publish endpoint");
+    let stored = context
+        .repository
+        .load_configuration()
+        .await
+        .expect("stored configuration");
+
+    assert_eq!(published.revision(), stored.revision());
+    assert!(published.provider_endpoints().get(id).is_some());
+    assert!(published.proxies().profiles().len() == stored.proxies().profiles().len());
+    assert_eq!(context.runtime.scheduler_epoch(), 1);
+}
+
+#[tokio::test]
 async fn publishers_sharing_a_snapshot_store_are_serialized() {
     let context = TestContext::new().await;
     let second_publisher = ConfigPublisher::new(
@@ -148,6 +185,7 @@ impl TestContext {
         let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
             initial.revision(),
             initial.proxies().clone(),
+            initial.provider_endpoints().clone(),
         )));
         let runtime = Arc::new(RuntimeRegistry::new());
         let publisher = ConfigPublisher::new(

@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use any2api_domain::{ConfigRevision, ProxyDraft, ProxyProfileId, ProxyValidationError};
+use any2api_domain::{
+    ConfigRevision, ProviderEndpointDraft, ProviderEndpointId, ProviderEndpointValidationError,
+    ProxyDraft, ProxyProfileId, ProxyValidationError,
+};
 use any2api_storage::api::{ConfigurationRepository, StorageError, StoredConfiguration};
 use thiserror::Error;
 
@@ -38,7 +41,7 @@ impl ConfigPublisher {
         id: ProxyProfileId,
         draft: ProxyDraft,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ProxyCommand::Create { id, draft })
+        self.publish(expected, ConfigCommand::CreateProxy { id, draft })
             .await
     }
 
@@ -48,7 +51,7 @@ impl ConfigPublisher {
         id: ProxyProfileId,
         draft: ProxyDraft,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ProxyCommand::Update { id, draft })
+        self.publish(expected, ConfigCommand::UpdateProxy { id, draft })
             .await
     }
 
@@ -57,7 +60,8 @@ impl ConfigPublisher {
         expected: ConfigRevision,
         id: ProxyProfileId,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ProxyCommand::Delete { id }).await
+        self.publish(expected, ConfigCommand::DeleteProxy { id })
+            .await
     }
 
     pub async fn set_global_proxy(
@@ -65,13 +69,54 @@ impl ConfigPublisher {
         expected: ConfigRevision,
         id: ProxyProfileId,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ProxyCommand::SetGlobal { id }).await
+        self.publish(expected, ConfigCommand::SetGlobalProxy { id })
+            .await
+    }
+
+    pub async fn create_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+        draft: ProviderEndpointDraft,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        self.publish(
+            expected,
+            ConfigCommand::CreateProviderEndpoint { id, draft },
+        )
+        .await
+    }
+
+    pub async fn update_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+        expected_config_version: u64,
+        draft: ProviderEndpointDraft,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        self.publish(
+            expected,
+            ConfigCommand::UpdateProviderEndpoint {
+                id,
+                expected_config_version,
+                draft,
+            },
+        )
+        .await
+    }
+
+    pub async fn delete_provider_endpoint(
+        &self,
+        expected: ConfigRevision,
+        id: ProviderEndpointId,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        self.publish(expected, ConfigCommand::DeleteProviderEndpoint { id })
+            .await
     }
 
     async fn publish(
         &self,
         expected: ConfigRevision,
-        command: ProxyCommand,
+        command: ConfigCommand,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         let _guard = self.snapshots.acquire_publish().await;
         let current = self.snapshots.load();
@@ -94,8 +139,8 @@ impl ConfigPublisher {
             next,
             "repository committed an unexpected configuration revision"
         );
-        let (_, proxies) = committed.into_parts();
-        let snapshot = PublishedSnapshot::new(next, proxies);
+        let (_, proxies, provider_endpoints) = committed.into_parts();
+        let snapshot = PublishedSnapshot::new(next, proxies, provider_endpoints);
 
         let activation = self.runtime.reconcile_configuration();
         let published = self.snapshots.replace(snapshot);
@@ -106,37 +151,68 @@ impl ConfigPublisher {
     async fn execute(
         &self,
         expected: ConfigRevision,
-        command: ProxyCommand,
+        command: ConfigCommand,
     ) -> Result<StoredConfiguration, ConfigPublishError> {
         let result = match command {
-            ProxyCommand::Create { id, draft } => {
+            ConfigCommand::CreateProxy { id, draft } => {
                 self.repository.create_proxy(expected, id, draft).await
             }
-            ProxyCommand::Update { id, draft } => {
+            ConfigCommand::UpdateProxy { id, draft } => {
                 self.repository.update_proxy(expected, id, draft).await
             }
-            ProxyCommand::Delete { id } => self.repository.delete_proxy(expected, id).await,
-            ProxyCommand::SetGlobal { id } => self.repository.set_global_proxy(expected, id).await,
+            ConfigCommand::DeleteProxy { id } => self.repository.delete_proxy(expected, id).await,
+            ConfigCommand::SetGlobalProxy { id } => {
+                self.repository.set_global_proxy(expected, id).await
+            }
+            ConfigCommand::CreateProviderEndpoint { id, draft } => {
+                self.repository
+                    .create_provider_endpoint(expected, id, draft)
+                    .await
+            }
+            ConfigCommand::UpdateProviderEndpoint {
+                id,
+                expected_config_version,
+                draft,
+            } => {
+                self.repository
+                    .update_provider_endpoint(expected, id, expected_config_version, draft)
+                    .await
+            }
+            ConfigCommand::DeleteProviderEndpoint { id } => {
+                self.repository.delete_provider_endpoint(expected, id).await
+            }
         };
 
         result.map_err(ConfigPublishError::from)
     }
 }
 
-enum ProxyCommand {
-    Create {
+enum ConfigCommand {
+    CreateProxy {
         id: ProxyProfileId,
         draft: ProxyDraft,
     },
-    Update {
+    UpdateProxy {
         id: ProxyProfileId,
         draft: ProxyDraft,
     },
-    Delete {
+    DeleteProxy {
         id: ProxyProfileId,
     },
-    SetGlobal {
+    SetGlobalProxy {
         id: ProxyProfileId,
+    },
+    CreateProviderEndpoint {
+        id: ProviderEndpointId,
+        draft: ProviderEndpointDraft,
+    },
+    UpdateProviderEndpoint {
+        id: ProviderEndpointId,
+        expected_config_version: u64,
+        draft: ProviderEndpointDraft,
+    },
+    DeleteProviderEndpoint {
+        id: ProviderEndpointId,
     },
 }
 
@@ -161,6 +237,14 @@ pub enum ConfigPublishError {
     ProxyNameConflict,
     #[error("proxy configuration is invalid: {0}")]
     InvalidProxy(ProxyValidationError),
+    #[error("provider endpoint was not found")]
+    ProviderEndpointNotFound,
+    #[error("provider endpoint version conflict")]
+    ProviderEndpointVersionConflict,
+    #[error("provider endpoint name is already in use")]
+    ProviderEndpointNameConflict,
+    #[error("invalid provider endpoint: {0}")]
+    InvalidProviderEndpoint(ProviderEndpointValidationError),
     #[error("configuration storage failed")]
     Internal(#[source] StorageError),
 }
@@ -178,6 +262,12 @@ impl From<StorageError> for ConfigPublishError {
             StorageError::ProxyDisabled => Self::ProxyDisabled,
             StorageError::ProxyNameConflict => Self::ProxyNameConflict,
             StorageError::ProxyValidation(error) => Self::InvalidProxy(error),
+            StorageError::ProviderEndpointNotFound(_) => Self::ProviderEndpointNotFound,
+            StorageError::ProviderEndpointVersionConflict { .. } => {
+                Self::ProviderEndpointVersionConflict
+            }
+            StorageError::ProviderEndpointNameConflict => Self::ProviderEndpointNameConflict,
+            StorageError::ProviderEndpointValidation(error) => Self::InvalidProviderEndpoint(error),
             other => Self::Internal(other),
         }
     }

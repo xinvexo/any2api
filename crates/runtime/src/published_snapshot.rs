@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use any2api_domain::{ConfigRevision, ProxyConfiguration};
+use any2api_domain::{ConfigRevision, ProviderEndpointConfiguration, ProxyConfiguration};
 use arc_swap::ArcSwap;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -8,12 +8,21 @@ use tokio::sync::{Mutex, MutexGuard};
 pub struct PublishedSnapshot {
     revision: ConfigRevision,
     proxies: ProxyConfiguration,
+    provider_endpoints: ProviderEndpointConfiguration,
 }
 
 impl PublishedSnapshot {
     #[must_use]
-    pub const fn new(revision: ConfigRevision, proxies: ProxyConfiguration) -> Self {
-        Self { revision, proxies }
+    pub const fn new(
+        revision: ConfigRevision,
+        proxies: ProxyConfiguration,
+        provider_endpoints: ProviderEndpointConfiguration,
+    ) -> Self {
+        Self {
+            revision,
+            proxies,
+            provider_endpoints,
+        }
     }
 
     #[must_use]
@@ -24,6 +33,11 @@ impl PublishedSnapshot {
     #[must_use]
     pub const fn proxies(&self) -> &ProxyConfiguration {
         &self.proxies
+    }
+
+    #[must_use]
+    pub const fn provider_endpoints(&self) -> &ProviderEndpointConfiguration {
+        &self.provider_endpoints
     }
 }
 

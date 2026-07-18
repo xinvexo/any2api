@@ -6,7 +6,8 @@ use any2api_domain::{
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::{
-    error::StorageError, proxy_mutation::DatabaseChange, proxy_repository::StoredConfiguration,
+    error::StorageError, provider_endpoint_rows::load_provider_endpoints_from,
+    proxy_mutation::DatabaseChange, proxy_repository::StoredConfiguration,
 };
 
 #[derive(Debug, FromRow)]
@@ -48,8 +49,13 @@ pub(crate) async fn load_configuration_from(
         .collect::<Result<Vec<_>, _>>()?;
     let proxies = ProxyConfiguration::new(profiles, global_id)
         .map_err(|_| StorageError::CorruptConfiguration)?;
+    let provider_endpoints = load_provider_endpoints_from(connection).await?;
 
-    Ok(StoredConfiguration::new(revision, proxies))
+    Ok(StoredConfiguration::new(
+        revision,
+        proxies,
+        provider_endpoints,
+    ))
 }
 
 pub(crate) async fn execute_change(

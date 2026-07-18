@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use any2api_domain::{ConfigRevision, ProxyProfileId, ProxyValidationError};
+use any2api_domain::{
+    ConfigRevision, ProviderEndpointId, ProviderEndpointValidationError, ProxyProfileId,
+    ProxyValidationError,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -36,6 +39,14 @@ pub enum StorageError {
     ProxyNameConflict,
     #[error("proxy configuration is invalid: {0}")]
     ProxyValidation(#[from] ProxyValidationError),
+    #[error("provider endpoint was not found")]
+    ProviderEndpointNotFound(ProviderEndpointId),
+    #[error("provider endpoint version conflict")]
+    ProviderEndpointVersionConflict { expected: u64, actual: u64 },
+    #[error("provider endpoint name is already in use")]
+    ProviderEndpointNameConflict,
+    #[error("provider endpoint configuration is invalid: {0}")]
+    ProviderEndpointValidation(#[from] ProviderEndpointValidationError),
     #[error("stored proxy configuration is invalid")]
     CorruptConfiguration,
 }

@@ -24,6 +24,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration.revision(),
         configuration.proxies().clone(),
+        configuration.provider_endpoints().clone(),
     )));
     let runtime = Arc::new(RuntimeRegistry::new());
     let publisher = Arc::new(ConfigPublisher::new(

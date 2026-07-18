@@ -18,6 +18,14 @@ impl AdminApiError {
         Self::new(StatusCode::BAD_REQUEST, "invalid_request", message)
     }
 
+    pub(crate) fn invalid_provider_endpoint(message: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_provider_endpoint",
+            message,
+        )
+    }
+
     pub(crate) fn loopback_only() -> Self {
         Self::new(
             StatusCode::FORBIDDEN,
@@ -71,12 +79,32 @@ impl From<ConfigPublishError> for AdminApiError {
             ConfigPublishError::InvalidProxy(error) => {
                 Self::new(StatusCode::BAD_REQUEST, "invalid_proxy", error.to_string())
             }
+            ConfigPublishError::ProviderEndpointNotFound => Self::new(
+                StatusCode::NOT_FOUND,
+                "provider_endpoint_not_found",
+                "provider endpoint was not found",
+            ),
+            ConfigPublishError::ProviderEndpointVersionConflict => Self::new(
+                StatusCode::CONFLICT,
+                "provider_endpoint_version_conflict",
+                "provider endpoint changed; review the latest values before saving",
+            ),
+            ConfigPublishError::ProviderEndpointNameConflict => Self::new(
+                StatusCode::CONFLICT,
+                "provider_endpoint_name_conflict",
+                "provider endpoint name is already in use",
+            ),
+            ConfigPublishError::InvalidProviderEndpoint(error) => Self::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_provider_endpoint",
+                error.to_string(),
+            ),
             internal => {
-                tracing::error!(error = ?internal, "proxy configuration publish failed");
+                tracing::error!(error = ?internal, "configuration publish failed");
                 Self::new(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",
-                    "proxy configuration could not be published",
+                    "configuration could not be published",
                 )
             }
         }

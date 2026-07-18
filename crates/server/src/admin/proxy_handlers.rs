@@ -10,9 +10,8 @@ use crate::state::AppState;
 
 use super::{
     error::AdminApiError,
-    proxy_dto::{
-        ExpectedRevisionQuery, ExpectedRevisionRequest, ProxyCollectionResponse, ProxyWriteRequest,
-    },
+    proxy_dto::{ProxyCollectionResponse, ProxyWriteRequest},
+    revision::{ExpectedRevisionQuery, ExpectedRevisionRequest},
 };
 
 pub(crate) async fn list(State(state): State<AppState>) -> Json<ProxyCollectionResponse> {

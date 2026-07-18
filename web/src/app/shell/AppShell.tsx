@@ -27,7 +27,7 @@ export function AppShell() {
     <div className="min-h-dvh bg-canvas text-primary">
       <a
         href="#main-content"
-        className="focus-ring fixed left-4 top-3 z-50 -translate-y-20 rounded-control bg-accent px-3 py-2 text-sm font-semibold text-on-accent focus:translate-y-0"
+        className="focus-ring fixed left-4 top-3 z-50 -translate-y-[calc(100%+1rem)] whitespace-nowrap rounded-control bg-accent px-3 py-2 text-sm font-semibold text-on-accent focus:translate-y-0"
       >
         跳到主要内容
       </a>
