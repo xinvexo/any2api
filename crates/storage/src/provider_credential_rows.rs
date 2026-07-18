@@ -11,6 +11,9 @@ use subtle::ConstantTimeEq;
 use crate::{
     error::StorageError,
     provider_api_key::build_fingerprint,
+    provider_credential_secret_material::{
+        StoredProviderCredentialSecret, StoredProviderCredentialSecrets,
+    },
     vault::{SecretContext, SecretEnvelope, SecretVault},
 };
 
@@ -43,7 +46,13 @@ pub(crate) async fn load_provider_credentials_from(
     vault: &SecretVault,
     endpoints: &ProviderEndpointConfiguration,
     proxies: &ProxyConfiguration,
-) -> Result<ProviderCredentialConfiguration, StorageError> {
+) -> Result<
+    (
+        ProviderCredentialConfiguration,
+        StoredProviderCredentialSecrets,
+    ),
+    StorageError,
+> {
     let rows = sqlx::query_as::<_, ProviderCredentialRow>(
         "SELECT id, provider_endpoint_id, label, credential_kind, secret_schema_version, \
          secret_version, credential_generation, config_version, envelope_version, key_id, \
@@ -53,19 +62,23 @@ pub(crate) async fn load_provider_credentials_from(
     )
     .fetch_all(connection)
     .await?;
-    let credentials = rows
-        .into_iter()
-        .map(|row| parse_row(row, vault, endpoints))
-        .collect::<Result<Vec<_>, _>>()?;
-    ProviderCredentialConfiguration::new(credentials, endpoints, proxies)
-        .map_err(|_| StorageError::CorruptConfiguration)
+    let mut credentials = Vec::with_capacity(rows.len());
+    let mut secrets = Vec::with_capacity(rows.len());
+    for row in rows {
+        let (credential, secret) = parse_row(row, vault, endpoints)?;
+        credentials.push(credential);
+        secrets.push(secret);
+    }
+    let configuration = ProviderCredentialConfiguration::new(credentials, endpoints, proxies)
+        .map_err(|_| StorageError::CorruptConfiguration)?;
+    Ok((configuration, StoredProviderCredentialSecrets::new(secrets)))
 }
 
 fn parse_row(
     row: ProviderCredentialRow,
     vault: &SecretVault,
     endpoints: &ProviderEndpointConfiguration,
-) -> Result<ProviderCredential, StorageError> {
+) -> Result<(ProviderCredential, StoredProviderCredentialSecret), StorageError> {
     let ProviderCredentialRow {
         id,
         provider_endpoint_id,
@@ -141,16 +154,24 @@ fn parse_row(
         ciphertext,
         u16::try_from(aad_version).map_err(|_| StorageError::CorruptConfiguration)?,
     )?;
-    verify_secret(envelope, vault, endpoint.provider_kind(), &credential)?;
-    Ok(credential)
+    let secret = open_and_verify_secret(envelope, vault, endpoint.provider_kind(), &credential)?;
+    let material = StoredProviderCredentialSecret::new(
+        credential.id(),
+        credential.credential_kind(),
+        credential.secret_schema_version(),
+        credential.secret_version(),
+        credential.credential_generation(),
+        secret,
+    );
+    Ok((credential, material))
 }
 
-fn verify_secret(
+fn open_and_verify_secret(
     envelope: SecretEnvelope,
     vault: &SecretVault,
     provider_kind: any2api_domain::ProviderKind,
     credential: &ProviderCredential,
-) -> Result<(), StorageError> {
+) -> Result<crate::vault::SecretBytes, StorageError> {
     let secret = vault.open(
         SecretContext::provider_credential(
             credential.id(),
@@ -167,7 +188,7 @@ fn verify_secret(
     {
         return Err(StorageError::CorruptConfiguration);
     }
-    Ok(())
+    Ok(secret)
 }
 
 fn parse_version(value: i64) -> Result<u64, StorageError> {

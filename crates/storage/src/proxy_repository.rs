@@ -46,16 +46,12 @@ async fn mutate_connection(
         return Ok((current, false));
     };
     execute_change(connection, prepared.change()).await?;
+    let expected_proxies = prepared.into_configuration();
     let revision = bump_revision(connection, expected).await?;
-    Ok((
-        StoredConfiguration::new(
-            revision,
-            prepared.into_configuration(),
-            current.provider_endpoints().clone(),
-            current.provider_credentials().clone(),
-        ),
-        true,
-    ))
+    let configuration = load_configuration_from(connection, vault).await?;
+    assert_eq!(configuration.revision(), revision);
+    assert_eq!(configuration.proxies(), &expected_proxies);
+    Ok((configuration, true))
 }
 
 pub(crate) async fn bump_revision(

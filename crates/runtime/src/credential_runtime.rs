@@ -8,9 +8,10 @@ use std::{
 };
 
 use any2api_domain::{CredentialId, MaxConcurrency, ProviderCredential};
+use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError, ProviderSecret};
 use arc_swap::ArcSwap;
 
-use crate::scheduler_epoch::SchedulerEpoch;
+use crate::{credential_auth::CredentialAuthMaterial, scheduler_epoch::SchedulerEpoch};
 
 const IN_FLIGHT_MASK: u64 = u32::MAX as u64;
 
@@ -37,17 +38,22 @@ impl CredentialCapacity {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
 pub struct CredentialGenerationRuntime {
     credential_generation: u64,
     secret_version: u64,
+    provider_secret: Arc<ProviderSecret>,
 }
 
 impl CredentialGenerationRuntime {
-    fn from_credential(credential: &ProviderCredential) -> Self {
+    fn new(credential: &ProviderCredential, auth_material: CredentialAuthMaterial) -> Self {
+        assert!(
+            auth_material.matches(credential),
+            "Credential auth material does not match generation"
+        );
         Self {
             credential_generation: credential.credential_generation(),
             secret_version: credential.secret_version(),
+            provider_secret: auth_material.into_provider_secret(),
         }
     }
 
@@ -61,9 +67,24 @@ impl CredentialGenerationRuntime {
         self.secret_version
     }
 
+    pub(crate) fn provider_secret(&self) -> &ProviderSecret {
+        self.provider_secret.as_ref()
+    }
+
     fn matches(&self, credential: &ProviderCredential) -> bool {
         self.credential_generation == credential.credential_generation()
             && self.secret_version == credential.secret_version()
+    }
+}
+
+impl fmt::Debug for CredentialGenerationRuntime {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CredentialGenerationRuntime")
+            .field("credential_generation", &self.credential_generation)
+            .field("secret_version", &self.secret_version)
+            .field("provider_secret", &"[REDACTED]")
+            .finish()
     }
 }
 
@@ -78,14 +99,16 @@ pub(crate) struct CredentialRuntimeHandle {
 impl CredentialRuntimeHandle {
     pub(crate) fn new(
         credential: &ProviderCredential,
+        auth_material: CredentialAuthMaterial,
         scheduler_epoch: Arc<SchedulerEpoch>,
     ) -> Arc<Self> {
         Arc::new(Self {
             id: credential.id(),
             capacity: AtomicU64::new(pack_capacity(credential.max_concurrency().get(), 0)),
-            current_generation: ArcSwap::from_pointee(
-                CredentialGenerationRuntime::from_credential(credential),
-            ),
+            current_generation: ArcSwap::from_pointee(CredentialGenerationRuntime::new(
+                credential,
+                auth_material,
+            )),
             retired: AtomicBool::new(false),
             scheduler_epoch,
         })
@@ -94,6 +117,7 @@ impl CredentialRuntimeHandle {
     pub(crate) fn reconcile(
         self: &Arc<Self>,
         credential: &ProviderCredential,
+        auth_material: CredentialAuthMaterial,
     ) -> CredentialRuntimeBinding {
         assert_eq!(self.id, credential.id(), "credential runtime id changed");
         self.update_max_concurrency(credential.max_concurrency());
@@ -103,7 +127,7 @@ impl CredentialRuntimeHandle {
         let generation = if current.matches(credential) {
             current
         } else {
-            let next = Arc::new(CredentialGenerationRuntime::from_credential(credential));
+            let next = Arc::new(CredentialGenerationRuntime::new(credential, auth_material));
             self.current_generation.store(Arc::clone(&next));
             next
         };
@@ -111,6 +135,13 @@ impl CredentialRuntimeHandle {
         CredentialRuntimeBinding {
             handle: Arc::clone(self),
             generation,
+        }
+    }
+
+    pub(crate) fn current_binding(self: &Arc<Self>) -> CredentialRuntimeBinding {
+        CredentialRuntimeBinding {
+            handle: Arc::clone(self),
+            generation: self.current_generation.load_full(),
         }
     }
 
@@ -239,6 +270,13 @@ impl ConcurrencyPermit {
     #[must_use]
     pub fn generation(&self) -> &Arc<CredentialGenerationRuntime> {
         &self.generation
+    }
+
+    pub fn provider_credential_headers(
+        &self,
+        driver: &dyn ProviderDriver,
+    ) -> Result<CredentialHeaders, ProviderError> {
+        driver.credential_headers(self.generation.provider_secret())
     }
 }
 

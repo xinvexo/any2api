@@ -9,6 +9,7 @@ use arc_swap::ArcSwap;
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{
+    credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
     registry::RuntimeRegistry,
 };
@@ -26,7 +27,10 @@ impl PublishedSnapshot {
     #[must_use]
     pub fn new(configuration: StoredConfiguration, runtime: &RuntimeRegistry) -> Self {
         let parts = configuration.into_parts();
-        let credential_runtimes = runtime.reconcile_configuration(&parts.provider_credentials);
+        let auth_materials =
+            CredentialAuthMaterials::from_stored(parts.provider_credential_secrets);
+        let credential_runtimes =
+            runtime.reconcile_configuration(&parts.provider_credentials, auth_materials);
         Self {
             revision: parts.revision,
             proxies: parts.proxies,

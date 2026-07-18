@@ -47,6 +47,15 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
     assert_eq!(credential.secret_version(), 1);
     assert_eq!(credential.credential_generation(), 1);
     assert_eq!(credential.fingerprint().tail(), Some("tial"));
+    assert_eq!(
+        created
+            .provider_credential_secrets()
+            .get(credential_id)
+            .expect("created secret material")
+            .expose_for_test(),
+        b"sk-first-credential"
+    );
+    assert!(!format!("{created:?}").contains("sk-first-credential"));
 
     let no_op = store
         .update_provider_credential(
@@ -103,6 +112,15 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
     assert_eq!(rotated_credential.secret_version(), 2);
     assert_eq!(rotated_credential.credential_generation(), 3);
     assert_eq!(rotated_credential.fingerprint().tail(), Some("ated"));
+    assert_eq!(
+        rotated
+            .provider_credential_secrets()
+            .get(credential_id)
+            .expect("rotated secret material")
+            .expose_for_test(),
+        b"sk-second-rotated"
+    );
+    assert!(!format!("{rotated:?}").contains("sk-second-rotated"));
 
     drop(store);
     let reopened = SqliteStore::connect(&database).await.expect("reopen store");
@@ -117,6 +135,14 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
     assert_eq!(restored.revision(), rotated.revision());
     assert_eq!(restored_credential.fingerprint(), &fingerprint);
     assert_eq!(restored_credential.secret_version(), 2);
+    assert_eq!(
+        restored
+            .provider_credential_secrets()
+            .get(credential_id)
+            .expect("restored secret material")
+            .expose_for_test(),
+        b"sk-second-rotated"
+    );
 }
 
 #[tokio::test]

@@ -1,24 +1,28 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
+    ConfigRevision, CredentialId, CredentialKind, ErrorClass, MaxConcurrency, ProtocolDialect,
     ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
     ProxyProfileId,
 };
+use any2api_provider::api::{
+    CapabilitySet, CredentialHeaders, EndpointPlan, ProviderDriver, ProviderError, ProviderSecret,
+    UpstreamResponseMeta,
+};
 use any2api_runtime::api::{
-    ConfigPublisher, ProviderApiKeySecret, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
+    ConcurrencyPermit, ConfigPublisher, ProviderApiKeySecret, PublishedSnapshot, RuntimeRegistry,
+    SnapshotStore,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use axum::http::{HeaderValue, header::AUTHORIZATION};
 use tempfile::tempdir;
+use url::Url;
 
 #[tokio::test]
 async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
     let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("storage"),
-    );
+    let database = directory.path().join("any2api.sqlite3");
+    let storage = Arc::new(SqliteStore::connect(&database).await.expect("storage"));
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
@@ -32,6 +36,7 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
     );
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
+    let driver = HeaderEchoDriver::default();
 
     let endpoint = publisher
         .create_provider_endpoint(
@@ -65,6 +70,7 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
         .expect("initial runtime")
         .clone();
     let old_permit = initial_binding.try_acquire().expect("initial permit");
+    assert_bearer(&old_permit, &driver, "sk-runtime-initial");
 
     let lowered = publisher
         .update_provider_credential(created.revision(), credential_id, 1, credential_draft(1))
@@ -96,10 +102,30 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
     assert_eq!(rotated_binding.generation().credential_generation(), 2);
     assert_eq!(rotated_binding.generation().secret_version(), 2);
     assert_eq!(rotated_binding.capacity().in_flight(), 1);
+    assert_bearer(&old_permit, &driver, "sk-runtime-initial");
 
     drop(old_permit);
     let new_permit = rotated_binding.try_acquire().expect("rotated permit");
     assert_eq!(new_permit.generation().credential_generation(), 2);
+    assert_bearer(&new_permit, &driver, "sk-runtime-rotated");
+
+    let restarted_storage = SqliteStore::connect(&database)
+        .await
+        .expect("restarted storage");
+    let restarted_configuration = restarted_storage
+        .load_configuration()
+        .await
+        .expect("restarted configuration");
+    let restarted_runtime = RuntimeRegistry::new();
+    let restarted_snapshot = PublishedSnapshot::new(restarted_configuration, &restarted_runtime);
+    let restarted_permit = restarted_snapshot
+        .credential_runtime(credential_id)
+        .expect("restarted credential runtime")
+        .try_acquire()
+        .expect("restarted permit");
+    assert_bearer(&restarted_permit, &driver, "sk-runtime-rotated");
+    assert_eq!(restarted_runtime.scheduler_epoch(), 0);
+    drop(restarted_permit);
 
     let deleted = publisher
         .delete_provider_credential(rotated.revision(), credential_id, 3)
@@ -109,6 +135,61 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
     assert_eq!(runtime.active_credential_count(), 0);
     assert!(rotated_binding.is_retired());
     drop(new_permit);
+}
+
+fn assert_bearer(permit: &ConcurrencyPermit, driver: &HeaderEchoDriver, api_key: &str) {
+    let headers = permit
+        .provider_credential_headers(driver)
+        .expect("credential headers");
+    assert_eq!(
+        headers
+            .headers
+            .get(AUTHORIZATION)
+            .expect("authorization header"),
+        &HeaderValue::from_str(&format!("Bearer {api_key}")).expect("header value")
+    );
+}
+
+#[derive(Default)]
+struct HeaderEchoDriver {
+    capabilities: CapabilitySet,
+}
+
+impl ProviderDriver for HeaderEchoDriver {
+    fn kind(&self) -> ProviderKind {
+        ProviderKind::Codex
+    }
+
+    fn capabilities(&self) -> &CapabilitySet {
+        &self.capabilities
+    }
+
+    fn validate_credential(&self, _secret: &ProviderSecret) -> Result<(), ProviderError> {
+        Ok(())
+    }
+
+    fn endpoint_plan(&self, base_url: &Url) -> Result<EndpointPlan, ProviderError> {
+        Ok(EndpointPlan {
+            base_url: base_url.clone(),
+        })
+    }
+
+    fn credential_headers(
+        &self,
+        secret: &ProviderSecret,
+    ) -> Result<CredentialHeaders, ProviderError> {
+        let mut headers = CredentialHeaders::default();
+        headers.headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {}", secret.expose()))
+                .map_err(|error| ProviderError::InvalidCredential(error.to_string()))?,
+        );
+        Ok(headers)
+    }
+
+    fn classify_error(&self, _meta: &UpstreamResponseMeta, _bounded_body: &[u8]) -> ErrorClass {
+        ErrorClass::Upstream
+    }
 }
 
 fn credential_draft(max_concurrency: u32) -> ProviderCredentialDraft {

@@ -19,6 +19,7 @@ mod provider_credential_repository;
 #[cfg(test)]
 mod provider_credential_repository_tests;
 mod provider_credential_rows;
+mod provider_credential_secret_material;
 mod provider_credential_secret_mutation;
 mod provider_credential_writes;
 #[cfg(test)]

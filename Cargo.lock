@@ -61,6 +61,7 @@ name = "any2api-contract-tests"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "any2api-provider",
  "any2api-runtime",
  "any2api-server",
  "any2api-storage",
@@ -71,6 +72,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower",
+ "url",
 ]
 
 [[package]]
@@ -110,6 +112,7 @@ name = "any2api-runtime"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "any2api-provider",
  "any2api-storage",
  "arc-swap",
  "secrecy",

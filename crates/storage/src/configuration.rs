@@ -3,12 +3,15 @@ use any2api_domain::{
     ProxyConfiguration,
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+use crate::provider_credential_secret_material::StoredProviderCredentialSecrets;
+
+#[derive(Debug)]
 pub struct StoredConfiguration {
     revision: ConfigRevision,
     proxies: ProxyConfiguration,
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
+    provider_credential_secrets: StoredProviderCredentialSecrets,
 }
 
 impl StoredConfiguration {
@@ -18,12 +21,14 @@ impl StoredConfiguration {
         proxies: ProxyConfiguration,
         provider_endpoints: ProviderEndpointConfiguration,
         provider_credentials: ProviderCredentialConfiguration,
+        provider_credential_secrets: StoredProviderCredentialSecrets,
     ) -> Self {
         Self {
             revision,
             proxies,
             provider_endpoints,
             provider_credentials,
+            provider_credential_secrets,
         }
     }
 
@@ -47,6 +52,11 @@ impl StoredConfiguration {
         &self.provider_credentials
     }
 
+    #[cfg(test)]
+    pub(crate) const fn provider_credential_secrets(&self) -> &StoredProviderCredentialSecrets {
+        &self.provider_credential_secrets
+    }
+
     #[must_use]
     pub fn into_parts(self) -> StoredConfigurationParts {
         StoredConfigurationParts {
@@ -54,6 +64,7 @@ impl StoredConfiguration {
             proxies: self.proxies,
             provider_endpoints: self.provider_endpoints,
             provider_credentials: self.provider_credentials,
+            provider_credential_secrets: self.provider_credential_secrets,
         }
     }
 }
@@ -63,4 +74,5 @@ pub struct StoredConfigurationParts {
     pub proxies: ProxyConfiguration,
     pub provider_endpoints: ProviderEndpointConfiguration,
     pub provider_credentials: ProviderCredentialConfiguration,
+    pub provider_credential_secrets: StoredProviderCredentialSecrets,
 }

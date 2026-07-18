@@ -9,6 +9,8 @@ use any2api_domain::{
 use tokio::sync::{mpsc, watch};
 
 use crate::{
+    credential_auth::CredentialAuthMaterials,
+    credential_runtime::CredentialRuntimeBindings,
     registry::RuntimeRegistry,
     scheduler::{SelectAndAcquireResult, select_and_try_acquire},
 };
@@ -18,7 +20,11 @@ async fn concurrent_acquires_never_exceed_the_configured_limit() {
     let runtime = RuntimeRegistry::new();
     let mut scheduler_epoch = runtime.subscribe_scheduler_epoch();
     let fixture = CredentialFixture::new();
-    let bindings = runtime.reconcile_configuration(&fixture.configuration(4, 1, 1));
+    let bindings = reconcile(
+        &runtime,
+        fixture.configuration(4, 1, 1),
+        "sk-concurrency-test",
+    );
     let binding = bindings.as_slice()[0].clone();
     let (result_tx, mut result_rx) = mpsc::unbounded_channel();
     let (release_tx, release_rx) = watch::channel(false);
@@ -72,13 +78,13 @@ async fn concurrent_acquires_never_exceed_the_configured_limit() {
 fn lowering_capacity_preserves_in_flight_and_blocks_new_acquires() {
     let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
-    let initial = runtime.reconcile_configuration(&fixture.configuration(3, 1, 1));
+    let initial = reconcile(&runtime, fixture.configuration(3, 1, 1), "sk-lower-test");
     let binding = initial.as_slice()[0].clone();
     let first = binding.try_acquire().expect("first permit");
     let second = binding.try_acquire().expect("second permit");
     let third = binding.try_acquire().expect("third permit");
 
-    let lowered = runtime.reconcile_configuration(&fixture.configuration(1, 1, 1));
+    let lowered = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-lower-test");
     let lowered = &lowered.as_slice()[0];
     assert_eq!(lowered.capacity().in_flight(), 3);
     assert_eq!(lowered.capacity().max_concurrency(), 1);
@@ -96,12 +102,12 @@ fn lowering_capacity_preserves_in_flight_and_blocks_new_acquires() {
 fn raising_capacity_allows_new_acquires_immediately() {
     let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
-    let initial = runtime.reconcile_configuration(&fixture.configuration(1, 1, 1));
+    let initial = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-raise-test");
     let binding = initial.as_slice()[0].clone();
     let first = binding.try_acquire().expect("initial permit");
     assert!(binding.try_acquire().is_none());
 
-    let raised = runtime.reconcile_configuration(&fixture.configuration(3, 1, 1));
+    let raised = reconcile(&runtime, fixture.configuration(3, 1, 1), "sk-raise-test");
     let raised = &raised.as_slice()[0];
     let second = raised.try_acquire().expect("second permit after raise");
     let third = raised.try_acquire().expect("third permit after raise");
@@ -114,15 +120,33 @@ fn raising_capacity_allows_new_acquires_immediately() {
 fn generation_changes_are_pinned_without_resetting_capacity() {
     let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
-    let initial = runtime.reconcile_configuration(&fixture.configuration(2, 1, 1));
+    let initial = reconcile(
+        &runtime,
+        fixture.configuration(2, 1, 1),
+        "sk-old-generation",
+    );
     let old_binding = initial.as_slice()[0].clone();
     let old_permit = old_binding.try_acquire().expect("old generation permit");
 
-    let rotated = runtime.reconcile_configuration(&fixture.configuration(2, 2, 2));
+    let rotated = reconcile(
+        &runtime,
+        fixture.configuration(2, 2, 2),
+        "sk-new-generation",
+    );
     let new_binding = rotated.as_slice()[0].clone();
     assert_eq!(old_permit.generation().credential_generation(), 1);
     assert_eq!(new_binding.generation().credential_generation(), 2);
     assert_eq!(new_binding.generation().secret_version(), 2);
+    assert_eq!(
+        old_permit.generation().provider_secret().expose(),
+        "sk-old-generation"
+    );
+    assert_eq!(
+        new_binding.generation().provider_secret().expose(),
+        "sk-new-generation"
+    );
+    assert!(!format!("{old_permit:?}").contains("sk-old-generation"));
+    assert!(!format!("{:?}", new_binding.generation()).contains("sk-new-generation"));
     assert!(!Arc::ptr_eq(
         old_permit.generation(),
         new_binding.generation()
@@ -138,10 +162,14 @@ fn generation_changes_are_pinned_without_resetting_capacity() {
 fn removed_credentials_retire_without_invalidating_old_bindings() {
     let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
-    let bindings = runtime.reconcile_configuration(&fixture.configuration(1, 1, 1));
+    let bindings = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-retire-test");
     let old_binding = bindings.as_slice()[0].clone();
 
-    runtime.reconcile_configuration(&ProviderCredentialConfiguration::initial());
+    reconcile(
+        &runtime,
+        ProviderCredentialConfiguration::initial(),
+        "unused",
+    );
 
     assert_eq!(runtime.active_credential_count(), 0);
     assert!(old_binding.is_retired());
@@ -152,9 +180,12 @@ fn removed_credentials_retire_without_invalidating_old_bindings() {
 fn selector_uses_exact_load_ratios_and_rotating_ties() {
     let first_runtime = RuntimeRegistry::new();
     let first_fixture = CredentialFixture::new();
-    let first = first_runtime
-        .reconcile_configuration(&first_fixture.configuration(10, 1, 1))
-        .as_slice()[0]
+    let first = reconcile(
+        &first_runtime,
+        first_fixture.configuration(10, 1, 1),
+        "sk-first-selector",
+    )
+    .as_slice()[0]
         .clone();
     let held = (0..5)
         .map(|_| first.try_acquire().expect("first credential capacity"))
@@ -162,9 +193,12 @@ fn selector_uses_exact_load_ratios_and_rotating_ties() {
 
     let second_runtime = RuntimeRegistry::new();
     let second_fixture = CredentialFixture::new();
-    let second = second_runtime
-        .reconcile_configuration(&second_fixture.configuration(2, 1, 1))
-        .as_slice()[0]
+    let second = reconcile(
+        &second_runtime,
+        second_fixture.configuration(2, 1, 1),
+        "sk-second-selector",
+    )
+    .as_slice()[0]
         .clone();
     let selected = select_and_try_acquire(&[first.clone(), second.clone()], 0);
     let SelectAndAcquireResult::Acquired(selected) = selected else {
@@ -179,6 +213,16 @@ fn selector_uses_exact_load_ratios_and_rotating_ties() {
         panic!("an equal-load credential must be selected");
     };
     assert_eq!(tie.credential_id(), second.credential_id());
+}
+
+fn reconcile(
+    runtime: &RuntimeRegistry,
+    configuration: ProviderCredentialConfiguration,
+    secret: &str,
+) -> CredentialRuntimeBindings {
+    let auth_materials =
+        CredentialAuthMaterials::for_configuration(&configuration, |_| secret.to_owned());
+    runtime.reconcile_configuration(&configuration, auth_materials)
 }
 
 struct CredentialFixture {

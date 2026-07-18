@@ -56,14 +56,10 @@ async fn mutate_connection(
         return Ok((current, false));
     };
     execute_provider_credential_change(connection, prepared.change()).await?;
+    let expected_credentials = prepared.into_configuration();
     let revision = bump_revision(connection, expected).await?;
-    Ok((
-        StoredConfiguration::new(
-            revision,
-            current.proxies().clone(),
-            current.provider_endpoints().clone(),
-            prepared.into_configuration(),
-        ),
-        true,
-    ))
+    let configuration = load_configuration_from(connection, vault).await?;
+    assert_eq!(configuration.revision(), revision);
+    assert_eq!(configuration.provider_credentials(), &expected_credentials);
+    Ok((configuration, true))
 }

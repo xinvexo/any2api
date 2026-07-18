@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 any2api-domain = { path = "../../crates/domain" }
+any2api-provider = { path = "../../crates/provider" }
 any2api-runtime = { path = "../../crates/runtime" }
 any2api-server = { path = "../../crates/server" }
 any2api-storage = { path = "../../crates/storage" }
@@ -17,6 +18,7 @@ secrecy.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tower.workspace = true
+url.workspace = true
 
 [lints]
 workspace = true

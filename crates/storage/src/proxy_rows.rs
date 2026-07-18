@@ -53,7 +53,7 @@ pub(crate) async fn load_configuration_from(
     let proxies = ProxyConfiguration::new(profiles, global_id)
         .map_err(|_| StorageError::CorruptConfiguration)?;
     let provider_endpoints = load_provider_endpoints_from(connection).await?;
-    let provider_credentials =
+    let (provider_credentials, provider_credential_secrets) =
         load_provider_credentials_from(connection, vault, &provider_endpoints, &proxies).await?;
 
     Ok(StoredConfiguration::new(
@@ -61,6 +61,7 @@ pub(crate) async fn load_configuration_from(
         proxies,
         provider_endpoints,
         provider_credentials,
+        provider_credential_secrets,
     ))
 }
 

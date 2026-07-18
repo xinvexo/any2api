@@ -6,12 +6,13 @@
 ## 当前状态
 
 - 当前阶段：阶段 1「配置与代理」。
-- 最近完成：Credential 稳定运行时句柄、动态并发 Permit、代际绑定与最低负载率原子选择。
+- 最近完成：Credential API Key 的 generation-scoped 运行时装配与 Permit 认证头边界。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
 - ProviderCredential 切片：`f3ca1fc feat: add provider credential management`。
-- 本切片提交主题：`feat: add credential runtime capacity`。
+- Credential Runtime 切片：`bc71133 feat: add credential runtime capacity`。
+- 本切片提交主题：`feat: load credential auth material`。
 
 ## 已完成
 
@@ -93,7 +94,15 @@
 - 新增 `select_and_try_acquire`：只返回已经取得 Permit 的 Credential，最低负载率使用整数交叉相乘，CAS 竞争失败后重新完整选择，相同比例由调用方提供的轮询序号打破平局。
 - 模块测试覆盖 64 路并发竞争不超限、动态升降限、Permit 释放、generation 固定、retired 生命周期和精确负载率选择。
 - 契约测试覆盖真实 SQLite 发布链路中的容量复用、Secret rotation generation 隔离和删除时旧 Permit 生命周期。
-- 本切片仍未把解密后的 Provider API Key 放入 generation-scoped auth material；Snapshot 中也没有 Secret。真实认证注入和网络调用继续留在后续数据面切片。
+
+### Credential Auth Material 装配切片
+
+- Storage 配置读取现在返回“脱敏配置 + 已通过 Vault/AAD/指纹校验的 Secret 材料”两部分；Secret 材料不可 Clone，Debug 只显示 `[REDACTED]`。
+- 所有有写入的配置事务在 Commit 前重新从同一事务视图加载完整配置，确保新建/轮换/Endpoint generation 变化返回的运行时材料与数据库版本一致；读取失败会回滚，不把半成品发布到 Runtime。
+- Runtime 将 API Key 转换为 `ProviderSecret`，按 `credential_generation + secret_version + schema_version` 装配 generation；旧 Snapshot/Permit 继续持有旧 API Key，新 generation 不会覆盖旧请求。
+- `ConcurrencyPermit::provider_credential_headers` 是认证注入的唯一公开入口，必须先取得并发 Permit 才能调用 Provider Driver 生成上游认证头；Gateway API Key 尚未进入该路径。
+- Provider API Key 不进入管理 DTO、日志或 `PublishedSnapshot` 的原始字段；Runtime/Storage 的 Debug 输出均脱敏，Secret 只在内存代际对象中存在并由 `secrecy` 清理。
+- 模块测试覆盖 generation 轮换、旧/新 Secret 隔离和 Debug 脱敏；Storage 测试覆盖写入、重启解密和材料脱敏；契约测试覆盖真实发布、重启后重新装配、Permit 认证头和 scheduler epoch 从零开始。
 
 ## 当前边界
 
@@ -101,16 +110,15 @@
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
 - 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
-- Credential generation 当前只固定版本身份，尚未承载解密认证材料、认证健康或模型健康。
+- Credential generation 已承载首版 API Key 认证材料；认证健康、模型健康和刷新锁仍未实现。
 
 ## 下一步
 
-1. 把解密后的 Provider API Key 安全装配到 generation-scoped auth material，保持 Secret 不进入 `PublishedSnapshot`、日志和管理 DTO。
-2. 实现 `DIRECT → 全局代理` 的实际解析，以及 HTTP/SOCKS5 `TransportManager`、连接池和 fail-closed 代理错误。
-3. 增加最小模型 Route/Route Target 配置，为公开模型和上游模型建立可发布映射。
-4. 实现多 `GatewayApiKey` 管理和客户端认证头剥离，再接 Codex Responses 与 Claude Messages 原生请求链路。
-5. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
-6. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
+1. 实现 `DIRECT → 全局代理` 的实际解析，以及 HTTP/SOCKS5 `TransportManager`、连接池和 fail-closed 代理错误。
+2. 增加最小模型 Route/Route Target 配置，为公开模型和上游模型建立可发布映射。
+3. 实现多 `GatewayApiKey` 管理和客户端认证头剥离，再接 Codex Responses 与 Claude Messages 原生请求链路。
+4. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
+5. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
 
 ## 验证结果
 

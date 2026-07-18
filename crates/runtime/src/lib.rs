@@ -2,6 +2,7 @@ pub mod api;
 
 mod config_command;
 mod config_publish_error;
+mod credential_auth;
 mod credential_runtime;
 mod provider_api_key_secret;
 mod published_snapshot;

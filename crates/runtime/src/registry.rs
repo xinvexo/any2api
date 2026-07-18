@@ -7,6 +7,7 @@ use any2api_domain::{CredentialId, ProviderCredentialConfiguration};
 use tokio::sync::watch;
 
 use crate::{
+    credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
     scheduler_epoch::SchedulerEpoch,
 };
@@ -51,6 +52,7 @@ impl RuntimeRegistry {
     pub(crate) fn reconcile_configuration(
         &self,
         configuration: &ProviderCredentialConfiguration,
+        mut auth_materials: CredentialAuthMaterials,
     ) -> CredentialRuntimeBindings {
         let mut handles = self
             .credentials
@@ -61,14 +63,22 @@ impl RuntimeRegistry {
 
         for credential in configuration.credentials() {
             active_ids.insert(credential.id());
-            let handle = handles
-                .entry(credential.id())
-                .or_insert_with(|| {
-                    CredentialRuntimeHandle::new(credential, Arc::clone(&self.scheduler_epoch))
-                })
-                .clone();
-            bindings.push(handle.reconcile(credential));
+            let auth_material = auth_materials.take_for(credential);
+            let binding = if let Some(handle) = handles.get(&credential.id()).cloned() {
+                handle.reconcile(credential, auth_material)
+            } else {
+                let handle = CredentialRuntimeHandle::new(
+                    credential,
+                    auth_material,
+                    Arc::clone(&self.scheduler_epoch),
+                );
+                let binding = handle.current_binding();
+                handles.insert(credential.id(), handle);
+                binding
+            };
+            bindings.push(binding);
         }
+        auth_materials.assert_consumed();
 
         handles.retain(|id, handle| {
             if active_ids.contains(id) {

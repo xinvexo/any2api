@@ -30,7 +30,9 @@
 
 ## 后果
 
-Credential 配置可以在当前控制面完整管理，但本切片不声称已经完成真实上游网络测试或负载调度。后续 Runtime 会按稳定 Credential ID 复用容量句柄，并把 Secret/generation 装入代际对象；当前 SQLite 和 PublishedSnapshot 只建立安全配置基础。
+Credential 配置可以在控制面完整管理。Runtime 已按稳定 Credential ID 复用容量句柄，并把经过 Vault 校验的 API Key 装入 generation-scoped 代际对象；`PublishedSnapshot` 只保存脱敏配置和运行时绑定，不提供原始 Secret 字段。认证头只能由持有并发 Permit 的请求通过 Provider Driver 生成。
+
+真实上游网络测试、TransportManager、Gateway API Key 剥离和公开请求入口仍属于后续数据面切片，本 ADR 不声称这些链路已经完成。
 
 ## 验证
 
