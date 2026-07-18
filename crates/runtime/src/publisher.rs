@@ -215,17 +215,9 @@ impl ConfigPublisher {
             next,
             "repository committed an unexpected configuration revision"
         );
-        let parts = committed.into_parts();
-        let snapshot = PublishedSnapshot::new(
-            next,
-            parts.proxies,
-            parts.provider_endpoints,
-            parts.provider_credentials,
-        );
-
-        let activation = self.runtime.reconcile_configuration();
+        let snapshot = PublishedSnapshot::new(committed, self.runtime.as_ref());
         let published = self.snapshots.replace(snapshot);
-        activation.notify_after_snapshot_swap();
+        self.runtime.advance_scheduler_epoch();
         Ok(published)
     }
 }

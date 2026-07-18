@@ -224,13 +224,11 @@ impl TestContext {
             .load_configuration()
             .await
             .expect("initial configuration");
-        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-            initial.revision(),
-            initial.proxies().clone(),
-            initial.provider_endpoints().clone(),
-            initial.provider_credentials().clone(),
-        )));
         let runtime = Arc::new(RuntimeRegistry::new());
+        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
+            initial,
+            runtime.as_ref(),
+        )));
         let publisher = ConfigPublisher::new(
             Arc::clone(&repository),
             Arc::clone(&snapshots),

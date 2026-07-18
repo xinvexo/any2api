@@ -6,11 +6,12 @@
 ## 当前状态
 
 - 当前阶段：阶段 1「配置与代理」。
-- 最近完成：Codex/Claude API Key `ProviderCredential` 的存储、发布、管理 API 与 Web 配置闭环。
+- 最近完成：Credential 稳定运行时句柄、动态并发 Permit、代际绑定与最低负载率原子选择。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
-- 本切片提交主题：`feat: add provider credential management`。
+- ProviderCredential 切片：`f3ca1fc feat: add provider credential management`。
+- 本切片提交主题：`feat: add credential runtime capacity`。
 
 ## 已完成
 
@@ -82,21 +83,34 @@
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖持久化重启、版本冲突、重复标签、引用保护、密文篡改、响应脱敏和 metadata PATCH 不携带 Secret。
 - 本切片没有实现真实上游连通性测试、并发 Permit、负载均衡选择或网络转发；当前预览只能管理配置，尚不能代理真实 Codex/Claude 请求。
 
+### Credential Runtime 容量切片
+
+- 新增稳定的 `CredentialRuntimeHandle`；同一 Credential ID 的 `in_flight` 与动态并发上限跨配置 revision 复用，不会在热更新时重置为零。
+- `max_concurrency` 与 `in_flight` 打包在同一个原子状态中，动态降限与并发获取共享同一 CAS 线性化点；降限不取消已有请求，但在占用回落前禁止新增 Permit。
+- 新增 RAII `ConcurrencyPermit`；正常完成、失败、取消或 Drop 都只释放一次容量，并推进统一 `scheduler_epoch`。
+- 新增 `CredentialGenerationRuntime` 与 Snapshot 固定绑定；Secret 轮换、重新启用或 Endpoint 身份变化后，新请求使用新 generation，旧请求仍持有旧 generation，迟到结果不会天然混入新代际。
+- `PublishedSnapshot` 现在由持久化配置和稳定 `RuntimeRegistry` 一起编译，每个已发布 Credential 都有对应运行时绑定；删除 Credential 后，新 Snapshot 立即移除候选，旧绑定标记 retired 并由现存请求自然释放。
+- 新增 `select_and_try_acquire`：只返回已经取得 Permit 的 Credential，最低负载率使用整数交叉相乘，CAS 竞争失败后重新完整选择，相同比例由调用方提供的轮询序号打破平局。
+- 模块测试覆盖 64 路并发竞争不超限、动态升降限、Permit 释放、generation 固定、retired 生命周期和精确负载率选择。
+- 契约测试覆盖真实 SQLite 发布链路中的容量复用、Secret rotation generation 隔离和删除时旧 Permit 生命周期。
+- 本切片仍未把解密后的 Provider API Key 放入 generation-scoped auth material；Snapshot 中也没有 Secret。真实认证注入和网络调用继续留在后续数据面切片。
+
 ## 当前边界
 
 - 尚未实现真实 HTTP/SOCKS5 网络转发、连接池、代理连通性测试和代理健康状态。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
-- 运行态并发、队列、健康、冷却和会话仍不持久化，重启后从空状态开始。
+- 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
+- Credential generation 当前只固定版本身份，尚未承载解密认证材料、认证健康或模型健康。
 
 ## 下一步
 
-1. Credential Runtime Handle、并发 Permit 与 `DIRECT → 全局代理` 的实际运行时解析。
-2. HTTP/SOCKS5 `TransportManager`、连接池和代理/上游连通性测试。
-3. Codex Responses 原生请求链路，再实现 Claude Messages 原生链路。
-4. 多 `GatewayApiKey` 管理和客户端认证头剥离。
-5. SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
-6. 负载均衡队列、会话粘性、冷却、熔断与重试预算。
+1. 把解密后的 Provider API Key 安全装配到 generation-scoped auth material，保持 Secret 不进入 `PublishedSnapshot`、日志和管理 DTO。
+2. 实现 `DIRECT → 全局代理` 的实际解析，以及 HTTP/SOCKS5 `TransportManager`、连接池和 fail-closed 代理错误。
+3. 增加最小模型 Route/Route Target 配置，为公开模型和上游模型建立可发布映射。
+4. 实现多 `GatewayApiKey` 管理和客户端认证头剥离，再接 Codex Responses 与 Claude Messages 原生请求链路。
+5. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
+6. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
 
 ## 验证结果
 

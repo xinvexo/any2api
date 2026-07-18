@@ -1,40 +1,91 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, RwLock},
+};
 
-#[derive(Debug, Default)]
+use any2api_domain::{CredentialId, ProviderCredentialConfiguration};
+use tokio::sync::watch;
+
+use crate::{
+    credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
+    scheduler_epoch::SchedulerEpoch,
+};
+
+#[derive(Debug)]
 pub struct RuntimeRegistry {
-    scheduler_epoch: AtomicU64,
+    scheduler_epoch: Arc<SchedulerEpoch>,
+    credentials: RwLock<HashMap<CredentialId, Arc<CredentialRuntimeHandle>>>,
 }
 
 impl RuntimeRegistry {
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            scheduler_epoch: AtomicU64::new(0),
+            scheduler_epoch: SchedulerEpoch::new(),
+            credentials: RwLock::new(HashMap::new()),
         }
     }
 
     #[must_use]
     pub fn scheduler_epoch(&self) -> u64 {
-        self.scheduler_epoch.load(Ordering::Acquire)
+        self.scheduler_epoch.current()
     }
 
     pub fn advance_scheduler_epoch(&self) -> u64 {
-        self.scheduler_epoch.fetch_add(1, Ordering::AcqRel) + 1
+        self.scheduler_epoch.advance()
     }
 
-    pub(crate) fn reconcile_configuration(&self) -> ConfigurationActivation<'_> {
-        ConfigurationActivation { registry: self }
+    #[must_use]
+    pub fn subscribe_scheduler_epoch(&self) -> watch::Receiver<u64> {
+        self.scheduler_epoch.subscribe()
+    }
+
+    #[must_use]
+    pub fn active_credential_count(&self) -> usize {
+        self.credentials
+            .read()
+            .expect("runtime credential registry lock poisoned")
+            .len()
+    }
+
+    pub(crate) fn reconcile_configuration(
+        &self,
+        configuration: &ProviderCredentialConfiguration,
+    ) -> CredentialRuntimeBindings {
+        let mut handles = self
+            .credentials
+            .write()
+            .expect("runtime credential registry lock poisoned");
+        let mut active_ids = HashSet::with_capacity(configuration.credentials().len());
+        let mut bindings = Vec::with_capacity(configuration.credentials().len());
+
+        for credential in configuration.credentials() {
+            active_ids.insert(credential.id());
+            let handle = handles
+                .entry(credential.id())
+                .or_insert_with(|| {
+                    CredentialRuntimeHandle::new(credential, Arc::clone(&self.scheduler_epoch))
+                })
+                .clone();
+            bindings.push(handle.reconcile(credential));
+        }
+
+        handles.retain(|id, handle| {
+            if active_ids.contains(id) {
+                true
+            } else {
+                handle.retire();
+                false
+            }
+        });
+
+        CredentialRuntimeBindings::new(bindings)
     }
 }
 
-#[must_use]
-pub(crate) struct ConfigurationActivation<'a> {
-    registry: &'a RuntimeRegistry,
-}
-
-impl ConfigurationActivation<'_> {
-    pub(crate) fn notify_after_snapshot_swap(self) {
-        self.registry.advance_scheduler_epoch();
+impl Default for RuntimeRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

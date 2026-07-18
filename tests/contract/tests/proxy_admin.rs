@@ -247,13 +247,11 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration.revision(),
-        configuration.proxies().clone(),
-        configuration.provider_endpoints().clone(),
-        configuration.provider_credentials().clone(),
-    )));
     let runtime = Arc::new(RuntimeRegistry::new());
+    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
+        configuration,
+        runtime.as_ref(),
+    )));
     let publisher = Arc::new(ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),

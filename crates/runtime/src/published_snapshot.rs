@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
+    ConfigRevision, CredentialId, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
     ProxyConfiguration,
 };
+use any2api_storage::api::StoredConfiguration;
 use arc_swap::ArcSwap;
 use tokio::sync::{Mutex, MutexGuard};
+
+use crate::{
+    credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
+    registry::RuntimeRegistry,
+};
 
 #[derive(Debug)]
 pub struct PublishedSnapshot {
@@ -13,21 +19,20 @@ pub struct PublishedSnapshot {
     proxies: ProxyConfiguration,
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
+    credential_runtimes: CredentialRuntimeBindings,
 }
 
 impl PublishedSnapshot {
     #[must_use]
-    pub const fn new(
-        revision: ConfigRevision,
-        proxies: ProxyConfiguration,
-        provider_endpoints: ProviderEndpointConfiguration,
-        provider_credentials: ProviderCredentialConfiguration,
-    ) -> Self {
+    pub fn new(configuration: StoredConfiguration, runtime: &RuntimeRegistry) -> Self {
+        let parts = configuration.into_parts();
+        let credential_runtimes = runtime.reconcile_configuration(&parts.provider_credentials);
         Self {
-            revision,
-            proxies,
-            provider_endpoints,
-            provider_credentials,
+            revision: parts.revision,
+            proxies: parts.proxies,
+            provider_endpoints: parts.provider_endpoints,
+            provider_credentials: parts.provider_credentials,
+            credential_runtimes,
         }
     }
 
@@ -49,6 +54,16 @@ impl PublishedSnapshot {
     #[must_use]
     pub const fn provider_credentials(&self) -> &ProviderCredentialConfiguration {
         &self.provider_credentials
+    }
+
+    #[must_use]
+    pub fn credential_runtime(&self, id: CredentialId) -> Option<&CredentialRuntimeBinding> {
+        self.credential_runtimes.get(id)
+    }
+
+    #[must_use]
+    pub fn credential_runtimes(&self) -> &[CredentialRuntimeBinding] {
+        self.credential_runtimes.as_slice()
     }
 }
 
