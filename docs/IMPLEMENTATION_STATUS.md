@@ -6,7 +6,7 @@
 ## 当前状态
 
 - 当前阶段：阶段 1「配置、代理与模型路由」。
-- 最近完成：DIRECT/HTTP/SOCKS5h TransportManager、连接池代际与 fail-closed 契约。
+- 最近完成：多 GatewayApiKey 管理、公开入口认证边界与 `/v1/models` 已发布模型目录。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -14,7 +14,7 @@
 - Credential Runtime 切片：`bc71133 feat: add credential runtime capacity`。
 - Credential Auth Material 切片：`fbfc6ef feat: load credential auth material`。
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
-- 本切片提交主题：`feat: add model route configuration`。
+- 本切片提交主题：`feat: expose published model catalog`。
 
 ## 已完成
 
@@ -132,7 +132,8 @@
   - `DELETE /api/admin/model-routes/{id}?expected_revision=N&expected_config_version=N`
 - React `/routes` 已替换占位页：支持 URL deep link、完整 Route/Target 聚合编辑、同协议 Endpoint 过滤、三态主 tier 满载策略、响应式窄屏编辑、行内删除确认和 revision/config version 冲突保护。
 - Web 测试覆盖响应解析、缓存代际、新建请求不携带客户端 Target ID、策略修改保留 ID、身份变化生成新 ID、延迟 Endpoint、深链刷新、移动端无效链接和旧保存回调。
-- 当前仍只完成配置面；ModelRoute 尚未接入 Codex Responses、Claude Messages、真实调度、会话粘性或公开 `/v1/models` 数据面。
+- `/v1/models` 已接入同一认证快照，只返回启用 Route 的公开模型；跨协议同名稳定去重，不根据瞬时容量或健康状态删模型。
+- ModelRoute 尚未接入 Codex Responses、Claude Messages、真实请求调度或会话粘性。
 
 ### GatewayApiKey 管理与公开鉴权切片
 
@@ -145,7 +146,7 @@
   - `POST /api/admin/gateway-api-keys/{id}/revoke`
 - 管理写入继续使用全局 revision、资源 config version 和轮换 token version CAS；撤销是终态，重复无变化不会推进 revision。
 - `PublishedSnapshot` 现在携带 Gateway Key 配置和 HMAC verifier；鉴权、路由和 revision 使用同一快照，旧请求持有旧快照时不会被热更新中途改变。
-- `/v1/models`、`/v1/responses`、`/v1/responses/compact`、`/v1/messages` 和 `/v1/messages/count_tokens` 已建立认证边界；合法 Token 当前返回明确的 `public_api_not_implemented`，未知 `/v1/*` 不再回落到 SPA。
+- `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；其余四个推理/辅助入口已建立认证边界，合法 Token 当前返回明确的 `public_api_not_implemented`，未知 `/v1/*` 不再回落到 SPA。
 - `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
 - React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、撤销、deep link、响应式布局和一次性回执；明文 Token 不进入 Query/Mutation Cache、URL、Storage 或普通 DTO。
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本和缓存脱敏。
@@ -153,7 +154,7 @@
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已实现，但尚未接入公开模型请求、管理面代理测试按钮和代理健康状态。
-- ModelRoute 配置与管理面已实现，但尚未接入公开 `/v1/models`、Codex Responses 或 Claude Messages 请求执行。
+- ModelRoute 配置、管理面和公开 `/v1/models` 已实现，但尚未接入 Codex Responses 或 Claude Messages 请求执行。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
 - 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
@@ -161,7 +162,7 @@
 
 ## 下一步
 
-1. 将已发布 ModelRoute 接入 `/v1/models`、同协议 Provider Driver 和公开请求入口。
+1. 实现 Codex/Claude 同协议 Provider Driver、ProtocolAdapter 和非流式公开请求链路。
 2. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
 3. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
 4. 接入 Codex Responses 与 Claude Messages 原生协议链路，并补齐 Transport/Provider 契约。

@@ -932,7 +932,7 @@ ProviderKind
 | `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 是 | 否 | 实现 |
 | `GET /v1/models` | 返回本地公开模型路由 | 本地 PublishedSnapshot | 是 | 否 | 实现 |
 
-`/v1/models` 返回已发布的公开模型路由，不根据瞬时冷却或并发状态频繁增删模型。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
+`/v1/models` 返回已发布且启用的公开模型路由，不根据瞬时冷却、并发、Credential 或代理可用性频繁增删模型。跨协议 Route 使用相同 `public_model` 时只返回一个标准模型对象，结果按模型名稳定排序；具体请求仍按入口协议精确解析 Route。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
 
 首版不实现 WebSocket，也不接受 WebSocket Upgrade。未来如果增加，必须作为独立 TransportMode 和独立契约设计，不能由 SSE 代码顺带兼容。
 

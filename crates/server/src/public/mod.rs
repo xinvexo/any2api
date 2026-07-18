@@ -1,6 +1,7 @@
 mod auth;
 mod error;
 mod handlers;
+mod models;
 
 use axum::{
     Router, middleware,
@@ -11,7 +12,7 @@ use crate::state::AppState;
 
 pub(crate) fn routes(state: AppState) -> Router {
     Router::new()
-        .route("/models", get(handlers::not_implemented))
+        .route("/models", get(models::list_models))
         .route("/responses", post(handlers::not_implemented))
         .route("/responses/compact", post(handlers::not_implemented))
         .route("/messages", post(handlers::not_implemented))

@@ -70,8 +70,9 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         &[("authorization", format!("Bearer {first_token}"))],
     )
     .await;
-    assert_eq!(valid.status, StatusCode::NOT_IMPLEMENTED);
-    assert_eq!(valid.body["error"]["code"], "public_api_not_implemented");
+    assert_eq!(valid.status, StatusCode::OK);
+    assert_eq!(valid.body["object"], "list");
+    assert_eq!(valid.body["data"].as_array().map(Vec::len), Some(0));
 
     let conflicting = request_json(
         app.clone(),
@@ -128,7 +129,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         &[("x-api-key", second_token.clone())],
     )
     .await;
-    assert_eq!(current.status, StatusCode::NOT_IMPLEMENTED);
+    assert_eq!(current.status, StatusCode::OK);
 
     let revoked = request_json(
         app.clone(),
@@ -167,6 +168,136 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     .await;
     assert_eq!(remote_admin.status, StatusCode::FORBIDDEN);
     assert_eq!(remote_admin.body["error"]["code"], "admin_loopback_only");
+}
+
+#[tokio::test]
+async fn models_list_reflects_enabled_published_routes() {
+    let (_directory, app) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let created_key = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/gateway-api-keys",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Models client",
+            "enabled": true
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    let token = created_key.body["token"]
+        .as_str()
+        .expect("gateway token")
+        .to_owned();
+
+    let endpoint = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 2,
+            "name": "Codex",
+            "provider_kind": "codex",
+            "base_url": "https://api.example.com",
+            "protocol_dialect": "openai_responses",
+            "allow_insecure_http": false,
+            "allow_private_network": false,
+            "enabled": true
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(endpoint.status, StatusCode::OK);
+    let endpoint_id = endpoint.body["items"][0]["id"]
+        .as_str()
+        .expect("endpoint id")
+        .to_owned();
+
+    let route = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/model-routes",
+        Some(json!({
+            "expected_revision": 3,
+            "public_model": "codex-local",
+            "ingress_protocol": "openai_responses",
+            "fallback_on_saturation": null,
+            "enabled": true,
+            "targets": [{
+                "provider_endpoint_id": endpoint_id.clone(),
+                "upstream_model": "gpt-5.1-codex",
+                "fallback_tier": 0,
+                "enabled": true
+            }]
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(route.status, StatusCode::OK);
+    let route_id = route.body["items"][0]["id"]
+        .as_str()
+        .expect("route id")
+        .to_owned();
+    let target_id = route.body["items"][0]["targets"][0]["id"]
+        .as_str()
+        .expect("target id")
+        .to_owned();
+
+    let listed = request_json(
+        app.clone(),
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(listed.body["object"], "list");
+    assert_eq!(listed.body["data"][0]["id"], "codex-local");
+    assert_eq!(listed.body["data"][0]["object"], "model");
+    assert_eq!(listed.body["data"][0]["owned_by"], "any2api");
+
+    let disabled = request_json(
+        app.clone(),
+        Method::PATCH,
+        &format!("/api/admin/model-routes/{route_id}"),
+        Some(json!({
+            "expected_revision": 4,
+            "expected_config_version": 1,
+            "public_model": "codex-local",
+            "ingress_protocol": "openai_responses",
+            "fallback_on_saturation": null,
+            "enabled": false,
+            "targets": [{
+                "id": target_id,
+                "provider_endpoint_id": endpoint_id.clone(),
+                "upstream_model": "gpt-5.1-codex",
+                "fallback_tier": 0,
+                "enabled": true
+            }]
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(disabled.status, StatusCode::OK);
+
+    let listed = request_json(
+        app,
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[("x-api-key", token)],
+    )
+    .await;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(listed.body["data"].as_array().map(Vec::len), Some(0));
 }
 
 #[tokio::test]
