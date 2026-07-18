@@ -13,7 +13,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
     initialize_tracing();
     let settings = AppSettings::from_env()?;
     let storage = Arc::new(
-        SqliteStore::connect(&settings.database_path)
+        SqliteStore::connect_with_master_key(&settings.database_path, &settings.master_key_path)
             .await
             .context("failed to initialize sqlite storage")?,
     );

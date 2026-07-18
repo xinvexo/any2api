@@ -6,6 +6,8 @@ use any2api_domain::{
 };
 use thiserror::Error;
 
+use crate::vault::SecretVaultError;
+
 #[derive(Debug, Error)]
 pub enum StorageError {
     #[error("failed to create database directory {path}: {source}")]
@@ -49,4 +51,6 @@ pub enum StorageError {
     ProviderEndpointValidation(#[from] ProviderEndpointValidationError),
     #[error("stored proxy configuration is invalid")]
     CorruptConfiguration,
+    #[error("secret vault initialization failed: {0}")]
+    SecretVault(#[from] SecretVaultError),
 }

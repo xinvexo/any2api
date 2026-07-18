@@ -30,6 +30,7 @@ coverage/
 /logs/
 /secrets/
 /master.key
+/master-key.json
 /.any2api-master-key
 *.db
 *.db-shm
@@ -46,4 +47,3 @@ coverage/
 *.tmp
 *.swp
 *~
-
