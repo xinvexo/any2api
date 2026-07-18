@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ProviderEndpoint, ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderEndpointValidationError,
+    ProviderCredentialConfiguration, ProviderEndpoint, ProviderEndpointConfiguration,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderEndpointValidationError, ProxyConfiguration,
 };
 
 use crate::error::StorageError;
@@ -27,8 +27,10 @@ pub(crate) enum ProviderEndpointDatabaseChange {
 }
 
 pub(crate) struct PreparedProviderEndpointMutation {
-    configuration: ProviderEndpointConfiguration,
+    provider_endpoints: ProviderEndpointConfiguration,
+    provider_credentials: ProviderCredentialConfiguration,
     change: ProviderEndpointDatabaseChange,
+    bump_credential_generations: bool,
 }
 
 impl PreparedProviderEndpointMutation {
@@ -36,28 +38,57 @@ impl PreparedProviderEndpointMutation {
         &self.change
     }
 
-    pub(crate) fn into_configuration(self) -> ProviderEndpointConfiguration {
-        self.configuration
+    pub(crate) const fn endpoint_id(&self) -> ProviderEndpointId {
+        match &self.change {
+            ProviderEndpointDatabaseChange::Create(endpoint)
+            | ProviderEndpointDatabaseChange::Update(endpoint) => endpoint.id(),
+            ProviderEndpointDatabaseChange::Delete(id) => *id,
+        }
+    }
+
+    pub(crate) const fn bump_credential_generations(&self) -> bool {
+        self.bump_credential_generations
+    }
+
+    pub(crate) fn into_configurations(
+        self,
+    ) -> (
+        ProviderEndpointConfiguration,
+        ProviderCredentialConfiguration,
+    ) {
+        (self.provider_endpoints, self.provider_credentials)
     }
 }
 
 pub(crate) fn prepare_provider_endpoint_mutation(
     current: &ProviderEndpointConfiguration,
+    credentials: &ProviderCredentialConfiguration,
+    proxies: &ProxyConfiguration,
     mutation: ProviderEndpointMutation,
 ) -> Result<Option<PreparedProviderEndpointMutation>, StorageError> {
     match mutation {
-        ProviderEndpointMutation::Create { id, draft } => create(current, id, draft).map(Some),
+        ProviderEndpointMutation::Create { id, draft } => {
+            create(current, credentials, id, draft).map(Some)
+        }
         ProviderEndpointMutation::Update {
             id,
             expected_config_version,
             draft,
-        } => update(current, id, expected_config_version, draft),
-        ProviderEndpointMutation::Delete { id } => delete(current, id).map(Some),
+        } => update(
+            current,
+            credentials,
+            proxies,
+            id,
+            expected_config_version,
+            draft,
+        ),
+        ProviderEndpointMutation::Delete { id } => delete(current, credentials, id).map(Some),
     }
 }
 
 fn create(
     current: &ProviderEndpointConfiguration,
+    credentials: &ProviderCredentialConfiguration,
     id: ProviderEndpointId,
     draft: ProviderEndpointDraft,
 ) -> Result<PreparedProviderEndpointMutation, StorageError> {
@@ -66,13 +97,17 @@ fn create(
     endpoints.push(endpoint.clone());
     let configuration = ProviderEndpointConfiguration::new(endpoints).map_err(map_validation)?;
     Ok(PreparedProviderEndpointMutation {
-        configuration,
+        provider_endpoints: configuration,
+        provider_credentials: credentials.clone(),
         change: ProviderEndpointDatabaseChange::Create(endpoint),
+        bump_credential_generations: false,
     })
 }
 
 fn update(
     current: &ProviderEndpointConfiguration,
+    credentials: &ProviderCredentialConfiguration,
+    proxies: &ProxyConfiguration,
     id: ProviderEndpointId,
     expected_config_version: u64,
     draft: ProviderEndpointDraft,
@@ -90,6 +125,14 @@ fn update(
     if &updated == existing {
         return Ok(None);
     }
+    let has_credentials = credentials.references_endpoint(id);
+    if has_credentials
+        && (existing.provider_kind() != updated.provider_kind()
+            || existing.protocol_dialect() != updated.protocol_dialect())
+    {
+        return Err(StorageError::ProviderEndpointIdentityInUse);
+    }
+    let base_url_changed = existing.base_url() != updated.base_url();
     let endpoints = current
         .endpoints()
         .iter()
@@ -102,18 +145,31 @@ fn update(
         })
         .collect();
     let configuration = ProviderEndpointConfiguration::new(endpoints).map_err(map_validation)?;
+    let provider_credentials = if has_credentials && base_url_changed {
+        credentials
+            .with_endpoint_generation_incremented(id, &configuration, proxies)
+            .map_err(|_| StorageError::CorruptConfiguration)?
+    } else {
+        credentials.clone()
+    };
     Ok(Some(PreparedProviderEndpointMutation {
-        configuration,
+        provider_endpoints: configuration,
+        provider_credentials,
         change: ProviderEndpointDatabaseChange::Update(updated),
+        bump_credential_generations: has_credentials && base_url_changed,
     }))
 }
 
 fn delete(
     current: &ProviderEndpointConfiguration,
+    credentials: &ProviderCredentialConfiguration,
     id: ProviderEndpointId,
 ) -> Result<PreparedProviderEndpointMutation, StorageError> {
     if current.get(id).is_none() {
         return Err(StorageError::ProviderEndpointNotFound(id));
+    }
+    if credentials.references_endpoint(id) {
+        return Err(StorageError::ProviderEndpointInUse);
     }
     let endpoints = current
         .endpoints()
@@ -123,8 +179,10 @@ fn delete(
         .collect();
     let configuration = ProviderEndpointConfiguration::new(endpoints).map_err(map_validation)?;
     Ok(PreparedProviderEndpointMutation {
-        configuration,
+        provider_endpoints: configuration,
+        provider_credentials: credentials.clone(),
         change: ProviderEndpointDatabaseChange::Delete(id),
+        bump_credential_generations: false,
     })
 }
 

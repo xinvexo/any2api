@@ -150,6 +150,8 @@ fn provider_context() -> SecretContext {
         CredentialId::new(),
         ProviderKind::Codex,
         CredentialKind::ApiKey,
+        1,
+        1,
     )
 }
 

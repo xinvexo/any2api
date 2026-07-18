@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, ProtocolDialect, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId,
+    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
+    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress,
+    ProxyDraft, ProxyKind, ProxyProfileId,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::{TempDir, tempdir};
 
 use crate::{
+    config_publish_error::ConfigPublishError,
+    provider_api_key_secret::ProviderApiKeySecret,
     published_snapshot::{PublishedSnapshot, SnapshotStore},
-    publisher::{ConfigPublishError, ConfigPublisher},
+    publisher::ConfigPublisher,
     registry::RuntimeRegistry,
 };
 
@@ -124,6 +127,45 @@ async fn provider_endpoint_publish_switches_the_complete_snapshot() {
 }
 
 #[tokio::test]
+async fn provider_credential_publish_switches_the_complete_snapshot() {
+    let context = TestContext::new().await;
+    let endpoint_id = ProviderEndpointId::new();
+    let credential_id = CredentialId::new();
+    let endpoint = context
+        .publisher
+        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, codex_endpoint_draft())
+        .await
+        .expect("publish endpoint");
+
+    let published = context
+        .publisher
+        .create_provider_credential(
+            endpoint.revision(),
+            credential_id,
+            endpoint_id,
+            credential_draft(),
+            ProviderApiKeySecret::new("sk-runtime-credential".to_owned()),
+        )
+        .await
+        .expect("publish credential");
+    let stored = context
+        .repository
+        .load_configuration()
+        .await
+        .expect("stored configuration");
+
+    assert_eq!(published.revision(), stored.revision());
+    assert!(
+        published
+            .provider_credentials()
+            .get(credential_id)
+            .is_some()
+    );
+    assert_eq!(context.snapshots.load().revision(), stored.revision());
+    assert_eq!(context.runtime.scheduler_epoch(), 2);
+}
+
+#[tokio::test]
 async fn publishers_sharing_a_snapshot_store_are_serialized() {
     let context = TestContext::new().await;
     let second_publisher = ConfigPublisher::new(
@@ -186,6 +228,7 @@ impl TestContext {
             initial.revision(),
             initial.proxies().clone(),
             initial.provider_endpoints().clone(),
+            initial.provider_credentials().clone(),
         )));
         let runtime = Arc::new(RuntimeRegistry::new());
         let publisher = ConfigPublisher::new(
@@ -207,4 +250,28 @@ impl TestContext {
 fn proxy_draft(name: &str) -> ProxyDraft {
     let address = ProxyAddress::new("proxy.example.com", 1080).expect("address");
     ProxyDraft::new(name, ProxyKind::Socks5, address, true).expect("draft")
+}
+
+fn codex_endpoint_draft() -> ProviderEndpointDraft {
+    ProviderEndpointDraft::new(
+        "Codex Primary",
+        ProviderKind::Codex,
+        "https://api.example.com",
+        ProtocolDialect::OpenAiResponses,
+        false,
+        false,
+        true,
+    )
+    .expect("endpoint draft")
+}
+
+fn credential_draft() -> ProviderCredentialDraft {
+    ProviderCredentialDraft::new(
+        "Primary",
+        CredentialKind::ApiKey,
+        ProxyProfileId::DIRECT,
+        MaxConcurrency::new(4).expect("max concurrency"),
+        true,
+    )
+    .expect("credential draft")
 }

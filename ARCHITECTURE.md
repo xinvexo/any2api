@@ -1,7 +1,7 @@
 # any2api 架构设计草案
 
 > 状态：Draft<br>
-> 版本：0.8<br>
+> 版本：0.9<br>
 > 最后更新：2026-07-18<br>
 > 用途：记录当前已经确认的需求、架构约束与后续待完善事项。<br>
 > 实施进度：见 `docs/IMPLEMENTATION_STATUS.md`。
@@ -565,7 +565,11 @@ credentials
 ├─ secret_schema_version
 ├─ secret_version
 ├─ credential_generation
+├─ config_version
 ├─ encrypted_secret
+├─ fingerprint_version
+├─ secret_fingerprint
+├─ secret_tail
 ├─ proxy_profile_id
 ├─ max_concurrency
 ├─ enabled
@@ -595,6 +599,12 @@ CredentialRuntimeHandle
 首版约束：
 
 - 配置编译器只接受 `credential_kind=api_key`；
+- `max_concurrency` 的首版硬上限为 `10_000`，取值范围固定为 `1..=10_000`；禁用必须使用 `enabled=false`；
+- `secret_schema_version` 首版固定为 `1`，表示 API Key 载荷 Schema，不是修改计数；
+- `secret_version` 是认证材料 CAS 版本，任何 Secret 替换或未来重封装都增加；
+- `credential_generation` 隔离认证和模型健康代际，Secret 轮换、重新启用或 Endpoint URL 身份变化时增加；
+- `config_version` 是管理资源乐观锁版本，元数据修改和 Secret 轮换时增加，无变化更新不增加；
+- Endpoint 已有 Credential 时禁止修改 `provider_kind` 和 `protocol_dialect`；修改 Base URL 时所有子 Credential 增加 `credential_generation`；
 - Web 与管理 API 首版不展示或接受 OAuth2 Credential；
 - `expires_at`、刷新锁和 OAuth2 Secret Schema 只作为后续扩展边界；
 - 未来导入 OAuth2 JSON 时仍创建普通 Credential 实体，不引入另一套账号模型。
@@ -1063,6 +1073,8 @@ load_ratio = in_flight / max_concurrency
 ```
 
 `max_concurrency` 必须满足 `1..=MAX_CONCURRENCY`。禁用 Credential 使用 `enabled=false`，不使用 `max_concurrency=0` 表达。
+
+首版 `MAX_CONCURRENCY = 10_000`。这是防止无意义或恶意超大配置进入运行时的 Schema 硬边界，不是负载均衡权重，也不通过 SettingRegistry 覆盖。
 
 例如：
 
@@ -1752,7 +1764,11 @@ SecretEnvelope
 - Unix 主密钥文件创建为 `0600`，读取时拒绝 group/other 权限；Windows 使用数据目录或容器挂载继承的用户 DACL，部署者必须确保其他账户不可读；
 - 首批不实现在线主密钥轮换、密钥托管服务或灾难恢复流程；
 - AAD 至少包含记录 ID、Secret 类型和 Provider 类型；
+- Provider Credential AAD 还必须包含 `secret_schema_version` 和 `secret_version`，使旧密文不能在同一记录内回放为新版本；
+- Secret 指纹首版使用从主密钥经域分离 HMAC-SHA256 派生的独立指纹键，再对 ProviderKind、CredentialKind 和 Secret 字节计算 HMAC-SHA256；数据库保存完整 32 字节 MAC 和 `fingerprint_version=1`，管理 DTO 只显示 64 位截断值；
+- API Key 长度至少 8 个可见 ASCII 字符时可以额外保存并显示末 4 位；短 Key 只显示指纹；指纹不设唯一约束；
 - 管理 API 默认只返回 Secret 指纹和尾号；
+- Provider API Key 创建和轮换响应不回显明文；Web 只在写入成功后把本次提交值作为组件内一次性回执，关闭、离开页面或卸载后立即清除，不进入 URL、Query/Mutation Cache 或浏览器存储；
 - Secret 类型使用 `secrecy`/`zeroize` 一类内存保护封装；
 - 日志格式化不得实现 Secret 的明文 `Debug`。
 
@@ -1908,6 +1924,8 @@ Provider 详情页包含 Credential 表格：
 | Claude-A | Provider API Key | DIRECT | 香港 HTTP | 0 | 5 | 0% | 正常 |
 
 首版 Credential 创建表单只显示 API Key。未来启用 OAuth2 后，Provider 页面增加“导入 OAuth2 JSON”操作；该操作不复用通用导入导出模块。
+
+Credential 管理使用独立操作：元数据编辑绝不接受 Secret；Secret 轮换使用单独表单和端点。列表只显示标签、绑定代理、实际代理、最大并发、启用状态、版本、指纹和可选尾号，不显示或导出明文 Secret。
 
 ### 19.3 负载均衡
 

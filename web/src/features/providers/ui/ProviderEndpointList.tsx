@@ -1,5 +1,6 @@
-import { Check, Code2, Pencil, ShieldAlert, Trash2, X } from "lucide-react";
+import { Check, Code2, KeyRound, Pencil, ShieldAlert, Trash2, X } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 import type { ProviderEndpoint, ProviderEndpointConfiguration } from "../api/provider-contracts";
 import { getProviderErrorMessage } from "../model/provider-error";
@@ -26,7 +27,7 @@ export function ProviderEndpointList({
       <div className="flex items-center justify-between border-b border-subtle px-5 py-4 sm:px-6">
         <div>
           <h2 className="text-base font-semibold">Provider Endpoint</h2>
-          <p className="mt-1 text-sm text-secondary">一个 URL 可以在后续绑定多个独立 Credential</p>
+          <p className="mt-1 text-sm text-secondary">一个 URL 可以绑定多个独立 API Key</p>
         </div>
         <span className="text-sm tabular-nums text-tertiary">{configuration.items.length}</span>
       </div>
@@ -46,7 +47,7 @@ export function ProviderEndpointList({
         <div className="p-7 text-center">
           <Code2 size={23} className="mx-auto text-tertiary" aria-hidden="true" />
           <p className="mt-3 text-sm font-medium">还没有 Provider Endpoint</p>
-          <p className="mt-1 text-sm text-secondary">先添加上游地址，Credential 会在下一步单独配置。</p>
+          <p className="mt-1 text-sm text-secondary">先添加一个 Codex 或 Claude 上游地址。</p>
         </div>
       )}
       {actionError ? (
@@ -93,6 +94,14 @@ function EndpointRow({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link
+            className={linkButtonClass}
+            aria-label={`管理 ${endpoint.name} 的 API Key`}
+            to={`/providers/${encodeURIComponent(endpoint.id)}`}
+          >
+            <KeyRound size={15} />
+            API Key
+          </Link>
           <Button variant="ghost" disabled={pending} aria-label={`编辑 ${endpoint.name}`} onClick={() => onEdit(endpoint.id)}>
             <Pencil size={15} />
             编辑
@@ -119,6 +128,9 @@ function EndpointRow({
     </li>
   );
 }
+
+const linkButtonClass =
+  "focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-control px-4 text-sm font-semibold text-secondary transition-colors hover:bg-surface-hover hover:text-primary";
 
 function Badge({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (

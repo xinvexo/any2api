@@ -9,6 +9,8 @@ pub enum SecretContext {
         credential_id: CredentialId,
         provider_kind: ProviderKind,
         credential_kind: CredentialKind,
+        secret_schema_version: u32,
+        secret_version: u64,
     },
     ProxyPassword {
         proxy_profile_id: ProxyProfileId,
@@ -21,11 +23,15 @@ impl SecretContext {
         credential_id: CredentialId,
         provider_kind: ProviderKind,
         credential_kind: CredentialKind,
+        secret_schema_version: u32,
+        secret_version: u64,
     ) -> Self {
         Self::ProviderCredential {
             credential_id,
             provider_kind,
             credential_kind,
+            secret_schema_version,
+            secret_version,
         }
     }
 
@@ -43,11 +49,15 @@ impl SecretContext {
                 credential_id,
                 provider_kind,
                 credential_kind,
+                secret_schema_version,
+                secret_version,
             } => {
                 aad.push(1);
                 aad.extend_from_slice(credential_id.as_uuid().as_bytes());
                 aad.push(provider_kind_code(provider_kind));
                 aad.push(credential_kind_code(credential_kind));
+                aad.extend_from_slice(&secret_schema_version.to_be_bytes());
+                aad.extend_from_slice(&secret_version.to_be_bytes());
             }
             Self::ProxyPassword { proxy_profile_id } => {
                 aad.push(2);
@@ -58,14 +68,14 @@ impl SecretContext {
     }
 }
 
-const fn provider_kind_code(kind: ProviderKind) -> u8 {
+pub(crate) const fn provider_kind_code(kind: ProviderKind) -> u8 {
     match kind {
         ProviderKind::Codex => 1,
         ProviderKind::Claude => 2,
     }
 }
 
-const fn credential_kind_code(kind: CredentialKind) -> u8 {
+pub(crate) const fn credential_kind_code(kind: CredentialKind) -> u8 {
     match kind {
         CredentialKind::ApiKey => 1,
     }

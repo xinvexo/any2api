@@ -5,6 +5,7 @@ import { OverviewPage } from "@/pages/OverviewPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { ProxiesPage } from "@/pages/ProxiesPage";
+import { ProviderCredentialsPage } from "@/pages/ProviderCredentialsPage";
 import { ProvidersPage } from "@/pages/ProvidersPage";
 
 export const router = createBrowserRouter([
@@ -15,6 +16,7 @@ export const router = createBrowserRouter([
       { index: true, element: <OverviewPage /> },
       { path: "proxies", element: <ProxiesPage /> },
       { path: "providers", element: <ProvidersPage /> },
+      { path: "providers/:endpointId", element: <ProviderCredentialsPage /> },
       { path: "routes", element: <PlaceholderPage title="模型路由" /> },
       { path: "balancing", element: <PlaceholderPage title="负载均衡" /> },
       { path: "affinity", element: <PlaceholderPage title="会话粘性" /> },

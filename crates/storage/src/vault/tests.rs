@@ -112,5 +112,11 @@ fn envelope_versions_are_strict_and_debug_is_redacted() {
 }
 
 fn provider_context(credential_id: CredentialId) -> SecretContext {
-    SecretContext::provider_credential(credential_id, ProviderKind::Codex, CredentialKind::ApiKey)
+    SecretContext::provider_credential(
+        credential_id,
+        ProviderKind::Codex,
+        CredentialKind::ApiKey,
+        1,
+        1,
+    )
 }

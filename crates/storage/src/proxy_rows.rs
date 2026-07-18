@@ -6,8 +6,10 @@ use any2api_domain::{
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::{
-    error::StorageError, provider_endpoint_rows::load_provider_endpoints_from,
-    proxy_mutation::DatabaseChange, proxy_repository::StoredConfiguration,
+    configuration::StoredConfiguration, error::StorageError,
+    provider_credential_rows::load_provider_credentials_from,
+    provider_endpoint_rows::load_provider_endpoints_from, proxy_mutation::DatabaseChange,
+    vault::SecretVault,
 };
 
 #[derive(Debug, FromRow)]
@@ -23,6 +25,7 @@ struct ProxyRow {
 
 pub(crate) async fn load_configuration_from(
     connection: &mut SqliteConnection,
+    vault: &SecretVault,
 ) -> Result<StoredConfiguration, StorageError> {
     let revision: i64 =
         sqlx::query_scalar("SELECT revision FROM config_state WHERE singleton_id = 1")
@@ -50,11 +53,14 @@ pub(crate) async fn load_configuration_from(
     let proxies = ProxyConfiguration::new(profiles, global_id)
         .map_err(|_| StorageError::CorruptConfiguration)?;
     let provider_endpoints = load_provider_endpoints_from(connection).await?;
+    let provider_credentials =
+        load_provider_credentials_from(connection, vault, &provider_endpoints, &proxies).await?;
 
     Ok(StoredConfiguration::new(
         revision,
         proxies,
         provider_endpoints,
+        provider_credentials,
     ))
 }
 

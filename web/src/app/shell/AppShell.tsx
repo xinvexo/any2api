@@ -125,5 +125,11 @@ function Navigation({ compact = false, onNavigate }: { compact?: boolean; onNavi
 }
 
 function getPageTitle(pathname: string) {
-  return navigationItems.find((item) => item.path === pathname)?.label ?? "页面不存在";
+  return (
+    navigationItems.find(
+      (item) =>
+        item.path === pathname ||
+        (item.path !== "/" && pathname.startsWith(`${item.path}/`)),
+    )?.label ?? "页面不存在"
+  );
 }

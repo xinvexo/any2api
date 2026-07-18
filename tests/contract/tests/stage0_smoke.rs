@@ -24,6 +24,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         configuration.revision(),
         configuration.proxies().clone(),
         configuration.provider_endpoints().clone(),
+        configuration.provider_credentials().clone(),
     )));
     let runtime = Arc::new(RuntimeRegistry::new());
     let publisher = Arc::new(ConfigPublisher::new(

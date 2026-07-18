@@ -245,6 +245,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
         configuration.revision(),
         configuration.proxies().clone(),
         configuration.provider_endpoints().clone(),
+        configuration.provider_credentials().clone(),
     )));
     let runtime = Arc::new(RuntimeRegistry::new());
     let publisher = Arc::new(ConfigPublisher::new(

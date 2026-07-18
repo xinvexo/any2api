@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
 use any2api_domain::{
-    ConfigRevision, ProviderEndpointId, ProviderEndpointValidationError, ProxyProfileId,
-    ProxyValidationError,
+    ConfigRevision, CredentialId, ProviderCredentialValidationError, ProviderEndpointId,
+    ProviderEndpointValidationError, ProxyProfileId, ProxyValidationError,
 };
 use thiserror::Error;
 
+use crate::provider_api_key::ProviderApiKeyValidationError;
 use crate::vault::SecretVaultError;
 
 #[derive(Debug, Error)]
@@ -35,6 +36,8 @@ pub enum StorageError {
     ProxyProtected,
     #[error("proxy profile is currently selected as the global proxy")]
     ProxyInUse,
+    #[error("proxy profile is referenced by a provider credential")]
+    ProxyReferenced,
     #[error("disabled proxy profile cannot be selected as global")]
     ProxyDisabled,
     #[error("proxy name is already in use")]
@@ -47,8 +50,24 @@ pub enum StorageError {
     ProviderEndpointVersionConflict { expected: u64, actual: u64 },
     #[error("provider endpoint name is already in use")]
     ProviderEndpointNameConflict,
+    #[error("provider endpoint is referenced by a provider credential")]
+    ProviderEndpointInUse,
+    #[error("provider endpoint identity cannot change while credentials exist")]
+    ProviderEndpointIdentityInUse,
     #[error("provider endpoint configuration is invalid: {0}")]
     ProviderEndpointValidation(#[from] ProviderEndpointValidationError),
+    #[error("provider credential was not found")]
+    ProviderCredentialNotFound(CredentialId),
+    #[error("provider credential version conflict")]
+    ProviderCredentialVersionConflict { expected: u64, actual: u64 },
+    #[error("provider credential secret version conflict")]
+    ProviderCredentialSecretVersionConflict { expected: u64, actual: u64 },
+    #[error("provider credential label is already in use for this endpoint")]
+    ProviderCredentialLabelConflict,
+    #[error("provider credential configuration is invalid: {0}")]
+    ProviderCredentialValidation(#[from] ProviderCredentialValidationError),
+    #[error("provider API Key is invalid: {0}")]
+    ProviderApiKeyValidation(#[from] ProviderApiKeyValidationError),
     #[error("stored proxy configuration is invalid")]
     CorruptConfiguration,
     #[error("secret vault initialization failed: {0}")]

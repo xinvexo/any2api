@@ -1,5 +1,8 @@
 mod error;
 mod loopback;
+mod no_store;
+mod provider_credential_dto;
+mod provider_credential_handlers;
 mod provider_endpoint_dto;
 mod provider_endpoint_handlers;
 mod proxy_dto;
@@ -32,6 +35,19 @@ pub(crate) fn routes() -> Router<AppState> {
             "/provider-endpoints/{id}",
             axum::routing::patch(provider_endpoint_handlers::update)
                 .delete(provider_endpoint_handlers::delete),
+        )
+        .route(
+            "/provider-endpoints/{endpoint_id}/credentials",
+            get(provider_credential_handlers::list).post(provider_credential_handlers::create),
+        )
+        .route(
+            "/provider-credentials/{id}",
+            axum::routing::patch(provider_credential_handlers::update)
+                .delete(provider_credential_handlers::delete),
+        )
+        .route(
+            "/provider-credentials/{id}/rotate-secret",
+            axum::routing::post(provider_credential_handlers::rotate_secret),
         )
         .fallback(error::not_found)
         .route_layer(middleware::from_fn(loopback::require_loopback))

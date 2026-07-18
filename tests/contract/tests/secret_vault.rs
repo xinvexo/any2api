@@ -16,6 +16,8 @@ async fn secret_envelope_survives_a_storage_restart() {
         CredentialId::new(),
         ProviderKind::Claude,
         CredentialKind::ApiKey,
+        1,
+        1,
     );
     let secret: SecretBytes = b"claude-provider-key".to_vec().into();
     let store = SqliteStore::connect_with_master_key(&database, &master_key)

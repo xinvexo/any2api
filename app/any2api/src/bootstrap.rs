@@ -25,6 +25,7 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         configuration.revision(),
         configuration.proxies().clone(),
         configuration.provider_endpoints().clone(),
+        configuration.provider_credentials().clone(),
     )));
     let runtime = Arc::new(RuntimeRegistry::new());
     let publisher = Arc::new(ConfigPublisher::new(

@@ -1,5 +1,6 @@
 use any2api_domain::{
-    ProxyConfiguration, ProxyDraft, ProxyProfile, ProxyProfileId, ProxyValidationError,
+    ProviderCredentialConfiguration, ProxyConfiguration, ProxyDraft, ProxyProfile, ProxyProfileId,
+    ProxyValidationError,
 };
 
 use crate::error::StorageError;
@@ -45,12 +46,13 @@ impl PreparedMutation {
 
 pub(crate) fn prepare_mutation(
     current: &ProxyConfiguration,
+    credentials: &ProviderCredentialConfiguration,
     mutation: ProxyMutation,
 ) -> Result<Option<PreparedMutation>, StorageError> {
     match mutation {
         ProxyMutation::Create { id, draft } => create(current, id, draft).map(Some),
         ProxyMutation::Update { id, draft } => update(current, id, draft),
-        ProxyMutation::Delete { id } => delete(current, id).map(Some),
+        ProxyMutation::Delete { id } => delete(current, credentials, id).map(Some),
         ProxyMutation::SetGlobal { id } => set_global(current, id),
     }
 }
@@ -110,6 +112,7 @@ fn update(
 
 fn delete(
     current: &ProxyConfiguration,
+    credentials: &ProviderCredentialConfiguration,
     id: ProxyProfileId,
 ) -> Result<PreparedMutation, StorageError> {
     let existing = current.get(id).ok_or(StorageError::ProxyNotFound(id))?;
@@ -118,6 +121,9 @@ fn delete(
     }
     if current.global_proxy_id() == id {
         return Err(StorageError::ProxyInUse);
+    }
+    if credentials.references_proxy(id) {
+        return Err(StorageError::ProxyReferenced);
     }
     let profiles = current
         .profiles()
