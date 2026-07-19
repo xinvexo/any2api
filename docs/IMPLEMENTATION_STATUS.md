@@ -6,7 +6,7 @@
 ## 当前状态
 
 - 当前阶段：阶段 2/3 交叉切片「同协议 JSON/SSE」；阶段 1 的 SettingRegistry、管理员认证和远程管理仍待完成。
-- 最近完成：Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
+- 最近完成：生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,7 +16,7 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 本切片提交主题：`feat: add count tokens auxiliary routing`。
+- 本切片提交主题：`feat: add bounded generation queue`。
 
 ## 已完成
 
@@ -163,7 +163,7 @@
 - Runtime 执行链按请求规划、单次 Attempt 和响应处理拆分；生产文件均保持单一职责，没有把网络、调度和响应过滤重新塞进中央文件。
 - 同负载轮询游标按 `ModelRoute + fallback tier` 隔离，并由 RuntimeRegistry 跨连续配置代际复用；删除后旧快照仍持有旧游标，新生命周期从零开始，避免跨 Route 偏斜和无效请求扰动。
 - 未知 `/v1/*`、已知路径的方法错误和普通公开路由现在经过同一 GatewayApiKey 鉴权层；上游认证头、Cookie、固定及动态 hop-by-hop 响应头不会返回客户端。
-- 该切片完成时只支持非流式 JSON；后续 SSE 切片已补齐 Responses 与 Messages 流式执行。自动重试、排队、冷却、健康和会话粘性仍未实现。
+- 该切片完成时只支持非流式 JSON；后续 SSE 与 QueueTicket 切片已补齐 Responses/Messages 流式执行和生成请求饱和等待。自动重试、冷却、健康和会话粘性仍未实现。
 - 模块测试与本地 HTTP 契约测试覆盖路径、认证头、客户端头剥离、出站 POST、模型替换、Compact 端点、敏感响应头过滤、fallback 鉴权、JSON 405 和 Route/tier 游标生命周期；Registry 契约从真实 App Composition Root 枚举全部 Adapter/Driver，避免生产漏注册仍通过测试。
 
 ### Count Tokens 辅助并发切片
@@ -171,7 +171,7 @@
 - `/v1/messages/count_tokens` 使用 Claude 同协议路由、Provider API Key、代理和模型别名，但不占用生成请求的 `in_flight/max_concurrency`。
 - 新增 RuntimeRegistry 级稳定 `AuxiliaryScheduler`；默认全局辅助并发为 `32`，单 Credential 为 `4`，强类型限制支持构造注入和运行时升降限，后续由 SettingRegistry 接管覆盖值。
 - 辅助选择与双层 Permit 取得在一个短 Mutex 临界区内完成；网络 I/O 不持锁。`AuxiliaryPermit` 固定取得时的 Credential generation，Drop 同时释放全局和单 Credential 计数并推进一次统一 epoch。
-- 辅助容量满载时当前立即返回 Anthropic 429，不建立独立等待队列，也不因 Route 的 `fallback_on_saturation` 溢出到下一 tier；统一等待将在 QueueTicket 切片接入。
+- 辅助容量满载时当前立即返回 Anthropic 429，不取得生成请求 QueueTicket，也不因 Route 的 `fallback_on_saturation` 溢出到下一 tier。
 - Claude Count Tokens 上游明确返回 404 时分类为 operation unavailable，并转换为脱敏 Anthropic 404 `not_found_error`，供 Claude Code 回退本地 Token 估算；其他上游错误仍遵循当前 502 边界。
 - 单元与契约测试覆盖全局/单 Credential 上限、与生成容量相互独立、动态降限、并发竞争、字段保留、模型改写、Provider 认证头、成功响应和 404 脱敏。
 
@@ -184,20 +184,30 @@
 - EOF、上游错误和客户端 Drop 都只释放一次 Permit；提交后的错误终止当前流，不自动切换 Credential、不拼接第二条流。
 - 模块、Driver/Adapter 契约和真实 chunked HTTP 测试覆盖 Codex/Claude 首帧增量、模型别名、流式响应头、Permit 生命周期与错误边界。
 
+### 生成请求有界 QueueTicket 切片
+
+- 普通 Responses、Responses Compact 与 Messages 请求在当前执行 tier 全部满载时，使用快照级 `QueuePolicy` 选择等待或立即拒绝；默认等待 30 秒、最多 128 个等待请求、默认不进入 fallback tier。
+- RuntimeRegistry 持有稳定 `QueueCoordinator` 和统一 `scheduler_epoch`；等待计数跨连续 PublishedSnapshot 复用但不持久化，进程重启后从零开始。
+- QueueTicket 使用 RAII 计数，成功、超时、取消和错误路径都会归还等待名额；队列已满返回 `local_concurrency_limit`。
+- 等待者先订阅 epoch，再重新执行完整 select-and-acquire；Permit 释放和配置发布推进 epoch，超时边界额外执行最后一次完整选择，避免丢失唤醒和边界误拒绝。
+- Route 显式 `fallback_on_saturation` 覆盖全局默认；开启时主 tier 满载可检查下一 tier，关闭时在主 tier 等待或拒绝。Count Tokens 仍使用独立辅助并发并立即拒绝。
+- QueuePolicy 按值捕获在 PublishedSnapshot 中；RuntimeRegistry 只提供启动默认值，未来 SettingRegistry 必须把已提交候选策略显式传入新快照，旧请求不会在等待中途混用新 revision 的策略。
+- 单元测试覆盖 Reject、queue-full、fallback、NoCandidates、Permit 释放重选、epoch 竞态、超时最终重选和取消计数；快照测试覆盖协调器复用与策略 revision 隔离。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求，但尚未覆盖健康熔断和管理面代理测试按钮。
-- ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求已实现；重试、排队与会话粘性仍未完成。
+- ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求与普通生成请求有界排队已实现；重试、冷却、健康和会话粘性仍未完成。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
-- 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
+- 运行态并发与生成请求等待计数已实现且只保存在内存；健康、冷却和会话仍未实现，进程重启后容量与队列状态从零开始。
 - Credential generation 已承载首版 API Key 认证材料；认证健康、模型健康和刷新锁仍未实现。
 - 当前 JSON/SSE vertical slice 尚未提供统一请求 deadline/read timeout；SSE 只对首帧提供 5 秒预提交超时，提交后的错误直接结束流。上游错误状态暂按脱敏 `502` envelope 返回，`Retry-After` 和精细错误状态留到可靠性切片。
 - Gateway 鉴权失败与方法错误当前使用管理面统一 JSON envelope；已认证的协议执行错误才由 Responses/Messages Adapter 编码，协议专用 401 envelope 留待公开错误适配切片。
 
 ## 下一步
 
-1. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
+1. 增加会话粘性、冷却、熔断与重试预算，并为固定会话等待加入优先级。
 2. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
 3. 补齐请求日志、Attempt、可观测性和 OAuth2 扩展边界。
 

@@ -10,6 +10,7 @@ use crate::{
     auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryScheduler},
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
+    queue::{QueueCoordinator, QueuePolicy},
     route_tier_cursor::{RouteTierCursorBindings, RouteTierCursorRegistry},
     scheduler_epoch::SchedulerEpoch,
 };
@@ -20,6 +21,8 @@ pub struct RuntimeRegistry {
     credentials: RwLock<HashMap<CredentialId, Arc<CredentialRuntimeHandle>>>,
     route_tier_cursors: RouteTierCursorRegistry,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
+    queue_coordinator: Arc<QueueCoordinator>,
+    queue_policy: QueuePolicy,
 }
 
 impl RuntimeRegistry {
@@ -30,12 +33,29 @@ impl RuntimeRegistry {
 
     #[must_use]
     pub fn with_auxiliary_limits(limits: AuxiliaryConcurrencyLimits) -> Self {
+        Self::with_scheduling_policies(limits, QueuePolicy::default())
+    }
+
+    #[must_use]
+    pub fn with_queue_policy(policy: QueuePolicy) -> Self {
+        Self::with_scheduling_policies(AuxiliaryConcurrencyLimits::default(), policy)
+    }
+
+    fn with_scheduling_policies(
+        auxiliary_limits: AuxiliaryConcurrencyLimits,
+        queue_policy: QueuePolicy,
+    ) -> Self {
         let scheduler_epoch = SchedulerEpoch::new();
         Self {
-            auxiliary_scheduler: AuxiliaryScheduler::new(limits, Arc::clone(&scheduler_epoch)),
-            scheduler_epoch,
+            auxiliary_scheduler: AuxiliaryScheduler::new(
+                auxiliary_limits,
+                Arc::clone(&scheduler_epoch),
+            ),
+            scheduler_epoch: Arc::clone(&scheduler_epoch),
             credentials: RwLock::new(HashMap::new()),
             route_tier_cursors: RouteTierCursorRegistry::default(),
+            queue_coordinator: QueueCoordinator::new(Arc::clone(&scheduler_epoch)),
+            queue_policy,
         }
     }
 
@@ -51,6 +71,16 @@ impl RuntimeRegistry {
     /// scheduler epoch is advanced when the effective limits change.
     pub fn update_auxiliary_limits(&self, limits: AuxiliaryConcurrencyLimits) {
         self.auxiliary_scheduler.update_limits(limits);
+    }
+
+    #[must_use]
+    pub const fn queue_policy(&self) -> QueuePolicy {
+        self.queue_policy
+    }
+
+    #[must_use]
+    pub fn queue_waiting_count(&self) -> u32 {
+        self.queue_coordinator.waiting_count()
     }
 
     #[must_use]
@@ -127,6 +157,10 @@ impl RuntimeRegistry {
 
     pub(crate) fn auxiliary_scheduler(&self) -> Arc<AuxiliaryScheduler> {
         Arc::clone(&self.auxiliary_scheduler)
+    }
+
+    pub(crate) fn queue_coordinator(&self) -> Arc<QueueCoordinator> {
+        Arc::clone(&self.queue_coordinator)
     }
 }
 

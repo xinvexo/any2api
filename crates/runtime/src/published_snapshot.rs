@@ -13,6 +13,7 @@ use crate::{
     auxiliary_scheduler::AuxiliaryScheduler,
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
+    queue::{QueueCoordinator, QueuePolicy},
     registry::RuntimeRegistry,
     route_tier_cursor::{RouteTierCursorBinding, RouteTierCursorBindings},
 };
@@ -29,11 +30,22 @@ pub struct PublishedSnapshot {
     credential_runtimes: CredentialRuntimeBindings,
     route_tier_cursors: RouteTierCursorBindings,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
+    queue_coordinator: Arc<QueueCoordinator>,
+    queue_policy: QueuePolicy,
 }
 
 impl PublishedSnapshot {
     #[must_use]
     pub fn new(configuration: StoredConfiguration, runtime: &RuntimeRegistry) -> Self {
+        Self::new_with_queue_policy(configuration, runtime, runtime.queue_policy())
+    }
+
+    #[must_use]
+    pub(crate) fn new_with_queue_policy(
+        configuration: StoredConfiguration,
+        runtime: &RuntimeRegistry,
+        queue_policy: QueuePolicy,
+    ) -> Self {
         let parts = configuration.into_parts();
         let auth_materials =
             CredentialAuthMaterials::from_stored(parts.provider_credential_secrets);
@@ -41,6 +53,7 @@ impl PublishedSnapshot {
             runtime.reconcile_configuration(&parts.provider_credentials, auth_materials);
         let route_tier_cursors = runtime.reconcile_route_tier_cursors(&parts.model_routes);
         let auxiliary_scheduler = runtime.auxiliary_scheduler();
+        let queue_coordinator = runtime.queue_coordinator();
         Self {
             revision: parts.revision,
             proxies: parts.proxies,
@@ -52,6 +65,8 @@ impl PublishedSnapshot {
             credential_runtimes,
             route_tier_cursors,
             auxiliary_scheduler,
+            queue_coordinator,
+            queue_policy,
         }
     }
 
@@ -119,6 +134,15 @@ impl PublishedSnapshot {
 
     pub(crate) const fn auxiliary_scheduler(&self) -> &Arc<AuxiliaryScheduler> {
         &self.auxiliary_scheduler
+    }
+
+    #[must_use]
+    pub(crate) const fn queue_policy(&self) -> QueuePolicy {
+        self.queue_policy
+    }
+
+    pub(crate) const fn queue_coordinator(&self) -> &Arc<QueueCoordinator> {
+        &self.queue_coordinator
     }
 
     #[must_use]

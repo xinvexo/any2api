@@ -1,5 +1,6 @@
 mod planning;
 mod response;
+mod selection;
 mod stream;
 mod upstream;
 
@@ -97,7 +98,8 @@ impl PublicRequestService {
             request,
             adapter.as_ref(),
             self.providers.as_ref(),
-        )?;
+        )
+        .await?;
         if planned.decoded.stream {
             let response = upstream::execute_stream_attempt(
                 snapshot.as_ref(),

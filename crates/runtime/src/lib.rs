@@ -11,6 +11,7 @@ mod provider_api_key_secret;
 mod public_request;
 mod published_snapshot;
 mod publisher;
+mod queue;
 mod registry;
 mod route_candidates;
 mod route_tier_cursor;
@@ -26,5 +27,7 @@ mod credential_runtime_tests;
 mod gateway_api_key_publisher_tests;
 #[cfg(test)]
 mod model_route_publisher_tests;
+#[cfg(test)]
+mod published_snapshot_tests;
 #[cfg(test)]
 mod publisher_tests;

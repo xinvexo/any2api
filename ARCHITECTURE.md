@@ -1201,6 +1201,8 @@ max_waiting_requests
 }
 ```
 
+首个 QueueTicket 可运行切片固定以下边界：生成请求在当前最低可执行 tier 全部满载时，按当前 `PublishedSnapshot` 捕获的 `QueuePolicy` 选择等待或立即拒绝；等待者通过跨快照复用的 `QueueCoordinator` 取得有界 RAII Ticket，先订阅统一 epoch，再重新执行完整选择。Permit 释放、配置发布或显式调度状态变化推进 epoch；超时边界执行最后一次完整选择，取消、超时、错误和成功都由 Drop 归还等待名额。Route 的 `fallback_on_saturation` 覆盖全局默认，允许主 tier 满载时进入下一 tier；`/v1/messages/count_tokens` 仍使用独立辅助并发并立即拒绝，不进入生成队列。硬/软粘性优先级、冷却到期定时唤醒和 SettingRegistry/Web 覆盖属于后续切片。
+
 ### 12.5 稳定 RuntimeRegistry
 
 `PublishedSnapshot` 只保存不可变配置、网关鉴权快照和稳定运行时句柄，不直接拥有会在热更新时重建的计数器。
@@ -1221,6 +1223,7 @@ RuntimeRegistry
 - `CredentialRuntimeHandle` 内部通过 `ArcSwap<CredentialGenerationRuntime>` 指向当前代际；
 - Endpoint、Proxy 健康状态按配置版本隔离；
 - 热更新不得把共享 `in_flight` 重置为零，但修改 URL、Secret、ProviderKind 等身份字段时必须创建新的健康代际；
+- `QueueCoordinator` 与 waiting count 跨 PublishedSnapshot 复用；`QueuePolicy` 按值进入具体快照，同一请求在整个等待期只使用其已持有 revision 的策略，禁止从共享可变对象读取新 revision 的队列参数；
 - 删除的对象标记为 `retired`，立即从新快照候选中移除；
 - 旧请求和 Permit 释放最后一个引用后再回收 retired 对象；
 - 进程重启时创建全新的 Registry，所有运行态从空状态开始。
@@ -1606,6 +1609,8 @@ effective_value = user_override.unwrap_or(compiled_default)
 ```
 
 Web 必须同时显示默认值、覆盖值和当前生效值，并提供“恢复默认”操作。恢复默认表示删除覆盖记录。版本升级不得覆盖用户已有覆盖值；未覆盖的设置自动采用新版本默认值。所有修改仍通过 ConfigPublisher 校验和热更新。
+
+QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；旧快照继续持有旧策略。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止让一个已开始的请求在等待中途混用两个配置 revision。辅助并发属于稳定 Runtime 句柄的动态容量参数，仍通过 prepared reconcile 更新并由统一 epoch 唤醒。
 
 #### 会话粘性默认值
 
