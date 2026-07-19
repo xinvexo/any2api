@@ -2,12 +2,16 @@ use std::sync::Arc;
 
 use any2api_runtime::api::{ConfigPublisher, PublicRequestService, RuntimeRegistry, SnapshotStore};
 
+use crate::admin_auth::{AdminAuthService, AdminNetworkPolicy};
+
 #[derive(Clone)]
 pub struct AppState {
     snapshots: Arc<SnapshotStore>,
     runtime: Arc<RuntimeRegistry>,
     publisher: Arc<ConfigPublisher>,
     public_requests: Option<Arc<PublicRequestService>>,
+    admin_auth: Option<Arc<AdminAuthService>>,
+    admin_network: Arc<AdminNetworkPolicy>,
 }
 
 impl AppState {
@@ -22,12 +26,25 @@ impl AppState {
             runtime,
             publisher,
             public_requests: None,
+            admin_auth: None,
+            admin_network: Arc::new(AdminNetworkPolicy::default()),
         }
     }
 
     #[must_use]
     pub fn with_public_requests(mut self, public_requests: Arc<PublicRequestService>) -> Self {
         self.public_requests = Some(public_requests);
+        self
+    }
+
+    #[must_use]
+    pub fn with_admin_auth(
+        mut self,
+        admin_auth: Arc<AdminAuthService>,
+        admin_network: AdminNetworkPolicy,
+    ) -> Self {
+        self.admin_auth = Some(admin_auth);
+        self.admin_network = Arc::new(admin_network);
         self
     }
 
@@ -49,5 +66,15 @@ impl AppState {
     #[must_use]
     pub fn public_requests(&self) -> Option<&PublicRequestService> {
         self.public_requests.as_deref()
+    }
+
+    #[must_use]
+    pub fn admin_auth(&self) -> Option<&AdminAuthService> {
+        self.admin_auth.as_deref()
+    }
+
+    #[must_use]
+    pub fn admin_network(&self) -> &AdminNetworkPolicy {
+        &self.admin_network
     }
 }

@@ -5,7 +5,7 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性切片已完成；管理员认证和远程管理、历史请求日志持久化与 OAuth2 仍待完成。
+- 当前阶段：阶段 4 可靠性切片与单管理员远程 HTTP 认证切片已完成；历史请求日志持久化、内建 TLS、管理员密码轮换与 OAuth2 仍待完成。
 - 最近完成：进程内软/硬会话粘性、固定 Credential 等待优先级、粘性管理 API 与 Web 页面、scheduler/affinity SettingRegistry、生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理、`/v1/models` 已发布模型目录，以及错误分类、冷却、熔断和提交前多 Attempt 重试。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
@@ -233,13 +233,27 @@
 - 新增运行时虚拟时间、熔断滑动窗口、健康代际隔离测试，以及真实发布快照上的连接前切换、Ambiguous 不重试、429 冷却/Retry-After、硬粘性不切换、Attempt/切换预算和 SSE 首帧边界契约测试。
 - 为遵守文件职责门禁，`credential_runtime`、健康 Runtime、请求选择和上游 Attempt 已拆为 generation/capacity、credential/endpoint/proxy/attempt、fixed/generation/auxiliary、prepared/buffered/streaming/failure 等模块；架构检查不依赖临时 allowlist。
 
+### 单管理员认证与远程 HTTP 管理切片
+
+- 新增 SQLite `admin_credentials` singleton 表，只保存 Argon2id PHC 摘要；重复初始化使用数据库唯一约束保护，进程重启后可重新加载摘要。
+- 首次管理员初始化仅允许 loopback `POST /api/admin/auth/setup`，并要求输入启动终端显示的 256 位一次性 Setup Token；Token 不持久化、不由 API 返回，成功后立即失效。也可在首次启动通过 `ANY2API_ADMIN_PASSWORD` 完成；已有摘要时环境变量不会在线轮换密码。
+- 新增认证 API：`GET /api/admin/auth/session`、`POST /api/admin/auth/setup`、`POST /api/admin/auth/login`、`POST /api/admin/auth/logout`。
+- 登录签发 256 位随机服务端会话和独立 CSRF Token；会话、登录失败窗口与 CSRF 状态只保存在内存。Cookie 固定为 `HttpOnly`、`SameSite=Strict`、`Path=/api/admin`，可信 HTTPS 连接额外设置 `Secure`。
+- Setup/登录 Argon2id 使用随 blocking 任务存活的有界 Permit；请求取消不会放大并发哈希或跳过登录失败记账。
+- 受保护管理写请求统一检查会话 Cookie 与 `X-CSRF-Token`；`GatewayApiKey` 仍不能登录管理面。未注入认证服务的嵌入测试 Router 只保留 loopback-only 门禁，正式 Composition Root 始终注入认证服务。
+- 全部 `/api/admin` 响应统一设置 `Cache-Control: no-store` 与 `Vary: Cookie`，登出后不会从浏览器或共享反代复用旧配置响应。
+- 新增 `admin.remote_enabled`、会话 idle/absolute timeout、登录失败窗口与最大失败次数五项 SettingRegistry 设置；Web 显示默认/覆盖/生效值并支持热更新。
+- `ANY2API_TRUSTED_PROXY_CIDRS` 显式配置可信反代网段；只有命中网段的 TCP 对端才解析唯一且合法的 `X-Forwarded-For` 与 `X-Forwarded-Proto`。来源链从右向左剥离可信代理，缺头、重复头和客户端预置 loopback 欺骗均 Fail-Closed。
+- React 新增首启 Setup、登录、会话恢复、登出、CSRF 自动注入和明文远程 HTTP 持续警告；远程登录前即提示密码传输风险，受保护请求收到 401 响应头时立即关闭管理面并清空 Query/Mutation Cache。
+- 当前切片直接支持远程 HTTP 与外部 TLS 终止；内建 Rustls listener、标准 `Forwarded` 头解析、管理员密码在线轮换和 OAuth2 JSON 上传仍未实现。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；健康熔断已接入数据面，管理面代理测试按钮仍未完成。
 - ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
-- 当前实现 affinity、scheduler、retry、cooldown、breaker 共三十项 SettingRegistry；请求日志/文件日志保留设置仍未接入统一注册表。
-- 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
+- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker 共三十五项 SettingRegistry；请求日志/文件日志保留设置仍未接入统一注册表。
+- 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
 - 当前 JSON/SSE vertical slice 尚未提供统一的上游 read timeout；JSON 多 Attempt 共享可靠性绝对预算，SSE 首帧仍使用 5 秒预提交超时，提交后的错误直接结束流。Attempt 历史尚未写入 SQLite。
@@ -247,8 +261,8 @@
 
 ## 下一步
 
-1. 实现单管理员认证与可选 HTTP/HTTPS 远程管理，并保留明文 HTTP 的明确风险提示。
-2. 接入 RequestLog/Attempt 有界遥测队列、SQLite 历史保留和日志 SettingRegistry；不把历史日志用于启动恢复。
+1. 接入 RequestLog/Attempt 有界遥测队列、SQLite 历史保留和日志 SettingRegistry；不把历史日志用于启动恢复。
+2. 补齐内建 Rustls HTTPS listener、标准 `Forwarded` 可信来源解析和管理员密码在线轮换。
 3. 补齐代理认证字段、管理面代理测试按钮和 OAuth2 Provider 专用 JSON 导入/刷新扩展。
 
 ## 验证结果

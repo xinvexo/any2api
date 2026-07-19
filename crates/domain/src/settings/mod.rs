@@ -1,3 +1,4 @@
+mod admin_settings;
 mod affinity_settings;
 mod configuration;
 mod definition;
@@ -7,6 +8,7 @@ mod reliability_settings;
 mod scheduler_settings;
 mod value;
 
+pub use admin_settings::AdminSettings;
 pub use affinity_settings::AffinitySettings;
 pub use configuration::{SettingOverrides, SettingsConfiguration};
 pub use definition::{SettingApplyMode, SettingDefinition, SettingValueType};

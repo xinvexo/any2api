@@ -1,6 +1,11 @@
 import type { SettingItem, SettingValue, SettingValueType } from "../api/settings-contracts";
 
 const labels: Record<string, string> = {
+  "admin.remote_enabled": "允许远程管理",
+  "admin.session.idle_timeout": "会话空闲超时",
+  "admin.session.absolute_timeout": "会话绝对超时",
+  "admin.login.failure_window": "登录失败窗口",
+  "admin.login.max_failures": "最大登录失败次数",
   "affinity.soft.enabled": "启用软粘性",
   "affinity.soft.mode": "软粘性模式",
   "affinity.soft.ttl": "软绑定 TTL",

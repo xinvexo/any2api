@@ -1,5 +1,8 @@
 pub mod api;
 
+mod admin_credential_repository;
+#[cfg(test)]
+mod admin_credential_repository_tests;
 mod configuration;
 mod configuration_repository;
 mod error;

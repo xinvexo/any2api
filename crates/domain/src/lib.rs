@@ -64,9 +64,9 @@ pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};
 pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};
 pub use settings::{
-    AffinityMode, AffinitySettings, ReliabilitySettings, SaturationMode, SchedulerSettings,
-    SettingApplyMode, SettingDefinition, SettingKey, SettingOverrides, SettingValue,
-    SettingValueType, SettingsConfiguration, SettingsValidationError,
+    AdminSettings, AffinityMode, AffinitySettings, ReliabilitySettings, SaturationMode,
+    SchedulerSettings, SettingApplyMode, SettingDefinition, SettingKey, SettingOverrides,
+    SettingValue, SettingValueType, SettingsConfiguration, SettingsValidationError,
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,

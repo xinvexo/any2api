@@ -1,11 +1,17 @@
 use super::{SettingDefinition, SettingKey};
 
+mod admin;
 mod affinity;
 mod reliability;
 mod scheduler;
 
 pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
     match key {
+        SettingKey::AdminRemoteEnabled
+        | SettingKey::AdminSessionIdleTimeout
+        | SettingKey::AdminSessionAbsoluteTimeout
+        | SettingKey::AdminLoginFailureWindow
+        | SettingKey::AdminLoginMaxFailures => admin::definition(key),
         SettingKey::AffinitySoftEnabled
         | SettingKey::AffinitySoftMode
         | SettingKey::AffinitySoftTtl

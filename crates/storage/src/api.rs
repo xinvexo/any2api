@@ -1,3 +1,4 @@
+pub use crate::admin_credential_repository::{AdminCredentialRepository, StoredAdminCredential};
 pub use crate::configuration::{StoredConfiguration, StoredConfigurationParts};
 pub use crate::configuration_repository::ConfigurationRepository;
 pub use crate::error::StorageError;

@@ -5,6 +5,14 @@ export interface JsonRequestOptions {
   body?: unknown;
 }
 
+export const ADMIN_SESSION_EXPIRED_EVENT = "any2api:admin-session-expired";
+
+let adminCsrfToken: string | null = null;
+
+export function setAdminCsrfToken(value: string | null) {
+  adminCsrfToken = value;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -38,15 +46,24 @@ export async function requestJson<T>(
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
     }
+    if (requiresAdminCsrf(path, method) && adminCsrfToken) {
+      headers["X-CSRF-Token"] = adminCsrfToken;
+    }
     const response = await fetch(path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: "same-origin",
       signal: controller.signal,
     });
 
+    if (response.status === 401 && isProtectedAdminRequest(path)) {
+      expireAdminSession();
+    }
+
     if (!response.ok) {
-      throw await readApiError(response, controller.signal);
+      const error = await readApiError(response, controller.signal);
+      throw error;
     }
     if (response.status === 204) {
       return undefined as T;
@@ -62,6 +79,29 @@ export async function requestJson<T>(
     window.clearTimeout(timeout);
     signal?.removeEventListener("abort", forwardAbort);
   }
+}
+
+function expireAdminSession() {
+  setAdminCsrfToken(null);
+  window.dispatchEvent(new Event(ADMIN_SESSION_EXPIRED_EVENT));
+}
+
+function isProtectedAdminRequest(path: string) {
+  return (
+    path.startsWith("/api/admin/") &&
+    ![
+      "/api/admin/auth/session",
+      "/api/admin/auth/setup",
+      "/api/admin/auth/login",
+    ].includes(path)
+  );
+}
+
+function requiresAdminCsrf(path: string, method: string) {
+  return (
+    path.startsWith("/api/admin/") &&
+    !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())
+  );
 }
 
 export function getJson<T>(path: string, options: JsonRequestOptions = {}) {

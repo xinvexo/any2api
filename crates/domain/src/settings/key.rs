@@ -2,6 +2,11 @@ use super::{SettingDefinition, definitions};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SettingKey {
+    AdminRemoteEnabled,
+    AdminSessionIdleTimeout,
+    AdminSessionAbsoluteTimeout,
+    AdminLoginFailureWindow,
+    AdminLoginMaxFailures,
     AffinitySoftEnabled,
     AffinitySoftMode,
     AffinitySoftTtl,
@@ -35,7 +40,12 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 35] = [
+        Self::AdminRemoteEnabled,
+        Self::AdminSessionIdleTimeout,
+        Self::AdminSessionAbsoluteTimeout,
+        Self::AdminLoginFailureWindow,
+        Self::AdminLoginMaxFailures,
         Self::AffinitySoftEnabled,
         Self::AffinitySoftMode,
         Self::AffinitySoftTtl,
@@ -70,6 +80,11 @@ impl SettingKey {
 
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::AdminRemoteEnabled => "admin.remote_enabled",
+            Self::AdminSessionIdleTimeout => "admin.session.idle_timeout",
+            Self::AdminSessionAbsoluteTimeout => "admin.session.absolute_timeout",
+            Self::AdminLoginFailureWindow => "admin.login.failure_window",
+            Self::AdminLoginMaxFailures => "admin.login.max_failures",
             Self::AffinitySoftEnabled => "affinity.soft.enabled",
             Self::AffinitySoftMode => "affinity.soft.mode",
             Self::AffinitySoftTtl => "affinity.soft.ttl",

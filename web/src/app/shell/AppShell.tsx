@@ -1,15 +1,17 @@
-import { Menu, Network, X } from "lucide-react";
+import { LogOut, Menu, Network, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
 import { navigationItems } from "@/app/navigation";
 import { ThemeSelector } from "@/app/theme/ThemeSelector";
 import { useThemeMode } from "@/app/theme/useThemeMode";
+import { AdminSecurityBanner, useAdminAuth } from "@/features/admin-auth";
 import { cn } from "@/shared/lib/cn";
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [themeMode, setThemeMode] = useThemeMode();
+  const adminAuth = useAdminAuth();
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
   const previousPath = useRef(location.pathname);
@@ -38,7 +40,13 @@ export function AppShell() {
             <Navigation compact />
           </div>
           <div className="ml-auto hidden xl:block">
-            <ThemeSelector mode={themeMode} onModeChange={setThemeMode} />
+            <div className="flex items-center gap-2">
+              <ThemeSelector mode={themeMode} onModeChange={setThemeMode} />
+              <LogoutButton
+                pending={adminAuth.submitting}
+                onLogout={() => void adminAuth.logout()}
+              />
+            </div>
           </div>
           <button
             type="button"
@@ -62,6 +70,11 @@ export function AppShell() {
             <Navigation onNavigate={() => setMobileOpen(false)} />
             <div className="mt-4 border-t border-subtle pt-4">
               <ThemeSelector mode={themeMode} onModeChange={setThemeMode} />
+              <LogoutButton
+                className="mt-3 w-full"
+                pending={adminAuth.submitting}
+                onLogout={() => void adminAuth.logout()}
+              />
             </div>
           </div>
         </div>
@@ -70,6 +83,7 @@ export function AppShell() {
       <p className="sr-only" aria-live="polite">
         当前页面：{pageTitle}
       </p>
+      <AdminSecurityBanner />
       <main
         id="main-content"
         ref={mainRef}
@@ -81,6 +95,31 @@ export function AppShell() {
         </div>
       </main>
     </div>
+  );
+}
+
+function LogoutButton({
+  className,
+  pending,
+  onLogout,
+}: {
+  className?: string;
+  pending: boolean;
+  onLogout: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-control px-3 text-sm font-medium text-secondary hover:bg-surface-hover hover:text-primary disabled:opacity-50",
+        className,
+      )}
+      disabled={pending}
+      onClick={onLogout}
+    >
+      <LogOut size={16} aria-hidden="true" />
+      退出
+    </button>
   );
 }
 

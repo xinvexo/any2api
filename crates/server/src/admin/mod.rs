@@ -1,5 +1,10 @@
+mod access;
 mod affinity_dto;
 mod affinity_handlers;
+mod auth_cookie;
+mod auth_dto;
+mod auth_handlers;
+mod auth_middleware;
 mod error;
 mod gateway_api_key_dto;
 mod gateway_api_key_handlers;
@@ -17,12 +22,32 @@ mod revision;
 mod settings_dto;
 mod settings_handlers;
 
-use axum::{Router, middleware, routing::get};
+use axum::{
+    Router, middleware,
+    routing::{get, post},
+};
 
 use crate::state::AppState;
 
-pub(crate) fn routes() -> Router<AppState> {
+pub(crate) fn routes(state: AppState) -> Router<AppState> {
+    let auth = Router::new()
+        .route("/auth/session", get(auth_handlers::session))
+        .route("/auth/setup", post(auth_handlers::setup))
+        .route("/auth/login", post(auth_handlers::login));
+    let protected = protected_routes().route_layer(middleware::from_fn_with_state(
+        state,
+        auth_middleware::require_admin_session,
+    ));
     Router::new()
+        .merge(auth)
+        .merge(protected)
+        .fallback(error::not_found)
+        .layer(middleware::from_fn(no_store::responses))
+}
+
+fn protected_routes() -> Router<AppState> {
+    Router::new()
+        .route("/auth/logout", post(auth_handlers::logout))
         .route(
             "/affinity",
             get(affinity_handlers::get).delete(affinity_handlers::clear_all),
@@ -94,6 +119,4 @@ pub(crate) fn routes() -> Router<AppState> {
             "/settings/{key}",
             axum::routing::patch(settings_handlers::update).delete(settings_handlers::reset),
         )
-        .fallback(error::not_found)
-        .route_layer(middleware::from_fn(loopback::require_loopback))
 }

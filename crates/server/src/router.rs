@@ -19,7 +19,7 @@ pub fn build_router(state: AppState, web_root: impl Into<PathBuf>) -> Router {
 fn build_api_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health))
-        .nest("/admin", admin::routes())
+        .nest("/admin", admin::routes(state.clone()))
         .fallback(api_not_found)
         .with_state(state)
 }

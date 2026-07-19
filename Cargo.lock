@@ -53,7 +53,10 @@ dependencies = [
  "any2api-storage",
  "any2api-transport",
  "anyhow",
+ "async-trait",
  "axum",
+ "ipnet",
+ "secrecy",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -77,6 +80,7 @@ dependencies = [
  "futures-util",
  "http",
  "http-body-util",
+ "ipnet",
  "secrecy",
  "serde_json",
  "tempfile",
@@ -151,9 +155,17 @@ version = "0.1.0"
 dependencies = [
  "any2api-domain",
  "any2api-runtime",
+ "argon2",
+ "async-trait",
  "axum",
+ "base64",
+ "getrandom 0.4.3",
+ "ipnet",
  "serde",
  "serde_json",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
  "tower-http",
  "tracing",
 ]
@@ -220,6 +232,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "argon2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072"
+dependencies = [
+ "base64ct",
+ "blake2",
+ "cpufeatures 0.2.17",
+ "password-hash",
 ]
 
 [[package]]
@@ -325,6 +349,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 dependencies = [
  "serde_core",
+]
+
+[[package]]
+name = "blake2"
+version = "0.10.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
@@ -1702,6 +1735,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1f2a05b18d44e2957b88f96ba460715e295bc1d7510468a2f3d3b44535d26c24"
 dependencies = [
  "regex",
+]
+
+[[package]]
+name = "password-hash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
+dependencies = [
+ "base64ct",
+ "rand_core 0.6.4",
+ "subtle",
 ]
 
 [[package]]

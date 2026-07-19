@@ -1,4 +1,5 @@
 mod adapters;
+mod admin_auth_adapter;
 mod bootstrap;
 mod settings;
 mod shutdown;

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    AffinitySettings, ReliabilitySettings, SchedulerSettings, SettingKey, SettingValue,
-    SettingsValidationError, value::validate_value,
+    AdminSettings, AffinitySettings, ReliabilitySettings, SchedulerSettings, SettingKey,
+    SettingValue, SettingsValidationError, value::validate_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -51,6 +51,7 @@ pub struct SettingsConfiguration {
     scheduler: SchedulerSettings,
     affinity: AffinitySettings,
     reliability: ReliabilitySettings,
+    admin: AdminSettings,
 }
 
 impl SettingsConfiguration {
@@ -58,11 +59,13 @@ impl SettingsConfiguration {
         let scheduler = SchedulerSettings::from_overrides(&overrides)?;
         let affinity = AffinitySettings::from_overrides(&overrides)?;
         let reliability = ReliabilitySettings::from_overrides(&overrides)?;
+        let admin = AdminSettings::from_overrides(&overrides)?;
         Ok(Self {
             overrides,
             scheduler,
             affinity,
             reliability,
+            admin,
         })
     }
 
@@ -81,6 +84,10 @@ impl SettingsConfiguration {
 
     pub const fn reliability(&self) -> &ReliabilitySettings {
         &self.reliability
+    }
+
+    pub const fn admin(&self) -> &AdminSettings {
+        &self.admin
     }
 
     pub const fn overrides(&self) -> &SettingOverrides {
@@ -126,6 +133,11 @@ mod tests {
         assert_eq!(settings.reliability().precommit_total_budget_ms(), 20_000);
         assert_eq!(settings.reliability().endpoint_failure_threshold(), 3);
         assert_eq!(settings.reliability().proxy_open_duration_ms(), 30_000);
+        assert!(!settings.admin().remote_enabled());
+        assert_eq!(settings.admin().session_idle_timeout_ms(), 43_200_000);
+        assert_eq!(settings.admin().session_absolute_timeout_ms(), 604_800_000);
+        assert_eq!(settings.admin().login_failure_window_ms(), 900_000);
+        assert_eq!(settings.admin().login_max_failures(), 5);
         assert!(
             SettingKey::ALL
                 .into_iter()
