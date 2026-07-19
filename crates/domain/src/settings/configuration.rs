@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    AffinitySettings, SchedulerSettings, SettingKey, SettingValue, SettingsValidationError,
-    value::validate_value,
+    AffinitySettings, ReliabilitySettings, SchedulerSettings, SettingKey, SettingValue,
+    SettingsValidationError, value::validate_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -50,16 +50,19 @@ pub struct SettingsConfiguration {
     overrides: SettingOverrides,
     scheduler: SchedulerSettings,
     affinity: AffinitySettings,
+    reliability: ReliabilitySettings,
 }
 
 impl SettingsConfiguration {
     pub fn from_overrides(overrides: SettingOverrides) -> Result<Self, SettingsValidationError> {
         let scheduler = SchedulerSettings::from_overrides(&overrides)?;
         let affinity = AffinitySettings::from_overrides(&overrides)?;
+        let reliability = ReliabilitySettings::from_overrides(&overrides)?;
         Ok(Self {
             overrides,
             scheduler,
             affinity,
+            reliability,
         })
     }
 
@@ -74,6 +77,10 @@ impl SettingsConfiguration {
 
     pub const fn affinity(&self) -> &AffinitySettings {
         &self.affinity
+    }
+
+    pub const fn reliability(&self) -> &ReliabilitySettings {
+        &self.reliability
     }
 
     pub const fn overrides(&self) -> &SettingOverrides {
@@ -113,6 +120,12 @@ mod tests {
         assert_eq!(settings.affinity().hard_ttl_ms(), 86_400_000);
         assert_eq!(settings.affinity().soft_prefer_wait_timeout_ms(), 2_000);
         assert_eq!(settings.affinity().fixed_wait_timeout_ms(), 30_000);
+        assert_eq!(settings.reliability().max_total_attempts(), 3);
+        assert_eq!(settings.reliability().max_credential_switches(), 2);
+        assert_eq!(settings.reliability().max_same_credential_retries(), 1);
+        assert_eq!(settings.reliability().precommit_total_budget_ms(), 20_000);
+        assert_eq!(settings.reliability().endpoint_failure_threshold(), 3);
+        assert_eq!(settings.reliability().proxy_open_duration_ms(), 30_000);
         assert!(
             SettingKey::ALL
                 .into_iter()
@@ -162,6 +175,20 @@ mod tests {
         assert_eq!(
             settings.effective_value(SettingKey::AffinitySoftMode),
             SettingValue::AffinityMode(AffinityMode::Strict)
+        );
+    }
+
+    #[test]
+    fn reliability_rejects_an_inverted_delay_range() {
+        let overrides = SettingOverrides::from_entries([
+            (SettingKey::RetryBaseDelay, SettingValue::DurationMs(2_000)),
+            (SettingKey::RetryMaxDelay, SettingValue::DurationMs(250)),
+        ])
+        .expect("individual values are valid");
+
+        assert_eq!(
+            SettingsConfiguration::from_overrides(overrides),
+            Err(SettingsValidationError::InvalidCombination)
         );
     }
 }

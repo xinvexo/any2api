@@ -46,7 +46,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(12));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(30));
     let soft_mode = find_setting(&initial, "affinity.soft.mode");
     assert_eq!(soft_mode["value_type"], "enum");
     assert_eq!(soft_mode["default_value"], "prefer");
@@ -70,6 +70,14 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
             .as_str()
             .is_some_and(|value| !value.is_empty())
     );
+    let attempts = find_setting(&initial, "retry.max_total_attempts");
+    assert_eq!(attempts["default_value"], 3);
+    assert_eq!(attempts["min_value"], 1);
+    assert_eq!(attempts["max_value"], 10);
+    assert_eq!(attempts["web_group"], "重试预算");
+    let endpoint_window = find_setting(&initial, "breaker.endpoint.failure_window");
+    assert_eq!(endpoint_window["value_type"], "duration_ms");
+    assert_eq!(endpoint_window["default_value"], 30_000);
 
     let (status, updated) = request_json(
         app.clone(),

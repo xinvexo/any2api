@@ -2,9 +2,13 @@ pub mod api;
 
 mod api_key;
 mod claude;
+mod claude_error;
 mod codex;
+mod codex_error;
 mod error;
+mod http_error;
 mod registry;
+mod retry_after;
 mod secret;
 
 pub use claude::ClaudeDriver;

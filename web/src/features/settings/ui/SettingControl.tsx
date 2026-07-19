@@ -86,7 +86,11 @@ export function SettingControl({
         onChange={(event) => onChange(event.target.value)}
       />
       <span className="shrink-0 text-xs text-tertiary">
-        {item.valueType === "duration_ms" ? "毫秒" : "并发/请求"}
+        {item.valueType === "duration_ms"
+          ? "毫秒"
+          : item.key === "retry.jitter_ratio"
+            ? "%"
+            : "数量"}
       </span>
     </div>
   );

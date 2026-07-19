@@ -5,6 +5,48 @@ pub const MAX_SETTING_COUNT: u64 = 100_000;
 pub const MAX_SETTING_AUXILIARY: u64 = 10_000;
 pub const MAX_AFFINITY_TTL_MS: u64 = 2_592_000_000;
 
+pub(super) const fn definition(
+    key: SettingKey,
+    value_type: SettingValueType,
+    default: SettingValue,
+    bounds: (Option<SettingValue>, Option<SettingValue>),
+    allowed_values: &'static [&'static str],
+    presentation: (&'static str, &'static str),
+) -> SettingDefinition {
+    SettingDefinition {
+        key,
+        value_type,
+        default,
+        min: bounds.0,
+        max: bounds.1,
+        allowed_values,
+        apply_mode: SettingApplyMode::HotReload,
+        web_group: presentation.0,
+        description: presentation.1,
+    }
+}
+
+pub(super) const fn duration_definition(
+    key: SettingKey,
+    default: u64,
+    min: u64,
+    max: u64,
+    web_group: &'static str,
+    description: &'static str,
+) -> SettingDefinition {
+    definition(
+        key,
+        SettingValueType::DurationMs,
+        SettingValue::DurationMs(default),
+        (
+            Some(SettingValue::DurationMs(min)),
+            Some(SettingValue::DurationMs(max)),
+        ),
+        &[],
+        (web_group, description),
+    )
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SettingValueType {
     Boolean,

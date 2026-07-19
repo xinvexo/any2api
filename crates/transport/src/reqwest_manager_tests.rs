@@ -16,7 +16,7 @@ use crate::{
     ReqwestTransportManager,
     api::EndpointNetworkPolicy,
     api::{TransportManager, TransportManagerConfig, TransportRequest},
-    error::TransportErrorStage,
+    error::{TransportErrorStage, TransportFailureScope},
 };
 
 #[tokio::test]
@@ -61,6 +61,7 @@ async fn direct_transport_rejects_private_origin_without_endpoint_authorization(
     };
 
     assert_eq!(error.stage, TransportErrorStage::Dns);
+    assert_eq!(error.failure_scope, TransportFailureScope::Endpoint);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
     assert!(
         tokio::time::timeout(Duration::from_millis(100), origin.accept())
@@ -138,6 +139,7 @@ async fn unavailable_explicit_proxy_fails_closed_without_reaching_origin() {
     };
 
     assert_eq!(error.stage, TransportErrorStage::ProxyHandshake);
+    assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
     assert!(
         connect_request

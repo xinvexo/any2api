@@ -194,6 +194,10 @@ function configuration(revision: number, timeoutOverride: number | null = null) 
       setting("scheduler.fallback_on_saturation", "boolean", false, null, null),
       setting("scheduler.auxiliary_global_concurrency", "integer", 32, null, null, 1, 10_000),
       setting("scheduler.auxiliary_per_credential_concurrency", "integer", 4, null, null, 1, 10_000),
+      setting("retry.max_total_attempts", "integer", 3, null, null, 1, 10),
+      setting("retry.jitter_ratio", "integer", 20, null, null, 0, 100),
+      setting("cooldown.rate_limit_fallback", "duration_ms", 60_000, null, null, 1, 86_400_000),
+      setting("breaker.endpoint.failure_threshold", "integer", 3, null, null, 1, 100),
     ],
   };
 }

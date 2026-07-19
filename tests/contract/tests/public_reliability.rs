@@ -1,0 +1,553 @@
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
+
+use any2api_domain::{
+    CredentialId, CredentialKind, FallbackTier, MaxConcurrency, ModelRouteDraft, ModelRouteId,
+    ProtocolDialect, ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyProfileId, RetrySafety, SaturationMode, SettingKey,
+    SettingValue,
+};
+use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
+use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
+use any2api_runtime::api::{
+    ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublicResponse,
+    PublicResponseBody, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
+};
+use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_transport::api::{
+    BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope, TransportManager,
+    TransportRequest, TransportResponse,
+};
+use async_trait::async_trait;
+use bytes::Bytes;
+use futures_util::stream;
+use http::{HeaderMap, HeaderValue, StatusCode, header};
+use serde_json::{Value, json};
+use tempfile::TempDir;
+
+#[tokio::test]
+async fn definitely_not_sent_failure_switches_to_another_credential() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::Error(TransportError::new(
+            TransportErrorStage::Tcp,
+            TransportFailureScope::Endpoint,
+            RetrySafety::DefinitelyNotSent,
+            "connection refused",
+        )),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"retry-ok","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["retry-model"], &[]).await;
+
+    let response = execute_json(&harness, "retry-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let calls = transport.calls();
+    assert_eq!(calls.len(), 2);
+    assert_ne!(calls[0].uri, calls[1].uri);
+    assert_ne!(calls[0].authorization, calls[1].authorization);
+}
+
+#[tokio::test]
+async fn ambiguous_transport_failure_is_not_retried() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::Error(TransportError::new(
+            TransportErrorStage::AwaitHeaders,
+            TransportFailureScope::Endpoint,
+            RetrySafety::Ambiguous,
+            "response lost",
+        )),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"must-not-run","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["ambiguous-model"], &[]).await;
+
+    let response = execute_json(&harness, "ambiguous-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(transport.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
+    let mut retry_after = HeaderMap::new();
+    retry_after.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::json_with_headers(
+            StatusCode::TOO_MANY_REQUESTS,
+            retry_after,
+            r#"{"error":{"type":"rate_limit_error"}}"#,
+        ),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"other-ok","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 1, &["limited-model", "other-model"], &[]).await;
+
+    let limited = execute_json(&harness, "limited-model", json!({"input":"one"})).await;
+    assert_eq!(limited.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(limited.headers()[header::RETRY_AFTER], "5");
+
+    let limited_again = execute_json(&harness, "limited-model", json!({"input":"two"})).await;
+    assert_eq!(limited_again.status(), StatusCode::TOO_MANY_REQUESTS);
+    let retry_seconds = limited_again.headers()[header::RETRY_AFTER]
+        .to_str()
+        .expect("retry-after header")
+        .parse::<u64>()
+        .expect("retry-after seconds");
+    assert!((1..=5).contains(&retry_seconds));
+    assert_eq!(transport.calls().len(), 1);
+
+    let other = execute_json(&harness, "other-model", json!({"input":"three"})).await;
+    assert_eq!(other.status(), StatusCode::OK);
+    assert_eq!(transport.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn hard_affinity_failure_never_switches_credentials() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"hard-id","model":"upstream","output":[]}"#,
+        ),
+        ScriptStep::Error(TransportError::new(
+            TransportErrorStage::Tcp,
+            TransportFailureScope::Endpoint,
+            RetrySafety::DefinitelyNotSent,
+            "bound target unavailable",
+        )),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"wrong-target","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["hard-model"], &[]).await;
+
+    let first = execute_json(&harness, "hard-model", json!({"input":"start"})).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_auth = transport.calls()[0].authorization.clone();
+
+    let second = execute_json(
+        &harness,
+        "hard-model",
+        json!({"previous_response_id":"hard-id","input":"continue"}),
+    )
+    .await;
+
+    assert_eq!(second.status(), StatusCode::BAD_GATEWAY);
+    let calls = transport.calls();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[1].authorization, first_auth);
+}
+
+#[tokio::test]
+async fn total_attempt_budget_stops_before_a_fourth_attempt() {
+    let transport = Arc::new(ScriptedTransport::new([
+        failure_step(),
+        failure_step(),
+        failure_step(),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"must-not-run","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 4, &["budget-model"], &[]).await;
+
+    let response = execute_json(&harness, "budget-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(transport.calls().len(), 3);
+}
+
+#[tokio::test]
+async fn credential_switch_budget_stops_before_switching_again() {
+    let transport = Arc::new(ScriptedTransport::new([
+        failure_step(),
+        failure_step(),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"must-not-run","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(
+        transport.clone(),
+        3,
+        &["switch-model"],
+        &[(
+            SettingKey::RetryMaxCredentialSwitches,
+            SettingValue::Integer(1),
+        )],
+    )
+    .await;
+
+    let response = execute_json(&harness, "switch-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(transport.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn sse_first_frame_failure_does_not_start_a_second_stream() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::stream_error(TransportError::new(
+            TransportErrorStage::ReadBody,
+            TransportFailureScope::Endpoint,
+            RetrySafety::Ambiguous,
+            "stream ended before first event",
+        )),
+        ScriptStep::stream(
+            r#"event: response.created\ndata: {\"response\":{\"id\":\"wrong-stream\"}}\n\n"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["stream-model"], &[]).await;
+
+    let response = execute_json(
+        &harness,
+        "stream-model",
+        json!({"input":"hello","stream":true}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(transport.calls().len(), 1);
+}
+
+fn failure_step() -> ScriptStep {
+    ScriptStep::Error(TransportError::new(
+        TransportErrorStage::Tcp,
+        TransportFailureScope::Endpoint,
+        RetrySafety::DefinitelyNotSent,
+        "test connection failure",
+    ))
+}
+
+struct Harness {
+    _directory: TempDir,
+    snapshot: Arc<PublishedSnapshot>,
+    service: Arc<PublicRequestService>,
+}
+
+async fn harness(
+    transport: Arc<ScriptedTransport>,
+    endpoint_count: usize,
+    models: &[&str],
+    overrides: &[(SettingKey, SettingValue)],
+) -> Harness {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("config.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let configuration = storage.load_configuration().await.expect("configuration");
+    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
+        configuration,
+        runtime.as_ref(),
+    )));
+    let publisher = ConfigPublisher::new(
+        Arc::clone(&storage),
+        Arc::clone(&snapshots),
+        Arc::clone(&runtime),
+    );
+    let mut published = snapshots.load();
+    for (key, value) in default_overrides()
+        .into_iter()
+        .chain(overrides.iter().cloned())
+    {
+        published = publisher
+            .set_setting_override(published.revision(), key, value)
+            .await
+            .expect("setting override");
+    }
+
+    let mut endpoint_ids = Vec::with_capacity(endpoint_count);
+    for index in 0..endpoint_count {
+        let endpoint_id = ProviderEndpointId::new();
+        let endpoint = publisher
+            .create_provider_endpoint(
+                published.revision(),
+                endpoint_id,
+                ProviderEndpointDraft::new(
+                    format!("Endpoint {index}"),
+                    ProviderKind::Codex,
+                    format!("https://upstream-{index}.example.com/v1"),
+                    ProtocolDialect::OpenAiResponses,
+                    false,
+                    false,
+                    true,
+                )
+                .expect("endpoint draft"),
+            )
+            .await
+            .expect("endpoint publish");
+        let credential_id = CredentialId::new();
+        published = publisher
+            .create_provider_credential(
+                endpoint.revision(),
+                credential_id,
+                endpoint_id,
+                ProviderCredentialDraft::new(
+                    format!("Credential {index}"),
+                    CredentialKind::ApiKey,
+                    ProxyProfileId::DIRECT,
+                    MaxConcurrency::new(2).expect("max concurrency"),
+                    true,
+                )
+                .expect("credential draft"),
+                ProviderApiKeySecret::new(format!("sk-reliability-{index}")),
+            )
+            .await
+            .expect("credential publish");
+        endpoint_ids.push(endpoint_id);
+    }
+
+    for model in models {
+        let targets = endpoint_ids
+            .iter()
+            .enumerate()
+            .map(|(index, endpoint_id)| {
+                any2api_domain::RouteTargetDraft::new(
+                    any2api_domain::RouteTargetId::new(),
+                    *endpoint_id,
+                    format!("upstream-{model}-{index}"),
+                    FallbackTier::new(0),
+                    true,
+                )
+                .expect("route target")
+            })
+            .collect();
+        published = publisher
+            .create_model_route(
+                published.revision(),
+                ModelRouteId::new(),
+                ModelRouteDraft::new(
+                    *model,
+                    ProtocolDialect::OpenAiResponses,
+                    None,
+                    true,
+                    targets,
+                )
+                .expect("route draft"),
+            )
+            .await
+            .expect("route publish");
+    }
+
+    let mut protocols = ProtocolRegistry::new();
+    protocols
+        .register(Arc::new(OpenAiResponsesAdapter::new()))
+        .expect("responses adapter");
+    protocols
+        .register(Arc::new(AnthropicMessagesAdapter::new()))
+        .expect("messages adapter");
+    let mut providers = ProviderRegistry::new();
+    providers
+        .register(Arc::new(CodexDriver::new()))
+        .expect("codex driver");
+    providers
+        .register(Arc::new(ClaudeDriver::new()))
+        .expect("claude driver");
+    let transport_manager: Arc<dyn TransportManager> = transport;
+    let service = Arc::new(
+        PublicRequestService::new(Arc::new(protocols), Arc::new(providers), transport_manager)
+            .expect("public request service"),
+    );
+    Harness {
+        _directory: directory,
+        snapshot: published,
+        service,
+    }
+}
+
+fn default_overrides() -> Vec<(SettingKey, SettingValue)> {
+    vec![
+        (
+            SettingKey::SchedulerOnSaturated,
+            SettingValue::Saturation(SaturationMode::Reject),
+        ),
+        (SettingKey::RetryBaseDelay, SettingValue::DurationMs(0)),
+        (SettingKey::RetryMaxDelay, SettingValue::DurationMs(0)),
+        (SettingKey::RetryJitterRatio, SettingValue::Integer(0)),
+        (
+            SettingKey::AffinityFixedWaitTimeout,
+            SettingValue::DurationMs(1),
+        ),
+        (
+            SettingKey::RetryPrecommitTotalBudget,
+            SettingValue::DurationMs(1_000),
+        ),
+    ]
+}
+
+async fn execute_json(harness: &Harness, model: &str, extra: Value) -> TestResponse {
+    let mut body = extra;
+    body["model"] = Value::String(model.to_owned());
+    let response = harness
+        .service
+        .execute(
+            Arc::clone(&harness.snapshot),
+            PublicRequest {
+                operation: ProtocolOperation::Responses,
+                headers: HeaderMap::new(),
+                body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
+            },
+        )
+        .await;
+    TestResponse::from(response)
+}
+
+struct TestResponse {
+    status: StatusCode,
+    headers: HeaderMap,
+    body: Value,
+}
+
+impl From<PublicResponse> for TestResponse {
+    fn from(response: PublicResponse) -> Self {
+        let body = match response.body {
+            PublicResponseBody::Buffered(body) => {
+                serde_json::from_slice(&body).expect("JSON response body")
+            }
+            PublicResponseBody::Streaming(_) => panic!("test expected buffered response"),
+        };
+        Self {
+            status: response.status,
+            headers: response.headers,
+            body,
+        }
+    }
+}
+
+impl TestResponse {
+    fn status(&self) -> StatusCode {
+        self.status
+    }
+
+    fn headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+}
+
+#[derive(Clone, Debug)]
+struct TransportCall {
+    uri: String,
+    authorization: Option<String>,
+}
+
+enum ScriptStep {
+    Error(TransportError),
+    Json {
+        status: StatusCode,
+        headers: HeaderMap,
+        body: Bytes,
+    },
+    Stream {
+        body: Bytes,
+    },
+    StreamError(TransportError),
+}
+
+impl ScriptStep {
+    fn json(status: StatusCode, body: &'static str) -> Self {
+        Self::Json {
+            status,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(body.as_bytes()),
+        }
+    }
+
+    fn json_with_headers(status: StatusCode, headers: HeaderMap, body: &'static str) -> Self {
+        Self::Json {
+            status,
+            headers,
+            body: Bytes::from_static(body.as_bytes()),
+        }
+    }
+
+    fn stream(body: &'static str) -> Self {
+        Self::Stream {
+            body: Bytes::from_static(body.as_bytes()),
+        }
+    }
+
+    fn stream_error(error: TransportError) -> Self {
+        Self::StreamError(error)
+    }
+}
+
+struct ScriptedTransport {
+    steps: Mutex<VecDeque<ScriptStep>>,
+    calls: Mutex<Vec<TransportCall>>,
+}
+
+impl ScriptedTransport {
+    fn new(steps: impl IntoIterator<Item = ScriptStep>) -> Self {
+        Self {
+            steps: Mutex::new(steps.into_iter().collect()),
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn calls(&self) -> Vec<TransportCall> {
+        self.calls.lock().expect("calls lock").clone()
+    }
+}
+
+#[async_trait]
+impl TransportManager for ScriptedTransport {
+    async fn execute(
+        &self,
+        _proxy: &any2api_domain::ProxyProfile,
+        request: TransportRequest,
+    ) -> Result<TransportResponse, TransportError> {
+        self.calls.lock().expect("calls lock").push(TransportCall {
+            uri: request.uri.to_string(),
+            authorization: request
+                .headers
+                .get(header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+        });
+        let step = self.steps.lock().expect("steps lock").pop_front();
+        match step.expect("scripted transport step") {
+            ScriptStep::Error(error) => Err(error),
+            ScriptStep::Json {
+                status,
+                headers,
+                body,
+            } => Ok(TransportResponse {
+                status,
+                headers,
+                body: boxed_body(stream::iter([Ok(body)])),
+            }),
+            ScriptStep::Stream { body } => Ok(TransportResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: boxed_body(stream::iter([Ok(body)])),
+            }),
+            ScriptStep::StreamError(error) => Ok(TransportResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: boxed_body(stream::iter([Err(error)])),
+            }),
+        }
+    }
+}
+
+fn boxed_body<S>(stream: S) -> BoxByteStream
+where
+    S: futures_util::Stream<Item = Result<Bytes, TransportError>> + Send + 'static,
+{
+    Box::pin(stream)
+}

@@ -1,6 +1,7 @@
 mod affinity;
 mod planning;
 mod response;
+mod retry;
 mod selection;
 mod stream;
 mod upstream;
@@ -101,32 +102,21 @@ impl PublicRequestService {
             self.providers.as_ref(),
         )
         .await?;
-        if planned.decoded.stream {
-            let response = upstream::execute_stream_attempt(
-                snapshot.as_ref(),
-                adapter,
-                planned,
-                self.providers.as_ref(),
-                self.transport.as_ref(),
-            )
-            .await?;
-            return Ok(response);
-        }
-        let response = upstream::execute_attempt(
-            snapshot.as_ref(),
-            adapter.as_ref(),
+        retry::execute(
+            snapshot,
+            adapter,
             planned,
             self.providers.as_ref(),
             self.transport.as_ref(),
         )
-        .await?;
-        Ok(response.into())
+        .await
     }
 }
 
 pub(super) struct SelectedCandidate {
     pub(super) candidate: RouteCandidate,
     pub(super) permit: RequestPermit,
+    pub(super) health: crate::health::AttemptHealth,
 }
 
 pub(super) enum RequestPermit {

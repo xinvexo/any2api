@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, ErrorClass, MaxConcurrency, ProtocolDialect,
+    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
     ProtocolOperation, ProviderBaseUrl, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId, ProviderKind, ProxyProfileId,
+    ProviderEndpointId, ProviderKind, ProxyProfileId, RetrySafety, UpstreamErrorClassification,
+    UpstreamErrorKind,
 };
 use any2api_provider::api::{
     CapabilitySet, CredentialHeaders, EndpointPlan, ProviderDriver, ProviderError, ProviderSecret,
@@ -195,8 +196,8 @@ impl ProviderDriver for HeaderEchoDriver {
         _operation: ProtocolOperation,
         _meta: &UpstreamResponseMeta,
         _bounded_body: &[u8],
-    ) -> ErrorClass {
-        ErrorClass::Upstream
+    ) -> UpstreamErrorClassification {
+        UpstreamErrorClassification::new(UpstreamErrorKind::Unknown, RetrySafety::Ambiguous, None)
     }
 }
 

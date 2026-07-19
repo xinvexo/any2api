@@ -88,7 +88,7 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
 
     fn error_response(&self, error: &PublicError) -> EgressResponse {
         let error_type = error_type(error.code);
-        json_response(
+        let mut response = json_response(
             public_error_status(error.code),
             json!({
                 "type": "error",
@@ -97,7 +97,9 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
                     "message": error.message
                 }
             }),
-        )
+        );
+        insert_retry_after(&mut response.headers, error.retry_after_seconds);
+        response
     }
 }
 
@@ -143,6 +145,14 @@ fn json_response(status: StatusCode, value: serde_json::Value) -> EgressResponse
         status,
         headers,
         body: Bytes::from(serde_json::to_vec(&value).expect("JSON value encodes")),
+    }
+}
+
+fn insert_retry_after(headers: &mut HeaderMap, seconds: Option<u64>) {
+    if let Some(seconds) = seconds
+        && let Ok(value) = HeaderValue::from_str(&seconds.to_string())
+    {
+        headers.insert(header::RETRY_AFTER, value);
     }
 }
 

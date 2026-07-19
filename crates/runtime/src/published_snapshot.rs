@@ -14,6 +14,7 @@ use crate::{
     auxiliary_scheduler::AuxiliaryScheduler,
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
+    health::{HealthBindings, ReliabilityPolicy},
     queue::{QueueCoordinator, QueuePolicy},
     registry::RuntimeRegistry,
     route_tier_cursor::{RouteTierCursorBinding, RouteTierCursorBindings},
@@ -36,6 +37,8 @@ pub struct PublishedSnapshot {
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
     queue_coordinator: Arc<QueueCoordinator>,
     queue_policy: QueuePolicy,
+    health: HealthBindings,
+    reliability_policy: ReliabilityPolicy,
 }
 
 impl PublishedSnapshot {
@@ -50,6 +53,8 @@ impl PublishedSnapshot {
         let credential_runtimes =
             runtime.reconcile_configuration(&parts.provider_credentials, auth_materials);
         let route_tier_cursors = runtime.reconcile_route_tier_cursors(&parts.model_routes);
+        let health = runtime.reconcile_health(&parts.provider_endpoints, &parts.proxies);
+        let reliability_policy = ReliabilityPolicy::from_settings(parts.settings.reliability());
         let auxiliary_scheduler = runtime.auxiliary_scheduler();
         let queue_coordinator = runtime.queue_coordinator();
         let affinity_registry = runtime.affinity_registry();
@@ -69,6 +74,8 @@ impl PublishedSnapshot {
             auxiliary_scheduler,
             queue_coordinator,
             queue_policy,
+            health,
+            reliability_policy,
         }
     }
 
@@ -159,6 +166,24 @@ impl PublishedSnapshot {
 
     pub(crate) const fn queue_coordinator(&self) -> &Arc<QueueCoordinator> {
         &self.queue_coordinator
+    }
+
+    pub(crate) const fn reliability_policy(&self) -> ReliabilityPolicy {
+        self.reliability_policy
+    }
+
+    pub(crate) fn endpoint_health(
+        &self,
+        id: any2api_domain::ProviderEndpointId,
+    ) -> Option<&Arc<crate::health::EndpointHealthRuntime>> {
+        self.health.endpoint(id)
+    }
+
+    pub(crate) fn proxy_health(
+        &self,
+        id: any2api_domain::ProxyProfileId,
+    ) -> Option<&Arc<crate::health::ProxyHealthRuntime>> {
+        self.health.proxy(id)
     }
 
     #[must_use]

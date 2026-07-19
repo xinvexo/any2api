@@ -15,13 +15,13 @@ use any2api_protocol::{
     SseDecoder,
     api::{ProtocolAdapter, SseFrame},
 };
-use any2api_transport::api::BoxByteStream;
+use any2api_transport::api::{BoxByteStream, TransportFailureScope};
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use tokio::time::timeout;
 
 use super::{PublicResponseStream, RequestPermit, response::public_error};
-use crate::affinity::HardAffinityCommitter;
+use crate::{affinity::HardAffinityCommitter, health::AttemptHealth};
 
 const PRECOMMIT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -55,6 +55,7 @@ pub(super) struct GuardedBody {
     pending: VecDeque<Bytes>,
     pending_error: Option<io::Error>,
     permit: Option<RequestPermit>,
+    health: Option<AttemptHealth>,
     hard_affinity: HardAffinityCommitter,
     cancellation: CancellationToken,
     state: CommitState,
@@ -67,6 +68,7 @@ impl GuardedBody {
         adapter: Arc<dyn ProtocolAdapter>,
         public_model: impl Into<String>,
         permit: RequestPermit,
+        health: Option<AttemptHealth>,
         hard_affinity: HardAffinityCommitter,
     ) -> Self {
         Self {
@@ -77,6 +79,7 @@ impl GuardedBody {
             pending: VecDeque::new(),
             pending_error: None,
             permit: Some(permit),
+            health,
             hard_affinity,
             cancellation: CancellationToken::default(),
             state: CommitState::Pending,
@@ -104,6 +107,9 @@ impl GuardedBody {
             }
         }
         if self.pending.is_empty() {
+            if let Some(health) = self.health.take() {
+                health.transport_failure(TransportFailureScope::Endpoint);
+            }
             self.finish();
             return Err(public_error(
                 PublicErrorCode::UpstreamError,
@@ -113,6 +119,9 @@ impl GuardedBody {
                     "upstream stream ended before the first event"
                 },
             ));
+        }
+        if let Some(health) = self.health.take() {
+            health.success();
         }
         Ok(Box::pin(self))
     }
@@ -177,6 +186,7 @@ impl GuardedBody {
         self.state = CommitState::Finished;
         self.cancellation.cancel();
         self.permit.take();
+        self.health.take();
     }
 
     #[cfg(test)]

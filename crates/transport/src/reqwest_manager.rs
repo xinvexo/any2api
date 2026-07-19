@@ -12,7 +12,9 @@ use crate::{
         TransportResponse,
     },
     client_cache::ClientCache,
-    error::{TransportConfigurationError, TransportError, TransportErrorStage},
+    error::{
+        TransportConfigurationError, TransportError, TransportErrorStage, TransportFailureScope,
+    },
     origin_resolution::{ResolvedOrigin, resolve_origin},
     proxy_url::proxy_url,
 };
@@ -109,7 +111,7 @@ impl ReqwestTransportManager {
         resolved_origin: Option<&ResolvedOrigin>,
     ) -> Result<Arc<Client>, TransportError> {
         if !profile.enabled() {
-            return Err(TransportError::proxy_unavailable(
+            return Err(TransportError::configuration(
                 "configured proxy is disabled",
             ));
         }
@@ -137,26 +139,41 @@ impl ReqwestTransportManager {
         })
     }
 
-    fn map_send_error(&self, profile: &ProxyProfile, error: reqwest::Error) -> TransportError {
+    fn map_send_error(
+        &self,
+        profile: &ProxyProfile,
+        proxy_connection_is_verifiable: bool,
+        error: reqwest::Error,
+    ) -> TransportError {
         if error.is_connect() {
             if profile.kind() == ProxyKind::Direct {
                 TransportError::new(
                     TransportErrorStage::Tcp,
+                    TransportFailureScope::Endpoint,
                     any2api_domain::RetrySafety::DefinitelyNotSent,
                     "direct connection failed",
                 )
-            } else {
+            } else if proxy_connection_is_verifiable {
                 TransportError::proxy_unavailable("configured proxy connection failed")
+            } else {
+                TransportError::new(
+                    TransportErrorStage::ProxyHandshake,
+                    TransportFailureScope::Unattributed,
+                    any2api_domain::RetrySafety::DefinitelyNotSent,
+                    "proxied connection failed",
+                )
             }
         } else if error.is_timeout() {
             TransportError::new(
                 TransportErrorStage::AwaitHeaders,
+                failure_scope_for_unverified_path(profile),
                 any2api_domain::RetrySafety::Ambiguous,
                 "upstream response headers timed out",
             )
         } else {
             TransportError::new(
                 TransportErrorStage::AwaitHeaders,
+                failure_scope_for_unverified_path(profile),
                 any2api_domain::RetrySafety::Ambiguous,
                 "upstream request failed before response headers",
             )
@@ -178,6 +195,9 @@ impl TransportManager for ReqwestTransportManager {
         request: TransportRequest,
     ) -> Result<TransportResponse, TransportError> {
         validate_uri(&request.uri)?;
+        let proxy_connection_is_verifiable =
+            proxy.kind() == ProxyKind::Http && request.uri.scheme_str() == Some("http");
+        let body_failure_scope = failure_scope_for_unverified_path(proxy);
         let resolved_origin =
             resolve_origin(&request.uri, request.network_policy, proxy.kind()).await?;
         let client = self.client_for_resolved(proxy, resolved_origin.as_ref())?;
@@ -187,13 +207,14 @@ impl TransportManager for ReqwestTransportManager {
             .body(request.body)
             .send()
             .await
-            .map_err(|error| self.map_send_error(proxy, error))?;
+            .map_err(|error| self.map_send_error(proxy, proxy_connection_is_verifiable, error))?;
         let status = response.status();
         let headers = response.headers().clone();
-        let body: BoxByteStream = Box::pin(response.bytes_stream().map(|result| {
+        let body: BoxByteStream = Box::pin(response.bytes_stream().map(move |result| {
             result.map_err(|_| {
                 TransportError::new(
                     TransportErrorStage::ReadBody,
+                    body_failure_scope,
                     any2api_domain::RetrySafety::Ambiguous,
                     "upstream response body read failed",
                 )
@@ -229,7 +250,7 @@ fn build_client(
     }
     if let Some(url) = proxy_url(profile)? {
         let proxy = Proxy::all(url.as_str())
-            .map_err(|_| TransportError::proxy_unavailable("configured proxy URL is invalid"))?;
+            .map_err(|_| TransportError::configuration("configured proxy URL is invalid"))?;
         builder = builder.proxy(proxy);
     }
     builder.build().map_err(|_| {
@@ -239,6 +260,7 @@ fn build_client(
             } else {
                 TransportErrorStage::ProxyHandshake
             },
+            TransportFailureScope::Unattributed,
             any2api_domain::RetrySafety::DefinitelyNotSent,
             "transport client construction failed",
         )
@@ -250,8 +272,17 @@ fn validate_uri(uri: &Uri) -> Result<(), TransportError> {
         Some("http" | "https") => Ok(()),
         _ => Err(TransportError::new(
             TransportErrorStage::WriteRequest,
+            TransportFailureScope::Unattributed,
             any2api_domain::RetrySafety::DefinitelyNotSent,
             "transport only supports HTTP and HTTPS upstream URIs",
         )),
+    }
+}
+
+fn failure_scope_for_unverified_path(profile: &ProxyProfile) -> TransportFailureScope {
+    if profile.kind() == ProxyKind::Direct {
+        TransportFailureScope::Endpoint
+    } else {
+        TransportFailureScope::Unattributed
     }
 }

@@ -122,6 +122,8 @@ pub enum SettingsValidationError {
     InvalidEnum,
     #[error("setting value is outside its allowed range")]
     OutOfRange,
+    #[error("setting values form an invalid combination")]
+    InvalidCombination,
 }
 
 pub(super) fn validate_value(

@@ -6,7 +6,9 @@ use any2api_domain::{
     ProviderEndpointId, ProxyProfileId, PublicErrorCode, RetrySafety, RouteTargetId,
 };
 use any2api_protocol::OpenAiResponsesAdapter;
-use any2api_transport::api::{BoxByteStream, TransportError, TransportErrorStage};
+use any2api_transport::api::{
+    BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
+};
 use bytes::Bytes;
 use futures_util::{StreamExt, stream};
 
@@ -82,6 +84,7 @@ async fn transport_error_before_the_first_frame_releases_without_commit() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::iter([Err(TransportError::new(
         TransportErrorStage::ReadBody,
+        TransportFailureScope::Endpoint,
         RetrySafety::Ambiguous,
         "test precommit failure",
     ))]));
@@ -102,6 +105,7 @@ async fn post_commit_error_releases_without_emitting_another_upstream() {
         Ok(Bytes::from_static(b"data: {\"model\":\"upstream\"}\n\n")),
         Err(TransportError::new(
             TransportErrorStage::ReadBody,
+            TransportFailureScope::Endpoint,
             RetrySafety::Ambiguous,
             "test body failure",
         )),
@@ -141,6 +145,7 @@ fn guarded_body(
         Arc::new(OpenAiResponsesAdapter::new()),
         "public",
         RequestPermit::Generation(permit),
+        None,
         hard_affinity,
     )
 }

@@ -1,44 +1,35 @@
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+mod auxiliary;
+mod fixed;
+mod generation;
 
-use any2api_domain::{FallbackTier, ModelRouteId, ProtocolOperation, PublicError, PublicErrorCode};
-use tokio::time::{Instant, timeout};
+use std::{collections::BTreeMap, time::Duration};
 
+#[cfg(test)]
+use std::sync::Arc;
+
+use any2api_domain::{ModelRouteId, ProtocolOperation, PublicError, PublicErrorCode};
+use tokio::time::Instant;
+
+#[cfg(test)]
+use super::RequestPermit;
 use super::{
-    RequestPermit, SelectedCandidate,
+    SelectedCandidate,
     response::{internal_error, public_error},
 };
+#[cfg(test)]
 use crate::{
-    auxiliary_scheduler::{AuxiliaryScheduler, AuxiliarySelectAndAcquireResult},
+    auxiliary_scheduler::AuxiliaryScheduler,
+    queue::{QueueCoordinator, QueuePolicy},
+};
+use crate::{
     published_snapshot::PublishedSnapshot,
-    queue::{QueueCoordinator, QueuePolicy, SaturationAction},
-    route_candidates::RouteCandidate,
-    scheduler::{IndexedSelectAndAcquireResult, select_index_and_try_acquire},
+    route_candidates::{CandidateExclusions, RouteCandidate},
 };
 
-pub(super) async fn select_candidate(
-    snapshot: &PublishedSnapshot,
-    operation: ProtocolOperation,
-    route_id: ModelRouteId,
-    fallback_on_saturation: bool,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-) -> Result<SelectedCandidate, PublicError> {
-    if operation == ProtocolOperation::MessagesCountTokens {
-        return select_auxiliary_candidate(snapshot, route_id, tiers);
-    }
-
-    let try_select =
-        || try_select_generation_candidate(snapshot, route_id, fallback_on_saturation, tiers);
-    select_generation_candidate(
-        snapshot.queue_coordinator(),
-        snapshot.queue_policy(),
-        try_select,
-    )
-    .await
-}
-
-enum GenerationSelection {
-    Acquired(SelectedCandidate),
+pub(super) enum GenerationSelection {
+    Acquired(Box<SelectedCandidate>),
     AtCapacity,
+    TemporarilyUnavailable(Instant),
     NoCandidates,
 }
 
@@ -46,6 +37,7 @@ enum GenerationSelection {
 pub(super) enum FixedSelectionError {
     QueueFull,
     Timeout,
+    Unavailable,
     Internal,
 }
 
@@ -54,9 +46,42 @@ impl FixedSelectionError {
         match self {
             Self::QueueFull => capacity_error("request queue is full"),
             Self::Timeout => capacity_error("bound credential is at capacity"),
+            Self::Unavailable => public_error(
+                PublicErrorCode::SessionBindingLost,
+                "session binding is unavailable",
+            ),
             Self::Internal => internal_error(),
         }
     }
+}
+
+pub(super) async fn select_candidate(
+    snapshot: &PublishedSnapshot,
+    operation: ProtocolOperation,
+    route_id: ModelRouteId,
+    fallback_on_saturation: bool,
+    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
+    exclusions: &CandidateExclusions,
+) -> Result<SelectedCandidate, PublicError> {
+    if operation == ProtocolOperation::MessagesCountTokens {
+        return auxiliary::select(snapshot, route_id, tiers, exclusions);
+    }
+
+    let try_select = || {
+        generation::try_select(
+            snapshot,
+            route_id,
+            fallback_on_saturation,
+            tiers,
+            exclusions,
+        )
+    };
+    generation::select_with_queue(
+        snapshot.queue_coordinator(),
+        snapshot.queue_policy(),
+        try_select,
+    )
+    .await
 }
 
 pub(super) async fn select_fixed_candidate(
@@ -64,202 +89,43 @@ pub(super) async fn select_fixed_candidate(
     candidate: &RouteCandidate,
     wait_timeout: Duration,
 ) -> Result<SelectedCandidate, FixedSelectionError> {
-    if let Some(permit) = candidate.binding.try_acquire_fixed() {
-        return Ok(fixed_selected(candidate, permit));
-    }
-    let Some(ticket) = snapshot
-        .queue_coordinator()
-        .try_ticket(snapshot.queue_policy().max_waiting_requests())
-    else {
-        return Err(FixedSelectionError::QueueFull);
-    };
-    let mut changes = ticket.subscribe();
-    let _fixed_waiter = candidate.binding.register_fixed_waiter();
-    let started_at = Instant::now();
-
-    loop {
-        let _observed_epoch = *changes.borrow_and_update();
-        if let Some(permit) = candidate.binding.try_acquire_fixed() {
-            return Ok(fixed_selected(candidate, permit));
-        }
-        let remaining = wait_timeout.saturating_sub(Instant::now().duration_since(started_at));
-        if remaining.is_zero() {
-            return candidate
-                .binding
-                .try_acquire_fixed()
-                .map(|permit| fixed_selected(candidate, permit))
-                .ok_or(FixedSelectionError::Timeout);
-        }
-        match timeout(remaining, changes.changed()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(_)) => return Err(FixedSelectionError::Internal),
-            Err(_) => {
-                return candidate
-                    .binding
-                    .try_acquire_fixed()
-                    .map(|permit| fixed_selected(candidate, permit))
-                    .ok_or(FixedSelectionError::Timeout);
-            }
-        }
-    }
+    fixed::select(snapshot, candidate, wait_timeout).await
 }
 
-fn fixed_selected(
-    candidate: &RouteCandidate,
-    permit: crate::credential_runtime::ConcurrencyPermit,
-) -> SelectedCandidate {
-    SelectedCandidate {
-        candidate: candidate.clone(),
-        permit: RequestPermit::Generation(permit),
-    }
-}
-
-fn try_select_generation_candidate(
-    snapshot: &PublishedSnapshot,
-    route_id: ModelRouteId,
-    fallback_on_saturation: bool,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-) -> Result<GenerationSelection, PublicError> {
-    try_select_generation_candidate_with(fallback_on_saturation, tiers, |tier| {
-        snapshot
-            .route_tier_cursor(route_id, FallbackTier::new(tier))
-            .map(|cursor| cursor.reserve())
-    })
-}
-
-fn try_select_generation_candidate_with(
-    fallback_on_saturation: bool,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-    mut tie_breaker: impl FnMut(u16) -> Option<u64>,
-) -> Result<GenerationSelection, PublicError> {
-    let mut saw_capacity = false;
-    for (tier, candidates) in tiers {
-        let bindings = candidates
-            .iter()
-            .map(|candidate| candidate.binding.clone())
-            .collect::<Vec<_>>();
-        let tie_breaker = tie_breaker(*tier).ok_or_else(internal_error)?;
-        match select_index_and_try_acquire(&bindings, tie_breaker) {
-            IndexedSelectAndAcquireResult::Acquired { index, permit } => {
-                return Ok(GenerationSelection::Acquired(SelectedCandidate {
-                    candidate: candidates[index].clone(),
-                    permit: RequestPermit::Generation(permit),
-                }));
-            }
-            IndexedSelectAndAcquireResult::AtCapacity => {
-                saw_capacity = true;
-                if !fallback_on_saturation {
-                    return Ok(GenerationSelection::AtCapacity);
-                }
-            }
-            IndexedSelectAndAcquireResult::NoCandidates => {}
-        }
-    }
-    Ok(if saw_capacity {
-        GenerationSelection::AtCapacity
-    } else {
-        GenerationSelection::NoCandidates
-    })
-}
-
+#[cfg(test)]
 async fn select_generation_candidate(
     coordinator: &Arc<QueueCoordinator>,
     policy: QueuePolicy,
-    mut try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
+    try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
 ) -> Result<SelectedCandidate, PublicError> {
-    match try_select()? {
-        GenerationSelection::Acquired(selected) => Ok(selected),
-        GenerationSelection::NoCandidates => Err(no_available_credentials()),
-        GenerationSelection::AtCapacity if policy.on_saturated() == SaturationAction::Reject => {
-            Err(capacity_error("all eligible credentials are at capacity"))
-        }
-        GenerationSelection::AtCapacity => {
-            wait_for_generation_candidate(coordinator, policy, try_select).await
-        }
-    }
+    generation::select_with_queue(coordinator, policy, try_select).await
 }
 
+#[cfg(test)]
 async fn wait_for_generation_candidate(
     coordinator: &Arc<QueueCoordinator>,
     policy: QueuePolicy,
-    mut try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
+    try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
 ) -> Result<SelectedCandidate, PublicError> {
-    let Some(ticket) = coordinator.try_ticket(policy.max_waiting_requests()) else {
-        return Err(capacity_error("request queue is full"));
-    };
-    let mut changes = ticket.subscribe();
-    let started_at = Instant::now();
-
-    loop {
-        let _observed_epoch = *changes.borrow_and_update();
-        match try_select()? {
-            GenerationSelection::Acquired(selected) => return Ok(selected),
-            GenerationSelection::NoCandidates => return Err(no_available_credentials()),
-            GenerationSelection::AtCapacity => {}
-        }
-
-        let elapsed = Instant::now().saturating_duration_since(started_at);
-        let remaining = policy.queue_timeout().saturating_sub(elapsed);
-        if remaining.is_zero() {
-            return final_selection_or_timeout(&mut try_select);
-        }
-        match timeout(remaining, changes.changed()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(_)) => return Err(internal_error()),
-            Err(_) => return final_selection_or_timeout(&mut try_select),
-        }
-    }
+    generation::wait_for_candidate(coordinator, policy, try_select).await
 }
 
-fn final_selection_or_timeout(
-    try_select: &mut impl FnMut() -> Result<GenerationSelection, PublicError>,
-) -> Result<SelectedCandidate, PublicError> {
-    match try_select()? {
-        GenerationSelection::Acquired(selected) => Ok(selected),
-        GenerationSelection::NoCandidates => Err(no_available_credentials()),
-        GenerationSelection::AtCapacity => {
-            Err(capacity_error("all eligible credentials are at capacity"))
-        }
-    }
-}
-
-fn select_auxiliary_candidate(
-    snapshot: &PublishedSnapshot,
-    route_id: ModelRouteId,
+#[cfg(test)]
+fn try_select_generation_candidate_for_test(
+    fallback_on_saturation: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-) -> Result<SelectedCandidate, PublicError> {
-    select_auxiliary_candidate_with(snapshot.auxiliary_scheduler(), tiers, |tier| {
-        snapshot
-            .route_tier_cursor(route_id, FallbackTier::new(tier))
-            .map(|cursor| cursor.reserve())
-    })
+    tie_breaker: impl FnMut(u16) -> Option<u64>,
+) -> Result<GenerationSelection, PublicError> {
+    generation::try_select_for_test(fallback_on_saturation, tiers, tie_breaker)
 }
 
-fn select_auxiliary_candidate_with(
+#[cfg(test)]
+fn select_auxiliary_candidate_for_test(
     scheduler: &Arc<AuxiliaryScheduler>,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-    mut tie_breaker: impl FnMut(u16) -> Option<u64>,
+    tie_breaker: impl FnMut(u16) -> Option<u64>,
 ) -> Result<SelectedCandidate, PublicError> {
-    for (tier, candidates) in tiers {
-        let bindings = candidates
-            .iter()
-            .map(|candidate| candidate.binding.clone())
-            .collect::<Vec<_>>();
-        let tie_breaker = tie_breaker(*tier).ok_or_else(internal_error)?;
-        match scheduler.select_index_and_try_acquire(&bindings, tie_breaker) {
-            AuxiliarySelectAndAcquireResult::Acquired { index, permit } => {
-                return Ok(SelectedCandidate {
-                    candidate: candidates[index].clone(),
-                    permit: RequestPermit::Auxiliary(permit),
-                });
-            }
-            AuxiliarySelectAndAcquireResult::AtCapacity => {
-                return Err(capacity_error("auxiliary request capacity is full"));
-            }
-            AuxiliarySelectAndAcquireResult::NoCandidates => {}
-        }
-    }
-    Err(no_available_credentials())
+    auxiliary::select_for_test(scheduler, tiers, tie_breaker)
 }
 
 fn capacity_error(message: &'static str) -> PublicError {
@@ -271,6 +137,14 @@ fn no_available_credentials() -> PublicError {
         PublicErrorCode::NoAvailableCredential,
         "no eligible provider credential is available",
     )
+}
+
+fn temporarily_unavailable(retry_at: Instant) -> PublicError {
+    let delay = retry_at.saturating_duration_since(Instant::now());
+    let seconds = delay
+        .as_secs()
+        .saturating_add(u64::from(delay.subsec_nanos() > 0));
+    no_available_credentials().with_retry_after_seconds(seconds)
 }
 
 #[cfg(test)]

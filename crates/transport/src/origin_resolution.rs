@@ -9,7 +9,7 @@ use tokio::net::lookup_host;
 
 use crate::{
     api::EndpointNetworkPolicy,
-    error::{TransportError, TransportErrorStage},
+    error::{TransportError, TransportErrorStage, TransportFailureScope},
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -29,6 +29,7 @@ pub(crate) async fn resolve_origin(
     let host = uri.host().ok_or_else(|| {
         TransportError::new(
             TransportErrorStage::Dns,
+            TransportFailureScope::Endpoint,
             RetrySafety::DefinitelyNotSent,
             "upstream URI has no host",
         )
@@ -43,6 +44,7 @@ pub(crate) async fn resolve_origin(
         .ok_or_else(|| {
             TransportError::new(
                 TransportErrorStage::Dns,
+                TransportFailureScope::Endpoint,
                 RetrySafety::DefinitelyNotSent,
                 "upstream URI has no port",
             )
@@ -58,6 +60,7 @@ pub(crate) async fn resolve_origin(
         .map_err(|_| {
             TransportError::new(
                 TransportErrorStage::Dns,
+                TransportFailureScope::Endpoint,
                 RetrySafety::DefinitelyNotSent,
                 "upstream DNS resolution failed",
             )
@@ -68,6 +71,7 @@ pub(crate) async fn resolve_origin(
     if addresses.is_empty() {
         return Err(TransportError::new(
             TransportErrorStage::Dns,
+            TransportFailureScope::Endpoint,
             RetrySafety::DefinitelyNotSent,
             "upstream DNS resolution returned no addresses",
         ));
@@ -85,6 +89,7 @@ fn validate_address(address: IpAddr, allow_private_network: bool) -> Result<(), 
     if !allow_private_network && !is_public_network_address(address) {
         return Err(TransportError::new(
             TransportErrorStage::Dns,
+            TransportFailureScope::Endpoint,
             RetrySafety::DefinitelyNotSent,
             "upstream address is not allowed by endpoint policy",
         ));

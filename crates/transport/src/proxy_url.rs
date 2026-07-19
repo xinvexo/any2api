@@ -1,7 +1,7 @@
 use any2api_domain::{ProxyKind, ProxyProfile};
 use url::Url;
 
-use crate::{TransportError, TransportErrorStage};
+use crate::{TransportError, TransportErrorStage, TransportFailureScope};
 
 pub(crate) fn proxy_url(profile: &ProxyProfile) -> Result<Option<Url>, TransportError> {
     if profile.is_built_in() {
@@ -28,6 +28,7 @@ impl TransportError {
     pub(crate) fn configuration(message: impl Into<String>) -> Self {
         Self::new(
             TransportErrorStage::ProxyHandshake,
+            TransportFailureScope::Unattributed,
             any2api_domain::RetrySafety::DefinitelyNotSent,
             message,
         )

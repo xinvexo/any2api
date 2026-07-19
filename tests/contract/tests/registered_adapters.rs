@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_domain::{
-    CredentialKind, ErrorClass, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
+    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
     TransportMode,
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame};
@@ -243,15 +243,17 @@ fn claude_contract(driver: &dyn ProviderDriver) {
     assert_eq!(headers.headers["x-api-key"], "sk-claude-contract");
     assert_eq!(headers.headers["anthropic-version"], "2023-06-01");
     assert_eq!(
-        driver.classify_error(
-            ProtocolOperation::MessagesCountTokens,
-            &UpstreamResponseMeta {
-                status: StatusCode::NOT_FOUND,
-                headers: HeaderMap::new(),
-            },
-            b"{}",
-        ),
-        ErrorClass::OperationUnavailable
+        driver
+            .classify_error(
+                ProtocolOperation::MessagesCountTokens,
+                &UpstreamResponseMeta {
+                    status: StatusCode::NOT_FOUND,
+                    headers: HeaderMap::new(),
+                },
+                b"{}",
+            )
+            .kind(),
+        any2api_domain::UpstreamErrorKind::OperationUnavailable
     );
 }
 

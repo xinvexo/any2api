@@ -6,7 +6,7 @@ use http::{HeaderMap, HeaderValue, header};
 use crate::{
     ProviderError, ProviderSecret,
     api::{CapabilitySet, CredentialHeaders, EndpointPlan, ProviderDriver, UpstreamResponseMeta},
-    api_key,
+    api_key, codex_error,
 };
 
 #[derive(Debug)]
@@ -83,9 +83,9 @@ impl ProviderDriver for CodexDriver {
         &self,
         _operation: ProtocolOperation,
         meta: &UpstreamResponseMeta,
-        _bounded_body: &[u8],
-    ) -> any2api_domain::ErrorClass {
-        api_key::classify_status(meta)
+        bounded_body: &[u8],
+    ) -> any2api_domain::UpstreamErrorClassification {
+        codex_error::classify(meta, bounded_body)
     }
 }
 

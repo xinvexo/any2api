@@ -18,7 +18,7 @@ any2api 需要在同一进程中支持 DIRECT、HTTP 和 SOCKS5 出口。多个 
 - 缓存使用有界强引用 LRU。淘汰只移除 Manager 的缓存引用，不中断仍持有 Client 的请求。
 - 首版请求 Body 为内存中的 `Bytes`，响应 Body 为错误类型化的异步字节流，满足 JSON 和后续 SSE 转发需要。
 - 连接建立前失败标记为 `DefinitelyNotSent`；收到响应头前的非连接错误和响应 Body 错误保守标记为 `Ambiguous`。
-- `reqwest` 不能稳定暴露 DNS、TCP、代理握手和上游 TLS 的全部细分来源。当前连接阶段分类用于诊断和 fail-closed，不直接视为已完成代理熔断归因；熔断实现前必须补充可验证的 attribution 边界。
+- `reqwest` 不能稳定暴露 DNS、TCP、代理握手和上游 TLS 的全部细分来源，因此失败阶段与健康归因分离。`TransportError` 同时携带 `TransportErrorStage` 与 `TransportFailureScope::{Endpoint, Proxy, Unattributed}`；DIRECT DNS/TCP 明确归 Endpoint，普通 HTTP 代理的可验证连接失败归 Proxy，CONNECT/SOCKS/目标 TLS 无法可靠区分时归 Unattributed。Runtime 只惩罚明确归因的健康对象，Unattributed 对 Endpoint/Proxy 均保持 neutral。
 
 ## 后果
 
@@ -32,6 +32,6 @@ any2api 需要在同一进程中支持 DIRECT、HTTP 和 SOCKS5 出口。多个 
 
 ## 验证
 
-- 模块网络测试覆盖 DIRECT、HTTP absolute-form、HTTPS 经 HTTP CONNECT 完成 TLS 隧道、SOCKS5h 远端 DNS、禁重定向、流式响应和 Client 代际缓存。
+- 模块网络测试覆盖 DIRECT、HTTP absolute-form、HTTPS 经 HTTP CONNECT 完成 TLS 隧道、SOCKS5h 远端 DNS、禁重定向、流式响应和 Client 代际缓存，并验证 CONNECT 后 Endpoint TLS 失败不会误归因到 Proxy。
 - fail-closed 测试使用可直连本地目标与不可用显式代理，确认目标端口没有收到连接。
 - 契约测试只通过 `transport::api` 重复验证显式代理失败绝不回退 DIRECT。

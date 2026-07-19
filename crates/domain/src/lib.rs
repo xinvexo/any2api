@@ -21,6 +21,7 @@ mod retry_safety;
 mod revision;
 mod route_target;
 mod settings;
+mod upstream_error;
 
 pub use credential_concurrency::{MAX_CREDENTIAL_CONCURRENCY, MaxConcurrency, MaxConcurrencyError};
 pub use credential_fingerprint::{
@@ -63,7 +64,10 @@ pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};
 pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};
 pub use settings::{
-    AffinityMode, AffinitySettings, SaturationMode, SchedulerSettings, SettingApplyMode,
-    SettingDefinition, SettingKey, SettingOverrides, SettingValue, SettingValueType,
-    SettingsConfiguration, SettingsValidationError,
+    AffinityMode, AffinitySettings, ReliabilitySettings, SaturationMode, SchedulerSettings,
+    SettingApplyMode, SettingDefinition, SettingKey, SettingOverrides, SettingValue,
+    SettingValueType, SettingsConfiguration, SettingsValidationError,
+};
+pub use upstream_error::{
+    MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,
 };

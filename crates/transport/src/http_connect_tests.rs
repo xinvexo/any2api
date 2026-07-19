@@ -19,6 +19,7 @@ use crate::{
         EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportRequest,
         TransportResponse,
     },
+    error::TransportFailureScope,
 };
 
 #[tokio::test]
@@ -64,6 +65,40 @@ async fn https_upstream_uses_an_http_connect_tunnel() {
             .await
             .expect("captured origin request")
             .starts_with("GET /through-proxy HTTP/1.1")
+    );
+}
+
+#[tokio::test]
+async fn endpoint_tls_failure_after_connect_is_not_attributed_to_the_proxy() {
+    let identity = TestTlsIdentity::generate();
+    let origin_address = spawn_tls_handshake_endpoint(identity.server_config).await;
+    let (proxy_address, connect_request) = spawn_connect_proxy(origin_address).await;
+    let manager = ReqwestTransportManager::default();
+    let proxy = network_proxy(proxy_address);
+
+    let error = match manager
+        .execute(
+            &proxy,
+            request_to(&format!(
+                "https://localhost:{}/untrusted-certificate",
+                origin_address.port()
+            )),
+        )
+        .await
+    {
+        Ok(_) => panic!("untrusted endpoint certificate must fail"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
+    assert!(
+        connect_request
+            .await
+            .expect("captured CONNECT request")
+            .starts_with(&format!(
+                "CONNECT localhost:{} HTTP/1.1",
+                origin_address.port()
+            ))
     );
 }
 
@@ -114,6 +149,18 @@ async fn spawn_https_response(
     (address, request_rx)
 }
 
+async fn spawn_tls_handshake_endpoint(server_config: Arc<ServerConfig>) -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("TLS listener");
+    let address = listener.local_addr().expect("TLS address");
+    tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.expect("TLS connection");
+        let _ = TlsAcceptor::from(server_config).accept(stream).await;
+    });
+    address
+}
+
 async fn spawn_connect_proxy(
     origin_address: std::net::SocketAddr,
 ) -> (std::net::SocketAddr, oneshot::Receiver<String>) {
@@ -133,9 +180,7 @@ async fn spawn_connect_proxy(
             .write_all(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             .await
             .expect("CONNECT response");
-        copy_bidirectional(&mut downstream, &mut upstream)
-            .await
-            .expect("CONNECT tunnel");
+        let _ = copy_bidirectional(&mut downstream, &mut upstream).await;
     });
     (address, request_rx)
 }

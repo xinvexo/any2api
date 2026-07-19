@@ -13,6 +13,7 @@ use crate::{
     auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryScheduler},
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
+    health::{HealthBindings, HealthRegistry},
     queue::QueueCoordinator,
     route_tier_cursor::{RouteTierCursorBindings, RouteTierCursorRegistry},
     scheduler_epoch::SchedulerEpoch,
@@ -26,6 +27,7 @@ pub struct RuntimeRegistry {
     route_tier_cursors: RouteTierCursorRegistry,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
     queue_coordinator: Arc<QueueCoordinator>,
+    health: HealthRegistry,
 }
 
 impl RuntimeRegistry {
@@ -43,6 +45,7 @@ impl RuntimeRegistry {
             credentials: RwLock::new(HashMap::new()),
             route_tier_cursors: RouteTierCursorRegistry::default(),
             queue_coordinator: QueueCoordinator::new(Arc::clone(&scheduler_epoch)),
+            health: HealthRegistry::new(Arc::clone(&scheduler_epoch)),
         }
     }
 
@@ -133,6 +136,14 @@ impl RuntimeRegistry {
         configuration: &ModelRouteConfiguration,
     ) -> RouteTierCursorBindings {
         self.route_tier_cursors.reconcile(configuration)
+    }
+
+    pub(crate) fn reconcile_health(
+        &self,
+        endpoints: &any2api_domain::ProviderEndpointConfiguration,
+        proxies: &any2api_domain::ProxyConfiguration,
+    ) -> HealthBindings {
+        self.health.reconcile(endpoints, proxies)
     }
 
     pub(crate) fn auxiliary_scheduler(&self) -> Arc<AuxiliaryScheduler> {

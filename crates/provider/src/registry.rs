@@ -39,7 +39,10 @@ impl ProviderRegistry {
 mod tests {
     use std::sync::Arc;
 
-    use any2api_domain::{ErrorClass, ProtocolOperation, ProviderBaseUrl, ProviderKind};
+    use any2api_domain::{
+        ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety, UpstreamErrorClassification,
+        UpstreamErrorKind,
+    };
     use http::HeaderMap;
 
     use super::ProviderRegistry;
@@ -99,8 +102,12 @@ mod tests {
             _operation: ProtocolOperation,
             _meta: &UpstreamResponseMeta,
             _bounded_body: &[u8],
-        ) -> ErrorClass {
-            ErrorClass::Upstream
+        ) -> UpstreamErrorClassification {
+            UpstreamErrorClassification::new(
+                UpstreamErrorKind::Unknown,
+                RetrySafety::Ambiguous,
+                None,
+            )
         }
     }
 

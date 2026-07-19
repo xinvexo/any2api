@@ -7,6 +7,7 @@ pub enum ErrorClass {
     InvalidRequest,
     Authentication,
     PermissionDenied,
+    QuotaExhausted,
     RateLimited,
     ModelUnavailable,
     OperationUnavailable,
@@ -37,6 +38,7 @@ pub enum PublicErrorCode {
 pub struct PublicError {
     pub code: PublicErrorCode,
     pub message: String,
+    pub retry_after_seconds: Option<u64>,
 }
 
 impl PublicError {
@@ -45,6 +47,13 @@ impl PublicError {
         Self {
             code,
             message: message.into(),
+            retry_after_seconds: None,
         }
+    }
+
+    #[must_use]
+    pub const fn with_retry_after_seconds(mut self, seconds: u64) -> Self {
+        self.retry_after_seconds = Some(seconds);
+        self
     }
 }

@@ -8,6 +8,7 @@ mod credential_auth;
 mod credential_runtime;
 mod gateway_api_key_publisher;
 mod gateway_api_key_token;
+mod health;
 mod provider_api_key_secret;
 mod public_request;
 mod published_snapshot;

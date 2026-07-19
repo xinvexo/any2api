@@ -8,6 +8,7 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 
 pub use crate::{
     ReqwestTransportManager, TransportConfigurationError, TransportError, TransportErrorStage,
+    TransportFailureScope,
 };
 
 pub type BoxByteStream =

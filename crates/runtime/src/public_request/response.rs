@@ -1,4 +1,6 @@
-use any2api_domain::{ErrorClass, PublicError, PublicErrorCode};
+use std::time::SystemTime;
+
+use any2api_domain::{ErrorClass, PublicError, PublicErrorCode, UpstreamErrorClassification};
 use any2api_transport::api::BoxByteStream;
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
@@ -97,7 +99,8 @@ fn trim_ows(mut value: &[u8]) -> &[u8] {
     value
 }
 
-pub(super) fn classified_error(class: ErrorClass) -> PublicError {
+pub(super) fn classified_error(classified: UpstreamErrorClassification) -> PublicError {
+    let class = classified.kind().error_class();
     if class == ErrorClass::OperationUnavailable {
         return public_error(
             PublicErrorCode::UpstreamNotFound,
@@ -107,11 +110,22 @@ pub(super) fn classified_error(class: ErrorClass) -> PublicError {
     let message = match class {
         ErrorClass::Authentication => "upstream authentication failed",
         ErrorClass::PermissionDenied => "upstream permission was denied",
+        ErrorClass::QuotaExhausted => "upstream quota was exhausted",
         ErrorClass::RateLimited => "upstream rate limit was reached",
         ErrorClass::ModelUnavailable => "upstream model is unavailable",
         _ => "upstream service returned an error",
     };
-    public_error(PublicErrorCode::UpstreamError, message)
+    let error = public_error(PublicErrorCode::UpstreamError, message);
+    match classified.retry_after() {
+        Some(hint) => {
+            let delay = hint.delay_from(SystemTime::now());
+            let seconds = delay
+                .as_secs()
+                .saturating_add(u64::from(delay.subsec_nanos() > 0));
+            error.with_retry_after_seconds(seconds)
+        }
+        None => error,
+    }
 }
 
 pub(super) fn invalid_request(message: &'static str) -> PublicError {

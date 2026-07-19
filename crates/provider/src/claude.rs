@@ -1,12 +1,12 @@
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
-use http::{HeaderMap, HeaderValue, StatusCode};
+use http::{HeaderMap, HeaderValue};
 
 use crate::{
     ProviderError, ProviderSecret,
     api::{CapabilitySet, CredentialHeaders, EndpointPlan, ProviderDriver, UpstreamResponseMeta},
-    api_key,
+    api_key, claude_error,
 };
 
 #[derive(Debug)]
@@ -83,20 +83,15 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         operation: ProtocolOperation,
         meta: &UpstreamResponseMeta,
-        _bounded_body: &[u8],
-    ) -> any2api_domain::ErrorClass {
-        if operation == ProtocolOperation::MessagesCountTokens
-            && meta.status == StatusCode::NOT_FOUND
-        {
-            return any2api_domain::ErrorClass::OperationUnavailable;
-        }
-        api_key::classify_status(meta)
+        bounded_body: &[u8],
+    ) -> any2api_domain::UpstreamErrorClassification {
+        claude_error::classify(operation, meta, bounded_body)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ErrorClass, ProtocolOperation, ProviderBaseUrl, TransportMode};
+    use any2api_domain::{ProtocolOperation, ProviderBaseUrl, TransportMode, UpstreamErrorKind};
     use http::{HeaderMap, StatusCode};
 
     use super::ClaudeDriver;
@@ -140,12 +135,16 @@ mod tests {
         };
 
         assert_eq!(
-            driver.classify_error(ProtocolOperation::MessagesCountTokens, &response, b"{}"),
-            ErrorClass::OperationUnavailable
+            driver
+                .classify_error(ProtocolOperation::MessagesCountTokens, &response, b"{}")
+                .kind(),
+            UpstreamErrorKind::OperationUnavailable
         );
         assert_eq!(
-            driver.classify_error(ProtocolOperation::Messages, &response, b"{}"),
-            ErrorClass::ModelUnavailable
+            driver
+                .classify_error(ProtocolOperation::Messages, &response, b"{}")
+                .kind(),
+            UpstreamErrorKind::ModelUnavailable
         );
     }
 }

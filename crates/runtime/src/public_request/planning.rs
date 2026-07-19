@@ -1,10 +1,12 @@
-use any2api_domain::{PublicError, PublicErrorCode, PublicModelName, TransportMode};
+use any2api_domain::{
+    ModelRouteId, ProtocolDialect, PublicError, PublicErrorCode, PublicModelName, TransportMode,
+};
 use any2api_protocol::api::{DecodedRequest, IngressRequest, ProtocolAdapter};
 use any2api_provider::api::ProviderRegistry;
 use http::{Method, Uri};
 
 use super::{
-    PublicRequest, affinity,
+    PublicRequest,
     response::{invalid_request, public_error},
 };
 use crate::{published_snapshot::PublishedSnapshot, route_candidates::build_route_candidates};
@@ -12,7 +14,10 @@ use crate::{published_snapshot::PublishedSnapshot, route_candidates::build_route
 pub(super) struct PlannedRequest {
     pub(super) decoded: DecodedRequest,
     pub(super) public_model: String,
-    pub(super) affinity: affinity::AffinitySelection,
+    pub(super) route_id: ModelRouteId,
+    pub(super) dialect: ProtocolDialect,
+    pub(super) fallback_on_saturation: bool,
+    pub(super) tiers: std::collections::BTreeMap<u16, Vec<crate::route_candidates::RouteCandidate>>,
 }
 
 pub(super) async fn plan(
@@ -51,19 +56,12 @@ pub(super) async fn plan(
     let fallback_on_saturation = route
         .fallback_on_saturation()
         .unwrap_or_else(|| snapshot.queue_policy().fallback_on_saturation());
-    let affinity = affinity::select(
-        snapshot,
-        decoded.operation,
-        &decoded.affinity,
-        route.id(),
-        decoded.dialect,
-        fallback_on_saturation,
-        &tiers,
-    )
-    .await?;
     Ok(PlannedRequest {
         decoded,
         public_model: public_model.as_str().to_owned(),
-        affinity,
+        route_id: route.id(),
+        dialect: route.ingress_protocol(),
+        fallback_on_saturation,
+        tiers,
     })
 }

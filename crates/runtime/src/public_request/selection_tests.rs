@@ -14,8 +14,8 @@ use any2api_domain::{
 
 use super::{
     GenerationSelection, RequestPermit, RouteCandidate, SelectedCandidate,
-    select_auxiliary_candidate_with, select_generation_candidate,
-    try_select_generation_candidate_with, wait_for_generation_candidate,
+    select_auxiliary_candidate_for_test, select_generation_candidate,
+    try_select_generation_candidate_for_test, wait_for_generation_candidate,
 };
 use crate::{
     auxiliary_scheduler::{
@@ -23,6 +23,7 @@ use crate::{
     },
     credential_auth::CredentialAuthMaterial,
     credential_runtime::CredentialRuntimeHandle,
+    health::{EndpointHealthRuntime, ReliabilityPolicy},
     queue::{QueueCoordinator, QueuePolicy, SaturationAction},
     scheduler_epoch::SchedulerEpoch,
 };
@@ -44,7 +45,7 @@ fn auxiliary_saturation_does_not_fall_through_to_a_later_tier() {
         };
     let tiers = BTreeMap::from([(0, vec![primary]), (1, vec![fallback.clone()])]);
 
-    let error = match select_auxiliary_candidate_with(&scheduler, &tiers, |_| Some(0)) {
+    let error = match select_auxiliary_candidate_for_test(&scheduler, &tiers, |_| Some(0)) {
         Ok(_) => panic!("primary saturation must fail immediately"),
         Err(error) => error,
     };
@@ -63,19 +64,100 @@ fn generation_fallback_only_skips_a_saturated_tier_when_enabled() {
     let tiers = BTreeMap::from([(0, vec![primary]), (1, vec![fallback.clone()])]);
 
     assert!(matches!(
-        try_select_generation_candidate_with(false, &tiers, |_| Some(0)),
+        try_select_generation_candidate_for_test(false, &tiers, |_| Some(0)),
         Ok(GenerationSelection::AtCapacity)
     ));
-    let selected = match try_select_generation_candidate_with(true, &tiers, |_| Some(0))
+    let selected = match try_select_generation_candidate_for_test(true, &tiers, |_| Some(0))
         .expect("generation selection")
     {
         GenerationSelection::Acquired(selected) => selected,
         GenerationSelection::AtCapacity => panic!("fallback capacity is available"),
         GenerationSelection::NoCandidates => panic!("fallback candidate exists"),
+        GenerationSelection::TemporarilyUnavailable(_) => {
+            panic!("fallback candidate is healthy")
+        }
     };
     assert_eq!(selected.candidate.credential_id, fallback.credential_id);
     drop(selected);
     drop(blocker);
+}
+
+#[tokio::test(start_paused = true)]
+async fn generation_selection_retries_the_tier_when_a_half_open_probe_is_raced() {
+    let epoch = SchedulerEpoch::new();
+    let policy = default_reliability_policy();
+    let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
+    open_endpoint(&endpoint, &policy);
+    tokio::time::advance(policy.endpoint_open_duration).await;
+
+    let mut raced = candidate("raced", 1, Arc::clone(&epoch), 0);
+    raced.endpoint_health = Some(endpoint);
+    let healthy = candidate("healthy", 2, Arc::clone(&epoch), 0);
+    let raced_for_probe = raced.clone();
+    let tiers = BTreeMap::from([(0, vec![raced.clone(), healthy.clone()])]);
+    let mut occupied_probe = None;
+
+    let selected = match try_select_generation_candidate_for_test(false, &tiers, |_| {
+        if occupied_probe.is_none() {
+            occupied_probe = Some(
+                raced_for_probe
+                    .acquire_health(policy)
+                    .expect("half-open probe"),
+            );
+        }
+        Some(0)
+    })
+    .expect("generation selection")
+    {
+        GenerationSelection::Acquired(selected) => selected,
+        GenerationSelection::AtCapacity => panic!("healthy candidate has capacity"),
+        GenerationSelection::TemporarilyUnavailable(_) => {
+            panic!("healthy candidate must be retried in the same tier")
+        }
+        GenerationSelection::NoCandidates => panic!("healthy candidate exists"),
+    };
+
+    assert_eq!(selected.candidate.credential_id, healthy.credential_id);
+    assert_eq!(raced.binding.capacity().in_flight(), 0);
+    drop(selected);
+    drop(occupied_probe);
+}
+
+#[tokio::test(start_paused = true)]
+async fn auxiliary_selection_retries_the_tier_when_a_half_open_probe_is_raced() {
+    let epoch = SchedulerEpoch::new();
+    let policy = default_reliability_policy();
+    let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
+    open_endpoint(&endpoint, &policy);
+    tokio::time::advance(policy.endpoint_open_duration).await;
+    let scheduler = AuxiliaryScheduler::new(
+        AuxiliaryConcurrencyLimits::new(2, 1).expect("limits"),
+        Arc::clone(&epoch),
+    );
+
+    let mut raced = candidate("aux-raced", 3, Arc::clone(&epoch), 0);
+    raced.endpoint_health = Some(endpoint);
+    let healthy = candidate("aux-healthy", 4, Arc::clone(&epoch), 0);
+    let raced_for_probe = raced.clone();
+    let tiers = BTreeMap::from([(0, vec![raced.clone(), healthy.clone()])]);
+    let mut occupied_probe = None;
+
+    let selected = select_auxiliary_candidate_for_test(&scheduler, &tiers, |_| {
+        if occupied_probe.is_none() {
+            occupied_probe = Some(
+                raced_for_probe
+                    .acquire_health(policy)
+                    .expect("half-open probe"),
+            );
+        }
+        Some(0)
+    })
+    .expect("auxiliary selection");
+
+    assert_eq!(selected.candidate.credential_id, healthy.credential_id);
+    assert_eq!(raced.binding.auxiliary_in_flight(), 0);
+    drop(selected);
+    drop(occupied_probe);
 }
 
 #[test]
@@ -83,7 +165,7 @@ fn generation_selection_reports_no_candidates_for_empty_tiers() {
     let tiers = BTreeMap::new();
 
     assert!(matches!(
-        try_select_generation_candidate_with(false, &tiers, |_| Some(0)),
+        try_select_generation_candidate_for_test(false, &tiers, |_| Some(0)),
         Ok(GenerationSelection::NoCandidates)
     ));
 }
@@ -290,14 +372,34 @@ fn try_acquire_candidate(
     let Some(permit) = candidate.binding.try_acquire() else {
         return Ok(GenerationSelection::AtCapacity);
     };
-    Ok(GenerationSelection::Acquired(SelectedCandidate {
+    Ok(GenerationSelection::Acquired(Box::new(SelectedCandidate {
         candidate: candidate.clone(),
         permit: RequestPermit::Generation(permit),
-    }))
+        health: candidate
+            .acquire_health(crate::health::ReliabilityPolicy::from_settings(
+                any2api_domain::SettingsConfiguration::defaults().reliability(),
+            ))
+            .map_err(|_| crate::public_request::response::internal_error())?,
+    })))
 }
 
 fn policy(action: SaturationAction, timeout: Duration, max_waiting: u32) -> QueuePolicy {
     QueuePolicy::new(action, timeout, max_waiting, false).expect("queue policy")
+}
+
+fn default_reliability_policy() -> ReliabilityPolicy {
+    ReliabilityPolicy::from_settings(
+        any2api_domain::SettingsConfiguration::defaults().reliability(),
+    )
+}
+
+fn open_endpoint(endpoint: &Arc<EndpointHealthRuntime>, policy: &ReliabilityPolicy) {
+    let permits = (0..policy.endpoint_failure_threshold)
+        .map(|_| endpoint.try_acquire(policy).expect("closed endpoint"))
+        .collect::<Vec<_>>();
+    for permit in permits {
+        permit.failure(policy);
+    }
 }
 
 fn candidate(
@@ -330,6 +432,9 @@ fn candidate(
         endpoint_id: credential.provider_endpoint_id(),
         credential_id: credential.id(),
         upstream_model: format!("upstream-{tier}"),
+        proxy_id: ProxyProfileId::DIRECT,
+        endpoint_health: None,
+        proxy_health: None,
         binding,
     }
 }

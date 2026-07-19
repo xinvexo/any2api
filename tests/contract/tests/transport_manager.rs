@@ -4,8 +4,8 @@ use any2api_domain::{
     ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId, RetrySafety,
 };
 use any2api_transport::api::{
-    EndpointNetworkPolicy, ReqwestTransportManager, TransportManager, TransportManagerConfig,
-    TransportRequest,
+    EndpointNetworkPolicy, ReqwestTransportManager, TransportFailureScope, TransportManager,
+    TransportManagerConfig, TransportRequest,
 };
 use axum::http::{HeaderMap, Method, Uri};
 use bytes::Bytes;
@@ -56,6 +56,7 @@ async fn explicit_proxy_failure_never_falls_back_to_direct() {
         error.stage,
         any2api_transport::api::TransportErrorStage::ProxyHandshake
     );
+    assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
     assert!(
         connect_request

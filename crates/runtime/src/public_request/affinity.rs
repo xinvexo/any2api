@@ -14,69 +14,56 @@ use super::{
 use crate::{
     affinity::{AffinityError, AffinityTarget, SoftBindingLease, SoftBindingStart},
     published_snapshot::PublishedSnapshot,
-    route_candidates::RouteCandidate,
+    route_candidates::{CandidateExclusions, RouteCandidate},
 };
 
 pub(super) struct AffinitySelection {
     pub(super) selected: SelectedCandidate,
     pub(super) target: AffinityTarget,
     pub(super) soft_lease: Option<SoftBindingLease>,
+    pub(super) fixed: bool,
+}
+
+pub(super) struct AffinitySelectionInput<'a> {
+    pub(super) snapshot: &'a PublishedSnapshot,
+    pub(super) operation: ProtocolOperation,
+    pub(super) affinity: &'a IngressAffinity,
+    pub(super) route_id: ModelRouteId,
+    pub(super) dialect: ProtocolDialect,
+    pub(super) fallback_on_saturation: bool,
+    pub(super) tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
+    pub(super) exclusions: &'a CandidateExclusions,
 }
 
 pub(super) async fn select(
-    snapshot: &PublishedSnapshot,
-    operation: ProtocolOperation,
-    affinity: &IngressAffinity,
-    route_id: ModelRouteId,
-    dialect: ProtocolDialect,
-    fallback_on_saturation: bool,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
+    input: AffinitySelectionInput<'_>,
 ) -> Result<AffinitySelection, PublicError> {
-    if let IngressAffinity::Hard(raw) = affinity {
-        return select_hard(snapshot, raw, route_id, dialect, tiers).await;
+    if let IngressAffinity::Hard(raw) = input.affinity {
+        return select_hard(&input, raw).await;
     }
-    if let IngressAffinity::Soft(raw) = affinity
-        && snapshot.affinity_policy().soft_enabled()
+    if let IngressAffinity::Soft(raw) = input.affinity
+        && input.snapshot.affinity_policy().soft_enabled()
     {
-        return select_soft(
-            snapshot,
-            operation,
-            raw,
-            route_id,
-            dialect,
-            fallback_on_saturation,
-            tiers,
-        )
-        .await;
+        return select_soft(&input, raw).await;
     }
-    select_unbound(
-        snapshot,
-        operation,
-        route_id,
-        dialect,
-        fallback_on_saturation,
-        tiers,
-        None,
-    )
-    .await
+    select_unbound(&input, None).await
 }
 
 async fn select_hard(
-    snapshot: &PublishedSnapshot,
+    input: &AffinitySelectionInput<'_>,
     raw: &str,
-    route_id: ModelRouteId,
-    dialect: ProtocolDialect,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
 ) -> Result<AffinitySelection, PublicError> {
-    let target = snapshot
+    let target = input
+        .snapshot
         .affinity_registry()
-        .resolve_hard(raw, snapshot.affinity_policy().hard_ttl())
+        .resolve_hard(raw, input.snapshot.affinity_policy().hard_ttl())
         .ok_or_else(binding_lost)?;
-    let candidate = find_candidate(&target, route_id, dialect, tiers).ok_or_else(binding_lost)?;
+    let candidate = find_candidate(&target, input.route_id, input.dialect, input.tiers)
+        .ok_or_else(binding_lost)?;
     let selected = select_fixed_candidate(
-        snapshot,
+        input.snapshot,
         candidate,
-        snapshot.affinity_policy().fixed_wait_timeout(),
+        input.snapshot.affinity_policy().fixed_wait_timeout(),
     )
     .await
     .map_err(FixedSelectionError::into_public_error)?;
@@ -84,25 +71,22 @@ async fn select_hard(
         selected,
         target,
         soft_lease: None,
+        fixed: true,
     })
 }
 
 async fn select_soft(
-    snapshot: &PublishedSnapshot,
-    operation: ProtocolOperation,
+    input: &AffinitySelectionInput<'_>,
     raw: &str,
-    route_id: ModelRouteId,
-    dialect: ProtocolDialect,
-    fallback_on_saturation: bool,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
 ) -> Result<AffinitySelection, PublicError> {
-    let policy = snapshot.affinity_policy();
+    let policy = input.snapshot.affinity_policy();
     loop {
-        let start = snapshot
+        let start = input
+            .snapshot
             .affinity_registry()
             .begin_soft(
-                dialect,
-                route_id,
+                input.dialect,
+                input.route_id,
                 raw,
                 policy.soft_ttl(),
                 policy.fixed_wait_timeout(),
@@ -110,16 +94,7 @@ async fn select_soft(
             .map_err(affinity_error)?;
         match start {
             SoftBindingStart::Create(lease) => {
-                return select_unbound(
-                    snapshot,
-                    operation,
-                    route_id,
-                    dialect,
-                    fallback_on_saturation,
-                    tiers,
-                    Some(lease),
-                )
-                .await;
+                return select_unbound(input, Some(lease)).await;
             }
             SoftBindingStart::Wait(mut wait) => {
                 match timeout(policy.fixed_wait_timeout(), wait.changed()).await {
@@ -134,30 +109,39 @@ async fn select_soft(
                 }
             }
             SoftBindingStart::Bound(binding) => {
-                let Some(candidate) = find_candidate(binding.target(), route_id, dialect, tiers)
+                let Some(candidate) =
+                    find_candidate(binding.target(), input.route_id, input.dialect, input.tiers)
                 else {
                     if policy.soft_mode() == AffinityMode::Strict {
                         return Err(binding_lost());
                     }
-                    snapshot.affinity_registry().invalidate_soft(&binding);
+                    input.snapshot.affinity_registry().invalidate_soft(&binding);
                     continue;
                 };
+                if !input.exclusions.allows(candidate) {
+                    if policy.soft_mode() == AffinityMode::Strict {
+                        return Err(binding_lost());
+                    }
+                    input.snapshot.affinity_registry().invalidate_soft(&binding);
+                    continue;
+                }
                 let wait_timeout = match policy.soft_mode() {
                     AffinityMode::Prefer => policy.soft_prefer_wait_timeout(),
                     AffinityMode::Strict => policy.fixed_wait_timeout(),
                 };
-                match select_fixed_candidate(snapshot, candidate, wait_timeout).await {
+                match select_fixed_candidate(input.snapshot, candidate, wait_timeout).await {
                     Ok(selected) => {
                         return Ok(AffinitySelection {
                             selected,
                             target: binding.target().clone(),
                             soft_lease: None,
+                            fixed: policy.soft_mode() == AffinityMode::Strict,
                         });
                     }
-                    Err(FixedSelectionError::Timeout)
+                    Err(FixedSelectionError::Timeout | FixedSelectionError::Unavailable)
                         if policy.soft_mode() == AffinityMode::Prefer =>
                     {
-                        snapshot.affinity_registry().invalidate_soft(&binding);
+                        input.snapshot.affinity_registry().invalidate_soft(&binding);
                     }
                     Err(error) => return Err(error.into_public_error()),
                 }
@@ -167,21 +151,24 @@ async fn select_soft(
 }
 
 async fn select_unbound(
-    snapshot: &PublishedSnapshot,
-    operation: ProtocolOperation,
-    route_id: ModelRouteId,
-    dialect: ProtocolDialect,
-    fallback_on_saturation: bool,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
+    input: &AffinitySelectionInput<'_>,
     soft_lease: Option<SoftBindingLease>,
 ) -> Result<AffinitySelection, PublicError> {
-    let selected =
-        select_candidate(snapshot, operation, route_id, fallback_on_saturation, tiers).await?;
-    let target = AffinityTarget::from_candidate(route_id, dialect, &selected.candidate);
+    let selected = select_candidate(
+        input.snapshot,
+        input.operation,
+        input.route_id,
+        input.fallback_on_saturation,
+        input.tiers,
+        input.exclusions,
+    )
+    .await?;
+    let target = AffinityTarget::from_candidate(input.route_id, input.dialect, &selected.candidate);
     Ok(AffinitySelection {
         selected,
         target,
         soft_lease,
+        fixed: false,
     })
 }
 

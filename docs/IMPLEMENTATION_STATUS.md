@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 2/3 交叉切片「同协议 JSON/SSE」；会话粘性、scheduler/affinity SettingRegistry 已完成，管理员认证和远程管理仍待完成。
-- 最近完成：进程内软/硬会话粘性、固定 Credential 等待优先级、粘性管理 API 与 Web 页面、scheduler 设置注册表与管理页、生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
+- 当前阶段：阶段 4 可靠性切片已完成；管理员认证和远程管理、历史请求日志持久化与 OAuth2 仍待完成。
+- 最近完成：进程内软/硬会话粘性、固定 Credential 等待优先级、粘性管理 API 与 Web 页面、scheduler/affinity SettingRegistry、生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理、`/v1/models` 已发布模型目录，以及错误分类、冷却、熔断和提交前多 Attempt 重试。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -115,7 +115,7 @@
 - `PublishedSnapshot::resolved_proxy_for_credential` 固定实现 `Credential DIRECT -> 全局代理 -> 本机 DIRECT`，后续数据面不重复解释代理继承规则。
 - Client 按代理 ID/版本/类型与连接超时、TLS/HTTP 策略、池参数和池策略版本组成的完整 key 复用连接池；缓存使用有界 LRU，代理或网络策略热更新产生新 Client 代际，旧请求继续持有旧 Client。
 - 请求 Body 使用 `Bytes`，响应 Body 是异步字节流；`TransportRequest` Debug 不显示 Header 内容或 Body 内容，错误消息不包含代理地址、目标 URL 或认证字段。
-- 连接前错误标记 `DefinitelyNotSent`，等待响应头和读取 Body 的不确定错误标记 `Ambiguous`；更精确的 DNS/TLS/代理归因在熔断实现前继续完善。
+- 连接前错误标记 `DefinitelyNotSent`，等待响应头和读取 Body 的不确定错误标记 `Ambiguous`；失败阶段与健康归因已经拆分为 `Endpoint/Proxy/Unattributed`，无法可靠区分的 CONNECT/SOCKS/目标 TLS 错误不会误开共享 Endpoint 或 Proxy 熔断器。
 - DIRECT 请求会解析并校验全部 DNS A/AAAA 结果，未授权 Endpoint 遇到私网/回环地址时在发送 Provider Key 前拒绝；通过校验后把连接固定到本次已验证地址，同时保留原 Host/SNI。HTTP/SOCKS5 远端 DNS 仍属于显式受信代理边界。
 - 模块网络测试覆盖真实 DIRECT、HTTP absolute URI、HTTPS 经 HTTP CONNECT 完成 TLS 隧道、SOCKS5h 远端 DNS、禁重定向、缓存代际、授权头 Debug 脱敏和 fail-closed。
 - 公共 API 契约测试确认目标本机可达时，指定不可用代理仍然失败且目标端口没有收到连接。
@@ -217,23 +217,39 @@
 - Runtime、Protocol、HTTP 契约与 Web 测试覆盖并发 Creating、租约唤醒、TTL、身份冲突、重启空状态、固定等待优先、Codex JSON/SSE 硬续接、Claude 软粘性、prefer 重绑、strict 不切换、未知旧 Response ID、管理清理和设置保存/恢复。
 - 真实浏览器完成 1440 桌面与 390×844 窄屏验证；桌面导航、移动菜单、自然滚动、设置表单和无水平溢出均通过，页面控制台无错误。
 
+### 可靠性与预提交重试切片
+
+- `ProviderDriver::classify_error` 现在返回强类型 `UpstreamErrorClassification`，Codex/Claude 分别解析受限错误 envelope；认证、权限、额度、限流、模型不可用、操作不可用和临时故障不再折叠为一个上游错误。
+- 标准 `Retry-After` 支持 delta-seconds 与 HTTP-date；无效值被忽略，公开响应只返回规范化秒数，不回显原始 Header 或上游正文。
+- Credential generation 保存认证健康与模型冷却；429/模型错误只影响当前 Credential+模型，401 使当前 generation 进入永久 `auth_error`，权限/额度使用 Credential 级冷却。
+- Endpoint 与 Proxy 按配置代际持有独立熔断器，支持真正的滑动失败窗口、Closed/Open/HalfOpen 和受限探测；DIRECT 网络失败归入 Endpoint，Provider 429/5xx 不会惩罚代理。
+- HalfOpen 健康 Permit 在预检查后发生并发竞争时，生成与辅助选择都会释放当前容量 Permit、移除竞态候选并继续尝试同 tier 其他候选。
+- 冷却和熔断到期通过统一 scheduler epoch 唤醒现有 QueueTicket；所有健康状态只在内存中存在，热更新与进程重启不会恢复旧运行态。
+- 普通 JSON 请求改为显式有界多 Attempt：每次失败先发布健康状态、释放 Permit，再按总 Attempt、Credential 切换、同 Credential、绝对耗时和 RetrySafety 预算决定退避与重选；请求内排除已失败 Endpoint/Proxy/Credential，硬粘性与 `strict` 永不跨 Credential。
+- `DefinitelyNotSent`、`RejectedBeforeExecution` 和 `Idempotent` 才允许自动重试；`Ambiguous`（包括 5xx、响应体读取失败和 SSE 首帧后的不确定错误）默认不重试，避免重复生成。
+- 外部 `Retry-After` 最长按 30 天归一化，异常 `u64` 秒数和时间转换不会因 deadline 溢出而让冷却立即失效。
+- Buffered 上游成功后的硬 ID 提取、egress 编码、公开模型恢复和粘性提交错误会先结算健康成功、关闭 HalfOpen 探测，再释放 Credential Permit。
+- SSE 首帧在下游提交前仍由 `GuardedBody` 验证；首帧读取失败按不确定结果结束当前请求，不拼接第二条流。首个下游字节提交后永久禁止切换上游。
+- 新增运行时虚拟时间、熔断滑动窗口、健康代际隔离测试，以及真实发布快照上的连接前切换、Ambiguous 不重试、429 冷却/Retry-After、硬粘性不切换、Attempt/切换预算和 SSE 首帧边界契约测试。
+- 为遵守文件职责门禁，`credential_runtime`、健康 Runtime、请求选择和上游 Attempt 已拆为 generation/capacity、credential/endpoint/proxy/attempt、fixed/generation/auxiliary、prepared/buffered/streaming/failure 等模块；架构检查不依赖临时 allowlist。
+
 ## 当前边界
 
-- DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求，但尚未覆盖健康熔断和管理面代理测试按钮。
-- ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队与会话粘性已实现；重试、冷却和健康仍未完成。
+- DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；健康熔断已接入数据面，管理面代理测试按钮仍未完成。
+- ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
-- 当前实现 scheduler 与 affinity 两组共十二项 SettingRegistry；retry、cooldown、breaker 和日志保留设置仍未接入统一注册表。
+- 当前实现 affinity、scheduler、retry、cooldown、breaker 共三十项 SettingRegistry；请求日志/文件日志保留设置仍未接入统一注册表。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
-- 运行态并发、生成请求等待计数和会话绑定都只保存在内存；健康与冷却仍未实现，进程重启后容量、队列和会话状态全部从零开始。
-- Credential generation 已承载首版 API Key 认证材料；认证健康、模型健康和刷新锁仍未实现。
-- 当前 JSON/SSE vertical slice 尚未提供统一请求 deadline/read timeout；SSE 只对首帧提供 5 秒预提交超时，提交后的错误直接结束流。上游错误状态暂按脱敏 `502` envelope 返回，`Retry-After` 和精细错误状态留到可靠性切片。
+- 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
+- Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
+- 当前 JSON/SSE vertical slice 尚未提供统一的上游 read timeout；JSON 多 Attempt 共享可靠性绝对预算，SSE 首帧仍使用 5 秒预提交超时，提交后的错误直接结束流。Attempt 历史尚未写入 SQLite。
 - Gateway 鉴权失败与方法错误当前使用管理面统一 JSON envelope；已认证的协议执行错误才由 Responses/Messages Adapter 编码，协议专用 401 envelope 留待公开错误适配切片。
 
 ## 下一步
 
-1. 增加冷却、熔断、错误分类默认值与多 Attempt 重试预算，并保持提交后禁止切换上游的不变量。
-2. 实现单管理员认证与可选 HTTP/HTTPS 远程管理。
-3. 补齐其余 SettingRegistry 分组、请求日志、Attempt、可观测性和 OAuth2 扩展边界。
+1. 实现单管理员认证与可选 HTTP/HTTPS 远程管理，并保留明文 HTTP 的明确风险提示。
+2. 接入 RequestLog/Attempt 有界遥测队列、SQLite 历史保留和日志 SettingRegistry；不把历史日志用于启动恢复。
+3. 补齐代理认证字段、管理面代理测试按钮和 OAuth2 Provider 专用 JSON 导入/刷新扩展。
 
 ## 验证结果
 
@@ -253,4 +269,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。会话粘性浏览器预览使用隔离的本地数据目录与临时端口；公开 Codex/Claude JSON/SSE 上游路径、硬/软粘性、prefer/strict、Count Tokens、认证头、模型别名、404 兼容和响应头过滤由本地上游契约测试覆盖。
+以上 Rust 与 Web 门禁在可靠性切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。公开 Codex/Claude JSON/SSE 上游路径、硬/软粘性、prefer/strict、Count Tokens、认证头、模型别名、404 兼容和响应头过滤继续由本地上游契约测试覆盖；新增七个可靠性契约覆盖安全切换、Ambiguous 边界、429 冷却、硬粘性、重试预算和 SSE 首帧失败。
