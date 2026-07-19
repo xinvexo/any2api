@@ -15,7 +15,7 @@ struct CacheEntry {
 
 impl<K> ClientCache<K>
 where
-    K: Eq + Hash + Copy,
+    K: Clone + Eq + Hash,
 {
     pub(crate) fn new(capacity: usize) -> Self {
         Self {
@@ -44,7 +44,7 @@ where
                 .entries
                 .iter()
                 .min_by_key(|(_, entry)| entry.last_used)
-                .map(|(key, _)| *key)
+                .map(|(key, _)| key.clone())
                 .expect("a full transport cache has an entry");
             self.entries.remove(&evicted);
         }

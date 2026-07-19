@@ -92,6 +92,12 @@ mod tests {
                     "a-model",
                     ProtocolDialect::OpenAiResponses,
                     codex_endpoint.id(),
+                    true,
+                ),
+                route(
+                    "disabled-model",
+                    ProtocolDialect::OpenAiResponses,
+                    codex_endpoint.id(),
                     false,
                 ),
             ],

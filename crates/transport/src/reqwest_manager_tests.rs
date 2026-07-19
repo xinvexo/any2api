@@ -14,6 +14,7 @@ use tokio::{
 
 use crate::{
     ReqwestTransportManager,
+    api::EndpointNetworkPolicy,
     api::{TransportManager, TransportManagerConfig, TransportRequest},
     error::TransportErrorStage,
 };
@@ -25,7 +26,7 @@ async fn direct_transport_reaches_the_origin() {
     let response = manager
         .execute(
             &ProxyProfile::direct(),
-            request_to(&format!("http://{address}/direct")),
+            request_to(&format!("http://localhost:{}/direct", address.port())),
         )
         .await
         .expect("direct response");
@@ -37,6 +38,34 @@ async fn direct_transport_reaches_the_origin() {
             .await
             .expect("captured request")
             .starts_with("GET /direct HTTP/1.1")
+    );
+}
+
+#[tokio::test]
+async fn direct_transport_rejects_private_origin_without_endpoint_authorization() {
+    let origin = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("origin listener");
+    let address = origin.local_addr().expect("origin address");
+    let manager = ReqwestTransportManager::default();
+
+    let error = match manager
+        .execute(
+            &ProxyProfile::direct(),
+            request_to_with_policy(&format!("http://{address}/blocked"), false),
+        )
+        .await
+    {
+        Ok(_) => panic!("private origin must be rejected"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.stage, TransportErrorStage::Dns);
+    assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), origin.accept())
+            .await
+            .is_err()
     );
 }
 
@@ -206,11 +235,16 @@ fn request_debug_never_contains_authorization_values() {
 }
 
 fn request_to(uri: &str) -> TransportRequest {
+    request_to_with_policy(uri, true)
+}
+
+fn request_to_with_policy(uri: &str, allow_private_network: bool) -> TransportRequest {
     TransportRequest {
         method: Method::GET,
         uri: Uri::from_str(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::new(),
+        network_policy: EndpointNetworkPolicy::new(allow_private_network),
     }
 }
 

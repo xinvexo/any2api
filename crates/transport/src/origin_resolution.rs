@@ -1,0 +1,93 @@
+use std::{
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
+
+use any2api_domain::{ProxyKind, RetrySafety, is_public_network_address};
+use http::Uri;
+use tokio::net::lookup_host;
+
+use crate::{
+    api::EndpointNetworkPolicy,
+    error::{TransportError, TransportErrorStage},
+};
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct ResolvedOrigin {
+    pub(crate) host: Arc<str>,
+    pub(crate) addresses: Arc<[SocketAddr]>,
+}
+
+pub(crate) async fn resolve_origin(
+    uri: &Uri,
+    policy: EndpointNetworkPolicy,
+    proxy_kind: ProxyKind,
+) -> Result<Option<ResolvedOrigin>, TransportError> {
+    if proxy_kind != ProxyKind::Direct {
+        return Ok(None);
+    }
+    let host = uri.host().ok_or_else(|| {
+        TransportError::new(
+            TransportErrorStage::Dns,
+            RetrySafety::DefinitelyNotSent,
+            "upstream URI has no host",
+        )
+    })?;
+    let port = uri
+        .port_u16()
+        .or_else(|| match uri.scheme_str() {
+            Some("http") => Some(80),
+            Some("https") => Some(443),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            TransportError::new(
+                TransportErrorStage::Dns,
+                RetrySafety::DefinitelyNotSent,
+                "upstream URI has no port",
+            )
+        })?;
+
+    if let Ok(address) = host.parse::<IpAddr>() {
+        validate_address(address, policy.allow_private_network())?;
+        return Ok(None);
+    }
+
+    let mut addresses = lookup_host((host, port))
+        .await
+        .map_err(|_| {
+            TransportError::new(
+                TransportErrorStage::Dns,
+                RetrySafety::DefinitelyNotSent,
+                "upstream DNS resolution failed",
+            )
+        })?
+        .collect::<Vec<_>>();
+    addresses.sort_unstable();
+    addresses.dedup();
+    if addresses.is_empty() {
+        return Err(TransportError::new(
+            TransportErrorStage::Dns,
+            RetrySafety::DefinitelyNotSent,
+            "upstream DNS resolution returned no addresses",
+        ));
+    }
+    for address in &addresses {
+        validate_address(address.ip(), policy.allow_private_network())?;
+    }
+    Ok(Some(ResolvedOrigin {
+        host: Arc::from(host.to_owned()),
+        addresses: Arc::from(addresses.into_boxed_slice()),
+    }))
+}
+
+fn validate_address(address: IpAddr, allow_private_network: bool) -> Result<(), TransportError> {
+    if !allow_private_network && !is_public_network_address(address) {
+        return Err(TransportError::new(
+            TransportErrorStage::Dns,
+            RetrySafety::DefinitelyNotSent,
+            "upstream address is not allowed by endpoint policy",
+        ));
+    }
+    Ok(())
+}

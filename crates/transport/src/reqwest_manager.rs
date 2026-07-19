@@ -13,15 +13,17 @@ use crate::{
     },
     client_cache::ClientCache,
     error::{TransportConfigurationError, TransportError, TransportErrorStage},
+    origin_resolution::{ResolvedOrigin, resolve_origin},
     proxy_url::proxy_url,
 };
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct TransportClientKey {
     proxy_id: ProxyProfileId,
     proxy_config_version: u64,
     proxy_kind: ProxyKind,
     policy: TransportClientPolicyKey,
+    resolved_origin: Option<ResolvedOrigin>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -96,7 +98,16 @@ impl ReqwestTransportManager {
             .len()
     }
 
+    #[cfg(test)]
     pub(crate) fn client_for(&self, profile: &ProxyProfile) -> Result<Arc<Client>, TransportError> {
+        self.client_for_resolved(profile, None)
+    }
+
+    fn client_for_resolved(
+        &self,
+        profile: &ProxyProfile,
+        resolved_origin: Option<&ResolvedOrigin>,
+    ) -> Result<Arc<Client>, TransportError> {
         if !profile.enabled() {
             return Err(TransportError::proxy_unavailable(
                 "configured proxy is disabled",
@@ -107,6 +118,7 @@ impl ReqwestTransportManager {
             proxy_config_version: profile.config_version(),
             proxy_kind: profile.kind(),
             policy: self.policy,
+            resolved_origin: resolved_origin.cloned(),
         };
         let mut clients = self
             .clients
@@ -114,8 +126,14 @@ impl ReqwestTransportManager {
             .expect("transport client cache lock poisoned");
         let config = self.config;
         let extra_root_certificates = &self.extra_root_certificates;
+        let resolved_origin = key.resolved_origin.clone();
         clients.get_or_insert_with(key, || {
-            build_client(config, extra_root_certificates, profile)
+            build_client(
+                config,
+                extra_root_certificates,
+                profile,
+                resolved_origin.as_ref(),
+            )
         })
     }
 
@@ -160,7 +178,9 @@ impl TransportManager for ReqwestTransportManager {
         request: TransportRequest,
     ) -> Result<TransportResponse, TransportError> {
         validate_uri(&request.uri)?;
-        let client = self.client_for(proxy)?;
+        let resolved_origin =
+            resolve_origin(&request.uri, request.network_policy, proxy.kind()).await?;
+        let client = self.client_for_resolved(proxy, resolved_origin.as_ref())?;
         let response = client
             .request(request.method, request.uri.to_string())
             .headers(request.headers)
@@ -191,6 +211,7 @@ fn build_client(
     config: TransportManagerConfig,
     extra_root_certificates: &[Certificate],
     profile: &ProxyProfile,
+    resolved_origin: Option<&ResolvedOrigin>,
 ) -> Result<Client, TransportError> {
     let mut builder: ClientBuilder = Client::builder()
         .use_rustls_tls()
@@ -200,6 +221,9 @@ fn build_client(
         .redirect(Policy::none())
         .retry(reqwest::retry::never())
         .no_proxy();
+    if let Some(origin) = resolved_origin {
+        builder = builder.resolve_to_addrs(&origin.host, origin.addresses.as_ref());
+    }
     for certificate in extra_root_certificates {
         builder = builder.add_root_certificate(certificate.clone());
     }

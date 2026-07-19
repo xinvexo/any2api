@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 1「配置、代理与模型路由」。
-- 最近完成：多 GatewayApiKey 管理、公开入口认证边界与 `/v1/models` 已发布模型目录。
+- 当前阶段：阶段 2/3 交叉切片「同协议非流式 JSON」；阶段 1 的 SettingRegistry、管理员认证和远程管理仍待完成。
+- 最近完成：同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理、公开入口认证边界与 `/v1/models` 已发布模型目录。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -14,7 +14,8 @@
 - Credential Runtime 切片：`bc71133 feat: add credential runtime capacity`。
 - Credential Auth Material 切片：`fbfc6ef feat: load credential auth material`。
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
-- 本切片提交主题：`feat: expose published model catalog`。
+- Model catalog 切片：`354a431 feat: expose published model catalog`。
+- 本切片提交主题：`feat: add same-protocol JSON execution`。
 
 ## 已完成
 
@@ -54,7 +55,7 @@
 - 新增 Provider Web 页面，支持 URL 驱动编辑、风险开关提示、失效 revision 自愈、草稿冲突保护和窄屏布局。
 - 真实浏览器完成桌面与 390px 窄屏验证，覆盖创建 Claude 私网 HTTP Endpoint、两项授权、重启读取、deep link、历史返回、焦点和无水平溢出。
 - 重启验证确认 SQLite revision 与 Endpoint 配置会重新读取，而 `scheduler_epoch` 按约束从 `0` 开始，不恢复旧运行态。
-- DNS 最终地址校验、重定向限制和 Transport 连接绑定仍属于后续网络执行切片；本切片不进行网络 I/O。
+- 本配置切片当时不进行网络 I/O；DNS 最终地址校验、重定向限制和 Transport 连接绑定已在后续 Proxy Transport 切片完成。
 
 ### Secret Vault 切片
 
@@ -84,7 +85,7 @@
 - 真实浏览器完成桌面与 390px 窄屏验证，覆盖 Endpoint → API Key deep link、DIRECT 继承全局代理显示、一次性回执、长内容布局和无水平溢出。
 - Secret 创建/轮换不经过 React Query Mutation Cache；测试确认关闭回执后 API Key 不存在于 URL、DOM、Query Cache 或 Mutation Cache。
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖持久化重启、版本冲突、重复标签、引用保护、密文篡改、响应脱敏和 metadata PATCH 不携带 Secret。
-- 本切片没有实现真实上游连通性测试、并发 Permit、负载均衡选择或网络转发；当前预览只能管理配置，尚不能代理真实 Codex/Claude 请求。
+- 本配置切片本身不包含真实上游连通性、并发 Permit、负载均衡选择或网络转发；这些能力已在后续 Runtime、Credential Auth Material 和 Proxy Transport 切片中接入。
 
 ### Credential Runtime 容量切片
 
@@ -114,9 +115,10 @@
 - Client 按代理 ID/版本/类型与连接超时、TLS/HTTP 策略、池参数和池策略版本组成的完整 key 复用连接池；缓存使用有界 LRU，代理或网络策略热更新产生新 Client 代际，旧请求继续持有旧 Client。
 - 请求 Body 使用 `Bytes`，响应 Body 是异步字节流；`TransportRequest` Debug 不显示 Header 内容或 Body 内容，错误消息不包含代理地址、目标 URL 或认证字段。
 - 连接前错误标记 `DefinitelyNotSent`，等待响应头和读取 Body 的不确定错误标记 `Ambiguous`；更精确的 DNS/TLS/代理归因在熔断实现前继续完善。
+- DIRECT 请求会解析并校验全部 DNS A/AAAA 结果，未授权 Endpoint 遇到私网/回环地址时在发送 Provider Key 前拒绝；通过校验后把连接固定到本次已验证地址，同时保留原 Host/SNI。HTTP/SOCKS5 远端 DNS 仍属于显式受信代理边界。
 - 模块网络测试覆盖真实 DIRECT、HTTP absolute URI、HTTPS 经 HTTP CONNECT 完成 TLS 隧道、SOCKS5h 远端 DNS、禁重定向、缓存代际、授权头 Debug 脱敏和 fail-closed。
 - 公共 API 契约测试确认目标本机可达时，指定不可用代理仍然失败且目标端口没有收到连接。
-- 本切片尚未把 TransportManager 装配进公开模型请求入口，也未实现代理用户名/密码、严格 SSRF 本地 DNS 或代理健康熔断。
+- TransportManager 已装配进公开模型请求入口；代理用户名/密码、HTTP/SOCKS5 严格 SSRF 本地 DNS 模式和代理健康熔断仍未实现。
 
 ### ModelRoute 配置切片
 
@@ -133,7 +135,7 @@
 - React `/routes` 已替换占位页：支持 URL deep link、完整 Route/Target 聚合编辑、同协议 Endpoint 过滤、三态主 tier 满载策略、响应式窄屏编辑、行内删除确认和 revision/config version 冲突保护。
 - Web 测试覆盖响应解析、缓存代际、新建请求不携带客户端 Target ID、策略修改保留 ID、身份变化生成新 ID、延迟 Endpoint、深链刷新、移动端无效链接和旧保存回调。
 - `/v1/models` 已接入同一认证快照，只返回启用 Route 的公开模型；跨协议同名稳定去重，不根据瞬时容量或健康状态删模型。
-- ModelRoute 尚未接入 Codex Responses、Claude Messages、真实请求调度或会话粘性。
+- ModelRoute 已接入 Codex Responses、Responses Compact、Claude Messages 的首版非流式同协议请求调度；会话粘性仍未实现。
 
 ### GatewayApiKey 管理与公开鉴权切片
 
@@ -146,26 +148,40 @@
   - `POST /api/admin/gateway-api-keys/{id}/revoke`
 - 管理写入继续使用全局 revision、资源 config version 和轮换 token version CAS；撤销是终态，重复无变化不会推进 revision。
 - `PublishedSnapshot` 现在携带 Gateway Key 配置和 HMAC verifier；鉴权、路由和 revision 使用同一快照，旧请求持有旧快照时不会被热更新中途改变。
-- `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；其余四个推理/辅助入口已建立认证边界，合法 Token 当前返回明确的 `public_api_not_implemented`，未知 `/v1/*` 不再回落到 SPA。
+- `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；Responses、Responses Compact 和 Messages 已进入同协议 JSON 执行链，Count Tokens 仍保留认证门并返回明确的 `public_api_not_implemented`；未知 `/v1/*` 不再回落到 SPA。
 - `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
 - React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、撤销、deep link、响应式布局和一次性回执；明文 Token 不进入 Query/Mutation Cache、URL、Storage 或普通 DTO。
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本和缓存脱敏。
 
+### 同协议 JSON 请求执行切片
+
+- 新增强类型 `ProtocolOperation`，静态注册 Codex/Claude Provider Driver 与 Responses/Messages ProtocolAdapter。
+- `/v1/responses`、`/v1/responses/compact` 和 `/v1/messages` 已接入 Runtime：同一 PublishedSnapshot 内解析 Route、过滤启用 Endpoint/Credential/Proxy、原子取得 Permit，并调用现有 Transport。
+- Codex Driver 追加 `responses`/`responses/compact`，注入 `Authorization: Bearer`；Claude Driver 追加 `messages`，注入 `x-api-key` 与 `Anthropic-Version: 2023-06-01`；Web 官方默认 Base URL 均包含 `/v1` 固定前缀。
+- Adapter 保留未知 JSON 字段，只替换上游 `model`，并按白名单保留 Claude `anthropic-beta`；成功响应恢复公开模型名；上游非 2xx 返回协议兼容的脱敏错误 envelope。
+- Runtime 执行链按请求规划、单次 Attempt 和响应处理拆分；生产文件均保持单一职责，没有把网络、调度和响应过滤重新塞进中央文件。
+- 同负载轮询游标按 `ModelRoute + fallback tier` 隔离，并由 RuntimeRegistry 跨连续配置代际复用；删除后旧快照仍持有旧游标，新生命周期从零开始，避免跨 Route 偏斜和无效请求扰动。
+- 未知 `/v1/*`、已知路径的方法错误和普通公开路由现在经过同一 GatewayApiKey 鉴权层；上游认证头、Cookie、固定及动态 hop-by-hop 响应头不会返回客户端。
+- 当前切片只支持非流式 JSON；`stream=true` 明确返回 invalid request，`/v1/messages/count_tokens` 等待辅助请求 Permit 后接入。未实现自动重试、排队、冷却、健康、会话粘性和 SSE。
+- 模块测试与本地 HTTP 契约测试覆盖路径、认证头、客户端头剥离、出站 POST、模型替换、Compact 端点、敏感响应头过滤、fallback 鉴权、JSON 405 和 Route/tier 游标生命周期；Registry 契约从真实 App Composition Root 枚举全部 Adapter/Driver，避免生产漏注册仍通过测试。
+
 ## 当前边界
 
-- DIRECT/HTTP/SOCKS5h 网络执行与连接池已实现，但尚未接入公开模型请求、管理面代理测试按钮和代理健康状态。
-- ModelRoute 配置、管理面和公开 `/v1/models` 已实现，但尚未接入 Codex Responses 或 Claude Messages 请求执行。
+- DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入非流式公开 JSON 请求，但尚未覆盖 SSE、健康熔断和管理面代理测试按钮。
+- ModelRoute 配置、管理面、公开 `/v1/models` 和首版非流式同协议请求已实现；Count Tokens、SSE、重试、排队与会话粘性仍未完成。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
 - 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
 - Credential generation 已承载首版 API Key 认证材料；认证健康、模型健康和刷新锁仍未实现。
+- 当前 JSON vertical slice 尚未提供统一请求 deadline/read timeout；上游错误状态暂按脱敏 `502` envelope 返回，`Retry-After` 和精细错误状态留到可靠性切片。
+- Gateway 鉴权失败与方法错误当前使用管理面统一 JSON envelope；已认证的协议执行错误才由 Responses/Messages Adapter 编码，协议专用 401 envelope 留待公开错误适配切片。
 
 ## 下一步
 
-1. 实现 Codex/Claude 同协议 Provider Driver、ProtocolAdapter 和非流式公开请求链路。
+1. 接入 `/v1/messages/count_tokens` 的辅助请求 Permit，并实现 Codex/Claude SSE 与 GuardedBody。
 2. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
 3. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
-4. 接入 Codex Responses 与 Claude Messages 原生协议链路，并补齐 Transport/Provider 契约。
+4. 补齐请求日志、Attempt、可观测性和 OAuth2 扩展边界。
 
 ## 验证结果
 
@@ -185,4 +201,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3212`，验证 ModelRoute 创建/删除、Gateway Key 创建/编辑/停用/轮换/撤销、一次性 Token 回执、deep link、桌面布局、390px 窄屏和无水平溢出。
+以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3212`，本切片通过真实 HTTP 验证健康检查、无 Key 的 `/v1/models`、无 Key 的未知 `/v1/*` 和 SPA 根路径；公开 Codex/Claude 上游路径、认证头、模型别名和响应头过滤由本地上游契约测试覆盖。

@@ -4,7 +4,8 @@ use any2api_domain::{
     ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId, RetrySafety,
 };
 use any2api_transport::api::{
-    ReqwestTransportManager, TransportManager, TransportManagerConfig, TransportRequest,
+    EndpointNetworkPolicy, ReqwestTransportManager, TransportManager, TransportManagerConfig,
+    TransportRequest,
 };
 use axum::http::{HeaderMap, Method, Uri};
 use bytes::Bytes;
@@ -43,6 +44,7 @@ async fn explicit_proxy_failure_never_falls_back_to_direct() {
         uri: Uri::try_from(format!("https://{origin_address}/responses")).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::from_static(b"{}"),
+        network_policy: EndpointNetworkPolicy::default(),
     };
 
     let error = match manager.execute(&proxy, request).await {

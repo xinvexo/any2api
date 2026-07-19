@@ -39,9 +39,8 @@ impl ProviderRegistry {
 mod tests {
     use std::sync::Arc;
 
-    use any2api_domain::{ErrorClass, ProviderKind};
+    use any2api_domain::{ErrorClass, ProtocolOperation, ProviderBaseUrl, ProviderKind};
     use http::HeaderMap;
-    use url::Url;
 
     use super::ProviderRegistry;
     use crate::{
@@ -76,9 +75,13 @@ mod tests {
             Ok(())
         }
 
-        fn endpoint_plan(&self, base_url: &Url) -> Result<EndpointPlan, ProviderError> {
+        fn endpoint_plan(
+            &self,
+            base_url: &ProviderBaseUrl,
+            _operation: ProtocolOperation,
+        ) -> Result<EndpointPlan, ProviderError> {
             Ok(EndpointPlan {
-                base_url: base_url.clone(),
+                url: url::Url::parse(base_url.as_str()).expect("validated URL"),
             })
         }
 

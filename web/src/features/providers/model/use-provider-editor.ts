@@ -82,7 +82,7 @@ function initialDraft(endpoint?: ProviderEndpoint): ProviderEditorDraft {
 }
 
 function defaultBaseUrl(kind: ProviderKind) {
-  return kind === "codex" ? "https://api.openai.com" : "https://api.anthropic.com";
+  return kind === "codex" ? "https://api.openai.com/v1" : "https://api.anthropic.com/v1";
 }
 
 function validate(draft: ProviderEditorDraft): ProviderEditorErrors {

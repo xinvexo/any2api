@@ -15,7 +15,10 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::{
     ReqwestTransportManager,
-    api::{TransportManager, TransportManagerConfig, TransportRequest, TransportResponse},
+    api::{
+        EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportRequest,
+        TransportResponse,
+    },
 };
 
 #[tokio::test]
@@ -143,6 +146,7 @@ fn request_to(uri: &str) -> TransportRequest {
         uri: Uri::from_str(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::new(),
+        network_policy: EndpointNetworkPolicy::new(true),
     }
 }
 

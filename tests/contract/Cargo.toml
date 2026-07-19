@@ -6,7 +6,9 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+any2api = { path = "../../app/any2api" }
 any2api-domain = { path = "../../crates/domain" }
+any2api-protocol = { path = "../../crates/protocol" }
 any2api-provider = { path = "../../crates/provider" }
 any2api-runtime = { path = "../../crates/runtime" }
 any2api-server = { path = "../../crates/server" }

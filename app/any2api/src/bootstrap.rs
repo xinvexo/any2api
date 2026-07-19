@@ -7,9 +7,9 @@ use anyhow::Context;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
-use crate::{settings::AppSettings, shutdown};
+use crate::{build_public_request_components, settings::AppSettings, shutdown};
 
-pub(crate) async fn run() -> anyhow::Result<()> {
+pub async fn run() -> anyhow::Result<()> {
     initialize_tracing();
     let settings = AppSettings::from_env()?;
     let storage = Arc::new(
@@ -31,8 +31,11 @@ pub(crate) async fn run() -> anyhow::Result<()> {
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
     ));
+    let public_requests = build_public_request_components()
+        .context("failed to initialize public request adapters")?
+        .service();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher),
+        AppState::new(snapshots, runtime, publisher).with_public_requests(public_requests),
         settings.web_root,
     );
     let listener = TcpListener::bind(settings.bind)

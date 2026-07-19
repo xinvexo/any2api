@@ -44,6 +44,14 @@ impl PublicApiError {
             message: "public API route was not found",
         }
     }
+
+    pub(crate) const fn method_not_allowed() -> Self {
+        Self {
+            status: StatusCode::METHOD_NOT_ALLOWED,
+            code: "method_not_allowed",
+            message: "request method is not allowed for this public API route",
+        }
+    }
 }
 
 impl IntoResponse for PublicApiError {
@@ -78,4 +86,8 @@ struct ErrorBody {
 
 pub(crate) async fn not_found() -> PublicApiError {
     PublicApiError::not_found()
+}
+
+pub(crate) async fn method_not_allowed() -> PublicApiError {
+    PublicApiError::method_not_allowed()
 }

@@ -13,6 +13,7 @@ use crate::{
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
     registry::RuntimeRegistry,
+    route_tier_cursor::{RouteTierCursorBinding, RouteTierCursorBindings},
 };
 
 #[derive(Debug)]
@@ -25,6 +26,7 @@ pub struct PublishedSnapshot {
     gateway_api_keys: GatewayApiKeyConfiguration,
     gateway_api_key_verifier: GatewayApiKeyVerifier,
     credential_runtimes: CredentialRuntimeBindings,
+    route_tier_cursors: RouteTierCursorBindings,
 }
 
 impl PublishedSnapshot {
@@ -35,6 +37,7 @@ impl PublishedSnapshot {
             CredentialAuthMaterials::from_stored(parts.provider_credential_secrets);
         let credential_runtimes =
             runtime.reconcile_configuration(&parts.provider_credentials, auth_materials);
+        let route_tier_cursors = runtime.reconcile_route_tier_cursors(&parts.model_routes);
         Self {
             revision: parts.revision,
             proxies: parts.proxies,
@@ -44,6 +47,7 @@ impl PublishedSnapshot {
             gateway_api_keys: parts.gateway_api_keys,
             gateway_api_key_verifier: parts.gateway_api_key_verifier,
             credential_runtimes,
+            route_tier_cursors,
         }
     }
 
@@ -99,6 +103,14 @@ impl PublishedSnapshot {
     #[must_use]
     pub fn credential_runtimes(&self) -> &[CredentialRuntimeBinding] {
         self.credential_runtimes.as_slice()
+    }
+
+    pub(crate) fn route_tier_cursor(
+        &self,
+        route_id: any2api_domain::ModelRouteId,
+        tier: any2api_domain::FallbackTier,
+    ) -> Option<&RouteTierCursorBinding> {
+        self.route_tier_cursors.get(route_id, tier)
     }
 
     #[must_use]

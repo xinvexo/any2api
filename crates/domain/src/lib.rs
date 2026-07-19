@@ -37,13 +37,15 @@ pub use id::{
     CredentialId, GatewayApiKeyId, ModelRouteId, ProviderEndpointId, ProxyProfileId, RequestId,
     RouteTargetId,
 };
-pub use kind::{CredentialKind, ProtocolDialect, ProviderKind, TransportMode};
+pub use kind::{CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode};
 pub use model_name::{
     MAX_MODEL_NAME_CHARS, ModelNameValidationError, PublicModelName, UpstreamModelName,
 };
 pub use model_route::{ModelRoute, ModelRouteDraft, ModelRouteValidationError};
 pub use model_route_configuration::ModelRouteConfiguration;
-pub use provider_base_url::{ProviderBaseUrl, ProviderUrlValidationError};
+pub use provider_base_url::{
+    ProviderBaseUrl, ProviderUrlValidationError, is_public_network_address,
+};
 pub use provider_credential::{
     API_KEY_SECRET_SCHEMA_VERSION, ProviderCredential, ProviderCredentialDraft,
     ProviderCredentialValidationError,

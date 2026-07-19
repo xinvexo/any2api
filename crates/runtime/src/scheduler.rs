@@ -14,16 +14,38 @@ pub fn select_and_try_acquire(
     candidates: &[CredentialRuntimeBinding],
     tie_breaker: u64,
 ) -> SelectAndAcquireResult {
+    match select_index_and_try_acquire(candidates, tie_breaker) {
+        IndexedSelectAndAcquireResult::Acquired { permit, .. } => {
+            SelectAndAcquireResult::Acquired(permit)
+        }
+        IndexedSelectAndAcquireResult::AtCapacity => SelectAndAcquireResult::AtCapacity,
+        IndexedSelectAndAcquireResult::NoCandidates => SelectAndAcquireResult::NoCandidates,
+    }
+}
+
+pub(crate) enum IndexedSelectAndAcquireResult {
+    Acquired {
+        index: usize,
+        permit: ConcurrencyPermit,
+    },
+    AtCapacity,
+    NoCandidates,
+}
+
+pub(crate) fn select_index_and_try_acquire(
+    candidates: &[CredentialRuntimeBinding],
+    tie_breaker: u64,
+) -> IndexedSelectAndAcquireResult {
     if candidates.is_empty() {
-        return SelectAndAcquireResult::NoCandidates;
+        return IndexedSelectAndAcquireResult::NoCandidates;
     }
 
     loop {
         let Some(index) = select_available(candidates, tie_breaker) else {
-            return SelectAndAcquireResult::AtCapacity;
+            return IndexedSelectAndAcquireResult::AtCapacity;
         };
         if let Some(permit) = candidates[index].try_acquire() {
-            return SelectAndAcquireResult::Acquired(permit);
+            return IndexedSelectAndAcquireResult::Acquired { index, permit };
         }
     }
 }

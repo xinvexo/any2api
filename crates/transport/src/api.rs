@@ -13,6 +13,25 @@ pub use crate::{
 pub type BoxByteStream =
     Pin<Box<dyn Stream<Item = StdResult<Bytes, TransportError>> + Send + 'static>>;
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct EndpointNetworkPolicy {
+    allow_private_network: bool,
+}
+
+impl EndpointNetworkPolicy {
+    #[must_use]
+    pub const fn new(allow_private_network: bool) -> Self {
+        Self {
+            allow_private_network,
+        }
+    }
+
+    #[must_use]
+    pub const fn allow_private_network(self) -> bool {
+        self.allow_private_network
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TransportManagerConfig {
     pub connect_timeout: Duration,
@@ -38,6 +57,7 @@ pub struct TransportRequest {
     pub uri: Uri,
     pub headers: HeaderMap,
     pub body: Bytes,
+    pub network_policy: EndpointNetworkPolicy,
 }
 
 impl fmt::Debug for TransportRequest {

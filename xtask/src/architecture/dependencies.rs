@@ -27,7 +27,7 @@ fn check_package(package: &Package) -> Result<()> {
     for dependency in package
         .dependencies
         .iter()
-        .filter(|dependency| dependency.name.starts_with("any2api-"))
+        .filter(|dependency| is_any2api_workspace_dependency(&dependency.name))
     {
         if !allowed.contains(dependency.name.as_str()) {
             bail!(
@@ -39,6 +39,10 @@ fn check_package(package: &Package) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn is_any2api_workspace_dependency(name: &str) -> bool {
+    name == "any2api" || name.starts_with("any2api-")
 }
 
 fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
@@ -55,7 +59,17 @@ fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
             "any2api-transport",
         ]),
         "any2api-server" => BTreeSet::from(["any2api-domain", "any2api-runtime"]),
-        "any2api" | "any2api-contract-tests" => BTreeSet::from([
+        "any2api" => BTreeSet::from([
+            "any2api-domain",
+            "any2api-protocol",
+            "any2api-provider",
+            "any2api-runtime",
+            "any2api-server",
+            "any2api-storage",
+            "any2api-transport",
+        ]),
+        "any2api-contract-tests" => BTreeSet::from([
+            "any2api",
             "any2api-domain",
             "any2api-protocol",
             "any2api-provider",

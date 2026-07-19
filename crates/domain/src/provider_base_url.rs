@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use thiserror::Error;
 use url::{Host, Url};
@@ -139,10 +139,18 @@ fn has_segment_traversal(path: &str) -> bool {
 
 fn requires_private_authorization(url: &Url) -> bool {
     match url.host() {
-        Some(Host::Ipv4(address)) => !is_public_ipv4(address),
-        Some(Host::Ipv6(address)) => !is_public_ipv6(address),
+        Some(Host::Ipv4(address)) => !is_public_network_address(IpAddr::V4(address)),
+        Some(Host::Ipv6(address)) => !is_public_network_address(IpAddr::V6(address)),
         Some(Host::Domain(domain)) => is_local_domain(domain),
         None => true,
+    }
+}
+
+#[must_use]
+pub fn is_public_network_address(address: IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_public_ipv4(address),
+        IpAddr::V6(address) => is_public_ipv6(address),
     }
 }
 

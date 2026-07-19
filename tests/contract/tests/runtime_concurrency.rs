@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ErrorClass, MaxConcurrency, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId,
+    ProtocolOperation, ProviderBaseUrl, ProviderCredentialDraft, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyProfileId,
 };
 use any2api_provider::api::{
     CapabilitySet, CredentialHeaders, EndpointPlan, ProviderDriver, ProviderError, ProviderSecret,
@@ -16,7 +16,6 @@ use any2api_runtime::api::{
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::http::{HeaderValue, header::AUTHORIZATION};
 use tempfile::tempdir;
-use url::Url;
 
 #[tokio::test]
 async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
@@ -168,9 +167,13 @@ impl ProviderDriver for HeaderEchoDriver {
         Ok(())
     }
 
-    fn endpoint_plan(&self, base_url: &Url) -> Result<EndpointPlan, ProviderError> {
+    fn endpoint_plan(
+        &self,
+        base_url: &ProviderBaseUrl,
+        _operation: ProtocolOperation,
+    ) -> Result<EndpointPlan, ProviderError> {
         Ok(EndpointPlan {
-            base_url: base_url.clone(),
+            url: base_url.as_str().parse().expect("validated endpoint URL"),
         })
     }
 

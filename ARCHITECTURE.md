@@ -2,7 +2,7 @@
 
 > 状态：Draft<br>
 > 版本：0.9<br>
-> 最后更新：2026-07-18<br>
+> 最后更新：2026-07-19<br>
 > 用途：记录当前已经确认的需求、架构约束与后续待完善事项。<br>
 > 实施进度：见 `docs/IMPLEMENTATION_STATUS.md`。
 
@@ -925,11 +925,11 @@ ProviderKind
 
 | 入口 | 用途 | 上游方言 | JSON | SSE | 首版状态 |
 |---|---|---|---|---|---|
-| `POST /v1/responses` | Codex/OpenAI Responses 推理 | openai_responses | 是 | 是 | 实现 |
-| `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | 是 | 否 | 实现 |
+| `POST /v1/responses` | Codex/OpenAI Responses 推理 | openai_responses | 是 | 待实现 | JSON vertical slice |
+| `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | 是 | 否 | JSON vertical slice |
 | `POST /backend-api/codex/responses` | ChatGPT/Codex OAuth 兼容别名 | codex_backend | 是 | 是 | 不实现，随未来 OAuth2 加入 |
-| `POST /v1/messages` | Claude Messages 推理 | anthropic_messages | 是 | 是 | 实现 |
-| `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 是 | 否 | 实现 |
+| `POST /v1/messages` | Claude Messages 推理 | anthropic_messages | 是 | 待实现 | JSON vertical slice |
+| `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 待实现 | 否 | 认证门已建立 |
 | `GET /v1/models` | 返回本地公开模型路由 | 本地 PublishedSnapshot | 是 | 否 | 实现 |
 
 `/v1/models` 返回已发布且启用的公开模型路由，不根据瞬时冷却、并发、Credential 或代理可用性频繁增删模型。跨协议 Route 使用相同 `public_model` 时只返回一个标准模型对象，结果按模型名稳定排序；具体请求仍按入口协议精确解析 Route。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
@@ -1031,11 +1031,14 @@ trait ProtocolAdapter: Send + Sync {
 - 只有选中的 `ProviderCredential` 可以重新注入上游认证字段；
 - Gateway Key 永远不会被转发给 Provider，也不能影响 ProviderCredential 选择。
 
-首版公开入口认证边界先行实现：`/v1/*` 在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；后续公开请求 Handler 只能使用该扩展，不能重新读取客户端认证头。本切片只提供认证门和明确的未实现响应，Codex/Claude 协议执行在后续切片接入。
+首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。当前同协议 JSON 切片已接入 Responses、Responses Compact 和 Messages；Count Tokens 仍等待辅助请求 Permit。
+
+协议适配器只向上游转发明确允许的协议能力头；当前首版保留 Claude `anthropic-beta`，Provider Driver 仍负责覆盖上游认证和固定版本头。
 
 ### 11.7 Provider URL 语义
 
 - `base_url` 表示配置中固定的上游 Origin 与可选固定 API 前缀，不是任意完整请求 URL；
+- Web 中 Codex 与 Claude 的官方默认 Base URL 分别为 `https://api.openai.com/v1` 和 `https://api.anthropic.com/v1`；自定义兼容服务必须把自身固定 API 前缀包含在 Base URL 中；
 - 路径由 ProtocolDialect 使用结构化 URL API 安全拼接；
 - 客户端的 Host、absolute-form URL 和转发头不得改变上游 authority；
 - 默认禁用上游重定向；以后若允许，只允许显式策略并重新执行 SSRF 校验；
@@ -2160,8 +2163,8 @@ Any Downstream Header/Byte ──> Must Not Switch Upstream
 
 First Release Protocol Routing = Same Dialect Only
 Codex WebSocket = Disabled
-/v1/responses + /v1/responses/compact = Enabled
-/v1/messages + /v1/messages/count_tokens = Enabled
+/v1/responses + /v1/responses/compact = JSON enabled; SSE deferred
+/v1/messages = JSON enabled; /v1/messages/count_tokens = auth gate only (deferred)
 /backend-api/codex/responses = Future OAuth2 Stage
 
 Validate + Compile Candidate ──> Database Commit ──> Registry Reconcile ──> Atomic Swap

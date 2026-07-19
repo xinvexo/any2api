@@ -30,6 +30,10 @@ impl AuthenticatedGatewayApiKey {
     pub(crate) fn snapshot(&self) -> &PublishedSnapshot {
         &self.snapshot
     }
+
+    pub(crate) fn snapshot_arc(&self) -> Arc<PublishedSnapshot> {
+        Arc::clone(&self.snapshot)
+    }
 }
 
 pub(crate) async fn require_gateway_api_key(

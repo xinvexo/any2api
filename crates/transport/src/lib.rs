@@ -2,6 +2,7 @@ pub mod api;
 
 mod client_cache;
 mod error;
+mod origin_resolution;
 mod proxy_url;
 mod reqwest_manager;
 

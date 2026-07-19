@@ -3,12 +3,13 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use any2api_domain::{CredentialId, ProviderCredentialConfiguration};
+use any2api_domain::{CredentialId, ModelRouteConfiguration, ProviderCredentialConfiguration};
 use tokio::sync::watch;
 
 use crate::{
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
+    route_tier_cursor::{RouteTierCursorBindings, RouteTierCursorRegistry},
     scheduler_epoch::SchedulerEpoch,
 };
 
@@ -16,6 +17,7 @@ use crate::{
 pub struct RuntimeRegistry {
     scheduler_epoch: Arc<SchedulerEpoch>,
     credentials: RwLock<HashMap<CredentialId, Arc<CredentialRuntimeHandle>>>,
+    route_tier_cursors: RouteTierCursorRegistry,
 }
 
 impl RuntimeRegistry {
@@ -24,6 +26,7 @@ impl RuntimeRegistry {
         Self {
             scheduler_epoch: SchedulerEpoch::new(),
             credentials: RwLock::new(HashMap::new()),
+            route_tier_cursors: RouteTierCursorRegistry::default(),
         }
     }
 
@@ -90,6 +93,13 @@ impl RuntimeRegistry {
         });
 
         CredentialRuntimeBindings::new(bindings)
+    }
+
+    pub(crate) fn reconcile_route_tier_cursors(
+        &self,
+        configuration: &ModelRouteConfiguration,
+    ) -> RouteTierCursorBindings {
+        self.route_tier_cursors.reconcile(configuration)
     }
 }
 

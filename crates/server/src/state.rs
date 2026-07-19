@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use any2api_runtime::api::{ConfigPublisher, RuntimeRegistry, SnapshotStore};
+use any2api_runtime::api::{ConfigPublisher, PublicRequestService, RuntimeRegistry, SnapshotStore};
 
 #[derive(Clone)]
 pub struct AppState {
     snapshots: Arc<SnapshotStore>,
     runtime: Arc<RuntimeRegistry>,
     publisher: Arc<ConfigPublisher>,
+    public_requests: Option<Arc<PublicRequestService>>,
 }
 
 impl AppState {
@@ -20,7 +21,14 @@ impl AppState {
             snapshots,
             runtime,
             publisher,
+            public_requests: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_public_requests(mut self, public_requests: Arc<PublicRequestService>) -> Self {
+        self.public_requests = Some(public_requests);
+        self
     }
 
     #[must_use]
@@ -36,5 +44,10 @@ impl AppState {
     #[must_use]
     pub fn publisher(&self) -> &ConfigPublisher {
         &self.publisher
+    }
+
+    #[must_use]
+    pub fn public_requests(&self) -> Option<&PublicRequestService> {
+        self.public_requests.as_deref()
     }
 }
