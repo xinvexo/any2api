@@ -1,6 +1,7 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, ModelRouteDraft, ModelRouteId, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProxyDraft, ProxyProfileId,
+    ProviderEndpointDraft, ProviderEndpointId, ProxyDraft, ProxyProfileId, SettingKey,
+    SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, StoredConfiguration};
 
@@ -68,6 +69,13 @@ pub(crate) enum ConfigCommand {
     DeleteModelRoute {
         id: ModelRouteId,
         expected_config_version: u64,
+    },
+    SetSettingOverride {
+        key: SettingKey,
+        value: SettingValue,
+    },
+    ResetSettingOverride {
+        key: SettingKey,
     },
 }
 
@@ -170,6 +178,12 @@ pub(crate) async fn execute(
             repository
                 .delete_model_route(expected, id, expected_config_version)
                 .await
+        }
+        ConfigCommand::SetSettingOverride { key, value } => {
+            repository.set_setting_override(expected, key, value).await
+        }
+        ConfigCommand::ResetSettingOverride { key } => {
+            repository.reset_setting_override(expected, key).await
         }
     };
     result.map_err(ConfigPublishError::from)

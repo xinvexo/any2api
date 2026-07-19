@@ -21,7 +21,7 @@ pub async fn run() -> anyhow::Result<()> {
         .load_configuration()
         .await
         .context("failed to load configuration")?;
-    let runtime = Arc::new(RuntimeRegistry::new());
+    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),

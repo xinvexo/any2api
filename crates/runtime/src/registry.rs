@@ -3,14 +3,16 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use any2api_domain::{CredentialId, ModelRouteConfiguration, ProviderCredentialConfiguration};
+use any2api_domain::{
+    CredentialId, ModelRouteConfiguration, ProviderCredentialConfiguration, SchedulerSettings,
+};
 use tokio::sync::watch;
 
 use crate::{
     auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryScheduler},
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
-    queue::{QueueCoordinator, QueuePolicy},
+    queue::QueueCoordinator,
     route_tier_cursor::{RouteTierCursorBindings, RouteTierCursorRegistry},
     scheduler_epoch::SchedulerEpoch,
 };
@@ -22,30 +24,13 @@ pub struct RuntimeRegistry {
     route_tier_cursors: RouteTierCursorRegistry,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
     queue_coordinator: Arc<QueueCoordinator>,
-    queue_policy: QueuePolicy,
 }
 
 impl RuntimeRegistry {
     #[must_use]
-    pub fn new() -> Self {
-        Self::with_auxiliary_limits(AuxiliaryConcurrencyLimits::default())
-    }
-
-    #[must_use]
-    pub fn with_auxiliary_limits(limits: AuxiliaryConcurrencyLimits) -> Self {
-        Self::with_scheduling_policies(limits, QueuePolicy::default())
-    }
-
-    #[must_use]
-    pub fn with_queue_policy(policy: QueuePolicy) -> Self {
-        Self::with_scheduling_policies(AuxiliaryConcurrencyLimits::default(), policy)
-    }
-
-    fn with_scheduling_policies(
-        auxiliary_limits: AuxiliaryConcurrencyLimits,
-        queue_policy: QueuePolicy,
-    ) -> Self {
+    pub fn new(settings: &SchedulerSettings) -> Self {
         let scheduler_epoch = SchedulerEpoch::new();
+        let auxiliary_limits = AuxiliaryConcurrencyLimits::from_scheduler_settings(settings);
         Self {
             auxiliary_scheduler: AuxiliaryScheduler::new(
                 auxiliary_limits,
@@ -55,7 +40,6 @@ impl RuntimeRegistry {
             credentials: RwLock::new(HashMap::new()),
             route_tier_cursors: RouteTierCursorRegistry::default(),
             queue_coordinator: QueueCoordinator::new(Arc::clone(&scheduler_epoch)),
-            queue_policy,
         }
     }
 
@@ -64,18 +48,10 @@ impl RuntimeRegistry {
         self.auxiliary_scheduler.limits()
     }
 
-    /// Updates auxiliary request limits without replacing the stable scheduler.
-    ///
-    /// The settings publisher uses this hook when the SettingRegistry is wired
-    /// into the composition root. Existing permits remain valid and the
-    /// scheduler epoch is advanced when the effective limits change.
-    pub fn update_auxiliary_limits(&self, limits: AuxiliaryConcurrencyLimits) {
-        self.auxiliary_scheduler.update_limits(limits);
-    }
-
-    #[must_use]
-    pub const fn queue_policy(&self) -> QueuePolicy {
-        self.queue_policy
+    pub(crate) fn reconcile_scheduler_settings(&self, settings: &SchedulerSettings) {
+        self.auxiliary_scheduler.reconcile_limits(
+            AuxiliaryConcurrencyLimits::from_scheduler_settings(settings),
+        );
     }
 
     #[must_use]
@@ -164,23 +140,18 @@ impl RuntimeRegistry {
     }
 }
 
-impl Default for RuntimeRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use crate::auxiliary_scheduler::AuxiliaryConcurrencyLimits;
+    use any2api_domain::{SettingKey, SettingOverrides, SettingValue, SettingsConfiguration};
 
     use super::RuntimeRegistry;
 
     #[test]
     fn scheduler_epoch_is_monotonic() {
-        let registry = RuntimeRegistry::new();
+        let settings = SettingsConfiguration::defaults();
+        let registry = RuntimeRegistry::new(settings.scheduler());
 
         assert_eq!(registry.advance_scheduler_epoch(), 1);
         assert_eq!(registry.advance_scheduler_epoch(), 2);
@@ -189,18 +160,31 @@ mod tests {
 
     #[test]
     fn auxiliary_scheduler_is_stable_when_limits_change() {
-        let registry = RuntimeRegistry::with_auxiliary_limits(
-            AuxiliaryConcurrencyLimits::new(8, 2).expect("initial limits"),
-        );
+        let settings = scheduler_settings(8, 2);
+        let registry = RuntimeRegistry::new(settings.scheduler());
         let scheduler = registry.auxiliary_scheduler();
 
-        registry.update_auxiliary_limits(
-            AuxiliaryConcurrencyLimits::new(4, 1).expect("updated limits"),
-        );
+        let updated = scheduler_settings(4, 1);
+        registry.reconcile_scheduler_settings(updated.scheduler());
 
         assert_eq!(registry.auxiliary_limits().global(), 4);
         assert_eq!(registry.auxiliary_limits().per_credential(), 1);
         assert!(Arc::ptr_eq(&scheduler, &registry.auxiliary_scheduler()));
-        assert_eq!(registry.scheduler_epoch(), 1);
+        assert_eq!(registry.scheduler_epoch(), 0);
+    }
+
+    fn scheduler_settings(global: u64, per_credential: u64) -> SettingsConfiguration {
+        let overrides = SettingOverrides::from_entries([
+            (
+                SettingKey::SchedulerAuxiliaryGlobalConcurrency,
+                SettingValue::Integer(global),
+            ),
+            (
+                SettingKey::SchedulerAuxiliaryPerCredentialConcurrency,
+                SettingValue::Integer(per_credential),
+            ),
+        ])
+        .expect("valid settings");
+        SettingsConfiguration::from_overrides(overrides).expect("scheduler settings")
     }
 }

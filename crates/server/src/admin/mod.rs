@@ -12,6 +12,8 @@ mod provider_endpoint_handlers;
 mod proxy_dto;
 mod proxy_handlers;
 mod revision;
+mod settings_dto;
+mod settings_handlers;
 
 use axum::{Router, middleware, routing::get};
 
@@ -76,6 +78,11 @@ pub(crate) fn routes() -> Router<AppState> {
         .route(
             "/provider-credentials/{id}/rotate-secret",
             axum::routing::post(provider_credential_handlers::rotate_secret),
+        )
+        .route("/settings", get(settings_handlers::list))
+        .route(
+            "/settings/{key}",
+            axum::routing::patch(settings_handlers::update).delete(settings_handlers::reset),
         )
         .fallback(error::not_found)
         .route_layer(middleware::from_fn(loopback::require_loopback))

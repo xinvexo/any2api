@@ -3,13 +3,11 @@ use std::{
     time::Duration,
 };
 
+use any2api_domain::{SaturationMode, SchedulerSettings};
 use thiserror::Error;
 use tokio::sync::watch;
 
 use crate::scheduler_epoch::SchedulerEpoch;
-
-const DEFAULT_QUEUE_TIMEOUT: Duration = Duration::from_secs(30);
-const DEFAULT_MAX_WAITING_REQUESTS: u32 = 128;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SaturationAction {
@@ -65,16 +63,21 @@ impl QueuePolicy {
     pub const fn fallback_on_saturation(self) -> bool {
         self.fallback_on_saturation
     }
-}
 
-impl Default for QueuePolicy {
-    fn default() -> Self {
-        Self {
-            on_saturated: SaturationAction::Wait,
-            queue_timeout: DEFAULT_QUEUE_TIMEOUT,
-            max_waiting_requests: DEFAULT_MAX_WAITING_REQUESTS,
-            fallback_on_saturation: false,
-        }
+    pub(crate) fn from_scheduler_settings(settings: &SchedulerSettings) -> Self {
+        let on_saturated = match settings.on_saturated() {
+            SaturationMode::Wait => SaturationAction::Wait,
+            SaturationMode::Reject => SaturationAction::Reject,
+        };
+        let max_waiting_requests = u32::try_from(settings.max_waiting_requests())
+            .expect("validated maximum waiting requests fits u32");
+        Self::new(
+            on_saturated,
+            Duration::from_millis(settings.queue_timeout_ms()),
+            max_waiting_requests,
+            settings.fallback_on_saturation(),
+        )
+        .expect("validated scheduler settings")
     }
 }
 
@@ -161,7 +164,8 @@ mod tests {
 
     #[test]
     fn default_policy_matches_the_architecture_defaults() {
-        let policy = QueuePolicy::default();
+        let settings = any2api_domain::SettingsConfiguration::defaults();
+        let policy = QueuePolicy::from_scheduler_settings(settings.scheduler());
         assert_eq!(policy.on_saturated(), SaturationAction::Wait);
         assert_eq!(policy.queue_timeout().as_secs(), 30);
         assert_eq!(policy.max_waiting_requests(), 128);

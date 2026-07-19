@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use any2api_domain::{
     ConfigRevision, CredentialId, GatewayApiKeyId, GatewayApiKeyValidationError, ModelRouteId,
     ModelRouteValidationError, ProviderCredentialValidationError, ProviderEndpointId,
-    ProviderEndpointValidationError, ProxyProfileId, ProxyValidationError,
+    ProviderEndpointValidationError, ProxyProfileId, ProxyValidationError, SettingsValidationError,
 };
 use thiserror::Error;
 
@@ -95,8 +95,10 @@ pub enum StorageError {
     InvalidGatewayApiKeyToken,
     #[error("stored gateway API Key hash key does not match the current vault")]
     GatewayApiKeyHashKeyMismatch,
-    #[error("stored proxy configuration is invalid")]
+    #[error("stored configuration is invalid")]
     CorruptConfiguration,
+    #[error("setting value is invalid: {0}")]
+    SettingsValidation(#[from] SettingsValidationError),
     #[error("secret vault initialization failed: {0}")]
     SecretVault(#[from] SecretVaultError),
 }

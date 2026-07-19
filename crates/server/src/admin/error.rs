@@ -42,6 +42,10 @@ impl AdminApiError {
         Self::new(StatusCode::BAD_REQUEST, "invalid_gateway_api_key", message)
     }
 
+    pub(crate) fn invalid_setting(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid_setting", message)
+    }
+
     pub(crate) fn provider_endpoint_not_found() -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
@@ -63,6 +67,14 @@ impl AdminApiError {
             StatusCode::NOT_FOUND,
             "model_route_not_found",
             "model route was not found",
+        )
+    }
+
+    pub(crate) fn setting_not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "setting_not_found",
+            "setting was not found",
         )
     }
 
@@ -231,6 +243,7 @@ impl From<ConfigPublishError> for AdminApiError {
                 "invalid_model_route",
                 error.to_string(),
             ),
+            ConfigPublishError::InvalidSetting(error) => Self::invalid_setting(error.to_string()),
             internal => {
                 tracing::error!(error = ?internal, "configuration publish failed");
                 Self::new(

@@ -69,7 +69,7 @@ fn auxiliary_limit_updates_preserve_existing_usage() {
     let first = acquire(&scheduler, std::slice::from_ref(&binding), 0);
     let second = acquire(&scheduler, std::slice::from_ref(&binding), 0);
 
-    scheduler.update_limits(limits(1, 1));
+    scheduler.reconcile_limits(limits(1, 1));
     assert_eq!(scheduler.limits(), limits(1, 1));
     assert!(matches!(
         scheduler.select_index_and_try_acquire(std::slice::from_ref(&binding), 0),

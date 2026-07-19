@@ -10,7 +10,7 @@ use crate::{
     gateway_api_key_rows::load_gateway_api_keys_from, model_route_rows::load_model_routes_from,
     provider_credential_rows::load_provider_credentials_from,
     provider_endpoint_rows::load_provider_endpoints_from, proxy_mutation::DatabaseChange,
-    vault::SecretVault,
+    settings_rows::load_settings_from, vault::SecretVault,
 };
 
 #[derive(Debug, FromRow)]
@@ -60,6 +60,7 @@ pub(crate) async fn load_configuration_from(
     let gateway_api_key_verifier = vault.gateway_api_key_verifier();
     let gateway_api_keys =
         load_gateway_api_keys_from(connection, &gateway_api_key_verifier).await?;
+    let settings = load_settings_from(connection).await?;
 
     Ok(StoredConfiguration::new(
         revision,
@@ -69,6 +70,7 @@ pub(crate) async fn load_configuration_from(
         model_routes,
         gateway_api_keys,
         gateway_api_key_verifier,
+        settings,
         provider_credential_secrets,
     ))
 }

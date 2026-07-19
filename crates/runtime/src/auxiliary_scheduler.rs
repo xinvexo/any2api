@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use any2api_domain::SchedulerSettings;
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError};
 use thiserror::Error;
 
@@ -16,9 +17,6 @@ use crate::{
     },
     scheduler_epoch::SchedulerEpoch,
 };
-
-const DEFAULT_GLOBAL_AUXILIARY_CONCURRENCY: u32 = 32;
-const DEFAULT_PER_CREDENTIAL_AUXILIARY_CONCURRENCY: u32 = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AuxiliaryConcurrencyLimits {
@@ -52,14 +50,13 @@ impl AuxiliaryConcurrencyLimits {
     pub const fn per_credential(self) -> u32 {
         self.per_credential
     }
-}
 
-impl Default for AuxiliaryConcurrencyLimits {
-    fn default() -> Self {
-        Self {
-            global: DEFAULT_GLOBAL_AUXILIARY_CONCURRENCY,
-            per_credential: DEFAULT_PER_CREDENTIAL_AUXILIARY_CONCURRENCY,
-        }
+    pub(crate) fn from_scheduler_settings(settings: &SchedulerSettings) -> Self {
+        let global = u32::try_from(settings.auxiliary_global_concurrency())
+            .expect("validated auxiliary global concurrency fits u32");
+        let per_credential = u32::try_from(settings.auxiliary_per_credential_concurrency())
+            .expect("validated auxiliary per-credential concurrency fits u32");
+        Self::new(global, per_credential).expect("validated scheduler settings")
     }
 }
 
@@ -104,22 +101,11 @@ impl AuxiliaryScheduler {
             .limits
     }
 
-    pub(crate) fn update_limits(&self, limits: AuxiliaryConcurrencyLimits) {
-        let changed = {
-            let mut state = self
-                .state
-                .lock()
-                .expect("auxiliary scheduler lock poisoned");
-            if state.limits == limits {
-                false
-            } else {
-                state.limits = limits;
-                true
-            }
-        };
-        if changed {
-            self.scheduler_epoch.advance();
-        }
+    pub(crate) fn reconcile_limits(&self, limits: AuxiliaryConcurrencyLimits) {
+        self.state
+            .lock()
+            .expect("auxiliary scheduler lock poisoned")
+            .limits = limits;
     }
 
     pub(crate) fn select_index_and_try_acquire(

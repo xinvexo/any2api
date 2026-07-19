@@ -20,7 +20,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let runtime = Arc::new(RuntimeRegistry::new());
+    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),

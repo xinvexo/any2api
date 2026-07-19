@@ -265,7 +265,7 @@ impl TestContext {
             .load_configuration()
             .await
             .expect("initial configuration");
-        let runtime = Arc::new(RuntimeRegistry::new());
+        let runtime = Arc::new(RuntimeRegistry::new(initial.settings().scheduler()));
         let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
             initial,
             runtime.as_ref(),

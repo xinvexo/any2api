@@ -23,6 +23,10 @@ mod provider_endpoint_rows;
 mod proxy_mutation;
 mod proxy_repository;
 mod proxy_rows;
+mod settings_repository;
+#[cfg(test)]
+mod settings_repository_tests;
+mod settings_rows;
 mod sqlite;
 mod vault;
 

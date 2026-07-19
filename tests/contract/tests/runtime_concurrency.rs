@@ -23,7 +23,7 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
     let database = directory.path().join("any2api.sqlite3");
     let storage = Arc::new(SqliteStore::connect(&database).await.expect("storage"));
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
+    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -115,7 +115,7 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
         .load_configuration()
         .await
         .expect("restarted configuration");
-    let restarted_runtime = RuntimeRegistry::new();
+    let restarted_runtime = RuntimeRegistry::new(restarted_configuration.settings().scheduler());
     let restarted_snapshot = PublishedSnapshot::new(restarted_configuration, &restarted_runtime);
     let restarted_permit = restarted_snapshot
         .credential_runtime(credential_id)

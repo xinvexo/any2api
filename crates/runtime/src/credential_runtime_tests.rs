@@ -4,7 +4,7 @@ use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProtocolDialect,
     ProviderCredential, ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderEndpoint,
     ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyConfiguration, ProxyProfileId,
+    ProxyConfiguration, ProxyProfileId, SettingsConfiguration,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -17,7 +17,7 @@ use crate::{
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_acquires_never_exceed_the_configured_limit() {
-    let runtime = RuntimeRegistry::new();
+    let runtime = runtime();
     let mut scheduler_epoch = runtime.subscribe_scheduler_epoch();
     let fixture = CredentialFixture::new();
     let bindings = reconcile(
@@ -76,7 +76,7 @@ async fn concurrent_acquires_never_exceed_the_configured_limit() {
 
 #[test]
 fn lowering_capacity_preserves_in_flight_and_blocks_new_acquires() {
-    let runtime = RuntimeRegistry::new();
+    let runtime = runtime();
     let fixture = CredentialFixture::new();
     let initial = reconcile(&runtime, fixture.configuration(3, 1, 1), "sk-lower-test");
     let binding = initial.as_slice()[0].clone();
@@ -100,7 +100,7 @@ fn lowering_capacity_preserves_in_flight_and_blocks_new_acquires() {
 
 #[test]
 fn raising_capacity_allows_new_acquires_immediately() {
-    let runtime = RuntimeRegistry::new();
+    let runtime = runtime();
     let fixture = CredentialFixture::new();
     let initial = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-raise-test");
     let binding = initial.as_slice()[0].clone();
@@ -118,7 +118,7 @@ fn raising_capacity_allows_new_acquires_immediately() {
 
 #[test]
 fn generation_changes_are_pinned_without_resetting_capacity() {
-    let runtime = RuntimeRegistry::new();
+    let runtime = runtime();
     let fixture = CredentialFixture::new();
     let initial = reconcile(
         &runtime,
@@ -160,7 +160,7 @@ fn generation_changes_are_pinned_without_resetting_capacity() {
 
 #[test]
 fn removed_credentials_retire_without_invalidating_old_bindings() {
-    let runtime = RuntimeRegistry::new();
+    let runtime = runtime();
     let fixture = CredentialFixture::new();
     let bindings = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-retire-test");
     let old_binding = bindings.as_slice()[0].clone();
@@ -178,7 +178,7 @@ fn removed_credentials_retire_without_invalidating_old_bindings() {
 
 #[test]
 fn selector_uses_exact_load_ratios_and_rotating_ties() {
-    let first_runtime = RuntimeRegistry::new();
+    let first_runtime = runtime();
     let first_fixture = CredentialFixture::new();
     let first = reconcile(
         &first_runtime,
@@ -191,7 +191,7 @@ fn selector_uses_exact_load_ratios_and_rotating_ties() {
         .map(|_| first.try_acquire().expect("first credential capacity"))
         .collect::<Vec<_>>();
 
-    let second_runtime = RuntimeRegistry::new();
+    let second_runtime = runtime();
     let second_fixture = CredentialFixture::new();
     let second = reconcile(
         &second_runtime,
@@ -223,6 +223,11 @@ fn reconcile(
     let auth_materials =
         CredentialAuthMaterials::for_configuration(&configuration, |_| secret.to_owned());
     runtime.reconcile_configuration(&configuration, auth_materials)
+}
+
+fn runtime() -> RuntimeRegistry {
+    let settings = SettingsConfiguration::defaults();
+    RuntimeRegistry::new(settings.scheduler())
 }
 
 struct CredentialFixture {

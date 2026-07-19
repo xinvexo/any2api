@@ -9,6 +9,7 @@ import { ProxiesPage } from "@/pages/ProxiesPage";
 import { ProviderCredentialsPage } from "@/pages/ProviderCredentialsPage";
 import { ProvidersPage } from "@/pages/ProvidersPage";
 import { GatewayApiKeysPage } from "@/pages/GatewayApiKeysPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 
 export const router = createBrowserRouter([
   {
@@ -24,7 +25,7 @@ export const router = createBrowserRouter([
       { path: "affinity", element: <PlaceholderPage title="会话粘性" /> },
       { path: "keys", element: <GatewayApiKeysPage /> },
       { path: "logs", element: <PlaceholderPage title="请求日志" /> },
-      { path: "settings", element: <PlaceholderPage title="设置" /> },
+      { path: "settings", element: <SettingsPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

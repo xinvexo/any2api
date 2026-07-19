@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, ModelRouteDraft, ModelRouteId, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProxyDraft, ProxyProfileId,
+    ProviderEndpointDraft, ProviderEndpointId, ProxyDraft, ProxyProfileId, SettingKey,
+    SettingValue,
 };
 use any2api_storage::api::ConfigurationRepository;
 
@@ -231,6 +232,25 @@ impl ConfigPublisher {
             },
         )
         .await
+    }
+
+    pub async fn set_setting_override(
+        &self,
+        expected: ConfigRevision,
+        key: SettingKey,
+        value: SettingValue,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        self.publish(expected, ConfigCommand::SetSettingOverride { key, value })
+            .await
+    }
+
+    pub async fn reset_setting_override(
+        &self,
+        expected: ConfigRevision,
+        key: SettingKey,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        self.publish(expected, ConfigCommand::ResetSettingOverride { key })
+            .await
     }
 
     async fn publish(

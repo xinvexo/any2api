@@ -20,6 +20,7 @@ mod proxy_configuration;
 mod retry_safety;
 mod revision;
 mod route_target;
+mod settings;
 
 pub use credential_concurrency::{MAX_CREDENTIAL_CONCURRENCY, MaxConcurrency, MaxConcurrencyError};
 pub use credential_fingerprint::{
@@ -61,3 +62,8 @@ pub use proxy_configuration::ProxyConfiguration;
 pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};
 pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};
+pub use settings::{
+    SaturationMode, SchedulerSettings, SettingApplyMode, SettingDefinition, SettingKey,
+    SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
+    SettingsValidationError,
+};

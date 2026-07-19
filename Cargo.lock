@@ -148,6 +148,7 @@ dependencies = [
  "any2api-runtime",
  "axum",
  "serde",
+ "serde_json",
  "tower-http",
  "tracing",
 ]

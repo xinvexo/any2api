@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 2/3 交叉切片「同协议 JSON/SSE」；阶段 1 的 SettingRegistry、管理员认证和远程管理仍待完成。
-- 最近完成：生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
+- 当前阶段：阶段 2/3 交叉切片「同协议 JSON/SSE」；scheduler SettingRegistry 子集已完成，管理员认证和远程管理仍待完成。
+- 最近完成：scheduler 设置注册表与管理页、生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,7 +16,7 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 本切片提交主题：`feat: add bounded generation queue`。
+- 本切片提交主题：`feat: add scheduler setting registry`。
 
 ## 已完成
 
@@ -169,7 +169,7 @@
 ### Count Tokens 辅助并发切片
 
 - `/v1/messages/count_tokens` 使用 Claude 同协议路由、Provider API Key、代理和模型别名，但不占用生成请求的 `in_flight/max_concurrency`。
-- 新增 RuntimeRegistry 级稳定 `AuxiliaryScheduler`；默认全局辅助并发为 `32`，单 Credential 为 `4`，强类型限制支持构造注入和运行时升降限，后续由 SettingRegistry 接管覆盖值。
+- 新增 RuntimeRegistry 级稳定 `AuxiliaryScheduler`；默认全局辅助并发为 `32`，单 Credential 为 `4`，强类型限制支持构造注入和运行时升降限，现由 scheduler SettingRegistry 接管覆盖值。
 - 辅助选择与双层 Permit 取得在一个短 Mutex 临界区内完成；网络 I/O 不持锁。`AuxiliaryPermit` 固定取得时的 Credential generation，Drop 同时释放全局和单 Credential 计数并推进一次统一 epoch。
 - 辅助容量满载时当前立即返回 Anthropic 429，不取得生成请求 QueueTicket，也不因 Route 的 `fallback_on_saturation` 溢出到下一 tier。
 - Claude Count Tokens 上游明确返回 404 时分类为 operation unavailable，并转换为脱敏 Anthropic 404 `not_found_error`，供 Claude Code 回退本地 Token 估算；其他上游错误仍遵循当前 502 边界。
@@ -191,14 +191,24 @@
 - QueueTicket 使用 RAII 计数，成功、超时、取消和错误路径都会归还等待名额；队列已满返回 `local_concurrency_limit`。
 - 等待者先订阅 epoch，再重新执行完整 select-and-acquire；Permit 释放和配置发布推进 epoch，超时边界额外执行最后一次完整选择，避免丢失唤醒和边界误拒绝。
 - Route 显式 `fallback_on_saturation` 覆盖全局默认；开启时主 tier 满载可检查下一 tier，关闭时在主 tier 等待或拒绝。Count Tokens 仍使用独立辅助并发并立即拒绝。
-- QueuePolicy 按值捕获在 PublishedSnapshot 中；RuntimeRegistry 只提供启动默认值，未来 SettingRegistry 必须把已提交候选策略显式传入新快照，旧请求不会在等待中途混用新 revision 的策略。
+- QueuePolicy 按值捕获在 PublishedSnapshot 中；scheduler SettingRegistry 将已提交候选策略编译进新快照，旧请求不会在等待中途混用新 revision 的策略。
 - 单元测试覆盖 Reject、queue-full、fallback、NoCandidates、Permit 释放重选、epoch 竞态、超时最终重选和取消计数；快照测试覆盖协调器复用与策略 revision 隔离。
+
+### Scheduler SettingRegistry 切片
+
+- `SettingDefinition` 集中定义六项 `scheduler.*` 的类型、默认值、范围、枚举值、应用模式、Web 分组和描述；Duration 的持久化/HTTP 单位固定为整数毫秒。
+- SQLite `setting_overrides` 只保存用户覆盖值；写入、恢复默认、no-op 和 revision 冲突沿用串行 `ConfigPublisher`。未知 key、损坏 JSON、类型错误和越界覆盖 Fail-Closed，显式覆盖等于默认值仍保留。
+- `PublishedSnapshot` 从已提交 `SettingsConfiguration` 捕获 QueuePolicy；稳定 AuxiliaryScheduler 热更新全局/单 Credential 上限，已有 Permit 不取消，新上限立即生效，发布只推进一次 scheduler epoch。
+- 管理 API：`GET /api/admin/settings`、`PATCH /api/admin/settings/{key}`、`DELETE /api/admin/settings/{key}?expected_revision=N`。
+- React `/settings` 按功能分组拆为管理页、行级表单、控件、草稿校验和展示映射；同时显示默认、覆盖、生效值，支持恢复默认、revision 冲突后保留草稿和响应式窄屏。
+- Domain、Storage、Runtime、HTTP 和 Web 测试覆盖注册表元数据、持久化、缓存代际、冲突重试及真实 ConfigPublisher 辅助并发热更新。
 
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求，但尚未覆盖健康熔断和管理面代理测试按钮。
 - ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求与普通生成请求有界排队已实现；重试、冷却、健康和会话粘性仍未完成。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
+- 当前只实现 scheduler SettingRegistry 六项设置；affinity、retry、cooldown、breaker 和日志保留设置仍未接入统一注册表。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
 - 运行态并发与生成请求等待计数已实现且只保存在内存；健康、冷却和会话仍未实现，进程重启后容量与队列状态从零开始。
 - Credential generation 已承载首版 API Key 认证材料；认证健康、模型健康和刷新锁仍未实现。
@@ -208,8 +218,8 @@
 ## 下一步
 
 1. 增加会话粘性、冷却、熔断与重试预算，并为固定会话等待加入优先级。
-2. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
-3. 补齐请求日志、Attempt、可观测性和 OAuth2 扩展边界。
+2. 实现单管理员认证与可选 HTTP/HTTPS 远程管理。
+3. 补齐其余 SettingRegistry 分组、请求日志、Attempt、可观测性和 OAuth2 扩展边界。
 
 ## 验证结果
 

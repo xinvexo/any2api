@@ -1,6 +1,7 @@
 use any2api_domain::{
     ConfigRevision, GatewayApiKeyValidationError, ModelRouteValidationError,
     ProviderCredentialValidationError, ProviderEndpointValidationError, ProxyValidationError,
+    SettingsValidationError,
 };
 use any2api_storage::api::{ProviderApiKeyValidationError, StorageError};
 use thiserror::Error;
@@ -76,6 +77,8 @@ pub enum ConfigPublishError {
     RouteTargetIdentityConflict,
     #[error("invalid model route: {0}")]
     InvalidModelRoute(ModelRouteValidationError),
+    #[error("invalid setting value: {0}")]
+    InvalidSetting(SettingsValidationError),
     #[error("configuration storage failed")]
     Internal(#[source] StorageError),
 }
@@ -127,6 +130,7 @@ impl From<StorageError> for ConfigPublishError {
             StorageError::ModelRouteNameConflict => Self::ModelRouteNameConflict,
             StorageError::RouteTargetIdentityConflict => Self::RouteTargetIdentityConflict,
             StorageError::ModelRouteValidation(error) => Self::InvalidModelRoute(error),
+            StorageError::SettingsValidation(error) => Self::InvalidSetting(error),
             other => Self::Internal(other),
         }
     }

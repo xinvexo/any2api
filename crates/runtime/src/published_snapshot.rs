@@ -3,7 +3,7 @@ use std::sync::Arc;
 use any2api_domain::{
     ConfigRevision, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId,
     ModelRouteConfiguration, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
-    ProxyConfiguration, ProxyProfile,
+    ProxyConfiguration, ProxyProfile, SettingsConfiguration,
 };
 use any2api_storage::api::{GatewayApiKeyVerifier, StoredConfiguration};
 use arc_swap::ArcSwap;
@@ -27,6 +27,7 @@ pub struct PublishedSnapshot {
     model_routes: ModelRouteConfiguration,
     gateway_api_keys: GatewayApiKeyConfiguration,
     gateway_api_key_verifier: GatewayApiKeyVerifier,
+    settings: SettingsConfiguration,
     credential_runtimes: CredentialRuntimeBindings,
     route_tier_cursors: RouteTierCursorBindings,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
@@ -37,16 +38,9 @@ pub struct PublishedSnapshot {
 impl PublishedSnapshot {
     #[must_use]
     pub fn new(configuration: StoredConfiguration, runtime: &RuntimeRegistry) -> Self {
-        Self::new_with_queue_policy(configuration, runtime, runtime.queue_policy())
-    }
-
-    #[must_use]
-    pub(crate) fn new_with_queue_policy(
-        configuration: StoredConfiguration,
-        runtime: &RuntimeRegistry,
-        queue_policy: QueuePolicy,
-    ) -> Self {
         let parts = configuration.into_parts();
+        runtime.reconcile_scheduler_settings(parts.settings.scheduler());
+        let queue_policy = QueuePolicy::from_scheduler_settings(parts.settings.scheduler());
         let auth_materials =
             CredentialAuthMaterials::from_stored(parts.provider_credential_secrets);
         let credential_runtimes =
@@ -62,6 +56,7 @@ impl PublishedSnapshot {
             model_routes: parts.model_routes,
             gateway_api_keys: parts.gateway_api_keys,
             gateway_api_key_verifier: parts.gateway_api_key_verifier,
+            settings: parts.settings,
             credential_runtimes,
             route_tier_cursors,
             auxiliary_scheduler,
@@ -98,6 +93,11 @@ impl PublishedSnapshot {
     #[must_use]
     pub const fn gateway_api_keys(&self) -> &GatewayApiKeyConfiguration {
         &self.gateway_api_keys
+    }
+
+    #[must_use]
+    pub const fn settings(&self) -> &SettingsConfiguration {
+        &self.settings
     }
 
     #[must_use]

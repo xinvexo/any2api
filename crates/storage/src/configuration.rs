@@ -1,6 +1,7 @@
 use any2api_domain::{
     ConfigRevision, GatewayApiKeyConfiguration, ModelRouteConfiguration,
     ProviderCredentialConfiguration, ProviderEndpointConfiguration, ProxyConfiguration,
+    SettingsConfiguration,
 };
 
 use crate::{
@@ -17,6 +18,7 @@ pub struct StoredConfiguration {
     model_routes: ModelRouteConfiguration,
     gateway_api_keys: GatewayApiKeyConfiguration,
     gateway_api_key_verifier: GatewayApiKeyVerifier,
+    settings: SettingsConfiguration,
     provider_credential_secrets: StoredProviderCredentialSecrets,
 }
 
@@ -31,6 +33,7 @@ impl StoredConfiguration {
         model_routes: ModelRouteConfiguration,
         gateway_api_keys: GatewayApiKeyConfiguration,
         gateway_api_key_verifier: GatewayApiKeyVerifier,
+        settings: SettingsConfiguration,
         provider_credential_secrets: StoredProviderCredentialSecrets,
     ) -> Self {
         Self {
@@ -41,6 +44,7 @@ impl StoredConfiguration {
             model_routes,
             gateway_api_keys,
             gateway_api_key_verifier,
+            settings,
             provider_credential_secrets,
         }
     }
@@ -75,6 +79,11 @@ impl StoredConfiguration {
         &self.gateway_api_keys
     }
 
+    #[must_use]
+    pub const fn settings(&self) -> &SettingsConfiguration {
+        &self.settings
+    }
+
     pub(crate) const fn gateway_api_key_verifier(&self) -> &GatewayApiKeyVerifier {
         &self.gateway_api_key_verifier
     }
@@ -94,6 +103,7 @@ impl StoredConfiguration {
             model_routes: self.model_routes,
             gateway_api_keys: self.gateway_api_keys,
             gateway_api_key_verifier: self.gateway_api_key_verifier,
+            settings: self.settings,
             provider_credential_secrets: self.provider_credential_secrets,
         }
     }
@@ -107,5 +117,6 @@ pub struct StoredConfigurationParts {
     pub model_routes: ModelRouteConfiguration,
     pub gateway_api_keys: GatewayApiKeyConfiguration,
     pub gateway_api_key_verifier: GatewayApiKeyVerifier,
+    pub settings: SettingsConfiguration,
     pub provider_credential_secrets: StoredProviderCredentialSecrets,
 }

@@ -10,12 +10,13 @@ use crate::{
     model_route_repository::ModelRouteRepository,
     provider_credential_mutation::ProviderCredentialMutation,
     provider_endpoint_mutation::ProviderEndpointMutation, proxy_mutation::ProxyMutation,
-    proxy_rows::load_configuration_from, sqlite::SqliteStore, vault::SecretBytes,
+    proxy_rows::load_configuration_from, settings_repository::SettingRepository,
+    sqlite::SqliteStore, vault::SecretBytes,
 };
 
 #[async_trait]
 pub trait ConfigurationRepository:
-    ModelRouteRepository + GatewayApiKeyRepository + Send + Sync
+    ModelRouteRepository + GatewayApiKeyRepository + SettingRepository + Send + Sync
 {
     async fn load_configuration(&self) -> Result<StoredConfiguration, StorageError>;
 

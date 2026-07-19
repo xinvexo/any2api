@@ -4,18 +4,20 @@
 - 日期：2026-07-19
 - 决策者：maintainer
 
+> 后续状态（2026-07-19）：ADR-0011 已完成 scheduler 设置接线。QueuePolicy 现在从已提交 SettingsConfiguration 编译进新快照；SQLite/Web 的默认、覆盖、生效和恢复默认语义已落地。其余设置组仍待后续切片。
+
 ## 背景
 
 生成请求原本在当前 Route tier 全部满载时立即返回本地并发错误。架构要求等待必须有上限、超时和取消语义，任何 Credential 释放容量后等待者重新执行完整选择，并避免“检查满载”和“开始等待”之间丢失唤醒。同时，排队参数属于已发布配置，不能让持有旧 `PublishedSnapshot` 的请求在等待过程中读取到新 revision 的策略。
 
-本切片只处理普通生成请求。硬粘性、软粘性优先级、冷却到期定时器、熔断恢复和 SettingRegistry/Web 配置仍未实现；Count Tokens 继续使用独立辅助并发并立即拒绝。
+本切片只处理普通生成请求。硬粘性、软粘性优先级、冷却到期定时器和熔断恢复仍未实现；scheduler SettingRegistry/Web 配置已由 ADR-0011 接入，Count Tokens 继续使用独立辅助并发并立即拒绝。
 
 ## 决策
 
 - RuntimeRegistry 持有跨配置 revision 复用的统一 `SchedulerEpoch` 与 `QueueCoordinator`；等待计数只在内存中存在，进程重启后清空。
 - `QueuePolicy` 默认值固定为等待、30 秒超时、最多 128 个等待请求、主 tier 满载时默认不进入 fallback tier。
 - `PublishedSnapshot` 按值捕获当前 `QueuePolicy`，同一请求的等待、超时、队列上限和默认 fallback 策略全部来自其持有的同一 revision。
-- RuntimeRegistry 只保存启动时注入的默认 QueuePolicy，不提供独立的可变策略钩子；未来 SettingRegistry 发布器必须从已校验候选配置编译策略，并在提交后显式传入新快照再原子切换。
+- RuntimeRegistry 不保存可变 QueuePolicy；ConfigPublisher 从已校验的 SettingsConfiguration 编译策略，在提交后放入新快照再原子切换。
 - 满载且策略为 `wait` 时取得 RAII `QueueTicket`。Ticket 在创建时订阅统一 epoch，并计入 `max_waiting_requests`；成功、超时、取消或错误均通过 Drop 归还名额。
 - 等待循环先标记当前 epoch 已观察，再执行一次完整 select-and-acquire；若仍满载才等待 epoch 变化，避免容量释放发生在检查与休眠之间时丢失唤醒。
 - 超时边界执行最后一次完整选择，避免容量与 timeout 同时发生时错误拒绝本可执行请求。
@@ -34,7 +36,7 @@
 - 生成请求满载时具有明确的等待、队列上限、超时和取消边界，Permit 释放能唤醒所有重新竞争者。
 - 热更新不会重置 waiting count，也不会让旧请求跨 revision 改变队列策略。
 - 当前等待者没有硬粘性/strict 优先级；加入会话粘性时必须扩展 QueueCoordinator 的等待类别，而不能另建绕过上限的等待链。
-- 当前默认值可由 Composition Root 注入；SQLite SettingRegistry、Web 默认/覆盖/生效值仍需后续切片接线。
+- scheduler 默认值可由 SQLite SettingRegistry 覆盖并经 ConfigPublisher 热更新；其余设置组仍沿用后续切片边界。
 
 ## 验证
 

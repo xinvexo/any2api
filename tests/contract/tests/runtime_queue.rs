@@ -12,7 +12,7 @@ use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, Protoco
 use any2api_provider::{CodexDriver, ProviderRegistry};
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublishedSnapshot,
-    QueuePolicy, RuntimeRegistry, SaturationAction, SnapshotStore,
+    RuntimeRegistry, SnapshotStore,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
@@ -34,14 +34,7 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
             .expect("storage"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let policy = QueuePolicy::new(
-        SaturationAction::Wait,
-        std::time::Duration::from_secs(5),
-        1,
-        false,
-    )
-    .expect("queue policy");
-    let runtime = Arc::new(RuntimeRegistry::with_queue_policy(policy));
+    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
