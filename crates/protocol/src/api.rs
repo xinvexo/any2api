@@ -59,11 +59,29 @@ pub struct EgressResponse {
     pub body: Bytes,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct SseFrame(pub Bytes);
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct AdapterEvent(pub Bytes);
+
+impl fmt::Debug for SseFrame {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SseFrame")
+            .field("bytes", &self.0.len())
+            .finish()
+    }
+}
+
+impl fmt::Debug for AdapterEvent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AdapterEvent")
+            .field("bytes", &self.0.len())
+            .finish()
+    }
+}
 
 pub trait ProtocolAdapter: Send + Sync {
     fn dialect(&self) -> ProtocolDialect;
@@ -93,7 +111,11 @@ pub trait ProtocolAdapter: Send + Sync {
         response: DecodedUpstreamResponse,
     ) -> Result<EgressResponse, ProtocolError>;
 
-    fn encode_egress_event(&self, event: AdapterEvent) -> Result<SseFrame, ProtocolError>;
+    fn encode_egress_event(
+        &self,
+        event: AdapterEvent,
+        public_model: &str,
+    ) -> Result<SseFrame, ProtocolError>;
 
     fn error_response(&self, error: &PublicError) -> EgressResponse;
 }

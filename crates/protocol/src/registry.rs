@@ -94,7 +94,11 @@ mod tests {
             Err(ProtocolError::Unsupported("test".into()))
         }
 
-        fn encode_egress_event(&self, _event: AdapterEvent) -> Result<SseFrame, ProtocolError> {
+        fn encode_egress_event(
+            &self,
+            _event: AdapterEvent,
+            _public_model: &str,
+        ) -> Result<SseFrame, ProtocolError> {
             Err(ProtocolError::Unsupported("test".into()))
         }
 

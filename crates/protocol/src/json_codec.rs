@@ -64,6 +64,10 @@ pub(crate) fn encode_request(
     let object = value.as_object_mut().ok_or_else(|| {
         ProtocolError::InvalidPayload("request body must be a JSON object".into())
     })?;
+    let stream = object
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     object.insert("model".into(), Value::String(upstream_model.to_owned()));
     if !operation.allows_stream() {
         object.remove("stream");
@@ -77,7 +81,14 @@ pub(crate) fn encode_request(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    headers.insert(
+        header::ACCEPT,
+        HeaderValue::from_static(if stream {
+            "text/event-stream"
+        } else {
+            "application/json"
+        }),
+    );
 
     Ok(EncodedUpstreamRequest {
         method: Method::POST,

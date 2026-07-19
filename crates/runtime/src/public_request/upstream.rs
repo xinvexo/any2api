@@ -1,14 +1,18 @@
-use any2api_domain::{PublicError, PublicErrorCode};
+use std::sync::Arc;
+
+use any2api_domain::{ProtocolOperation, ProxyProfile, PublicError, PublicErrorCode};
 use any2api_protocol::api::{DecodedRequest, EgressResponse, ProtocolAdapter, UpstreamResponse};
-use any2api_provider::api::{ProviderRegistry, UpstreamResponseMeta};
+use any2api_provider::api::{ProviderDriver, ProviderRegistry, UpstreamResponseMeta};
 use any2api_transport::api::{EndpointNetworkPolicy, TransportManager, TransportRequest};
+use http::{HeaderValue, header};
 
 use super::{
-    SelectedCandidate,
+    PublicResponse, PublicResponseBody, RequestPermit, SelectedCandidate,
     response::{
         MAX_CLASSIFIED_ERROR_BYTES, classified_error, collect_body, internal_error,
         invalid_request, public_error, restore_public_model, sanitize_response_headers,
     },
+    stream::GuardedBody,
 };
 use crate::published_snapshot::PublishedSnapshot;
 
@@ -21,6 +25,118 @@ pub(super) async fn execute_attempt(
     providers: &ProviderRegistry,
     transport: &dyn TransportManager,
 ) -> Result<EgressResponse, PublicError> {
+    let prepared = prepare_attempt(snapshot, adapter, decoded, selected, providers)?;
+    let transport_response = transport
+        .execute(prepared.proxy, prepared.request)
+        .await
+        .map_err(|_| public_error(PublicErrorCode::UpstreamError, "upstream request failed"))?;
+    let status = transport_response.status;
+    let headers = transport_response.headers;
+    let body = collect_body(transport_response.body).await?;
+
+    if !status.is_success() {
+        let classified = prepared.driver.classify_error(
+            prepared.operation,
+            &UpstreamResponseMeta {
+                status,
+                headers: headers.clone(),
+            },
+            &body[..body.len().min(MAX_CLASSIFIED_ERROR_BYTES)],
+        );
+        drop(prepared.permit);
+        return Err(classified_error(classified));
+    }
+    drop(prepared.permit);
+
+    let decoded = adapter
+        .decode_upstream_response(UpstreamResponse {
+            status,
+            headers,
+            body,
+        })
+        .map_err(|_| {
+            public_error(
+                PublicErrorCode::UpstreamError,
+                "upstream response was invalid",
+            )
+        })?;
+    let mut response = adapter.encode_egress_response(decoded).map_err(|_| {
+        public_error(
+            PublicErrorCode::UpstreamError,
+            "upstream response could not be encoded",
+        )
+    })?;
+    restore_public_model(&mut response.body, public_model)?;
+    sanitize_response_headers(&mut response.headers);
+    Ok(response)
+}
+
+pub(super) async fn execute_stream_attempt(
+    snapshot: &PublishedSnapshot,
+    adapter: Arc<dyn ProtocolAdapter>,
+    decoded: DecodedRequest,
+    public_model: &str,
+    selected: SelectedCandidate,
+    providers: &ProviderRegistry,
+    transport: &dyn TransportManager,
+) -> Result<PublicResponse, PublicError> {
+    let prepared = prepare_attempt(snapshot, adapter.as_ref(), decoded, selected, providers)?;
+    let transport_response = transport
+        .execute(prepared.proxy, prepared.request)
+        .await
+        .map_err(|_| public_error(PublicErrorCode::UpstreamError, "upstream request failed"))?;
+    let status = transport_response.status;
+    let mut headers = transport_response.headers;
+    if !status.is_success() {
+        let body = collect_body(transport_response.body).await?;
+        let classified = prepared.driver.classify_error(
+            prepared.operation,
+            &UpstreamResponseMeta {
+                status,
+                headers: headers.clone(),
+            },
+            &body[..body.len().min(MAX_CLASSIFIED_ERROR_BYTES)],
+        );
+        drop(prepared.permit);
+        return Err(classified_error(classified));
+    }
+
+    sanitize_response_headers(&mut headers);
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/event-stream"),
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    let body = GuardedBody::new(
+        transport_response.body,
+        adapter,
+        public_model,
+        prepared.permit,
+    )
+    .prime()
+    .await?;
+    Ok(PublicResponse {
+        status,
+        headers,
+        body: PublicResponseBody::Streaming(body),
+    })
+}
+
+struct PreparedAttempt<'a> {
+    driver: &'a dyn ProviderDriver,
+    proxy: &'a ProxyProfile,
+    operation: ProtocolOperation,
+    request: TransportRequest,
+    permit: RequestPermit,
+}
+
+fn prepare_attempt<'a>(
+    snapshot: &'a PublishedSnapshot,
+    adapter: &dyn ProtocolAdapter,
+    decoded: DecodedRequest,
+    selected: SelectedCandidate,
+    providers: &'a ProviderRegistry,
+) -> Result<PreparedAttempt<'a>, PublicError> {
     let _selected_target_id = selected.candidate.target_id;
     let endpoint = snapshot
         .provider_endpoints()
@@ -28,7 +144,8 @@ pub(super) async fn execute_attempt(
         .ok_or_else(internal_error)?;
     let driver = providers
         .get(endpoint.provider_kind())
-        .ok_or_else(internal_error)?;
+        .ok_or_else(internal_error)?
+        .as_ref();
     let proxy = snapshot
         .resolved_proxy_for_credential(selected.candidate.credential_id)
         .filter(|proxy| proxy.enabled())
@@ -57,60 +174,20 @@ pub(super) async fn execute_attempt(
         .map_err(|_| internal_error())?;
     let credential_headers = selected
         .permit
-        .provider_credential_headers(driver.as_ref())
+        .provider_credential_headers(driver)
         .map_err(|_| internal_error())?;
     encoded.headers.extend(credential_headers.headers);
-
-    let transport_response = transport
-        .execute(
-            proxy,
-            TransportRequest {
-                method: encoded.method,
-                uri: encoded.uri,
-                headers: encoded.headers,
-                body: encoded.body,
-                network_policy: EndpointNetworkPolicy::new(endpoint.allow_private_network()),
-            },
-        )
-        .await
-        .map_err(|_| public_error(PublicErrorCode::UpstreamError, "upstream request failed"))?;
-    let status = transport_response.status;
-    let headers = transport_response.headers;
-    let body = collect_body(transport_response.body).await?;
-
-    if !status.is_success() {
-        let classified = driver.classify_error(
-            operation,
-            &UpstreamResponseMeta {
-                status,
-                headers: headers.clone(),
-            },
-            &body[..body.len().min(MAX_CLASSIFIED_ERROR_BYTES)],
-        );
-        drop(selected.permit);
-        return Err(classified_error(classified));
-    }
-    drop(selected.permit);
-
-    let decoded = adapter
-        .decode_upstream_response(UpstreamResponse {
-            status,
-            headers,
-            body,
-        })
-        .map_err(|_| {
-            public_error(
-                PublicErrorCode::UpstreamError,
-                "upstream response was invalid",
-            )
-        })?;
-    let mut response = adapter.encode_egress_response(decoded).map_err(|_| {
-        public_error(
-            PublicErrorCode::UpstreamError,
-            "upstream response could not be encoded",
-        )
-    })?;
-    restore_public_model(&mut response.body, public_model)?;
-    sanitize_response_headers(&mut response.headers);
-    Ok(response)
+    Ok(PreparedAttempt {
+        driver,
+        proxy,
+        operation,
+        request: TransportRequest {
+            method: encoded.method,
+            uri: encoded.uri,
+            headers: encoded.headers,
+            body: encoded.body,
+            network_policy: EndpointNetworkPolicy::new(endpoint.allow_private_network()),
+        },
+        permit: selected.permit,
+    })
 }

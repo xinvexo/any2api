@@ -10,6 +10,7 @@ use crate::{
         EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse,
     },
     json_codec,
+    sse::rewrite_known_model,
 };
 
 #[derive(Debug, Default)]
@@ -61,8 +62,8 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         })
     }
 
-    fn decode_upstream_event(&self, _frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
-        Err(ProtocolError::Unsupported("messages SSE".into()))
+    fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
+        Ok(AdapterEvent(frame.0))
     }
 
     fn encode_egress_response(
@@ -77,8 +78,12 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         })
     }
 
-    fn encode_egress_event(&self, _event: AdapterEvent) -> Result<SseFrame, ProtocolError> {
-        Err(ProtocolError::Unsupported("messages SSE".into()))
+    fn encode_egress_event(
+        &self,
+        event: AdapterEvent,
+        public_model: &str,
+    ) -> Result<SseFrame, ProtocolError> {
+        rewrite_known_model(SseFrame(event.0), public_model)
     }
 
     fn error_response(&self, error: &PublicError) -> EgressResponse {
@@ -149,7 +154,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::AnthropicMessagesAdapter;
-    use crate::api::{IngressRequest, ProtocolAdapter};
+    use crate::api::{IngressRequest, ProtocolAdapter, SseFrame};
 
     #[test]
     fn messages_rewrites_model_and_uses_anthropic_error_shape() {
@@ -243,5 +248,19 @@ mod tests {
         let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
         assert_eq!(response.status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"]["type"], "not_found_error");
+    }
+
+    #[test]
+    fn messages_stream_rewrites_the_public_model() {
+        let adapter = AnthropicMessagesAdapter::new();
+        let event = adapter
+            .decode_upstream_event(SseFrame(Bytes::from_static(
+                b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"upstream\"}}\n\n",
+            )))
+            .expect("decoded event");
+        let frame = adapter
+            .encode_egress_event(event, "public")
+            .expect("encoded event");
+        assert!(String::from_utf8_lossy(&frame.0).contains(r#""model":"public""#));
     }
 }

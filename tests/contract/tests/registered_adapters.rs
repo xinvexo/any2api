@@ -5,9 +5,12 @@ use any2api_domain::{
     CredentialKind, ErrorClass, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
     TransportMode,
 };
-use any2api_protocol::api::{IngressRequest, ProtocolAdapter};
+use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame};
 use any2api_provider::api::{ProviderDriver, ProviderSecret, UpstreamResponseMeta};
-use axum::http::{HeaderMap, Method, StatusCode, Uri, header::AUTHORIZATION};
+use axum::http::{
+    HeaderMap, Method, StatusCode, Uri,
+    header::{ACCEPT, AUTHORIZATION},
+};
 use bytes::Bytes;
 use serde_json::{Value, json};
 
@@ -85,6 +88,28 @@ fn responses_contract(adapter: &dyn ProtocolAdapter) {
     let body: Value = serde_json::from_slice(&encoded.body).expect("encoded JSON");
     assert_eq!(body["model"], "upstream-model");
     assert_eq!(body["future_field"]["preserved"], true);
+
+    let streaming = adapter
+        .decode_ingress_request(ingress_request(
+            ProtocolOperation::Responses,
+            "/v1/responses",
+            json!({"model":"public-model","stream":true}),
+        ))
+        .expect("streaming Responses request decodes");
+    assert!(streaming.stream);
+    let streaming = adapter
+        .encode_upstream_request(
+            streaming.operation,
+            streaming.headers,
+            streaming.payload,
+            "upstream-model",
+        )
+        .expect("streaming Responses request encodes");
+    assert_eq!(streaming.headers[ACCEPT], "text/event-stream");
+    assert_stream_model_rewrite(
+        adapter,
+        b"event: response.created\ndata: {\"response\":{\"model\":\"upstream-model\"}}\n\n",
+    );
 }
 
 fn messages_contract(adapter: &dyn ProtocolAdapter) {
@@ -111,6 +136,28 @@ fn messages_contract(adapter: &dyn ProtocolAdapter) {
     let body: Value = serde_json::from_slice(&encoded.body).expect("encoded JSON");
     assert_eq!(body["model"], "upstream-model");
     assert_eq!(body["future_field"], 42);
+
+    let streaming = adapter
+        .decode_ingress_request(ingress_request(
+            ProtocolOperation::Messages,
+            "/v1/messages",
+            json!({"model":"public-model","stream":true,"messages":[]}),
+        ))
+        .expect("streaming Messages request decodes");
+    assert!(streaming.stream);
+    let streaming = adapter
+        .encode_upstream_request(
+            streaming.operation,
+            streaming.headers,
+            streaming.payload,
+            "upstream-model",
+        )
+        .expect("streaming Messages request encodes");
+    assert_eq!(streaming.headers[ACCEPT], "text/event-stream");
+    assert_stream_model_rewrite(
+        adapter,
+        b"event: message_start\ndata: {\"message\":{\"model\":\"upstream-model\"}}\n\n",
+    );
 
     let count_tokens = adapter
         .decode_ingress_request(ingress_request(
@@ -140,6 +187,18 @@ fn ingress_request(operation: ProtocolOperation, uri: &'static str, body: Value)
         body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
         operation,
     }
+}
+
+fn assert_stream_model_rewrite(adapter: &dyn ProtocolAdapter, frame: &'static [u8]) {
+    let event = adapter
+        .decode_upstream_event(SseFrame(Bytes::from_static(frame)))
+        .expect("stream event decodes");
+    let frame = adapter
+        .encode_egress_event(event, "public-model")
+        .expect("stream event encodes");
+    let text = String::from_utf8_lossy(&frame.0);
+    assert!(text.contains(r#""model":"public-model""#));
+    assert!(!text.contains("upstream-model"));
 }
 
 fn codex_contract(driver: &dyn ProviderDriver) {
@@ -199,6 +258,7 @@ fn claude_contract(driver: &dyn ProviderDriver) {
 fn assert_common_capabilities(driver: &dyn ProviderDriver) {
     let capabilities = driver.capabilities();
     assert!(capabilities.transport_modes.contains(&TransportMode::Json));
+    assert!(capabilities.transport_modes.contains(&TransportMode::Sse));
     assert!(
         capabilities
             .credential_kinds

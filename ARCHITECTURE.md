@@ -925,10 +925,10 @@ ProviderKind
 
 | 入口 | 用途 | 上游方言 | JSON | SSE | 首版状态 |
 |---|---|---|---|---|---|
-| `POST /v1/responses` | Codex/OpenAI Responses 推理 | openai_responses | 是 | 待实现 | JSON vertical slice |
+| `POST /v1/responses` | Codex/OpenAI Responses 推理 | openai_responses | 是 | 是 | JSON + SSE vertical slice |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | 是 | 否 | JSON vertical slice |
 | `POST /backend-api/codex/responses` | ChatGPT/Codex OAuth 兼容别名 | codex_backend | 是 | 是 | 不实现，随未来 OAuth2 加入 |
-| `POST /v1/messages` | Claude Messages 推理 | anthropic_messages | 是 | 待实现 | JSON vertical slice |
+| `POST /v1/messages` | Claude Messages 推理 | anthropic_messages | 是 | 是 | JSON + SSE vertical slice |
 | `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 是 | 否 | JSON vertical slice |
 | `GET /v1/models` | 返回本地公开模型路由 | 本地 PublishedSnapshot | 是 | 否 | 实现 |
 
@@ -1534,6 +1534,8 @@ Axum Handler 返回流式 Body 后，Permit 不能留在 Handler 局部变量中
 - Attempt 结束记录器。
 
 正常 EOF、上游错误或客户端丢弃 Body 都通过 Drop/终止路径保证只释放一次 Permit，并取消仍在运行的上游任务。Drop 路径只执行同步释放、取消和有界日志入队；需要 await 的刷新由 TaskTracker best-effort 完成。
+
+首个 SSE 可运行切片固定以下边界：协议层使用增量分帧器处理任意字节切分、CRLF、多行 `data:` 与无尾空行；Runtime 在返回下游响应头前至少取得并验证一个完整事件，避免空流或首帧损坏时提前提交。提交后 Transport 或协议错误直接终止连接，不发送臆造事件，也不切换上游。模型别名只改写协议已知的顶层 `model`、`response.model` 与 `message.model` 字段，禁止递归改写工具参数或用户内容中的同名字段。完整 PrecommitBudget、提交前重试、身份事件硬粘性与协议内错误事件留给后续可靠性切片。
 
 ## 16. 配置发布与热更新
 
@@ -2163,8 +2165,8 @@ Any Downstream Header/Byte ──> Must Not Switch Upstream
 
 First Release Protocol Routing = Same Dialect Only
 Codex WebSocket = Disabled
-/v1/responses + /v1/responses/compact = JSON enabled; SSE deferred
-/v1/messages + /v1/messages/count_tokens = JSON enabled; Messages SSE deferred
+/v1/responses = JSON + SSE enabled; /v1/responses/compact = JSON only
+/v1/messages = JSON + SSE enabled; /v1/messages/count_tokens = JSON only
 /backend-api/codex/responses = Future OAuth2 Stage
 
 Validate + Compile Candidate ──> Database Commit ──> Registry Reconcile ──> Atomic Swap

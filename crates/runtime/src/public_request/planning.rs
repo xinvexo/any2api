@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use any2api_domain::{
-    FallbackTier, ProtocolOperation, PublicError, PublicErrorCode, PublicModelName,
+    FallbackTier, ProtocolOperation, PublicError, PublicErrorCode, PublicModelName, TransportMode,
 };
 use any2api_protocol::api::{DecodedRequest, IngressRequest, ProtocolAdapter};
 use any2api_provider::api::ProviderRegistry;
@@ -39,9 +39,6 @@ pub(super) fn plan(
             operation: request.operation,
         })
         .map_err(|_| invalid_request("request body is not valid for this endpoint"))?;
-    if decoded.stream {
-        return Err(invalid_request("streaming is not implemented yet"));
-    }
     let public_model = decoded
         .model
         .as_deref()
@@ -54,7 +51,12 @@ pub(super) fn plan(
         .resolve(decoded.dialect, &public_model)
         .filter(|route| route.enabled())
         .ok_or_else(|| public_error(PublicErrorCode::ModelNotFound, "model route was not found"))?;
-    let tiers = build_route_candidates(snapshot, route, providers);
+    let transport_mode = if decoded.stream {
+        TransportMode::Sse
+    } else {
+        TransportMode::Json
+    };
+    let tiers = build_route_candidates(snapshot, route, providers, transport_mode);
     let selected = select_candidate(
         snapshot,
         decoded.operation,

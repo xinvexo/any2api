@@ -8,6 +8,7 @@ pub use crate::gateway_api_key_token::{GatewayApiKeyToken, GatewayApiKeyTokenGen
 pub use crate::provider_api_key_secret::ProviderApiKeySecret;
 pub use crate::public_request::{
     PublicRequest, PublicRequestService, PublicRequestServiceError, PublicResponse,
+    PublicResponseBody, PublicResponseStream,
 };
 pub use crate::published_snapshot::{PublishedSnapshot, SnapshotStore};
 pub use crate::publisher::ConfigPublisher;

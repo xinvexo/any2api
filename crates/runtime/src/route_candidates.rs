@@ -18,6 +18,7 @@ pub(crate) fn build_route_candidates(
     snapshot: &PublishedSnapshot,
     route: &ModelRoute,
     providers: &ProviderRegistry,
+    transport_mode: TransportMode,
 ) -> BTreeMap<u16, Vec<RouteCandidate>> {
     let mut tiers = BTreeMap::new();
     for target in route.targets().iter().filter(|target| target.enabled()) {
@@ -35,7 +36,7 @@ pub(crate) fn build_route_candidates(
         };
         let capabilities = driver.capabilities();
         if !capabilities.protocols.contains(&route.ingress_protocol())
-            || !capabilities.transport_modes.contains(&TransportMode::Json)
+            || !capabilities.transport_modes.contains(&transport_mode)
         {
             continue;
         }

@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 2/3 交叉切片「同协议非流式 JSON」；阶段 1 的 SettingRegistry、管理员认证和远程管理仍待完成。
-- 最近完成：Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
+- 当前阶段：阶段 2/3 交叉切片「同协议 JSON/SSE」；阶段 1 的 SettingRegistry、管理员认证和远程管理仍待完成。
+- 最近完成：Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -163,7 +163,7 @@
 - Runtime 执行链按请求规划、单次 Attempt 和响应处理拆分；生产文件均保持单一职责，没有把网络、调度和响应过滤重新塞进中央文件。
 - 同负载轮询游标按 `ModelRoute + fallback tier` 隔离，并由 RuntimeRegistry 跨连续配置代际复用；删除后旧快照仍持有旧游标，新生命周期从零开始，避免跨 Route 偏斜和无效请求扰动。
 - 未知 `/v1/*`、已知路径的方法错误和普通公开路由现在经过同一 GatewayApiKey 鉴权层；上游认证头、Cookie、固定及动态 hop-by-hop 响应头不会返回客户端。
-- 当前切片只支持非流式 JSON；`stream=true` 明确返回 invalid request。未实现自动重试、排队、冷却、健康、会话粘性和 SSE。
+- 该切片完成时只支持非流式 JSON；后续 SSE 切片已补齐 Responses 与 Messages 流式执行。自动重试、排队、冷却、健康和会话粘性仍未实现。
 - 模块测试与本地 HTTP 契约测试覆盖路径、认证头、客户端头剥离、出站 POST、模型替换、Compact 端点、敏感响应头过滤、fallback 鉴权、JSON 405 和 Route/tier 游标生命周期；Registry 契约从真实 App Composition Root 枚举全部 Adapter/Driver，避免生产漏注册仍通过测试。
 
 ### Count Tokens 辅助并发切片
@@ -175,23 +175,31 @@
 - Claude Count Tokens 上游明确返回 404 时分类为 operation unavailable，并转换为脱敏 Anthropic 404 `not_found_error`，供 Claude Code 回退本地 Token 估算；其他上游错误仍遵循当前 502 边界。
 - 单元与契约测试覆盖全局/单 Credential 上限、与生成容量相互独立、动态降限、并发竞争、字段保留、模型改写、Provider 认证头、成功响应和 404 脱敏。
 
+### 同协议 SSE 与 GuardedBody 切片
+
+- Codex Responses 与 Claude Messages 的 `stream=true` 已通过同协议 Route、Provider API Key、代理和 Credential 生成并发槽位执行；Compact 与 Count Tokens 仍只允许 JSON。
+- Provider Driver 显式声明 `TransportMode::Sse`，Runtime 根据请求的流式标记选择 JSON/SSE 能力，不用 JSON 能力替代流式能力。
+- Protocol `SseDecoder` 覆盖任意字节切分、LF/CRLF、多行 `data:` 和 EOF 无尾空行，并限制单帧缓冲；Adapter 只改写顶层、`response.model` 与 `message.model`。
+- Runtime 在返回下游响应头前预读首个完整事件；空流、首帧错误和首帧 Transport 错误仍返回协议 JSON 错误。返回后由 `GuardedBody` 持有上游流、Permit、取消标记和 CommitState。
+- EOF、上游错误和客户端 Drop 都只释放一次 Permit；提交后的错误终止当前流，不自动切换 Credential、不拼接第二条流。
+- 模块、Driver/Adapter 契约和真实 chunked HTTP 测试覆盖 Codex/Claude 首帧增量、模型别名、流式响应头、Permit 生命周期与错误边界。
+
 ## 当前边界
 
-- DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入非流式公开 JSON 请求，但尚未覆盖 SSE、健康熔断和管理面代理测试按钮。
-- ModelRoute 配置、管理面、公开 `/v1/models` 和首版非流式同协议请求已实现；SSE、重试、排队与会话粘性仍未完成。
+- DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求，但尚未覆盖健康熔断和管理面代理测试按钮。
+- ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求已实现；重试、排队与会话粘性仍未完成。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
 - 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
 - Credential generation 已承载首版 API Key 认证材料；认证健康、模型健康和刷新锁仍未实现。
-- 当前 JSON vertical slice 尚未提供统一请求 deadline/read timeout；上游错误状态暂按脱敏 `502` envelope 返回，`Retry-After` 和精细错误状态留到可靠性切片。
+- 当前 JSON/SSE vertical slice 尚未提供统一请求 deadline/read timeout；SSE 只对首帧提供 5 秒预提交超时，提交后的错误直接结束流。上游错误状态暂按脱敏 `502` envelope 返回，`Retry-After` 和精细错误状态留到可靠性切片。
 - Gateway 鉴权失败与方法错误当前使用管理面统一 JSON envelope；已认证的协议执行错误才由 Responses/Messages Adapter 编码，协议专用 401 envelope 留待公开错误适配切片。
 
 ## 下一步
 
-1. 实现 Codex/Claude SSE、协议分帧、模型别名事件改写与 GuardedBody。
-2. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
-3. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
-4. 补齐请求日志、Attempt、可观测性和 OAuth2 扩展边界。
+1. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
+2. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
+3. 补齐请求日志、Attempt、可观测性和 OAuth2 扩展边界。
 
 ## 验证结果
 
@@ -211,4 +219,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3212`；公开 Codex/Claude 上游路径、Count Tokens、认证头、模型别名、404 兼容和响应头过滤由本地上游契约测试覆盖。
+以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3212`；公开 Codex/Claude JSON/SSE 上游路径、Count Tokens、认证头、模型别名、404 兼容和响应头过滤由本地上游契约测试覆盖。

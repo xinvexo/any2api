@@ -26,7 +26,9 @@ impl ClaudeDriver {
         Self {
             capabilities: CapabilitySet {
                 protocols: [ProtocolDialect::AnthropicMessages].into_iter().collect(),
-                transport_modes: [TransportMode::Json].into_iter().collect(),
+                transport_modes: [TransportMode::Json, TransportMode::Sse]
+                    .into_iter()
+                    .collect(),
                 credential_kinds: [CredentialKind::ApiKey].into_iter().collect(),
             },
         }
@@ -94,7 +96,7 @@ impl ProviderDriver for ClaudeDriver {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ErrorClass, ProtocolOperation, ProviderBaseUrl};
+    use any2api_domain::{ErrorClass, ProtocolOperation, ProviderBaseUrl, TransportMode};
     use http::{HeaderMap, StatusCode};
 
     use super::ClaudeDriver;
@@ -121,6 +123,12 @@ mod tests {
             .expect("headers");
         assert_eq!(headers.headers["x-api-key"], "sk-claude");
         assert_eq!(headers.headers["anthropic-version"], "2023-06-01");
+        assert!(
+            driver
+                .capabilities()
+                .transport_modes
+                .contains(&TransportMode::Sse)
+        );
     }
 
     #[test]

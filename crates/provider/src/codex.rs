@@ -26,7 +26,9 @@ impl CodexDriver {
         Self {
             capabilities: CapabilitySet {
                 protocols: [ProtocolDialect::OpenAiResponses].into_iter().collect(),
-                transport_modes: [TransportMode::Json].into_iter().collect(),
+                transport_modes: [TransportMode::Json, TransportMode::Sse]
+                    .into_iter()
+                    .collect(),
                 credential_kinds: [CredentialKind::ApiKey].into_iter().collect(),
             },
         }
@@ -89,7 +91,7 @@ impl ProviderDriver for CodexDriver {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ProtocolOperation, ProviderBaseUrl};
+    use any2api_domain::{ProtocolOperation, ProviderBaseUrl, TransportMode};
     use http::header::AUTHORIZATION;
 
     use super::CodexDriver;
@@ -113,5 +115,11 @@ mod tests {
             .expect("headers");
         assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-codex");
         assert!(!format!("{headers:?}").contains("sk-codex"));
+        assert!(
+            driver
+                .capabilities()
+                .transport_modes
+                .contains(&TransportMode::Sse)
+        );
     }
 }

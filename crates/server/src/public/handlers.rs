@@ -1,5 +1,5 @@
 use any2api_domain::ProtocolOperation;
-use any2api_runtime::api::PublicRequest;
+use any2api_runtime::api::{PublicRequest, PublicResponseBody};
 use axum::{
     body::{Body, Bytes},
     extract::{Extension, State},
@@ -17,7 +17,7 @@ pub(crate) async fn responses(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    execute_json(
+    execute_public_request(
         state,
         authenticated,
         headers,
@@ -33,7 +33,7 @@ pub(crate) async fn responses_compact(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    execute_json(
+    execute_public_request(
         state,
         authenticated,
         headers,
@@ -49,7 +49,7 @@ pub(crate) async fn messages(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    execute_json(
+    execute_public_request(
         state,
         authenticated,
         headers,
@@ -65,7 +65,7 @@ pub(crate) async fn messages_count_tokens(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    execute_json(
+    execute_public_request(
         state,
         authenticated,
         headers,
@@ -75,7 +75,7 @@ pub(crate) async fn messages_count_tokens(
     .await
 }
 
-async fn execute_json(
+async fn execute_public_request(
     state: AppState,
     authenticated: AuthenticatedGatewayApiKey,
     headers: HeaderMap,
@@ -96,7 +96,11 @@ async fn execute_json(
             },
         )
         .await;
-    let mut outgoing = Response::new(Body::from(response.body));
+    let body = match response.body {
+        PublicResponseBody::Buffered(body) => Body::from(body),
+        PublicResponseBody::Streaming(body) => Body::from_stream(body),
+    };
+    let mut outgoing = Response::new(body);
     *outgoing.status_mut() = response.status;
     *outgoing.headers_mut() = response.headers;
     outgoing

@@ -1,14 +1,19 @@
 mod planning;
 mod response;
+mod stream;
 mod upstream;
 
-use std::sync::Arc;
+#[cfg(test)]
+mod stream_tests;
+
+use std::{pin::Pin, sync::Arc};
 
 use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError};
 use any2api_protocol::api::{EgressResponse, ProtocolAdapter, ProtocolRegistry};
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError, ProviderRegistry};
 use any2api_transport::api::TransportManager;
 use bytes::Bytes;
+use futures_util::Stream;
 use http::{HeaderMap, StatusCode};
 use thiserror::Error;
 
@@ -27,7 +32,15 @@ pub struct PublicRequest {
 pub struct PublicResponse {
     pub status: StatusCode,
     pub headers: HeaderMap,
-    pub body: Bytes,
+    pub body: PublicResponseBody,
+}
+
+pub type PublicResponseStream =
+    Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send + 'static>>;
+
+pub enum PublicResponseBody {
+    Buffered(Bytes),
+    Streaming(PublicResponseStream),
 }
 
 pub struct PublicRequestService {
@@ -65,10 +78,10 @@ impl PublicRequestService {
                 .expect("validated protocol registry"),
         );
         let result = self
-            .execute_inner(snapshot, request, adapter.as_ref())
+            .execute_inner(snapshot, request, Arc::clone(&adapter))
             .await;
         match result {
-            Ok(response) => response.into(),
+            Ok(response) => response,
             Err(error) => adapter.error_response(&error).into(),
         }
     }
@@ -77,19 +90,38 @@ impl PublicRequestService {
         &self,
         snapshot: Arc<PublishedSnapshot>,
         request: PublicRequest,
-        adapter: &dyn ProtocolAdapter,
-    ) -> Result<EgressResponse, PublicError> {
-        let planned = planning::plan(snapshot.as_ref(), request, adapter, self.providers.as_ref())?;
-        upstream::execute_attempt(
+        adapter: Arc<dyn ProtocolAdapter>,
+    ) -> Result<PublicResponse, PublicError> {
+        let planned = planning::plan(
             snapshot.as_ref(),
-            adapter,
+            request,
+            adapter.as_ref(),
+            self.providers.as_ref(),
+        )?;
+        if planned.decoded.stream {
+            let response = upstream::execute_stream_attempt(
+                snapshot.as_ref(),
+                adapter,
+                planned.decoded,
+                &planned.public_model,
+                planned.selected,
+                self.providers.as_ref(),
+                self.transport.as_ref(),
+            )
+            .await?;
+            return Ok(response);
+        }
+        let response = upstream::execute_attempt(
+            snapshot.as_ref(),
+            adapter.as_ref(),
             planned.decoded,
             &planned.public_model,
             planned.selected,
             self.providers.as_ref(),
             self.transport.as_ref(),
         )
-        .await
+        .await?;
+        Ok(response.into())
     }
 }
 
@@ -120,7 +152,7 @@ impl From<EgressResponse> for PublicResponse {
         Self {
             status: response.status,
             headers: response.headers,
-            body: response.body,
+            body: PublicResponseBody::Buffered(response.body),
         }
     }
 }
