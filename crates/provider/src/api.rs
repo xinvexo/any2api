@@ -50,7 +50,12 @@ pub trait ProviderDriver: Send + Sync {
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError>;
 
-    fn classify_error(&self, meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> ErrorClass;
+    fn classify_error(
+        &self,
+        operation: ProtocolOperation,
+        meta: &UpstreamResponseMeta,
+        bounded_body: &[u8],
+    ) -> ErrorClass;
 }
 
 impl fmt::Debug for CredentialHeaders {

@@ -1,3 +1,4 @@
+pub use crate::auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryConcurrencyLimitsError};
 pub use crate::config_publish_error::ConfigPublishError;
 pub use crate::credential_runtime::{
     ConcurrencyPermit, CredentialCapacity, CredentialGenerationRuntime, CredentialRuntimeBinding,

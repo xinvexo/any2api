@@ -59,11 +59,20 @@ pub(crate) async fn messages(
     .await
 }
 
-pub(crate) async fn not_implemented(
+pub(crate) async fn messages_count_tokens(
+    State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-) -> Result<Response, PublicApiError> {
-    let _ = (authenticated.id(), authenticated.snapshot().revision());
-    Err(PublicApiError::not_implemented())
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    execute_json(
+        state,
+        authenticated,
+        headers,
+        body,
+        ProtocolOperation::MessagesCountTokens,
+    )
+    .await
 }
 
 async fn execute_json(
@@ -73,6 +82,7 @@ async fn execute_json(
     body: Bytes,
     operation: ProtocolOperation,
 ) -> Response {
+    let _gateway_api_key_id = authenticated.id();
     let Some(service) = state.public_requests() else {
         return PublicApiError::not_implemented().into_response();
     };

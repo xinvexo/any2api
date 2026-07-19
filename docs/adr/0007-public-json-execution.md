@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-19
 - 决策者：maintainer
+- 后续：`ADR-0008` 已接入 `/v1/messages/count_tokens` 与独立辅助并发，本 ADR 记录的“仅认证门”是当时切片边界。
 
 ## 背景
 

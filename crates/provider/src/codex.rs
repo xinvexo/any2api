@@ -79,6 +79,7 @@ impl ProviderDriver for CodexDriver {
 
     fn classify_error(
         &self,
+        _operation: ProtocolOperation,
         meta: &UpstreamResponseMeta,
         _bounded_body: &[u8],
     ) -> any2api_domain::ErrorClass {

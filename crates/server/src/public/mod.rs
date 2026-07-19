@@ -16,7 +16,10 @@ pub(crate) fn routes(state: AppState) -> Router {
         .route("/responses", post(handlers::responses))
         .route("/responses/compact", post(handlers::responses_compact))
         .route("/messages", post(handlers::messages))
-        .route("/messages/count_tokens", post(handlers::not_implemented))
+        .route(
+            "/messages/count_tokens",
+            post(handlers::messages_count_tokens),
+        )
         .fallback(error::not_found)
         .method_not_allowed_fallback(error::method_not_allowed)
         .layer(middleware::from_fn_with_state(

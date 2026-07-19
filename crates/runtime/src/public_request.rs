@@ -6,13 +6,16 @@ use std::sync::Arc;
 
 use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError};
 use any2api_protocol::api::{EgressResponse, ProtocolAdapter, ProtocolRegistry};
-use any2api_provider::api::ProviderRegistry;
+use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError, ProviderRegistry};
 use any2api_transport::api::TransportManager;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 use thiserror::Error;
 
-use crate::{published_snapshot::PublishedSnapshot, route_candidates::RouteCandidate};
+use crate::{
+    auxiliary_scheduler::AuxiliaryPermit, credential_runtime::ConcurrencyPermit,
+    published_snapshot::PublishedSnapshot, route_candidates::RouteCandidate,
+};
 
 #[derive(Clone)]
 pub struct PublicRequest {
@@ -92,7 +95,24 @@ impl PublicRequestService {
 
 pub(super) struct SelectedCandidate {
     pub(super) candidate: RouteCandidate,
-    pub(super) permit: crate::credential_runtime::ConcurrencyPermit,
+    pub(super) permit: RequestPermit,
+}
+
+pub(super) enum RequestPermit {
+    Generation(ConcurrencyPermit),
+    Auxiliary(AuxiliaryPermit),
+}
+
+impl RequestPermit {
+    pub(super) fn provider_credential_headers(
+        &self,
+        driver: &dyn ProviderDriver,
+    ) -> Result<CredentialHeaders, ProviderError> {
+        match self {
+            Self::Generation(permit) => permit.provider_credential_headers(driver),
+            Self::Auxiliary(permit) => permit.provider_credential_headers(driver),
+        }
+    }
 }
 
 impl From<EgressResponse> for PublicResponse {

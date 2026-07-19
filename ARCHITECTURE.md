@@ -929,7 +929,7 @@ ProviderKind
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | 是 | 否 | JSON vertical slice |
 | `POST /backend-api/codex/responses` | ChatGPT/Codex OAuth 兼容别名 | codex_backend | 是 | 是 | 不实现，随未来 OAuth2 加入 |
 | `POST /v1/messages` | Claude Messages 推理 | anthropic_messages | 是 | 待实现 | JSON vertical slice |
-| `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 待实现 | 否 | 认证门已建立 |
+| `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 是 | 否 | JSON vertical slice |
 | `GET /v1/models` | 返回本地公开模型路由 | 本地 PublishedSnapshot | 是 | 否 | 实现 |
 
 `/v1/models` 返回已发布且启用的公开模型路由，不根据瞬时冷却、并发、Credential 或代理可用性频繁增删模型。跨协议 Route 使用相同 `public_model` 时只返回一个标准模型对象，结果按模型名稳定排序；具体请求仍按入口协议精确解析 Route。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
@@ -1031,7 +1031,7 @@ trait ProtocolAdapter: Send + Sync {
 - 只有选中的 `ProviderCredential` 可以重新注入上游认证字段；
 - Gateway Key 永远不会被转发给 Provider，也不能影响 ProviderCredential 选择。
 
-首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。当前同协议 JSON 切片已接入 Responses、Responses Compact 和 Messages；Count Tokens 仍等待辅助请求 Permit。
+首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。当前同协议 JSON 切片已接入 Responses、Responses Compact、Messages 和 Count Tokens。
 
 协议适配器只向上游转发明确允许的协议能力头；当前首版保留 Claude `anthropic-beta`，Provider Driver 仍负责覆盖上游认证和固定版本头。
 
@@ -2164,7 +2164,7 @@ Any Downstream Header/Byte ──> Must Not Switch Upstream
 First Release Protocol Routing = Same Dialect Only
 Codex WebSocket = Disabled
 /v1/responses + /v1/responses/compact = JSON enabled; SSE deferred
-/v1/messages = JSON enabled; /v1/messages/count_tokens = auth gate only (deferred)
+/v1/messages + /v1/messages/count_tokens = JSON enabled; Messages SSE deferred
 /backend-api/codex/responses = Future OAuth2 Stage
 
 Validate + Compile Candidate ──> Database Commit ──> Registry Reconcile ──> Atomic Swap

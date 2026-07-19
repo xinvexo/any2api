@@ -1,5 +1,6 @@
 pub mod api;
 
+mod auxiliary_scheduler;
 mod config_command;
 mod config_publish_error;
 mod credential_auth;
@@ -15,6 +16,9 @@ mod route_candidates;
 mod route_tier_cursor;
 mod scheduler;
 mod scheduler_epoch;
+
+#[cfg(test)]
+mod auxiliary_scheduler_tests;
 
 #[cfg(test)]
 mod credential_runtime_tests;

@@ -100,7 +100,9 @@ fn error_type(code: PublicErrorCode) -> &'static str {
     match code {
         PublicErrorCode::Unauthorized => "authentication_error",
         PublicErrorCode::InvalidRequest => "invalid_request_error",
-        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "not_found_error",
+        PublicErrorCode::ModelNotFound
+        | PublicErrorCode::NoRoute
+        | PublicErrorCode::UpstreamNotFound => "not_found_error",
         PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalConcurrencyLimit => {
             "rate_limit_error"
         }
@@ -114,7 +116,9 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
     match code {
         PublicErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         PublicErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
-        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => StatusCode::NOT_FOUND,
+        PublicErrorCode::ModelNotFound
+        | PublicErrorCode::NoRoute
+        | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
         PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalConcurrencyLimit => {
             StatusCode::TOO_MANY_REQUESTS
         }
@@ -141,7 +145,7 @@ fn json_response(status: StatusCode, value: serde_json::Value) -> EgressResponse
 mod tests {
     use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode};
     use bytes::Bytes;
-    use http::{HeaderMap, HeaderValue, Method, Uri};
+    use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri};
     use serde_json::{Value, json};
 
     use super::AnthropicMessagesAdapter;
@@ -191,5 +195,53 @@ mod tests {
         let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
         assert_eq!(body["type"], "error");
         assert_eq!(body["error"]["type"], "rate_limit_error");
+    }
+
+    #[test]
+    fn count_tokens_preserves_fields_and_upstream_not_found_is_compatible() {
+        let adapter = AnthropicMessagesAdapter::new();
+        let decoded = adapter
+            .decode_ingress_request(IngressRequest {
+                method: Method::POST,
+                uri: Uri::from_static("/v1/messages/count_tokens"),
+                headers: HeaderMap::new(),
+                body: Bytes::from_static(
+                    br#"{"model":"public","messages":[],"system":"test","tools":[],"future":true}"#,
+                ),
+                operation: ProtocolOperation::MessagesCountTokens,
+            })
+            .expect("decoded count tokens request");
+        let encoded = adapter
+            .encode_upstream_request(
+                decoded.operation,
+                decoded.headers,
+                decoded.payload,
+                "claude-upstream",
+            )
+            .expect("encoded count tokens request");
+        let body: Value = serde_json::from_slice(&encoded.body).expect("encoded JSON");
+        assert_eq!(body["model"], "claude-upstream");
+        assert_eq!(body["system"], "test");
+        assert_eq!(body["tools"], json!([]));
+        assert_eq!(body["future"], true);
+        assert!(
+            adapter
+                .decode_ingress_request(IngressRequest {
+                    method: Method::POST,
+                    uri: Uri::from_static("/v1/messages/count_tokens"),
+                    headers: HeaderMap::new(),
+                    body: Bytes::from_static(br#"{"model":"public","stream":true}"#),
+                    operation: ProtocolOperation::MessagesCountTokens,
+                })
+                .is_err()
+        );
+
+        let response = adapter.error_response(&PublicError::new(
+            PublicErrorCode::UpstreamNotFound,
+            "unavailable",
+        ));
+        let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
+        assert_eq!(response.status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["type"], "not_found_error");
     }
 }

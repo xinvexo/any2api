@@ -10,6 +10,7 @@ use arc_swap::ArcSwap;
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{
+    auxiliary_scheduler::AuxiliaryScheduler,
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
     registry::RuntimeRegistry,
@@ -27,6 +28,7 @@ pub struct PublishedSnapshot {
     gateway_api_key_verifier: GatewayApiKeyVerifier,
     credential_runtimes: CredentialRuntimeBindings,
     route_tier_cursors: RouteTierCursorBindings,
+    auxiliary_scheduler: Arc<AuxiliaryScheduler>,
 }
 
 impl PublishedSnapshot {
@@ -38,6 +40,7 @@ impl PublishedSnapshot {
         let credential_runtimes =
             runtime.reconcile_configuration(&parts.provider_credentials, auth_materials);
         let route_tier_cursors = runtime.reconcile_route_tier_cursors(&parts.model_routes);
+        let auxiliary_scheduler = runtime.auxiliary_scheduler();
         Self {
             revision: parts.revision,
             proxies: parts.proxies,
@@ -48,6 +51,7 @@ impl PublishedSnapshot {
             gateway_api_key_verifier: parts.gateway_api_key_verifier,
             credential_runtimes,
             route_tier_cursors,
+            auxiliary_scheduler,
         }
     }
 
@@ -111,6 +115,10 @@ impl PublishedSnapshot {
         tier: any2api_domain::FallbackTier,
     ) -> Option<&RouteTierCursorBinding> {
         self.route_tier_cursors.get(route_id, tier)
+    }
+
+    pub(crate) const fn auxiliary_scheduler(&self) -> &Arc<AuxiliaryScheduler> {
+        &self.auxiliary_scheduler
     }
 
     #[must_use]

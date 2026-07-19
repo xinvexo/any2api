@@ -1,7 +1,7 @@
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
-use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderValue, StatusCode};
 
 use crate::{
     ProviderError, ProviderSecret,
@@ -79,19 +79,29 @@ impl ProviderDriver for ClaudeDriver {
 
     fn classify_error(
         &self,
+        operation: ProtocolOperation,
         meta: &UpstreamResponseMeta,
         _bounded_body: &[u8],
     ) -> any2api_domain::ErrorClass {
+        if operation == ProtocolOperation::MessagesCountTokens
+            && meta.status == StatusCode::NOT_FOUND
+        {
+            return any2api_domain::ErrorClass::OperationUnavailable;
+        }
         api_key::classify_status(meta)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ProtocolOperation, ProviderBaseUrl};
+    use any2api_domain::{ErrorClass, ProtocolOperation, ProviderBaseUrl};
+    use http::{HeaderMap, StatusCode};
 
     use super::ClaudeDriver;
-    use crate::{ProviderSecret, api::ProviderDriver};
+    use crate::{
+        ProviderSecret,
+        api::{ProviderDriver, UpstreamResponseMeta},
+    };
 
     #[test]
     fn builds_messages_paths_and_anthropic_headers() {
@@ -111,5 +121,23 @@ mod tests {
             .expect("headers");
         assert_eq!(headers.headers["x-api-key"], "sk-claude");
         assert_eq!(headers.headers["anthropic-version"], "2023-06-01");
+    }
+
+    #[test]
+    fn count_tokens_not_found_is_operation_unavailable() {
+        let driver = ClaudeDriver::new();
+        let response = UpstreamResponseMeta {
+            status: StatusCode::NOT_FOUND,
+            headers: HeaderMap::new(),
+        };
+
+        assert_eq!(
+            driver.classify_error(ProtocolOperation::MessagesCountTokens, &response, b"{}"),
+            ErrorClass::OperationUnavailable
+        );
+        assert_eq!(
+            driver.classify_error(ProtocolOperation::Messages, &response, b"{}"),
+            ErrorClass::ModelUnavailable
+        );
     }
 }

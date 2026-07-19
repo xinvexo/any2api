@@ -98,6 +98,12 @@ fn trim_ows(mut value: &[u8]) -> &[u8] {
 }
 
 pub(super) fn classified_error(class: ErrorClass) -> PublicError {
+    if class == ErrorClass::OperationUnavailable {
+        return public_error(
+            PublicErrorCode::UpstreamNotFound,
+            "upstream operation is unavailable",
+        );
+    }
     let message = match class {
         ErrorClass::Authentication => "upstream authentication failed",
         ErrorClass::PermissionDenied => "upstream permission was denied",

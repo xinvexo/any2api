@@ -9,6 +9,7 @@ pub enum ErrorClass {
     PermissionDenied,
     RateLimited,
     ModelUnavailable,
+    OperationUnavailable,
     Proxy,
     Network,
     Upstream,
@@ -26,6 +27,7 @@ pub enum PublicErrorCode {
     NoAvailableCredential,
     LocalConcurrencyLimit,
     SessionBindingLost,
+    UpstreamNotFound,
     UpstreamError,
     InternalError,
 }

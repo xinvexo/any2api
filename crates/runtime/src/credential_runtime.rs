@@ -3,7 +3,7 @@ use std::{
     fmt,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
     },
 };
 
@@ -91,6 +91,7 @@ impl fmt::Debug for CredentialGenerationRuntime {
 pub(crate) struct CredentialRuntimeHandle {
     id: CredentialId,
     capacity: AtomicU64,
+    auxiliary_in_flight: AtomicU32,
     current_generation: ArcSwap<CredentialGenerationRuntime>,
     retired: AtomicBool,
     scheduler_epoch: Arc<SchedulerEpoch>,
@@ -105,6 +106,7 @@ impl CredentialRuntimeHandle {
         Arc::new(Self {
             id: credential.id(),
             capacity: AtomicU64::new(pack_capacity(credential.max_concurrency().get(), 0)),
+            auxiliary_in_flight: AtomicU32::new(0),
             current_generation: ArcSwap::from_pointee(CredentialGenerationRuntime::new(
                 credential,
                 auth_material,
@@ -151,6 +153,30 @@ impl CredentialRuntimeHandle {
 
     fn capacity(&self) -> CredentialCapacity {
         unpack_capacity(self.capacity.load(Ordering::Acquire))
+    }
+
+    pub(crate) const fn id(&self) -> CredentialId {
+        self.id
+    }
+
+    fn auxiliary_in_flight(&self) -> u32 {
+        self.auxiliary_in_flight.load(Ordering::Acquire)
+    }
+
+    fn reserve_auxiliary(&self) {
+        self.auxiliary_in_flight
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current.checked_add(1)
+            })
+            .expect("auxiliary in-flight counter overflowed u32");
+    }
+
+    pub(crate) fn release_auxiliary(&self) {
+        self.auxiliary_in_flight
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current.checked_sub(1)
+            })
+            .expect("auxiliary permit released without an active slot");
     }
 
     fn update_max_concurrency(&self, max_concurrency: MaxConcurrency) {
@@ -217,6 +243,7 @@ impl fmt::Debug for CredentialRuntimeHandle {
             .debug_struct("CredentialRuntimeHandle")
             .field("id", &self.id)
             .field("capacity", &self.capacity())
+            .field("auxiliary_in_flight", &self.auxiliary_in_flight())
             .field("generation", &self.current_generation.load())
             .field("retired", &self.retired.load(Ordering::Acquire))
             .finish()
@@ -248,6 +275,20 @@ impl CredentialRuntimeBinding {
     #[must_use]
     pub fn is_retired(&self) -> bool {
         self.handle.retired.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn auxiliary_in_flight(&self) -> u32 {
+        self.handle.auxiliary_in_flight()
+    }
+
+    pub(crate) fn reserve_auxiliary(
+        &self,
+    ) -> (
+        Arc<CredentialRuntimeHandle>,
+        Arc<CredentialGenerationRuntime>,
+    ) {
+        self.handle.reserve_auxiliary();
+        (Arc::clone(&self.handle), Arc::clone(&self.generation))
     }
 
     #[must_use]

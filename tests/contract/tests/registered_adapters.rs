@@ -2,12 +2,12 @@ use std::collections::BTreeSet;
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
+    CredentialKind, ErrorClass, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
     TransportMode,
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter};
-use any2api_provider::api::{ProviderDriver, ProviderSecret};
-use axum::http::{HeaderMap, Method, Uri, header::AUTHORIZATION};
+use any2api_provider::api::{ProviderDriver, ProviderSecret, UpstreamResponseMeta};
+use axum::http::{HeaderMap, Method, StatusCode, Uri, header::AUTHORIZATION};
 use bytes::Bytes;
 use serde_json::{Value, json};
 
@@ -111,6 +111,25 @@ fn messages_contract(adapter: &dyn ProtocolAdapter) {
     let body: Value = serde_json::from_slice(&encoded.body).expect("encoded JSON");
     assert_eq!(body["model"], "upstream-model");
     assert_eq!(body["future_field"], 42);
+
+    let count_tokens = adapter
+        .decode_ingress_request(ingress_request(
+            ProtocolOperation::MessagesCountTokens,
+            "/v1/messages/count_tokens",
+            json!({"model":"public-model","messages":[],"future_count_field":true}),
+        ))
+        .expect("Count Tokens request decodes");
+    let count_tokens = adapter
+        .encode_upstream_request(
+            count_tokens.operation,
+            count_tokens.headers,
+            count_tokens.payload,
+            "upstream-model",
+        )
+        .expect("Count Tokens request encodes");
+    let body: Value = serde_json::from_slice(&count_tokens.body).expect("encoded JSON");
+    assert_eq!(body["model"], "upstream-model");
+    assert_eq!(body["future_count_field"], true);
 }
 
 fn ingress_request(operation: ProtocolOperation, uri: &'static str, body: Value) -> IngressRequest {
@@ -164,6 +183,17 @@ fn claude_contract(driver: &dyn ProviderDriver) {
         .expect("Claude credential headers");
     assert_eq!(headers.headers["x-api-key"], "sk-claude-contract");
     assert_eq!(headers.headers["anthropic-version"], "2023-06-01");
+    assert_eq!(
+        driver.classify_error(
+            ProtocolOperation::MessagesCountTokens,
+            &UpstreamResponseMeta {
+                status: StatusCode::NOT_FOUND,
+                headers: HeaderMap::new(),
+            },
+            b"{}",
+        ),
+        ErrorClass::OperationUnavailable
+    );
 }
 
 fn assert_common_capabilities(driver: &dyn ProviderDriver) {

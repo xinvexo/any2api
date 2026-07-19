@@ -41,6 +41,7 @@ pub(super) async fn execute_attempt(
     let endpoint_plan = driver
         .endpoint_plan(endpoint.base_url(), decoded.operation)
         .map_err(|_| internal_error())?;
+    let operation = decoded.operation;
     let mut encoded = adapter
         .encode_upstream_request(
             decoded.operation,
@@ -79,6 +80,7 @@ pub(super) async fn execute_attempt(
 
     if !status.is_success() {
         let classified = driver.classify_error(
+            operation,
             &UpstreamResponseMeta {
                 status,
                 headers: headers.clone(),

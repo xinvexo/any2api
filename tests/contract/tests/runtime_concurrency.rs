@@ -190,7 +190,12 @@ impl ProviderDriver for HeaderEchoDriver {
         Ok(headers)
     }
 
-    fn classify_error(&self, _meta: &UpstreamResponseMeta, _bounded_body: &[u8]) -> ErrorClass {
+    fn classify_error(
+        &self,
+        _operation: ProtocolOperation,
+        _meta: &UpstreamResponseMeta,
+        _bounded_body: &[u8],
+    ) -> ErrorClass {
         ErrorClass::Upstream
     }
 }

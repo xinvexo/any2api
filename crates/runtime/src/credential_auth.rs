@@ -35,7 +35,7 @@ impl CredentialAuthMaterial {
     }
 
     #[cfg(test)]
-    fn for_test(credential: &ProviderCredential, value: String) -> Self {
+    pub(crate) fn for_test(credential: &ProviderCredential, value: String) -> Self {
         Self {
             credential_id: credential.id(),
             credential_kind: credential.credential_kind(),

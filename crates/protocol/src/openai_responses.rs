@@ -104,6 +104,7 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::InvalidRequest
         | PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
+        | PublicErrorCode::UpstreamNotFound
         | PublicErrorCode::SessionBindingLost => "invalid_request_error",
         PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalConcurrencyLimit => {
             "rate_limit_error"
@@ -117,6 +118,7 @@ fn error_code(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::Unauthorized => "unauthorized",
         PublicErrorCode::InvalidRequest => "invalid_request",
         PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "model_not_found",
+        PublicErrorCode::UpstreamNotFound => "upstream_not_found",
         PublicErrorCode::NoAvailableCredential => "no_available_credential",
         PublicErrorCode::LocalConcurrencyLimit => "local_concurrency_limit",
         PublicErrorCode::SessionBindingLost => "session_binding_lost",
@@ -129,7 +131,9 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
     match code {
         PublicErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         PublicErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
-        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => StatusCode::NOT_FOUND,
+        PublicErrorCode::ModelNotFound
+        | PublicErrorCode::NoRoute
+        | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
         PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalConcurrencyLimit => {
             StatusCode::TOO_MANY_REQUESTS
         }

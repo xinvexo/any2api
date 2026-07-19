@@ -6,7 +6,7 @@
 ## 当前状态
 
 - 当前阶段：阶段 2/3 交叉切片「同协议非流式 JSON」；阶段 1 的 SettingRegistry、管理员认证和远程管理仍待完成。
-- 最近完成：同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理、公开入口认证边界与 `/v1/models` 已发布模型目录。
+- 最近完成：Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -15,7 +15,8 @@
 - Credential Auth Material 切片：`fbfc6ef feat: load credential auth material`。
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
-- 本切片提交主题：`feat: add same-protocol JSON execution`。
+- 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
+- 本切片提交主题：`feat: add count tokens auxiliary routing`。
 
 ## 已完成
 
@@ -148,7 +149,7 @@
   - `POST /api/admin/gateway-api-keys/{id}/revoke`
 - 管理写入继续使用全局 revision、资源 config version 和轮换 token version CAS；撤销是终态，重复无变化不会推进 revision。
 - `PublishedSnapshot` 现在携带 Gateway Key 配置和 HMAC verifier；鉴权、路由和 revision 使用同一快照，旧请求持有旧快照时不会被热更新中途改变。
-- `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；Responses、Responses Compact 和 Messages 已进入同协议 JSON 执行链，Count Tokens 仍保留认证门并返回明确的 `public_api_not_implemented`；未知 `/v1/*` 不再回落到 SPA。
+- `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；Responses、Responses Compact、Messages 和 Count Tokens 已进入同协议 JSON 执行链；未知 `/v1/*` 不再回落到 SPA。
 - `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
 - React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、撤销、deep link、响应式布局和一次性回执；明文 Token 不进入 Query/Mutation Cache、URL、Storage 或普通 DTO。
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本和缓存脱敏。
@@ -156,19 +157,28 @@
 ### 同协议 JSON 请求执行切片
 
 - 新增强类型 `ProtocolOperation`，静态注册 Codex/Claude Provider Driver 与 Responses/Messages ProtocolAdapter。
-- `/v1/responses`、`/v1/responses/compact` 和 `/v1/messages` 已接入 Runtime：同一 PublishedSnapshot 内解析 Route、过滤启用 Endpoint/Credential/Proxy、原子取得 Permit，并调用现有 Transport。
+- `/v1/responses`、`/v1/responses/compact`、`/v1/messages` 和 `/v1/messages/count_tokens` 已接入 Runtime：同一 PublishedSnapshot 内解析 Route、过滤启用 Endpoint/Credential/Proxy、原子取得对应 Permit，并调用现有 Transport。
 - Codex Driver 追加 `responses`/`responses/compact`，注入 `Authorization: Bearer`；Claude Driver 追加 `messages`，注入 `x-api-key` 与 `Anthropic-Version: 2023-06-01`；Web 官方默认 Base URL 均包含 `/v1` 固定前缀。
 - Adapter 保留未知 JSON 字段，只替换上游 `model`，并按白名单保留 Claude `anthropic-beta`；成功响应恢复公开模型名；上游非 2xx 返回协议兼容的脱敏错误 envelope。
 - Runtime 执行链按请求规划、单次 Attempt 和响应处理拆分；生产文件均保持单一职责，没有把网络、调度和响应过滤重新塞进中央文件。
 - 同负载轮询游标按 `ModelRoute + fallback tier` 隔离，并由 RuntimeRegistry 跨连续配置代际复用；删除后旧快照仍持有旧游标，新生命周期从零开始，避免跨 Route 偏斜和无效请求扰动。
 - 未知 `/v1/*`、已知路径的方法错误和普通公开路由现在经过同一 GatewayApiKey 鉴权层；上游认证头、Cookie、固定及动态 hop-by-hop 响应头不会返回客户端。
-- 当前切片只支持非流式 JSON；`stream=true` 明确返回 invalid request，`/v1/messages/count_tokens` 等待辅助请求 Permit 后接入。未实现自动重试、排队、冷却、健康、会话粘性和 SSE。
+- 当前切片只支持非流式 JSON；`stream=true` 明确返回 invalid request。未实现自动重试、排队、冷却、健康、会话粘性和 SSE。
 - 模块测试与本地 HTTP 契约测试覆盖路径、认证头、客户端头剥离、出站 POST、模型替换、Compact 端点、敏感响应头过滤、fallback 鉴权、JSON 405 和 Route/tier 游标生命周期；Registry 契约从真实 App Composition Root 枚举全部 Adapter/Driver，避免生产漏注册仍通过测试。
+
+### Count Tokens 辅助并发切片
+
+- `/v1/messages/count_tokens` 使用 Claude 同协议路由、Provider API Key、代理和模型别名，但不占用生成请求的 `in_flight/max_concurrency`。
+- 新增 RuntimeRegistry 级稳定 `AuxiliaryScheduler`；默认全局辅助并发为 `32`，单 Credential 为 `4`，强类型限制支持构造注入和运行时升降限，后续由 SettingRegistry 接管覆盖值。
+- 辅助选择与双层 Permit 取得在一个短 Mutex 临界区内完成；网络 I/O 不持锁。`AuxiliaryPermit` 固定取得时的 Credential generation，Drop 同时释放全局和单 Credential 计数并推进一次统一 epoch。
+- 辅助容量满载时当前立即返回 Anthropic 429，不建立独立等待队列，也不因 Route 的 `fallback_on_saturation` 溢出到下一 tier；统一等待将在 QueueTicket 切片接入。
+- Claude Count Tokens 上游明确返回 404 时分类为 operation unavailable，并转换为脱敏 Anthropic 404 `not_found_error`，供 Claude Code 回退本地 Token 估算；其他上游错误仍遵循当前 502 边界。
+- 单元与契约测试覆盖全局/单 Credential 上限、与生成容量相互独立、动态降限、并发竞争、字段保留、模型改写、Provider 认证头、成功响应和 404 脱敏。
 
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入非流式公开 JSON 请求，但尚未覆盖 SSE、健康熔断和管理面代理测试按钮。
-- ModelRoute 配置、管理面、公开 `/v1/models` 和首版非流式同协议请求已实现；Count Tokens、SSE、重试、排队与会话粘性仍未完成。
+- ModelRoute 配置、管理面、公开 `/v1/models` 和首版非流式同协议请求已实现；SSE、重试、排队与会话粘性仍未完成。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
 - 运行态并发已实现且只保存在内存；队列、健康、冷却和会话仍未实现，进程重启后容量状态从零开始。
@@ -178,7 +188,7 @@
 
 ## 下一步
 
-1. 接入 `/v1/messages/count_tokens` 的辅助请求 Permit，并实现 Codex/Claude SSE 与 GuardedBody。
+1. 实现 Codex/Claude SSE、协议分帧、模型别名事件改写与 GuardedBody。
 2. 增加饱和排队 epoch、QueueTicket、会话粘性、冷却、熔断与重试预算。
 3. 实现 SettingRegistry、单管理员认证与可选 HTTP/HTTPS 远程管理。
 4. 补齐请求日志、Attempt、可观测性和 OAuth2 扩展边界。
@@ -201,4 +211,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3212`，本切片通过真实 HTTP 验证健康检查、无 Key 的 `/v1/models`、无 Key 的未知 `/v1/*` 和 SPA 根路径；公开 Codex/Claude 上游路径、认证头、模型别名和响应头过滤由本地上游契约测试覆盖。
+以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3212`；公开 Codex/Claude 上游路径、Count Tokens、认证头、模型别名、404 兼容和响应头过滤由本地上游契约测试覆盖。
