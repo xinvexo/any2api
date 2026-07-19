@@ -9,11 +9,21 @@ import { SettingRow } from "./SettingRow";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
 
-export function SettingsManagement() {
+export interface SettingsManagementProps {
+  keyPrefix?: string;
+}
+
+export function SettingsManagement({ keyPrefix }: SettingsManagementProps = {}) {
   const query = useSettings();
   const mutations = useSettingMutations();
   const pending = query.isFetching || mutations.isPending;
-  const groups = useMemo(() => groupSettings(query.data?.items ?? []), [query.data]);
+  const groups = useMemo(
+    () =>
+      groupSettings(
+        (query.data?.items ?? []).filter((item) => !keyPrefix || item.key.startsWith(keyPrefix)),
+      ),
+    [keyPrefix, query.data],
+  );
 
   if (query.isPending && !query.data) {
     return (

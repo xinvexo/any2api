@@ -16,7 +16,7 @@ use tempfile::tempdir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
-    sync::oneshot,
+    sync::{mpsc, oneshot},
 };
 use tower::ServiceExt;
 
@@ -235,6 +235,311 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
 }
 
 #[tokio::test]
+async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential() {
+    let (listener, upstream) = upstream_server(
+        "/v1/responses",
+        r#"{"id":"resp_affinity","model":"gpt-upstream","output":[]}"#,
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint(
+        &app,
+        loopback,
+        revision + 1,
+        "Codex affinity",
+        "codex",
+        &format!("http://{listener}/v1"),
+    )
+    .await;
+    let credential_id = create_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "sk-affinity-contract",
+    )
+    .await;
+    create_route(
+        &app,
+        loopback,
+        revision + 3,
+        &endpoint_id,
+        "affinity-local",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+
+    let response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model": "affinity-local",
+            "input": "bind this session"
+        })),
+        loopback,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "private-session-id".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
+    upstream.await.expect("upstream request");
+
+    let affinity = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/affinity?limit=10",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(affinity.status, StatusCode::OK);
+    assert_eq!(affinity.headers["cache-control"], "no-store");
+    assert_eq!(affinity.body["soft_binding_count"], 1);
+    assert_eq!(affinity.body["hard_binding_count"], 1);
+    assert_eq!(affinity.body["creating_count"], 0);
+    assert_eq!(
+        affinity.body["credential_counts"][0]["credential_id"],
+        credential_id
+    );
+    assert_eq!(
+        affinity.body["credential_counts"][0]["credential_label"],
+        "primary"
+    );
+    for binding in affinity.body["bindings"]
+        .as_array()
+        .expect("binding samples")
+    {
+        let hash = binding["session_hash_prefix"]
+            .as_str()
+            .expect("redacted hash");
+        assert_eq!(hash.len(), 12);
+        assert!(!hash.contains("private-session-id"));
+        assert!(!hash.contains("resp_affinity"));
+    }
+
+    let cleared = request_json(
+        app.clone(),
+        Method::DELETE,
+        &format!("/api/admin/affinity/credentials/{credential_id}"),
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(cleared.status, StatusCode::OK);
+    assert_eq!(cleared.body["cleared_count"], 2);
+
+    let empty = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/affinity",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(empty.body["soft_binding_count"], 0);
+    assert_eq!(empty.body["hard_binding_count"], 0);
+
+    let cleared_all = request_json(
+        app,
+        Method::DELETE,
+        "/api/admin/affinity",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(cleared_all.status, StatusCode::OK);
+    assert_eq!(cleared_all.body["cleared_count"], 0);
+}
+
+#[tokio::test]
+async fn previous_response_id_stays_on_the_original_credential() {
+    let (listener, mut upstream) = upstream_server_sequence(
+        "/v1/responses",
+        &[
+            r#"{"id":"resp_sticky","model":"gpt-upstream","output":[]}"#,
+            r#"{"id":"resp_follow","model":"gpt-upstream","output":[]}"#,
+        ],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint(
+        &app,
+        loopback,
+        revision + 1,
+        "Codex hard affinity",
+        "codex",
+        &format!("http://{listener}/v1"),
+    )
+    .await;
+    create_labeled_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "first",
+        "sk-hard-first",
+    )
+    .await;
+    create_labeled_credential(
+        &app,
+        loopback,
+        revision + 3,
+        &endpoint_id,
+        "second",
+        "sk-hard-second",
+    )
+    .await;
+    create_route(
+        &app,
+        loopback,
+        revision + 4,
+        &endpoint_id,
+        "hard-local",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+
+    let first_response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({ "model": "hard-local", "input": "start" })),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(first_response.status, StatusCode::OK);
+    let first = upstream.recv().await.expect("first upstream request");
+
+    let second_response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model": "hard-local",
+            "previous_response_id": "resp_sticky",
+            "input": "continue"
+        })),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(second_response.status, StatusCode::OK);
+    let second = upstream.recv().await.expect("second upstream request");
+    assert_eq!(
+        first.headers.get("authorization"),
+        second.headers.get("authorization")
+    );
+
+    let lost = request_json(
+        app,
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model": "hard-local",
+            "previous_response_id": "resp_from_an_old_process",
+            "input": "continue"
+        })),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(lost.status, StatusCode::CONFLICT);
+    assert_eq!(lost.body["error"]["code"], "session_binding_lost");
+}
+
+#[tokio::test]
+async fn claude_explicit_soft_session_stays_on_the_original_credential() {
+    let (listener, mut upstream) = upstream_server_sequence(
+        "/v1/messages",
+        &[
+            r#"{"id":"msg_soft_1","type":"message","model":"claude-upstream","content":[]}"#,
+            r#"{"id":"msg_soft_2","type":"message","model":"claude-upstream","content":[]}"#,
+        ],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint(
+        &app,
+        loopback,
+        revision + 1,
+        "Claude soft affinity",
+        "claude",
+        &format!("http://{listener}/v1"),
+    )
+    .await;
+    create_labeled_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "first",
+        "sk-soft-first",
+    )
+    .await;
+    create_labeled_credential(
+        &app,
+        loopback,
+        revision + 3,
+        &endpoint_id,
+        "second",
+        "sk-soft-second",
+    )
+    .await;
+    create_route(
+        &app,
+        loopback,
+        revision + 4,
+        &endpoint_id,
+        "soft-local",
+        "claude-upstream",
+        "anthropic_messages",
+    )
+    .await;
+
+    for input in ["start", "continue"] {
+        let response = request_json(
+            app.clone(),
+            Method::POST,
+            "/v1/messages",
+            Some(json!({
+                "model": "soft-local",
+                "max_tokens": 16,
+                "messages": [{"role":"user","content":input}]
+            })),
+            loopback,
+            &[
+                ("x-api-key", token.clone()),
+                ("x-any2api-session", "claude-session-one".to_owned()),
+            ],
+        )
+        .await;
+        assert_eq!(response.status, StatusCode::OK);
+    }
+    let first = upstream.recv().await.expect("first upstream request");
+    let second = upstream.recv().await.expect("second upstream request");
+    assert_eq!(
+        first.headers.get("x-api-key"),
+        second.headers.get("x-api-key")
+    );
+}
+
+#[tokio::test]
 async fn public_fallback_and_method_errors_require_authentication_and_return_json() {
     let (_directory, app, revision) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
@@ -366,13 +671,24 @@ async fn create_credential(
     endpoint_id: &str,
     api_key: &str,
 ) -> String {
+    create_labeled_credential(app, remote, revision, endpoint_id, "primary", api_key).await
+}
+
+async fn create_labeled_credential(
+    app: &Router,
+    remote: SocketAddr,
+    revision: u64,
+    endpoint_id: &str,
+    label: &str,
+    api_key: &str,
+) -> String {
     let response = request_json(
         app.clone(),
         Method::POST,
         &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
         Some(json!({
             "expected_revision": revision,
-            "label": "primary",
+            "label": label,
             "credential_kind": "api_key",
             "api_key": api_key,
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
@@ -573,6 +889,95 @@ async fn upstream_server_with_headers(
             .write_all(response.as_bytes())
             .await
             .expect("upstream write");
+    });
+    (address, receiver)
+}
+
+async fn upstream_server_sequence(
+    expected_path: &str,
+    response_bodies: &[&str],
+) -> (SocketAddr, mpsc::UnboundedReceiver<UpstreamRequest>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (sender, receiver) = mpsc::unbounded_channel();
+    let expected_path = expected_path.to_owned();
+    let response_bodies = response_bodies
+        .iter()
+        .map(|body| (*body).to_owned())
+        .collect::<Vec<_>>();
+    tokio::spawn(async move {
+        for response_body in response_bodies {
+            let (mut stream, _) = listener.accept().await.expect("upstream accept");
+            let mut bytes = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            loop {
+                let count = stream.read(&mut buffer).await.expect("upstream read");
+                if count == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&buffer[..count]);
+                if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let header_end = bytes
+                .windows(4)
+                .position(|window| window == b"\r\n\r\n")
+                .expect("request boundary");
+            let head = String::from_utf8(bytes[..header_end].to_vec()).expect("upstream headers");
+            let content_length = head
+                .lines()
+                .find_map(|line| {
+                    line.split_once(':').and_then(|(name, value)| {
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().expect("content length"))
+                    })
+                })
+                .unwrap_or(0);
+            let body_start = header_end + 4;
+            while bytes.len() < body_start + content_length {
+                let count = stream.read(&mut buffer).await.expect("upstream body read");
+                if count == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&buffer[..count]);
+            }
+            let body = String::from_utf8(bytes[body_start..].to_vec()).expect("upstream body text");
+            let mut lines = head.lines();
+            let request_line = lines.next().expect("request line");
+            let mut request_parts = request_line.split_whitespace();
+            let method = request_parts
+                .next()
+                .expect("request method")
+                .parse::<Method>()
+                .expect("valid request method");
+            let path = request_parts.next().expect("request path");
+            assert_eq!(path, expected_path);
+            let headers = lines
+                .filter_map(|line| line.split_once(':'))
+                .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
+                .collect::<std::collections::HashMap<_, _>>();
+            let body = serde_json::from_str(body.trim()).expect("upstream JSON body");
+            sender
+                .send(UpstreamRequest {
+                    method,
+                    path: path.to_owned(),
+                    headers,
+                    body,
+                })
+                .expect("send upstream request");
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("upstream write");
+        }
     });
     (address, receiver)
 }

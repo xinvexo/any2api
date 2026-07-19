@@ -56,7 +56,7 @@ fn select_available(candidates: &[CredentialRuntimeBinding], tie_breaker: u64) -
     let mut best: Option<(usize, CredentialCapacity)> = None;
 
     for (index, candidate) in candidates.iter().enumerate() {
-        let capacity = candidate.capacity();
+        let capacity = candidate.normal_capacity();
         if capacity.is_full() {
             continue;
         }

@@ -63,7 +63,7 @@ pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};
 pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};
 pub use settings::{
-    SaturationMode, SchedulerSettings, SettingApplyMode, SettingDefinition, SettingKey,
-    SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
-    SettingsValidationError,
+    AffinityMode, AffinitySettings, SaturationMode, SchedulerSettings, SettingApplyMode,
+    SettingDefinition, SettingKey, SettingOverrides, SettingValue, SettingValueType,
+    SettingsConfiguration, SettingsValidationError,
 };

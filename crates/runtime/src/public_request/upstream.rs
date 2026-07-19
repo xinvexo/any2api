@@ -8,24 +8,40 @@ use http::{HeaderValue, header};
 
 use super::{
     PublicResponse, PublicResponseBody, RequestPermit, SelectedCandidate,
+    affinity::{AffinitySelection, commit_soft_binding},
+    planning::PlannedRequest,
     response::{
         MAX_CLASSIFIED_ERROR_BYTES, classified_error, collect_body, internal_error,
         invalid_request, public_error, restore_public_model, sanitize_response_headers,
     },
     stream::GuardedBody,
 };
-use crate::published_snapshot::PublishedSnapshot;
+use crate::{affinity::HardAffinityCommitter, published_snapshot::PublishedSnapshot};
 
 pub(super) async fn execute_attempt(
     snapshot: &PublishedSnapshot,
     adapter: &dyn ProtocolAdapter,
-    decoded: DecodedRequest,
-    public_model: &str,
-    selected: SelectedCandidate,
+    planned: PlannedRequest,
     providers: &ProviderRegistry,
     transport: &dyn TransportManager,
 ) -> Result<EgressResponse, PublicError> {
+    let PlannedRequest {
+        decoded,
+        public_model,
+        affinity:
+            AffinitySelection {
+                selected,
+                target: affinity_target,
+                soft_lease,
+            },
+    } = planned;
     let prepared = prepare_attempt(snapshot, adapter, decoded, selected, providers)?;
+    let hard_affinity = HardAffinityCommitter::new(
+        prepared.operation,
+        Arc::clone(snapshot.affinity_registry()),
+        affinity_target.clone(),
+        snapshot.affinity_policy().hard_ttl(),
+    );
     let transport_response = transport
         .execute(prepared.proxy, prepared.request)
         .await
@@ -60,27 +76,53 @@ pub(super) async fn execute_attempt(
                 "upstream response was invalid",
             )
         })?;
+    let hard_id = adapter
+        .hard_affinity_id_from_response(prepared.operation, &decoded)
+        .map_err(|_| {
+            public_error(
+                PublicErrorCode::UpstreamError,
+                "upstream response identity was invalid",
+            )
+        })?;
     let mut response = adapter.encode_egress_response(decoded).map_err(|_| {
         public_error(
             PublicErrorCode::UpstreamError,
             "upstream response could not be encoded",
         )
     })?;
-    restore_public_model(&mut response.body, public_model)?;
+    restore_public_model(&mut response.body, &public_model)?;
     sanitize_response_headers(&mut response.headers);
+    if let Some(hard_id) = hard_id {
+        hard_affinity.bind(&hard_id).map_err(|_| internal_error())?;
+    }
+    commit_soft_binding(soft_lease, affinity_target)?;
     Ok(response)
 }
 
 pub(super) async fn execute_stream_attempt(
     snapshot: &PublishedSnapshot,
     adapter: Arc<dyn ProtocolAdapter>,
-    decoded: DecodedRequest,
-    public_model: &str,
-    selected: SelectedCandidate,
+    planned: PlannedRequest,
     providers: &ProviderRegistry,
     transport: &dyn TransportManager,
 ) -> Result<PublicResponse, PublicError> {
+    let PlannedRequest {
+        decoded,
+        public_model,
+        affinity:
+            AffinitySelection {
+                selected,
+                target: affinity_target,
+                soft_lease,
+            },
+    } = planned;
     let prepared = prepare_attempt(snapshot, adapter.as_ref(), decoded, selected, providers)?;
+    let hard_affinity = HardAffinityCommitter::new(
+        prepared.operation,
+        Arc::clone(snapshot.affinity_registry()),
+        affinity_target.clone(),
+        snapshot.affinity_policy().hard_ttl(),
+    );
     let transport_response = transport
         .execute(prepared.proxy, prepared.request)
         .await
@@ -112,9 +154,11 @@ pub(super) async fn execute_stream_attempt(
         adapter,
         public_model,
         prepared.permit,
+        hard_affinity,
     )
     .prime()
     .await?;
+    commit_soft_binding(soft_lease, affinity_target)?;
     Ok(PublicResponse {
         status,
         headers,

@@ -1,3 +1,7 @@
+pub use crate::affinity::{
+    AffinityBindingKind, AffinityBindingSummary, AffinityCredentialCount, AffinityPolicy,
+    AffinityRuntimeSnapshot,
+};
 pub use crate::auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryConcurrencyLimitsError};
 pub use crate::config_publish_error::ConfigPublishError;
 pub use crate::credential_runtime::{

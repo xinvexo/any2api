@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use any2api_domain::{FallbackTier, ModelRouteId, ProtocolOperation, PublicError, PublicErrorCode};
 use tokio::time::{Instant, timeout};
@@ -40,6 +40,78 @@ enum GenerationSelection {
     Acquired(SelectedCandidate),
     AtCapacity,
     NoCandidates,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FixedSelectionError {
+    QueueFull,
+    Timeout,
+    Internal,
+}
+
+impl FixedSelectionError {
+    pub(super) fn into_public_error(self) -> PublicError {
+        match self {
+            Self::QueueFull => capacity_error("request queue is full"),
+            Self::Timeout => capacity_error("bound credential is at capacity"),
+            Self::Internal => internal_error(),
+        }
+    }
+}
+
+pub(super) async fn select_fixed_candidate(
+    snapshot: &PublishedSnapshot,
+    candidate: &RouteCandidate,
+    wait_timeout: Duration,
+) -> Result<SelectedCandidate, FixedSelectionError> {
+    if let Some(permit) = candidate.binding.try_acquire_fixed() {
+        return Ok(fixed_selected(candidate, permit));
+    }
+    let Some(ticket) = snapshot
+        .queue_coordinator()
+        .try_ticket(snapshot.queue_policy().max_waiting_requests())
+    else {
+        return Err(FixedSelectionError::QueueFull);
+    };
+    let mut changes = ticket.subscribe();
+    let _fixed_waiter = candidate.binding.register_fixed_waiter();
+    let started_at = Instant::now();
+
+    loop {
+        let _observed_epoch = *changes.borrow_and_update();
+        if let Some(permit) = candidate.binding.try_acquire_fixed() {
+            return Ok(fixed_selected(candidate, permit));
+        }
+        let remaining = wait_timeout.saturating_sub(Instant::now().duration_since(started_at));
+        if remaining.is_zero() {
+            return candidate
+                .binding
+                .try_acquire_fixed()
+                .map(|permit| fixed_selected(candidate, permit))
+                .ok_or(FixedSelectionError::Timeout);
+        }
+        match timeout(remaining, changes.changed()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => return Err(FixedSelectionError::Internal),
+            Err(_) => {
+                return candidate
+                    .binding
+                    .try_acquire_fixed()
+                    .map(|permit| fixed_selected(candidate, permit))
+                    .ok_or(FixedSelectionError::Timeout);
+            }
+        }
+    }
+}
+
+fn fixed_selected(
+    candidate: &RouteCandidate,
+    permit: crate::credential_runtime::ConcurrencyPermit,
+) -> SelectedCandidate {
+    SelectedCandidate {
+        candidate: candidate.clone(),
+        permit: RequestPermit::Generation(permit),
+    }
 }
 
 fn try_select_generation_candidate(

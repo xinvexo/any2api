@@ -1,5 +1,6 @@
 pub mod api;
 
+mod affinity;
 mod anthropic_messages;
 mod error;
 mod json_codec;

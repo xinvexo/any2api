@@ -1,5 +1,6 @@
 pub mod api;
 
+mod affinity;
 mod auxiliary_scheduler;
 mod config_command;
 mod config_publish_error;

@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
-use super::definition::{
-    SaturationMode, SettingKey, SettingValue, SettingsValidationError, validate_value,
+use super::{
+    AffinitySettings, SchedulerSettings, SettingKey, SettingValue, SettingsValidationError,
+    value::validate_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -38,41 +39,9 @@ impl SettingOverrides {
     pub fn iter(&self) -> impl Iterator<Item = (SettingKey, SettingValue)> + '_ {
         self.0.iter().map(|(key, value)| (*key, *value))
     }
-}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SchedulerSettings {
-    on_saturated: SaturationMode,
-    queue_timeout_ms: u64,
-    max_waiting_requests: u64,
-    fallback_on_saturation: bool,
-    auxiliary_global_concurrency: u64,
-    auxiliary_per_credential_concurrency: u64,
-}
-
-impl SchedulerSettings {
-    pub const fn on_saturated(&self) -> SaturationMode {
-        self.on_saturated
-    }
-
-    pub const fn queue_timeout_ms(&self) -> u64 {
-        self.queue_timeout_ms
-    }
-
-    pub const fn max_waiting_requests(&self) -> u64 {
-        self.max_waiting_requests
-    }
-
-    pub const fn fallback_on_saturation(&self) -> bool {
-        self.fallback_on_saturation
-    }
-
-    pub const fn auxiliary_global_concurrency(&self) -> u64 {
-        self.auxiliary_global_concurrency
-    }
-
-    pub const fn auxiliary_per_credential_concurrency(&self) -> u64 {
-        self.auxiliary_per_credential_concurrency
+    pub(super) fn effective_value(&self, key: SettingKey) -> SettingValue {
+        self.get(key).unwrap_or(key.definition().default())
     }
 }
 
@@ -80,30 +49,17 @@ impl SchedulerSettings {
 pub struct SettingsConfiguration {
     overrides: SettingOverrides,
     scheduler: SchedulerSettings,
+    affinity: AffinitySettings,
 }
 
 impl SettingsConfiguration {
     pub fn from_overrides(overrides: SettingOverrides) -> Result<Self, SettingsValidationError> {
-        let value = |key| overrides.get(key).unwrap_or(key.definition().default());
-        let on_saturated = match value(SettingKey::SchedulerOnSaturated) {
-            SettingValue::Saturation(value) => value,
-            _ => return Err(SettingsValidationError::InvalidType),
-        };
-        let scheduler = SchedulerSettings {
-            on_saturated,
-            queue_timeout_ms: integer(value(SettingKey::SchedulerQueueTimeout))?,
-            max_waiting_requests: integer(value(SettingKey::SchedulerMaxWaitingRequests))?,
-            fallback_on_saturation: boolean(value(SettingKey::SchedulerFallbackOnSaturation))?,
-            auxiliary_global_concurrency: integer(value(
-                SettingKey::SchedulerAuxiliaryGlobalConcurrency,
-            ))?,
-            auxiliary_per_credential_concurrency: integer(value(
-                SettingKey::SchedulerAuxiliaryPerCredentialConcurrency,
-            ))?,
-        };
+        let scheduler = SchedulerSettings::from_overrides(&overrides)?;
+        let affinity = AffinitySettings::from_overrides(&overrides)?;
         Ok(Self {
             overrides,
             scheduler,
+            affinity,
         })
     }
 
@@ -116,6 +72,10 @@ impl SettingsConfiguration {
         &self.scheduler
     }
 
+    pub const fn affinity(&self) -> &AffinitySettings {
+        &self.affinity
+    }
+
     pub const fn overrides(&self) -> &SettingOverrides {
         &self.overrides
     }
@@ -125,40 +85,7 @@ impl SettingsConfiguration {
     }
 
     pub fn effective_value(&self, key: SettingKey) -> SettingValue {
-        match key {
-            SettingKey::SchedulerOnSaturated => {
-                SettingValue::Saturation(self.scheduler.on_saturated)
-            }
-            SettingKey::SchedulerQueueTimeout => {
-                SettingValue::DurationMs(self.scheduler.queue_timeout_ms)
-            }
-            SettingKey::SchedulerMaxWaitingRequests => {
-                SettingValue::Integer(self.scheduler.max_waiting_requests)
-            }
-            SettingKey::SchedulerFallbackOnSaturation => {
-                SettingValue::Boolean(self.scheduler.fallback_on_saturation)
-            }
-            SettingKey::SchedulerAuxiliaryGlobalConcurrency => {
-                SettingValue::Integer(self.scheduler.auxiliary_global_concurrency)
-            }
-            SettingKey::SchedulerAuxiliaryPerCredentialConcurrency => {
-                SettingValue::Integer(self.scheduler.auxiliary_per_credential_concurrency)
-            }
-        }
-    }
-}
-
-fn integer(value: SettingValue) -> Result<u64, SettingsValidationError> {
-    match value {
-        SettingValue::Integer(value) | SettingValue::DurationMs(value) => Ok(value),
-        _ => Err(SettingsValidationError::InvalidType),
-    }
-}
-
-fn boolean(value: SettingValue) -> Result<bool, SettingsValidationError> {
-    match value {
-        SettingValue::Boolean(value) => Ok(value),
-        _ => Err(SettingsValidationError::InvalidType),
+        self.overrides.effective_value(key)
     }
 }
 
@@ -167,7 +94,7 @@ mod tests {
     use serde_json::json;
 
     use super::{SettingOverrides, SettingsConfiguration};
-    use crate::{SaturationMode, SettingKey, SettingValue, SettingsValidationError};
+    use crate::{AffinityMode, SaturationMode, SettingKey, SettingValue, SettingsValidationError};
 
     #[test]
     fn defaults_match_architecture() {
@@ -180,49 +107,61 @@ mod tests {
             settings.scheduler().auxiliary_per_credential_concurrency(),
             4
         );
-        for key in SettingKey::ALL {
-            let definition = key.definition();
-            assert_eq!(definition.apply_mode().as_str(), "hot_reload");
-        }
-        assert_eq!(
-            SettingKey::SchedulerOnSaturated
-                .definition()
-                .allowed_values(),
-            ["wait", "reject"]
+        assert!(settings.affinity().soft_enabled());
+        assert_eq!(settings.affinity().soft_mode(), AffinityMode::Prefer);
+        assert_eq!(settings.affinity().soft_ttl_ms(), 3_600_000);
+        assert_eq!(settings.affinity().hard_ttl_ms(), 86_400_000);
+        assert_eq!(settings.affinity().soft_prefer_wait_timeout_ms(), 2_000);
+        assert_eq!(settings.affinity().fixed_wait_timeout_ms(), 30_000);
+        assert!(
+            SettingKey::ALL
+                .into_iter()
+                .all(|key| key.definition().apply_mode().as_str() == "hot_reload")
         );
     }
 
     #[test]
-    fn values_round_trip_and_validate_bounds() {
+    fn values_round_trip_and_validate_bounds_and_enum_domains() {
         let key = SettingKey::SchedulerQueueTimeout;
         let value = SettingValue::from_json(key, &json!(5000)).expect("duration");
         assert_eq!(value, SettingValue::DurationMs(5000));
         assert!(SettingValue::from_json(key, &json!(0)).is_err());
-        let key = SettingKey::SchedulerOnSaturated;
         assert_eq!(
-            SettingValue::from_json(key, &json!(true)),
+            SettingValue::from_json(SettingKey::AffinitySoftMode, &json!(true)),
             Err(SettingsValidationError::InvalidType)
         );
         assert_eq!(
-            SettingValue::from_json(key, &json!("nope")),
+            SettingValue::from_json(SettingKey::AffinitySoftMode, &json!("wait")),
+            Err(SettingsValidationError::InvalidEnum)
+        );
+        assert_eq!(
+            SettingOverrides::from_entries([(
+                SettingKey::SchedulerOnSaturated,
+                SettingValue::AffinityMode(AffinityMode::Prefer),
+            )]),
             Err(SettingsValidationError::InvalidEnum)
         );
     }
 
     #[test]
-    fn overrides_compile_into_effective_scheduler_settings() {
-        let mut overrides = SettingOverrides::default();
-        overrides
-            .insert(
+    fn overrides_compile_into_effective_settings() {
+        let overrides = SettingOverrides::from_entries([
+            (
                 SettingKey::SchedulerFallbackOnSaturation,
                 SettingValue::Boolean(true),
-            )
-            .expect("override");
+            ),
+            (
+                SettingKey::AffinitySoftMode,
+                SettingValue::AffinityMode(AffinityMode::Strict),
+            ),
+        ])
+        .expect("overrides");
         let settings = SettingsConfiguration::from_overrides(overrides).expect("settings");
         assert!(settings.scheduler().fallback_on_saturation());
+        assert_eq!(settings.affinity().soft_mode(), AffinityMode::Strict);
         assert_eq!(
-            settings.effective_value(SettingKey::SchedulerFallbackOnSaturation),
-            SettingValue::Boolean(true)
+            settings.effective_value(SettingKey::AffinitySoftMode),
+            SettingValue::AffinityMode(AffinityMode::Strict)
         );
     }
 }

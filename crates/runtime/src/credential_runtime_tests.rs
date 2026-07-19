@@ -177,6 +177,26 @@ fn removed_credentials_retire_without_invalidating_old_bindings() {
 }
 
 #[test]
+fn fixed_waiters_reserve_the_next_slot_and_drop_releases_the_reservation() {
+    let runtime = runtime();
+    let fixture = CredentialFixture::new();
+    let bindings = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-fixed-test");
+    let binding = bindings.as_slice()[0].clone();
+    let blocker = binding.try_acquire().expect("blocker permit");
+    let fixed_waiter = binding.register_fixed_waiter();
+
+    drop(blocker);
+    assert!(binding.try_acquire().is_none());
+    let fixed = binding
+        .try_acquire_fixed()
+        .expect("fixed waiter receives the released slot");
+    drop(fixed);
+
+    drop(fixed_waiter);
+    assert!(binding.try_acquire().is_some());
+}
+
+#[test]
 fn selector_uses_exact_load_ratios_and_rotating_ties() {
     let first_runtime = runtime();
     let first_fixture = CredentialFixture::new();

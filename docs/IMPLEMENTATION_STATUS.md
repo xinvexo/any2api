@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 2/3 交叉切片「同协议 JSON/SSE」；scheduler SettingRegistry 子集已完成，管理员认证和远程管理仍待完成。
-- 最近完成：scheduler 设置注册表与管理页、生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
+- 当前阶段：阶段 2/3 交叉切片「同协议 JSON/SSE」；会话粘性、scheduler/affinity SettingRegistry 已完成，管理员认证和远程管理仍待完成。
+- 最近完成：进程内软/硬会话粘性、固定 Credential 等待优先级、粘性管理 API 与 Web 页面、scheduler 设置注册表与管理页、生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理与 `/v1/models` 已发布模型目录。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,7 +16,7 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 本切片提交主题：`feat: add scheduler setting registry`。
+- 本切片提交主题：`feat: add session affinity routing`。
 
 ## 已完成
 
@@ -136,7 +136,7 @@
 - React `/routes` 已替换占位页：支持 URL deep link、完整 Route/Target 聚合编辑、同协议 Endpoint 过滤、三态主 tier 满载策略、响应式窄屏编辑、行内删除确认和 revision/config version 冲突保护。
 - Web 测试覆盖响应解析、缓存代际、新建请求不携带客户端 Target ID、策略修改保留 ID、身份变化生成新 ID、延迟 Endpoint、深链刷新、移动端无效链接和旧保存回调。
 - `/v1/models` 已接入同一认证快照，只返回启用 Route 的公开模型；跨协议同名稳定去重，不根据瞬时容量或健康状态删模型。
-- ModelRoute 已接入 Codex Responses、Responses Compact、Claude Messages 的首版非流式同协议请求调度；会话粘性仍未实现。
+- ModelRoute 已接入 Codex Responses、Responses Compact、Claude Messages 的同协议 JSON/SSE 请求调度；会话粘性已由后续切片接入。
 
 ### GatewayApiKey 管理与公开鉴权切片
 
@@ -163,7 +163,7 @@
 - Runtime 执行链按请求规划、单次 Attempt 和响应处理拆分；生产文件均保持单一职责，没有把网络、调度和响应过滤重新塞进中央文件。
 - 同负载轮询游标按 `ModelRoute + fallback tier` 隔离，并由 RuntimeRegistry 跨连续配置代际复用；删除后旧快照仍持有旧游标，新生命周期从零开始，避免跨 Route 偏斜和无效请求扰动。
 - 未知 `/v1/*`、已知路径的方法错误和普通公开路由现在经过同一 GatewayApiKey 鉴权层；上游认证头、Cookie、固定及动态 hop-by-hop 响应头不会返回客户端。
-- 该切片完成时只支持非流式 JSON；后续 SSE 与 QueueTicket 切片已补齐 Responses/Messages 流式执行和生成请求饱和等待。自动重试、冷却、健康和会话粘性仍未实现。
+- 该切片完成时只支持非流式 JSON；后续 SSE、QueueTicket 与会话粘性切片已补齐 Responses/Messages 流式执行、生成请求饱和等待和固定会话路由。自动重试、冷却和健康仍未实现。
 - 模块测试与本地 HTTP 契约测试覆盖路径、认证头、客户端头剥离、出站 POST、模型替换、Compact 端点、敏感响应头过滤、fallback 鉴权、JSON 405 和 Route/tier 游标生命周期；Registry 契约从真实 App Composition Root 枚举全部 Adapter/Driver，避免生产漏注册仍通过测试。
 
 ### Count Tokens 辅助并发切片
@@ -203,21 +203,35 @@
 - React `/settings` 按功能分组拆为管理页、行级表单、控件、草稿校验和展示映射；同时显示默认、覆盖、生效值，支持恢复默认、revision 冲突后保留草稿和响应式窄屏。
 - Domain、Storage、Runtime、HTTP 和 Web 测试覆盖注册表元数据、持久化、缓存代际、冲突重试及真实 ConfigPublisher 辅助并发热更新。
 
+### 会话粘性路由切片
+
+- Protocol 解码新增 `IngressAffinity`，只按确认的显式来源提取会话：Codex `previous_response_id`、`X-Any2API-Session`、`X-Session-ID`、`Session-Id`/`Session_id`、Claude Code `metadata.user_id.session_id` 和 `conversation_id`；Count Tokens 不启用粘性，也不使用 Prompt Hash 猜测会话。
+- 稳定 `RuntimeRegistry` 持有进程内 `AffinityRegistry`；启动时生成随机 HMAC-SHA256 会话键，并为软/硬用途做域分离。日志、Debug 与管理 DTO 不返回原始 Session ID 或 Response ID，进程重启后键和全部绑定直接清空。
+- 软会话使用版本化 `Creating` 租约防止并发首请求选择不同 Credential；提交与 Drop 都会唤醒等待者。TTL 使用访问刷新，容量达到上限时只清理过期项，不引入后台恢复或外部缓存。
+- `prefer` 先等待原 Credential，达到 `affinity.soft.prefer_wait_timeout` 后才撤销旧绑定并重新负载均衡；`strict` 与硬绑定只允许原 Credential、Route Target、上游模型和协议方言，缺失时返回 `session_binding_lost`。
+- 每个 Credential Runtime 增加固定等待者计数；普通调度不会抢占该 Credential 新释放的槽位，固定会话仍使用全局有界 QueueTicket。优先级只影响同一个 Credential，不阻塞其他 Credential。
+- Codex JSON 成功响应顶层 `id` 与 SSE `response.created.response.id` 在客户端可见前写入硬绑定；`Responses Compact` 只支持显式软会话，流式 Body 继续持有 Permit 到 EOF、错误、断连或 Drop。
+- 新增六项统一设置：`affinity.soft.enabled`、`affinity.soft.mode`、`affinity.soft.ttl`、`affinity.hard.ttl`、`affinity.soft.prefer_wait_timeout`、`affinity.fixed_wait_timeout`。默认值、覆盖值和生效值均通过现有 SettingRegistry 热更新。
+- 新增管理 API：`GET/DELETE /api/admin/affinity` 与 `DELETE /api/admin/affinity/credentials/{id}`；返回总量、Creating 数、按 Credential 统计和截断 HMAC 样本，并支持全部或按 Credential 清理。
+- React `/affinity` 已替换占位页，展示运行时指标、Credential 分布、脱敏绑定样本和清理操作，并复用统一 SettingsManagement 只显示 `affinity.*` 设置。
+- Runtime、Protocol、HTTP 契约与 Web 测试覆盖并发 Creating、租约唤醒、TTL、身份冲突、重启空状态、固定等待优先、Codex JSON/SSE 硬续接、Claude 软粘性、prefer 重绑、strict 不切换、未知旧 Response ID、管理清理和设置保存/恢复。
+- 真实浏览器完成 1440 桌面与 390×844 窄屏验证；桌面导航、移动菜单、自然滚动、设置表单和无水平溢出均通过，页面控制台无错误。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求，但尚未覆盖健康熔断和管理面代理测试按钮。
-- ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求与普通生成请求有界排队已实现；重试、冷却、健康和会话粘性仍未完成。
+- ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队与会话粘性已实现；重试、冷却和健康仍未完成。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
-- 当前只实现 scheduler SettingRegistry 六项设置；affinity、retry、cooldown、breaker 和日志保留设置仍未接入统一注册表。
+- 当前实现 scheduler 与 affinity 两组共十二项 SettingRegistry；retry、cooldown、breaker 和日志保留设置仍未接入统一注册表。
 - 不要在单管理员认证完成前用 Nginx/Caddy 把管理 API 反代给远程客户端。
-- 运行态并发与生成请求等待计数已实现且只保存在内存；健康、冷却和会话仍未实现，进程重启后容量与队列状态从零开始。
+- 运行态并发、生成请求等待计数和会话绑定都只保存在内存；健康与冷却仍未实现，进程重启后容量、队列和会话状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料；认证健康、模型健康和刷新锁仍未实现。
 - 当前 JSON/SSE vertical slice 尚未提供统一请求 deadline/read timeout；SSE 只对首帧提供 5 秒预提交超时，提交后的错误直接结束流。上游错误状态暂按脱敏 `502` envelope 返回，`Retry-After` 和精细错误状态留到可靠性切片。
 - Gateway 鉴权失败与方法错误当前使用管理面统一 JSON envelope；已认证的协议执行错误才由 Responses/Messages Adapter 编码，协议专用 401 envelope 留待公开错误适配切片。
 
 ## 下一步
 
-1. 增加会话粘性、冷却、熔断与重试预算，并为固定会话等待加入优先级。
+1. 增加冷却、熔断、错误分类默认值与多 Attempt 重试预算，并保持提交后禁止切换上游的不变量。
 2. 实现单管理员认证与可选 HTTP/HTTPS 远程管理。
 3. 补齐其余 SettingRegistry 分组、请求日志、Attempt、可观测性和 OAuth2 扩展边界。
 
@@ -239,4 +253,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。浏览器预览使用 `http://127.0.0.1:3212`；公开 Codex/Claude JSON/SSE 上游路径、Count Tokens、认证头、模型别名、404 兼容和响应头过滤由本地上游契约测试覆盖。
+以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。会话粘性浏览器预览使用隔离的本地数据目录与临时端口；公开 Codex/Claude JSON/SSE 上游路径、硬/软粘性、prefer/strict、Count Tokens、认证头、模型别名、404 兼容和响应头过滤由本地上游契约测试覆盖。

@@ -1,8 +1,9 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProviderCredential,
-    ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId, PublicErrorCode, RetrySafety,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ModelRouteId,
+    ProtocolDialect, ProtocolOperation, ProviderCredential, ProviderCredentialDraft,
+    ProviderEndpointId, ProxyProfileId, PublicErrorCode, RetrySafety, RouteTargetId,
 };
 use any2api_protocol::OpenAiResponsesAdapter;
 use any2api_transport::api::{BoxByteStream, TransportError, TransportErrorStage};
@@ -14,7 +15,9 @@ use super::{
     stream::{CommitState, GuardedBody},
 };
 use crate::{
-    credential_auth::CredentialAuthMaterial, credential_runtime::CredentialRuntimeHandle,
+    affinity::{AffinityRegistry, AffinityTarget, HardAffinityCommitter},
+    credential_auth::CredentialAuthMaterial,
+    credential_runtime::CredentialRuntimeHandle,
     scheduler_epoch::SchedulerEpoch,
 };
 
@@ -23,19 +26,14 @@ async fn guarded_body_primes_rewrites_and_releases_on_eof() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::iter([
         Ok(Bytes::from_static(
-            b"event: response.created\ndata: {\"response\":{\"model\":\"upstream\"}}\n\n",
+            b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stream\",\"model\":\"upstream\"}}\n\n",
         )),
         Ok(Bytes::from_static(b"data: [DONE]\n\n")),
     ]));
-    let mut body = GuardedBody::new(
-        upstream,
-        Arc::new(OpenAiResponsesAdapter::new()),
-        "public",
-        RequestPermit::Generation(permit),
-    )
-    .prime()
-    .await
-    .expect("primed stream");
+    let mut body = guarded_body(upstream, permit)
+        .prime()
+        .await
+        .expect("primed stream");
 
     assert_eq!(binding.capacity().in_flight(), 1);
     let first = body
@@ -54,12 +52,7 @@ async fn guarded_body_primes_rewrites_and_releases_on_eof() {
 async fn dropping_body_releases_once_and_marks_cancellation() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::pending());
-    let guarded = GuardedBody::new(
-        upstream,
-        Arc::new(OpenAiResponsesAdapter::new()),
-        "public",
-        RequestPermit::Generation(permit),
-    );
+    let guarded = guarded_body(upstream, permit);
     let cancellation = guarded.cancellation();
     assert_eq!(guarded.state(), CommitState::Pending);
     assert_eq!(binding.capacity().in_flight(), 1);
@@ -74,14 +67,7 @@ async fn dropping_body_releases_once_and_marks_cancellation() {
 async fn empty_stream_fails_before_commit_and_releases() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::empty());
-    let result = GuardedBody::new(
-        upstream,
-        Arc::new(OpenAiResponsesAdapter::new()),
-        "public",
-        RequestPermit::Generation(permit),
-    )
-    .prime()
-    .await;
+    let result = guarded_body(upstream, permit).prime().await;
     let error = match result {
         Ok(_) => panic!("empty stream must fail before commit"),
         Err(error) => error,
@@ -99,14 +85,7 @@ async fn transport_error_before_the_first_frame_releases_without_commit() {
         RetrySafety::Ambiguous,
         "test precommit failure",
     ))]));
-    let result = GuardedBody::new(
-        upstream,
-        Arc::new(OpenAiResponsesAdapter::new()),
-        "public",
-        RequestPermit::Generation(permit),
-    )
-    .prime()
-    .await;
+    let result = guarded_body(upstream, permit).prime().await;
 
     let error = match result {
         Ok(_) => panic!("precommit transport error must fail"),
@@ -127,15 +106,10 @@ async fn post_commit_error_releases_without_emitting_another_upstream() {
             "test body failure",
         )),
     ]));
-    let mut body = GuardedBody::new(
-        upstream,
-        Arc::new(OpenAiResponsesAdapter::new()),
-        "public",
-        RequestPermit::Generation(permit),
-    )
-    .prime()
-    .await
-    .expect("primed stream");
+    let mut body = guarded_body(upstream, permit)
+        .prime()
+        .await
+        .expect("primed stream");
 
     assert!(body.next().await.expect("first frame").is_ok());
     assert_eq!(binding.capacity().in_flight(), 1);
@@ -143,6 +117,32 @@ async fn post_commit_error_releases_without_emitting_another_upstream() {
     assert_eq!(binding.capacity().in_flight(), 0);
     drop(body);
     assert_eq!(binding.capacity().in_flight(), 0);
+}
+
+fn guarded_body(
+    upstream: BoxByteStream,
+    permit: crate::credential_runtime::ConcurrencyPermit,
+) -> GuardedBody {
+    let target = AffinityTarget::new(
+        ModelRouteId::new(),
+        RouteTargetId::new(),
+        permit.credential_id(),
+        "upstream",
+        ProtocolDialect::OpenAiResponses,
+    );
+    let hard_affinity = HardAffinityCommitter::new(
+        ProtocolOperation::Responses,
+        AffinityRegistry::new(),
+        target,
+        Duration::from_secs(60),
+    );
+    GuardedBody::new(
+        upstream,
+        Arc::new(OpenAiResponsesAdapter::new()),
+        "public",
+        RequestPermit::Generation(permit),
+        hard_affinity,
+    )
 }
 
 fn generation_permit() -> (

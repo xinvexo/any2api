@@ -22,7 +22,15 @@ pub struct DecodedRequest {
     pub headers: HeaderMap,
     pub model: Option<String>,
     pub stream: bool,
+    pub affinity: IngressAffinity,
     pub payload: AdapterPayload,
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub enum IngressAffinity {
+    None,
+    Hard(String),
+    Soft(String),
 }
 
 #[derive(Clone)]
@@ -117,6 +125,22 @@ pub trait ProtocolAdapter: Send + Sync {
         public_model: &str,
     ) -> Result<SseFrame, ProtocolError>;
 
+    fn hard_affinity_id_from_response(
+        &self,
+        _operation: ProtocolOperation,
+        _response: &DecodedUpstreamResponse,
+    ) -> Result<Option<String>, ProtocolError> {
+        Ok(None)
+    }
+
+    fn hard_affinity_id_from_event(
+        &self,
+        _operation: ProtocolOperation,
+        _event: &AdapterEvent,
+    ) -> Result<Option<String>, ProtocolError> {
+        Ok(None)
+    }
+
     fn error_response(&self, error: &PublicError) -> EgressResponse;
 }
 
@@ -141,8 +165,19 @@ impl fmt::Debug for DecodedRequest {
             .field("operation", &self.operation)
             .field("model", &self.model)
             .field("stream", &self.stream)
+            .field("affinity", &self.affinity)
             .field("payload", &self.payload)
             .finish()
+    }
+}
+
+impl fmt::Debug for IngressAffinity {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::None => "None",
+            Self::Hard(_) => "Hard([REDACTED])",
+            Self::Soft(_) => "Soft([REDACTED])",
+        })
     }
 }
 

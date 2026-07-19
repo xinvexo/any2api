@@ -21,6 +21,7 @@ use futures_util::{Stream, StreamExt};
 use tokio::time::timeout;
 
 use super::{PublicResponseStream, RequestPermit, response::public_error};
+use crate::affinity::HardAffinityCommitter;
 
 const PRECOMMIT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -54,6 +55,7 @@ pub(super) struct GuardedBody {
     pending: VecDeque<Bytes>,
     pending_error: Option<io::Error>,
     permit: Option<RequestPermit>,
+    hard_affinity: HardAffinityCommitter,
     cancellation: CancellationToken,
     state: CommitState,
     upstream_done: bool,
@@ -65,6 +67,7 @@ impl GuardedBody {
         adapter: Arc<dyn ProtocolAdapter>,
         public_model: impl Into<String>,
         permit: RequestPermit,
+        hard_affinity: HardAffinityCommitter,
     ) -> Self {
         Self {
             upstream,
@@ -74,6 +77,7 @@ impl GuardedBody {
             pending: VecDeque::new(),
             pending_error: None,
             permit: Some(permit),
+            hard_affinity,
             cancellation: CancellationToken::default(),
             state: CommitState::Pending,
             upstream_done: false,
@@ -149,10 +153,19 @@ impl GuardedBody {
             .adapter
             .decode_upstream_event(frame)
             .map_err(|_| stream_error("upstream SSE event was invalid"))?;
+        let hard_id = self
+            .adapter
+            .hard_affinity_id_from_event(self.hard_affinity.operation(), &event)
+            .map_err(|_| stream_error("upstream SSE identity was invalid"))?;
         let frame = self
             .adapter
             .encode_egress_event(event, &self.public_model)
             .map_err(|_| stream_error("upstream SSE event could not be encoded"))?;
+        if let Some(hard_id) = hard_id {
+            self.hard_affinity
+                .bind(&hard_id)
+                .map_err(|_| stream_error("upstream SSE identity could not be bound"))?;
+        }
         self.pending.push_back(frame.0);
         Ok(())
     }

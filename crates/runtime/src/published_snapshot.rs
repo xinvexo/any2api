@@ -10,6 +10,7 @@ use arc_swap::ArcSwap;
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{
+    affinity::{AffinityPolicy, AffinityRegistry},
     auxiliary_scheduler::AuxiliaryScheduler,
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
@@ -28,6 +29,8 @@ pub struct PublishedSnapshot {
     gateway_api_keys: GatewayApiKeyConfiguration,
     gateway_api_key_verifier: GatewayApiKeyVerifier,
     settings: SettingsConfiguration,
+    affinity_registry: Arc<AffinityRegistry>,
+    affinity_policy: AffinityPolicy,
     credential_runtimes: CredentialRuntimeBindings,
     route_tier_cursors: RouteTierCursorBindings,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
@@ -40,6 +43,7 @@ impl PublishedSnapshot {
     pub fn new(configuration: StoredConfiguration, runtime: &RuntimeRegistry) -> Self {
         let parts = configuration.into_parts();
         runtime.reconcile_scheduler_settings(parts.settings.scheduler());
+        let affinity_policy = AffinityPolicy::from_settings(parts.settings.affinity());
         let queue_policy = QueuePolicy::from_scheduler_settings(parts.settings.scheduler());
         let auth_materials =
             CredentialAuthMaterials::from_stored(parts.provider_credential_secrets);
@@ -48,6 +52,7 @@ impl PublishedSnapshot {
         let route_tier_cursors = runtime.reconcile_route_tier_cursors(&parts.model_routes);
         let auxiliary_scheduler = runtime.auxiliary_scheduler();
         let queue_coordinator = runtime.queue_coordinator();
+        let affinity_registry = runtime.affinity_registry();
         Self {
             revision: parts.revision,
             proxies: parts.proxies,
@@ -57,6 +62,8 @@ impl PublishedSnapshot {
             gateway_api_keys: parts.gateway_api_keys,
             gateway_api_key_verifier: parts.gateway_api_key_verifier,
             settings: parts.settings,
+            affinity_registry,
+            affinity_policy,
             credential_runtimes,
             route_tier_cursors,
             auxiliary_scheduler,
@@ -98,6 +105,15 @@ impl PublishedSnapshot {
     #[must_use]
     pub const fn settings(&self) -> &SettingsConfiguration {
         &self.settings
+    }
+
+    #[must_use]
+    pub const fn affinity_policy(&self) -> AffinityPolicy {
+        self.affinity_policy
+    }
+
+    pub(crate) const fn affinity_registry(&self) -> &Arc<AffinityRegistry> {
+        &self.affinity_registry
     }
 
     #[must_use]

@@ -4,7 +4,7 @@ use http::{HeaderMap, HeaderValue, Method, Uri, header};
 use serde_json::Value;
 
 use crate::{
-    ProtocolError,
+    ProtocolError, affinity,
     api::{AdapterPayload, DecodedRequest, EncodedUpstreamRequest, IngressRequest},
 };
 
@@ -41,6 +41,7 @@ pub(crate) fn decode_request(
             "this operation does not support streaming".into(),
         ));
     }
+    let affinity = affinity::extract(request.operation, &request.headers, object)?;
 
     Ok(DecodedRequest {
         dialect,
@@ -48,6 +49,7 @@ pub(crate) fn decode_request(
         headers: forwarded_headers(&request.headers, dialect),
         model: Some(model),
         stream,
+        affinity,
         payload: AdapterPayload::RawJson(request.body),
     })
 }

@@ -4,16 +4,15 @@ use any2api_provider::api::ProviderRegistry;
 use http::{Method, Uri};
 
 use super::{
-    PublicRequest, SelectedCandidate,
+    PublicRequest, affinity,
     response::{invalid_request, public_error},
-    selection::select_candidate,
 };
 use crate::{published_snapshot::PublishedSnapshot, route_candidates::build_route_candidates};
 
 pub(super) struct PlannedRequest {
     pub(super) decoded: DecodedRequest,
     pub(super) public_model: String,
-    pub(super) selected: SelectedCandidate,
+    pub(super) affinity: affinity::AffinitySelection,
 }
 
 pub(super) async fn plan(
@@ -52,10 +51,12 @@ pub(super) async fn plan(
     let fallback_on_saturation = route
         .fallback_on_saturation()
         .unwrap_or_else(|| snapshot.queue_policy().fallback_on_saturation());
-    let selected = select_candidate(
+    let affinity = affinity::select(
         snapshot,
         decoded.operation,
+        &decoded.affinity,
         route.id(),
+        decoded.dialect,
         fallback_on_saturation,
         &tiers,
     )
@@ -63,6 +64,6 @@ pub(super) async fn plan(
     Ok(PlannedRequest {
         decoded,
         public_model: public_model.as_str().to_owned(),
-        selected,
+        affinity,
     })
 }

@@ -10,6 +10,7 @@ import { ProviderCredentialsPage } from "@/pages/ProviderCredentialsPage";
 import { ProvidersPage } from "@/pages/ProvidersPage";
 import { GatewayApiKeysPage } from "@/pages/GatewayApiKeysPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { AffinityPage } from "@/pages/AffinityPage";
 
 export const router = createBrowserRouter([
   {
@@ -22,7 +23,7 @@ export const router = createBrowserRouter([
       { path: "providers/:endpointId", element: <ProviderCredentialsPage /> },
       { path: "routes", element: <ModelRoutesPage /> },
       { path: "balancing", element: <PlaceholderPage title="负载均衡" /> },
-      { path: "affinity", element: <PlaceholderPage title="会话粘性" /> },
+      { path: "affinity", element: <AffinityPage /> },
       { path: "keys", element: <GatewayApiKeysPage /> },
       { path: "logs", element: <PlaceholderPage title="请求日志" /> },
       { path: "settings", element: <SettingsPage /> },

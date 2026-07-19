@@ -9,6 +9,7 @@ use any2api_domain::{
 use tokio::sync::watch;
 
 use crate::{
+    affinity::{AffinityPolicy, AffinityRegistry, AffinityRuntimeSnapshot},
     auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryScheduler},
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
@@ -20,6 +21,7 @@ use crate::{
 #[derive(Debug)]
 pub struct RuntimeRegistry {
     scheduler_epoch: Arc<SchedulerEpoch>,
+    affinity: Arc<AffinityRegistry>,
     credentials: RwLock<HashMap<CredentialId, Arc<CredentialRuntimeHandle>>>,
     route_tier_cursors: RouteTierCursorRegistry,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
@@ -32,6 +34,7 @@ impl RuntimeRegistry {
         let scheduler_epoch = SchedulerEpoch::new();
         let auxiliary_limits = AuxiliaryConcurrencyLimits::from_scheduler_settings(settings);
         Self {
+            affinity: AffinityRegistry::new(),
             auxiliary_scheduler: AuxiliaryScheduler::new(
                 auxiliary_limits,
                 Arc::clone(&scheduler_epoch),
@@ -120,6 +123,7 @@ impl RuntimeRegistry {
                 false
             }
         });
+        self.affinity.retain_credentials(&active_ids);
 
         CredentialRuntimeBindings::new(bindings)
     }
@@ -137,6 +141,32 @@ impl RuntimeRegistry {
 
     pub(crate) fn queue_coordinator(&self) -> Arc<QueueCoordinator> {
         Arc::clone(&self.queue_coordinator)
+    }
+
+    pub(crate) fn affinity_registry(&self) -> Arc<AffinityRegistry> {
+        Arc::clone(&self.affinity)
+    }
+
+    #[must_use]
+    pub fn affinity_snapshot(
+        &self,
+        policy: AffinityPolicy,
+        limit: usize,
+    ) -> AffinityRuntimeSnapshot {
+        self.affinity.snapshot(
+            policy.soft_ttl(),
+            policy.hard_ttl(),
+            policy.fixed_wait_timeout(),
+            limit,
+        )
+    }
+
+    pub fn clear_all_affinity(&self) -> usize {
+        self.affinity.clear_all()
+    }
+
+    pub fn clear_credential_affinity(&self, credential_id: CredentialId) -> usize {
+        self.affinity.clear_credential(credential_id)
     }
 }
 

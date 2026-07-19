@@ -17,7 +17,7 @@ use tempfile::tempdir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
-    sync::oneshot,
+    sync::{mpsc, oneshot},
     time::timeout,
 };
 use tower::ServiceExt;
@@ -155,6 +155,317 @@ async fn codex_and_claude_streams_forward_incrementally_and_restore_public_model
     assert_eq!(claude_request.headers["anthropic-version"], "2023-06-01");
     assert_eq!(claude_request.body["model"], "claude-upstream");
     assert_eq!(claude_request.body["stream"], true);
+}
+
+#[tokio::test]
+async fn codex_response_created_event_binds_the_follow_up_to_the_same_credential() {
+    let (upstream_address, upstream_requests) = sse_then_json_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex SSE affinity",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "first-stream",
+        "sk-stream-first",
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "second-stream",
+        "sk-stream-second",
+    )
+    .await;
+    revision += 1;
+    create_route(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "stream-affinity-public",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+
+    let first = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"stream-affinity-public","stream":true,"input":"start"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let first_body = first
+        .into_body()
+        .collect()
+        .await
+        .expect("stream response")
+        .to_bytes();
+    assert!(String::from_utf8_lossy(&first_body).contains("resp_stream_affinity"));
+
+    let second = request(
+        app,
+        "/v1/responses",
+        json!({
+            "model":"stream-affinity-public",
+            "previous_response_id":"resp_stream_affinity",
+            "input":"continue"
+        }),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(second.status(), StatusCode::OK);
+    second.into_body().collect().await.expect("JSON response");
+
+    let (first_request, second_request) = upstream_requests.await.expect("both upstream requests");
+    assert_eq!(
+        first_request.headers.get("authorization"),
+        second_request.headers.get("authorization")
+    );
+}
+
+#[tokio::test]
+async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
+    let (upstream_address, mut upstream_requests, release_first) = held_stream_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex prefer",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "prefer-first",
+        "sk-prefer-first",
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "prefer-second",
+        "sk-prefer-second",
+    )
+    .await;
+    revision += 1;
+    create_route(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "prefer-public",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+    revision += 1;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "affinity.soft.prefer_wait_timeout",
+        json!(20),
+    )
+    .await;
+
+    let held = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"prefer-public","stream":true,"input":"start"}),
+        remote,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "prefer-session".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(held.status(), StatusCode::OK);
+    let first = upstream_requests
+        .recv()
+        .await
+        .expect("first upstream request");
+
+    let rebound = request(
+        app,
+        "/v1/responses",
+        json!({"model":"prefer-public","input":"continue"}),
+        remote,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "prefer-session".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(rebound.status(), StatusCode::OK);
+    rebound
+        .into_body()
+        .collect()
+        .await
+        .expect("rebound response");
+    let second = upstream_requests
+        .recv()
+        .await
+        .expect("rebound upstream request");
+    assert_ne!(
+        first.headers.get("authorization"),
+        second.headers.get("authorization")
+    );
+
+    release_first.send(()).expect("release first stream");
+    held.into_body()
+        .collect()
+        .await
+        .expect("held stream completion");
+}
+
+#[tokio::test]
+async fn strict_soft_affinity_never_switches_credentials() {
+    let (upstream_address, mut upstream_requests, release_first) = held_stream_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex strict",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "strict-first",
+        "sk-strict-first",
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "strict-second",
+        "sk-strict-second",
+    )
+    .await;
+    revision += 1;
+    create_route(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "strict-public",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+    revision += 1;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "affinity.soft.mode",
+        json!("strict"),
+    )
+    .await;
+    revision += 1;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "affinity.fixed_wait_timeout",
+        json!(20),
+    )
+    .await;
+
+    let held = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"strict-public","stream":true,"input":"start"}),
+        remote,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "strict-session".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(held.status(), StatusCode::OK);
+    upstream_requests
+        .recv()
+        .await
+        .expect("first upstream request");
+
+    let blocked = request(
+        app,
+        "/v1/responses",
+        json!({"model":"strict-public","input":"continue"}),
+        remote,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "strict-session".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(blocked.status(), StatusCode::TOO_MANY_REQUESTS);
+    let blocked_body = blocked
+        .into_body()
+        .collect()
+        .await
+        .expect("strict error response")
+        .to_bytes();
+    let blocked_json: Value = serde_json::from_slice(&blocked_body).expect("strict error JSON");
+    assert_eq!(blocked_json["error"]["code"], "local_concurrency_limit");
+    assert!(
+        timeout(Duration::from_millis(50), upstream_requests.recv())
+            .await
+            .is_err(),
+        "strict affinity must not contact another credential"
+    );
+
+    release_first.send(()).expect("release first stream");
+    held.into_body()
+        .collect()
+        .await
+        .expect("held stream completion");
 }
 
 fn assert_stream_headers(response: &Response) {
@@ -355,6 +666,29 @@ async fn request_admin(app: Router, uri: &str, body: Value, remote: SocketAddr) 
     serde_json::from_slice(&bytes).expect("admin response JSON")
 }
 
+async fn update_setting(app: &Router, remote: SocketAddr, revision: u64, key: &str, value: Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::PATCH)
+                .uri(format!("/api/admin/settings/{key}"))
+                .header(CONTENT_TYPE, "application/json")
+                .extension(ConnectInfo(remote))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "expected_revision": revision,
+                        "value": value
+                    }))
+                    .expect("setting request JSON"),
+                ))
+                .expect("setting request"),
+        )
+        .await
+        .expect("setting response");
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 async fn request(
     app: Router,
     uri: &str,
@@ -431,6 +765,121 @@ async fn paused_sse_server(
             .write_all(b"0\r\n\r\n")
             .await
             .expect("finish chunked response");
+    });
+    (address, request_receiver, release_sender)
+}
+
+async fn sse_then_json_server() -> (
+    SocketAddr,
+    oneshot::Receiver<(UpstreamRequest, UpstreamRequest)>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (sender, receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut first_stream, _) = listener.accept().await.expect("first upstream accept");
+        let (first_path, first_request) = read_upstream_request(&mut first_stream).await;
+        assert_eq!(first_path, "/v1/responses");
+        let event = b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stream_affinity\",\"model\":\"gpt-upstream\"}}\n\ndata: [DONE]\n\n";
+        first_stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    event.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("first response headers");
+        first_stream
+            .write_all(event)
+            .await
+            .expect("first response body");
+
+        let (mut second_stream, _) = listener.accept().await.expect("second upstream accept");
+        let (second_path, second_request) = read_upstream_request(&mut second_stream).await;
+        assert_eq!(second_path, "/v1/responses");
+        let body = r#"{"id":"resp_stream_follow","model":"gpt-upstream","output":[]}"#;
+        second_stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("second response");
+        sender
+            .send((first_request, second_request))
+            .expect("send upstream requests");
+    });
+    (address, receiver)
+}
+
+async fn held_stream_server() -> (
+    SocketAddr,
+    mpsc::UnboundedReceiver<UpstreamRequest>,
+    oneshot::Sender<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (request_sender, request_receiver) = mpsc::unbounded_channel();
+    let (release_sender, release_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut first_stream, _) = listener.accept().await.expect("first upstream accept");
+        let (first_path, first_request) = read_upstream_request(&mut first_stream).await;
+        assert_eq!(first_path, "/v1/responses");
+        request_sender
+            .send(first_request)
+            .expect("send first upstream request");
+        first_stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("held response headers");
+        write_chunk(
+            &mut first_stream,
+            b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_held\",\"model\":\"gpt-upstream\"}}\n\n",
+        )
+        .await;
+        first_stream.flush().await.expect("flush held event");
+
+        let request_sender_for_second = request_sender.clone();
+        let second = tokio::spawn(async move {
+            let (mut second_stream, _) = listener.accept().await.expect("second upstream accept");
+            let (second_path, second_request) = read_upstream_request(&mut second_stream).await;
+            assert_eq!(second_path, "/v1/responses");
+            request_sender_for_second
+                .send(second_request)
+                .expect("send second upstream request");
+            let body = r#"{"id":"resp_rebound","model":"gpt-upstream","output":[]}"#;
+            second_stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("second response");
+        });
+
+        let _ = release_receiver.await;
+        write_chunk(&mut first_stream, b"data: [DONE]\n\n").await;
+        first_stream
+            .write_all(b"0\r\n\r\n")
+            .await
+            .expect("finish held stream");
+        second.abort();
     });
     (address, request_receiver, release_sender)
 }

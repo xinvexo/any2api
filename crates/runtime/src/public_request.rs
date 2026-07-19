@@ -1,3 +1,4 @@
+mod affinity;
 mod planning;
 mod response;
 mod selection;
@@ -104,9 +105,7 @@ impl PublicRequestService {
             let response = upstream::execute_stream_attempt(
                 snapshot.as_ref(),
                 adapter,
-                planned.decoded,
-                &planned.public_model,
-                planned.selected,
+                planned,
                 self.providers.as_ref(),
                 self.transport.as_ref(),
             )
@@ -116,9 +115,7 @@ impl PublicRequestService {
         let response = upstream::execute_attempt(
             snapshot.as_ref(),
             adapter.as_ref(),
-            planned.decoded,
-            &planned.public_model,
-            planned.selected,
+            planned,
             self.providers.as_ref(),
             self.transport.as_ref(),
         )

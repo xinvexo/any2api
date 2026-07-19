@@ -80,15 +80,108 @@ test("keeps a draft after a revision conflict and retries with the refreshed rev
   expect(fetchMock).toHaveBeenCalled();
 });
 
-function renderManagement() {
+test("can render only the affinity setting group", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(affinityConfiguration()));
+
+  renderManagement("affinity.");
+
+  expect(await screen.findByRole("heading", { name: "软会话粘性" })).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "软粘性模式" })).toHaveValue("prefer");
+  expect(screen.getByRole("textbox", { name: "硬绑定 TTL" })).toHaveValue("86400000");
+  expect(screen.queryByRole("heading", { name: "排队策略" })).not.toBeInTheDocument();
+});
+
+function renderManagement(keyPrefix?: string) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <SettingsManagement />
+      <SettingsManagement keyPrefix={keyPrefix} />
     </QueryClientProvider>,
   );
+}
+
+function affinityConfiguration() {
+  return {
+    config_revision: 1,
+    items: [
+      affinitySetting("affinity.soft.enabled", "boolean", true, null, null, "软会话粘性"),
+      affinitySetting(
+        "affinity.soft.mode",
+        "enum",
+        "prefer",
+        null,
+        ["prefer", "strict"],
+        "软会话粘性",
+      ),
+      affinitySetting(
+        "affinity.soft.ttl",
+        "duration_ms",
+        3_600_000,
+        null,
+        null,
+        "软会话粘性",
+        1_000,
+        604_800_000,
+      ),
+      affinitySetting(
+        "affinity.hard.ttl",
+        "duration_ms",
+        86_400_000,
+        null,
+        null,
+        "硬会话粘性",
+        1_000,
+        604_800_000,
+      ),
+      affinitySetting(
+        "affinity.soft.prefer_wait_timeout",
+        "duration_ms",
+        2_000,
+        null,
+        null,
+        "软会话粘性",
+        1,
+        86_400_000,
+      ),
+      affinitySetting(
+        "affinity.fixed_wait_timeout",
+        "duration_ms",
+        30_000,
+        null,
+        null,
+        "固定会话等待",
+        1,
+        86_400_000,
+      ),
+    ],
+  };
+}
+
+function affinitySetting(
+  key: string,
+  valueType: string,
+  defaultValue: boolean | number | string,
+  overrideValue: boolean | number | string | null,
+  allowedValues: string[] | null,
+  webGroup: string,
+  minValue: number | null = null,
+  maxValue: number | null = null,
+) {
+  return {
+    key,
+    value_type: valueType,
+    default_value: defaultValue,
+    override_value: overrideValue,
+    effective_value: overrideValue ?? defaultValue,
+    min_value: minValue,
+    max_value: maxValue,
+    allowed_values: allowedValues,
+    apply_mode: "hot_reload",
+    web_group: webGroup,
+    description: "Affinity test setting",
+  };
 }
 
 function configuration(revision: number, timeoutOverride: number | null = null) {

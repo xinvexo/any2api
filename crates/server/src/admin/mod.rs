@@ -1,3 +1,5 @@
+mod affinity_dto;
+mod affinity_handlers;
 mod error;
 mod gateway_api_key_dto;
 mod gateway_api_key_handlers;
@@ -21,6 +23,14 @@ use crate::state::AppState;
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()
+        .route(
+            "/affinity",
+            get(affinity_handlers::get).delete(affinity_handlers::clear_all),
+        )
+        .route(
+            "/affinity/credentials/{id}",
+            axum::routing::delete(affinity_handlers::clear_credential),
+        )
         .route(
             "/gateway-api-keys",
             get(gateway_api_key_handlers::list).post(gateway_api_key_handlers::create),

@@ -46,7 +46,15 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(6));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(12));
+    let soft_mode = find_setting(&initial, "affinity.soft.mode");
+    assert_eq!(soft_mode["value_type"], "enum");
+    assert_eq!(soft_mode["default_value"], "prefer");
+    assert_eq!(soft_mode["effective_value"], "prefer");
+    assert_eq!(soft_mode["allowed_values"], json!(["prefer", "strict"]));
+    let hard_ttl = find_setting(&initial, "affinity.hard.ttl");
+    assert_eq!(hard_ttl["default_value"], 86_400_000);
+    assert_eq!(hard_ttl["min_value"], 1_000);
     let timeout = find_setting(&initial, "scheduler.queue_timeout");
     assert_eq!(timeout["value_type"], "duration_ms");
     assert_eq!(timeout["default_value"], 30_000);

@@ -1,6 +1,12 @@
 import type { SettingItem, SettingValue, SettingValueType } from "../api/settings-contracts";
 
 const labels: Record<string, string> = {
+  "affinity.soft.enabled": "启用软粘性",
+  "affinity.soft.mode": "软粘性模式",
+  "affinity.soft.ttl": "软绑定 TTL",
+  "affinity.hard.ttl": "硬绑定 TTL",
+  "affinity.soft.prefer_wait_timeout": "Prefer 等待超时",
+  "affinity.fixed_wait_timeout": "固定绑定等待超时",
   "scheduler.on_saturated": "满载行为",
   "scheduler.queue_timeout": "排队超时",
   "scheduler.max_waiting_requests": "最大排队数量",
@@ -19,6 +25,12 @@ export function enumOptionLabel(value: string) {
   }
   if (value === "reject") {
     return "立即拒绝";
+  }
+  if (value === "prefer") {
+    return "优先原 Credential，超时后重绑";
+  }
+  if (value === "strict") {
+    return "只允许原 Credential";
   }
   return value;
 }

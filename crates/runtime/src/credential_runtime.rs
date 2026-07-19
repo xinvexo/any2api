@@ -91,6 +91,7 @@ impl fmt::Debug for CredentialGenerationRuntime {
 pub(crate) struct CredentialRuntimeHandle {
     id: CredentialId,
     capacity: AtomicU64,
+    fixed_waiters: AtomicU32,
     auxiliary_in_flight: AtomicU32,
     current_generation: ArcSwap<CredentialGenerationRuntime>,
     retired: AtomicBool,
@@ -106,6 +107,7 @@ impl CredentialRuntimeHandle {
         Arc::new(Self {
             id: credential.id(),
             capacity: AtomicU64::new(pack_capacity(credential.max_concurrency().get(), 0)),
+            fixed_waiters: AtomicU32::new(0),
             auxiliary_in_flight: AtomicU32::new(0),
             current_generation: ArcSwap::from_pointee(CredentialGenerationRuntime::new(
                 credential,
@@ -197,7 +199,22 @@ impl CredentialRuntimeHandle {
         }
     }
 
-    fn try_acquire(
+    fn try_acquire_normal(
+        self: &Arc<Self>,
+        generation: Arc<CredentialGenerationRuntime>,
+    ) -> Option<ConcurrencyPermit> {
+        if self.fixed_waiters.load(Ordering::Acquire) > 0 {
+            return None;
+        }
+        let permit = self.try_acquire_unreserved(generation)?;
+        if self.fixed_waiters.load(Ordering::Acquire) == 0 {
+            return Some(permit);
+        }
+        drop(permit);
+        None
+    }
+
+    fn try_acquire_unreserved(
         self: &Arc<Self>,
         generation: Arc<CredentialGenerationRuntime>,
     ) -> Option<ConcurrencyPermit> {
@@ -235,6 +252,27 @@ impl CredentialRuntimeHandle {
             .expect("concurrency permit released without an active slot");
         self.scheduler_epoch.advance();
     }
+
+    fn register_fixed_waiter(self: &Arc<Self>) -> FixedCredentialWaiter {
+        self.fixed_waiters
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current.checked_add(1)
+            })
+            .expect("fixed waiter counter overflowed u32");
+        self.scheduler_epoch.advance();
+        FixedCredentialWaiter {
+            handle: Arc::clone(self),
+        }
+    }
+
+    fn release_fixed_waiter(&self) {
+        self.fixed_waiters
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current.checked_sub(1)
+            })
+            .expect("fixed waiter released without registration");
+        self.scheduler_epoch.advance();
+    }
 }
 
 impl fmt::Debug for CredentialRuntimeHandle {
@@ -243,6 +281,7 @@ impl fmt::Debug for CredentialRuntimeHandle {
             .debug_struct("CredentialRuntimeHandle")
             .field("id", &self.id)
             .field("capacity", &self.capacity())
+            .field("fixed_waiters", &self.fixed_waiters.load(Ordering::Acquire))
             .field("auxiliary_in_flight", &self.auxiliary_in_flight())
             .field("generation", &self.current_generation.load())
             .field("retired", &self.retired.load(Ordering::Acquire))
@@ -265,6 +304,18 @@ impl CredentialRuntimeBinding {
     #[must_use]
     pub fn capacity(&self) -> CredentialCapacity {
         self.handle.capacity()
+    }
+
+    pub(crate) fn normal_capacity(&self) -> CredentialCapacity {
+        let capacity = self.handle.capacity();
+        if self.handle.fixed_waiters.load(Ordering::Acquire) == 0 {
+            capacity
+        } else {
+            CredentialCapacity {
+                in_flight: capacity.max_concurrency,
+                max_concurrency: capacity.max_concurrency,
+            }
+        }
     }
 
     #[must_use]
@@ -293,7 +344,26 @@ impl CredentialRuntimeBinding {
 
     #[must_use]
     pub fn try_acquire(&self) -> Option<ConcurrencyPermit> {
-        self.handle.try_acquire(Arc::clone(&self.generation))
+        self.handle.try_acquire_normal(Arc::clone(&self.generation))
+    }
+
+    pub(crate) fn try_acquire_fixed(&self) -> Option<ConcurrencyPermit> {
+        self.handle
+            .try_acquire_unreserved(Arc::clone(&self.generation))
+    }
+
+    pub(crate) fn register_fixed_waiter(&self) -> FixedCredentialWaiter {
+        self.handle.register_fixed_waiter()
+    }
+}
+
+pub(crate) struct FixedCredentialWaiter {
+    handle: Arc<CredentialRuntimeHandle>,
+}
+
+impl Drop for FixedCredentialWaiter {
+    fn drop(&mut self) {
+        self.handle.release_fixed_waiter();
     }
 }
 
