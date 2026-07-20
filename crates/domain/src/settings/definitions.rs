@@ -5,6 +5,7 @@ mod affinity;
 mod logging;
 mod reliability;
 mod scheduler;
+mod stream;
 
 pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
     match key {
@@ -23,6 +24,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::LogsRequestRetention
         | SettingKey::LogsRequestMaxRows
         | SettingKey::LogsTelemetryQueueCapacity => logging::definition(key),
+        SettingKey::StreamPrecommitMaxBytes | SettingKey::StreamPrecommitMaxDuration => {
+            stream::definition(key)
+        }
         SettingKey::SchedulerOnSaturated
         | SettingKey::SchedulerQueueTimeout
         | SettingKey::SchedulerMaxWaitingRequests

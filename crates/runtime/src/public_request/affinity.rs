@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Instant};
 
 use any2api_domain::{
     AffinityMode, ModelRouteId, ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode,
@@ -197,7 +197,9 @@ fn affinity_error(error: AffinityError) -> PublicError {
             PublicErrorCode::LocalConcurrencyLimit,
             "session affinity capacity is full",
         ),
-        AffinityError::IdentityConflict | AffinityError::LeaseLost => internal_error(),
+        AffinityError::IdentityConflict
+        | AffinityError::LeaseLost
+        | AffinityError::DeadlineExceeded => internal_error(),
     }
 }
 
@@ -207,6 +209,25 @@ pub(super) fn commit_soft_binding(
 ) -> Result<(), PublicError> {
     match lease {
         Some(lease) => lease.commit(target).map_err(affinity_error),
+        None => Ok(()),
+    }
+}
+
+pub(super) fn commit_soft_binding_before(
+    lease: Option<SoftBindingLease>,
+    target: AffinityTarget,
+    deadline: Instant,
+) -> Result<(), PublicError> {
+    match lease {
+        Some(lease) => lease
+            .commit_before(target, deadline)
+            .map_err(|error| match error {
+                AffinityError::DeadlineExceeded => public_error(
+                    PublicErrorCode::UpstreamError,
+                    "stream precommit deadline elapsed",
+                ),
+                other => affinity_error(other),
+            }),
         None => Ok(()),
     }
 }

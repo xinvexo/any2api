@@ -16,6 +16,8 @@ const labels: Record<string, string> = {
   "logs.request.retention": "请求日志保留时间",
   "logs.request.max_rows": "请求日志最大行数",
   "logs.telemetry_queue_capacity": "遥测队列容量",
+  "stream.precommit.max_bytes": "SSE 单帧与预提交字节上限",
+  "stream.precommit.max_duration": "预提交最长等待",
   "scheduler.on_saturated": "满载行为",
   "scheduler.queue_timeout": "排队超时",
   "scheduler.max_waiting_requests": "最大排队数量",

@@ -3,18 +3,11 @@ use serde_json::{Map, Value};
 
 use crate::{ProtocolError, api::SseFrame};
 
-pub const DEFAULT_MAX_SSE_FRAME_BYTES: usize = 256 * 1024;
-
 #[derive(Debug)]
 pub struct SseDecoder {
     buffer: BytesMut,
     max_frame_bytes: usize,
-}
-
-impl Default for SseDecoder {
-    fn default() -> Self {
-        Self::new(DEFAULT_MAX_SSE_FRAME_BYTES)
-    }
+    scan_from: usize,
 }
 
 impl SseDecoder {
@@ -23,12 +16,31 @@ impl SseDecoder {
         Self {
             buffer: BytesMut::new(),
             max_frame_bytes: max_frame_bytes.max(1),
+            scan_from: 0,
         }
     }
 
-    pub fn push(&mut self, chunk: &[u8]) -> Result<Vec<SseFrame>, ProtocolError> {
+    pub fn push(&mut self, chunk: &[u8]) {
         self.buffer.extend_from_slice(chunk);
-        self.take_complete_frames()
+    }
+
+    pub fn next_input_limit(&self) -> usize {
+        self.max_frame_bytes
+            .saturating_sub(self.buffer.len())
+            .saturating_add(1)
+    }
+
+    pub fn next_frame(&mut self) -> Result<Option<SseFrame>, ProtocolError> {
+        let Some(end) = find_event_end(&self.buffer, self.scan_from) else {
+            self.scan_from = self.buffer.len().saturating_sub(3);
+            self.check_buffer_limit()?;
+            return Ok(None);
+        };
+        if end > self.max_frame_bytes {
+            return Err(frame_limit_error());
+        }
+        self.scan_from = 0;
+        Ok(Some(SseFrame(self.buffer.split_to(end).freeze())))
     }
 
     pub fn finish(&mut self) -> Result<Option<SseFrame>, ProtocolError> {
@@ -37,18 +49,6 @@ impl SseDecoder {
         }
         self.check_buffer_limit()?;
         Ok(Some(SseFrame(self.buffer.split().freeze())))
-    }
-
-    fn take_complete_frames(&mut self) -> Result<Vec<SseFrame>, ProtocolError> {
-        let mut frames = Vec::new();
-        while let Some(end) = find_event_end(&self.buffer) {
-            if end > self.max_frame_bytes {
-                return Err(frame_limit_error());
-            }
-            frames.push(SseFrame(self.buffer.split_to(end).freeze()));
-        }
-        self.check_buffer_limit()?;
-        Ok(frames)
     }
 
     fn check_buffer_limit(&self) -> Result<(), ProtocolError> {
@@ -64,8 +64,8 @@ fn frame_limit_error() -> ProtocolError {
     ProtocolError::InvalidPayload("SSE frame exceeded the configured limit".into())
 }
 
-fn find_event_end(bytes: &[u8]) -> Option<usize> {
-    for index in 0..bytes.len() {
+fn find_event_end(bytes: &[u8], start: usize) -> Option<usize> {
+    for index in start.min(bytes.len())..bytes.len() {
         match bytes[index] {
             b'\n' if bytes.get(index + 1) == Some(&b'\n') => return Some(index + 2),
             b'\n'
@@ -179,7 +179,10 @@ mod tests {
             b"data: second\r\n\r".as_slice(),
             b"\nevent: done\ndata: [DONE]\n\n".as_slice(),
         ] {
-            frames.extend(decoder.push(chunk).expect("SSE chunk"));
+            decoder.push(chunk);
+            while let Some(frame) = decoder.next_frame().expect("SSE frame") {
+                frames.push(frame);
+            }
         }
         assert_eq!(frames.len(), 2);
         assert_eq!(
@@ -193,14 +196,26 @@ mod tests {
     }
 
     #[test]
+    fn decoder_handles_single_byte_chunks() {
+        let mut decoder = SseDecoder::new(1024);
+        let mut frames = Vec::new();
+        for byte in b"data: one\n\ndata: two\n\n" {
+            decoder.push(std::slice::from_ref(byte));
+            while let Some(frame) = decoder.next_frame().expect("SSE frame") {
+                frames.push(frame);
+            }
+        }
+
+        assert_eq!(frames.len(), 2);
+        assert_eq!(frames[0].0, Bytes::from_static(b"data: one\n\n"));
+        assert_eq!(frames[1].0, Bytes::from_static(b"data: two\n\n"));
+    }
+
+    #[test]
     fn decoder_flushes_an_eof_frame_without_a_trailing_blank_line() {
-        let mut decoder = SseDecoder::default();
-        assert!(
-            decoder
-                .push(b"data: {\"ok\":true}")
-                .expect("chunk")
-                .is_empty()
-        );
+        let mut decoder = SseDecoder::new(1024);
+        decoder.push(b"data: {\"ok\":true}");
+        assert!(decoder.next_frame().expect("frame").is_none());
         let frame = decoder.finish().expect("finish").expect("final frame");
         assert_eq!(frame.0, Bytes::from_static(b"data: {\"ok\":true}"));
     }
@@ -208,10 +223,25 @@ mod tests {
     #[test]
     fn decoder_rejects_a_frame_larger_than_its_limit() {
         let mut decoder = SseDecoder::new(8);
-        let error = decoder
-            .push(b"data: oversized\n\n")
-            .expect_err("oversized frame must fail");
+        decoder.push(b"data: oversized\n\n");
+        let error = decoder.next_frame().expect_err("oversized frame must fail");
 
+        assert!(error.to_string().contains("configured limit"));
+    }
+
+    #[test]
+    fn decoder_preserves_complete_frames_before_a_later_limit_error() {
+        let mut decoder = SseDecoder::new(12);
+        decoder.push(b"data: ok\n\ndata: oversized\n\n");
+        let frame = decoder
+            .next_frame()
+            .expect("first frame")
+            .expect("complete first frame");
+        let error = decoder
+            .next_frame()
+            .expect_err("later oversized frame must fail");
+
+        assert_eq!(frame, SseFrame(Bytes::from_static(b"data: ok\n\n")));
         assert!(error.to_string().contains("configured limit"));
     }
 

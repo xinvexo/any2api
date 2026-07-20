@@ -159,6 +159,224 @@ async fn codex_and_claude_streams_forward_incrementally_and_restore_public_model
 }
 
 #[tokio::test]
+async fn stream_precommit_byte_budget_is_applied_from_published_settings() {
+    let (upstream_address, _upstream_request, release) = paused_sse_server(
+        "/v1/responses",
+        &[b"data: {\"model\":\"gpt-upstream\",\"output\":[]}\n\n"],
+        &[],
+    )
+    .await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex precommit budget",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "precommit-budget",
+        "sk-precommit-budget",
+    )
+    .await;
+    revision += 1;
+    create_route(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "precommit-budget-public",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+    revision += 1;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "stream.precommit.max_bytes",
+        json!(16),
+    )
+    .await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"precommit-budget-public","stream":true,"input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("budget error body")
+        .to_bytes();
+    let error: Value = serde_json::from_slice(&body).expect("budget error JSON");
+    assert_eq!(error["error"]["code"], "upstream_error");
+    release.send(()).expect("release upstream stream");
+}
+
+#[tokio::test]
+async fn stream_precommit_duration_is_applied_from_published_settings() {
+    let (upstream_address, _upstream_request, release) =
+        paused_sse_server("/v1/responses", &[], &[]).await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex precommit duration",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "precommit-duration",
+        "sk-precommit-duration",
+    )
+    .await;
+    revision += 1;
+    create_route(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "precommit-duration-public",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+    revision += 1;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "stream.precommit.max_duration",
+        json!(10),
+    )
+    .await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"precommit-duration-public","stream":true,"input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("duration error body")
+        .to_bytes();
+    let error: Value = serde_json::from_slice(&body).expect("duration error JSON");
+    assert_eq!(error["error"]["code"], "upstream_error");
+    release.send(()).expect("release upstream stream");
+}
+
+#[tokio::test]
+async fn in_flight_stream_keeps_the_precommit_budget_from_its_snapshot() {
+    let (upstream_address, upstream_ready, release) = gated_first_event_server(
+        "/v1/responses",
+        b"{\"model\":\"gpt-upstream\",\"output\":[]}\n\n",
+    )
+    .await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex snapshot budget",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "snapshot-budget",
+        "sk-snapshot-budget",
+    )
+    .await;
+    revision += 1;
+    create_route(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "snapshot-budget-public",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+    revision += 1;
+
+    let request_app = app.clone();
+    let pending = tokio::spawn(async move {
+        request(
+            request_app,
+            "/v1/responses",
+            json!({"model":"snapshot-budget-public","stream":true,"input":"hello"}),
+            remote,
+            &[("authorization", format!("Bearer {token}"))],
+        )
+        .await
+    });
+    upstream_ready.await.expect("upstream response headers");
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "stream.precommit.max_duration",
+        json!(1),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    release.send(()).expect("release first event");
+
+    let response = pending.await.expect("public request task");
+    assert_stream_headers(&response);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("stream body")
+        .to_bytes();
+    assert!(String::from_utf8_lossy(&body).contains(r#""model":"snapshot-budget-public""#));
+}
+
+#[tokio::test]
 async fn codex_response_created_event_binds_the_follow_up_to_the_same_credential() {
     let (upstream_address, upstream_requests) = sse_then_json_server().await;
     let (_directory, app, mut revision) = test_app().await;
@@ -769,6 +987,39 @@ async fn paused_sse_server(
             .expect("finish chunked response");
     });
     (address, request_receiver, release_sender)
+}
+
+async fn gated_first_event_server(
+    expected_path: &'static str,
+    event_tail: &'static [u8],
+) -> (SocketAddr, oneshot::Receiver<()>, oneshot::Sender<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (ready_sender, ready_receiver) = oneshot::channel();
+    let (release_sender, release_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("upstream accept");
+        let request = read_upstream_request(&mut stream).await;
+        assert_eq!(request.0, expected_path);
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("upstream response headers");
+        write_chunk(&mut stream, b"data: ").await;
+        stream.flush().await.expect("flush response headers");
+        ready_sender.send(()).expect("signal response headers");
+        let _ = release_receiver.await;
+        write_chunk(&mut stream, event_tail).await;
+        stream
+            .write_all(b"0\r\n\r\n")
+            .await
+            .expect("finish chunked response");
+    });
+    (address, ready_receiver, release_sender)
 }
 
 async fn sse_then_json_server() -> (

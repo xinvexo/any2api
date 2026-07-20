@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use any2api_domain::{CredentialId, ModelRouteId, ProtocolDialect, RouteTargetId};
 
@@ -168,6 +168,62 @@ fn hard_identity_conflicts_are_rejected() {
         ),
         Err(AffinityError::IdentityConflict)
     );
+}
+
+#[test]
+fn elapsed_deadline_does_not_create_a_hard_binding() {
+    let registry = AffinityRegistry::new();
+    let route_id = ModelRouteId::new();
+
+    assert_eq!(
+        registry.bind_hard_before(
+            "resp-too-late",
+            target(route_id, CredentialId::new()),
+            HARD_TTL,
+            Instant::now() - Duration::from_millis(1),
+        ),
+        Err(AffinityError::DeadlineExceeded)
+    );
+    assert!(registry.resolve_hard("resp-too-late", HARD_TTL).is_none());
+}
+
+#[test]
+fn elapsed_deadline_does_not_commit_a_soft_binding() {
+    let registry = AffinityRegistry::new();
+    let route_id = ModelRouteId::new();
+    let lease = match registry
+        .begin_soft(
+            ProtocolDialect::OpenAiResponses,
+            route_id,
+            "soft-too-late",
+            SOFT_TTL,
+            CREATING_TTL,
+        )
+        .expect("soft binding lease")
+    {
+        SoftBindingStart::Create(lease) => lease,
+        other => panic!("first caller must create the binding: {other:?}"),
+    };
+
+    assert_eq!(
+        lease.commit_before(
+            target(route_id, CredentialId::new()),
+            Instant::now() - Duration::from_millis(1),
+        ),
+        Err(AffinityError::DeadlineExceeded)
+    );
+    assert!(matches!(
+        registry
+            .begin_soft(
+                ProtocolDialect::OpenAiResponses,
+                route_id,
+                "soft-too-late",
+                SOFT_TTL,
+                CREATING_TTL,
+            )
+            .expect("expired lease was removed"),
+        SoftBindingStart::Create(_)
+    ));
 }
 
 #[test]

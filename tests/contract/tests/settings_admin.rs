@@ -46,7 +46,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(39));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(41));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
@@ -82,6 +82,29 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     let endpoint_window = find_setting(&initial, "breaker.endpoint.failure_window");
     assert_eq!(endpoint_window["value_type"], "duration_ms");
     assert_eq!(endpoint_window["default_value"], 30_000);
+    let stream_bytes = find_setting(&initial, "stream.precommit.max_bytes");
+    assert_eq!(stream_bytes["value_type"], "integer");
+    assert_eq!(stream_bytes["default_value"], 256 * 1024);
+    assert_eq!(stream_bytes["min_value"], 1);
+    assert_eq!(stream_bytes["max_value"], 16 * 1024 * 1024);
+    assert_eq!(stream_bytes["web_group"], "流式预提交");
+    assert!(
+        stream_bytes["description"]
+            .as_str()
+            .is_some_and(|value| value.contains("每个 SSE 帧"))
+    );
+    let stream_duration = find_setting(&initial, "stream.precommit.max_duration");
+    assert_eq!(stream_duration["value_type"], "duration_ms");
+    assert_eq!(stream_duration["default_value"], 5_000);
+    assert_eq!(stream_duration["min_value"], 1);
+    assert_eq!(stream_duration["max_value"], 86_400_000);
+    assert!(
+        initial["items"]
+            .as_array()
+            .expect("setting items")
+            .iter()
+            .all(|item| item["key"] != "stream.precommit.max_events")
+    );
 
     let (status, updated) = request_json(
         app.clone(),

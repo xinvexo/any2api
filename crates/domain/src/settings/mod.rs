@@ -7,6 +7,7 @@ mod key;
 mod logging_settings;
 mod reliability_settings;
 mod scheduler_settings;
+mod stream_settings;
 mod value;
 
 pub use admin_settings::AdminSettings;
@@ -20,4 +21,5 @@ pub use logging_settings::{
 };
 pub use reliability_settings::ReliabilitySettings;
 pub use scheduler_settings::SchedulerSettings;
+pub use stream_settings::{MAX_STREAM_PRECOMMIT_BYTES, StreamSettings};
 pub use value::{AffinityMode, SaturationMode, SettingValue, SettingsValidationError};

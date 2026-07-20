@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use any2api_domain::ProtocolOperation;
 
@@ -33,5 +36,10 @@ impl HardAffinityCommitter {
 
     pub(crate) fn bind(&self, raw: &str) -> Result<(), AffinityError> {
         self.registry.bind_hard(raw, self.target.clone(), self.ttl)
+    }
+
+    pub(crate) fn bind_before(&self, raw: &str, deadline: Instant) -> Result<(), AffinityError> {
+        self.registry
+            .bind_hard_before(raw, self.target.clone(), self.ttl, deadline)
     }
 }

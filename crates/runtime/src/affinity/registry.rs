@@ -144,17 +144,47 @@ impl AffinityRegistry {
         target: AffinityTarget,
         ttl: Duration,
     ) -> Result<(), AffinityError> {
+        self.bind_hard_with_deadline(raw, target, ttl, None)
+    }
+
+    pub(crate) fn bind_hard_before(
+        &self,
+        raw: &str,
+        target: AffinityTarget,
+        ttl: Duration,
+        deadline: Instant,
+    ) -> Result<(), AffinityError> {
+        self.bind_hard_with_deadline(raw, target, ttl, Some(deadline))
+    }
+
+    fn bind_hard_with_deadline(
+        &self,
+        raw: &str,
+        target: AffinityTarget,
+        ttl: Duration,
+        deadline: Option<Instant>,
+    ) -> Result<(), AffinityError> {
         let key = self.hasher.hard(raw);
-        let now = Instant::now();
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(AffinityError::DeadlineExceeded);
+        }
         let mut state = self.state.lock().expect("affinity state lock poisoned");
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(AffinityError::DeadlineExceeded);
+        }
         if let Some(binding) = state.hard.get_mut(&key) {
             if binding.target != target {
                 return Err(AffinityError::IdentityConflict);
             }
-            binding.last_seen_at = now;
+            let committed_at = Instant::now();
+            if deadline.is_some_and(|deadline| committed_at >= deadline) {
+                return Err(AffinityError::DeadlineExceeded);
+            }
+            binding.last_seen_at = committed_at;
             return Ok(());
         }
         if state.hard.len() >= MAX_HARD_BINDINGS {
+            let now = Instant::now();
             state
                 .hard
                 .retain(|_, binding| now.saturating_duration_since(binding.last_seen_at) < ttl);
@@ -162,11 +192,15 @@ impl AffinityRegistry {
         if state.hard.len() >= MAX_HARD_BINDINGS {
             return Err(AffinityError::Capacity);
         }
+        let committed_at = Instant::now();
+        if deadline.is_some_and(|deadline| committed_at >= deadline) {
+            return Err(AffinityError::DeadlineExceeded);
+        }
         state.hard.insert(
             key,
             TimedBinding {
                 target,
-                last_seen_at: now,
+                last_seen_at: committed_at,
             },
         );
         Ok(())
@@ -222,6 +256,8 @@ pub(crate) enum AffinityError {
     IdentityConflict,
     #[error("affinity creating lease is no longer current")]
     LeaseLost,
+    #[error("affinity binding deadline elapsed")]
+    DeadlineExceeded,
 }
 
 fn ensure_soft_capacity(

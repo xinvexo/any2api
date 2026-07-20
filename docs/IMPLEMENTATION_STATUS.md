@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、RequestLog/Attempt 有界遥测与单管理员远程 HTTP 认证切片已完成；内建 TLS、管理员密码轮换与 OAuth2 仍待完成。
-- 最近完成：本地 Request ID、RequestLog/Attempt SQLite 历史、有界非阻塞遥测队列、日志管理 API 与 React 页面，以及进程内软/硬会话粘性、生成请求 QueueTicket、Codex/Claude 同协议 JSON/SSE、Transport、错误分类、冷却、熔断和提交前多 Attempt 重试。
+- 当前阶段：阶段 4 可靠性、SSE PrecommitBudget、RequestLog/Attempt 有界遥测与单管理员远程 HTTP 认证切片已完成；统一上游 read timeout、代理认证与 OAuth2 仍待完成。
+- 最近完成：可热更新的 SSE 首事件字节/时长预算、本地 Request ID、RequestLog/Attempt SQLite 历史、有界非阻塞遥测队列和日志管理页面，以及软/硬会话粘性、生成请求 QueueTicket、Codex/Claude 同协议 JSON/SSE、错误分类、冷却、熔断和提交前多 Attempt 重试。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,7 +16,7 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 本切片提交主题：`feat: add bounded request telemetry`。
+- 本切片提交主题：`feat: add stream precommit budget`。
 
 ## 已完成
 
@@ -260,23 +260,34 @@
 - 首版没有协议级精确 usage 与内容首 Token 钩子，因此 `first_token_ms` 和各 Token Usage 字段保持 `NULL`；不猜测未知 JSON 字段或把 SSE 控制事件当作首 Token。
 - 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Attempt 生命周期、列表渲染、DTO 解析和敏感文本不展示；多 Attempt/错误/SSE 持久化、详情空态与错误态、deep link 及响应式页面仍没有自动化覆盖。
 
+### SSE PrecommitBudget 切片
+
+- SettingRegistry 新增 `stream.precommit.max_bytes` 与 `stream.precommit.max_duration`，默认分别为 `256 KiB` 和 `5s`；Web 可查看默认/覆盖/生效值并恢复默认。
+- 每个流式请求从当前 PublishedSnapshot 捕获不可变预算；旧请求不会在等待首事件期间混入新 revision 的配置。
+- `GuardedBody` 在下游响应头提交前使用配置 deadline 约束等待、分帧、协议解码、模型恢复与必要的硬/软粘性提交，并用同一字节上限限制每个 SSE 帧；超限、超时、空流或无效首帧均在提交前失败并释放健康 Guard 与 Credential Permit。
+- 解码器按当前帧容量增量消费 transport chunk，Runtime 每次只编码并排队一个事件；同一 chunk 的未消费 `Bytes` 零拷贝保留，不会在首事件交付前扩张成整批编码帧。后续帧超限时，已完成事件先交付，再以 Body 错误终止。
+- 编码后的公开事件超过字节预算时仍返回公开上游错误，但按本地预算失败结算上游健康；Runtime 自行产生的超时按 `Unattributed` 结算，二者都不会误开 Endpoint 或 Proxy 熔断。
+- `GuardedBody` 状态机、帧处理管线、完成/错误结算、预算与错误类型按职责拆分到独立模块；相关生产文件均保持在 300 行以内。
+- Domain/Runtime 测试覆盖两项设置元数据、原始/编码后字节预算、deadline、同 chunk 顺序、单事件预缓冲、硬/软绑定超时、提交后停止计费和健康归因；真实 HTTP 契约覆盖字节超限、首事件等待超时与旧请求保持旧 PublishedSnapshot。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；健康熔断已接入数据面，管理面代理测试按钮仍未完成。
 - ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
-- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker 与 request logging 共三十九项 SettingRegistry；`logs.file.*` 本地文件日志轮转仍未接入。
+- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、stream 与 request logging 共四十一项 SettingRegistry；`logs.file.*` 本地文件日志轮转仍未接入。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
-- 当前 JSON/SSE vertical slice 尚未提供统一的上游 read timeout；JSON 多 Attempt 共享可靠性绝对预算，SSE 首帧仍使用 5 秒预提交超时，提交后的错误直接结束流。RequestLog/Attempt 已写入 SQLite，但精确首 Token 与 Token Usage 尚未采集。
+- 当前 JSON/SSE vertical slice 尚未提供统一的上游 read timeout；JSON 多 Attempt 共享可靠性绝对预算，SSE 首事件使用可配置 PrecommitBudget，提交后的读取仍没有独立 idle timeout，错误直接结束流。RequestLog/Attempt 已写入 SQLite，但精确首 Token 与 Token Usage 尚未采集。
 - Gateway 鉴权失败与方法错误当前使用管理面统一 JSON envelope；已认证的协议执行错误才由 Responses/Messages Adapter 编码，协议专用 401 envelope 留待公开错误适配切片。
 
 ## 下一步
 
-1. 补齐内建 Rustls HTTPS listener、标准 `Forwarded` 可信来源解析和管理员密码在线轮换。
+1. 补齐统一上游 read timeout 与提交后 SSE idle timeout，避免上游静默连接长期占用 Permit。
 2. 补齐代理认证字段、管理面代理测试按钮与严格 SSRF 本地 DNS 模式。
-3. 实现 OAuth2 Provider 专用 JSON 导入、版本化凭据与刷新扩展。
+3. 让 Gateway 401、公开 404/405 等入口错误通过 Responses/Messages 协议适配器编码。
+4. 后续再实现内建 Rustls、管理员密码在线轮换与 OAuth2 Provider 专用扩展。
 
 ## 验证结果
 
@@ -296,4 +307,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在 RequestLog/Attempt 有界遥测切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning，Vite 仅报告当前单入口 bundle 超过 500 kB 的提示。Web 共 26 个测试文件、59 项测试通过；`/logs` 与 `/logs/:requestId` 已完成一次桌面和 390×844 人工验收记录，但该验收尚未纳入仓库自动化脚本。
+以上 Rust 与 Web 门禁在 SSE PrecommitBudget 切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning，Vite 仅报告当前单入口 bundle 超过 500 kB 的提示。Web 共 26 个测试文件、59 项测试通过；`/logs` 与 `/logs/:requestId` 已完成一次桌面和 390×844 人工验收记录，但该验收尚未纳入仓库自动化脚本。

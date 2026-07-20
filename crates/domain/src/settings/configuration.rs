@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use super::{
     AdminSettings, AffinitySettings, LoggingSettings, ReliabilitySettings, SchedulerSettings,
-    SettingKey, SettingValue, SettingsValidationError, value::validate_value,
+    SettingKey, SettingValue, SettingsValidationError, StreamSettings, value::validate_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -53,6 +53,7 @@ pub struct SettingsConfiguration {
     reliability: ReliabilitySettings,
     admin: AdminSettings,
     logging: LoggingSettings,
+    stream: StreamSettings,
 }
 
 impl SettingsConfiguration {
@@ -62,6 +63,7 @@ impl SettingsConfiguration {
         let reliability = ReliabilitySettings::from_overrides(&overrides)?;
         let admin = AdminSettings::from_overrides(&overrides)?;
         let logging = LoggingSettings::from_overrides(&overrides)?;
+        let stream = StreamSettings::from_overrides(&overrides)?;
         Ok(Self {
             overrides,
             scheduler,
@@ -69,6 +71,7 @@ impl SettingsConfiguration {
             reliability,
             admin,
             logging,
+            stream,
         })
     }
 
@@ -97,6 +100,10 @@ impl SettingsConfiguration {
         &self.logging
     }
 
+    pub const fn stream(&self) -> &StreamSettings {
+        &self.stream
+    }
+
     pub const fn overrides(&self) -> &SettingOverrides {
         &self.overrides
     }
@@ -115,7 +122,10 @@ mod tests {
     use serde_json::json;
 
     use super::{SettingOverrides, SettingsConfiguration};
-    use crate::{AffinityMode, SaturationMode, SettingKey, SettingValue, SettingsValidationError};
+    use crate::{
+        AffinityMode, SaturationMode, SettingKey, SettingValue, SettingValueType,
+        SettingsValidationError,
+    };
 
     #[test]
     fn defaults_match_architecture() {
@@ -149,6 +159,8 @@ mod tests {
         assert_eq!(settings.logging().request_retention_ms(), 2_592_000_000);
         assert_eq!(settings.logging().request_max_rows(), 200_000);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
+        assert_eq!(settings.stream().precommit_max_bytes(), 256 * 1024);
+        assert_eq!(settings.stream().precommit_max_duration_ms(), 5_000);
         assert!(
             SettingKey::ALL
                 .into_iter()
@@ -177,6 +189,23 @@ mod tests {
             )]),
             Err(SettingsValidationError::InvalidEnum)
         );
+    }
+
+    #[test]
+    fn stream_budget_definitions_match_the_public_contract() {
+        let bytes = SettingKey::StreamPrecommitMaxBytes.definition();
+        assert_eq!(bytes.value_type(), SettingValueType::Integer);
+        assert_eq!(bytes.default(), SettingValue::Integer(256 * 1024));
+        assert_eq!(bytes.min(), Some(SettingValue::Integer(1)));
+        assert_eq!(bytes.max(), Some(SettingValue::Integer(16 * 1024 * 1024)));
+        assert!(bytes.description().contains("每个 SSE 帧"));
+
+        let duration = SettingKey::StreamPrecommitMaxDuration.definition();
+        assert_eq!(duration.value_type(), SettingValueType::DurationMs);
+        assert_eq!(duration.default(), SettingValue::DurationMs(5_000));
+        assert_eq!(duration.min(), Some(SettingValue::DurationMs(1)));
+        assert_eq!(duration.max(), Some(SettingValue::DurationMs(86_400_000)));
+        assert_eq!(SettingKey::parse("stream.precommit.max_events"), None);
     }
 
     #[test]

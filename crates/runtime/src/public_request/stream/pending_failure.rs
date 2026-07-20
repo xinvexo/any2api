@@ -24,7 +24,7 @@ impl PendingStreamError {
             error: stream_error("upstream stream precommit timed out"),
             kind: PendingStreamErrorKind::Transport {
                 retry_safety: RetrySafety::Ambiguous,
-                failure_scope: TransportFailureScope::Endpoint,
+                failure_scope: TransportFailureScope::Unattributed,
             },
         }
     }
@@ -42,15 +42,23 @@ impl PendingStreamError {
             kind: PendingStreamErrorKind::Local,
         }
     }
+
+    pub(super) fn budget_exceeded() -> Self {
+        Self {
+            error: stream_error("upstream stream exceeded the precommit byte budget"),
+            kind: PendingStreamErrorKind::BudgetExceeded,
+        }
+    }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum PendingStreamErrorKind {
     Transport {
         retry_safety: RetrySafety,
         failure_scope: TransportFailureScope,
     },
     InvalidResponse,
+    BudgetExceeded,
     Local,
 }
 
@@ -58,7 +66,7 @@ impl PendingStreamErrorKind {
     pub(super) fn error_class(self) -> ErrorClass {
         match self {
             Self::Transport { failure_scope, .. } => transport_error_class(failure_scope),
-            Self::InvalidResponse => ErrorClass::Upstream,
+            Self::InvalidResponse | Self::BudgetExceeded => ErrorClass::Upstream,
             Self::Local => ErrorClass::Internal,
         }
     }
@@ -79,10 +87,10 @@ fn stream_error(message: &'static str) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::ErrorClass;
+    use any2api_domain::{ErrorClass, RetrySafety};
     use any2api_transport::api::TransportFailureScope;
 
-    use super::transport_error_class;
+    use super::{PendingStreamError, PendingStreamErrorKind, transport_error_class};
 
     #[test]
     fn transport_error_class_preserves_proxy_attribution() {
@@ -93,6 +101,17 @@ mod tests {
         assert_eq!(
             transport_error_class(TransportFailureScope::Endpoint),
             ErrorClass::Network
+        );
+    }
+
+    #[test]
+    fn runtime_precommit_timeout_is_not_attributed_to_endpoint_or_proxy() {
+        assert_eq!(
+            PendingStreamError::timeout().kind,
+            PendingStreamErrorKind::Transport {
+                retry_safety: RetrySafety::Ambiguous,
+                failure_scope: TransportFailureScope::Unattributed,
+            }
         );
     }
 }

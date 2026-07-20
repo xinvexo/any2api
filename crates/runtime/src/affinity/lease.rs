@@ -49,11 +49,34 @@ pub(crate) struct SoftBindingLease {
 
 impl SoftBindingLease {
     pub(crate) fn commit(mut self, target: AffinityTarget) -> Result<(), AffinityError> {
+        self.commit_with_deadline(target, None)
+    }
+
+    pub(crate) fn commit_before(
+        mut self,
+        target: AffinityTarget,
+        deadline: Instant,
+    ) -> Result<(), AffinityError> {
+        self.commit_with_deadline(target, Some(deadline))
+    }
+
+    fn commit_with_deadline(
+        &mut self,
+        target: AffinityTarget,
+        deadline: Option<Instant>,
+    ) -> Result<(), AffinityError> {
+        let committed_at = Instant::now();
+        if deadline.is_some_and(|deadline| committed_at >= deadline) {
+            return Err(AffinityError::DeadlineExceeded);
+        }
         let mut state = self
             .registry
             .state
             .lock()
             .expect("affinity state lock poisoned");
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(AffinityError::DeadlineExceeded);
+        }
         let matches = matches!(
             state.soft.get(&self.key),
             Some(SoftState::Creating { version, .. }) if *version == self.version
@@ -61,13 +84,16 @@ impl SoftBindingLease {
         if !matches {
             return Err(AffinityError::LeaseLost);
         }
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(AffinityError::DeadlineExceeded);
+        }
         state.soft.insert(
             self.key,
             SoftState::Bound {
                 version: self.version,
                 binding: TimedBinding {
                     target,
-                    last_seen_at: Instant::now(),
+                    last_seen_at: committed_at,
                 },
             },
         );

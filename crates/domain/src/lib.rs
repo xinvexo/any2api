@@ -67,9 +67,10 @@ pub use revision::{ConfigRevision, ConfigRevisionError};
 pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};
 pub use settings::{
     AdminSettings, AffinityMode, AffinitySettings, LoggingSettings, MAX_REQUEST_LOG_RETENTION_MS,
-    MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY, ReliabilitySettings, SaturationMode,
-    SchedulerSettings, SettingApplyMode, SettingDefinition, SettingKey, SettingOverrides,
-    SettingValue, SettingValueType, SettingsConfiguration, SettingsValidationError,
+    MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY,
+    ReliabilitySettings, SaturationMode, SchedulerSettings, SettingApplyMode, SettingDefinition,
+    SettingKey, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
+    SettingsValidationError, StreamSettings,
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,

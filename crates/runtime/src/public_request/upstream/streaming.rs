@@ -5,9 +5,9 @@ use http::{HeaderValue, header};
 
 use super::super::{
     PublicResponse, PublicResponseBody,
-    affinity::{AffinitySelection, commit_soft_binding},
+    affinity::{AffinitySelection, commit_soft_binding_before},
     response::{CollectBodyError, collect_body, sanitize_response_headers},
-    stream::{GuardedBody, GuardedBodyParts},
+    stream::{GuardedBody, GuardedBodyParts, PrecommitBudget},
 };
 use super::{
     UpstreamServices,
@@ -70,6 +70,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
     let hard_affinity = hard_committer(services.snapshot, prepared.operation, target.clone());
+    let precommit_budget = PrecommitBudget::from_settings(services.snapshot.settings().stream());
     let (permit, health, attempt_recorder) = prepared.take_guards();
     let mut body = GuardedBody::new(
         response.body,
@@ -81,12 +82,13 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             hard_affinity,
             attempt_recorder,
             status_code: status.as_u16(),
+            precommit_budget,
         },
     )
     .prime()
     .await
     .map_err(AttemptFailure::Public)?;
-    if let Err(error) = commit_soft_binding(soft_lease, target) {
+    if let Err(error) = commit_soft_binding_before(soft_lease, target, body.precommit_deadline()) {
         body.fail_before_handoff(public_error_class(error.code));
         return Err(AttemptFailure::Public(error));
     }
