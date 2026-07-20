@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use any2api_domain::PublicErrorCode;
 use any2api_protocol::api::{DecodedRequest, EgressResponse, ProtocolAdapter, UpstreamResponse};
 
@@ -46,7 +48,13 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     };
     let status = response.status;
     let headers = response.headers;
-    let body = match collect_body(response.body).await {
+    let body = match collect_body(
+        response.body,
+        Duration::from_millis(services.snapshot.settings().upstream().read_timeout_ms()),
+        response.read_failure_scope,
+    )
+    .await
+    {
         Ok(body) => body,
         Err(CollectBodyError::Transport(error)) => {
             prepared.transport_failure(&error);

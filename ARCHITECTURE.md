@@ -848,12 +848,15 @@ TransportKey
 
 相同 TransportKey 的 Credential 共享连接池。代理配置修改后创建新一代 Client，旧请求继续持有旧 Client，直到请求结束后自动释放。
 
+`connect_timeout` 属于 Client/连接池代际；`upstream.read_timeout` 属于请求快照，不进入 TransportKey。Transport 在固定请求体开始被连接层消费后启动等待响应头的请求级 timeout，不让较短的 read timeout 取代 DNS、连接、代理握手或 TLS 的阶段边界；Runtime 对需要完整收集的响应体按每次成功读取重置同一 timeout。成功 SSE 不叠加通用 body read timer：提交前继续使用 `stream.precommit.max_duration`，提交后切换为 `stream.postcommit.idle_timeout`，避免同一流同时存在两个含义不清的计时器。
+
 约束：
 
 - SOCKS5 使用远端 DNS 语义，例如 `socks5h`；
 - Provider Authorization 逐请求注入，禁止放进 HTTP Client 默认 Header；
 - Client 禁用 Cookie Store；
 - Client 缓存使用 Weak 引用、代际清理或有界 LRU，禁止永久保存所有历史配置版本；
+- 等响应头超时归入 `AwaitHeaders`，完整收集响应体时的空闲超时归入 `ReadBody`；两者默认 `Ambiguous`。DIRECT 归因 Endpoint，无法证明代理或目标责任的代理路径使用 `Unattributed`；
 - Transport 返回带失败阶段的类型化错误，例如 DNS、TCP、代理握手、TLS、写请求体、等响应头、读响应体；
 - 只有明确发生在代理握手或代理连接阶段的错误才能惩罚 ProxyRuntime。
 
@@ -1564,6 +1567,8 @@ SSE 的 PrecommitBudget 按 PublishedSnapshot 捕获 `max_bytes` 与 `max_durati
 
 在首个可接受事件前耗尽预算则失败，一旦事件可提交就锁定当前 Attempt。同一上游 chunk 中后续帧损坏时，必须先交付已经锁定的合法事件，再以 Body 错误终止。编码后的公开事件超过字节预算时按公开上游错误返回，但按本地策略失败结算上游健康，禁止污染 Endpoint 或 Proxy 熔断。协议内错误事件仍留给后续流式增强切片。
 
+提交后的成功 SSE 使用 `stream.postcommit.idle_timeout`：计时器在首个下游帧实际交付时启用，每次成功读取任意上游 chunk 后重置；已经缓冲的完整事件必须优先交付，不能被 idle timer 抢占。超时后只向 Body 返回错误并终止当前流，禁止重试、切换 Credential 或发送臆造协议事件。Attempt 记录为 `StreamError + Network + Ambiguous`；首事件已经把上游健康结算为成功，因此 post-commit idle timeout 不再推进 Endpoint 或 Proxy 熔断。该 timer 不等同于下游写超时，慢客户端和下游背压仍依赖取消/Drop 路径释放资源。
+
 ## 16. 配置发布与热更新
 
 动态配置全部通过管理 API 写入 SQLite，不以巨型 YAML 文件作为运行时真相来源。
@@ -1694,12 +1699,21 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 
 `retry.jitter_ratio` 使用 `0..=100` 的整数百分比表达，不在 JSON 中使用浮点数。`retry.base_delay` 与 `retry.max_delay` 允许配置为 `0`；当 `max_delay < base_delay` 时配置编译失败。上述十八项设置全部进入统一 SettingRegistry，在 Web 中显示默认值、覆盖值和生效值，并支持恢复默认。
 
-#### 流式预提交默认值
+#### 流式响应默认值
 
-| 设置 | 默认值 |
-|---|---:|
-| `stream.precommit.max_bytes` | `256 KiB` |
-| `stream.precommit.max_duration` | `5s` |
+| 设置 | 类型 | 默认值 | 允许范围 |
+|---|---|---:|---:|
+| `stream.precommit.max_bytes` | integer | `256 KiB` | `1..=16 MiB` |
+| `stream.precommit.max_duration` | duration_ms | `5_000` | `1..=86_400_000` |
+| `stream.postcommit.idle_timeout` | duration_ms | `60_000` | `1..=86_400_000` |
+
+#### 上游读取默认值
+
+| 设置 | 类型 | 默认值 | 允许范围 |
+|---|---|---:|---:|
+| `upstream.read_timeout` | duration_ms | `15_000` | `1..=86_400_000` |
+
+`upstream.read_timeout` 是每次等待响应头或 buffered body 下一 chunk 的空闲时长，成功读取后重置，不是整个请求的总时长。`retry.precommit_total_budget` 仍是 Attempt 外层绝对 deadline；哪个先到期就先结束当前 Attempt。成功 SSE 分别使用 precommit 和 postcommit 设置，非 2xx SSE 错误正文仍按 buffered body 读取，因此使用通用 read timeout。
 
 #### 日志默认值
 

@@ -8,6 +8,8 @@ mod upstream;
 
 #[cfg(test)]
 mod stream_tests;
+#[cfg(test)]
+mod stream_timeout_tests;
 
 use std::{pin::Pin, sync::Arc};
 

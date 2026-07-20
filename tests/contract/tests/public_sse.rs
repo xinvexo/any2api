@@ -299,6 +299,153 @@ async fn stream_precommit_duration_is_applied_from_published_settings() {
 }
 
 #[tokio::test]
+async fn stream_precommit_does_not_use_the_buffered_read_timeout() {
+    let (upstream_address, upstream_ready, release) = gated_first_event_server(
+        "/v1/responses",
+        b"{\"model\":\"gpt-upstream\",\"output\":[]}\n\n",
+    )
+    .await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex read timeout separation",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "read-timeout-separation",
+        "sk-read-timeout-separation",
+    )
+    .await;
+    revision += 1;
+    create_route(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "read-timeout-separation-public",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+    revision += 1;
+    update_setting(&app, remote, revision, "upstream.read_timeout", json!(1)).await;
+
+    let request_app = app.clone();
+    let pending = tokio::spawn(async move {
+        request(
+            request_app,
+            "/v1/responses",
+            json!({"model":"read-timeout-separation-public","stream":true,"input":"hello"}),
+            remote,
+            &[("authorization", format!("Bearer {token}"))],
+        )
+        .await
+    });
+    upstream_ready.await.expect("upstream response headers");
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    release.send(()).expect("release first event");
+
+    let response = pending.await.expect("public request task");
+    assert_stream_headers(&response);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("stream body")
+        .to_bytes();
+    assert!(String::from_utf8_lossy(&body).contains(r#""model":"read-timeout-separation-public""#));
+}
+
+#[tokio::test]
+async fn stream_postcommit_idle_timeout_ends_a_silent_connection() {
+    let (upstream_address, _upstream_request, release) = paused_sse_server(
+        "/v1/responses",
+        &[b"data: {\"model\":\"gpt-upstream\",\"output\":[]}\n\n"],
+        &[],
+    )
+    .await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex postcommit idle",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "postcommit-idle",
+        "sk-postcommit-idle",
+    )
+    .await;
+    revision += 1;
+    create_route(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "postcommit-idle-public",
+        "gpt-upstream",
+        "openai_responses",
+    )
+    .await;
+    revision += 1;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "stream.postcommit.idle_timeout",
+        json!(10),
+    )
+    .await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"postcommit-idle-public","stream":true,"input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_stream_headers(&response);
+    let mut body = response.into_body();
+    let first = timeout(Duration::from_secs(1), body.frame())
+        .await
+        .expect("first frame timeout")
+        .expect("first frame")
+        .expect("first body result")
+        .into_data()
+        .expect("first data");
+    assert!(String::from_utf8_lossy(&first).contains("postcommit-idle-public"));
+    let result = timeout(Duration::from_secs(1), body.collect())
+        .await
+        .expect("idle body timeout");
+    assert!(result.is_err(), "silent post-commit stream must fail");
+    drop(release);
+}
+
+#[tokio::test]
 async fn in_flight_stream_keeps_the_precommit_budget_from_its_snapshot() {
     let (upstream_address, upstream_ready, release) = gated_first_event_server(
         "/v1/responses",

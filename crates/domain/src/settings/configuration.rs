@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use super::{
     AdminSettings, AffinitySettings, LoggingSettings, ReliabilitySettings, SchedulerSettings,
-    SettingKey, SettingValue, SettingsValidationError, StreamSettings, value::validate_value,
+    SettingKey, SettingValue, SettingsValidationError, StreamSettings, UpstreamSettings,
+    value::validate_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -53,6 +54,7 @@ pub struct SettingsConfiguration {
     reliability: ReliabilitySettings,
     admin: AdminSettings,
     logging: LoggingSettings,
+    upstream: UpstreamSettings,
     stream: StreamSettings,
 }
 
@@ -63,6 +65,7 @@ impl SettingsConfiguration {
         let reliability = ReliabilitySettings::from_overrides(&overrides)?;
         let admin = AdminSettings::from_overrides(&overrides)?;
         let logging = LoggingSettings::from_overrides(&overrides)?;
+        let upstream = UpstreamSettings::from_overrides(&overrides)?;
         let stream = StreamSettings::from_overrides(&overrides)?;
         Ok(Self {
             overrides,
@@ -71,6 +74,7 @@ impl SettingsConfiguration {
             reliability,
             admin,
             logging,
+            upstream,
             stream,
         })
     }
@@ -102,6 +106,10 @@ impl SettingsConfiguration {
 
     pub const fn stream(&self) -> &StreamSettings {
         &self.stream
+    }
+
+    pub const fn upstream(&self) -> &UpstreamSettings {
+        &self.upstream
     }
 
     pub const fn overrides(&self) -> &SettingOverrides {
@@ -159,8 +167,10 @@ mod tests {
         assert_eq!(settings.logging().request_retention_ms(), 2_592_000_000);
         assert_eq!(settings.logging().request_max_rows(), 200_000);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
+        assert_eq!(settings.upstream().read_timeout_ms(), 15_000);
         assert_eq!(settings.stream().precommit_max_bytes(), 256 * 1024);
         assert_eq!(settings.stream().precommit_max_duration_ms(), 5_000);
+        assert_eq!(settings.stream().postcommit_idle_timeout_ms(), 60_000);
         assert!(
             SettingKey::ALL
                 .into_iter()
@@ -192,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_budget_definitions_match_the_public_contract() {
+    fn timeout_and_stream_budget_definitions_match_the_public_contract() {
         let bytes = SettingKey::StreamPrecommitMaxBytes.definition();
         assert_eq!(bytes.value_type(), SettingValueType::Integer);
         assert_eq!(bytes.default(), SettingValue::Integer(256 * 1024));
@@ -205,6 +215,19 @@ mod tests {
         assert_eq!(duration.default(), SettingValue::DurationMs(5_000));
         assert_eq!(duration.min(), Some(SettingValue::DurationMs(1)));
         assert_eq!(duration.max(), Some(SettingValue::DurationMs(86_400_000)));
+        let postcommit = SettingKey::StreamPostcommitIdleTimeout.definition();
+        assert_eq!(postcommit.value_type(), SettingValueType::DurationMs);
+        assert_eq!(postcommit.default(), SettingValue::DurationMs(60_000));
+        assert_eq!(postcommit.min(), Some(SettingValue::DurationMs(1)));
+        assert_eq!(postcommit.max(), Some(SettingValue::DurationMs(86_400_000)));
+        let read_timeout = SettingKey::UpstreamReadTimeout.definition();
+        assert_eq!(read_timeout.value_type(), SettingValueType::DurationMs);
+        assert_eq!(read_timeout.default(), SettingValue::DurationMs(15_000));
+        assert_eq!(read_timeout.min(), Some(SettingValue::DurationMs(1)));
+        assert_eq!(
+            read_timeout.max(),
+            Some(SettingValue::DurationMs(86_400_000))
+        );
         assert_eq!(SettingKey::parse("stream.precommit.max_events"), None);
     }
 
@@ -219,11 +242,21 @@ mod tests {
                 SettingKey::AffinitySoftMode,
                 SettingValue::AffinityMode(AffinityMode::Strict),
             ),
+            (
+                SettingKey::UpstreamReadTimeout,
+                SettingValue::DurationMs(2_000),
+            ),
+            (
+                SettingKey::StreamPostcommitIdleTimeout,
+                SettingValue::DurationMs(3_000),
+            ),
         ])
         .expect("overrides");
         let settings = SettingsConfiguration::from_overrides(overrides).expect("settings");
         assert!(settings.scheduler().fallback_on_saturation());
         assert_eq!(settings.affinity().soft_mode(), AffinityMode::Strict);
+        assert_eq!(settings.upstream().read_timeout_ms(), 2_000);
+        assert_eq!(settings.stream().postcommit_idle_timeout_ms(), 3_000);
         assert_eq!(
             settings.effective_value(SettingKey::AffinitySoftMode),
             SettingValue::AffinityMode(AffinityMode::Strict)

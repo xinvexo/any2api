@@ -213,49 +213,6 @@ async fn prime_buffers_only_the_first_complete_event_from_a_chunk() {
     assert_eq!(binding.capacity().in_flight(), 0);
 }
 
-#[tokio::test(start_paused = true)]
-async fn configured_precommit_duration_bounds_the_first_event_wait() {
-    let (binding, permit) = generation_permit();
-    let upstream: BoxByteStream = Box::pin(stream::pending());
-    let result = guarded_body_with_budget(
-        upstream,
-        permit,
-        PrecommitBudget::new(256 * 1024, Duration::from_millis(25)),
-    )
-    .prime()
-    .await;
-
-    let error = match result {
-        Ok(_) => panic!("precommit wait must be bounded"),
-        Err(error) => error,
-    };
-    assert_eq!(error.code, PublicErrorCode::UpstreamError);
-    assert_eq!(binding.capacity().in_flight(), 0);
-}
-
-#[tokio::test]
-async fn precommit_deadline_is_checked_after_a_non_cooperative_upstream_poll() {
-    let (binding, permit) = generation_permit();
-    let upstream: BoxByteStream = Box::pin(stream::once(async {
-        std::thread::sleep(Duration::from_millis(20));
-        Ok(Bytes::from_static(b"data: {\"model\":\"upstream\"}\n\n"))
-    }));
-    let result = guarded_body_with_budget(
-        upstream,
-        permit,
-        PrecommitBudget::new(256 * 1024, Duration::from_millis(1)),
-    )
-    .prime()
-    .await;
-
-    let error = match result {
-        Ok(_) => panic!("event completed after the deadline must fail"),
-        Err(error) => error,
-    };
-    assert_eq!(error.code, PublicErrorCode::UpstreamError);
-    assert_eq!(binding.capacity().in_flight(), 0);
-}
-
 #[tokio::test]
 async fn post_commit_error_releases_without_emitting_another_upstream() {
     let (binding, permit) = generation_permit();
@@ -293,7 +250,7 @@ fn guarded_body(
     )
 }
 
-fn guarded_body_with_budget(
+pub(super) fn guarded_body_with_budget(
     upstream: BoxByteStream,
     permit: crate::credential_runtime::ConcurrencyPermit,
     precommit_budget: PrecommitBudget,
@@ -306,6 +263,36 @@ fn guarded_body_with_budget_and_health(
     permit: crate::credential_runtime::ConcurrencyPermit,
     precommit_budget: PrecommitBudget,
     health: Option<AttemptHealth>,
+) -> GuardedBody {
+    guarded_body_with_budget_health_and_idle(
+        upstream,
+        permit,
+        precommit_budget,
+        health,
+        Duration::from_secs(60),
+    )
+}
+
+pub(super) fn guarded_body_with_idle_timeout(
+    upstream: BoxByteStream,
+    permit: crate::credential_runtime::ConcurrencyPermit,
+    postcommit_idle_timeout: Duration,
+) -> GuardedBody {
+    guarded_body_with_budget_health_and_idle(
+        upstream,
+        permit,
+        PrecommitBudget::new(256 * 1024, Duration::from_secs(5)),
+        None,
+        postcommit_idle_timeout,
+    )
+}
+
+pub(super) fn guarded_body_with_budget_health_and_idle(
+    upstream: BoxByteStream,
+    permit: crate::credential_runtime::ConcurrencyPermit,
+    precommit_budget: PrecommitBudget,
+    health: Option<AttemptHealth>,
+    postcommit_idle_timeout: Duration,
 ) -> GuardedBody {
     let target = AffinityTarget::new(
         ModelRouteId::new(),
@@ -331,11 +318,12 @@ fn guarded_body_with_budget_and_health(
             attempt_recorder: AttemptRecorder::disabled(),
             status_code: 200,
             precommit_budget,
+            postcommit_idle_timeout,
         },
     )
 }
 
-fn generation_permit() -> (
+pub(super) fn generation_permit() -> (
     crate::credential_runtime::CredentialRuntimeBinding,
     crate::credential_runtime::ConcurrencyPermit,
 ) {

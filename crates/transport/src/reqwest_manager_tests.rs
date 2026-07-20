@@ -247,6 +247,7 @@ fn request_to_with_policy(uri: &str, allow_private_network: bool) -> TransportRe
         headers: HeaderMap::new(),
         body: Bytes::new(),
         network_policy: EndpointNetworkPolicy::new(allow_private_network),
+        read_timeout: Duration::from_secs(15),
     }
 }
 

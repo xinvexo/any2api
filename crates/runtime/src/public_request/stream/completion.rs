@@ -14,6 +14,7 @@ impl GuardedBody {
         }
         self.state = super::CommitState::Finished;
         self.cancellation.cancel();
+        self.upstream = Box::pin(futures_util::stream::empty());
         self.health.take();
         if let Some(mut recorder) = self.attempt_recorder.take() {
             match outcome {
@@ -38,6 +39,7 @@ impl GuardedBody {
     pub(super) fn release_guards(&mut self) {
         self.state = super::CommitState::Finished;
         self.cancellation.cancel();
+        self.upstream = Box::pin(futures_util::stream::empty());
         self.health.take();
         self.permit.take();
     }
@@ -115,5 +117,9 @@ impl GuardedBody {
 
     pub(super) fn set_timeout_error(&mut self) {
         self.set_pending_error(PendingStreamError::timeout());
+    }
+
+    pub(super) fn set_postcommit_idle_timeout_error(&mut self) {
+        self.set_pending_error(PendingStreamError::postcommit_idle_timeout());
     }
 }

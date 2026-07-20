@@ -5,6 +5,7 @@ mod precommit_budget;
 
 use std::{
     collections::VecDeque,
+    future::Future,
     io,
     pin::Pin,
     sync::{
@@ -12,7 +13,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use any2api_domain::{ErrorClass, PublicError};
@@ -20,7 +21,7 @@ use any2api_protocol::{SseDecoder, api::ProtocolAdapter};
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
-use tokio::time::timeout;
+use tokio::time::{Sleep, timeout};
 
 use self::pending_failure::PendingStreamError;
 pub(super) use self::precommit_budget::PrecommitBudget;
@@ -57,6 +58,7 @@ pub(super) struct GuardedBodyParts {
     pub(super) attempt_recorder: AttemptRecorder,
     pub(super) status_code: u16,
     pub(super) precommit_budget: PrecommitBudget,
+    pub(super) postcommit_idle_timeout: Duration,
 }
 
 pub(super) struct GuardedBody {
@@ -80,6 +82,8 @@ pub(super) struct GuardedBody {
     owns_request_completion: bool,
     precommit_budget: PrecommitBudget,
     precommit_deadline: Option<Instant>,
+    postcommit_idle_timeout: Duration,
+    idle_timer: Option<Pin<Box<Sleep>>>,
 }
 
 impl GuardedBody {
@@ -96,6 +100,7 @@ impl GuardedBody {
             attempt_recorder,
             status_code,
             precommit_budget,
+            postcommit_idle_timeout,
         } = parts;
         let request_recorder = attempt_recorder.request();
         let decoder = SseDecoder::new(precommit_budget.max_frame_bytes());
@@ -120,6 +125,8 @@ impl GuardedBody {
             owns_request_completion: false,
             precommit_budget,
             precommit_deadline: None,
+            postcommit_idle_timeout,
+            idle_timer: None,
         }
     }
 
@@ -138,9 +145,7 @@ impl GuardedBody {
                     self.set_transport_error(&error);
                 }
                 Ok(None) => self.process_eof(Some(deadline)),
-                Err(_) => {
-                    self.set_timeout_error();
-                }
+                Err(_) => self.set_timeout_error(),
             }
         }
         if self.pending.is_empty() {
@@ -195,6 +200,7 @@ impl Stream for GuardedBody {
             }
             if let Some(bytes) = this.pending.pop_front() {
                 this.state = CommitState::TransportCommitted;
+                this.start_idle_timer();
                 return Poll::Ready(Some(Ok(bytes)));
             }
             if let Some(error) = this.pending_error.take() {
@@ -218,14 +224,41 @@ impl Stream for GuardedBody {
                 return Poll::Ready(None);
             }
             match this.upstream.as_mut().poll_next(context) {
-                Poll::Ready(Some(Ok(chunk))) => this.process_chunk(chunk, None),
+                Poll::Ready(Some(Ok(chunk))) => {
+                    this.reset_idle_timer();
+                    this.process_chunk(chunk, None);
+                }
                 Poll::Ready(Some(Err(error))) => {
                     this.set_transport_error(&error);
                 }
                 Poll::Ready(None) => this.process_eof(None),
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    if this.idle_timer_elapsed(context) {
+                        this.set_postcommit_idle_timeout_error();
+                        continue;
+                    }
+                    return Poll::Pending;
+                }
             }
         }
+    }
+}
+
+impl GuardedBody {
+    fn start_idle_timer(&mut self) {
+        if self.idle_timer.is_none() {
+            self.reset_idle_timer();
+        }
+    }
+
+    fn reset_idle_timer(&mut self) {
+        self.idle_timer = Some(Box::pin(tokio::time::sleep(self.postcommit_idle_timeout)));
+    }
+
+    fn idle_timer_elapsed(&mut self, context: &mut Context<'_>) -> bool {
+        self.idle_timer
+            .as_mut()
+            .is_some_and(|timer| timer.as_mut().poll(context).is_ready())
     }
 }
 

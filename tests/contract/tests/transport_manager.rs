@@ -45,6 +45,7 @@ async fn explicit_proxy_failure_never_falls_back_to_direct() {
         headers: HeaderMap::new(),
         body: Bytes::from_static(b"{}"),
         network_policy: EndpointNetworkPolicy::default(),
+        read_timeout: Duration::from_secs(15),
     };
 
     let error = match manager.execute(&proxy, request).await {

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
     ErrorClass, ProtocolOperation, ProxyProfile, PublicError, PublicErrorCode,
@@ -288,6 +288,7 @@ fn build_request<'a>(
             headers: encoded.headers,
             body: encoded.body,
             network_policy: EndpointNetworkPolicy::new(endpoint.allow_private_network()),
+            read_timeout: Duration::from_millis(snapshot.settings().upstream().read_timeout_ms()),
         },
     ))
 }

@@ -203,6 +203,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "http",
+ "http-body",
  "rcgen",
  "reqwest",
  "rustls",

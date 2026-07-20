@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use http::Uri;
 use reqwest::{Certificate, Client, ClientBuilder, Proxy, redirect::Policy};
+use tokio::time::timeout;
 
 use crate::{
     api::{
@@ -17,6 +18,7 @@ use crate::{
     },
     origin_resolution::{ResolvedOrigin, resolve_origin},
     proxy_url::proxy_url,
+    request_body::signaled_request_body,
 };
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -198,16 +200,44 @@ impl TransportManager for ReqwestTransportManager {
         let proxy_connection_is_verifiable =
             proxy.kind() == ProxyKind::Http && request.uri.scheme_str() == Some("http");
         let body_failure_scope = failure_scope_for_unverified_path(proxy);
+        let read_timeout = request.read_timeout;
         let resolved_origin =
             resolve_origin(&request.uri, request.network_policy, proxy.kind()).await?;
         let client = self.client_for_resolved(proxy, resolved_origin.as_ref())?;
-        let response = client
+        let (body, body_sent) = signaled_request_body(request.body);
+        let send = client
             .request(request.method, request.uri.to_string())
             .headers(request.headers)
-            .body(request.body)
-            .send()
-            .await
-            .map_err(|error| self.map_send_error(proxy, proxy_connection_is_verifiable, error))?;
+            .body(body)
+            .send();
+        tokio::pin!(send);
+        let response = tokio::select! {
+            biased;
+            result = &mut send => result.map_err(|error| {
+                self.map_send_error(proxy, proxy_connection_is_verifiable, error)
+            }),
+            signal = body_sent => {
+                if signal.is_err() {
+                    (&mut send).await.map_err(|error| {
+                        self.map_send_error(proxy, proxy_connection_is_verifiable, error)
+                    })
+                } else {
+                    timeout(read_timeout, &mut send)
+                        .await
+                        .map_err(|_| {
+                            TransportError::new(
+                                TransportErrorStage::AwaitHeaders,
+                                body_failure_scope,
+                                any2api_domain::RetrySafety::Ambiguous,
+                                "upstream response headers timed out",
+                            )
+                        })?
+                        .map_err(|error| {
+                            self.map_send_error(proxy, proxy_connection_is_verifiable, error)
+                        })
+                }
+            }
+        }?;
         let status = response.status();
         let headers = response.headers().clone();
         let body: BoxByteStream = Box::pin(response.bytes_stream().map(move |result| {
@@ -224,6 +254,7 @@ impl TransportManager for ReqwestTransportManager {
             status,
             headers,
             body,
+            read_failure_scope: body_failure_scope,
         })
     }
 }

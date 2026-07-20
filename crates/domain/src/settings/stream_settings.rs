@@ -6,6 +6,7 @@ pub const MAX_STREAM_PRECOMMIT_BYTES: u64 = 16 * 1024 * 1024;
 pub struct StreamSettings {
     precommit_max_bytes: u64,
     precommit_max_duration_ms: u64,
+    postcommit_idle_timeout_ms: u64,
 }
 
 impl StreamSettings {
@@ -16,6 +17,7 @@ impl StreamSettings {
         Ok(Self {
             precommit_max_bytes: value(SettingKey::StreamPrecommitMaxBytes)?,
             precommit_max_duration_ms: value(SettingKey::StreamPrecommitMaxDuration)?,
+            postcommit_idle_timeout_ms: value(SettingKey::StreamPostcommitIdleTimeout)?,
         })
     }
 
@@ -25,5 +27,9 @@ impl StreamSettings {
 
     pub const fn precommit_max_duration_ms(&self) -> u64 {
         self.precommit_max_duration_ms
+    }
+
+    pub const fn postcommit_idle_timeout_ms(&self) -> u64 {
+        self.postcommit_idle_timeout_ms
     }
 }

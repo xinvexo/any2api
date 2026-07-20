@@ -192,6 +192,7 @@ fn request_to(uri: &str) -> TransportRequest {
         headers: HeaderMap::new(),
         body: Bytes::new(),
         network_policy: EndpointNetworkPolicy::new(true),
+        read_timeout: std::time::Duration::from_secs(15),
     }
 }
 

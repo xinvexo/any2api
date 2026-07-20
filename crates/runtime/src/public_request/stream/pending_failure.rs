@@ -29,6 +29,16 @@ impl PendingStreamError {
         }
     }
 
+    pub(super) fn postcommit_idle_timeout() -> Self {
+        Self {
+            error: stream_error("upstream stream was idle after commit"),
+            kind: PendingStreamErrorKind::Transport {
+                retry_safety: RetrySafety::Ambiguous,
+                failure_scope: TransportFailureScope::Unattributed,
+            },
+        }
+    }
+
     pub(super) fn invalid_response(message: &'static str) -> Self {
         Self {
             error: stream_error(message),

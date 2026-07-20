@@ -46,7 +46,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(41));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(43));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
@@ -98,6 +98,18 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(stream_duration["default_value"], 5_000);
     assert_eq!(stream_duration["min_value"], 1);
     assert_eq!(stream_duration["max_value"], 86_400_000);
+    let read_timeout = find_setting(&initial, "upstream.read_timeout");
+    assert_eq!(read_timeout["value_type"], "duration_ms");
+    assert_eq!(read_timeout["default_value"], 15_000);
+    assert_eq!(read_timeout["min_value"], 1);
+    assert_eq!(read_timeout["max_value"], 86_400_000);
+    assert_eq!(read_timeout["web_group"], "上游网络");
+    let postcommit_idle = find_setting(&initial, "stream.postcommit.idle_timeout");
+    assert_eq!(postcommit_idle["value_type"], "duration_ms");
+    assert_eq!(postcommit_idle["default_value"], 60_000);
+    assert_eq!(postcommit_idle["min_value"], 1);
+    assert_eq!(postcommit_idle["max_value"], 86_400_000);
+    assert_eq!(postcommit_idle["web_group"], "流式响应");
     assert!(
         initial["items"]
             .as_array()

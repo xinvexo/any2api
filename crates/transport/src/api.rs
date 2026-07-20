@@ -59,6 +59,7 @@ pub struct TransportRequest {
     pub headers: HeaderMap,
     pub body: Bytes,
     pub network_policy: EndpointNetworkPolicy,
+    pub read_timeout: Duration,
 }
 
 impl fmt::Debug for TransportRequest {
@@ -69,6 +70,7 @@ impl fmt::Debug for TransportRequest {
             .field("uri", &self.uri)
             .field("header_count", &self.headers.len())
             .field("body_bytes", &self.body.len())
+            .field("read_timeout", &self.read_timeout)
             .finish()
     }
 }
@@ -77,6 +79,7 @@ pub struct TransportResponse {
     pub status: StatusCode,
     pub headers: HeaderMap,
     pub body: BoxByteStream,
+    pub read_failure_scope: TransportFailureScope,
 }
 
 #[async_trait]

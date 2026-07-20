@@ -22,7 +22,7 @@ use any2api_transport::api::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures_util::stream;
+use futures_util::{StreamExt, stream};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -69,6 +69,33 @@ async fn ambiguous_transport_failure_is_not_retried() {
     let harness = harness(transport.clone(), 2, &["ambiguous-model"], &[]).await;
 
     let response = execute_json(&harness, "ambiguous-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(transport.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn buffered_body_read_timeout_is_ambiguous_and_not_retried() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::stalled_json(StatusCode::OK, r#"{"id":"partial","model":"upstream"}"#),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"must-not-run","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(
+        transport.clone(),
+        2,
+        &["body-timeout-model"],
+        &[(
+            SettingKey::UpstreamReadTimeout,
+            SettingValue::DurationMs(10),
+        )],
+    )
+    .await;
+
+    let response = execute_json(&harness, "body-timeout-model", json!({"input":"hello"})).await;
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(response.body["error"]["code"], "upstream_error");
@@ -219,6 +246,52 @@ async fn sse_first_frame_failure_does_not_start_a_second_stream() {
     .await;
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(transport.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn sse_postcommit_idle_timeout_does_not_start_a_second_stream() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::stalled_stream(
+            "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"postcommit-id\",\"model\":\"upstream\"}}\n\n",
+        ),
+        ScriptStep::stream(
+            "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"must-not-run\",\"model\":\"upstream\"}}\n\n",
+        ),
+    ]));
+    let harness = harness(
+        transport.clone(),
+        2,
+        &["postcommit-model"],
+        &[(
+            SettingKey::StreamPostcommitIdleTimeout,
+            SettingValue::DurationMs(10),
+        )],
+    )
+    .await;
+    let response = harness
+        .service
+        .execute(
+            Arc::clone(&harness.snapshot),
+            PublicRequest {
+                request_id: RequestId::new(),
+                gateway_api_key_id: GatewayApiKeyId::new(),
+                operation: ProtocolOperation::Responses,
+                headers: HeaderMap::new(),
+                body: Bytes::from_static(
+                    br#"{"model":"postcommit-model","input":"hello","stream":true}"#,
+                ),
+            },
+        )
+        .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    let mut body = match response.body {
+        PublicResponseBody::Streaming(body) => body,
+        PublicResponseBody::Buffered(_) => panic!("test expected streaming response"),
+    };
+    assert!(body.next().await.expect("first frame").is_ok());
+    assert!(body.next().await.expect("idle timeout error").is_err());
     assert_eq!(transport.calls().len(), 1);
 }
 
@@ -457,6 +530,13 @@ enum ScriptStep {
     Stream {
         body: Bytes,
     },
+    StalledJson {
+        status: StatusCode,
+        body: Bytes,
+    },
+    StalledStream {
+        body: Bytes,
+    },
     StreamError(TransportError),
 }
 
@@ -479,6 +559,19 @@ impl ScriptStep {
 
     fn stream(body: &'static str) -> Self {
         Self::Stream {
+            body: Bytes::from_static(body.as_bytes()),
+        }
+    }
+
+    fn stalled_json(status: StatusCode, body: &'static str) -> Self {
+        Self::StalledJson {
+            status,
+            body: Bytes::from_static(body.as_bytes()),
+        }
+    }
+
+    fn stalled_stream(body: &'static str) -> Self {
+        Self::StalledStream {
             body: Bytes::from_static(body.as_bytes()),
         }
     }
@@ -532,16 +625,31 @@ impl TransportManager for ScriptedTransport {
                 status,
                 headers,
                 body: boxed_body(stream::iter([Ok(body)])),
+                read_failure_scope: TransportFailureScope::Endpoint,
             }),
             ScriptStep::Stream { body } => Ok(TransportResponse {
                 status: StatusCode::OK,
                 headers: HeaderMap::new(),
                 body: boxed_body(stream::iter([Ok(body)])),
+                read_failure_scope: TransportFailureScope::Endpoint,
+            }),
+            ScriptStep::StalledJson { status, body } => Ok(TransportResponse {
+                status,
+                headers: HeaderMap::new(),
+                body: boxed_body(stream::iter([Ok(body)]).chain(stream::pending())),
+                read_failure_scope: TransportFailureScope::Endpoint,
+            }),
+            ScriptStep::StalledStream { body } => Ok(TransportResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: boxed_body(stream::iter([Ok(body)]).chain(stream::pending())),
+                read_failure_scope: TransportFailureScope::Endpoint,
             }),
             ScriptStep::StreamError(error) => Ok(TransportResponse {
                 status: StatusCode::OK,
                 headers: HeaderMap::new(),
                 body: boxed_body(stream::iter([Err(error)])),
+                read_failure_scope: TransportFailureScope::Endpoint,
             }),
         }
     }

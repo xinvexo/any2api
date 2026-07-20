@@ -1,10 +1,13 @@
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use any2api_domain::{ErrorClass, PublicError, PublicErrorCode, UpstreamErrorClassification};
-use any2api_transport::api::{BoxByteStream, TransportError};
+use any2api_transport::api::{
+    BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
+};
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use http::{HeaderMap, HeaderName, header};
+use tokio::time::timeout;
 
 pub(super) const MAX_UPSTREAM_JSON_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_CLASSIFIED_ERROR_BYTES: usize = 64 * 1024;
@@ -15,9 +18,24 @@ pub(super) enum CollectBodyError {
     Public(PublicError),
 }
 
-pub(super) async fn collect_body(mut body: BoxByteStream) -> Result<Bytes, CollectBodyError> {
+pub(super) async fn collect_body(
+    mut body: BoxByteStream,
+    read_timeout: Duration,
+    failure_scope: TransportFailureScope,
+) -> Result<Bytes, CollectBodyError> {
     let mut collected = BytesMut::new();
-    while let Some(chunk) = body.next().await {
+    loop {
+        let next = timeout(read_timeout, body.next()).await.map_err(|_| {
+            CollectBodyError::Transport(TransportError::new(
+                TransportErrorStage::ReadBody,
+                failure_scope,
+                any2api_domain::RetrySafety::Ambiguous,
+                "upstream response body read timed out",
+            ))
+        })?;
+        let Some(chunk) = next else {
+            break;
+        };
         let chunk = chunk.map_err(CollectBodyError::Transport)?;
         if collected.len().saturating_add(chunk.len()) > MAX_UPSTREAM_JSON_BYTES {
             return Err(CollectBodyError::Public(public_error(
@@ -150,11 +168,14 @@ pub(super) fn public_error(code: PublicErrorCode, message: &'static str) -> Publ
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use any2api_domain::RetrySafety;
     use any2api_transport::api::{
         BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
     };
-    use futures_util::stream;
+    use bytes::Bytes;
+    use futures_util::{StreamExt, stream};
     use http::{HeaderMap, HeaderValue, header};
 
     use super::{CollectBodyError, collect_body, sanitize_response_headers};
@@ -169,11 +190,36 @@ mod tests {
         );
         let body: BoxByteStream = Box::pin(stream::iter([Err(expected.clone())]));
 
-        let error = collect_body(body).await.expect_err("body must fail");
+        let error = collect_body(body, Duration::from_secs(1), TransportFailureScope::Proxy)
+            .await
+            .expect_err("body must fail");
 
         match error {
             CollectBodyError::Transport(error) => assert_eq!(error, expected),
             CollectBodyError::Public(_) => panic!("transport error must keep its metadata"),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn collect_body_times_out_while_waiting_for_the_next_chunk() {
+        let body: BoxByteStream =
+            Box::pin(stream::iter([Ok(Bytes::from_static(b"partial"))]).chain(stream::pending()));
+
+        let error = collect_body(
+            body,
+            Duration::from_millis(25),
+            TransportFailureScope::Endpoint,
+        )
+        .await
+        .expect_err("stalled body must time out");
+
+        match error {
+            CollectBodyError::Transport(error) => {
+                assert_eq!(error.stage, TransportErrorStage::ReadBody);
+                assert_eq!(error.failure_scope, TransportFailureScope::Endpoint);
+                assert_eq!(error.retry_safety, RetrySafety::Ambiguous);
+            }
+            CollectBodyError::Public(_) => panic!("timeout must remain a transport failure"),
         }
     }
 

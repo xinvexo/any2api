@@ -17,7 +17,7 @@ use any2api_runtime::api::{
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
-    BoxByteStream, TransportManager, TransportRequest, TransportResponse,
+    BoxByteStream, TransportFailureScope, TransportManager, TransportRequest, TransportResponse,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -227,6 +227,7 @@ impl TransportManager for BlockingTransport {
             status: StatusCode::OK,
             headers: HeaderMap::new(),
             body,
+            read_failure_scope: TransportFailureScope::Endpoint,
         })
     }
 }

@@ -17,8 +17,10 @@ pub enum SettingKey {
     LogsRequestRetention,
     LogsRequestMaxRows,
     LogsTelemetryQueueCapacity,
+    UpstreamReadTimeout,
     StreamPrecommitMaxBytes,
     StreamPrecommitMaxDuration,
+    StreamPostcommitIdleTimeout,
     SchedulerOnSaturated,
     SchedulerQueueTimeout,
     SchedulerMaxWaitingRequests,
@@ -46,7 +48,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 41] = [
+    pub const ALL: [Self; 43] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -62,8 +64,10 @@ impl SettingKey {
         Self::LogsRequestRetention,
         Self::LogsRequestMaxRows,
         Self::LogsTelemetryQueueCapacity,
+        Self::UpstreamReadTimeout,
         Self::StreamPrecommitMaxBytes,
         Self::StreamPrecommitMaxDuration,
+        Self::StreamPostcommitIdleTimeout,
         Self::SchedulerOnSaturated,
         Self::SchedulerQueueTimeout,
         Self::SchedulerMaxWaitingRequests,
@@ -107,8 +111,10 @@ impl SettingKey {
             Self::LogsRequestRetention => "logs.request.retention",
             Self::LogsRequestMaxRows => "logs.request.max_rows",
             Self::LogsTelemetryQueueCapacity => "logs.telemetry_queue_capacity",
+            Self::UpstreamReadTimeout => "upstream.read_timeout",
             Self::StreamPrecommitMaxBytes => "stream.precommit.max_bytes",
             Self::StreamPrecommitMaxDuration => "stream.precommit.max_duration",
+            Self::StreamPostcommitIdleTimeout => "stream.postcommit.idle_timeout",
             Self::SchedulerOnSaturated => "scheduler.on_saturated",
             Self::SchedulerQueueTimeout => "scheduler.queue_timeout",
             Self::SchedulerMaxWaitingRequests => "scheduler.max_waiting_requests",

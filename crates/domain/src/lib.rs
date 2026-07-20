@@ -70,7 +70,7 @@ pub use settings::{
     MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY,
     ReliabilitySettings, SaturationMode, SchedulerSettings, SettingApplyMode, SettingDefinition,
     SettingKey, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
-    SettingsValidationError, StreamSettings,
+    SettingsValidationError, StreamSettings, UpstreamSettings,
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,

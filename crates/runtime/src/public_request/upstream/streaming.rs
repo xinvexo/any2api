@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use any2api_protocol::api::{DecodedRequest, ProtocolAdapter};
 use http::{HeaderValue, header};
@@ -47,8 +47,11 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     };
     let status = response.status;
     let mut headers = response.headers;
+    let read_failure_scope = response.read_failure_scope;
+    let read_timeout =
+        Duration::from_millis(services.snapshot.settings().upstream().read_timeout_ms());
     if !status.is_success() {
-        let body = match collect_body(response.body).await {
+        let body = match collect_body(response.body, read_timeout, read_failure_scope).await {
             Ok(body) => body,
             Err(CollectBodyError::Transport(error)) => {
                 prepared.transport_failure(&error);
@@ -83,6 +86,13 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             attempt_recorder,
             status_code: status.as_u16(),
             precommit_budget,
+            postcommit_idle_timeout: Duration::from_millis(
+                services
+                    .snapshot
+                    .settings()
+                    .stream()
+                    .postcommit_idle_timeout_ms(),
+            ),
         },
     )
     .prime()

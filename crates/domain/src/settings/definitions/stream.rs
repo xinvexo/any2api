@@ -22,6 +22,14 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
             "流式预提交",
             "等待首个可接受 SSE 事件的最长时间。",
         ),
+        SettingKey::StreamPostcommitIdleTimeout => duration_definition(
+            key,
+            60_000,
+            1,
+            MAX_SETTING_DURATION_MS,
+            "流式响应",
+            "首个事件提交后等待下一个上游 chunk 的最长空闲时间。",
+        ),
         _ => unreachable!(),
     }
 }
