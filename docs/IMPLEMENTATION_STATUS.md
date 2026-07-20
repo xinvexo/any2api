@@ -1,12 +1,12 @@
 # any2api 实施状态
 
-> 最后更新：2026-07-19
+> 最后更新：2026-07-20
 > 用途：简要记录已经完成的代码、当前边界和下一步顺序。架构真相仍以根目录 `ARCHITECTURE.md` 为准。
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性切片与单管理员远程 HTTP 认证切片已完成；历史请求日志持久化、内建 TLS、管理员密码轮换与 OAuth2 仍待完成。
-- 最近完成：进程内软/硬会话粘性、固定 Credential 等待优先级、粘性管理 API 与 Web 页面、scheduler/affinity SettingRegistry、生成请求有界 QueueTicket 排队、Codex/Claude 同协议 SSE、GuardedBody、Count Tokens 辅助并发、同协议 JSON 数据面、Transport 接入、多 GatewayApiKey 管理、`/v1/models` 已发布模型目录，以及错误分类、冷却、熔断和提交前多 Attempt 重试。
+- 当前阶段：阶段 4 可靠性、RequestLog/Attempt 有界遥测与单管理员远程 HTTP 认证切片已完成；内建 TLS、管理员密码轮换与 OAuth2 仍待完成。
+- 最近完成：本地 Request ID、RequestLog/Attempt SQLite 历史、有界非阻塞遥测队列、日志管理 API 与 React 页面，以及进程内软/硬会话粘性、生成请求 QueueTicket、Codex/Claude 同协议 JSON/SSE、Transport、错误分类、冷却、熔断和提交前多 Attempt 重试。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,7 +16,7 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 本切片提交主题：`feat: add session affinity routing`。
+- 本切片提交主题：`feat: add bounded request telemetry`。
 
 ## 已完成
 
@@ -247,23 +247,36 @@
 - React 新增首启 Setup、登录、会话恢复、登出、CSRF 自动注入和明文远程 HTTP 持续警告；远程登录前即提示密码传输风险，受保护请求收到 401 响应头时立即关闭管理面并清空 Query/Mutation Cache。
 - 当前切片直接支持远程 HTTP 与外部 TLS 终止；内建 Rustls listener、标准 `Forwarded` 头解析、管理员密码在线轮换和 OAuth2 JSON 上传仍未实现。
 
+### RequestLog 与 Attempt 有界遥测切片
+
+- `/v1` 外层统一生成本地 Request ID，并覆盖所有公开响应的 `x-request-id`；通过 GatewayApiKey 鉴权并进入模型执行链后创建请求记录。
+- 新增 `RequestLog`、`RequestAttempt` 与结果枚举，以及 SQLite `request_logs`/`request_attempts` 父子表；配置实体删除后历史外键自动置空，日志不参与启动恢复。
+- 每个请求在内存中聚合全部 Attempt，结束时只进行一次同步 `try_send`；队列满、Writer 关闭或 SQLite 写入失败只计数并丢弃，不等待或阻塞数据面。
+- 后台 Writer 使用小批量事务写入父子记录，并在空闲期也按保留期限或最大行数任一上限定时分批清理；日志设置随配置发布即时刷新，停机提供有限刷新窗口，不保存排队状态。
+- Attempt 在健康结算后、Permit 释放前完成记录；最终 RequestLog 优先保留最后一次 Attempt 的精确错误分类，不把限流、认证、网络或代理错误折叠为通用 `upstream`。
+- SSE 在首帧验证和软绑定提交成功后把记录责任交给 `GuardedBody`；EOF、提交后错误与客户端 Drop 只完成一次，首帧 Transport 错误保留 Network/Proxy 归因与 RetrySafety。
+- 新增管理 API：`GET /api/admin/request-logs`、`GET /api/admin/request-logs/{request_id}`；React `/logs` 与 `/logs/:requestId` 展示最近请求、队列/丢弃指标和 Attempt 时间线。
+- SettingRegistry 新增 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows`、`logs.telemetry_queue_capacity`，Web 可查看默认/覆盖/生效值并恢复默认。
+- 首版没有协议级精确 usage 与内容首 Token 钩子，因此 `first_token_ms` 和各 Token Usage 字段保持 `NULL`；不猜测未知 JSON 字段或把 SSE 控制事件当作首 Token。
+- 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Attempt 生命周期、列表渲染、DTO 解析和敏感文本不展示；多 Attempt/错误/SSE 持久化、详情空态与错误态、deep link 及响应式页面仍没有自动化覆盖。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；健康熔断已接入数据面，管理面代理测试按钮仍未完成。
 - ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理仍只保存 host/port；用户名与密码尚未接入，后续必须通过 Secret Vault 保存。
-- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker 共三十五项 SettingRegistry；请求日志/文件日志保留设置仍未接入统一注册表。
+- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker 与 request logging 共三十九项 SettingRegistry；`logs.file.*` 本地文件日志轮转仍未接入。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
-- 当前 JSON/SSE vertical slice 尚未提供统一的上游 read timeout；JSON 多 Attempt 共享可靠性绝对预算，SSE 首帧仍使用 5 秒预提交超时，提交后的错误直接结束流。Attempt 历史尚未写入 SQLite。
+- 当前 JSON/SSE vertical slice 尚未提供统一的上游 read timeout；JSON 多 Attempt 共享可靠性绝对预算，SSE 首帧仍使用 5 秒预提交超时，提交后的错误直接结束流。RequestLog/Attempt 已写入 SQLite，但精确首 Token 与 Token Usage 尚未采集。
 - Gateway 鉴权失败与方法错误当前使用管理面统一 JSON envelope；已认证的协议执行错误才由 Responses/Messages Adapter 编码，协议专用 401 envelope 留待公开错误适配切片。
 
 ## 下一步
 
-1. 接入 RequestLog/Attempt 有界遥测队列、SQLite 历史保留和日志 SettingRegistry；不把历史日志用于启动恢复。
-2. 补齐内建 Rustls HTTPS listener、标准 `Forwarded` 可信来源解析和管理员密码在线轮换。
-3. 补齐代理认证字段、管理面代理测试按钮和 OAuth2 Provider 专用 JSON 导入/刷新扩展。
+1. 补齐内建 Rustls HTTPS listener、标准 `Forwarded` 可信来源解析和管理员密码在线轮换。
+2. 补齐代理认证字段、管理面代理测试按钮与严格 SSRF 本地 DNS 模式。
+3. 实现 OAuth2 Provider 专用 JSON 导入、版本化凭据与刷新扩展。
 
 ## 验证结果
 
@@ -283,4 +296,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在可靠性切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning。公开 Codex/Claude JSON/SSE 上游路径、硬/软粘性、prefer/strict、Count Tokens、认证头、模型别名、404 兼容和响应头过滤继续由本地上游契约测试覆盖；新增七个可靠性契约覆盖安全切换、Ambiguous 边界、429 冷却、硬粘性、重试预算和 SSE 首帧失败。
+以上 Rust 与 Web 门禁在 RequestLog/Attempt 有界遥测切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning，Vite 仅报告当前单入口 bundle 超过 500 kB 的提示。Web 共 26 个测试文件、59 项测试通过；`/logs` 与 `/logs/:requestId` 已完成一次桌面和 390×844 人工验收记录，但该验收尚未纳入仓库自动化脚本。

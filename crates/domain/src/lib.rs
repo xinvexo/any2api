@@ -17,6 +17,7 @@ mod provider_endpoint_configuration;
 mod proxy;
 mod proxy_address;
 mod proxy_configuration;
+mod request_log;
 mod retry_safety;
 mod revision;
 mod route_target;
@@ -60,11 +61,13 @@ pub use provider_endpoint_configuration::ProviderEndpointConfiguration;
 pub use proxy::{ProxyDraft, ProxyKind, ProxyProfile, ProxyValidationError};
 pub use proxy_address::ProxyAddress;
 pub use proxy_configuration::ProxyConfiguration;
+pub use request_log::{CompletedRequestLog, RequestAttempt, RequestAttemptOutcome, RequestLog};
 pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};
 pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};
 pub use settings::{
-    AdminSettings, AffinityMode, AffinitySettings, ReliabilitySettings, SaturationMode,
+    AdminSettings, AffinityMode, AffinitySettings, LoggingSettings, MAX_REQUEST_LOG_RETENTION_MS,
+    MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY, ReliabilitySettings, SaturationMode,
     SchedulerSettings, SettingApplyMode, SettingDefinition, SettingKey, SettingOverrides,
     SettingValue, SettingValueType, SettingsConfiguration, SettingsValidationError,
 };

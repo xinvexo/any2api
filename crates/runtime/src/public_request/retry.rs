@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     health::ReliabilityPolicy, published_snapshot::PublishedSnapshot,
-    route_candidates::CandidateExclusions,
+    request_telemetry::RequestRecorder, route_candidates::CandidateExclusions,
 };
 
 pub(super) async fn execute(
@@ -23,11 +23,17 @@ pub(super) async fn execute(
     plan: PlannedRequest,
     providers: &ProviderRegistry,
     transport: &dyn TransportManager,
+    recorder: RequestRecorder,
 ) -> Result<PublicResponse, PublicError> {
     let policy = snapshot.reliability_policy();
     let mut budget = RetryBudget::new(policy);
     let mut exclusions = CandidateExclusions::default();
     let mut previous_error = None;
+    let services = upstream::UpstreamServices {
+        snapshot: snapshot.as_ref(),
+        providers,
+        transport,
+    };
 
     loop {
         let remaining = budget.remaining();
@@ -54,21 +60,21 @@ pub(super) async fn execute(
             Err(_) => return Err(previous_error.unwrap_or_else(budget_exhausted)),
         };
         let credential_id = affinity.selected.candidate.credential_id;
-        if !budget.register_attempt(credential_id) {
+        let Some(attempt_no) = budget.register_attempt(credential_id) else {
             return Err(previous_error.unwrap_or_else(budget_exhausted));
-        }
+        };
+        let attempt_recorder = recorder.begin_attempt(attempt_no, &affinity.selected.candidate);
         let remaining = budget.remaining();
         let attempt = if plan.decoded.stream {
             timeout(
                 remaining,
                 upstream::execute_stream_attempt(
-                    snapshot.as_ref(),
+                    services,
                     Arc::clone(&adapter),
                     plan.decoded.clone(),
                     plan.public_model.clone(),
                     affinity,
-                    providers,
-                    transport,
+                    attempt_recorder,
                 ),
             )
             .await
@@ -77,13 +83,12 @@ pub(super) async fn execute(
             timeout(
                 remaining,
                 upstream::execute_buffered_attempt(
-                    snapshot.as_ref(),
+                    services,
                     adapter.as_ref(),
                     plan.decoded.clone(),
                     &plan.public_model,
                     affinity,
-                    providers,
-                    transport,
+                    attempt_recorder,
                 ),
             )
             .await
@@ -182,16 +187,16 @@ impl RetryBudget {
         self.deadline.saturating_duration_since(Instant::now())
     }
 
-    fn register_attempt(&mut self, credential_id: CredentialId) -> bool {
+    fn register_attempt(&mut self, credential_id: CredentialId) -> Option<u32> {
         if self.attempts >= self.policy.max_total_attempts {
-            return false;
+            return None;
         }
         if self
             .last_credential
             .is_some_and(|previous| previous != credential_id)
         {
             if self.switches >= self.policy.max_credential_switches {
-                return false;
+                return None;
             }
             self.switches += 1;
         }
@@ -201,12 +206,12 @@ impl RetryBudget {
             .copied()
             .unwrap_or(0);
         if prior > self.policy.max_same_credential_retries {
-            return false;
+            return None;
         }
         self.attempts_by_credential.insert(credential_id, prior + 1);
         self.last_credential = Some(credential_id);
         self.attempts += 1;
-        true
+        Some(self.attempts)
     }
 
     fn can_retry(&self) -> bool {

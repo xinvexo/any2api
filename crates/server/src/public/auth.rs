@@ -90,6 +90,7 @@ fn strip_client_credentials(headers: &mut HeaderMap) {
     headers.remove("x-api-key");
     headers.remove(PROXY_AUTHORIZATION);
     headers.remove(COOKIE);
+    headers.remove("x-request-id");
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
     ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress,
-    ProxyDraft, ProxyKind, ProxyProfileId,
+    ProxyDraft, ProxyKind, ProxyProfileId, SettingKey, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::{TempDir, tempdir};
@@ -14,6 +14,7 @@ use crate::{
     published_snapshot::{PublishedSnapshot, SnapshotStore},
     publisher::ConfigPublisher,
     registry::RuntimeRegistry,
+    request_telemetry::RequestTelemetry,
 };
 
 #[tokio::test]
@@ -90,6 +91,37 @@ async fn no_op_publish_keeps_revision_and_scheduler_epoch() {
     assert_eq!(published.revision(), ConfigRevision::INITIAL);
     assert_eq!(stored.revision(), ConfigRevision::INITIAL);
     assert_eq!(context.runtime.scheduler_epoch(), 0);
+}
+
+#[tokio::test]
+async fn settings_publish_updates_request_telemetry_policy() {
+    let context = TestContext::new().await;
+    let initial = context.snapshots.load();
+    let telemetry = Arc::new(RequestTelemetry::start(
+        Arc::clone(&context.repository),
+        initial.revision(),
+        initial.settings().logging(),
+    ));
+    let publisher = ConfigPublisher::new(
+        Arc::clone(&context.repository),
+        Arc::clone(&context.snapshots),
+        Arc::clone(&context.runtime),
+    )
+    .with_telemetry(Arc::clone(&telemetry));
+
+    let published = publisher
+        .set_setting_override(
+            ConfigRevision::INITIAL,
+            SettingKey::LogsRequestMaxRows,
+            SettingValue::Integer(42),
+        )
+        .await
+        .expect("publish request log limit");
+    let policy = telemetry.current_policy();
+
+    assert_eq!(policy.revision, published.revision());
+    assert_eq!(policy.max_rows, 42);
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }
 
 #[tokio::test]

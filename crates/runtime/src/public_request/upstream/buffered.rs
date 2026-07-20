@@ -1,28 +1,27 @@
 use any2api_domain::PublicErrorCode;
 use any2api_protocol::api::{DecodedRequest, EgressResponse, ProtocolAdapter, UpstreamResponse};
-use any2api_provider::api::ProviderRegistry;
-use any2api_transport::api::TransportManager;
 
 use super::super::{
     affinity::{AffinitySelection, commit_soft_binding},
     response::{
-        collect_body, internal_error, public_error, restore_public_model, sanitize_response_headers,
+        CollectBodyError, collect_body, internal_error, public_error, restore_public_model,
+        sanitize_response_headers,
     },
 };
 use super::{
+    UpstreamServices,
     failure::AttemptFailure,
     prepared::{AttemptInput, hard_committer, prepare_input},
 };
-use crate::published_snapshot::PublishedSnapshot;
+use crate::request_telemetry::AttemptRecorder;
 
 pub(in crate::public_request) async fn execute_buffered_attempt(
-    snapshot: &PublishedSnapshot,
+    services: UpstreamServices<'_>,
     adapter: &dyn ProtocolAdapter,
     decoded: DecodedRequest,
     public_model: &str,
     affinity: AffinitySelection,
-    providers: &ProviderRegistry,
-    transport: &dyn TransportManager,
+    attempt_recorder: AttemptRecorder,
 ) -> Result<EgressResponse, AttemptFailure> {
     let AttemptInput {
         mut prepared,
@@ -30,8 +29,15 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         target,
         soft_lease,
         fixed,
-    } = prepare_input(snapshot, adapter, decoded, affinity, providers)?;
-    let response = match prepared.send(transport).await {
+    } = prepare_input(
+        services.snapshot,
+        adapter,
+        decoded,
+        affinity,
+        services.providers,
+        attempt_recorder,
+    )?;
+    let response = match prepared.send(services.transport).await {
         Ok(response) => response,
         Err(error) => {
             prepared.transport_failure(&error);
@@ -42,14 +48,18 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let headers = response.headers;
     let body = match collect_body(response.body).await {
         Ok(body) => body,
-        Err(error) => {
-            prepared.invalid_response();
+        Err(CollectBodyError::Transport(error)) => {
+            prepared.transport_failure(&error);
+            return Err(AttemptFailure::transport(error, candidate, fixed));
+        }
+        Err(CollectBodyError::Public(error)) => {
+            prepared.invalid_response(Some(status.as_u16()));
             return Err(AttemptFailure::Public(error));
         }
     };
     if !status.is_success() {
         let classification = prepared.classify(status, &headers, &body);
-        prepared.upstream_failure(classification);
+        prepared.upstream_failure(status.as_u16(), classification);
         return Err(AttemptFailure::upstream(classification, candidate, fixed));
     }
     let decoded = match adapter.decode_upstream_response(UpstreamResponse {
@@ -59,7 +69,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     }) {
         Ok(decoded) => decoded,
         Err(_) => {
-            prepared.invalid_response();
+            prepared.invalid_response(Some(status.as_u16()));
             return Err(AttemptFailure::Public(public_error(
                 PublicErrorCode::UpstreamError,
                 "upstream response was invalid",
@@ -69,28 +79,28 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let hard_id = adapter
         .hard_affinity_id_from_response(prepared.operation, &decoded)
         .map_err(|_| {
-            prepared.fail_after_upstream_success(public_error(
-                PublicErrorCode::UpstreamError,
-                "upstream response identity was invalid",
-            ))
+            prepared.fail_after_upstream_success(
+                status.as_u16(),
+                public_error(
+                    PublicErrorCode::UpstreamError,
+                    "upstream response identity was invalid",
+                ),
+            )
         })?;
-    let mut response = adapter.encode_egress_response(decoded).map_err(|_| {
-        prepared.fail_after_upstream_success(public_error(
-            PublicErrorCode::UpstreamError,
-            "upstream response could not be encoded",
-        ))
-    })?;
+    let mut response = adapter
+        .encode_egress_response(decoded)
+        .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
     restore_public_model(&mut response.body, public_model)
-        .map_err(|error| prepared.fail_after_upstream_success(error))?;
+        .map_err(|error| prepared.fail_after_upstream_success(status.as_u16(), error))?;
     sanitize_response_headers(&mut response.headers);
-    let hard_affinity = hard_committer(snapshot, prepared.operation, target.clone());
+    let hard_affinity = hard_committer(services.snapshot, prepared.operation, target.clone());
     if let Some(hard_id) = hard_id {
         hard_affinity
             .bind(&hard_id)
-            .map_err(|_| prepared.fail_after_upstream_success(internal_error()))?;
+            .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
     }
     commit_soft_binding(soft_lease, target)
-        .map_err(|error| prepared.fail_after_upstream_success(error))?;
-    prepared.success();
+        .map_err(|error| prepared.fail_after_upstream_success(status.as_u16(), error))?;
+    prepared.success(status.as_u16());
     Ok(response)
 }

@@ -26,6 +26,9 @@ mod provider_endpoint_rows;
 mod proxy_mutation;
 mod proxy_repository;
 mod proxy_rows;
+mod request_log_repository;
+#[cfg(test)]
+mod request_log_repository_tests;
 mod settings_repository;
 #[cfg(test)]
 mod settings_repository_tests;

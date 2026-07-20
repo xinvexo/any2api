@@ -135,6 +135,7 @@ dependencies = [
  "any2api-storage",
  "any2api-transport",
  "arc-swap",
+ "async-trait",
  "base64",
  "bytes",
  "futures-util",
@@ -147,6 +148,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

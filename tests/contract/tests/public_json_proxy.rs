@@ -1,7 +1,10 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components;
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
+use any2api_contract_tests::build_public_request_components_with_telemetry;
+use any2api_domain::RequestId;
+use any2api_runtime::api::{
+    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
+};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
@@ -68,7 +71,7 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     .await;
 
     let response = request_json(
-        app,
+        app.clone(),
         Method::POST,
         "/v1/responses",
         Some(json!({
@@ -89,7 +92,11 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     assert!(response.headers.get("set-cookie").is_none());
     assert!(response.headers.get("x-private-hop").is_none());
     assert!(response.headers.get("etag").is_none());
-    assert_eq!(response.headers["x-request-id"], "upstream-request-1");
+    let request_id = response.headers["x-request-id"]
+        .to_str()
+        .expect("request ID header")
+        .parse::<RequestId>()
+        .expect("local request ID");
     let request = upstream.await.expect("upstream request");
     assert_eq!(request.method, Method::POST);
     assert_eq!(request.path, "/v1/responses");
@@ -100,7 +107,13 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     assert!(!request.headers.contains_key("x-api-key"));
     assert_eq!(request.body["model"], "gpt-upstream");
     assert_eq!(request.body["unknown_field"]["keep"], true);
-    let _ = credential_id;
+    let logs = wait_for_request_log(&app, loopback, request_id).await;
+    assert_eq!(logs["request"]["request_id"], request_id.to_string());
+    assert_eq!(logs["request"]["credential_id"], credential_id);
+    assert_eq!(logs["request"]["attempt_count"], 1);
+    assert_eq!(logs["request"]["input_tokens"], Value::Null);
+    assert_eq!(logs["attempts"][0]["outcome"], "success");
+    assert_eq!(logs["attempts"][0]["status_code"], 200);
 }
 
 #[tokio::test]
@@ -555,6 +568,13 @@ async fn public_fallback_and_method_errors_require_authentication_and_return_jso
     .await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
     assert_eq!(missing.body["error"]["code"], "unauthorized");
+    assert!(
+        missing.headers["x-request-id"]
+            .to_str()
+            .expect("request ID")
+            .parse::<RequestId>()
+            .is_ok()
+    );
 
     let token = create_gateway_key(&app, loopback, revision).await;
     let unknown = request_json(
@@ -568,6 +588,13 @@ async fn public_fallback_and_method_errors_require_authentication_and_return_jso
     .await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
     assert_eq!(unknown.body["error"]["code"], "public_api_not_found");
+    assert!(
+        unknown.headers["x-request-id"]
+            .to_str()
+            .expect("request ID")
+            .parse::<RequestId>()
+            .is_ok()
+    );
 
     let wrong_method = request_json(
         app,
@@ -580,6 +607,13 @@ async fn public_fallback_and_method_errors_require_authentication_and_return_jso
     .await;
     assert_eq!(wrong_method.status, StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(wrong_method.body["error"]["code"], "method_not_allowed");
+    assert!(
+        wrong_method.headers["x-request-id"]
+            .to_str()
+            .expect("request ID")
+            .parse::<RequestId>()
+            .is_ok()
+    );
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, u64) {
@@ -590,6 +624,11 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
+    let telemetry = Arc::new(RequestTelemetry::start(
+        Arc::clone(&storage),
+        configuration.revision(),
+        configuration.settings().logging(),
+    ));
     let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
@@ -600,7 +639,7 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
     ));
-    let service = build_public_request_components()
+    let service = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
         .expect("public request components")
         .service();
     let web_root = directory.path().join("web");
@@ -608,10 +647,32 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let revision = snapshots.load().revision().get();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher).with_public_requests(service),
+        AppState::new(snapshots, runtime, publisher)
+            .with_public_requests(service)
+            .with_request_telemetry(telemetry),
         web_root,
     );
     (directory, app, revision)
+}
+
+async fn wait_for_request_log(app: &Router, remote: SocketAddr, request_id: RequestId) -> Value {
+    for _ in 0..200 {
+        let response = request_json(
+            app.clone(),
+            Method::GET,
+            &format!("/api/admin/request-logs/{request_id}"),
+            None,
+            remote,
+            &[],
+        )
+        .await;
+        if response.status == StatusCode::OK {
+            return response.body;
+        }
+        assert_eq!(response.status, StatusCode::NOT_FOUND);
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    panic!("request log was not persisted");
 }
 
 async fn create_gateway_key(app: &Router, remote: SocketAddr, revision: u64) -> String {

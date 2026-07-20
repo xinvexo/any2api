@@ -11,6 +11,8 @@ import { ProvidersPage } from "@/pages/ProvidersPage";
 import { GatewayApiKeysPage } from "@/pages/GatewayApiKeysPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { AffinityPage } from "@/pages/AffinityPage";
+import { RequestLogDetailPage } from "@/pages/RequestLogDetailPage";
+import { RequestLogsPage } from "@/pages/RequestLogsPage";
 
 export const router = createBrowserRouter([
   {
@@ -25,7 +27,8 @@ export const router = createBrowserRouter([
       { path: "balancing", element: <PlaceholderPage title="负载均衡" /> },
       { path: "affinity", element: <AffinityPage /> },
       { path: "keys", element: <GatewayApiKeysPage /> },
-      { path: "logs", element: <PlaceholderPage title="请求日志" /> },
+      { path: "logs", element: <RequestLogsPage /> },
+      { path: "logs/:requestId", element: <RequestLogDetailPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],

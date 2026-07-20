@@ -82,6 +82,22 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn request_log_not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "request_log_not_found",
+            "request log was not found",
+        )
+    }
+
+    pub(crate) fn request_log_unavailable() -> Self {
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "request_log_unavailable",
+            "request logs could not be read",
+        )
+    }
+
     pub(crate) fn loopback_only() -> Self {
         Self::new(
             StatusCode::FORBIDDEN,

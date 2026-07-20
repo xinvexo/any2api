@@ -4,9 +4,10 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    ConfigRevision, CredentialKind, FallbackTier, MaxConcurrency, ModelRouteDraft, ModelRouteId,
-    ProtocolDialect, ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId, ProviderKind, ProxyProfileId, RouteTargetDraft, RouteTargetId,
+    ConfigRevision, CredentialKind, FallbackTier, GatewayApiKeyId, MaxConcurrency, ModelRouteDraft,
+    ModelRouteId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestId,
+    RouteTargetDraft, RouteTargetId,
 };
 use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{CodexDriver, ProviderRegistry};
@@ -148,6 +149,8 @@ async fn execute_request(
         .execute(
             snapshot,
             PublicRequest {
+                request_id: RequestId::new(),
+                gateway_api_key_id: GatewayApiKeyId::new(),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::from_iter([(
                     CONTENT_TYPE,

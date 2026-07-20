@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ProtocolOperation, ProxyProfile, PublicError, PublicErrorCode, UpstreamErrorClassification,
+    ErrorClass, ProtocolOperation, ProxyProfile, PublicError, PublicErrorCode,
+    UpstreamErrorClassification,
 };
 use any2api_protocol::api::{DecodedRequest, ProtocolAdapter};
 use any2api_provider::api::{ProviderDriver, ProviderRegistry, UpstreamResponseMeta};
@@ -13,13 +14,14 @@ use any2api_transport::api::{
 use super::super::{
     RequestPermit, SelectedCandidate,
     affinity::AffinitySelection,
-    response::{MAX_CLASSIFIED_ERROR_BYTES, internal_error, invalid_request, public_error},
+    response::{MAX_CLASSIFIED_ERROR_BYTES, internal_error, public_error},
 };
 use super::failure::AttemptFailure;
 use crate::{
     affinity::{AffinityTarget, HardAffinityCommitter, SoftBindingLease},
     health::AttemptHealth,
     published_snapshot::PublishedSnapshot,
+    request_telemetry::{AttemptRecorder, public_error_class},
     route_candidates::RouteCandidate,
 };
 
@@ -37,6 +39,7 @@ pub(super) fn prepare_input<'a>(
     decoded: DecodedRequest,
     affinity: AffinitySelection,
     providers: &'a ProviderRegistry,
+    attempt_recorder: AttemptRecorder,
 ) -> Result<AttemptInput<'a>, AttemptFailure> {
     let AffinitySelection {
         selected,
@@ -45,8 +48,14 @@ pub(super) fn prepare_input<'a>(
         fixed,
     } = affinity;
     let candidate = selected.candidate.clone();
-    let prepared = prepare_attempt(snapshot, adapter, decoded, selected, providers)
-        .map_err(AttemptFailure::Public)?;
+    let prepared = prepare_attempt(
+        snapshot,
+        adapter,
+        decoded,
+        selected,
+        providers,
+        attempt_recorder,
+    )?;
     Ok(AttemptInput {
         prepared,
         candidate,
@@ -63,6 +72,7 @@ pub(super) struct PreparedAttempt<'a> {
     request: Option<TransportRequest>,
     permit: Option<RequestPermit>,
     health: Option<AttemptHealth>,
+    attempt_recorder: Option<AttemptRecorder>,
 }
 
 impl PreparedAttempt<'_> {
@@ -90,21 +100,45 @@ impl PreparedAttempt<'_> {
         )
     }
 
-    pub(super) fn success(&mut self) {
+    pub(super) fn success(&mut self, status_code: u16) {
         if let Some(health) = self.health.take() {
             health.success();
+        }
+        if let Some(mut recorder) = self.attempt_recorder.take() {
+            recorder.success(status_code);
         }
         self.permit.take();
     }
 
-    pub(super) fn fail_after_upstream_success(&mut self, error: PublicError) -> AttemptFailure {
-        self.success();
+    pub(super) fn fail_after_upstream_success(
+        &mut self,
+        status_code: u16,
+        error: PublicError,
+    ) -> AttemptFailure {
+        if let Some(health) = self.health.take() {
+            health.success();
+        }
+        if let Some(mut recorder) = self.attempt_recorder.take() {
+            recorder.local_error(Some(status_code), public_error_class(error.code));
+        }
+        self.permit.take();
         AttemptFailure::Public(error)
     }
 
-    pub(super) fn upstream_failure(&mut self, classification: UpstreamErrorClassification) {
+    pub(super) fn upstream_failure(
+        &mut self,
+        status_code: u16,
+        classification: UpstreamErrorClassification,
+    ) {
         if let Some(health) = self.health.take() {
             health.upstream_failure(classification);
+        }
+        if let Some(mut recorder) = self.attempt_recorder.take() {
+            recorder.upstream_error(
+                status_code,
+                classification.retry_safety(),
+                classification.kind().error_class(),
+            );
         }
         self.permit.take();
     }
@@ -113,21 +147,48 @@ impl PreparedAttempt<'_> {
         if let Some(health) = self.health.take() {
             health.transport_failure(error.failure_scope);
         }
-        self.permit.take();
-    }
-
-    pub(super) fn invalid_response(&mut self) {
-        if let Some(health) = self.health.take() {
-            health.transport_failure(TransportFailureScope::Endpoint);
+        if let Some(mut recorder) = self.attempt_recorder.take() {
+            let error_class = match error.failure_scope {
+                TransportFailureScope::Proxy => ErrorClass::Proxy,
+                TransportFailureScope::Endpoint | TransportFailureScope::Unattributed => {
+                    ErrorClass::Network
+                }
+            };
+            recorder.transport_error(error.retry_safety, error_class);
         }
         self.permit.take();
     }
 
-    pub(super) fn take_guards(&mut self) -> (RequestPermit, Option<AttemptHealth>) {
+    pub(super) fn invalid_response(&mut self, status_code: Option<u16>) {
+        if let Some(health) = self.health.take() {
+            health.transport_failure(TransportFailureScope::Endpoint);
+        }
+        if let Some(mut recorder) = self.attempt_recorder.take() {
+            recorder.invalid_response(status_code);
+        }
+        self.permit.take();
+    }
+
+    pub(super) fn take_guards(
+        &mut self,
+    ) -> (RequestPermit, Option<AttemptHealth>, AttemptRecorder) {
         (
             self.permit.take().expect("prepared permit is present"),
             self.health.take(),
+            self.attempt_recorder
+                .take()
+                .expect("prepared attempt recorder is present"),
         )
+    }
+}
+
+impl Drop for PreparedAttempt<'_> {
+    fn drop(&mut self) {
+        self.health.take();
+        if let Some(mut recorder) = self.attempt_recorder.take() {
+            recorder.cancelled(None);
+        }
+        self.permit.take();
     }
 }
 
@@ -137,12 +198,47 @@ fn prepare_attempt<'a>(
     decoded: DecodedRequest,
     selected: SelectedCandidate,
     providers: &'a ProviderRegistry,
-) -> Result<PreparedAttempt<'a>, PublicError> {
-    let SelectedCandidate {
-        candidate,
-        permit,
-        health,
-    } = selected;
+    mut attempt_recorder: AttemptRecorder,
+) -> Result<PreparedAttempt<'a>, AttemptFailure> {
+    let result = build_request(snapshot, adapter, decoded, &selected, providers);
+    let (driver, proxy, operation, request) = match result {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            let SelectedCandidate { permit, health, .. } = selected;
+            drop(health);
+            attempt_recorder.local_error_before_send(None, public_error_class(error.code));
+            drop(permit);
+            return Err(AttemptFailure::Public(error));
+        }
+    };
+    let SelectedCandidate { permit, health, .. } = selected;
+    Ok(PreparedAttempt {
+        driver,
+        proxy,
+        operation,
+        request: Some(request),
+        permit: Some(permit),
+        health: Some(health),
+        attempt_recorder: Some(attempt_recorder),
+    })
+}
+
+fn build_request<'a>(
+    snapshot: &'a PublishedSnapshot,
+    adapter: &dyn ProtocolAdapter,
+    decoded: DecodedRequest,
+    selected: &SelectedCandidate,
+    providers: &'a ProviderRegistry,
+) -> Result<
+    (
+        &'a dyn ProviderDriver,
+        &'a ProxyProfile,
+        ProtocolOperation,
+        TransportRequest,
+    ),
+    PublicError,
+> {
+    let candidate = &selected.candidate;
     let endpoint = snapshot
         .provider_endpoints()
         .get(candidate.endpoint_id)
@@ -171,30 +267,29 @@ fn prepare_attempt<'a>(
             decoded.payload,
             &candidate.upstream_model,
         )
-        .map_err(|_| invalid_request("request body could not be encoded"))?;
+        .map_err(|_| internal_error())?;
     encoded.uri = endpoint_plan
         .url
         .as_str()
         .parse()
         .map_err(|_| internal_error())?;
-    let credential_headers = permit
+    let credential_headers = selected
+        .permit
         .provider_credential_headers(driver)
         .map_err(|_| internal_error())?;
     encoded.headers.extend(credential_headers.headers);
-    Ok(PreparedAttempt {
+    Ok((
         driver,
         proxy,
         operation,
-        request: Some(TransportRequest {
+        TransportRequest {
             method: encoded.method,
             uri: encoded.uri,
             headers: encoded.headers,
             body: encoded.body,
             network_policy: EndpointNetworkPolicy::new(endpoint.allow_private_network()),
-        }),
-        permit: Some(permit),
-        health: Some(health),
-    })
+        },
+    ))
 }
 
 pub(super) fn hard_committer(
@@ -227,6 +322,7 @@ mod tests {
         credential_runtime::CredentialRuntimeHandle,
         health::{AttemptHealth, EndpointHealthRuntime, ReliabilityPolicy},
         public_request::{RequestPermit, response::public_error},
+        request_telemetry::AttemptRecorder,
         scheduler_epoch::SchedulerEpoch,
     };
 
@@ -281,12 +377,13 @@ mod tests {
             request: None,
             permit: Some(RequestPermit::Generation(permit)),
             health: Some(health),
+            attempt_recorder: Some(AttemptRecorder::disabled()),
         };
 
-        let failure = prepared.fail_after_upstream_success(public_error(
-            PublicErrorCode::InternalError,
-            "test postprocess failure",
-        ));
+        let failure = prepared.fail_after_upstream_success(
+            200,
+            public_error(PublicErrorCode::InternalError, "test postprocess failure"),
+        );
 
         assert!(matches!(failure, super::AttemptFailure::Public(_)));
         assert_eq!(binding.capacity().in_flight(), 0);

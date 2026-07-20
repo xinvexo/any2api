@@ -97,6 +97,8 @@ pub enum StorageError {
     GatewayApiKeyHashKeyMismatch,
     #[error("stored configuration is invalid")]
     CorruptConfiguration,
+    #[error("stored request telemetry is invalid")]
+    CorruptTelemetry,
     #[error("setting value is invalid: {0}")]
     SettingsValidation(#[from] SettingsValidationError),
     #[error("secret vault initialization failed: {0}")]

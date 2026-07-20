@@ -13,6 +13,10 @@ pub enum SettingKey {
     AffinityHardTtl,
     AffinitySoftPreferWaitTimeout,
     AffinityFixedWaitTimeout,
+    LogsRequestEnabled,
+    LogsRequestRetention,
+    LogsRequestMaxRows,
+    LogsTelemetryQueueCapacity,
     SchedulerOnSaturated,
     SchedulerQueueTimeout,
     SchedulerMaxWaitingRequests,
@@ -40,7 +44,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 39] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -52,6 +56,10 @@ impl SettingKey {
         Self::AffinityHardTtl,
         Self::AffinitySoftPreferWaitTimeout,
         Self::AffinityFixedWaitTimeout,
+        Self::LogsRequestEnabled,
+        Self::LogsRequestRetention,
+        Self::LogsRequestMaxRows,
+        Self::LogsTelemetryQueueCapacity,
         Self::SchedulerOnSaturated,
         Self::SchedulerQueueTimeout,
         Self::SchedulerMaxWaitingRequests,
@@ -91,6 +99,10 @@ impl SettingKey {
             Self::AffinityHardTtl => "affinity.hard.ttl",
             Self::AffinitySoftPreferWaitTimeout => "affinity.soft.prefer_wait_timeout",
             Self::AffinityFixedWaitTimeout => "affinity.fixed_wait_timeout",
+            Self::LogsRequestEnabled => "logs.request.enabled",
+            Self::LogsRequestRetention => "logs.request.retention",
+            Self::LogsRequestMaxRows => "logs.request.max_rows",
+            Self::LogsTelemetryQueueCapacity => "logs.telemetry_queue_capacity",
             Self::SchedulerOnSaturated => "scheduler.on_saturated",
             Self::SchedulerQueueTimeout => "scheduler.queue_timeout",
             Self::SchedulerMaxWaitingRequests => "scheduler.max_waiting_requests",

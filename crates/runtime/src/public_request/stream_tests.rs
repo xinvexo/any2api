@@ -14,12 +14,13 @@ use futures_util::{StreamExt, stream};
 
 use super::{
     RequestPermit,
-    stream::{CommitState, GuardedBody},
+    stream::{CommitState, GuardedBody, GuardedBodyParts},
 };
 use crate::{
     affinity::{AffinityRegistry, AffinityTarget, HardAffinityCommitter},
     credential_auth::CredentialAuthMaterial,
     credential_runtime::CredentialRuntimeHandle,
+    request_telemetry::AttemptRecorder,
     scheduler_epoch::SchedulerEpoch,
 };
 
@@ -35,7 +36,8 @@ async fn guarded_body_primes_rewrites_and_releases_on_eof() {
     let mut body = guarded_body(upstream, permit)
         .prime()
         .await
-        .expect("primed stream");
+        .expect("primed stream")
+        .into_stream();
 
     assert_eq!(binding.capacity().in_flight(), 1);
     let first = body
@@ -113,7 +115,8 @@ async fn post_commit_error_releases_without_emitting_another_upstream() {
     let mut body = guarded_body(upstream, permit)
         .prime()
         .await
-        .expect("primed stream");
+        .expect("primed stream")
+        .into_stream();
 
     assert!(body.next().await.expect("first frame").is_ok());
     assert_eq!(binding.capacity().in_flight(), 1);
@@ -144,9 +147,13 @@ fn guarded_body(
         upstream,
         Arc::new(OpenAiResponsesAdapter::new()),
         "public",
-        RequestPermit::Generation(permit),
-        None,
-        hard_affinity,
+        GuardedBodyParts {
+            permit: RequestPermit::Generation(permit),
+            health: None,
+            hard_affinity,
+            attempt_recorder: AttemptRecorder::disabled(),
+            status_code: 200,
+        },
     )
 }
 

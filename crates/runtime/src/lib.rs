@@ -15,6 +15,7 @@ mod published_snapshot;
 mod publisher;
 mod queue;
 mod registry;
+mod request_telemetry;
 mod route_candidates;
 mod route_tier_cursor;
 mod scheduler;
@@ -33,3 +34,5 @@ mod model_route_publisher_tests;
 mod published_snapshot_tests;
 #[cfg(test)]
 mod publisher_tests;
+#[cfg(test)]
+mod request_telemetry_tests;

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    AdminSettings, AffinitySettings, ReliabilitySettings, SchedulerSettings, SettingKey,
-    SettingValue, SettingsValidationError, value::validate_value,
+    AdminSettings, AffinitySettings, LoggingSettings, ReliabilitySettings, SchedulerSettings,
+    SettingKey, SettingValue, SettingsValidationError, value::validate_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -52,6 +52,7 @@ pub struct SettingsConfiguration {
     affinity: AffinitySettings,
     reliability: ReliabilitySettings,
     admin: AdminSettings,
+    logging: LoggingSettings,
 }
 
 impl SettingsConfiguration {
@@ -60,12 +61,14 @@ impl SettingsConfiguration {
         let affinity = AffinitySettings::from_overrides(&overrides)?;
         let reliability = ReliabilitySettings::from_overrides(&overrides)?;
         let admin = AdminSettings::from_overrides(&overrides)?;
+        let logging = LoggingSettings::from_overrides(&overrides)?;
         Ok(Self {
             overrides,
             scheduler,
             affinity,
             reliability,
             admin,
+            logging,
         })
     }
 
@@ -88,6 +91,10 @@ impl SettingsConfiguration {
 
     pub const fn admin(&self) -> &AdminSettings {
         &self.admin
+    }
+
+    pub const fn logging(&self) -> &LoggingSettings {
+        &self.logging
     }
 
     pub const fn overrides(&self) -> &SettingOverrides {
@@ -138,6 +145,10 @@ mod tests {
         assert_eq!(settings.admin().session_absolute_timeout_ms(), 604_800_000);
         assert_eq!(settings.admin().login_failure_window_ms(), 900_000);
         assert_eq!(settings.admin().login_max_failures(), 5);
+        assert!(settings.logging().request_enabled());
+        assert_eq!(settings.logging().request_retention_ms(), 2_592_000_000);
+        assert_eq!(settings.logging().request_max_rows(), 200_000);
+        assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
         assert!(
             SettingKey::ALL
                 .into_iter()

@@ -9,17 +9,19 @@ use axum::{
 
 use crate::state::AppState;
 
-use super::{auth::AuthenticatedGatewayApiKey, error::PublicApiError};
+use super::{auth::AuthenticatedGatewayApiKey, error::PublicApiError, request_id::PublicRequestId};
 
 pub(crate) async fn responses(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
+    Extension(request_id): Extension<PublicRequestId>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     execute_public_request(
         state,
         authenticated,
+        request_id,
         headers,
         body,
         ProtocolOperation::Responses,
@@ -30,12 +32,14 @@ pub(crate) async fn responses(
 pub(crate) async fn responses_compact(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
+    Extension(request_id): Extension<PublicRequestId>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     execute_public_request(
         state,
         authenticated,
+        request_id,
         headers,
         body,
         ProtocolOperation::ResponsesCompact,
@@ -46,12 +50,14 @@ pub(crate) async fn responses_compact(
 pub(crate) async fn messages(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
+    Extension(request_id): Extension<PublicRequestId>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     execute_public_request(
         state,
         authenticated,
+        request_id,
         headers,
         body,
         ProtocolOperation::Messages,
@@ -62,12 +68,14 @@ pub(crate) async fn messages(
 pub(crate) async fn messages_count_tokens(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
+    Extension(request_id): Extension<PublicRequestId>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
     execute_public_request(
         state,
         authenticated,
+        request_id,
         headers,
         body,
         ProtocolOperation::MessagesCountTokens,
@@ -78,11 +86,11 @@ pub(crate) async fn messages_count_tokens(
 async fn execute_public_request(
     state: AppState,
     authenticated: AuthenticatedGatewayApiKey,
+    request_id: PublicRequestId,
     headers: HeaderMap,
     body: Bytes,
     operation: ProtocolOperation,
 ) -> Response {
-    let _gateway_api_key_id = authenticated.id();
     let Some(service) = state.public_requests() else {
         return PublicApiError::not_implemented().into_response();
     };
@@ -90,6 +98,8 @@ async fn execute_public_request(
         .execute(
             authenticated.snapshot_arc(),
             PublicRequest {
+                request_id: request_id.get(),
+                gateway_api_key_id: authenticated.id(),
                 operation,
                 headers,
                 body,

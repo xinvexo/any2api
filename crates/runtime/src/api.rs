@@ -18,4 +18,5 @@ pub use crate::published_snapshot::{PublishedSnapshot, SnapshotStore};
 pub use crate::publisher::ConfigPublisher;
 pub use crate::queue::{QueuePolicy, QueuePolicyError, SaturationAction};
 pub use crate::registry::RuntimeRegistry;
+pub use crate::request_telemetry::{RequestTelemetry, RequestTelemetryMetrics};
 pub use crate::scheduler::{SelectAndAcquireResult, select_and_try_acquire};

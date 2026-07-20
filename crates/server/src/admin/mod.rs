@@ -18,6 +18,8 @@ mod provider_endpoint_dto;
 mod provider_endpoint_handlers;
 mod proxy_dto;
 mod proxy_handlers;
+mod request_log_dto;
+mod request_log_handlers;
 mod revision;
 mod settings_dto;
 mod settings_handlers;
@@ -114,6 +116,8 @@ fn protected_routes() -> Router<AppState> {
             "/provider-credentials/{id}/rotate-secret",
             axum::routing::post(provider_credential_handlers::rotate_secret),
         )
+        .route("/request-logs", get(request_log_handlers::list))
+        .route("/request-logs/{id}", get(request_log_handlers::get))
         .route("/settings", get(settings_handlers::list))
         .route(
             "/settings/{key}",

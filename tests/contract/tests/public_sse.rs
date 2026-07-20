@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs, net::SocketAddr, sync::Arc, time::Duration};
 
 use any2api_contract_tests::build_public_request_components;
+use any2api_domain::RequestId;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -474,10 +475,11 @@ fn assert_stream_headers(response: &Response) {
     assert_eq!(response.headers()["cache-control"], "no-cache");
     assert!(response.headers().get("x-api-key").is_none());
     assert!(response.headers().get("set-cookie").is_none());
-    assert_eq!(
-        response.headers()["x-request-id"],
-        "upstream-stream-request"
-    );
+    let request_id = response.headers()["x-request-id"]
+        .to_str()
+        .expect("request ID text");
+    assert_ne!(request_id, "upstream-stream-request");
+    assert!(request_id.parse::<RequestId>().is_ok());
 }
 
 async fn read_paused_stream(response: Response, release: oneshot::Sender<()>) -> (String, String) {

@@ -1,7 +1,7 @@
 use std::time::SystemTime;
 
 use any2api_domain::{ErrorClass, PublicError, PublicErrorCode, UpstreamErrorClassification};
-use any2api_transport::api::BoxByteStream;
+use any2api_transport::api::{BoxByteStream, TransportError};
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use http::{HeaderMap, HeaderName, header};
@@ -9,17 +9,21 @@ use http::{HeaderMap, HeaderName, header};
 pub(super) const MAX_UPSTREAM_JSON_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_CLASSIFIED_ERROR_BYTES: usize = 64 * 1024;
 
-pub(super) async fn collect_body(mut body: BoxByteStream) -> Result<Bytes, PublicError> {
+#[derive(Debug)]
+pub(super) enum CollectBodyError {
+    Transport(TransportError),
+    Public(PublicError),
+}
+
+pub(super) async fn collect_body(mut body: BoxByteStream) -> Result<Bytes, CollectBodyError> {
     let mut collected = BytesMut::new();
     while let Some(chunk) = body.next().await {
-        let chunk = chunk.map_err(|_| {
-            public_error(PublicErrorCode::UpstreamError, "upstream response failed")
-        })?;
+        let chunk = chunk.map_err(CollectBodyError::Transport)?;
         if collected.len().saturating_add(chunk.len()) > MAX_UPSTREAM_JSON_BYTES {
-            return Err(public_error(
+            return Err(CollectBodyError::Public(public_error(
                 PublicErrorCode::UpstreamError,
                 "upstream response exceeded the configured limit",
-            ));
+            )));
         }
         collected.extend_from_slice(&chunk);
     }
@@ -81,6 +85,7 @@ pub(super) fn sanitize_response_headers(headers: &mut HeaderMap) {
     headers.remove("content-encoding");
     headers.remove("digest");
     headers.remove("x-api-key");
+    headers.remove("x-request-id");
 }
 
 fn trim_ows(mut value: &[u8]) -> &[u8] {
@@ -145,9 +150,32 @@ pub(super) fn public_error(code: PublicErrorCode, message: &'static str) -> Publ
 
 #[cfg(test)]
 mod tests {
+    use any2api_domain::RetrySafety;
+    use any2api_transport::api::{
+        BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
+    };
+    use futures_util::stream;
     use http::{HeaderMap, HeaderValue, header};
 
-    use super::sanitize_response_headers;
+    use super::{CollectBodyError, collect_body, sanitize_response_headers};
+
+    #[tokio::test]
+    async fn collect_body_preserves_transport_failure_metadata() {
+        let expected = TransportError::new(
+            TransportErrorStage::ReadBody,
+            TransportFailureScope::Proxy,
+            RetrySafety::DefinitelyNotSent,
+            "proxy response body failed",
+        );
+        let body: BoxByteStream = Box::pin(stream::iter([Err(expected.clone())]));
+
+        let error = collect_body(body).await.expect_err("body must fail");
+
+        match error {
+            CollectBodyError::Transport(error) => assert_eq!(error, expected),
+            CollectBodyError::Public(_) => panic!("transport error must keep its metadata"),
+        }
+    }
 
     #[test]
     fn response_headers_remove_sensitive_and_nominated_hop_by_hop_fields() {
@@ -181,6 +209,6 @@ mod tests {
         assert!(headers.get("content-encoding").is_none());
         assert!(headers.get("x-api-key").is_none());
         assert!(headers.get("x-private-hop").is_none());
-        assert_eq!(headers["x-request-id"], "request-1");
+        assert!(headers.get("x-request-id").is_none());
     }
 }

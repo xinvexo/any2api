@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use any2api_runtime::api::{ConfigPublisher, PublicRequestService, RuntimeRegistry, SnapshotStore};
+use any2api_runtime::api::{
+    ConfigPublisher, PublicRequestService, RequestTelemetry, RuntimeRegistry, SnapshotStore,
+};
 
 use crate::admin_auth::{AdminAuthService, AdminNetworkPolicy};
 
@@ -12,6 +14,7 @@ pub struct AppState {
     public_requests: Option<Arc<PublicRequestService>>,
     admin_auth: Option<Arc<AdminAuthService>>,
     admin_network: Arc<AdminNetworkPolicy>,
+    request_telemetry: Arc<RequestTelemetry>,
 }
 
 impl AppState {
@@ -28,6 +31,7 @@ impl AppState {
             public_requests: None,
             admin_auth: None,
             admin_network: Arc::new(AdminNetworkPolicy::default()),
+            request_telemetry: Arc::new(RequestTelemetry::disabled()),
         }
     }
 
@@ -45,6 +49,12 @@ impl AppState {
     ) -> Self {
         self.admin_auth = Some(admin_auth);
         self.admin_network = Arc::new(admin_network);
+        self
+    }
+
+    #[must_use]
+    pub fn with_request_telemetry(mut self, telemetry: Arc<RequestTelemetry>) -> Self {
+        self.request_telemetry = telemetry;
         self
     }
 
@@ -76,5 +86,10 @@ impl AppState {
     #[must_use]
     pub fn admin_network(&self) -> &AdminNetworkPolicy {
         &self.admin_network
+    }
+
+    #[must_use]
+    pub fn request_telemetry(&self) -> &RequestTelemetry {
+        &self.request_telemetry
     }
 }

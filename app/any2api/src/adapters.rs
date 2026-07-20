@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
-use any2api_runtime::api::PublicRequestService;
+use any2api_runtime::api::{PublicRequestService, RequestTelemetry};
 use any2api_transport::api::{ReqwestTransportManager, TransportManager, TransportManagerConfig};
 
 pub struct PublicRequestComponents {
@@ -29,6 +29,12 @@ impl PublicRequestComponents {
 }
 
 pub fn build_public_request_components() -> anyhow::Result<PublicRequestComponents> {
+    build_public_request_components_with_telemetry(Arc::new(RequestTelemetry::disabled()))
+}
+
+pub fn build_public_request_components_with_telemetry(
+    telemetry: Arc<RequestTelemetry>,
+) -> anyhow::Result<PublicRequestComponents> {
     let mut protocols = ProtocolRegistry::new();
     protocols.register(Arc::new(OpenAiResponsesAdapter::new()))?;
     protocols.register(Arc::new(AnthropicMessagesAdapter::new()))?;
@@ -42,11 +48,10 @@ pub fn build_public_request_components() -> anyhow::Result<PublicRequestComponen
     let transport: Arc<dyn TransportManager> = Arc::new(ReqwestTransportManager::new(
         TransportManagerConfig::default(),
     )?);
-    let service = Arc::new(PublicRequestService::new(
-        Arc::clone(&protocols),
-        Arc::clone(&providers),
-        transport,
-    )?);
+    let service = Arc::new(
+        PublicRequestService::new(Arc::clone(&protocols), Arc::clone(&providers), transport)?
+            .with_telemetry(telemetry),
+    );
     Ok(PublicRequestComponents {
         protocols,
         providers,

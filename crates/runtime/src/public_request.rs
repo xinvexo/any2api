@@ -11,7 +11,7 @@ mod stream_tests;
 
 use std::{pin::Pin, sync::Arc};
 
-use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError};
+use any2api_domain::{GatewayApiKeyId, ProtocolDialect, ProtocolOperation, PublicError, RequestId};
 use any2api_protocol::api::{EgressResponse, ProtocolAdapter, ProtocolRegistry};
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError, ProviderRegistry};
 use any2api_transport::api::TransportManager;
@@ -21,12 +21,17 @@ use http::{HeaderMap, StatusCode};
 use thiserror::Error;
 
 use crate::{
-    auxiliary_scheduler::AuxiliaryPermit, credential_runtime::ConcurrencyPermit,
-    published_snapshot::PublishedSnapshot, route_candidates::RouteCandidate,
+    auxiliary_scheduler::AuxiliaryPermit,
+    credential_runtime::ConcurrencyPermit,
+    published_snapshot::PublishedSnapshot,
+    request_telemetry::{RequestRecorder, RequestTelemetry},
+    route_candidates::RouteCandidate,
 };
 
 #[derive(Clone)]
 pub struct PublicRequest {
+    pub request_id: RequestId,
+    pub gateway_api_key_id: GatewayApiKeyId,
     pub operation: ProtocolOperation,
     pub headers: HeaderMap,
     pub body: Bytes,
@@ -50,6 +55,7 @@ pub struct PublicRequestService {
     protocols: Arc<ProtocolRegistry>,
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
+    telemetry: Arc<RequestTelemetry>,
 }
 
 impl PublicRequestService {
@@ -67,7 +73,14 @@ impl PublicRequestService {
             protocols,
             providers,
             transport,
+            telemetry: Arc::new(RequestTelemetry::disabled()),
         })
+    }
+
+    #[must_use]
+    pub fn with_telemetry(mut self, telemetry: Arc<RequestTelemetry>) -> Self {
+        self.telemetry = telemetry;
+        self
     }
 
     pub async fn execute(
@@ -75,17 +88,36 @@ impl PublicRequestService {
         snapshot: Arc<PublishedSnapshot>,
         request: PublicRequest,
     ) -> PublicResponse {
+        let policy = self
+            .telemetry
+            .policy(snapshot.revision(), snapshot.settings().logging());
+        let recorder = RequestRecorder::new(
+            Arc::clone(&self.telemetry),
+            policy,
+            request.request_id,
+            request.gateway_api_key_id,
+            request.operation,
+        );
         let adapter = Arc::clone(
             self.protocols
                 .get(request.operation.dialect())
                 .expect("validated protocol registry"),
         );
         let result = self
-            .execute_inner(snapshot, request, Arc::clone(&adapter))
+            .execute_inner(snapshot, request, Arc::clone(&adapter), recorder.clone())
             .await;
         match result {
-            Ok(response) => response,
-            Err(error) => adapter.error_response(&error).into(),
+            Ok(response) => {
+                if matches!(response.body, PublicResponseBody::Buffered(_)) {
+                    recorder.finish(response.status.as_u16(), None);
+                }
+                response
+            }
+            Err(error) => {
+                let response = adapter.error_response(&error);
+                recorder.finish_public_error(response.status.as_u16(), &error);
+                response.into()
+            }
         }
     }
 
@@ -94,6 +126,7 @@ impl PublicRequestService {
         snapshot: Arc<PublishedSnapshot>,
         request: PublicRequest,
         adapter: Arc<dyn ProtocolAdapter>,
+        recorder: RequestRecorder,
     ) -> Result<PublicResponse, PublicError> {
         let planned = planning::plan(
             snapshot.as_ref(),
@@ -102,12 +135,14 @@ impl PublicRequestService {
             self.providers.as_ref(),
         )
         .await?;
+        recorder.set_route(planned.public_model.clone(), planned.decoded.stream);
         retry::execute(
             snapshot,
             adapter,
             planned,
             self.providers.as_ref(),
             self.transport.as_ref(),
+            recorder,
         )
         .await
     }

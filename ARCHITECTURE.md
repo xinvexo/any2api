@@ -1450,7 +1450,7 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 - 5xx 与“请求已写出但响应丢失”等不确定结果保持 `Ambiguous`，首版不会为了提高成功率而默认执行 at-least-once 重试；
 - 外部 `Retry-After` 延迟按 30 天上限归一化；时间转换和 deadline 使用可失败加法，禁止溢出后退回当前时刻导致立即恢复；
 - 上游成功后的本地响应编码、模型恢复或粘性提交错误仍按上游健康成功结算；必须先解析 HalfOpen 探测，再释放 Credential Permit，最后返回本地错误；
-- 本切片先记录进程内 Attempt 结果并驱动健康状态；SQLite `request_attempts` 与历史 RequestLog 持久化仍属于后续可观测性切片。
+- 本切片已经把 RequestLog 与 Attempt 持久化到 SQLite，并继续用它们驱动本地查询；它们只属于历史遥测，不参与启动时的并发、队列、粘性或健康状态恢复。
 
 ### 14.1 RetrySafety
 
@@ -1713,6 +1713,8 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 
 RequestLog 与 Attempt 共用保留策略；达到期限或容量任一上限就分批清理。上述参数均可在 Web“设置”页面修改、覆盖或恢复默认。
 
+首个 RequestLog 可运行切片先接入 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows` 与 `logs.telemetry_queue_capacity`。`logs.file.*` 仍属于后续本地文件日志轮转切片，但必须继续使用同一 SettingRegistry，不能建立独立配置文件或第二套默认值来源。
+
 ### 16.3 后续 OAuth2 导入与刷新边界
 
 首版不启用以下流程，本节只固定未来扩展边界。
@@ -1950,6 +1952,18 @@ runtime_retired
 日志中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。
 
 运行指标至少暴露当前配置 revision、总/分 Credential 并发、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
+
+首个请求遥测切片采用以下边界：
+
+- `/v1` 外层生成本地 Request ID，并在所有公开响应中覆盖 `x-request-id`；
+- 已通过 GatewayApiKey 鉴权并进入模型执行链的请求创建 RequestLog，解码、规划、排队和上游错误均可形成最终记录；
+- 每次上游 Attempt 在健康结算后、Permit 释放前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；
+- 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；
+- SSE 只有在首帧验证与软绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
+- SQLite Writer 小批量事务写入父子记录，并按 retention/max_rows 任一上限分批清理；历史记录不参与启动恢复；
+- 首版没有协议级精确 usage/内容首 Token 钩子，因此 `first_token_ms`、输入/输出与缓存 Token 暂存 `NULL`，禁止用首个 SSE 控制事件或未知 JSON 字段猜测。
+
+完整决策见 `docs/adr/0015-bounded-request-telemetry.md`。
 
 ## 19. React 管理界面
 

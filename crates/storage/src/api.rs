@@ -9,6 +9,7 @@ pub use crate::provider_api_key::ProviderApiKeyValidationError;
 pub use crate::provider_credential_secret_material::{
     StoredProviderCredentialSecret, StoredProviderCredentialSecrets,
 };
+pub use crate::request_log_repository::RequestLogRepository;
 pub use crate::settings_repository::SettingRepository;
 pub use crate::sqlite::SqliteStore;
 pub use crate::vault::{

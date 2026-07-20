@@ -13,12 +13,14 @@ use crate::{
     provider_api_key_secret::ProviderApiKeySecret,
     published_snapshot::{PublishedSnapshot, SnapshotStore},
     registry::RuntimeRegistry,
+    request_telemetry::RequestTelemetry,
 };
 
 pub struct ConfigPublisher {
     pub(crate) repository: Arc<dyn ConfigurationRepository>,
     pub(crate) snapshots: Arc<SnapshotStore>,
     pub(crate) runtime: Arc<RuntimeRegistry>,
+    telemetry: Option<Arc<RequestTelemetry>>,
 }
 
 impl ConfigPublisher {
@@ -35,7 +37,14 @@ impl ConfigPublisher {
             repository,
             snapshots,
             runtime,
+            telemetry: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_telemetry(mut self, telemetry: Arc<RequestTelemetry>) -> Self {
+        self.telemetry = Some(telemetry);
+        self
     }
 
     pub async fn create_proxy(
@@ -288,6 +297,9 @@ impl ConfigPublisher {
             "repository committed an unexpected configuration revision"
         );
         let snapshot = PublishedSnapshot::new(committed, self.runtime.as_ref());
+        if let Some(telemetry) = &self.telemetry {
+            telemetry.update_policy(snapshot.revision(), snapshot.settings().logging());
+        }
         let published = self.snapshots.replace(snapshot);
         self.runtime.advance_scheduler_epoch();
         published

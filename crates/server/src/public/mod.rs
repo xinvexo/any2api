@@ -2,6 +2,7 @@ mod auth;
 mod error;
 mod handlers;
 mod models;
+mod request_id;
 
 use axum::{
     Router, middleware,
@@ -26,5 +27,6 @@ pub(crate) fn routes(state: AppState) -> Router {
             state.clone(),
             auth::require_gateway_api_key,
         ))
+        .layer(middleware::from_fn(request_id::assign))
         .with_state(state)
 }

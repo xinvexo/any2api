@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
+use any2api_runtime::api::{
+    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
+};
 use any2api_server::api::{AdminAuthService, AdminNetworkPolicy, AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use anyhow::Context;
@@ -9,7 +11,7 @@ use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    admin_auth_adapter::SqliteAdminCredentialStore, build_public_request_components,
+    admin_auth_adapter::SqliteAdminCredentialStore, build_public_request_components_with_telemetry,
     settings::AppSettings, shutdown,
 };
 
@@ -25,6 +27,11 @@ pub async fn run() -> anyhow::Result<()> {
         .load_configuration()
         .await
         .context("failed to load configuration")?;
+    let telemetry = Arc::new(RequestTelemetry::start(
+        Arc::clone(&storage),
+        configuration.revision(),
+        configuration.settings().logging(),
+    ));
     let admin_auth = Arc::new(
         AdminAuthService::load(Arc::new(SqliteAdminCredentialStore::new(Arc::clone(
             &storage,
@@ -52,17 +59,17 @@ pub async fn run() -> anyhow::Result<()> {
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = Arc::new(ConfigPublisher::new(
-        storage,
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-    ));
-    let public_requests = build_public_request_components()
+    let publisher = Arc::new(
+        ConfigPublisher::new(storage, Arc::clone(&snapshots), Arc::clone(&runtime))
+            .with_telemetry(Arc::clone(&telemetry)),
+    );
+    let public_requests = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
         .context("failed to initialize public request adapters")?
         .service();
     let app = build_router(
         AppState::new(snapshots, runtime, publisher)
             .with_public_requests(public_requests)
+            .with_request_telemetry(Arc::clone(&telemetry))
             .with_admin_auth(
                 admin_auth,
                 AdminNetworkPolicy::new(settings.trusted_proxy_cidrs.clone()),
@@ -74,13 +81,15 @@ pub async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("failed to bind {}", settings.bind))?;
 
     tracing::info!(address = %settings.bind, "any2api is listening");
-    axum::serve(
+    let result = axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown::signal())
     .await
-    .context("http server failed")
+    .context("http server failed");
+    telemetry.shutdown(std::time::Duration::from_secs(5)).await;
+    result
 }
 
 fn initialize_tracing() {

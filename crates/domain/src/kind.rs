@@ -59,3 +59,43 @@ pub enum TransportMode {
 pub enum CredentialKind {
     ApiKey,
 }
+
+impl ProtocolDialect {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAiResponses => "openai_responses",
+            Self::CodexBackend => "codex_backend",
+            Self::AnthropicMessages => "anthropic_messages",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "openai_responses" => Some(Self::OpenAiResponses),
+            "codex_backend" => Some(Self::CodexBackend),
+            "anthropic_messages" => Some(Self::AnthropicMessages),
+            _ => None,
+        }
+    }
+}
+
+impl ProtocolOperation {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Responses => "responses",
+            Self::ResponsesCompact => "responses_compact",
+            Self::Messages => "messages",
+            Self::MessagesCountTokens => "messages_count_tokens",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "responses" => Some(Self::Responses),
+            "responses_compact" => Some(Self::ResponsesCompact),
+            "messages" => Some(Self::Messages),
+            "messages_count_tokens" => Some(Self::MessagesCountTokens),
+            _ => None,
+        }
+    }
+}

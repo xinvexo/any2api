@@ -4,10 +4,10 @@ use std::{
 };
 
 use any2api_domain::{
-    CredentialId, CredentialKind, FallbackTier, MaxConcurrency, ModelRouteDraft, ModelRouteId,
-    ProtocolDialect, ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId, ProviderKind, ProxyProfileId, RetrySafety, SaturationMode, SettingKey,
-    SettingValue,
+    CredentialId, CredentialKind, FallbackTier, GatewayApiKeyId, MaxConcurrency, ModelRouteDraft,
+    ModelRouteId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestId,
+    RetrySafety, SaturationMode, SettingKey, SettingValue,
 };
 use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
@@ -398,6 +398,8 @@ async fn execute_json(harness: &Harness, model: &str, extra: Value) -> TestRespo
         .execute(
             Arc::clone(&harness.snapshot),
             PublicRequest {
+                request_id: RequestId::new(),
+                gateway_api_key_id: GatewayApiKeyId::new(),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::new(),
                 body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
