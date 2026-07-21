@@ -1,15 +1,15 @@
 use any2api_domain::ProtocolOperation;
-use any2api_runtime::api::{PublicRequest, PublicResponseBody};
+use any2api_runtime::api::PublicRequest;
 use axum::{
-    body::{Body, Bytes},
+    body::Bytes,
     extract::{Extension, State},
     http::HeaderMap,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 
 use crate::state::AppState;
 
-use super::{auth::AuthenticatedGatewayApiKey, error::PublicApiError, request_id::PublicRequestId};
+use super::{auth::AuthenticatedGatewayApiKey, request_id::PublicRequestId};
 
 pub(crate) async fn responses(
     State(state): State<AppState>,
@@ -91,10 +91,8 @@ async fn execute_public_request(
     body: Bytes,
     operation: ProtocolOperation,
 ) -> Response {
-    let Some(service) = state.public_requests() else {
-        return PublicApiError::not_implemented().into_response();
-    };
-    let response = service
+    let response = state
+        .public_requests()
         .execute(
             authenticated.snapshot_arc(),
             PublicRequest {
@@ -106,12 +104,5 @@ async fn execute_public_request(
             },
         )
         .await;
-    let body = match response.body {
-        PublicResponseBody::Buffered(body) => Body::from(body),
-        PublicResponseBody::Streaming(body) => Body::from_stream(body),
-    };
-    let mut outgoing = Response::new(body);
-    *outgoing.status_mut() = response.status;
-    *outgoing.headers_mut() = response.headers;
-    outgoing
+    super::response::from_runtime(response)
 }

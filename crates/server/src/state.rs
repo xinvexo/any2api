@@ -12,7 +12,7 @@ pub struct AppState {
     snapshots: Arc<SnapshotStore>,
     runtime: Arc<RuntimeRegistry>,
     publisher: Arc<ConfigPublisher>,
-    public_requests: Option<Arc<PublicRequestService>>,
+    public_requests: Arc<PublicRequestService>,
     proxy_tests: Option<Arc<ProxyTestService>>,
     admin_auth: Option<Arc<AdminAuthService>>,
     admin_network: Arc<AdminNetworkPolicy>,
@@ -25,23 +25,18 @@ impl AppState {
         snapshots: Arc<SnapshotStore>,
         runtime: Arc<RuntimeRegistry>,
         publisher: Arc<ConfigPublisher>,
+        public_requests: Arc<PublicRequestService>,
     ) -> Self {
         Self {
             snapshots,
             runtime,
             publisher,
-            public_requests: None,
+            public_requests,
             proxy_tests: None,
             admin_auth: None,
             admin_network: Arc::new(AdminNetworkPolicy::default()),
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
         }
-    }
-
-    #[must_use]
-    pub fn with_public_requests(mut self, public_requests: Arc<PublicRequestService>) -> Self {
-        self.public_requests = Some(public_requests);
-        self
     }
 
     #[must_use]
@@ -83,8 +78,8 @@ impl AppState {
     }
 
     #[must_use]
-    pub fn public_requests(&self) -> Option<&PublicRequestService> {
-        self.public_requests.as_deref()
+    pub fn public_requests(&self) -> &PublicRequestService {
+        self.public_requests.as_ref()
     }
 
     #[must_use]

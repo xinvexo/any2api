@@ -1,5 +1,6 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
+use any2api_contract_tests::build_public_request_components;
 use any2api_domain::SettingKey;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{
@@ -352,9 +353,13 @@ async fn build_test_app(
             .expect("admin auth"),
     );
     let setup_token = auth.setup_token().await;
+    let public_requests = build_public_request_components()
+        .expect("public request components")
+        .service();
     (
         build_router(
-            AppState::new(snapshots, runtime, publisher).with_admin_auth(auth, network),
+            AppState::new(snapshots, runtime, publisher, public_requests)
+                .with_admin_auth(auth, network),
             web_root,
         ),
         setup_token,

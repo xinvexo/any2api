@@ -60,6 +60,8 @@ impl ErrorClass {
 pub enum PublicErrorCode {
     Unauthorized,
     InvalidRequest,
+    PublicApiNotFound,
+    MethodNotAllowed,
     ModelNotFound,
     NoRoute,
     NoAvailableCredential,

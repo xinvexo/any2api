@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、严格 SSRF 本地 DNS、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、RequestLog/Attempt 有界遥测、单管理员远程 HTTP 认证以及代理认证/管理探测切片已完成；公开入口协议错误适配、文件日志轮转与 OAuth2 仍待完成。
-- 最近完成：`upstream.strict_ssrf` 热更新设置、DIRECT/HTTP forward/HTTPS CONNECT/SOCKS5 的统一本地解析与地址校验、代理目标 IP 固定以及原始 Host/HTTP2 authority/TLS SNI 保留；此前完成代理认证与管理探测、上游读取/流式超时、有界遥测、会话粘性、QueueTicket、同协议 JSON/SSE、错误分类、冷却、熔断和提交前多 Attempt 重试。
+- 当前阶段：阶段 4 可靠性、公开入口协议错误适配、严格 SSRF 本地 DNS、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、RequestLog/Attempt 有界遥测、单管理员远程 HTTP 认证以及代理认证/管理探测切片已完成；文件日志轮转与 OAuth2 仍待完成。
+- 最近完成：Gateway 401、认证头冲突、公开 404/405 已统一通过 OpenAI Responses 或 Anthropic Messages Adapter 编码；此前完成严格 SSRF 本地 DNS、代理认证与管理探测、上游读取/流式超时、有界遥测、会话粘性、QueueTicket、同协议 JSON/SSE、错误分类、冷却、熔断和提交前多 Attempt 重试。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: add upstream read and stream idle timeouts`。
-- 本切片主题：严格 SSRF 本地 DNS、固定代理目标与连接池解析代际。
+- 上一切片提交主题：`feat: add strict SSRF local DNS`。
+- 本切片主题：公开入口 Gateway/404/405 协议错误适配。
 
 ## 已完成
 
@@ -142,6 +142,14 @@
 - 固定目标 Hyper Client 与既有 reqwest Client 统一进入有界连接池缓存，key 包含代理配置代际、协议和完整已验证地址集合；DNS 结果变化会进入新 Client 代际，旧请求继续持有旧连接。
 - 严格 CONNECT/SOCKS 的代理握手错误归 Proxy，隧道建立后的 TLS 错误归 Endpoint；CONNECT 407 归 `ProxyHandshake + Proxy + RejectedBeforeExecution`。专属代理仍 Fail-Closed，不回退全局代理或 DIRECT。
 - Transport 真实网络测试覆盖 HTTP IP authority + Host、SOCKS5 IP target、CONNECT IP + SNI/Host、严格代理认证、407、TLS 归因和未授权私网在连接代理前拒绝；Settings HTTP 契约覆盖默认值、启用与恢复默认。
+
+### 公开入口协议错误适配切片
+
+- 新增并接受 ADR-0020；Gateway 鉴权失败、认证头冲突、公开 404 与 405 统一构造类型化 `PublicError`，再调用 Composition Root 注册的 ProtocolAdapter，Server 不维护第二套协议 JSON。
+- `/v1/responses`、`/v1/responses/compact` 使用 OpenAI Responses envelope；`/v1/messages`、`/v1/messages/count_tokens` 与 `messages/` 子路径使用 Anthropic envelope；`/v1/models` 和无法可靠判断协议的未知公开路径默认使用 OpenAI 格式。
+- `PublicErrorCode` 增加 `PublicApiNotFound` 与 `MethodNotAllowed`，由 Adapter 分别保持 404/405；所有入口错误继续返回 `x-request-id` 与 `Cache-Control: no-store`。
+- `PublicRequestService` 改为 `AppState` 构造必填项，删除可选执行服务、`not_implemented` 分支和未装配时的简化 fallback；生产与测试 Router 共享唯一错误编码链。
+- Protocol、Server 与真实 HTTP 契约覆盖 OpenAI/Anthropic 401、冲突认证头、404、405、路径方言选择、Request ID 和 no-store。
 
 ### ModelRoute 配置切片
 
@@ -311,12 +319,12 @@
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，但精确首 Token 与 Token Usage 尚未采集。
-- Gateway 鉴权失败与方法错误当前使用管理面统一 JSON envelope；已认证的协议执行错误才由 Responses/Messages Adapter 编码，协议专用 401 envelope 留待公开错误适配切片。
+- Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 
 ## 下一步
 
-1. 让 Gateway 401、公开 404/405 等入口错误通过 Responses/Messages 协议适配器编码。
-2. 补齐 `logs.file.*` 本地文件日志轮转，以及 RequestLog 多 Attempt/SSE 页面尚缺的自动化覆盖。
+1. 补齐 `logs.file.*` 本地文件日志轮转。
+2. 补齐 RequestLog 多 Attempt/SSE 页面尚缺的自动化覆盖。
 3. 后续再实现内建 Rustls、管理员密码在线轮换与 OAuth2 Provider 专用扩展。
 
 ## 验证结果

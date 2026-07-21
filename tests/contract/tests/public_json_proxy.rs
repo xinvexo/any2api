@@ -553,21 +553,23 @@ async fn claude_explicit_soft_session_stays_on_the_original_credential() {
 }
 
 #[tokio::test]
-async fn public_fallback_and_method_errors_require_authentication_and_return_json() {
+async fn public_ingress_errors_require_authentication_and_use_protocol_envelopes() {
     let (_directory, app, revision) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
 
     let missing = request_json(
         app.clone(),
-        Method::GET,
-        "/v1/not-a-route",
+        Method::POST,
+        "/v1/messages/not-a-route",
         None,
         loopback,
         &[],
     )
     .await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
-    assert_eq!(missing.body["error"]["code"], "unauthorized");
+    assert_eq!(missing.body["type"], "error");
+    assert_eq!(missing.body["error"]["type"], "authentication_error");
+    assert_eq!(missing.headers["cache-control"], "no-store");
     assert!(
         missing.headers["x-request-id"]
             .to_str()
@@ -576,7 +578,37 @@ async fn public_fallback_and_method_errors_require_authentication_and_return_jso
             .is_ok()
     );
 
+    let openai_missing = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses/compact",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(openai_missing.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(openai_missing.body["error"]["type"], "authentication_error");
+    assert_eq!(openai_missing.body["error"]["code"], "unauthorized");
+    assert_eq!(openai_missing.headers["cache-control"], "no-store");
+
     let token = create_gateway_key(&app, loopback, revision).await;
+    let conflicting = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/messages",
+        None,
+        loopback,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-api-key", "different".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(conflicting.status, StatusCode::BAD_REQUEST);
+    assert_eq!(conflicting.body["type"], "error");
+    assert_eq!(conflicting.body["error"]["type"], "invalid_request_error");
+
     let unknown = request_json(
         app.clone(),
         Method::GET,
@@ -587,7 +619,9 @@ async fn public_fallback_and_method_errors_require_authentication_and_return_jso
     )
     .await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
+    assert_eq!(unknown.body["error"]["type"], "invalid_request_error");
     assert_eq!(unknown.body["error"]["code"], "public_api_not_found");
+    assert_eq!(unknown.headers["cache-control"], "no-store");
     assert!(
         unknown.headers["x-request-id"]
             .to_str()
@@ -597,7 +631,7 @@ async fn public_fallback_and_method_errors_require_authentication_and_return_jso
     );
 
     let wrong_method = request_json(
-        app,
+        app.clone(),
         Method::GET,
         "/v1/responses",
         None,
@@ -606,6 +640,7 @@ async fn public_fallback_and_method_errors_require_authentication_and_return_jso
     )
     .await;
     assert_eq!(wrong_method.status, StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(wrong_method.body["error"]["type"], "invalid_request_error");
     assert_eq!(wrong_method.body["error"]["code"], "method_not_allowed");
     assert!(
         wrong_method.headers["x-request-id"]
@@ -614,6 +649,35 @@ async fn public_fallback_and_method_errors_require_authentication_and_return_jso
             .parse::<RequestId>()
             .is_ok()
     );
+
+    let claude_wrong_method = request_json(
+        app.clone(),
+        Method::GET,
+        "/v1/messages/count_tokens",
+        None,
+        loopback,
+        &[("x-api-key", token.clone())],
+    )
+    .await;
+    assert_eq!(claude_wrong_method.status, StatusCode::METHOD_NOT_ALLOWED);
+    assert_eq!(claude_wrong_method.body["type"], "error");
+    assert_eq!(
+        claude_wrong_method.body["error"]["type"],
+        "invalid_request_error"
+    );
+
+    let claude_unknown = request_json(
+        app,
+        Method::GET,
+        "/v1/messages/not-a-route",
+        None,
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(claude_unknown.status, StatusCode::NOT_FOUND);
+    assert_eq!(claude_unknown.body["type"], "error");
+    assert_eq!(claude_unknown.body["error"]["type"], "not_found_error");
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, u64) {
@@ -647,9 +711,7 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let revision = snapshots.load().revision().get();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher)
-            .with_public_requests(service)
-            .with_request_telemetry(telemetry),
+        AppState::new(snapshots, runtime, publisher, service).with_request_telemetry(telemetry),
         web_root,
     );
     (directory, app, revision)

@@ -1,5 +1,6 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
+use any2api_contract_tests::build_public_request_components;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -226,7 +227,13 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let app = build_router(AppState::new(snapshots, runtime, publisher), web_root);
+    let public_requests = build_public_request_components()
+        .expect("public request components")
+        .service();
+    let app = build_router(
+        AppState::new(snapshots, runtime, publisher, public_requests),
+        web_root,
+    );
     (directory, app, storage)
 }
 

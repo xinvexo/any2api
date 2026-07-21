@@ -106,7 +106,10 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
 fn error_type(code: PublicErrorCode) -> &'static str {
     match code {
         PublicErrorCode::Unauthorized => "authentication_error",
-        PublicErrorCode::InvalidRequest => "invalid_request_error",
+        PublicErrorCode::InvalidRequest | PublicErrorCode::MethodNotAllowed => {
+            "invalid_request_error"
+        }
+        PublicErrorCode::PublicApiNotFound => "not_found_error",
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => "not_found_error",
@@ -123,6 +126,8 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
     match code {
         PublicErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         PublicErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
+        PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
+        PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
@@ -258,6 +263,15 @@ mod tests {
         let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
         assert_eq!(response.status, StatusCode::NOT_FOUND);
         assert_eq!(body["error"]["type"], "not_found_error");
+
+        let method = adapter.error_response(&PublicError::new(
+            PublicErrorCode::MethodNotAllowed,
+            "wrong method",
+        ));
+        let body: Value = serde_json::from_slice(&method.body).expect("error JSON");
+        assert_eq!(method.status, StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(body["type"], "error");
+        assert_eq!(body["error"]["type"], "invalid_request_error");
     }
 
     #[test]

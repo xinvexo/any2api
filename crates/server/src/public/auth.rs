@@ -9,7 +9,7 @@ use axum::{
         header::{AUTHORIZATION, COOKIE, PROXY_AUTHORIZATION},
     },
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 
 use crate::state::AppState;
@@ -43,11 +43,11 @@ pub(crate) async fn require_gateway_api_key(
 ) -> Response {
     let token = match extract_token(request.headers()) {
         Ok(token) => token,
-        Err(error) => return error.into_response(),
+        Err(error) => return error.into_response_for(&state, request.uri()),
     };
     let snapshot = state.snapshots().load();
     let Some(id) = snapshot.authenticate_gateway_api_key(&token) else {
-        return PublicApiError::unauthorized().into_response();
+        return PublicApiError::unauthorized().into_response_for(&state, request.uri());
     };
 
     strip_client_credentials(request.headers_mut());

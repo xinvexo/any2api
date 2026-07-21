@@ -894,7 +894,7 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let revision = snapshots.load().revision().get();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher).with_public_requests(service),
+        AppState::new(snapshots, runtime, publisher, service),
         web_root,
     );
     (directory, app, revision)

@@ -122,7 +122,7 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher).with_public_requests(service),
+        AppState::new(snapshots, runtime, publisher, service),
         web_root,
     );
     let remote = SocketAddr::from(([127, 0, 0, 1], 41000));

@@ -3,6 +3,7 @@ mod error;
 mod handlers;
 mod models;
 mod request_id;
+mod response;
 
 use axum::{
     Router, middleware,

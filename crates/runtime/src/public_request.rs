@@ -123,6 +123,15 @@ impl PublicRequestService {
         }
     }
 
+    #[must_use]
+    pub fn error_response(&self, dialect: ProtocolDialect, error: &PublicError) -> PublicResponse {
+        self.protocols
+            .get(dialect)
+            .expect("validated protocol registry")
+            .error_response(error)
+            .into()
+    }
+
     async fn execute_inner(
         &self,
         snapshot: Arc<PublishedSnapshot>,

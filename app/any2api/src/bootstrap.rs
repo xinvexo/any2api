@@ -68,8 +68,7 @@ pub async fn run() -> anyhow::Result<()> {
     let public_requests = request_components.service();
     let proxy_tests = request_components.proxy_test_service();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher)
-            .with_public_requests(public_requests)
+        AppState::new(snapshots, runtime, publisher, public_requests)
             .with_proxy_tests(proxy_tests)
             .with_request_telemetry(Arc::clone(&telemetry))
             .with_admin_auth(

@@ -1,5 +1,6 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
+use any2api_contract_tests::build_public_request_components;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -59,6 +60,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
 
     let missing = request_json(app.clone(), Method::GET, "/v1/models", None, loopback, &[]).await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(missing.body["error"]["type"], "authentication_error");
     assert_eq!(missing.body["error"]["code"], "unauthorized");
 
     let valid = request_json(
@@ -353,9 +355,15 @@ async fn test_app() -> (tempfile::TempDir, Router) {
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
+    let public_requests = build_public_request_components()
+        .expect("public request components")
+        .service();
     (
         directory,
-        build_router(AppState::new(snapshots, runtime, publisher), web_root),
+        build_router(
+            AppState::new(snapshots, runtime, publisher, public_requests),
+            web_root,
+        ),
     )
 }
 

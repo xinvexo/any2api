@@ -1,5 +1,6 @@
 use std::{fs, sync::Arc};
 
+use any2api_contract_tests::build_public_request_components;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -30,7 +31,13 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
     ));
-    let app = build_router(AppState::new(snapshots, runtime, publisher), web_root);
+    let public_requests = build_public_request_components()
+        .expect("public request components")
+        .service();
+    let app = build_router(
+        AppState::new(snapshots, runtime, publisher, public_requests),
+        web_root,
+    );
     let response = app
         .clone()
         .oneshot(

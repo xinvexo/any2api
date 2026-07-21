@@ -1,5 +1,6 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
+use any2api_contract_tests::build_public_request_components;
 use any2api_runtime::api::{
     ConfigPublisher, ProxyTestService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
 };
@@ -441,8 +442,11 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     let proxy_tests = Arc::new(ProxyTestService::new(Arc::new(
         ReqwestTransportManager::default(),
     )));
+    let public_requests = build_public_request_components()
+        .expect("public request components")
+        .service();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher).with_proxy_tests(proxy_tests),
+        AppState::new(snapshots, runtime, publisher, public_requests).with_proxy_tests(proxy_tests),
         web_root,
     );
 

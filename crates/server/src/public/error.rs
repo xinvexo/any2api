@@ -1,71 +1,79 @@
+use any2api_domain::{ProtocolDialect, PublicError, PublicErrorCode};
 use axum::{
-    Json,
-    http::{HeaderValue, StatusCode, header::CACHE_CONTROL},
-    response::{IntoResponse, Response},
+    extract::{Request, State},
+    http::{HeaderValue, Uri, header::CACHE_CONTROL},
+    response::Response,
 };
-use serde::Serialize;
+
+use crate::state::AppState;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PublicErrorKind {
+    Unauthorized,
+    ConflictingCredentials,
+    NotFound,
+    MethodNotAllowed,
+}
 
 #[derive(Debug)]
 pub(crate) struct PublicApiError {
-    status: StatusCode,
-    code: &'static str,
-    message: &'static str,
+    kind: PublicErrorKind,
 }
 
 impl PublicApiError {
     pub(crate) const fn unauthorized() -> Self {
         Self {
-            status: StatusCode::UNAUTHORIZED,
-            code: "unauthorized",
-            message: "a valid Gateway API Key is required",
+            kind: PublicErrorKind::Unauthorized,
         }
     }
 
     pub(crate) const fn conflicting_credentials() -> Self {
         Self {
-            status: StatusCode::BAD_REQUEST,
-            code: "invalid_request",
-            message: "authentication headers must contain the same Gateway API Key",
+            kind: PublicErrorKind::ConflictingCredentials,
         }
     }
 
-    pub(crate) const fn not_implemented() -> Self {
+    const fn not_found() -> Self {
         Self {
-            status: StatusCode::NOT_IMPLEMENTED,
-            code: "public_api_not_implemented",
-            message: "this public protocol endpoint is not implemented yet",
+            kind: PublicErrorKind::NotFound,
         }
     }
 
-    pub(crate) const fn not_found() -> Self {
+    const fn method_not_allowed() -> Self {
         Self {
-            status: StatusCode::NOT_FOUND,
-            code: "public_api_not_found",
-            message: "public API route was not found",
+            kind: PublicErrorKind::MethodNotAllowed,
         }
     }
 
-    pub(crate) const fn method_not_allowed() -> Self {
-        Self {
-            status: StatusCode::METHOD_NOT_ALLOWED,
-            code: "method_not_allowed",
-            message: "request method is not allowed for this public API route",
-        }
+    pub(crate) fn into_response_for(self, state: &AppState, uri: &Uri) -> Response {
+        self.into_response_for_dialect(state, dialect_for_uri(uri))
     }
-}
 
-impl IntoResponse for PublicApiError {
-    fn into_response(self) -> Response {
-        let mut response = (
-            self.status,
-            Json(ErrorEnvelope {
-                error: ErrorBody {
-                    code: self.code,
-                    message: self.message,
-                },
-            }),
-        )
-            .into_response();
+    fn into_response_for_dialect(self, state: &AppState, dialect: ProtocolDialect) -> Response {
+        let (code, message) = match self.kind {
+            PublicErrorKind::Unauthorized => (
+                PublicErrorCode::Unauthorized,
+                "a valid Gateway API Key is required",
+            ),
+            PublicErrorKind::ConflictingCredentials => (
+                PublicErrorCode::InvalidRequest,
+                "authentication headers must contain the same Gateway API Key",
+            ),
+            PublicErrorKind::NotFound => (
+                PublicErrorCode::PublicApiNotFound,
+                "public API route was not found",
+            ),
+            PublicErrorKind::MethodNotAllowed => (
+                PublicErrorCode::MethodNotAllowed,
+                "request method is not allowed for this public API route",
+            ),
+        };
+        let public_error = PublicError::new(code, message);
+        let mut response = super::response::from_runtime(
+            state
+                .public_requests()
+                .error_response(dialect, &public_error),
+        );
         response
             .headers_mut()
             .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -73,21 +81,58 @@ impl IntoResponse for PublicApiError {
     }
 }
 
-#[derive(Serialize)]
-struct ErrorEnvelope {
-    error: ErrorBody,
+pub(crate) async fn not_found(State(state): State<AppState>, request: Request) -> Response {
+    PublicApiError::not_found().into_response_for(&state, request.uri())
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
-    code: &'static str,
-    message: &'static str,
+pub(crate) async fn method_not_allowed(
+    State(state): State<AppState>,
+    request: Request,
+) -> Response {
+    PublicApiError::method_not_allowed().into_response_for(&state, request.uri())
 }
 
-pub(crate) async fn not_found() -> PublicApiError {
-    PublicApiError::not_found()
+fn dialect_for_uri(uri: &Uri) -> ProtocolDialect {
+    let path = uri
+        .path()
+        .trim_start_matches('/')
+        .strip_prefix("v1/")
+        .unwrap_or_else(|| uri.path().trim_start_matches('/'));
+    if path == "messages" || path.starts_with("messages/") {
+        ProtocolDialect::AnthropicMessages
+    } else {
+        ProtocolDialect::OpenAiResponses
+    }
 }
 
-pub(crate) async fn method_not_allowed() -> PublicApiError {
-    PublicApiError::method_not_allowed()
+#[cfg(test)]
+mod tests {
+    use any2api_domain::ProtocolDialect;
+    use axum::http::Uri;
+
+    use super::dialect_for_uri;
+
+    #[test]
+    fn messages_paths_use_anthropic_and_other_paths_use_openai() {
+        assert_eq!(
+            dialect_for_uri(&Uri::from_static("/messages")),
+            ProtocolDialect::AnthropicMessages
+        );
+        assert_eq!(
+            dialect_for_uri(&Uri::from_static("/messages/count_tokens")),
+            ProtocolDialect::AnthropicMessages
+        );
+        assert_eq!(
+            dialect_for_uri(&Uri::from_static("/v1/messages/count_tokens")),
+            ProtocolDialect::AnthropicMessages
+        );
+        assert_eq!(
+            dialect_for_uri(&Uri::from_static("/responses")),
+            ProtocolDialect::OpenAiResponses
+        );
+        assert_eq!(
+            dialect_for_uri(&Uri::from_static("/not-a-route")),
+            ProtocolDialect::OpenAiResponses
+        );
+    }
 }

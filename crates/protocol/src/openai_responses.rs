@@ -192,6 +192,8 @@ fn error_type(code: PublicErrorCode) -> &'static str {
     match code {
         PublicErrorCode::Unauthorized => "authentication_error",
         PublicErrorCode::InvalidRequest
+        | PublicErrorCode::PublicApiNotFound
+        | PublicErrorCode::MethodNotAllowed
         | PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound
@@ -207,6 +209,8 @@ fn error_code(code: PublicErrorCode) -> &'static str {
     match code {
         PublicErrorCode::Unauthorized => "unauthorized",
         PublicErrorCode::InvalidRequest => "invalid_request",
+        PublicErrorCode::PublicApiNotFound => "public_api_not_found",
+        PublicErrorCode::MethodNotAllowed => "method_not_allowed",
         PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "model_not_found",
         PublicErrorCode::UpstreamNotFound => "upstream_not_found",
         PublicErrorCode::NoAvailableCredential => "no_available_credential",
@@ -221,6 +225,8 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
     match code {
         PublicErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         PublicErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
+        PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
+        PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
@@ -322,6 +328,22 @@ mod tests {
         let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
         assert_eq!(body["error"]["type"], "invalid_request_error");
         assert_eq!(body["error"]["code"], "model_not_found");
+
+        let not_found = adapter.error_response(&PublicError::new(
+            PublicErrorCode::PublicApiNotFound,
+            "missing route",
+        ));
+        let body: Value = serde_json::from_slice(&not_found.body).expect("error JSON");
+        assert_eq!(not_found.status, http::StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["code"], "public_api_not_found");
+
+        let method = adapter.error_response(&PublicError::new(
+            PublicErrorCode::MethodNotAllowed,
+            "wrong method",
+        ));
+        let body: Value = serde_json::from_slice(&method.body).expect("error JSON");
+        assert_eq!(method.status, http::StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(body["error"]["code"], "method_not_allowed");
     }
 
     #[test]
