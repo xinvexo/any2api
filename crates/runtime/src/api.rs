@@ -10,6 +10,11 @@ pub use crate::credential_runtime::{
 pub use crate::gateway_api_key_publisher::GatewayApiKeyPublishResult;
 pub use crate::gateway_api_key_token::{GatewayApiKeyToken, GatewayApiKeyTokenGenerationError};
 pub use crate::provider_api_key_secret::ProviderApiKeySecret;
+pub use crate::proxy_password_secret::ProxyPasswordSecret;
+pub use crate::proxy_test::{
+    ProxyTestError, ProxyTestFailureScope, ProxyTestFailureStage, ProxyTestOutcome,
+    ProxyTestResult, ProxyTestService,
+};
 pub use crate::public_request::{
     PublicRequest, PublicRequestService, PublicRequestServiceError, PublicResponse,
     PublicResponseBody, PublicResponseStream,

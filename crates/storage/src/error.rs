@@ -8,6 +8,7 @@ use any2api_domain::{
 use thiserror::Error;
 
 use crate::provider_api_key::ProviderApiKeyValidationError;
+use crate::proxy_password::ProxyPasswordValidationError;
 use crate::vault::SecretVaultError;
 
 #[derive(Debug, Error)]
@@ -45,6 +46,8 @@ pub enum StorageError {
     ProxyNameConflict,
     #[error("proxy configuration is invalid: {0}")]
     ProxyValidation(#[from] ProxyValidationError),
+    #[error("proxy password is invalid: {0}")]
+    ProxyPasswordValidation(#[from] ProxyPasswordValidationError),
     #[error("provider endpoint was not found")]
     ProviderEndpointNotFound(ProviderEndpointId),
     #[error("provider endpoint version conflict")]

@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
-use any2api_runtime::api::{PublicRequestService, RequestTelemetry};
+use any2api_runtime::api::{ProxyTestService, PublicRequestService, RequestTelemetry};
 use any2api_transport::api::{ReqwestTransportManager, TransportManager, TransportManagerConfig};
 
 pub struct PublicRequestComponents {
     protocols: Arc<ProtocolRegistry>,
     providers: Arc<ProviderRegistry>,
     service: Arc<PublicRequestService>,
+    proxy_tests: Arc<ProxyTestService>,
 }
 
 impl PublicRequestComponents {
@@ -25,6 +26,11 @@ impl PublicRequestComponents {
     #[must_use]
     pub fn service(&self) -> Arc<PublicRequestService> {
         Arc::clone(&self.service)
+    }
+
+    #[must_use]
+    pub fn proxy_test_service(&self) -> Arc<ProxyTestService> {
+        Arc::clone(&self.proxy_tests)
     }
 }
 
@@ -48,6 +54,7 @@ pub fn build_public_request_components_with_telemetry(
     let transport: Arc<dyn TransportManager> = Arc::new(ReqwestTransportManager::new(
         TransportManagerConfig::default(),
     )?);
+    let proxy_tests = Arc::new(ProxyTestService::new(Arc::clone(&transport)));
     let service = Arc::new(
         PublicRequestService::new(Arc::clone(&protocols), Arc::clone(&providers), transport)?
             .with_telemetry(telemetry),
@@ -56,5 +63,6 @@ pub fn build_public_request_components_with_telemetry(
         protocols,
         providers,
         service,
+        proxy_tests,
     })
 }

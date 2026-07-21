@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use any2api_runtime::api::{
-    ConfigPublisher, PublicRequestService, RequestTelemetry, RuntimeRegistry, SnapshotStore,
+    ConfigPublisher, ProxyTestService, PublicRequestService, RequestTelemetry, RuntimeRegistry,
+    SnapshotStore,
 };
 
 use crate::admin_auth::{AdminAuthService, AdminNetworkPolicy};
@@ -12,6 +13,7 @@ pub struct AppState {
     runtime: Arc<RuntimeRegistry>,
     publisher: Arc<ConfigPublisher>,
     public_requests: Option<Arc<PublicRequestService>>,
+    proxy_tests: Option<Arc<ProxyTestService>>,
     admin_auth: Option<Arc<AdminAuthService>>,
     admin_network: Arc<AdminNetworkPolicy>,
     request_telemetry: Arc<RequestTelemetry>,
@@ -29,6 +31,7 @@ impl AppState {
             runtime,
             publisher,
             public_requests: None,
+            proxy_tests: None,
             admin_auth: None,
             admin_network: Arc::new(AdminNetworkPolicy::default()),
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
@@ -38,6 +41,12 @@ impl AppState {
     #[must_use]
     pub fn with_public_requests(mut self, public_requests: Arc<PublicRequestService>) -> Self {
         self.public_requests = Some(public_requests);
+        self
+    }
+
+    #[must_use]
+    pub fn with_proxy_tests(mut self, proxy_tests: Arc<ProxyTestService>) -> Self {
+        self.proxy_tests = Some(proxy_tests);
         self
     }
 
@@ -76,6 +85,11 @@ impl AppState {
     #[must_use]
     pub fn public_requests(&self) -> Option<&PublicRequestService> {
         self.public_requests.as_deref()
+    }
+
+    #[must_use]
+    pub fn proxy_tests(&self) -> Option<&ProxyTestService> {
+        self.proxy_tests.as_deref()
     }
 
     #[must_use]

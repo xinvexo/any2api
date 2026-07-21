@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    error::Error as _,
+    sync::{Arc, Mutex},
+};
 
 use any2api_domain::{ProxyKind, ProxyProfile, ProxyProfileId};
 use async_trait::async_trait;
@@ -9,7 +12,7 @@ use tokio::time::timeout;
 
 use crate::{
     api::{
-        BoxByteStream, TransportManager, TransportManagerConfig, TransportRequest,
+        BoxByteStream, TransportManager, TransportManagerConfig, TransportProxy, TransportRequest,
         TransportResponse,
     },
     client_cache::ClientCache,
@@ -104,14 +107,23 @@ impl ReqwestTransportManager {
 
     #[cfg(test)]
     pub(crate) fn client_for(&self, profile: &ProxyProfile) -> Result<Arc<Client>, TransportError> {
-        self.client_for_resolved(profile, None)
+        self.client_for_resolved(TransportProxy::new(profile, None), None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn client_for_proxy(
+        &self,
+        proxy: TransportProxy<'_>,
+    ) -> Result<Arc<Client>, TransportError> {
+        self.client_for_resolved(proxy, None)
     }
 
     fn client_for_resolved(
         &self,
-        profile: &ProxyProfile,
+        proxy: TransportProxy<'_>,
         resolved_origin: Option<&ResolvedOrigin>,
     ) -> Result<Arc<Client>, TransportError> {
+        let profile = proxy.profile();
         if !profile.enabled() {
             return Err(TransportError::configuration(
                 "configured proxy is disabled",
@@ -135,7 +147,7 @@ impl ReqwestTransportManager {
             build_client(
                 config,
                 extra_root_certificates,
-                profile,
+                proxy,
                 resolved_origin.as_ref(),
             )
         })
@@ -144,18 +156,20 @@ impl ReqwestTransportManager {
     fn map_send_error(
         &self,
         profile: &ProxyProfile,
-        proxy_connection_is_verifiable: bool,
+        uses_http_forward_proxy: bool,
         error: reqwest::Error,
     ) -> TransportError {
         if error.is_connect() {
-            if profile.kind() == ProxyKind::Direct {
+            if profile.kind() == ProxyKind::Http && is_proxy_authentication_error(&error) {
+                TransportError::proxy_unavailable("configured proxy authentication was rejected")
+            } else if profile.kind() == ProxyKind::Direct {
                 TransportError::new(
                     TransportErrorStage::Tcp,
                     TransportFailureScope::Endpoint,
                     any2api_domain::RetrySafety::DefinitelyNotSent,
                     "direct connection failed",
                 )
-            } else if proxy_connection_is_verifiable {
+            } else if uses_http_forward_proxy {
                 TransportError::proxy_unavailable("configured proxy connection failed")
             } else {
                 TransportError::new(
@@ -193,16 +207,17 @@ impl Default for ReqwestTransportManager {
 impl TransportManager for ReqwestTransportManager {
     async fn execute(
         &self,
-        proxy: &ProxyProfile,
+        proxy: TransportProxy<'_>,
         request: TransportRequest,
     ) -> Result<TransportResponse, TransportError> {
+        let profile = proxy.profile();
         validate_uri(&request.uri)?;
-        let proxy_connection_is_verifiable =
-            proxy.kind() == ProxyKind::Http && request.uri.scheme_str() == Some("http");
-        let body_failure_scope = failure_scope_for_unverified_path(proxy);
+        let uses_http_forward_proxy =
+            profile.kind() == ProxyKind::Http && request.uri.scheme_str() == Some("http");
+        let body_failure_scope = failure_scope_for_unverified_path(profile);
         let read_timeout = request.read_timeout;
         let resolved_origin =
-            resolve_origin(&request.uri, request.network_policy, proxy.kind()).await?;
+            resolve_origin(&request.uri, request.network_policy, profile.kind()).await?;
         let client = self.client_for_resolved(proxy, resolved_origin.as_ref())?;
         let (body, body_sent) = signaled_request_body(request.body);
         let send = client
@@ -214,12 +229,12 @@ impl TransportManager for ReqwestTransportManager {
         let response = tokio::select! {
             biased;
             result = &mut send => result.map_err(|error| {
-                self.map_send_error(proxy, proxy_connection_is_verifiable, error)
+                self.map_send_error(profile, uses_http_forward_proxy, error)
             }),
             signal = body_sent => {
                 if signal.is_err() {
                     (&mut send).await.map_err(|error| {
-                        self.map_send_error(proxy, proxy_connection_is_verifiable, error)
+                        self.map_send_error(profile, uses_http_forward_proxy, error)
                     })
                 } else {
                     timeout(read_timeout, &mut send)
@@ -233,12 +248,20 @@ impl TransportManager for ReqwestTransportManager {
                             )
                         })?
                         .map_err(|error| {
-                            self.map_send_error(proxy, proxy_connection_is_verifiable, error)
+                            self.map_send_error(profile, uses_http_forward_proxy, error)
                         })
                 }
             }
         }?;
         let status = response.status();
+        if uses_http_forward_proxy && status == reqwest::StatusCode::PROXY_AUTHENTICATION_REQUIRED {
+            return Err(TransportError::new(
+                TransportErrorStage::ProxyHandshake,
+                TransportFailureScope::Proxy,
+                any2api_domain::RetrySafety::RejectedBeforeExecution,
+                "configured proxy authentication was rejected",
+            ));
+        }
         let headers = response.headers().clone();
         let body: BoxByteStream = Box::pin(response.bytes_stream().map(move |result| {
             result.map_err(|_| {
@@ -259,12 +282,27 @@ impl TransportManager for ReqwestTransportManager {
     }
 }
 
+// reqwest 0.12.28 does not re-export hyper-util's TunnelError, so the typed
+// CONNECT 407 case is identified through its stable source display and pinned by a real test.
+fn is_proxy_authentication_error(error: &reqwest::Error) -> bool {
+    let mut source = error.source();
+    while let Some(cause) = source {
+        if cause.to_string() == "tunnel error: proxy authorization required" {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
+}
+
 fn build_client(
     config: TransportManagerConfig,
     extra_root_certificates: &[Certificate],
-    profile: &ProxyProfile,
+    proxy: TransportProxy<'_>,
     resolved_origin: Option<&ResolvedOrigin>,
 ) -> Result<Client, TransportError> {
+    let profile = proxy.profile();
+    validate_proxy_credentials(proxy)?;
     let mut builder: ClientBuilder = Client::builder()
         .use_rustls_tls()
         .connect_timeout(config.connect_timeout)
@@ -280,9 +318,13 @@ fn build_client(
         builder = builder.add_root_certificate(certificate.clone());
     }
     if let Some(url) = proxy_url(profile)? {
-        let proxy = Proxy::all(url.as_str())
+        let mut reqwest_proxy = Proxy::all(url.as_str())
             .map_err(|_| TransportError::configuration("configured proxy URL is invalid"))?;
-        builder = builder.proxy(proxy);
+        if let Some(credentials) = proxy.credentials() {
+            reqwest_proxy =
+                reqwest_proxy.basic_auth(credentials.username(), credentials.password());
+        }
+        builder = builder.proxy(reqwest_proxy);
     }
     builder.build().map_err(|_| {
         TransportError::new(
@@ -296,6 +338,19 @@ fn build_client(
             "transport client construction failed",
         )
     })
+}
+
+fn validate_proxy_credentials(proxy: TransportProxy<'_>) -> Result<(), TransportError> {
+    let profile = proxy.profile();
+    match (profile.authentication(), proxy.credentials()) {
+        (None, None) => Ok(()),
+        (Some(metadata), Some(credentials)) if metadata.username() == credentials.username() => {
+            Ok(())
+        }
+        _ => Err(TransportError::configuration(
+            "configured proxy authentication material is inconsistent",
+        )),
+    }
 }
 
 fn validate_uri(uri: &Uri) -> Result<(), TransportError> {

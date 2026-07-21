@@ -8,7 +8,7 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 
 pub use crate::{
     ReqwestTransportManager, TransportConfigurationError, TransportError, TransportErrorStage,
-    TransportFailureScope,
+    TransportFailureScope, proxy_credentials::ProxyCredentials,
 };
 
 pub type BoxByteStream =
@@ -82,11 +82,47 @@ pub struct TransportResponse {
     pub read_failure_scope: TransportFailureScope,
 }
 
+#[derive(Clone, Copy)]
+pub struct TransportProxy<'a> {
+    profile: &'a ProxyProfile,
+    credentials: Option<&'a ProxyCredentials>,
+}
+
+impl<'a> TransportProxy<'a> {
+    #[must_use]
+    pub const fn new(profile: &'a ProxyProfile, credentials: Option<&'a ProxyCredentials>) -> Self {
+        Self {
+            profile,
+            credentials,
+        }
+    }
+
+    #[must_use]
+    pub const fn profile(self) -> &'a ProxyProfile {
+        self.profile
+    }
+
+    #[must_use]
+    pub const fn credentials(self) -> Option<&'a ProxyCredentials> {
+        self.credentials
+    }
+}
+
+impl fmt::Debug for TransportProxy<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TransportProxy")
+            .field("proxy_profile_id", &self.profile.id())
+            .field("authentication_configured", &self.credentials.is_some())
+            .finish()
+    }
+}
+
 #[async_trait]
 pub trait TransportManager: Send + Sync {
     async fn execute(
         &self,
-        proxy: &ProxyProfile,
+        proxy: TransportProxy<'_>,
         request: TransportRequest,
     ) -> Result<TransportResponse, TransportError>;
 }

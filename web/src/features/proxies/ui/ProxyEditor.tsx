@@ -95,7 +95,7 @@ export function ProxyEditor({
               editor.update("kind", event.target.value === "socks5" ? "socks5" : "http")
             }
           >
-            <option value="http">HTTP</option>
+            <option value="http">HTTP（代理端 DNS）</option>
             <option value="socks5">SOCKS5（远端 DNS）</option>
           </select>
         </Field>
@@ -151,7 +151,7 @@ export function ProxyEditor({
         </div>
 
         <p className="text-xs leading-5 text-tertiary">
-          当前切片仅保存地址；代理认证会在 Secret Vault 能力完成后接入。
+          HTTP 与 SOCKS5 当前都信任代理端解析目标域名；严格 SSRF 本地 DNS 模式将在独立设置中提供。
         </p>
 
         {error ? (

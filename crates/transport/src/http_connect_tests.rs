@@ -1,6 +1,8 @@
 use std::{str::FromStr, sync::Arc};
 
-use any2api_domain::{ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId};
+use any2api_domain::{
+    ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId, RetrySafety,
+};
 use bytes::Bytes;
 use futures_util::StreamExt;
 use http::{HeaderMap, Method, StatusCode, Uri};
@@ -16,17 +18,17 @@ use tokio_rustls::TlsAcceptor;
 use crate::{
     ReqwestTransportManager,
     api::{
-        EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportRequest,
-        TransportResponse,
+        EndpointNetworkPolicy, ProxyCredentials, TransportManager, TransportManagerConfig,
+        TransportProxy, TransportRequest, TransportResponse,
     },
-    error::TransportFailureScope,
+    error::{TransportErrorStage, TransportFailureScope},
 };
 
 #[tokio::test]
 async fn https_upstream_uses_an_http_connect_tunnel() {
     let identity = TestTlsIdentity::generate();
     let (origin_address, origin_request) =
-        spawn_https_response(identity.server_config, "tunneled").await;
+        spawn_https_response(identity.server_config, StatusCode::OK, "tunneled").await;
     let (proxy_address, connect_request) = spawn_connect_proxy(origin_address).await;
     let manager = ReqwestTransportManager::new_with_test_root_certificate(
         TransportManagerConfig::default(),
@@ -37,7 +39,7 @@ async fn https_upstream_uses_an_http_connect_tunnel() {
 
     let response = manager
         .execute(
-            &proxy,
+            TransportProxy::new(&proxy, None),
             request_to(&format!(
                 "https://localhost:{}/through-proxy",
                 origin_address.port()
@@ -69,6 +71,42 @@ async fn https_upstream_uses_an_http_connect_tunnel() {
 }
 
 #[tokio::test]
+async fn https_connect_uses_http_proxy_basic_authentication() {
+    let identity = TestTlsIdentity::generate();
+    let (origin_address, _origin_request) =
+        spawn_https_response(identity.server_config, StatusCode::OK, "authenticated").await;
+    let (proxy_address, connect_request) = spawn_connect_proxy(origin_address).await;
+    let manager = ReqwestTransportManager::new_with_test_root_certificate(
+        TransportManagerConfig::default(),
+        identity.client_certificate,
+    )
+    .expect("transport manager");
+    let proxy = network_proxy(proxy_address)
+        .set_authentication("proxy-user")
+        .expect("proxy authentication metadata");
+    let credentials = ProxyCredentials::new("proxy-user".to_owned(), "proxy-password".to_owned());
+
+    let response = manager
+        .execute(
+            TransportProxy::new(&proxy, Some(&credentials)),
+            request_to(&format!(
+                "https://localhost:{}/through-authenticated-proxy",
+                origin_address.port()
+            )),
+        )
+        .await
+        .expect("HTTPS response through authenticated proxy");
+
+    assert_eq!(response.status, StatusCode::OK);
+    assert!(
+        connect_request
+            .await
+            .expect("captured CONNECT request")
+            .contains("Proxy-Authorization: Basic cHJveHktdXNlcjpwcm94eS1wYXNzd29yZA==")
+    );
+}
+
+#[tokio::test]
 async fn endpoint_tls_failure_after_connect_is_not_attributed_to_the_proxy() {
     let identity = TestTlsIdentity::generate();
     let origin_address = spawn_tls_handshake_endpoint(identity.server_config).await;
@@ -78,7 +116,7 @@ async fn endpoint_tls_failure_after_connect_is_not_attributed_to_the_proxy() {
 
     let error = match manager
         .execute(
-            &proxy,
+            TransportProxy::new(&proxy, None),
             request_to(&format!(
                 "https://localhost:{}/untrusted-certificate",
                 origin_address.port()
@@ -99,6 +137,85 @@ async fn endpoint_tls_failure_after_connect_is_not_attributed_to_the_proxy() {
                 "CONNECT localhost:{} HTTP/1.1",
                 origin_address.port()
             ))
+    );
+}
+
+#[tokio::test]
+async fn https_connect_proxy_authentication_rejection_is_attributed_to_proxy() {
+    let origin = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("origin listener");
+    let origin_address = origin.local_addr().expect("origin address");
+    let (proxy_address, connect_request) =
+        spawn_rejecting_connect_proxy(StatusCode::PROXY_AUTHENTICATION_REQUIRED).await;
+    let manager = ReqwestTransportManager::default();
+    let proxy = network_proxy(proxy_address)
+        .set_authentication("proxy-user")
+        .expect("proxy authentication metadata");
+    let credentials = ProxyCredentials::new("proxy-user".to_owned(), "wrong-password".to_owned());
+
+    let error = match manager
+        .execute(
+            TransportProxy::new(&proxy, Some(&credentials)),
+            request_to(&format!(
+                "https://localhost:{}/rejected-connect",
+                origin_address.port()
+            )),
+        )
+        .await
+    {
+        Ok(_) => panic!("CONNECT proxy authentication rejection must fail in transport"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.stage, TransportErrorStage::ProxyHandshake);
+    assert_eq!(error.failure_scope, TransportFailureScope::Proxy);
+    assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
+    assert!(
+        connect_request
+            .await
+            .expect("captured CONNECT request")
+            .contains("Proxy-Authorization: Basic")
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), origin.accept())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn endpoint_407_after_connect_remains_an_upstream_response() {
+    let identity = TestTlsIdentity::generate();
+    let (origin_address, _origin_request) = spawn_https_response(
+        identity.server_config,
+        StatusCode::PROXY_AUTHENTICATION_REQUIRED,
+        "endpoint-rejection",
+    )
+    .await;
+    let (proxy_address, _connect_request) = spawn_connect_proxy(origin_address).await;
+    let manager = ReqwestTransportManager::new_with_test_root_certificate(
+        TransportManagerConfig::default(),
+        identity.client_certificate,
+    )
+    .expect("transport manager");
+    let proxy = network_proxy(proxy_address);
+
+    let response = manager
+        .execute(
+            TransportProxy::new(&proxy, None),
+            request_to(&format!(
+                "https://localhost:{}/endpoint-rejection",
+                origin_address.port()
+            )),
+        )
+        .await
+        .expect("endpoint 407 must remain an upstream response");
+
+    assert_eq!(response.status, StatusCode::PROXY_AUTHENTICATION_REQUIRED);
+    assert_eq!(
+        collect_body(response).await,
+        Bytes::from_static(b"endpoint-rejection")
     );
 }
 
@@ -129,6 +246,7 @@ impl TestTlsIdentity {
 
 async fn spawn_https_response(
     server_config: Arc<ServerConfig>,
+    status: StatusCode,
     body: &'static str,
 ) -> (std::net::SocketAddr, oneshot::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -144,7 +262,7 @@ async fn spawn_https_response(
             .expect("TLS handshake");
         let request = read_http_head(&mut stream).await;
         request_tx.send(request).ok();
-        write_http_response(&mut stream, body).await;
+        write_http_response(&mut stream, status, body).await;
     });
     (address, request_rx)
 }
@@ -181,6 +299,31 @@ async fn spawn_connect_proxy(
             .await
             .expect("CONNECT response");
         let _ = copy_bidirectional(&mut downstream, &mut upstream).await;
+    });
+    (address, request_rx)
+}
+
+async fn spawn_rejecting_connect_proxy(
+    status: StatusCode,
+) -> (std::net::SocketAddr, oneshot::Receiver<String>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("HTTP proxy listener");
+    let address = listener.local_addr().expect("HTTP proxy address");
+    let (request_tx, request_rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut downstream, _) = listener.accept().await.expect("proxy connection");
+        let request = read_http_head(&mut downstream).await;
+        request_tx.send(request).ok();
+        let reason = status.canonical_reason().unwrap_or("Unknown");
+        let response = format!(
+            "HTTP/1.1 {} {reason}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            status.as_u16()
+        );
+        downstream
+            .write_all(response.as_bytes())
+            .await
+            .expect("CONNECT rejection");
     });
     (address, request_rx)
 }
@@ -230,12 +373,14 @@ where
     String::from_utf8(bytes).expect("HTTP request UTF-8")
 }
 
-async fn write_http_response<S>(stream: &mut S, body: &str)
+async fn write_http_response<S>(stream: &mut S, status: StatusCode, body: &str)
 where
     S: AsyncWrite + Unpin,
 {
+    let reason = status.canonical_reason().unwrap_or("Unknown");
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        status.as_u16(),
         body.len()
     );
     stream

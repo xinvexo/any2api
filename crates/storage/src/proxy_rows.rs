@@ -1,16 +1,23 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use any2api_domain::{
-    ConfigRevision, ProxyAddress, ProxyConfiguration, ProxyKind, ProxyProfile, ProxyProfileId,
+    ConfigRevision, ProxyAddress, ProxyAuthentication, ProxyConfiguration, ProxyKind, ProxyProfile,
+    ProxyProfileId,
 };
 use sqlx::{FromRow, SqliteConnection};
 
 use crate::{
-    configuration::StoredConfiguration, error::StorageError,
-    gateway_api_key_rows::load_gateway_api_keys_from, model_route_rows::load_model_routes_from,
+    configuration::StoredConfiguration,
+    error::StorageError,
+    gateway_api_key_rows::load_gateway_api_keys_from,
+    model_route_rows::load_model_routes_from,
     provider_credential_rows::load_provider_credentials_from,
-    provider_endpoint_rows::load_provider_endpoints_from, proxy_mutation::DatabaseChange,
-    settings_rows::load_settings_from, vault::SecretVault,
+    provider_endpoint_rows::load_provider_endpoints_from,
+    proxy_mutation::DatabaseChange,
+    proxy_password::validate as validate_proxy_password,
+    proxy_password_material::{StoredProxyPassword, StoredProxyPasswords},
+    settings_rows::load_settings_from,
+    vault::{SecretContext, SecretEnvelope, SecretVault},
 };
 
 #[derive(Debug, FromRow)]
@@ -21,7 +28,21 @@ struct ProxyRow {
     host: Option<String>,
     port: Option<i64>,
     enabled: i64,
+    authentication_version: i64,
     config_version: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct ProxyPasswordRow {
+    proxy_profile_id: String,
+    username: String,
+    authentication_version: i64,
+    envelope_version: i64,
+    key_id: String,
+    algorithm: String,
+    nonce: Vec<u8>,
+    ciphertext: Vec<u8>,
+    aad_version: i64,
 }
 
 pub(crate) async fn load_configuration_from(
@@ -38,8 +59,14 @@ pub(crate) async fn load_configuration_from(
     .fetch_one(&mut *connection)
     .await?;
     let rows = sqlx::query_as::<_, ProxyRow>(
-        "SELECT id, name, kind, host, port, enabled, config_version \
+        "SELECT id, name, kind, host, port, enabled, authentication_version, config_version \
          FROM proxy_profiles ORDER BY built_in DESC, name ASC",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    let password_rows = sqlx::query_as::<_, ProxyPasswordRow>(
+        "SELECT proxy_profile_id, username, authentication_version, envelope_version, key_id, \
+         algorithm, nonce, ciphertext, aad_version FROM proxy_passwords",
     )
     .fetch_all(&mut *connection)
     .await?;
@@ -47,10 +74,22 @@ pub(crate) async fn load_configuration_from(
     let revision = parse_revision(revision)?;
     let global_id =
         ProxyProfileId::from_str(&global_id).map_err(|_| StorageError::CorruptConfiguration)?;
-    let profiles = rows
-        .into_iter()
-        .map(parse_profile)
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut password_rows = password_rows_by_id(password_rows)?;
+    let mut profiles = Vec::with_capacity(rows.len());
+    let mut proxy_passwords = Vec::with_capacity(password_rows.len());
+    for row in rows {
+        let id =
+            ProxyProfileId::from_str(&row.id).map_err(|_| StorageError::CorruptConfiguration)?;
+        let password_row = password_rows.remove(&id);
+        let (profile, password) = parse_profile(row, password_row, vault)?;
+        profiles.push(profile);
+        if let Some(password) = password {
+            proxy_passwords.push(password);
+        }
+    }
+    if !password_rows.is_empty() {
+        return Err(StorageError::CorruptConfiguration);
+    }
     let proxies = ProxyConfiguration::new(profiles, global_id)
         .map_err(|_| StorageError::CorruptConfiguration)?;
     let provider_endpoints = load_provider_endpoints_from(connection).await?;
@@ -72,6 +111,7 @@ pub(crate) async fn load_configuration_from(
         gateway_api_key_verifier,
         settings,
         provider_credential_secrets,
+        StoredProxyPasswords::new(proxy_passwords),
     ))
 }
 
@@ -124,7 +164,8 @@ async fn update_profile(
     let result = sqlx::query(
         "UPDATE proxy_profiles SET \
          name = ?, name_key = ?, kind = ?, host = ?, port = ?, enabled = ?, \
-         config_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+         authentication_version = ?, config_version = ?, updated_at = CURRENT_TIMESTAMP \
+         WHERE id = ?",
     )
     .bind(profile.name())
     .bind(profile.name_key())
@@ -132,6 +173,10 @@ async fn update_profile(
     .bind(address.host())
     .bind(i64::from(address.port()))
     .bind(profile.enabled())
+    .bind(
+        i64::try_from(profile.authentication_version())
+            .map_err(|_| StorageError::RevisionOverflow)?,
+    )
     .bind(i64::try_from(profile.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
     .bind(profile.id().to_string())
     .execute(connection)
@@ -170,7 +215,11 @@ async fn set_global(
     Ok(())
 }
 
-fn parse_profile(row: ProxyRow) -> Result<ProxyProfile, StorageError> {
+fn parse_profile(
+    row: ProxyRow,
+    password_row: Option<ProxyPasswordRow>,
+    vault: &SecretVault,
+) -> Result<(ProxyProfile, Option<StoredProxyPassword>), StorageError> {
     let id = ProxyProfileId::from_str(&row.id).map_err(|_| StorageError::CorruptConfiguration)?;
     let kind = parse_kind(&row.kind)?;
     let address = match (row.host, row.port) {
@@ -183,9 +232,75 @@ fn parse_profile(row: ProxyRow) -> Result<ProxyProfile, StorageError> {
     };
     let version =
         u64::try_from(row.config_version).map_err(|_| StorageError::CorruptConfiguration)?;
+    let authentication_version = u64::try_from(row.authentication_version)
+        .map_err(|_| StorageError::CorruptConfiguration)?;
+    let authentication = password_row
+        .as_ref()
+        .map(|row| ProxyAuthentication::new(row.username.clone()))
+        .transpose()
+        .map_err(|_| StorageError::CorruptConfiguration)?;
 
-    ProxyProfile::restore(id, row.name, kind, address, row.enabled == 1, version)
-        .map_err(|_| StorageError::CorruptConfiguration)
+    let profile = ProxyProfile::restore(
+        id,
+        row.name,
+        kind,
+        address,
+        row.enabled == 1,
+        authentication,
+        authentication_version,
+        version,
+    )
+    .map_err(|_| StorageError::CorruptConfiguration)?;
+    let password = password_row
+        .map(|row| open_proxy_password(row, vault, &profile))
+        .transpose()?;
+    Ok((profile, password))
+}
+
+fn password_rows_by_id(
+    rows: Vec<ProxyPasswordRow>,
+) -> Result<HashMap<ProxyProfileId, ProxyPasswordRow>, StorageError> {
+    let mut by_id = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let id = ProxyProfileId::from_str(&row.proxy_profile_id)
+            .map_err(|_| StorageError::CorruptConfiguration)?;
+        if by_id.insert(id, row).is_some() {
+            return Err(StorageError::CorruptConfiguration);
+        }
+    }
+    Ok(by_id)
+}
+
+fn open_proxy_password(
+    row: ProxyPasswordRow,
+    vault: &SecretVault,
+    profile: &ProxyProfile,
+) -> Result<StoredProxyPassword, StorageError> {
+    let authentication_version = u64::try_from(row.authentication_version)
+        .map_err(|_| StorageError::CorruptConfiguration)?;
+    if authentication_version != profile.authentication_version()
+        || profile.authentication().is_none()
+    {
+        return Err(StorageError::CorruptConfiguration);
+    }
+    let envelope = SecretEnvelope::restore(
+        u16::try_from(row.envelope_version).map_err(|_| StorageError::CorruptConfiguration)?,
+        row.key_id,
+        &row.algorithm,
+        &row.nonce,
+        row.ciphertext,
+        u16::try_from(row.aad_version).map_err(|_| StorageError::CorruptConfiguration)?,
+    )?;
+    let secret = vault.open(
+        SecretContext::proxy_password(profile.id(), authentication_version),
+        &envelope,
+    )?;
+    validate_proxy_password(&secret)?;
+    Ok(StoredProxyPassword::new(
+        profile.id(),
+        authentication_version,
+        secret,
+    ))
 }
 
 fn parse_revision(value: i64) -> Result<ConfigRevision, StorageError> {

@@ -1,13 +1,12 @@
 use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
-    ErrorClass, ProtocolOperation, ProxyProfile, PublicError, PublicErrorCode,
-    UpstreamErrorClassification,
+    ErrorClass, ProtocolOperation, PublicError, PublicErrorCode, UpstreamErrorClassification,
 };
 use any2api_protocol::api::{DecodedRequest, ProtocolAdapter};
 use any2api_provider::api::{ProviderDriver, ProviderRegistry, UpstreamResponseMeta};
 use any2api_transport::api::{
-    EndpointNetworkPolicy, TransportError, TransportFailureScope, TransportManager,
+    EndpointNetworkPolicy, TransportError, TransportFailureScope, TransportManager, TransportProxy,
     TransportRequest, TransportResponse,
 };
 
@@ -67,7 +66,7 @@ pub(super) fn prepare_input<'a>(
 
 pub(super) struct PreparedAttempt<'a> {
     driver: &'a dyn ProviderDriver,
-    proxy: &'a ProxyProfile,
+    proxy: TransportProxy<'a>,
     pub(super) operation: ProtocolOperation,
     request: Option<TransportRequest>,
     permit: Option<RequestPermit>,
@@ -232,7 +231,7 @@ fn build_request<'a>(
 ) -> Result<
     (
         &'a dyn ProviderDriver,
-        &'a ProxyProfile,
+        TransportProxy<'a>,
         ProtocolOperation,
         TransportRequest,
     ),
@@ -248,8 +247,8 @@ fn build_request<'a>(
         .ok_or_else(internal_error)?
         .as_ref();
     let proxy = snapshot
-        .resolved_proxy_for_credential(candidate.credential_id)
-        .filter(|proxy| proxy.enabled())
+        .resolved_transport_proxy_for_credential(candidate.credential_id)
+        .filter(|proxy| proxy.profile().enabled())
         .ok_or_else(|| {
             public_error(
                 PublicErrorCode::NoAvailableCredential,
@@ -316,6 +315,7 @@ mod tests {
         ProxyProfile, ProxyProfileId, PublicErrorCode,
     };
     use any2api_provider::{CodexDriver, api::ProviderDriver};
+    use any2api_transport::api::TransportProxy;
 
     use super::PreparedAttempt;
     use crate::{
@@ -373,7 +373,7 @@ mod tests {
         let proxy = ProxyProfile::direct();
         let mut prepared = PreparedAttempt {
             driver: &driver as &dyn ProviderDriver,
-            proxy: &proxy,
+            proxy: TransportProxy::new(&proxy, None),
             operation: ProtocolOperation::Responses,
             request: None,
             permit: Some(RequestPermit::Generation(permit)),

@@ -1,11 +1,16 @@
 import { Plus, RefreshCw, Router } from "lucide-react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import { useProviderEndpoints } from "@/features/providers";
 import type { ProxyWriteInput } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
 import { useProxies } from "../model/use-proxies";
+import { useProxyAuthenticationActions } from "../model/use-proxy-authentication-actions";
 import { useProxyMutations } from "../model/use-proxy-mutations";
+import { useProxyTest } from "../model/use-proxy-test";
 import { GlobalProxyPanel } from "./GlobalProxyPanel";
+import { ProxyAuthenticationPanel } from "./ProxyAuthenticationPanel";
 import { ProxyEditor } from "./ProxyEditor";
 import { ProxyList } from "./ProxyList";
 import { Button } from "@/shared/ui/Button";
@@ -13,13 +18,20 @@ import { Surface } from "@/shared/ui/Surface";
 
 export function ProxyManagement() {
   const proxies = useProxies();
+  const providerEndpoints = useProviderEndpoints();
   const mutations = useProxyMutations();
+  const authentication = useProxyAuthenticationActions();
+  const proxyTest = useProxyTest(
+    `${proxies.data?.configRevision ?? 0}:${providerEndpoints.data?.configRevision ?? 0}`,
+  );
+  const [requestedTestEndpointId, setRequestedTestEndpointId] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const editorId = searchParams.get("editor");
 
   function openEditor(id: string) {
     mutations.create.reset();
     mutations.update.reset();
+    authentication.reset();
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -33,6 +45,7 @@ export function ProxyManagement() {
   function closeEditor(expectedId: string | null = editorId) {
     mutations.create.reset();
     mutations.update.reset();
+    authentication.reset();
     setSearchParams(
       (current) => {
         if (expectedId && current.get("editor") !== expectedId) {
@@ -67,6 +80,10 @@ export function ProxyManagement() {
   }
 
   const configuration = proxies.data;
+  const endpoints = providerEndpoints.data?.items ?? [];
+  const testEndpointId = endpoints.some((endpoint) => endpoint.id === requestedTestEndpointId)
+    ? requestedTestEndpointId
+    : endpoints.find((endpoint) => endpoint.enabled)?.id ?? endpoints[0]?.id ?? "";
   const selectedCandidate = editorId && editorId !== "new"
     ? configuration.items.find((proxy) => proxy.id === editorId)
     : undefined;
@@ -95,15 +112,35 @@ export function ProxyManagement() {
     mutations.remove.mutate({ id, expectedRevision: configuration.configRevision });
   }
 
+  function test(id: string) {
+    if (testEndpointId) {
+      void proxyTest.test(id, testEndpointId);
+    }
+  }
+
+  function refreshData() {
+    void Promise.all([proxies.refetch(), providerEndpoints.refetch()]);
+  }
+
   return (
-    <div className="space-y-5" aria-busy={mutations.isPending || proxies.isFetching}>
+    <div
+      className="space-y-5"
+      aria-busy={mutations.isPending || authentication.pending || proxies.isFetching}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-secondary">
           配置版本 <span className="font-medium tabular-nums text-primary">{configuration.configRevision}</span>
         </p>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Button variant="ghost" onClick={() => void proxies.refetch()} disabled={proxies.isFetching}>
-            <RefreshCw size={15} className={proxies.isFetching ? "animate-spin" : undefined} />
+          <Button
+            variant="ghost"
+            onClick={refreshData}
+            disabled={proxies.isFetching || providerEndpoints.isFetching}
+          >
+            <RefreshCw
+              size={15}
+              className={proxies.isFetching || providerEndpoints.isFetching ? "animate-spin" : undefined}
+            />
             刷新
           </Button>
           <Button variant="primary" onClick={() => openEditor("new")} disabled={mutations.isPending}>
@@ -118,7 +155,10 @@ export function ProxyManagement() {
           <p className="text-sm text-secondary">
             配置刷新失败，当前仍显示最近一次有效数据：{getProxyErrorMessage(proxies.error)}
           </p>
-          <Button onClick={() => void proxies.refetch()} disabled={proxies.isFetching}>
+          <Button
+            onClick={refreshData}
+            disabled={proxies.isFetching || providerEndpoints.isFetching}
+          >
             重新加载
           </Button>
         </Surface>
@@ -141,21 +181,41 @@ export function ProxyManagement() {
             onEdit={openEditor}
             onSetGlobal={setGlobal}
             onDelete={remove}
+            endpoints={endpoints}
+            testEndpointId={testEndpointId}
+            testingProxyId={proxyTest.testingProxyId}
+            testResults={proxyTest.results}
+            onTestEndpointChange={setRequestedTestEndpointId}
+            onTest={test}
+            testError={proxyTest.error ?? providerEndpoints.error}
           />
         </div>
 
         <div className={editorId ? "order-1 lg:order-2" : undefined}>
           {editorId && !invalidEditor ? (
-            <ProxyEditor
-              key={editorId}
-              profile={selected}
-              isGlobal={selected?.id === configuration.globalProxyId}
-              configRevision={configuration.configRevision}
-              pending={editorId === "new" ? mutations.create.isPending : mutations.update.isPending}
-              error={editorError}
-              onSubmit={submitEditor}
-              onClose={() => closeEditor(editorId)}
-            />
+            <div className="space-y-5">
+              <ProxyEditor
+                key={editorId}
+                profile={selected}
+                isGlobal={selected?.id === configuration.globalProxyId}
+                configRevision={configuration.configRevision}
+                pending={editorId === "new" ? mutations.create.isPending : mutations.update.isPending}
+                error={editorError}
+                onSubmit={submitEditor}
+                onClose={() => closeEditor(editorId)}
+              />
+              {selected ? (
+                <ProxyAuthenticationPanel
+                  key={`${selected.id}:${selected.authenticationVersion}`}
+                  profile={selected}
+                  configRevision={configuration.configRevision}
+                  pending={authentication.pending}
+                  error={authentication.error}
+                  onSet={authentication.set}
+                  onClear={authentication.clear}
+                />
+              ) : null}
+            </div>
           ) : (
             <Surface className="flex min-h-52 items-center justify-center p-7 text-center lg:sticky lg:top-24">
               <div>

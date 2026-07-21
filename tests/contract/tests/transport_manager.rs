@@ -5,7 +5,7 @@ use any2api_domain::{
 };
 use any2api_transport::api::{
     EndpointNetworkPolicy, ReqwestTransportManager, TransportFailureScope, TransportManager,
-    TransportManagerConfig, TransportRequest,
+    TransportManagerConfig, TransportProxy, TransportRequest,
 };
 use axum::http::{HeaderMap, Method, Uri};
 use bytes::Bytes;
@@ -48,7 +48,10 @@ async fn explicit_proxy_failure_never_falls_back_to_direct() {
         read_timeout: Duration::from_secs(15),
     };
 
-    let error = match manager.execute(&proxy, request).await {
+    let error = match manager
+        .execute(TransportProxy::new(&proxy, None), request)
+        .await
+    {
         Ok(_) => panic!("explicit proxy failure must not use the origin directly"),
         Err(error) => error,
     };

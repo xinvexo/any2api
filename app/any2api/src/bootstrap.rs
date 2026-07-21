@@ -63,12 +63,14 @@ pub async fn run() -> anyhow::Result<()> {
         ConfigPublisher::new(storage, Arc::clone(&snapshots), Arc::clone(&runtime))
             .with_telemetry(Arc::clone(&telemetry)),
     );
-    let public_requests = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
-        .context("failed to initialize public request adapters")?
-        .service();
+    let request_components = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
+        .context("failed to initialize public request adapters")?;
+    let public_requests = request_components.service();
+    let proxy_tests = request_components.proxy_test_service();
     let app = build_router(
         AppState::new(snapshots, runtime, publisher)
             .with_public_requests(public_requests)
+            .with_proxy_tests(proxy_tests)
             .with_request_telemetry(Arc::clone(&telemetry))
             .with_admin_auth(
                 admin_auth,

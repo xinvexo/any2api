@@ -3,7 +3,9 @@ use any2api_domain::{
     ProviderCredentialValidationError, ProviderEndpointValidationError, ProxyValidationError,
     SettingsValidationError,
 };
-use any2api_storage::api::{ProviderApiKeyValidationError, StorageError};
+use any2api_storage::api::{
+    ProviderApiKeyValidationError, ProxyPasswordValidationError, StorageError,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -29,6 +31,8 @@ pub enum ConfigPublishError {
     ProxyNameConflict,
     #[error("proxy configuration is invalid: {0}")]
     InvalidProxy(ProxyValidationError),
+    #[error("invalid proxy password: {0}")]
+    InvalidProxyPassword(ProxyPasswordValidationError),
     #[error("provider endpoint was not found")]
     ProviderEndpointNotFound,
     #[error("provider endpoint version conflict")]
@@ -97,6 +101,7 @@ impl From<StorageError> for ConfigPublishError {
             StorageError::ProxyDisabled => Self::ProxyDisabled,
             StorageError::ProxyNameConflict => Self::ProxyNameConflict,
             StorageError::ProxyValidation(error) => Self::InvalidProxy(error),
+            StorageError::ProxyPasswordValidation(error) => Self::InvalidProxyPassword(error),
             StorageError::ProviderEndpointNotFound(_) => Self::ProviderEndpointNotFound,
             StorageError::ProviderEndpointVersionConflict { .. } => {
                 Self::ProviderEndpointVersionConflict

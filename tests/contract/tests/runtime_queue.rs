@@ -17,7 +17,8 @@ use any2api_runtime::api::{
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
-    BoxByteStream, TransportFailureScope, TransportManager, TransportRequest, TransportResponse,
+    BoxByteStream, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
+    TransportResponse,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -208,7 +209,7 @@ impl BlockingTransport {
 impl TransportManager for BlockingTransport {
     async fn execute(
         &self,
-        _proxy: &any2api_domain::ProxyProfile,
+        _proxy: TransportProxy<'_>,
         _request: TransportRequest,
     ) -> Result<TransportResponse, any2api_transport::api::TransportError> {
         let call = self.calls.fetch_add(1, Ordering::AcqRel);

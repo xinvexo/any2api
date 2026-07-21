@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::{ProxyAuthentication, ProxyAuthenticationValidationError};
 use crate::{ProxyProfileId, proxy_address::ProxyAddress};
 
 const MAX_PROXY_NAME_CHARS: usize = 100;
@@ -68,6 +69,8 @@ pub struct ProxyProfile {
     name: String,
     kind: ProxyKind,
     address: Option<ProxyAddress>,
+    authentication: Option<ProxyAuthentication>,
+    authentication_version: u64,
     enabled: bool,
     config_version: u64,
 }
@@ -80,6 +83,8 @@ impl ProxyProfile {
             name: "DIRECT".to_owned(),
             kind: ProxyKind::Direct,
             address: None,
+            authentication: None,
+            authentication_version: 0,
             enabled: true,
             config_version: 1,
         }
@@ -90,15 +95,18 @@ impl ProxyProfile {
             return Err(ProxyValidationError::DirectIdReserved);
         }
 
-        Ok(Self::from_draft(id, draft, 1))
+        Ok(Self::from_draft(id, draft, None, 0, 1))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn restore(
         id: ProxyProfileId,
         name: impl Into<String>,
         kind: ProxyKind,
         address: Option<ProxyAddress>,
         enabled: bool,
+        authentication: Option<ProxyAuthentication>,
+        authentication_version: u64,
         config_version: u64,
     ) -> Result<Self, ProxyValidationError> {
         if config_version == 0 || config_version > MAX_PROXY_CONFIG_VERSION {
@@ -106,7 +114,13 @@ impl ProxyProfile {
         }
         if id == ProxyProfileId::DIRECT {
             let direct = Self::direct();
-            if name.into() != direct.name || kind != direct.kind || address.is_some() || !enabled {
+            if name.into() != direct.name
+                || kind != direct.kind
+                || address.is_some()
+                || authentication.is_some()
+                || authentication_version != 0
+                || !enabled
+            {
                 return Err(ProxyValidationError::DirectInvariant);
             }
             return Ok(Self {
@@ -119,8 +133,17 @@ impl ProxyProfile {
         }
         let address = address.ok_or(ProxyValidationError::MissingAddress)?;
         let draft = ProxyDraft::new(name, kind, address, enabled)?;
+        if authentication.is_some() && authentication_version == 0 {
+            return Err(ProxyValidationError::InvalidAuthenticationVersion);
+        }
 
-        Ok(Self::from_draft(id, draft, config_version))
+        Ok(Self::from_draft(
+            id,
+            draft,
+            authentication,
+            authentication_version,
+            config_version,
+        ))
     }
 
     pub fn updated(&self, draft: ProxyDraft) -> Result<Self, ProxyValidationError> {
@@ -138,7 +161,13 @@ impl ProxyProfile {
             return Err(ProxyValidationError::InvalidConfigVersion);
         }
 
-        Ok(Self::from_draft(self.id, draft, version))
+        Ok(Self::from_draft(
+            self.id,
+            draft,
+            self.authentication.clone(),
+            self.authentication_version,
+            version,
+        ))
     }
 
     #[must_use]
@@ -167,6 +196,50 @@ impl ProxyProfile {
     }
 
     #[must_use]
+    pub const fn authentication(&self) -> Option<&ProxyAuthentication> {
+        self.authentication.as_ref()
+    }
+
+    #[must_use]
+    pub const fn authentication_version(&self) -> u64 {
+        self.authentication_version
+    }
+
+    pub fn set_authentication(
+        &self,
+        username: impl Into<String>,
+    ) -> Result<Self, ProxyValidationError> {
+        if self.is_built_in() {
+            return Err(ProxyValidationError::DirectInvariant);
+        }
+        let authentication = ProxyAuthentication::new(username)
+            .map_err(ProxyValidationError::InvalidAuthentication)?;
+        let authentication_version = next_version(self.authentication_version)?;
+        let config_version = next_version(self.config_version)?;
+        Ok(Self {
+            authentication: Some(authentication),
+            authentication_version,
+            config_version,
+            ..self.clone()
+        })
+    }
+
+    pub fn clear_authentication(&self) -> Result<Self, ProxyValidationError> {
+        if self.is_built_in() {
+            return Err(ProxyValidationError::DirectInvariant);
+        }
+        if self.authentication.is_none() {
+            return Ok(self.clone());
+        }
+        Ok(Self {
+            authentication: None,
+            authentication_version: next_version(self.authentication_version)?,
+            config_version: next_version(self.config_version)?,
+            ..self.clone()
+        })
+    }
+
+    #[must_use]
     pub const fn config_version(&self) -> u64 {
         self.config_version
     }
@@ -181,12 +254,20 @@ impl ProxyProfile {
         self.name.to_lowercase()
     }
 
-    fn from_draft(id: ProxyProfileId, draft: ProxyDraft, config_version: u64) -> Self {
+    fn from_draft(
+        id: ProxyProfileId,
+        draft: ProxyDraft,
+        authentication: Option<ProxyAuthentication>,
+        authentication_version: u64,
+        config_version: u64,
+    ) -> Self {
         Self {
             id,
             name: draft.name,
             kind: draft.kind,
             address: Some(draft.address),
+            authentication,
+            authentication_version,
             enabled: draft.enabled,
             config_version,
         }
@@ -222,6 +303,10 @@ pub enum ProxyValidationError {
     MissingAddress,
     #[error("proxy configuration version is invalid")]
     InvalidConfigVersion,
+    #[error("proxy authentication version is invalid")]
+    InvalidAuthenticationVersion,
+    #[error("proxy authentication is invalid: {0}")]
+    InvalidAuthentication(#[from] ProxyAuthenticationValidationError),
     #[error("proxy id is duplicated")]
     DuplicateId,
     #[error("proxy name is duplicated")]
@@ -232,6 +317,13 @@ pub enum ProxyValidationError {
     GlobalProxyMissing,
     #[error("global proxy is disabled")]
     GlobalProxyDisabled,
+}
+
+fn next_version(value: u64) -> Result<u64, ProxyValidationError> {
+    value
+        .checked_add(1)
+        .filter(|next| *next <= MAX_PROXY_CONFIG_VERSION)
+        .ok_or(ProxyValidationError::InvalidConfigVersion)
 }
 
 fn validate_name(name: String) -> Result<String, ProxyValidationError> {
@@ -261,10 +353,35 @@ mod tests {
             ProxyKind::Http,
             Some(address),
             true,
+            None,
+            0,
             u32::MAX as u64 + 1,
         )
         .expect_err("oversized version must fail");
 
         assert_eq!(error, ProxyValidationError::InvalidConfigVersion);
+    }
+
+    #[test]
+    fn clearing_missing_authentication_is_a_no_op() {
+        let address = ProxyAddress::new("proxy.example.com", 8080).expect("address");
+        let profile = ProxyProfile::restore(
+            ProxyProfileId::new(),
+            "Proxy",
+            ProxyKind::Http,
+            Some(address),
+            true,
+            None,
+            0,
+            1,
+        )
+        .expect("proxy");
+
+        assert_eq!(
+            profile
+                .clear_authentication()
+                .expect("clear authentication"),
+            profile
+        );
     }
 }

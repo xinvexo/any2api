@@ -18,7 +18,7 @@ any2api 需要在同一进程中支持 DIRECT、HTTP 和 SOCKS5 出口。多个 
 - 缓存使用有界强引用 LRU。淘汰只移除 Manager 的缓存引用，不中断仍持有 Client 的请求。
 - 首版请求 Body 为内存中的 `Bytes`，响应 Body 为错误类型化的异步字节流，满足 JSON 和后续 SSE 转发需要。
 - 连接建立前失败标记为 `DefinitelyNotSent`；收到响应头前的非连接错误和响应 Body 错误保守标记为 `Ambiguous`。
-- `reqwest` 不能稳定暴露 DNS、TCP、代理握手和上游 TLS 的全部细分来源，因此失败阶段与健康归因分离。`TransportError` 同时携带 `TransportErrorStage` 与 `TransportFailureScope::{Endpoint, Proxy, Unattributed}`；DIRECT DNS/TCP 明确归 Endpoint，普通 HTTP 代理的可验证连接失败归 Proxy，CONNECT/SOCKS/目标 TLS 无法可靠区分时归 Unattributed。Runtime 只惩罚明确归因的健康对象，Unattributed 对 Endpoint/Proxy 均保持 neutral。
+- `reqwest` 不能稳定暴露 DNS、TCP、代理握手和上游 TLS 的全部细分来源，因此失败阶段与健康归因分离。`TransportError` 同时携带 `TransportErrorStage` 与 `TransportFailureScope::{Endpoint, Proxy, Unattributed}`；DIRECT DNS/TCP 明确归 Endpoint，普通 HTTP 代理的可验证连接失败归 Proxy，明确识别的 HTTP forward/CONNECT 407 代理认证拒绝归 `ProxyHandshake + Proxy`，其余 CONNECT/SOCKS/目标 TLS 无法可靠区分时仍归 Unattributed。CONNECT 407 的识别依赖当前锁定的 reqwest/hyper-util 错误来源文本，并由真实回归测试钉住；Runtime 只惩罚明确归因的健康对象，Unattributed 对 Endpoint/Proxy 均保持 neutral。
 
 ## 后果
 
@@ -27,8 +27,8 @@ any2api 需要在同一进程中支持 DIRECT、HTTP 和 SOCKS5 出口。多个 
 - 系统证书库中的受信任根会影响上游 TLS 信任边界；这是自托管部署的显式宿主策略，不由 Provider 或请求动态修改。
 - 一次 `TransportManager::execute` 最多发送一次网络请求；任何再次尝试都必须返回 Runtime 并创建可观测的 Attempt。
 - SOCKS5h 是显式信任远端 DNS 的边界；未来严格 SSRF 模式必须禁止该模式并引入本地解析与固定目标连接。
-- 当前代理尚无用户名和密码字段；后续增加代理认证时必须通过 Secret Vault 和逐 Client 代理配置完成，不能写入日志或普通 DTO。
-- TransportManager 已可独立执行和测试，但在 Model Route、GatewayApiKey 和公开协议 Handler 完成前尚未进入客户端请求链路。
+- 代理认证已由 ADR-0018 固定为 Secret Vault 密文、脱敏 sidecar 与逐 Client 配置；密码不写入日志、普通读取 DTO、`TransportRequest.headers`、代理 URL 或连接池 key，仅在受控 Client/握手边界编码为代理认证材料。
+- TransportManager 最初先作为独立可测试模块落地，后续已经通过 Runtime 装配进入 Model Route、GatewayApiKey 鉴权后的公开协议请求链路。
 
 ## 验证
 

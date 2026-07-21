@@ -7,6 +7,7 @@ use any2api_domain::{
 use crate::{
     gateway_api_key_verifier::GatewayApiKeyVerifier,
     provider_credential_secret_material::StoredProviderCredentialSecrets,
+    proxy_password_material::StoredProxyPasswords,
 };
 
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub struct StoredConfiguration {
     gateway_api_key_verifier: GatewayApiKeyVerifier,
     settings: SettingsConfiguration,
     provider_credential_secrets: StoredProviderCredentialSecrets,
+    proxy_passwords: StoredProxyPasswords,
 }
 
 impl StoredConfiguration {
@@ -35,6 +37,7 @@ impl StoredConfiguration {
         gateway_api_key_verifier: GatewayApiKeyVerifier,
         settings: SettingsConfiguration,
         provider_credential_secrets: StoredProviderCredentialSecrets,
+        proxy_passwords: StoredProxyPasswords,
     ) -> Self {
         Self {
             revision,
@@ -46,6 +49,7 @@ impl StoredConfiguration {
             gateway_api_key_verifier,
             settings,
             provider_credential_secrets,
+            proxy_passwords,
         }
     }
 
@@ -93,6 +97,11 @@ impl StoredConfiguration {
         &self.provider_credential_secrets
     }
 
+    #[cfg(test)]
+    pub(crate) const fn proxy_passwords(&self) -> &StoredProxyPasswords {
+        &self.proxy_passwords
+    }
+
     #[must_use]
     pub fn into_parts(self) -> StoredConfigurationParts {
         StoredConfigurationParts {
@@ -105,6 +114,7 @@ impl StoredConfiguration {
             gateway_api_key_verifier: self.gateway_api_key_verifier,
             settings: self.settings,
             provider_credential_secrets: self.provider_credential_secrets,
+            proxy_passwords: self.proxy_passwords,
         }
     }
 }
@@ -119,4 +129,5 @@ pub struct StoredConfigurationParts {
     pub gateway_api_key_verifier: GatewayApiKeyVerifier,
     pub settings: SettingsConfiguration,
     pub provider_credential_secrets: StoredProviderCredentialSecrets,
+    pub proxy_passwords: StoredProxyPasswords,
 }

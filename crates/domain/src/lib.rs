@@ -16,6 +16,7 @@ mod provider_endpoint;
 mod provider_endpoint_configuration;
 mod proxy;
 mod proxy_address;
+mod proxy_authentication;
 mod proxy_configuration;
 mod request_log;
 mod retry_safety;
@@ -60,6 +61,9 @@ pub use provider_endpoint::{
 pub use provider_endpoint_configuration::ProviderEndpointConfiguration;
 pub use proxy::{ProxyDraft, ProxyKind, ProxyProfile, ProxyValidationError};
 pub use proxy_address::ProxyAddress;
+pub use proxy_authentication::{
+    MAX_PROXY_USERNAME_BYTES, ProxyAuthentication, ProxyAuthenticationValidationError,
+};
 pub use proxy_configuration::ProxyConfiguration;
 pub use request_log::{CompletedRequestLog, RequestAttempt, RequestAttemptOutcome, RequestLog};
 pub use retry_safety::RetrySafety;

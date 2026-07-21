@@ -1,7 +1,9 @@
-import { Check, Pencil, ShieldCheck, Trash2, X } from "lucide-react";
+import { Activity, Check, Pencil, ShieldCheck, Trash2, X } from "lucide-react";
 import { useState } from "react";
 
+import type { ProviderEndpoint } from "@/features/providers";
 import type { ProxyConfiguration, ProxyProfile } from "../api/proxy-contracts";
+import type { ProxyTestResult } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
@@ -13,6 +15,13 @@ interface ProxyListProps {
   onEdit: (id: string) => void;
   onSetGlobal: (id: string) => void;
   onDelete: (id: string) => void;
+  endpoints: ProviderEndpoint[];
+  testEndpointId: string;
+  testingProxyId: string | null;
+  testResults: Record<string, ProxyTestResult>;
+  onTestEndpointChange: (id: string) => void;
+  onTest: (id: string) => void;
+  testError: unknown;
 }
 
 export function ProxyList({
@@ -22,6 +31,13 @@ export function ProxyList({
   onEdit,
   onSetGlobal,
   onDelete,
+  endpoints,
+  testEndpointId,
+  testingProxyId,
+  testResults,
+  onTestEndpointChange,
+  onTest,
+  testError,
 }: ProxyListProps) {
   return (
     <Surface className="overflow-hidden">
@@ -30,7 +46,23 @@ export function ProxyList({
           <h2 className="text-base font-semibold">代理列表</h2>
           <p className="mt-1 text-sm text-secondary">DIRECT 固定置顶且始终可用</p>
         </div>
-        <span className="text-sm tabular-nums text-tertiary">{configuration.items.length}</span>
+        <div className="flex items-center gap-3">
+          <select
+            aria-label="代理测试目标"
+            className="focus-ring h-9 max-w-52 rounded-control border border-subtle bg-surface px-2 text-xs text-secondary"
+            value={testEndpointId}
+            onChange={(event) => onTestEndpointChange(event.target.value)}
+          >
+            <option value="">选择测试目标</option>
+            {endpoints.map((endpoint) => (
+              <option key={endpoint.id} value={endpoint.id}>
+                {endpoint.name}
+                {!endpoint.enabled ? "（已停用）" : ""}
+              </option>
+            ))}
+          </select>
+          <span className="text-sm tabular-nums text-tertiary">{configuration.items.length}</span>
+        </div>
       </div>
       <ul className="divide-y divide-subtle">
         {configuration.items.map((proxy) => (
@@ -42,6 +74,21 @@ export function ProxyList({
             onEdit={onEdit}
             onSetGlobal={onSetGlobal}
             onDelete={onDelete}
+            canTest={testEndpointId.length > 0}
+            testing={testingProxyId === proxy.id}
+            testPending={testingProxyId !== null}
+            testResult={
+              isCurrentTestResult(
+                testResults[proxy.id],
+                proxy,
+                configuration.configRevision,
+                endpoints,
+                testEndpointId,
+              )
+                ? testResults[proxy.id]
+                : undefined
+            }
+            onTest={() => onTest(proxy.id)}
           />
         ))}
       </ul>
@@ -55,6 +102,11 @@ export function ProxyList({
           {getProxyErrorMessage(actionError)}
         </p>
       ) : null}
+      {testError ? (
+        <p className="border-t border-subtle px-5 py-3 text-sm text-danger sm:px-6" role="alert">
+          {getProxyErrorMessage(testError)}
+        </p>
+      ) : null}
     </Surface>
   );
 }
@@ -66,6 +118,11 @@ interface ProxyRowProps {
   onEdit: (id: string) => void;
   onSetGlobal: (id: string) => void;
   onDelete: (id: string) => void;
+  canTest: boolean;
+  testing: boolean;
+  testPending: boolean;
+  testResult?: ProxyTestResult;
+  onTest: () => void;
 }
 
 function ProxyRow({
@@ -75,6 +132,11 @@ function ProxyRow({
   onEdit,
   onSetGlobal,
   onDelete,
+  canTest,
+  testing,
+  testPending,
+  testResult,
+  onTest,
 }: ProxyRowProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const endpoint = proxy.host && proxy.port ? `${proxy.host}:${proxy.port}` : "本机网络";
@@ -91,12 +153,23 @@ function ProxyRow({
             {!proxy.enabled ? <Badge>已停用</Badge> : null}
           </div>
           <p className="mt-2 break-all text-sm text-secondary">{endpoint}</p>
+          {testResult ? <TestResult result={testResult} /> : null}
           {proxy.builtIn ? (
             <p className="mt-1 text-xs text-tertiary">不可编辑、删除或停用</p>
           ) : null}
         </div>
-        {!proxy.builtIn ? (
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="ghost"
+            disabled={!canTest || !proxy.enabled || testPending || pending}
+            aria-label={`测试 ${proxy.name}`}
+            onClick={onTest}
+          >
+            <Activity size={15} className={testing ? "animate-pulse" : undefined} />
+            {testing ? "测试中" : "测试"}
+          </Button>
+          {!proxy.builtIn ? (
+            <>
             {!isGlobal && proxy.enabled ? (
               <Button
                 variant="ghost"
@@ -148,10 +221,41 @@ function ProxyRow({
                 删除
               </Button>
             )}
-          </div>
-        ) : null}
+            </>
+          ) : null}
+        </div>
       </div>
     </li>
+  );
+}
+
+function isCurrentTestResult(
+  result: ProxyTestResult | undefined,
+  proxy: ProxyProfile,
+  configRevision: number,
+  endpoints: ProviderEndpoint[],
+  selectedEndpointId: string,
+) {
+  if (!result || result.providerEndpointId !== selectedEndpointId) {
+    return false;
+  }
+  const endpoint = endpoints.find((candidate) => candidate.id === result.providerEndpointId);
+  return (
+    result.configRevision === configRevision &&
+    result.proxyConfigVersion === proxy.configVersion &&
+    endpoint?.configVersion === result.providerEndpointConfigVersion
+  );
+}
+
+function TestResult({ result }: { result: ProxyTestResult }) {
+  return result.reachable ? (
+    <p className="mt-1 text-xs text-success">
+      可达 · HTTP {result.statusCode} · {result.latencyMs} ms
+    </p>
+  ) : (
+    <p className="mt-1 text-xs text-danger">
+      失败 · {result.errorStage ?? "unknown"} · {result.failureScope ?? "unknown"}
+    </p>
   );
 }
 

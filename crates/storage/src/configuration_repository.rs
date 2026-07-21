@@ -46,6 +46,20 @@ pub trait ConfigurationRepository:
         id: ProxyProfileId,
     ) -> Result<StoredConfiguration, StorageError>;
 
+    async fn set_proxy_authentication(
+        &self,
+        expected: ConfigRevision,
+        id: ProxyProfileId,
+        username: String,
+        password: SecretBytes,
+    ) -> Result<StoredConfiguration, StorageError>;
+
+    async fn clear_proxy_authentication(
+        &self,
+        expected: ConfigRevision,
+        id: ProxyProfileId,
+    ) -> Result<StoredConfiguration, StorageError>;
+
     async fn create_provider_endpoint(
         &self,
         expected: ConfigRevision,
@@ -146,6 +160,36 @@ impl ConfigurationRepository for SqliteStore {
     ) -> Result<StoredConfiguration, StorageError> {
         self.mutate_proxy(expected, ProxyMutation::SetGlobal { id })
             .await
+    }
+
+    async fn set_proxy_authentication(
+        &self,
+        expected: ConfigRevision,
+        id: ProxyProfileId,
+        username: String,
+        password: SecretBytes,
+    ) -> Result<StoredConfiguration, StorageError> {
+        self.mutate_proxy_authentication(
+            expected,
+            crate::proxy_auth_repository::ProxyAuthenticationMutation::Set {
+                id,
+                username,
+                password,
+            },
+        )
+        .await
+    }
+
+    async fn clear_proxy_authentication(
+        &self,
+        expected: ConfigRevision,
+        id: ProxyProfileId,
+    ) -> Result<StoredConfiguration, StorageError> {
+        self.mutate_proxy_authentication(
+            expected,
+            crate::proxy_auth_repository::ProxyAuthenticationMutation::Clear { id },
+        )
+        .await
     }
 
     async fn create_provider_endpoint(

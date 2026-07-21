@@ -7,6 +7,7 @@ use any2api_storage::api::{ConfigurationRepository, StoredConfiguration};
 
 use crate::{
     config_publish_error::ConfigPublishError, provider_api_key_secret::ProviderApiKeySecret,
+    proxy_password_secret::ProxyPasswordSecret,
 };
 
 pub(crate) enum ConfigCommand {
@@ -22,6 +23,14 @@ pub(crate) enum ConfigCommand {
         id: ProxyProfileId,
     },
     SetGlobalProxy {
+        id: ProxyProfileId,
+    },
+    SetProxyAuthentication {
+        id: ProxyProfileId,
+        username: String,
+        password: ProxyPasswordSecret,
+    },
+    ClearProxyAuthentication {
         id: ProxyProfileId,
     },
     CreateProviderEndpoint {
@@ -93,6 +102,18 @@ pub(crate) async fn execute(
         }
         ConfigCommand::DeleteProxy { id } => repository.delete_proxy(expected, id).await,
         ConfigCommand::SetGlobalProxy { id } => repository.set_global_proxy(expected, id).await,
+        ConfigCommand::SetProxyAuthentication {
+            id,
+            username,
+            password,
+        } => {
+            repository
+                .set_proxy_authentication(expected, id, username, password.into_storage_secret())
+                .await
+        }
+        ConfigCommand::ClearProxyAuthentication { id } => {
+            repository.clear_proxy_authentication(expected, id).await
+        }
         ConfigCommand::CreateProviderEndpoint { id, draft } => {
             repository
                 .create_provider_endpoint(expected, id, draft)

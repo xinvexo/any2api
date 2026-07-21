@@ -142,6 +142,20 @@ impl ConfigPublisher {
         expected: ConfigRevision,
         command: GatewayApiKeyPublishCommand,
     ) -> Result<GatewayApiKeyPublishOutcome, ConfigPublishError> {
+        let publisher = self.clone();
+        crate::publish_task::run(async move {
+            publisher
+                .publish_gateway_api_key_serialized(expected, command)
+                .await
+        })
+        .await
+    }
+
+    async fn publish_gateway_api_key_serialized(
+        &self,
+        expected: ConfigRevision,
+        command: GatewayApiKeyPublishCommand,
+    ) -> Result<GatewayApiKeyPublishOutcome, ConfigPublishError> {
         let _guard = self.snapshots.acquire_publish().await;
         let current = self.snapshots.load();
         if current.revision() != expected {

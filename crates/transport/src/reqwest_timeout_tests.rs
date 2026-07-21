@@ -7,7 +7,10 @@ use tokio::{io::AsyncReadExt, net::TcpListener, sync::oneshot};
 
 use crate::{
     ReqwestTransportManager,
-    api::{EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportRequest},
+    api::{
+        EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportProxy,
+        TransportRequest,
+    },
     error::{TransportErrorStage, TransportFailureScope},
 };
 
@@ -19,7 +22,10 @@ async fn stalled_response_headers_use_the_request_read_timeout() {
     transport_request.read_timeout = Duration::from_millis(25);
 
     let error = match manager
-        .execute(&ProxyProfile::direct(), transport_request)
+        .execute(
+            TransportProxy::new(&ProxyProfile::direct(), None),
+            transport_request,
+        )
         .await
     {
         Ok(_) => panic!("stalled response headers must time out"),
@@ -51,7 +57,10 @@ async fn connect_timeout_is_not_replaced_by_a_short_read_timeout() {
 
     let result = tokio::time::timeout(
         Duration::from_millis(500),
-        manager.execute(&ProxyProfile::direct(), transport_request),
+        manager.execute(
+            TransportProxy::new(&ProxyProfile::direct(), None),
+            transport_request,
+        ),
     )
     .await
     .expect("connect timeout must finish");

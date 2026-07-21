@@ -14,6 +14,7 @@ pub enum SecretContext {
     },
     ProxyPassword {
         proxy_profile_id: ProxyProfileId,
+        authentication_version: u64,
     },
 }
 
@@ -36,8 +37,14 @@ impl SecretContext {
     }
 
     #[must_use]
-    pub const fn proxy_password(proxy_profile_id: ProxyProfileId) -> Self {
-        Self::ProxyPassword { proxy_profile_id }
+    pub const fn proxy_password(
+        proxy_profile_id: ProxyProfileId,
+        authentication_version: u64,
+    ) -> Self {
+        Self::ProxyPassword {
+            proxy_profile_id,
+            authentication_version,
+        }
     }
 
     pub(crate) fn encode_aad(self) -> Vec<u8> {
@@ -59,9 +66,13 @@ impl SecretContext {
                 aad.extend_from_slice(&secret_schema_version.to_be_bytes());
                 aad.extend_from_slice(&secret_version.to_be_bytes());
             }
-            Self::ProxyPassword { proxy_profile_id } => {
+            Self::ProxyPassword {
+                proxy_profile_id,
+                authentication_version,
+            } => {
                 aad.push(2);
                 aad.extend_from_slice(proxy_profile_id.as_uuid().as_bytes());
+                aad.extend_from_slice(&authentication_version.to_be_bytes());
             }
         }
         aad

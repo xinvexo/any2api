@@ -11,11 +11,13 @@ use crate::{
     config_command::{ConfigCommand, execute},
     config_publish_error::ConfigPublishError,
     provider_api_key_secret::ProviderApiKeySecret,
+    proxy_password_secret::ProxyPasswordSecret,
     published_snapshot::{PublishedSnapshot, SnapshotStore},
     registry::RuntimeRegistry,
     request_telemetry::RequestTelemetry,
 };
 
+#[derive(Clone)]
 pub struct ConfigPublisher {
     pub(crate) repository: Arc<dyn ConfigurationRepository>,
     pub(crate) snapshots: Arc<SnapshotStore>,
@@ -82,6 +84,33 @@ impl ConfigPublisher {
         id: ProxyProfileId,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         self.publish(expected, ConfigCommand::SetGlobalProxy { id })
+            .await
+    }
+
+    pub async fn set_proxy_authentication(
+        &self,
+        expected: ConfigRevision,
+        id: ProxyProfileId,
+        username: String,
+        password: ProxyPasswordSecret,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        self.publish(
+            expected,
+            ConfigCommand::SetProxyAuthentication {
+                id,
+                username,
+                password,
+            },
+        )
+        .await
+    }
+
+    pub async fn clear_proxy_authentication(
+        &self,
+        expected: ConfigRevision,
+        id: ProxyProfileId,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        self.publish(expected, ConfigCommand::ClearProxyAuthentication { id })
             .await
     }
 
@@ -263,6 +292,18 @@ impl ConfigPublisher {
     }
 
     async fn publish(
+        &self,
+        expected: ConfigRevision,
+        command: ConfigCommand,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        let publisher = self.clone();
+        crate::publish_task::run(
+            async move { publisher.publish_serialized(expected, command).await },
+        )
+        .await
+    }
+
+    async fn publish_serialized(
         &self,
         expected: ConfigRevision,
         command: ConfigCommand,

@@ -15,7 +15,7 @@ use tokio::{
 use crate::{
     ReqwestTransportManager,
     api::EndpointNetworkPolicy,
-    api::{TransportManager, TransportManagerConfig, TransportRequest},
+    api::{TransportManager, TransportManagerConfig, TransportProxy, TransportRequest},
     error::{TransportErrorStage, TransportFailureScope},
 };
 
@@ -23,9 +23,10 @@ use crate::{
 async fn direct_transport_reaches_the_origin() {
     let (address, request) = spawn_http_response(StatusCode::OK, HeaderMap::new(), "direct").await;
     let manager = ReqwestTransportManager::default();
+    let proxy = ProxyProfile::direct();
     let response = manager
         .execute(
-            &ProxyProfile::direct(),
+            TransportProxy::new(&proxy, None),
             request_to(&format!("http://localhost:{}/direct", address.port())),
         )
         .await
@@ -49,9 +50,10 @@ async fn direct_transport_rejects_private_origin_without_endpoint_authorization(
     let address = origin.local_addr().expect("origin address");
     let manager = ReqwestTransportManager::default();
 
+    let proxy = ProxyProfile::direct();
     let error = match manager
         .execute(
-            &ProxyProfile::direct(),
+            TransportProxy::new(&proxy, None),
             request_to_with_policy(&format!("http://{address}/blocked"), false),
         )
         .await
@@ -78,7 +80,7 @@ async fn http_proxy_receives_the_absolute_upstream_uri() {
     let proxy = network_proxy("HTTP", ProxyKind::Http, proxy_address, true);
     let response = manager
         .execute(
-            &proxy,
+            TransportProxy::new(&proxy, None),
             request_to("http://upstream.invalid/v1/test?mode=proxy"),
         )
         .await
@@ -99,7 +101,10 @@ async fn socks5_uses_remote_dns_and_carries_the_http_request() {
     let manager = ReqwestTransportManager::default();
     let proxy = network_proxy("SOCKS5", ProxyKind::Socks5, proxy_address, true);
     let response = manager
-        .execute(&proxy, request_to("http://remote-dns.invalid/socks"))
+        .execute(
+            TransportProxy::new(&proxy, None),
+            request_to("http://remote-dns.invalid/socks"),
+        )
         .await
         .expect("SOCKS response");
 
@@ -129,7 +134,7 @@ async fn unavailable_explicit_proxy_fails_closed_without_reaching_origin() {
 
     let error = match manager
         .execute(
-            &proxy,
+            TransportProxy::new(&proxy, None),
             request_to(&format!("https://{origin_address}/must-not-connect")),
         )
         .await
@@ -170,9 +175,10 @@ async fn redirects_are_returned_without_following_the_location() {
     let (address, _request) = spawn_http_response(StatusCode::FOUND, headers, "redirect").await;
     let manager = ReqwestTransportManager::default();
 
+    let proxy = ProxyProfile::direct();
     let response = manager
         .execute(
-            &ProxyProfile::direct(),
+            TransportProxy::new(&proxy, None),
             request_to(&format!("http://{address}/redirect")),
         )
         .await

@@ -5,6 +5,7 @@ mod auth_cookie;
 mod auth_dto;
 mod auth_handlers;
 mod auth_middleware;
+mod config_publish_error;
 mod error;
 mod gateway_api_key_dto;
 mod gateway_api_key_handlers;
@@ -93,6 +94,15 @@ fn protected_routes() -> Router<AppState> {
         .route(
             "/proxies/{id}/set-global",
             axum::routing::post(proxy_handlers::set_global),
+        )
+        .route(
+            "/proxies/{id}/authentication",
+            axum::routing::put(proxy_handlers::set_authentication)
+                .delete(proxy_handlers::clear_authentication),
+        )
+        .route(
+            "/proxies/{id}/test",
+            axum::routing::post(proxy_handlers::test),
         )
         .route(
             "/provider-endpoints",

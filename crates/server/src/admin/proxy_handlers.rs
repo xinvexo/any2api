@@ -10,7 +10,10 @@ use crate::state::AppState;
 
 use super::{
     error::AdminApiError,
-    proxy_dto::{ProxyCollectionResponse, ProxyWriteRequest},
+    proxy_dto::{
+        ProxyAuthenticationRequest, ProxyCollectionResponse, ProxyTestRequest, ProxyTestResponse,
+        ProxyWriteRequest,
+    },
     revision::{ExpectedRevisionQuery, ExpectedRevisionRequest},
 };
 
@@ -71,6 +74,55 @@ pub(crate) async fn set_global(
     let snapshot = state.publisher().set_global_proxy(expected, id).await?;
 
     Ok(Json(ProxyCollectionResponse::from_snapshot(&snapshot)))
+}
+
+pub(crate) async fn set_authentication(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    payload: Result<Json<ProxyAuthenticationRequest>, JsonRejection>,
+) -> Result<Json<ProxyCollectionResponse>, AdminApiError> {
+    let id = parse_id(&id)?;
+    let (expected, username, password) = parse_json(payload)?.into_domain()?;
+    let snapshot = state
+        .publisher()
+        .set_proxy_authentication(expected, id, username, password)
+        .await?;
+
+    Ok(Json(ProxyCollectionResponse::from_snapshot(&snapshot)))
+}
+
+pub(crate) async fn clear_authentication(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    query: Result<Query<ExpectedRevisionQuery>, QueryRejection>,
+) -> Result<Json<ProxyCollectionResponse>, AdminApiError> {
+    let id = parse_id(&id)?;
+    let expected = query
+        .map_err(|_| AdminApiError::invalid_request("expected_revision query is required"))?
+        .0
+        .revision()?;
+    let snapshot = state
+        .publisher()
+        .clear_proxy_authentication(expected, id)
+        .await?;
+
+    Ok(Json(ProxyCollectionResponse::from_snapshot(&snapshot)))
+}
+
+pub(crate) async fn test(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    payload: Result<Json<ProxyTestRequest>, JsonRejection>,
+) -> Result<Json<ProxyTestResponse>, AdminApiError> {
+    let id = parse_id(&id)?;
+    let request = parse_json(payload)?;
+    let service = state
+        .proxy_tests()
+        .ok_or_else(AdminApiError::proxy_test_unavailable)?;
+    let result = service
+        .test(state.snapshots().load(), id, request.provider_endpoint_id())
+        .await?;
+    Ok(Json(result.into()))
 }
 
 fn parse_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, AdminApiError> {

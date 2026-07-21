@@ -18,7 +18,7 @@ use any2api_runtime::api::{
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope, TransportManager,
-    TransportRequest, TransportResponse,
+    TransportProxy, TransportRequest, TransportResponse,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -603,7 +603,7 @@ impl ScriptedTransport {
 impl TransportManager for ScriptedTransport {
     async fn execute(
         &self,
-        _proxy: &any2api_domain::ProxyProfile,
+        _proxy: TransportProxy<'_>,
         request: TransportRequest,
     ) -> Result<TransportResponse, TransportError> {
         self.calls.lock().expect("calls lock").push(TransportCall {

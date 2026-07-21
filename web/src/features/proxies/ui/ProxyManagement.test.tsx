@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
+import { proxyQueryKeys } from "../model/proxy-query-keys";
 import { ProxyManagement } from "./ProxyManagement";
 
 const direct = {
@@ -11,6 +12,9 @@ const direct = {
   kind: "direct",
   host: null,
   port: null,
+  username: null,
+  password_configured: false,
+  authentication_version: 0,
   enabled: true,
   built_in: true,
   config_version: 1,
@@ -40,6 +44,9 @@ test("creates a SOCKS5 proxy with the visible configuration revision", async () 
           kind: "socks5",
           host: "hk.example.com",
           port: 1080,
+          username: null,
+          password_configured: false,
+          authentication_version: 0,
           enabled: true,
           built_in: false,
           config_version: 1,
@@ -106,6 +113,135 @@ test("refetches the revision after a write conflict without discarding the edito
   expect(getCount).toBeGreaterThan(1);
 });
 
+test("sets proxy authentication without caching the password", async () => {
+  const proxy = customProxy();
+  let current = configuration(1, [direct, proxy]);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = requestPath(input);
+    if (path === "/api/admin/provider-endpoints") {
+      return jsonResponse(providerConfiguration());
+    }
+    if (path.endsWith(`/proxies/${proxy.id}/authentication`) && init?.method === "PUT") {
+      current = configuration(2, [direct, {
+        ...proxy,
+        username: "proxy-user",
+        password_configured: true,
+        authentication_version: 1,
+        config_version: 2,
+      }]);
+      return jsonResponse(current);
+    }
+    return jsonResponse(current);
+  });
+
+  const { client } = renderManagement([`/proxies?editor=${proxy.id}`]);
+  fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "proxy-user" } });
+  fireEvent.change(screen.getByLabelText("密码"), { target: { value: "proxy-password" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存认证" }));
+
+  expect(await screen.findByText("已为 proxy-user 配置")).toBeInTheDocument();
+  expect(screen.getByLabelText("密码")).toHaveValue("");
+  const request = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+  expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+    expected_revision: 1,
+    username: "proxy-user",
+    password: "proxy-password",
+  });
+  expect(JSON.stringify(client.getQueryData(proxyQueryKeys.list()))).not.toContain("proxy-password");
+  expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain("proxy-password");
+});
+
+test("clears the password draft after a rejected authentication write", async () => {
+  const proxy = customProxy();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = requestPath(input);
+    if (path === "/api/admin/provider-endpoints") {
+      return jsonResponse(providerConfiguration());
+    }
+    if (path.endsWith(`/proxies/${proxy.id}/authentication`) && init?.method === "PUT") {
+      return new Response(
+        JSON.stringify({
+          error: { code: "revision_conflict", message: "configuration changed" },
+        }),
+        { status: 409, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    return jsonResponse(configuration(1, [direct, proxy]));
+  });
+
+  renderManagement([`/proxies?editor=${proxy.id}`]);
+  fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "proxy-user" } });
+  const password = screen.getByLabelText("密码");
+  fireEvent.change(password, { target: { value: "proxy-password" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存认证" }));
+
+  await waitFor(() => expect(password).toHaveValue(""));
+});
+
+test("rejects an HTTP Basic separator and clears the local password draft", async () => {
+  const proxy = customProxy();
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (requestPath(input) === "/api/admin/provider-endpoints") {
+      return jsonResponse(providerConfiguration());
+    }
+    return jsonResponse(configuration(1, [direct, proxy]));
+  });
+
+  renderManagement([`/proxies?editor=${proxy.id}`]);
+  fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "proxy:user" } });
+  const password = screen.getByLabelText("密码");
+  fireEvent.change(password, { target: { value: "proxy-password" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存认证" }));
+
+  expect(await screen.findByText("用户名不能包含冒号")).toBeInTheDocument();
+  expect(password).toHaveValue("");
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+});
+
+test("tests a proxy against an existing provider endpoint", async () => {
+  const proxy = customProxy();
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = requestPath(input);
+    if (path === "/api/admin/provider-endpoints") {
+      return jsonResponse(providerConfiguration());
+    }
+    if (path.endsWith(`/proxies/${proxy.id}/test`) && init?.method === "POST") {
+      return jsonResponse({
+        proxy_id: proxy.id,
+        provider_endpoint_id: "7dd71e36-cc35-4727-903c-9555ab17290a",
+        config_revision: 1,
+        proxy_config_version: 1,
+        provider_endpoint_config_version: 1,
+        reachable: true,
+        status_code: 204,
+        latency_ms: 18,
+        error_stage: null,
+        failure_scope: null,
+      });
+    }
+    return jsonResponse(configuration(1, [direct, proxy]));
+  });
+
+  renderManagement();
+  fireEvent.click(await screen.findByRole("button", { name: `测试 ${proxy.name}` }));
+
+  expect(await screen.findByText("可达 · HTTP 204 · 18 ms")).toBeInTheDocument();
+});
+
+test("does not offer a probe action for a disabled proxy", async () => {
+  const proxy = { ...customProxy(), enabled: false };
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    if (requestPath(input) === "/api/admin/provider-endpoints") {
+      return jsonResponse(providerConfiguration());
+    }
+    return jsonResponse(configuration(1, [direct, proxy]));
+  });
+
+  renderManagement();
+
+  expect(await screen.findByRole("button", { name: `测试 ${proxy.name}` })).toBeDisabled();
+});
+
 function renderManagement(initialEntries = ["/proxies"]) {
   const client = new QueryClient({
     defaultOptions: {
@@ -114,13 +250,16 @@ function renderManagement(initialEntries = ["/proxies"]) {
     },
   });
 
-  return render(
+  return {
+    client,
+    ...render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={initialEntries}>
         <ProxyManagement />
       </MemoryRouter>
     </QueryClientProvider>,
-  );
+    ),
+  };
 }
 
 function configuration(revision: number, items: unknown[]) {
@@ -136,4 +275,41 @@ function jsonResponse(value: unknown) {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function customProxy() {
+  return {
+    id: "a81bf8f8-8fb4-45f0-926d-1cfda84884f5",
+    name: "Authenticated Proxy",
+    kind: "http",
+    host: "proxy.example.com",
+    port: 8080,
+    username: null,
+    password_configured: false,
+    authentication_version: 0,
+    enabled: true,
+    built_in: false,
+    config_version: 1,
+  };
+}
+
+function providerConfiguration() {
+  return {
+    config_revision: 1,
+    items: [{
+      id: "7dd71e36-cc35-4727-903c-9555ab17290a",
+      name: "Codex",
+      provider_kind: "codex",
+      base_url: "https://api.openai.com/v1",
+      protocol_dialect: "openai_responses",
+      allow_insecure_http: false,
+      allow_private_network: false,
+      enabled: true,
+      config_version: 1,
+    }],
+  };
+}
+
+function requestPath(input: RequestInfo | URL) {
+  return new URL(typeof input === "string" ? input : input.toString(), "http://localhost").pathname;
 }

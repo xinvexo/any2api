@@ -9,7 +9,10 @@ use tokio::net::TcpListener;
 
 use crate::{
     ReqwestTransportManager,
-    api::{EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportRequest},
+    api::{
+        EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportProxy,
+        TransportRequest,
+    },
     error::{TransportErrorStage, TransportFailureScope},
 };
 
@@ -28,7 +31,10 @@ async fn plain_http_proxy_connection_failure_is_attributed_to_the_proxy() {
     let proxy = network_proxy(unavailable_address);
 
     let error = match manager
-        .execute(&proxy, request_to("http://upstream.invalid/proxy-connect"))
+        .execute(
+            TransportProxy::new(&proxy, None),
+            request_to("http://upstream.invalid/proxy-connect"),
+        )
         .await
     {
         Ok(_) => panic!("unavailable proxy must fail"),

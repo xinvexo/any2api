@@ -90,6 +90,125 @@ async fn current_global_proxy_cannot_be_disabled() {
 }
 
 #[tokio::test]
+async fn proxy_authentication_is_encrypted_versioned_and_clearable() {
+    let directory = tempdir().expect("temporary directory");
+    let database = directory.path().join("config.sqlite3");
+    let store = SqliteStore::connect(&database).await.expect("store");
+    let id = ProxyProfileId::new();
+    let created = store
+        .create_proxy(
+            ConfigRevision::INITIAL,
+            id,
+            proxy_draft("Authenticated", true),
+        )
+        .await
+        .expect("create proxy");
+
+    let authenticated = store
+        .set_proxy_authentication(
+            created.revision(),
+            id,
+            "proxy-user".to_owned(),
+            b"proxy-password".to_vec().into(),
+        )
+        .await
+        .expect("set proxy authentication");
+    let profile = authenticated.proxies().get(id).expect("profile");
+    assert_eq!(
+        profile.authentication().expect("authentication").username(),
+        "proxy-user"
+    );
+    assert_eq!(profile.authentication_version(), 1);
+    assert_eq!(
+        authenticated
+            .proxy_passwords()
+            .get(id)
+            .expect("stored password")
+            .expose_for_test(),
+        b"proxy-password"
+    );
+    assert!(!format!("{authenticated:?}").contains("proxy-password"));
+
+    let replaced = store
+        .set_proxy_authentication(
+            authenticated.revision(),
+            id,
+            "proxy-user-2".to_owned(),
+            b"replacement".to_vec().into(),
+        )
+        .await
+        .expect("replace proxy authentication");
+    assert_eq!(
+        replaced
+            .proxies()
+            .get(id)
+            .expect("profile")
+            .authentication_version(),
+        2
+    );
+
+    drop(store);
+    let store = SqliteStore::connect(&database).await.expect("reopen store");
+    let reloaded_authenticated = store
+        .load_configuration()
+        .await
+        .expect("reload authenticated configuration");
+    assert_eq!(
+        reloaded_authenticated
+            .proxies()
+            .get(id)
+            .expect("reloaded profile")
+            .authentication_version(),
+        2
+    );
+    assert_eq!(
+        reloaded_authenticated
+            .proxy_passwords()
+            .get(id)
+            .expect("reloaded password")
+            .expose_for_test(),
+        b"replacement"
+    );
+
+    let cleared = store
+        .clear_proxy_authentication(reloaded_authenticated.revision(), id)
+        .await
+        .expect("clear proxy authentication");
+    let profile = cleared.proxies().get(id).expect("profile");
+    assert!(profile.authentication().is_none());
+    assert_eq!(profile.authentication_version(), 3);
+    assert!(cleared.proxy_passwords().get(id).is_none());
+
+    let repeated = store
+        .clear_proxy_authentication(cleared.revision(), id)
+        .await
+        .expect("repeat clear proxy authentication");
+    assert_eq!(repeated.revision(), cleared.revision());
+    assert_eq!(
+        repeated
+            .proxies()
+            .get(id)
+            .expect("profile")
+            .authentication_version(),
+        3
+    );
+
+    drop(store);
+    let reloaded = SqliteStore::connect(&database).await.expect("reopen store");
+    assert!(
+        reloaded
+            .load_configuration()
+            .await
+            .expect("reloaded configuration")
+            .proxies()
+            .get(id)
+            .expect("reloaded profile")
+            .authentication()
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn dropping_an_immediate_transaction_releases_the_sqlite_writer() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))

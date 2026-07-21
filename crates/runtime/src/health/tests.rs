@@ -141,8 +141,9 @@ fn unattributed_transport_failure_does_not_pollute_endpoint_or_proxy_health() {
     let mut policy = policy();
     policy.endpoint_failure_threshold = 1;
     policy.proxy_failure_threshold = 1;
+    let generation = test_generation(Arc::clone(&epoch));
     let health = AttemptHealth::new(
-        test_generation(Arc::clone(&epoch)),
+        Arc::clone(&generation),
         "model".into(),
         Some(endpoint.try_acquire(&policy).expect("endpoint permit")),
         Some(proxy.try_acquire(&policy).expect("proxy permit")),
@@ -153,6 +154,30 @@ fn unattributed_transport_failure_does_not_pollute_endpoint_or_proxy_health() {
 
     assert_eq!(endpoint.availability(&policy), Ok(()));
     assert_eq!(proxy.availability(&policy), Ok(()));
+}
+
+#[tokio::test(start_paused = true)]
+async fn proxy_transport_failure_opens_only_proxy_health() {
+    let epoch = SchedulerEpoch::new();
+    let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
+    let proxy = ProxyHealthRuntime::new(Arc::clone(&epoch));
+    let mut policy = policy();
+    policy.endpoint_failure_threshold = 1;
+    policy.proxy_failure_threshold = 1;
+    let generation = test_generation(Arc::clone(&epoch));
+    let health = AttemptHealth::new(
+        Arc::clone(&generation),
+        "model".into(),
+        Some(endpoint.try_acquire(&policy).expect("endpoint permit")),
+        Some(proxy.try_acquire(&policy).expect("proxy permit")),
+        policy,
+    );
+
+    health.transport_failure(TransportFailureScope::Proxy);
+
+    assert_eq!(endpoint.availability(&policy), Ok(()));
+    assert!(proxy.availability(&policy).is_err());
+    assert_eq!(generation.health().availability("model"), Ok(()));
 }
 
 #[tokio::test(start_paused = true)]

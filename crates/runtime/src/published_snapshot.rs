@@ -6,6 +6,7 @@ use any2api_domain::{
     ProxyConfiguration, ProxyProfile, SettingsConfiguration,
 };
 use any2api_storage::api::{GatewayApiKeyVerifier, StoredConfiguration};
+use any2api_transport::api::TransportProxy;
 use arc_swap::ArcSwap;
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -15,6 +16,7 @@ use crate::{
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
     health::{HealthBindings, ReliabilityPolicy},
+    proxy_auth::ProxyAuthMaterials,
     queue::{QueueCoordinator, QueuePolicy},
     registry::RuntimeRegistry,
     route_tier_cursor::{RouteTierCursorBinding, RouteTierCursorBindings},
@@ -24,6 +26,7 @@ use crate::{
 pub struct PublishedSnapshot {
     revision: ConfigRevision,
     proxies: ProxyConfiguration,
+    proxy_auth: ProxyAuthMaterials,
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
     model_routes: ModelRouteConfiguration,
@@ -45,6 +48,7 @@ impl PublishedSnapshot {
     #[must_use]
     pub fn new(configuration: StoredConfiguration, runtime: &RuntimeRegistry) -> Self {
         let parts = configuration.into_parts();
+        let proxy_auth = ProxyAuthMaterials::from_stored(&parts.proxies, parts.proxy_passwords);
         runtime.reconcile_scheduler_settings(parts.settings.scheduler());
         let affinity_policy = AffinityPolicy::from_settings(parts.settings.affinity());
         let queue_policy = QueuePolicy::from_scheduler_settings(parts.settings.scheduler());
@@ -61,6 +65,7 @@ impl PublishedSnapshot {
         Self {
             revision: parts.revision,
             proxies: parts.proxies,
+            proxy_auth,
             provider_endpoints: parts.provider_endpoints,
             provider_credentials: parts.provider_credentials,
             model_routes: parts.model_routes,
@@ -190,6 +195,28 @@ impl PublishedSnapshot {
     pub fn resolved_proxy_for_credential(&self, id: CredentialId) -> Option<&ProxyProfile> {
         let credential = self.provider_credentials.get(id)?;
         self.proxies.resolve(credential.proxy_profile_id())
+    }
+
+    pub(crate) fn transport_proxy(
+        &self,
+        id: any2api_domain::ProxyProfileId,
+    ) -> Option<TransportProxy<'_>> {
+        let profile = self.proxies.get(id)?;
+        Some(TransportProxy::new(
+            profile,
+            self.proxy_auth.credentials_for(profile),
+        ))
+    }
+
+    pub(crate) fn resolved_transport_proxy_for_credential(
+        &self,
+        id: CredentialId,
+    ) -> Option<TransportProxy<'_>> {
+        let profile = self.resolved_proxy_for_credential(id)?;
+        Some(TransportProxy::new(
+            profile,
+            self.proxy_auth.credentials_for(profile),
+        ))
     }
 }
 
