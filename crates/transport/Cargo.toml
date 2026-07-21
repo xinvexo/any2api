@@ -8,15 +8,23 @@ publish.workspace = true
 [dependencies]
 any2api-domain = { path = "../domain" }
 async-trait.workspace = true
+base64.workspace = true
 bytes.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
 http.workspace = true
 http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-rustls.workspace = true
+hyper-util.workspace = true
 reqwest.workspace = true
+rustls.workspace = true
+rustls-native-certs.workspace = true
 secrecy.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tower-service.workspace = true
 url.workspace = true
 
 [dev-dependencies]

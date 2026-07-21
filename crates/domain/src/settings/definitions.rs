@@ -25,7 +25,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::LogsRequestRetention
         | SettingKey::LogsRequestMaxRows
         | SettingKey::LogsTelemetryQueueCapacity => logging::definition(key),
-        SettingKey::UpstreamReadTimeout => upstream::definition(key),
+        SettingKey::UpstreamReadTimeout | SettingKey::UpstreamStrictSsrf => {
+            upstream::definition(key)
+        }
         SettingKey::StreamPrecommitMaxBytes
         | SettingKey::StreamPrecommitMaxDuration
         | SettingKey::StreamPostcommitIdleTimeout => stream::definition(key),

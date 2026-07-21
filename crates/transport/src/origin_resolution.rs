@@ -15,6 +15,8 @@ use crate::{
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct ResolvedOrigin {
     pub(crate) host: Arc<str>,
+    pub(crate) port: u16,
+    pub(crate) secure: bool,
     pub(crate) addresses: Arc<[SocketAddr]>,
 }
 
@@ -23,7 +25,7 @@ pub(crate) async fn resolve_origin(
     policy: EndpointNetworkPolicy,
     proxy_kind: ProxyKind,
 ) -> Result<Option<ResolvedOrigin>, TransportError> {
-    if proxy_kind != ProxyKind::Direct {
+    if proxy_kind != ProxyKind::Direct && !policy.strict_ssrf() {
         return Ok(None);
     }
     let host = uri.host().ok_or_else(|| {
@@ -52,7 +54,15 @@ pub(crate) async fn resolve_origin(
 
     if let Ok(address) = host.parse::<IpAddr>() {
         validate_address(address, policy.allow_private_network())?;
-        return Ok(None);
+        if proxy_kind == ProxyKind::Direct {
+            return Ok(None);
+        }
+        return Ok(Some(ResolvedOrigin {
+            host: Arc::from(host.to_owned()),
+            port,
+            secure: uri.scheme_str() == Some("https"),
+            addresses: Arc::from(vec![SocketAddr::new(address, port)].into_boxed_slice()),
+        }));
     }
 
     let mut addresses = lookup_host((host, port))
@@ -81,6 +91,8 @@ pub(crate) async fn resolve_origin(
     }
     Ok(Some(ResolvedOrigin {
         host: Arc::from(host.to_owned()),
+        port,
+        secure: uri.scheme_str() == Some("https"),
         addresses: Arc::from(addresses.into_boxed_slice()),
     }))
 }

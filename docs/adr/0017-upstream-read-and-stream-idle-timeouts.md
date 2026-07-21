@@ -26,6 +26,6 @@
 
 ## 验证
 
-- Domain 测试验证两项默认值、范围与覆盖编译；Admin 契约验证 43 项 Registry 和两项设置元数据；Web 单测验证两项展示标签。
+- Domain 测试验证两项默认值、范围与覆盖编译；该切片完成时 Admin 契约验证 43 项 Registry 和两项设置元数据；Web 单测验证两项展示标签。后续 Registry 可按独立 ADR 继续追加。
 - Transport/Runtime 测试验证等响应头、buffered body、SSE post-commit idle、成功 chunk 重置、Ambiguous 分类、健康归因和 Permit 单次释放。
 - HTTP 契约验证 JSON 超时不启动第二个 Ambiguous Attempt，SSE 首事件先交付、静默后 Body 失败且不切换上游。

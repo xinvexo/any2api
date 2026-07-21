@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、RequestLog/Attempt 有界遥测、单管理员远程 HTTP 认证以及代理认证/管理探测切片已完成；严格 SSRF 本地 DNS 与 OAuth2 仍待完成。
-- 最近完成：代理 HTTP Basic/HTTPS CONNECT/SOCKS5 RFC 1929 认证、代理认证代际、受限 ProviderEndpoint 管理探测，以及配置发布任务脱离 HTTP 请求取消的执行边界；此前完成可热更新的上游响应头/buffered body 读取超时、SSE 提交后空闲超时与首事件字节/时长预算，以及本地 Request ID、RequestLog/Attempt SQLite 历史、有界非阻塞遥测队列、软/硬会话粘性、QueueTicket、同协议 JSON/SSE、错误分类、冷却、熔断和提交前多 Attempt 重试。
+- 当前阶段：阶段 4 可靠性、严格 SSRF 本地 DNS、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、RequestLog/Attempt 有界遥测、单管理员远程 HTTP 认证以及代理认证/管理探测切片已完成；公开入口协议错误适配、文件日志轮转与 OAuth2 仍待完成。
+- 最近完成：`upstream.strict_ssrf` 热更新设置、DIRECT/HTTP forward/HTTPS CONNECT/SOCKS5 的统一本地解析与地址校验、代理目标 IP 固定以及原始 Host/HTTP2 authority/TLS SNI 保留；此前完成代理认证与管理探测、上游读取/流式超时、有界遥测、会话粘性、QueueTicket、同协议 JSON/SSE、错误分类、冷却、熔断和提交前多 Attempt 重试。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -17,7 +17,7 @@
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
 - 上一切片提交主题：`feat: add upstream read and stream idle timeouts`。
-- 本切片主题：代理认证、管理面代理探测与 Transport 认证代际。
+- 本切片主题：严格 SSRF 本地 DNS、固定代理目标与连接池解析代际。
 
 ## 已完成
 
@@ -120,7 +120,7 @@
 - DIRECT 请求会解析并校验全部 DNS A/AAAA 结果，未授权 Endpoint 遇到私网/回环地址时在发送 Provider Key 前拒绝；通过校验后把连接固定到本次已验证地址，同时保留原 Host/SNI。HTTP/SOCKS5 远端 DNS 仍属于显式受信代理边界。
 - 模块网络测试覆盖真实 DIRECT、HTTP absolute URI、HTTPS 经 HTTP CONNECT 完成 TLS 隧道、SOCKS5h 远端 DNS、禁重定向、缓存代际、授权头 Debug 脱敏和 fail-closed。
 - 公共 API 契约测试确认目标本机可达时，指定不可用代理仍然失败且目标端口没有收到连接。
-- TransportManager 已装配进公开模型请求入口；代理用户名/密码与管理面代理探测已实现。HTTP/SOCKS5 仍使用远端 DNS 受信边界，严格 SSRF 本地 DNS 模式仍未实现。
+- TransportManager 已装配进公开模型请求入口；代理用户名/密码与管理面代理探测已实现。HTTP/SOCKS5 默认继续使用远端 DNS 受信边界，开启 `upstream.strict_ssrf` 后改用本地解析与固定目标连接。
 
 ### 代理认证与管理探测切片
 
@@ -131,6 +131,17 @@
 - 管理 API 新增 `POST /api/admin/proxies/{id}/test`，仅接受已有 Provider Endpoint，发送不带 ProviderCredential 的空 GET；普通上游 HTTP 状态视为链路可达，但 HTTP forward proxy 的 407 认证拒绝作为 `ProxyHandshake + Proxy` 失败。响应携带捕获的全局 revision、Proxy/Endpoint config version 与脱敏结果，不更新健康熔断。
 - React 代理页增加认证局部表单、清除操作、Provider Endpoint 测试目标选择和行内延迟/状态结果；密码在提交成功或失败后都会清空，不进入查询缓存、URL、Storage 或持久化表单状态；探测结果按配置 revision 和目标 Endpoint 隔离，停用代理不提供测试操作。
 - Domain、Storage、Transport、Runtime、HTTP 契约和 Web 测试覆盖用户名/密码边界、加密重启加载、重复清除 no-op、版本代际、HTTP/CONNECT/SOCKS5 认证、HTTP/CONNECT 407 代理拒绝、错误密码 Fail-Closed、DTO 脱敏、受限测试目标与管理探测。
+
+### 严格 SSRF 本地 DNS 切片
+
+- 新增并接受 ADR-0019，明确 DIRECT、HTTP forward、HTTPS CONNECT 与 SOCKS5 的本地/远端 DNS 信任边界、全部 A/AAAA 校验、目标固定、Host/SNI、DNS rebinding 与多地址失败语义。
+- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。当前 Registry 共 44 项。
+- DIRECT 始终执行本地解析、全部地址校验与 reqwest `resolve_to_addrs` 固定；严格模式关闭时 HTTP/SOCKS5 保持既有受信远端 DNS 行为。
+- 严格模式下，HTTP forward 的 absolute-form authority 使用已验证 IP 并保留原始 Host；HTTPS CONNECT 向代理发送已验证 IP，隧道后继续使用原始 TLS SNI、证书名、HTTP Host 与 HTTP/2 authority。
+- 严格 SOCKS5 使用 IP 地址类型，不发送目标域名；普通 HTTP 与 TLS 仍保留原始应用层 authority。代理自身地址仍是用户显式配置的信任边界。
+- 固定目标 Hyper Client 与既有 reqwest Client 统一进入有界连接池缓存，key 包含代理配置代际、协议和完整已验证地址集合；DNS 结果变化会进入新 Client 代际，旧请求继续持有旧连接。
+- 严格 CONNECT/SOCKS 的代理握手错误归 Proxy，隧道建立后的 TLS 错误归 Endpoint；CONNECT 407 归 `ProxyHandshake + Proxy + RejectedBeforeExecution`。专属代理仍 Fail-Closed，不回退全局代理或 DIRECT。
+- Transport 真实网络测试覆盖 HTTP IP authority + Host、SOCKS5 IP target、CONNECT IP + SNI/Host、严格代理认证、407、TLS 归因和未授权私网在连接代理前拒绝；Settings HTTP 契约覆盖默认值、启用与恢复默认。
 
 ### ModelRoute 配置切片
 
@@ -283,7 +294,7 @@
 
 ### 上游读取与 SSE 提交后空闲超时切片
 
-- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；当前 Registry 共 43 项。
+- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续严格 SSRF 设置使当前总数达到 44 项。
 - `TransportRequest` 按请求快照携带 read timeout，不把它放进连接池 Client key。固定请求体开始被连接层消费后才启动响应头 timer，因此较短的 read timeout 不会取代 DNS、连接、代理握手或 TLS 的既有阶段边界。
 - 等待响应头超时记录为 `AwaitHeaders + Ambiguous`；JSON、Compact、Count Tokens 与非成功 SSE 错误正文逐 chunk 收集时使用相同空闲时长，超时记录为 `ReadBody + Ambiguous`。DIRECT 归因 Endpoint，无法证明责任的代理路径归入 `Unattributed`。
 - 成功 SSE 提交前只使用 `stream.precommit.max_duration`，不叠加通用 read timeout；首个下游帧交付时启动 post-commit idle timer，每个成功上游 chunk（包括不完整帧）重置，缓冲完整事件始终优先交付。
@@ -294,8 +305,8 @@
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
 - ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
-- 当前代理支持 host/port 与 Vault 认证；严格 SSRF 本地 DNS 尚未接入，HTTP/SOCKS5 仍明确依赖远端代理解析目标域名。
-- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream 与 request logging 共 43 项 SettingRegistry；`logs.file.*` 本地文件日志轮转仍未接入。
+- 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析、全部地址校验和固定目标连接。
+- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream 与 request logging 共 44 项 SettingRegistry；`logs.file.*` 本地文件日志轮转仍未接入。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
@@ -304,8 +315,8 @@
 
 ## 下一步
 
-1. 先起草并接受严格 SSRF 本地 DNS 独立 ADR，再实现受控解析、目标地址固定、HTTP CONNECT 保留 Host/SNI 与 SOCKS5 本地解析。
-2. 让 Gateway 401、公开 404/405 等入口错误通过 Responses/Messages 协议适配器编码。
+1. 让 Gateway 401、公开 404/405 等入口错误通过 Responses/Messages 协议适配器编码。
+2. 补齐 `logs.file.*` 本地文件日志轮转，以及 RequestLog 多 Attempt/SSE 页面尚缺的自动化覆盖。
 3. 后续再实现内建 Rustls、管理员密码在线轮换与 OAuth2 Provider 专用扩展。
 
 ## 验证结果

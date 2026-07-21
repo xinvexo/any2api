@@ -219,19 +219,18 @@ async fn endpoint_407_after_connect_remains_an_upstream_response() {
     );
 }
 
-struct TestTlsIdentity {
-    client_certificate: reqwest::Certificate,
-    server_config: Arc<ServerConfig>,
+pub(super) struct TestTlsIdentity {
+    pub(super) client_certificate: Vec<u8>,
+    pub(super) server_config: Arc<ServerConfig>,
 }
 
 impl TestTlsIdentity {
-    fn generate() -> Self {
+    pub(super) fn generate() -> Self {
         let CertifiedKey { cert, key_pair } =
             generate_simple_self_signed(vec!["localhost".to_owned()])
                 .expect("self-signed certificate");
         let certificate_der = cert.der().clone();
-        let client_certificate = reqwest::Certificate::from_der(certificate_der.as_ref())
-            .expect("reqwest root certificate");
+        let client_certificate = certificate_der.as_ref().to_vec();
         let private_key = PrivatePkcs8KeyDer::from(key_pair.serialize_der());
         let server_config = ServerConfig::builder()
             .with_no_client_auth()
@@ -244,7 +243,7 @@ impl TestTlsIdentity {
     }
 }
 
-async fn spawn_https_response(
+pub(super) async fn spawn_https_response(
     server_config: Arc<ServerConfig>,
     status: StatusCode,
     body: &'static str,
@@ -267,7 +266,9 @@ async fn spawn_https_response(
     (address, request_rx)
 }
 
-async fn spawn_tls_handshake_endpoint(server_config: Arc<ServerConfig>) -> std::net::SocketAddr {
+pub(super) async fn spawn_tls_handshake_endpoint(
+    server_config: Arc<ServerConfig>,
+) -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("TLS listener");
@@ -279,7 +280,7 @@ async fn spawn_tls_handshake_endpoint(server_config: Arc<ServerConfig>) -> std::
     address
 }
 
-async fn spawn_connect_proxy(
+pub(super) async fn spawn_connect_proxy(
     origin_address: std::net::SocketAddr,
 ) -> (std::net::SocketAddr, oneshot::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -303,7 +304,7 @@ async fn spawn_connect_proxy(
     (address, request_rx)
 }
 
-async fn spawn_rejecting_connect_proxy(
+pub(super) async fn spawn_rejecting_connect_proxy(
     status: StatusCode,
 ) -> (std::net::SocketAddr, oneshot::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0")
@@ -339,7 +340,7 @@ fn request_to(uri: &str) -> TransportRequest {
     }
 }
 
-fn network_proxy(address: std::net::SocketAddr) -> ProxyProfile {
+pub(super) fn network_proxy(address: std::net::SocketAddr) -> ProxyProfile {
     let address =
         ProxyAddress::new(address.ip().to_string(), address.port()).expect("proxy address");
     let draft =
@@ -347,7 +348,7 @@ fn network_proxy(address: std::net::SocketAddr) -> ProxyProfile {
     ProxyProfile::create(ProxyProfileId::new(), draft).expect("proxy profile")
 }
 
-async fn collect_body(mut response: TransportResponse) -> Bytes {
+pub(super) async fn collect_body(mut response: TransportResponse) -> Bytes {
     let mut body = Vec::new();
     while let Some(chunk) = response.body.next().await {
         body.extend_from_slice(&chunk.expect("response body chunk"));

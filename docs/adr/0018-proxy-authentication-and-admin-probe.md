@@ -20,14 +20,14 @@
 - 管理探测只接受当前 PublishedSnapshot 中的 `ProxyProfileId` 与 `ProviderEndpointId`。探测发送无 ProviderCredential 的空 GET；普通上游 HTTP 响应头（包括 401、403、404）即视为链路可达，但 HTTP forward proxy 的 `407 Proxy Authentication Required` 是代理认证握手拒绝，必须返回脱敏的 `ProxyHandshake + Proxy` 失败；Body 立即丢弃。
 - 探测结果返回 Proxy/Endpoint ID、捕获的配置 revision 与两项资源 config version、延迟、状态码或 `TransportErrorStage`/`TransportFailureScope`。不返回目标 IP、代理地址、响应正文或底层错误字符串；Web 只展示与当前配置代际完全匹配的结果。
 - 管理探测绕过 Credential 调度和健康结算，不占用生成/辅助并发，不更新熔断、冷却或 RequestLog。
-- 严格 SSRF 本地 DNS 保留为下一独立 ADR。当前 HTTP/SOCKS5 仍使用受信远端 DNS 边界，并在 Web 中明确提示。
+- 严格 SSRF 本地 DNS 保留为下一独立 ADR。本决策完成时 HTTP/SOCKS5 仍使用受信远端 DNS 边界；后续 ADR-0019 已实现可热更新的本地解析与固定目标模式。
 
 ## 后果
 
 - 代理认证轮换会自然切换连接池代际，旧请求不会被中途修改，新请求不会复用旧密码 Client。
 - 管理员可以在不发送 Provider API Key 的情况下验证代理连接与认证；上游返回 401、403 或 404 仍可证明代理链路可达，代理本身返回 407 则表示代理认证失败。
 - 测试 API 不能探测任意内网 URL，只能复用已经经过 ProviderEndpoint 配置校验和显式授权的目标。
-- 本切片不会假装解决代理远端 DNS 的目标 IP 证明问题；严格模式仍需自定义 HTTP CONNECT/SOCKS 连接策略。
+- 本切片自身不解决代理远端 DNS 的目标 IP 证明问题；该边界后来由 ADR-0019 的自定义 HTTP CONNECT/SOCKS 固定目标连接策略补齐。
 
 ## 验证
 

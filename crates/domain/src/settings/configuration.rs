@@ -168,6 +168,7 @@ mod tests {
         assert_eq!(settings.logging().request_max_rows(), 200_000);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
         assert_eq!(settings.upstream().read_timeout_ms(), 15_000);
+        assert!(!settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().precommit_max_bytes(), 256 * 1024);
         assert_eq!(settings.stream().precommit_max_duration_ms(), 5_000);
         assert_eq!(settings.stream().postcommit_idle_timeout_ms(), 60_000);
@@ -246,6 +247,7 @@ mod tests {
                 SettingKey::UpstreamReadTimeout,
                 SettingValue::DurationMs(2_000),
             ),
+            (SettingKey::UpstreamStrictSsrf, SettingValue::Boolean(true)),
             (
                 SettingKey::StreamPostcommitIdleTimeout,
                 SettingValue::DurationMs(3_000),
@@ -256,6 +258,7 @@ mod tests {
         assert!(settings.scheduler().fallback_on_saturation());
         assert_eq!(settings.affinity().soft_mode(), AffinityMode::Strict);
         assert_eq!(settings.upstream().read_timeout_ms(), 2_000);
+        assert!(settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().postcommit_idle_timeout_ms(), 3_000);
         assert_eq!(
             settings.effective_value(SettingKey::AffinitySoftMode),

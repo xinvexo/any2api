@@ -46,7 +46,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(43));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(44));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
@@ -104,6 +104,10 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(read_timeout["min_value"], 1);
     assert_eq!(read_timeout["max_value"], 86_400_000);
     assert_eq!(read_timeout["web_group"], "上游网络");
+    let strict_ssrf = find_setting(&initial, "upstream.strict_ssrf");
+    assert_eq!(strict_ssrf["value_type"], "boolean");
+    assert_eq!(strict_ssrf["default_value"], false);
+    assert_eq!(strict_ssrf["effective_value"], false);
     let postcommit_idle = find_setting(&initial, "stream.postcommit.idle_timeout");
     assert_eq!(postcommit_idle["value_type"], "duration_ms");
     assert_eq!(postcommit_idle["default_value"], 60_000);
@@ -192,6 +196,51 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
             .settings()
             .override_value(SettingKey::SchedulerOnSaturated),
         None
+    );
+}
+
+#[tokio::test]
+async fn strict_ssrf_setting_publishes_and_restores_the_default() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, enabled) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/upstream.strict_ssrf",
+        Some(json!({ "expected_revision": 1, "value": true })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(enabled["config_revision"], 2);
+    assert_eq!(
+        find_setting(&enabled, "upstream.strict_ssrf")["effective_value"],
+        true
+    );
+    assert!(
+        storage
+            .load_configuration()
+            .await
+            .expect("stored settings")
+            .settings()
+            .upstream()
+            .strict_ssrf()
+    );
+
+    let (status, reset) = request_json(
+        app,
+        Method::DELETE,
+        "/api/admin/settings/upstream.strict_ssrf?expected_revision=2",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reset["config_revision"], 3);
+    assert_eq!(
+        find_setting(&reset, "upstream.strict_ssrf")["effective_value"],
+        false
     );
 }
 

@@ -17,6 +17,7 @@ pub type BoxByteStream =
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct EndpointNetworkPolicy {
     allow_private_network: bool,
+    strict_ssrf: bool,
 }
 
 impl EndpointNetworkPolicy {
@@ -24,12 +25,24 @@ impl EndpointNetworkPolicy {
     pub const fn new(allow_private_network: bool) -> Self {
         Self {
             allow_private_network,
+            strict_ssrf: false,
         }
+    }
+
+    #[must_use]
+    pub const fn with_strict_ssrf(mut self, strict_ssrf: bool) -> Self {
+        self.strict_ssrf = strict_ssrf;
+        self
     }
 
     #[must_use]
     pub const fn allow_private_network(self) -> bool {
         self.allow_private_network
+    }
+
+    #[must_use]
+    pub const fn strict_ssrf(self) -> bool {
+        self.strict_ssrf
     }
 }
 

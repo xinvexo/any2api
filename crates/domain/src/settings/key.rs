@@ -18,6 +18,7 @@ pub enum SettingKey {
     LogsRequestMaxRows,
     LogsTelemetryQueueCapacity,
     UpstreamReadTimeout,
+    UpstreamStrictSsrf,
     StreamPrecommitMaxBytes,
     StreamPrecommitMaxDuration,
     StreamPostcommitIdleTimeout,
@@ -48,7 +49,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 43] = [
+    pub const ALL: [Self; 44] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -65,6 +66,7 @@ impl SettingKey {
         Self::LogsRequestMaxRows,
         Self::LogsTelemetryQueueCapacity,
         Self::UpstreamReadTimeout,
+        Self::UpstreamStrictSsrf,
         Self::StreamPrecommitMaxBytes,
         Self::StreamPrecommitMaxDuration,
         Self::StreamPostcommitIdleTimeout,
@@ -112,6 +114,7 @@ impl SettingKey {
             Self::LogsRequestMaxRows => "logs.request.max_rows",
             Self::LogsTelemetryQueueCapacity => "logs.telemetry_queue_capacity",
             Self::UpstreamReadTimeout => "upstream.read_timeout",
+            Self::UpstreamStrictSsrf => "upstream.strict_ssrf",
             Self::StreamPrecommitMaxBytes => "stream.precommit.max_bytes",
             Self::StreamPrecommitMaxDuration => "stream.precommit.max_duration",
             Self::StreamPostcommitIdleTimeout => "stream.postcommit.idle_timeout",

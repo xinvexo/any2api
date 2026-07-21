@@ -95,8 +95,8 @@ export function ProxyEditor({
               editor.update("kind", event.target.value === "socks5" ? "socks5" : "http")
             }
           >
-            <option value="http">HTTP（代理端 DNS）</option>
-            <option value="socks5">SOCKS5（远端 DNS）</option>
+            <option value="http">HTTP（默认代理端 DNS）</option>
+            <option value="socks5">SOCKS5（默认远端 DNS）</option>
           </select>
         </Field>
 
@@ -151,7 +151,7 @@ export function ProxyEditor({
         </div>
 
         <p className="text-xs leading-5 text-tertiary">
-          HTTP 与 SOCKS5 当前都信任代理端解析目标域名；严格 SSRF 本地 DNS 模式将在独立设置中提供。
+          默认信任代理端解析目标域名；可在“设置 → 上游网络”开启严格 SSRF，让本机校验并固定目标 IP。
         </p>
 
         {error ? (

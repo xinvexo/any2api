@@ -257,7 +257,7 @@ fn request_to_with_policy(uri: &str, allow_private_network: bool) -> TransportRe
     }
 }
 
-fn network_proxy(
+pub(super) fn network_proxy(
     name: &str,
     kind: ProxyKind,
     address: std::net::SocketAddr,
@@ -269,7 +269,7 @@ fn network_proxy(
     ProxyProfile::create(ProxyProfileId::new(), draft).expect("proxy profile")
 }
 
-async fn collect_body(mut response: crate::api::TransportResponse) -> Bytes {
+pub(super) async fn collect_body(mut response: crate::api::TransportResponse) -> Bytes {
     let mut body = Vec::new();
     while let Some(chunk) = response.body.next().await {
         body.extend_from_slice(&chunk.expect("response body chunk"));
@@ -277,7 +277,7 @@ async fn collect_body(mut response: crate::api::TransportResponse) -> Bytes {
     body.into()
 }
 
-async fn spawn_http_response(
+pub(super) async fn spawn_http_response(
     status: StatusCode,
     headers: HeaderMap,
     body: &'static str,
@@ -296,7 +296,7 @@ async fn spawn_http_response(
     (address, request_rx)
 }
 
-async fn spawn_socks5_response(
+pub(super) async fn spawn_socks5_response(
     body: &'static str,
 ) -> (
     std::net::SocketAddr,
@@ -373,6 +373,11 @@ async fn accept_socks5(stream: &mut TcpStream) -> String {
             let mut domain = vec![0_u8; usize::from(length)];
             stream.read_exact(&mut domain).await.expect("SOCKS domain");
             String::from_utf8(domain).expect("SOCKS domain UTF-8")
+        }
+        4 => {
+            let mut address = [0_u8; 16];
+            stream.read_exact(&mut address).await.expect("SOCKS IPv6");
+            std::net::Ipv6Addr::from(address).to_string()
         }
         other => panic!("unexpected SOCKS address type {other}"),
     };

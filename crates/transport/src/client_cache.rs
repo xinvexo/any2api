@@ -1,19 +1,17 @@
 use std::{collections::HashMap, hash::Hash, sync::Arc};
 
-use reqwest::Client;
-
-pub(crate) struct ClientCache<K> {
+pub(crate) struct ClientCache<K, V> {
     capacity: usize,
     tick: u64,
-    entries: HashMap<K, CacheEntry>,
+    entries: HashMap<K, CacheEntry<V>>,
 }
 
-struct CacheEntry {
-    client: Arc<Client>,
+struct CacheEntry<V> {
+    client: Arc<V>,
     last_used: u64,
 }
 
-impl<K> ClientCache<K>
+impl<K, V> ClientCache<K, V>
 where
     K: Clone + Eq + Hash,
 {
@@ -25,9 +23,9 @@ where
         }
     }
 
-    pub(crate) fn get_or_insert_with<F, E>(&mut self, key: K, build: F) -> Result<Arc<Client>, E>
+    pub(crate) fn get_or_insert_with<F, E>(&mut self, key: K, build: F) -> Result<Arc<V>, E>
     where
-        F: FnOnce() -> Result<Client, E>,
+        F: FnOnce() -> Result<V, E>,
     {
         self.tick = self
             .tick

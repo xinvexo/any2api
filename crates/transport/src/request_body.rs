@@ -9,15 +9,20 @@ use http_body::{Body, Frame, SizeHint};
 use tokio::sync::oneshot;
 
 pub(super) fn signaled_request_body(bytes: Bytes) -> (reqwest::Body, oneshot::Receiver<()>) {
+    let (body, receiver) = signaled_body(bytes);
+    (reqwest::Body::wrap(body), receiver)
+}
+
+pub(super) fn signaled_body(bytes: Bytes) -> (SignaledBody, oneshot::Receiver<()>) {
     let (sender, receiver) = oneshot::channel();
     let body = SignaledBody {
         bytes: Some(bytes),
         sender: Some(sender),
     };
-    (reqwest::Body::wrap(body), receiver)
+    (body, receiver)
 }
 
-struct SignaledBody {
+pub(super) struct SignaledBody {
     bytes: Option<Bytes>,
     sender: Option<oneshot::Sender<()>>,
 }

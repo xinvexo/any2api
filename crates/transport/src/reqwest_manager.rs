@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use http::Uri;
 use reqwest::{Certificate, Client, ClientBuilder, Proxy, redirect::Policy};
+use rustls::pki_types::CertificateDer;
 use tokio::time::timeout;
 
 use crate::{
@@ -20,6 +21,7 @@ use crate::{
         TransportConfigurationError, TransportError, TransportErrorStage, TransportFailureScope,
     },
     origin_resolution::{ResolvedOrigin, resolve_origin},
+    pinned_client::PinnedClient,
     proxy_url::proxy_url,
     request_body::signaled_request_body,
 };
@@ -52,8 +54,13 @@ const TEST_EXTRA_ROOT_POLICY_VERSION: u16 = 2;
 pub struct ReqwestTransportManager {
     config: TransportManagerConfig,
     policy: TransportClientPolicyKey,
-    extra_root_certificates: Vec<Certificate>,
-    clients: Mutex<ClientCache<TransportClientKey>>,
+    extra_root_certificates: Vec<CertificateDer<'static>>,
+    clients: Mutex<ClientCache<TransportClientKey, TransportClient>>,
+}
+
+pub(crate) enum TransportClient {
+    Reqwest(Client),
+    Pinned(Box<PinnedClient>),
 }
 
 impl ReqwestTransportManager {
@@ -64,7 +71,7 @@ impl ReqwestTransportManager {
     fn new_inner(
         config: TransportManagerConfig,
         tls_policy_version: u16,
-        extra_root_certificates: Vec<Certificate>,
+        extra_root_certificates: Vec<CertificateDer<'static>>,
     ) -> Result<Self, TransportConfigurationError> {
         if config.max_cached_clients == 0 {
             return Err(TransportConfigurationError::EmptyClientCache);
@@ -87,9 +94,13 @@ impl ReqwestTransportManager {
     #[cfg(test)]
     pub(crate) fn new_with_test_root_certificate(
         config: TransportManagerConfig,
-        certificate: Certificate,
+        certificate_der: impl AsRef<[u8]>,
     ) -> Result<Self, TransportConfigurationError> {
-        Self::new_inner(config, TEST_EXTRA_ROOT_POLICY_VERSION, vec![certificate])
+        Self::new_inner(
+            config,
+            TEST_EXTRA_ROOT_POLICY_VERSION,
+            vec![CertificateDer::from(certificate_der.as_ref().to_vec())],
+        )
     }
 
     #[must_use]
@@ -106,7 +117,10 @@ impl ReqwestTransportManager {
     }
 
     #[cfg(test)]
-    pub(crate) fn client_for(&self, profile: &ProxyProfile) -> Result<Arc<Client>, TransportError> {
+    pub(crate) fn client_for(
+        &self,
+        profile: &ProxyProfile,
+    ) -> Result<Arc<TransportClient>, TransportError> {
         self.client_for_resolved(TransportProxy::new(profile, None), None)
     }
 
@@ -114,7 +128,7 @@ impl ReqwestTransportManager {
     pub(crate) fn client_for_proxy(
         &self,
         proxy: TransportProxy<'_>,
-    ) -> Result<Arc<Client>, TransportError> {
+    ) -> Result<Arc<TransportClient>, TransportError> {
         self.client_for_resolved(proxy, None)
     }
 
@@ -122,7 +136,7 @@ impl ReqwestTransportManager {
         &self,
         proxy: TransportProxy<'_>,
         resolved_origin: Option<&ResolvedOrigin>,
-    ) -> Result<Arc<Client>, TransportError> {
+    ) -> Result<Arc<TransportClient>, TransportError> {
         let profile = proxy.profile();
         if !profile.enabled() {
             return Err(TransportError::configuration(
@@ -144,7 +158,7 @@ impl ReqwestTransportManager {
         let extra_root_certificates = &self.extra_root_certificates;
         let resolved_origin = key.resolved_origin.clone();
         clients.get_or_insert_with(key, || {
-            build_client(
+            build_transport_client(
                 config,
                 extra_root_certificates,
                 proxy,
@@ -219,6 +233,12 @@ impl TransportManager for ReqwestTransportManager {
         let resolved_origin =
             resolve_origin(&request.uri, request.network_policy, profile.kind()).await?;
         let client = self.client_for_resolved(proxy, resolved_origin.as_ref())?;
+        if let TransportClient::Pinned(client) = client.as_ref() {
+            return client.execute(request).await;
+        }
+        let TransportClient::Reqwest(client) = client.as_ref() else {
+            unreachable!("transport client variant was checked")
+        };
         let (body, body_sent) = signaled_request_body(request.body);
         let send = client
             .request(request.method, request.uri.to_string())
@@ -295,14 +315,31 @@ fn is_proxy_authentication_error(error: &reqwest::Error) -> bool {
     false
 }
 
-fn build_client(
+fn build_transport_client(
     config: TransportManagerConfig,
-    extra_root_certificates: &[Certificate],
+    extra_root_certificates: &[CertificateDer<'static>],
+    proxy: TransportProxy<'_>,
+    resolved_origin: Option<&ResolvedOrigin>,
+) -> Result<TransportClient, TransportError> {
+    validate_proxy_credentials(proxy)?;
+    if proxy.profile().kind() != ProxyKind::Direct
+        && let Some(origin) = resolved_origin
+    {
+        return PinnedClient::build(config, extra_root_certificates, proxy, origin)
+            .map(Box::new)
+            .map(TransportClient::Pinned);
+    }
+    build_reqwest_client(config, extra_root_certificates, proxy, resolved_origin)
+        .map(TransportClient::Reqwest)
+}
+
+fn build_reqwest_client(
+    config: TransportManagerConfig,
+    extra_root_certificates: &[CertificateDer<'static>],
     proxy: TransportProxy<'_>,
     resolved_origin: Option<&ResolvedOrigin>,
 ) -> Result<Client, TransportError> {
     let profile = proxy.profile();
-    validate_proxy_credentials(proxy)?;
     let mut builder: ClientBuilder = Client::builder()
         .use_rustls_tls()
         .connect_timeout(config.connect_timeout)
@@ -315,7 +352,10 @@ fn build_client(
         builder = builder.resolve_to_addrs(&origin.host, origin.addresses.as_ref());
     }
     for certificate in extra_root_certificates {
-        builder = builder.add_root_certificate(certificate.clone());
+        builder =
+            builder.add_root_certificate(Certificate::from_der(certificate.as_ref()).map_err(
+                |_| TransportError::configuration("configured TLS root certificate is invalid"),
+            )?);
     }
     if let Some(url) = proxy_url(profile)? {
         let mut reqwest_proxy = Proxy::all(url.as_str())

@@ -17,6 +17,7 @@ const labels: Record<string, string> = {
   "logs.request.max_rows": "请求日志最大行数",
   "logs.telemetry_queue_capacity": "遥测队列容量",
   "upstream.read_timeout": "上游读取超时",
+  "upstream.strict_ssrf": "严格 SSRF 本地 DNS",
   "stream.precommit.max_bytes": "SSE 单帧与预提交字节上限",
   "stream.precommit.max_duration": "预提交最长等待",
   "stream.postcommit.idle_timeout": "提交后流空闲超时",

@@ -26,7 +26,7 @@ any2api 需要在同一进程中支持 DIRECT、HTTP 和 SOCKS5 出口。多个 
 - 系统环境变量中的代理不会改变 DIRECT 语义，HTTP/SOCKS5 失败也不会静默绕过指定出口。
 - 系统证书库中的受信任根会影响上游 TLS 信任边界；这是自托管部署的显式宿主策略，不由 Provider 或请求动态修改。
 - 一次 `TransportManager::execute` 最多发送一次网络请求；任何再次尝试都必须返回 Runtime 并创建可观测的 Attempt。
-- SOCKS5h 是显式信任远端 DNS 的边界；未来严格 SSRF 模式必须禁止该模式并引入本地解析与固定目标连接。
+- SOCKS5h 是显式信任远端 DNS 的边界；后续 ADR-0019 已增加可热更新的严格 SSRF 模式，在该模式下使用本地解析与固定目标连接。
 - 代理认证已由 ADR-0018 固定为 Secret Vault 密文、脱敏 sidecar 与逐 Client 配置；密码不写入日志、普通读取 DTO、`TransportRequest.headers`、代理 URL 或连接池 key，仅在受控 Client/握手边界编码为代理认证材料。
 - TransportManager 最初先作为独立可测试模块落地，后续已经通过 Runtime 装配进入 Model Route、GatewayApiKey 鉴权后的公开协议请求链路。
 

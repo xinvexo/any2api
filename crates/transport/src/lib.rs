@@ -3,7 +3,11 @@ pub mod api;
 mod client_cache;
 mod error;
 mod origin_resolution;
+mod pinned_client;
+mod pinned_connector;
+mod pinned_tls;
 mod proxy_credentials;
+mod proxy_tcp_connector;
 mod proxy_url;
 mod request_body;
 mod reqwest_manager;
@@ -21,5 +25,7 @@ mod proxy_auth_tests;
 mod reqwest_manager_tests;
 #[cfg(test)]
 mod reqwest_timeout_tests;
+#[cfg(test)]
+mod strict_ssrf_tests;
 #[cfg(test)]
 mod transport_failure_scope_tests;

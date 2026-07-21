@@ -121,7 +121,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
             .and_then(|value| value.to_str().ok()),
         Some("no-store")
     );
-    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(43));
+    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(44));
 
     let response = request(
         &app,
