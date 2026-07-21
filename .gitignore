@@ -20,6 +20,12 @@ dist/
 **/dist/
 coverage/
 **/coverage/
+playwright-report/
+**/playwright-report/
+test-results/
+**/test-results/
+.playwright/
+**/.playwright/
 .vite/
 **/.vite/
 .turbo/

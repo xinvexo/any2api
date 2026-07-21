@@ -12,6 +12,7 @@
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
+    "test:e2e": "cargo build --locked --manifest-path ../Cargo.toml -p any2api && pnpm build && node e2e/run-playwright.mjs",
     "build": "tsc -b && vite build"
   },
   "dependencies": {
@@ -28,6 +29,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@playwright/test": "^1.61.1",
     "@types/node": "^24.10.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

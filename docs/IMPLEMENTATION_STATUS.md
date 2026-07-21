@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性与 RequestLog 生命周期/管理页面自动化已经完成；`logs.file.*` 本地文件日志轮转、公开入口协议错误适配、严格 SSRF 本地 DNS、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、单管理员远程 HTTP 认证以及代理认证/管理探测均已落地；OAuth2 仍待后续阶段实现。
-- 最近完成：真实 SQLite 遥测契约现覆盖 Credential 切换、Attempt 预算耗尽、SSE 正常 EOF、提交后 idle timeout 和客户端 Drop；RequestLog 列表/详情页现覆盖成功、空态、初始错误、刷新失败、404 终态、可重试错误、Attempt 时间线与 deep link。此前完成本地 tracing 有界 JSONL 分段文件及其 SettingRegistry 热更新。
+- 当前阶段：阶段 4 可靠性、RequestLog 生命周期/管理页面自动化以及统一浏览器 E2E 基础设施已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
+- 最近完成：Playwright Chromium 现使用真实 Rust 服务、隔离 SQLite/Vault 和真实管理员 Cookie/CSRF，覆盖登录后保留 deep link、核心管理页直接刷新、390×844 移动导航、无水平溢出和浏览器错误检查。此前完成 RequestLog 多 Attempt/SSE 真实持久化与列表/详情全部页面状态自动化。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: add bounded local file logging`。
-- 本切片主题：RequestLog 多 Attempt/SSE 持久化与管理页面状态自动化。
+- 上一切片提交主题：`test: cover request log lifecycle and views`。
+- 本切片主题：真实服务浏览器 E2E 基础设施与响应式壳层契约。
 
 ## 已完成
 
@@ -289,7 +289,15 @@
 - SettingRegistry 新增 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows`、`logs.telemetry_queue_capacity`，Web 可查看默认/覆盖/生效值并恢复默认。
 - 首版没有协议级精确 usage 与内容首 Token 钩子，因此 `first_token_ms` 和各 Token Usage 字段保持 `NULL`；不猜测未知 JSON 字段或把 SSE 控制事件当作首 Token。
 - 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Credential 切换后的多 Attempt 顺序、Attempt 预算耗尽、SSE EOF/提交后错误/客户端 Drop 的单次持久化、列表与详情成功/空态/错误态、DTO 解析、deep link 和敏感文本不展示。
-- 窄屏布局已有人工验收和针对超长模型名的结构回归；真实浏览器中的视口尺寸与水平溢出断言将在仓库建立统一 E2E 基础设施时集中加入，不为单个页面单独引入一套浏览器依赖。
+- 窄屏布局除超长模型名结构回归外，已由统一 Playwright 套件在真实服务和 390×844 Chromium 中覆盖移动导航、请求日志页面与全局水平溢出。
+
+### 真实服务浏览器 E2E 基础设施
+
+- 新增独立 Playwright Chromium 套件；`pnpm test:e2e` 自行构建 any2api 与 Web、分配空闲 loopback 端口并启动真实 HTTP 服务。
+- 每次执行使用独立系统临时数据目录、全新 SQLite/Vault 和固定测试管理员密码；不复用开发数据、主密钥、Cookie 或运行态，结束后清理隔离目录。
+- 浏览器契约覆盖 `/settings` 登录前 deep link 在登录后保持、服务端 SPA 刷新、总览/代理/Provider/模型路由/网关密钥/请求日志核心页面直达和真实 API 就绪状态。
+- 390×844 契约覆盖折叠导航打开、跳转后关闭、请求日志空态与 `documentElement.scrollWidth <= innerWidth`；全部用例同时收集未处理 page error 和 error 级 console 输出。
+- E2E 只验证跨层共享行为，业务 CRUD、字段边界、Secret 和故障矩阵继续由更快的 Rust/HTTP/React 测试覆盖。CI 使用独立 `e2e` job 安装 Chromium，普通 Vitest 门禁不承担浏览器启动成本。完整决策见 `docs/adr/0022-browser-e2e-contract.md`。
 
 ### 本地文件日志轮转切片
 
@@ -333,7 +341,7 @@
 
 ## 下一步
 
-1. 建立最小统一浏览器 E2E 基础设施，覆盖管理登录、核心配置 deep link 与 390px 响应式无水平溢出，替代当前分散的人工浏览器验收记录。
+1. 实现当前仍为占位页的负载均衡运行态页面，复用稳定 RuntimeRegistry 暴露 Credential 容量、等待数、健康/冷却与选择统计，不新增持久化运行态。
 2. 首个正式版本稳定后，再按独立切片实现管理员密码在线轮换、可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前 API Key 首版。
 
 ## 验证结果
@@ -354,4 +362,4 @@ pnpm test
 pnpm build
 ```
 
-本切片的 RequestLog 真实 SQLite 生命周期、SPA `/logs/:requestId` fallback 以及列表/详情全部页面状态均已通过定向与全量验证。Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 均通过；`cargo deny --offline check` 使用 2026-07-17 的本地 RustSec 缓存通过并仅报告基线已有的重复传递依赖 warning，在线更新因 GitHub 443 暂时不可达未完成。Web typecheck、lint、build 与 28 个测试文件的 72 项测试全部通过；Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。浏览器级视口断言留给下一项统一 E2E 基础设施。
+本切片已通过完整门禁：Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用 2026-07-17 本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 28 个 Vitest 文件的 72 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约，桌面核心页面、登录后 deep link/刷新与 390×844 移动导航均无水平溢出或浏览器错误。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。

@@ -358,6 +358,7 @@ cargo build --locked --release --workspace
 cargo deny check
 cargo xtask architecture-check
 web: typecheck + lint + unit test + production build
+e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳层契约
 ```
 
 `xtask architecture-check` 负责：
@@ -381,6 +382,8 @@ web: typecheck + lint + unit test + production build
 - 流式切分/模糊测试：任意字节切分、CRLF、多行 `data:`、无尾空行和畸形帧；
 - 热更新测试：编译失败不提交、revision 不倒退、Runtime 句柄跨快照复用；
 - 端到端测试：Codex/Claude JSON、SSE、GatewayApiKey 隔离、粘性和重试。
+
+浏览器 E2E 使用独立临时数据目录、固定测试管理员密码和真实 Rust HTTP 服务；不得复用开发者本地数据库、主密钥或登录 Cookie。首个浏览器套件只覆盖跨页面共享且单元测试无法证明的契约：登录后保留目标 deep link、服务端 SPA fallback、核心管理页面刷新、移动导航、桌面/390px 视口无水平溢出和控制台无未处理错误。业务 CRUD、字段校验和错误分支继续由更快的 Domain、HTTP 契约与 React 单元测试覆盖，禁止在浏览器层重复堆叠全量矩阵。
 
 每个 PR 回放固定 fuzz corpus；长时间 fuzz 作为定时 CI 任务运行，不阻塞普通本地开发循环。
 

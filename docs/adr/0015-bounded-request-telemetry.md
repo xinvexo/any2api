@@ -20,7 +20,7 @@
 - 首个管理查询提供最近 RequestLog 列表与单条详情/Attempt 时间线。Web 使用真实 `/logs` 与 `/logs/:requestId` deep link，不把 Prompt、请求体或响应体放入缓存或 DOM。
 - 首个切片注册 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows` 与 `logs.telemetry_queue_capacity`。策略按 PublishedSnapshot revision 进入请求，旧长流不会在结束时混用新 revision。
 - `first_token_ms` 与 Token Usage 在没有协议级精确提取钩子前保存为 `NULL`。不得把首个 SSE 控制事件猜成首 Token，也不得解析未知 JSON 字段推测 usage。
-- 本切片不实现本地文件日志轮转、保留和总容量控制；后续文件日志切片必须把 `logs.file.*` 接入同一 SettingRegistry，不建立第二套配置来源。
+- RequestLog 与本地文件日志保持两条独立的有界写入链，但 `logs.request.*` 与已经实现的 `logs.file.*` 共同接入同一 SettingRegistry，不建立第二套配置来源。
 
 ## 后果
 
@@ -31,7 +31,7 @@
 
 ## 验证
 
-- Domain/Storage 测试覆盖日志设置默认值、记录往返、父子事务与时间/行数清理；外键置空仍以迁移约束为主，缺少实体删除后的完整契约覆盖。
-- Runtime 测试覆盖有界队列立即丢弃、丢弃计数、Attempt 单次完成和取消兜底；多 Attempt 持久化与 Writer 关闭路径仍需补充。
-- 公共请求契约已覆盖本地 Request ID 与成功 JSON 请求的日志写入；多 Attempt、JSON 错误和 SSE 终态的持久化断言仍需补充。
-- Server/Web 当前覆盖日志详情契约、列表数据解析、列表成功渲染和敏感文本不展示；详情空态、错误态、deep link 和响应式页面尚无自动化覆盖。
+- Domain/Storage 测试覆盖日志设置默认值、记录往返、父子事务、时间/行数清理与配置实体删除后的历史引用置空。
+- Runtime 测试覆盖有界队列立即丢弃、丢弃计数、Attempt 单次完成、取消兜底与 Writer 空闲清理。
+- 公共请求契约覆盖本地 Request ID、成功 JSON、Credential 切换后的多 Attempt、预算耗尽、SSE 正常 EOF、提交后错误和客户端 Drop 的真实 SQLite 持久化。
+- Server/Web 测试覆盖详情契约、列表与详情的成功/空态/错误态、DTO 解析、敏感文本不展示和 SPA deep link；统一 Playwright 套件使用真实服务覆盖登录后的 `/logs` 导航、390×844 视口无水平溢出和浏览器错误检查。

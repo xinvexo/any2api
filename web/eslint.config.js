@@ -6,13 +6,19 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "coverage"] },
+  { ignores: ["dist", "coverage", "playwright-report", "test-results"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
     files: ["public/**/*.js"],
     languageOptions: {
       globals: globals.browser,
+    },
+  },
+  {
+    files: ["e2e/**/*.mjs"],
+    languageOptions: {
+      globals: globals.node,
     },
   },
   {
