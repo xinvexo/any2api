@@ -16,6 +16,9 @@ pub enum SettingKey {
     LogsRequestEnabled,
     LogsRequestRetention,
     LogsRequestMaxRows,
+    LogsFileLevel,
+    LogsFileRetention,
+    LogsFileMaxTotalSize,
     LogsTelemetryQueueCapacity,
     UpstreamReadTimeout,
     UpstreamStrictSsrf,
@@ -49,7 +52,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 44] = [
+    pub const ALL: [Self; 47] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -64,6 +67,9 @@ impl SettingKey {
         Self::LogsRequestEnabled,
         Self::LogsRequestRetention,
         Self::LogsRequestMaxRows,
+        Self::LogsFileLevel,
+        Self::LogsFileRetention,
+        Self::LogsFileMaxTotalSize,
         Self::LogsTelemetryQueueCapacity,
         Self::UpstreamReadTimeout,
         Self::UpstreamStrictSsrf,
@@ -112,6 +118,9 @@ impl SettingKey {
             Self::LogsRequestEnabled => "logs.request.enabled",
             Self::LogsRequestRetention => "logs.request.retention",
             Self::LogsRequestMaxRows => "logs.request.max_rows",
+            Self::LogsFileLevel => "logs.file.level",
+            Self::LogsFileRetention => "logs.file.retention",
+            Self::LogsFileMaxTotalSize => "logs.file.max_total_size",
             Self::LogsTelemetryQueueCapacity => "logs.telemetry_queue_capacity",
             Self::UpstreamReadTimeout => "upstream.read_timeout",
             Self::UpstreamStrictSsrf => "upstream.strict_ssrf",

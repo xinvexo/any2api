@@ -1,12 +1,15 @@
 import { expect, test } from "vitest";
 
 import type { SettingItem } from "../api/settings-contracts";
-import { settingLabel } from "./setting-presentation";
+import { enumOptionLabel, settingLabel } from "./setting-presentation";
 
 test("labels upstream and postcommit timeout settings", () => {
   expect(settingLabel(item("upstream.read_timeout"))).toBe("上游读取超时");
   expect(settingLabel(item("upstream.strict_ssrf"))).toBe("严格 SSRF 本地 DNS");
   expect(settingLabel(item("stream.postcommit.idle_timeout"))).toBe("提交后流空闲超时");
+  expect(settingLabel(item("logs.file.level"))).toBe("文件日志级别");
+  expect(settingLabel(item("logs.file.max_total_size"))).toBe("文件日志最大容量");
+  expect(enumOptionLabel("debug")).toBe("调试");
 });
 
 function item(key: string): SettingItem {

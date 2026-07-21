@@ -6,6 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
+any2api-domain = { path = "../../crates/domain" }
 any2api-protocol = { path = "../../crates/protocol" }
 any2api-provider = { path = "../../crates/provider" }
 any2api-runtime = { path = "../../crates/runtime" }
@@ -17,9 +18,15 @@ async-trait.workspace = true
 axum.workspace = true
 ipnet.workspace = true
 secrecy.workspace = true
+time.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-appender.workspace = true
 tracing-subscriber.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

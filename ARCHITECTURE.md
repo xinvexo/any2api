@@ -1769,7 +1769,9 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 
 RequestLog 与 Attempt 共用保留策略；达到期限或容量任一上限就分批清理。上述参数均可在 Web“设置”页面修改、覆盖或恢复默认。
 
-首个 RequestLog 可运行切片先接入 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows` 与 `logs.telemetry_queue_capacity`。`logs.file.*` 仍属于后续本地文件日志轮转切片，但必须继续使用同一 SettingRegistry，不能建立独立配置文件或第二套默认值来源。
+RequestLog 切片接入 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows` 与 `logs.telemetry_queue_capacity`；本地文件日志切片随后把 `logs.file.*` 接入同一 SettingRegistry 和发布链，没有建立独立配置文件或第二套默认值来源。
+
+本地日志写入 `<data-dir>/logs` 下的 JSONL 分段文件，使用有界丢弃式队列和独立写线程，按 UTC 日期与大小轮转。关闭分段先按保留期限清理，再从最旧文件开始按总容量清理；配置发布后的无失败 reconcile 只更新内存级别与清理策略，不执行文件 I/O。日志级别立即影响新事件，保留与容量策略在写线程下一次合格写入或轮转时应用。完整决策见 `docs/adr/0021-bounded-local-file-logging.md`。
 
 ### 16.3 后续 OAuth2 导入与刷新边界
 

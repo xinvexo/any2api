@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、公开入口协议错误适配、严格 SSRF 本地 DNS、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、RequestLog/Attempt 有界遥测、单管理员远程 HTTP 认证以及代理认证/管理探测切片已完成；文件日志轮转与 OAuth2 仍待完成。
-- 最近完成：Gateway 401、认证头冲突、公开 404/405 已统一通过 OpenAI Responses 或 Anthropic Messages Adapter 编码；此前完成严格 SSRF 本地 DNS、代理认证与管理探测、上游读取/流式超时、有界遥测、会话粘性、QueueTicket、同协议 JSON/SSE、错误分类、冷却、熔断和提交前多 Attempt 重试。
+- 当前阶段：阶段 4 可靠性、`logs.file.*` 本地文件日志轮转、公开入口协议错误适配、严格 SSRF 本地 DNS、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、RequestLog/Attempt 有界遥测、单管理员远程 HTTP 认证以及代理认证/管理探测切片已完成；OAuth2 仍待完成。
+- 最近完成：本地 tracing 事件已写入有界 JSONL 分段文件，并通过同一 SettingRegistry 热更新级别、保留期和总容量；此前完成公开入口协议错误适配、严格 SSRF 本地 DNS、代理认证与管理探测、上游读取/流式超时、有界遥测、会话粘性、QueueTicket、同协议 JSON/SSE、错误分类、冷却、熔断和提交前多 Attempt 重试。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: add strict SSRF local DNS`。
-- 本切片主题：公开入口 Gateway/404/405 协议错误适配。
+- 上一切片提交主题：`feat: adapt public ingress errors by protocol`。
+- 本切片主题：有界本地文件日志轮转与 `logs.file.*` 热更新。
 
 ## 已完成
 
@@ -135,7 +135,7 @@
 ### 严格 SSRF 本地 DNS 切片
 
 - 新增并接受 ADR-0019，明确 DIRECT、HTTP forward、HTTPS CONNECT 与 SOCKS5 的本地/远端 DNS 信任边界、全部 A/AAAA 校验、目标固定、Host/SNI、DNS rebinding 与多地址失败语义。
-- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。当前 Registry 共 44 项。
+- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。该切片完成时 Registry 共 44 项，后续文件日志设置使当前总数达到 47 项。
 - DIRECT 始终执行本地解析、全部地址校验与 reqwest `resolve_to_addrs` 固定；严格模式关闭时 HTTP/SOCKS5 保持既有受信远端 DNS 行为。
 - 严格模式下，HTTP forward 的 absolute-form authority 使用已验证 IP 并保留原始 Host；HTTPS CONNECT 向代理发送已验证 IP，隧道后继续使用原始 TLS SNI、证书名、HTTP Host 与 HTTP/2 authority。
 - 严格 SOCKS5 使用 IP 地址类型，不发送目标域名；普通 HTTP 与 TLS 仍保留原始应用层 authority。代理自身地址仍是用户显式配置的信任边界。
@@ -290,6 +290,15 @@
 - 首版没有协议级精确 usage 与内容首 Token 钩子，因此 `first_token_ms` 和各 Token Usage 字段保持 `NULL`；不猜测未知 JSON 字段或把 SSE 控制事件当作首 Token。
 - 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Attempt 生命周期、列表渲染、DTO 解析和敏感文本不展示；多 Attempt/错误/SSE 持久化、详情空态与错误态、deep link 及响应式页面仍没有自动化覆盖。
 
+### 本地文件日志轮转切片
+
+- SettingRegistry 新增 `logs.file.level`、`logs.file.retention` 与 `logs.file.max_total_size`，默认分别为 `info`、`7d` 与 `256 MiB`；Registry 当前共 47 项，Web 显示默认值、覆盖值和生效值并支持恢复默认。
+- Composition Root 在读取 SQLite 当前配置后一次性安装控制台与文件 tracing layer；控制台继续使用 `RUST_LOG`，文件层只服从 `logs.file.level`。
+- 本地日志写入 `<data-dir>/logs` 下的 JSONL 分段文件，使用 `tracing-appender` 的有界丢弃式非阻塞队列和独立写线程；请求线程不等待文件系统，进程结束时 Guard 尽力刷新已经入队的日志。
+- 分段同时按 UTC 日期与大小轮转；单段目标上限为总容量八分之一与 `32 MiB` 的较小值。关闭分段先按保留期限清理，再从最旧文件开始按总容量清理；活跃文件和非 any2api 命名文件不会被删除。
+- `ConfigPublisher` 的日志发布特例已收敛为窄 `LoggingSettingsReconciler`；提交后的无失败阶段只同步更新 RequestTelemetry 与文件日志内存策略，不执行文件 I/O 或建立第二套配置系统。
+- App 单元测试覆盖动态级别、合法 JSONL、大小/日期轮转、期限/容量清理、活跃文件与非托管文件保护；管理契约覆盖三项设置的默认、覆盖、持久化和恢复默认。完整决策见 `docs/adr/0021-bounded-local-file-logging.md`。
+
 ### SSE PrecommitBudget 切片
 
 - SettingRegistry 新增 `stream.precommit.max_bytes` 与 `stream.precommit.max_duration`，默认分别为 `256 KiB` 和 `5s`；Web 可查看默认/覆盖/生效值并恢复默认。
@@ -302,7 +311,7 @@
 
 ### 上游读取与 SSE 提交后空闲超时切片
 
-- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续严格 SSRF 设置使当前总数达到 44 项。
+- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续严格 SSRF 与文件日志设置使当前总数达到 47 项。
 - `TransportRequest` 按请求快照携带 read timeout，不把它放进连接池 Client key。固定请求体开始被连接层消费后才启动响应头 timer，因此较短的 read timeout 不会取代 DNS、连接、代理握手或 TLS 的既有阶段边界。
 - 等待响应头超时记录为 `AwaitHeaders + Ambiguous`；JSON、Compact、Count Tokens 与非成功 SSE 错误正文逐 chunk 收集时使用相同空闲时长，超时记录为 `ReadBody + Ambiguous`。DIRECT 归因 Endpoint，无法证明责任的代理路径归入 `Unattributed`。
 - 成功 SSE 提交前只使用 `stream.precommit.max_duration`，不叠加通用 read timeout；首个下游帧交付时启动 post-commit idle timer，每个成功上游 chunk（包括不完整帧）重置，缓冲完整事件始终优先交付。
@@ -314,7 +323,7 @@
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
 - ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析、全部地址校验和固定目标连接。
-- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream 与 request logging 共 44 项 SettingRegistry；`logs.file.*` 本地文件日志轮转仍未接入。
+- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、request logging 与 file logging 共 47 项 SettingRegistry。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
@@ -323,9 +332,8 @@
 
 ## 下一步
 
-1. 补齐 `logs.file.*` 本地文件日志轮转。
-2. 补齐 RequestLog 多 Attempt/SSE 页面尚缺的自动化覆盖。
-3. 后续再实现内建 Rustls、管理员密码在线轮换与 OAuth2 Provider 专用扩展。
+1. 补齐 RequestLog 多 Attempt/SSE 页面尚缺的自动化覆盖。
+2. 后续再实现内建 Rustls、管理员密码在线轮换与 OAuth2 Provider 专用扩展。
 
 ## 验证结果
 
@@ -345,4 +353,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning，Vite 仅报告当前单入口 bundle 超过 500 kB 的提示。Web 共 27 个测试文件、65 项测试通过；`/logs` 与 `/logs/:requestId` 已完成一次桌面和 390×844 人工验收记录，但该验收尚未纳入仓库自动化脚本。
+以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning，Vite 仅报告当前单入口 bundle 超过 500 kB 的提示。Web 共 27 个测试文件、65 项测试通过。Release 冒烟确认 `/api/health`、`/settings` deep link 与 `<data-dir>/logs/*.jsonl` 同时可用；`/logs` 与 `/logs/:requestId` 已完成一次桌面和 390×844 人工验收记录，但该页面验收尚未纳入仓库自动化脚本。

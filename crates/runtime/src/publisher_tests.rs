@@ -107,7 +107,9 @@ async fn settings_publish_updates_request_telemetry_policy() {
         Arc::clone(&context.snapshots),
         Arc::clone(&context.runtime),
     )
-    .with_telemetry(Arc::clone(&telemetry));
+    .with_logging_reconciler(
+        Arc::clone(&telemetry) as Arc<dyn crate::logging_reconciler::LoggingSettingsReconciler>
+    );
 
     let published = publisher
         .set_setting_override(

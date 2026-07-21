@@ -17,11 +17,13 @@ pub use configuration::{SettingOverrides, SettingsConfiguration};
 pub use definition::{SettingApplyMode, SettingDefinition, SettingValueType};
 pub use key::SettingKey;
 pub use logging_settings::{
-    LoggingSettings, MAX_REQUEST_LOG_RETENTION_MS, MAX_REQUEST_LOG_ROWS,
-    MAX_TELEMETRY_QUEUE_CAPACITY,
+    LoggingSettings, MAX_FILE_LOG_RETENTION_MS, MAX_FILE_LOG_TOTAL_SIZE,
+    MAX_REQUEST_LOG_RETENTION_MS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
 };
 pub use reliability_settings::ReliabilitySettings;
 pub use scheduler_settings::SchedulerSettings;
 pub use stream_settings::{MAX_STREAM_PRECOMMIT_BYTES, StreamSettings};
 pub use upstream_settings::UpstreamSettings;
-pub use value::{AffinityMode, SaturationMode, SettingValue, SettingsValidationError};
+pub use value::{
+    AffinityMode, FileLogLevel, SaturationMode, SettingValue, SettingsValidationError,
+};

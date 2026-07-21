@@ -8,15 +8,14 @@ use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use anyhow::Context;
 use secrecy::ExposeSecret;
 use tokio::net::TcpListener;
-use tracing_subscriber::EnvFilter;
 
 use crate::{
     admin_auth_adapter::SqliteAdminCredentialStore, build_public_request_components_with_telemetry,
-    settings::AppSettings, shutdown,
+    file_logging::FileLogging, logging_reconciler::AppLoggingReconciler, settings::AppSettings,
+    shutdown,
 };
 
 pub async fn run() -> anyhow::Result<()> {
-    initialize_tracing();
     let settings = AppSettings::from_env()?;
     let storage = Arc::new(
         SqliteStore::connect_with_master_key(&settings.database_path, &settings.master_key_path)
@@ -27,6 +26,11 @@ pub async fn run() -> anyhow::Result<()> {
         .load_configuration()
         .await
         .context("failed to load configuration")?;
+    let file_logging = FileLogging::initialize(
+        settings.log_directory.clone(),
+        configuration.revision(),
+        configuration.settings().logging(),
+    )?;
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         configuration.revision(),
@@ -59,9 +63,13 @@ pub async fn run() -> anyhow::Result<()> {
         configuration,
         runtime.as_ref(),
     )));
+    let logging_reconciler = Arc::new(AppLoggingReconciler::new(
+        Arc::clone(&telemetry),
+        file_logging,
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(storage, Arc::clone(&snapshots), Arc::clone(&runtime))
-            .with_telemetry(Arc::clone(&telemetry)),
+            .with_logging_reconciler(logging_reconciler),
     );
     let request_components = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
         .context("failed to initialize public request adapters")?;
@@ -91,9 +99,4 @@ pub async fn run() -> anyhow::Result<()> {
     .context("http server failed");
     telemetry.shutdown(std::time::Duration::from_secs(5)).await;
     result
-}
-
-fn initialize_tracing() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }

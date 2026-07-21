@@ -2,9 +2,12 @@ use crate::settings::{
     SettingDefinition, SettingKey, SettingValue, SettingValueType,
     definition::{definition as setting_definition, duration_definition},
     logging_settings::{
-        MAX_REQUEST_LOG_RETENTION_MS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
+        MAX_FILE_LOG_RETENTION_MS, MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_MS,
+        MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
     },
 };
+
+const FILE_LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 
 pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
     match key {
@@ -34,6 +37,30 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
             MAX_REQUEST_LOG_ROWS,
             "请求日志",
             "SQLite 中最多保留的 RequestLog 行数；对应 Attempt 随父记录清理。",
+        ),
+        SettingKey::LogsFileLevel => setting_definition(
+            key,
+            SettingValueType::Enum,
+            SettingValue::FileLogLevel(crate::settings::FileLogLevel::Info),
+            (None, None),
+            FILE_LOG_LEVELS,
+            ("本地文件日志", "写入本地 JSONL 文件的最低日志级别。"),
+        ),
+        SettingKey::LogsFileRetention => duration_definition(
+            key,
+            604_800_000,
+            60_000,
+            MAX_FILE_LOG_RETENTION_MS,
+            "本地文件日志",
+            "本地 JSONL 日志文件的最长保留时间。",
+        ),
+        SettingKey::LogsFileMaxTotalSize => integer(
+            key,
+            256 * 1024 * 1024,
+            1024 * 1024,
+            MAX_FILE_LOG_TOTAL_SIZE,
+            "本地文件日志",
+            "本地 JSONL 日志目录允许占用的最大总字节数。",
         ),
         SettingKey::LogsTelemetryQueueCapacity => integer(
             key,

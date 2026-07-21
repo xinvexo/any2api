@@ -50,12 +50,45 @@ impl AffinityMode {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FileLogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl FileLogLevel {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warn => "warn",
+            Self::Info => "info",
+            Self::Debug => "debug",
+            Self::Trace => "trace",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "error" => Some(Self::Error),
+            "warn" => Some(Self::Warn),
+            "info" => Some(Self::Info),
+            "debug" => Some(Self::Debug),
+            "trace" => Some(Self::Trace),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SettingValue {
     Boolean(bool),
     Integer(u64),
     DurationMs(u64),
     Saturation(SaturationMode),
     AffinityMode(AffinityMode),
+    FileLogLevel(FileLogLevel),
 }
 
 impl SettingValue {
@@ -93,6 +126,7 @@ impl SettingValue {
             Self::Integer(value) | Self::DurationMs(value) => json!(value),
             Self::Saturation(value) => json!(value.as_str()),
             Self::AffinityMode(value) => json!(value.as_str()),
+            Self::FileLogLevel(value) => json!(value.as_str()),
         }
     }
 
@@ -101,7 +135,9 @@ impl SettingValue {
             Self::Boolean(_) => SettingValueType::Boolean,
             Self::Integer(_) => SettingValueType::Integer,
             Self::DurationMs(_) => SettingValueType::DurationMs,
-            Self::Saturation(_) | Self::AffinityMode(_) => SettingValueType::Enum,
+            Self::Saturation(_) | Self::AffinityMode(_) | Self::FileLogLevel(_) => {
+                SettingValueType::Enum
+            }
         }
     }
 
@@ -109,6 +145,7 @@ impl SettingValue {
         match self {
             Self::Saturation(value) => Some(value.as_str()),
             Self::AffinityMode(value) => Some(value.as_str()),
+            Self::FileLogLevel(value) => Some(value.as_str()),
             _ => None,
         }
     }
@@ -172,6 +209,7 @@ fn parse_enum(key: SettingKey, value: &str) -> Option<SettingValue> {
             SaturationMode::parse(value).map(SettingValue::Saturation)
         }
         SettingKey::AffinitySoftMode => AffinityMode::parse(value).map(SettingValue::AffinityMode),
+        SettingKey::LogsFileLevel => FileLogLevel::parse(value).map(SettingValue::FileLogLevel),
         _ => None,
     }
 }

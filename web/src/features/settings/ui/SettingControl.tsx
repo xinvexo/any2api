@@ -88,6 +88,8 @@ export function SettingControl({
       <span className="shrink-0 text-xs text-tertiary">
         {item.valueType === "duration_ms"
           ? "毫秒"
+          : item.key === "logs.file.max_total_size"
+            ? "字节"
           : item.key === "retry.jitter_ratio"
             ? "%"
             : "数量"}

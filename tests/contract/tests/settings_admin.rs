@@ -1,7 +1,7 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
-use any2api_domain::{SaturationMode, SettingKey};
+use any2api_domain::{FileLogLevel, SaturationMode, SettingKey};
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -47,7 +47,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(44));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(47));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
@@ -115,6 +115,20 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(postcommit_idle["min_value"], 1);
     assert_eq!(postcommit_idle["max_value"], 86_400_000);
     assert_eq!(postcommit_idle["web_group"], "流式响应");
+    let file_level = find_setting(&initial, "logs.file.level");
+    assert_eq!(file_level["value_type"], "enum");
+    assert_eq!(file_level["default_value"], "info");
+    assert_eq!(
+        file_level["allowed_values"],
+        json!(["error", "warn", "info", "debug", "trace"])
+    );
+    assert_eq!(file_level["web_group"], "本地文件日志");
+    let file_retention = find_setting(&initial, "logs.file.retention");
+    assert_eq!(file_retention["default_value"], 604_800_000);
+    assert_eq!(file_retention["min_value"], 60_000);
+    let file_size = find_setting(&initial, "logs.file.max_total_size");
+    assert_eq!(file_size["default_value"], 256 * 1024 * 1024);
+    assert_eq!(file_size["min_value"], 1024 * 1024);
     assert!(
         initial["items"]
             .as_array()
@@ -197,6 +211,92 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
             .settings()
             .override_value(SettingKey::SchedulerOnSaturated),
         None
+    );
+}
+
+#[tokio::test]
+async fn file_log_settings_publish_and_restore_defaults() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, level) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/logs.file.level",
+        Some(json!({ "expected_revision": 1, "value": "debug" })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        find_setting(&level, "logs.file.level")["effective_value"],
+        "debug"
+    );
+
+    let (status, retention) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/logs.file.retention",
+        Some(json!({ "expected_revision": 2, "value": 120_000 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        find_setting(&retention, "logs.file.retention")["effective_value"],
+        120_000
+    );
+
+    let (status, size) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/logs.file.max_total_size",
+        Some(json!({ "expected_revision": 3, "value": 2 * 1024 * 1024 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        find_setting(&size, "logs.file.max_total_size")["effective_value"],
+        2 * 1024 * 1024
+    );
+
+    let stored = storage.load_configuration().await.expect("stored settings");
+    assert_eq!(
+        stored.settings().logging().file_level(),
+        FileLogLevel::Debug
+    );
+    assert_eq!(stored.settings().logging().file_retention_ms(), 120_000);
+    assert_eq!(
+        stored.settings().logging().file_max_total_size(),
+        2 * 1024 * 1024
+    );
+
+    let mut revision = 4;
+    for key in [
+        "logs.file.level",
+        "logs.file.retention",
+        "logs.file.max_total_size",
+    ] {
+        let (status, reset) = request_json(
+            app.clone(),
+            Method::DELETE,
+            &format!("/api/admin/settings/{key}?expected_revision={revision}"),
+            None,
+            loopback,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(find_setting(&reset, key)["override_value"], Value::Null);
+        revision += 1;
+    }
+
+    let stored = storage.load_configuration().await.expect("reset settings");
+    assert_eq!(stored.settings().logging().file_level(), FileLogLevel::Info);
+    assert_eq!(stored.settings().logging().file_retention_ms(), 604_800_000);
+    assert_eq!(
+        stored.settings().logging().file_max_total_size(),
+        256 * 1024 * 1024
     );
 }
 

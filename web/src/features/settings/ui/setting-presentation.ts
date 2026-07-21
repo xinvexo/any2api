@@ -15,6 +15,9 @@ const labels: Record<string, string> = {
   "logs.request.enabled": "启用请求日志",
   "logs.request.retention": "请求日志保留时间",
   "logs.request.max_rows": "请求日志最大行数",
+  "logs.file.level": "文件日志级别",
+  "logs.file.retention": "文件日志保留时间",
+  "logs.file.max_total_size": "文件日志最大容量",
   "logs.telemetry_queue_capacity": "遥测队列容量",
   "upstream.read_timeout": "上游读取超时",
   "upstream.strict_ssrf": "严格 SSRF 本地 DNS",
@@ -63,6 +66,21 @@ export function enumOptionLabel(value: string) {
   }
   if (value === "strict") {
     return "只允许原 Credential";
+  }
+  if (value === "error") {
+    return "错误";
+  }
+  if (value === "warn") {
+    return "警告";
+  }
+  if (value === "info") {
+    return "信息";
+  }
+  if (value === "debug") {
+    return "调试";
+  }
+  if (value === "trace") {
+    return "跟踪";
   }
   return value;
 }

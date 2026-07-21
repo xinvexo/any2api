@@ -131,7 +131,7 @@ mod tests {
 
     use super::{SettingOverrides, SettingsConfiguration};
     use crate::{
-        AffinityMode, SaturationMode, SettingKey, SettingValue, SettingValueType,
+        AffinityMode, FileLogLevel, SaturationMode, SettingKey, SettingValue, SettingValueType,
         SettingsValidationError,
     };
 
@@ -166,6 +166,9 @@ mod tests {
         assert!(settings.logging().request_enabled());
         assert_eq!(settings.logging().request_retention_ms(), 2_592_000_000);
         assert_eq!(settings.logging().request_max_rows(), 200_000);
+        assert_eq!(settings.logging().file_level(), FileLogLevel::Info);
+        assert_eq!(settings.logging().file_retention_ms(), 604_800_000);
+        assert_eq!(settings.logging().file_max_total_size(), 256 * 1024 * 1024);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
         assert_eq!(settings.upstream().read_timeout_ms(), 15_000);
         assert!(!settings.upstream().strict_ssrf());
@@ -192,6 +195,10 @@ mod tests {
         assert_eq!(
             SettingValue::from_json(SettingKey::AffinitySoftMode, &json!("wait")),
             Err(SettingsValidationError::InvalidEnum)
+        );
+        assert_eq!(
+            SettingValue::from_json(SettingKey::LogsFileLevel, &json!("debug")),
+            Ok(SettingValue::FileLogLevel(FileLogLevel::Debug))
         );
         assert_eq!(
             SettingOverrides::from_entries([(

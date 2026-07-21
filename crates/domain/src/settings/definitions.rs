@@ -24,6 +24,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         SettingKey::LogsRequestEnabled
         | SettingKey::LogsRequestRetention
         | SettingKey::LogsRequestMaxRows
+        | SettingKey::LogsFileLevel
+        | SettingKey::LogsFileRetention
+        | SettingKey::LogsFileMaxTotalSize
         | SettingKey::LogsTelemetryQueueCapacity => logging::definition(key),
         SettingKey::UpstreamReadTimeout | SettingKey::UpstreamStrictSsrf => {
             upstream::definition(key)

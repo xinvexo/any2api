@@ -14,6 +14,7 @@ use any2api_storage::api::{RequestLogRepository, StorageError};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use super::{policy::RequestLogPolicy, worker};
+use crate::logging_reconciler::LoggingSettingsReconciler;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RequestTelemetryMetrics {
@@ -195,5 +196,11 @@ impl RequestTelemetry {
                 Err(actual) => current = actual,
             }
         }
+    }
+}
+
+impl LoggingSettingsReconciler for RequestTelemetry {
+    fn reconcile(&self, revision: ConfigRevision, settings: &LoggingSettings) {
+        self.update_policy(revision, settings);
     }
 }
