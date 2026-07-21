@@ -85,6 +85,18 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
             .any(|part| part == b"any2api shell")
     );
 
+    let log_deep_link = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/logs/11111111-1111-4111-8111-111111111111")
+                .body(Body::empty())
+                .expect("request log deep link request"),
+        )
+        .await
+        .expect("request log deep link response");
+    assert_eq!(log_deep_link.status(), 200);
+
     let missing_api = app
         .oneshot(
             Request::builder()

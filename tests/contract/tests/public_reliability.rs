@@ -1,19 +1,21 @@
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use any2api_domain::{
-    CredentialId, CredentialKind, FallbackTier, GatewayApiKeyId, MaxConcurrency, ModelRouteDraft,
-    ModelRouteId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestId,
-    RetrySafety, SaturationMode, SettingKey, SettingValue,
+    CompletedRequestLog, CredentialId, CredentialKind, ErrorClass, FallbackTier, GatewayApiKeyId,
+    MaxConcurrency, ModelRouteDraft, ModelRouteId, ProtocolDialect, ProtocolOperation,
+    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, RequestAttemptOutcome, RequestId, RetrySafety, SaturationMode, SettingKey,
+    SettingValue,
 };
 use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublicResponse,
-    PublicResponseBody, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
+    PublicResponseBody, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
@@ -50,6 +52,40 @@ async fn definitely_not_sent_failure_switches_to_another_credential() {
     assert_eq!(calls.len(), 2);
     assert_ne!(calls[0].uri, calls[1].uri);
     assert_ne!(calls[0].authorization, calls[1].authorization);
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.status_code, 200);
+    assert_eq!(record.request.error_class, None);
+    assert_eq!(record.request.attempt_count, 2);
+    assert_eq!(record.attempts.len(), 2);
+    assert_eq!(record.attempts[0].attempt_no, 1);
+    assert_eq!(
+        record.attempts[0].outcome,
+        RequestAttemptOutcome::TransportError
+    );
+    assert_eq!(
+        record.attempts[0].retry_safety,
+        Some(RetrySafety::DefinitelyNotSent)
+    );
+    assert_eq!(record.attempts[0].error_class, Some(ErrorClass::Network));
+    assert_eq!(record.attempts[0].status_code, None);
+    assert_eq!(record.attempts[1].attempt_no, 2);
+    assert_eq!(record.attempts[1].outcome, RequestAttemptOutcome::Success);
+    assert_eq!(record.attempts[1].retry_safety, None);
+    assert_eq!(record.attempts[1].error_class, None);
+    assert_eq!(record.attempts[1].status_code, Some(200));
+    assert_ne!(
+        record.attempts[0].credential_id,
+        record.attempts[1].credential_id
+    );
+    assert_ne!(
+        record.attempts[0].route_target_id,
+        record.attempts[1].route_target_id
+    );
+    assert_eq!(
+        record.request.credential_id,
+        record.attempts[1].credential_id
+    );
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
 #[tokio::test]
@@ -193,6 +229,17 @@ async fn total_attempt_budget_stops_before_a_fourth_attempt() {
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(response.body["error"]["code"], "upstream_error");
     assert_eq!(transport.calls().len(), 3);
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.attempt_count, 3);
+    assert_eq!(record.request.error_class, Some(ErrorClass::Network));
+    assert_eq!(record.attempts.len(), 3);
+    assert!(
+        record
+            .attempts
+            .iter()
+            .all(|attempt| attempt.outcome == RequestAttemptOutcome::TransportError)
+    );
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
 #[tokio::test]
@@ -269,12 +316,13 @@ async fn sse_postcommit_idle_timeout_does_not_start_a_second_stream() {
         )],
     )
     .await;
+    let request_id = RequestId::new();
     let response = harness
         .service
         .execute(
             Arc::clone(&harness.snapshot),
             PublicRequest {
-                request_id: RequestId::new(),
+                request_id,
                 gateway_api_key_id: GatewayApiKeyId::new(),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::new(),
@@ -293,6 +341,69 @@ async fn sse_postcommit_idle_timeout_does_not_start_a_second_stream() {
     assert!(body.next().await.expect("first frame").is_ok());
     assert!(body.next().await.expect("idle timeout error").is_err());
     assert_eq!(transport.calls().len(), 1);
+    let record = wait_for_log(&harness, request_id).await;
+    assert!(record.request.is_stream);
+    assert_eq!(record.request.status_code, 200);
+    assert_eq!(record.request.error_class, Some(ErrorClass::Network));
+    assert_eq!(record.attempts.len(), 1);
+    assert_eq!(
+        record.attempts[0].outcome,
+        RequestAttemptOutcome::StreamError
+    );
+    assert_eq!(
+        record.attempts[0].retry_safety,
+        Some(RetrySafety::Ambiguous)
+    );
+    assert_eq!(record.attempts[0].error_class, Some(ErrorClass::Network));
+    assert_eq!(record.attempts[0].status_code, Some(200));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn sse_eof_persists_success() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::stream(
+        "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"eof-id\",\"model\":\"upstream\"}}\n\n",
+    )]));
+    let harness = harness(transport, 1, &["eof-model"], &[]).await;
+    let request_id = RequestId::new();
+    let response = execute_stream(&harness, request_id, "eof-model").await;
+    let mut body = streaming_body(response);
+
+    while let Some(frame) = body.next().await {
+        frame.expect("valid SSE frame");
+    }
+
+    let record = wait_for_log(&harness, request_id).await;
+    assert!(record.request.is_stream);
+    assert_eq!(record.request.status_code, 200);
+    assert_eq!(record.request.error_class, None);
+    assert_eq!(record.attempts.len(), 1);
+    assert_eq!(record.attempts[0].outcome, RequestAttemptOutcome::Success);
+    assert_eq!(record.attempts[0].status_code, Some(200));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn sse_client_drop_persists_cancellation_once() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::stalled_stream(
+        "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"drop-id\",\"model\":\"upstream\"}}\n\n",
+    )]));
+    let harness = harness(transport, 1, &["drop-model"], &[]).await;
+    let request_id = RequestId::new();
+    let response = execute_stream(&harness, request_id, "drop-model").await;
+    let mut body = streaming_body(response);
+    assert!(body.next().await.expect("first frame").is_ok());
+    drop(body);
+
+    let record = wait_for_log(&harness, request_id).await;
+    assert_eq!(record.request.status_code, 200);
+    assert_eq!(record.request.error_class, Some(ErrorClass::Cancelled));
+    assert_eq!(record.request.attempt_count, 1);
+    assert_eq!(record.attempts.len(), 1);
+    assert_eq!(record.attempts[0].outcome, RequestAttemptOutcome::Cancelled);
+    assert_eq!(record.attempts[0].error_class, Some(ErrorClass::Cancelled));
+    assert_eq!(record.attempts[0].status_code, Some(200));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
 fn failure_step() -> ScriptStep {
@@ -308,6 +419,7 @@ struct Harness {
     _directory: TempDir,
     snapshot: Arc<PublishedSnapshot>,
     service: Arc<PublicRequestService>,
+    telemetry: Arc<RequestTelemetry>,
 }
 
 async fn harness(
@@ -323,6 +435,11 @@ async fn harness(
             .expect("storage"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
+    let telemetry = Arc::new(RequestTelemetry::start(
+        Arc::clone(&storage),
+        configuration.revision(),
+        configuration.settings().logging(),
+    ));
     let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
@@ -434,12 +551,14 @@ async fn harness(
     let transport_manager: Arc<dyn TransportManager> = transport;
     let service = Arc::new(
         PublicRequestService::new(Arc::new(protocols), Arc::new(providers), transport_manager)
-            .expect("public request service"),
+            .expect("public request service")
+            .with_telemetry(Arc::clone(&telemetry)),
     );
     Harness {
         _directory: directory,
         snapshot: published,
         service,
+        telemetry,
     }
 }
 
@@ -466,12 +585,13 @@ fn default_overrides() -> Vec<(SettingKey, SettingValue)> {
 async fn execute_json(harness: &Harness, model: &str, extra: Value) -> TestResponse {
     let mut body = extra;
     body["model"] = Value::String(model.to_owned());
+    let request_id = RequestId::new();
     let response = harness
         .service
         .execute(
             Arc::clone(&harness.snapshot),
             PublicRequest {
-                request_id: RequestId::new(),
+                request_id,
                 gateway_api_key_id: GatewayApiKeyId::new(),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::new(),
@@ -479,17 +599,49 @@ async fn execute_json(harness: &Harness, model: &str, extra: Value) -> TestRespo
             },
         )
         .await;
-    TestResponse::from(response)
+    TestResponse::from_response(request_id, response)
+}
+
+async fn execute_stream(harness: &Harness, request_id: RequestId, model: &str) -> PublicResponse {
+    harness
+        .service
+        .execute(
+            Arc::clone(&harness.snapshot),
+            PublicRequest {
+                request_id,
+                gateway_api_key_id: GatewayApiKeyId::new(),
+                operation: ProtocolOperation::Responses,
+                headers: HeaderMap::new(),
+                body: Bytes::from(
+                    serde_json::to_vec(&json!({
+                        "model": model,
+                        "input": "hello",
+                        "stream": true
+                    }))
+                    .expect("stream request JSON"),
+                ),
+            },
+        )
+        .await
+}
+
+fn streaming_body(response: PublicResponse) -> any2api_runtime::api::PublicResponseStream {
+    assert_eq!(response.status, StatusCode::OK);
+    match response.body {
+        PublicResponseBody::Streaming(body) => body,
+        PublicResponseBody::Buffered(_) => panic!("test expected streaming response"),
+    }
 }
 
 struct TestResponse {
+    request_id: RequestId,
     status: StatusCode,
     headers: HeaderMap,
     body: Value,
 }
 
-impl From<PublicResponse> for TestResponse {
-    fn from(response: PublicResponse) -> Self {
+impl TestResponse {
+    fn from_response(request_id: RequestId, response: PublicResponse) -> Self {
         let body = match response.body {
             PublicResponseBody::Buffered(body) => {
                 serde_json::from_slice(&body).expect("JSON response body")
@@ -497,14 +649,13 @@ impl From<PublicResponse> for TestResponse {
             PublicResponseBody::Streaming(_) => panic!("test expected buffered response"),
         };
         Self {
+            request_id,
             status: response.status,
             headers: response.headers,
             body,
         }
     }
-}
 
-impl TestResponse {
     fn status(&self) -> StatusCode {
         self.status
     }
@@ -512,6 +663,21 @@ impl TestResponse {
     fn headers(&self) -> &HeaderMap {
         &self.headers
     }
+}
+
+async fn wait_for_log(harness: &Harness, request_id: RequestId) -> CompletedRequestLog {
+    for _ in 0..200 {
+        if let Some(record) = harness
+            .telemetry
+            .get(request_id)
+            .await
+            .expect("request log query")
+        {
+            return record;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("request log was not persisted");
 }
 
 #[derive(Clone, Debug)]

@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、`logs.file.*` 本地文件日志轮转、公开入口协议错误适配、严格 SSRF 本地 DNS、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、RequestLog/Attempt 有界遥测、单管理员远程 HTTP 认证以及代理认证/管理探测切片已完成；OAuth2 仍待完成。
-- 最近完成：本地 tracing 事件已写入有界 JSONL 分段文件，并通过同一 SettingRegistry 热更新级别、保留期和总容量；此前完成公开入口协议错误适配、严格 SSRF 本地 DNS、代理认证与管理探测、上游读取/流式超时、有界遥测、会话粘性、QueueTicket、同协议 JSON/SSE、错误分类、冷却、熔断和提交前多 Attempt 重试。
+- 当前阶段：阶段 4 可靠性与 RequestLog 生命周期/管理页面自动化已经完成；`logs.file.*` 本地文件日志轮转、公开入口协议错误适配、严格 SSRF 本地 DNS、统一上游读取超时、SSE PrecommitBudget/提交后 idle timeout、单管理员远程 HTTP 认证以及代理认证/管理探测均已落地；OAuth2 仍待后续阶段实现。
+- 最近完成：真实 SQLite 遥测契约现覆盖 Credential 切换、Attempt 预算耗尽、SSE 正常 EOF、提交后 idle timeout 和客户端 Drop；RequestLog 列表/详情页现覆盖成功、空态、初始错误、刷新失败、404 终态、可重试错误、Attempt 时间线与 deep link。此前完成本地 tracing 有界 JSONL 分段文件及其 SettingRegistry 热更新。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: adapt public ingress errors by protocol`。
-- 本切片主题：有界本地文件日志轮转与 `logs.file.*` 热更新。
+- 上一切片提交主题：`feat: add bounded local file logging`。
+- 本切片主题：RequestLog 多 Attempt/SSE 持久化与管理页面状态自动化。
 
 ## 已完成
 
@@ -288,7 +288,8 @@
 - 新增管理 API：`GET /api/admin/request-logs`、`GET /api/admin/request-logs/{request_id}`；React `/logs` 与 `/logs/:requestId` 展示最近请求、队列/丢弃指标和 Attempt 时间线。
 - SettingRegistry 新增 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows`、`logs.telemetry_queue_capacity`，Web 可查看默认/覆盖/生效值并恢复默认。
 - 首版没有协议级精确 usage 与内容首 Token 钩子，因此 `first_token_ms` 和各 Token Usage 字段保持 `NULL`；不猜测未知 JSON 字段或把 SSE 控制事件当作首 Token。
-- 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Attempt 生命周期、列表渲染、DTO 解析和敏感文本不展示；多 Attempt/错误/SSE 持久化、详情空态与错误态、deep link 及响应式页面仍没有自动化覆盖。
+- 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Credential 切换后的多 Attempt 顺序、Attempt 预算耗尽、SSE EOF/提交后错误/客户端 Drop 的单次持久化、列表与详情成功/空态/错误态、DTO 解析、deep link 和敏感文本不展示。
+- 窄屏布局已有人工验收和针对超长模型名的结构回归；真实浏览器中的视口尺寸与水平溢出断言将在仓库建立统一 E2E 基础设施时集中加入，不为单个页面单独引入一套浏览器依赖。
 
 ### 本地文件日志轮转切片
 
@@ -332,8 +333,8 @@
 
 ## 下一步
 
-1. 补齐 RequestLog 多 Attempt/SSE 页面尚缺的自动化覆盖。
-2. 后续再实现内建 Rustls、管理员密码在线轮换与 OAuth2 Provider 专用扩展。
+1. 建立最小统一浏览器 E2E 基础设施，覆盖管理登录、核心配置 deep link 与 390px 响应式无水平溢出，替代当前分散的人工浏览器验收记录。
+2. 首个正式版本稳定后，再按独立切片实现管理员密码在线轮换、可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前 API Key 首版。
 
 ## 验证结果
 
@@ -353,4 +354,4 @@ pnpm test
 pnpm build
 ```
 
-以上 Rust 与 Web 门禁在本切片完成时全部通过；`cargo deny` 仅报告基线已有的重复传递依赖 warning，Vite 仅报告当前单入口 bundle 超过 500 kB 的提示。Web 共 27 个测试文件、65 项测试通过。Release 冒烟确认 `/api/health`、`/settings` deep link 与 `<data-dir>/logs/*.jsonl` 同时可用；`/logs` 与 `/logs/:requestId` 已完成一次桌面和 390×844 人工验收记录，但该页面验收尚未纳入仓库自动化脚本。
+本切片的 RequestLog 真实 SQLite 生命周期、SPA `/logs/:requestId` fallback 以及列表/详情全部页面状态均已通过定向与全量验证。Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 均通过；`cargo deny --offline check` 使用 2026-07-17 的本地 RustSec 缓存通过并仅报告基线已有的重复传递依赖 warning，在线更新因 GitHub 443 暂时不可达未完成。Web typecheck、lint、build 与 28 个测试文件的 72 项测试全部通过；Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。浏览器级视口断言留给下一项统一 E2E 基础设施。

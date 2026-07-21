@@ -2,7 +2,7 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import type { RequestAttempt } from "../api/request-log-contracts";
-import { getRequestLogErrorMessage } from "../model/request-log-error";
+import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
 import { useRequestLog } from "../model/use-request-logs";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
@@ -21,14 +21,40 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
     );
   }
   if (!query.data) {
+    if (isRequestLogNotFound(query.error)) {
+      return (
+        <Surface className="p-6" role="status">
+          <p className="font-semibold">这条请求日志不存在</p>
+          <p className="mt-2 text-sm text-secondary">
+            记录可能已经超过保留期限，或因容量上限被清理。
+          </p>
+          <Link
+            to="/logs"
+            className="focus-ring mt-5 inline-flex h-10 items-center gap-2 rounded-control border border-subtle bg-surface px-4 text-sm font-semibold text-primary hover:bg-surface-hover"
+          >
+            <ArrowLeft size={15} />
+            返回请求日志
+          </Link>
+        </Surface>
+      );
+    }
     return (
       <Surface className="p-6" role="alert">
         <p className="font-semibold">无法读取这条请求</p>
         <p className="mt-2 text-sm text-secondary">{getRequestLogErrorMessage(query.error)}</p>
-        <Button className="mt-5" onClick={() => void query.refetch()} disabled={query.isFetching}>
-          <RefreshCw size={15} />
-          重试
-        </Button>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Button onClick={() => void query.refetch()} disabled={query.isFetching}>
+            <RefreshCw size={15} />
+            重试
+          </Button>
+          <Link
+            to="/logs"
+            className="focus-ring inline-flex h-10 items-center gap-2 rounded-control px-4 text-sm font-semibold text-secondary hover:bg-surface-hover hover:text-primary"
+          >
+            <ArrowLeft size={15} />
+            返回请求日志
+          </Link>
+        </div>
       </Surface>
     );
   }

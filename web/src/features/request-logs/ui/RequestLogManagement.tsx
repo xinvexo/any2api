@@ -91,7 +91,9 @@ function RequestLogRow({ log }: { log: RequestLog }) {
           >
             {log.statusCode}
           </span>
-          <span className="text-sm font-semibold">{log.publicModel ?? "未解析模型"}</span>
+          <span className="min-w-0 break-all text-sm font-semibold">
+            {log.publicModel ?? "未解析模型"}
+          </span>
           {log.isStream ? (
             <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-secondary">
               流式
