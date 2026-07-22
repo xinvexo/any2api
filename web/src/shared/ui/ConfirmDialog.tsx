@@ -1,43 +1,55 @@
-import { X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
 
-/** Keep in sync with `.side-drawer-panel` / `.side-drawer-scrim` transition duration. */
-const EXIT_DURATION_MS = 200;
+const EXIT_DURATION_MS = 160;
 
-interface SideDrawerProps {
+interface ConfirmDialogProps {
   open: boolean;
   title: string;
-  description?: string;
+  description?: ReactNode;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  pending?: boolean;
+  tone?: "danger" | "default";
+  onConfirm: () => void;
   onClose: () => void;
-  children: ReactNode;
-  wide?: boolean;
 }
 
-interface DrawerView {
+interface DialogView {
   title: string;
-  description?: string;
-  children: ReactNode;
-  wide: boolean;
+  description?: ReactNode;
+  confirmLabel: string;
+  cancelLabel: string;
+  tone: "danger" | "default";
 }
 
-export function SideDrawer({
+export function ConfirmDialog({
   open,
   title,
   description,
+  confirmLabel = "确认",
+  cancelLabel = "取消",
+  pending = false,
+  tone = "default",
+  onConfirm,
   onClose,
-  children,
-  wide = false,
-}: SideDrawerProps) {
+}: ConfirmDialogProps) {
   const titleId = useId();
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const onConfirmRef = useRef(onConfirm);
 
-  const [view, setView] = useState<DrawerView>({ title, description, children, wide });
+  const [view, setView] = useState<DialogView>({
+    title,
+    description,
+    confirmLabel,
+    cancelLabel,
+    tone,
+  });
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
   const [openProp, setOpenProp] = useState(open);
@@ -46,26 +58,26 @@ export function SideDrawer({
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  // Adjust local state when the controlled `open` prop changes (React-supported pattern).
-  // While closing (`open === false` but still mounted), freeze the last open view so parent
-  // unmounts of form state cannot flash empty content through the exit animation.
+  useEffect(() => {
+    onConfirmRef.current = onConfirm;
+  }, [onConfirm]);
+
   if (open !== openProp) {
     setOpenProp(open);
     if (open) {
       setMounted(true);
-      setView({ title, description, children, wide });
+      setView({ title, description, confirmLabel, cancelLabel, tone });
     } else {
-      // Drop children immediately so secret fields never linger through exit animation.
-      setView((current) => ({ ...current, children: null }));
       setVisible(false);
     }
   } else if (open) {
-    const nextView = { title, description, children, wide };
+    const nextView = { title, description, confirmLabel, cancelLabel, tone };
     if (
       view.title !== nextView.title ||
       view.description !== nextView.description ||
-      view.children !== nextView.children ||
-      view.wide !== nextView.wide
+      view.confirmLabel !== nextView.confirmLabel ||
+      view.cancelLabel !== nextView.cancelLabel ||
+      view.tone !== nextView.tone
     ) {
       setView(nextView);
     }
@@ -75,12 +87,10 @@ export function SideDrawer({
     if (!open || !mounted || visible) {
       return;
     }
-
     const frame = window.requestAnimationFrame(() => {
       setVisible(true);
       panelRef.current?.focus({ preventScroll: true });
     });
-
     return () => window.cancelAnimationFrame(frame);
   }, [open, mounted, visible]);
 
@@ -88,10 +98,7 @@ export function SideDrawer({
     if (open || visible || !mounted) {
       return;
     }
-
-    const timeout = window.setTimeout(() => {
-      setMounted(false);
-    }, EXIT_DURATION_MS);
+    const timeout = window.setTimeout(() => setMounted(false), EXIT_DURATION_MS);
     return () => window.clearTimeout(timeout);
   }, [open, visible, mounted]);
 
@@ -104,26 +111,24 @@ export function SideDrawer({
     const previousOverflow = body.style.overflow;
     const previousPaddingRight = body.style.paddingRight;
     const scrollbarGap = window.innerWidth - document.documentElement.clientWidth;
-
     body.style.overflow = "hidden";
     if (scrollbarGap > 0) {
       body.style.paddingRight = `${scrollbarGap}px`;
     }
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !pending) {
         event.preventDefault();
         onCloseRef.current();
       }
     };
-
     window.addEventListener("keydown", onKeyDown);
     return () => {
       body.style.overflow = previousOverflow;
       body.style.paddingRight = previousPaddingRight;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [mounted]);
+  }, [mounted, pending]);
 
   if (!mounted || typeof document === "undefined") {
     return null;
@@ -131,50 +136,61 @@ export function SideDrawer({
 
   return createPortal(
     <div
-      className="side-drawer-root fixed inset-0 z-50 overflow-hidden"
+      className="confirm-dialog-root fixed inset-0 z-[60] flex items-center justify-center overflow-hidden p-4"
       data-state={visible ? "open" : "closed"}
     >
       <button
         type="button"
         tabIndex={-1}
-        className={cn("side-drawer-scrim", visible ? "is-open" : "is-closed")}
-        aria-label="关闭抽屉"
-        onClick={() => onCloseRef.current()}
+        className={cn("confirm-dialog-scrim", visible ? "is-open" : "is-closed")}
+        aria-label="关闭对话框"
+        disabled={pending}
+        onClick={() => {
+          if (!pending) {
+            onCloseRef.current();
+          }
+        }}
       />
       <div
         ref={panelRef}
-        role="dialog"
+        role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={view.description ? descriptionId : undefined}
         tabIndex={-1}
-        className={cn(
-          "side-drawer-panel",
-          view.wide ? "is-wide" : undefined,
-          visible ? "is-open" : "is-closed",
-        )}
+        className={cn("confirm-dialog-panel", visible ? "is-open" : "is-closed")}
       >
-        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-subtle px-5 py-4">
-          <div className="min-w-0">
-            <h2 id={titleId} className="text-[15px] font-semibold tracking-tight">
-              {view.title}
-            </h2>
-            {view.description ? (
-              <p id={descriptionId} className="mt-1 text-[13px] leading-5 text-secondary">
-                {view.description}
-              </p>
-            ) : null}
-          </div>
+        <div className="px-5 pt-5">
+          <h2 id={titleId} className="text-[15px] font-semibold tracking-tight">
+            {view.title}
+          </h2>
+          {view.description ? (
+            <div id={descriptionId} className="mt-2 text-[13px] leading-5 text-secondary">
+              {view.description}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex flex-col-reverse gap-2 px-5 py-4 sm:flex-row sm:justify-end">
           <Button
             variant="ghost"
-            className="size-8 shrink-0 px-0"
+            disabled={pending}
             onClick={() => onCloseRef.current()}
-            aria-label="关闭"
           >
-            <X size={17} />
+            {view.cancelLabel}
           </Button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{view.children}</div>
+          <Button
+            variant={view.tone === "danger" ? "danger" : "primary"}
+            className={
+              view.tone === "danger"
+                ? "bg-danger text-on-danger hover:bg-danger/90 hover:text-on-danger"
+                : undefined
+            }
+            disabled={pending}
+            onClick={() => onConfirmRef.current()}
+          >
+            {pending ? "处理中…" : view.confirmLabel}
+          </Button>
+        </div>
       </div>
     </div>,
     document.body,

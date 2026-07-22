@@ -54,7 +54,7 @@ export function SettingControl({
   if (item.valueType === "enum") {
     return (
       <select
-        className="focus-ring h-10 w-full rounded-control border border-subtle bg-surface px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+        className="focus-ring h-8 w-full rounded-control border border-subtle bg-surface px-2.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-50"
         value={String(value)}
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}

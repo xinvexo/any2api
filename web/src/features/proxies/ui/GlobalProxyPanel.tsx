@@ -46,7 +46,7 @@ export function GlobalProxyPanel({
           <div className="mt-2 flex flex-col gap-2 sm:flex-row">
             <select
               id="global-proxy"
-              className="focus-ring h-10 min-w-0 flex-1 rounded-control border border-subtle bg-surface px-3 text-sm"
+              className="focus-ring h-8 min-w-0 flex-1 rounded-control border border-subtle bg-surface px-2.5 text-[12px]"
               value={selected}
               onChange={(event) => setSelected(event.target.value)}
               disabled={pending}

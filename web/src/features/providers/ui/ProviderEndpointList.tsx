@@ -1,142 +1,130 @@
-import { Check, Code2, KeyRound, Pencil, ShieldAlert, Trash2, X } from "lucide-react";
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Plus, RefreshCw, Search } from "lucide-react";
+import { useMemo, useState } from "react";
 
-import type { ProviderEndpoint, ProviderEndpointConfiguration } from "../api/provider-contracts";
+import type {
+  ProviderEndpoint,
+  ProviderEndpointConfiguration,
+} from "../api/provider-contracts";
 import { getProviderErrorMessage } from "../model/provider-error";
+import { ProviderEndpointTableRow } from "./ProviderEndpointTableRow";
 import { Button } from "@/shared/ui/Button";
-import { Surface } from "@/shared/ui/Surface";
 
 interface ProviderEndpointListProps {
   configuration: ProviderEndpointConfiguration;
   pending: boolean;
+  refreshing: boolean;
   actionError: unknown;
+  onCreate: () => void;
+  onRefresh: () => void;
   onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (endpoint: ProviderEndpoint) => void;
 }
 
 export function ProviderEndpointList({
   configuration,
   pending,
+  refreshing,
   actionError,
+  onCreate,
+  onRefresh,
   onEdit,
   onDelete,
 }: ProviderEndpointListProps) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) {
+      return configuration.items;
+    }
+    return configuration.items.filter((endpoint) =>
+      [endpoint.name, endpoint.providerKind, endpoint.baseUrl, endpoint.protocolDialect]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [configuration.items, query]);
+
   return (
-    <Surface className="overflow-hidden">
-      <div className="flex items-center justify-between border-b border-subtle px-5 py-4 sm:px-6">
-        <div>
-          <h2 className="text-base font-semibold">Provider Endpoint</h2>
-          <p className="mt-1 text-sm text-secondary">一个 URL 可以绑定多个独立 API Key</p>
+    <div>
+      <div className="flex flex-col gap-2.5 border-b border-subtle pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
+            aria-hidden="true"
+          />
+          <input
+            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
+            value={query}
+            placeholder="搜索名称、类型或 URL"
+            aria-label="搜索 Provider"
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </div>
-        <span className="text-sm tabular-nums text-tertiary">{configuration.items.length}</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button variant="ghost" disabled={refreshing} onClick={onRefresh}>
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
+            刷新
+          </Button>
+          <Button variant="primary" disabled={pending} onClick={onCreate}>
+            <Plus size={14} />
+            新增
+          </Button>
+        </div>
       </div>
-      {configuration.items.length > 0 ? (
-        <ul className="divide-y divide-subtle">
-          {configuration.items.map((endpoint) => (
-            <EndpointRow
-              key={endpoint.id}
-              endpoint={endpoint}
-              pending={pending}
-              onEdit={onEdit}
-              onDelete={onDelete}
-            />
-          ))}
-        </ul>
+
+      {filtered.length === 0 ? (
+        <div className="flex min-h-48 flex-col items-center justify-center px-4 py-10 text-center">
+          <p className="text-[13px] font-medium">
+            {configuration.items.length === 0 ? "还没有 Provider Endpoint" : "没有匹配的 Endpoint"}
+          </p>
+          <p className="mt-1 text-[12px] text-secondary">
+            {configuration.items.length === 0
+              ? "添加 Codex 或 Claude 上游地址。"
+              : "试试其他关键词。"}
+          </p>
+        </div>
       ) : (
-        <div className="p-7 text-center">
-          <Code2 size={23} className="mx-auto text-tertiary" aria-hidden="true" />
-          <p className="mt-3 text-sm font-medium">还没有 Provider Endpoint</p>
-          <p className="mt-1 text-sm text-secondary">先添加一个 Codex 或 Claude 上游地址。</p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] border-collapse text-left text-[12px]">
+            <thead>
+              <tr className="border-b border-subtle text-[11px] font-medium uppercase tracking-wide text-tertiary">
+                <th className="py-2.5 pr-3 font-medium">名称</th>
+                <th className="px-3 py-2.5 font-medium">类型</th>
+                <th className="px-3 py-2.5 font-medium">Base URL</th>
+                <th className="px-3 py-2.5 font-medium">状态</th>
+                <th className="py-2.5 pl-3 text-right font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((endpoint) => (
+                <ProviderEndpointTableRow
+                  key={endpoint.id}
+                  endpoint={endpoint}
+                  pending={pending}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-subtle py-3 text-[12px] text-secondary">
+        <p>
+          Provider · 配置版本{" "}
+          <span className="font-medium tabular-nums text-primary">{configuration.configRevision}</span>
+          {" · "}
+          共 <span className="tabular-nums">{filtered.length}</span> 条
+        </p>
+      </div>
+
       {actionError ? (
-        <p className="border-t border-subtle px-5 py-3 text-sm text-danger sm:px-6" role="alert">
+        <p className="border-t border-subtle py-3 text-sm text-danger" role="alert">
           {getProviderErrorMessage(actionError)}
         </p>
       ) : null}
-    </Surface>
-  );
-}
-
-function EndpointRow({
-  endpoint,
-  pending,
-  onEdit,
-  onDelete,
-}: {
-  endpoint: ProviderEndpoint;
-  pending: boolean;
-  onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const hasRisk = endpoint.allowInsecureHttp || endpoint.allowPrivateNetwork;
-
-  return (
-    <li className="px-5 py-5 sm:px-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="break-words font-semibold [overflow-wrap:anywhere]">{endpoint.name}</p>
-            <Badge>{endpoint.providerKind.toUpperCase()}</Badge>
-            <Badge>{endpoint.protocolDialect === "openai_responses" ? "RESPONSES" : "MESSAGES"}</Badge>
-            {endpoint.enabled ? (
-              <Badge icon={<Check size={12} />}>启用</Badge>
-            ) : (
-              <Badge icon={<X size={12} />}>已停用</Badge>
-            )}
-            {hasRisk ? <Badge icon={<ShieldAlert size={12} />}>显式网络授权</Badge> : null}
-          </div>
-          <p className="mt-2 break-all text-sm text-secondary">{endpoint.baseUrl}</p>
-          <p className="mt-1 text-xs text-tertiary">
-            {endpoint.allowInsecureHttp ? "允许 HTTP" : "HTTPS 优先"} · {endpoint.allowPrivateNetwork ? "允许内网地址" : "公网地址"}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            className={linkButtonClass}
-            aria-label={`管理 ${endpoint.name} 的 API Key`}
-            to={`/providers/${encodeURIComponent(endpoint.id)}`}
-          >
-            <KeyRound size={15} />
-            API Key
-          </Link>
-          <Button variant="ghost" disabled={pending} aria-label={`编辑 ${endpoint.name}`} onClick={() => onEdit(endpoint.id)}>
-            <Pencil size={15} />
-            编辑
-          </Button>
-          {confirmDelete ? (
-            <>
-              <Button variant="danger" disabled={pending} aria-label={`确认删除 ${endpoint.name}`} onClick={() => onDelete(endpoint.id)}>
-                <Trash2 size={15} />
-                确认删除
-              </Button>
-              <Button variant="ghost" disabled={pending} aria-label={`取消删除 ${endpoint.name}`} onClick={() => setConfirmDelete(false)}>
-                <X size={15} />
-                取消
-              </Button>
-            </>
-          ) : (
-            <Button variant="ghost" disabled={pending} aria-label={`删除 ${endpoint.name}`} onClick={() => setConfirmDelete(true)}>
-              <Trash2 size={15} />
-              删除
-            </Button>
-          )}
-        </div>
-      </div>
-    </li>
-  );
-}
-
-const linkButtonClass =
-  "focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-control px-4 text-sm font-semibold text-secondary transition-colors hover:bg-surface-hover hover:text-primary";
-
-function Badge({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-surface-muted px-2 py-1 text-[11px] font-semibold text-secondary">
-      {icon}
-      {children}
-    </span>
+    </div>
   );
 }

@@ -1,10 +1,16 @@
 import { Save } from "lucide-react";
 import { useEffect, useRef, type FormEvent } from "react";
 
-import type { ProxyProfile, ProxyWriteInput } from "../api/proxy-contracts";
+import type { ProxyProfile } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
-import { useProxyEditor } from "../model/use-proxy-editor";
+import {
+  useProxyEditor,
+  type ProxyEditorSubmit,
+} from "../model/use-proxy-editor";
 import { Button } from "@/shared/ui/Button";
+import { controlClass } from "@/shared/ui/form-control";
+import { Field, FormError } from "@/shared/ui/form-field";
+import { Switch } from "@/shared/ui/Switch";
 
 interface ProxyEditorProps {
   profile?: ProxyProfile;
@@ -12,7 +18,7 @@ interface ProxyEditorProps {
   configRevision: number;
   pending: boolean;
   error: unknown;
-  onSubmit: (input: ProxyWriteInput) => Promise<void>;
+  onSubmit: (submit: ProxyEditorSubmit) => Promise<void>;
   onClose: () => void;
 }
 
@@ -26,43 +32,45 @@ export function ProxyEditor({
   onClose,
 }: ProxyEditorProps) {
   const editor = useProxyEditor(profile);
-  const hasValidationErrors = Object.keys(editor.errors).length > 0;
+  const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
+  const focusInvalidAfterRender = useRef(false);
 
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
 
+  useEffect(() => {
+    if (!focusInvalidAfterRender.current) {
+      return;
+    }
+    focusInvalidAfterRender.current = false;
+    formRef.current?.querySelector<HTMLElement>("[aria-invalid='true']")?.focus();
+  }, [editor.errors]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const input = editor.buildInput(configRevision);
-    if (!input) {
+    const next = editor.buildSubmit(configRevision);
+    if (!next) {
+      focusInvalidAfterRender.current = true;
       return;
     }
     try {
-      await onSubmit(input);
-      onClose();
+      await onSubmit(next);
     } catch {
       // Mutation state renders the structured server error without discarding the draft.
     }
   }
 
   return (
-    <form className="space-y-5" onSubmit={(event) => void submit(event)}>
-      {hasValidationErrors ? (
-        <p className="rounded-[10px] bg-surface-muted px-3 py-2 text-sm text-danger" role="alert">
-          请检查表单中标记的字段。
-        </p>
-      ) : null}
-
+    <form ref={formRef} className="space-y-5" onSubmit={(event) => void submit(event)} noValidate>
       <Field label="名称" error={editor.errors.name} htmlFor="proxy-name">
         <input
           id="proxy-name"
           ref={nameRef}
-          className={inputClass}
+          className={controlClass(Boolean(editor.errors.name))}
           value={editor.draft.name}
           maxLength={100}
-          required
           autoComplete="off"
           aria-invalid={Boolean(editor.errors.name)}
           aria-describedby={editor.errors.name ? "proxy-name-error" : undefined}
@@ -73,24 +81,23 @@ export function ProxyEditor({
       <Field label="类型" htmlFor="proxy-kind">
         <select
           id="proxy-kind"
-          className={inputClass}
+          className={controlClass()}
           value={editor.draft.kind}
           onChange={(event) =>
             editor.update("kind", event.target.value === "socks5" ? "socks5" : "http")
           }
         >
-          <option value="http">HTTP（默认代理端 DNS）</option>
-          <option value="socks5">SOCKS5（默认远端 DNS）</option>
+          <option value="http">HTTP</option>
+          <option value="socks5">SOCKS5</option>
         </select>
       </Field>
 
       <Field label="主机" error={editor.errors.host} htmlFor="proxy-host">
         <input
           id="proxy-host"
-          className={inputClass}
+          className={controlClass(Boolean(editor.errors.host))}
           value={editor.draft.host}
           placeholder="proxy.example.com"
-          required
           autoComplete="off"
           spellCheck={false}
           aria-invalid={Boolean(editor.errors.host)}
@@ -102,43 +109,81 @@ export function ProxyEditor({
       <Field label="端口" error={editor.errors.port} htmlFor="proxy-port">
         <input
           id="proxy-port"
-          className={inputClass}
+          className={controlClass(Boolean(editor.errors.port))}
           value={editor.draft.port}
           inputMode="numeric"
           placeholder="8080"
-          required
           aria-invalid={Boolean(editor.errors.port)}
           aria-describedby={editor.errors.port ? "proxy-port-error" : undefined}
           onChange={(event) => editor.update("port", event.target.value)}
         />
       </Field>
 
-      <div className="flex items-start gap-3 rounded-[10px] bg-surface-muted px-4 py-3">
-        <input
-          id="proxy-enabled"
-          type="checkbox"
-          className="mt-0.5 size-4 accent-accent"
-          checked={editor.draft.enabled}
-          disabled={isGlobal}
-          onChange={(event) => editor.update("enabled", event.target.checked)}
-        />
-        <div>
-          <label htmlFor="proxy-enabled" className="text-sm font-medium">
-            启用此代理
-          </label>
-          <p className="mt-1 text-xs leading-5 text-secondary">
-            {isGlobal
-              ? "当前为全局代理；请先切换全局出口，再停用此代理。"
-              : "停用后不能设为全局，也不会成为 Credential 的可用出口。"}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <p id="proxy-auth-label" className="text-[13px] font-medium">
+            代理认证
           </p>
+          <Switch
+            id="proxy-auth-enabled"
+            checked={editor.draft.authEnabled}
+            aria-labelledby="proxy-auth-label"
+            onCheckedChange={(checked) => {
+              editor.update("authEnabled", checked);
+              if (!checked) {
+                editor.update("username", "");
+                editor.update("password", "");
+              } else if (profile?.passwordConfigured) {
+                editor.update("username", profile.username ?? "");
+              }
+            }}
+          />
         </div>
+
+        {editor.draft.authEnabled ? (
+          <>
+            <Field label="用户名" error={editor.errors.username} htmlFor="proxy-auth-username">
+              <input
+                id="proxy-auth-username"
+                className={controlClass(Boolean(editor.errors.username))}
+                value={editor.draft.username}
+                autoComplete="username"
+                aria-invalid={Boolean(editor.errors.username)}
+                aria-describedby={editor.errors.username ? "proxy-auth-username-error" : undefined}
+                onChange={(event) => editor.update("username", event.target.value)}
+              />
+            </Field>
+            <Field label="密码" error={editor.errors.password} htmlFor="proxy-auth-password">
+              <input
+                id="proxy-auth-password"
+                type="password"
+                className={controlClass(Boolean(editor.errors.password))}
+                value={editor.draft.password}
+                autoComplete="new-password"
+                placeholder={profile?.passwordConfigured ? "留空则保留原密码" : undefined}
+                aria-invalid={Boolean(editor.errors.password)}
+                aria-describedby={editor.errors.password ? "proxy-auth-password-error" : undefined}
+                onChange={(event) => editor.update("password", event.target.value)}
+              />
+            </Field>
+          </>
+        ) : null}
       </div>
 
-      {error ? (
-        <p className="text-sm text-danger" role="alert">
-          {getProxyErrorMessage(error)}
+      <div className="flex items-center justify-between gap-4">
+        <p id="proxy-enabled-label" className="text-[13px] font-medium">
+          启用此代理
         </p>
-      ) : null}
+        <Switch
+          id="proxy-enabled"
+          checked={editor.draft.enabled}
+          disabled={isGlobal}
+          aria-labelledby="proxy-enabled-label"
+          onCheckedChange={(checked) => editor.update("enabled", checked)}
+        />
+      </div>
+
+      <FormError>{error ? getProxyErrorMessage(error) : null}</FormError>
 
       <div className="flex flex-col-reverse gap-2 border-t border-subtle pt-4 sm:flex-row sm:justify-end">
         <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>
@@ -152,32 +197,3 @@ export function ProxyEditor({
     </form>
   );
 }
-
-function Field({
-  label,
-  error,
-  htmlFor,
-  children,
-}: {
-  label: string;
-  error?: string;
-  htmlFor: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label htmlFor={htmlFor} className="text-sm font-medium">
-        {label}
-      </label>
-      <div className="mt-2">{children}</div>
-      {error ? (
-        <p id={`${htmlFor}-error`} className="mt-1.5 text-xs text-danger" role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-const inputClass =
-  "focus-ring h-10 w-full rounded-[10px] border-0 bg-surface-muted px-3 text-sm text-primary disabled:opacity-60";

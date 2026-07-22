@@ -1,4 +1,4 @@
-import { KeyRound, Plus, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -17,6 +17,8 @@ import {
 import { ProviderCredentialList } from "./ProviderCredentialList";
 import { useCredentialProxyOptions } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { SideDrawer } from "@/shared/ui/SideDrawer";
 import { Surface } from "@/shared/ui/Surface";
 
 export function ProviderCredentialManagement({ endpoint }: { endpoint: ProviderEndpoint }) {
@@ -29,44 +31,58 @@ export function ProviderCredentialManagement({ endpoint }: { endpoint: ProviderE
   );
   const [searchParams, setSearchParams] = useSearchParams();
   const [receipt, setReceipt] = useState<{ label: string; apiKey: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ProviderCredential | null>(null);
   const editorId = searchParams.get("credential");
   const action = searchParams.get("action");
   const mode = editorId === "new" ? "create" : action === "rotate" ? "rotate" : "edit";
-  const selected = editorId && editorId !== "new"
-    ? credentials.data?.items.find((credential) => credential.id === editorId)
-    : undefined;
+  const selected =
+    editorId && editorId !== "new"
+      ? credentials.data?.items.find((credential) => credential.id === editorId)
+      : undefined;
 
   function openEditor(id: string, nextAction?: "rotate") {
     mutations.update.reset();
     secretActions.reset();
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      next.set("credential", id);
-      if (nextAction) {
-        next.set("action", nextAction);
-      } else {
-        next.delete("action");
-      }
-      return next;
-    });
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("credential", id);
+        if (nextAction) {
+          next.set("action", nextAction);
+        } else {
+          next.delete("action");
+        }
+        return next;
+      },
+      { replace: true },
+    );
   }
 
-  function closeEditor() {
-    setSearchParams((current) => {
-      const next = new URLSearchParams(current);
-      next.delete("credential");
-      next.delete("action");
-      return next;
-    });
+  function closeEditor(expectedId: string | null = editorId) {
+    mutations.update.reset();
+    secretActions.reset();
+    setSearchParams(
+      (current) => {
+        if (expectedId && current.get("credential") !== expectedId) {
+          return current;
+        }
+        const next = new URLSearchParams(current);
+        next.delete("credential");
+        next.delete("action");
+        return next;
+      },
+      { replace: true },
+    );
   }
 
   if ((credentials.isPending && !credentials.data) || (proxies.isPending && !proxies.data)) {
     return (
-      <Surface className="flex min-h-56 items-center justify-center p-7 text-sm text-secondary" aria-busy="true">
+      <div className="flex min-h-56 items-center justify-center text-sm text-secondary" aria-busy="true">
         正在读取 API Key 配置
-      </Surface>
+      </div>
     );
   }
+
   if (!credentials.data || !proxies.data) {
     return (
       <Surface className="p-6" role="alert">
@@ -78,7 +94,7 @@ export function ProviderCredentialManagement({ endpoint }: { endpoint: ProviderE
           className="mt-5"
           onClick={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
         >
-          <RefreshCw size={15} />
+          <RefreshCw size={14} />
           重试
         </Button>
       </Surface>
@@ -87,11 +103,10 @@ export function ProviderCredentialManagement({ endpoint }: { endpoint: ProviderE
 
   const configuration = credentials.data;
   const pending =
-    credentials.isFetching ||
-    proxies.isFetching ||
     mutations.isPending ||
     secretActions.pending;
   const editorError = mode === "edit" ? mutations.update.error : secretActions.error;
+  const editorOpen = editorId !== null;
 
   async function submit(submission: CredentialEditorSubmission) {
     try {
@@ -104,86 +119,119 @@ export function ProviderCredentialManagement({ endpoint }: { endpoint: ProviderE
         await secretActions.rotate(submission.id, submission.input);
         setReceipt({ label: submission.label, apiKey: submission.input.apiKey });
       }
-      closeEditor();
+      closeEditor(editorId);
     } catch {
       // Keep the local draft mounted after validation or version conflicts.
     }
   }
 
-  function remove(credential: ProviderCredential) {
+  function confirmDelete() {
+    if (!deleteTarget) {
+      return;
+    }
     mutations.remove.reset();
-    mutations.remove.mutate({
-      id: credential.id,
-      expectedRevision: configuration.configRevision,
-      expectedConfigVersion: credential.configVersion,
-    });
+    mutations.remove.mutate(
+      {
+        id: deleteTarget.id,
+        expectedRevision: configuration.configRevision,
+        expectedConfigVersion: deleteTarget.configVersion,
+      },
+      {
+        onSettled: () => setDeleteTarget(null),
+      },
+    );
   }
 
+  const drawerTitle =
+    mode === "create" ? "新增 API Key" : mode === "rotate" ? "轮换 API Key" : "编辑 API Key";
+  const drawerDescription =
+    mode === "rotate" ? "写入新密钥并提升 secret 版本" : "绑定代理与并发限制";
+
   return (
-    <div className="space-y-5" aria-busy={pending}>
+    <div aria-busy={pending || credentials.isFetching || proxies.isFetching}>
       {receipt ? (
-        <CredentialSecretReceipt
-          label={receipt.label}
-          apiKey={receipt.apiKey}
-          onClose={() => setReceipt(null)}
-        />
-      ) : null}
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-secondary">
-          配置版本 <span className="font-medium tabular-nums text-primary">{configuration.configRevision}</span>
-        </p>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button
-            variant="ghost"
-            onClick={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
-            disabled={pending}
-          >
-            <RefreshCw size={15} className={credentials.isFetching ? "animate-spin" : undefined} />
-            刷新
-          </Button>
-          <Button variant="primary" onClick={() => openEditor("new")} disabled={pending}>
-            <Plus size={16} />
-            新增 API Key
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)] lg:items-start">
-        <div className={editorId ? "order-2 lg:order-1" : undefined}>
-          <ProviderCredentialList
-            configuration={configuration}
-            proxies={proxies.data}
-            pending={pending}
-            actionError={mutations.remove.error}
-            onEdit={(id) => openEditor(id)}
-            onRotate={(id) => openEditor(id, "rotate")}
-            onDelete={remove}
-            endpoint={endpoint}
-            testingCredentialId={credentialTest.testingCredentialId}
-            testResults={credentialTest.results}
-            testError={credentialTest.error}
-            onTest={(id) => void credentialTest.test(id)}
+        <div className="mb-4">
+          <CredentialSecretReceipt
+            label={receipt.label}
+            apiKey={receipt.apiKey}
+            onClose={() => setReceipt(null)}
           />
         </div>
-        <div className={editorId ? "order-1 lg:order-2" : undefined}>
-          {editorId ? (
-            <CredentialEditorSlot
-              key={`${editorId}:${mode}`}
-              mode={mode}
-              currentCredential={selected}
-              configRevision={configuration.configRevision}
-              proxies={proxies.data}
-              pending={pending}
-              error={editorError}
-              onSubmit={submit}
-              onClose={closeEditor}
-            />
-          ) : (
-            <EditorPlaceholder />
-          )}
-        </div>
-      </div>
+      ) : null}
+
+      {(credentials.isError || proxies.isError) ? (
+        <Surface
+          className="mb-5 flex flex-col gap-3 border-warning/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+          role="status"
+        >
+          <p className="text-sm text-secondary">
+            配置刷新失败，当前仍显示最近一次有效数据：
+            {getProviderErrorMessage(credentials.error ?? proxies.error)}
+          </p>
+          <Button
+            onClick={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
+            disabled={credentials.isFetching || proxies.isFetching}
+          >
+            重新加载
+          </Button>
+        </Surface>
+      ) : null}
+
+      <ProviderCredentialList
+        configuration={configuration}
+        proxies={proxies.data}
+        pending={pending}
+        refreshing={credentials.isFetching || proxies.isFetching}
+        actionError={mutations.remove.error}
+        endpoint={endpoint}
+        testingCredentialId={credentialTest.testingCredentialId}
+        testResults={credentialTest.results}
+        testError={credentialTest.error}
+        onCreate={() => openEditor("new")}
+        onRefresh={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
+        onEdit={(id) => openEditor(id)}
+        onRotate={(id) => openEditor(id, "rotate")}
+        onDelete={setDeleteTarget}
+        onTest={(id) => void credentialTest.test(id)}
+      />
+
+      <SideDrawer
+        open={editorOpen}
+        title={drawerTitle}
+        description={drawerDescription}
+        onClose={() => closeEditor(editorId)}
+      >
+        {editorId ? (
+          <CredentialEditorSlot
+            key={`${editorId}:${mode}`}
+            mode={mode}
+            currentCredential={selected}
+            configRevision={configuration.configRevision}
+            proxies={proxies.data}
+            pending={pending}
+            error={editorError}
+            onSubmit={submit}
+            onClose={() => closeEditor(editorId)}
+          />
+        ) : null}
+      </SideDrawer>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="删除 API Key"
+        description={
+          deleteTarget ? `确定删除「${deleteTarget.label}」？此操作不可恢复。` : undefined
+        }
+        confirmLabel="删除"
+        tone="danger"
+        pending={mutations.remove.isPending}
+        onConfirm={confirmDelete}
+        onClose={() => {
+          if (!mutations.remove.isPending) {
+            setDeleteTarget(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -208,17 +256,25 @@ function CredentialEditorSlot({
   onClose: () => void;
 }) {
   const [initialCredential] = useState(currentCredential);
+
   if (mode !== "create" && !initialCredential) {
-    return <EditorPlaceholder invalid onClose={onClose} />;
+    return (
+      <div className="space-y-4 text-sm text-secondary">
+        <p>API Key 不存在，该链接可能已经过期。</p>
+        <Button onClick={onClose}>返回列表</Button>
+      </div>
+    );
   }
-  const sourceConflict = mode === "create"
-    ? null
-    : !currentCredential
-      ? "deleted"
-      : currentCredential.configVersion !== initialCredential?.configVersion ||
-          currentCredential.secretVersion !== initialCredential?.secretVersion
-        ? "changed"
-        : null;
+
+  const sourceConflict =
+    mode === "create"
+      ? null
+      : !currentCredential
+        ? "deleted"
+        : currentCredential.configVersion !== initialCredential?.configVersion ||
+            currentCredential.secretVersion !== initialCredential?.secretVersion
+          ? "changed"
+          : null;
 
   return (
     <ProviderCredentialEditor
@@ -232,22 +288,5 @@ function CredentialEditorSlot({
       onSubmit={onSubmit}
       onClose={onClose}
     />
-  );
-}
-
-function EditorPlaceholder({ invalid = false, onClose }: { invalid?: boolean; onClose?: () => void }) {
-  return (
-    <Surface className="flex min-h-52 items-center justify-center p-7 text-center lg:sticky lg:top-24">
-      <div>
-        <KeyRound size={22} className="mx-auto text-tertiary" aria-hidden="true" />
-        <p className="mt-3 text-sm font-medium">
-          {invalid ? "API Key 不存在" : "选择一个 API Key 进行管理"}
-        </p>
-        <p className="mt-1 text-sm text-secondary">
-          {invalid ? "该链接可能已经过期。" : "也可以为这个 Endpoint 添加新的 Key。"}
-        </p>
-        {invalid && onClose ? <Button className="mt-4" onClick={onClose}>返回列表</Button> : null}
-      </div>
-    </Surface>
   );
 }

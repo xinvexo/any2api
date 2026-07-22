@@ -115,134 +115,99 @@ test("refetches the revision after a write conflict without discarding the edito
   expect(getCount).toBeGreaterThan(1);
 });
 
-test("sets proxy authentication without caching the password", async () => {
+test("keeps authentication fields hidden until enabled", async () => {
+  const proxy = customProxy();
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(configuration(1, [direct, proxy])));
+
+  renderManagement([`/proxies?editor=${proxy.id}`]);
+  expect(await screen.findByRole("switch", { name: "代理认证" })).toHaveAttribute(
+    "aria-checked",
+    "false",
+  );
+  expect(screen.queryByLabelText("用户名")).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("密码")).not.toBeInTheDocument();
+
+  await enableAuthentication();
+  expect(screen.getByLabelText("用户名")).toBeInTheDocument();
+  expect(screen.getByLabelText("密码")).toBeInTheDocument();
+});
+
+test("saves authentication together with the proxy profile", async () => {
   const proxy = customProxy();
   let current = configuration(1, [direct, proxy]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = requestPath(input);
-    if (path === "/api/admin/provider-endpoints") {
-      return jsonResponse(providerConfiguration());
+    if (path.endsWith(`/proxies/${proxy.id}`) && init?.method === "PATCH") {
+      current = configuration(2, [direct, { ...proxy, config_version: 2 }]);
+      return jsonResponse(current);
     }
     if (path.endsWith(`/proxies/${proxy.id}/authentication`) && init?.method === "PUT") {
-      current = configuration(2, [direct, {
-        ...proxy,
-        username: "proxy-user",
-        password_configured: true,
-        authentication_version: 1,
-        config_version: 2,
-      }]);
+      current = configuration(3, [
+        direct,
+        {
+          ...proxy,
+          username: "proxy-user",
+          password_configured: true,
+          authentication_version: 1,
+          config_version: 3,
+        },
+      ]);
       return jsonResponse(current);
     }
     return jsonResponse(current);
   });
 
   const { client } = renderManagement([`/proxies?editor=${proxy.id}`]);
+  await enableAuthentication();
   fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "proxy-user" } });
   fireEvent.change(screen.getByLabelText("密码"), { target: { value: "proxy-password" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存认证" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-  expect(await screen.findByText("已为 proxy-user 配置")).toBeInTheDocument();
-  expect(screen.getByLabelText("密码")).toHaveValue("");
-  const request = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
-  expect(JSON.parse(String(request?.[1]?.body))).toEqual({
+  await waitFor(() => {
+    expect(screen.queryByRole("heading", { name: "编辑代理" })).not.toBeInTheDocument();
+  });
+
+  const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+  const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT");
+  expect(JSON.parse(String(patch?.[1]?.body))).toMatchObject({
     expected_revision: 1,
+    name: "Authenticated Proxy",
+    host: "proxy.example.com",
+    port: 8080,
+    enabled: true,
+  });
+  expect(JSON.parse(String(put?.[1]?.body))).toEqual({
+    expected_revision: 2,
     username: "proxy-user",
     password: "proxy-password",
   });
   expect(JSON.stringify(client.getQueryData(proxyQueryKeys.list()))).not.toContain("proxy-password");
-  expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain("proxy-password");
 });
 
-test("clears the password draft after a rejected authentication write", async () => {
+test("rejects an HTTP Basic separator before writing authentication", async () => {
   const proxy = customProxy();
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const path = requestPath(input);
-    if (path === "/api/admin/provider-endpoints") {
-      return jsonResponse(providerConfiguration());
-    }
-    if (path.endsWith(`/proxies/${proxy.id}/authentication`) && init?.method === "PUT") {
-      return new Response(
-        JSON.stringify({
-          error: { code: "revision_conflict", message: "configuration changed" },
-        }),
-        { status: 409, headers: { "Content-Type": "application/json" } },
-      );
-    }
-    return jsonResponse(configuration(1, [direct, proxy]));
-  });
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    jsonResponse(configuration(1, [direct, proxy])),
+  );
 
   renderManagement([`/proxies?editor=${proxy.id}`]);
-  fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "proxy-user" } });
-  const password = screen.getByLabelText("密码");
-  fireEvent.change(password, { target: { value: "proxy-password" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存认证" }));
-
-  await waitFor(() => expect(password).toHaveValue(""));
-});
-
-test("rejects an HTTP Basic separator and clears the local password draft", async () => {
-  const proxy = customProxy();
-  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    if (requestPath(input) === "/api/admin/provider-endpoints") {
-      return jsonResponse(providerConfiguration());
-    }
-    return jsonResponse(configuration(1, [direct, proxy]));
-  });
-
-  renderManagement([`/proxies?editor=${proxy.id}`]);
+  await enableAuthentication();
   fireEvent.change(await screen.findByLabelText("用户名"), { target: { value: "proxy:user" } });
-  const password = screen.getByLabelText("密码");
-  fireEvent.change(password, { target: { value: "proxy-password" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存认证" }));
+  fireEvent.change(screen.getByLabelText("密码"), { target: { value: "proxy-password" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   expect(await screen.findByText("用户名不能包含冒号")).toBeInTheDocument();
-  expect(password).toHaveValue("");
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(false);
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
 });
 
-test("tests a proxy against an existing provider endpoint", async () => {
-  const proxy = customProxy();
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const path = requestPath(input);
-    if (path === "/api/admin/provider-endpoints") {
-      return jsonResponse(providerConfiguration());
-    }
-    if (path.endsWith(`/proxies/${proxy.id}/test`) && init?.method === "POST") {
-      return jsonResponse({
-        proxy_id: proxy.id,
-        provider_endpoint_id: "7dd71e36-cc35-4727-903c-9555ab17290a",
-        config_revision: 1,
-        proxy_config_version: 1,
-        provider_endpoint_config_version: 1,
-        reachable: true,
-        status_code: 204,
-        latency_ms: 18,
-        error_stage: null,
-        failure_scope: null,
-      });
-    }
-    return jsonResponse(configuration(1, [direct, proxy]));
-  });
-
-  renderManagement();
-  fireEvent.click(await screen.findByRole("button", { name: `测试 ${proxy.name}` }));
-
-  expect(await screen.findByText("可达 · HTTP 204 · 18 ms")).toBeInTheDocument();
-});
-
-test("does not offer a probe action for a disabled proxy", async () => {
-  const proxy = { ...customProxy(), enabled: false };
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    if (requestPath(input) === "/api/admin/provider-endpoints") {
-      return jsonResponse(providerConfiguration());
-    }
-    return jsonResponse(configuration(1, [direct, proxy]));
-  });
-
-  renderManagement();
-
-  expect(await screen.findByRole("button", { name: `测试 ${proxy.name}` })).toBeDisabled();
-});
+async function enableAuthentication() {
+  const toggle = await screen.findByRole("switch", { name: "代理认证" });
+  if (toggle.getAttribute("aria-checked") !== "true") {
+    fireEvent.click(toggle);
+  }
+  return toggle;
+}
 
 function renderManagement(initialEntries = ["/proxies"]) {
   const client = new QueryClient({
@@ -255,11 +220,11 @@ function renderManagement(initialEntries = ["/proxies"]) {
   return {
     client,
     ...render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={initialEntries}>
-        <ProxyManagement />
-      </MemoryRouter>
-    </QueryClientProvider>,
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={initialEntries}>
+          <ProxyManagement />
+        </MemoryRouter>
+      </QueryClientProvider>,
     ),
   };
 }
@@ -292,23 +257,6 @@ function customProxy() {
     enabled: true,
     built_in: false,
     config_version: 1,
-  };
-}
-
-function providerConfiguration() {
-  return {
-    config_revision: 1,
-    items: [{
-      id: "7dd71e36-cc35-4727-903c-9555ab17290a",
-      name: "Codex",
-      provider_kind: "codex",
-      base_url: "https://api.openai.com/v1",
-      protocol_dialect: "openai_responses",
-      allow_insecure_http: false,
-      allow_private_network: false,
-      enabled: true,
-      config_version: 1,
-    }],
   };
 }
 

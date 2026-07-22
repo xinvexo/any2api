@@ -7,13 +7,13 @@ import { ProviderManagement } from "./ProviderManagement";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("shows the empty Provider state and network safety policy", async () => {
+test("shows the empty Provider state", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(configuration(1, [])));
 
   renderManagement();
 
   expect(await screen.findByText("还没有 Provider Endpoint")).toBeInTheDocument();
-  expect(screen.getByText(/默认只允许公网 HTTPS/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "新增" })).toBeInTheDocument();
 });
 
 test("creates a Claude private HTTP endpoint with separate authorizations", async () => {
@@ -39,8 +39,8 @@ test("creates a Claude private HTTP endpoint with separate authorizations", asyn
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "本地 Claude" } });
   fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "claude" } });
   fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "http://127.0.0.1:8080" } });
-  fireEvent.click(screen.getByLabelText("允许普通 HTTP"));
-  fireEvent.click(screen.getByLabelText("允许内网地址"));
+  fireEvent.click(screen.getByRole("switch", { name: "允许普通 HTTP" }));
+  fireEvent.click(screen.getByRole("switch", { name: "允许内网地址" }));
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   expect(await screen.findByText("http://127.0.0.1:8080")).toBeInTheDocument();

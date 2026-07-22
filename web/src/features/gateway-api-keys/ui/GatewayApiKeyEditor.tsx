@@ -56,7 +56,7 @@ export function GatewayApiKeyEditor({
           <label className="block text-sm font-medium">
             名称
             <input
-              className="focus-ring mt-2 h-10 w-full rounded-control border border-subtle bg-surface px-3 text-sm"
+              className="focus-ring mt-2 h-8 w-full rounded-control border border-subtle bg-surface px-2.5 text-[12px]"
               value={name}
               onChange={(event) => setName(event.target.value)}
               maxLength={100}

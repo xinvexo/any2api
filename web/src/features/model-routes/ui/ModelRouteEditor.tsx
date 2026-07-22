@@ -92,13 +92,7 @@ export function ModelRouteEditor({
               : "此模型路由已被其他操作修改；草稿仍保留，请关闭后重新打开。"}
           </p>
         ) : null}
-        {editor.errors.publicModel || editor.errors.targets ? (
-          <p className="rounded-control bg-surface-muted px-3 py-2 text-sm text-danger" role="alert">
-            请检查表单中标记的字段。
-          </p>
-        ) : null}
-
-        <Field label="公开模型名" error={editor.errors.publicModel} htmlFor="route-public-model">
+<Field label="公开模型名" error={editor.errors.publicModel} htmlFor="route-public-model">
           <input
             id="route-public-model"
             ref={publicModelRef}
@@ -213,7 +207,7 @@ export function ModelRouteEditor({
         </section>
 
         {error ? (
-          <p className="rounded-control bg-surface-muted px-3 py-2 text-sm text-danger" role="alert">
+          <p className="text-[13px] leading-5 text-danger" role="alert">
             {getModelRouteErrorMessage(error)}
           </p>
         ) : null}
@@ -257,4 +251,4 @@ function readProtocolDialect(value: string): ProtocolDialect {
 }
 
 const inputClass =
-  "focus-ring h-10 w-full rounded-control border border-subtle bg-surface px-3 text-sm text-primary placeholder:text-tertiary disabled:opacity-60";
+  "focus-ring h-8 w-full rounded-control border border-subtle bg-surface px-2.5 text-[12px] text-primary placeholder:text-tertiary disabled:opacity-60";

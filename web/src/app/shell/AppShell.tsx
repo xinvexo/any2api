@@ -158,7 +158,7 @@ export function AppShell() {
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-3 px-2 pb-2 sm:px-3 sm:pb-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 p-2">
           <AdminSecurityBanner />
           <p className="sr-only" aria-live="polite">
             当前页面：{pageTitle}
@@ -169,7 +169,7 @@ export function AppShell() {
             tabIndex={-1}
             className="min-h-0 flex-1 overflow-y-auto rounded-panel bg-surface shadow-panel outline-none"
           >
-            <div className="w-full px-5 py-6 sm:px-7 sm:py-8 lg:px-8 lg:py-9">
+            <div className="w-full p-4">
               <Outlet />
             </div>
           </main>
