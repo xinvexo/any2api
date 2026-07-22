@@ -11,7 +11,7 @@ export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={Activity} label="生成并发" value={`${runtime.totals.inFlight} / ${runtime.totals.maxConcurrency}`} detail={`${load}% 当前占用`} />
-        <Metric icon={ListChecks} label="排队" value={`${runtime.queue.waiting} / ${runtime.queue.maxWaiting}`} detail={runtime.queue.onSaturated === "wait" ? `最多等待 ${formatDuration(runtime.queue.timeoutMs)}` : "满载时立即拒绝"} />
+        <Metric icon={ListChecks} label="排队" value={`${runtime.queue.waiting} / ${runtime.queue.maxWaiting}`} detail={runtime.queue.onSaturated === "wait" ? `最多等待 ${formatDuration(runtime.queue.timeoutSecs)}` : "满载时立即拒绝"} />
         <Metric icon={Clock3} label="固定等待" value={String(runtime.totals.fixedWaiters)} detail="硬粘性与 strict/prefer 固定目标" />
         <Metric icon={Layers3} label="辅助并发" value={`${runtime.auxiliary.inFlight} / ${runtime.auxiliary.maxGlobal}`} detail={`每 Credential 上限 ${runtime.auxiliary.maxPerCredential}`} />
       </div>
@@ -45,6 +45,6 @@ function Metric({ icon: Icon, label, value, detail }: { icon: typeof Activity; l
   );
 }
 
-function formatDuration(milliseconds: number) {
-  return milliseconds >= 1_000 ? `${milliseconds / 1_000} 秒` : `${milliseconds} ms`;
+function formatDuration(seconds: number) {
+  return `${seconds} 秒`;
 }

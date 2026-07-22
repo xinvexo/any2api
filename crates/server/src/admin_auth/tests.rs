@@ -287,11 +287,11 @@ fn session_record_enforces_idle_and_absolute_deadlines() {
         SettingOverrides::from_entries([
             (
                 SettingKey::AdminSessionIdleTimeout,
-                SettingValue::DurationMs(60_000),
+                SettingValue::DurationSecs(60),
             ),
             (
                 SettingKey::AdminSessionAbsoluteTimeout,
-                SettingValue::DurationMs(120_000),
+                SettingValue::DurationSecs(120),
             ),
         ])
         .expect("overrides"),

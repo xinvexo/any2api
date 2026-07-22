@@ -174,7 +174,7 @@ fn session_response(
         auth_cookie::issue(
             issue.token(),
             connection.is_secure(),
-            settings.session_absolute_timeout_ms(),
+            settings.session_absolute_timeout_secs(),
         )?,
     );
     Ok(response)

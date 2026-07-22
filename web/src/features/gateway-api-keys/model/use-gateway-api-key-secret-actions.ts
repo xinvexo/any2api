@@ -45,7 +45,7 @@ export function useGatewayApiKeySecretActions() {
 
   return {
     create: (input: GatewayApiKeyCreateInput) => run(() => createGatewayApiKey(input)),
-    rotate: (id: string, input: GatewayApiKeyRotateInput) =>
+    regenerate: (id: string, input: GatewayApiKeyRotateInput) =>
       run(() => rotateGatewayApiKey(id, input)),
     pending,
     error,

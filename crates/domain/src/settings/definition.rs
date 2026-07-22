@@ -1,9 +1,9 @@
 use super::{SettingKey, SettingValue};
 
-pub const MAX_SETTING_DURATION_MS: u64 = 86_400_000;
+pub const MAX_SETTING_DURATION_SECS: u64 = 86_400;
 pub const MAX_SETTING_COUNT: u64 = 100_000;
 pub const MAX_SETTING_AUXILIARY: u64 = 10_000;
-pub const MAX_AFFINITY_TTL_MS: u64 = 2_592_000_000;
+pub const MAX_AFFINITY_TTL_SECS: u64 = 2_592_000;
 
 pub(super) const fn definition(
     key: SettingKey,
@@ -36,11 +36,11 @@ pub(super) const fn duration_definition(
 ) -> SettingDefinition {
     definition(
         key,
-        SettingValueType::DurationMs,
-        SettingValue::DurationMs(default),
+        SettingValueType::DurationSecs,
+        SettingValue::DurationSecs(default),
         (
-            Some(SettingValue::DurationMs(min)),
-            Some(SettingValue::DurationMs(max)),
+            Some(SettingValue::DurationSecs(min)),
+            Some(SettingValue::DurationSecs(max)),
         ),
         &[],
         (web_group, description),
@@ -51,7 +51,7 @@ pub(super) const fn duration_definition(
 pub enum SettingValueType {
     Boolean,
     Integer,
-    DurationMs,
+    DurationSecs,
     Enum,
 }
 
@@ -60,7 +60,7 @@ impl SettingValueType {
         match self {
             Self::Boolean => "boolean",
             Self::Integer => "integer",
-            Self::DurationMs => "duration_ms",
+            Self::DurationSecs => "duration_secs",
             Self::Enum => "enum",
         }
     }

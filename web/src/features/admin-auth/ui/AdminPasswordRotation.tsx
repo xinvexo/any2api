@@ -4,7 +4,6 @@ import { useState, type FormEvent } from "react";
 import { getAdminAuthErrorMessage } from "../model/admin-auth-error";
 import { useAdminAuth } from "../model/use-admin-auth";
 import { Button } from "@/shared/ui/Button";
-import { Surface } from "@/shared/ui/Surface";
 
 export function AdminPasswordRotation() {
   const auth = useAdminAuth();
@@ -37,21 +36,18 @@ export function AdminPasswordRotation() {
   }
 
   return (
-    <Surface className="overflow-hidden">
-      <div className="border-b border-subtle px-5 py-4">
-        <div className="flex items-center gap-3">
-          <span className="grid size-9 place-items-center rounded-control bg-surface-hover text-secondary">
-            <KeyRound size={17} aria-hidden="true" />
-          </span>
-          <div>
-            <h2 className="font-semibold">管理员密码</h2>
-            <p className="mt-1 text-sm text-secondary">更新后，其他已登录浏览器需要重新登录。</p>
-          </div>
-        </div>
-      </div>
+    <section aria-labelledby="admin-password-heading">
+      <header className="mb-4">
+        <h2 id="admin-password-heading" className="text-[15px] font-semibold tracking-tight">
+          管理员密码
+        </h2>
+        <p className="mt-1 text-[12px] leading-5 text-secondary">
+          更新后，其他已登录浏览器需要重新登录。
+        </p>
+      </header>
 
-      <form className="space-y-5 p-5" onSubmit={(event) => void submit(event)} aria-busy={auth.submitting}>
-        <div className="grid gap-4 lg:grid-cols-3">
+      <form className="space-y-4" onSubmit={(event) => void submit(event)} aria-busy={auth.submitting}>
+        <div className="grid gap-3 sm:grid-cols-3">
           <PasswordInput
             label="当前密码"
             value={currentPassword}
@@ -73,30 +69,30 @@ export function AdminPasswordRotation() {
         </div>
 
         {mismatch ? (
-          <p className="text-sm text-danger" role="alert">
+          <p className="text-[12px] text-danger" role="alert">
             两次输入的新密码不一致。
           </p>
         ) : null}
         {error ? (
-          <p className="text-sm text-danger" role="alert">
+          <p className="text-[12px] text-danger" role="alert">
             {getAdminAuthErrorMessage(error)}
           </p>
         ) : null}
         {completed ? (
-          <p className="flex items-center gap-2 text-sm text-success" role="status">
-            <CheckCircle2 size={16} aria-hidden="true" />
+          <p className="flex items-center gap-2 text-[12px] text-success" role="status">
+            <CheckCircle2 size={14} aria-hidden="true" />
             密码已更新，当前会话已刷新。
           </p>
         ) : null}
 
         <div className="flex justify-end">
           <Button type="submit" variant="primary" disabled={auth.submitting || incomplete || mismatch}>
-            {auth.submitting ? <LoaderCircle size={16} className="animate-spin" /> : <KeyRound size={16} />}
+            {auth.submitting ? <LoaderCircle size={14} className="animate-spin" /> : <KeyRound size={14} />}
             更新密码
           </Button>
         </div>
       </form>
-    </Surface>
+    </section>
   );
 }
 
@@ -112,10 +108,10 @@ function PasswordInput({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="block">
-      <span className="text-sm font-medium">{label}</span>
+    <label className="block min-w-0">
+      <span className="text-[12px] font-medium text-primary">{label}</span>
       <input
-        className="focus-ring mt-2 h-11 w-full rounded-control border border-subtle bg-canvas px-3"
+        className="focus-ring mt-1.5 h-8 w-full rounded-[8px] border-0 bg-surface-muted px-2.5 text-[12px]"
         type="password"
         value={value}
         autoComplete={autoComplete}

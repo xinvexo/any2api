@@ -2,7 +2,7 @@ use crate::settings::{
     SettingDefinition, SettingKey, SettingValue, SettingValueType,
     definition::{definition as setting_definition, duration_definition},
     logging_settings::{
-        MAX_FILE_LOG_RETENTION_MS, MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_MS,
+        MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_SECS,
         MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
     },
 };
@@ -24,9 +24,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::LogsRequestRetention => duration_definition(
             key,
-            2_592_000_000,
-            60_000,
-            MAX_REQUEST_LOG_RETENTION_MS,
+            2_592_000,
+            60,
+            MAX_REQUEST_LOG_RETENTION_SECS,
             "请求日志",
             "RequestLog 与 Attempt 的最长本地保留时间。",
         ),
@@ -48,9 +48,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::LogsFileRetention => duration_definition(
             key,
-            604_800_000,
-            60_000,
-            MAX_FILE_LOG_RETENTION_MS,
+            604_800,
+            60,
+            MAX_FILE_LOG_RETENTION_SECS,
             "本地文件日志",
             "本地 JSONL 日志文件的最长保留时间。",
         ),

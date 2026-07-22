@@ -1,10 +1,8 @@
-import { Globe2 } from "lucide-react";
 import { useState } from "react";
 
 import type { ProxyConfiguration } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
 import { Button } from "@/shared/ui/Button";
-import { Surface } from "@/shared/ui/Surface";
 
 interface GlobalProxyPanelProps {
   configuration: ProxyConfiguration;
@@ -23,57 +21,51 @@ export function GlobalProxyPanel({
   const current = configuration.items.find((item) => item.id === configuration.globalProxyId);
 
   return (
-    <Surface className="overflow-hidden">
-      <div className="grid gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.55fr)] lg:items-end">
-        <div className="flex gap-4">
-          <span className="grid size-11 shrink-0 place-items-center rounded-control bg-surface-muted text-accent-copy">
-            <Globe2 size={20} aria-hidden="true" />
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold">全局代理</p>
-            <p className="mt-1 break-words text-lg font-semibold [overflow-wrap:anywhere]">
-              {current?.name ?? "未知代理"}
-            </p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-secondary">
-              Credential 绑定 DIRECT 时会继承此出口；这里也是 DIRECT 时，最终从本机直连。专属代理失败不会回退到全局代理。
-            </p>
-          </div>
-        </div>
-        <div>
-          <label htmlFor="global-proxy" className="text-sm font-medium">
-            选择全局出口
+    <section aria-labelledby="global-proxy-heading">
+      <header className="mb-4">
+        <h2 id="global-proxy-heading" className="text-[15px] font-semibold tracking-tight">
+          全局代理
+        </h2>
+        <p className="mt-1 max-w-2xl text-[12px] leading-5 text-secondary">
+          Credential 绑定 DIRECT 时会继承此出口；这里也是 DIRECT 时，最终从本机直连。专属代理失败不会回退到全局代理。
+        </p>
+      </header>
+
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <div className="min-w-0">
+          <label htmlFor="global-proxy" className="text-[12px] font-medium">
+            当前出口 · {current?.name ?? "未知代理"}
           </label>
-          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-            <select
-              id="global-proxy"
-              className="focus-ring h-8 min-w-0 flex-1 rounded-control border border-subtle bg-surface px-2.5 text-[12px]"
-              value={selected}
-              onChange={(event) => setSelected(event.target.value)}
-              disabled={pending}
-            >
-              {configuration.items
-                .filter((proxy) => proxy.enabled)
-                .map((proxy) => (
-                  <option key={proxy.id} value={proxy.id}>
-                    {proxy.name} · {proxy.kind.toUpperCase()}
-                  </option>
-                ))}
-            </select>
-            <Button
-              variant="primary"
-              disabled={pending || selected === configuration.globalProxyId}
-              onClick={() => onApply(selected)}
-            >
-              应用
-            </Button>
-          </div>
-          {error ? (
-            <p className="mt-2 text-sm text-danger" role="alert">
-              {getProxyErrorMessage(error)}
-            </p>
-          ) : null}
+          <select
+            id="global-proxy"
+            className="field-select focus-ring mt-1.5 h-8 w-full min-w-0 cursor-pointer appearance-none rounded-[8px] border-0 bg-surface-muted py-0 pl-2.5 pr-8 text-[12px]"
+            value={selected}
+            onChange={(event) => setSelected(event.target.value)}
+            disabled={pending}
+          >
+            {configuration.items
+              .filter((proxy) => proxy.enabled)
+              .map((proxy) => (
+                <option key={proxy.id} value={proxy.id}>
+                  {proxy.name} · {proxy.kind.toUpperCase()}
+                </option>
+              ))}
+          </select>
         </div>
+        <Button
+          variant="primary"
+          disabled={pending || selected === configuration.globalProxyId}
+          onClick={() => onApply(selected)}
+        >
+          应用
+        </Button>
       </div>
-    </Surface>
+
+      {error ? (
+        <p className="mt-3 text-[12px] text-danger" role="alert">
+          {getProxyErrorMessage(error)}
+        </p>
+      ) : null}
+    </section>
   );
 }

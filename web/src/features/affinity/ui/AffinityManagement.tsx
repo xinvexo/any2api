@@ -46,11 +46,7 @@ export function AffinityManagement() {
   return (
     <div className="space-y-5" aria-busy={affinity.isFetching || mutations.isPending}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-secondary">
-          配置版本 <span className="font-medium tabular-nums text-primary">{runtime.configRevision}</span>
-          <span className="mx-2 text-tertiary">·</span>
-          运行态仅保存在当前进程内
-        </p>
+        <p className="text-sm text-secondary">运行态仅保存在当前进程内</p>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Button variant="ghost" onClick={() => void affinity.refetch()} disabled={affinity.isFetching}>
             <RefreshCw size={15} className={affinity.isFetching ? "animate-spin" : undefined} />

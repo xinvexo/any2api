@@ -110,7 +110,7 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
     assert_eq!(body["config_revision"], 4);
     assert_eq!(body["queue"]["waiting"], 0);
     assert_eq!(body["queue"]["max_waiting"], 128);
-    assert_eq!(body["queue"]["timeout_ms"], 30_000);
+    assert_eq!(body["queue"]["timeout_secs"], 30);
     assert_eq!(body["queue"]["on_saturated"], "wait");
     assert_eq!(body["auxiliary"]["max_global"], 32);
     assert_eq!(body["totals"]["in_flight"], 1);

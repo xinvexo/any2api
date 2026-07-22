@@ -73,7 +73,7 @@ impl QueuePolicy {
             .expect("validated maximum waiting requests fits u32");
         Self::new(
             on_saturated,
-            Duration::from_millis(settings.queue_timeout_ms()),
+            Duration::from_secs(settings.queue_timeout_secs()),
             max_waiting_requests,
             settings.fallback_on_saturation(),
         )

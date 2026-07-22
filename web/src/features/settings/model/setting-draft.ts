@@ -30,6 +30,7 @@ export function validateSettingDraft(
       ? { value: draft, error: null }
       : invalid("请选择有效选项");
   }
+
   const text = draft.trim();
   if (text.length === 0) {
     return invalid("请输入数值");

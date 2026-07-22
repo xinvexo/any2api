@@ -7,21 +7,21 @@ test("parses setting metadata and all value types", () => {
     config_revision: 2,
     items: [
       item("scheduler.on_saturated", "enum", "wait", "reject", ["wait", "reject"]),
-      item("scheduler.queue_timeout", "duration_ms", 30_000, null, null, 1, 86_400_000),
+      item("scheduler.queue_timeout", "duration_secs", 30, null, null, 1, 86_400),
       item("scheduler.max_waiting_requests", "integer", 128, null, null, 1, 100_000),
       item("scheduler.fallback_on_saturation", "boolean", false, null, null),
     ],
   });
 
   expect(configuration.configRevision).toBe(2);
-  expect(configuration.items[1]?.valueType).toBe("duration_ms");
+  expect(configuration.items[1]?.valueType).toBe("duration_secs");
   expect(configuration.items[0]?.allowedValues).toEqual(["wait", "reject"]);
 });
 
 test("rejects inconsistent bounds, values, and enum metadata", () => {
   expect(() => parseSettingsConfiguration({
     config_revision: 1,
-    items: [item("scheduler.queue_timeout", "duration_ms", 30_000, null, null, 100, 10)],
+    items: [item("scheduler.queue_timeout", "duration_secs", 30, null, null, 100, 10)],
   })).toThrow("invalid settings response");
 
   expect(() => parseSettingsConfiguration({

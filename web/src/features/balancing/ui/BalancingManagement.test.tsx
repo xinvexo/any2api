@@ -53,7 +53,7 @@ function renderManagement() {
 function runtimeResponse() {
   return {
     config_revision: 3, scheduler_epoch: 8,
-    queue: { waiting: 1, max_waiting: 128, timeout_ms: 30_000, on_saturated: "wait", fallback_on_saturation: false },
+    queue: { waiting: 1, max_waiting: 128, timeout_secs: 30, on_saturated: "wait", fallback_on_saturation: false },
     auxiliary: { in_flight: 1, max_global: 32, max_per_credential: 4 },
     totals: { credential_count: 1, enabled_credential_count: 1, in_flight: 1, max_concurrency: 2, fixed_waiters: 0, auxiliary_in_flight: 1 },
     providers: [{ provider_kind: "codex", credential_count: 1, in_flight: 1, max_concurrency: 2, selected_generation: 4, selected_auxiliary: 1 }],

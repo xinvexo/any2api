@@ -17,12 +17,12 @@ test("labels upstream and postcommit timeout settings", () => {
 function item(key: string): SettingItem {
   return {
     key,
-    valueType: "duration_ms",
+    valueType: "duration_secs",
     defaultValue: 1,
     overrideValue: null,
     effectiveValue: 1,
     minValue: 1,
-    maxValue: 86_400_000,
+    maxValue: 86_400,
     allowedValues: null,
     applyMode: "hot_reload",
     webGroup: "Test",

@@ -11,7 +11,7 @@ const MIB: u64 = 1024 * 1024;
 #[test]
 fn rotates_by_size_and_utc_date() {
     let directory = tempdir().expect("temporary directory");
-    let policy = Arc::new(RwLock::new(test_policy(7 * 86_400_000, MIB)));
+    let policy = Arc::new(RwLock::new(test_policy(7 * 86_400, MIB)));
     let mut writer =
         RotatingFileWriter::new(directory.path().to_path_buf(), policy).expect("rotating writer");
     let now = OffsetDateTime::now_utc();
@@ -29,7 +29,7 @@ fn rotates_by_size_and_utc_date() {
 #[test]
 fn removes_expired_managed_files_but_keeps_active_and_unmanaged_files() {
     let directory = tempdir().expect("temporary directory");
-    let policy = Arc::new(RwLock::new(test_policy(60_000, MIB)));
+    let policy = Arc::new(RwLock::new(test_policy(60, MIB)));
     let mut writer =
         RotatingFileWriter::new(directory.path().to_path_buf(), policy).expect("rotating writer");
     let now = OffsetDateTime::now_utc();
@@ -52,7 +52,7 @@ fn removes_expired_managed_files_but_keeps_active_and_unmanaged_files() {
 #[test]
 fn removes_oldest_closed_segments_until_capacity_fits() {
     let directory = tempdir().expect("temporary directory");
-    let policy = Arc::new(RwLock::new(test_policy(86_400_000, MIB)));
+    let policy = Arc::new(RwLock::new(test_policy(86_400, MIB)));
     let mut writer =
         RotatingFileWriter::new(directory.path().to_path_buf(), policy).expect("rotating writer");
     let first = managed_path(directory.path(), 1);
@@ -88,10 +88,10 @@ fn managed_file_names_require_a_real_calendar_date() {
     assert!(!is_managed_file(Path::new("notes.jsonl")));
 }
 
-fn test_policy(retention_ms: u64, max_total_size: u64) -> FileLogPolicy {
+fn test_policy(retention_secs: u64, max_total_size: u64) -> FileLogPolicy {
     FileLogPolicy {
         revision: ConfigRevision::INITIAL,
-        retention_ms,
+        retention_secs,
         max_total_size,
     }
 }

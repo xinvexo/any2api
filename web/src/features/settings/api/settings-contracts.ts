@@ -1,4 +1,4 @@
-export type SettingValueType = "boolean" | "integer" | "duration_ms" | "enum";
+export type SettingValueType = "boolean" | "integer" | "duration_secs" | "enum";
 export type SettingApplyMode = "hot_reload" | "restart_required";
 export type SettingValue = boolean | number | string;
 
@@ -92,7 +92,7 @@ function readAllowedValues(value: unknown, valueType: SettingValueType) {
 }
 
 function readBound(value: unknown, valueType: SettingValueType) {
-  const numeric = valueType === "integer" || valueType === "duration_ms";
+  const numeric = valueType === "integer" || valueType === "duration_secs";
   if (!numeric) {
     if (value !== null) {
       throw invalidResponse();
@@ -166,7 +166,7 @@ function isSafePositiveInteger(value: unknown): value is number {
 }
 
 function readValueType(value: unknown): SettingValueType {
-  if (value !== "boolean" && value !== "integer" && value !== "duration_ms" && value !== "enum") {
+  if (value !== "boolean" && value !== "integer" && value !== "duration_secs" && value !== "enum") {
     throw invalidResponse();
   }
   return value;

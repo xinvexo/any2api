@@ -2,7 +2,8 @@ import { LogOut, Menu, Network, PanelLeftClose, PanelLeftOpen, X } from "lucide-
 import { useEffect, useId, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
-import { navigationItems } from "@/app/navigation";
+import { getPageTitle } from "@/app/navigation";
+import { AppNavigation } from "@/app/shell/AppNavigation";
 import { ThemeSelector } from "@/app/theme/ThemeSelector";
 import { useThemeMode } from "@/app/theme/useThemeMode";
 import { AdminSecurityBanner, useAdminAuth } from "@/features/admin-auth";
@@ -138,7 +139,7 @@ export function AppShell() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-              <Navigation onNavigate={() => setMobileOpen(false)} />
+              <AppNavigation onNavigate={() => setMobileOpen(false)} />
             </div>
           </aside>
         </div>
@@ -154,7 +155,7 @@ export function AppShell() {
           aria-label="应用侧栏"
         >
           <div className={cn("min-h-0 flex-1 overflow-y-auto pb-4", collapsed ? "px-2" : "px-3")}>
-            <Navigation collapsed={collapsed} />
+            <AppNavigation collapsed={collapsed} />
           </div>
         </aside>
 
@@ -213,53 +214,6 @@ function Brand({ onNavigate }: { onNavigate: () => void }) {
       </span>
       <span className="truncate text-[18px] font-medium tracking-tight sm:text-[20px]">any2api</span>
     </NavLink>
-  );
-}
-
-function Navigation({
-  collapsed = false,
-  onNavigate,
-}: {
-  collapsed?: boolean;
-  onNavigate?: () => void;
-}) {
-  return (
-    <nav aria-label="主导航" className="grid gap-0.5">
-      {navigationItems.map(({ icon: Icon, label, path }) => (
-        <NavLink
-          key={path}
-          to={path}
-          end={path === "/"}
-          title={collapsed ? label : undefined}
-          onClick={onNavigate}
-          className={({ isActive }) =>
-            cn(
-              "focus-ring flex h-9 items-center rounded-[10px] text-[13px] font-medium tracking-tight transition-colors",
-              collapsed ? "justify-center px-0" : "gap-2.5 px-3",
-              "text-secondary hover:bg-surface-hover hover:text-primary",
-              isActive && "bg-nav-active text-nav-active-fg hover:bg-nav-active hover:text-nav-active-fg",
-            )
-          }
-        >
-          {({ isActive }) => (
-            <>
-              <Icon size={16} strokeWidth={isActive ? 2.1 : 1.85} aria-hidden="true" />
-              {collapsed ? <span className="sr-only">{label}</span> : <span>{label}</span>}
-            </>
-          )}
-        </NavLink>
-      ))}
-    </nav>
-  );
-}
-
-function getPageTitle(pathname: string) {
-  return (
-    navigationItems.find(
-      (item) =>
-        item.path === pathname ||
-        (item.path !== "/" && pathname.startsWith(`${item.path}/`)),
-    )?.label ?? "页面不存在"
   );
 }
 

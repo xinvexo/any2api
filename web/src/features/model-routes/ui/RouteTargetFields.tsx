@@ -76,7 +76,7 @@ export function RouteTargetFields({
           errorId={errorIds.endpoint}
         >
           <select
-            className={inputClass}
+            className={selectInputClass}
             value={target.providerEndpointId}
             disabled={pending}
             aria-label={`Provider Endpoint ${position}`}
@@ -176,6 +176,9 @@ function Field({
     </div>
   );
 }
+
+const selectInputClass =
+  "field-select focus-ring h-8 w-full min-w-0 cursor-pointer appearance-none rounded-[8px] border border-subtle bg-surface px-2.5 pr-8 text-[13px] text-primary disabled:opacity-50";
 
 const inputClass =
   "focus-ring h-8 w-full rounded-control border border-subtle bg-surface px-2.5 text-[12px] text-primary placeholder:text-tertiary disabled:opacity-60";

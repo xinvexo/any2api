@@ -1,6 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 
 import type {
   ProviderEndpoint,
@@ -22,10 +22,12 @@ export function ProviderManagement() {
   const endpoints = useProviderEndpoints();
   const mutations = useProviderEndpointMutations();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { kind: routeKind } = useParams<{ kind: string }>();
+  const selectedKind: ProviderKind = isProviderKind(routeKind) ? routeKind : "codex";
   const [deleteTarget, setDeleteTarget] = useState<ProviderEndpoint | null>(null);
   const editorId = searchParams.get("editor");
 
-  function openEditor(id: string, kind?: ProviderKind) {
+  function openEditor(id: string) {
     mutations.create.reset();
     mutations.update.reset();
     setSearchParams(
@@ -35,9 +37,6 @@ export function ProviderManagement() {
         next.delete("credential");
         next.delete("action");
         next.set("editor", id);
-        if (kind) {
-          next.set("kind", kind);
-        }
         return next;
       },
       { replace: true },
@@ -117,8 +116,6 @@ export function ProviderManagement() {
 
   const drawerTitle =
     editorId === "new" ? "新增 Endpoint" : "编辑 Endpoint";
-  const kindParam = searchParams.get("kind");
-  const selectedKind: ProviderKind = isProviderKind(kindParam) ? kindParam : "codex";
   const drawerDescription = "配置上游地址与安全选项";
 
   return (
@@ -142,7 +139,7 @@ export function ProviderManagement() {
         pending={mutations.isPending}
         refreshing={endpoints.isFetching}
         actionError={mutations.remove.error}
-        onCreate={(kind) => openEditor("new", kind)}
+        onCreate={() => openEditor("new")}
         onRefresh={() => void endpoints.refetch()}
         onEdit={openEditor}
         onDelete={setDeleteTarget}

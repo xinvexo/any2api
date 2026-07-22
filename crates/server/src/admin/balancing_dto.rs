@@ -41,7 +41,7 @@ impl BalancingRuntimeResponse {
 struct QueueResponse {
     waiting: u32,
     max_waiting: u32,
-    timeout_ms: u64,
+    timeout_secs: u64,
     on_saturated: &'static str,
     fallback_on_saturation: bool,
 }
@@ -52,7 +52,7 @@ impl From<&BalancingRuntimeSnapshot> for QueueResponse {
         Self {
             waiting: queue.waiting(),
             max_waiting: queue.max_waiting(),
-            timeout_ms: queue.timeout_ms(),
+            timeout_secs: queue.timeout_secs(),
             on_saturated: if queue.rejects_when_saturated() {
                 "reject"
             } else {

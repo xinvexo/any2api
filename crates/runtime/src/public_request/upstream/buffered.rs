@@ -50,7 +50,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let headers = response.headers;
     let body = match collect_body(
         response.body,
-        Duration::from_millis(services.snapshot.settings().upstream().read_timeout_ms()),
+        Duration::from_millis(services.snapshot.settings().upstream().read_timeout_secs()),
         response.read_failure_scope,
     )
     .await

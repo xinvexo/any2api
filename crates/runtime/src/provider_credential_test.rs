@@ -79,7 +79,7 @@ impl ProviderCredentialTestService {
             network_policy: EndpointNetworkPolicy::new(endpoint.allow_private_network())
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
             read_timeout: std::time::Duration::from_millis(
-                snapshot.settings().upstream().read_timeout_ms(),
+                snapshot.settings().upstream().read_timeout_secs(),
             ),
         };
         let captured = CapturedTestConfiguration {

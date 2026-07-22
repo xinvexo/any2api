@@ -25,8 +25,8 @@ impl ShutdownTimeouts {
 
     pub(super) fn from_settings(settings: &ShutdownSettings) -> Self {
         Self {
-            request_grace: Duration::from_millis(settings.request_grace_period_ms()),
-            finalize: Duration::from_millis(settings.finalize_timeout_ms()),
+            request_grace: Duration::from_secs(settings.request_grace_period_secs()),
+            finalize: Duration::from_secs(settings.finalize_timeout_secs()),
         }
     }
 }

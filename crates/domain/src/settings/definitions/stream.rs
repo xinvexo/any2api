@@ -1,6 +1,6 @@
 use crate::settings::{
     SettingDefinition, SettingKey, SettingValue, SettingValueType,
-    definition::{MAX_SETTING_DURATION_MS, definition as setting_definition, duration_definition},
+    definition::{MAX_SETTING_DURATION_SECS, definition as setting_definition, duration_definition},
     stream_settings::MAX_STREAM_PRECOMMIT_BYTES,
 };
 
@@ -16,17 +16,17 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::StreamPrecommitMaxDuration => duration_definition(
             key,
-            5_000,
+            5,
             1,
-            MAX_SETTING_DURATION_MS,
+            MAX_SETTING_DURATION_SECS,
             "流式预提交",
             "等待首个可接受 SSE 事件的最长时间。",
         ),
         SettingKey::StreamPostcommitIdleTimeout => duration_definition(
             key,
-            60_000,
+            60,
             1,
-            MAX_SETTING_DURATION_MS,
+            MAX_SETTING_DURATION_SECS,
             "流式响应",
             "首个事件提交后等待下一个上游 chunk 的最长空闲时间。",
         ),

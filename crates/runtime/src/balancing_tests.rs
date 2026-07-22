@@ -21,7 +21,7 @@ async fn fresh_runtime_snapshot_reports_compiled_queue_and_empty_capacity() {
     assert_eq!(snapshot.scheduler_epoch(), 0);
     assert_eq!(snapshot.queue().waiting(), 0);
     assert_eq!(snapshot.queue().max_waiting(), 128);
-    assert_eq!(snapshot.queue().timeout_ms(), 30_000);
+    assert_eq!(snapshot.queue().timeout_secs(), 30);
     assert!(!snapshot.queue().rejects_when_saturated());
     assert!(!snapshot.queue().fallback_on_saturation());
     assert_eq!(snapshot.auxiliary().in_flight(), 0);

@@ -89,7 +89,7 @@ export function enumOptionLabel(value: string) {
 
 export function formatSettingValue(value: SettingValue | null, type: SettingValueType) {
   if (value === null) {
-    return "未覆盖";
+    return "—";
   }
   if (type === "boolean") {
     return value ? "启用" : "关闭";
@@ -97,12 +97,20 @@ export function formatSettingValue(value: SettingValue | null, type: SettingValu
   if (type === "enum") {
     return enumOptionLabel(String(value));
   }
-  return type === "duration_ms" ? `${value} ms` : String(value);
+  if (type === "duration_secs" && typeof value === "number") {
+    return `${value} 秒`;
+  }
+  return String(value);
+}
+
+/** Placeholder inside numeric inputs — plain default value (seconds for durations). */
+export function formatSettingDefaultPlaceholder(item: SettingItem) {
+  return String(item.defaultValue);
 }
 
 export function reloadLabel(item: SettingItem) {
   if (item.applyMode === "restart_required") {
     return "修改后需要重启";
   }
-  return "保存后立即生效";
+  return null;
 }

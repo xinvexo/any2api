@@ -87,7 +87,7 @@ impl RotatingFileWriter {
         });
 
         let cutoff = SystemTime::from(now)
-            .checked_sub(Duration::from_millis(policy.retention_ms))
+            .checked_sub(Duration::from_secs(policy.retention_secs))
             .unwrap_or(SystemTime::UNIX_EPOCH);
         let mut retained = Vec::with_capacity(files.len());
         for file in files {

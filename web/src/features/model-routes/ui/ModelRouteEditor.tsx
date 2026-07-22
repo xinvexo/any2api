@@ -115,7 +115,7 @@ export function ModelRouteEditor({
           <Field label="入口协议" htmlFor="route-ingress-protocol">
             <select
               id="route-ingress-protocol"
-              className={inputClass}
+              className={selectInputClass}
               value={editor.draft.ingressProtocol}
               disabled={pending || editing}
               onChange={(event) =>
@@ -130,7 +130,7 @@ export function ModelRouteEditor({
           <Field label="主 tier 满载" htmlFor="route-fallback-policy">
             <select
               id="route-fallback-policy"
-              className={inputClass}
+              className={selectInputClass}
               value={editor.draft.fallbackOnSaturation}
               disabled={pending}
               onChange={(event) =>
@@ -249,6 +249,9 @@ function Field({
 function readProtocolDialect(value: string): ProtocolDialect {
   return value === "anthropic_messages" ? "anthropic_messages" : "openai_responses";
 }
+
+const selectInputClass =
+  "field-select focus-ring h-8 w-full min-w-0 cursor-pointer appearance-none rounded-[8px] border border-subtle bg-surface px-2.5 pr-8 text-[13px] text-primary disabled:opacity-50";
 
 const inputClass =
   "focus-ring h-8 w-full rounded-control border border-subtle bg-surface px-2.5 text-[12px] text-primary placeholder:text-tertiary disabled:opacity-60";

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { ProviderManagement } from "./ProviderManagement";
@@ -12,7 +12,7 @@ test("shows the empty Provider state", async () => {
 
   renderManagement();
 
-  expect(await screen.findByText("还没有 Provider Endpoint")).toBeInTheDocument();
+  expect(await screen.findByText("还没有 Codex Endpoint")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "新增" })).toBeInTheDocument();
 });
 
@@ -33,7 +33,9 @@ test("expands endpoint accordion to show nested API keys on the same page", asyn
 
   expect(await screen.findByRole("button", { name: "收起 Codex Primary 的 API Key" })).toHaveAttribute("aria-expanded", "true");
   expect(await screen.findByText("Primary Key")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "测试 Primary Key" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "编辑 Primary Key" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "删除 Primary Key" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "测试 Primary Key" })).not.toBeInTheDocument();
   expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(
     expect.arrayContaining([
       "/api/admin/provider-endpoints",
@@ -66,10 +68,9 @@ test("creates a Claude private HTTP endpoint with separate authorizations", asyn
     },
   );
 
-  renderManagement(["/providers?editor=new"]);
+  renderManagement(["/providers/claude?editor=new"]);
 
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "本地 Claude" } });
-  fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "claude" } });
   fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "http://127.0.0.1:8080" } });
   fireEvent.click(screen.getByRole("switch", { name: "允许普通 HTTP" }));
   fireEvent.click(screen.getByRole("switch", { name: "允许内网地址" }));
@@ -108,13 +109,13 @@ test("refetches after a revision conflict without discarding the endpoint draft"
     },
   );
 
-  renderManagement(["/providers?editor=new"]);
+  renderManagement(["/providers/codex?editor=new"]);
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "保留的 Endpoint 草稿" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-  expect(await screen.findByText("2")).toBeInTheDocument();
   expect(screen.getByDisplayValue("保留的 Endpoint 草稿")).toBeInTheDocument();
+  expect(await screen.findByText(/配置已发生变化/)).toBeInTheDocument();
   expect(getCount).toBeGreaterThan(1);
 });
 
@@ -144,12 +145,11 @@ test("preserves the draft but blocks overwrite when the endpoint version changed
     },
   );
 
-  renderManagement(["/providers?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
+  renderManagement(["/providers/codex?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "Local Draft" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-  expect(await screen.findByText("2")).toBeInTheDocument();
   expect(screen.getByDisplayValue("Local Draft")).toBeInTheDocument();
   expect(await screen.findByText(/已被其他操作修改/)).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
@@ -182,7 +182,7 @@ test("preserves the draft and blocks saving when the endpoint was deleted", asyn
     },
   );
 
-  renderManagement(["/providers?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
+  renderManagement(["/providers/codex?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "Retained Draft" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -192,15 +192,17 @@ test("preserves the draft and blocks saving when the endpoint was deleted", asyn
   expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
 });
 
-function renderManagement(initialEntries = ["/providers"]) {
+function renderManagement(initialEntries = ["/providers/codex"]) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={initialEntries}>
-        <ProviderManagement />
-      </MemoryRouter>
+          <Routes>
+            <Route path="/providers/:kind" element={<ProviderManagement />} />
+          </Routes>
+        </MemoryRouter>
     </QueryClientProvider>,
   );
 }

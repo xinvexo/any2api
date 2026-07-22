@@ -237,7 +237,7 @@
 
 ### Scheduler SettingRegistry 切片
 
-- `SettingDefinition` 集中定义六项 `scheduler.*` 的类型、默认值、范围、枚举值、应用模式、Web 分组和描述；Duration 的持久化/HTTP 单位固定为整数毫秒。
+- `SettingDefinition` 集中定义六项 `scheduler.*` 的类型、默认值、范围、枚举值、应用模式、Web 分组和描述；Duration 的持久化/HTTP 单位固定为整数秒。
 - SQLite `setting_overrides` 只保存用户覆盖值；写入、恢复默认、no-op 和 revision 冲突沿用串行 `ConfigPublisher`。未知 key、损坏 JSON、类型错误和越界覆盖 Fail-Closed，显式覆盖等于默认值仍保留。
 - `PublishedSnapshot` 从已提交 `SettingsConfiguration` 捕获 QueuePolicy；稳定 AuxiliaryScheduler 热更新全局/单 Credential 上限，已有 Permit 不取消，新上限立即生效，发布只推进一次 scheduler epoch。
 - 管理 API：`GET /api/admin/settings`、`PATCH /api/admin/settings/{key}`、`DELETE /api/admin/settings/{key}?expected_revision=N`。

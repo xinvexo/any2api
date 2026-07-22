@@ -8,7 +8,7 @@ import {
   type ProxyEditorSubmit,
 } from "../model/use-proxy-editor";
 import { Button } from "@/shared/ui/Button";
-import { controlClass } from "@/shared/ui/form-control";
+import { controlClass, selectClass } from "@/shared/ui/form-control";
 import { Field, FormError } from "@/shared/ui/form-field";
 import { Switch } from "@/shared/ui/Switch";
 
@@ -81,7 +81,7 @@ export function ProxyEditor({
       <Field label="类型" htmlFor="proxy-kind">
         <select
           id="proxy-kind"
-          className={controlClass()}
+          className={selectClass()}
           value={editor.draft.kind}
           onChange={(event) =>
             editor.update("kind", event.target.value === "socks5" ? "socks5" : "http")

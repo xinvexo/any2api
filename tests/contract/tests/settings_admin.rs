@@ -58,15 +58,15 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(soft_mode["effective_value"], "prefer");
     assert_eq!(soft_mode["allowed_values"], json!(["prefer", "strict"]));
     let hard_ttl = find_setting(&initial, "affinity.hard.ttl");
-    assert_eq!(hard_ttl["default_value"], 86_400_000);
-    assert_eq!(hard_ttl["min_value"], 1_000);
+    assert_eq!(hard_ttl["default_value"], 86_400);
+    assert_eq!(hard_ttl["min_value"], 1);
     let timeout = find_setting(&initial, "scheduler.queue_timeout");
-    assert_eq!(timeout["value_type"], "duration_ms");
-    assert_eq!(timeout["default_value"], 30_000);
+    assert_eq!(timeout["value_type"], "duration_secs");
+    assert_eq!(timeout["default_value"], 30);
     assert_eq!(timeout["override_value"], Value::Null);
-    assert_eq!(timeout["effective_value"], 30_000);
+    assert_eq!(timeout["effective_value"], 30);
     assert_eq!(timeout["min_value"], 1);
-    assert_eq!(timeout["max_value"], 86_400_000);
+    assert_eq!(timeout["max_value"], 86_400);
     assert_eq!(timeout["allowed_values"], Value::Null);
     assert_eq!(timeout["apply_mode"], "hot_reload");
     assert_eq!(timeout["web_group"], "排队策略");
@@ -81,8 +81,8 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(attempts["max_value"], 10);
     assert_eq!(attempts["web_group"], "重试预算");
     let endpoint_window = find_setting(&initial, "breaker.endpoint.failure_window");
-    assert_eq!(endpoint_window["value_type"], "duration_ms");
-    assert_eq!(endpoint_window["default_value"], 30_000);
+    assert_eq!(endpoint_window["value_type"], "duration_secs");
+    assert_eq!(endpoint_window["default_value"], 30);
     let stream_bytes = find_setting(&initial, "stream.precommit.max_bytes");
     assert_eq!(stream_bytes["value_type"], "integer");
     assert_eq!(stream_bytes["default_value"], 256 * 1024);
@@ -95,35 +95,35 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
             .is_some_and(|value| value.contains("每个 SSE 帧"))
     );
     let stream_duration = find_setting(&initial, "stream.precommit.max_duration");
-    assert_eq!(stream_duration["value_type"], "duration_ms");
-    assert_eq!(stream_duration["default_value"], 5_000);
+    assert_eq!(stream_duration["value_type"], "duration_secs");
+    assert_eq!(stream_duration["default_value"], 5);
     assert_eq!(stream_duration["min_value"], 1);
-    assert_eq!(stream_duration["max_value"], 86_400_000);
+    assert_eq!(stream_duration["max_value"], 86_400);
     let read_timeout = find_setting(&initial, "upstream.read_timeout");
-    assert_eq!(read_timeout["value_type"], "duration_ms");
-    assert_eq!(read_timeout["default_value"], 15_000);
+    assert_eq!(read_timeout["value_type"], "duration_secs");
+    assert_eq!(read_timeout["default_value"], 15);
     assert_eq!(read_timeout["min_value"], 1);
-    assert_eq!(read_timeout["max_value"], 86_400_000);
+    assert_eq!(read_timeout["max_value"], 86_400);
     assert_eq!(read_timeout["web_group"], "上游网络");
     let strict_ssrf = find_setting(&initial, "upstream.strict_ssrf");
     assert_eq!(strict_ssrf["value_type"], "boolean");
     assert_eq!(strict_ssrf["default_value"], false);
     assert_eq!(strict_ssrf["effective_value"], false);
     let postcommit_idle = find_setting(&initial, "stream.postcommit.idle_timeout");
-    assert_eq!(postcommit_idle["value_type"], "duration_ms");
-    assert_eq!(postcommit_idle["default_value"], 60_000);
+    assert_eq!(postcommit_idle["value_type"], "duration_secs");
+    assert_eq!(postcommit_idle["default_value"], 60);
     assert_eq!(postcommit_idle["min_value"], 1);
-    assert_eq!(postcommit_idle["max_value"], 86_400_000);
+    assert_eq!(postcommit_idle["max_value"], 86_400);
     assert_eq!(postcommit_idle["web_group"], "流式响应");
     let shutdown_grace = find_setting(&initial, "shutdown.request_grace_period");
-    assert_eq!(shutdown_grace["default_value"], 30_000);
-    assert_eq!(shutdown_grace["min_value"], 1_000);
-    assert_eq!(shutdown_grace["max_value"], 300_000);
+    assert_eq!(shutdown_grace["default_value"], 30);
+    assert_eq!(shutdown_grace["min_value"], 1);
+    assert_eq!(shutdown_grace["max_value"], 300);
     assert_eq!(shutdown_grace["web_group"], "优雅停机");
     let shutdown_finalize = find_setting(&initial, "shutdown.finalize_timeout");
-    assert_eq!(shutdown_finalize["default_value"], 5_000);
-    assert_eq!(shutdown_finalize["min_value"], 1_000);
-    assert_eq!(shutdown_finalize["max_value"], 60_000);
+    assert_eq!(shutdown_finalize["default_value"], 5);
+    assert_eq!(shutdown_finalize["min_value"], 1);
+    assert_eq!(shutdown_finalize["max_value"], 60);
     let file_level = find_setting(&initial, "logs.file.level");
     assert_eq!(file_level["value_type"], "enum");
     assert_eq!(file_level["default_value"], "info");
@@ -133,8 +133,8 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     );
     assert_eq!(file_level["web_group"], "本地文件日志");
     let file_retention = find_setting(&initial, "logs.file.retention");
-    assert_eq!(file_retention["default_value"], 604_800_000);
-    assert_eq!(file_retention["min_value"], 60_000);
+    assert_eq!(file_retention["default_value"], 604_800);
+    assert_eq!(file_retention["min_value"], 60);
     let file_size = find_setting(&initial, "logs.file.max_total_size");
     assert_eq!(file_size["default_value"], 256 * 1024 * 1024);
     assert_eq!(file_size["min_value"], 1024 * 1024);
@@ -232,7 +232,7 @@ async fn shutdown_settings_publish_and_restore_defaults() {
         app.clone(),
         Method::PATCH,
         "/api/admin/settings/shutdown.request_grace_period",
-        Some(json!({ "expected_revision": 1, "value": 45_000 })),
+        Some(json!({ "expected_revision": 1, "value": 45 })),
         loopback,
     )
     .await;
@@ -240,7 +240,7 @@ async fn shutdown_settings_publish_and_restore_defaults() {
     assert_eq!(updated["config_revision"], 2);
     assert_eq!(
         find_setting(&updated, "shutdown.request_grace_period")["effective_value"],
-        45_000
+        45
     );
     assert_eq!(
         storage
@@ -249,8 +249,8 @@ async fn shutdown_settings_publish_and_restore_defaults() {
             .expect("stored settings")
             .settings()
             .shutdown()
-            .request_grace_period_ms(),
-        45_000
+            .request_grace_period_secs(),
+        45
     );
 
     let (status, reset) = request_json(
@@ -265,7 +265,7 @@ async fn shutdown_settings_publish_and_restore_defaults() {
     assert_eq!(reset["config_revision"], 3);
     assert_eq!(
         find_setting(&reset, "shutdown.request_grace_period")["effective_value"],
-        30_000
+        30
     );
 }
 
@@ -292,14 +292,14 @@ async fn file_log_settings_publish_and_restore_defaults() {
         app.clone(),
         Method::PATCH,
         "/api/admin/settings/logs.file.retention",
-        Some(json!({ "expected_revision": 2, "value": 120_000 })),
+        Some(json!({ "expected_revision": 2, "value": 120 })),
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         find_setting(&retention, "logs.file.retention")["effective_value"],
-        120_000
+        120
     );
 
     let (status, size) = request_json(
@@ -321,7 +321,7 @@ async fn file_log_settings_publish_and_restore_defaults() {
         stored.settings().logging().file_level(),
         FileLogLevel::Debug
     );
-    assert_eq!(stored.settings().logging().file_retention_ms(), 120_000);
+    assert_eq!(stored.settings().logging().file_retention_secs(), 120);
     assert_eq!(
         stored.settings().logging().file_max_total_size(),
         2 * 1024 * 1024
@@ -348,7 +348,7 @@ async fn file_log_settings_publish_and_restore_defaults() {
 
     let stored = storage.load_configuration().await.expect("reset settings");
     assert_eq!(stored.settings().logging().file_level(), FileLogLevel::Info);
-    assert_eq!(stored.settings().logging().file_retention_ms(), 604_800_000);
+    assert_eq!(stored.settings().logging().file_retention_secs(), 604_800);
     assert_eq!(
         stored.settings().logging().file_max_total_size(),
         256 * 1024 * 1024

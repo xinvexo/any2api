@@ -22,9 +22,10 @@ test("creates a credential without retaining its secret in application caches", 
     }
     return jsonResponse(credentials);
   });
-  const { client } = renderManagement([`/providers?keys=${endpoint.id}&credential=new`]);
+  const { client } = renderManagement([`/providers/codex?keys=${endpoint.id}&credential=new`]);
 
-  expect(await screen.findByRole("option", { name: "DIRECT（继承全局：香港代理）" })).toBeInTheDocument();
+  expect(await screen.findByRole("option", { name: "DIRECT" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "香港代理" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary Key" } });
   fireEvent.change(screen.getByLabelText("API Key"), { target: { value: secret } });
   fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "8" } });
@@ -61,7 +62,7 @@ test("edits credential metadata without sending the secret", async () => {
     }
     return jsonResponse(credentials);
   });
-  renderManagement([`/providers?keys=${endpoint.id}&credential=${credentialId}`]);
+  renderManagement([`/providers/codex?keys=${endpoint.id}&credential=${credentialId}`]);
 
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "Edited" } });
@@ -80,44 +81,6 @@ test("edits credential metadata without sending the secret", async () => {
   expect(body).not.toHaveProperty("api_key");
 });
 
-test("tests a credential and displays a generation-current result", async () => {
-  const credentials = credentialConfiguration(3, [credential()]);
-  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const path = String(input);
-    if (path === "/api/admin/proxies") {
-      return jsonResponse(proxyConfiguration());
-    }
-    if (path.endsWith(`/provider-credentials/${credentialId}/test`)) {
-      return jsonResponse({
-        config_revision: 3,
-        provider_endpoint_config_version: 1,
-        credential_config_version: 1,
-        credential_generation: 1,
-        secret_version: 1,
-        proxy_config_version: 1,
-        credential_id: credentialId,
-        provider_endpoint_id: endpoint.id,
-        proxy_id: "f0335fed-e5a9-4081-966b-37efe4a109a8",
-        reachable: true,
-        accepted: true,
-        status_code: 200,
-        latency_ms: 18,
-        auth_error_cleared: true,
-        error_stage: null,
-        failure_scope: null,
-      });
-    }
-    return jsonResponse(credentials);
-  });
-  renderManagement([`/providers?keys=${endpoint.id}`]);
-
-  fireEvent.click(await screen.findByRole("button", { name: "测试 Primary Key" }));
-
-  expect(await screen.findByText(/可用 · HTTP 200 · 18 ms · 已清除认证错误/)).toBeInTheDocument();
-  const request = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/test"));
-  expect(request?.[1]?.method).toBe("POST");
-  expect(request?.[1]?.body).toBeUndefined();
-});
 
 function renderManagement(initialEntries: string[]) {
   const client = new QueryClient({

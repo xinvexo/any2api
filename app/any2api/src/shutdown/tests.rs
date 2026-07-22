@@ -117,7 +117,7 @@ async fn signal_captures_the_latest_published_shutdown_settings() {
         .set_setting_override(
             ConfigRevision::INITIAL,
             SettingKey::ShutdownRequestGracePeriod,
-            SettingValue::DurationMs(1_000),
+            SettingValue::DurationSecs(1),
         )
         .await
         .expect("publish shutdown setting");
@@ -173,10 +173,10 @@ async fn finalization_reports_a_blocking_task_that_misses_the_deadline() {
     storage.close().await;
 }
 
-fn test_timeouts(request_grace_ms: u64, finalize_ms: u64) -> ShutdownTimeouts {
+fn test_timeouts(request_grace_secs: u64, finalize_secs: u64) -> ShutdownTimeouts {
     ShutdownTimeouts {
-        request_grace: Duration::from_millis(request_grace_ms),
-        finalize: Duration::from_millis(finalize_ms),
+        request_grace: Duration::from_secs(request_grace_secs),
+        finalize: Duration::from_secs(finalize_secs),
     }
 }
 

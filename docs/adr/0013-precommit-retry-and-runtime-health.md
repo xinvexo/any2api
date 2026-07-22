@@ -32,7 +32,7 @@
 
 ## 设置
 
-统一 SettingRegistry 增加十八项 `retry.*`、`cooldown.*` 与 `breaker.*` 设置。Duration 继续使用整数毫秒；抖动使用 `0..=100` 的整数百分比。所有设置按值编译进 PublishedSnapshot，旧请求不在执行中途读取新 revision。
+统一 SettingRegistry 增加十八项 `retry.*`、`cooldown.*` 与 `breaker.*` 设置。Duration 使用整数秒；抖动使用 `0..=100` 的整数百分比。所有设置按值编译进 PublishedSnapshot，旧请求不在执行中途读取新 revision。
 
 ## 后果
 

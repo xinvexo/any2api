@@ -7,7 +7,7 @@ import { GatewayApiKeyManagement } from "./GatewayApiKeyManagement";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("creates a gateway key without retaining its token in caches or URL", async () => {
+test("creates a gateway key and keeps the plaintext available in the table for this session", async () => {
   const token = `a2k_v1_${"b".repeat(43)}`;
   let configuration: Record<string, unknown> = { config_revision: 1, items: [] };
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
@@ -47,15 +47,142 @@ test("creates a gateway key without retaining its token in caches or URL", async
 
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "Desktop" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  expect(await screen.findByLabelText("本次生成的网关密钥")).toHaveValue(token);
+
+  await waitFor(() => {
+    expect(screen.queryByLabelText("名称")).not.toBeInTheDocument();
+  });
+  expect(await screen.findByText("Desktop")).toBeInTheDocument();
+  expect(screen.queryByLabelText("本次生成的网关密钥")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "关闭密钥回执" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "显示 Desktop 的密钥" }));
+  expect(screen.getByText(token)).toBeInTheDocument();
+
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true);
-  expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(token);
+  expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(
+    token,
+  );
   expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain(token);
   expect(screen.getByTestId("location")).not.toHaveTextContent(token);
+});
 
-  fireEvent.click(screen.getByRole("button", { name: "关闭密钥回执" }));
-  await waitFor(() => expect(screen.queryByLabelText("本次生成的网关密钥")).not.toBeInTheDocument());
-  expect(document.body.innerHTML).not.toContain(token);
+test("renders keys in a table-style list without rotate or prefix columns", async () => {
+  const tokenPrefix = "a2k_v1_prefix____".slice(0, 16);
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    jsonResponse({
+      config_revision: 3,
+      items: [
+        {
+          id: "key-1",
+          name: "Desktop",
+          token_prefix: tokenPrefix,
+          token_version: 1,
+          config_version: 1,
+          enabled: true,
+          revoked_at: null,
+          created_at: "2026-07-19 10:00:00",
+          last_used_at: null,
+        },
+      ],
+    }),
+  );
+
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({
+          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        })
+      }
+    >
+      <MemoryRouter initialEntries={["/keys"]}>
+        <GatewayApiKeyManagement />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+
+  expect(await screen.findByRole("caption", { name: "网关密钥列表" })).toBeInTheDocument();
+  expect(screen.getByText("Desktop")).toBeInTheDocument();
+  expect(screen.getByText("创建后仅展示一次")).toBeInTheDocument();
+  expect(screen.queryByText(`${tokenPrefix}…`)).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /轮换/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /撤销/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "删除 Desktop" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "新增密钥" })).toBeInTheDocument();
+});
+
+test("regenerates the key from the edit drawer and keeps plaintext in the table", async () => {
+  const oldToken = `a2k_v1_${"c".repeat(43)}`;
+  const newToken = `a2k_v1_${"d".repeat(43)}`;
+  let configuration: Record<string, unknown> = {
+    config_revision: 3,
+    items: [
+      {
+        id: "key-1",
+        name: "Desktop",
+        token_prefix: oldToken.slice(0, 16),
+        token_version: 1,
+        config_version: 1,
+        enabled: true,
+        revoked_at: null,
+        created_at: "2026-07-19 10:00:00",
+        last_used_at: null,
+      },
+    ],
+  };
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input);
+    if (init?.method === "POST" && url.includes("/rotate")) {
+      configuration = {
+        config_revision: 4,
+        items: [
+          {
+            id: "key-1",
+            name: "Desktop",
+            token_prefix: newToken.slice(0, 16),
+            token_version: 2,
+            config_version: 1,
+            enabled: true,
+            revoked_at: null,
+            created_at: "2026-07-19 10:00:00",
+            last_used_at: null,
+          },
+        ],
+        token: newToken,
+      };
+      return jsonResponse(configuration);
+    }
+    return jsonResponse(configuration);
+  });
+
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({
+          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        })
+      }
+    >
+      <MemoryRouter initialEntries={["/keys?editor=key-1"]}>
+        <GatewayApiKeyManagement />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+
+  expect(await screen.findByLabelText("名称")).toHaveValue("Desktop");
+  fireEvent.click(screen.getByLabelText("重新生成密钥"));
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => {
+    expect(screen.queryByLabelText("名称")).not.toBeInTheDocument();
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "显示 Desktop 的密钥" }));
+  expect(screen.getByText(newToken)).toBeInTheDocument();
+  expect(
+    fetchMock.mock.calls.some(
+      ([input, init]) => init?.method === "POST" && String(input).includes("/rotate"),
+    ),
+  ).toBe(true);
 });
 
 function LocationProbe() {

@@ -139,7 +139,7 @@ async fn flush_gateway_usage(
 
 async fn prune(repository: &dyn RequestLogRepository, state: &WorkerState) {
     let policy = *state.policy.read().expect("request telemetry policy");
-    let cutoff = unix_time_ms().saturating_sub(policy.retention_ms);
+    let cutoff = unix_time_ms().saturating_sub(policy.retention_secs.saturating_mul(1_000));
     if let Err(error) = repository
         .prune_request_logs(cutoff, policy.max_rows, PRUNE_BATCH_SIZE)
         .await
