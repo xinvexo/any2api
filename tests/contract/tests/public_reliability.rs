@@ -89,6 +89,144 @@ async fn definitely_not_sent_failure_switches_to_another_credential() {
 }
 
 #[tokio::test]
+async fn buffered_response_persists_exact_usage_without_inventing_ttft() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
+        StatusCode::OK,
+        r#"{"id":"usage-json","model":"upstream","output":[],"usage":{"input_tokens":120,"output_tokens":45,"input_tokens_details":{"cached_tokens":30,"cache_write_tokens":6}}}"#,
+    )]));
+    let harness = harness(transport, 1, &["usage-json-model"], &[]).await;
+
+    let response = execute_json(&harness, "usage-json-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.first_token_ms, None);
+    assert_eq!(record.request.input_tokens, Some(120));
+    assert_eq!(record.request.output_tokens, Some(45));
+    assert_eq!(record.request.cache_read_tokens, Some(30));
+    assert_eq!(record.request.cache_write_tokens, Some(6));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn responses_compact_persists_exact_usage_without_ttft() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
+        StatusCode::OK,
+        r#"{"output":[{"type":"compaction","encrypted_content":"opaque"}],"usage":{"input_tokens":70,"output_tokens":5,"input_tokens_details":{"cached_tokens":10,"cache_write_tokens":2}}}"#,
+    )]));
+    let harness = harness(transport, 1, &["compact-usage-model"], &[]).await;
+
+    let response = execute_operation(
+        &harness,
+        ProtocolOperation::ResponsesCompact,
+        "compact-usage-model",
+        json!({"input":[]}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.first_token_ms, None);
+    assert_eq!(record.request.input_tokens, Some(70));
+    assert_eq!(record.request.output_tokens, Some(5));
+    assert_eq!(record.request.cache_read_tokens, Some(10));
+    assert_eq!(record.request.cache_write_tokens, Some(2));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn claude_json_and_sse_persist_exact_cumulative_usage() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"msg-json","model":"upstream","content":[],"usage":{"input_tokens":60,"output_tokens":8,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}}"#,
+        ),
+        ScriptStep::stream(
+            "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-stream\",\"model\":\"upstream\",\"usage\":{\"input_tokens\":55,\"output_tokens\":1,\"cache_read_input_tokens\":11,\"cache_creation_input_tokens\":4}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":9}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+        ),
+    ]));
+    let harness = harness_for_protocol(
+        transport,
+        1,
+        &["claude-usage-model"],
+        &[],
+        ProviderKind::Claude,
+        ProtocolDialect::AnthropicMessages,
+    )
+    .await;
+
+    let json_response = execute_operation(
+        &harness,
+        ProtocolOperation::Messages,
+        "claude-usage-model",
+        json!({"messages":[]}),
+    )
+    .await;
+    assert_eq!(json_response.status(), StatusCode::OK);
+    let json_record = wait_for_log(&harness, json_response.request_id).await;
+    assert_eq!(json_record.request.first_token_ms, None);
+    assert_eq!(json_record.request.input_tokens, Some(60));
+    assert_eq!(json_record.request.output_tokens, Some(8));
+    assert_eq!(json_record.request.cache_read_tokens, Some(12));
+    assert_eq!(json_record.request.cache_write_tokens, Some(3));
+
+    let stream_request_id = RequestId::new();
+    let stream_response = execute_stream_operation(
+        &harness,
+        stream_request_id,
+        ProtocolOperation::Messages,
+        "claude-usage-model",
+        json!({"messages":[]}),
+    )
+    .await;
+    let mut body = streaming_body(stream_response);
+    while let Some(frame) = body.next().await {
+        frame.expect("valid Claude SSE frame");
+    }
+    let stream_record = wait_for_log(&harness, stream_request_id).await;
+    assert!(stream_record.request.first_token_ms.is_some());
+    assert_eq!(stream_record.request.input_tokens, Some(55));
+    assert_eq!(stream_record.request.output_tokens, Some(9));
+    assert_eq!(stream_record.request.cache_read_tokens, Some(11));
+    assert_eq!(stream_record.request.cache_write_tokens, Some(4));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn count_tokens_result_is_not_recorded_as_generation_usage() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
+        StatusCode::OK,
+        r#"{"input_tokens":37,"usage":{"input_tokens":999,"output_tokens":888,"cache_read_input_tokens":777,"cache_creation_input_tokens":666}}"#,
+    )]));
+    let harness = harness_for_protocol(
+        transport,
+        1,
+        &["count-usage-model"],
+        &[],
+        ProviderKind::Claude,
+        ProtocolDialect::AnthropicMessages,
+    )
+    .await;
+
+    let response = execute_operation(
+        &harness,
+        ProtocolOperation::MessagesCountTokens,
+        "count-usage-model",
+        json!({"messages":[]}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.first_token_ms, None);
+    assert_eq!(record.request.input_tokens, None);
+    assert_eq!(record.request.output_tokens, None);
+    assert_eq!(record.request.cache_read_tokens, None);
+    assert_eq!(record.request.cache_write_tokens, None);
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
 async fn ambiguous_transport_failure_is_not_retried() {
     let transport = Arc::new(ScriptedTransport::new([
         ScriptStep::Error(TransportError::new(
@@ -377,9 +515,35 @@ async fn sse_eof_persists_success() {
     assert!(record.request.is_stream);
     assert_eq!(record.request.status_code, 200);
     assert_eq!(record.request.error_class, None);
+    assert_eq!(record.request.first_token_ms, None);
+    assert_eq!(record.request.input_tokens, None);
+    assert_eq!(record.request.output_tokens, None);
     assert_eq!(record.attempts.len(), 1);
     assert_eq!(record.attempts[0].outcome, RequestAttemptOutcome::Success);
     assert_eq!(record.attempts[0].status_code, Some(200));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn sse_persists_client_visible_ttft_and_terminal_usage() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::stream(
+        "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"usage-stream-id\",\"model\":\"upstream\"}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":80,\"output_tokens\":12,\"input_tokens_details\":{\"cached_tokens\":20,\"cache_write_tokens\":4}}}}\n\n",
+    )]));
+    let harness = harness(transport, 1, &["usage-stream-model"], &[]).await;
+    let request_id = RequestId::new();
+    let response = execute_stream(&harness, request_id, "usage-stream-model").await;
+    let mut body = streaming_body(response);
+
+    while let Some(frame) = body.next().await {
+        frame.expect("valid SSE frame");
+    }
+
+    let record = wait_for_log(&harness, request_id).await;
+    assert!(record.request.first_token_ms.is_some());
+    assert_eq!(record.request.input_tokens, Some(80));
+    assert_eq!(record.request.output_tokens, Some(12));
+    assert_eq!(record.request.cache_read_tokens, Some(20));
+    assert_eq!(record.request.cache_write_tokens, Some(4));
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
@@ -406,6 +570,24 @@ async fn sse_client_drop_persists_cancellation_once() {
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
+#[tokio::test]
+async fn primed_content_is_not_ttft_until_the_client_polls_it() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::stream(
+        "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"buffered\"}\n\n",
+    )]));
+    let harness = harness(transport, 1, &["primed-content-model"], &[]).await;
+    let request_id = RequestId::new();
+    let response = execute_stream(&harness, request_id, "primed-content-model").await;
+    let body = streaming_body(response);
+
+    drop(body);
+
+    let record = wait_for_log(&harness, request_id).await;
+    assert_eq!(record.request.first_token_ms, None);
+    assert_eq!(record.request.error_class, Some(ErrorClass::Cancelled));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
 fn failure_step() -> ScriptStep {
     ScriptStep::Error(TransportError::new(
         TransportErrorStage::Tcp,
@@ -427,6 +609,25 @@ async fn harness(
     endpoint_count: usize,
     models: &[&str],
     overrides: &[(SettingKey, SettingValue)],
+) -> Harness {
+    harness_for_protocol(
+        transport,
+        endpoint_count,
+        models,
+        overrides,
+        ProviderKind::Codex,
+        ProtocolDialect::OpenAiResponses,
+    )
+    .await
+}
+
+async fn harness_for_protocol(
+    transport: Arc<ScriptedTransport>,
+    endpoint_count: usize,
+    models: &[&str],
+    overrides: &[(SettingKey, SettingValue)],
+    provider_kind: ProviderKind,
+    protocol_dialect: ProtocolDialect,
 ) -> Harness {
     let directory = tempfile::tempdir().expect("temporary directory");
     let storage = Arc::new(
@@ -470,9 +671,9 @@ async fn harness(
                 endpoint_id,
                 ProviderEndpointDraft::new(
                     format!("Endpoint {index}"),
-                    ProviderKind::Codex,
+                    provider_kind,
                     format!("https://upstream-{index}.example.com/v1"),
-                    ProtocolDialect::OpenAiResponses,
+                    protocol_dialect,
                     false,
                     false,
                     true,
@@ -521,14 +722,8 @@ async fn harness(
             .create_model_route(
                 published.revision(),
                 ModelRouteId::new(),
-                ModelRouteDraft::new(
-                    *model,
-                    ProtocolDialect::OpenAiResponses,
-                    None,
-                    true,
-                    targets,
-                )
-                .expect("route draft"),
+                ModelRouteDraft::new(*model, protocol_dialect, None, true, targets)
+                    .expect("route draft"),
             )
             .await
             .expect("route publish");
@@ -583,6 +778,15 @@ fn default_overrides() -> Vec<(SettingKey, SettingValue)> {
 }
 
 async fn execute_json(harness: &Harness, model: &str, extra: Value) -> TestResponse {
+    execute_operation(harness, ProtocolOperation::Responses, model, extra).await
+}
+
+async fn execute_operation(
+    harness: &Harness,
+    operation: ProtocolOperation,
+    model: &str,
+    extra: Value,
+) -> TestResponse {
     let mut body = extra;
     body["model"] = Value::String(model.to_owned());
     let request_id = RequestId::new();
@@ -593,7 +797,7 @@ async fn execute_json(harness: &Harness, model: &str, extra: Value) -> TestRespo
             PublicRequest {
                 request_id,
                 gateway_api_key_id: GatewayApiKeyId::new(),
-                operation: ProtocolOperation::Responses,
+                operation,
                 headers: HeaderMap::new(),
                 body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
             },
@@ -603,6 +807,26 @@ async fn execute_json(harness: &Harness, model: &str, extra: Value) -> TestRespo
 }
 
 async fn execute_stream(harness: &Harness, request_id: RequestId, model: &str) -> PublicResponse {
+    execute_stream_operation(
+        harness,
+        request_id,
+        ProtocolOperation::Responses,
+        model,
+        json!({"input":"hello"}),
+    )
+    .await
+}
+
+async fn execute_stream_operation(
+    harness: &Harness,
+    request_id: RequestId,
+    operation: ProtocolOperation,
+    model: &str,
+    extra: Value,
+) -> PublicResponse {
+    let mut body = extra;
+    body["model"] = Value::String(model.to_owned());
+    body["stream"] = Value::Bool(true);
     harness
         .service
         .execute(
@@ -610,16 +834,9 @@ async fn execute_stream(harness: &Harness, request_id: RequestId, model: &str) -
             PublicRequest {
                 request_id,
                 gateway_api_key_id: GatewayApiKeyId::new(),
-                operation: ProtocolOperation::Responses,
+                operation,
                 headers: HeaderMap::new(),
-                body: Bytes::from(
-                    serde_json::to_vec(&json!({
-                        "model": model,
-                        "input": "hello",
-                        "stream": true
-                    }))
-                    .expect("stream request JSON"),
-                ),
+                body: Bytes::from(serde_json::to_vec(&body).expect("stream request JSON")),
             },
         )
         .await

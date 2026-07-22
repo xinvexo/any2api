@@ -1,7 +1,7 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components_with_telemetry;
-use any2api_domain::RequestId;
+use any2api_domain::{MAX_TOKEN_COUNT, RequestId};
 use any2api_runtime::api::{
     ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
@@ -25,9 +25,20 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn codex_responses_uses_upstream_path_and_provider_key() {
+    let upstream_body = json!({
+        "id": "resp_1",
+        "model": "gpt-upstream",
+        "output": [],
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": MAX_TOKEN_COUNT,
+            "input_tokens_details": {"cache_write_tokens": 0}
+        }
+    })
+    .to_string();
     let (listener, upstream) = upstream_server_with_headers(
         "/v1/responses",
-        r#"{"id":"resp_1","model":"gpt-upstream","output":[]}"#,
+        &upstream_body,
         &[
             ("Authorization", "Bearer provider-secret"),
             ("X-Api-Key", "provider-secret"),
@@ -111,9 +122,33 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     assert_eq!(logs["request"]["request_id"], request_id.to_string());
     assert_eq!(logs["request"]["credential_id"], credential_id);
     assert_eq!(logs["request"]["attempt_count"], 1);
-    assert_eq!(logs["request"]["input_tokens"], Value::Null);
+    assert_eq!(logs["request"]["first_token_ms"], Value::Null);
+    assert_eq!(logs["request"]["input_tokens"], 0);
+    assert_eq!(logs["request"]["output_tokens"], json!(MAX_TOKEN_COUNT));
+    assert_eq!(logs["request"]["cache_read_tokens"], Value::Null);
+    assert_eq!(logs["request"]["cache_write_tokens"], 0);
     assert_eq!(logs["attempts"][0]["outcome"], "success");
     assert_eq!(logs["attempts"][0]["status_code"], 200);
+
+    let list = request_json(
+        app,
+        Method::GET,
+        "/api/admin/request-logs?limit=10",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(list.status, StatusCode::OK);
+    assert_eq!(list.body["items"][0]["request_id"], request_id.to_string());
+    assert_eq!(list.body["items"][0]["first_token_ms"], Value::Null);
+    assert_eq!(list.body["items"][0]["input_tokens"], 0);
+    assert_eq!(
+        list.body["items"][0]["output_tokens"],
+        json!(MAX_TOKEN_COUNT)
+    );
+    assert_eq!(list.body["items"][0]["cache_read_tokens"], Value::Null);
+    assert_eq!(list.body["items"][0]["cache_write_tokens"], 0);
 }
 
 #[tokio::test]

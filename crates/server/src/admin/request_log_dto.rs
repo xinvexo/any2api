@@ -136,3 +136,49 @@ impl From<RequestAttempt> for RequestAttemptResponse {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::{
+        ConfigRevision, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+    };
+    use any2api_runtime::api::RequestTelemetryMetrics;
+
+    use super::RequestLogListResponse;
+
+    #[test]
+    fn response_preserves_exact_token_telemetry() {
+        let response = RequestLogListResponse::new(
+            vec![RequestLog {
+                request_id: RequestId::new(),
+                started_at_ms: 1,
+                config_revision: ConfigRevision::INITIAL,
+                gateway_api_key_id: None,
+                ingress_protocol: ProtocolDialect::OpenAiResponses,
+                operation: ProtocolOperation::Responses,
+                public_model: Some("codex-local".into()),
+                provider_endpoint_id: None,
+                credential_id: None,
+                proxy_profile_id: None,
+                status_code: 200,
+                error_class: None,
+                attempt_count: 1,
+                latency_ms: 30,
+                first_token_ms: Some(18),
+                input_tokens: Some(120),
+                output_tokens: Some(45),
+                cache_read_tokens: Some(30),
+                cache_write_tokens: Some(6),
+                is_stream: true,
+            }],
+            RequestTelemetryMetrics::default(),
+        );
+
+        let json = serde_json::to_value(response).expect("request log response JSON");
+        assert_eq!(json["items"][0]["first_token_ms"], 18);
+        assert_eq!(json["items"][0]["input_tokens"], 120);
+        assert_eq!(json["items"][0]["output_tokens"], 45);
+        assert_eq!(json["items"][0]["cache_read_tokens"], 30);
+        assert_eq!(json["items"][0]["cache_write_tokens"], 6);
+    }
+}

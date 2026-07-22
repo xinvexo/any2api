@@ -23,6 +23,7 @@ mod retry_safety;
 mod revision;
 mod route_target;
 mod settings;
+mod token_usage;
 mod upstream_error;
 
 pub use credential_concurrency::{MAX_CREDENTIAL_CONCURRENCY, MaxConcurrency, MaxConcurrencyError};
@@ -77,6 +78,7 @@ pub use settings::{
     SettingKey, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
     SettingsValidationError, StreamSettings, UpstreamSettings,
 };
+pub use token_usage::{MAX_TOKEN_COUNT, TokenUsage};
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,
 };

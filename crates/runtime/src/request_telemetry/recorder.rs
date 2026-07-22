@@ -7,9 +7,10 @@ use any2api_domain::{
     CompletedRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId,
     ProtocolOperation, ProviderEndpointId, ProxyProfileId, PublicError, PublicErrorCode,
     RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog, RetrySafety, RouteTargetId,
+    TokenUsage,
 };
 
-use super::{RequestLogPolicy, RequestTelemetry};
+use super::{RequestLogPolicy, RequestObservation, RequestTelemetry};
 use crate::route_candidates::RouteCandidate;
 
 const CANCELLED_STATUS_CODE: u16 = 499;
@@ -37,6 +38,7 @@ struct RequestRecorderState {
     is_stream: bool,
     final_target: Option<FinalTarget>,
     attempts: Vec<RequestAttempt>,
+    observation: RequestObservation,
     finished: bool,
 }
 
@@ -124,6 +126,26 @@ impl RequestRecorder {
         self.finish(status_code, Some(public_error_class(error.code)));
     }
 
+    pub(crate) fn observe_token_usage(&self, usage: TokenUsage) {
+        let Some(inner) = &self.inner else {
+            return;
+        };
+        let mut state = inner.state.lock().expect("request recorder state");
+        if !state.finished {
+            state.observation.observe_token_usage(usage);
+        }
+    }
+
+    pub(crate) fn observe_first_token(&self) {
+        let Some(inner) = &self.inner else {
+            return;
+        };
+        let mut state = inner.state.lock().expect("request recorder state");
+        if !state.finished {
+            state.observation.observe_first_token(inner.started_at);
+        }
+    }
+
     fn push_attempt(&self, attempt: RequestAttempt) {
         let Some(inner) = &self.inner else {
             return;
@@ -144,6 +166,8 @@ impl RequestRecorderInner {
             }
             state.finished = true;
             let final_target = state.final_target;
+            let observation = state.observation;
+            let token_usage = observation.token_usage();
             let attempts = std::mem::take(&mut state.attempts);
             let error_class = final_error_class(&attempts, error_class);
             CompletedRequestLog {
@@ -162,11 +186,11 @@ impl RequestRecorderInner {
                     error_class,
                     attempt_count: u32::try_from(attempts.len()).unwrap_or(u32::MAX),
                     latency_ms: duration_ms(self.started_at.elapsed()),
-                    first_token_ms: None,
-                    input_tokens: None,
-                    output_tokens: None,
-                    cache_read_tokens: None,
-                    cache_write_tokens: None,
+                    first_token_ms: observation.first_token_ms(),
+                    input_tokens: token_usage.input_tokens(),
+                    output_tokens: token_usage.output_tokens(),
+                    cache_read_tokens: token_usage.cache_read_tokens(),
+                    cache_write_tokens: token_usage.cache_write_tokens(),
                     is_stream: state.is_stream,
                 },
                 attempts,
@@ -211,6 +235,10 @@ impl AttemptRecorder {
 
     pub(crate) fn request(&self) -> RequestRecorder {
         self.request.clone()
+    }
+
+    pub(crate) fn observe_token_usage(&self, usage: TokenUsage) {
+        self.request.observe_token_usage(usage);
     }
 
     pub(crate) fn success(&mut self, status_code: u16) {

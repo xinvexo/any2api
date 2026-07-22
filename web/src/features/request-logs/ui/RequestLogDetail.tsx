@@ -106,6 +106,23 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="Credential" value={shortId(request.credentialId)} />
           <Detail label="代理" value={shortId(request.proxyProfileId)} />
         </dl>
+
+        <div className="mt-6 border-t border-subtle pt-5">
+          <h3 className="font-semibold">Token 遥测</h3>
+          <p className="mt-1 text-sm text-secondary">
+            首 Token 延迟由本机在首个内容帧交付时测量；Token 计数仅取上游协议明确返回的字段，非流式请求不估算延迟。
+          </p>
+          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
+            <Detail
+              label="首 Token 延迟（TTFT）"
+              value={formatMetric(request.firstTokenMs, " ms")}
+            />
+            <Detail label="输入 Token" value={formatMetric(request.inputTokens)} />
+            <Detail label="输出 Token" value={formatMetric(request.outputTokens)} />
+            <Detail label="缓存读取" value={formatMetric(request.cacheReadTokens)} />
+            <Detail label="缓存写入" value={formatMetric(request.cacheWriteTokens)} />
+          </dl>
+        </div>
       </Surface>
 
       <Surface className="overflow-hidden">
@@ -158,6 +175,10 @@ function Detail({ label, value }: { label: string; value: string }) {
 
 function shortId(value: string | null) {
   return value ? value.slice(0, 8) + "…" : "未记录";
+}
+
+function formatMetric(value: number | null, suffix = "") {
+  return value === null ? "未记录" : value.toLocaleString() + suffix;
 }
 
 function statusTone(status: number) {

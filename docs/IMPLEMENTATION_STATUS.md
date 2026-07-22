@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、运行态负载均衡观察页、统一浏览器 E2E 基础设施以及管理员凭据维护切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
-- 最近完成：管理员密码在线轮换与数据目录单实例锁已接入；轮换使用 SQLite 摘要 CAS，成功后撤销旧会话并为当前浏览器重签发 Cookie/CSRF，实例锁在打开 SQLite 前取得并随进程释放。
+- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E 基础设施以及管理员凭据维护切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
+- 最近完成：Codex Responses JSON/SSE、Responses Compact JSON 与 Claude Messages JSON/SSE 已按已知协议字段采集输入、输出、缓存读写 Token；流式 TTFT 只在首个非空内容增量真正向客户端交付时记录。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: add balancing runtime inspection`。
-- 本切片主题：管理员密码在线轮换、会话重签发与数据目录单实例锁。
+- 上一切片提交主题：`feat: add administrator password rotation`。
+- 本切片主题：协议级精确首 Token 与 Token Usage 遥测。
 
 ## 已完成
 
@@ -287,7 +287,7 @@
 - SSE 在首帧验证和软绑定提交成功后把记录责任交给 `GuardedBody`；EOF、提交后错误与客户端 Drop 只完成一次，首帧 Transport 错误保留 Network/Proxy 归因与 RetrySafety。
 - 新增管理 API：`GET /api/admin/request-logs`、`GET /api/admin/request-logs/{request_id}`；React `/logs` 与 `/logs/:requestId` 展示最近请求、队列/丢弃指标和 Attempt 时间线。
 - SettingRegistry 新增 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows`、`logs.telemetry_queue_capacity`，Web 可查看默认/覆盖/生效值并恢复默认。
-- 首版没有协议级精确 usage 与内容首 Token 钩子，因此 `first_token_ms` 和各 Token Usage 字段保持 `NULL`；不猜测未知 JSON 字段或把 SSE 控制事件当作首 Token。
+- Codex/Claude 协议级精确 usage 与内容首 Token 钩子已由后续切片接入；上游未返回、终止事件前断开或非流式无法精确计时时，对应字段仍保持 `NULL`而不猜测。
 - 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Credential 切换后的多 Attempt 顺序、Attempt 预算耗尽、SSE EOF/提交后错误/客户端 Drop 的单次持久化、列表与详情成功/空态/错误态、DTO 解析、deep link 和敏感文本不展示。
 - 窄屏布局除超长模型名结构回归外，已由统一 Playwright 套件在真实服务和 390×844 Chromium 中覆盖移动导航、请求日志页面与全局水平溢出。
 
@@ -345,6 +345,17 @@
 - 启动在打开 SQLite 前取得 `<data-dir>/any2api.instance.lock` 独占锁，第二个进程直接启动失败；锁随进程退出释放，不引入跨进程状态同步。
 - Storage、Server、HTTP、Web 与 App 测试覆盖摘要 CAS、错误当前密码、旧会话撤销、当前会话重签发、新密码重启生效、CSRF 和实例锁释放。完整决策见 `docs/adr/0024-admin-password-rotation-and-instance-lock.md`。
 
+### 协议级精确 Token 遥测切片
+
+- Domain 新增强类型 `TokenUsage`，累计快照按字段覆盖而不相加；计数上限固定为 `Number.MAX_SAFE_INTEGER`，保证 SQLite 与 Web JSON 契约均可无损表达。
+- Codex JSON/Compact 从顶层 `usage` 读取输入、输出、缓存读与缓存写；SSE 只从 `response.completed`/`response.incomplete` 的 `response.usage` 读取。
+- Claude JSON 从顶层 `usage` 读取同类计数；SSE 按字段合并 `message_start.message.usage` 与 `message_delta.usage`，不把累计快照相加。
+- 遥测只读取明确字段路径；负数、字符串、浮点或超界值按该字段未知处理，不会改变原始响应透传或使请求失败。
+- `GuardedBody` 使用带内容标记的 PendingFrame；`first_token_ms` 从整个请求开始计时，只在第一个非空文本、reasoning 或工具参数增量真正 yield 时 first-write-wins。控制帧预读不计时，JSON 不伪造 TTFT。
+- `/v1/messages/count_tokens` 的根层 `input_tokens` 仍是辅助结果，不写入生成 usage；客户端 Drop 不为补齐日志继续 drain 上游。
+- React 请求日志详情页新增 TTFT 与四项 Token 计数；`NULL` 显示为“未记录”，与真实 `0` 严格区分。
+- Registry 契约枚举实际注册的 Codex/Claude Adapter；Runtime/SQLite 契约覆盖 Responses、Compact、Messages JSON/SSE 与 Count Tokens 排除，真实管理 HTTP 列表/详情与 Web 测试覆盖非空值、缺失值和真实零值。完整决策见 `docs/adr/0025-protocol-token-telemetry.md`。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
@@ -355,14 +366,17 @@
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
-- 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，但精确首 Token 与 Token Usage 尚未采集。
+- 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
 - 负载均衡运行态 API 与 `/balancing` 页面已完成；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 
 ## 下一步
 
-1. 首个正式版本稳定后，再按独立切片实现可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前 API Key 首版。
-2. 精确首 Token 与 Token Usage 仍待协议级钩子；在能够按 Codex/Claude 契约可靠提取前继续保持 `NULL`，不猜测未知字段。
+1. 完成首版优雅停机：同时处理 Ctrl-C 与 SIGTERM，停止接收新请求，在有限宽限期内等待活动请求/后台 Writer，超时后取消剩余任务；不保存任何运行态。
+2. 将 React dist 收敛为正式发布二进制的内嵌资源，保留开发/测试时显式外部 Web 目录入口，落实“单二进制”部署契约。
+3. 补齐 GatewayApiKey `last_used_at` 节流遥测写入与 ProviderCredential 连通性测试/成功后清除 `auth_error` 操作；两者仍不得形成 Gateway Key 到 Provider Credential 的绑定。
+4. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
+5. 上述 API Key 首版收尾后，再按独立切片实现可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前主链。
 
 ## 验证结果
 
@@ -373,13 +387,14 @@ cargo test --locked --workspace --all-features
 cargo test --locked --doc --workspace
 cargo build --locked --release --workspace
 cargo xtask architecture-check
-cargo deny check
+cargo deny --offline check
 
 cd web
 pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
+pnpm test:e2e
 ```
 
-本切片已通过完整门禁：Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 31 个 Vitest 文件的 79 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约。管理员密码表单已在真实服务的 1440px 与 390×844 页面检查中通过，窄屏无水平溢出且浏览器无 error 日志。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
+本切片已通过完整门禁：Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 31 个 Vitest 文件的 81 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约。Token 遥测的协议解析、Runtime → SQLite、真实管理 HTTP DTO 与 Web 的非空/缺失/真实零值契约均已覆盖。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。

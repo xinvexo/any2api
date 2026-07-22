@@ -3,7 +3,7 @@ use std::time::Instant;
 use any2api_protocol::api::SseFrame;
 use bytes::Bytes;
 
-use super::{GuardedBody, pending_failure::PendingStreamError};
+use super::{GuardedBody, PendingFrame, pending_failure::PendingStreamError};
 use crate::affinity::AffinityError;
 
 impl GuardedBody {
@@ -85,6 +85,7 @@ impl GuardedBody {
             .adapter
             .decode_upstream_event(frame)
             .map_err(|_| PendingStreamError::invalid_response("upstream SSE event was invalid"))?;
+        let telemetry = event.telemetry();
         let hard_id = self
             .adapter
             .hard_affinity_id_from_event(self.hard_affinity.operation(), &event)
@@ -115,7 +116,12 @@ impl GuardedBody {
         } else if check_deadline && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(PendingStreamError::timeout());
         }
-        self.pending.push_back(frame.0);
+        self.request_recorder
+            .observe_token_usage(telemetry.token_usage);
+        self.pending.push_back(PendingFrame {
+            bytes: frame.0,
+            has_content_delta: telemetry.has_content_delta,
+        });
         self.precommit_budget.commit();
         Ok(())
     }

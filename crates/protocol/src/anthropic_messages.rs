@@ -13,6 +13,8 @@ use crate::{
     sse::rewrite_known_model,
 };
 
+mod telemetry;
+
 #[derive(Debug, Default)]
 pub struct AnthropicMessagesAdapter;
 
@@ -58,12 +60,14 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         Ok(DecodedUpstreamResponse {
             status: response.status,
             headers: response.headers,
+            telemetry: telemetry::response(&response.body),
             payload: AdapterPayload::RawJson(response.body),
         })
     }
 
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
-        Ok(AdapterEvent(frame.0))
+        let telemetry = telemetry::event(&frame.0);
+        Ok(AdapterEvent::new(frame.0, telemetry))
     }
 
     fn encode_egress_response(
@@ -83,7 +87,7 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         event: AdapterEvent,
         public_model: &str,
     ) -> Result<SseFrame, ProtocolError> {
-        rewrite_known_model(SseFrame(event.0), public_model)
+        rewrite_known_model(SseFrame(event.into_bytes()), public_model)
     }
 
     fn error_response(&self, error: &PublicError) -> EgressResponse {

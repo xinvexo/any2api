@@ -30,7 +30,11 @@ describe("request log contracts", () => {
       telemetry: telemetry(),
     });
     expect(detail.attempts[0]?.outcome).toBe("success");
-    expect(detail.request.inputTokens).toBeNull();
+    expect(detail.request.firstTokenMs).toBe(18);
+    expect(detail.request.inputTokens).toBe(120);
+    expect(detail.request.outputTokens).toBe(45);
+    expect(detail.request.cacheReadTokens).toBe(30);
+    expect(detail.request.cacheWriteTokens).toBe(6);
   });
 
   it("rejects unknown outcomes and invalid status codes", () => {
@@ -62,6 +66,15 @@ describe("request log contracts", () => {
       }),
     ).toThrow("invalid request log response");
   });
+
+  it("accepts the largest lossless token count", () => {
+    const list = parseRequestLogList({
+      items: [{ ...request(), input_tokens: Number.MAX_SAFE_INTEGER }],
+      telemetry: telemetry(),
+    });
+
+    expect(list.items[0]?.inputTokens).toBe(Number.MAX_SAFE_INTEGER);
+  });
 });
 
 function request() {
@@ -80,12 +93,12 @@ function request() {
     error_class: null,
     attempt_count: 1,
     latency_ms: 30,
-    first_token_ms: null,
-    input_tokens: null,
-    output_tokens: null,
-    cache_read_tokens: null,
-    cache_write_tokens: null,
-    is_stream: false,
+    first_token_ms: 18,
+    input_tokens: 120,
+    output_tokens: 45,
+    cache_read_tokens: 30,
+    cache_write_tokens: 6,
+    is_stream: true,
   };
 }
 

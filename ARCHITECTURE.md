@@ -2055,9 +2055,15 @@ runtime_retired
 - 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；
 - SSE 只有在首帧验证与软绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
 - SQLite Writer 小批量事务写入父子记录，并按 retention/max_rows 任一上限分批清理；历史记录不参与启动恢复；
-- 首版没有协议级精确 usage/内容首 Token 钩子，因此 `first_token_ms`、输入/输出与缓存 Token 暂存 `NULL`，禁止用首个 SSE 控制事件或未知 JSON 字段猜测。
+- ProtocolAdapter 在已知 Codex/Claude 响应字段上生成无协议知识的 `TokenUsage` 旁路元数据；Runtime 只合并已解析元数据，禁止在调度器中按 Provider 分支搜索 JSON；
+- Codex JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`input_tokens_details.cached_tokens` 与 `input_tokens_details.cache_write_tokens`；SSE 只从 `response.completed`/`response.incomplete` 的 `response.usage` 读取相同字段；
+- Claude JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`cache_read_input_tokens` 与 `cache_creation_input_tokens`；SSE 使用 `message_start.message.usage` 与 `message_delta.usage` 的累计快照，按字段覆盖而不相加；
+- Token 字段只接受 `0..=9_007_199_254_740_991`（JavaScript `Number.MAX_SAFE_INTEGER`）的 JSON 整数，同时保证 SQLite INTEGER 与 Web 管理契约可无损表达；缺失、`null`、负数、浮点、字符串或超界值均保持未知，不得因遥测字段异常中断代理响应；
+- `first_token_ms` 从请求进入 Runtime 时开始计时，只在第一个非空模型内容 delta 真正从 GuardedBody 向下游 yield 时 first-write-wins；`response.created`、`message_start`、ping、done 与其他控制帧不计入；
+- 非流式 JSON 无法提供精确内容首 Token 时间，`first_token_ms` 保持 `NULL`；`/v1/messages/count_tokens` 是辅助操作，Runtime 必须按 `ProtocolOperation` 强制忽略根层 `input_tokens` 与兼容上游可能夹带的任何 `usage`，不写入生成请求 Token Usage；
+- 日志关闭、字段缺失或客户端在终止 usage 事件前断开时允许对应字段保持 `NULL`；不为补齐日志继续 drain 上游。
 
-完整决策见 `docs/adr/0015-bounded-request-telemetry.md`。
+有界写入决策见 `docs/adr/0015-bounded-request-telemetry.md`，精确 Token 遥测契约见 `docs/adr/0025-protocol-token-telemetry.md`。
 
 ## 19. React 管理界面
 

@@ -86,6 +86,29 @@ fn find_event_end(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
+pub(crate) fn json_event(bytes: &[u8]) -> Result<Option<(Option<String>, Value)>, ProtocolError> {
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| ProtocolError::InvalidPayload("SSE frame is not valid UTF-8".into()))?;
+    let normalized = text.replace("\r\n", "\n");
+    let event = normalized
+        .lines()
+        .find_map(|line| line.strip_prefix("event:"))
+        .map(str::trim)
+        .map(str::to_owned);
+    let data = normalized
+        .lines()
+        .filter_map(|line| line.strip_prefix("data:"))
+        .map(str::trim_start)
+        .collect::<Vec<_>>()
+        .join("\n");
+    if data.is_empty() || data.trim() == "[DONE]" {
+        return Ok(None);
+    }
+    let value = serde_json::from_str(&data)
+        .map_err(|_| ProtocolError::InvalidPayload("SSE data is not valid JSON".into()))?;
+    Ok(Some((event, value)))
+}
+
 pub(crate) fn rewrite_known_model(
     frame: SseFrame,
     public_model: &str,

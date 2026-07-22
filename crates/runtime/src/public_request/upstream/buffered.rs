@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use any2api_domain::PublicErrorCode;
+use any2api_domain::{ProtocolOperation, PublicErrorCode};
 use any2api_protocol::api::{DecodedRequest, EgressResponse, ProtocolAdapter, UpstreamResponse};
 
 use super::super::{
@@ -84,6 +84,9 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             )));
         }
     };
+    if prepared.operation != ProtocolOperation::MessagesCountTokens {
+        prepared.observe_token_usage(decoded.telemetry.token_usage);
+    }
     let hard_id = adapter
         .hard_affinity_id_from_response(prepared.operation, &decoded)
         .map_err(|_| {

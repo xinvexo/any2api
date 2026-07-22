@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
-    ErrorClass, ProtocolOperation, PublicError, PublicErrorCode, UpstreamErrorClassification,
+    ErrorClass, ProtocolOperation, PublicError, PublicErrorCode, TokenUsage,
+    UpstreamErrorClassification,
 };
 use any2api_protocol::api::{DecodedRequest, ProtocolAdapter};
 use any2api_provider::api::{ProviderDriver, ProviderRegistry, UpstreamResponseMeta};
@@ -107,6 +108,12 @@ impl PreparedAttempt<'_> {
             recorder.success(status_code);
         }
         self.permit.take();
+    }
+
+    pub(super) fn observe_token_usage(&self, usage: TokenUsage) {
+        if let Some(recorder) = &self.attempt_recorder {
+            recorder.observe_token_usage(usage);
+        }
     }
 
     pub(super) fn fail_after_upstream_success(

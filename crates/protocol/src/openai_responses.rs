@@ -10,8 +10,10 @@ use crate::{
         EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse,
     },
     json_codec,
-    sse::rewrite_known_model,
+    sse::{json_event, rewrite_known_model},
 };
+
+mod telemetry;
 
 #[derive(Debug, Default)]
 pub struct OpenAiResponsesAdapter;
@@ -58,12 +60,14 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         Ok(DecodedUpstreamResponse {
             status: response.status,
             headers: response.headers,
+            telemetry: telemetry::response(&response.body),
             payload: AdapterPayload::RawJson(response.body),
         })
     }
 
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
-        Ok(AdapterEvent(frame.0))
+        let telemetry = telemetry::event(&frame.0);
+        Ok(AdapterEvent::new(frame.0, telemetry))
     }
 
     fn encode_egress_response(
@@ -83,7 +87,7 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         event: AdapterEvent,
         public_model: &str,
     ) -> Result<SseFrame, ProtocolError> {
-        rewrite_known_model(SseFrame(event.0), public_model)
+        rewrite_known_model(SseFrame(event.into_bytes()), public_model)
     }
 
     fn hard_affinity_id_from_response(
@@ -109,7 +113,7 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         if operation != ProtocolOperation::Responses {
             return Ok(None);
         }
-        let Some((event_name, value)) = sse_json_event(&event.0)? else {
+        let Some((event_name, value)) = json_event(event.bytes())? else {
             return Ok(None);
         };
         let is_created = event_name.as_deref() == Some("response.created")
@@ -163,29 +167,6 @@ fn optional_non_empty_id(
         )));
     }
     Ok(Some(value.to_owned()))
-}
-
-fn sse_json_event(bytes: &[u8]) -> Result<Option<(Option<String>, Value)>, ProtocolError> {
-    let text = std::str::from_utf8(bytes)
-        .map_err(|_| ProtocolError::InvalidPayload("SSE frame is not valid UTF-8".into()))?;
-    let normalized = text.replace("\r\n", "\n");
-    let event = normalized
-        .lines()
-        .find_map(|line| line.strip_prefix("event:"))
-        .map(str::trim)
-        .map(str::to_owned);
-    let data = normalized
-        .lines()
-        .filter_map(|line| line.strip_prefix("data:"))
-        .map(str::trim_start)
-        .collect::<Vec<_>>()
-        .join("\n");
-    if data.is_empty() || data.trim() == "[DONE]" {
-        return Ok(None);
-    }
-    let value = serde_json::from_str(&data)
-        .map_err(|_| ProtocolError::InvalidPayload("SSE data is not valid JSON".into()))?;
-    Ok(Some((event, value)))
 }
 
 fn error_type(code: PublicErrorCode) -> &'static str {
@@ -375,6 +356,7 @@ mod tests {
             payload: AdapterPayload::RawJson(Bytes::from_static(
                 br#"{"id":"resp_json","object":"response"}"#,
             )),
+            telemetry: Default::default(),
         };
 
         assert_eq!(
@@ -394,9 +376,12 @@ mod tests {
     #[test]
     fn extracts_hard_affinity_from_response_created_sse() {
         let adapter = OpenAiResponsesAdapter::new();
-        let event = AdapterEvent(Bytes::from_static(
-            b"event: response.created\r\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_sse\"}}\r\n\r\n",
-        ));
+        let event = AdapterEvent::new(
+            Bytes::from_static(
+                b"event: response.created\r\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_sse\"}}\r\n\r\n",
+            ),
+            Default::default(),
+        );
 
         assert_eq!(
             adapter

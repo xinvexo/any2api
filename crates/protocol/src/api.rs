@@ -1,6 +1,6 @@
 use std::fmt;
 
-use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError};
+use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, TokenUsage};
 use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode, Uri};
 
@@ -58,6 +58,7 @@ pub struct DecodedUpstreamResponse {
     pub status: StatusCode,
     pub headers: HeaderMap,
     pub payload: AdapterPayload,
+    pub telemetry: ProtocolResponseTelemetry,
 }
 
 #[derive(Clone)]
@@ -71,7 +72,43 @@ pub struct EgressResponse {
 pub struct SseFrame(pub Bytes);
 
 #[derive(Clone, Eq, PartialEq)]
-pub struct AdapterEvent(pub Bytes);
+pub struct AdapterEvent {
+    bytes: Bytes,
+    telemetry: ProtocolEventTelemetry,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProtocolResponseTelemetry {
+    pub token_usage: TokenUsage,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ProtocolEventTelemetry {
+    pub token_usage: TokenUsage,
+    pub has_content_delta: bool,
+}
+
+impl AdapterEvent {
+    #[must_use]
+    pub fn new(bytes: Bytes, telemetry: ProtocolEventTelemetry) -> Self {
+        Self { bytes, telemetry }
+    }
+
+    #[must_use]
+    pub fn bytes(&self) -> &Bytes {
+        &self.bytes
+    }
+
+    #[must_use]
+    pub const fn telemetry(&self) -> ProtocolEventTelemetry {
+        self.telemetry
+    }
+
+    #[must_use]
+    pub fn into_bytes(self) -> Bytes {
+        self.bytes
+    }
+}
 
 impl fmt::Debug for SseFrame {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -86,7 +123,7 @@ impl fmt::Debug for AdapterEvent {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("AdapterEvent")
-            .field("bytes", &self.0.len())
+            .field("bytes", &self.bytes.len())
             .finish()
     }
 }

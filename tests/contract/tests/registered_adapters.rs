@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
+    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TokenUsage,
     TransportMode,
 };
-use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame};
+use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
 use any2api_provider::api::{ProviderDriver, ProviderSecret, UpstreamResponseMeta};
 use axum::http::{
     HeaderMap, Method, StatusCode, Uri,
@@ -110,6 +110,35 @@ fn responses_contract(adapter: &dyn ProtocolAdapter) {
         adapter,
         b"event: response.created\ndata: {\"response\":{\"model\":\"upstream-model\"}}\n\n",
     );
+
+    let response = adapter
+        .decode_upstream_response(UpstreamResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(
+                br#"{"usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}"#,
+            ),
+        })
+        .expect("Responses telemetry decodes");
+    assert_eq!(
+        response.telemetry.token_usage,
+        TokenUsage::new(Some(12), Some(7), Some(3), Some(2))
+    );
+    let content = adapter
+        .decode_upstream_event(SseFrame(Bytes::from_static(
+            b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n",
+        )))
+        .expect("Responses content event decodes");
+    assert!(content.telemetry().has_content_delta);
+    let terminal = adapter
+        .decode_upstream_event(SseFrame(Bytes::from_static(
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":12,\"output_tokens\":7}}}\n\n",
+        )))
+        .expect("Responses terminal event decodes");
+    assert_eq!(
+        terminal.telemetry().token_usage,
+        TokenUsage::new(Some(12), Some(7), None, None)
+    );
 }
 
 fn messages_contract(adapter: &dyn ProtocolAdapter) {
@@ -177,6 +206,43 @@ fn messages_contract(adapter: &dyn ProtocolAdapter) {
     let body: Value = serde_json::from_slice(&count_tokens.body).expect("encoded JSON");
     assert_eq!(body["model"], "upstream-model");
     assert_eq!(body["future_count_field"], true);
+
+    let response = adapter
+        .decode_upstream_response(UpstreamResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(
+                br#"{"usage":{"input_tokens":20,"output_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3}}"#,
+            ),
+        })
+        .expect("Messages telemetry decodes");
+    assert_eq!(
+        response.telemetry.token_usage,
+        TokenUsage::new(Some(20), Some(9), Some(4), Some(3))
+    );
+    let start = adapter
+        .decode_upstream_event(SseFrame(Bytes::from_static(
+            b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":20,\"output_tokens\":1}}}\n\n",
+        )))
+        .expect("Messages start event decodes");
+    assert_eq!(
+        start.telemetry().token_usage,
+        TokenUsage::new(Some(20), Some(1), None, None)
+    );
+    let content = adapter
+        .decode_upstream_event(SseFrame(Bytes::from_static(
+            b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n",
+        )))
+        .expect("Messages content event decodes");
+    assert!(content.telemetry().has_content_delta);
+    let count_response = adapter
+        .decode_upstream_response(UpstreamResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(br#"{"input_tokens":37}"#),
+        })
+        .expect("Count Tokens response decodes");
+    assert_eq!(count_response.telemetry.token_usage, TokenUsage::default());
 }
 
 fn ingress_request(operation: ProtocolOperation, uri: &'static str, body: Value) -> IngressRequest {

@@ -7,6 +7,7 @@ mod json_codec;
 mod openai_responses;
 mod registry;
 mod sse;
+mod telemetry;
 
 pub use anthropic_messages::AnthropicMessagesAdapter;
 pub use error::ProtocolError;

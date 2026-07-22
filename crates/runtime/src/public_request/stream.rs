@@ -67,7 +67,7 @@ pub(super) struct GuardedBody {
     adapter: Arc<dyn ProtocolAdapter>,
     public_model: String,
     buffered_chunk: Option<Bytes>,
-    pending: VecDeque<Bytes>,
+    pending: VecDeque<PendingFrame>,
     pending_error: Option<PendingStreamError>,
     permit: Option<RequestPermit>,
     health: Option<AttemptHealth>,
@@ -84,6 +84,11 @@ pub(super) struct GuardedBody {
     precommit_deadline: Option<Instant>,
     postcommit_idle_timeout: Duration,
     idle_timer: Option<Pin<Box<Sleep>>>,
+}
+
+pub(super) struct PendingFrame {
+    bytes: Bytes,
+    has_content_delta: bool,
 }
 
 impl GuardedBody {
@@ -198,10 +203,13 @@ impl Stream for GuardedBody {
             if this.state == CommitState::Finished {
                 return Poll::Ready(None);
             }
-            if let Some(bytes) = this.pending.pop_front() {
+            if let Some(frame) = this.pending.pop_front() {
                 this.state = CommitState::TransportCommitted;
                 this.start_idle_timer();
-                return Poll::Ready(Some(Ok(bytes)));
+                if frame.has_content_delta {
+                    this.request_recorder.observe_first_token();
+                }
+                return Poll::Ready(Some(Ok(frame.bytes)));
             }
             if let Some(error) = this.pending_error.take() {
                 this.finish(StreamOutcome::Error(error.kind.error_class()));

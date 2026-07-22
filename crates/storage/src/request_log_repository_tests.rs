@@ -1,7 +1,7 @@
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, CredentialId, GatewayApiKeyId, ProtocolDialect,
-    ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestAttempt, RequestAttemptOutcome,
-    RequestId, RequestLog, RetrySafety, RouteTargetId,
+    CompletedRequestLog, ConfigRevision, CredentialId, GatewayApiKeyId, MAX_TOKEN_COUNT,
+    ProtocolDialect, ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestAttempt,
+    RequestAttemptOutcome, RequestId, RequestLog, RetrySafety, RouteTargetId,
 };
 use tempfile::tempdir;
 
@@ -40,6 +40,43 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     assert_eq!(loaded.attempts[0].attempt_no, 1);
     assert_eq!(loaded.attempts[0].route_target_id, None);
     assert_eq!(loaded.attempts[0].outcome, RequestAttemptOutcome::Success);
+    assert_eq!(loaded.request.first_token_ms, Some(12));
+    assert_eq!(loaded.request.input_tokens, Some(120));
+    assert_eq!(loaded.request.output_tokens, Some(45));
+    assert_eq!(loaded.request.cache_read_tokens, Some(30));
+    assert_eq!(loaded.request.cache_write_tokens, Some(6));
+}
+
+#[tokio::test]
+async fn request_log_round_trip_preserves_null_zero_and_max_safe_telemetry() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("telemetry-boundaries.sqlite3"))
+        .await
+        .expect("storage");
+    let request_id = RequestId::new();
+    let mut record = record(request_id, 1_000, false);
+    record.request.first_token_ms = None;
+    record.request.input_tokens = Some(0);
+    record.request.output_tokens = Some(MAX_TOKEN_COUNT);
+    record.request.cache_read_tokens = None;
+    record.request.cache_write_tokens = Some(0);
+
+    store
+        .append_request_logs(std::slice::from_ref(&record))
+        .await
+        .expect("append request log");
+
+    let loaded = store
+        .get_request_log(request_id)
+        .await
+        .expect("get log")
+        .expect("stored log")
+        .request;
+    assert_eq!(loaded.first_token_ms, None);
+    assert_eq!(loaded.input_tokens, Some(0));
+    assert_eq!(loaded.output_tokens, Some(MAX_TOKEN_COUNT));
+    assert_eq!(loaded.cache_read_tokens, None);
+    assert_eq!(loaded.cache_write_tokens, Some(0));
 }
 
 #[tokio::test]
@@ -122,12 +159,12 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             error_class: None,
             attempt_count: u32::from(with_attempt),
             latency_ms: 30,
-            first_token_ms: None,
-            input_tokens: None,
-            output_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-            is_stream: false,
+            first_token_ms: Some(12),
+            input_tokens: Some(120),
+            output_tokens: Some(45),
+            cache_read_tokens: Some(30),
+            cache_write_tokens: Some(6),
+            is_stream: true,
         },
         attempts,
     }

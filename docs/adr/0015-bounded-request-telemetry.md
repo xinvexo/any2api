@@ -19,7 +19,7 @@
 - SQLite 使用 `request_logs` 与 `request_attempts` 两张表。配置实体删除后历史外键使用 `ON DELETE SET NULL`，RequestLog 删除时 Attempt 使用 `ON DELETE CASCADE`。
 - 首个管理查询提供最近 RequestLog 列表与单条详情/Attempt 时间线。Web 使用真实 `/logs` 与 `/logs/:requestId` deep link，不把 Prompt、请求体或响应体放入缓存或 DOM。
 - 首个切片注册 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows` 与 `logs.telemetry_queue_capacity`。策略按 PublishedSnapshot revision 进入请求，旧长流不会在结束时混用新 revision。
-- `first_token_ms` 与 Token Usage 在没有协议级精确提取钩子前保存为 `NULL`。不得把首个 SSE 控制事件猜成首 Token，也不得解析未知 JSON 字段推测 usage。
+- `first_token_ms` 与 Token Usage 在没有协议级精确提取钩子前保存为 `NULL`。不得把首个 SSE 控制事件猜成首 Token，也不得解析未知 JSON 字段推测 usage。该临时边界后由 ADR-0025 的协议级精确钩子取代，本 ADR 的有界写入与生命周期决策保持不变。
 - RequestLog 与本地文件日志保持两条独立的有界写入链，但 `logs.request.*` 与已经实现的 `logs.file.*` 共同接入同一 SettingRegistry，不建立第二套配置来源。
 
 ## 后果

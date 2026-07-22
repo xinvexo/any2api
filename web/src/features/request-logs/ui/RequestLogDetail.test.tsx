@@ -22,6 +22,11 @@ test("loads a deep-linked request and renders attempts in order", async () => {
 
   expect(await screen.findByText("transport_error")).toBeInTheDocument();
   expect(screen.getByText("success")).toBeInTheDocument();
+  expect(screen.getByText("18 ms")).toBeInTheDocument();
+  expect(screen.getByText("120")).toBeInTheDocument();
+  expect(screen.getByText("45")).toBeInTheDocument();
+  expect(screen.getByText("30")).toBeInTheDocument();
+  expect(screen.getByText("6")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`/api/admin/request-logs/${requestId}`);
 });
@@ -32,6 +37,24 @@ test("renders an attempt empty state", async () => {
   renderDetail();
 
   expect(await screen.findByText("没有可展示的 Attempt")).toBeInTheDocument();
+});
+
+test("keeps unavailable token telemetry distinct from real zero values", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    detailResponse([], {
+      first_token_ms: 0,
+      input_tokens: 0,
+      output_tokens: null,
+      cache_read_tokens: null,
+      cache_write_tokens: null,
+    }),
+  );
+
+  renderDetail();
+
+  expect(await screen.findByText("0 ms")).toBeInTheDocument();
+  expect(screen.getByText("0")).toBeInTheDocument();
+  expect(screen.getAllByText("未记录")).toHaveLength(3);
 });
 
 test("renders a terminal not-found state without a retry action", async () => {
@@ -82,10 +105,13 @@ function renderWithQuery(children: React.ReactNode) {
   return render(<QueryClientProvider client={client}>{children}</QueryClientProvider>);
 }
 
-function detailResponse(attempts: ReturnType<typeof attempt>[]) {
+function detailResponse(
+  attempts: ReturnType<typeof attempt>[],
+  requestOverrides: Record<string, unknown> = {},
+) {
   return new Response(
     JSON.stringify({
-      request: request(),
+      request: request(requestOverrides),
       attempts,
       telemetry: { queued_records: 0, dropped_records: 0, persisted_records: 1 },
     }),
@@ -100,7 +126,7 @@ function errorResponse(status: number, code: string, message: string) {
   });
 }
 
-function request() {
+function request(overrides: Record<string, unknown> = {}) {
   return {
     request_id: requestId,
     started_at_ms: 1_700_000_000_000,
@@ -116,12 +142,13 @@ function request() {
     error_class: null,
     attempt_count: 2,
     latency_ms: 30,
-    first_token_ms: null,
-    input_tokens: null,
-    output_tokens: null,
-    cache_read_tokens: null,
-    cache_write_tokens: null,
-    is_stream: false,
+    first_token_ms: 18,
+    input_tokens: 120,
+    output_tokens: 45,
+    cache_read_tokens: 30,
+    cache_write_tokens: 6,
+    is_stream: true,
+    ...overrides,
   };
 }
 
