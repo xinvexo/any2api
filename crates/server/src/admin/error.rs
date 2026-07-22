@@ -138,6 +138,14 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn shutting_down() -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "server_shutting_down",
+            "service is shutting down",
+        )
+    }
+
     pub(crate) fn setup_loopback_only() -> Self {
         Self::new(
             StatusCode::FORBIDDEN,

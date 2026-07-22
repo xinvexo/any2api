@@ -35,12 +35,20 @@ export function SystemOverview() {
         </div>
       </Surface>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="配置版本" value={health.data?.config_revision ?? "-"} />
         <Metric label="调度 Epoch" value={health.data?.scheduler_epoch ?? "-"} />
+        <Metric label="进程阶段" value={phaseLabel(health.data?.shutdown_phase)} />
+        <Metric label="活动 / 后台任务" value={health.data ? `${health.data.active_requests} / ${health.data.background_tasks}` : "-"} />
       </div>
     </div>
   );
+}
+
+function phaseLabel(phase: "running" | "draining" | "forced" | undefined) {
+  if (phase === "draining") return "正在排空";
+  if (phase === "forced") return "强制收尾";
+  return phase === "running" ? "运行中" : "-";
 }
 
 function Metric({ label, value }: { label: string; value: number | string }) {

@@ -6,6 +6,11 @@ use super::error::AdminApiError;
 impl From<ConfigPublishError> for AdminApiError {
     fn from(error: ConfigPublishError) -> Self {
         match error {
+            ConfigPublishError::ShuttingDown => AdminApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "server_shutting_down",
+                "service is shutting down",
+            ),
             ConfigPublishError::RevisionConflict { .. } => AdminApiError::new(
                 StatusCode::CONFLICT,
                 "revision_conflict",

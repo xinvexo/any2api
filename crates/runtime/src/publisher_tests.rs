@@ -101,6 +101,7 @@ async fn settings_publish_updates_request_telemetry_policy() {
         Arc::clone(&context.repository),
         initial.revision(),
         initial.settings().logging(),
+        &context.runtime.lifecycle(),
     ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&context.repository),

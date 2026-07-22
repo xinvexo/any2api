@@ -636,12 +636,13 @@ async fn harness_for_protocol(
             .expect("storage"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
+    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         configuration.revision(),
         configuration.settings().logging(),
+        &runtime.lifecycle(),
     ));
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),

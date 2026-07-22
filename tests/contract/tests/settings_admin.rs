@@ -47,7 +47,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(47));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(49));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
@@ -115,6 +115,15 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(postcommit_idle["min_value"], 1);
     assert_eq!(postcommit_idle["max_value"], 86_400_000);
     assert_eq!(postcommit_idle["web_group"], "流式响应");
+    let shutdown_grace = find_setting(&initial, "shutdown.request_grace_period");
+    assert_eq!(shutdown_grace["default_value"], 30_000);
+    assert_eq!(shutdown_grace["min_value"], 1_000);
+    assert_eq!(shutdown_grace["max_value"], 300_000);
+    assert_eq!(shutdown_grace["web_group"], "优雅停机");
+    let shutdown_finalize = find_setting(&initial, "shutdown.finalize_timeout");
+    assert_eq!(shutdown_finalize["default_value"], 5_000);
+    assert_eq!(shutdown_finalize["min_value"], 1_000);
+    assert_eq!(shutdown_finalize["max_value"], 60_000);
     let file_level = find_setting(&initial, "logs.file.level");
     assert_eq!(file_level["value_type"], "enum");
     assert_eq!(file_level["default_value"], "info");
@@ -211,6 +220,52 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
             .settings()
             .override_value(SettingKey::SchedulerOnSaturated),
         None
+    );
+}
+
+#[tokio::test]
+async fn shutdown_settings_publish_and_restore_defaults() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, updated) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/shutdown.request_grace_period",
+        Some(json!({ "expected_revision": 1, "value": 45_000 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["config_revision"], 2);
+    assert_eq!(
+        find_setting(&updated, "shutdown.request_grace_period")["effective_value"],
+        45_000
+    );
+    assert_eq!(
+        storage
+            .load_configuration()
+            .await
+            .expect("stored settings")
+            .settings()
+            .shutdown()
+            .request_grace_period_ms(),
+        45_000
+    );
+
+    let (status, reset) = request_json(
+        app,
+        Method::DELETE,
+        "/api/admin/settings/shutdown.request_grace_period?expected_revision=2",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reset["config_revision"], 3);
+    assert_eq!(
+        find_setting(&reset, "shutdown.request_grace_period")["effective_value"],
+        30_000
     );
 }
 

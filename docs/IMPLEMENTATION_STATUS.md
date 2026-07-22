@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E 基础设施以及管理员凭据维护切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
-- 最近完成：Codex Responses JSON/SSE、Responses Compact JSON 与 Claude Messages JSON/SSE 已按已知协议字段采集输入、输出、缓存读写 Token；流式 TTFT 只在首个非空内容增量真正向客户端交付时记录。
+- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E、管理员凭据维护与有界优雅停机切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
+- 最近完成：进程支持 Ctrl-C 与 Unix SIGTERM 有界排空；信号时捕获最新停机设置，强制阶段统一取消 HTTP/后台任务，Argon2 blocking task 被真实追踪，SQLite、文件日志、Tokio Runtime 与实例锁按明确顺序收尾。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: add administrator password rotation`。
-- 本切片主题：协议级精确首 Token 与 Token Usage 遥测。
+- 上一切片提交主题：`feat: record protocol token telemetry`。
+- 本切片主题：有界优雅停机与进程资源生命周期。
 
 ## 已完成
 
@@ -135,7 +135,7 @@
 ### 严格 SSRF 本地 DNS 切片
 
 - 新增并接受 ADR-0019，明确 DIRECT、HTTP forward、HTTPS CONNECT 与 SOCKS5 的本地/远端 DNS 信任边界、全部 A/AAAA 校验、目标固定、Host/SNI、DNS rebinding 与多地址失败语义。
-- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。该切片完成时 Registry 共 44 项，后续文件日志设置使当前总数达到 47 项。
+- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。该切片完成时 Registry 共 44 项，后续文件日志与停机设置使当前总数达到 49 项。
 - DIRECT 始终执行本地解析、全部地址校验与 reqwest `resolve_to_addrs` 固定；严格模式关闭时 HTTP/SOCKS5 保持既有受信远端 DNS 行为。
 - 严格模式下，HTTP forward 的 absolute-form authority 使用已验证 IP 并保留原始 Host；HTTPS CONNECT 向代理发送已验证 IP，隧道后继续使用原始 TLS SNI、证书名、HTTP Host 与 HTTP/2 authority。
 - 严格 SOCKS5 使用 IP 地址类型，不发送目标域名；普通 HTTP 与 TLS 仍保留原始应用层 authority。代理自身地址仍是用户显式配置的信任边界。
@@ -310,7 +310,7 @@
 
 ### 本地文件日志轮转切片
 
-- SettingRegistry 新增 `logs.file.level`、`logs.file.retention` 与 `logs.file.max_total_size`，默认分别为 `info`、`7d` 与 `256 MiB`；Registry 当前共 47 项，Web 显示默认值、覆盖值和生效值并支持恢复默认。
+- SettingRegistry 新增 `logs.file.level`、`logs.file.retention` 与 `logs.file.max_total_size`，默认分别为 `info`、`7d` 与 `256 MiB`；该切片完成时 Registry 共 47 项，后续停机设置使当前总数达到 49 项，Web 显示默认值、覆盖值和生效值并支持恢复默认。
 - Composition Root 在读取 SQLite 当前配置后一次性安装控制台与文件 tracing layer；控制台继续使用 `RUST_LOG`，文件层只服从 `logs.file.level`。
 - 本地日志写入 `<data-dir>/logs` 下的 JSONL 分段文件，使用 `tracing-appender` 的有界丢弃式非阻塞队列和独立写线程；请求线程不等待文件系统，进程结束时 Guard 尽力刷新已经入队的日志。
 - 分段同时按 UTC 日期与大小轮转；单段目标上限为总容量八分之一与 `32 MiB` 的较小值。关闭分段先按保留期限清理，再从最旧文件开始按总容量清理；活跃文件和非 any2api 命名文件不会被删除。
@@ -329,7 +329,7 @@
 
 ### 上游读取与 SSE 提交后空闲超时切片
 
-- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续严格 SSRF 与文件日志设置使当前总数达到 47 项。
+- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续严格 SSRF、文件日志与停机设置使当前总数达到 49 项。
 - `TransportRequest` 按请求快照携带 read timeout，不把它放进连接池 Client key。固定请求体开始被连接层消费后才启动响应头 timer，因此较短的 read timeout 不会取代 DNS、连接、代理握手或 TLS 的既有阶段边界。
 - 等待响应头超时记录为 `AwaitHeaders + Ambiguous`；JSON、Compact、Count Tokens 与非成功 SSE 错误正文逐 chunk 收集时使用相同空闲时长，超时记录为 `ReadBody + Ambiguous`。DIRECT 归因 Endpoint，无法证明责任的代理路径归入 `Unattributed`。
 - 成功 SSE 提交前只使用 `stream.precommit.max_duration`，不叠加通用 read timeout；首个下游帧交付时启动 post-commit idle timer，每个成功上游 chunk（包括不完整帧）重置，缓冲完整事件始终优先交付。
@@ -356,12 +356,23 @@
 - React 请求日志详情页新增 TTFT 与四项 Token 计数；`NULL` 显示为“未记录”，与真实 `0` 严格区分。
 - Registry 契约枚举实际注册的 Codex/Claude Adapter；Runtime/SQLite 契约覆盖 Responses、Compact、Messages JSON/SSE 与 Count Tokens 排除，真实管理 HTTP 列表/详情与 Web 测试覆盖非空值、缺失值和真实零值。完整决策见 `docs/adr/0025-protocol-token-telemetry.md`。
 
+### 有界优雅停机切片
+
+- 新增进程级 `ProcessLifecycle`，状态固定为 `Running / Draining / Forced`；请求与后台任务分别追踪，健康定时任务在 Draining 退出，配置发布和密码轮换在 Forced 取消异步 future。
+- Server 最外层 Guard 覆盖完整 Handler 与响应 Body 生命周期；普通响应、SSE EOF/error、客户端 Drop 和 Forced 静默 Body 都通过 RAII 释放请求计数、QueueTicket、Permit 与上游连接。
+- SettingRegistry 新增 `shutdown.request_grace_period` 与 `shutdown.finalize_timeout`，默认 `30s` 与 `5s`、当前共 49 项；Web 设置页支持默认/覆盖/生效值，总览显示 shutdown phase、活动请求与后台任务数。
+- 停机信号到达时从当前 `PublishedSnapshot` 一次性捕获两项设置；配置热更新立即影响下一次停机，已经开始的停机不会混用后续 revision。
+- RequestTelemetry Writer 纳入同一 Tracker；关闭 sender 后先排空，超时则 abort 并 await，禁止遗留脱管 SQLite Writer。SQLite Pool 随后显式关闭。
+- Argon2 通过 Tracker 的 blocking 入口运行；请求或外层密码轮换 future 被取消后，blocking closure 仍保持计数直到真正返回，避免 Tokio Runtime Drop 无界等待被误判为已收尾。
+- 二进制入口改为显式 Tokio Runtime，并在 Runtime 外持有实例锁。完整收尾后确认文件日志根 `Arc` 是最后所有者、释放有界 `WorkerGuard`、关闭 Runtime，最后释放实例锁；任一步失败都在持锁状态进入致命进程退出。
+- App/Runtime/Server 测试覆盖自然 drain、信号时读取最新设置、Draining 拒绝新请求、Forced 静默 Body、Telemetry abort + join、blocking JoinHandle Drop 后继续追踪和最终收尾失败。完整决策见 `docs/adr/0026-bounded-graceful-shutdown.md`。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
 - ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析、全部地址校验和固定目标连接。
-- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、request logging 与 file logging 共 47 项 SettingRegistry。
+- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、request logging、file logging 与 shutdown 共 49 项 SettingRegistry。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
@@ -372,10 +383,10 @@
 
 ## 下一步
 
-1. 完成首版优雅停机：同时处理 Ctrl-C 与 SIGTERM，停止接收新请求，在有限宽限期内等待活动请求/后台 Writer，超时后取消剩余任务；不保存任何运行态。
-2. 将 React dist 收敛为正式发布二进制的内嵌资源，保留开发/测试时显式外部 Web 目录入口，落实“单二进制”部署契约。
-3. 补齐 GatewayApiKey `last_used_at` 节流遥测写入与 ProviderCredential 连通性测试/成功后清除 `auth_error` 操作；两者仍不得形成 Gateway Key 到 Provider Credential 的绑定。
-4. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
+1. 将 React dist 收敛为正式发布二进制的内嵌资源，保留开发/测试时显式外部 Web 目录入口，落实“单二进制”部署契约。
+2. 补齐 GatewayApiKey `last_used_at` 节流遥测写入与 ProviderCredential 连通性测试/成功后清除 `auth_error` 操作；两者仍不得形成 Gateway Key 到 Provider Credential 的绑定。
+3. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
+4. 补充 Unix 真实子进程 SIGTERM、成功停机后同数据目录立即重启等进程级 CI 契约；它们用于加固现有语义，不引入运行态恢复。
 5. 上述 API Key 首版收尾后，再按独立切片实现可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前主链。
 
 ## 验证结果
@@ -397,4 +408,4 @@ pnpm build
 pnpm test:e2e
 ```
 
-本切片已通过完整门禁：Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 31 个 Vitest 文件的 81 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约。Token 遥测的协议解析、Runtime → SQLite、真实管理 HTTP DTO 与 Web 的非空/缺失/真实零值契约均已覆盖。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
+本切片已通过完整门禁：Rust fmt、clippy、workspace test/doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 31 个 Vitest 文件的 81 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约。Windows release 二进制使用真实 Ctrl-C 连续两次在同一端口和数据目录启动/停机，均以退出码 0 记录 `shutdown complete`，验证实例锁可立即重取。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。

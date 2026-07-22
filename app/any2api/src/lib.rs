@@ -4,6 +4,7 @@ mod bootstrap;
 mod file_logging;
 mod instance_lock;
 mod logging_reconciler;
+mod process;
 mod settings;
 mod shutdown;
 
@@ -11,4 +12,4 @@ pub use adapters::{
     PublicRequestComponents, build_public_request_components,
     build_public_request_components_with_telemetry,
 };
-pub use bootstrap::run;
+pub use process::run;

@@ -300,10 +300,11 @@ impl ConfigPublisher {
         command: ConfigCommand,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         let publisher = self.clone();
-        crate::publish_task::run(
-            async move { publisher.publish_serialized(expected, command).await },
-        )
+        crate::publish_task::run(self.runtime.lifecycle(), async move {
+            publisher.publish_serialized(expected, command).await
+        })
         .await
+        .ok_or(ConfigPublishError::ShuttingDown)?
     }
 
     async fn publish_serialized(

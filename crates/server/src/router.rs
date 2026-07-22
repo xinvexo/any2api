@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
-use axum::{Router, http::StatusCode, routing::get};
+use axum::{Router, http::StatusCode, middleware, routing::get};
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::{admin, health::health, public, state::AppState};
+use crate::{admin, health::health, public, request_lifecycle, state::AppState};
 
 pub fn build_router(state: AppState, web_root: impl Into<PathBuf>) -> Router {
     let web_root = web_root.into();
+    let lifecycle = state.runtime().lifecycle();
     let web_service =
         ServeDir::new(&web_root).fallback(ServeFile::new(web_root.join("index.html")));
 
@@ -14,6 +15,10 @@ pub fn build_router(state: AppState, web_root: impl Into<PathBuf>) -> Router {
         .nest("/api", build_api_router(state.clone()))
         .nest("/v1", public::routes(state))
         .fallback_service(web_service)
+        .layer(middleware::from_fn_with_state(
+            lifecycle,
+            request_lifecycle::track,
+        ))
 }
 
 fn build_api_router(state: AppState) -> Router {

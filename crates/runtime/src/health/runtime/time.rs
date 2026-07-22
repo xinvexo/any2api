@@ -26,8 +26,5 @@ pub(super) fn max_deadline(current: Option<Instant>, next: Option<Instant>) -> O
 }
 
 pub(super) fn schedule_wake(epoch: Arc<SchedulerEpoch>, at: Instant) {
-    tokio::spawn(async move {
-        tokio::time::sleep_until(at).await;
-        epoch.advance();
-    });
+    epoch.schedule_wake(at);
 }

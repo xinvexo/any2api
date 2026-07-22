@@ -61,6 +61,9 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
     assert_eq!(value["status"], "ok");
     assert_eq!(value["config_revision"], 1);
     assert_eq!(value["scheduler_epoch"], 0);
+    assert_eq!(value["shutdown_phase"], "running");
+    assert_eq!(value["active_requests"], 0);
+    assert_eq!(value["background_tasks"], 0);
 
     let deep_link = app
         .clone()

@@ -5,6 +5,7 @@ mod affinity;
 mod logging;
 mod reliability;
 mod scheduler;
+mod shutdown;
 mod stream;
 mod upstream;
 
@@ -34,6 +35,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         SettingKey::StreamPrecommitMaxBytes
         | SettingKey::StreamPrecommitMaxDuration
         | SettingKey::StreamPostcommitIdleTimeout => stream::definition(key),
+        SettingKey::ShutdownRequestGracePeriod | SettingKey::ShutdownFinalizeTimeout => {
+            shutdown::definition(key)
+        }
         SettingKey::SchedulerOnSaturated
         | SettingKey::SchedulerQueueTimeout
         | SettingKey::SchedulerMaxWaitingRequests

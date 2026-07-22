@@ -119,16 +119,20 @@ pub(super) async fn rotate_password(
     let auth = state
         .admin_auth_handle()
         .ok_or_else(AdminApiError::auth_unavailable)?;
-    let issue = tokio::spawn(async move {
-        auth.rotate_password(request.current_password, request.new_password)
-            .await
-    })
-    .await
-    .map_err(|error| {
-        tracing::error!(error = ?error, "administrator password rotation task failed");
-        AdminApiError::internal()
-    })?
-    .map_err(map_auth_error)?;
+    let issue = state
+        .runtime()
+        .lifecycle()
+        .spawn_critical(async move {
+            auth.rotate_password(request.current_password, request.new_password)
+                .await
+        })
+        .await
+        .map_err(|error| {
+            tracing::error!(error = ?error, "administrator password rotation task failed");
+            AdminApiError::internal()
+        })?
+        .ok_or_else(AdminApiError::shutting_down)?
+        .map_err(map_auth_error)?;
     session_response(&issue, connection, &snapshot)
 }
 

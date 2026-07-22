@@ -15,6 +15,7 @@ use crate::{
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
     health::{HealthBindings, HealthRegistry},
+    process_lifecycle::ProcessLifecycle,
     queue::QueueCoordinator,
     route_tier_cursor::{RouteTierCursorBindings, RouteTierCursorRegistry},
     scheduler_epoch::SchedulerEpoch,
@@ -29,12 +30,14 @@ pub struct RuntimeRegistry {
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
     queue_coordinator: Arc<QueueCoordinator>,
     health: HealthRegistry,
+    lifecycle: ProcessLifecycle,
 }
 
 impl RuntimeRegistry {
     #[must_use]
     pub fn new(settings: &SchedulerSettings) -> Self {
-        let scheduler_epoch = SchedulerEpoch::new();
+        let lifecycle = ProcessLifecycle::new();
+        let scheduler_epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());
         let auxiliary_limits = AuxiliaryConcurrencyLimits::from_scheduler_settings(settings);
         Self {
             affinity: AffinityRegistry::new(),
@@ -47,7 +50,13 @@ impl RuntimeRegistry {
             route_tier_cursors: RouteTierCursorRegistry::default(),
             queue_coordinator: QueueCoordinator::new(Arc::clone(&scheduler_epoch)),
             health: HealthRegistry::new(Arc::clone(&scheduler_epoch)),
+            lifecycle,
         }
+    }
+
+    #[must_use]
+    pub fn lifecycle(&self) -> ProcessLifecycle {
+        self.lifecycle.clone()
     }
 
     #[must_use]

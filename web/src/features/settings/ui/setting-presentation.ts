@@ -24,6 +24,8 @@ const labels: Record<string, string> = {
   "stream.precommit.max_bytes": "SSE 单帧与预提交字节上限",
   "stream.precommit.max_duration": "预提交最长等待",
   "stream.postcommit.idle_timeout": "提交后流空闲超时",
+  "shutdown.request_grace_period": "请求排空宽限期",
+  "shutdown.finalize_timeout": "最终收尾超时",
   "scheduler.on_saturated": "满载行为",
   "scheduler.queue_timeout": "排队超时",
   "scheduler.max_waiting_requests": "最大排队数量",

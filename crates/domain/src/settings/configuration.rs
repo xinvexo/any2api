@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use super::{
     AdminSettings, AffinitySettings, LoggingSettings, ReliabilitySettings, SchedulerSettings,
-    SettingKey, SettingValue, SettingsValidationError, StreamSettings, UpstreamSettings,
-    value::validate_value,
+    SettingKey, SettingValue, SettingsValidationError, ShutdownSettings, StreamSettings,
+    UpstreamSettings, value::validate_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -56,6 +56,7 @@ pub struct SettingsConfiguration {
     logging: LoggingSettings,
     upstream: UpstreamSettings,
     stream: StreamSettings,
+    shutdown: ShutdownSettings,
 }
 
 impl SettingsConfiguration {
@@ -67,6 +68,7 @@ impl SettingsConfiguration {
         let logging = LoggingSettings::from_overrides(&overrides)?;
         let upstream = UpstreamSettings::from_overrides(&overrides)?;
         let stream = StreamSettings::from_overrides(&overrides)?;
+        let shutdown = ShutdownSettings::from_overrides(&overrides)?;
         Ok(Self {
             overrides,
             scheduler,
@@ -76,6 +78,7 @@ impl SettingsConfiguration {
             logging,
             upstream,
             stream,
+            shutdown,
         })
     }
 
@@ -110,6 +113,10 @@ impl SettingsConfiguration {
 
     pub const fn upstream(&self) -> &UpstreamSettings {
         &self.upstream
+    }
+
+    pub const fn shutdown(&self) -> &ShutdownSettings {
+        &self.shutdown
     }
 
     pub const fn overrides(&self) -> &SettingOverrides {
@@ -175,6 +182,8 @@ mod tests {
         assert_eq!(settings.stream().precommit_max_bytes(), 256 * 1024);
         assert_eq!(settings.stream().precommit_max_duration_ms(), 5_000);
         assert_eq!(settings.stream().postcommit_idle_timeout_ms(), 60_000);
+        assert_eq!(settings.shutdown().request_grace_period_ms(), 30_000);
+        assert_eq!(settings.shutdown().finalize_timeout_ms(), 5_000);
         assert!(
             SettingKey::ALL
                 .into_iter()

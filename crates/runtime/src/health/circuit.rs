@@ -138,11 +138,7 @@ impl CircuitRuntime {
     }
 
     fn schedule_wake(&self, wake_at: Instant) {
-        let epoch = Arc::clone(&self.scheduler_epoch);
-        tokio::spawn(async move {
-            tokio::time::sleep_until(wake_at).await;
-            epoch.advance();
-        });
+        self.scheduler_epoch.schedule_wake(wake_at);
     }
 }
 

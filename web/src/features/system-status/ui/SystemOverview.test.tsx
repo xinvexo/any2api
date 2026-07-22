@@ -15,7 +15,7 @@ afterEach(() => vi.restoreAllMocks());
 test("renders the live configuration revision", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     new Response(
-      JSON.stringify({ status: "ok", config_revision: 7, scheduler_epoch: 2 }),
+      JSON.stringify({ status: "ok", config_revision: 7, scheduler_epoch: 2, shutdown_phase: "running", active_requests: 1, background_tasks: 2 }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     ),
   );
@@ -24,6 +24,8 @@ test("renders the live configuration revision", async () => {
 
   expect(await screen.findByText("7")).toBeInTheDocument();
   expect(screen.getByText("运行正常")).toBeInTheDocument();
+  expect(screen.getByText("运行中")).toBeInTheDocument();
+  expect(screen.getByText("1 / 2")).toBeInTheDocument();
 });
 
 test("rejects an incompatible health payload", async () => {

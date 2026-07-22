@@ -76,7 +76,7 @@ pub use settings::{
     MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY,
     ReliabilitySettings, SaturationMode, SchedulerSettings, SettingApplyMode, SettingDefinition,
     SettingKey, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
-    SettingsValidationError, StreamSettings, UpstreamSettings,
+    SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
 };
 pub use token_usage::{MAX_TOKEN_COUNT, TokenUsage};
 pub use upstream_error::{

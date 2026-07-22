@@ -65,6 +65,14 @@ impl FileLogging {
             _guard: guard,
         }))
     }
+
+    pub(crate) fn finish(root: Arc<Self>) -> anyhow::Result<()> {
+        let logging = Arc::try_unwrap(root)
+            .map_err(|_| anyhow::anyhow!("file logging still has active runtime owners"))?;
+        tracing::info!("any2api shutdown complete");
+        drop(logging);
+        Ok(())
+    }
 }
 
 impl LoggingSettingsReconciler for FileLogging {

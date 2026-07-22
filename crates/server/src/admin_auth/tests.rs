@@ -5,6 +5,7 @@ use std::{
 };
 
 use any2api_domain::{SettingKey, SettingOverrides, SettingValue, SettingsConfiguration};
+use any2api_runtime::api::ProcessLifecycle;
 use async_trait::async_trait;
 use axum::http::{HeaderMap, HeaderValue};
 use ipnet::IpNet;
@@ -19,7 +20,7 @@ use super::{
 #[tokio::test]
 async fn password_login_session_csrf_and_logout_are_server_side() {
     let store = Arc::new(MemoryStore::default());
-    let service = AdminAuthService::load(store).await.expect("auth service");
+    let service = test_service(store).await;
     let setup_token = service.setup_token().await.expect("setup token");
     assert!(matches!(
         service
@@ -69,7 +70,7 @@ async fn password_login_session_csrf_and_logout_are_server_side() {
 #[tokio::test]
 async fn password_rotation_reissues_one_session_and_revokes_the_rest() {
     let store = Arc::new(MemoryStore::default());
-    let service = AdminAuthService::load(store).await.expect("auth service");
+    let service = test_service(store).await;
     service
         .initialize_if_missing("correct horse battery staple".to_owned())
         .await
@@ -142,7 +143,7 @@ async fn password_rotation_reissues_one_session_and_revokes_the_rest() {
 #[tokio::test]
 async fn wrong_rotation_password_preserves_the_existing_session() {
     let store = Arc::new(MemoryStore::default());
-    let service = AdminAuthService::load(store).await.expect("auth service");
+    let service = test_service(store).await;
     service
         .initialize_if_missing("correct horse battery staple".to_owned())
         .await
@@ -182,11 +183,7 @@ async fn wrong_rotation_password_preserves_the_existing_session() {
 
 #[tokio::test]
 async fn old_password_login_cannot_survive_a_concurrent_rotation() {
-    let service = Arc::new(
-        AdminAuthService::load(Arc::new(MemoryStore::default()))
-            .await
-            .expect("auth service"),
-    );
+    let service = Arc::new(test_service(Arc::new(MemoryStore::default())).await);
     service
         .initialize_if_missing("correct horse battery staple".to_owned())
         .await
@@ -241,11 +238,7 @@ async fn old_password_login_cannot_survive_a_concurrent_rotation() {
 
 #[tokio::test]
 async fn cancelled_login_keeps_its_argon2_permit_until_blocking_work_finishes() {
-    let service = Arc::new(
-        AdminAuthService::load(Arc::new(MemoryStore::default()))
-            .await
-            .expect("auth service"),
-    );
+    let service = Arc::new(test_service(Arc::new(MemoryStore::default())).await);
     service
         .initialize_if_missing("correct horse battery staple".to_owned())
         .await
@@ -273,11 +266,7 @@ async fn cancelled_login_keeps_its_argon2_permit_until_blocking_work_finishes() 
 
 #[tokio::test]
 async fn cancelled_setup_keeps_the_single_hash_permit_and_does_not_initialize() {
-    let service = Arc::new(
-        AdminAuthService::load(Arc::new(MemoryStore::default()))
-            .await
-            .expect("auth service"),
-    );
+    let service = Arc::new(test_service(Arc::new(MemoryStore::default())).await);
     let setup_token = service.setup_token().await.expect("setup token");
     let setup_service = Arc::clone(&service);
     let setup = tokio::spawn(async move {
@@ -416,4 +405,10 @@ async fn wait_for_available_setup_checks(service: &AdminAuthService, expected: u
     })
     .await
     .expect("setup check permit state");
+}
+
+async fn test_service(store: Arc<dyn AdminCredentialStore>) -> AdminAuthService {
+    AdminAuthService::load(store, ProcessLifecycle::new())
+        .await
+        .expect("auth service")
 }

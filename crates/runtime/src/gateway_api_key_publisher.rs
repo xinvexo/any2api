@@ -143,12 +143,13 @@ impl ConfigPublisher {
         command: GatewayApiKeyPublishCommand,
     ) -> Result<GatewayApiKeyPublishOutcome, ConfigPublishError> {
         let publisher = self.clone();
-        crate::publish_task::run(async move {
+        crate::publish_task::run(self.runtime.lifecycle(), async move {
             publisher
                 .publish_gateway_api_key_serialized(expected, command)
                 .await
         })
         .await
+        .ok_or(ConfigPublishError::ShuttingDown)?
     }
 
     async fn publish_gateway_api_key_serialized(

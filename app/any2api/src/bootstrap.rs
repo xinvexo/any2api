@@ -11,17 +11,11 @@ use tokio::net::TcpListener;
 
 use crate::{
     admin_auth_adapter::SqliteAdminCredentialStore, build_public_request_components_with_telemetry,
-    file_logging::FileLogging, instance_lock::InstanceLock,
-    logging_reconciler::AppLoggingReconciler, settings::AppSettings, shutdown,
+    file_logging::FileLogging, logging_reconciler::AppLoggingReconciler, settings::AppSettings,
+    shutdown,
 };
 
-pub async fn run() -> anyhow::Result<()> {
-    let settings = AppSettings::from_env()?;
-    let data_directory = settings
-        .database_path
-        .parent()
-        .context("database path must have a data directory")?;
-    let _instance_lock = InstanceLock::acquire(data_directory)?;
+pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::ShutdownOutcome> {
     let storage = Arc::new(
         SqliteStore::connect_with_master_key(&settings.database_path, &settings.master_key_path)
             .await
@@ -36,15 +30,18 @@ pub async fn run() -> anyhow::Result<()> {
         configuration.revision(),
         configuration.settings().logging(),
     )?;
+    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         configuration.revision(),
         configuration.settings().logging(),
+        &runtime.lifecycle(),
     ));
     let admin_auth = Arc::new(
-        AdminAuthService::load(Arc::new(SqliteAdminCredentialStore::new(Arc::clone(
-            &storage,
-        ))))
+        AdminAuthService::load(
+            Arc::new(SqliteAdminCredentialStore::new(Arc::clone(&storage))),
+            runtime.lifecycle(),
+        )
         .await
         .context("failed to load administrator authentication")?,
     );
@@ -63,31 +60,39 @@ pub async fn run() -> anyhow::Result<()> {
              enter this one-time token in the local web UI"
         );
     }
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
     )));
     let logging_reconciler = Arc::new(AppLoggingReconciler::new(
         Arc::clone(&telemetry),
-        file_logging,
+        Arc::clone(&file_logging),
     ));
     let publisher = Arc::new(
-        ConfigPublisher::new(storage, Arc::clone(&snapshots), Arc::clone(&runtime))
-            .with_logging_reconciler(logging_reconciler),
+        ConfigPublisher::new(
+            Arc::clone(&storage),
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+        )
+        .with_logging_reconciler(logging_reconciler),
     );
     let request_components = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
         .context("failed to initialize public request adapters")?;
     let public_requests = request_components.service();
     let proxy_tests = request_components.proxy_test_service();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher, public_requests)
-            .with_proxy_tests(proxy_tests)
-            .with_request_telemetry(Arc::clone(&telemetry))
-            .with_admin_auth(
-                admin_auth,
-                AdminNetworkPolicy::new(settings.trusted_proxy_cidrs.clone()),
-            ),
+        AppState::new(
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+            publisher,
+            public_requests,
+        )
+        .with_proxy_tests(proxy_tests)
+        .with_request_telemetry(Arc::clone(&telemetry))
+        .with_admin_auth(
+            admin_auth,
+            AdminNetworkPolicy::new(settings.trusted_proxy_cidrs.clone()),
+        ),
         settings.web_root,
     );
     let listener = TcpListener::bind(settings.bind)
@@ -95,13 +100,32 @@ pub async fn run() -> anyhow::Result<()> {
         .with_context(|| format!("failed to bind {}", settings.bind))?;
 
     tracing::info!(address = %settings.bind, "any2api is listening");
-    let result = axum::serve(
+    let lifecycle = runtime.lifecycle();
+    let served = shutdown::serve(
         listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        app,
+        lifecycle.clone(),
+        snapshots.as_ref(),
+        shutdown::signal(),
     )
-    .with_graceful_shutdown(shutdown::signal())
+    .await;
+    let result = served.result.context("http server failed");
+    let finalized = shutdown::finalize(
+        &lifecycle,
+        telemetry.as_ref(),
+        storage.as_ref(),
+        served.timeouts,
+    )
     .await
-    .context("http server failed");
-    telemetry.shutdown(std::time::Duration::from_secs(5)).await;
-    result
+    .context("shutdown finalization failed");
+
+    let finalized = finalized.and_then(|()| FileLogging::finish(file_logging));
+    let outcome = match finalized {
+        Ok(()) => shutdown::ShutdownOutcome::complete(result, served.timeouts),
+        Err(error) => {
+            tracing::error!(?error, "any2api shutdown incomplete; terminating process");
+            shutdown::ShutdownOutcome::fatal(error, served.timeouts)
+        }
+    };
+    Ok(outcome)
 }

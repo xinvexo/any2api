@@ -70,4 +70,8 @@ impl SqliteStore {
     pub fn secret_vault(&self) -> &SecretVault {
         &self.secret_vault
     }
+
+    pub async fn close(&self) {
+        self.pool.close().await;
+    }
 }

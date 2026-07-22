@@ -14,7 +14,7 @@ use any2api_storage::api::{RequestLogRepository, StorageError};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use super::{policy::RequestLogPolicy, worker};
-use crate::logging_reconciler::LoggingSettingsReconciler;
+use crate::{logging_reconciler::LoggingSettingsReconciler, process_lifecycle::ProcessLifecycle};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RequestTelemetryMetrics {
@@ -58,6 +58,7 @@ impl RequestTelemetry {
         repository: Arc<R>,
         revision: ConfigRevision,
         settings: &LoggingSettings,
+        lifecycle: &ProcessLifecycle,
     ) -> Self
     where
         R: RequestLogRepository + 'static,
@@ -72,7 +73,7 @@ impl RequestTelemetry {
         let policy = Arc::new(RwLock::new(RequestLogPolicy::from_settings(
             revision, settings,
         )));
-        let worker = tokio::spawn(worker::run(
+        let worker = lifecycle.spawn_tracked(worker::run(
             receiver,
             Arc::clone(&repository),
             worker::WorkerState {
@@ -173,10 +174,23 @@ impl RequestTelemetry {
             .expect("request telemetry sender")
             .take();
         let worker = self.worker.lock().expect("request telemetry worker").take();
-        if let Some(worker) = worker
-            && tokio::time::timeout(wait, worker).await.is_err()
-        {
-            tracing::warn!("request telemetry writer did not stop before shutdown timeout");
+        if let Some(mut worker) = worker {
+            match tokio::time::timeout(wait, &mut worker).await {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => {
+                    tracing::warn!(?error, "request telemetry writer task failed");
+                }
+                Err(_) => {
+                    tracing::warn!("request telemetry writer exceeded shutdown timeout; aborting");
+                    worker.abort();
+                    if let Err(error) = worker.await
+                        && !error.is_cancelled()
+                    {
+                        tracing::warn!(?error, "request telemetry writer abort failed");
+                    }
+                    self.queued.store(0, Ordering::Release);
+                }
+            }
         }
     }
 

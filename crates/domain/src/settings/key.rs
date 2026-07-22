@@ -25,6 +25,8 @@ pub enum SettingKey {
     StreamPrecommitMaxBytes,
     StreamPrecommitMaxDuration,
     StreamPostcommitIdleTimeout,
+    ShutdownRequestGracePeriod,
+    ShutdownFinalizeTimeout,
     SchedulerOnSaturated,
     SchedulerQueueTimeout,
     SchedulerMaxWaitingRequests,
@@ -52,7 +54,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 47] = [
+    pub const ALL: [Self; 49] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -76,6 +78,8 @@ impl SettingKey {
         Self::StreamPrecommitMaxBytes,
         Self::StreamPrecommitMaxDuration,
         Self::StreamPostcommitIdleTimeout,
+        Self::ShutdownRequestGracePeriod,
+        Self::ShutdownFinalizeTimeout,
         Self::SchedulerOnSaturated,
         Self::SchedulerQueueTimeout,
         Self::SchedulerMaxWaitingRequests,
@@ -127,6 +131,8 @@ impl SettingKey {
             Self::StreamPrecommitMaxBytes => "stream.precommit.max_bytes",
             Self::StreamPrecommitMaxDuration => "stream.precommit.max_duration",
             Self::StreamPostcommitIdleTimeout => "stream.postcommit.idle_timeout",
+            Self::ShutdownRequestGracePeriod => "shutdown.request_grace_period",
+            Self::ShutdownFinalizeTimeout => "shutdown.finalize_timeout",
             Self::SchedulerOnSaturated => "scheduler.on_saturated",
             Self::SchedulerQueueTimeout => "scheduler.queue_timeout",
             Self::SchedulerMaxWaitingRequests => "scheduler.max_waiting_requests",

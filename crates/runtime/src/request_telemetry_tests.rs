@@ -11,7 +11,7 @@ use any2api_storage::api::{RequestLogRepository, StorageError};
 use async_trait::async_trait;
 use tokio::sync::Notify;
 
-use crate::request_telemetry::RequestTelemetry;
+use crate::{process_lifecycle::ProcessLifecycle, request_telemetry::RequestTelemetry};
 
 #[test]
 fn disabled_request_telemetry_has_empty_metrics() {
@@ -37,10 +37,12 @@ fn disabled_request_telemetry_stays_disabled_for_published_settings() {
 async fn full_logical_queue_drops_without_waiting_for_the_writer() {
     let repository = Arc::new(BlockingRepository::default());
     let settings = logging_settings(1);
+    let lifecycle = ProcessLifecycle::new();
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&repository),
         ConfigRevision::INITIAL,
         settings.logging(),
+        &lifecycle,
     ));
     let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
 
@@ -62,10 +64,12 @@ async fn full_logical_queue_drops_without_waiting_for_the_writer() {
 async fn writer_prunes_while_idle() {
     let repository = Arc::new(BlockingRepository::default());
     let settings = logging_settings(1);
+    let lifecycle = ProcessLifecycle::new();
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&repository),
         ConfigRevision::INITIAL,
         settings.logging(),
+        &lifecycle,
     ));
 
     wait_for(|| repository.prune_calls.load(Ordering::Acquire) >= 1).await;
@@ -74,6 +78,34 @@ async fn writer_prunes_while_idle() {
     wait_for(|| repository.prune_calls.load(Ordering::Acquire) > initial_calls).await;
 
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn shutdown_timeout_aborts_and_joins_the_writer() {
+    let repository = Arc::new(BlockingRepository::default());
+    let settings = logging_settings(1);
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
+    telemetry.try_record(record(RequestId::new()), policy);
+    wait_for(|| repository.write_batches.load(Ordering::Acquire) == 1).await;
+
+    telemetry
+        .shutdown(std::time::Duration::from_millis(1))
+        .await;
+    lifecycle.close_background_tasks();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        lifecycle.wait_for_background_tasks(),
+    )
+    .await
+    .expect("aborted writer must leave the task tracker");
+    assert_eq!(lifecycle.background_task_count(), 0);
 }
 
 #[derive(Default)]

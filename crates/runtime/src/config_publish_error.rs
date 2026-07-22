@@ -10,6 +10,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ConfigPublishError {
+    #[error("service is shutting down")]
+    ShuttingDown,
     #[error("configuration revision conflict")]
     RevisionConflict {
         expected: ConfigRevision,

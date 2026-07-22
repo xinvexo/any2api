@@ -6,6 +6,7 @@ use std::{
 };
 
 use any2api_domain::AdminSettings;
+use any2api_runtime::api::ProcessLifecycle;
 use subtle::ConstantTimeEq;
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock, Semaphore};
@@ -25,13 +26,17 @@ pub struct AdminAuthService {
     pub(super) failures: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
     pub(super) password_checks: Arc<Semaphore>,
     pub(super) setup_checks: Arc<Semaphore>,
+    pub(super) lifecycle: ProcessLifecycle,
 }
 
 const MAX_FAILURE_SOURCES: usize = 1_024;
 const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 4;
 
 impl AdminAuthService {
-    pub async fn load(store: Arc<dyn AdminCredentialStore>) -> Result<Self, AdminAuthError> {
+    pub async fn load(
+        store: Arc<dyn AdminCredentialStore>,
+        lifecycle: ProcessLifecycle,
+    ) -> Result<Self, AdminAuthError> {
         let password_hash = store.load().await.map_err(AdminAuthError::Store)?;
         let setup_token = password_hash.is_none().then(random_bytes).transpose()?;
         Ok(Self {
@@ -43,6 +48,7 @@ impl AdminAuthService {
             failures: Mutex::new(HashMap::new()),
             password_checks: Arc::new(Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS)),
             setup_checks: Arc::new(Semaphore::new(1)),
+            lifecycle,
         })
     }
 
@@ -89,7 +95,7 @@ impl AdminAuthService {
             .try_acquire_owned()
             .map_err(|_| AdminAuthError::RateLimited { retry_after: 1 })?;
 
-        let password_hash = hash_password(password, password_check).await?;
+        let password_hash = hash_password(password, password_check, &self.lifecycle).await?;
         if self
             .store
             .initialize(&password_hash)
@@ -127,7 +133,7 @@ impl AdminAuthService {
             .try_acquire_owned()
             .map_err(|_| AdminAuthError::RateLimited { retry_after: 1 })?;
         self.record_failure(source, settings).await;
-        if !verify_password(password_hash, password, password_check).await? {
+        if !verify_password(password_hash, password, password_check, &self.lifecycle).await? {
             return Err(AdminAuthError::InvalidCredentials);
         }
         self.failures.lock().await.remove(&source);

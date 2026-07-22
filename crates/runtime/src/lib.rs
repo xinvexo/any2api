@@ -11,6 +11,7 @@ mod gateway_api_key_publisher;
 mod gateway_api_key_token;
 mod health;
 mod logging_reconciler;
+mod process_lifecycle;
 mod provider_api_key_secret;
 mod proxy_auth;
 mod proxy_password_secret;

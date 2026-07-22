@@ -21,14 +21,21 @@ impl AdminAuthService {
         let password_check = Arc::clone(&self.password_checks)
             .try_acquire_owned()
             .map_err(|_| AdminAuthError::RateLimited { retry_after: 1 })?;
-        if !verify_password(current_hash.clone(), current_password, password_check).await? {
+        if !verify_password(
+            current_hash.clone(),
+            current_password,
+            password_check,
+            &self.lifecycle,
+        )
+        .await?
+        {
             return Err(AdminAuthError::CurrentPasswordInvalid);
         }
 
         let hash_check = Arc::clone(&self.setup_checks)
             .try_acquire_owned()
             .map_err(|_| AdminAuthError::RateLimited { retry_after: 1 })?;
-        let new_hash = hash_password(new_password, hash_check).await?;
+        let new_hash = hash_password(new_password, hash_check, &self.lifecycle).await?;
         let (session_key, csrf, issue) = prepare_session()?;
         if !self
             .store
