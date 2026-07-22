@@ -1,14 +1,18 @@
 :root {
   color-scheme: light;
   --canvas: #f5f5f7;
+  --sidebar: #ececf0;
   --surface: #ffffff;
   --surface-muted: #ececf0;
-  --surface-hover: #e8e8ed;
+  --surface-hover: #e4e4ea;
   --surface-selected: #ffffff;
+  --nav-active: rgb(8 120 209 / 12%);
+  --nav-active-text: #005fa8;
   --text-primary: #17171a;
   --text-secondary: #5b5b63;
   --text-tertiary: #707079;
   --border-subtle: rgb(23 23 26 / 10%);
+  --scrim: rgb(15 15 18 / 32%);
   --accent: #0878d1;
   --accent-strong: #0066b7;
   --accent-copy: #005fa8;
@@ -20,21 +24,25 @@
   --panel-shadow: 0 18px 50px rgb(24 24 29 / 10%);
   --accent-shadow: 0 8px 22px rgb(8 120 209 / 24%);
   --hairline-shadow: 0 0 0 1px rgb(23 23 26 / 5%), 0 1px 2px rgb(23 23 26 / 6%);
-  --panel-radius: 8px;
-  --control-radius: 7px;
+  --panel-radius: 12px;
+  --control-radius: 9px;
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
   --canvas: #111114;
+  --sidebar: #17171b;
   --surface: #1c1c20;
   --surface-muted: #242429;
   --surface-hover: #29292f;
   --surface-selected: #2d2d33;
+  --nav-active: rgb(57 151 230 / 16%);
+  --nav-active-text: #8ec8f8;
   --text-primary: #f4f4f6;
   --text-secondary: #b2b2ba;
   --text-tertiary: #85858e;
   --border-subtle: rgb(255 255 255 / 10%);
+  --scrim: rgb(0 0 0 / 52%);
   --accent: #3997e6;
   --accent-strong: #67b4f2;
   --accent-copy: #75bdf6;
@@ -50,14 +58,18 @@ html[data-theme="dark"] {
 
 @theme inline {
   --color-canvas: var(--canvas);
+  --color-sidebar: var(--sidebar);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
   --color-surface-hover: var(--surface-hover);
   --color-surface-selected: var(--surface-selected);
+  --color-nav-active: var(--nav-active);
+  --color-nav-active-fg: var(--nav-active-text);
   --color-primary: var(--text-primary);
   --color-secondary: var(--text-secondary);
   --color-tertiary: var(--text-tertiary);
   --color-subtle: var(--border-subtle);
+  --color-scrim: var(--scrim);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
   --color-accent-copy: var(--accent-copy);
