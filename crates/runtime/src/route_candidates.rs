@@ -6,6 +6,7 @@ use any2api_domain::{
 };
 use any2api_provider::api::ProviderRegistry;
 
+use crate::credential_runtime::CredentialFilterKind;
 use crate::health::{AttemptHealth, HealthAcquireError};
 use crate::health::{EndpointHealthRuntime, ProxyHealthRuntime, ReliabilityPolicy};
 use crate::{credential_runtime::CredentialRuntimeBinding, published_snapshot::PublishedSnapshot};
@@ -26,16 +27,23 @@ impl RouteCandidate {
     pub(crate) fn health_availability(
         &self,
         policy: &ReliabilityPolicy,
-    ) -> Result<(), HealthAcquireError> {
+    ) -> Result<(), CandidateHealthError> {
         self.binding
             .generation()
             .health()
-            .availability(&self.upstream_model)?;
+            .availability(&self.upstream_model)
+            .map_err(|error| {
+                CandidateHealthError::new(CredentialFilterKind::CredentialHealth, error)
+            })?;
         if let Some(endpoint) = &self.endpoint_health {
-            endpoint.availability(policy)?;
+            endpoint.availability(policy).map_err(|error| {
+                CandidateHealthError::new(CredentialFilterKind::EndpointHealth, error)
+            })?;
         }
         if let Some(proxy) = &self.proxy_health {
-            proxy.availability(policy)?;
+            proxy.availability(policy).map_err(|error| {
+                CandidateHealthError::new(CredentialFilterKind::ProxyHealth, error)
+            })?;
         }
         Ok(())
     }
@@ -43,13 +51,18 @@ impl RouteCandidate {
     pub(crate) fn acquire_health(
         &self,
         policy: ReliabilityPolicy,
-    ) -> Result<AttemptHealth, HealthAcquireError> {
+    ) -> Result<AttemptHealth, CandidateHealthError> {
         self.binding
             .generation()
             .health()
-            .availability(&self.upstream_model)?;
+            .availability(&self.upstream_model)
+            .map_err(|error| {
+                CandidateHealthError::new(CredentialFilterKind::CredentialHealth, error)
+            })?;
         let endpoint = match &self.endpoint_health {
-            Some(endpoint) => Some(endpoint.try_acquire(&policy)?),
+            Some(endpoint) => Some(endpoint.try_acquire(&policy).map_err(|error| {
+                CandidateHealthError::new(CredentialFilterKind::EndpointHealth, error)
+            })?),
             None => None,
         };
         let proxy = match &self.proxy_health {
@@ -57,7 +70,10 @@ impl RouteCandidate {
                 Ok(proxy) => Some(proxy),
                 Err(error) => {
                     drop(endpoint);
-                    return Err(error);
+                    return Err(CandidateHealthError::new(
+                        CredentialFilterKind::ProxyHealth,
+                        error,
+                    ));
                 }
             },
             None => None,
@@ -69,6 +85,42 @@ impl RouteCandidate {
             proxy,
             policy,
         ))
+    }
+
+    pub(crate) fn record_health_filter(&self, error: CandidateHealthError) {
+        self.binding.record_filter(error.kind());
+    }
+
+    pub(crate) fn record_capacity_filter(&self) {
+        self.binding.record_filter(CredentialFilterKind::Capacity);
+    }
+
+    pub(crate) fn record_generation_selection(&self) {
+        self.binding.record_generation_selection();
+    }
+
+    pub(crate) fn record_auxiliary_selection(&self) {
+        self.binding.record_auxiliary_selection();
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CandidateHealthError {
+    kind: CredentialFilterKind,
+    source: HealthAcquireError,
+}
+
+impl CandidateHealthError {
+    const fn new(kind: CredentialFilterKind, source: HealthAcquireError) -> Self {
+        Self { kind, source }
+    }
+
+    pub(crate) const fn kind(self) -> CredentialFilterKind {
+        self.kind
+    }
+
+    pub(crate) const fn source(self) -> HealthAcquireError {
+        self.source
     }
 }
 

@@ -2,6 +2,7 @@ pub mod api;
 
 mod affinity;
 mod auxiliary_scheduler;
+mod balancing;
 mod config_command;
 mod config_publish_error;
 mod credential_auth;
@@ -28,6 +29,8 @@ mod scheduler_epoch;
 
 #[cfg(test)]
 mod auxiliary_scheduler_tests;
+#[cfg(test)]
+mod balancing_tests;
 
 #[cfg(test)]
 mod credential_runtime_tests;

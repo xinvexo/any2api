@@ -2,7 +2,7 @@
 
 > 状态：Draft<br>
 > 版本：1.0<br>
-> 最后更新：2026-07-21<br>
+> 最后更新：2026-07-22<br>
 > 用途：记录当前已经确认的需求、架构约束与后续待完善事项。<br>
 > 实施进度：见 `docs/IMPLEMENTATION_STATUS.md`。
 
@@ -2014,6 +2014,14 @@ runtime_retired
 日志中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。
 
 运行指标至少暴露当前配置 revision、总/分 Credential 并发、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
+
+负载均衡管理面使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务：
+
+- 每个 Credential 暴露 `in_flight/max_concurrency`、固定会话等待者、辅助请求占用、进程内成功选中次数与候选过滤次数；
+- 选中次数在 Credential Permit 与全部健康 Permit 均取得后递增，每次上游 Attempt 选择计一次；普通生成与辅助请求分别计数；
+- 满载、Credential/模型健康、Endpoint 健康和 Proxy 健康过滤分别计数。它们表示调度器实际执行的候选过滤事件，等待重选或 CAS 竞争可能使同一客户端请求产生多次过滤，禁止把它们解释为请求量、配额或计费数据；
+- 健康状态按真实作用域展示：Credential + upstream model、Provider Endpoint 和实际 Proxy 分别报告可用、冷却剩余时间或永久认证不可用，禁止把模型级 429 合并成整把 Credential 故障；
+- 所有计数与健康快照只存在于当前进程，配置热更新复用同一 Credential 句柄时保留，Credential 删除或进程重启后清空，不持久化、不恢复。
 
 首个请求遥测切片采用以下边界：
 

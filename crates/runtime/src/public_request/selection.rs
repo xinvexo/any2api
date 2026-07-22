@@ -128,6 +128,14 @@ fn select_auxiliary_candidate_for_test(
     auxiliary::select_for_test(scheduler, tiers, tie_breaker)
 }
 
+#[cfg(test)]
+fn try_select_fixed_candidate_for_test(
+    policy: crate::health::ReliabilityPolicy,
+    candidate: &RouteCandidate,
+) -> Result<Option<SelectedCandidate>, FixedSelectionError> {
+    fixed::try_selected_for_test(policy, candidate)
+}
+
 fn capacity_error(message: &'static str) -> PublicError {
     public_error(PublicErrorCode::LocalConcurrencyLimit, message)
 }

@@ -5,6 +5,8 @@ mod auth_cookie;
 mod auth_dto;
 mod auth_handlers;
 mod auth_middleware;
+mod balancing_dto;
+mod balancing_handlers;
 mod config_publish_error;
 mod error;
 mod gateway_api_key_dto;
@@ -59,6 +61,7 @@ fn protected_routes() -> Router<AppState> {
             "/affinity/credentials/{id}",
             axum::routing::delete(affinity_handlers::clear_credential),
         )
+        .route("/balancing", get(balancing_handlers::get))
         .route(
             "/gateway-api-keys",
             get(gateway_api_key_handlers::list).post(gateway_api_key_handlers::create),

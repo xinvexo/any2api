@@ -1,11 +1,7 @@
-use std::{
-    collections::BTreeMap,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
+#[path = "selection_tests/queue_tests.rs"]
+mod queue_tests;
+
+use std::{collections::BTreeMap, sync::Arc};
 
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProviderCredential,
@@ -14,9 +10,10 @@ use any2api_domain::{
 
 use super::{
     GenerationSelection, RequestPermit, RouteCandidate, SelectedCandidate,
-    select_auxiliary_candidate_for_test, select_generation_candidate,
-    try_select_generation_candidate_for_test, wait_for_generation_candidate,
+    select_auxiliary_candidate_for_test, try_select_fixed_candidate_for_test,
+    try_select_generation_candidate_for_test,
 };
+
 use crate::{
     auxiliary_scheduler::{
         AuxiliaryConcurrencyLimits, AuxiliaryScheduler, AuxiliarySelectAndAcquireResult,
@@ -24,7 +21,6 @@ use crate::{
     credential_auth::CredentialAuthMaterial,
     credential_runtime::CredentialRuntimeHandle,
     health::{EndpointHealthRuntime, ReliabilityPolicy},
-    queue::{QueueCoordinator, QueuePolicy, SaturationAction},
     scheduler_epoch::SchedulerEpoch,
 };
 
@@ -61,7 +57,7 @@ fn generation_fallback_only_skips_a_saturated_tier_when_enabled() {
     let primary = candidate("primary", 1, Arc::clone(&epoch), 0);
     let fallback = candidate("fallback", 2, Arc::clone(&epoch), 1);
     let blocker = primary.binding.try_acquire().expect("primary blocker");
-    let tiers = BTreeMap::from([(0, vec![primary]), (1, vec![fallback.clone()])]);
+    let tiers = BTreeMap::from([(0, vec![primary.clone()]), (1, vec![fallback.clone()])]);
 
     assert!(matches!(
         try_select_generation_candidate_for_test(false, &tiers, |_| Some(0)),
@@ -78,6 +74,11 @@ fn generation_fallback_only_skips_a_saturated_tier_when_enabled() {
         }
     };
     assert_eq!(selected.candidate.credential_id, fallback.credential_id);
+    assert_eq!(primary.binding.balancing_counters().filtered_capacity(), 2);
+    assert_eq!(
+        fallback.binding.balancing_counters().selected_generation(),
+        1
+    );
     drop(selected);
     drop(blocker);
 }
@@ -119,6 +120,17 @@ async fn generation_selection_retries_the_tier_when_a_half_open_probe_is_raced()
 
     assert_eq!(selected.candidate.credential_id, healthy.credential_id);
     assert_eq!(raced.binding.capacity().in_flight(), 0);
+    assert_eq!(
+        raced
+            .binding
+            .balancing_counters()
+            .filtered_endpoint_health(),
+        1
+    );
+    assert_eq!(
+        healthy.binding.balancing_counters().selected_generation(),
+        1
+    );
     drop(selected);
     drop(occupied_probe);
 }
@@ -156,6 +168,14 @@ async fn auxiliary_selection_retries_the_tier_when_a_half_open_probe_is_raced() 
 
     assert_eq!(selected.candidate.credential_id, healthy.credential_id);
     assert_eq!(raced.binding.auxiliary_in_flight(), 0);
+    assert_eq!(
+        raced
+            .binding
+            .balancing_counters()
+            .filtered_endpoint_health(),
+        1
+    );
+    assert_eq!(healthy.binding.balancing_counters().selected_auxiliary(), 1);
     drop(selected);
     drop(occupied_probe);
 }
@@ -170,203 +190,22 @@ fn generation_selection_reports_no_candidates_for_empty_tiers() {
     ));
 }
 
-#[tokio::test]
-async fn reject_policy_does_not_enter_the_queue() {
+#[test]
+fn fixed_selection_records_the_successful_selection() {
     let epoch = SchedulerEpoch::new();
-    let coordinator = QueueCoordinator::new(epoch);
-    let policy = policy(SaturationAction::Reject, Duration::from_secs(1), 1);
+    let candidate = candidate("fixed", 5, Arc::clone(&epoch), 0);
+    let selected = try_select_fixed_candidate_for_test(default_reliability_policy(), &candidate)
+        .expect("fixed selection")
+        .expect("fixed capacity");
 
-    let error = match select_generation_candidate(&coordinator, policy, || {
-        Ok(GenerationSelection::AtCapacity)
-    })
-    .await
-    {
-        Ok(_) => panic!("reject policy must fail immediately"),
-        Err(error) => error,
-    };
-
-    assert_eq!(error.code, PublicErrorCode::LocalConcurrencyLimit);
-    assert_eq!(coordinator.waiting_count(), 0);
-}
-
-#[tokio::test]
-async fn queue_limit_rejects_an_additional_waiter() {
-    let epoch = SchedulerEpoch::new();
-    let coordinator = QueueCoordinator::new(epoch);
-    let occupied = coordinator.try_ticket(1).expect("occupied ticket");
-    let policy = policy(SaturationAction::Wait, Duration::from_secs(1), 1);
-
-    let error = match select_generation_candidate(&coordinator, policy, || {
-        Ok(GenerationSelection::AtCapacity)
-    })
-    .await
-    {
-        Ok(_) => panic!("bounded queue must reject another waiter"),
-        Err(error) => error,
-    };
-
-    assert_eq!(error.code, PublicErrorCode::LocalConcurrencyLimit);
-    assert_eq!(error.message, "request queue is full");
-    assert_eq!(coordinator.waiting_count(), 1);
-    drop(occupied);
-    assert_eq!(coordinator.waiting_count(), 0);
-}
-
-#[tokio::test]
-async fn generation_wait_reselects_after_a_permit_is_released() {
-    let epoch = SchedulerEpoch::new();
-    let coordinator = QueueCoordinator::new(Arc::clone(&epoch));
-    let candidate = candidate("queued", 1, Arc::clone(&epoch), 0);
-    let blocker = candidate.binding.try_acquire().expect("blocker permit");
-    let queued_candidate = candidate.clone();
-    let policy = policy(SaturationAction::Wait, Duration::from_secs(1), 1);
-    let coordinator_for_task = Arc::clone(&coordinator);
-    let task = tokio::spawn(async move {
-        wait_for_generation_candidate(&coordinator_for_task, policy, || {
-            try_acquire_candidate(&queued_candidate)
-        })
-        .await
-    });
-
-    wait_until_waiting(&coordinator, 1).await;
-    drop(blocker);
-    let selected = task.await.expect("queue task").expect("selected candidate");
-    assert_eq!(selected.candidate.credential_id, candidate.credential_id);
+    assert_eq!(
+        candidate.binding.balancing_counters().selected_generation(),
+        1
+    );
     drop(selected);
-    assert_eq!(coordinator.waiting_count(), 0);
 }
 
-#[tokio::test(start_paused = true)]
-async fn generation_wait_times_out_and_releases_its_ticket() {
-    let epoch = SchedulerEpoch::new();
-    let coordinator = QueueCoordinator::new(Arc::clone(&epoch));
-    let candidate = candidate("timeout", 1, Arc::clone(&epoch), 0);
-    let blocker = candidate.binding.try_acquire().expect("blocker permit");
-    let policy = policy(SaturationAction::Wait, Duration::from_secs(1), 1);
-    let queued_candidate = candidate.clone();
-    let coordinator_for_task = Arc::clone(&coordinator);
-    let task = tokio::spawn(async move {
-        wait_for_generation_candidate(&coordinator_for_task, policy, || {
-            try_acquire_candidate(&queued_candidate)
-        })
-        .await
-    });
-
-    wait_until_waiting(&coordinator, 1).await;
-    tokio::task::yield_now().await;
-    tokio::time::advance(Duration::from_secs(1)).await;
-    let error = match task.await.expect("queue task") {
-        Ok(_) => panic!("queue must time out"),
-        Err(error) => error,
-    };
-
-    assert_eq!(error.code, PublicErrorCode::LocalConcurrencyLimit);
-    assert_eq!(coordinator.waiting_count(), 0);
-    drop(blocker);
-}
-
-#[tokio::test(start_paused = true)]
-async fn timeout_boundary_performs_one_final_selection() {
-    let coordinator = QueueCoordinator::new(SchedulerEpoch::new());
-    let candidate = candidate("deadline", 1, SchedulerEpoch::new(), 0);
-    let policy = policy(SaturationAction::Wait, Duration::from_secs(1), 1);
-    let attempts = Arc::new(AtomicUsize::new(0));
-    let attempts_for_task = Arc::clone(&attempts);
-    let coordinator_for_task = Arc::clone(&coordinator);
-    let candidate_for_task = candidate.clone();
-    let task = tokio::spawn(async move {
-        select_generation_candidate(&coordinator_for_task, policy, || {
-            let attempt = attempts_for_task.fetch_add(1, Ordering::AcqRel) + 1;
-            if attempt < 3 {
-                Ok(GenerationSelection::AtCapacity)
-            } else {
-                try_acquire_candidate(&candidate_for_task)
-            }
-        })
-        .await
-    });
-
-    wait_until_waiting(&coordinator, 1).await;
-    for _ in 0..100 {
-        if attempts.load(Ordering::Acquire) >= 2 {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert_eq!(attempts.load(Ordering::Acquire), 2);
-    tokio::task::yield_now().await;
-    tokio::time::advance(Duration::from_secs(1)).await;
-    let selected = task
-        .await
-        .expect("queue task")
-        .expect("final selection at the timeout boundary");
-
-    assert_eq!(attempts.load(Ordering::Acquire), 3);
-    assert_eq!(selected.candidate.credential_id, candidate.credential_id);
-    drop(selected);
-    assert_eq!(coordinator.waiting_count(), 0);
-}
-
-#[tokio::test]
-async fn epoch_advance_between_recheck_and_wait_is_not_lost() {
-    let epoch = SchedulerEpoch::new();
-    let coordinator = QueueCoordinator::new(Arc::clone(&epoch));
-    let candidate = candidate("wake", 1, Arc::clone(&epoch), 0);
-    let policy = policy(SaturationAction::Wait, Duration::from_secs(1), 1);
-    let mut attempts = 0_u8;
-
-    let selected = wait_for_generation_candidate(&coordinator, policy, || {
-        attempts += 1;
-        if attempts == 1 {
-            epoch.advance();
-            Ok(GenerationSelection::AtCapacity)
-        } else {
-            try_acquire_candidate(&candidate)
-        }
-    })
-    .await
-    .expect("epoch notification must wake the waiter");
-
-    assert_eq!(attempts, 2);
-    drop(selected);
-    assert_eq!(coordinator.waiting_count(), 0);
-}
-
-#[tokio::test]
-async fn cancellation_drops_the_queue_ticket() {
-    let epoch = SchedulerEpoch::new();
-    let coordinator = QueueCoordinator::new(Arc::clone(&epoch));
-    let candidate = candidate("cancel", 1, Arc::clone(&epoch), 0);
-    let blocker = candidate.binding.try_acquire().expect("blocker permit");
-    let policy = policy(SaturationAction::Wait, Duration::from_secs(30), 1);
-    let queued_candidate = candidate.clone();
-    let coordinator_for_task = Arc::clone(&coordinator);
-    let task = tokio::spawn(async move {
-        wait_for_generation_candidate(&coordinator_for_task, policy, || {
-            try_acquire_candidate(&queued_candidate)
-        })
-        .await
-    });
-
-    wait_until_waiting(&coordinator, 1).await;
-    task.abort();
-    assert!(task.await.is_err());
-    assert_eq!(coordinator.waiting_count(), 0);
-    assert_eq!(candidate.binding.capacity().in_flight(), 1);
-    drop(blocker);
-}
-
-async fn wait_until_waiting(coordinator: &QueueCoordinator, expected: u32) {
-    for _ in 0..10_000 {
-        if coordinator.waiting_count() == expected {
-            return;
-        }
-        tokio::task::yield_now().await;
-    }
-    panic!("queue task did not start");
-}
-
-fn try_acquire_candidate(
+pub(super) fn try_acquire_candidate(
     candidate: &RouteCandidate,
 ) -> Result<GenerationSelection, any2api_domain::PublicError> {
     let Some(permit) = candidate.binding.try_acquire() else {
@@ -383,11 +222,7 @@ fn try_acquire_candidate(
     })))
 }
 
-fn policy(action: SaturationAction, timeout: Duration, max_waiting: u32) -> QueuePolicy {
-    QueuePolicy::new(action, timeout, max_waiting, false).expect("queue policy")
-}
-
-fn default_reliability_policy() -> ReliabilityPolicy {
+pub(super) fn default_reliability_policy() -> ReliabilityPolicy {
     ReliabilityPolicy::from_settings(
         any2api_domain::SettingsConfiguration::defaults().reliability(),
     )
@@ -402,7 +237,7 @@ fn open_endpoint(endpoint: &Arc<EndpointHealthRuntime>, policy: &ReliabilityPoli
     }
 }
 
-fn candidate(
+pub(super) fn candidate(
     label: &str,
     fingerprint_byte: u8,
     scheduler_epoch: Arc<SchedulerEpoch>,

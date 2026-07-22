@@ -108,6 +108,14 @@ impl AuxiliaryScheduler {
             .limits = limits;
     }
 
+    pub(crate) fn runtime_capacity(&self) -> (u32, AuxiliaryConcurrencyLimits) {
+        let state = self
+            .state
+            .lock()
+            .expect("auxiliary scheduler lock poisoned");
+        (state.global_in_flight, state.limits)
+    }
+
     pub(crate) fn select_index_and_try_acquire(
         self: &Arc<Self>,
         candidates: &[CredentialRuntimeBinding],

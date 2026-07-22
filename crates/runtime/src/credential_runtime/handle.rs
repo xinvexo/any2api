@@ -13,6 +13,7 @@ use super::{
     binding::CredentialRuntimeBinding,
     capacity::{CredentialCapacity, pack, unpack},
     generation::CredentialGenerationRuntime,
+    metrics::{CredentialBalancingCounters, CredentialBalancingMetrics, CredentialFilterKind},
 };
 use crate::{credential_auth::CredentialAuthMaterial, scheduler_epoch::SchedulerEpoch};
 
@@ -23,6 +24,7 @@ pub(crate) struct CredentialRuntimeHandle {
     auxiliary_in_flight: AtomicU32,
     current_generation: ArcSwap<CredentialGenerationRuntime>,
     retired: AtomicBool,
+    balancing: CredentialBalancingMetrics,
     scheduler_epoch: Arc<SchedulerEpoch>,
 }
 
@@ -43,6 +45,7 @@ impl CredentialRuntimeHandle {
                 Arc::clone(&scheduler_epoch),
             )),
             retired: AtomicBool::new(false),
+            balancing: CredentialBalancingMetrics::default(),
             scheduler_epoch,
         })
     }
@@ -109,6 +112,26 @@ impl CredentialRuntimeHandle {
 
     pub(crate) fn auxiliary_in_flight(&self) -> u32 {
         self.auxiliary_in_flight.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn fixed_waiter_count(&self) -> u32 {
+        self.fixed_waiters.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn balancing_counters(&self) -> CredentialBalancingCounters {
+        self.balancing.snapshot()
+    }
+
+    pub(crate) fn record_generation_selection(&self) {
+        self.balancing.record_generation_selection();
+    }
+
+    pub(crate) fn record_auxiliary_selection(&self) {
+        self.balancing.record_auxiliary_selection();
+    }
+
+    pub(crate) fn record_filter(&self, kind: CredentialFilterKind) {
+        self.balancing.record_filter(kind);
     }
 
     pub(crate) fn reserve_auxiliary(&self) {

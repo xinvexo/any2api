@@ -3,9 +3,14 @@ pub use crate::affinity::{
     AffinityRuntimeSnapshot,
 };
 pub use crate::auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryConcurrencyLimitsError};
+pub use crate::balancing::{
+    BalancingAuxiliarySnapshot, BalancingCredentialModelSnapshot, BalancingCredentialSnapshot,
+    BalancingHealthStatus, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
+};
 pub use crate::config_publish_error::ConfigPublishError;
 pub use crate::credential_runtime::{
-    ConcurrencyPermit, CredentialCapacity, CredentialGenerationRuntime, CredentialRuntimeBinding,
+    ConcurrencyPermit, CredentialBalancingCounters, CredentialCapacity,
+    CredentialGenerationRuntime, CredentialRuntimeBinding,
 };
 pub use crate::gateway_api_key_publisher::GatewayApiKeyPublishResult;
 pub use crate::gateway_api_key_token::{GatewayApiKeyToken, GatewayApiKeyTokenGenerationError};

@@ -1,12 +1,12 @@
 # any2api 实施状态
 
-> 最后更新：2026-07-21
+> 最后更新：2026-07-22
 > 用途：简要记录已经完成的代码、当前边界和下一步顺序。架构真相仍以根目录 `ARCHITECTURE.md` 为准。
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、RequestLog 生命周期/管理页面自动化以及统一浏览器 E2E 基础设施已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
-- 最近完成：Playwright Chromium 现使用真实 Rust 服务、隔离 SQLite/Vault 和真实管理员 Cookie/CSRF，覆盖登录后保留 deep link、核心管理页直接刷新、390×844 移动导航、无水平溢出和浏览器错误检查。此前完成 RequestLog 多 Attempt/SSE 真实持久化与列表/详情全部页面状态自动化。
+- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、运行态负载均衡观察页以及统一浏览器 E2E 基础设施已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
+- 最近完成：`GET /api/admin/balancing` 与 React `/balancing` 已接入稳定 RuntimeRegistry，展示实时容量、队列、辅助并发、选择/过滤计数和 Credential/Endpoint/Proxy 分层健康；全部运行态只保存在当前进程。Playwright Chromium 已将该页纳入真实服务与 390×844 响应式契约。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`test: cover request log lifecycle and views`。
-- 本切片主题：真实服务浏览器 E2E 基础设施与响应式壳层契约。
+- 上一切片提交主题：`test: add real browser e2e`。
+- 本切片主题：负载均衡运行态检查 API、轻量调度计数与现代 Web 页面。
 
 ## 已完成
 
@@ -299,6 +299,15 @@
 - 390×844 契约覆盖折叠导航打开、跳转后关闭、请求日志空态与 `documentElement.scrollWidth <= innerWidth`；全部用例同时收集未处理 page error 和 error 级 console 输出。
 - E2E 只验证跨层共享行为，业务 CRUD、字段边界、Secret 和故障矩阵继续由更快的 Rust/HTTP/React 测试覆盖。CI 使用独立 `e2e` job 安装 Chromium，普通 Vitest 门禁不承担浏览器启动成本。完整决策见 `docs/adr/0022-browser-e2e-contract.md`。
 
+### 负载均衡运行态检查切片
+
+- 稳定 `CredentialRuntimeHandle` 增加 Relaxed 原子计数，分别记录普通生成/固定会话选中、辅助请求选中，以及满载、Credential+模型、Endpoint、Proxy 健康过滤事件；只有容量 Permit 与全部健康 Permit 都取得后才记录选中。
+- `RuntimeRegistry::balancing_snapshot` 从当前 `PublishedSnapshot` 只读聚合 scheduler epoch、QueueTicket 等待数与策略、辅助并发容量、Credential 实时容量/固定等待者/辅助占用/计数和按 upstream model 分层的三类健康状态。
+- 新增管理员只读 API `GET /api/admin/balancing`，复用既有管理员认证与 `Cache-Control: no-store`。响应只返回 ID、脱敏标签、启停状态和运行指标，不返回 URL、地址或 Secret；总可调度容量同时要求 Credential、Endpoint 与解析后的实际 Proxy 均启用。
+- React `/balancing` 已替换占位页，展示总览与 Provider 汇总、Credential 负载进度、生成选择比例、分开的过滤原因和三层健康状态，并组合现有 `scheduler.*` 设置表单。刷新失败时保留最近一次有效数据，空配置有独立引导态。
+- 计数只表示当前进程内的调度检查事件；等待重选、健康竞态或 CAS 竞争可使过滤次数高于客户端请求数，不能用于计费、额度或 RequestLog 替代。热更新复用 Credential 句柄时保留，删除 Credential 或进程重启后清空。
+- Runtime 热路径测试覆盖普通/辅助成功选中、满载和 HalfOpen 健康竞态计数；HTTP 契约覆盖真实配置发布、实时 Permit 容量、停用实际代理对可调度容量的影响、标签与 no-store；Web 覆盖严格 DTO、空态、分层健康和刷新失败保留旧数据。完整决策见 `docs/adr/0023-balancing-runtime-inspection.md`。
+
 ### 本地文件日志轮转切片
 
 - SettingRegistry 新增 `logs.file.level`、`logs.file.retention` 与 `logs.file.max_total_size`，默认分别为 `info`、`7d` 与 `256 MiB`；Registry 当前共 47 项，Web 显示默认值、覆盖值和生效值并支持恢复默认。
@@ -337,12 +346,13 @@
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，但精确首 Token 与 Token Usage 尚未采集。
+- 负载均衡运行态 API 与 `/balancing` 页面已完成；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 
 ## 下一步
 
-1. 实现当前仍为占位页的负载均衡运行态页面，复用稳定 RuntimeRegistry 暴露 Credential 容量、等待数、健康/冷却与选择统计，不新增持久化运行态。
-2. 首个正式版本稳定后，再按独立切片实现管理员密码在线轮换、可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前 API Key 首版。
+1. 首个正式版本稳定后，再按独立切片实现管理员密码在线轮换、可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前 API Key 首版。
+2. 精确首 Token 与 Token Usage 仍待协议级钩子；在能够按 Codex/Claude 契约可靠提取前继续保持 `NULL`，不猜测未知字段。
 
 ## 验证结果
 
@@ -362,4 +372,4 @@ pnpm test
 pnpm build
 ```
 
-本切片已通过完整门禁：Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用 2026-07-17 本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 28 个 Vitest 文件的 72 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约，桌面核心页面、登录后 deep link/刷新与 390×844 移动导航均无水平溢出或浏览器错误。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
+本切片已通过完整门禁：Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 30 个 Vitest 文件的 77 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约，负载均衡页已进入桌面核心页面、登录后 deep link/刷新与 390×844 移动导航检查，均无水平溢出或浏览器错误。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。

@@ -7,6 +7,7 @@ use super::{
     capacity::CredentialCapacity,
     generation::CredentialGenerationRuntime,
     handle::{CredentialRuntimeHandle, FixedCredentialWaiter},
+    metrics::{CredentialBalancingCounters, CredentialFilterKind},
 };
 
 #[derive(Clone, Debug)]
@@ -42,6 +43,26 @@ impl CredentialRuntimeBinding {
 
     pub(crate) fn auxiliary_in_flight(&self) -> u32 {
         self.handle.auxiliary_in_flight()
+    }
+
+    pub(crate) fn fixed_waiter_count(&self) -> u32 {
+        self.handle.fixed_waiter_count()
+    }
+
+    pub(crate) fn balancing_counters(&self) -> CredentialBalancingCounters {
+        self.handle.balancing_counters()
+    }
+
+    pub(crate) fn record_generation_selection(&self) {
+        self.handle.record_generation_selection();
+    }
+
+    pub(crate) fn record_auxiliary_selection(&self) {
+        self.handle.record_auxiliary_selection();
+    }
+
+    pub(crate) fn record_filter(&self, kind: CredentialFilterKind) {
+        self.handle.record_filter(kind);
     }
 
     pub(crate) fn reserve_auxiliary(

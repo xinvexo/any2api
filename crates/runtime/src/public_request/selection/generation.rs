@@ -54,12 +54,18 @@ fn try_select_with(
                 }
                 match candidate.health_availability(&policy) {
                     Ok(()) => true,
-                    Err(HealthAcquireError::Temporary(until)) => {
-                        retry_at =
-                            Some(retry_at.map_or(until, |current: Instant| current.min(until)));
-                        false
+                    Err(error) => {
+                        candidate.record_health_filter(error);
+                        match error.source() {
+                            HealthAcquireError::Temporary(until) => {
+                                retry_at = Some(
+                                    retry_at.map_or(until, |current: Instant| current.min(until)),
+                                );
+                                false
+                            }
+                            HealthAcquireError::Permanent => false,
+                        }
                     }
-                    Err(HealthAcquireError::Permanent) => false,
                 }
             })
             .collect::<Vec<_>>();
@@ -82,19 +88,19 @@ fn try_select_with(
                     let candidate = eligible[index].1;
                     let health = match candidate.acquire_health(policy) {
                         Ok(health) => health,
-                        Err(HealthAcquireError::Temporary(until)) => {
+                        Err(error) => {
+                            candidate.record_health_filter(error);
                             drop(permit);
-                            retry_at =
-                                Some(retry_at.map_or(until, |current: Instant| current.min(until)));
-                            eligible.swap_remove(index);
-                            continue;
-                        }
-                        Err(HealthAcquireError::Permanent) => {
-                            drop(permit);
+                            if let HealthAcquireError::Temporary(until) = error.source() {
+                                retry_at = Some(
+                                    retry_at.map_or(until, |current: Instant| current.min(until)),
+                                );
+                            }
                             eligible.swap_remove(index);
                             continue;
                         }
                     };
+                    candidate.record_generation_selection();
                     return Ok(GenerationSelection::Acquired(Box::new(SelectedCandidate {
                         candidate: candidate.clone(),
                         permit: super::super::RequestPermit::Generation(permit),
@@ -102,6 +108,11 @@ fn try_select_with(
                     })));
                 }
                 IndexedSelectAndAcquireResult::AtCapacity => {
+                    for (_, candidate) in &eligible {
+                        if candidate.binding.normal_capacity().is_full() {
+                            candidate.record_capacity_filter();
+                        }
+                    }
                     saw_capacity = true;
                     if !fallback_on_saturation {
                         return Ok(GenerationSelection::AtCapacity);

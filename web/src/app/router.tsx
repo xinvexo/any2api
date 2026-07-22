@@ -4,13 +4,13 @@ import { AppShell } from "@/app/shell/AppShell";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ModelRoutesPage } from "@/pages/ModelRoutesPage";
-import { PlaceholderPage } from "@/pages/PlaceholderPage";
 import { ProxiesPage } from "@/pages/ProxiesPage";
 import { ProviderCredentialsPage } from "@/pages/ProviderCredentialsPage";
 import { ProvidersPage } from "@/pages/ProvidersPage";
 import { GatewayApiKeysPage } from "@/pages/GatewayApiKeysPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { AffinityPage } from "@/pages/AffinityPage";
+import { BalancingPage } from "@/pages/BalancingPage";
 import { RequestLogDetailPage } from "@/pages/RequestLogDetailPage";
 import { RequestLogsPage } from "@/pages/RequestLogsPage";
 
@@ -24,7 +24,7 @@ export const router = createBrowserRouter([
       { path: "providers", element: <ProvidersPage /> },
       { path: "providers/:endpointId", element: <ProviderCredentialsPage /> },
       { path: "routes", element: <ModelRoutesPage /> },
-      { path: "balancing", element: <PlaceholderPage title="负载均衡" /> },
+      { path: "balancing", element: <BalancingPage /> },
       { path: "affinity", element: <AffinityPage /> },
       { path: "keys", element: <GatewayApiKeysPage /> },
       { path: "logs", element: <RequestLogsPage /> },

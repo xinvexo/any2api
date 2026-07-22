@@ -5,7 +5,7 @@ use any2api_domain::{FallbackTier, ModelRouteId, PublicError};
 use super::super::SelectedCandidate;
 use crate::{
     auxiliary_scheduler::{AuxiliaryScheduler, AuxiliarySelectAndAcquireResult},
-    health::{HealthAcquireError, ReliabilityPolicy},
+    health::ReliabilityPolicy,
     published_snapshot::PublishedSnapshot,
     route_candidates::{CandidateExclusions, RouteCandidate},
 };
@@ -41,7 +41,16 @@ fn select_with(
             .iter()
             .enumerate()
             .filter(|(_, candidate)| {
-                exclusions.allows(candidate) && candidate.health_availability(&policy).is_ok()
+                if !exclusions.allows(candidate) {
+                    return false;
+                }
+                match candidate.health_availability(&policy) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        candidate.record_health_filter(error);
+                        false
+                    }
+                }
             })
             .collect::<Vec<_>>();
         if eligible.is_empty() {
@@ -60,12 +69,14 @@ fn select_with(
                     let candidate = eligible[index].1;
                     let health = match candidate.acquire_health(policy) {
                         Ok(health) => health,
-                        Err(HealthAcquireError::Temporary(_) | HealthAcquireError::Permanent) => {
+                        Err(error) => {
+                            candidate.record_health_filter(error);
                             drop(permit);
                             eligible.swap_remove(index);
                             continue;
                         }
                     };
+                    candidate.record_auxiliary_selection();
                     return Ok(SelectedCandidate {
                         candidate: candidate.clone(),
                         permit: super::super::RequestPermit::Auxiliary(permit),
@@ -73,6 +84,12 @@ fn select_with(
                     });
                 }
                 AuxiliarySelectAndAcquireResult::AtCapacity => {
+                    let per_credential_limit = scheduler.limits().per_credential();
+                    for (_, candidate) in &eligible {
+                        if candidate.binding.auxiliary_in_flight() >= per_credential_limit {
+                            candidate.record_capacity_filter();
+                        }
+                    }
                     return Err(crate::public_request::selection::capacity_error(
                         "auxiliary request capacity is full",
                     ));

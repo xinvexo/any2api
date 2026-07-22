@@ -10,10 +10,49 @@ use tokio::sync::{mpsc, watch};
 
 use crate::{
     credential_auth::CredentialAuthMaterials,
-    credential_runtime::CredentialRuntimeBindings,
+    credential_runtime::{CredentialFilterKind, CredentialRuntimeBindings},
     registry::RuntimeRegistry,
     scheduler::{SelectAndAcquireResult, select_and_try_acquire},
 };
+
+#[test]
+fn balancing_counters_are_stable_with_the_credential_handle() {
+    let registry = runtime();
+    let fixture = CredentialFixture::new();
+    let initial = reconcile(
+        &registry,
+        fixture.configuration(2, 1, 1),
+        "sk-balancing-test",
+    );
+    let binding = initial.as_slice()[0].clone();
+    binding.record_generation_selection();
+    binding.record_auxiliary_selection();
+    binding.record_filter(CredentialFilterKind::Capacity);
+    binding.record_filter(CredentialFilterKind::CredentialHealth);
+    binding.record_filter(CredentialFilterKind::EndpointHealth);
+    binding.record_filter(CredentialFilterKind::ProxyHealth);
+
+    let updated = reconcile(
+        &registry,
+        fixture.configuration(3, 1, 1),
+        "sk-balancing-test",
+    );
+    let counters = updated.as_slice()[0].balancing_counters();
+    assert_eq!(counters.selected_generation(), 1);
+    assert_eq!(counters.selected_auxiliary(), 1);
+    assert_eq!(counters.filtered_capacity(), 1);
+    assert_eq!(counters.filtered_credential_health(), 1);
+    assert_eq!(counters.filtered_endpoint_health(), 1);
+    assert_eq!(counters.filtered_proxy_health(), 1);
+
+    let restarted = runtime();
+    let fresh = reconcile(
+        &restarted,
+        fixture.configuration(3, 1, 1),
+        "sk-balancing-test",
+    );
+    assert_eq!(fresh.as_slice()[0].balancing_counters(), Default::default());
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_acquires_never_exceed_the_configured_limit() {

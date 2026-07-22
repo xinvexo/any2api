@@ -11,6 +11,7 @@ use tokio::sync::watch;
 use crate::{
     affinity::{AffinityPolicy, AffinityRegistry, AffinityRuntimeSnapshot},
     auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryScheduler},
+    balancing::{BalancingRuntimeSnapshot, snapshot as balancing_snapshot},
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
     health::{HealthBindings, HealthRegistry},
@@ -178,6 +179,14 @@ impl RuntimeRegistry {
 
     pub fn clear_credential_affinity(&self, credential_id: CredentialId) -> usize {
         self.affinity.clear_credential(credential_id)
+    }
+
+    #[must_use]
+    pub fn balancing_snapshot(
+        &self,
+        published: &crate::published_snapshot::PublishedSnapshot,
+    ) -> BalancingRuntimeSnapshot {
+        balancing_snapshot(self, published)
     }
 }
 
