@@ -5,33 +5,31 @@ const password = "any2api-e2e-password";
 test("login preserves a direct settings link and refreshes the SPA route", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
 
-  await loginAt(page, "/settings", "设置");
+  await loginAt(page, "/settings", "配置版本");
   await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByRole("heading", { level: 1, name: "设置" })).toBeVisible();
   await expect(page.getByText("配置版本", { exact: false }).first()).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.reload();
   await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByRole("heading", { level: 1, name: "设置" })).toBeVisible();
+  await expect(page.getByText("配置版本", { exact: false }).first()).toBeVisible();
   expect(browserErrors).toEqual([]);
 });
 
 test("desktop core management deep links render against the real service", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
-  await loginAt(page, "/", "总览");
+  await loginAt(page, "/", "运行正常");
 
-  for (const [path, heading, readyText] of [
-    ["/", "总览", "运行正常"],
-    ["/proxies", "代理", "代理列表"],
-    ["/providers", "Provider", "Provider Endpoint"],
-    ["/routes", "模型路由", "已发布路由"],
-    ["/balancing", "负载均衡", "还没有 Provider Credential"],
-    ["/keys", "网关密钥", "尚未创建网关密钥"],
-    ["/logs", "请求日志", "还没有请求日志"],
+  for (const [path, readyText] of [
+    ["/", "运行正常"],
+    ["/proxies", "代理列表"],
+    ["/providers", "Provider Endpoint"],
+    ["/routes", "已发布路由"],
+    ["/balancing", "还没有 Provider Credential"],
+    ["/keys", "尚未创建网关密钥"],
+    ["/logs", "还没有请求日志"],
   ] as const) {
     await page.goto(path);
-    await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
     await expect(page.getByText(readyText, { exact: false }).first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
   }
@@ -42,7 +40,7 @@ test("desktop core management deep links render against the real service", async
 test("390px navigation closes after a deep-link transition without horizontal overflow", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await loginAt(page, "/settings", "设置");
+  await loginAt(page, "/settings", "配置版本");
 
   const menu = page.getByRole("button", { name: "打开导航" });
   await menu.click();
@@ -53,19 +51,18 @@ test("390px navigation closes after a deep-link transition without horizontal ov
   await navigation.getByRole("link", { name: "请求日志" }).click();
 
   await expect(page).toHaveURL(/\/logs$/);
-  await expect(page.getByRole("heading", { level: 1, name: "请求日志" })).toBeVisible();
   await expect(page.getByRole("button", { name: "打开导航" })).toBeVisible();
   await expect(page.getByText("还没有请求日志")).toBeVisible();
   await expectNoHorizontalOverflow(page);
   expect(browserErrors).toEqual([]);
 });
 
-async function loginAt(page: Page, path: string, heading: string) {
+async function loginAt(page: Page, path: string, readyText: string) {
   await page.goto(path);
   await expect(page.getByRole("heading", { name: "管理员登录" })).toBeVisible();
   await page.getByLabel("管理员密码").fill(password);
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
+  await expect(page.getByText(readyText, { exact: false }).first()).toBeVisible();
 }
 
 async function expectNoHorizontalOverflow(page: Page) {

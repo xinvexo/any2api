@@ -8,8 +8,11 @@ export function AdminSecurityBanner() {
     return null;
   }
   return (
-    <div className="border-b border-warning/35 bg-warning/10 px-4 py-3 text-warning sm:px-6 lg:px-10" role="status">
-      <div className="mx-auto flex max-w-6xl items-start gap-3 text-sm leading-5">
+    <div
+      className="rounded-panel border border-warning/30 bg-warning/10 px-4 py-3 text-warning shadow-hairline"
+      role="status"
+    >
+      <div className="flex items-start gap-3 text-sm leading-5">
         <TriangleAlert size={17} className="mt-0.5 shrink-0" aria-hidden="true" />
         <p>
           当前远程管理使用明文 HTTP。管理员密码、会话 Cookie，以及未来上传的 OAuth2 JSON

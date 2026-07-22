@@ -12,15 +12,17 @@ const options = [
 export function ThemeSelector({
   mode,
   onModeChange,
+  compact = false,
 }: {
   mode: ThemeMode;
   onModeChange: (mode: ThemeMode) => void;
+  compact?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-xs font-medium text-tertiary">外观</span>
+    <div className={cn("flex items-center gap-3", !compact && "justify-between")}>
+      {compact ? null : <span className="text-xs font-medium text-tertiary">外观</span>}
       <div
-        className="flex h-9 items-center rounded-control border border-subtle bg-surface-muted/80 p-1"
+        className="flex h-9 items-center rounded-[10px] bg-surface-muted p-1"
         role="group"
         aria-label="外观主题"
       >
@@ -29,9 +31,9 @@ export function ThemeSelector({
             key={optionMode}
             type="button"
             className={cn(
-              "focus-ring grid size-7 place-items-center rounded-[6px] text-tertiary transition-colors",
+              "focus-ring grid size-7 place-items-center rounded-[8px] text-tertiary transition-colors",
               "hover:text-primary",
-              mode === optionMode && "bg-surface text-primary shadow-hairline",
+              mode === optionMode && "bg-surface text-primary",
             )}
             aria-label={label}
             aria-pressed={mode === optionMode}

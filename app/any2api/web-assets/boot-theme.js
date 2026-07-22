@@ -12,6 +12,6 @@
   document.documentElement.dataset.themeMode = mode;
   var themeColor = document.querySelector('meta[name="theme-color"]');
   if (themeColor) {
-    themeColor.setAttribute("content", resolved === "dark" ? "#111114" : "#f5f5f7");
+    themeColor.setAttribute("content", resolved === "dark" ? "#0f1115" : "#f0f4f9");
   }
 })();

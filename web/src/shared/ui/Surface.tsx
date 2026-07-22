@@ -5,7 +5,7 @@ import { cn } from "@/shared/lib/cn";
 export function Surface({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("rounded-panel border border-subtle bg-surface shadow-hairline", className)}
+      className={cn("rounded-[14px] border border-subtle bg-surface", className)}
       {...props}
     />
   );

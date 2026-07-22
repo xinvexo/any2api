@@ -7,18 +7,24 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants = {
-  primary: "bg-accent text-on-accent hover:bg-accent-strong shadow-accent",
-  secondary: "border border-subtle bg-surface text-primary hover:bg-surface-hover shadow-hairline",
-  ghost: "text-secondary hover:bg-surface-hover hover:text-primary",
-  danger: "bg-danger text-on-danger hover:opacity-90 shadow-hairline",
+  primary: "bg-accent text-on-accent hover:bg-accent-strong",
+  secondary: "bg-surface-muted text-primary hover:bg-surface-hover",
+  ghost: "bg-transparent text-secondary hover:bg-surface-muted hover:text-primary",
+  danger: "bg-transparent text-danger hover:bg-danger/8",
 };
 
-export function Button({ className, type = "button", variant = "secondary", ...props }: ButtonProps) {
+export function Button({
+  className,
+  type = "button",
+  variant = "secondary",
+  ...props
+}: ButtonProps) {
   return (
     <button
       type={type}
       className={cn(
-        "focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-control px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "focus-ring inline-flex h-9 items-center justify-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-medium tracking-tight transition-colors duration-150",
+        "disabled:cursor-not-allowed disabled:opacity-45",
         variants[variant],
         className,
       )}

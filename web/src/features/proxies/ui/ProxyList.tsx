@@ -1,17 +1,20 @@
-import { Activity, Check, Pencil, ShieldCheck, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Plus, RefreshCw, Search } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import type { ProviderEndpoint } from "@/features/providers";
-import type { ProxyConfiguration, ProxyProfile } from "../api/proxy-contracts";
-import type { ProxyTestResult } from "../api/proxy-contracts";
+import type { ProxyConfiguration, ProxyTestResult } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
+import { ProxyTableRow } from "./ProxyTableRow";
+import { isCurrentTestResult } from "./proxy-test-result";
 import { Button } from "@/shared/ui/Button";
-import { Surface } from "@/shared/ui/Surface";
 
 interface ProxyListProps {
   configuration: ProxyConfiguration;
   pending: boolean;
+  refreshing: boolean;
   actionError: unknown;
+  onCreate: () => void;
+  onRefresh: () => void;
   onEdit: (id: string) => void;
   onSetGlobal: (id: string) => void;
   onDelete: (id: string) => void;
@@ -27,7 +30,10 @@ interface ProxyListProps {
 export function ProxyList({
   configuration,
   pending,
+  refreshing,
   actionError,
+  onCreate,
+  onRefresh,
   onEdit,
   onSetGlobal,
   onDelete,
@@ -39,17 +45,53 @@ export function ProxyList({
   onTest,
   testError,
 }: ProxyListProps) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) {
+      return configuration.items;
+    }
+    return configuration.items.filter((proxy) => {
+      const endpoint = proxy.host && proxy.port ? `${proxy.host}:${proxy.port}` : "本机网络";
+      return [proxy.name, proxy.kind, endpoint, proxy.username ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle);
+    });
+  }, [configuration.items, query]);
+
   return (
-    <Surface className="overflow-hidden">
-      <div className="flex items-center justify-between border-b border-subtle px-5 py-4 sm:px-6">
-        <div>
-          <h2 className="text-base font-semibold">代理列表</h2>
-          <p className="mt-1 text-sm text-secondary">DIRECT 固定置顶且始终可用</p>
+    <div>
+      <div className="flex flex-col gap-3 border-b border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="ghost" onClick={onCreate} disabled={pending}>
+            <Plus size={15} />
+            新增代理
+          </Button>
+          <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
+            <RefreshCw size={15} className={refreshing ? "animate-spin" : undefined} />
+            刷新
+          </Button>
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-xl sm:flex-row sm:items-center sm:justify-end">
+          <label className="relative min-w-0 flex-1 sm:max-w-52">
+            <span className="sr-only">搜索代理</span>
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-tertiary"
+              aria-hidden="true"
+            />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索关键字"
+              className="focus-ring h-9 w-full rounded-[10px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[13px] text-primary placeholder:text-tertiary"
+            />
+          </label>
           <select
             aria-label="代理测试目标"
-            className="focus-ring h-9 max-w-52 rounded-control border border-subtle bg-surface px-2 text-xs text-secondary"
+            className="focus-ring h-9 min-w-0 rounded-[10px] border-0 bg-surface-muted px-3 text-[13px] text-secondary sm:max-w-44"
             value={testEndpointId}
             onChange={(event) => onTestEndpointChange(event.target.value)}
           >
@@ -61,209 +103,84 @@ export function ProxyList({
               </option>
             ))}
           </select>
-          <span className="text-sm tabular-nums text-tertiary">{configuration.items.length}</span>
         </div>
       </div>
-      <ul className="divide-y divide-subtle">
-        {configuration.items.map((proxy) => (
-          <ProxyRow
-            key={proxy.id}
-            proxy={proxy}
-            isGlobal={proxy.id === configuration.globalProxyId}
-            pending={pending}
-            onEdit={onEdit}
-            onSetGlobal={onSetGlobal}
-            onDelete={onDelete}
-            canTest={testEndpointId.length > 0}
-            testing={testingProxyId === proxy.id}
-            testPending={testingProxyId !== null}
-            testResult={
-              isCurrentTestResult(
-                testResults[proxy.id],
-                proxy,
-                configuration.configRevision,
-                endpoints,
-                testEndpointId,
-              )
-                ? testResults[proxy.id]
-                : undefined
-            }
-            onTest={() => onTest(proxy.id)}
-          />
-        ))}
-      </ul>
-      {configuration.items.length === 1 ? (
-        <p className="border-t border-subtle px-5 py-4 text-sm text-secondary sm:px-6">
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-left text-[13px]">
+          <caption className="sr-only">代理列表</caption>
+          <thead>
+            <tr className="border-b border-subtle text-secondary">
+              <th className="py-3 pr-3 font-medium">名称</th>
+              <th className="px-3 py-3 font-medium">类型</th>
+              <th className="px-3 py-3 font-medium">地址</th>
+              <th className="px-3 py-3 font-medium">状态</th>
+              <th className="px-3 py-3 font-medium">认证</th>
+              <th className="py-3 pl-3 text-right font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((proxy) => (
+              <ProxyTableRow
+                key={proxy.id}
+                proxy={proxy}
+                isGlobal={proxy.id === configuration.globalProxyId}
+                pending={pending}
+                onEdit={onEdit}
+                onSetGlobal={onSetGlobal}
+                onDelete={onDelete}
+                canTest={testEndpointId.length > 0}
+                testing={testingProxyId === proxy.id}
+                testPending={testingProxyId !== null}
+                testResult={
+                  isCurrentTestResult(
+                    testResults[proxy.id],
+                    proxy,
+                    configuration.configRevision,
+                    endpoints,
+                    testEndpointId,
+                  )
+                    ? testResults[proxy.id]
+                    : undefined
+                }
+                onTest={() => onTest(proxy.id)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="border-t border-subtle py-8 text-center text-sm text-secondary">
+          {query.trim() ? "没有匹配的代理" : "暂无代理"}
+        </p>
+      ) : null}
+
+      {configuration.items.length === 1 && !query.trim() ? (
+        <p className="border-t border-subtle py-3 text-sm text-secondary">
           尚未添加自定义代理。新代理会独立保存，不会改变当前全局出口。
         </p>
       ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-subtle py-3 text-[12px] text-secondary">
+        <p>
+          代理列表 · 配置版本{" "}
+          <span className="font-medium tabular-nums text-primary">{configuration.configRevision}</span>
+          {" · "}
+          共 <span className="tabular-nums">{filtered.length}</span> 条
+        </p>
+      </div>
+
       {actionError ? (
-        <p className="border-t border-subtle px-5 py-3 text-sm text-danger sm:px-6" role="alert">
+        <p className="border-t border-subtle py-3 text-sm text-danger" role="alert">
           {getProxyErrorMessage(actionError)}
         </p>
       ) : null}
       {testError ? (
-        <p className="border-t border-subtle px-5 py-3 text-sm text-danger sm:px-6" role="alert">
+        <p className="border-t border-subtle py-3 text-sm text-danger" role="alert">
           {getProxyErrorMessage(testError)}
         </p>
       ) : null}
-    </Surface>
-  );
-}
-
-interface ProxyRowProps {
-  proxy: ProxyProfile;
-  isGlobal: boolean;
-  pending: boolean;
-  onEdit: (id: string) => void;
-  onSetGlobal: (id: string) => void;
-  onDelete: (id: string) => void;
-  canTest: boolean;
-  testing: boolean;
-  testPending: boolean;
-  testResult?: ProxyTestResult;
-  onTest: () => void;
-}
-
-function ProxyRow({
-  proxy,
-  isGlobal,
-  pending,
-  onEdit,
-  onSetGlobal,
-  onDelete,
-  canTest,
-  testing,
-  testPending,
-  testResult,
-  onTest,
-}: ProxyRowProps) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const endpoint = proxy.host && proxy.port ? `${proxy.host}:${proxy.port}` : "本机网络";
-
-  return (
-    <li className="px-5 py-5 sm:px-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="min-w-0 break-words font-semibold [overflow-wrap:anywhere]">{proxy.name}</p>
-            <Badge>{proxy.kind.toUpperCase()}</Badge>
-            {proxy.builtIn ? <Badge icon={<ShieldCheck size={12} />}>内置</Badge> : null}
-            {isGlobal ? <Badge icon={<Check size={12} />}>全局</Badge> : null}
-            {!proxy.enabled ? <Badge>已停用</Badge> : null}
-          </div>
-          <p className="mt-2 break-all text-sm text-secondary">{endpoint}</p>
-          {testResult ? <TestResult result={testResult} /> : null}
-          {proxy.builtIn ? (
-            <p className="mt-1 text-xs text-tertiary">不可编辑、删除或停用</p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="ghost"
-            disabled={!canTest || !proxy.enabled || testPending || pending}
-            aria-label={`测试 ${proxy.name}`}
-            onClick={onTest}
-          >
-            <Activity size={15} className={testing ? "animate-pulse" : undefined} />
-            {testing ? "测试中" : "测试"}
-          </Button>
-          {!proxy.builtIn ? (
-            <>
-            {!isGlobal && proxy.enabled ? (
-              <Button
-                variant="ghost"
-                disabled={pending}
-                aria-label={`设为全局 ${proxy.name}`}
-                onClick={() => onSetGlobal(proxy.id)}
-              >
-                设为全局
-              </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              disabled={pending}
-              aria-label={`编辑 ${proxy.name}`}
-              onClick={() => onEdit(proxy.id)}
-            >
-              <Pencil size={15} />
-              编辑
-            </Button>
-            {confirmDelete ? (
-              <>
-                <Button
-                  variant="danger"
-                  disabled={pending || isGlobal}
-                  aria-label={`确认删除 ${proxy.name}`}
-                  onClick={() => onDelete(proxy.id)}
-                >
-                  <Trash2 size={15} />
-                  确认删除
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={pending}
-                  aria-label={`取消删除 ${proxy.name}`}
-                  onClick={() => setConfirmDelete(false)}
-                >
-                  <X size={15} />
-                  取消
-                </Button>
-              </>
-            ) : (
-              <Button
-                variant="ghost"
-                disabled={pending || isGlobal}
-                aria-label={`删除 ${proxy.name}`}
-                onClick={() => setConfirmDelete(true)}
-              >
-                <Trash2 size={15} />
-                删除
-              </Button>
-            )}
-            </>
-          ) : null}
-        </div>
-      </div>
-    </li>
-  );
-}
-
-function isCurrentTestResult(
-  result: ProxyTestResult | undefined,
-  proxy: ProxyProfile,
-  configRevision: number,
-  endpoints: ProviderEndpoint[],
-  selectedEndpointId: string,
-) {
-  if (!result || result.providerEndpointId !== selectedEndpointId) {
-    return false;
-  }
-  const endpoint = endpoints.find((candidate) => candidate.id === result.providerEndpointId);
-  return (
-    result.configRevision === configRevision &&
-    result.proxyConfigVersion === proxy.configVersion &&
-    endpoint?.configVersion === result.providerEndpointConfigVersion
-  );
-}
-
-function TestResult({ result }: { result: ProxyTestResult }) {
-  return result.reachable ? (
-    <p className="mt-1 text-xs text-success">
-      可达 · HTTP {result.statusCode} · {result.latencyMs} ms
-    </p>
-  ) : (
-    <p className="mt-1 text-xs text-danger">
-      失败 · {result.errorStage ?? "unknown"} · {result.failureScope ?? "unknown"}
-    </p>
-  );
-}
-
-function Badge({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-surface-muted px-2 py-1 text-[11px] font-semibold text-secondary">
-      {icon}
-      {children}
-    </span>
+    </div>
   );
 }

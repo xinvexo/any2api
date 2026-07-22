@@ -38,18 +38,25 @@ export function ProviderCredentialsPage() {
   }
 
   return (
-    <div className="space-y-7">
-      <header>
-        <Link className="focus-ring inline-flex items-center gap-2 rounded-control text-sm text-secondary hover:text-primary" to="/providers">
-          <ArrowLeft size={15} />
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start gap-3">
+        <Link
+          className="focus-ring inline-flex h-8 items-center gap-1.5 rounded-control text-[13px] text-secondary hover:text-primary"
+          to="/providers"
+        >
+          <ArrowLeft size={14} />
           Provider
         </Link>
-        <p className="mt-5 text-sm font-medium text-accent-copy">{endpoint.providerKind.toUpperCase()}</p>
-        <h1 className="mt-2 break-words text-3xl font-semibold [overflow-wrap:anywhere] sm:text-[34px]">
-          {endpoint.name}
-        </h1>
-        <p className="mt-3 break-all text-sm leading-6 text-secondary">{endpoint.baseUrl}</p>
-      </header>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-accent-copy">
+              {endpoint.providerKind}
+            </span>
+            <h1 className="truncate text-[15px] font-semibold">{endpoint.name}</h1>
+          </div>
+          <p className="mt-0.5 break-all text-[12px] text-secondary">{endpoint.baseUrl}</p>
+        </div>
+      </div>
       <ProviderCredentialManagement endpoint={endpoint} />
     </div>
   );

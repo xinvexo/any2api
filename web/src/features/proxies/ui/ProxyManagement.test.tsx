@@ -22,14 +22,16 @@ const direct = {
 
 afterEach(() => vi.restoreAllMocks());
 
-test("renders DIRECT and explains global inheritance", async () => {
+test("renders DIRECT in a table-style proxy list", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(configuration(1, [direct])));
 
   renderManagement();
 
-  expect((await screen.findAllByText("DIRECT")).length).toBeGreaterThan(1);
-  expect(screen.getByText(/Credential 绑定 DIRECT 时会继承此出口/)).toBeInTheDocument();
+  expect(await screen.findByRole("caption", { name: "代理列表" })).toBeInTheDocument();
+  expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(0);
+  expect(screen.getByText("本机网络")).toBeInTheDocument();
   expect(screen.getByText("尚未添加自定义代理。新代理会独立保存，不会改变当前全局出口。")).toBeInTheDocument();
+  expect(screen.queryByText(/Credential 绑定 DIRECT 时会继承此出口/)).not.toBeInTheDocument();
 });
 
 test("creates a SOCKS5 proxy with the visible configuration revision", async () => {

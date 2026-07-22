@@ -2,6 +2,11 @@ export const themeModes = ["light", "system", "dark"] as const;
 
 export type ThemeMode = (typeof themeModes)[number];
 
+const THEME_COLOR = {
+  light: "#f0f4f9",
+  dark: "#0f1115",
+} as const;
+
 export function readThemeMode(): ThemeMode {
   try {
     const value = localStorage.getItem("any2api-theme");
@@ -19,7 +24,7 @@ export function applyTheme(mode: ThemeMode) {
   document.documentElement.dataset.themeMode = mode;
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", resolved === "dark" ? "#111114" : "#f5f5f7");
+    ?.setAttribute("content", THEME_COLOR[resolved]);
 
   try {
     localStorage.setItem("any2api-theme", mode);

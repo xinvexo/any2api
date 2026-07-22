@@ -1,10 +1,9 @@
-import { KeyRound, Save, Trash2, X } from "lucide-react";
+import { Save, Trash2, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
-import type { ProxyAuthenticationInput, ProxyProfile } from "../api/proxy-contracts";
+import type { ProxyProfile } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
 import { Button } from "@/shared/ui/Button";
-import { Surface } from "@/shared/ui/Surface";
 
 interface ProxyAuthenticationPanelProps {
   profile: ProxyProfile;
@@ -14,7 +13,7 @@ interface ProxyAuthenticationPanelProps {
   onSet: (
     id: string,
     expectedRevision: number,
-    input: ProxyAuthenticationInput,
+    input: { username: string; password: string },
   ) => Promise<void>;
   onClear: (id: string, expectedRevision: number) => Promise<void>;
 }
@@ -61,20 +60,17 @@ export function ProxyAuthenticationPanel({
   }
 
   return (
-    <Surface className="overflow-hidden">
-      <div className="flex items-start gap-3 border-b border-subtle px-5 py-4 sm:px-6">
-        <span className="grid size-9 place-items-center rounded-control bg-surface-muted text-accent-copy">
-          <KeyRound size={17} aria-hidden="true" />
-        </span>
-        <div>
-          <h2 className="font-semibold">代理认证</h2>
-          <p className="mt-1 text-sm text-secondary">
-            {profile.passwordConfigured ? `已为 ${profile.username} 配置` : "当前未配置认证"}
-          </p>
-        </div>
+    <section className="mt-8 space-y-4 border-t border-subtle pt-6" aria-labelledby="proxy-auth-heading">
+      <div>
+        <h3 id="proxy-auth-heading" className="text-[14px] font-semibold tracking-tight">
+          代理认证
+        </h3>
+        <p className="mt-1 text-[13px] text-secondary">
+          {profile.passwordConfigured ? `已为 ${profile.username} 配置` : "当前未配置认证"}
+        </p>
       </div>
 
-      <form className="space-y-4 p-5 sm:p-6" onSubmit={(event) => void submit(event)}>
+      <form className="space-y-4" onSubmit={(event) => void submit(event)}>
         <Field label="用户名" htmlFor="proxy-auth-username">
           <input
             id="proxy-auth-username"
@@ -117,11 +113,7 @@ export function ProxyAuthenticationPanel({
             {profile.passwordConfigured ? (
               confirmClear ? (
                 <>
-                  <Button
-                    variant="danger"
-                    disabled={pending}
-                    onClick={() => void clear()}
-                  >
+                  <Button variant="danger" disabled={pending} onClick={() => void clear()}>
                     <Trash2 size={15} />
                     确认清除
                   </Button>
@@ -144,7 +136,7 @@ export function ProxyAuthenticationPanel({
           </Button>
         </div>
       </form>
-    </Surface>
+    </section>
   );
 }
 
@@ -190,4 +182,4 @@ function isControlCharacter(value: string) {
 }
 
 const inputClass =
-  "focus-ring h-10 w-full rounded-control border border-subtle bg-surface px-3 text-sm text-primary disabled:opacity-60";
+  "focus-ring h-10 w-full rounded-[10px] border-0 bg-surface-muted px-3 text-sm text-primary disabled:opacity-60";
