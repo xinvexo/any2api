@@ -19,8 +19,13 @@ export interface ProviderEditorDraft {
 type EditorField = keyof ProviderEditorDraft;
 export type ProviderEditorErrors = Partial<Record<EditorField, string>>;
 
-export function useProviderEditor(endpoint?: ProviderEndpoint) {
-  const [draft, setDraft] = useState<ProviderEditorDraft>(() => initialDraft(endpoint));
+export function useProviderEditor(
+  endpoint?: ProviderEndpoint,
+  defaultKind: ProviderKind = "codex",
+) {
+  const [draft, setDraft] = useState<ProviderEditorDraft>(() =>
+    initialDraft(endpoint, defaultKind),
+  );
   const [expectedConfigVersion] = useState(endpoint?.configVersion);
   const [errors, setErrors] = useState<ProviderEditorErrors>({});
 
@@ -70,11 +75,15 @@ export function dialectFor(kind: ProviderKind): ProtocolDialect {
   return kind === "codex" ? "openai_responses" : "anthropic_messages";
 }
 
-function initialDraft(endpoint?: ProviderEndpoint): ProviderEditorDraft {
+function initialDraft(
+  endpoint: ProviderEndpoint | undefined,
+  defaultKind: ProviderKind,
+): ProviderEditorDraft {
+  const kind = endpoint?.providerKind ?? defaultKind;
   return {
     name: endpoint?.name ?? "",
-    providerKind: endpoint?.providerKind ?? "codex",
-    baseUrl: endpoint?.baseUrl ?? defaultBaseUrl("codex"),
+    providerKind: kind,
+    baseUrl: endpoint?.baseUrl ?? defaultBaseUrl(kind),
     allowInsecureHttp: endpoint?.allowInsecureHttp ?? false,
     allowPrivateNetwork: endpoint?.allowPrivateNetwork ?? false,
     enabled: endpoint?.enabled ?? true,

@@ -1,7 +1,12 @@
 import { Save } from "lucide-react";
 import { useEffect, useRef, type FormEvent } from "react";
 
-import type { ProviderEndpoint, ProviderEndpointWriteInput } from "../api/provider-contracts";
+import type {
+  ProviderEndpoint,
+  ProviderEndpointWriteInput,
+  ProviderKind,
+} from "../api/provider-contracts";
+import { providerKindLabel } from "../model/provider-kind-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderEditor } from "../model/use-provider-editor";
 import { ProviderSecurityOptions } from "./ProviderSecurityOptions";
@@ -12,6 +17,7 @@ import { Switch } from "@/shared/ui/Switch";
 
 interface ProviderEndpointEditorProps {
   endpoint?: ProviderEndpoint;
+  defaultKind?: ProviderKind;
   sourceConflict: "changed" | "deleted" | null;
   configRevision: number;
   pending: boolean;
@@ -22,6 +28,7 @@ interface ProviderEndpointEditorProps {
 
 export function ProviderEndpointEditor({
   endpoint,
+  defaultKind = "codex",
   sourceConflict,
   configRevision,
   pending,
@@ -29,7 +36,7 @@ export function ProviderEndpointEditor({
   onSubmit,
   onClose,
 }: ProviderEndpointEditorProps) {
-  const editor = useProviderEditor(endpoint);
+  const editor = useProviderEditor(endpoint, defaultKind);
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const focusInvalidAfterRender = useRef(false);
@@ -93,20 +100,15 @@ export function ProviderEndpointEditor({
         />
       </Field>
 
-      <Field label="Provider" htmlFor="provider-kind">
-        <select
-          id="provider-kind"
-          className={controlClass()}
-          value={editor.draft.providerKind}
-          disabled={pending || sourceConflict !== null}
-          onChange={(event) =>
-            editor.updateProviderKind(event.target.value === "claude" ? "claude" : "codex")
-          }
-        >
-          <option value="codex">Codex · Responses</option>
-          <option value="claude">Claude · Messages</option>
-        </select>
-      </Field>
+      <div className="space-y-1.5">
+        <p className="text-[12px] font-medium text-secondary">类型</p>
+        <p className="text-[13px] text-primary">
+          {providerKindLabel(editor.draft.providerKind)}
+          <span className="ml-2 text-[12px] text-tertiary">
+            {editor.draft.providerKind === "codex" ? "Responses" : "Messages"}
+          </span>
+        </p>
+      </div>
 
       <Field label="Base URL" error={editor.errors.baseUrl} htmlFor="provider-base-url">
         <input

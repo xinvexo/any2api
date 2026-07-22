@@ -22,7 +22,7 @@ test("creates a credential without retaining its secret in application caches", 
     }
     return jsonResponse(credentials);
   });
-  const { client } = renderManagement([`/providers/${endpoint.id}?credential=new`]);
+  const { client } = renderManagement([`/providers?keys=${endpoint.id}&credential=new`]);
 
   expect(await screen.findByRole("option", { name: "DIRECT（继承全局：香港代理）" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary Key" } });
@@ -47,10 +47,11 @@ test("creates a credential without retaining its secret in application caches", 
   expect(screen.getByTestId("location")).not.toHaveTextContent(secret);
 });
 
-test("metadata updates never send the API Key field", async () => {
+test("edits credential metadata without sending the secret", async () => {
   let credentials = credentialConfiguration(3, [credential()]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    if (String(input) === "/api/admin/proxies") {
+    const path = String(input);
+    if (path === "/api/admin/proxies") {
       return jsonResponse(proxyConfiguration());
     }
     if (init?.method === "PATCH") {
@@ -60,7 +61,7 @@ test("metadata updates never send the API Key field", async () => {
     }
     return jsonResponse(credentials);
   });
-  renderManagement([`/providers/${endpoint.id}?credential=${credentialId}`]);
+  renderManagement([`/providers?keys=${endpoint.id}&credential=${credentialId}`]);
 
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "Edited" } });
@@ -108,7 +109,7 @@ test("tests a credential and displays a generation-current result", async () => 
     }
     return jsonResponse(credentials);
   });
-  renderManagement([`/providers/${endpoint.id}`]);
+  renderManagement([`/providers?keys=${endpoint.id}`]);
 
   fireEvent.click(await screen.findByRole("button", { name: "测试 Primary Key" }));
 
@@ -125,7 +126,7 @@ function renderManagement(initialEntries: string[]) {
   const result = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={initialEntries}>
-        <ProviderCredentialManagement endpoint={endpoint} />
+        <ProviderCredentialManagement endpoint={endpoint} embedded />
         <LocationProbe />
       </MemoryRouter>
     </QueryClientProvider>,

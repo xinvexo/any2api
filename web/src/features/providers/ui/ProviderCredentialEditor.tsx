@@ -1,14 +1,13 @@
-import { RotateCw, Save } from "lucide-react";
+import { Save } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import type {
   ProviderCredential,
   ProviderCredentialCreateInput,
-  ProviderCredentialRotateInput,
   ProviderCredentialUpdateInput,
 } from "../api/provider-credential-contracts";
 import { getProviderErrorMessage } from "../model/provider-error";
-import type { ProxyConfiguration, ProxyProfile } from "@/features/proxies";
+import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
 import { Field, FormError } from "@/shared/ui/form-field";
@@ -16,11 +15,16 @@ import { Switch } from "@/shared/ui/Switch";
 
 export type CredentialEditorSubmission =
   | { mode: "create"; input: ProviderCredentialCreateInput }
-  | { mode: "edit"; id: string; input: ProviderCredentialUpdateInput }
-  | { mode: "rotate"; id: string; label: string; input: ProviderCredentialRotateInput };
+  | {
+      mode: "edit";
+      id: string;
+      input: ProviderCredentialUpdateInput;
+      /** When set, rotate secret after metadata update. */
+      apiKey?: string;
+    };
 
 interface ProviderCredentialEditorProps {
-  mode: "create" | "edit" | "rotate";
+  mode: "create" | "edit";
   credential?: ProviderCredential;
   sourceConflict: "changed" | "deleted" | null;
   configRevision: number;
@@ -42,7 +46,6 @@ export function ProviderCredentialEditor({
   onSubmit,
   onClose,
 }: ProviderCredentialEditorProps) {
-  const rotating = mode === "rotate";
   const editing = mode === "edit";
   const primaryRef = useRef<HTMLInputElement>(null);
   const [label, setLabel] = useState(credential?.label ?? "");
@@ -95,6 +98,7 @@ export function ProviderCredentialEditor({
           },
         });
       } else if (mode === "edit" && credential) {
+        const trimmedKey = apiKey.trim();
         await onSubmit({
           mode: "edit",
           id: credential.id,
@@ -106,18 +110,7 @@ export function ProviderCredentialEditor({
             maxConcurrency: Number(maxConcurrency),
             enabled,
           },
-        });
-      } else if (mode === "rotate" && credential) {
-        await onSubmit({
-          mode: "rotate",
-          id: credential.id,
-          label: credential.label,
-          input: {
-            expectedRevision: configRevision,
-            expectedConfigVersion: credential.configVersion,
-            expectedSecretVersion: credential.secretVersion,
-            apiKey,
-          },
+          apiKey: trimmedKey.length > 0 ? trimmedKey : undefined,
         });
       }
     } catch {
@@ -135,85 +128,77 @@ export function ProviderCredentialEditor({
         </p>
       ) : null}
 
-      {!rotating ? (
-        <>
-          <Field label="名称" error={errors.label} htmlFor="credential-label">
-            <input
-              id="credential-label"
-              ref={editing ? primaryRef : undefined}
-              className={controlClass(Boolean(errors.label))}
-              value={label}
-              maxLength={100}
-              autoComplete="off"
-              disabled={pending || sourceConflict !== null}
-              onChange={(event) => setLabel(event.target.value)}
-            />
-          </Field>
-          <Field label="代理" htmlFor="credential-proxy">
-            <select
-              id="credential-proxy"
-              className={controlClass()}
-              value={proxyId}
-              disabled={pending || sourceConflict !== null}
-              onChange={(event) => setProxyId(event.target.value)}
-            >
-              {options.map((proxy) => (
-                <option key={proxy.id} value={proxy.id}>
-                  {proxyOptionLabel(proxy, proxies)}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="最大并发" error={errors.maxConcurrency} htmlFor="credential-concurrency">
-            <input
-              id="credential-concurrency"
-              className={controlClass(Boolean(errors.maxConcurrency))}
-              type="number"
-              min={1}
-              max={10_000}
-              step={1}
-              value={maxConcurrency}
-              disabled={pending || sourceConflict !== null}
-              onChange={(event) => setMaxConcurrency(event.target.value)}
-            />
-          </Field>
-        </>
-      ) : null}
-
-      {!editing ? (
-        <Field
-          label={rotating ? "新 API Key" : "API Key"}
-          error={errors.apiKey}
-          htmlFor="credential-secret"
+      <Field label="名称" error={errors.label} htmlFor="credential-label">
+        <input
+          id="credential-label"
+          ref={primaryRef}
+          className={controlClass(Boolean(errors.label))}
+          value={label}
+          maxLength={100}
+          autoComplete="off"
+          disabled={pending || sourceConflict !== null}
+          onChange={(event) => setLabel(event.target.value)}
+        />
+      </Field>
+      <Field label="代理" htmlFor="credential-proxy">
+        <select
+          id="credential-proxy"
+          className={controlClass()}
+          value={proxyId}
+          disabled={pending || sourceConflict !== null}
+          onChange={(event) => setProxyId(event.target.value)}
         >
-          <input
-            id="credential-secret"
-            ref={rotating || mode === "create" ? primaryRef : undefined}
-            className={controlClass(Boolean(errors.apiKey))}
-            type="password"
-            value={apiKey}
-            disabled={pending || sourceConflict !== null}
-            autoComplete="new-password"
-            spellCheck={false}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-        </Field>
-      ) : null}
+          {options.map((proxy) => (
+            <option key={proxy.id} value={proxy.id}>
+              {proxy.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="最大并发" error={errors.maxConcurrency} htmlFor="credential-concurrency">
+        <input
+          id="credential-concurrency"
+          className={controlClass(Boolean(errors.maxConcurrency))}
+          type="number"
+          min={1}
+          max={10_000}
+          step={1}
+          value={maxConcurrency}
+          disabled={pending || sourceConflict !== null}
+          onChange={(event) => setMaxConcurrency(event.target.value)}
+        />
+      </Field>
 
-      {!rotating ? (
-        <div className="flex items-center justify-between gap-4">
-          <p id="credential-enabled-label" className="text-[13px] font-medium">
-            启用此 API Key
-          </p>
-          <Switch
-            id="credential-enabled"
-            checked={enabled}
-            disabled={pending || sourceConflict !== null}
-            aria-labelledby="credential-enabled-label"
-            onCheckedChange={setEnabled}
-          />
-        </div>
-      ) : null}
+      <Field
+        label="API Key"
+        error={errors.apiKey}
+        htmlFor="credential-secret"
+      >
+        <input
+          id="credential-secret"
+          className={controlClass(Boolean(errors.apiKey))}
+          type="password"
+          value={apiKey}
+          disabled={pending || sourceConflict !== null}
+          autoComplete="new-password"
+          spellCheck={false}
+          placeholder={editing ? "留空则不修改" : undefined}
+          onChange={(event) => setApiKey(event.target.value)}
+        />
+      </Field>
+
+      <div className="flex items-center justify-between gap-4">
+        <p id="credential-enabled-label" className="text-[13px] font-medium">
+          启用此 API Key
+        </p>
+        <Switch
+          id="credential-enabled"
+          checked={enabled}
+          disabled={pending || sourceConflict !== null}
+          aria-labelledby="credential-enabled-label"
+          onCheckedChange={setEnabled}
+        />
+      </div>
 
       <FormError>{error ? getProviderErrorMessage(error) : null}</FormError>
 
@@ -222,24 +207,28 @@ export function ProviderCredentialEditor({
           取消
         </Button>
         <Button type="submit" variant="primary" disabled={pending || sourceConflict !== null}>
-          {rotating ? <RotateCw size={14} /> : <Save size={14} />}
-          {pending ? "正在保存" : rotating ? "轮换" : "保存"}
+          <Save size={14} />
+          {pending ? "正在保存" : "保存"}
         </Button>
       </div>
     </form>
   );
 }
 
-function validate(mode: string, label: string, concurrency: string, apiKey: string) {
+function validate(mode: "create" | "edit", label: string, concurrency: string, apiKey: string) {
   const errors: Record<string, string> = {};
-  if (mode !== "rotate" && (label.trim() !== label || label.length === 0)) {
+  if (label.trim() !== label || label.length === 0) {
     errors.label = "名称不能为空，且首尾不能包含空格";
   }
   const numeric = Number(concurrency);
-  if (mode !== "rotate" && (!Number.isInteger(numeric) || numeric < 1 || numeric > 10_000)) {
+  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 10_000) {
     errors.maxConcurrency = "最大并发必须是 1 到 10000 的整数";
   }
-  if (mode !== "edit" && !validApiKey(apiKey)) {
+  if (mode === "create") {
+    if (!validApiKey(apiKey)) {
+      errors.apiKey = "API Key 必须为 1 到 8192 个可见 ASCII 字符";
+    }
+  } else if (apiKey.trim().length > 0 && !validApiKey(apiKey.trim())) {
     errors.apiKey = "API Key 必须为 1 到 8192 个可见 ASCII 字符";
   }
   return errors;
@@ -259,14 +248,3 @@ function validApiKey(value: string) {
 function directProxyId(configuration: ProxyConfiguration) {
   return configuration.items.find((proxy) => proxy.kind === "direct")?.id ?? "";
 }
-
-function proxyOptionLabel(proxy: ProxyProfile, configuration: ProxyConfiguration) {
-  if (proxy.kind !== "direct") {
-    return `${proxy.name} · ${proxy.kind.toUpperCase()}${proxy.enabled ? "" : " · 已停用"}`;
-  }
-  const global = configuration.items.find((item) => item.id === configuration.globalProxyId);
-  return global?.kind === "direct"
-    ? "DIRECT（本机直连）"
-    : `DIRECT（继承全局：${global?.name ?? "未知代理"}）`;
-}
-

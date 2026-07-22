@@ -2,7 +2,12 @@ import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import type { ProviderEndpoint, ProviderEndpointWriteInput } from "../api/provider-contracts";
+import type {
+  ProviderEndpoint,
+  ProviderEndpointWriteInput,
+  ProviderKind,
+} from "../api/provider-contracts";
+import { isProviderKind } from "../model/provider-kind-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderEndpointMutations } from "../model/use-provider-mutations";
 import { useProviderEndpoints } from "../model/use-providers";
@@ -20,13 +25,19 @@ export function ProviderManagement() {
   const [deleteTarget, setDeleteTarget] = useState<ProviderEndpoint | null>(null);
   const editorId = searchParams.get("editor");
 
-  function openEditor(id: string) {
+  function openEditor(id: string, kind?: ProviderKind) {
     mutations.create.reset();
     mutations.update.reset();
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
+        next.delete("keys");
+        next.delete("credential");
+        next.delete("action");
         next.set("editor", id);
+        if (kind) {
+          next.set("kind", kind);
+        }
         return next;
       },
       { replace: true },
@@ -106,7 +117,9 @@ export function ProviderManagement() {
 
   const drawerTitle =
     editorId === "new" ? "新增 Endpoint" : "编辑 Endpoint";
-  const drawerDescription = "配置 Codex 或 Claude 上游地址";
+  const kindParam = searchParams.get("kind");
+  const selectedKind: ProviderKind = isProviderKind(kindParam) ? kindParam : "codex";
+  const drawerDescription = "配置上游地址与安全选项";
 
   return (
     <div aria-busy={editorPending || mutations.isPending || endpoints.isFetching}>
@@ -129,7 +142,7 @@ export function ProviderManagement() {
         pending={mutations.isPending}
         refreshing={endpoints.isFetching}
         actionError={mutations.remove.error}
-        onCreate={() => openEditor("new")}
+        onCreate={(kind) => openEditor("new", kind)}
         onRefresh={() => void endpoints.refetch()}
         onEdit={openEditor}
         onDelete={setDeleteTarget}
@@ -143,9 +156,10 @@ export function ProviderManagement() {
       >
         {editorId ? (
           <ProviderEditorSlot
-            key={editorId}
+            key={`${editorId}:${selectedKind}`}
             editorId={editorId}
             currentEndpoint={selected}
+            defaultKind={selectedKind}
             configRevision={configuration.configRevision}
             pending={editorPending}
             error={editorError}
@@ -180,6 +194,7 @@ export function ProviderManagement() {
 function ProviderEditorSlot({
   editorId,
   currentEndpoint,
+  defaultKind,
   configRevision,
   pending,
   error,
@@ -188,6 +203,7 @@ function ProviderEditorSlot({
 }: {
   editorId: string;
   currentEndpoint?: ProviderEndpoint;
+  defaultKind: ProviderKind;
   configRevision: number;
   pending: boolean;
   error: unknown;
@@ -217,6 +233,7 @@ function ProviderEditorSlot({
   return (
     <ProviderEndpointEditor
       endpoint={initialEndpoint}
+      defaultKind={defaultKind}
       sourceConflict={sourceConflict}
       configRevision={configRevision}
       pending={pending}
