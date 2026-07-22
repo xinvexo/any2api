@@ -3,7 +3,6 @@ import { createBrowserRouter } from "react-router-dom";
 import { AppShell } from "@/app/shell/AppShell";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
-import { ModelRoutesPage } from "@/pages/ModelRoutesPage";
 import { ProxiesPage } from "@/pages/ProxiesPage";
 import { ProviderCredentialsPage } from "@/pages/ProviderCredentialsPage";
 import { ProvidersPage } from "@/pages/ProvidersPage";
@@ -23,7 +22,6 @@ export const router = createBrowserRouter([
       { path: "proxies", element: <ProxiesPage /> },
       { path: "providers", element: <ProvidersPage /> },
       { path: "providers/:endpointId", element: <ProviderCredentialsPage /> },
-      { path: "routes", element: <ModelRoutesPage /> },
       { path: "balancing", element: <BalancingPage /> },
       { path: "affinity", element: <AffinityPage /> },
       { path: "keys", element: <GatewayApiKeysPage /> },

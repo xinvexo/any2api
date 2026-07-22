@@ -1,8 +1,8 @@
 use thiserror::Error;
 
 use crate::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProviderEndpointId,
-    ProxyProfileId,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency,
+    ModelNameValidationError, ProviderEndpointId, ProxyProfileId, UpstreamModelName,
 };
 
 const MAX_CREDENTIAL_LABEL_CHARS: usize = 100;
@@ -75,6 +75,7 @@ pub struct ProviderCredential {
     secret_version: u64,
     credential_generation: u64,
     config_version: u64,
+    models: Vec<UpstreamModelName>,
 }
 
 impl ProviderCredential {
@@ -93,6 +94,7 @@ impl ProviderCredential {
             1,
             1,
             1,
+            Vec::new(),
         )
     }
 
@@ -106,6 +108,7 @@ impl ProviderCredential {
         secret_version: u64,
         credential_generation: u64,
         config_version: u64,
+        models: Vec<String>,
     ) -> Result<Self, ProviderCredentialValidationError> {
         if secret_schema_version != API_KEY_SECRET_SCHEMA_VERSION
             || !valid_version(secret_version)
@@ -123,6 +126,7 @@ impl ProviderCredential {
             secret_version,
             credential_generation,
             config_version,
+            validate_models(models)?,
         ))
     }
 
@@ -148,7 +152,23 @@ impl ProviderCredential {
             self.secret_version,
             credential_generation,
             config_version,
+            self.models.clone(),
         ))
+    }
+
+    pub fn with_models(
+        &self,
+        models: Vec<String>,
+    ) -> Result<Self, ProviderCredentialValidationError> {
+        let models = validate_models(models)?;
+        if self.models == models {
+            return Ok(self.clone());
+        }
+        Ok(Self {
+            models,
+            config_version: next_version(self.config_version)?,
+            ..self.clone()
+        })
     }
 
     pub fn rotated(
@@ -160,6 +180,7 @@ impl ProviderCredential {
             secret_version: next_version(self.secret_version)?,
             credential_generation: next_version(self.credential_generation)?,
             config_version: next_version(self.config_version)?,
+            models: Vec::new(),
             ..self.clone()
         })
     }
@@ -236,6 +257,16 @@ impl ProviderCredential {
         self.config_version
     }
 
+    #[must_use]
+    pub fn models(&self) -> &[UpstreamModelName] {
+        &self.models
+    }
+
+    #[must_use]
+    pub fn supports_model(&self, model: &UpstreamModelName) -> bool {
+        self.models.binary_search(model).is_ok()
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn from_parts(
         id: CredentialId,
@@ -246,6 +277,7 @@ impl ProviderCredential {
         secret_version: u64,
         credential_generation: u64,
         config_version: u64,
+        models: Vec<UpstreamModelName>,
     ) -> Self {
         Self {
             id,
@@ -260,6 +292,7 @@ impl ProviderCredential {
             secret_version,
             credential_generation,
             config_version,
+            models,
         }
     }
 
@@ -286,6 +319,10 @@ pub enum ProviderCredentialValidationError {
     DuplicateId,
     #[error("credential label is duplicated for this endpoint")]
     DuplicateLabel,
+    #[error("credential model name is invalid: {0}")]
+    InvalidModel(ModelNameValidationError),
+    #[error("credential model is duplicated")]
+    DuplicateModel,
     #[error("credential references a missing provider endpoint")]
     MissingProviderEndpoint,
     #[error("credential references a missing proxy profile")]
@@ -303,6 +340,22 @@ fn validate_label(label: String) -> Result<String, ProviderCredentialValidationE
         return Err(ProviderCredentialValidationError::LabelTooLong);
     }
     Ok(label)
+}
+
+fn validate_models(
+    models: Vec<String>,
+) -> Result<Vec<UpstreamModelName>, ProviderCredentialValidationError> {
+    let mut models = models
+        .into_iter()
+        .map(|model| {
+            UpstreamModelName::new(model).map_err(ProviderCredentialValidationError::InvalidModel)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    models.sort();
+    if models.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ProviderCredentialValidationError::DuplicateModel);
+    }
+    Ok(models)
 }
 
 const fn valid_version(value: u64) -> bool {

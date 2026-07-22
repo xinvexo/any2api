@@ -14,6 +14,7 @@ mod logging_reconciler;
 mod process_lifecycle;
 mod provider_api_key_secret;
 mod provider_credential_test;
+mod provider_model_catalog;
 mod proxy_auth;
 mod proxy_password_secret;
 mod proxy_test;
@@ -39,8 +40,6 @@ mod credential_runtime_tests;
 #[cfg(test)]
 mod gateway_api_key_publisher_tests;
 #[cfg(test)]
-mod model_route_publisher_tests;
-#[cfg(test)]
 mod provider_credential_test_tests;
 #[cfg(test)]
 mod published_snapshot_tests;
@@ -48,3 +47,5 @@ mod published_snapshot_tests;
 mod publisher_tests;
 #[cfg(test)]
 mod request_telemetry_tests;
+#[cfg(test)]
+mod route_candidates_tests;

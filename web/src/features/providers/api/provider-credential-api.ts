@@ -5,6 +5,7 @@ import {
   type ProviderCredentialCreateInput,
   type ProviderCredentialRotateInput,
   type ProviderCredentialTestResult,
+  type ProviderCredentialModelsInput,
   type ProviderCredentialUpdateInput,
   parseProviderCredentialConfiguration,
   parseProviderCredentialTestResult,
@@ -75,6 +76,20 @@ export function testProviderCredential(id: string): Promise<ProviderCredentialTe
     `${credentialCollection}/${encodeURIComponent(id)}/test`,
     { method: "POST", timeoutMs: 30_000 },
   ).then(parseProviderCredentialTestResult);
+}
+
+export function setProviderCredentialModels(
+  id: string,
+  input: ProviderCredentialModelsInput,
+): Promise<ProviderCredentialConfiguration> {
+  return requestJson<unknown>(`${credentialCollection}/${encodeURIComponent(id)}/models`, {
+    method: "PUT",
+    body: {
+      expected_revision: input.expectedRevision,
+      expected_config_version: input.expectedConfigVersion,
+      models: input.models,
+    },
+  }).then(parseProviderCredentialConfiguration);
 }
 
 export function deleteProviderCredential(

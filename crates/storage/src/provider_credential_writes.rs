@@ -21,7 +21,14 @@ pub(crate) async fn execute_provider_credential_change(
         ProviderCredentialDatabaseChange::RotateSecret {
             credential,
             envelope,
-        } => rotate_secret(connection, credential, envelope).await?,
+        } => {
+            rotate_secret(connection, credential, envelope).await?;
+            replace_models(connection, credential).await?;
+        }
+        ProviderCredentialDatabaseChange::SetModels(credential) => {
+            update_metadata(connection, credential).await?;
+            replace_models(connection, credential).await?;
+        }
         ProviderCredentialDatabaseChange::Delete(id) => {
             let result = sqlx::query("DELETE FROM provider_credentials WHERE id = ?")
                 .bind(id.to_string())
@@ -31,6 +38,26 @@ pub(crate) async fn execute_provider_credential_change(
                 return Err(StorageError::ProviderCredentialNotFound(*id));
             }
         }
+    }
+    Ok(())
+}
+
+async fn replace_models(
+    connection: &mut SqliteConnection,
+    credential: &ProviderCredential,
+) -> Result<(), StorageError> {
+    sqlx::query("DELETE FROM provider_credential_models WHERE credential_id = ?")
+        .bind(credential.id().to_string())
+        .execute(&mut *connection)
+        .await?;
+    for model in credential.models() {
+        sqlx::query(
+            "INSERT INTO provider_credential_models (credential_id, upstream_model) VALUES (?, ?)",
+        )
+        .bind(credential.id().to_string())
+        .bind(model.as_str())
+        .execute(&mut *connection)
+        .await?;
     }
     Ok(())
 }

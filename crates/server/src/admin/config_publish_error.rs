@@ -142,22 +142,6 @@ impl From<ConfigPublishError> for AdminApiError {
                 "invalid_gateway_api_key",
                 error.to_string(),
             ),
-            ConfigPublishError::ModelRouteNotFound => AdminApiError::model_route_not_found(),
-            ConfigPublishError::ModelRouteVersionConflict => AdminApiError::new(
-                StatusCode::CONFLICT,
-                "model_route_version_conflict",
-                "model route changed; review the latest values before saving",
-            ),
-            ConfigPublishError::ModelRouteNameConflict => AdminApiError::new(
-                StatusCode::CONFLICT,
-                "model_route_name_conflict",
-                "public model is already in use for this ingress protocol",
-            ),
-            ConfigPublishError::RouteTargetIdentityConflict => AdminApiError::new(
-                StatusCode::CONFLICT,
-                "route_target_identity_conflict",
-                "route target endpoint or upstream model cannot change under the same id",
-            ),
             ConfigPublishError::InvalidModelRoute(error) => AdminApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalid_model_route",

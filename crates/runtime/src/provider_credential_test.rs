@@ -1,4 +1,7 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use any2api_domain::{ConfigRevision, CredentialId, ProviderEndpointId, ProxyProfileId};
 use any2api_provider::api::{ProviderError, ProviderRegistry};
@@ -10,7 +13,10 @@ use bytes::Bytes;
 use http::Method;
 use thiserror::Error;
 
-use crate::published_snapshot::PublishedSnapshot;
+use crate::{
+    provider_model_catalog::{ModelCatalogReadError, collect as collect_model_catalog},
+    published_snapshot::PublishedSnapshot,
+};
 
 pub struct ProviderCredentialTestService {
     providers: Arc<ProviderRegistry>,
@@ -96,10 +102,33 @@ impl ProviderCredentialTestService {
         let started = Instant::now();
         let outcome = match self.transport.execute(proxy, request).await {
             Ok(response) if response.status.is_success() => {
-                let auth_error_cleared = permit.generation().health().clear_auth_error();
-                ProviderCredentialTestOutcome::Accepted {
-                    status_code: response.status.as_u16(),
-                    auth_error_cleared,
+                let status_code = response.status.as_u16();
+                let read_timeout =
+                    Duration::from_millis(snapshot.settings().upstream().read_timeout_ms());
+                match collect_model_catalog(
+                    response.body,
+                    read_timeout,
+                    response.read_failure_scope,
+                )
+                .await
+                {
+                    Ok(body) => match driver.parse_model_catalog(&body) {
+                        Ok(models) => ProviderCredentialTestOutcome::Accepted {
+                            status_code,
+                            auth_error_cleared: permit.generation().health().clear_auth_error(),
+                            models,
+                        },
+                        Err(_) => ProviderCredentialTestOutcome::InvalidCatalog { status_code },
+                    },
+                    Err(ModelCatalogReadError::Transport(error)) => {
+                        ProviderCredentialTestOutcome::Failed {
+                            stage: error.stage.into(),
+                            scope: error.failure_scope.into(),
+                        }
+                    }
+                    Err(ModelCatalogReadError::TooLarge) => {
+                        ProviderCredentialTestOutcome::InvalidCatalog { status_code }
+                    }
                 }
             }
             Ok(response) => ProviderCredentialTestOutcome::Rejected {
@@ -148,7 +177,7 @@ impl CapturedTestConfiguration {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderCredentialTestResult {
     pub config_revision: ConfigRevision,
     pub provider_endpoint_config_version: u64,
@@ -163,11 +192,15 @@ pub struct ProviderCredentialTestResult {
     pub outcome: ProviderCredentialTestOutcome,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProviderCredentialTestOutcome {
     Accepted {
         status_code: u16,
         auth_error_cleared: bool,
+        models: Vec<String>,
+    },
+    InvalidCatalog {
+        status_code: u16,
     },
     Rejected {
         status_code: u16,

@@ -2,11 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
   ProviderCredentialConfiguration,
+  ProviderCredentialModelsInput,
   ProviderCredentialUpdateInput,
 } from "../api/provider-credential-contracts";
 import {
   deleteProviderCredential,
   updateProviderCredential,
+  setProviderCredentialModels,
 } from "../api/provider-credential-api";
 import { selectNewestCredentialConfiguration } from "./provider-credential-cache";
 import { providerQueryKeys } from "./provider-query-keys";
@@ -48,6 +50,13 @@ export function useProviderCredentialMutations(endpointId: string) {
     onSuccess: publish,
     retry: false,
   });
+  const models = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ProviderCredentialModelsInput }) =>
+      setProviderCredentialModels(id, input),
+    onError: refreshAfterFailure,
+    onSuccess: publish,
+    retry: false,
+  });
 
-  return { update, remove, isPending: update.isPending || remove.isPending };
+  return { update, remove, models, isPending: update.isPending || remove.isPending || models.isPending };
 }

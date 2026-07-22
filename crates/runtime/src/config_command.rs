@@ -1,7 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, CredentialId, ModelRouteDraft, ModelRouteId, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProxyDraft, ProxyProfileId, SettingKey,
-    SettingValue,
+    ConfigRevision, CredentialId, ProviderCredentialDraft, ProviderEndpointDraft,
+    ProviderEndpointId, ProxyDraft, ProxyProfileId, SettingKey, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, StoredConfiguration};
 
@@ -62,21 +61,13 @@ pub(crate) enum ConfigCommand {
         expected_secret_version: u64,
         api_key: ProviderApiKeySecret,
     },
-    DeleteProviderCredential {
+    SetProviderCredentialModels {
         id: CredentialId,
         expected_config_version: u64,
+        models: Vec<String>,
     },
-    CreateModelRoute {
-        id: ModelRouteId,
-        draft: ModelRouteDraft,
-    },
-    UpdateModelRoute {
-        id: ModelRouteId,
-        expected_config_version: u64,
-        draft: ModelRouteDraft,
-    },
-    DeleteModelRoute {
-        id: ModelRouteId,
+    DeleteProviderCredential {
+        id: CredentialId,
         expected_config_version: u64,
     },
     SetSettingOverride {
@@ -172,32 +163,21 @@ pub(crate) async fn execute(
                 )
                 .await
         }
+        ConfigCommand::SetProviderCredentialModels {
+            id,
+            expected_config_version,
+            models,
+        } => {
+            repository
+                .set_provider_credential_models(expected, id, expected_config_version, models)
+                .await
+        }
         ConfigCommand::DeleteProviderCredential {
             id,
             expected_config_version,
         } => {
             repository
                 .delete_provider_credential(expected, id, expected_config_version)
-                .await
-        }
-        ConfigCommand::CreateModelRoute { id, draft } => {
-            repository.create_model_route(expected, id, draft).await
-        }
-        ConfigCommand::UpdateModelRoute {
-            id,
-            expected_config_version,
-            draft,
-        } => {
-            repository
-                .update_model_route(expected, id, expected_config_version, draft)
-                .await
-        }
-        ConfigCommand::DeleteModelRoute {
-            id,
-            expected_config_version,
-        } => {
-            repository
-                .delete_model_route(expected, id, expected_config_version)
                 .await
         }
         ConfigCommand::SetSettingOverride { key, value } => {

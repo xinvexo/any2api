@@ -155,6 +155,7 @@ pub(crate) fn build_route_candidates(
             .provider_credentials()
             .for_endpoint(endpoint.id())
             .filter(|credential| credential.enabled())
+            .filter(|credential| credential.supports_model(target.upstream_model()))
             .filter(|credential| {
                 capabilities
                     .credential_kinds

@@ -4,10 +4,9 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    ConfigRevision, CredentialKind, FallbackTier, GatewayApiKeyId, MaxConcurrency, ModelRouteDraft,
-    ModelRouteId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestId,
-    RouteTargetDraft, RouteTargetId,
+    ConfigRevision, CredentialKind, GatewayApiKeyId, MaxConcurrency, ProtocolDialect,
+    ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, RequestId,
 };
 use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{CodexDriver, ProviderRegistry};
@@ -82,30 +81,15 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
         )
         .await
         .expect("credential");
-    let route = publisher
-        .create_model_route(
+    let selected_models = publisher
+        .set_provider_credential_models(
             credential.revision(),
-            ModelRouteId::new(),
-            ModelRouteDraft::new(
-                "queued-model",
-                ProtocolDialect::OpenAiResponses,
-                None,
-                true,
-                vec![
-                    RouteTargetDraft::new(
-                        RouteTargetId::new(),
-                        endpoint_id,
-                        "gpt-upstream",
-                        FallbackTier::new(0),
-                        true,
-                    )
-                    .expect("target draft"),
-                ],
-            )
-            .expect("route draft"),
+            credential_id,
+            1,
+            vec!["queued-model".to_owned()],
         )
         .await
-        .expect("route");
+        .expect("credential models");
 
     let transport = Arc::new(BlockingTransport::new());
     let service = Arc::new(build_service(transport.clone()));
@@ -123,7 +107,7 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
     assert_eq!(second_response.status, StatusCode::OK);
     assert_eq!(transport.calls(), 2);
     assert_eq!(runtime.queue_waiting_count(), 0);
-    assert_eq!(route.revision(), snapshots.load().revision());
+    assert_eq!(selected_models.revision(), snapshots.load().revision());
 }
 
 fn build_service(transport: Arc<BlockingTransport>) -> PublicRequestService {
@@ -222,7 +206,7 @@ impl TransportManager for BlockingTransport {
                 .forget();
         }
         let body: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
-            br#"{"id":"queued-response","model":"gpt-upstream","output":[]}"#,
+            br#"{"id":"queued-response","model":"queued-model","output":[]}"#,
         ))]));
         Ok(TransportResponse {
             status: StatusCode::OK,

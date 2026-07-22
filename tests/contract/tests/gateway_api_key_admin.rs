@@ -188,7 +188,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
 }
 
 #[tokio::test]
-async fn models_list_reflects_enabled_published_routes() {
+async fn models_list_reflects_credential_model_selection() {
     let (_directory, app, _storage, _telemetry) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let created_key = request_json(
@@ -233,36 +233,43 @@ async fn models_list_reflects_enabled_published_routes() {
         .expect("endpoint id")
         .to_owned();
 
-    let route = request_json(
+    let credential = request_json(
         app.clone(),
         Method::POST,
-        "/api/admin/model-routes",
+        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
         Some(json!({
             "expected_revision": 3,
-            "public_model": "codex-local",
-            "ingress_protocol": "openai_responses",
-            "fallback_on_saturation": null,
-            "enabled": true,
-            "targets": [{
-                "provider_endpoint_id": endpoint_id.clone(),
-                "upstream_model": "gpt-5.1-codex",
-                "fallback_tier": 0,
-                "enabled": true
-            }]
+            "label": "Models credential",
+            "credential_kind": "api_key",
+            "api_key": "sk-model-list-provider",
+            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
+            "max_concurrency": 1,
+            "enabled": true
         })),
         loopback,
         &[],
     )
     .await;
-    assert_eq!(route.status, StatusCode::OK);
-    let route_id = route.body["items"][0]["id"]
+    assert_eq!(credential.status, StatusCode::OK);
+    let credential_id = credential.body["items"][0]["id"]
         .as_str()
-        .expect("route id")
+        .expect("credential id")
         .to_owned();
-    let target_id = route.body["items"][0]["targets"][0]["id"]
-        .as_str()
-        .expect("target id")
-        .to_owned();
+
+    let models = request_json(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/admin/provider-credentials/{credential_id}/models"),
+        Some(json!({
+            "expected_revision": 4,
+            "expected_config_version": 1,
+            "models": ["gpt-5.1-codex"]
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(models.status, StatusCode::OK);
 
     let listed = request_json(
         app.clone(),
@@ -275,34 +282,24 @@ async fn models_list_reflects_enabled_published_routes() {
     .await;
     assert_eq!(listed.status, StatusCode::OK);
     assert_eq!(listed.body["object"], "list");
-    assert_eq!(listed.body["data"][0]["id"], "codex-local");
+    assert_eq!(listed.body["data"][0]["id"], "gpt-5.1-codex");
     assert_eq!(listed.body["data"][0]["object"], "model");
     assert_eq!(listed.body["data"][0]["owned_by"], "any2api");
 
-    let disabled = request_json(
+    let cleared = request_json(
         app.clone(),
-        Method::PATCH,
-        &format!("/api/admin/model-routes/{route_id}"),
+        Method::PUT,
+        &format!("/api/admin/provider-credentials/{credential_id}/models"),
         Some(json!({
-            "expected_revision": 4,
-            "expected_config_version": 1,
-            "public_model": "codex-local",
-            "ingress_protocol": "openai_responses",
-            "fallback_on_saturation": null,
-            "enabled": false,
-            "targets": [{
-                "id": target_id,
-                "provider_endpoint_id": endpoint_id.clone(),
-                "upstream_model": "gpt-5.1-codex",
-                "fallback_tier": 0,
-                "enabled": true
-            }]
+            "expected_revision": 5,
+            "expected_config_version": 2,
+            "models": []
         })),
         loopback,
         &[],
     )
     .await;
-    assert_eq!(disabled.status, StatusCode::OK);
+    assert_eq!(cleared.status, StatusCode::OK);
 
     let listed = request_json(
         app,

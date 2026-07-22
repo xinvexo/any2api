@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, ModelRouteDraft, ModelRouteId, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProxyDraft, ProxyProfileId, SettingKey,
-    SettingValue,
+    ConfigRevision, CredentialId, ProviderCredentialDraft, ProviderEndpointDraft,
+    ProviderEndpointId, ProxyDraft, ProxyProfileId, SettingKey, SettingValue,
 };
 use any2api_storage::api::ConfigurationRepository;
 
@@ -231,45 +230,19 @@ impl ConfigPublisher {
         .await
     }
 
-    pub async fn create_model_route(
+    pub async fn set_provider_credential_models(
         &self,
         expected: ConfigRevision,
-        id: ModelRouteId,
-        draft: ModelRouteDraft,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::CreateModelRoute { id, draft })
-            .await
-    }
-
-    pub async fn update_model_route(
-        &self,
-        expected: ConfigRevision,
-        id: ModelRouteId,
+        id: CredentialId,
         expected_config_version: u64,
-        draft: ModelRouteDraft,
+        models: Vec<String>,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         self.publish(
             expected,
-            ConfigCommand::UpdateModelRoute {
+            ConfigCommand::SetProviderCredentialModels {
                 id,
                 expected_config_version,
-                draft,
-            },
-        )
-        .await
-    }
-
-    pub async fn delete_model_route(
-        &self,
-        expected: ConfigRevision,
-        id: ModelRouteId,
-        expected_config_version: u64,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::DeleteModelRoute {
-                id,
-                expected_config_version,
+                models,
             },
         )
         .await

@@ -1,4 +1,4 @@
-import { Pencil, Trash2 } from "lucide-react";
+import { ListChecks, Pencil, Trash2 } from "lucide-react";
 
 import type { ProviderCredential } from "../api/provider-credential-contracts";
 import type { ProxyConfiguration } from "@/features/proxies";
@@ -9,6 +9,7 @@ export interface ProviderCredentialTableRowProps {
   proxies: ProxyConfiguration;
   pending: boolean;
   onEdit: (id: string) => void;
+  onModels: (id: string) => void;
   onDelete: (credential: ProviderCredential) => void;
 }
 
@@ -17,6 +18,7 @@ export function ProviderCredentialTableRow({
   proxies,
   pending,
   onEdit,
+  onModels,
   onDelete,
 }: ProviderCredentialTableRowProps) {
   const proxyLabel = describeProxy(credential.proxyProfileId, proxies);
@@ -26,6 +28,9 @@ export function ProviderCredentialTableRow({
       <td className="py-2 pr-3 align-middle">
         <p className="break-words font-medium text-primary [overflow-wrap:anywhere]">
           {credential.label}
+        </p>
+        <p className="mt-0.5 text-[11px] text-tertiary">
+          {credential.models.length} 个模型
         </p>
       </td>
       <td className="px-3 py-2 align-middle">
@@ -44,6 +49,14 @@ export function ProviderCredentialTableRow({
       </td>
       <td className="py-2 pl-3 align-middle">
         <div className="flex flex-wrap items-center justify-end gap-0.5">
+          <RowAction
+            label={`配置 ${credential.label} 的模型`}
+            disabled={pending}
+            onClick={() => onModels(credential.id)}
+          >
+            <ListChecks size={13} />
+            模型
+          </RowAction>
           <RowAction
             label={`编辑 ${credential.label}`}
             disabled={pending}

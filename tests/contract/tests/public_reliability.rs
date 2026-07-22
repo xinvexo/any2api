@@ -5,11 +5,10 @@ use std::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, CredentialId, CredentialKind, ErrorClass, FallbackTier, GatewayApiKeyId,
-    MaxConcurrency, ModelRouteDraft, ModelRouteId, ProtocolDialect, ProtocolOperation,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, RequestAttemptOutcome, RequestId, RetrySafety, SaturationMode, SettingKey,
-    SettingValue,
+    CompletedRequestLog, CredentialId, CredentialKind, ErrorClass, GatewayApiKeyId, MaxConcurrency,
+    ProtocolDialect, ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyProfileId, RequestAttemptOutcome, RequestId,
+    RetrySafety, SaturationMode, SettingKey, SettingValue,
 };
 use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
@@ -663,7 +662,10 @@ async fn harness_for_protocol(
             .expect("setting override");
     }
 
-    let mut endpoint_ids = Vec::with_capacity(endpoint_count);
+    let selected_models = models
+        .iter()
+        .map(|model| (*model).to_owned())
+        .collect::<Vec<_>>();
     for index in 0..endpoint_count {
         let endpoint_id = ProviderEndpointId::new();
         let endpoint = publisher
@@ -701,33 +703,15 @@ async fn harness_for_protocol(
             )
             .await
             .expect("credential publish");
-        endpoint_ids.push(endpoint_id);
-    }
-
-    for model in models {
-        let targets = endpoint_ids
-            .iter()
-            .enumerate()
-            .map(|(index, endpoint_id)| {
-                any2api_domain::RouteTargetDraft::new(
-                    any2api_domain::RouteTargetId::new(),
-                    *endpoint_id,
-                    format!("upstream-{model}-{index}"),
-                    FallbackTier::new(0),
-                    true,
-                )
-                .expect("route target")
-            })
-            .collect();
         published = publisher
-            .create_model_route(
+            .set_provider_credential_models(
                 published.revision(),
-                ModelRouteId::new(),
-                ModelRouteDraft::new(*model, protocol_dialect, None, true, targets)
-                    .expect("route draft"),
+                credential_id,
+                1,
+                selected_models.clone(),
             )
             .await
-            .expect("route publish");
+            .expect("credential model publish");
     }
 
     let mut protocols = ProtocolRegistry::new();

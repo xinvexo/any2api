@@ -88,6 +88,10 @@ impl ProviderDriver for ClaudeDriver {
         })
     }
 
+    fn parse_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {
+        api_key::parse_model_catalog(bounded_body)
+    }
+
     fn classify_error(
         &self,
         operation: ProtocolOperation,

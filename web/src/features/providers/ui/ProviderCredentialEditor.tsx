@@ -208,7 +208,11 @@ export function ProviderCredentialEditor({
         </Button>
         <Button type="submit" variant="primary" disabled={pending || sourceConflict !== null}>
           <Save size={14} />
-          {pending ? "正在保存" : "保存"}
+          {pending
+            ? "正在保存"
+            : mode === "create" || apiKey.trim().length > 0
+              ? "保存并选择模型"
+              : "保存"}
         </Button>
       </div>
     </form>

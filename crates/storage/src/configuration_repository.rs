@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use crate::{
     configuration::StoredConfiguration, error::StorageError,
     gateway_api_key_repository::GatewayApiKeyRepository,
-    model_route_repository::ModelRouteRepository,
     provider_credential_mutation::ProviderCredentialMutation,
     provider_endpoint_mutation::ProviderEndpointMutation, proxy_mutation::ProxyMutation,
     proxy_rows::load_configuration_from, settings_repository::SettingRepository,
@@ -16,7 +15,7 @@ use crate::{
 
 #[async_trait]
 pub trait ConfigurationRepository:
-    ModelRouteRepository + GatewayApiKeyRepository + SettingRepository + Send + Sync
+    GatewayApiKeyRepository + SettingRepository + Send + Sync
 {
     async fn load_configuration(&self) -> Result<StoredConfiguration, StorageError>;
 
@@ -105,6 +104,14 @@ pub trait ConfigurationRepository:
         expected_config_version: u64,
         expected_secret_version: u64,
         api_key: SecretBytes,
+    ) -> Result<StoredConfiguration, StorageError>;
+
+    async fn set_provider_credential_models(
+        &self,
+        expected: ConfigRevision,
+        id: CredentialId,
+        expected_config_version: u64,
+        models: Vec<String>,
     ) -> Result<StoredConfiguration, StorageError>;
 
     async fn delete_provider_credential(
@@ -282,6 +289,24 @@ impl ConfigurationRepository for SqliteStore {
                 expected_config_version,
                 expected_secret_version,
                 api_key,
+            },
+        )
+        .await
+    }
+
+    async fn set_provider_credential_models(
+        &self,
+        expected: ConfigRevision,
+        id: CredentialId,
+        expected_config_version: u64,
+        models: Vec<String>,
+    ) -> Result<StoredConfiguration, StorageError> {
+        self.mutate_provider_credential(
+            expected,
+            ProviderCredentialMutation::SetModels {
+                id,
+                expected_config_version,
+                models,
             },
         )
         .await

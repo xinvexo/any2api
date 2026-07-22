@@ -49,6 +49,7 @@ struct ProviderCredentialResponse {
     secret_version: u64,
     credential_generation: u64,
     config_version: u64,
+    models: Vec<String>,
 }
 
 impl From<&ProviderCredential> for ProviderCredentialResponse {
@@ -67,6 +68,11 @@ impl From<&ProviderCredential> for ProviderCredentialResponse {
             secret_version: credential.secret_version(),
             credential_generation: credential.credential_generation(),
             config_version: credential.config_version(),
+            models: credential
+                .models()
+                .iter()
+                .map(|model| model.as_str().to_owned())
+                .collect(),
         }
     }
 }
@@ -84,40 +90,72 @@ pub(crate) struct ProviderCredentialTestResponse {
     proxy_id: ProxyProfileId,
     reachable: bool,
     accepted: bool,
+    catalog_valid: bool,
     status_code: Option<u16>,
     latency_ms: u64,
     auth_error_cleared: bool,
     error_stage: Option<&'static str>,
     failure_scope: Option<&'static str>,
+    models: Vec<String>,
 }
 
 impl From<ProviderCredentialTestResult> for ProviderCredentialTestResponse {
     fn from(result: ProviderCredentialTestResult) -> Self {
-        let (reachable, accepted, status_code, auth_error_cleared, error_stage, failure_scope) =
-            match result.outcome {
-                ProviderCredentialTestOutcome::Accepted {
-                    status_code,
-                    auth_error_cleared,
-                } => (
-                    true,
-                    true,
-                    Some(status_code),
-                    auth_error_cleared,
-                    None,
-                    None,
-                ),
-                ProviderCredentialTestOutcome::Rejected { status_code } => {
-                    (true, false, Some(status_code), false, None, None)
-                }
-                ProviderCredentialTestOutcome::Failed { stage, scope } => (
-                    false,
-                    false,
-                    None,
-                    false,
-                    Some(stage.as_str()),
-                    Some(scope.as_str()),
-                ),
-            };
+        let (
+            reachable,
+            accepted,
+            catalog_valid,
+            status_code,
+            auth_error_cleared,
+            error_stage,
+            failure_scope,
+            models,
+        ) = match result.outcome {
+            ProviderCredentialTestOutcome::Accepted {
+                status_code,
+                auth_error_cleared,
+                models,
+            } => (
+                true,
+                true,
+                true,
+                Some(status_code),
+                auth_error_cleared,
+                None,
+                None,
+                models,
+            ),
+            ProviderCredentialTestOutcome::InvalidCatalog { status_code } => (
+                true,
+                true,
+                false,
+                Some(status_code),
+                false,
+                None,
+                None,
+                Vec::new(),
+            ),
+            ProviderCredentialTestOutcome::Rejected { status_code } => (
+                true,
+                false,
+                false,
+                Some(status_code),
+                false,
+                None,
+                None,
+                Vec::new(),
+            ),
+            ProviderCredentialTestOutcome::Failed { stage, scope } => (
+                false,
+                false,
+                false,
+                None,
+                false,
+                Some(stage.as_str()),
+                Some(scope.as_str()),
+                Vec::new(),
+            ),
+        };
         Self {
             config_revision: result.config_revision.get(),
             provider_endpoint_config_version: result.provider_endpoint_config_version,
@@ -130,12 +168,35 @@ impl From<ProviderCredentialTestResult> for ProviderCredentialTestResponse {
             proxy_id: result.proxy_id,
             reachable,
             accepted,
+            catalog_valid,
             status_code,
             latency_ms: result.latency_ms,
             auth_error_cleared,
             error_stage,
             failure_scope,
+            models,
         }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProviderCredentialModelsRequest {
+    expected_revision: u64,
+    expected_config_version: u64,
+    models: Vec<String>,
+}
+
+impl ProviderCredentialModelsRequest {
+    pub(crate) fn into_domain(self) -> Result<(ConfigRevision, u64, Vec<String>), AdminApiError> {
+        Ok((
+            parse_revision(self.expected_revision)?,
+            parse_version(
+                self.expected_config_version,
+                "expected_config_version is invalid",
+            )?,
+            self.models,
+        ))
     }
 }
 

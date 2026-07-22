@@ -21,6 +21,7 @@ export interface ProviderCredentialListProps {
   onCreate: () => void;
   onRefresh: () => void;
   onEdit: (id: string) => void;
+  onModels: (id: string) => void;
   onDelete: (credential: ProviderCredential) => void;
 }
 
@@ -34,6 +35,7 @@ export function ProviderCredentialList({
   onCreate,
   onRefresh,
   onEdit,
+  onModels,
   onDelete,
 }: ProviderCredentialListProps) {
   const [query, setQuery] = useState("");
@@ -121,6 +123,7 @@ export function ProviderCredentialList({
                   proxies={proxies}
                   pending={pending}
                   onEdit={onEdit}
+                  onModels={onModels}
                   onDelete={onDelete}
                 />
               ))}

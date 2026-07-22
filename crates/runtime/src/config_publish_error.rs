@@ -73,14 +73,6 @@ pub enum ConfigPublishError {
     InvalidGatewayApiKey(GatewayApiKeyValidationError),
     #[error("gateway API Key token generation failed")]
     GatewayApiKeyTokenGeneration,
-    #[error("model route was not found")]
-    ModelRouteNotFound,
-    #[error("model route version conflict")]
-    ModelRouteVersionConflict,
-    #[error("public model is already in use for this ingress protocol")]
-    ModelRouteNameConflict,
-    #[error("route target identity cannot change under the same id")]
-    RouteTargetIdentityConflict,
     #[error("invalid model route: {0}")]
     InvalidModelRoute(ModelRouteValidationError),
     #[error("invalid setting value: {0}")]
@@ -132,10 +124,6 @@ impl From<StorageError> for ConfigPublishError {
             StorageError::GatewayApiKeyNameConflict => Self::GatewayApiKeyNameConflict,
             StorageError::GatewayApiKeyRevoked => Self::GatewayApiKeyRevoked,
             StorageError::GatewayApiKeyValidation(error) => Self::InvalidGatewayApiKey(error),
-            StorageError::ModelRouteNotFound(_) => Self::ModelRouteNotFound,
-            StorageError::ModelRouteVersionConflict { .. } => Self::ModelRouteVersionConflict,
-            StorageError::ModelRouteNameConflict => Self::ModelRouteNameConflict,
-            StorageError::RouteTargetIdentityConflict => Self::RouteTargetIdentityConflict,
             StorageError::ModelRouteValidation(error) => Self::InvalidModelRoute(error),
             StorageError::SettingsValidation(error) => Self::InvalidSetting(error),
             other => Self::Internal(other),

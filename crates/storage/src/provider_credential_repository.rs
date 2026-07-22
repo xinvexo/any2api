@@ -4,6 +4,7 @@ use sqlx::SqliteConnection;
 use crate::{
     configuration::StoredConfiguration,
     error::StorageError,
+    model_route_replacement::replace_model_routes,
     provider_credential_mutation::{
         ProviderCredentialMutation, prepare_provider_credential_mutation,
     },
@@ -56,10 +57,17 @@ async fn mutate_connection(
         return Ok((current, false));
     };
     execute_provider_credential_change(connection, prepared.change()).await?;
+    let expected_model_routes = prepared.model_routes().cloned();
+    if let Some(model_routes) = expected_model_routes.as_ref() {
+        replace_model_routes(connection, model_routes).await?;
+    }
     let expected_credentials = prepared.into_configuration();
     let revision = bump_revision(connection, expected).await?;
     let configuration = load_configuration_from(connection, vault).await?;
     assert_eq!(configuration.revision(), revision);
     assert_eq!(configuration.provider_credentials(), &expected_credentials);
+    if let Some(expected_model_routes) = expected_model_routes {
+        assert_eq!(configuration.model_routes(), &expected_model_routes);
+    }
     Ok((configuration, true))
 }

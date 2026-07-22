@@ -24,7 +24,7 @@ use tokio::{
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn codex_and_claude_streams_forward_incrementally_and_restore_public_models() {
+async fn codex_and_claude_streams_forward_incrementally_with_selected_model_names() {
     let (codex_address, codex_request, release_codex) = paused_sse_server(
         "/v1/responses",
         &[
@@ -68,16 +68,7 @@ async fn codex_and_claude_streams_forward_incrementally_and_restore_public_model
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &codex_endpoint,
-        "codex-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, remote, revision, &codex_endpoint, "gpt-upstream").await;
     revision += 1;
     let claude_endpoint = create_endpoint(
         &app,
@@ -99,29 +90,19 @@ async fn codex_and_claude_streams_forward_incrementally_and_restore_public_model
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &claude_endpoint,
-        "claude-public",
-        "claude-upstream",
-        "anthropic_messages",
-    )
-    .await;
+    select_models(&app, remote, revision, &claude_endpoint, "claude-upstream").await;
 
     let codex = request(
         app.clone(),
         "/v1/responses",
-        json!({"model":"codex-public","stream":true,"input":"hello"}),
+        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
         remote,
         &[("authorization", format!("Bearer {token}"))],
     )
     .await;
     assert_stream_headers(&codex);
     let (codex_first, codex_rest) = read_paused_stream(codex, release_codex).await;
-    assert!(codex_first.contains(r#""model":"codex-public""#));
-    assert!(!codex_first.contains("gpt-upstream"));
+    assert!(codex_first.contains(r#""model":"gpt-upstream""#));
     assert!(codex_rest.contains("[DONE]"));
     let codex_request = codex_request.await.expect("Codex upstream request");
     assert_eq!(codex_request.headers["accept"], "text/event-stream");
@@ -136,7 +117,7 @@ async fn codex_and_claude_streams_forward_incrementally_and_restore_public_model
         app,
         "/v1/messages",
         json!({
-            "model":"claude-public",
+            "model":"claude-upstream",
             "stream":true,
             "max_tokens":32,
             "messages":[{"role":"user","content":"hello"}]
@@ -147,8 +128,7 @@ async fn codex_and_claude_streams_forward_incrementally_and_restore_public_model
     .await;
     assert_stream_headers(&claude);
     let (claude_first, claude_rest) = read_paused_stream(claude, release_claude).await;
-    assert!(claude_first.contains(r#""model":"claude-public""#));
-    assert!(!claude_first.contains("claude-upstream"));
+    assert!(claude_first.contains(r#""model":"claude-upstream""#));
     assert!(claude_rest.contains("message_stop"));
     let claude_request = claude_request.await.expect("Claude upstream request");
     assert_eq!(claude_request.headers["accept"], "text/event-stream");
@@ -190,16 +170,7 @@ async fn stream_precommit_byte_budget_is_applied_from_published_settings() {
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "precommit-budget-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
     revision += 1;
     update_setting(
         &app,
@@ -213,7 +184,7 @@ async fn stream_precommit_byte_budget_is_applied_from_published_settings() {
     let response = request(
         app,
         "/v1/responses",
-        json!({"model":"precommit-budget-public","stream":true,"input":"hello"}),
+        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
         remote,
         &[("authorization", format!("Bearer {token}"))],
     )
@@ -258,16 +229,7 @@ async fn stream_precommit_duration_is_applied_from_published_settings() {
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "precommit-duration-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
     revision += 1;
     update_setting(
         &app,
@@ -281,7 +243,7 @@ async fn stream_precommit_duration_is_applied_from_published_settings() {
     let response = request(
         app,
         "/v1/responses",
-        json!({"model":"precommit-duration-public","stream":true,"input":"hello"}),
+        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
         remote,
         &[("authorization", format!("Bearer {token}"))],
     )
@@ -329,16 +291,7 @@ async fn stream_precommit_does_not_use_the_buffered_read_timeout() {
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "read-timeout-separation-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
     revision += 1;
     update_setting(&app, remote, revision, "upstream.read_timeout", json!(1)).await;
 
@@ -347,7 +300,7 @@ async fn stream_precommit_does_not_use_the_buffered_read_timeout() {
         request(
             request_app,
             "/v1/responses",
-            json!({"model":"read-timeout-separation-public","stream":true,"input":"hello"}),
+            json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
             remote,
             &[("authorization", format!("Bearer {token}"))],
         )
@@ -365,7 +318,7 @@ async fn stream_precommit_does_not_use_the_buffered_read_timeout() {
         .await
         .expect("stream body")
         .to_bytes();
-    assert!(String::from_utf8_lossy(&body).contains(r#""model":"read-timeout-separation-public""#));
+    assert!(String::from_utf8_lossy(&body).contains(r#""model":"gpt-upstream""#));
 }
 
 #[tokio::test]
@@ -400,16 +353,7 @@ async fn stream_postcommit_idle_timeout_ends_a_silent_connection() {
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "postcommit-idle-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
     revision += 1;
     update_setting(
         &app,
@@ -423,7 +367,7 @@ async fn stream_postcommit_idle_timeout_ends_a_silent_connection() {
     let response = request(
         app,
         "/v1/responses",
-        json!({"model":"postcommit-idle-public","stream":true,"input":"hello"}),
+        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
         remote,
         &[("authorization", format!("Bearer {token}"))],
     )
@@ -437,7 +381,7 @@ async fn stream_postcommit_idle_timeout_ends_a_silent_connection() {
         .expect("first body result")
         .into_data()
         .expect("first data");
-    assert!(String::from_utf8_lossy(&first).contains("postcommit-idle-public"));
+    assert!(String::from_utf8_lossy(&first).contains("gpt-upstream"));
     let result = timeout(Duration::from_secs(1), body.collect())
         .await
         .expect("idle body timeout");
@@ -476,16 +420,7 @@ async fn in_flight_stream_keeps_the_precommit_budget_from_its_snapshot() {
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "snapshot-budget-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
     revision += 1;
 
     let request_app = app.clone();
@@ -493,7 +428,7 @@ async fn in_flight_stream_keeps_the_precommit_budget_from_its_snapshot() {
         request(
             request_app,
             "/v1/responses",
-            json!({"model":"snapshot-budget-public","stream":true,"input":"hello"}),
+            json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
             remote,
             &[("authorization", format!("Bearer {token}"))],
         )
@@ -520,7 +455,7 @@ async fn in_flight_stream_keeps_the_precommit_budget_from_its_snapshot() {
         .await
         .expect("stream body")
         .to_bytes();
-    assert!(String::from_utf8_lossy(&body).contains(r#""model":"snapshot-budget-public""#));
+    assert!(String::from_utf8_lossy(&body).contains(r#""model":"gpt-upstream""#));
 }
 
 #[tokio::test]
@@ -560,21 +495,12 @@ async fn codex_response_created_event_binds_the_follow_up_to_the_same_credential
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "stream-affinity-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
 
     let first = request(
         app.clone(),
         "/v1/responses",
-        json!({"model":"stream-affinity-public","stream":true,"input":"start"}),
+        json!({"model":"gpt-upstream","stream":true,"input":"start"}),
         remote,
         &[("authorization", format!("Bearer {token}"))],
     )
@@ -592,7 +518,7 @@ async fn codex_response_created_event_binds_the_follow_up_to_the_same_credential
         app,
         "/v1/responses",
         json!({
-            "model":"stream-affinity-public",
+            "model":"gpt-upstream",
             "previous_response_id":"resp_stream_affinity",
             "input":"continue"
         }),
@@ -647,17 +573,8 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "prefer-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
-    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+    revision += 2;
     update_setting(
         &app,
         remote,
@@ -670,7 +587,7 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
     let held = request(
         app.clone(),
         "/v1/responses",
-        json!({"model":"prefer-public","stream":true,"input":"start"}),
+        json!({"model":"gpt-upstream","stream":true,"input":"start"}),
         remote,
         &[
             ("authorization", format!("Bearer {token}")),
@@ -687,7 +604,7 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
     let rebound = request(
         app,
         "/v1/responses",
-        json!({"model":"prefer-public","input":"continue"}),
+        json!({"model":"gpt-upstream","input":"continue"}),
         remote,
         &[
             ("authorization", format!("Bearer {token}")),
@@ -754,17 +671,8 @@ async fn strict_soft_affinity_never_switches_credentials() {
     )
     .await;
     revision += 1;
-    create_route(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "strict-public",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
-    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+    revision += 2;
     update_setting(
         &app,
         remote,
@@ -786,7 +694,7 @@ async fn strict_soft_affinity_never_switches_credentials() {
     let held = request(
         app.clone(),
         "/v1/responses",
-        json!({"model":"strict-public","stream":true,"input":"start"}),
+        json!({"model":"gpt-upstream","stream":true,"input":"start"}),
         remote,
         &[
             ("authorization", format!("Bearer {token}")),
@@ -803,7 +711,7 @@ async fn strict_soft_affinity_never_switches_credentials() {
     let blocked = request(
         app,
         "/v1/responses",
-        json!({"model":"strict-public","input":"continue"}),
+        json!({"model":"gpt-upstream","input":"continue"}),
         remote,
         &[
             ("authorization", format!("Bearer {token}")),
@@ -978,49 +886,75 @@ async fn create_credential(
     .await;
 }
 
-async fn create_route(
+async fn select_models(
     app: &Router,
     remote: SocketAddr,
     revision: u64,
     endpoint_id: &str,
-    public_model: &str,
-    upstream_model: &str,
-    dialect: &str,
+    model: &str,
 ) {
-    request_admin(
+    let listed = request_admin_method(
         app.clone(),
-        "/api/admin/model-routes",
-        json!({
-            "expected_revision":revision,
-            "public_model":public_model,
-            "ingress_protocol":dialect,
-            "fallback_on_saturation":null,
-            "enabled":true,
-            "targets":[{
-                "provider_endpoint_id":endpoint_id,
-                "upstream_model":upstream_model,
-                "fallback_tier":0,
-                "enabled":true
-            }]
-        }),
+        Method::GET,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
+        None,
         remote,
     )
     .await;
+    let credentials = listed["items"]
+        .as_array()
+        .expect("credential items")
+        .iter()
+        .map(|credential| {
+            (
+                credential["id"].as_str().expect("credential id").to_owned(),
+                credential["config_version"]
+                    .as_u64()
+                    .expect("credential config version"),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(!credentials.is_empty());
+
+    for (offset, (credential_id, config_version)) in credentials.into_iter().enumerate() {
+        request_admin_method(
+            app.clone(),
+            Method::PUT,
+            &format!("/api/admin/provider-credentials/{credential_id}/models"),
+            Some(json!({
+                "expected_revision": revision + offset as u64,
+                "expected_config_version": config_version,
+                "models": [model]
+            })),
+            remote,
+        )
+        .await;
+    }
 }
 
 async fn request_admin(app: Router, uri: &str, body: Value, remote: SocketAddr) -> Value {
+    request_admin_method(app, Method::POST, uri, Some(body), remote).await
+}
+
+async fn request_admin_method(
+    app: Router,
+    method: Method,
+    uri: &str,
+    body: Option<Value>,
+    remote: SocketAddr,
+) -> Value {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .extension(ConnectInfo(remote));
+    let body = if let Some(body) = body {
+        builder = builder.header(CONTENT_TYPE, "application/json");
+        Body::from(serde_json::to_vec(&body).expect("admin request JSON"))
+    } else {
+        Body::empty()
+    };
     let response = app
-        .oneshot(
-            Request::builder()
-                .method(Method::POST)
-                .uri(uri)
-                .header(CONTENT_TYPE, "application/json")
-                .extension(ConnectInfo(remote))
-                .body(Body::from(
-                    serde_json::to_vec(&body).expect("admin request JSON"),
-                ))
-                .expect("admin request"),
-        )
+        .oneshot(builder.body(body).expect("admin request"))
         .await
         .expect("admin response");
     assert_eq!(response.status(), StatusCode::OK);

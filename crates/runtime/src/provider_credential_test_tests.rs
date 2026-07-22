@@ -87,13 +87,14 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
         .await
         .expect("credential test");
 
-    assert!(matches!(
-        result.outcome,
+    match &result.outcome {
         ProviderCredentialTestOutcome::Accepted {
             status_code: 200,
-            auth_error_cleared: true
-        }
-    ));
+            auth_error_cleared: true,
+            models,
+        } => assert_eq!(models, &["gpt-probe"]),
+        other => panic!("unexpected outcome: {other:?}"),
+    }
     assert!(!binding.generation().health().has_auth_error());
     assert!(runtime.scheduler_epoch() > epoch_before);
     assert_eq!(binding.capacity().in_flight(), 0);
@@ -119,7 +120,11 @@ impl TransportManager for CapturingTransport {
         Ok(TransportResponse {
             status: StatusCode::OK,
             headers: HeaderMap::new(),
-            body: Box::pin(futures_util::stream::empty()),
+            body: Box::pin(futures_util::stream::once(async {
+                Ok(bytes::Bytes::from_static(
+                    br#"{"data":[{"id":"gpt-probe"}]}"#,
+                ))
+            })),
             read_failure_scope: TransportFailureScope::Endpoint,
         })
     }

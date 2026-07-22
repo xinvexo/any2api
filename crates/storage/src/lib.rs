@@ -16,10 +16,7 @@ mod gateway_api_key_usage_repository;
 mod gateway_api_key_verifier;
 mod gateway_api_key_writes;
 mod migration;
-mod model_route_mutation;
-mod model_route_repository;
-#[cfg(test)]
-mod model_route_repository_tests;
+mod model_route_replacement;
 mod model_route_rows;
 mod provider_endpoint_mutation;
 mod provider_endpoint_repository;
@@ -38,6 +35,8 @@ mod sqlite;
 mod vault;
 
 mod provider_api_key;
+#[cfg(test)]
+mod provider_credential_models_tests;
 mod provider_credential_mutation;
 mod provider_credential_repository;
 #[cfg(test)]

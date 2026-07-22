@@ -14,6 +14,7 @@ export interface ProviderCredential {
   secretVersion: number;
   credentialGeneration: number;
   configVersion: number;
+  models: string[];
 }
 
 export interface ProviderCredentialConfiguration {
@@ -59,11 +60,19 @@ export interface ProviderCredentialTestResult {
   proxyId: string;
   reachable: boolean;
   accepted: boolean;
+  catalogValid: boolean;
   statusCode: number | null;
   latencyMs: number;
   authErrorCleared: boolean;
   errorStage: string | null;
   failureScope: string | null;
+  models: string[];
+}
+
+export interface ProviderCredentialModelsInput {
+  expectedRevision: number;
+  expectedConfigVersion: number;
+  models: string[];
 }
 
 export function parseProviderCredentialConfiguration(
@@ -90,10 +99,12 @@ export function parseProviderCredentialTestResult(value: unknown): ProviderCrede
   }
   const reachable = readBoolean(value.reachable);
   const accepted = readBoolean(value.accepted);
+  const catalogValid = readBoolean(value.catalog_valid);
   const statusCode = readNullableStatusCode(value.status_code);
   const authErrorCleared = readBoolean(value.auth_error_cleared);
   const errorStage = readNullableString(value.error_stage);
   const failureScope = readNullableString(value.failure_scope);
+  const models = readModelNames(value.models);
   if (
     reachable
       ? statusCode === null || errorStage !== null || failureScope !== null
@@ -102,6 +113,9 @@ export function parseProviderCredentialTestResult(value: unknown): ProviderCrede
     throw new Error("invalid provider credential test response");
   }
   if (authErrorCleared && !accepted) {
+    throw new Error("invalid provider credential test response");
+  }
+  if (catalogValid && !accepted || !catalogValid && models.length > 0) {
     throw new Error("invalid provider credential test response");
   }
   return {
@@ -116,11 +130,13 @@ export function parseProviderCredentialTestResult(value: unknown): ProviderCrede
     proxyId: readString(value.proxy_id),
     reachable,
     accepted,
+    catalogValid,
     statusCode,
     latencyMs: readNonNegativeInteger(value.latency_ms),
     authErrorCleared,
     errorStage,
     failureScope,
+    models,
   };
 }
 
@@ -156,6 +172,7 @@ function parseProviderCredential(value: unknown): ProviderCredential {
     secretVersion: readPositiveInteger(value.secret_version),
     credentialGeneration: readPositiveInteger(value.credential_generation),
     configVersion: readPositiveInteger(value.config_version),
+    models: readModelNames(value.models),
   };
 }
 
@@ -204,6 +221,20 @@ function readBoundedConcurrency(value: unknown): number {
     throw new Error("invalid provider credential response");
   }
   return parsed;
+}
+
+function readModelNames(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error("invalid provider credential response");
+  }
+  const models = value.map((item) => readString(item));
+  if (models.some((model) => model.trim() !== model || [...model].length > 255)) {
+    throw new Error("invalid provider credential response");
+  }
+  if (new Set(models).size !== models.length) {
+    throw new Error("invalid provider credential response");
+  }
+  return models;
 }
 
 function readBoolean(value: unknown): boolean {

@@ -8,10 +8,12 @@ import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderCredentialMutations } from "../model/use-provider-credential-mutations";
 import { useProviderCredentials } from "../model/use-provider-credentials";
 import { useProviderSecretActions } from "../model/use-provider-secret-actions";
+import { useProviderCredentialTest } from "../model/use-provider-credential-test";
 import { CredentialSecretReceipt } from "./CredentialSecretReceipt";
 import type { CredentialEditorSubmission } from "./ProviderCredentialEditor";
 import { CredentialEditorSlot } from "./CredentialEditorSlot";
 import { ProviderCredentialList } from "./ProviderCredentialList";
+import { ProviderCredentialModels } from "./ProviderCredentialModels";
 import { useCredentialProxyOptions } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -36,11 +38,15 @@ export function ProviderCredentialManagement({
   const proxies = useCredentialProxyOptions();
   const mutations = useProviderCredentialMutations(endpoint.id);
   const secretActions = useProviderSecretActions(endpoint.id);
+  const credentialTest = useProviderCredentialTest(
+    `${endpoint.id}:${credentials.data?.configRevision ?? 0}`,
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const [receipt, setReceipt] = useState<{ label: string; apiKey: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProviderCredential | null>(null);
   const activeEndpointId = searchParams.get("keys");
   const editorId = searchParams.get("credential");
+  const editorAction = searchParams.get("action");
   const isActiveEndpoint = activeEndpointId === endpoint.id;
   const mode = editorId === "new" ? "create" : "edit";
   const selected =
@@ -58,6 +64,21 @@ export function ProviderCredentialManagement({
         next.delete("action");
         next.set("keys", endpoint.id);
         next.set("credential", id);
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
+  function openModels(id: string) {
+    mutations.models.reset();
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("editor");
+        next.set("keys", endpoint.id);
+        next.set("credential", id);
+        next.set("action", "models");
         return next;
       },
       { replace: true },
@@ -140,18 +161,32 @@ export function ProviderCredentialManagement({
   }
 
   const configuration = credentials.data;
-  const pending = mutations.isPending || secretActions.pending;
+  const modelMode = editorAction === "models";
+  const modelTesting = credentialTest.testingCredentialId === selected?.id;
+  const pending = mutations.isPending || secretActions.pending || modelTesting;
   const editorError =
-    mode === "edit" ? (mutations.update.error ?? secretActions.error) : secretActions.error;
+    modelMode
+      ? (mutations.models.error ?? credentialTest.error)
+      : mode === "edit"
+        ? (mutations.update.error ?? secretActions.error)
+        : secretActions.error;
   const editorOpen = isActiveEndpoint && editorId !== null;
 
   async function submit(submission: CredentialEditorSubmission) {
     try {
       if (submission.mode === "create") {
-        await secretActions.create(submission.input);
+        const createdConfiguration = await secretActions.create(submission.input);
+        const created = createdConfiguration.items.find(
+          (credential) => credential.label === submission.input.label,
+        );
+        if (!created) {
+          throw new Error("credential missing after create");
+        }
         setReceipt({ label: submission.input.label, apiKey: submission.input.apiKey });
+        onRevealList?.();
+        openModels(created.id);
       } else {
-        const updated = await mutations.update.mutateAsync({
+        let updated = await mutations.update.mutateAsync({
           id: submission.id,
           input: submission.input,
         });
@@ -160,20 +195,39 @@ export function ProviderCredentialManagement({
           if (!credential) {
             throw new Error("credential missing after update");
           }
-          await secretActions.rotate(submission.id, {
+          updated = await secretActions.rotate(submission.id, {
             expectedRevision: updated.configRevision,
             expectedConfigVersion: credential.configVersion,
             expectedSecretVersion: credential.secretVersion,
             apiKey: submission.apiKey,
           });
           setReceipt({ label: submission.input.label, apiKey: submission.apiKey });
+          onRevealList?.();
+          openModels(submission.id);
+        } else {
+          onRevealList?.();
+          closeEditor(submission.id);
         }
       }
-      onRevealList?.();
-      closeEditor(editorId);
     } catch {
       // Keep the local draft mounted after validation or version conflicts.
     }
+  }
+
+  async function saveModels(models: string[]) {
+    if (!selected) {
+      return;
+    }
+    await mutations.models.mutateAsync({
+      id: selected.id,
+      input: {
+        expectedRevision: configuration.configRevision,
+        expectedConfigVersion: selected.configVersion,
+        models,
+      },
+    });
+    onRevealList?.();
+    closeEditor(selected.id);
   }
 
   function confirmDelete() {
@@ -236,17 +290,29 @@ export function ProviderCredentialManagement({
           onCreate={() => openEditor("new")}
           onRefresh={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
           onEdit={(id) => openEditor(id)}
+          onModels={openModels}
           onDelete={setDeleteTarget}
         />
       ) : null}
 
       <SideDrawer
         open={editorOpen}
-        title={drawerTitle}
-        description="绑定代理与并发限制"
+        title={modelMode ? "选择上游模型" : drawerTitle}
+        description={modelMode ? "拉取并保存这把 API Key 可用的模型" : "绑定代理与并发限制"}
         onClose={() => closeEditor(editorId)}
       >
-        {editorOpen && editorId ? (
+        {editorOpen && editorId && modelMode && selected ? (
+          <ProviderCredentialModels
+            key={`${selected.id}:${selected.configVersion}`}
+            credential={selected}
+            result={credentialTest.results[selected.id]}
+            pending={pending}
+            error={editorError}
+            onDiscover={() => void credentialTest.test(selected.id)}
+            onSave={saveModels}
+            onClose={() => closeEditor(editorId)}
+          />
+        ) : editorOpen && editorId ? (
           <CredentialEditorSlot
             key={`${endpoint.id}:${editorId}:${mode}`}
             mode={mode}

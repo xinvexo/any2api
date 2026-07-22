@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProviderCredential,
@@ -41,6 +41,12 @@ struct ProviderCredentialRow {
     enabled: i64,
 }
 
+#[derive(Debug, FromRow)]
+struct ProviderCredentialModelRow {
+    credential_id: String,
+    upstream_model: String,
+}
+
 pub(crate) async fn load_provider_credentials_from(
     connection: &mut SqliteConnection,
     vault: &SecretVault,
@@ -60,14 +66,25 @@ pub(crate) async fn load_provider_credentials_from(
          secret_tail, proxy_profile_id, max_concurrency, enabled \
          FROM provider_credentials ORDER BY provider_endpoint_id ASC, label ASC",
     )
-    .fetch_all(connection)
+    .fetch_all(&mut *connection)
     .await?;
+    let model_rows = sqlx::query_as::<_, ProviderCredentialModelRow>(
+        "SELECT credential_id, upstream_model FROM provider_credential_models \
+         ORDER BY credential_id, upstream_model",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    let mut models = group_models(model_rows);
     let mut credentials = Vec::with_capacity(rows.len());
     let mut secrets = Vec::with_capacity(rows.len());
     for row in rows {
-        let (credential, secret) = parse_row(row, vault, endpoints)?;
+        let selected_models = models.remove(&row.id).unwrap_or_default();
+        let (credential, secret) = parse_row(row, selected_models, vault, endpoints)?;
         credentials.push(credential);
         secrets.push(secret);
+    }
+    if !models.is_empty() {
+        return Err(StorageError::CorruptConfiguration);
     }
     let configuration = ProviderCredentialConfiguration::new(credentials, endpoints, proxies)
         .map_err(|_| StorageError::CorruptConfiguration)?;
@@ -76,6 +93,7 @@ pub(crate) async fn load_provider_credentials_from(
 
 fn parse_row(
     row: ProviderCredentialRow,
+    models: Vec<String>,
     vault: &SecretVault,
     endpoints: &ProviderEndpointConfiguration,
 ) -> Result<(ProviderCredential, StoredProviderCredentialSecret), StorageError> {
@@ -144,6 +162,7 @@ fn parse_row(
         secret_version,
         credential_generation,
         config_version,
+        models,
     )
     .map_err(|_| StorageError::CorruptConfiguration)?;
     let envelope = SecretEnvelope::restore(
@@ -164,6 +183,17 @@ fn parse_row(
         secret,
     );
     Ok((credential, material))
+}
+
+fn group_models(rows: Vec<ProviderCredentialModelRow>) -> HashMap<String, Vec<String>> {
+    let mut models = HashMap::<String, Vec<String>>::new();
+    for row in rows {
+        models
+            .entry(row.credential_id)
+            .or_default()
+            .push(row.upstream_model);
+    }
+    models
 }
 
 fn open_and_verify_secret(

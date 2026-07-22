@@ -12,7 +12,7 @@ test("shows the empty Provider state", async () => {
 
   renderManagement();
 
-  expect(await screen.findByText("还没有 Provider Endpoint")).toBeInTheDocument();
+  expect(await screen.findByText("还没有 Codex Endpoint")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "新增" })).toBeInTheDocument();
 });
 
@@ -33,7 +33,7 @@ test("expands endpoint accordion to show nested API keys on the same page", asyn
 
   expect(await screen.findByRole("button", { name: "收起 Codex Primary 的 API Key" })).toHaveAttribute("aria-expanded", "true");
   expect(await screen.findByText("Primary Key")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "测试 Primary Key" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "配置 Primary Key 的模型" })).toBeInTheDocument();
   expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(
     expect.arrayContaining([
       "/api/admin/provider-endpoints",
@@ -66,10 +66,10 @@ test("creates a Claude private HTTP endpoint with separate authorizations", asyn
     },
   );
 
-  renderManagement(["/providers?editor=new"]);
+  renderManagement(["/providers?kind=claude&editor=new"]);
 
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "本地 Claude" } });
-  fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "claude" } });
+  expect(screen.getAllByText("Claude")).toHaveLength(2);
   fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "http://127.0.0.1:8080" } });
   fireEvent.click(screen.getByRole("switch", { name: "允许普通 HTTP" }));
   fireEvent.click(screen.getByRole("switch", { name: "允许内网地址" }));
@@ -255,6 +255,7 @@ function credential(overrides: Record<string, unknown> = {}) {
     secret_version: 1,
     credential_generation: 1,
     config_version: 1,
+    models: [],
     ...overrides,
   };
 }

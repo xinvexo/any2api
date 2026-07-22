@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    str::FromStr,
-};
+use std::{collections::HashMap, str::FromStr};
 
 use any2api_domain::{
     FallbackTier, ModelRoute, ModelRouteConfiguration, ModelRouteDraft, ModelRouteId,
@@ -9,7 +6,7 @@ use any2api_domain::{
 };
 use sqlx::{FromRow, SqliteConnection};
 
-use crate::{error::StorageError, model_route_mutation::ModelRouteDatabaseChange};
+use crate::error::StorageError;
 
 #[derive(FromRow)]
 struct ModelRouteRow {
@@ -62,18 +59,6 @@ pub(crate) async fn load_model_routes_from(
     ModelRouteConfiguration::new(routes, endpoints).map_err(|_| StorageError::CorruptConfiguration)
 }
 
-pub(crate) async fn execute_model_route_change(
-    connection: &mut SqliteConnection,
-    change: &ModelRouteDatabaseChange,
-) -> Result<(), StorageError> {
-    match change {
-        ModelRouteDatabaseChange::Create(route) => insert_route(connection, route).await?,
-        ModelRouteDatabaseChange::Update(route) => update_route(connection, route).await?,
-        ModelRouteDatabaseChange::Delete(id) => delete_route(connection, *id).await?,
-    }
-    Ok(())
-}
-
 fn group_targets(
     rows: Vec<RouteTargetRow>,
 ) -> Result<HashMap<ModelRouteId, Vec<RouteTargetDraft>>, StorageError> {
@@ -123,7 +108,7 @@ fn parse_route(
     ModelRoute::restore(id, draft, version).map_err(|_| StorageError::CorruptConfiguration)
 }
 
-async fn insert_route(
+pub(crate) async fn insert_model_route(
     connection: &mut SqliteConnection,
     route: &ModelRoute,
 ) -> Result<(), StorageError> {
@@ -140,53 +125,6 @@ async fn insert_route(
     .bind(i64::try_from(route.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
     .execute(&mut *connection)
     .await?;
-    for target in route.targets() {
-        upsert_target(connection, target).await?;
-    }
-    Ok(())
-}
-
-async fn update_route(
-    connection: &mut SqliteConnection,
-    route: &ModelRoute,
-) -> Result<(), StorageError> {
-    let result = sqlx::query(
-        "UPDATE model_routes SET public_model = ?, fallback_on_saturation = ?, enabled = ?, \
-         config_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-    )
-    .bind(route.public_model().as_str())
-    .bind(route.fallback_on_saturation())
-    .bind(route.enabled())
-    .bind(i64::try_from(route.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
-    .bind(route.id().to_string())
-    .execute(&mut *connection)
-    .await?;
-    if result.rows_affected() != 1 {
-        return Err(StorageError::ModelRouteNotFound(route.id()));
-    }
-    sync_targets(connection, route).await
-}
-
-async fn sync_targets(
-    connection: &mut SqliteConnection,
-    route: &ModelRoute,
-) -> Result<(), StorageError> {
-    let existing =
-        sqlx::query_scalar::<_, String>("SELECT id FROM route_targets WHERE model_route_id = ?")
-            .bind(route.id().to_string())
-            .fetch_all(&mut *connection)
-            .await?;
-    let retained = route
-        .targets()
-        .iter()
-        .map(|target| target.id().to_string())
-        .collect::<HashSet<_>>();
-    for id in existing.into_iter().filter(|id| !retained.contains(id)) {
-        sqlx::query("DELETE FROM route_targets WHERE id = ?")
-            .bind(id)
-            .execute(&mut *connection)
-            .await?;
-    }
     for target in route.targets() {
         upsert_target(connection, target).await?;
     }
@@ -217,20 +155,6 @@ async fn upsert_target(
     .await?;
     if result.rows_affected() != 1 {
         return Err(StorageError::CorruptConfiguration);
-    }
-    Ok(())
-}
-
-async fn delete_route(
-    connection: &mut SqliteConnection,
-    id: ModelRouteId,
-) -> Result<(), StorageError> {
-    let result = sqlx::query("DELETE FROM model_routes WHERE id = ?")
-        .bind(id.to_string())
-        .execute(connection)
-        .await?;
-    if result.rows_affected() != 1 {
-        return Err(StorageError::ModelRouteNotFound(id));
     }
     Ok(())
 }

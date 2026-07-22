@@ -12,8 +12,6 @@ mod error;
 mod gateway_api_key_dto;
 mod gateway_api_key_handlers;
 mod loopback;
-mod model_route_dto;
-mod model_route_handlers;
 mod no_store;
 mod provider_credential_dto;
 mod provider_credential_handlers;
@@ -83,14 +81,6 @@ fn protected_routes() -> Router<AppState> {
             axum::routing::post(gateway_api_key_handlers::revoke),
         )
         .route(
-            "/model-routes",
-            get(model_route_handlers::list).post(model_route_handlers::create),
-        )
-        .route(
-            "/model-routes/{id}",
-            axum::routing::patch(model_route_handlers::update).delete(model_route_handlers::delete),
-        )
-        .route(
             "/proxies",
             get(proxy_handlers::list).post(proxy_handlers::create),
         )
@@ -136,6 +126,10 @@ fn protected_routes() -> Router<AppState> {
         .route(
             "/provider-credentials/{id}/test",
             axum::routing::post(provider_credential_handlers::test),
+        )
+        .route(
+            "/provider-credentials/{id}/models",
+            axum::routing::put(provider_credential_handlers::set_models),
         )
         .route("/request-logs", get(request_log_handlers::list))
         .route("/request-logs/{id}", get(request_log_handlers::get))

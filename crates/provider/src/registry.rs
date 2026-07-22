@@ -106,6 +106,10 @@ mod tests {
             })
         }
 
+        fn parse_model_catalog(&self, _bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {
+            Ok(Vec::new())
+        }
+
         fn classify_error(
             &self,
             _operation: ProtocolOperation,

@@ -261,27 +261,19 @@ async fn successful_credential_test_clears_generation_auth_error() {
         .expect("credential id")
         .to_owned();
 
-    let route = request_json(
+    let models = request_json(
         app.clone(),
-        Method::POST,
-        "/api/admin/model-routes",
+        Method::PUT,
+        &format!("/api/admin/provider-credentials/{credential_id}/models"),
         Some(json!({
             "expected_revision": 3,
-            "public_model": "probe-model",
-            "ingress_protocol": "openai_responses",
-            "fallback_on_saturation": false,
-            "enabled": true,
-            "targets": [{
-                "provider_endpoint_id": endpoint_id,
-                "upstream_model": "upstream-model",
-                "fallback_tier": 0,
-                "enabled": true
-            }]
+            "expected_config_version": 1,
+            "models": ["upstream-model"]
         })),
         loopback,
     )
     .await;
-    assert_eq!(route.status, StatusCode::OK);
+    assert_eq!(models.status, StatusCode::OK);
 
     let gateway = request_json(
         app.clone(),
@@ -301,7 +293,7 @@ async fn successful_credential_test_clears_generation_auth_error() {
         app.clone(),
         Method::POST,
         "/v1/responses",
-        Some(json!({"model": "probe-model", "input": "hello"})),
+        Some(json!({"model": "upstream-model", "input": "hello"})),
         loopback,
         &[("authorization", format!("Bearer {gateway_token}"))],
     )
@@ -331,6 +323,8 @@ async fn successful_credential_test_clears_generation_auth_error() {
     assert_eq!(tested.body["credential_id"], credential_id);
     assert_eq!(tested.body["reachable"], true);
     assert_eq!(tested.body["accepted"], true);
+    assert_eq!(tested.body["catalog_valid"], true);
+    assert_eq!(tested.body["models"], json!([]));
     assert_eq!(tested.body["status_code"], 200);
     assert_eq!(tested.body["auth_error_cleared"], true);
     assert!(!tested.raw_body.contains("sk-credential-test-secret"));
@@ -349,7 +343,7 @@ async fn successful_credential_test_clears_generation_auth_error() {
         app,
         Method::POST,
         "/v1/responses",
-        Some(json!({"model": "probe-model", "input": "hello again"})),
+        Some(json!({"model": "upstream-model", "input": "hello again"})),
         loopback,
         &[("authorization", format!("Bearer {gateway_token}"))],
     )

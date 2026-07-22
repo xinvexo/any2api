@@ -14,8 +14,9 @@ use super::{
     no_store,
     provider_credential_dto::{
         ProviderCredentialCollectionResponse, ProviderCredentialCreateRequest,
-        ProviderCredentialDeleteQuery, ProviderCredentialRotateRequest,
-        ProviderCredentialTestResponse, ProviderCredentialUpdateRequest,
+        ProviderCredentialDeleteQuery, ProviderCredentialModelsRequest,
+        ProviderCredentialRotateRequest, ProviderCredentialTestResponse,
+        ProviderCredentialUpdateRequest,
     },
 };
 
@@ -112,6 +113,21 @@ pub(crate) async fn test(
         .ok_or_else(AdminApiError::provider_credential_test_unavailable)?;
     let result = service.test(state.snapshots().load(), id).await?;
     Ok(no_store::json(ProviderCredentialTestResponse::from(result)))
+}
+
+pub(crate) async fn set_models(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    payload: Result<Json<ProviderCredentialModelsRequest>, JsonRejection>,
+) -> Result<Response, AdminApiError> {
+    let id = parse_credential_id(&id)?;
+    let (expected, expected_config_version, models) = parse_json(payload)?.into_domain()?;
+    let endpoint_id = credential_endpoint(&state, id)?;
+    let snapshot = state
+        .publisher()
+        .set_provider_credential_models(expected, id, expected_config_version, models)
+        .await?;
+    Ok(response(&snapshot, endpoint_id))
 }
 
 fn response(

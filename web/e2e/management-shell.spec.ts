@@ -23,8 +23,7 @@ test("desktop core management deep links render against the real service", async
   for (const [path, readyText] of [
     ["/", "运行正常"],
     ["/proxies", "代理列表"],
-    ["/providers", "Provider Endpoint"],
-    ["/routes", "已发布路由"],
+    ["/providers", "还没有 Codex Endpoint"],
     ["/balancing", "还没有 Provider Credential"],
     ["/keys", "尚未创建网关密钥"],
     ["/logs", "还没有请求日志"],

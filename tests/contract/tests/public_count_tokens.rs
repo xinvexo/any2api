@@ -34,7 +34,7 @@ async fn count_tokens_uses_auxiliary_path_and_preserves_request_fields() {
         Method::POST,
         "/v1/messages/count_tokens",
         Some(json!({
-            "model": "claude-local",
+            "model": "claude-upstream",
             "messages": [{"role":"user","content":"hello"}],
             "system": "system prompt",
             "tools": [{"name":"lookup"}],
@@ -79,7 +79,7 @@ async fn count_tokens_upstream_not_found_returns_anthropic_404() {
         Method::POST,
         "/v1/messages/count_tokens",
         Some(json!({
-            "model": "claude-local",
+            "model": "claude-upstream",
             "messages": [{"role":"user","content":"hello"}]
         })),
         &[("x-api-key", token)],
@@ -158,7 +158,7 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
     let endpoint_id = endpoint.body["items"][0]["id"]
         .as_str()
         .expect("endpoint id");
-    request_json_with_remote(
+    let credential = request_json_with_remote(
         app.clone(),
         Method::POST,
         &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
@@ -175,22 +175,17 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
         &[],
     )
     .await;
+    let credential_id = credential.body["items"][0]["id"]
+        .as_str()
+        .expect("credential id");
     request_json_with_remote(
         app.clone(),
-        Method::POST,
-        "/api/admin/model-routes",
+        Method::PUT,
+        &format!("/api/admin/provider-credentials/{credential_id}/models"),
         Some(json!({
             "expected_revision": 4,
-            "public_model": "claude-local",
-            "ingress_protocol": "anthropic_messages",
-            "fallback_on_saturation": null,
-            "enabled": true,
-            "targets": [{
-                "provider_endpoint_id": endpoint_id,
-                "upstream_model": "claude-upstream",
-                "fallback_tier": 0,
-                "enabled": true
-            }]
+            "expected_config_version": 1,
+            "models": ["claude-upstream"]
         })),
         remote,
         &[],

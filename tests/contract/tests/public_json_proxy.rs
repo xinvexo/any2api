@@ -70,23 +70,14 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
         "sk-codex-contract",
     )
     .await;
-    create_route(
-        &app,
-        loopback,
-        revision + 3,
-        &endpoint_id,
-        "codex-local",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-upstream").await;
 
     let response = request_json(
         app.clone(),
         Method::POST,
         "/v1/responses",
         Some(json!({
-            "model": "codex-local",
+            "model": "gpt-upstream",
             "input": "hello",
             "stream": false,
             "unknown_field": {"keep": true}
@@ -96,7 +87,7 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     )
     .await;
     assert_eq!(response.status, StatusCode::OK);
-    assert_eq!(response.body["model"], "codex-local");
+    assert_eq!(response.body["model"], "gpt-upstream");
     assert_eq!(response.body["id"], "resp_1");
     assert!(response.headers.get("authorization").is_none());
     assert!(response.headers.get("x-api-key").is_none());
@@ -178,23 +169,14 @@ async fn responses_compact_uses_its_distinct_non_streaming_path() {
         "sk-compact-contract",
     )
     .await;
-    create_route(
-        &app,
-        loopback,
-        revision + 3,
-        &endpoint_id,
-        "compact-local",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-upstream").await;
 
     let response = request_json(
         app,
         Method::POST,
         "/v1/responses/compact",
         Some(json!({
-            "model": "compact-local",
+            "model": "gpt-upstream",
             "input": [{"role":"user","content":"compact this"}]
         })),
         loopback,
@@ -202,7 +184,7 @@ async fn responses_compact_uses_its_distinct_non_streaming_path() {
     )
     .await;
     assert_eq!(response.status, StatusCode::OK);
-    assert_eq!(response.body["model"], "compact-local");
+    assert_eq!(response.body["model"], "gpt-upstream");
     let request = upstream.await.expect("upstream request");
     assert_eq!(request.path, "/v1/responses/compact");
     assert_eq!(request.body["model"], "gpt-upstream");
@@ -235,14 +217,12 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
         "sk-claude-contract",
     )
     .await;
-    create_route(
+    select_models(
         &app,
         loopback,
         revision + 3,
         &endpoint_id,
-        "claude-local",
         "claude-upstream",
-        "anthropic_messages",
     )
     .await;
 
@@ -251,7 +231,7 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
         Method::POST,
         "/v1/messages",
         Some(json!({
-            "model": "claude-local",
+            "model": "claude-upstream",
             "max_tokens": 32,
             "messages": [{"role":"user","content":"hello"}]
         })),
@@ -263,7 +243,7 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
     )
     .await;
     assert_eq!(response.status, StatusCode::OK);
-    assert_eq!(response.body["model"], "claude-local");
+    assert_eq!(response.body["model"], "claude-upstream");
     let request = upstream.await.expect("upstream request");
     assert_eq!(request.path, "/v1/messages");
     assert_eq!(
@@ -309,23 +289,14 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
         "sk-affinity-contract",
     )
     .await;
-    create_route(
-        &app,
-        loopback,
-        revision + 3,
-        &endpoint_id,
-        "affinity-local",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-upstream").await;
 
     let response = request_json(
         app.clone(),
         Method::POST,
         "/v1/responses",
         Some(json!({
-            "model": "affinity-local",
+            "model": "gpt-upstream",
             "input": "bind this session"
         })),
         loopback,
@@ -449,22 +420,13 @@ async fn previous_response_id_stays_on_the_original_credential() {
         "sk-hard-second",
     )
     .await;
-    create_route(
-        &app,
-        loopback,
-        revision + 4,
-        &endpoint_id,
-        "hard-local",
-        "gpt-upstream",
-        "openai_responses",
-    )
-    .await;
+    select_models(&app, loopback, revision + 4, &endpoint_id, "gpt-upstream").await;
 
     let first_response = request_json(
         app.clone(),
         Method::POST,
         "/v1/responses",
-        Some(json!({ "model": "hard-local", "input": "start" })),
+        Some(json!({ "model": "gpt-upstream", "input": "start" })),
         loopback,
         &[("authorization", format!("Bearer {token}"))],
     )
@@ -477,7 +439,7 @@ async fn previous_response_id_stays_on_the_original_credential() {
         Method::POST,
         "/v1/responses",
         Some(json!({
-            "model": "hard-local",
+            "model": "gpt-upstream",
             "previous_response_id": "resp_sticky",
             "input": "continue"
         })),
@@ -497,7 +459,7 @@ async fn previous_response_id_stays_on_the_original_credential() {
         Method::POST,
         "/v1/responses",
         Some(json!({
-            "model": "hard-local",
+            "model": "gpt-upstream",
             "previous_response_id": "resp_from_an_old_process",
             "input": "continue"
         })),
@@ -549,14 +511,12 @@ async fn claude_explicit_soft_session_stays_on_the_original_credential() {
         "sk-soft-second",
     )
     .await;
-    create_route(
+    select_models(
         &app,
         loopback,
         revision + 4,
         &endpoint_id,
-        "soft-local",
         "claude-upstream",
-        "anthropic_messages",
     )
     .await;
 
@@ -566,7 +526,7 @@ async fn claude_explicit_soft_session_stays_on_the_original_credential() {
             Method::POST,
             "/v1/messages",
             Some(json!({
-                "model": "soft-local",
+                "model": "claude-upstream",
                 "max_tokens": 16,
                 "messages": [{"role":"user","content":input}]
             })),
@@ -864,37 +824,54 @@ async fn create_labeled_credential(
         .to_owned()
 }
 
-async fn create_route(
+async fn select_models(
     app: &Router,
     remote: SocketAddr,
     revision: u64,
     endpoint_id: &str,
-    public_model: &str,
-    upstream_model: &str,
-    dialect: &str,
+    model: &str,
 ) {
-    let response = request_json(
+    let listed = request_json(
         app.clone(),
-        Method::POST,
-        "/api/admin/model-routes",
-        Some(json!({
-            "expected_revision": revision,
-            "public_model": public_model,
-            "ingress_protocol": dialect,
-            "fallback_on_saturation": null,
-            "enabled": true,
-            "targets": [{
-                "provider_endpoint_id": endpoint_id,
-                "upstream_model": upstream_model,
-                "fallback_tier": 0,
-                "enabled": true
-            }]
-        })),
+        Method::GET,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
+        None,
         remote,
         &[],
     )
     .await;
-    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(listed.status, StatusCode::OK);
+    let credentials = listed.body["items"]
+        .as_array()
+        .expect("credential items")
+        .iter()
+        .map(|credential| {
+            (
+                credential["id"].as_str().expect("credential id").to_owned(),
+                credential["config_version"]
+                    .as_u64()
+                    .expect("credential config version"),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(!credentials.is_empty());
+
+    for (offset, (credential_id, config_version)) in credentials.into_iter().enumerate() {
+        let response = request_json(
+            app.clone(),
+            Method::PUT,
+            &format!("/api/admin/provider-credentials/{credential_id}/models"),
+            Some(json!({
+                "expected_revision": revision + offset as u64,
+                "expected_config_version": config_version,
+                "models": [model]
+            })),
+            remote,
+            &[],
+        )
+        .await;
+        assert_eq!(response.status, StatusCode::OK);
+    }
 }
 
 struct JsonResponse {

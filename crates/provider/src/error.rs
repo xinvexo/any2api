@@ -9,4 +9,6 @@ pub enum ProviderError {
     InvalidCredential(String),
     #[error("invalid provider endpoint: {0}")]
     InvalidEndpoint(String),
+    #[error("invalid provider response: {0}")]
+    InvalidResponse(String),
 }

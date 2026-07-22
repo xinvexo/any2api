@@ -12,6 +12,7 @@ test("parses redacted credentials and rejects plaintext secret fields", () => {
     fingerprint: "v1:0123456789abcdef",
     secretTail: "test",
     maxConcurrency: 4,
+    models: ["gpt-5.1-codex"],
   });
 
   expect(() =>
@@ -34,8 +35,10 @@ test("parses credential test outcomes and rejects inconsistent states", () => {
   expect(parseProviderCredentialTestResult(testResult())).toMatchObject({
     reachable: true,
     accepted: true,
+    catalogValid: true,
     statusCode: 200,
     authErrorCleared: true,
+    models: ["gpt-5.1-codex"],
   });
   expect(() =>
     parseProviderCredentialTestResult(testResult({
@@ -74,6 +77,7 @@ function configuration(overrides: Record<string, unknown> = {}) {
         secret_version: 1,
         credential_generation: 1,
         config_version: 1,
+        models: ["gpt-5.1-codex"],
         ...overrides,
       },
     ],
@@ -93,11 +97,13 @@ function testResult(overrides: Record<string, unknown> = {}) {
     proxy_id: "00000000-0000-0000-0000-000000000000",
     reachable: true,
     accepted: true,
+    catalog_valid: true,
     status_code: 200,
     latency_ms: 12,
     auth_error_cleared: true,
     error_stage: null,
     failure_scope: null,
+    models: ["gpt-5.1-codex"],
     ...overrides,
   };
 }

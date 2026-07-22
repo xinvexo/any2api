@@ -1,6 +1,6 @@
 # ADR-0005: 模型路由聚合与稳定 Target 身份
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0028（内部物化规则仍然保留）
 - 日期：2026-07-18
 - 决策者：maintainer
 
@@ -20,6 +20,8 @@
 - 每条 Route 至少有一个 Target；启用 Route 至少有一个启用 Target。禁用 Endpoint 或暂时没有可用 Credential 不删除 Route，也不改变持久化映射。
 
 ## 管理 API
+
+本 ADR 中的手工管理 API 已由 ADR-0028 移除；以下列表仅保留为历史决策记录，当前不再注册这些路由。
 
 - `GET /api/admin/model-routes`
 - `POST /api/admin/model-routes`

@@ -16,7 +16,16 @@ test("creates a credential without retaining its secret in application caches", 
     if (path === "/api/admin/proxies") {
       return jsonResponse(proxyConfiguration());
     }
-    if (init?.method === "POST") {
+    if (path.endsWith(`/provider-credentials/${credentialId}/test`)) {
+      return jsonResponse(credentialTestResult());
+    }
+    if (path.endsWith(`/provider-credentials/${credentialId}/models`) && init?.method === "PUT") {
+      credentials = credentialConfiguration(4, [
+        credential({ config_version: 2, models: ["gpt-5.1-codex"] }),
+      ]);
+      return jsonResponse(credentials);
+    }
+    if (path.endsWith(`/provider-endpoints/${endpoint.id}/credentials`) && init?.method === "POST") {
       credentials = credentialConfiguration(3, [credential()]);
       return jsonResponse(credentials);
     }
@@ -24,11 +33,11 @@ test("creates a credential without retaining its secret in application caches", 
   });
   const { client } = renderManagement([`/providers?keys=${endpoint.id}&credential=new`]);
 
-  expect(await screen.findByRole("option", { name: "DIRECT（继承全局：香港代理）" })).toBeInTheDocument();
+  expect(await screen.findByRole("option", { name: "DIRECT" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary Key" } });
   fireEvent.change(screen.getByLabelText("API Key"), { target: { value: secret } });
   fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "8" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存并选择模型" }));
 
   expect(await screen.findByLabelText("本次保存的 API Key")).toHaveValue(secret);
   const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
@@ -40,6 +49,20 @@ test("creates a credential without retaining its secret in application caches", 
   expect(screen.getByTestId("location")).not.toHaveTextContent(secret);
   expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(secret);
   expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain(secret);
+
+  const model = await screen.findByRole("checkbox", { name: "gpt-5.1-codex" });
+  fireEvent.click(model);
+  fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
+
+  await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/providers"));
+  const modelPut = fetchMock.mock.calls.find(
+    ([input, init]) => String(input).endsWith(`/provider-credentials/${credentialId}/models`) && init?.method === "PUT",
+  );
+  expect(JSON.parse(String(modelPut?.[1]?.body))).toEqual({
+    expected_revision: 3,
+    expected_config_version: 1,
+    models: ["gpt-5.1-codex"],
+  });
 
   fireEvent.click(screen.getByRole("button", { name: "关闭回执" }));
   await waitFor(() => expect(screen.queryByLabelText("本次保存的 API Key")).not.toBeInTheDocument());
@@ -80,7 +103,7 @@ test("edits credential metadata without sending the secret", async () => {
   expect(body).not.toHaveProperty("api_key");
 });
 
-test("tests a credential and displays a generation-current result", async () => {
+test("opens a credential model picker and loads the current upstream catalog", async () => {
   const credentials = credentialConfiguration(3, [credential()]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const path = String(input);
@@ -100,20 +123,23 @@ test("tests a credential and displays a generation-current result", async () => 
         proxy_id: "f0335fed-e5a9-4081-966b-37efe4a109a8",
         reachable: true,
         accepted: true,
+        catalog_valid: true,
         status_code: 200,
         latency_ms: 18,
         auth_error_cleared: true,
         error_stage: null,
         failure_scope: null,
+        models: ["gpt-5.1-codex"],
       });
     }
     return jsonResponse(credentials);
   });
   renderManagement([`/providers?keys=${endpoint.id}`]);
 
-  fireEvent.click(await screen.findByRole("button", { name: "测试 Primary Key" }));
+  fireEvent.click(await screen.findByRole("button", { name: "配置 Primary Key 的模型" }));
 
-  expect(await screen.findByText(/可用 · HTTP 200 · 18 ms · 已清除认证错误/)).toBeInTheDocument();
+  expect(await screen.findByRole("checkbox", { name: "gpt-5.1-codex" })).toBeInTheDocument();
+  expect(screen.getByText(/已读取 1 个模型/)).toBeInTheDocument();
   const request = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/test"));
   expect(request?.[1]?.method).toBe("POST");
   expect(request?.[1]?.body).toBeUndefined();
@@ -168,7 +194,31 @@ function credential(overrides: Record<string, unknown> = {}) {
     secret_version: 1,
     credential_generation: 1,
     config_version: 1,
+    models: [],
     ...overrides,
+  };
+}
+
+function credentialTestResult() {
+  return {
+    config_revision: 3,
+    provider_endpoint_config_version: 1,
+    credential_config_version: 1,
+    credential_generation: 1,
+    secret_version: 1,
+    proxy_config_version: 1,
+    credential_id: credentialId,
+    provider_endpoint_id: endpoint.id,
+    proxy_id: "00000000-0000-0000-0000-000000000000",
+    reachable: true,
+    accepted: true,
+    catalog_valid: true,
+    status_code: 200,
+    latency_ms: 18,
+    auth_error_cleared: true,
+    error_stage: null,
+    failure_scope: null,
+    models: ["gpt-5.1-codex", "gpt-5.1-codex-mini"],
   };
 }
 

@@ -151,22 +151,16 @@
 - `PublicRequestService` 改为 `AppState` 构造必填项，删除可选执行服务、`not_implemented` 分支和未装配时的简化 fallback；生产与测试 Router 共享唯一错误编码链。
 - Protocol、Server 与真实 HTTP 契约覆盖 OpenAI/Anthropic 401、冲突认证头、404、405、路径方言选择、Request ID 和 no-store。
 
-### ModelRoute 配置切片
+### Credential 模型发现与选择切片
 
-- 新增 `ModelRoute`、`RouteTarget`、模型名校验和 `ModelRouteConfiguration` 领域模型；Route 是管理与持久化聚合根，Target ID 由服务端生成并在策略修改时保持稳定。
-- 同一入口协议下公开模型名精确、区分大小写唯一；首版拒绝 wildcard、别名链、跨协议 Target 和不完整聚合，启用 Route 必须至少包含一个启用 Target。
-- 新增 SQLite `model_routes` 与 `route_targets` migration；Route 元数据和完整 Target 集合在同一 `BEGIN IMMEDIATE` 事务中保存，Route `config_version` 覆盖所有聚合变化。
-- 更新已有 Target 时要求携带当前 ID；只允许改变 `fallback_tier` 与 `enabled`。更换 Endpoint 或上游模型必须省略旧 ID，由服务端生成新 Target，避免硬粘性身份被静默改写。
-- `ProviderEndpoint` 删除、Provider/协议身份修改均检查 ModelRoute 引用；ModelRoute 写入、删除和 Endpoint 引用保护均有 Storage、Runtime 与 HTTP 契约测试。
-- 新增管理 API：
-  - `GET /api/admin/model-routes`
-  - `POST /api/admin/model-routes`
-  - `PATCH /api/admin/model-routes/{id}`
-  - `DELETE /api/admin/model-routes/{id}?expected_revision=N&expected_config_version=N`
-- React `/routes` 已替换占位页：支持 URL deep link、完整 Route/Target 聚合编辑、同协议 Endpoint 过滤、三态主 tier 满载策略、响应式窄屏编辑、行内删除确认和 revision/config version 冲突保护。
-- Web 测试覆盖响应解析、缓存代际、新建请求不携带客户端 Target ID、策略修改保留 ID、身份变化生成新 ID、延迟 Endpoint、深链刷新、移动端无效链接和旧保存回调。
-- `/v1/models` 已接入同一认证快照，只返回启用 Route 的公开模型；跨协议同名稳定去重，不根据瞬时容量或健康状态删模型。
-- ModelRoute 已接入 Codex Responses、Responses Compact、Claude Messages 的同协议 JSON/SSE 请求调度；会话粘性已由后续切片接入。
+- ADR-0028 取代了普通用户手工编辑 `ModelRoute`/`RouteTarget` 的流程；`provider_credential_models` 是配置真相来源，公开模型名首版固定等于上游模型名。
+- 保存或更换 Provider API Key 后，Web 使用该 Credential 的实际 Endpoint、认证材料和代理请求 `GET /models`，支持搜索、全选、清除、重新拉取和勾选保存。
+- 新增 `PUT /api/admin/provider-credentials/{id}/models`；模型集合、Credential `config_version`、内部 Route/Target 表、全局 revision 和 PublishedSnapshot 在同一个串行发布中更新。
+- `ModelRoute`/`RouteTarget` 保留为数据面内部物化结构，Route ID 由协议和模型、Target ID 由 Route 和 Endpoint 确定性派生；全部 Target 首版使用 tier 0。
+- 已删除 `/api/admin/model-routes` CRUD、Runtime 手工 Route 发布方法、React `/routes` 页面及整套模型路由编辑 feature，不保留别名和手工 tier 的兼容入口。
+- 同一 Endpoint 下不同 Credential 可以保存不同模型集合；候选构建再次校验 `Credential + upstream_model`，不会把一把 Key 的模型权限套到另一把 Key。
+- SQLite migration 会把旧 Target 按 Endpoint 展开为 Credential 模型集合；后续模型保存会按新规则完整重建内部路由。
+- Provider、Storage、Runtime、HTTP 契约和 Web 测试覆盖目录解析、畸形 JSON、重复 ID、超大正文、读取失败、重启持久化、多 Key 模型隔离及“保存 Key -> 拉模型 -> 勾选 -> 保存”的完整流程。
 
 ### GatewayApiKey 管理与公开鉴权切片
 
@@ -192,8 +186,8 @@
 - 新增受保护管理 API `POST /api/admin/provider-credentials/{id}/test`；请求固定使用当前 PublishedSnapshot、Credential、Endpoint 与解析后的实际代理，占用普通 Credential 并发槽位但绕过已有 `auth_error`，专属代理失败仍 Fail-Closed。
 - 探测不经过模型路由、不切换 Credential、不回退代理，也不更新 Endpoint/Proxy 熔断或配置 revision；响应只返回捕获的配置/Secret/代理版本、HTTP 状态、延迟或 Transport 阶段/归因，不返回 URL、地址、正文或 Secret。
 - 只有 2xx 会清除本次捕获 `CredentialGenerationRuntime` 的 `auth_error` 并推进统一 scheduler epoch；测试期间发生 Secret/Endpoint 身份轮换时，旧探测只持有旧 generation，不能修改新 generation。
-- React Provider 详情页为每把启用 Key 提供测试操作，按 config revision、Endpoint/Credential/Secret generation 与实际 Proxy 版本过滤过期结果，并区分可用、已连接但未通过和 Transport 失败。
-- Runtime 与真实 HTTP 契约覆盖当前 Secret/代理注入、上游 401 建立 `auth_error`、管理 `/models` 2xx 清除、后续生成请求恢复以及响应脱敏；Provider Registry 契约枚举所有已注册 Driver 的探测路径。
+- React Provider 详情页把该探测能力用于模型选择抽屉；新增或更换 Key 后自动拉取，也可从每把 Key 的“模型”操作重新拉取。
+- Runtime 与真实 HTTP 契约覆盖当前 Secret/代理注入、上游 401 建立 `auth_error`、管理 `/models` 2xx 清除、目录解析、后续生成请求恢复以及响应脱敏；Provider Registry 契约枚举所有已注册 Driver 的探测路径。
 
 ### 同协议 JSON 请求执行切片
 

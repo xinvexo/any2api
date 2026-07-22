@@ -50,6 +50,8 @@ pub trait ProviderDriver: Send + Sync {
         base_url: &ProviderBaseUrl,
     ) -> Result<EndpointPlan, ProviderError>;
 
+    fn parse_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError>;
+
     fn credential_headers(
         &self,
         secret: &ProviderSecret,

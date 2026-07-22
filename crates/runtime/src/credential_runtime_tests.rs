@@ -347,6 +347,7 @@ impl CredentialFixture {
             secret_version,
             credential_generation,
             credential_generation,
+            Vec::new(),
         )
         .expect("credential");
         ProviderCredentialConfiguration::new(vec![credential], &self.endpoints, &self.proxies)

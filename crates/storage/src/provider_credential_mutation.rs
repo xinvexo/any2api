@@ -1,7 +1,7 @@
 use any2api_domain::{
-    CredentialId, ProviderCredential, ProviderCredentialConfiguration, ProviderCredentialDraft,
-    ProviderCredentialValidationError, ProviderEndpointConfiguration, ProviderEndpointId,
-    ProxyConfiguration,
+    CredentialId, ModelRouteConfiguration, ProviderCredential, ProviderCredentialConfiguration,
+    ProviderCredentialDraft, ProviderCredentialValidationError, ProviderEndpointConfiguration,
+    ProviderEndpointId, ProxyConfiguration,
 };
 
 use crate::{
@@ -28,6 +28,11 @@ pub(crate) enum ProviderCredentialMutation {
         expected_secret_version: u64,
         api_key: SecretBytes,
     },
+    SetModels {
+        id: CredentialId,
+        expected_config_version: u64,
+        models: Vec<String>,
+    },
     Delete {
         id: CredentialId,
         expected_config_version: u64,
@@ -44,12 +49,14 @@ pub(crate) enum ProviderCredentialDatabaseChange {
         credential: ProviderCredential,
         envelope: SecretEnvelope,
     },
+    SetModels(ProviderCredential),
     Delete(CredentialId),
 }
 
 pub(crate) struct PreparedProviderCredentialMutation {
     configuration: ProviderCredentialConfiguration,
     change: ProviderCredentialDatabaseChange,
+    model_routes: Option<ModelRouteConfiguration>,
 }
 
 impl PreparedProviderCredentialMutation {
@@ -60,6 +67,7 @@ impl PreparedProviderCredentialMutation {
         Self {
             configuration,
             change,
+            model_routes: None,
         }
     }
 
@@ -69,6 +77,15 @@ impl PreparedProviderCredentialMutation {
 
     pub(crate) fn into_configuration(self) -> ProviderCredentialConfiguration {
         self.configuration
+    }
+
+    pub(crate) fn model_routes(&self) -> Option<&ModelRouteConfiguration> {
+        self.model_routes.as_ref()
+    }
+
+    fn with_model_routes(mut self, model_routes: ModelRouteConfiguration) -> Self {
+        self.model_routes = Some(model_routes);
+        self
     }
 }
 
@@ -104,19 +121,62 @@ pub(crate) fn prepare_provider_credential_mutation(
             expected_config_version,
             expected_secret_version,
             api_key,
-        } => rotate_secret(
-            &secret_context,
+        } => {
+            let prepared = rotate_secret(
+                &secret_context,
+                id,
+                expected_config_version,
+                expected_secret_version,
+                api_key,
+            )?;
+            let routes =
+                ModelRouteConfiguration::from_credentials(&prepared.configuration, endpoints)?;
+            Ok(Some(prepared.with_model_routes(routes)))
+        }
+        ProviderCredentialMutation::SetModels {
             id,
             expected_config_version,
-            expected_secret_version,
-            api_key,
-        )
-        .map(Some),
+            models,
+        } => set_models(
+            current,
+            endpoints,
+            proxies,
+            id,
+            expected_config_version,
+            models,
+        ),
         ProviderCredentialMutation::Delete {
             id,
             expected_config_version,
         } => delete(current, endpoints, proxies, id, expected_config_version).map(Some),
     }
+}
+
+fn set_models(
+    current: &ProviderCredentialConfiguration,
+    endpoints: &ProviderEndpointConfiguration,
+    proxies: &ProxyConfiguration,
+    id: CredentialId,
+    expected_config_version: u64,
+    models: Vec<String>,
+) -> Result<Option<PreparedProviderCredentialMutation>, StorageError> {
+    let existing = current
+        .get(id)
+        .ok_or(StorageError::ProviderCredentialNotFound(id))?;
+    require_config_version(existing, expected_config_version)?;
+    let updated = existing.with_models(models)?;
+    if &updated == existing {
+        return Ok(None);
+    }
+    let configuration = replace(current, endpoints, proxies, updated.clone())?;
+    let routes = ModelRouteConfiguration::from_credentials(&configuration, endpoints)?;
+    Ok(Some(
+        PreparedProviderCredentialMutation::new(
+            configuration,
+            ProviderCredentialDatabaseChange::SetModels(updated),
+        )
+        .with_model_routes(routes),
+    ))
 }
 
 fn update(
@@ -136,10 +196,10 @@ fn update(
         return Ok(None);
     }
     let configuration = replace(current, endpoints, proxies, updated.clone())?;
-    Ok(Some(PreparedProviderCredentialMutation {
+    Ok(Some(PreparedProviderCredentialMutation::new(
         configuration,
-        change: ProviderCredentialDatabaseChange::Update(updated),
-    }))
+        ProviderCredentialDatabaseChange::Update(updated),
+    )))
 }
 
 fn delete(
@@ -161,10 +221,12 @@ fn delete(
         .collect();
     let configuration = ProviderCredentialConfiguration::new(credentials, endpoints, proxies)
         .map_err(map_validation)?;
-    Ok(PreparedProviderCredentialMutation {
+    let routes = ModelRouteConfiguration::from_credentials(&configuration, endpoints)?;
+    Ok(PreparedProviderCredentialMutation::new(
         configuration,
-        change: ProviderCredentialDatabaseChange::Delete(id),
-    })
+        ProviderCredentialDatabaseChange::Delete(id),
+    )
+    .with_model_routes(routes))
 }
 
 pub(crate) fn replace(

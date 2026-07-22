@@ -38,10 +38,6 @@ impl AdminApiError {
         )
     }
 
-    pub(crate) fn invalid_model_route(message: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, "invalid_model_route", message)
-    }
-
     pub(crate) fn invalid_gateway_api_key(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalid_gateway_api_key", message)
     }
@@ -63,14 +59,6 @@ impl AdminApiError {
             StatusCode::NOT_FOUND,
             "provider_credential_not_found",
             "provider credential was not found",
-        )
-    }
-
-    pub(crate) fn model_route_not_found() -> Self {
-        Self::new(
-            StatusCode::NOT_FOUND,
-            "model_route_not_found",
-            "model route was not found",
         )
     }
 
