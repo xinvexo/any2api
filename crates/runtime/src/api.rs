@@ -17,6 +17,11 @@ pub use crate::gateway_api_key_token::{GatewayApiKeyToken, GatewayApiKeyTokenGen
 pub use crate::logging_reconciler::LoggingSettingsReconciler;
 pub use crate::process_lifecycle::{ActiveRequestGuard, ProcessLifecycle, ShutdownPhase};
 pub use crate::provider_api_key_secret::ProviderApiKeySecret;
+pub use crate::provider_credential_test::{
+    ProviderCredentialTestError, ProviderCredentialTestFailureScope,
+    ProviderCredentialTestFailureStage, ProviderCredentialTestOutcome,
+    ProviderCredentialTestResult, ProviderCredentialTestService,
+};
 pub use crate::proxy_password_secret::ProxyPasswordSecret;
 pub use crate::proxy_test::{
     ProxyTestError, ProxyTestFailureScope, ProxyTestFailureStage, ProxyTestOutcome,

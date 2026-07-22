@@ -47,6 +47,25 @@ export interface ProviderCredentialRotateInput {
   apiKey: string;
 }
 
+export interface ProviderCredentialTestResult {
+  configRevision: number;
+  providerEndpointConfigVersion: number;
+  credentialConfigVersion: number;
+  credentialGeneration: number;
+  secretVersion: number;
+  proxyConfigVersion: number;
+  credentialId: string;
+  providerEndpointId: string;
+  proxyId: string;
+  reachable: boolean;
+  accepted: boolean;
+  statusCode: number | null;
+  latencyMs: number;
+  authErrorCleared: boolean;
+  errorStage: string | null;
+  failureScope: string | null;
+}
+
 export function parseProviderCredentialConfiguration(
   value: unknown,
 ): ProviderCredentialConfiguration {
@@ -62,6 +81,46 @@ export function parseProviderCredentialConfiguration(
     configRevision: readPositiveInteger(value.config_revision),
     providerEndpointId,
     items,
+  };
+}
+
+export function parseProviderCredentialTestResult(value: unknown): ProviderCredentialTestResult {
+  if (!isRecord(value)) {
+    throw new Error("invalid provider credential test response");
+  }
+  const reachable = readBoolean(value.reachable);
+  const accepted = readBoolean(value.accepted);
+  const statusCode = readNullableStatusCode(value.status_code);
+  const authErrorCleared = readBoolean(value.auth_error_cleared);
+  const errorStage = readNullableString(value.error_stage);
+  const failureScope = readNullableString(value.failure_scope);
+  if (
+    reachable
+      ? statusCode === null || errorStage !== null || failureScope !== null
+      : accepted || statusCode !== null || errorStage === null || failureScope === null
+  ) {
+    throw new Error("invalid provider credential test response");
+  }
+  if (authErrorCleared && !accepted) {
+    throw new Error("invalid provider credential test response");
+  }
+  return {
+    configRevision: readPositiveInteger(value.config_revision),
+    providerEndpointConfigVersion: readPositiveInteger(value.provider_endpoint_config_version),
+    credentialConfigVersion: readPositiveInteger(value.credential_config_version),
+    credentialGeneration: readPositiveInteger(value.credential_generation),
+    secretVersion: readPositiveInteger(value.secret_version),
+    proxyConfigVersion: readPositiveInteger(value.proxy_config_version),
+    credentialId: readString(value.credential_id),
+    providerEndpointId: readString(value.provider_endpoint_id),
+    proxyId: readString(value.proxy_id),
+    reachable,
+    accepted,
+    statusCode,
+    latencyMs: readNonNegativeInteger(value.latency_ms),
+    authErrorCleared,
+    errorStage,
+    failureScope,
   };
 }
 
@@ -118,6 +177,23 @@ function readNullableString(value: unknown): string | null {
 function readPositiveInteger(value: unknown): number {
   if (!Number.isSafeInteger(value) || Number(value) <= 0) {
     throw new Error("invalid provider credential response");
+  }
+  return Number(value);
+}
+
+function readNonNegativeInteger(value: unknown): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new Error("invalid provider credential response");
+  }
+  return Number(value);
+}
+
+function readNullableStatusCode(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (!Number.isSafeInteger(value) || Number(value) < 100 || Number(value) > 599) {
+    throw new Error("invalid provider credential test response");
   }
   return Number(value);
 }

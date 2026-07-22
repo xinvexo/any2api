@@ -3,17 +3,22 @@ use std::{
         Arc, Mutex, RwLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, LoggingSettings, MAX_TELEMETRY_QUEUE_CAPACITY, RequestId,
-    RequestLog,
+    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, LoggingSettings,
+    MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
 };
-use any2api_storage::api::{RequestLogRepository, StorageError};
+use any2api_storage::api::{GatewayApiKeyUsageRepository, RequestLogRepository, StorageError};
 use tokio::{sync::mpsc, task::JoinHandle};
 
-use super::{policy::RequestLogPolicy, worker};
+use super::{
+    event::TelemetryEvent,
+    gateway_usage::{GatewayUsageTracker, utc_timestamp},
+    policy::RequestLogPolicy,
+    worker,
+};
 use crate::{logging_reconciler::LoggingSettingsReconciler, process_lifecycle::ProcessLifecycle};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -24,13 +29,15 @@ pub struct RequestTelemetryMetrics {
 }
 
 pub struct RequestTelemetry {
-    repository: Option<Arc<dyn RequestLogRepository>>,
-    sender: RwLock<Option<mpsc::Sender<CompletedRequestLog>>>,
+    request_logs: Option<Arc<dyn RequestLogRepository>>,
+    gateway_usage_repository: Option<Arc<dyn GatewayApiKeyUsageRepository>>,
+    sender: RwLock<Option<mpsc::Sender<TelemetryEvent>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
     queued: Arc<AtomicUsize>,
     dropped: Arc<AtomicU64>,
     persisted: Arc<AtomicU64>,
     policy: Arc<RwLock<RequestLogPolicy>>,
+    gateway_usage: Mutex<GatewayUsageTracker>,
 }
 
 impl RequestTelemetry {
@@ -44,13 +51,15 @@ impl RequestTelemetry {
         );
         policy.enabled = false;
         Self {
-            repository: None,
+            request_logs: None,
+            gateway_usage_repository: None,
             sender: RwLock::new(None),
             worker: Mutex::new(None),
             queued: Arc::new(AtomicUsize::new(0)),
             dropped: Arc::new(AtomicU64::new(0)),
             persisted: Arc::new(AtomicU64::new(0)),
             policy: Arc::new(RwLock::new(policy)),
+            gateway_usage: Mutex::new(GatewayUsageTracker::default()),
         }
     }
 
@@ -61,9 +70,10 @@ impl RequestTelemetry {
         lifecycle: &ProcessLifecycle,
     ) -> Self
     where
-        R: RequestLogRepository + 'static,
+        R: RequestLogRepository + GatewayApiKeyUsageRepository + 'static,
     {
-        let repository: Arc<dyn RequestLogRepository> = repository;
+        let request_logs: Arc<dyn RequestLogRepository> = Arc::clone(&repository) as _;
+        let gateway_usage: Arc<dyn GatewayApiKeyUsageRepository> = repository;
         let capacity = usize::try_from(MAX_TELEMETRY_QUEUE_CAPACITY)
             .expect("telemetry queue maximum fits usize");
         let (sender, receiver) = mpsc::channel(capacity);
@@ -75,7 +85,8 @@ impl RequestTelemetry {
         )));
         let worker = lifecycle.spawn_tracked(worker::run(
             receiver,
-            Arc::clone(&repository),
+            Arc::clone(&request_logs),
+            Arc::clone(&gateway_usage),
             worker::WorkerState {
                 queued: Arc::clone(&queued),
                 dropped: Arc::clone(&dropped),
@@ -84,13 +95,15 @@ impl RequestTelemetry {
             },
         ));
         Self {
-            repository: Some(repository),
+            request_logs: Some(request_logs),
+            gateway_usage_repository: Some(gateway_usage),
             sender: RwLock::new(Some(sender)),
             worker: Mutex::new(Some(worker)),
             queued,
             dropped,
             persisted,
             policy,
+            gateway_usage: Mutex::new(GatewayUsageTracker::default()),
         }
     }
 
@@ -100,7 +113,7 @@ impl RequestTelemetry {
         settings: &LoggingSettings,
     ) -> RequestLogPolicy {
         let mut next = RequestLogPolicy::from_settings(revision, settings);
-        if self.repository.is_none() {
+        if self.request_logs.is_none() {
             next.enabled = false;
             return next;
         }
@@ -109,7 +122,7 @@ impl RequestTelemetry {
     }
 
     pub(crate) fn update_policy(&self, revision: ConfigRevision, settings: &LoggingSettings) {
-        if self.repository.is_none() {
+        if self.request_logs.is_none() {
             return;
         }
         let next = RequestLogPolicy::from_settings(revision, settings);
@@ -126,16 +139,44 @@ impl RequestTelemetry {
             }
             return;
         }
-        let sender = self
-            .sender
-            .read()
-            .expect("request telemetry sender")
-            .clone();
-        let sent = sender.is_some_and(|sender| sender.try_send(record).is_ok());
-        if !sent {
-            self.queued.fetch_sub(1, Ordering::AcqRel);
-            self.dropped.fetch_add(1, Ordering::Relaxed);
+        self.send_event(TelemetryEvent::RequestLog(Box::new(record)));
+    }
+
+    pub fn record_gateway_key_use(&self, id: GatewayApiKeyId) {
+        if self.gateway_usage_repository.is_none() {
+            return;
         }
+        let used_at = utc_timestamp();
+        let should_enqueue = {
+            self.gateway_usage
+                .lock()
+                .expect("gateway usage state")
+                .observe(id, used_at.clone(), Instant::now())
+        };
+        if !should_enqueue {
+            return;
+        }
+        let capacity = self
+            .policy
+            .read()
+            .expect("request telemetry policy")
+            .queue_capacity;
+        if !self.reserve_queue_slot(capacity) {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        self.send_event(TelemetryEvent::GatewayKeyLastUsed {
+            id,
+            last_used_at: used_at,
+        });
+    }
+
+    #[must_use]
+    pub fn gateway_key_last_used_at(&self, id: GatewayApiKeyId) -> Option<String> {
+        self.gateway_usage
+            .lock()
+            .expect("gateway usage state")
+            .last_used_at(id)
     }
 
     pub fn metrics(&self) -> RequestTelemetryMetrics {
@@ -152,7 +193,7 @@ impl RequestTelemetry {
     }
 
     pub async fn list(&self, limit: u32) -> Result<Vec<RequestLog>, StorageError> {
-        match &self.repository {
+        match &self.request_logs {
             Some(repository) => repository.list_request_logs(limit).await,
             None => Ok(Vec::new()),
         }
@@ -162,7 +203,7 @@ impl RequestTelemetry {
         &self,
         request_id: RequestId,
     ) -> Result<Option<CompletedRequestLog>, StorageError> {
-        match &self.repository {
+        match &self.request_logs {
             Some(repository) => repository.get_request_log(request_id).await,
             None => Ok(None),
         }
@@ -191,6 +232,19 @@ impl RequestTelemetry {
                     self.queued.store(0, Ordering::Release);
                 }
             }
+        }
+    }
+
+    fn send_event(&self, event: TelemetryEvent) {
+        let sender = self
+            .sender
+            .read()
+            .expect("request telemetry sender")
+            .clone();
+        let sent = sender.is_some_and(|sender| sender.try_send(event).is_ok());
+        if !sent {
+            self.queued.fetch_sub(1, Ordering::AcqRel);
+            self.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
 

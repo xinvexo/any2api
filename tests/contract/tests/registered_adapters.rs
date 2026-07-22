@@ -282,6 +282,14 @@ fn codex_contract(driver: &dyn ProviderDriver) {
         plan.url.as_str(),
         "https://api.example.com/v1/responses/compact"
     );
+    assert_eq!(
+        driver
+            .credential_test_plan(&provider_base_url())
+            .expect("Codex credential test plan")
+            .url
+            .as_str(),
+        "https://api.example.com/v1/models"
+    );
     let headers = driver
         .credential_headers(&ProviderSecret::new(1, "sk-codex-contract"))
         .expect("Codex credential headers");
@@ -302,6 +310,14 @@ fn claude_contract(driver: &dyn ProviderDriver) {
     assert_eq!(
         plan.url.as_str(),
         "https://api.example.com/v1/messages/count_tokens"
+    );
+    assert_eq!(
+        driver
+            .credential_test_plan(&provider_base_url())
+            .expect("Claude credential test plan")
+            .url
+            .as_str(),
+        "https://api.example.com/v1/models"
     );
     let headers = driver
         .credential_headers(&ProviderSecret::new(1, "sk-claude-contract"))

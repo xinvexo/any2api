@@ -82,6 +82,7 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
         .context("failed to initialize public request adapters")?;
     let public_requests = request_components.service();
     let proxy_tests = request_components.proxy_test_service();
+    let provider_credential_tests = request_components.provider_credential_test_service();
     let web_assets = settings
         .web_root
         .map(WebAssets::external)
@@ -94,6 +95,7 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
             public_requests,
         )
         .with_proxy_tests(proxy_tests)
+        .with_provider_credential_tests(provider_credential_tests)
         .with_request_telemetry(Arc::clone(&telemetry))
         .with_admin_auth(
             admin_auth,

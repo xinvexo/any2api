@@ -15,7 +15,7 @@ use super::{
     provider_credential_dto::{
         ProviderCredentialCollectionResponse, ProviderCredentialCreateRequest,
         ProviderCredentialDeleteQuery, ProviderCredentialRotateRequest,
-        ProviderCredentialUpdateRequest,
+        ProviderCredentialTestResponse, ProviderCredentialUpdateRequest,
     },
 };
 
@@ -100,6 +100,18 @@ pub(crate) async fn delete(
         .delete_provider_credential(expected, id, expected_config_version)
         .await?;
     Ok(response(&snapshot, endpoint_id))
+}
+
+pub(crate) async fn test(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, AdminApiError> {
+    let id = parse_credential_id(&id)?;
+    let service = state
+        .provider_credential_tests()
+        .ok_or_else(AdminApiError::provider_credential_test_unavailable)?;
+    let result = service.test(state.snapshots().load(), id).await?;
+    Ok(no_store::json(ProviderCredentialTestResponse::from(result)))
 }
 
 fn response(

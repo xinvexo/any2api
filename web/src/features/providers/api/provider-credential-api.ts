@@ -4,8 +4,10 @@ import {
   type ProviderCredentialConfiguration,
   type ProviderCredentialCreateInput,
   type ProviderCredentialRotateInput,
+  type ProviderCredentialTestResult,
   type ProviderCredentialUpdateInput,
   parseProviderCredentialConfiguration,
+  parseProviderCredentialTestResult,
 } from "./provider-credential-contracts";
 
 const endpointCollection = "/api/admin/provider-endpoints";
@@ -66,6 +68,13 @@ export function rotateProviderCredential(id: string, input: ProviderCredentialRo
       },
     },
   ).then(parseProviderCredentialConfiguration);
+}
+
+export function testProviderCredential(id: string): Promise<ProviderCredentialTestResult> {
+  return requestJson<unknown>(
+    `${credentialCollection}/${encodeURIComponent(id)}/test`,
+    { method: "POST", timeoutMs: 30_000 },
+  ).then(parseProviderCredentialTestResult);
 }
 
 export function deleteProviderCredential(

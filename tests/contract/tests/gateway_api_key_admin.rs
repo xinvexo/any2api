@@ -1,7 +1,9 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components;
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
+use any2api_contract_tests::build_public_request_components_with_telemetry;
+use any2api_runtime::api::{
+    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
+};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
@@ -17,7 +19,7 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn gateway_key_create_rotate_revoke_controls_public_access() {
-    let (_directory, app) = test_app().await;
+    let (_directory, app, storage, telemetry) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let created = request_json(
         app.clone(),
@@ -75,6 +77,18 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     assert_eq!(valid.status, StatusCode::OK);
     assert_eq!(valid.body["object"], "list");
     assert_eq!(valid.body["data"].as_array().map(Vec::len), Some(0));
+
+    let used = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/gateway-api-keys",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert!(used.body["items"][0]["last_used_at"].as_str().is_some());
+    wait_for_last_used(storage.as_ref(), &key_id).await;
 
     let conflicting = request_json(
         app.clone(),
@@ -170,11 +184,12 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     .await;
     assert_eq!(remote_admin.status, StatusCode::FORBIDDEN);
     assert_eq!(remote_admin.body["error"]["code"], "admin_loopback_only");
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }
 
 #[tokio::test]
 async fn models_list_reflects_enabled_published_routes() {
-    let (_directory, app) = test_app().await;
+    let (_directory, app, _storage, _telemetry) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let created_key = request_json(
         app.clone(),
@@ -304,7 +319,7 @@ async fn models_list_reflects_enabled_published_routes() {
 
 #[tokio::test]
 async fn unknown_public_routes_never_fall_back_to_the_spa() {
-    let (_directory, app) = test_app().await;
+    let (_directory, app, _storage, _telemetry) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let created = request_json(
         app.clone(),
@@ -347,7 +362,12 @@ async fn unknown_public_routes_never_fall_back_to_the_spa() {
     assert!(!namespace_root.raw_body.contains("any2api shell"));
 }
 
-async fn test_app() -> (tempfile::TempDir, Router) {
+async fn test_app() -> (
+    tempfile::TempDir,
+    Router,
+    Arc<SqliteStore>,
+    Arc<RequestTelemetry>,
+) {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
@@ -361,23 +381,52 @@ async fn test_app() -> (tempfile::TempDir, Router) {
         runtime.as_ref(),
     )));
     let publisher = Arc::new(ConfigPublisher::new(
-        storage,
+        Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
+    ));
+    let telemetry = Arc::new(RequestTelemetry::start(
+        Arc::clone(&storage),
+        snapshots.load().revision(),
+        snapshots.load().settings().logging(),
+        &runtime.lifecycle(),
     ));
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let public_requests = build_public_request_components()
+    let public_requests = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
         .expect("public request components")
         .service();
     (
         directory,
         build_router(
-            AppState::new(snapshots, runtime, publisher, public_requests),
+            AppState::new(snapshots, runtime, publisher, public_requests)
+                .with_request_telemetry(Arc::clone(&telemetry)),
             web_root,
         ),
+        storage,
+        telemetry,
     )
+}
+
+async fn wait_for_last_used(storage: &SqliteStore, key_id: &str) {
+    for _ in 0..1_000 {
+        let configuration = storage
+            .load_configuration()
+            .await
+            .expect("configuration after gateway use");
+        let persisted = configuration
+            .gateway_api_keys()
+            .keys()
+            .iter()
+            .find(|key| key.id().to_string() == key_id)
+            .and_then(|key| key.last_used_at());
+        if persisted.is_some() {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("gateway API Key last_used_at was not persisted");
 }
 
 struct JsonResponse {

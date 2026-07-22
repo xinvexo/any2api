@@ -92,6 +92,13 @@ fn authentication_error_is_generation_local_and_permanent() {
         health.availability("model"),
         Err(HealthAcquireError::Permanent)
     );
+    let marked_epoch = epoch.current();
+    assert!(health.has_auth_error());
+    assert!(health.clear_auth_error());
+    assert!(!health.has_auth_error());
+    assert_eq!(health.availability("model"), Ok(()));
+    assert!(epoch.current() > marked_epoch);
+    assert!(!health.clear_auth_error());
     let replacement_generation = CredentialHealthRuntime::new(epoch);
     assert_eq!(replacement_generation.availability("model"), Ok(()));
 }

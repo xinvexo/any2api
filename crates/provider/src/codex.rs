@@ -79,6 +79,15 @@ impl ProviderDriver for CodexDriver {
         Ok(CredentialHeaders { headers })
     }
 
+    fn credential_test_plan(
+        &self,
+        base_url: &any2api_domain::ProviderBaseUrl,
+    ) -> Result<EndpointPlan, ProviderError> {
+        Ok(EndpointPlan {
+            url: api_key::credential_test_url(base_url)?,
+        })
+    }
+
     fn classify_error(
         &self,
         _operation: ProtocolOperation,
@@ -109,6 +118,14 @@ mod tests {
                 .url
                 .as_str(),
             "https://api.example.com/v1/responses/compact"
+        );
+        assert_eq!(
+            driver
+                .credential_test_plan(&base)
+                .expect("credential test endpoint")
+                .url
+                .as_str(),
+            "https://api.example.com/v1/models"
         );
         let headers = driver
             .credential_headers(&ProviderSecret::new(1, "sk-codex"))

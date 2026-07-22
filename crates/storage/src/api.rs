@@ -3,6 +3,9 @@ pub use crate::configuration::{StoredConfiguration, StoredConfigurationParts};
 pub use crate::configuration_repository::ConfigurationRepository;
 pub use crate::error::StorageError;
 pub use crate::gateway_api_key_repository::GatewayApiKeyRepository;
+pub use crate::gateway_api_key_usage_repository::{
+    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository,
+};
 pub use crate::gateway_api_key_verifier::GatewayApiKeyVerifier;
 pub use crate::model_route_repository::ModelRouteRepository;
 pub use crate::provider_api_key::ProviderApiKeyValidationError;

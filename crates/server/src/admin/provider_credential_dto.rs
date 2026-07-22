@@ -2,7 +2,10 @@ use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProviderCredential,
     ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId,
 };
-use any2api_runtime::api::{ProviderApiKeySecret, PublishedSnapshot};
+use any2api_runtime::api::{
+    ProviderApiKeySecret, ProviderCredentialTestOutcome, ProviderCredentialTestResult,
+    PublishedSnapshot,
+};
 use serde::{Deserialize, Serialize};
 
 use super::{error::AdminApiError, revision::parse_revision};
@@ -64,6 +67,74 @@ impl From<&ProviderCredential> for ProviderCredentialResponse {
             secret_version: credential.secret_version(),
             credential_generation: credential.credential_generation(),
             config_version: credential.config_version(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ProviderCredentialTestResponse {
+    config_revision: u64,
+    provider_endpoint_config_version: u64,
+    credential_config_version: u64,
+    credential_generation: u64,
+    secret_version: u64,
+    proxy_config_version: u64,
+    credential_id: CredentialId,
+    provider_endpoint_id: ProviderEndpointId,
+    proxy_id: ProxyProfileId,
+    reachable: bool,
+    accepted: bool,
+    status_code: Option<u16>,
+    latency_ms: u64,
+    auth_error_cleared: bool,
+    error_stage: Option<&'static str>,
+    failure_scope: Option<&'static str>,
+}
+
+impl From<ProviderCredentialTestResult> for ProviderCredentialTestResponse {
+    fn from(result: ProviderCredentialTestResult) -> Self {
+        let (reachable, accepted, status_code, auth_error_cleared, error_stage, failure_scope) =
+            match result.outcome {
+                ProviderCredentialTestOutcome::Accepted {
+                    status_code,
+                    auth_error_cleared,
+                } => (
+                    true,
+                    true,
+                    Some(status_code),
+                    auth_error_cleared,
+                    None,
+                    None,
+                ),
+                ProviderCredentialTestOutcome::Rejected { status_code } => {
+                    (true, false, Some(status_code), false, None, None)
+                }
+                ProviderCredentialTestOutcome::Failed { stage, scope } => (
+                    false,
+                    false,
+                    None,
+                    false,
+                    Some(stage.as_str()),
+                    Some(scope.as_str()),
+                ),
+            };
+        Self {
+            config_revision: result.config_revision.get(),
+            provider_endpoint_config_version: result.provider_endpoint_config_version,
+            credential_config_version: result.credential_config_version,
+            credential_generation: result.credential_generation,
+            secret_version: result.secret_version,
+            proxy_config_version: result.proxy_config_version,
+            credential_id: result.credential_id,
+            provider_endpoint_id: result.provider_endpoint_id,
+            proxy_id: result.proxy_id,
+            reachable,
+            accepted,
+            status_code,
+            latency_ms: result.latency_ms,
+            auth_error_cleared,
+            error_stage,
+            failure_scope,
         }
     }
 }

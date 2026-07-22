@@ -191,6 +191,15 @@ impl ProviderDriver for HeaderEchoDriver {
         Ok(headers)
     }
 
+    fn credential_test_plan(
+        &self,
+        base_url: &ProviderBaseUrl,
+    ) -> Result<EndpointPlan, ProviderError> {
+        Ok(EndpointPlan {
+            url: base_url.as_str().parse().expect("validated endpoint URL"),
+        })
+    }
+
     fn classify_error(
         &self,
         _operation: ProtocolOperation,

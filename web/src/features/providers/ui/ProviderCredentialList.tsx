@@ -1,10 +1,12 @@
-import { Check, KeyRound, Pencil, RotateCw, Trash2, X } from "lucide-react";
+import { Activity, Check, KeyRound, Pencil, RotateCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
 
 import type {
   ProviderCredential,
   ProviderCredentialConfiguration,
+  ProviderCredentialTestResult,
 } from "../api/provider-credential-contracts";
+import type { ProviderEndpoint } from "../api/provider-contracts";
 import { getProviderErrorMessage } from "../model/provider-error";
 import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
@@ -18,6 +20,11 @@ interface ProviderCredentialListProps {
   onEdit: (id: string) => void;
   onRotate: (id: string) => void;
   onDelete: (credential: ProviderCredential) => void;
+  endpoint: ProviderEndpoint;
+  testingCredentialId: string | null;
+  testResults: Record<string, ProviderCredentialTestResult>;
+  testError: unknown;
+  onTest: (id: string) => void;
 }
 
 export function ProviderCredentialList({
@@ -28,6 +35,11 @@ export function ProviderCredentialList({
   onEdit,
   onRotate,
   onDelete,
+  endpoint,
+  testingCredentialId,
+  testResults,
+  testError,
+  onTest,
 }: ProviderCredentialListProps) {
   return (
     <Surface className="overflow-hidden">
@@ -49,6 +61,17 @@ export function ProviderCredentialList({
               onEdit={onEdit}
               onRotate={onRotate}
               onDelete={onDelete}
+              endpoint={endpoint}
+              testing={testingCredentialId === credential.id}
+              testPending={testingCredentialId !== null}
+              testResult={currentTestResult(
+                testResults[credential.id],
+                credential,
+                configuration.configRevision,
+                endpoint,
+                proxies,
+              )}
+              onTest={() => onTest(credential.id)}
             />
           ))}
         </ul>
@@ -64,6 +87,11 @@ export function ProviderCredentialList({
           {getProviderErrorMessage(actionError)}
         </p>
       ) : null}
+      {testError ? (
+        <p className="border-t border-subtle px-5 py-3 text-sm text-danger sm:px-6" role="alert">
+          {getProviderErrorMessage(testError)}
+        </p>
+      ) : null}
     </Surface>
   );
 }
@@ -75,6 +103,11 @@ function CredentialRow({
   onEdit,
   onRotate,
   onDelete,
+  endpoint,
+  testing,
+  testPending,
+  testResult,
+  onTest,
 }: {
   credential: ProviderCredential;
   proxies: ProxyConfiguration;
@@ -82,10 +115,17 @@ function CredentialRow({
   onEdit: (id: string) => void;
   onRotate: (id: string) => void;
   onDelete: (credential: ProviderCredential) => void;
+  endpoint: ProviderEndpoint;
+  testing: boolean;
+  testPending: boolean;
+  testResult?: ProviderCredentialTestResult;
+  onTest: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const proxy = proxies.items.find((item) => item.id === credential.proxyProfileId);
+  const actualProxy = resolveProxy(credential, proxies);
   const proxyLabel = describeProxy(proxy?.id, proxies);
+  const canTest = credential.enabled && endpoint.enabled && actualProxy?.enabled === true;
 
   return (
     <li className="px-5 py-5 sm:px-6">
@@ -104,8 +144,18 @@ function CredentialRow({
           <p className="mt-1 font-mono text-xs text-tertiary">
             {credential.secretTail ? `•••• ${credential.secretTail}` : credential.fingerprint}
           </p>
+          {testResult ? <CredentialTestResult result={testResult} /> : null}
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            variant="ghost"
+            disabled={pending || testPending || !canTest}
+            aria-label={`测试 ${credential.label}`}
+            onClick={onTest}
+          >
+            <Activity size={15} className={testing ? "animate-pulse" : undefined} />
+            {testing ? "测试中" : "测试"}
+          </Button>
           <Button
             variant="ghost"
             disabled={pending}
@@ -159,6 +209,61 @@ function CredentialRow({
         </div>
       </div>
     </li>
+  );
+}
+
+function currentTestResult(
+  result: ProviderCredentialTestResult | undefined,
+  credential: ProviderCredential,
+  configRevision: number,
+  endpoint: ProviderEndpoint,
+  proxies: ProxyConfiguration,
+) {
+  if (!result) {
+    return undefined;
+  }
+  const proxy = resolveProxy(credential, proxies);
+  return result.configRevision === configRevision &&
+    result.providerEndpointId === endpoint.id &&
+    result.providerEndpointConfigVersion === endpoint.configVersion &&
+    result.credentialId === credential.id &&
+    result.credentialConfigVersion === credential.configVersion &&
+    result.credentialGeneration === credential.credentialGeneration &&
+    result.secretVersion === credential.secretVersion &&
+    result.proxyId === proxy?.id &&
+    result.proxyConfigVersion === proxy.configVersion
+    ? result
+    : undefined;
+}
+
+function resolveProxy(credential: ProviderCredential, configuration: ProxyConfiguration) {
+  const bound = configuration.items.find((item) => item.id === credential.proxyProfileId);
+  if (bound?.kind !== "direct") {
+    return bound;
+  }
+  return configuration.items.find((item) => item.id === configuration.globalProxyId);
+}
+
+function CredentialTestResult({ result }: { result: ProviderCredentialTestResult }) {
+  if (result.accepted) {
+    return (
+      <p className="mt-1 text-xs text-success">
+        可用 · HTTP {result.statusCode} · {result.latencyMs} ms
+        {result.authErrorCleared ? " · 已清除认证错误" : ""}
+      </p>
+    );
+  }
+  if (result.reachable) {
+    return (
+      <p className="mt-1 text-xs text-warning">
+        已连接 · HTTP {result.statusCode} · 凭据未通过
+      </p>
+    );
+  }
+  return (
+    <p className="mt-1 text-xs text-danger">
+      失败 · {result.errorStage ?? "unknown"} · {result.failureScope ?? "unknown"}
+    </p>
   );
 }
 

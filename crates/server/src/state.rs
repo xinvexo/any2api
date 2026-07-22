@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use any2api_runtime::api::{
-    ConfigPublisher, ProxyTestService, PublicRequestService, RequestTelemetry, RuntimeRegistry,
-    SnapshotStore,
+    ConfigPublisher, ProviderCredentialTestService, ProxyTestService, PublicRequestService,
+    RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
 
 use crate::admin_auth::{AdminAuthService, AdminNetworkPolicy};
@@ -14,6 +14,7 @@ pub struct AppState {
     publisher: Arc<ConfigPublisher>,
     public_requests: Arc<PublicRequestService>,
     proxy_tests: Option<Arc<ProxyTestService>>,
+    provider_credential_tests: Option<Arc<ProviderCredentialTestService>>,
     admin_auth: Option<Arc<AdminAuthService>>,
     admin_network: Arc<AdminNetworkPolicy>,
     request_telemetry: Arc<RequestTelemetry>,
@@ -33,6 +34,7 @@ impl AppState {
             publisher,
             public_requests,
             proxy_tests: None,
+            provider_credential_tests: None,
             admin_auth: None,
             admin_network: Arc::new(AdminNetworkPolicy::default()),
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
@@ -42,6 +44,15 @@ impl AppState {
     #[must_use]
     pub fn with_proxy_tests(mut self, proxy_tests: Arc<ProxyTestService>) -> Self {
         self.proxy_tests = Some(proxy_tests);
+        self
+    }
+
+    #[must_use]
+    pub fn with_provider_credential_tests(
+        mut self,
+        tests: Arc<ProviderCredentialTestService>,
+    ) -> Self {
+        self.provider_credential_tests = Some(tests);
         self
     }
 
@@ -85,6 +96,11 @@ impl AppState {
     #[must_use]
     pub fn proxy_tests(&self) -> Option<&ProxyTestService> {
         self.proxy_tests.as_deref()
+    }
+
+    #[must_use]
+    pub fn provider_credential_tests(&self) -> Option<&ProviderCredentialTestService> {
+        self.provider_credential_tests.as_deref()
     }
 
     #[must_use]

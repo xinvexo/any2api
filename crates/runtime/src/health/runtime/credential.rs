@@ -50,6 +50,25 @@ impl CredentialHealthRuntime {
         }
     }
 
+    pub(crate) fn clear_auth_error(&self) -> bool {
+        let mut state = self.state.lock().expect("credential health lock poisoned");
+        if !state.auth_error {
+            return false;
+        }
+        state.auth_error = false;
+        drop(state);
+        self.scheduler_epoch.advance();
+        true
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_auth_error(&self) -> bool {
+        self.state
+            .lock()
+            .expect("credential health lock poisoned")
+            .auth_error
+    }
+
     pub(crate) fn record(
         &self,
         model: &str,

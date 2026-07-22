@@ -19,7 +19,7 @@ use super::{
 };
 
 pub(crate) async fn list(State(state): State<AppState>) -> Response {
-    response(&state.snapshots().load())
+    response(&state, &state.snapshots().load())
 }
 
 pub(crate) async fn create(
@@ -33,6 +33,7 @@ pub(crate) async fn create(
         .await?;
     Ok(no_store::json(GatewayApiKeySecretResponse::from_publish(
         &published,
+        state.request_telemetry(),
     )))
 }
 
@@ -47,7 +48,7 @@ pub(crate) async fn update(
         .publisher()
         .update_gateway_api_key(expected, id, expected_config_version, draft)
         .await?;
-    Ok(response(&snapshot))
+    Ok(response(&state, &snapshot))
 }
 
 pub(crate) async fn rotate(
@@ -69,6 +70,7 @@ pub(crate) async fn rotate(
         .await?;
     Ok(no_store::json(GatewayApiKeySecretResponse::from_publish(
         &published,
+        state.request_telemetry(),
     )))
 }
 
@@ -83,11 +85,14 @@ pub(crate) async fn revoke(
         .publisher()
         .revoke_gateway_api_key(expected, id, expected_config_version)
         .await?;
-    Ok(response(&snapshot))
+    Ok(response(&state, &snapshot))
 }
 
-fn response(snapshot: &any2api_runtime::api::PublishedSnapshot) -> Response {
-    no_store::json(GatewayApiKeyCollectionResponse::from_snapshot(snapshot))
+fn response(state: &AppState, snapshot: &any2api_runtime::api::PublishedSnapshot) -> Response {
+    no_store::json(GatewayApiKeyCollectionResponse::from_snapshot(
+        snapshot,
+        state.request_telemetry(),
+    ))
 }
 
 fn parse_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, AdminApiError> {

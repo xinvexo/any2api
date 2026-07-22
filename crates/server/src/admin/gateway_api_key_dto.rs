@@ -1,5 +1,5 @@
 use any2api_domain::{ConfigRevision, GatewayApiKey, GatewayApiKeyDraft, GatewayApiKeyId};
-use any2api_runtime::api::{GatewayApiKeyPublishResult, PublishedSnapshot};
+use any2api_runtime::api::{GatewayApiKeyPublishResult, PublishedSnapshot, RequestTelemetry};
 use serde::{Deserialize, Serialize};
 
 use super::{error::AdminApiError, revision::parse_revision};
@@ -11,14 +11,17 @@ pub(crate) struct GatewayApiKeyCollectionResponse {
 }
 
 impl GatewayApiKeyCollectionResponse {
-    pub(crate) fn from_snapshot(snapshot: &PublishedSnapshot) -> Self {
+    pub(crate) fn from_snapshot(
+        snapshot: &PublishedSnapshot,
+        telemetry: &RequestTelemetry,
+    ) -> Self {
         Self {
             config_revision: snapshot.revision().get(),
             items: snapshot
                 .gateway_api_keys()
                 .keys()
                 .iter()
-                .map(GatewayApiKeyResponse::from)
+                .map(|key| GatewayApiKeyResponse::new(key, telemetry))
                 .collect(),
         }
     }
@@ -32,8 +35,12 @@ pub(crate) struct GatewayApiKeySecretResponse {
 }
 
 impl GatewayApiKeySecretResponse {
-    pub(crate) fn from_publish(result: &GatewayApiKeyPublishResult) -> Self {
-        let configuration = GatewayApiKeyCollectionResponse::from_snapshot(result.snapshot());
+    pub(crate) fn from_publish(
+        result: &GatewayApiKeyPublishResult,
+        telemetry: &RequestTelemetry,
+    ) -> Self {
+        let configuration =
+            GatewayApiKeyCollectionResponse::from_snapshot(result.snapshot(), telemetry);
         Self {
             config_revision: configuration.config_revision,
             items: configuration.items,
@@ -55,8 +62,10 @@ struct GatewayApiKeyResponse {
     last_used_at: Option<String>,
 }
 
-impl From<&GatewayApiKey> for GatewayApiKeyResponse {
-    fn from(key: &GatewayApiKey) -> Self {
+impl GatewayApiKeyResponse {
+    fn new(key: &GatewayApiKey, telemetry: &RequestTelemetry) -> Self {
+        let live_last_used_at = telemetry.gateway_key_last_used_at(key.id());
+        let last_used_at = newest_timestamp(key.last_used_at(), live_last_used_at.as_deref());
         Self {
             id: key.id(),
             name: key.name().to_owned(),
@@ -66,9 +75,13 @@ impl From<&GatewayApiKey> for GatewayApiKeyResponse {
             enabled: key.enabled(),
             revoked_at: key.revoked_at().map(str::to_owned),
             created_at: key.created_at().to_owned(),
-            last_used_at: key.last_used_at().map(str::to_owned),
+            last_used_at,
         }
     }
+}
+
+fn newest_timestamp(stored: Option<&str>, live: Option<&str>) -> Option<String> {
+    stored.into_iter().chain(live).max().map(str::to_owned)
 }
 
 #[derive(Deserialize)]

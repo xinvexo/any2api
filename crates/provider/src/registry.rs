@@ -97,6 +97,15 @@ mod tests {
             })
         }
 
+        fn credential_test_plan(
+            &self,
+            base_url: &ProviderBaseUrl,
+        ) -> Result<EndpointPlan, ProviderError> {
+            Ok(EndpointPlan {
+                url: url::Url::parse(base_url.as_str()).expect("validated URL"),
+            })
+        }
+
         fn classify_error(
             &self,
             _operation: ProtocolOperation,

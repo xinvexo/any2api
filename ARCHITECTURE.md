@@ -627,6 +627,15 @@ CredentialRuntimeHandle
 - `expires_at`、刷新锁和 OAuth2 Secret Schema 只作为后续扩展边界；
 - 未来导入 OAuth2 JSON 时仍创建普通 Credential 实体，不引入另一套账号模型。
 
+管理面提供 `POST /api/admin/provider-credentials/{id}/test`。测试固定使用当前
+`PublishedSnapshot` 中该 Credential 的认证材料、Provider Endpoint 与解析后的实际代理，
+由 Provider Driver 构造无生成副作用的凭据探测请求；首版 Codex 与 Claude 都使用各自
+Base URL 下的 `GET /models`。测试不经过模型路由、不切换 Credential、不回退代理，也不更新
+Endpoint/Proxy 冷却或熔断状态。只有收到 2xx 响应时，才清除本次捕获
+`CredentialGenerationRuntime` 的 `auth_error` 并推进统一 scheduler epoch；配置在测试期间发生
+轮换时，旧测试结果不得修改新 generation。响应只返回捕获的配置版本、脱敏状态、延迟、HTTP
+状态或 Transport 失败阶段/归因，不返回响应正文、URL、地址或 Secret。
+
 ### 9.4 ModelRoute
 
 ```text

@@ -1,4 +1,4 @@
-use any2api_runtime::api::ProxyTestError;
+use any2api_runtime::api::{ProviderCredentialTestError, ProxyTestError};
 use axum::{
     Json,
     http::{
@@ -103,6 +103,14 @@ impl AdminApiError {
             StatusCode::SERVICE_UNAVAILABLE,
             "proxy_test_unavailable",
             "proxy testing is unavailable",
+        )
+    }
+
+    pub(crate) fn provider_credential_test_unavailable() -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider_credential_test_unavailable",
+            "provider credential testing is unavailable",
         )
     }
 
@@ -274,6 +282,51 @@ impl From<ProxyTestError> for AdminApiError {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal_error",
                     "proxy test could not be started",
+                )
+            }
+        }
+    }
+}
+
+impl From<ProviderCredentialTestError> for AdminApiError {
+    fn from(error: ProviderCredentialTestError) -> Self {
+        match error {
+            ProviderCredentialTestError::CredentialNotFound => {
+                Self::provider_credential_not_found()
+            }
+            ProviderCredentialTestError::CredentialDisabled => Self::new(
+                StatusCode::CONFLICT,
+                "provider_credential_disabled",
+                "a disabled provider credential cannot be tested",
+            ),
+            ProviderCredentialTestError::ProviderEndpointNotFound => {
+                Self::provider_endpoint_not_found()
+            }
+            ProviderCredentialTestError::ProviderEndpointDisabled => Self::new(
+                StatusCode::CONFLICT,
+                "provider_endpoint_disabled",
+                "a provider credential with a disabled endpoint cannot be tested",
+            ),
+            ProviderCredentialTestError::ProxyNotFound
+            | ProviderCredentialTestError::ProxyDisabled => Self::new(
+                StatusCode::CONFLICT,
+                "provider_credential_proxy_unavailable",
+                "the provider credential's resolved proxy is unavailable",
+            ),
+            ProviderCredentialTestError::CredentialAtCapacity => Self::new(
+                StatusCode::CONFLICT,
+                "provider_credential_at_capacity",
+                "the provider credential is at capacity",
+            ),
+            ProviderCredentialTestError::CredentialRuntimeUnavailable
+            | ProviderCredentialTestError::ProviderUnavailable
+            | ProviderCredentialTestError::InvalidEndpointUri
+            | ProviderCredentialTestError::Provider(_) => {
+                tracing::error!(?error, "provider credential test could not be prepared");
+                Self::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    "provider credential test could not be started",
                 )
             }
         }

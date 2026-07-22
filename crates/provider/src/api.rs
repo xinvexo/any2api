@@ -45,6 +45,11 @@ pub trait ProviderDriver: Send + Sync {
         operation: ProtocolOperation,
     ) -> Result<EndpointPlan, ProviderError>;
 
+    fn credential_test_plan(
+        &self,
+        base_url: &ProviderBaseUrl,
+    ) -> Result<EndpointPlan, ProviderError>;
+
     fn credential_headers(
         &self,
         secret: &ProviderSecret,

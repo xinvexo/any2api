@@ -3,6 +3,9 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
 
+use crate::gateway_api_key_usage_repository::{
+    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository,
+};
 use crate::{
     configuration_repository::ConfigurationRepository, error::StorageError,
     gateway_api_key_repository::GatewayApiKeyRepository, sqlite::SqliteStore, vault::SecretBytes,
@@ -150,6 +153,56 @@ async fn gateway_api_key_conflicts_do_not_advance_revision() {
             .expect("configuration")
             .revision(),
         created.revision()
+    );
+}
+
+#[tokio::test]
+async fn gateway_api_key_last_used_updates_are_monotonic_and_do_not_publish_configuration() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
+        .await
+        .expect("store");
+    let id = GatewayApiKeyId::new();
+    let created = store
+        .create_gateway_api_key(
+            ConfigRevision::INITIAL,
+            id,
+            GatewayApiKeyDraft::new("Telemetry", true).expect("draft"),
+            secret(&token(4)),
+        )
+        .await
+        .expect("create");
+
+    store
+        .touch_gateway_api_key_last_used(&[GatewayApiKeyLastUsedUpdate {
+            id,
+            last_used_at: "2026-07-22 10:00:00".into(),
+        }])
+        .await
+        .expect("first usage update");
+    store
+        .touch_gateway_api_key_last_used(&[
+            GatewayApiKeyLastUsedUpdate {
+                id,
+                last_used_at: "2026-07-22 09:59:59".into(),
+            },
+            GatewayApiKeyLastUsedUpdate {
+                id,
+                last_used_at: "2026-07-22 10:01:00".into(),
+            },
+        ])
+        .await
+        .expect("monotonic usage updates");
+
+    let loaded = store.load_configuration().await.expect("configuration");
+    assert_eq!(loaded.revision(), created.revision());
+    assert_eq!(
+        loaded
+            .gateway_api_keys()
+            .get(id)
+            .expect("gateway key")
+            .last_used_at(),
+        Some("2026-07-22 10:01:00")
     );
 }
 

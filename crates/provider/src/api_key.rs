@@ -36,3 +36,10 @@ pub(crate) fn endpoint_url(
         .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?;
     Url::parse(&value).map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))
 }
+
+pub(crate) fn credential_test_url(base_url: &ProviderBaseUrl) -> Result<Url, ProviderError> {
+    let value = base_url
+        .append_path("models")
+        .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?;
+    Url::parse(&value).map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))
+}

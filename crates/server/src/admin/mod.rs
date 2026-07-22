@@ -133,6 +133,10 @@ fn protected_routes() -> Router<AppState> {
             "/provider-credentials/{id}/rotate-secret",
             axum::routing::post(provider_credential_handlers::rotate_secret),
         )
+        .route(
+            "/provider-credentials/{id}/test",
+            axum::routing::post(provider_credential_handlers::test),
+        )
         .route("/request-logs", get(request_log_handlers::list))
         .route("/request-logs/{id}", get(request_log_handlers::get))
         .route("/settings", get(settings_handlers::list))

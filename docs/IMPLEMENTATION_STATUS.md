@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E、管理员凭据维护、有界优雅停机与单二进制 Web 资源切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
-- 最近完成：React dist 已作为机器生成资源编译进 Rust 二进制；默认启动不再依赖工作目录或外部 `web/dist`，显式 `ANY2API_WEB_DIR` 继续供开发和测试覆盖。
+- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E、管理员凭据维护、有界优雅停机、单二进制 Web 资源、Gateway Key 使用时间与 ProviderCredential 连通性测试切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
+- 最近完成：GatewayApiKey `last_used_at` 已通过统一有界遥测队列节流落库；ProviderCredential 管理测试使用当前 generation、实际代理与 Provider `/models`，2xx 可清除该 generation 的 `auth_error`。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: add bounded graceful shutdown`。
-- 本切片主题：内嵌 React 资源与单二进制发布。
+- 上一切片提交主题：`feat: embed the management web app`。
+- 本切片主题：Gateway Key 使用时间与 ProviderCredential 连通性恢复。
 
 ## 已完成
 
@@ -181,8 +181,19 @@
 - `PublishedSnapshot` 现在携带 Gateway Key 配置和 HMAC verifier；鉴权、路由和 revision 使用同一快照，旧请求持有旧快照时不会被热更新中途改变。
 - `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；Responses、Responses Compact、Messages 和 Count Tokens 已进入同协议 JSON 执行链；未知 `/v1/*` 不再回落到 SPA。
 - `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
+- 公开鉴权成功后立即更新进程内 `last_used_at`，并按每把 Key 最多每 60 秒一次进入现有有界遥测队列；SQLite 写入不推进配置 revision、不阻塞数据面，队列满时按遥测语义丢弃并计数。
+- 管理列表合并 PublishedSnapshot 中的持久值与当前进程内最新值，因此成功请求后无需发布新配置即可立即显示最后使用时间；重启后继续读取 SQLite 已落库值。
 - React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、撤销、deep link、响应式布局和一次性回执；明文 Token 不进入 Query/Mutation Cache、URL、Storage 或普通 DTO。
-- Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本和缓存脱敏。
+- Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本、缓存脱敏、节流、单调落库和即时管理可见性。
+
+### ProviderCredential 连通性测试切片
+
+- Provider Driver 新增 `credential_test_plan`；当前注册的 Codex 与 Claude 都从各自 Base URL 结构化构造 `GET /models`，并复用同一 generation 的 Provider API Key 认证头。
+- 新增受保护管理 API `POST /api/admin/provider-credentials/{id}/test`；请求固定使用当前 PublishedSnapshot、Credential、Endpoint 与解析后的实际代理，占用普通 Credential 并发槽位但绕过已有 `auth_error`，专属代理失败仍 Fail-Closed。
+- 探测不经过模型路由、不切换 Credential、不回退代理，也不更新 Endpoint/Proxy 熔断或配置 revision；响应只返回捕获的配置/Secret/代理版本、HTTP 状态、延迟或 Transport 阶段/归因，不返回 URL、地址、正文或 Secret。
+- 只有 2xx 会清除本次捕获 `CredentialGenerationRuntime` 的 `auth_error` 并推进统一 scheduler epoch；测试期间发生 Secret/Endpoint 身份轮换时，旧探测只持有旧 generation，不能修改新 generation。
+- React Provider 详情页为每把启用 Key 提供测试操作，按 config revision、Endpoint/Credential/Secret generation 与实际 Proxy 版本过滤过期结果，并区分可用、已连接但未通过和 Transport 失败。
+- Runtime 与真实 HTTP 契约覆盖当前 Secret/代理注入、上游 401 建立 `auth_error`、管理 `/models` 2xx 清除、后续生成请求恢复以及响应脱敏；Provider Registry 契约枚举所有已注册 Driver 的探测路径。
 
 ### 同协议 JSON 请求执行切片
 
@@ -295,6 +306,7 @@
 
 - 新增独立 Playwright Chromium 套件；`pnpm test:e2e` 自行构建 any2api 与 Web、分配空闲 loopback 端口并启动真实 HTTP 服务。
 - 每次执行使用独立系统临时数据目录、全新 SQLite/Vault 和固定测试管理员密码；不复用开发数据、主密钥、Cookie 或运行态，结束后清理隔离目录。
+- 启动器只接受 Chromium 允许导航的随机端口；操作系统分配到 `4045` 等 unsafe port 时自动重试，避免页面加载前的偶发门禁失败。
 - 浏览器契约覆盖 `/settings` 登录前 deep link 在登录后保持、服务端 SPA 刷新、总览/代理/Provider/模型路由/网关密钥/请求日志核心页面直达和真实 API 就绪状态。
 - 390×844 契约覆盖折叠导航打开、跳转后关闭、请求日志空态与 `documentElement.scrollWidth <= innerWidth`；全部用例同时收集未处理 page error 和 error 级 console 输出。
 - E2E 只验证跨层共享行为，业务 CRUD、字段边界、Secret 和故障矩阵继续由更快的 Rust/HTTP/React 测试覆盖。CI 使用独立 `e2e` job 安装 Chromium，普通 Vitest 门禁不承担浏览器启动成本。完整决策见 `docs/adr/0022-browser-e2e-contract.md`。
@@ -387,7 +399,7 @@
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
-- Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
+- Credential generation 已承载首版 API Key 认证材料及认证/模型健康；管理连通性测试可清除当前 generation 的 `auth_error`，OAuth 刷新锁和 OAuth2 执行链路仍未实现。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
 - 负载均衡运行态 API 与 `/balancing` 页面已完成；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
@@ -395,10 +407,9 @@
 
 ## 下一步
 
-1. 补齐 GatewayApiKey `last_used_at` 节流遥测写入与 ProviderCredential 连通性测试/成功后清除 `auth_error` 操作；两者仍不得形成 Gateway Key 到 Provider Credential 的绑定。
-2. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
-3. 补充 Unix 真实子进程 SIGTERM、成功停机后同数据目录立即重启等进程级 CI 契约；它们用于加固现有语义，不引入运行态恢复。
-4. 上述 API Key 首版收尾后，再按独立切片实现可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前主链。
+1. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
+2. 补充 Unix 真实子进程 SIGTERM、成功停机后同数据目录立即重启等进程级 CI 契约；它们用于加固现有语义，不引入运行态恢复。
+3. 上述 API Key 首版收尾后，再按独立切片实现可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前主链。
 
 ## 验证结果
 
@@ -420,4 +431,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-本切片已通过完整门禁：Rust fmt、clippy、workspace test/doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build、内嵌产物一致性检查与 31 个 Vitest 文件的 81 项测试全部通过；`pnpm test:e2e` 在污染宿主 `ANY2API_*` 配置的条件下仍通过 3 项默认内嵌资源 Chromium 契约。复制到空目录的 Windows release 单文件验证了首页、deep link、哈希资源、缓存、缺失 asset 404 和 API/SPA 隔离。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
+本切片已通过完整门禁：Rust fmt、严格 clippy、workspace 及 doc test、release build、architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、production build、内嵌产物一致性检查、31 个 Vitest 文件的 83 项测试与 3 项真实 Chromium E2E 全部通过。真实 HTTP 契约覆盖 Gateway Key 最后使用时间落库，以及 Provider 上游 401 → Credential `/models` 测试 2xx → generation `auth_error` 清除 → 生成请求恢复。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。

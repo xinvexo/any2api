@@ -12,6 +12,7 @@ mod gateway_api_key_repository;
 mod gateway_api_key_repository_tests;
 mod gateway_api_key_rows;
 mod gateway_api_key_token;
+mod gateway_api_key_usage_repository;
 mod gateway_api_key_verifier;
 mod gateway_api_key_writes;
 mod migration;

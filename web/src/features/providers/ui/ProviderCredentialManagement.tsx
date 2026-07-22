@@ -6,6 +6,7 @@ import type { ProviderEndpoint } from "../api/provider-contracts";
 import type { ProviderCredential } from "../api/provider-credential-contracts";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderCredentialMutations } from "../model/use-provider-credential-mutations";
+import { useProviderCredentialTest } from "../model/use-provider-credential-test";
 import { useProviderCredentials } from "../model/use-provider-credentials";
 import { useProviderSecretActions } from "../model/use-provider-secret-actions";
 import { CredentialSecretReceipt } from "./CredentialSecretReceipt";
@@ -23,6 +24,9 @@ export function ProviderCredentialManagement({ endpoint }: { endpoint: ProviderE
   const proxies = useCredentialProxyOptions();
   const mutations = useProviderCredentialMutations(endpoint.id);
   const secretActions = useProviderSecretActions(endpoint.id);
+  const credentialTest = useProviderCredentialTest(
+    `${credentials.data?.configRevision ?? 0}:${endpoint.configVersion}:${proxies.data?.configRevision ?? 0}`,
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const [receipt, setReceipt] = useState<{ label: string; apiKey: string } | null>(null);
   const editorId = searchParams.get("credential");
@@ -83,7 +87,10 @@ export function ProviderCredentialManagement({ endpoint }: { endpoint: ProviderE
 
   const configuration = credentials.data;
   const pending =
-    credentials.isFetching || proxies.isFetching || mutations.isPending || secretActions.pending;
+    credentials.isFetching ||
+    proxies.isFetching ||
+    mutations.isPending ||
+    secretActions.pending;
   const editorError = mode === "edit" ? mutations.update.error : secretActions.error;
 
   async function submit(submission: CredentialEditorSubmission) {
@@ -152,6 +159,11 @@ export function ProviderCredentialManagement({ endpoint }: { endpoint: ProviderE
             onEdit={(id) => openEditor(id)}
             onRotate={(id) => openEditor(id, "rotate")}
             onDelete={remove}
+            endpoint={endpoint}
+            testingCredentialId={credentialTest.testingCredentialId}
+            testResults={credentialTest.results}
+            testError={credentialTest.error}
+            onTest={(id) => void credentialTest.test(id)}
           />
         </div>
         <div className={editorId ? "order-1 lg:order-2" : undefined}>

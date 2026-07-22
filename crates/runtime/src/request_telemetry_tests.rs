@@ -1,13 +1,15 @@
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
-    SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
+    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, ProtocolDialect, ProtocolOperation,
+    RequestId, RequestLog, SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
 };
-use any2api_storage::api::{RequestLogRepository, StorageError};
+use any2api_storage::api::{
+    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, RequestLogRepository, StorageError,
+};
 use async_trait::async_trait;
 use tokio::sync::Notify;
 
@@ -108,11 +110,69 @@ async fn shutdown_timeout_aborts_and_joins_the_writer() {
     assert_eq!(lifecycle.background_task_count(), 0);
 }
 
+#[tokio::test]
+async fn gateway_key_usage_is_live_immediately_and_duplicate_writes_are_throttled() {
+    let repository = Arc::new(BlockingRepository::default());
+    let settings = logging_settings(8);
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    let id = GatewayApiKeyId::new();
+
+    telemetry.record_gateway_key_use(id);
+    let first = telemetry
+        .gateway_key_last_used_at(id)
+        .expect("live usage timestamp");
+    telemetry.record_gateway_key_use(id);
+    wait_for(|| {
+        repository
+            .usage_updates
+            .lock()
+            .expect("usage updates")
+            .len()
+            == 1
+    })
+    .await;
+
+    let latest = telemetry
+        .gateway_key_last_used_at(id)
+        .expect("latest live usage timestamp");
+    assert!(latest >= first);
+    assert_eq!(
+        repository
+            .usage_updates
+            .lock()
+            .expect("usage updates")
+            .len(),
+        1
+    );
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+}
+
 #[derive(Default)]
 struct BlockingRepository {
     write_batches: AtomicUsize,
     prune_calls: AtomicUsize,
     release_first: Notify,
+    usage_updates: Mutex<Vec<Vec<GatewayApiKeyLastUsedUpdate>>>,
+}
+
+#[async_trait]
+impl GatewayApiKeyUsageRepository for BlockingRepository {
+    async fn touch_gateway_api_key_last_used(
+        &self,
+        updates: &[GatewayApiKeyLastUsedUpdate],
+    ) -> Result<(), StorageError> {
+        self.usage_updates
+            .lock()
+            .expect("usage updates")
+            .push(updates.to_vec());
+        Ok(())
+    }
 }
 
 #[async_trait]

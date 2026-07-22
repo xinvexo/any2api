@@ -1,3 +1,5 @@
+mod event;
+mod gateway_usage;
 mod observation;
 mod policy;
 mod recorder;

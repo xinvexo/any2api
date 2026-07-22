@@ -1,4 +1,4 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
@@ -13,6 +13,11 @@ use axum::{
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tempfile::tempdir;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    sync::mpsc,
+};
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -206,6 +211,158 @@ async fn provider_credential_requests_reject_unknown_secret_fields() {
     assert_eq!(response.cache_control.as_deref(), Some("no-store"));
 }
 
+#[tokio::test]
+async fn successful_credential_test_clears_generation_auth_error() {
+    let (upstream_address, mut upstream_requests) = credential_test_upstream().await;
+    let (_directory, app, _storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let endpoint = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Local Codex",
+            "provider_kind": "codex",
+            "base_url": format!("http://{upstream_address}/v1"),
+            "protocol_dialect": "openai_responses",
+            "allow_insecure_http": true,
+            "allow_private_network": true,
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(endpoint.status, StatusCode::OK);
+    let endpoint_id = endpoint.body["items"][0]["id"]
+        .as_str()
+        .expect("endpoint id")
+        .to_owned();
+
+    let credential = request_json(
+        app.clone(),
+        Method::POST,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
+        Some(json!({
+            "expected_revision": 2,
+            "label": "Recoverable Key",
+            "credential_kind": "api_key",
+            "api_key": "sk-credential-test-secret",
+            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
+            "max_concurrency": 1,
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(credential.status, StatusCode::OK);
+    let credential_id = credential.body["items"][0]["id"]
+        .as_str()
+        .expect("credential id")
+        .to_owned();
+
+    let route = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/model-routes",
+        Some(json!({
+            "expected_revision": 3,
+            "public_model": "probe-model",
+            "ingress_protocol": "openai_responses",
+            "fallback_on_saturation": false,
+            "enabled": true,
+            "targets": [{
+                "provider_endpoint_id": endpoint_id,
+                "upstream_model": "upstream-model",
+                "fallback_tier": 0,
+                "enabled": true
+            }]
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(route.status, StatusCode::OK);
+
+    let gateway = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/gateway-api-keys",
+        Some(json!({
+            "expected_revision": 4,
+            "name": "Credential test client",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    let gateway_token = gateway.body["token"].as_str().expect("gateway token");
+
+    let failed = request_json_with_headers(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({"model": "probe-model", "input": "hello"})),
+        loopback,
+        &[("authorization", format!("Bearer {gateway_token}"))],
+    )
+    .await;
+    assert_eq!(failed.status, StatusCode::BAD_GATEWAY);
+    let first = upstream_requests
+        .recv()
+        .await
+        .expect("first upstream request");
+    assert_eq!(first.method, Method::POST);
+    assert_eq!(first.path, "/v1/responses");
+    assert_eq!(
+        first.headers["authorization"],
+        "Bearer sk-credential-test-secret"
+    );
+
+    let tested = request_json(
+        app.clone(),
+        Method::POST,
+        &format!("/api/admin/provider-credentials/{credential_id}/test"),
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(tested.status, StatusCode::OK);
+    assert_eq!(tested.body["config_revision"], 5);
+    assert_eq!(tested.body["credential_id"], credential_id);
+    assert_eq!(tested.body["reachable"], true);
+    assert_eq!(tested.body["accepted"], true);
+    assert_eq!(tested.body["status_code"], 200);
+    assert_eq!(tested.body["auth_error_cleared"], true);
+    assert!(!tested.raw_body.contains("sk-credential-test-secret"));
+    let probe = upstream_requests
+        .recv()
+        .await
+        .expect("credential probe request");
+    assert_eq!(probe.method, Method::GET);
+    assert_eq!(probe.path, "/v1/models");
+    assert_eq!(
+        probe.headers["authorization"],
+        "Bearer sk-credential-test-secret"
+    );
+
+    let recovered = request_json_with_headers(
+        app,
+        Method::POST,
+        "/v1/responses",
+        Some(json!({"model": "probe-model", "input": "hello again"})),
+        loopback,
+        &[("authorization", format!("Bearer {gateway_token}"))],
+    )
+    .await;
+    assert_eq!(recovered.status, StatusCode::OK);
+    let final_request = upstream_requests
+        .recv()
+        .await
+        .expect("recovered upstream request");
+    assert_eq!(final_request.method, Method::POST);
+    assert_eq!(final_request.path, "/v1/responses");
+}
+
 async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
@@ -227,11 +384,11 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let public_requests = build_public_request_components()
-        .expect("public request components")
-        .service();
+    let components = build_public_request_components().expect("public request components");
+    let public_requests = components.service();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher, public_requests),
+        AppState::new(snapshots, runtime, publisher, public_requests)
+            .with_provider_credential_tests(components.provider_credential_test_service()),
         web_root,
     );
     (directory, app, storage)
@@ -251,10 +408,24 @@ async fn request_json(
     body: Option<Value>,
     remote: SocketAddr,
 ) -> JsonResponse {
+    request_json_with_headers(app, method, uri, body, remote, &[]).await
+}
+
+async fn request_json_with_headers(
+    app: Router,
+    method: Method,
+    uri: &str,
+    body: Option<Value>,
+    remote: SocketAddr,
+    headers: &[(&str, String)],
+) -> JsonResponse {
     let mut builder = Request::builder()
         .method(method)
         .uri(uri)
         .extension(ConnectInfo(remote));
+    for (name, value) in headers {
+        builder = builder.header(*name, value);
+    }
     let body = if let Some(value) = body {
         builder = builder.header(CONTENT_TYPE, "application/json");
         Body::from(serde_json::to_vec(&value).expect("request json"))
@@ -284,5 +455,91 @@ async fn request_json(
         body,
         raw_body,
         cache_control,
+    }
+}
+
+struct UpstreamRequest {
+    method: Method,
+    path: String,
+    headers: HashMap<String, String>,
+}
+
+async fn credential_test_upstream() -> (SocketAddr, mpsc::UnboundedReceiver<UpstreamRequest>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (sender, receiver) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let responses = [
+            (
+                "401 Unauthorized",
+                r#"{"error":{"type":"authentication_error","code":"invalid_api_key"}}"#,
+            ),
+            ("200 OK", r#"{"object":"list","data":[]}"#),
+            (
+                "200 OK",
+                r#"{"id":"resp_recovered","model":"upstream-model"}"#,
+            ),
+        ];
+        for (status, body) in responses {
+            let (mut stream, _) = listener.accept().await.expect("upstream accept");
+            sender.send(read_upstream_request(&mut stream).await).ok();
+            let response = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("upstream response");
+        }
+    });
+    (address, receiver)
+}
+
+async fn read_upstream_request(stream: &mut TcpStream) -> UpstreamRequest {
+    let mut bytes = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    let header_end = loop {
+        let count = stream.read(&mut buffer).await.expect("upstream read");
+        assert!(count > 0, "request ended before headers");
+        bytes.extend_from_slice(&buffer[..count]);
+        if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            break position;
+        }
+    };
+    let head = String::from_utf8(bytes[..header_end].to_vec()).expect("request headers");
+    let content_length = head
+        .lines()
+        .find_map(|line| {
+            line.split_once(':').and_then(|(name, value)| {
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().expect("content length"))
+            })
+        })
+        .unwrap_or(0);
+    let body_end = header_end + 4 + content_length;
+    while bytes.len() < body_end {
+        let count = stream.read(&mut buffer).await.expect("upstream body read");
+        assert!(count > 0, "request ended before body");
+        bytes.extend_from_slice(&buffer[..count]);
+    }
+    let mut lines = head.lines();
+    let mut request_line = lines.next().expect("request line").split_whitespace();
+    let method = request_line
+        .next()
+        .expect("request method")
+        .parse()
+        .expect("valid request method");
+    let path = request_line.next().expect("request path").to_owned();
+    let headers = lines
+        .filter_map(|line| line.split_once(':'))
+        .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
+        .collect();
+    UpstreamRequest {
+        method,
+        path,
+        headers,
     }
 }

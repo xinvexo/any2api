@@ -79,6 +79,15 @@ impl ProviderDriver for ClaudeDriver {
         Ok(CredentialHeaders { headers })
     }
 
+    fn credential_test_plan(
+        &self,
+        base_url: &any2api_domain::ProviderBaseUrl,
+    ) -> Result<EndpointPlan, ProviderError> {
+        Ok(EndpointPlan {
+            url: api_key::credential_test_url(base_url)?,
+        })
+    }
+
     fn classify_error(
         &self,
         operation: ProtocolOperation,
@@ -112,6 +121,14 @@ mod tests {
                 .url
                 .as_str(),
             "https://api.example.com/v1/messages/count_tokens"
+        );
+        assert_eq!(
+            driver
+                .credential_test_plan(&base)
+                .expect("credential test endpoint")
+                .url
+                .as_str(),
+            "https://api.example.com/v1/models"
         );
         let headers = driver
             .credential_headers(&ProviderSecret::new(1, "sk-claude"))

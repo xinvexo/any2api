@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
-use any2api_runtime::api::{ProxyTestService, PublicRequestService, RequestTelemetry};
+use any2api_runtime::api::{
+    ProviderCredentialTestService, ProxyTestService, PublicRequestService, RequestTelemetry,
+};
 use any2api_transport::api::{ReqwestTransportManager, TransportManager, TransportManagerConfig};
 
 pub struct PublicRequestComponents {
@@ -10,6 +12,7 @@ pub struct PublicRequestComponents {
     providers: Arc<ProviderRegistry>,
     service: Arc<PublicRequestService>,
     proxy_tests: Arc<ProxyTestService>,
+    provider_credential_tests: Arc<ProviderCredentialTestService>,
 }
 
 impl PublicRequestComponents {
@@ -31,6 +34,11 @@ impl PublicRequestComponents {
     #[must_use]
     pub fn proxy_test_service(&self) -> Arc<ProxyTestService> {
         Arc::clone(&self.proxy_tests)
+    }
+
+    #[must_use]
+    pub fn provider_credential_test_service(&self) -> Arc<ProviderCredentialTestService> {
+        Arc::clone(&self.provider_credential_tests)
     }
 }
 
@@ -55,14 +63,23 @@ pub fn build_public_request_components_with_telemetry(
         TransportManagerConfig::default(),
     )?);
     let proxy_tests = Arc::new(ProxyTestService::new(Arc::clone(&transport)));
+    let provider_credential_tests = Arc::new(ProviderCredentialTestService::new(
+        Arc::clone(&providers),
+        Arc::clone(&transport),
+    ));
     let service = Arc::new(
-        PublicRequestService::new(Arc::clone(&protocols), Arc::clone(&providers), transport)?
-            .with_telemetry(telemetry),
+        PublicRequestService::new(
+            Arc::clone(&protocols),
+            Arc::clone(&providers),
+            Arc::clone(&transport),
+        )?
+        .with_telemetry(telemetry),
     );
     Ok(PublicRequestComponents {
         protocols,
         providers,
         service,
         proxy_tests,
+        provider_credential_tests,
     })
 }
