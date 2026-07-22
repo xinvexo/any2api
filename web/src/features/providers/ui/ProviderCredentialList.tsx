@@ -135,9 +135,6 @@ export function ProviderCredentialList({
       {!embedded ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-subtle py-3 text-[12px] text-secondary">
           <p>
-            API Key · 配置版本{" "}
-            <span className="font-medium tabular-nums text-primary">{configuration.configRevision}</span>
-            {" · "}
             共 <span className="tabular-nums">{filtered.length}</span> 条
           </p>
         </div>

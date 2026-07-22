@@ -263,7 +263,7 @@ async fn buffered_body_read_timeout_is_ambiguous_and_not_retried() {
         &["body-timeout-model"],
         &[(
             SettingKey::UpstreamReadTimeout,
-            SettingValue::DurationMs(10),
+            SettingValue::DurationSecs(1),
         )],
     )
     .await;
@@ -449,7 +449,7 @@ async fn sse_postcommit_idle_timeout_does_not_start_a_second_stream() {
         &["postcommit-model"],
         &[(
             SettingKey::StreamPostcommitIdleTimeout,
-            SettingValue::DurationMs(10),
+            SettingValue::DurationSecs(1),
         )],
     )
     .await;
@@ -748,16 +748,16 @@ fn default_overrides() -> Vec<(SettingKey, SettingValue)> {
             SettingKey::SchedulerOnSaturated,
             SettingValue::Saturation(SaturationMode::Reject),
         ),
-        (SettingKey::RetryBaseDelay, SettingValue::DurationMs(0)),
-        (SettingKey::RetryMaxDelay, SettingValue::DurationMs(0)),
+        (SettingKey::RetryBaseDelay, SettingValue::DurationSecs(0)),
+        (SettingKey::RetryMaxDelay, SettingValue::DurationSecs(0)),
         (SettingKey::RetryJitterRatio, SettingValue::Integer(0)),
         (
             SettingKey::AffinityFixedWaitTimeout,
-            SettingValue::DurationMs(1),
+            SettingValue::DurationSecs(1),
         ),
         (
             SettingKey::RetryPrecommitTotalBudget,
-            SettingValue::DurationMs(1_000),
+            SettingValue::DurationSecs(1),
         ),
     ]
 }

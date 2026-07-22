@@ -49,7 +49,7 @@ export interface BalancingRuntime {
   queue: {
     waiting: number;
     maxWaiting: number;
-    timeoutMs: number;
+    timeoutSecs: number;
     onSaturated: "wait" | "reject";
     fallbackOnSaturation: boolean;
   };
@@ -84,7 +84,7 @@ export function parseBalancingRuntime(value: unknown): BalancingRuntime {
     queue: {
       waiting: integer(queue.waiting),
       maxWaiting: positive(queue.max_waiting),
-      timeoutMs: positive(queue.timeout_ms),
+      timeoutSecs: positive(queue.timeout_secs),
       onSaturated: oneOf(queue.on_saturated, ["wait", "reject"]),
       fallbackOnSaturation: boolean(queue.fallback_on_saturation),
     },

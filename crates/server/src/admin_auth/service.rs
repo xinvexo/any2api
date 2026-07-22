@@ -195,7 +195,7 @@ impl AdminAuthService {
         settings: &AdminSettings,
     ) -> Result<(), AdminAuthError> {
         let now = Instant::now();
-        let window = Duration::from_millis(settings.login_failure_window_ms());
+        let window = Duration::from_secs(settings.login_failure_window_secs());
         let mut failures = self.failures.lock().await;
         prune_failure_sources(&mut failures, now, window);
         let entries = failures.entry(source).or_default();
@@ -214,7 +214,7 @@ impl AdminAuthService {
 
     async fn record_failure(&self, source: IpAddr, settings: &AdminSettings) {
         let now = Instant::now();
-        let window = Duration::from_millis(settings.login_failure_window_ms());
+        let window = Duration::from_secs(settings.login_failure_window_secs());
         let mut failures = self.failures.lock().await;
         prune_failure_sources(&mut failures, now, window);
         if !failures.contains_key(&source) && failures.len() >= MAX_FAILURE_SOURCES {

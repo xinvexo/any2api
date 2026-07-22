@@ -9,7 +9,7 @@ import type {
 import { getProviderErrorMessage } from "../model/provider-error";
 import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
-import { controlClass } from "@/shared/ui/form-control";
+import { controlClass, selectClass } from "@/shared/ui/form-control";
 import { Field, FormError } from "@/shared/ui/form-field";
 import { Switch } from "@/shared/ui/Switch";
 
@@ -143,7 +143,7 @@ export function ProviderCredentialEditor({
       <Field label="代理" htmlFor="credential-proxy">
         <select
           id="credential-proxy"
-          className={controlClass()}
+          className={selectClass()}
           value={proxyId}
           disabled={pending || sourceConflict !== null}
           onChange={(event) => setProxyId(event.target.value)}

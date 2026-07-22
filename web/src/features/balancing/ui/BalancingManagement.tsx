@@ -21,7 +21,7 @@ export function BalancingManagement() {
   return (
     <div className="space-y-5" aria-busy={query.isFetching}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-secondary">配置版本 <span className="font-medium tabular-nums text-primary">{runtime.configRevision}</span><span className="mx-2 text-tertiary">·</span>调度 Epoch <span className="font-medium tabular-nums text-primary">{runtime.schedulerEpoch}</span></p>
+        <p className="text-sm text-secondary">调度 Epoch <span className="font-medium tabular-nums text-primary">{runtime.schedulerEpoch}</span></p>
         <Button variant="ghost" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw size={15} className={query.isFetching ? "animate-spin" : undefined} />刷新</Button>
       </div>
       {query.isError ? <Surface className="border-warning/40 p-4 text-sm text-secondary" role="status">刷新失败，当前仍显示最近一次有效数据：{getBalancingErrorMessage(query.error)}</Surface> : null}

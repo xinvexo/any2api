@@ -1,96 +1,124 @@
-import { KeyRound, Pencil, RefreshCw, ShieldOff } from "lucide-react";
+import { Plus, RefreshCw, Search } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import type { GatewayApiKey, GatewayApiKeyConfiguration } from "../api/gateway-api-key-contracts";
+import { getGatewayApiKeyErrorMessage } from "../model/gateway-api-key-error";
+import { GatewayApiKeyTableRow } from "./GatewayApiKeyTableRow";
 import { Button } from "@/shared/ui/Button";
-import { Surface } from "@/shared/ui/Surface";
+
+interface GatewayApiKeyListProps {
+  configuration: GatewayApiKeyConfiguration;
+  tokensById: Record<string, string>;
+  pending: boolean;
+  refreshing: boolean;
+  actionError: unknown;
+  onCreate: () => void;
+  onRefresh: () => void;
+  onEdit: (id: string) => void;
+  onDelete: (key: GatewayApiKey) => void;
+}
 
 export function GatewayApiKeyList({
   configuration,
+  tokensById,
   pending,
+  refreshing,
+  actionError,
+  onCreate,
+  onRefresh,
   onEdit,
-  onRotate,
-  onRevoke,
-}: {
-  configuration: GatewayApiKeyConfiguration;
-  pending: boolean;
-  onEdit: (id: string) => void;
-  onRotate: (key: GatewayApiKey) => void;
-  onRevoke: (key: GatewayApiKey) => void;
-}) {
-  if (configuration.items.length === 0) {
-    return (
-      <Surface className="flex min-h-56 items-center justify-center p-7 text-center">
-        <div>
-          <KeyRound size={23} className="mx-auto text-tertiary" aria-hidden="true" />
-          <p className="mt-3 text-sm font-medium">尚未创建网关密钥</p>
+  onDelete,
+}: GatewayApiKeyListProps) {
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) {
+      return configuration.items;
+    }
+    return configuration.items.filter((key) => {
+      const status = key.revokedAt ? "已删除" : key.enabled ? "已启用" : "已停用";
+      const token = tokensById[key.id] ?? "";
+      return [key.name, status, token].join(" ").toLowerCase().includes(needle);
+    });
+  }, [configuration.items, query, tokensById]);
+
+  return (
+    <div>
+      <div className="flex flex-col gap-2.5 border-b border-subtle pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button variant="ghost" onClick={onCreate} disabled={pending}>
+            <Plus size={14} />
+            新增密钥
+          </Button>
+          <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
+            刷新
+          </Button>
         </div>
-      </Surface>
-    );
-  }
 
-  return (
-    <Surface className="divide-y divide-subtle overflow-hidden">
-      {configuration.items.map((key) => (
-        <article key={key.id} className="p-5 sm:p-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <h2 className="break-words font-semibold [overflow-wrap:anywhere]">{key.name}</h2>
-                <Status keyValue={key} />
-              </div>
-              <p className="mt-2 font-mono text-sm text-secondary">{key.tokenPrefix}...</p>
-              <dl className="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
-                <Field label="创建时间" value={formatTimestamp(key.createdAt)} />
-                <Field label="最后使用" value={key.lastUsedAt ? formatTimestamp(key.lastUsedAt) : "尚无记录"} />
-                <Field label="Token 版本" value={String(key.tokenVersion)} />
-                <Field label="配置版本" value={String(key.configVersion)} />
-              </dl>
-            </div>
-            <div className="flex flex-wrap gap-2 xl:max-w-72 xl:justify-end">
-              <Button onClick={() => onEdit(key.id)} disabled={pending || key.revokedAt !== null}>
-                <Pencil size={15} />
-                编辑
-              </Button>
-              <Button onClick={() => onRotate(key)} disabled={pending || key.revokedAt !== null}>
-                <RefreshCw size={15} />
-                轮换
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => onRevoke(key)}
-                disabled={pending || key.revokedAt !== null}
-              >
-                <ShieldOff size={15} />
-                撤销
-              </Button>
-            </div>
-          </div>
-        </article>
-      ))}
-    </Surface>
-  );
-}
+        <label className="relative min-w-0 sm:w-52">
+          <span className="sr-only">搜索密钥</span>
+          <Search
+            size={13}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
+            aria-hidden="true"
+          />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索关键字"
+            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
+          />
+        </label>
+      </div>
 
-function Status({ keyValue }: { keyValue: GatewayApiKey }) {
-  const value = keyValue.revokedAt ? "已撤销" : keyValue.enabled ? "已启用" : "已停用";
-  const color = keyValue.revokedAt ? "bg-danger" : keyValue.enabled ? "bg-success" : "bg-warning";
-  return (
-    <span className="inline-flex items-center gap-2 text-sm text-secondary">
-      <span className={`size-2 rounded-full ${color}`} aria-hidden="true" />
-      {value}
-    </span>
-  );
-}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[760px] border-collapse text-left text-[12px]">
+          <caption className="sr-only">网关密钥列表</caption>
+          <thead>
+            <tr className="border-b border-subtle text-secondary">
+              <th className="py-2.5 pr-3 font-medium">名称</th>
+              <th className="px-3 py-2.5 font-medium">密钥</th>
+              <th className="px-3 py-2.5 font-medium">状态</th>
+              <th className="px-3 py-2.5 font-medium">最后使用</th>
+              <th className="px-3 py-2.5 font-medium">创建时间</th>
+              <th className="py-2.5 pl-3 text-right font-medium">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((key) => (
+              <GatewayApiKeyTableRow
+                key={key.id}
+                apiKey={key}
+                token={tokensById[key.id] ?? null}
+                pending={pending}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-w-0 justify-between gap-3 sm:block">
-      <dt className="text-secondary">{label}</dt>
-      <dd className="truncate font-medium tabular-nums sm:mt-1">{value}</dd>
+      {filtered.length === 0 ? (
+        <p className="border-t border-subtle py-8 text-center text-sm text-secondary">
+          {query.trim()
+            ? "没有匹配的密钥"
+            : "尚未创建网关密钥。客户端使用这些密钥访问本地网关。"}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-subtle py-3 text-[12px] text-secondary">
+        <p>
+          共 <span className="tabular-nums">{filtered.length}</span> 条
+        </p>
+      </div>
+
+      {actionError ? (
+        <p className="border-t border-subtle py-3 text-sm text-danger" role="alert">
+          {getGatewayApiKeyErrorMessage(actionError)}
+        </p>
+      ) : null}
     </div>
   );
-}
-
-function formatTimestamp(value: string) {
-  return value.replace(" ", " · ");
 }

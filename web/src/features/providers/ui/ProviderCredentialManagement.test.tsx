@@ -31,9 +31,10 @@ test("creates a credential without retaining its secret in application caches", 
     }
     return jsonResponse(credentials);
   });
-  const { client } = renderManagement([`/providers?keys=${endpoint.id}&credential=new`]);
+  const { client } = renderManagement([`/providers/codex?keys=${endpoint.id}&credential=new`]);
 
   expect(await screen.findByRole("option", { name: "DIRECT" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: "香港代理" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary Key" } });
   fireEvent.change(screen.getByLabelText("API Key"), { target: { value: secret } });
   fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "8" } });
@@ -84,7 +85,7 @@ test("edits credential metadata without sending the secret", async () => {
     }
     return jsonResponse(credentials);
   });
-  renderManagement([`/providers?keys=${endpoint.id}&credential=${credentialId}`]);
+  renderManagement([`/providers/codex?keys=${endpoint.id}&credential=${credentialId}`]);
 
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "Edited" } });
@@ -134,7 +135,7 @@ test("opens a credential model picker and loads the current upstream catalog", a
     }
     return jsonResponse(credentials);
   });
-  renderManagement([`/providers?keys=${endpoint.id}`]);
+  renderManagement([`/providers/codex?keys=${endpoint.id}`]);
 
   fireEvent.click(await screen.findByRole("button", { name: "配置 Primary Key 的模型" }));
 

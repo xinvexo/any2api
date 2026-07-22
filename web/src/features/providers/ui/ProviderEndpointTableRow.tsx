@@ -28,10 +28,10 @@ export function ProviderEndpointTableRow({
   const panelId = `endpoint-keys-${endpoint.id}`;
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex flex-col gap-1 sm:flex-row sm:items-center">
       <button
         type="button"
-        className="focus-ring flex min-w-0 flex-1 items-center gap-2 rounded-[8px] px-1 py-1 text-left hover:bg-surface-muted/80"
+        className="focus-ring flex w-full min-w-0 flex-1 items-center gap-2 rounded-[8px] px-1 py-1 text-left hover:bg-surface-muted/80"
         aria-expanded={expanded}
         aria-controls={panelId}
         aria-label={`${expanded ? "收起" : "展开"} ${endpoint.name} 的 API Key`}
@@ -61,7 +61,7 @@ export function ProviderEndpointTableRow({
           </span>
         </span>
       </button>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex w-full shrink-0 items-center justify-end gap-0.5 sm:w-auto">
         <RowAction
           label={`新增 ${endpoint.name} 的 API Key`}
           disabled={pending}

@@ -1,7 +1,7 @@
 use crate::settings::{
     SaturationMode, SettingDefinition, SettingKey, SettingValue, SettingValueType,
     definition::{
-        MAX_SETTING_AUXILIARY, MAX_SETTING_COUNT, MAX_SETTING_DURATION_MS,
+        MAX_SETTING_AUXILIARY, MAX_SETTING_COUNT, MAX_SETTING_DURATION_SECS,
         definition as setting_definition, duration_definition,
     },
 };
@@ -23,9 +23,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::SchedulerQueueTimeout => duration_definition(
             key,
-            30_000,
+            30,
             1,
-            MAX_SETTING_DURATION_MS,
+            MAX_SETTING_DURATION_SECS,
             "排队策略",
             "生成请求等待可用并发槽位的最长时间。",
         ),

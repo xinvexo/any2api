@@ -2,7 +2,7 @@ use super::{SettingKey, SettingOverrides, SettingsValidationError, value::intege
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpstreamSettings {
-    read_timeout_ms: u64,
+    read_timeout_secs: u64,
     strict_ssrf: bool,
 }
 
@@ -11,15 +11,15 @@ impl UpstreamSettings {
         overrides: &SettingOverrides,
     ) -> Result<Self, SettingsValidationError> {
         Ok(Self {
-            read_timeout_ms: integer(overrides.effective_value(SettingKey::UpstreamReadTimeout))?,
+            read_timeout_secs: integer(overrides.effective_value(SettingKey::UpstreamReadTimeout))?,
             strict_ssrf: super::value::boolean(
                 overrides.effective_value(SettingKey::UpstreamStrictSsrf),
             )?,
         })
     }
 
-    pub const fn read_timeout_ms(&self) -> u64 {
-        self.read_timeout_ms
+    pub const fn read_timeout_secs(&self) -> u64 {
+        self.read_timeout_secs
     }
 
     pub const fn strict_ssrf(&self) -> bool {

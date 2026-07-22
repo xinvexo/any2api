@@ -5,14 +5,14 @@ const password = "any2api-e2e-password";
 test("login preserves a direct settings link and refreshes the SPA route", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
 
-  await loginAt(page, "/settings", "配置版本");
-  await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByText("配置版本", { exact: false }).first()).toBeVisible();
+  await loginAt(page, "/settings", "管理员密码");
+  await expect(page).toHaveURL(/\/settings\/password$/);
+  await expect(page.getByText("管理员密码", { exact: false }).first()).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.reload();
-  await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByText("配置版本", { exact: false }).first()).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/password$/);
+  await expect(page.getByText("管理员密码", { exact: false }).first()).toBeVisible();
   expect(browserErrors).toEqual([]);
 });
 
@@ -23,7 +23,7 @@ test("desktop core management deep links render against the real service", async
   for (const [path, readyText] of [
     ["/", "运行正常"],
     ["/proxies", "代理列表"],
-    ["/providers", "还没有 Codex Endpoint"],
+    ["/providers/codex", "还没有 Codex Endpoint"],
     ["/balancing", "还没有 Provider Credential"],
     ["/keys", "尚未创建网关密钥"],
     ["/logs", "还没有请求日志"],
@@ -39,7 +39,7 @@ test("desktop core management deep links render against the real service", async
 test("390px navigation closes after a deep-link transition without horizontal overflow", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await loginAt(page, "/settings", "配置版本");
+  await loginAt(page, "/settings", "管理员密码");
 
   const menu = page.getByRole("button", { name: "打开导航" });
   await menu.click();

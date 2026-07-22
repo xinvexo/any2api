@@ -231,7 +231,7 @@
 
 ### Scheduler SettingRegistry 切片
 
-- `SettingDefinition` 集中定义六项 `scheduler.*` 的类型、默认值、范围、枚举值、应用模式、Web 分组和描述；Duration 的持久化/HTTP 单位固定为整数毫秒。
+- `SettingDefinition` 集中定义六项 `scheduler.*` 的类型、默认值、范围、枚举值、应用模式、Web 分组和描述；Duration 的持久化/HTTP 单位固定为整数秒。
 - SQLite `setting_overrides` 只保存用户覆盖值；写入、恢复默认、no-op 和 revision 冲突沿用串行 `ConfigPublisher`。未知 key、损坏 JSON、类型错误和越界覆盖 Fail-Closed，显式覆盖等于默认值仍保留。
 - `PublishedSnapshot` 从已提交 `SettingsConfiguration` 捕获 QueuePolicy；稳定 AuxiliaryScheduler 热更新全局/单 Credential 上限，已有 Permit 不取消，新上限立即生效，发布只推进一次 scheduler epoch。
 - 管理 API：`GET /api/admin/settings`、`PATCH /api/admin/settings/{key}`、`DELETE /api/admin/settings/{key}?expected_revision=N`。
@@ -301,7 +301,7 @@
 - 新增独立 Playwright Chromium 套件；`pnpm test:e2e` 自行构建 any2api 与 Web、分配空闲 loopback 端口并启动真实 HTTP 服务。
 - 每次执行使用独立系统临时数据目录、全新 SQLite/Vault 和固定测试管理员密码；不复用开发数据、主密钥、Cookie 或运行态，结束后清理隔离目录。
 - 启动器只接受 Chromium 允许导航的随机端口；操作系统分配到 `4045` 等 unsafe port 时自动重试，避免页面加载前的偶发门禁失败。
-- 浏览器契约覆盖 `/settings` 登录前 deep link 在登录后保持、服务端 SPA 刷新、总览/代理/Provider/模型路由/网关密钥/请求日志核心页面直达和真实 API 就绪状态。
+- 浏览器契约覆盖 `/settings` 登录前 deep link 在登录后保持、服务端 SPA 刷新、总览/代理/Provider 分组/网关密钥/请求日志核心页面直达和真实 API 就绪状态。
 - 390×844 契约覆盖折叠导航打开、跳转后关闭、请求日志空态与 `documentElement.scrollWidth <= innerWidth`；全部用例同时收集未处理 page error 和 error 级 console 输出。
 - E2E 只验证跨层共享行为，业务 CRUD、字段边界、Secret 和故障矩阵继续由更快的 Rust/HTTP/React 测试覆盖。CI 使用独立 `e2e` job 安装 Chromium，普通 Vitest 门禁不承担浏览器启动成本。完整决策见 `docs/adr/0022-browser-e2e-contract.md`。
 
@@ -387,7 +387,7 @@
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
-- ModelRoute 配置、管理面、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
+- Credential 模型配置、内部 ModelRoute 物化、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析、全部地址校验和固定目标连接。
 - 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、request logging、file logging 与 shutdown 共 49 项 SettingRegistry。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。

@@ -146,7 +146,7 @@ mod tests {
     fn defaults_match_architecture() {
         let settings = SettingsConfiguration::defaults();
         assert_eq!(settings.scheduler().on_saturated(), SaturationMode::Wait);
-        assert_eq!(settings.scheduler().queue_timeout_ms(), 30_000);
+        assert_eq!(settings.scheduler().queue_timeout_secs(), 30);
         assert_eq!(settings.scheduler().max_waiting_requests(), 128);
         assert_eq!(settings.scheduler().auxiliary_global_concurrency(), 32);
         assert_eq!(
@@ -155,35 +155,35 @@ mod tests {
         );
         assert!(settings.affinity().soft_enabled());
         assert_eq!(settings.affinity().soft_mode(), AffinityMode::Prefer);
-        assert_eq!(settings.affinity().soft_ttl_ms(), 3_600_000);
-        assert_eq!(settings.affinity().hard_ttl_ms(), 86_400_000);
-        assert_eq!(settings.affinity().soft_prefer_wait_timeout_ms(), 2_000);
-        assert_eq!(settings.affinity().fixed_wait_timeout_ms(), 30_000);
+        assert_eq!(settings.affinity().soft_ttl_secs(), 3_600);
+        assert_eq!(settings.affinity().hard_ttl_secs(), 86_400);
+        assert_eq!(settings.affinity().soft_prefer_wait_timeout_secs(), 2);
+        assert_eq!(settings.affinity().fixed_wait_timeout_secs(), 30);
         assert_eq!(settings.reliability().max_total_attempts(), 3);
         assert_eq!(settings.reliability().max_credential_switches(), 2);
         assert_eq!(settings.reliability().max_same_credential_retries(), 1);
-        assert_eq!(settings.reliability().precommit_total_budget_ms(), 20_000);
+        assert_eq!(settings.reliability().precommit_total_budget_secs(), 20);
         assert_eq!(settings.reliability().endpoint_failure_threshold(), 3);
-        assert_eq!(settings.reliability().proxy_open_duration_ms(), 30_000);
+        assert_eq!(settings.reliability().proxy_open_duration_secs(), 30);
         assert!(!settings.admin().remote_enabled());
-        assert_eq!(settings.admin().session_idle_timeout_ms(), 43_200_000);
-        assert_eq!(settings.admin().session_absolute_timeout_ms(), 604_800_000);
-        assert_eq!(settings.admin().login_failure_window_ms(), 900_000);
+        assert_eq!(settings.admin().session_idle_timeout_secs(), 43_200);
+        assert_eq!(settings.admin().session_absolute_timeout_secs(), 604_800);
+        assert_eq!(settings.admin().login_failure_window_secs(), 900);
         assert_eq!(settings.admin().login_max_failures(), 5);
         assert!(settings.logging().request_enabled());
-        assert_eq!(settings.logging().request_retention_ms(), 2_592_000_000);
+        assert_eq!(settings.logging().request_retention_secs(), 2_592_000);
         assert_eq!(settings.logging().request_max_rows(), 200_000);
         assert_eq!(settings.logging().file_level(), FileLogLevel::Info);
-        assert_eq!(settings.logging().file_retention_ms(), 604_800_000);
+        assert_eq!(settings.logging().file_retention_secs(), 604_800);
         assert_eq!(settings.logging().file_max_total_size(), 256 * 1024 * 1024);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
-        assert_eq!(settings.upstream().read_timeout_ms(), 15_000);
+        assert_eq!(settings.upstream().read_timeout_secs(), 15);
         assert!(!settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().precommit_max_bytes(), 256 * 1024);
-        assert_eq!(settings.stream().precommit_max_duration_ms(), 5_000);
-        assert_eq!(settings.stream().postcommit_idle_timeout_ms(), 60_000);
-        assert_eq!(settings.shutdown().request_grace_period_ms(), 30_000);
-        assert_eq!(settings.shutdown().finalize_timeout_ms(), 5_000);
+        assert_eq!(settings.stream().precommit_max_duration_secs(), 5);
+        assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 60);
+        assert_eq!(settings.shutdown().request_grace_period_secs(), 30);
+        assert_eq!(settings.shutdown().finalize_timeout_secs(), 5);
         assert!(
             SettingKey::ALL
                 .into_iter()
@@ -194,8 +194,8 @@ mod tests {
     #[test]
     fn values_round_trip_and_validate_bounds_and_enum_domains() {
         let key = SettingKey::SchedulerQueueTimeout;
-        let value = SettingValue::from_json(key, &json!(5000)).expect("duration");
-        assert_eq!(value, SettingValue::DurationMs(5000));
+        let value = SettingValue::from_json(key, &json!(5)).expect("duration");
+        assert_eq!(value, SettingValue::DurationSecs(5));
         assert!(SettingValue::from_json(key, &json!(0)).is_err());
         assert_eq!(
             SettingValue::from_json(SettingKey::AffinitySoftMode, &json!(true)),
@@ -228,23 +228,20 @@ mod tests {
         assert!(bytes.description().contains("每个 SSE 帧"));
 
         let duration = SettingKey::StreamPrecommitMaxDuration.definition();
-        assert_eq!(duration.value_type(), SettingValueType::DurationMs);
-        assert_eq!(duration.default(), SettingValue::DurationMs(5_000));
-        assert_eq!(duration.min(), Some(SettingValue::DurationMs(1)));
-        assert_eq!(duration.max(), Some(SettingValue::DurationMs(86_400_000)));
+        assert_eq!(duration.value_type(), SettingValueType::DurationSecs);
+        assert_eq!(duration.default(), SettingValue::DurationSecs(5));
+        assert_eq!(duration.min(), Some(SettingValue::DurationSecs(1)));
+        assert_eq!(duration.max(), Some(SettingValue::DurationSecs(86_400)));
         let postcommit = SettingKey::StreamPostcommitIdleTimeout.definition();
-        assert_eq!(postcommit.value_type(), SettingValueType::DurationMs);
-        assert_eq!(postcommit.default(), SettingValue::DurationMs(60_000));
-        assert_eq!(postcommit.min(), Some(SettingValue::DurationMs(1)));
-        assert_eq!(postcommit.max(), Some(SettingValue::DurationMs(86_400_000)));
+        assert_eq!(postcommit.value_type(), SettingValueType::DurationSecs);
+        assert_eq!(postcommit.default(), SettingValue::DurationSecs(60));
+        assert_eq!(postcommit.min(), Some(SettingValue::DurationSecs(1)));
+        assert_eq!(postcommit.max(), Some(SettingValue::DurationSecs(86_400)));
         let read_timeout = SettingKey::UpstreamReadTimeout.definition();
-        assert_eq!(read_timeout.value_type(), SettingValueType::DurationMs);
-        assert_eq!(read_timeout.default(), SettingValue::DurationMs(15_000));
-        assert_eq!(read_timeout.min(), Some(SettingValue::DurationMs(1)));
-        assert_eq!(
-            read_timeout.max(),
-            Some(SettingValue::DurationMs(86_400_000))
-        );
+        assert_eq!(read_timeout.value_type(), SettingValueType::DurationSecs);
+        assert_eq!(read_timeout.default(), SettingValue::DurationSecs(15));
+        assert_eq!(read_timeout.min(), Some(SettingValue::DurationSecs(1)));
+        assert_eq!(read_timeout.max(), Some(SettingValue::DurationSecs(86_400)));
         assert_eq!(SettingKey::parse("stream.precommit.max_events"), None);
     }
 
@@ -261,21 +258,21 @@ mod tests {
             ),
             (
                 SettingKey::UpstreamReadTimeout,
-                SettingValue::DurationMs(2_000),
+                SettingValue::DurationSecs(2),
             ),
             (SettingKey::UpstreamStrictSsrf, SettingValue::Boolean(true)),
             (
                 SettingKey::StreamPostcommitIdleTimeout,
-                SettingValue::DurationMs(3_000),
+                SettingValue::DurationSecs(3),
             ),
         ])
         .expect("overrides");
         let settings = SettingsConfiguration::from_overrides(overrides).expect("settings");
         assert!(settings.scheduler().fallback_on_saturation());
         assert_eq!(settings.affinity().soft_mode(), AffinityMode::Strict);
-        assert_eq!(settings.upstream().read_timeout_ms(), 2_000);
+        assert_eq!(settings.upstream().read_timeout_secs(), 2);
         assert!(settings.upstream().strict_ssrf());
-        assert_eq!(settings.stream().postcommit_idle_timeout_ms(), 3_000);
+        assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 3);
         assert_eq!(
             settings.effective_value(SettingKey::AffinitySoftMode),
             SettingValue::AffinityMode(AffinityMode::Strict)
@@ -285,8 +282,8 @@ mod tests {
     #[test]
     fn reliability_rejects_an_inverted_delay_range() {
         let overrides = SettingOverrides::from_entries([
-            (SettingKey::RetryBaseDelay, SettingValue::DurationMs(2_000)),
-            (SettingKey::RetryMaxDelay, SettingValue::DurationMs(250)),
+            (SettingKey::RetryBaseDelay, SettingValue::DurationSecs(2)),
+            (SettingKey::RetryMaxDelay, SettingValue::DurationSecs(0)),
         ])
         .expect("individual values are valid");
 

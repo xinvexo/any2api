@@ -15,7 +15,7 @@ impl PrecommitBudget {
         Self::new(
             usize::try_from(settings.precommit_max_bytes())
                 .expect("validated precommit byte budget fits usize"),
-            Duration::from_millis(settings.precommit_max_duration_ms()),
+            Duration::from_secs(settings.precommit_max_duration_secs()),
         )
     }
 

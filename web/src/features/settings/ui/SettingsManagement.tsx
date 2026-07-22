@@ -5,34 +5,57 @@ import type { SettingItem, SettingValue } from "../api/settings-contracts";
 import { getSettingsErrorMessage } from "../model/settings-error";
 import { useSettingMutations } from "../model/use-setting-mutations";
 import { useSettings } from "../model/use-settings";
+import { sectionsForWebGroups, type SettingSection } from "./setting-categories";
 import { SettingRow } from "./SettingRow";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
 
 export interface SettingsManagementProps {
+  /** Filter items whose key starts with this prefix. */
   keyPrefix?: string;
+  /** Filter items belonging to a single backend web group. */
+  webGroup?: string;
+  /** Filter items belonging to any of these backend web groups. */
+  webGroups?: readonly string[];
+  /** @deprecated Sidebar owns categories; kept for call-site compatibility. */
+  categorized?: boolean;
 }
 
-export function SettingsManagement({ keyPrefix }: SettingsManagementProps = {}) {
+export function SettingsManagement({
+  keyPrefix,
+  webGroup,
+  webGroups,
+}: SettingsManagementProps = {}) {
   const query = useSettings();
   const mutations = useSettingMutations();
   const pending = query.isFetching || mutations.isPending;
-  const groups = useMemo(
-    () =>
-      groupSettings(
-        (query.data?.items ?? []).filter((item) => !keyPrefix || item.key.startsWith(keyPrefix)),
-      ),
-    [keyPrefix, query.data],
+  const filteredItems = useMemo(() => {
+    const allowed = webGroups ? new Set(webGroups) : null;
+    return (query.data?.items ?? []).filter((item) => {
+      if (keyPrefix && !item.key.startsWith(keyPrefix)) {
+        return false;
+      }
+      if (webGroup && item.webGroup !== webGroup) {
+        return false;
+      }
+      if (allowed && !allowed.has(item.webGroup)) {
+        return false;
+      }
+      return true;
+    });
+  }, [keyPrefix, query.data, webGroup, webGroups]);
+
+  const groups = useMemo(() => groupSettings(filteredItems), [filteredItems]);
+  const sections = useMemo(
+    () => sectionsForWebGroups(groups.map(([name]) => name)),
+    [groups],
   );
 
   if (query.isPending && !query.data) {
     return (
-      <Surface
-        className="flex min-h-56 items-center justify-center p-7 text-sm text-secondary"
-        aria-busy="true"
-      >
+      <div className="flex min-h-56 items-center justify-center text-sm text-secondary" aria-busy="true">
         正在读取设置
-      </Surface>
+      </div>
     );
   }
   if (!query.data) {
@@ -41,7 +64,7 @@ export function SettingsManagement({ keyPrefix }: SettingsManagementProps = {}) 
         <p className="font-semibold">无法读取设置</p>
         <p className="mt-2 text-sm text-secondary">{getSettingsErrorMessage(query.error)}</p>
         <Button className="mt-5" onClick={() => void query.refetch()} disabled={query.isFetching}>
-          <RefreshCw size={15} />
+          <RefreshCw size={14} />
           重试
         </Button>
       </Surface>
@@ -69,16 +92,10 @@ export function SettingsManagement({ keyPrefix }: SettingsManagementProps = {}) 
   }
 
   return (
-    <div className="space-y-5" aria-busy={pending}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-secondary">
-          配置版本{" "}
-          <span className="font-medium tabular-nums text-primary">
-            {configuration.configRevision}
-          </span>
-        </p>
+    <div className="space-y-4" aria-busy={pending}>
+      <div className="flex justify-end">
         <Button variant="ghost" onClick={() => void query.refetch()} disabled={pending}>
-          <RefreshCw size={15} className={query.isFetching ? "animate-spin" : undefined} />
+          <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
           刷新
         </Button>
       </div>
@@ -89,27 +106,96 @@ export function SettingsManagement({ keyPrefix }: SettingsManagementProps = {}) 
         </Surface>
       ) : null}
 
-      {groups.map(([group, items]) => (
-        <Surface key={group} className="overflow-hidden">
-          <div className="border-b border-subtle px-5 py-4">
-            <h2 className="font-semibold">{group}</h2>
-          </div>
-          <div className="divide-y divide-subtle">
-            {items.map((item) => (
-              <SettingRow
-                key={item.key}
-                item={item}
-                pending={pending}
-                mutationError={mutationErrorFor(item.key, mutations.update, mutations.reset)}
-                onSave={save}
-                onReset={reset}
-              />
-            ))}
-          </div>
-        </Surface>
-      ))}
+      {sections.length === 0 ? (
+        <p className="py-10 text-center text-sm text-secondary">没有可显示的设置项</p>
+      ) : (
+        <div className="space-y-6">
+          {sections.map((section) => (
+            <SectionPanel
+              key={section.id}
+              section={section}
+              groups={groups}
+              pending={pending}
+              mutations={mutations}
+              onSave={save}
+              onReset={reset}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
+}
+
+function SectionPanel({
+  section,
+  groups,
+  pending,
+  mutations,
+  onSave,
+  onReset,
+}: {
+  section: SettingSection;
+  groups: [string, SettingItem[]][];
+  pending: boolean;
+  mutations: ReturnType<typeof useSettingMutations>;
+  onSave: (item: SettingItem, value: SettingValue) => Promise<void>;
+  onReset: (item: SettingItem) => Promise<void>;
+}) {
+  const subsections = section.webGroups
+    .map((name) => {
+      const items = groups.find(([group]) => group === name)?.[1] ?? [];
+      return [name, items] as const;
+    })
+    .filter(([, items]) => items.length > 0);
+
+  for (const [name, items] of groups) {
+    if (section.webGroups.includes(name)) {
+      continue;
+    }
+    if (section.id === `other:${name}`) {
+      subsections.push([name, items]);
+    }
+  }
+
+  return (
+    <section aria-labelledby={`settings-section-${cssId(section.id)}`}>
+      <header className="mb-2">
+        <h2
+          id={`settings-section-${cssId(section.id)}`}
+          className="text-[15px] font-semibold tracking-tight"
+        >
+          {section.label}
+        </h2>
+      </header>
+
+      <div className="space-y-5">
+        {subsections.map(([group, items]) => (
+          <div key={group}>
+            {subsections.length > 1 ? (
+              <h3 className="mb-1 text-[12px] font-medium text-secondary">{group}</h3>
+            ) : null}
+            <div>
+              {items.map((item) => (
+                <SettingRow
+                  key={item.key}
+                  item={item}
+                  pending={pending}
+                  mutationError={mutationErrorFor(item.key, mutations.update, mutations.reset)}
+                  onSave={onSave}
+                  onReset={onReset}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function cssId(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-");
 }
 
 function mutationErrorFor(

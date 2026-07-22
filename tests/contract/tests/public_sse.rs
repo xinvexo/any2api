@@ -236,7 +236,7 @@ async fn stream_precommit_duration_is_applied_from_published_settings() {
         remote,
         revision,
         "stream.precommit.max_duration",
-        json!(10),
+        json!(1),
     )
     .await;
 
@@ -360,7 +360,7 @@ async fn stream_postcommit_idle_timeout_ends_a_silent_connection() {
         remote,
         revision,
         "stream.postcommit.idle_timeout",
-        json!(10),
+        json!(1),
     )
     .await;
 
@@ -382,7 +382,7 @@ async fn stream_postcommit_idle_timeout_ends_a_silent_connection() {
         .into_data()
         .expect("first data");
     assert!(String::from_utf8_lossy(&first).contains("gpt-upstream"));
-    let result = timeout(Duration::from_secs(1), body.collect())
+    let result = timeout(Duration::from_secs(2), body.collect())
         .await
         .expect("idle body timeout");
     assert!(result.is_err(), "silent post-commit stream must fail");
@@ -580,7 +580,7 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
         remote,
         revision,
         "affinity.soft.prefer_wait_timeout",
-        json!(20),
+        json!(1),
     )
     .await;
 
@@ -687,7 +687,7 @@ async fn strict_soft_affinity_never_switches_credentials() {
         remote,
         revision,
         "affinity.fixed_wait_timeout",
-        json!(20),
+        json!(1),
     )
     .await;
 
@@ -1006,7 +1006,7 @@ async fn request(
         builder = builder.header(*name, value);
     }
     timeout(
-        Duration::from_secs(2),
+        Duration::from_secs(3),
         app.oneshot(
             builder
                 .body(Body::from(

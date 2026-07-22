@@ -103,14 +103,16 @@ test("refetches the revision after a write conflict without discarding the edito
     return jsonResponse(configuration(getCount === 1 ? 1 : 2, [direct]));
   });
 
-  renderManagement(["/proxies?editor=new"]);
+  const { client } = renderManagement(["/proxies?editor=new"]);
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "保留的草稿" } });
   fireEvent.change(screen.getByLabelText("主机"), { target: { value: "proxy.example.com" } });
   fireEvent.change(screen.getByLabelText("端口"), { target: { value: "8080" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-  expect(await screen.findByText("2")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(client.getQueryData(proxyQueryKeys.list())).toMatchObject({ configRevision: 2 });
+  });
   expect(screen.getByDisplayValue("保留的草稿")).toBeInTheDocument();
   expect(getCount).toBeGreaterThan(1);
 });

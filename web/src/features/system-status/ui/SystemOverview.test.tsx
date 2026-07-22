@@ -12,7 +12,7 @@ function Wrapper({ children }: PropsWithChildren) {
 
 afterEach(() => vi.restoreAllMocks());
 
-test("renders the live configuration revision", async () => {
+test("renders live system status metrics", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     new Response(
       JSON.stringify({ status: "ok", config_revision: 7, scheduler_epoch: 2, shutdown_phase: "running", active_requests: 1, background_tasks: 2 }),
@@ -22,7 +22,7 @@ test("renders the live configuration revision", async () => {
 
   render(<SystemOverview />, { wrapper: Wrapper });
 
-  expect(await screen.findByText("7")).toBeInTheDocument();
+  expect(await screen.findByText("2")).toBeInTheDocument();
   expect(screen.getByText("运行正常")).toBeInTheDocument();
   expect(screen.getByText("运行中")).toBeInTheDocument();
   expect(screen.getByText("1 / 2")).toBeInTheDocument();

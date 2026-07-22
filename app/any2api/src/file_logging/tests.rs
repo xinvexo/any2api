@@ -29,7 +29,7 @@ fn tracing_events_are_written_as_json_lines() {
     let directory = tempdir().expect("temporary directory");
     let policy = std::sync::Arc::new(RwLock::new(FileLogPolicy {
         revision: ConfigRevision::INITIAL,
-        retention_ms: 86_400_000,
+        retention_secs: 86_400,
         max_total_size: 1024 * 1024,
     }));
     let writer =

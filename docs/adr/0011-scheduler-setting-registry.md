@@ -12,7 +12,7 @@
 
 - `SettingDefinition` 是设置元数据的唯一来源，包含 key、值类型、编译默认值、范围或枚举值、应用模式、Web 分组和描述。
 - SQLite `setting_overrides` 只保存用户覆盖值；生效值等于覆盖值或编译默认值。显式覆盖等于默认值仍保留，恢复默认通过删除覆盖记录完成。
-- Duration 的 SQLite 与管理 HTTP 表示统一为整数毫秒。未知 key、损坏 JSON、类型错误和越界持久化值均使配置加载 Fail-Closed。
+- Duration 的 SQLite 与管理 HTTP 表示统一为整数秒。未知 key、损坏 JSON、类型错误和越界持久化值均使配置加载 Fail-Closed。
 - 首批注册六项：
   - `scheduler.on_saturated`
   - `scheduler.queue_timeout`

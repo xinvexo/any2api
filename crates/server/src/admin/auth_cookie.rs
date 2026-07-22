@@ -29,9 +29,9 @@ pub(super) fn read(headers: &HeaderMap) -> Result<Option<&str>, AdminApiError> {
 pub(super) fn issue(
     token: &str,
     secure: bool,
-    absolute_timeout_ms: u64,
+    absolute_timeout_secs: u64,
 ) -> Result<HeaderValue, AdminApiError> {
-    let max_age = absolute_timeout_ms.div_ceil(1_000);
+    let max_age = absolute_timeout_secs;
     let secure = if secure { "; Secure" } else { "" };
     HeaderValue::from_str(&format!(
         "{ADMIN_COOKIE_NAME}={token}; Path=/api/admin; HttpOnly; SameSite=Strict; Max-Age={max_age}{secure}"

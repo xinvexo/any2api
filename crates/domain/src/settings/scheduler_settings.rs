@@ -6,7 +6,7 @@ use super::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SchedulerSettings {
     on_saturated: SaturationMode,
-    queue_timeout_ms: u64,
+    queue_timeout_secs: u64,
     max_waiting_requests: u64,
     fallback_on_saturation: bool,
     auxiliary_global_concurrency: u64,
@@ -24,7 +24,7 @@ impl SchedulerSettings {
         };
         Ok(Self {
             on_saturated,
-            queue_timeout_ms: integer(value(SettingKey::SchedulerQueueTimeout))?,
+            queue_timeout_secs: integer(value(SettingKey::SchedulerQueueTimeout))?,
             max_waiting_requests: integer(value(SettingKey::SchedulerMaxWaitingRequests))?,
             fallback_on_saturation: match value(SettingKey::SchedulerFallbackOnSaturation) {
                 SettingValue::Boolean(value) => value,
@@ -43,8 +43,8 @@ impl SchedulerSettings {
         self.on_saturated
     }
 
-    pub const fn queue_timeout_ms(&self) -> u64 {
-        self.queue_timeout_ms
+    pub const fn queue_timeout_secs(&self) -> u64 {
+        self.queue_timeout_secs
     }
 
     pub const fn max_waiting_requests(&self) -> u64 {

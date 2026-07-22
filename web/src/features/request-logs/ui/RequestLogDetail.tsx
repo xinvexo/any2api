@@ -101,7 +101,6 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="操作" value={request.operation} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
-          <Detail label="配置版本" value={String(request.configRevision)} />
           <Detail label="错误分类" value={request.errorClass ?? "无"} />
           <Detail label="Credential" value={shortId(request.credentialId)} />
           <Detail label="代理" value={shortId(request.proxyProfileId)} />

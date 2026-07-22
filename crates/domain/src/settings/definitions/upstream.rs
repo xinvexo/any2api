@@ -1,15 +1,15 @@
 use crate::settings::{
     SettingDefinition, SettingKey, SettingValue,
-    definition::{MAX_SETTING_DURATION_MS, definition as base_definition, duration_definition},
+    definition::{MAX_SETTING_DURATION_SECS, definition as base_definition, duration_definition},
 };
 
 pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::UpstreamReadTimeout => duration_definition(
             key,
-            15_000,
+            15,
             1,
-            MAX_SETTING_DURATION_MS,
+            MAX_SETTING_DURATION_SECS,
             "上游网络",
             "等待上游响应头或 buffered body 下一个 chunk 的最长空闲时间。",
         ),

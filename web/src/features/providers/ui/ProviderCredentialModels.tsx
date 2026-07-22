@@ -74,9 +74,7 @@ export function ProviderCredentialModels({
   }
 
   const discovering = pending && result === undefined;
-  const catalogError = result && !result.catalogValid
-    ? "上游返回了无法识别的模型目录，请重新拉取。"
-    : null;
+  const status = result ? describeResult(result) : null;
 
   return (
     <div className="space-y-5">
@@ -89,6 +87,15 @@ export function ProviderCredentialModels({
           <RefreshCw size={15} className="animate-spin" />
           正在读取上游模型
         </div>
+      ) : null}
+
+      {status ? (
+        <p
+          className={status.tone === "danger" ? "text-sm text-danger" : "text-sm text-warning"}
+          role={status.tone === "danger" ? "alert" : "status"}
+        >
+          {status.message}
+        </p>
       ) : null}
 
       {result && result.accepted && result.catalogValid ? (
@@ -125,28 +132,40 @@ export function ProviderCredentialModels({
           </div>
           <div className="max-h-[min(52vh,28rem)] overflow-y-auto rounded-[8px] border border-subtle">
             {models.length === 0 ? (
-              <p className="p-6 text-center text-sm text-secondary">没有匹配的模型</p>
+              <p className="p-6 text-center text-sm text-secondary">
+                {query.trim() ? "没有匹配的模型" : "上游没有返回可用模型"}
+              </p>
             ) : (
               <div className="divide-y divide-subtle">
-                {models.map((model) => (
-                  <label key={model} className="flex cursor-pointer items-center gap-3 px-3 py-3 text-sm hover:bg-surface-hover">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-accent"
-                      checked={selected.has(model)}
-                      disabled={pending}
-                      onChange={() => toggle(model)}
-                    />
-                    <span className="min-w-0 break-all font-mono text-[12px]">{model}</span>
-                  </label>
-                ))}
+                {models.map((model) => {
+                  const saved = credential.models.includes(model);
+                  const returned = discovered.includes(model);
+                  return (
+                    <label
+                      key={model}
+                      className="flex cursor-pointer items-center gap-3 px-3 py-3 text-sm hover:bg-surface-hover"
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-4 accent-accent"
+                        aria-label={model}
+                        checked={selected.has(model)}
+                        disabled={pending}
+                        onChange={() => toggle(model)}
+                      />
+                      <span className="min-w-0 break-all font-mono text-[12px]">{model}</span>
+                      {saved && !returned ? (
+                        <span className="ml-auto shrink-0 text-[11px] text-warning">已保存</span>
+                      ) : null}
+                    </label>
+                  );
+                })}
               </div>
             )}
           </div>
         </>
       ) : null}
 
-      {catalogError ? <p className="text-sm text-danger" role="alert">{catalogError}</p> : null}
       {error ? <FormError>{getProviderErrorMessage(error)}</FormError> : null}
 
       <div className="flex flex-col-reverse gap-2 border-t border-subtle pt-4 sm:flex-row sm:justify-end">
@@ -169,4 +188,66 @@ export function ProviderCredentialModels({
       </div>
     </div>
   );
+}
+
+function describeResult(result: ProviderCredentialTestResult) {
+  if (!result.reachable) {
+    const scope = describeFailureScope(result.failureScope);
+    const stage = describeFailureStage(result.errorStage);
+    return {
+      tone: "danger" as const,
+      message: `无法通过${scope}连接上游${stage ? `（${stage}失败）` : ""}。`,
+    };
+  }
+  if (!result.accepted) {
+    return {
+      tone: "danger" as const,
+      message: `上游拒绝了这把 API Key${result.statusCode ? `（HTTP ${result.statusCode}）` : ""}。`,
+    };
+  }
+  if (!result.catalogValid) {
+    return {
+      tone: "danger" as const,
+      message: "上游返回的模型目录无法识别，请重新拉取。",
+    };
+  }
+  if (result.models.length === 0) {
+    return {
+      tone: "warning" as const,
+      message: "上游返回了空模型列表。",
+    };
+  }
+  return null;
+}
+
+function describeFailureScope(scope: string | null) {
+  switch (scope) {
+    case "endpoint":
+      return "上游地址";
+    case "proxy":
+      return "代理";
+    default:
+      return "网络链路";
+  }
+}
+
+function describeFailureStage(stage: string | null) {
+  switch (stage) {
+    case "dns":
+      return "解析";
+    case "tcp":
+      return "连接";
+    case "proxy_handshake":
+      return "代理握手";
+    case "tls":
+      return "TLS";
+    case "write_request":
+      return "发送请求";
+    case "await_headers":
+      return "等待响应";
+    case "read_body":
+      return "读取响应";
+    default:
+      return null;
+  }
 }

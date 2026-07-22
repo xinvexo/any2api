@@ -85,7 +85,7 @@ impl FileLogLevel {
 pub enum SettingValue {
     Boolean(bool),
     Integer(u64),
-    DurationMs(u64),
+    DurationSecs(u64),
     Saturation(SaturationMode),
     AffinityMode(AffinityMode),
     FileLogLevel(FileLogLevel),
@@ -103,9 +103,9 @@ impl SettingValue {
                 .as_u64()
                 .map(Self::Integer)
                 .ok_or(SettingsValidationError::InvalidType),
-            SettingValueType::DurationMs => value
+            SettingValueType::DurationSecs => value
                 .as_u64()
-                .map(Self::DurationMs)
+                .map(Self::DurationSecs)
                 .ok_or(SettingsValidationError::InvalidType),
             SettingValueType::Enum => {
                 let value = value.as_str().ok_or(SettingsValidationError::InvalidType)?;
@@ -123,7 +123,7 @@ impl SettingValue {
     pub fn to_json(self) -> Value {
         match self {
             Self::Boolean(value) => json!(value),
-            Self::Integer(value) | Self::DurationMs(value) => json!(value),
+            Self::Integer(value) | Self::DurationSecs(value) => json!(value),
             Self::Saturation(value) => json!(value.as_str()),
             Self::AffinityMode(value) => json!(value.as_str()),
             Self::FileLogLevel(value) => json!(value.as_str()),
@@ -134,7 +134,7 @@ impl SettingValue {
         match self {
             Self::Boolean(_) => SettingValueType::Boolean,
             Self::Integer(_) => SettingValueType::Integer,
-            Self::DurationMs(_) => SettingValueType::DurationMs,
+            Self::DurationSecs(_) => SettingValueType::DurationSecs,
             Self::Saturation(_) | Self::AffinityMode(_) | Self::FileLogLevel(_) => {
                 SettingValueType::Enum
             }
@@ -198,7 +198,7 @@ pub(super) fn boolean(value: SettingValue) -> Result<bool, SettingsValidationErr
 
 pub(super) fn integer(value: SettingValue) -> Result<u64, SettingsValidationError> {
     match value {
-        SettingValue::Integer(value) | SettingValue::DurationMs(value) => Ok(value),
+        SettingValue::Integer(value) | SettingValue::DurationSecs(value) => Ok(value),
         _ => Err(SettingsValidationError::InvalidType),
     }
 }
@@ -216,7 +216,7 @@ fn parse_enum(key: SettingKey, value: &str) -> Option<SettingValue> {
 
 fn numeric(value: SettingValue) -> Option<u64> {
     match value {
-        SettingValue::Integer(value) | SettingValue::DurationMs(value) => Some(value),
+        SettingValue::Integer(value) | SettingValue::DurationSecs(value) => Some(value),
         _ => None,
     }
 }

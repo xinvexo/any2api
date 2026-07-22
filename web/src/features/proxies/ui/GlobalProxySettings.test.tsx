@@ -57,11 +57,11 @@ test("shows global proxy inheritance copy and applies a new global exit", async 
   expect(await screen.findByText("全局代理")).toBeInTheDocument();
   expect(screen.getByText(/Credential 绑定 DIRECT 时会继承此出口/)).toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("选择全局出口"), { target: { value: custom.id } });
+  fireEvent.change(screen.getByLabelText(/当前出口/), { target: { value: custom.id } });
   fireEvent.click(screen.getByRole("button", { name: "应用" }));
 
   await waitFor(() => {
-    expect(screen.getByText("Hong Kong")).toBeInTheDocument();
+    expect(screen.getByLabelText(/当前出口 · Hong Kong/)).toBeInTheDocument();
   });
   expect(fetchMock.mock.calls.some(([, init]) => init?.method)).toBe(true);
 });

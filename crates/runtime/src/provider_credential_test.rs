@@ -84,9 +84,7 @@ impl ProviderCredentialTestService {
             body: Bytes::new(),
             network_policy: EndpointNetworkPolicy::new(endpoint.allow_private_network())
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
-            read_timeout: std::time::Duration::from_millis(
-                snapshot.settings().upstream().read_timeout_ms(),
-            ),
+            read_timeout: Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
         };
         let captured = CapturedTestConfiguration {
             config_revision: snapshot.revision(),
@@ -104,7 +102,7 @@ impl ProviderCredentialTestService {
             Ok(response) if response.status.is_success() => {
                 let status_code = response.status.as_u16();
                 let read_timeout =
-                    Duration::from_millis(snapshot.settings().upstream().read_timeout_ms());
+                    Duration::from_secs(snapshot.settings().upstream().read_timeout_secs());
                 match collect_model_catalog(
                     response.body,
                     read_timeout,

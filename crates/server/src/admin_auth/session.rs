@@ -43,10 +43,9 @@ impl SessionRecord {
     }
 
     fn is_expired(&self, now: Instant, settings: &AdminSettings) -> bool {
-        now.duration_since(self.created_at).as_millis()
-            >= u128::from(settings.session_absolute_timeout_ms())
-            || now.duration_since(self.last_seen_at).as_millis()
-                >= u128::from(settings.session_idle_timeout_ms())
+        now.duration_since(self.created_at).as_secs() >= settings.session_absolute_timeout_secs()
+            || now.duration_since(self.last_seen_at).as_secs()
+                >= settings.session_idle_timeout_secs()
     }
 }
 

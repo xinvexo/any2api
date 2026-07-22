@@ -6,16 +6,28 @@ import { SettingsManagement } from "./SettingsManagement";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("shows default, override, effective values and accessible controls", async () => {
+test("shows merged sections and compact controls without override badges", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(configuration(1)));
 
   renderManagement();
 
-  expect(await screen.findByRole("heading", { name: "排队策略" })).toBeInTheDocument();
+  // Mock data only contains scheduler web groups → single merged section, no category chrome.
+  expect(await screen.findByRole("heading", { name: "调度" })).toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "设置分类" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "排队策略" })).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "满载行为" })).toHaveValue("reject");
-  expect(screen.getAllByText("默认").length).toBeGreaterThan(0);
-  expect(screen.getByText("已覆盖")).toBeInTheDocument();
-  expect(screen.getAllByText("30000 ms")).toHaveLength(2);
+
+  const timeout = screen.getByRole("textbox", { name: "排队超时" });
+  expect(timeout).toHaveValue("30");
+  expect(timeout).toHaveAttribute("placeholder", "30");
+
+  expect(screen.queryByText("已覆盖")).not.toBeInTheDocument();
+  expect(screen.queryByText("未覆盖")).not.toBeInTheDocument();
+  expect(screen.queryByText("默认")).not.toBeInTheDocument();
+  expect(screen.queryByText("生效")).not.toBeInTheDocument();
+  expect(screen.queryByText("覆盖")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "恢复排队超时默认值" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "恢复满载行为默认值" })).toBeInTheDocument();
 });
 
 test("saves and restores a setting using the visible revision", async () => {
@@ -23,7 +35,7 @@ test("saves and restores a setting using the visible revision", async () => {
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = String(input);
     if (init?.method === "PATCH") {
-      current = configuration(2, 5000);
+      current = configuration(2, 5);
     } else if (init?.method === "DELETE") {
       current = configuration(3);
     }
@@ -32,20 +44,21 @@ test("saves and restores a setting using the visible revision", async () => {
 
   renderManagement();
   const input = await screen.findByRole("textbox", { name: "排队超时" });
-  fireEvent.change(input, { target: { value: "5000" } });
+  fireEvent.change(input, { target: { value: "5" } });
   fireEvent.click(screen.getByRole("button", { name: "保存排队超时" }));
 
-  expect((await screen.findAllByText("5000 ms")).length).toBe(2);
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("5"));
   const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
   expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
     expected_revision: 1,
-    value: 5000,
+    value: 5,
   });
 
   fireEvent.click(screen.getByRole("button", { name: "恢复排队超时默认值" }));
   await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(true));
   const remove = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
   expect(String(remove?.[0])).toContain("expected_revision=2");
+  await waitFor(() => expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("30"));
 });
 
 test("keeps a draft after a revision conflict and retries with the refreshed revision", async () => {
@@ -61,7 +74,7 @@ test("keeps a draft after a revision conflict and retries with the refreshed rev
           headers: { "Content-Type": "application/json" },
         });
       }
-      return jsonResponse(configuration(3, 5000));
+      return jsonResponse(configuration(3, 5));
     }
     getCount += 1;
     return jsonResponse(configuration(getCount === 1 ? 1 : 2));
@@ -69,11 +82,11 @@ test("keeps a draft after a revision conflict and retries with the refreshed rev
 
   renderManagement();
   const input = await screen.findByRole("textbox", { name: "排队超时" });
-  fireEvent.change(input, { target: { value: "5000" } });
+  fireEvent.change(input, { target: { value: "5" } });
   fireEvent.click(screen.getByRole("button", { name: "保存排队超时" }));
 
   expect(await screen.findByText("configuration changed")).toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("5000");
+  expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("5");
   fireEvent.click(screen.getByRole("button", { name: "保存排队超时" }));
 
   await waitFor(() => expect(revisions).toEqual([1, 2]));
@@ -87,8 +100,9 @@ test("can render only the affinity setting group", async () => {
 
   expect(await screen.findByRole("heading", { name: "软会话粘性" })).toBeInTheDocument();
   expect(screen.getByRole("combobox", { name: "软粘性模式" })).toHaveValue("prefer");
-  expect(screen.getByRole("textbox", { name: "硬绑定 TTL" })).toHaveValue("86400000");
+  expect(screen.getByRole("textbox", { name: "硬绑定 TTL" })).toHaveValue("86400");
   expect(screen.queryByRole("heading", { name: "排队策略" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "设置分类" })).not.toBeInTheDocument();
 });
 
 function renderManagement(keyPrefix?: string) {
@@ -117,43 +131,23 @@ function affinityConfiguration() {
       ),
       affinitySetting(
         "affinity.soft.ttl",
-        "duration_ms",
-        3_600_000,
+        "duration_secs",
+        3600,
         null,
         null,
         "软会话粘性",
-        1_000,
+        1,
         604_800_000,
       ),
       affinitySetting(
         "affinity.hard.ttl",
-        "duration_ms",
-        86_400_000,
+        "duration_secs",
+        86_400,
         null,
         null,
         "硬会话粘性",
-        1_000,
-        604_800_000,
-      ),
-      affinitySetting(
-        "affinity.soft.prefer_wait_timeout",
-        "duration_ms",
-        2_000,
-        null,
-        null,
-        "软会话粘性",
         1,
-        86_400_000,
-      ),
-      affinitySetting(
-        "affinity.fixed_wait_timeout",
-        "duration_ms",
-        30_000,
-        null,
-        null,
-        "固定会话等待",
-        1,
-        86_400_000,
+        2592000,
       ),
     ],
   };
@@ -189,14 +183,14 @@ function configuration(revision: number, timeoutOverride: number | null = null) 
     config_revision: revision,
     items: [
       setting("scheduler.on_saturated", "enum", "wait", "reject", ["wait", "reject"]),
-      setting("scheduler.queue_timeout", "duration_ms", 30_000, timeoutOverride, null, 1, 86_400_000),
+      setting("scheduler.queue_timeout", "duration_secs", 30, timeoutOverride, null, 1, 86_400),
       setting("scheduler.max_waiting_requests", "integer", 128, null, null, 1, 100_000),
       setting("scheduler.fallback_on_saturation", "boolean", false, null, null),
       setting("scheduler.auxiliary_global_concurrency", "integer", 32, null, null, 1, 10_000),
       setting("scheduler.auxiliary_per_credential_concurrency", "integer", 4, null, null, 1, 10_000),
       setting("retry.max_total_attempts", "integer", 3, null, null, 1, 10),
       setting("retry.jitter_ratio", "integer", 20, null, null, 0, 100),
-      setting("cooldown.rate_limit_fallback", "duration_ms", 60_000, null, null, 1, 86_400_000),
+      setting("cooldown.rate_limit_fallback", "duration_secs", 60, null, null, 1, 86_400),
       setting("breaker.endpoint.failure_threshold", "integer", 3, null, null, 1, 100),
     ],
   };

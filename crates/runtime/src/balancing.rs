@@ -41,7 +41,7 @@ impl BalancingRuntimeSnapshot {
 pub struct BalancingQueueSnapshot {
     waiting: u32,
     max_waiting: u32,
-    timeout_ms: u64,
+    timeout_secs: u64,
     rejects_when_saturated: bool,
     fallback_on_saturation: bool,
 }
@@ -55,8 +55,8 @@ impl BalancingQueueSnapshot {
         self.max_waiting
     }
 
-    pub const fn timeout_ms(self) -> u64 {
-        self.timeout_ms
+    pub const fn timeout_secs(self) -> u64 {
+        self.timeout_secs
     }
 
     pub const fn rejects_when_saturated(self) -> bool {
@@ -203,7 +203,7 @@ pub(crate) fn snapshot(
         queue: BalancingQueueSnapshot {
             waiting: runtime.queue_waiting_count(),
             max_waiting: queue_policy.max_waiting_requests(),
-            timeout_ms: duration_ms(queue_policy.queue_timeout()),
+            timeout_secs: queue_policy.queue_timeout().as_secs(),
             rejects_when_saturated: queue_policy.on_saturated() == SaturationAction::Reject,
             fallback_on_saturation: queue_policy.fallback_on_saturation(),
         },

@@ -49,7 +49,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     let mut headers = response.headers;
     let read_failure_scope = response.read_failure_scope;
     let read_timeout =
-        Duration::from_millis(services.snapshot.settings().upstream().read_timeout_ms());
+        Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs());
     if !status.is_success() {
         let body = match collect_body(response.body, read_timeout, read_failure_scope).await {
             Ok(body) => body,
@@ -86,12 +86,12 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             attempt_recorder,
             status_code: status.as_u16(),
             precommit_budget,
-            postcommit_idle_timeout: Duration::from_millis(
+            postcommit_idle_timeout: Duration::from_secs(
                 services
                     .snapshot
                     .settings()
                     .stream()
-                    .postcommit_idle_timeout_ms(),
+                    .postcommit_idle_timeout_secs(),
             ),
         },
     )

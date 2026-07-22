@@ -17,10 +17,10 @@ impl AffinityPolicy {
         Self {
             soft_enabled: settings.soft_enabled(),
             soft_mode: settings.soft_mode(),
-            soft_ttl: Duration::from_millis(settings.soft_ttl_ms()),
-            hard_ttl: Duration::from_millis(settings.hard_ttl_ms()),
-            soft_prefer_wait_timeout: Duration::from_millis(settings.soft_prefer_wait_timeout_ms()),
-            fixed_wait_timeout: Duration::from_millis(settings.fixed_wait_timeout_ms()),
+            soft_ttl: Duration::from_secs(settings.soft_ttl_secs()),
+            hard_ttl: Duration::from_secs(settings.hard_ttl_secs()),
+            soft_prefer_wait_timeout: Duration::from_secs(settings.soft_prefer_wait_timeout_secs()),
+            fixed_wait_timeout: Duration::from_secs(settings.fixed_wait_timeout_secs()),
         }
     }
 
