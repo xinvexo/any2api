@@ -9,7 +9,7 @@ pub(crate) struct AppSettings {
     pub(crate) database_path: PathBuf,
     pub(crate) master_key_path: PathBuf,
     pub(crate) log_directory: PathBuf,
-    pub(crate) web_root: PathBuf,
+    pub(crate) web_root: Option<PathBuf>,
     pub(crate) admin_password: Option<SecretString>,
     pub(crate) trusted_proxy_cidrs: Vec<IpNet>,
 }
@@ -24,8 +24,8 @@ impl AppSettings {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("data"));
         let web_root = env::var_os("ANY2API_WEB_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("web/dist"));
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from);
         let master_key_path = env::var_os("ANY2API_MASTER_KEY_FILE")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)

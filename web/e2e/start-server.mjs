@@ -1,28 +1,29 @@
 import { spawn } from "node:child_process";
-import { join, resolve } from "node:path";
 
-const repository = resolve(process.env.ANY2API_E2E_REPOSITORY ?? "..");
 const port = process.env.ANY2API_E2E_PORT ?? "33210";
 const dataDirectory = process.env.ANY2API_E2E_DATA_DIR;
 if (!dataDirectory) {
   throw new Error("ANY2API_E2E_DATA_DIR is required");
 }
-const binary = join(
-  repository,
-  "target",
-  "debug",
-  process.platform === "win32" ? "any2api.exe" : "any2api",
+const binary = process.env.ANY2API_E2E_BINARY;
+if (!binary) {
+  throw new Error("ANY2API_E2E_BINARY is required");
+}
+const inheritedEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([name]) => !name.toLowerCase().startsWith("any2api_"),
+  ),
 );
+const environment = {
+  ...inheritedEnvironment,
+  ANY2API_BIND: `127.0.0.1:${port}`,
+  ANY2API_DATA_DIR: dataDirectory,
+  ANY2API_ADMIN_PASSWORD: "any2api-e2e-password",
+  RUST_LOG: "warn",
+};
 const child = spawn(binary, [], {
-  cwd: repository,
-  env: {
-    ...process.env,
-    ANY2API_BIND: `127.0.0.1:${port}`,
-    ANY2API_DATA_DIR: dataDirectory,
-    ANY2API_WEB_DIR: join(repository, "web", "dist"),
-    ANY2API_ADMIN_PASSWORD: "any2api-e2e-password",
-    RUST_LOG: "warn",
-  },
+  cwd: dataDirectory,
+  env: environment,
   stdio: "inherit",
 });
 

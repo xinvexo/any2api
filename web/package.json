@@ -12,8 +12,10 @@
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
-    "test:e2e": "cargo build --locked --manifest-path ../Cargo.toml -p any2api && pnpm build && node e2e/run-playwright.mjs",
-    "build": "tsc -b && vite build"
+    "test:e2e": "pnpm build && pnpm check:embedded && node e2e/run-playwright.mjs",
+    "build": "tsc -b && vite build",
+    "build:embedded": "pnpm build && node scripts/sync-embedded-web.mjs",
+    "check:embedded": "node scripts/sync-embedded-web.mjs --check"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",

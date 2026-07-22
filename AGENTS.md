@@ -108,6 +108,8 @@
 - `E:\clashx` 只用于核对前端技术栈，不得复制其 Tauri 桌面布局、固定侧栏、窗口按钮、vibrancy 或巨型页面/CSS。
 - Web 必须响应式、支持 URL/deep link、自然滚动、文本选择和键盘可访问性；视觉保持现代、克制、偏 macOS，但不得花哨。
 - 样式使用语义 Token 并按职责拆分；重型依赖只在出现真实功能需求时按需引入。
+- `app/any2api/web-assets` 是由 Vite 生成并提交的内嵌产物，禁止手工编辑；前端变更使用 `pnpm build:embedded` 同步，提交前使用 `pnpm check:embedded` 校验。
+- Rust `build.rs` 只能读取已提交的内嵌资源并生成 `OUT_DIR` 清单，禁止调用 Node/pnpm、联网或修改工作树。
 
 ## 10. 安全与持久化
 

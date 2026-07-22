@@ -321,17 +321,30 @@ async fn unknown_public_routes_never_fall_back_to_the_spa() {
     .await;
     let token = created.body["token"].as_str().expect("token").to_owned();
     let response = request_json(
-        app,
+        app.clone(),
         Method::GET,
         "/v1/not-a-route",
         None,
         loopback,
-        &[("x-api-key", token)],
+        &[("x-api-key", token.clone())],
     )
     .await;
     assert_eq!(response.status, StatusCode::NOT_FOUND);
     assert_eq!(response.body["error"]["code"], "public_api_not_found");
     assert!(!response.raw_body.contains("any2api shell"));
+
+    let namespace_root = request_json(
+        app,
+        Method::GET,
+        "/v1/",
+        None,
+        loopback,
+        &[("x-api-key", token)],
+    )
+    .await;
+    assert_eq!(namespace_root.status, StatusCode::NOT_FOUND);
+    assert_eq!(namespace_root.body["error"]["code"], "public_api_not_found");
+    assert!(!namespace_root.raw_body.contains("any2api shell"));
 }
 
 async fn test_app() -> (tempfile::TempDir, Router) {

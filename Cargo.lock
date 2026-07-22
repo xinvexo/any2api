@@ -170,6 +170,7 @@ dependencies = [
  "base64",
  "getrandom 0.4.3",
  "http-body",
+ "http-body-util",
  "ipnet",
  "serde",
  "serde_json",

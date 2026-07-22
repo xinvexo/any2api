@@ -11,7 +11,7 @@ React 单元测试和 Axum 契约测试已经分别覆盖页面状态与 SPA fal
 ## 决策
 
 - 使用 Playwright Chromium 建立统一浏览器 E2E；它属于全站工程基础设施，不绑定单一 feature。
-- 测试启动真实 any2api 二进制，使用独立临时数据目录、固定测试管理员密码、随机可用 loopback 端口和已构建 `web/dist`。测试结束后停止服务并删除临时状态。
+- 测试启动真实 any2api 二进制，使用独立临时数据目录、固定测试管理员密码和随机可用 loopback 端口。ADR-0027 完成后，服务从临时工作目录使用二进制内嵌 React 资源，不设置 `ANY2API_WEB_DIR`；已构建 `web/dist` 只用于和提交的内嵌产物执行一致性校验。测试结束后停止服务并删除临时状态。
 - 每个测试使用新的 BrowserContext，不复用 Cookie；首次访问 deep link 时完成真实管理员登录，并断言登录后仍停留在原目标 URL。
 - 桌面用例覆盖核心管理页面的直接访问与刷新；移动用例使用 390×844，覆盖折叠导航、页面切换和 `scrollWidth <= innerWidth`。
 - 所有用例收集浏览器 `pageerror` 和 error 级 console 事件，测试结束时统一断言为空。

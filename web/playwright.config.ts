@@ -2,7 +2,6 @@ import { defineConfig, devices } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
 const webDirectory = fileURLToPath(new URL(".", import.meta.url));
-const repositoryDirectory = fileURLToPath(new URL("..", import.meta.url));
 const port = Number(process.env.ANY2API_E2E_PORT ?? "33210");
 const baseURL = `http://127.0.0.1:${port}`;
 
@@ -27,7 +26,6 @@ export default defineConfig({
     env: {
       ...process.env,
       ANY2API_E2E_PORT: String(port),
-      ANY2API_E2E_REPOSITORY: repositoryDirectory,
     },
   },
   projects: [

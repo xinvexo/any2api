@@ -20,7 +20,9 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
     let configuration = storage.load_configuration().await.expect("configuration");
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
+    fs::create_dir(web_root.join("assets")).expect("asset directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
+    fs::write(web_root.join("assets/app.js"), "console.log('asset')").expect("web asset");
     let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
@@ -100,14 +102,68 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         .expect("request log deep link response");
     assert_eq!(log_deep_link.status(), 200);
 
-    let missing_api = app
+    let asset = app
+        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/missing")
+                .uri("/assets/app.js")
                 .body(Body::empty())
-                .expect("missing api request"),
+                .expect("asset request"),
         )
         .await
-        .expect("missing api response");
-    assert_eq!(missing_api.status(), 404);
+        .expect("asset response");
+    assert_eq!(asset.status(), 200);
+
+    let missing_asset = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/assets/missing.js")
+                .body(Body::empty())
+                .expect("missing asset request"),
+        )
+        .await
+        .expect("missing asset response");
+    assert_eq!(missing_asset.status(), 404);
+
+    let rejected_write = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/settings")
+                .body(Body::empty())
+                .expect("static write request"),
+        )
+        .await
+        .expect("static write response");
+    assert_eq!(rejected_write.status(), 405);
+
+    for uri in ["/api", "/api/", "/api/missing"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("missing api request"),
+            )
+            .await
+            .expect("missing api response");
+        assert_eq!(response.status(), 404, "unexpected status for {uri}");
+    }
+
+    for uri in ["/v1", "/v1/"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("public api root request"),
+            )
+            .await
+            .expect("public api root response");
+        assert_eq!(response.status(), 401, "unexpected status for {uri}");
+    }
 }

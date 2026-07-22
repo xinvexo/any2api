@@ -3,7 +3,9 @@ use std::sync::Arc;
 use any2api_runtime::api::{
     ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
-use any2api_server::api::{AdminAuthService, AdminNetworkPolicy, AppState, build_router};
+use any2api_server::api::{
+    AdminAuthService, AdminNetworkPolicy, AppState, WebAssets, build_router,
+};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use anyhow::Context;
 use secrecy::ExposeSecret;
@@ -11,8 +13,8 @@ use tokio::net::TcpListener;
 
 use crate::{
     admin_auth_adapter::SqliteAdminCredentialStore, build_public_request_components_with_telemetry,
-    file_logging::FileLogging, logging_reconciler::AppLoggingReconciler, settings::AppSettings,
-    shutdown,
+    embedded_web, file_logging::FileLogging, logging_reconciler::AppLoggingReconciler,
+    settings::AppSettings, shutdown,
 };
 
 pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::ShutdownOutcome> {
@@ -80,6 +82,10 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
         .context("failed to initialize public request adapters")?;
     let public_requests = request_components.service();
     let proxy_tests = request_components.proxy_test_service();
+    let web_assets = settings
+        .web_root
+        .map(WebAssets::external)
+        .unwrap_or_else(embedded_web::assets);
     let app = build_router(
         AppState::new(
             Arc::clone(&snapshots),
@@ -93,7 +99,7 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
             admin_auth,
             AdminNetworkPolicy::new(settings.trusted_proxy_cidrs.clone()),
         ),
-        settings.web_root,
+        web_assets,
     );
     let listener = TcpListener::bind(settings.bind)
         .await

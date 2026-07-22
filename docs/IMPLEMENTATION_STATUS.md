@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E、管理员凭据维护与有界优雅停机切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
-- 最近完成：进程支持 Ctrl-C 与 Unix SIGTERM 有界排空；信号时捕获最新停机设置，强制阶段统一取消 HTTP/后台任务，Argon2 blocking task 被真实追踪，SQLite、文件日志、Tokio Runtime 与实例锁按明确顺序收尾。
+- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E、管理员凭据维护、有界优雅停机与单二进制 Web 资源切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
+- 最近完成：React dist 已作为机器生成资源编译进 Rust 二进制；默认启动不再依赖工作目录或外部 `web/dist`，显式 `ANY2API_WEB_DIR` 继续供开发和测试覆盖。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: record protocol token telemetry`。
-- 本切片主题：有界优雅停机与进程资源生命周期。
+- 上一切片提交主题：`feat: add bounded graceful shutdown`。
+- 本切片主题：内嵌 React 资源与单二进制发布。
 
 ## 已完成
 
@@ -367,6 +367,17 @@
 - 二进制入口改为显式 Tokio Runtime，并在 Runtime 外持有实例锁。完整收尾后确认文件日志根 `Arc` 是最后所有者、释放有界 `WorkerGuard`、关闭 Runtime，最后释放实例锁；任一步失败都在持锁状态进入致命进程退出。
 - App/Runtime/Server 测试覆盖自然 drain、信号时读取最新设置、Draining 拒绝新请求、Forced 静默 Body、Telemetry abort + join、blocking JoinHandle Drop 后继续追踪和最终收尾失败。完整决策见 `docs/adr/0026-bounded-graceful-shutdown.md`。
 
+### 单二进制 Web 资源切片
+
+- `app/any2api/web-assets` 保存由当前 Vite 版本生成的 HTML/JS/CSS 根资源；前端源码仍以 `web/src` 为真相，产物禁止手工编辑。
+- App `build.rs` 只扫描已提交资源、要求存在 `index.html`，并在 `OUT_DIR` 生成排序后的 `include_bytes!` 清单；普通 Rust 构建不需要 Node，也不会修改工作树。
+- Server 新增 `WebAssets`/`EmbeddedWebAsset` 边界。外部目录与内嵌实现共享 `/api`/`/v1`（含尾斜杠）隔离、deep link、缺失 `/assets/*` 404 和非 GET/HEAD 405；内嵌实现额外提供精确 Content-Type、HEAD、哈希资源一年 immutable 缓存与根资源 no-cache。
+- `ANY2API_WEB_DIR` 未设置或为空时固定使用内嵌资源；只有显式路径才切换外部 `ServeDir`，用于 Vite 开发、定向契约和部署诊断。
+- 生成目录按原始字节存储并拒绝符号链接/特殊文件；`build.rs` 只读取已提交资源，不调用 Node 或修改工作树。
+- `pnpm build:embedded` 负责构建并同步产物；`pnpm check:embedded` 只读比较文件清单与字节，Web CI 和 E2E 均在不一致时失败。
+- Playwright 从 Cargo JSON 构建消息取得本轮真实二进制，启动时清除宿主全部 `ANY2API_*` 配置并使用独立临时数据目录；登录、刷新 deep link、桌面核心页面和 390px 移动导航均已通过默认内嵌路径。
+- Release 二进制复制到不含源码和 `web/dist` 的临时目录后，首页、`/settings`、哈希 JS、缓存头、缺失 asset 404、API 根隔离和未知 API 不回落 SPA 均验证通过。完整决策见 `docs/adr/0027-embedded-web-assets.md`。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
@@ -380,14 +391,14 @@
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
 - 负载均衡运行态 API 与 `/balancing` 页面已完成；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
+- 正式运行默认从二进制内嵌 React 资源提供管理面；改变当前工作目录或删除源码树不会影响页面，外部 Web 目录必须通过 `ANY2API_WEB_DIR` 显式选择。
 
 ## 下一步
 
-1. 将 React dist 收敛为正式发布二进制的内嵌资源，保留开发/测试时显式外部 Web 目录入口，落实“单二进制”部署契约。
-2. 补齐 GatewayApiKey `last_used_at` 节流遥测写入与 ProviderCredential 连通性测试/成功后清除 `auth_error` 操作；两者仍不得形成 Gateway Key 到 Provider Credential 的绑定。
-3. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
-4. 补充 Unix 真实子进程 SIGTERM、成功停机后同数据目录立即重启等进程级 CI 契约；它们用于加固现有语义，不引入运行态恢复。
-5. 上述 API Key 首版收尾后，再按独立切片实现可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前主链。
+1. 补齐 GatewayApiKey `last_used_at` 节流遥测写入与 ProviderCredential 连通性测试/成功后清除 `auth_error` 操作；两者仍不得形成 Gateway Key 到 Provider Credential 的绑定。
+2. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
+3. 补充 Unix 真实子进程 SIGTERM、成功停机后同数据目录立即重启等进程级 CI 契约；它们用于加固现有语义，不引入运行态恢复。
+4. 上述 API Key 首版收尾后，再按独立切片实现可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前主链。
 
 ## 验证结果
 
@@ -405,7 +416,8 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm build
+pnpm check:embedded
 pnpm test:e2e
 ```
 
-本切片已通过完整门禁：Rust fmt、clippy、workspace test/doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 31 个 Vitest 文件的 81 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约。Windows release 二进制使用真实 Ctrl-C 连续两次在同一端口和数据目录启动/停机，均以退出码 0 记录 `shutdown complete`，验证实例锁可立即重取。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
+本切片已通过完整门禁：Rust fmt、clippy、workspace test/doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build、内嵌产物一致性检查与 31 个 Vitest 文件的 81 项测试全部通过；`pnpm test:e2e` 在污染宿主 `ANY2API_*` 配置的条件下仍通过 3 项默认内嵌资源 Chromium 契约。复制到空目录的 Windows release 单文件验证了首页、deep link、哈希资源、缓存、缺失 asset 404 和 API/SPA 隔离。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
