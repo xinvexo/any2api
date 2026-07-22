@@ -5,6 +5,11 @@ pub(super) struct PasswordRequest {
     pub(super) password: String,
 }
 
+pub(super) struct PasswordRotationRequest {
+    pub(super) current_password: String,
+    pub(super) new_password: String,
+}
+
 pub(super) struct SetupRequest {
     pub(super) setup_token: String,
     pub(super) password: String,
@@ -23,6 +28,25 @@ impl<'de> Deserialize<'de> for PasswordRequest {
         let wire = Wire::deserialize(deserializer)?;
         Ok(Self {
             password: wire.password,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for PasswordRotationRequest {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            current_password: String,
+            new_password: String,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Ok(Self {
+            current_password: wire.current_password,
+            new_password: wire.new_password,
         })
     }
 }

@@ -44,6 +44,7 @@ pub(super) async fn require_admin_session(
         }
     }
     request.extensions_mut().insert(connection);
+    request.extensions_mut().insert(snapshot);
     request.extensions_mut().insert(session);
     next.run(request).await
 }

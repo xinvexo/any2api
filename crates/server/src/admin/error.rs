@@ -186,6 +186,22 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn current_password_invalid() -> Self {
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "admin_current_password_invalid",
+            "the current administrator password is invalid",
+        )
+    }
+
+    pub(crate) fn password_changed() -> Self {
+        Self::new(
+            StatusCode::CONFLICT,
+            "admin_password_changed",
+            "administrator credentials changed; sign in again and retry",
+        )
+    }
+
     pub(crate) fn session_required() -> Self {
         Self::new(
             StatusCode::UNAUTHORIZED,

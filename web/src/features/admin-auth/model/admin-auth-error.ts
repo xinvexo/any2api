@@ -8,6 +8,12 @@ export function getAdminAuthErrorMessage(error: unknown) {
     if (error.code === "admin_invalid_credentials") {
       return "管理员密码不正确。";
     }
+    if (error.code === "admin_current_password_invalid") {
+      return "当前管理员密码不正确。";
+    }
+    if (error.code === "admin_password_changed") {
+      return "管理员密码已在其他操作中变更，请重新登录后再试。";
+    }
     if (error.code === "admin_login_rate_limited") {
       return "登录失败次数过多，请稍后重试。";
     }

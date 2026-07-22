@@ -25,6 +25,7 @@ use tempfile::tempdir;
 use tower::ServiceExt;
 
 const PASSWORD: &str = "correct horse battery staple";
+const NEW_PASSWORD: &str = "new correct horse battery staple";
 
 #[tokio::test]
 async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contract() {
@@ -187,6 +188,134 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
         .expect("remote csrf")
         .to_owned();
 
+    let missing_csrf = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/password/rotate",
+        Some(json!({
+            "current_password": PASSWORD,
+            "new_password": NEW_PASSWORD
+        })),
+        remote,
+        &[("cookie", &remote_cookie)],
+    )
+    .await;
+    assert_eq!(missing_csrf.status, StatusCode::FORBIDDEN);
+    assert_eq!(missing_csrf.json()["error"]["code"], "admin_csrf_invalid");
+
+    let wrong_current = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/password/rotate",
+        Some(json!({
+            "current_password": "wrong administrator password",
+            "new_password": NEW_PASSWORD
+        })),
+        remote,
+        &[("cookie", &remote_cookie), ("x-csrf-token", &remote_csrf)],
+    )
+    .await;
+    assert_eq!(wrong_current.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        wrong_current.json()["error"]["code"],
+        "admin_current_password_invalid"
+    );
+    let invalid_new = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/password/rotate",
+        Some(json!({
+            "current_password": PASSWORD,
+            "new_password": "short"
+        })),
+        remote,
+        &[("cookie", &remote_cookie), ("x-csrf-token", &remote_csrf)],
+    )
+    .await;
+    assert_eq!(invalid_new.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        invalid_new.json()["error"]["code"],
+        "admin_invalid_password"
+    );
+    let still_authenticated = request(
+        &app,
+        Method::GET,
+        "/api/admin/settings",
+        None,
+        remote,
+        &[("cookie", &remote_cookie)],
+    )
+    .await;
+    assert_eq!(still_authenticated.status, StatusCode::OK);
+
+    let rotated = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/password/rotate",
+        Some(json!({
+            "current_password": PASSWORD,
+            "new_password": NEW_PASSWORD
+        })),
+        remote,
+        &[("cookie", &remote_cookie), ("x-csrf-token", &remote_csrf)],
+    )
+    .await;
+    assert_eq!(rotated.status, StatusCode::OK);
+    let rotated_cookie = rotated
+        .cookie()
+        .split(';')
+        .next()
+        .expect("rotated cookie")
+        .to_owned();
+    let rotated_csrf = rotated.json()["csrf_token"]
+        .as_str()
+        .expect("rotated csrf")
+        .to_owned();
+
+    for stale_cookie in [&cookie_pair, &remote_cookie] {
+        let stale = request(
+            &app,
+            Method::GET,
+            "/api/admin/settings",
+            None,
+            remote,
+            &[("cookie", stale_cookie)],
+        )
+        .await;
+        assert_eq!(stale.status, StatusCode::UNAUTHORIZED);
+    }
+    let current = request(
+        &app,
+        Method::GET,
+        "/api/admin/settings",
+        None,
+        remote,
+        &[("cookie", &rotated_cookie)],
+    )
+    .await;
+    assert_eq!(current.status, StatusCode::OK);
+
+    let old_password = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/login",
+        Some(json!({ "password": PASSWORD })),
+        remote,
+        &[],
+    )
+    .await;
+    assert_eq!(old_password.status, StatusCode::UNAUTHORIZED);
+    let new_password = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/login",
+        Some(json!({ "password": NEW_PASSWORD })),
+        remote,
+        &[],
+    )
+    .await;
+    assert_eq!(new_password.status, StatusCode::OK);
+
     let (restarted, _) = build_test_app(
         Arc::clone(&storage),
         web_root,
@@ -199,12 +328,23 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
         "/api/admin/auth/session",
         None,
         remote,
-        &[("cookie", &remote_cookie)],
+        &[("cookie", &rotated_cookie)],
     )
     .await;
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.json()["initialized"], true);
     assert_eq!(response.json()["authenticated"], false);
+
+    let restarted_login = request(
+        &restarted,
+        Method::POST,
+        "/api/admin/auth/login",
+        Some(json!({ "password": NEW_PASSWORD })),
+        remote,
+        &[],
+    )
+    .await;
+    assert_eq!(restarted_login.status, StatusCode::OK);
 
     let logout = request(
         &app,
@@ -212,7 +352,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
         "/api/admin/auth/logout",
         None,
         remote,
-        &[("cookie", &remote_cookie), ("x-csrf-token", &remote_csrf)],
+        &[("cookie", &rotated_cookie), ("x-csrf-token", &rotated_csrf)],
     )
     .await;
     assert_eq!(logout.status, StatusCode::NO_CONTENT);
@@ -223,7 +363,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
         "/api/admin/settings",
         None,
         remote,
-        &[("cookie", &remote_cookie)],
+        &[("cookie", &rotated_cookie)],
     )
     .await;
     assert_eq!(response.status, StatusCode::UNAUTHORIZED);
@@ -385,6 +525,17 @@ impl AdminCredentialStore for TestAdminStore {
     async fn initialize(&self, password_hash: &str) -> Result<bool, AdminCredentialStoreError> {
         self.storage
             .initialize_admin_credential(password_hash)
+            .await
+            .map_err(|error| Box::new(error) as AdminCredentialStoreError)
+    }
+
+    async fn replace(
+        &self,
+        expected_password_hash: &str,
+        new_password_hash: &str,
+    ) -> Result<bool, AdminCredentialStoreError> {
+        self.storage
+            .replace_admin_credential(expected_password_hash, new_password_hash)
             .await
             .map_err(|error| Box::new(error) as AdminCredentialStoreError)
     }

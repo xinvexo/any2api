@@ -36,4 +36,15 @@ impl AdminCredentialStore for SqliteAdminCredentialStore {
             .await
             .map_err(|error| Box::new(error) as AdminCredentialStoreError)
     }
+
+    async fn replace(
+        &self,
+        expected_password_hash: &str,
+        new_password_hash: &str,
+    ) -> Result<bool, AdminCredentialStoreError> {
+        self.storage
+            .replace_admin_credential(expected_password_hash, new_password_hash)
+            .await
+            .map_err(|error| Box::new(error) as AdminCredentialStoreError)
+    }
 }

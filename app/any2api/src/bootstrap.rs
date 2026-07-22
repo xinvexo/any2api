@@ -11,12 +11,17 @@ use tokio::net::TcpListener;
 
 use crate::{
     admin_auth_adapter::SqliteAdminCredentialStore, build_public_request_components_with_telemetry,
-    file_logging::FileLogging, logging_reconciler::AppLoggingReconciler, settings::AppSettings,
-    shutdown,
+    file_logging::FileLogging, instance_lock::InstanceLock,
+    logging_reconciler::AppLoggingReconciler, settings::AppSettings, shutdown,
 };
 
 pub async fn run() -> anyhow::Result<()> {
     let settings = AppSettings::from_env()?;
+    let data_directory = settings
+        .database_path
+        .parent()
+        .context("database path must have a data directory")?;
+    let _instance_lock = InstanceLock::acquire(data_directory)?;
     let storage = Arc::new(
         SqliteStore::connect_with_master_key(&settings.database_path, &settings.master_key_path)
             .await

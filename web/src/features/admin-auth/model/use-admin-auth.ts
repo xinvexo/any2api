@@ -2,7 +2,13 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { AdminSessionState } from "../api/admin-auth-contracts";
-import { getAdminSession, loginAdmin, logoutAdmin, setupAdmin } from "../api/admin-auth-api";
+import {
+  getAdminSession,
+  loginAdmin,
+  logoutAdmin,
+  rotateAdminPassword,
+  setupAdmin,
+} from "../api/admin-auth-api";
 import {
   ADMIN_SESSION_EXPIRED_EVENT,
   setAdminCsrfToken,
@@ -71,6 +77,11 @@ export function useAdminAuth() {
     },
     login: async (password: string) => {
       await run(async () => applySession(await loginAdmin(password)));
+    },
+    rotatePassword: async (currentPassword: string, newPassword: string) => {
+      await run(async () =>
+        applySession(await rotateAdminPassword(currentPassword, newPassword)),
+      );
     },
     logout: async () => {
       await run(async () => {

@@ -30,4 +30,26 @@ async fn administrator_credential_initializes_once_and_survives_reopen() {
         .expect("reload")
         .expect("stored credential");
     assert_eq!(credential.password_hash(), "$argon2id$first");
+
+    assert!(
+        reopened
+            .replace_admin_credential("$argon2id$first", "$argon2id$rotated")
+            .await
+            .expect("replace")
+    );
+    assert!(
+        !reopened
+            .replace_admin_credential("$argon2id$first", "$argon2id$stale")
+            .await
+            .expect("stale replace")
+    );
+    assert_eq!(
+        reopened
+            .load_admin_credential()
+            .await
+            .expect("load rotated")
+            .expect("rotated credential")
+            .password_hash(),
+        "$argon2id$rotated"
+    );
 }

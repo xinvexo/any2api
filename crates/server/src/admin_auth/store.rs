@@ -28,4 +28,10 @@ pub trait AdminCredentialStore: Send + Sync {
     async fn load(&self) -> Result<Option<StoredAdminPasswordHash>, AdminCredentialStoreError>;
 
     async fn initialize(&self, password_hash: &str) -> Result<bool, AdminCredentialStoreError>;
+
+    async fn replace(
+        &self,
+        expected_password_hash: &str,
+        new_password_hash: &str,
+    ) -> Result<bool, AdminCredentialStoreError>;
 }

@@ -31,6 +31,12 @@ pub trait AdminCredentialRepository: Send + Sync {
     async fn load_admin_credential(&self) -> Result<Option<StoredAdminCredential>, StorageError>;
 
     async fn initialize_admin_credential(&self, password_hash: &str) -> Result<bool, StorageError>;
+
+    async fn replace_admin_credential(
+        &self,
+        expected_password_hash: &str,
+        new_password_hash: &str,
+    ) -> Result<bool, StorageError>;
 }
 
 #[async_trait]
@@ -62,5 +68,22 @@ impl AdminCredentialRepository for SqliteStore {
             Err(sqlx::Error::Database(error)) if error.is_unique_violation() => Ok(false),
             Err(error) => Err(error.into()),
         }
+    }
+
+    async fn replace_admin_credential(
+        &self,
+        expected_password_hash: &str,
+        new_password_hash: &str,
+    ) -> Result<bool, StorageError> {
+        let result = sqlx::query(
+            "UPDATE admin_credentials
+             SET password_hash = ?, updated_at = CURRENT_TIMESTAMP
+             WHERE singleton = 1 AND password_hash = ?",
+        )
+        .bind(new_password_hash)
+        .bind(expected_password_hash)
+        .execute(self.pool())
+        .await?;
+        Ok(result.rows_affected() == 1)
     }
 }

@@ -1943,7 +1943,7 @@ SecretEnvelope
 - `admin.remote_enabled=false` 时，解析后的非 loopback 客户端来源不能访问登录、会话检查或受保护管理 API；loopback 仍可完成 Setup、登录和配置；
 - 直接监听首切片继续使用 HTTP；HTTPS 通过显式可信的 Nginx/Caddy 反代接入。只有 TCP 对端命中 `ANY2API_TRUSTED_PROXY_CIDRS` 时才读取 `X-Forwarded-For` 与 `X-Forwarded-Proto`；可信代理请求缺少、重复或含无效值时 Fail-Closed，客户端来源从 TCP 对端开始按 XFF 右到左剥离连续可信代理，禁止直接相信客户端可控的最左值；未命中可信 CIDR 时完全忽略这些头；
 - 明文远程 HTTP 会话响应必须标记风险状态，React 管理壳在整个已登录会话持续显示密码、Cookie 和未来 OAuth2 JSON 可能被截获的警告；该警告不阻止操作；
-- 内建 Rustls HTTPS listener、在线管理员密码轮换、会话跨重启恢复和通用身份体系不进入本切片。
+- 内建 Rustls HTTPS listener、会话跨重启恢复和通用身份体系不进入本切片；在线管理员密码轮换由后续独立切片定义。
 
 SSRF 最低规则：
 
@@ -1961,6 +1961,30 @@ DNS 信任边界：
 - 管理界面必须提示远端 DNS 会绕过本机的目标 IP 校验；
 - 如果用户启用严格 SSRF 模式，则禁止远端 DNS，必须使用受控本地解析并把连接固定到已验证地址，同时保留正确 Host/SNI。
 - 严格模式已由 `upstream.strict_ssrf` 与 ADR-0019 实现；配置热更新只影响新请求，旧请求继续持有原 PublishedSnapshot 与连接池代际。
+
+### 17.4 管理员密码在线轮换
+
+管理员密码轮换是单管理员认证的维护操作，不进入 `PublishedSnapshot` 或数据面配置 revision。受保护的 `POST /api/admin/auth/password/rotate` 请求必须同时满足有效会话和 CSRF 校验，并提交：
+
+```json
+{
+  "current_password": "...",
+  "new_password": "..."
+}
+```
+
+轮换语义固定为：
+
+- 新密码先按与 Setup 相同的 12–1024 字节边界校验；当前密码使用现有 Argon2id 验证，并受有界密码检查 Permit 限制；
+- 服务端在同一凭据写锁内生成新摘要、使用 `WHERE password_hash = <expected>` 的 SQLite CAS 更新并替换内存摘要；CAS 未更新时拒绝本次轮换，不覆盖未知的新摘要；
+- 数据库更新前完成新摘要和替代会话随机值的生成，避免请求取消或随机源失败留下“数据库已变但内存未变”的状态；轮换操作由独立任务完成，客户端断开不能中断已开始的凭据变更；
+- CAS 成功后立即撤销当前进程中的全部旧会话、清理登录失败窗口，并只为发起本次请求的浏览器签发一组新的 Session Cookie 与 CSRF Token；其他浏览器必须重新登录；
+- 登录在验证摘要到签发会话之间持有摘要读锁，轮换持有写锁，因此旧密码登录不会跨越轮换提交点创建新会话；
+- 当前密码错误返回独立的 `403 admin_current_password_invalid`，不使用受保护请求的 `401 admin_session_required`，前端不得因此清除当前会话；新密码边界错误返回 `400 admin_invalid_password`；
+- 密码明文只存在于当前请求和 Argon2 blocking 任务的短生命周期内，不进入日志、响应、查询缓存、URL 或浏览器存储；
+- `ANY2API_ADMIN_PASSWORD` 仍只在数据库没有摘要时执行首次初始化，不能覆盖在线轮换结果。
+
+数据目录必须由单个 any2api 进程持有实例锁。锁在打开 SQLite 之前取得，在进程退出或优雅停机时释放；获取失败直接启动失败。这样 SQLite CAS 与进程内密码摘要、会话撤销始终属于同一个单节点运行时，不引入跨进程同步协议。
 
 ## 18. 可观测性
 
@@ -2253,6 +2277,13 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；Secre
 - 流式提交状态机和 GuardedBody；
 - 请求日志和可观测性。
 
+### 阶段 4.1：管理员凭据维护
+
+- 数据目录单实例锁；
+- 管理员密码在线轮换；
+- 轮换后的全会话撤销与当前浏览器会话重签发；
+- SQLite 摘要 CAS、取消安全和管理面契约测试。
+
 ### 阶段 5：OAuth2 扩展
 
 - Codex OAuth2；
@@ -2286,6 +2317,9 @@ any2api Instance 1 ── N GatewayApiKey
 GatewayApiKey ──> Instance Access Only
 GatewayApiKey ──X ProviderCredential
 GatewayApiKey ──X User / Tenant / Balance / Billing
+
+Data Directory = One Process Instance Lock
+Admin Password Rotation = SQLite CAS + All Session Revocation + Current Session Reissue
 
 Credential Capacity = max_concurrency
 Load = in_flight / max_concurrency

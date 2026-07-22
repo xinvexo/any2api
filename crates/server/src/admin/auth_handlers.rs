@@ -1,5 +1,6 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
+use any2api_runtime::api::PublishedSnapshot;
 use axum::{
     Json,
     extract::{ConnectInfo, Extension, State, rejection::JsonRejection},
@@ -17,7 +18,7 @@ use crate::{
 
 use super::{
     access, auth_cookie,
-    auth_dto::{AdminSessionResponse, PasswordRequest, SetupRequest},
+    auth_dto::{AdminSessionResponse, PasswordRequest, PasswordRotationRequest, SetupRequest},
     error::AdminApiError,
     no_store,
 };
@@ -106,6 +107,31 @@ pub(super) async fn login(
     session_response(&issue, connection, &snapshot)
 }
 
+pub(super) async fn rotate_password(
+    State(state): State<AppState>,
+    Extension(connection): Extension<AdminConnection>,
+    Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
+    payload: Result<Json<PasswordRotationRequest>, JsonRejection>,
+) -> Result<Response, AdminApiError> {
+    let request = payload
+        .map(|Json(value)| value)
+        .map_err(|_| AdminApiError::invalid_request("request body must be valid JSON"))?;
+    let auth = state
+        .admin_auth_handle()
+        .ok_or_else(AdminApiError::auth_unavailable)?;
+    let issue = tokio::spawn(async move {
+        auth.rotate_password(request.current_password, request.new_password)
+            .await
+    })
+    .await
+    .map_err(|error| {
+        tracing::error!(error = ?error, "administrator password rotation task failed");
+        AdminApiError::internal()
+    })?
+    .map_err(map_auth_error)?;
+    session_response(&issue, connection, &snapshot)
+}
+
 pub(super) async fn logout(
     State(state): State<AppState>,
     Extension(session): Extension<AuthenticatedAdminSession>,
@@ -156,6 +182,8 @@ fn map_auth_error(error: AdminAuthError) -> AdminApiError {
         AdminAuthError::InvalidSetupToken => AdminApiError::invalid_setup_token(),
         AdminAuthError::NotInitialized => AdminApiError::setup_required(),
         AdminAuthError::InvalidCredentials => AdminApiError::invalid_credentials(),
+        AdminAuthError::CurrentPasswordInvalid => AdminApiError::current_password_invalid(),
+        AdminAuthError::CredentialChanged => AdminApiError::password_changed(),
         AdminAuthError::RateLimited { retry_after } => {
             AdminApiError::login_rate_limited(retry_after)
         }

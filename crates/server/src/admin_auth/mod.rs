@@ -1,5 +1,6 @@
 mod network;
 mod password;
+mod rotation;
 mod service;
 mod session;
 mod store;

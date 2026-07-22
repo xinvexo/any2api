@@ -23,3 +23,10 @@ export function loginAdmin(password: string) {
 export function logoutAdmin() {
   return requestJson<void>("/api/admin/auth/logout", { method: "POST" });
 }
+
+export function rotateAdminPassword(currentPassword: string, newPassword: string) {
+  return requestJson<unknown>("/api/admin/auth/password/rotate", {
+    method: "POST",
+    body: { current_password: currentPassword, new_password: newPassword },
+  }).then(parseAdminSessionState);
+}

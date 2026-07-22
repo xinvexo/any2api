@@ -2,6 +2,7 @@ mod adapters;
 mod admin_auth_adapter;
 mod bootstrap;
 mod file_logging;
+mod instance_lock;
 mod logging_reconciler;
 mod settings;
 mod shutdown;

@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、运行态负载均衡观察页以及统一浏览器 E2E 基础设施已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
-- 最近完成：`GET /api/admin/balancing` 与 React `/balancing` 已接入稳定 RuntimeRegistry，展示实时容量、队列、辅助并发、选择/过滤计数和 Credential/Endpoint/Proxy 分层健康；全部运行态只保存在当前进程。Playwright Chromium 已将该页纳入真实服务与 390×844 响应式契约。
+- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、运行态负载均衡观察页、统一浏览器 E2E 基础设施以及管理员凭据维护切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
+- 最近完成：管理员密码在线轮换与数据目录单实例锁已接入；轮换使用 SQLite 摘要 CAS，成功后撤销旧会话并为当前浏览器重签发 Cookie/CSRF，实例锁在打开 SQLite 前取得并随进程释放。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,8 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`test: add real browser e2e`。
-- 本切片主题：负载均衡运行态检查 API、轻量调度计数与现代 Web 页面。
+- 上一切片提交主题：`feat: add balancing runtime inspection`。
+- 本切片主题：管理员密码在线轮换、会话重签发与数据目录单实例锁。
 
 ## 已完成
 
@@ -275,7 +275,7 @@
 - 新增 `admin.remote_enabled`、会话 idle/absolute timeout、登录失败窗口与最大失败次数五项 SettingRegistry 设置；Web 显示默认/覆盖/生效值并支持热更新。
 - `ANY2API_TRUSTED_PROXY_CIDRS` 显式配置可信反代网段；只有命中网段的 TCP 对端才解析唯一且合法的 `X-Forwarded-For` 与 `X-Forwarded-Proto`。来源链从右向左剥离可信代理，缺头、重复头和客户端预置 loopback 欺骗均 Fail-Closed。
 - React 新增首启 Setup、登录、会话恢复、登出、CSRF 自动注入和明文远程 HTTP 持续警告；远程登录前即提示密码传输风险，受保护请求收到 401 响应头时立即关闭管理面并清空 Query/Mutation Cache。
-- 当前切片直接支持远程 HTTP 与外部 TLS 终止；内建 Rustls listener、标准 `Forwarded` 头解析、管理员密码在线轮换和 OAuth2 JSON 上传仍未实现。
+- 当前切片直接支持远程 HTTP 与外部 TLS 终止；内建 Rustls listener、标准 `Forwarded` 头解析和 OAuth2 JSON 上传仍未实现，管理员密码在线轮换已由 ADR-0024 完成。
 
 ### RequestLog 与 Attempt 有界遥测切片
 
@@ -336,6 +336,15 @@
 - 提交后 idle timeout 只返回 Body error 并终止当前流，不重试、不切换 Credential、不生成协议内错误事件，也不再次惩罚已按成功结算的 Endpoint/Proxy 健康；Attempt 记录为 `StreamError + Network + Ambiguous`。
 - Runtime/Transport/HTTP 契约覆盖响应头停滞、连接阶段隔离、buffered body 停滞、成功 SSE 不混用 read timeout、idle timer 启动/重置、缓冲帧优先、Permit 单次释放、健康不受罚和提交后不启动第二条流。
 
+### 管理员凭据维护切片
+
+- 新增受保护的 `POST /api/admin/auth/password/rotate`，使用当前密码、新密码、现有管理员 Session 和 CSRF；当前密码错误返回独立 403，不触发 Web 的全局 401 会话过期处理。
+- 管理员摘要通过 SQLite 单条 CAS 更新，成功后同步替换内存摘要、清空登录失败窗口和全部旧会话，并只为当前浏览器重签发 Cookie/CSRF；`ANY2API_ADMIN_PASSWORD` 仍只负责首次初始化。
+- 登录从摘要验证到会话签发持有读锁，轮换持有写锁，因此旧密码登录不能跨轮换提交点留下有效会话；轮换任务脱离 HTTP 请求取消继续完成。
+- React 设置页新增独立密码表单；密码只保存在组件局部状态，成功或失败后清空，不进入 URL、浏览器存储或 React Query Mutation Cache。
+- 启动在打开 SQLite 前取得 `<data-dir>/any2api.instance.lock` 独占锁，第二个进程直接启动失败；锁随进程退出释放，不引入跨进程状态同步。
+- Storage、Server、HTTP、Web 与 App 测试覆盖摘要 CAS、错误当前密码、旧会话撤销、当前会话重签发、新密码重启生效、CSRF 和实例锁释放。完整决策见 `docs/adr/0024-admin-password-rotation-and-instance-lock.md`。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
@@ -343,6 +352,7 @@
 - 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析、全部地址校验和固定目标连接。
 - 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、request logging 与 file logging 共 47 项 SettingRegistry。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
+- 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - Credential generation 已承载首版 API Key 认证材料及认证/模型健康；OAuth 刷新锁和 OAuth2 执行链路仍未实现。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，但精确首 Token 与 Token Usage 尚未采集。
@@ -351,7 +361,7 @@
 
 ## 下一步
 
-1. 首个正式版本稳定后，再按独立切片实现管理员密码在线轮换、可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前 API Key 首版。
+1. 首个正式版本稳定后，再按独立切片实现可选内建 Rustls 与 Provider 专用 OAuth2 扩展；这些能力不阻塞当前 API Key 首版。
 2. 精确首 Token 与 Token Usage 仍待协议级钩子；在能够按 Codex/Claude 契约可靠提取前继续保持 `NULL`，不猜测未知字段。
 
 ## 验证结果
@@ -372,4 +382,4 @@ pnpm test
 pnpm build
 ```
 
-本切片已通过完整门禁：Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 30 个 Vitest 文件的 77 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约，负载均衡页已进入桌面核心页面、登录后 deep link/刷新与 390×844 移动导航检查，均无水平溢出或浏览器错误。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
+本切片已通过完整门禁：Rust fmt、clippy、workspace test、doc test、release build 与 architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、build 与 31 个 Vitest 文件的 79 项测试全部通过；`pnpm test:e2e` 另通过 3 项真实 Chromium 契约。管理员密码表单已在真实服务的 1440px 与 390×844 页面检查中通过，窄屏无水平溢出且浏览器无 error 日志。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。

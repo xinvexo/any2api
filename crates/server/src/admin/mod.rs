@@ -54,6 +54,10 @@ fn protected_routes() -> Router<AppState> {
     Router::new()
         .route("/auth/logout", post(auth_handlers::logout))
         .route(
+            "/auth/password/rotate",
+            post(auth_handlers::rotate_password),
+        )
+        .route(
             "/affinity",
             get(affinity_handlers::get).delete(affinity_handlers::clear_all),
         )

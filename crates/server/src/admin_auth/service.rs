@@ -13,18 +13,18 @@ use tokio::sync::{Mutex, RwLock, Semaphore};
 use super::{
     AdminCredentialStore, AdminCredentialStoreError, AdminSessionIssue, AuthenticatedAdminSession,
     password::{hash_password, validate_new_password, verify_password},
-    session::{SessionKey, SessionRecord, decode, random_bytes},
+    session::{SessionKey, SessionRecord, decode, prepare as prepare_session, random_bytes},
 };
 
 pub struct AdminAuthService {
-    store: Arc<dyn AdminCredentialStore>,
-    password_hash: RwLock<Option<String>>,
+    pub(super) store: Arc<dyn AdminCredentialStore>,
+    pub(super) password_hash: RwLock<Option<String>>,
     setup_token: RwLock<Option<[u8; 32]>>,
-    setup_lock: Mutex<()>,
-    sessions: Mutex<HashMap<SessionKey, SessionRecord>>,
-    failures: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
-    password_checks: Arc<Semaphore>,
-    setup_checks: Arc<Semaphore>,
+    pub(super) credential_lock: Mutex<()>,
+    pub(super) sessions: Mutex<HashMap<SessionKey, SessionRecord>>,
+    pub(super) failures: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
+    pub(super) password_checks: Arc<Semaphore>,
+    pub(super) setup_checks: Arc<Semaphore>,
 }
 
 const MAX_FAILURE_SOURCES: usize = 1_024;
@@ -38,7 +38,7 @@ impl AdminAuthService {
             store,
             password_hash: RwLock::new(password_hash.map(|value| value.as_str().to_owned())),
             setup_token: RwLock::new(setup_token),
-            setup_lock: Mutex::new(()),
+            credential_lock: Mutex::new(()),
             sessions: Mutex::new(HashMap::new()),
             failures: Mutex::new(HashMap::new()),
             password_checks: Arc::new(Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS)),
@@ -51,7 +51,7 @@ impl AdminAuthService {
     }
 
     pub async fn initialize_if_missing(&self, password: String) -> Result<bool, AdminAuthError> {
-        let _guard = self.setup_lock.lock().await;
+        let _guard = self.credential_lock.lock().await;
         if self.is_initialized().await {
             return Ok(false);
         }
@@ -63,7 +63,7 @@ impl AdminAuthService {
         password: String,
         setup_token: &str,
     ) -> Result<bool, AdminAuthError> {
-        let _guard = self.setup_lock.lock().await;
+        let _guard = self.credential_lock.lock().await;
         if self.is_initialized().await {
             return Ok(false);
         }
@@ -119,10 +119,8 @@ impl AdminAuthService {
         settings: &AdminSettings,
     ) -> Result<AdminSessionIssue, AdminAuthError> {
         self.ensure_login_allowed(source, settings).await?;
-        let password_hash = self
-            .password_hash
-            .read()
-            .await
+        let password_hash_guard = self.password_hash.read().await;
+        let password_hash = password_hash_guard
             .clone()
             .ok_or(AdminAuthError::NotInitialized)?;
         let password_check = Arc::clone(&self.password_checks)
@@ -177,14 +175,12 @@ impl AdminAuthService {
     }
 
     async fn issue_session(&self) -> Result<AdminSessionIssue, AdminAuthError> {
-        let token = random_bytes()?;
-        let csrf = random_bytes()?;
-        let key = SessionKey(token);
+        let (key, csrf, issue) = prepare_session()?;
         self.sessions
             .lock()
             .await
             .insert(key, SessionRecord::new(csrf, Instant::now()));
-        Ok(AdminSessionIssue::new(token, csrf))
+        Ok(issue)
     }
 
     async fn ensure_login_allowed(
@@ -273,6 +269,10 @@ pub enum AdminAuthError {
     NotInitialized,
     #[error("administrator credentials are invalid")]
     InvalidCredentials,
+    #[error("administrator current password is invalid")]
+    CurrentPasswordInvalid,
+    #[error("administrator credential changed concurrently")]
+    CredentialChanged,
     #[error("administrator login is rate limited")]
     RateLimited { retry_after: u64 },
 }

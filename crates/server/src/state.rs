@@ -93,6 +93,11 @@ impl AppState {
     }
 
     #[must_use]
+    pub fn admin_auth_handle(&self) -> Option<Arc<AdminAuthService>> {
+        self.admin_auth.clone()
+    }
+
+    #[must_use]
     pub fn admin_network(&self) -> &AdminNetworkPolicy {
         &self.admin_network
     }

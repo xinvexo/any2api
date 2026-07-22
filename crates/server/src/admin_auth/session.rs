@@ -104,3 +104,10 @@ pub(super) fn decode(value: &str) -> Option<[u8; TOKEN_BYTES]> {
 pub(super) fn encode(value: [u8; TOKEN_BYTES]) -> String {
     URL_SAFE_NO_PAD.encode(value)
 }
+
+pub(super) fn prepare() -> Result<(SessionKey, [u8; TOKEN_BYTES], AdminSessionIssue), AdminAuthError>
+{
+    let token = random_bytes()?;
+    let csrf = random_bytes()?;
+    Ok((SessionKey(token), csrf, AdminSessionIssue::new(token, csrf)))
+}

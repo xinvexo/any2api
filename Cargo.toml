@@ -32,6 +32,7 @@ cargo_metadata = "0.23.1"
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 futures-core = "0.3.32"
 futures-util = "0.3.32"
+fs2 = "0.4.3"
 getrandom = "0.4.3"
 hmac = "0.12.1"
 http = "1.4.2"

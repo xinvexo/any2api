@@ -8,6 +8,7 @@ use any2api_domain::{SettingKey, SettingOverrides, SettingValue, SettingsConfigu
 use async_trait::async_trait;
 use axum::http::{HeaderMap, HeaderValue};
 use ipnet::IpNet;
+use tokio::sync::Barrier;
 
 use super::{
     AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AdminNetworkPolicy,
@@ -62,6 +63,179 @@ async fn password_login_session_csrf_and_logout_are_server_side() {
             .authenticate(issue.token(), settings.admin())
             .await
             .is_none()
+    );
+}
+
+#[tokio::test]
+async fn password_rotation_reissues_one_session_and_revokes_the_rest() {
+    let store = Arc::new(MemoryStore::default());
+    let service = AdminAuthService::load(store).await.expect("auth service");
+    service
+        .initialize_if_missing("correct horse battery staple".to_owned())
+        .await
+        .expect("initialize");
+    let settings = SettingsConfiguration::defaults();
+    let first = service
+        .login(
+            "correct horse battery staple".to_owned(),
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            settings.admin(),
+        )
+        .await
+        .expect("first login");
+    let second = service
+        .login(
+            "correct horse battery staple".to_owned(),
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            settings.admin(),
+        )
+        .await
+        .expect("second login");
+
+    let replacement = service
+        .rotate_password(
+            "correct horse battery staple".to_owned(),
+            "new correct horse battery staple".to_owned(),
+        )
+        .await
+        .expect("rotate");
+    assert!(
+        service
+            .authenticate(replacement.token(), settings.admin())
+            .await
+            .is_some()
+    );
+    assert!(
+        service
+            .authenticate(first.token(), settings.admin())
+            .await
+            .is_none()
+    );
+    assert!(
+        service
+            .authenticate(second.token(), settings.admin())
+            .await
+            .is_none()
+    );
+    assert!(matches!(
+        service
+            .login(
+                "correct horse battery staple".to_owned(),
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                settings.admin(),
+            )
+            .await,
+        Err(super::AdminAuthError::InvalidCredentials)
+    ));
+    assert!(
+        service
+            .login(
+                "new correct horse battery staple".to_owned(),
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                settings.admin(),
+            )
+            .await
+            .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn wrong_rotation_password_preserves_the_existing_session() {
+    let store = Arc::new(MemoryStore::default());
+    let service = AdminAuthService::load(store).await.expect("auth service");
+    service
+        .initialize_if_missing("correct horse battery staple".to_owned())
+        .await
+        .expect("initialize");
+    let settings = SettingsConfiguration::defaults();
+    let existing = service
+        .login(
+            "correct horse battery staple".to_owned(),
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            settings.admin(),
+        )
+        .await
+        .expect("login");
+    assert!(matches!(
+        service
+            .rotate_password("wrong password".to_owned(), "new password value".to_owned())
+            .await,
+        Err(super::AdminAuthError::CurrentPasswordInvalid)
+    ));
+    assert!(
+        service
+            .authenticate(existing.token(), settings.admin())
+            .await
+            .is_some()
+    );
+    assert!(
+        service
+            .login(
+                "correct horse battery staple".to_owned(),
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                settings.admin(),
+            )
+            .await
+            .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn old_password_login_cannot_survive_a_concurrent_rotation() {
+    let service = Arc::new(
+        AdminAuthService::load(Arc::new(MemoryStore::default()))
+            .await
+            .expect("auth service"),
+    );
+    service
+        .initialize_if_missing("correct horse battery staple".to_owned())
+        .await
+        .expect("initialize");
+    let settings = SettingsConfiguration::defaults().admin().clone();
+    let barrier = Arc::new(Barrier::new(2));
+
+    let login_service = Arc::clone(&service);
+    let login_barrier = Arc::clone(&barrier);
+    let login = tokio::spawn(async move {
+        login_barrier.wait().await;
+        login_service
+            .login(
+                "correct horse battery staple".to_owned(),
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                &settings,
+            )
+            .await
+    });
+    let rotation_service = Arc::clone(&service);
+    let rotation = tokio::spawn(async move {
+        barrier.wait().await;
+        rotation_service
+            .rotate_password(
+                "correct horse battery staple".to_owned(),
+                "new correct horse battery staple".to_owned(),
+            )
+            .await
+    });
+
+    let old_login = login.await.expect("login task");
+    let replacement = rotation
+        .await
+        .expect("rotation task")
+        .expect("password rotation");
+    let current_settings = SettingsConfiguration::defaults();
+    if let Ok(issue) = old_login {
+        assert!(
+            service
+                .authenticate(issue.token(), current_settings.admin())
+                .await
+                .is_none()
+        );
+    }
+    assert!(
+        service
+            .authenticate(replacement.token(), current_settings.admin())
+            .await
+            .is_some()
     );
 }
 
@@ -207,6 +381,19 @@ impl AdminCredentialStore for MemoryStore {
             return Ok(false);
         }
         *value = Some(password_hash.to_owned());
+        Ok(true)
+    }
+
+    async fn replace(
+        &self,
+        expected_password_hash: &str,
+        new_password_hash: &str,
+    ) -> Result<bool, AdminCredentialStoreError> {
+        let mut value = self.value.lock().expect("memory store");
+        if value.as_deref() != Some(expected_password_hash) {
+            return Ok(false);
+        }
+        *value = Some(new_password_hash.to_owned());
         Ok(true)
     }
 }
