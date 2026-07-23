@@ -24,15 +24,16 @@ export function AdminAuthGate({ children }: PropsWithChildren) {
   if (!auth.session) {
     return (
       <AuthCanvas>
-        <section className="auth-card w-full max-w-[380px] px-8 py-9 text-center" role="alert">
-          <span className="mx-auto grid size-12 place-items-center rounded-full bg-warning/12 text-warning">
-            <ShieldX size={22} strokeWidth={1.75} aria-hidden="true" />
+        <section className="auth-card auth-panel text-center" role="alert">
+          <div className="auth-panel-glow" aria-hidden="true" />
+          <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-warning/12 text-warning">
+            <ShieldX size={24} strokeWidth={1.75} aria-hidden="true" />
           </span>
-          <h1 className="mt-4 text-[18px] font-semibold tracking-tight">无法访问管理面</h1>
-          <p className="mt-2 text-[13px] leading-5 text-secondary">
+          <h1 className="auth-title mt-5">无法访问管理面</h1>
+          <p className="auth-subtitle mx-auto mt-2">
             {getAdminAuthErrorMessage(auth.error)}
           </p>
-          <Button className="mt-6 min-w-[5.5rem]" variant="secondary" onClick={() => void auth.refresh()}>
+          <Button className="mt-7 min-w-[6rem]" variant="secondary" onClick={() => void auth.refresh()}>
             <RefreshCw size={14} />
             重试
           </Button>

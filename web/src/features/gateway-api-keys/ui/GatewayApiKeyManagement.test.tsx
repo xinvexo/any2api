@@ -122,7 +122,7 @@ test("shows plaintext tokens from the list response", async () => {
   expect(screen.queryByRole("button", { name: /轮换/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /撤销/ })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除 Desktop" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "新增密钥" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "新增" })).toBeInTheDocument();
   expect(screen.getByText("成功: 134")).toBeInTheDocument();
   expect(screen.getByText("失败: 43")).toBeInTheDocument();
   expect(screen.getByText("75.7%")).toBeInTheDocument();

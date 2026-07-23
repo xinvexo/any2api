@@ -164,7 +164,7 @@ export function GatewayApiKeyManagement() {
   const editorOpen = editorId !== null;
   const editorInvalid = editorId !== null && editorId !== "new" && !selected;
   const drawerTitle =
-    editorId === "new" ? "新增网关密钥" : selected ? `编辑「${selected.name}」` : "密钥不存在";
+    editorId === "new" ? "新增" : selected ? `编辑「${selected.name}」` : "密钥不存在";
   const drawerDescription =
     editorId === "new"
       ? "创建后密钥会明文保存在本机配置中，可随时在列表查看。"

@@ -166,7 +166,7 @@ export function ProxyManagement() {
     : invalidEditor
       ? "出口代理不存在"
       : editorId === "new"
-        ? "新增出口代理"
+        ? "新增"
         : "编辑出口代理";
   const drawerDescription = directEditor
     ? "DIRECT 是系统内置出口，始终启用。"

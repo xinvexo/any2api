@@ -48,7 +48,7 @@ export function ProxyList({
         <div className="flex flex-wrap items-center gap-1.5">
           <Button variant="primary" onClick={onCreate} disabled={pending}>
             <Plus size={14} />
-            新增出口代理
+            新增
           </Button>
           <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
             <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />

@@ -14,12 +14,9 @@ interface ProviderKindNavProps {
 export function ProviderKindNav({ selected, counts, onSelect }: ProviderKindNavProps) {
   return (
     <nav aria-label="Provider 类型" className="min-w-0">
-      <p className="mb-2 hidden px-1 text-[11px] font-medium uppercase tracking-wide text-tertiary sm:block">
-        类型
-      </p>
-      <ul className="flex gap-1.5 overflow-x-auto pb-0.5 sm:flex-col sm:gap-0.5 sm:overflow-visible">
+      <ul className="flex gap-2 overflow-x-auto sm:flex-col sm:gap-1.5 sm:overflow-visible">
         {PROVIDER_KIND_OPTIONS.map((option) => (
-          <li key={option.kind} className="shrink-0 sm:shrink">
+          <li key={option.kind} className="shrink-0 sm:shrink sm:w-full">
             <KindButton
               option={option}
               count={counts[option.kind] ?? 0}
@@ -44,27 +41,26 @@ function KindButton({
   active: boolean;
   onSelect: (kind: ProviderKind) => void;
 }) {
+  const Icon = option.icon;
   return (
     <button
       type="button"
       aria-current={active ? "page" : undefined}
       onClick={() => onSelect(option.kind)}
       className={cn(
-        "focus-ring flex w-full items-center gap-2 rounded-[10px] px-2.5 py-2 text-left transition-colors",
+        "focus-ring flex h-11 min-w-[8.5rem] w-full items-center gap-2.5 rounded-[12px] px-3 text-left transition-colors sm:min-w-0",
         active
           ? "bg-surface-muted text-primary"
           : "text-secondary hover:bg-surface-muted/70 hover:text-primary",
       )}
     >
-      <span className="min-w-0 flex-1">
-        <span className="block text-[13px] font-semibold tracking-tight">{option.label}</span>
-        <span className="mt-0.5 hidden text-[11px] text-tertiary sm:block">
-          {option.description}
-        </span>
+      <Icon size={18} className={cn(active ? "text-primary" : "text-secondary")} />
+      <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight">
+        {option.label}
       </span>
       <span
         className={cn(
-          "tabular-nums text-[11px]",
+          "tabular-nums text-[12px]",
           active ? "text-secondary" : "text-tertiary",
         )}
       >

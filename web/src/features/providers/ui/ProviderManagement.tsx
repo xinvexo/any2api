@@ -117,7 +117,7 @@ export function ProviderManagement() {
   }
 
   const drawerTitle =
-    editorId === "new" ? "新增 Endpoint" : "编辑 Endpoint";
+    editorId === "new" ? "新增" : "编辑 Endpoint";
   const kindParam = searchParams.get("kind");
   const selectedKind: ProviderKind = isProviderKind(kindParam) ? kindParam : "codex";
   const drawerDescription = "配置上游地址";

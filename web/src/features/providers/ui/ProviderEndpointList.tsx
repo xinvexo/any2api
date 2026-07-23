@@ -166,39 +166,45 @@ export function ProviderEndpointList({
   const kindName = providerKindLabel(selectedKind);
 
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
-      <div className="sm:w-40 sm:shrink-0 lg:w-44">
+    /*
+     * Desktop grid:
+     *   row1 col2 = right-only toolbar (does not sit above kinds)
+     *   row2 col1 = kinds, row2 col2 = list  → first kind top == first list top
+     * Mobile: stack toolbar → kinds → list.
+     */
+    <div className="grid grid-cols-1 gap-x-5 gap-y-3 sm:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[14rem_minmax(0,1fr)]">
+      <div className="flex flex-col gap-2.5 sm:col-start-2 sm:row-start-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
+            aria-hidden="true"
+          />
+          <input
+            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
+            value={query}
+            placeholder={`搜索 ${kindName} Endpoint`}
+            aria-label={`搜索 ${kindName}`}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button variant="ghost" disabled={refreshing} onClick={onRefresh}>
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
+            刷新
+          </Button>
+          <Button variant="primary" disabled={pending} onClick={() => onCreate(selectedKind)}>
+            <Plus size={14} />
+            新增
+          </Button>
+        </div>
+      </div>
+
+      <div className="sm:col-start-1 sm:row-start-2">
         <ProviderKindNav selected={selectedKind} counts={counts} onSelect={selectKind} />
       </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-col gap-2.5 pb-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative min-w-0 flex-1 sm:max-w-sm">
-            <Search
-              size={14}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
-              aria-hidden="true"
-            />
-            <input
-              className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
-              value={query}
-              placeholder={`搜索 ${kindName} Endpoint`}
-              aria-label={`搜索 ${kindName}`}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <Button variant="ghost" disabled={refreshing} onClick={onRefresh}>
-              <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
-              刷新
-            </Button>
-            <Button variant="primary" disabled={pending} onClick={() => onCreate(selectedKind)}>
-              <Plus size={14} />
-              新增
-            </Button>
-          </div>
-        </div>
-
+      <div className="min-w-0 sm:col-start-2 sm:row-start-2">
         {filtered.length === 0 ? (
           <Surface className="flex min-h-48 flex-col items-center justify-center px-4 py-10 text-center">
             <p className="text-[13px] font-medium">

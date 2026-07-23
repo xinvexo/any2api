@@ -243,7 +243,7 @@ export function ProviderCredentialManagement({
     );
   }
 
-  const drawerTitle = mode === "create" ? "新增 API Key" : "编辑 API Key";
+  const drawerTitle = mode === "create" ? "新增" : "编辑 API Key";
 
   return (
     <div aria-busy={pending || credentials.isFetching || proxies.isFetching}>

@@ -4,28 +4,55 @@ import {
   FileDown,
   LoaderCircle,
   LogIn,
+  RotateCcw,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import type { OAuthProvider } from "../api/oauth-contracts";
 import { getOAuthErrorMessage } from "../model/oauth-error";
+import {
+  isOAuthProvider,
+  oauthProviderLabel,
+  OAUTH_PROVIDER_OPTIONS,
+} from "../model/oauth-provider-catalog";
 import { useOAuthLogin } from "../model/use-oauth-login";
+import { OAuthProviderNav } from "./OAuthProviderNav";
 import { Button } from "@/shared/ui/Button";
 import { Field } from "@/shared/ui/form-field";
-import { controlClass, selectClass } from "@/shared/ui/form-control";
+import { controlClass } from "@/shared/ui/form-control";
 import { Surface } from "@/shared/ui/Surface";
 
 export function OAuthLogin() {
   const login = useOAuthLogin();
-  const [provider, setProvider] = useState<OAuthProvider>("codex");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedProvider = resolveSelectedProvider(searchParams.get("kind"));
   const [callbackUrl, setCallbackUrl] = useState("");
   const callbackReady = callbackUrl.trim().length > 0;
+  const providerName = oauthProviderLabel(selectedProvider);
+  const activeSession =
+    login.session && login.session.provider === selectedProvider ? login.session : null;
 
-  async function start(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function selectProvider(next: OAuthProvider) {
+    if (next === selectedProvider) {
+      return;
+    }
+    setCallbackUrl("");
+    login.reset();
+    setSearchParams(
+      (current) => {
+        const params = new URLSearchParams(current);
+        params.set("kind", next);
+        return params;
+      },
+      { replace: true },
+    );
+  }
+
+  async function startLogin() {
     setCallbackUrl("");
     try {
-      await login.start(provider);
+      await login.start(selectedProvider);
     } catch {
       // The hook exposes the safe user-facing error state.
     }
@@ -44,126 +71,140 @@ export function OAuthLogin() {
     }
   }
 
-  function changeProvider(next: OAuthProvider) {
-    setProvider(next);
+  function restart() {
     setCallbackUrl("");
     login.reset();
   }
 
   return (
-    <section className="space-y-5" aria-labelledby="oauth-heading">
-      <header>
-        <h1 id="oauth-heading" className="text-[17px] font-semibold tracking-tight">
-          OAuth2 Login
-        </h1>
-        <p className="mt-1 text-[12px] leading-5 text-secondary">
-          Generate a one-time Codex or Claude authentication JSON file.
-        </p>
-      </header>
-
-      <Surface className="max-w-3xl p-5 sm:p-6">
-        <form className="space-y-5" onSubmit={(event) => void start(event)}>
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <Field label="Provider" htmlFor="oauth-provider">
-              <select
-                id="oauth-provider"
-                className={selectClass()}
-                value={provider}
-                disabled={login.pending !== null}
-                onChange={(event) => changeProvider(event.target.value as OAuthProvider)}
-              >
-                <option value="codex">Codex</option>
-                <option value="claude">Claude</option>
-              </select>
-            </Field>
-            <Button
-              type="submit"
-              variant="primary"
-              size="lg"
-              disabled={login.pending !== null}
-            >
-              {login.pending === "start" ? (
-                <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
-              ) : (
-                <LogIn size={15} aria-hidden="true" />
-              )}
-              Start login
-            </Button>
-          </div>
-        </form>
-
-        {login.session ? (
-          <div className="mt-6 border-t border-subtle pt-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-[13px] font-medium text-primary">
-                  {login.session.provider === "codex" ? "Codex" : "Claude"} authorization
-                </p>
-                <p className="mt-1 truncate font-mono text-[11px] text-tertiary">
-                  {login.session.redirectUri}
-                </p>
-              </div>
+    /*
+     * Desktop grid:
+     *   row1 col2 = right-only actions (does not sit above kinds)
+     *   row2 col1 = kinds, row2 col2 = panel → first kind top == panel top
+     */
+    <div
+      className="grid grid-cols-1 gap-x-5 gap-y-3 sm:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[14rem_minmax(0,1fr)]"
+      aria-busy={login.pending !== null}
+    >
+      <div className="flex justify-end sm:col-start-2 sm:row-start-1">
+        <div className="flex shrink-0 items-center gap-1.5">
+          {activeSession ? (
+            <>
               <a
-                href={login.session.authorizationUrl}
+                href={activeSession.authorizationUrl}
                 target="_blank"
                 rel="noreferrer"
                 className="focus-ring inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[7px] bg-surface-muted px-3 text-[13px] font-medium text-primary transition-colors hover:bg-surface-hover"
               >
                 <ExternalLink size={14} aria-hidden="true" />
-                Open authorization page
+                打开授权页
               </a>
-            </div>
+              <Button variant="ghost" disabled={login.pending !== null} onClick={restart}>
+                <RotateCcw size={14} aria-hidden="true" />
+                重新开始
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              disabled={login.pending !== null}
+              onClick={() => void startLogin()}
+            >
+              {login.pending === "start" ? (
+                <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+              ) : (
+                <LogIn size={14} aria-hidden="true" />
+              )}
+              OAuth认证
+            </Button>
+          )}
+        </div>
+      </div>
 
-            <form className="mt-5 space-y-4" onSubmit={(event) => void exchange(event)}>
-              <Field
-                label="Callback URL"
-                htmlFor="oauth-callback-url"
-                hint={`Expected redirect: ${login.session.redirectUri}`}
-              >
-                <input
-                  id="oauth-callback-url"
-                  type="url"
-                  inputMode="url"
-                  autoComplete="off"
-                  spellCheck={false}
-                  className={controlClass(false, "font-mono")}
-                  value={callbackUrl}
-                  placeholder={login.session.redirectUri}
-                  disabled={login.pending !== null}
-                  onChange={(event) => setCallbackUrl(event.target.value)}
-                />
-              </Field>
-              <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="lg"
-                  disabled={!callbackReady || login.pending !== null}
-                >
-                  {login.pending === "exchange" ? (
-                    <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
-                  ) : (
-                    <FileDown size={15} aria-hidden="true" />
-                  )}
-                  Download JSON
-                </Button>
+      <div className="sm:col-start-1 sm:row-start-2">
+        <OAuthProviderNav selected={selectedProvider} onSelect={selectProvider} />
+      </div>
+
+      <div className="min-w-0 sm:col-start-2 sm:row-start-2">
+        {activeSession ? (
+          <Surface className="overflow-hidden">
+            <div className="space-y-4 px-3 py-3 sm:px-4 sm:py-4">
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold tracking-tight text-primary">
+                  {providerName} 授权会话
+                </p>
+                <p className="mt-1 truncate font-mono text-[11px] text-secondary">
+                  {activeSession.redirectUri}
+                </p>
               </div>
-            </form>
-          </div>
-        ) : null}
+
+              <form
+                className="space-y-4 border-t border-subtle pt-4"
+                onSubmit={(event) => void exchange(event)}
+              >
+                <Field
+                  label="回调 URL"
+                  htmlFor="oauth-callback-url"
+                  hint={`期望跳转：${activeSession.redirectUri}`}
+                >
+                  <input
+                    id="oauth-callback-url"
+                    type="url"
+                    inputMode="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    className={controlClass(false, "font-mono")}
+                    value={callbackUrl}
+                    placeholder={activeSession.redirectUri}
+                    disabled={login.pending !== null}
+                    onChange={(event) => setCallbackUrl(event.target.value)}
+                  />
+                </Field>
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    disabled={!callbackReady || login.pending !== null}
+                  >
+                    {login.pending === "exchange" ? (
+                      <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <FileDown size={14} aria-hidden="true" />
+                    )}
+                    下载 JSON
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </Surface>
+        ) : (
+          <Surface className="flex min-h-48 flex-col items-center justify-center px-4 py-10 text-center">
+            <p className="text-[13px] font-medium">还没有 {providerName} 登录会话</p>
+            <p className="mt-1 max-w-sm text-[12px] text-secondary">
+              点击「OAuth认证」生成一次性授权链接，完成后粘贴回调 URL 下载认证 JSON。
+            </p>
+          </Surface>
+        )}
 
         {login.error ? (
-          <p className="mt-5 text-[12px] leading-5 text-danger" role="alert">
+          <p className="pt-2 text-sm text-danger" role="alert">
             {getOAuthErrorMessage(login.error)}
           </p>
         ) : null}
         {login.completedFilename ? (
-          <p className="mt-5 flex items-center gap-2 text-[12px] text-success" role="status">
+          <p className="flex items-center gap-2 pt-2 text-[12px] text-success" role="status">
             <CheckCircle2 size={14} aria-hidden="true" />
-            Downloaded {login.completedFilename}
+            已下载 {login.completedFilename}
           </p>
         ) : null}
-      </Surface>
-    </section>
+      </div>
+    </div>
   );
+}
+
+function resolveSelectedProvider(value: string | null): OAuthProvider {
+  if (isOAuthProvider(value)) {
+    return value;
+  }
+  return OAUTH_PROVIDER_OPTIONS[0]?.provider ?? "codex";
 }

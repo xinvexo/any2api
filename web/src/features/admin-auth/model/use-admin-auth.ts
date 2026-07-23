@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import type { AdminSessionState } from "../api/admin-auth-contracts";
@@ -32,20 +32,7 @@ export function useAdminAuth() {
 
   useEffect(() => {
     const handleExpired = () => {
-      const current = queryClient.getQueryData<AdminSessionState>(adminSessionKey);
-      queryClient.removeQueries({
-        predicate: (query) => query.queryKey[0] !== adminSessionKey[0],
-      });
-      queryClient.getMutationCache().clear();
-      setAdminCsrfToken(null);
-      if (current) {
-        queryClient.setQueryData(adminSessionKey, {
-          ...current,
-          authenticated: false,
-          csrfToken: null,
-        });
-      }
-      void queryClient.invalidateQueries({ queryKey: adminSessionKey });
+      clearLocalAdminSession(queryClient);
     };
     window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, handleExpired);
     return () => window.removeEventListener(ADMIN_SESSION_EXPIRED_EVENT, handleExpired);
@@ -85,18 +72,34 @@ export function useAdminAuth() {
     },
     logout: async () => {
       await run(async () => {
-        await logoutAdmin();
-        const current = queryClient.getQueryData<AdminSessionState>(adminSessionKey);
-        queryClient.clear();
-        setAdminCsrfToken(null);
-        if (current) {
-          queryClient.setQueryData(adminSessionKey, {
-            ...current,
-            authenticated: false,
-            csrfToken: null,
-          });
+        try {
+          await logoutAdmin();
+        } catch {
+          // Network/CSRF failures must not leave the console open; drop local session anyway.
         }
+        clearLocalAdminSession(queryClient);
       });
     },
   };
+}
+
+/** Drop non-session caches and force the gate back to the login screen. */
+function clearLocalAdminSession(queryClient: QueryClient) {
+  const current = queryClient.getQueryData<AdminSessionState>(adminSessionKey);
+  queryClient.removeQueries({
+    predicate: (query) => query.queryKey[0] !== adminSessionKey[0],
+  });
+  queryClient.getMutationCache().clear();
+  setAdminCsrfToken(null);
+  queryClient.setQueryData<AdminSessionState>(adminSessionKey, {
+    initialized: current?.initialized ?? true,
+    authenticated: false,
+    csrfToken: null,
+    remoteAccessEnabled: current?.remoteAccessEnabled ?? false,
+    secureTransport: current?.secureTransport ?? false,
+    clientLoopback: current?.clientLoopback ?? true,
+    throughTrustedProxy: current?.throughTrustedProxy ?? false,
+    plaintextHttpWarning: current?.plaintextHttpWarning ?? false,
+  });
+  void queryClient.invalidateQueries({ queryKey: adminSessionKey });
 }
