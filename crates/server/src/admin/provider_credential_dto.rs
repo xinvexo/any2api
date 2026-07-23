@@ -223,11 +223,6 @@ impl ProviderCredentialCreateRequest {
         ),
         AdminApiError,
     > {
-        if self.credential_kind != CredentialKind::ApiKey {
-            return Err(AdminApiError::invalid_provider_credential(
-                "OAuth2 credentials must be created through the OAuth login flow",
-            ));
-        }
         let revision = parse_revision(self.expected_revision)?;
         let draft = build_draft(
             self.label,
@@ -254,7 +249,6 @@ pub(crate) struct ProviderCredentialUpdateRequest {
 impl ProviderCredentialUpdateRequest {
     pub(crate) fn into_domain(
         self,
-        credential_kind: CredentialKind,
     ) -> Result<(ConfigRevision, u64, ProviderCredentialDraft), AdminApiError> {
         let revision = parse_revision(self.expected_revision)?;
         let config_version = parse_version(
@@ -263,7 +257,7 @@ impl ProviderCredentialUpdateRequest {
         )?;
         let draft = build_draft(
             self.label,
-            credential_kind,
+            CredentialKind::ApiKey,
             self.proxy_profile_id,
             self.max_concurrency,
             self.enabled,

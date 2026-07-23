@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use any2api_runtime::api::{
-    ConfigPublisher, ProviderOAuthService, PublishedSnapshot, RequestTelemetry, RuntimeRegistry,
+    ConfigPublisher, OAuthService, PublishedSnapshot, RequestTelemetry, RuntimeRegistry,
     SnapshotStore,
 };
 use any2api_server::api::{
@@ -85,15 +85,12 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
         .with_logging_reconciler(logging_reconciler),
     );
     let public_requests = request_components.service();
-    let proxy_tests = request_components.proxy_test_service();
-    let provider_credential_tests = request_components.provider_credential_test_service();
-    let provider_oauth = Arc::new(ProviderOAuthService::new(
+    let oauth = Arc::new(OAuthService::new(
         request_components.provider_registry_handle(),
         request_components.transport_manager(),
-        Arc::clone(&snapshots),
-        Arc::clone(&publisher),
     ));
-    provider_oauth.start_refresh_worker(&runtime.lifecycle());
+    let proxy_tests = request_components.proxy_test_service();
+    let provider_credential_tests = request_components.provider_credential_test_service();
     let web_assets = settings
         .web_root
         .map(WebAssets::external)
@@ -102,12 +99,12 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
         AppState::new(
             Arc::clone(&snapshots),
             Arc::clone(&runtime),
-            Arc::clone(&publisher),
+            publisher,
             public_requests,
         )
+        .with_oauth(oauth)
         .with_proxy_tests(proxy_tests)
         .with_provider_credential_tests(provider_credential_tests)
-        .with_provider_oauth(provider_oauth)
         .with_request_telemetry(Arc::clone(&telemetry))
         .with_admin_auth(
             admin_auth,

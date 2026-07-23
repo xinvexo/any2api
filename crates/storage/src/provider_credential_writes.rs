@@ -184,6 +184,5 @@ fn to_i64(value: u64) -> Result<i64, StorageError> {
 const fn credential_kind_text(kind: CredentialKind) -> &'static str {
     match kind {
         CredentialKind::ApiKey => "api_key",
-        CredentialKind::OAuth2 => "oauth2",
     }
 }

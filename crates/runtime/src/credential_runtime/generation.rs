@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use any2api_domain::{CredentialKind, ProviderCredential};
+use any2api_domain::ProviderCredential;
 use any2api_provider::api::ProviderSecret;
 
 use crate::{
@@ -11,7 +11,6 @@ use crate::{
 pub struct CredentialGenerationRuntime {
     credential_generation: u64,
     secret_version: u64,
-    credential_kind: CredentialKind,
     provider_secret: Arc<ProviderSecret>,
     health: Arc<CredentialHealthRuntime>,
 }
@@ -29,7 +28,6 @@ impl CredentialGenerationRuntime {
         Self {
             credential_generation: credential.credential_generation(),
             secret_version: credential.secret_version(),
-            credential_kind: credential.credential_kind(),
             provider_secret: auth_material.into_provider_secret(),
             health: CredentialHealthRuntime::new(scheduler_epoch),
         }
@@ -43,11 +41,6 @@ impl CredentialGenerationRuntime {
     #[must_use]
     pub const fn secret_version(&self) -> u64 {
         self.secret_version
-    }
-
-    #[must_use]
-    pub const fn credential_kind(&self) -> CredentialKind {
-        self.credential_kind
     }
 
     pub(crate) fn provider_secret(&self) -> &ProviderSecret {
@@ -70,7 +63,6 @@ impl fmt::Debug for CredentialGenerationRuntime {
             .debug_struct("CredentialGenerationRuntime")
             .field("credential_generation", &self.credential_generation)
             .field("secret_version", &self.secret_version)
-            .field("credential_kind", &self.credential_kind)
             .field("provider_secret", &"[REDACTED]")
             .finish()
     }

@@ -13,5 +13,4 @@
 "0012_provider_endpoint_url_authority.sql" = "0edf8149f8dbb6247391958dc43cbb2653f7df5f59a9ec0c5be855f4c4f46e8c"
 "0013_gateway_api_key_plaintext.sql" = "d5e8aa5b83e7bfb4c2660ad5a55da964c61c3d1c75b833f8cde65a0ffa9e4b48"
 "0014_gateway_api_key_usage_index.sql" = "f2e340d61716bc12b1dad64ce56ef212a1cfa8ad54b19f5d33f418bbb9582f1f"
-"0015_provider_oauth_credentials.sql" = "1b6c1928ab4a2d59b2b6b3dd0527a602ac135a305948e7f7d8b6da1b4bb083d8"
-"0016_optional_upstream_protocol.sql" = "24a8d94959a501df3a8d311f8d12ad0fd8a022ed1010ceec21dcb8b78d5cab73"
+"0015_optional_upstream_protocol.sql" = "8d7e08a1c73ff918e0fa2b9b3de12558ad899908ec22f82c47dc2e707402c1cd"

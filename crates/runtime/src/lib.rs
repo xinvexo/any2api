@@ -12,12 +12,11 @@ mod gateway_api_key_publisher;
 mod gateway_api_key_token;
 mod health;
 mod logging_reconciler;
+mod oauth;
 mod process_lifecycle;
 mod provider_api_key_secret;
 mod provider_credential_test;
 mod provider_model_catalog;
-mod provider_oauth;
-mod provider_oauth2_secret;
 mod proxy_auth;
 mod proxy_password_secret;
 mod proxy_test;
@@ -44,8 +43,6 @@ mod credential_runtime_tests;
 mod gateway_api_key_publisher_tests;
 #[cfg(test)]
 mod provider_credential_test_tests;
-#[cfg(test)]
-mod provider_oauth_tests;
 #[cfg(test)]
 mod published_snapshot_tests;
 #[cfg(test)]

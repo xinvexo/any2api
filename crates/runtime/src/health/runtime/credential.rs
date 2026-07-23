@@ -61,17 +61,6 @@ impl CredentialHealthRuntime {
         true
     }
 
-    pub(crate) fn mark_auth_error(&self) -> bool {
-        let mut state = self.state.lock().expect("credential health lock poisoned");
-        if state.auth_error {
-            return false;
-        }
-        state.auth_error = true;
-        drop(state);
-        self.scheduler_epoch.advance();
-        true
-    }
-
     #[cfg(test)]
     pub(crate) fn has_auth_error(&self) -> bool {
         self.state

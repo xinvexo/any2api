@@ -7,7 +7,7 @@ use any2api_domain::{
 };
 use thiserror::Error;
 
-use crate::provider_api_key::{ProviderApiKeyValidationError, ProviderOAuth2SecretValidationError};
+use crate::provider_api_key::ProviderApiKeyValidationError;
 use crate::proxy_password::ProxyPasswordValidationError;
 use crate::vault::SecretVaultError;
 
@@ -68,16 +68,12 @@ pub enum StorageError {
     ProviderCredentialVersionConflict { expected: u64, actual: u64 },
     #[error("provider credential secret version conflict")]
     ProviderCredentialSecretVersionConflict { expected: u64, actual: u64 },
-    #[error("provider credential kind does not match the secret operation")]
-    ProviderCredentialKindMismatch,
     #[error("provider credential label is already in use for this endpoint")]
     ProviderCredentialLabelConflict,
     #[error("provider credential configuration is invalid: {0}")]
     ProviderCredentialValidation(#[from] ProviderCredentialValidationError),
     #[error("provider API Key is invalid: {0}")]
     ProviderApiKeyValidation(#[from] ProviderApiKeyValidationError),
-    #[error("provider OAuth2 secret is invalid: {0}")]
-    ProviderOAuth2SecretValidation(#[from] ProviderOAuth2SecretValidationError),
     #[error("gateway API Key was not found")]
     GatewayApiKeyNotFound(GatewayApiKeyId),
     #[error("gateway API Key version conflict")]

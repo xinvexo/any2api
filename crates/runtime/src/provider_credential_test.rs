@@ -65,7 +65,7 @@ impl ProviderCredentialTestService {
             .get(endpoint.provider_kind())
             .ok_or(ProviderCredentialTestError::ProviderUnavailable)?;
         let endpoint_plan = driver
-            .credential_test_plan(endpoint.base_url(), credential.credential_kind())
+            .credential_test_plan(endpoint.base_url())
             .map_err(ProviderCredentialTestError::Provider)?;
         let permit = binding
             .try_acquire()
@@ -110,16 +110,14 @@ impl ProviderCredentialTestService {
                 )
                 .await
                 {
-                    Ok(body) => {
-                        match driver.parse_model_catalog(credential.credential_kind(), &body) {
-                            Ok(models) => ProviderCredentialTestOutcome::Accepted {
-                                status_code,
-                                auth_error_cleared: permit.generation().health().clear_auth_error(),
-                                models,
-                            },
-                            Err(_) => ProviderCredentialTestOutcome::InvalidCatalog { status_code },
-                        }
-                    }
+                    Ok(body) => match driver.parse_model_catalog(&body) {
+                        Ok(models) => ProviderCredentialTestOutcome::Accepted {
+                            status_code,
+                            auth_error_cleared: permit.generation().health().clear_auth_error(),
+                            models,
+                        },
+                        Err(_) => ProviderCredentialTestOutcome::InvalidCatalog { status_code },
+                    },
                     Err(ModelCatalogReadError::Transport(error)) => {
                         ProviderCredentialTestOutcome::Failed {
                             stage: error.stage.into(),

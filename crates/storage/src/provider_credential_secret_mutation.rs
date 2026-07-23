@@ -1,11 +1,11 @@
 use any2api_domain::{
-    CredentialId, CredentialKind, ProviderCredential, ProviderCredentialConfiguration,
-    ProviderCredentialDraft, ProviderEndpointConfiguration, ProviderEndpointId, ProxyConfiguration,
+    CredentialId, ProviderCredential, ProviderCredentialConfiguration, ProviderCredentialDraft,
+    ProviderEndpointConfiguration, ProviderEndpointId, ProxyConfiguration,
 };
 
 use crate::{
     error::StorageError,
-    provider_api_key::{build_fingerprint, build_oauth2_fingerprint},
+    provider_api_key::build_fingerprint,
     provider_credential_mutation::{
         PreparedProviderCredentialMutation, ProviderCredentialDatabaseChange, map_validation,
         replace, require_config_version,
@@ -41,35 +41,24 @@ pub(crate) fn create(
     id: CredentialId,
     endpoint_id: ProviderEndpointId,
     draft: ProviderCredentialDraft,
-    expected_endpoint_config_version: Option<u64>,
-    expected_kind: CredentialKind,
-    secret: SecretBytes,
+    api_key: SecretBytes,
 ) -> Result<PreparedProviderCredentialMutation, StorageError> {
-    require_kind(draft.credential_kind(), expected_kind)?;
     let endpoint = context
         .endpoints
         .get(endpoint_id)
         .ok_or(StorageError::ProviderEndpointNotFound(endpoint_id))?;
-    if let Some(expected) = expected_endpoint_config_version
-        && endpoint.config_version() != expected
-    {
-        return Err(StorageError::ProviderEndpointVersionConflict {
-            expected,
-            actual: endpoint.config_version(),
-        });
-    }
-    let fingerprint = build_secret_fingerprint(
+    let fingerprint = build_fingerprint(
         context.vault,
         endpoint.provider_kind(),
         draft.credential_kind(),
-        &secret,
+        &api_key,
     )?;
     let credential = ProviderCredential::create(id, endpoint_id, draft, fingerprint);
     let envelope = seal(
         context.vault,
         endpoint.provider_kind(),
         &credential,
-        &secret,
+        &api_key,
     )?;
     let mut credentials = context.current.credentials().to_vec();
     credentials.push(credential.clone());
@@ -88,19 +77,15 @@ pub(crate) fn create(
 pub(crate) fn rotate_secret(
     context: &CredentialSecretMutationContext<'_>,
     id: CredentialId,
-    expected_config_version: Option<u64>,
+    expected_config_version: u64,
     expected_secret_version: u64,
-    expected_kind: CredentialKind,
-    secret: SecretBytes,
+    api_key: SecretBytes,
 ) -> Result<PreparedProviderCredentialMutation, StorageError> {
     let existing = context
         .current
         .get(id)
         .ok_or(StorageError::ProviderCredentialNotFound(id))?;
-    if let Some(expected_config_version) = expected_config_version {
-        require_config_version(existing, expected_config_version)?;
-    }
-    require_kind(existing.credential_kind(), expected_kind)?;
+    require_config_version(existing, expected_config_version)?;
     if existing.secret_version() != expected_secret_version {
         return Err(StorageError::ProviderCredentialSecretVersionConflict {
             expected: expected_secret_version,
@@ -111,17 +96,14 @@ pub(crate) fn rotate_secret(
         .endpoints
         .get(existing.provider_endpoint_id())
         .ok_or(StorageError::CorruptConfiguration)?;
-    let fingerprint = build_secret_fingerprint(
+    let fingerprint = build_fingerprint(
         context.vault,
         endpoint.provider_kind(),
         existing.credential_kind(),
-        &secret,
+        &api_key,
     )?;
-    let rotated = match expected_kind {
-        CredentialKind::ApiKey => existing.rotated(fingerprint)?,
-        CredentialKind::OAuth2 => existing.refreshed(fingerprint)?,
-    };
-    let envelope = seal(context.vault, endpoint.provider_kind(), &rotated, &secret)?;
+    let rotated = existing.rotated(fingerprint)?;
+    let envelope = seal(context.vault, endpoint.provider_kind(), &rotated, &api_key)?;
     let configuration = replace(
         context.current,
         context.endpoints,
@@ -155,28 +137,4 @@ fn seal(
             api_key,
         )
         .map_err(StorageError::from)
-}
-
-fn build_secret_fingerprint(
-    vault: &SecretVault,
-    provider_kind: any2api_domain::ProviderKind,
-    credential_kind: any2api_domain::CredentialKind,
-    secret: &SecretBytes,
-) -> Result<any2api_domain::CredentialSecretFingerprint, StorageError> {
-    match credential_kind {
-        any2api_domain::CredentialKind::ApiKey => {
-            build_fingerprint(vault, provider_kind, credential_kind, secret).map_err(Into::into)
-        }
-        any2api_domain::CredentialKind::OAuth2 => {
-            build_oauth2_fingerprint(vault, provider_kind, secret).map_err(Into::into)
-        }
-    }
-}
-
-fn require_kind(actual: CredentialKind, expected: CredentialKind) -> Result<(), StorageError> {
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(StorageError::ProviderCredentialKindMismatch)
-    }
 }

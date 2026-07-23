@@ -13,13 +13,13 @@ mod gateway_api_key_dto;
 mod gateway_api_key_handlers;
 mod loopback;
 mod no_store;
+mod oauth_dto;
+mod oauth_error;
+mod oauth_handlers;
 mod provider_credential_dto;
 mod provider_credential_handlers;
 mod provider_endpoint_dto;
 mod provider_endpoint_handlers;
-mod provider_oauth_dto;
-mod provider_oauth_error;
-mod provider_oauth_handlers;
 mod proxy_dto;
 mod proxy_handlers;
 mod request_log_dto;
@@ -67,6 +67,8 @@ fn protected_routes() -> Router<AppState> {
             axum::routing::delete(affinity_handlers::clear_credential),
         )
         .route("/balancing", get(balancing_handlers::get))
+        .route("/oauth/start", post(oauth_handlers::start))
+        .route("/oauth/exchange", post(oauth_handlers::exchange))
         .route(
             "/gateway-api-keys",
             get(gateway_api_key_handlers::list).post(gateway_api_key_handlers::create),
@@ -112,14 +114,6 @@ fn protected_routes() -> Router<AppState> {
             "/provider-endpoints/{id}",
             axum::routing::patch(provider_endpoint_handlers::update)
                 .delete(provider_endpoint_handlers::delete),
-        )
-        .route(
-            "/provider-endpoints/{endpoint_id}/oauth/start",
-            post(provider_oauth_handlers::start),
-        )
-        .route(
-            "/provider-endpoints/{endpoint_id}/oauth/exchange",
-            post(provider_oauth_handlers::exchange),
         )
         .route(
             "/provider-endpoints/{endpoint_id}/credentials",

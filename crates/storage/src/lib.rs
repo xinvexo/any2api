@@ -47,8 +47,6 @@ mod provider_credential_secret_mutation;
 mod provider_credential_writes;
 #[cfg(test)]
 mod provider_endpoint_repository_tests;
-#[cfg(test)]
-mod provider_oauth_repository_tests;
 mod proxy_auth_repository;
 mod proxy_auth_writes;
 mod proxy_password;

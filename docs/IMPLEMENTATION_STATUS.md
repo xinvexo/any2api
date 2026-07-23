@@ -1,12 +1,12 @@
 # any2api 实施状态
 
-> 最后更新：2026-07-23
+> 最后更新：2026-07-24
 > 用途：简要记录已经完成的代码、当前边界和下一步顺序。架构真相仍以根目录 `ARCHITECTURE.md` 为准。
 
 ## 当前状态
 
-- 当前阶段：阶段 4 主链和阶段 5 的 Codex/Claude 交互式 OAuth2 登录、Vault 持久化、模型发现衔接与到期前主动刷新已经完成；Provider OAuth2 JSON 导入和 `/backend-api/codex/responses` 仍不实现。
-- 最近完成：Provider 行新增 OAuth 登录入口；服务端使用内存 session/state/PKCE、所选实际代理和 Provider 固定 Token Endpoint 完成 exchange，Token 以类型化 Secret 加密写入普通 Credential，后台 Worker 在过期前刷新并保留模型选择。
+- 当前阶段：API Key 数据面、OpenAI 协议桥和独立 OAuth2 认证文件生成工具已经完成；OAuth2 登录不属于 ProviderCredential，也不接入请求调度。
+- 最近完成：新增独立 `/oauth` 一级菜单、Codex/Claude PKCE 登录、内存单次 session、DIRECT token exchange，以及 `codex-auth.json`/`claude-auth.json` 一次性下载；Token 不进入 SQLite、Vault、日志、React Query 或浏览器存储。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -17,7 +17,7 @@
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
 - 上一切片提交主题：`feat: embed the management web app`。
-- 本切片主题：Provider OAuth2 交互登录与主动刷新。
+- 本切片主题：Gateway Key 使用时间与 ProviderCredential 连通性恢复。
 
 ## 已完成
 
@@ -90,21 +90,6 @@
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖持久化重启、版本冲突、重复标签、引用保护、密文篡改、响应脱敏和 metadata PATCH 不携带 Secret。
 - 本配置切片本身不包含真实上游连通性、并发 Permit、负载均衡选择或网络转发；这些能力已在后续 Runtime、Credential Auth Material 和 Proxy Transport 切片中接入。
 
-### Provider OAuth2 登录与刷新切片
-
-- `CredentialKind` 新增稳定 JSON 值 `oauth2`；CredentialKind 创建后不可变，API Key 创建/轮换端点拒绝伪造 OAuth Secret。
-- SQLite migration 0014 在保留现有 Credential、模型、RequestLog、Attempt 和 Gateway Key 统计的前提下重建外键表，使 `provider_credentials.credential_kind` 接受 `api_key|oauth2`。
-- Codex 与 Claude Driver 实现固定 authorize/token/client/localhost redirect、PKCE authorization code exchange、refresh grant、Token 响应解析和各自 OAuth 认证头；Codex 额外注入 `Chatgpt-Account-Id`，Claude 注入 OAuth beta header。
-- OAuth Token 立即序列化为 Provider 专用 Schema v1，通过现有 Vault/AAD 加密；列表只显示 `oauth2`、指纹和无尾号状态，Debug、管理响应和请求日志不包含 access/refresh/ID token。
-- 管理 API 新增：
-  - `POST /api/admin/provider-endpoints/{endpoint_id}/oauth/start`
-  - `POST /api/admin/provider-endpoints/{endpoint_id}/oauth/exchange`
-- OAuth session 使用 256 位随机 ID/state/verifier，只在内存保存，最多 64 个、10 分钟过期且 callback 单次消费；完整 callback URL 会校验固定 Redirect URI、state、Provider、Endpoint 和实际代理版本。
-- Token exchange 与 refresh 都使用 Credential 的实际代理语义；OAuth 认证 Endpoint 固定，但模型/推理数据面严格使用管理员填写的 Base URL。Codex Web 明确提示常用数据面 URL `https://chatgpt.com/backend-api/codex`，不自动改写。
-- 单一后台 Worker 每 60 秒扫描已启用 OAuth Credential，在到期前 5 分钟刷新；串行 ConfigPublisher 与 `secret_version` CAS 发布新 generation，OAuth 例行刷新保留已选择模型。持久化失败时旧 generation fail-closed 进入 `auth_error`。
-- React Provider 行增加 OAuth 入口；授权 session、authorization URL 和 callback 只存在于抽屉局部状态，不进入路由、React Query、Mutation Cache 或浏览器存储；exchange 成功后自动打开现有模型发现/勾选流程。
-- Provider、Runtime、Storage、Admin 契约和 React 测试覆盖 URL/PKCE、Secret 脱敏、Vault 往返、state mismatch、过期/重复 session、主动刷新、模型保留、响应无 Token 和前端缓存隔离。完整决策见 ADR-0031。
-
 ### Credential Runtime 容量切片
 
 - 新增稳定的 `CredentialRuntimeHandle`；同一 Credential ID 的 `in_flight` 与动态并发上限跨配置 revision 复用，不会在热更新时重置为零。
@@ -120,9 +105,9 @@
 
 - Storage 配置读取现在返回“脱敏配置 + 已通过 Vault/AAD/指纹校验的 Secret 材料”两部分；Secret 材料不可 Clone，Debug 只显示 `[REDACTED]`。
 - 所有有写入的配置事务在 Commit 前重新从同一事务视图加载完整配置，确保新建/轮换/Endpoint generation 变化返回的运行时材料与数据库版本一致；读取失败会回滚，不把半成品发布到 Runtime。
-- Runtime 将 API Key 或 OAuth2 typed Secret 转换为 `ProviderSecret`，按 `credential_kind + credential_generation + secret_version + schema_version` 装配 generation；旧 Snapshot/Permit 继续持有旧认证材料，新 generation 不会覆盖旧请求。
+- Runtime 将 API Key 转换为 `ProviderSecret`，按 `credential_generation + secret_version + schema_version` 装配 generation；旧 Snapshot/Permit 继续持有旧 API Key，新 generation 不会覆盖旧请求。
 - `ConcurrencyPermit::provider_credential_headers` 是认证注入的唯一公开入口，必须先取得并发 Permit 才能调用 Provider Driver 生成上游认证头；Gateway API Key 尚未进入该路径。
-- Provider API Key 和 OAuth Token 不进入管理 DTO、日志或 `PublishedSnapshot` 的原始字段；Runtime/Storage 的 Debug 输出均脱敏，Secret 只在内存代际对象中存在并由 `secrecy` 清理。
+- Provider API Key 不进入管理 DTO、日志或 `PublishedSnapshot` 的原始字段；Runtime/Storage 的 Debug 输出均脱敏，Secret 只在内存代际对象中存在并由 `secrecy` 清理。
 - 模块测试覆盖 generation 轮换、旧/新 Secret 隔离和 Debug 脱敏；Storage 测试覆盖写入、重启解密和材料脱敏；契约测试覆盖真实发布、重启后重新装配、Permit 认证头和 scheduler epoch 从零开始。
 
 ### Proxy Transport 切片
@@ -297,7 +282,7 @@
 - 新增 `admin.remote_enabled`、会话 idle/absolute timeout、登录失败窗口与最大失败次数五项 SettingRegistry 设置；Web 显示默认/覆盖/生效值并支持热更新。
 - `ANY2API_TRUSTED_PROXY_CIDRS` 显式配置可信反代网段；只有命中网段的 TCP 对端才解析唯一且合法的 `X-Forwarded-For` 与 `X-Forwarded-Proto`。来源链从右向左剥离可信代理，缺头、重复头和客户端预置 loopback 欺骗均 Fail-Closed。
 - React 新增首启 Setup、登录、会话恢复、登出、CSRF 自动注入和明文远程 HTTP 持续警告；远程登录前即提示密码传输风险，受保护请求收到 401 响应头时立即关闭管理面并清空 Query/Mutation Cache。
-- 当前切片直接支持远程 HTTP 与外部 TLS 终止；内建 Rustls listener、标准 `Forwarded` 头解析和 OAuth2 JSON 上传仍未实现，管理员密码在线轮换已由 ADR-0024 完成。
+- 当前切片直接支持远程 HTTP 与外部 TLS 终止；内建 Rustls listener、标准 `Forwarded` 头解析和 Provider 专用 OAuth2 JSON 导入仍未实现，管理员密码在线轮换已由 ADR-0024 完成。
 
 ### RequestLog 与 Attempt 有界遥测切片
 
@@ -401,6 +386,16 @@
 - Playwright 从 Cargo JSON 构建消息取得本轮真实二进制，启动时清除宿主全部 `ANY2API_*` 配置并使用独立临时数据目录；登录、刷新 deep link、桌面核心页面和 390px 移动导航均已通过默认内嵌路径。
 - Release 二进制复制到不含源码和 `web/dist` 的临时目录后，首页、`/settings`、哈希 JS、缓存头、缺失 asset 404、API 根隔离和未知 API 不回落 SPA 均验证通过。完整决策见 `docs/adr/0027-embedded-web-assets.md`。
 
+### 独立 OAuth2 认证文件生成切片
+
+- `ProviderCredential`、SQLite 配置和 Runtime generation 继续只接受 `api_key`；旧 OAuth Credential、刷新 Worker、Vault 载荷、migration 和 Provider 页面入口已经删除。
+- Provider Driver 只封装 Codex/Claude 固定 authorize/token Endpoint、Client ID、localhost Redirect URI、PKCE 请求构建和 Token 响应解析，不承担网络执行或持久化。
+- Runtime 最多保存 64 个十分钟内有效的内存 session；state、PKCE verifier 与 session ID 单次消费，callback 严格校验固定 Redirect target 和 state。
+- Token exchange 固定使用内建 DIRECT，不读取 Provider Endpoint、Credential、全局代理、专属代理、并发、启停状态或模型配置；响应正文限制为 64 KiB 并使用 30 秒读取超时。
+- 管理 API 新增 `POST /api/admin/oauth/start` 与 `POST /api/admin/oauth/exchange`；兑换成功直接返回 `Content-Disposition: attachment`、`Cache-Control: no-store` 的 Provider JSON 文件，服务端不保留 Token 或下载副本。
+- React 新增独立 `/oauth` 一级菜单和 deep link；页面只选择 Codex/Claude、打开授权页、接收完整 localhost callback URL 并触发下载。session、callback 与 Blob 只在局部内存存在，不进入 URL、查询缓存或浏览器存储。
+- Runtime、HTTP 契约与 Web 测试覆盖 session 单次消费、state/redirect 拒绝、Provider 文件 Schema、Debug 脱敏、loopback/管理员保护、配置 revision 不变和 DTO 解析。完整决策见 `docs/adr/0031-standalone-oauth-login.md`。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
@@ -410,7 +405,7 @@
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
-- Credential generation 已承载 API Key/OAuth2 认证材料及认证/模型健康；管理连通性测试可清除当前 generation 的 `auth_error`，OAuth 后台刷新成功会发布新 generation，持久化失败会 fail-closed 标记旧 generation。
+- Credential generation 只承载 API Key 认证材料及认证/模型健康；独立 OAuth2 登录链路已经实现，但它不会创建 Credential、进入 generation 或启动刷新任务。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
 - 负载均衡运行态 API 与 `/balancing` 页面已完成；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
@@ -420,7 +415,7 @@
 
 1. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
 2. 补充 Unix 真实子进程 SIGTERM、成功停机后同数据目录立即重启等进程级 CI 契约；它们用于加固现有语义，不引入运行态恢复。
-3. 后续 OAuth 范围仅保留 Provider 专用 JSON 导入和可选 `/backend-api/codex/responses` 兼容入口；它们必须单独建立 Schema/安全契约，不影响当前交互登录主链。
+3. 后续如需 Provider 专用 OAuth2 JSON 导入或 `/backend-api/codex/responses` 数据面兼容，必须分别建立独立切片，不能把当前下载工具隐式接入 ProviderCredential。
 
 ## 验证结果
 
@@ -442,4 +437,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-本切片已通过完整门禁：Rust fmt、严格 clippy、workspace 及 doc test、release build、architecture-check 全部通过；`cargo deny --offline check` 使用本地 RustSec 缓存通过，仅报告基线已有的重复传递依赖 warning。Web typecheck、lint、production build、内嵌产物一致性检查、31 个 Vitest 文件的 83 项测试与 3 项真实 Chromium E2E 全部通过。真实 HTTP 契约覆盖 Gateway Key 最后使用时间落库，以及 Provider 上游 401 → Credential `/models` 测试 2xx → generation `auth_error` 清除 → 生成请求恢复。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
+当前更新已通过 Rust fmt、严格 clippy、workspace 全特性测试（含 doc test）、architecture-check，以及 Web typecheck、lint、production build、内嵌产物一致性检查和 31 个 Vitest 文件的 85 项测试。OAuth2 真实 HTTP 契约额外覆盖独立 start、DIRECT exchange、一次性下载、session 防重放与配置 revision 不变；本地浏览器已验证 `/oauth` deep link、一级菜单和页面加载。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。

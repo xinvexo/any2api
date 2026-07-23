@@ -117,16 +117,6 @@ impl From<ConfigPublishError> for AdminApiError {
                 "invalid_provider_api_key",
                 error.to_string(),
             ),
-            ConfigPublishError::InvalidProviderOAuth2Secret(error) => AdminApiError::new(
-                StatusCode::BAD_REQUEST,
-                "invalid_provider_oauth_secret",
-                error.to_string(),
-            ),
-            ConfigPublishError::ProviderCredentialKindMismatch => AdminApiError::new(
-                StatusCode::CONFLICT,
-                "provider_credential_kind_mismatch",
-                "provider credential kind does not match this secret operation",
-            ),
             ConfigPublishError::GatewayApiKeyNotFound => AdminApiError::new(
                 StatusCode::NOT_FOUND,
                 "gateway_api_key_not_found",

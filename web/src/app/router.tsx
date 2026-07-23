@@ -2,6 +2,7 @@ import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { AppShell } from "@/app/shell/AppShell";
 import { OverviewPage } from "@/pages/OverviewPage";
+import { OAuthPage } from "@/pages/OAuthPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ProxiesPage } from "@/pages/ProxiesPage";
 import { ProvidersPage } from "@/pages/ProvidersPage";
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
       { index: true, element: <OverviewPage /> },
       { path: "proxies", element: <ProxiesPage /> },
       { path: "providers", element: <ProvidersPage /> },
+      { path: "oauth", element: <OAuthPage /> },
       // Legacy kind-scoped deep links collapse into the unified providers page.
       { path: "providers/:kind", element: <Navigate to="/providers" replace /> },
       { path: "balancing", element: <BalancingPage /> },

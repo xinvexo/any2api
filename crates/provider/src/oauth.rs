@@ -1,17 +1,16 @@
 use std::fmt;
 
-use any2api_domain::{CredentialKind, OAUTH2_SECRET_SCHEMA_VERSION, ProviderKind};
+use any2api_domain::ProviderKind;
 use http::{HeaderMap, HeaderValue, Method, header};
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use url::Url;
 
-use crate::{ProviderError, ProviderSecret};
+use crate::ProviderError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthGrant {
     AuthorizationCode,
-    RefreshToken,
 }
 
 #[derive(Clone)]
@@ -43,12 +42,9 @@ pub struct OAuthTokenMaterial {
     expires_at: Option<i64>,
     account_id: Option<String>,
     email: Option<String>,
-    organization_id: Option<String>,
-    client_id: Option<String>,
 }
 
 impl OAuthTokenMaterial {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         provider: ProviderKind,
         access_token: String,
@@ -57,8 +53,6 @@ impl OAuthTokenMaterial {
         expires_at: Option<i64>,
         account_id: Option<String>,
         email: Option<String>,
-        organization_id: Option<String>,
-        client_id: Option<String>,
     ) -> Result<Self, ProviderError> {
         if access_token.trim().is_empty() {
             return Err(ProviderError::InvalidResponse(
@@ -73,67 +67,11 @@ impl OAuthTokenMaterial {
             expires_at,
             account_id: optional_text(account_id),
             email: optional_text(email),
-            organization_id: optional_text(organization_id),
-            client_id: optional_text(client_id),
         })
     }
 
-    pub fn from_secret(
-        provider: ProviderKind,
-        secret: &ProviderSecret,
-    ) -> Result<Self, ProviderError> {
-        if secret.schema_version() != OAUTH2_SECRET_SCHEMA_VERSION {
-            return Err(ProviderError::InvalidCredential(
-                "unsupported OAuth2 secret schema".into(),
-            ));
-        }
-        let stored = serde_json::from_str::<StoredOAuthToken>(secret.expose())
-            .map_err(|_| ProviderError::InvalidCredential("OAuth2 secret is invalid".into()))?;
-        if stored.provider != provider {
-            return Err(ProviderError::InvalidCredential(
-                "OAuth2 secret provider does not match endpoint".into(),
-            ));
-        }
-        Self::new(
-            stored.provider,
-            stored.access_token,
-            stored.refresh_token,
-            stored.id_token,
-            stored.expires_at,
-            stored.account_id,
-            stored.email,
-            stored.organization_id,
-            stored.client_id,
-        )
-    }
-
-    pub fn to_secret(&self) -> Result<ProviderSecret, ProviderError> {
-        let stored = StoredOAuthToken {
-            provider: self.provider,
-            access_token: self.access_token.expose_secret().to_owned(),
-            refresh_token: self
-                .refresh_token
-                .as_ref()
-                .map(|value| value.expose_secret().to_owned()),
-            id_token: self
-                .id_token
-                .as_ref()
-                .map(|value| value.expose_secret().to_owned()),
-            expires_at: self.expires_at,
-            account_id: self.account_id.clone(),
-            email: self.email.clone(),
-            organization_id: self.organization_id.clone(),
-            client_id: self.client_id.clone(),
-        };
-        serde_json::to_string(&stored)
-            .map(|value| ProviderSecret::new(OAUTH2_SECRET_SCHEMA_VERSION, value))
-            .map_err(|_| {
-                ProviderError::InvalidResponse("OAuth2 secret serialization failed".into())
-            })
-    }
-
     #[must_use]
-    pub fn provider(&self) -> ProviderKind {
+    pub const fn provider(&self) -> ProviderKind {
         self.provider
     }
 
@@ -148,7 +86,12 @@ impl OAuthTokenMaterial {
     }
 
     #[must_use]
-    pub fn expires_at(&self) -> Option<i64> {
+    pub fn id_token(&self) -> Option<&str> {
+        self.id_token.as_ref().map(ExposeSecret::expose_secret)
+    }
+
+    #[must_use]
+    pub const fn expires_at(&self) -> Option<i64> {
         self.expires_at
     }
 
@@ -161,48 +104,6 @@ impl OAuthTokenMaterial {
     pub fn email(&self) -> Option<&str> {
         self.email.as_deref()
     }
-
-    #[must_use]
-    pub fn organization_id(&self) -> Option<&str> {
-        self.organization_id.as_deref()
-    }
-
-    #[must_use]
-    pub fn client_id(&self) -> Option<&str> {
-        self.client_id.as_deref()
-    }
-
-    #[must_use]
-    pub fn is_expired_or_near_expiry(&self, now: i64, lead_seconds: i64) -> bool {
-        self.expires_at
-            .is_some_and(|expires_at| expires_at <= now.saturating_add(lead_seconds))
-    }
-
-    #[must_use]
-    pub fn with_fallback_from(mut self, previous: &Self) -> Self {
-        if self.provider != previous.provider {
-            return self;
-        }
-        if self.refresh_token.is_none() {
-            self.refresh_token.clone_from(&previous.refresh_token);
-        }
-        if self.id_token.is_none() {
-            self.id_token.clone_from(&previous.id_token);
-        }
-        if self.account_id.is_none() {
-            self.account_id.clone_from(&previous.account_id);
-        }
-        if self.email.is_none() {
-            self.email.clone_from(&previous.email);
-        }
-        if self.organization_id.is_none() {
-            self.organization_id.clone_from(&previous.organization_id);
-        }
-        if self.client_id.is_none() {
-            self.client_id.clone_from(&previous.client_id);
-        }
-        self
-    }
 }
 
 impl fmt::Debug for OAuthTokenMaterial {
@@ -211,41 +112,18 @@ impl fmt::Debug for OAuthTokenMaterial {
             .debug_struct("OAuthTokenMaterial")
             .field("provider", &self.provider)
             .field("access_token", &"[REDACTED]")
-            .field(
-                "refresh_token",
-                &self.refresh_token.as_ref().map(|_| "[REDACTED]"),
-            )
-            .field("id_token", &self.id_token.as_ref().map(|_| "[REDACTED]"))
+            .field("refresh_token_present", &self.refresh_token.is_some())
+            .field("id_token_present", &self.id_token.is_some())
             .field("expires_at", &self.expires_at)
-            .field("account_id", &self.account_id)
-            .field("email", &self.email)
-            .field("organization_id", &self.organization_id)
-            .field("client_id", &self.client_id)
+            .field("account_id_present", &self.account_id.is_some())
+            .field("email_present", &self.email.is_some())
             .finish()
     }
 }
 
-#[derive(Deserialize, Serialize)]
-struct StoredOAuthToken {
-    provider: ProviderKind,
-    access_token: String,
-    refresh_token: Option<String>,
-    id_token: Option<String>,
-    expires_at: Option<i64>,
-    account_id: Option<String>,
-    email: Option<String>,
-    organization_id: Option<String>,
-    client_id: Option<String>,
-}
-
-pub fn authorization_headers() -> HeaderMap {
+pub fn form_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
-    headers
-}
-
-pub fn form_headers() -> HeaderMap {
-    let mut headers = authorization_headers();
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/x-www-form-urlencoded"),
@@ -254,7 +132,8 @@ pub fn form_headers() -> HeaderMap {
 }
 
 pub fn json_headers() -> HeaderMap {
-    let mut headers = authorization_headers();
+    let mut headers = HeaderMap::new();
+    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
@@ -262,10 +141,64 @@ pub fn json_headers() -> HeaderMap {
     headers
 }
 
-pub fn validate_oauth_kind(kind: CredentialKind) -> Result<(), ProviderError> {
-    (kind == CredentialKind::OAuth2)
-        .then_some(())
-        .ok_or_else(|| ProviderError::InvalidCredential("credential is not OAuth2".into()))
+pub fn serialize_file(
+    token: &OAuthTokenMaterial,
+    last_refresh: &str,
+    expired: &str,
+) -> Result<Vec<u8>, ProviderError> {
+    let empty = "";
+    let encoded = match token.provider() {
+        ProviderKind::Codex => serde_json::to_vec_pretty(&CodexOAuthFile {
+            id_token: token.id_token().unwrap_or(empty),
+            access_token: token.access_token(),
+            refresh_token: token.refresh_token().unwrap_or(empty),
+            account_id: token.account_id().unwrap_or(empty),
+            last_refresh,
+            email: token.email().unwrap_or(empty),
+            provider_type: "codex",
+            expired,
+        }),
+        ProviderKind::Claude => serde_json::to_vec_pretty(&ClaudeOAuthFile {
+            id_token: token.id_token().unwrap_or(empty),
+            access_token: token.access_token(),
+            refresh_token: token.refresh_token().unwrap_or(empty),
+            last_refresh,
+            email: token.email().unwrap_or(empty),
+            provider_type: "claude",
+            expired,
+        }),
+    };
+    encoded
+        .map(|mut bytes| {
+            bytes.push(b'\n');
+            bytes
+        })
+        .map_err(|_| ProviderError::InvalidResponse("OAuth file serialization failed".into()))
+}
+
+#[derive(Serialize)]
+struct CodexOAuthFile<'a> {
+    id_token: &'a str,
+    access_token: &'a str,
+    refresh_token: &'a str,
+    account_id: &'a str,
+    last_refresh: &'a str,
+    email: &'a str,
+    #[serde(rename = "type")]
+    provider_type: &'a str,
+    expired: &'a str,
+}
+
+#[derive(Serialize)]
+struct ClaudeOAuthFile<'a> {
+    id_token: &'a str,
+    access_token: &'a str,
+    refresh_token: &'a str,
+    last_refresh: &'a str,
+    email: &'a str,
+    #[serde(rename = "type")]
+    provider_type: &'a str,
+    expired: &'a str,
 }
 
 fn optional_secret(value: Option<String>) -> Option<SecretString> {
@@ -276,72 +209,4 @@ fn optional_secret(value: Option<String>) -> Option<SecretString> {
 
 fn optional_text(value: Option<String>) -> Option<String> {
     value.filter(|value| !value.trim().is_empty())
-}
-
-#[cfg(test)]
-mod tests {
-    use any2api_domain::ProviderKind;
-
-    use super::OAuthTokenMaterial;
-
-    #[test]
-    fn typed_secret_round_trip_and_debug_never_expose_tokens() {
-        let token = OAuthTokenMaterial::new(
-            ProviderKind::Codex,
-            "access-secret".to_owned(),
-            Some("refresh-secret".to_owned()),
-            Some("id-secret".to_owned()),
-            Some(1234),
-            Some("account".to_owned()),
-            Some("owner@example.com".to_owned()),
-            None,
-            Some("client".to_owned()),
-        )
-        .expect("token");
-        let secret = token.to_secret().expect("typed secret");
-        let restored =
-            OAuthTokenMaterial::from_secret(ProviderKind::Codex, &secret).expect("restored token");
-
-        assert_eq!(restored.access_token(), "access-secret");
-        assert_eq!(restored.refresh_token(), Some("refresh-secret"));
-        assert_eq!(restored.account_id(), Some("account"));
-        let debug = format!("{restored:?}");
-        assert!(!debug.contains("access-secret"));
-        assert!(!debug.contains("refresh-secret"));
-        assert!(!debug.contains("id-secret"));
-    }
-
-    #[test]
-    fn refresh_response_inherits_rotating_fields_that_are_omitted() {
-        let previous = OAuthTokenMaterial::new(
-            ProviderKind::Claude,
-            "old-access".to_owned(),
-            Some("old-refresh".to_owned()),
-            None,
-            Some(100),
-            Some("account".to_owned()),
-            Some("owner@example.com".to_owned()),
-            Some("organization".to_owned()),
-            Some("client".to_owned()),
-        )
-        .expect("previous token");
-        let refreshed = OAuthTokenMaterial::new(
-            ProviderKind::Claude,
-            "new-access".to_owned(),
-            None,
-            None,
-            Some(200),
-            None,
-            None,
-            None,
-            None,
-        )
-        .expect("refreshed token")
-        .with_fallback_from(&previous);
-
-        assert_eq!(refreshed.access_token(), "new-access");
-        assert_eq!(refreshed.refresh_token(), Some("old-refresh"));
-        assert_eq!(refreshed.email(), Some("owner@example.com"));
-        assert_eq!(refreshed.organization_id(), Some("organization"));
-    }
 }

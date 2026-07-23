@@ -23,7 +23,7 @@ impl CredentialAuthMaterial {
         let credential_generation = stored.credential_generation();
         let secret = stored.into_secret();
         let value = String::from_utf8(secret.expose_secret().to_vec())
-            .expect("storage validated Provider credential Secret as UTF-8");
+            .expect("storage validated Provider API Key as visible ASCII");
         Self {
             credential_id,
             credential_kind,

@@ -81,6 +81,65 @@ export async function requestJson<T>(
   }
 }
 
+export interface DownloadResponse {
+  blob: Blob;
+  filename: string | null;
+}
+
+export async function requestDownload(
+  path: string,
+  { signal, timeoutMs = 30_000, method = "GET", body }: JsonRequestOptions = {},
+): Promise<DownloadResponse> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const forwardAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) {
+    forwardAbort();
+  } else {
+    signal?.addEventListener("abort", forwardAbort, { once: true });
+  }
+
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (body !== undefined) {
+      headers["Content-Type"] = "application/json";
+    }
+    if (requiresAdminCsrf(path, method) && adminCsrfToken) {
+      headers["X-CSRF-Token"] = adminCsrfToken;
+    }
+    const response = await fetch(path, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      credentials: "same-origin",
+      signal: controller.signal,
+    });
+
+    if (response.status === 401 && isProtectedAdminRequest(path)) {
+      expireAdminSession();
+    }
+    if (!response.ok) {
+      throw await readApiError(response, controller.signal);
+    }
+    return {
+      blob: await response.blob(),
+      filename: parseDownloadFilename(response.headers.get("Content-Disposition")),
+    };
+  } catch (error) {
+    if (timedOut && !signal?.aborted) {
+      throw new Error("request timed out", { cause: error });
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
 function expireAdminSession() {
   setAdminCsrfToken(null);
   window.dispatchEvent(new Event(ADMIN_SESSION_EXPIRED_EVENT));
@@ -151,4 +210,9 @@ function isAbortError(error: unknown) {
     "name" in error &&
     error.name === "AbortError"
   );
+}
+
+function parseDownloadFilename(value: string | null): string | null {
+  const match = value?.match(/filename="([A-Za-z0-9._-]+)"/i);
+  return match?.[1] ?? null;
 }

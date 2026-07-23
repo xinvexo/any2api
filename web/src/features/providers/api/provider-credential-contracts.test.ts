@@ -3,8 +3,6 @@ import { expect, test } from "vitest";
 import {
   parseProviderCredentialConfiguration,
   parseProviderCredentialTestResult,
-  parseProviderOAuthExchangeResult,
-  parseProviderOAuthStartResult,
 } from "./provider-credential-contracts";
 
 test("parses redacted credentials and rejects plaintext secret fields", () => {
@@ -31,55 +29,6 @@ test("rejects invalid concurrency and fingerprint versions", () => {
   expect(() =>
     parseProviderCredentialConfiguration(configuration({ fingerprint: "v2:0123456789abcdef" })),
   ).toThrow("invalid provider credential response");
-});
-
-test("parses OAuth credentials without exposing a secret tail", () => {
-  const parsed = parseProviderCredentialConfiguration(
-    configuration({ credential_kind: "oauth2", secret_tail: null }),
-  );
-  expect(parsed.items[0]).toMatchObject({
-    credentialKind: "oauth2",
-    secretTail: null,
-  });
-  expect(() =>
-    parseProviderCredentialConfiguration(
-      configuration({ credential_kind: "oauth2", secret_tail: "leak" }),
-    ),
-  ).toThrow("invalid provider credential response");
-});
-
-test("parses OAuth flow responses and rejects returned tokens", () => {
-  expect(
-    parseProviderOAuthStartResult({
-      session_id: "session-id",
-      authorization_url: "https://auth.example.com/authorize?state=opaque",
-      redirect_uri: "http://localhost:1455/auth/callback",
-      expires_in_seconds: 600,
-    }),
-  ).toMatchObject({ sessionId: "session-id", expiresInSeconds: 600 });
-  expect(
-    parseProviderOAuthExchangeResult({
-      config_revision: 4,
-      provider_endpoint_id: "1e96eff2-7b3f-4974-b013-8fd2f44c8c1f",
-      credential_id: "75072ca7-d922-428d-a4f8-86401567da32",
-      provider_kind: "codex",
-      account_id: "account-id",
-      email: "owner@example.com",
-      organization_id: null,
-    }),
-  ).toMatchObject({ providerKind: "codex", email: "owner@example.com" });
-  expect(() =>
-    parseProviderOAuthExchangeResult({
-      config_revision: 4,
-      provider_endpoint_id: "endpoint",
-      credential_id: "credential",
-      provider_kind: "codex",
-      account_id: null,
-      email: null,
-      organization_id: null,
-      access_token: "must-not-enter-the-cache",
-    }),
-  ).toThrow("invalid provider OAuth exchange response");
 });
 
 test("parses credential test outcomes and rejects inconsistent states", () => {

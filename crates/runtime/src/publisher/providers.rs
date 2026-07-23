@@ -7,11 +7,8 @@ use any2api_domain::{
 
 use super::ConfigPublisher;
 use crate::{
-    config_command::{ConfigCommand, execute},
-    config_publish_error::ConfigPublishError,
-    provider_api_key_secret::ProviderApiKeySecret,
-    provider_oauth2_secret::ProviderOAuth2Secret,
-    published_snapshot::PublishedSnapshot,
+    config_command::ConfigCommand, config_publish_error::ConfigPublishError,
+    provider_api_key_secret::ProviderApiKeySecret, published_snapshot::PublishedSnapshot,
 };
 
 impl ConfigPublisher {
@@ -75,34 +72,6 @@ impl ConfigPublisher {
         .await
     }
 
-    pub(crate) async fn create_provider_oauth_credential(
-        &self,
-        id: CredentialId,
-        endpoint_id: ProviderEndpointId,
-        expected_endpoint_config_version: u64,
-        draft: ProviderCredentialDraft,
-        oauth_secret: ProviderOAuth2Secret,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        let publisher = self.clone();
-        crate::publish_task::run(self.runtime.lifecycle(), async move {
-            let _guard = publisher.snapshots.acquire_publish().await;
-            let current = publisher.snapshots.load();
-            let expected = current.revision();
-            let command = ConfigCommand::CreateProviderOAuthCredential {
-                id,
-                endpoint_id,
-                expected_endpoint_config_version,
-                draft,
-                oauth_secret,
-            };
-            publisher.validate_command(current.as_ref(), &command)?;
-            let committed = execute(publisher.repository.as_ref(), expected, command).await?;
-            Ok(publisher.publish_committed(current, expected, committed))
-        })
-        .await
-        .ok_or(ConfigPublishError::ShuttingDown)?
-    }
-
     pub async fn update_provider_credential(
         &self,
         expected: ConfigRevision,
@@ -139,33 +108,6 @@ impl ConfigPublisher {
             },
         )
         .await
-    }
-
-    pub(crate) async fn refresh_provider_oauth_credential_secret(
-        &self,
-        id: CredentialId,
-        expected_secret_version: u64,
-        oauth_secret: ProviderOAuth2Secret,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        let publisher = self.clone();
-        crate::publish_task::run(self.runtime.lifecycle(), async move {
-            let _guard = publisher.snapshots.acquire_publish().await;
-            let current = publisher.snapshots.load();
-            let expected = current.revision();
-            let committed = execute(
-                publisher.repository.as_ref(),
-                expected,
-                ConfigCommand::RefreshProviderOAuthCredentialSecret {
-                    id,
-                    expected_secret_version,
-                    oauth_secret,
-                },
-            )
-            .await?;
-            Ok(publisher.publish_committed(current, expected, committed))
-        })
-        .await
-        .ok_or(ConfigPublishError::ShuttingDown)?
     }
 
     pub async fn delete_provider_credential(
@@ -217,9 +159,6 @@ impl ConfigPublisher {
                 )?
             }
             ConfigCommand::CreateProviderCredential {
-                endpoint_id, draft, ..
-            }
-            | ConfigCommand::CreateProviderOAuthCredential {
                 endpoint_id, draft, ..
             } => {
                 let endpoint = current

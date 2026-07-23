@@ -4,8 +4,7 @@ use any2api_domain::{
     SettingsValidationError,
 };
 use any2api_storage::api::{
-    ProviderApiKeyValidationError, ProviderOAuth2SecretValidationError,
-    ProxyPasswordValidationError, StorageError,
+    ProviderApiKeyValidationError, ProxyPasswordValidationError, StorageError,
 };
 use thiserror::Error;
 
@@ -64,10 +63,6 @@ pub enum ConfigPublishError {
     InvalidProviderCredential(ProviderCredentialValidationError),
     #[error("invalid provider API Key: {0}")]
     InvalidProviderApiKey(ProviderApiKeyValidationError),
-    #[error("invalid provider OAuth2 secret: {0}")]
-    InvalidProviderOAuth2Secret(ProviderOAuth2SecretValidationError),
-    #[error("provider credential kind does not match the secret operation")]
-    ProviderCredentialKindMismatch,
     #[error("gateway API Key was not found")]
     GatewayApiKeyNotFound,
     #[error("gateway API Key version conflict")]
@@ -125,10 +120,6 @@ impl From<StorageError> for ConfigPublishError {
                 Self::InvalidProviderCredential(error)
             }
             StorageError::ProviderApiKeyValidation(error) => Self::InvalidProviderApiKey(error),
-            StorageError::ProviderOAuth2SecretValidation(error) => {
-                Self::InvalidProviderOAuth2Secret(error)
-            }
-            StorageError::ProviderCredentialKindMismatch => Self::ProviderCredentialKindMismatch,
             StorageError::GatewayApiKeyNotFound(_) => Self::GatewayApiKeyNotFound,
             StorageError::GatewayApiKeyVersionConflict { .. } => Self::GatewayApiKeyVersionConflict,
             StorageError::GatewayApiKeyTokenVersionConflict { .. } => {

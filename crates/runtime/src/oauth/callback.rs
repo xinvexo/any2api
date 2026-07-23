@@ -1,27 +1,28 @@
 use subtle::ConstantTimeEq;
 use url::Url;
 
-use super::error::ProviderOAuthError;
+use super::error::OAuthError;
 
 const MAX_CALLBACK_URL_BYTES: usize = 16 * 1024;
 const MAX_AUTHORIZATION_CODE_BYTES: usize = 8 * 1024;
 
-pub(crate) struct OAuthCallback {
-    pub(crate) code: String,
+#[derive(Debug)]
+pub(super) struct OAuthCallback {
+    pub(super) code: String,
 }
 
-pub(crate) fn parse(
+pub(super) fn parse(
     value: &str,
     redirect_uri: &str,
     expected_state: &str,
-) -> Result<OAuthCallback, ProviderOAuthError> {
+) -> Result<OAuthCallback, OAuthError> {
     if value.is_empty() || value.len() > MAX_CALLBACK_URL_BYTES {
-        return Err(ProviderOAuthError::InvalidCallback);
+        return Err(OAuthError::InvalidCallback);
     }
-    let callback = Url::parse(value).map_err(|_| ProviderOAuthError::InvalidCallback)?;
-    let redirect = Url::parse(redirect_uri).map_err(|_| ProviderOAuthError::InvalidCallback)?;
+    let callback = Url::parse(value).map_err(|_| OAuthError::InvalidCallback)?;
+    let redirect = Url::parse(redirect_uri).map_err(|_| OAuthError::InvalidCallback)?;
     if !same_callback_target(&callback, &redirect) {
-        return Err(ProviderOAuthError::InvalidCallback);
+        return Err(OAuthError::InvalidCallback);
     }
 
     let mut code = None;
@@ -36,14 +37,14 @@ pub(crate) fn parse(
         }
     }
     if denied {
-        return Err(ProviderOAuthError::AuthorizationDenied);
+        return Err(OAuthError::AuthorizationDenied);
     }
-    let mut code = code.ok_or(ProviderOAuthError::InvalidCallback)?;
+    let mut code = code.ok_or(OAuthError::InvalidCallback)?;
     if let Some((plain_code, embedded_state)) = code.split_once('#') {
         if let Some(query_state) = state.as_deref()
             && query_state != embedded_state
         {
-            return Err(ProviderOAuthError::StateMismatch);
+            return Err(OAuthError::StateMismatch);
         }
         state = Some(embedded_state.to_owned());
         code = plain_code.to_owned();
@@ -54,11 +55,11 @@ pub(crate) fn parse(
         state = Some(fragment.to_owned());
     }
     if code.is_empty() || code.len() > MAX_AUTHORIZATION_CODE_BYTES {
-        return Err(ProviderOAuthError::InvalidCallback);
+        return Err(OAuthError::InvalidCallback);
     }
-    let state = state.ok_or(ProviderOAuthError::InvalidCallback)?;
+    let state = state.ok_or(OAuthError::InvalidCallback)?;
     if !constant_time_eq(state.as_bytes(), expected_state.as_bytes()) {
-        return Err(ProviderOAuthError::StateMismatch);
+        return Err(OAuthError::StateMismatch);
     }
     Ok(OAuthCallback { code })
 }

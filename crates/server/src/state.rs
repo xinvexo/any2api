@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use any2api_runtime::api::{
-    ConfigPublisher, ProviderCredentialTestService, ProviderOAuthService, ProxyTestService,
+    ConfigPublisher, OAuthService, ProviderCredentialTestService, ProxyTestService,
     PublicRequestService, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
 
@@ -13,9 +13,9 @@ pub struct AppState {
     runtime: Arc<RuntimeRegistry>,
     publisher: Arc<ConfigPublisher>,
     public_requests: Arc<PublicRequestService>,
+    oauth: Option<Arc<OAuthService>>,
     proxy_tests: Option<Arc<ProxyTestService>>,
     provider_credential_tests: Option<Arc<ProviderCredentialTestService>>,
-    provider_oauth: Option<Arc<ProviderOAuthService>>,
     admin_auth: Option<Arc<AdminAuthService>>,
     admin_network: Arc<AdminNetworkPolicy>,
     request_telemetry: Arc<RequestTelemetry>,
@@ -34,13 +34,19 @@ impl AppState {
             runtime,
             publisher,
             public_requests,
+            oauth: None,
             proxy_tests: None,
             provider_credential_tests: None,
-            provider_oauth: None,
             admin_auth: None,
             admin_network: Arc::new(AdminNetworkPolicy::default()),
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
         }
+    }
+
+    #[must_use]
+    pub fn with_oauth(mut self, oauth: Arc<OAuthService>) -> Self {
+        self.oauth = Some(oauth);
+        self
     }
 
     #[must_use]
@@ -55,12 +61,6 @@ impl AppState {
         tests: Arc<ProviderCredentialTestService>,
     ) -> Self {
         self.provider_credential_tests = Some(tests);
-        self
-    }
-
-    #[must_use]
-    pub fn with_provider_oauth(mut self, service: Arc<ProviderOAuthService>) -> Self {
-        self.provider_oauth = Some(service);
         self
     }
 
@@ -102,6 +102,11 @@ impl AppState {
     }
 
     #[must_use]
+    pub fn oauth(&self) -> Option<&OAuthService> {
+        self.oauth.as_deref()
+    }
+
+    #[must_use]
     pub fn proxy_tests(&self) -> Option<&ProxyTestService> {
         self.proxy_tests.as_deref()
     }
@@ -109,11 +114,6 @@ impl AppState {
     #[must_use]
     pub fn provider_credential_tests(&self) -> Option<&ProviderCredentialTestService> {
         self.provider_credential_tests.as_deref()
-    }
-
-    #[must_use]
-    pub fn provider_oauth(&self) -> Option<&ProviderOAuthService> {
-        self.provider_oauth.as_deref()
     }
 
     #[must_use]

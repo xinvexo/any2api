@@ -25,13 +25,9 @@ export function ProviderCredentialTableRow({
   onDelete,
 }: ProviderCredentialTableRowProps) {
   const proxyLabel = describeProxy(credential.proxyProfileId, proxies);
-  const secretLabel =
-    credential.credentialKind === "oauth2"
-      ? "OAuth2 · 已加密"
-      : credential.secretTail
-        ? `•••• ${credential.secretTail}`
-        : credential.fingerprint;
-  const kindLabel = credential.credentialKind === "oauth2" ? "OAuth2" : "API Key";
+  const secretLabel = credential.secretTail
+    ? `•••• ${credential.secretTail}`
+    : credential.fingerprint;
 
   return (
     <tr
@@ -51,7 +47,7 @@ export function ProviderCredentialTableRow({
         >
           <span className="min-w-0">{credential.label}</span>
           <span className="shrink-0 text-[11px] font-normal text-tertiary">
-            {kindLabel} · {credential.models.length} 个模型
+            API Key · {credential.models.length} 个模型
           </span>
         </p>
       </td>

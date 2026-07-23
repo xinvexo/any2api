@@ -358,17 +358,14 @@ fn codex_contract(driver: &dyn ProviderDriver) {
     );
     assert_eq!(
         driver
-            .credential_test_plan(&provider_base_url(), CredentialKind::ApiKey)
+            .credential_test_plan(&provider_base_url())
             .expect("Codex credential test plan")
             .url
             .as_str(),
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(
-            CredentialKind::ApiKey,
-            &ProviderSecret::new(1, "sk-codex-contract"),
-        )
+        .credential_headers(&ProviderSecret::new(1, "sk-codex-contract"))
         .expect("Codex credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-codex-contract");
 }
@@ -390,17 +387,14 @@ fn claude_contract(driver: &dyn ProviderDriver) {
     );
     assert_eq!(
         driver
-            .credential_test_plan(&provider_base_url(), CredentialKind::ApiKey)
+            .credential_test_plan(&provider_base_url())
             .expect("Claude credential test plan")
             .url
             .as_str(),
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(
-            CredentialKind::ApiKey,
-            &ProviderSecret::new(1, "sk-claude-contract"),
-        )
+        .credential_headers(&ProviderSecret::new(1, "sk-claude-contract"))
         .expect("Claude credential headers");
     assert_eq!(headers.headers["x-api-key"], "sk-claude-contract");
     assert_eq!(headers.headers["anthropic-version"], "2023-06-01");

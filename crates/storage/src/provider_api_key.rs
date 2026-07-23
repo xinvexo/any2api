@@ -5,7 +5,6 @@ use thiserror::Error;
 use crate::vault::{SecretBytes, SecretVault};
 
 const MAX_API_KEY_BYTES: usize = 8_192;
-const MAX_OAUTH2_SECRET_BYTES: usize = 65_536;
 
 pub(crate) fn build_fingerprint(
     vault: &SecretVault,
@@ -26,20 +25,6 @@ pub(crate) fn build_fingerprint(
     .map_err(|_| ProviderApiKeyValidationError::InvalidCharacters)
 }
 
-pub(crate) fn build_oauth2_fingerprint(
-    vault: &SecretVault,
-    provider_kind: ProviderKind,
-    secret: &SecretBytes,
-) -> Result<CredentialSecretFingerprint, ProviderOAuth2SecretValidationError> {
-    let value = secret.expose_secret();
-    validate_oauth2(value)?;
-    CredentialSecretFingerprint::new(
-        vault.credential_fingerprint(provider_kind, CredentialKind::OAuth2, secret),
-        None,
-    )
-    .map_err(|_| ProviderOAuth2SecretValidationError::InvalidEncoding)
-}
-
 pub(crate) fn validate(value: &[u8]) -> Result<(), ProviderApiKeyValidationError> {
     if value.is_empty() {
         return Err(ProviderApiKeyValidationError::Empty);
@@ -53,18 +38,6 @@ pub(crate) fn validate(value: &[u8]) -> Result<(), ProviderApiKeyValidationError
     Ok(())
 }
 
-pub(crate) fn validate_oauth2(value: &[u8]) -> Result<(), ProviderOAuth2SecretValidationError> {
-    if value.is_empty() {
-        return Err(ProviderOAuth2SecretValidationError::Empty);
-    }
-    if value.len() > MAX_OAUTH2_SECRET_BYTES {
-        return Err(ProviderOAuth2SecretValidationError::TooLong);
-    }
-    std::str::from_utf8(value)
-        .map(|_| ())
-        .map_err(|_| ProviderOAuth2SecretValidationError::InvalidEncoding)
-}
-
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum ProviderApiKeyValidationError {
     #[error("provider API Key must not be empty")]
@@ -73,16 +46,6 @@ pub enum ProviderApiKeyValidationError {
     TooLong,
     #[error("provider API Key must contain only visible ASCII characters")]
     InvalidCharacters,
-}
-
-#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
-pub enum ProviderOAuth2SecretValidationError {
-    #[error("provider OAuth2 secret must not be empty")]
-    Empty,
-    #[error("provider OAuth2 secret is too long")]
-    TooLong,
-    #[error("provider OAuth2 secret must be valid UTF-8")]
-    InvalidEncoding,
 }
 
 #[cfg(test)]

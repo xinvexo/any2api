@@ -46,7 +46,6 @@ export function ProviderCredentialEditor({
   onClose,
 }: ProviderCredentialEditorProps) {
   const editing = mode === "edit";
-  const editingOAuth = editing && credential?.credentialKind === "oauth2";
   const primaryRef = useRef<HTMLInputElement>(null);
   const [label, setLabel] = useState(credential?.label ?? "");
   const [proxyId, setProxyId] = useState(
@@ -78,7 +77,7 @@ export function ProviderCredentialEditor({
     if (sourceConflict) {
       return;
     }
-    const nextErrors = validate(mode, label, maxConcurrency, apiKey, editingOAuth);
+    const nextErrors = validate(mode, label, maxConcurrency, apiKey);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       return;
@@ -110,7 +109,7 @@ export function ProviderCredentialEditor({
             maxConcurrency: Number(maxConcurrency),
             enabled,
           },
-          apiKey: !editingOAuth && trimmedKey.length > 0 ? trimmedKey : undefined,
+          apiKey: trimmedKey.length > 0 ? trimmedKey : undefined,
         });
       }
     } catch {
@@ -169,33 +168,27 @@ export function ProviderCredentialEditor({
         />
       </Field>
 
-      {!editingOAuth ? (
-        <Field
-          label="API Key"
-          error={errors.apiKey}
-          htmlFor="credential-secret"
-        >
-          <input
-            id="credential-secret"
-            className={controlClass(Boolean(errors.apiKey))}
-            type="password"
-            value={apiKey}
-            disabled={pending || sourceConflict !== null}
-            autoComplete="new-password"
-            spellCheck={false}
-            placeholder={editing ? "留空则不修改" : undefined}
-            onChange={(event) => setApiKey(event.target.value)}
-          />
-        </Field>
-      ) : (
-        <p className="rounded-[8px] bg-surface-muted px-3 py-2 text-[13px] text-secondary">
-          OAuth Token 由服务自动刷新。如需更换账号，请删除此凭据后重新登录。
-        </p>
-      )}
+      <Field
+        label="API Key"
+        error={errors.apiKey}
+        htmlFor="credential-secret"
+      >
+        <input
+          id="credential-secret"
+          className={controlClass(Boolean(errors.apiKey))}
+          type="password"
+          value={apiKey}
+          disabled={pending || sourceConflict !== null}
+          autoComplete="new-password"
+          spellCheck={false}
+          placeholder={editing ? "留空则不修改" : undefined}
+          onChange={(event) => setApiKey(event.target.value)}
+        />
+      </Field>
 
       <div className="flex items-center justify-between gap-4">
         <p id="credential-enabled-label" className="text-[13px] font-medium">
-          启用此凭据
+          启用此 API Key
         </p>
         <Switch
           id="credential-enabled"
@@ -220,13 +213,7 @@ export function ProviderCredentialEditor({
   );
 }
 
-function validate(
-  mode: "create" | "edit",
-  label: string,
-  concurrency: string,
-  apiKey: string,
-  editingOAuth: boolean,
-) {
+function validate(mode: "create" | "edit", label: string, concurrency: string, apiKey: string) {
   const errors: Record<string, string> = {};
   if (label.trim() !== label || label.length === 0) {
     errors.label = "名称不能为空，且首尾不能包含空格";
@@ -239,7 +226,7 @@ function validate(
     if (!validApiKey(apiKey)) {
       errors.apiKey = "API Key 必须为 1 到 8192 个可见 ASCII 字符";
     }
-  } else if (!editingOAuth && apiKey.trim().length > 0 && !validApiKey(apiKey.trim())) {
+  } else if (apiKey.trim().length > 0 && !validApiKey(apiKey.trim())) {
     errors.apiKey = "API Key 必须为 1 到 8192 个可见 ASCII 字符";
   }
   return errors;

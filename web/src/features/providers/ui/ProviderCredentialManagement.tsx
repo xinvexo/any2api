@@ -13,7 +13,6 @@ import type { CredentialEditorSubmission } from "./ProviderCredentialEditor";
 import { CredentialEditorSlot } from "./CredentialEditorSlot";
 import { ProviderCredentialList } from "./ProviderCredentialList";
 import { ProviderCredentialModels } from "./ProviderCredentialModels";
-import { ProviderOAuthLogin } from "./ProviderOAuthLogin";
 import { useCredentialProxyOptions } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -46,7 +45,6 @@ export function ProviderCredentialManagement({
   const activeEndpointId = searchParams.get("keys");
   const editorId = searchParams.get("credential");
   const editorAction = searchParams.get("action");
-  const oauthMode = editorAction === "oauth" && editorId === "oauth";
   const isActiveEndpoint = activeEndpointId === endpoint.id;
   const mode = editorId === "new" ? "create" : "edit";
   const selected =
@@ -79,20 +77,6 @@ export function ProviderCredentialManagement({
         next.set("keys", endpoint.id);
         next.set("credential", id);
         next.set("action", "models");
-        return next;
-      },
-      { replace: true },
-    );
-  }
-
-  function openOAuth() {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.delete("editor");
-        next.set("keys", endpoint.id);
-        next.set("credential", "oauth");
-        next.set("action", "oauth");
         return next;
       },
       { replace: true },
@@ -259,13 +243,7 @@ export function ProviderCredentialManagement({
     );
   }
 
-  const drawerTitle = oauthMode
-    ? "OAuth 登录"
-    : mode === "create"
-      ? "新增 API Key"
-      : selected?.credentialKind === "oauth2"
-        ? "编辑 OAuth 凭据"
-        : "编辑 API Key";
+  const drawerTitle = mode === "create" ? "新增 API Key" : "编辑 API Key";
 
   return (
     <div aria-busy={pending || credentials.isFetching || proxies.isFetching}>
@@ -296,7 +274,6 @@ export function ProviderCredentialManagement({
           actionError={mutations.remove.error}
           embedded={embedded}
           onCreate={() => openEditor("new")}
-          onOAuth={openOAuth}
           onRefresh={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
           onEdit={(id) => openEditor(id)}
           onModels={openModels}
@@ -308,28 +285,11 @@ export function ProviderCredentialManagement({
         open={editorOpen}
         title={modelMode ? "选择上游模型" : drawerTitle}
         description={
-          oauthMode
-            ? "使用上游账号授权并创建加密凭据"
-            : modelMode
-              ? "拉取并保存这份凭据可用的模型"
-              : "绑定出口代理与并发限制"
+          modelMode ? "拉取并保存这把 API Key 可用的模型" : "绑定出口代理与并发限制"
         }
         onClose={() => closeEditor(editorId)}
       >
-        {editorOpen && oauthMode ? (
-          <ProviderOAuthLogin
-            key={`${endpoint.id}:${configuration.configRevision}`}
-            endpoint={endpoint}
-            configRevision={configuration.configRevision}
-            proxies={proxies.data}
-            onComplete={async (result) => {
-              await credentials.refetch();
-              onRevealList?.();
-              openModels(result.credentialId);
-            }}
-            onClose={() => closeEditor(editorId)}
-          />
-        ) : editorOpen && editorId && modelMode && selected ? (
+        {editorOpen && editorId && modelMode && selected ? (
           <ProviderCredentialModels
             key={`${selected.id}:${selected.configVersion}`}
             credential={selected}

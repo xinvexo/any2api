@@ -89,6 +89,5 @@ pub(crate) const fn provider_kind_code(kind: ProviderKind) -> u8 {
 pub(crate) const fn credential_kind_code(kind: CredentialKind) -> u8 {
     match kind {
         CredentialKind::ApiKey => 1,
-        CredentialKind::OAuth2 => 2,
     }
 }

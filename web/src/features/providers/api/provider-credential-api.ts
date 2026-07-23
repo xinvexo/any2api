@@ -7,14 +7,8 @@ import {
   type ProviderCredentialTestResult,
   type ProviderCredentialModelsInput,
   type ProviderCredentialUpdateInput,
-  type ProviderOAuthExchangeInput,
-  type ProviderOAuthExchangeResult,
-  type ProviderOAuthStartInput,
-  type ProviderOAuthStartResult,
   parseProviderCredentialConfiguration,
   parseProviderCredentialTestResult,
-  parseProviderOAuthExchangeResult,
-  parseProviderOAuthStartResult,
 } from "./provider-credential-contracts";
 
 const endpointCollection = "/api/admin/provider-endpoints";
@@ -111,40 +105,4 @@ export function deleteProviderCredential(
     `${credentialCollection}/${encodeURIComponent(id)}?${query.toString()}`,
     { method: "DELETE" },
   ).then(parseProviderCredentialConfiguration);
-}
-
-export function startProviderOAuth(
-  endpointId: string,
-  input: ProviderOAuthStartInput,
-): Promise<ProviderOAuthStartResult> {
-  return requestJson<unknown>(
-    `${endpointCollection}/${encodeURIComponent(endpointId)}/oauth/start`,
-    {
-      method: "POST",
-      body: {
-        expected_revision: input.expectedRevision,
-        label: input.label,
-        proxy_profile_id: input.proxyProfileId,
-        max_concurrency: input.maxConcurrency,
-        enabled: input.enabled,
-      },
-    },
-  ).then(parseProviderOAuthStartResult);
-}
-
-export function exchangeProviderOAuth(
-  endpointId: string,
-  input: ProviderOAuthExchangeInput,
-): Promise<ProviderOAuthExchangeResult> {
-  return requestJson<unknown>(
-    `${endpointCollection}/${encodeURIComponent(endpointId)}/oauth/exchange`,
-    {
-      method: "POST",
-      timeoutMs: 30_000,
-      body: {
-        session_id: input.sessionId,
-        callback_url: input.callbackUrl,
-      },
-    },
-  ).then(parseProviderOAuthExchangeResult);
 }

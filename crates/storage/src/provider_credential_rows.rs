@@ -10,7 +10,7 @@ use subtle::ConstantTimeEq;
 
 use crate::{
     error::StorageError,
-    provider_api_key::{build_fingerprint, build_oauth2_fingerprint},
+    provider_api_key::build_fingerprint,
     provider_credential_secret_material::{
         StoredProviderCredentialSecret, StoredProviderCredentialSecrets,
     },
@@ -212,12 +212,7 @@ fn open_and_verify_secret(
         ),
         &envelope,
     )?;
-    let computed = match credential.credential_kind() {
-        CredentialKind::ApiKey => {
-            build_fingerprint(vault, provider_kind, CredentialKind::ApiKey, &secret)?
-        }
-        CredentialKind::OAuth2 => build_oauth2_fingerprint(vault, provider_kind, &secret)?,
-    };
+    let computed = build_fingerprint(vault, provider_kind, credential.credential_kind(), &secret)?;
     if !bool::from(computed.digest().ct_eq(credential.fingerprint().digest()))
         || computed.tail() != credential.fingerprint().tail()
     {
@@ -233,7 +228,6 @@ fn parse_version(value: i64) -> Result<u64, StorageError> {
 fn parse_credential_kind(value: &str) -> Result<CredentialKind, StorageError> {
     match value {
         "api_key" => Ok(CredentialKind::ApiKey),
-        "oauth2" => Ok(CredentialKind::OAuth2),
         _ => Err(StorageError::CorruptConfiguration),
     }
 }

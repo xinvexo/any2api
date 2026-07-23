@@ -1,7 +1,7 @@
 use any2api_domain::{
-    CredentialId, CredentialKind, ModelRouteConfiguration, ProviderCredential,
-    ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderCredentialValidationError,
-    ProviderEndpointConfiguration, ProviderEndpointId, ProxyConfiguration,
+    CredentialId, ModelRouteConfiguration, ProviderCredential, ProviderCredentialConfiguration,
+    ProviderCredentialDraft, ProviderCredentialValidationError, ProviderEndpointConfiguration,
+    ProviderEndpointId, ProxyConfiguration,
 };
 
 use crate::{
@@ -15,9 +15,7 @@ pub(crate) enum ProviderCredentialMutation {
         id: CredentialId,
         endpoint_id: ProviderEndpointId,
         draft: ProviderCredentialDraft,
-        expected_endpoint_config_version: Option<u64>,
-        expected_kind: CredentialKind,
-        secret: SecretBytes,
+        api_key: SecretBytes,
     },
     Update {
         id: CredentialId,
@@ -26,10 +24,9 @@ pub(crate) enum ProviderCredentialMutation {
     },
     RotateSecret {
         id: CredentialId,
-        expected_config_version: Option<u64>,
+        expected_config_version: u64,
         expected_secret_version: u64,
-        expected_kind: CredentialKind,
-        secret: SecretBytes,
+        api_key: SecretBytes,
     },
     SetModels {
         id: CredentialId,
@@ -105,19 +102,8 @@ pub(crate) fn prepare_provider_credential_mutation(
             id,
             endpoint_id,
             draft,
-            expected_endpoint_config_version,
-            expected_kind,
-            secret,
-        } => create(
-            &secret_context,
-            id,
-            endpoint_id,
-            draft,
-            expected_endpoint_config_version,
-            expected_kind,
-            secret,
-        )
-        .map(Some),
+            api_key,
+        } => create(&secret_context, id, endpoint_id, draft, api_key).map(Some),
         ProviderCredentialMutation::Update {
             id,
             expected_config_version,
@@ -134,16 +120,14 @@ pub(crate) fn prepare_provider_credential_mutation(
             id,
             expected_config_version,
             expected_secret_version,
-            expected_kind,
-            secret,
+            api_key,
         } => {
             let prepared = rotate_secret(
                 &secret_context,
                 id,
                 expected_config_version,
                 expected_secret_version,
-                expected_kind,
-                secret,
+                api_key,
             )?;
             let routes =
                 ModelRouteConfiguration::from_credentials(&prepared.configuration, endpoints)?;

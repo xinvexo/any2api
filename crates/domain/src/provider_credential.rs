@@ -8,7 +8,6 @@ use crate::{
 const MAX_CREDENTIAL_LABEL_CHARS: usize = 100;
 const MAX_CREDENTIAL_VERSION: u64 = u32::MAX as u64;
 pub const API_KEY_SECRET_SCHEMA_VERSION: u32 = 1;
-pub const OAUTH2_SECRET_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderCredentialDraft {
@@ -86,13 +85,12 @@ impl ProviderCredential {
         draft: ProviderCredentialDraft,
         fingerprint: CredentialSecretFingerprint,
     ) -> Self {
-        let credential_kind = draft.credential_kind();
         Self::from_parts(
             id,
             provider_endpoint_id,
             draft,
             fingerprint,
-            secret_schema_version(credential_kind),
+            API_KEY_SECRET_SCHEMA_VERSION,
             1,
             1,
             1,
@@ -112,7 +110,7 @@ impl ProviderCredential {
         config_version: u64,
         models: Vec<String>,
     ) -> Result<Self, ProviderCredentialValidationError> {
-        if secret_schema_version != secret_schema_version_for_kind(draft.credential_kind())
+        if secret_schema_version != API_KEY_SECRET_SCHEMA_VERSION
             || !valid_version(secret_version)
             || !valid_version(credential_generation)
             || !valid_version(config_version)
@@ -136,9 +134,6 @@ impl ProviderCredential {
         &self,
         draft: ProviderCredentialDraft,
     ) -> Result<Self, ProviderCredentialValidationError> {
-        if self.credential_kind != draft.credential_kind() {
-            return Err(ProviderCredentialValidationError::CredentialKindImmutable);
-        }
         if self.matches_draft(&draft) {
             return Ok(self.clone());
         }
@@ -186,19 +181,6 @@ impl ProviderCredential {
             credential_generation: next_version(self.credential_generation)?,
             config_version: next_version(self.config_version)?,
             models: Vec::new(),
-            ..self.clone()
-        })
-    }
-
-    pub fn refreshed(
-        &self,
-        fingerprint: CredentialSecretFingerprint,
-    ) -> Result<Self, ProviderCredentialValidationError> {
-        Ok(Self {
-            fingerprint,
-            secret_version: next_version(self.secret_version)?,
-            credential_generation: next_version(self.credential_generation)?,
-            config_version: next_version(self.config_version)?,
             ..self.clone()
         })
     }
@@ -337,8 +319,6 @@ pub enum ProviderCredentialValidationError {
     DuplicateId,
     #[error("credential label is duplicated for this endpoint")]
     DuplicateLabel,
-    #[error("credential kind cannot be changed")]
-    CredentialKindImmutable,
     #[error("credential model name is invalid: {0}")]
     InvalidModel(ModelNameValidationError),
     #[error("credential model is duplicated")]
@@ -376,17 +356,6 @@ fn validate_models(
         return Err(ProviderCredentialValidationError::DuplicateModel);
     }
     Ok(models)
-}
-
-pub const fn secret_schema_version(kind: CredentialKind) -> u32 {
-    secret_schema_version_for_kind(kind)
-}
-
-const fn secret_schema_version_for_kind(kind: CredentialKind) -> u32 {
-    match kind {
-        CredentialKind::ApiKey => API_KEY_SECRET_SCHEMA_VERSION,
-        CredentialKind::OAuth2 => OAUTH2_SECRET_SCHEMA_VERSION,
-    }
 }
 
 const fn valid_version(value: u64) -> bool {
