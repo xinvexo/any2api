@@ -25,6 +25,7 @@ test("creates a gateway key and keeps the plaintext available in the table for t
             revoked_at: null,
             created_at: "2026-07-19 10:00:00",
             last_used_at: null,
+            usage: usage(),
           },
         ],
         token,
@@ -82,6 +83,17 @@ test("renders keys in a table-style list without rotate or prefix columns", asyn
           revoked_at: null,
           created_at: "2026-07-19 10:00:00",
           last_used_at: null,
+          usage: usage({
+            total_requests: 177,
+            successful_requests: 134,
+            failed_requests: 43,
+            recent_outcomes: [
+              { status_code: 200 },
+              { status_code: 429 },
+              { status_code: 204 },
+              { status_code: 503 },
+            ],
+          }),
         },
       ],
     }),
@@ -109,6 +121,10 @@ test("renders keys in a table-style list without rotate or prefix columns", asyn
   expect(screen.queryByRole("button", { name: /撤销/ })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除 Desktop" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "新增密钥" })).toBeInTheDocument();
+  expect(screen.getByText("成功: 134")).toBeInTheDocument();
+  expect(screen.getByText("失败: 43")).toBeInTheDocument();
+  expect(screen.getByText("75.7%")).toBeInTheDocument();
+  expect(screen.getByRole("img", { name: /Desktop 最近 4 次调用/ })).toBeInTheDocument();
 });
 
 test("regenerates the key from the edit drawer and keeps plaintext in the table", async () => {
@@ -127,6 +143,7 @@ test("regenerates the key from the edit drawer and keeps plaintext in the table"
         revoked_at: null,
         created_at: "2026-07-19 10:00:00",
         last_used_at: null,
+        usage: usage(),
       },
     ],
   };
@@ -146,6 +163,7 @@ test("regenerates the key from the edit drawer and keeps plaintext in the table"
             revoked_at: null,
             created_at: "2026-07-19 10:00:00",
             last_used_at: null,
+            usage: usage(),
           },
         ],
         token: newToken,
@@ -195,4 +213,14 @@ function jsonResponse(value: unknown) {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function usage(overrides: Record<string, unknown> = {}) {
+  return {
+    total_requests: 0,
+    successful_requests: 0,
+    failed_requests: 0,
+    recent_outcomes: [],
+    ...overrides,
+  };
 }

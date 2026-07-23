@@ -10,7 +10,9 @@ use any2api_domain::{
     CompletedRequestLog, ConfigRevision, GatewayApiKeyId, LoggingSettings,
     MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
 };
-use any2api_storage::api::{GatewayApiKeyUsageRepository, RequestLogRepository, StorageError};
+use any2api_storage::api::{
+    GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary, RequestLogRepository, StorageError,
+};
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use super::{
@@ -206,6 +208,13 @@ impl RequestTelemetry {
         match &self.request_logs {
             Some(repository) => repository.get_request_log(request_id).await,
             None => Ok(None),
+        }
+    }
+
+    pub async fn gateway_key_usage(&self) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {
+        match &self.gateway_usage_repository {
+            Some(repository) => repository.list_gateway_api_key_usage().await,
+            None => Ok(Vec::new()),
         }
     }
 

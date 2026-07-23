@@ -1,7 +1,7 @@
 import { Check, Copy, Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
+import type { GatewayApiKey, GatewayApiKeyUsage } from "../api/gateway-api-key-contracts";
 import { cn } from "@/shared/lib/cn";
 
 export interface GatewayApiKeyTableRowProps {
@@ -70,6 +70,9 @@ export function GatewayApiKeyTableRow({
         )}
       </td>
       <td className="px-3 py-2.5 align-middle">
+        <UsageStats name={apiKey.name} usage={apiKey.usage} />
+      </td>
+      <td className="px-3 py-2.5 align-middle">
         <Status apiKey={apiKey} />
       </td>
       <td className="px-3 py-2.5 align-middle text-secondary tabular-nums">
@@ -101,6 +104,69 @@ export function GatewayApiKeyTableRow({
       </td>
     </tr>
   );
+}
+
+function UsageStats({ name, usage }: { name: string; usage: GatewayApiKeyUsage }) {
+  const rate = usage.totalRequests
+    ? Math.round((usage.successfulRequests / usage.totalRequests) * 1_000) / 10
+    : null;
+  const outcomes = usage.recentOutcomes;
+  const outcomeLabel = outcomes
+    .map((outcome) => (isSuccess(outcome.statusCode) ? "成功" : `失败 ${outcome.statusCode}`))
+    .join("、");
+
+  return (
+    <div className="min-w-[180px] space-y-1.5">
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px] tabular-nums">
+        <span className="rounded-md bg-success/10 px-1.5 py-0.5 font-medium text-success">
+          成功: {formatCount(usage.successfulRequests)}
+        </span>
+        <span className="rounded-md bg-danger/10 px-1.5 py-0.5 font-medium text-danger">
+          失败: {formatCount(usage.failedRequests)}
+        </span>
+      </div>
+      {rate === null ? (
+        <p className="text-[11px] text-tertiary">暂无调用</p>
+      ) : (
+        <div className="flex items-center gap-2">
+          <div
+            className="flex min-w-0 flex-1 items-center gap-[3px]"
+            role="img"
+            aria-label={`${name} 最近 ${outcomes.length} 次调用：${outcomeLabel || "暂无结果"}`}
+          >
+            {outcomes.map((outcome, index) => (
+              <span
+                key={`${outcome.statusCode}-${index}`}
+                className={`block size-[4px] shrink-0 rounded-[1px] ${outcomeTone(outcome.statusCode)}`}
+                title={`HTTP ${outcome.statusCode}`}
+              />
+            ))}
+          </div>
+          <span className="shrink-0 rounded-md bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-danger">
+            {rate.toFixed(1)}%
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat("zh-CN").format(value);
+}
+
+function isSuccess(statusCode: number) {
+  return statusCode >= 200 && statusCode < 300;
+}
+
+function outcomeTone(statusCode: number) {
+  if (isSuccess(statusCode)) {
+    return "bg-success";
+  }
+  if (statusCode >= 400 && statusCode < 500) {
+    return "bg-warning";
+  }
+  return "bg-danger";
 }
 
 function maskToken(token: string) {

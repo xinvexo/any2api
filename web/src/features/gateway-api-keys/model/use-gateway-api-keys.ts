@@ -7,5 +7,6 @@ export function useGatewayApiKeys() {
   return useQuery({
     queryKey: gatewayApiKeyQueryKeys.list(),
     queryFn: ({ signal }) => listGatewayApiKeys(signal),
+    refetchInterval: 5_000,
   });
 }

@@ -4,7 +4,8 @@ pub use crate::configuration_repository::ConfigurationRepository;
 pub use crate::error::StorageError;
 pub use crate::gateway_api_key_repository::GatewayApiKeyRepository;
 pub use crate::gateway_api_key_usage_repository::{
-    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository,
+    GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT, GatewayApiKeyLastUsedUpdate, GatewayApiKeyRequestOutcome,
+    GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
 };
 pub use crate::gateway_api_key_verifier::GatewayApiKeyVerifier;
 pub use crate::provider_api_key::ProviderApiKeyValidationError;

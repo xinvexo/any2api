@@ -8,6 +8,18 @@ export interface GatewayApiKey {
   revokedAt: string | null;
   createdAt: string;
   lastUsedAt: string | null;
+  usage: GatewayApiKeyUsage;
+}
+
+export interface GatewayApiKeyUsage {
+  totalRequests: number;
+  successfulRequests: number;
+  failedRequests: number;
+  recentOutcomes: GatewayApiKeyRequestOutcome[];
+}
+
+export interface GatewayApiKeyRequestOutcome {
+  statusCode: number;
 }
 
 export interface GatewayApiKeyConfiguration {
@@ -87,7 +99,41 @@ function parseGatewayApiKey(value: unknown): GatewayApiKey {
     revokedAt: readNullableString(value.revoked_at),
     createdAt: readString(value.created_at),
     lastUsedAt: readNullableString(value.last_used_at),
+    usage: parseGatewayApiKeyUsage(value.usage),
   };
+}
+
+function parseGatewayApiKeyUsage(value: unknown): GatewayApiKeyUsage {
+  if (!isRecord(value) || !Array.isArray(value.recent_outcomes)) {
+    throw new Error("invalid gateway API Key response");
+  }
+  const totalRequests = readNonNegativeInteger(value.total_requests);
+  const successfulRequests = readNonNegativeInteger(value.successful_requests);
+  const failedRequests = readNonNegativeInteger(value.failed_requests);
+  if (
+    successfulRequests > totalRequests ||
+    failedRequests > totalRequests ||
+    successfulRequests + failedRequests !== totalRequests
+  ) {
+    throw new Error("invalid gateway API Key response");
+  }
+  return {
+    totalRequests,
+    successfulRequests,
+    failedRequests,
+    recentOutcomes: value.recent_outcomes.map(parseGatewayApiKeyRequestOutcome),
+  };
+}
+
+function parseGatewayApiKeyRequestOutcome(value: unknown): GatewayApiKeyRequestOutcome {
+  if (!isRecord(value)) {
+    throw new Error("invalid gateway API Key response");
+  }
+  const statusCode = readNonNegativeInteger(value.status_code);
+  if (statusCode < 100 || statusCode > 599) {
+    throw new Error("invalid gateway API Key response");
+  }
+  return { statusCode };
 }
 
 function isGatewayToken(value: string) {
@@ -122,6 +168,13 @@ function readNullableString(value: unknown): string | null {
 
 function readPositiveInteger(value: unknown): number {
   if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+    throw new Error("invalid gateway API Key response");
+  }
+  return Number(value);
+}
+
+function readNonNegativeInteger(value: unknown): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
     throw new Error("invalid gateway API Key response");
   }
   return Number(value);

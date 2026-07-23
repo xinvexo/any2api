@@ -19,7 +19,7 @@ use super::{
 };
 
 pub(crate) async fn list(State(state): State<AppState>) -> Response {
-    response(&state, &state.snapshots().load())
+    response(&state, &state.snapshots().load()).await
 }
 
 pub(crate) async fn create(
@@ -31,9 +31,11 @@ pub(crate) async fn create(
         .publisher()
         .create_gateway_api_key(expected, GatewayApiKeyId::new(), draft)
         .await?;
+    let usage = usage(&state).await;
     Ok(no_store::json(GatewayApiKeySecretResponse::from_publish(
         &published,
         state.request_telemetry(),
+        &usage,
     )))
 }
 
@@ -48,7 +50,7 @@ pub(crate) async fn update(
         .publisher()
         .update_gateway_api_key(expected, id, expected_config_version, draft)
         .await?;
-    Ok(response(&state, &snapshot))
+    Ok(response_for_snapshot(&state, &snapshot).await)
 }
 
 pub(crate) async fn rotate(
@@ -68,9 +70,11 @@ pub(crate) async fn rotate(
             expected_token_version,
         )
         .await?;
+    let usage = usage(&state).await;
     Ok(no_store::json(GatewayApiKeySecretResponse::from_publish(
         &published,
         state.request_telemetry(),
+        &usage,
     )))
 }
 
@@ -85,14 +89,36 @@ pub(crate) async fn revoke(
         .publisher()
         .revoke_gateway_api_key(expected, id, expected_config_version)
         .await?;
-    Ok(response(&state, &snapshot))
+    Ok(response_for_snapshot(&state, &snapshot).await)
 }
 
-fn response(state: &AppState, snapshot: &any2api_runtime::api::PublishedSnapshot) -> Response {
+async fn response(
+    state: &AppState,
+    snapshot: &any2api_runtime::api::PublishedSnapshot,
+) -> Response {
+    response_for_snapshot(state, snapshot).await
+}
+
+async fn response_for_snapshot(
+    state: &AppState,
+    snapshot: &any2api_runtime::api::PublishedSnapshot,
+) -> Response {
+    let usage = usage(state).await;
     no_store::json(GatewayApiKeyCollectionResponse::from_snapshot(
         snapshot,
         state.request_telemetry(),
+        &usage,
     ))
+}
+
+async fn usage(state: &AppState) -> Vec<any2api_runtime::api::GatewayApiKeyUsageSummary> {
+    match state.request_telemetry().gateway_key_usage().await {
+        Ok(usage) => usage,
+        Err(error) => {
+            tracing::warn!(%error, "gateway API Key usage statistics unavailable");
+            Vec::new()
+        }
+    }
 }
 
 fn parse_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, AdminApiError> {

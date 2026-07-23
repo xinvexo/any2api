@@ -1,12 +1,12 @@
 # any2api 实施状态
 
-> 最后更新：2026-07-22
+> 最后更新：2026-07-23
 > 用途：简要记录已经完成的代码、当前边界和下一步顺序。架构真相仍以根目录 `ARCHITECTURE.md` 为准。
 
 ## 当前状态
 
-- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E、管理员凭据维护、有界优雅停机、单二进制 Web 资源、Gateway Key 使用时间与 ProviderCredential 连通性测试切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
-- 最近完成：GatewayApiKey `last_used_at` 已通过统一有界遥测队列节流落库；ProviderCredential 管理测试使用当前 generation、实际代理与 Provider `/models`，2xx 可清除该 generation 的 `auth_error`。
+- 当前阶段：阶段 4 可靠性、RequestLog 生命周期、精确 Token 遥测、运行态负载均衡观察页、统一浏览器 E2E、管理员凭据维护、有界优雅停机、单二进制 Web 资源、Gateway Key 使用时间与调用统计、ProviderCredential 连通性测试切片已经完成；API Key 首版主链可运行，OAuth2 仍待后续阶段实现。
+- 最近完成：GatewayApiKey `last_used_at` 与按 Key 聚合的成功/失败调用统计已通过统一遥测与 RequestLog 查询接入管理面；ProviderCredential 管理测试使用当前 generation、实际代理与 Provider `/models`，2xx 可清除该 generation 的 `auth_error`。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -178,6 +178,7 @@
 - `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
 - 公开鉴权成功后立即更新进程内 `last_used_at`，并按每把 Key 最多每 60 秒一次进入现有有界遥测队列；SQLite 写入不推进配置 revision、不阻塞数据面，队列满时按遥测语义丢弃并计数。
 - 管理列表合并 PublishedSnapshot 中的持久值与当前进程内最新值，因此成功请求后无需发布新配置即可立即显示最后使用时间；重启后继续读取 SQLite 已落库值。
+- Gateway Key 管理列表从保留 RequestLog 按 `gateway_api_key_id` 聚合总请求、2xx 成功、非 2xx 失败和最近 24 次状态码；Web 以成功/失败徽标、彩色结果点和成功率展示，统计不参与权限、配额、计费或路由。
 - React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、撤销、deep link、响应式布局和一次性回执；明文 Token 不进入 Query/Mutation Cache、URL、Storage 或普通 DTO。
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本、缓存脱敏、节流、单调落库和即时管理可见性。
 

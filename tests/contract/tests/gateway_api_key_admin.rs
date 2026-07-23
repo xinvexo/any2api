@@ -59,6 +59,15 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     assert_eq!(listed.status, StatusCode::OK);
     assert!(!listed.body.to_string().contains(&first_token));
     assert!(!listed.body.to_string().contains("\"token\""));
+    assert_eq!(listed.body["items"][0]["usage"]["total_requests"], 0);
+    assert_eq!(listed.body["items"][0]["usage"]["successful_requests"], 0);
+    assert_eq!(listed.body["items"][0]["usage"]["failed_requests"], 0);
+    assert_eq!(
+        listed.body["items"][0]["usage"]["recent_outcomes"]
+            .as_array()
+            .map(Vec::len),
+        Some(0)
+    );
 
     let missing = request_json(app.clone(), Method::GET, "/v1/models", None, loopback, &[]).await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);

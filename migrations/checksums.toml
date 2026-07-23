@@ -11,3 +11,4 @@
 "0010_proxy_authentication.sql" = "2cf3a5de1bb0569ff21b9e1115c6b063df3c72be9d676f09b2131c7841f76460"
 "0011_provider_credential_models.sql" = "3484a1fd12a5cb84a5a68e341730461d1be1686698d4d17e084a9a3b76105ad0"
 "0012_provider_endpoint_url_authority.sql" = "0edf8149f8dbb6247391958dc43cbb2653f7df5f59a9ec0c5be855f4c4f46e8c"
+"0013_gateway_api_key_usage_index.sql" = "f2e340d61716bc12b1dad64ce56ef212a1cfa8ad54b19f5d33f418bbb9582f1f"

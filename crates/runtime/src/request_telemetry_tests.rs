@@ -8,7 +8,8 @@ use any2api_domain::{
     RequestId, RequestLog, SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
-    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, RequestLogRepository, StorageError,
+    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
+    RequestLogRepository, StorageError,
 };
 use async_trait::async_trait;
 use tokio::sync::Notify;
@@ -172,6 +173,12 @@ impl GatewayApiKeyUsageRepository for BlockingRepository {
             .expect("usage updates")
             .push(updates.to_vec());
         Ok(())
+    }
+
+    async fn list_gateway_api_key_usage(
+        &self,
+    ) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {
+        Ok(Vec::new())
     }
 }
 

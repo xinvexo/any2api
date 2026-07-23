@@ -1,5 +1,7 @@
 use any2api_domain::{ConfigRevision, GatewayApiKey, GatewayApiKeyDraft, GatewayApiKeyId};
-use any2api_runtime::api::{GatewayApiKeyPublishResult, PublishedSnapshot, RequestTelemetry};
+use any2api_runtime::api::{
+    GatewayApiKeyPublishResult, GatewayApiKeyUsageSummary, PublishedSnapshot, RequestTelemetry,
+};
 use serde::{Deserialize, Serialize};
 
 use super::{error::AdminApiError, revision::parse_revision};
@@ -14,6 +16,7 @@ impl GatewayApiKeyCollectionResponse {
     pub(crate) fn from_snapshot(
         snapshot: &PublishedSnapshot,
         telemetry: &RequestTelemetry,
+        usage: &[GatewayApiKeyUsageSummary],
     ) -> Self {
         Self {
             config_revision: snapshot.revision().get(),
@@ -21,7 +24,13 @@ impl GatewayApiKeyCollectionResponse {
                 .gateway_api_keys()
                 .keys()
                 .iter()
-                .map(|key| GatewayApiKeyResponse::new(key, telemetry))
+                .map(|key| {
+                    GatewayApiKeyResponse::new(
+                        key,
+                        telemetry,
+                        usage.iter().find(|summary| summary.id == key.id()),
+                    )
+                })
                 .collect(),
         }
     }
@@ -38,9 +47,10 @@ impl GatewayApiKeySecretResponse {
     pub(crate) fn from_publish(
         result: &GatewayApiKeyPublishResult,
         telemetry: &RequestTelemetry,
+        usage: &[GatewayApiKeyUsageSummary],
     ) -> Self {
         let configuration =
-            GatewayApiKeyCollectionResponse::from_snapshot(result.snapshot(), telemetry);
+            GatewayApiKeyCollectionResponse::from_snapshot(result.snapshot(), telemetry, usage);
         Self {
             config_revision: configuration.config_revision,
             items: configuration.items,
@@ -60,10 +70,15 @@ struct GatewayApiKeyResponse {
     revoked_at: Option<String>,
     created_at: String,
     last_used_at: Option<String>,
+    usage: GatewayApiKeyUsageResponse,
 }
 
 impl GatewayApiKeyResponse {
-    fn new(key: &GatewayApiKey, telemetry: &RequestTelemetry) -> Self {
+    fn new(
+        key: &GatewayApiKey,
+        telemetry: &RequestTelemetry,
+        usage: Option<&GatewayApiKeyUsageSummary>,
+    ) -> Self {
         let live_last_used_at = telemetry.gateway_key_last_used_at(key.id());
         let last_used_at = newest_timestamp(key.last_used_at(), live_last_used_at.as_deref());
         Self {
@@ -76,8 +91,47 @@ impl GatewayApiKeyResponse {
             revoked_at: key.revoked_at().map(str::to_owned),
             created_at: key.created_at().to_owned(),
             last_used_at,
+            usage: GatewayApiKeyUsageResponse::new(usage),
         }
     }
+}
+
+#[derive(Serialize)]
+struct GatewayApiKeyUsageResponse {
+    total_requests: u64,
+    successful_requests: u64,
+    failed_requests: u64,
+    recent_outcomes: Vec<GatewayApiKeyRequestOutcomeResponse>,
+}
+
+impl GatewayApiKeyUsageResponse {
+    fn new(summary: Option<&GatewayApiKeyUsageSummary>) -> Self {
+        let Some(summary) = summary else {
+            return Self {
+                total_requests: 0,
+                successful_requests: 0,
+                failed_requests: 0,
+                recent_outcomes: Vec::new(),
+            };
+        };
+        Self {
+            total_requests: summary.total_requests,
+            successful_requests: summary.successful_requests,
+            failed_requests: summary.failed_requests(),
+            recent_outcomes: summary
+                .recent_outcomes
+                .iter()
+                .map(|outcome| GatewayApiKeyRequestOutcomeResponse {
+                    status_code: outcome.status_code,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct GatewayApiKeyRequestOutcomeResponse {
+    status_code: u16,
 }
 
 fn newest_timestamp(stored: Option<&str>, live: Option<&str>) -> Option<String> {

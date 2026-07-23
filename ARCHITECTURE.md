@@ -760,6 +760,8 @@ gateway_api_keys
 - 不包含 `user_id`、`tenant_id`、套餐、额度、余额和计费字段；
 - 请求统计可以按 `GatewayApiKey` 记录，但只用于本地观测，不参与收费、配额限制或上游路由。
 
+网关 Key 管理列表可以展示保留 RequestLog 中按 Key 聚合的本地观测：最终状态码为 2xx 的请求计为成功，其余状态码计为失败；统计只覆盖当前 RequestLog 保留窗口，最多展示最近 24 次结果。统计查询失败不能阻塞 Key 配置读写，日志关闭或尚无记录时返回零值与空结果。
+
 网关 Key 管理 API：
 
 ```text
@@ -1565,6 +1567,8 @@ request_attempts
 ```
 
 RequestLog 保存请求最终结果，RequestAttempt 保存调度与切换过程。
+
+管理面可从 RequestLog 按 `gateway_api_key_id` 聚合总请求数、成功数、失败数和最近结果序列。聚合只读取最终 RequestLog，不把每次 Attempt 重复计入，也不恢复任何运行态状态。
 
 ## 15. 流式响应状态机
 

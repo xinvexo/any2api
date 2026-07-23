@@ -73,12 +73,13 @@ export function GatewayApiKeyList({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] border-collapse text-left text-[12px]">
+        <table className="w-full min-w-[980px] border-collapse text-left text-[12px]">
           <caption className="sr-only">网关密钥列表</caption>
           <thead>
             <tr className="border-b border-subtle text-secondary">
               <th className="py-2.5 pr-3 font-medium">名称</th>
               <th className="px-3 py-2.5 font-medium">密钥</th>
+              <th className="px-3 py-2.5 font-medium">调用统计</th>
               <th className="px-3 py-2.5 font-medium">状态</th>
               <th className="px-3 py-2.5 font-medium">最后使用</th>
               <th className="px-3 py-2.5 font-medium">创建时间</th>
