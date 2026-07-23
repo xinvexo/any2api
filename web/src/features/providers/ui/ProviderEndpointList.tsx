@@ -1,6 +1,6 @@
 import { Plus, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Navigate, useParams, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
 import type {
   ProviderEndpoint,
@@ -14,7 +14,11 @@ import {
 } from "../model/provider-kind-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { ProviderCredentialManagement } from "./ProviderCredentialManagement";
-import { ProviderEndpointTableRow } from "./ProviderEndpointTableRow";
+import {
+  ENDPOINT_CONTENT_GRID_CLASS,
+  ProviderEndpointTableRow,
+} from "./ProviderEndpointTableRow";
+import { ProviderKindNav } from "./ProviderKindNav";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
 import { cn } from "@/shared/lib/cn";
@@ -24,7 +28,7 @@ interface ProviderEndpointListProps {
   pending: boolean;
   refreshing: boolean;
   actionError: unknown;
-  onCreate: () => void;
+  onCreate: (kind: ProviderKind) => void;
   onRefresh: () => void;
   onEdit: (id: string) => void;
   onDelete: (endpoint: ProviderEndpoint) => void;
@@ -40,13 +44,21 @@ export function ProviderEndpointList({
   onEdit,
   onDelete,
 }: ProviderEndpointListProps) {
-  const { kind: kindParam } = useParams<{ kind: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const activeKeysEndpoint = searchParams.get("keys");
-  const selectedKind = resolveSelectedKind(kindParam);
-  const kindValid = isProviderKind(kindParam);
+  const selectedKind = resolveSelectedKind(searchParams.get("kind"));
   const [query, setQuery] = useState("");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+
+  const counts = useMemo(() => {
+    const next = Object.fromEntries(
+      PROVIDER_KIND_OPTIONS.map((option) => [option.kind, 0]),
+    ) as Record<ProviderKind, number>;
+    for (const endpoint of configuration.items) {
+      next[endpoint.providerKind] = (next[endpoint.providerKind] ?? 0) + 1;
+    }
+    return next;
+  }, [configuration.items]);
 
   const kindItems = useMemo(
     () => configuration.items.filter((endpoint) => endpoint.providerKind === selectedKind),
@@ -65,6 +77,23 @@ export function ProviderEndpointList({
         .includes(needle),
     );
   }, [kindItems, query]);
+
+  function selectKind(kind: ProviderKind) {
+    setQuery("");
+    setExpandedIds(new Set());
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.set("kind", kind);
+        next.delete("keys");
+        next.delete("credential");
+        next.delete("action");
+        next.delete("editor");
+        return next;
+      },
+      { replace: true },
+    );
+  }
 
   function isExpanded(id: string) {
     return expandedIds.has(id);
@@ -93,6 +122,7 @@ export function ProviderEndpointList({
         const next = new URLSearchParams(current);
         next.delete("editor");
         next.delete("action");
+        next.set("kind", selectedKind);
         next.set("keys", endpointId);
         next.set("credential", "new");
         return next;
@@ -130,12 +160,13 @@ export function ProviderEndpointList({
 
   const kindName = providerKindLabel(selectedKind);
 
-  if (!kindValid) {
-    return <Navigate to={`/providers/${PROVIDER_KIND_OPTIONS[0]?.kind ?? "codex"}`} replace />;
-  }
-
   return (
-    <div className="min-w-0">
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
+      <div className="sm:w-40 sm:shrink-0 lg:w-44">
+        <ProviderKindNav selected={selectedKind} counts={counts} onSelect={selectKind} />
+      </div>
+
+      <div className="min-w-0 flex-1">
         <div className="flex flex-col gap-2.5 pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative min-w-0 flex-1 sm:max-w-sm">
             <Search
@@ -156,7 +187,7 @@ export function ProviderEndpointList({
               <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
               刷新
             </Button>
-            <Button variant="primary" disabled={pending} onClick={() => onCreate()}>
+            <Button variant="primary" disabled={pending} onClick={() => onCreate(selectedKind)}>
               <Plus size={14} />
               新增
             </Button>
@@ -203,20 +234,30 @@ export function ProviderEndpointList({
                   {mountCredentials ? (
                     <div
                       id={panelId}
-                      className={
-                        expanded
-                          ? "border-t border-subtle bg-surface-muted/35 px-2.5 pb-2.5 pt-1 sm:px-3"
-                          : undefined
-                      }
+                      className={expanded ? "border-t border-subtle/80" : undefined}
                       role={expanded ? "region" : undefined}
                       aria-label={expanded ? `${endpoint.name} 的 API Key` : undefined}
                     >
-                      <ProviderCredentialManagement
-                        endpoint={endpoint}
-                        embedded
-                        showList={expanded}
-                        onRevealList={() => ensureExpanded(endpoint.id)}
-                      />
+                      <div
+                        className={
+                          expanded
+                            ? cn(
+                                ENDPOINT_CONTENT_GRID_CLASS,
+                                "px-2.5 pb-2 pt-0.5 sm:px-3",
+                              )
+                            : undefined
+                        }
+                      >
+                        {expanded ? <div aria-hidden="true" /> : null}
+                        <div className={expanded ? "min-w-0" : undefined}>
+                          <ProviderCredentialManagement
+                            endpoint={endpoint}
+                            embedded
+                            showList={expanded}
+                            onRevealList={() => ensureExpanded(endpoint.id)}
+                          />
+                        </div>
+                      </div>
                     </div>
                   ) : null}
                 </Surface>
@@ -227,6 +268,11 @@ export function ProviderEndpointList({
 
         <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-[12px] text-secondary">
           <p>
+            {kindName} · 配置版本{" "}
+            <span className="font-medium tabular-nums text-primary">
+              {configuration.configRevision}
+            </span>
+            {" · "}
             共 <span className="tabular-nums">{filtered.length}</span> 条
           </p>
         </div>
@@ -236,11 +282,12 @@ export function ProviderEndpointList({
             {getProviderErrorMessage(actionError)}
           </p>
         ) : null}
+      </div>
     </div>
   );
 }
 
-function resolveSelectedKind(value: string | null | undefined): ProviderKind {
+function resolveSelectedKind(value: string | null): ProviderKind {
   if (isProviderKind(value)) {
     return value;
   }

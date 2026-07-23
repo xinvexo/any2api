@@ -17,14 +17,15 @@ export interface SettingsManagementProps {
   webGroup?: string;
   /** Filter items belonging to any of these backend web groups. */
   webGroups?: readonly string[];
-  /** @deprecated Sidebar owns categories; kept for call-site compatibility. */
-  categorized?: boolean;
+  /** When false, section titles are omitted (page tabs already label the section). */
+  showSectionHeading?: boolean;
 }
 
 export function SettingsManagement({
   keyPrefix,
   webGroup,
   webGroups,
+  showSectionHeading = true,
 }: SettingsManagementProps = {}) {
   const query = useSettings();
   const mutations = useSettingMutations();
@@ -117,6 +118,7 @@ export function SettingsManagement({
               groups={groups}
               pending={pending}
               mutations={mutations}
+              showHeading={showSectionHeading}
               onSave={save}
               onReset={reset}
             />
@@ -132,6 +134,7 @@ function SectionPanel({
   groups,
   pending,
   mutations,
+  showHeading,
   onSave,
   onReset,
 }: {
@@ -139,6 +142,7 @@ function SectionPanel({
   groups: [string, SettingItem[]][];
   pending: boolean;
   mutations: ReturnType<typeof useSettingMutations>;
+  showHeading: boolean;
   onSave: (item: SettingItem, value: SettingValue) => Promise<void>;
   onReset: (item: SettingItem) => Promise<void>;
 }) {
@@ -158,21 +162,22 @@ function SectionPanel({
     }
   }
 
+  const headingId = `settings-section-${cssId(section.id)}`;
+
   return (
-    <section aria-labelledby={`settings-section-${cssId(section.id)}`}>
-      <header className="mb-2">
-        <h2
-          id={`settings-section-${cssId(section.id)}`}
-          className="text-[15px] font-semibold tracking-tight"
-        >
-          {section.label}
-        </h2>
-      </header>
+    <section aria-labelledby={showHeading ? headingId : undefined} aria-label={showHeading ? undefined : section.label}>
+      {showHeading ? (
+        <header className="mb-2">
+          <h2 id={headingId} className="text-[15px] font-semibold tracking-tight">
+            {section.label}
+          </h2>
+        </header>
+      ) : null}
 
       <div className="space-y-5">
         {subsections.map(([group, items]) => (
           <div key={group}>
-            {subsections.length > 1 ? (
+            {subsections.length > 1 || !showHeading ? (
               <h3 className="mb-1 text-[12px] font-medium text-secondary">{group}</h3>
             ) : null}
             <div>

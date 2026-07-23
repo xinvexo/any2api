@@ -8,6 +8,7 @@ export interface ProviderCredentialTableRowProps {
   credential: ProviderCredential;
   proxies: ProxyConfiguration;
   pending: boolean;
+  embedded?: boolean;
   onEdit: (id: string) => void;
   onModels: (id: string) => void;
   onDelete: (credential: ProviderCredential) => void;
@@ -17,61 +18,91 @@ export function ProviderCredentialTableRow({
   credential,
   proxies,
   pending,
+  embedded = false,
   onEdit,
   onModels,
   onDelete,
 }: ProviderCredentialTableRowProps) {
   const proxyLabel = describeProxy(credential.proxyProfileId, proxies);
+  const secretLabel = credential.secretTail
+    ? `•••• ${credential.secretTail}`
+    : credential.fingerprint;
 
   return (
-    <tr className="border-b border-subtle last:border-b-0">
-      <td className="py-2 pr-3 align-middle">
-        <p className="break-words font-medium text-primary [overflow-wrap:anywhere]">
-          {credential.label}
-        </p>
-        <p className="mt-0.5 text-[11px] text-tertiary">
-          {credential.models.length} 个模型
+    <tr
+      className={cn(
+        "border-b border-subtle last:border-b-0",
+        embedded && "border-subtle/70",
+      )}
+    >
+      <td className={cn("align-middle pr-3", embedded ? "py-1.5" : "py-2")}>
+        <p
+          className={cn(
+            "flex min-w-0 flex-wrap items-baseline gap-x-1.5 break-words [overflow-wrap:anywhere]",
+            embedded
+              ? "font-normal text-secondary"
+              : "font-medium text-primary",
+          )}
+        >
+          <span className="min-w-0">{credential.label}</span>
+          <span className="shrink-0 text-[11px] font-normal text-tertiary">
+            {credential.models.length} 个模型
+          </span>
         </p>
       </td>
-      <td className="px-3 py-2 align-middle">
-        <span className="break-words text-secondary [overflow-wrap:anywhere]">{proxyLabel}</span>
+      <td className={cn("px-3 align-middle", embedded ? "py-1.5 text-tertiary" : "py-2")}>
+        <span className="break-words [overflow-wrap:anywhere]">{proxyLabel}</span>
       </td>
-      <td className="px-3 py-2 align-middle tabular-nums text-secondary">
+      <td
+        className={cn(
+          "px-3 align-middle tabular-nums",
+          embedded ? "py-1.5 text-tertiary" : "py-2 text-secondary",
+        )}
+      >
         {credential.maxConcurrency}
       </td>
-      <td className="px-3 py-2 align-middle">
-        {credential.enabled ? <Badge tone="success">已启用</Badge> : <Badge>已停用</Badge>}
+      <td className={cn("px-3 align-middle", embedded ? "py-1.5" : "py-2")}>
+        {embedded ? (
+          <span className="text-tertiary">
+            {credential.enabled ? "已启用" : "已停用"}
+          </span>
+        ) : credential.enabled ? (
+          <Badge tone="success">已启用</Badge>
+        ) : (
+          <Badge>已停用</Badge>
+        )}
       </td>
-      <td className="px-3 py-2 align-middle">
-        <span className="font-mono text-[11px] text-tertiary">
-          {credential.secretTail ? `•••• ${credential.secretTail}` : credential.fingerprint}
-        </span>
+      <td className={cn("px-3 align-middle", embedded ? "py-1.5" : "py-2")}>
+        <span className="font-mono text-[11px] text-tertiary">{secretLabel}</span>
       </td>
-      <td className="py-2 pl-3 align-middle">
+      <td className={cn("pl-3 align-middle", embedded ? "py-1.5" : "py-2")}>
         <div className="flex flex-wrap items-center justify-end gap-0.5">
           <RowAction
             label={`配置 ${credential.label} 的模型`}
             disabled={pending}
+            quiet={embedded}
             onClick={() => onModels(credential.id)}
           >
-            <ListChecks size={13} />
+            <ListChecks size={embedded ? 12 : 13} />
             模型
           </RowAction>
           <RowAction
             label={`编辑 ${credential.label}`}
             disabled={pending}
+            quiet={embedded}
             onClick={() => onEdit(credential.id)}
           >
-            <Pencil size={13} />
+            <Pencil size={embedded ? 12 : 13} />
             编辑
           </RowAction>
           <RowAction
             label={`删除 ${credential.label}`}
             disabled={pending}
+            quiet={embedded}
             tone="danger"
             onClick={() => onDelete(credential)}
           >
-            <Trash2 size={13} />
+            <Trash2 size={embedded ? 12 : 13} />
             删除
           </RowAction>
         </div>
@@ -100,12 +131,14 @@ function RowAction({
   disabled,
   onClick,
   tone = "accent",
+  quiet = false,
 }: {
   label: string;
   children: React.ReactNode;
   disabled?: boolean;
   onClick: () => void;
   tone?: "accent" | "danger";
+  quiet?: boolean;
 }) {
   return (
     <button
@@ -114,10 +147,17 @@ function RowAction({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "focus-ring inline-flex h-7 items-center gap-1 rounded-[7px] px-2 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        "focus-ring inline-flex items-center gap-1 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
+        quiet
+          ? "h-6 rounded-[6px] px-1.5 text-[11px]"
+          : "h-7 rounded-[7px] px-2 text-[12px]",
         tone === "danger"
-          ? "text-danger hover:bg-danger/8"
-          : "text-secondary hover:bg-surface-muted hover:text-primary",
+          ? quiet
+            ? "text-danger/70 hover:bg-danger/8 hover:text-danger"
+            : "text-danger hover:bg-danger/8"
+          : quiet
+            ? "text-tertiary hover:bg-surface-muted hover:text-secondary"
+            : "text-secondary hover:bg-surface-muted hover:text-primary",
       )}
     >
       {children}

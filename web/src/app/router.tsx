@@ -19,8 +19,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <OverviewPage /> },
       { path: "proxies", element: <ProxiesPage /> },
-      { path: "providers", element: <Navigate to="/providers/codex" replace /> },
-      { path: "providers/:kind", element: <ProvidersPage /> },
+      { path: "providers", element: <ProvidersPage /> },
+      // Legacy kind-scoped deep links collapse into the unified providers page.
+      { path: "providers/:kind", element: <Navigate to="/providers" replace /> },
       { path: "balancing", element: <BalancingPage /> },
       { path: "affinity", element: <AffinityPage /> },
       { path: "keys", element: <GatewayApiKeysPage /> },

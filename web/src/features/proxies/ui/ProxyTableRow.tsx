@@ -1,5 +1,4 @@
-import { Pencil, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { Pencil, Trash2 } from "lucide-react";
 
 import type { ProxyProfile } from "../api/proxy-contracts";
 import { cn } from "@/shared/lib/cn";
@@ -9,7 +8,7 @@ export interface ProxyTableRowProps {
   isGlobal: boolean;
   pending: boolean;
   onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (proxy: ProxyProfile) => void;
 }
 
 export function ProxyTableRow({
@@ -19,7 +18,6 @@ export function ProxyTableRow({
   onEdit,
   onDelete,
 }: ProxyTableRowProps) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const endpoint = proxy.host && proxy.port ? `${proxy.host}:${proxy.port}` : "本机网络";
 
   return (
@@ -51,37 +49,15 @@ export function ProxyTableRow({
                 <Pencil size={13} />
                 编辑
               </RowAction>
-              {confirmDelete ? (
-                <>
-                  <RowAction
-                    label={`确认删除 ${proxy.name}`}
-                    disabled={pending || isGlobal}
-                    tone="danger"
-                    onClick={() => onDelete(proxy.id)}
-                  >
-                    <Trash2 size={13} />
-                    确认删除
-                  </RowAction>
-                  <RowAction
-                    label={`取消删除 ${proxy.name}`}
-                    disabled={pending}
-                    onClick={() => setConfirmDelete(false)}
-                  >
-                    <X size={13} />
-                    取消
-                  </RowAction>
-                </>
-              ) : (
-                <RowAction
-                  label={`删除 ${proxy.name}`}
-                  disabled={pending || isGlobal}
-                  tone="danger"
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <Trash2 size={13} />
-                  删除
-                </RowAction>
-              )}
+              <RowAction
+                label={`删除 ${proxy.name}`}
+                disabled={pending || isGlobal}
+                tone="danger"
+                onClick={() => onDelete(proxy)}
+              >
+                <Trash2 size={13} />
+                删除
+              </RowAction>
             </>
           ) : null}
         </div>

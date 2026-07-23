@@ -40,18 +40,18 @@ test("creates a credential without retaining its secret in application caches", 
   fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "8" } });
   fireEvent.click(screen.getByRole("button", { name: "保存并选择模型" }));
 
-  expect(await screen.findByLabelText("本次保存的 API Key")).toHaveValue(secret);
+  const model = await screen.findByRole("checkbox", { name: "gpt-5.1-codex" });
   const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
   expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
     api_key: secret,
     max_concurrency: 8,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
   });
+  expect(screen.queryByLabelText("本次保存的 API Key")).not.toBeInTheDocument();
   expect(screen.getByTestId("location")).not.toHaveTextContent(secret);
   expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(secret);
   expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain(secret);
 
-  const model = await screen.findByRole("checkbox", { name: "gpt-5.1-codex" });
   fireEvent.click(model);
   fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
 
@@ -64,9 +64,6 @@ test("creates a credential without retaining its secret in application caches", 
     expected_config_version: 1,
     models: ["gpt-5.1-codex"],
   });
-
-  fireEvent.click(screen.getByRole("button", { name: "关闭回执" }));
-  await waitFor(() => expect(screen.queryByLabelText("本次保存的 API Key")).not.toBeInTheDocument());
   expect(document.body.innerHTML).not.toContain(secret);
   expect(screen.getByTestId("location")).not.toHaveTextContent(secret);
 });

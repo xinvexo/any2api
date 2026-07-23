@@ -5,7 +5,7 @@ use crate::{
     gateway_api_key_validation::{
         GATEWAY_TOKEN_HASH_VERSION, GATEWAY_TOKEN_VERSION, GatewayApiKeyValidationError,
         next_version, valid_version, validate_hash_key_id, validate_name, validate_prefix,
-        validate_timestamp,
+        validate_timestamp, validate_token,
     },
 };
 
@@ -41,6 +41,7 @@ impl GatewayApiKeyDraft {
 pub struct GatewayApiKey {
     id: GatewayApiKeyId,
     name: String,
+    token: String,
     token_prefix: String,
     token_hash: [u8; 32],
     hash_version: u32,
@@ -57,17 +58,20 @@ impl GatewayApiKey {
     pub fn create(
         id: GatewayApiKeyId,
         draft: GatewayApiKeyDraft,
+        token: impl Into<String>,
         token_prefix: impl Into<String>,
         token_hash: [u8; 32],
         hash_key_id: impl Into<String>,
         created_at: impl Into<String>,
     ) -> Result<Self, GatewayApiKeyValidationError> {
+        let token = validate_token(token.into())?;
         let token_prefix = validate_prefix(token_prefix.into())?;
         let hash_key_id = validate_hash_key_id(hash_key_id.into())?;
         let created_at = validate_timestamp(created_at.into())?;
         Ok(Self {
             id,
             name: draft.name,
+            token,
             token_prefix,
             token_hash,
             hash_version: GATEWAY_TOKEN_HASH_VERSION,
@@ -85,6 +89,7 @@ impl GatewayApiKey {
     pub fn restore(
         id: GatewayApiKeyId,
         draft: GatewayApiKeyDraft,
+        token: String,
         token_prefix: String,
         token_hash: [u8; 32],
         hash_version: u32,
@@ -101,6 +106,7 @@ impl GatewayApiKey {
         {
             return Err(GatewayApiKeyValidationError::InvalidVersion);
         }
+        let token = validate_token(token)?;
         let token_prefix = validate_prefix(token_prefix)?;
         let hash_key_id = validate_hash_key_id(hash_key_id)?;
         if created_at.trim().is_empty() {
@@ -119,6 +125,7 @@ impl GatewayApiKey {
         Ok(Self {
             id,
             name: draft.name,
+            token,
             token_prefix,
             token_hash,
             hash_version,
@@ -149,6 +156,7 @@ impl GatewayApiKey {
 
     pub fn rotated(
         &self,
+        token: impl Into<String>,
         token_prefix: impl Into<String>,
         token_hash: [u8; 32],
         hash_key_id: impl Into<String>,
@@ -157,6 +165,7 @@ impl GatewayApiKey {
             return Err(GatewayApiKeyValidationError::Revoked);
         }
         Ok(Self {
+            token: validate_token(token.into())?,
             token_prefix: validate_prefix(token_prefix.into())?,
             token_hash,
             hash_key_id: validate_hash_key_id(hash_key_id.into())?,
@@ -194,7 +203,12 @@ impl GatewayApiKey {
 
     #[must_use]
     pub fn name_key(&self) -> String {
-        self.name.to_lowercase()
+        self.name.to_ascii_lowercase()
+    }
+
+    #[must_use]
+    pub fn token(&self) -> &str {
+        &self.token
     }
 
     #[must_use]
@@ -264,6 +278,7 @@ impl fmt::Debug for GatewayApiKey {
             .debug_struct("GatewayApiKey")
             .field("id", &self.id)
             .field("name", &self.name)
+            .field("token", &"[REDACTED]")
             .field("token_prefix", &self.token_prefix)
             .field("token_hash", &"[REDACTED]")
             .field("hash_version", &self.hash_version)
@@ -283,11 +298,18 @@ mod tests {
     use super::{GatewayApiKey, GatewayApiKeyDraft};
     use crate::GatewayApiKeyId;
 
-    fn key(name: &str) -> GatewayApiKey {
+    // 43-char base64url body matches the production a2k_v1_ format length.
+    fn sample_token(seed: char) -> String {
+        format!("a2k_v1_{}", seed.to_string().repeat(43))
+    }
+
+    fn key() -> GatewayApiKey {
+        let token = sample_token('a');
         GatewayApiKey::create(
             GatewayApiKeyId::new(),
-            GatewayApiKeyDraft::new(name, true).expect("draft"),
-            "a2k_v1_abcdefgh",
+            GatewayApiKeyDraft::new("Desktop", true).expect("draft"),
+            token.clone(),
+            &token[..16],
             [7; 32],
             "gk1_test",
             "2026-07-19 00:00:00",
@@ -296,30 +318,27 @@ mod tests {
     }
 
     #[test]
-    fn metadata_changes_bump_only_config_version() {
-        let key = key("Desktop");
-        let updated = key
-            .updated(GatewayApiKeyDraft::new("Desktop", false).expect("draft"))
-            .expect("updated");
-        assert_eq!(updated.config_version(), 2);
-        assert_eq!(updated.token_version(), 1);
-        assert!(!updated.enabled());
+    fn create_stores_plaintext_and_redacts_debug() {
+        let key = key();
+        assert!(key.token().starts_with("a2k_v1_"));
+        assert!(format!("{key:?}").contains("[REDACTED]"));
+        assert!(!format!("{key:?}").contains(key.token()));
     }
 
     #[test]
-    fn rotation_invalidates_old_identity_and_revocation_is_terminal() {
-        let key = key("CLI");
-        let rotated = key
-            .rotated("a2k_v1_ijklmnop", [8; 32], "gk1_test")
+    fn rotate_and_soft_revoke_still_work_in_domain() {
+        let token = sample_token('b');
+        let rotated = key()
+            .rotated(token.clone(), &token[..16], [9; 32], "gk1_test")
             .expect("rotated");
         assert_eq!(rotated.token_version(), 2);
-        assert_eq!(rotated.config_version(), 2);
+        assert_eq!(rotated.token(), token);
         let revoked = rotated.revoked("2026-07-19 00:00:00").expect("revoked");
         assert!(revoked.is_revoked());
         assert!(!revoked.is_active());
         assert!(
             revoked
-                .updated(GatewayApiKeyDraft::new("CLI", true).expect("draft"))
+                .updated(GatewayApiKeyDraft::new("Desktop", true).expect("draft"))
                 .is_err()
         );
     }

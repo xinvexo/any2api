@@ -6,7 +6,6 @@ import { cn } from "@/shared/lib/cn";
 
 export interface GatewayApiKeyTableRowProps {
   apiKey: GatewayApiKey;
-  token: string | null;
   pending: boolean;
   onEdit: (id: string) => void;
   onDelete: (key: GatewayApiKey) => void;
@@ -14,22 +13,16 @@ export interface GatewayApiKeyTableRowProps {
 
 export function GatewayApiKeyTableRow({
   apiKey,
-  token,
   pending,
   onEdit,
   onDelete,
 }: GatewayApiKeyTableRowProps) {
-  const revoked = apiKey.revokedAt !== null;
-  const actionsDisabled = pending || revoked;
-  const [revealed, setRevealed] = useState(false);
+  const [revealed, setRevealed] = useState(true);
   const [copied, setCopied] = useState(false);
 
   async function copyToken() {
-    if (!token) {
-      return;
-    }
     try {
-      await navigator.clipboard.writeText(token);
+      await navigator.clipboard.writeText(apiKey.token);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -43,34 +36,30 @@ export function GatewayApiKeyTableRow({
         <p className="break-words font-medium text-primary [overflow-wrap:anywhere]">{apiKey.name}</p>
       </td>
       <td className="px-3 py-2.5 align-middle">
-        {token ? (
-          <div className="flex min-w-0 items-center gap-1">
-            <code className="max-w-[22rem] truncate font-mono text-[12px] text-primary">
-              {revealed ? token : maskToken(token)}
-            </code>
-            <button
-              type="button"
-              className="focus-ring inline-flex size-7 shrink-0 items-center justify-center rounded-[7px] text-secondary hover:bg-surface-muted hover:text-primary"
-              aria-label={revealed ? `隐藏 ${apiKey.name} 的密钥` : `显示 ${apiKey.name} 的密钥`}
-              onClick={() => setRevealed((value) => !value)}
-            >
-              {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
-            </button>
-            <button
-              type="button"
-              className="focus-ring inline-flex size-7 shrink-0 items-center justify-center rounded-[7px] text-secondary hover:bg-surface-muted hover:text-primary"
-              aria-label={`复制 ${apiKey.name} 的密钥`}
-              onClick={() => void copyToken()}
-            >
-              {copied ? <Check size={13} /> : <Copy size={13} />}
-            </button>
-          </div>
-        ) : (
-          <span className="text-tertiary">创建后仅展示一次</span>
-        )}
+        <div className="flex min-w-0 items-center gap-1">
+          <code className="max-w-[22rem] truncate font-mono text-[12px] text-primary">
+            {revealed ? apiKey.token : maskToken(apiKey.token)}
+          </code>
+          <button
+            type="button"
+            className="focus-ring inline-flex size-7 shrink-0 items-center justify-center rounded-[7px] text-secondary hover:bg-surface-muted hover:text-primary"
+            aria-label={revealed ? `隐藏 ${apiKey.name} 的密钥` : `显示 ${apiKey.name} 的密钥`}
+            onClick={() => setRevealed((value) => !value)}
+          >
+            {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
+          </button>
+          <button
+            type="button"
+            className="focus-ring inline-flex size-7 shrink-0 items-center justify-center rounded-[7px] text-secondary hover:bg-surface-muted hover:text-primary"
+            aria-label={`复制 ${apiKey.name} 的密钥`}
+            onClick={() => void copyToken()}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+        </div>
       </td>
       <td className="px-3 py-2.5 align-middle">
-        <Status apiKey={apiKey} />
+        <Status enabled={apiKey.enabled} />
       </td>
       <td className="px-3 py-2.5 align-middle text-secondary tabular-nums">
         {apiKey.lastUsedAt ? formatTimestamp(apiKey.lastUsedAt) : "—"}
@@ -82,7 +71,7 @@ export function GatewayApiKeyTableRow({
         <div className="flex flex-wrap items-center justify-end gap-0.5">
           <RowAction
             label={`编辑 ${apiKey.name}`}
-            disabled={actionsDisabled}
+            disabled={pending}
             onClick={() => onEdit(apiKey.id)}
           >
             <Pencil size={13} />
@@ -90,7 +79,7 @@ export function GatewayApiKeyTableRow({
           </RowAction>
           <RowAction
             label={`删除 ${apiKey.name}`}
-            disabled={actionsDisabled}
+            disabled={pending}
             tone="danger"
             onClick={() => onDelete(apiKey)}
           >
@@ -110,11 +99,8 @@ function maskToken(token: string) {
   return `${token.slice(0, 8)}${"•".repeat(12)}${token.slice(-4)}`;
 }
 
-function Status({ apiKey }: { apiKey: GatewayApiKey }) {
-  if (apiKey.revokedAt) {
-    return <Badge tone="danger">已删除</Badge>;
-  }
-  if (apiKey.enabled) {
+function Status({ enabled }: { enabled: boolean }) {
+  if (enabled) {
     return <Badge tone="success">已启用</Badge>;
   }
   return <Badge>已停用</Badge>;

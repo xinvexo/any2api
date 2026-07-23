@@ -19,6 +19,8 @@ pub enum GatewayApiKeyValidationError {
     NameTooLong,
     #[error("gateway API Key token prefix is invalid")]
     InvalidTokenPrefix,
+    #[error("gateway API Key token is invalid")]
+    InvalidToken,
     #[error("gateway API Key hash key id is invalid")]
     InvalidHashKeyId,
     #[error("gateway API Key version is invalid")]
@@ -86,4 +88,16 @@ pub(crate) fn next_version(value: u64) -> Result<u64, GatewayApiKeyValidationErr
         .checked_add(1)
         .filter(|next| *next <= MAX_CONFIG_VERSION)
         .ok_or(GatewayApiKeyValidationError::InvalidVersion)
+}
+
+pub(crate) fn validate_token(token: String) -> Result<String, GatewayApiKeyValidationError> {
+    if !token.starts_with(GATEWAY_TOKEN_PREFIX)
+        || !token.is_ascii()
+        || token.chars().any(char::is_control)
+        || token.len() <= GATEWAY_TOKEN_PREFIX.len()
+        || token.chars().count() > 128
+    {
+        return Err(GatewayApiKeyValidationError::InvalidToken);
+    }
+    Ok(token)
 }

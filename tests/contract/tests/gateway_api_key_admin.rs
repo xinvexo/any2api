@@ -57,8 +57,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     )
     .await;
     assert_eq!(listed.status, StatusCode::OK);
-    assert!(!listed.body.to_string().contains(&first_token));
-    assert!(!listed.body.to_string().contains("\"token\""));
+    assert_eq!(listed.body["items"][0]["token"], first_token);
 
     let missing = request_json(app.clone(), Method::GET, "/v1/models", None, loopback, &[]).await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
@@ -147,7 +146,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     .await;
     assert_eq!(current.status, StatusCode::OK);
 
-    let revoked = request_json(
+    let deleted = request_json(
         app.clone(),
         Method::POST,
         &format!("/api/admin/gateway-api-keys/{key_id}/revoke"),
@@ -159,10 +158,10 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         &[],
     )
     .await;
-    assert_eq!(revoked.status, StatusCode::OK);
-    assert_eq!(revoked.body["items"][0]["enabled"], false);
+    assert_eq!(deleted.status, StatusCode::OK);
+    assert_eq!(deleted.body["items"].as_array().map(Vec::len), Some(0));
 
-    let revoked_request = request_json(
+    let deleted_request = request_json(
         app.clone(),
         Method::GET,
         "/v1/models",
@@ -171,7 +170,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         &[("authorization", format!("Bearer {second_token}"))],
     )
     .await;
-    assert_eq!(revoked_request.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(deleted_request.status, StatusCode::UNAUTHORIZED);
 
     let remote_admin = request_json(
         app,

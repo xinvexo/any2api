@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[tokio::test]
-async fn gateway_api_key_lifecycle_persists_only_the_hash() {
+async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     let directory = tempdir().expect("temporary directory");
     let database = directory.path().join("any2api.sqlite3");
     let store = SqliteStore::connect(&database).await.expect("store");
@@ -30,21 +30,23 @@ async fn gateway_api_key_lifecycle_persists_only_the_hash() {
         .expect("create");
     assert_eq!(created.revision().get(), 2);
     let key = created.gateway_api_keys().get(id).expect("created key");
+    assert_eq!(key.token(), first);
     assert!(
         created
             .gateway_api_key_verifier()
             .verify(first.as_bytes(), key.token_hash())
     );
     assert_ne!(key.token_prefix(), first);
-    let stored: (String, i64) = sqlx::query_as(
-        "SELECT token_prefix, length(token_hash) FROM gateway_api_keys WHERE id = ?",
+    let stored: (String, String, i64) = sqlx::query_as(
+        "SELECT token, token_prefix, length(token_hash) FROM gateway_api_keys WHERE id = ?",
     )
     .bind(id.to_string())
     .fetch_one(store.pool())
     .await
     .expect("stored row");
-    assert_eq!(stored.0, key.token_prefix());
-    assert_eq!(stored.1, 32);
+    assert_eq!(stored.0, first);
+    assert_eq!(stored.1, key.token_prefix());
+    assert_eq!(stored.2, 32);
 
     let unchanged = store
         .update_gateway_api_key(
@@ -70,6 +72,7 @@ async fn gateway_api_key_lifecycle_persists_only_the_hash() {
         .expect("rotate");
     let rotated_key = rotated.gateway_api_keys().get(id).expect("rotated key");
     assert_eq!(rotated_key.token_version(), 2);
+    assert_eq!(rotated_key.token(), second);
     assert!(
         !rotated
             .gateway_api_key_verifier()
@@ -81,24 +84,22 @@ async fn gateway_api_key_lifecycle_persists_only_the_hash() {
             .verify(second.as_bytes(), rotated_key.token_hash())
     );
 
-    let revoked = store
+    let deleted = store
         .revoke_gateway_api_key(rotated.revision(), id, rotated_key.config_version())
         .await
-        .expect("revoke");
-    let revoked_key = revoked.gateway_api_keys().get(id).expect("revoked key");
-    assert!(revoked_key.is_revoked());
-    assert!(!revoked_key.is_active());
+        .expect("delete");
+    assert!(deleted.gateway_api_keys().get(id).is_none());
+    assert!(deleted.gateway_api_keys().keys().is_empty());
 
     drop(store);
     let reopened = SqliteStore::connect(&database).await.expect("reopen");
     let loaded = reopened.load_configuration().await.expect("load");
-    let loaded_key = loaded.gateway_api_keys().get(id).expect("loaded key");
-    assert_eq!(loaded_key, revoked_key);
-    assert!(
-        loaded
-            .gateway_api_key_verifier()
-            .verify(second.as_bytes(), loaded_key.token_hash())
-    );
+    assert!(loaded.gateway_api_keys().get(id).is_none());
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gateway_api_keys")
+        .fetch_one(reopened.pool())
+        .await
+        .expect("count");
+    assert_eq!(count, 0);
 }
 
 #[tokio::test]

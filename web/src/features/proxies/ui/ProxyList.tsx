@@ -1,7 +1,7 @@
 import { Plus, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
-import type { ProxyConfiguration } from "../api/proxy-contracts";
+import type { ProxyConfiguration, ProxyProfile } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
 import { ProxyTableRow } from "./ProxyTableRow";
 import { Button } from "@/shared/ui/Button";
@@ -14,7 +14,7 @@ interface ProxyListProps {
   onCreate: () => void;
   onRefresh: () => void;
   onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (proxy: ProxyProfile) => void;
 }
 
 export function ProxyList({

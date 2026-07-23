@@ -110,11 +110,13 @@ impl GatewayApiKeyRepository for SqliteStore {
         id: GatewayApiKeyId,
         expected_config_version: u64,
     ) -> Result<StoredConfiguration, StorageError> {
-        self.mutate_timestamped(expected, |revoked_at| GatewayApiKeyMutation::Revoke {
-            id,
-            expected_config_version,
-            revoked_at,
-        })
+        self.mutate_gateway_api_key(
+            expected,
+            GatewayApiKeyMutation::Delete {
+                id,
+                expected_config_version,
+            },
+        )
         .await
     }
 }

@@ -34,7 +34,6 @@ export function GatewayApiKeyEditor({
   const [regenerateToken, setRegenerateToken] = useState(false);
   const [validation, setValidation] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  const revoked = Boolean(apiKey?.revokedAt);
   const isEdit = Boolean(apiKey);
 
   useEffect(() => {
@@ -70,7 +69,7 @@ export function GatewayApiKeyEditor({
           value={name}
           maxLength={100}
           autoComplete="off"
-          disabled={pending || revoked}
+          disabled={pending}
           aria-invalid={Boolean(validation)}
           aria-describedby={validation ? "gateway-key-name-error" : undefined}
           onChange={(event) => {
@@ -93,7 +92,7 @@ export function GatewayApiKeyEditor({
           <Switch
             id="gateway-key-regenerate"
             checked={regenerateToken}
-            disabled={pending || revoked}
+            disabled={pending}
             aria-labelledby="gateway-key-regenerate-label"
             onCheckedChange={setRegenerateToken}
           />
@@ -107,7 +106,7 @@ export function GatewayApiKeyEditor({
         <Switch
           id="gateway-key-enabled"
           checked={enabled}
-          disabled={pending || revoked}
+          disabled={pending}
           aria-labelledby="gateway-key-enabled-label"
           onCheckedChange={setEnabled}
         />
@@ -119,7 +118,7 @@ export function GatewayApiKeyEditor({
         <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>
           取消
         </Button>
-        <Button type="submit" variant="primary" disabled={pending || revoked}>
+        <Button type="submit" variant="primary" disabled={pending}>
           <Save size={15} />
           {pending ? "正在保存" : "保存"}
         </Button>

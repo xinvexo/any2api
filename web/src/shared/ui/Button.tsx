@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes } from "react";
 import { cn } from "@/shared/lib/cn";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "dangerSolid";
 }
 
 const variants = {
@@ -11,6 +11,7 @@ const variants = {
   secondary: "bg-surface-muted text-primary hover:bg-surface-hover",
   ghost: "bg-transparent text-secondary hover:bg-surface-muted hover:text-primary",
   danger: "bg-transparent text-danger hover:bg-danger/8",
+  dangerSolid: "bg-danger text-on-danger shadow-none hover:brightness-95 active:brightness-90",
 };
 
 export function Button({

@@ -1,6 +1,8 @@
 import { RefreshCw } from "lucide-react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import type { ProxyProfile } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
 import { useProxies } from "../model/use-proxies";
 import { useProxyAuthenticationActions } from "../model/use-proxy-authentication-actions";
@@ -9,6 +11,7 @@ import { useProxyMutations } from "../model/use-proxy-mutations";
 import { ProxyEditor } from "./ProxyEditor";
 import { ProxyList } from "./ProxyList";
 import { Button } from "@/shared/ui/Button";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 import { Surface } from "@/shared/ui/Surface";
 
@@ -17,9 +20,12 @@ export function ProxyManagement() {
   const mutations = useProxyMutations();
   const authentication = useProxyAuthenticationActions();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [deleteTarget, setDeleteTarget] = useState<ProxyProfile | null>(null);
   const editorId = searchParams.get("editor");
+  const confirmPending = mutations.remove.isPending;
 
   function openEditor(id: string) {
+    setDeleteTarget(null);
     mutations.create.reset();
     mutations.update.reset();
     authentication.reset();
@@ -131,9 +137,24 @@ export function ProxyManagement() {
     closeEditor(editorId);
   }
 
-  function remove(id: string) {
+  function requestDelete(proxy: ProxyProfile) {
     mutations.remove.reset();
-    mutations.remove.mutate({ id, expectedRevision: configuration.configRevision });
+    setDeleteTarget(proxy);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) {
+      return;
+    }
+    try {
+      await mutations.remove.mutateAsync({
+        id: deleteTarget.id,
+        expectedRevision: configuration.configRevision,
+      });
+      setDeleteTarget(null);
+    } catch {
+      // Keep confirmation visible when the version is stale.
+    }
   }
 
   function refreshData() {
@@ -152,6 +173,10 @@ export function ProxyManagement() {
     : invalidEditor
       ? "该链接可能已经过期，请返回列表。"
       : "HTTP 与 SOCKS5 使用独立出口配置";
+  const deleteEndpoint =
+    deleteTarget?.host && deleteTarget.port
+      ? `${deleteTarget.host}:${deleteTarget.port}`
+      : null;
 
   return (
     <div aria-busy={editorPending || mutations.isPending || proxies.isFetching}>
@@ -177,7 +202,7 @@ export function ProxyManagement() {
         onCreate={() => openEditor("new")}
         onRefresh={refreshData}
         onEdit={openEditor}
-        onDelete={remove}
+        onDelete={requestDelete}
       />
 
       <SideDrawer
@@ -204,6 +229,27 @@ export function ProxyManagement() {
           />
         )}
       </SideDrawer>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={deleteTarget ? `删除「${deleteTarget.name}」？` : ""}
+        description={
+          deleteTarget
+            ? deleteEndpoint
+              ? `将删除 ${deleteTarget.kind.toUpperCase()} 代理 ${deleteEndpoint}。绑定它的凭据需要改选其他出口。`
+              : "此操作不可恢复。绑定它的凭据需要改选其他出口。"
+            : undefined
+        }
+        confirmLabel="删除"
+        tone="danger"
+        pending={confirmPending}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => {
+          if (!confirmPending) {
+            setDeleteTarget(null);
+          }
+        }}
+      />
     </div>
   );
 }

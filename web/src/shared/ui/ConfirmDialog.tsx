@@ -161,7 +161,7 @@ export function ConfirmDialog({
         className={cn("confirm-dialog-panel", visible ? "is-open" : "is-closed")}
       >
         <div className="px-5 pt-5">
-          <h2 id={titleId} className="text-[15px] font-semibold tracking-tight">
+          <h2 id={titleId} className="text-[15px] font-semibold tracking-tight text-primary">
             {view.title}
           </h2>
           {view.description ? (
@@ -170,21 +170,18 @@ export function ConfirmDialog({
             </div>
           ) : null}
         </div>
-        <div className="flex flex-col-reverse gap-2 px-5 py-4 sm:flex-row sm:justify-end">
+        <div className="mt-4 flex flex-col-reverse gap-2 px-5 pb-5 sm:flex-row sm:justify-end sm:gap-2">
           <Button
             variant="ghost"
+            className="min-w-[4.5rem] sm:min-w-[5rem]"
             disabled={pending}
             onClick={() => onCloseRef.current()}
           >
             {view.cancelLabel}
           </Button>
           <Button
-            variant={view.tone === "danger" ? "danger" : "primary"}
-            className={
-              view.tone === "danger"
-                ? "bg-danger text-on-danger hover:bg-danger/90 hover:text-on-danger"
-                : undefined
-            }
+            variant={view.tone === "danger" ? "dangerSolid" : "primary"}
+            className="min-w-[4.5rem] sm:min-w-[5rem]"
             disabled={pending}
             onClick={() => onConfirmRef.current()}
           >

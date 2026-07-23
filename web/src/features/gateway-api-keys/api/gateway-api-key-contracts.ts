@@ -1,6 +1,7 @@
 export interface GatewayApiKey {
   id: string;
   name: string;
+  token: string;
   tokenPrefix: string;
   tokenVersion: number;
   configVersion: number;
@@ -45,7 +46,7 @@ export interface GatewayApiKeyRevokeInput {
 }
 
 export function parseGatewayApiKeyConfiguration(value: unknown): GatewayApiKeyConfiguration {
-  if (!isRecord(value) || "token" in value || !Array.isArray(value.items)) {
+  if (!isRecord(value) || !Array.isArray(value.items)) {
     throw new Error("invalid gateway API Key response");
   }
   return {
@@ -58,10 +59,11 @@ export function parseGatewayApiKeySecretReceipt(value: unknown): GatewayApiKeySe
   if (!isRecord(value) || typeof value.token !== "string" || !isGatewayToken(value.token)) {
     throw new Error("invalid gateway API Key secret receipt");
   }
-  const configurationValue = { ...value };
-  delete configurationValue.token;
   return {
-    configuration: parseGatewayApiKeyConfiguration(configurationValue),
+    configuration: parseGatewayApiKeyConfiguration({
+      config_revision: value.config_revision,
+      items: value.items,
+    }),
     token: value.token,
   };
 }
@@ -71,15 +73,19 @@ function parseGatewayApiKey(value: unknown): GatewayApiKey {
     !isRecord(value) ||
     "secret" in value ||
     "api_key" in value ||
-    "token" in value ||
     "token_hash" in value ||
     "ciphertext" in value
   ) {
     throw new Error("invalid gateway API Key response");
   }
+  const token = readString(value.token);
+  if (!isGatewayToken(token)) {
+    throw new Error("invalid gateway API Key response");
+  }
   return {
     id: readString(value.id),
     name: readString(value.name),
+    token,
     tokenPrefix: readVisibleAscii(value.token_prefix),
     tokenVersion: readPositiveInteger(value.token_version),
     configVersion: readPositiveInteger(value.config_version),
@@ -107,10 +113,12 @@ function readString(value: unknown): string {
 
 function readVisibleAscii(value: unknown): string {
   const parsed = readString(value);
-  if (![...parsed].every((character) => {
-    const code = character.charCodeAt(0);
-    return code >= 0x21 && code <= 0x7e;
-  })) {
+  if (
+    ![...parsed].every((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 0x21 && code <= 0x7e;
+    })
+  ) {
     throw new Error("invalid gateway API Key response");
   }
   return parsed;

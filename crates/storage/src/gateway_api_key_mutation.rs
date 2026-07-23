@@ -27,10 +27,9 @@ pub(crate) enum GatewayApiKeyMutation {
         expected_token_version: u64,
         token: SecretBytes,
     },
-    Revoke {
+    Delete {
         id: GatewayApiKeyId,
         expected_config_version: u64,
-        revoked_at: String,
     },
 }
 
@@ -38,7 +37,7 @@ pub(crate) enum GatewayApiKeyDatabaseChange {
     Create(GatewayApiKey),
     Update(GatewayApiKey),
     Rotate(GatewayApiKey),
-    Revoke(GatewayApiKey),
+    Delete(GatewayApiKeyId),
 }
 
 pub(crate) struct PreparedGatewayApiKeyMutation {
@@ -97,11 +96,10 @@ pub(crate) fn prepare(
             token,
         )
         .map(Some),
-        GatewayApiKeyMutation::Revoke {
+        GatewayApiKeyMutation::Delete {
             id,
             expected_config_version,
-            revoked_at,
-        } => revoke(current, id, expected_config_version, revoked_at),
+        } => delete(current, id, expected_config_version).map(Some),
     }
 }
 
@@ -113,11 +111,15 @@ fn create(
     token: SecretBytes,
     created_at: String,
 ) -> Result<PreparedGatewayApiKeyMutation, StorageError> {
+    let prefix = display_prefix(&token)?;
+    let hash = verifier.hash(token.expose_secret());
+    let plaintext = utf8_token(&token)?;
     let key = GatewayApiKey::create(
         id,
         draft,
-        display_prefix(&token)?,
-        verifier.hash(token.expose_secret()),
+        plaintext,
+        prefix,
+        hash,
         verifier.key_id(),
         created_at,
     )?;
@@ -167,11 +169,10 @@ fn rotate(
             actual: existing.token_version(),
         });
     }
-    let rotated = existing.rotated(
-        display_prefix(&token)?,
-        verifier.hash(token.expose_secret()),
-        verifier.key_id(),
-    )?;
+    let prefix = display_prefix(&token)?;
+    let hash = verifier.hash(token.expose_secret());
+    let plaintext = utf8_token(&token)?;
+    let rotated = existing.rotated(plaintext, prefix, hash, verifier.key_id())?;
     let configuration = replace(current, rotated.clone())?;
     Ok(PreparedGatewayApiKeyMutation::new(
         configuration,
@@ -179,25 +180,26 @@ fn rotate(
     ))
 }
 
-fn revoke(
+fn delete(
     current: &GatewayApiKeyConfiguration,
     id: GatewayApiKeyId,
     expected_config_version: u64,
-    revoked_at: String,
-) -> Result<Option<PreparedGatewayApiKeyMutation>, StorageError> {
+) -> Result<PreparedGatewayApiKeyMutation, StorageError> {
     let existing = current
         .get(id)
         .ok_or(StorageError::GatewayApiKeyNotFound(id))?;
     require_config_version(existing.config_version(), expected_config_version)?;
-    let revoked = existing.revoked(revoked_at)?;
-    if &revoked == existing {
-        return Ok(None);
-    }
-    let configuration = replace(current, revoked.clone())?;
-    Ok(Some(PreparedGatewayApiKeyMutation::new(
+    let keys = current
+        .keys()
+        .iter()
+        .filter(|key| key.id() != id)
+        .cloned()
+        .collect();
+    let configuration = GatewayApiKeyConfiguration::new(keys).map_err(map_validation)?;
+    Ok(PreparedGatewayApiKeyMutation::new(
         configuration,
-        GatewayApiKeyDatabaseChange::Revoke(revoked),
-    )))
+        GatewayApiKeyDatabaseChange::Delete(id),
+    ))
 }
 
 fn append(
@@ -236,6 +238,11 @@ fn require_config_version(current: u64, expected: u64) -> Result<(), StorageErro
             actual: current,
         })
     }
+}
+
+fn utf8_token(token: &SecretBytes) -> Result<String, StorageError> {
+    String::from_utf8(token.expose_secret().to_vec())
+        .map_err(|_| StorageError::InvalidGatewayApiKeyToken)
 }
 
 fn map_validation(error: GatewayApiKeyValidationError) -> StorageError {

@@ -53,6 +53,7 @@ impl GatewayApiKeySecretResponse {
 struct GatewayApiKeyResponse {
     id: GatewayApiKeyId,
     name: String,
+    token: String,
     token_prefix: String,
     token_version: u64,
     config_version: u64,
@@ -69,6 +70,7 @@ impl GatewayApiKeyResponse {
         Self {
             id: key.id(),
             name: key.name().to_owned(),
+            token: key.token().to_owned(),
             token_prefix: key.token_prefix().to_owned(),
             token_version: key.token_version(),
             config_version: key.config_version(),

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { ProviderManagement } from "./ProviderManagement";
@@ -67,7 +67,7 @@ test("creates a Claude private HTTP endpoint directly from the Base URL", async 
     },
   );
 
-  renderManagement(["/providers/claude?editor=new"]);
+  renderManagement(["/providers?kind=claude&editor=new"]);
 
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "本地 Claude" } });
   fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "http://127.0.0.1:8080" } });
@@ -106,7 +106,7 @@ test("refetches after a revision conflict without discarding the endpoint draft"
     },
   );
 
-  renderManagement(["/providers/codex?editor=new"]);
+  renderManagement(["/providers?editor=new"]);
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "保留的 Endpoint 草稿" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -121,12 +121,15 @@ test("preserves the draft but blocks overwrite when the endpoint version changed
   const fetchMock = mockAdminApis(
     () => {
       getCount += 1;
-      return configuration(getCount === 1 ? 1 : 2, [
-        endpoint({
-          name: getCount === 1 ? "Original" : "Remote Edit",
-          config_version: getCount === 1 ? 1 : 2,
-        }),
-      ]);
+      return configuration(
+        getCount === 1 ? 1 : 2,
+        [
+          endpoint({
+            name: getCount === 1 ? "Codex Primary" : "Codex Renamed Elsewhere",
+            config_version: getCount === 1 ? 1 : 2,
+          }),
+        ],
+      );
     },
     () => credentialConfiguration(1, []),
     (_input, init) => {
@@ -142,7 +145,7 @@ test("preserves the draft but blocks overwrite when the endpoint version changed
     },
   );
 
-  renderManagement(["/providers/codex?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
+  renderManagement(["/providers?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "Local Draft" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -179,7 +182,7 @@ test("preserves the draft and blocks saving when the endpoint was deleted", asyn
     },
   );
 
-  renderManagement(["/providers/codex?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
+  renderManagement(["/providers?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "Retained Draft" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
@@ -189,17 +192,15 @@ test("preserves the draft and blocks saving when the endpoint was deleted", asyn
   expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
 });
 
-function renderManagement(initialEntries = ["/providers/codex"]) {
+function renderManagement(initialEntries = ["/providers"]) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={initialEntries}>
-          <Routes>
-            <Route path="/providers/:kind" element={<ProviderManagement />} />
-          </Routes>
-        </MemoryRouter>
+        <ProviderManagement />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }

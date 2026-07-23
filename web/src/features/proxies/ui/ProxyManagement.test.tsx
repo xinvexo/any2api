@@ -203,6 +203,36 @@ test("rejects an HTTP Basic separator before writing authentication", async () =
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
 });
 
+test("deletes a custom proxy through the confirmation dialog", async () => {
+  const proxy = customProxy();
+  let current = configuration(1, [direct, proxy]);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = requestPath(input);
+    if (path.endsWith(`/proxies/${proxy.id}`) && init?.method === "DELETE") {
+      current = configuration(2, [direct]);
+      return jsonResponse(current);
+    }
+    return jsonResponse(current);
+  });
+
+  renderManagement();
+  fireEvent.click(await screen.findByRole("button", { name: `删除 ${proxy.name}` }));
+
+  expect(await screen.findByRole("heading", { name: `删除「${proxy.name}」？` })).toBeInTheDocument();
+  expect(screen.getByText(/将删除 HTTP 代理 proxy.example.com:8080/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: `确认删除 ${proxy.name}` })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+
+  await waitFor(() => {
+    expect(screen.queryByRole("heading", { name: `删除「${proxy.name}」？` })).not.toBeInTheDocument();
+  });
+
+  const del = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+  expect(String(del?.[0])).toContain(`/api/admin/proxies/${proxy.id}?expected_revision=1`);
+  expect(screen.queryByText(proxy.name)).not.toBeInTheDocument();
+});
+
 async function enableAuthentication() {
   const toggle = await screen.findByRole("switch", { name: "代理认证" });
   if (toggle.getAttribute("aria-checked") !== "true") {
