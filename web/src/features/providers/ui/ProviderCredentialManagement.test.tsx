@@ -71,6 +71,89 @@ test("creates a credential without retaining its secret in application caches", 
   expect(screen.getByTestId("location")).not.toHaveTextContent(secret);
 });
 
+test("completes OAuth login without retaining callback or tokens in application caches", async () => {
+  const callbackUrl =
+    "http://localhost:1455/auth/callback?code=one-time-code&state=opaque-state";
+  let credentials = credentialConfiguration(2, []);
+  const popup = {
+    opener: window,
+    location: { href: "about:blank" },
+    close: vi.fn(),
+  } as unknown as Window;
+  const openMock = vi.spyOn(window, "open").mockReturnValue(popup);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
+    if (path.endsWith(`/provider-endpoints/${endpoint.id}/oauth/start`)) {
+      return jsonResponse({
+        session_id: "memory-only-session",
+        authorization_url: "https://auth.openai.com/oauth/authorize?state=opaque-state",
+        redirect_uri: "http://localhost:1455/auth/callback",
+        expires_in_seconds: 600,
+      });
+    }
+    if (path.endsWith(`/provider-endpoints/${endpoint.id}/oauth/exchange`)) {
+      credentials = credentialConfiguration(3, [
+        credential({
+          label: "Codex OAuth",
+          credential_kind: "oauth2",
+          secret_tail: null,
+        }),
+      ]);
+      return jsonResponse({
+        config_revision: 3,
+        provider_endpoint_id: endpoint.id,
+        credential_id: credentialId,
+        provider_kind: "codex",
+        account_id: "account-id",
+        email: "owner@example.com",
+        organization_id: null,
+      });
+    }
+    if (path.endsWith(`/provider-credentials/${credentialId}/test`)) {
+      return jsonResponse(credentialTestResult());
+    }
+    return jsonResponse(credentials);
+  });
+  const { client } = renderManagement([
+    `/providers/codex?keys=${endpoint.id}&credential=oauth&action=oauth`,
+  ]);
+
+  fireEvent.change(await screen.findByLabelText("名称"), {
+    target: { value: "Codex OAuth" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "使用 OpenAI / Codex 登录" }));
+
+  const callback = await screen.findByLabelText("回调 URL");
+  expect(openMock).toHaveBeenCalledWith("about:blank", "_blank");
+  expect(popup.location.href).toContain("auth.openai.com/oauth/authorize");
+  fireEvent.change(callback, { target: { value: callbackUrl } });
+  fireEvent.click(screen.getByRole("button", { name: "完成登录并拉取模型" }));
+
+  expect(await screen.findByRole("checkbox", { name: "gpt-5.1-codex" })).toBeInTheDocument();
+  const startCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/oauth/start"));
+  expect(JSON.parse(String(startCall?.[1]?.body))).toMatchObject({
+    label: "Codex OAuth",
+    proxy_profile_id: "00000000-0000-0000-0000-000000000000",
+  });
+  const exchangeCall = fetchMock.mock.calls.find(([input]) =>
+    String(input).endsWith("/oauth/exchange"),
+  );
+  expect(JSON.parse(String(exchangeCall?.[1]?.body))).toEqual({
+    session_id: "memory-only-session",
+    callback_url: callbackUrl,
+  });
+  expect(screen.getByTestId("location")).not.toHaveTextContent("memory-only-session");
+  expect(screen.getByTestId("location")).not.toHaveTextContent("one-time-code");
+  expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(
+    "memory-only-session",
+  );
+  expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain("one-time-code");
+  expect(document.body.innerHTML).not.toContain(callbackUrl);
+});
+
 test("edits credential metadata without sending the secret", async () => {
   let credentials = credentialConfiguration(3, [credential()]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

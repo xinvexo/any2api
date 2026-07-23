@@ -58,6 +58,8 @@ pub enum TransportMode {
 #[serde(rename_all = "snake_case")]
 pub enum CredentialKind {
     ApiKey,
+    #[serde(rename = "oauth2")]
+    OAuth2,
 }
 
 impl ProtocolDialect {

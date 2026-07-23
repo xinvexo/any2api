@@ -10,6 +10,7 @@ use any2api_transport::api::{ReqwestTransportManager, TransportManager, Transpor
 pub struct PublicRequestComponents {
     protocols: Arc<ProtocolRegistry>,
     providers: Arc<ProviderRegistry>,
+    transport: Arc<dyn TransportManager>,
     service: Arc<PublicRequestService>,
     proxy_tests: Arc<ProxyTestService>,
     provider_credential_tests: Arc<ProviderCredentialTestService>,
@@ -24,6 +25,16 @@ impl PublicRequestComponents {
     #[must_use]
     pub fn provider_registry(&self) -> &ProviderRegistry {
         self.providers.as_ref()
+    }
+
+    #[must_use]
+    pub fn provider_registry_handle(&self) -> Arc<ProviderRegistry> {
+        Arc::clone(&self.providers)
+    }
+
+    #[must_use]
+    pub fn transport_manager(&self) -> Arc<dyn TransportManager> {
+        Arc::clone(&self.transport)
     }
 
     #[must_use]
@@ -78,6 +89,7 @@ pub fn build_public_request_components_with_telemetry(
     Ok(PublicRequestComponents {
         protocols,
         providers,
+        transport,
         service,
         proxy_tests,
         provider_credential_tests,

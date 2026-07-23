@@ -1,4 +1,4 @@
-import { Plus, RefreshCw, Search } from "lucide-react";
+import { LogIn, Plus, RefreshCw, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type {
@@ -19,6 +19,7 @@ export interface ProviderCredentialListProps {
   actionError: unknown;
   embedded?: boolean;
   onCreate: () => void;
+  onOAuth: () => void;
   onRefresh: () => void;
   onEdit: (id: string) => void;
   onModels: (id: string) => void;
@@ -33,6 +34,7 @@ export function ProviderCredentialList({
   actionError,
   embedded = false,
   onCreate,
+  onOAuth,
   onRefresh,
   onEdit,
   onModels,
@@ -46,7 +48,13 @@ export function ProviderCredentialList({
     }
     return configuration.items.filter((credential) => {
       const proxy = proxies.items.find((item) => item.id === credential.proxyProfileId);
-      return [credential.label, proxy?.name ?? "", credential.secretTail ?? "", credential.fingerprint]
+      return [
+        credential.label,
+        credential.credentialKind,
+        proxy?.name ?? "",
+        credential.secretTail ?? "",
+        credential.fingerprint,
+      ]
         .join(" ")
         .toLowerCase()
         .includes(needle);
@@ -79,6 +87,10 @@ export function ProviderCredentialList({
             <Button variant="ghost" disabled={pending} onClick={onCreate}>
               <Plus size={14} />
               新增
+            </Button>
+            <Button variant="ghost" disabled={pending} onClick={onOAuth}>
+              <LogIn size={14} />
+              OAuth
             </Button>
           </div>
         </div>

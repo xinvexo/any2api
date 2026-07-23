@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use any2api_runtime::api::{
-    ConfigPublisher, ProviderCredentialTestService, ProxyTestService, PublicRequestService,
-    RequestTelemetry, RuntimeRegistry, SnapshotStore,
+    ConfigPublisher, ProviderCredentialTestService, ProviderOAuthService, ProxyTestService,
+    PublicRequestService, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
 
 use crate::admin_auth::{AdminAuthService, AdminNetworkPolicy};
@@ -15,6 +15,7 @@ pub struct AppState {
     public_requests: Arc<PublicRequestService>,
     proxy_tests: Option<Arc<ProxyTestService>>,
     provider_credential_tests: Option<Arc<ProviderCredentialTestService>>,
+    provider_oauth: Option<Arc<ProviderOAuthService>>,
     admin_auth: Option<Arc<AdminAuthService>>,
     admin_network: Arc<AdminNetworkPolicy>,
     request_telemetry: Arc<RequestTelemetry>,
@@ -35,6 +36,7 @@ impl AppState {
             public_requests,
             proxy_tests: None,
             provider_credential_tests: None,
+            provider_oauth: None,
             admin_auth: None,
             admin_network: Arc::new(AdminNetworkPolicy::default()),
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
@@ -53,6 +55,12 @@ impl AppState {
         tests: Arc<ProviderCredentialTestService>,
     ) -> Self {
         self.provider_credential_tests = Some(tests);
+        self
+    }
+
+    #[must_use]
+    pub fn with_provider_oauth(mut self, service: Arc<ProviderOAuthService>) -> Self {
+        self.provider_oauth = Some(service);
         self
     }
 
@@ -101,6 +109,11 @@ impl AppState {
     #[must_use]
     pub fn provider_credential_tests(&self) -> Option<&ProviderCredentialTestService> {
         self.provider_credential_tests.as_deref()
+    }
+
+    #[must_use]
+    pub fn provider_oauth(&self) -> Option<&ProviderOAuthService> {
+        self.provider_oauth.as_deref()
     }
 
     #[must_use]

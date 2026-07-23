@@ -22,6 +22,10 @@ pub use crate::provider_credential_test::{
     ProviderCredentialTestFailureStage, ProviderCredentialTestOutcome,
     ProviderCredentialTestResult, ProviderCredentialTestService,
 };
+pub use crate::provider_oauth::{
+    ProviderOAuthError, ProviderOAuthExchangeResult, ProviderOAuthService,
+    ProviderOAuthStartRequest, ProviderOAuthStartResult,
+};
 pub use crate::proxy_password_secret::ProxyPasswordSecret;
 pub use crate::proxy_test::{
     ProxyTestError, ProxyTestFailureScope, ProxyTestFailureStage, ProxyTestOutcome,

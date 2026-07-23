@@ -50,8 +50,8 @@ pub use model_route::{ModelRoute, ModelRouteDraft, ModelRouteValidationError};
 pub use model_route_configuration::ModelRouteConfiguration;
 pub use provider_base_url::{ProviderBaseUrl, ProviderUrlValidationError};
 pub use provider_credential::{
-    API_KEY_SECRET_SCHEMA_VERSION, ProviderCredential, ProviderCredentialDraft,
-    ProviderCredentialValidationError,
+    API_KEY_SECRET_SCHEMA_VERSION, OAUTH2_SECRET_SCHEMA_VERSION, ProviderCredential,
+    ProviderCredentialDraft, ProviderCredentialValidationError, secret_schema_version,
 };
 pub use provider_credential_configuration::ProviderCredentialConfiguration;
 pub use provider_endpoint::{

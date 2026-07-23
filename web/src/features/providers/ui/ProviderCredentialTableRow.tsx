@@ -30,7 +30,7 @@ export function ProviderCredentialTableRow({
           {credential.label}
         </p>
         <p className="mt-0.5 text-[11px] text-tertiary">
-          {credential.models.length} 个模型
+          {credential.credentialKind === "oauth2" ? "OAuth2" : "API Key"} · {credential.models.length} 个模型
         </p>
       </td>
       <td className="px-3 py-2 align-middle">
@@ -44,7 +44,11 @@ export function ProviderCredentialTableRow({
       </td>
       <td className="px-3 py-2 align-middle">
         <span className="font-mono text-[11px] text-tertiary">
-          {credential.secretTail ? `•••• ${credential.secretTail}` : credential.fingerprint}
+          {credential.credentialKind === "oauth2"
+            ? "OAuth2 · 已加密"
+            : credential.secretTail
+              ? `•••• ${credential.secretTail}`
+              : credential.fingerprint}
         </span>
       </td>
       <td className="py-2 pl-3 align-middle">

@@ -1,4 +1,4 @@
-export type CredentialKind = "api_key";
+export type CredentialKind = "api_key" | "oauth2";
 
 export interface ProviderCredential {
   id: string;
@@ -75,6 +75,36 @@ export interface ProviderCredentialModelsInput {
   models: string[];
 }
 
+export interface ProviderOAuthStartInput {
+  expectedRevision: number;
+  label: string;
+  proxyProfileId: string;
+  maxConcurrency: number;
+  enabled: boolean;
+}
+
+export interface ProviderOAuthStartResult {
+  sessionId: string;
+  authorizationUrl: string;
+  redirectUri: string;
+  expiresInSeconds: number;
+}
+
+export interface ProviderOAuthExchangeInput {
+  sessionId: string;
+  callbackUrl: string;
+}
+
+export interface ProviderOAuthExchangeResult {
+  configRevision: number;
+  providerEndpointId: string;
+  credentialId: string;
+  providerKind: "codex" | "claude";
+  accountId: string | null;
+  email: string | null;
+  organizationId: string | null;
+}
+
 export function parseProviderCredentialConfiguration(
   value: unknown,
 ): ProviderCredentialConfiguration {
@@ -140,10 +170,43 @@ export function parseProviderCredentialTestResult(value: unknown): ProviderCrede
   };
 }
 
+export function parseProviderOAuthStartResult(value: unknown): ProviderOAuthStartResult {
+  if (!isRecord(value) || containsSecretField(value)) {
+    throw new Error("invalid provider OAuth start response");
+  }
+  const authorizationUrl = readAbsoluteUrl(value.authorization_url, "https:");
+  const redirectUri = readAbsoluteUrl(value.redirect_uri, "http:");
+  return {
+    sessionId: readString(value.session_id),
+    authorizationUrl,
+    redirectUri,
+    expiresInSeconds: readPositiveInteger(value.expires_in_seconds),
+  };
+}
+
+export function parseProviderOAuthExchangeResult(value: unknown): ProviderOAuthExchangeResult {
+  if (!isRecord(value) || containsSecretField(value)) {
+    throw new Error("invalid provider OAuth exchange response");
+  }
+  const providerKind = value.provider_kind;
+  if (providerKind !== "codex" && providerKind !== "claude") {
+    throw new Error("invalid provider OAuth exchange response");
+  }
+  return {
+    configRevision: readPositiveInteger(value.config_revision),
+    providerEndpointId: readString(value.provider_endpoint_id),
+    credentialId: readString(value.credential_id),
+    providerKind,
+    accountId: readNullableString(value.account_id),
+    email: readNullableString(value.email),
+    organizationId: readNullableString(value.organization_id),
+  };
+}
+
 function parseProviderCredential(value: unknown): ProviderCredential {
   if (
     !isRecord(value) ||
-    value.credential_kind !== "api_key" ||
+    (value.credential_kind !== "api_key" && value.credential_kind !== "oauth2") ||
     "api_key" in value ||
     "secret" in value ||
     "ciphertext" in value
@@ -158,11 +221,14 @@ function parseProviderCredential(value: unknown): ProviderCredential {
   if (secretTail !== null && (secretTail.length !== 4 || !isVisibleAscii(secretTail))) {
     throw new Error("invalid provider credential response");
   }
+  if (value.credential_kind === "oauth2" && secretTail !== null) {
+    throw new Error("invalid provider credential response");
+  }
   return {
     id: readString(value.id),
     providerEndpointId: readString(value.provider_endpoint_id),
     label: readString(value.label),
-    credentialKind: "api_key",
+    credentialKind: value.credential_kind,
     fingerprint,
     secretTail,
     proxyProfileId: readString(value.proxy_profile_id),
@@ -249,4 +315,29 @@ function isVisibleAscii(value: string) {
     const code = character.charCodeAt(0);
     return code >= 0x21 && code <= 0x7e;
   });
+}
+
+function readAbsoluteUrl(value: unknown, requiredProtocol: "http:" | "https:") {
+  const text = readString(value);
+  let parsed: URL;
+  try {
+    parsed = new URL(text);
+  } catch {
+    throw new Error("invalid provider OAuth response");
+  }
+  if (parsed.protocol !== requiredProtocol) {
+    throw new Error("invalid provider OAuth response");
+  }
+  return parsed.toString();
+}
+
+function containsSecretField(value: Record<string, unknown>) {
+  return [
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "api_key",
+    "secret",
+    "ciphertext",
+  ].some((key) => key in value);
 }

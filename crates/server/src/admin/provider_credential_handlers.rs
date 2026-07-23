@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use any2api_domain::{CredentialId, ProviderEndpointId};
+use any2api_domain::{CredentialId, CredentialKind, ProviderEndpointId};
 use axum::{
     Json,
     extract::{Path, Query, State, rejection::JsonRejection, rejection::QueryRejection},
@@ -50,7 +50,9 @@ pub(crate) async fn update(
     payload: Result<Json<ProviderCredentialUpdateRequest>, JsonRejection>,
 ) -> Result<Response, AdminApiError> {
     let id = parse_credential_id(&id)?;
-    let (expected, expected_config_version, draft) = parse_json(payload)?.into_domain()?;
+    let payload = parse_json(payload)?;
+    let credential_kind = credential_kind(&state, id)?;
+    let (expected, expected_config_version, draft) = payload.into_domain(credential_kind)?;
     let endpoint_id = credential_endpoint(&state, id)?;
     let snapshot = state
         .publisher()
@@ -67,6 +69,11 @@ pub(crate) async fn rotate_secret(
     let id = parse_credential_id(&id)?;
     let (expected, expected_config_version, expected_secret_version, api_key) =
         parse_json(payload)?.into_domain()?;
+    if credential_kind(&state, id)? != CredentialKind::ApiKey {
+        return Err(AdminApiError::invalid_provider_credential(
+            "OAuth2 credentials are refreshed automatically and cannot use API Key rotation",
+        ));
+    }
     let endpoint_id = credential_endpoint(&state, id)?;
     let snapshot = state
         .publisher()
@@ -150,6 +157,16 @@ fn credential_endpoint(
         .provider_credentials()
         .get(id)
         .map(|credential| credential.provider_endpoint_id())
+        .ok_or_else(AdminApiError::provider_credential_not_found)
+}
+
+fn credential_kind(state: &AppState, id: CredentialId) -> Result<CredentialKind, AdminApiError> {
+    state
+        .snapshots()
+        .load()
+        .provider_credentials()
+        .get(id)
+        .map(|credential| credential.credential_kind())
         .ok_or_else(AdminApiError::provider_credential_not_found)
 }
 

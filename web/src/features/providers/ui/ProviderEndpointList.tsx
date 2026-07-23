@@ -101,6 +101,20 @@ export function ProviderEndpointList({
     );
   }
 
+  function openOAuthCredential(endpointId: string) {
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("editor");
+        next.set("keys", endpointId);
+        next.set("credential", "oauth");
+        next.set("action", "oauth");
+        return next;
+      },
+      { replace: true },
+    );
+  }
+
   function ensureExpanded(endpointId: string) {
     setExpandedIds((current) => {
       if (current.has(endpointId)) {
@@ -197,6 +211,7 @@ export function ProviderEndpointList({
                       onToggle={() => toggleExpanded(endpoint.id)}
                       onEdit={onEdit}
                       onCreateCredential={openCreateCredential}
+                      onOAuthCredential={openOAuthCredential}
                       onDelete={onDelete}
                     />
                   </div>

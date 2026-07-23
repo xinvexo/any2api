@@ -1,4 +1,4 @@
-import { ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, LogIn, Pencil, Plus, Trash2 } from "lucide-react";
 
 import type { ProviderEndpoint } from "../api/provider-contracts";
 import { cn } from "@/shared/lib/cn";
@@ -10,6 +10,7 @@ export interface ProviderEndpointTableRowProps {
   onToggle: () => void;
   onEdit: (id: string) => void;
   onCreateCredential: (endpointId: string) => void;
+  onOAuthCredential: (endpointId: string) => void;
   onDelete: (endpoint: ProviderEndpoint) => void;
 }
 
@@ -20,6 +21,7 @@ export function ProviderEndpointTableRow({
   onToggle,
   onEdit,
   onCreateCredential,
+  onOAuthCredential,
   onDelete,
 }: ProviderEndpointTableRowProps) {
   const dialect =
@@ -60,6 +62,14 @@ export function ProviderEndpointTableRow({
         </span>
       </button>
       <div className="flex w-full shrink-0 items-center justify-end gap-0.5 sm:w-auto">
+        <RowAction
+          label={`使用 OAuth 登录 ${endpoint.name}`}
+          disabled={pending}
+          onClick={() => onOAuthCredential(endpoint.id)}
+        >
+          <LogIn size={13} />
+          OAuth
+        </RowAction>
         <RowAction
           label={`新增 ${endpoint.name} 的 API Key`}
           disabled={pending}

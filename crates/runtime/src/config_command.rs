@@ -6,7 +6,7 @@ use any2api_storage::api::{ConfigurationRepository, StoredConfiguration};
 
 use crate::{
     config_publish_error::ConfigPublishError, provider_api_key_secret::ProviderApiKeySecret,
-    proxy_password_secret::ProxyPasswordSecret,
+    provider_oauth2_secret::ProviderOAuth2Secret, proxy_password_secret::ProxyPasswordSecret,
 };
 
 pub(crate) enum ConfigCommand {
@@ -50,6 +50,13 @@ pub(crate) enum ConfigCommand {
         draft: ProviderCredentialDraft,
         api_key: ProviderApiKeySecret,
     },
+    CreateProviderOAuthCredential {
+        id: CredentialId,
+        endpoint_id: ProviderEndpointId,
+        expected_endpoint_config_version: u64,
+        draft: ProviderCredentialDraft,
+        oauth_secret: ProviderOAuth2Secret,
+    },
     UpdateProviderCredential {
         id: CredentialId,
         expected_config_version: u64,
@@ -60,6 +67,11 @@ pub(crate) enum ConfigCommand {
         expected_config_version: u64,
         expected_secret_version: u64,
         api_key: ProviderApiKeySecret,
+    },
+    RefreshProviderOAuthCredentialSecret {
+        id: CredentialId,
+        expected_secret_version: u64,
+        oauth_secret: ProviderOAuth2Secret,
     },
     SetProviderCredentialModels {
         id: CredentialId,
@@ -138,6 +150,24 @@ pub(crate) async fn execute(
                 )
                 .await
         }
+        ConfigCommand::CreateProviderOAuthCredential {
+            id,
+            endpoint_id,
+            expected_endpoint_config_version,
+            draft,
+            oauth_secret,
+        } => {
+            repository
+                .create_provider_oauth_credential(
+                    expected,
+                    id,
+                    endpoint_id,
+                    expected_endpoint_config_version,
+                    draft,
+                    oauth_secret.into_storage_secret(),
+                )
+                .await
+        }
         ConfigCommand::UpdateProviderCredential {
             id,
             expected_config_version,
@@ -160,6 +190,20 @@ pub(crate) async fn execute(
                     expected_config_version,
                     expected_secret_version,
                     api_key.into_storage_secret(),
+                )
+                .await
+        }
+        ConfigCommand::RefreshProviderOAuthCredentialSecret {
+            id,
+            expected_secret_version,
+            oauth_secret,
+        } => {
+            repository
+                .refresh_provider_oauth_credential_secret(
+                    expected,
+                    id,
+                    expected_secret_version,
+                    oauth_secret.into_storage_secret(),
                 )
                 .await
         }

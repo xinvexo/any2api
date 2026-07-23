@@ -208,7 +208,10 @@ impl AuxiliaryPermit {
         &self,
         driver: &dyn ProviderDriver,
     ) -> Result<CredentialHeaders, ProviderError> {
-        driver.credential_headers(self.generation.provider_secret())
+        driver.credential_headers(
+            self.generation.credential_kind(),
+            self.generation.provider_secret(),
+        )
     }
 }
 

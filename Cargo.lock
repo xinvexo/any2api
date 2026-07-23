@@ -122,6 +122,7 @@ name = "any2api-provider"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "base64",
  "http",
  "secrecy",
  "serde",
@@ -151,11 +152,13 @@ dependencies = [
  "secrecy",
  "serde_json",
  "sha2",
+ "subtle",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
+ "url",
 ]
 
 [[package]]

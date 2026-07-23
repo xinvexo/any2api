@@ -40,8 +40,8 @@ mod tests {
     use std::sync::Arc;
 
     use any2api_domain::{
-        ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety, UpstreamErrorClassification,
-        UpstreamErrorKind,
+        CredentialKind, ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety,
+        UpstreamErrorClassification, UpstreamErrorKind,
     };
     use http::HeaderMap;
 
@@ -90,6 +90,7 @@ mod tests {
 
         fn credential_headers(
             &self,
+            _credential_kind: CredentialKind,
             _secret: &ProviderSecret,
         ) -> Result<CredentialHeaders, ProviderError> {
             Ok(CredentialHeaders {
@@ -100,13 +101,18 @@ mod tests {
         fn credential_test_plan(
             &self,
             base_url: &ProviderBaseUrl,
+            _credential_kind: CredentialKind,
         ) -> Result<EndpointPlan, ProviderError> {
             Ok(EndpointPlan {
                 url: url::Url::parse(base_url.as_str()).expect("validated URL"),
             })
         }
 
-        fn parse_model_catalog(&self, _bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {
+        fn parse_model_catalog(
+            &self,
+            _credential_kind: CredentialKind,
+            _bounded_body: &[u8],
+        ) -> Result<Vec<String>, ProviderError> {
             Ok(Vec::new())
         }
 

@@ -17,6 +17,9 @@ mod provider_credential_dto;
 mod provider_credential_handlers;
 mod provider_endpoint_dto;
 mod provider_endpoint_handlers;
+mod provider_oauth_dto;
+mod provider_oauth_error;
+mod provider_oauth_handlers;
 mod proxy_dto;
 mod proxy_handlers;
 mod request_log_dto;
@@ -109,6 +112,14 @@ fn protected_routes() -> Router<AppState> {
             "/provider-endpoints/{id}",
             axum::routing::patch(provider_endpoint_handlers::update)
                 .delete(provider_endpoint_handlers::delete),
+        )
+        .route(
+            "/provider-endpoints/{endpoint_id}/oauth/start",
+            post(provider_oauth_handlers::start),
+        )
+        .route(
+            "/provider-endpoints/{endpoint_id}/oauth/exchange",
+            post(provider_oauth_handlers::exchange),
         )
         .route(
             "/provider-endpoints/{endpoint_id}/credentials",

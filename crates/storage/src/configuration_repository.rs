@@ -1,5 +1,5 @@
 use any2api_domain::{
-    ConfigRevision, CredentialId, ProviderCredentialDraft, ProviderEndpointDraft,
+    ConfigRevision, CredentialId, CredentialKind, ProviderCredentialDraft, ProviderEndpointDraft,
     ProviderEndpointId, ProxyDraft, ProxyProfileId,
 };
 use async_trait::async_trait;
@@ -89,6 +89,16 @@ pub trait ConfigurationRepository:
         api_key: SecretBytes,
     ) -> Result<StoredConfiguration, StorageError>;
 
+    async fn create_provider_oauth_credential(
+        &self,
+        expected: ConfigRevision,
+        id: CredentialId,
+        endpoint_id: ProviderEndpointId,
+        expected_endpoint_config_version: u64,
+        draft: ProviderCredentialDraft,
+        oauth_secret: SecretBytes,
+    ) -> Result<StoredConfiguration, StorageError>;
+
     async fn update_provider_credential(
         &self,
         expected: ConfigRevision,
@@ -104,6 +114,14 @@ pub trait ConfigurationRepository:
         expected_config_version: u64,
         expected_secret_version: u64,
         api_key: SecretBytes,
+    ) -> Result<StoredConfiguration, StorageError>;
+
+    async fn refresh_provider_oauth_credential_secret(
+        &self,
+        expected: ConfigRevision,
+        id: CredentialId,
+        expected_secret_version: u64,
+        oauth_secret: SecretBytes,
     ) -> Result<StoredConfiguration, StorageError>;
 
     async fn set_provider_credential_models(
@@ -250,7 +268,32 @@ impl ConfigurationRepository for SqliteStore {
                 id,
                 endpoint_id,
                 draft,
-                api_key,
+                expected_endpoint_config_version: None,
+                expected_kind: CredentialKind::ApiKey,
+                secret: api_key,
+            },
+        )
+        .await
+    }
+
+    async fn create_provider_oauth_credential(
+        &self,
+        expected: ConfigRevision,
+        id: CredentialId,
+        endpoint_id: ProviderEndpointId,
+        expected_endpoint_config_version: u64,
+        draft: ProviderCredentialDraft,
+        oauth_secret: SecretBytes,
+    ) -> Result<StoredConfiguration, StorageError> {
+        self.mutate_provider_credential(
+            expected,
+            ProviderCredentialMutation::Create {
+                id,
+                endpoint_id,
+                draft,
+                expected_endpoint_config_version: Some(expected_endpoint_config_version),
+                expected_kind: CredentialKind::OAuth2,
+                secret: oauth_secret,
             },
         )
         .await
@@ -286,9 +329,30 @@ impl ConfigurationRepository for SqliteStore {
             expected,
             ProviderCredentialMutation::RotateSecret {
                 id,
-                expected_config_version,
+                expected_config_version: Some(expected_config_version),
                 expected_secret_version,
-                api_key,
+                expected_kind: CredentialKind::ApiKey,
+                secret: api_key,
+            },
+        )
+        .await
+    }
+
+    async fn refresh_provider_oauth_credential_secret(
+        &self,
+        expected: ConfigRevision,
+        id: CredentialId,
+        expected_secret_version: u64,
+        oauth_secret: SecretBytes,
+    ) -> Result<StoredConfiguration, StorageError> {
+        self.mutate_provider_credential(
+            expected,
+            ProviderCredentialMutation::RotateSecret {
+                id,
+                expected_config_version: None,
+                expected_secret_version,
+                expected_kind: CredentialKind::OAuth2,
+                secret: oauth_secret,
             },
         )
         .await

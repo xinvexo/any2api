@@ -178,6 +178,7 @@ impl ProviderDriver for HeaderEchoDriver {
 
     fn credential_headers(
         &self,
+        _credential_kind: CredentialKind,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
         let mut headers = CredentialHeaders::default();
@@ -192,13 +193,18 @@ impl ProviderDriver for HeaderEchoDriver {
     fn credential_test_plan(
         &self,
         base_url: &ProviderBaseUrl,
+        _credential_kind: CredentialKind,
     ) -> Result<EndpointPlan, ProviderError> {
         Ok(EndpointPlan {
             url: base_url.as_str().parse().expect("validated endpoint URL"),
         })
     }
 
-    fn parse_model_catalog(&self, _bounded_body: &[u8]) -> Result<Vec<String>, ProviderError> {
+    fn parse_model_catalog(
+        &self,
+        _credential_kind: CredentialKind,
+        _bounded_body: &[u8],
+    ) -> Result<Vec<String>, ProviderError> {
         Ok(Vec::new())
     }
 

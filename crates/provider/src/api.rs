@@ -7,6 +7,7 @@ use any2api_domain::{
 use http::{HeaderMap, StatusCode};
 use url::Url;
 
+pub use crate::oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial};
 pub use crate::{ProviderError, ProviderRegistry, ProviderSecret};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -48,14 +49,56 @@ pub trait ProviderDriver: Send + Sync {
     fn credential_test_plan(
         &self,
         base_url: &ProviderBaseUrl,
+        credential_kind: CredentialKind,
     ) -> Result<EndpointPlan, ProviderError>;
 
-    fn parse_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError>;
+    fn parse_model_catalog(
+        &self,
+        credential_kind: CredentialKind,
+        bounded_body: &[u8],
+    ) -> Result<Vec<String>, ProviderError>;
 
     fn credential_headers(
         &self,
+        credential_kind: CredentialKind,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError>;
+
+    fn oauth_redirect_uri(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn oauth_authorization_url(
+        &self,
+        _state: &str,
+        _code_challenge: &str,
+    ) -> Result<Url, ProviderError> {
+        Err(ProviderError::InvalidCredential(
+            "OAuth2 is not supported by this provider".into(),
+        ))
+    }
+
+    fn oauth_token_request(
+        &self,
+        _grant: OAuthGrant,
+        _code_or_refresh_token: &str,
+        _state: Option<&str>,
+        _code_verifier: Option<&str>,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        Err(ProviderError::InvalidCredential(
+            "OAuth2 is not supported by this provider".into(),
+        ))
+    }
+
+    fn parse_oauth_token(
+        &self,
+        _body: &[u8],
+        _previous: Option<&OAuthTokenMaterial>,
+    ) -> Result<OAuthTokenMaterial, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth2 is not supported by this provider".into(),
+        ))
+    }
 
     fn classify_error(
         &self,

@@ -102,6 +102,14 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn provider_oauth_unavailable() -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "provider_oauth_unavailable",
+            "provider OAuth login is unavailable",
+        )
+    }
+
     pub(crate) fn loopback_only() -> Self {
         Self::new(
             StatusCode::FORBIDDEN,
@@ -360,4 +368,19 @@ pub(crate) async fn not_found() -> AdminApiError {
         "admin_api_not_found",
         "administrator API route was not found",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_runtime::api::ProviderOAuthError;
+
+    use super::*;
+
+    #[test]
+    fn invalid_oauth_token_response_is_a_bad_gateway() {
+        let error = AdminApiError::from(ProviderOAuthError::TokenResponseInvalid);
+
+        assert_eq!(error.status, StatusCode::BAD_GATEWAY);
+        assert_eq!(error.code, "provider_oauth_upstream_failed");
+    }
 }

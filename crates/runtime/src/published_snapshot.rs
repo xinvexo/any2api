@@ -208,6 +208,17 @@ impl PublishedSnapshot {
         ))
     }
 
+    pub(crate) fn resolved_transport_proxy_for_profile(
+        &self,
+        id: any2api_domain::ProxyProfileId,
+    ) -> Option<TransportProxy<'_>> {
+        let profile = self.proxies.resolve(id)?;
+        Some(TransportProxy::new(
+            profile,
+            self.proxy_auth.credentials_for(profile),
+        ))
+    }
+
     pub(crate) fn resolved_transport_proxy_for_credential(
         &self,
         id: CredentialId,
