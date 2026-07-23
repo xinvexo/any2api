@@ -8,6 +8,9 @@ pub use crate::balancing::{
     BalancingHealthStatus, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
 };
 pub use crate::config_publish_error::ConfigPublishError;
+pub use crate::configuration_capabilities::{
+    ConfigurationCapabilities, ConfigurationCapabilityError, ProviderProtocolOptions,
+};
 pub use crate::credential_runtime::{
     ConcurrencyPermit, CredentialBalancingCounters, CredentialCapacity,
     CredentialGenerationRuntime, CredentialRuntimeBinding,

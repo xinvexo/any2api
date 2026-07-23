@@ -110,11 +110,15 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = Arc::new(ConfigPublisher::new(
-        Arc::clone(&storage),
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-    ));
+    let publisher = Arc::new(
+        ConfigPublisher::new(
+            Arc::clone(&storage),
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+            any2api_contract_tests::build_configuration_capabilities(),
+        )
+        .expect("configuration publisher"),
+    );
     let service = build_public_request_components()
         .expect("public request components")
         .service();

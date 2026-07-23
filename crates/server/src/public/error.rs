@@ -100,6 +100,8 @@ fn dialect_for_uri(uri: &Uri) -> ProtocolDialect {
         .unwrap_or_else(|| uri.path().trim_start_matches('/'));
     if path == "messages" || path.starts_with("messages/") {
         ProtocolDialect::AnthropicMessages
+    } else if path == "chat" || path.starts_with("chat/") {
+        ProtocolDialect::OpenAiChatCompletions
     } else {
         ProtocolDialect::OpenAiResponses
     }
@@ -125,6 +127,10 @@ mod tests {
         assert_eq!(
             dialect_for_uri(&Uri::from_static("/v1/messages/count_tokens")),
             ProtocolDialect::AnthropicMessages
+        );
+        assert_eq!(
+            dialect_for_uri(&Uri::from_static("/v1/chat/completions")),
+            ProtocolDialect::OpenAiChatCompletions
         );
         assert_eq!(
             dialect_for_uri(&Uri::from_static("/responses")),

@@ -6,6 +6,10 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 
 pub use crate::{ProtocolError, ProtocolRegistry};
 
+mod exchange;
+
+pub use exchange::{PreparedProtocolRequest, ProtocolExchange, StartedProtocolBridge};
+
 #[derive(Clone)]
 pub struct IngressRequest {
     pub method: Method,
@@ -179,6 +183,33 @@ pub trait ProtocolAdapter: Send + Sync {
     }
 
     fn error_response(&self, error: &PublicError) -> EgressResponse;
+}
+
+pub trait ProtocolBridge: Send + Sync {
+    fn ingress_dialect(&self) -> ProtocolDialect;
+
+    fn upstream_dialect(&self) -> ProtocolDialect;
+
+    fn supports_operation(&self, operation: ProtocolOperation) -> bool;
+
+    fn start(
+        &self,
+        request: DecodedRequest,
+        upstream_model: &str,
+    ) -> Result<StartedProtocolBridge, ProtocolError>;
+}
+
+pub trait ProtocolBridgeSession: Send {
+    fn transform_response(
+        &mut self,
+        response: DecodedUpstreamResponse,
+    ) -> Result<DecodedUpstreamResponse, ProtocolError>;
+
+    fn transform_event(&mut self, event: AdapterEvent) -> Result<Vec<AdapterEvent>, ProtocolError>;
+
+    fn finish_events(&mut self) -> Result<Vec<AdapterEvent>, ProtocolError> {
+        Ok(Vec::new())
+    }
 }
 
 impl fmt::Debug for IngressRequest {

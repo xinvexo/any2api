@@ -33,7 +33,9 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
         Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
-    );
+        any2api_contract_tests::build_configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
     let driver = HeaderEchoDriver::default();

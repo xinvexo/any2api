@@ -71,7 +71,12 @@ export function ProviderEndpointList({
       return kindItems;
     }
     return kindItems.filter((endpoint) =>
-      [endpoint.name, endpoint.baseUrl, endpoint.protocolDialect]
+      [
+        endpoint.name,
+        endpoint.baseUrl,
+        endpoint.protocolDialect,
+        endpoint.upstreamProtocolDialect ?? "",
+      ]
         .join(" ")
         .toLowerCase()
         .includes(needle),

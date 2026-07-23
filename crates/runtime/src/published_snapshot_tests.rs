@@ -42,7 +42,9 @@ async fn snapshots_reuse_queue_state_but_capture_policy_per_revision() {
         Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
-    );
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let first = snapshots.load();
     let coordinator = Arc::clone(first.queue_coordinator());
     let ticket = coordinator.try_ticket(128).expect("waiting ticket");
@@ -87,7 +89,9 @@ async fn published_auxiliary_limit_update_preserves_permits_and_scheduler_identi
         Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
-    );
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
     let endpoint = publisher

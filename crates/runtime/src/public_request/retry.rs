@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use any2api_domain::{CredentialId, PublicError, PublicErrorCode, UpstreamErrorKind};
-use any2api_protocol::api::ProtocolAdapter;
+use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
 use any2api_transport::api::{TransportFailureScope, TransportManager};
 use tokio::time::{Instant, timeout};
@@ -19,7 +19,7 @@ use crate::{
 
 pub(super) async fn execute(
     snapshot: Arc<PublishedSnapshot>,
-    adapter: Arc<dyn ProtocolAdapter>,
+    protocols: Arc<ProtocolRegistry>,
     plan: PlannedRequest,
     providers: &ProviderRegistry,
     transport: &dyn TransportManager,
@@ -31,6 +31,7 @@ pub(super) async fn execute(
     let mut previous_error = None;
     let services = upstream::UpstreamServices {
         snapshot: snapshot.as_ref(),
+        protocols: protocols.as_ref(),
         providers,
         transport,
     };
@@ -70,7 +71,6 @@ pub(super) async fn execute(
                 remaining,
                 upstream::execute_stream_attempt(
                     services,
-                    Arc::clone(&adapter),
                     plan.decoded.clone(),
                     plan.public_model.clone(),
                     affinity,
@@ -84,7 +84,6 @@ pub(super) async fn execute(
                 remaining,
                 upstream::execute_buffered_attempt(
                     services,
-                    adapter.as_ref(),
                     plan.decoded.clone(),
                     &plan.public_model,
                     affinity,

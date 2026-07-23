@@ -50,6 +50,7 @@ impl SessionHasher {
             ProtocolDialect::OpenAiResponses => [1_u8],
             ProtocolDialect::CodexBackend => [2_u8],
             ProtocolDialect::AnthropicMessages => [3_u8],
+            ProtocolDialect::OpenAiChatCompletions => [4_u8],
         };
         self.digest(
             b"soft\0",

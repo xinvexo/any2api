@@ -1,6 +1,6 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
-use any2api_protocol::api::{DecodedRequest, ProtocolAdapter};
+use any2api_protocol::api::DecodedRequest;
 use http::{HeaderValue, header};
 
 use super::super::{
@@ -18,7 +18,6 @@ use crate::request_telemetry::{AttemptRecorder, public_error_class};
 
 pub(in crate::public_request) async fn execute_stream_attempt(
     services: UpstreamServices<'_>,
-    adapter: Arc<dyn ProtocolAdapter>,
     decoded: DecodedRequest,
     public_model: String,
     affinity: AffinitySelection,
@@ -32,7 +31,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         fixed,
     } = prepare_input(
         services.snapshot,
-        adapter.as_ref(),
+        services.protocols,
         decoded,
         affinity,
         services.providers,
@@ -72,12 +71,16 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         HeaderValue::from_static("text/event-stream"),
     );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
-    let hard_affinity = hard_committer(services.snapshot, prepared.operation, target.clone());
+    let hard_affinity = hard_committer(
+        services.snapshot,
+        prepared.ingress_operation,
+        target.clone(),
+    );
     let precommit_budget = PrecommitBudget::from_settings(services.snapshot.settings().stream());
-    let (permit, health, attempt_recorder) = prepared.take_guards();
+    let (exchange, permit, health, attempt_recorder) = prepared.take_guards();
     let mut body = GuardedBody::new(
         response.body,
-        adapter,
+        exchange,
         public_model,
         GuardedBodyParts {
             permit,

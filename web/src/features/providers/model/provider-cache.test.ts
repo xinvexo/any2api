@@ -10,5 +10,5 @@ test("does not replace a newer provider cache revision", () => {
 });
 
 function configuration(configRevision: number): ProviderEndpointConfiguration {
-  return { configRevision, items: [] };
+  return { configRevision, items: [], protocolOptions: [] };
 }

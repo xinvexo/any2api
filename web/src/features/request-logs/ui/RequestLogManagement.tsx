@@ -121,7 +121,16 @@ function RequestLogRow({ log }: { log: RequestLog }) {
 }
 
 function protocolLabel(value: RequestLog["ingressProtocol"]) {
-  return value === "anthropic_messages" ? "Claude Messages" : "Codex Responses";
+  switch (value) {
+    case "openai_chat_completions":
+      return "OpenAI Chat Completions";
+    case "codex_backend":
+      return "Codex Backend";
+    case "anthropic_messages":
+      return "Claude Messages";
+    case "openai_responses":
+      return "OpenAI Responses";
+  }
 }
 
 function statusTone(status: number) {

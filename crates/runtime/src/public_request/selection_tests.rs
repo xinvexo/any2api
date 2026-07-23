@@ -4,8 +4,9 @@ mod queue_tests;
 use std::{collections::BTreeMap, sync::Arc};
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProviderCredential,
-    ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId, PublicErrorCode, RouteTargetId,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProtocolDialect,
+    ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId,
+    PublicErrorCode, RouteTargetId,
 };
 
 use super::{
@@ -267,6 +268,7 @@ pub(super) fn candidate(
         endpoint_id: credential.provider_endpoint_id(),
         credential_id: credential.id(),
         upstream_model: format!("upstream-{tier}"),
+        upstream_protocol_dialect: ProtocolDialect::OpenAiResponses,
         proxy_id: ProxyProfileId::DIRECT,
         endpoint_health: None,
         proxy_health: None,

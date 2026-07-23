@@ -19,6 +19,7 @@ pub(crate) fn routes(state: AppState) -> Router {
             .route("/models", get(models::list_models))
             .route("/responses", post(handlers::responses))
             .route("/responses/compact", post(handlers::responses_compact))
+            .route("/chat/completions", post(handlers::chat_completions))
             .route("/messages", post(handlers::messages))
             .route(
                 "/messages/count_tokens",

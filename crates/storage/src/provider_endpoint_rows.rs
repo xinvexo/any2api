@@ -15,6 +15,7 @@ struct ProviderEndpointRow {
     provider_kind: String,
     base_url: String,
     protocol_dialect: String,
+    upstream_protocol_dialect: Option<String>,
     enabled: i64,
     config_version: i64,
 }
@@ -23,7 +24,7 @@ pub(crate) async fn load_provider_endpoints_from(
     connection: &mut SqliteConnection,
 ) -> Result<ProviderEndpointConfiguration, StorageError> {
     let rows = sqlx::query_as::<_, ProviderEndpointRow>(
-        "SELECT id, name, provider_kind, base_url, protocol_dialect, \
+        "SELECT id, name, provider_kind, base_url, protocol_dialect, upstream_protocol_dialect, \
          enabled, config_version \
          FROM provider_endpoints ORDER BY provider_kind ASC, name ASC",
     )
@@ -54,8 +55,9 @@ async fn insert(
 ) -> Result<(), StorageError> {
     sqlx::query(
         "INSERT INTO provider_endpoints \
-         (id, name, name_key, provider_kind, base_url, protocol_dialect, enabled, config_version) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, name, name_key, provider_kind, base_url, protocol_dialect, \
+          upstream_protocol_dialect, enabled, config_version) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(endpoint.id().to_string())
     .bind(endpoint.name())
@@ -63,6 +65,11 @@ async fn insert(
     .bind(provider_kind_text(endpoint.provider_kind()))
     .bind(endpoint.base_url().as_str())
     .bind(protocol_dialect_text(endpoint.protocol_dialect()))
+    .bind(
+        endpoint
+            .upstream_protocol_dialect()
+            .map(protocol_dialect_text),
+    )
     .bind(endpoint.enabled())
     .bind(i64::try_from(endpoint.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
     .execute(connection)
@@ -76,7 +83,8 @@ async fn update(
 ) -> Result<(), StorageError> {
     let result = sqlx::query(
         "UPDATE provider_endpoints SET name = ?, name_key = ?, provider_kind = ?, base_url = ?, \
-         protocol_dialect = ?, enabled = ?, config_version = ?, updated_at = CURRENT_TIMESTAMP \
+         protocol_dialect = ?, upstream_protocol_dialect = ?, enabled = ?, config_version = ?, \
+         updated_at = CURRENT_TIMESTAMP \
          WHERE id = ?",
     )
     .bind(endpoint.name())
@@ -84,6 +92,11 @@ async fn update(
     .bind(provider_kind_text(endpoint.provider_kind()))
     .bind(endpoint.base_url().as_str())
     .bind(protocol_dialect_text(endpoint.protocol_dialect()))
+    .bind(
+        endpoint
+            .upstream_protocol_dialect()
+            .map(protocol_dialect_text),
+    )
     .bind(endpoint.enabled())
     .bind(i64::try_from(endpoint.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
     .bind(endpoint.id().to_string())
@@ -114,13 +127,19 @@ fn parse_endpoint(row: ProviderEndpointRow) -> Result<ProviderEndpoint, StorageE
         ProviderEndpointId::from_str(&row.id).map_err(|_| StorageError::CorruptConfiguration)?;
     let provider_kind = parse_provider_kind(&row.provider_kind)?;
     let protocol_dialect = parse_protocol_dialect(&row.protocol_dialect)?;
+    let upstream_protocol_dialect = row
+        .upstream_protocol_dialect
+        .as_deref()
+        .map(parse_protocol_dialect)
+        .transpose()?;
     let version =
         u64::try_from(row.config_version).map_err(|_| StorageError::CorruptConfiguration)?;
-    let draft = ProviderEndpointDraft::new(
+    let draft = ProviderEndpointDraft::with_upstream_protocol(
         row.name,
         provider_kind,
         row.base_url,
         protocol_dialect,
+        upstream_protocol_dialect,
         row.enabled == 1,
     )
     .map_err(|_| StorageError::CorruptConfiguration)?;
@@ -136,11 +155,7 @@ fn parse_provider_kind(value: &str) -> Result<ProviderKind, StorageError> {
 }
 
 fn parse_protocol_dialect(value: &str) -> Result<ProtocolDialect, StorageError> {
-    match value {
-        "openai_responses" => Ok(ProtocolDialect::OpenAiResponses),
-        "anthropic_messages" => Ok(ProtocolDialect::AnthropicMessages),
-        _ => Err(StorageError::CorruptConfiguration),
-    }
+    ProtocolDialect::parse(value).ok_or(StorageError::CorruptConfiguration)
 }
 
 const fn provider_kind_text(kind: ProviderKind) -> &'static str {
@@ -151,9 +166,5 @@ const fn provider_kind_text(kind: ProviderKind) -> &'static str {
 }
 
 const fn protocol_dialect_text(dialect: ProtocolDialect) -> &'static str {
-    match dialect {
-        ProtocolDialect::OpenAiResponses => "openai_responses",
-        ProtocolDialect::AnthropicMessages => "anthropic_messages",
-        ProtocolDialect::CodexBackend => "codex_backend",
-    }
+    dialect.as_str()
 }

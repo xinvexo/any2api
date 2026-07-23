@@ -26,12 +26,6 @@ impl ModelRouteDraft {
         enabled: bool,
         mut targets: Vec<RouteTargetDraft>,
     ) -> Result<Self, ModelRouteValidationError> {
-        if !matches!(
-            ingress_protocol,
-            ProtocolDialect::OpenAiResponses | ProtocolDialect::AnthropicMessages
-        ) {
-            return Err(ModelRouteValidationError::UnsupportedIngressProtocol);
-        }
         validate_targets(enabled, &targets)?;
         sort_target_drafts(&mut targets);
         Ok(Self {
@@ -203,8 +197,6 @@ pub enum ModelRouteValidationError {
     InvalidPublicModel(ModelNameValidationError),
     #[error("upstream model name is invalid: {0}")]
     InvalidUpstreamModel(ModelNameValidationError),
-    #[error("ingress protocol is not supported in the first release")]
-    UnsupportedIngressProtocol,
     #[error("model route must contain at least one target")]
     EmptyTargets,
     #[error("enabled model route must contain an enabled target")]
@@ -250,6 +242,7 @@ fn validate_targets(
         if !identities.insert((
             target.provider_endpoint_id(),
             target.upstream_model().clone(),
+            target.upstream_protocol_dialect(),
         )) {
             return Err(ModelRouteValidationError::DuplicateTarget);
         }
@@ -336,6 +329,7 @@ mod tests {
                     target_id,
                     endpoint_id,
                     upstream_model,
+                    ProtocolDialect::OpenAiResponses,
                     FallbackTier::new(tier),
                     true,
                 )

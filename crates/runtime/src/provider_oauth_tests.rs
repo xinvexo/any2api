@@ -113,11 +113,15 @@ async fn due_oauth_refresh_rotates_secret_without_clearing_models() {
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = Arc::new(ConfigPublisher::new(
-        Arc::clone(&storage),
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-    ));
+    let publisher = Arc::new(
+        ConfigPublisher::new(
+            Arc::clone(&storage),
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+            crate::test_support::configuration_capabilities(),
+        )
+        .expect("configuration publisher"),
+    );
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
     publisher

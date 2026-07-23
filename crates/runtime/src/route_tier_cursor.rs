@@ -196,6 +196,7 @@ mod tests {
                             RouteTargetId::new(),
                             endpoint_id,
                             format!("upstream-{tier}"),
+                            ProtocolDialect::OpenAiResponses,
                             FallbackTier::new(*tier),
                             true,
                         )

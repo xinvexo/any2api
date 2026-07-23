@@ -2,8 +2,10 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use any2api_domain::{
-    CredentialId, ModelRoute, ProviderEndpointId, ProxyProfileId, RouteTargetId, TransportMode,
+    CredentialId, ModelRoute, ProtocolDialect, ProtocolOperation, ProviderEndpointId,
+    ProxyProfileId, RouteTargetId, TransportMode,
 };
+use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
 
 use crate::credential_runtime::CredentialFilterKind;
@@ -17,6 +19,7 @@ pub(crate) struct RouteCandidate {
     pub(crate) endpoint_id: ProviderEndpointId,
     pub(crate) credential_id: CredentialId,
     pub(crate) upstream_model: String,
+    pub(crate) upstream_protocol_dialect: ProtocolDialect,
     pub(crate) proxy_id: ProxyProfileId,
     pub(crate) endpoint_health: Option<Arc<EndpointHealthRuntime>>,
     pub(crate) proxy_health: Option<Arc<ProxyHealthRuntime>>,
@@ -127,7 +130,9 @@ impl CandidateHealthError {
 pub(crate) fn build_route_candidates(
     snapshot: &PublishedSnapshot,
     route: &ModelRoute,
+    protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,
+    operation: ProtocolOperation,
     transport_mode: TransportMode,
 ) -> BTreeMap<u16, Vec<RouteCandidate>> {
     let mut tiers = BTreeMap::new();
@@ -138,14 +143,24 @@ pub(crate) fn build_route_candidates(
         else {
             continue;
         };
-        if !endpoint.enabled() || endpoint.protocol_dialect() != route.ingress_protocol() {
+        if !endpoint.enabled()
+            || endpoint.protocol_dialect() != route.ingress_protocol()
+            || endpoint.effective_upstream_protocol_dialect() != target.upstream_protocol_dialect()
+            || !protocols.supports_operation(
+                route.ingress_protocol(),
+                target.upstream_protocol_dialect(),
+                operation,
+            )
+        {
             continue;
         }
         let Some(driver) = providers.get(endpoint.provider_kind()) else {
             continue;
         };
         let capabilities = driver.capabilities();
-        if !capabilities.protocols.contains(&route.ingress_protocol())
+        if !capabilities
+            .protocols
+            .contains(&target.upstream_protocol_dialect())
             || !capabilities.transport_modes.contains(&transport_mode)
         {
             continue;
@@ -182,6 +197,7 @@ pub(crate) fn build_route_candidates(
                     endpoint_id: endpoint.id(),
                     credential_id: credential.id(),
                     upstream_model: target.upstream_model().as_str().to_owned(),
+                    upstream_protocol_dialect: target.upstream_protocol_dialect(),
                     proxy_id: proxy.id(),
                     endpoint_health,
                     proxy_health,

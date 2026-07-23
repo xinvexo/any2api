@@ -83,6 +83,7 @@ test("creates a Claude private HTTP endpoint directly from the Base URL", async 
     provider_kind: "claude",
     base_url: "http://127.0.0.1:8080",
     protocol_dialect: "anthropic_messages",
+    upstream_protocol_dialect: null,
     enabled: true,
   });
 });
@@ -229,7 +230,27 @@ function mockAdminApis(
 }
 
 function configuration(revision: number, items: unknown[]) {
-  return { config_revision: revision, items };
+  return { config_revision: revision, items, protocol_options: protocolOptions() };
+}
+
+function protocolOptions() {
+  return [
+    {
+      provider_kind: "codex",
+      accepted_protocol: "openai_responses",
+      upstream_protocols: ["openai_responses", "openai_chat_completions"],
+    },
+    {
+      provider_kind: "codex",
+      accepted_protocol: "openai_chat_completions",
+      upstream_protocols: ["openai_chat_completions"],
+    },
+    {
+      provider_kind: "claude",
+      accepted_protocol: "anthropic_messages",
+      upstream_protocols: ["anthropic_messages"],
+    },
+  ];
 }
 
 function credentialConfiguration(revision: number, items: unknown[]) {
@@ -302,6 +323,7 @@ function endpoint(overrides: Record<string, unknown> = {}) {
     provider_kind: "codex",
     base_url: "https://api.example.com/v1",
     protocol_dialect: "openai_responses",
+    upstream_protocol_dialect: null,
     enabled: true,
     config_version: 1,
     ...overrides,

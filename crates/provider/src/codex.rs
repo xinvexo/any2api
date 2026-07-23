@@ -34,7 +34,12 @@ impl CodexDriver {
     pub fn new() -> Self {
         Self {
             capabilities: CapabilitySet {
-                protocols: [ProtocolDialect::OpenAiResponses].into_iter().collect(),
+                protocols: [
+                    ProtocolDialect::OpenAiResponses,
+                    ProtocolDialect::OpenAiChatCompletions,
+                ]
+                .into_iter()
+                .collect(),
                 transport_modes: [TransportMode::Json, TransportMode::Sse]
                     .into_iter()
                     .collect(),
@@ -66,7 +71,9 @@ impl ProviderDriver for CodexDriver {
     ) -> Result<EndpointPlan, ProviderError> {
         if !matches!(
             operation,
-            ProtocolOperation::Responses | ProtocolOperation::ResponsesCompact
+            ProtocolOperation::Responses
+                | ProtocolOperation::ResponsesCompact
+                | ProtocolOperation::ChatCompletions
         ) {
             return Err(ProviderError::InvalidEndpoint(
                 "operation is not supported by Codex".into(),

@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use any2api_domain::{ProtocolOperation, PublicErrorCode};
-use any2api_protocol::api::{DecodedRequest, EgressResponse, ProtocolAdapter, UpstreamResponse};
+use any2api_protocol::api::{DecodedRequest, EgressResponse, UpstreamResponse};
 
 use super::super::{
     affinity::{AffinitySelection, commit_soft_binding},
@@ -19,7 +19,6 @@ use crate::request_telemetry::AttemptRecorder;
 
 pub(in crate::public_request) async fn execute_buffered_attempt(
     services: UpstreamServices<'_>,
-    adapter: &dyn ProtocolAdapter,
     decoded: DecodedRequest,
     public_model: &str,
     affinity: AffinitySelection,
@@ -33,7 +32,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         fixed,
     } = prepare_input(
         services.snapshot,
-        adapter,
+        services.protocols,
         decoded,
         affinity,
         services.providers,
@@ -70,7 +69,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         prepared.upstream_failure(status.as_u16(), classification);
         return Err(AttemptFailure::upstream(classification, candidate, fixed));
     }
-    let decoded = match adapter.decode_upstream_response(UpstreamResponse {
+    let decoded = match prepared.decode_upstream_response(UpstreamResponse {
         status,
         headers,
         body,
@@ -84,11 +83,11 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             )));
         }
     };
-    if prepared.operation != ProtocolOperation::MessagesCountTokens {
+    if prepared.ingress_operation != ProtocolOperation::MessagesCountTokens {
         prepared.observe_token_usage(decoded.telemetry.token_usage);
     }
-    let hard_id = adapter
-        .hard_affinity_id_from_response(prepared.operation, &decoded)
+    let hard_id = prepared
+        .hard_affinity_id_from_response(&decoded)
         .map_err(|_| {
             prepared.fail_after_upstream_success(
                 status.as_u16(),
@@ -98,13 +97,17 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
                 ),
             )
         })?;
-    let mut response = adapter
+    let mut response = prepared
         .encode_egress_response(decoded)
         .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
     restore_public_model(&mut response.body, public_model)
         .map_err(|error| prepared.fail_after_upstream_success(status.as_u16(), error))?;
     sanitize_response_headers(&mut response.headers);
-    let hard_affinity = hard_committer(services.snapshot, prepared.operation, target.clone());
+    let hard_affinity = hard_committer(
+        services.snapshot,
+        prepared.ingress_operation,
+        target.clone(),
+    );
     if let Some(hard_id) = hard_id {
         hard_affinity
             .bind(&hard_id)

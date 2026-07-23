@@ -1,7 +1,7 @@
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import type { RequestAttempt } from "../api/request-log-contracts";
+import type { RequestAttempt, RequestLogProtocol } from "../api/request-log-contracts";
 import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
 import { useRequestLog } from "../model/use-request-logs";
 import { Button } from "@/shared/ui/Button";
@@ -90,14 +90,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
         </div>
 
         <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
-          <Detail
-            label="协议"
-            value={
-              request.ingressProtocol === "anthropic_messages"
-                ? "Claude Messages"
-                : "Codex Responses"
-            }
-          />
+          <Detail label="协议" value={protocolLabel(request.ingressProtocol)} />
           <Detail label="操作" value={request.operation} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
@@ -170,6 +163,19 @@ function Detail({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 break-all font-medium">{value}</dd>
     </div>
   );
+}
+
+function protocolLabel(value: RequestLogProtocol) {
+  switch (value) {
+    case "openai_chat_completions":
+      return "OpenAI Chat Completions";
+    case "codex_backend":
+      return "Codex Backend";
+    case "anthropic_messages":
+      return "Claude Messages";
+    case "openai_responses":
+      return "OpenAI Responses";
+  }
 }
 
 function shortId(value: string | null) {

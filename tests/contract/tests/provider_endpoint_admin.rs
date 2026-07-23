@@ -32,6 +32,104 @@ async fn provider_endpoint_admin_is_loopback_only() {
 }
 
 #[tokio::test]
+async fn provider_protocol_options_and_optional_bridge_are_registry_driven() {
+    let (_directory, app, _storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, initial) = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/provider-endpoints",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        initial["protocol_options"]
+            .as_array()
+            .is_some_and(|options| {
+                options.iter().any(|option| {
+                    option["provider_kind"] == "codex"
+                        && option["accepted_protocol"] == "openai_responses"
+                        && option["upstream_protocols"]
+                            .as_array()
+                            .is_some_and(|protocols| {
+                                protocols
+                                    .iter()
+                                    .any(|protocol| protocol == "openai_chat_completions")
+                            })
+                })
+            })
+    );
+
+    let (status, bridged) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Responses through Chat",
+            "provider_kind": "codex",
+            "base_url": "https://chat-compatible.example.com/v1",
+            "protocol_dialect": "openai_responses",
+            "upstream_protocol_dialect": "openai_chat_completions",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        bridged["items"][0]["upstream_protocol_dialect"],
+        "openai_chat_completions"
+    );
+
+    let (status, direct_chat) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 2,
+            "name": "Direct Chat",
+            "provider_kind": "codex",
+            "base_url": "https://chat.example.com/v1",
+            "protocol_dialect": "openai_chat_completions",
+            "upstream_protocol_dialect": "openai_chat_completions",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let direct_chat = direct_chat["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|item| item["name"] == "Direct Chat")
+        .expect("direct chat endpoint");
+    assert_eq!(direct_chat["upstream_protocol_dialect"], Value::Null);
+
+    let (status, unsupported) = request_json(
+        app,
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 3,
+            "name": "Unsupported",
+            "provider_kind": "claude",
+            "base_url": "https://api.example.com/v1",
+            "protocol_dialect": "openai_responses",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(unsupported["error"]["code"], "invalid_provider_protocol");
+}
+
+#[tokio::test]
 async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves_revision() {
     let (_directory, app, storage) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
@@ -170,7 +268,7 @@ async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(incompatible["error"]["code"], "invalid_provider_endpoint");
+    assert_eq!(incompatible["error"]["code"], "invalid_provider_protocol");
 
     let (status, updated) = request_json(
         app.clone(),
@@ -254,11 +352,15 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = Arc::new(ConfigPublisher::new(
-        Arc::clone(&storage),
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-    ));
+    let publisher = Arc::new(
+        ConfigPublisher::new(
+            Arc::clone(&storage),
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+            any2api_contract_tests::build_configuration_capabilities(),
+        )
+        .expect("configuration publisher"),
+    );
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");

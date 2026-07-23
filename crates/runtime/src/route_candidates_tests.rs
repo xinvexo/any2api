@@ -5,6 +5,7 @@ use any2api_domain::{
     ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
     ProxyProfileId, PublicModelName, TransportMode,
 };
+use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::tempdir;
@@ -35,7 +36,9 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
         Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
-    );
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let endpoint_id = ProviderEndpointId::new();
     let first_id = CredentialId::new();
     let second_id = CredentialId::new();
@@ -103,12 +106,23 @@ fn candidates_for(
     providers: &ProviderRegistry,
     model: &str,
 ) -> Vec<CredentialId> {
+    let mut protocols = ProtocolRegistry::new();
+    protocols
+        .register(Arc::new(OpenAiResponsesAdapter::new()))
+        .expect("Responses adapter");
     let model = PublicModelName::new(model).expect("public model");
     let route = snapshot
         .model_routes()
         .resolve(ProtocolDialect::OpenAiResponses, &model)
         .expect("derived route");
-    let candidates = build_route_candidates(snapshot, route, providers, TransportMode::Json);
+    let candidates = build_route_candidates(
+        snapshot,
+        route,
+        &protocols,
+        providers,
+        any2api_domain::ProtocolOperation::Responses,
+        TransportMode::Json,
+    );
     candidates
         .values()
         .flatten()

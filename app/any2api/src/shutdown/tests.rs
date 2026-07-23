@@ -112,7 +112,11 @@ async fn signal_captures_the_latest_published_shutdown_settings() {
         Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
-    );
+        crate::build_public_request_components()
+            .expect("public request components")
+            .configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     publisher
         .set_setting_override(
             ConfigRevision::INITIAL,

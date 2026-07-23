@@ -84,6 +84,11 @@ impl From<ConfigPublishError> for AdminApiError {
                 "invalid_provider_endpoint",
                 error.to_string(),
             ),
+            ConfigPublishError::InvalidProviderCapability(error) => AdminApiError::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_provider_protocol",
+                error.to_string(),
+            ),
             ConfigPublishError::ProviderCredentialNotFound => {
                 AdminApiError::provider_credential_not_found()
             }

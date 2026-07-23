@@ -33,6 +33,7 @@ pub(crate) fn endpoint_url(
     let suffix = match operation {
         ProtocolOperation::Responses => "responses",
         ProtocolOperation::ResponsesCompact => "responses/compact",
+        ProtocolOperation::ChatCompletions => "chat/completions",
         ProtocolOperation::Messages => "messages",
         ProtocolOperation::MessagesCountTokens => "messages/count_tokens",
     };

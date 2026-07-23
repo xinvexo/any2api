@@ -135,7 +135,8 @@ fn update(
     let identity_in_use = has_credentials || routes.references_endpoint(id);
     if identity_in_use
         && (existing.provider_kind() != updated.provider_kind()
-            || existing.protocol_dialect() != updated.protocol_dialect())
+            || existing.protocol_dialect() != updated.protocol_dialect()
+            || existing.upstream_protocol_dialect() != updated.upstream_protocol_dialect())
     {
         return Err(StorageError::ProviderEndpointIdentityInUse);
     }

@@ -1,46 +1,53 @@
 use std::sync::Arc;
 
-use any2api_domain::{
-    ConfigRevision, CredentialId, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId, ProxyDraft, ProxyProfileId, SettingKey, SettingValue,
-};
+use any2api_domain::ConfigRevision;
 use any2api_storage::api::ConfigurationRepository;
 
 use crate::{
     config_command::{ConfigCommand, execute},
     config_publish_error::ConfigPublishError,
+    configuration_capabilities::ConfigurationCapabilities,
     logging_reconciler::LoggingSettingsReconciler,
-    provider_api_key_secret::ProviderApiKeySecret,
-    provider_oauth2_secret::ProviderOAuth2Secret,
-    proxy_password_secret::ProxyPasswordSecret,
     published_snapshot::{PublishedSnapshot, SnapshotStore},
     registry::RuntimeRegistry,
 };
+
+mod providers;
+mod proxies;
+mod settings;
 
 #[derive(Clone)]
 pub struct ConfigPublisher {
     pub(crate) repository: Arc<dyn ConfigurationRepository>,
     pub(crate) snapshots: Arc<SnapshotStore>,
     pub(crate) runtime: Arc<RuntimeRegistry>,
+    capabilities: Arc<ConfigurationCapabilities>,
     logging_reconciler: Option<Arc<dyn LoggingSettingsReconciler>>,
 }
 
 impl ConfigPublisher {
-    #[must_use]
     pub fn new<R>(
         repository: Arc<R>,
         snapshots: Arc<SnapshotStore>,
         runtime: Arc<RuntimeRegistry>,
-    ) -> Self
+        capabilities: Arc<ConfigurationCapabilities>,
+    ) -> Result<Self, ConfigPublishError>
     where
         R: ConfigurationRepository + 'static,
     {
-        Self {
+        let current = snapshots.load();
+        capabilities.validate_configuration(
+            current.provider_endpoints(),
+            current.provider_credentials(),
+            current.model_routes(),
+        )?;
+        Ok(Self {
             repository,
             snapshots,
             runtime,
+            capabilities,
             logging_reconciler: None,
-        }
+        })
     }
 
     #[must_use]
@@ -52,278 +59,9 @@ impl ConfigPublisher {
         self
     }
 
-    pub async fn create_proxy(
-        &self,
-        expected: ConfigRevision,
-        id: ProxyProfileId,
-        draft: ProxyDraft,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::CreateProxy { id, draft })
-            .await
-    }
-
-    pub async fn update_proxy(
-        &self,
-        expected: ConfigRevision,
-        id: ProxyProfileId,
-        draft: ProxyDraft,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::UpdateProxy { id, draft })
-            .await
-    }
-
-    pub async fn delete_proxy(
-        &self,
-        expected: ConfigRevision,
-        id: ProxyProfileId,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::DeleteProxy { id })
-            .await
-    }
-
-    pub async fn set_global_proxy(
-        &self,
-        expected: ConfigRevision,
-        id: ProxyProfileId,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::SetGlobalProxy { id })
-            .await
-    }
-
-    pub async fn set_proxy_authentication(
-        &self,
-        expected: ConfigRevision,
-        id: ProxyProfileId,
-        username: String,
-        password: ProxyPasswordSecret,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::SetProxyAuthentication {
-                id,
-                username,
-                password,
-            },
-        )
-        .await
-    }
-
-    pub async fn clear_proxy_authentication(
-        &self,
-        expected: ConfigRevision,
-        id: ProxyProfileId,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::ClearProxyAuthentication { id })
-            .await
-    }
-
-    pub async fn create_provider_endpoint(
-        &self,
-        expected: ConfigRevision,
-        id: ProviderEndpointId,
-        draft: ProviderEndpointDraft,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::CreateProviderEndpoint { id, draft },
-        )
-        .await
-    }
-
-    pub async fn update_provider_endpoint(
-        &self,
-        expected: ConfigRevision,
-        id: ProviderEndpointId,
-        expected_config_version: u64,
-        draft: ProviderEndpointDraft,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::UpdateProviderEndpoint {
-                id,
-                expected_config_version,
-                draft,
-            },
-        )
-        .await
-    }
-
-    pub async fn delete_provider_endpoint(
-        &self,
-        expected: ConfigRevision,
-        id: ProviderEndpointId,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::DeleteProviderEndpoint { id })
-            .await
-    }
-
-    pub async fn create_provider_credential(
-        &self,
-        expected: ConfigRevision,
-        id: CredentialId,
-        endpoint_id: ProviderEndpointId,
-        draft: ProviderCredentialDraft,
-        api_key: ProviderApiKeySecret,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::CreateProviderCredential {
-                id,
-                endpoint_id,
-                draft,
-                api_key,
-            },
-        )
-        .await
-    }
-
-    pub(crate) async fn create_provider_oauth_credential(
-        &self,
-        id: CredentialId,
-        endpoint_id: ProviderEndpointId,
-        expected_endpoint_config_version: u64,
-        draft: ProviderCredentialDraft,
-        oauth_secret: ProviderOAuth2Secret,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        let publisher = self.clone();
-        crate::publish_task::run(self.runtime.lifecycle(), async move {
-            let _guard = publisher.snapshots.acquire_publish().await;
-            let current = publisher.snapshots.load();
-            let expected = current.revision();
-            let committed = execute(
-                publisher.repository.as_ref(),
-                expected,
-                ConfigCommand::CreateProviderOAuthCredential {
-                    id,
-                    endpoint_id,
-                    expected_endpoint_config_version,
-                    draft,
-                    oauth_secret,
-                },
-            )
-            .await?;
-            Ok(publisher.publish_committed(current, expected, committed))
-        })
-        .await
-        .ok_or(ConfigPublishError::ShuttingDown)?
-    }
-
-    pub async fn update_provider_credential(
-        &self,
-        expected: ConfigRevision,
-        id: CredentialId,
-        expected_config_version: u64,
-        draft: ProviderCredentialDraft,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::UpdateProviderCredential {
-                id,
-                expected_config_version,
-                draft,
-            },
-        )
-        .await
-    }
-
-    pub async fn rotate_provider_credential_secret(
-        &self,
-        expected: ConfigRevision,
-        id: CredentialId,
-        expected_config_version: u64,
-        expected_secret_version: u64,
-        api_key: ProviderApiKeySecret,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::RotateProviderCredentialSecret {
-                id,
-                expected_config_version,
-                expected_secret_version,
-                api_key,
-            },
-        )
-        .await
-    }
-
-    pub(crate) async fn refresh_provider_oauth_credential_secret(
-        &self,
-        id: CredentialId,
-        expected_secret_version: u64,
-        oauth_secret: ProviderOAuth2Secret,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        let publisher = self.clone();
-        crate::publish_task::run(self.runtime.lifecycle(), async move {
-            let _guard = publisher.snapshots.acquire_publish().await;
-            let current = publisher.snapshots.load();
-            let expected = current.revision();
-            let committed = execute(
-                publisher.repository.as_ref(),
-                expected,
-                ConfigCommand::RefreshProviderOAuthCredentialSecret {
-                    id,
-                    expected_secret_version,
-                    oauth_secret,
-                },
-            )
-            .await?;
-            Ok(publisher.publish_committed(current, expected, committed))
-        })
-        .await
-        .ok_or(ConfigPublishError::ShuttingDown)?
-    }
-
-    pub async fn delete_provider_credential(
-        &self,
-        expected: ConfigRevision,
-        id: CredentialId,
-        expected_config_version: u64,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::DeleteProviderCredential {
-                id,
-                expected_config_version,
-            },
-        )
-        .await
-    }
-
-    pub async fn set_provider_credential_models(
-        &self,
-        expected: ConfigRevision,
-        id: CredentialId,
-        expected_config_version: u64,
-        models: Vec<String>,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(
-            expected,
-            ConfigCommand::SetProviderCredentialModels {
-                id,
-                expected_config_version,
-                models,
-            },
-        )
-        .await
-    }
-
-    pub async fn set_setting_override(
-        &self,
-        expected: ConfigRevision,
-        key: SettingKey,
-        value: SettingValue,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::SetSettingOverride { key, value })
-            .await
-    }
-
-    pub async fn reset_setting_override(
-        &self,
-        expected: ConfigRevision,
-        key: SettingKey,
-    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
-        self.publish(expected, ConfigCommand::ResetSettingOverride { key })
-            .await
+    #[must_use]
+    pub fn configuration_capabilities(&self) -> &ConfigurationCapabilities {
+        self.capabilities.as_ref()
     }
 
     async fn publish(
@@ -352,6 +90,7 @@ impl ConfigPublisher {
                 actual: current.revision(),
             });
         }
+        self.validate_command(current.as_ref(), &command)?;
         let committed = execute(self.repository.as_ref(), expected, command).await?;
         Ok(self.publish_committed(current, expected, committed))
     }

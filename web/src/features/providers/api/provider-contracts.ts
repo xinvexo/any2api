@@ -1,5 +1,15 @@
 export type ProviderKind = "codex" | "claude";
-export type ProtocolDialect = "openai_responses" | "anthropic_messages";
+export type ProtocolDialect =
+  | "openai_responses"
+  | "openai_chat_completions"
+  | "codex_backend"
+  | "anthropic_messages";
+
+export interface ProviderProtocolOptions {
+  providerKind: ProviderKind;
+  acceptedProtocol: ProtocolDialect;
+  upstreamProtocols: ProtocolDialect[];
+}
 
 export interface ProviderEndpoint {
   id: string;
@@ -7,6 +17,7 @@ export interface ProviderEndpoint {
   providerKind: ProviderKind;
   baseUrl: string;
   protocolDialect: ProtocolDialect;
+  upstreamProtocolDialect: ProtocolDialect | null;
   enabled: boolean;
   configVersion: number;
 }
@@ -14,6 +25,7 @@ export interface ProviderEndpoint {
 export interface ProviderEndpointConfiguration {
   configRevision: number;
   items: ProviderEndpoint[];
+  protocolOptions: ProviderProtocolOptions[];
 }
 
 export interface ProviderEndpointWriteInput {
@@ -23,18 +35,37 @@ export interface ProviderEndpointWriteInput {
   providerKind: ProviderKind;
   baseUrl: string;
   protocolDialect: ProtocolDialect;
+  upstreamProtocolDialect: ProtocolDialect | null;
   enabled: boolean;
 }
 
 export function parseProviderEndpointConfiguration(
   value: unknown,
 ): ProviderEndpointConfiguration {
-  if (!isRecord(value) || !Array.isArray(value.items)) {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.items) ||
+    !Array.isArray(value.protocol_options)
+  ) {
     throw new Error("invalid provider endpoint response");
+  }
+  const protocolOptions = value.protocol_options.map(parseProtocolOptions);
+  const items = value.items.map(parseProviderEndpoint);
+  for (const endpoint of items) {
+    const option = protocolOptions.find(
+      (candidate) =>
+        candidate.providerKind === endpoint.providerKind &&
+        candidate.acceptedProtocol === endpoint.protocolDialect,
+    );
+    const upstream = endpoint.upstreamProtocolDialect ?? endpoint.protocolDialect;
+    if (!option?.upstreamProtocols.includes(upstream)) {
+      throw new Error("invalid provider endpoint response");
+    }
   }
   return {
     configRevision: readPositiveInteger(value.config_revision),
-    items: value.items.map(parseProviderEndpoint),
+    items,
+    protocolOptions,
   };
 }
 
@@ -44,7 +75,10 @@ function parseProviderEndpoint(value: unknown): ProviderEndpoint {
   }
   const providerKind = readProviderKind(value.provider_kind);
   const protocolDialect = readProtocolDialect(value.protocol_dialect);
-  if (!isCompatible(providerKind, protocolDialect)) {
+  const upstreamProtocolDialect = readOptionalProtocolDialect(
+    value.upstream_protocol_dialect,
+  );
+  if (upstreamProtocolDialect === protocolDialect) {
     throw new Error("invalid provider endpoint response");
   }
   const baseUrl = readString(value.base_url);
@@ -56,8 +90,24 @@ function parseProviderEndpoint(value: unknown): ProviderEndpoint {
     providerKind,
     baseUrl,
     protocolDialect,
+    upstreamProtocolDialect,
     enabled: readBoolean(value.enabled),
     configVersion: readPositiveInteger(value.config_version),
+  };
+}
+
+function parseProtocolOptions(value: unknown): ProviderProtocolOptions {
+  if (!isRecord(value) || !Array.isArray(value.upstream_protocols)) {
+    throw new Error("invalid provider endpoint response");
+  }
+  const upstreamProtocols = value.upstream_protocols.map(readProtocolDialect);
+  if (new Set(upstreamProtocols).size !== upstreamProtocols.length) {
+    throw new Error("invalid provider endpoint response");
+  }
+  return {
+    providerKind: readProviderKind(value.provider_kind),
+    acceptedProtocol: readProtocolDialect(value.accepted_protocol),
+    upstreamProtocols,
   };
 }
 
@@ -77,13 +127,6 @@ function validateBaseUrl(value: string) {
   ) {
     throw new Error("invalid provider endpoint response");
   }
-}
-
-function isCompatible(kind: ProviderKind, dialect: ProtocolDialect) {
-  return (
-    (kind === "codex" && dialect === "openai_responses") ||
-    (kind === "claude" && dialect === "anthropic_messages")
-  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -119,8 +162,17 @@ function readProviderKind(value: unknown): ProviderKind {
 }
 
 function readProtocolDialect(value: unknown): ProtocolDialect {
-  if (value !== "openai_responses" && value !== "anthropic_messages") {
+  if (
+    value !== "openai_responses" &&
+    value !== "openai_chat_completions" &&
+    value !== "codex_backend" &&
+    value !== "anthropic_messages"
+  ) {
     throw new Error("invalid provider endpoint response");
   }
   return value;
+}
+
+function readOptionalProtocolDialect(value: unknown): ProtocolDialect | null {
+  return value === null ? null : readProtocolDialect(value);
 }

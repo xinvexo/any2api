@@ -9,6 +9,8 @@ use any2api_storage::api::{
 };
 use thiserror::Error;
 
+use crate::configuration_capabilities::ConfigurationCapabilityError;
+
 #[derive(Debug, Error)]
 pub enum ConfigPublishError {
     #[error("service is shutting down")]
@@ -48,6 +50,8 @@ pub enum ConfigPublishError {
     ProviderEndpointIdentityInUse,
     #[error("invalid provider endpoint: {0}")]
     InvalidProviderEndpoint(ProviderEndpointValidationError),
+    #[error("provider protocol capability is invalid: {0}")]
+    InvalidProviderCapability(#[from] ConfigurationCapabilityError),
     #[error("provider credential was not found")]
     ProviderCredentialNotFound,
     #[error("provider credential version conflict")]

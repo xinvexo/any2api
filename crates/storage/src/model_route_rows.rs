@@ -24,6 +24,7 @@ struct RouteTargetRow {
     model_route_id: String,
     provider_endpoint_id: String,
     upstream_model: String,
+    upstream_protocol_dialect: String,
     fallback_tier: i64,
     enabled: i64,
 }
@@ -39,7 +40,8 @@ pub(crate) async fn load_model_routes_from(
     .fetch_all(&mut *connection)
     .await?;
     let target_rows = sqlx::query_as::<_, RouteTargetRow>(
-        "SELECT id, model_route_id, provider_endpoint_id, upstream_model, fallback_tier, enabled \
+        "SELECT id, model_route_id, provider_endpoint_id, upstream_model, \
+         upstream_protocol_dialect, fallback_tier, enabled \
          FROM route_targets ORDER BY model_route_id, fallback_tier, provider_endpoint_id",
     )
     .fetch_all(&mut *connection)
@@ -77,6 +79,7 @@ fn group_targets(
             id,
             endpoint_id,
             row.upstream_model,
+            parse_protocol(&row.upstream_protocol_dialect)?,
             FallbackTier::new(tier),
             enabled,
         )
@@ -137,18 +140,21 @@ async fn upsert_target(
 ) -> Result<(), StorageError> {
     let result = sqlx::query(
         "INSERT INTO route_targets \
-         (id, model_route_id, provider_endpoint_id, upstream_model, fallback_tier, enabled) \
-         VALUES (?, ?, ?, ?, ?, ?) \
+         (id, model_route_id, provider_endpoint_id, upstream_model, \
+          upstream_protocol_dialect, fallback_tier, enabled) \
+         VALUES (?, ?, ?, ?, ?, ?, ?) \
          ON CONFLICT(id) DO UPDATE SET fallback_tier = excluded.fallback_tier, \
          enabled = excluded.enabled, updated_at = CURRENT_TIMESTAMP \
          WHERE route_targets.model_route_id = excluded.model_route_id \
          AND route_targets.provider_endpoint_id = excluded.provider_endpoint_id \
-         AND route_targets.upstream_model = excluded.upstream_model",
+         AND route_targets.upstream_model = excluded.upstream_model \
+         AND route_targets.upstream_protocol_dialect = excluded.upstream_protocol_dialect",
     )
     .bind(target.id().to_string())
     .bind(target.model_route_id().to_string())
     .bind(target.provider_endpoint_id().to_string())
     .bind(target.upstream_model().as_str())
+    .bind(protocol_text(target.upstream_protocol_dialect()))
     .bind(i64::from(target.fallback_tier().get()))
     .bind(target.enabled())
     .execute(&mut *connection)
@@ -160,19 +166,11 @@ async fn upsert_target(
 }
 
 fn parse_protocol(value: &str) -> Result<ProtocolDialect, StorageError> {
-    match value {
-        "openai_responses" => Ok(ProtocolDialect::OpenAiResponses),
-        "anthropic_messages" => Ok(ProtocolDialect::AnthropicMessages),
-        _ => Err(StorageError::CorruptConfiguration),
-    }
+    ProtocolDialect::parse(value).ok_or(StorageError::CorruptConfiguration)
 }
 
 const fn protocol_text(value: ProtocolDialect) -> &'static str {
-    match value {
-        ProtocolDialect::OpenAiResponses => "openai_responses",
-        ProtocolDialect::AnthropicMessages => "anthropic_messages",
-        ProtocolDialect::CodexBackend => "codex_backend",
-    }
+    value.as_str()
 }
 
 fn parse_bool(value: i64) -> Result<bool, StorageError> {

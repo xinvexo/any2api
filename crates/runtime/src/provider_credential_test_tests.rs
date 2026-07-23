@@ -40,7 +40,9 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
         Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
-    );
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
     let endpoint = publisher

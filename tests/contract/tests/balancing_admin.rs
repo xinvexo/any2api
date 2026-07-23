@@ -36,11 +36,15 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = Arc::new(ConfigPublisher::new(
-        Arc::clone(&storage),
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-    ));
+    let publisher = Arc::new(
+        ConfigPublisher::new(
+            Arc::clone(&storage),
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+            any2api_contract_tests::build_configuration_capabilities(),
+        )
+        .expect("configuration publisher"),
+    );
     let proxy_id = ProxyProfileId::new();
     let proxy = publisher
         .create_proxy(

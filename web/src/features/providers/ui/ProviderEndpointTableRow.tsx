@@ -1,6 +1,7 @@
 import { ChevronRight, LogIn, Pencil, Plus, Trash2 } from "lucide-react";
 
 import type { ProviderEndpoint } from "../api/provider-contracts";
+import { protocolLabel } from "../model/protocol-catalog";
 import { cn } from "@/shared/lib/cn";
 import { RowActionButton } from "@/shared/ui/RowActionButton";
 
@@ -32,8 +33,10 @@ export function ProviderEndpointTableRow({
   onOAuthCredential,
   onDelete,
 }: ProviderEndpointTableRowProps) {
-  const dialect =
-    endpoint.protocolDialect === "openai_responses" ? "Responses" : "Messages";
+  const accepted = protocolLabel(endpoint.protocolDialect);
+  const dialect = endpoint.upstreamProtocolDialect
+    ? `${accepted} → ${protocolLabel(endpoint.upstreamProtocolDialect)}`
+    : accepted;
   const panelId = `endpoint-keys-${endpoint.id}`;
 
   return (

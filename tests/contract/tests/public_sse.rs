@@ -139,6 +139,71 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
 }
 
 #[tokio::test]
+async fn responses_stream_is_bridged_from_chat_completions_sse() {
+    let (upstream_address, upstream_request, release) = paused_sse_server(
+        "/v1/chat/completions",
+        &[b"data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello \"}}]}\n\n"],
+        &[
+            b"data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"weather\",\"arguments\":\"{\\\"city\\\":\\\"\"}}]}}]}\n\n",
+            b"data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\",\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"Paris\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
+            b"data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-upstream\",\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":3,\"prompt_tokens_details\":{\"cached_tokens\":1}}}\n\n",
+            b"data: [DONE]\n\n",
+        ],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Responses over Chat SSE",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_credential(
+        &app,
+        remote,
+        revision + 2,
+        &endpoint,
+        "chat-bridge-stream",
+        "sk-chat-bridge-stream",
+    )
+    .await;
+    select_models(&app, remote, revision + 3, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_stream_headers(&response);
+    let (first, rest) = read_paused_stream(response, release).await;
+    assert!(first.contains("response.created"));
+    assert!(first.contains(r#""model":"gpt-upstream""#));
+    assert!(rest.contains("response.output_text.delta"));
+    assert!(rest.contains("response.function_call_arguments.done"));
+    assert!(rest.contains("response.completed"));
+    assert!(rest.contains(r#""input_tokens":4"#));
+    assert!(rest.contains(r#""cached_tokens":1"#));
+    let upstream = upstream_request.await.expect("upstream request");
+    assert_eq!(
+        upstream.headers["authorization"],
+        "Bearer sk-chat-bridge-stream"
+    );
+    assert_eq!(upstream.body["model"], "gpt-upstream");
+    assert_eq!(upstream.body["messages"][0]["content"], "hello");
+    assert_eq!(upstream.body["stream"], true);
+    assert_eq!(upstream.body["stream_options"]["include_usage"], true);
+}
+
+#[tokio::test]
 async fn stream_precommit_byte_budget_is_applied_from_published_settings() {
     let (upstream_address, _upstream_request, release) = paused_sse_server(
         "/v1/responses",
@@ -789,11 +854,15 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = Arc::new(ConfigPublisher::new(
-        Arc::clone(&storage),
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-    ));
+    let publisher = Arc::new(
+        ConfigPublisher::new(
+            Arc::clone(&storage),
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+            any2api_contract_tests::build_configuration_capabilities(),
+        )
+        .expect("configuration publisher"),
+    );
     let service = build_public_request_components()
         .expect("public request components")
         .service();
@@ -835,6 +904,28 @@ async fn create_endpoint(
     } else {
         "anthropic_messages"
     };
+    create_endpoint_with_protocol(
+        app,
+        remote,
+        revision,
+        name,
+        provider_kind,
+        base_url,
+        (dialect, None),
+    )
+    .await
+}
+
+async fn create_endpoint_with_protocol(
+    app: &Router,
+    remote: SocketAddr,
+    revision: u64,
+    name: &str,
+    provider_kind: &str,
+    base_url: &str,
+    protocol: (&str, Option<&str>),
+) -> String {
+    let (protocol_dialect, upstream_protocol_dialect) = protocol;
     let response = request_admin(
         app.clone(),
         "/api/admin/provider-endpoints",
@@ -843,7 +934,8 @@ async fn create_endpoint(
             "name":name,
             "provider_kind":provider_kind,
             "base_url":base_url,
-            "protocol_dialect":dialect,
+            "protocol_dialect":protocol_dialect,
+            "upstream_protocol_dialect":upstream_protocol_dialect,
             "enabled":true
         }),
         remote,

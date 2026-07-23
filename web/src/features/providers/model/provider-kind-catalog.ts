@@ -8,7 +8,7 @@ export interface ProviderKindOption {
 
 /** Supported provider kinds shown in the admin UI. Extend when new kinds ship. */
 export const PROVIDER_KIND_OPTIONS: readonly ProviderKindOption[] = [
-  { kind: "codex", label: "Codex", description: "OpenAI Responses" },
+  { kind: "codex", label: "Codex", description: "OpenAI protocols" },
   { kind: "claude", label: "Claude", description: "Anthropic Messages" },
 ] as const;
 

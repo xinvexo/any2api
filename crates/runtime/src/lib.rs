@@ -5,6 +5,7 @@ mod auxiliary_scheduler;
 mod balancing;
 mod config_command;
 mod config_publish_error;
+mod configuration_capabilities;
 mod credential_auth;
 mod credential_runtime;
 mod gateway_api_key_publisher;
@@ -53,3 +54,5 @@ mod publisher_tests;
 mod request_telemetry_tests;
 #[cfg(test)]
 mod route_candidates_tests;
+#[cfg(test)]
+mod test_support;

@@ -143,13 +143,14 @@ impl PublicRequestService {
             snapshot.as_ref(),
             request,
             adapter.as_ref(),
+            self.protocols.as_ref(),
             self.providers.as_ref(),
         )
         .await?;
         recorder.set_route(planned.public_model.clone(), planned.decoded.stream);
         retry::execute(
             snapshot,
-            adapter,
+            Arc::clone(&self.protocols),
             planned,
             self.providers.as_ref(),
             self.transport.as_ref(),

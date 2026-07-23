@@ -422,11 +422,15 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = Arc::new(ConfigPublisher::new(
-        Arc::clone(&storage),
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-    ));
+    let publisher = Arc::new(
+        ConfigPublisher::new(
+            Arc::clone(&storage),
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+            any2api_contract_tests::build_configuration_capabilities(),
+        )
+        .expect("configuration publisher"),
+    );
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");

@@ -17,7 +17,7 @@ use std::{
 };
 
 use any2api_domain::{ErrorClass, PublicError};
-use any2api_protocol::{SseDecoder, api::ProtocolAdapter};
+use any2api_protocol::{SseDecoder, api::ProtocolExchange};
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
@@ -64,7 +64,7 @@ pub(super) struct GuardedBodyParts {
 pub(super) struct GuardedBody {
     upstream: BoxByteStream,
     decoder: SseDecoder,
-    adapter: Arc<dyn ProtocolAdapter>,
+    exchange: ProtocolExchange,
     public_model: String,
     buffered_chunk: Option<Bytes>,
     pending: VecDeque<PendingFrame>,
@@ -94,7 +94,7 @@ pub(super) struct PendingFrame {
 impl GuardedBody {
     pub(super) fn new(
         upstream: BoxByteStream,
-        adapter: Arc<dyn ProtocolAdapter>,
+        exchange: ProtocolExchange,
         public_model: impl Into<String>,
         parts: GuardedBodyParts,
     ) -> Self {
@@ -112,7 +112,7 @@ impl GuardedBody {
         Self {
             upstream,
             decoder,
-            adapter,
+            exchange,
             public_model: public_model.into(),
             buffered_chunk: None,
             pending: VecDeque::new(),

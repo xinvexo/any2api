@@ -26,6 +26,7 @@ fn composition_root_protocol_registry_runs_every_contract() {
         actual,
         BTreeSet::from([
             ProtocolDialect::OpenAiResponses,
+            ProtocolDialect::OpenAiChatCompletions,
             ProtocolDialect::AnthropicMessages,
         ])
     );
@@ -34,12 +35,39 @@ fn composition_root_protocol_registry_runs_every_contract() {
         assert_eq!(*dialect, adapter.dialect());
         match dialect {
             ProtocolDialect::OpenAiResponses => responses_contract(adapter.as_ref()),
+            ProtocolDialect::OpenAiChatCompletions => chat_completions_contract(adapter.as_ref()),
             ProtocolDialect::AnthropicMessages => messages_contract(adapter.as_ref()),
             ProtocolDialect::CodexBackend => {
                 panic!("registered Codex Backend adapter has no first-release contract")
             }
         }
     }
+
+    let bridges = registry
+        .iter_bridges()
+        .map(|(dialects, _)| *dialects)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        bridges,
+        BTreeSet::from([(
+            ProtocolDialect::OpenAiResponses,
+            ProtocolDialect::OpenAiChatCompletions,
+        )])
+    );
+    assert!(registry.supports_pair(
+        ProtocolDialect::OpenAiResponses,
+        ProtocolDialect::OpenAiChatCompletions,
+    ));
+    assert!(registry.supports_operation(
+        ProtocolDialect::OpenAiResponses,
+        ProtocolDialect::OpenAiChatCompletions,
+        ProtocolOperation::Responses,
+    ));
+    assert!(!registry.supports_operation(
+        ProtocolDialect::OpenAiResponses,
+        ProtocolDialect::OpenAiChatCompletions,
+        ProtocolOperation::ResponsesCompact,
+    ));
 }
 
 #[test]
@@ -139,6 +167,52 @@ fn responses_contract(adapter: &dyn ProtocolAdapter) {
         terminal.telemetry().token_usage,
         TokenUsage::new(Some(12), Some(7), None, None)
     );
+}
+
+fn chat_completions_contract(adapter: &dyn ProtocolAdapter) {
+    let decoded = adapter
+        .decode_ingress_request(ingress_request(
+            ProtocolOperation::ChatCompletions,
+            "/v1/chat/completions",
+            json!({
+                "model": "public-model",
+                "messages": [],
+                "future_field": {"preserved": true}
+            }),
+        ))
+        .expect("Chat Completions request decodes");
+    assert_eq!(decoded.dialect, ProtocolDialect::OpenAiChatCompletions);
+    let encoded = adapter
+        .encode_upstream_request(
+            decoded.operation,
+            decoded.headers,
+            decoded.payload,
+            "upstream-model",
+        )
+        .expect("Chat Completions request encodes");
+    let body: Value = serde_json::from_slice(&encoded.body).expect("encoded JSON");
+    assert_eq!(body["model"], "upstream-model");
+    assert_eq!(body["future_field"]["preserved"], true);
+
+    let response = adapter
+        .decode_upstream_response(UpstreamResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(
+                br#"{"usage":{"prompt_tokens":12,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":3}}}"#,
+            ),
+        })
+        .expect("Chat Completions telemetry decodes");
+    assert_eq!(
+        response.telemetry.token_usage,
+        TokenUsage::new(Some(12), Some(7), Some(3), None)
+    );
+    let content = adapter
+        .decode_upstream_event(SseFrame(Bytes::from_static(
+            b"data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n",
+        )))
+        .expect("Chat Completions content event decodes");
+    assert!(content.telemetry().has_content_delta);
 }
 
 fn messages_contract(adapter: &dyn ProtocolAdapter) {

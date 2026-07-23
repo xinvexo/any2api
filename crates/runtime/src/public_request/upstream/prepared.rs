@@ -1,20 +1,23 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use any2api_domain::{
-    ErrorClass, ProtocolOperation, PublicError, PublicErrorCode, TokenUsage,
-    UpstreamErrorClassification,
+    ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamErrorClassification,
 };
-use any2api_protocol::api::{DecodedRequest, ProtocolAdapter};
+use any2api_protocol::{
+    ProtocolError,
+    api::{
+        DecodedRequest, DecodedUpstreamResponse, EgressResponse, ProtocolExchange,
+        ProtocolRegistry, UpstreamResponse,
+    },
+};
 use any2api_provider::api::{ProviderDriver, ProviderRegistry, UpstreamResponseMeta};
 use any2api_transport::api::{
-    EndpointNetworkPolicy, TransportError, TransportFailureScope, TransportManager, TransportProxy,
-    TransportRequest, TransportResponse,
+    TransportError, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
+    TransportResponse,
 };
 
 use super::super::{
-    RequestPermit, SelectedCandidate,
-    affinity::AffinitySelection,
-    response::{MAX_CLASSIFIED_ERROR_BYTES, internal_error, public_error},
+    RequestPermit, affinity::AffinitySelection, response::MAX_CLASSIFIED_ERROR_BYTES,
 };
 use super::failure::AttemptFailure;
 use crate::{
@@ -24,6 +27,10 @@ use crate::{
     request_telemetry::{AttemptRecorder, public_error_class},
     route_candidates::RouteCandidate,
 };
+
+mod build;
+
+use build::prepare_attempt;
 
 pub(super) struct AttemptInput<'a> {
     pub(super) prepared: PreparedAttempt<'a>,
@@ -35,7 +42,7 @@ pub(super) struct AttemptInput<'a> {
 
 pub(super) fn prepare_input<'a>(
     snapshot: &'a PublishedSnapshot,
-    adapter: &dyn ProtocolAdapter,
+    protocols: &ProtocolRegistry,
     decoded: DecodedRequest,
     affinity: AffinitySelection,
     providers: &'a ProviderRegistry,
@@ -50,7 +57,7 @@ pub(super) fn prepare_input<'a>(
     let candidate = selected.candidate.clone();
     let prepared = prepare_attempt(
         snapshot,
-        adapter,
+        protocols,
         decoded,
         selected,
         providers,
@@ -68,7 +75,9 @@ pub(super) fn prepare_input<'a>(
 pub(super) struct PreparedAttempt<'a> {
     driver: &'a dyn ProviderDriver,
     proxy: TransportProxy<'a>,
-    pub(super) operation: ProtocolOperation,
+    pub(super) ingress_operation: ProtocolOperation,
+    upstream_operation: ProtocolOperation,
+    exchange: Option<ProtocolExchange>,
     request: Option<TransportRequest>,
     permit: Option<RequestPermit>,
     health: Option<AttemptHealth>,
@@ -91,7 +100,7 @@ impl PreparedAttempt<'_> {
         body: &[u8],
     ) -> UpstreamErrorClassification {
         self.driver.classify_error(
-            self.operation,
+            self.upstream_operation,
             &UpstreamResponseMeta {
                 status,
                 headers: headers.clone(),
@@ -114,6 +123,36 @@ impl PreparedAttempt<'_> {
         if let Some(recorder) = &self.attempt_recorder {
             recorder.observe_token_usage(usage);
         }
+    }
+
+    pub(super) fn decode_upstream_response(
+        &mut self,
+        response: UpstreamResponse,
+    ) -> Result<DecodedUpstreamResponse, ProtocolError> {
+        self.exchange
+            .as_mut()
+            .expect("prepared protocol exchange is present")
+            .decode_upstream_response(response)
+    }
+
+    pub(super) fn hard_affinity_id_from_response(
+        &self,
+        response: &DecodedUpstreamResponse,
+    ) -> Result<Option<String>, ProtocolError> {
+        self.exchange
+            .as_ref()
+            .expect("prepared protocol exchange is present")
+            .hard_affinity_id_from_response(self.ingress_operation, response)
+    }
+
+    pub(super) fn encode_egress_response(
+        &self,
+        response: DecodedUpstreamResponse,
+    ) -> Result<EgressResponse, ProtocolError> {
+        self.exchange
+            .as_ref()
+            .expect("prepared protocol exchange is present")
+            .encode_egress_response(response)
     }
 
     pub(super) fn fail_after_upstream_success(
@@ -177,8 +216,16 @@ impl PreparedAttempt<'_> {
 
     pub(super) fn take_guards(
         &mut self,
-    ) -> (RequestPermit, Option<AttemptHealth>, AttemptRecorder) {
+    ) -> (
+        ProtocolExchange,
+        RequestPermit,
+        Option<AttemptHealth>,
+        AttemptRecorder,
+    ) {
         (
+            self.exchange
+                .take()
+                .expect("prepared protocol exchange is present"),
             self.permit.take().expect("prepared permit is present"),
             self.health.take(),
             self.attempt_recorder
@@ -198,108 +245,6 @@ impl Drop for PreparedAttempt<'_> {
     }
 }
 
-fn prepare_attempt<'a>(
-    snapshot: &'a PublishedSnapshot,
-    adapter: &dyn ProtocolAdapter,
-    decoded: DecodedRequest,
-    selected: SelectedCandidate,
-    providers: &'a ProviderRegistry,
-    mut attempt_recorder: AttemptRecorder,
-) -> Result<PreparedAttempt<'a>, AttemptFailure> {
-    let result = build_request(snapshot, adapter, decoded, &selected, providers);
-    let (driver, proxy, operation, request) = match result {
-        Ok(prepared) => prepared,
-        Err(error) => {
-            let SelectedCandidate { permit, health, .. } = selected;
-            drop(health);
-            attempt_recorder.local_error_before_send(None, public_error_class(error.code));
-            drop(permit);
-            return Err(AttemptFailure::Public(error));
-        }
-    };
-    let SelectedCandidate { permit, health, .. } = selected;
-    Ok(PreparedAttempt {
-        driver,
-        proxy,
-        operation,
-        request: Some(request),
-        permit: Some(permit),
-        health: Some(health),
-        attempt_recorder: Some(attempt_recorder),
-    })
-}
-
-fn build_request<'a>(
-    snapshot: &'a PublishedSnapshot,
-    adapter: &dyn ProtocolAdapter,
-    decoded: DecodedRequest,
-    selected: &SelectedCandidate,
-    providers: &'a ProviderRegistry,
-) -> Result<
-    (
-        &'a dyn ProviderDriver,
-        TransportProxy<'a>,
-        ProtocolOperation,
-        TransportRequest,
-    ),
-    PublicError,
-> {
-    let candidate = &selected.candidate;
-    let endpoint = snapshot
-        .provider_endpoints()
-        .get(candidate.endpoint_id)
-        .ok_or_else(internal_error)?;
-    let driver = providers
-        .get(endpoint.provider_kind())
-        .ok_or_else(internal_error)?
-        .as_ref();
-    let proxy = snapshot
-        .resolved_transport_proxy_for_credential(candidate.credential_id)
-        .filter(|proxy| proxy.profile().enabled())
-        .ok_or_else(|| {
-            public_error(
-                PublicErrorCode::NoAvailableCredential,
-                "configured proxy is unavailable",
-            )
-        })?;
-    let endpoint_plan = driver
-        .endpoint_plan(endpoint.base_url(), decoded.operation)
-        .map_err(|_| internal_error())?;
-    let operation = decoded.operation;
-    let mut encoded = adapter
-        .encode_upstream_request(
-            decoded.operation,
-            decoded.headers,
-            decoded.payload,
-            &candidate.upstream_model,
-        )
-        .map_err(|_| internal_error())?;
-    encoded.uri = endpoint_plan
-        .url
-        .as_str()
-        .parse()
-        .map_err(|_| internal_error())?;
-    let credential_headers = selected
-        .permit
-        .provider_credential_headers(driver)
-        .map_err(|_| internal_error())?;
-    encoded.headers.extend(credential_headers.headers);
-    Ok((
-        driver,
-        proxy,
-        operation,
-        TransportRequest {
-            method: encoded.method,
-            uri: encoded.uri,
-            headers: encoded.headers,
-            body: encoded.body,
-            network_policy: EndpointNetworkPolicy::new()
-                .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
-            read_timeout: Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
-        },
-    ))
-}
-
 pub(super) fn hard_committer(
     snapshot: &PublishedSnapshot,
     operation: ProtocolOperation,
@@ -314,95 +259,4 @@ pub(super) fn hard_committer(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use any2api_domain::{
-        CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency,
-        ProtocolOperation, ProviderCredential, ProviderCredentialDraft, ProviderEndpointId,
-        ProxyProfile, ProxyProfileId, PublicErrorCode,
-    };
-    use any2api_provider::{CodexDriver, api::ProviderDriver};
-    use any2api_transport::api::TransportProxy;
-
-    use super::PreparedAttempt;
-    use crate::{
-        credential_auth::CredentialAuthMaterial,
-        credential_runtime::CredentialRuntimeHandle,
-        health::{AttemptHealth, EndpointHealthRuntime, ReliabilityPolicy},
-        public_request::{RequestPermit, response::public_error},
-        request_telemetry::AttemptRecorder,
-        scheduler_epoch::SchedulerEpoch,
-    };
-
-    #[tokio::test(start_paused = true)]
-    async fn postprocess_failure_closes_half_open_health_before_releasing_capacity() {
-        let epoch = SchedulerEpoch::new();
-        let policy = ReliabilityPolicy::from_settings(
-            any2api_domain::SettingsConfiguration::defaults().reliability(),
-        );
-        let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
-        let endpoint_permits = (0..policy.endpoint_failure_threshold)
-            .map(|_| endpoint.try_acquire(&policy).expect("closed endpoint"))
-            .collect::<Vec<_>>();
-        for permit in endpoint_permits {
-            permit.failure(&policy);
-        }
-        tokio::time::advance(policy.endpoint_open_duration).await;
-
-        let credential = ProviderCredential::create(
-            CredentialId::new(),
-            ProviderEndpointId::new(),
-            ProviderCredentialDraft::new(
-                "postprocess",
-                CredentialKind::ApiKey,
-                ProxyProfileId::DIRECT,
-                MaxConcurrency::new(1).expect("max concurrency"),
-                true,
-            )
-            .expect("credential draft"),
-            CredentialSecretFingerprint::new([7; 32], None).expect("fingerprint"),
-        );
-        let binding = CredentialRuntimeHandle::new(
-            &credential,
-            CredentialAuthMaterial::for_test(&credential, "sk-postprocess-test".into()),
-            epoch,
-        )
-        .current_binding();
-        let permit = binding.try_acquire().expect("credential permit");
-        let health = AttemptHealth::new(
-            Arc::clone(binding.generation()),
-            "upstream-model".into(),
-            Some(endpoint.try_acquire(&policy).expect("half-open probe")),
-            None,
-            policy,
-        );
-        let driver = CodexDriver::new();
-        let proxy = ProxyProfile::direct();
-        let mut prepared = PreparedAttempt {
-            driver: &driver as &dyn ProviderDriver,
-            proxy: TransportProxy::new(&proxy, None),
-            operation: ProtocolOperation::Responses,
-            request: None,
-            permit: Some(RequestPermit::Generation(permit)),
-            health: Some(health),
-            attempt_recorder: Some(AttemptRecorder::disabled()),
-        };
-
-        let failure = prepared.fail_after_upstream_success(
-            200,
-            public_error(PublicErrorCode::InternalError, "test postprocess failure"),
-        );
-
-        assert!(matches!(failure, super::AttemptFailure::Public(_)));
-        assert_eq!(binding.capacity().in_flight(), 0);
-        let first = endpoint
-            .try_acquire(&policy)
-            .expect("closed endpoint first permit");
-        let second = endpoint
-            .try_acquire(&policy)
-            .expect("closed endpoint second permit");
-        drop(first);
-        drop(second);
-    }
-}
+mod tests;

@@ -143,6 +143,176 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
 }
 
 #[tokio::test]
+async fn chat_completions_ingress_is_forwarded_without_a_bridge() {
+    let (listener, upstream) = upstream_server(
+        "/v1/chat/completions",
+        r#"{"id":"chatcmpl_direct","model":"gpt-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1}}"#,
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint_id = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Chat direct",
+        "codex",
+        &format!("http://{listener}/v1"),
+        ("openai_chat_completions", None),
+    )
+    .await;
+    create_credential(&app, remote, revision + 2, &endpoint_id, "sk-chat-direct").await;
+    select_models(&app, remote, revision + 3, &endpoint_id, "gpt-upstream").await;
+
+    let response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/chat/completions",
+        Some(json!({
+            "model":"gpt-upstream",
+            "messages":[{"role":"user","content":"hello"}]
+        })),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.body["id"], "chatcmpl_direct");
+    assert_eq!(response.body["model"], "gpt-upstream");
+    let request = upstream.await.expect("upstream request");
+    assert_eq!(request.path, "/v1/chat/completions");
+    assert_eq!(request.body["messages"][0]["content"], "hello");
+    assert_eq!(
+        request.headers.get("authorization"),
+        Some(&"Bearer sk-chat-direct".to_owned())
+    );
+
+    let request_id = response.headers["x-request-id"]
+        .to_str()
+        .expect("request ID")
+        .parse::<RequestId>()
+        .expect("request ID value");
+    let log = wait_for_request_log(&app, remote, request_id).await;
+    assert_eq!(
+        log["request"]["ingress_protocol"],
+        "openai_chat_completions"
+    );
+    assert_eq!(log["request"]["operation"], "chat_completions");
+    assert_eq!(log["request"]["input_tokens"], 2);
+    assert_eq!(log["request"]["output_tokens"], 1);
+}
+
+#[tokio::test]
+async fn responses_bridge_converts_json_tools_usage_and_follow_up_history() {
+    let (listener, mut upstream) = upstream_server_sequence(
+        "/v1/chat/completions",
+        &[
+            r#"{"id":"chatcmpl_bridge_1","created":123,"model":"gpt-upstream","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Paris\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":8,"completion_tokens":4,"prompt_tokens_details":{"cached_tokens":2}}}"#,
+            r#"{"id":"chatcmpl_bridge_2","created":124,"model":"gpt-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"Sunny"},"finish_reason":"stop"}],"usage":{"prompt_tokens":15,"completion_tokens":2}}"#,
+        ],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint_id = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Responses over Chat",
+        "codex",
+        &format!("http://{listener}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_credential(&app, remote, revision + 2, &endpoint_id, "sk-chat-bridge").await;
+    select_models(&app, remote, revision + 3, &endpoint_id, "gpt-upstream").await;
+
+    let compact = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses/compact",
+        Some(json!({"model":"gpt-upstream","input":"compact"})),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_ne!(compact.status, StatusCode::OK);
+
+    let first = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model":"gpt-upstream",
+            "instructions":"Be concise",
+            "input":"Weather?",
+            "tools":[{
+                "type":"function",
+                "name":"weather",
+                "parameters":{"type":"object","properties":{"city":{"type":"string"}}}
+            }],
+            "tool_choice":{"type":"function","name":"weather"}
+        })),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK);
+    assert!(
+        first.body["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("resp_"))
+    );
+    assert_eq!(first.body["output"][0]["type"], "function_call");
+    assert_eq!(first.body["output"][0]["call_id"], "call_1");
+    assert_eq!(first.body["usage"]["input_tokens"], 8);
+    assert_eq!(
+        first.body["usage"]["input_tokens_details"]["cached_tokens"],
+        2
+    );
+    let first_request = upstream.recv().await.expect("first upstream request");
+    assert_eq!(first_request.path, "/v1/chat/completions");
+    assert_eq!(first_request.body["messages"][0]["role"], "system");
+    assert_eq!(first_request.body["messages"][1]["content"], "Weather?");
+    assert_eq!(
+        first_request.body["tools"][0]["function"]["name"],
+        "weather"
+    );
+
+    let second = request_json(
+        app,
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model":"gpt-upstream",
+            "previous_response_id":first.body["id"],
+            "input":[{
+                "type":"function_call_output",
+                "call_id":"call_1",
+                "output":"Sunny"
+            }]
+        })),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(second.status, StatusCode::OK);
+    assert_eq!(second.body["output"][0]["content"][0]["text"], "Sunny");
+    let second_request = upstream.recv().await.expect("second upstream request");
+    let messages = second_request.body["messages"]
+        .as_array()
+        .expect("upstream messages");
+    assert_eq!(messages.len(), 4);
+    assert_eq!(messages[2]["role"], "assistant");
+    assert_eq!(messages[2]["tool_calls"][0]["id"], "call_1");
+    assert_eq!(messages[3]["role"], "tool");
+    assert_eq!(messages[3]["tool_call_id"], "call_1");
+    assert_eq!(messages[3]["content"], "Sunny");
+}
+
+#[tokio::test]
 async fn responses_compact_uses_its_distinct_non_streaming_path() {
     let (listener, upstream) = upstream_server(
         "/v1/responses/compact",
@@ -694,11 +864,15 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = Arc::new(ConfigPublisher::new(
-        Arc::clone(&storage),
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-    ));
+    let publisher = Arc::new(
+        ConfigPublisher::new(
+            Arc::clone(&storage),
+            Arc::clone(&snapshots),
+            Arc::clone(&runtime),
+            any2api_contract_tests::build_configuration_capabilities(),
+        )
+        .expect("configuration publisher"),
+    );
     let service = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
         .expect("public request components")
         .service();
@@ -759,24 +933,58 @@ async fn create_endpoint(
     } else {
         "anthropic_messages"
     };
+    create_endpoint_with_protocol(
+        app,
+        remote,
+        revision,
+        name,
+        provider_kind,
+        base_url,
+        (dialect, None),
+    )
+    .await
+}
+
+async fn create_endpoint_with_protocol(
+    app: &Router,
+    remote: SocketAddr,
+    revision: u64,
+    name: &str,
+    provider_kind: &str,
+    base_url: &str,
+    protocol: (&str, Option<&str>),
+) -> String {
+    let (protocol_dialect, upstream_protocol_dialect) = protocol;
+    let payload = json!({
+        "expected_revision": revision,
+        "name": name,
+        "provider_kind": provider_kind,
+        "base_url": base_url,
+        "protocol_dialect": protocol_dialect,
+        "upstream_protocol_dialect": upstream_protocol_dialect,
+        "enabled": true
+    });
     let response = request_json(
         app.clone(),
         Method::POST,
         "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": revision,
-            "name": name,
-            "provider_kind": provider_kind,
-            "base_url": base_url,
-            "protocol_dialect": dialect,
-            "enabled": true
-        })),
+        Some(payload),
         remote,
         &[],
     )
     .await;
-    response.body["items"][0]["id"]
-        .as_str()
+    assert_eq!(
+        response.status,
+        StatusCode::OK,
+        "endpoint response: {}",
+        response.body
+    );
+    response.body["items"]
+        .as_array()
+        .expect("endpoint items")
+        .iter()
+        .find(|item| item["name"] == name)
+        .and_then(|item| item["id"].as_str())
         .expect("endpoint")
         .to_owned()
 }

@@ -94,6 +94,66 @@ async fn provider_endpoint_crud_uses_the_global_configuration_revision() {
 }
 
 #[tokio::test]
+async fn accepted_and_optional_upstream_protocols_round_trip_without_storage_pair_rules() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
+        .await
+        .expect("store");
+    let bridged_id = ProviderEndpointId::new();
+    let direct_id = ProviderEndpointId::new();
+
+    let bridged = store
+        .create_provider_endpoint(
+            ConfigRevision::INITIAL,
+            bridged_id,
+            ProviderEndpointDraft::with_upstream_protocol(
+                "Responses through Chat",
+                ProviderKind::Codex,
+                "https://api.example.com/v1",
+                ProtocolDialect::OpenAiResponses,
+                Some(ProtocolDialect::OpenAiChatCompletions),
+                true,
+            )
+            .expect("bridged draft"),
+        )
+        .await
+        .expect("bridged endpoint");
+    let direct = store
+        .create_provider_endpoint(
+            bridged.revision(),
+            direct_id,
+            ProviderEndpointDraft::new(
+                "Direct Chat",
+                ProviderKind::Codex,
+                "https://chat.example.com/v1",
+                ProtocolDialect::OpenAiChatCompletions,
+                true,
+            )
+            .expect("direct draft"),
+        )
+        .await
+        .expect("direct endpoint");
+
+    let bridged = direct
+        .provider_endpoints()
+        .get(bridged_id)
+        .expect("bridged endpoint");
+    assert_eq!(
+        bridged.upstream_protocol_dialect(),
+        Some(ProtocolDialect::OpenAiChatCompletions)
+    );
+    let direct = direct
+        .provider_endpoints()
+        .get(direct_id)
+        .expect("direct endpoint");
+    assert_eq!(
+        direct.protocol_dialect(),
+        ProtocolDialect::OpenAiChatCompletions
+    );
+    assert_eq!(direct.upstream_protocol_dialect(), None);
+}
+
+#[tokio::test]
 async fn duplicate_endpoint_names_are_rejected_before_commit() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))

@@ -24,7 +24,13 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
         configuration,
         runtime.as_ref(),
     )));
-    let publisher = ConfigPublisher::new(storage, Arc::clone(&snapshots), Arc::clone(&runtime));
+    let publisher = ConfigPublisher::new(
+        storage,
+        Arc::clone(&snapshots),
+        Arc::clone(&runtime),
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let id = GatewayApiKeyId::new();
 
     let created = publisher

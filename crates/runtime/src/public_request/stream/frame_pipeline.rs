@@ -70,6 +70,21 @@ impl GuardedBody {
                 ));
             }
         }
+        if self.pending_error.is_none() {
+            match self.exchange.finish_upstream_events() {
+                Ok(events) => {
+                    for event in events {
+                        if let Err(error) = self.push_event(event, deadline) {
+                            self.set_pending_error(error);
+                            break;
+                        }
+                    }
+                }
+                Err(_) => self.set_pending_error(PendingStreamError::invalid_response(
+                    "upstream SSE bridge could not be finalized",
+                )),
+            }
+        }
     }
 
     fn push_frame(
@@ -81,19 +96,34 @@ impl GuardedBody {
         if check_deadline && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(PendingStreamError::timeout());
         }
-        let event = self
-            .adapter
+        let events = self
+            .exchange
             .decode_upstream_event(frame)
             .map_err(|_| PendingStreamError::invalid_response("upstream SSE event was invalid"))?;
+        for event in events {
+            self.push_event(event, deadline)?;
+        }
+        Ok(())
+    }
+
+    fn push_event(
+        &mut self,
+        event: any2api_protocol::api::AdapterEvent,
+        deadline: Option<Instant>,
+    ) -> Result<(), PendingStreamError> {
+        let check_deadline = !self.precommit_budget.is_committed();
+        if check_deadline && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Err(PendingStreamError::timeout());
+        }
         let telemetry = event.telemetry();
         let hard_id = self
-            .adapter
+            .exchange
             .hard_affinity_id_from_event(self.hard_affinity.operation(), &event)
             .map_err(|_| {
                 PendingStreamError::invalid_response("upstream SSE identity was invalid")
             })?;
         let frame = self
-            .adapter
+            .exchange
             .encode_egress_event(event, &self.public_model)
             .map_err(|_| PendingStreamError::local("upstream SSE event could not be encoded"))?;
         if check_deadline && deadline.is_some_and(|deadline| Instant::now() >= deadline) {

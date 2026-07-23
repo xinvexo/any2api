@@ -252,6 +252,7 @@ const endpoint: ProviderEndpoint = {
   providerKind: "codex",
   baseUrl: "https://api.example.com",
   protocolDialect: "openai_responses",
+  upstreamProtocolDialect: null,
   enabled: true,
   configVersion: 1,
 };

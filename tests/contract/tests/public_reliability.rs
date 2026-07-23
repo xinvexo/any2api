@@ -10,7 +10,10 @@ use any2api_domain::{
     ProviderEndpointId, ProviderKind, ProxyProfileId, RequestAttemptOutcome, RequestId,
     RetrySafety, SaturationMode, SettingKey, SettingValue,
 };
-use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
+use any2api_protocol::{
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
+    ProtocolRegistry,
+};
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublicResponse,
@@ -650,7 +653,9 @@ async fn harness_for_protocol(
         Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
-    );
+        any2api_contract_tests::build_configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let mut published = snapshots.load();
     for (key, value) in default_overrides()
         .into_iter()
@@ -716,6 +721,9 @@ async fn harness_for_protocol(
     protocols
         .register(Arc::new(OpenAiResponsesAdapter::new()))
         .expect("responses adapter");
+    protocols
+        .register(Arc::new(OpenAiChatCompletionsAdapter::new()))
+        .expect("chat completions adapter");
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("messages adapter");

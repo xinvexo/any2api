@@ -107,7 +107,9 @@ async fn settings_publish_updates_request_telemetry_policy() {
         Arc::clone(&context.repository),
         Arc::clone(&context.snapshots),
         Arc::clone(&context.runtime),
+        crate::test_support::configuration_capabilities(),
     )
+    .expect("configuration publisher")
     .with_logging_reconciler(
         Arc::clone(&telemetry) as Arc<dyn crate::logging_reconciler::LoggingSettingsReconciler>
     );
@@ -246,7 +248,9 @@ async fn publishers_sharing_a_snapshot_store_are_serialized() {
         Arc::clone(&context.repository),
         Arc::clone(&context.snapshots),
         Arc::clone(&context.runtime),
-    );
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let first_id = ProxyProfileId::new();
     let second_id = ProxyProfileId::new();
 
@@ -307,7 +311,9 @@ impl TestContext {
             Arc::clone(&repository),
             Arc::clone(&snapshots),
             Arc::clone(&runtime),
-        );
+            crate::test_support::configuration_capabilities(),
+        )
+        .expect("configuration publisher");
 
         Self {
             _directory: directory,

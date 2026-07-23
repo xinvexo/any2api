@@ -63,6 +63,9 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
              enter this one-time token in the local web UI"
         );
     }
+    let request_components = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
+        .context("failed to initialize public request adapters")?;
+    let configuration_capabilities = request_components.configuration_capabilities();
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -76,11 +79,11 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
             Arc::clone(&storage),
             Arc::clone(&snapshots),
             Arc::clone(&runtime),
+            configuration_capabilities,
         )
+        .context("loaded configuration is incompatible with registered providers or protocols")?
         .with_logging_reconciler(logging_reconciler),
     );
-    let request_components = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
-        .context("failed to initialize public request adapters")?;
     let public_requests = request_components.service();
     let proxy_tests = request_components.proxy_test_service();
     let provider_credential_tests = request_components.provider_credential_test_service();

@@ -6,7 +6,7 @@ use any2api_domain::{
     ProviderEndpointId, ProxyProfileId, PublicErrorCode, RetrySafety, RouteTargetId,
     SettingsConfiguration,
 };
-use any2api_protocol::OpenAiResponsesAdapter;
+use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };
@@ -307,9 +307,20 @@ pub(super) fn guarded_body_with_budget_health_and_idle(
         target,
         Duration::from_secs(60),
     );
+    let mut protocols = ProtocolRegistry::new();
+    protocols
+        .register(Arc::new(OpenAiResponsesAdapter::new()))
+        .expect("Responses adapter");
+    let exchange = protocols
+        .exchange(
+            ProtocolDialect::OpenAiResponses,
+            ProtocolDialect::OpenAiResponses,
+            ProtocolOperation::Responses,
+        )
+        .expect("direct Responses exchange");
     GuardedBody::new(
         upstream,
-        Arc::new(OpenAiResponsesAdapter::new()),
+        exchange,
         "public",
         GuardedBodyParts {
             permit: RequestPermit::Generation(permit),

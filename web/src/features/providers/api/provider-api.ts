@@ -47,6 +47,7 @@ function writeProviderEndpoint(
       provider_kind: input.providerKind,
       base_url: input.baseUrl,
       protocol_dialect: input.protocolDialect,
+      upstream_protocol_dialect: input.upstreamProtocolDialect,
       enabled: input.enabled,
     },
   }).then(parseProviderEndpointConfiguration);

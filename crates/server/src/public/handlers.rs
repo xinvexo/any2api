@@ -47,6 +47,24 @@ pub(crate) async fn responses_compact(
     .await
 }
 
+pub(crate) async fn chat_completions(
+    State(state): State<AppState>,
+    Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
+    Extension(request_id): Extension<PublicRequestId>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    execute_public_request(
+        state,
+        authenticated,
+        request_id,
+        headers,
+        body,
+        ProtocolOperation::ChatCompletions,
+    )
+    .await
+}
+
 pub(crate) async fn messages(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,

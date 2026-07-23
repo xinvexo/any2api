@@ -1,7 +1,7 @@
 use any2api_domain::{
     ModelRouteId, ProtocolDialect, PublicError, PublicErrorCode, PublicModelName, TransportMode,
 };
-use any2api_protocol::api::{DecodedRequest, IngressRequest, ProtocolAdapter};
+use any2api_protocol::api::{DecodedRequest, IngressRequest, ProtocolAdapter, ProtocolRegistry};
 use any2api_provider::api::ProviderRegistry;
 use http::{Method, Uri};
 
@@ -24,6 +24,7 @@ pub(super) async fn plan(
     snapshot: &PublishedSnapshot,
     request: PublicRequest,
     adapter: &dyn ProtocolAdapter,
+    protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,
 ) -> Result<PlannedRequest, PublicError> {
     let decoded = adapter
@@ -52,7 +53,14 @@ pub(super) async fn plan(
     } else {
         TransportMode::Json
     };
-    let tiers = build_route_candidates(snapshot, route, providers, transport_mode);
+    let tiers = build_route_candidates(
+        snapshot,
+        route,
+        protocols,
+        providers,
+        decoded.operation,
+        transport_mode,
+    );
     let fallback_on_saturation = route
         .fallback_on_saturation()
         .unwrap_or_else(|| snapshot.queue_policy().fallback_on_saturation());

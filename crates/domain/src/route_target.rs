@@ -1,5 +1,6 @@
 use crate::{
-    ModelRouteId, ModelRouteValidationError, ProviderEndpointId, RouteTargetId, UpstreamModelName,
+    ModelRouteId, ModelRouteValidationError, ProtocolDialect, ProviderEndpointId, RouteTargetId,
+    UpstreamModelName,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -22,6 +23,7 @@ pub struct RouteTargetDraft {
     id: RouteTargetId,
     provider_endpoint_id: ProviderEndpointId,
     upstream_model: UpstreamModelName,
+    upstream_protocol_dialect: ProtocolDialect,
     fallback_tier: FallbackTier,
     enabled: bool,
 }
@@ -31,6 +33,7 @@ impl RouteTargetDraft {
         id: RouteTargetId,
         provider_endpoint_id: ProviderEndpointId,
         upstream_model: impl Into<String>,
+        upstream_protocol_dialect: ProtocolDialect,
         fallback_tier: FallbackTier,
         enabled: bool,
     ) -> Result<Self, ModelRouteValidationError> {
@@ -39,6 +42,7 @@ impl RouteTargetDraft {
             provider_endpoint_id,
             upstream_model: UpstreamModelName::new(upstream_model)
                 .map_err(ModelRouteValidationError::InvalidUpstreamModel)?,
+            upstream_protocol_dialect,
             fallback_tier,
             enabled,
         })
@@ -60,6 +64,11 @@ impl RouteTargetDraft {
     }
 
     #[must_use]
+    pub const fn upstream_protocol_dialect(&self) -> ProtocolDialect {
+        self.upstream_protocol_dialect
+    }
+
+    #[must_use]
     pub const fn fallback_tier(&self) -> FallbackTier {
         self.fallback_tier
     }
@@ -76,6 +85,7 @@ pub struct RouteTarget {
     model_route_id: ModelRouteId,
     provider_endpoint_id: ProviderEndpointId,
     upstream_model: UpstreamModelName,
+    upstream_protocol_dialect: ProtocolDialect,
     fallback_tier: FallbackTier,
     enabled: bool,
 }
@@ -87,6 +97,7 @@ impl RouteTarget {
             model_route_id,
             provider_endpoint_id: draft.provider_endpoint_id,
             upstream_model: draft.upstream_model,
+            upstream_protocol_dialect: draft.upstream_protocol_dialect,
             fallback_tier: draft.fallback_tier,
             enabled: draft.enabled,
         }
@@ -98,6 +109,7 @@ impl RouteTarget {
     ) -> Result<Self, ModelRouteValidationError> {
         if self.provider_endpoint_id != draft.provider_endpoint_id
             || self.upstream_model != draft.upstream_model
+            || self.upstream_protocol_dialect != draft.upstream_protocol_dialect
         {
             return Err(ModelRouteValidationError::TargetIdentityChanged);
         }
@@ -122,6 +134,11 @@ impl RouteTarget {
     #[must_use]
     pub const fn upstream_model(&self) -> &UpstreamModelName {
         &self.upstream_model
+    }
+
+    #[must_use]
+    pub const fn upstream_protocol_dialect(&self) -> ProtocolDialect {
+        self.upstream_protocol_dialect
     }
 
     #[must_use]

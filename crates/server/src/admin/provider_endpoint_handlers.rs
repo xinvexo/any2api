@@ -18,7 +18,10 @@ pub(crate) async fn list(
     State(state): State<AppState>,
 ) -> Json<ProviderEndpointCollectionResponse> {
     let snapshot = state.snapshots().load();
-    Json(ProviderEndpointCollectionResponse::from_snapshot(&snapshot))
+    Json(ProviderEndpointCollectionResponse::from_snapshot(
+        &snapshot,
+        state.publisher().configuration_capabilities(),
+    ))
 }
 
 pub(crate) async fn create(
@@ -33,6 +36,7 @@ pub(crate) async fn create(
         .await?;
     Ok(Json(ProviderEndpointCollectionResponse::from_snapshot(
         &snapshot,
+        state.publisher().configuration_capabilities(),
     )))
 }
 
@@ -50,6 +54,7 @@ pub(crate) async fn update(
         .await?;
     Ok(Json(ProviderEndpointCollectionResponse::from_snapshot(
         &snapshot,
+        state.publisher().configuration_capabilities(),
     )))
 }
 
@@ -69,6 +74,7 @@ pub(crate) async fn delete(
         .await?;
     Ok(Json(ProviderEndpointCollectionResponse::from_snapshot(
         &snapshot,
+        state.publisher().configuration_capabilities(),
     )))
 }
 

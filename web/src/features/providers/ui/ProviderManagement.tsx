@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 
 import type {
   ProviderEndpoint,
+  ProviderEndpointConfiguration,
   ProviderEndpointWriteInput,
   ProviderKind,
 } from "../api/provider-contracts";
@@ -160,6 +161,7 @@ export function ProviderManagement() {
             editorId={editorId}
             currentEndpoint={selected}
             defaultKind={selectedKind}
+            protocolOptions={configuration.protocolOptions}
             configRevision={configuration.configRevision}
             pending={editorPending}
             error={editorError}
@@ -195,6 +197,7 @@ function ProviderEditorSlot({
   editorId,
   currentEndpoint,
   defaultKind,
+  protocolOptions,
   configRevision,
   pending,
   error,
@@ -204,6 +207,7 @@ function ProviderEditorSlot({
   editorId: string;
   currentEndpoint?: ProviderEndpoint;
   defaultKind: ProviderKind;
+  protocolOptions: ProviderEndpointConfiguration["protocolOptions"];
   configRevision: number;
   pending: boolean;
   error: unknown;
@@ -234,6 +238,7 @@ function ProviderEditorSlot({
     <ProviderEndpointEditor
       endpoint={initialEndpoint}
       defaultKind={defaultKind}
+      protocolOptions={protocolOptions}
       sourceConflict={sourceConflict}
       configRevision={configRevision}
       pending={pending}

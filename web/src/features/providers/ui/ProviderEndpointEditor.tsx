@@ -4,8 +4,11 @@ import type {
   ProviderEndpoint,
   ProviderEndpointWriteInput,
   ProviderKind,
+  ProviderProtocolOptions,
+  ProtocolDialect,
 } from "../api/provider-contracts";
 import { PROVIDER_KIND_OPTIONS, providerKindLabel } from "../model/provider-kind-catalog";
+import { protocolLabel } from "../model/protocol-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderEditor } from "../model/use-provider-editor";
 import { Button } from "@/shared/ui/Button";
@@ -16,6 +19,7 @@ import { Switch } from "@/shared/ui/Switch";
 interface ProviderEndpointEditorProps {
   endpoint?: ProviderEndpoint;
   defaultKind?: ProviderKind;
+  protocolOptions: ProviderProtocolOptions[];
   sourceConflict: "changed" | "deleted" | null;
   configRevision: number;
   pending: boolean;
@@ -27,6 +31,7 @@ interface ProviderEndpointEditorProps {
 export function ProviderEndpointEditor({
   endpoint,
   defaultKind = "codex",
+  protocolOptions,
   sourceConflict,
   configRevision,
   pending,
@@ -34,12 +39,22 @@ export function ProviderEndpointEditor({
   onSubmit,
   onClose,
 }: ProviderEndpointEditorProps) {
-  const editor = useProviderEditor(endpoint, defaultKind);
+  const editor = useProviderEditor(endpoint, defaultKind, protocolOptions);
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const focusInvalidAfterRender = useRef(false);
   const creating = !endpoint;
   const locked = pending || sourceConflict !== null;
+  const acceptedOptions = protocolOptions.filter(
+    (option) => option.providerKind === editor.draft.providerKind,
+  );
+  const currentProtocol = acceptedOptions.find(
+    (option) => option.acceptedProtocol === editor.draft.protocolDialect,
+  );
+  const conversionOptions =
+    currentProtocol?.upstreamProtocols.filter(
+      (protocol) => protocol !== editor.draft.protocolDialect,
+    ) ?? [];
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -114,7 +129,6 @@ export function ProviderEndpointEditor({
             {PROVIDER_KIND_OPTIONS.map((option) => (
               <option key={option.kind} value={option.kind}>
                 {option.label}
-                {option.kind === "codex" ? " · Responses" : " · Messages"}
               </option>
             ))}
           </select>
@@ -124,12 +138,61 @@ export function ProviderEndpointEditor({
           <p className="text-[12px] font-medium text-secondary">类型</p>
           <p className="text-[13px] text-primary">
             {providerKindLabel(editor.draft.providerKind)}
-            <span className="ml-2 text-[12px] text-tertiary">
-              {editor.draft.providerKind === "codex" ? "Responses" : "Messages"}
-            </span>
           </p>
         </div>
       )}
+
+      <Field
+        label="接受协议"
+        error={editor.errors.protocolDialect}
+        htmlFor="provider-protocol"
+      >
+        <select
+          id="provider-protocol"
+          className={controlClass(Boolean(editor.errors.protocolDialect))}
+          value={editor.draft.protocolDialect}
+          disabled={locked}
+          aria-invalid={Boolean(editor.errors.protocolDialect)}
+          onChange={(event) =>
+            editor.updateProtocolDialect(event.target.value as ProtocolDialect)
+          }
+        >
+          {acceptedOptions.map((option) => (
+            <option key={option.acceptedProtocol} value={option.acceptedProtocol}>
+              {protocolLabel(option.acceptedProtocol)}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <Field
+        label="内部转换协议（可选）"
+        error={editor.errors.upstreamProtocolDialect}
+        htmlFor="provider-upstream-protocol"
+      >
+        <select
+          id="provider-upstream-protocol"
+          className={controlClass(Boolean(editor.errors.upstreamProtocolDialect))}
+          value={editor.draft.upstreamProtocolDialect ?? ""}
+          disabled={locked || conversionOptions.length === 0}
+          aria-invalid={Boolean(editor.errors.upstreamProtocolDialect)}
+          onChange={(event) =>
+            editor.update(
+              "upstreamProtocolDialect",
+              event.target.value
+                ? (event.target.value as ProtocolDialect)
+                : null,
+            )
+          }
+        >
+          <option value="">不转换（使用接受协议）</option>
+          {conversionOptions.map((protocol) => (
+            <option key={protocol} value={protocol}>
+              {protocolLabel(protocol)}
+            </option>
+          ))}
+        </select>
+      </Field>
 
       <Field label="Base URL" error={editor.errors.baseUrl} htmlFor="provider-base-url">
         <input

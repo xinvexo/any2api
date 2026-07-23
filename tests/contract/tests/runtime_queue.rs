@@ -8,7 +8,10 @@ use any2api_domain::{
     ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
     ProviderKind, ProxyProfileId, RequestId,
 };
-use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
+use any2api_protocol::{
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
+    ProtocolRegistry,
+};
 use any2api_provider::{CodexDriver, ProviderRegistry};
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublishedSnapshot,
@@ -44,7 +47,9 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
         Arc::clone(&storage),
         Arc::clone(&snapshots),
         Arc::clone(&runtime),
-    );
+        any2api_contract_tests::build_configuration_capabilities(),
+    )
+    .expect("configuration publisher");
     let endpoint_id = ProviderEndpointId::new();
     let endpoint = publisher
         .create_provider_endpoint(
@@ -113,6 +118,9 @@ fn build_service(transport: Arc<BlockingTransport>) -> PublicRequestService {
     protocols
         .register(Arc::new(OpenAiResponsesAdapter::new()))
         .expect("responses adapter");
+    protocols
+        .register(Arc::new(OpenAiChatCompletionsAdapter::new()))
+        .expect("chat completions adapter");
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("messages adapter");

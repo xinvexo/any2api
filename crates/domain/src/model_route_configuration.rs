@@ -43,10 +43,15 @@ impl ModelRouteConfiguration {
                 let targets = endpoint_ids
                     .into_iter()
                     .map(|endpoint_id| {
+                        let upstream_dialect = endpoints
+                            .get(endpoint_id)
+                            .expect("grouped endpoint is present")
+                            .effective_upstream_protocol_dialect();
                         RouteTargetDraft::new(
-                            derived_target_id(route_id, endpoint_id),
+                            derived_target_id(route_id, endpoint_id, upstream_dialect),
                             endpoint_id,
                             model.as_str(),
+                            upstream_dialect,
                             FallbackTier::default(),
                             true,
                         )
@@ -88,7 +93,10 @@ impl ModelRouteConfiguration {
                         target.provider_endpoint_id(),
                     ),
                 )?;
-                if endpoint.protocol_dialect() != route.ingress_protocol() {
+                if endpoint.protocol_dialect() != route.ingress_protocol()
+                    || endpoint.effective_upstream_protocol_dialect()
+                        != target.upstream_protocol_dialect()
+                {
                     return Err(ModelRouteValidationError::IncompatibleTargetProtocol(
                         target.provider_endpoint_id(),
                     ));
@@ -145,8 +153,12 @@ fn derived_route_id(dialect: ProtocolDialect, model: &UpstreamModelName) -> Mode
     ModelRouteId::from_uuid(Uuid::new_v5(&MODEL_ROUTE_NAMESPACE, identity.as_bytes()))
 }
 
-fn derived_target_id(route_id: ModelRouteId, endpoint_id: ProviderEndpointId) -> RouteTargetId {
-    let identity = format!("{route_id}\0{endpoint_id}");
+fn derived_target_id(
+    route_id: ModelRouteId,
+    endpoint_id: ProviderEndpointId,
+    upstream_dialect: ProtocolDialect,
+) -> RouteTargetId {
+    let identity = format!("{route_id}\0{endpoint_id}\0{}", upstream_dialect.as_str());
     RouteTargetId::from_uuid(Uuid::new_v5(&ROUTE_TARGET_NAMESPACE, identity.as_bytes()))
 }
 
@@ -238,6 +250,7 @@ mod tests {
                         RouteTargetId::new(),
                         endpoint_id,
                         "upstream",
+                        dialect,
                         FallbackTier::default(),
                         true,
                     )

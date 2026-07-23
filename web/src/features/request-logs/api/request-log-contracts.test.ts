@@ -75,6 +75,22 @@ describe("request log contracts", () => {
 
     expect(list.items[0]?.inputTokens).toBe(Number.MAX_SAFE_INTEGER);
   });
+
+  it("accepts Chat Completions request logs", () => {
+    const list = parseRequestLogList({
+      items: [
+        {
+          ...request(),
+          ingress_protocol: "openai_chat_completions",
+          operation: "chat_completions",
+        },
+      ],
+      telemetry: telemetry(),
+    });
+
+    expect(list.items[0]?.ingressProtocol).toBe("openai_chat_completions");
+    expect(list.items[0]?.operation).toBe("chat_completions");
+  });
 });
 
 function request() {

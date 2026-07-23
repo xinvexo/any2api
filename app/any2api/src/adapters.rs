@@ -1,15 +1,20 @@
 use std::sync::Arc;
 
-use any2api_protocol::{AnthropicMessagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry};
+use any2api_protocol::{
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
+    ProtocolRegistry, ResponsesToChatCompletionsBridge,
+};
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
 use any2api_runtime::api::{
-    ProviderCredentialTestService, ProxyTestService, PublicRequestService, RequestTelemetry,
+    ConfigurationCapabilities, ProviderCredentialTestService, ProxyTestService,
+    PublicRequestService, RequestTelemetry,
 };
 use any2api_transport::api::{ReqwestTransportManager, TransportManager, TransportManagerConfig};
 
 pub struct PublicRequestComponents {
     protocols: Arc<ProtocolRegistry>,
     providers: Arc<ProviderRegistry>,
+    configuration_capabilities: Arc<ConfigurationCapabilities>,
     transport: Arc<dyn TransportManager>,
     service: Arc<PublicRequestService>,
     proxy_tests: Arc<ProxyTestService>,
@@ -30,6 +35,11 @@ impl PublicRequestComponents {
     #[must_use]
     pub fn provider_registry_handle(&self) -> Arc<ProviderRegistry> {
         Arc::clone(&self.providers)
+    }
+
+    #[must_use]
+    pub fn configuration_capabilities(&self) -> Arc<ConfigurationCapabilities> {
+        Arc::clone(&self.configuration_capabilities)
     }
 
     #[must_use]
@@ -62,13 +72,19 @@ pub fn build_public_request_components_with_telemetry(
 ) -> anyhow::Result<PublicRequestComponents> {
     let mut protocols = ProtocolRegistry::new();
     protocols.register(Arc::new(OpenAiResponsesAdapter::new()))?;
+    protocols.register(Arc::new(OpenAiChatCompletionsAdapter::new()))?;
     protocols.register(Arc::new(AnthropicMessagesAdapter::new()))?;
+    protocols.register_bridge(Arc::new(ResponsesToChatCompletionsBridge::new()))?;
     let protocols = Arc::new(protocols);
 
     let mut providers = ProviderRegistry::new();
     providers.register(Arc::new(CodexDriver::new()))?;
     providers.register(Arc::new(ClaudeDriver::new()))?;
     let providers = Arc::new(providers);
+    let configuration_capabilities = Arc::new(ConfigurationCapabilities::new(
+        Arc::clone(&protocols),
+        Arc::clone(&providers),
+    ));
 
     let transport: Arc<dyn TransportManager> = Arc::new(ReqwestTransportManager::new(
         TransportManagerConfig::default(),
@@ -89,6 +105,7 @@ pub fn build_public_request_components_with_telemetry(
     Ok(PublicRequestComponents {
         protocols,
         providers,
+        configuration_capabilities,
         transport,
         service,
         proxy_tests,

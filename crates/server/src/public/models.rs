@@ -149,6 +149,7 @@ mod tests {
                         RouteTargetId::new(),
                         endpoint_id,
                         model,
+                        dialect,
                         FallbackTier::default(),
                         true,
                     )

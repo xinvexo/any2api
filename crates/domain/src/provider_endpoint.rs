@@ -14,6 +14,7 @@ pub struct ProviderEndpointDraft {
     provider_kind: ProviderKind,
     base_url: ProviderBaseUrl,
     protocol_dialect: ProtocolDialect,
+    upstream_protocol_dialect: Option<ProtocolDialect>,
     enabled: bool,
 }
 
@@ -25,7 +26,26 @@ impl ProviderEndpointDraft {
         protocol_dialect: ProtocolDialect,
         enabled: bool,
     ) -> Result<Self, ProviderEndpointValidationError> {
-        validate_dialect(provider_kind, protocol_dialect)?;
+        Self::with_upstream_protocol(
+            name,
+            provider_kind,
+            base_url,
+            protocol_dialect,
+            None,
+            enabled,
+        )
+    }
+
+    pub fn with_upstream_protocol(
+        name: impl Into<String>,
+        provider_kind: ProviderKind,
+        base_url: impl Into<String>,
+        protocol_dialect: ProtocolDialect,
+        upstream_protocol_dialect: Option<ProtocolDialect>,
+        enabled: bool,
+    ) -> Result<Self, ProviderEndpointValidationError> {
+        let upstream_protocol_dialect =
+            upstream_protocol_dialect.filter(|upstream| *upstream != protocol_dialect);
         let base_url = ProviderBaseUrl::parse(base_url)?;
 
         Ok(Self {
@@ -33,6 +53,7 @@ impl ProviderEndpointDraft {
             provider_kind,
             base_url,
             protocol_dialect,
+            upstream_protocol_dialect,
             enabled,
         })
     }
@@ -58,6 +79,19 @@ impl ProviderEndpointDraft {
     }
 
     #[must_use]
+    pub const fn upstream_protocol_dialect(&self) -> Option<ProtocolDialect> {
+        self.upstream_protocol_dialect
+    }
+
+    #[must_use]
+    pub const fn effective_upstream_protocol_dialect(&self) -> ProtocolDialect {
+        match self.upstream_protocol_dialect {
+            Some(dialect) => dialect,
+            None => self.protocol_dialect,
+        }
+    }
+
+    #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
     }
@@ -70,6 +104,7 @@ pub struct ProviderEndpoint {
     provider_kind: ProviderKind,
     base_url: ProviderBaseUrl,
     protocol_dialect: ProtocolDialect,
+    upstream_protocol_dialect: Option<ProtocolDialect>,
     enabled: bool,
     config_version: u64,
 }
@@ -134,6 +169,19 @@ impl ProviderEndpoint {
     }
 
     #[must_use]
+    pub const fn upstream_protocol_dialect(&self) -> Option<ProtocolDialect> {
+        self.upstream_protocol_dialect
+    }
+
+    #[must_use]
+    pub const fn effective_upstream_protocol_dialect(&self) -> ProtocolDialect {
+        match self.upstream_protocol_dialect {
+            Some(dialect) => dialect,
+            None => self.protocol_dialect,
+        }
+    }
+
+    #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
     }
@@ -159,6 +207,7 @@ impl ProviderEndpoint {
             provider_kind: draft.provider_kind,
             base_url: draft.base_url,
             protocol_dialect: draft.protocol_dialect,
+            upstream_protocol_dialect: draft.upstream_protocol_dialect,
             enabled: draft.enabled,
             config_version,
         }
@@ -169,6 +218,7 @@ impl ProviderEndpoint {
             && self.provider_kind == draft.provider_kind
             && self.base_url == draft.base_url
             && self.protocol_dialect == draft.protocol_dialect
+            && self.upstream_protocol_dialect == draft.upstream_protocol_dialect
             && self.enabled == draft.enabled
     }
 }
@@ -183,8 +233,6 @@ pub enum ProviderEndpointValidationError {
     NameTooLong,
     #[error("provider URL is invalid: {0}")]
     InvalidBaseUrl(#[from] ProviderUrlValidationError),
-    #[error("provider and protocol dialect are incompatible")]
-    IncompatibleDialect,
     #[error("provider endpoint configuration version is invalid")]
     InvalidConfigVersion,
     #[error("provider endpoint id is duplicated")]
@@ -206,47 +254,36 @@ fn validate_name(name: String) -> Result<String, ProviderEndpointValidationError
     Ok(name)
 }
 
-fn validate_dialect(
-    provider_kind: ProviderKind,
-    protocol_dialect: ProtocolDialect,
-) -> Result<(), ProviderEndpointValidationError> {
-    let compatible = matches!(
-        (provider_kind, protocol_dialect),
-        (ProviderKind::Codex, ProtocolDialect::OpenAiResponses)
-            | (ProviderKind::Claude, ProtocolDialect::AnthropicMessages)
-    );
-    compatible
-        .then_some(())
-        .ok_or(ProviderEndpointValidationError::IncompatibleDialect)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{ProviderEndpointDraft, ProviderEndpointValidationError};
+    use super::ProviderEndpointDraft;
     use crate::{ProtocolDialect, ProviderKind};
 
     #[test]
-    fn only_first_release_provider_dialects_are_accepted() {
-        assert!(
-            ProviderEndpointDraft::new(
-                "Codex",
-                ProviderKind::Codex,
-                "https://api.example.com",
-                ProtocolDialect::OpenAiResponses,
-                true
-            )
-            .is_ok()
-        );
+    fn upstream_protocol_is_optional_and_same_protocol_normalizes_to_none() {
+        let bridged = ProviderEndpointDraft::with_upstream_protocol(
+            "Compatible",
+            ProviderKind::Codex,
+            "https://api.example.com",
+            ProtocolDialect::OpenAiResponses,
+            Some(ProtocolDialect::OpenAiChatCompletions),
+            true,
+        )
+        .expect("Responses to Chat is a valid provider protocol pair");
         assert_eq!(
-            ProviderEndpointDraft::new(
-                "Codex",
-                ProviderKind::Codex,
-                "https://api.example.com",
-                ProtocolDialect::AnthropicMessages,
-                true
-            )
-            .expect_err("cross protocol endpoint must fail"),
-            ProviderEndpointValidationError::IncompatibleDialect
+            bridged.effective_upstream_protocol_dialect(),
+            ProtocolDialect::OpenAiChatCompletions
         );
+
+        let direct = ProviderEndpointDraft::with_upstream_protocol(
+            "Direct",
+            ProviderKind::Codex,
+            "https://api.example.com",
+            ProtocolDialect::OpenAiResponses,
+            Some(ProtocolDialect::OpenAiResponses),
+            true,
+        )
+        .expect("same dialect normalizes to direct");
+        assert_eq!(direct.upstream_protocol_dialect(), None);
     }
 }

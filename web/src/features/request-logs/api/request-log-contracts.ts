@@ -1,7 +1,12 @@
-export type RequestLogProtocol = "openai_responses" | "codex_backend" | "anthropic_messages";
+export type RequestLogProtocol =
+  | "openai_responses"
+  | "openai_chat_completions"
+  | "codex_backend"
+  | "anthropic_messages";
 export type RequestLogOperation =
   | "responses"
   | "responses_compact"
+  | "chat_completions"
   | "messages"
   | "messages_count_tokens";
 export type RequestLogErrorClass =
@@ -155,6 +160,7 @@ function parseTelemetry(value: unknown): RequestTelemetryMetrics {
 function readProtocol(value: unknown): RequestLogProtocol {
   if (
     value === "openai_responses" ||
+    value === "openai_chat_completions" ||
     value === "codex_backend" ||
     value === "anthropic_messages"
   ) {
@@ -167,6 +173,7 @@ function readOperation(value: unknown): RequestLogOperation {
   if (
     value === "responses" ||
     value === "responses_compact" ||
+    value === "chat_completions" ||
     value === "messages" ||
     value === "messages_count_tokens"
   ) {
