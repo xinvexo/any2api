@@ -9,7 +9,6 @@ import { useProviderCredentialMutations } from "../model/use-provider-credential
 import { useProviderCredentials } from "../model/use-provider-credentials";
 import { useProviderSecretActions } from "../model/use-provider-secret-actions";
 import { useProviderCredentialTest } from "../model/use-provider-credential-test";
-import { CredentialSecretReceipt } from "./CredentialSecretReceipt";
 import type { CredentialEditorSubmission } from "./ProviderCredentialEditor";
 import { CredentialEditorSlot } from "./CredentialEditorSlot";
 import { ProviderCredentialList } from "./ProviderCredentialList";
@@ -43,7 +42,6 @@ export function ProviderCredentialManagement({
     `${endpoint.id}:${credentials.data?.configRevision ?? 0}`,
   );
   const [searchParams, setSearchParams] = useSearchParams();
-  const [receipt, setReceipt] = useState<{ label: string; apiKey: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProviderCredential | null>(null);
   const activeEndpointId = searchParams.get("keys");
   const editorId = searchParams.get("credential");
@@ -198,7 +196,6 @@ export function ProviderCredentialManagement({
         if (!created) {
           throw new Error("credential missing after create");
         }
-        setReceipt({ label: submission.input.label, apiKey: submission.input.apiKey });
         onRevealList?.();
         openModels(created.id);
       } else {
@@ -217,7 +214,6 @@ export function ProviderCredentialManagement({
             expectedSecretVersion: credential.secretVersion,
             apiKey: submission.apiKey,
           });
-          setReceipt({ label: submission.input.label, apiKey: submission.apiKey });
           onRevealList?.();
           openModels(submission.id);
         } else {
@@ -273,16 +269,6 @@ export function ProviderCredentialManagement({
 
   return (
     <div aria-busy={pending || credentials.isFetching || proxies.isFetching}>
-      {showList && receipt ? (
-        <div className={cn(embedded ? "pb-2 pt-2" : "mb-4")}>
-          <CredentialSecretReceipt
-            label={receipt.label}
-            apiKey={receipt.apiKey}
-            onClose={() => setReceipt(null)}
-          />
-        </div>
-      ) : null}
-
       {showList && !embedded && (credentials.isError || proxies.isError) ? (
         <Surface
           className="mb-5 flex flex-col gap-3 border-warning/40 p-4 sm:flex-row sm:items-center sm:justify-between"
@@ -326,7 +312,7 @@ export function ProviderCredentialManagement({
             ? "使用上游账号授权并创建加密凭据"
             : modelMode
               ? "拉取并保存这份凭据可用的模型"
-              : "绑定代理与并发限制"
+              : "绑定出口代理与并发限制"
         }
         onClose={() => closeEditor(editorId)}
       >

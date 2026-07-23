@@ -1,4 +1,3 @@
-import { Save } from "lucide-react";
 import { useEffect, useRef, type FormEvent } from "react";
 
 import type {
@@ -6,7 +5,7 @@ import type {
   ProviderEndpointWriteInput,
   ProviderKind,
 } from "../api/provider-contracts";
-import { providerKindLabel } from "../model/provider-kind-catalog";
+import { PROVIDER_KIND_OPTIONS, providerKindLabel } from "../model/provider-kind-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderEditor } from "../model/use-provider-editor";
 import { Button } from "@/shared/ui/Button";
@@ -39,6 +38,8 @@ export function ProviderEndpointEditor({
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const focusInvalidAfterRender = useRef(false);
+  const creating = !endpoint;
+  const locked = pending || sourceConflict !== null;
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -92,22 +93,43 @@ export function ProviderEndpointEditor({
           value={editor.draft.name}
           maxLength={100}
           autoComplete="off"
-          disabled={pending || sourceConflict !== null}
+          disabled={locked}
           aria-invalid={Boolean(editor.errors.name)}
           aria-describedby={editor.errors.name ? "provider-name-error" : undefined}
           onChange={(event) => editor.update("name", event.target.value)}
         />
       </Field>
 
-      <div className="space-y-1.5">
-        <p className="text-[12px] font-medium text-secondary">类型</p>
-        <p className="text-[13px] text-primary">
-          {providerKindLabel(editor.draft.providerKind)}
-          <span className="ml-2 text-[12px] text-tertiary">
-            {editor.draft.providerKind === "codex" ? "Responses" : "Messages"}
-          </span>
-        </p>
-      </div>
+      {creating ? (
+        <Field label="类型" htmlFor="provider-kind">
+          <select
+            id="provider-kind"
+            className={controlClass(false)}
+            value={editor.draft.providerKind}
+            disabled={locked}
+            onChange={(event) =>
+              editor.updateProviderKind(event.target.value as ProviderKind)
+            }
+          >
+            {PROVIDER_KIND_OPTIONS.map((option) => (
+              <option key={option.kind} value={option.kind}>
+                {option.label}
+                {option.kind === "codex" ? " · Responses" : " · Messages"}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : (
+        <div className="space-y-1.5">
+          <p className="text-[12px] font-medium text-secondary">类型</p>
+          <p className="text-[13px] text-primary">
+            {providerKindLabel(editor.draft.providerKind)}
+            <span className="ml-2 text-[12px] text-tertiary">
+              {editor.draft.providerKind === "codex" ? "Responses" : "Messages"}
+            </span>
+          </p>
+        </div>
+      )}
 
       <Field label="Base URL" error={editor.errors.baseUrl} htmlFor="provider-base-url">
         <input
@@ -117,7 +139,7 @@ export function ProviderEndpointEditor({
           placeholder="https://api.example.com/v1"
           autoComplete="url"
           spellCheck={false}
-          disabled={pending || sourceConflict !== null}
+          disabled={locked}
           aria-invalid={Boolean(editor.errors.baseUrl)}
           aria-describedby={editor.errors.baseUrl ? "provider-base-url-error" : undefined}
           onChange={(event) => editor.update("baseUrl", event.target.value)}
@@ -131,7 +153,7 @@ export function ProviderEndpointEditor({
         <Switch
           id="provider-enabled"
           checked={editor.draft.enabled}
-          disabled={pending || sourceConflict !== null}
+          disabled={locked}
           aria-labelledby="provider-enabled-label"
           onCheckedChange={(checked) => editor.update("enabled", checked)}
         />
@@ -139,13 +161,12 @@ export function ProviderEndpointEditor({
 
       <FormError>{error ? getProviderErrorMessage(error) : null}</FormError>
 
-      <div className="flex flex-col-reverse gap-2 border-t border-subtle pt-4 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>
+      <div className="flex items-center justify-end gap-2 border-t border-subtle pt-4">
+        <Button type="button" variant="secondary" className="min-w-[4.5rem]" disabled={pending} onClick={onClose}>
           取消
         </Button>
-        <Button type="submit" variant="primary" disabled={pending || sourceConflict !== null}>
-          <Save size={14} />
-          {pending ? "正在保存" : "保存"}
+        <Button type="submit" variant="primary" disabled={locked}>
+          保存
         </Button>
       </div>
     </form>

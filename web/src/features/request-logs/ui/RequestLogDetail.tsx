@@ -103,7 +103,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="Attempt" value={String(request.attemptCount)} />
           <Detail label="错误分类" value={request.errorClass ?? "无"} />
           <Detail label="Credential" value={shortId(request.credentialId)} />
-          <Detail label="代理" value={shortId(request.proxyProfileId)} />
+          <Detail label="出口代理" value={shortId(request.proxyProfileId)} />
         </dl>
 
         <div className="mt-6 border-t border-subtle pt-5">

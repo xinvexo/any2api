@@ -18,6 +18,7 @@ test("creates a gateway key and keeps the plaintext available in the table for t
           {
             id: "key-1",
             name: "Desktop",
+            token,
             token_prefix: token.slice(0, 16),
             token_version: 1,
             config_version: 1,
@@ -56,26 +57,27 @@ test("creates a gateway key and keeps the plaintext available in the table for t
   expect(screen.queryByLabelText("本次生成的网关密钥")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "关闭密钥回执" })).not.toBeInTheDocument();
 
+  expect(screen.getByText(token)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "隐藏 Desktop 的密钥" }));
+  expect(screen.queryByText(token)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "显示 Desktop 的密钥" }));
   expect(screen.getByText(token)).toBeInTheDocument();
 
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true);
-  expect(JSON.stringify(client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(
-    token,
-  );
-  expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain(token);
   expect(screen.getByTestId("location")).not.toHaveTextContent(token);
 });
 
-test("renders keys in a table-style list without rotate or prefix columns", async () => {
-  const tokenPrefix = "a2k_v1_prefix____".slice(0, 16);
+test("shows plaintext tokens from the list response", async () => {
+  const token = `a2k_v1_${"b".repeat(43)}`;
+  const tokenPrefix = token.slice(0, 16);
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     jsonResponse({
-      config_revision: 3,
+      config_revision: 2,
       items: [
         {
           id: "key-1",
           name: "Desktop",
+          token,
           token_prefix: tokenPrefix,
           token_version: 1,
           config_version: 1,
@@ -115,8 +117,8 @@ test("renders keys in a table-style list without rotate or prefix columns", asyn
 
   expect(await screen.findByRole("caption", { name: "网关密钥列表" })).toBeInTheDocument();
   expect(screen.getByText("Desktop")).toBeInTheDocument();
-  expect(screen.getByText("创建后仅展示一次")).toBeInTheDocument();
-  expect(screen.queryByText(`${tokenPrefix}…`)).not.toBeInTheDocument();
+  expect(screen.getByText(token)).toBeInTheDocument();
+  expect(screen.queryByText("创建后仅展示一次")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /轮换/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /撤销/ })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除 Desktop" })).toBeInTheDocument();
@@ -127,7 +129,7 @@ test("renders keys in a table-style list without rotate or prefix columns", asyn
   expect(screen.getByRole("img", { name: /Desktop 最近 4 次调用/ })).toBeInTheDocument();
 });
 
-test("regenerates the key from the edit drawer and keeps plaintext in the table", async () => {
+test("regenerates the key from the edit drawer and refreshes plaintext in the table", async () => {
   const oldToken = `a2k_v1_${"c".repeat(43)}`;
   const newToken = `a2k_v1_${"d".repeat(43)}`;
   let configuration: Record<string, unknown> = {
@@ -136,6 +138,7 @@ test("regenerates the key from the edit drawer and keeps plaintext in the table"
       {
         id: "key-1",
         name: "Desktop",
+        token: oldToken,
         token_prefix: oldToken.slice(0, 16),
         token_version: 1,
         config_version: 1,
@@ -156,9 +159,10 @@ test("regenerates the key from the edit drawer and keeps plaintext in the table"
           {
             id: "key-1",
             name: "Desktop",
+            token: newToken,
             token_prefix: newToken.slice(0, 16),
             token_version: 2,
-            config_version: 1,
+            config_version: 2,
             enabled: true,
             revoked_at: null,
             created_at: "2026-07-19 10:00:00",
@@ -194,8 +198,7 @@ test("regenerates the key from the edit drawer and keeps plaintext in the table"
   await waitFor(() => {
     expect(screen.queryByLabelText("名称")).not.toBeInTheDocument();
   });
-  fireEvent.click(await screen.findByRole("button", { name: "显示 Desktop 的密钥" }));
-  expect(screen.getByText(newToken)).toBeInTheDocument();
+  expect(await screen.findByText(newToken)).toBeInTheDocument();
   expect(
     fetchMock.mock.calls.some(
       ([input, init]) => init?.method === "POST" && String(input).includes("/rotate"),

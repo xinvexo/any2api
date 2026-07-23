@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/Button";
+import { IconButton } from "@/shared/ui/IconButton";
 
 /** Keep in sync with `.side-drawer-panel` / `.side-drawer-scrim` transition duration. */
 const EXIT_DURATION_MS = 200;
@@ -40,60 +40,43 @@ export function SideDrawer({
   const [view, setView] = useState<DrawerView>({ title, description, children, wide });
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
-  const [openProp, setOpenProp] = useState(open);
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
 
-  // Adjust local state when the controlled `open` prop changes (React-supported pattern).
-  // While closing (`open === false` but still mounted), freeze the last open view so parent
-  // unmounts of form state cannot flash empty content through the exit animation.
-  if (open !== openProp) {
-    setOpenProp(open);
-    if (open) {
-      setMounted(true);
-      setView({ title, description, children, wide });
-    } else {
-      // Drop children immediately so secret fields never linger through exit animation.
-      setView((current) => ({ ...current, children: null }));
-      setVisible(false);
-    }
-  } else if (open) {
-    const nextView = { title, description, children, wide };
-    if (
-      view.title !== nextView.title ||
-      view.description !== nextView.description ||
-      view.children !== nextView.children ||
-      view.wide !== nextView.wide
-    ) {
-      setView(nextView);
-    }
-  }
-
   useEffect(() => {
-    if (!open || !mounted || visible) {
+    if (!open) {
       return;
     }
-
     const frame = window.requestAnimationFrame(() => {
-      setVisible(true);
-      panelRef.current?.focus({ preventScroll: true });
+      setView({ title, description, children, wide });
     });
-
     return () => window.cancelAnimationFrame(frame);
-  }, [open, mounted, visible]);
+  }, [open, title, description, children, wide]);
 
   useEffect(() => {
-    if (open || visible || !mounted) {
-      return;
+    if (open && !mounted) {
+      const frame = window.requestAnimationFrame(() => setMounted(true));
+      return () => window.cancelAnimationFrame(frame);
     }
 
-    const timeout = window.setTimeout(() => {
-      setMounted(false);
-    }, EXIT_DURATION_MS);
-    return () => window.clearTimeout(timeout);
-  }, [open, visible, mounted]);
+    if (open && mounted && !visible) {
+      const frame = window.requestAnimationFrame(() => {
+        setVisible(true);
+        panelRef.current?.focus({ preventScroll: true });
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    if (!open && mounted) {
+      const timeout = window.setTimeout(() => {
+        setVisible(false);
+        setMounted(false);
+      }, EXIT_DURATION_MS);
+      return () => window.clearTimeout(timeout);
+    }
+  }, [open, mounted, visible]);
 
   useEffect(() => {
     if (!mounted) {
@@ -129,15 +112,20 @@ export function SideDrawer({
     return null;
   }
 
+  const activeView = open
+    ? { title, description, children, wide }
+    : { ...view, children: null };
+  const isVisible = open && visible;
+
   return createPortal(
     <div
       className="side-drawer-root fixed inset-0 z-50 overflow-hidden"
-      data-state={visible ? "open" : "closed"}
+      data-state={isVisible ? "open" : "closed"}
     >
       <button
         type="button"
         tabIndex={-1}
-        className={cn("side-drawer-scrim", visible ? "is-open" : "is-closed")}
+        className={cn("side-drawer-scrim", isVisible ? "is-open" : "is-closed")}
         aria-label="关闭抽屉"
         onClick={() => onCloseRef.current()}
       />
@@ -146,35 +134,34 @@ export function SideDrawer({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={view.description ? descriptionId : undefined}
+        aria-describedby={activeView.description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
           "side-drawer-panel",
-          view.wide ? "is-wide" : undefined,
-          visible ? "is-open" : "is-closed",
+          activeView.wide ? "is-wide" : undefined,
+          isVisible ? "is-open" : "is-closed",
         )}
       >
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-subtle px-5 py-4">
           <div className="min-w-0">
             <h2 id={titleId} className="text-[15px] font-semibold tracking-tight">
-              {view.title}
+              {activeView.title}
             </h2>
-            {view.description ? (
+            {activeView.description ? (
               <p id={descriptionId} className="mt-1 text-[13px] leading-5 text-secondary">
-                {view.description}
+                {activeView.description}
               </p>
             ) : null}
           </div>
-          <Button
-            variant="ghost"
-            className="size-8 shrink-0 px-0"
+          <IconButton
+            label="关闭"
+            className="shrink-0"
             onClick={() => onCloseRef.current()}
-            aria-label="关闭"
           >
-            <X size={17} />
-          </Button>
+            <X size={16} strokeWidth={1.75} />
+          </IconButton>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{view.children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{activeView.children}</div>
       </div>
     </div>,
     document.body,

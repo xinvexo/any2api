@@ -52,7 +52,6 @@ export function ConfirmDialog({
   });
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
-  const [openProp, setOpenProp] = useState(open);
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -62,45 +61,38 @@ export function ConfirmDialog({
     onConfirmRef.current = onConfirm;
   }, [onConfirm]);
 
-  if (open !== openProp) {
-    setOpenProp(open);
-    if (open) {
-      setMounted(true);
-      setView({ title, description, confirmLabel, cancelLabel, tone });
-    } else {
-      setVisible(false);
-    }
-  } else if (open) {
-    const nextView = { title, description, confirmLabel, cancelLabel, tone };
-    if (
-      view.title !== nextView.title ||
-      view.description !== nextView.description ||
-      view.confirmLabel !== nextView.confirmLabel ||
-      view.cancelLabel !== nextView.cancelLabel ||
-      view.tone !== nextView.tone
-    ) {
-      setView(nextView);
-    }
-  }
-
   useEffect(() => {
-    if (!open || !mounted || visible) {
+    if (!open) {
       return;
     }
     const frame = window.requestAnimationFrame(() => {
-      setVisible(true);
-      panelRef.current?.focus({ preventScroll: true });
+      setView({ title, description, confirmLabel, cancelLabel, tone });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [open, mounted, visible]);
+  }, [open, title, description, confirmLabel, cancelLabel, tone]);
 
   useEffect(() => {
-    if (open || visible || !mounted) {
-      return;
+    if (open && !mounted) {
+      const frame = window.requestAnimationFrame(() => setMounted(true));
+      return () => window.cancelAnimationFrame(frame);
     }
-    const timeout = window.setTimeout(() => setMounted(false), EXIT_DURATION_MS);
-    return () => window.clearTimeout(timeout);
-  }, [open, visible, mounted]);
+
+    if (open && mounted && !visible) {
+      const frame = window.requestAnimationFrame(() => {
+        setVisible(true);
+        panelRef.current?.focus({ preventScroll: true });
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    if (!open && mounted) {
+      const timeout = window.setTimeout(() => {
+        setVisible(false);
+        setMounted(false);
+      }, EXIT_DURATION_MS);
+      return () => window.clearTimeout(timeout);
+    }
+  }, [open, mounted, visible]);
 
   useEffect(() => {
     if (!mounted) {
@@ -134,15 +126,20 @@ export function ConfirmDialog({
     return null;
   }
 
+  const activeView = open
+    ? { title, description, confirmLabel, cancelLabel, tone }
+    : view;
+  const isVisible = open && visible;
+
   return createPortal(
     <div
       className="confirm-dialog-root fixed inset-0 z-[60] flex items-center justify-center overflow-hidden p-4"
-      data-state={visible ? "open" : "closed"}
+      data-state={isVisible ? "open" : "closed"}
     >
       <button
         type="button"
         tabIndex={-1}
-        className={cn("confirm-dialog-scrim", visible ? "is-open" : "is-closed")}
+        className={cn("confirm-dialog-scrim", isVisible ? "is-open" : "is-closed")}
         aria-label="关闭对话框"
         disabled={pending}
         onClick={() => {
@@ -156,39 +153,36 @@ export function ConfirmDialog({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={view.description ? descriptionId : undefined}
+        aria-describedby={activeView.description ? descriptionId : undefined}
         tabIndex={-1}
-        className={cn("confirm-dialog-panel", visible ? "is-open" : "is-closed")}
+        className={cn("confirm-dialog-panel", isVisible ? "is-open" : "is-closed")}
       >
         <div className="px-5 pt-5">
-          <h2 id={titleId} className="text-[15px] font-semibold tracking-tight">
-            {view.title}
+          <h2 id={titleId} className="text-[15px] font-semibold tracking-tight text-primary">
+            {activeView.title}
           </h2>
-          {view.description ? (
+          {activeView.description ? (
             <div id={descriptionId} className="mt-2 text-[13px] leading-5 text-secondary">
-              {view.description}
+              {activeView.description}
             </div>
           ) : null}
         </div>
-        <div className="flex flex-col-reverse gap-2 px-5 py-4 sm:flex-row sm:justify-end">
+        <div className="mt-5 flex items-center justify-end gap-2 border-t border-subtle px-5 py-4">
           <Button
-            variant="ghost"
+            variant="secondary"
+            className="min-w-[4.5rem]"
             disabled={pending}
             onClick={() => onCloseRef.current()}
           >
-            {view.cancelLabel}
+            {activeView.cancelLabel}
           </Button>
           <Button
-            variant={view.tone === "danger" ? "danger" : "primary"}
-            className={
-              view.tone === "danger"
-                ? "bg-danger text-on-danger hover:bg-danger/90 hover:text-on-danger"
-                : undefined
-            }
+            variant={activeView.tone === "danger" ? "dangerSolid" : "primary"}
+            className="min-w-[4.5rem]"
             disabled={pending}
             onClick={() => onConfirmRef.current()}
           >
-            {pending ? "处理中…" : view.confirmLabel}
+            {pending ? "处理中…" : activeView.confirmLabel}
           </Button>
         </div>
       </div>

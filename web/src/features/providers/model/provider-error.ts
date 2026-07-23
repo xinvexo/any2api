@@ -17,7 +17,7 @@ const messages: Record<string, string> = {
   invalid_provider_api_key: "上游 API Key 格式无效。",
   provider_credential_disabled: "已停用的 API Key 不能测试。",
   provider_endpoint_disabled: "Endpoint 已停用，不能测试 API Key。",
-  provider_credential_proxy_unavailable: "API Key 的实际代理不可用。",
+  provider_credential_proxy_unavailable: "API Key 的实际出口代理不可用。",
   provider_credential_at_capacity: "API Key 当前并发已满，请稍后重试。",
   provider_credential_test_unavailable: "API Key 测试服务不可用。",
   provider_oauth_unavailable: "OAuth 登录服务不可用。",
@@ -31,7 +31,7 @@ const messages: Record<string, string> = {
   provider_oauth_state_mismatch: "这条回调不属于当前 OAuth 登录会话。",
   provider_oauth_configuration_changed: "登录期间 Provider 或代理发生变化，请重新开始。",
   provider_oauth_upstream_failed: "OAuth 上游没有完成 Token 交换，请检查网络或代理后重试。",
-  proxy_referenced: "该代理仍被 API Key 使用，不能删除。",
+  proxy_referenced: "该出口代理仍被 API Key 使用，不能删除。",
   provider_endpoint_in_use: "该 Endpoint 仍有 API Key，不能删除。",
   provider_endpoint_identity_in_use: "已有 API Key 时不能修改 Provider 类型或协议。",
 };

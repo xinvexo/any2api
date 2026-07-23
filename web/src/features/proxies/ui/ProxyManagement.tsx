@@ -1,6 +1,8 @@
 import { RefreshCw } from "lucide-react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
+import type { ProxyProfile } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
 import { useProxies } from "../model/use-proxies";
 import { useProxyAuthenticationActions } from "../model/use-proxy-authentication-actions";
@@ -9,6 +11,7 @@ import { useProxyMutations } from "../model/use-proxy-mutations";
 import { ProxyEditor } from "./ProxyEditor";
 import { ProxyList } from "./ProxyList";
 import { Button } from "@/shared/ui/Button";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 import { Surface } from "@/shared/ui/Surface";
 
@@ -17,9 +20,12 @@ export function ProxyManagement() {
   const mutations = useProxyMutations();
   const authentication = useProxyAuthenticationActions();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [deleteTarget, setDeleteTarget] = useState<ProxyProfile | null>(null);
   const editorId = searchParams.get("editor");
+  const confirmPending = mutations.remove.isPending;
 
   function openEditor(id: string) {
+    setDeleteTarget(null);
     mutations.create.reset();
     mutations.update.reset();
     authentication.reset();
@@ -53,14 +59,14 @@ export function ProxyManagement() {
   if (proxies.isPending && !proxies.data) {
     return (
       <div className="flex min-h-56 items-center justify-center text-sm text-secondary" aria-busy="true">
-        正在读取代理配置
+        正在读取出口代理配置
       </div>
     );
   }
   if (!proxies.data) {
     return (
       <Surface className="p-6" role="alert">
-        <p className="font-semibold">无法读取代理配置</p>
+        <p className="font-semibold">无法读取出口代理配置</p>
         <p className="mt-2 text-sm text-secondary">{getProxyErrorMessage(proxies.error)}</p>
         <Button className="mt-5" onClick={() => void proxies.refetch()} disabled={proxies.isFetching}>
           <RefreshCw size={14} className={proxies.isFetching ? "animate-spin" : undefined} />
@@ -131,9 +137,24 @@ export function ProxyManagement() {
     closeEditor(editorId);
   }
 
-  function remove(id: string) {
+  function requestDelete(proxy: ProxyProfile) {
     mutations.remove.reset();
-    mutations.remove.mutate({ id, expectedRevision: configuration.configRevision });
+    setDeleteTarget(proxy);
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) {
+      return;
+    }
+    try {
+      await mutations.remove.mutateAsync({
+        id: deleteTarget.id,
+        expectedRevision: configuration.configRevision,
+      });
+      setDeleteTarget(null);
+    } catch {
+      // Keep confirmation visible when the version is stale.
+    }
   }
 
   function refreshData() {
@@ -143,15 +164,19 @@ export function ProxyManagement() {
   const drawerTitle = directEditor
     ? "DIRECT 不可编辑"
     : invalidEditor
-      ? "代理不存在"
+      ? "出口代理不存在"
       : editorId === "new"
-        ? "新增代理"
-        : "编辑代理";
+        ? "新增出口代理"
+        : "编辑出口代理";
   const drawerDescription = directEditor
     ? "DIRECT 是系统内置出口，始终启用。"
     : invalidEditor
       ? "该链接可能已经过期，请返回列表。"
       : "HTTP 与 SOCKS5 使用独立出口配置";
+  const deleteEndpoint =
+    deleteTarget?.host && deleteTarget.port
+      ? `${deleteTarget.host}:${deleteTarget.port}`
+      : null;
 
   return (
     <div aria-busy={editorPending || mutations.isPending || proxies.isFetching}>
@@ -177,7 +202,7 @@ export function ProxyManagement() {
         onCreate={() => openEditor("new")}
         onRefresh={refreshData}
         onEdit={openEditor}
-        onDelete={remove}
+        onDelete={requestDelete}
       />
 
       <SideDrawer
@@ -188,7 +213,7 @@ export function ProxyManagement() {
       >
         {directEditor || invalidEditor ? (
           <div className="space-y-4 text-sm text-secondary">
-            <p>{directEditor ? "请选择其他自定义代理进行编辑。" : "可以从代理列表重新进入。"}</p>
+            <p>{directEditor ? "请选择其他自定义出口代理进行编辑。" : "可以从出口代理列表重新进入。"}</p>
             <Button onClick={() => closeEditor(editorId)}>返回列表</Button>
           </div>
         ) : (
@@ -204,6 +229,27 @@ export function ProxyManagement() {
           />
         )}
       </SideDrawer>
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title={deleteTarget ? `删除「${deleteTarget.name}」？` : ""}
+        description={
+          deleteTarget
+            ? deleteEndpoint
+              ? `将删除 ${deleteTarget.kind.toUpperCase()} 出口代理 ${deleteEndpoint}。绑定它的凭据需要改选其他出口。`
+              : "此操作不可恢复。绑定它的凭据需要改选其他出口。"
+            : undefined
+        }
+        confirmLabel="删除"
+        tone="danger"
+        pending={confirmPending}
+        onConfirm={() => void confirmDelete()}
+        onClose={() => {
+          if (!confirmPending) {
+            setDeleteTarget(null);
+          }
+        }}
+      />
     </div>
   );
 }

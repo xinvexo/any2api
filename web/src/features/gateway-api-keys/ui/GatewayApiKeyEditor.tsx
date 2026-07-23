@@ -1,4 +1,3 @@
-import { Save } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
@@ -34,7 +33,6 @@ export function GatewayApiKeyEditor({
   const [regenerateToken, setRegenerateToken] = useState(false);
   const [validation, setValidation] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
-  const revoked = Boolean(apiKey?.revokedAt);
   const isEdit = Boolean(apiKey);
 
   useEffect(() => {
@@ -70,7 +68,7 @@ export function GatewayApiKeyEditor({
           value={name}
           maxLength={100}
           autoComplete="off"
-          disabled={pending || revoked}
+          disabled={pending}
           aria-invalid={Boolean(validation)}
           aria-describedby={validation ? "gateway-key-name-error" : undefined}
           onChange={(event) => {
@@ -93,7 +91,7 @@ export function GatewayApiKeyEditor({
           <Switch
             id="gateway-key-regenerate"
             checked={regenerateToken}
-            disabled={pending || revoked}
+            disabled={pending}
             aria-labelledby="gateway-key-regenerate-label"
             onCheckedChange={setRegenerateToken}
           />
@@ -107,7 +105,7 @@ export function GatewayApiKeyEditor({
         <Switch
           id="gateway-key-enabled"
           checked={enabled}
-          disabled={pending || revoked}
+          disabled={pending}
           aria-labelledby="gateway-key-enabled-label"
           onCheckedChange={setEnabled}
         />
@@ -115,13 +113,12 @@ export function GatewayApiKeyEditor({
 
       <FormError>{error ? getGatewayApiKeyErrorMessage(error) : null}</FormError>
 
-      <div className="flex flex-col-reverse gap-2 border-t border-subtle pt-4 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>
+      <div className="flex items-center justify-end gap-2 border-t border-subtle pt-4">
+        <Button type="button" variant="secondary" className="min-w-[4.5rem]" disabled={pending} onClick={onClose}>
           取消
         </Button>
-        <Button type="submit" variant="primary" disabled={pending || revoked}>
-          <Save size={15} />
-          {pending ? "正在保存" : "保存"}
+        <Button type="submit" variant="primary" disabled={pending}>
+          保存
         </Button>
       </div>
     </form>

@@ -71,14 +71,15 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
     publisher
         .revoke_gateway_api_key(second_snapshot.revision(), id, second_key.config_version())
         .await
-        .expect("revoke");
-    let revoked_snapshot = snapshots.load();
+        .expect("delete");
+    let deleted_snapshot = snapshots.load();
     assert_eq!(
         second_snapshot.authenticate_gateway_api_key(&second_token),
         Some(id)
     );
+    assert!(deleted_snapshot.gateway_api_keys().get(id).is_none());
     assert_eq!(
-        revoked_snapshot.authenticate_gateway_api_key(&second_token),
+        deleted_snapshot.authenticate_gateway_api_key(&second_token),
         None
     );
     assert_eq!(runtime.scheduler_epoch(), 3);

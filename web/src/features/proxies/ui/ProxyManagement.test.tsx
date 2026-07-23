@@ -27,10 +27,10 @@ test("renders DIRECT in a table-style proxy list", async () => {
 
   renderManagement();
 
-  expect(await screen.findByRole("caption", { name: "代理列表" })).toBeInTheDocument();
+  expect(await screen.findByRole("caption", { name: "出口代理列表" })).toBeInTheDocument();
   expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(0);
   expect(screen.getByText("本机网络")).toBeInTheDocument();
-  expect(screen.getByText("尚未添加自定义代理。新代理会独立保存，不会改变当前全局出口。")).toBeInTheDocument();
+  expect(screen.getByText("尚未添加自定义出口代理。新出口代理会独立保存，不会改变当前全局出口。")).toBeInTheDocument();
   expect(screen.queryByText(/Credential 绑定 DIRECT 时会继承此出口/)).not.toBeInTheDocument();
 });
 
@@ -85,7 +85,7 @@ test("does not render an editor for a DIRECT deep link", async () => {
   renderManagement([`/proxies?editor=${direct.id}`]);
 
   expect(await screen.findByText("DIRECT 不可编辑")).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "编辑代理" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "编辑出口代理" })).not.toBeInTheDocument();
 });
 
 test("refetches the revision after a write conflict without discarding the editor", async () => {
@@ -122,7 +122,7 @@ test("keeps authentication fields hidden until enabled", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(configuration(1, [direct, proxy])));
 
   renderManagement([`/proxies?editor=${proxy.id}`]);
-  expect(await screen.findByRole("switch", { name: "代理认证" })).toHaveAttribute(
+  expect(await screen.findByRole("switch", { name: "出口代理认证" })).toHaveAttribute(
     "aria-checked",
     "false",
   );
@@ -166,7 +166,7 @@ test("saves authentication together with the proxy profile", async () => {
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => {
-    expect(screen.queryByRole("heading", { name: "编辑代理" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "编辑出口代理" })).not.toBeInTheDocument();
   });
 
   const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
@@ -203,8 +203,38 @@ test("rejects an HTTP Basic separator before writing authentication", async () =
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
 });
 
+test("deletes a custom proxy through the confirmation dialog", async () => {
+  const proxy = customProxy();
+  let current = configuration(1, [direct, proxy]);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = requestPath(input);
+    if (path.endsWith(`/proxies/${proxy.id}`) && init?.method === "DELETE") {
+      current = configuration(2, [direct]);
+      return jsonResponse(current);
+    }
+    return jsonResponse(current);
+  });
+
+  renderManagement();
+  fireEvent.click(await screen.findByRole("button", { name: `删除 ${proxy.name}` }));
+
+  expect(await screen.findByRole("heading", { name: `删除「${proxy.name}」？` })).toBeInTheDocument();
+  expect(screen.getByText(/将删除 HTTP 出口代理 proxy.example.com:8080/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: `确认删除 ${proxy.name}` })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+
+  await waitFor(() => {
+    expect(screen.queryByRole("heading", { name: `删除「${proxy.name}」？` })).not.toBeInTheDocument();
+  });
+
+  const del = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+  expect(String(del?.[0])).toContain(`/api/admin/proxies/${proxy.id}?expected_revision=1`);
+  expect(screen.queryByText(proxy.name)).not.toBeInTheDocument();
+});
+
 async function enableAuthentication() {
-  const toggle = await screen.findByRole("switch", { name: "代理认证" });
+  const toggle = await screen.findByRole("switch", { name: "出口代理认证" });
   if (toggle.getAttribute("aria-checked") !== "true") {
     fireEvent.click(toggle);
   }

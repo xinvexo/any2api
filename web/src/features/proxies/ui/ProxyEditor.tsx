@@ -1,4 +1,3 @@
-import { Save } from "lucide-react";
 import { useEffect, useRef, type FormEvent } from "react";
 
 import type { ProxyProfile } from "../api/proxy-contracts";
@@ -122,7 +121,7 @@ export function ProxyEditor({
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-4">
           <p id="proxy-auth-label" className="text-[13px] font-medium">
-            代理认证
+            出口代理认证
           </p>
           <Switch
             id="proxy-auth-enabled"
@@ -172,7 +171,7 @@ export function ProxyEditor({
 
       <div className="flex items-center justify-between gap-4">
         <p id="proxy-enabled-label" className="text-[13px] font-medium">
-          启用此代理
+          启用此出口代理
         </p>
         <Switch
           id="proxy-enabled"
@@ -185,13 +184,12 @@ export function ProxyEditor({
 
       <FormError>{error ? getProxyErrorMessage(error) : null}</FormError>
 
-      <div className="flex flex-col-reverse gap-2 border-t border-subtle pt-4 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>
+      <div className="flex items-center justify-end gap-2 border-t border-subtle pt-4">
+        <Button type="button" variant="secondary" className="min-w-[4.5rem]" disabled={pending} onClick={onClose}>
           取消
         </Button>
         <Button type="submit" variant="primary" disabled={pending}>
-          <Save size={15} />
-          {pending ? "正在保存" : "保存"}
+          保存
         </Button>
       </div>
     </form>

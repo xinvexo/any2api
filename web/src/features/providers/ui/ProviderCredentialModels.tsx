@@ -1,4 +1,4 @@
-import { Check, RefreshCw, Save, Search, X } from "lucide-react";
+import { Check, RefreshCw, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
@@ -101,16 +101,29 @@ export function ProviderCredentialModels({
       {result && result.accepted && result.catalogValid ? (
         <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-secondary">
           <span>已读取 {discovered.length} 个模型 · 已选择 {selected.size} 个</span>
-          <div className="flex gap-1">
-            <Button variant="ghost" onClick={selectVisible} disabled={pending || models.length === 0}>
+          <div className="flex flex-wrap items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={onDiscover} disabled={pending}>
+              <RefreshCw size={14} className={pending ? "animate-spin" : undefined} />
+              重新拉取
+            </Button>
+            <Button variant="ghost" size="sm" onClick={selectVisible} disabled={pending || models.length === 0}>
               <Check size={14} />
               全选当前
             </Button>
-            <Button variant="ghost" onClick={clearVisible} disabled={pending || models.length === 0}>
+            <Button variant="ghost" size="sm" onClick={clearVisible} disabled={pending || models.length === 0}>
               <X size={14} />
               清除当前
             </Button>
           </div>
+        </div>
+      ) : null}
+
+      {result && !(result.accepted && result.catalogValid) ? (
+        <div className="flex justify-end">
+          <Button variant="ghost" size="sm" onClick={onDiscover} disabled={pending}>
+            <RefreshCw size={14} className={pending ? "animate-spin" : undefined} />
+            重新拉取
+          </Button>
         </div>
       ) : null}
 
@@ -168,13 +181,9 @@ export function ProviderCredentialModels({
 
       {error ? <FormError>{getProviderErrorMessage(error)}</FormError> : null}
 
-      <div className="flex flex-col-reverse gap-2 border-t border-subtle pt-4 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>
+      <div className="flex items-center justify-end gap-2 border-t border-subtle pt-4">
+        <Button type="button" variant="secondary" className="min-w-[4.5rem]" disabled={pending} onClick={onClose}>
           关闭
-        </Button>
-        <Button type="button" variant="ghost" disabled={pending} onClick={onDiscover}>
-          <RefreshCw size={14} className={discovering ? "animate-spin" : undefined} />
-          重新拉取
         </Button>
         <Button
           type="button"
@@ -182,8 +191,7 @@ export function ProviderCredentialModels({
           disabled={pending || !result?.accepted || !result.catalogValid}
           onClick={() => void onSave([...selected].sort())}
         >
-          <Save size={14} />
-          保存模型
+          保存
         </Button>
       </div>
     </div>
@@ -225,7 +233,7 @@ function describeFailureScope(scope: string | null) {
     case "endpoint":
       return "上游地址";
     case "proxy":
-      return "代理";
+      return "出口代理";
     default:
       return "网络链路";
   }
@@ -238,7 +246,7 @@ function describeFailureStage(stage: string | null) {
     case "tcp":
       return "连接";
     case "proxy_handshake":
-      return "代理握手";
+      return "出口代理握手";
     case "tls":
       return "TLS";
     case "write_request":

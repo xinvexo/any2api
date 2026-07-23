@@ -1,4 +1,3 @@
-import { Save } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import type {
@@ -141,7 +140,7 @@ export function ProviderCredentialEditor({
           onChange={(event) => setLabel(event.target.value)}
         />
       </Field>
-      <Field label="代理" htmlFor="credential-proxy">
+      <Field label="出口代理" htmlFor="credential-proxy">
         <select
           id="credential-proxy"
           className={selectClass()}
@@ -209,17 +208,12 @@ export function ProviderCredentialEditor({
 
       <FormError>{error ? getProviderErrorMessage(error) : null}</FormError>
 
-      <div className="flex flex-col-reverse gap-2 border-t border-subtle pt-4 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" disabled={pending} onClick={onClose}>
+      <div className="flex items-center justify-end gap-2 border-t border-subtle pt-4">
+        <Button type="button" variant="secondary" className="min-w-[4.5rem]" disabled={pending} onClick={onClose}>
           取消
         </Button>
         <Button type="submit" variant="primary" disabled={pending || sourceConflict !== null}>
-          <Save size={14} />
-          {pending
-            ? "正在保存"
-            : mode === "create" || apiKey.trim().length > 0
-              ? "保存并选择模型"
-              : "保存"}
+          保存
         </Button>
       </div>
     </form>

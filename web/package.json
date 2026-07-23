@@ -1,4 +1,4 @@
-  {
+{
   "name": "any2api-web",
   "private": true,
   "version": "0.1.0",
@@ -8,14 +8,15 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "vite build --watch",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "test:e2e": "pnpm build && pnpm check:embedded && node e2e/run-playwright.mjs",
     "build": "tsc -b && vite build",
-    "build:embedded": "pnpm build && node scripts/sync-embedded-web.mjs",
-    "check:embedded": "node scripts/sync-embedded-web.mjs --check"
+    "build:embedded": "pnpm build",
+    "check:embedded": "node scripts/sync-embedded-web.mjs --check",
+    "dev:server": "vite"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.2",

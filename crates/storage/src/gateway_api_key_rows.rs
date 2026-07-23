@@ -11,6 +11,7 @@ use crate::{error::StorageError, gateway_api_key_verifier::GatewayApiKeyVerifier
 struct GatewayApiKeyRow {
     id: String,
     name: String,
+    token: String,
     token_prefix: String,
     token_hash: Vec<u8>,
     hash_version: i64,
@@ -28,8 +29,8 @@ pub(crate) async fn load_gateway_api_keys_from(
     verifier: &GatewayApiKeyVerifier,
 ) -> Result<GatewayApiKeyConfiguration, StorageError> {
     let rows = sqlx::query_as::<_, GatewayApiKeyRow>(
-        "SELECT id, name, token_prefix, token_hash, hash_version, hash_key_id, token_version, \
-         config_version, enabled, revoked_at, created_at, last_used_at \
+        "SELECT id, name, token, token_prefix, token_hash, hash_version, hash_key_id, \
+         token_version, config_version, enabled, revoked_at, created_at, last_used_at \
          FROM gateway_api_keys ORDER BY name ASC",
     )
     .fetch_all(connection)
@@ -58,6 +59,7 @@ fn parse_row(
     GatewayApiKey::restore(
         id,
         draft,
+        row.token,
         row.token_prefix,
         token_hash,
         u32::try_from(row.hash_version).map_err(|_| StorageError::CorruptConfiguration)?,

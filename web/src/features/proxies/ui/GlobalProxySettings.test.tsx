@@ -54,7 +54,7 @@ test("shows global proxy inheritance copy and applies a new global exit", async 
 
   renderSettings();
 
-  expect(await screen.findByText("全局代理")).toBeInTheDocument();
+  expect(await screen.findByText("全局出口代理")).toBeInTheDocument();
   expect(screen.getByText(/Credential 绑定 DIRECT 时会继承此出口/)).toBeInTheDocument();
 
   fireEvent.change(screen.getByLabelText(/当前出口/), { target: { value: custom.id } });

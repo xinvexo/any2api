@@ -117,7 +117,7 @@
 - SQLite 只持久化配置、必要凭据、Gateway Key 摘要和可选历史日志。
 - `in_flight`、等待队列、健康、冷却、熔断、会话和请求进度不得持久化。
 - Secret 使用版本化 AEAD 加密；主密钥位于数据库外，缺失或错误时启动失败。
-- 管理 DTO 默认只返回 Secret 指纹或尾号，创建时仅显示一次明文。
+- 管理 DTO 对 Provider Secret 默认只返回指纹或尾号，创建时仅展示一次；`GatewayApiKey` 例外：明文持久化，管理列表始终可查看。
 - 远程管理默认关闭；启用后必须使用独立单管理员认证，允许 HTTP 或 HTTPS，TLS 推荐但不强制。
 - 明文 HTTP 是受支持配置，不能在实现中强制跳转 HTTPS 或拒绝管理请求；Web 必须明确提示密码、Cookie 和 OAuth2 JSON 的明文传输风险。
 - `GatewayApiKey` 不能登录管理面。

@@ -8,7 +8,6 @@ import { Button } from "@/shared/ui/Button";
 
 interface GatewayApiKeyListProps {
   configuration: GatewayApiKeyConfiguration;
-  tokensById: Record<string, string>;
   pending: boolean;
   refreshing: boolean;
   actionError: unknown;
@@ -20,7 +19,6 @@ interface GatewayApiKeyListProps {
 
 export function GatewayApiKeyList({
   configuration,
-  tokensById,
   pending,
   refreshing,
   actionError,
@@ -36,17 +34,16 @@ export function GatewayApiKeyList({
       return configuration.items;
     }
     return configuration.items.filter((key) => {
-      const status = key.revokedAt ? "已删除" : key.enabled ? "已启用" : "已停用";
-      const token = tokensById[key.id] ?? "";
-      return [key.name, status, token].join(" ").toLowerCase().includes(needle);
+      const status = key.enabled ? "已启用" : "已停用";
+      return [key.name, status, key.token].join(" ").toLowerCase().includes(needle);
     });
-  }, [configuration.items, query, tokensById]);
+  }, [configuration.items, query]);
 
   return (
     <div>
       <div className="flex flex-col gap-2.5 border-b border-subtle pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button variant="ghost" onClick={onCreate} disabled={pending}>
+          <Button variant="primary" onClick={onCreate} disabled={pending}>
             <Plus size={14} />
             新增密钥
           </Button>
@@ -91,7 +88,6 @@ export function GatewayApiKeyList({
               <GatewayApiKeyTableRow
                 key={key.id}
                 apiKey={key}
-                token={tokensById[key.id] ?? null}
                 pending={pending}
                 onEdit={onEdit}
                 onDelete={onDelete}

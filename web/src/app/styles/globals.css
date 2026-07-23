@@ -18,32 +18,55 @@ body {
   background: var(--canvas-accent);
 }
 
-button,
-a,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
+/*
+ * Element resets live in @layer base so utility classes (text-on-accent, etc.)
+ * win over them. Never force `color: inherit` on button — that made primary
+ * CTAs render as blue background + black label.
+ */
+@layer base {
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 
-button,
-a {
-  -webkit-tap-highlight-color: transparent;
-}
+  /* Inputs keep inherited page text color; buttons use explicit text-* utilities. */
+  input,
+  select,
+  textarea {
+    color: inherit;
+  }
 
-button:not(:disabled),
-a[href] {
-  cursor: pointer;
-}
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
 
-button:disabled {
-  cursor: not-allowed;
+  button:not(:disabled),
+  a[href] {
+    cursor: pointer;
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
 }
 
 ::selection {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* Filled CTAs: white label on solid color. Unlayered + !important so
+ * Tailwind preflight `button { color: inherit }` cannot force body text color. */
+.ui-btn-fill,
+.ui-btn-fill:hover,
+.ui-btn-fill:active,
+.ui-btn-fill:focus,
+.ui-btn-fill:disabled {
+  color: #ffffff !important;
 }
 
 .focus-ring:focus-visible {
@@ -227,4 +250,32 @@ select.field-select:hover,
 select.field-select:active,
 select.field-select:focus {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* Auth screen — quiet macOS floating card on soft canvas */
+.auth-canvas {
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgb(0 113 227 / 8%), transparent 55%),
+    var(--canvas);
+}
+
+html[data-theme="dark"] .auth-canvas {
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgb(10 132 255 / 12%), transparent 55%),
+    var(--canvas);
+}
+
+.auth-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 4%),
+    0 18px 48px rgb(0 0 0 / 8%);
+}
+
+html[data-theme="dark"] .auth-card {
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 30%),
+    0 22px 56px rgb(0 0 0 / 42%);
 }

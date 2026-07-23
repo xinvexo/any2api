@@ -14,7 +14,7 @@ export function GlobalProxySettings() {
   if (proxies.isPending && !proxies.data) {
     return (
       <Surface className="flex min-h-28 items-center justify-center p-6 text-sm text-secondary" aria-busy="true">
-        正在读取全局代理
+        正在读取全局出口代理
       </Surface>
     );
   }
@@ -22,7 +22,7 @@ export function GlobalProxySettings() {
   if (!proxies.data) {
     return (
       <Surface className="p-6" role="alert">
-        <p className="font-semibold">无法读取全局代理</p>
+        <p className="font-semibold">无法读取全局出口代理</p>
         <p className="mt-2 text-sm text-secondary">{getProxyErrorMessage(proxies.error)}</p>
         <Button className="mt-4" onClick={() => void proxies.refetch()} disabled={proxies.isFetching}>
           <RefreshCw size={15} className={proxies.isFetching ? "animate-spin" : undefined} />

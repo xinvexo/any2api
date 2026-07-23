@@ -44,10 +44,12 @@ mod tests {
     use crate::{GatewayApiKey, GatewayApiKeyDraft, GatewayApiKeyId};
 
     fn key(name: &str) -> GatewayApiKey {
+        let token = format!("a2k_v1_{}", "a".repeat(43));
         GatewayApiKey::create(
             GatewayApiKeyId::new(),
             GatewayApiKeyDraft::new(name, true).expect("draft"),
-            "a2k_v1_abcdefgh",
+            token.clone(),
+            &token[..16],
             [7; 32],
             "gk1_test",
             "2026-07-19 00:00:00",

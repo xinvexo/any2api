@@ -24,17 +24,17 @@ export function GlobalProxyPanel({
     <section aria-labelledby="global-proxy-heading">
       <header className="mb-4">
         <h2 id="global-proxy-heading" className="text-[15px] font-semibold tracking-tight">
-          全局代理
+          全局出口代理
         </h2>
         <p className="mt-1 max-w-2xl text-[12px] leading-5 text-secondary">
-          Credential 绑定 DIRECT 时会继承此出口；这里也是 DIRECT 时，最终从本机直连。专属代理失败不会回退到全局代理。
+          Credential 绑定 DIRECT 时会继承此出口；这里也是 DIRECT 时，最终从本机直连。专属出口代理失败不会回退到全局出口代理。
         </p>
       </header>
 
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
         <div className="min-w-0">
           <label htmlFor="global-proxy" className="text-[12px] font-medium">
-            当前出口 · {current?.name ?? "未知代理"}
+            当前出口 · {current?.name ?? "未知出口代理"}
           </label>
           <select
             id="global-proxy"

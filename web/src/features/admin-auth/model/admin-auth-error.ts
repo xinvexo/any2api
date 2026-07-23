@@ -3,7 +3,7 @@ import { ApiError } from "@/shared/api/http-client";
 export function getAdminAuthErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
     if (error.code === "admin_remote_disabled") {
-      return "当前实例没有启用远程管理。请从本机访问并在设置中开启。";
+      return "当前实例没有启用远程管理。请从本机访问并在系统设置中开启。";
     }
     if (error.code === "admin_invalid_credentials") {
       return "管理员密码不正确。";
