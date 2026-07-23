@@ -4,7 +4,6 @@ import type { PropsWithChildren } from "react";
 import { getAdminAuthErrorMessage } from "../model/admin-auth-error";
 import { useAdminAuth } from "../model/use-admin-auth";
 import { Button } from "@/shared/ui/Button";
-import { Surface } from "@/shared/ui/Surface";
 
 import { AdminPasswordScreen, AuthCanvas } from "./AdminPasswordScreen";
 
@@ -14,8 +13,8 @@ export function AdminAuthGate({ children }: PropsWithChildren) {
   if (auth.loading) {
     return (
       <AuthCanvas>
-        <div className="flex items-center gap-3 text-sm text-secondary" role="status">
-          <LoaderCircle size={18} className="animate-spin" />
+        <div className="flex items-center gap-2.5 text-[13px] text-secondary" role="status">
+          <LoaderCircle size={16} className="animate-spin" />
           正在检查管理员会话
         </div>
       </AuthCanvas>
@@ -25,17 +24,19 @@ export function AdminAuthGate({ children }: PropsWithChildren) {
   if (!auth.session) {
     return (
       <AuthCanvas>
-        <Surface className="w-full max-w-md p-7 text-center" role="alert">
-          <ShieldX size={24} className="mx-auto text-warning" aria-hidden="true" />
-          <h1 className="mt-4 text-xl font-semibold">无法访问管理面</h1>
-          <p className="mt-2 text-sm leading-6 text-secondary">
+        <section className="auth-card w-full max-w-[380px] px-8 py-9 text-center" role="alert">
+          <span className="mx-auto grid size-12 place-items-center rounded-full bg-warning/12 text-warning">
+            <ShieldX size={22} strokeWidth={1.75} aria-hidden="true" />
+          </span>
+          <h1 className="mt-4 text-[18px] font-semibold tracking-tight">无法访问管理面</h1>
+          <p className="mt-2 text-[13px] leading-5 text-secondary">
             {getAdminAuthErrorMessage(auth.error)}
           </p>
-          <Button className="mt-6" onClick={() => void auth.refresh()}>
-            <RefreshCw size={15} />
+          <Button className="mt-6 min-w-[5.5rem]" variant="secondary" onClick={() => void auth.refresh()}>
+            <RefreshCw size={14} />
             重试
           </Button>
-        </Surface>
+        </section>
       </AuthCanvas>
     );
   }

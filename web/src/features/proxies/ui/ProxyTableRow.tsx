@@ -2,6 +2,7 @@ import { Pencil, Trash2 } from "lucide-react";
 
 import type { ProxyProfile } from "../api/proxy-contracts";
 import { cn } from "@/shared/lib/cn";
+import { RowActionButton } from "@/shared/ui/RowActionButton";
 
 export interface ProxyTableRowProps {
   proxy: ProxyProfile;
@@ -45,11 +46,11 @@ export function ProxyTableRow({
         <div className="flex flex-wrap items-center justify-end gap-0.5">
           {!proxy.builtIn ? (
             <>
-              <RowAction label={`编辑 ${proxy.name}`} disabled={pending} onClick={() => onEdit(proxy.id)}>
+              <RowActionButton label={`编辑 ${proxy.name}`} disabled={pending} onClick={() => onEdit(proxy.id)}>
                 <Pencil size={13} />
                 编辑
-              </RowAction>
-              <RowAction
+              </RowActionButton>
+              <RowActionButton
                 label={`删除 ${proxy.name}`}
                 disabled={pending || isGlobal}
                 tone="danger"
@@ -57,7 +58,7 @@ export function ProxyTableRow({
               >
                 <Trash2 size={13} />
                 删除
-              </RowAction>
+              </RowActionButton>
             </>
           ) : null}
         </div>
@@ -66,36 +67,6 @@ export function ProxyTableRow({
   );
 }
 
-function RowAction({
-  label,
-  children,
-  disabled,
-  onClick,
-  tone = "accent",
-}: {
-  label: string;
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-  tone?: "accent" | "danger";
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "focus-ring inline-flex h-7 items-center gap-1 rounded-[7px] px-2 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        tone === "danger"
-          ? "text-danger hover:bg-danger/8"
-          : "text-secondary hover:bg-surface-muted hover:text-primary",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 function Badge({
   children,

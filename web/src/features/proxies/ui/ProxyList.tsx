@@ -46,9 +46,9 @@ export function ProxyList({
     <div>
       <div className="flex flex-col gap-2.5 border-b border-subtle pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button variant="ghost" onClick={onCreate} disabled={pending}>
+          <Button variant="primary" onClick={onCreate} disabled={pending}>
             <Plus size={14} />
-            新增代理
+            新增出口代理
           </Button>
           <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
             <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
@@ -57,7 +57,7 @@ export function ProxyList({
         </div>
 
         <label className="relative min-w-0 sm:w-52">
-          <span className="sr-only">搜索代理</span>
+          <span className="sr-only">搜索出口代理</span>
           <Search
             size={13}
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
@@ -74,7 +74,7 @@ export function ProxyList({
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] border-collapse text-left text-[12px]">
-          <caption className="sr-only">代理列表</caption>
+          <caption className="sr-only">出口代理列表</caption>
           <thead>
             <tr className="border-b border-subtle text-secondary">
               <th className="py-2.5 pr-3 font-medium">名称</th>
@@ -102,13 +102,13 @@ export function ProxyList({
 
       {filtered.length === 0 ? (
         <p className="border-t border-subtle py-8 text-center text-sm text-secondary">
-          {query.trim() ? "没有匹配的代理" : "暂无代理"}
+          {query.trim() ? "没有匹配的出口代理" : "暂无出口代理"}
         </p>
       ) : null}
 
       {configuration.items.length === 1 && !query.trim() ? (
         <p className="border-t border-subtle py-3 text-sm text-secondary">
-          尚未添加自定义代理。新代理会独立保存，不会改变当前全局出口。
+          尚未添加自定义出口代理。新出口代理会独立保存，不会改变当前全局出口。
         </p>
       ) : null}
 

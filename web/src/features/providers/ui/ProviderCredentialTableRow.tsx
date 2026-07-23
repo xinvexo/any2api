@@ -3,6 +3,7 @@ import { ListChecks, Pencil, Trash2 } from "lucide-react";
 import type { ProviderCredential } from "../api/provider-credential-contracts";
 import type { ProxyConfiguration } from "@/features/proxies";
 import { cn } from "@/shared/lib/cn";
+import { RowActionButton } from "@/shared/ui/RowActionButton";
 
 export interface ProviderCredentialTableRowProps {
   credential: ProviderCredential;
@@ -77,7 +78,7 @@ export function ProviderCredentialTableRow({
       </td>
       <td className={cn("pl-3 align-middle", embedded ? "py-1.5" : "py-2")}>
         <div className="flex flex-wrap items-center justify-end gap-0.5">
-          <RowAction
+          <RowActionButton
             label={`配置 ${credential.label} 的模型`}
             disabled={pending}
             quiet={embedded}
@@ -85,8 +86,8 @@ export function ProviderCredentialTableRow({
           >
             <ListChecks size={embedded ? 12 : 13} />
             模型
-          </RowAction>
-          <RowAction
+          </RowActionButton>
+          <RowActionButton
             label={`编辑 ${credential.label}`}
             disabled={pending}
             quiet={embedded}
@@ -94,8 +95,8 @@ export function ProviderCredentialTableRow({
           >
             <Pencil size={embedded ? 12 : 13} />
             编辑
-          </RowAction>
-          <RowAction
+          </RowActionButton>
+          <RowActionButton
             label={`删除 ${credential.label}`}
             disabled={pending}
             quiet={embedded}
@@ -104,7 +105,7 @@ export function ProviderCredentialTableRow({
           >
             <Trash2 size={embedded ? 12 : 13} />
             删除
-          </RowAction>
+          </RowActionButton>
         </div>
       </td>
     </tr>
@@ -114,7 +115,7 @@ export function ProviderCredentialTableRow({
 function describeProxy(proxyId: string | undefined, configuration: ProxyConfiguration) {
   const proxy = configuration.items.find((item) => item.id === proxyId);
   if (!proxy) {
-    return "代理配置不存在";
+    return "出口代理配置不存在";
   }
   if (proxy.kind !== "direct") {
     return `${proxy.name}${proxy.enabled ? "" : " · 已停用"}`;
@@ -122,48 +123,9 @@ function describeProxy(proxyId: string | undefined, configuration: ProxyConfigur
   const global = configuration.items.find((item) => item.id === configuration.globalProxyId);
   return global?.kind === "direct"
     ? proxy.name
-    : `${proxy.name} · 继承 ${global?.name ?? "未知代理"}`;
+    : `${proxy.name} · 继承 ${global?.name ?? "未知出口代理"}`;
 }
 
-function RowAction({
-  label,
-  children,
-  disabled,
-  onClick,
-  tone = "accent",
-  quiet = false,
-}: {
-  label: string;
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-  tone?: "accent" | "danger";
-  quiet?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "focus-ring inline-flex items-center gap-1 font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        quiet
-          ? "h-6 rounded-[6px] px-1.5 text-[11px]"
-          : "h-7 rounded-[7px] px-2 text-[12px]",
-        tone === "danger"
-          ? quiet
-            ? "text-danger/70 hover:bg-danger/8 hover:text-danger"
-            : "text-danger hover:bg-danger/8"
-          : quiet
-            ? "text-tertiary hover:bg-surface-muted hover:text-secondary"
-            : "text-secondary hover:bg-surface-muted hover:text-primary",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 function Badge({
   children,

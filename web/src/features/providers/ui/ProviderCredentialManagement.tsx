@@ -284,7 +284,7 @@ export function ProviderCredentialManagement({
       <SideDrawer
         open={editorOpen}
         title={modelMode ? "选择上游模型" : drawerTitle}
-        description={modelMode ? "拉取并保存这把 API Key 可用的模型" : "绑定代理与并发限制"}
+        description={modelMode ? "拉取并保存这把 API Key 可用的模型" : "绑定出口代理与并发限制"}
         onClose={() => closeEditor(editorId)}
       >
         {editorOpen && editorId && modelMode && selected ? (

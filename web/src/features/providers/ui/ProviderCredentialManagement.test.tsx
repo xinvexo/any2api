@@ -38,7 +38,7 @@ test("creates a credential without retaining its secret in application caches", 
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary Key" } });
   fireEvent.change(screen.getByLabelText("API Key"), { target: { value: secret } });
   fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "8" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存并选择模型" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   const model = await screen.findByRole("checkbox", { name: "gpt-5.1-codex" });
   const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
@@ -53,7 +53,7 @@ test("creates a credential without retaining its secret in application caches", 
   expect(JSON.stringify(client.getMutationCache().getAll())).not.toContain(secret);
 
   fireEvent.click(model);
-  fireEvent.click(screen.getByRole("button", { name: "保存模型" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/providers"));
   const modelPut = fetchMock.mock.calls.find(

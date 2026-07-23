@@ -2,6 +2,7 @@ import { ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
 
 import type { ProviderEndpoint } from "../api/provider-contracts";
 import { cn } from "@/shared/lib/cn";
+import { RowActionButton } from "@/shared/ui/RowActionButton";
 
 /**
  * Shared by endpoint header and nested key list:
@@ -74,19 +75,19 @@ export function ProviderEndpointTableRow({
         </span>
       </button>
       <div className="flex w-full shrink-0 items-center justify-end gap-0.5 sm:w-auto">
-        <RowAction
+        <RowActionButton
           label={`新增 ${endpoint.name} 的 API Key`}
           disabled={pending}
           onClick={() => onCreateCredential(endpoint.id)}
         >
           <Plus size={13} />
           新增
-        </RowAction>
-        <RowAction label={`编辑 ${endpoint.name}`} disabled={pending} onClick={() => onEdit(endpoint.id)}>
+        </RowActionButton>
+        <RowActionButton label={`编辑 ${endpoint.name}`} disabled={pending} onClick={() => onEdit(endpoint.id)}>
           <Pencil size={13} />
           编辑
-        </RowAction>
-        <RowAction
+        </RowActionButton>
+        <RowActionButton
           label={`删除 ${endpoint.name}`}
           disabled={pending}
           tone="danger"
@@ -94,39 +95,9 @@ export function ProviderEndpointTableRow({
         >
           <Trash2 size={13} />
           删除
-        </RowAction>
+        </RowActionButton>
       </div>
     </div>
   );
 }
 
-function RowAction({
-  label,
-  children,
-  disabled,
-  onClick,
-  tone = "accent",
-}: {
-  label: string;
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-  tone?: "accent" | "danger";
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "focus-ring inline-flex h-7 items-center gap-1 rounded-[7px] px-2 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        tone === "danger"
-          ? "text-danger hover:bg-danger/8"
-          : "text-secondary hover:bg-surface-muted hover:text-primary",
-      )}
-    >
-      {children}
-    </button>
-  );
-}

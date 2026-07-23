@@ -78,7 +78,7 @@ function initialDraft(profile?: ProxyProfile): EditorDraft {
 function validate(draft: EditorDraft, profile?: ProxyProfile): EditorErrors {
   const errors: EditorErrors = {};
   if (draft.name.trim().length === 0) {
-    errors.name = "请输入代理名称";
+    errors.name = "请输入出口代理名称";
   } else if (draft.name.trim() !== draft.name) {
     errors.name = "名称首尾不能包含空格";
   } else if ([...draft.name].length > 100) {
@@ -96,7 +96,7 @@ function validate(draft: EditorDraft, profile?: ProxyProfile): EditorErrors {
 
   if (draft.authEnabled) {
     if (draft.username.length === 0) {
-      errors.username = "请输入代理用户名";
+      errors.username = "请输入出口代理用户名";
     } else if (
       new TextEncoder().encode(draft.username).length > 255 ||
       [...draft.username].some(isControlCharacter)

@@ -16,7 +16,7 @@ test("shows an explicit message when the upstream rejects the API Key", () => {
   });
 
   expect(screen.getByRole("alert")).toHaveTextContent("上游拒绝了这把 API Key（HTTP 401）");
-  expect(screen.getByRole("button", { name: "保存模型" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
 });
 
 test("keeps a saved model visible when the refreshed catalog no longer returns it", () => {

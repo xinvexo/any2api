@@ -42,6 +42,7 @@ export function ConfirmDialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const onConfirmRef = useRef(onConfirm);
+  const openRef = useRef(open);
 
   const [view, setView] = useState<DialogView>({
     title,
@@ -52,7 +53,8 @@ export function ConfirmDialog({
   });
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
-  const [openProp, setOpenProp] = useState(open);
+
+  openRef.current = open;
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -62,45 +64,38 @@ export function ConfirmDialog({
     onConfirmRef.current = onConfirm;
   }, [onConfirm]);
 
-  if (open !== openProp) {
-    setOpenProp(open);
+  useEffect(() => {
     if (open) {
       setMounted(true);
       setView({ title, description, confirmLabel, cancelLabel, tone });
-    } else {
-      setVisible(false);
+      let frame = 0;
+      frame = window.requestAnimationFrame(() => {
+        // Ignore stale frames scheduled before a close.
+        if (!openRef.current) {
+          return;
+        }
+        setVisible(true);
+        panelRef.current?.focus({ preventScroll: true });
+      });
+      return () => window.cancelAnimationFrame(frame);
     }
-  } else if (open) {
-    const nextView = { title, description, confirmLabel, cancelLabel, tone };
-    if (
-      view.title !== nextView.title ||
-      view.description !== nextView.description ||
-      view.confirmLabel !== nextView.confirmLabel ||
-      view.cancelLabel !== nextView.cancelLabel ||
-      view.tone !== nextView.tone
-    ) {
-      setView(nextView);
-    }
-  }
 
-  useEffect(() => {
-    if (!open || !mounted || visible) {
-      return;
-    }
-    const frame = window.requestAnimationFrame(() => {
-      setVisible(true);
-      panelRef.current?.focus({ preventScroll: true });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [open, mounted, visible]);
-
-  useEffect(() => {
-    if (open || visible || !mounted) {
+    setVisible(false);
+    if (!mounted) {
       return;
     }
     const timeout = window.setTimeout(() => setMounted(false), EXIT_DURATION_MS);
     return () => window.clearTimeout(timeout);
-  }, [open, visible, mounted]);
+    // `mounted` is intentionally omitted: exit timing is driven by `open` edges.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open-driven enter/exit machine
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    setView({ title, description, confirmLabel, cancelLabel, tone });
+  }, [open, title, description, confirmLabel, cancelLabel, tone]);
 
   useEffect(() => {
     if (!mounted) {
@@ -170,10 +165,10 @@ export function ConfirmDialog({
             </div>
           ) : null}
         </div>
-        <div className="mt-4 flex flex-col-reverse gap-2 px-5 pb-5 sm:flex-row sm:justify-end sm:gap-2">
+        <div className="mt-5 flex items-center justify-end gap-2 border-t border-subtle px-5 py-4">
           <Button
-            variant="ghost"
-            className="min-w-[4.5rem] sm:min-w-[5rem]"
+            variant="secondary"
+            className="min-w-[4.5rem]"
             disabled={pending}
             onClick={() => onCloseRef.current()}
           >
@@ -181,7 +176,7 @@ export function ConfirmDialog({
           </Button>
           <Button
             variant={view.tone === "danger" ? "dangerSolid" : "primary"}
-            className="min-w-[4.5rem] sm:min-w-[5rem]"
+            className="min-w-[4.5rem]"
             disabled={pending}
             onClick={() => onConfirmRef.current()}
           >

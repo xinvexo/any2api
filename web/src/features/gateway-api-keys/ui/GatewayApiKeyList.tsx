@@ -43,7 +43,7 @@ export function GatewayApiKeyList({
     <div>
       <div className="flex flex-col gap-2.5 border-b border-subtle pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button variant="ghost" onClick={onCreate} disabled={pending}>
+          <Button variant="primary" onClick={onCreate} disabled={pending}>
             <Plus size={14} />
             新增密钥
           </Button>

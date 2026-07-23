@@ -23,7 +23,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
   {
     id: "reliability",
     label: "重试与熔断",
-    webGroups: ["重试预算", "重试退避", "冷却", "Endpoint 熔断", "代理熔断", "熔断探测"],
+    webGroups: ["重试预算", "重试退避", "冷却", "Endpoint 熔断", "出口代理熔断", "熔断探测"],
   },
   {
     id: "upstream",

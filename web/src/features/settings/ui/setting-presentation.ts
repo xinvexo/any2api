@@ -46,9 +46,9 @@ const labels: Record<string, string> = {
   "breaker.endpoint.failure_threshold": "Endpoint 失败阈值",
   "breaker.endpoint.failure_window": "Endpoint 失败窗口",
   "breaker.endpoint.open_duration": "Endpoint 打开时长",
-  "breaker.proxy.failure_threshold": "代理失败阈值",
-  "breaker.proxy.failure_window": "代理失败窗口",
-  "breaker.proxy.open_duration": "代理打开时长",
+  "breaker.proxy.failure_threshold": "出口代理失败阈值",
+  "breaker.proxy.failure_window": "出口代理失败窗口",
+  "breaker.proxy.open_duration": "出口代理打开时长",
   "breaker.half_open_max_probes": "半开探测并发",
 };
 

@@ -33,7 +33,7 @@ export function SettingsPage() {
   return (
     <div className="space-y-5">
       <div className="border-b border-subtle pb-2">
-        <PageTabs items={SETTINGS_TABS} ariaLabel="设置分类" />
+        <PageTabs items={SETTINGS_TABS} ariaLabel="系统设置分类" />
       </div>
       <SettingsSectionBody section={section} />
     </div>

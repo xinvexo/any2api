@@ -3,6 +3,8 @@ import { useState } from "react";
 
 import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
 import { cn } from "@/shared/lib/cn";
+import { IconButton } from "@/shared/ui/IconButton";
+import { RowActionButton } from "@/shared/ui/RowActionButton";
 
 export interface GatewayApiKeyTableRowProps {
   apiKey: GatewayApiKey;
@@ -40,22 +42,22 @@ export function GatewayApiKeyTableRow({
           <code className="max-w-[22rem] truncate font-mono text-[12px] text-primary">
             {revealed ? apiKey.token : maskToken(apiKey.token)}
           </code>
-          <button
-            type="button"
-            className="focus-ring inline-flex size-7 shrink-0 items-center justify-center rounded-[7px] text-secondary hover:bg-surface-muted hover:text-primary"
-            aria-label={revealed ? `隐藏 ${apiKey.name} 的密钥` : `显示 ${apiKey.name} 的密钥`}
+          <IconButton
+            size="sm"
+            className="size-7 rounded-[7px]"
+            label={revealed ? `隐藏 ${apiKey.name} 的密钥` : `显示 ${apiKey.name} 的密钥`}
             onClick={() => setRevealed((value) => !value)}
           >
             {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
-          </button>
-          <button
-            type="button"
-            className="focus-ring inline-flex size-7 shrink-0 items-center justify-center rounded-[7px] text-secondary hover:bg-surface-muted hover:text-primary"
-            aria-label={`复制 ${apiKey.name} 的密钥`}
+          </IconButton>
+          <IconButton
+            size="sm"
+            className="size-7 rounded-[7px]"
+            label={`复制 ${apiKey.name} 的密钥`}
             onClick={() => void copyToken()}
           >
             {copied ? <Check size={13} /> : <Copy size={13} />}
-          </button>
+          </IconButton>
         </div>
       </td>
       <td className="px-3 py-2.5 align-middle">
@@ -69,15 +71,15 @@ export function GatewayApiKeyTableRow({
       </td>
       <td className="py-2.5 pl-3 align-middle">
         <div className="flex flex-wrap items-center justify-end gap-0.5">
-          <RowAction
+          <RowActionButton
             label={`编辑 ${apiKey.name}`}
             disabled={pending}
             onClick={() => onEdit(apiKey.id)}
           >
             <Pencil size={13} />
             编辑
-          </RowAction>
-          <RowAction
+          </RowActionButton>
+          <RowActionButton
             label={`删除 ${apiKey.name}`}
             disabled={pending}
             tone="danger"
@@ -85,7 +87,7 @@ export function GatewayApiKeyTableRow({
           >
             <Trash2 size={13} />
             删除
-          </RowAction>
+          </RowActionButton>
         </div>
       </td>
     </tr>
@@ -127,36 +129,6 @@ function Badge({
   );
 }
 
-function RowAction({
-  label,
-  children,
-  disabled,
-  onClick,
-  tone = "accent",
-}: {
-  label: string;
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-  tone?: "accent" | "danger";
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "focus-ring inline-flex h-7 items-center gap-1 rounded-[7px] px-2 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        tone === "danger"
-          ? "text-danger hover:bg-danger/8"
-          : "text-secondary hover:bg-surface-muted hover:text-primary",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
 
 function formatTimestamp(value: string) {
   return value.replace(" ", " · ");

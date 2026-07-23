@@ -6,21 +6,28 @@ const webDirectory = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repository = resolve(webDirectory, "..");
 const source = join(webDirectory, "dist");
 const target = join(repository, "app", "any2api", "web-assets");
-const checkOnly = process.argv.includes("--check");
 
-const sourceFiles = await files(source);
-if (!sourceFiles.includes("index.html")) {
-  throw new Error("web/dist must contain index.html; run pnpm build first");
-}
+export async function syncEmbeddedWeb() {
+  const sourceFiles = await files(source);
+  if (!sourceFiles.includes("index.html")) {
+    throw new Error("web/dist must contain index.html; run pnpm build first");
+  }
 
-if (checkOnly) {
-  await check(sourceFiles);
-  console.log(`embedded web assets are current (${sourceFiles.length} files)`);
-} else {
   await rm(target, { recursive: true, force: true });
   await mkdir(target, { recursive: true });
   await cp(source, target, { recursive: true });
   console.log(`synchronized ${sourceFiles.length} embedded web assets`);
+  return sourceFiles;
+}
+
+export async function checkEmbeddedWeb() {
+  const sourceFiles = await files(source);
+  if (!sourceFiles.includes("index.html")) {
+    throw new Error("web/dist must contain index.html; run pnpm build first");
+  }
+  await check(sourceFiles);
+  console.log(`embedded web assets are current (${sourceFiles.length} files)`);
+  return sourceFiles;
 }
 
 async function check(expectedFiles) {
@@ -67,5 +74,20 @@ async function visit(root, directory, output) {
     } else {
       throw new Error(`embedded web assets must be regular files: ${path}`);
     }
+  }
+}
+
+const isCli = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isCli) {
+  const checkOnly = process.argv.includes("--check");
+  try {
+    if (checkOnly) {
+      await checkEmbeddedWeb();
+    } else {
+      await syncEmbeddedWeb();
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
   }
 }

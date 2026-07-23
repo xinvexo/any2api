@@ -66,7 +66,7 @@ export function ProviderCredentialList({
             <input
               className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
               value={query}
-              placeholder="搜索名称或代理"
+              placeholder="搜索名称或出口代理"
               aria-label="搜索 API Key"
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -113,7 +113,7 @@ export function ProviderCredentialList({
                 )}
               >
                 <th className="py-1.5 pr-3 font-medium">名称</th>
-                <th className="px-3 py-1.5 font-medium">代理</th>
+                <th className="px-3 py-1.5 font-medium">出口代理</th>
                 <th className="px-3 py-1.5 font-medium">并发</th>
                 <th className="px-3 py-1.5 font-medium">状态</th>
                 <th className="px-3 py-1.5 font-medium">密钥</th>

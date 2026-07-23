@@ -1,4 +1,4 @@
-import { Check, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useId, useState } from "react";
 
 import type { SettingItem, SettingValue } from "../api/settings-contracts";
@@ -96,7 +96,7 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
               <Button
                 type="button"
                 variant="ghost"
-                className="h-7 px-2"
+                size="sm"
                 onClick={() => void reset()}
                 disabled={pending}
                 aria-label={`恢复${label}默认值`}
@@ -109,11 +109,10 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
               <Button
                 type="submit"
                 variant="primary"
-                className="h-7 px-2"
+                size="sm"
                 disabled={pending || validation.error !== null}
                 aria-label={`保存${label}`}
               >
-                <Check size={13} />
                 保存
               </Button>
             ) : null}

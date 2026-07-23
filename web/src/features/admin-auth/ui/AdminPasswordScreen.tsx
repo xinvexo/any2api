@@ -1,10 +1,10 @@
-import { Eye, EyeOff, LoaderCircle, LockKeyhole, Network } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { Eye, EyeOff, LoaderCircle, Network } from "lucide-react";
+import { useState, type FormEvent, type ReactNode } from "react";
 
 import { getAdminAuthErrorMessage } from "../model/admin-auth-error";
 import { useAdminAuth } from "../model/use-admin-auth";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
-import { Surface } from "@/shared/ui/Surface";
 
 export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
   const auth = useAdminAuth();
@@ -35,60 +35,59 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
 
   return (
     <AuthCanvas>
-      <Surface className="w-full max-w-md p-6 sm:p-8">
-        <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-control bg-accent text-on-accent shadow-accent">
-            <Network size={20} aria-hidden="true" />
+      <section
+        className="auth-card w-full max-w-[360px] px-8 pb-8 pt-9 sm:px-9 sm:pb-9 sm:pt-10"
+        aria-labelledby="auth-brand-title"
+      >
+        <header className="flex flex-col items-center text-center">
+          <span
+            className="grid size-14 place-items-center rounded-[16px] bg-accent text-white shadow-[0_8px_24px_rgb(0_113_227_/_22%)]"
+            aria-hidden="true"
+          >
+            <Network size={26} strokeWidth={1.75} />
           </span>
-          <div>
-            <p className="text-lg font-semibold">any2api</p>
-            <p className="text-sm text-secondary">管理员控制台</p>
-          </div>
-        </div>
-
-        <div className="mt-8">
-          <LockKeyhole size={22} className="text-secondary" aria-hidden="true" />
-          <h1 className="mt-3 text-2xl font-semibold">
-            {setup ? "初始化管理员" : "管理员登录"}
+          <h1 id="auth-brand-title" className="mt-5 text-[17px] font-semibold tracking-tight text-primary">
+            any2api
           </h1>
-          <p className="mt-2 text-sm leading-6 text-secondary">
-            {setup
-              ? "首次初始化只能从本机完成。请先从服务启动终端复制一次性 Setup Token。"
-              : "输入单管理员密码继续访问配置与运行状态。"}
-          </p>
-        </div>
+        </header>
 
         {auth.session?.plaintextHttpWarning ? (
-          <div className="mt-5 rounded-control border border-warning/35 bg-warning/10 px-4 py-3 text-sm leading-5 text-warning" role="status">
-            当前连接使用明文 HTTP。管理员密码和会话 Cookie 可能被同网络中的攻击者截获。
+          <div
+            className="mt-6 rounded-[10px] bg-warning/10 px-3.5 py-3 text-left text-[12px] leading-5 text-warning"
+            role="status"
+          >
+            当前连接使用明文 HTTP，密码与会话 Cookie 可能被截获。
           </div>
         ) : null}
 
-        <form className="mt-7 space-y-5" onSubmit={(event) => void submit(event)}>
+        <form className="mt-7 space-y-3" onSubmit={(event) => void submit(event)}>
           {setup ? (
-            <label className="block">
-              <span className="text-sm font-medium">Setup Token</span>
-              <input
-                className="focus-ring mt-2 h-11 w-full rounded-control border border-subtle bg-surface px-3 font-mono text-sm"
-                type="text"
-                value={setupToken}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(event) => setSetupToken(event.target.value.trim())}
-              />
-            </label>
+            <input
+              className={authControlClass}
+              type="text"
+              value={setupToken}
+              placeholder="Setup Token"
+              aria-label="Setup Token"
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(event) => setSetupToken(event.target.value.trim())}
+            />
           ) : null}
+
           <PasswordField
             label="管理员密码"
+            placeholder={setup ? "密码" : "密码"}
             value={password}
             visible={visible}
             autoComplete={setup ? "new-password" : "current-password"}
             onChange={setPassword}
             onToggle={() => setVisible((current) => !current)}
           />
+
           {setup ? (
             <PasswordField
               label="确认密码"
+              placeholder="确认密码"
               value={confirmation}
               visible={visible}
               autoComplete="new-password"
@@ -98,20 +97,21 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
           ) : null}
 
           {mismatch ? (
-            <p className="text-sm text-danger" role="alert">
+            <p className="text-[12px] text-danger" role="alert">
               两次输入的密码不一致。
             </p>
           ) : null}
           {error ? (
-            <p className="text-sm text-danger" role="alert">
+            <p className="text-[12px] text-danger" role="alert">
               {getAdminAuthErrorMessage(error)}
             </p>
           ) : null}
 
           <Button
-            className="w-full"
+            className="mt-1 h-9 w-full rounded-[10px] text-[14px]"
             type="submit"
             variant="primary"
+            size="lg"
             disabled={
               auth.submitting ||
               mismatch ||
@@ -119,17 +119,18 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
               (setup && setupToken.length === 0)
             }
           >
-            {auth.submitting ? <LoaderCircle size={16} className="animate-spin" /> : null}
+            {auth.submitting ? <LoaderCircle size={15} className="animate-spin" /> : null}
             {setup ? "创建管理员" : "登录"}
           </Button>
         </form>
-      </Surface>
+      </section>
     </AuthCanvas>
   );
 }
 
 function PasswordField({
   label,
+  placeholder,
   value,
   visible,
   autoComplete,
@@ -137,6 +138,7 @@ function PasswordField({
   onToggle,
 }: {
   label: string;
+  placeholder: string;
   value: string;
   visible: boolean;
   autoComplete: string;
@@ -144,32 +146,34 @@ function PasswordField({
   onToggle: () => void;
 }) {
   return (
-    <label className="block">
-      <span className="text-sm font-medium">{label}</span>
-      <span className="mt-2 flex rounded-control border border-subtle bg-surface focus-within:ring-2 focus-within:ring-accent">
-        <input
-          className="h-11 min-w-0 flex-1 rounded-l-control bg-transparent px-3 outline-none"
-          type={visible ? "text" : "password"}
-          value={value}
-          autoComplete={autoComplete}
-          onChange={(event) => onChange(event.target.value)}
-        />
-        <button
-          type="button"
-          className="grid size-11 place-items-center rounded-r-control text-secondary hover:bg-surface-hover hover:text-primary"
-          aria-label={visible ? "隐藏密码" : "显示密码"}
-          onClick={onToggle}
-        >
-          {visible ? <EyeOff size={17} /> : <Eye size={17} />}
-        </button>
-      </span>
-    </label>
+    <span className="relative block">
+      <input
+        className={cn(authControlClass, "pr-11")}
+        type={visible ? "text" : "password"}
+        value={value}
+        placeholder={placeholder}
+        aria-label={label}
+        autoComplete={autoComplete}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <button
+        type="button"
+        className="absolute inset-y-0 right-0 grid w-11 place-items-center text-tertiary transition-colors hover:text-primary"
+        aria-label={visible ? "隐藏密码" : "显示密码"}
+        onClick={onToggle}
+      >
+        {visible ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />}
+      </button>
+    </span>
   );
 }
 
-export function AuthCanvas({ children }: { children: import("react").ReactNode }) {
+const authControlClass =
+  "focus-ring h-10 w-full rounded-[10px] border-0 bg-surface-muted px-3 text-[14px] text-primary outline-none placeholder:text-tertiary";
+
+export function AuthCanvas({ children }: { children: ReactNode }) {
   return (
-    <main className="grid min-h-dvh place-items-center bg-canvas px-4 py-10 text-primary">
+    <main className="auth-canvas relative grid min-h-dvh place-items-center px-4 py-10 text-primary">
       {children}
     </main>
   );

@@ -55,14 +55,14 @@ export function SettingsManagement({
   if (query.isPending && !query.data) {
     return (
       <div className="flex min-h-56 items-center justify-center text-sm text-secondary" aria-busy="true">
-        正在读取设置
+        正在读取系统设置
       </div>
     );
   }
   if (!query.data) {
     return (
       <Surface className="p-6" role="alert">
-        <p className="font-semibold">无法读取设置</p>
+        <p className="font-semibold">无法读取系统设置</p>
         <p className="mt-2 text-sm text-secondary">{getSettingsErrorMessage(query.error)}</p>
         <Button className="mt-5" onClick={() => void query.refetch()} disabled={query.isFetching}>
           <RefreshCw size={14} />
@@ -108,7 +108,7 @@ export function SettingsManagement({
       ) : null}
 
       {sections.length === 0 ? (
-        <p className="py-10 text-center text-sm text-secondary">没有可显示的设置项</p>
+        <p className="py-10 text-center text-sm text-secondary">没有可显示的系统设置项</p>
       ) : (
         <div className="space-y-6">
           {sections.map((section) => (

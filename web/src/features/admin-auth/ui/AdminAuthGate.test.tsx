@@ -33,7 +33,7 @@ test("local first run completes setup and enters the protected application", asy
     </AppProviders>,
   );
 
-  expect(await screen.findByRole("heading", { name: "初始化管理员" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Setup Token"), {
     target: { value: "setup-token" },
   });
@@ -98,7 +98,7 @@ test("remote HTTP login warns before the password is submitted", async () => {
     </AppProviders>,
   );
 
-  expect(await screen.findByRole("heading", { name: "管理员登录" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
   expect(screen.getByText(/当前连接使用明文 HTTP/)).toBeInTheDocument();
 });
 
@@ -122,7 +122,7 @@ test("session expiry immediately closes the protected view", async () => {
 
   authenticated = false;
   window.dispatchEvent(new Event(ADMIN_SESSION_EXPIRED_EVENT));
-  expect(await screen.findByRole("heading", { name: "管理员登录" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
   expect(screen.queryByText("protected console")).not.toBeInTheDocument();
 });
 

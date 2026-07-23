@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/Button";
+import { IconButton } from "@/shared/ui/IconButton";
 
 /** Keep in sync with `.side-drawer-panel` / `.side-drawer-scrim` transition duration. */
 const EXIT_DURATION_MS = 200;
@@ -36,6 +36,7 @@ export function SideDrawer({
   const descriptionId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const openRef = useRef(open);
 
   const [view, setView] = useState<DrawerView>({ title, description, children, wide });
   const [mounted, setMounted] = useState(open);
@@ -45,6 +46,8 @@ export function SideDrawer({
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  openRef.current = open;
 
   // Adjust local state when the controlled `open` prop changes (React-supported pattern).
   // While closing (`open === false` but still mounted), freeze the last open view so parent
@@ -77,6 +80,9 @@ export function SideDrawer({
     }
 
     const frame = window.requestAnimationFrame(() => {
+      if (!openRef.current) {
+        return;
+      }
       setVisible(true);
       panelRef.current?.focus({ preventScroll: true });
     });
@@ -165,14 +171,13 @@ export function SideDrawer({
               </p>
             ) : null}
           </div>
-          <Button
-            variant="ghost"
-            className="size-8 shrink-0 px-0"
+          <IconButton
+            label="关闭"
+            className="shrink-0"
             onClick={() => onCloseRef.current()}
-            aria-label="关闭"
           >
-            <X size={17} />
-          </Button>
+            <X size={16} strokeWidth={1.75} />
+          </IconButton>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">{view.children}</div>
       </div>
