@@ -1,10 +1,12 @@
 # ADR-0001: ProviderEndpoint 的结构化 URL 与显式网络授权
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0029
 - 日期：2026-07-18
 - 决策者：maintainer
 
 ## 背景
+
+本 ADR 记录了最初的显式网络授权方案。管理员填写的 Base URL 改为直接决定访问目标，HTTP/内网授权字段已由 ADR-0029 移除；以下内容仅保留为历史决策记录。
 
 参考项目通常把 Provider 地址保存为自由字符串，并在请求阶段直接拼接路径。这样会把 query/fragment、userinfo、重定向和私网访问边界推迟到网络执行，容易造成凭据外送和 SSRF。any2api 需要允许个人部署自托管 Provider，同时默认保持公网 HTTPS 的安全基线。
 

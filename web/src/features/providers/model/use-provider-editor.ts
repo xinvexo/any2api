@@ -11,8 +11,6 @@ export interface ProviderEditorDraft {
   name: string;
   providerKind: ProviderKind;
   baseUrl: string;
-  allowInsecureHttp: boolean;
-  allowPrivateNetwork: boolean;
   enabled: boolean;
 }
 
@@ -62,8 +60,6 @@ export function useProviderEditor(
       providerKind: draft.providerKind,
       baseUrl: draft.baseUrl,
       protocolDialect: dialectFor(draft.providerKind),
-      allowInsecureHttp: draft.allowInsecureHttp,
-      allowPrivateNetwork: draft.allowPrivateNetwork,
       enabled: draft.enabled,
     };
   }
@@ -84,8 +80,6 @@ function initialDraft(
     name: endpoint?.name ?? "",
     providerKind: kind,
     baseUrl: endpoint?.baseUrl ?? defaultBaseUrl(kind),
-    allowInsecureHttp: endpoint?.allowInsecureHttp ?? false,
-    allowPrivateNetwork: endpoint?.allowPrivateNetwork ?? false,
     enabled: endpoint?.enabled ?? true,
   };
 }

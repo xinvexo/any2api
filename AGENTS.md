@@ -52,7 +52,8 @@
 - 全局代理也是 DIRECT：最终本机直连。
 - 专属代理失败必须 Fail-Closed，禁止悄悄回退全局代理或本机直连。
 - SOCKS5 默认使用远端 DNS；严格 SSRF 模式下禁止远端 DNS。
-- Provider URL 默认只允许公网 HTTPS；普通 HTTP 和内网地址必须按 Endpoint 分别显式授权。
+- Provider Base URL 只要求是结构合法的 HTTP(S) 地址；管理员填写的 URL 是受信任目标，不再提供或持久化普通 HTTP/内网地址授权开关。
+- DIRECT 与严格本地 DNS 模式可以解析并固定目标地址，但不得按公网/私网地址类别拒绝管理员配置的 Endpoint。
 
 ## 6. 调度、粘性与流式不变量
 
@@ -120,7 +121,7 @@
 - 远程管理默认关闭；启用后必须使用独立单管理员认证，允许 HTTP 或 HTTPS，TLS 推荐但不强制。
 - 明文 HTTP 是受支持配置，不能在实现中强制跳转 HTTPS 或拒绝管理请求；Web 必须明确提示密码、Cookie 和 OAuth2 JSON 的明文传输风险。
 - `GatewayApiKey` 不能登录管理面。
-- 所有自定义 URL 必须经过结构化解析、SSRF 检查和重定向限制。
+- 所有自定义 URL 必须经过结构化解析并禁用自动重定向；客户端输入不得改变已发布 Provider Endpoint 的 authority，Provider Base URL 不按公网/私网地址类别设门禁。
 
 ## 11. 工程与验证要求
 

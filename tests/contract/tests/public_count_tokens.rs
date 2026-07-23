@@ -147,8 +147,6 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
             "provider_kind": "claude",
             "base_url": format!("http://{upstream_address}/v1"),
             "protocol_dialect": "anthropic_messages",
-            "allow_insecure_http": true,
-            "allow_private_network": true,
             "enabled": true
         })),
         remote,

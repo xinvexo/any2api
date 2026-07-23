@@ -1,7 +1,5 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
 use thiserror::Error;
-use url::{Host, Url};
+use url::Url;
 
 const MAX_PROVIDER_BASE_URL_CHARS: usize = 2_048;
 
@@ -11,11 +9,7 @@ pub struct ProviderBaseUrl {
 }
 
 impl ProviderBaseUrl {
-    pub fn parse(
-        input: impl Into<String>,
-        allow_insecure_http: bool,
-        allow_private_network: bool,
-    ) -> Result<Self, ProviderUrlValidationError> {
+    pub fn parse(input: impl Into<String>) -> Result<Self, ProviderUrlValidationError> {
         let input = input.into();
         if input.is_empty() || input.trim() != input {
             return Err(ProviderUrlValidationError::NotTrimmed);
@@ -29,9 +23,7 @@ impl ProviderBaseUrl {
 
         let mut url = Url::parse(&input).map_err(|_| ProviderUrlValidationError::Malformed)?;
         match url.scheme() {
-            "https" => {}
-            "http" if allow_insecure_http => {}
-            "http" => return Err(ProviderUrlValidationError::InsecureHttpNotAllowed),
+            "http" | "https" => {}
             _ => return Err(ProviderUrlValidationError::UnsupportedScheme),
         }
         if url.host_str().is_none() {
@@ -52,10 +44,6 @@ impl ProviderBaseUrl {
         if has_path_traversal(&url) {
             return Err(ProviderUrlValidationError::PathTraversalNotAllowed);
         }
-        if !allow_private_network && requires_private_authorization(&url) {
-            return Err(ProviderUrlValidationError::PrivateNetworkNotAllowed);
-        }
-
         let path = url.path().trim_end_matches('/').to_owned();
         url.set_path(if path.is_empty() { "/" } else { &path });
         let mut value = url.to_string();
@@ -110,10 +98,6 @@ pub enum ProviderUrlValidationError {
     InvalidPort,
     #[error("provider base URL contains a traversal path segment")]
     PathTraversalNotAllowed,
-    #[error("plain HTTP requires explicit endpoint authorization")]
-    InsecureHttpNotAllowed,
-    #[error("private or local provider addresses require explicit endpoint authorization")]
-    PrivateNetworkNotAllowed,
 }
 
 fn has_path_traversal(url: &Url) -> bool {
@@ -137,73 +121,12 @@ fn has_segment_traversal(path: &str) -> bool {
         || path.to_ascii_lowercase().contains("%2e")
 }
 
-fn requires_private_authorization(url: &Url) -> bool {
-    match url.host() {
-        Some(Host::Ipv4(address)) => !is_public_network_address(IpAddr::V4(address)),
-        Some(Host::Ipv6(address)) => !is_public_network_address(IpAddr::V6(address)),
-        Some(Host::Domain(domain)) => is_local_domain(domain),
-        None => true,
-    }
-}
-
-#[must_use]
-pub fn is_public_network_address(address: IpAddr) -> bool {
-    match address {
-        IpAddr::V4(address) => is_public_ipv4(address),
-        IpAddr::V6(address) => is_public_ipv6(address),
-    }
-}
-
-fn is_local_domain(domain: &str) -> bool {
-    let domain = domain.trim_end_matches('.').to_ascii_lowercase();
-    domain == "localhost"
-        || domain.ends_with(".localhost")
-        || domain.ends_with(".local")
-        || domain.ends_with(".internal")
-        || domain.ends_with(".home.arpa")
-        || matches!(
-            domain.as_str(),
-            "metadata.azure.com" | "metadata.google.com" | "metadata.google.internal"
-        )
-        || !domain.contains('.')
-}
-
-fn is_public_ipv4(address: Ipv4Addr) -> bool {
-    let [first, second, third, _] = address.octets();
-    !(first == 0
-        || first == 10
-        || first == 127
-        || (first == 100 && (64..=127).contains(&second))
-        || (first == 169 && second == 254)
-        || (first == 172 && (16..=31).contains(&second))
-        || (first == 192 && second == 0 && third == 0)
-        || (first == 192 && second == 0 && third == 2)
-        || (first == 192 && second == 168)
-        || (first == 198 && second == 18)
-        || (first == 198 && second == 19)
-        || (first == 198 && second == 51 && third == 100)
-        || (first == 203 && second == 0 && third == 113)
-        || first >= 224)
-}
-
-fn is_public_ipv6(address: Ipv6Addr) -> bool {
-    let segments = address.segments();
-    let first = segments[0];
-    !(address.is_unspecified()
-        || address.is_loopback()
-        || (first & 0xffc0) == 0xfe80
-        || (first & 0xfe00) == 0xfc00
-        || (first & 0xff00) == 0xff00
-        || (segments[0] == 0x2001 && segments[1] == 0x0db8)
-        || address.to_ipv4().is_some_and(|ipv4| !is_public_ipv4(ipv4)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::{ProviderBaseUrl, ProviderUrlValidationError};
 
     fn parse(value: &str) -> Result<ProviderBaseUrl, ProviderUrlValidationError> {
-        ProviderBaseUrl::parse(value, false, false)
+        ProviderBaseUrl::parse(value)
     }
 
     #[test]
@@ -234,29 +157,15 @@ mod tests {
             Err(ProviderUrlValidationError::QueryNotAllowed)
         );
         assert_eq!(
-            parse("https://127.0.0.1"),
-            Err(ProviderUrlValidationError::PrivateNetworkNotAllowed)
-        );
-        assert_eq!(
             parse("https://provider.example/api/../admin"),
             Err(ProviderUrlValidationError::PathTraversalNotAllowed)
-        );
-        assert_eq!(
-            parse("https://metadata.google.internal"),
-            Err(ProviderUrlValidationError::PrivateNetworkNotAllowed)
         );
     }
 
     #[test]
-    fn separate_flags_are_required_for_http_private_endpoint() {
-        assert_eq!(
-            ProviderBaseUrl::parse("http://127.0.0.1:8080", true, false),
-            Err(ProviderUrlValidationError::PrivateNetworkNotAllowed)
-        );
-        assert_eq!(
-            ProviderBaseUrl::parse("http://127.0.0.1:8080", false, true),
-            Err(ProviderUrlValidationError::InsecureHttpNotAllowed)
-        );
-        assert!(ProviderBaseUrl::parse("http://127.0.0.1:8080", true, true).is_ok());
+    fn accepts_http_and_private_targets_without_extra_authorization() {
+        assert!(ProviderBaseUrl::parse("http://127.0.0.1:8080").is_ok());
+        assert!(ProviderBaseUrl::parse("https://192.168.1.10/v1").is_ok());
+        assert!(ProviderBaseUrl::parse("http://provider.internal/v1").is_ok());
     }
 }

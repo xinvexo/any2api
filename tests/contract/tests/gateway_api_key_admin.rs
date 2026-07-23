@@ -219,8 +219,6 @@ async fn models_list_reflects_credential_model_selection() {
             "provider_kind": "codex",
             "base_url": "https://api.example.com",
             "protocol_dialect": "openai_responses",
-            "allow_insecure_http": false,
-            "allow_private_network": false,
             "enabled": true
         })),
         loopback,

@@ -9,7 +9,6 @@ import type {
 import { providerKindLabel } from "../model/provider-kind-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderEditor } from "../model/use-provider-editor";
-import { ProviderSecurityOptions } from "./ProviderSecurityOptions";
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
 import { Field, FormError } from "@/shared/ui/form-field";
@@ -124,12 +123,6 @@ export function ProviderEndpointEditor({
           onChange={(event) => editor.update("baseUrl", event.target.value)}
         />
       </Field>
-
-      <ProviderSecurityOptions
-        draft={editor.draft}
-        pending={pending || sourceConflict !== null}
-        onChange={(field, value) => editor.update(field, value)}
-      />
 
       <div className="flex items-center justify-between gap-4">
         <p id="provider-enabled-label" className="text-[13px] font-medium">

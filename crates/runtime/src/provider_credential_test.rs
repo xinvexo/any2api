@@ -82,7 +82,7 @@ impl ProviderCredentialTestService {
                 .map_err(|_| ProviderCredentialTestError::InvalidEndpointUri)?,
             headers: credential_headers.headers,
             body: Bytes::new(),
-            network_policy: EndpointNetworkPolicy::new(endpoint.allow_private_network())
+            network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
             read_timeout: Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
         };

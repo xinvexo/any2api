@@ -15,8 +15,6 @@ struct ProviderEndpointRow {
     provider_kind: String,
     base_url: String,
     protocol_dialect: String,
-    allow_insecure_http: i64,
-    allow_private_network: i64,
     enabled: i64,
     config_version: i64,
 }
@@ -26,7 +24,7 @@ pub(crate) async fn load_provider_endpoints_from(
 ) -> Result<ProviderEndpointConfiguration, StorageError> {
     let rows = sqlx::query_as::<_, ProviderEndpointRow>(
         "SELECT id, name, provider_kind, base_url, protocol_dialect, \
-         allow_insecure_http, allow_private_network, enabled, config_version \
+         enabled, config_version \
          FROM provider_endpoints ORDER BY provider_kind ASC, name ASC",
     )
     .fetch_all(connection)
@@ -56,9 +54,8 @@ async fn insert(
 ) -> Result<(), StorageError> {
     sqlx::query(
         "INSERT INTO provider_endpoints \
-         (id, name, name_key, provider_kind, base_url, protocol_dialect, \
-          allow_insecure_http, allow_private_network, enabled, config_version) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (id, name, name_key, provider_kind, base_url, protocol_dialect, enabled, config_version) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(endpoint.id().to_string())
     .bind(endpoint.name())
@@ -66,8 +63,6 @@ async fn insert(
     .bind(provider_kind_text(endpoint.provider_kind()))
     .bind(endpoint.base_url().as_str())
     .bind(protocol_dialect_text(endpoint.protocol_dialect()))
-    .bind(endpoint.allow_insecure_http())
-    .bind(endpoint.allow_private_network())
     .bind(endpoint.enabled())
     .bind(i64::try_from(endpoint.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
     .execute(connection)
@@ -81,16 +76,14 @@ async fn update(
 ) -> Result<(), StorageError> {
     let result = sqlx::query(
         "UPDATE provider_endpoints SET name = ?, name_key = ?, provider_kind = ?, base_url = ?, \
-         protocol_dialect = ?, allow_insecure_http = ?, allow_private_network = ?, enabled = ?, \
-         config_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+         protocol_dialect = ?, enabled = ?, config_version = ?, updated_at = CURRENT_TIMESTAMP \
+         WHERE id = ?",
     )
     .bind(endpoint.name())
     .bind(endpoint.name_key())
     .bind(provider_kind_text(endpoint.provider_kind()))
     .bind(endpoint.base_url().as_str())
     .bind(protocol_dialect_text(endpoint.protocol_dialect()))
-    .bind(endpoint.allow_insecure_http())
-    .bind(endpoint.allow_private_network())
     .bind(endpoint.enabled())
     .bind(i64::try_from(endpoint.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
     .bind(endpoint.id().to_string())
@@ -128,8 +121,6 @@ fn parse_endpoint(row: ProviderEndpointRow) -> Result<ProviderEndpoint, StorageE
         provider_kind,
         row.base_url,
         protocol_dialect,
-        row.allow_insecure_http == 1,
-        row.allow_private_network == 1,
         row.enabled == 1,
     )
     .map_err(|_| StorageError::CorruptConfiguration)?;

@@ -47,8 +47,6 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
-                false,
-                false,
                 true,
             )
             .expect("endpoint draft"),

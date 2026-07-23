@@ -844,8 +844,6 @@ async fn create_endpoint(
             "provider_kind":provider_kind,
             "base_url":base_url,
             "protocol_dialect":dialect,
-            "allow_insecure_http":true,
-            "allow_private_network":true,
             "enabled":true
         }),
         remote,

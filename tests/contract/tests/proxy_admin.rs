@@ -264,8 +264,6 @@ async fn proxy_authentication_is_redacted_and_used_by_the_admin_probe() {
             "provider_kind": "codex",
             "base_url": "http://upstream.invalid/v1",
             "protocol_dialect": "openai_responses",
-            "allow_insecure_http": true,
-            "allow_private_network": false,
             "enabled": true
         })),
         loopback,

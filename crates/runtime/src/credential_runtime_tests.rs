@@ -306,8 +306,6 @@ impl CredentialFixture {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
-                false,
-                false,
                 true,
             )
             .expect("endpoint draft"),

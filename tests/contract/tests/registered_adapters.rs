@@ -351,5 +351,5 @@ fn assert_common_capabilities(driver: &dyn ProviderDriver) {
 }
 
 fn provider_base_url() -> ProviderBaseUrl {
-    ProviderBaseUrl::parse("https://api.example.com/v1", false, false).expect("provider base URL")
+    ProviderBaseUrl::parse("https://api.example.com/v1").expect("provider base URL")
 }

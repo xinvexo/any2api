@@ -136,10 +136,9 @@ async fn unsafe_database_rows_fail_configuration_loading() {
         .expect("store");
     sqlx::query(
         "INSERT INTO provider_endpoints \
-         (id, name, name_key, provider_kind, base_url, protocol_dialect, \
-          allow_insecure_http, allow_private_network, enabled, config_version) \
-         VALUES (?, 'Unsafe', 'unsafe', 'codex', 'http://127.0.0.1:8080', \
-                 'openai_responses', 0, 0, 1, 1)",
+         (id, name, name_key, provider_kind, base_url, protocol_dialect, enabled, config_version) \
+         VALUES (?, 'Unsafe', 'unsafe', 'codex', 'ftp://provider.example.com', \
+                 'openai_responses', 1, 1)",
     )
     .bind(ProviderEndpointId::new().to_string())
     .execute(store.pool())
@@ -159,8 +158,6 @@ fn codex_draft(base_url: &str) -> ProviderEndpointDraft {
         ProviderKind::Codex,
         base_url,
         ProtocolDialect::OpenAiResponses,
-        false,
-        false,
         true,
     )
     .expect("endpoint draft")

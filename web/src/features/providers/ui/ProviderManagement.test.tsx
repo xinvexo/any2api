@@ -46,7 +46,7 @@ test("expands endpoint accordion to show nested API keys on the same page", asyn
   );
 });
 
-test("creates a Claude private HTTP endpoint with separate authorizations", async () => {
+test("creates a Claude private HTTP endpoint directly from the Base URL", async () => {
   let current = configuration(1, []);
   const fetchMock = mockAdminApis(
     () => current,
@@ -59,8 +59,6 @@ test("creates a Claude private HTTP endpoint with separate authorizations", asyn
             provider_kind: "claude",
             base_url: "http://127.0.0.1:8080",
             protocol_dialect: "anthropic_messages",
-            allow_insecure_http: true,
-            allow_private_network: true,
           }),
         ]);
         return jsonResponse(current);
@@ -73,8 +71,8 @@ test("creates a Claude private HTTP endpoint with separate authorizations", asyn
 
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "本地 Claude" } });
   fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "http://127.0.0.1:8080" } });
-  fireEvent.click(screen.getByRole("switch", { name: "允许普通 HTTP" }));
-  fireEvent.click(screen.getByRole("switch", { name: "允许内网地址" }));
+  expect(screen.queryByRole("switch", { name: "允许普通 HTTP" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("switch", { name: "允许内网地址" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   expect(await screen.findByText("http://127.0.0.1:8080")).toBeInTheDocument();
@@ -85,8 +83,6 @@ test("creates a Claude private HTTP endpoint with separate authorizations", asyn
     provider_kind: "claude",
     base_url: "http://127.0.0.1:8080",
     protocol_dialect: "anthropic_messages",
-    allow_insecure_http: true,
-    allow_private_network: true,
     enabled: true,
   });
 });
@@ -305,8 +301,6 @@ function endpoint(overrides: Record<string, unknown> = {}) {
     provider_kind: "codex",
     base_url: "https://api.example.com/v1",
     protocol_dialect: "openai_responses",
-    allow_insecure_http: false,
-    allow_private_network: false,
     enabled: true,
     config_version: 1,
     ...overrides,

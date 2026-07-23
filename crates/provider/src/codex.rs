@@ -113,8 +113,7 @@ mod tests {
     #[test]
     fn builds_responses_paths_and_bearer_authentication() {
         let driver = CodexDriver::new();
-        let base =
-            ProviderBaseUrl::parse("https://api.example.com/v1", false, false).expect("base URL");
+        let base = ProviderBaseUrl::parse("https://api.example.com/v1").expect("base URL");
         assert_eq!(
             driver
                 .endpoint_plan(&base, ProtocolOperation::ResponsesCompact)

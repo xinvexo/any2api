@@ -24,7 +24,6 @@ export function ProviderEndpointTableRow({
 }: ProviderEndpointTableRowProps) {
   const dialect =
     endpoint.protocolDialect === "openai_responses" ? "Responses" : "Messages";
-  const hasRisk = endpoint.allowInsecureHttp || endpoint.allowPrivateNetwork;
   const panelId = `endpoint-keys-${endpoint.id}`;
 
   return (
@@ -53,7 +52,6 @@ export function ProviderEndpointTableRow({
             <span className="text-[11px] text-tertiary">
               {dialect}
               {endpoint.enabled ? "" : " · 已停用"}
-              {hasRisk ? " · 显式授权" : ""}
             </span>
           </span>
           <span className="mt-0.5 block truncate font-mono text-[11px] text-secondary">

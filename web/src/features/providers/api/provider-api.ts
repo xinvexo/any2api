@@ -47,8 +47,6 @@ function writeProviderEndpoint(
       provider_kind: input.providerKind,
       base_url: input.baseUrl,
       protocol_dialect: input.protocolDialect,
-      allow_insecure_http: input.allowInsecureHttp,
-      allow_private_network: input.allowPrivateNetwork,
       enabled: input.enabled,
     },
   }).then(parseProviderEndpointConfiguration);

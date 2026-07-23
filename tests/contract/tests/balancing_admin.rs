@@ -67,8 +67,6 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
-                false,
-                false,
                 true,
             )
             .expect("endpoint draft"),

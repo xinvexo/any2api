@@ -10,3 +10,4 @@
 "0009_request_logs.sql" = "3ea02d5602154fe1020313e28227317b2ec5db572e80c035652289a2ac3abedb"
 "0010_proxy_authentication.sql" = "2cf3a5de1bb0569ff21b9e1115c6b063df3c72be9d676f09b2131c7841f76460"
 "0011_provider_credential_models.sql" = "3484a1fd12a5cb84a5a68e341730461d1be1686698d4d17e084a9a3b76105ad0"
+"0012_provider_endpoint_url_authority.sql" = "0edf8149f8dbb6247391958dc43cbb2653f7df5f59a9ec0c5be855f4c4f46e8c"

@@ -32,7 +32,7 @@ async fn provider_endpoint_admin_is_loopback_only() {
 }
 
 #[tokio::test]
-async fn provider_endpoint_crud_enforces_url_policy_and_revision() {
+async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves_revision() {
     let (_directory, app, storage) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
 
@@ -48,6 +48,24 @@ async fn provider_endpoint_crud_enforces_url_policy_and_revision() {
     assert_eq!(initial["config_revision"], 1);
     assert_eq!(initial["items"].as_array().map(Vec::len), Some(0));
 
+    let (status, _) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Legacy Flags",
+            "provider_kind": "codex",
+            "base_url": "http://127.0.0.1:8080/v1",
+            "protocol_dialect": "openai_responses",
+            "allow_private_network": true,
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
     let (status, created) = request_json(
         app.clone(),
         Method::POST,
@@ -58,8 +76,6 @@ async fn provider_endpoint_crud_enforces_url_policy_and_revision() {
             "provider_kind": "codex",
             "base_url": "https://api.example.com/v1/",
             "protocol_dialect": "openai_responses",
-            "allow_insecure_http": false,
-            "allow_private_network": false,
             "enabled": true
         })),
         loopback,
@@ -71,8 +87,11 @@ async fn provider_endpoint_crud_enforces_url_policy_and_revision() {
         created["items"][0]["base_url"],
         "https://api.example.com/v1"
     );
+    let created_endpoint = created["items"][0].as_object().expect("created endpoint");
+    assert!(!created_endpoint.contains_key("allow_insecure_http"));
+    assert!(!created_endpoint.contains_key("allow_private_network"));
 
-    let (status, http_denied) = request_json(
+    let (status, http_allowed) = request_json(
         app.clone(),
         Method::POST,
         "/api/admin/provider-endpoints",
@@ -82,56 +101,50 @@ async fn provider_endpoint_crud_enforces_url_policy_and_revision() {
             "provider_kind": "codex",
             "base_url": "http://api.example.com",
             "protocol_dialect": "openai_responses",
-            "allow_insecure_http": false,
-            "allow_private_network": false,
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(http_denied["error"]["code"], "invalid_provider_endpoint");
-
-    let (status, private_denied) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 2,
-            "name": "Private",
-            "provider_kind": "claude",
-            "base_url": "https://127.0.0.1:8443",
-            "protocol_dialect": "anthropic_messages",
-            "allow_insecure_http": false,
-            "allow_private_network": false,
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(private_denied["error"]["code"], "invalid_provider_endpoint");
-
-    let (status, private_allowed) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 2,
-            "name": "Private HTTP",
-            "provider_kind": "claude",
-            "base_url": "http://127.0.0.1:8443",
-            "protocol_dialect": "anthropic_messages",
-            "allow_insecure_http": true,
-            "allow_private_network": true,
             "enabled": true
         })),
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(private_allowed["config_revision"], 3);
-    let private_id = private_allowed["items"]
+    assert_eq!(http_allowed["config_revision"], 3);
+
+    let (status, private_allowed) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 3,
+            "name": "Private",
+            "provider_kind": "claude",
+            "base_url": "https://127.0.0.1:8443",
+            "protocol_dialect": "anthropic_messages",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(private_allowed["config_revision"], 4);
+
+    let (status, private_http_allowed) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 4,
+            "name": "Private HTTP",
+            "provider_kind": "claude",
+            "base_url": "http://127.0.0.1:8443",
+            "protocol_dialect": "anthropic_messages",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(private_http_allowed["config_revision"], 5);
+    let private_id = private_http_allowed["items"]
         .as_array()
         .expect("items")
         .iter()
@@ -145,14 +158,12 @@ async fn provider_endpoint_crud_enforces_url_policy_and_revision() {
         Method::PATCH,
         &format!("/api/admin/provider-endpoints/{private_id}"),
         Some(json!({
-            "expected_revision": 3,
+            "expected_revision": 5,
             "expected_config_version": 1,
             "name": "Private HTTP",
             "provider_kind": "claude",
             "base_url": "http://127.0.0.1:8443",
             "protocol_dialect": "openai_responses",
-            "allow_insecure_http": true,
-            "allow_private_network": true,
             "enabled": true
         })),
         loopback,
@@ -166,35 +177,31 @@ async fn provider_endpoint_crud_enforces_url_policy_and_revision() {
         Method::PATCH,
         &format!("/api/admin/provider-endpoints/{private_id}"),
         Some(json!({
-            "expected_revision": 3,
+            "expected_revision": 5,
             "expected_config_version": 1,
             "name": "Private HTTP Updated",
             "provider_kind": "claude",
             "base_url": "http://127.0.0.1:8443",
             "protocol_dialect": "anthropic_messages",
-            "allow_insecure_http": true,
-            "allow_private_network": true,
             "enabled": true
         })),
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(updated["config_revision"], 4);
+    assert_eq!(updated["config_revision"], 6);
 
     let (status, endpoint_stale) = request_json(
         app.clone(),
         Method::PATCH,
         &format!("/api/admin/provider-endpoints/{private_id}"),
         Some(json!({
-            "expected_revision": 4,
+            "expected_revision": 6,
             "expected_config_version": 1,
             "name": "Stale Draft",
             "provider_kind": "claude",
             "base_url": "http://127.0.0.1:8443",
             "protocol_dialect": "anthropic_messages",
-            "allow_insecure_http": true,
-            "allow_private_network": true,
             "enabled": true
         })),
         loopback,
@@ -220,18 +227,18 @@ async fn provider_endpoint_crud_enforces_url_policy_and_revision() {
     let (status, deleted) = request_json(
         app,
         Method::DELETE,
-        &format!("/api/admin/provider-endpoints/{private_id}?expected_revision=4"),
+        &format!("/api/admin/provider-endpoints/{private_id}?expected_revision=6"),
         None,
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(deleted["config_revision"], 5);
-    assert_eq!(deleted["items"].as_array().map(Vec::len), Some(1));
+    assert_eq!(deleted["config_revision"], 7);
+    assert_eq!(deleted["items"].as_array().map(Vec::len), Some(3));
 
     let stored = storage.load_configuration().await.expect("configuration");
-    assert_eq!(stored.revision().get(), 5);
-    assert_eq!(stored.provider_endpoints().endpoints().len(), 1);
+    assert_eq!(stored.revision().get(), 7);
+    assert_eq!(stored.provider_endpoints().endpoints().len(), 3);
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {

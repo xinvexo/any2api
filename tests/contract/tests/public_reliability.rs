@@ -677,8 +677,6 @@ async fn harness_for_protocol(
                     provider_kind,
                     format!("https://upstream-{index}.example.com/v1"),
                     protocol_dialect,
-                    false,
-                    false,
                     true,
                 )
                 .expect("endpoint draft"),

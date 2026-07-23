@@ -55,8 +55,6 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
                 ProviderKind::Codex,
                 "https://api.example.com/v1",
                 ProtocolDialect::OpenAiResponses,
-                false,
-                false,
                 true,
             )
             .expect("endpoint draft"),

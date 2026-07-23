@@ -50,12 +50,13 @@
 
 - 新增强类型 `ProviderEndpoint`、`ProviderBaseUrl` 与 `ProviderEndpointConfiguration`；首版只接受 Codex/`openai_responses` 和 Claude/`anthropic_messages` 配对。
 - Base URL 保存为固定 HTTPS/HTTP origin 加可选路径前缀；拒绝 query、fragment、userinfo、非 HTTP(S) scheme、空 host、零端口和路径穿越片段。
-- `allow_insecure_http` 与 `allow_private_network` 按 Endpoint 独立授权，默认均为关闭；字面私网、loopback、link-local、metadata 和本地命名空间在未授权时拒绝。
+- ADR-0029 将 Base URL 确认为管理员受信任目标；HTTP、HTTPS、公网、loopback、局域网和容器网络地址直接接受，不再保存 `allow_insecure_http` 或 `allow_private_network`。
 - 新增 SQLite `provider_endpoints` migration、配置仓储 CRUD、全局 revision 冲突保护，并纳入 `PublishedSnapshot` 的原子发布。
+- Migration 0012 删除旧网络授权列；Domain、SQLite、管理 API 与 Web 不保留兼容字段或隐藏默认值。
 - 更新 Endpoint 时额外校验原始 `config_version`；全局 revision 刷新后，旧草稿不能静默覆盖已被其他操作修改的 Endpoint。
 - 新增 loopback-only 管理 API：`GET/POST /api/admin/provider-endpoints`、`PATCH/DELETE /api/admin/provider-endpoints/{id}`。
-- 新增 Provider Web 页面，支持 URL 驱动编辑、风险开关提示、失效 revision 自愈、草稿冲突保护和窄屏布局。
-- 真实浏览器完成桌面与 390px 窄屏验证，覆盖创建 Claude 私网 HTTP Endpoint、两项授权、重启读取、deep link、历史返回、焦点和无水平溢出。
+- 新增 Provider Web 页面，支持 URL 驱动编辑、失效 revision 自愈、草稿冲突保护和窄屏布局；Endpoint 表单只填写 Base URL，不再显示协议或地址类别授权开关。
+- 浏览器与 React 测试覆盖直接创建 Claude 私网 HTTP Endpoint、重启读取、deep link、历史返回、焦点和无水平溢出。
 - 重启验证确认 SQLite revision 与 Endpoint 配置会重新读取，而 `scheduler_epoch` 按约束从 `0` 开始，不恢复旧运行态。
 - 本配置切片当时不进行网络 I/O；DNS 最终地址校验、重定向限制和 Transport 连接绑定已在后续 Proxy Transport 切片完成。
 
@@ -117,7 +118,7 @@
 - Client 按代理 ID/版本/类型与连接超时、TLS/HTTP 策略、池参数和池策略版本组成的完整 key 复用连接池；缓存使用有界 LRU，代理或网络策略热更新产生新 Client 代际，旧请求继续持有旧 Client。
 - 请求 Body 使用 `Bytes`，响应 Body 是异步字节流；`TransportRequest` Debug 不显示 Header 内容或 Body 内容，错误消息不包含代理地址、目标 URL 或认证字段。
 - 连接前错误标记 `DefinitelyNotSent`，等待响应头和读取 Body 的不确定错误标记 `Ambiguous`；失败阶段与健康归因已经拆分为 `Endpoint/Proxy/Unattributed`，无法可靠区分的 CONNECT/SOCKS/目标 TLS 错误不会误开共享 Endpoint 或 Proxy 熔断器。
-- DIRECT 请求会解析并校验全部 DNS A/AAAA 结果，未授权 Endpoint 遇到私网/回环地址时在发送 Provider Key 前拒绝；通过校验后把连接固定到本次已验证地址，同时保留原 Host/SNI。HTTP/SOCKS5 远端 DNS 仍属于显式受信代理边界。
+- DIRECT 请求会解析 DNS A/AAAA 结果并把连接固定到本次地址集合，同时保留原 Host/SNI；管理员配置的公网、私网或回环地址均可访问。HTTP/SOCKS5 远端 DNS 仍属于显式受信代理边界。
 - 模块网络测试覆盖真实 DIRECT、HTTP absolute URI、HTTPS 经 HTTP CONNECT 完成 TLS 隧道、SOCKS5h 远端 DNS、禁重定向、缓存代际、授权头 Debug 脱敏和 fail-closed。
 - 公共 API 契约测试确认目标本机可达时，指定不可用代理仍然失败且目标端口没有收到连接。
 - TransportManager 已装配进公开模型请求入口；代理用户名/密码与管理面代理探测已实现。HTTP/SOCKS5 默认继续使用远端 DNS 受信边界，开启 `upstream.strict_ssrf` 后改用本地解析与固定目标连接。
@@ -134,14 +135,14 @@
 
 ### 严格 SSRF 本地 DNS 切片
 
-- 新增并接受 ADR-0019，明确 DIRECT、HTTP forward、HTTPS CONNECT 与 SOCKS5 的本地/远端 DNS 信任边界、全部 A/AAAA 校验、目标固定、Host/SNI、DNS rebinding 与多地址失败语义。
+- 新增并接受 ADR-0019，明确 DIRECT、HTTP forward、HTTPS CONNECT 与 SOCKS5 的本地/远端 DNS 信任边界、A/AAAA 解析、目标固定、Host/SNI、DNS rebinding 与多地址失败语义；地址类别授权由 ADR-0029 移除。
 - SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。该切片完成时 Registry 共 44 项，后续文件日志与停机设置使当前总数达到 49 项。
-- DIRECT 始终执行本地解析、全部地址校验与 reqwest `resolve_to_addrs` 固定；严格模式关闭时 HTTP/SOCKS5 保持既有受信远端 DNS 行为。
+- DIRECT 始终执行本地解析与 reqwest `resolve_to_addrs` 固定；严格模式关闭时 HTTP/SOCKS5 保持既有受信远端 DNS 行为。
 - 严格模式下，HTTP forward 的 absolute-form authority 使用已验证 IP 并保留原始 Host；HTTPS CONNECT 向代理发送已验证 IP，隧道后继续使用原始 TLS SNI、证书名、HTTP Host 与 HTTP/2 authority。
 - 严格 SOCKS5 使用 IP 地址类型，不发送目标域名；普通 HTTP 与 TLS 仍保留原始应用层 authority。代理自身地址仍是用户显式配置的信任边界。
-- 固定目标 Hyper Client 与既有 reqwest Client 统一进入有界连接池缓存，key 包含代理配置代际、协议和完整已验证地址集合；DNS 结果变化会进入新 Client 代际，旧请求继续持有旧连接。
+- 固定目标 Hyper Client 与既有 reqwest Client 统一进入有界连接池缓存，key 包含代理配置代际、协议和完整解析地址集合；DNS 结果变化会进入新 Client 代际，旧请求继续持有旧连接。
 - 严格 CONNECT/SOCKS 的代理握手错误归 Proxy，隧道建立后的 TLS 错误归 Endpoint；CONNECT 407 归 `ProxyHandshake + Proxy + RejectedBeforeExecution`。专属代理仍 Fail-Closed，不回退全局代理或 DIRECT。
-- Transport 真实网络测试覆盖 HTTP IP authority + Host、SOCKS5 IP target、CONNECT IP + SNI/Host、严格代理认证、407、TLS 归因和未授权私网在连接代理前拒绝；Settings HTTP 契约覆盖默认值、启用与恢复默认。
+- Transport 真实网络测试覆盖 DIRECT 私网访问、HTTP IP authority + Host、SOCKS5 IP target、CONNECT IP + SNI/Host、严格代理认证、407 和 TLS 归因；Settings HTTP 契约覆盖默认值、启用与恢复默认。
 
 ### 公开入口协议错误适配切片
 
@@ -388,7 +389,7 @@
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
 - Credential 模型配置、内部 ModelRoute 物化、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
-- 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析、全部地址校验和固定目标连接。
+- 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析和固定目标连接。Provider Base URL 可直接指向 HTTP(S) 公网或内网目标。
 - 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、request logging、file logging 与 shutdown 共 49 项 SettingRegistry。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。

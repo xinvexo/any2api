@@ -34,8 +34,6 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
             "provider_kind": "codex",
             "base_url": "https://api.example.com",
             "protocol_dialect": "openai_responses",
-            "allow_insecure_http": false,
-            "allow_private_network": false,
             "enabled": true
         })),
         loopback,
@@ -226,8 +224,6 @@ async fn successful_credential_test_clears_generation_auth_error() {
             "provider_kind": "codex",
             "base_url": format!("http://{upstream_address}/v1"),
             "protocol_dialect": "openai_responses",
-            "allow_insecure_http": true,
-            "allow_private_network": true,
             "enabled": true
         })),
         loopback,

@@ -124,8 +124,6 @@ mod tests {
                 provider_kind,
                 "https://api.example.com",
                 dialect,
-                false,
-                false,
                 true,
             )
             .expect("endpoint draft"),

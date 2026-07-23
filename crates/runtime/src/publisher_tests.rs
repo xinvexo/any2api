@@ -141,8 +141,6 @@ async fn provider_endpoint_publish_switches_the_complete_snapshot() {
                 ProviderKind::Codex,
                 "https://api.example.com/v1/",
                 ProtocolDialect::OpenAiResponses,
-                false,
-                false,
                 true,
             )
             .expect("endpoint draft"),
@@ -332,8 +330,6 @@ fn codex_endpoint_draft() -> ProviderEndpointDraft {
         ProviderKind::Codex,
         "https://api.example.com",
         ProtocolDialect::OpenAiResponses,
-        false,
-        false,
         true,
     )
     .expect("endpoint draft")

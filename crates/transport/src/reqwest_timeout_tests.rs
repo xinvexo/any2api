@@ -80,7 +80,7 @@ fn request_to(uri: &str) -> TransportRequest {
         uri: Uri::try_from(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::from_static(b"{}"),
-        network_policy: EndpointNetworkPolicy::new(true),
+        network_policy: EndpointNetworkPolicy::new(),
         read_timeout: Duration::from_secs(15),
     }
 }

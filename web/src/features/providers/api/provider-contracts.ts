@@ -7,8 +7,6 @@ export interface ProviderEndpoint {
   providerKind: ProviderKind;
   baseUrl: string;
   protocolDialect: ProtocolDialect;
-  allowInsecureHttp: boolean;
-  allowPrivateNetwork: boolean;
   enabled: boolean;
   configVersion: number;
 }
@@ -25,8 +23,6 @@ export interface ProviderEndpointWriteInput {
   providerKind: ProviderKind;
   baseUrl: string;
   protocolDialect: ProtocolDialect;
-  allowInsecureHttp: boolean;
-  allowPrivateNetwork: boolean;
   enabled: boolean;
 }
 
@@ -60,8 +56,6 @@ function parseProviderEndpoint(value: unknown): ProviderEndpoint {
     providerKind,
     baseUrl,
     protocolDialect,
-    allowInsecureHttp: readBoolean(value.allow_insecure_http),
-    allowPrivateNetwork: readBoolean(value.allow_private_network),
     enabled: readBoolean(value.enabled),
     configVersion: readPositiveInteger(value.config_version),
   };

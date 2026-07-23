@@ -357,8 +357,6 @@ fn codex_draft(name: &str, base_url: &str) -> ProviderEndpointDraft {
         ProviderKind::Codex,
         base_url,
         ProtocolDialect::OpenAiResponses,
-        false,
-        false,
         true,
     )
     .expect("Codex endpoint draft")
@@ -370,8 +368,6 @@ fn claude_draft(name: &str, base_url: &str) -> ProviderEndpointDraft {
         ProviderKind::Claude,
         base_url,
         ProtocolDialect::AnthropicMessages,
-        false,
-        false,
         true,
     )
     .expect("Claude endpoint draft")

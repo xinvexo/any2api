@@ -2,7 +2,7 @@
 
 > 状态：Draft<br>
 > 版本：1.0<br>
-> 最后更新：2026-07-22<br>
+> 最后更新：2026-07-23<br>
 > 用途：记录当前已经确认的需求、架构约束与后续待完善事项。<br>
 > 实施进度：见 `docs/IMPLEMENTATION_STATUS.md`。
 
@@ -560,8 +560,6 @@ provider_endpoints
 ├─ provider_kind         # codex | claude
 ├─ base_url
 ├─ protocol_dialect
-├─ allow_insecure_http
-├─ allow_private_network
 ├─ enabled
 ├─ config_version
 ├─ created_at
@@ -579,7 +577,7 @@ provider_credential_models
 
 一个 Provider Endpoint 表示一个上游 URL，可以拥有多个 Credential。
 
-`allow_insecure_http` 和 `allow_private_network` 默认均为 `false`，只能在对应 Endpoint 上显式开启。
+`base_url` 是管理员明确配置的受信任目标，只要通过结构化 HTTP(S) URL 校验就可以访问；普通 HTTP、loopback、局域网和其他私有地址不需要额外授权字段。
 
 ### 9.3 Credential
 
@@ -1110,18 +1108,18 @@ trait ProtocolAdapter: Send + Sync {
 - 客户端的 Host、absolute-form URL 和转发头不得改变上游 authority；
 - 默认禁用上游重定向；以后若允许，只允许显式策略并重新执行 SSRF 校验；
 - 跨源重定向永远不转发 ProviderCredential；
-- 默认要求 HTTPS，普通 HTTP 和内网地址必须在 Endpoint 上显式授权。
+- `http` 与 `https` 都可直接保存和访问；管理员填写的 loopback、局域网、容器网络或公网地址按原值使用，不提供额外授权开关。
 
 简单示例：
 
-| Provider URL | 是否 HTTP | 是否内网 | 默认结果 |
-|---|---|---|---|
-| `https://api.openai.com` | 否 | 否 | 允许 |
-| `http://api.example.com` | 是 | 否 | 拒绝，需开启 `allow_insecure_http` |
-| `https://192.168.1.10` | 否 | 是 | 拒绝，需开启 `allow_private_network` |
-| `http://192.168.1.10` | 是 | 是 | 拒绝，两个开关都必须开启 |
+| Provider URL | 结果 |
+|---|---|
+| `https://api.openai.com/v1` | 允许 |
+| `http://api.example.com/v1` | 允许 |
+| `https://192.168.1.10/v1` | 允许 |
+| `http://127.0.0.1:8080/v1` | 允许 |
 
-这两个开关按 Provider Endpoint 独立配置，不是全局关闭安全检查。
+结构化 URL 仍禁止非 HTTP(S) scheme、userinfo、query、fragment、零端口和路径穿越片段。客户端请求头和 absolute-form URL 不能改变已发布 Endpoint 的 authority，Transport 继续禁用自动重定向。
 
 ### 11.8 兼容错误输出
 
@@ -1782,7 +1780,7 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 
 `upstream.read_timeout` 是每次等待响应头或 buffered body 下一 chunk 的空闲时长，成功读取后重置，不是整个请求的总时长。`retry.precommit_total_budget` 仍是 Attempt 外层绝对 deadline；哪个先到期就先结束当前 Attempt。成功 SSE 分别使用 precommit 和 postcommit 设置，非 2xx SSE 错误正文仍按 buffered body 读取，因此使用通用 read timeout。
 
-`upstream.strict_ssrf=false` 时，DIRECT 仍执行本地解析、全部地址校验与目标固定，HTTP/SOCKS5 则把远端 DNS 视为用户配置的代理信任边界。开启后，HTTP forward、HTTPS CONNECT 与 SOCKS5 都使用本地解析结果：所有 A/AAAA 结果先按 Endpoint 的 `allow_private_network` 校验，HTTP CONNECT/SOCKS5 连接固定到已验证 IP，同时保留原始 Host、HTTP/2 authority 与 TLS SNI。完整决策见 `docs/adr/0019-strict-ssrf-local-dns.md`。
+`upstream.strict_ssrf=false` 时，DIRECT 仍执行本地解析与目标固定，HTTP/SOCKS5 则把远端 DNS 视为用户配置的代理信任边界。开启后，HTTP forward、HTTPS CONNECT 与 SOCKS5 都使用本地解析结果并固定到解析所得 IP，同时保留原始 Host、HTTP/2 authority 与 TLS SNI。Endpoint URL 是管理员受信任配置，因此两种模式都不按公网/私网地址类别拒绝解析结果。完整决策见 `docs/adr/0019-strict-ssrf-local-dns.md` 与 `docs/adr/0029-provider-base-url-authority.md`。
 
 #### 日志默认值
 
@@ -1949,8 +1947,8 @@ SecretEnvelope
 - `GatewayApiKey` 只允许从 Header 获取；
 - 默认拒绝 Query String 中携带 `GatewayApiKey`；
 - 请求体和解压后大小均有限制；
-- Provider 自定义 URL 应有 SSRF 策略；
-- 允许访问内网 Provider 必须显式配置；
+- Provider 自定义 URL 必须结构化解析，且只有管理员配置能够决定目标 authority；
+- Provider Base URL 是受信任配置，可直接指向 HTTP(S) 公网、loopback、局域网或容器网络地址；
 - Provider 和代理错误输出必须移除内部 IP、端口和凭据。
 
 管理面默认设置：
@@ -1980,21 +1978,18 @@ SecretEnvelope
 - 明文远程 HTTP 会话响应必须标记风险状态，React 管理壳在整个已登录会话持续显示密码、Cookie 和未来 OAuth2 JSON 可能被截获的警告；该警告不阻止操作；
 - 内建 Rustls HTTPS listener、会话跨重启恢复和通用身份体系不进入本切片；在线管理员密码轮换由后续独立切片定义。
 
-SSRF 最低规则：
+Provider URL 最低规则：
 
-- 默认只允许 `https`；
-- 拒绝 URL userinfo、非 HTTP(S) scheme 和异常端口；
-- 默认拒绝 loopback、link-local、multicast、云 metadata 和私网地址；
-- Endpoint 显式允许内网后，仍校验所有 DNS A/AAAA 结果；
+- 只接受 `http` 与 `https`，拒绝 URL userinfo、query、fragment、异常端口和路径穿越片段；
+- 管理员填写的 URL 是受信任目标，不按 loopback、link-local、私网或公网地址类别拒绝；
 - 默认禁用重定向，避免 DNS rebinding 和跨源认证头泄漏；
 - 客户端请求中的 Host、Forwarded、X-Forwarded-* 不参与上游地址构造。
 
 DNS 信任边界：
 
-- DIRECT 或本地解析模式由 any2api 校验解析结果；
-- SOCKS5h 和由远端 HTTP 代理解析域名的模式无法由本机证明最终目标 IP，用户配置的代理因此被视为显式受信任边界；
-- 管理界面必须提示远端 DNS 会绕过本机的目标 IP 校验；
-- 如果用户启用严格 SSRF 模式，则禁止远端 DNS，必须使用受控本地解析并把连接固定到已验证地址，同时保留正确 Host/SNI。
+- DIRECT 或本地解析模式由 any2api 解析并固定本次连接目标；
+- SOCKS5h 和由远端 HTTP 代理解析域名的模式把 DNS 解析交给用户配置的代理；
+- 如果用户启用严格 SSRF 模式，则禁止远端 DNS，必须使用受控本地解析并把连接固定到解析所得地址，同时保留正确 Host/SNI；该模式不覆盖管理员配置的地址类别。
 - 严格模式已由 `upstream.strict_ssrf` 与 ADR-0019 实现；配置热更新只影响新请求，旧请求继续持有原 PublishedSnapshot 与连接池代际。
 
 ### 17.4 管理员密码在线轮换
@@ -2195,7 +2190,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；Secre
 - 清楚标记热更新设置与需要重启的设置；
 - 管理远程监听、可选 TLS、可信反代、管理员会话和日志保留；
 - 明文 HTTP 远程管理必须显示醒目的安全状态，但不阻止使用；
-- Provider URL 表单分别提供“允许普通 HTTP”和“允许内网地址”开关，并展示风险说明；
+- Provider URL 表单只要求填写 Base URL；合法的 HTTP(S) 公网或内网地址直接保存，不提供额外网络授权开关；
 - 不提供通用配置导入、配置导出或 Secret 导出入口。
 
 ## 20. 部署模型

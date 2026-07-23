@@ -335,7 +335,7 @@ fn request_to(uri: &str) -> TransportRequest {
         uri: Uri::from_str(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::new(),
-        network_policy: EndpointNetworkPolicy::new(true),
+        network_policy: EndpointNetworkPolicy::new(),
         read_timeout: std::time::Duration::from_secs(15),
     }
 }

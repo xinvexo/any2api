@@ -24,7 +24,7 @@ async fn strict_http_proxy_uses_a_pinned_ip_and_preserves_host() {
     let response = manager
         .execute(
             TransportProxy::new(&proxy, None),
-            strict_request_to("http://localhost:43123/v1/test?mode=strict", true),
+            strict_request_to("http://localhost:43123/v1/test?mode=strict"),
         )
         .await
         .expect("strict HTTP proxy response");
@@ -52,7 +52,7 @@ async fn strict_socks5_uses_an_ip_target_and_preserves_host() {
     let response = manager
         .execute(
             TransportProxy::new(&proxy, None),
-            strict_request_to("http://localhost:80/socks", true),
+            strict_request_to("http://localhost:80/socks"),
         )
         .await
         .expect("strict SOCKS response");
@@ -70,36 +70,6 @@ async fn strict_socks5_uses_an_ip_target_and_preserves_host() {
             .expect("captured SOCKS request")
             .to_ascii_lowercase()
             .contains("host: localhost")
-    );
-}
-
-#[tokio::test]
-async fn strict_proxy_rejects_private_dns_before_connecting_to_the_proxy() {
-    let proxy_listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("proxy listener");
-    let proxy_address = proxy_listener.local_addr().expect("proxy address");
-    let manager = ReqwestTransportManager::default();
-    let proxy = plain::network_proxy("HTTP", ProxyKind::Http, proxy_address, true);
-
-    let error = match manager
-        .execute(
-            TransportProxy::new(&proxy, None),
-            strict_request_to("http://localhost:43123/blocked", false),
-        )
-        .await
-    {
-        Ok(_) => panic!("strict private DNS must be rejected"),
-        Err(error) => error,
-    };
-
-    assert_eq!(error.stage, TransportErrorStage::Dns);
-    assert_eq!(error.failure_scope, TransportFailureScope::Endpoint);
-    assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), proxy_listener.accept())
-            .await
-            .is_err()
     );
 }
 
@@ -123,10 +93,10 @@ async fn strict_https_connect_pins_ip_preserves_sni_host_and_proxy_auth() {
     let response = manager
         .execute(
             TransportProxy::new(&proxy, Some(&credentials)),
-            strict_request_to(
-                &format!("https://localhost:{}/strict-tunnel", origin_address.port()),
-                true,
-            ),
+            strict_request_to(&format!(
+                "https://localhost:{}/strict-tunnel",
+                origin_address.port()
+            )),
         )
         .await
         .expect("strict HTTPS response through HTTP proxy");
@@ -160,13 +130,10 @@ async fn strict_connect_attributes_endpoint_tls_failure_to_the_endpoint() {
     let error = match manager
         .execute(
             TransportProxy::new(&proxy, None),
-            strict_request_to(
-                &format!(
-                    "https://localhost:{}/untrusted-certificate",
-                    origin_address.port()
-                ),
-                true,
-            ),
+            strict_request_to(&format!(
+                "https://localhost:{}/untrusted-certificate",
+                origin_address.port()
+            )),
         )
         .await
     {
@@ -193,10 +160,10 @@ async fn strict_connect_407_is_a_rejected_proxy_handshake() {
     let error = match manager
         .execute(
             TransportProxy::new(&proxy, None),
-            strict_request_to(
-                &format!("https://localhost:{}/rejected", origin_address.port()),
-                true,
-            ),
+            strict_request_to(&format!(
+                "https://localhost:{}/rejected",
+                origin_address.port()
+            )),
         )
         .await
     {
@@ -209,13 +176,13 @@ async fn strict_connect_407_is_a_rejected_proxy_handshake() {
     assert_eq!(error.retry_safety, RetrySafety::RejectedBeforeExecution);
 }
 
-fn strict_request_to(uri: &str, allow_private_network: bool) -> TransportRequest {
+fn strict_request_to(uri: &str) -> TransportRequest {
     TransportRequest {
         method: Method::GET,
         uri: Uri::from_str(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::new(),
-        network_policy: EndpointNetworkPolicy::new(allow_private_network).with_strict_ssrf(true),
+        network_policy: EndpointNetworkPolicy::new().with_strict_ssrf(true),
         read_timeout: Duration::from_secs(15),
     }
 }

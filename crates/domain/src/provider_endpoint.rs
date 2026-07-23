@@ -14,8 +14,6 @@ pub struct ProviderEndpointDraft {
     provider_kind: ProviderKind,
     base_url: ProviderBaseUrl,
     protocol_dialect: ProtocolDialect,
-    allow_insecure_http: bool,
-    allow_private_network: bool,
     enabled: bool,
 }
 
@@ -25,21 +23,16 @@ impl ProviderEndpointDraft {
         provider_kind: ProviderKind,
         base_url: impl Into<String>,
         protocol_dialect: ProtocolDialect,
-        allow_insecure_http: bool,
-        allow_private_network: bool,
         enabled: bool,
     ) -> Result<Self, ProviderEndpointValidationError> {
         validate_dialect(provider_kind, protocol_dialect)?;
-        let base_url =
-            ProviderBaseUrl::parse(base_url, allow_insecure_http, allow_private_network)?;
+        let base_url = ProviderBaseUrl::parse(base_url)?;
 
         Ok(Self {
             name: validate_name(name.into())?,
             provider_kind,
             base_url,
             protocol_dialect,
-            allow_insecure_http,
-            allow_private_network,
             enabled,
         })
     }
@@ -65,16 +58,6 @@ impl ProviderEndpointDraft {
     }
 
     #[must_use]
-    pub const fn allow_insecure_http(&self) -> bool {
-        self.allow_insecure_http
-    }
-
-    #[must_use]
-    pub const fn allow_private_network(&self) -> bool {
-        self.allow_private_network
-    }
-
-    #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
     }
@@ -87,8 +70,6 @@ pub struct ProviderEndpoint {
     provider_kind: ProviderKind,
     base_url: ProviderBaseUrl,
     protocol_dialect: ProtocolDialect,
-    allow_insecure_http: bool,
-    allow_private_network: bool,
     enabled: bool,
     config_version: u64,
 }
@@ -153,16 +134,6 @@ impl ProviderEndpoint {
     }
 
     #[must_use]
-    pub const fn allow_insecure_http(&self) -> bool {
-        self.allow_insecure_http
-    }
-
-    #[must_use]
-    pub const fn allow_private_network(&self) -> bool {
-        self.allow_private_network
-    }
-
-    #[must_use]
     pub const fn enabled(&self) -> bool {
         self.enabled
     }
@@ -188,8 +159,6 @@ impl ProviderEndpoint {
             provider_kind: draft.provider_kind,
             base_url: draft.base_url,
             protocol_dialect: draft.protocol_dialect,
-            allow_insecure_http: draft.allow_insecure_http,
-            allow_private_network: draft.allow_private_network,
             enabled: draft.enabled,
             config_version,
         }
@@ -200,8 +169,6 @@ impl ProviderEndpoint {
             && self.provider_kind == draft.provider_kind
             && self.base_url == draft.base_url
             && self.protocol_dialect == draft.protocol_dialect
-            && self.allow_insecure_http == draft.allow_insecure_http
-            && self.allow_private_network == draft.allow_private_network
             && self.enabled == draft.enabled
     }
 }
@@ -266,8 +233,6 @@ mod tests {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
-                false,
-                false,
                 true
             )
             .is_ok()
@@ -278,8 +243,6 @@ mod tests {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::AnthropicMessages,
-                false,
-                false,
                 true
             )
             .expect_err("cross protocol endpoint must fail"),

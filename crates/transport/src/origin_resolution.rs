@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use any2api_domain::{ProxyKind, RetrySafety, is_public_network_address};
+use any2api_domain::{ProxyKind, RetrySafety};
 use http::Uri;
 use tokio::net::lookup_host;
 
@@ -53,7 +53,6 @@ pub(crate) async fn resolve_origin(
         })?;
 
     if let Ok(address) = host.parse::<IpAddr>() {
-        validate_address(address, policy.allow_private_network())?;
         if proxy_kind == ProxyKind::Direct {
             return Ok(None);
         }
@@ -86,25 +85,10 @@ pub(crate) async fn resolve_origin(
             "upstream DNS resolution returned no addresses",
         ));
     }
-    for address in &addresses {
-        validate_address(address.ip(), policy.allow_private_network())?;
-    }
     Ok(Some(ResolvedOrigin {
         host: Arc::from(host.to_owned()),
         port,
         secure: uri.scheme_str() == Some("https"),
         addresses: Arc::from(addresses.into_boxed_slice()),
     }))
-}
-
-fn validate_address(address: IpAddr, allow_private_network: bool) -> Result<(), TransportError> {
-    if !allow_private_network && !is_public_network_address(address) {
-        return Err(TransportError::new(
-            TransportErrorStage::Dns,
-            TransportFailureScope::Endpoint,
-            RetrySafety::DefinitelyNotSent,
-            "upstream address is not allowed by endpoint policy",
-        ));
-    }
-    Ok(())
 }

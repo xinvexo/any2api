@@ -116,8 +116,7 @@ mod tests {
     #[test]
     fn builds_messages_paths_and_anthropic_headers() {
         let driver = ClaudeDriver::new();
-        let base =
-            ProviderBaseUrl::parse("https://api.example.com/v1", false, false).expect("base URL");
+        let base = ProviderBaseUrl::parse("https://api.example.com/v1").expect("base URL");
         assert_eq!(
             driver
                 .endpoint_plan(&base, ProtocolOperation::MessagesCountTokens)

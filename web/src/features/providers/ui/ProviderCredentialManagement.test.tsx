@@ -172,8 +172,6 @@ const endpoint: ProviderEndpoint = {
   providerKind: "codex",
   baseUrl: "https://api.example.com",
   protocolDialect: "openai_responses",
-  allowInsecureHttp: false,
-  allowPrivateNetwork: false,
   enabled: true,
   configVersion: 1,
 };

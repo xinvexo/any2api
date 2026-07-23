@@ -34,8 +34,6 @@ struct ProviderEndpointResponse {
     provider_kind: ProviderKind,
     base_url: String,
     protocol_dialect: ProtocolDialect,
-    allow_insecure_http: bool,
-    allow_private_network: bool,
     enabled: bool,
     config_version: u64,
 }
@@ -48,8 +46,6 @@ impl From<&ProviderEndpoint> for ProviderEndpointResponse {
             provider_kind: endpoint.provider_kind(),
             base_url: endpoint.base_url().as_str().to_owned(),
             protocol_dialect: endpoint.protocol_dialect(),
-            allow_insecure_http: endpoint.allow_insecure_http(),
-            allow_private_network: endpoint.allow_private_network(),
             enabled: endpoint.enabled(),
             config_version: endpoint.config_version(),
         }
@@ -57,6 +53,7 @@ impl From<&ProviderEndpoint> for ProviderEndpointResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ProviderEndpointWriteRequest {
     expected_revision: u64,
     expected_config_version: Option<u64>,
@@ -64,8 +61,6 @@ pub(crate) struct ProviderEndpointWriteRequest {
     provider_kind: ProviderKind,
     base_url: String,
     protocol_dialect: ProtocolDialect,
-    allow_insecure_http: bool,
-    allow_private_network: bool,
     enabled: bool,
 }
 
@@ -104,8 +99,6 @@ impl ProviderEndpointWriteRequest {
             self.provider_kind,
             self.base_url,
             self.protocol_dialect,
-            self.allow_insecure_http,
-            self.allow_private_network,
             self.enabled,
         )
         .map_err(|error| AdminApiError::invalid_provider_endpoint(error.to_string()))?;

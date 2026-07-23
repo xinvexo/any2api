@@ -116,7 +116,7 @@ export function ProviderManagement() {
 
   const drawerTitle =
     editorId === "new" ? "新增 Endpoint" : "编辑 Endpoint";
-  const drawerDescription = "配置上游地址与安全选项";
+  const drawerDescription = "配置上游地址";
 
   return (
     <div aria-busy={editorPending || mutations.isPending || endpoints.isFetching}>
