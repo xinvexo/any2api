@@ -28,7 +28,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
   {
     id: "upstream",
     label: "上游与运行",
-    webGroups: ["上游网络", "流式预提交", "流式响应", "优雅停机"],
+    webGroups: ["上游网络", "OAuth 刷新", "流式预提交", "流式响应", "优雅停机"],
   },
   {
     id: "affinity",

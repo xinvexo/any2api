@@ -2,25 +2,30 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId,
-    ModelRouteConfiguration, ProviderCredentialConfiguration, ProviderEndpointConfiguration,
-    ProxyConfiguration, ProxyProfile, SettingsConfiguration,
+    ModelRouteConfiguration, OAuthAccountConfiguration, ProviderCredentialConfiguration,
+    ProviderEndpointConfiguration, ProxyConfiguration, ProxyProfile, RoutingCredentialId,
+    SettingsConfiguration,
 };
+use any2api_provider::api::ProviderRegistry;
 use any2api_storage::api::{GatewayApiKeyVerifier, StoredConfiguration};
 use any2api_transport::api::TransportProxy;
 use arc_swap::ArcSwap;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::{Mutex, MutexGuard, watch};
 
 use crate::{
     affinity::{AffinityPolicy, AffinityRegistry},
     auxiliary_scheduler::AuxiliaryScheduler,
     credential_auth::CredentialAuthMaterials,
-    credential_runtime::{CredentialRuntimeBinding, CredentialRuntimeBindings},
+    credential_runtime::CredentialRuntimeBinding,
     health::{HealthBindings, ReliabilityPolicy},
     proxy_auth::ProxyAuthMaterials,
     queue::{QueueCoordinator, QueuePolicy},
     registry::RuntimeRegistry,
     route_tier_cursor::{RouteTierCursorBinding, RouteTierCursorBindings},
+    routing_credential::{RoutingCredential, RoutingCredentialSpec, RoutingCredentials},
 };
+
+mod oauth;
 
 #[derive(Debug)]
 pub struct PublishedSnapshot {
@@ -29,13 +34,14 @@ pub struct PublishedSnapshot {
     proxy_auth: ProxyAuthMaterials,
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
+    oauth_accounts: OAuthAccountConfiguration,
     model_routes: ModelRouteConfiguration,
     gateway_api_keys: GatewayApiKeyConfiguration,
     gateway_api_key_verifier: GatewayApiKeyVerifier,
     settings: SettingsConfiguration,
     affinity_registry: Arc<AffinityRegistry>,
     affinity_policy: AffinityPolicy,
-    credential_runtimes: CredentialRuntimeBindings,
+    routing_credentials: RoutingCredentials,
     route_tier_cursors: RouteTierCursorBindings,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
     queue_coordinator: Arc<QueueCoordinator>,
@@ -46,7 +52,11 @@ pub struct PublishedSnapshot {
 
 impl PublishedSnapshot {
     #[must_use]
-    pub fn new(configuration: StoredConfiguration, runtime: &RuntimeRegistry) -> Self {
+    pub fn new(
+        configuration: StoredConfiguration,
+        runtime: &RuntimeRegistry,
+        providers: &ProviderRegistry,
+    ) -> Self {
         let parts = configuration.into_parts();
         let proxy_auth = ProxyAuthMaterials::from_stored(&parts.proxies, parts.proxy_passwords);
         runtime.reconcile_scheduler_settings(parts.settings.scheduler());
@@ -54,10 +64,32 @@ impl PublishedSnapshot {
         let queue_policy = QueuePolicy::from_scheduler_settings(parts.settings.scheduler());
         let auth_materials =
             CredentialAuthMaterials::from_stored(parts.provider_credential_secrets);
-        let credential_runtimes =
-            runtime.reconcile_configuration(&parts.provider_credentials, auth_materials);
-        let route_tier_cursors = runtime.reconcile_route_tier_cursors(&parts.model_routes);
-        let health = runtime.reconcile_health(&parts.provider_endpoints, &parts.proxies);
+        let routing_specs = RoutingCredentialSpec::compile(
+            &parts.provider_credentials,
+            &parts.provider_endpoints,
+            &parts.oauth_accounts,
+            &parts.proxies,
+            auth_materials,
+            parts.oauth_account_materials,
+            providers,
+        );
+        let routing_credentials = runtime.reconcile_configuration(routing_specs);
+        let oauth_route_tiers = oauth::route_tiers(&parts.model_routes, &routing_credentials);
+        let route_tier_cursors =
+            runtime.reconcile_route_tier_cursors(&parts.model_routes, &oauth_route_tiers);
+        let oauth_endpoints = routing_credentials
+            .as_slice()
+            .iter()
+            .filter(|credential| credential.is_oauth())
+            .map(|credential| {
+                (
+                    credential.endpoint_id(),
+                    credential.endpoint_config_version(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let health =
+            runtime.reconcile_health(&parts.provider_endpoints, &oauth_endpoints, &parts.proxies);
         let reliability_policy = ReliabilityPolicy::from_settings(parts.settings.reliability());
         let auxiliary_scheduler = runtime.auxiliary_scheduler();
         let queue_coordinator = runtime.queue_coordinator();
@@ -68,13 +100,14 @@ impl PublishedSnapshot {
             proxy_auth,
             provider_endpoints: parts.provider_endpoints,
             provider_credentials: parts.provider_credentials,
+            oauth_accounts: parts.oauth_accounts,
             model_routes: parts.model_routes,
             gateway_api_keys: parts.gateway_api_keys,
             gateway_api_key_verifier: parts.gateway_api_key_verifier,
             settings: parts.settings,
             affinity_registry,
             affinity_policy,
-            credential_runtimes,
+            routing_credentials,
             route_tier_cursors,
             auxiliary_scheduler,
             queue_coordinator,
@@ -102,6 +135,11 @@ impl PublishedSnapshot {
     #[must_use]
     pub const fn provider_credentials(&self) -> &ProviderCredentialConfiguration {
         &self.provider_credentials
+    }
+
+    #[must_use]
+    pub const fn oauth_accounts(&self) -> &OAuthAccountConfiguration {
+        &self.oauth_accounts
     }
 
     #[must_use]
@@ -143,13 +181,19 @@ impl PublishedSnapshot {
     }
 
     #[must_use]
-    pub fn credential_runtime(&self, id: CredentialId) -> Option<&CredentialRuntimeBinding> {
-        self.credential_runtimes.get(id)
+    pub fn credential_runtime(&self, id: RoutingCredentialId) -> Option<&CredentialRuntimeBinding> {
+        self.routing_credentials
+            .get(id)
+            .map(RoutingCredential::binding)
     }
 
     #[must_use]
     pub fn credential_runtimes(&self) -> &[CredentialRuntimeBinding] {
-        self.credential_runtimes.as_slice()
+        self.routing_credentials.bindings()
+    }
+
+    pub(crate) fn routing_credentials(&self) -> &[RoutingCredential] {
+        self.routing_credentials.as_slice()
     }
 
     pub(crate) fn route_tier_cursor(
@@ -218,20 +262,33 @@ impl PublishedSnapshot {
             self.proxy_auth.credentials_for(profile),
         ))
     }
+
+    pub(crate) fn resolved_transport_proxy_for_oauth_account(&self) -> Option<TransportProxy<'_>> {
+        let profile = self
+            .proxies
+            .resolve(any2api_domain::ProxyProfileId::DIRECT)?;
+        Some(TransportProxy::new(
+            profile,
+            self.proxy_auth.credentials_for(profile),
+        ))
+    }
 }
 
 #[derive(Debug)]
 pub struct SnapshotStore {
     current: ArcSwap<PublishedSnapshot>,
     publish_serial: Mutex<()>,
+    revision_sender: watch::Sender<ConfigRevision>,
 }
 
 impl SnapshotStore {
     #[must_use]
     pub fn new(initial: PublishedSnapshot) -> Self {
+        let (revision_sender, _receiver) = watch::channel(initial.revision());
         Self {
             current: ArcSwap::from_pointee(initial),
             publish_serial: Mutex::new(()),
+            revision_sender,
         }
     }
 
@@ -244,9 +301,14 @@ impl SnapshotStore {
         self.publish_serial.lock().await
     }
 
+    pub(crate) fn subscribe_revision(&self) -> watch::Receiver<ConfigRevision> {
+        self.revision_sender.subscribe()
+    }
+
     pub(crate) fn replace(&self, next: PublishedSnapshot) -> Arc<PublishedSnapshot> {
         let next = Arc::new(next);
         self.current.store(Arc::clone(&next));
+        self.revision_sender.send_replace(next.revision());
         next
     }
 }

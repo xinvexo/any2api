@@ -29,6 +29,7 @@ mod registry;
 mod request_telemetry;
 mod route_candidates;
 mod route_tier_cursor;
+mod routing_credential;
 mod scheduler;
 mod scheduler_epoch;
 

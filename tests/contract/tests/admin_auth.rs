@@ -123,7 +123,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
             .and_then(|value| value.to_str().ok()),
         Some("no-store")
     );
-    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(49));
+    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(51));
 
     let response = request(
         &app,
@@ -481,6 +481,7 @@ async fn build_test_app(
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
+        any2api_contract_tests::build_provider_registry().as_ref(),
     )));
     let publisher = Arc::new(
         ConfigPublisher::new(

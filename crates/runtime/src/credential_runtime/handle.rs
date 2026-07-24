@@ -6,19 +6,26 @@ use std::{
     },
 };
 
-use any2api_domain::{CredentialId, MaxConcurrency, ProviderCredential};
+use any2api_domain::{MaxConcurrency, RoutingCredentialId};
 use arc_swap::ArcSwap;
 
 use super::{
     binding::CredentialRuntimeBinding,
     capacity::{CredentialCapacity, pack, unpack},
-    generation::CredentialGenerationRuntime,
+    generation::{CredentialGenerationDefinition, CredentialGenerationRuntime},
     metrics::{CredentialBalancingCounters, CredentialBalancingMetrics, CredentialFilterKind},
 };
-use crate::{credential_auth::CredentialAuthMaterial, scheduler_epoch::SchedulerEpoch};
+use crate::scheduler_epoch::SchedulerEpoch;
+
+#[cfg(test)]
+use crate::{
+    credential_auth::CredentialAuthMaterial, credential_runtime::CredentialAuthentication,
+};
+#[cfg(test)]
+use any2api_domain::ProviderCredential;
 
 pub(crate) struct CredentialRuntimeHandle {
-    id: CredentialId,
+    id: RoutingCredentialId,
     capacity: AtomicU64,
     fixed_waiters: AtomicU32,
     auxiliary_in_flight: AtomicU32,
@@ -29,19 +36,38 @@ pub(crate) struct CredentialRuntimeHandle {
 }
 
 impl CredentialRuntimeHandle {
-    pub(crate) fn new(
+    #[cfg(test)]
+    pub(crate) fn new_for_provider_test(
         credential: &ProviderCredential,
         auth_material: CredentialAuthMaterial,
         scheduler_epoch: Arc<SchedulerEpoch>,
     ) -> Arc<Self> {
+        assert!(auth_material.matches(credential));
+        Self::new(
+            credential.id().into(),
+            credential.max_concurrency(),
+            CredentialGenerationDefinition::new(
+                credential.credential_generation(),
+                credential.secret_version(),
+                CredentialAuthentication::provider_api_key(auth_material.into_provider_secret()),
+            ),
+            scheduler_epoch,
+        )
+    }
+
+    pub(crate) fn new(
+        id: RoutingCredentialId,
+        max_concurrency: MaxConcurrency,
+        generation: CredentialGenerationDefinition,
+        scheduler_epoch: Arc<SchedulerEpoch>,
+    ) -> Arc<Self> {
         Arc::new(Self {
-            id: credential.id(),
-            capacity: AtomicU64::new(pack(credential.max_concurrency().get(), 0)),
+            id,
+            capacity: AtomicU64::new(pack(max_concurrency.get(), 0)),
             fixed_waiters: AtomicU32::new(0),
             auxiliary_in_flight: AtomicU32::new(0),
             current_generation: ArcSwap::from_pointee(CredentialGenerationRuntime::new(
-                credential,
-                auth_material,
+                generation,
                 Arc::clone(&scheduler_epoch),
             )),
             retired: AtomicBool::new(false),
@@ -52,20 +78,20 @@ impl CredentialRuntimeHandle {
 
     pub(crate) fn reconcile(
         self: &Arc<Self>,
-        credential: &ProviderCredential,
-        auth_material: CredentialAuthMaterial,
+        id: RoutingCredentialId,
+        max_concurrency: MaxConcurrency,
+        generation: CredentialGenerationDefinition,
     ) -> CredentialRuntimeBinding {
-        assert_eq!(self.id, credential.id(), "credential runtime id changed");
-        self.update_max_concurrency(credential.max_concurrency());
+        assert_eq!(self.id, id, "credential runtime id changed");
+        self.update_max_concurrency(max_concurrency);
         self.retired.store(false, Ordering::Release);
 
         let current = self.current_generation.load_full();
-        let generation = if current.matches(credential) {
+        let generation = if current.matches(&generation) {
             current
         } else {
             let next = Arc::new(CredentialGenerationRuntime::new(
-                credential,
-                auth_material,
+                generation,
                 Arc::clone(&self.scheduler_epoch),
             ));
             self.current_generation.store(Arc::clone(&next));
@@ -102,7 +128,7 @@ impl CredentialRuntimeHandle {
         }
     }
 
-    pub(crate) const fn id(&self) -> CredentialId {
+    pub(crate) const fn id(&self) -> RoutingCredentialId {
         self.id
     }
 

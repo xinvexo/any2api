@@ -18,6 +18,9 @@ mod gateway_api_key_writes;
 mod migration;
 mod model_route_replacement;
 mod model_route_rows;
+mod oauth_account_document;
+mod oauth_account_material;
+mod oauth_account_mutation;
 mod provider_endpoint_mutation;
 mod provider_endpoint_repository;
 mod provider_endpoint_rows;
@@ -34,6 +37,11 @@ mod settings_rows;
 mod sqlite;
 mod vault;
 
+mod oauth_account_repository;
+#[cfg(test)]
+mod oauth_account_repository_tests;
+mod oauth_account_rows;
+mod oauth_account_writes;
 mod provider_api_key;
 #[cfg(test)]
 mod provider_credential_models_tests;

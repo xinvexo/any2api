@@ -9,6 +9,8 @@ test("labels upstream and postcommit timeout settings", () => {
   expect(settingLabel(item("stream.postcommit.idle_timeout"))).toBe("提交后流空闲超时");
   expect(settingLabel(item("logs.file.level"))).toBe("文件日志级别");
   expect(settingLabel(item("logs.file.max_total_size"))).toBe("文件日志最大容量");
+  expect(settingLabel(item("oauth.refresh.scan_interval"))).toBe("OAuth 刷新扫描间隔");
+  expect(settingLabel(item("oauth.refresh.lead_time"))).toBe("OAuth 提前刷新窗口");
   expect(settingLabel(item("shutdown.request_grace_period"))).toBe("请求排空宽限期");
   expect(settingLabel(item("shutdown.finalize_timeout"))).toBe("最终收尾超时");
   expect(enumOptionLabel("debug")).toBe("调试");

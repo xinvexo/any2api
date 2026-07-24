@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use crate::{
     configuration::StoredConfiguration, error::StorageError,
     gateway_api_key_repository::GatewayApiKeyRepository,
+    oauth_account_repository::OAuthAccountRepository,
     provider_credential_mutation::ProviderCredentialMutation,
     provider_endpoint_mutation::ProviderEndpointMutation, proxy_mutation::ProxyMutation,
     proxy_rows::load_configuration_from, settings_repository::SettingRepository,
@@ -15,7 +16,7 @@ use crate::{
 
 #[async_trait]
 pub trait ConfigurationRepository:
-    GatewayApiKeyRepository + SettingRepository + Send + Sync
+    GatewayApiKeyRepository + OAuthAccountRepository + SettingRepository + Send + Sync
 {
     async fn load_configuration(&self) -> Result<StoredConfiguration, StorageError>;
 

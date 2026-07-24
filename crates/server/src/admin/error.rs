@@ -38,6 +38,10 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn invalid_oauth_account(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "invalid_oauth_account", message)
+    }
+
     pub(crate) fn invalid_gateway_api_key(message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalid_gateway_api_key", message)
     }
@@ -59,6 +63,14 @@ impl AdminApiError {
             StatusCode::NOT_FOUND,
             "provider_credential_not_found",
             "provider credential was not found",
+        )
+    }
+
+    pub(crate) fn oauth_account_not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "oauth_account_not_found",
+            "OAuth account was not found",
         )
     }
 

@@ -682,6 +682,8 @@ OAuthAccount is deliberately separate from `provider_credentials`: it has no con
 
 Codex and Claude accounts compile to fixed Provider-owned routing profiles. Their selected models, DIRECT/global-proxy resolution, `max_concurrency`, enabled state, generations, and health participate in the same `RoutingCredential` projection as API-key Credentials. The scheduler never branches on whether that projection originated from `ProviderCredential` or `OAuthAccount`.
 
+Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。Claude 固定路由基址为 `https://api.anthropic.com/v1`，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。固定基址、方言和目录只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。
+
 ### 9.5 内部 ModelRoute
 
 ```text
@@ -1910,6 +1912,15 @@ RequestLog 切片接入 `logs.request.enabled`、`logs.request.retention`、`log
 
 OAuth session 最多同时 64 个，10 分钟过期，只在内存存在。Codex 与 Claude 的 authorize/token Endpoint、Client ID 和 localhost Redirect URI 由各自 Driver 固定。登录、刷新和数据面都使用 OAuthAccount 的 DIRECT 绑定并继承全局代理，失败禁止回退本机直连。
 
+OAuth 刷新使用统一 SettingRegistry 中的热更新参数：
+
+| 设置 | 类型 | 默认值 | 允许范围 |
+|---|---|---:|---:|
+| `oauth.refresh.scan_interval` | duration_secs | `30` | `1..=86_400` |
+| `oauth.refresh.lead_time` | duration_secs | `300` | `1..=86_400` |
+
+`oauth.refresh.lead_time` 必须大于或等于 `oauth.refresh.scan_interval`，避免正常扫描节奏跨过刷新窗口。Worker 启动时立即扫描；后续等待扫描间隔或 PublishedSnapshot revision 变化，醒来后总是重新读取当前生效值和账号版本，不持有旧配置继续刷新。
+
 数据库 JSON Schema 以 CLIProxyAPI 的 Provider token storage 为基线，并兼容 new-api 与 Sub2API 实际使用字段：
 
 ```text
@@ -1922,7 +1933,7 @@ Claude: id_token, access_token, refresh_token,
 
 时间字段规范化为 UTC RFC 3339，同时接受已审计实现使用的 `expires_at` 数值/字符串别名。Provider 没有返回的可选字段不伪造。成功兑换会在开始网络请求前消费 session；同一 session 不能再次提交。
 
-单进程刷新 Worker 定期扫描临近过期的已启用账号。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的稳定账号字段。成功后 SQLite CAS 更新 JSON 与版本，保留模型集合，发布新 generation；失败不写半成品。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。
+单进程刷新 Worker 定期扫描临近过期的已启用账号。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的 refresh token、ID token、账号 ID、邮箱和安全过期边界。成功后 SQLite CAS 更新 JSON 与版本，保留模型集合，发布新 generation；失败不写半成品。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。
 
 原始 callback URL、authorization code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。OAuth JSON 是 SQLite 明文持久化的明确例外；服务端不提供读取、下载或导出端点。
 

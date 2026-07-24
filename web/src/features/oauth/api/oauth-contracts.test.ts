@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { parseOAuthStartResult } from "./oauth-contracts";
+import {
+  parseOAuthAccountConfiguration,
+  parseOAuthActivationResult,
+  parseOAuthStartResult,
+} from "./oauth-contracts";
 
 describe("parseOAuthStartResult", () => {
   it("parses a valid OAuth2 start response", () => {
@@ -29,6 +33,109 @@ describe("parseOAuthStartResult", () => {
         authorization_url: "https://auth.example.com/authorize",
         redirect_uri: "file:///tmp/callback",
         expires_in_seconds: 600,
+      }),
+    ).toThrow("invalid OAuth2 login response");
+  });
+});
+
+describe("parseOAuthAccountConfiguration", () => {
+  it("parses safe account metadata and selected models", () => {
+    const parsed = parseOAuthAccountConfiguration({
+      config_revision: 4,
+      items: [
+        {
+          id: "fdcb6e74-820f-4d84-9df6-38af2b031feb",
+          provider_kind: "codex",
+          label: "Primary Codex",
+          max_concurrency: 2,
+          enabled: true,
+          safe_account_email: "person@example.com",
+          expires_at: 1_800_000_000,
+          token_version: 2,
+          account_generation: 3,
+          config_version: 4,
+          selected_model_count: 2,
+          models: ["gpt-5.5", "gpt-5.6-luna"],
+        },
+      ],
+    });
+
+    expect(parsed.configRevision).toBe(4);
+    expect(parsed.items[0]).toMatchObject({
+      providerKind: "codex",
+      tokenVersion: 2,
+      models: ["gpt-5.5", "gpt-5.6-luna"],
+    });
+    expect(JSON.stringify(parsed)).not.toContain("access_token");
+  });
+
+  it("rejects a model count mismatch", () => {
+    expect(() =>
+      parseOAuthAccountConfiguration({
+        config_revision: 1,
+        items: [
+          {
+            id: "account",
+            provider_kind: "claude",
+            label: "Claude",
+            max_concurrency: 1,
+            enabled: true,
+            safe_account_email: null,
+            expires_at: null,
+            token_version: 1,
+            account_generation: 1,
+            config_version: 1,
+            selected_model_count: 2,
+            models: ["claude-sonnet-4-6"],
+          },
+        ],
+      }),
+    ).toThrow("invalid OAuth2 login response");
+  });
+});
+
+describe("parseOAuthActivationResult", () => {
+  it("parses safe activated account metadata", () => {
+    expect(
+      parseOAuthActivationResult({
+        provider: "claude",
+        account_id: "fdcb6e74-820f-4d84-9df6-38af2b031feb",
+        label: "Claude OAuth fdcb6e74-820f-4d84-9df6-38af2b031feb",
+        max_concurrency: 1,
+        enabled: true,
+        safe_account_email: "person@example.com",
+        expires_at: 1_800_000_000,
+        selected_model_count: 3,
+        config_version: 1,
+        config_revision: 2,
+      }),
+    ).toEqual({
+      provider: "claude",
+      accountId: "fdcb6e74-820f-4d84-9df6-38af2b031feb",
+      label: "Claude OAuth fdcb6e74-820f-4d84-9df6-38af2b031feb",
+      maxConcurrency: 1,
+      enabled: true,
+      safeAccountEmail: "person@example.com",
+      expiresAt: 1_800_000_000,
+      selectedModelCount: 3,
+      configVersion: 1,
+      configRevision: 2,
+    });
+  });
+
+  it("rejects malformed activation metadata", () => {
+    expect(() =>
+      parseOAuthActivationResult({
+        provider: "codex",
+        account_id: "account",
+        label: "Codex",
+        max_concurrency: 0,
+        enabled: true,
+        safe_account_email: null,
+        expires_at: null,
+        selected_model_count: 0,
+        config_version: 1,
+        config_revision: 2,
       }),
     ).toThrow("invalid OAuth2 login response");
   });

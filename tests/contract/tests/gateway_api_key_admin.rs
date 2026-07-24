@@ -382,6 +382,7 @@ async fn test_app() -> (
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
+        any2api_contract_tests::build_provider_registry().as_ref(),
     )));
     let publisher = Arc::new(
         ConfigPublisher::new(

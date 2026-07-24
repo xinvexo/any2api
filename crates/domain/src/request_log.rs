@@ -1,6 +1,6 @@
 use crate::{
-    ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, ProtocolDialect, ProtocolOperation,
-    ProviderEndpointId, ProxyProfileId, RequestId, RetrySafety, RouteTargetId,
+    ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolDialect,
+    ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestId, RetrySafety, RouteTargetId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,6 +52,7 @@ pub struct RequestLog {
     pub public_model: Option<String>,
     pub provider_endpoint_id: Option<ProviderEndpointId>,
     pub credential_id: Option<CredentialId>,
+    pub oauth_account_id: Option<OAuthAccountId>,
     pub proxy_profile_id: Option<ProxyProfileId>,
     pub status_code: u16,
     pub error_class: Option<ErrorClass>,
@@ -71,6 +72,7 @@ pub struct RequestAttempt {
     pub attempt_no: u32,
     pub route_target_id: Option<RouteTargetId>,
     pub credential_id: Option<CredentialId>,
+    pub oauth_account_id: Option<OAuthAccountId>,
     pub proxy_profile_id: Option<ProxyProfileId>,
     pub started_at_ms: u64,
     pub duration_ms: u64,

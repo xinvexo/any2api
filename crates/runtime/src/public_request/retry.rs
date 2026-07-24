@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use any2api_domain::{CredentialId, PublicError, PublicErrorCode, UpstreamErrorKind};
+use any2api_domain::{PublicError, PublicErrorCode, RoutingCredentialId, UpstreamErrorKind};
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
 use any2api_transport::api::{TransportFailureScope, TransportManager};
@@ -13,28 +13,25 @@ use super::{
     upstream::{self, AttemptFailure},
 };
 use crate::{
-    health::ReliabilityPolicy, published_snapshot::PublishedSnapshot,
-    request_telemetry::RequestRecorder, route_candidates::CandidateExclusions,
+    health::ReliabilityPolicy, oauth::refresh::OAuthRefresher,
+    published_snapshot::PublishedSnapshot, request_telemetry::RequestRecorder,
+    route_candidates::CandidateExclusions,
 };
 
 pub(super) async fn execute(
-    snapshot: Arc<PublishedSnapshot>,
+    mut snapshot: Arc<PublishedSnapshot>,
     protocols: Arc<ProtocolRegistry>,
-    plan: PlannedRequest,
+    mut plan: PlannedRequest,
     providers: &ProviderRegistry,
     transport: &dyn TransportManager,
+    oauth_refresher: Option<&OAuthRefresher>,
     recorder: RequestRecorder,
 ) -> Result<PublicResponse, PublicError> {
     let policy = snapshot.reliability_policy();
     let mut budget = RetryBudget::new(policy);
     let mut exclusions = CandidateExclusions::default();
     let mut previous_error = None;
-    let services = upstream::UpstreamServices {
-        snapshot: snapshot.as_ref(),
-        protocols: protocols.as_ref(),
-        providers,
-        transport,
-    };
+    let mut oauth_refresh_attempted = false;
 
     loop {
         let remaining = budget.remaining();
@@ -66,6 +63,12 @@ pub(super) async fn execute(
         };
         let attempt_recorder = recorder.begin_attempt(attempt_no, &affinity.selected.candidate);
         let remaining = budget.remaining();
+        let services = upstream::UpstreamServices {
+            snapshot: snapshot.as_ref(),
+            protocols: protocols.as_ref(),
+            providers,
+            transport,
+        };
         let attempt = if plan.decoded.stream {
             timeout(
                 remaining,
@@ -98,6 +101,33 @@ pub(super) async fn execute(
             Ok(response) => return Ok(response),
             Err(failure) => {
                 let public = failure.public_error();
+                if !oauth_refresh_attempted
+                    && let Some(refresher) = oauth_refresher
+                    && let Some((account_id, token_version)) = failure.oauth_authentication_target()
+                    && let Some(candidate) = failure.candidate()
+                    && budget.can_register_attempt(candidate.credential_id)
+                {
+                    oauth_refresh_attempted = true;
+                    let refreshed = timeout(
+                        budget.remaining(),
+                        refresher.refresh_after_authentication_failure(account_id, token_version),
+                    )
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some(next_snapshot) = refreshed {
+                        let next_plan = super::planning::replan(
+                            next_snapshot.as_ref(),
+                            &plan,
+                            protocols.as_ref(),
+                            providers,
+                        )?;
+                        snapshot = next_snapshot;
+                        plan = next_plan;
+                        previous_error = Some(public);
+                        continue;
+                    }
+                }
                 if !should_retry(&failure) || !budget.can_retry() {
                     return Err(public);
                 }
@@ -166,8 +196,8 @@ struct RetryBudget {
     deadline: Instant,
     attempts: u32,
     switches: u32,
-    last_credential: Option<CredentialId>,
-    attempts_by_credential: HashMap<CredentialId, u32>,
+    last_credential: Option<RoutingCredentialId>,
+    attempts_by_credential: HashMap<RoutingCredentialId, u32>,
 }
 
 impl RetryBudget {
@@ -186,17 +216,14 @@ impl RetryBudget {
         self.deadline.saturating_duration_since(Instant::now())
     }
 
-    fn register_attempt(&mut self, credential_id: CredentialId) -> Option<u32> {
-        if self.attempts >= self.policy.max_total_attempts {
+    fn register_attempt(&mut self, credential_id: RoutingCredentialId) -> Option<u32> {
+        if !self.can_register_attempt(credential_id) {
             return None;
         }
         if self
             .last_credential
             .is_some_and(|previous| previous != credential_id)
         {
-            if self.switches >= self.policy.max_credential_switches {
-                return None;
-            }
             self.switches += 1;
         }
         let prior = self
@@ -211,6 +238,24 @@ impl RetryBudget {
         self.last_credential = Some(credential_id);
         self.attempts += 1;
         Some(self.attempts)
+    }
+
+    fn can_register_attempt(&self, credential_id: RoutingCredentialId) -> bool {
+        if self.attempts >= self.policy.max_total_attempts || self.remaining().is_zero() {
+            return false;
+        }
+        if self
+            .last_credential
+            .is_some_and(|previous| previous != credential_id)
+            && self.switches >= self.policy.max_credential_switches
+        {
+            return false;
+        }
+        self.attempts_by_credential
+            .get(&credential_id)
+            .copied()
+            .unwrap_or(0)
+            <= self.policy.max_same_credential_retries
     }
 
     fn can_retry(&self) -> bool {

@@ -1,33 +1,56 @@
 use std::{sync::Arc, time::Instant};
 
-use any2api_domain::ProviderKind;
-use any2api_provider::api::{OAuthGrant, ProviderRegistry, serialize_file};
+use any2api_domain::{MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_provider::api::{OAuthGrant, ProviderRegistry};
 use any2api_transport::api::TransportManager;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use tokio::sync::Mutex;
 
+use crate::{process_lifecycle::ProcessLifecycle, publisher::ConfigPublisher};
+
 use super::{
-    callback,
+    callback, document,
     error::OAuthError,
+    refresh::OAuthRefresher,
     session::{OAuthSession, OAuthSessionStore, SESSION_TTL_SECONDS},
     token_request,
-    types::{OAuthDownload, OAuthStartResult},
+    types::{OAuthActivationResult, OAuthStartResult},
 };
 
 pub struct OAuthService {
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
+    publisher: Arc<ConfigPublisher>,
     sessions: Mutex<OAuthSessionStore>,
+    refresher: Arc<OAuthRefresher>,
 }
 
 impl OAuthService {
     #[must_use]
-    pub fn new(providers: Arc<ProviderRegistry>, transport: Arc<dyn TransportManager>) -> Self {
+    pub fn new(
+        providers: Arc<ProviderRegistry>,
+        transport: Arc<dyn TransportManager>,
+        publisher: Arc<ConfigPublisher>,
+    ) -> Self {
+        let refresher = OAuthRefresher::new(
+            Arc::clone(&providers),
+            Arc::clone(&transport),
+            Arc::clone(&publisher),
+        );
         Self {
             providers,
             transport,
+            publisher,
             sessions: Mutex::new(OAuthSessionStore::default()),
+            refresher,
         }
+    }
+
+    pub fn start_refresh_worker(&self, lifecycle: &ProcessLifecycle) -> bool {
+        self.refresher.start(lifecycle)
+    }
+
+    pub(crate) fn refresher(&self) -> Arc<OAuthRefresher> {
+        Arc::clone(&self.refresher)
     }
 
     pub async fn start(&self, provider: ProviderKind) -> Result<OAuthStartResult, OAuthError> {
@@ -60,7 +83,7 @@ impl OAuthService {
         &self,
         session_id: &str,
         callback_url: &str,
-    ) -> Result<OAuthDownload, OAuthError> {
+    ) -> Result<OAuthActivationResult, OAuthError> {
         let session = self
             .sessions
             .lock()
@@ -77,38 +100,59 @@ impl OAuthService {
             Some(session.state()),
             Some(session.code_verifier()),
         )?;
-        let body = token_request::execute(self.transport.as_ref(), plan).await?;
+        let exchange_snapshot = self.publisher.current_snapshot();
+        let proxy = exchange_snapshot
+            .resolved_transport_proxy_for_oauth_account()
+            .ok_or(OAuthError::PublishedProxyUnavailable)?;
+        let strict_ssrf = exchange_snapshot.settings().upstream().strict_ssrf();
+        let body =
+            token_request::execute(self.transport.as_ref(), proxy, strict_ssrf, plan).await?;
         let token = driver
             .parse_oauth_token(&body)
             .map_err(OAuthError::from_token_response_error)?;
         if token.provider() != session.provider {
             return Err(OAuthError::TokenResponseInvalid);
         }
-        let now = unix_now();
-        let last_refresh = format_timestamp(now)?;
-        let expired = token
-            .expires_at()
-            .map(format_timestamp)
-            .transpose()?
-            .unwrap_or_default();
-        let bytes = serialize_file(&token, &last_refresh, &expired)
-            .map_err(|_| OAuthError::FileSerialization)?;
-        Ok(OAuthDownload::new(session.provider, bytes))
+        let routing_profile = driver.oauth_routing_profile(&token)?;
+        let models = routing_profile
+            .models()
+            .iter()
+            .map(|model| model.as_str().to_owned())
+            .collect();
+        let document = document::serialize(&token)?;
+        let account_id = OAuthAccountId::new();
+        let draft = OAuthAccountDraft::new(
+            default_label(session.provider, account_id),
+            MaxConcurrency::new(1).expect("OAuth default concurrency is valid"),
+            true,
+        )
+        .map_err(|_| OAuthError::DocumentSerialization)?;
+        let published = self
+            .publisher
+            .activate_oauth_account(
+                account_id,
+                session.provider,
+                draft,
+                token.email().map(str::to_owned),
+                token.expires_at(),
+                models,
+                document,
+            )
+            .await
+            .map_err(OAuthError::Activation)?;
+        let account = published
+            .oauth_accounts()
+            .get(account_id)
+            .cloned()
+            .expect("published OAuth account is present after activation");
+        Ok(OAuthActivationResult::new(published.revision(), account))
     }
 }
 
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .unwrap_or_default()
-}
-
-fn format_timestamp(timestamp: i64) -> Result<String, OAuthError> {
-    let value = OffsetDateTime::from_unix_timestamp(timestamp)
-        .map_err(|_| OAuthError::FileSerialization)?;
-    value
-        .format(&Rfc3339)
-        .map_err(|_| OAuthError::FileSerialization)
+fn default_label(provider: ProviderKind, account_id: OAuthAccountId) -> String {
+    let provider = match provider {
+        ProviderKind::Codex => "Codex",
+        ProviderKind::Claude => "Claude",
+    };
+    format!("{provider} OAuth {account_id}")
 }

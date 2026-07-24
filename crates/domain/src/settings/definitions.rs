@@ -3,6 +3,7 @@ use super::{SettingDefinition, SettingKey};
 mod admin;
 mod affinity;
 mod logging;
+mod oauth;
 mod reliability;
 mod scheduler;
 mod shutdown;
@@ -29,6 +30,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::LogsFileRetention
         | SettingKey::LogsFileMaxTotalSize
         | SettingKey::LogsTelemetryQueueCapacity => logging::definition(key),
+        SettingKey::OAuthRefreshScanInterval | SettingKey::OAuthRefreshLeadTime => {
+            oauth::definition(key)
+        }
         SettingKey::UpstreamReadTimeout | SettingKey::UpstreamStrictSsrf => {
             upstream::definition(key)
         }

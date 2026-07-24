@@ -1,7 +1,7 @@
 use any2api_domain::{
     ConfigRevision, GatewayApiKeyValidationError, ModelRouteValidationError,
-    ProviderCredentialValidationError, ProviderEndpointValidationError, ProxyValidationError,
-    SettingsValidationError,
+    OAuthAccountValidationError, ProviderCredentialValidationError,
+    ProviderEndpointValidationError, ProxyValidationError, SettingsValidationError,
 };
 use any2api_storage::api::{
     ProviderApiKeyValidationError, ProxyPasswordValidationError, StorageError,
@@ -63,6 +63,18 @@ pub enum ConfigPublishError {
     InvalidProviderCredential(ProviderCredentialValidationError),
     #[error("invalid provider API Key: {0}")]
     InvalidProviderApiKey(ProviderApiKeyValidationError),
+    #[error("OAuth account was not found")]
+    OAuthAccountNotFound,
+    #[error("OAuth account version conflict")]
+    OAuthAccountVersionConflict,
+    #[error("OAuth account token version conflict")]
+    OAuthAccountTokenVersionConflict,
+    #[error("OAuth account label is already in use for this provider")]
+    OAuthAccountLabelConflict,
+    #[error("invalid OAuth account: {0}")]
+    InvalidOAuthAccount(OAuthAccountValidationError),
+    #[error("OAuth account model is not available for this Provider account")]
+    OAuthModelUnavailable,
     #[error("gateway API Key was not found")]
     GatewayApiKeyNotFound,
     #[error("gateway API Key version conflict")]
@@ -120,6 +132,13 @@ impl From<StorageError> for ConfigPublishError {
                 Self::InvalidProviderCredential(error)
             }
             StorageError::ProviderApiKeyValidation(error) => Self::InvalidProviderApiKey(error),
+            StorageError::OAuthAccountNotFound(_) => Self::OAuthAccountNotFound,
+            StorageError::OAuthAccountVersionConflict { .. } => Self::OAuthAccountVersionConflict,
+            StorageError::OAuthAccountTokenVersionConflict { .. } => {
+                Self::OAuthAccountTokenVersionConflict
+            }
+            StorageError::OAuthAccountLabelConflict => Self::OAuthAccountLabelConflict,
+            StorageError::OAuthAccountValidation(error) => Self::InvalidOAuthAccount(error),
             StorageError::GatewayApiKeyNotFound(_) => Self::GatewayApiKeyNotFound,
             StorageError::GatewayApiKeyVersionConflict { .. } => Self::GatewayApiKeyVersionConflict,
             StorageError::GatewayApiKeyTokenVersionConflict { .. } => {

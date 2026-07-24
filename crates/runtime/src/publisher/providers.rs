@@ -180,6 +180,9 @@ impl ConfigPublisher {
                 self.capabilities
                     .validate_credential(endpoint.provider_kind(), draft.credential_kind())?;
             }
+            ConfigCommand::SetOAuthAccountModels { id, models, .. } => {
+                self.validate_oauth_account_models(current, *id, models)?;
+            }
             _ => {}
         }
         Ok(())

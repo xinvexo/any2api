@@ -1,4 +1,4 @@
-use any2api_domain::{CredentialId, ModelRouteId, ProtocolDialect, RouteTargetId};
+use any2api_domain::{ModelRouteId, ProtocolDialect, RouteTargetId, RoutingCredentialId};
 
 use crate::route_candidates::RouteCandidate;
 
@@ -6,7 +6,7 @@ use crate::route_candidates::RouteCandidate;
 pub(crate) struct AffinityTarget {
     route_id: ModelRouteId,
     target_id: RouteTargetId,
-    credential_id: CredentialId,
+    credential_id: RoutingCredentialId,
     upstream_model: String,
     protocol_dialect: ProtocolDialect,
 }
@@ -15,7 +15,7 @@ impl AffinityTarget {
     pub(crate) fn new(
         route_id: ModelRouteId,
         target_id: RouteTargetId,
-        credential_id: CredentialId,
+        credential_id: RoutingCredentialId,
         upstream_model: impl Into<String>,
         protocol_dialect: ProtocolDialect,
     ) -> Self {
@@ -59,7 +59,7 @@ impl AffinityTarget {
         self.target_id
     }
 
-    pub(crate) const fn credential_id(&self) -> CredentialId {
+    pub(crate) const fn credential_id(&self) -> RoutingCredentialId {
         self.credential_id
     }
 

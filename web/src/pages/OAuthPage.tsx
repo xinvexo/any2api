@@ -1,5 +1,5 @@
-import { OAuthLogin } from "@/features/oauth";
+import { OAuthManagement } from "@/features/oauth";
 
 export function OAuthPage() {
-  return <OAuthLogin />;
+  return <OAuthManagement />;
 }

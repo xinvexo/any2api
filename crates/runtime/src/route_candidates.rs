@@ -2,11 +2,15 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use any2api_domain::{
-    CredentialId, ModelRoute, ProtocolDialect, ProtocolOperation, ProviderEndpointId,
-    ProxyProfileId, RouteTargetId, TransportMode,
+    ModelRoute, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, RouteTargetId, RoutingCredentialId, TransportMode,
 };
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
+
+mod oauth;
+
+pub(crate) use oauth::{OAuthRoute, build_oauth_route_candidates, oauth_route_id};
 
 use crate::credential_runtime::CredentialFilterKind;
 use crate::health::{AttemptHealth, HealthAcquireError};
@@ -17,7 +21,9 @@ use crate::{credential_runtime::CredentialRuntimeBinding, published_snapshot::Pu
 pub(crate) struct RouteCandidate {
     pub(crate) target_id: RouteTargetId,
     pub(crate) endpoint_id: ProviderEndpointId,
-    pub(crate) credential_id: CredentialId,
+    pub(crate) credential_id: RoutingCredentialId,
+    pub(crate) provider_kind: ProviderKind,
+    pub(crate) base_url: ProviderBaseUrl,
     pub(crate) upstream_model: String,
     pub(crate) upstream_protocol_dialect: ProtocolDialect,
     pub(crate) proxy_id: ProxyProfileId,
@@ -167,20 +173,14 @@ pub(crate) fn build_route_candidates(
         }
 
         for credential in snapshot
-            .provider_credentials()
-            .for_endpoint(endpoint.id())
-            .filter(|credential| credential.enabled())
+            .routing_credentials()
+            .iter()
+            .filter(|credential| !credential.is_oauth())
+            .filter(|credential| credential.endpoint_id() == endpoint.id())
+            .filter(|credential| credential.routable())
             .filter(|credential| credential.supports_model(target.upstream_model()))
-            .filter(|credential| {
-                capabilities
-                    .credential_kinds
-                    .contains(&credential.credential_kind())
-            })
         {
-            let Some(binding) = snapshot.credential_runtime(credential.id()) else {
-                continue;
-            };
-            let Some(proxy) = snapshot.resolved_proxy_for_credential(credential.id()) else {
+            let Some(proxy) = snapshot.proxies().get(credential.proxy_id()) else {
                 continue;
             };
             if !proxy.enabled() {
@@ -196,21 +196,32 @@ pub(crate) fn build_route_candidates(
                     target_id: target.id(),
                     endpoint_id: endpoint.id(),
                     credential_id: credential.id(),
+                    provider_kind: credential.provider_kind(),
+                    base_url: credential.base_url().clone(),
                     upstream_model: target.upstream_model().as_str().to_owned(),
                     upstream_protocol_dialect: target.upstream_protocol_dialect(),
                     proxy_id: proxy.id(),
                     endpoint_health,
                     proxy_health,
-                    binding: binding.clone(),
+                    binding: credential.binding().clone(),
                 });
         }
     }
+    oauth::add_oauth_candidates(
+        &mut tiers,
+        snapshot,
+        OAuthRoute::new(route.id(), route.ingress_protocol(), route.public_model()),
+        protocols,
+        providers,
+        operation,
+        transport_mode,
+    );
     tiers
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct CandidateExclusions {
-    credentials: HashSet<CredentialId>,
+    credentials: HashSet<RoutingCredentialId>,
     endpoints: HashSet<ProviderEndpointId>,
     proxies: HashSet<ProxyProfileId>,
 }
@@ -222,7 +233,7 @@ impl CandidateExclusions {
             && !self.proxies.contains(&candidate.proxy_id)
     }
 
-    pub(crate) fn exclude_credential(&mut self, id: CredentialId) {
+    pub(crate) fn exclude_credential(&mut self, id: RoutingCredentialId) {
         self.credentials.insert(id);
     }
 

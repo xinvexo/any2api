@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use any2api_domain::ConfigRevision;
 use any2api_storage::api::ConfigurationRepository;
+use tokio::sync::watch;
 
 use crate::{
     config_command::{ConfigCommand, execute},
@@ -12,6 +13,7 @@ use crate::{
     registry::RuntimeRegistry,
 };
 
+mod oauth_accounts;
 mod providers;
 mod proxies;
 mod settings;
@@ -64,6 +66,14 @@ impl ConfigPublisher {
         self.capabilities.as_ref()
     }
 
+    pub(crate) fn current_snapshot(&self) -> Arc<PublishedSnapshot> {
+        self.snapshots.load()
+    }
+
+    pub(crate) fn subscribe_revision(&self) -> watch::Receiver<ConfigRevision> {
+        self.snapshots.subscribe_revision()
+    }
+
     async fn publish(
         &self,
         expected: ConfigRevision,
@@ -95,6 +105,30 @@ impl ConfigPublisher {
         Ok(self.publish_committed(current, expected, committed))
     }
 
+    async fn publish_current(
+        &self,
+        command: ConfigCommand,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        let publisher = self.clone();
+        crate::publish_task::run(self.runtime.lifecycle(), async move {
+            publisher.publish_current_serialized(command).await
+        })
+        .await
+        .ok_or(ConfigPublishError::ShuttingDown)?
+    }
+
+    async fn publish_current_serialized(
+        &self,
+        command: ConfigCommand,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        let _guard = self.snapshots.acquire_publish().await;
+        let current = self.snapshots.load();
+        let expected = current.revision();
+        self.validate_command(current.as_ref(), &command)?;
+        let committed = execute(self.repository.as_ref(), expected, command).await?;
+        Ok(self.publish_committed(current, expected, committed))
+    }
+
     pub(crate) fn publish_committed(
         &self,
         current: Arc<PublishedSnapshot>,
@@ -112,7 +146,11 @@ impl ConfigPublisher {
             next,
             "repository committed an unexpected configuration revision"
         );
-        let snapshot = PublishedSnapshot::new(committed, self.runtime.as_ref());
+        let snapshot = PublishedSnapshot::new(
+            committed,
+            self.runtime.as_ref(),
+            self.capabilities.provider_registry(),
+        );
         if let Some(reconciler) = &self.logging_reconciler {
             reconciler.reconcile(snapshot.revision(), snapshot.settings().logging());
         }

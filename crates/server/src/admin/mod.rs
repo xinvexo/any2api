@@ -69,6 +69,15 @@ fn protected_routes() -> Router<AppState> {
         .route("/balancing", get(balancing_handlers::get))
         .route("/oauth/start", post(oauth_handlers::start))
         .route("/oauth/exchange", post(oauth_handlers::exchange))
+        .route("/oauth/accounts", get(oauth_handlers::list))
+        .route(
+            "/oauth/accounts/{id}",
+            axum::routing::patch(oauth_handlers::update).delete(oauth_handlers::delete),
+        )
+        .route(
+            "/oauth/accounts/{id}/models",
+            axum::routing::put(oauth_handlers::set_models),
+        )
         .route(
             "/gateway-api-keys",
             get(gateway_api_key_handlers::list).post(gateway_api_key_handlers::create),

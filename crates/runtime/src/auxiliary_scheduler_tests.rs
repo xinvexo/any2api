@@ -44,8 +44,8 @@ fn auxiliary_and_generation_capacity_are_independent() {
     assert_eq!(binding.auxiliary_in_flight(), 1);
     assert_eq!(auxiliary.credential_id(), binding.credential_id());
     assert_eq!(
-        auxiliary.generation().credential_generation(),
-        binding.generation().credential_generation()
+        auxiliary.generation().routing_generation(),
+        binding.generation().routing_generation()
     );
 
     drop(generation);
@@ -189,7 +189,7 @@ fn binding(
         .expect("credential draft"),
         CredentialSecretFingerprint::new([fingerprint_byte; 32], None).expect("fingerprint"),
     );
-    CredentialRuntimeHandle::new(
+    CredentialRuntimeHandle::new_for_provider_test(
         &credential,
         CredentialAuthMaterial::for_test(&credential, format!("sk-{label}-test")),
         scheduler_epoch,

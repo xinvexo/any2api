@@ -173,15 +173,23 @@ fn generation_changes_are_pinned_without_resetting_capacity() {
         "sk-new-generation",
     );
     let new_binding = rotated.as_slice()[0].clone();
-    assert_eq!(old_permit.generation().credential_generation(), 1);
-    assert_eq!(new_binding.generation().credential_generation(), 2);
-    assert_eq!(new_binding.generation().secret_version(), 2);
+    assert_eq!(old_permit.generation().routing_generation(), 1);
+    assert_eq!(new_binding.generation().routing_generation(), 2);
+    assert_eq!(new_binding.generation().authentication_version(), 2);
     assert_eq!(
-        old_permit.generation().provider_secret().expose(),
+        old_permit
+            .generation()
+            .provider_secret()
+            .expect("Provider API Key generation")
+            .expose(),
         "sk-old-generation"
     );
     assert_eq!(
-        new_binding.generation().provider_secret().expose(),
+        new_binding
+            .generation()
+            .provider_secret()
+            .expect("Provider API Key generation")
+            .expose(),
         "sk-new-generation"
     );
     assert!(!format!("{old_permit:?}").contains("sk-old-generation"));
@@ -194,7 +202,7 @@ fn generation_changes_are_pinned_without_resetting_capacity() {
 
     drop(old_permit);
     let new_permit = new_binding.try_acquire().expect("new generation permit");
-    assert_eq!(new_permit.generation().credential_generation(), 2);
+    assert_eq!(new_permit.generation().routing_generation(), 2);
 }
 
 #[test]
@@ -281,7 +289,7 @@ fn reconcile(
 ) -> CredentialRuntimeBindings {
     let auth_materials =
         CredentialAuthMaterials::for_configuration(&configuration, |_| secret.to_owned());
-    runtime.reconcile_configuration(&configuration, auth_materials)
+    runtime.reconcile_provider_configuration_for_test(&configuration, auth_materials)
 }
 
 fn runtime() -> RuntimeRegistry {

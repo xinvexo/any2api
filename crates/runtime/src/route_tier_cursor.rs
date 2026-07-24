@@ -58,8 +58,9 @@ impl RouteTierCursorRegistry {
     pub(crate) fn reconcile(
         &self,
         configuration: &ModelRouteConfiguration,
+        runtime_keys: &[(ModelRouteId, FallbackTier)],
     ) -> RouteTierCursorBindings {
-        let active_keys = configuration
+        let mut active_keys = configuration
             .routes()
             .iter()
             .flat_map(|route| {
@@ -69,6 +70,10 @@ impl RouteTierCursorRegistry {
                 })
             })
             .collect::<HashSet<_>>();
+        active_keys.extend(runtime_keys.iter().map(|(route_id, tier)| RouteTierKey {
+            route_id: *route_id,
+            tier: *tier,
+        }));
         let mut cursors = self
             .cursors
             .write()
@@ -108,24 +113,24 @@ mod tests {
             ModelRouteConfiguration::new(vec![route], &endpoints).expect("route configuration");
         let registry = RouteTierCursorRegistry::default();
 
-        let first = registry.reconcile(&configuration);
+        let first = registry.reconcile(&configuration, &[]);
         let first_tier = first
             .get(route_id, FallbackTier::new(0))
             .expect("tier cursor");
         assert_eq!(first_tier.reserve(), 0);
         assert_eq!(first_tier.reserve(), 1);
 
-        let second = registry.reconcile(&configuration);
+        let second = registry.reconcile(&configuration, &[]);
         let second_tier = second
             .get(route_id, FallbackTier::new(0))
             .expect("tier cursor");
         assert_eq!(second_tier.reserve(), 2);
 
         let empty = ModelRouteConfiguration::initial();
-        let removed = registry.reconcile(&empty);
+        let removed = registry.reconcile(&empty, &[]);
         assert!(removed.get(route_id, FallbackTier::new(0)).is_none());
 
-        let restored = registry.reconcile(&configuration);
+        let restored = registry.reconcile(&configuration, &[]);
         let restored_tier = restored
             .get(route_id, FallbackTier::new(0))
             .expect("new tier cursor");
@@ -144,7 +149,7 @@ mod tests {
         )
         .expect("route configuration");
         let registry = RouteTierCursorRegistry::default();
-        let bindings = registry.reconcile(&configuration);
+        let bindings = registry.reconcile(&configuration, &[]);
 
         let primary = bindings
             .get(route_id, FallbackTier::new(0))

@@ -79,7 +79,7 @@ impl RequestLogRepository for SqliteStore {
         let rows = sqlx::query_as::<_, RequestLogRow>(
             "SELECT request_id, started_at_ms, config_revision, gateway_api_key_id, \
              ingress_protocol, operation, public_model, provider_endpoint_id, credential_id, \
-             proxy_profile_id, status_code, error_class, attempt_count, latency_ms, \
+             oauth_account_id, proxy_profile_id, status_code, error_class, attempt_count, latency_ms, \
              first_token_ms, input_tokens, output_tokens, cache_read_tokens, \
              cache_write_tokens, is_stream FROM request_logs \
              ORDER BY started_at_ms DESC, request_id DESC LIMIT ?",
@@ -98,7 +98,7 @@ impl RequestLogRepository for SqliteStore {
         let row = sqlx::query_as::<_, RequestLogRow>(
             "SELECT request_id, started_at_ms, config_revision, gateway_api_key_id, \
              ingress_protocol, operation, public_model, provider_endpoint_id, credential_id, \
-             proxy_profile_id, status_code, error_class, attempt_count, latency_ms, \
+             oauth_account_id, proxy_profile_id, status_code, error_class, attempt_count, latency_ms, \
              first_token_ms, input_tokens, output_tokens, cache_read_tokens, \
              cache_write_tokens, is_stream FROM request_logs WHERE request_id = ?",
         )
@@ -111,7 +111,8 @@ impl RequestLogRepository for SqliteStore {
         };
         let request = parse_request_log(row)?;
         let rows = sqlx::query_as::<_, RequestAttemptRow>(
-            "SELECT request_id, attempt_no, route_target_id, credential_id, proxy_profile_id, \
+            "SELECT request_id, attempt_no, route_target_id, credential_id, oauth_account_id, \
+             proxy_profile_id, \
              started_at_ms, duration_ms, retry_safety, error_class, status_code, outcome \
              FROM request_attempts WHERE request_id = ? ORDER BY attempt_no ASC",
         )
@@ -134,11 +135,13 @@ async fn insert_request_log(
     sqlx::query(
         "INSERT INTO request_logs (request_id, started_at_ms, config_revision, \
          gateway_api_key_id, ingress_protocol, operation, public_model, provider_endpoint_id, \
-         credential_id, proxy_profile_id, status_code, error_class, attempt_count, latency_ms, \
+         credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
+         attempt_count, latency_ms, \
          first_token_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, \
          is_stream) VALUES (?, ?, ?, (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, \
          (SELECT id FROM provider_endpoints WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
+         (SELECT id FROM oauth_accounts WHERE id = ?), \
          (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
@@ -150,6 +153,7 @@ async fn insert_request_log(
     .bind(log.public_model.as_deref())
     .bind(optional_id(log.provider_endpoint_id))
     .bind(optional_id(log.credential_id))
+    .bind(optional_id(log.oauth_account_id))
     .bind(optional_id(log.proxy_profile_id))
     .bind(i64::from(log.status_code))
     .bind(log.error_class.map(ErrorClass::as_str))
@@ -172,15 +176,18 @@ async fn insert_request_attempt(
 ) -> Result<(), StorageError> {
     sqlx::query(
         "INSERT INTO request_attempts (request_id, attempt_no, route_target_id, credential_id, \
-         proxy_profile_id, started_at_ms, duration_ms, retry_safety, error_class, status_code, \
+         oauth_account_id, proxy_profile_id, started_at_ms, duration_ms, retry_safety, \
+         error_class, status_code, \
          outcome) VALUES (?, ?, (SELECT id FROM route_targets WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
+         (SELECT id FROM oauth_accounts WHERE id = ?), \
          (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?)",
     )
     .bind(attempt.request_id.to_string())
     .bind(i64::from(attempt.attempt_no))
     .bind(optional_id(attempt.route_target_id))
     .bind(optional_id(attempt.credential_id))
+    .bind(optional_id(attempt.oauth_account_id))
     .bind(optional_id(attempt.proxy_profile_id))
     .bind(to_i64(attempt.started_at_ms)?)
     .bind(to_i64(attempt.duration_ms)?)
@@ -231,6 +238,7 @@ struct RequestLogRow {
     public_model: Option<String>,
     provider_endpoint_id: Option<String>,
     credential_id: Option<String>,
+    oauth_account_id: Option<String>,
     proxy_profile_id: Option<String>,
     status_code: i64,
     error_class: Option<String>,
@@ -250,6 +258,7 @@ struct RequestAttemptRow {
     attempt_no: i64,
     route_target_id: Option<String>,
     credential_id: Option<String>,
+    oauth_account_id: Option<String>,
     proxy_profile_id: Option<String>,
     started_at_ms: i64,
     duration_ms: i64,
@@ -273,6 +282,7 @@ fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, StorageError> {
         public_model: row.public_model,
         provider_endpoint_id: parse_optional_id(row.provider_endpoint_id)?,
         credential_id: parse_optional_id(row.credential_id)?,
+        oauth_account_id: parse_optional_id(row.oauth_account_id)?,
         proxy_profile_id: parse_optional_id(row.proxy_profile_id)?,
         status_code: u16::try_from(row.status_code).map_err(|_| StorageError::CorruptTelemetry)?,
         error_class: parse_optional_value(row.error_class.as_deref(), ErrorClass::parse)?,
@@ -294,6 +304,7 @@ fn parse_request_attempt(row: RequestAttemptRow) -> Result<RequestAttempt, Stora
         attempt_no: u32::try_from(row.attempt_no).map_err(|_| StorageError::CorruptTelemetry)?,
         route_target_id: parse_optional_id(row.route_target_id)?,
         credential_id: parse_optional_id(row.credential_id)?,
+        oauth_account_id: parse_optional_id(row.oauth_account_id)?,
         proxy_profile_id: parse_optional_id(row.proxy_profile_id)?,
         started_at_ms: from_i64(row.started_at_ms)?,
         duration_ms: from_i64(row.duration_ms)?,

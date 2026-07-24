@@ -351,7 +351,7 @@ pub(super) fn generation_permit() -> (
         .expect("credential draft"),
         CredentialSecretFingerprint::new([9; 32], None).expect("fingerprint"),
     );
-    let binding = CredentialRuntimeHandle::new(
+    let binding = CredentialRuntimeHandle::new_for_provider_test(
         &credential,
         CredentialAuthMaterial::for_test(&credential, "sk-stream-test".into()),
         SchedulerEpoch::new(),

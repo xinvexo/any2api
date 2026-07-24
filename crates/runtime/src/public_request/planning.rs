@@ -9,7 +9,12 @@ use super::{
     PublicRequest,
     response::{invalid_request, public_error},
 };
-use crate::{published_snapshot::PublishedSnapshot, route_candidates::build_route_candidates};
+use crate::{
+    published_snapshot::PublishedSnapshot,
+    route_candidates::{
+        OAuthRoute, build_oauth_route_candidates, build_route_candidates, oauth_route_id,
+    },
+};
 
 pub(super) struct PlannedRequest {
     pub(super) decoded: DecodedRequest,
@@ -43,32 +48,86 @@ pub(super) async fn plan(
         .and_then(|model| {
             PublicModelName::new(model).map_err(|_| invalid_request("model name is invalid"))
         })?;
+    plan_decoded(snapshot, decoded, public_model, protocols, providers)
+}
+
+pub(super) fn replan(
+    snapshot: &PublishedSnapshot,
+    planned: &PlannedRequest,
+    protocols: &ProtocolRegistry,
+    providers: &ProviderRegistry,
+) -> Result<PlannedRequest, PublicError> {
+    let public_model = PublicModelName::new(planned.public_model.clone())
+        .expect("planned public model was already validated");
+    plan_decoded(
+        snapshot,
+        planned.decoded.clone(),
+        public_model,
+        protocols,
+        providers,
+    )
+}
+
+fn plan_decoded(
+    snapshot: &PublishedSnapshot,
+    decoded: DecodedRequest,
+    public_model: PublicModelName,
+    protocols: &ProtocolRegistry,
+    providers: &ProviderRegistry,
+) -> Result<PlannedRequest, PublicError> {
     let route = snapshot
         .model_routes()
         .resolve(decoded.dialect, &public_model)
-        .filter(|route| route.enabled())
-        .ok_or_else(|| public_error(PublicErrorCode::ModelNotFound, "model route was not found"))?;
+        .filter(|route| route.enabled());
     let transport_mode = if decoded.stream {
         TransportMode::Sse
     } else {
         TransportMode::Json
     };
-    let tiers = build_route_candidates(
-        snapshot,
-        route,
-        protocols,
-        providers,
-        decoded.operation,
-        transport_mode,
-    );
-    let fallback_on_saturation = route
-        .fallback_on_saturation()
-        .unwrap_or_else(|| snapshot.queue_policy().fallback_on_saturation());
+    let (route_id, dialect, fallback_on_saturation, tiers) = if let Some(route) = route {
+        (
+            route.id(),
+            route.ingress_protocol(),
+            route
+                .fallback_on_saturation()
+                .unwrap_or_else(|| snapshot.queue_policy().fallback_on_saturation()),
+            build_route_candidates(
+                snapshot,
+                route,
+                protocols,
+                providers,
+                decoded.operation,
+                transport_mode,
+            ),
+        )
+    } else {
+        let route_id = oauth_route_id(decoded.dialect, &public_model);
+        let tiers = build_oauth_route_candidates(
+            snapshot,
+            OAuthRoute::new(route_id, decoded.dialect, &public_model),
+            protocols,
+            providers,
+            decoded.operation,
+            transport_mode,
+        );
+        if tiers.is_empty() {
+            return Err(public_error(
+                PublicErrorCode::ModelNotFound,
+                "model route was not found",
+            ));
+        }
+        (
+            route_id,
+            decoded.dialect,
+            snapshot.queue_policy().fallback_on_saturation(),
+            tiers,
+        )
+    };
     Ok(PlannedRequest {
         decoded,
         public_model: public_model.as_str().to_owned(),
-        route_id: route.id(),
-        dialect: route.ingress_protocol(),
+        route_id,
+        dialect,
         fallback_on_saturation,
         tiers,
     })

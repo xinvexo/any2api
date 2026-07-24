@@ -5,8 +5,8 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProtocolDialect,
-    ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId,
-    PublicErrorCode, RouteTargetId,
+    ProviderBaseUrl, ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, PublicErrorCode, RouteTargetId,
 };
 
 use super::{
@@ -257,7 +257,7 @@ pub(super) fn candidate(
         .expect("credential draft"),
         CredentialSecretFingerprint::new([fingerprint_byte; 32], None).expect("fingerprint"),
     );
-    let binding = CredentialRuntimeHandle::new(
+    let binding = CredentialRuntimeHandle::new_for_provider_test(
         &credential,
         CredentialAuthMaterial::for_test(&credential, format!("sk-{label}-test")),
         scheduler_epoch,
@@ -266,7 +266,9 @@ pub(super) fn candidate(
     RouteCandidate {
         target_id: RouteTargetId::new(),
         endpoint_id: credential.provider_endpoint_id(),
-        credential_id: credential.id(),
+        credential_id: credential.id().into(),
+        provider_kind: ProviderKind::Codex,
+        base_url: ProviderBaseUrl::parse("https://api.example.com").expect("base URL"),
         upstream_model: format!("upstream-{tier}"),
         upstream_protocol_dialect: ProtocolDialect::OpenAiResponses,
         proxy_id: ProxyProfileId::DIRECT,

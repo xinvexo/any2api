@@ -1,4 +1,6 @@
-use any2api_domain::{PublicError, RetrySafety, UpstreamErrorClassification};
+use any2api_domain::{
+    OAuthAccountId, PublicError, RetrySafety, UpstreamErrorClassification, UpstreamErrorKind,
+};
 use any2api_transport::api::{TransportError, TransportFailureScope};
 
 use crate::route_candidates::RouteCandidate;
@@ -90,5 +92,54 @@ impl AttemptFailure {
             Self::Transport { error, .. } => Some(error.failure_scope),
             Self::Upstream { .. } | Self::Public(_) => None,
         }
+    }
+
+    pub(in crate::public_request) fn oauth_authentication_target(
+        &self,
+    ) -> Option<(OAuthAccountId, u64)> {
+        let Self::Upstream {
+            classification,
+            candidate,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        if !allows_oauth_refresh(*classification) {
+            return None;
+        }
+        let id = candidate.credential_id.oauth_account_id()?;
+        Some((id, candidate.binding.generation().authentication_version()))
+    }
+}
+
+fn allows_oauth_refresh(classification: UpstreamErrorClassification) -> bool {
+    classification.kind() == UpstreamErrorKind::Authentication
+        && classification.retry_safety().allows_automatic_retry()
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::{RetrySafety, UpstreamErrorClassification, UpstreamErrorKind};
+
+    use super::allows_oauth_refresh;
+
+    #[test]
+    fn oauth_refresh_requires_a_retry_safe_authentication_rejection() {
+        assert!(allows_oauth_refresh(UpstreamErrorClassification::new(
+            UpstreamErrorKind::Authentication,
+            RetrySafety::RejectedBeforeExecution,
+            None,
+        )));
+        assert!(!allows_oauth_refresh(UpstreamErrorClassification::new(
+            UpstreamErrorKind::Authentication,
+            RetrySafety::Ambiguous,
+            None,
+        )));
+        assert!(!allows_oauth_refresh(UpstreamErrorClassification::new(
+            UpstreamErrorKind::Transient,
+            RetrySafety::DefinitelyNotSent,
+            None,
+        )));
     }
 }

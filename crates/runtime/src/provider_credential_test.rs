@@ -10,7 +10,7 @@ use any2api_transport::api::{
     TransportRequest,
 };
 use bytes::Bytes;
-use http::Method;
+use http::{HeaderMap, Method};
 use thiserror::Error;
 
 use crate::{
@@ -52,7 +52,7 @@ impl ProviderCredentialTestService {
             return Err(ProviderCredentialTestError::ProviderEndpointDisabled);
         }
         let binding = snapshot
-            .credential_runtime(credential_id)
+            .credential_runtime(credential_id.into())
             .ok_or(ProviderCredentialTestError::CredentialRuntimeUnavailable)?;
         let proxy = snapshot
             .resolved_transport_proxy_for_credential(credential_id)
@@ -71,7 +71,7 @@ impl ProviderCredentialTestService {
             .try_acquire()
             .ok_or(ProviderCredentialTestError::CredentialAtCapacity)?;
         let credential_headers = permit
-            .provider_credential_headers(driver.as_ref())
+            .credential_headers(driver.as_ref(), &HeaderMap::new())
             .map_err(ProviderCredentialTestError::Provider)?;
         let request = TransportRequest {
             method: Method::GET,

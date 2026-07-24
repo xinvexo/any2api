@@ -25,6 +25,19 @@ test("rejects inconsistent cooling state", () => {
   expect(() => parseBalancingRuntime(value)).toThrow("invalid balancing runtime response");
 });
 
+test("parses OAuth runtime credentials without exposing a Provider Endpoint", () => {
+  const value = runtimeResponse();
+  value.credentials[0].credential_source = "oauth_account";
+  value.credentials[0].endpoint_id = null as unknown as string;
+  value.credentials[0].endpoint_name = null as unknown as string;
+
+  const parsed = parseBalancingRuntime(value);
+
+  expect(parsed.credentials[0]?.credentialSource).toBe("oauth_account");
+  expect(parsed.credentials[0]?.endpointId).toBeNull();
+  expect(parsed.credentials[0]?.endpointName).toBeNull();
+});
+
 function runtimeResponse() {
   return {
     config_revision: 3,
@@ -34,7 +47,7 @@ function runtimeResponse() {
     totals: { credential_count: 1, enabled_credential_count: 1, in_flight: 1, max_concurrency: 2, fixed_waiters: 0, auxiliary_in_flight: 1 },
     providers: [{ provider_kind: "codex", credential_count: 1, in_flight: 1, max_concurrency: 2, selected_generation: 4, selected_auxiliary: 1 }],
     credentials: [{
-      credential_id: "credential-1", label: "Primary", enabled: true,
+      credential_id: "credential-1", credential_source: "provider_credential", label: "Primary", enabled: true, authentication_expired: false,
       provider_kind: "codex", endpoint_id: "endpoint-1", endpoint_name: "Codex",
       endpoint_enabled: true, proxy_id: "proxy-1", proxy_name: "DIRECT", proxy_kind: "direct", proxy_enabled: true,
       in_flight: 1, max_concurrency: 2, fixed_waiters: 0, auxiliary_in_flight: 1,

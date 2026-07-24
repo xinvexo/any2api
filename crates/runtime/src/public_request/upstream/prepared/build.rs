@@ -76,16 +76,12 @@ fn build_request<'a>(
     providers: &'a ProviderRegistry,
 ) -> Result<BuiltRequest<'a>, PublicError> {
     let candidate = &selected.candidate;
-    let endpoint = snapshot
-        .provider_endpoints()
-        .get(candidate.endpoint_id)
-        .ok_or_else(internal_error)?;
     let driver = providers
-        .get(endpoint.provider_kind())
+        .get(candidate.provider_kind)
         .ok_or_else(internal_error)?
         .as_ref();
     let proxy = snapshot
-        .resolved_transport_proxy_for_credential(candidate.credential_id)
+        .transport_proxy(candidate.proxy_id)
         .filter(|proxy| proxy.profile().enabled())
         .ok_or_else(|| {
             public_error(
@@ -106,7 +102,7 @@ fn build_request<'a>(
         .map_err(protocol_request_error)?;
     let upstream_operation = prepared.upstream_operation;
     let endpoint_plan = driver
-        .endpoint_plan(endpoint.base_url(), upstream_operation)
+        .endpoint_plan(&candidate.base_url, upstream_operation)
         .map_err(|_| internal_error())?;
     let mut encoded = prepared.request;
     encoded.uri = endpoint_plan
@@ -116,7 +112,7 @@ fn build_request<'a>(
         .map_err(|_| internal_error())?;
     let credential_headers = selected
         .permit
-        .provider_credential_headers(driver)
+        .credential_headers(driver, &encoded.headers)
         .map_err(|_| internal_error())?;
     encoded.headers.extend(credential_headers.headers);
     Ok(BuiltRequest {

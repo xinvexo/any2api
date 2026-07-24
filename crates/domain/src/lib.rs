@@ -9,6 +9,10 @@ mod kind;
 mod model_name;
 mod model_route;
 mod model_route_configuration;
+mod oauth_account;
+mod oauth_account_configuration;
+#[cfg(test)]
+mod oauth_account_tests;
 mod provider_base_url;
 mod provider_credential;
 mod provider_credential_configuration;
@@ -22,6 +26,7 @@ mod request_log;
 mod retry_safety;
 mod revision;
 mod route_target;
+mod routing_credential_id;
 mod settings;
 mod token_usage;
 mod upstream_error;
@@ -39,8 +44,8 @@ pub use gateway_api_key_validation::{
     GATEWAY_TOKEN_VERSION, GatewayApiKeyValidationError,
 };
 pub use id::{
-    CredentialId, GatewayApiKeyId, ModelRouteId, ProviderEndpointId, ProxyProfileId, RequestId,
-    RouteTargetId,
+    CredentialId, GatewayApiKeyId, ModelRouteId, OAuthAccountId, ProviderEndpointId,
+    ProxyProfileId, RequestId, RouteTargetId,
 };
 pub use kind::{CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode};
 pub use model_name::{
@@ -48,6 +53,8 @@ pub use model_name::{
 };
 pub use model_route::{ModelRoute, ModelRouteDraft, ModelRouteValidationError};
 pub use model_route_configuration::ModelRouteConfiguration;
+pub use oauth_account::{OAuthAccount, OAuthAccountDraft, OAuthAccountValidationError};
+pub use oauth_account_configuration::OAuthAccountConfiguration;
 pub use provider_base_url::{ProviderBaseUrl, ProviderUrlValidationError};
 pub use provider_credential::{
     API_KEY_SECRET_SCHEMA_VERSION, ProviderCredential, ProviderCredentialDraft,
@@ -68,10 +75,11 @@ pub use request_log::{CompletedRequestLog, RequestAttempt, RequestAttemptOutcome
 pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};
 pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};
+pub use routing_credential_id::RoutingCredentialId;
 pub use settings::{
     AdminSettings, AffinityMode, AffinitySettings, FileLogLevel, LoggingSettings,
     MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_SECS,
-    MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY,
+    MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY, OAuthSettings,
     ReliabilitySettings, SaturationMode, SchedulerSettings, SettingApplyMode, SettingDefinition,
     SettingKey, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
     SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,

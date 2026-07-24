@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use any2api_domain::CredentialId;
+use any2api_domain::{CredentialId, OAuthAccountId, RoutingCredentialId};
 use axum::{
     extract::{Path, Query, State, rejection::QueryRejection},
     response::Response,
@@ -41,18 +41,23 @@ pub(crate) async fn clear_credential(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Response, AdminApiError> {
-    let id = CredentialId::from_str(&id)
-        .map_err(|_| AdminApiError::invalid_request("provider credential id is invalid"))?;
-    if state
-        .snapshots()
-        .load()
-        .provider_credentials()
-        .get(id)
-        .is_none()
-    {
-        return Err(AdminApiError::provider_credential_not_found());
-    }
+    let published = state.snapshots().load();
+    let id = if let Some(id) = id.strip_prefix("oauth_account:") {
+        let id = OAuthAccountId::from_str(id)
+            .map_err(|_| AdminApiError::invalid_request("OAuth account id is invalid"))?;
+        if published.oauth_accounts().get(id).is_none() {
+            return Err(AdminApiError::oauth_account_not_found());
+        }
+        RoutingCredentialId::oauth_account(id)
+    } else {
+        let id = CredentialId::from_str(&id)
+            .map_err(|_| AdminApiError::invalid_request("provider credential id is invalid"))?;
+        if published.provider_credentials().get(id).is_none() {
+            return Err(AdminApiError::provider_credential_not_found());
+        }
+        RoutingCredentialId::provider_credential(id)
+    };
     Ok(no_store::json(AffinityClearResponse::new(
-        state.runtime().clear_credential_affinity(id),
+        state.runtime().clear_routing_credential_affinity(id),
     )))
 }

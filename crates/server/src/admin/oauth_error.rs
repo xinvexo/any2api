@@ -1,4 +1,4 @@
-use any2api_runtime::api::OAuthError;
+use any2api_runtime::api::{ConfigPublishError, OAuthError};
 use axum::http::StatusCode;
 
 use super::error::AdminApiError;
@@ -62,7 +62,22 @@ pub(super) fn map(error: OAuthError) -> AdminApiError {
                 "the OAuth2 token exchange failed",
             )
         }
-        OAuthError::RandomGeneration | OAuthError::FileSerialization => {
+        OAuthError::Activation(ConfigPublishError::ShuttingDown) => AdminApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "server_shutting_down",
+            "service is shutting down",
+        ),
+        OAuthError::Activation(error) => {
+            tracing::error!(error = ?error, "OAuth2 account activation failed");
+            AdminApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "oauth_activation_failed",
+                "OAuth2 login completed but the account could not be activated",
+            )
+        }
+        OAuthError::RandomGeneration
+        | OAuthError::PublishedProxyUnavailable
+        | OAuthError::DocumentSerialization => {
             tracing::error!(error = ?error, "OAuth2 login could not be completed");
             AdminApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,

@@ -95,7 +95,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
           <Detail label="错误分类" value={request.errorClass ?? "无"} />
-          <Detail label="Credential" value={shortId(request.credentialId)} />
+          <Detail label={request.oauthAccountId ? "OAuth Account" : "Credential"} value={shortId(request.oauthAccountId ?? request.credentialId)} />
           <Detail label="出口代理" value={shortId(request.proxyProfileId)} />
         </dl>
 
@@ -145,7 +145,7 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
       <div className="min-w-0">
         <p className="font-semibold">{attempt.outcome}</p>
         <p className="mt-1 break-all text-xs text-tertiary">
-          Credential {shortId(attempt.credentialId)} · Proxy {shortId(attempt.proxyProfileId)}
+          {attempt.oauthAccountId ? "OAuth Account" : "Credential"} {shortId(attempt.oauthAccountId ?? attempt.credentialId)} · Proxy {shortId(attempt.proxyProfileId)}
         </p>
       </div>
       <div className="text-left text-xs text-secondary md:text-right">

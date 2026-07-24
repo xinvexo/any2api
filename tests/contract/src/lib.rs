@@ -11,3 +11,9 @@ pub fn build_configuration_capabilities()
         .expect("public request components")
         .configuration_capabilities()
 }
+
+pub fn build_provider_registry() -> std::sync::Arc<any2api_provider::ProviderRegistry> {
+    build_public_request_components()
+        .expect("public request components")
+        .provider_registry_handle()
+}

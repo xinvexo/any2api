@@ -36,6 +36,7 @@ fn attempt(error_class: ErrorClass, outcome: RequestAttemptOutcome) -> RequestAt
         attempt_no: 1,
         route_target_id: None,
         credential_id: None,
+        oauth_account_id: None,
         proxy_profile_id: None,
         started_at_ms: 0,
         duration_ms: 0,

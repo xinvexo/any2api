@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use super::{
-    AdminSettings, AffinitySettings, LoggingSettings, ReliabilitySettings, SchedulerSettings,
-    SettingKey, SettingValue, SettingsValidationError, ShutdownSettings, StreamSettings,
-    UpstreamSettings, value::validate_value,
+    AdminSettings, AffinitySettings, LoggingSettings, OAuthSettings, ReliabilitySettings,
+    SchedulerSettings, SettingKey, SettingValue, SettingsValidationError, ShutdownSettings,
+    StreamSettings, UpstreamSettings, value::validate_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -54,6 +54,7 @@ pub struct SettingsConfiguration {
     reliability: ReliabilitySettings,
     admin: AdminSettings,
     logging: LoggingSettings,
+    oauth: OAuthSettings,
     upstream: UpstreamSettings,
     stream: StreamSettings,
     shutdown: ShutdownSettings,
@@ -66,6 +67,7 @@ impl SettingsConfiguration {
         let reliability = ReliabilitySettings::from_overrides(&overrides)?;
         let admin = AdminSettings::from_overrides(&overrides)?;
         let logging = LoggingSettings::from_overrides(&overrides)?;
+        let oauth = OAuthSettings::from_overrides(&overrides)?;
         let upstream = UpstreamSettings::from_overrides(&overrides)?;
         let stream = StreamSettings::from_overrides(&overrides)?;
         let shutdown = ShutdownSettings::from_overrides(&overrides)?;
@@ -76,6 +78,7 @@ impl SettingsConfiguration {
             reliability,
             admin,
             logging,
+            oauth,
             upstream,
             stream,
             shutdown,
@@ -105,6 +108,10 @@ impl SettingsConfiguration {
 
     pub const fn logging(&self) -> &LoggingSettings {
         &self.logging
+    }
+
+    pub const fn oauth(&self) -> &OAuthSettings {
+        &self.oauth
     }
 
     pub const fn stream(&self) -> &StreamSettings {
@@ -177,6 +184,8 @@ mod tests {
         assert_eq!(settings.logging().file_retention_secs(), 604_800);
         assert_eq!(settings.logging().file_max_total_size(), 256 * 1024 * 1024);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
+        assert_eq!(settings.oauth().refresh_scan_interval_secs(), 30);
+        assert_eq!(settings.oauth().refresh_lead_time_secs(), 300);
         assert_eq!(settings.upstream().read_timeout_secs(), 15);
         assert!(!settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().precommit_max_bytes(), 256 * 1024);
@@ -284,6 +293,26 @@ mod tests {
         let overrides = SettingOverrides::from_entries([
             (SettingKey::RetryBaseDelay, SettingValue::DurationSecs(2)),
             (SettingKey::RetryMaxDelay, SettingValue::DurationSecs(0)),
+        ])
+        .expect("individual values are valid");
+
+        assert_eq!(
+            SettingsConfiguration::from_overrides(overrides),
+            Err(SettingsValidationError::InvalidCombination)
+        );
+    }
+
+    #[test]
+    fn oauth_refresh_rejects_a_lead_time_shorter_than_the_scan_interval() {
+        let overrides = SettingOverrides::from_entries([
+            (
+                SettingKey::OAuthRefreshScanInterval,
+                SettingValue::DurationSecs(60),
+            ),
+            (
+                SettingKey::OAuthRefreshLeadTime,
+                SettingValue::DurationSecs(30),
+            ),
         ])
         .expect("individual values are valid");
 

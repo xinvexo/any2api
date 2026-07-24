@@ -83,6 +83,7 @@ function affinityRuntime() {
     credential_counts: [
       {
         credential_id: "credential-1",
+        credential_source: "provider_credential",
         credential_label: "Primary",
         soft_bindings: 1,
         hard_bindings: 1,
@@ -93,6 +94,7 @@ function affinityRuntime() {
         kind: "hard",
         session_hash_prefix: "abcdefghijkl",
         credential_id: "credential-1",
+        credential_source: "provider_credential",
         route_target_id: "target-1",
         upstream_model: "gpt-upstream",
         protocol_dialect: "openai_responses",

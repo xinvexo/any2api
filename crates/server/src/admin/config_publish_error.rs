@@ -117,6 +117,36 @@ impl From<ConfigPublishError> for AdminApiError {
                 "invalid_provider_api_key",
                 error.to_string(),
             ),
+            ConfigPublishError::OAuthAccountNotFound => AdminApiError::new(
+                StatusCode::NOT_FOUND,
+                "oauth_account_not_found",
+                "OAuth account was not found",
+            ),
+            ConfigPublishError::OAuthAccountVersionConflict => AdminApiError::new(
+                StatusCode::CONFLICT,
+                "oauth_account_version_conflict",
+                "OAuth account changed; review the latest values before saving",
+            ),
+            ConfigPublishError::OAuthAccountTokenVersionConflict => AdminApiError::new(
+                StatusCode::CONFLICT,
+                "oauth_account_token_version_conflict",
+                "OAuth account token changed; refresh before trying again",
+            ),
+            ConfigPublishError::OAuthAccountLabelConflict => AdminApiError::new(
+                StatusCode::CONFLICT,
+                "oauth_account_label_conflict",
+                "OAuth account label is already in use for this provider",
+            ),
+            ConfigPublishError::InvalidOAuthAccount(error) => AdminApiError::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_oauth_account",
+                error.to_string(),
+            ),
+            ConfigPublishError::OAuthModelUnavailable => AdminApiError::new(
+                StatusCode::BAD_REQUEST,
+                "oauth_model_unavailable",
+                "one or more models are not available for this OAuth account",
+            ),
             ConfigPublishError::GatewayApiKeyNotFound => AdminApiError::new(
                 StatusCode::NOT_FOUND,
                 "gateway_api_key_not_found",

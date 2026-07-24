@@ -15,7 +15,9 @@ async fn fresh_runtime_snapshot_reports_compiled_queue_and_empty_capacity() {
     );
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = RuntimeRegistry::new(configuration.settings().scheduler());
-    let published = PublishedSnapshot::new(configuration, &runtime);
+    let capabilities = crate::test_support::configuration_capabilities();
+    let published =
+        PublishedSnapshot::new(configuration, &runtime, capabilities.provider_registry());
     let snapshot = runtime.balancing_snapshot(&published);
 
     assert_eq!(snapshot.scheduler_epoch(), 0);

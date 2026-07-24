@@ -4,7 +4,7 @@ use std::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId,
+    CompletedRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId,
     ProtocolOperation, ProviderEndpointId, ProxyProfileId, PublicError, PublicErrorCode,
     RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog, RetrySafety, RouteTargetId,
     TokenUsage,
@@ -44,8 +44,9 @@ struct RequestRecorderState {
 
 #[derive(Clone, Copy)]
 struct FinalTarget {
-    endpoint_id: ProviderEndpointId,
-    credential_id: CredentialId,
+    endpoint_id: Option<ProviderEndpointId>,
+    credential_id: Option<CredentialId>,
+    oauth_account_id: Option<OAuthAccountId>,
     proxy_id: ProxyProfileId,
 }
 
@@ -93,8 +94,12 @@ impl RequestRecorder {
             return AttemptRecorder::disabled();
         };
         let target = FinalTarget {
-            endpoint_id: candidate.endpoint_id,
-            credential_id: candidate.credential_id,
+            endpoint_id: candidate
+                .credential_id
+                .provider_credential_id()
+                .map(|_| candidate.endpoint_id),
+            credential_id: candidate.credential_id.provider_credential_id(),
+            oauth_account_id: candidate.credential_id.oauth_account_id(),
             proxy_id: candidate.proxy_id,
         };
         inner
@@ -107,7 +112,8 @@ impl RequestRecorder {
             request_id: inner.request_id,
             attempt_no,
             route_target_id: Some(candidate.target_id),
-            credential_id: Some(candidate.credential_id),
+            credential_id: candidate.credential_id.provider_credential_id(),
+            oauth_account_id: candidate.credential_id.oauth_account_id(),
             proxy_profile_id: Some(candidate.proxy_id),
             started_at_ms: unix_time_ms(),
             started_at: Instant::now(),
@@ -179,8 +185,9 @@ impl RequestRecorderInner {
                     ingress_protocol: self.operation.dialect(),
                     operation: self.operation,
                     public_model: state.public_model.clone(),
-                    provider_endpoint_id: final_target.map(|target| target.endpoint_id),
-                    credential_id: final_target.map(|target| target.credential_id),
+                    provider_endpoint_id: final_target.and_then(|target| target.endpoint_id),
+                    credential_id: final_target.and_then(|target| target.credential_id),
+                    oauth_account_id: final_target.and_then(|target| target.oauth_account_id),
                     proxy_profile_id: final_target.map(|target| target.proxy_id),
                     status_code,
                     error_class,
@@ -212,6 +219,7 @@ pub(crate) struct AttemptRecorder {
     attempt_no: u32,
     route_target_id: Option<RouteTargetId>,
     credential_id: Option<CredentialId>,
+    oauth_account_id: Option<OAuthAccountId>,
     proxy_profile_id: Option<ProxyProfileId>,
     started_at_ms: u64,
     started_at: Instant,
@@ -226,6 +234,7 @@ impl AttemptRecorder {
             attempt_no: 1,
             route_target_id: None,
             credential_id: None,
+            oauth_account_id: None,
             proxy_profile_id: None,
             started_at_ms: 0,
             started_at: Instant::now(),
@@ -342,6 +351,7 @@ impl AttemptRecorder {
             attempt_no: self.attempt_no,
             route_target_id: self.route_target_id,
             credential_id: self.credential_id,
+            oauth_account_id: self.oauth_account_id,
             proxy_profile_id: self.proxy_profile_id,
             started_at_ms: self.started_at_ms,
             duration_ms: duration_ms(self.started_at.elapsed()),

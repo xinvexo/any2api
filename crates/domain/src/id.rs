@@ -57,6 +57,7 @@ define_id!(ProxyProfileId);
 define_id!(ModelRouteId);
 define_id!(RouteTargetId);
 define_id!(GatewayApiKeyId);
+define_id!(OAuthAccountId);
 
 impl ProxyProfileId {
     pub const DIRECT: Self = Self(Uuid::nil());

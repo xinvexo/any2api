@@ -238,6 +238,7 @@ fn record(request_id: RequestId) -> CompletedRequestLog {
             public_model: Some("test".into()),
             provider_endpoint_id: None,
             credential_id: None,
+            oauth_account_id: None,
             proxy_profile_id: None,
             status_code: 200,
             error_class: None,

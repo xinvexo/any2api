@@ -33,9 +33,9 @@ function CredentialRow({ credential, totalSelections }: { credential: BalancingC
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="break-words font-semibold [overflow-wrap:anywhere]">{credential.label}</h2>
             <span className="rounded-full bg-surface-muted px-2.5 py-1 text-xs text-secondary">{providerLabel(credential.providerKind)}</span>
-            {!credential.enabled || !credential.endpointEnabled || !credential.proxyEnabled ? <span className="rounded-full bg-warning/15 px-2.5 py-1 text-xs text-warning-copy">已停用</span> : null}
+            {!credential.enabled || credential.authenticationExpired || !credential.endpointEnabled || !credential.proxyEnabled ? <span className="rounded-full bg-warning/15 px-2.5 py-1 text-xs text-warning-copy">已停用</span> : null}
           </div>
-          <p className="mt-2 text-sm text-secondary">{credential.endpointName} · {credential.proxyName} ({credential.proxyKind.toUpperCase()})</p>
+          <p className="mt-2 text-sm text-secondary">{credential.endpointName ?? "Provider OAuth"} · {credential.proxyName} ({credential.proxyKind.toUpperCase()})</p>
           <p className="mt-1 truncate font-mono text-xs text-tertiary" title={credential.credentialId}>{credential.credentialId}</p>
         </div>
         <div className="w-full lg:max-w-xs">

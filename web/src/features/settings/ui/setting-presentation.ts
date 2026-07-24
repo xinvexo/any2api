@@ -19,6 +19,8 @@ const labels: Record<string, string> = {
   "logs.file.retention": "文件日志保留时间",
   "logs.file.max_total_size": "文件日志最大容量",
   "logs.telemetry_queue_capacity": "遥测队列容量",
+  "oauth.refresh.scan_interval": "OAuth 刷新扫描间隔",
+  "oauth.refresh.lead_time": "OAuth 提前刷新窗口",
   "upstream.read_timeout": "上游读取超时",
   "upstream.strict_ssrf": "严格 SSRF 本地 DNS",
   "stream.precommit.max_bytes": "SSE 单帧与预提交字节上限",

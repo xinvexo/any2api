@@ -35,6 +35,7 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
+        any2api_contract_tests::build_provider_registry().as_ref(),
     )));
     let publisher = Arc::new(
         ConfigPublisher::new(
@@ -95,7 +96,7 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
         .await
         .expect("credential publish");
     let permit = published
-        .credential_runtime(credential_id)
+        .credential_runtime(credential_id.into())
         .expect("credential runtime")
         .try_acquire()
         .expect("capacity permit");

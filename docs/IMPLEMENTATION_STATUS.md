@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：API Key 数据面、OpenAI 协议桥已完成；OAuth2 正从独立下载工具重构为独立 SQLite `OAuthAccount` 与统一路由候选池。
-- 最近完成：新增独立 `/oauth` 一级菜单、Codex/Claude PKCE 登录和内存单次 session。当前切片将移除浏览器 JSON 下载，改为安全元数据回执、账号管理、SQLite 持久化与运行时发布。
+- 当前阶段：API Key 数据面、OpenAI 协议桥和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新与管理 Web，正在收尾带真实账号夹具的浏览器验收。
+- 最近完成：单进程 OAuth 刷新 Worker、per-account singleflight、token-version CAS 发布和 Pending 401 单次刷新重试；刷新后按新 PublishedSnapshot 重新规划候选。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -17,7 +17,7 @@
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
 - 上一切片提交主题：`feat: embed the management web app`。
-- 本切片主题：Gateway Key 使用时间与 ProviderCredential 连通性恢复。
+- 本切片主题：OAuthAccount 激活、独立管理与统一路由接入。
 
 ## 已完成
 
@@ -136,7 +136,7 @@
 ### 严格 SSRF 本地 DNS 切片
 
 - 新增并接受 ADR-0019，明确 DIRECT、HTTP forward、HTTPS CONNECT 与 SOCKS5 的本地/远端 DNS 信任边界、A/AAAA 解析、目标固定、Host/SNI、DNS rebinding 与多地址失败语义；地址类别授权由 ADR-0029 移除。
-- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。该切片完成时 Registry 共 44 项，后续文件日志与停机设置使当前总数达到 49 项。
+- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。该切片完成时 Registry 共 44 项，后续文件日志、停机与 OAuth 刷新设置使当前总数达到 51 项。
 - DIRECT 始终执行本地解析与 reqwest `resolve_to_addrs` 固定；严格模式关闭时 HTTP/SOCKS5 保持既有受信远端 DNS 行为。
 - 严格模式下，HTTP forward 的 absolute-form authority 使用已验证 IP 并保留原始 Host；HTTPS CONNECT 向代理发送已验证 IP，隧道后继续使用原始 TLS SNI、证书名、HTTP Host 与 HTTP/2 authority。
 - 严格 SOCKS5 使用 IP 地址类型，不发送目标域名；普通 HTTP 与 TLS 仍保留原始应用层 authority。代理自身地址仍是用户显式配置的信任边界。
@@ -318,7 +318,7 @@
 
 ### 本地文件日志轮转切片
 
-- SettingRegistry 新增 `logs.file.level`、`logs.file.retention` 与 `logs.file.max_total_size`，默认分别为 `info`、`7d` 与 `256 MiB`；该切片完成时 Registry 共 47 项，后续停机设置使当前总数达到 49 项，Web 显示默认值、覆盖值和生效值并支持恢复默认。
+- SettingRegistry 新增 `logs.file.level`、`logs.file.retention` 与 `logs.file.max_total_size`，默认分别为 `info`、`7d` 与 `256 MiB`；该切片完成时 Registry 共 47 项，后续停机与 OAuth 刷新设置使当前总数达到 51 项，Web 显示默认值、覆盖值和生效值并支持恢复默认。
 - Composition Root 在读取 SQLite 当前配置后一次性安装控制台与文件 tracing layer；控制台继续使用 `RUST_LOG`，文件层只服从 `logs.file.level`。
 - 本地日志写入 `<data-dir>/logs` 下的 JSONL 分段文件，使用 `tracing-appender` 的有界丢弃式非阻塞队列和独立写线程；请求线程不等待文件系统，进程结束时 Guard 尽力刷新已经入队的日志。
 - 分段同时按 UTC 日期与大小轮转；单段目标上限为总容量八分之一与 `32 MiB` 的较小值。关闭分段先按保留期限清理，再从最旧文件开始按总容量清理；活跃文件和非 any2api 命名文件不会被删除。
@@ -337,7 +337,7 @@
 
 ### 上游读取与 SSE 提交后空闲超时切片
 
-- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续严格 SSRF、文件日志与停机设置使当前总数达到 49 项。
+- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续严格 SSRF、文件日志、停机与 OAuth 刷新设置使当前总数达到 51 项。
 - `TransportRequest` 按请求快照携带 read timeout，不把它放进连接池 Client key。固定请求体开始被连接层消费后才启动响应头 timer，因此较短的 read timeout 不会取代 DNS、连接、代理握手或 TLS 的既有阶段边界。
 - 等待响应头超时记录为 `AwaitHeaders + Ambiguous`；JSON、Compact、Count Tokens 与非成功 SSE 错误正文逐 chunk 收集时使用相同空闲时长，超时记录为 `ReadBody + Ambiguous`。DIRECT 归因 Endpoint，无法证明责任的代理路径归入 `Unattributed`。
 - 成功 SSE 提交前只使用 `stream.precommit.max_duration`，不叠加通用 read timeout；首个下游帧交付时启动 post-commit idle timer，每个成功上游 chunk（包括不完整帧）重置，缓冲完整事件始终优先交付。
@@ -368,7 +368,7 @@
 
 - 新增进程级 `ProcessLifecycle`，状态固定为 `Running / Draining / Forced`；请求与后台任务分别追踪，健康定时任务在 Draining 退出，配置发布和密码轮换在 Forced 取消异步 future。
 - Server 最外层 Guard 覆盖完整 Handler 与响应 Body 生命周期；普通响应、SSE EOF/error、客户端 Drop 和 Forced 静默 Body 都通过 RAII 释放请求计数、QueueTicket、Permit 与上游连接。
-- SettingRegistry 新增 `shutdown.request_grace_period` 与 `shutdown.finalize_timeout`，默认 `30s` 与 `5s`、当前共 49 项；Web 设置页支持默认/覆盖/生效值，总览显示 shutdown phase、活动请求与后台任务数。
+- SettingRegistry 新增 `shutdown.request_grace_period` 与 `shutdown.finalize_timeout`，默认 `30s` 与 `5s`；该切片完成时共 49 项，当前加上 OAuth 刷新设置后共 51 项。Web 设置页支持默认/覆盖/生效值，总览显示 shutdown phase、活动请求与后台任务数。
 - 停机信号到达时从当前 `PublishedSnapshot` 一次性捕获两项设置；配置热更新立即影响下一次停机，已经开始的停机不会混用后续 revision。
 - RequestTelemetry Writer 纳入同一 Tracker；关闭 sender 后先排空，超时则 abort 并 await，禁止遗留脱管 SQLite Writer。SQLite Pool 随后显式关闭。
 - Argon2 通过 Tracker 的 blocking 入口运行；请求或外层密码轮换 future 被取消后，blocking closure 仍保持计数直到真正返回，避免 Tokio Runtime Drop 无界等待被误判为已收尾。
@@ -386,34 +386,46 @@
 - Playwright 从 Cargo JSON 构建消息取得本轮真实二进制，启动时清除宿主全部 `ANY2API_*` 配置并使用独立临时数据目录；登录、刷新 deep link、桌面核心页面和 390px 移动导航均已通过默认内嵌路径。
 - Release 二进制复制到不含源码和 `web/dist` 的临时目录后，首页、`/settings`、哈希 JS、缓存头、缺失 asset 404、API 根隔离和未知 API 不回落 SPA 均验证通过。完整决策见 `docs/adr/0027-embedded-web-assets.md`。
 
-### OAuthAccount 与统一路由切片（进行中）
+### OAuthAccount 与统一路由切片（核心完成）
 
 - `ProviderCredential` 继续只接受 `api_key`；旧 OAuth Credential migration 保持不可变，Provider 页面不增加 OAuth 类型或入口。
-- OAuth 登录仍使用 Codex/Claude Provider Driver 的固定 authorize/token Endpoint、Client ID、localhost Redirect URI、PKCE 及内存单次 session；兑换成功不再下载 JSON。
-- 新增独立 `OAuthAccount` SQLite 聚合，明文保存 Provider JSON、账号安全元数据、模型、启用状态、并发限制、token/configuration/generation 版本；原始 JSON 不进 Vault、日志、DTO、浏览器状态或导出接口。
-- 发布时 Provider API Key 与 OAuthAccount 统一编译为 `RoutingCredential`，共享现有的选择+Permit、排队、粘性、健康、重试和流式提交边界；OAuth 使用 Provider-owned 固定 Endpoint 与 DIRECT/全局代理。
-- 本切片还需完成 token 刷新 worker、token-version CAS、OAuth 管理 API/Web、Storage/Runtime/HTTP 契约和真实浏览器验证。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
+- OAuth 登录继续使用 Codex/Claude Provider Driver 的固定 authorize/token Endpoint、Client ID、localhost Redirect URI、PKCE 及内存单次 session；HTTP exchange 已取消附件下载并通过串行发布链创建 SQLite `OAuthAccount`。
+- 已新增独立 `OAuthAccount` SQLite 聚合，明文保存 Provider JSON、账号安全元数据、模型、启用状态、并发限制、token/configuration/generation 版本；原始 JSON 不进 Vault、日志、DTO、浏览器状态或导出接口。
+- Storage 已实现全局 revision 串行写、账号 config-version 冲突、token-version CAS、刷新时模型保留、DIRECT 固定绑定、重启恢复和损坏 JSON fail-closed；ProviderCredential 表与 API-key-only 约束未改变。
+- 激活使用发布快照解析后的 DIRECT/全局代理并继承严格 SSRF 设置，失败不回退本机直连；多个同时完成的登录在发布锁内逐个读取最新 revision，均可完成 Commit/reconcile/快照切换。
+- 激活回执只包含 Provider、账号 ID、标签、启用状态、并发、过期时间、安全邮箱、模型数、配置版本和新 revision；Web 仅保存该回执的页面内状态，不再创建 Blob、下载 Token JSON 或写浏览器存储。
+- `/api/admin/oauth/accounts` 提供独立于 ProviderCredential 的安全列表、元数据 PATCH、模型 PUT 和带版本删除；管理 DTO 不接受或返回 OAuth JSON/Token/Endpoint/代理字段，所有写操作经过同一串行发布链。
+- Provider Driver 已提供固定 OAuth 数据面与模型目录：Codex 使用 `https://chatgpt.com/backend-api/codex` 并按账号套餐选择目录，Claude 使用 `https://api.anthropic.com/v1`；账号只能保存该 Provider 目录内的模型，新激活账号默认选择可用目录。
+- Runtime 新增带来源标签的 `RoutingCredentialId` 与统一 `RoutingCredential` 投影；Provider API Key 和 OAuthAccount 共用稳定 Handle、原子选择+Permit、容量、排队、粘性、健康、重试与流式生命周期，OAuth 不再伪装成 ProviderCredential ID。
+- OAuthAccount 固定绑定 DIRECT 并继承已发布全局代理；Codex 注入 Bearer、`Chatgpt-Account-Id` 与 `Originator`，Claude 注入 Bearer、固定 `anthropic-version` 并合并所需 OAuth beta，Gateway 认证头仍在进入 Driver 前剥离。
+- `/v1/models` 已合并 OAuth-only 模型；请求规划可在没有 ProviderEndpoint/ProviderCredential 时使用 OAuth 固定路由，同模型 API Key 与 OAuth 账号进入同一候选池。账号到期状态按请求时间动态判断，过期账号不进入目录或调度。
+- RequestLog/Attempt 使用独立 `oauth_account_id` 标识 OAuth 来源，`credential_id` 与内部固定 `provider_endpoint_id` 保持为空；Balancing、Affinity 与对应 Web 契约均使用来源标签，OAuth 清理令牌固定为 `oauth_account:<uuid>`。
+- SettingRegistry 新增 `oauth.refresh.scan_interval=30s` 与 `oauth.refresh.lead_time=300s`，要求提前窗口不短于扫描间隔；Worker 启动即扫描并由快照 revision 唤醒，配置热更新后重新读取账号和生效值。
+- 单进程 Worker 与请求侧共用 per-account singleflight gate；并发等待者共享成功或失败，拿锁后复核 token version。成功刷新保留模型/管理元数据和 Provider 未返回的稳定 Token 字段，通过 SQLite token-version CAS、Runtime reconcile 与单次快照切换发布新认证 generation。
+- OAuth 账号返回 retry-safe 401 时，仅在下游仍为 Pending 且重试预算允许时触发一次刷新；刷新成功或并发请求已更新账号后，基于新 PublishedSnapshot 完整重建候选。第二个 401、Ambiguous、刷新失败或提交后错误都不会再次刷新或发送第三条 Attempt。
+- 刷新响应省略到期时间时继续使用 SQLite 账号的旧到期边界，禁止把有限 Token 误变成永不过期；Token Endpoint 和数据面始终使用 DIRECT/全局代理，失败无隐式直连回退。Worker 在 Draining 退出，已经进入串行发布的 CAS 按关键任务边界完成或在 Forced 取消。
+- React `/oauth` 已接入账号列表、标签/并发/启停编辑、模型替换、删除确认、过期提示和 URL deep link；登录成功后刷新账号列表，Token 与原始 JSON 不进入浏览器状态。真实 Chromium 已覆盖桌面 deep link、空账号态、390px 导航关闭和无横向溢出；仍需用预置 OAuth 账号夹具覆盖浏览器内编辑/删除。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
 - Credential 模型配置、内部 ModelRoute 物化、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析和固定目标连接。Provider Base URL 可直接指向 HTTP(S) 公网或内网目标。
-- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、request logging、file logging 与 shutdown 共 49 项 SettingRegistry。
+- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、OAuth refresh、request logging、file logging 与 shutdown 共 51 项 SettingRegistry。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
-- ProviderCredential generation 只承载 API Key 认证材料；OAuthAccount 将生成独立认证 generation，并与 API Key 编译到同一个路由候选池，当前正在实现。
+- ProviderCredential 与 OAuthAccount 分别承载 API Key generation 和独立 token/account generation，并通过带来源标签的 `RoutingCredentialId` 编译到同一候选池；两类持久化模型和管理 API 保持分离。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
-- 负载均衡运行态 API 与 `/balancing` 页面已完成；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
+- RequestLog/Attempt 对 API Key 与 OAuth 使用互斥来源列；OAuth 不暴露内部固定 Endpoint。负载均衡运行态 API、Affinity 管理与对应页面已识别两类来源；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 - 正式运行默认从二进制内嵌 React 资源提供管理面；改变当前工作目录或删除源码树不会影响页面，外部 Web 目录必须通过 `ANY2API_WEB_DIR` 显式选择。
 
 ## 下一步
 
-1. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
-2. 补充 Unix 真实子进程 SIGTERM、成功停机后同数据目录立即重启等进程级 CI 契约；它们用于加固现有语义，不引入运行态恢复。
-3. 完成 OAuthAccount 的刷新 worker、账号管理和统一路由契约；未来如需 Provider 专用 OAuth2 JSON 导入或 `/backend-api/codex/responses` 数据面兼容，必须另建切片，不能把 OAuthAccount 隐式接入 ProviderCredential。
+1. 为真实二进制 E2E 增加安全的预置 OAuthAccount 测试夹具，覆盖桌面/窄屏账号编辑、模型抽屉、删除确认、deep link 和页面/浏览器状态中无 Token。
+2. 使用实际 Codex 与 Claude 管理员账号分别完成一次人工登录、自动刷新和 401 恢复 smoke；该步骤需要外部账号授权，不把 Token 写入测试产物或日志。
+3. 未来如需 Provider 专用 OAuth2 JSON 导入、通用 Secret 导出或 `/backend-api/codex/responses` 客户端别名，必须另建切片/ADR，不能把 OAuthAccount 隐式接入 ProviderCredential。
 
 ## 验证结果
 
@@ -435,4 +447,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前更新已通过 Rust fmt、严格 clippy、workspace 全特性测试（含 doc test）、architecture-check，以及 Web typecheck、lint、production build、内嵌产物一致性检查和 31 个 Vitest 文件的 85 项测试。OAuth2 真实 HTTP 契约额外覆盖独立 start、DIRECT exchange、一次性下载、session 防重放与配置 revision 不变；本地浏览器已验证 `/oauth` deep link、一级菜单和页面加载。Vite 仍只有单入口 bundle 超过 500 kB 的既有提示。
+当前 OAuthAccount 统一路由、自动刷新、401 恢复与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、`cargo deny --offline check`，以及 Web typecheck、lint、99 项 Vitest、production build 和内嵌产物一致性检查。真实 Chromium E2E 的 3 项用例已覆盖登录 deep link、OAuth 管理页与 390px 响应式导航。OAuth 契约覆盖独立账号 CRUD、固定数据面、统一 Permit、模型目录、认证头、动态过期、刷新 singleflight/token-version CAS、401 单次恢复、独立日志来源与配置重启。`cargo xtask architecture-check` 仍仅被既有 `web/src/app/styles/globals.css` 超过 600 code lines 阻塞。

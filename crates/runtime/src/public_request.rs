@@ -11,7 +11,10 @@ mod stream_tests;
 #[cfg(test)]
 mod stream_timeout_tests;
 
-use std::{pin::Pin, sync::Arc};
+use std::{
+    pin::Pin,
+    sync::{Arc, OnceLock},
+};
 
 use any2api_domain::{GatewayApiKeyId, ProtocolDialect, ProtocolOperation, PublicError, RequestId};
 use any2api_protocol::api::{EgressResponse, ProtocolAdapter, ProtocolRegistry};
@@ -25,6 +28,7 @@ use thiserror::Error;
 use crate::{
     auxiliary_scheduler::AuxiliaryPermit,
     credential_runtime::ConcurrencyPermit,
+    oauth::{OAuthService, refresh::OAuthRefresher},
     published_snapshot::PublishedSnapshot,
     request_telemetry::{RequestRecorder, RequestTelemetry},
     route_candidates::RouteCandidate,
@@ -58,6 +62,7 @@ pub struct PublicRequestService {
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
     telemetry: Arc<RequestTelemetry>,
+    oauth_refresher: OnceLock<Arc<OAuthRefresher>>,
 }
 
 impl PublicRequestService {
@@ -76,6 +81,7 @@ impl PublicRequestService {
             providers,
             transport,
             telemetry: Arc::new(RequestTelemetry::disabled()),
+            oauth_refresher: OnceLock::new(),
         })
     }
 
@@ -83,6 +89,10 @@ impl PublicRequestService {
     pub fn with_telemetry(mut self, telemetry: Arc<RequestTelemetry>) -> Self {
         self.telemetry = telemetry;
         self
+    }
+
+    pub fn install_oauth_refresh(&self, oauth: &OAuthService) -> bool {
+        self.oauth_refresher.set(oauth.refresher()).is_ok()
     }
 
     pub async fn execute(
@@ -154,6 +164,7 @@ impl PublicRequestService {
             planned,
             self.providers.as_ref(),
             self.transport.as_ref(),
+            self.oauth_refresher.get().map(Arc::as_ref),
             recorder,
         )
         .await
@@ -172,13 +183,14 @@ pub(super) enum RequestPermit {
 }
 
 impl RequestPermit {
-    pub(super) fn provider_credential_headers(
+    pub(super) fn credential_headers(
         &self,
         driver: &dyn ProviderDriver,
+        forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
         match self {
-            Self::Generation(permit) => permit.provider_credential_headers(driver),
-            Self::Auxiliary(permit) => permit.provider_credential_headers(driver),
+            Self::Generation(permit) => permit.credential_headers(driver, forwarded),
+            Self::Auxiliary(permit) => permit.credential_headers(driver, forwarded),
         }
     }
 }

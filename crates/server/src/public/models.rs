@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use axum::{Json, extract::Extension};
 use serde::Serialize;
 
@@ -22,7 +20,9 @@ struct ModelListItem {
 pub(super) async fn list_models(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
 ) -> Json<ModelListResponse> {
-    let data = published_model_names(authenticated.snapshot().model_routes())
+    let data = authenticated
+        .snapshot()
+        .public_model_names()
         .into_iter()
         .map(|id| ModelListItem {
             id,
@@ -38,15 +38,6 @@ pub(super) async fn list_models(
     })
 }
 
-fn published_model_names(routes: &any2api_domain::ModelRouteConfiguration) -> BTreeSet<String> {
-    routes
-        .routes()
-        .iter()
-        .filter(|route| route.enabled())
-        .map(|route| route.public_model().as_str().to_owned())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use any2api_domain::{
@@ -55,10 +46,8 @@ mod tests {
         ProviderEndpointId, ProviderKind, RouteTargetDraft, RouteTargetId,
     };
 
-    use super::published_model_names;
-
     #[test]
-    fn model_list_items_are_sorted_and_cross_protocol_names_are_deduplicated() {
+    fn model_routes_are_sorted_and_cross_protocol_names_are_deduplicated() {
         let codex_endpoint = endpoint(
             ProviderKind::Codex,
             ProtocolDialect::OpenAiResponses,
@@ -105,7 +94,12 @@ mod tests {
         )
         .expect("routes");
 
-        let names = published_model_names(&routes);
+        let names = routes
+            .routes()
+            .iter()
+            .filter(|route| route.enabled())
+            .map(|route| route.public_model().as_str().to_owned())
+            .collect::<std::collections::BTreeSet<_>>();
         assert_eq!(
             names.into_iter().collect::<Vec<_>>(),
             ["a-model", "z-model"]

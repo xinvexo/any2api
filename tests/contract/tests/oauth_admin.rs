@@ -29,6 +29,7 @@ use axum::{
     },
 };
 use http_body_util::BodyExt;
+use secrecy::ExposeSecret;
 use serde_json::{Value, json};
 use tempfile::tempdir;
 use tower::ServiceExt;
@@ -93,8 +94,8 @@ async fn oauth_exchange_rejects_unknown_sessions_without_network_access() {
 }
 
 #[tokio::test]
-async fn oauth_exchange_downloads_json_once_over_direct_transport() {
-    let (_directory, app, _storage) = test_app().await;
+async fn oauth_exchange_activates_persisted_account_once_over_direct_transport() {
+    let (_directory, app, storage) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let (_, start) = request_json(
         app.clone(),
@@ -135,17 +136,54 @@ async fn oauth_exchange_downloads_json_once_over_direct_transport() {
             .and_then(|value| value.to_str().ok()),
         Some("no-store")
     );
-    assert_eq!(
-        response
-            .headers
-            .get(CONTENT_DISPOSITION)
-            .and_then(|value| value.to_str().ok()),
-        Some("attachment; filename=\"codex-auth.json\"")
+    assert!(response.headers.get(CONTENT_DISPOSITION).is_none());
+    let activation: Value = serde_json::from_slice(&response.body).expect("activation response");
+    assert_eq!(activation["provider"], "codex");
+    assert_eq!(activation["max_concurrency"], 1);
+    assert_eq!(activation["enabled"], true);
+    assert_eq!(activation["selected_model_count"], 8);
+    assert_eq!(activation["config_version"], 1);
+    assert_eq!(activation["config_revision"], 2);
+    assert!(
+        activation["label"]
+            .as_str()
+            .is_some_and(|label| label.starts_with("Codex OAuth "))
     );
-    let file: Value = serde_json::from_slice(&response.body).expect("OAuth JSON file");
-    assert_eq!(file["type"], "codex");
-    assert_eq!(file["access_token"], "access-token");
-    assert_eq!(file["refresh_token"], "refresh-token");
+    assert!(activation.get("access_token").is_none());
+    assert!(activation.get("refresh_token").is_none());
+    assert!(activation.get("id_token").is_none());
+    assert_eq!(activation["safe_account_email"], "person@example.com");
+
+    let stored = storage.load_configuration().await.expect("configuration");
+    assert_eq!(stored.revision().get(), 2);
+    let account = stored
+        .oauth_accounts()
+        .accounts()
+        .first()
+        .expect("persisted OAuth account");
+    assert_eq!(activation["account_id"], account.id().to_string());
+    assert_eq!(account.provider_kind(), any2api_domain::ProviderKind::Codex);
+    assert_eq!(account.max_concurrency().get(), 1);
+    assert!(account.enabled());
+    assert_eq!(account.models().len(), 8);
+    assert!(
+        account
+            .models()
+            .iter()
+            .any(|model| model.as_str() == "gpt-5.3-codex-spark")
+    );
+    let account_id = account.id();
+
+    let mut materials = stored.into_parts().oauth_account_materials.into_entries();
+    let material = materials.pop().expect("persisted OAuth document");
+    assert!(materials.is_empty());
+    assert_eq!(material.account_id(), account_id);
+    let document = material.into_document().into_bytes();
+    let document: Value =
+        serde_json::from_slice(document.expose_secret()).expect("stored OAuth document");
+    assert_eq!(document["type"], "codex");
+    assert_eq!(document["access_token"], "access-token");
+    assert_eq!(document["refresh_token"], "refresh-token");
 
     let (status, replay) = request_json(
         app,
@@ -174,6 +212,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
+        any2api_contract_tests::build_provider_registry().as_ref(),
     )));
     let publisher = Arc::new(
         ConfigPublisher::new(
@@ -196,6 +235,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     let oauth = Arc::new(OAuthService::new(
         Arc::new(providers),
         token_transport as Arc<dyn TransportManager>,
+        Arc::clone(&publisher),
     ));
     let app = build_router(
         AppState::new(snapshots, runtime, publisher, components.service()).with_oauth(oauth),
@@ -278,7 +318,7 @@ impl TransportManager for TokenTransport {
             headers: HeaderMap::new(),
             body: Box::pin(futures_util::stream::once(async {
                 Ok(bytes::Bytes::from_static(
-                    br#"{"access_token":"access-token","refresh_token":"refresh-token","expires_in":3600}"#,
+                    br#"{"access_token":"access-token","refresh_token":"refresh-token","id_token":"header.eyJlbWFpbCI6InBlcnNvbkBleGFtcGxlLmNvbSIsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2NvdW50LTEyMyIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyJ9fQ.signature","expires_in":3600}"#,
                 ))
             })),
             read_failure_scope: TransportFailureScope::Endpoint,

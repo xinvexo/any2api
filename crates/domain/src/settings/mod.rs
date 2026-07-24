@@ -5,6 +5,7 @@ mod definition;
 mod definitions;
 mod key;
 mod logging_settings;
+mod oauth_settings;
 mod reliability_settings;
 mod scheduler_settings;
 mod shutdown_settings;
@@ -21,6 +22,7 @@ pub use logging_settings::{
     LoggingSettings, MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE,
     MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
 };
+pub use oauth_settings::OAuthSettings;
 pub use reliability_settings::ReliabilitySettings;
 pub use scheduler_settings::SchedulerSettings;
 pub use shutdown_settings::ShutdownSettings;

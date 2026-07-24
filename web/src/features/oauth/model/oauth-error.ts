@@ -9,6 +9,7 @@ const messages: Record<string, string> = {
   oauth_state_mismatch: "The callback URL does not match this login session.",
   oauth_token_timeout: "The token endpoint timed out.",
   oauth_token_exchange_failed: "The token exchange failed.",
+  oauth_activation_failed: "The login completed, but the account could not be activated.",
   oauth_unavailable: "OAuth2 login is unavailable.",
 };
 

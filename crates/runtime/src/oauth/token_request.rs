@@ -1,6 +1,5 @@
 use std::time::Duration;
 
-use any2api_domain::ProxyProfile;
 use any2api_provider::api::OAuthRequestPlan;
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportManager, TransportProxy, TransportRequest,
@@ -16,9 +15,10 @@ const TOKEN_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(super) async fn execute(
     transport: &dyn TransportManager,
+    proxy: TransportProxy<'_>,
+    strict_ssrf: bool,
     plan: OAuthRequestPlan,
 ) -> Result<Bytes, OAuthError> {
-    let direct = ProxyProfile::direct();
     let request = TransportRequest {
         method: plan.method,
         uri: plan.url.as_str().parse().map_err(|_| {
@@ -28,12 +28,10 @@ pub(super) async fn execute(
         })?,
         headers: plan.headers,
         body: Bytes::from(plan.body),
-        network_policy: EndpointNetworkPolicy::new(),
+        network_policy: EndpointNetworkPolicy::new().with_strict_ssrf(strict_ssrf),
         read_timeout: TOKEN_READ_TIMEOUT,
     };
-    let response = transport
-        .execute(TransportProxy::new(&direct, None), request)
-        .await?;
+    let response = transport.execute(proxy, request).await?;
     if !response.status.is_success() {
         return Err(OAuthError::TokenRejected(response.status.as_u16()));
     }

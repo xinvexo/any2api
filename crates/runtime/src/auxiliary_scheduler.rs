@@ -6,10 +6,11 @@ use std::{
 
 use any2api_domain::SchedulerSettings;
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError};
+use http::HeaderMap;
 use thiserror::Error;
 
 #[cfg(test)]
-use any2api_domain::CredentialId;
+use any2api_domain::RoutingCredentialId;
 
 use crate::{
     credential_runtime::{
@@ -194,7 +195,7 @@ pub(crate) struct AuxiliaryPermit {
 impl AuxiliaryPermit {
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn credential_id(&self) -> CredentialId {
+    pub(crate) fn credential_id(&self) -> RoutingCredentialId {
         self.handle.id()
     }
 
@@ -204,11 +205,12 @@ impl AuxiliaryPermit {
         &self.generation
     }
 
-    pub(crate) fn provider_credential_headers(
+    pub(crate) fn credential_headers(
         &self,
         driver: &dyn ProviderDriver,
+        forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
-        driver.credential_headers(self.generation.provider_secret())
+        self.generation.credential_headers(driver, forwarded)
     }
 }
 

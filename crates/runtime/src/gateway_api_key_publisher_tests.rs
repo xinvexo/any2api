@@ -23,6 +23,7 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
+        crate::test_support::configuration_capabilities().provider_registry(),
     )));
     let publisher = ConfigPublisher::new(
         storage,

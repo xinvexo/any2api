@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use any2api_domain::CredentialId;
+use any2api_domain::RoutingCredentialId;
 
 use super::{
     hash::SessionHash,
@@ -64,7 +64,7 @@ fn build_snapshot(
     hard_ttl: Duration,
     limit: usize,
 ) -> AffinityRuntimeSnapshot {
-    let mut counts = HashMap::<CredentialId, (usize, usize)>::new();
+    let mut counts = HashMap::<RoutingCredentialId, (usize, usize)>::new();
     let mut bindings = Vec::new();
     let mut soft_binding_count = 0;
     let mut creating_count = 0;

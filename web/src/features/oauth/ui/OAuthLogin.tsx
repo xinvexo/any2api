@@ -1,7 +1,6 @@
 import {
   CheckCircle2,
   ExternalLink,
-  FileDown,
   LoaderCircle,
   LogIn,
   RotateCcw,
@@ -169,9 +168,9 @@ export function OAuthLogin() {
                     {login.pending === "exchange" ? (
                       <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
                     ) : (
-                      <FileDown size={14} aria-hidden="true" />
+                      <CheckCircle2 size={14} aria-hidden="true" />
                     )}
-                    下载 JSON
+                    激活账号
                   </Button>
                 </div>
               </form>
@@ -181,7 +180,7 @@ export function OAuthLogin() {
           <Surface className="flex min-h-48 flex-col items-center justify-center px-4 py-10 text-center">
             <p className="text-[13px] font-medium">还没有 {providerName} 登录会话</p>
             <p className="mt-1 max-w-sm text-[12px] text-secondary">
-              点击「OAuth认证」生成一次性授权链接，完成后粘贴回调 URL 下载认证 JSON。
+              点击「OAuth认证」生成一次性授权链接，完成后粘贴回调 URL 激活服务器账号。
             </p>
           </Surface>
         )}
@@ -191,10 +190,11 @@ export function OAuthLogin() {
             {getOAuthErrorMessage(login.error)}
           </p>
         ) : null}
-        {login.completedFilename ? (
+        {login.completedAccount ? (
           <p className="flex items-center gap-2 pt-2 text-[12px] text-success" role="status">
             <CheckCircle2 size={14} aria-hidden="true" />
-            已下载 {login.completedFilename}
+            已激活 {login.completedAccount.label}，已选择 {login.completedAccount.selectedModelCount}{" "}
+            个模型
           </p>
         ) : null}
       </div>

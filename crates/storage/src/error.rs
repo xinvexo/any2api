@@ -2,11 +2,13 @@ use std::path::PathBuf;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, GatewayApiKeyId, GatewayApiKeyValidationError,
-    ModelRouteValidationError, ProviderCredentialValidationError, ProviderEndpointId,
-    ProviderEndpointValidationError, ProxyProfileId, ProxyValidationError, SettingsValidationError,
+    ModelRouteValidationError, OAuthAccountId, OAuthAccountValidationError,
+    ProviderCredentialValidationError, ProviderEndpointId, ProviderEndpointValidationError,
+    ProxyProfileId, ProxyValidationError, SettingsValidationError,
 };
 use thiserror::Error;
 
+use crate::oauth_account_document::OAuthAccountDocumentValidationError;
 use crate::provider_api_key::ProviderApiKeyValidationError;
 use crate::proxy_password::ProxyPasswordValidationError;
 use crate::vault::SecretVaultError;
@@ -74,6 +76,18 @@ pub enum StorageError {
     ProviderCredentialValidation(#[from] ProviderCredentialValidationError),
     #[error("provider API Key is invalid: {0}")]
     ProviderApiKeyValidation(#[from] ProviderApiKeyValidationError),
+    #[error("OAuth account was not found")]
+    OAuthAccountNotFound(OAuthAccountId),
+    #[error("OAuth account version conflict")]
+    OAuthAccountVersionConflict { expected: u64, actual: u64 },
+    #[error("OAuth account token version conflict")]
+    OAuthAccountTokenVersionConflict { expected: u64, actual: u64 },
+    #[error("OAuth account label is already in use for this provider")]
+    OAuthAccountLabelConflict,
+    #[error("OAuth account configuration is invalid: {0}")]
+    OAuthAccountValidation(#[from] OAuthAccountValidationError),
+    #[error("OAuth account JSON is invalid: {0}")]
+    OAuthAccountDocumentValidation(#[from] OAuthAccountDocumentValidationError),
     #[error("gateway API Key was not found")]
     GatewayApiKeyNotFound(GatewayApiKeyId),
     #[error("gateway API Key version conflict")]

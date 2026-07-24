@@ -1,25 +1,17 @@
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use http::{HeaderMap, HeaderValue, Method, header};
-use serde::Deserialize;
+use http::{HeaderMap, HeaderValue, header};
 use url::Url;
 
 use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthRequestPlan,
-        OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
-    api_key, codex_error,
-    oauth::form_headers,
+    api_key, codex_error, codex_oauth,
 };
-
-const OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
-const OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
-const OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-const OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 
 #[derive(Debug)]
 pub struct CodexDriver {
@@ -112,7 +104,7 @@ impl ProviderDriver for CodexDriver {
     }
 
     fn oauth_redirect_uri(&self) -> Option<&'static str> {
-        Some(OAUTH_REDIRECT_URI)
+        Some(codex_oauth::redirect_uri())
     }
 
     fn oauth_authorization_url(
@@ -120,20 +112,7 @@ impl ProviderDriver for CodexDriver {
         state: &str,
         code_challenge: &str,
     ) -> Result<Url, ProviderError> {
-        let mut url = Url::parse(OAUTH_AUTHORIZE_URL)
-            .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?;
-        url.query_pairs_mut()
-            .append_pair("client_id", OAUTH_CLIENT_ID)
-            .append_pair("response_type", "code")
-            .append_pair("redirect_uri", OAUTH_REDIRECT_URI)
-            .append_pair("scope", "openid profile email offline_access")
-            .append_pair("state", state)
-            .append_pair("code_challenge", code_challenge)
-            .append_pair("code_challenge_method", "S256")
-            .append_pair("prompt", "login")
-            .append_pair("id_token_add_organizations", "true")
-            .append_pair("codex_cli_simplified_flow", "true");
-        Ok(url)
+        codex_oauth::authorization_url(state, code_challenge)
     }
 
     fn oauth_token_request(
@@ -143,44 +122,26 @@ impl ProviderDriver for CodexDriver {
         _state: Option<&str>,
         code_verifier: Option<&str>,
     ) -> Result<OAuthRequestPlan, ProviderError> {
-        match grant {
-            OAuthGrant::AuthorizationCode => {
-                let verifier = code_verifier.ok_or_else(|| {
-                    ProviderError::InvalidCredential("OAuth code verifier is required".into())
-                })?;
-                let mut form = url::form_urlencoded::Serializer::new(String::new());
-                form.append_pair("client_id", OAUTH_CLIENT_ID)
-                    .append_pair("grant_type", "authorization_code")
-                    .append_pair("code", code)
-                    .append_pair("redirect_uri", OAUTH_REDIRECT_URI)
-                    .append_pair("code_verifier", verifier);
-                Ok(OAuthRequestPlan {
-                    method: Method::POST,
-                    url: Url::parse(OAUTH_TOKEN_URL)
-                        .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?,
-                    headers: form_headers(),
-                    body: form.finish().into_bytes(),
-                })
-            }
-        }
+        codex_oauth::token_request(grant, code, code_verifier)
     }
 
     fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
-        let response = serde_json::from_slice::<CodexOAuthResponse>(body).map_err(|_| {
-            ProviderError::InvalidResponse("Codex OAuth response is invalid".into())
-        })?;
-        let (account_id, email) = decode_codex_claims(response.id_token.as_deref());
-        OAuthTokenMaterial::new(
-            ProviderKind::Codex,
-            response.access_token,
-            response.refresh_token,
-            response.id_token,
-            response
-                .expires_in
-                .map(|seconds| unix_now().saturating_add(seconds)),
-            account_id,
-            email,
-        )
+        codex_oauth::parse_token(body)
+    }
+
+    fn oauth_routing_profile(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<OAuthRoutingProfile, ProviderError> {
+        codex_oauth::routing_profile(token)
+    }
+
+    fn oauth_credential_headers(
+        &self,
+        token: &OAuthTokenMaterial,
+        _forwarded: &HeaderMap,
+    ) -> Result<CredentialHeaders, ProviderError> {
+        codex_oauth::credential_headers(token)
     }
 
     fn classify_error(
@@ -193,51 +154,11 @@ impl ProviderDriver for CodexDriver {
     }
 }
 
-#[derive(Deserialize)]
-struct CodexOAuthResponse {
-    access_token: String,
-    refresh_token: Option<String>,
-    id_token: Option<String>,
-    expires_in: Option<i64>,
-}
-
-fn decode_codex_claims(id_token: Option<&str>) -> (Option<String>, Option<String>) {
-    let Some(payload) = id_token.and_then(|token| token.split('.').nth(1)) else {
-        return (None, None);
-    };
-    let Ok(bytes) = URL_SAFE_NO_PAD.decode(payload) else {
-        return (None, None);
-    };
-    #[derive(Deserialize)]
-    struct Claims {
-        email: Option<String>,
-        #[serde(rename = "https://api.openai.com/auth")]
-        auth: Option<AuthClaims>,
-    }
-    #[derive(Deserialize)]
-    struct AuthClaims {
-        chatgpt_account_id: Option<String>,
-    }
-    let Ok(claims) = serde_json::from_slice::<Claims>(&bytes) else {
-        return (None, None);
-    };
-    (
-        claims.auth.and_then(|auth| auth.chatgpt_account_id),
-        claims.email,
-    )
-}
-
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .unwrap_or(i64::MAX)
-}
-
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ProtocolOperation, ProviderBaseUrl, TransportMode};
+    use any2api_domain::{
+        ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TransportMode,
+    };
     use base64::Engine as _;
     use http::{header::AUTHORIZATION, header::CONTENT_TYPE};
 
@@ -319,12 +240,53 @@ mod tests {
             Some("verifier-value")
         );
         assert!(!format!("{plan:?}").contains("verifier-value"));
+
+        let refresh = driver
+            .oauth_token_request(OAuthGrant::RefreshToken, "refresh-secret", None, None)
+            .expect("refresh request");
+        let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&refresh.body)
+            .into_owned()
+            .collect();
+        assert_eq!(
+            form.get("grant_type").map(String::as_str),
+            Some("refresh_token")
+        );
+        assert_eq!(
+            form.get("refresh_token").map(String::as_str),
+            Some("refresh-secret")
+        );
+        assert!(!format!("{refresh:?}").contains("refresh-secret"));
+    }
+
+    #[test]
+    fn refresh_preserves_omitted_codex_account_fields() {
+        let driver = CodexDriver::new();
+        let previous = crate::OAuthTokenMaterial::new(
+            ProviderKind::Codex,
+            "old-access".into(),
+            Some("old-refresh".into()),
+            Some("old-id-token".into()),
+            Some(42),
+            Some("account-123".into()),
+            Some("person@example.com".into()),
+        )
+        .expect("previous token");
+        let refreshed = driver
+            .parse_oauth_refresh_token(br#"{"access_token":"new-access"}"#, &previous)
+            .expect("refreshed token");
+
+        assert_eq!(refreshed.access_token(), "new-access");
+        assert_eq!(refreshed.refresh_token(), Some("old-refresh"));
+        assert_eq!(refreshed.id_token(), Some("old-id-token"));
+        assert_eq!(refreshed.expires_at(), Some(42));
+        assert_eq!(refreshed.account_id(), Some("account-123"));
+        assert_eq!(refreshed.email(), Some("person@example.com"));
     }
 
     #[test]
     fn parses_codex_token_claims_without_logging_token_values() {
         let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
-            br#"{"email":"person@example.com","https://api.openai.com/auth":{"chatgpt_account_id":"account-123"}}"#,
+            br#"{"email":"person@example.com","https://api.openai.com/auth":{"chatgpt_account_id":"account-123","chatgpt_plan_type":"plus"}}"#,
         );
         let id_token = format!("header.{payload}.signature");
         let driver = CodexDriver::new();
@@ -343,5 +305,65 @@ mod tests {
         assert_eq!(token.account_id(), Some("account-123"));
         assert_eq!(token.email(), Some("person@example.com"));
         assert!(!format!("{token:?}").contains("person@example.com"));
+        let profile = driver
+            .oauth_routing_profile(&token)
+            .expect("OAuth routing profile");
+        assert_eq!(
+            profile.base_url().as_str(),
+            "https://chatgpt.com/backend-api/codex"
+        );
+        assert_eq!(profile.protocol_dialect(), ProtocolDialect::OpenAiResponses);
+        assert_eq!(profile.models().len(), 8);
+        assert!(
+            profile
+                .models()
+                .iter()
+                .any(|model| model.as_str() == "gpt-5.3-codex-spark")
+        );
+        assert_eq!(
+            driver
+                .endpoint_plan(profile.base_url(), ProtocolOperation::Responses)
+                .expect("OAuth endpoint")
+                .url
+                .as_str(),
+            "https://chatgpt.com/backend-api/codex/responses"
+        );
+    }
+
+    #[test]
+    fn missing_codex_plan_uses_the_minimal_free_catalog() {
+        let driver = CodexDriver::new();
+        let token = driver
+            .parse_oauth_token(br#"{"access_token":"access-secret"}"#)
+            .expect("token response");
+        let profile = driver
+            .oauth_routing_profile(&token)
+            .expect("OAuth routing profile");
+
+        assert_eq!(profile.models().len(), 5);
+        assert!(
+            profile
+                .models()
+                .iter()
+                .all(|model| model.as_str() != "gpt-5.6-sol")
+        );
+    }
+
+    #[test]
+    fn builds_codex_oauth_headers_from_stored_account_document() {
+        let driver = CodexDriver::new();
+        let token = driver
+            .parse_oauth_token(
+                br#"{"type":"codex","access_token":"oauth-secret","account_id":"account-123"}"#,
+            )
+            .expect("stored OAuth document");
+        let headers = driver
+            .oauth_credential_headers(&token, &http::HeaderMap::new())
+            .expect("OAuth headers");
+
+        assert_eq!(headers.headers[AUTHORIZATION], "Bearer oauth-secret");
+        assert_eq!(headers.headers["chatgpt-account-id"], "account-123");
+        assert_eq!(headers.headers["originator"], "codex_cli_rs");
+        assert!(!format!("{headers:?}").contains("oauth-secret"));
     }
 }

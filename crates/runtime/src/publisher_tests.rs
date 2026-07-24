@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress,
-    ProxyDraft, ProxyKind, ProxyProfileId, SettingKey, SettingValue,
+    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, OAuthAccountDraft,
+    OAuthAccountId, ProtocolDialect, ProviderCredentialDraft, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId,
+    SettingKey, SettingValue,
 };
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use tempfile::{TempDir, tempdir};
 
 use crate::{
@@ -239,6 +240,12 @@ async fn direct_credential_binding_resolves_the_published_global_proxy() {
             .map(|profile| profile.id()),
         Some(proxy_id)
     );
+    assert_eq!(
+        credential
+            .resolved_transport_proxy_for_oauth_account()
+            .map(|proxy| proxy.profile().id()),
+        Some(proxy_id)
+    );
 }
 
 #[tokio::test]
@@ -282,6 +289,50 @@ async fn publishers_sharing_a_snapshot_store_are_serialized() {
     assert_eq!(context.runtime.scheduler_epoch(), 1);
 }
 
+#[tokio::test]
+async fn concurrent_oauth_activations_each_publish_the_latest_revision() {
+    let context = TestContext::new().await;
+    let first_id = OAuthAccountId::new();
+    let second_id = OAuthAccountId::new();
+
+    let (first, second) = tokio::join!(
+        context.publisher.activate_oauth_account(
+            first_id,
+            ProviderKind::Codex,
+            oauth_account_draft("First OAuth"),
+            None,
+            None,
+            Vec::new(),
+            oauth_document(ProviderKind::Codex, "first-token"),
+        ),
+        context.publisher.activate_oauth_account(
+            second_id,
+            ProviderKind::Claude,
+            oauth_account_draft("Second OAuth"),
+            Some("person@example.com".to_owned()),
+            Some(1_800_000_000),
+            Vec::new(),
+            oauth_document(ProviderKind::Claude, "second-token"),
+        ),
+    );
+    let mut revisions = [
+        first.expect("first activation").revision().get(),
+        second.expect("second activation").revision().get(),
+    ];
+    revisions.sort_unstable();
+    let stored = context
+        .repository
+        .load_configuration()
+        .await
+        .expect("stored configuration");
+
+    assert_eq!(revisions, [2, 3]);
+    assert_eq!(stored.revision().get(), 3);
+    assert_eq!(stored.oauth_accounts().accounts().len(), 2);
+    assert_eq!(context.snapshots.load().revision(), stored.revision());
+    assert_eq!(context.runtime.scheduler_epoch(), 2);
+}
+
 struct TestContext {
     _directory: TempDir,
     repository: Arc<SqliteStore>,
@@ -303,15 +354,17 @@ impl TestContext {
             .await
             .expect("initial configuration");
         let runtime = Arc::new(RuntimeRegistry::new(initial.settings().scheduler()));
+        let capabilities = crate::test_support::configuration_capabilities();
         let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
             initial,
             runtime.as_ref(),
+            capabilities.provider_registry(),
         )));
         let publisher = ConfigPublisher::new(
             Arc::clone(&repository),
             Arc::clone(&snapshots),
             Arc::clone(&runtime),
-            crate::test_support::configuration_capabilities(),
+            capabilities,
         )
         .expect("configuration publisher");
 
@@ -350,4 +403,24 @@ fn credential_draft() -> ProviderCredentialDraft {
         true,
     )
     .expect("credential draft")
+}
+
+fn oauth_account_draft(label: &str) -> OAuthAccountDraft {
+    OAuthAccountDraft::new(
+        label,
+        MaxConcurrency::new(1).expect("max concurrency"),
+        true,
+    )
+    .expect("OAuth account draft")
+}
+
+fn oauth_document(provider: ProviderKind, access_token: &str) -> OAuthAccountDocument {
+    let provider_name = match provider {
+        ProviderKind::Codex => "codex",
+        ProviderKind::Claude => "claude",
+    };
+    let bytes = format!(r#"{{"type":"{provider_name}","access_token":"{access_token}"}}"#)
+        .into_bytes()
+        .into();
+    OAuthAccountDocument::new(provider, bytes).expect("OAuth account document")
 }

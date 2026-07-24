@@ -1,4 +1,4 @@
-use any2api_domain::{CredentialId, ProtocolDialect, RouteTargetId};
+use any2api_domain::{ProtocolDialect, RouteTargetId, RoutingCredentialId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AffinityBindingKind {
@@ -19,7 +19,7 @@ impl AffinityBindingKind {
 pub struct AffinityBindingSummary {
     pub(crate) kind: AffinityBindingKind,
     pub(crate) session_hash_prefix: String,
-    pub(crate) credential_id: CredentialId,
+    pub(crate) credential_id: RoutingCredentialId,
     pub(crate) route_target_id: RouteTargetId,
     pub(crate) upstream_model: String,
     pub(crate) protocol_dialect: ProtocolDialect,
@@ -35,7 +35,7 @@ impl AffinityBindingSummary {
         &self.session_hash_prefix
     }
 
-    pub const fn credential_id(&self) -> CredentialId {
+    pub const fn credential_id(&self) -> RoutingCredentialId {
         self.credential_id
     }
 
@@ -58,13 +58,13 @@ impl AffinityBindingSummary {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AffinityCredentialCount {
-    pub(crate) credential_id: CredentialId,
+    pub(crate) credential_id: RoutingCredentialId,
     pub(crate) soft_bindings: usize,
     pub(crate) hard_bindings: usize,
 }
 
 impl AffinityCredentialCount {
-    pub const fn credential_id(&self) -> CredentialId {
+    pub const fn credential_id(&self) -> RoutingCredentialId {
         self.credential_id
     }
 

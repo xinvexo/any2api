@@ -47,7 +47,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(49));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(51));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
@@ -105,6 +105,15 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(read_timeout["min_value"], 1);
     assert_eq!(read_timeout["max_value"], 86_400);
     assert_eq!(read_timeout["web_group"], "上游网络");
+    let refresh_scan = find_setting(&initial, "oauth.refresh.scan_interval");
+    assert_eq!(refresh_scan["default_value"], 30);
+    assert_eq!(refresh_scan["min_value"], 1);
+    assert_eq!(refresh_scan["max_value"], 86_400);
+    assert_eq!(refresh_scan["web_group"], "OAuth 刷新");
+    let refresh_lead = find_setting(&initial, "oauth.refresh.lead_time");
+    assert_eq!(refresh_lead["default_value"], 300);
+    assert_eq!(refresh_lead["min_value"], 1);
+    assert_eq!(refresh_lead["max_value"], 86_400);
     let strict_ssrf = find_setting(&initial, "upstream.strict_ssrf");
     assert_eq!(strict_ssrf["value_type"], "boolean");
     assert_eq!(strict_ssrf["default_value"], false);
@@ -270,6 +279,87 @@ async fn shutdown_settings_publish_and_restore_defaults() {
 }
 
 #[tokio::test]
+async fn oauth_refresh_settings_publish_validate_and_restore_defaults() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, scan) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/oauth.refresh.scan_interval",
+        Some(json!({ "expected_revision": 1, "value": 60 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(scan["config_revision"], 2);
+    assert_eq!(
+        find_setting(&scan, "oauth.refresh.scan_interval")["effective_value"],
+        60
+    );
+
+    let (status, invalid) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/oauth.refresh.lead_time",
+        Some(json!({ "expected_revision": 2, "value": 30 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(invalid["error"]["code"], "invalid_setting");
+
+    let (status, lead) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/oauth.refresh.lead_time",
+        Some(json!({ "expected_revision": 2, "value": 120 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(lead["config_revision"], 3);
+    assert_eq!(
+        storage
+            .load_configuration()
+            .await
+            .expect("stored settings")
+            .settings()
+            .oauth()
+            .refresh_lead_time_secs(),
+        120
+    );
+
+    let (status, reset_scan) = request_json(
+        app.clone(),
+        Method::DELETE,
+        "/api/admin/settings/oauth.refresh.scan_interval?expected_revision=3",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        find_setting(&reset_scan, "oauth.refresh.scan_interval")["effective_value"],
+        30
+    );
+
+    let (status, reset_lead) = request_json(
+        app,
+        Method::DELETE,
+        "/api/admin/settings/oauth.refresh.lead_time?expected_revision=4",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        find_setting(&reset_lead, "oauth.refresh.lead_time")["effective_value"],
+        300
+    );
+}
+
+#[tokio::test]
 async fn file_log_settings_publish_and_restore_defaults() {
     let (_directory, app, storage) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
@@ -421,6 +511,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
+        any2api_contract_tests::build_provider_registry().as_ref(),
     )));
     let publisher = Arc::new(
         ConfigPublisher::new(

@@ -8,6 +8,11 @@ pub use crate::gateway_api_key_usage_repository::{
     GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
 };
 pub use crate::gateway_api_key_verifier::GatewayApiKeyVerifier;
+pub use crate::oauth_account_document::{
+    MAX_OAUTH_ACCOUNT_JSON_BYTES, OAuthAccountDocument, OAuthAccountDocumentValidationError,
+};
+pub use crate::oauth_account_material::{StoredOAuthAccountMaterial, StoredOAuthAccountMaterials};
+pub use crate::oauth_account_repository::OAuthAccountRepository;
 pub use crate::provider_api_key::ProviderApiKeyValidationError;
 pub use crate::provider_credential_secret_material::{
     StoredProviderCredentialSecret, StoredProviderCredentialSecrets,

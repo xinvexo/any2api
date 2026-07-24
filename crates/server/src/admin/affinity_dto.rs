@@ -1,4 +1,4 @@
-use any2api_domain::{CredentialId, ProtocolDialect, RouteTargetId};
+use any2api_domain::{ProtocolDialect, RouteTargetId, RoutingCredentialId};
 use any2api_runtime::api::{
     AffinityBindingSummary, AffinityCredentialCount, AffinityRuntimeSnapshot, PublishedSnapshot,
 };
@@ -68,7 +68,8 @@ impl AffinityClearResponse {
 
 #[derive(Debug, Serialize)]
 struct AffinityCredentialCountResponse {
-    credential_id: CredentialId,
+    credential_id: String,
+    credential_source: &'static str,
     credential_label: String,
     soft_bindings: usize,
     hard_bindings: usize,
@@ -76,13 +77,11 @@ struct AffinityCredentialCountResponse {
 
 impl AffinityCredentialCountResponse {
     fn new(value: &AffinityCredentialCount, published: &PublishedSnapshot) -> Self {
+        let credential_id = value.credential_id();
         Self {
-            credential_id: value.credential_id(),
-            credential_label: published
-                .provider_credentials()
-                .get(value.credential_id())
-                .map(|credential| credential.label().to_owned())
-                .unwrap_or_else(|| value.credential_id().to_string()),
+            credential_id: routing_credential_token(credential_id),
+            credential_source: routing_credential_source(credential_id),
+            credential_label: routing_credential_label(published, credential_id),
             soft_bindings: value.soft_bindings(),
             hard_bindings: value.hard_bindings(),
         }
@@ -93,7 +92,8 @@ impl AffinityCredentialCountResponse {
 struct AffinityBindingResponse {
     kind: &'static str,
     session_hash_prefix: String,
-    credential_id: CredentialId,
+    credential_id: String,
+    credential_source: &'static str,
     route_target_id: RouteTargetId,
     upstream_model: String,
     protocol_dialect: ProtocolDialect,
@@ -105,12 +105,42 @@ impl From<&AffinityBindingSummary> for AffinityBindingResponse {
         Self {
             kind: value.kind().as_str(),
             session_hash_prefix: value.session_hash_prefix().to_owned(),
-            credential_id: value.credential_id(),
+            credential_id: routing_credential_token(value.credential_id()),
+            credential_source: routing_credential_source(value.credential_id()),
             route_target_id: value.route_target_id(),
             upstream_model: value.upstream_model().to_owned(),
             protocol_dialect: value.protocol_dialect(),
             expires_in_ms: value.expires_in_ms(),
         }
+    }
+}
+
+fn routing_credential_token(id: RoutingCredentialId) -> String {
+    match id {
+        RoutingCredentialId::ProviderCredential(id) => id.to_string(),
+        RoutingCredentialId::OAuthAccount(id) => format!("oauth_account:{id}"),
+    }
+}
+
+const fn routing_credential_source(id: RoutingCredentialId) -> &'static str {
+    match id {
+        RoutingCredentialId::ProviderCredential(_) => "provider_credential",
+        RoutingCredentialId::OAuthAccount(_) => "oauth_account",
+    }
+}
+
+fn routing_credential_label(published: &PublishedSnapshot, id: RoutingCredentialId) -> String {
+    match id {
+        RoutingCredentialId::ProviderCredential(id) => published
+            .provider_credentials()
+            .get(id)
+            .map(|credential| credential.label().to_owned())
+            .unwrap_or_else(|| id.to_string()),
+        RoutingCredentialId::OAuthAccount(id) => published
+            .oauth_accounts()
+            .get(id)
+            .map(|account| account.label().to_owned())
+            .unwrap_or_else(|| id.to_string()),
     }
 }
 

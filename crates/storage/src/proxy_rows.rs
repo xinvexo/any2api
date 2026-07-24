@@ -11,6 +11,7 @@ use crate::{
     error::StorageError,
     gateway_api_key_rows::load_gateway_api_keys_from,
     model_route_rows::load_model_routes_from,
+    oauth_account_rows::load_oauth_accounts_from,
     provider_credential_rows::load_provider_credentials_from,
     provider_endpoint_rows::load_provider_endpoints_from,
     proxy_mutation::DatabaseChange,
@@ -96,6 +97,8 @@ pub(crate) async fn load_configuration_from(
     let model_routes = load_model_routes_from(connection, &provider_endpoints).await?;
     let (provider_credentials, provider_credential_secrets) =
         load_provider_credentials_from(connection, vault, &provider_endpoints, &proxies).await?;
+    let (oauth_accounts, oauth_account_materials) =
+        load_oauth_accounts_from(connection, &proxies).await?;
     let gateway_api_key_verifier = vault.gateway_api_key_verifier();
     let gateway_api_keys =
         load_gateway_api_keys_from(connection, &gateway_api_key_verifier).await?;
@@ -106,11 +109,13 @@ pub(crate) async fn load_configuration_from(
         proxies,
         provider_endpoints,
         provider_credentials,
+        oauth_accounts,
         model_routes,
         gateway_api_keys,
         gateway_api_key_verifier,
         settings,
         provider_credential_secrets,
+        oauth_account_materials,
         StoredProxyPasswords::new(proxy_passwords),
     ))
 }

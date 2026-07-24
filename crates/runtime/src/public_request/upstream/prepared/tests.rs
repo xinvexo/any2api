@@ -47,7 +47,7 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
         .expect("credential draft"),
         CredentialSecretFingerprint::new([7; 32], None).expect("fingerprint"),
     );
-    let binding = CredentialRuntimeHandle::new(
+    let binding = CredentialRuntimeHandle::new_for_provider_test(
         &credential,
         CredentialAuthMaterial::for_test(&credential, "sk-postprocess-test".into()),
         epoch,

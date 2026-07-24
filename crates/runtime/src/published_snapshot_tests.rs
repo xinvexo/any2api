@@ -37,6 +37,7 @@ async fn snapshots_reuse_queue_state_but_capture_policy_per_revision() {
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         initial_configuration,
         runtime.as_ref(),
+        crate::test_support::configuration_capabilities().provider_registry(),
     )));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
@@ -84,6 +85,7 @@ async fn published_auxiliary_limit_update_preserves_permits_and_scheduler_identi
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         initial,
         runtime.as_ref(),
+        crate::test_support::configuration_capabilities().provider_registry(),
     )));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),

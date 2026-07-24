@@ -245,7 +245,7 @@ fn test_generation(epoch: Arc<SchedulerEpoch>) -> Arc<CredentialGenerationRuntim
         .expect("credential draft"),
         CredentialSecretFingerprint::new([8; 32], None).expect("fingerprint"),
     );
-    CredentialRuntimeHandle::new(
+    CredentialRuntimeHandle::new_for_provider_test(
         &credential,
         CredentialAuthMaterial::for_test(&credential, "sk-health-test".into()),
         epoch,

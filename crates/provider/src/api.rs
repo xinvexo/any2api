@@ -8,6 +8,7 @@ use http::{HeaderMap, StatusCode};
 use url::Url;
 
 pub use crate::oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_file};
+pub use crate::oauth_routing::OAuthRoutingProfile;
 pub use crate::{ProviderError, ProviderRegistry, ProviderSecret};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -86,6 +87,34 @@ pub trait ProviderDriver: Send + Sync {
 
     fn parse_oauth_token(&self, _body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         Err(ProviderError::InvalidResponse(
+            "OAuth2 is not supported by this provider".into(),
+        ))
+    }
+
+    fn parse_oauth_refresh_token(
+        &self,
+        body: &[u8],
+        previous: &OAuthTokenMaterial,
+    ) -> Result<OAuthTokenMaterial, ProviderError> {
+        self.parse_oauth_token(body)?
+            .with_refresh_fallbacks(previous)
+    }
+
+    fn oauth_routing_profile(
+        &self,
+        _token: &OAuthTokenMaterial,
+    ) -> Result<OAuthRoutingProfile, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth2 is not supported by this provider".into(),
+        ))
+    }
+
+    fn oauth_credential_headers(
+        &self,
+        _token: &OAuthTokenMaterial,
+        _forwarded: &HeaderMap,
+    ) -> Result<CredentialHeaders, ProviderError> {
+        Err(ProviderError::InvalidCredential(
             "OAuth2 is not supported by this provider".into(),
         ))
     }

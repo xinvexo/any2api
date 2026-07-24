@@ -69,6 +69,7 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
+        request_components.provider_registry(),
     )));
     let logging_reconciler = Arc::new(AppLoggingReconciler::new(
         Arc::clone(&telemetry),
@@ -88,7 +89,12 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
     let oauth = Arc::new(OAuthService::new(
         request_components.provider_registry_handle(),
         request_components.transport_manager(),
+        Arc::clone(&publisher),
     ));
+    anyhow::ensure!(
+        public_requests.install_oauth_refresh(oauth.as_ref()),
+        "OAuth request refresh was already installed"
+    );
     let proxy_tests = request_components.proxy_test_service();
     let provider_credential_tests = request_components.provider_credential_test_service();
     let web_assets = settings
@@ -102,7 +108,7 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
             publisher,
             public_requests,
         )
-        .with_oauth(oauth)
+        .with_oauth(Arc::clone(&oauth))
         .with_proxy_tests(proxy_tests)
         .with_provider_credential_tests(provider_credential_tests)
         .with_request_telemetry(Arc::clone(&telemetry))
@@ -116,8 +122,12 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
         .await
         .with_context(|| format!("failed to bind {}", settings.bind))?;
 
-    tracing::info!(address = %settings.bind, "any2api is listening");
     let lifecycle = runtime.lifecycle();
+    anyhow::ensure!(
+        oauth.start_refresh_worker(&lifecycle),
+        "OAuth refresh worker was already started"
+    );
+    tracing::info!(address = %settings.bind, "any2api is listening");
     let served = shutdown::serve(
         listener,
         app,

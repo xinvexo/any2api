@@ -31,6 +31,7 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         initial,
         runtime.as_ref(),
+        crate::test_support::configuration_capabilities().provider_registry(),
     )));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
@@ -126,7 +127,12 @@ fn candidates_for(
     candidates
         .values()
         .flatten()
-        .map(|candidate| candidate.credential_id)
+        .map(|candidate| {
+            candidate
+                .credential_id
+                .provider_credential_id()
+                .expect("API Key candidate")
+        })
         .collect()
 }
 

@@ -4,7 +4,7 @@ use std::{
 };
 
 use any2api_domain::{
-    CredentialId, ModelRouteConfiguration, ProviderCredentialConfiguration, SchedulerSettings,
+    CredentialId, ModelRouteConfiguration, RoutingCredentialId, SchedulerSettings,
 };
 use tokio::sync::watch;
 
@@ -12,12 +12,12 @@ use crate::{
     affinity::{AffinityPolicy, AffinityRegistry, AffinityRuntimeSnapshot},
     auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryScheduler},
     balancing::{BalancingRuntimeSnapshot, snapshot as balancing_snapshot},
-    credential_auth::CredentialAuthMaterials,
-    credential_runtime::{CredentialRuntimeBindings, CredentialRuntimeHandle},
+    credential_runtime::CredentialRuntimeHandle,
     health::{HealthBindings, HealthRegistry},
     process_lifecycle::ProcessLifecycle,
     queue::QueueCoordinator,
     route_tier_cursor::{RouteTierCursorBindings, RouteTierCursorRegistry},
+    routing_credential::{RoutingCredentialSpec, RoutingCredentials},
     scheduler_epoch::SchedulerEpoch,
 };
 
@@ -25,7 +25,7 @@ use crate::{
 pub struct RuntimeRegistry {
     scheduler_epoch: Arc<SchedulerEpoch>,
     affinity: Arc<AffinityRegistry>,
-    credentials: RwLock<HashMap<CredentialId, Arc<CredentialRuntimeHandle>>>,
+    credentials: RwLock<HashMap<RoutingCredentialId, Arc<CredentialRuntimeHandle>>>,
     route_tier_cursors: RouteTierCursorRegistry,
     auxiliary_scheduler: Arc<AuxiliaryScheduler>,
     queue_coordinator: Arc<QueueCoordinator>,
@@ -99,34 +99,34 @@ impl RuntimeRegistry {
 
     pub(crate) fn reconcile_configuration(
         &self,
-        configuration: &ProviderCredentialConfiguration,
-        mut auth_materials: CredentialAuthMaterials,
-    ) -> CredentialRuntimeBindings {
+        mut specs: Vec<RoutingCredentialSpec>,
+    ) -> RoutingCredentials {
         let mut handles = self
             .credentials
             .write()
             .expect("runtime credential registry lock poisoned");
-        let mut active_ids = HashSet::with_capacity(configuration.credentials().len());
-        let mut bindings = Vec::with_capacity(configuration.credentials().len());
+        let mut active_ids = HashSet::with_capacity(specs.len());
+        let mut credentials = Vec::with_capacity(specs.len());
 
-        for credential in configuration.credentials() {
-            active_ids.insert(credential.id());
-            let auth_material = auth_materials.take_for(credential);
-            let binding = if let Some(handle) = handles.get(&credential.id()).cloned() {
-                handle.reconcile(credential, auth_material)
+        for mut spec in specs.drain(..) {
+            let routing_id = spec.id();
+            active_ids.insert(routing_id);
+            let generation = spec.take_generation();
+            let binding = if let Some(handle) = handles.get(&routing_id).cloned() {
+                handle.reconcile(routing_id, spec.max_concurrency(), generation)
             } else {
                 let handle = CredentialRuntimeHandle::new(
-                    credential,
-                    auth_material,
+                    routing_id,
+                    spec.max_concurrency(),
+                    generation,
                     Arc::clone(&self.scheduler_epoch),
                 );
                 let binding = handle.current_binding();
-                handles.insert(credential.id(), handle);
+                handles.insert(routing_id, handle);
                 binding
             };
-            bindings.push(binding);
+            credentials.push(spec.bind(binding));
         }
-        auth_materials.assert_consumed();
 
         handles.retain(|id, handle| {
             if active_ids.contains(id) {
@@ -138,22 +138,76 @@ impl RuntimeRegistry {
         });
         self.affinity.retain_credentials(&active_ids);
 
-        CredentialRuntimeBindings::new(bindings)
+        RoutingCredentials::new(credentials)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reconcile_provider_configuration_for_test(
+        &self,
+        configuration: &any2api_domain::ProviderCredentialConfiguration,
+        mut auth_materials: crate::credential_auth::CredentialAuthMaterials,
+    ) -> crate::credential_runtime::CredentialRuntimeBindings {
+        let mut handles = self
+            .credentials
+            .write()
+            .expect("runtime credential registry lock poisoned");
+        let mut bindings = Vec::with_capacity(configuration.credentials().len());
+        let mut active_ids = HashSet::with_capacity(configuration.credentials().len());
+        for credential in configuration.credentials() {
+            let id = RoutingCredentialId::provider_credential(credential.id());
+            active_ids.insert(id);
+            let auth = auth_materials.take_for(credential);
+            let generation = crate::credential_runtime::CredentialGenerationDefinition::new(
+                credential.credential_generation(),
+                credential.secret_version(),
+                crate::credential_runtime::CredentialAuthentication::provider_api_key(
+                    auth.into_provider_secret(),
+                ),
+            );
+            let binding = if let Some(handle) = handles.get(&id).cloned() {
+                handle.reconcile(id, credential.max_concurrency(), generation)
+            } else {
+                let handle = CredentialRuntimeHandle::new(
+                    id,
+                    credential.max_concurrency(),
+                    generation,
+                    Arc::clone(&self.scheduler_epoch),
+                );
+                let binding = handle.current_binding();
+                handles.insert(id, handle);
+                binding
+            };
+            bindings.push(binding);
+        }
+        auth_materials.assert_consumed();
+        handles.retain(|id, handle| {
+            if active_ids.contains(id) {
+                true
+            } else {
+                handle.retire();
+                false
+            }
+        });
+        self.affinity.retain_credentials(&active_ids);
+        crate::credential_runtime::CredentialRuntimeBindings::new(bindings)
     }
 
     pub(crate) fn reconcile_route_tier_cursors(
         &self,
         configuration: &ModelRouteConfiguration,
+        runtime_keys: &[(any2api_domain::ModelRouteId, any2api_domain::FallbackTier)],
     ) -> RouteTierCursorBindings {
-        self.route_tier_cursors.reconcile(configuration)
+        self.route_tier_cursors
+            .reconcile(configuration, runtime_keys)
     }
 
     pub(crate) fn reconcile_health(
         &self,
         endpoints: &any2api_domain::ProviderEndpointConfiguration,
+        runtime_endpoints: &[(any2api_domain::ProviderEndpointId, u64)],
         proxies: &any2api_domain::ProxyConfiguration,
     ) -> HealthBindings {
-        self.health.reconcile(endpoints, proxies)
+        self.health.reconcile(endpoints, runtime_endpoints, proxies)
     }
 
     pub(crate) fn auxiliary_scheduler(&self) -> Arc<AuxiliaryScheduler> {
@@ -187,6 +241,12 @@ impl RuntimeRegistry {
     }
 
     pub fn clear_credential_affinity(&self, credential_id: CredentialId) -> usize {
+        self.clear_routing_credential_affinity(RoutingCredentialId::provider_credential(
+            credential_id,
+        ))
+    }
+
+    pub fn clear_routing_credential_affinity(&self, credential_id: RoutingCredentialId) -> usize {
         self.affinity.clear_credential(credential_id)
     }
 

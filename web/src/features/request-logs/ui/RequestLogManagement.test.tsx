@@ -86,6 +86,7 @@ function request() {
     public_model: "codex-local",
     provider_endpoint_id: "33333333-3333-4333-8333-333333333333",
     credential_id: "44444444-4444-4444-8444-444444444444",
+    oauth_account_id: null,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
     status_code: 200,
     error_class: null,

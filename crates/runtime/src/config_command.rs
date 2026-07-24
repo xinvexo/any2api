@@ -1,8 +1,9 @@
 use any2api_domain::{
-    ConfigRevision, CredentialId, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId, ProxyDraft, ProxyProfileId, SettingKey, SettingValue,
+    ConfigRevision, CredentialId, OAuthAccountDraft, OAuthAccountId, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyDraft, ProxyProfileId,
+    SettingKey, SettingValue,
 };
-use any2api_storage::api::{ConfigurationRepository, StoredConfiguration};
+use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, StoredConfiguration};
 
 use crate::{
     config_publish_error::ConfigPublishError, provider_api_key_secret::ProviderApiKeySecret,
@@ -68,6 +69,36 @@ pub(crate) enum ConfigCommand {
     },
     DeleteProviderCredential {
         id: CredentialId,
+        expected_config_version: u64,
+    },
+    CreateOAuthAccount {
+        id: OAuthAccountId,
+        provider_kind: ProviderKind,
+        draft: OAuthAccountDraft,
+        safe_account_email: Option<String>,
+        expires_at: Option<i64>,
+        models: Vec<String>,
+        document: OAuthAccountDocument,
+    },
+    UpdateOAuthAccount {
+        id: OAuthAccountId,
+        expected_config_version: u64,
+        draft: OAuthAccountDraft,
+    },
+    SetOAuthAccountModels {
+        id: OAuthAccountId,
+        expected_config_version: u64,
+        models: Vec<String>,
+    },
+    RefreshOAuthAccount {
+        id: OAuthAccountId,
+        expected_token_version: u64,
+        safe_account_email: Option<String>,
+        expires_at: Option<i64>,
+        document: OAuthAccountDocument,
+    },
+    DeleteOAuthAccount {
+        id: OAuthAccountId,
         expected_config_version: u64,
     },
     SetSettingOverride {
@@ -178,6 +209,72 @@ pub(crate) async fn execute(
         } => {
             repository
                 .delete_provider_credential(expected, id, expected_config_version)
+                .await
+        }
+        ConfigCommand::CreateOAuthAccount {
+            id,
+            provider_kind,
+            draft,
+            safe_account_email,
+            expires_at,
+            models,
+            document,
+        } => {
+            repository
+                .create_oauth_account(
+                    expected,
+                    id,
+                    provider_kind,
+                    draft,
+                    safe_account_email,
+                    expires_at,
+                    models,
+                    document,
+                )
+                .await
+        }
+        ConfigCommand::UpdateOAuthAccount {
+            id,
+            expected_config_version,
+            draft,
+        } => {
+            repository
+                .update_oauth_account(expected, id, expected_config_version, draft)
+                .await
+        }
+        ConfigCommand::SetOAuthAccountModels {
+            id,
+            expected_config_version,
+            models,
+        } => {
+            repository
+                .set_oauth_account_models(expected, id, expected_config_version, models)
+                .await
+        }
+        ConfigCommand::RefreshOAuthAccount {
+            id,
+            expected_token_version,
+            safe_account_email,
+            expires_at,
+            document,
+        } => {
+            repository
+                .refresh_oauth_account(
+                    expected,
+                    id,
+                    expected_token_version,
+                    safe_account_email,
+                    expires_at,
+                    document,
+                )
+                .await
+        }
+        ConfigCommand::DeleteOAuthAccount {
+            id,
+            expected_config_version,
+        } => {
+            repository
+                .delete_oauth_account(expected, id, expected_config_version)
                 .await
         }
         ConfigCommand::SetSettingOverride { key, value } => {

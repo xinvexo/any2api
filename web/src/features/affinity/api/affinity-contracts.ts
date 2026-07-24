@@ -1,4 +1,5 @@
 export type AffinityBindingKind = "soft" | "hard";
+export type AffinityCredentialSource = "provider_credential" | "oauth_account";
 export type AffinityProtocolDialect =
   | "openai_responses"
   | "codex_backend"
@@ -6,6 +7,7 @@ export type AffinityProtocolDialect =
 
 export interface AffinityCredentialCount {
   credentialId: string;
+  credentialSource: AffinityCredentialSource;
   credentialLabel: string;
   softBindings: number;
   hardBindings: number;
@@ -15,6 +17,7 @@ export interface AffinityBinding {
   kind: AffinityBindingKind;
   sessionHashPrefix: string;
   credentialId: string;
+  credentialSource: AffinityCredentialSource;
   routeTargetId: string;
   upstreamModel: string;
   protocolDialect: AffinityProtocolDialect;
@@ -55,6 +58,7 @@ function parseCredentialCount(value: unknown): AffinityCredentialCount {
   const record = readRecord(value);
   return {
     credentialId: readString(record.credential_id),
+    credentialSource: readCredentialSource(record.credential_source),
     credentialLabel: readString(record.credential_label),
     softBindings: readNonNegativeInteger(record.soft_bindings),
     hardBindings: readNonNegativeInteger(record.hard_bindings),
@@ -67,6 +71,7 @@ function parseBinding(value: unknown): AffinityBinding {
     kind: readBindingKind(record.kind),
     sessionHashPrefix: readString(record.session_hash_prefix),
     credentialId: readString(record.credential_id),
+    credentialSource: readCredentialSource(record.credential_source),
     routeTargetId: readString(record.route_target_id),
     upstreamModel: readString(record.upstream_model),
     protocolDialect: readProtocolDialect(record.protocol_dialect),
@@ -112,6 +117,13 @@ function readNonNegativeInteger(value: unknown): number {
 
 function readBindingKind(value: unknown): AffinityBindingKind {
   if (value !== "soft" && value !== "hard") {
+    throw new Error("invalid affinity response");
+  }
+  return value;
+}
+
+function readCredentialSource(value: unknown): AffinityCredentialSource {
+  if (value !== "provider_credential" && value !== "oauth_account") {
     throw new Error("invalid affinity response");
   }
   return value;

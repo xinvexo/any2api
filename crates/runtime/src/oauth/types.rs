@@ -1,4 +1,4 @@
-use any2api_domain::ProviderKind;
+use any2api_domain::{ConfigRevision, MaxConcurrency, OAuthAccount, OAuthAccountId, ProviderKind};
 
 pub struct OAuthStartResult {
     provider: ProviderKind,
@@ -51,37 +51,66 @@ impl OAuthStartResult {
     }
 }
 
-pub struct OAuthDownload {
-    provider: ProviderKind,
-    filename: &'static str,
-    bytes: Vec<u8>,
+pub struct OAuthActivationResult {
+    config_revision: ConfigRevision,
+    account: OAuthAccount,
 }
 
-impl OAuthDownload {
-    pub(super) fn new(provider: ProviderKind, bytes: Vec<u8>) -> Self {
-        let filename = match provider {
-            ProviderKind::Codex => "codex-auth.json",
-            ProviderKind::Claude => "claude-auth.json",
-        };
+impl OAuthActivationResult {
+    pub(super) const fn new(config_revision: ConfigRevision, account: OAuthAccount) -> Self {
         Self {
-            provider,
-            filename,
-            bytes,
+            config_revision,
+            account,
         }
     }
 
     #[must_use]
     pub const fn provider(&self) -> ProviderKind {
-        self.provider
+        self.account.provider_kind()
     }
 
     #[must_use]
-    pub const fn filename(&self) -> &'static str {
-        self.filename
+    pub const fn account_id(&self) -> OAuthAccountId {
+        self.account.id()
     }
 
     #[must_use]
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.bytes
+    pub fn label(&self) -> &str {
+        self.account.label()
+    }
+
+    #[must_use]
+    pub const fn max_concurrency(&self) -> MaxConcurrency {
+        self.account.max_concurrency()
+    }
+
+    #[must_use]
+    pub const fn enabled(&self) -> bool {
+        self.account.enabled()
+    }
+
+    #[must_use]
+    pub fn safe_account_email(&self) -> Option<&str> {
+        self.account.safe_account_email()
+    }
+
+    #[must_use]
+    pub const fn expires_at(&self) -> Option<i64> {
+        self.account.expires_at()
+    }
+
+    #[must_use]
+    pub fn selected_model_count(&self) -> usize {
+        self.account.models().len()
+    }
+
+    #[must_use]
+    pub const fn config_version(&self) -> u64 {
+        self.account.config_version()
+    }
+
+    #[must_use]
+    pub const fn config_revision(&self) -> ConfigRevision {
+        self.config_revision
     }
 }

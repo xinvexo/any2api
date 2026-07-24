@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use any2api_domain::{CredentialId, ModelRouteId, ProtocolDialect};
+use any2api_domain::{ModelRouteId, ProtocolDialect, RoutingCredentialId};
 use thiserror::Error;
 use tokio::sync::watch;
 
@@ -206,7 +206,7 @@ impl AffinityRegistry {
         Ok(())
     }
 
-    pub(crate) fn retain_credentials(&self, active: &HashSet<CredentialId>) {
+    pub(crate) fn retain_credentials(&self, active: &HashSet<RoutingCredentialId>) {
         let mut state = self.state.lock().expect("affinity state lock poisoned");
         state
             .hard
@@ -227,7 +227,7 @@ impl AffinityRegistry {
         cleared
     }
 
-    pub(crate) fn clear_credential(&self, credential_id: CredentialId) -> usize {
+    pub(crate) fn clear_credential(&self, credential_id: RoutingCredentialId) -> usize {
         let mut state = self.state.lock().expect("affinity state lock poisoned");
         let before = state.soft.len() + state.hard.len();
         state

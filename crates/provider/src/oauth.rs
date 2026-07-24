@@ -11,6 +11,7 @@ use crate::ProviderError;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthGrant {
     AuthorizationCode,
+    RefreshToken,
 }
 
 #[derive(Clone)]
@@ -103,6 +104,38 @@ impl OAuthTokenMaterial {
     #[must_use]
     pub fn email(&self) -> Option<&str> {
         self.email.as_deref()
+    }
+
+    pub fn with_refresh_fallbacks(mut self, previous: &Self) -> Result<Self, ProviderError> {
+        if self.provider != previous.provider {
+            return Err(ProviderError::InvalidResponse(
+                "OAuth refresh response provider does not match the account".into(),
+            ));
+        }
+        if self.refresh_token.is_none() {
+            self.refresh_token = previous.refresh_token.clone();
+        }
+        if self.id_token.is_none() {
+            self.id_token = previous.id_token.clone();
+        }
+        if self.expires_at.is_none() {
+            self.expires_at = previous.expires_at;
+        }
+        if self.account_id.is_none() {
+            self.account_id.clone_from(&previous.account_id);
+        }
+        if self.email.is_none() {
+            self.email.clone_from(&previous.email);
+        }
+        Ok(self)
+    }
+
+    #[must_use]
+    pub fn with_expires_at_fallback(mut self, expires_at: Option<i64>) -> Self {
+        if self.expires_at.is_none() {
+            self.expires_at = expires_at;
+        }
+        self
     }
 }
 

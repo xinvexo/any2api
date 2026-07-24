@@ -46,6 +46,7 @@ export interface RequestLog {
   publicModel: string | null;
   providerEndpointId: string | null;
   credentialId: string | null;
+  oauthAccountId: string | null;
   proxyProfileId: string | null;
   statusCode: number;
   errorClass: RequestLogErrorClass | null;
@@ -63,6 +64,7 @@ export interface RequestAttempt {
   attemptNo: number;
   routeTargetId: string | null;
   credentialId: string | null;
+  oauthAccountId: string | null;
   proxyProfileId: string | null;
   startedAtMs: number;
   durationMs: number;
@@ -118,6 +120,7 @@ function parseRequestLog(value: unknown): RequestLog {
     publicModel: readNullableString(record.public_model),
     providerEndpointId: readNullableString(record.provider_endpoint_id),
     credentialId: readNullableString(record.credential_id),
+    oauthAccountId: readNullableString(record.oauth_account_id),
     proxyProfileId: readNullableString(record.proxy_profile_id),
     statusCode: readStatusCode(record.status_code),
     errorClass: readNullableEnum(record.error_class, readErrorClass),
@@ -138,6 +141,7 @@ function parseAttempt(value: unknown): RequestAttempt {
     attemptNo: readPositiveInteger(record.attempt_no),
     routeTargetId: readNullableString(record.route_target_id),
     credentialId: readNullableString(record.credential_id),
+    oauthAccountId: readNullableString(record.oauth_account_id),
     proxyProfileId: readNullableString(record.proxy_profile_id),
     startedAtMs: readNonNegativeInteger(record.started_at_ms),
     durationMs: readNonNegativeInteger(record.duration_ms),

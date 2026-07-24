@@ -1,7 +1,8 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{fmt, sync::Arc};
 
-use any2api_domain::CredentialId;
+use any2api_domain::RoutingCredentialId;
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError};
+use http::HeaderMap;
 
 use super::{
     capacity::CredentialCapacity,
@@ -18,7 +19,7 @@ pub struct CredentialRuntimeBinding {
 
 impl CredentialRuntimeBinding {
     #[must_use]
-    pub fn credential_id(&self) -> CredentialId {
+    pub fn credential_id(&self) -> RoutingCredentialId {
         self.handle.id()
     }
 
@@ -97,7 +98,7 @@ pub struct ConcurrencyPermit {
 
 impl ConcurrencyPermit {
     #[must_use]
-    pub fn credential_id(&self) -> CredentialId {
+    pub fn credential_id(&self) -> RoutingCredentialId {
         self.handle.id()
     }
 
@@ -106,11 +107,12 @@ impl ConcurrencyPermit {
         &self.generation
     }
 
-    pub fn provider_credential_headers(
+    pub fn credential_headers(
         &self,
         driver: &dyn ProviderDriver,
+        forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
-        driver.credential_headers(self.generation.provider_secret())
+        self.generation.credential_headers(driver, forwarded)
     }
 }
 
@@ -131,23 +133,15 @@ impl Drop for ConcurrencyPermit {
 }
 
 #[derive(Clone, Debug, Default)]
+#[cfg(test)]
 pub(crate) struct CredentialRuntimeBindings {
     ordered: Vec<CredentialRuntimeBinding>,
-    by_id: HashMap<CredentialId, usize>,
 }
 
+#[cfg(test)]
 impl CredentialRuntimeBindings {
     pub(crate) fn new(ordered: Vec<CredentialRuntimeBinding>) -> Self {
-        let by_id = ordered
-            .iter()
-            .enumerate()
-            .map(|(index, binding)| (binding.credential_id(), index))
-            .collect();
-        Self { ordered, by_id }
-    }
-
-    pub(crate) fn get(&self, id: CredentialId) -> Option<&CredentialRuntimeBinding> {
-        self.by_id.get(&id).map(|index| &self.ordered[*index])
+        Self { ordered }
     }
 
     pub(crate) fn as_slice(&self) -> &[CredentialRuntimeBinding] {

@@ -35,6 +35,7 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
+        crate::test_support::configuration_capabilities().provider_registry(),
     )));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
@@ -60,7 +61,7 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
         .await
         .expect("credential");
     let binding = snapshot
-        .credential_runtime(credential_id)
+        .credential_runtime(credential_id.into())
         .expect("credential runtime");
     binding.generation().health().record(
         "model",

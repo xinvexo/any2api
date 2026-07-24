@@ -298,7 +298,7 @@ fn snapshots_are_redacted_and_cleanup_is_scoped() {
         assert!(!binding.session_hash_prefix().contains("private"));
     }
 
-    assert_eq!(registry.clear_credential(credential_id), 2);
+    assert_eq!(registry.clear_credential(credential_id.into()), 2);
     let snapshot = registry.snapshot(SOFT_TTL, HARD_TTL, CREATING_TTL, 10);
     assert_eq!(snapshot.soft_binding_count(), 0);
     assert_eq!(snapshot.hard_binding_count(), 0);
@@ -310,7 +310,7 @@ fn target(route_id: ModelRouteId, credential_id: CredentialId) -> AffinityTarget
     AffinityTarget::new(
         route_id,
         RouteTargetId::new(),
-        credential_id,
+        credential_id.into(),
         "upstream-model",
         ProtocolDialect::OpenAiResponses,
     )

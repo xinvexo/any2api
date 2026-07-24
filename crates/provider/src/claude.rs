@@ -1,24 +1,17 @@
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
-use http::{HeaderMap, HeaderValue, Method};
-use serde::Deserialize;
+use http::{HeaderMap, HeaderValue};
 use url::Url;
 
 use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthRequestPlan,
-        OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
-    api_key, claude_error,
-    oauth::json_headers,
+    api_key, claude_error, claude_oauth,
 };
-
-const OAUTH_AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
-const OAUTH_TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
-const OAUTH_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const OAUTH_REDIRECT_URI: &str = "http://localhost:54545/callback";
 
 #[derive(Debug)]
 pub struct ClaudeDriver {
@@ -104,7 +97,7 @@ impl ProviderDriver for ClaudeDriver {
     }
 
     fn oauth_redirect_uri(&self) -> Option<&'static str> {
-        Some(OAUTH_REDIRECT_URI)
+        Some(claude_oauth::redirect_uri())
     }
 
     fn oauth_authorization_url(
@@ -112,21 +105,7 @@ impl ProviderDriver for ClaudeDriver {
         state: &str,
         code_challenge: &str,
     ) -> Result<Url, ProviderError> {
-        let mut url = Url::parse(OAUTH_AUTHORIZE_URL)
-            .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?;
-        url.query_pairs_mut()
-            .append_pair("code", "true")
-            .append_pair("client_id", OAUTH_CLIENT_ID)
-            .append_pair("response_type", "code")
-            .append_pair("redirect_uri", OAUTH_REDIRECT_URI)
-            .append_pair(
-                "scope",
-                "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
-            )
-            .append_pair("code_challenge", code_challenge)
-            .append_pair("code_challenge_method", "S256")
-            .append_pair("state", state);
-        Ok(url)
+        claude_oauth::authorization_url(state, code_challenge)
     }
 
     fn oauth_token_request(
@@ -136,47 +115,26 @@ impl ProviderDriver for ClaudeDriver {
         state: Option<&str>,
         code_verifier: Option<&str>,
     ) -> Result<OAuthRequestPlan, ProviderError> {
-        match grant {
-            OAuthGrant::AuthorizationCode => {
-                let body = serde_json::json!({
-                    "code": code,
-                    "state": state.unwrap_or_default(),
-                    "grant_type": "authorization_code",
-                    "client_id": OAUTH_CLIENT_ID,
-                    "redirect_uri": OAUTH_REDIRECT_URI,
-                    "code_verifier": code_verifier.ok_or_else(|| ProviderError::InvalidCredential("OAuth code verifier is required".into()))?,
-                });
-                Ok(OAuthRequestPlan {
-                    method: Method::POST,
-                    url: Url::parse(OAUTH_TOKEN_URL)
-                        .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?,
-                    headers: json_headers(),
-                    body: serde_json::to_vec(&body).map_err(|_| {
-                        ProviderError::InvalidResponse("OAuth request serialization failed".into())
-                    })?,
-                })
-            }
-        }
+        claude_oauth::token_request(grant, code, state, code_verifier)
     }
 
     fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
-        let response = serde_json::from_slice::<ClaudeOAuthResponse>(body).map_err(|_| {
-            ProviderError::InvalidResponse("Claude OAuth response is invalid".into())
-        })?;
-        OAuthTokenMaterial::new(
-            ProviderKind::Claude,
-            response.access_token,
-            response.refresh_token,
-            None,
-            response
-                .expires_in
-                .map(|seconds| unix_now().saturating_add(seconds)),
-            None,
-            response
-                .account
-                .as_ref()
-                .and_then(|account| account.email_address.clone()),
-        )
+        claude_oauth::parse_token(body)
+    }
+
+    fn oauth_routing_profile(
+        &self,
+        _token: &OAuthTokenMaterial,
+    ) -> Result<OAuthRoutingProfile, ProviderError> {
+        claude_oauth::routing_profile()
+    }
+
+    fn oauth_credential_headers(
+        &self,
+        token: &OAuthTokenMaterial,
+        forwarded: &HeaderMap,
+    ) -> Result<CredentialHeaders, ProviderError> {
+        claude_oauth::credential_headers(token, forwarded)
     }
 
     fn classify_error(
@@ -189,30 +147,11 @@ impl ProviderDriver for ClaudeDriver {
     }
 }
 
-#[derive(Deserialize)]
-struct ClaudeOAuthResponse {
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_in: Option<i64>,
-    account: Option<ClaudeAccount>,
-}
-
-#[derive(Deserialize)]
-struct ClaudeAccount {
-    email_address: Option<String>,
-}
-
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .unwrap_or(i64::MAX)
-}
-
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ProtocolOperation, ProviderBaseUrl, TransportMode, UpstreamErrorKind};
+    use any2api_domain::{
+        ProtocolDialect, ProtocolOperation, ProviderBaseUrl, TransportMode, UpstreamErrorKind,
+    };
     use http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
 
     use super::ClaudeDriver;
@@ -303,6 +242,14 @@ mod tests {
         assert_eq!(body["state"], "state-value");
         assert_eq!(body["code_verifier"], "verifier-value");
         assert!(!format!("{plan:?}").contains("verifier-value"));
+
+        let refresh = driver
+            .oauth_token_request(OAuthGrant::RefreshToken, "refresh-secret", None, None)
+            .expect("refresh request");
+        let body: serde_json::Value = serde_json::from_slice(&refresh.body).expect("refresh JSON");
+        assert_eq!(body["grant_type"], "refresh_token");
+        assert_eq!(body["refresh_token"], "refresh-secret");
+        assert!(!format!("{refresh:?}").contains("refresh-secret"));
     }
 
     #[test]
@@ -315,5 +262,46 @@ mod tests {
             .expect("token response");
         assert_eq!(token.email(), Some("claude@example.com"));
         assert!(!format!("{token:?}").contains("claude@example.com"));
+        let profile = driver
+            .oauth_routing_profile(&token)
+            .expect("OAuth routing profile");
+        assert_eq!(profile.base_url().as_str(), "https://api.anthropic.com/v1");
+        assert_eq!(
+            profile.protocol_dialect(),
+            ProtocolDialect::AnthropicMessages
+        );
+        assert_eq!(profile.models().len(), 14);
+        assert_eq!(
+            driver
+                .endpoint_plan(profile.base_url(), ProtocolOperation::Messages)
+                .expect("OAuth endpoint")
+                .url
+                .as_str(),
+            "https://api.anthropic.com/v1/messages"
+        );
+    }
+
+    #[test]
+    fn builds_claude_oauth_headers_and_preserves_client_betas() {
+        let driver = ClaudeDriver::new();
+        let token = driver
+            .parse_oauth_token(br#"{"type":"claude","access_token":"oauth-secret"}"#)
+            .expect("stored OAuth document");
+        let mut forwarded = HeaderMap::new();
+        forwarded.insert(
+            "anthropic-beta",
+            "custom-beta".parse().expect("beta header"),
+        );
+        let headers = driver
+            .oauth_credential_headers(&token, &forwarded)
+            .expect("OAuth headers");
+
+        assert_eq!(headers.headers["authorization"], "Bearer oauth-secret");
+        assert_eq!(headers.headers["anthropic-version"], "2023-06-01");
+        assert_eq!(
+            headers.headers["anthropic-beta"],
+            "custom-beta,oauth-2025-04-20"
+        );
+        assert!(!format!("{headers:?}").contains("oauth-secret"));
     }
 }

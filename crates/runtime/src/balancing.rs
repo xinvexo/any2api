@@ -1,15 +1,12 @@
-use std::collections::{BTreeSet, HashMap};
-
-use any2api_domain::{CredentialId, ProviderEndpointId, ProxyProfileId};
-use tokio::time::Instant;
-
-use crate::{
-    credential_runtime::{CredentialBalancingCounters, CredentialRuntimeBinding},
-    health::HealthAcquireError,
-    published_snapshot::PublishedSnapshot,
-    queue::SaturationAction,
-    registry::RuntimeRegistry,
+use crate::credential_runtime::CredentialBalancingCounters;
+use any2api_domain::{
+    CredentialId, OAuthAccountId, ProviderEndpointId, ProviderKind, ProxyProfileId,
+    RoutingCredentialId,
 };
+
+mod snapshot;
+
+pub(crate) use snapshot::snapshot;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BalancingRuntimeSnapshot {
@@ -91,8 +88,14 @@ impl BalancingAuxiliarySnapshot {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BalancingCredentialSnapshot {
-    credential_id: CredentialId,
-    endpoint_id: ProviderEndpointId,
+    credential_id: RoutingCredentialId,
+    label: String,
+    provider_kind: ProviderKind,
+    enabled: bool,
+    authentication_expired: bool,
+    provider_endpoint_id: Option<ProviderEndpointId>,
+    endpoint_name: Option<String>,
+    endpoint_enabled: bool,
     proxy_id: ProxyProfileId,
     in_flight: u32,
     max_concurrency: u32,
@@ -103,12 +106,44 @@ pub struct BalancingCredentialSnapshot {
 }
 
 impl BalancingCredentialSnapshot {
-    pub const fn credential_id(&self) -> CredentialId {
+    pub const fn credential_id(&self) -> RoutingCredentialId {
         self.credential_id
     }
 
-    pub const fn endpoint_id(&self) -> ProviderEndpointId {
-        self.endpoint_id
+    pub const fn provider_credential_id(&self) -> Option<CredentialId> {
+        self.credential_id.provider_credential_id()
+    }
+
+    pub const fn oauth_account_id(&self) -> Option<OAuthAccountId> {
+        self.credential_id.oauth_account_id()
+    }
+
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub const fn provider_kind(&self) -> ProviderKind {
+        self.provider_kind
+    }
+
+    pub const fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub const fn authentication_expired(&self) -> bool {
+        self.authentication_expired
+    }
+
+    pub const fn provider_endpoint_id(&self) -> Option<ProviderEndpointId> {
+        self.provider_endpoint_id
+    }
+
+    pub fn endpoint_name(&self) -> Option<&str> {
+        self.endpoint_name.as_deref()
+    }
+
+    pub const fn endpoint_enabled(&self) -> bool {
+        self.endpoint_enabled
     }
 
     pub const fn proxy_id(&self) -> ProxyProfileId {
@@ -171,129 +206,4 @@ pub enum BalancingHealthStatus {
     Available,
     Cooling { retry_in_ms: u64 },
     Unavailable,
-}
-
-pub(crate) fn snapshot(
-    runtime: &RuntimeRegistry,
-    published: &PublishedSnapshot,
-) -> BalancingRuntimeSnapshot {
-    let queue_policy = published.queue_policy();
-    let (auxiliary_in_flight, auxiliary_limits) =
-        published.auxiliary_scheduler().runtime_capacity();
-    let models = route_models(published);
-    let credentials = published
-        .provider_credentials()
-        .credentials()
-        .iter()
-        .filter_map(|credential| {
-            let binding = published.credential_runtime(credential.id())?;
-            let proxy = published.resolved_proxy_for_credential(credential.id())?;
-            Some(credential_snapshot(
-                published,
-                binding,
-                credential.provider_endpoint_id(),
-                proxy.id(),
-                models.get(&credential.provider_endpoint_id()),
-            ))
-        })
-        .collect();
-
-    BalancingRuntimeSnapshot {
-        scheduler_epoch: runtime.scheduler_epoch(),
-        queue: BalancingQueueSnapshot {
-            waiting: runtime.queue_waiting_count(),
-            max_waiting: queue_policy.max_waiting_requests(),
-            timeout_secs: queue_policy.queue_timeout().as_secs(),
-            rejects_when_saturated: queue_policy.on_saturated() == SaturationAction::Reject,
-            fallback_on_saturation: queue_policy.fallback_on_saturation(),
-        },
-        auxiliary: BalancingAuxiliarySnapshot {
-            in_flight: auxiliary_in_flight,
-            max_global: auxiliary_limits.global(),
-            max_per_credential: auxiliary_limits.per_credential(),
-        },
-        credentials,
-    }
-}
-
-fn credential_snapshot(
-    published: &PublishedSnapshot,
-    binding: &CredentialRuntimeBinding,
-    endpoint_id: ProviderEndpointId,
-    proxy_id: ProxyProfileId,
-    models: Option<&BTreeSet<String>>,
-) -> BalancingCredentialSnapshot {
-    let capacity = binding.capacity();
-    let models = models
-        .into_iter()
-        .flatten()
-        .map(|model| model_health(published, binding, endpoint_id, proxy_id, model))
-        .collect();
-    BalancingCredentialSnapshot {
-        credential_id: binding.credential_id(),
-        endpoint_id,
-        proxy_id,
-        in_flight: capacity.in_flight(),
-        max_concurrency: capacity.max_concurrency(),
-        fixed_waiters: binding.fixed_waiter_count(),
-        auxiliary_in_flight: binding.auxiliary_in_flight(),
-        counters: binding.balancing_counters(),
-        models,
-    }
-}
-
-fn model_health(
-    published: &PublishedSnapshot,
-    binding: &CredentialRuntimeBinding,
-    endpoint_id: ProviderEndpointId,
-    proxy_id: ProxyProfileId,
-    model: &str,
-) -> BalancingCredentialModelSnapshot {
-    let policy = published.reliability_policy();
-    BalancingCredentialModelSnapshot {
-        upstream_model: model.to_owned(),
-        credential: health_status(binding.generation().health().availability(model)),
-        endpoint: published
-            .endpoint_health(endpoint_id)
-            .map_or(BalancingHealthStatus::Unavailable, |health| {
-                health_status(health.availability(&policy))
-            }),
-        proxy: published
-            .proxy_health(proxy_id)
-            .map_or(BalancingHealthStatus::Unavailable, |health| {
-                health_status(health.availability(&policy))
-            }),
-    }
-}
-
-fn route_models(published: &PublishedSnapshot) -> HashMap<ProviderEndpointId, BTreeSet<String>> {
-    let mut models = HashMap::<ProviderEndpointId, BTreeSet<String>>::new();
-    for route in published
-        .model_routes()
-        .routes()
-        .iter()
-        .filter(|route| route.enabled())
-    {
-        for target in route.targets().iter().filter(|target| target.enabled()) {
-            models
-                .entry(target.provider_endpoint_id())
-                .or_default()
-                .insert(target.upstream_model().as_str().to_owned());
-        }
-    }
-    models
-}
-
-fn health_status(result: Result<(), HealthAcquireError>) -> BalancingHealthStatus {
-    match result {
-        Ok(()) => BalancingHealthStatus::Available,
-        Err(HealthAcquireError::Permanent) => BalancingHealthStatus::Unavailable,
-        Err(HealthAcquireError::Temporary(until)) => BalancingHealthStatus::Cooling {
-            retry_in_ms: duration_ms(until.saturating_duration_since(Instant::now())).max(1),
-        },
-    }
-}
-
-fn duration_ms(duration: std::time::Duration) -> u64 {
-    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }

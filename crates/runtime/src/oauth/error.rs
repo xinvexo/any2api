@@ -3,6 +3,8 @@ use any2api_provider::api::ProviderError;
 use any2api_transport::api::TransportError;
 use thiserror::Error;
 
+use crate::config_publish_error::ConfigPublishError;
+
 #[derive(Debug, Error)]
 pub enum OAuthError {
     #[error("provider driver is unavailable")]
@@ -35,8 +37,12 @@ pub enum OAuthError {
     TokenResponseTooLarge,
     #[error("OAuth provider returned an invalid token response")]
     TokenResponseInvalid,
-    #[error("OAuth authentication file could not be generated")]
-    FileSerialization,
+    #[error("the published OAuth proxy path is unavailable")]
+    PublishedProxyUnavailable,
+    #[error("OAuth authentication document could not be generated")]
+    DocumentSerialization,
+    #[error("OAuth account activation failed")]
+    Activation(#[source] ConfigPublishError),
 }
 
 impl OAuthError {

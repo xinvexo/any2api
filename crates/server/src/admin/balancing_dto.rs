@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use any2api_domain::{CredentialId, ProviderEndpointId, ProviderKind, ProxyKind, ProxyProfileId};
+use any2api_domain::{ProviderEndpointId, ProviderKind, ProxyKind, ProxyProfileId};
 use any2api_runtime::api::{
     BalancingCredentialModelSnapshot, BalancingCredentialSnapshot, BalancingHealthStatus,
     BalancingRuntimeSnapshot, CredentialBalancingCounters, PublishedSnapshot,
@@ -156,12 +156,14 @@ impl ProviderResponse {
 
 #[derive(Debug, Serialize)]
 struct CredentialResponse {
-    credential_id: CredentialId,
+    credential_id: String,
+    credential_source: &'static str,
     label: String,
     enabled: bool,
+    authentication_expired: bool,
     provider_kind: ProviderKind,
-    endpoint_id: ProviderEndpointId,
-    endpoint_name: String,
+    endpoint_id: Option<ProviderEndpointId>,
+    endpoint_name: Option<String>,
     endpoint_enabled: bool,
     proxy_id: ProxyProfileId,
     proxy_name: String,
@@ -177,19 +179,21 @@ struct CredentialResponse {
 
 impl CredentialResponse {
     fn new(published: &PublishedSnapshot, runtime: &BalancingCredentialSnapshot) -> Option<Self> {
-        let credential = published
-            .provider_credentials()
-            .get(runtime.credential_id())?;
-        let endpoint = published.provider_endpoints().get(runtime.endpoint_id())?;
         let proxy = published.proxies().get(runtime.proxy_id())?;
         Some(Self {
-            credential_id: credential.id(),
-            label: credential.label().to_owned(),
-            enabled: credential.enabled(),
-            provider_kind: endpoint.provider_kind(),
-            endpoint_id: endpoint.id(),
-            endpoint_name: endpoint.name().to_owned(),
-            endpoint_enabled: endpoint.enabled(),
+            credential_id: runtime.credential_id().source_uuid().to_string(),
+            credential_source: if runtime.oauth_account_id().is_some() {
+                "oauth_account"
+            } else {
+                "provider_credential"
+            },
+            label: runtime.label().to_owned(),
+            enabled: runtime.enabled(),
+            authentication_expired: runtime.authentication_expired(),
+            provider_kind: runtime.provider_kind(),
+            endpoint_id: runtime.provider_endpoint_id(),
+            endpoint_name: runtime.endpoint_name().map(str::to_owned),
+            endpoint_enabled: runtime.endpoint_enabled(),
             proxy_id: proxy.id(),
             proxy_name: proxy.name().to_owned(),
             proxy_kind: proxy.kind(),
@@ -210,7 +214,7 @@ impl CredentialResponse {
 
 impl CredentialResponse {
     const fn is_schedulable(&self) -> bool {
-        self.enabled && self.endpoint_enabled && self.proxy_enabled
+        self.enabled && !self.authentication_expired && self.endpoint_enabled && self.proxy_enabled
     }
 }
 

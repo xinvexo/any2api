@@ -1,6 +1,7 @@
 export type ProviderKind = "codex" | "claude";
 export type ProxyKind = "direct" | "http" | "socks5";
 export type HealthStatus = "available" | "cooling" | "unavailable";
+export type CredentialSource = "provider_credential" | "oauth_account";
 
 export interface HealthState {
   status: HealthStatus;
@@ -25,11 +26,13 @@ export interface CredentialModelHealth {
 
 export interface BalancingCredential {
   credentialId: string;
+  credentialSource: CredentialSource;
   label: string;
   enabled: boolean;
+  authenticationExpired: boolean;
   providerKind: ProviderKind;
-  endpointId: string;
-  endpointName: string;
+  endpointId: string | null;
+  endpointName: string | null;
   endpointEnabled: boolean;
   proxyId: string;
   proxyName: string;
@@ -122,11 +125,13 @@ function parseCredential(value: unknown): BalancingCredential {
   const item = record(value);
   return {
     credentialId: string(item.credential_id),
+    credentialSource: oneOf(item.credential_source, ["provider_credential", "oauth_account"]),
     label: string(item.label),
     enabled: boolean(item.enabled),
+    authenticationExpired: boolean(item.authentication_expired),
     providerKind: provider(item.provider_kind),
-    endpointId: string(item.endpoint_id),
-    endpointName: string(item.endpoint_name),
+    endpointId: nullableString(item.endpoint_id),
+    endpointName: nullableString(item.endpoint_name),
     endpointEnabled: boolean(item.endpoint_enabled),
     proxyId: string(item.proxy_id),
     proxyName: string(item.proxy_name),
@@ -184,6 +189,10 @@ function array(value: unknown): unknown[] {
 function string(value: unknown): string {
   if (typeof value !== "string" || value.length === 0) throw invalid();
   return value;
+}
+
+function nullableString(value: unknown): string | null {
+  return value === null ? null : string(value);
 }
 
 function boolean(value: unknown): boolean {

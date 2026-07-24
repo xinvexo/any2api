@@ -22,6 +22,7 @@ test("desktop core management deep links render against the real service", async
 
   for (const [path, readyText] of [
     ["/", "运行正常"],
+    ["/oauth", "还没有已激活的 OAuth 账号"],
     ["/proxies", "代理列表"],
     ["/providers/codex", "还没有 Codex Endpoint"],
     ["/balancing", "还没有 Provider Credential"],
@@ -36,7 +37,7 @@ test("desktop core management deep links render against the real service", async
   expect(browserErrors).toEqual([]);
 });
 
-test("390px navigation closes after a deep-link transition without horizontal overflow", async ({ page }) => {
+test("390px OAuth navigation closes after a deep-link transition without horizontal overflow", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await loginAt(page, "/settings", "管理员密码");
@@ -47,20 +48,20 @@ test("390px navigation closes after a deep-link transition without horizontal ov
     name: "主导航",
   });
   await expect(navigation).toBeVisible();
-  await navigation.getByRole("link", { name: "请求日志" }).click();
+  await navigation.getByRole("link", { name: "认证文件" }).click();
 
-  await expect(page).toHaveURL(/\/logs$/);
+  await expect(page).toHaveURL(/\/oauth$/);
   await expect(page.getByRole("button", { name: "打开导航" })).toBeVisible();
-  await expect(page.getByText("还没有请求日志")).toBeVisible();
+  await expect(page.getByText("还没有已激活的 OAuth 账号")).toBeVisible();
   await expectNoHorizontalOverflow(page);
   expect(browserErrors).toEqual([]);
 });
 
 async function loginAt(page: Page, path: string, readyText: string) {
   await page.goto(path);
-  await expect(page.getByRole("heading", { name: "管理员登录" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "any2api" })).toBeVisible();
   await page.getByLabel("管理员密码").fill(password);
-  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.getByRole("button", { name: "进入控制台", exact: true }).click();
   await expect(page.getByText(readyText, { exact: false }).first()).toBeVisible();
 }
 

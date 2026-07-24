@@ -41,9 +41,10 @@ impl HealthRegistry {
     pub(crate) fn reconcile(
         &self,
         endpoints: &ProviderEndpointConfiguration,
+        runtime_endpoints: &[(ProviderEndpointId, u64)],
         proxies: &ProxyConfiguration,
     ) -> HealthBindings {
-        let endpoint_bindings = self.reconcile_endpoints(endpoints);
+        let endpoint_bindings = self.reconcile_endpoints(endpoints, runtime_endpoints);
         let proxy_bindings = self.reconcile_proxies(proxies);
         HealthBindings {
             endpoints: endpoint_bindings,
@@ -54,8 +55,9 @@ impl HealthRegistry {
     fn reconcile_endpoints(
         &self,
         configuration: &ProviderEndpointConfiguration,
+        runtime_endpoints: &[(ProviderEndpointId, u64)],
     ) -> HashMap<ProviderEndpointId, Arc<EndpointHealthRuntime>> {
-        let active = configuration
+        let mut active = configuration
             .endpoints()
             .iter()
             .map(|endpoint| EndpointKey {
@@ -63,6 +65,14 @@ impl HealthRegistry {
                 config_version: endpoint.config_version(),
             })
             .collect::<HashSet<_>>();
+        active.extend(
+            runtime_endpoints
+                .iter()
+                .map(|(id, config_version)| EndpointKey {
+                    id: *id,
+                    config_version: *config_version,
+                }),
+        );
         let mut runtimes = self
             .endpoints
             .write()
