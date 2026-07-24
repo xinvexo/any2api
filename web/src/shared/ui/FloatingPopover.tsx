@@ -157,12 +157,16 @@ export function FloatingPopover({
  * Resolve clamp bounds from the nearest `[data-floating-bounds]` ancestor,
  * else the element itself. Mark cards/rows with `data-floating-bounds`.
  */
+// Pure geometry helper intentionally shares the component module.
+// eslint-disable-next-line react-refresh/only-export-components
 export function resolveFloatingBounds(target: HTMLElement): DOMRect {
   const host = target.closest("[data-floating-bounds]") as HTMLElement | null;
   return (host ?? target).getBoundingClientRect();
 }
 
 /** Anchor at the horizontal center / top edge of an element. */
+// Pure geometry helper intentionally shares the component module.
+// eslint-disable-next-line react-refresh/only-export-components
 export function anchorFromElement(
   element: HTMLElement,
   edge: "top" | "bottom" = "top",

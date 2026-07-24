@@ -1,15 +1,23 @@
+import {
+  useIsMutating,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { RefreshCw, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type {
   OAuthQuotaSnapshot,
   OAuthQuotaWindow,
 } from "../api/oauth-quota-contracts";
-import {
-  getOAuthAccountQuota,
-  resetOAuthAccountQuota,
-} from "../api/oauth-api";
+import { resetOAuthAccountQuota } from "../api/oauth-api";
 import { getOAuthErrorMessage } from "../model/oauth-error";
+import { oauthQueryKeys } from "../model/oauth-query-keys";
+import {
+  oauthQuotaQueryOptions,
+  refreshOAuthAccountQuota,
+} from "../model/oauth-quota-query";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -17,52 +25,88 @@ import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 export function OAuthQuotaPanel({
   accountId,
   accountLabel,
+  disabled = false,
 }: {
   accountId: string;
   accountLabel: string;
+  disabled?: boolean;
 }) {
-  const [quota, setQuota] = useState<OAuthQuotaSnapshot | null>(null);
-  const [pending, setPending] = useState<"query" | "reset" | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const quotaOptions = oauthQuotaQueryOptions(accountId);
+  const quotaQuery = useQuery({ ...quotaOptions, enabled: false });
+  const resetRequested = useRef(false);
+  const [resetRefreshErrorAt, setResetRefreshErrorAt] = useState<number | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const resetMutationKey = oauthQueryKeys.quotaReset(accountId);
+  const resetMutation = useMutation({
+    mutationKey: resetMutationKey,
+    retry: false,
+    mutationFn: async () => {
+      const result = await resetOAuthAccountQuota(accountId);
+      await queryClient.resetQueries({ queryKey: quotaOptions.queryKey, exact: true });
+      try {
+        await refreshOAuthAccountQuota(queryClient, accountId);
+        return { ...result, quotaRefreshed: true, quotaErrorUpdatedAt: null };
+      } catch {
+        return {
+          ...result,
+          quotaRefreshed: false,
+          quotaErrorUpdatedAt:
+            queryClient.getQueryState(quotaOptions.queryKey)?.errorUpdatedAt
+            ?? Date.now(),
+        };
+      }
+    },
+    onSuccess: (result) => {
+      setSuccess(`已重置 ${result.windowsReset} 个额度窗口。`);
+      setResetRefreshErrorAt(result.quotaErrorUpdatedAt);
+    },
+    onError: () => setResetRefreshErrorAt(null),
+  });
+  const resetPending =
+    useIsMutating({ mutationKey: resetMutationKey, exact: true }) > 0;
+  const quota = quotaQuery.data ?? null;
+  const pending = resetPending ? "reset" : quotaQuery.isFetching ? "query" : null;
+  const resetRefreshError =
+    resetRefreshErrorAt !== null
+    && quotaQuery.isError
+    && quotaQuery.errorUpdatedAt === resetRefreshErrorAt
+      ? "额度已重置，但最新额度读取失败。"
+      : null;
+  const visibleError =
+    (resetMutation.isError ? getOAuthErrorMessage(resetMutation.error) : null)
+    ?? resetRefreshError
+    ?? (!quotaQuery.isFetching && quotaQuery.isError
+        ? getOAuthErrorMessage(quotaQuery.error)
+        : null);
   const availableCount = quota?.resetCredits?.availableCount ?? 0;
 
-  async function query() {
-    setPending("query");
-    setError(null);
+  async function refreshQuota() {
+    setResetRefreshErrorAt(null);
     setSuccess(null);
+    resetMutation.reset();
     try {
-      setQuota(await getOAuthAccountQuota(accountId));
-    } catch (cause) {
-      setError(getOAuthErrorMessage(cause));
-    } finally {
-      setPending(null);
+      await refreshOAuthAccountQuota(queryClient, accountId);
+    } catch {
+      // The query cache owns the account-scoped error rendered below.
     }
   }
 
-  async function reset() {
-    setConfirmOpen(false);
-    setPending("reset");
-    setError(null);
-    setSuccess(null);
-    let windowsReset: number;
-    try {
-      windowsReset = (await resetOAuthAccountQuota(accountId)).windowsReset;
-    } catch (cause) {
-      setError(getOAuthErrorMessage(cause));
-      setPending(null);
+  function reset() {
+    if (disabled || resetRequested.current || resetPending) {
       return;
     }
-    setSuccess(`已重置 ${windowsReset} 个额度窗口。`);
-    try {
-      setQuota(await getOAuthAccountQuota(accountId));
-    } catch {
-      setQuota(null);
-      setError("额度已重置，但最新额度读取失败。");
-    } finally {
-      setPending(null);
-    }
+    setConfirmOpen(false);
+    setResetRefreshErrorAt(null);
+    setSuccess(null);
+    resetMutation.reset();
+    resetRequested.current = true;
+    resetMutation.mutate(undefined, {
+      onSettled: () => {
+        resetRequested.current = false;
+      },
+    });
   }
 
   return (
@@ -74,8 +118,8 @@ export function OAuthQuotaPanel({
             variant="ghost"
             size="sm"
             className="h-6 min-h-6 px-1.5 text-[11px]"
-            disabled={pending !== null}
-            onClick={() => void query()}
+            disabled={disabled || pending !== null}
+            onClick={() => void refreshQuota()}
           >
             <RefreshCw
               size={12}
@@ -88,9 +132,11 @@ export function OAuthQuotaPanel({
             variant="danger"
             size="sm"
             className="h-6 min-h-6 px-1.5 text-[11px]"
-            disabled={pending !== null || availableCount === 0}
+            disabled={disabled || pending !== null || availableCount === 0}
             title={
-              quota === null
+              disabled
+                ? "刷新全部额度进行中"
+                : quota === null
                 ? "请先刷新额度"
                 : availableCount === 0
                   ? "没有可用的重置次数"
@@ -113,9 +159,9 @@ export function OAuthQuotaPanel({
       ) : (
         <p className="mt-1.5 text-[11px] text-tertiary">额度尚未刷新</p>
       )}
-      {error ? (
+      {visibleError ? (
         <p className="mt-1.5 text-[11px] text-danger" role="alert">
-          {error}
+          {visibleError}
         </p>
       ) : null}
       {success ? (
@@ -132,7 +178,7 @@ export function OAuthQuotaPanel({
         tone="danger"
         pending={pending === "reset"}
         onClose={() => setConfirmOpen(false)}
-        onConfirm={() => void reset()}
+        onConfirm={reset}
       />
     </section>
   );

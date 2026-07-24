@@ -13,11 +13,13 @@ import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 import { Surface } from "@/shared/ui/Surface";
 import { RequestUsageStats } from "@/shared/ui/RequestUsageStats";
+import { VirtualGrid } from "@/shared/ui/VirtualGrid";
 
 interface OAuthAccountsProps {
   provider: OAuthProvider;
   accounts: OAuthAccount[];
   configRevision: number;
+  quotaRefreshPending?: boolean;
 }
 
 /** Account cards for one provider kind — lives only in the content column. */
@@ -25,6 +27,7 @@ export function OAuthAccounts({
   provider,
   accounts,
   configRevision,
+  quotaRefreshPending = false,
 }: OAuthAccountsProps) {
   const mutations = useOAuthAccountMutations();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -33,7 +36,7 @@ export function OAuthAccounts({
   const mode = searchParams.get("oauth_action") === "models" ? "models" : "metadata";
   const selected = accounts.find((account) => account.id === selectedId);
   const providerName = oauthProviderLabel(provider);
-  const pending = mutations.isPending;
+  const pending = mutations.isPending || quotaRefreshPending;
   const editorError = mutations.update.error;
 
   function open(account: OAuthAccount, action: "metadata" | "models") {
@@ -71,39 +74,50 @@ export function OAuthAccounts({
           </p>
         </Surface>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {accounts.map((account) => (
-            <div key={account.id} className="min-w-0">
-              <OAuthAccountCard
-                presentation={presentOAuthAccount(account)}
-                pending={pending}
-                onToggleEnabled={(enabled) => {
-                  mutations.update.mutate({
-                    id: account.id,
-                    input: {
-                      expectedRevision: configRevision,
-                      expectedConfigVersion: account.configVersion,
-                      label: account.label,
-                      maxConcurrency: account.maxConcurrency,
-                      enabled,
-                    },
-                  });
-                }}
-                onViewModels={() => open(account, "models")}
-                onEdit={() => open(account, "metadata")}
-                onDelete={() => setDeleteTarget(account)}
-                details={
-                  <>
-                    <RequestUsageStats label={account.label} usage={account.usage} />
-                    {account.providerKind === "codex" ? (
-                      <OAuthQuotaPanel accountId={account.id} accountLabel={account.label} />
-                    ) : null}
-                  </>
-                }
-              />
-            </div>
-          ))}
-        </div>
+        <VirtualGrid
+          items={accounts}
+          getItemKey={(account) => account.id}
+          renderItem={(account) => (
+            <OAuthAccountCard
+              presentation={presentOAuthAccount(account)}
+              pending={pending}
+              onToggleEnabled={(enabled) => {
+                mutations.update.mutate({
+                  id: account.id,
+                  input: {
+                    expectedRevision: configRevision,
+                    expectedConfigVersion: account.configVersion,
+                    label: account.label,
+                    maxConcurrency: account.maxConcurrency,
+                    enabled,
+                  },
+                });
+              }}
+              onViewModels={() => open(account, "models")}
+              onEdit={() => open(account, "metadata")}
+              onDelete={() => setDeleteTarget(account)}
+              details={
+                <>
+                  <RequestUsageStats label={account.label} usage={account.usage} />
+                  {account.providerKind === "codex" ? (
+                    <OAuthQuotaPanel
+                      accountId={account.id}
+                      accountLabel={account.label}
+                      disabled={pending}
+                    />
+                  ) : null}
+                </>
+              }
+            />
+          )}
+          ariaLabel={`${providerName} OAuth 账号列表`}
+          collectionKey={provider}
+          estimateRowHeight={330}
+          minItemWidth={280}
+          maxColumns={3}
+          gap={12}
+          overscanRows={2}
+        />
       )}
 
       {mutations.remove.error ? (

@@ -7,9 +7,8 @@ import { getOAuthErrorMessage } from "../model/oauth-error";
 import { isOAuthProvider, OAUTH_PROVIDER_OPTIONS } from "../model/oauth-provider-catalog";
 import { useOAuthAccounts } from "../model/use-oauth-accounts";
 import { useOAuthLogin } from "../model/use-oauth-login";
-import { paginateItems, type OAuthPageSize } from "../model/oauth-pagination";
+import { useOAuthQuotaRefreshAll } from "../model/use-oauth-quota-refresh-all";
 import { OAuthAccounts } from "./OAuthAccounts";
-import { OAuthListPagination } from "./OAuthListPagination";
 import { OAuthLoginDrawer } from "./OAuthLogin";
 import { OAuthProviderNav } from "./OAuthProviderNav";
 import { Button } from "@/shared/ui/Button";
@@ -20,11 +19,10 @@ import { Surface } from "@/shared/ui/Surface";
 export function OAuthManagement() {
   const accounts = useOAuthAccounts();
   const login = useOAuthLogin();
+  const quotaRefresh = useOAuthQuotaRefreshAll();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedProvider = resolveSelectedProvider(searchParams.get("kind"));
   const [loginOpen, setLoginOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<OAuthPageSize>(10);
 
   const counts = useMemo(() => {
     const next = Object.fromEntries(
@@ -44,18 +42,13 @@ export function OAuthManagement() {
     [accounts.data?.items, selectedProvider],
   );
 
-  const pageItems = useMemo(
-    () => paginateItems(kindAccounts, page, pageSize),
-    [kindAccounts, page, pageSize],
-  );
-
   function selectProvider(next: OAuthProvider) {
     if (next === selectedProvider) {
       return;
     }
     setLoginOpen(false);
     login.reset();
-    setPage(1);
+    quotaRefresh.clearResult();
     setSearchParams(
       (current) => {
         const params = new URLSearchParams(current);
@@ -80,23 +73,36 @@ export function OAuthManagement() {
     login.reset();
   }
 
-  function changePageSize(next: OAuthPageSize) {
-    setPageSize(next);
-    setPage(1);
+  async function refreshAllQuotas() {
+    if (selectedProvider !== "codex" || kindAccounts.length === 0) {
+      return;
+    }
+    await quotaRefresh.refresh(kindAccounts.map((account) => account.id));
   }
 
   const toolbarStart = (
-    <OAuthListPagination
-      page={page}
-      pageSize={pageSize}
-      total={kindAccounts.length}
-      onPageChange={setPage}
-      onPageSizeChange={changePageSize}
-    />
+    <p aria-label="账号数量" className="text-[12px] text-secondary">
+      共 <span className="tabular-nums">{kindAccounts.length}</span> 个账号
+    </p>
   );
 
   const toolbarEnd = (
     <>
+      {selectedProvider === "codex" ? (
+        <Button
+          variant="ghost"
+          disabled={
+            quotaRefresh.pending || accounts.isFetching || kindAccounts.length === 0
+          }
+          onClick={() => void refreshAllQuotas()}
+        >
+          <RefreshCw
+            size={14}
+            className={quotaRefresh.pending ? "animate-spin" : undefined}
+          />
+          {quotaRefresh.pending ? "正在刷新额度" : "刷新全部额度"}
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         disabled={accounts.isFetching || !accounts.data}
@@ -188,10 +194,24 @@ export function OAuthManagement() {
           </Surface>
         ) : null}
 
+        {selectedProvider === "codex" && quotaRefresh.result ? (
+          <p
+            className={
+              quotaRefresh.result.failed > 0
+                ? "mb-3 text-[12px] text-warning"
+                : "mb-3 text-[12px] text-success"
+            }
+            role={quotaRefresh.result.failed > 0 ? "alert" : "status"}
+          >
+            {formatQuotaRefreshResult(quotaRefresh.result)}
+          </p>
+        ) : null}
+
         <OAuthAccounts
           provider={selectedProvider}
-          accounts={pageItems}
+          accounts={kindAccounts}
           configRevision={configuration.configRevision}
+          quotaRefreshPending={quotaRefresh.pending}
         />
       </KindSplitLayout>
 
@@ -221,4 +241,14 @@ function resolveSelectedProvider(value: string | null): OAuthProvider {
     return value;
   }
   return OAUTH_PROVIDER_OPTIONS[0]?.provider ?? "codex";
+}
+
+function formatQuotaRefreshResult(result: { total: number; failed: number }) {
+  if (result.failed === 0) {
+    return `已刷新全部 ${result.total} 个 Codex 账号额度。`;
+  }
+  if (result.failed === result.total) {
+    return `全部 ${result.total} 个 Codex 账号额度刷新失败。`;
+  }
+  return `已刷新 ${result.total - result.failed} 个 Codex 账号额度，${result.failed} 个失败。`;
 }

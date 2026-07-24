@@ -35,7 +35,12 @@ export function useOAuthAccountMutations() {
       expectedRevision: number;
       expectedConfigVersion: number;
     }) => deleteOAuthAccount(id, expectedRevision, expectedConfigVersion),
-    onSuccess: publish,
+    onSuccess: async (next, { id }) => {
+      publish(next);
+      const queryKey = oauthQueryKeys.quota(id);
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      queryClient.removeQueries({ queryKey, exact: true });
+    },
     onError: refreshAfterFailure,
     retry: false,
   });

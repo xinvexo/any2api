@@ -408,6 +408,7 @@
 - Codex OAuth 账号新增 `GET /api/admin/oauth/accounts/{id}/quota` 与 `POST /api/admin/oauth/accounts/{id}/quota/reset`；Provider 固定调用 ChatGPT `wham/usage`、reset-credit 查询和 consume Endpoint，Runtime 复用 OAuth 代理/严格 SSRF、401 单次刷新和有界正文读取。
 - 重置前由服务端重新查询 `available_count`，无可用次数时返回结构化 409，不能仅依赖浏览器旧状态；每个账号的 reset 操作串行化，成功消费后只清除该账号当前 generation 的额度/限流临时冷却并唤醒 scheduler，不清除认证错误或其他账号状态。
 - 额度响应只返回主/次窗口、可用次数、到期时间、抓取时间和重置窗口数，不写入 OAuth JSON、SQLite、RequestLog、日志或浏览器持久存储；Claude 明确不显示额度入口。管理 Web 将账号列表刷新与额度刷新分开，确认消费后自动重新查询。
+- OAuth 账号集合已移除客户端分页，改用共享响应式 `VirtualGrid` 按动态网格行渲染完整 Provider 集合；Codex 页面新增“刷新全部额度”，覆盖禁用和离屏账号，最多 6 并发并汇总部分失败。额度 Query cache、批量进度与 reset mutation pending 独立于虚拟行挂载，滚动卸载不会取消批量请求，reset 后读取失败也不会保留旧快照。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 - React `/oauth` 已接入账号列表、标签/并发/启停编辑、模型替换、删除确认、过期提示和 URL deep link；登录成功后刷新账号列表，Token 与原始 JSON 不进入浏览器状态。真实 Chromium 已覆盖桌面 deep link、空账号态、390px 导航关闭和无横向溢出；仍需用预置 OAuth 账号夹具覆盖浏览器内编辑/删除。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
 ## 当前边界
@@ -451,4 +452,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、`cargo deny --offline check`，以及 Web typecheck、lint、108 项 Vitest、production build 和内嵌产物一致性检查。真实 Chromium E2E 的 3 项用例已覆盖登录 deep link、OAuth 管理页与 390px 响应式导航。OAuth 契约覆盖独立账号 CRUD、固定数据面、统一 Permit、模型目录、认证头、动态过期、刷新 singleflight/token-version CAS、401 单次恢复、额度窗口/重置次数、服务端二次复核、并发 consume 串行、独立日志来源与配置重启；Provider/OAuth 管理契约覆盖带来源标签的最终请求聚合，Storage 测试覆盖同 UUID 来源隔离，原 Gateway API Key 统计回归继续通过。`cargo xtask architecture-check` 仍仅被既有 `web/src/app/styles/globals.css` 超过 600 code lines 阻塞。
+当前 OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、`cargo deny --offline check`，以及 Web typecheck、lint、115 项 Vitest、production build 和内嵌产物一致性检查。新增 Web 回归覆盖虚拟窗口滚动/换集合、完整 Codex 集合（含禁用和离屏账号）、6 并发上限、部分失败、虚拟卸载不取消额度请求、reset pending 跨卸载和 reset 后读取失败清空旧快照。真实 Chromium E2E 的 3 项用例已覆盖登录 deep link、OAuth 管理页与 390px 响应式导航。OAuth 契约覆盖独立账号 CRUD、固定数据面、统一 Permit、模型目录、认证头、动态过期、刷新 singleflight/token-version CAS、401 单次恢复、额度窗口/重置次数、服务端二次复核、并发 consume 串行、独立日志来源与配置重启；Provider/OAuth 管理契约覆盖带来源标签的最终请求聚合，Storage 测试覆盖同 UUID 来源隔离，原 Gateway API Key 统计回归继续通过。`cargo xtask architecture-check` 仍仅被既有 `web/src/app/styles/globals.css` 超过 600 code lines 阻塞。

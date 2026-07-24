@@ -225,8 +225,10 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 
 - Tauri API、原生窗口按钮、标题栏拖拽区、vibrancy 和桌面平台探测；
 - ClashX 的固定侧栏、窗口级页面切换和布局结构；
-- CodeMirror、虚拟列表、拖拽、复杂图表和全套组件库等尚无真实需求的依赖；
+- CodeMirror、拖拽、复杂图表和全套组件库等尚无真实需求的依赖；
 - 巨型全局 CSS、巨型 Page、全局禁止选中文本和桌面化鼠标语义。
+
+OAuthAccount 管理页的长集合是首个已确认的虚拟化场景。前端使用共享虚拟网格组件按“响应式网格行”渲染完整 Provider 账号集合，支持动态行高、1–3 列布局、键盘可聚焦滚动区和语义化 list/listitem；页面不得再为该集合维护客户端分页。虚拟行允许随滚动卸载，因此额度缓存、批量操作进度和不可逆 reset 的 pending 状态不能只保存在行组件本地生命周期中。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
 样式按 `tokens.css`、`globals.css` 和局部组件职责拆分。React 页面只组合 feature，业务请求、状态和 Schema 分别进入 feature 的 `api`、`model` 与私有 UI 模块。
 
@@ -1947,6 +1949,8 @@ Codex OAuthAccount 额外支持管理面额度查询与 rate-limit reset credit 
 
 额度查询只返回主/次限流窗口、可用重置次数、安全到期时间与抓取时间。查询快照不进入 OAuth Provider JSON、SQLite、日志或 PublishedSnapshot；额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`。
 
+Web 的“刷新全部额度”只针对当前完整 Codex OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号；Claude 不显示该操作。前端以最多 6 个并发复用现有逐账号额度 GET，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 reset 后刷新共用账号级内存 Query cache；批量生命周期不得绑定虚拟行 observer 的挂载状态，额度快照仍不得进入 localStorage、sessionStorage 或其他持久存储。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
+
 原始 callback URL、authorization code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。OAuth JSON 是 SQLite 明文持久化的明确例外；服务端不提供读取、下载或导出端点。
 
 ## 17. 存储与密钥安全
@@ -2266,7 +2270,9 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 只选择 Codex 或 Claude，不选择 Provider Endpoint 或 Provider API Key；
 - 打开授权页面后，允许粘贴完整 localhost callback URL；
 - 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、最大并发和已选模型；可在当前页面编辑这些账号属性或删除账号；
+- 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
 - Codex 账号可显式刷新上游主/次额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；Claude 不显示该入口；
+- Codex 页面提供“刷新全部额度”，覆盖当前完整 Codex 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - session ID、state、authorization code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage。
