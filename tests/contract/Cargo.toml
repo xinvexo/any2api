@@ -27,6 +27,7 @@ tempfile.workspace = true
 tokio.workspace = true
 tower.workspace = true
 url.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true

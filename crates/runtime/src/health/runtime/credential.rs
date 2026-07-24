@@ -61,6 +61,16 @@ impl CredentialHealthRuntime {
         true
     }
 
+    pub(crate) fn clear_temporary_cooldowns(&self) -> bool {
+        let mut state = self.state.lock().expect("credential health lock poisoned");
+        let changed =
+            state.credential_cooldown_until.take().is_some() || !state.model_cooldowns.is_empty();
+        state.model_cooldowns.clear();
+        drop(state);
+        self.scheduler_epoch.advance();
+        changed
+    }
+
     #[cfg(test)]
     pub(crate) fn has_auth_error(&self) -> bool {
         self.state

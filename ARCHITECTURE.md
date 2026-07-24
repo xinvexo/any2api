@@ -1161,7 +1161,7 @@ trait ProtocolBridgeSession: Send {
 
 同协议路径的 `AdapterPayload` 可以保留受限原始 JSON；只有显式选择不同内部协议时才进入 `ProtocolBridge` 和桥专用转换状态。Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态注册，配置发布前完整解析；错误正文只能在严格大小上限内交给 Driver 分类。
 
-具体方法可以在实现阶段调整，但职责边界不可合并为一个万能 Driver。Provider 只处理供应商、Endpoint、认证和错误差异，ProtocolAdapter 负责线协议双向编解码，Runtime 负责网络与编排。OAuth 方法同时服务登录、刷新和选中 OAuthAccount 后的认证注入；它们不把 OAuthAccount 变成 ProviderCredential。`ProviderRegistry` 和 `ProtocolRegistry` 由 `app` 在编译期静态注册，Runtime 只依赖接口和 CapabilitySet。
+具体方法可以在实现阶段调整，但职责边界不可合并为一个万能 Driver。Provider 只处理供应商、Endpoint、认证、OAuth 额度协议和错误差异，ProtocolAdapter 负责线协议双向编解码，Runtime 负责网络与编排。OAuth 方法同时服务登录、刷新、Provider 专属额度管理和选中 OAuthAccount 后的认证注入；它们不把 OAuthAccount 变成 ProviderCredential。`ProviderRegistry` 和 `ProtocolRegistry` 由 `app` 在编译期静态注册，Runtime 只依赖接口和 CapabilitySet。
 
 ### 11.6 Gateway 鉴权与上游认证隔离
 
@@ -1889,7 +1889,7 @@ RequestLog 切片接入 `logs.request.enabled`、`logs.request.retention`、`log
 
 `request_grace_period` 从收到 Ctrl-C 或 Unix SIGTERM 时捕获的 PublishedSnapshot 读取，只限制停止接收新请求后的自然 HTTP drain。超时后进入强制取消阶段。`finalize_timeout` 分别限制强制 HTTP 收敛、后台任务/遥测/SQLite 收尾以及 Tokio runtime 的最终关闭；旧进程不会因为 Writer、Argon2 blocking task 或静默 SSE 无限期占有实例锁。两项设置均热更新，但一次已经开始的停机固定使用信号时捕获的值。任一最终收尾失败都进入持锁致命退出，不得记录正常完成后释放锁。
 
-### 16.3 OAuth2 账号登录、持久化与刷新
+### 16.3 OAuth2 账号登录、持久化、刷新与 Codex 额度
 
 当前实现 Codex 与 Claude 的交互式 OAuth2 登录。成功结果是独立 `OAuthAccount`，不是浏览器下载、服务器文件或 `ProviderCredential`。
 
@@ -1934,6 +1934,10 @@ Claude: id_token, access_token, refresh_token,
 时间字段规范化为 UTC RFC 3339，同时接受已审计实现使用的 `expires_at` 数值/字符串别名。Provider 没有返回的可选字段不伪造。成功兑换会在开始网络请求前消费 session；同一 session 不能再次提交。
 
 单进程刷新 Worker 定期扫描临近过期的已启用账号。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的 refresh token、ID token、账号 ID、邮箱和安全过期边界。成功后 SQLite CAS 更新 JSON 与版本，保留模型集合，发布新 generation；失败不写半成品。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。
+
+Codex OAuthAccount 额外支持管理面额度查询与 rate-limit reset credit 消费；Claude 当前显式不支持。Provider Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume` 的请求计划、认证头与有界 JSON 解析，Runtime 负责执行网络请求。三类请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。
+
+额度查询只返回主/次限流窗口、可用重置次数、安全到期时间与抓取时间。查询快照不进入 OAuth Provider JSON、SQLite、日志或 PublishedSnapshot；额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`。
 
 原始 callback URL、authorization code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。OAuth JSON 是 SQLite 明文持久化的明确例外；服务端不提供读取、下载或导出端点。
 
@@ -1982,6 +1986,7 @@ SQLite 不持久化：
 - Credential/Model/Endpoint/Proxy 健康与冷却状态；
 - 熔断器状态；
 - 会话粘性和 Codex Response ID 映射；
+- OAuth 上游额度查询快照与 reset credit 次数；
 - 正在执行的请求、重试进度和后台任务状态。
 
 RequestLog、Attempt、审计日志和 `last_used_at` 属于历史遥测，不属于需要恢复的运行状态。启动时不会读取它们来重建路由、粘性、并发或健康状态；可以单独关闭、清理或设置容量上限。同一请求日志中记录 GatewayApiKey ID 与 Credential ID 只表示该次请求的观测结果，不构成两类凭据之间的配置绑定或路由关系。
@@ -2249,6 +2254,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 只选择 Codex 或 Claude，不选择 Provider Endpoint 或 Provider API Key；
 - 打开授权页面后，允许粘贴完整 localhost callback URL；
 - 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、最大并发和已选模型；可在当前页面编辑这些账号属性或删除账号；
+- Codex 账号可显式刷新上游主/次额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；Claude 不显示该入口；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - session ID、state、authorization code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage。
 
@@ -2474,7 +2480,7 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - Claude 交互式 OAuth2 登录；
 - 独立一级菜单与页面；
 - 内存 PKCE/session、DIRECT/global-proxy token exchange；
-- 独立 OAuthAccount SQLite 持久化、模型管理、单进程刷新和 token-version CAS；
+- 独立 OAuthAccount SQLite 持久化、模型管理、单进程刷新、token-version CAS 和 Codex 上游额度/重置次数管理；
 - Provider API Key 与 OAuthAccount 编译为统一 RoutingCredential，复用调度、粘性、健康、重试和 Permit；
 - Token 不进入 Vault、ProviderCredential、管理响应或浏览器存储；
 - `/backend-api/codex/responses` OAuth 兼容入口（未实现）；

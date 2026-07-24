@@ -103,6 +103,53 @@ fn authentication_error_is_generation_local_and_permanent() {
     assert_eq!(replacement_generation.availability("model"), Ok(()));
 }
 
+#[tokio::test]
+async fn quota_reset_clears_temporary_cooldowns_but_keeps_authentication_failure() {
+    let epoch = SchedulerEpoch::new();
+    let health = CredentialHealthRuntime::new(Arc::clone(&epoch));
+    let policy = policy();
+    health.record(
+        "model-a",
+        UpstreamErrorClassification::new(
+            UpstreamErrorKind::QuotaExhausted,
+            RetrySafety::RejectedBeforeExecution,
+            None,
+        ),
+        &policy,
+    );
+    health.record(
+        "model-b",
+        UpstreamErrorClassification::new(
+            UpstreamErrorKind::RateLimited,
+            RetrySafety::RejectedBeforeExecution,
+            None,
+        ),
+        &policy,
+    );
+    health.record(
+        "model-a",
+        UpstreamErrorClassification::new(
+            UpstreamErrorKind::Authentication,
+            RetrySafety::RejectedBeforeExecution,
+            None,
+        ),
+        &policy,
+    );
+    let before_reset = epoch.current();
+
+    assert!(health.clear_temporary_cooldowns());
+    assert!(epoch.current() > before_reset);
+    assert_eq!(
+        health.availability("model-a"),
+        Err(HealthAcquireError::Permanent)
+    );
+    assert!(health.has_auth_error());
+
+    assert!(health.clear_auth_error());
+    assert_eq!(health.availability("model-a"), Ok(()));
+    assert_eq!(health.availability("model-b"), Ok(()));
+}
+
 #[tokio::test(start_paused = true)]
 async fn endpoint_and_proxy_breakers_open_and_allow_a_single_half_open_probe() {
     let epoch = SchedulerEpoch::new();

@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：API Key 数据面、OpenAI 协议桥和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新与管理 Web，正在收尾带真实账号夹具的浏览器验收。
-- 最近完成：单进程 OAuth 刷新 Worker、per-account singleflight、token-version CAS 发布和 Pending 401 单次刷新重试；刷新后按新 PublishedSnapshot 重新规划候选。
+- 当前阶段：API Key 数据面、OpenAI 协议桥和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新、Codex 额度查询/重置和管理 Web，正在收尾带真实账号夹具的浏览器验收。
+- 最近完成：单进程 OAuth 刷新 Worker、per-account singleflight、token-version CAS 发布、Pending 401 单次刷新重试，以及 Codex rate-limit reset credit 的查询、二次复核和消费；刷新后按新 PublishedSnapshot 重新规划候选。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -404,6 +404,9 @@
 - 单进程 Worker 与请求侧共用 per-account singleflight gate；并发等待者共享成功或失败，拿锁后复核 token version。成功刷新保留模型/管理元数据和 Provider 未返回的稳定 Token 字段，通过 SQLite token-version CAS、Runtime reconcile 与单次快照切换发布新认证 generation。
 - OAuth 账号返回 retry-safe 401 时，仅在下游仍为 Pending 且重试预算允许时触发一次刷新；刷新成功或并发请求已更新账号后，基于新 PublishedSnapshot 完整重建候选。第二个 401、Ambiguous、刷新失败或提交后错误都不会再次刷新或发送第三条 Attempt。
 - 刷新响应省略到期时间时继续使用 SQLite 账号的旧到期边界，禁止把有限 Token 误变成永不过期；Token Endpoint 和数据面始终使用 DIRECT/全局代理，失败无隐式直连回退。Worker 在 Draining 退出，已经进入串行发布的 CAS 按关键任务边界完成或在 Forced 取消。
+- Codex OAuth 账号新增 `GET /api/admin/oauth/accounts/{id}/quota` 与 `POST /api/admin/oauth/accounts/{id}/quota/reset`；Provider 固定调用 ChatGPT `wham/usage`、reset-credit 查询和 consume Endpoint，Runtime 复用 OAuth 代理/严格 SSRF、401 单次刷新和有界正文读取。
+- 重置前由服务端重新查询 `available_count`，无可用次数时返回结构化 409，不能仅依赖浏览器旧状态；每个账号的 reset 操作串行化，成功消费后只清除该账号当前 generation 的额度/限流临时冷却并唤醒 scheduler，不清除认证错误或其他账号状态。
+- 额度响应只返回主/次窗口、可用次数、到期时间、抓取时间和重置窗口数，不写入 OAuth JSON、SQLite、RequestLog、日志或浏览器持久存储；Claude 明确不显示额度入口。管理 Web 将账号列表刷新与额度刷新分开，确认消费后自动重新查询。
 - React `/oauth` 已接入账号列表、标签/并发/启停编辑、模型替换、删除确认、过期提示和 URL deep link；登录成功后刷新账号列表，Token 与原始 JSON 不进入浏览器状态。真实 Chromium 已覆盖桌面 deep link、空账号态、390px 导航关闭和无横向溢出；仍需用预置 OAuth 账号夹具覆盖浏览器内编辑/删除。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
 ## 当前边界
@@ -423,8 +426,8 @@
 
 ## 下一步
 
-1. 为真实二进制 E2E 增加安全的预置 OAuthAccount 测试夹具，覆盖桌面/窄屏账号编辑、模型抽屉、删除确认、deep link 和页面/浏览器状态中无 Token。
-2. 使用实际 Codex 与 Claude 管理员账号分别完成一次人工登录、自动刷新和 401 恢复 smoke；该步骤需要外部账号授权，不把 Token 写入测试产物或日志。
+1. 为真实二进制 E2E 增加安全的预置 OAuthAccount 测试夹具，覆盖桌面/窄屏账号编辑、模型抽屉、删除确认、额度刷新/重置确认、deep link 和页面/浏览器状态中无 Token。
+2. 使用实际 Codex 与 Claude 管理员账号分别完成一次人工登录、自动刷新、401 恢复和 Codex 额度查询 smoke；只有账号确有 reset credit 时才人工执行一次重置，步骤需要外部账号授权，不把 Token 写入测试产物或日志。
 3. 未来如需 Provider 专用 OAuth2 JSON 导入、通用 Secret 导出或 `/backend-api/codex/responses` 客户端别名，必须另建切片/ADR，不能把 OAuthAccount 隐式接入 ProviderCredential。
 
 ## 验证结果
@@ -447,4 +450,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 OAuthAccount 统一路由、自动刷新、401 恢复与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、`cargo deny --offline check`，以及 Web typecheck、lint、99 项 Vitest、production build 和内嵌产物一致性检查。真实 Chromium E2E 的 3 项用例已覆盖登录 deep link、OAuth 管理页与 390px 响应式导航。OAuth 契约覆盖独立账号 CRUD、固定数据面、统一 Permit、模型目录、认证头、动态过期、刷新 singleflight/token-version CAS、401 单次恢复、独立日志来源与配置重启。`cargo xtask architecture-check` 仍仅被既有 `web/src/app/styles/globals.css` 超过 600 code lines 阻塞。
+当前 OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、`cargo deny --offline check`，以及 Web typecheck、lint、103 项 Vitest、production build 和内嵌产物一致性检查。真实 Chromium E2E 的 3 项用例已覆盖登录 deep link、OAuth 管理页与 390px 响应式导航。OAuth 契约覆盖独立账号 CRUD、固定数据面、统一 Permit、模型目录、认证头、动态过期、刷新 singleflight/token-version CAS、401 单次恢复、额度窗口/重置次数、服务端二次复核、并发 consume 串行、独立日志来源与配置重启。`cargo xtask architecture-check` 仍仅被既有 `web/src/app/styles/globals.css` 超过 600 code lines 阻塞。

@@ -8,6 +8,10 @@ use http::{HeaderMap, StatusCode};
 use url::Url;
 
 pub use crate::oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_file};
+pub use crate::oauth_quota::{
+    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
+    OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,
+};
 pub use crate::oauth_routing::OAuthRoutingProfile;
 pub use crate::{ProviderError, ProviderRegistry, ProviderSecret};
 
@@ -116,6 +120,45 @@ pub trait ProviderDriver: Send + Sync {
     ) -> Result<CredentialHeaders, ProviderError> {
         Err(ProviderError::InvalidCredential(
             "OAuth2 is not supported by this provider".into(),
+        ))
+    }
+
+    fn oauth_quota_query_plan(
+        &self,
+        _token: &OAuthTokenMaterial,
+    ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
+        Ok(None)
+    }
+
+    fn parse_oauth_quota_usage(&self, _body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth quota is not supported by this provider".into(),
+        ))
+    }
+
+    fn parse_oauth_quota_reset_credits(
+        &self,
+        _body: &[u8],
+    ) -> Result<Option<OAuthQuotaResetCredits>, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth quota is not supported by this provider".into(),
+        ))
+    }
+
+    fn oauth_quota_reset_plan(
+        &self,
+        _token: &OAuthTokenMaterial,
+        _redeem_request_id: &str,
+    ) -> Result<Option<OAuthRequestPlan>, ProviderError> {
+        Ok(None)
+    }
+
+    fn parse_oauth_quota_reset(
+        &self,
+        _body: &[u8],
+    ) -> Result<OAuthQuotaResetResult, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth quota reset is not supported by this provider".into(),
         ))
     }
 

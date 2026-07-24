@@ -10,6 +10,8 @@ use crate::{process_lifecycle::ProcessLifecycle, publisher::ConfigPublisher};
 use super::{
     callback, document,
     error::OAuthError,
+    quota::OAuthQuotaService,
+    quota_types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
     refresh::OAuthRefresher,
     session::{OAuthSession, OAuthSessionStore, SESSION_TTL_SECONDS},
     token_request,
@@ -22,6 +24,7 @@ pub struct OAuthService {
     publisher: Arc<ConfigPublisher>,
     sessions: Mutex<OAuthSessionStore>,
     refresher: Arc<OAuthRefresher>,
+    quota: OAuthQuotaService,
 }
 
 impl OAuthService {
@@ -36,12 +39,19 @@ impl OAuthService {
             Arc::clone(&transport),
             Arc::clone(&publisher),
         );
+        let quota = OAuthQuotaService::new(
+            Arc::clone(&providers),
+            Arc::clone(&transport),
+            Arc::clone(&publisher),
+            Arc::clone(&refresher),
+        );
         Self {
             providers,
             transport,
             publisher,
             sessions: Mutex::new(OAuthSessionStore::default()),
             refresher,
+            quota,
         }
     }
 
@@ -51,6 +61,20 @@ impl OAuthService {
 
     pub(crate) fn refresher(&self) -> Arc<OAuthRefresher> {
         Arc::clone(&self.refresher)
+    }
+
+    pub async fn query_quota(
+        &self,
+        id: OAuthAccountId,
+    ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
+        self.quota.query(id).await
+    }
+
+    pub async fn reset_quota(
+        &self,
+        id: OAuthAccountId,
+    ) -> Result<OAuthQuotaResetOutcome, OAuthQuotaError> {
+        self.quota.reset(id).await
     }
 
     pub async fn start(&self, provider: ProviderKind) -> Result<OAuthStartResult, OAuthError> {

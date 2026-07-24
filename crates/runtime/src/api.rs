@@ -18,7 +18,10 @@ pub use crate::credential_runtime::{
 pub use crate::gateway_api_key_publisher::GatewayApiKeyPublishResult;
 pub use crate::gateway_api_key_token::{GatewayApiKeyToken, GatewayApiKeyTokenGenerationError};
 pub use crate::logging_reconciler::LoggingSettingsReconciler;
-pub use crate::oauth::{OAuthActivationResult, OAuthError, OAuthService, OAuthStartResult};
+pub use crate::oauth::{
+    OAuthActivationResult, OAuthError, OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot,
+    OAuthService, OAuthStartResult,
+};
 pub use crate::process_lifecycle::{ActiveRequestGuard, ProcessLifecycle, ShutdownPhase};
 pub use crate::provider_api_key_secret::ProviderApiKeySecret;
 pub use crate::provider_credential_test::{
@@ -41,4 +44,8 @@ pub use crate::queue::{QueuePolicy, QueuePolicyError, SaturationAction};
 pub use crate::registry::RuntimeRegistry;
 pub use crate::request_telemetry::{RequestTelemetry, RequestTelemetryMetrics};
 pub use crate::scheduler::{SelectAndAcquireResult, select_and_try_acquire};
+pub use any2api_provider::api::{
+    OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaUsage,
+    OAuthQuotaWindow,
+};
 pub use any2api_storage::api::{GatewayApiKeyRequestOutcome, GatewayApiKeyUsageSummary};

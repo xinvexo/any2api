@@ -8,6 +8,10 @@ import {
   type OAuthAccountUpdateInput,
   type OAuthProvider,
 } from "./oauth-contracts";
+import {
+  parseOAuthQuotaResetResult,
+  parseOAuthQuotaSnapshot,
+} from "./oauth-quota-contracts";
 
 export function startOAuthLogin(provider: OAuthProvider) {
   return requestJson<unknown>("/api/admin/oauth/start", {
@@ -74,4 +78,17 @@ export function deleteOAuthAccount(
     `${accountCollection}/${encodeURIComponent(id)}?${query.toString()}`,
     { method: "DELETE" },
   ).then(parseOAuthAccountConfiguration);
+}
+
+export function getOAuthAccountQuota(id: string) {
+  return requestJson<unknown>(
+    `${accountCollection}/${encodeURIComponent(id)}/quota`,
+  ).then(parseOAuthQuotaSnapshot);
+}
+
+export function resetOAuthAccountQuota(id: string) {
+  return requestJson<unknown>(
+    `${accountCollection}/${encodeURIComponent(id)}/quota/reset`,
+    { method: "POST" },
+  ).then(parseOAuthQuotaResetResult);
 }

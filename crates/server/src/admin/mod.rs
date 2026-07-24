@@ -16,6 +16,8 @@ mod no_store;
 mod oauth_dto;
 mod oauth_error;
 mod oauth_handlers;
+mod oauth_quota_dto;
+mod oauth_quota_error;
 mod provider_credential_dto;
 mod provider_credential_handlers;
 mod provider_endpoint_dto;
@@ -77,6 +79,11 @@ fn protected_routes() -> Router<AppState> {
         .route(
             "/oauth/accounts/{id}/models",
             axum::routing::put(oauth_handlers::set_models),
+        )
+        .route("/oauth/accounts/{id}/quota", get(oauth_handlers::quota))
+        .route(
+            "/oauth/accounts/{id}/quota/reset",
+            post(oauth_handlers::reset_quota),
         )
         .route(
             "/gateway-api-keys",

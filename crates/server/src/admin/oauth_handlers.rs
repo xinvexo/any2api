@@ -18,6 +18,8 @@ use super::{
         OAuthStartResponse,
     },
     oauth_error,
+    oauth_quota_dto::{OAuthQuotaResetResponse, OAuthQuotaResponse},
+    oauth_quota_error,
 };
 
 pub(super) async fn list(State(state): State<AppState>) -> Result<Response, AdminApiError> {
@@ -97,6 +99,32 @@ pub(super) async fn delete(
         .delete_oauth_account(expected, id, expected_config_version)
         .await?;
     Ok(accounts_response(&snapshot))
+}
+
+pub(super) async fn quota(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, AdminApiError> {
+    let id = parse_account_id(&id)?;
+    let service = state.oauth().ok_or_else(oauth_unavailable)?;
+    let result = service
+        .query_quota(id)
+        .await
+        .map_err(oauth_quota_error::map)?;
+    Ok(no_store::json(OAuthQuotaResponse::from(result)))
+}
+
+pub(super) async fn reset_quota(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, AdminApiError> {
+    let id = parse_account_id(&id)?;
+    let service = state.oauth().ok_or_else(oauth_unavailable)?;
+    let result = service
+        .reset_quota(id)
+        .await
+        .map_err(oauth_quota_error::map)?;
+    Ok(no_store::json(OAuthQuotaResetResponse::from(result)))
 }
 
 fn accounts_response(snapshot: &any2api_runtime::api::PublishedSnapshot) -> Response {

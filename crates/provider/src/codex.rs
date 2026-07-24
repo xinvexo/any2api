@@ -10,7 +10,7 @@ use crate::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthRequestPlan,
         OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
-    api_key, codex_error, codex_oauth,
+    api_key, codex_error, codex_oauth, codex_quota,
 };
 
 #[derive(Debug)]
@@ -142,6 +142,42 @@ impl ProviderDriver for CodexDriver {
         _forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
         codex_oauth::credential_headers(token)
+    }
+
+    fn oauth_quota_query_plan(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<Option<crate::api::OAuthQuotaQueryPlan>, ProviderError> {
+        codex_quota::query_plan(token).map(Some)
+    }
+
+    fn parse_oauth_quota_usage(
+        &self,
+        body: &[u8],
+    ) -> Result<crate::api::OAuthQuotaUsage, ProviderError> {
+        codex_quota::parse_usage(body)
+    }
+
+    fn parse_oauth_quota_reset_credits(
+        &self,
+        body: &[u8],
+    ) -> Result<Option<crate::api::OAuthQuotaResetCredits>, ProviderError> {
+        codex_quota::parse_reset_credits(body)
+    }
+
+    fn oauth_quota_reset_plan(
+        &self,
+        token: &OAuthTokenMaterial,
+        redeem_request_id: &str,
+    ) -> Result<Option<OAuthRequestPlan>, ProviderError> {
+        codex_quota::reset_plan(token, redeem_request_id).map(Some)
+    }
+
+    fn parse_oauth_quota_reset(
+        &self,
+        body: &[u8],
+    ) -> Result<crate::api::OAuthQuotaResetResult, ProviderError> {
+        codex_quota::parse_reset_result(body)
     }
 
     fn classify_error(

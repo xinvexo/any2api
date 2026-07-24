@@ -7,6 +7,7 @@ import { getOAuthErrorMessage } from "../model/oauth-error";
 import { useOAuthAccountMutations } from "../model/use-oauth-account-mutations";
 import { useOAuthAccounts } from "../model/use-oauth-accounts";
 import { OAuthAccountEditor } from "./OAuthAccountEditor";
+import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
 import { oauthProviderLabel } from "../model/oauth-provider-catalog";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
@@ -77,7 +78,7 @@ export function OAuthAccounts() {
         </div>
         <Button variant="ghost" disabled={accounts.isFetching} onClick={() => void accounts.refetch()}>
           <RefreshCw size={14} aria-hidden="true" />
-          刷新
+          刷新账号
         </Button>
       </div>
 
@@ -213,6 +214,9 @@ function OAuthAccountCard({
           编辑
         </Button>
       </div>
+      {account.providerKind === "codex" ? (
+        <OAuthQuotaPanel accountId={account.id} accountLabel={account.label} />
+      ) : null}
     </Surface>
   );
 }
