@@ -9,7 +9,8 @@ use any2api_domain::{
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
-    RequestLogRepository, StorageError,
+    RequestLogRepository, StorageError, UpstreamCredentialUsageRepository,
+    UpstreamCredentialUsageSummary,
 };
 use async_trait::async_trait;
 use tokio::sync::Notify;
@@ -178,6 +179,15 @@ impl GatewayApiKeyUsageRepository for BlockingRepository {
     async fn list_gateway_api_key_usage(
         &self,
     ) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl UpstreamCredentialUsageRepository for BlockingRepository {
+    async fn list_upstream_credential_usage(
+        &self,
+    ) -> Result<Vec<UpstreamCredentialUsageSummary>, StorageError> {
         Ok(Vec::new())
     }
 }

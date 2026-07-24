@@ -16,12 +16,29 @@ test("renders recent request metadata without prompt or secret content", async (
   expect(model).toHaveClass("break-all");
   expect(screen.getByText("11111111-1111-4111-8111-111111111111")).toBeInTheDocument();
   expect(screen.getByText(/丢弃 2/)).toBeInTheDocument();
+  expect(screen.getByText("API Key 44444444…")).toBeInTheDocument();
   expect(screen.getByRole("link")).toHaveAttribute(
     "href",
     "/logs/11111111-1111-4111-8111-111111111111",
   );
   expect(screen.queryByText("private prompt")).not.toBeInTheDocument();
   expect(screen.queryByText("provider-secret")).not.toBeInTheDocument();
+});
+
+test("distinguishes an OAuth final upstream source", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    listResponse([
+      {
+        ...request(),
+        credential_id: null,
+        oauth_account_id: "55555555-5555-4555-8555-555555555555",
+      },
+    ]),
+  );
+
+  renderManagement();
+
+  expect(await screen.findByText("OAuth 55555555…")).toBeInTheDocument();
 });
 
 test("renders an empty state", async () => {
@@ -101,7 +118,7 @@ function request() {
   };
 }
 
-function listResponse(items: ReturnType<typeof request>[]) {
+function listResponse(items: unknown[]) {
   return new Response(
     JSON.stringify({
       items,

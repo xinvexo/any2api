@@ -6,7 +6,7 @@
 ## 当前状态
 
 - 当前阶段：API Key 数据面、OpenAI 协议桥和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新、Codex 额度查询/重置和管理 Web，正在收尾带真实账号夹具的浏览器验收。
-- 最近完成：单进程 OAuth 刷新 Worker、per-account singleflight、token-version CAS 发布、Pending 401 单次刷新重试，以及 Codex rate-limit reset credit 的查询、二次复核和消费；刷新后按新 PublishedSnapshot 重新规划候选。
+- 最近完成：单进程 OAuth 刷新 Worker、per-account singleflight、token-version CAS 发布、Pending 401 单次刷新重试、Codex rate-limit reset credit 消费，以及按 Provider API Key / OAuthAccount 分来源的请求统计；Gateway API Key 统计继续独立保留。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -400,6 +400,7 @@
 - OAuthAccount 固定绑定 DIRECT 并继承已发布全局代理；Codex 注入 Bearer、`Chatgpt-Account-Id` 与 `Originator`，Claude 注入 Bearer、固定 `anthropic-version` 并合并所需 OAuth beta，Gateway 认证头仍在进入 Driver 前剥离。
 - `/v1/models` 已合并 OAuth-only 模型；请求规划可在没有 ProviderEndpoint/ProviderCredential 时使用 OAuth 固定路由，同模型 API Key 与 OAuth 账号进入同一候选池。账号到期状态按请求时间动态判断，过期账号不进入目录或调度。
 - RequestLog/Attempt 使用独立 `oauth_account_id` 标识 OAuth 来源，`credential_id` 与内部固定 `provider_endpoint_id` 保持为空；Balancing、Affinity 与对应 Web 契约均使用来源标签，OAuth 清理令牌固定为 `oauth_account:<uuid>`。
+- Provider API Key 与 OAuthAccount 管理响应新增按带来源标签的最终 RequestLog 聚合：总请求、成功、失败和最近 24 次状态；中间重试只保留在 Attempt 时间线，不重复计数。该统计与 Gateway API Key 统计并存，只覆盖日志保留窗口且不参与路由、额度或计费。
 - SettingRegistry 新增 `oauth.refresh.scan_interval=30s` 与 `oauth.refresh.lead_time=300s`，要求提前窗口不短于扫描间隔；Worker 启动即扫描并由快照 revision 唤醒，配置热更新后重新读取账号和生效值。
 - 单进程 Worker 与请求侧共用 per-account singleflight gate；并发等待者共享成功或失败，拿锁后复核 token version。成功刷新保留模型/管理元数据和 Provider 未返回的稳定 Token 字段，通过 SQLite token-version CAS、Runtime reconcile 与单次快照切换发布新认证 generation。
 - OAuth 账号返回 retry-safe 401 时，仅在下游仍为 Pending 且重试预算允许时触发一次刷新；刷新成功或并发请求已更新账号后，基于新 PublishedSnapshot 完整重建候选。第二个 401、Ambiguous、刷新失败或提交后错误都不会再次刷新或发送第三条 Attempt。
@@ -420,7 +421,7 @@
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
 - ProviderCredential 与 OAuthAccount 分别承载 API Key generation 和独立 token/account generation，并通过带来源标签的 `RoutingCredentialId` 编译到同一候选池；两类持久化模型和管理 API 保持分离。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
-- RequestLog/Attempt 对 API Key 与 OAuth 使用互斥来源列；OAuth 不暴露内部固定 Endpoint。负载均衡运行态 API、Affinity 管理与对应页面已识别两类来源；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
+- RequestLog/Attempt 对 API Key 与 OAuth 使用互斥来源列；OAuth 不暴露内部固定 Endpoint。Provider/OAuth 管理页显示各自日志窗口统计，请求日志列表显式标识最终上游来源；Gateway Key 入口统计保持不变。负载均衡运行态 API、Affinity 管理与对应页面已识别两类来源；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 - 正式运行默认从二进制内嵌 React 资源提供管理面；改变当前工作目录或删除源码树不会影响页面，外部 Web 目录必须通过 `ANY2API_WEB_DIR` 显式选择。
 
@@ -450,4 +451,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、`cargo deny --offline check`，以及 Web typecheck、lint、103 项 Vitest、production build 和内嵌产物一致性检查。真实 Chromium E2E 的 3 项用例已覆盖登录 deep link、OAuth 管理页与 390px 响应式导航。OAuth 契约覆盖独立账号 CRUD、固定数据面、统一 Permit、模型目录、认证头、动态过期、刷新 singleflight/token-version CAS、401 单次恢复、额度窗口/重置次数、服务端二次复核、并发 consume 串行、独立日志来源与配置重启。`cargo xtask architecture-check` 仍仅被既有 `web/src/app/styles/globals.css` 超过 600 code lines 阻塞。
+当前 OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、`cargo deny --offline check`，以及 Web typecheck、lint、108 项 Vitest、production build 和内嵌产物一致性检查。真实 Chromium E2E 的 3 项用例已覆盖登录 deep link、OAuth 管理页与 390px 响应式导航。OAuth 契约覆盖独立账号 CRUD、固定数据面、统一 Permit、模型目录、认证头、动态过期、刷新 singleflight/token-version CAS、401 单次恢复、额度窗口/重置次数、服务端二次复核、并发 consume 串行、独立日志来源与配置重启；Provider/OAuth 管理契约覆盖带来源标签的最终请求聚合，Storage 测试覆盖同 UUID 来源隔离，原 Gateway API Key 统计回归继续通过。`cargo xtask architecture-check` 仍仅被既有 `web/src/app/styles/globals.css` 超过 600 code lines 阻塞。

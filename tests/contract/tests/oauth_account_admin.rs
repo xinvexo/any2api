@@ -1,10 +1,17 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
-use any2api_domain::{MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProviderKind};
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
+use any2api_domain::{
+    CompletedRequestLog, ConfigRevision, MaxConcurrency, OAuthAccountDraft, OAuthAccountId,
+    ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId, RequestId, RequestLog,
+};
+use any2api_runtime::api::{
+    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
+};
 use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
+use any2api_storage::api::{
+    ConfigurationRepository, OAuthAccountDocument, RequestLogRepository, SqliteStore,
+};
 use axum::{
     Router,
     body::Body,
@@ -19,6 +26,13 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     let (_directory, app, storage, account_id) = test_app().await;
+    storage
+        .append_request_logs(&[
+            oauth_request_log(account_id, 1_800_000_000_000, 200),
+            oauth_request_log(account_id, 1_800_000_000_001, 503),
+        ])
+        .await
+        .expect("append OAuth usage");
     let remote = SocketAddr::from(([203, 0, 113, 10], 41000));
     let (status, forbidden) = request_json(
         app.clone(),
@@ -67,6 +81,13 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     );
     // Test fixture token has no id_token plan claim.
     assert_eq!(account["plan_type"], Value::Null);
+    assert_eq!(account["usage"]["total_requests"], 2);
+    assert_eq!(account["usage"]["successful_requests"], 1);
+    assert_eq!(account["usage"]["failed_requests"], 1);
+    assert_eq!(
+        account["usage"]["recent_outcomes"],
+        json!([{ "status_code": 200 }, { "status_code": 503 }])
+    );
     let listed_text = serde_json::to_string(&listed).expect("listed JSON");
     assert!(!listed_text.contains("access-secret"));
     assert!(!listed_text.contains("refresh-secret"));
@@ -245,11 +266,51 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let components = build_public_request_components().expect("public request components");
+    let telemetry = Arc::new(RequestTelemetry::start(
+        Arc::clone(&storage),
+        snapshots.load().revision(),
+        snapshots.load().settings().logging(),
+        &runtime.lifecycle(),
+    ));
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher, components.service()),
+        AppState::new(snapshots, runtime, publisher, components.service())
+            .with_request_telemetry(telemetry),
         web_root,
     );
     (directory, app, storage, account_id)
+}
+
+fn oauth_request_log(
+    account_id: OAuthAccountId,
+    started_at_ms: u64,
+    status_code: u16,
+) -> CompletedRequestLog {
+    CompletedRequestLog {
+        request: RequestLog {
+            request_id: RequestId::new(),
+            started_at_ms,
+            config_revision: ConfigRevision::INITIAL,
+            gateway_api_key_id: None,
+            ingress_protocol: ProtocolDialect::OpenAiResponses,
+            operation: ProtocolOperation::Responses,
+            public_model: Some("gpt-5.5".into()),
+            provider_endpoint_id: None,
+            credential_id: None,
+            oauth_account_id: Some(account_id),
+            proxy_profile_id: Some(ProxyProfileId::DIRECT),
+            status_code,
+            error_class: None,
+            attempt_count: 0,
+            latency_ms: 1,
+            first_token_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            is_stream: false,
+        },
+        attempts: Vec::new(),
+    }
 }
 
 async fn request_json(

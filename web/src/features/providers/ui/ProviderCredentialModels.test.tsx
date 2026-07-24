@@ -66,6 +66,12 @@ const credential: ProviderCredential = {
   credentialGeneration: 1,
   configVersion: 1,
   models: [],
+  usage: {
+    totalRequests: 0,
+    successfulRequests: 0,
+    failedRequests: 0,
+    recentOutcomes: [],
+  },
 };
 
 const acceptedResult: ProviderCredentialTestResult = {

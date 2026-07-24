@@ -1,14 +1,16 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProviderCredential,
-    ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId,
+    ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId, RoutingCredentialId,
 };
 use any2api_runtime::api::{
     ProviderApiKeySecret, ProviderCredentialTestOutcome, ProviderCredentialTestResult,
-    PublishedSnapshot,
+    PublishedSnapshot, UpstreamCredentialUsageSummary,
 };
 use serde::{Deserialize, Serialize};
 
-use super::{error::AdminApiError, revision::parse_revision};
+use super::{
+    error::AdminApiError, revision::parse_revision, upstream_usage::UpstreamCredentialUsageResponse,
+};
 
 #[derive(Serialize)]
 pub(crate) struct ProviderCredentialCollectionResponse {
@@ -21,6 +23,7 @@ impl ProviderCredentialCollectionResponse {
     pub(crate) fn from_snapshot(
         snapshot: &PublishedSnapshot,
         endpoint_id: ProviderEndpointId,
+        usage: &[UpstreamCredentialUsageSummary],
     ) -> Self {
         Self {
             config_revision: snapshot.revision().get(),
@@ -28,7 +31,7 @@ impl ProviderCredentialCollectionResponse {
             items: snapshot
                 .provider_credentials()
                 .for_endpoint(endpoint_id)
-                .map(ProviderCredentialResponse::from)
+                .map(|credential| ProviderCredentialResponse::new(credential, usage))
                 .collect(),
         }
     }
@@ -50,10 +53,11 @@ struct ProviderCredentialResponse {
     credential_generation: u64,
     config_version: u64,
     models: Vec<String>,
+    usage: UpstreamCredentialUsageResponse,
 }
 
-impl From<&ProviderCredential> for ProviderCredentialResponse {
-    fn from(credential: &ProviderCredential) -> Self {
+impl ProviderCredentialResponse {
+    fn new(credential: &ProviderCredential, usage: &[UpstreamCredentialUsageSummary]) -> Self {
         Self {
             id: credential.id(),
             provider_endpoint_id: credential.provider_endpoint_id(),
@@ -73,6 +77,10 @@ impl From<&ProviderCredential> for ProviderCredentialResponse {
                 .iter()
                 .map(|model| model.as_str().to_owned())
                 .collect(),
+            usage: UpstreamCredentialUsageResponse::for_id(
+                RoutingCredentialId::provider_credential(credential.id()),
+                usage,
+            ),
         }
     }
 }

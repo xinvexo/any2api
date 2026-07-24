@@ -76,6 +76,12 @@ function account(label: string, configVersion: number): OAuthAccount {
     models: ["gpt-5.5"],
     availableModels: ["gpt-5.5", "gpt-5.6-luna"],
     planType: "plus",
+    usage: {
+      totalRequests: 3,
+      successfulRequests: 2,
+      failedRequests: 1,
+      recentOutcomes: [{ statusCode: 200 }, { statusCode: 429 }, { statusCode: 200 }],
+    },
   };
 }
 
@@ -95,6 +101,16 @@ function accountJson(label: string, configVersion: number, maxConcurrency: numbe
     models: ["gpt-5.5"],
     available_models: ["gpt-5.5", "gpt-5.6-luna"],
     plan_type: "plus",
+    usage: usageJson(),
+  };
+}
+
+function usageJson() {
+  return {
+    total_requests: 3,
+    successful_requests: 2,
+    failed_requests: 1,
+    recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 200 }],
   };
 }
 

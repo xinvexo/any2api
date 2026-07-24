@@ -1,10 +1,15 @@
 use any2api_domain::{
     ConfigRevision, MaxConcurrency, OAuthAccount, OAuthAccountDraft, OAuthAccountId, ProviderKind,
+    RoutingCredentialId,
 };
-use any2api_runtime::api::{OAuthActivationResult, OAuthStartResult, PublishedSnapshot};
+use any2api_runtime::api::{
+    OAuthActivationResult, OAuthStartResult, PublishedSnapshot, UpstreamCredentialUsageSummary,
+};
 use serde::{Deserialize, Serialize};
 
-use super::{error::AdminApiError, revision::parse_revision};
+use super::{
+    error::AdminApiError, revision::parse_revision, upstream_usage::UpstreamCredentialUsageResponse,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,14 +95,17 @@ pub(super) struct OAuthAccountCollectionResponse {
 }
 
 impl OAuthAccountCollectionResponse {
-    pub(super) fn from_snapshot(snapshot: &PublishedSnapshot) -> Self {
+    pub(super) fn from_snapshot(
+        snapshot: &PublishedSnapshot,
+        usage: &[UpstreamCredentialUsageSummary],
+    ) -> Self {
         Self {
             config_revision: snapshot.revision().get(),
             items: snapshot
                 .oauth_accounts()
                 .accounts()
                 .iter()
-                .map(|account| OAuthAccountResponse::from_snapshot(account, snapshot))
+                .map(|account| OAuthAccountResponse::from_snapshot(account, snapshot, usage))
                 .collect(),
         }
     }
@@ -122,10 +130,15 @@ struct OAuthAccountResponse {
     available_models: Vec<String>,
     /// Official Codex `chatgpt_plan_type` from the ID Token (pass-through).
     plan_type: Option<String>,
+    usage: UpstreamCredentialUsageResponse,
 }
 
 impl OAuthAccountResponse {
-    fn from_snapshot(account: &OAuthAccount, snapshot: &PublishedSnapshot) -> Self {
+    fn from_snapshot(
+        account: &OAuthAccount,
+        snapshot: &PublishedSnapshot,
+        usage: &[UpstreamCredentialUsageSummary],
+    ) -> Self {
         let selected = account
             .models()
             .iter()
@@ -155,6 +168,10 @@ impl OAuthAccountResponse {
             models: selected,
             available_models,
             plan_type: snapshot.oauth_plan_label(account.id()),
+            usage: UpstreamCredentialUsageResponse::for_id(
+                RoutingCredentialId::oauth_account(account.id()),
+                usage,
+            ),
         }
     }
 }

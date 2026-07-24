@@ -102,7 +102,7 @@ export function ProviderCredentialList({
           <table
             className={cn(
               "w-full border-collapse text-left",
-              embedded ? "min-w-[620px] text-[11px]" : "min-w-[760px] text-[12px]",
+              embedded ? "min-w-[800px] text-[11px]" : "min-w-[980px] text-[12px]",
             )}
           >
             <thead>
@@ -117,6 +117,7 @@ export function ProviderCredentialList({
                 <th className="px-3 py-1.5 font-medium">并发</th>
                 <th className="px-3 py-1.5 font-medium">状态</th>
                 <th className="px-3 py-1.5 font-medium">密钥</th>
+                <th className="px-3 py-1.5 font-medium">请求统计</th>
                 <th className="py-1.5 pl-3 text-right font-medium">操作</th>
               </tr>
             </thead>

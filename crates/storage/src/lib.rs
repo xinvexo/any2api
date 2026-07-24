@@ -35,6 +35,9 @@ mod settings_repository;
 mod settings_repository_tests;
 mod settings_rows;
 mod sqlite;
+mod upstream_credential_usage_repository;
+#[cfg(test)]
+mod upstream_credential_usage_repository_tests;
 mod vault;
 
 mod oauth_account_repository;

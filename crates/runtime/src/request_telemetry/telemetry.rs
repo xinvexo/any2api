@@ -12,6 +12,7 @@ use any2api_domain::{
 };
 use any2api_storage::api::{
     GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary, RequestLogRepository, StorageError,
+    UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
 };
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -33,6 +34,7 @@ pub struct RequestTelemetryMetrics {
 pub struct RequestTelemetry {
     request_logs: Option<Arc<dyn RequestLogRepository>>,
     gateway_usage_repository: Option<Arc<dyn GatewayApiKeyUsageRepository>>,
+    upstream_usage_repository: Option<Arc<dyn UpstreamCredentialUsageRepository>>,
     sender: RwLock<Option<mpsc::Sender<TelemetryEvent>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
     queued: Arc<AtomicUsize>,
@@ -55,6 +57,7 @@ impl RequestTelemetry {
         Self {
             request_logs: None,
             gateway_usage_repository: None,
+            upstream_usage_repository: None,
             sender: RwLock::new(None),
             worker: Mutex::new(None),
             queued: Arc::new(AtomicUsize::new(0)),
@@ -72,10 +75,14 @@ impl RequestTelemetry {
         lifecycle: &ProcessLifecycle,
     ) -> Self
     where
-        R: RequestLogRepository + GatewayApiKeyUsageRepository + 'static,
+        R: RequestLogRepository
+            + GatewayApiKeyUsageRepository
+            + UpstreamCredentialUsageRepository
+            + 'static,
     {
         let request_logs: Arc<dyn RequestLogRepository> = Arc::clone(&repository) as _;
-        let gateway_usage: Arc<dyn GatewayApiKeyUsageRepository> = repository;
+        let gateway_usage: Arc<dyn GatewayApiKeyUsageRepository> = Arc::clone(&repository) as _;
+        let upstream_usage: Arc<dyn UpstreamCredentialUsageRepository> = repository;
         let capacity = usize::try_from(MAX_TELEMETRY_QUEUE_CAPACITY)
             .expect("telemetry queue maximum fits usize");
         let (sender, receiver) = mpsc::channel(capacity);
@@ -99,6 +106,7 @@ impl RequestTelemetry {
         Self {
             request_logs: Some(request_logs),
             gateway_usage_repository: Some(gateway_usage),
+            upstream_usage_repository: Some(upstream_usage),
             sender: RwLock::new(Some(sender)),
             worker: Mutex::new(Some(worker)),
             queued,
@@ -214,6 +222,15 @@ impl RequestTelemetry {
     pub async fn gateway_key_usage(&self) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {
         match &self.gateway_usage_repository {
             Some(repository) => repository.list_gateway_api_key_usage().await,
+            None => Ok(Vec::new()),
+        }
+    }
+
+    pub async fn upstream_credential_usage(
+        &self,
+    ) -> Result<Vec<UpstreamCredentialUsageSummary>, StorageError> {
+        match &self.upstream_usage_repository {
+            Some(repository) => repository.list_upstream_credential_usage().await,
             None => Ok(Vec::new()),
         }
     }

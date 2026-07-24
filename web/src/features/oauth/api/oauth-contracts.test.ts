@@ -64,6 +64,7 @@ describe("parseOAuthAccountConfiguration", () => {
             "gpt-5.6-terra",
           ],
           plan_type: "plus",
+          usage: usage(),
         },
       ],
     });
@@ -81,6 +82,11 @@ describe("parseOAuthAccountConfiguration", () => {
         "gpt-5.6-terra",
       ],
       planType: "plus",
+      usage: {
+        totalRequests: 3,
+        successfulRequests: 2,
+        failedRequests: 1,
+      },
     });
     expect(JSON.stringify(parsed)).not.toContain("access_token");
   });
@@ -105,12 +111,22 @@ describe("parseOAuthAccountConfiguration", () => {
             models: ["claude-sonnet-4-6"],
             available_models: ["claude-sonnet-4-6"],
             plan_type: null,
+            usage: usage(),
           },
         ],
       }),
     ).toThrow("invalid OAuth2 login response");
   });
 });
+
+function usage() {
+  return {
+    total_requests: 3,
+    successful_requests: 2,
+    failed_requests: 1,
+    recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 200 }],
+  };
+}
 
 describe("parseOAuthActivationResult", () => {
   it("parses safe activated account metadata", () => {

@@ -106,6 +106,7 @@ function RequestLogRow({ log }: { log: RequestLog }) {
       </div>
       <div className="text-left text-xs text-secondary md:text-right">
         <p>{protocolLabel(log.ingressProtocol)}</p>
+        <p className="mt-1">{upstreamLabel(log)}</p>
         <p className="mt-1">
           {log.attemptCount} 次 Attempt · {log.latencyMs} ms
         </p>
@@ -118,6 +119,20 @@ function RequestLogRow({ log }: { log: RequestLog }) {
       </time>
     </Link>
   );
+}
+
+function upstreamLabel(log: RequestLog) {
+  if (log.oauthAccountId) {
+    return `OAuth ${shortId(log.oauthAccountId)}`;
+  }
+  if (log.credentialId) {
+    return `API Key ${shortId(log.credentialId)}`;
+  }
+  return "未选择上游";
+}
+
+function shortId(value: string) {
+  return value.slice(0, 8) + "…";
 }
 
 function protocolLabel(value: RequestLog["ingressProtocol"]) {

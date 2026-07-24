@@ -2,7 +2,7 @@
 
 > 状态：Draft<br>
 > 版本：1.0<br>
-> 最后更新：2026-07-23<br>
+> 最后更新：2026-07-24<br>
 > 用途：记录当前已经确认的需求、架构约束与后续待完善事项。<br>
 > 实施进度：见 `docs/IMPLEMENTATION_STATUS.md`。
 
@@ -73,6 +73,7 @@ Client ── GatewayApiKey ──> any2api ── ProviderCredential ──> Pr
 - 禁用或删除 `GatewayApiKey` 不影响任何 `ProviderCredential`；
 - 禁用、冷却或删除 `ProviderCredential` 不影响 `GatewayApiKey`；
 - 两者可以同时记录在一条请求日志中，但该日志关联仅用于本地观测。
+- Gateway API Key 调用统计与上游凭据调用统计是并列维度：前者回答“哪个客户端入口发起请求”，后者回答“最终由哪把 Provider API Key 或哪个 OAuthAccount 执行”；两者不得互相替代、绑定或参与路由。
 
 ## 3. 范围边界与非目标
 
@@ -825,6 +826,7 @@ request_logs
 ├─ public_model
 ├─ provider_endpoint_id
 ├─ credential_id
+├─ oauth_account_id
 ├─ proxy_profile_id
 ├─ status_code
 ├─ error_class
@@ -842,6 +844,8 @@ request_logs
 
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
 
+最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
+
 ### 9.9 持久化实体关系
 
 ```mermaid
@@ -853,6 +857,7 @@ erDiagram
     PROVIDER_ENDPOINT ||--o{ ROUTE_TARGET : materializes
     GATEWAY_API_KEY ||--o{ REQUEST_LOG : authenticates
     CREDENTIAL ||--o{ REQUEST_LOG : executes
+    OAUTH_ACCOUNT ||--o{ REQUEST_LOG : executes
     REQUEST_LOG ||--o{ REQUEST_ATTEMPT : contains
     PROXY_PROFILE ||--o{ REQUEST_LOG : routes
 ```
@@ -1633,6 +1638,7 @@ request_attempts
 ├─ attempt_no
 ├─ route_target_id
 ├─ credential_id
+├─ oauth_account_id
 ├─ proxy_profile_id
 ├─ started_at
 ├─ duration_ms
@@ -1645,6 +1651,8 @@ request_attempts
 RequestLog 保存请求最终结果，RequestAttempt 保存调度与切换过程。
 
 管理面可从 RequestLog 按 `gateway_api_key_id` 聚合总请求数、成功数、失败数和最近结果序列。聚合只读取最终 RequestLog，不把每次 Attempt 重复计入，也不恢复任何运行态状态。
+
+同一批最终 RequestLog 还按带来源标签的上游凭据聚合：Provider API Key 使用 `credential_id`，OAuthAccount 使用 `oauth_account_id`。每个公开请求只归入最终目标一次，2xx 计成功、其余状态计失败，并保留最近 24 次最终状态码；重试中的中间目标只存在于 Attempt 时间线，不重复计入请求统计。Gateway API Key 与上游凭据统计同时保留、独立查询，均只覆盖当前日志保留窗口且不构成计费、额度或配置绑定。
 
 ## 15. 流式响应状态机
 
@@ -2172,6 +2180,8 @@ runtime_retired
 - 健康状态按真实作用域展示：Credential + upstream model、Provider Endpoint 和实际 Proxy 分别报告可用、冷却剩余时间或永久认证不可用，禁止把模型级 429 合并成整把 Credential 故障；
 - 所有计数与健康快照只存在于当前进程，配置热更新复用同一 Credential 句柄时保留，Credential 删除或进程重启后清空，不持久化、不恢复。
 
+历史请求统计与上述运行态调度计数分开：Gateway API Key、Provider API Key 与 OAuthAccount 都可以从 SQLite RequestLog 保留窗口读取最终请求总数、成功/失败数和最近状态；Gateway 维度不因新增上游维度而删除，上游两类来源也不得按 UUID 混合。统计查询失败不能阻塞配置读取，管理响应对当前对象降级为零值。
+
 首个请求遥测切片采用以下边界：
 
 - `/v1` 外层生成本地 Request ID，并在所有公开响应中覆盖 `x-request-id`；
@@ -2248,6 +2258,8 @@ API Key 保存后，Provider 页面立即使用该 Credential 的实际 Endpoint
 
 Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API Key 轮换使用单独表单和端点。列表只显示标签、CredentialKind、绑定代理、实际代理、最大并发、启用状态、版本、指纹和 API Key 可选尾号，不显示或导出明文 Secret。
 
+每把 Provider API Key 同时显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；这些本地观测不读取或展示 Secret，不参与调度、额度或计费。
+
 ### 19.3 OAuth2 登录
 
 - 作为独立一级菜单和 `/oauth` deep link 页面存在；
@@ -2255,6 +2267,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 打开授权页面后，允许粘贴完整 localhost callback URL；
 - 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、最大并发和已选模型；可在当前页面编辑这些账号属性或删除账号；
 - Codex 账号可显式刷新上游主/次额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；Claude 不显示该入口；
+- 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - session ID、state、authorization code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage。
 

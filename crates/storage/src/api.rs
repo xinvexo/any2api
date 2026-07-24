@@ -22,6 +22,10 @@ pub use crate::proxy_password_material::{StoredProxyPassword, StoredProxyPasswor
 pub use crate::request_log_repository::RequestLogRepository;
 pub use crate::settings_repository::SettingRepository;
 pub use crate::sqlite::SqliteStore;
+pub use crate::upstream_credential_usage_repository::{
+    UPSTREAM_CREDENTIAL_RECENT_OUTCOME_LIMIT, UpstreamCredentialRequestOutcome,
+    UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
+};
 pub use crate::vault::{
     SecretAlgorithm, SecretBytes, SecretContext, SecretEnvelope, SecretVault, SecretVaultError,
 };

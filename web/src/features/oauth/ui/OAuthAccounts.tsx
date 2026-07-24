@@ -12,6 +12,7 @@ import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 import { Surface } from "@/shared/ui/Surface";
+import { RequestUsageStats } from "@/shared/ui/RequestUsageStats";
 
 interface OAuthAccountsProps {
   provider: OAuthProvider;
@@ -92,9 +93,14 @@ export function OAuthAccounts({
               onEdit={() => open(account, "metadata")}
               onDelete={() => setDeleteTarget(account)}
               details={
-                account.providerKind === "codex" ? (
-                  <OAuthQuotaPanel accountId={account.id} accountLabel={account.label} />
-                ) : undefined
+                <>
+                  <div className="mt-2.5 border-t border-subtle pt-2.5">
+                    <RequestUsageStats label={account.label} usage={account.usage} />
+                  </div>
+                  {account.providerKind === "codex" ? (
+                    <OAuthQuotaPanel accountId={account.id} accountLabel={account.label} />
+                  ) : null}
+                </>
               }
             />
           ))}

@@ -13,6 +13,11 @@ test("parses redacted credentials and rejects plaintext secret fields", () => {
     secretTail: "test",
     maxConcurrency: 4,
     models: ["gpt-5.1-codex"],
+    usage: {
+      totalRequests: 3,
+      successfulRequests: 2,
+      failedRequests: 1,
+    },
   });
 
   expect(() =>
@@ -78,6 +83,12 @@ function configuration(overrides: Record<string, unknown> = {}) {
         credential_generation: 1,
         config_version: 1,
         models: ["gpt-5.1-codex"],
+        usage: {
+          total_requests: 3,
+          successful_requests: 2,
+          failed_requests: 1,
+          recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 200 }],
+        },
         ...overrides,
       },
     ],

@@ -33,6 +33,9 @@ test("expands endpoint accordion to show nested API keys on the same page", asyn
 
   expect(await screen.findByRole("button", { name: "收起 Codex Primary 的 API Key" })).toHaveAttribute("aria-expanded", "true");
   expect(await screen.findByText("Primary Key")).toBeInTheDocument();
+  expect(screen.getByText("请求 3")).toBeInTheDocument();
+  expect(screen.getByText("成功 2")).toBeInTheDocument();
+  expect(screen.getByText("失败 1")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "配置 Primary Key 的模型" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "编辑 Primary Key" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除 Primary Key" })).toBeInTheDocument();
@@ -277,6 +280,7 @@ function credential(overrides: Record<string, unknown> = {}) {
     credential_generation: 1,
     config_version: 1,
     models: [],
+    usage: usage(),
     ...overrides,
   };
 }
@@ -335,4 +339,13 @@ function jsonResponse(value: unknown) {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function usage() {
+  return {
+    total_requests: 3,
+    successful_requests: 2,
+    failed_requests: 1,
+    recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 200 }],
+  };
 }

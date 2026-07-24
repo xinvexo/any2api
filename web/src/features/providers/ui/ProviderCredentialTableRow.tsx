@@ -4,6 +4,7 @@ import type { ProviderCredential } from "../api/provider-credential-contracts";
 import type { ProxyConfiguration } from "@/features/proxies";
 import { cn } from "@/shared/lib/cn";
 import { RowActionButton } from "@/shared/ui/RowActionButton";
+import { RequestUsageStats } from "@/shared/ui/RequestUsageStats";
 
 export interface ProviderCredentialTableRowProps {
   credential: ProviderCredential;
@@ -75,6 +76,9 @@ export function ProviderCredentialTableRow({
       </td>
       <td className={cn("px-3 align-middle", embedded ? "py-1.5" : "py-2")}>
         <span className="font-mono text-[11px] text-tertiary">{secretLabel}</span>
+      </td>
+      <td className={cn("px-3 align-middle", embedded ? "py-1.5" : "py-2")}>
+        <RequestUsageStats label={credential.label} usage={credential.usage} />
       </td>
       <td className={cn("pl-3 align-middle", embedded ? "py-1.5" : "py-2")}>
         <div className="flex flex-wrap items-center justify-end gap-0.5">

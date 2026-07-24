@@ -29,6 +29,7 @@ mod request_log_handlers;
 mod revision;
 mod settings_dto;
 mod settings_handlers;
+mod upstream_usage;
 
 use axum::{
     Router, middleware,

@@ -27,7 +27,7 @@ pub(crate) async fn list(
     let endpoint_id = parse_endpoint_id(&endpoint_id)?;
     let snapshot = state.snapshots().load();
     require_endpoint(&snapshot, endpoint_id)?;
-    Ok(response(&snapshot, endpoint_id))
+    Ok(response(&state, &snapshot, endpoint_id).await)
 }
 
 pub(crate) async fn create(
@@ -41,7 +41,7 @@ pub(crate) async fn create(
         .publisher()
         .create_provider_credential(expected, CredentialId::new(), endpoint_id, draft, api_key)
         .await?;
-    Ok(response(&snapshot, endpoint_id))
+    Ok(response(&state, &snapshot, endpoint_id).await)
 }
 
 pub(crate) async fn update(
@@ -56,7 +56,7 @@ pub(crate) async fn update(
         .publisher()
         .update_provider_credential(expected, id, expected_config_version, draft)
         .await?;
-    Ok(response(&snapshot, endpoint_id))
+    Ok(response(&state, &snapshot, endpoint_id).await)
 }
 
 pub(crate) async fn rotate_secret(
@@ -78,7 +78,7 @@ pub(crate) async fn rotate_secret(
             api_key,
         )
         .await?;
-    Ok(response(&snapshot, endpoint_id))
+    Ok(response(&state, &snapshot, endpoint_id).await)
 }
 
 pub(crate) async fn delete(
@@ -100,7 +100,7 @@ pub(crate) async fn delete(
         .publisher()
         .delete_provider_credential(expected, id, expected_config_version)
         .await?;
-    Ok(response(&snapshot, endpoint_id))
+    Ok(response(&state, &snapshot, endpoint_id).await)
 }
 
 pub(crate) async fn test(
@@ -127,16 +127,19 @@ pub(crate) async fn set_models(
         .publisher()
         .set_provider_credential_models(expected, id, expected_config_version, models)
         .await?;
-    Ok(response(&snapshot, endpoint_id))
+    Ok(response(&state, &snapshot, endpoint_id).await)
 }
 
-fn response(
+async fn response(
+    state: &AppState,
     snapshot: &any2api_runtime::api::PublishedSnapshot,
     endpoint_id: ProviderEndpointId,
 ) -> Response {
+    let usage = super::upstream_usage::load(state).await;
     no_store::json(ProviderCredentialCollectionResponse::from_snapshot(
         snapshot,
         endpoint_id,
+        &usage,
     ))
 }
 

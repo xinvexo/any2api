@@ -192,6 +192,7 @@ function credential(overrides: Record<string, unknown> = {}) {
     credential_generation: 1,
     config_version: 1,
     models: [],
+    usage: usage(),
     ...overrides,
   };
 }
@@ -263,4 +264,13 @@ function jsonResponse(value: unknown) {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function usage() {
+  return {
+    total_requests: 3,
+    successful_requests: 2,
+    failed_requests: 1,
+    recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 200 }],
+  };
 }

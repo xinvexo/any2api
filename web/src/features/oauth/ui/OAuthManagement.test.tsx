@@ -71,12 +71,16 @@ test("switches provider kind and keeps accounts in the content column", async ()
       models: [],
       available_models: ["gpt-5.5"],
       plan_type: "free",
+      usage: usage(),
     },
   ]);
 
   renderManagement();
   expect(await screen.findByText("Codex One")).toBeInTheDocument();
   expect(screen.getByText("free")).toBeInTheDocument();
+  expect(screen.getByText("请求 3")).toBeInTheDocument();
+  expect(screen.getByText("成功 2")).toBeInTheDocument();
+  expect(screen.getByText("失败 1")).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: /Claude/ }));
   expect(screen.getByRole("button", { name: /Claude/ })).toHaveAttribute("aria-current", "page");
@@ -101,6 +105,7 @@ test("paginates accounts and changes page size from the toolbar", async () => {
       models: [],
       available_models: ["gpt-5.5"],
       plan_type: "free",
+      usage: usage(),
     })),
   );
 
@@ -151,4 +156,13 @@ function jsonResponse(body: unknown) {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function usage() {
+  return {
+    total_requests: 3,
+    successful_requests: 2,
+    failed_requests: 1,
+    recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 200 }],
+  };
 }

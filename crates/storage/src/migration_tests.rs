@@ -35,7 +35,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
             .fetch_all(&pool)
             .await
             .expect("migration versions");
-    assert_eq!(versions, (1..=19).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=20).collect::<Vec<_>>());
     let kind = sqlx::query_scalar::<_, String>(
         "SELECT credential_kind FROM provider_credentials WHERE id = ?",
     )
@@ -67,6 +67,14 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     .expect("OAuth account schema");
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("proxy_profile_id = '00000000-0000-0000-0000-000000000000'"));
+    let usage_index = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' \
+         AND name = 'request_logs_provider_credential_started_idx'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("upstream usage index");
+    assert_eq!(usage_index, 1);
     assert!(
         sqlx::query("PRAGMA foreign_key_check")
             .fetch_all(&pool)

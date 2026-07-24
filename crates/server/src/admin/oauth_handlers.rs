@@ -23,7 +23,7 @@ use super::{
 };
 
 pub(super) async fn list(State(state): State<AppState>) -> Result<Response, AdminApiError> {
-    Ok(accounts_response(&state.snapshots().load()))
+    Ok(accounts_response(&state, &state.snapshots().load()).await)
 }
 
 pub(super) async fn start(
@@ -63,7 +63,7 @@ pub(super) async fn update(
         .publisher()
         .update_oauth_account(expected, id, expected_config_version, draft)
         .await?;
-    Ok(accounts_response(&snapshot))
+    Ok(accounts_response(&state, &snapshot).await)
 }
 
 pub(super) async fn set_models(
@@ -77,7 +77,7 @@ pub(super) async fn set_models(
         .publisher()
         .set_oauth_account_models(expected, id, expected_config_version, models)
         .await?;
-    Ok(accounts_response(&snapshot))
+    Ok(accounts_response(&state, &snapshot).await)
 }
 
 pub(super) async fn delete(
@@ -98,7 +98,7 @@ pub(super) async fn delete(
         .publisher()
         .delete_oauth_account(expected, id, expected_config_version)
         .await?;
-    Ok(accounts_response(&snapshot))
+    Ok(accounts_response(&state, &snapshot).await)
 }
 
 pub(super) async fn quota(
@@ -127,8 +127,14 @@ pub(super) async fn reset_quota(
     Ok(no_store::json(OAuthQuotaResetResponse::from(result)))
 }
 
-fn accounts_response(snapshot: &any2api_runtime::api::PublishedSnapshot) -> Response {
-    no_store::json(OAuthAccountCollectionResponse::from_snapshot(snapshot))
+async fn accounts_response(
+    state: &AppState,
+    snapshot: &any2api_runtime::api::PublishedSnapshot,
+) -> Response {
+    let usage = super::upstream_usage::load(state).await;
+    no_store::json(OAuthAccountCollectionResponse::from_snapshot(
+        snapshot, &usage,
+    ))
 }
 
 fn parse_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, AdminApiError> {

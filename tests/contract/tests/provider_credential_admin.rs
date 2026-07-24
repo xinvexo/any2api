@@ -1,9 +1,15 @@
 use std::{collections::HashMap, fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
+use any2api_domain::{
+    CompletedRequestLog, ConfigRevision, CredentialId, ProtocolDialect, ProtocolOperation,
+    ProviderEndpointId, ProxyProfileId, RequestId, RequestLog,
+};
+use any2api_runtime::api::{
+    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
+};
 use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_storage::api::{ConfigurationRepository, RequestLogRepository, SqliteStore};
 use axum::{
     Router,
     body::Body,
@@ -73,6 +79,25 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
         .as_str()
         .expect("credential id")
         .to_owned();
+    let parsed_credential_id = credential_id.parse().expect("credential id type");
+    let parsed_endpoint_id = endpoint_id.parse().expect("endpoint id type");
+    storage
+        .append_request_logs(&[
+            provider_request_log(
+                parsed_endpoint_id,
+                parsed_credential_id,
+                1_800_000_000_000,
+                200,
+            ),
+            provider_request_log(
+                parsed_endpoint_id,
+                parsed_credential_id,
+                1_800_000_000_001,
+                429,
+            ),
+        ])
+        .await
+        .expect("append provider usage");
 
     let listed = request_json(
         app.clone(),
@@ -85,6 +110,13 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
     assert_eq!(listed.status, StatusCode::OK);
     assert_eq!(listed.cache_control.as_deref(), Some("no-store"));
     assert!(!listed.raw_body.contains(create_key));
+    assert_eq!(listed.body["items"][0]["usage"]["total_requests"], 2);
+    assert_eq!(listed.body["items"][0]["usage"]["successful_requests"], 1);
+    assert_eq!(listed.body["items"][0]["usage"]["failed_requests"], 1);
+    assert_eq!(
+        listed.body["items"][0]["usage"]["recent_outcomes"],
+        json!([{ "status_code": 200 }, { "status_code": 429 }])
+    );
 
     let updated = request_json(
         app.clone(),
@@ -381,12 +413,53 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let components = build_public_request_components().expect("public request components");
     let public_requests = components.service();
+    let telemetry = Arc::new(RequestTelemetry::start(
+        Arc::clone(&storage),
+        snapshots.load().revision(),
+        snapshots.load().settings().logging(),
+        &runtime.lifecycle(),
+    ));
     let app = build_router(
         AppState::new(snapshots, runtime, publisher, public_requests)
-            .with_provider_credential_tests(components.provider_credential_test_service()),
+            .with_provider_credential_tests(components.provider_credential_test_service())
+            .with_request_telemetry(telemetry),
         web_root,
     );
     (directory, app, storage)
+}
+
+fn provider_request_log(
+    endpoint_id: ProviderEndpointId,
+    credential_id: CredentialId,
+    started_at_ms: u64,
+    status_code: u16,
+) -> CompletedRequestLog {
+    CompletedRequestLog {
+        request: RequestLog {
+            request_id: RequestId::new(),
+            started_at_ms,
+            config_revision: ConfigRevision::INITIAL,
+            gateway_api_key_id: None,
+            ingress_protocol: ProtocolDialect::OpenAiResponses,
+            operation: ProtocolOperation::Responses,
+            public_model: Some("gpt-test".into()),
+            provider_endpoint_id: Some(endpoint_id),
+            credential_id: Some(credential_id),
+            oauth_account_id: None,
+            proxy_profile_id: Some(ProxyProfileId::DIRECT),
+            status_code,
+            error_class: None,
+            attempt_count: 0,
+            latency_ms: 1,
+            first_token_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            is_stream: false,
+        },
+        attempts: Vec::new(),
+    }
 }
 
 struct JsonResponse {
