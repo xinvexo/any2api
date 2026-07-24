@@ -16,14 +16,14 @@
 - 永久不做：用户注册、多租户、套餐、余额、充值、计费、支付、API Key 销售和多节点分布式调度。
 - 不引入 Redis、PostgreSQL、消息队列或微服务来解决单节点问题。
 - 不提供通用配置、数据库或 Secret 导入导出。
-- 未来唯一允许的导入例外是 Provider 专用 OAuth2 JSON；原始 JSON 不持久化、不记录日志，也不能再次导出 Secret。
+- OAuth2 JSON 只允许作为独立 `OAuthAccount` 明文存入 SQLite；不进入 Vault、日志、管理响应或浏览器存储，也不提供读取/导出端点。
 - 不实现运行态恢复、请求回放、队列恢复、会话恢复或复杂备份容灾。
 
 ## 3. 首个正式版本范围
 
 - 后端：Rust；HTTP 框架：Axum/Tokio；前端：React + TypeScript。
 - Provider 只实现 Codex 和 Claude。
-- 上游 `ProviderCredential` 首版只支持 API Key；OAuth2 放在后续阶段。
+- 上游 `ProviderCredential` 只支持 API Key；OAuth2 账号独立管理，但在运行时与 Provider API Key 编译到同一个路由候选池。
 - 实现：
   - `GET /v1/models`
   - `POST /v1/responses`
@@ -37,10 +37,11 @@
 ## 4. 两类 Key 必须严格隔离
 
 - `GatewayApiKey`：客户端访问 any2api 的本地网关凭据。
-- `ProviderCredential`：any2api 访问 Codex/Claude 上游的凭据。
+- `ProviderCredential`：管理员配置的 API Key 上游凭据。
+- `OAuthAccount`：SQLite 中独立持久化的 Provider OAuth2 账号；不是 `ProviderCredential`，但可作为同等的上游路由凭据。
 - 两者没有绑定、映射、所有权、配额或派生关系。
-- `GatewayApiKey` 不得选择、过滤、固定或影响 `ProviderCredential`。
-- 客户端认证头在进入 Provider Driver 前必须剥离；只有选中的 `ProviderCredential` 可以注入上游认证。
+- `GatewayApiKey` 不得选择、过滤、固定或影响 `ProviderCredential` 或 `OAuthAccount`。
+- 客户端认证头在进入 Provider Driver 前必须剥离；只有调度器选中的 Provider API Key 或 OAuth 账号可以注入上游认证。
 - 禁止把 Gateway Key、Provider API Key、OAuth Token、代理密码或原始 Session ID 写入日志。
 
 ## 5. 代理不变量
@@ -49,6 +50,7 @@
 - 内置 `DIRECT` 不可删除、不可禁用。
 - Credential 绑定 HTTP/SOCKS5：使用专属代理。
 - Credential 绑定 DIRECT：继承全局代理。
+- OAuth 账号固定绑定 DIRECT，因此继承全局代理；登录交换、刷新和数据面均禁止另设隐式回退路径。
 - 全局代理也是 DIRECT：最终本机直连。
 - 专属代理失败必须 Fail-Closed，禁止悄悄回退全局代理或本机直连。
 - SOCKS5 默认使用远端 DNS；严格 SSRF 模式下禁止远端 DNS。
@@ -57,7 +59,7 @@
 
 ## 6. 调度、粘性与流式不变量
 
-- 每个 Credential 的 `max_concurrency` 是硬限制，且必须大于 0。
+- 每个运行时路由凭据（ProviderCredential 或 OAuthAccount）的 `max_concurrency` 是硬限制，且必须大于 0。
 - 负载比较使用 `in_flight / max_concurrency`，实现时用整数交叉相乘，禁止浮点误差。
 - “选择 Credential”和“取得 Permit”必须是一个原子操作；CAS 失败后重新完整选择。
 - `RuntimeRegistry` 跨配置代际复用容量状态；认证和健康状态按配置 generation 隔离。
@@ -72,10 +74,11 @@
 
 ## 7. 配置发布规则
 
-- SQLite 是持久化配置真相来源，不使用巨型 YAML 作为运行时配置。
+- SQLite 是管理员配置与 OAuthAccount 的持久化真相来源，不使用巨型 YAML 作为运行时配置。
 - 配置发布必须串行：事务内构造候选配置、完整校验和预编译，成功后 Commit，再执行无失败 reconcile 和单次 `ArcSwap<PublishedSnapshot>`。
 - 网关鉴权和路由必须位于同一个 PublishedSnapshot revision。
 - 管理 API 只有在数据库提交和快照切换完成后才能返回成功。
+- OAuth 登录只有在 SQLite 提交、Runtime reconcile 和快照切换完成后才能返回成功；Token 刷新也必须通过版本 CAS 和串行发布整批切换。
 - 运行参数通过版本化 `SettingRegistry` 定义；代码保存默认值，SQLite 只保存用户覆盖值。
 - Web 必须显示默认值、覆盖值和生效值，并支持恢复默认。
 - 禁止在各模块中散落无法集中查询或覆盖的魔法常量。
@@ -85,14 +88,15 @@
 - 采用模块化单体，不拆微服务。
 - `domain` 不依赖 Web、SQLite、HTTP Client 或具体 Provider。
 - `protocol` 只处理线协议编解码和兼容错误格式。
-- `provider` 只处理供应商能力、Endpoint、认证注入、刷新协议和错误分类，不执行网络请求。
+- `provider` 只处理供应商能力、Endpoint、认证注入、OAuth JSON Schema、刷新协议和错误分类，不执行网络请求。
 - `transport` 只处理 DIRECT/HTTP/SOCKS5、连接池和分阶段网络错误，不知道 Codex/Claude 业务。
 - `runtime` 负责编排、调度、粘性、重试、健康状态和调用 Transport。
-- `storage` 只处理 SQLite、Repository、Migration 和 Secret Vault。
+- `storage` 只处理 SQLite、Repository、Migration 和 Secret Vault；OAuthAccount 使用独立 Repository，禁止复用 ProviderCredential 表或 Vault 载荷。
 - `server` 只处理 Axum 路由、中间件、鉴权和 DTO，不承载核心业务规则。
 - `app` 是唯一 Composition Root，负责注册和装配具体实现。
 - Runtime 只能依赖各 Adapter crate 的稳定 `api` 模块，禁止导入其内部实现。
 - 新增 Provider 时，只允许局部增加 Provider 模块、必要协议实现、静态注册和契约测试；禁止修改中央调度器加入不断增长的 Provider `match`。
+- ProviderCredential 与 OAuthAccount 的管理模型保持分离；两者只能在通用 `RoutingCredential` 投影处合流，禁止复制第二套调度、并发、粘性、健康或重试实现。
 
 ## 9. 拒绝臃肿文件
 
@@ -114,12 +118,12 @@
 
 ## 10. 安全与持久化
 
-- SQLite 只持久化配置、必要凭据、Gateway Key 摘要和可选历史日志。
+- SQLite 只持久化配置、必要凭据、Gateway Key 摘要、OAuthAccount 原始 JSON 和可选历史日志。
 - `in_flight`、等待队列、健康、冷却、熔断、会话和请求进度不得持久化。
-- Secret 使用版本化 AEAD 加密；主密钥位于数据库外，缺失或错误时启动失败。
+- Provider API Key、代理密码等现有 Secret 使用版本化 AEAD 加密；主密钥位于数据库外，缺失或错误时启动失败。OAuth Token 是明确的明文 SQLite 例外，但仍禁止进入日志、DTO、Debug 或浏览器状态。
 - 管理 DTO 对 Provider Secret 默认只返回指纹或尾号，创建时仅展示一次；`GatewayApiKey` 例外：明文持久化，管理列表始终可查看。
 - 远程管理默认关闭；启用后必须使用独立单管理员认证，允许 HTTP 或 HTTPS，TLS 推荐但不强制。
-- 明文 HTTP 是受支持配置，不能在实现中强制跳转 HTTPS 或拒绝管理请求；Web 必须明确提示密码、Cookie 和 OAuth2 JSON 的明文传输风险。
+- 明文 HTTP 是受支持配置，不能在实现中强制跳转 HTTPS 或拒绝管理请求；Web 必须明确提示密码、Cookie 和 OAuth callback/code 的明文传输风险。
 - `GatewayApiKey` 不能登录管理面。
 - 所有自定义 URL 必须经过结构化解析并禁用自动重定向；客户端输入不得改变已发布 Provider Endpoint 的 authority，Provider Base URL 不按公网/私网地址类别设门禁。
 

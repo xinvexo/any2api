@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：API Key 数据面、OpenAI 协议桥和独立 OAuth2 认证文件生成工具已经完成；OAuth2 登录不属于 ProviderCredential，也不接入请求调度。
-- 最近完成：新增独立 `/oauth` 一级菜单、Codex/Claude PKCE 登录、内存单次 session、DIRECT token exchange，以及 `codex-auth.json`/`claude-auth.json` 一次性下载；Token 不进入 SQLite、Vault、日志、React Query 或浏览器存储。
+- 当前阶段：API Key 数据面、OpenAI 协议桥已完成；OAuth2 正从独立下载工具重构为独立 SQLite `OAuthAccount` 与统一路由候选池。
+- 最近完成：新增独立 `/oauth` 一级菜单、Codex/Claude PKCE 登录和内存单次 session。当前切片将移除浏览器 JSON 下载，改为安全元数据回执、账号管理、SQLite 持久化与运行时发布。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -386,15 +386,13 @@
 - Playwright 从 Cargo JSON 构建消息取得本轮真实二进制，启动时清除宿主全部 `ANY2API_*` 配置并使用独立临时数据目录；登录、刷新 deep link、桌面核心页面和 390px 移动导航均已通过默认内嵌路径。
 - Release 二进制复制到不含源码和 `web/dist` 的临时目录后，首页、`/settings`、哈希 JS、缓存头、缺失 asset 404、API 根隔离和未知 API 不回落 SPA 均验证通过。完整决策见 `docs/adr/0027-embedded-web-assets.md`。
 
-### 独立 OAuth2 认证文件生成切片
+### OAuthAccount 与统一路由切片（进行中）
 
-- `ProviderCredential`、SQLite 配置和 Runtime generation 继续只接受 `api_key`；旧 OAuth Credential、刷新 Worker、Vault 载荷、migration 和 Provider 页面入口已经删除。
-- Provider Driver 只封装 Codex/Claude 固定 authorize/token Endpoint、Client ID、localhost Redirect URI、PKCE 请求构建和 Token 响应解析，不承担网络执行或持久化。
-- Runtime 最多保存 64 个十分钟内有效的内存 session；state、PKCE verifier 与 session ID 单次消费，callback 严格校验固定 Redirect target 和 state。
-- Token exchange 固定使用内建 DIRECT，不读取 Provider Endpoint、Credential、全局代理、专属代理、并发、启停状态或模型配置；响应正文限制为 64 KiB 并使用 30 秒读取超时。
-- 管理 API 新增 `POST /api/admin/oauth/start` 与 `POST /api/admin/oauth/exchange`；兑换成功直接返回 `Content-Disposition: attachment`、`Cache-Control: no-store` 的 Provider JSON 文件，服务端不保留 Token 或下载副本。
-- React 新增独立 `/oauth` 一级菜单和 deep link；页面只选择 Codex/Claude、打开授权页、接收完整 localhost callback URL 并触发下载。session、callback 与 Blob 只在局部内存存在，不进入 URL、查询缓存或浏览器存储。
-- Runtime、HTTP 契约与 Web 测试覆盖 session 单次消费、state/redirect 拒绝、Provider 文件 Schema、Debug 脱敏、loopback/管理员保护、配置 revision 不变和 DTO 解析。完整决策见 `docs/adr/0031-standalone-oauth-login.md`。
+- `ProviderCredential` 继续只接受 `api_key`；旧 OAuth Credential migration 保持不可变，Provider 页面不增加 OAuth 类型或入口。
+- OAuth 登录仍使用 Codex/Claude Provider Driver 的固定 authorize/token Endpoint、Client ID、localhost Redirect URI、PKCE 及内存单次 session；兑换成功不再下载 JSON。
+- 新增独立 `OAuthAccount` SQLite 聚合，明文保存 Provider JSON、账号安全元数据、模型、启用状态、并发限制、token/configuration/generation 版本；原始 JSON 不进 Vault、日志、DTO、浏览器状态或导出接口。
+- 发布时 Provider API Key 与 OAuthAccount 统一编译为 `RoutingCredential`，共享现有的选择+Permit、排队、粘性、健康、重试和流式提交边界；OAuth 使用 Provider-owned 固定 Endpoint 与 DIRECT/全局代理。
+- 本切片还需完成 token 刷新 worker、token-version CAS、OAuth 管理 API/Web、Storage/Runtime/HTTP 契约和真实浏览器验证。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
 ## 当前边界
 
@@ -405,7 +403,7 @@
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态并发、生成请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后容量、队列、会话和健康状态全部从零开始。
-- Credential generation 只承载 API Key 认证材料及认证/模型健康；独立 OAuth2 登录链路已经实现，但它不会创建 Credential、进入 generation 或启动刷新任务。
+- ProviderCredential generation 只承载 API Key 认证材料；OAuthAccount 将生成独立认证 generation，并与 API Key 编译到同一个路由候选池，当前正在实现。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
 - 负载均衡运行态 API 与 `/balancing` 页面已完成；容量、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
@@ -415,7 +413,7 @@
 
 1. 完成首版小契约收尾：Compact 本地必填 `input` 校验、关键调度 `tracing` 事件、并发模型/固定 fuzz corpus 门禁，以及远程管理的标准 `Forwarded` 与 Web 可见的监听/可信反代配置。
 2. 补充 Unix 真实子进程 SIGTERM、成功停机后同数据目录立即重启等进程级 CI 契约；它们用于加固现有语义，不引入运行态恢复。
-3. 后续如需 Provider 专用 OAuth2 JSON 导入或 `/backend-api/codex/responses` 数据面兼容，必须分别建立独立切片，不能把当前下载工具隐式接入 ProviderCredential。
+3. 完成 OAuthAccount 的刷新 worker、账号管理和统一路由契约；未来如需 Provider 专用 OAuth2 JSON 导入或 `/backend-api/codex/responses` 数据面兼容，必须另建切片，不能把 OAuthAccount 隐式接入 ProviderCredential。
 
 ## 验证结果
 

@@ -8,3 +8,7 @@ pub(crate) async fn run(pool: &SqlitePool) -> Result<(), StorageError> {
     MIGRATOR.run(pool).await?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "migration_tests.rs"]
+mod tests;
