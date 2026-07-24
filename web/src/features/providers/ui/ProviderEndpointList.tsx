@@ -20,6 +20,7 @@ import {
 } from "./ProviderEndpointTableRow";
 import { ProviderKindNav } from "./ProviderKindNav";
 import { Button } from "@/shared/ui/Button";
+import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
 import { Surface } from "@/shared/ui/Surface";
 import { cn } from "@/shared/lib/cn";
 
@@ -166,15 +167,9 @@ export function ProviderEndpointList({
   const kindName = providerKindLabel(selectedKind);
 
   return (
-    /*
-     * Desktop grid:
-     *   row1 col2 = right-only toolbar (does not sit above kinds)
-     *   row2 col1 = kinds, row2 col2 = list  → first kind top == first list top
-     * Mobile: stack toolbar → kinds → list.
-     */
-    <div className="grid grid-cols-1 gap-x-5 gap-y-3 sm:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[14rem_minmax(0,1fr)]">
-      <div className="flex flex-col gap-2.5 sm:col-start-2 sm:row-start-1 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+    <KindSplitLayout
+      toolbarStart={
+        <>
           <Search
             size={14}
             className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
@@ -187,8 +182,10 @@ export function ProviderEndpointList({
             aria-label={`搜索 ${kindName}`}
             onChange={(event) => setQuery(event.target.value)}
           />
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        </>
+      }
+      toolbarEnd={
+        <>
           <Button variant="ghost" disabled={refreshing} onClick={onRefresh}>
             <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
             刷新
@@ -197,104 +194,96 @@ export function ProviderEndpointList({
             <Plus size={14} />
             新增
           </Button>
-        </div>
-      </div>
-
-      <div className="sm:col-start-1 sm:row-start-2">
-        <ProviderKindNav selected={selectedKind} counts={counts} onSelect={selectKind} />
-      </div>
-
-      <div className="min-w-0 sm:col-start-2 sm:row-start-2">
-        {filtered.length === 0 ? (
-          <Surface className="flex min-h-48 flex-col items-center justify-center px-4 py-10 text-center">
-            <p className="text-[13px] font-medium">
-              {kindItems.length === 0
-                ? `还没有 ${kindName} Endpoint`
-                : "没有匹配的 Endpoint"}
-            </p>
-            <p className="mt-1 text-[12px] text-secondary">
-              {kindItems.length === 0
-                ? `添加 ${kindName} 上游地址。`
-                : "试试其他关键词。"}
-            </p>
-          </Surface>
-        ) : (
-          <div className="space-y-2.5">
-            {filtered.map((endpoint) => {
-              const expanded = isExpanded(endpoint.id);
-              const activeForKeys = activeKeysEndpoint === endpoint.id;
-              const mountCredentials = expanded || activeForKeys;
-              const panelId = `endpoint-keys-${endpoint.id}`;
-              return (
-                <Surface
-                  key={endpoint.id}
-                  className={cn("overflow-hidden transition-shadow", expanded && "shadow-sm")}
-                  aria-label={endpoint.name}
-                >
-                  <div className="px-2.5 py-2 sm:px-3">
-                    <ProviderEndpointTableRow
-                      endpoint={endpoint}
-                      pending={pending}
-                      expanded={expanded}
-                      onToggle={() => toggleExpanded(endpoint.id)}
-                      onEdit={onEdit}
-                      onCreateCredential={openCreateCredential}
-                      onDelete={onDelete}
-                    />
-                  </div>
-                  {mountCredentials ? (
+        </>
+      }
+      kindNav={<ProviderKindNav selected={selectedKind} counts={counts} onSelect={selectKind} />}
+    >
+      {filtered.length === 0 ? (
+        <Surface className="flex min-h-48 flex-col items-center justify-center px-4 py-10 text-center">
+          <p className="text-[13px] font-medium">
+            {kindItems.length === 0
+              ? `还没有 ${kindName} Endpoint`
+              : "没有匹配的 Endpoint"}
+          </p>
+          <p className="mt-1 text-[12px] text-secondary">
+            {kindItems.length === 0
+              ? `添加 ${kindName} 上游地址。`
+              : "试试其他关键词。"}
+          </p>
+        </Surface>
+      ) : (
+        <div className="space-y-2.5">
+          {filtered.map((endpoint) => {
+            const expanded = isExpanded(endpoint.id);
+            const activeForKeys = activeKeysEndpoint === endpoint.id;
+            const mountCredentials = expanded || activeForKeys;
+            const panelId = `endpoint-keys-${endpoint.id}`;
+            return (
+              <Surface
+                key={endpoint.id}
+                className={cn("overflow-hidden transition-shadow", expanded && "shadow-sm")}
+                aria-label={endpoint.name}
+              >
+                <div className="px-2.5 py-2 sm:px-3">
+                  <ProviderEndpointTableRow
+                    endpoint={endpoint}
+                    pending={pending}
+                    expanded={expanded}
+                    onToggle={() => toggleExpanded(endpoint.id)}
+                    onEdit={onEdit}
+                    onCreateCredential={openCreateCredential}
+                    onDelete={onDelete}
+                  />
+                </div>
+                {mountCredentials ? (
+                  <div
+                    id={panelId}
+                    className={expanded ? "border-t border-subtle/80" : undefined}
+                    role={expanded ? "region" : undefined}
+                    aria-label={expanded ? `${endpoint.name} 的 API Key` : undefined}
+                  >
                     <div
-                      id={panelId}
-                      className={expanded ? "border-t border-subtle/80" : undefined}
-                      role={expanded ? "region" : undefined}
-                      aria-label={expanded ? `${endpoint.name} 的 API Key` : undefined}
+                      className={
+                        expanded
+                          ? cn(ENDPOINT_CONTENT_GRID_CLASS, "px-2.5 pb-2 pt-0.5 sm:px-3")
+                          : undefined
+                      }
                     >
-                      <div
-                        className={
-                          expanded
-                            ? cn(
-                                ENDPOINT_CONTENT_GRID_CLASS,
-                                "px-2.5 pb-2 pt-0.5 sm:px-3",
-                              )
-                            : undefined
-                        }
-                      >
-                        {expanded ? <div aria-hidden="true" /> : null}
-                        <div className={expanded ? "min-w-0" : undefined}>
-                          <ProviderCredentialManagement
-                            endpoint={endpoint}
-                            embedded
-                            showList={expanded}
-                            onRevealList={() => ensureExpanded(endpoint.id)}
-                          />
-                        </div>
+                      {expanded ? <div aria-hidden="true" /> : null}
+                      <div className={expanded ? "min-w-0" : undefined}>
+                        <ProviderCredentialManagement
+                          endpoint={endpoint}
+                          embedded
+                          showList={expanded}
+                          onRevealList={() => ensureExpanded(endpoint.id)}
+                        />
                       </div>
                     </div>
-                  ) : null}
-                </Surface>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-[12px] text-secondary">
-          <p>
-            {kindName} · 配置版本{" "}
-            <span className="font-medium tabular-nums text-primary">
-              {configuration.configRevision}
-            </span>
-            {" · "}
-            共 <span className="tabular-nums">{filtered.length}</span> 条
-          </p>
+                  </div>
+                ) : null}
+              </Surface>
+            );
+          })}
         </div>
+      )}
 
-        {actionError ? (
-          <p className="pt-2 text-sm text-danger" role="alert">
-            {getProviderErrorMessage(actionError)}
-          </p>
-        ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-[12px] text-secondary">
+        <p>
+          {kindName} · 配置版本{" "}
+          <span className="font-medium tabular-nums text-primary">
+            {configuration.configRevision}
+          </span>
+          {" · "}
+          共 <span className="tabular-nums">{filtered.length}</span> 条
+        </p>
       </div>
-    </div>
+
+      {actionError ? (
+        <p className="pt-2 text-sm text-danger" role="alert">
+          {getProviderErrorMessage(actionError)}
+        </p>
+      ) : null}
+    </KindSplitLayout>
   );
 }
 

@@ -4,7 +4,6 @@ import {
   parseOAuthActivationResult,
   parseOAuthAccountConfiguration,
   parseOAuthStartResult,
-  type OAuthAccountModelsInput,
   type OAuthAccountUpdateInput,
   type OAuthProvider,
 } from "./oauth-contracts";
@@ -49,20 +48,6 @@ export function updateOAuthAccount(id: string, input: OAuthAccountUpdateInput) {
       enabled: input.enabled,
     },
   }).then(parseOAuthAccountConfiguration);
-}
-
-export function setOAuthAccountModels(id: string, input: OAuthAccountModelsInput) {
-  return requestJson<unknown>(
-    `${accountCollection}/${encodeURIComponent(id)}/models`,
-    {
-      method: "PUT",
-      body: {
-        expected_revision: input.expectedRevision,
-        expected_config_version: input.expectedConfigVersion,
-        models: input.models,
-      },
-    },
-  ).then(parseOAuthAccountConfiguration);
 }
 
 export function deleteOAuthAccount(

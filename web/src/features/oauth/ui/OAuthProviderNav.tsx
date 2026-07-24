@@ -7,10 +7,11 @@ import { cn } from "@/shared/lib/cn";
 
 interface OAuthProviderNavProps {
   selected: OAuthProvider;
+  counts: Record<OAuthProvider, number>;
   onSelect: (provider: OAuthProvider) => void;
 }
 
-export function OAuthProviderNav({ selected, onSelect }: OAuthProviderNavProps) {
+export function OAuthProviderNav({ selected, counts, onSelect }: OAuthProviderNavProps) {
   return (
     <nav aria-label="OAuth2 类型" className="min-w-0">
       <ul className="flex gap-2 overflow-x-auto sm:flex-col sm:gap-1.5 sm:overflow-visible">
@@ -18,6 +19,7 @@ export function OAuthProviderNav({ selected, onSelect }: OAuthProviderNavProps) 
           <li key={option.provider} className="shrink-0 sm:shrink sm:w-full">
             <ProviderButton
               option={option}
+              count={counts[option.provider] ?? 0}
               active={selected === option.provider}
               onSelect={onSelect}
             />
@@ -30,10 +32,12 @@ export function OAuthProviderNav({ selected, onSelect }: OAuthProviderNavProps) 
 
 function ProviderButton({
   option,
+  count,
   active,
   onSelect,
 }: {
   option: OAuthProviderOption;
+  count: number;
   active: boolean;
   onSelect: (provider: OAuthProvider) => void;
 }) {
@@ -53,6 +57,14 @@ function ProviderButton({
       <Icon size={18} className={cn(active ? "text-primary" : "text-secondary")} />
       <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight">
         {option.label}
+      </span>
+      <span
+        className={cn(
+          "tabular-nums text-[12px]",
+          active ? "text-secondary" : "text-tertiary",
+        )}
+      >
+        {count}
       </span>
     </button>
   );

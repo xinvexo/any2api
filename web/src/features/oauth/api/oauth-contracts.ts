@@ -33,7 +33,12 @@ export interface OAuthAccount {
   accountGeneration: number;
   configVersion: number;
   selectedModelCount: number;
+  /** Models currently selected for public routing. */
   models: string[];
+  /** Plan/provider catalog this OAuth account may use. */
+  availableModels: string[];
+  /** Official Codex `chatgpt_plan_type` from the ID Token. */
+  planType: string | null;
 }
 
 export interface OAuthAccountConfiguration {
@@ -47,12 +52,6 @@ export interface OAuthAccountUpdateInput {
   label: string;
   maxConcurrency: number;
   enabled: boolean;
-}
-
-export interface OAuthAccountModelsInput {
-  expectedRevision: number;
-  expectedConfigVersion: number;
-  models: string[];
 }
 
 export function parseOAuthStartResult(value: unknown): OAuthStartResult {
@@ -120,12 +119,17 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
   if (providerKind !== "codex" && providerKind !== "claude") {
     throw invalidResponse();
   }
-  if (!Array.isArray(value.models)) {
+  if (!Array.isArray(value.models) || !Array.isArray(value.available_models)) {
     throw invalidResponse();
   }
   const models = value.models.map(readString);
+  const availableModels = value.available_models.map(readString);
   const selectedModelCount = readInteger(value.selected_model_count, 0);
-  if (selectedModelCount !== models.length || new Set(models).size !== models.length) {
+  if (
+    selectedModelCount !== models.length ||
+    new Set(models).size !== models.length ||
+    new Set(availableModels).size !== availableModels.length
+  ) {
     throw invalidResponse();
   }
   return {
@@ -141,6 +145,8 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     configVersion: readInteger(value.config_version, 1),
     selectedModelCount,
     models,
+    availableModels,
+    planType: readOptionalString(value.plan_type),
   };
 }
 

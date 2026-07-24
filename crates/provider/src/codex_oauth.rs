@@ -131,6 +131,18 @@ pub(crate) fn routing_profile(
     )
 }
 
+/// Official `chatgpt_plan_type` from Codex ID Token claims (no local renaming).
+#[must_use]
+pub fn plan_label(token: &OAuthTokenMaterial) -> Option<String> {
+    if token.provider() != ProviderKind::Codex {
+        return None;
+    }
+    decode_claims(token.id_token())
+        .plan
+        .map(|plan| plan.trim().to_owned())
+        .filter(|plan| !plan.is_empty())
+}
+
 pub(crate) fn credential_headers(
     token: &OAuthTokenMaterial,
 ) -> Result<crate::api::CredentialHeaders, ProviderError> {

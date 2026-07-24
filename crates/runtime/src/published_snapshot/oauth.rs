@@ -13,19 +13,15 @@ use crate::{
 };
 
 impl PublishedSnapshot {
-    pub(crate) fn oauth_available_models(
-        &self,
-        id: OAuthAccountId,
-    ) -> Option<&[UpstreamModelName]> {
+    #[must_use]
+    pub fn oauth_available_models(&self, id: OAuthAccountId) -> Option<&[UpstreamModelName]> {
         self.routing_credentials
             .get(RoutingCredentialId::oauth_account(id))
             .map(RoutingCredential::available_models)
     }
 
-    pub(crate) fn oauth_token_material(
-        &self,
-        id: OAuthAccountId,
-    ) -> Option<Arc<OAuthTokenMaterial>> {
+    #[must_use]
+    pub fn oauth_token_material(&self, id: OAuthAccountId) -> Option<Arc<OAuthTokenMaterial>> {
         let account = self.oauth_accounts.get(id)?;
         let credential = self
             .routing_credentials
@@ -35,6 +31,17 @@ impl PublishedSnapshot {
             return None;
         }
         generation.oauth_token()
+    }
+
+    /// Official Codex `chatgpt_plan_type` from the ID Token. Claude has none.
+    #[must_use]
+    pub fn oauth_plan_label(&self, id: OAuthAccountId) -> Option<String> {
+        let account = self.oauth_accounts.get(id)?;
+        if account.provider_kind() != any2api_domain::ProviderKind::Codex {
+            return None;
+        }
+        let token = self.oauth_token_material(id)?;
+        any2api_provider::api::codex_oauth_plan_label(token.as_ref())
     }
 
     #[must_use]

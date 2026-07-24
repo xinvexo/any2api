@@ -1,2 +1,2 @@
-export { OAuthLogin } from "./ui/OAuthLogin";
+export { OAuthLoginDrawer } from "./ui/OAuthLogin";
 export { OAuthManagement } from "./ui/OAuthManagement";

@@ -97,7 +97,7 @@ impl OAuthAccountCollectionResponse {
                 .oauth_accounts()
                 .accounts()
                 .iter()
-                .map(OAuthAccountResponse::from)
+                .map(|account| OAuthAccountResponse::from_snapshot(account, snapshot))
                 .collect(),
         }
     }
@@ -116,11 +116,30 @@ struct OAuthAccountResponse {
     account_generation: u64,
     config_version: u64,
     selected_model_count: usize,
+    /// Models currently selected for public routing.
     models: Vec<String>,
+    /// Plan/provider catalog this OAuth account may use (superset of models).
+    available_models: Vec<String>,
+    /// Official Codex `chatgpt_plan_type` from the ID Token (pass-through).
+    plan_type: Option<String>,
 }
 
-impl From<&OAuthAccount> for OAuthAccountResponse {
-    fn from(account: &OAuthAccount) -> Self {
+impl OAuthAccountResponse {
+    fn from_snapshot(account: &OAuthAccount, snapshot: &PublishedSnapshot) -> Self {
+        let selected = account
+            .models()
+            .iter()
+            .map(|model| model.as_str().to_owned())
+            .collect::<Vec<_>>();
+        let available_models = snapshot
+            .oauth_available_models(account.id())
+            .map(|models| {
+                models
+                    .iter()
+                    .map(|model| model.as_str().to_owned())
+                    .collect()
+            })
+            .unwrap_or_else(|| selected.clone());
         Self {
             id: account.id(),
             provider_kind: account.provider_kind(),
@@ -132,12 +151,10 @@ impl From<&OAuthAccount> for OAuthAccountResponse {
             token_version: account.token_version(),
             account_generation: account.account_generation(),
             config_version: account.config_version(),
-            selected_model_count: account.models().len(),
-            models: account
-                .models()
-                .iter()
-                .map(|model| model.as_str().to_owned())
-                .collect(),
+            selected_model_count: selected.len(),
+            models: selected,
+            available_models,
+            plan_type: snapshot.oauth_plan_label(account.id()),
         }
     }
 }

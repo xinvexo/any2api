@@ -19,6 +19,7 @@ mod secret;
 
 pub use claude::ClaudeDriver;
 pub use codex::CodexDriver;
+pub use codex_oauth::plan_label as codex_oauth_plan_label;
 pub use error::ProviderError;
 pub use oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_file};
 pub use oauth_quota::{

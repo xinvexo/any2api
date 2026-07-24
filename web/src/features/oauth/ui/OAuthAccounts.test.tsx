@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
+import type { OAuthAccount } from "../api/oauth-contracts";
 import { OAuthAccounts } from "./OAuthAccounts";
 
 afterEach(() => vi.restoreAllMocks());
@@ -10,9 +11,6 @@ afterEach(() => vi.restoreAllMocks());
 test("lists and edits OAuth accounts without receiving token material", async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
-    if (path === "/api/admin/oauth/accounts" && init?.method === "GET") {
-      return response(configuration(2, "Primary Codex", 1));
-    }
     if (path.endsWith(`/api/admin/oauth/accounts/${accountId}`) && init?.method === "PATCH") {
       expect(JSON.parse(String(init.body))).toEqual({
         expected_revision: 2,
@@ -22,31 +20,39 @@ test("lists and edits OAuth accounts without receiving token material", async ()
         enabled: true,
       });
       expect(String(init.body)).not.toContain("token");
-      return response(configuration(3, "Renamed Codex", 2));
+      return response({
+        config_revision: 3,
+        items: [accountJson("Renamed Codex", 2, 3)],
+      });
     }
     throw new Error(`unexpected request: ${path}`);
   });
   vi.stubGlobal("fetch", fetchMock);
 
-  renderAccounts();
-  expect(await screen.findByText("Primary Codex")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  renderAccounts([account("Primary Codex", 1)]);
+  expect(screen.getByText("Primary Codex")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "编辑 Primary Codex" }));
   fireEvent.change(await screen.findByLabelText("账号名称"), {
     target: { value: "Renamed Codex" },
   });
   fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "3" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
-  expect(await screen.findByText("Renamed Codex")).toBeInTheDocument();
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 });
 
-function renderAccounts() {
+test("shows kind-scoped empty state without a session panel", () => {
+  renderAccounts([]);
+  expect(screen.getByText("还没有 Codex OAuth 账号")).toBeInTheDocument();
+  expect(screen.queryByText("还没有 Codex 登录会话")).not.toBeInTheDocument();
+});
+
+function renderAccounts(items: OAuthAccount[]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/oauth"]}>
-        <OAuthAccounts />
+        <OAuthAccounts provider="codex" accounts={items} configRevision={2} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -54,25 +60,41 @@ function renderAccounts() {
 
 const accountId = "fdcb6e74-820f-4d84-9df6-38af2b031feb";
 
-function configuration(configRevision: number, label: string, configVersion: number) {
+function account(label: string, configVersion: number): OAuthAccount {
   return {
-    config_revision: configRevision,
-    items: [
-      {
-        id: accountId,
-        provider_kind: "codex",
-        label,
-        max_concurrency: configRevision === 2 ? 1 : 3,
-        enabled: true,
-        safe_account_email: "person@example.com",
-        expires_at: 1_900_000_000,
-        token_version: 1,
-        account_generation: 1,
-        config_version: configVersion,
-        selected_model_count: 1,
-        models: ["gpt-5.5"],
-      },
-    ],
+    id: accountId,
+    providerKind: "codex",
+    label,
+    maxConcurrency: 1,
+    enabled: true,
+    safeAccountEmail: "person@example.com",
+    expiresAt: 1_900_000_000,
+    tokenVersion: 1,
+    accountGeneration: 1,
+    configVersion,
+    selectedModelCount: 1,
+    models: ["gpt-5.5"],
+    availableModels: ["gpt-5.5", "gpt-5.6-luna"],
+    planType: "plus",
+  };
+}
+
+function accountJson(label: string, configVersion: number, maxConcurrency: number) {
+  return {
+    id: accountId,
+    provider_kind: "codex",
+    label,
+    max_concurrency: maxConcurrency,
+    enabled: true,
+    safe_account_email: "person@example.com",
+    expires_at: 1_900_000_000,
+    token_version: 1,
+    account_generation: 1,
+    config_version: configVersion,
+    selected_model_count: 1,
+    models: ["gpt-5.5"],
+    available_models: ["gpt-5.5", "gpt-5.6-luna"],
+    plan_type: "plus",
   };
 }
 

@@ -55,6 +55,18 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     assert_eq!(account["account_generation"], 1);
     assert_eq!(account["config_version"], 1);
     assert_eq!(account["models"], json!(["gpt-5.5"]));
+    assert_eq!(
+        account["available_models"],
+        json!([
+            "codex-auto-review",
+            "gpt-5.4-mini",
+            "gpt-5.5",
+            "gpt-5.6-luna",
+            "gpt-5.6-terra"
+        ])
+    );
+    // Test fixture token has no id_token plan claim.
+    assert_eq!(account["plan_type"], Value::Null);
     let listed_text = serde_json::to_string(&listed).expect("listed JSON");
     assert!(!listed_text.contains("access-secret"));
     assert!(!listed_text.contains("refresh-secret"));

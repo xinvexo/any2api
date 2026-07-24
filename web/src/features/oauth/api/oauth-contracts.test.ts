@@ -56,6 +56,14 @@ describe("parseOAuthAccountConfiguration", () => {
           config_version: 4,
           selected_model_count: 2,
           models: ["gpt-5.5", "gpt-5.6-luna"],
+          available_models: [
+            "codex-auto-review",
+            "gpt-5.4-mini",
+            "gpt-5.5",
+            "gpt-5.6-luna",
+            "gpt-5.6-terra",
+          ],
+          plan_type: "plus",
         },
       ],
     });
@@ -65,6 +73,14 @@ describe("parseOAuthAccountConfiguration", () => {
       providerKind: "codex",
       tokenVersion: 2,
       models: ["gpt-5.5", "gpt-5.6-luna"],
+      availableModels: [
+        "codex-auto-review",
+        "gpt-5.4-mini",
+        "gpt-5.5",
+        "gpt-5.6-luna",
+        "gpt-5.6-terra",
+      ],
+      planType: "plus",
     });
     expect(JSON.stringify(parsed)).not.toContain("access_token");
   });
@@ -87,6 +103,8 @@ describe("parseOAuthAccountConfiguration", () => {
             config_version: 1,
             selected_model_count: 2,
             models: ["claude-sonnet-4-6"],
+            available_models: ["claude-sonnet-4-6"],
+            plan_type: null,
           },
         ],
       }),
