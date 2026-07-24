@@ -29,7 +29,8 @@ export function AppShell() {
     if (previousPath.current !== location.pathname) {
       previousPath.current = location.pathname;
       setMobileOpen(false);
-      mainRef.current?.focus();
+      // Keep scroll position stable when switching management pages.
+      mainRef.current?.focus({ preventScroll: true });
     }
   }, [location.pathname, pageTitle]);
 
@@ -168,7 +169,7 @@ export function AppShell() {
             id="main-content"
             ref={mainRef}
             tabIndex={-1}
-            className="min-h-0 flex-1 overflow-y-auto rounded-panel bg-surface shadow-panel outline-none"
+            className="min-h-0 flex-1 overflow-y-auto rounded-panel bg-surface shadow-panel outline-none [scrollbar-gutter:stable]"
           >
             <div className="w-full p-4">
               <Outlet />

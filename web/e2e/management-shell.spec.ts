@@ -22,7 +22,7 @@ test("desktop core management deep links render against the real service", async
 
   for (const [path, readyText] of [
     ["/", "运行正常"],
-    ["/oauth", "还没有已激活的 OAuth 账号"],
+    ["/oauth", "还没有 Codex OAuth 账号"],
     ["/proxies", "代理列表"],
     ["/providers/codex", "还没有 Codex Endpoint"],
     ["/balancing", "还没有 Provider Credential"],
@@ -52,7 +52,7 @@ test("390px OAuth navigation closes after a deep-link transition without horizon
 
   await expect(page).toHaveURL(/\/oauth$/);
   await expect(page.getByRole("button", { name: "打开导航" })).toBeVisible();
-  await expect(page.getByText("还没有已激活的 OAuth 账号")).toBeVisible();
+  await expect(page.getByText("还没有 Codex OAuth 账号")).toBeVisible();
   await expectNoHorizontalOverflow(page);
   expect(browserErrors).toEqual([]);
 });
