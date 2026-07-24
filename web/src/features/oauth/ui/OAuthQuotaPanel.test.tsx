@@ -27,7 +27,8 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   expect(resetButton).toBeDisabled();
 
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
-  expect(await within(panel).findByText("37.5%")).toBeInTheDocument();
+  // used 37.5% → remaining 62.5% rendered as 63%
+  expect(await within(panel).findByText("63%")).toBeInTheDocument();
   expect(within(panel).getByText("1")).toBeInTheDocument();
   expect(resetButton).toBeEnabled();
 

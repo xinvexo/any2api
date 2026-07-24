@@ -32,6 +32,7 @@ export function ProviderCredentialTableRow({
 
   return (
     <tr
+      data-floating-bounds
       className={cn(
         "border-b border-subtle last:border-b-0",
         embedded && "border-subtle/70",

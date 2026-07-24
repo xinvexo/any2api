@@ -76,12 +76,24 @@ function account(label: string, configVersion: number): OAuthAccount {
     models: ["gpt-5.5"],
     availableModels: ["gpt-5.5", "gpt-5.6-luna"],
     planType: "plus",
-    usage: {
-      totalRequests: 3,
-      successfulRequests: 2,
-      failedRequests: 1,
-      recentOutcomes: [{ statusCode: 200 }, { statusCode: 429 }, { statusCode: 200 }],
-    },
+    usage: usageParsed(),
+  };
+}
+
+function usageParsed() {
+  const windowMs = 2 * 60 * 1000;
+  const newest = Math.floor(Date.now() / windowMs) * windowMs;
+  return {
+    totalRequests: 3,
+    successfulRequests: 2,
+    failedRequests: 1,
+    windowMinutes: 2,
+    windowSlots: Array.from({ length: 30 }, (_, index) => ({
+      startedAtMs: newest - (29 - index) * windowMs,
+      totalRequests: index >= 27 ? 1 : 0,
+      successfulRequests: index === 27 || index === 29 ? 1 : 0,
+      failedRequests: index === 28 ? 1 : 0,
+    })),
   };
 }
 
@@ -106,11 +118,19 @@ function accountJson(label: string, configVersion: number, maxConcurrency: numbe
 }
 
 function usageJson() {
+  const windowMs = 2 * 60 * 1000;
+  const newest = Math.floor(Date.now() / windowMs) * windowMs;
   return {
     total_requests: 3,
     successful_requests: 2,
     failed_requests: 1,
-    recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 200 }],
+    window_minutes: 2,
+    window_slots: Array.from({ length: 30 }, (_, index) => ({
+      started_at_ms: newest - (29 - index) * windowMs,
+      total_requests: index >= 27 ? 1 : 0,
+      successful_requests: index === 27 || index === 29 ? 1 : 0,
+      failed_requests: index === 28 ? 1 : 0,
+    })),
   };
 }
 

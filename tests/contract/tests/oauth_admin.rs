@@ -144,11 +144,8 @@ async fn oauth_exchange_activates_persisted_account_once_over_direct_transport()
     assert_eq!(activation["selected_model_count"], 8);
     assert_eq!(activation["config_version"], 1);
     assert_eq!(activation["config_revision"], 2);
-    assert!(
-        activation["label"]
-            .as_str()
-            .is_some_and(|label| label.starts_with("Codex OAuth "))
-    );
+    // Default label prefers email when present; no provider prefix (UI already groups by kind).
+    assert_eq!(activation["label"], "person@example.com");
     assert!(activation.get("access_token").is_none());
     assert!(activation.get("refresh_token").is_none());
     assert!(activation.get("id_token").is_none());

@@ -23,8 +23,8 @@ pub use crate::request_log_repository::RequestLogRepository;
 pub use crate::settings_repository::SettingRepository;
 pub use crate::sqlite::SqliteStore;
 pub use crate::upstream_credential_usage_repository::{
-    UPSTREAM_CREDENTIAL_RECENT_OUTCOME_LIMIT, UpstreamCredentialRequestOutcome,
-    UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
+    UPSTREAM_USAGE_WINDOW_COUNT, UPSTREAM_USAGE_WINDOW_MINUTES, UpstreamCredentialUsageRepository,
+    UpstreamCredentialUsageSummary, UpstreamCredentialWindowSlot, empty_upstream_window_slots,
 };
 pub use crate::vault::{
     SecretAlgorithm, SecretBytes, SecretContext, SecretEnvelope, SecretVault, SecretVaultError,

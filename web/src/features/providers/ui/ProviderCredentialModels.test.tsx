@@ -70,7 +70,13 @@ const credential: ProviderCredential = {
     totalRequests: 0,
     successfulRequests: 0,
     failedRequests: 0,
-    recentOutcomes: [],
+    windowMinutes: 2,
+    windowSlots: Array.from({ length: 30 }, (_, index) => ({
+      startedAtMs: 1_900_000_000_000 + index * 120_000,
+      totalRequests: 0,
+      successfulRequests: 0,
+      failedRequests: 0,
+    })),
   },
 };
 

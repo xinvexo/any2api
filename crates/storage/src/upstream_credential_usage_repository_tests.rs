@@ -11,11 +11,15 @@ use crate::{
         ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository,
         RequestLogRepository, SecretBytes, SqliteStore, UpstreamCredentialUsageRepository,
     },
-    upstream_credential_usage_repository::UPSTREAM_CREDENTIAL_RECENT_OUTCOME_LIMIT,
+    upstream_credential_usage_repository::{
+        UPSTREAM_USAGE_WINDOW_COUNT, UPSTREAM_USAGE_WINDOW_MINUTES,
+    },
 };
 
+const WINDOW_MS: u64 = UPSTREAM_USAGE_WINDOW_MINUTES * 60 * 1_000;
+
 #[tokio::test]
-async fn usage_keeps_provider_and_oauth_sources_distinct_and_counts_final_requests() {
+async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("upstream-usage.sqlite3"))
         .await
@@ -80,33 +84,44 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_counts_final_reques
         .await
         .expect("create OAuth account");
 
-    let mut records = (0..=UPSTREAM_CREDENTIAL_RECENT_OUTCOME_LIMIT)
-        .map(|index| {
-            let status = if index == 0 {
-                500
-            } else if index == UPSTREAM_CREDENTIAL_RECENT_OUTCOME_LIMIT {
-                429
-            } else {
-                200
-            };
-            usage_record(
-                RoutingCredentialId::provider_credential(credential_id),
-                endpoint_id,
-                100 + u64::from(index),
-                status,
-            )
-        })
-        .collect::<Vec<_>>();
+    let now_bucket = align_now();
+    let mut records = vec![
+        usage_record(
+            RoutingCredentialId::provider_credential(credential_id),
+            endpoint_id,
+            now_bucket + 1_000,
+            200,
+        ),
+        usage_record(
+            RoutingCredentialId::provider_credential(credential_id),
+            endpoint_id,
+            now_bucket + 2_000,
+            500,
+        ),
+        usage_record(
+            RoutingCredentialId::provider_credential(credential_id),
+            endpoint_id,
+            now_bucket.saturating_sub(WINDOW_MS) + 500,
+            200,
+        ),
+        // Outside the visible window — still counted in totals, not in slots.
+        usage_record(
+            RoutingCredentialId::provider_credential(credential_id),
+            endpoint_id,
+            now_bucket.saturating_sub(WINDOW_MS * (UPSTREAM_USAGE_WINDOW_COUNT as u64 + 2)),
+            429,
+        ),
+    ];
     records.push(usage_record(
         RoutingCredentialId::oauth_account(oauth_account_id),
         endpoint_id,
-        1_000,
+        now_bucket + 100,
         503,
     ));
     let mut retried = usage_record(
         RoutingCredentialId::oauth_account(oauth_account_id),
         endpoint_id,
-        2_000,
+        now_bucket + 200,
         200,
     );
     retried.attempts.push(RequestAttempt {
@@ -116,7 +131,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_counts_final_reques
         credential_id: Some(credential_id),
         oauth_account_id: None,
         proxy_profile_id: Some(ProxyProfileId::DIRECT),
-        started_at_ms: 1_999,
+        started_at_ms: now_bucket + 150,
         duration_ms: 1,
         retry_safety: None,
         error_class: None,
@@ -125,7 +140,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_counts_final_reques
     });
     retried.request.attempt_count = 1;
     records.push(retried);
-    records.push(usage_record_without_upstream(3_000));
+    records.push(usage_record_without_upstream(now_bucket + 300));
     store
         .append_request_logs(&records)
         .await
@@ -140,20 +155,24 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_counts_final_reques
         .iter()
         .find(|summary| summary.id == RoutingCredentialId::provider_credential(credential_id))
         .expect("provider usage");
-    assert_eq!(provider.total_requests, 25);
-    assert_eq!(provider.successful_requests, 23);
+    assert_eq!(provider.total_requests, 4);
+    assert_eq!(provider.successful_requests, 2);
     assert_eq!(provider.failed_requests(), 2);
-    assert_eq!(provider.recent_outcomes.len(), 24);
-    assert_eq!(
+    assert_eq!(provider.window_slots.len(), UPSTREAM_USAGE_WINDOW_COUNT);
+    assert_eq!(provider.window_slots.last().map(|slot| slot.started_at_ms), Some(now_bucket));
+    let newest = provider.window_slots.last().expect("newest slot");
+    assert_eq!(newest.total_requests, 2);
+    assert_eq!(newest.successful_requests, 1);
+    let previous = &provider.window_slots[UPSTREAM_USAGE_WINDOW_COUNT - 2];
+    assert_eq!(previous.started_at_ms, now_bucket.saturating_sub(WINDOW_MS));
+    assert_eq!(previous.total_requests, 1);
+    assert_eq!(previous.successful_requests, 1);
+    assert!(
         provider
-            .recent_outcomes
-            .first()
-            .map(|item| item.status_code),
-        Some(200)
-    );
-    assert_eq!(
-        provider.recent_outcomes.last().map(|item| item.status_code),
-        Some(429)
+            .window_slots
+            .iter()
+            .take(UPSTREAM_USAGE_WINDOW_COUNT - 2)
+            .all(|slot| slot.total_requests == 0)
     );
 
     let oauth = usage
@@ -163,14 +182,18 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_counts_final_reques
     assert_eq!(oauth.total_requests, 2);
     assert_eq!(oauth.successful_requests, 1);
     assert_eq!(oauth.failed_requests(), 1);
-    assert_eq!(
-        oauth
-            .recent_outcomes
-            .iter()
-            .map(|item| item.status_code)
-            .collect::<Vec<_>>(),
-        vec![503, 200]
-    );
+    assert_eq!(oauth.window_slots.len(), UPSTREAM_USAGE_WINDOW_COUNT);
+    let oauth_newest = oauth.window_slots.last().expect("oauth newest");
+    assert_eq!(oauth_newest.total_requests, 2);
+    assert_eq!(oauth_newest.successful_requests, 1);
+}
+
+fn align_now() -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    (now / WINDOW_MS) * WINDOW_MS
 }
 
 fn usage_record(

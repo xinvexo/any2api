@@ -19,6 +19,27 @@ body {
 }
 
 /*
+ * FloatingPopover — cloud bubble + seamless caret.
+ * drop-shadow follows the rotated tip so the shadow is one shape (not a box + triangle).
+ */
+.floating-popover {
+  filter:
+    drop-shadow(0 1px 1px rgb(0 0 0 / 4%))
+    drop-shadow(0 8px 20px rgb(0 0 0 / 8%));
+}
+
+html[data-theme="dark"] .floating-popover {
+  filter:
+    drop-shadow(0 1px 1px rgb(0 0 0 / 28%))
+    drop-shadow(0 10px 24px rgb(0 0 0 / 36%));
+}
+
+.floating-popover__tip {
+  /* Cover the bubble border where the tip joins so it reads as one outline. */
+  box-shadow: 0 0 0 0.5px var(--surface);
+}
+
+/*
  * Element resets live in @layer base so utility classes (text-on-accent, etc.)
  * win over them. Never force `color: inherit` on button — that made primary
  * CTAs render as blue background + black label.

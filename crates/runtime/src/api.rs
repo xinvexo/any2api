@@ -49,4 +49,7 @@ pub use any2api_provider::api::{
     OAuthQuotaWindow,
 };
 pub use any2api_storage::api::{GatewayApiKeyRequestOutcome, GatewayApiKeyUsageSummary};
-pub use any2api_storage::api::{UpstreamCredentialRequestOutcome, UpstreamCredentialUsageSummary};
+pub use any2api_storage::api::{
+    UPSTREAM_USAGE_WINDOW_COUNT, UPSTREAM_USAGE_WINDOW_MINUTES, UpstreamCredentialUsageSummary,
+    UpstreamCredentialWindowSlot, empty_upstream_window_slots,
+};

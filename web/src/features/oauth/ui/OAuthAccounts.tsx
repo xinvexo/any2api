@@ -71,38 +71,37 @@ export function OAuthAccounts({
           </p>
         </Surface>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {accounts.map((account) => (
-            <OAuthAccountCard
-              key={account.id}
-              presentation={presentOAuthAccount(account)}
-              pending={pending}
-              onToggleEnabled={(enabled) => {
-                mutations.update.mutate({
-                  id: account.id,
-                  input: {
-                    expectedRevision: configRevision,
-                    expectedConfigVersion: account.configVersion,
-                    label: account.label,
-                    maxConcurrency: account.maxConcurrency,
-                    enabled,
-                  },
-                });
-              }}
-              onViewModels={() => open(account, "models")}
-              onEdit={() => open(account, "metadata")}
-              onDelete={() => setDeleteTarget(account)}
-              details={
-                <>
-                  <div className="mt-2.5 border-t border-subtle pt-2.5">
+            <div key={account.id} className="min-w-0">
+              <OAuthAccountCard
+                presentation={presentOAuthAccount(account)}
+                pending={pending}
+                onToggleEnabled={(enabled) => {
+                  mutations.update.mutate({
+                    id: account.id,
+                    input: {
+                      expectedRevision: configRevision,
+                      expectedConfigVersion: account.configVersion,
+                      label: account.label,
+                      maxConcurrency: account.maxConcurrency,
+                      enabled,
+                    },
+                  });
+                }}
+                onViewModels={() => open(account, "models")}
+                onEdit={() => open(account, "metadata")}
+                onDelete={() => setDeleteTarget(account)}
+                details={
+                  <>
                     <RequestUsageStats label={account.label} usage={account.usage} />
-                  </div>
-                  {account.providerKind === "codex" ? (
-                    <OAuthQuotaPanel accountId={account.id} accountLabel={account.label} />
-                  ) : null}
-                </>
-              }
-            />
+                    {account.providerKind === "codex" ? (
+                      <OAuthQuotaPanel accountId={account.id} accountLabel={account.label} />
+                    ) : null}
+                  </>
+                }
+              />
+            </div>
           ))}
         </div>
       )}

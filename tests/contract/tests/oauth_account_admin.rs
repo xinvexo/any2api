@@ -26,10 +26,14 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     let (_directory, app, storage, account_id) = test_app().await;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
     storage
         .append_request_logs(&[
-            oauth_request_log(account_id, 1_800_000_000_000, 200),
-            oauth_request_log(account_id, 1_800_000_000_001, 503),
+            oauth_request_log(account_id, now_ms.saturating_sub(1_000), 200),
+            oauth_request_log(account_id, now_ms, 503),
         ])
         .await
         .expect("append OAuth usage");
@@ -84,10 +88,15 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     assert_eq!(account["usage"]["total_requests"], 2);
     assert_eq!(account["usage"]["successful_requests"], 1);
     assert_eq!(account["usage"]["failed_requests"], 1);
-    assert_eq!(
-        account["usage"]["recent_outcomes"],
-        json!([{ "status_code": 200 }, { "status_code": 503 }])
-    );
+    assert_eq!(account["usage"]["window_minutes"], 2);
+    let slots = account["usage"]["window_slots"]
+        .as_array()
+        .expect("window slots");
+    assert_eq!(slots.len(), 30);
+    let newest = slots.last().expect("newest slot");
+    assert_eq!(newest["total_requests"], 2);
+    assert_eq!(newest["successful_requests"], 1);
+    assert_eq!(newest["failed_requests"], 1);
     let listed_text = serde_json::to_string(&listed).expect("listed JSON");
     assert!(!listed_text.contains("access-secret"));
     assert!(!listed_text.contains("refresh-secret"));

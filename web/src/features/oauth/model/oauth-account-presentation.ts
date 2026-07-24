@@ -17,8 +17,8 @@ export interface OAuthAccountMetric {
 }
 
 /**
- * Provider-agnostic view model for OAuth account rows and drawers.
- * Codex/Claude/Grok only differ by how fields map into badges/metrics —
+ * Provider-agnostic view model for OAuth account cards and drawers.
+ * Codex/Claude only differ by how fields map into badges/metrics —
  * the card chrome stays the same.
  */
 export interface OAuthAccountPresentation {

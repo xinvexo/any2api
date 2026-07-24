@@ -145,8 +145,9 @@ impl OAuthService {
             .collect();
         let document = document::serialize(&token)?;
         let account_id = OAuthAccountId::new();
+        // Label stays provider-agnostic: the UI already groups by Codex/Claude.
         let draft = OAuthAccountDraft::new(
-            default_label(session.provider, account_id),
+            default_label(token.email(), account_id),
             MaxConcurrency::new(1).expect("OAuth default concurrency is valid"),
             true,
         )
@@ -173,10 +174,10 @@ impl OAuthService {
     }
 }
 
-fn default_label(provider: ProviderKind, account_id: OAuthAccountId) -> String {
-    let provider = match provider {
-        ProviderKind::Codex => "Codex",
-        ProviderKind::Claude => "Claude",
-    };
-    format!("{provider} OAuth {account_id}")
+fn default_label(email: Option<&str>, account_id: OAuthAccountId) -> String {
+    email
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| account_id.to_string())
 }

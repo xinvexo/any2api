@@ -81,20 +81,19 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
         .to_owned();
     let parsed_credential_id = credential_id.parse().expect("credential id type");
     let parsed_endpoint_id = endpoint_id.parse().expect("endpoint id type");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
     storage
         .append_request_logs(&[
             provider_request_log(
                 parsed_endpoint_id,
                 parsed_credential_id,
-                1_800_000_000_000,
+                now_ms.saturating_sub(1_000),
                 200,
             ),
-            provider_request_log(
-                parsed_endpoint_id,
-                parsed_credential_id,
-                1_800_000_000_001,
-                429,
-            ),
+            provider_request_log(parsed_endpoint_id, parsed_credential_id, now_ms, 429),
         ])
         .await
         .expect("append provider usage");
@@ -113,10 +112,15 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
     assert_eq!(listed.body["items"][0]["usage"]["total_requests"], 2);
     assert_eq!(listed.body["items"][0]["usage"]["successful_requests"], 1);
     assert_eq!(listed.body["items"][0]["usage"]["failed_requests"], 1);
-    assert_eq!(
-        listed.body["items"][0]["usage"]["recent_outcomes"],
-        json!([{ "status_code": 200 }, { "status_code": 429 }])
-    );
+    assert_eq!(listed.body["items"][0]["usage"]["window_minutes"], 2);
+    let slots = listed.body["items"][0]["usage"]["window_slots"]
+        .as_array()
+        .expect("window slots");
+    assert_eq!(slots.len(), 30);
+    let newest = slots.last().expect("newest slot");
+    assert_eq!(newest["total_requests"], 2);
+    assert_eq!(newest["successful_requests"], 1);
+    assert_eq!(newest["failed_requests"], 1);
 
     let updated = request_json(
         app.clone(),

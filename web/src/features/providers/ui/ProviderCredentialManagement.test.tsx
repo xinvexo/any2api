@@ -267,10 +267,18 @@ function jsonResponse(value: unknown) {
 }
 
 function usage() {
+  const windowMs = 2 * 60 * 1000;
+  const newest = Math.floor(Date.now() / windowMs) * windowMs;
   return {
     total_requests: 3,
     successful_requests: 2,
     failed_requests: 1,
-    recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 200 }],
+    window_minutes: 2,
+    window_slots: Array.from({ length: 30 }, (_, index) => ({
+      started_at_ms: newest - (29 - index) * windowMs,
+      total_requests: index >= 27 ? 1 : 0,
+      successful_requests: index === 27 || index === 29 ? 1 : 0,
+      failed_requests: index === 28 ? 1 : 0,
+    })),
   };
 }
