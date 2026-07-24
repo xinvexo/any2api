@@ -79,9 +79,9 @@ impl RequestLogRepository for SqliteStore {
         let rows = sqlx::query_as::<_, RequestLogRow>(
             "SELECT request_id, started_at_ms, config_revision, gateway_api_key_id, \
              ingress_protocol, operation, public_model, provider_endpoint_id, credential_id, \
-             oauth_account_id, proxy_profile_id, status_code, error_class, attempt_count, latency_ms, \
-             first_token_ms, input_tokens, output_tokens, cache_read_tokens, \
-             cache_write_tokens, is_stream FROM request_logs \
+             oauth_account_id, proxy_profile_id, status_code, error_class, error_message, \
+             attempt_count, latency_ms, first_token_ms, input_tokens, output_tokens, \
+             cache_read_tokens, cache_write_tokens, is_stream FROM request_logs \
              ORDER BY started_at_ms DESC, request_id DESC LIMIT ?",
         )
         .bind(i64::from(limit))
@@ -98,9 +98,9 @@ impl RequestLogRepository for SqliteStore {
         let row = sqlx::query_as::<_, RequestLogRow>(
             "SELECT request_id, started_at_ms, config_revision, gateway_api_key_id, \
              ingress_protocol, operation, public_model, provider_endpoint_id, credential_id, \
-             oauth_account_id, proxy_profile_id, status_code, error_class, attempt_count, latency_ms, \
-             first_token_ms, input_tokens, output_tokens, cache_read_tokens, \
-             cache_write_tokens, is_stream FROM request_logs WHERE request_id = ?",
+             oauth_account_id, proxy_profile_id, status_code, error_class, error_message, \
+             attempt_count, latency_ms, first_token_ms, input_tokens, output_tokens, \
+             cache_read_tokens, cache_write_tokens, is_stream FROM request_logs WHERE request_id = ?",
         )
         .bind(request_id.to_string())
         .fetch_optional(&mut *transaction)
@@ -112,8 +112,8 @@ impl RequestLogRepository for SqliteStore {
         let request = parse_request_log(row)?;
         let rows = sqlx::query_as::<_, RequestAttemptRow>(
             "SELECT request_id, attempt_no, route_target_id, credential_id, oauth_account_id, \
-             proxy_profile_id, \
-             started_at_ms, duration_ms, retry_safety, error_class, status_code, outcome \
+             proxy_profile_id, started_at_ms, duration_ms, retry_safety, error_class, \
+             error_message, status_code, outcome \
              FROM request_attempts WHERE request_id = ? ORDER BY attempt_no ASC",
         )
         .bind(request_id.to_string())
@@ -136,13 +136,13 @@ async fn insert_request_log(
         "INSERT INTO request_logs (request_id, started_at_ms, config_revision, \
          gateway_api_key_id, ingress_protocol, operation, public_model, provider_endpoint_id, \
          credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
-         attempt_count, latency_ms, \
-         first_token_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, \
-         is_stream) VALUES (?, ?, ?, (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, \
+         error_message, attempt_count, latency_ms, first_token_ms, input_tokens, output_tokens, \
+         cache_read_tokens, cache_write_tokens, is_stream) VALUES (?, ?, ?, \
+         (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, \
          (SELECT id FROM provider_endpoints WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
-         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -157,6 +157,7 @@ async fn insert_request_log(
     .bind(optional_id(log.proxy_profile_id))
     .bind(i64::from(log.status_code))
     .bind(log.error_class.map(ErrorClass::as_str))
+    .bind(log.error_message.as_deref())
     .bind(i64::from(log.attempt_count))
     .bind(to_i64(log.latency_ms)?)
     .bind(optional_i64(log.first_token_ms)?)
@@ -177,11 +178,11 @@ async fn insert_request_attempt(
     sqlx::query(
         "INSERT INTO request_attempts (request_id, attempt_no, route_target_id, credential_id, \
          oauth_account_id, proxy_profile_id, started_at_ms, duration_ms, retry_safety, \
-         error_class, status_code, \
-         outcome) VALUES (?, ?, (SELECT id FROM route_targets WHERE id = ?), \
+         error_class, error_message, status_code, outcome) VALUES (?, ?, \
+         (SELECT id FROM route_targets WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
-         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?)",
+         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(attempt.request_id.to_string())
     .bind(i64::from(attempt.attempt_no))
@@ -193,6 +194,7 @@ async fn insert_request_attempt(
     .bind(to_i64(attempt.duration_ms)?)
     .bind(attempt.retry_safety.map(RetrySafety::as_str))
     .bind(attempt.error_class.map(ErrorClass::as_str))
+    .bind(attempt.error_message.as_deref())
     .bind(attempt.status_code.map(i64::from))
     .bind(attempt.outcome.as_str())
     .execute(connection)
@@ -242,6 +244,7 @@ struct RequestLogRow {
     proxy_profile_id: Option<String>,
     status_code: i64,
     error_class: Option<String>,
+    error_message: Option<String>,
     attempt_count: i64,
     latency_ms: i64,
     first_token_ms: Option<i64>,
@@ -264,6 +267,7 @@ struct RequestAttemptRow {
     duration_ms: i64,
     retry_safety: Option<String>,
     error_class: Option<String>,
+    error_message: Option<String>,
     status_code: Option<i64>,
     outcome: String,
 }
@@ -286,6 +290,7 @@ fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, StorageError> {
         proxy_profile_id: parse_optional_id(row.proxy_profile_id)?,
         status_code: u16::try_from(row.status_code).map_err(|_| StorageError::CorruptTelemetry)?,
         error_class: parse_optional_value(row.error_class.as_deref(), ErrorClass::parse)?,
+        error_message: row.error_message,
         attempt_count: u32::try_from(row.attempt_count)
             .map_err(|_| StorageError::CorruptTelemetry)?,
         latency_ms: from_i64(row.latency_ms)?,
@@ -310,6 +315,7 @@ fn parse_request_attempt(row: RequestAttemptRow) -> Result<RequestAttempt, Stora
         duration_ms: from_i64(row.duration_ms)?,
         retry_safety: parse_optional_value(row.retry_safety.as_deref(), RetrySafety::parse)?,
         error_class: parse_optional_value(row.error_class.as_deref(), ErrorClass::parse)?,
+        error_message: row.error_message,
         status_code: row
             .status_code
             .map(u16::try_from)

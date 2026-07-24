@@ -11,7 +11,7 @@ pub(super) struct PendingStreamError {
 impl PendingStreamError {
     pub(super) fn transport(error: &TransportError) -> Self {
         Self {
-            error: stream_error("upstream stream failed"),
+            error: stream_error(error.message.clone()),
             kind: PendingStreamErrorKind::Transport {
                 retry_safety: error.retry_safety,
                 failure_scope: error.failure_scope,
@@ -39,14 +39,14 @@ impl PendingStreamError {
         }
     }
 
-    pub(super) fn invalid_response(message: &'static str) -> Self {
+    pub(super) fn invalid_response(message: impl Into<String>) -> Self {
         Self {
             error: stream_error(message),
             kind: PendingStreamErrorKind::InvalidResponse,
         }
     }
 
-    pub(super) fn local(message: &'static str) -> Self {
+    pub(super) fn local(message: impl Into<String>) -> Self {
         Self {
             error: stream_error(message),
             kind: PendingStreamErrorKind::Local,
@@ -58,6 +58,10 @@ impl PendingStreamError {
             error: stream_error("upstream stream exceeded the precommit byte budget"),
             kind: PendingStreamErrorKind::BudgetExceeded,
         }
+    }
+
+    pub(super) fn message(&self) -> String {
+        self.error.to_string()
     }
 }
 
@@ -91,8 +95,8 @@ pub(super) fn transport_error_class(failure_scope: TransportFailureScope) -> Err
     }
 }
 
-fn stream_error(message: &'static str) -> io::Error {
-    io::Error::other(message)
+fn stream_error(message: impl Into<String>) -> io::Error {
+    io::Error::other(message.into())
 }
 
 #[cfg(test)]

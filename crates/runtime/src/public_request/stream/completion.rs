@@ -17,21 +17,30 @@ impl GuardedBody {
         self.upstream = Box::pin(futures_util::stream::empty());
         self.health.take();
         if let Some(mut recorder) = self.attempt_recorder.take() {
-            match outcome {
+            match &outcome {
                 StreamOutcome::Success => recorder.success(self.status_code),
-                StreamOutcome::Error(error_class) => {
-                    recorder.stream_error(error_class, self.status_code);
+                StreamOutcome::Error { class, message } => {
+                    recorder.stream_error(*class, self.status_code, message);
                 }
                 StreamOutcome::Cancelled => recorder.cancelled(Some(self.status_code)),
             }
         }
         if self.owns_request_completion {
-            let error_class = match outcome {
-                StreamOutcome::Success => None,
-                StreamOutcome::Error(error_class) => Some(error_class),
-                StreamOutcome::Cancelled => Some(ErrorClass::Cancelled),
-            };
-            self.request_recorder.finish(self.status_code, error_class);
+            match outcome {
+                StreamOutcome::Success => self.request_recorder.finish(self.status_code, None),
+                StreamOutcome::Error { class, message } => {
+                    self.request_recorder.finish_with_message(
+                        self.status_code,
+                        Some(class),
+                        Some(message),
+                    );
+                }
+                StreamOutcome::Cancelled => self.request_recorder.finish_with_message(
+                    self.status_code,
+                    Some(ErrorClass::Cancelled),
+                    Some("request cancelled".to_owned()),
+                ),
+            }
         }
         self.permit.take();
     }
@@ -49,6 +58,10 @@ impl GuardedBody {
         let kind = pending
             .as_ref()
             .map_or(PendingStreamErrorKind::InvalidResponse, |error| error.kind);
+        let diagnostic = pending
+            .as_ref()
+            .map(PendingStreamError::message)
+            .unwrap_or_else(|| "upstream stream ended before the first event".to_owned());
         match kind {
             PendingStreamErrorKind::Transport {
                 retry_safety,
@@ -58,7 +71,11 @@ impl GuardedBody {
                     health.transport_failure(failure_scope);
                 }
                 if let Some(mut recorder) = self.attempt_recorder.take() {
-                    recorder.transport_error(retry_safety, transport_error_class(failure_scope));
+                    recorder.transport_error(
+                        retry_safety,
+                        transport_error_class(failure_scope),
+                        &diagnostic,
+                    );
                 }
             }
             PendingStreamErrorKind::InvalidResponse => {
@@ -66,7 +83,7 @@ impl GuardedBody {
                     health.transport_failure(TransportFailureScope::Endpoint);
                 }
                 if let Some(mut recorder) = self.attempt_recorder.take() {
-                    recorder.invalid_response(Some(self.status_code));
+                    recorder.invalid_response(Some(self.status_code), &diagnostic);
                 }
             }
             PendingStreamErrorKind::BudgetExceeded => {
@@ -74,7 +91,7 @@ impl GuardedBody {
                     health.success();
                 }
                 if let Some(mut recorder) = self.attempt_recorder.take() {
-                    recorder.invalid_response(Some(self.status_code));
+                    recorder.invalid_response(Some(self.status_code), &diagnostic);
                 }
             }
             PendingStreamErrorKind::Local => {
@@ -82,7 +99,11 @@ impl GuardedBody {
                     health.success();
                 }
                 if let Some(mut recorder) = self.attempt_recorder.take() {
-                    recorder.local_error(Some(self.status_code), ErrorClass::Internal);
+                    recorder.local_error(
+                        Some(self.status_code),
+                        ErrorClass::Internal,
+                        &diagnostic,
+                    );
                 }
             }
         }

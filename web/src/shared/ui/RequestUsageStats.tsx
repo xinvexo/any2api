@@ -51,7 +51,7 @@ export function RequestUsageStats({
   }
 
   return (
-    <div ref={rootRef} className="flex min-w-0 items-center gap-2">
+    <div ref={rootRef} className="flex min-w-0 max-w-full items-center gap-2">
       <div className="flex shrink-0 items-center gap-x-2 text-[11px] tabular-nums">
         <span className="font-medium text-success">
           成功 {formatCount(usage.successfulRequests)}
@@ -62,7 +62,7 @@ export function RequestUsageStats({
       </div>
 
       <div
-        className="flex h-3.5 min-w-0 flex-1 items-stretch gap-px"
+        className="flex h-3.5 w-full min-w-[7.5rem] max-w-[12rem] flex-1 items-stretch gap-px"
         role="img"
         aria-label={`${label} 近 1 小时，每格 ${usage.windowMinutes} 分钟：${outcomeSummary || "暂无调用"}`}
         onMouseLeave={() => setHover(null)}
@@ -72,7 +72,7 @@ export function RequestUsageStats({
             key={slot.startedAtMs}
             type="button"
             className={cn(
-              "min-w-0 flex-1 rounded-[2px] transition-[transform,filter,box-shadow] duration-100",
+              "min-w-[2px] flex-1 rounded-[2px] transition-[transform,filter,box-shadow] duration-100",
               "focus-ring outline-none",
               slotTone(slot),
               hover?.index === index &&
@@ -117,7 +117,8 @@ export function RequestUsageStats({
 
 function slotTone(slot: UpstreamRequestWindowSlot) {
   if (slot.totalRequests === 0) {
-    return "bg-surface-muted";
+    // Slightly stronger than surface-muted so bars stay visible on muted card chrome.
+    return "bg-black/[0.08] dark:bg-white/[0.12]";
   }
   if (slot.failedRequests > 0) {
     return "bg-danger/85";

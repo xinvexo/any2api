@@ -135,6 +135,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         duration_ms: 1,
         retry_safety: None,
         error_class: None,
+        error_message: None,
         status_code: Some(500),
         outcome: RequestAttemptOutcome::UpstreamError,
     });
@@ -217,6 +218,7 @@ fn usage_record(
             proxy_profile_id: Some(ProxyProfileId::DIRECT),
             status_code,
             error_class: None,
+            error_message: None,
             attempt_count: 0,
             latency_ms: 1,
             first_token_ms: None,

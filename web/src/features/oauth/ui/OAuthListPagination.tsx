@@ -28,7 +28,7 @@ export function OAuthListPagination({
   const safePage = Math.min(Math.max(1, page), totalPages);
 
   return (
-    <div className="flex h-8 min-w-0 flex-wrap items-center gap-1.5 text-[12px] text-secondary">
+    <div className="flex h-8 min-w-0 flex-wrap items-center justify-end gap-1.5 text-[12px] text-secondary">
       <label className="flex items-center gap-1.5">
         <span className="sr-only">每页条数</span>
         <select

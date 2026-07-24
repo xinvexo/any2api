@@ -60,13 +60,13 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             return Err(AttemptFailure::transport(error, candidate, fixed));
         }
         Err(CollectBodyError::Public(error)) => {
-            prepared.invalid_response(Some(status.as_u16()));
+            prepared.invalid_response(Some(status.as_u16()), &error.message);
             return Err(AttemptFailure::Public(error));
         }
     };
     if !status.is_success() {
         let classification = prepared.classify(status, &headers, &body);
-        prepared.upstream_failure(status.as_u16(), classification);
+        prepared.upstream_failure(status.as_u16(), classification, &body);
         return Err(AttemptFailure::upstream(classification, candidate, fixed));
     }
     let decoded = match prepared.decode_upstream_response(UpstreamResponse {
@@ -76,7 +76,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     }) {
         Ok(decoded) => decoded,
         Err(_) => {
-            prepared.invalid_response(Some(status.as_u16()));
+            prepared.invalid_response(Some(status.as_u16()), "upstream response was invalid");
             return Err(AttemptFailure::Public(public_error(
                 PublicErrorCode::UpstreamError,
                 "upstream response was invalid",

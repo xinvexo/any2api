@@ -141,6 +141,7 @@ function request(overrides: Record<string, unknown> = {}) {
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
     status_code: 200,
     error_class: null,
+    error_message: null,
     attempt_count: 2,
     latency_ms: 30,
     first_token_ms: 18,
@@ -170,6 +171,7 @@ function attempt(
     duration_ms: 10,
     retry_safety: retrySafety,
     error_class: errorClass,
+    error_message: null,
     status_code: statusCode,
     outcome,
   };

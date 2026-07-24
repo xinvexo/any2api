@@ -19,3 +19,4 @@
 "0018_oauth_accounts.sql" = "9bdb3c2cfabcc2237fa620f1226bdc50ff2341507ab176265994c5fa8f4b562f"
 "0019_request_log_oauth_accounts.sql" = "fd0fddee9d03e5b78ed3d682ce21a310969c3121fb00d8d34fb2f97de4649180"
 "0020_upstream_credential_usage_index.sql" = "de9659eb6c4e70921c107adf5b51a119e49d832f8d7b3a4f0c4019fdca830e51"
+"0021_request_log_error_message.sql" = "edd0d4a009d3b3b37746cbbbba80135efe8c94aeb1d66807f896cc43b69f7e8d"

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -7,22 +7,47 @@ import { RequestLogManagement } from "./RequestLogManagement";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("renders recent request metadata without prompt or secret content", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(listResponse([request()]));
+test("renders request logs in a table without leaving the page for details", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path.startsWith("/api/admin/request-logs?") || path === "/api/admin/request-logs?limit=100") {
+      return listResponse([request()]);
+    }
+    if (path === "/api/admin/request-logs/11111111-1111-4111-8111-111111111111") {
+      return detailResponse();
+    }
+    throw new Error(`unexpected ${path}`);
+  });
 
   renderManagement();
 
-  const model = await screen.findByText("codex-local");
-  expect(model).toHaveClass("break-all");
-  expect(screen.getByText("11111111-1111-4111-8111-111111111111")).toBeInTheDocument();
-  expect(screen.getByText(/丢弃 2/)).toBeInTheDocument();
-  expect(screen.getByText("API Key 44444444…")).toBeInTheDocument();
-  expect(screen.getByRole("link")).toHaveAttribute(
-    "href",
-    "/logs/11111111-1111-4111-8111-111111111111",
-  );
+  // Mobile cards + desktop table both mount (CSS hides one); assert both shells exist.
+  expect(await screen.findByRole("list", { name: "请求日志列表" })).toBeInTheDocument();
+  expect(screen.getByRole("table", { name: "请求日志表格" })).toBeInTheDocument();
+  expect(screen.getAllByText("codex-local").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("API Key").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("44444444…").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("成功").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getByText(/丢弃/)).toBeInTheDocument();
+  expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(screen.queryByText("private prompt")).not.toBeInTheDocument();
-  expect(screen.queryByText("provider-secret")).not.toBeInTheDocument();
+
+  const toggle = screen
+    .getAllByRole("button")
+    .find((button) => button.getAttribute("aria-expanded") === "false");
+  expect(toggle).toBeTruthy();
+  fireEvent.click(toggle!);
+
+  expect((await screen.findAllByText("Attempt 时间线")).length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("success").length).toBeGreaterThanOrEqual(1);
+  expect(
+    screen.getAllByText("11111111-1111-4111-8111-111111111111").length,
+  ).toBeGreaterThanOrEqual(1);
+  // successful log has no error banner
+  expect(screen.queryByText("错误详情")).not.toBeInTheDocument();
+  expect(fetchMock.mock.calls.some(([path]) => String(path).includes("/request-logs/11111111"))).toBe(
+    true,
+  );
 });
 
 test("distinguishes an OAuth final upstream source", async () => {
@@ -38,7 +63,8 @@ test("distinguishes an OAuth final upstream source", async () => {
 
   renderManagement();
 
-  expect(await screen.findByText("OAuth 55555555…")).toBeInTheDocument();
+  expect((await screen.findAllByText("OAuth")).length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("55555555…").length).toBeGreaterThanOrEqual(1);
 });
 
 test("renders an empty state", async () => {
@@ -71,58 +97,82 @@ test("keeps the latest data visible when a refresh fails", async () => {
     .mockResolvedValueOnce(errorResponse("refresh failed"));
 
   renderManagement();
-  await screen.findByText("codex-local");
+  await screen.findAllByText("codex-local");
   fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  expect(await screen.findByText(/刷新失败/)).toBeInTheDocument();
+  expect(screen.getAllByText("codex-local").length).toBeGreaterThanOrEqual(1);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
 
-  expect(await screen.findByText(/刷新失败，当前仍显示最近一次有效数据/)).toBeInTheDocument();
-  expect(screen.getByText("codex-local")).toBeInTheDocument();
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+test("paginates request logs from the toolbar", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    listResponse(
+      Array.from({ length: 12 }, (_, index) => ({
+        ...request(),
+        request_id: `11111111-1111-4111-8111-1111111111${String(index).padStart(2, "0")}`,
+        public_model: `model-${index + 1}`,
+      })),
+    ),
+  );
+
+  renderManagement();
+  expect((await screen.findAllByText("model-1")).length).toBeGreaterThanOrEqual(1);
+  // default page size 20 shows all 12
+  expect(screen.getAllByText("model-12").length).toBeGreaterThanOrEqual(1);
+
+  fireEvent.change(screen.getAllByLabelText("每页条数")[0]!, { target: { value: "10" } });
+  expect(screen.getAllByText("model-1").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("model-10").length).toBeGreaterThanOrEqual(1);
+  expect(screen.queryByText("model-11")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getAllByRole("button", { name: "下一页" })[0]!);
+  expect(screen.getAllByText("model-11").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("model-12").length).toBeGreaterThanOrEqual(1);
+  expect(screen.queryByText("model-1")).not.toBeInTheDocument();
 });
 
 function renderManagement() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <MemoryRouter>
-      <QueryClientProvider client={client}>
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
         <RequestLogManagement />
-      </QueryClientProvider>
-    </MemoryRouter>,
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
-}
-
-function request() {
-  return {
-    request_id: "11111111-1111-4111-8111-111111111111",
-    started_at_ms: 1_700_000_000_000,
-    config_revision: 9,
-    gateway_api_key_id: "22222222-2222-4222-8222-222222222222",
-    ingress_protocol: "openai_responses",
-    operation: "responses",
-    public_model: "codex-local",
-    provider_endpoint_id: "33333333-3333-4333-8333-333333333333",
-    credential_id: "44444444-4444-4444-8444-444444444444",
-    oauth_account_id: null,
-    proxy_profile_id: "00000000-0000-0000-0000-000000000000",
-    status_code: 200,
-    error_class: null,
-    attempt_count: 1,
-    latency_ms: 30,
-    first_token_ms: null,
-    input_tokens: null,
-    output_tokens: null,
-    cache_read_tokens: null,
-    cache_write_tokens: null,
-    is_stream: false,
-  };
 }
 
 function listResponse(items: unknown[]) {
   return new Response(
     JSON.stringify({
       items,
-      telemetry: { queued_records: 0, dropped_records: 2, persisted_records: 8 },
+      telemetry: { queued_records: 0, dropped_records: 2, persisted_records: items.length },
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function detailResponse() {
+  return new Response(
+    JSON.stringify({
+      request: request(),
+      attempts: [
+        {
+          attempt_no: 1,
+          route_target_id: null,
+          credential_id: "44444444-4444-4444-8444-444444444444",
+          oauth_account_id: null,
+          proxy_profile_id: "33333333-3333-4333-8333-333333333333",
+          started_at_ms: 1_700_000_000_000,
+          duration_ms: 12,
+          retry_safety: null,
+          error_class: null,
+          error_message: null,
+          status_code: 200,
+          outcome: "success",
+        },
+      ],
+      telemetry: { queued_records: 0, dropped_records: 2, persisted_records: 1 },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
@@ -133,4 +183,31 @@ function errorResponse(message: string) {
     status: 500,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function request() {
+  return {
+    request_id: "11111111-1111-4111-8111-111111111111",
+    started_at_ms: 1_700_000_000_000,
+    config_revision: 3,
+    gateway_api_key_id: "22222222-2222-4222-8222-222222222222",
+    ingress_protocol: "openai_responses",
+    operation: "responses",
+    public_model: "codex-local",
+    provider_endpoint_id: "33333333-3333-4333-8333-333333333333",
+    credential_id: "44444444-4444-4444-8444-444444444444",
+    oauth_account_id: null,
+    proxy_profile_id: "33333333-3333-4333-8333-333333333333",
+    status_code: 200,
+    error_class: null,
+    error_message: null,
+    attempt_count: 1,
+    latency_ms: 42,
+    first_token_ms: 18,
+    input_tokens: 120,
+    output_tokens: 45,
+    cache_read_tokens: 30,
+    cache_write_tokens: 6,
+    is_stream: false,
+  };
 }

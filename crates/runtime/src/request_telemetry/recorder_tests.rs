@@ -42,6 +42,7 @@ fn attempt(error_class: ErrorClass, outcome: RequestAttemptOutcome) -> RequestAt
         duration_ms: 0,
         retry_safety: Some(RetrySafety::Ambiguous),
         error_class: Some(error_class),
+        error_message: None,
         status_code: None,
         outcome,
     }

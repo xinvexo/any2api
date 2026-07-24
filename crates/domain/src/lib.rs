@@ -71,7 +71,10 @@ pub use proxy_authentication::{
     MAX_PROXY_USERNAME_BYTES, ProxyAuthentication, ProxyAuthenticationValidationError,
 };
 pub use proxy_configuration::ProxyConfiguration;
-pub use request_log::{CompletedRequestLog, RequestAttempt, RequestAttemptOutcome, RequestLog};
+pub use request_log::{
+    CompletedRequestLog, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, RequestAttempt, RequestAttemptOutcome,
+    RequestLog, bound_error_message, extract_upstream_error_message,
+};
 pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};
 pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};

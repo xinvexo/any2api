@@ -212,19 +212,22 @@ export function ProviderEndpointList({
           </p>
         </Surface>
       ) : (
-        <div className="space-y-2.5">
+        <div className="space-y-2">
           {filtered.map((endpoint) => {
             const expanded = isExpanded(endpoint.id);
             const activeForKeys = activeKeysEndpoint === endpoint.id;
             const mountCredentials = expanded || activeForKeys;
             const panelId = `endpoint-keys-${endpoint.id}`;
             return (
-              <Surface
+              <section
                 key={endpoint.id}
-                className={cn("overflow-hidden transition-shadow", expanded && "shadow-sm")}
                 aria-label={endpoint.name}
+                className={cn(
+                  "min-w-0 overflow-hidden rounded-[14px] bg-surface-muted/45 transition-colors",
+                  expanded && "bg-surface-muted/60",
+                )}
               >
-                <div className="px-2.5 py-2 sm:px-3">
+                <div className="min-w-0 px-2.5 py-2 sm:px-3">
                   <ProviderEndpointTableRow
                     endpoint={endpoint}
                     pending={pending}
@@ -238,19 +241,26 @@ export function ProviderEndpointList({
                 {mountCredentials ? (
                   <div
                     id={panelId}
-                    className={expanded ? "border-t border-subtle/80" : undefined}
+                    className="min-w-0"
                     role={expanded ? "region" : undefined}
                     aria-label={expanded ? `${endpoint.name} 的 API Key` : undefined}
                   >
+                    {expanded ? (
+                      <div className="mx-2.5 border-t border-subtle/40 sm:mx-3" />
+                    ) : null}
+                    {/* Indent keys under endpoint title, not under the chevron column. */}
                     <div
                       className={
                         expanded
-                          ? cn(ENDPOINT_CONTENT_GRID_CLASS, "px-2.5 pb-2 pt-0.5 sm:px-3")
+                          ? cn(
+                              ENDPOINT_CONTENT_GRID_CLASS,
+                              "min-w-0 px-2.5 pb-2 pt-1.5 sm:px-3",
+                            )
                           : undefined
                       }
                     >
                       {expanded ? <div aria-hidden="true" /> : null}
-                      <div className={expanded ? "min-w-0" : undefined}>
+                      <div className={expanded ? "min-w-0 overflow-hidden" : undefined}>
                         <ProviderCredentialManagement
                           endpoint={endpoint}
                           embedded
@@ -261,7 +271,7 @@ export function ProviderEndpointList({
                     </div>
                   </div>
                 ) : null}
-              </Surface>
+              </section>
             );
           })}
         </div>

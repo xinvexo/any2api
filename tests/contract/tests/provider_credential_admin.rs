@@ -453,6 +453,7 @@ fn provider_request_log(
             proxy_profile_id: Some(ProxyProfileId::DIRECT),
             status_code,
             error_class: None,
+            error_message: None,
             attempt_count: 0,
             latency_ms: 1,
             first_token_ms: None,

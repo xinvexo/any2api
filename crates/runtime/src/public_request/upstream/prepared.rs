@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamErrorClassification,
+    extract_upstream_error_message,
 };
 use any2api_protocol::{
     ProtocolError,
@@ -164,7 +165,11 @@ impl PreparedAttempt<'_> {
             health.success();
         }
         if let Some(mut recorder) = self.attempt_recorder.take() {
-            recorder.local_error(Some(status_code), public_error_class(error.code));
+            recorder.local_error(
+                Some(status_code),
+                public_error_class(error.code),
+                &error.message,
+            );
         }
         self.permit.take();
         AttemptFailure::Public(error)
@@ -174,6 +179,7 @@ impl PreparedAttempt<'_> {
         &mut self,
         status_code: u16,
         classification: UpstreamErrorClassification,
+        body: &[u8],
     ) {
         if let Some(health) = self.health.take() {
             health.upstream_failure(classification);
@@ -183,6 +189,7 @@ impl PreparedAttempt<'_> {
                 status_code,
                 classification.retry_safety(),
                 classification.kind().error_class(),
+                extract_upstream_error_message(body),
             );
         }
         self.permit.take();
@@ -199,17 +206,17 @@ impl PreparedAttempt<'_> {
                     ErrorClass::Network
                 }
             };
-            recorder.transport_error(error.retry_safety, error_class);
+            recorder.transport_error(error.retry_safety, error_class, &error.message);
         }
         self.permit.take();
     }
 
-    pub(super) fn invalid_response(&mut self, status_code: Option<u16>) {
+    pub(super) fn invalid_response(&mut self, status_code: Option<u16>, message: impl AsRef<str>) {
         if let Some(health) = self.health.take() {
             health.transport_failure(TransportFailureScope::Endpoint);
         }
         if let Some(mut recorder) = self.attempt_recorder.take() {
-            recorder.invalid_response(status_code);
+            recorder.invalid_response(status_code, message);
         }
         self.permit.take();
     }

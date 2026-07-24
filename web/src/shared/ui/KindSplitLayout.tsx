@@ -2,12 +2,24 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/shared/lib/cn";
 
-/** Shared by 上游提供 / 认证文件 so route switches keep the same chrome geometry. */
-export const KIND_SPLIT_GRID_CLASS =
-  "grid grid-cols-1 gap-x-5 gap-y-3 sm:grid-cols-[13rem_minmax(0,1fr)] lg:grid-cols-[14rem_minmax(0,1fr)]";
+/**
+ * Shared by 上游提供 / 认证文件 so route switches keep the same chrome geometry.
+ *
+ * Mobile column order: toolbarStart → kindNav → toolbarEnd → content
+ * Desktop grid:
+ *   row1: [empty] | start … end
+ *   row2: kind    | content
+ */
+export const KIND_SPLIT_GRID_CLASS = cn(
+  "grid grid-cols-1 gap-2.5",
+  "[grid-template-areas:'start'_'kind'_'end'_'content']",
+  "sm:grid-cols-[13rem_minmax(0,1fr)_auto] sm:gap-x-5 sm:gap-y-3",
+  "sm:[grid-template-areas:'._start_end'_'kind_content_content']",
+  "lg:grid-cols-[14rem_minmax(0,1fr)_auto]",
+);
 
 interface KindSplitLayoutProps {
-  /** Left toolbar slot (e.g. search). Empty still reserves desktop height/width. */
+  /** Left toolbar slot (e.g. search). Omitted when empty. */
   toolbarStart?: ReactNode;
   toolbarEnd: ReactNode;
   kindNav: ReactNode;
@@ -16,12 +28,6 @@ interface KindSplitLayoutProps {
   "aria-busy"?: boolean | "true" | "false";
 }
 
-/**
- * Desktop:
- *   row1 col2 = toolbar (start + end)
- *   row2 col1 = kind nav, row2 col2 = content
- * Mobile: stack toolbar → kinds → content.
- */
 export function KindSplitLayout({
   toolbarStart,
   toolbarEnd,
@@ -32,20 +38,24 @@ export function KindSplitLayout({
 }: KindSplitLayoutProps) {
   return (
     <div className={cn(KIND_SPLIT_GRID_CLASS, className)} aria-busy={ariaBusy}>
-      <div className="flex min-h-8 flex-col gap-2.5 sm:col-start-2 sm:row-start-1 sm:flex-row sm:items-center sm:justify-between">
-        <div
-          className={cn(
-            "relative min-w-0 flex-1 sm:flex sm:min-h-8 sm:max-w-sm sm:items-center",
-            toolbarStart ? "flex min-h-8 items-center" : "hidden",
-          )}
-        >
-          {toolbarStart}
-        </div>
-        <div className="flex min-h-8 shrink-0 items-center gap-1.5">{toolbarEnd}</div>
+      <div
+        className={cn(
+          "min-w-0 [grid-area:start]",
+          toolbarStart
+            ? "relative flex min-h-8 items-center sm:max-w-sm"
+            : "hidden sm:block",
+        )}
+      >
+        {toolbarStart}
       </div>
 
-      <div className="sm:col-start-1 sm:row-start-2">{kindNav}</div>
-      <div className="min-w-0 sm:col-start-2 sm:row-start-2">{children}</div>
+      <div className="min-w-0 [grid-area:kind]">{kindNav}</div>
+
+      <div className="flex min-h-8 min-w-0 flex-wrap items-center justify-end gap-1.5 [grid-area:end] sm:self-center">
+        {toolbarEnd}
+      </div>
+
+      <div className="min-w-0 [grid-area:content]">{children}</div>
     </div>
   );
 }

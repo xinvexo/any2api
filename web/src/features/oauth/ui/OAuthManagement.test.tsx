@@ -19,6 +19,7 @@ test("uses provider grid layout without a main-column session panel", async () =
   expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "OAuth认证" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新" })).toBeInTheDocument();
+  // Empty state keeps a single footer pagination control.
   expect(screen.getByLabelText("每页条数")).toBeInTheDocument();
   expect(screen.getByText("共 0 条")).toBeInTheDocument();
 });

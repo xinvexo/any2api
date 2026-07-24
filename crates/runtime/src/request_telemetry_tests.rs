@@ -252,6 +252,7 @@ fn record(request_id: RequestId) -> CompletedRequestLog {
             proxy_profile_id: None,
             status_code: 200,
             error_class: None,
+            error_message: None,
             attempt_count: 0,
             latency_ms: 1,
             first_token_ms: None,

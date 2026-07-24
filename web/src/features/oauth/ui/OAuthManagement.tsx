@@ -12,6 +12,7 @@ import { OAuthAccounts } from "./OAuthAccounts";
 import { OAuthListPagination } from "./OAuthListPagination";
 import { OAuthLoginDrawer } from "./OAuthLogin";
 import { OAuthProviderNav } from "./OAuthProviderNav";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
 import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
 import { Surface } from "@/shared/ui/Surface";
@@ -85,16 +86,6 @@ export function OAuthManagement() {
     setPage(1);
   }
 
-  const toolbarStart = (
-    <OAuthListPagination
-      page={page}
-      pageSize={pageSize}
-      total={kindAccounts.length}
-      onPageChange={setPage}
-      onPageSizeChange={changePageSize}
-    />
-  );
-
   const toolbarEnd = (
     <>
       <Button
@@ -112,20 +103,27 @@ export function OAuthManagement() {
     </>
   );
 
+  const kindNav = (
+    <OAuthProviderNav
+      selected={selectedProvider}
+      counts={counts}
+      onSelect={selectProvider}
+    />
+  );
+
+  const pagination = (
+    <OAuthListPagination
+      page={page}
+      pageSize={pageSize}
+      total={kindAccounts.length}
+      onPageChange={setPage}
+      onPageSizeChange={changePageSize}
+    />
+  );
+
   if (accounts.isPending && !accounts.data) {
     return (
-      <KindSplitLayout
-        aria-busy="true"
-        toolbarStart={toolbarStart}
-        toolbarEnd={toolbarEnd}
-        kindNav={
-          <OAuthProviderNav
-            selected={selectedProvider}
-            counts={counts}
-            onSelect={selectProvider}
-          />
-        }
-      >
+      <KindSplitLayout aria-busy="true" toolbarEnd={toolbarEnd} kindNav={kindNav}>
         <div className="flex min-h-48 items-center justify-center text-sm text-secondary">
           正在读取 OAuth 账号
         </div>
@@ -135,17 +133,7 @@ export function OAuthManagement() {
 
   if (!accounts.data) {
     return (
-      <KindSplitLayout
-        toolbarStart={toolbarStart}
-        toolbarEnd={toolbarEnd}
-        kindNav={
-          <OAuthProviderNav
-            selected={selectedProvider}
-            counts={counts}
-            onSelect={selectProvider}
-          />
-        }
-      >
+      <KindSplitLayout toolbarEnd={toolbarEnd} kindNav={kindNav}>
         <Surface className="p-6" role="alert">
           <p className="font-semibold">无法读取 OAuth 账号</p>
           <p className="mt-2 text-sm text-secondary">{getOAuthErrorMessage(accounts.error)}</p>
@@ -164,15 +152,8 @@ export function OAuthManagement() {
     <>
       <KindSplitLayout
         aria-busy={accounts.isFetching}
-        toolbarStart={toolbarStart}
         toolbarEnd={toolbarEnd}
-        kindNav={
-          <OAuthProviderNav
-            selected={selectedProvider}
-            counts={counts}
-            onSelect={selectProvider}
-          />
-        }
+        kindNav={kindNav}
       >
         {accounts.isError ? (
           <Surface
@@ -193,6 +174,15 @@ export function OAuthManagement() {
           accounts={pageItems}
           configRevision={configuration.configRevision}
         />
+
+        <div
+          className={cn(
+            "mt-3 flex justify-end border-t border-subtle pt-3",
+            kindAccounts.length === 0 && "border-0 pt-0",
+          )}
+        >
+          {pagination}
+        </div>
       </KindSplitLayout>
 
       <OAuthLoginDrawer

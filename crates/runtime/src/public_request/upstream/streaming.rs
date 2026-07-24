@@ -57,12 +57,12 @@ pub(in crate::public_request) async fn execute_stream_attempt(
                 return Err(AttemptFailure::transport(error, candidate, fixed));
             }
             Err(CollectBodyError::Public(error)) => {
-                prepared.invalid_response(Some(status.as_u16()));
+                prepared.invalid_response(Some(status.as_u16()), &error.message);
                 return Err(AttemptFailure::Public(error));
             }
         };
         let classification = prepared.classify(status, &headers, &body);
-        prepared.upstream_failure(status.as_u16(), classification);
+        prepared.upstream_failure(status.as_u16(), classification, &body);
         return Err(AttemptFailure::upstream(classification, candidate, fixed));
     }
     sanitize_response_headers(&mut headers);
@@ -102,7 +102,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     .await
     .map_err(AttemptFailure::Public)?;
     if let Err(error) = commit_soft_binding_before(soft_lease, target, body.precommit_deadline()) {
-        body.fail_before_handoff(public_error_class(error.code));
+        body.fail_before_handoff(public_error_class(error.code), &error.message);
         return Err(AttemptFailure::Public(error));
     }
     Ok(PublicResponse {

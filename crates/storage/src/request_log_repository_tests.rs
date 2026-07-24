@@ -23,7 +23,14 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
         .await
         .expect("storage");
     let request_id = RequestId::new();
-    let record = record(request_id, 1_000, true);
+    let mut record = record(request_id, 1_000, true);
+    record.request.status_code = 401;
+    record.request.error_class = Some(any2api_domain::ErrorClass::Authentication);
+    record.request.error_message = Some("upstream authentication failed".into());
+    record.attempts[0].error_class = Some(any2api_domain::ErrorClass::Authentication);
+    record.attempts[0].error_message = Some("Incorrect API key provided".into());
+    record.attempts[0].status_code = Some(401);
+    record.attempts[0].outcome = RequestAttemptOutcome::UpstreamError;
 
     store
         .append_request_logs(std::slice::from_ref(&record))
@@ -38,6 +45,10 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     assert_eq!(listed[0].provider_endpoint_id, None);
     assert_eq!(listed[0].credential_id, None);
     assert_eq!(listed[0].proxy_profile_id, None);
+    assert_eq!(
+        listed[0].error_message.as_deref(),
+        Some("upstream authentication failed")
+    );
 
     let loaded = store
         .get_request_log(request_id)
@@ -48,7 +59,18 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     assert_eq!(loaded.attempts.len(), 1);
     assert_eq!(loaded.attempts[0].attempt_no, 1);
     assert_eq!(loaded.attempts[0].route_target_id, None);
-    assert_eq!(loaded.attempts[0].outcome, RequestAttemptOutcome::Success);
+    assert_eq!(
+        loaded.attempts[0].outcome,
+        RequestAttemptOutcome::UpstreamError
+    );
+    assert_eq!(
+        loaded.request.error_message.as_deref(),
+        Some("upstream authentication failed")
+    );
+    assert_eq!(
+        loaded.attempts[0].error_message.as_deref(),
+        Some("Incorrect API key provided")
+    );
     assert_eq!(loaded.request.first_token_ms, Some(12));
     assert_eq!(loaded.request.input_tokens, Some(120));
     assert_eq!(loaded.request.output_tokens, Some(45));
@@ -227,6 +249,7 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             duration_ms: 25,
             retry_safety: Some(RetrySafety::Ambiguous),
             error_class: None,
+            error_message: None,
             status_code: Some(200),
             outcome: RequestAttemptOutcome::Success,
         })
@@ -247,6 +270,7 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             proxy_profile_id: Some(ProxyProfileId::new()),
             status_code: 200,
             error_class: None,
+            error_message: None,
             attempt_count: u32::from(with_attempt),
             latency_ms: 30,
             first_token_ms: Some(12),
