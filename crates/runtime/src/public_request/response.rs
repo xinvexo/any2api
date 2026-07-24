@@ -162,6 +162,18 @@ pub(super) fn internal_error() -> PublicError {
     )
 }
 
+pub(super) const fn transport_error_diagnostic(error: &TransportError) -> &'static str {
+    match error.stage {
+        TransportErrorStage::Dns => "upstream DNS resolution failed",
+        TransportErrorStage::Tcp => "upstream TCP connection failed",
+        TransportErrorStage::ProxyHandshake => "upstream proxy handshake failed",
+        TransportErrorStage::Tls => "upstream TLS handshake failed",
+        TransportErrorStage::WriteRequest => "upstream request write failed",
+        TransportErrorStage::AwaitHeaders => "upstream response headers failed",
+        TransportErrorStage::ReadBody => "upstream response body failed",
+    }
+}
+
 pub(super) fn public_error(code: PublicErrorCode, message: &'static str) -> PublicError {
     PublicError::new(code, message)
 }

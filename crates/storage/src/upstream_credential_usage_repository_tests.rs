@@ -135,6 +135,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         duration_ms: 1,
         retry_safety: None,
         error_class: None,
+        error_message: None,
         status_code: Some(500),
         outcome: RequestAttemptOutcome::UpstreamError,
     });
@@ -159,7 +160,10 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
     assert_eq!(provider.successful_requests, 2);
     assert_eq!(provider.failed_requests(), 2);
     assert_eq!(provider.window_slots.len(), UPSTREAM_USAGE_WINDOW_COUNT);
-    assert_eq!(provider.window_slots.last().map(|slot| slot.started_at_ms), Some(now_bucket));
+    assert_eq!(
+        provider.window_slots.last().map(|slot| slot.started_at_ms),
+        Some(now_bucket)
+    );
     let newest = provider.window_slots.last().expect("newest slot");
     assert_eq!(newest.total_requests, 2);
     assert_eq!(newest.successful_requests, 1);
@@ -217,6 +221,7 @@ fn usage_record(
             proxy_profile_id: Some(ProxyProfileId::DIRECT),
             status_code,
             error_class: None,
+            error_message: None,
             attempt_count: 0,
             latency_ms: 1,
             first_token_ms: None,

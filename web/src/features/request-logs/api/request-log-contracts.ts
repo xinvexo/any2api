@@ -50,6 +50,7 @@ export interface RequestLog {
   proxyProfileId: string | null;
   statusCode: number;
   errorClass: RequestLogErrorClass | null;
+  errorMessage: string | null;
   attemptCount: number;
   latencyMs: number;
   firstTokenMs: number | null;
@@ -70,6 +71,7 @@ export interface RequestAttempt {
   durationMs: number;
   retrySafety: RequestRetrySafety | null;
   errorClass: RequestLogErrorClass | null;
+  errorMessage: string | null;
   statusCode: number | null;
   outcome: RequestAttemptOutcome;
 }
@@ -124,6 +126,7 @@ function parseRequestLog(value: unknown): RequestLog {
     proxyProfileId: readNullableString(record.proxy_profile_id),
     statusCode: readStatusCode(record.status_code),
     errorClass: readNullableEnum(record.error_class, readErrorClass),
+    errorMessage: readOptionalNullableString(record.error_message),
     attemptCount: readNonNegativeInteger(record.attempt_count),
     latencyMs: readNonNegativeInteger(record.latency_ms),
     firstTokenMs: readNullableInteger(record.first_token_ms),
@@ -147,6 +150,7 @@ function parseAttempt(value: unknown): RequestAttempt {
     durationMs: readNonNegativeInteger(record.duration_ms),
     retrySafety: readNullableEnum(record.retry_safety, readRetrySafety),
     errorClass: readNullableEnum(record.error_class, readErrorClass),
+    errorMessage: readOptionalNullableString(record.error_message),
     statusCode: readNullableStatusCode(record.status_code),
     outcome: readOutcome(record.outcome),
   };
@@ -258,6 +262,18 @@ function readString(value: unknown): string {
 
 function readNullableString(value: unknown): string | null {
   return value === null ? null : readString(value);
+}
+
+/** Optional diagnostic text: null, omitted, or non-empty string. Empty string becomes null. */
+function readOptionalNullableString(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw invalidResponse();
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
 }
 
 function readBoolean(value: unknown): boolean {

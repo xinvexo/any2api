@@ -88,7 +88,7 @@ export function ProviderCredentialList({
         <p
           className={cn(
             "text-[12px] text-tertiary",
-            embedded ? "py-2.5" : "min-h-48 px-4 py-10 text-center text-[13px] text-secondary",
+            embedded ? "px-0.5 py-2" : "min-h-48 px-4 py-10 text-center text-[13px] text-secondary",
           )}
         >
           {configuration.items.length === 0
@@ -97,21 +97,26 @@ export function ProviderCredentialList({
               : "还没有 API Key"
             : "没有匹配的 API Key"}
         </p>
+      ) : embedded ? (
+        <div className="min-w-0 space-y-1.5 overflow-hidden sm:space-y-0 sm:divide-y sm:divide-subtle/40">
+          {filtered.map((credential) => (
+            <ProviderCredentialTableRow
+              key={credential.id}
+              credential={credential}
+              proxies={proxies}
+              pending={pending}
+              embedded
+              onEdit={onEdit}
+              onModels={onModels}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
       ) : (
         <div className="overflow-x-auto">
-          <table
-            className={cn(
-              "w-full border-collapse text-left",
-              embedded ? "min-w-[800px] text-[11px]" : "min-w-[980px] text-[12px]",
-            )}
-          >
+          <table className="w-full min-w-[980px] border-collapse text-left text-[12px]">
             <thead>
-              <tr
-                className={cn(
-                  "text-tertiary",
-                  embedded ? "text-[10px] font-normal" : "text-[11px]",
-                )}
-              >
+              <tr className="text-[11px] text-tertiary">
                 <th className="py-1.5 pr-3 font-medium">名称</th>
                 <th className="px-3 py-1.5 font-medium">出口代理</th>
                 <th className="px-3 py-1.5 font-medium">并发</th>
@@ -128,7 +133,6 @@ export function ProviderCredentialList({
                   credential={credential}
                   proxies={proxies}
                   pending={pending}
-                  embedded={embedded}
                   onEdit={onEdit}
                   onModels={onModels}
                   onDelete={onDelete}

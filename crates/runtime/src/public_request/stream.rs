@@ -162,9 +162,13 @@ impl GuardedBody {
         Ok(self)
     }
 
-    pub(super) fn fail_before_handoff(&mut self, error_class: ErrorClass) {
+    pub(super) fn fail_before_handoff(
+        &mut self,
+        error_class: ErrorClass,
+        message: impl AsRef<str>,
+    ) {
         if let Some(mut recorder) = self.attempt_recorder.take() {
-            recorder.local_error(Some(self.status_code), error_class);
+            recorder.local_error(Some(self.status_code), error_class, message);
         }
         self.release_guards();
     }
@@ -212,7 +216,10 @@ impl Stream for GuardedBody {
                 return Poll::Ready(Some(Ok(frame.bytes)));
             }
             if let Some(error) = this.pending_error.take() {
-                this.finish(StreamOutcome::Error(error.kind.error_class()));
+                this.finish(StreamOutcome::Error {
+                    class: error.kind.error_class(),
+                    message: error.message(),
+                });
                 return Poll::Ready(Some(Err(error.error)));
             }
             if this.process_buffered_frame(None) {
@@ -276,9 +283,8 @@ impl Drop for GuardedBody {
     }
 }
 
-#[derive(Clone, Copy)]
 enum StreamOutcome {
     Success,
-    Error(ErrorClass),
+    Error { class: ErrorClass, message: String },
     Cancelled,
 }

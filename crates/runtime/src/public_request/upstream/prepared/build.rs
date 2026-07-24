@@ -49,7 +49,11 @@ pub(super) fn prepare_attempt<'a>(
         Err(error) => {
             let SelectedCandidate { permit, health, .. } = selected;
             drop(health);
-            attempt_recorder.local_error_before_send(None, public_error_class(error.code));
+            attempt_recorder.local_error_before_send(
+                None,
+                public_error_class(error.code),
+                &error.message,
+            );
             drop(permit);
             return Err(AttemptFailure::Public(error));
         }

@@ -6,14 +6,17 @@ use std::{
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId,
     ProtocolOperation, ProviderEndpointId, ProxyProfileId, PublicError, PublicErrorCode,
-    RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog, RetrySafety, RouteTargetId,
-    TokenUsage,
+    RequestAttempt, RequestId, RequestLog, TokenUsage, bound_error_message,
 };
 
 use super::{RequestLogPolicy, RequestObservation, RequestTelemetry};
 use crate::route_candidates::RouteCandidate;
 
 const CANCELLED_STATUS_CODE: u16 = 499;
+
+mod attempt;
+
+pub(crate) use attempt::AttemptRecorder;
 
 #[derive(Clone)]
 pub(crate) struct RequestRecorder {
@@ -107,29 +110,41 @@ impl RequestRecorder {
             .lock()
             .expect("request recorder state")
             .final_target = Some(target);
-        AttemptRecorder {
-            request: self.clone(),
-            request_id: inner.request_id,
+        AttemptRecorder::new(
+            self.clone(),
+            inner.request_id,
             attempt_no,
-            route_target_id: Some(candidate.target_id),
-            credential_id: candidate.credential_id.provider_credential_id(),
-            oauth_account_id: candidate.credential_id.oauth_account_id(),
-            proxy_profile_id: Some(candidate.proxy_id),
-            started_at_ms: unix_time_ms(),
-            started_at: Instant::now(),
-            finished: false,
-        }
+            candidate,
+            unix_time_ms(),
+        )
     }
 
     pub(crate) fn finish(&self, status_code: u16, error_class: Option<ErrorClass>) {
+        self.finish_with_message(status_code, error_class, None);
+    }
+
+    pub(crate) fn finish_with_message(
+        &self,
+        status_code: u16,
+        error_class: Option<ErrorClass>,
+        error_message: Option<String>,
+    ) {
         let Some(inner) = &self.inner else {
             return;
         };
-        inner.finish(status_code, error_class);
+        inner.finish(
+            status_code,
+            error_class,
+            error_message.and_then(bound_optional_error_message),
+        );
     }
 
     pub(crate) fn finish_public_error(&self, status_code: u16, error: &PublicError) {
-        self.finish(status_code, Some(public_error_class(error.code)));
+        self.finish_with_message(
+            status_code,
+            Some(public_error_class(error.code)),
+            bound_optional_error_message(&error.message),
+        );
     }
 
     pub(crate) fn observe_token_usage(&self, usage: TokenUsage) {
@@ -164,7 +179,12 @@ impl RequestRecorder {
 }
 
 impl RequestRecorderInner {
-    fn finish(&self, status_code: u16, error_class: Option<ErrorClass>) {
+    fn finish(
+        &self,
+        status_code: u16,
+        error_class: Option<ErrorClass>,
+        error_message: Option<String>,
+    ) {
         let record = {
             let mut state = self.state.lock().expect("request recorder state");
             if state.finished {
@@ -176,6 +196,7 @@ impl RequestRecorderInner {
             let token_usage = observation.token_usage();
             let attempts = std::mem::take(&mut state.attempts);
             let error_class = final_error_class(&attempts, error_class);
+            let error_message = final_error_message(&attempts, error_message);
             CompletedRequestLog {
                 request: RequestLog {
                     request_id: self.request_id,
@@ -191,6 +212,7 @@ impl RequestRecorderInner {
                     proxy_profile_id: final_target.map(|target| target.proxy_id),
                     status_code,
                     error_class,
+                    error_message,
                     attempt_count: u32::try_from(attempts.len()).unwrap_or(u32::MAX),
                     latency_ms: duration_ms(self.started_at.elapsed()),
                     first_token_ms: observation.first_token_ms(),
@@ -209,163 +231,11 @@ impl RequestRecorderInner {
 
 impl Drop for RequestRecorderInner {
     fn drop(&mut self) {
-        self.finish(CANCELLED_STATUS_CODE, Some(ErrorClass::Cancelled));
-    }
-}
-
-pub(crate) struct AttemptRecorder {
-    request: RequestRecorder,
-    request_id: RequestId,
-    attempt_no: u32,
-    route_target_id: Option<RouteTargetId>,
-    credential_id: Option<CredentialId>,
-    oauth_account_id: Option<OAuthAccountId>,
-    proxy_profile_id: Option<ProxyProfileId>,
-    started_at_ms: u64,
-    started_at: Instant,
-    finished: bool,
-}
-
-impl AttemptRecorder {
-    pub(crate) fn disabled() -> Self {
-        Self {
-            request: RequestRecorder { inner: None },
-            request_id: RequestId::new(),
-            attempt_no: 1,
-            route_target_id: None,
-            credential_id: None,
-            oauth_account_id: None,
-            proxy_profile_id: None,
-            started_at_ms: 0,
-            started_at: Instant::now(),
-            finished: true,
-        }
-    }
-
-    pub(crate) fn request(&self) -> RequestRecorder {
-        self.request.clone()
-    }
-
-    pub(crate) fn observe_token_usage(&self, usage: TokenUsage) {
-        self.request.observe_token_usage(usage);
-    }
-
-    pub(crate) fn success(&mut self, status_code: u16) {
-        self.complete(
-            RequestAttemptOutcome::Success,
-            None,
-            None,
-            Some(status_code),
-        );
-    }
-
-    pub(crate) fn transport_error(&mut self, retry_safety: RetrySafety, error_class: ErrorClass) {
-        self.complete(
-            RequestAttemptOutcome::TransportError,
-            Some(retry_safety),
-            Some(error_class),
-            None,
-        );
-    }
-
-    pub(crate) fn upstream_error(
-        &mut self,
-        status_code: u16,
-        retry_safety: RetrySafety,
-        error_class: ErrorClass,
-    ) {
-        self.complete(
-            RequestAttemptOutcome::UpstreamError,
-            Some(retry_safety),
-            Some(error_class),
-            Some(status_code),
-        );
-    }
-
-    pub(crate) fn invalid_response(&mut self, status_code: Option<u16>) {
-        self.complete(
-            RequestAttemptOutcome::InvalidResponse,
-            Some(RetrySafety::Ambiguous),
-            Some(ErrorClass::Upstream),
-            status_code,
-        );
-    }
-
-    pub(crate) fn local_error(&mut self, status_code: Option<u16>, error_class: ErrorClass) {
-        self.local_error_with_safety(status_code, error_class, RetrySafety::Ambiguous);
-    }
-
-    pub(crate) fn local_error_before_send(
-        &mut self,
-        status_code: Option<u16>,
-        error_class: ErrorClass,
-    ) {
-        self.local_error_with_safety(status_code, error_class, RetrySafety::DefinitelyNotSent);
-    }
-
-    fn local_error_with_safety(
-        &mut self,
-        status_code: Option<u16>,
-        error_class: ErrorClass,
-        retry_safety: RetrySafety,
-    ) {
-        self.complete(
-            RequestAttemptOutcome::LocalError,
-            Some(retry_safety),
-            Some(error_class),
-            status_code,
-        );
-    }
-
-    pub(crate) fn stream_error(&mut self, error_class: ErrorClass, status_code: u16) {
-        self.complete(
-            RequestAttemptOutcome::StreamError,
-            Some(RetrySafety::Ambiguous),
-            Some(error_class),
-            Some(status_code),
-        );
-    }
-
-    pub(crate) fn cancelled(&mut self, status_code: Option<u16>) {
-        self.complete(
-            RequestAttemptOutcome::Cancelled,
-            Some(RetrySafety::Ambiguous),
+        self.finish(
+            CANCELLED_STATUS_CODE,
             Some(ErrorClass::Cancelled),
-            status_code,
+            Some(bound_error_message("request cancelled")),
         );
-    }
-
-    fn complete(
-        &mut self,
-        outcome: RequestAttemptOutcome,
-        retry_safety: Option<RetrySafety>,
-        error_class: Option<ErrorClass>,
-        status_code: Option<u16>,
-    ) {
-        if self.finished {
-            return;
-        }
-        self.finished = true;
-        self.request.push_attempt(RequestAttempt {
-            request_id: self.request_id,
-            attempt_no: self.attempt_no,
-            route_target_id: self.route_target_id,
-            credential_id: self.credential_id,
-            oauth_account_id: self.oauth_account_id,
-            proxy_profile_id: self.proxy_profile_id,
-            started_at_ms: self.started_at_ms,
-            duration_ms: duration_ms(self.started_at.elapsed()),
-            retry_safety,
-            error_class,
-            status_code,
-            outcome,
-        });
-    }
-}
-
-impl Drop for AttemptRecorder {
-    fn drop(&mut self) {
-        self.cancelled(None);
     }
 }
 
@@ -398,6 +268,11 @@ fn duration_ms(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
+fn bound_optional_error_message(message: impl AsRef<str>) -> Option<String> {
+    let bounded = bound_error_message(message);
+    (!bounded.is_empty()).then_some(bounded)
+}
+
 fn final_error_class(
     attempts: &[RequestAttempt],
     fallback: Option<ErrorClass>,
@@ -412,6 +287,22 @@ fn final_error_class(
         (Some(error_class), _) => Some(error_class),
         (None, fallback) => fallback,
     }
+}
+
+fn final_error_message(attempts: &[RequestAttempt], fallback: Option<String>) -> Option<String> {
+    // Prefer the public/client-visible message when finish provides one.
+    // Fall back to the last attempt diagnostic for stream/drop paths.
+    let selected = match (
+        attempts
+            .last()
+            .and_then(|attempt| attempt.error_message.clone()),
+        fallback,
+    ) {
+        (_, Some(message)) => Some(message),
+        (Some(message), None) => Some(message),
+        (None, None) => None,
+    };
+    selected.and_then(bound_optional_error_message)
 }
 
 #[cfg(test)]

@@ -41,6 +41,9 @@ impl RequestAttemptOutcome {
     }
 }
 
+/// Bounded text for admin diagnostics. Not full request/response bodies.
+pub const MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS: usize = 1_024;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RequestLog {
     pub request_id: RequestId,
@@ -56,6 +59,8 @@ pub struct RequestLog {
     pub proxy_profile_id: Option<ProxyProfileId>,
     pub status_code: u16,
     pub error_class: Option<ErrorClass>,
+    /// Client-visible public error message, or best attempt/transport summary.
+    pub error_message: Option<String>,
     pub attempt_count: u32,
     pub latency_ms: u64,
     pub first_token_ms: Option<u64>,
@@ -78,12 +83,76 @@ pub struct RequestAttempt {
     pub duration_ms: u64,
     pub retry_safety: Option<RetrySafety>,
     pub error_class: Option<ErrorClass>,
+    /// Transport/upstream/local diagnostic text for this attempt.
+    pub error_message: Option<String>,
     pub status_code: Option<u16>,
     pub outcome: RequestAttemptOutcome,
+}
+
+/// Normalize and truncate trusted diagnostic text for SQLite/admin display.
+#[must_use]
+pub fn bound_error_message(message: impl AsRef<str>) -> String {
+    let message = message.as_ref().trim();
+    if message.is_empty() {
+        return String::new();
+    }
+    let mut bounded = String::new();
+    let mut char_count = 0;
+    let mut pending_space = false;
+    let mut truncated = false;
+    for character in message.chars() {
+        if character.is_whitespace() || character.is_control() {
+            pending_space = !bounded.is_empty();
+            continue;
+        }
+        if pending_space {
+            if char_count == MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS {
+                truncated = true;
+                break;
+            }
+            bounded.push(' ');
+            char_count += 1;
+            pending_space = false;
+        }
+        if char_count == MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS {
+            truncated = true;
+            break;
+        }
+        bounded.push(character);
+        char_count += 1;
+    }
+    if truncated {
+        if char_count == MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS {
+            bounded.pop();
+        }
+        bounded.push('…');
+    }
+    bounded
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompletedRequestLog {
     pub request: RequestLog,
     pub attempts: Vec<RequestAttempt>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, bound_error_message};
+
+    #[test]
+    fn bound_error_message_truncates_long_text() {
+        let long = "a".repeat(MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS + 20);
+        let bounded = bound_error_message(&long);
+        assert!(bounded.ends_with('…'));
+        assert_eq!(bounded.chars().count(), MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS);
+    }
+
+    #[test]
+    fn bound_error_message_normalizes_control_whitespace() {
+        assert_eq!(
+            bound_error_message("  upstream\n\r\tfailed\0 safely  "),
+            "upstream failed safely"
+        );
+    }
 }

@@ -14,9 +14,10 @@ interface ProviderKindNavProps {
 export function ProviderKindNav({ selected, counts, onSelect }: ProviderKindNavProps) {
   return (
     <nav aria-label="Provider 类型" className="min-w-0">
-      <ul className="flex gap-2 overflow-x-auto sm:flex-col sm:gap-1.5 sm:overflow-visible">
+      {/* Mobile: equal-width segmented control. Desktop: vertical rail. */}
+      <ul className="grid grid-cols-2 gap-1 rounded-[12px] bg-surface-muted/55 p-1 sm:flex sm:flex-col sm:gap-1.5 sm:bg-transparent sm:p-0">
         {PROVIDER_KIND_OPTIONS.map((option) => (
-          <li key={option.kind} className="shrink-0 sm:shrink sm:w-full">
+          <li key={option.kind} className="min-w-0">
             <KindButton
               option={option}
               count={counts[option.kind] ?? 0}
@@ -48,19 +49,19 @@ function KindButton({
       aria-current={active ? "page" : undefined}
       onClick={() => onSelect(option.kind)}
       className={cn(
-        "focus-ring flex h-11 min-w-[8.5rem] w-full items-center gap-2.5 rounded-[12px] px-3 text-left transition-colors sm:min-w-0",
+        "focus-ring flex h-9 w-full items-center gap-2 rounded-[10px] px-2.5 text-left transition-colors sm:h-11 sm:gap-2.5 sm:rounded-[12px] sm:px-3",
         active
-          ? "bg-surface-muted text-primary"
-          : "text-secondary hover:bg-surface-muted/70 hover:text-primary",
+          ? "bg-surface text-primary shadow-sm sm:bg-surface-muted sm:shadow-none"
+          : "text-secondary hover:bg-surface/70 hover:text-primary sm:hover:bg-surface-muted/70",
       )}
     >
-      <Icon size={18} className={cn(active ? "text-primary" : "text-secondary")} />
-      <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-tight">
+      <Icon size={16} className={cn("shrink-0", active ? "text-primary" : "text-secondary")} />
+      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight sm:text-[14px]">
         {option.label}
       </span>
       <span
         className={cn(
-          "tabular-nums text-[12px]",
+          "shrink-0 tabular-nums text-[11px] sm:text-[12px]",
           active ? "text-secondary" : "text-tertiary",
         )}
       >

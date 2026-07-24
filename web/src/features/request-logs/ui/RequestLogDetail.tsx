@@ -95,9 +95,19 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
           <Detail label="错误分类" value={request.errorClass ?? "无"} />
+          <Detail label="错误消息" value={request.errorMessage ?? "无"} />
           <Detail label={request.oauthAccountId ? "OAuth Account" : "Credential"} value={shortId(request.oauthAccountId ?? request.credentialId)} />
           <Detail label="出口代理" value={shortId(request.proxyProfileId)} />
         </dl>
+
+        {request.errorMessage ? (
+          <div className="mt-5 rounded-[12px] border border-danger/20 bg-danger/5 px-4 py-3">
+            <p className="text-xs font-semibold text-danger">返回错误消息</p>
+            <p className="mt-1 break-all text-sm font-medium text-primary [overflow-wrap:anywhere]">
+              {request.errorMessage}
+            </p>
+          </div>
+        ) : null}
 
         <div className="mt-6 border-t border-subtle pt-5">
           <h3 className="font-semibold">Token 遥测</h3>
@@ -146,7 +156,13 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
         <p className="font-semibold">{attempt.outcome}</p>
         <p className="mt-1 break-all text-xs text-tertiary">
           {attempt.oauthAccountId ? "OAuth Account" : "Credential"} {shortId(attempt.oauthAccountId ?? attempt.credentialId)} · Proxy {shortId(attempt.proxyProfileId)}
+          {attempt.errorClass ? ` · ${attempt.errorClass}` : ""}
         </p>
+        {attempt.errorMessage ? (
+          <p className="mt-1 break-all text-xs text-danger [overflow-wrap:anywhere]">
+            {attempt.errorMessage}
+          </p>
+        ) : null}
       </div>
       <div className="text-left text-xs text-secondary md:text-right">
         <p>{attempt.statusCode ?? "未收到状态"}</p>

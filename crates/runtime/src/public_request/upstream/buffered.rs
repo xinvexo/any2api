@@ -60,7 +60,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             return Err(AttemptFailure::transport(error, candidate, fixed));
         }
         Err(CollectBodyError::Public(error)) => {
-            prepared.invalid_response(Some(status.as_u16()));
+            prepared.invalid_response(Some(status.as_u16()), &error.message);
             return Err(AttemptFailure::Public(error));
         }
     };
@@ -76,7 +76,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     }) {
         Ok(decoded) => decoded,
         Err(_) => {
-            prepared.invalid_response(Some(status.as_u16()));
+            prepared.invalid_response(Some(status.as_u16()), "upstream response was invalid");
             return Err(AttemptFailure::Public(public_error(
                 PublicErrorCode::UpstreamError,
                 "upstream response was invalid",

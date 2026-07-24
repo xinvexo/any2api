@@ -24,6 +24,7 @@ describe("request log contracts", () => {
           duration_ms: 25,
           retry_safety: "ambiguous",
           error_class: null,
+          error_message: null,
           status_code: 200,
           outcome: "success",
         },
@@ -60,6 +61,7 @@ describe("request log contracts", () => {
             duration_ms: 1,
             retry_safety: null,
             error_class: null,
+            error_message: null,
             status_code: null,
             outcome: "guessed",
           },
@@ -93,6 +95,37 @@ describe("request log contracts", () => {
     expect(list.items[0]?.ingressProtocol).toBe("openai_chat_completions");
     expect(list.items[0]?.operation).toBe("chat_completions");
   });
+
+  it("parses request and attempt error messages", () => {
+    const detail = parseRequestLogDetail({
+      request: {
+        ...request(),
+        status_code: 401,
+        error_class: "authentication",
+        error_message: "upstream authentication failed",
+      },
+      attempts: [
+        {
+          attempt_no: 1,
+          route_target_id: null,
+          credential_id: "credential-1",
+          oauth_account_id: null,
+          proxy_profile_id: "proxy-1",
+          started_at_ms: 1,
+          duration_ms: 12,
+          retry_safety: "rejected_before_execution",
+          error_class: "authentication",
+          error_message: "Incorrect API key provided",
+          status_code: 401,
+          outcome: "upstream_error",
+        },
+      ],
+      telemetry: telemetry(),
+    });
+
+    expect(detail.request.errorMessage).toBe("upstream authentication failed");
+    expect(detail.attempts[0]?.errorMessage).toBe("Incorrect API key provided");
+  });
 });
 
 function request() {
@@ -110,6 +143,7 @@ function request() {
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
     status_code: 200,
     error_class: null,
+    error_message: null,
     attempt_count: 1,
     latency_ms: 30,
     first_token_ms: 18,

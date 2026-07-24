@@ -17,7 +17,9 @@ use any2api_transport::api::{
 };
 
 use super::super::{
-    RequestPermit, affinity::AffinitySelection, response::MAX_CLASSIFIED_ERROR_BYTES,
+    RequestPermit,
+    affinity::AffinitySelection,
+    response::{MAX_CLASSIFIED_ERROR_BYTES, transport_error_diagnostic},
 };
 use super::failure::AttemptFailure;
 use crate::{
@@ -164,7 +166,11 @@ impl PreparedAttempt<'_> {
             health.success();
         }
         if let Some(mut recorder) = self.attempt_recorder.take() {
-            recorder.local_error(Some(status_code), public_error_class(error.code));
+            recorder.local_error(
+                Some(status_code),
+                public_error_class(error.code),
+                &error.message,
+            );
         }
         self.permit.take();
         AttemptFailure::Public(error)
@@ -199,17 +205,21 @@ impl PreparedAttempt<'_> {
                     ErrorClass::Network
                 }
             };
-            recorder.transport_error(error.retry_safety, error_class);
+            recorder.transport_error(
+                error.retry_safety,
+                error_class,
+                transport_error_diagnostic(error),
+            );
         }
         self.permit.take();
     }
 
-    pub(super) fn invalid_response(&mut self, status_code: Option<u16>) {
+    pub(super) fn invalid_response(&mut self, status_code: Option<u16>, message: impl AsRef<str>) {
         if let Some(health) = self.health.take() {
             health.transport_failure(TransportFailureScope::Endpoint);
         }
         if let Some(mut recorder) = self.attempt_recorder.take() {
-            recorder.invalid_response(status_code);
+            recorder.invalid_response(status_code, message);
         }
         self.permit.take();
     }
