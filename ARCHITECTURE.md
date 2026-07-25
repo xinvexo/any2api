@@ -48,7 +48,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 16. Codex WebSocket 不进入首个正式版本，首版 TransportMode 只有 JSON 和 SSE。
 17. Provider API Key 保存后使用实际 Endpoint、认证材料与代理读取上游 `/models`；用户勾选的模型按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中覆盖或恢复默认。
-19. 不提供通用配置或 Secret 导入导出；OAuth2 登录创建独立的 SQLite `OAuthAccount`，Provider JSON 明文只保存在该账号记录中，不创建或修改 API-key-only `ProviderCredential`。
+19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只创建独立的 SQLite `OAuthAccount`。导入兼容已审计的 CLIProxyAPI 与 Sub2API OAuth 结构，先规范化为 any2api Provider JSON，再整批原子发布；明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程监听必须显式启用并使用独立管理员认证，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 
@@ -94,7 +94,7 @@ Client ── GatewayApiKey ──> any2api ── ProviderCredential ──> Pr
 首批版本暂不实现：
 
 - Gemini 或其他 Provider；
-- 通用、批量或可导出的 Provider OAuth2 JSON 导入；
+- 通用或可导出的 Provider OAuth2 JSON 导入；Provider 专用、只写入 `OAuthAccount` 的批量导入属于当前范围；
 - `/backend-api/codex/responses` 兼容入口；
 - Codex WebSocket；
 - Codex/OpenAI 与 Claude Messages 双向跨协议路由；
@@ -650,7 +650,7 @@ CredentialRuntimeHandle
 - Endpoint 已有 Credential 时禁止修改 `provider_kind`、`protocol_dialect` 和 `upstream_protocol_dialect`；修改 Base URL 时所有子 Credential 增加 `credential_generation`；
 - Provider 列表和 Credential DTO 不展示 OAuth 类型或 OAuth 入口；OAuth 独立页面和 API 管理 `OAuthAccount`；
 - OAuth session、state、PKCE verifier 和 Device Code 只保存在内存；Token 只存在于兑换栈、OAuthAccount SQLite JSON 和当前 routing generation，管理 HTTP 响应不返回 Token；
-- 普通 Provider API Key 管理端点不接受 OAuth JSON；未来 Provider 专用导入或导出仍须单独设计。
+- 普通 Provider API Key 管理端点不接受 OAuth JSON；Provider 专用导入只通过 OAuth 管理 API 创建 `OAuthAccount`，不提供 OAuth JSON 读取或导出。
 
 管理面提供 `POST /api/admin/provider-credentials/{id}/test`。测试固定使用当前
 `PublishedSnapshot` 中该 Credential 的认证材料、Provider Endpoint 与解析后的实际代理，
@@ -1979,6 +1979,8 @@ Web 的“刷新全部额度”只针对当前完整 Codex OAuthAccount 集合�
 
 原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供读取、下载或导出端点。
 
+Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`POST /api/admin/oauth/import` 接收多个 multipart JSON 文件，每个文件可以是单账号、账号数组或 Sub2API `accounts` envelope。Provider Driver 把 CLIProxyAPI/Sub2API 字段规范化为 `OAuthTokenMaterial`，Runtime 为全部账号生成 canonical Provider JSON 和默认模型，并在一个 SQLite 事务中创建整批账号、增加一次 revision、执行一次 reconcile 和一次快照切换。任一文件或账号无效时整批回滚。响应只返回安全账号元数据；文件、Token、原始 JSON 和外部 wrapper 不进入日志、DTO、查询缓存或浏览器持久化。完整决策见 `docs/adr/0044-provider-oauth-json-import.md`。
+
 ## 17. 存储与密钥安全
 
 ### 17.1 SQLite
@@ -2296,6 +2298,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - Codex 页面提供“刷新全部额度”，覆盖当前完整 Codex 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
+- 页面提供 Provider 专用 JSON 导入抽屉，允许一次选择多个文件；文件只存在于抽屉局部状态，提交完成、失败或关闭后立即清空，导入成功后刷新 OAuthAccount 安全元数据集合；
 - session ID、state、authorization code、device code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage；Grok user code 与验证地址只保留在当前组件内存。
 
 ### 19.4 总览运行态
@@ -2611,7 +2614,8 @@ No Runtime Recovery / Queue Recovery / Session Recovery
 
 Effective Setting = Web Override If Present, Otherwise Versioned Default
 Generic Config/Secret Import/Export = Disabled
-OAuth2 JSON = OAuthAccount-only SQLite persistence, no download/export
+Provider OAuth JSON Import = OAuthAccount-only + Canonicalize + Atomic Batch Publish
+OAuth2 JSON = OAuthAccount-only SQLite persistence, no read/download/export
 
 Gateway API Key = Server-Generated CSPRNG Token + Vault-Keyed HMAC Digest
 Gateway Token Plaintext = Create/Rotate Response Once Only

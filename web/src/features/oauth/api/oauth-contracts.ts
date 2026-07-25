@@ -76,6 +76,24 @@ export interface OAuthAccountUpdateInput {
   enabled: boolean;
 }
 
+export interface OAuthImportedAccount {
+  id: string;
+  providerKind: OAuthProvider;
+  label: string;
+  requestsPerMinute: number | null;
+  enabled: boolean;
+  safeAccountEmail: string | null;
+  expiresAt: number | null;
+  selectedModelCount: number;
+  configVersion: number;
+}
+
+export interface OAuthImportResult {
+  importedCount: number;
+  configRevision: number;
+  items: OAuthImportedAccount[];
+}
+
 export type OAuthDevicePollResult =
   | { status: "pending"; retryAfterSeconds: number }
   | { status: "complete"; account: OAuthActivationResult };
@@ -156,6 +174,39 @@ export function parseOAuthAccountConfiguration(value: unknown): OAuthAccountConf
   return {
     configRevision: readInteger(value.config_revision, 1),
     items: value.items.map(parseOAuthAccount),
+  };
+}
+
+export function parseOAuthImportResult(value: unknown): OAuthImportResult {
+  if (!isRecord(value) || !Array.isArray(value.items)) {
+    throw invalidResponse();
+  }
+  const items = value.items.map(parseOAuthImportedAccount);
+  const importedCount = readInteger(value.imported_count, 1);
+  if (importedCount !== items.length) {
+    throw invalidResponse();
+  }
+  return {
+    importedCount,
+    configRevision: readInteger(value.config_revision, 1),
+    items,
+  };
+}
+
+function parseOAuthImportedAccount(value: unknown): OAuthImportedAccount {
+  if (!isRecord(value)) {
+    throw invalidResponse();
+  }
+  return {
+    id: readString(value.id),
+    providerKind: readOAuthProvider(value.provider_kind),
+    label: readString(value.label),
+    requestsPerMinute: readOptionalRpm(value.requests_per_minute),
+    enabled: readBoolean(value.enabled),
+    safeAccountEmail: readOptionalString(value.safe_account_email),
+    expiresAt: readOptionalInteger(value.expires_at, 0),
+    selectedModelCount: readInteger(value.selected_model_count, 0),
+    configVersion: readInteger(value.config_version, 1),
   };
 }
 

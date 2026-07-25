@@ -2,6 +2,7 @@ mod activation;
 mod callback;
 mod document;
 mod error;
+mod import;
 mod quota;
 mod quota_request;
 mod quota_types;
@@ -23,7 +24,14 @@ mod refresh_tests;
 #[path = "oauth/quota_tests.rs"]
 mod quota_tests;
 
+#[cfg(test)]
+#[path = "oauth/import_tests.rs"]
+mod import_tests;
+
 pub use error::OAuthError;
+pub use import::{
+    MAX_OAUTH_IMPORT_ACCOUNTS, OAuthImportError, OAuthImportFailureKind, OAuthImportResult,
+};
 pub use quota_types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot};
 pub use service::OAuthService;
 pub use types::{OAuthActivationResult, OAuthDevicePollResult, OAuthStartFlow, OAuthStartResult};

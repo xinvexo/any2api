@@ -8,6 +8,9 @@ mod grok;
 mod http_error;
 mod oauth;
 mod oauth_device;
+mod oauth_import;
+#[cfg(test)]
+mod oauth_import_tests;
 mod oauth_quota;
 mod oauth_routing;
 mod openai_error;
@@ -22,6 +25,10 @@ pub use error::ProviderError;
 pub use grok::GrokDriver;
 pub use oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_document};
 pub use oauth_device::{OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthLoginFlow};
+pub use oauth_import::{
+    MAX_OAUTH_IMPORT_ACCOUNTS_PER_DOCUMENT, OAuthImportParseError, OAuthImportedAccount,
+    parse_oauth_import_document,
+};
 pub use oauth_quota::{
     OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
     OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,

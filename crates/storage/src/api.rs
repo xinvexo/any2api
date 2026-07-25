@@ -8,6 +8,7 @@ pub use crate::gateway_api_key_usage_repository::{
     GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
 };
 pub use crate::gateway_api_key_verifier::GatewayApiKeyVerifier;
+pub use crate::oauth_account_create::OAuthAccountCreate;
 pub use crate::oauth_account_document::{
     MAX_OAUTH_ACCOUNT_JSON_BYTES, OAuthAccountDocument, OAuthAccountDocumentValidationError,
 };

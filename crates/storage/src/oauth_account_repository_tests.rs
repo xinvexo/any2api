@@ -4,9 +4,72 @@ use any2api_domain::{
 use tempfile::tempdir;
 
 use crate::{
-    api::{ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository, SqliteStore},
+    api::{
+        ConfigurationRepository, OAuthAccountCreate, OAuthAccountDocument, OAuthAccountRepository,
+        SqliteStore,
+    },
     error::StorageError,
 };
+
+#[tokio::test]
+async fn oauth_account_batch_is_one_transaction_and_one_revision() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
+        .await
+        .expect("store");
+    let codex_id = OAuthAccountId::new();
+    let claude_id = OAuthAccountId::new();
+
+    let created = store
+        .create_oauth_accounts(
+            ConfigRevision::INITIAL,
+            vec![
+                create(codex_id, ProviderKind::Codex, "Codex Imported"),
+                create(claude_id, ProviderKind::Claude, "Claude Imported"),
+            ],
+        )
+        .await
+        .expect("batch create");
+
+    assert_eq!(created.revision().get(), 2);
+    assert!(created.oauth_accounts().get(codex_id).is_some());
+    assert!(created.oauth_accounts().get(claude_id).is_some());
+    let persisted_revision =
+        sqlx::query_scalar::<_, i64>("SELECT revision FROM config_state WHERE singleton_id = 1")
+            .fetch_one(store.pool())
+            .await
+            .expect("revision");
+    assert_eq!(persisted_revision, 2);
+}
+
+#[tokio::test]
+async fn invalid_oauth_account_batch_rolls_back_every_account() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
+        .await
+        .expect("store");
+
+    let error = store
+        .create_oauth_accounts(
+            ConfigRevision::INITIAL,
+            vec![
+                create(OAuthAccountId::new(), ProviderKind::Codex, "Duplicate"),
+                create(OAuthAccountId::new(), ProviderKind::Codex, "Duplicate"),
+            ],
+        )
+        .await
+        .expect_err("duplicate batch label");
+    assert!(matches!(error, StorageError::OAuthAccountLabelConflict));
+
+    let restored = store.load_configuration().await.expect("configuration");
+    assert_eq!(restored.revision(), ConfigRevision::INITIAL);
+    assert!(restored.oauth_accounts().accounts().is_empty());
+    let row_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM oauth_accounts")
+        .fetch_one(store.pool())
+        .await
+        .expect("row count");
+    assert_eq!(row_count, 0);
+}
 
 #[tokio::test]
 async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
@@ -310,6 +373,18 @@ fn draft(label: &str, requests_per_minute: Option<u32>, enabled: bool) -> OAuthA
 fn document(provider: ProviderKind, access_token: &str) -> OAuthAccountDocument {
     OAuthAccountDocument::new(provider, document_bytes(provider, access_token).into())
         .expect("OAuth document")
+}
+
+fn create(id: OAuthAccountId, provider: ProviderKind, label: &str) -> OAuthAccountCreate {
+    OAuthAccountCreate::new(
+        id,
+        provider,
+        draft(label, None, true),
+        None,
+        None,
+        vec![format!("{provider:?}-model").to_lowercase()],
+        document(provider, "batch-access"),
+    )
 }
 
 fn document_bytes(provider: ProviderKind, access_token: &str) -> Vec<u8> {

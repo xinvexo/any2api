@@ -43,7 +43,8 @@ export async function requestJson<T>(
 
   try {
     const headers: Record<string, string> = { Accept: "application/json" };
-    if (body !== undefined) {
+    const formDataBody = isFormData(body);
+    if (body !== undefined && !formDataBody) {
       headers["Content-Type"] = "application/json";
     }
     if (requiresAdminCsrf(path, method) && adminCsrfToken) {
@@ -52,7 +53,8 @@ export async function requestJson<T>(
     const response = await fetch(path, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body:
+        body === undefined ? undefined : formDataBody ? body : JSON.stringify(body),
       credentials: "same-origin",
       signal: controller.signal,
     });
@@ -79,6 +81,10 @@ export async function requestJson<T>(
     window.clearTimeout(timeout);
     signal?.removeEventListener("abort", forwardAbort);
   }
+}
+
+function isFormData(value: unknown): value is FormData {
+  return typeof FormData !== "undefined" && value instanceof FormData;
 }
 
 export interface DownloadResponse {

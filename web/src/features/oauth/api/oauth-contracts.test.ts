@@ -4,8 +4,56 @@ import {
   parseOAuthAccountConfiguration,
   parseOAuthActivationResult,
   parseOAuthDevicePollResult,
+  parseOAuthImportResult,
   parseOAuthStartResult,
 } from "./oauth-contracts";
+
+describe("parseOAuthImportResult", () => {
+  it("parses only safe imported account metadata", () => {
+    const parsed = parseOAuthImportResult({
+      imported_count: 1,
+      config_revision: 2,
+      items: [
+        {
+          id: "account-1",
+          provider_kind: "grok",
+          label: "Grok Imported",
+          requests_per_minute: null,
+          enabled: true,
+          safe_account_email: "grok@example.com",
+          expires_at: 1_900_000_000,
+          selected_model_count: 7,
+          config_version: 1,
+        },
+      ],
+    });
+
+    expect(parsed).toEqual({
+      importedCount: 1,
+      configRevision: 2,
+      items: [
+        {
+          id: "account-1",
+          providerKind: "grok",
+          label: "Grok Imported",
+          requestsPerMinute: null,
+          enabled: true,
+          safeAccountEmail: "grok@example.com",
+          expiresAt: 1_900_000_000,
+          selectedModelCount: 7,
+          configVersion: 1,
+        },
+      ],
+    });
+    expect(JSON.stringify(parsed)).not.toContain("token");
+  });
+
+  it("rejects a count mismatch", () => {
+    expect(() =>
+      parseOAuthImportResult({ imported_count: 2, config_revision: 2, items: [] }),
+    ).toThrow("invalid OAuth2 login response");
+  });
+});
 
 describe("parseOAuthStartResult", () => {
   it("parses a valid OAuth2 start response", () => {

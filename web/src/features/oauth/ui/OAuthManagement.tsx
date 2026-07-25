@@ -1,4 +1,4 @@
-import { LogIn, RefreshCw } from "lucide-react";
+import { LogIn, RefreshCw, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -10,6 +10,7 @@ import { useOAuthLogin } from "../model/use-oauth-login";
 import { useOAuthQuotaRefreshAll } from "../model/use-oauth-quota-refresh-all";
 import { OAuthAccounts } from "./OAuthAccounts";
 import { OAuthLoginDrawer } from "./OAuthLogin";
+import { OAuthImportDrawer } from "./OAuthImport";
 import { OAuthProviderNav } from "./OAuthProviderNav";
 import { Button } from "@/shared/ui/Button";
 import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
@@ -24,6 +25,7 @@ export function OAuthManagement() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedProvider = resolveSelectedProvider(searchParams.get("kind"));
   const [loginOpen, setLoginOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const counts = useMemo(() => {
     const next = Object.fromEntries(
@@ -48,6 +50,7 @@ export function OAuthManagement() {
       return;
     }
     setLoginOpen(false);
+    setImportOpen(false);
     login.reset();
     setSearchParams(
       (current) => {
@@ -62,10 +65,17 @@ export function OAuthManagement() {
   }
 
   function openLogin() {
+    setImportOpen(false);
     setLoginOpen(true);
     void login.start(selectedProvider).catch(() => {
       // Drawer keeps the safe user-facing error for retry.
     });
+  }
+
+  function openImport() {
+    setLoginOpen(false);
+    login.reset();
+    setImportOpen(true);
   }
 
   function closeLogin() {
@@ -121,6 +131,10 @@ export function OAuthManagement() {
       >
         <RefreshCw size={14} className={accounts.isFetching ? "animate-spin" : undefined} />
         刷新
+      </Button>
+      <Button variant="secondary" disabled={!accounts.data} onClick={openImport}>
+        <Upload size={14} aria-hidden="true" />
+        导入 JSON
       </Button>
       <Button variant="primary" disabled={!accounts.data} onClick={openLogin}>
         <LogIn size={14} aria-hidden="true" />
@@ -230,6 +244,15 @@ export function OAuthManagement() {
           setLoginOpen(false);
         }}
       />
+      {importOpen ? (
+        <OAuthImportDrawer
+          onClose={() => setImportOpen(false)}
+          onImported={async (result) => {
+            await accounts.refetch();
+            notify.success(`已导入并启用 ${result.importedCount} 个 OAuth 账号。`);
+          }}
+        />
+      ) : null}
     </>
   );
 }

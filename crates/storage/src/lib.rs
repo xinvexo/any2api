@@ -18,6 +18,7 @@ mod gateway_api_key_writes;
 mod migration;
 mod model_route_replacement;
 mod model_route_rows;
+mod oauth_account_create;
 mod oauth_account_document;
 mod oauth_account_material;
 mod oauth_account_mutation;

@@ -1,4 +1,4 @@
-use super::{oauth as codex_oauth, quota as codex_quota};
+use super::{import as codex_import, oauth as codex_oauth, quota as codex_quota};
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
@@ -8,8 +8,8 @@ use url::Url;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthLoginFlow,
-        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
+        OAuthLoginFlow, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
         UpstreamResponseMeta,
     },
     api_key, openai_error,
@@ -127,6 +127,13 @@ impl ProviderDriver for CodexDriver {
 
     fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         codex_oauth::parse_token(body)
+    }
+
+    fn parse_oauth_import(
+        &self,
+        object: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<OAuthImportedAccount>, ProviderError> {
+        codex_import::parse(object)
     }
 
     fn oauth_routing_profile(

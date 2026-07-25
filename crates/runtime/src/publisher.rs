@@ -18,6 +18,8 @@ mod providers;
 mod proxies;
 mod settings;
 
+pub(crate) use oauth_accounts::OAuthAccountActivation;
+
 #[derive(Clone)]
 pub struct ConfigPublisher {
     pub(crate) repository: Arc<dyn ConfigurationRepository>,

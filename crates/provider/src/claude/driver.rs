@@ -1,4 +1,4 @@
-use super::{error as claude_error, oauth as claude_oauth};
+use super::{error as claude_error, import as claude_import, oauth as claude_oauth};
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
@@ -8,8 +8,8 @@ use url::Url;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthLoginFlow,
-        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
+        OAuthLoginFlow, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
         UpstreamResponseMeta,
     },
     api_key,
@@ -126,6 +126,13 @@ impl ProviderDriver for ClaudeDriver {
 
     fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         claude_oauth::parse_token(body)
+    }
+
+    fn parse_oauth_import(
+        &self,
+        object: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<OAuthImportedAccount>, ProviderError> {
+        claude_import::parse(object)
     }
 
     fn oauth_routing_profile(

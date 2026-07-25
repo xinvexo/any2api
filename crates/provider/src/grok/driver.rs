@@ -1,4 +1,4 @@
-use super::oauth as grok_oauth;
+use super::{import as grok_import, oauth as grok_oauth};
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
@@ -7,8 +7,8 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
-        OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan, OAuthRoutingProfile,
-        OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow, OAuthRequestPlan,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
     api_key, openai_error,
 };
@@ -145,6 +145,13 @@ impl ProviderDriver for GrokDriver {
 
     fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         grok_oauth::parse_token(body)
+    }
+
+    fn parse_oauth_import(
+        &self,
+        object: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<OAuthImportedAccount>, ProviderError> {
+        grok_import::parse(object)
     }
 
     fn oauth_routing_profile(

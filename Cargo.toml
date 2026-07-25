@@ -25,7 +25,7 @@ anyhow = "1.0.103"
 argon2 = "0.5.3"
 arc-swap = "1.9.2"
 async-trait = "0.1.89"
-axum = "0.8.9"
+axum = { version = "0.8.9", features = ["multipart"] }
 base64 = "0.22.1"
 bytes = "1.12.1"
 cargo_metadata = "0.23.1"

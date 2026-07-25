@@ -5,6 +5,7 @@ use sqlx::SqliteConnection;
 use crate::{
     configuration::StoredConfiguration,
     error::StorageError,
+    oauth_account_create::OAuthAccountCreate,
     oauth_account_document::OAuthAccountDocument,
     oauth_account_mutation::{OAuthAccountMutation, prepare_oauth_account_mutation},
     oauth_account_writes::execute_oauth_account_change,
@@ -16,6 +17,12 @@ use crate::{
 
 #[async_trait]
 pub trait OAuthAccountRepository: Send + Sync {
+    async fn create_oauth_accounts(
+        &self,
+        expected: ConfigRevision,
+        accounts: Vec<OAuthAccountCreate>,
+    ) -> Result<StoredConfiguration, StorageError>;
+
     #[allow(clippy::too_many_arguments)]
     async fn create_oauth_account(
         &self,
@@ -66,6 +73,22 @@ pub trait OAuthAccountRepository: Send + Sync {
 
 #[async_trait]
 impl OAuthAccountRepository for SqliteStore {
+    async fn create_oauth_accounts(
+        &self,
+        expected: ConfigRevision,
+        accounts: Vec<OAuthAccountCreate>,
+    ) -> Result<StoredConfiguration, StorageError> {
+        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let (configuration, changed) =
+            mutate_create_batch(&mut transaction, self.secret_vault(), expected, accounts).await?;
+        if changed {
+            transaction.commit().await?;
+        } else {
+            transaction.rollback().await?;
+        }
+        Ok(configuration)
+    }
+
     async fn create_oauth_account(
         &self,
         expected: ConfigRevision,
@@ -205,6 +228,55 @@ async fn mutate_connection(
     };
     execute_oauth_account_change(connection, prepared.change()).await?;
     let expected_accounts = prepared.into_configuration();
+    let revision = bump_revision(connection, expected).await?;
+    let configuration = load_configuration_from(connection, vault).await?;
+    assert_eq!(configuration.revision(), revision);
+    assert_eq!(configuration.oauth_accounts(), &expected_accounts);
+    Ok((configuration, true))
+}
+
+async fn mutate_create_batch(
+    connection: &mut SqliteConnection,
+    vault: &SecretVault,
+    expected: ConfigRevision,
+    accounts: Vec<OAuthAccountCreate>,
+) -> Result<(StoredConfiguration, bool), StorageError> {
+    let current = load_configuration_from(connection, vault).await?;
+    if current.revision() != expected {
+        return Err(StorageError::RevisionConflict {
+            expected,
+            actual: current.revision(),
+        });
+    }
+    if accounts.is_empty() {
+        return Ok((current, false));
+    }
+
+    let mut expected_accounts = current.oauth_accounts().clone();
+    let mut changes = Vec::with_capacity(accounts.len());
+    for account in accounts {
+        let prepared = prepare_oauth_account_mutation(
+            &expected_accounts,
+            current.proxies(),
+            OAuthAccountMutation::Create {
+                id: account.id,
+                provider_kind: account.provider_kind,
+                draft: account.draft,
+                safe_account_email: account.safe_account_email,
+                expires_at: account.expires_at,
+                models: account.models,
+                document: account.document,
+            },
+        )?
+        .expect("OAuth account creation always changes the configuration");
+        let (next_accounts, change) = prepared.into_parts();
+        expected_accounts = next_accounts;
+        changes.push(change);
+    }
+
+    for change in &changes {
+        execute_oauth_account_change(connection, change).await?;
+    }
     let revision = bump_revision(connection, expected).await?;
     let configuration = load_configuration_from(connection, vault).await?;
     assert_eq!(configuration.revision(), revision);

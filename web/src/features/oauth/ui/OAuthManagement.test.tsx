@@ -25,6 +25,7 @@ test("uses provider grid layout without a main-column session panel", async () =
   expect(screen.queryByText("还没有 Codex 登录会话")).not.toBeInTheDocument();
   expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "OAuth认证" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "导入 JSON" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新全部额度" })).toBeDisabled();
   expect(screen.queryByLabelText("每页条数")).not.toBeInTheDocument();

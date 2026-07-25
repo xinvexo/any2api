@@ -4,6 +4,7 @@ import {
   parseOAuthActivationResult,
   parseOAuthAccountConfiguration,
   parseOAuthDevicePollResult,
+  parseOAuthImportResult,
   parseOAuthStartResult,
   type OAuthAccountUpdateInput,
   type OAuthProvider,
@@ -38,6 +39,18 @@ export function pollOAuthDevice(sessionId: string, signal?: AbortSignal) {
     signal,
     timeoutMs: 35_000,
   }).then(parseOAuthDevicePollResult);
+}
+
+export function importOAuthFiles(files: readonly File[]) {
+  const form = new FormData();
+  for (const file of files) {
+    form.append("files", file, file.name);
+  }
+  return requestJson<unknown>("/api/admin/oauth/import", {
+    method: "POST",
+    body: form,
+    timeoutMs: 60_000,
+  }).then(parseOAuthImportResult);
 }
 
 const accountCollection = "/api/admin/oauth/accounts";

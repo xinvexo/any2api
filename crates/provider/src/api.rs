@@ -10,6 +10,10 @@ use url::Url;
 pub use crate::codex::oauth_plan_label as codex_oauth_plan_label;
 pub use crate::oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_document};
 pub use crate::oauth_device::{OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthLoginFlow};
+pub use crate::oauth_import::{
+    MAX_OAUTH_IMPORT_ACCOUNTS_PER_DOCUMENT, OAuthImportParseError, OAuthImportedAccount,
+    parse_oauth_import_document,
+};
 pub use crate::oauth_quota::{
     OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
     OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,
@@ -133,6 +137,13 @@ pub trait ProviderDriver: Send + Sync {
         Err(ProviderError::InvalidResponse(
             "OAuth2 is not supported by this provider".into(),
         ))
+    }
+
+    fn parse_oauth_import(
+        &self,
+        _object: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<Option<OAuthImportedAccount>, ProviderError> {
+        Ok(None)
     }
 
     fn parse_oauth_refresh_token(

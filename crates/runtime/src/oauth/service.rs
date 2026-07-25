@@ -13,6 +13,7 @@ use crate::{process_lifecycle::ProcessLifecycle, publisher::ConfigPublisher};
 use super::{
     activation, callback,
     error::OAuthError,
+    import::{self, OAuthImportError, OAuthImportResult},
     quota::OAuthQuotaService,
     quota_types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
     refresh::OAuthRefresher,
@@ -81,6 +82,13 @@ impl OAuthService {
         id: OAuthAccountId,
     ) -> Result<OAuthQuotaResetOutcome, OAuthQuotaError> {
         self.quota.reset(id).await
+    }
+
+    pub async fn import_files(
+        &self,
+        files: Vec<bytes::Bytes>,
+    ) -> Result<OAuthImportResult, OAuthImportError> {
+        import::publish(self.providers.as_ref(), self.publisher.as_ref(), files).await
     }
 
     pub async fn start(&self, provider: ProviderKind) -> Result<OAuthStartResult, OAuthError> {

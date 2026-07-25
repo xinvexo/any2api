@@ -69,6 +69,10 @@ impl PreparedOAuthAccountMutation {
     pub(crate) fn into_configuration(self) -> OAuthAccountConfiguration {
         self.configuration
     }
+
+    pub(crate) fn into_parts(self) -> (OAuthAccountConfiguration, OAuthAccountDatabaseChange) {
+        (self.configuration, self.change)
+    }
 }
 
 pub(crate) fn prepare_oauth_account_mutation(

@@ -1,13 +1,23 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use any2api_domain::{ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProviderKind};
-use any2api_storage::api::OAuthAccountDocument;
+use any2api_storage::api::{OAuthAccountCreate, OAuthAccountDocument};
 
 use super::ConfigPublisher;
 use crate::{
     config_command::ConfigCommand, config_publish_error::ConfigPublishError,
     published_snapshot::PublishedSnapshot,
 };
+
+pub(crate) struct OAuthAccountActivation {
+    pub(crate) id: OAuthAccountId,
+    pub(crate) provider_kind: ProviderKind,
+    pub(crate) preferred_label: Option<String>,
+    pub(crate) safe_account_email: Option<String>,
+    pub(crate) expires_at: Option<i64>,
+    pub(crate) models: Vec<String>,
+    pub(crate) document: OAuthAccountDocument,
+}
 
 impl ConfigPublisher {
     pub(super) fn validate_oauth_account_models(
@@ -55,6 +65,60 @@ impl ConfigPublisher {
             document,
         })
         .await
+    }
+
+    pub(crate) async fn activate_oauth_accounts(
+        &self,
+        activations: Vec<OAuthAccountActivation>,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        let publisher = self.clone();
+        crate::publish_task::run(self.runtime.lifecycle(), async move {
+            publisher
+                .activate_oauth_accounts_serialized(activations)
+                .await
+        })
+        .await
+        .ok_or(ConfigPublishError::ShuttingDown)?
+    }
+
+    async fn activate_oauth_accounts_serialized(
+        &self,
+        activations: Vec<OAuthAccountActivation>,
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        let _guard = self.snapshots.acquire_publish().await;
+        let current = self.snapshots.load();
+        let expected = current.revision();
+        let mut labels = current
+            .oauth_accounts()
+            .accounts()
+            .iter()
+            .map(|account| (account.provider_kind(), account.label_key()))
+            .collect::<HashSet<_>>();
+        let mut creates = Vec::with_capacity(activations.len());
+        for activation in activations {
+            let label = unique_label(
+                &mut labels,
+                activation.provider_kind,
+                activation.preferred_label.as_deref(),
+                activation.id,
+            );
+            let draft = OAuthAccountDraft::new(label, None, true)
+                .map_err(ConfigPublishError::InvalidOAuthAccount)?;
+            creates.push(OAuthAccountCreate::new(
+                activation.id,
+                activation.provider_kind,
+                draft,
+                activation.safe_account_email,
+                activation.expires_at,
+                activation.models,
+                activation.document,
+            ));
+        }
+        let committed = self
+            .repository
+            .create_oauth_accounts(expected, creates)
+            .await?;
+        Ok(self.publish_committed(current, expected, committed))
     }
 
     pub async fn update_oauth_account(
@@ -126,4 +190,39 @@ impl ConfigPublisher {
         )
         .await
     }
+}
+
+fn unique_label(
+    used: &mut HashSet<(ProviderKind, String)>,
+    provider: ProviderKind,
+    preferred: Option<&str>,
+    id: OAuthAccountId,
+) -> String {
+    const MAX_LABEL_CHARS: usize = 100;
+    let mut base = preferred
+        .unwrap_or_default()
+        .chars()
+        .filter(|character| !character.is_control())
+        .collect::<String>();
+    base = base.trim().chars().take(MAX_LABEL_CHARS).collect();
+    if base.is_empty() {
+        base = id.to_string();
+    }
+    for sequence in 1_u32.. {
+        let candidate = if sequence == 1 {
+            base.clone()
+        } else {
+            let suffix = format!(" ({sequence})");
+            let prefix_chars = MAX_LABEL_CHARS.saturating_sub(suffix.chars().count());
+            format!(
+                "{}{}",
+                base.chars().take(prefix_chars).collect::<String>(),
+                suffix
+            )
+        };
+        if used.insert((provider, candidate.to_lowercase())) {
+            return candidate;
+        }
+    }
+    unreachable!("OAuth label sequence is unbounded")
 }

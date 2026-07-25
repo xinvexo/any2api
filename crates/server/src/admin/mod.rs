@@ -16,6 +16,8 @@ mod no_store;
 mod oauth_dto;
 mod oauth_error;
 mod oauth_handlers;
+mod oauth_import_dto;
+mod oauth_import_error;
 mod oauth_login_dto;
 mod oauth_quota_dto;
 mod oauth_quota_error;
