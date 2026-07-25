@@ -41,6 +41,39 @@ test("lists and edits OAuth accounts without receiving token material", async ()
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 });
 
+test("selects and saves OAuth routing models through the account-specific endpoint", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (
+      path.endsWith(`/api/admin/oauth/accounts/${accountId}/models`) &&
+      init?.method === "PUT"
+    ) {
+      expect(JSON.parse(String(init.body))).toEqual({
+        expected_revision: 2,
+        expected_config_version: 1,
+        models: ["gpt-5.5", "gpt-5.6-luna"],
+      });
+      expect(String(init.body)).not.toContain("token");
+      return response({
+        config_revision: 3,
+        items: [
+          accountJson("Primary Codex", 2, null, ["gpt-5.5", "gpt-5.6-luna"]),
+        ],
+      });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderAccounts([account("Primary Codex", 1)]);
+  fireEvent.click(screen.getByRole("button", { name: "查看 Primary Codex 的可用模型" }));
+  expect(await screen.findByRole("checkbox", { name: "gpt-5.5" })).toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "gpt-5.6-luna" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+});
+
 test("shows kind-scoped empty state without a session panel", () => {
   renderAccounts([]);
   expect(screen.getByText("还没有 Codex OAuth 账号")).toBeInTheDocument();
@@ -97,7 +130,12 @@ function usageParsed() {
   };
 }
 
-function accountJson(label: string, configVersion: number, requestsPerMinute: number | null) {
+function accountJson(
+  label: string,
+  configVersion: number,
+  requestsPerMinute: number | null,
+  models = ["gpt-5.5"],
+) {
   return {
     id: accountId,
     provider_kind: "codex",
@@ -109,8 +147,8 @@ function accountJson(label: string, configVersion: number, requestsPerMinute: nu
     token_version: 1,
     account_generation: 1,
     config_version: configVersion,
-    selected_model_count: 1,
-    models: ["gpt-5.5"],
+    selected_model_count: models.length,
+    models,
     available_models: ["gpt-5.5", "gpt-5.6-luna"],
     plan_type: "plus",
     usage: usageJson(),

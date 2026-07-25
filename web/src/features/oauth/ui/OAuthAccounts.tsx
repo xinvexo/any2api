@@ -37,10 +37,11 @@ export function OAuthAccounts({
   const selected = accounts.find((account) => account.id === selectedId);
   const providerName = oauthProviderLabel(provider);
   const pending = mutations.isPending || quotaRefreshPending;
-  const editorError = mutations.update.error;
+  const editorError = mode === "models" ? mutations.models.error : mutations.update.error;
 
   function open(account: OAuthAccount, action: "metadata" | "models") {
     mutations.update.reset();
+    mutations.models.reset();
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -146,6 +147,16 @@ export function OAuthAccounts({
                   expectedRevision: configRevision,
                   expectedConfigVersion: selected.configVersion,
                   ...value,
+                },
+              });
+            }}
+            onSaveModels={async (models) => {
+              await mutations.models.mutateAsync({
+                id: selected.id,
+                input: {
+                  expectedRevision: configRevision,
+                  expectedConfigVersion: selected.configVersion,
+                  models,
                 },
               });
             }}

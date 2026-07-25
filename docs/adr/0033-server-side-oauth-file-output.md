@@ -3,6 +3,9 @@
 - Status: Accepted
 - Date: 2026-07-24
 - Supersedes: ADR-0031's browser-download and data-plane isolation decisions
+- Amended by: ADR-0037 (single optional RPM), ADR-0041 (Grok OAuthAccount), ADR-0044 (Provider OAuth JSON import)
+
+> Current-state note: references below to configurable concurrency were replaced by the single optional RPM model in ADR-0037. Provider-specific JSON import is now implemented by ADR-0044; OAuth JSON export remains prohibited.
 
 ## Context
 

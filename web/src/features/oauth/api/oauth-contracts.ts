@@ -76,6 +76,12 @@ export interface OAuthAccountUpdateInput {
   enabled: boolean;
 }
 
+export interface OAuthAccountModelsInput {
+  expectedRevision: number;
+  expectedConfigVersion: number;
+  models: string[];
+}
+
 export interface OAuthImportedAccount {
   id: string;
   providerKind: OAuthProvider;

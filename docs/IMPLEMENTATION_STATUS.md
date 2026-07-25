@@ -1,12 +1,12 @@
 # any2api 实施状态
 
-> 最后更新：2026-07-25
+> 最后更新：2026-07-26
 > 用途：简要记录已经完成的代码、当前边界和下一步顺序。架构真相仍以根目录 `ARCHITECTURE.md` 为准。
 
 ## 当前状态
 
-- 当前阶段：API Key 数据面、OpenAI 协议桥、Grok API Key Provider 和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新、Codex 额度查询/重置和管理 Web，正在收尾带真实账号夹具的浏览器验收。
-- 最近完成：Grok OAuthAccount 改用 xAI Device Authorization Grant 登录，device code 仅保存在服务端内存并由管理 Web 自动轮询；明文 SQLite 持久化、刷新、统一路由候选池以及 API Key/OAuth 管理隔离保持不变。
+- 当前阶段：API Key 数据面、OpenAI 协议桥、三 Provider OAuth2 核心链路、OAuth JSON 原子导入、三 Provider 额度查询、管理 Web 和真实二进制浏览器验收均已完成；剩余发布验收主要依赖真实上游账号。
+- 最近完成：Rust Workspace 完成 feature-first 目录收敛；OAuth Web 恢复可写模型选择，并使用仅含假 Token 的真实 SQLite/发布链浏览器夹具覆盖导入、编辑、模型保存、删除、deep link、窄屏和浏览器持久状态脱敏。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -16,8 +16,10 @@
 - Proxy Transport 切片：`33f9f2d feat: add proxy transport manager`。
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
-- 上一切片提交主题：`feat: embed the management web app`。
-- 本切片主题：Grok OAuthAccount 接入与 Provider feature 目录归档。
+- OAuth JSON 导入切片：`235a1bd feat: import OAuth JSON accounts`。
+- OAuth 额度扩展切片：`18f8e49 feat: expand OAuth quota support and organize modules`。
+- Feature-first 收敛切片：`5f3d9ff refactor: complete feature-first crate organization`。
+- 本切片主题：文档基线、OAuth 模型管理与真实二进制浏览器验收闭环。
 
 ## 已完成
 
@@ -165,27 +167,27 @@
 
 ### GatewayApiKey 管理与公开鉴权切片
 
-- 新增 `GatewayApiKey`、独立 HMAC verifier 和 `gateway_api_keys` SQLite migration；数据库只保存前缀、摘要、版本和状态，不保存明文 Token。
-- Token 由 Runtime 使用 256 位 CSPRNG 生成，格式固定为 `a2k_v1_...`；创建和轮换成功后通过独立响应只返回一次明文。
+- 新增 `GatewayApiKey`、独立 HMAC verifier 和 `gateway_api_keys` SQLite migration；当前模型同时保存可查看的明文 Token 与用于常量时间认证的 Vault 派生 HMAC 摘要。
+- Token 由 Runtime 使用 256 位 CSPRNG 生成，格式固定为 `a2k_v1_...`；管理列表、创建、更新和轮换响应始终返回当前完整 Token，日志和 Debug 仍禁止输出。
 - 管理 API 已接入：
   - `GET/POST /api/admin/gateway-api-keys`
   - `PATCH /api/admin/gateway-api-keys/{id}`
   - `POST /api/admin/gateway-api-keys/{id}/rotate`
   - `POST /api/admin/gateway-api-keys/{id}/revoke`
-- 管理写入继续使用全局 revision、资源 config version 和轮换 token version CAS；撤销是终态，重复无变化不会推进 revision。
+- 管理写入继续使用全局 revision、资源 config version 和轮换 token version CAS；`revoke` 路由执行物理删除，成功后立即从 PublishedSnapshot 移除。
 - `PublishedSnapshot` 现在携带 Gateway Key 配置和 HMAC verifier；鉴权、路由和 revision 使用同一快照，旧请求持有旧快照时不会被热更新中途改变。
-- `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；Responses、Responses Compact、Messages 和 Count Tokens 已进入同协议 JSON 执行链；未知 `/v1/*` 不再回落到 SPA。
+- `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；Responses、Responses Compact、Chat Completions、Messages 和 Count Tokens 已进入执行链，Responses 可显式桥接到 Chat Completions；未知 `/v1/*` 不再回落到 SPA。
 - `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
 - 公开鉴权成功后立即更新进程内 `last_used_at`，并按每把 Key 最多每 60 秒一次进入现有有界遥测队列；SQLite 写入不推进配置 revision、不阻塞数据面，队列满时按遥测语义丢弃并计数。
 - 管理列表合并 PublishedSnapshot 中的持久值与当前进程内最新值，因此成功请求后无需发布新配置即可立即显示最后使用时间；重启后继续读取 SQLite 已落库值。
 - Gateway Key 管理列表从保留 RequestLog 按 `gateway_api_key_id` 聚合总请求、2xx 成功、非 2xx 失败和最近 24 次状态码；Web 以成功/失败徽标、彩色结果点和成功率展示，统计不参与权限、配额、计费或路由。
-- React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、撤销、deep link、响应式布局和一次性回执；明文 Token 不进入 Query/Mutation Cache、URL、Storage 或普通 DTO。
+- React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、物理删除、deep link 和响应式布局；已认证管理列表始终可查看明文 Token，Token 不进入 URL、浏览器持久存储、日志或 Debug。
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本、缓存脱敏、节流、单调落库和即时管理可见性。
 
 ### ProviderCredential 连通性测试切片
 
 - Provider Driver 新增 `credential_test_plan`；当前注册的 Codex、Claude 与 Grok 都从各自 Base URL 结构化构造 `GET /models`，并复用同一 generation 的 Provider API Key 认证头。
-- 新增受保护管理 API `POST /api/admin/provider-credentials/{id}/test`；请求固定使用当前 PublishedSnapshot、Credential、Endpoint 与解析后的实际代理，占用普通 Credential 并发槽位但绕过已有 `auth_error`，专属代理失败仍 Fail-Closed。
+- 新增受保护管理 API `POST /api/admin/provider-credentials/{id}/test`；请求固定使用当前 PublishedSnapshot、Credential、Endpoint 与解析后的实际代理，预留该 Credential 的普通 RPM 名额并持有 `in_flight` 观测 Guard，但允许绕过已有 `auth_error`；专属代理失败仍 Fail-Closed。
 - 探测不经过模型路由、不切换 Credential、不回退代理，也不更新 Endpoint/Proxy 熔断或配置 revision；响应只返回捕获的配置/Secret/代理版本、HTTP 状态、延迟或 Transport 阶段/归因，不返回 URL、地址、正文或 Secret。
 - 只有 2xx 会清除本次捕获 `CredentialGenerationRuntime` 的 `auth_error` 并推进统一 scheduler epoch；测试期间发生 Secret/Endpoint 身份轮换时，旧探测只持有旧 generation，不能修改新 generation。
 - React Provider 详情页把该探测能力用于模型选择抽屉；新增或更换 Key 后自动拉取，也可从每把 Key 的“模型”操作重新拉取。
@@ -200,12 +202,12 @@
 - Runtime 执行链按请求规划、单次 Attempt 和响应处理拆分；生产文件均保持单一职责，没有把网络、调度和响应过滤重新塞进中央文件。
 - 同负载轮询游标按 `ModelRoute + fallback tier` 隔离，并由 RuntimeRegistry 跨连续配置代际复用；删除后旧快照仍持有旧游标，新生命周期从零开始，避免跨 Route 偏斜和无效请求扰动。
 - 未知 `/v1/*`、已知路径的方法错误和普通公开路由现在经过同一 GatewayApiKey 鉴权层；上游认证头、Cookie、固定及动态 hop-by-hop 响应头不会返回客户端。
-- 该切片完成时只支持非流式 JSON；后续 SSE、QueueTicket 与会话粘性切片已补齐 Responses/Messages 流式执行、生成请求饱和等待和固定会话路由。自动重试、冷却和健康仍未实现。
+- 该切片完成时只支持非流式 JSON；后续 SSE、QueueTicket、会话粘性与可靠性切片已补齐 Responses/Messages 流式执行、生成请求饱和等待、固定会话路由、自动重试、冷却和健康状态。
 - 模块测试与本地 HTTP 契约测试覆盖路径、认证头、客户端头剥离、出站 POST、模型替换、Compact 端点、敏感响应头过滤、fallback 鉴权、JSON 405 和 Route/tier 游标生命周期；Registry 契约从真实 App Composition Root 枚举全部 Adapter/Driver，避免生产漏注册仍通过测试。
 
 ### Count Tokens 统一 RPM 切片
 
-- `/v1/messages/count_tokens` 使用 Claude 同协议路由、Provider API Key/OAuthAccount、代理和模型别名，并与生成请求共用所选账号唯一的可选 RPM。
+- `/v1/messages/count_tokens` 使用 Claude 同协议路由、Provider API Key/OAuthAccount、代理和已选上游模型，并与生成请求共用所选账号唯一的可选 RPM。
 - 每次 Count Tokens 上游 Attempt 都预留一个 RPM 名额并使用统一 QueueTicket；不再存在 `AuxiliaryScheduler`、辅助 Permit 或第二套容量设置。
 - 当前 tier RPM 用尽时遵循同一 `on_rate_limited`、`fallback_on_rate_limit`、队列上限、超时和取消语义。
 - Claude Count Tokens 上游明确返回 404 时分类为 operation unavailable，并转换为脱敏 Anthropic 404 `not_found_error`，供 Claude Code 回退本地 Token 估算；其他上游错误仍遵循当前 502 边界。
@@ -281,7 +283,7 @@
 - 新增 `admin.remote_enabled`、会话 idle/absolute timeout、登录失败窗口与最大失败次数五项 SettingRegistry 设置；Web 显示默认/覆盖/生效值并支持热更新。
 - `ANY2API_TRUSTED_PROXY_CIDRS` 显式配置可信反代网段；只有命中网段的 TCP 对端才解析唯一且合法的 `X-Forwarded-For` 与 `X-Forwarded-Proto`。来源链从右向左剥离可信代理，缺头、重复头和客户端预置 loopback 欺骗均 Fail-Closed。
 - React 新增首启 Setup、登录、会话恢复、登出、CSRF 自动注入和明文远程 HTTP 持续警告；远程登录前即提示密码传输风险，受保护请求收到 401 响应头时立即关闭管理面并清空 Query/Mutation Cache。
-- 当前切片直接支持远程 HTTP 与外部 TLS 终止；内建 Rustls listener、标准 `Forwarded` 头解析和 Provider 专用 OAuth2 JSON 导入仍未实现，管理员密码在线轮换已由 ADR-0024 完成。
+- 当前切片直接支持远程 HTTP 与外部 TLS 终止；内建 Rustls listener 和标准 `Forwarded` 头解析仍未实现。管理员密码在线轮换已由 ADR-0024 完成，Provider 专用 OAuth JSON 导入已由 ADR-0044 完成。
 
 ### RequestLog 与 Attempt 有界遥测切片
 
@@ -413,9 +415,9 @@
 - 刷新响应省略到期时间时继续使用 SQLite 账号的旧到期边界，禁止把有限 Token 误变成永不过期；Token Endpoint 和数据面始终使用 DIRECT/全局代理，失败无隐式直连回退。Worker 在 Draining 退出，已经进入串行发布的 CAS 按关键任务边界完成或在 Forced 取消。
 - Codex OAuth 账号新增 `GET /api/admin/oauth/accounts/{id}/quota` 与 `POST /api/admin/oauth/accounts/{id}/quota/reset`；Provider 固定调用 ChatGPT `wham/usage`、reset-credit 查询和 consume Endpoint，Runtime 复用 OAuth 代理/严格 SSRF、401 单次刷新和有界正文读取。
 - 重置前由服务端重新查询 `available_count`，无可用次数时返回结构化 409，不能仅依赖浏览器旧状态；每个账号的 reset 操作串行化，成功消费后只清除该账号当前 generation 的额度/限流临时冷却并唤醒 scheduler，不清除认证错误或其他账号状态。
-- 额度响应只返回主/次窗口、可用次数、到期时间、抓取时间和重置窗口数，不写入 OAuth JSON、SQLite、RequestLog、日志或浏览器持久存储；Claude 明确不显示额度入口。管理 Web 将账号列表刷新与额度刷新分开，确认消费后自动重新查询。
-- OAuth 账号集合已移除客户端分页，改用共享响应式 `VirtualGrid` 按动态网格行渲染完整 Provider 集合；Codex 页面新增“刷新全部额度”，覆盖禁用和离屏账号，最多 6 并发并汇总部分失败。额度 Query cache、批量进度与 reset mutation pending 独立于虚拟行挂载，滚动卸载不会取消批量请求，reset 后读取失败也不会保留旧快照。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
-- React `/oauth` 已接入账号列表、标签/可选 RPM/启停编辑、模型替换、删除确认、过期提示和 URL deep link；登录成功后刷新账号列表，Token 与原始 JSON 不进入浏览器状态。真实 Chromium 已覆盖桌面 deep link、空账号态、390px 导航关闭和无横向溢出；仍需用预置 OAuth 账号夹具覆盖浏览器内编辑/删除。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
+- 通用额度响应使用带稳定 ID 的窗口列表，只返回已验证的使用率、窗口维度、重置时间、可选全局状态和 Codex reset credit，不写入 OAuth JSON、SQLite、RequestLog、日志或浏览器持久存储。Codex 支持查询与重置；Claude 显示 5 小时、7 天及可选模型窗口；Grok 显示 credits 或探测得到的 requests/tokens 窗口。
+- OAuth 账号集合已移除客户端分页，改用共享响应式 `VirtualGrid` 按动态网格行渲染完整 Provider 集合；Codex、Claude 与 Grok 页面都提供“刷新全部额度”，覆盖禁用和离屏账号，最多 6 并发并汇总部分失败。额度 Query cache、批量进度与 reset mutation pending 独立于虚拟行挂载，滚动卸载不会取消批量请求，reset 后读取失败也不会保留旧快照。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
+- React `/oauth` 已接入账号列表、标签/可选 RPM/启停编辑、可搜索模型多选与保存、删除确认、JSON 导入、三 Provider 额度、过期提示和 URL deep link；Token 与原始 JSON 不进入管理响应或浏览器持久状态。真实 Chromium 使用假 Token 经真实导入、SQLite 和发布链覆盖桌面/390px 编辑、模型保存后刷新、删除确认、deep link、额度控件和无横向溢出。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
 ### Grok Provider 与 OAuthAccount 切片
 
@@ -429,10 +431,23 @@
 - Provider 源码按 `codex/`、`claude/`、`grok/` feature 目录归档；Provider 根目录只保留跨 Provider 的稳定 API、Registry、错误、Secret 与 OAuth/Routing 通用模块。
 - Provider Web 增加 Grok 分类、xAI 默认地址与三列窄屏切换；总览聚合与请求日志空态识别 Grok，不展示逐账号运行态详情。完整决策见 `docs/adr/0040-grok-api-key-provider.md`。
 
+### OAuth JSON 导入与三 Provider 额度切片
+
+- `POST /api/admin/oauth/import` 接受最多 32 个 JSON 文件和单文件多账号 envelope，兼容已审计的 CLIProxyAPI/Sub2API Codex、Claude 与 xAI/Grok OAuth 结构；全部账号先规范化，再在一个 SQLite 事务、一次 revision 和一次快照切换中原子发布。
+- 上传文件只存在于导入抽屉局部状态，提交开始、失败、关闭或卸载都会清空；服务端不保留文件副本，不提供 OAuth JSON 读取、下载或导出端点。
+- Grok 先读取 xAI unified billing；缺少权威百分比时发送一次最小 Responses 探测并只读取额度 Header。Claude 固定读取 Anthropic OAuth usage 并保留全部有效窗口；两者均只读且不提供 reset。
+- Provider、Runtime、Storage、HTTP、Web 与真实浏览器测试覆盖外部 JSON 解析、整批回滚、脱敏 DTO、额度窗口解析、代理/401 刷新边界和账号管理工作流。完整决策见 ADR-0044、ADR-0045 与 ADR-0046。
+
+### Feature-first 目录收敛切片
+
+- Domain、Protocol、Provider、Runtime、Storage、Server、Transport、App 与 xtask 已按 feature/工作流归档；crate 根目录只保留稳定入口、一级领域地图和少量跨 feature 基础类型。
+- Runtime OAuth 分为 login/import/quota/refresh，Server OAuth 分为 account/login/import/quota；请求日志仓储、Responses → Chat 请求转换和 Reqwest Transport 已按职责拆分。
+- 已无含义不明的生产 `service.rs`、`manager.rs`、`utils.rs` 或 `common.rs`，也无旧式 `#[path = "...tests.rs"]`；源文件体积 allowlist 为空。完整决策见 ADR-0047。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
-- Credential 模型配置、内部 ModelRoute 物化、公开 `/v1/models`、同协议 JSON/SSE 请求、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
+- Credential 模型配置、内部 ModelRoute 物化、公开 `/v1/models`、同协议 JSON/SSE、Chat Completions 入口与 Responses → Chat Completions 桥、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析和固定目标连接。Provider Base URL 可直接指向 HTTP(S) 公网或内网目标。
 - 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、OAuth refresh、request logging、file logging 与 shutdown 共 49 项 SettingRegistry。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
@@ -446,9 +461,9 @@
 
 ## 下一步
 
-1. 为真实二进制 E2E 增加安全的预置 OAuthAccount 测试夹具，覆盖桌面/窄屏账号编辑、模型抽屉、删除确认、额度刷新/重置确认、deep link 和页面/浏览器状态中无 Token。
-2. 使用实际 Codex、Claude 与 Grok 管理员账号分别完成一次人工登录、自动刷新和 401 恢复，并完成 Codex 额度查询 smoke；只有 Codex 账号确有 reset credit 时才人工执行一次重置，步骤需要外部账号授权，不把 Token 写入测试产物或日志。
-3. 未来如需 Provider 专用 OAuth2 JSON 导入、通用 Secret 导出或 `/backend-api/codex/responses` 客户端别名，必须另建切片/ADR，不能把 OAuthAccount 隐式接入 ProviderCredential。
+1. 使用实际 Codex、Claude 与 Grok 账号分别完成人工登录、JSON/SSE 数据面、自动刷新和 retry-safe 401 单次恢复，并 smoke 三 Provider 额度查询；只有 Codex 账号确有 reset credit 时才人工执行一次重置。该步骤需要外部账号授权，Token 不得写入测试产物或日志。
+2. 在 Unix CI 中增加真实子进程 SIGTERM 回归，补齐目前由单元测试和 Windows Ctrl-C 子进程测试覆盖的停机信号矩阵。
+3. `/backend-api/codex/responses`、Codex WebSocket、内建 Rustls listener及 Codex/OpenAI ↔ Claude 双向转换仍是明确的后续范围；通用 Secret 导入导出继续永久禁止。
 
 ## 验证结果
 
@@ -470,4 +485,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、架构检查和 `cargo deny --offline check`。Web 已通过 typecheck、lint、129 项 Vitest、production build、内嵌产物一致性检查与 3 项真实 Chromium E2E。Grok 回归覆盖 Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、migration 16→24、migration 23 完整引用图保留和 `foreign_key_check`；登录页样式已按画布、表单与环境动效拆分，消除既有 `globals.css` 文件体积门禁。
+当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex/Claude/Grok 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、架构检查和 `cargo deny --offline check`。Web 已通过 typecheck、lint、44 个文件共 139 项 Vitest、production build、内嵌产物一致性检查与 4 项真实 Chromium E2E。Grok 回归覆盖 Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、migration 16→25、完整 Provider/OAuth 引用图保留和 `foreign_key_check`；登录页样式已按画布、表单与环境动效拆分，消除既有 `globals.css` 文件体积门禁。

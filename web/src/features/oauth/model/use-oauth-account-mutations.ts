@@ -2,9 +2,14 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
   OAuthAccountConfiguration,
+  OAuthAccountModelsInput,
   OAuthAccountUpdateInput,
 } from "../api/oauth-contracts";
-import { deleteOAuthAccount, updateOAuthAccount } from "../api/oauth-api";
+import {
+  deleteOAuthAccount,
+  setOAuthAccountModels,
+  updateOAuthAccount,
+} from "../api/oauth-api";
 import { oauthQueryKeys } from "./oauth-query-keys";
 
 export function useOAuthAccountMutations() {
@@ -44,10 +49,18 @@ export function useOAuthAccountMutations() {
     onError: refreshAfterFailure,
     retry: false,
   });
+  const models = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: OAuthAccountModelsInput }) =>
+      setOAuthAccountModels(id, input),
+    onSuccess: publish,
+    onError: refreshAfterFailure,
+    retry: false,
+  });
 
   return {
     update,
     remove,
-    isPending: update.isPending || remove.isPending,
+    models,
+    isPending: update.isPending || remove.isPending || models.isPending,
   };
 }

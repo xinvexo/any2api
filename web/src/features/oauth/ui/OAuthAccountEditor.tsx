@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from "react";
 
 import type { OAuthAccount } from "../api/oauth-contracts";
-import { presentOAuthAccount } from "../model/oauth-account-presentation";
 import { getOAuthErrorMessage } from "../model/oauth-error";
 import { OAuthModelCatalog } from "./OAuthModelCatalog";
 import { Button } from "@/shared/ui/Button";
@@ -15,6 +14,7 @@ export function OAuthAccountEditor({
   pending,
   error,
   onSaveMetadata,
+  onSaveModels,
   onClose,
 }: {
   account: OAuthAccount;
@@ -26,6 +26,7 @@ export function OAuthAccountEditor({
     requestsPerMinute: number | null;
     enabled: boolean;
   }) => Promise<void>;
+  onSaveModels: (models: string[]) => Promise<void>;
   onClose: () => void;
 }) {
   const [label, setLabel] = useState(account.label);
@@ -50,7 +51,13 @@ export function OAuthAccountEditor({
 
   if (mode === "models") {
     return (
-      <OAuthModelCatalog presentation={presentOAuthAccount(account)} onClose={onClose} />
+      <OAuthModelCatalog
+        account={account}
+        pending={pending}
+        error={error}
+        onSave={onSaveModels}
+        onClose={onClose}
+      />
     );
   }
 

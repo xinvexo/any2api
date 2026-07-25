@@ -749,9 +749,9 @@ oauth_account_models
 
 OAuthAccount is deliberately separate from `provider_credentials`: it has no configurable Provider Endpoint and no API Key Secret envelope. The JSON uses the Provider-specific schema; the repository validates Provider, access token, required account metadata, expiry representation, and bounded size before it can be published. OAuth JSON is plaintext in SQLite by explicit product decision, but must never appear in logs, DTOs, Debug, browser storage, or an export API.
 
-Codex and Claude accounts compile to fixed Provider-owned routing profiles. Their selected models, DIRECT/global-proxy resolution, optional `requests_per_minute`, enabled state, generations, and health participate in the same `RoutingCredential` projection as API-key Credentials. The scheduler never branches on whether that projection originated from `ProviderCredential` or `OAuthAccount`.
+Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profile。它们的已选模型、DIRECT/全局代理解析、可选 `requests_per_minute`、启用状态、代际和健康状态与 API Key Credential 一起进入同一个 `RoutingCredential` 投影。调度器不根据投影来自 `ProviderCredential` 还是 `OAuthAccount` 增加分支。
 
-Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。Claude 固定路由基址为 `https://api.anthropic.com/v1`，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。固定基址、方言和目录只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。
+Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。Claude 固定路由基址为 `https://api.anthropic.com/v1`，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选，并使用 Driver 注册的文本模型目录。固定基址、方言和目录只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。
 
 ### 9.5 内部 ModelRoute
 
@@ -1266,7 +1266,7 @@ trait ProtocolBridgeSession: Send {
 - 只有统一调度器选中的 ProviderCredential 或 OAuthAccount 可以重新注入上游认证字段；
 - Gateway Key 永远不会被转发给 Provider，也不能影响任何上游路由凭据的选择。
 
-首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。当前同协议 JSON 切片已接入 Responses、Responses Compact、Messages 和 Count Tokens。
+首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。Responses、Responses Compact、Chat Completions、Messages 和 Count Tokens 均已接入；只有显式配置的 Responses → Chat Completions 组合进入协议桥。
 
 协议适配器只向上游转发明确允许的协议能力头；当前首版保留 Claude `anthropic-beta`，Provider Driver 仍负责覆盖上游认证和固定版本头。
 
@@ -2076,7 +2076,7 @@ SQLite 只持久化：
 
 - Proxy、Provider、Credential、Credential 模型选择、内部物化模型路由和系统设置；
 - OAuthAccount 元数据、模型集合和明文 Provider JSON；
-- `GatewayApiKey` 摘要；
+- `GatewayApiKey` 明文 token 与用于常量时间认证的校验摘要；
 - 必须跨重启保留的上游 API Key Secret；
 - 可选的请求日志与管理审计日志。
 
@@ -2381,8 +2381,8 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 ### 19.6 网关密钥
 
 - 创建多个 `GatewayApiKey`；
-- 创建完成后仅显示一次完整密钥；
-- 显示名称、密钥前缀、创建时间、最后使用时间和启用状态；
+- 管理列表与编辑抽屉始终显示完整密钥，可直接修改或生成替换值；
+- 显示名称、完整密钥、创建时间、最后使用时间和启用状态；
 - 分别禁用、重新启用或物理删除网关密钥；
 - 支持为客户端轮换密钥，不要求停用其他网关密钥；
 - 网关密钥不提供选择或绑定上游 `ProviderCredential` 的配置项；
@@ -2678,8 +2678,8 @@ Generic Config/Secret Import/Export = Disabled
 Provider OAuth JSON Import = OAuthAccount-only + Canonicalize + Atomic Batch Publish
 OAuth2 JSON = OAuthAccount-only SQLite persistence, no read/download/export
 
-Gateway API Key = Server-Generated CSPRNG Token + Vault-Keyed HMAC Digest
-Gateway Token Plaintext = Create/Rotate Response Once Only
+Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Vault-Keyed HMAC Digest
+Gateway Token Plaintext = Visible In Authenticated Management Responses, Never In Logs
 Public Ingress Auth = Same PublishedSnapshot Revision + Header Strip Before Driver
 
 New Feature ──> New Module + Stable Interface + Contract Test

@@ -22,17 +22,18 @@
 ## 3. 首个正式版本范围
 
 - 后端：Rust；HTTP 框架：Axum/Tokio；前端：React + TypeScript。
-- Provider 只实现 Codex 和 Claude。
+- Provider 实现 Codex、Claude 和 Grok。
 - 上游 `ProviderCredential` 只支持 API Key；OAuth2 账号独立管理，但在运行时与 Provider API Key 编译到同一个路由候选池。
 - 实现：
   - `GET /v1/models`
   - `POST /v1/responses`
   - `POST /v1/responses/compact`
+  - `POST /v1/chat/completions`
   - `POST /v1/messages`
   - `POST /v1/messages/count_tokens`
 - 首版不实现 `/backend-api/codex/responses`、Codex WebSocket 和 Codex/Claude 双向跨协议路由。
-- 首版只允许同协议路由：Responses → Responses，Messages → Messages。
-- 公开模型名不强制 `codex/`、`claude/` 前缀；默认等于上游模型名，可配置本地别名。
+- 首版允许 Responses → Responses、Responses → Chat Completions、Chat Completions → Chat Completions 和 Messages → Messages；不注册其他跨协议组合。
+- 公开模型名不强制 Provider 前缀，首版固定等于上游模型名，不提供别名编辑。
 
 ## 4. 两类 Key 必须严格隔离
 
@@ -118,7 +119,7 @@
 
 ## 10. 安全与持久化
 
-- SQLite 只持久化配置、必要凭据、Gateway Key 摘要、OAuthAccount 原始 JSON 和可选历史日志。
+- SQLite 只持久化配置、必要凭据、Gateway Key 明文与校验摘要、OAuthAccount 原始 JSON 和可选历史日志。
 - RPM 滚动窗口、`in_flight`、等待队列、健康、冷却、熔断、会话和请求进度不得持久化。
 - Provider API Key、代理密码等现有 Secret 使用版本化 AEAD 加密；主密钥位于数据库外，缺失或错误时启动失败。OAuth Token 是明确的明文 SQLite 例外，但仍禁止进入日志、DTO、Debug 或浏览器状态。
 - 管理 DTO 对 Provider Secret 默认只返回指纹或尾号，创建时仅展示一次；`GatewayApiKey` 例外：明文持久化，管理列表始终可查看。
