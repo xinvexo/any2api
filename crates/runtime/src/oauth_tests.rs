@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use any2api_domain::ProviderKind;
-use any2api_provider::api::{OAuthTokenMaterial, serialize_file};
+use any2api_provider::api::{OAuthTokenMaterial, serialize_document};
 
 use super::{
     callback,
@@ -55,7 +55,7 @@ fn oauth_callback_rejects_state_and_redirect_mismatches() {
 }
 
 #[test]
-fn oauth_files_use_provider_specific_shapes() {
+fn oauth_documents_use_provider_specific_shapes() {
     let codex = OAuthTokenMaterial::new(
         ProviderKind::Codex,
         "access-secret".into(),
@@ -66,12 +66,13 @@ fn oauth_files_use_provider_specific_shapes() {
         Some("person@example.com".into()),
     )
     .expect("Codex token");
-    let codex_file = String::from_utf8(
-        serialize_file(&codex, "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z").expect("Codex file"),
+    let codex_document = String::from_utf8(
+        serialize_document(&codex, "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+            .expect("Codex document"),
     )
-    .expect("UTF-8 file");
-    assert!(codex_file.contains("\"account_id\": \"account-123\""));
-    assert!(codex_file.contains("\"type\": \"codex\""));
+    .expect("UTF-8 document");
+    assert!(codex_document.contains("\"account_id\": \"account-123\""));
+    assert!(codex_document.contains("\"type\": \"codex\""));
 
     let claude = OAuthTokenMaterial::new(
         ProviderKind::Claude,
@@ -83,12 +84,31 @@ fn oauth_files_use_provider_specific_shapes() {
         Some("claude@example.com".into()),
     )
     .expect("Claude token");
-    let claude_file = String::from_utf8(
-        serialize_file(&claude, "2026-01-01T00:00:00Z", "").expect("Claude file"),
+    let claude_document = String::from_utf8(
+        serialize_document(&claude, "2026-01-01T00:00:00Z", "").expect("Claude document"),
     )
-    .expect("UTF-8 file");
-    assert!(!claude_file.contains("account_id"));
-    assert!(claude_file.contains("\"type\": \"claude\""));
+    .expect("UTF-8 document");
+    assert!(!claude_document.contains("account_id"));
+    assert!(claude_document.contains("\"type\": \"claude\""));
+
+    let grok = OAuthTokenMaterial::new(
+        ProviderKind::Grok,
+        "grok-access-secret".into(),
+        Some("grok-refresh-secret".into()),
+        Some("grok-id-secret".into()),
+        Some(1_700_000_000),
+        Some("grok-subject".into()),
+        Some("grok@example.com".into()),
+    )
+    .expect("Grok token");
+    let grok_document = String::from_utf8(
+        serialize_document(&grok, "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z")
+            .expect("Grok document"),
+    )
+    .expect("UTF-8 document");
+    assert!(grok_document.contains("\"sub\": \"grok-subject\""));
+    assert!(grok_document.contains("\"type\": \"grok\""));
+    assert!(!format!("{grok:?}").contains("grok-access-secret"));
 }
 
 #[test]

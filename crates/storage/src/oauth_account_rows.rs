@@ -131,6 +131,7 @@ fn parse_provider_kind(value: &str) -> Result<ProviderKind, StorageError> {
     match value {
         "codex" => Ok(ProviderKind::Codex),
         "claude" => Ok(ProviderKind::Claude),
+        "grok" => Ok(ProviderKind::Grok),
         _ => Err(StorageError::CorruptConfiguration),
     }
 }

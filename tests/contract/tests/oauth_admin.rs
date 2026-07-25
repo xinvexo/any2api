@@ -68,7 +68,7 @@ async fn oauth_start_is_loopback_protected_and_does_not_publish_configuration() 
     assert_eq!(start["redirect_uri"], "http://localhost:1455/auth/callback");
     assert_eq!(start["expires_in_seconds"], 600);
 
-    let (status, unsupported) = request_json(
+    let (status, grok_start) = request_json(
         app,
         Method::POST,
         "/api/admin/oauth/start",
@@ -76,8 +76,18 @@ async fn oauth_start_is_loopback_protected_and_does_not_publish_configuration() 
         loopback,
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(unsupported["error"]["code"], "oauth_provider_unsupported");
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(grok_start["provider"], "grok");
+    assert!(
+        grok_start["authorization_url"]
+            .as_str()
+            .is_some_and(|url| url.starts_with("https://auth.x.ai/oauth2/authorize?"))
+    );
+    assert_eq!(
+        grok_start["redirect_uri"],
+        "http://127.0.0.1:56121/callback"
+    );
+    assert_eq!(grok_start["expires_in_seconds"], 600);
 
     let configuration = storage.load_configuration().await.expect("configuration");
     assert_eq!(configuration.revision().get(), 1);

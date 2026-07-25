@@ -6,7 +6,7 @@
 ## 当前状态
 
 - 当前阶段：API Key 数据面、OpenAI 协议桥、Grok API Key Provider 和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新、Codex 额度查询/重置和管理 Web，正在收尾带真实账号夹具的浏览器验收。
-- 最近完成：Grok 作为 API Key-only OpenAI 兼容 Provider 接入统一 Registry、SQLite、Vault AAD、路由候选池、管理 API、Provider Web 和总览聚合；OAuth 继续只允许 Codex/Claude。
+- 最近完成：Grok OAuthAccount 通过 PKCE 登录、明文 SQLite 持久化、刷新与统一路由候选池接入；Grok API Key 与 OAuth 管理模型保持分离，仅在通用 `RoutingCredential` 投影处合流。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -17,7 +17,7 @@
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
 - 上一切片提交主题：`feat: embed the management web app`。
-- 本切片主题：Grok API Key Provider 接入。
+- 本切片主题：Grok OAuthAccount 接入与 Provider feature 目录归档。
 
 ## 已完成
 
@@ -395,15 +395,15 @@
 ### OAuthAccount 与统一路由切片（核心完成）
 
 - `ProviderCredential` 继续只接受 `api_key`；旧 OAuth Credential migration 保持不可变，Provider 页面不增加 OAuth 类型或入口。
-- OAuth 登录继续使用 Codex/Claude Provider Driver 的固定 authorize/token Endpoint、Client ID、localhost Redirect URI、PKCE 及内存单次 session；HTTP exchange 已取消附件下载并通过串行发布链创建 SQLite `OAuthAccount`。
+- OAuth 登录使用 Codex/Claude/Grok Provider Driver 的固定 authorize/token Endpoint、Client ID、localhost Redirect URI、PKCE 及内存单次 session；HTTP exchange 不产生附件下载，并通过串行发布链创建 SQLite `OAuthAccount`。
 - 已新增独立 `OAuthAccount` SQLite 聚合，明文保存 Provider JSON、账号安全元数据、模型、启用状态、可选 RPM、token/configuration/generation 版本；原始 JSON 不进 Vault、日志、DTO、浏览器状态或导出接口。
 - Storage 已实现全局 revision 串行写、账号 config-version 冲突、token-version CAS、刷新时模型保留、DIRECT 固定绑定、重启恢复和损坏 JSON fail-closed；ProviderCredential 表与 API-key-only 约束未改变。
 - 激活使用发布快照解析后的 DIRECT/全局代理并继承严格 SSRF 设置，失败不回退本机直连；多个同时完成的登录在发布锁内逐个读取最新 revision，均可完成 Commit/reconcile/快照切换。
 - 激活回执只包含 Provider、账号 ID、标签、启用状态、可选 RPM、过期时间、安全邮箱、模型数、配置版本和新 revision；Web 仅保存该回执的页面内状态，不再创建 Blob、下载 Token JSON 或写浏览器存储。
 - `/api/admin/oauth/accounts` 提供独立于 ProviderCredential 的安全列表、元数据 PATCH、模型 PUT 和带版本删除；管理 DTO 不接受或返回 OAuth JSON/Token/Endpoint/代理字段，所有写操作经过同一串行发布链。
-- Provider Driver 已提供固定 OAuth 数据面与模型目录：Codex 使用 `https://chatgpt.com/backend-api/codex` 并按账号套餐选择目录，Claude 使用 `https://api.anthropic.com/v1`；账号只能保存该 Provider 目录内的模型，新激活账号默认选择可用目录。
+- Provider Driver 已提供固定 OAuth 数据面与模型目录：Codex 使用 `https://chatgpt.com/backend-api/codex` 并按账号套餐选择目录，Claude 使用 `https://api.anthropic.com/v1`，Grok 使用 `https://cli-chat-proxy.grok.com/v1`；账号只能保存该 Provider 目录内的模型，新激活账号默认选择可用目录。
 - Runtime 新增带来源标签的 `RoutingCredentialId` 与统一 `RoutingCredential` 投影；Provider API Key 和 OAuthAccount 共用稳定 Handle、原子选择+RPM 预留、排队、粘性、健康、重试与流式生命周期，OAuth 不再伪装成 ProviderCredential ID。
-- OAuthAccount 固定绑定 DIRECT 并继承已发布全局代理；Codex 注入 Bearer、`Chatgpt-Account-Id` 与 `Originator`，Claude 注入 Bearer、固定 `anthropic-version` 并合并所需 OAuth beta，Gateway 认证头仍在进入 Driver 前剥离。
+- OAuthAccount 固定绑定 DIRECT 并继承已发布全局代理；Codex 注入 Bearer、`Chatgpt-Account-Id` 与 `Originator`，Claude 注入 Bearer、固定 `anthropic-version` 并合并所需 OAuth beta，Grok 注入 Bearer 与固定 xAI CLI 身份头；Gateway 认证头仍在进入 Driver 前剥离。
 - `/v1/models` 已合并 OAuth-only 模型；请求规划可在没有 ProviderEndpoint/ProviderCredential 时使用 OAuth 固定路由，同模型 API Key 与 OAuth 账号进入同一候选池。账号到期状态按请求时间动态判断，过期账号不进入目录或调度。
 - RequestLog/Attempt 使用独立 `oauth_account_id` 标识 OAuth 来源，`credential_id` 与内部固定 `provider_endpoint_id` 保持为空；Balancing、Affinity 与对应 Web 契约均使用来源标签，OAuth 清理令牌固定为 `oauth_account:<uuid>`。
 - Provider API Key 与 OAuthAccount 管理响应新增按带来源标签的最终 RequestLog 聚合：总请求、成功、失败和最近 24 次状态；中间重试只保留在 Attempt 时间线，不重复计数。该统计与 Gateway API Key 统计并存，只覆盖日志保留窗口且不参与路由、额度或计费。
@@ -417,13 +417,16 @@
 - OAuth 账号集合已移除客户端分页，改用共享响应式 `VirtualGrid` 按动态网格行渲染完整 Provider 集合；Codex 页面新增“刷新全部额度”，覆盖禁用和离屏账号，最多 6 并发并汇总部分失败。额度 Query cache、批量进度与 reset mutation pending 独立于虚拟行挂载，滚动卸载不会取消批量请求，reset 后读取失败也不会保留旧快照。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 - React `/oauth` 已接入账号列表、标签/可选 RPM/启停编辑、模型替换、删除确认、过期提示和 URL deep link；登录成功后刷新账号列表，Token 与原始 JSON 不进入浏览器状态。真实 Chromium 已覆盖桌面 deep link、空账号态、390px 导航关闭和无横向溢出；仍需用预置 OAuth 账号夹具覆盖浏览器内编辑/删除。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
-### Grok API Key Provider 切片
+### Grok Provider 与 OAuthAccount 切片
 
 - 新增 `ProviderKind::Grok` 与独立 `GrokDriver`，使用 xAI Bearer API Key；支持 OpenAI Responses、Responses Compact、Chat Completions、JSON/SSE 和标准 `GET /models`，Web 默认 Base URL 为 `https://api.x.ai/v1`。
 - Composition Root 和 Registry 契约枚举 Grok；配置能力由 Driver/Protocol Registry 推导，Runtime 调度、RPM、粘性、健康、重试、代理、流式生命周期和遥测没有增加 Provider 分支。
 - Codex 与 Grok 共享具名 OpenAI 错误分类和 Bearer Header 构造，Claude 保持独立 Anthropic 行为；Provider Secret Vault 为 Grok 固定分配稳定 AAD code `3`。
 - Migration 0024 前向重建受 `provider_endpoints` 外键影响的配置与日志表，完整保留 Credential、模型、Route、RequestLog、Attempt、索引和外键；既有 Migration 未修改，migration 16 升级回归与 `foreign_key_check` 已覆盖。
-- `oauth_accounts` CHECK、OAuth Web 类型和 Provider JSON Schema 仍只允许 Codex/Claude；领域 `OAuthAccount`、SQLite OAuth 文档与真实 OAuth 管理 HTTP 契约都显式拒绝 Grok。
+- Migration 0025 前向重建 OAuthAccount 与请求日志相关外键图，在保留账号、模型、RequestLog、Attempt、索引和级联语义的同时允许 Grok；既有 Migration 不修改，`foreign_key_check` 与升级回归已覆盖。
+- Grok OAuth 使用 Authorization Code + PKCE，固定 xAI CLI authorize/token Endpoint、Client ID、localhost callback、scope、数据面与身份头；Token 原始 JSON 作为独立 `OAuthAccount` 明文保存在 SQLite，不进入 Vault、管理 DTO、日志、浏览器状态或下载文件。
+- Grok OAuth 首版只参与 Responses；API Key 与 OAuthAccount 仍通过同一 Registry 和通用 `RoutingCredential` 投影复用 RPM、排队、粘性、健康、重试、代理和流式生命周期，不复制第二套调度实现。
+- Provider 源码按 `codex/`、`claude/`、`grok/` feature 目录归档；Provider 根目录只保留跨 Provider 的稳定 API、Registry、错误、Secret 与 OAuth/Routing 通用模块。
 - Provider Web 增加 Grok 分类、xAI 默认地址与三列窄屏切换；总览聚合与请求日志空态识别 Grok，不展示逐账号运行态详情。完整决策见 `docs/adr/0040-grok-api-key-provider.md`。
 
 ## 当前边界
@@ -444,7 +447,7 @@
 ## 下一步
 
 1. 为真实二进制 E2E 增加安全的预置 OAuthAccount 测试夹具，覆盖桌面/窄屏账号编辑、模型抽屉、删除确认、额度刷新/重置确认、deep link 和页面/浏览器状态中无 Token。
-2. 使用实际 Codex 与 Claude 管理员账号分别完成一次人工登录、自动刷新、401 恢复和 Codex 额度查询 smoke；只有账号确有 reset credit 时才人工执行一次重置，步骤需要外部账号授权，不把 Token 写入测试产物或日志。
+2. 使用实际 Codex、Claude 与 Grok 管理员账号分别完成一次人工登录、自动刷新和 401 恢复，并完成 Codex 额度查询 smoke；只有 Codex 账号确有 reset credit 时才人工执行一次重置，步骤需要外部账号授权，不把 Token 写入测试产物或日志。
 3. 未来如需 Provider 专用 OAuth2 JSON 导入、通用 Secret 导出或 `/backend-api/codex/responses` 客户端别名，必须另建切片/ADR，不能把 OAuthAccount 隐式接入 ProviderCredential。
 
 ## 验证结果

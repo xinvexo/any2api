@@ -1,4 +1,4 @@
-use any2api_provider::api::{OAuthTokenMaterial, serialize_file};
+use any2api_provider::api::{OAuthTokenMaterial, serialize_document};
 use any2api_storage::api::OAuthAccountDocument;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
@@ -12,7 +12,7 @@ pub(super) fn serialize(token: &OAuthTokenMaterial) -> Result<OAuthAccountDocume
         .map(format_timestamp)
         .transpose()?
         .unwrap_or_default();
-    let bytes = serialize_file(token, &last_refresh, &expired)
+    let bytes = serialize_document(token, &last_refresh, &expired)
         .map_err(|_| OAuthError::DocumentSerialization)?;
     OAuthAccountDocument::new(token.provider(), bytes.into())
         .map_err(|_| OAuthError::DocumentSerialization)

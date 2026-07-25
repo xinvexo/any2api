@@ -28,7 +28,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 当前已经确认的需求如下：
 
 1. 后端使用 Rust，前端使用 React Web。
-2. 首批支持 Codex、Claude 和 Grok；Grok 只使用 API Key，不进入 OAuthAccount。
+2. 首批支持 Codex、Claude 和 Grok；三者的上游 `ProviderCredential` 都只使用 API Key，三者也都可以通过独立 `OAuthAccount` 接入订阅账号。
 3. 一个 Provider URL 可以配置多个独立 `ProviderCredential`；当前只支持 API Key。
 4. 每个 `ProviderCredential` 可以分别启用、禁用、绑定代理和设置可选 RPM；未设置时不做本地限速。
 5. 代理类型仅支持：
@@ -667,7 +667,7 @@ Driver 解析，只向管理面返回排序去重后的模型 ID，不返回原�
 ```text
 oauth_accounts
 ├─ id
-├─ provider_kind                # codex | claude
+├─ provider_kind                # codex | claude | grok
 ├─ label
 ├─ oauth_json                   # plaintext Provider JSON, never returned by DTO
 ├─ token_version                # OAuth material CAS version
@@ -997,7 +997,7 @@ ProxyRuntime
 
 - Codex
 - Claude
-- Grok（xAI，API Key only）
+- Grok（xAI，API Key + 独立 OAuthAccount）
 
 首批协议模块：
 
@@ -1008,9 +1008,26 @@ protocol/
 
 provider/
 ├─ codex/
+│  ├─ mod.rs
+│  ├─ driver.rs
+│  ├─ oauth.rs
+│  ├─ quota.rs
+│  └─ tests.rs
 ├─ claude/
-└─ grok/
+│  ├─ mod.rs
+│  ├─ driver.rs
+│  ├─ oauth.rs
+│  ├─ error.rs
+│  └─ tests.rs
+├─ grok/
+│  ├─ mod.rs
+│  ├─ driver.rs
+│  ├─ oauth.rs
+│  └─ tests.rs
+└─ <shared provider infrastructure>
 ```
+
+每个具体 Provider 的 Driver、OAuth、额度、错误差异和测试必须收拢在自己的 feature 目录下；`provider/src` 根目录只保留 Registry、稳定 API、共享 API Key/HTTP 错误工具等跨 Provider 基础设施。新增 Provider 不得继续增加 `provider_name_*.rs` 平铺文件，也不保留旧平铺模块的兼容转发层。
 
 ### 11.1 Provider 与协议方言不是同一概念
 
@@ -1236,7 +1253,11 @@ trait ProtocolBridgeSession: Send {
 
 有效上游协议等于接受协议时优先采用原始 JSON 透传加局部字段修改，保留未知字段。只有显式配置不同内部协议时才进入 Canonical IR。
 
-Codex、Claude 与 Grok 的上游 `ProviderCredential` 当前都只支持 API Key。Grok 不支持 OAuthAccount；OAuthAccount 仍只允许 Codex 与 Claude，其 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。普通 API Key 管理端点不接受 OAuth JSON。
+Codex、Claude 与 Grok 的上游 `ProviderCredential` 当前都只支持 API Key。三者的 OAuth 登录结果都只能创建独立 `OAuthAccount`，其 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。普通 API Key 管理端点不接受 OAuth JSON。
+
+Grok OAuth 使用 xAI 公共客户端的 Authorization Code + PKCE 流程，Token Endpoint 为 `https://auth.x.ai/oauth2/token`，请求 `openid profile email offline_access grok-cli:access api:access` scope。登录、刷新与数据面都固定使用 OAuthAccount 的 DIRECT/全局代理路径。Grok API Key 继续使用管理员 Endpoint（官方默认 `https://api.x.ai/v1`）；Grok OAuth 则使用固定订阅数据面 `https://cli-chat-proxy.grok.com/v1`，并由 Grok Driver 注入 Bearer Token 与 xAI CLI 客户端身份头。两类凭据只在通用 `RoutingCredential` 投影处合流。
+
+Grok 订阅数据面首版只加入 OpenAI Responses 的 OAuth 候选；它不宣称支持原生 `/responses/compact`，也不借 OAuth 开放 Chat Completions 候选。Grok OAuth 的可选模型目录使用 Provider 内置且可测试的文本模型集合，不包含首版没有公开入口的图片、视频或其他媒体模型。
 
 ## 12. 负载均衡
 
@@ -2464,7 +2485,15 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - xAI Bearer API Key、`https://api.x.ai/v1` 默认 Base URL 与 `GET /models`；
 - OpenAI Responses、Responses Compact 和 Chat Completions 的 JSON/SSE 现有协议链；
 - 复用统一 RPM、轮询、粘性、健康、重试、代理与遥测，不增加中央调度分支；
-- OAuthAccount 继续只允许 Codex/Claude。完整决策见 `docs/adr/0040-grok-api-key-provider.md`。
+- API Key 与 OAuthAccount 管理边界保持分离。API Key 基础决策见 `docs/adr/0040-grok-api-key-provider.md`。
+
+### 阶段 3.2：Grok OAuthAccount
+
+- xAI Authorization Code + PKCE 登录、Token 刷新与安全账号元数据解析；
+- OAuth 原始 JSON 明文存入 SQLite，不进入 Vault、DTO、日志、浏览器存储或导出端点；
+- 固定 `https://cli-chat-proxy.grok.com/v1` Responses 数据面与 xAI CLI 身份头；
+- 与 Grok API Key 在通用 `RoutingCredential` 投影合流，共用 RPM、轮询、粘性、健康、重试、代理、流式生命周期和遥测；
+- 只前向 Migration 扩展 `oauth_accounts.provider_kind`，保留既有账号和外键完整性。完整决策见 `docs/adr/0041-grok-oauth-account.md`。
 
 ### 阶段 4：可靠性
 
@@ -2525,7 +2554,8 @@ OAuthAccount ──X ProviderEndpoint / ProviderCredential
 OAuthAccount ──> Fixed Provider Endpoint + DIRECT/Global Proxy + Selected Models
 OAuth Session/PKCE ──> Memory Only + 10 Minute TTL + One-Time Exchange
 OAuth Token ──> OAuthAccount SQLite JSON (Plaintext, No DTO/Log/Export)
-Grok ──> ProviderCredential API Key Only ──X OAuthAccount
+Grok ──> ProviderCredential API Key + Independent OAuthAccount
+Grok API Key / OAuthAccount ──> Shared RoutingCredential Pool
 
 any2api Instance 1 ── N GatewayApiKey
 GatewayApiKey ──> Instance Access Only

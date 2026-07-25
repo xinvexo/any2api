@@ -22,7 +22,7 @@ impl ProviderKind {
 
     #[must_use]
     pub const fn supports_oauth(self) -> bool {
-        matches!(self, Self::Codex | Self::Claude)
+        matches!(self, Self::Codex | Self::Claude | Self::Grok)
     }
 }
 

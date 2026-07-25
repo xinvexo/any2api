@@ -83,6 +83,9 @@ pub(super) fn add_oauth_candidates(
         let Some(driver) = providers.get(credential.provider_kind()) else {
             continue;
         };
+        if !driver.oauth_supports_operation(operation) {
+            continue;
+        }
         let capabilities = driver.capabilities();
         if !capabilities
             .protocols

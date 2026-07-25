@@ -1,3 +1,5 @@
+//! OpenAI/Codex OAuth contract.
+
 use any2api_domain::{ProtocolDialect, ProviderKind};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use http::{HeaderMap, HeaderValue, Method, header};

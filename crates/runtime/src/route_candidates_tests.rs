@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName,
-    TransportMode,
+    ConfigRevision, CredentialId, CredentialKind, OAuthAccountDraft, OAuthAccountId,
+    ProtocolDialect, ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName, TransportMode,
 };
 use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
-use any2api_provider::{CodexDriver, api::ProviderRegistry};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_provider::{CodexDriver, GrokDriver, api::ProviderRegistry};
+use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use tempfile::tempdir;
 
 use crate::{
@@ -15,7 +15,9 @@ use crate::{
     published_snapshot::{PublishedSnapshot, SnapshotStore},
     publisher::ConfigPublisher,
     registry::RuntimeRegistry,
-    route_candidates::build_route_candidates,
+    route_candidates::{
+        OAuthRoute, build_oauth_route_candidates, build_route_candidates, oauth_route_id,
+    },
 };
 
 #[tokio::test]
@@ -100,6 +102,91 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
         candidates_for(&snapshot, &providers, "model-second"),
         vec![second_id]
     );
+}
+
+#[tokio::test]
+async fn grok_oauth_routes_responses_but_not_compact() {
+    let directory = tempdir().expect("temporary directory");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("config.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let initial = storage.load_configuration().await.expect("configuration");
+    let runtime = Arc::new(RuntimeRegistry::new());
+    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
+        initial,
+        runtime.as_ref(),
+        crate::test_support::configuration_capabilities().provider_registry(),
+    )));
+    let publisher = ConfigPublisher::new(
+        Arc::clone(&storage),
+        Arc::clone(&snapshots),
+        Arc::clone(&runtime),
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
+    let account_id = OAuthAccountId::new();
+    let snapshot = publisher
+        .activate_oauth_account(
+            account_id,
+            ProviderKind::Grok,
+            OAuthAccountDraft::new("Grok OAuth", None, true).expect("OAuth draft"),
+            Some("grok@example.com".into()),
+            None,
+            vec!["grok-4.5".into()],
+            OAuthAccountDocument::new(
+                ProviderKind::Grok,
+                br#"{"type":"grok","access_token":"access-secret"}"#.to_vec().into(),
+            )
+            .expect("Grok OAuth document"),
+        )
+        .await
+        .expect("activate Grok OAuth account");
+
+    let mut providers = ProviderRegistry::new();
+    providers
+        .register(Arc::new(GrokDriver::new()))
+        .expect("Grok driver");
+    let mut protocols = ProtocolRegistry::new();
+    protocols
+        .register(Arc::new(OpenAiResponsesAdapter::new()))
+        .expect("Responses adapter");
+    let model = PublicModelName::new("grok-4.5").expect("public model");
+    let route = OAuthRoute::new(
+        oauth_route_id(ProtocolDialect::OpenAiResponses, &model),
+        ProtocolDialect::OpenAiResponses,
+        &model,
+    );
+
+    let responses = build_oauth_route_candidates(
+        &snapshot,
+        route,
+        &protocols,
+        &providers,
+        ProtocolOperation::Responses,
+        TransportMode::Json,
+    );
+    let candidate = responses
+        .values()
+        .flatten()
+        .next()
+        .expect("Grok OAuth Responses candidate");
+    assert_eq!(candidate.credential_id.oauth_account_id(), Some(account_id));
+    assert_eq!(
+        candidate.base_url.as_str(),
+        "https://cli-chat-proxy.grok.com/v1"
+    );
+
+    let compact = build_oauth_route_candidates(
+        &snapshot,
+        route,
+        &protocols,
+        &providers,
+        ProtocolOperation::ResponsesCompact,
+        TransportMode::Json,
+    );
+    assert!(compact.is_empty());
 }
 
 fn candidates_for(

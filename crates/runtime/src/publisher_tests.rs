@@ -412,7 +412,7 @@ fn oauth_document(provider: ProviderKind, access_token: &str) -> OAuthAccountDoc
     let provider_name = match provider {
         ProviderKind::Codex => "codex",
         ProviderKind::Claude => "claude",
-        ProviderKind::Grok => panic!("Grok is API Key-only"),
+        ProviderKind::Grok => "grok",
     };
     let bytes = format!(r#"{{"type":"{provider_name}","access_token":"{access_token}"}}"#)
         .into_bytes()

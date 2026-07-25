@@ -1,3 +1,5 @@
+//! Codex quota parsing and request contracts.
+
 use http::{Method, header};
 
 use super::*;

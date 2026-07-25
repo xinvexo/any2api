@@ -1,4 +1,9 @@
-import { ClaudeIcon, OpenAiIcon, type BrandIcon } from "@/shared/icons/brand-icons";
+import {
+  ClaudeIcon,
+  GrokIcon,
+  OpenAiIcon,
+  type BrandIcon,
+} from "@/shared/icons/brand-icons";
 
 import type { OAuthProvider } from "../api/oauth-contracts";
 
@@ -12,6 +17,7 @@ export interface OAuthProviderOption {
 export const OAUTH_PROVIDER_OPTIONS: readonly OAuthProviderOption[] = [
   { provider: "codex", label: "Codex", icon: OpenAiIcon },
   { provider: "claude", label: "Claude", icon: ClaudeIcon },
+  { provider: "grok", label: "Grok", icon: GrokIcon },
 ] as const;
 
 export function isOAuthProvider(value: string | null | undefined): value is OAuthProvider {

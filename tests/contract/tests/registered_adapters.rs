@@ -458,7 +458,45 @@ fn grok_contract(driver: &dyn ProviderDriver) {
         .credential_headers(&ProviderSecret::new(1, "xai-contract-key"))
         .expect("Grok credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer xai-contract-key");
-    assert_eq!(driver.oauth_redirect_uri(), None);
+
+    assert_eq!(
+        driver.oauth_redirect_uri(),
+        Some("http://127.0.0.1:56121/callback")
+    );
+    assert!(driver.oauth_supports_operation(ProtocolOperation::Responses));
+    assert!(!driver.oauth_supports_operation(ProtocolOperation::ResponsesCompact));
+    assert!(!driver.oauth_supports_operation(ProtocolOperation::ChatCompletions));
+    let authorization = driver
+        .oauth_authorization_url("state-value", "challenge-value")
+        .expect("Grok OAuth authorization URL");
+    assert_eq!(authorization.host_str(), Some("auth.x.ai"));
+    let token = driver
+        .parse_oauth_token(
+            br#"{"access_token":"grok-oauth-secret","refresh_token":"grok-refresh-secret"}"#,
+        )
+        .expect("Grok OAuth token");
+    let profile = driver
+        .oauth_routing_profile(&token)
+        .expect("Grok OAuth routing profile");
+    assert_eq!(
+        profile.base_url().as_str(),
+        "https://cli-chat-proxy.grok.com/v1"
+    );
+    assert_eq!(profile.protocol_dialect(), ProtocolDialect::OpenAiResponses);
+    assert!(
+        profile
+            .models()
+            .iter()
+            .any(|model| model.as_str() == "grok-4.5")
+    );
+    let oauth_headers = driver
+        .oauth_credential_headers(&token, &HeaderMap::new())
+        .expect("Grok OAuth credential headers");
+    assert_eq!(
+        oauth_headers.headers[AUTHORIZATION],
+        "Bearer grok-oauth-secret"
+    );
+    assert_eq!(oauth_headers.headers["x-xai-token-auth"], "xai-grok-cli");
 }
 
 fn assert_common_capabilities(driver: &dyn ProviderDriver) {

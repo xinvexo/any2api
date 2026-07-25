@@ -218,6 +218,52 @@ async fn oauth_account_labels_are_unique_only_within_provider() {
 }
 
 #[tokio::test]
+async fn grok_oauth_account_round_trips_as_plaintext_sqlite_json() {
+    let directory = tempdir().expect("temporary directory");
+    let database = directory.path().join("config.sqlite3");
+    let store = SqliteStore::connect(&database).await.expect("store");
+    let account_id = OAuthAccountId::new();
+    let created = store
+        .create_oauth_account(
+            ConfigRevision::INITIAL,
+            account_id,
+            ProviderKind::Grok,
+            draft("Grok Primary", None, true),
+            Some("grok@example.com".into()),
+            Some(1_900_000_000),
+            vec!["grok-4.5".into()],
+            document(ProviderKind::Grok, "grok-access"),
+        )
+        .await
+        .expect("create Grok OAuth account");
+    drop(store);
+
+    let reopened = SqliteStore::connect(&database).await.expect("reopen store");
+    let restored = reopened
+        .load_configuration()
+        .await
+        .expect("restore configuration");
+    let account = restored
+        .oauth_accounts()
+        .get(account_id)
+        .expect("Grok OAuth account");
+    assert_eq!(created.revision(), restored.revision());
+    assert_eq!(account.provider_kind(), ProviderKind::Grok);
+    assert_eq!(account.models()[0].as_str(), "grok-4.5");
+    assert_eq!(account.safe_account_email(), Some("grok@example.com"));
+    assert_eq!(
+        restored
+            .oauth_account_materials()
+            .get(account_id)
+            .expect("Grok material")
+            .document()
+            .expose_for_test(),
+        document_bytes(ProviderKind::Grok, "grok-access")
+    );
+    assert!(!format!("{restored:?}").contains("grok-access"));
+}
+
+#[tokio::test]
 async fn corrupt_oauth_json_fails_closed_without_exposing_token_data() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
@@ -270,7 +316,7 @@ fn document_bytes(provider: ProviderKind, access_token: &str) -> Vec<u8> {
     let provider = match provider {
         ProviderKind::Codex => "codex",
         ProviderKind::Claude => "claude",
-        ProviderKind::Grok => panic!("Grok is API Key-only"),
+        ProviderKind::Grok => "grok",
     };
     format!(
         r#"{{"access_token":"{access_token}","refresh_token":"refresh-secret","type":"{provider}"}}"#

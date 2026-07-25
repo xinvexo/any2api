@@ -2,11 +2,7 @@ pub mod api;
 
 mod api_key;
 mod claude;
-mod claude_error;
-mod claude_oauth;
 mod codex;
-mod codex_oauth;
-mod codex_quota;
 mod error;
 mod grok;
 mod http_error;
@@ -20,10 +16,10 @@ mod secret;
 
 pub use claude::ClaudeDriver;
 pub use codex::CodexDriver;
-pub use codex_oauth::plan_label as codex_oauth_plan_label;
+pub use codex::oauth_plan_label as codex_oauth_plan_label;
 pub use error::ProviderError;
 pub use grok::GrokDriver;
-pub use oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_file};
+pub use oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_document};
 pub use oauth_quota::{
     OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
     OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,

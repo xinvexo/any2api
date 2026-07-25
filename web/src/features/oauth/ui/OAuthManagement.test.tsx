@@ -20,6 +20,7 @@ test("uses provider grid layout without a main-column session panel", async () =
 
   expect(await screen.findByRole("navigation", { name: "OAuth2 类型" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Codex/ })).toHaveAttribute("aria-current", "page");
+  expect(screen.getByRole("button", { name: /Grok/ })).toBeInTheDocument();
   expect(await screen.findByText("还没有 Codex OAuth 账号")).toBeInTheDocument();
   expect(screen.queryByText("还没有 Codex 登录会话")).not.toBeInTheDocument();
   expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
@@ -59,6 +60,41 @@ test("opens OAuth auth in a right drawer", async () => {
   expect(await screen.findByRole("link", { name: "打开授权页" })).toBeInTheDocument();
   expect(screen.queryByText("Codex 授权会话")).not.toBeInTheDocument();
   expect(screen.queryByText(/期望跳转/)).not.toBeInTheDocument();
+});
+
+test("starts the selected Grok OAuth flow", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path === "/api/admin/oauth/accounts") {
+      return jsonResponse({ config_revision: 1, items: [] });
+    }
+    if (path === "/api/admin/oauth/start" && init?.method === "POST") {
+      expect(JSON.parse(String(init.body))).toEqual({ provider: "grok" });
+      return jsonResponse({
+        provider: "grok",
+        session_id: "grok-session",
+        authorization_url: "https://auth.x.ai/oauth2/authorize?state=abc",
+        redirect_uri: "http://127.0.0.1:56121/callback",
+        expires_in_seconds: 600,
+      });
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderManagement(["/oauth?kind=grok"]);
+  await screen.findByText("还没有 Grok OAuth 账号");
+  fireEvent.click(screen.getByRole("button", { name: "OAuth认证" }));
+
+  expect(await screen.findByRole("dialog", { name: "Grok OAuth 认证" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "打开授权页" })).toHaveAttribute(
+    "href",
+    "https://auth.x.ai/oauth2/authorize?state=abc",
+  );
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/admin/oauth/start",
+    expect.objectContaining({ method: "POST" }),
+  );
 });
 
 test("switches provider kind and keeps accounts in the content column", async () => {
@@ -222,7 +258,7 @@ function renderManagement(initialEntries: string[] = ["/oauth"]) {
 function oauthAccountJson(
   id: string,
   label: string,
-  providerKind: "codex" | "claude",
+  providerKind: "codex" | "claude" | "grok",
   enabled = true,
 ) {
   return {
@@ -238,7 +274,12 @@ function oauthAccountJson(
     config_version: 1,
     selected_model_count: 0,
     models: [],
-    available_models: providerKind === "codex" ? ["gpt-5.5"] : ["claude-sonnet-4-5"],
+    available_models:
+      providerKind === "codex"
+        ? ["gpt-5.5"]
+        : providerKind === "claude"
+          ? ["claude-sonnet-4-5"]
+          : ["grok-4.5"],
     plan_type: "free",
     usage: usage(),
   };

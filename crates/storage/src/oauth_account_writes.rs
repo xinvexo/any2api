@@ -175,6 +175,6 @@ const fn provider_kind_text(kind: ProviderKind) -> Result<&'static str, StorageE
     match kind {
         ProviderKind::Codex => Ok("codex"),
         ProviderKind::Claude => Ok("claude"),
-        ProviderKind::Grok => Err(StorageError::CorruptConfiguration),
+        ProviderKind::Grok => Ok("grok"),
     }
 }

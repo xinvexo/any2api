@@ -36,6 +36,21 @@ describe("parseOAuthStartResult", () => {
       }),
     ).toThrow("invalid OAuth2 login response");
   });
+
+  it("parses the Grok PKCE login contract", () => {
+    expect(
+      parseOAuthStartResult({
+        provider: "grok",
+        session_id: "grok-session",
+        authorization_url: "https://auth.x.ai/oauth2/authorize?state=abc",
+        redirect_uri: "http://127.0.0.1:56121/callback",
+        expires_in_seconds: 600,
+      }),
+    ).toMatchObject({
+      provider: "grok",
+      redirectUri: "http://127.0.0.1:56121/callback",
+    });
+  });
 });
 
 describe("parseOAuthAccountConfiguration", () => {

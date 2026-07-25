@@ -1,12 +1,18 @@
+use super::oauth as grok_oauth;
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
 
 use crate::{
     ProviderError, ProviderSecret,
-    api::{CapabilitySet, CredentialHeaders, EndpointPlan, ProviderDriver, UpstreamResponseMeta},
+    api::{
+        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthRequestPlan,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+    },
     api_key, openai_error,
 };
+use http::HeaderMap;
+use url::Url;
 
 #[derive(Debug)]
 pub struct GrokDriver {
@@ -92,6 +98,51 @@ impl ProviderDriver for GrokDriver {
         api_key::bearer_credential_headers(secret)
     }
 
+    fn oauth_redirect_uri(&self) -> Option<&'static str> {
+        Some(grok_oauth::redirect_uri())
+    }
+
+    fn oauth_authorization_url(
+        &self,
+        state: &str,
+        code_challenge: &str,
+    ) -> Result<Url, ProviderError> {
+        grok_oauth::authorization_url(state, code_challenge)
+    }
+
+    fn oauth_token_request(
+        &self,
+        grant: OAuthGrant,
+        code: &str,
+        _state: Option<&str>,
+        code_verifier: Option<&str>,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        grok_oauth::token_request(grant, code, code_verifier)
+    }
+
+    fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
+        grok_oauth::parse_token(body)
+    }
+
+    fn oauth_routing_profile(
+        &self,
+        _token: &OAuthTokenMaterial,
+    ) -> Result<OAuthRoutingProfile, ProviderError> {
+        grok_oauth::routing_profile()
+    }
+
+    fn oauth_supports_operation(&self, operation: ProtocolOperation) -> bool {
+        operation == ProtocolOperation::Responses
+    }
+
+    fn oauth_credential_headers(
+        &self,
+        token: &OAuthTokenMaterial,
+        _forwarded: &HeaderMap,
+    ) -> Result<CredentialHeaders, ProviderError> {
+        grok_oauth::credential_headers(token)
+    }
+
     fn classify_error(
         &self,
         _operation: ProtocolOperation,
@@ -99,78 +150,5 @@ impl ProviderDriver for GrokDriver {
         bounded_body: &[u8],
     ) -> any2api_domain::UpstreamErrorClassification {
         openai_error::classify(meta, bounded_body)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use any2api_domain::{
-        ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TransportMode,
-    };
-    use http::header::AUTHORIZATION;
-
-    use super::GrokDriver;
-    use crate::{ProviderSecret, api::ProviderDriver};
-
-    #[test]
-    fn builds_xai_paths_and_bearer_authentication() {
-        let driver = GrokDriver::new();
-        let base = ProviderBaseUrl::parse("https://api.x.ai/v1").expect("base URL");
-
-        assert_eq!(driver.kind(), ProviderKind::Grok);
-        assert_eq!(
-            driver
-                .endpoint_plan(&base, ProtocolOperation::ResponsesCompact)
-                .expect("compact endpoint")
-                .url
-                .as_str(),
-            "https://api.x.ai/v1/responses/compact"
-        );
-        assert_eq!(
-            driver
-                .endpoint_plan(&base, ProtocolOperation::ChatCompletions)
-                .expect("chat endpoint")
-                .url
-                .as_str(),
-            "https://api.x.ai/v1/chat/completions"
-        );
-        assert_eq!(
-            driver
-                .credential_test_plan(&base)
-                .expect("models endpoint")
-                .url
-                .as_str(),
-            "https://api.x.ai/v1/models"
-        );
-        let headers = driver
-            .credential_headers(&ProviderSecret::new(1, "xai-test-key"))
-            .expect("headers");
-        assert_eq!(headers.headers[AUTHORIZATION], "Bearer xai-test-key");
-        assert!(!format!("{headers:?}").contains("xai-test-key"));
-        assert!(
-            driver
-                .capabilities()
-                .protocols
-                .contains(&ProtocolDialect::OpenAiResponses)
-        );
-        assert!(
-            driver
-                .capabilities()
-                .transport_modes
-                .contains(&TransportMode::Sse)
-        );
-        assert_eq!(driver.oauth_redirect_uri(), None);
-    }
-
-    #[test]
-    fn rejects_anthropic_operations() {
-        let driver = GrokDriver::new();
-        let base = ProviderBaseUrl::parse("https://api.x.ai/v1").expect("base URL");
-
-        assert!(
-            driver
-                .endpoint_plan(&base, ProtocolOperation::Messages)
-                .is_err()
-        );
     }
 }

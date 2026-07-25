@@ -46,7 +46,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
             .fetch_all(&pool)
             .await
             .expect("migration versions");
-    assert_eq!(versions, (1..=24).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=25).collect::<Vec<_>>());
     let kind = sqlx::query_scalar::<_, String>(
         "SELECT credential_kind FROM provider_credentials WHERE id = ?",
     )
@@ -97,7 +97,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     assert!(oauth_schema.contains("proxy_profile_id = '00000000-0000-0000-0000-000000000000'"));
     assert!(oauth_schema.contains("requests_per_minute"));
     assert!(!oauth_schema.contains("max_concurrency"));
-    assert!(!oauth_schema.contains("'grok'"));
+    assert!(oauth_schema.contains("'grok'"));
     let setting_keys =
         sqlx::query_scalar::<_, String>("SELECT key FROM setting_overrides ORDER BY key")
             .fetch_all(&pool)
@@ -129,7 +129,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     .execute(&pool)
     .await
     .expect("migration 24 accepts Grok provider endpoints");
-    let oauth_error = sqlx::query(
+    sqlx::query(
         "INSERT INTO oauth_accounts \
          (id, provider_kind, label, label_key, oauth_json, token_version, \
           account_generation, config_version, requests_per_minute, enabled) \
@@ -138,8 +138,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     )
     .execute(&pool)
     .await
-    .expect_err("migration 24 must keep Grok out of OAuth accounts");
-    assert!(oauth_error.to_string().contains("CHECK constraint failed"));
+    .expect("migration 25 accepts Grok OAuth accounts");
     assert!(
         sqlx::query("PRAGMA foreign_key_check")
             .fetch_all(&pool)

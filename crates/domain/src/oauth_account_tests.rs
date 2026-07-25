@@ -64,16 +64,9 @@ fn labels_are_unique_per_provider() {
 }
 
 #[test]
-fn grok_cannot_be_constructed_as_an_oauth_account() {
-    let error = OAuthAccount::create(
-        OAuthAccountId::new(),
-        ProviderKind::Grok,
-        OAuthAccountDraft::new("Grok", None, true).expect("valid draft"),
-        None,
-        None,
-        Vec::new(),
-    )
-    .expect_err("Grok is API Key-only");
+fn grok_can_be_constructed_as_an_independent_oauth_account() {
+    let account = account(ProviderKind::Grok, "Grok");
 
-    assert_eq!(error, OAuthAccountValidationError::UnsupportedProvider);
+    assert_eq!(account.provider_kind(), ProviderKind::Grok);
+    assert_eq!(account.proxy_profile_id(), ProxyProfileId::DIRECT);
 }

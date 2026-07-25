@@ -1,3 +1,5 @@
+//! Codex subscription quota protocol.
+
 use any2api_domain::ProviderKind;
 use http::{HeaderMap, HeaderValue, Method, header};
 use serde::Deserialize;
@@ -261,5 +263,5 @@ fn invalid_response(message: &'static str) -> ProviderError {
 }
 
 #[cfg(test)]
-#[path = "codex_quota_tests.rs"]
+#[path = "quota_tests.rs"]
 mod tests;

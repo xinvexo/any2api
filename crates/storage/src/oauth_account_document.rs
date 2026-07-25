@@ -90,9 +90,7 @@ fn validate(
     let expected_provider = match provider {
         ProviderKind::Codex => "codex",
         ProviderKind::Claude => "claude",
-        ProviderKind::Grok => {
-            return Err(OAuthAccountDocumentValidationError::UnsupportedProvider);
-        }
+        ProviderKind::Grok => "grok",
     };
     if object.get("type").and_then(Value::as_str) != Some(expected_provider) {
         return Err(OAuthAccountDocumentValidationError::ProviderMismatch);
@@ -111,19 +109,16 @@ fn validate(
 mod tests {
     use any2api_domain::ProviderKind;
 
-    use super::{OAuthAccountDocument, OAuthAccountDocumentValidationError};
+    use super::OAuthAccountDocument;
 
     #[test]
-    fn grok_oauth_documents_are_rejected_before_storage() {
-        let error = OAuthAccountDocument::new(
+    fn grok_oauth_documents_are_accepted_as_their_own_schema() {
+        let document = OAuthAccountDocument::new(
             ProviderKind::Grok,
             br#"{"type":"grok","access_token":"secret"}"#.to_vec().into(),
         )
-        .expect_err("Grok is API Key-only");
+        .expect("Grok OAuth document");
 
-        assert_eq!(
-            error,
-            OAuthAccountDocumentValidationError::UnsupportedProvider
-        );
+        assert_eq!(document.provider_kind(), ProviderKind::Grok);
     }
 }

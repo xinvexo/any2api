@@ -7,8 +7,8 @@ use any2api_domain::{
 use http::{HeaderMap, StatusCode};
 use url::Url;
 
-pub use crate::codex_oauth::plan_label as codex_oauth_plan_label;
-pub use crate::oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_file};
+pub use crate::codex::oauth_plan_label as codex_oauth_plan_label;
+pub use crate::oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_document};
 pub use crate::oauth_quota::{
     OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
     OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,
@@ -112,6 +112,10 @@ pub trait ProviderDriver: Send + Sync {
         Err(ProviderError::InvalidResponse(
             "OAuth2 is not supported by this provider".into(),
         ))
+    }
+
+    fn oauth_supports_operation(&self, _operation: ProtocolOperation) -> bool {
+        false
     }
 
     fn oauth_credential_headers(

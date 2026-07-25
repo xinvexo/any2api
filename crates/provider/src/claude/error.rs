@@ -1,3 +1,5 @@
+//! Claude-specific upstream error classification.
+
 use any2api_domain::{
     ProtocolOperation, RetrySafety, UpstreamErrorClassification, UpstreamErrorKind,
 };

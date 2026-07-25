@@ -3,7 +3,7 @@ import {
   type UpstreamRequestUsage,
 } from "@/shared/api/upstream-request-usage";
 
-export type OAuthProvider = "codex" | "claude";
+export type OAuthProvider = "codex" | "claude" | "grok";
 
 export interface OAuthStartResult {
   provider: OAuthProvider;
@@ -64,10 +64,7 @@ export function parseOAuthStartResult(value: unknown): OAuthStartResult {
   if (!isRecord(value)) {
     throw invalidResponse();
   }
-  const provider = value.provider;
-  if (provider !== "codex" && provider !== "claude") {
-    throw invalidResponse();
-  }
+  const provider = readOAuthProvider(value.provider);
   const expiresInSeconds = value.expires_in_seconds;
   if (
     typeof expiresInSeconds !== "number" ||
@@ -89,10 +86,7 @@ export function parseOAuthActivationResult(value: unknown): OAuthActivationResul
   if (!isRecord(value)) {
     throw invalidResponse();
   }
-  const provider = value.provider;
-  if (provider !== "codex" && provider !== "claude") {
-    throw invalidResponse();
-  }
+  const provider = readOAuthProvider(value.provider);
   return {
     provider,
     accountId: readString(value.account_id),
@@ -121,10 +115,7 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
   if (!isRecord(value)) {
     throw invalidResponse();
   }
-  const providerKind = value.provider_kind;
-  if (providerKind !== "codex" && providerKind !== "claude") {
-    throw invalidResponse();
-  }
+  const providerKind = readOAuthProvider(value.provider_kind);
   if (!Array.isArray(value.models) || !Array.isArray(value.available_models)) {
     throw invalidResponse();
   }
@@ -170,6 +161,13 @@ function readString(value: unknown) {
 
 function readBoolean(value: unknown) {
   if (typeof value !== "boolean") {
+    throw invalidResponse();
+  }
+  return value;
+}
+
+function readOAuthProvider(value: unknown): OAuthProvider {
+  if (value !== "codex" && value !== "claude" && value !== "grok") {
     throw invalidResponse();
   }
   return value;

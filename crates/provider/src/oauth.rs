@@ -179,7 +179,7 @@ pub fn json_headers() -> HeaderMap {
     headers
 }
 
-pub fn serialize_file(
+pub fn serialize_document(
     token: &OAuthTokenMaterial,
     last_refresh: &str,
     expired: &str,
@@ -205,18 +205,23 @@ pub fn serialize_file(
             provider_type: "claude",
             expired,
         }),
-        ProviderKind::Grok => {
-            return Err(ProviderError::InvalidResponse(
-                "OAuth2 is not supported by Grok".into(),
-            ));
-        }
+        ProviderKind::Grok => serde_json::to_vec_pretty(&GrokOAuthFile {
+            id_token: token.id_token().unwrap_or(empty),
+            access_token: token.access_token(),
+            refresh_token: token.refresh_token().unwrap_or(empty),
+            last_refresh,
+            email: token.email().unwrap_or(empty),
+            subject: token.account_id().unwrap_or(empty),
+            provider_type: "grok",
+            expired,
+        }),
     };
     encoded
         .map(|mut bytes| {
             bytes.push(b'\n');
             bytes
         })
-        .map_err(|_| ProviderError::InvalidResponse("OAuth file serialization failed".into()))
+        .map_err(|_| ProviderError::InvalidResponse("OAuth document serialization failed".into()))
 }
 
 #[derive(Serialize)]
@@ -239,6 +244,20 @@ struct ClaudeOAuthFile<'a> {
     refresh_token: &'a str,
     last_refresh: &'a str,
     email: &'a str,
+    #[serde(rename = "type")]
+    provider_type: &'a str,
+    expired: &'a str,
+}
+
+#[derive(Serialize)]
+struct GrokOAuthFile<'a> {
+    id_token: &'a str,
+    access_token: &'a str,
+    refresh_token: &'a str,
+    last_refresh: &'a str,
+    email: &'a str,
+    #[serde(rename = "sub")]
+    subject: &'a str,
     #[serde(rename = "type")]
     provider_type: &'a str,
     expired: &'a str,

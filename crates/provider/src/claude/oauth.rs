@@ -1,3 +1,5 @@
+//! Anthropic/Claude OAuth contract.
+
 use any2api_domain::{ProtocolDialect, ProviderKind};
 use http::{HeaderMap, HeaderValue, Method, header};
 use serde::Deserialize;
