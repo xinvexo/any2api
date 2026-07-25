@@ -1,4 +1,6 @@
 mod cache;
+mod construction;
+mod failure;
 mod pinned;
 mod request_body;
 mod reqwest;

@@ -5,16 +5,17 @@ use any2api_domain::{
 use async_trait::async_trait;
 
 use crate::{
-    configuration::StoredConfiguration,
     error::StorageError,
     gateway_api_key::GatewayApiKeyRepository,
     oauth_account::OAuthAccountRepository,
     provider::{ProviderCredentialMutation, ProviderEndpointMutation},
-    proxy::{ProxyAuthenticationMutation, ProxyMutation, load_configuration_from},
+    proxy::{ProxyAuthenticationMutation, ProxyMutation},
     settings::SettingRepository,
     sqlite::SqliteStore,
     vault::SecretBytes,
 };
+
+use super::{StoredConfiguration, load_configuration_from};
 
 #[async_trait]
 pub trait ConfigurationRepository:

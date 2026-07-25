@@ -1,14 +1,14 @@
 mod affinity;
+mod executor;
 mod planning;
 mod response;
 mod retry;
 mod selection;
-mod service;
 mod stream;
 mod upstream;
 
-pub use service::{
+pub use executor::{
     PublicRequest, PublicRequestService, PublicRequestServiceError, PublicResponse,
     PublicResponseBody, PublicResponseStream,
 };
-use service::{RequestPermit, SelectedCandidate};
+use executor::{RequestPermit, SelectedCandidate};

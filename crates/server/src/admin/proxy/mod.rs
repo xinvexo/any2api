@@ -1,7 +1,8 @@
 mod dto;
+mod error;
 mod handlers;
 
-use super::{error, revision};
+use super::revision;
 use crate::state::AppState;
 use axum::{
     Router,

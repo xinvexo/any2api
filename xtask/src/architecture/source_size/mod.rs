@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Result, bail};
 use tokei::{Config, Languages};
@@ -20,32 +23,34 @@ pub(crate) fn check(workspace: &Path) -> Result<()> {
         &["target", "node_modules", "reference"],
         &Config::default(),
     );
+    let mut scanned_paths = BTreeSet::new();
+    let mut required_paths = BTreeSet::new();
 
     for language in languages.values() {
         for report in &language.reports {
+            let relative = relative_path(workspace, report.name.as_path());
+            scanned_paths.insert(relative.clone());
+            if report.stats.code >= ALLOWLIST_START {
+                required_paths.insert(relative.clone());
+            }
             check_report(
-                workspace,
                 report.name.as_path(),
+                &relative,
                 report.stats.code,
                 &allowlist,
             )?;
         }
     }
 
-    Ok(())
+    allowlist.validate_usage(&scanned_paths, &required_paths)
 }
 
 fn check_report(
-    workspace: &Path,
     path: &Path,
+    relative: &str,
     code_lines: usize,
     allowlist: &Allowlist,
 ) -> Result<()> {
-    let relative = path
-        .strip_prefix(workspace)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .replace('\\', "/");
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -57,11 +62,18 @@ fn check_report(
     if code_lines > HARD_LIMIT {
         bail!("source file exceeds {HARD_LIMIT} code lines: {relative}");
     }
-    if code_lines >= ALLOWLIST_START && !allowlist.contains(&relative) {
+    if code_lines >= ALLOWLIST_START && !allowlist.contains(relative) {
         bail!("source file requires architecture allowlist entry: {relative}");
     }
 
     Ok(())
+}
+
+fn relative_path(workspace: &Path, path: &Path) -> String {
+    path.strip_prefix(workspace)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 fn source_roots(workspace: &Path) -> Vec<PathBuf> {

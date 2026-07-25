@@ -2,10 +2,9 @@ use any2api_domain::ConfigRevision;
 use sqlx::SqliteConnection;
 
 use crate::{
-    configuration::StoredConfiguration,
+    configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
     provider::bump_endpoint_credential_generations,
-    proxy::{bump_revision, load_configuration_from},
     sqlite::SqliteStore,
     vault::SecretVault,
 };

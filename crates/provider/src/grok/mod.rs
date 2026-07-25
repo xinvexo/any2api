@@ -7,7 +7,3 @@ pub use driver::GrokDriver;
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-#[path = "quota_tests.rs"]
-mod quota_tests;

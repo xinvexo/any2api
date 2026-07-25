@@ -3,9 +3,8 @@ use async_trait::async_trait;
 use sqlx::SqliteConnection;
 
 use crate::{
-    configuration::StoredConfiguration,
+    configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
-    proxy::{bump_revision, load_configuration_from},
     sqlite::SqliteStore,
     vault::SecretVault,
 };

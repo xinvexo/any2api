@@ -192,6 +192,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 - 单个生产源文件目标不超过 300 行代码；401–600 行必须进入机器可读 Allowlist；超过 600 行由 CI 拒绝；
 - 行数由固定版本 `tokei` 的 code line 口径计算，并固定扫描 glob；
 - Allowlist 必须包含 `path`、`reason`、`adr`、`owner` 和 `expires_at`，过期自动失败；
+- Allowlist 是当前例外债务清单：每个条目必须命中扫描范围内真实存在且仍有 401–600 行代码的生产文件；文件删除、移动或降到阈值以下后，遗留条目自动失败；
 - 例外仅允许自动生成代码、静态协议表、测试夹具和数据库迁移；
 - 单个函数建议不超过 80 行，复杂状态机拆为具名状态、转换函数和可独立测试的子模块；
 - 禁止仅为规避行数限制而机械拆成无语义的文件，拆分必须对应领域职责或执行阶段。
@@ -291,6 +292,7 @@ any2api/
 │  │  └─ src/
 │  │     ├─ api/                # ProtocolAdapter、中立载荷与 Exchange 契约
 │  │     ├─ openai_responses/   # request/response/sse/error/headers
+│  │     ├─ openai_responses_chat/ # Responses → Chat request/input/options/tools bridge
 │  │     └─ anthropic_messages/ # request/response/sse/error/headers
 │  ├─ provider/
 │  │  └─ src/
@@ -304,7 +306,7 @@ any2api/
 │  ├─ transport/
 │  │  └─ src/
 │  │     ├─ api.rs              # 稳定 Transport 端口
-│  │     ├─ client/             # Client 缓存、请求执行与 Body 生命周期
+│  │     ├─ client/             # Client 缓存、构造、请求执行、错误分类与 Body 生命周期
 │  │     ├─ connection/         # 固定目标连接、TLS 与代理 TCP 连接器
 │  │     ├─ proxy/              # 代理 URL、认证与握手实现
 │  │     └─ resolution/         # Origin 解析与严格 SSRF 地址固定
@@ -316,7 +318,7 @@ any2api/
 │  │     ├─ gateway_api_key/    # Gateway Key 生成与发布
 │  │     ├─ health/             # Credential/Model/Endpoint/Proxy 状态
 │  │     ├─ lifecycle/          # drain、TaskTracker、后台任务生命周期
-│  │     ├─ oauth/              # PKCE/Device Code session、Token exchange、账号发布与刷新
+│  │     ├─ oauth/              # login/import/quota/refresh 与共享账号发布协调
 │  │     ├─ proxy/              # 代理认证材料与连接探测
 │  │     ├─ public_request/     # 规划、选择、重试、上游执行与流式生命周期
 │  │     ├─ request_telemetry/  # 请求/Attempt 遥测与异步写入
@@ -324,18 +326,19 @@ any2api/
 │  ├─ storage/
 │  │  └─ src/
 │  │     ├─ api.rs              # 稳定 Storage 端口
+│  │     ├─ configuration/      # 完整配置装配、模型与 Repository 入口
 │  │     ├─ gateway_api_key/    # 该聚合根的 row/repository/write/usage
 │  │     ├─ oauth_account/      # OAuth 文档、material、row/repository/write
 │  │     ├─ provider/           # Endpoint、Credential、模型与 Secret 持久化
 │  │     ├─ proxy/              # Proxy 与认证 Secret 持久化
-│  │     ├─ request_log/        # RequestLog 与上游凭据历史聚合
+│  │     ├─ request_log/        # repository/write/row 与上游凭据历史聚合
 │  │     ├─ settings/           # Setting override 持久化
 │  │     ├─ migration/          # 只前向 Migration 与迁移前修复
 │  │     └─ vault/              # 版本化 AEAD 实现
 │  └─ server/
 │     └─ src/
 │        ├─ public/             # OpenAI/Anthropic 兼容公开入口
-│        ├─ admin/              # 按管理功能归档的 DTO、Handler 与错误映射
+│        ├─ admin/              # 按管理功能归档；OAuth 再分 account/login/import/quota
 │        ├─ admin_auth/         # 单管理员密码、Session、网络策略与轮换
 │        └─ embedded_web.rs     # 内嵌/外部 Web 资源入口适配
 ├─ app/
@@ -408,6 +411,7 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 
 - 检查 crate 依赖方向和循环依赖；
 - 使用固定 `tokei` 口径检查生产源文件体积、Allowlist 字段和过期时间；
+- 拒绝指向不存在、未被生产源码扫描覆盖或已经不再达到例外阈值的 Allowlist 条目；
 - 对 `main.rs/lib.rs/mod.rs` 应用更低的行数阈值；“是否存在大段业务实现”保留为评审规则；
 - 检查迁移文件编号和 checksum；
 - 检查前端 feature 不能直接跨层导入其他 feature 的内部实现。
@@ -472,6 +476,9 @@ Rust crate 内采用 feature-first 目录，而不是把 entity、row、reposito
 - 测试紧邻被验证的 feature，crate 级能力矩阵测试统一收进 `tests/`，不得继续以大量 `*_tests.rs` 平铺根目录；
 - crate 之间只依赖对方稳定 `api` 模块；crate 内 feature 默认通过所属模块入口协作，不提供旧内部路径的兼容别名或转发层；
 - 只有被两个以上真实 feature 共同使用且语义稳定的逻辑才能提升为共享抽象；禁止创建无领域含义的 `common.rs`、`utils.rs`、万能 repository 或万能 handler。
+- 已形成多条工作流的 feature 必须继续按职责分区：Runtime OAuth 使用 `login`、`import`、`quota`、`refresh`，Server OAuth 使用 `account`、`login`、`import`、`quota`；Reqwest Client、请求日志仓储和跨协议请求转换分别按构造/执行/失败、Row/写入/编排和输入/选项/工具阶段拆分；OAuth 刷新分离扫描调度与单账号刷新，请求遥测分离生命周期与最终记录组装，管理 DTO 分离读响应与写请求。
+- Storage 完整配置装配归属 `configuration`，各聚合根只暴露自己的加载与写入能力；功能专属的 Runtime-to-HTTP 错误映射留在对应 Server feature，不堆入全局管理错误 envelope。
+- 内部实现文件使用可辨识的职责名称，不使用泛化 `service.rs`；测试通过正常 Rust 模块目录与实现相邻，不使用 `#[path = "...tests.rs"]` 掩盖文件系统与模块图差异。
 
 同一规则也适用于 Workspace 中的可执行与工具 crate：
 

@@ -3,13 +3,12 @@ use async_trait::async_trait;
 use sqlx::SqliteConnection;
 
 use crate::{
-    configuration::StoredConfiguration,
+    configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
     gateway_api_key::{
         mutation::{GatewayApiKeyMutation, prepare},
         writes::execute_change,
     },
-    proxy::{bump_revision, load_configuration_from},
     sqlite::SqliteStore,
     vault::{SecretBytes, SecretVault},
 };

@@ -2,16 +2,13 @@ use any2api_domain::{ConfigRevision, ProxyProfile, ProxyProfileId};
 use sqlx::SqliteConnection;
 
 use crate::{
-    configuration::StoredConfiguration,
+    configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
     sqlite::SqliteStore,
     vault::{SecretBytes, SecretContext, SecretVault},
 };
 
-use super::{
-    authentication_writes, password::validate, repository::bump_revision,
-    rows::load_configuration_from,
-};
+use super::{authentication_writes, password::validate};
 
 pub(crate) enum ProxyAuthenticationMutation {
     Set {

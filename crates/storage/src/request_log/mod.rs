@@ -1,5 +1,7 @@
 mod repository;
+mod rows;
 mod usage;
+mod writes;
 
 #[cfg(test)]
 mod tests;
