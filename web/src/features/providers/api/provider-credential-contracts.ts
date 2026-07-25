@@ -13,7 +13,7 @@ export interface ProviderCredential {
   fingerprint: string;
   secretTail: string | null;
   proxyProfileId: string;
-  maxConcurrency: number;
+  requestsPerMinute: number | null;
   enabled: boolean;
   secretSchemaVersion: number;
   secretVersion: number;
@@ -34,7 +34,7 @@ export interface ProviderCredentialCreateInput {
   label: string;
   apiKey: string;
   proxyProfileId: string;
-  maxConcurrency: number;
+  requestsPerMinute: number | null;
   enabled: boolean;
 }
 
@@ -43,7 +43,7 @@ export interface ProviderCredentialUpdateInput {
   expectedConfigVersion: number;
   label: string;
   proxyProfileId: string;
-  maxConcurrency: number;
+  requestsPerMinute: number | null;
   enabled: boolean;
 }
 
@@ -172,7 +172,7 @@ function parseProviderCredential(value: unknown): ProviderCredential {
     fingerprint,
     secretTail,
     proxyProfileId: readString(value.proxy_profile_id),
-    maxConcurrency: readBoundedConcurrency(value.max_concurrency),
+    requestsPerMinute: readOptionalRpm(value.requests_per_minute),
     enabled: readBoolean(value.enabled),
     secretSchemaVersion: readPositiveInteger(value.secret_schema_version),
     secretVersion: readPositiveInteger(value.secret_version),
@@ -222,9 +222,12 @@ function readNullableStatusCode(value: unknown): number | null {
   return Number(value);
 }
 
-function readBoundedConcurrency(value: unknown): number {
+function readOptionalRpm(value: unknown): number | null {
+  if (value === null) {
+    return null;
+  }
   const parsed = readPositiveInteger(value);
-  if (parsed > 10_000) {
+  if (parsed > 100_000) {
     throw new Error("invalid provider credential response");
   }
   return parsed;

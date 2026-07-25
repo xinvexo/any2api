@@ -1,6 +1,6 @@
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, CredentialId, CredentialKind, MaxConcurrency,
-    OAuthAccountDraft, OAuthAccountId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
+    CompletedRequestLog, ConfigRevision, CredentialId, CredentialKind, OAuthAccountDraft,
+    OAuthAccountId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
     ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestAttempt,
     RequestAttemptOutcome, RequestId, RequestLog, RoutingCredentialId,
 };
@@ -51,7 +51,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
                 "API Key",
                 CredentialKind::ApiKey,
                 ProxyProfileId::DIRECT,
-                MaxConcurrency::new(1).expect("max concurrency"),
+                None,
                 true,
             )
             .expect("credential draft"),
@@ -66,7 +66,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
             ProviderKind::Codex,
             OAuthAccountDraft::new(
                 "OAuth",
-                MaxConcurrency::new(1).expect("max concurrency"),
+                None,
                 true,
             )
             .expect("OAuth draft"),

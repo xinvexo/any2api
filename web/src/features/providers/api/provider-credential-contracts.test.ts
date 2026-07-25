@@ -11,7 +11,7 @@ test("parses redacted credentials and rejects plaintext secret fields", () => {
     credentialKind: "api_key",
     fingerprint: "v1:0123456789abcdef",
     secretTail: "test",
-    maxConcurrency: 4,
+    requestsPerMinute: 4,
     models: ["gpt-5.1-codex"],
     usage: {
       totalRequests: 3,
@@ -27,9 +27,14 @@ test("parses redacted credentials and rejects plaintext secret fields", () => {
   ).toThrow("invalid provider credential response");
 });
 
-test("rejects invalid concurrency and fingerprint versions", () => {
+test("parses unlimited RPM and rejects invalid RPM and fingerprint versions", () => {
+  expect(parseProviderCredentialConfiguration(configuration({ requests_per_minute: null })).items[0]
+    ?.requestsPerMinute).toBeNull();
   expect(() =>
-    parseProviderCredentialConfiguration(configuration({ max_concurrency: 0 })),
+    parseProviderCredentialConfiguration(configuration({ requests_per_minute: 0 })),
+  ).toThrow("invalid provider credential response");
+  expect(() =>
+    parseProviderCredentialConfiguration(configuration({ requests_per_minute: 100_001 })),
   ).toThrow("invalid provider credential response");
   expect(() =>
     parseProviderCredentialConfiguration(configuration({ fingerprint: "v2:0123456789abcdef" })),
@@ -76,7 +81,7 @@ function configuration(overrides: Record<string, unknown> = {}) {
         fingerprint: "v1:0123456789abcdef",
         secret_tail: "test",
         proxy_profile_id: "00000000-0000-0000-0000-000000000000",
-        max_concurrency: 4,
+        requests_per_minute: 4,
         enabled: true,
         secret_schema_version: 1,
         secret_version: 1,

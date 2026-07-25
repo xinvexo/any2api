@@ -46,7 +46,7 @@ pub(super) async fn execute(
                 affinity: &plan.decoded.affinity,
                 route_id: plan.route_id,
                 dialect: plan.dialect,
-                fallback_on_saturation: plan.fallback_on_saturation,
+                fallback_on_rate_limit: plan.fallback_on_rate_limit,
                 tiers: &plan.tiers,
                 exclusions: &exclusions,
             }),

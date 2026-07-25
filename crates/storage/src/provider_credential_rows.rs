@@ -1,9 +1,9 @@
 use std::{collections::HashMap, str::FromStr};
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProviderCredential,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ProviderCredential,
     ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderEndpointConfiguration,
-    ProviderEndpointId, ProxyConfiguration, ProxyProfileId,
+    ProviderEndpointId, ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
 };
 use sqlx::{FromRow, SqliteConnection};
 use subtle::ConstantTimeEq;
@@ -37,7 +37,7 @@ struct ProviderCredentialRow {
     secret_fingerprint: Vec<u8>,
     secret_tail: Option<String>,
     proxy_profile_id: String,
-    max_concurrency: i64,
+    requests_per_minute: Option<i64>,
     enabled: i64,
 }
 
@@ -63,7 +63,7 @@ pub(crate) async fn load_provider_credentials_from(
         "SELECT id, provider_endpoint_id, label, credential_kind, secret_schema_version, \
          secret_version, credential_generation, config_version, envelope_version, key_id, \
          algorithm, nonce, ciphertext, aad_version, fingerprint_version, secret_fingerprint, \
-         secret_tail, proxy_profile_id, max_concurrency, enabled \
+         secret_tail, proxy_profile_id, requests_per_minute, enabled \
          FROM provider_credentials ORDER BY provider_endpoint_id ASC, label ASC",
     )
     .fetch_all(&mut *connection)
@@ -116,7 +116,7 @@ fn parse_row(
         secret_fingerprint,
         secret_tail,
         proxy_profile_id,
-        max_concurrency,
+        requests_per_minute,
         enabled,
     } = row;
     let id = CredentialId::from_str(&id).map_err(|_| StorageError::CorruptConfiguration)?;
@@ -128,10 +128,14 @@ fn parse_row(
     let credential_kind = parse_credential_kind(&credential_kind)?;
     let proxy_profile_id = ProxyProfileId::from_str(&proxy_profile_id)
         .map_err(|_| StorageError::CorruptConfiguration)?;
-    let max_concurrency = u32::try_from(max_concurrency)
-        .ok()
-        .and_then(|value| MaxConcurrency::new(value).ok())
-        .ok_or(StorageError::CorruptConfiguration)?;
+    let requests_per_minute = requests_per_minute
+        .map(|value| {
+            u32::try_from(value)
+                .ok()
+                .and_then(|value| RequestsPerMinute::new(value).ok())
+                .ok_or(StorageError::CorruptConfiguration)
+        })
+        .transpose()?;
     let secret_schema_version =
         u32::try_from(secret_schema_version).map_err(|_| StorageError::CorruptConfiguration)?;
     let secret_version = parse_version(secret_version)?;
@@ -149,7 +153,7 @@ fn parse_row(
         label,
         credential_kind,
         proxy_profile_id,
-        max_concurrency,
+        requests_per_minute,
         enabled == 1,
     )
     .map_err(|_| StorageError::CorruptConfiguration)?;

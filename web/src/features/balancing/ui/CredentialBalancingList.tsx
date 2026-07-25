@@ -9,13 +9,13 @@ export function CredentialBalancingList({ credentials }: { credentials: Balancin
       <Surface className="flex min-h-56 items-center justify-center p-7 text-center">
         <div>
           <KeyRound size={23} className="mx-auto text-tertiary" aria-hidden="true" />
-          <p className="mt-3 font-semibold">还没有 Provider Credential</p>
-          <p className="mt-2 text-sm text-secondary">先在 Provider 页面添加 API Key，运行态容量才会出现在这里。</p>
+          <p className="mt-3 font-semibold">还没有路由 Credential</p>
+          <p className="mt-2 text-sm text-secondary">先添加 Provider API Key 或 OAuth 账号，运行态才会出现在这里。</p>
         </div>
       </Surface>
     );
   }
-  const totalSelections = credentials.reduce((total, item) => total + item.counters.selectedGeneration, 0);
+  const totalSelections = credentials.reduce((total, item) => total + item.counters.selected, 0);
   return (
     <Surface className="divide-y divide-subtle overflow-hidden">
       {credentials.map((credential) => <CredentialRow key={credential.credentialId} credential={credential} totalSelections={totalSelections} />)}
@@ -24,7 +24,9 @@ export function CredentialBalancingList({ credentials }: { credentials: Balancin
 }
 
 function CredentialRow({ credential, totalSelections }: { credential: BalancingCredential; totalSelections: number }) {
-  const load = Math.min(100, Math.round((credential.inFlight / credential.maxConcurrency) * 100));
+  const rpmUsage = credential.requestsPerMinute === null
+    ? null
+    : Math.min(100, Math.round((credential.requestsInWindow / credential.requestsPerMinute) * 100));
   const counters = credential.counters;
   return (
     <article className="p-5 sm:p-6">
@@ -40,20 +42,27 @@ function CredentialRow({ credential, totalSelections }: { credential: BalancingC
         </div>
         <div className="w-full lg:max-w-xs">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-secondary">当前负载</span>
-            <span className="font-semibold tabular-nums">{credential.inFlight} / {credential.maxConcurrency}</span>
+            <span className="text-secondary">RPM 窗口</span>
+            <span className="font-semibold tabular-nums">
+              {credential.requestsPerMinute === null
+                ? "无限制"
+                : `${credential.requestsInWindow} / ${credential.requestsPerMinute}`}
+            </span>
           </div>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-muted" role="progressbar" aria-label={`${credential.label} 当前负载`} aria-valuenow={load} aria-valuemin={0} aria-valuemax={100}>
-            <div className="h-full rounded-full bg-accent" style={{ width: `${load}%` }} />
-          </div>
-          <p className="mt-2 text-xs text-tertiary">固定等待 {credential.fixedWaiters} · 辅助占用 {credential.auxiliaryInFlight}</p>
+          {rpmUsage === null ? (
+            <p className="mt-2 text-xs text-tertiary">未启用本地请求频率限制</p>
+          ) : (
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-surface-muted" role="progressbar" aria-label={`${credential.label} RPM 使用率`} aria-valuenow={rpmUsage} aria-valuemin={0} aria-valuemax={100}>
+              <div className="h-full rounded-full bg-accent" style={{ width: `${rpmUsage}%` }} />
+            </div>
+          )}
+          <p className="mt-2 text-xs text-tertiary">{rpmDetail(credential)} · 处理中 {credential.inFlight} · 固定等待 {credential.fixedWaiters}</p>
         </div>
       </div>
 
       <div className="mt-5 grid gap-2 text-xs text-secondary sm:grid-cols-2 xl:grid-cols-3">
-        <Counter label="生成选中" value={counters.selectedGeneration} detail={totalSelections === 0 ? "0%" : `${Math.round((counters.selectedGeneration / totalSelections) * 100)}%`} />
-        <Counter label="辅助选中" value={counters.selectedAuxiliary} />
-        <Counter label="满载过滤" value={counters.filteredCapacity} />
+        <Counter label="选中" value={counters.selected} detail={totalSelections === 0 ? "0%" : `${Math.round((counters.selected / totalSelections) * 100)}%`} />
+        <Counter label="RPM 过滤" value={counters.filteredRateLimit} />
         <Counter label="Credential 健康过滤" value={counters.filteredCredentialHealth} />
         <Counter label="Endpoint 健康过滤" value={counters.filteredEndpointHealth} />
         <Counter label="Proxy 健康过滤" value={counters.filteredProxyHealth} />
@@ -79,6 +88,14 @@ function CredentialRow({ credential, totalSelections }: { credential: BalancingC
       </div>
     </article>
   );
+}
+
+function rpmDetail(credential: BalancingCredential) {
+  if (credential.requestsPerMinute === null) return "RPM 无限制";
+  if (credential.remainingRequests === 0) {
+    return `${Math.ceil((credential.retryInMs ?? 0) / 1_000)} 秒后可用`;
+  }
+  return `剩余 ${credential.remainingRequests ?? 0} 次`;
 }
 
 function Counter({ label, value, detail }: { label: string; value: number; detail?: string }) {

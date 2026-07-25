@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProtocolDialect,
-    ProtocolOperation, ProviderCredential, ProviderCredentialDraft, ProviderEndpointId,
-    ProxyProfile, ProxyProfileId, PublicErrorCode,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ProtocolDialect, ProtocolOperation,
+    ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProxyProfile, ProxyProfileId,
+    PublicErrorCode,
 };
 use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{CodexDriver, api::ProviderDriver};
@@ -14,7 +14,7 @@ use crate::{
     credential_auth::CredentialAuthMaterial,
     credential_runtime::CredentialRuntimeHandle,
     health::{AttemptHealth, EndpointHealthRuntime, ReliabilityPolicy},
-    public_request::{RequestPermit, response::public_error},
+    public_request::response::public_error,
     request_telemetry::AttemptRecorder,
     scheduler_epoch::SchedulerEpoch,
 };
@@ -41,7 +41,7 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
             "postprocess",
             CredentialKind::ApiKey,
             ProxyProfileId::DIRECT,
-            MaxConcurrency::new(1).expect("max concurrency"),
+            None,
             true,
         )
         .expect("credential draft"),
@@ -53,7 +53,7 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
         epoch,
     )
     .current_binding();
-    let permit = binding.try_acquire().expect("credential permit");
+    let permit = binding.try_reserve().expect("credential permit");
     let health = AttemptHealth::new(
         Arc::clone(binding.generation()),
         "upstream-model".into(),
@@ -81,7 +81,7 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
         upstream_operation: ProtocolOperation::Responses,
         exchange: Some(exchange),
         request: None,
-        permit: Some(RequestPermit::Generation(permit)),
+        permit: Some(permit),
         health: Some(health),
         attempt_recorder: Some(AttemptRecorder::disabled()),
     };
@@ -92,7 +92,7 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
     );
 
     assert!(matches!(failure, super::AttemptFailure::Public(_)));
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
     let first = endpoint
         .try_acquire(&policy)
         .expect("closed endpoint first permit");

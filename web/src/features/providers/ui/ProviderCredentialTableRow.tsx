@@ -59,12 +59,14 @@ export function ProviderCredentialTableRow({
               <span className="min-w-0 max-w-full truncate" title={proxyLabel}>
                 {proxyLabel}
               </span>
-              <span className="shrink-0 tabular-nums">并发 {credential.maxConcurrency}</span>
+              <span className="shrink-0 tabular-nums">
+                RPM {credential.requestsPerMinute ?? "无限制"}
+              </span>
               <span className="max-w-full truncate font-mono text-[10px]">{secretLabel}</span>
             </div>
           </div>
 
-          <div className="w-full min-w-0 sm:w-[13rem] sm:shrink-0">
+          <div className="w-full min-w-0 sm:w-72 sm:shrink-0">
             <RequestUsageStats label={credential.label} usage={credential.usage} />
           </div>
 
@@ -97,7 +99,7 @@ export function ProviderCredentialTableRow({
         <span className="break-words [overflow-wrap:anywhere]">{proxyLabel}</span>
       </td>
       <td className="px-3 py-2 align-middle tabular-nums text-secondary">
-        {credential.maxConcurrency}
+        {credential.requestsPerMinute ?? "无限制"}
       </td>
       <td className="px-3 py-2 align-middle">
         {credential.enabled ? (
@@ -109,7 +111,7 @@ export function ProviderCredentialTableRow({
       <td className="px-3 py-2 align-middle">
         <span className="font-mono text-[11px] text-tertiary">{secretLabel}</span>
       </td>
-      <td className="min-w-[10rem] px-3 py-2 align-middle">
+      <td className="min-w-[18rem] px-3 py-2 align-middle">
         <RequestUsageStats label={credential.label} usage={credential.usage} />
       </td>
       <td className="py-2 pl-3 align-middle">

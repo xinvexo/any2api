@@ -2,8 +2,8 @@ use std::{fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, MaxConcurrency, OAuthAccountDraft, OAuthAccountId,
-    ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId, RequestId, RequestLog,
+    CompletedRequestLog, ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProtocolDialect,
+    ProtocolOperation, ProviderKind, ProxyProfileId, RequestId, RequestLog,
 };
 use any2api_runtime::api::{
     ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
@@ -66,7 +66,7 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     assert_eq!(account["id"], account_id.to_string());
     assert_eq!(account["provider_kind"], "codex");
     assert_eq!(account["label"], "Primary Codex OAuth");
-    assert_eq!(account["max_concurrency"], 1);
+    assert_eq!(account["requests_per_minute"], Value::Null);
     assert_eq!(account["enabled"], true);
     assert_eq!(account["safe_account_email"], "person@example.com");
     assert_eq!(account["token_version"], 1);
@@ -110,7 +110,7 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
             "expected_revision": 2,
             "expected_config_version": 1,
             "label": "Renamed OAuth",
-            "max_concurrency": 3,
+            "requests_per_minute": 3,
             "enabled": false,
             "oauth_json": {"access_token": "replacement"}
         })),
@@ -128,7 +128,7 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
             "expected_revision": 2,
             "expected_config_version": 1,
             "label": "Renamed OAuth",
-            "max_concurrency": 3,
+            "requests_per_minute": 3,
             "enabled": false
         })),
         loopback,
@@ -137,7 +137,7 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(updated["config_revision"], 3);
     assert_eq!(updated["items"][0]["label"], "Renamed OAuth");
-    assert_eq!(updated["items"][0]["max_concurrency"], 3);
+    assert_eq!(updated["items"][0]["requests_per_minute"], 3);
     assert_eq!(updated["items"][0]["enabled"], false);
     assert_eq!(updated["items"][0]["config_version"], 2);
     assert_eq!(updated["items"][0]["account_generation"], 1);
@@ -186,7 +186,7 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
             "expected_revision": 4,
             "expected_config_version": 2,
             "label": "Stale OAuth",
-            "max_concurrency": 1,
+            "requests_per_minute": 1,
             "enabled": true
         })),
         loopback,
@@ -232,7 +232,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -252,11 +252,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
         .activate_oauth_account(
             account_id,
             ProviderKind::Codex,
-            OAuthAccountDraft::new(
-                "Primary Codex OAuth",
-                MaxConcurrency::new(1).expect("max concurrency"),
-                true,
-            )
+            OAuthAccountDraft::new("Primary Codex OAuth", None, true)
             .expect("OAuth account draft"),
             Some("person@example.com".to_owned()),
             Some(1_800_000_000),

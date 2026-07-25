@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
-    ProtocolOperation, ProviderBaseUrl, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId, ProviderKind, ProxyProfileId, RetrySafety, UpstreamErrorClassification,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProtocolOperation,
+    ProviderBaseUrl, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyProfileId, RequestsPerMinute, RetrySafety, UpstreamErrorClassification,
     UpstreamErrorKind,
 };
 use any2api_provider::api::{
@@ -11,20 +11,20 @@ use any2api_provider::api::{
     UpstreamResponseMeta,
 };
 use any2api_runtime::api::{
-    ConcurrencyPermit, ConfigPublisher, ProviderApiKeySecret, PublishedSnapshot, RuntimeRegistry,
-    SnapshotStore,
+    ConfigPublisher, ProviderApiKeySecret, PublishedSnapshot, RoutingPermit, RuntimeRegistry,
+    SelectAndReserveResult, SnapshotStore, select_and_try_reserve,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::http::{HeaderMap, HeaderValue, header::AUTHORIZATION};
 use tempfile::tempdir;
 
 #[tokio::test]
-async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
+async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations() {
     let directory = tempdir().expect("temporary directory");
     let database = directory.path().join("any2api.sqlite3");
     let storage = Arc::new(SqliteStore::connect(&database).await.expect("storage"));
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -70,19 +70,23 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
         .credential_runtime(credential_id.into())
         .expect("initial runtime")
         .clone();
-    let old_permit = initial_binding.try_acquire().expect("initial permit");
+    let old_permit = reserve(&initial_binding);
     assert_bearer(&old_permit, &driver, "sk-runtime-initial");
 
     let lowered = publisher
         .update_provider_credential(created.revision(), credential_id, 1, credential_draft(1))
         .await
-        .expect("capacity update");
+        .expect("RPM update");
     let lowered_binding = lowered
         .credential_runtime(credential_id.into())
         .expect("lowered runtime");
-    assert_eq!(lowered_binding.capacity().in_flight(), 1);
-    assert_eq!(lowered_binding.capacity().max_concurrency(), 1);
-    assert!(lowered_binding.try_acquire().is_none());
+    assert_eq!(lowered_binding.in_flight(), 1);
+    assert_eq!(
+        lowered_binding.rate_snapshot().requests_per_minute(),
+        Some(1)
+    );
+    assert_eq!(lowered_binding.rate_snapshot().requests_in_window(), 1);
+    assert_rate_limited(lowered_binding);
     assert_eq!(lowered_binding.generation().routing_generation(), 1);
 
     let rotated = publisher
@@ -102,11 +106,21 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
     assert_eq!(old_permit.generation().routing_generation(), 1);
     assert_eq!(rotated_binding.generation().routing_generation(), 2);
     assert_eq!(rotated_binding.generation().authentication_version(), 2);
-    assert_eq!(rotated_binding.capacity().in_flight(), 1);
+    assert_eq!(rotated_binding.in_flight(), 1);
+    assert_eq!(rotated_binding.rate_snapshot().requests_in_window(), 1);
     assert_bearer(&old_permit, &driver, "sk-runtime-initial");
 
     drop(old_permit);
-    let new_permit = rotated_binding.try_acquire().expect("rotated permit");
+    assert_eq!(rotated_binding.in_flight(), 0);
+    assert_rate_limited(&rotated_binding);
+    let raised = publisher
+        .update_provider_credential(rotated.revision(), credential_id, 3, credential_draft(2))
+        .await
+        .expect("raised RPM");
+    let raised_binding = raised
+        .credential_runtime(credential_id.into())
+        .expect("raised runtime");
+    let new_permit = reserve(raised_binding);
     assert_eq!(new_permit.generation().routing_generation(), 2);
     assert_bearer(&new_permit, &driver, "sk-runtime-rotated");
 
@@ -117,24 +131,23 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
         .load_configuration()
         .await
         .expect("restarted configuration");
-    let restarted_runtime = RuntimeRegistry::new(restarted_configuration.settings().scheduler());
+    let restarted_runtime = RuntimeRegistry::new();
     let providers = any2api_contract_tests::build_provider_registry();
     let restarted_snapshot = PublishedSnapshot::new(
         restarted_configuration,
         &restarted_runtime,
         providers.as_ref(),
     );
-    let restarted_permit = restarted_snapshot
+    let restarted_binding = restarted_snapshot
         .credential_runtime(credential_id.into())
-        .expect("restarted credential runtime")
-        .try_acquire()
-        .expect("restarted permit");
+        .expect("restarted credential runtime");
+    let restarted_permit = reserve(restarted_binding);
     assert_bearer(&restarted_permit, &driver, "sk-runtime-rotated");
     assert_eq!(restarted_runtime.scheduler_epoch(), 0);
     drop(restarted_permit);
 
     let deleted = publisher
-        .delete_provider_credential(rotated.revision(), credential_id, 3)
+        .delete_provider_credential(raised.revision(), credential_id, 4)
         .await
         .expect("credential delete");
     assert!(deleted.credential_runtime(credential_id.into()).is_none());
@@ -143,7 +156,21 @@ async fn published_credentials_reuse_capacity_and_isolate_secret_generations() {
     drop(new_permit);
 }
 
-fn assert_bearer(permit: &ConcurrencyPermit, driver: &HeaderEchoDriver, api_key: &str) {
+fn reserve(binding: &any2api_runtime::api::CredentialRuntimeBinding) -> RoutingPermit {
+    match select_and_try_reserve(std::slice::from_ref(binding), 0) {
+        SelectAndReserveResult::Reserved(permit) => permit,
+        result => panic!("expected RPM reservation, got {result:?}"),
+    }
+}
+
+fn assert_rate_limited(binding: &any2api_runtime::api::CredentialRuntimeBinding) {
+    assert!(matches!(
+        select_and_try_reserve(std::slice::from_ref(binding), 0),
+        SelectAndReserveResult::RateLimited { .. }
+    ));
+}
+
+fn assert_bearer(permit: &RoutingPermit, driver: &HeaderEchoDriver, api_key: &str) {
     let headers = permit
         .credential_headers(driver, &HeaderMap::new())
         .expect("credential headers");
@@ -220,12 +247,12 @@ impl ProviderDriver for HeaderEchoDriver {
     }
 }
 
-fn credential_draft(max_concurrency: u32) -> ProviderCredentialDraft {
+fn credential_draft(requests_per_minute: u32) -> ProviderCredentialDraft {
     ProviderCredentialDraft::new(
         "Primary",
         CredentialKind::ApiKey,
         ProxyProfileId::DIRECT,
-        MaxConcurrency::new(max_concurrency).expect("max concurrency"),
+        Some(RequestsPerMinute::new(requests_per_minute).expect("valid RPM")),
         true,
     )
     .expect("credential draft")

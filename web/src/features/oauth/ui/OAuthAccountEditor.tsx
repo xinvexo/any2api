@@ -23,13 +23,15 @@ export function OAuthAccountEditor({
   error: unknown;
   onSaveMetadata: (value: {
     label: string;
-    maxConcurrency: number;
+    requestsPerMinute: number | null;
     enabled: boolean;
   }) => Promise<void>;
   onClose: () => void;
 }) {
   const [label, setLabel] = useState(account.label);
-  const [maxConcurrency, setMaxConcurrency] = useState(String(account.maxConcurrency));
+  const [requestsPerMinute, setRequestsPerMinute] = useState(
+    account.requestsPerMinute === null ? "" : String(account.requestsPerMinute),
+  );
   const [enabled, setEnabled] = useState(account.enabled);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -37,7 +39,7 @@ export function OAuthAccountEditor({
     try {
       await onSaveMetadata({
         label: label.trim(),
-        maxConcurrency: Number(maxConcurrency),
+        requestsPerMinute: requestsPerMinute.length === 0 ? null : Number(requestsPerMinute),
         enabled,
       });
       onClose();
@@ -64,16 +66,17 @@ export function OAuthAccountEditor({
           onChange={(event) => setLabel(event.target.value)}
         />
       </Field>
-      <Field label="最大并发" htmlFor="oauth-account-concurrency">
+      <Field label="RPM 限制" htmlFor="oauth-account-rpm">
         <input
-          id="oauth-account-concurrency"
+          id="oauth-account-rpm"
           type="number"
           min={1}
-          max={10_000}
+          max={100_000}
           className={controlClass(false)}
-          value={maxConcurrency}
+          value={requestsPerMinute}
+          placeholder="留空表示无限制"
           disabled={pending}
-          onChange={(event) => setMaxConcurrency(event.target.value)}
+          onChange={(event) => setRequestsPerMinute(event.target.value)}
         />
       </Field>
       <div className="flex items-center justify-between gap-4">
@@ -103,8 +106,10 @@ export function OAuthAccountEditor({
           disabled={
             pending ||
             label.trim().length === 0 ||
-            !Number.isInteger(Number(maxConcurrency)) ||
-            Number(maxConcurrency) < 1
+            (requestsPerMinute.length > 0 &&
+              (!Number.isInteger(Number(requestsPerMinute)) ||
+                Number(requestsPerMinute) < 1 ||
+                Number(requestsPerMinute) > 100_000))
           }
         >
           保存

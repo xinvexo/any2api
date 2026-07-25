@@ -5,10 +5,10 @@ use std::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, CredentialId, CredentialKind, ErrorClass, GatewayApiKeyId, MaxConcurrency,
+    CompletedRequestLog, CredentialId, CredentialKind, ErrorClass, GatewayApiKeyId,
     ProtocolDialect, ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId, ProviderKind, ProxyProfileId, RequestAttemptOutcome, RequestId,
-    RetrySafety, SaturationMode, SettingKey, SettingValue,
+    ProviderEndpointId, ProviderKind, ProxyProfileId, RateLimitMode, RequestAttemptOutcome,
+    RequestId, RetrySafety, SettingKey, SettingValue,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
@@ -638,7 +638,7 @@ async fn harness_for_protocol(
             .expect("storage"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         configuration.revision(),
@@ -699,7 +699,7 @@ async fn harness_for_protocol(
                     format!("Credential {index}"),
                     CredentialKind::ApiKey,
                     ProxyProfileId::DIRECT,
-                    MaxConcurrency::new(2).expect("max concurrency"),
+                    None,
                     true,
                 )
                 .expect("credential draft"),
@@ -752,8 +752,8 @@ async fn harness_for_protocol(
 fn default_overrides() -> Vec<(SettingKey, SettingValue)> {
     vec![
         (
-            SettingKey::SchedulerOnSaturated,
-            SettingValue::Saturation(SaturationMode::Reject),
+            SettingKey::SchedulerOnRateLimited,
+            SettingValue::RateLimitMode(RateLimitMode::Reject),
         ),
         (SettingKey::RetryBaseDelay, SettingValue::DurationSecs(0)),
         (SettingKey::RetryMaxDelay, SettingValue::DurationSecs(0)),

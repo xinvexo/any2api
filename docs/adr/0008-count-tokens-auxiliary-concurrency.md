@@ -1,10 +1,13 @@
 # ADR-0008: Count Tokens 辅助并发与 404 兼容语义
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0037
 - 日期：2026-07-19
 - 决策者：maintainer
 
 > 后续状态（2026-07-19）：ADR-0011 已接管六项 scheduler 设置。辅助默认值现在从 SQLite 覆盖编译并由 ConfigPublisher 热更新；本 ADR 中“未来 SettingRegistry”均指其余设置组。
+>
+> 取代说明（2026-07-25）：ADR-0037 删除独立辅助并发与生成并发。Count Tokens 现在与其他
+> 上游 Attempt 共用所选账号唯一的可选 RPM 限制；本文以下内容只保留为历史记录。
 
 ## 背景
 

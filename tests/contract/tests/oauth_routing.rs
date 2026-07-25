@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use any2api_domain::{
-    GatewayApiKeyId, MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProtocolOperation,
-    ProviderKind, ProxyProfileId, RequestId,
+    GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, ProtocolOperation, ProviderKind,
+    ProxyProfileId, RequestId,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
@@ -41,11 +41,7 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
             initial.revision(),
             account_id,
             ProviderKind::Codex,
-            OAuthAccountDraft::new(
-                "Codex OAuth",
-                MaxConcurrency::new(1).expect("max concurrency"),
-                true,
-            )
+            OAuthAccountDraft::new("Codex OAuth", None, true)
             .expect("OAuth account draft"),
             Some("person@example.com".into()),
             None,
@@ -63,7 +59,7 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
 
     let providers = providers();
     let protocols = protocols();
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         configuration.revision(),

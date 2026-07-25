@@ -123,7 +123,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
             .and_then(|value| value.to_str().ok()),
         Some("no-store")
     );
-    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(51));
+    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(49));
 
     let response = request(
         &app,
@@ -477,7 +477,7 @@ async fn build_test_app(
     network: AdminNetworkPolicy,
 ) -> (Router, Option<String>) {
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),

@@ -62,7 +62,7 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
             "credential_kind": "api_key",
             "api_key": create_key,
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "max_concurrency": 4,
+            "requests_per_minute": 4,
             "enabled": true
         })),
         loopback,
@@ -75,6 +75,7 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
     assert_eq!(created.body["items"][0]["credential_kind"], "api_key");
     assert_eq!(created.body["items"][0]["secret_version"], 1);
     assert_eq!(created.body["items"][0]["config_version"], 1);
+    assert_eq!(created.body["items"][0]["requests_per_minute"], 4);
     let credential_id = created.body["items"][0]["id"]
         .as_str()
         .expect("credential id")
@@ -131,7 +132,7 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
             "expected_config_version": 1,
             "label": "Primary Key Updated",
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "max_concurrency": 8,
+            "requests_per_minute": 8,
             "enabled": true
         })),
         loopback,
@@ -140,6 +141,7 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
     assert_eq!(updated.status, StatusCode::OK);
     assert_eq!(updated.body["items"][0]["config_version"], 2);
     assert_eq!(updated.body["items"][0]["secret_version"], 1);
+    assert_eq!(updated.body["items"][0]["requests_per_minute"], 8);
 
     let rotate_key = "sk-contract-rotated-secret";
     let rotated = request_json(
@@ -232,7 +234,7 @@ async fn provider_credential_requests_reject_unknown_secret_fields() {
             "expected_config_version": 1,
             "label": "Unexpected Secret",
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "max_concurrency": 1,
+            "requests_per_minute": 1,
             "enabled": true,
             "api_key": "must-not-be-accepted"
         })),
@@ -281,7 +283,7 @@ async fn successful_credential_test_clears_generation_auth_error() {
             "credential_kind": "api_key",
             "api_key": "sk-credential-test-secret",
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "max_concurrency": 1,
+            "requests_per_minute": null,
             "enabled": true
         })),
         loopback,
@@ -397,7 +399,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),

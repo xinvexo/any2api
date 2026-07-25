@@ -8,7 +8,7 @@ use std::{
 };
 
 use any2api_contract_tests::{build_provider_registry, build_public_request_components};
-use any2api_domain::{MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
 };
@@ -154,7 +154,7 @@ impl TestContext {
         );
         let configuration = storage.load_configuration().await.expect("configuration");
         let providers = build_provider_registry();
-        let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+        let runtime = Arc::new(RuntimeRegistry::new());
         let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
             configuration,
             runtime.as_ref(),
@@ -227,12 +227,7 @@ impl TestContext {
 }
 
 fn draft(label: &str) -> OAuthAccountDraft {
-    OAuthAccountDraft::new(
-        label,
-        MaxConcurrency::new(2).expect("max concurrency"),
-        true,
-    )
-    .expect("OAuth draft")
+    OAuthAccountDraft::new(label, None, true).expect("OAuth draft")
 }
 
 fn document(provider: ProviderKind, body: &'static [u8]) -> OAuthAccountDocument {

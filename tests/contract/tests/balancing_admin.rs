@@ -2,12 +2,13 @@ use std::{fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress,
-    ProxyDraft, ProxyKind, ProxyProfileId,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress, ProxyDraft, ProxyKind,
+    ProxyProfileId, RequestsPerMinute,
 };
 use any2api_runtime::api::{
-    ConfigPublisher, ProviderApiKeySecret, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
+    ConfigPublisher, ProviderApiKeySecret, PublishedSnapshot, RuntimeRegistry,
+    SelectAndReserveResult, SnapshotStore, select_and_try_reserve,
 };
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -23,7 +24,7 @@ use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
+async fn balancing_admin_exposes_live_rpm_window_and_compiled_queue_policy() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
@@ -31,7 +32,7 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
             .expect("storage"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -87,7 +88,7 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
                 "Primary Key",
                 CredentialKind::ApiKey,
                 proxy_id,
-                MaxConcurrency::new(2).expect("max concurrency"),
+                Some(RequestsPerMinute::new(2).expect("valid RPM")),
                 true,
             )
             .expect("credential draft"),
@@ -95,11 +96,13 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
         )
         .await
         .expect("credential publish");
-    let permit = published
+    let binding = published
         .credential_runtime(credential_id.into())
-        .expect("credential runtime")
-        .try_acquire()
-        .expect("capacity permit");
+        .expect("credential runtime");
+    let permit = match select_and_try_reserve(std::slice::from_ref(binding), 0) {
+        SelectAndReserveResult::Reserved(permit) => permit,
+        result => panic!("expected RPM reservation, got {result:?}"),
+    };
     let app = test_router(
         &directory,
         Arc::clone(&snapshots),
@@ -114,11 +117,14 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
     assert_eq!(body["queue"]["waiting"], 0);
     assert_eq!(body["queue"]["max_waiting"], 128);
     assert_eq!(body["queue"]["timeout_secs"], 30);
-    assert_eq!(body["queue"]["on_saturated"], "wait");
-    assert_eq!(body["auxiliary"]["max_global"], 32);
+    assert_eq!(body["queue"]["on_rate_limited"], "wait");
+    assert_eq!(body["queue"]["fallback_on_rate_limit"], false);
+    assert!(body.get("auxiliary").is_none());
     assert_eq!(body["totals"]["in_flight"], 1);
     assert_eq!(body["totals"]["enabled_credential_count"], 0);
-    assert_eq!(body["totals"]["max_concurrency"], 0);
+    assert_eq!(body["totals"]["limited_credential_count"], 1);
+    assert_eq!(body["totals"]["rate_limited_credential_count"], 0);
+    assert_eq!(body["totals"]["requests_in_window"], 1);
     let credential = &body["credentials"][0];
     assert_eq!(credential["credential_id"], credential_id.to_string());
     assert_eq!(credential["label"], "Primary Key");
@@ -127,8 +133,11 @@ async fn balancing_admin_exposes_live_capacity_and_compiled_queue_policy() {
     assert_eq!(credential["proxy_name"], "Disabled Proxy");
     assert_eq!(credential["proxy_enabled"], false);
     assert_eq!(credential["in_flight"], 1);
-    assert_eq!(credential["max_concurrency"], 2);
-    assert_eq!(credential["counters"]["selected_generation"], 0);
+    assert_eq!(credential["requests_per_minute"], 2);
+    assert_eq!(credential["requests_in_window"], 1);
+    assert_eq!(credential["remaining_requests"], 1);
+    assert_eq!(credential["retry_in_ms"], Value::Null);
+    assert_eq!(credential["counters"]["selected"], 0);
     assert!(credential["models"].as_array().is_some_and(Vec::is_empty));
     drop(permit);
 }

@@ -1,9 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, RetrySafety, UpstreamErrorClassification, UpstreamErrorKind,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestsPerMinute,
+    RetrySafety, UpstreamErrorClassification, UpstreamErrorKind,
 };
 use any2api_provider::{CodexDriver, ProviderRegistry};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -31,7 +31,7 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
             .expect("storage"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -100,7 +100,8 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
     }
     assert!(!binding.generation().health().has_auth_error());
     assert!(runtime.scheduler_epoch() > epoch_before);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
+    assert_eq!(binding.rate_snapshot().requests_in_window(), 1);
     let captured = transport.request.lock().expect("captured request");
     let request = captured.as_ref().expect("probe request");
     assert_eq!(request.uri.path(), "/v1/models");
@@ -149,7 +150,7 @@ fn credential_draft() -> ProviderCredentialDraft {
         "Primary",
         CredentialKind::ApiKey,
         ProxyProfileId::DIRECT,
-        MaxConcurrency::new(1).expect("max concurrency"),
+        Some(RequestsPerMinute::new(1).expect("valid RPM")),
         true,
     )
     .expect("credential draft")

@@ -1,14 +1,19 @@
 use crate::{
-    MaxConcurrency, OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId,
+    OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId,
     OAuthAccountValidationError, ProviderKind, ProxyConfiguration, ProxyProfile, ProxyProfileId,
+    RequestsPerMinute,
 };
 
 fn account(provider: ProviderKind, label: &str) -> OAuthAccount {
     OAuthAccount::create(
         OAuthAccountId::new(),
         provider,
-        OAuthAccountDraft::new(label, MaxConcurrency::new(1).expect("valid limit"), true)
-            .expect("valid draft"),
+        OAuthAccountDraft::new(
+            label,
+            Some(RequestsPerMinute::new(60).expect("valid RPM")),
+            true,
+        )
+        .expect("valid draft"),
         Some("owner@example.com".into()),
         Some(100),
         vec!["model".into()],

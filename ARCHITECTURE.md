@@ -2,7 +2,7 @@
 
 > 状态：Draft<br>
 > 版本：1.0<br>
-> 最后更新：2026-07-24<br>
+> 最后更新：2026-07-25<br>
 > 用途：记录当前已经确认的需求、架构约束与后续待完善事项。<br>
 > 实施进度：见 `docs/IMPLEMENTATION_STATUS.md`。
 
@@ -15,7 +15,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 - Codex、Claude 原生协议接入，并为后续协议转换保留扩展边界；
 - 多 Provider Credential 管理；
 - 多个网关 API Key 管理；
-- 按最大并发进行的负载均衡；
+- 可选的账号级 RPM 限速与轮询负载均衡；
 - 会话粘性路由；
 - HTTP、SOCKS5 与 DIRECT 出口管理；
 - 故障切换、冷却、重试和流式响应保护；
@@ -30,7 +30,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 1. 后端使用 Rust，前端使用 React Web。
 2. 首批只支持 Codex 和 Claude，其他 Provider 暂不实现。
 3. 一个 Provider URL 可以配置多个独立 `ProviderCredential`；当前只支持 API Key。
-4. 每个 `ProviderCredential` 可以分别启用、禁用、绑定代理和设置最大并发。
+4. 每个 `ProviderCredential` 可以分别启用、禁用、绑定代理和设置可选 RPM；未设置时不做本地限速。
 5. 代理类型仅支持：
    - `DIRECT`
    - `HTTP`
@@ -38,8 +38,8 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 6. 系统内置一个不可删除、不可禁用的 `DIRECT` 代理。
 7. 系统可以选择一个全局代理。
 8. `ProviderCredential` 绑定 `DIRECT` 时表示使用全局代理；只有其绑定和全局代理均为 `DIRECT` 时才从本机直连。
-9. 每个 `ProviderCredential` 可以设置最大并发数。
-10. 系统根据当前并发占用率进行负载均衡。
+9. `ProviderCredential` 与 `OAuthAccount` 只使用一套可选的每分钟请求数（RPM）限制，不再提供并发或 TPM 配置。
+10. 系统在当前 Route tier 内按稳定轮询选择尚有 RPM 名额的凭据；`in_flight` 仅作运行态观测。
 11. 系统支持会话粘性路由。
 12. 客户端访问 any2api 使用的 `GatewayApiKey` 支持创建多个，并且可以分别禁用或物理删除。
 13. 多个 `GatewayApiKey` 仅用于不同设备、客户端和密钥轮换，权限等价，不具备用户、租户、套餐、余额或额度语义。
@@ -133,8 +133,8 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 多个上游 API Key 不保存为换行字符串或 JSON 数组。每把上游 API Key 必须是独立的 `ProviderCredential`，拥有独立的：
 
 - 代理绑定；
-- 最大并发；
-- 当前并发；
+- 可选 RPM；
+- 当前滚动窗口请求数与 `in_flight` 观测；
 - 健康状态；
 - 模型冷却状态；
 - 请求统计。
@@ -167,7 +167,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 - 核心模块之间使用领域类型和显式枚举，不使用无约束的 `HashMap<String, Value>` 传递关键状态；
 - Provider API Key 使用版本化 Secret 载荷，不把认证字段塞入通用字符串 Map；
 - OAuth2 登录产生的 Provider JSON 只允许明文持久化在独立 `OAuthAccount` SQLite 记录中；HTTP 响应、浏览器状态、Vault、日志和 Debug 输出都不得包含 Token，也不提供读取或导出端点；
-- ID、时间、并发数、配置版本和错误类型使用 newtype，避免互相误传；
+- ID、时间、RPM、配置版本和错误类型使用 newtype，避免互相误传；
 - 所有跨模块接口必须明确取消、超时、错误分类和所有权语义。
 
 ### 4.9 依赖方向不可反转
@@ -241,7 +241,7 @@ flowchart LR
     ACCESS --> DECODE["ProtocolAdapter Decode"]
     DECODE --> ROUTER["Model Router"]
     ROUTER --> AFFINITY["Session Affinity"]
-    AFFINITY --> SELECTOR["Select + Acquire Permit"]
+    AFFINITY --> SELECTOR["Select + Reserve RPM"]
     SELECTOR --> DRIVER["ProviderDriver Request Plan"]
     DRIVER --> TRANSPORT["TransportManager"]
     TRANSPORT --> UPSTREAM["Upstream API"]
@@ -298,7 +298,7 @@ any2api/
 │  ├─ runtime/
 │  │  └─ src/
 │  │     ├─ request/            # RequestContext、Attempt、取消和 deadline
-│  │     ├─ scheduler/          # filter/select/permit/queue/fallback
+│  │     ├─ scheduler/          # filter/select/rpm-window/queue/fallback
 │  │     ├─ affinity/           # hard/soft binding、锁和 CAS
 │  │     ├─ retry/              # RetrySafety、预算和退避
 │  │     ├─ health/             # Credential/Model/Endpoint/Proxy 状态
@@ -381,7 +381,7 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 
 - Domain 单元测试：代理解析、错误分类、路由和状态转换；
 - Provider/Protocol 契约测试：请求头、Secret 注入、未知字段、错误 envelope 和 SSE 事件；
-- 调度并发测试：绝不超过最大并发、动态升降限、无丢失唤醒、Permit 只释放一次；
+- 调度 RPM 测试：滚动窗口绝不超限、60 秒到期、动态升降限、无丢失唤醒、运行态 Guard 只结算一次；
 - 使用 `loom` 或等价模型测试验证关键原子状态；
 - Tokio 虚拟时间测试：排队超时、冷却、Retry-After、取消和停机；
 - Transport 集成测试：DIRECT、HTTP CONNECT、SOCKS5h、代理认证和 Client 代际；
@@ -403,11 +403,12 @@ Rust 功能模块按职责拆分，示例：
 runtime/scheduler/
 ├─ mod.rs              # 仅公开 Scheduler API
 ├─ candidate.rs        # 候选与过滤原因
-├─ selector.rs         # load ratio 与 tie-break
-├─ permit.rs           # ConcurrencyPermit
+├─ selector.rs         # 轮询选择与 tie-break
+├─ rate_window.rs      # 滚动 60 秒 RPM 预留
+├─ guard.rs            # in_flight 与请求生命周期 Guard
 ├─ queue.rs            # QueueTicket 与 scheduler epoch
 ├─ fallback.rs         # tier 策略
-└─ tests.rs            # 模块级并发不变量
+└─ tests.rs            # 模块级 RPM 与并发安全不变量
 ```
 
 React feature 示例：
@@ -432,9 +433,9 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 |---|---|
 | upstream group | 一个逻辑模型的候选路由集合 |
 | upstream peer | Provider URL + Credential + 实际代理 |
-| `max_conns` | Credential 最大并发 |
-| active connections | Credential 当前 `in_flight` |
-| `least_conn` | 最低并发占用率调度 |
+| `limit_req` 风格速率约束 | Credential 可选 RPM |
+| active connections | Credential 当前 `in_flight` 观测 |
+| round robin | 当前 tier 内稳定轮询 |
 | `max_fails` / `fail_timeout` | 失败阈值与冷却时间 |
 | backup peer | 后备 Route Target |
 | keepalive | 按代理配置复用的连接池 |
@@ -471,10 +472,11 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
    - 检查 Codex 硬粘性
    - 检查普通软粘性
 
-6. SelectAndAcquire
+6. SelectAndReserve
    - 过滤禁用、冷却、代理不可用的 Credential
-   - 按最低并发占用率排序候选
-   - 原子选择 Credential 并取得 ConcurrencyPermit
+   - 按 Route + tier 的稳定轮询顺序尝试候选
+   - 原子选择 Credential 并预留滚动 60 秒 RPM 名额
+   - 取得只负责 `in_flight` 观测和资源生命周期的运行态 Guard
 
 7. Attempt
    - 解析实际代理
@@ -606,7 +608,7 @@ credentials
 ├─ secret_fingerprint
 ├─ secret_tail
 ├─ proxy_profile_id
-├─ max_concurrency
+├─ requests_per_minute          # nullable; NULL = no local rate limit
 ├─ enabled
 ├─ created_at
 └─ updated_at
@@ -617,8 +619,8 @@ credentials
 ```text
 CredentialRuntimeHandle
 ├─ in_flight
-├─ auxiliary_in_flight
-├─ max_concurrency
+├─ requests_per_minute
+├─ rolling_request_window
 ├─ current_generation    # ArcSwap<CredentialGenerationRuntime>
 ├─ retired
 ├─ latency_ewma
@@ -627,12 +629,12 @@ CredentialRuntimeHandle
 └─ scheduler_epoch
 ```
 
-认证材料和健康状态位于 generation-scoped 对象中，详见第 12.5 节。这样热更新可以保留容量硬限制，同时隔离旧 Secret/URL 的迟到错误。
+认证材料和健康状态位于 generation-scoped 对象中，详见第 12.5 节。这样热更新可以保留 RPM 窗口和观测状态，同时隔离旧 Secret/URL 的迟到错误。
 
 首版约束：
 
 - 配置编译器只接受 `credential_kind=api_key`；OAuth2 登录结果不进入 ProviderCredential、Provider Endpoint 或 Vault；
-- `max_concurrency` 的首版硬上限为 `10_000`，取值范围固定为 `1..=10_000`；禁用必须使用 `enabled=false`；
+- `requests_per_minute` 可空；非空值范围固定为 `1..=100_000`。空值表示不做本地限速，禁用必须使用 `enabled=false`；
 - `secret_schema_version` 当前固定为 `1`；API Key 是可见 ASCII，并使用 Provider Credential 专用 AAD Kind；
 - `secret_version` 是认证材料 CAS 版本，任何 Secret 替换或未来重封装都增加；
 - `credential_generation` 隔离认证和模型健康代际，Secret 轮换、重新启用或 Endpoint URL 身份变化时增加；
@@ -668,7 +670,7 @@ oauth_accounts
 ├─ account_generation           # isolates auth/model health generations
 ├─ config_version
 ├─ proxy_profile_id             # fixed DIRECT for the first slice
-├─ max_concurrency
+├─ requests_per_minute          # nullable; NULL = no local rate limit
 ├─ enabled
 ├─ safe_account_email           # optional, never a token
 ├─ expires_at
@@ -683,7 +685,7 @@ oauth_account_models
 
 OAuthAccount is deliberately separate from `provider_credentials`: it has no configurable Provider Endpoint and no API Key Secret envelope. The JSON uses the Provider-specific schema; the repository validates Provider, access token, required account metadata, expiry representation, and bounded size before it can be published. OAuth JSON is plaintext in SQLite by explicit product decision, but must never appear in logs, DTOs, Debug, browser storage, or an export API.
 
-Codex and Claude accounts compile to fixed Provider-owned routing profiles. Their selected models, DIRECT/global-proxy resolution, `max_concurrency`, enabled state, generations, and health participate in the same `RoutingCredential` projection as API-key Credentials. The scheduler never branches on whether that projection originated from `ProviderCredential` or `OAuthAccount`.
+Codex and Claude accounts compile to fixed Provider-owned routing profiles. Their selected models, DIRECT/global-proxy resolution, optional `requests_per_minute`, enabled state, generations, and health participate in the same `RoutingCredential` projection as API-key Credentials. The scheduler never branches on whether that projection originated from `ProviderCredential` or `OAuthAccount`.
 
 Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。Claude 固定路由基址为 `https://api.anthropic.com/v1`，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。固定基址、方言和目录只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。
 
@@ -694,7 +696,7 @@ model_routes
 ├─ id
 ├─ public_model
 ├─ ingress_protocol
-├─ fallback_on_saturation  # null=继承全局；0=不溢出；1=进入下一 tier
+├─ fallback_on_rate_limit  # null=继承全局；0=不溢出；1=进入下一 tier
 ├─ enabled
 ├─ config_version          # Route 聚合版本，覆盖全部 Target 变化
 └─ created_at
@@ -719,9 +721,9 @@ route_targets
 - `(ingress_protocol, public_model)` 唯一；
 - `public_model` 与 `upstream_model` 均为首尾无空白、最长 255 个 Unicode 字符的精确名称；首版区分大小写，不支持 wildcard、前缀规则、别名链或 Route 到 Route 的引用；
 - 每条 Route 至少包含一个 Target；启用的 Route 至少包含一个启用的 Target；
-- 自动物化的全部 Target 固定为 `fallback_tier=0`；同一模型下所有已选择该模型的 Credential 按负载率调度；
+- 自动物化的全部 Target 固定为 `fallback_tier=0`；同一模型下所有已选择该模型的 Credential 按稳定轮询调度；
 - Route 的 `ingress_protocol` 来自 Endpoint 接受协议；Route Target 的有效上游 ProtocolDialect、CredentialKind 和 TransportMode 必须符合 Provider CapabilitySet；
-- 自动物化 Route 继承全局满载策略；首版 UI 不暴露每模型 fallback tier；
+- 自动物化 Route 继承全局 RPM 用尽策略；首版 UI 不暴露每模型 fallback tier；
 - 接受协议与有效上游协议不同且没有已注册 ProtocolBridge 时拒绝发布；
 - Route Target 的稳定 ID 用于硬粘性，禁止通过数组位置表达身份。
 - `provider_credential_models` 是控制面真相来源；`model_routes` 与 `route_targets` 是同一事务内重建的内部物化表，稳定 ID 由协议、模型和 Endpoint 确定；
@@ -915,7 +917,7 @@ fn resolve_proxy(global: ProxyId, credential: ProxyId) -> ProxyId {
 
 - 不允许回退全局代理；
 - 不允许回退 DIRECT；
-- 释放当前 `ProviderCredential` 并发槽位；
+- 结束当前 `ProviderCredential` 的 `in_flight` 生命周期 Guard；已预留 RPM 名额不归还；
 - 将代理或 Credential 标记为短暂不可用；
 - 对未绑定或 `prefer` 请求重新选择其他满足条件的 `ProviderCredential`；
 - 对硬绑定或 `strict` 请求不切换 Credential，只能等待原目标恢复、在 RetrySafety 允许时重试原目标，或返回绑定不可用错误。
@@ -939,7 +941,7 @@ ProxyProfile 可见元数据
 - HTTP 与 SOCKS5 统一使用 reqwest 的逐 Client 代理认证配置，禁止把凭据拼进代理 URL；
 - 认证失败继续遵守 Fail-Closed，不得回退全局代理或 DIRECT。
 
-管理面提供 `POST /api/admin/proxies/{id}/test`。请求只能选择当前配置中已有的 `ProviderEndpoint` 作为探测目标，禁止提交任意 URL。探测不携带 ProviderCredential，只验证 DNS、代理连接/认证、TLS 与响应头可达性；普通上游 HTTP 状态（包括 401、403、404）表示网络链路可达，但 HTTP forward proxy 返回 `407 Proxy Authentication Required` 属于代理认证握手拒绝，必须作为失败归因 `ProxyHandshake + Proxy`，不能被当作上游响应交给 Provider 分类器。响应返回关联的 Proxy/Endpoint ID、捕获的配置 revision 与两项资源 config version、延迟、HTTP 状态或脱敏失败阶段/归因，不返回目标 IP、代理地址、响应正文或 Secret；Web 只展示与当前配置代际完全匹配的结果。管理探测不更新 Proxy/Endpoint 熔断状态，也不占用 Credential 并发槽位。
+管理面提供 `POST /api/admin/proxies/{id}/test`。请求只能选择当前配置中已有的 `ProviderEndpoint` 作为探测目标，禁止提交任意 URL。探测不携带 ProviderCredential，只验证 DNS、代理连接/认证、TLS 与响应头可达性；普通上游 HTTP 状态（包括 401、403、404）表示网络链路可达，但 HTTP forward proxy 返回 `407 Proxy Authentication Required` 属于代理认证握手拒绝，必须作为失败归因 `ProxyHandshake + Proxy`，不能被当作上游响应交给 Provider 分类器。响应返回关联的 Proxy/Endpoint ID、捕获的配置 revision 与两项资源 config version、延迟、HTTP 状态或脱敏失败阶段/归因，不返回目标 IP、代理地址、响应正文或 Secret；Web 只展示与当前配置代际完全匹配的结果。管理探测不更新 Proxy/Endpoint 熔断状态，也不占用 Credential RPM 名额。
 
 ### 10.5 TransportManager
 
@@ -1049,7 +1051,7 @@ ProviderKind
 | `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 是 | 否 | JSON vertical slice |
 | `GET /v1/models` | 返回 Credential 已选择的公开模型 | 本地 PublishedSnapshot | 是 | 否 | 实现 |
 
-`/v1/models` 返回至少被一把 Credential 选中的模型，不根据瞬时冷却、并发、Credential 启停或代理可用性频繁增删模型。跨协议使用相同模型名时只返回一个标准模型对象，结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
+`/v1/models` 返回至少被一把 Credential 选中的模型，不根据瞬时冷却、RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议使用相同模型名时只返回一个标准模型对象，结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
 
 首版不实现 WebSocket，也不接受 WebSocket Upgrade。未来如果增加，必须作为独立 TransportMode 和独立契约设计，不能由 SSE 代码顺带兼容。
 
@@ -1057,7 +1059,7 @@ ProviderKind
 
 - 接收 OpenAI Responses Compact JSON，至少要求 `model` 和 `input`；
 - 只支持非流式 JSON；请求包含 `stream=true` 时返回 400；
-- 使用与 `/v1/responses` 相同的模型路由、Provider API Key、代理和普通并发槽位；
+- 使用与 `/v1/responses` 相同的模型路由、Provider API Key、代理和账号 RPM；
 - 首版只转发到支持 compact 的同协议 Codex/OpenAI 上游；
 - 保留上游 compaction 响应和 usage，不自行解析或改写不透明 compaction 内容；
 - 不建立 Codex `previous_response_id` 硬绑定，但显式软会话头仍可使用软粘性。
@@ -1069,8 +1071,8 @@ ProviderKind
 - 接收 Anthropic Messages 风格的 `model`、`messages`、`system`、`tools` 等输入；
 - 请求配置的 Claude 上游 `/v1/messages/count_tokens`，返回 `{"input_tokens": N}`；
 - 不生成模型内容、不建立会话粘性、不写 Token Usage；
-- 使用相同模型路由和 Provider API Key，但不占用生成请求的 `max_concurrency`；
-- 使用独立的轻量辅助请求并发限制，避免 Token 预检占满模型生成槽位；
+- 使用相同模型路由、Provider API Key、代理和账号 RPM；每次 Count Tokens 上游 Attempt 与生成请求一样消耗一个 RPM 名额；
+- 不建立独立辅助并发或第二套等待队列；
 - 上游明确返回 404 时向客户端返回兼容 404，由 Claude Code 自行回退本地估算，首版不自行实现 tokenizer。
 
 CLIProxyAPI 和 sub2api 均实现该端点；sub2api 明确将其视为 Claude Code 的官方辅助请求，而不是基础推理硬依赖。
@@ -1213,7 +1215,7 @@ trait ProtocolBridgeSession: Send {
 - 请求格式或版本头错误；
 - 未知模型、无路由或能力不匹配；
 - 无可用 Credential；
-- 本地满载与排队超时；
+- 本地 RPM 用尽与排队超时；
 - 硬绑定丢失或不可用；
 - 上游认证、额度、限流和服务错误；
 - 重试预算耗尽；
@@ -1227,45 +1229,35 @@ trait ProtocolBridgeSession: Send {
 
 有效上游协议等于接受协议时优先采用原始 JSON 透传加局部字段修改，保留未知字段。只有显式配置不同内部协议时才进入 Canonical IR。
 
-Codex 与 Claude 的上游 `ProviderCredential` 当前都只支持 API Key。OAuthAccount 的 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个 Permit 入口调用 Provider 的 OAuth Header 注入。普通 API Key 管理端点不接受 OAuth JSON。
+Codex 与 Claude 的上游 `ProviderCredential` 当前都只支持 API Key。OAuthAccount 的 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。普通 API Key 管理端点不接受 OAuth JSON。
 
 ## 12. 负载均衡
 
-### 12.1 最大并发是硬限制
+### 12.1 可选 RPM 是唯一的本地准入限制
 
-每个 Credential 配置：
-
-```text
-max_concurrency
-```
-
-运行时维护：
+每个 ProviderCredential 与 OAuthAccount 配置：
 
 ```text
-in_flight
+requests_per_minute: Option<RequestsPerMinute>
 ```
 
-负载率：
+`NULL` 表示不做本地限速，依赖上游 `429`、`Retry-After`、冷却与重试策略。非空值必须满足
+`1..=100_000`。禁用 Credential 使用 `enabled=false`，不使用 `0` 表达。
+
+运行时为有限 RPM 保存最近 60 秒内已经预留的上游 Attempt 时间戳：
 
 ```text
-load_ratio = in_flight / max_concurrency
+rolling_request_window = [attempt_started_at, ...]
+available = requests_in_window < requests_per_minute
 ```
 
-`max_concurrency` 必须满足 `1..=MAX_CONCURRENCY`。禁用 Credential 使用 `enabled=false`，不使用 `max_concurrency=0` 表达。
+RPM 是唯一用户可配置的本地限制。不增加 `max_concurrency`、辅助请求并发、TPM、权重或隐藏
+Semaphore。`in_flight` 仍作为无上限的运行态观测和资源生命周期计数存在，但不参与准入或选择。
 
-首版 `MAX_CONCURRENCY = 10_000`。这是防止无意义或恶意超大配置进入运行时的 Schema 硬边界，不是负载均衡权重，也不通过 SettingRegistry 覆盖。
+TPM（Tokens Per Minute）不实现：输出 Token 事前未知，Provider 的输入、输出、缓存和推理 Token
+口径也不一致，增加 TPM 会重新形成与 RPM 互相制约的第二套限制。
 
-例如：
-
-| Credential | 当前/最大并发 | 负载率 |
-|---|---:|---:|
-| A | 5/10 | 50% |
-| B | 0/2 | 0% |
-| C | 2/4 | 50% |
-
-下一个请求选择 B。长期分配比例会自然接近各 Credential 的最大并发容量。
-
-### 12.2 候选过滤顺序
+### 12.2 候选过滤与轮询顺序
 
 ```text
 1. Credential 是否启用
@@ -1273,86 +1265,85 @@ load_ratio = in_flight / max_concurrency
 3. Credential 是否已选择请求的上游模型
 4. Credential + Model 是否冷却
 5. 实际代理是否可用
-6. 是否达到 max_concurrency
-7. 比较 load_ratio
-8. 负载率相同时轮询
+6. 是否仍有 RPM 名额；未配置 RPM 时始终通过
+7. 从 Route + fallback tier 的稳定轮询游标开始选择
 ```
 
-首批不增加独立 `weight` 字段，避免权重和最大并发同时控制容量而产生歧义。
+同一 tier 内按循环顺序尝试所有候选；一个账号 RPM 用尽时，普通请求和 `prefer` 软粘性可以继续
+尝试其他账号。首批不增加独立 `weight`，避免形成第二套吞吐配置。
 
-### 12.3 并发槽位
+### 12.3 RPM 预留与 `in_flight` Guard
 
-并发槽位使用原子计数、调度 epoch 和 RAII Guard，不使用不可动态缩容的固定 Semaphore。
+每个稳定 Credential 句柄使用短 Mutex 保护滚动窗口；锁只覆盖清理过期时间戳、检查限额和追加本次
+预留，不跨网络 I/O 或 `await`。
 
 ```text
-过滤并排序候选
-→ select_and_try_acquire
-→ 在唯一线性化点 CAS 增加 in_flight
-→ 返回 ConcurrencyPermit
+按轮询顺序过滤候选
+→ select_and_try_reserve
+→ 在唯一线性化点清理窗口并预留一个 RPM 名额
+→ 增加无上限 in_flight 观测计数
+→ 返回 RoutingGuard
 → 请求完成/失败/取消
-→ Permit Drop
+→ Guard Drop
 → 减少 in_flight
-→ 增加 scheduler_epoch 并唤醒等待者
+→ RPM 名额不归还，在 attempt_started_at + 60 秒自然过期
 ```
 
-“选择 Credential”和“取得槽位”是一个不可分割的运行时操作。若候选在 CAS 时已经满载，必须重新执行完整选择，不能拿着一个没有 Permit 的选择结果继续请求上游。
+“选择 Credential”和“预留 RPM 名额”是一个不可分割的运行时操作；一个候选在锁内被其他请求
+填满后，调度器继续完整尝试其他候选。每个自动重试 Attempt 都重新预留并消耗名额。预留之后的
+Transport 错误采取保守计数，不设计按 RetrySafety 回滚窗口的第二套状态机。
 
-动态修改最大并发时：
+有限 RPM 改为另一个有限值时保留当前窗口并立即按新值判断；改为无限制时清空窗口，之后重新
+启用 RPM 从空窗口开始。Secret/Token 轮换和普通配置 revision 不重置仍然有限的窗口。
 
-- 调高后立即允许更多请求；
-- 调低时不取消已有请求；
-- 当前并发高于新上限时停止分配新请求，直到降至上限以下。
+流式请求从准备上游 Attempt 开始到流结束或客户端断开持续持有 `in_flight` Guard，但流结束只
+减少观测计数，不释放 RPM。EOF、错误、取消与 Drop 都只能结算一次。
 
-流式请求从请求上游开始，一直到流结束或客户端断开，始终占用一个并发槽位。
-
-负载率比较不使用浮点数，使用交叉相乘：
-
-```text
-in_flight_a * max_concurrency_b
-    vs
-in_flight_b * max_concurrency_a
-```
-
-相同比例使用按 Route + fallback tier 隔离的轮询序号打破平局。
-
-### 12.4 全部满载
+### 12.4 全部 RPM 用尽或暂时不可用
 
 支持以下全局负载均衡设置：
 
 ```text
-strategy                   # least_load_ratio
-on_saturated               # wait | reject
+strategy                   # round_robin
+on_rate_limited            # wait | reject
 queue_timeout_secs
 max_waiting_requests
 ```
 
-等待队列不固定等待某一个普通 Credential。任何候选 Credential 释放槽位后，等待请求重新执行完整选择流程。
+普通等待队列不固定某一个 Credential。等待请求在任一候选 RPM 窗口到期、健康状态变化或配置发布
+后重新执行完整选择。
 
-等待者必须先订阅 `scheduler_epoch`，再复查候选状态，避免检查容量与进入等待之间发生丢失唤醒。
+等待者必须先订阅 `scheduler_epoch`，再复查候选状态，避免检查 RPM 与进入等待之间发生丢失唤醒。
 
-以下事件都必须增加 epoch 并唤醒等待者：
+以下事件或定时边界都必须使等待者重新选择：
 
-- Permit 释放；
-- 最大并发调高；
+- 最早 RPM 时间戳到达 60 秒；
+- RPM 调高或取消；
 - Credential、Endpoint 或 Proxy 重新启用；
 - 冷却到期；
 - 代理或 Endpoint 从熔断状态恢复；
 - 配置快照切换导致候选集合变化。
 
-所有等待请求，包括硬粘性和 `strict` 软粘性，都使用 RAII QueueTicket 计入 `max_waiting_requests`。固定 Credential 的硬粘性/strict 等待者在该 Credential 释放槽位时优先于普通未绑定请求，但所有等待都受超时、取消和队列上限控制。
+所有等待请求，包括硬粘性和 `strict` 软粘性，都使用 RAII QueueTicket 计入 `max_waiting_requests`。
+固定 Credential 的硬粘性/strict 等待者对该 Credential 下一 RPM 名额优先于普通未绑定请求，但
+所有等待都受超时、取消和队列上限控制。
 
-如果队列超时或超过最大等待数量，返回本地并发限制错误，例如：
+如果队列超时、策略要求立即拒绝或超过最大等待数量，返回本地 RPM 限制错误，例如：
 
 ```json
 {
   "error": {
-    "code": "local_concurrency_limit",
-    "message": "all eligible credentials are at capacity"
+    "code": "local_rate_limit",
+    "message": "all eligible credentials have exhausted their local RPM"
   }
 }
 ```
 
-首个 QueueTicket 可运行切片固定以下边界：生成请求在当前最低可执行 tier 全部满载时，按当前 `PublishedSnapshot` 捕获的 `QueuePolicy` 选择等待或立即拒绝；等待者通过跨快照复用的 `QueueCoordinator` 取得有界 RAII Ticket，先订阅统一 epoch，再重新执行完整选择。Permit 释放、配置发布、健康状态变化或冷却/熔断到期推进 epoch；超时边界执行最后一次完整选择，取消、超时、错误和成功都由 Drop 归还等待名额。Route 的 `fallback_on_saturation` 覆盖全局默认，允许主 tier 满载时进入下一 tier；`/v1/messages/count_tokens` 仍使用独立辅助并发并立即拒绝，不进入生成队列。固定会话优先级、健康到期唤醒和 scheduler SettingRegistry/Web 覆盖均已接入。
+QueueTicket 使用跨快照复用的 `QueueCoordinator`。等待者先订阅统一 epoch，再重新执行完整选择；
+每轮等待同时监听 epoch、所有候选中最早的 RPM 到期时间和队列绝对超时。配置发布、健康状态变化或
+冷却/熔断到期推进 epoch；超时边界执行最后一次完整选择。Route 的
+`fallback_on_rate_limit` 覆盖全局默认，允许主 tier RPM 全部用尽时进入下一 tier。
+`/v1/messages/count_tokens` 使用相同选择、RPM 和 QueueTicket，不建立辅助队列。
 
 ### 12.5 稳定 RuntimeRegistry
 
@@ -1369,14 +1360,14 @@ RuntimeRegistry
 
 规则：
 
-- 同一个 Credential ID 在配置代际之间复用稳定的容量计数；
+- 同一个 Credential ID 在配置代际之间复用稳定的 RPM 窗口与 `in_flight` 观测；
 - Credential 的认证材料、认证健康和模型健康属于 generation-scoped 状态，不跨身份配置代际复用；
 - `CredentialRuntimeHandle` 内部通过 `ArcSwap<CredentialGenerationRuntime>` 指向当前代际；
 - Endpoint、Proxy 健康状态按配置版本隔离；
-- 热更新不得把共享 `in_flight` 重置为零，但修改 URL、Secret、ProviderKind 等身份字段时必须创建新的健康代际；
+- 热更新不得把仍有限制的共享 RPM 窗口或 `in_flight` 重置为零，但修改 URL、Secret、ProviderKind 等身份字段时必须创建新的健康代际；
 - `QueueCoordinator` 与 waiting count 跨 PublishedSnapshot 复用；`QueuePolicy` 按值进入具体快照，同一请求在整个等待期只使用其已持有 revision 的策略，禁止从共享可变对象读取新 revision 的队列参数；
 - 删除的对象标记为 `retired`，立即从新快照候选中移除；
-- 旧请求和 Permit 释放最后一个引用后再回收 retired 对象；
+- 旧请求和 Guard 释放最后一个引用后再回收 retired 对象；
 - 进程重启时创建全新的 Registry，所有运行态从空状态开始。
 
 ```text
@@ -1396,7 +1387,7 @@ CredentialGenerationRuntime
 
 ```text
 Eligible
-AtCapacity
+RateLimited { retry_at }
 Cooling { retry_at }
 ProxyUnavailable
 EndpointUnavailable
@@ -1422,8 +1413,8 @@ NoRoute
 ```text
 分类错误并发布健康状态
 → 记录 Attempt
-→ 释放 ConcurrencyPermit
-→ 增加 scheduler_epoch
+→ 释放 in_flight Guard
+→ RPM 名额保留到滚动窗口自然过期
 ```
 
 状态更新携带版本或发生时间，较早请求的成功不得清除较晚请求建立的冷却。熔断器使用 `Closed / Open / HalfOpen`，HalfOpen 探测并发必须有上限。
@@ -1432,20 +1423,15 @@ NoRoute
 
 - 默认只在当前最低可用 tier 内执行负载均衡；
 - 当前 tier 没有永久可用候选时才进入下一 tier；
-- “主 tier 全部满载时等待还是溢出到下一 tier”是显式 Route 策略，不能隐式决定；
+- “主 tier RPM 全部用尽时等待还是溢出到下一 tier”是显式 Route 策略，不能隐式决定；
 - 硬粘性命中时忽略 fallback tier，只允许原绑定目标；
 - 每次升级 tier 都计入重试/切换预算并写入 Attempt 日志。
 
-### 12.9 辅助请求并发
+### 12.9 辅助操作
 
-`/v1/messages/count_tokens` 不生成模型内容，不占用 Credential 的生成请求 `in_flight/max_concurrency`。它使用独立的双层辅助 Permit：
-
-```text
-GlobalAuxiliaryPermit
-+ CredentialAuxiliaryPermit
-```
-
-候选 Credential 仍必须满足启用、认证健康、模型支持和代理可用条件。辅助请求不建立会话绑定、不影响生成负载率，也不触发 fallback tier 溢出；其全局和单 Credential 上限由 SettingRegistry 管理。
+`/v1/messages/count_tokens` 不生成模型内容、不建立会话绑定，也不写 Token Usage；但它仍是一次真实
+上游请求，因此与生成请求共用所选 Credential 的唯一 RPM 窗口、轮询选择和 QueueTicket。系统
+不提供全局或单 Credential 辅助并发设置。
 
 ## 13. 会话粘性路由
 
@@ -1481,7 +1467,7 @@ previous_response_id
 规则：
 
 - 后续请求必须选择原 Credential；
-- Credential 满载时等待原 Credential；
+- Credential RPM 用尽时等待原 Credential 的最早窗口到期；
 - 不允许因为负载、冷却或代理故障切换其他 Credential；
 - 无法继续时返回明确的会话绑定错误；
 - Response ID 映射使用较长的内存 TTL；
@@ -1491,7 +1477,7 @@ previous_response_id
 
 ### 13.3 普通软粘性
 
-第一次请求正常按负载率选择 Credential。上游成功接受请求后建立：
+第一次请求正常按轮询与 RPM 可用性选择 Credential。上游成功接受请求后建立：
 
 ```text
 scope_id + session_hash → credential_id + binding_version
@@ -1501,23 +1487,23 @@ scope_id + session_hash → credential_id + binding_version
 
 软粘性支持两种策略：
 
-- `prefer`：绑定 Credential 可用时优先使用；满载等待一段时间，超时后可切换并重绑定。
-- `strict`：只允许使用绑定 Credential；满载时等待，超时返回错误。
+- `prefer`：绑定 Credential 可用时优先使用；RPM 用尽时等待一段时间，超时后可切换并重绑定。
+- `strict`：只允许使用绑定 Credential；RPM 用尽时等待，超时返回错误。
 
 当前建议默认使用 `prefer`。
 
-### 13.4 粘性与并发的组合顺序
+### 13.4 粘性与 RPM 的组合顺序
 
 ```text
 硬粘性命中
-  → 等待并获取指定 Credential 槽位
+  → 等待并预留指定 Credential RPM 名额
 
 软粘性命中
   → 尝试绑定 Credential
-  → 根据 prefer/strict 处理满载和不可用
+  → 根据 prefer/strict 处理 RPM 用尽和不可用
 
 未命中
-  → 普通最低负载率调度
+  → 普通轮询调度并预留 RPM 名额
   → 上游成功后提交绑定
 ```
 
@@ -1529,7 +1515,7 @@ scope_id + session_hash → credential_id + binding_version
 缓存未命中
 → 获取 Session Lock
 → 再次检查绑定
-→ select_and_try_acquire
+→ select_and_try_reserve
 → 写入 Creating { lease_id, credential_id, version, notify, expires_at }
 → 释放 Session Lock
 
@@ -1558,7 +1544,7 @@ Session Lock 和 Creating Lease 必须支持 RAII、请求取消、超时清理�
 - 硬绑定目标被禁用、删除或代理不可用时返回错误，绝不悄然切换；
 - 进程重启会清空全部软/硬绑定，旧 Response ID 返回 `session_binding_lost`。
 
-首个会话粘性可运行切片采用稳定的进程内 `AffinityRegistry` 和快照级 `AffinityPolicy`。ProtocolAdapter 只提取显式会话标识；原始值进入 Runtime 后立即使用进程级随机 HMAC-SHA256 密钥和用途域分离转换为不可逆键。软会话通过短锁内版本化 `Creating` 租约避免并发首请求分裂，任何网络 I/O 都不持有 Session Lock。固定 Credential 等待继续使用全局 QueueTicket，并在对应 Credential 的容量线性化点获得高于普通未绑定请求的优先级，不建立第二套全局队列。
+首个会话粘性可运行切片采用稳定的进程内 `AffinityRegistry` 和快照级 `AffinityPolicy`。ProtocolAdapter 只提取显式会话标识；原始值进入 Runtime 后立即使用进程级随机 HMAC-SHA256 密钥和用途域分离转换为不可逆键。软会话通过短锁内版本化 `Creating` 租约避免并发首请求分裂，任何网络 I/O 都不持有 Session Lock。固定 Credential 等待继续使用全局 QueueTicket，并在对应 Credential 的 RPM 预留线性化点获得高于普通未绑定请求的优先级，不建立第二套全局队列。
 
 Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成硬绑定。`/v1/responses/compact` 只参与显式软粘性且不创建硬绑定；`/v1/messages/count_tokens` 不参与粘性。首个切片不同时加入健康、冷却或多 Attempt 重试：硬绑定和 `strict` 目标不可用时返回 `session_binding_lost`，`prefer` 只在目标不再有效或固定等待超时后重绑。完整决策见 `docs/adr/0012-in-memory-session-affinity.md`。
 
@@ -1596,13 +1582,13 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 - 上游 5xx/过载只更新 Endpoint config generation；代理连接/握手错误只更新 Proxy config generation；DIRECT 的 DNS/TCP 错误归入 Endpoint，禁止把 Provider 429/5xx 误判为代理故障；
 - Endpoint 与 Proxy 使用独立的滑动失败窗口和 `Closed / Open / HalfOpen` 熔断器。HalfOpen 探测 Permit 与上游 Attempt 同生命周期，取消或 Drop 必须归还探测名额；
 - 冷却或熔断到期由进程内定时唤醒推进统一 `scheduler_epoch`，等待请求仍使用同一个有界 QueueTicket，不创建健康模块私有队列；
-- 健康预检查与 HalfOpen Permit 获取之间发生竞态时，必须释放已经取得的 Credential Permit、移除当前候选并继续选择同 tier 其他候选；只有该 tier 确实没有可执行候选时才等待或返回临时不可用；
+- 健康预检查与 HalfOpen Guard 获取之间发生竞态时，必须释放已经取得的 Credential 运行态 Guard、移除当前候选并继续选择同 tier 其他候选；已经预留的 RPM 名额采取保守计数；只有该 tier 确实没有可执行候选时才等待或返回临时不可用；
 - 每个请求在第一次上游 Attempt 前固定当前 PublishedSnapshot 的重试、冷却与熔断策略；热更新只影响之后开始的请求和之后记录的失败；
 - 同一个失败路径在当前请求内会被排除，避免在全局熔断阈值尚未达到时立即重复选择同一坏 Endpoint 或 Proxy；
 - 5xx 与“请求已写出但响应丢失”等不确定结果保持 `Ambiguous`，首版不会为了提高成功率而默认执行 at-least-once 重试；
 - 外部 `Retry-After` 延迟按 30 天上限归一化；时间转换和 deadline 使用可失败加法，禁止溢出后退回当前时刻导致立即恢复；
-- 上游成功后的本地响应编码、模型恢复或粘性提交错误仍按上游健康成功结算；必须先解析 HalfOpen 探测，再释放 Credential Permit，最后返回本地错误；
-- 本切片已经把 RequestLog 与 Attempt 持久化到 SQLite，并继续用它们驱动本地查询；它们只属于历史遥测，不参与启动时的并发、队列、粘性或健康状态恢复。
+- 上游成功后的本地响应编码、模型恢复或粘性提交错误仍按上游健康成功结算；必须先解析 HalfOpen 探测，再释放 Credential 运行态 Guard，最后返回本地错误；
+- 本切片已经把 RequestLog 与 Attempt 持久化到 SQLite，并继续用它们驱动本地查询；它们只属于历史遥测，不参与启动时的 RPM 窗口、`in_flight`、队列、粘性或健康状态恢复。
 
 ### 14.1 RetrySafety
 
@@ -1628,7 +1614,7 @@ Ambiguous                  # 可能已经执行，只是响应丢失
 | 上游明确返回可分类的拒绝响应 | 由 Driver 判断 |
 | 已向下游发送响应头或任意字节 | 禁止重试或切换 |
 
-所有尝试共享同一个绝对 deadline。排队、Session Lock、退避和请求上游都消耗该 deadline；开始下一次尝试前必须释放上一 Credential 的 Permit。
+所有尝试共享同一个绝对 deadline。排队、Session Lock、退避和请求上游都消耗该 deadline；开始下一次尝试前必须结束上一 Credential 的 `in_flight` Guard，上一 Attempt 的 RPM 名额不会归还。
 
 ### 14.2 Attempt 记录
 
@@ -1680,7 +1666,7 @@ stateDiagram-v2
 - `response.created`、`message_start` 等携带身份或上游状态的事件属于 `IdentityCommitted`；
 - 硬粘性映射必须在身份事件写给客户端之前完成；
 - 任意 Committed 状态都禁止切换上游；
-- 客户端断开时立即取消上游请求并释放并发槽位；
+- 客户端断开时立即取消上游请求并结束 `in_flight` Guard；RPM 名额不归还；
 - 不为计费目的继续 Drain 上游，因为本项目不做计费；
 - SSE 解析器必须支持 CRLF、多行 `data:` 和末尾没有空行的最终事件；
 - 必须限制单帧和总缓冲大小。
@@ -1705,15 +1691,15 @@ PostCommitFailureMode
 
 只有协议和客户端明确支持时才发送 ErrorEvent，否则直接终止流。
 
-Axum Handler 返回流式 Body 后，Permit 不能留在 Handler 局部变量中。自定义 `GuardedBody` 必须持有：
+Axum Handler 返回流式 Body 后，运行态 Guard 不能留在 Handler 局部变量中。自定义 `GuardedBody` 必须持有：
 
 - 上游 Body；
-- `ConcurrencyPermit`；
+- Credential `in_flight` Guard；
 - 请求取消令牌；
 - CommitState；
 - Attempt 结束记录器。
 
-正常 EOF、上游错误或客户端丢弃 Body 都通过 Drop/终止路径保证只释放一次 Permit，并取消仍在运行的上游任务。Drop 路径只执行同步释放、取消和有界日志入队；需要 await 的刷新由 TaskTracker best-effort 完成。
+正常 EOF、上游错误或客户端丢弃 Body 都通过 Drop/终止路径保证只结算一次 Guard，并取消仍在运行的上游任务。Drop 路径只执行同步释放、取消和有界日志入队；需要 await 的刷新由 TaskTracker best-effort 完成。RPM 名额只按时间到期，不在这些路径回滚。
 
 首个 SSE 可运行切片固定以下边界：协议层使用增量分帧器处理任意字节切分、CRLF、多行 `data:` 与无尾空行；Runtime 在返回下游响应头前至少取得并验证一个完整事件，避免空流或首帧损坏时提前提交。首帧读取失败属于上游执行结果不确定的 `Ambiguous`，默认不自动启动第二条流；提交后 Transport 或协议错误直接终止连接，不发送臆造事件，也不切换上游。模型别名只改写协议已知的顶层 `model`、`response.model` 与 `message.model` 字段，禁止递归改写工具参数或用户内容中的同名字段。
 
@@ -1748,7 +1734,7 @@ React 提交配置
 → 返回管理 API 成功
 ```
 
-任何当前已知的校验或编译失败都在 Commit 前终止。当前 Commit 后只执行无 I/O、无 `Result` 的 RuntimeRegistry reconcile 与一次 ArcSwap；辅助并发是 Runtime 作用域，连续快照共享其稳定句柄，epoch 只在新快照可见后推进。未来若引入真正可能失败的本地资源，必须先在 Commit 前准备，不能把空泛的 `PreparedPublish` 抽象提前引入。
+任何当前已知的校验或编译失败都在 Commit 前终止。当前 Commit 后只执行无 I/O、无 `Result` 的 RuntimeRegistry reconcile 与一次 ArcSwap；RPM 窗口和 `in_flight` 是 Runtime 作用域，连续快照共享稳定句柄，epoch 只在新快照可见后推进。未来若引入真正可能失败的本地资源，必须先在 Commit 前准备，不能把空泛的 `PreparedPublish` 抽象提前引入。
 
 ```text
 PublishedSnapshot
@@ -1763,7 +1749,7 @@ PublishedSnapshot
 - 发布流程脱离管理 HTTP 请求的取消令牌，客户端断开不能中断已经开始的提交；
 - 管理 API 只有在数据库提交和快照切换都完成后才返回成功；
 - 请求在 Access 前只 `load_full()` 一次 `PublishedSnapshot`，鉴权和路由必须来自同一 revision，并在整个请求期间持有同一 Arc；
-- 实时容量、健康和冷却从稳定 RuntimeRegistry 读取；
+- 实时 RPM 窗口、`in_flight`、健康和冷却从稳定 RuntimeRegistry 读取；
 - `GatewayApiKey` 删除进入 PublishedSnapshot：删除 API 成功返回后，新请求不得再通过旧 Key；
 - 进程重启时直接从 SQLite 当前配置编译新快照，不恢复旧 revision 对应的运行状态。
 
@@ -1794,7 +1780,7 @@ effective_value = user_override.unwrap_or(compiled_default)
 
 Web 必须同时显示默认值、覆盖值和当前生效值，并提供“恢复默认”操作。恢复默认表示删除覆盖记录。版本升级不得覆盖用户已有覆盖值；未覆盖的设置自动采用新版本默认值。所有修改仍通过 ConfigPublisher 校验和热更新。
 
-QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；旧快照继续持有旧策略。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止让一个已开始的请求在等待中途混用两个配置 revision。辅助并发属于稳定 Runtime 句柄的动态容量参数，通过无失败 Runtime reconcile 更新并由统一 epoch 唤醒。
+QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；旧快照继续持有旧策略。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止让一个已开始的请求在等待中途混用两个配置 revision。Credential 的可选 RPM 属于其配置实体，通过无失败 Runtime reconcile 更新稳定窗口，并在快照切换后由统一 epoch 唤醒。
 
 #### 会话粘性默认值
 
@@ -1809,22 +1795,20 @@ QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的�
 
 硬/软 TTL 都只作用于当前进程内存；进程重启后绑定立即清空，不根据 TTL 恢复。
 
-#### 排队与辅助请求默认值
+#### RPM 等待默认值
 
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
-| `scheduler.on_saturated` | enum | `wait` | `wait` / `reject` |
+| `scheduler.on_rate_limited` | enum | `wait` | `wait` / `reject` |
 | `scheduler.queue_timeout` | duration_secs | `30` | `1..=86_400` |
 | `scheduler.max_waiting_requests` | integer | `128` | `1..=100_000` |
-| `scheduler.fallback_on_saturation` | boolean | `false` | `true` / `false` |
-| `scheduler.auxiliary_global_concurrency` | integer | `32` | `1..=10_000` |
-| `scheduler.auxiliary_per_credential_concurrency` | integer | `4` | `1..=10_000` |
+| `scheduler.fallback_on_rate_limit` | boolean | `false` | `true` / `false` |
 
-默认情况下主 tier 满载时等待，不自动溢出到 fallback tier。`/v1/messages/count_tokens` 使用辅助请求槽位。
+默认情况下主 tier RPM 用尽时等待，不自动溢出到 fallback tier。`/v1/messages/count_tokens` 使用同一账号 RPM。
 
-队列参数提供全局默认。首版自动物化的 Route 不提供单 Route 覆盖入口，统一继承 `scheduler.fallback_on_saturation`；若以后需要更细策略，必须设计为不暴露内部 Route/Target 的高级配置。
+队列参数提供全局默认。首版自动物化的 Route 不提供单 Route 覆盖入口，统一继承 `scheduler.fallback_on_rate_limit`；若以后需要更细策略，必须设计为不暴露内部 Route/Target 的高级配置。
 
-首个 SettingRegistry 可运行切片实现以上六个 `scheduler.*` key。其余 affinity、retry、cooldown、breaker 与日志设置沿用同一注册表和发布边界，按独立功能切片追加，不能在使用模块中先散落临时常量或另建第二套设置系统。
+SettingRegistry 实现以上四个 `scheduler.*` key。其余 affinity、retry、cooldown、breaker 与日志设置沿用同一注册表和发布边界，不能在使用模块中散落临时常量或另建第二套设置系统。
 
 #### 重试、冷却与熔断默认值
 
@@ -1969,7 +1953,7 @@ Web 的“刷新全部额度”只针对当前完整 Codex OAuthAccount 集合�
 
 数据库约束至少包括：
 
-- `max_concurrency > 0`；
+- `requests_per_minute IS NULL OR requests_per_minute BETWEEN 1 AND 100000`；
 - `GatewayApiKey.token_hash` 唯一；
 - `(ingress_protocol, public_model)` 唯一；
 - Proxy 类型与 host/port/认证字段之间的 `CHECK` 约束；
@@ -2001,7 +1985,7 @@ SQLite 不持久化：
 - OAuth 上游额度查询快照与 reset credit 次数；
 - 正在执行的请求、重试进度和后台任务状态。
 
-RequestLog、Attempt、审计日志和 `last_used_at` 属于历史遥测，不属于需要恢复的运行状态。启动时不会读取它们来重建路由、粘性、并发或健康状态；可以单独关闭、清理或设置容量上限。同一请求日志中记录 GatewayApiKey ID 与 Credential ID 只表示该次请求的观测结果，不构成两类凭据之间的配置绑定或路由关系。
+RequestLog、Attempt、审计日志和 `last_used_at` 属于历史遥测，不属于需要恢复的运行状态。启动时不会读取它们来重建路由、粘性、RPM 窗口、`in_flight` 或健康状态；可以单独关闭、清理或设置容量上限。同一请求日志中记录 GatewayApiKey ID 与 Credential ID 只表示该次请求的观测结果，不构成两类凭据之间的配置绑定或路由关系。
 
 ### 17.2 Secret Vault
 
@@ -2138,7 +2122,7 @@ DNS 信任边界：
 - 实际 ProxyProfile；
 - 粘性命中层级；
 - Route Target 与 fallback tier；
-- 选择前负载率；
+- 选择时的 RPM 窗口已用/上限；
 - Attempt 序号与 RetrySafety；
 - 排队、Session Lock、退避耗时；
 - 状态码；
@@ -2174,13 +2158,13 @@ runtime_retired
 
 日志中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。
 
-运行指标至少暴露当前配置 revision、总/分 Credential 并发、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
+运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
 
 负载均衡管理面使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务：
 
-- 每个 Credential 暴露 `in_flight/max_concurrency`、固定会话等待者、辅助请求占用、进程内成功选中次数与候选过滤次数；
-- 选中次数在 Credential Permit 与全部健康 Permit 均取得后递增，每次上游 Attempt 选择计一次；普通生成与辅助请求分别计数；
-- 满载、Credential/模型健康、Endpoint 健康和 Proxy 健康过滤分别计数。它们表示调度器实际执行的候选过滤事件，等待重选或 CAS 竞争可能使同一客户端请求产生多次过滤，禁止把它们解释为请求量、配额或计费数据；
+- 每个 Credential 暴露 `in_flight`、可选 RPM、滚动窗口已用/剩余、下一名额到期时间、固定会话等待者、进程内成功选中次数与候选过滤次数；
+- 选中次数在 RPM 名额、Credential Guard 与全部健康 Guard 均取得后递增，每次上游 Attempt 选择计一次；
+- RPM 用尽、Credential/模型健康、Endpoint 健康和 Proxy 健康过滤分别计数。它们表示调度器实际执行的候选过滤事件，等待重选或锁竞争可能使同一客户端请求产生多次过滤，禁止把它们解释为请求量、配额或计费数据；
 - 健康状态按真实作用域展示：Credential + upstream model、Provider Endpoint 和实际 Proxy 分别报告可用、冷却剩余时间或永久认证不可用，禁止把模型级 429 合并成整把 Credential 故障；
 - 所有计数与健康快照只存在于当前进程，配置热更新复用同一 Credential 句柄时保留，Credential 删除或进程重启后清空，不持久化、不恢复。
 
@@ -2190,7 +2174,7 @@ runtime_retired
 
 - `/v1` 外层生成本地 Request ID，并在所有公开响应中覆盖 `x-request-id`；
 - 已通过 GatewayApiKey 鉴权并进入模型执行链的请求创建 RequestLog，解码、规划、排队和上游错误均可形成最终记录；
-- 每次上游 Attempt 在健康结算后、Permit 释放前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；
+- 每次上游 Attempt 在健康结算后、运行态 Guard 结束前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；
 - 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；
 - SSE 只有在首帧验证与软绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
 - SQLite Writer 小批量事务写入父子记录，并按 retention/max_rows 任一上限分批清理；历史记录不参与启动恢复；
@@ -2211,10 +2195,10 @@ runtime_retired
 管理面采用现代 Web 控制台，而不是传统“深色顶栏 + 密集表格 + 多级菜单”的老式后台模板，也不复刻任何桌面客户端。
 
 - 应用壳在大屏保持安静、清晰的导航层次，在手机和平板转为抽屉或紧凑顶部导航；
-- 首页优先呈现实例状态、Provider/代理健康、容量和最近错误，不用大面积装饰性图表填充空间；
+- 首页优先呈现实例状态、Provider/代理健康、RPM 使用和最近错误，不用大面积装饰性图表填充空间；
 - 配置页以分组表单、清晰说明、即时校验和危险操作确认作为主要交互；
 - 数据密集页面可以使用表格，但需提供窄屏降级方案，不能把桌面固定列宽直接压缩到移动端；
-- 安全警告、满载、冷却和代理故障使用克制的语义色与文字说明，不依赖颜色作为唯一信息；
+- 安全警告、RPM 用尽、冷却和代理故障使用克制的语义色与文字说明，不依赖颜色作为唯一信息；
 - 动效只用于状态过渡、抽屉和反馈，遵循 `prefers-reduced-motion`。
 
 `E:\clashx` 可参考的仅包括 React/Vite/Tailwind v4、语义 Token、Provider 组合、`cn()` 类名合并和按需 UI Primitive；其 Tauri 壳层、固定桌面布局、原生窗口元素与页面密度不进入 any2api。
@@ -2250,17 +2234,17 @@ OAuth2 登录
 
 Provider 详情页包含 Credential 表格：
 
-| Credential | 类型 | 绑定代理 | 实际代理 | 当前并发 | 最大并发 | 负载率 | 状态 |
+| Credential | 类型 | 绑定代理 | 实际代理 | RPM | 60 秒已用 | `in_flight` | 状态 |
 |---|---|---|---|---:|---:|---:|---|
-| Codex-A | Provider API Key | DIRECT | 香港 HTTP | 4 | 10 | 40% | 正常 |
-| Codex-B | Provider API Key | 美国 SOCKS5 | 美国 SOCKS5 | 2 | 2 | 100% | 满载 |
-| Claude-A | Provider API Key | DIRECT | 香港 HTTP | 0 | 5 | 0% | 正常 |
+| Codex-A | Provider API Key | DIRECT | 香港 HTTP | 60 | 18 | 4 | 正常 |
+| Codex-B | Provider API Key | 美国 SOCKS5 | 美国 SOCKS5 | 20 | 20 | 2 | RPM 用尽 |
+| Claude-A | Provider API Key | DIRECT | 香港 HTTP | 不限 | — | 0 | 正常 |
 
 Provider 页面只管理 API Key Credential，不提供 OAuth 入口，也不显示 OAuth Credential 类型。
 
 API Key 保存后，Provider 页面立即使用该 Credential 的实际 Endpoint 与代理读取 `/models`，展示可搜索的模型多选列表。用户保存勾选结果后模型直接出现在公开 `/v1/models` 并参与调度；列表行显示已选择模型数量并提供重新拉取与修改入口。原始模型响应不进入浏览器缓存或 SQLite。
 
-Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API Key 轮换使用单独表单和端点。列表只显示标签、CredentialKind、绑定代理、实际代理、最大并发、启用状态、版本、指纹和 API Key 可选尾号，不显示或导出明文 Secret。
+Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API Key 轮换使用单独表单和端点。列表只显示标签、CredentialKind、绑定代理、实际代理、可选 RPM、启用状态、版本、指纹和 API Key 可选尾号，不显示或导出明文 Secret。
 
 每把 Provider API Key 同时显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；这些本地观测不读取或展示 Secret，不参与调度、额度或计费。
 
@@ -2269,7 +2253,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 作为独立一级菜单和 `/oauth` deep link 页面存在；
 - 只选择 Codex 或 Claude，不选择 Provider Endpoint 或 Provider API Key；
 - 打开授权页面后，允许粘贴完整 localhost callback URL；
-- 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、最大并发和已选模型；可在当前页面编辑这些账号属性或删除账号；
+- 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、可选 RPM 和已选模型；可在当前页面编辑这些账号属性或删除账号；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
 - Codex 账号可显式刷新上游主/次额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；Claude 不显示该入口；
 - Codex 页面提供“刷新全部额度”，覆盖当前完整 Codex 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
@@ -2279,12 +2263,12 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 ### 19.4 负载均衡
 
-- Codex、Claude 当前总并发；
-- 每个 Credential 的实时并发和容量；
+- Codex、Claude 当前总 `in_flight`；
+- 每个 Credential 的可选 RPM、滚动 60 秒已用/剩余和实时 `in_flight`；
 - 排队请求数；
 - Credential 选择次数与比例；
-- 因满载、冷却、代理故障被跳过的次数；
-- 满载行为、队列超时和队列上限设置。
+- 因 RPM 用尽、冷却、代理故障被跳过的次数；
+- RPM 用尽行为、队列超时和队列上限设置。
 
 ### 19.5 会话粘性
 
@@ -2356,13 +2340,13 @@ React 构建产物属于正式二进制输入，不是运行时旁车目录。�
 → 读取并校验配置与 Secret
 → 编译 PublishedSnapshot
 → 创建全新的 RuntimeRegistry
-→ 所有并发、队列、健康、冷却、熔断和会话状态从空状态开始
+→ 所有 RPM 窗口、in_flight、队列、健康、冷却、熔断和会话状态从空状态开始
 → 开始监听请求
 ```
 
 项目不实现终止前运行状态恢复、请求回放、队列恢复、会话恢复或熔断状态恢复。若配置或 Secret 无法读取则启动失败，但不会尝试自动恢复到某个历史运行状态。
 
-数据目录只允许一个 any2api 进程持有实例锁。获取失败时直接退出，避免两个进程分别维护 `in_flight`、OAuth 登录 session 和内存会话状态。
+数据目录只允许一个 any2api 进程持有实例锁。获取失败时直接退出，避免两个进程分别维护 RPM 窗口、`in_flight`、OAuth 登录 session 和内存会话状态。
 
 ### 20.2 不提供内建备份与容灾
 
@@ -2381,13 +2365,13 @@ React 构建产物属于正式二进制输入，不是运行时旁车目录。�
 → 释放实例锁并退出
 ```
 
-流式 Body、OAuth token exchange、健康检查和日志写入任务统一交给进程级 TaskTracker 管理。停机完成后，所有并发、队列、冷却和会话状态直接丢弃。
+流式 Body、OAuth token exchange、健康检查和日志写入任务统一交给进程级 TaskTracker 管理。停机完成后，所有 RPM 窗口、`in_flight`、队列、冷却和会话状态直接丢弃。
 
 进程生命周期固定为 `Running → Draining → Forced`：
 
 - 跨平台监听 Ctrl-C；Unix 同时监听 SIGTERM。任一信号只触发一次 `Draining`，并立即让 Axum 停止 accept；信号监听安装失败不能被误当成停机信号。
 - Server 最外层为每个已经进入的请求取得活动 Guard。Handler 返回流式或普通响应后，Guard 必须转移到响应 Body，直到 EOF、Body error、客户端断连或 Drop 才释放；不能把“Handler 已返回”误当成请求结束。
-- `Draining` 期间允许已经进入的请求自然完成。超过 `shutdown.request_grace_period` 后进入 `Forced`，进程级取消令牌使仍在等待的 Handler 和响应 Body 被 Drop，从而沿现有 RAII 链取消上游、归还 QueueTicket/Permit 并完成一次取消遥测。
+- `Draining` 期间允许已经进入的请求自然完成。超过 `shutdown.request_grace_period` 后进入 `Forced`，进程级取消令牌使仍在等待的 Handler 和响应 Body 被 Drop，从而沿现有 RAII 链取消上游、归还 QueueTicket、结束 `in_flight` Guard 并完成一次取消遥测；已预留 RPM 名额不归还。
 - 配置发布、管理员密码轮换、Argon2 blocking closure、健康唤醒定时器与 RequestTelemetry Writer 使用同一个进程级 TaskTracker。健康定时器在 `Draining` 时直接退出；必须脱离客户端继续的配置事务和密码轮换允许在宽限期内完成，`Forced` 后取消异步 future 并依赖事务 Drop 回滚未提交写入。已经开始的 Argon2 closure 不可取消，必须继续保持 Tracker 计数直到返回。
 - HTTP 不再产生新记录后才关闭 RequestTelemetry sender。Writer 先排空有界队列；超过 `shutdown.finalize_timeout` 必须 abort 并 join，禁止丢弃 JoinHandle 让 SQLite Writer 脱管。
 - 后台 Tokio 任务结束后显式关闭 SQLite Pool，确认 Composition Root 持有最后一个文件日志根 `Arc`，再 Drop `WorkerGuard` 完成其有界 best-effort flush。文件日志线程不是 Tokio TaskTracker 的替代品。
@@ -2439,7 +2423,7 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - ProviderRegistry、ProtocolRegistry 和空 Driver 契约；
 - `xtask architecture-check`、文件体积规则和 ADR 模板；
 - fmt、clippy、nextest、deny、前端 typecheck/lint/build；
-- 并发、协议、Transport 契约测试脚手架。
+- RPM/并发安全、协议、Transport 契约测试脚手架。
 
 ### 阶段 1：配置与代理
 
@@ -2464,13 +2448,13 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - Codex Provider Driver；
 - SSE；
 - 多 Credential；
-- 原子 select-and-acquire、排队 epoch 和最低负载率调度；
+- 原子 select-and-reserve、排队 epoch 和轮询 RPM 调度；
 - Codex 硬粘性。
 
 ### 阶段 3：Claude 原生链路
 
 - Anthropic Messages 入站；
-- `/v1/messages/count_tokens` 与辅助请求并发限制；
+- `/v1/messages/count_tokens` 与统一账号 RPM；
 - Claude Provider Driver；
 - Claude SSE；
 - Claude Code 会话标识；
@@ -2500,7 +2484,7 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - 独立一级菜单与页面；
 - 内存 PKCE/session、DIRECT/global-proxy token exchange；
 - 独立 OAuthAccount SQLite 持久化、模型管理、单进程刷新、token-version CAS 和 Codex 上游额度/重置次数管理；
-- Provider API Key 与 OAuthAccount 编译为统一 RoutingCredential，复用调度、粘性、健康、重试和 Permit；
+- Provider API Key 与 OAuthAccount 编译为统一 RoutingCredential，复用调度、RPM、粘性、健康、重试和运行态 Guard；
 - Token 不进入 Vault、ProviderCredential、管理响应或浏览器存储；
 - `/backend-api/codex/responses` OAuth 兼容入口（未实现）；
 
@@ -2544,9 +2528,10 @@ GatewayApiKey ──X User / Tenant / Balance / Billing
 Data Directory = One Process Instance Lock
 Admin Password Rotation = SQLite CAS + All Session Revocation + Current Session Reissue
 
-Credential Capacity = max_concurrency
-Load = in_flight / max_concurrency
-Select Credential + Acquire Permit = One Atomic Operation
+Credential Rate Limit = Optional requests_per_minute
+Rate Window = Attempts in Rolling 60 Seconds
+Select Credential + Reserve RPM = One Atomic Operation
+in_flight = Observation and Resource Lifetime Only
 RuntimeRegistry = Stable Across Config Generations
 
 Hard Session ──> Fixed Credential + Route Target + Model + Dialect

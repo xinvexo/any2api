@@ -65,7 +65,7 @@ pub enum PublicErrorCode {
     ModelNotFound,
     NoRoute,
     NoAvailableCredential,
-    LocalConcurrencyLimit,
+    LocalRateLimit,
     SessionBindingLost,
     UpstreamNotFound,
     UpstreamError,

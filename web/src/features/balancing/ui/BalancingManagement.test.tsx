@@ -6,15 +6,15 @@ import { BalancingManagement } from "./BalancingManagement";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("renders live capacity, filtering semantics and scoped health", async () => {
+test("renders live RPM windows, filtering semantics and scoped health", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(runtimeResponse()));
   renderManagement();
 
   expect(await screen.findByText("Primary")).toBeInTheDocument();
-  expect(screen.getByRole("progressbar", { name: "Primary 当前负载" })).toHaveAttribute("aria-valuenow", "50");
-  expect(screen.getByText("生成选中").parentElement).toHaveTextContent("4");
-  expect(screen.getByText("生成选中").parentElement).toHaveTextContent("100%");
-  expect(screen.getByText("满载过滤").parentElement).toHaveTextContent("2");
+  expect(screen.getByRole("progressbar", { name: "Primary RPM 使用率" })).toHaveAttribute("aria-valuenow", "50");
+  expect(screen.getByText("选中").parentElement).toHaveTextContent("4");
+  expect(screen.getByText("选中").parentElement).toHaveTextContent("100%");
+  expect(screen.getByText("RPM 过滤").parentElement).toHaveTextContent("2");
   expect(screen.getByText("Endpoint 健康过滤").parentElement).toHaveTextContent("3");
   expect(screen.getByText("Credential 5s")).toBeInTheDocument();
   expect(screen.getByText("Endpoint 可用")).toBeInTheDocument();
@@ -25,11 +25,11 @@ test("renders an empty credential state", async () => {
   const empty = runtimeResponse();
   empty.credentials = [];
   empty.providers = [];
-  empty.totals = { credential_count: 0, enabled_credential_count: 0, in_flight: 0, max_concurrency: 0, fixed_waiters: 0, auxiliary_in_flight: 0 };
+  empty.totals = { credential_count: 0, enabled_credential_count: 0, limited_credential_count: 0, rate_limited_credential_count: 0, in_flight: 0, requests_in_window: 0, fixed_waiters: 0 };
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(empty));
   renderManagement();
 
-  expect(await screen.findByText("还没有 Provider Credential")).toBeInTheDocument();
+  expect(await screen.findByText("还没有路由 Credential")).toBeInTheDocument();
 });
 
 test("keeps the latest runtime visible when refresh fails", async () => {
@@ -53,11 +53,10 @@ function renderManagement() {
 function runtimeResponse() {
   return {
     config_revision: 3, scheduler_epoch: 8,
-    queue: { waiting: 1, max_waiting: 128, timeout_secs: 30, on_saturated: "wait", fallback_on_saturation: false },
-    auxiliary: { in_flight: 1, max_global: 32, max_per_credential: 4 },
-    totals: { credential_count: 1, enabled_credential_count: 1, in_flight: 1, max_concurrency: 2, fixed_waiters: 0, auxiliary_in_flight: 1 },
-    providers: [{ provider_kind: "codex", credential_count: 1, in_flight: 1, max_concurrency: 2, selected_generation: 4, selected_auxiliary: 1 }],
-    credentials: [{ credential_id: "credential-1", credential_source: "provider_credential", label: "Primary", enabled: true, authentication_expired: false, provider_kind: "codex", endpoint_id: "endpoint-1", endpoint_name: "Codex", endpoint_enabled: true, proxy_id: "proxy-1", proxy_name: "DIRECT", proxy_kind: "direct", proxy_enabled: true, in_flight: 1, max_concurrency: 2, fixed_waiters: 0, auxiliary_in_flight: 1, counters: { selected_generation: 4, selected_auxiliary: 1, filtered_capacity: 2, filtered_credential_health: 1, filtered_endpoint_health: 3, filtered_proxy_health: 0 }, models: [{ upstream_model: "gpt-upstream", credential: { status: "cooling", retry_in_ms: 5_000 }, endpoint: { status: "available", retry_in_ms: null }, proxy: { status: "available", retry_in_ms: null } }] }],
+    queue: { waiting: 1, max_waiting: 128, timeout_secs: 30, on_rate_limited: "wait", fallback_on_rate_limit: false },
+    totals: { credential_count: 1, enabled_credential_count: 1, limited_credential_count: 1, rate_limited_credential_count: 0, in_flight: 1, requests_in_window: 1, fixed_waiters: 0 },
+    providers: [{ provider_kind: "codex", credential_count: 1, limited_credential_count: 1, rate_limited_credential_count: 0, in_flight: 1, requests_in_window: 1, selected: 4 }],
+    credentials: [{ credential_id: "credential-1", credential_source: "provider_credential", label: "Primary", enabled: true, authentication_expired: false, provider_kind: "codex", endpoint_id: "endpoint-1", endpoint_name: "Codex", endpoint_enabled: true, proxy_id: "proxy-1", proxy_name: "DIRECT", proxy_kind: "direct", proxy_enabled: true, in_flight: 1, requests_per_minute: 2, requests_in_window: 1, remaining_requests: 1, retry_in_ms: null, fixed_waiters: 0, counters: { selected: 4, filtered_rate_limit: 2, filtered_credential_health: 1, filtered_endpoint_health: 3, filtered_proxy_health: 0 }, models: [{ upstream_model: "gpt-upstream", credential: { status: "cooling", retry_in_ms: 5_000 }, endpoint: { status: "available", retry_in_ms: null }, proxy: { status: "available", retry_in_ms: null } }] }],
   };
 }
 

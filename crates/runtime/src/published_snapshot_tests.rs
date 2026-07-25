@@ -1,19 +1,18 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, SaturationMode, SettingKey, SettingValue,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RateLimitMode,
+    RequestsPerMinute, SettingKey, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::tempdir;
 
 use crate::{
-    auxiliary_scheduler::AuxiliarySelectAndAcquireResult,
     provider_api_key_secret::ProviderApiKeySecret,
     published_snapshot::{PublishedSnapshot, SnapshotStore},
     publisher::ConfigPublisher,
-    queue::{QueuePolicy, SaturationAction},
+    queue::{QueuePolicy, RateLimitAction},
     registry::RuntimeRegistry,
 };
 
@@ -31,9 +30,7 @@ async fn snapshots_reuse_queue_state_but_capture_policy_per_revision() {
         .expect("initial configuration");
     let initial_policy =
         QueuePolicy::from_scheduler_settings(initial_configuration.settings().scheduler());
-    let runtime = Arc::new(RuntimeRegistry::new(
-        initial_configuration.settings().scheduler(),
-    ));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         initial_configuration,
         runtime.as_ref(),
@@ -54,15 +51,15 @@ async fn snapshots_reuse_queue_state_but_capture_policy_per_revision() {
     let second = publisher
         .set_setting_override(
             first.revision(),
-            SettingKey::SchedulerOnSaturated,
-            SettingValue::Saturation(SaturationMode::Reject),
+            SettingKey::SchedulerOnRateLimited,
+            SettingValue::RateLimitMode(RateLimitMode::Reject),
         )
         .await
         .expect("publish next snapshot");
 
     assert_eq!(
-        second.queue_policy().on_saturated(),
-        SaturationAction::Reject
+        second.queue_policy().on_rate_limited(),
+        RateLimitAction::Reject
     );
     assert!(second.revision() > first.revision());
     assert!(Arc::ptr_eq(second.queue_coordinator(), &coordinator));
@@ -73,7 +70,7 @@ async fn snapshots_reuse_queue_state_but_capture_policy_per_revision() {
 }
 
 #[tokio::test]
-async fn published_auxiliary_limit_update_preserves_permits_and_scheduler_identity() {
+async fn published_rpm_update_preserves_the_stable_runtime_window() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("config.sqlite3"))
@@ -81,7 +78,7 @@ async fn published_auxiliary_limit_update_preserves_permits_and_scheduler_identi
             .expect("storage"),
     );
     let initial = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(initial.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         initial,
         runtime.as_ref(),
@@ -100,65 +97,46 @@ async fn published_auxiliary_limit_update_preserves_permits_and_scheduler_identi
         .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, codex_endpoint_draft())
         .await
         .expect("endpoint");
-    let before_settings = publisher
+    let before_update = publisher
         .create_provider_credential(
             endpoint.revision(),
             credential_id,
             endpoint_id,
-            credential_draft(),
+            credential_draft(1),
             ProviderApiKeySecret::new("sk-settings-runtime".to_owned()),
         )
         .await
         .expect("credential");
-    let scheduler = Arc::clone(before_settings.auxiliary_scheduler());
-    let first = acquire_auxiliary(&scheduler, before_settings.as_ref());
-    let second = acquire_auxiliary(&scheduler, before_settings.as_ref());
+    let before_binding = before_update
+        .credential_runtime(credential_id.into())
+        .expect("credential runtime");
+    let first = before_binding.try_reserve().expect("first RPM reservation");
+    let generation = Arc::clone(before_binding.generation());
     let epoch_before_publish = runtime.scheduler_epoch();
-    let mut epoch = runtime.subscribe_scheduler_epoch();
-    epoch.borrow_and_update();
 
-    let after_settings = publisher
-        .set_setting_override(
-            before_settings.revision(),
-            SettingKey::SchedulerAuxiliaryGlobalConcurrency,
-            SettingValue::Integer(1),
+    let after_update = publisher
+        .update_provider_credential(
+            before_update.revision(),
+            credential_id,
+            1,
+            credential_draft(2),
         )
         .await
-        .expect("publish auxiliary limit");
-    epoch.changed().await.expect("setting publication epoch");
+        .expect("publish RPM update");
+    let after_binding = after_update
+        .credential_runtime(credential_id.into())
+        .expect("updated credential runtime");
 
-    assert!(Arc::ptr_eq(
-        &scheduler,
-        after_settings.auxiliary_scheduler()
-    ));
-    assert_eq!(snapshots.load().revision(), after_settings.revision());
-    assert_eq!(scheduler.global_in_flight(), 2);
-    assert_eq!(runtime.auxiliary_limits().global(), 1);
+    assert!(Arc::ptr_eq(&generation, after_binding.generation()));
+    assert_eq!(after_binding.rate_snapshot().requests_per_minute(), Some(2));
+    assert_eq!(after_binding.rate_snapshot().requests_in_window(), 1);
+    let second = after_binding
+        .try_reserve()
+        .expect("raised RPM allows one more reservation");
+    assert!(after_binding.try_reserve().is_err());
     assert_eq!(runtime.scheduler_epoch(), epoch_before_publish + 1);
-    assert!(matches!(
-        scheduler.select_index_and_try_acquire(after_settings.credential_runtimes(), 0),
-        AuxiliarySelectAndAcquireResult::AtCapacity
-    ));
-
-    drop(first);
-    assert!(matches!(
-        scheduler.select_index_and_try_acquire(after_settings.credential_runtimes(), 0),
-        AuxiliarySelectAndAcquireResult::AtCapacity
-    ));
-    drop(second);
-    let after_drain = acquire_auxiliary(&scheduler, after_settings.as_ref());
-    drop(after_drain);
-}
-
-fn acquire_auxiliary(
-    scheduler: &Arc<crate::auxiliary_scheduler::AuxiliaryScheduler>,
-    snapshot: &PublishedSnapshot,
-) -> crate::auxiliary_scheduler::AuxiliaryPermit {
-    match scheduler.select_index_and_try_acquire(snapshot.credential_runtimes(), 0) {
-        AuxiliarySelectAndAcquireResult::Acquired { permit, .. } => permit,
-        AuxiliarySelectAndAcquireResult::AtCapacity => panic!("auxiliary capacity available"),
-        AuxiliarySelectAndAcquireResult::NoCandidates => panic!("test configured a credential"),
-    }
+    drop((first, second));
+    assert_eq!(after_binding.rate_snapshot().requests_in_window(), 2);
 }
 
 fn codex_endpoint_draft() -> ProviderEndpointDraft {
@@ -172,12 +150,12 @@ fn codex_endpoint_draft() -> ProviderEndpointDraft {
     .expect("endpoint draft")
 }
 
-fn credential_draft() -> ProviderCredentialDraft {
+fn credential_draft(requests_per_minute: u32) -> ProviderCredentialDraft {
     ProviderCredentialDraft::new(
         "Primary",
         CredentialKind::ApiKey,
         ProxyProfileId::DIRECT,
-        MaxConcurrency::new(4).expect("max concurrency"),
+        Some(RequestsPerMinute::new(requests_per_minute).expect("valid RPM")),
         true,
     )
     .expect("credential draft")

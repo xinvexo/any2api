@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use any2api_domain::{
-    MaxConcurrency, ProtocolDialect, ProviderBaseUrl, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, RoutingCredentialId, UpstreamModelName,
+    ProtocolDialect, ProviderBaseUrl, ProviderEndpointId, ProviderKind, ProxyProfileId,
+    RequestsPerMinute, RoutingCredentialId, UpstreamModelName,
 };
 
 use crate::credential_runtime::{CredentialGenerationDefinition, CredentialRuntimeBinding};
@@ -25,7 +25,7 @@ pub(crate) struct RoutingCredentialSpec {
     endpoint_enabled: bool,
     models: Vec<UpstreamModelName>,
     available_models: Vec<UpstreamModelName>,
-    max_concurrency: MaxConcurrency,
+    requests_per_minute: Option<RequestsPerMinute>,
     generation: Option<CredentialGenerationDefinition>,
 }
 
@@ -34,8 +34,8 @@ impl RoutingCredentialSpec {
         self.id
     }
 
-    pub(crate) const fn max_concurrency(&self) -> MaxConcurrency {
-        self.max_concurrency
+    pub(crate) const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
+        self.requests_per_minute
     }
 
     pub(crate) fn take_generation(&mut self) -> CredentialGenerationDefinition {

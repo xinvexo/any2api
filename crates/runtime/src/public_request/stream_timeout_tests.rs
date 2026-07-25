@@ -42,7 +42,7 @@ async fn configured_precommit_duration_bounds_the_first_event_wait() {
         Err(error) => error,
     };
     assert_eq!(error.code, PublicErrorCode::UpstreamError);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test]
@@ -65,7 +65,7 @@ async fn precommit_deadline_is_checked_after_a_non_cooperative_upstream_poll() {
         Err(error) => error,
     };
     assert_eq!(error.code, PublicErrorCode::UpstreamError);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -80,18 +80,18 @@ async fn postcommit_idle_timeout_releases_the_permit_once() {
         .into_stream();
 
     assert!(body.next().await.expect("first frame").is_ok());
-    assert_eq!(binding.capacity().in_flight(), 1);
+    assert_eq!(binding.in_flight(), 1);
     let error = body
         .next()
         .await
         .expect("idle timeout body error")
         .expect_err("idle stream must fail");
     assert!(error.to_string().contains("idle after commit"));
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
     assert!(upstream_dropped.load(Ordering::Acquire));
     assert!(body.next().await.is_none());
     drop(body);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 struct DropObservedStream {
@@ -182,7 +182,7 @@ async fn successful_upstream_chunk_resets_the_postcommit_idle_timer() {
     let reset_at = tokio::time::Instant::now();
     assert!(body.next().await.expect("idle timeout").is_err());
     assert!(reset_at.elapsed() >= Duration::from_millis(50));
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -221,7 +221,7 @@ async fn postcommit_idle_timeout_does_not_penalize_endpoint_health() {
     assert!(body.next().await.expect("first frame").is_ok());
     assert!(body.next().await.expect("idle timeout").is_err());
     assert_eq!(endpoint.availability(&policy), Ok(()));
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -248,5 +248,5 @@ async fn buffered_frames_do_not_reset_the_postcommit_idle_timer() {
     let already_expired_at = tokio::time::Instant::now();
     assert!(body.next().await.expect("idle timeout").is_err());
     assert!(already_expired_at.elapsed() < Duration::from_millis(1));
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }

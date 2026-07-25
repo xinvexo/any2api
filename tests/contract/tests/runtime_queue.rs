@@ -4,9 +4,9 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    ConfigRevision, CredentialKind, GatewayApiKeyId, MaxConcurrency, ProtocolDialect,
-    ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderKind, ProxyProfileId, RequestId,
+    ConfigRevision, CredentialKind, GatewayApiKeyId, ProtocolDialect, ProtocolOperation,
+    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, RequestId, RequestsPerMinute, SettingKey, SettingValue,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
@@ -30,7 +30,7 @@ use tempfile::tempdir;
 use tokio::sync::Semaphore;
 
 #[tokio::test]
-async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
+async fn rate_limited_request_waits_until_the_rolling_window_expires() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("config.sqlite3"))
@@ -38,7 +38,7 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
             .expect("storage"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -51,10 +51,26 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
         any2api_contract_tests::build_configuration_capabilities(),
     )
     .expect("configuration publisher");
+    let configured = publisher
+        .set_setting_override(
+            ConfigRevision::INITIAL,
+            SettingKey::SchedulerQueueTimeout,
+            SettingValue::DurationSecs(61),
+        )
+        .await
+        .expect("queue timeout setting");
+    let configured = publisher
+        .set_setting_override(
+            configured.revision(),
+            SettingKey::RetryPrecommitTotalBudget,
+            SettingValue::DurationSecs(120),
+        )
+        .await
+        .expect("precommit budget setting");
     let endpoint_id = ProviderEndpointId::new();
     let endpoint = publisher
         .create_provider_endpoint(
-            ConfigRevision::INITIAL,
+            configured.revision(),
             endpoint_id,
             ProviderEndpointDraft::new(
                 "Queue Endpoint",
@@ -77,7 +93,7 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
                 "Queue Credential",
                 CredentialKind::ApiKey,
                 ProxyProfileId::DIRECT,
-                MaxConcurrency::new(1).expect("max concurrency"),
+                Some(RequestsPerMinute::new(1).expect("valid RPM")),
                 true,
             )
             .expect("credential draft"),
@@ -95,6 +111,7 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
         .await
         .expect("credential models");
 
+    tokio::time::pause();
     let transport = Arc::new(BlockingTransport::new());
     let service = Arc::new(build_service(transport.clone()));
     let first = tokio::spawn(execute_request(Arc::clone(&service), snapshots.load()));
@@ -104,10 +121,13 @@ async fn saturated_generation_request_waits_and_is_woken_by_permit_release() {
     assert_eq!(transport.calls(), 1);
 
     transport.release_first();
-    let (first_response, second_response) = tokio::join!(first, second);
-    let first_response = first_response.expect("first request task");
-    let second_response = second_response.expect("second request task");
+    let first_response = first.await.expect("first request task");
     assert_eq!(first_response.status, StatusCode::OK);
+    assert!(!second.is_finished());
+    assert_eq!(transport.calls(), 1);
+
+    tokio::time::advance(std::time::Duration::from_secs(60)).await;
+    let second_response = second.await.expect("second request task");
     assert_eq!(second_response.status, StatusCode::OK);
     assert_eq!(transport.calls(), 2);
     assert_eq!(runtime.queue_waiting_count(), 0);

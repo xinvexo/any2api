@@ -1,30 +1,31 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use any2api_domain::{FallbackTier, ModelRouteId, PublicError};
-use tokio::time::{Instant, timeout};
+use tokio::time::{Instant, sleep_until, timeout_at};
 
 use super::super::SelectedCandidate;
 use super::{
-    GenerationSelection, capacity_error, no_available_credentials, temporarily_unavailable,
+    GenerationSelection, no_available_credentials, rate_limit_error, rate_limited,
+    temporarily_unavailable,
 };
 use crate::{
     health::{HealthAcquireError, ReliabilityPolicy},
     published_snapshot::PublishedSnapshot,
-    queue::{QueueCoordinator, QueuePolicy, SaturationAction},
+    queue::{QueueCoordinator, QueuePolicy, RateLimitAction},
     route_candidates::{CandidateExclusions, RouteCandidate},
-    scheduler::{IndexedSelectAndAcquireResult, select_index_and_try_acquire},
+    scheduler::{IndexedSelectAndReserveResult, select_index_and_try_reserve},
 };
 
 pub(super) fn try_select(
     snapshot: &PublishedSnapshot,
     route_id: ModelRouteId,
-    fallback_on_saturation: bool,
+    fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     exclusions: &CandidateExclusions,
 ) -> Result<GenerationSelection, PublicError> {
     try_select_with(
         snapshot.reliability_policy(),
-        fallback_on_saturation,
+        fallback_on_rate_limit,
         tiers,
         exclusions,
         |tier| {
@@ -37,14 +38,15 @@ pub(super) fn try_select(
 
 fn try_select_with(
     policy: ReliabilityPolicy,
-    fallback_on_saturation: bool,
+    fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     exclusions: &CandidateExclusions,
     mut tie_breaker: impl FnMut(u16) -> Option<u64>,
 ) -> Result<GenerationSelection, PublicError> {
-    let mut saw_capacity = false;
+    let mut saw_rate_limit = false;
+    let mut rate_retry_at = None;
     for (tier, candidates) in tiers {
-        let mut retry_at = None;
+        let mut health_retry_at = None;
         let eligible = candidates
             .iter()
             .enumerate()
@@ -56,21 +58,16 @@ fn try_select_with(
                     Ok(()) => true,
                     Err(error) => {
                         candidate.record_health_filter(error);
-                        match error.source() {
-                            HealthAcquireError::Temporary(until) => {
-                                retry_at = Some(
-                                    retry_at.map_or(until, |current: Instant| current.min(until)),
-                                );
-                                false
-                            }
-                            HealthAcquireError::Permanent => false,
+                        if let HealthAcquireError::Temporary(until) = error.source() {
+                            health_retry_at = earliest(health_retry_at, until);
                         }
+                        false
                     }
                 }
             })
             .collect::<Vec<_>>();
         if eligible.is_empty() {
-            if let Some(retry_at) = retry_at {
+            if let Some(retry_at) = health_retry_at {
                 return Ok(GenerationSelection::TemporarilyUnavailable(retry_at));
             }
             continue;
@@ -83,8 +80,8 @@ fn try_select_with(
                 .collect::<Vec<_>>();
             let tie_breaker =
                 tie_breaker(*tier).ok_or_else(crate::public_request::response::internal_error)?;
-            match select_index_and_try_acquire(&bindings, tie_breaker) {
-                IndexedSelectAndAcquireResult::Acquired { index, permit } => {
+            match select_index_and_try_reserve(&bindings, tie_breaker) {
+                IndexedSelectAndReserveResult::Reserved { index, permit } => {
                     let candidate = eligible[index].1;
                     let health = match candidate.acquire_health(policy) {
                         Ok(health) => health,
@@ -92,44 +89,43 @@ fn try_select_with(
                             candidate.record_health_filter(error);
                             drop(permit);
                             if let HealthAcquireError::Temporary(until) = error.source() {
-                                retry_at = Some(
-                                    retry_at.map_or(until, |current: Instant| current.min(until)),
-                                );
+                                health_retry_at = earliest(health_retry_at, until);
                             }
                             eligible.swap_remove(index);
                             continue;
                         }
                     };
-                    candidate.record_generation_selection();
+                    candidate.record_selection();
                     return Ok(GenerationSelection::Acquired(Box::new(SelectedCandidate {
                         candidate: candidate.clone(),
-                        permit: super::super::RequestPermit::Generation(permit),
+                        permit,
                         health,
                     })));
                 }
-                IndexedSelectAndAcquireResult::AtCapacity => {
+                IndexedSelectAndReserveResult::RateLimited { retry_at } => {
                     for (_, candidate) in &eligible {
-                        if candidate.binding.normal_capacity().is_full() {
-                            candidate.record_capacity_filter();
-                        }
+                        candidate.record_rate_limit_filter();
                     }
-                    saw_capacity = true;
-                    if !fallback_on_saturation {
-                        return Ok(GenerationSelection::AtCapacity);
+                    saw_rate_limit = true;
+                    if let Some(retry_at) = retry_at {
+                        rate_retry_at = earliest(rate_retry_at, retry_at);
+                    }
+                    if !fallback_on_rate_limit {
+                        return Ok(GenerationSelection::RateLimited(rate_retry_at));
                     }
                     break;
                 }
-                IndexedSelectAndAcquireResult::NoCandidates => break,
+                IndexedSelectAndReserveResult::NoCandidates => break,
             }
         }
         if eligible.is_empty()
-            && let Some(retry_at) = retry_at
+            && let Some(retry_at) = health_retry_at
         {
             return Ok(GenerationSelection::TemporarilyUnavailable(retry_at));
         }
     }
-    Ok(if saw_capacity {
-        GenerationSelection::AtCapacity
+    Ok(if saw_rate_limit {
+        GenerationSelection::RateLimited(rate_retry_at)
     } else {
         GenerationSelection::NoCandidates
     })
@@ -144,14 +140,19 @@ pub(super) async fn select_with_queue(
         GenerationSelection::Acquired(selected) => Ok(*selected),
         GenerationSelection::NoCandidates => Err(no_available_credentials()),
         GenerationSelection::TemporarilyUnavailable(retry_at)
-            if policy.on_saturated() == SaturationAction::Reject =>
+            if policy.on_rate_limited() == RateLimitAction::Reject =>
         {
             Err(temporarily_unavailable(retry_at))
         }
-        GenerationSelection::AtCapacity if policy.on_saturated() == SaturationAction::Reject => {
-            Err(capacity_error("all eligible credentials are at capacity"))
+        GenerationSelection::RateLimited(retry_at)
+            if policy.on_rate_limited() == RateLimitAction::Reject =>
+        {
+            Err(rate_limited(
+                "all eligible credentials have exhausted their local RPM",
+                retry_at,
+            ))
         }
-        GenerationSelection::AtCapacity | GenerationSelection::TemporarilyUnavailable(_) => {
+        GenerationSelection::RateLimited(_) | GenerationSelection::TemporarilyUnavailable(_) => {
             wait_for_candidate(coordinator, policy, try_select).await
         }
     }
@@ -163,27 +164,38 @@ pub(super) async fn wait_for_candidate(
     mut try_select: impl FnMut() -> Result<GenerationSelection, PublicError>,
 ) -> Result<SelectedCandidate, PublicError> {
     let Some(ticket) = coordinator.try_ticket(policy.max_waiting_requests()) else {
-        return Err(capacity_error("request queue is full"));
+        return Err(rate_limit_error("request queue is full"));
     };
     let mut changes = ticket.subscribe();
-    let started_at = Instant::now();
+    let deadline = Instant::now() + policy.queue_timeout();
 
     loop {
         let _observed_epoch = *changes.borrow_and_update();
-        match try_select()? {
+        let retry_at = match try_select()? {
             GenerationSelection::Acquired(selected) => return Ok(*selected),
             GenerationSelection::NoCandidates => return Err(no_available_credentials()),
-            GenerationSelection::AtCapacity | GenerationSelection::TemporarilyUnavailable(_) => {}
-        }
-        let elapsed = Instant::now().saturating_duration_since(started_at);
-        let remaining = policy.queue_timeout().saturating_sub(elapsed);
-        if remaining.is_zero() {
+            GenerationSelection::RateLimited(retry_at) => retry_at,
+            GenerationSelection::TemporarilyUnavailable(retry_at) => Some(retry_at),
+        };
+        if Instant::now() >= deadline {
             return final_selection_or_timeout(&mut try_select);
         }
-        match timeout(remaining, changes.changed()).await {
-            Ok(Ok(())) => {}
-            Ok(Err(_)) => return Err(crate::public_request::response::internal_error()),
-            Err(_) => return final_selection_or_timeout(&mut try_select),
+        if let Some(retry_at) = retry_at {
+            let wake_at = retry_at.min(deadline);
+            tokio::select! {
+                changed = changes.changed() => {
+                    if changed.is_err() {
+                        return Err(crate::public_request::response::internal_error());
+                    }
+                }
+                () = sleep_until(wake_at) => {}
+            }
+        } else {
+            match timeout_at(deadline, changes.changed()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => return Err(crate::public_request::response::internal_error()),
+                Err(_) => return final_selection_or_timeout(&mut try_select),
+            }
         }
     }
 }
@@ -197,15 +209,20 @@ fn final_selection_or_timeout(
         GenerationSelection::TemporarilyUnavailable(retry_at) => {
             Err(temporarily_unavailable(retry_at))
         }
-        GenerationSelection::AtCapacity => {
-            Err(capacity_error("all eligible credentials are at capacity"))
-        }
+        GenerationSelection::RateLimited(retry_at) => Err(rate_limited(
+            "all eligible credentials have exhausted their local RPM",
+            retry_at,
+        )),
     }
+}
+
+fn earliest(current: Option<Instant>, candidate: Instant) -> Option<Instant> {
+    Some(current.map_or(candidate, |current| current.min(candidate)))
 }
 
 #[cfg(test)]
 pub(super) fn try_select_for_test(
-    fallback_on_saturation: bool,
+    fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     tie_breaker: impl FnMut(u16) -> Option<u64>,
 ) -> Result<GenerationSelection, PublicError> {
@@ -213,7 +230,7 @@ pub(super) fn try_select_for_test(
         ReliabilityPolicy::from_settings(
             any2api_domain::SettingsConfiguration::defaults().reliability(),
         ),
-        fallback_on_saturation,
+        fallback_on_rate_limit,
         tiers,
         &CandidateExclusions::default(),
         tie_breaker,

@@ -1,5 +1,5 @@
-mod credential_concurrency;
 mod credential_fingerprint;
+mod credential_rate_limit;
 mod error;
 mod gateway_api_key;
 mod gateway_api_key_configuration;
@@ -31,10 +31,12 @@ mod settings;
 mod token_usage;
 mod upstream_error;
 
-pub use credential_concurrency::{MAX_CREDENTIAL_CONCURRENCY, MaxConcurrency, MaxConcurrencyError};
 pub use credential_fingerprint::{
     CREDENTIAL_FINGERPRINT_LENGTH, CREDENTIAL_FINGERPRINT_VERSION, CredentialFingerprintError,
     CredentialSecretFingerprint,
+};
+pub use credential_rate_limit::{
+    MAX_REQUESTS_PER_MINUTE, RequestsPerMinute, RequestsPerMinuteError,
 };
 pub use error::{ErrorClass, PublicError, PublicErrorCode};
 pub use gateway_api_key::{GatewayApiKey, GatewayApiKeyDraft};
@@ -83,7 +85,7 @@ pub use settings::{
     AdminSettings, AffinityMode, AffinitySettings, FileLogLevel, LoggingSettings,
     MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_SECS,
     MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY, OAuthSettings,
-    ReliabilitySettings, SaturationMode, SchedulerSettings, SettingApplyMode, SettingDefinition,
+    RateLimitMode, ReliabilitySettings, SchedulerSettings, SettingApplyMode, SettingDefinition,
     SettingKey, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
     SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
 };

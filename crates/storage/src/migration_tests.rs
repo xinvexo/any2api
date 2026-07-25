@@ -20,6 +20,16 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     seed_endpoint(&pool).await;
     seed_credential(&pool, "api-credential", "api_key", Some("tail")).await;
     sqlx::query(
+        "INSERT INTO setting_overrides (key, value_json) VALUES \
+         ('scheduler.on_saturated', '\"reject\"'), \
+         ('scheduler.fallback_on_saturation', 'true'), \
+         ('scheduler.auxiliary_global_concurrency', '8'), \
+         ('scheduler.auxiliary_per_credential_concurrency', '2')",
+    )
+    .execute(&pool)
+    .await
+    .expect("seed legacy scheduler overrides");
+    sqlx::query(
         "INSERT INTO provider_credential_models (credential_id, upstream_model) VALUES (?, ?)",
     )
     .bind("api-credential")
@@ -35,7 +45,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
             .fetch_all(&pool)
             .await
             .expect("migration versions");
-    assert_eq!(versions, (1..=21).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=22).collect::<Vec<_>>());
     let kind = sqlx::query_scalar::<_, String>(
         "SELECT credential_kind FROM provider_credentials WHERE id = ?",
     )
@@ -59,6 +69,16 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     .await
     .expect("provider credential schema");
     assert!(schema.contains("credential_kind = 'api_key'"));
+    assert!(schema.contains("requests_per_minute"));
+    assert!(!schema.contains("max_concurrency"));
+    let rpm = sqlx::query_scalar::<_, Option<i64>>(
+        "SELECT requests_per_minute FROM provider_credentials WHERE id = ?",
+    )
+    .bind("api-credential")
+    .fetch_one(&pool)
+    .await
+    .expect("migrated optional RPM");
+    assert_eq!(rpm, None);
     let oauth_schema = sqlx::query_scalar::<_, String>(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'oauth_accounts'",
     )
@@ -67,6 +87,20 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     .expect("OAuth account schema");
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("proxy_profile_id = '00000000-0000-0000-0000-000000000000'"));
+    assert!(oauth_schema.contains("requests_per_minute"));
+    assert!(!oauth_schema.contains("max_concurrency"));
+    let setting_keys =
+        sqlx::query_scalar::<_, String>("SELECT key FROM setting_overrides ORDER BY key")
+            .fetch_all(&pool)
+            .await
+            .expect("migrated scheduler overrides");
+    assert_eq!(
+        setting_keys,
+        vec![
+            "scheduler.fallback_on_rate_limit".to_owned(),
+            "scheduler.on_rate_limited".to_owned(),
+        ]
+    );
     let usage_index = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' \
          AND name = 'request_logs_provider_credential_started_idx'",

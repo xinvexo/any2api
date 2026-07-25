@@ -4,6 +4,9 @@
 - 日期：2026-07-18
 - 决策者：maintainer
 
+> 后续说明（2026-07-25）：ADR-0037 将运行态策略字段改为 `fallback_on_rate_limit`，并按
+> RPM 可用性轮询 Credential；本文以下 `fallback_on_saturation` 与容量选择表述仅为历史记录。
+
 ## 背景
 
 首版需要把客户端可见模型精确映射到一个或多个同协议 Provider Endpoint。Route 与 Target 如果通过多次独立管理请求保存，会产生只有 Route、没有 Target，或只保存部分 Target 的中间配置；Target ID 同时还会成为后续硬粘性的稳定身份。

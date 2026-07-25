@@ -1,10 +1,14 @@
 # ADR-0010: 生成请求的有界 QueueTicket 与快照策略
 
-- 状态：Accepted
+- 状态：Partially Superseded by ADR-0037
 - 日期：2026-07-19
 - 决策者：maintainer
 
 > 后续状态（2026-07-19）：ADR-0011 已完成 scheduler 设置接线。QueuePolicy 现在从已提交 SettingsConfiguration 编译进新快照；SQLite/Web 的默认、覆盖、生效和恢复默认语义已落地。其余设置组仍待后续切片。
+>
+> 取代说明（2026-07-25）：ADR-0037 保留统一有界 QueueTicket、epoch、快照策略和超时/取消
+> 边界，但等待原因改为 RPM 用尽，选择操作改为 select-and-reserve，字段改为
+> `on_rate_limited` / `fallback_on_rate_limit`，Count Tokens 也进入同一队列语义。
 
 ## 背景
 

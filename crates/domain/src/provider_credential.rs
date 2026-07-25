@@ -1,8 +1,8 @@
 use thiserror::Error;
 
 use crate::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency,
-    ModelNameValidationError, ProviderEndpointId, ProxyProfileId, UpstreamModelName,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ModelNameValidationError,
+    ProviderEndpointId, ProxyProfileId, RequestsPerMinute, UpstreamModelName,
 };
 
 const MAX_CREDENTIAL_LABEL_CHARS: usize = 100;
@@ -14,7 +14,7 @@ pub struct ProviderCredentialDraft {
     label: String,
     credential_kind: CredentialKind,
     proxy_profile_id: ProxyProfileId,
-    max_concurrency: MaxConcurrency,
+    requests_per_minute: Option<RequestsPerMinute>,
     enabled: bool,
 }
 
@@ -23,14 +23,14 @@ impl ProviderCredentialDraft {
         label: impl Into<String>,
         credential_kind: CredentialKind,
         proxy_profile_id: ProxyProfileId,
-        max_concurrency: MaxConcurrency,
+        requests_per_minute: Option<RequestsPerMinute>,
         enabled: bool,
     ) -> Result<Self, ProviderCredentialValidationError> {
         Ok(Self {
             label: validate_label(label.into())?,
             credential_kind,
             proxy_profile_id,
-            max_concurrency,
+            requests_per_minute,
             enabled,
         })
     }
@@ -51,8 +51,8 @@ impl ProviderCredentialDraft {
     }
 
     #[must_use]
-    pub const fn max_concurrency(&self) -> MaxConcurrency {
-        self.max_concurrency
+    pub const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
+        self.requests_per_minute
     }
 
     #[must_use]
@@ -69,7 +69,7 @@ pub struct ProviderCredential {
     credential_kind: CredentialKind,
     fingerprint: CredentialSecretFingerprint,
     proxy_profile_id: ProxyProfileId,
-    max_concurrency: MaxConcurrency,
+    requests_per_minute: Option<RequestsPerMinute>,
     enabled: bool,
     secret_schema_version: u32,
     secret_version: u64,
@@ -228,8 +228,8 @@ impl ProviderCredential {
     }
 
     #[must_use]
-    pub const fn max_concurrency(&self) -> MaxConcurrency {
-        self.max_concurrency
+    pub const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
+        self.requests_per_minute
     }
 
     #[must_use]
@@ -286,7 +286,7 @@ impl ProviderCredential {
             credential_kind: draft.credential_kind,
             fingerprint,
             proxy_profile_id: draft.proxy_profile_id,
-            max_concurrency: draft.max_concurrency,
+            requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
             secret_schema_version,
             secret_version,
@@ -300,7 +300,7 @@ impl ProviderCredential {
         self.label == draft.label
             && self.credential_kind == draft.credential_kind
             && self.proxy_profile_id == draft.proxy_profile_id
-            && self.max_concurrency == draft.max_concurrency
+            && self.requests_per_minute == draft.requests_per_minute
             && self.enabled == draft.enabled
     }
 }

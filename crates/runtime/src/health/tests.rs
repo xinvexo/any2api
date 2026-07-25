@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProviderCredential,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ProviderCredential,
     ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId, RetryAfterHint, RetrySafety,
     SettingsConfiguration, UpstreamErrorClassification, UpstreamErrorKind,
 };
@@ -286,7 +286,7 @@ fn test_generation(epoch: Arc<SchedulerEpoch>) -> Arc<CredentialGenerationRuntim
             "health",
             CredentialKind::ApiKey,
             ProxyProfileId::DIRECT,
-            MaxConcurrency::new(1).expect("max concurrency"),
+            None,
             true,
         )
         .expect("credential draft"),

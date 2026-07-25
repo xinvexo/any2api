@@ -44,7 +44,7 @@ export function updateOAuthAccount(id: string, input: OAuthAccountUpdateInput) {
       expected_revision: input.expectedRevision,
       expected_config_version: input.expectedConfigVersion,
       label: input.label,
-      max_concurrency: input.maxConcurrency,
+      requests_per_minute: input.requestsPerMinute,
       enabled: input.enabled,
     },
   }).then(parseOAuthAccountConfiguration);

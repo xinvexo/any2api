@@ -21,7 +21,7 @@ pub(super) struct PlannedRequest {
     pub(super) public_model: String,
     pub(super) route_id: ModelRouteId,
     pub(super) dialect: ProtocolDialect,
-    pub(super) fallback_on_saturation: bool,
+    pub(super) fallback_on_rate_limit: bool,
     pub(super) tiers: std::collections::BTreeMap<u16, Vec<crate::route_candidates::RouteCandidate>>,
 }
 
@@ -84,13 +84,13 @@ fn plan_decoded(
     } else {
         TransportMode::Json
     };
-    let (route_id, dialect, fallback_on_saturation, tiers) = if let Some(route) = route {
+    let (route_id, dialect, fallback_on_rate_limit, tiers) = if let Some(route) = route {
         (
             route.id(),
             route.ingress_protocol(),
             route
-                .fallback_on_saturation()
-                .unwrap_or_else(|| snapshot.queue_policy().fallback_on_saturation()),
+                .fallback_on_rate_limit()
+                .unwrap_or_else(|| snapshot.queue_policy().fallback_on_rate_limit()),
             build_route_candidates(
                 snapshot,
                 route,
@@ -119,7 +119,7 @@ fn plan_decoded(
         (
             route_id,
             decoded.dialect,
-            snapshot.queue_policy().fallback_on_saturation(),
+            snapshot.queue_policy().fallback_on_rate_limit(),
             tiers,
         )
     };
@@ -128,7 +128,7 @@ fn plan_decoded(
         public_model: public_model.as_str().to_owned(),
         route_id,
         dialect,
-        fallback_on_saturation,
+        fallback_on_rate_limit,
         tiers,
     })
 }

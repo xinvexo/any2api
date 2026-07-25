@@ -11,7 +11,7 @@ const messages: Record<string, string> = {
   oauth_token_exchange_failed: "The token exchange failed.",
   oauth_activation_failed: "The login completed, but the account could not be activated.",
   oauth_unavailable: "OAuth2 login is unavailable.",
-  oauth_account_busy: "OAuth 账号当前并发已满。",
+  oauth_account_rate_limited: "OAuth 账号的本地 RPM 已用尽。",
   oauth_quota_unsupported: "该 OAuth Provider 不支持额度管理。",
   oauth_quota_reset_unavailable: "当前没有可用的额度重置次数。",
   oauth_quota_timeout: "额度查询超时。",

@@ -28,12 +28,10 @@ const labels: Record<string, string> = {
   "stream.postcommit.idle_timeout": "提交后流空闲超时",
   "shutdown.request_grace_period": "请求排空宽限期",
   "shutdown.finalize_timeout": "最终收尾超时",
-  "scheduler.on_saturated": "满载行为",
+  "scheduler.on_rate_limited": "RPM 用尽行为",
   "scheduler.queue_timeout": "排队超时",
   "scheduler.max_waiting_requests": "最大排队数量",
-  "scheduler.fallback_on_saturation": "满载进入 fallback",
-  "scheduler.auxiliary_global_concurrency": "辅助请求全局并发",
-  "scheduler.auxiliary_per_credential_concurrency": "辅助请求单 Credential 并发",
+  "scheduler.fallback_on_rate_limit": "RPM 用尽进入 fallback",
   "retry.max_total_attempts": "最大总尝试次数",
   "retry.max_credential_switches": "最大 Credential 切换次数",
   "retry.max_same_credential_retries": "单 Credential 重试次数",
@@ -51,7 +49,7 @@ const labels: Record<string, string> = {
   "breaker.proxy.failure_threshold": "出口代理失败阈值",
   "breaker.proxy.failure_window": "出口代理失败窗口",
   "breaker.proxy.open_duration": "出口代理打开时长",
-  "breaker.half_open_max_probes": "半开探测并发",
+  "breaker.half_open_max_probes": "半开探测上限",
 };
 
 export function settingLabel(item: SettingItem) {

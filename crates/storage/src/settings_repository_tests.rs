@@ -1,4 +1,4 @@
-use any2api_domain::{ConfigRevision, SaturationMode, SettingKey, SettingValue};
+use any2api_domain::{ConfigRevision, RateLimitMode, SettingKey, SettingValue};
 use tempfile::tempdir;
 
 use crate::{
@@ -14,35 +14,35 @@ async fn scheduler_overrides_persist_and_reset_to_compiled_defaults() {
     let initial = store.load_configuration().await.expect("initial settings");
 
     assert_eq!(
-        initial.settings().scheduler().on_saturated(),
-        SaturationMode::Wait
+        initial.settings().scheduler().on_rate_limited(),
+        RateLimitMode::Wait
     );
     assert_eq!(
         initial
             .settings()
-            .override_value(SettingKey::SchedulerOnSaturated),
+            .override_value(SettingKey::SchedulerOnRateLimited),
         None
     );
 
     let updated = store
         .set_setting_override(
             ConfigRevision::INITIAL,
-            SettingKey::SchedulerOnSaturated,
-            SettingValue::Saturation(SaturationMode::Reject),
+            SettingKey::SchedulerOnRateLimited,
+            SettingValue::RateLimitMode(RateLimitMode::Reject),
         )
         .await
         .expect("override setting");
     assert_eq!(updated.revision().get(), 2);
     assert_eq!(
-        updated.settings().scheduler().on_saturated(),
-        SaturationMode::Reject
+        updated.settings().scheduler().on_rate_limited(),
+        RateLimitMode::Reject
     );
 
     let no_op = store
         .set_setting_override(
             updated.revision(),
-            SettingKey::SchedulerOnSaturated,
-            SettingValue::Saturation(SaturationMode::Reject),
+            SettingKey::SchedulerOnRateLimited,
+            SettingValue::RateLimitMode(RateLimitMode::Reject),
         )
         .await
         .expect("same override is a no-op");
@@ -57,23 +57,23 @@ async fn scheduler_overrides_persist_and_reset_to_compiled_defaults() {
         .await
         .expect("persisted settings");
     assert_eq!(
-        persisted.settings().scheduler().on_saturated(),
-        SaturationMode::Reject
+        persisted.settings().scheduler().on_rate_limited(),
+        RateLimitMode::Reject
     );
 
     let reset = reopened
-        .reset_setting_override(persisted.revision(), SettingKey::SchedulerOnSaturated)
+        .reset_setting_override(persisted.revision(), SettingKey::SchedulerOnRateLimited)
         .await
         .expect("reset setting");
     assert_eq!(reset.revision().get(), 3);
     assert_eq!(
-        reset.settings().scheduler().on_saturated(),
-        SaturationMode::Wait
+        reset.settings().scheduler().on_rate_limited(),
+        RateLimitMode::Wait
     );
     assert_eq!(
         reset
             .settings()
-            .override_value(SettingKey::SchedulerOnSaturated),
+            .override_value(SettingKey::SchedulerOnRateLimited),
         None
     );
 }
@@ -88,7 +88,7 @@ async fn explicit_override_equal_to_default_is_preserved() {
     let updated = store
         .set_setting_override(
             ConfigRevision::INITIAL,
-            SettingKey::SchedulerFallbackOnSaturation,
+            SettingKey::SchedulerFallbackOnRateLimit,
             SettingValue::Boolean(false),
         )
         .await
@@ -98,7 +98,7 @@ async fn explicit_override_equal_to_default_is_preserved() {
     assert_eq!(
         updated
             .settings()
-            .override_value(SettingKey::SchedulerFallbackOnSaturation),
+            .override_value(SettingKey::SchedulerFallbackOnRateLimit),
         Some(SettingValue::Boolean(false))
     );
 }

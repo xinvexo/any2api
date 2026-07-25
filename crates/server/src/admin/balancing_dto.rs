@@ -12,7 +12,6 @@ pub(crate) struct BalancingRuntimeResponse {
     config_revision: u64,
     scheduler_epoch: u64,
     queue: QueueResponse,
-    auxiliary: AuxiliaryResponse,
     totals: TotalsResponse,
     providers: Vec<ProviderResponse>,
     credentials: Vec<CredentialResponse>,
@@ -29,7 +28,6 @@ impl BalancingRuntimeResponse {
             config_revision: published.revision().get(),
             scheduler_epoch: runtime.scheduler_epoch(),
             queue: QueueResponse::from(runtime),
-            auxiliary: AuxiliaryResponse::from(runtime),
             totals: TotalsResponse::from_credentials(&credentials),
             providers: ProviderResponse::from_credentials(&credentials),
             credentials,
@@ -42,8 +40,8 @@ struct QueueResponse {
     waiting: u32,
     max_waiting: u32,
     timeout_secs: u64,
-    on_saturated: &'static str,
-    fallback_on_saturation: bool,
+    on_rate_limited: &'static str,
+    fallback_on_rate_limit: bool,
 }
 
 impl From<&BalancingRuntimeSnapshot> for QueueResponse {
@@ -53,30 +51,12 @@ impl From<&BalancingRuntimeSnapshot> for QueueResponse {
             waiting: queue.waiting(),
             max_waiting: queue.max_waiting(),
             timeout_secs: queue.timeout_secs(),
-            on_saturated: if queue.rejects_when_saturated() {
+            on_rate_limited: if queue.rejects_when_rate_limited() {
                 "reject"
             } else {
                 "wait"
             },
-            fallback_on_saturation: queue.fallback_on_saturation(),
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct AuxiliaryResponse {
-    in_flight: u32,
-    max_global: u32,
-    max_per_credential: u32,
-}
-
-impl From<&BalancingRuntimeSnapshot> for AuxiliaryResponse {
-    fn from(value: &BalancingRuntimeSnapshot) -> Self {
-        let auxiliary = value.auxiliary();
-        Self {
-            in_flight: auxiliary.in_flight(),
-            max_global: auxiliary.max_global(),
-            max_per_credential: auxiliary.max_per_credential(),
+            fallback_on_rate_limit: queue.fallback_on_rate_limit(),
         }
     }
 }
@@ -85,10 +65,11 @@ impl From<&BalancingRuntimeSnapshot> for AuxiliaryResponse {
 struct TotalsResponse {
     credential_count: usize,
     enabled_credential_count: usize,
+    limited_credential_count: usize,
+    rate_limited_credential_count: usize,
     in_flight: u64,
-    max_concurrency: u64,
+    requests_in_window: u64,
     fixed_waiters: u64,
-    auxiliary_in_flight: u64,
 }
 
 impl TotalsResponse {
@@ -99,22 +80,25 @@ impl TotalsResponse {
                 .iter()
                 .filter(|item| item.is_schedulable())
                 .count(),
+            limited_credential_count: credentials
+                .iter()
+                .filter(|item| item.requests_per_minute.is_some())
+                .count(),
+            rate_limited_credential_count: credentials
+                .iter()
+                .filter(|item| item.is_rate_limited())
+                .count(),
             in_flight: credentials
                 .iter()
                 .map(|item| u64::from(item.in_flight))
                 .sum(),
-            max_concurrency: credentials
+            requests_in_window: credentials
                 .iter()
-                .filter(|item| item.is_schedulable())
-                .map(|item| u64::from(item.max_concurrency))
+                .map(|item| u64::from(item.requests_in_window))
                 .sum(),
             fixed_waiters: credentials
                 .iter()
                 .map(|item| u64::from(item.fixed_waiters))
-                .sum(),
-            auxiliary_in_flight: credentials
-                .iter()
-                .map(|item| u64::from(item.auxiliary_in_flight))
                 .sum(),
         }
     }
@@ -124,10 +108,11 @@ impl TotalsResponse {
 struct ProviderResponse {
     provider_kind: ProviderKind,
     credential_count: usize,
+    limited_credential_count: usize,
+    rate_limited_credential_count: usize,
     in_flight: u64,
-    max_concurrency: u64,
-    selected_generation: u64,
-    selected_auxiliary: u64,
+    requests_in_window: u64,
+    selected: u64,
 }
 
 impl ProviderResponse {
@@ -137,18 +122,22 @@ impl ProviderResponse {
             let provider = providers.entry(credential.provider_kind).or_insert(Self {
                 provider_kind: credential.provider_kind,
                 credential_count: 0,
+                limited_credential_count: 0,
+                rate_limited_credential_count: 0,
                 in_flight: 0,
-                max_concurrency: 0,
-                selected_generation: 0,
-                selected_auxiliary: 0,
+                requests_in_window: 0,
+                selected: 0,
             });
             provider.credential_count += 1;
             provider.in_flight += u64::from(credential.in_flight);
-            if credential.is_schedulable() {
-                provider.max_concurrency += u64::from(credential.max_concurrency);
+            provider.requests_in_window += u64::from(credential.requests_in_window);
+            if credential.requests_per_minute.is_some() {
+                provider.limited_credential_count += 1;
             }
-            provider.selected_generation += credential.counters.selected_generation;
-            provider.selected_auxiliary += credential.counters.selected_auxiliary;
+            if credential.is_rate_limited() {
+                provider.rate_limited_credential_count += 1;
+            }
+            provider.selected += credential.counters.selected;
         }
         providers.into_values().collect()
     }
@@ -170,9 +159,11 @@ struct CredentialResponse {
     proxy_kind: ProxyKind,
     proxy_enabled: bool,
     in_flight: u32,
-    max_concurrency: u32,
+    requests_per_minute: Option<u32>,
+    requests_in_window: u32,
+    remaining_requests: Option<u32>,
+    retry_in_ms: Option<u64>,
     fixed_waiters: u32,
-    auxiliary_in_flight: u32,
     counters: CountersResponse,
     models: Vec<ModelHealthResponse>,
 }
@@ -199,9 +190,11 @@ impl CredentialResponse {
             proxy_kind: proxy.kind(),
             proxy_enabled: proxy.enabled(),
             in_flight: runtime.in_flight(),
-            max_concurrency: runtime.max_concurrency(),
+            requests_per_minute: runtime.requests_per_minute(),
+            requests_in_window: runtime.requests_in_window(),
+            remaining_requests: runtime.remaining_requests(),
+            retry_in_ms: runtime.retry_in_ms(),
             fixed_waiters: runtime.fixed_waiters(),
-            auxiliary_in_flight: runtime.auxiliary_in_flight(),
             counters: CountersResponse::from(runtime.counters()),
             models: runtime
                 .models()
@@ -216,13 +209,16 @@ impl CredentialResponse {
     const fn is_schedulable(&self) -> bool {
         self.enabled && !self.authentication_expired && self.endpoint_enabled && self.proxy_enabled
     }
+
+    const fn is_rate_limited(&self) -> bool {
+        matches!(self.remaining_requests, Some(0))
+    }
 }
 
 #[derive(Debug, Serialize)]
 struct CountersResponse {
-    selected_generation: u64,
-    selected_auxiliary: u64,
-    filtered_capacity: u64,
+    selected: u64,
+    filtered_rate_limit: u64,
     filtered_credential_health: u64,
     filtered_endpoint_health: u64,
     filtered_proxy_health: u64,
@@ -231,9 +227,8 @@ struct CountersResponse {
 impl From<CredentialBalancingCounters> for CountersResponse {
     fn from(value: CredentialBalancingCounters) -> Self {
         Self {
-            selected_generation: value.selected_generation(),
-            selected_auxiliary: value.selected_auxiliary(),
-            filtered_capacity: value.filtered_capacity(),
+            selected: value.selected(),
+            filtered_rate_limit: value.filtered_rate_limit(),
             filtered_credential_health: value.filtered_credential_health(),
             filtered_endpoint_health: value.filtered_endpoint_health(),
             filtered_proxy_health: value.filtered_proxy_health(),

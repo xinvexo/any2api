@@ -1,9 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ModelRouteId,
-    ProtocolDialect, ProtocolOperation, ProviderCredential, ProviderCredentialDraft,
-    ProviderEndpointId, ProxyProfileId, PublicErrorCode, RetrySafety, RouteTargetId,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ModelRouteId, ProtocolDialect,
+    ProtocolOperation, ProviderCredential, ProviderCredentialDraft, ProviderEndpointId,
+    ProxyProfileId, PublicErrorCode, RequestsPerMinute, RetrySafety, RouteTargetId,
     SettingsConfiguration,
 };
 use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
@@ -13,10 +13,7 @@ use any2api_transport::api::{
 use bytes::Bytes;
 use futures_util::{StreamExt, stream};
 
-use super::{
-    RequestPermit,
-    stream::{CommitState, GuardedBody, GuardedBodyParts, PrecommitBudget},
-};
+use super::stream::{CommitState, GuardedBody, GuardedBodyParts, PrecommitBudget};
 use crate::{
     affinity::{AffinityRegistry, AffinityTarget, HardAffinityCommitter},
     credential_auth::CredentialAuthMaterial,
@@ -41,17 +38,18 @@ async fn guarded_body_primes_rewrites_and_releases_on_eof() {
         .expect("primed stream")
         .into_stream();
 
-    assert_eq!(binding.capacity().in_flight(), 1);
+    assert_eq!(binding.in_flight(), 1);
     let first = body
         .next()
         .await
         .expect("first frame")
         .expect("first bytes");
     assert!(String::from_utf8_lossy(&first).contains(r#""model":"public""#));
-    assert_eq!(binding.capacity().in_flight(), 1);
+    assert_eq!(binding.in_flight(), 1);
     assert!(body.next().await.expect("done frame").is_ok());
     assert!(body.next().await.is_none());
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
+    assert_eq!(binding.rate_snapshot().requests_in_window(), 1);
 }
 
 #[tokio::test]
@@ -61,12 +59,12 @@ async fn dropping_body_releases_once_and_marks_cancellation() {
     let guarded = guarded_body(upstream, permit);
     let cancellation = guarded.cancellation();
     assert_eq!(guarded.state(), CommitState::Pending);
-    assert_eq!(binding.capacity().in_flight(), 1);
+    assert_eq!(binding.in_flight(), 1);
 
     drop(guarded);
 
     assert!(cancellation.is_cancelled());
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test]
@@ -80,7 +78,7 @@ async fn empty_stream_fails_before_commit_and_releases() {
     };
 
     assert_eq!(error.code, PublicErrorCode::UpstreamError);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test]
@@ -99,7 +97,7 @@ async fn transport_error_before_the_first_frame_releases_without_commit() {
         Err(error) => error,
     };
     assert_eq!(error.code, PublicErrorCode::UpstreamError);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test]
@@ -121,7 +119,7 @@ async fn oversized_first_event_exhausts_the_precommit_byte_budget() {
         Err(error) => error,
     };
     assert_eq!(error.code, PublicErrorCode::UpstreamError);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test]
@@ -156,7 +154,7 @@ async fn encoded_event_budget_failure_is_reported_as_upstream_error() {
         Err(error) => error,
     };
     assert_eq!(error.code, PublicErrorCode::UpstreamError);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
     assert_eq!(endpoint.availability(&policy), Ok(()));
 }
 
@@ -182,9 +180,9 @@ async fn complete_event_precedes_a_later_same_chunk_frame_error() {
         .expect("first frame")
         .expect("first frame bytes");
     assert!(String::from_utf8_lossy(&first).contains(r#""model":"public""#));
-    assert_eq!(binding.capacity().in_flight(), 1);
+    assert_eq!(binding.in_flight(), 1);
     assert!(body.next().await.expect("later frame error").is_err());
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
     assert!(body.next().await.is_none());
 }
 
@@ -210,7 +208,7 @@ async fn prime_buffers_only_the_first_complete_event_from_a_chunk() {
         assert!(String::from_utf8_lossy(&frame).contains(&format!(r#""index":{index}"#)));
     }
     assert!(body.next().await.is_none());
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test]
@@ -232,16 +230,16 @@ async fn post_commit_error_releases_without_emitting_another_upstream() {
         .into_stream();
 
     assert!(body.next().await.expect("first frame").is_ok());
-    assert_eq!(binding.capacity().in_flight(), 1);
+    assert_eq!(binding.in_flight(), 1);
     assert!(body.next().await.expect("stream error").is_err());
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
     drop(body);
-    assert_eq!(binding.capacity().in_flight(), 0);
+    assert_eq!(binding.in_flight(), 0);
 }
 
 fn guarded_body(
     upstream: BoxByteStream,
-    permit: crate::credential_runtime::ConcurrencyPermit,
+    permit: crate::credential_runtime::RoutingPermit,
 ) -> GuardedBody {
     guarded_body_with_budget(
         upstream,
@@ -252,7 +250,7 @@ fn guarded_body(
 
 pub(super) fn guarded_body_with_budget(
     upstream: BoxByteStream,
-    permit: crate::credential_runtime::ConcurrencyPermit,
+    permit: crate::credential_runtime::RoutingPermit,
     precommit_budget: PrecommitBudget,
 ) -> GuardedBody {
     guarded_body_with_budget_and_health(upstream, permit, precommit_budget, None)
@@ -260,7 +258,7 @@ pub(super) fn guarded_body_with_budget(
 
 fn guarded_body_with_budget_and_health(
     upstream: BoxByteStream,
-    permit: crate::credential_runtime::ConcurrencyPermit,
+    permit: crate::credential_runtime::RoutingPermit,
     precommit_budget: PrecommitBudget,
     health: Option<AttemptHealth>,
 ) -> GuardedBody {
@@ -275,7 +273,7 @@ fn guarded_body_with_budget_and_health(
 
 pub(super) fn guarded_body_with_idle_timeout(
     upstream: BoxByteStream,
-    permit: crate::credential_runtime::ConcurrencyPermit,
+    permit: crate::credential_runtime::RoutingPermit,
     postcommit_idle_timeout: Duration,
 ) -> GuardedBody {
     guarded_body_with_budget_health_and_idle(
@@ -289,7 +287,7 @@ pub(super) fn guarded_body_with_idle_timeout(
 
 pub(super) fn guarded_body_with_budget_health_and_idle(
     upstream: BoxByteStream,
-    permit: crate::credential_runtime::ConcurrencyPermit,
+    permit: crate::credential_runtime::RoutingPermit,
     precommit_budget: PrecommitBudget,
     health: Option<AttemptHealth>,
     postcommit_idle_timeout: Duration,
@@ -323,7 +321,7 @@ pub(super) fn guarded_body_with_budget_health_and_idle(
         exchange,
         "public",
         GuardedBodyParts {
-            permit: RequestPermit::Generation(permit),
+            permit,
             health,
             hard_affinity,
             attempt_recorder: AttemptRecorder::disabled(),
@@ -336,7 +334,7 @@ pub(super) fn guarded_body_with_budget_health_and_idle(
 
 pub(super) fn generation_permit() -> (
     crate::credential_runtime::CredentialRuntimeBinding,
-    crate::credential_runtime::ConcurrencyPermit,
+    crate::credential_runtime::RoutingPermit,
 ) {
     let credential = ProviderCredential::create(
         CredentialId::new(),
@@ -345,7 +343,7 @@ pub(super) fn generation_permit() -> (
             "stream",
             CredentialKind::ApiKey,
             ProxyProfileId::DIRECT,
-            MaxConcurrency::new(1).expect("max concurrency"),
+            Some(RequestsPerMinute::new(1).expect("valid RPM")),
             true,
         )
         .expect("credential draft"),
@@ -357,6 +355,6 @@ pub(super) fn generation_permit() -> (
         SchedulerEpoch::new(),
     )
     .current_binding();
-    let permit = binding.try_acquire().expect("generation permit");
+    let permit = binding.try_reserve().expect("generation permit");
     (binding, permit)
 }

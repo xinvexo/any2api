@@ -3,32 +3,32 @@ use std::{
     time::Duration,
 };
 
-use any2api_domain::{SaturationMode, SchedulerSettings};
+use any2api_domain::{RateLimitMode, SchedulerSettings};
 use thiserror::Error;
 use tokio::sync::watch;
 
 use crate::scheduler_epoch::SchedulerEpoch;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SaturationAction {
+pub enum RateLimitAction {
     Wait,
     Reject,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QueuePolicy {
-    on_saturated: SaturationAction,
+    on_rate_limited: RateLimitAction,
     queue_timeout: Duration,
     max_waiting_requests: u32,
-    fallback_on_saturation: bool,
+    fallback_on_rate_limit: bool,
 }
 
 impl QueuePolicy {
     pub const fn new(
-        on_saturated: SaturationAction,
+        on_rate_limited: RateLimitAction,
         queue_timeout: Duration,
         max_waiting_requests: u32,
-        fallback_on_saturation: bool,
+        fallback_on_rate_limit: bool,
     ) -> Result<Self, QueuePolicyError> {
         if queue_timeout.is_zero() {
             return Err(QueuePolicyError::ZeroQueueTimeout);
@@ -37,16 +37,16 @@ impl QueuePolicy {
             return Err(QueuePolicyError::ZeroMaxWaitingRequests);
         }
         Ok(Self {
-            on_saturated,
+            on_rate_limited,
             queue_timeout,
             max_waiting_requests,
-            fallback_on_saturation,
+            fallback_on_rate_limit,
         })
     }
 
     #[must_use]
-    pub const fn on_saturated(self) -> SaturationAction {
-        self.on_saturated
+    pub const fn on_rate_limited(self) -> RateLimitAction {
+        self.on_rate_limited
     }
 
     #[must_use]
@@ -60,22 +60,22 @@ impl QueuePolicy {
     }
 
     #[must_use]
-    pub const fn fallback_on_saturation(self) -> bool {
-        self.fallback_on_saturation
+    pub const fn fallback_on_rate_limit(self) -> bool {
+        self.fallback_on_rate_limit
     }
 
     pub(crate) fn from_scheduler_settings(settings: &SchedulerSettings) -> Self {
-        let on_saturated = match settings.on_saturated() {
-            SaturationMode::Wait => SaturationAction::Wait,
-            SaturationMode::Reject => SaturationAction::Reject,
+        let on_rate_limited = match settings.on_rate_limited() {
+            RateLimitMode::Wait => RateLimitAction::Wait,
+            RateLimitMode::Reject => RateLimitAction::Reject,
         };
         let max_waiting_requests = u32::try_from(settings.max_waiting_requests())
             .expect("validated maximum waiting requests fits u32");
         Self::new(
-            on_saturated,
+            on_rate_limited,
             Duration::from_secs(settings.queue_timeout_secs()),
             max_waiting_requests,
-            settings.fallback_on_saturation(),
+            settings.fallback_on_rate_limit(),
         )
         .expect("validated scheduler settings")
     }
@@ -159,28 +159,28 @@ impl Drop for QueueTicket {
 mod tests {
     use std::sync::Arc;
 
-    use super::{QueueCoordinator, QueuePolicy, QueuePolicyError, SaturationAction};
+    use super::{QueueCoordinator, QueuePolicy, QueuePolicyError, RateLimitAction};
     use crate::scheduler_epoch::SchedulerEpoch;
 
     #[test]
     fn default_policy_matches_the_architecture_defaults() {
         let settings = any2api_domain::SettingsConfiguration::defaults();
         let policy = QueuePolicy::from_scheduler_settings(settings.scheduler());
-        assert_eq!(policy.on_saturated(), SaturationAction::Wait);
+        assert_eq!(policy.on_rate_limited(), RateLimitAction::Wait);
         assert_eq!(policy.queue_timeout().as_secs(), 30);
         assert_eq!(policy.max_waiting_requests(), 128);
-        assert!(!policy.fallback_on_saturation());
+        assert!(!policy.fallback_on_rate_limit());
     }
 
     #[test]
     fn policy_rejects_zero_limits() {
         assert_eq!(
-            QueuePolicy::new(SaturationAction::Wait, std::time::Duration::ZERO, 1, false,),
+            QueuePolicy::new(RateLimitAction::Wait, std::time::Duration::ZERO, 1, false,),
             Err(QueuePolicyError::ZeroQueueTimeout)
         );
         assert_eq!(
             QueuePolicy::new(
-                SaturationAction::Wait,
+                RateLimitAction::Wait,
                 std::time::Duration::from_secs(1),
                 0,
                 false,

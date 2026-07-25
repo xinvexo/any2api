@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProviderCredential,
-    ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId, RoutingCredentialId,
+    ConfigRevision, CredentialId, CredentialKind, ProviderCredential, ProviderCredentialDraft,
+    ProviderEndpointId, ProxyProfileId, RequestsPerMinute, RoutingCredentialId,
 };
 use any2api_runtime::api::{
     ProviderApiKeySecret, ProviderCredentialTestOutcome, ProviderCredentialTestResult,
@@ -46,7 +46,7 @@ struct ProviderCredentialResponse {
     fingerprint: String,
     secret_tail: Option<String>,
     proxy_profile_id: ProxyProfileId,
-    max_concurrency: u32,
+    requests_per_minute: Option<u32>,
     enabled: bool,
     secret_schema_version: u32,
     secret_version: u64,
@@ -66,7 +66,7 @@ impl ProviderCredentialResponse {
             fingerprint: credential.fingerprint().display(),
             secret_tail: credential.fingerprint().tail().map(str::to_owned),
             proxy_profile_id: credential.proxy_profile_id(),
-            max_concurrency: credential.max_concurrency().get(),
+            requests_per_minute: credential.requests_per_minute().map(RequestsPerMinute::get),
             enabled: credential.enabled(),
             secret_schema_version: credential.secret_schema_version(),
             secret_version: credential.secret_version(),
@@ -216,7 +216,7 @@ pub(crate) struct ProviderCredentialCreateRequest {
     credential_kind: CredentialKind,
     api_key: String,
     proxy_profile_id: ProxyProfileId,
-    max_concurrency: u32,
+    requests_per_minute: Option<u32>,
     enabled: bool,
 }
 
@@ -236,7 +236,7 @@ impl ProviderCredentialCreateRequest {
             self.label,
             self.credential_kind,
             self.proxy_profile_id,
-            self.max_concurrency,
+            self.requests_per_minute,
             self.enabled,
         )?;
         Ok((revision, draft, ProviderApiKeySecret::new(self.api_key)))
@@ -250,7 +250,7 @@ pub(crate) struct ProviderCredentialUpdateRequest {
     expected_config_version: u64,
     label: String,
     proxy_profile_id: ProxyProfileId,
-    max_concurrency: u32,
+    requests_per_minute: Option<u32>,
     enabled: bool,
 }
 
@@ -267,7 +267,7 @@ impl ProviderCredentialUpdateRequest {
             self.label,
             CredentialKind::ApiKey,
             self.proxy_profile_id,
-            self.max_concurrency,
+            self.requests_per_minute,
             self.enabled,
         )?;
         Ok((revision, config_version, draft))
@@ -325,16 +325,18 @@ fn build_draft(
     label: String,
     credential_kind: CredentialKind,
     proxy_profile_id: ProxyProfileId,
-    max_concurrency: u32,
+    requests_per_minute: Option<u32>,
     enabled: bool,
 ) -> Result<ProviderCredentialDraft, AdminApiError> {
-    let max_concurrency = MaxConcurrency::new(max_concurrency)
+    let requests_per_minute = requests_per_minute
+        .map(RequestsPerMinute::new)
+        .transpose()
         .map_err(|error| AdminApiError::invalid_provider_credential(error.to_string()))?;
     ProviderCredentialDraft::new(
         label,
         credential_kind,
         proxy_profile_id,
-        max_concurrency,
+        requests_per_minute,
         enabled,
     )
     .map_err(|error| AdminApiError::invalid_provider_credential(error.to_string()))

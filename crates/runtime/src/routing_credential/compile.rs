@@ -78,7 +78,7 @@ fn compile_provider_credentials(
             endpoint_enabled: endpoint.enabled(),
             models: credential.models().to_vec(),
             available_models: credential.models().to_vec(),
-            max_concurrency: credential.max_concurrency(),
+            requests_per_minute: credential.requests_per_minute(),
             generation: Some(CredentialGenerationDefinition::new(
                 credential.credential_generation(),
                 credential.secret_version(),
@@ -134,7 +134,7 @@ fn compile_oauth_accounts(
             endpoint_enabled: true,
             models,
             available_models,
-            max_concurrency: account.max_concurrency(),
+            requests_per_minute: account.requests_per_minute(),
             generation: Some(CredentialGenerationDefinition::new(
                 account.account_generation(),
                 account.token_version(),

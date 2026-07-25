@@ -59,18 +59,18 @@
 
 ## 6. 调度、粘性与流式不变量
 
-- 每个运行时路由凭据（ProviderCredential 或 OAuthAccount）的 `max_concurrency` 是硬限制，且必须大于 0。
-- 负载比较使用 `in_flight / max_concurrency`，实现时用整数交叉相乘，禁止浮点误差。
-- “选择 Credential”和“取得 Permit”必须是一个原子操作；CAS 失败后重新完整选择。
-- `RuntimeRegistry` 跨配置代际复用容量状态；认证和健康状态按配置 generation 隔离。
+- 每个运行时路由凭据（ProviderCredential 或 OAuthAccount）只允许配置一套可选的 `requests_per_minute`；`NULL` 表示不做本地限速，禁止再增加可配置并发或 TPM 限制。
+- RPM 使用进程内滚动 60 秒窗口；“选择 Credential”和“预留 RPM 名额”必须是一个原子操作，失败后重新完整选择。
+- `RuntimeRegistry` 跨配置代际复用 RPM 窗口和 `in_flight` 观测状态；认证和健康状态按配置 generation 隔离。
+- `in_flight` 只用于运行态观测、流式资源生命周期与停机诊断，不参与准入、候选排序或 RPM 名额释放。
 - 所有等待使用有界 QueueTicket、统一 epoch 唤醒、超时和取消，禁止丢失唤醒。
 - Codex `previous_response_id` 是硬粘性，绑定 Credential、Route Target、上游模型和协议方言。
 - 普通会话是软粘性，支持 `prefer` 和 `strict`。
-- 会话、并发、排队、冷却和熔断仅保存在内存；进程重启后全部清空。
+- 会话、RPM 窗口、`in_flight`、排队、冷却和熔断仅保存在内存；进程重启后全部清空。
 - 旧 `previous_response_id` 在重启后没有绑定时返回 `session_binding_lost`，禁止猜测 Credential。
 - 只有 `Pending` 且 RetrySafety 允许时才能重试或切换上游。
 - 一旦向客户端写出 HTTP 响应头或任何字节，永久禁止切换上游。
-- 流式 Body 必须持有 Permit 和取消令牌，EOF、错误、断连和 Drop 都只能释放一次。
+- 流式 Body 必须持有运行态 Guard 和取消令牌，EOF、错误、断连和 Drop 都只能结算一次；流结束不得归还 RPM 名额。
 
 ## 7. 配置发布规则
 
@@ -96,7 +96,7 @@
 - `app` 是唯一 Composition Root，负责注册和装配具体实现。
 - Runtime 只能依赖各 Adapter crate 的稳定 `api` 模块，禁止导入其内部实现。
 - 新增 Provider 时，只允许局部增加 Provider 模块、必要协议实现、静态注册和契约测试；禁止修改中央调度器加入不断增长的 Provider `match`。
-- ProviderCredential 与 OAuthAccount 的管理模型保持分离；两者只能在通用 `RoutingCredential` 投影处合流，禁止复制第二套调度、并发、粘性、健康或重试实现。
+- ProviderCredential 与 OAuthAccount 的管理模型保持分离；两者只能在通用 `RoutingCredential` 投影处合流，禁止复制第二套调度、RPM、粘性、健康或重试实现。
 
 ## 9. 拒绝臃肿文件
 
@@ -119,7 +119,7 @@
 ## 10. 安全与持久化
 
 - SQLite 只持久化配置、必要凭据、Gateway Key 摘要、OAuthAccount 原始 JSON 和可选历史日志。
-- `in_flight`、等待队列、健康、冷却、熔断、会话和请求进度不得持久化。
+- RPM 滚动窗口、`in_flight`、等待队列、健康、冷却、熔断、会话和请求进度不得持久化。
 - Provider API Key、代理密码等现有 Secret 使用版本化 AEAD 加密；主密钥位于数据库外，缺失或错误时启动失败。OAuth Token 是明确的明文 SQLite 例外，但仍禁止进入日志、DTO、Debug 或浏览器状态。
 - 管理 DTO 对 Provider Secret 默认只返回指纹或尾号，创建时仅展示一次；`GatewayApiKey` 例外：明文持久化，管理列表始终可查看。
 - 远程管理默认关闭；启用后必须使用独立单管理员认证，允许 HTTP 或 HTTPS，TLS 推荐但不强制。
@@ -133,7 +133,7 @@
 - 修改文件使用 `apply_patch`，保留用户已有改动，禁止破坏性 Git 操作。
 - 修改具体代码前必须完整阅读该代码；跨模块修改前先核对依赖方向。
 - 新功能必须同时提供模块级测试和对应契约/集成测试。
-- 调度关键路径必须测试：永不超过并发上限、无丢失唤醒、Permit 只释放一次、热更新不重置容量状态。
+- 调度关键路径必须测试：滚动窗口永不超过 RPM、到期可重新准入、无丢失唤醒、运行态 Guard 只结算一次、热更新不错误重置有限 RPM 窗口。
 - SSE 必须覆盖任意字节切分、CRLF、多行 data、无尾空行、提交前重试和提交后禁止切换。
 - Provider/Protocol 契约测试必须枚举实际 Registry 中的实现，而不是按文件名猜测覆盖率。
 - 提交前至少运行与改动相关的 fmt、clippy、test、前端 typecheck/lint/build。

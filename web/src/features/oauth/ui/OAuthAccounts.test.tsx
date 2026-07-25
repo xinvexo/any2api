@@ -16,7 +16,7 @@ test("lists and edits OAuth accounts without receiving token material", async ()
         expected_revision: 2,
         expected_config_version: 1,
         label: "Renamed Codex",
-        max_concurrency: 3,
+        requests_per_minute: 3,
         enabled: true,
       });
       expect(String(init.body)).not.toContain("token");
@@ -35,7 +35,7 @@ test("lists and edits OAuth accounts without receiving token material", async ()
   fireEvent.change(await screen.findByLabelText("账号名称"), {
     target: { value: "Renamed Codex" },
   });
-  fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "3" } });
+  fireEvent.change(screen.getByLabelText("RPM 限制"), { target: { value: "3" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -65,7 +65,7 @@ function account(label: string, configVersion: number): OAuthAccount {
     id: accountId,
     providerKind: "codex",
     label,
-    maxConcurrency: 1,
+    requestsPerMinute: null,
     enabled: true,
     safeAccountEmail: "person@example.com",
     expiresAt: 1_900_000_000,
@@ -97,12 +97,12 @@ function usageParsed() {
   };
 }
 
-function accountJson(label: string, configVersion: number, maxConcurrency: number) {
+function accountJson(label: string, configVersion: number, requestsPerMinute: number | null) {
   return {
     id: accountId,
     provider_kind: "codex",
     label,
-    max_concurrency: maxConcurrency,
+    requests_per_minute: requestsPerMinute,
     enabled: true,
     safe_account_email: "person@example.com",
     expires_at: 1_900_000_000,

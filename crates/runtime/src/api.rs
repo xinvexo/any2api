@@ -2,18 +2,17 @@ pub use crate::affinity::{
     AffinityBindingKind, AffinityBindingSummary, AffinityCredentialCount, AffinityPolicy,
     AffinityRuntimeSnapshot,
 };
-pub use crate::auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryConcurrencyLimitsError};
 pub use crate::balancing::{
-    BalancingAuxiliarySnapshot, BalancingCredentialModelSnapshot, BalancingCredentialSnapshot,
-    BalancingHealthStatus, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
+    BalancingCredentialModelSnapshot, BalancingCredentialSnapshot, BalancingHealthStatus,
+    BalancingQueueSnapshot, BalancingRuntimeSnapshot,
 };
 pub use crate::config_publish_error::ConfigPublishError;
 pub use crate::configuration_capabilities::{
     ConfigurationCapabilities, ConfigurationCapabilityError, ProviderProtocolOptions,
 };
 pub use crate::credential_runtime::{
-    ConcurrencyPermit, CredentialBalancingCounters, CredentialCapacity,
-    CredentialGenerationRuntime, CredentialRuntimeBinding,
+    CredentialBalancingCounters, CredentialGenerationRuntime, CredentialRateSnapshot,
+    CredentialRuntimeBinding, RoutingPermit,
 };
 pub use crate::gateway_api_key_publisher::GatewayApiKeyPublishResult;
 pub use crate::gateway_api_key_token::{GatewayApiKeyToken, GatewayApiKeyTokenGenerationError};
@@ -40,10 +39,10 @@ pub use crate::public_request::{
 };
 pub use crate::published_snapshot::{PublishedSnapshot, SnapshotStore};
 pub use crate::publisher::ConfigPublisher;
-pub use crate::queue::{QueuePolicy, QueuePolicyError, SaturationAction};
+pub use crate::queue::{QueuePolicy, QueuePolicyError, RateLimitAction};
 pub use crate::registry::RuntimeRegistry;
 pub use crate::request_telemetry::{RequestTelemetry, RequestTelemetryMetrics};
-pub use crate::scheduler::{SelectAndAcquireResult, select_and_try_acquire};
+pub use crate::scheduler::{SelectAndReserveResult, select_and_try_reserve};
 pub use any2api_provider::api::{
     OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaUsage,
     OAuthQuotaWindow,

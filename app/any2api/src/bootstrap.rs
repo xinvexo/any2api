@@ -33,7 +33,7 @@ pub(crate) async fn run(settings: AppSettings) -> anyhow::Result<shutdown::Shutd
         configuration.revision(),
         configuration.settings().logging(),
     )?;
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         configuration.revision(),

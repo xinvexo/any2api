@@ -18,7 +18,7 @@ use std::{
 
 use any2api_domain::{GatewayApiKeyId, ProtocolDialect, ProtocolOperation, PublicError, RequestId};
 use any2api_protocol::api::{EgressResponse, ProtocolAdapter, ProtocolRegistry};
-use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError, ProviderRegistry};
+use any2api_provider::api::ProviderRegistry;
 use any2api_transport::api::TransportManager;
 use bytes::Bytes;
 use futures_util::Stream;
@@ -26,8 +26,7 @@ use http::{HeaderMap, StatusCode};
 use thiserror::Error;
 
 use crate::{
-    auxiliary_scheduler::AuxiliaryPermit,
-    credential_runtime::ConcurrencyPermit,
+    credential_runtime::RoutingPermit,
     oauth::{OAuthService, refresh::OAuthRefresher},
     published_snapshot::PublishedSnapshot,
     request_telemetry::{RequestRecorder, RequestTelemetry},
@@ -173,27 +172,11 @@ impl PublicRequestService {
 
 pub(super) struct SelectedCandidate {
     pub(super) candidate: RouteCandidate,
-    pub(super) permit: RequestPermit,
+    pub(super) permit: RoutingPermit,
     pub(super) health: crate::health::AttemptHealth,
 }
 
-pub(super) enum RequestPermit {
-    Generation(ConcurrencyPermit),
-    Auxiliary(AuxiliaryPermit),
-}
-
-impl RequestPermit {
-    pub(super) fn credential_headers(
-        &self,
-        driver: &dyn ProviderDriver,
-        forwarded: &HeaderMap,
-    ) -> Result<CredentialHeaders, ProviderError> {
-        match self {
-            Self::Generation(permit) => permit.credential_headers(driver, forwarded),
-            Self::Auxiliary(permit) => permit.credential_headers(driver, forwarded),
-        }
-    }
-}
+pub(super) type RequestPermit = RoutingPermit;
 
 impl From<EgressResponse> for PublicResponse {
     fn from(response: EgressResponse) -> Self {

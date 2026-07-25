@@ -1,7 +1,7 @@
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress,
-    ProxyDraft, ProxyKind, ProxyProfileId,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress, ProxyDraft, ProxyKind,
+    ProxyProfileId, RequestsPerMinute,
 };
 use tempfile::tempdir;
 
@@ -32,7 +32,7 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
             endpoint.revision(),
             credential_id,
             endpoint_id,
-            credential_draft("Primary", ProxyProfileId::DIRECT, 4, true),
+            credential_draft("Primary", ProxyProfileId::DIRECT, Some(40), true),
             secret("sk-first-credential"),
         )
         .await
@@ -46,6 +46,10 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
     assert_eq!(credential.config_version(), 1);
     assert_eq!(credential.secret_version(), 1);
     assert_eq!(credential.credential_generation(), 1);
+    assert_eq!(
+        credential.requests_per_minute().map(|value| value.get()),
+        Some(40)
+    );
     assert_eq!(credential.fingerprint().tail(), Some("tial"));
     assert_eq!(
         created
@@ -62,7 +66,7 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
             created.revision(),
             credential_id,
             1,
-            credential_draft("Primary", ProxyProfileId::DIRECT, 4, true),
+            credential_draft("Primary", ProxyProfileId::DIRECT, Some(40), true),
         )
         .await
         .expect("no-op update");
@@ -73,7 +77,7 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
             no_op.revision(),
             credential_id,
             1,
-            credential_draft("Primary", ProxyProfileId::DIRECT, 8, false),
+            credential_draft("Primary", ProxyProfileId::DIRECT, None, false),
         )
         .await
         .expect("disable credential");
@@ -83,13 +87,14 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
         .expect("disabled credential");
     assert_eq!(disabled_credential.config_version(), 2);
     assert_eq!(disabled_credential.credential_generation(), 1);
+    assert_eq!(disabled_credential.requests_per_minute(), None);
 
     let enabled = store
         .update_provider_credential(
             disabled.revision(),
             credential_id,
             2,
-            credential_draft("Primary", ProxyProfileId::DIRECT, 8, true),
+            credential_draft("Primary", ProxyProfileId::DIRECT, Some(80), true),
         )
         .await
         .expect("enable credential");
@@ -172,7 +177,7 @@ async fn credential_references_protect_proxy_and_endpoint() {
             endpoint.revision(),
             credential_id,
             endpoint_id,
-            credential_draft("Primary", proxy_id, 2, true),
+            credential_draft("Primary", proxy_id, Some(20), true),
             secret("sk-reference-test"),
         )
         .await
@@ -246,7 +251,7 @@ async fn credential_conflicts_do_not_advance_revision() {
             endpoint.revision(),
             first_id,
             endpoint_id,
-            credential_draft("Primary", ProxyProfileId::DIRECT, 1, true),
+            credential_draft("Primary", ProxyProfileId::DIRECT, Some(10), true),
             secret("sk-conflict-first"),
         )
         .await
@@ -258,7 +263,7 @@ async fn credential_conflicts_do_not_advance_revision() {
                 created.revision(),
                 CredentialId::new(),
                 endpoint_id,
-                credential_draft("primary", ProxyProfileId::DIRECT, 1, true),
+                credential_draft("primary", ProxyProfileId::DIRECT, Some(10), true),
                 secret("sk-conflict-second"),
             )
             .await
@@ -312,7 +317,7 @@ async fn corrupted_credential_ciphertext_fails_configuration_loading() {
             endpoint.revision(),
             credential_id,
             endpoint_id,
-            credential_draft("Primary", ProxyProfileId::DIRECT, 1, true),
+            credential_draft("Primary", ProxyProfileId::DIRECT, None, true),
             secret("sk-corruption-test"),
         )
         .await
@@ -338,14 +343,14 @@ async fn corrupted_credential_ciphertext_fails_configuration_loading() {
 fn credential_draft(
     label: &str,
     proxy_id: ProxyProfileId,
-    max_concurrency: u32,
+    requests_per_minute: Option<u32>,
     enabled: bool,
 ) -> ProviderCredentialDraft {
     ProviderCredentialDraft::new(
         label,
         CredentialKind::ApiKey,
         proxy_id,
-        MaxConcurrency::new(max_concurrency).expect("max concurrency"),
+        requests_per_minute.map(|value| RequestsPerMinute::new(value).expect("valid RPM")),
         enabled,
     )
     .expect("credential draft")

@@ -28,6 +28,4 @@ pub use scheduler_settings::SchedulerSettings;
 pub use shutdown_settings::ShutdownSettings;
 pub use stream_settings::{MAX_STREAM_PRECOMMIT_BYTES, StreamSettings};
 pub use upstream_settings::UpstreamSettings;
-pub use value::{
-    AffinityMode, FileLogLevel, SaturationMode, SettingValue, SettingsValidationError,
-};
+pub use value::{AffinityMode, FileLogLevel, RateLimitMode, SettingValue, SettingsValidationError};

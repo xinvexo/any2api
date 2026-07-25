@@ -35,7 +35,7 @@ export function createProviderCredential(
         credential_kind: "api_key",
         api_key: input.apiKey,
         proxy_profile_id: input.proxyProfileId,
-        max_concurrency: input.maxConcurrency,
+        requests_per_minute: input.requestsPerMinute,
         enabled: input.enabled,
       },
     },
@@ -50,7 +50,7 @@ export function updateProviderCredential(id: string, input: ProviderCredentialUp
       expected_config_version: input.expectedConfigVersion,
       label: input.label,
       proxy_profile_id: input.proxyProfileId,
-      max_concurrency: input.maxConcurrency,
+      requests_per_minute: input.requestsPerMinute,
       enabled: input.enabled,
     },
   }).then(parseProviderCredentialConfiguration);

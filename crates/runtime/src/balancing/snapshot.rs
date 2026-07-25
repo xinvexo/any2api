@@ -2,12 +2,12 @@ use any2api_domain::{ProviderEndpointId, ProxyProfileId};
 use tokio::time::Instant;
 
 use super::{
-    BalancingAuxiliarySnapshot, BalancingCredentialModelSnapshot, BalancingCredentialSnapshot,
-    BalancingHealthStatus, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
+    BalancingCredentialModelSnapshot, BalancingCredentialSnapshot, BalancingHealthStatus,
+    BalancingQueueSnapshot, BalancingRuntimeSnapshot,
 };
 use crate::{
     credential_runtime::CredentialRuntimeBinding, health::HealthAcquireError,
-    published_snapshot::PublishedSnapshot, queue::SaturationAction, registry::RuntimeRegistry,
+    published_snapshot::PublishedSnapshot, queue::RateLimitAction, registry::RuntimeRegistry,
     routing_credential::RoutingCredential,
 };
 
@@ -16,8 +16,6 @@ pub(crate) fn snapshot(
     published: &PublishedSnapshot,
 ) -> BalancingRuntimeSnapshot {
     let queue_policy = published.queue_policy();
-    let (auxiliary_in_flight, auxiliary_limits) =
-        published.auxiliary_scheduler().runtime_capacity();
     let credentials = published
         .routing_credentials()
         .iter()
@@ -33,13 +31,8 @@ pub(crate) fn snapshot(
             waiting: runtime.queue_waiting_count(),
             max_waiting: queue_policy.max_waiting_requests(),
             timeout_secs: queue_policy.queue_timeout().as_secs(),
-            rejects_when_saturated: queue_policy.on_saturated() == SaturationAction::Reject,
-            fallback_on_saturation: queue_policy.fallback_on_saturation(),
-        },
-        auxiliary: BalancingAuxiliarySnapshot {
-            in_flight: auxiliary_in_flight,
-            max_global: auxiliary_limits.global(),
-            max_per_credential: auxiliary_limits.per_credential(),
+            rejects_when_rate_limited: queue_policy.on_rate_limited() == RateLimitAction::Reject,
+            fallback_on_rate_limit: queue_policy.fallback_on_rate_limit(),
         },
         credentials,
     }
@@ -50,7 +43,7 @@ fn credential_snapshot(
     credential: &RoutingCredential,
 ) -> BalancingCredentialSnapshot {
     let binding = credential.binding();
-    let capacity = binding.capacity();
+    let rate = binding.rate_snapshot();
     let models = credential
         .models()
         .iter()
@@ -80,10 +73,14 @@ fn credential_snapshot(
             .map(|_| credential.endpoint_name().to_owned()),
         endpoint_enabled: credential.endpoint_enabled(),
         proxy_id: credential.proxy_id(),
-        in_flight: capacity.in_flight(),
-        max_concurrency: capacity.max_concurrency(),
+        in_flight: binding.in_flight(),
+        requests_per_minute: rate.requests_per_minute(),
+        requests_in_window: rate.requests_in_window(),
+        remaining_requests: rate.remaining(),
+        retry_in_ms: rate
+            .retry_at()
+            .map(|retry_at| duration_ms(retry_at.saturating_duration_since(Instant::now())).max(1)),
         fixed_waiters: binding.fixed_waiter_count(),
-        auxiliary_in_flight: binding.auxiliary_in_flight(),
         counters: binding.balancing_counters(),
         models,
     }

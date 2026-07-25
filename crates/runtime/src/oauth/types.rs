@@ -1,4 +1,6 @@
-use any2api_domain::{ConfigRevision, MaxConcurrency, OAuthAccount, OAuthAccountId, ProviderKind};
+use any2api_domain::{
+    ConfigRevision, OAuthAccount, OAuthAccountId, ProviderKind, RequestsPerMinute,
+};
 
 pub struct OAuthStartResult {
     provider: ProviderKind,
@@ -80,8 +82,8 @@ impl OAuthActivationResult {
     }
 
     #[must_use]
-    pub const fn max_concurrency(&self) -> MaxConcurrency {
-        self.account.max_concurrency()
+    pub const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
+        self.account.requests_per_minute()
     }
 
     #[must_use]

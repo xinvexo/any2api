@@ -1,10 +1,10 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, MaxConcurrency, ProtocolDialect,
-    ProviderCredential, ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderEndpoint,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ProtocolDialect, ProviderCredential,
+    ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderEndpoint,
     ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyConfiguration, ProxyProfileId, SettingsConfiguration,
+    ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -12,57 +12,54 @@ use crate::{
     credential_auth::CredentialAuthMaterials,
     credential_runtime::{CredentialFilterKind, CredentialRuntimeBindings},
     registry::RuntimeRegistry,
-    scheduler::{SelectAndAcquireResult, select_and_try_acquire},
+    scheduler::{SelectAndReserveResult, select_and_try_reserve},
 };
 
 #[test]
 fn balancing_counters_are_stable_with_the_credential_handle() {
-    let registry = runtime();
+    let registry = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
     let initial = reconcile(
         &registry,
-        fixture.configuration(2, 1, 1),
+        fixture.configuration(Some(2), 1, 1),
         "sk-balancing-test",
     );
     let binding = initial.as_slice()[0].clone();
-    binding.record_generation_selection();
-    binding.record_auxiliary_selection();
-    binding.record_filter(CredentialFilterKind::Capacity);
+    binding.record_selection();
+    binding.record_filter(CredentialFilterKind::RateLimit);
     binding.record_filter(CredentialFilterKind::CredentialHealth);
     binding.record_filter(CredentialFilterKind::EndpointHealth);
     binding.record_filter(CredentialFilterKind::ProxyHealth);
 
     let updated = reconcile(
         &registry,
-        fixture.configuration(3, 1, 1),
+        fixture.configuration(Some(3), 1, 1),
         "sk-balancing-test",
     );
     let counters = updated.as_slice()[0].balancing_counters();
-    assert_eq!(counters.selected_generation(), 1);
-    assert_eq!(counters.selected_auxiliary(), 1);
-    assert_eq!(counters.filtered_capacity(), 1);
+    assert_eq!(counters.selected(), 1);
+    assert_eq!(counters.filtered_rate_limit(), 1);
     assert_eq!(counters.filtered_credential_health(), 1);
     assert_eq!(counters.filtered_endpoint_health(), 1);
     assert_eq!(counters.filtered_proxy_health(), 1);
 
-    let restarted = runtime();
+    let restarted = RuntimeRegistry::new();
     let fresh = reconcile(
         &restarted,
-        fixture.configuration(3, 1, 1),
+        fixture.configuration(Some(3), 1, 1),
         "sk-balancing-test",
     );
     assert_eq!(fresh.as_slice()[0].balancing_counters(), Default::default());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn concurrent_acquires_never_exceed_the_configured_limit() {
-    let runtime = runtime();
-    let mut scheduler_epoch = runtime.subscribe_scheduler_epoch();
+async fn concurrent_reservations_never_exceed_the_configured_rpm() {
+    let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
     let bindings = reconcile(
         &runtime,
-        fixture.configuration(4, 1, 1),
-        "sk-concurrency-test",
+        fixture.configuration(Some(4), 1, 1),
+        "sk-rate-test",
     );
     let binding = bindings.as_slice()[0].clone();
     let (result_tx, mut result_rx) = mpsc::unbounded_channel();
@@ -74,7 +71,7 @@ async fn concurrent_acquires_never_exceed_the_configured_limit() {
         let result_tx = result_tx.clone();
         let mut release_rx = release_rx.clone();
         tasks.push(tokio::spawn(async move {
-            let permit = binding.try_acquire();
+            let permit = binding.try_reserve().ok();
             result_tx
                 .send(permit.is_some())
                 .expect("result receiver remains open");
@@ -91,85 +88,126 @@ async fn concurrent_acquires_never_exceed_the_configured_limit() {
     }
     drop(result_tx);
 
-    let mut acquired = 0;
+    let mut reserved = 0;
     for _ in 0..64 {
-        acquired += usize::from(result_rx.recv().await.expect("task result"));
+        reserved += usize::from(result_rx.recv().await.expect("task result"));
     }
-    assert_eq!(acquired, 4);
-    assert_eq!(binding.capacity().in_flight(), 4);
+    assert_eq!(reserved, 4);
+    assert_eq!(binding.in_flight(), 4);
+    assert_eq!(binding.rate_snapshot().requests_in_window(), 4);
 
     release_tx
         .send(true)
         .expect("release receivers remain open");
     for task in tasks {
-        task.await.expect("acquire task");
+        task.await.expect("reservation task");
     }
-    assert_eq!(binding.capacity().in_flight(), 0);
-    assert_eq!(runtime.scheduler_epoch(), 4);
-    scheduler_epoch
-        .changed()
-        .await
-        .expect("runtime owns the scheduler epoch sender");
-    assert_eq!(*scheduler_epoch.borrow_and_update(), 4);
+    assert_eq!(binding.in_flight(), 0);
+    assert_eq!(binding.rate_snapshot().requests_in_window(), 4);
+    assert_eq!(runtime.scheduler_epoch(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn reservations_expire_after_an_exact_rolling_minute() {
+    let runtime = RuntimeRegistry::new();
+    let fixture = CredentialFixture::new();
+    let bindings = reconcile(
+        &runtime,
+        fixture.configuration(Some(1), 1, 1),
+        "sk-expiry-test",
+    );
+    let binding = bindings.as_slice()[0].clone();
+    drop(binding.try_reserve().expect("first reservation"));
+    assert!(binding.try_reserve().is_err());
+
+    tokio::time::advance(Duration::from_secs(59)).await;
+    assert!(binding.try_reserve().is_err());
+    tokio::time::advance(Duration::from_secs(1)).await;
+    assert!(binding.try_reserve().is_ok());
 }
 
 #[test]
-fn lowering_capacity_preserves_in_flight_and_blocks_new_acquires() {
-    let runtime = runtime();
+fn finite_limit_changes_preserve_the_current_window() {
+    let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
-    let initial = reconcile(&runtime, fixture.configuration(3, 1, 1), "sk-lower-test");
+    let initial = reconcile(
+        &runtime,
+        fixture.configuration(Some(3), 1, 1),
+        "sk-limit-change",
+    );
     let binding = initial.as_slice()[0].clone();
-    let first = binding.try_acquire().expect("first permit");
-    let second = binding.try_acquire().expect("second permit");
-    let third = binding.try_acquire().expect("third permit");
+    let held = (0..3)
+        .map(|_| binding.try_reserve().expect("initial reservation"))
+        .collect::<Vec<_>>();
 
-    let lowered = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-lower-test");
+    let lowered = reconcile(
+        &runtime,
+        fixture.configuration(Some(1), 1, 1),
+        "sk-limit-change",
+    );
     let lowered = &lowered.as_slice()[0];
-    assert_eq!(lowered.capacity().in_flight(), 3);
-    assert_eq!(lowered.capacity().max_concurrency(), 1);
-    assert!(lowered.try_acquire().is_none());
+    assert_eq!(lowered.in_flight(), 3);
+    assert_eq!(lowered.rate_snapshot().requests_per_minute(), Some(1));
+    assert_eq!(lowered.rate_snapshot().requests_in_window(), 3);
+    assert!(lowered.try_reserve().is_err());
 
-    drop(first);
-    assert!(lowered.try_acquire().is_none());
-    drop(second);
-    assert!(lowered.try_acquire().is_none());
-    drop(third);
-    assert!(lowered.try_acquire().is_some());
+    let raised = reconcile(
+        &runtime,
+        fixture.configuration(Some(4), 1, 1),
+        "sk-limit-change",
+    );
+    let raised = &raised.as_slice()[0];
+    assert!(raised.try_reserve().is_ok());
+    assert!(raised.try_reserve().is_err());
+    drop(held);
 }
 
 #[test]
-fn raising_capacity_allows_new_acquires_immediately() {
-    let runtime = runtime();
+fn disabling_rpm_clears_the_window_without_limiting_in_flight() {
+    let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
-    let initial = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-raise-test");
+    let initial = reconcile(
+        &runtime,
+        fixture.configuration(Some(1), 1, 1),
+        "sk-unlimited",
+    );
     let binding = initial.as_slice()[0].clone();
-    let first = binding.try_acquire().expect("initial permit");
-    assert!(binding.try_acquire().is_none());
+    let first = binding.try_reserve().expect("limited reservation");
 
-    let raised = reconcile(&runtime, fixture.configuration(3, 1, 1), "sk-raise-test");
-    let raised = &raised.as_slice()[0];
-    let second = raised.try_acquire().expect("second permit after raise");
-    let third = raised.try_acquire().expect("third permit after raise");
-    assert!(raised.try_acquire().is_none());
+    let unlimited = reconcile(&runtime, fixture.configuration(None, 1, 1), "sk-unlimited");
+    let unlimited = unlimited.as_slice()[0].clone();
+    let second = unlimited.try_reserve().expect("unlimited reservation");
+    let third = unlimited.try_reserve().expect("unlimited reservation");
+    assert_eq!(unlimited.in_flight(), 3);
+    assert_eq!(unlimited.rate_snapshot().requests_per_minute(), None);
+    assert_eq!(unlimited.rate_snapshot().requests_in_window(), 0);
 
+    let limited_again = reconcile(
+        &runtime,
+        fixture.configuration(Some(1), 1, 1),
+        "sk-unlimited",
+    );
+    let limited_again = &limited_again.as_slice()[0];
+    assert!(limited_again.try_reserve().is_ok());
+    assert!(limited_again.try_reserve().is_err());
     drop((first, second, third));
 }
 
 #[test]
-fn generation_changes_are_pinned_without_resetting_capacity() {
-    let runtime = runtime();
+fn generation_changes_are_pinned_without_resetting_the_rate_window() {
+    let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
     let initial = reconcile(
         &runtime,
-        fixture.configuration(2, 1, 1),
+        fixture.configuration(Some(2), 1, 1),
         "sk-old-generation",
     );
     let old_binding = initial.as_slice()[0].clone();
-    let old_permit = old_binding.try_acquire().expect("old generation permit");
+    let old_permit = old_binding.try_reserve().expect("old generation permit");
 
     let rotated = reconcile(
         &runtime,
-        fixture.configuration(2, 2, 2),
+        fixture.configuration(Some(2), 2, 2),
         "sk-new-generation",
     );
     let new_binding = rotated.as_slice()[0].clone();
@@ -198,88 +236,85 @@ fn generation_changes_are_pinned_without_resetting_capacity() {
         old_permit.generation(),
         new_binding.generation()
     ));
-    assert_eq!(new_binding.capacity().in_flight(), 1);
+    assert_eq!(new_binding.in_flight(), 1);
+    assert_eq!(new_binding.rate_snapshot().requests_in_window(), 1);
 
-    drop(old_permit);
-    let new_permit = new_binding.try_acquire().expect("new generation permit");
+    let new_permit = new_binding.try_reserve().expect("new generation permit");
     assert_eq!(new_permit.generation().routing_generation(), 2);
+    assert!(new_binding.try_reserve().is_err());
+    drop((old_permit, new_permit));
 }
 
-#[test]
-fn removed_credentials_retire_without_invalidating_old_bindings() {
-    let runtime = runtime();
+#[tokio::test(start_paused = true)]
+async fn fixed_waiters_receive_the_next_expired_rpm_slot_first() {
+    let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
-    let bindings = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-retire-test");
-    let old_binding = bindings.as_slice()[0].clone();
-
-    reconcile(
+    let bindings = reconcile(
         &runtime,
-        ProviderCredentialConfiguration::initial(),
-        "unused",
+        fixture.configuration(Some(1), 1, 1),
+        "sk-fixed-test",
     );
-
-    assert_eq!(runtime.active_credential_count(), 0);
-    assert!(old_binding.is_retired());
-    assert!(old_binding.try_acquire().is_some());
-}
-
-#[test]
-fn fixed_waiters_reserve_the_next_slot_and_drop_releases_the_reservation() {
-    let runtime = runtime();
-    let fixture = CredentialFixture::new();
-    let bindings = reconcile(&runtime, fixture.configuration(1, 1, 1), "sk-fixed-test");
     let binding = bindings.as_slice()[0].clone();
-    let blocker = binding.try_acquire().expect("blocker permit");
+    drop(binding.try_reserve().expect("initial reservation"));
     let fixed_waiter = binding.register_fixed_waiter();
 
-    drop(blocker);
-    assert!(binding.try_acquire().is_none());
-    let fixed = binding
-        .try_acquire_fixed()
-        .expect("fixed waiter receives the released slot");
-    drop(fixed);
+    assert!(binding.try_reserve().is_err());
+    assert!(binding.try_reserve_fixed().is_err());
+    tokio::time::advance(Duration::from_secs(60)).await;
+    assert!(binding.try_reserve().is_err());
+    drop(
+        binding
+            .try_reserve_fixed()
+            .expect("fixed waiter reservation"),
+    );
 
     drop(fixed_waiter);
-    assert!(binding.try_acquire().is_some());
+    assert!(binding.try_reserve().is_err());
 }
 
 #[test]
-fn selector_uses_exact_load_ratios_and_rotating_ties() {
-    let first_runtime = runtime();
+fn selector_skips_rate_limited_credentials_and_rotates_available_ties() {
+    let first_runtime = RuntimeRegistry::new();
     let first_fixture = CredentialFixture::new();
     let first = reconcile(
         &first_runtime,
-        first_fixture.configuration(10, 1, 1),
+        first_fixture.configuration(Some(1), 1, 1),
         "sk-first-selector",
     )
     .as_slice()[0]
         .clone();
-    let held = (0..5)
-        .map(|_| first.try_acquire().expect("first credential capacity"))
-        .collect::<Vec<_>>();
+    drop(first.try_reserve().expect("exhaust first credential"));
 
-    let second_runtime = runtime();
+    let second_runtime = RuntimeRegistry::new();
     let second_fixture = CredentialFixture::new();
     let second = reconcile(
         &second_runtime,
-        second_fixture.configuration(2, 1, 1),
+        second_fixture.configuration(Some(2), 1, 1),
         "sk-second-selector",
     )
     .as_slice()[0]
         .clone();
-    let selected = select_and_try_acquire(&[first.clone(), second.clone()], 0);
-    let SelectAndAcquireResult::Acquired(selected) = selected else {
+    let selected = select_and_try_reserve(&[first.clone(), second.clone()], 0);
+    let SelectAndReserveResult::Reserved(selected) = selected else {
         panic!("an available credential must be selected");
     };
     assert_eq!(selected.credential_id(), second.credential_id());
     drop(selected);
-    drop(held);
 
-    let tie = select_and_try_acquire(&[first, second.clone()], 1);
-    let SelectAndAcquireResult::Acquired(tie) = tie else {
-        panic!("an equal-load credential must be selected");
+    let tie_runtime = RuntimeRegistry::new();
+    let tie_fixture = CredentialFixture::new();
+    let tie = reconcile(
+        &tie_runtime,
+        tie_fixture.configuration(None, 1, 1),
+        "sk-tie-selector",
+    )
+    .as_slice()[0]
+        .clone();
+    let selected = select_and_try_reserve(&[second, tie.clone()], 1);
+    let SelectAndReserveResult::Reserved(selected) = selected else {
+        panic!("an unlimited credential must be selected");
     };
-    assert_eq!(tie.credential_id(), second.credential_id());
+    assert_eq!(selected.credential_id(), tie.credential_id());
 }
 
 fn reconcile(
@@ -290,11 +325,6 @@ fn reconcile(
     let auth_materials =
         CredentialAuthMaterials::for_configuration(&configuration, |_| secret.to_owned());
     runtime.reconcile_provider_configuration_for_test(&configuration, auth_materials)
-}
-
-fn runtime() -> RuntimeRegistry {
-    let settings = SettingsConfiguration::defaults();
-    RuntimeRegistry::new(settings.scheduler())
 }
 
 struct CredentialFixture {
@@ -330,15 +360,17 @@ impl CredentialFixture {
 
     fn configuration(
         &self,
-        max_concurrency: u32,
+        requests_per_minute: Option<u32>,
         credential_generation: u64,
         secret_version: u64,
     ) -> ProviderCredentialConfiguration {
+        let requests_per_minute = requests_per_minute
+            .map(|value| RequestsPerMinute::new(value).expect("valid requests per minute"));
         let draft = ProviderCredentialDraft::new(
             "Primary",
             CredentialKind::ApiKey,
             ProxyProfileId::DIRECT,
-            MaxConcurrency::new(max_concurrency).expect("max concurrency"),
+            requests_per_minute,
             true,
         )
         .expect("credential draft");

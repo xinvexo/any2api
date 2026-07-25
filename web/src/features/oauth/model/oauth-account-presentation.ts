@@ -50,9 +50,9 @@ export function presentOAuthAccount(
 
   const metrics: OAuthAccountMetric[] = [
     {
-      key: "concurrency",
-      label: "并发",
-      value: String(account.maxConcurrency),
+      key: "rpm",
+      label: "RPM",
+      value: account.requestsPerMinute === null ? "无限制" : String(account.requestsPerMinute),
     },
     {
       key: "models",

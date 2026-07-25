@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use any2api_domain::{MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
 use any2api_provider::api::{OAuthGrant, ProviderRegistry};
 use any2api_transport::api::TransportManager;
 use tokio::sync::Mutex;
@@ -146,12 +146,8 @@ impl OAuthService {
         let document = document::serialize(&token)?;
         let account_id = OAuthAccountId::new();
         // Label stays provider-agnostic: the UI already groups by Codex/Claude.
-        let draft = OAuthAccountDraft::new(
-            default_label(token.email(), account_id),
-            MaxConcurrency::new(1).expect("OAuth default concurrency is valid"),
-            true,
-        )
-        .map_err(|_| OAuthError::DocumentSerialization)?;
+        let draft = OAuthAccountDraft::new(default_label(token.email(), account_id), None, true)
+            .map_err(|_| OAuthError::DocumentSerialization)?;
         let published = self
             .publisher
             .activate_oauth_account(

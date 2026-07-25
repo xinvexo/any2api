@@ -59,7 +59,7 @@ const credential: ProviderCredential = {
   fingerprint: "v1:0123456789abcdef",
   secretTail: "test",
   proxyProfileId: "00000000-0000-0000-0000-000000000000",
-  maxConcurrency: 4,
+  requestsPerMinute: null,
   enabled: true,
   secretSchemaVersion: 1,
   secretVersion: 1,

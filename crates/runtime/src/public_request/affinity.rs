@@ -30,7 +30,7 @@ pub(super) struct AffinitySelectionInput<'a> {
     pub(super) affinity: &'a IngressAffinity,
     pub(super) route_id: ModelRouteId,
     pub(super) dialect: ProtocolDialect,
-    pub(super) fallback_on_saturation: bool,
+    pub(super) fallback_on_rate_limit: bool,
     pub(super) tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
     pub(super) exclusions: &'a CandidateExclusions,
 }
@@ -102,7 +102,7 @@ async fn select_soft(
                     Ok(Err(_)) => return Err(internal_error()),
                     Err(_) => {
                         return Err(public_error(
-                            PublicErrorCode::LocalConcurrencyLimit,
+                            PublicErrorCode::LocalRateLimit,
                             "session binding creation timed out",
                         ));
                     }
@@ -158,7 +158,7 @@ async fn select_unbound(
         input.snapshot,
         input.operation,
         input.route_id,
-        input.fallback_on_saturation,
+        input.fallback_on_rate_limit,
         input.tiers,
         input.exclusions,
     )
@@ -194,7 +194,7 @@ fn binding_lost() -> PublicError {
 fn affinity_error(error: AffinityError) -> PublicError {
     match error {
         AffinityError::Capacity => public_error(
-            PublicErrorCode::LocalConcurrencyLimit,
+            PublicErrorCode::LocalRateLimit,
             "session affinity capacity is full",
         ),
         AffinityError::IdentityConflict

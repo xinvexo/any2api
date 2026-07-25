@@ -88,7 +88,7 @@ export function OAuthAccounts({
                     expectedRevision: configRevision,
                     expectedConfigVersion: account.configVersion,
                     label: account.label,
-                    maxConcurrency: account.maxConcurrency,
+                    requestsPerMinute: account.requestsPerMinute,
                     enabled,
                   },
                 });

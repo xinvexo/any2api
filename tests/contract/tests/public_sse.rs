@@ -618,23 +618,25 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
     )
     .await;
     revision += 1;
-    create_credential(
+    create_rate_limited_credential(
         &app,
         remote,
         revision,
         &endpoint,
         "prefer-first",
         "sk-prefer-first",
+        1,
     )
     .await;
     revision += 1;
-    create_credential(
+    create_rate_limited_credential(
         &app,
         remote,
         revision,
         &endpoint,
         "prefer-second",
         "sk-prefer-second",
+        1,
     )
     .await;
     revision += 1;
@@ -716,23 +718,25 @@ async fn strict_soft_affinity_never_switches_credentials() {
     )
     .await;
     revision += 1;
-    create_credential(
+    create_rate_limited_credential(
         &app,
         remote,
         revision,
         &endpoint,
         "strict-first",
         "sk-strict-first",
+        1,
     )
     .await;
     revision += 1;
-    create_credential(
+    create_rate_limited_credential(
         &app,
         remote,
         revision,
         &endpoint,
         "strict-second",
         "sk-strict-second",
+        1,
     )
     .await;
     revision += 1;
@@ -792,7 +796,7 @@ async fn strict_soft_affinity_never_switches_credentials() {
         .expect("strict error response")
         .to_bytes();
     let blocked_json: Value = serde_json::from_slice(&blocked_body).expect("strict error JSON");
-    assert_eq!(blocked_json["error"]["code"], "local_concurrency_limit");
+    assert_eq!(blocked_json["error"]["code"], "local_rate_limit");
     assert!(
         timeout(Duration::from_millis(50), upstream_requests.recv())
             .await
@@ -849,7 +853,7 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -960,6 +964,39 @@ async fn create_credential(
     label: &str,
     api_key: &str,
 ) {
+    create_credential_with_rpm(app, remote, revision, endpoint_id, label, api_key, None).await;
+}
+
+async fn create_rate_limited_credential(
+    app: &Router,
+    remote: SocketAddr,
+    revision: u64,
+    endpoint_id: &str,
+    label: &str,
+    api_key: &str,
+    requests_per_minute: u32,
+) {
+    create_credential_with_rpm(
+        app,
+        remote,
+        revision,
+        endpoint_id,
+        label,
+        api_key,
+        Some(requests_per_minute),
+    )
+    .await;
+}
+
+async fn create_credential_with_rpm(
+    app: &Router,
+    remote: SocketAddr,
+    revision: u64,
+    endpoint_id: &str,
+    label: &str,
+    api_key: &str,
+    requests_per_minute: Option<u32>,
+) {
     request_admin(
         app.clone(),
         &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
@@ -969,7 +1006,7 @@ async fn create_credential(
             "credential_kind":"api_key",
             "api_key":api_key,
             "proxy_profile_id":"00000000-0000-0000-0000-000000000000",
-            "max_concurrency":1,
+            "requests_per_minute":requests_per_minute,
             "enabled":true
         }),
         remote,

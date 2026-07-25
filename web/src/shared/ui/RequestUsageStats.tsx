@@ -62,7 +62,7 @@ export function RequestUsageStats({
       </div>
 
       <div
-        className="flex h-3.5 w-full min-w-[7.5rem] max-w-[12rem] flex-1 items-stretch gap-px"
+        className="flex h-4 w-full min-w-[9rem] max-w-[16rem] flex-1 items-stretch gap-px"
         role="img"
         aria-label={`${label} 近 1 小时，每格 ${usage.windowMinutes} 分钟：${outcomeSummary || "暂无调用"}`}
         onMouseLeave={() => setHover(null)}

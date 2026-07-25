@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use any2api_contract_tests::{build_configuration_capabilities, build_provider_registry};
 use any2api_domain::{
-    GatewayApiKeyId, MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProtocolOperation,
-    ProviderKind, RequestId,
+    GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, ProtocolOperation, ProviderKind, RequestId,
+    RequestsPerMinute,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
@@ -38,7 +38,7 @@ async fn oauth_refresh_worker_wakes_on_publication_and_stops_with_the_process() 
     );
     let initial = storage.load_configuration().await.expect("configuration");
     let providers = build_provider_registry();
-    let runtime = Arc::new(RuntimeRegistry::new(initial.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         initial,
         runtime.as_ref(),
@@ -69,12 +69,7 @@ async fn oauth_refresh_worker_wakes_on_publication_and_stops_with_the_process() 
         .activate_oauth_account(
             account_id,
             ProviderKind::Codex,
-            OAuthAccountDraft::new(
-                "Codex OAuth",
-                MaxConcurrency::new(1).expect("max concurrency"),
-                true,
-            )
-            .expect("OAuth draft"),
+            OAuthAccountDraft::new("Codex OAuth", None, true).expect("OAuth draft"),
             Some("person@example.com".into()),
             Some(0),
             vec!["gpt-5.5".into()],
@@ -162,6 +157,14 @@ async fn pending_oauth_401_refreshes_once_and_replans_with_the_new_generation() 
             .token_version(),
         2
     );
+    assert_eq!(
+        snapshot
+            .credential_runtime(context.account_id.into())
+            .expect("OAuth runtime")
+            .rate_snapshot()
+            .requests_in_window(),
+        2
+    );
 }
 
 #[tokio::test]
@@ -178,6 +181,16 @@ async fn a_second_oauth_401_never_refreshes_or_sends_a_third_attempt() {
     assert_eq!(
         context.transport.data_authorizations(),
         vec!["Bearer old-access", "Bearer new-access"]
+    );
+    assert_eq!(
+        context
+            .snapshots
+            .load()
+            .credential_runtime(context.account_id.into())
+            .expect("OAuth runtime")
+            .rate_snapshot()
+            .requests_in_window(),
+        2
     );
 }
 
@@ -222,7 +235,7 @@ impl AuthenticationRetryContext {
         let initial = storage.load_configuration().await.expect("configuration");
         let providers = build_provider_registry();
         let protocols = protocols();
-        let runtime = Arc::new(RuntimeRegistry::new(initial.settings().scheduler()));
+        let runtime = Arc::new(RuntimeRegistry::new());
         let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
             initial,
             runtime.as_ref(),
@@ -257,7 +270,7 @@ impl AuthenticationRetryContext {
                 ProviderKind::Codex,
                 OAuthAccountDraft::new(
                     "Codex OAuth",
-                    MaxConcurrency::new(1).expect("max concurrency"),
+                    Some(RequestsPerMinute::new(2).expect("valid RPM")),
                     true,
                 )
                 .expect("OAuth draft"),

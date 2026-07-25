@@ -17,7 +17,7 @@ export interface OAuthActivationResult {
   provider: OAuthProvider;
   accountId: string;
   label: string;
-  maxConcurrency: number;
+  requestsPerMinute: number | null;
   enabled: boolean;
   safeAccountEmail: string | null;
   expiresAt: number | null;
@@ -30,7 +30,7 @@ export interface OAuthAccount {
   id: string;
   providerKind: OAuthProvider;
   label: string;
-  maxConcurrency: number;
+  requestsPerMinute: number | null;
   enabled: boolean;
   safeAccountEmail: string | null;
   expiresAt: number | null;
@@ -56,7 +56,7 @@ export interface OAuthAccountUpdateInput {
   expectedRevision: number;
   expectedConfigVersion: number;
   label: string;
-  maxConcurrency: number;
+  requestsPerMinute: number | null;
   enabled: boolean;
 }
 
@@ -97,7 +97,7 @@ export function parseOAuthActivationResult(value: unknown): OAuthActivationResul
     provider,
     accountId: readString(value.account_id),
     label: readString(value.label),
-    maxConcurrency: readInteger(value.max_concurrency, 1),
+    requestsPerMinute: readOptionalRpm(value.requests_per_minute),
     enabled: readBoolean(value.enabled),
     safeAccountEmail: readOptionalString(value.safe_account_email),
     expiresAt: readOptionalInteger(value.expires_at, 0),
@@ -142,7 +142,7 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     id: readString(value.id),
     providerKind,
     label: readString(value.label),
-    maxConcurrency: readInteger(value.max_concurrency, 1),
+    requestsPerMinute: readOptionalRpm(value.requests_per_minute),
     enabled: readBoolean(value.enabled),
     safeAccountEmail: readOptionalString(value.safe_account_email),
     expiresAt: readOptionalInteger(value.expires_at, 0),
@@ -188,6 +188,14 @@ function readInteger(value: unknown, minimum: number) {
 
 function readOptionalInteger(value: unknown, minimum: number) {
   return value === null ? null : readInteger(value, minimum);
+}
+
+function readOptionalRpm(value: unknown) {
+  const rpm = readOptionalInteger(value, 1);
+  if (rpm !== null && rpm > 100_000) {
+    throw invalidResponse();
+  }
+  return rpm;
 }
 
 function readOptionalString(value: unknown) {

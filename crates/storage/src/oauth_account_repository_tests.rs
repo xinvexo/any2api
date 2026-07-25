@@ -1,5 +1,5 @@
 use any2api_domain::{
-    ConfigRevision, MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProviderKind,
+    ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProviderKind, RequestsPerMinute,
 };
 use tempfile::tempdir;
 
@@ -20,7 +20,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             ConfigRevision::INITIAL,
             account_id,
             ProviderKind::Codex,
-            draft("Primary", 1, true),
+            draft("Primary", Some(10), true),
             Some("owner@example.com".into()),
             Some(100),
             vec!["gpt-b".into(), "gpt-a".into()],
@@ -34,6 +34,10 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
     assert_eq!(account.token_version(), 1);
     assert_eq!(account.account_generation(), 1);
     assert_eq!(account.config_version(), 1);
+    assert_eq!(
+        account.requests_per_minute().map(|value| value.get()),
+        Some(10)
+    );
     assert_eq!(
         account.proxy_profile_id(),
         any2api_domain::ProxyProfileId::DIRECT
@@ -51,25 +55,36 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
     assert!(!format!("{created:?}").contains("first-access"));
 
     let no_op = store
-        .update_oauth_account(created.revision(), account_id, 1, draft("Primary", 1, true))
+        .update_oauth_account(
+            created.revision(),
+            account_id,
+            1,
+            draft("Primary", Some(10), true),
+        )
         .await
         .expect("no-op update");
     assert_eq!(no_op.revision(), created.revision());
 
     let disabled = store
-        .update_oauth_account(no_op.revision(), account_id, 1, draft("Primary", 2, false))
+        .update_oauth_account(
+            no_op.revision(),
+            account_id,
+            1,
+            draft("Primary", None, false),
+        )
         .await
         .expect("disable account");
     let disabled_account = disabled.oauth_accounts().get(account_id).expect("disabled");
     assert_eq!(disabled_account.config_version(), 2);
     assert_eq!(disabled_account.account_generation(), 1);
+    assert_eq!(disabled_account.requests_per_minute(), None);
 
     let enabled = store
         .update_oauth_account(
             disabled.revision(),
             account_id,
             2,
-            draft("Primary", 2, true),
+            draft("Primary", Some(20), true),
         )
         .await
         .expect("enable account");
@@ -164,7 +179,7 @@ async fn oauth_account_labels_are_unique_only_within_provider() {
             ConfigRevision::INITIAL,
             OAuthAccountId::new(),
             ProviderKind::Codex,
-            draft("Primary", 1, true),
+            draft("Primary", Some(10), true),
             None,
             None,
             vec!["gpt".into()],
@@ -177,7 +192,7 @@ async fn oauth_account_labels_are_unique_only_within_provider() {
             codex.revision(),
             OAuthAccountId::new(),
             ProviderKind::Claude,
-            draft("Primary", 1, true),
+            draft("Primary", Some(10), true),
             None,
             None,
             vec!["claude".into()],
@@ -191,7 +206,7 @@ async fn oauth_account_labels_are_unique_only_within_provider() {
             claude.revision(),
             OAuthAccountId::new(),
             ProviderKind::Codex,
-            draft("Primary", 1, true),
+            draft("Primary", Some(10), true),
             None,
             None,
             vec!["gpt".into()],
@@ -214,7 +229,7 @@ async fn corrupt_oauth_json_fails_closed_without_exposing_token_data() {
             ConfigRevision::INITIAL,
             account_id,
             ProviderKind::Codex,
-            draft("Primary", 1, true),
+            draft("Primary", None, true),
             None,
             None,
             vec!["gpt".into()],
@@ -237,10 +252,10 @@ async fn corrupt_oauth_json_fails_closed_without_exposing_token_data() {
     assert!(!format!("{error:?}").contains("secret-access"));
 }
 
-fn draft(label: &str, max_concurrency: u32, enabled: bool) -> OAuthAccountDraft {
+fn draft(label: &str, requests_per_minute: Option<u32>, enabled: bool) -> OAuthAccountDraft {
     OAuthAccountDraft::new(
         label,
-        MaxConcurrency::new(max_concurrency).expect("max concurrency"),
+        requests_per_minute.map(|value| RequestsPerMinute::new(value).expect("valid RPM")),
         enabled,
     )
     .expect("account draft")

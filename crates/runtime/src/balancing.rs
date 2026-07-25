@@ -12,7 +12,6 @@ pub(crate) use snapshot::snapshot;
 pub struct BalancingRuntimeSnapshot {
     scheduler_epoch: u64,
     queue: BalancingQueueSnapshot,
-    auxiliary: BalancingAuxiliarySnapshot,
     credentials: Vec<BalancingCredentialSnapshot>,
 }
 
@@ -25,10 +24,6 @@ impl BalancingRuntimeSnapshot {
         self.queue
     }
 
-    pub const fn auxiliary(&self) -> BalancingAuxiliarySnapshot {
-        self.auxiliary
-    }
-
     pub fn credentials(&self) -> &[BalancingCredentialSnapshot] {
         &self.credentials
     }
@@ -39,8 +34,8 @@ pub struct BalancingQueueSnapshot {
     waiting: u32,
     max_waiting: u32,
     timeout_secs: u64,
-    rejects_when_saturated: bool,
-    fallback_on_saturation: bool,
+    rejects_when_rate_limited: bool,
+    fallback_on_rate_limit: bool,
 }
 
 impl BalancingQueueSnapshot {
@@ -56,33 +51,12 @@ impl BalancingQueueSnapshot {
         self.timeout_secs
     }
 
-    pub const fn rejects_when_saturated(self) -> bool {
-        self.rejects_when_saturated
+    pub const fn rejects_when_rate_limited(self) -> bool {
+        self.rejects_when_rate_limited
     }
 
-    pub const fn fallback_on_saturation(self) -> bool {
-        self.fallback_on_saturation
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct BalancingAuxiliarySnapshot {
-    in_flight: u32,
-    max_global: u32,
-    max_per_credential: u32,
-}
-
-impl BalancingAuxiliarySnapshot {
-    pub const fn in_flight(self) -> u32 {
-        self.in_flight
-    }
-
-    pub const fn max_global(self) -> u32 {
-        self.max_global
-    }
-
-    pub const fn max_per_credential(self) -> u32 {
-        self.max_per_credential
+    pub const fn fallback_on_rate_limit(self) -> bool {
+        self.fallback_on_rate_limit
     }
 }
 
@@ -98,9 +72,11 @@ pub struct BalancingCredentialSnapshot {
     endpoint_enabled: bool,
     proxy_id: ProxyProfileId,
     in_flight: u32,
-    max_concurrency: u32,
+    requests_per_minute: Option<u32>,
+    requests_in_window: u32,
+    remaining_requests: Option<u32>,
+    retry_in_ms: Option<u64>,
     fixed_waiters: u32,
-    auxiliary_in_flight: u32,
     counters: CredentialBalancingCounters,
     models: Vec<BalancingCredentialModelSnapshot>,
 }
@@ -154,16 +130,24 @@ impl BalancingCredentialSnapshot {
         self.in_flight
     }
 
-    pub const fn max_concurrency(&self) -> u32 {
-        self.max_concurrency
+    pub const fn requests_per_minute(&self) -> Option<u32> {
+        self.requests_per_minute
+    }
+
+    pub const fn requests_in_window(&self) -> u32 {
+        self.requests_in_window
+    }
+
+    pub const fn remaining_requests(&self) -> Option<u32> {
+        self.remaining_requests
+    }
+
+    pub const fn retry_in_ms(&self) -> Option<u64> {
+        self.retry_in_ms
     }
 
     pub const fn fixed_waiters(&self) -> u32 {
         self.fixed_waiters
-    }
-
-    pub const fn auxiliary_in_flight(&self) -> u32 {
-        self.auxiliary_in_flight
     }
 
     pub const fn counters(&self) -> CredentialBalancingCounters {

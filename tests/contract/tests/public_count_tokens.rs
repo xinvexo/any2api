@@ -21,7 +21,7 @@ use tokio::{
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn count_tokens_uses_auxiliary_path_and_preserves_request_fields() {
+async fn count_tokens_preserves_request_fields() {
     let (upstream_address, upstream) = upstream_server(
         StatusCode::OK,
         r#"{"input_tokens":37}"#,
@@ -105,7 +105,7 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),
@@ -171,7 +171,7 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
             "credential_kind": "api_key",
             "api_key": "sk-count-tokens-provider",
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "max_concurrency": 1,
+            "requests_per_minute": null,
             "enabled": true
         })),
         remote,

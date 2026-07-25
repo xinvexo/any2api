@@ -37,14 +37,13 @@ test("creates a credential without retaining its secret in application caches", 
   expect(screen.getByRole("option", { name: "香港代理" })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary Key" } });
   fireEvent.change(screen.getByLabelText("API Key"), { target: { value: secret } });
-  fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "8" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   const model = await screen.findByRole("checkbox", { name: "gpt-5.1-codex" });
   const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
   expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
     api_key: secret,
-    max_concurrency: 8,
+    requests_per_minute: null,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
   });
   expect(screen.queryByLabelText("本次保存的 API Key")).not.toBeInTheDocument();
@@ -77,7 +76,7 @@ test("edits credential metadata without sending the secret", async () => {
     }
     if (init?.method === "PATCH") {
       credentials = credentialConfiguration(4, [
-        credential({ label: "Edited", max_concurrency: 12, config_version: 2 }),
+        credential({ label: "Edited", requests_per_minute: 12, config_version: 2 }),
       ]);
     }
     return jsonResponse(credentials);
@@ -86,7 +85,7 @@ test("edits credential metadata without sending the secret", async () => {
 
   const name = await screen.findByLabelText("名称");
   fireEvent.change(name, { target: { value: "Edited" } });
-  fireEvent.change(screen.getByLabelText("最大并发"), { target: { value: "12" } });
+  fireEvent.change(screen.getByLabelText("RPM 限制"), { target: { value: "12" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await screen.findByText("Edited");
@@ -96,7 +95,7 @@ test("edits credential metadata without sending the secret", async () => {
     expected_revision: 3,
     expected_config_version: 1,
     label: "Edited",
-    max_concurrency: 12,
+    requests_per_minute: 12,
   });
   expect(body).not.toHaveProperty("api_key");
 });
@@ -185,7 +184,7 @@ function credential(overrides: Record<string, unknown> = {}) {
     fingerprint: "v1:0123456789abcdef",
     secret_tail: "test",
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
-    max_concurrency: 4,
+    requests_per_minute: 4,
     enabled: true,
     secret_schema_version: 1,
     secret_version: 1,

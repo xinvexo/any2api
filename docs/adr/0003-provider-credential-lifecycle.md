@@ -1,8 +1,11 @@
 # ADR-0003: ProviderCredential API Key 生命周期
 
-- 状态：Accepted
+- 状态：Partially Superseded by ADR-0037
 - 日期：2026-07-18
 - 决策者：maintainer
+
+> 取代说明（2026-07-25）：ADR-0037 以可选 `requests_per_minute` 取代本文的
+> `max_concurrency` 与并发 Permit；本文的实体边界、版本矩阵、Vault 和管理契约继续有效。
 
 ## 背景
 

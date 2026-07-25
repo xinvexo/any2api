@@ -65,7 +65,10 @@ export function FloatingPopover({
     }
 
     const tip = panelRef.current.getBoundingClientRect();
-    const clamp = bounds ?? viewportBounds();
+    // Card/row clamps are useful horizontally, but short rows cannot fit a
+    // bubble — expand any axis that is too tight so we never crush the tip
+    // into the stats text underneath.
+    const clamp = expandTightBounds(bounds, tip.width, tip.height);
     const minLeft = clamp.left + EDGE_PAD;
     const maxLeft = Math.max(minLeft, clamp.right - EDGE_PAD - tip.width);
     const left = Math.min(Math.max(anchor.x - tip.width / 2, minLeft), maxLeft);
@@ -84,7 +87,7 @@ export function FloatingPopover({
       top = Math.min(Math.max(aboveTop, minTop), maxTop);
       showBelow = false;
     } else if (aboveTop < minTop) {
-      top = Math.min(belowTop, maxTop);
+      top = Math.min(Math.max(belowTop, minTop), maxTop);
       showBelow = true;
     } else {
       top = Math.min(Math.max(aboveTop, minTop), maxTop);
@@ -180,4 +183,27 @@ export function anchorFromElement(
 
 function viewportBounds(): DOMRect {
   return new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+}
+
+/**
+ * Prefer the caller clamp (card/row), but fall back to the viewport on any
+ * axis that cannot fit the measured tip plus edge padding.
+ */
+function expandTightBounds(
+  bounds: DOMRect | null,
+  tipWidth: number,
+  tipHeight: number,
+): DOMRect {
+  const viewport = viewportBounds();
+  if (!bounds) {
+    return viewport;
+  }
+
+  const needWidth = tipWidth + EDGE_PAD * 2;
+  const needHeight = tipHeight + EDGE_PAD * 2;
+  const left = bounds.width < needWidth ? viewport.left : bounds.left;
+  const right = bounds.width < needWidth ? viewport.right : bounds.right;
+  const top = bounds.height < needHeight ? viewport.top : bounds.top;
+  const bottom = bounds.height < needHeight ? viewport.bottom : bounds.bottom;
+  return new DOMRect(left, top, right - left, bottom - top);
 }

@@ -1,19 +1,16 @@
-import { Activity, Clock3, Layers3, ListChecks } from "lucide-react";
+import { Activity, Gauge, ListChecks, ShieldAlert } from "lucide-react";
 
 import type { BalancingRuntime } from "../api/balancing-contracts";
 import { Surface } from "@/shared/ui/Surface";
 
 export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
-  const load = runtime.totals.maxConcurrency === 0
-    ? 0
-    : Math.round((runtime.totals.inFlight / runtime.totals.maxConcurrency) * 100);
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric icon={Activity} label="生成并发" value={`${runtime.totals.inFlight} / ${runtime.totals.maxConcurrency}`} detail={`${load}% 当前占用`} />
-        <Metric icon={ListChecks} label="排队" value={`${runtime.queue.waiting} / ${runtime.queue.maxWaiting}`} detail={runtime.queue.onSaturated === "wait" ? `最多等待 ${formatDuration(runtime.queue.timeoutSecs)}` : "满载时立即拒绝"} />
-        <Metric icon={Clock3} label="固定等待" value={String(runtime.totals.fixedWaiters)} detail="硬粘性与 strict/prefer 固定目标" />
-        <Metric icon={Layers3} label="辅助并发" value={`${runtime.auxiliary.inFlight} / ${runtime.auxiliary.maxGlobal}`} detail={`每 Credential 上限 ${runtime.auxiliary.maxPerCredential}`} />
+        <Metric icon={Gauge} label="RPM 窗口已用" value={String(runtime.totals.requestsInWindow)} detail={`${runtime.totals.limitedCredentialCount} 个 Credential 启用 RPM`} />
+        <Metric icon={ShieldAlert} label="RPM 已用尽" value={`${runtime.totals.rateLimitedCredentialCount} / ${runtime.totals.limitedCredentialCount}`} detail="精确滚动 60 秒窗口" />
+        <Metric icon={Activity} label="处理中" value={String(runtime.totals.inFlight)} detail="仅用于观测，不参与准入或排序" />
+        <Metric icon={ListChecks} label="排队" value={`${runtime.queue.waiting} / ${runtime.queue.maxWaiting}`} detail={runtime.queue.onRateLimited === "wait" ? `最多等待 ${formatDuration(runtime.queue.timeoutSecs)} · 固定等待 ${runtime.totals.fixedWaiters}` : "RPM 用尽时立即拒绝"} />
       </div>
       {runtime.providers.length > 0 ? (
         <Surface className="grid gap-px overflow-hidden bg-subtle sm:grid-cols-2">
@@ -21,9 +18,9 @@ export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
             <div key={provider.providerKind} className="bg-surface px-5 py-4">
               <div className="flex items-center justify-between gap-4">
                 <p className="font-semibold">{provider.providerKind === "codex" ? "Codex" : "Claude"}</p>
-                <p className="text-sm tabular-nums text-secondary">{provider.inFlight} / {provider.maxConcurrency}</p>
+                <p className="text-sm tabular-nums text-secondary">{provider.requestsInWindow} 次 / 60 秒</p>
               </div>
-              <p className="mt-2 text-xs text-tertiary">{provider.credentialCount} 个 Credential · 生成选中 {provider.selectedGeneration} · 辅助选中 {provider.selectedAuxiliary}</p>
+              <p className="mt-2 text-xs text-tertiary">{provider.limitedCredentialCount} / {provider.credentialCount} 启用 RPM · {provider.rateLimitedCredentialCount} 个已用尽 · 选中 {provider.selected}</p>
             </div>
           ))}
         </Surface>

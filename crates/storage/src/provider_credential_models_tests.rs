@@ -1,7 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId,
 };
 use tempfile::tempdir;
 
@@ -143,7 +142,7 @@ fn credential_draft() -> ProviderCredentialDraft {
         "Primary",
         CredentialKind::ApiKey,
         ProxyProfileId::DIRECT,
-        MaxConcurrency::new(1).expect("max concurrency"),
+        None,
         true,
     )
     .expect("credential draft")

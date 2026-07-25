@@ -139,7 +139,7 @@ async fn oauth_exchange_activates_persisted_account_once_over_direct_transport()
     assert!(response.headers.get(CONTENT_DISPOSITION).is_none());
     let activation: Value = serde_json::from_slice(&response.body).expect("activation response");
     assert_eq!(activation["provider"], "codex");
-    assert_eq!(activation["max_concurrency"], 1);
+    assert_eq!(activation["requests_per_minute"], Value::Null);
     assert_eq!(activation["enabled"], true);
     assert_eq!(activation["selected_model_count"], 8);
     assert_eq!(activation["config_version"], 1);
@@ -160,7 +160,7 @@ async fn oauth_exchange_activates_persisted_account_once_over_direct_transport()
         .expect("persisted OAuth account");
     assert_eq!(activation["account_id"], account.id().to_string());
     assert_eq!(account.provider_kind(), any2api_domain::ProviderKind::Codex);
-    assert_eq!(account.max_concurrency().get(), 1);
+    assert_eq!(account.requests_per_minute(), None);
     assert!(account.enabled());
     assert_eq!(account.models().len(), 8);
     assert!(
@@ -205,7 +205,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),

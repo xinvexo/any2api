@@ -1,8 +1,11 @@
 # ADR-0011: Scheduler SettingRegistry 与双作用域热更新
 
-- 状态：Accepted
+- 状态：Partially Superseded by ADR-0037
 - 日期：2026-07-19
 - 决策者：maintainer
+
+> 取代说明（2026-07-25）：SettingRegistry、发布顺序和快照作用域继续有效；ADR-0037 删除两项
+> 辅助并发设置，将饱和字段改为 RPM 限流字段，并移除 `AuxiliaryScheduler`。当前 scheduler 组为四项。
 
 ## 背景
 

@@ -13,7 +13,7 @@ const MAX_MODEL_ROUTE_CONFIG_VERSION: u64 = u32::MAX as u64;
 pub struct ModelRouteDraft {
     public_model: PublicModelName,
     ingress_protocol: ProtocolDialect,
-    fallback_on_saturation: Option<bool>,
+    fallback_on_rate_limit: Option<bool>,
     enabled: bool,
     targets: Vec<RouteTargetDraft>,
 }
@@ -22,7 +22,7 @@ impl ModelRouteDraft {
     pub fn new(
         public_model: impl Into<String>,
         ingress_protocol: ProtocolDialect,
-        fallback_on_saturation: Option<bool>,
+        fallback_on_rate_limit: Option<bool>,
         enabled: bool,
         mut targets: Vec<RouteTargetDraft>,
     ) -> Result<Self, ModelRouteValidationError> {
@@ -32,7 +32,7 @@ impl ModelRouteDraft {
             public_model: PublicModelName::new(public_model)
                 .map_err(ModelRouteValidationError::InvalidPublicModel)?,
             ingress_protocol,
-            fallback_on_saturation,
+            fallback_on_rate_limit,
             enabled,
             targets,
         })
@@ -49,8 +49,8 @@ impl ModelRouteDraft {
     }
 
     #[must_use]
-    pub const fn fallback_on_saturation(&self) -> Option<bool> {
-        self.fallback_on_saturation
+    pub const fn fallback_on_rate_limit(&self) -> Option<bool> {
+        self.fallback_on_rate_limit
     }
 
     #[must_use]
@@ -69,7 +69,7 @@ pub struct ModelRoute {
     id: ModelRouteId,
     public_model: PublicModelName,
     ingress_protocol: ProtocolDialect,
-    fallback_on_saturation: Option<bool>,
+    fallback_on_rate_limit: Option<bool>,
     enabled: bool,
     config_version: u64,
     targets: Vec<RouteTarget>,
@@ -113,7 +113,7 @@ impl ModelRoute {
             id: self.id,
             public_model: draft.public_model,
             ingress_protocol: draft.ingress_protocol,
-            fallback_on_saturation: draft.fallback_on_saturation,
+            fallback_on_rate_limit: draft.fallback_on_rate_limit,
             enabled: draft.enabled,
             config_version: self.config_version,
             targets,
@@ -142,8 +142,8 @@ impl ModelRoute {
     }
 
     #[must_use]
-    pub const fn fallback_on_saturation(&self) -> Option<bool> {
-        self.fallback_on_saturation
+    pub const fn fallback_on_rate_limit(&self) -> Option<bool> {
+        self.fallback_on_rate_limit
     }
 
     #[must_use]
@@ -171,7 +171,7 @@ impl ModelRoute {
             id,
             public_model: draft.public_model,
             ingress_protocol: draft.ingress_protocol,
-            fallback_on_saturation: draft.fallback_on_saturation,
+            fallback_on_rate_limit: draft.fallback_on_rate_limit,
             enabled: draft.enabled,
             config_version,
             targets,

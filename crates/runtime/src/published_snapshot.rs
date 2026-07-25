@@ -14,7 +14,6 @@ use tokio::sync::{Mutex, MutexGuard, watch};
 
 use crate::{
     affinity::{AffinityPolicy, AffinityRegistry},
-    auxiliary_scheduler::AuxiliaryScheduler,
     credential_auth::CredentialAuthMaterials,
     credential_runtime::CredentialRuntimeBinding,
     health::{HealthBindings, ReliabilityPolicy},
@@ -43,7 +42,6 @@ pub struct PublishedSnapshot {
     affinity_policy: AffinityPolicy,
     routing_credentials: RoutingCredentials,
     route_tier_cursors: RouteTierCursorBindings,
-    auxiliary_scheduler: Arc<AuxiliaryScheduler>,
     queue_coordinator: Arc<QueueCoordinator>,
     queue_policy: QueuePolicy,
     health: HealthBindings,
@@ -59,7 +57,6 @@ impl PublishedSnapshot {
     ) -> Self {
         let parts = configuration.into_parts();
         let proxy_auth = ProxyAuthMaterials::from_stored(&parts.proxies, parts.proxy_passwords);
-        runtime.reconcile_scheduler_settings(parts.settings.scheduler());
         let affinity_policy = AffinityPolicy::from_settings(parts.settings.affinity());
         let queue_policy = QueuePolicy::from_scheduler_settings(parts.settings.scheduler());
         let auth_materials =
@@ -91,7 +88,6 @@ impl PublishedSnapshot {
         let health =
             runtime.reconcile_health(&parts.provider_endpoints, &oauth_endpoints, &parts.proxies);
         let reliability_policy = ReliabilityPolicy::from_settings(parts.settings.reliability());
-        let auxiliary_scheduler = runtime.auxiliary_scheduler();
         let queue_coordinator = runtime.queue_coordinator();
         let affinity_registry = runtime.affinity_registry();
         Self {
@@ -109,7 +105,6 @@ impl PublishedSnapshot {
             affinity_policy,
             routing_credentials,
             route_tier_cursors,
-            auxiliary_scheduler,
             queue_coordinator,
             queue_policy,
             health,
@@ -202,10 +197,6 @@ impl PublishedSnapshot {
         tier: any2api_domain::FallbackTier,
     ) -> Option<&RouteTierCursorBinding> {
         self.route_tier_cursors.get(route_id, tier)
-    }
-
-    pub(crate) const fn auxiliary_scheduler(&self) -> &Arc<AuxiliaryScheduler> {
-        &self.auxiliary_scheduler
     }
 
     #[must_use]

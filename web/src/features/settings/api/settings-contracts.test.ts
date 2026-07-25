@@ -6,10 +6,10 @@ test("parses setting metadata and all value types", () => {
   const configuration = parseSettingsConfiguration({
     config_revision: 2,
     items: [
-      item("scheduler.on_saturated", "enum", "wait", "reject", ["wait", "reject"]),
+      item("scheduler.on_rate_limited", "enum", "wait", "reject", ["wait", "reject"]),
       item("scheduler.queue_timeout", "duration_secs", 30, null, null, 1, 86_400),
       item("scheduler.max_waiting_requests", "integer", 128, null, null, 1, 100_000),
-      item("scheduler.fallback_on_saturation", "boolean", false, null, null),
+      item("scheduler.fallback_on_rate_limit", "boolean", false, null, null),
     ],
   });
 
@@ -26,13 +26,13 @@ test("rejects inconsistent bounds, values, and enum metadata", () => {
 
   expect(() => parseSettingsConfiguration({
     config_revision: 1,
-    items: [item("scheduler.on_saturated", "enum", "unknown", null, ["wait", "reject"])],
+    items: [item("scheduler.on_rate_limited", "enum", "unknown", null, ["wait", "reject"])],
   })).toThrow("invalid settings response");
 
   expect(() => parseSettingsConfiguration({
     config_revision: 1,
     items: [{
-      ...item("scheduler.fallback_on_saturation", "boolean", false, false, null),
+      ...item("scheduler.fallback_on_rate_limit", "boolean", false, false, null),
       effective_value: true,
     }],
   })).toThrow("invalid settings response");

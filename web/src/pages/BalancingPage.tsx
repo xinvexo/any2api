@@ -12,7 +12,7 @@ export function BalancingPage() {
             调度策略
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-secondary">
-            调整满载行为、队列上限、等待超时、fallback tier 和辅助请求并发；修改只影响新请求。
+            调整 RPM 用尽行为、队列上限、等待超时和 fallback tier；修改只影响新请求。
           </p>
         </header>
         <SettingsManagement keyPrefix="scheduler." />

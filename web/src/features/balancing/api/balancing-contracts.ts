@@ -9,9 +9,8 @@ export interface HealthState {
 }
 
 export interface BalancingCounters {
-  selectedGeneration: number;
-  selectedAuxiliary: number;
-  filteredCapacity: number;
+  selected: number;
+  filteredRateLimit: number;
   filteredCredentialHealth: number;
   filteredEndpointHealth: number;
   filteredProxyHealth: number;
@@ -39,9 +38,11 @@ export interface BalancingCredential {
   proxyKind: ProxyKind;
   proxyEnabled: boolean;
   inFlight: number;
-  maxConcurrency: number;
+  requestsPerMinute: number | null;
+  requestsInWindow: number;
+  remainingRequests: number | null;
+  retryInMs: number | null;
   fixedWaiters: number;
-  auxiliaryInFlight: number;
   counters: BalancingCounters;
   models: CredentialModelHealth[];
 }
@@ -53,25 +54,26 @@ export interface BalancingRuntime {
     waiting: number;
     maxWaiting: number;
     timeoutSecs: number;
-    onSaturated: "wait" | "reject";
-    fallbackOnSaturation: boolean;
+    onRateLimited: "wait" | "reject";
+    fallbackOnRateLimit: boolean;
   };
-  auxiliary: { inFlight: number; maxGlobal: number; maxPerCredential: number };
   totals: {
     credentialCount: number;
     enabledCredentialCount: number;
+    limitedCredentialCount: number;
+    rateLimitedCredentialCount: number;
     inFlight: number;
-    maxConcurrency: number;
+    requestsInWindow: number;
     fixedWaiters: number;
-    auxiliaryInFlight: number;
   };
   providers: Array<{
     providerKind: ProviderKind;
     credentialCount: number;
+    limitedCredentialCount: number;
+    rateLimitedCredentialCount: number;
     inFlight: number;
-    maxConcurrency: number;
-    selectedGeneration: number;
-    selectedAuxiliary: number;
+    requestsInWindow: number;
+    selected: number;
   }>;
   credentials: BalancingCredential[];
 }
@@ -79,7 +81,6 @@ export interface BalancingRuntime {
 export function parseBalancingRuntime(value: unknown): BalancingRuntime {
   const root = record(value);
   const queue = record(root.queue);
-  const auxiliary = record(root.auxiliary);
   const totals = record(root.totals);
   return {
     configRevision: positive(root.config_revision),
@@ -88,21 +89,17 @@ export function parseBalancingRuntime(value: unknown): BalancingRuntime {
       waiting: integer(queue.waiting),
       maxWaiting: positive(queue.max_waiting),
       timeoutSecs: positive(queue.timeout_secs),
-      onSaturated: oneOf(queue.on_saturated, ["wait", "reject"]),
-      fallbackOnSaturation: boolean(queue.fallback_on_saturation),
-    },
-    auxiliary: {
-      inFlight: integer(auxiliary.in_flight),
-      maxGlobal: positive(auxiliary.max_global),
-      maxPerCredential: positive(auxiliary.max_per_credential),
+      onRateLimited: oneOf(queue.on_rate_limited, ["wait", "reject"]),
+      fallbackOnRateLimit: boolean(queue.fallback_on_rate_limit),
     },
     totals: {
       credentialCount: integer(totals.credential_count),
       enabledCredentialCount: integer(totals.enabled_credential_count),
+      limitedCredentialCount: integer(totals.limited_credential_count),
+      rateLimitedCredentialCount: integer(totals.rate_limited_credential_count),
       inFlight: integer(totals.in_flight),
-      maxConcurrency: integer(totals.max_concurrency),
+      requestsInWindow: integer(totals.requests_in_window),
       fixedWaiters: integer(totals.fixed_waiters),
-      auxiliaryInFlight: integer(totals.auxiliary_in_flight),
     },
     providers: array(root.providers).map(parseProvider),
     credentials: array(root.credentials).map(parseCredential),
@@ -114,15 +111,28 @@ function parseProvider(value: unknown) {
   return {
     providerKind: provider(item.provider_kind),
     credentialCount: integer(item.credential_count),
+    limitedCredentialCount: integer(item.limited_credential_count),
+    rateLimitedCredentialCount: integer(item.rate_limited_credential_count),
     inFlight: integer(item.in_flight),
-    maxConcurrency: integer(item.max_concurrency),
-    selectedGeneration: integer(item.selected_generation),
-    selectedAuxiliary: integer(item.selected_auxiliary),
+    requestsInWindow: integer(item.requests_in_window),
+    selected: integer(item.selected),
   };
 }
 
 function parseCredential(value: unknown): BalancingCredential {
   const item = record(value);
+  const requestsPerMinute = nullablePositive(item.requests_per_minute);
+  const requestsInWindow = integer(item.requests_in_window);
+  const remainingRequests = nullableInteger(item.remaining_requests);
+  const retryInMs = nullableInteger(item.retry_in_ms);
+  if (requestsPerMinute === null) {
+    if (requestsInWindow !== 0 || remainingRequests !== null || retryInMs !== null) throw invalid();
+  } else {
+    if (
+      remainingRequests !== Math.max(0, requestsPerMinute - requestsInWindow) ||
+      (remainingRequests === 0) !== (retryInMs !== null)
+    ) throw invalid();
+  }
   return {
     credentialId: string(item.credential_id),
     credentialSource: oneOf(item.credential_source, ["provider_credential", "oauth_account"]),
@@ -138,9 +148,11 @@ function parseCredential(value: unknown): BalancingCredential {
     proxyKind: oneOf(item.proxy_kind, ["direct", "http", "socks5"]),
     proxyEnabled: boolean(item.proxy_enabled),
     inFlight: integer(item.in_flight),
-    maxConcurrency: positive(item.max_concurrency),
+    requestsPerMinute,
+    requestsInWindow,
+    remainingRequests,
+    retryInMs,
     fixedWaiters: integer(item.fixed_waiters),
-    auxiliaryInFlight: integer(item.auxiliary_in_flight),
     counters: parseCounters(item.counters),
     models: array(item.models).map(parseModel),
   };
@@ -149,9 +161,8 @@ function parseCredential(value: unknown): BalancingCredential {
 function parseCounters(value: unknown): BalancingCounters {
   const item = record(value);
   return {
-    selectedGeneration: integer(item.selected_generation),
-    selectedAuxiliary: integer(item.selected_auxiliary),
-    filteredCapacity: integer(item.filtered_capacity),
+    selected: integer(item.selected),
+    filteredRateLimit: integer(item.filtered_rate_limit),
     filteredCredentialHealth: integer(item.filtered_credential_health),
     filteredEndpointHealth: integer(item.filtered_endpoint_health),
     filteredProxyHealth: integer(item.filtered_proxy_health),
@@ -208,6 +219,17 @@ function integer(value: unknown): number {
 function positive(value: unknown): number {
   const result = integer(value);
   if (result === 0) throw invalid();
+  return result;
+}
+
+function nullableInteger(value: unknown): number | null {
+  return value === null ? null : integer(value);
+}
+
+function nullablePositive(value: unknown): number | null {
+  if (value === null) return null;
+  const result = positive(value);
+  if (result > 100_000) throw invalid();
   return result;
 }
 

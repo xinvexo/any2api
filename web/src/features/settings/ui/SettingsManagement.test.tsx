@@ -14,8 +14,8 @@ test("shows merged sections and compact controls without override badges", async
   // Mock data only contains scheduler web groups → single merged section, no category chrome.
   expect(await screen.findByRole("heading", { name: "调度" })).toBeInTheDocument();
   expect(screen.queryByRole("navigation", { name: "设置分类" })).not.toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "排队策略" })).toBeInTheDocument();
-  expect(screen.getByRole("combobox", { name: "满载行为" })).toHaveValue("reject");
+  expect(screen.queryByRole("heading", { name: "排队策略" })).not.toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "RPM 用尽行为" })).toHaveValue("reject");
 
   const timeout = screen.getByRole("textbox", { name: "排队超时" });
   expect(timeout).toHaveValue("30");
@@ -27,7 +27,7 @@ test("shows merged sections and compact controls without override badges", async
   expect(screen.queryByText("生效")).not.toBeInTheDocument();
   expect(screen.queryByText("覆盖")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "恢复排队超时默认值" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "恢复满载行为默认值" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "恢复RPM 用尽行为默认值" })).toBeInTheDocument();
 });
 
 test("saves and restores a setting using the visible revision", async () => {
@@ -182,12 +182,10 @@ function configuration(revision: number, timeoutOverride: number | null = null) 
   return {
     config_revision: revision,
     items: [
-      setting("scheduler.on_saturated", "enum", "wait", "reject", ["wait", "reject"]),
+      setting("scheduler.on_rate_limited", "enum", "wait", "reject", ["wait", "reject"]),
       setting("scheduler.queue_timeout", "duration_secs", 30, timeoutOverride, null, 1, 86_400),
       setting("scheduler.max_waiting_requests", "integer", 128, null, null, 1, 100_000),
-      setting("scheduler.fallback_on_saturation", "boolean", false, null, null),
-      setting("scheduler.auxiliary_global_concurrency", "integer", 32, null, null, 1, 10_000),
-      setting("scheduler.auxiliary_per_credential_concurrency", "integer", 4, null, null, 1, 10_000),
+      setting("scheduler.fallback_on_rate_limit", "boolean", false, null, null),
       setting("retry.max_total_attempts", "integer", 3, null, null, 1, 10),
       setting("retry.jitter_ratio", "integer", 20, null, null, 0, 100),
       setting("cooldown.rate_limit_fallback", "duration_secs", 60, null, null, 1, 86_400),
@@ -215,7 +213,7 @@ function setting(
     max_value: maxValue,
     allowed_values: allowedValues,
     apply_mode: "hot_reload",
-    web_group: key.startsWith("scheduler.auxiliary") ? "辅助请求" : "排队策略",
+    web_group: "排队策略",
     description: "Test setting",
   };
 }

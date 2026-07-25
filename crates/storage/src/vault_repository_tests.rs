@@ -65,6 +65,13 @@ async fn an_existing_invalid_master_key_is_never_overwritten() {
     let database = directory.path().join("config.sqlite3");
     let master_key = directory.path().join("master-key.json");
     fs::write(&master_key, b"not-a-master-key").expect("invalid master key fixture");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(&master_key, fs::Permissions::from_mode(0o600))
+            .expect("secure invalid master key fixture permissions");
+    }
 
     let error = SqliteStore::connect_with_master_key(&database, &master_key)
         .await

@@ -145,21 +145,17 @@ mod tests {
 
     use super::{SettingOverrides, SettingsConfiguration};
     use crate::{
-        AffinityMode, FileLogLevel, SaturationMode, SettingKey, SettingValue, SettingValueType,
+        AffinityMode, FileLogLevel, RateLimitMode, SettingKey, SettingValue, SettingValueType,
         SettingsValidationError,
     };
 
     #[test]
     fn defaults_match_architecture() {
         let settings = SettingsConfiguration::defaults();
-        assert_eq!(settings.scheduler().on_saturated(), SaturationMode::Wait);
+        assert_eq!(settings.scheduler().on_rate_limited(), RateLimitMode::Wait);
         assert_eq!(settings.scheduler().queue_timeout_secs(), 30);
         assert_eq!(settings.scheduler().max_waiting_requests(), 128);
-        assert_eq!(settings.scheduler().auxiliary_global_concurrency(), 32);
-        assert_eq!(
-            settings.scheduler().auxiliary_per_credential_concurrency(),
-            4
-        );
+        assert!(!settings.scheduler().fallback_on_rate_limit());
         assert!(settings.affinity().soft_enabled());
         assert_eq!(settings.affinity().soft_mode(), AffinityMode::Prefer);
         assert_eq!(settings.affinity().soft_ttl_secs(), 3_600);
@@ -220,7 +216,7 @@ mod tests {
         );
         assert_eq!(
             SettingOverrides::from_entries([(
-                SettingKey::SchedulerOnSaturated,
+                SettingKey::SchedulerOnRateLimited,
                 SettingValue::AffinityMode(AffinityMode::Prefer),
             )]),
             Err(SettingsValidationError::InvalidEnum)
@@ -258,7 +254,7 @@ mod tests {
     fn overrides_compile_into_effective_settings() {
         let overrides = SettingOverrides::from_entries([
             (
-                SettingKey::SchedulerFallbackOnSaturation,
+                SettingKey::SchedulerFallbackOnRateLimit,
                 SettingValue::Boolean(true),
             ),
             (
@@ -277,7 +273,7 @@ mod tests {
         ])
         .expect("overrides");
         let settings = SettingsConfiguration::from_overrides(overrides).expect("settings");
-        assert!(settings.scheduler().fallback_on_saturation());
+        assert!(settings.scheduler().fallback_on_rate_limit());
         assert_eq!(settings.affinity().soft_mode(), AffinityMode::Strict);
         assert_eq!(settings.upstream().read_timeout_secs(), 2);
         assert!(settings.upstream().strict_ssrf());

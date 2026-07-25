@@ -29,12 +29,10 @@ pub enum SettingKey {
     StreamPostcommitIdleTimeout,
     ShutdownRequestGracePeriod,
     ShutdownFinalizeTimeout,
-    SchedulerOnSaturated,
+    SchedulerOnRateLimited,
     SchedulerQueueTimeout,
     SchedulerMaxWaitingRequests,
-    SchedulerFallbackOnSaturation,
-    SchedulerAuxiliaryGlobalConcurrency,
-    SchedulerAuxiliaryPerCredentialConcurrency,
+    SchedulerFallbackOnRateLimit,
     RetryMaxTotalAttempts,
     RetryMaxCredentialSwitches,
     RetryMaxSameCredentialRetries,
@@ -56,7 +54,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 51] = [
+    pub const ALL: [Self; 49] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -84,12 +82,10 @@ impl SettingKey {
         Self::StreamPostcommitIdleTimeout,
         Self::ShutdownRequestGracePeriod,
         Self::ShutdownFinalizeTimeout,
-        Self::SchedulerOnSaturated,
+        Self::SchedulerOnRateLimited,
         Self::SchedulerQueueTimeout,
         Self::SchedulerMaxWaitingRequests,
-        Self::SchedulerFallbackOnSaturation,
-        Self::SchedulerAuxiliaryGlobalConcurrency,
-        Self::SchedulerAuxiliaryPerCredentialConcurrency,
+        Self::SchedulerFallbackOnRateLimit,
         Self::RetryMaxTotalAttempts,
         Self::RetryMaxCredentialSwitches,
         Self::RetryMaxSameCredentialRetries,
@@ -139,14 +135,10 @@ impl SettingKey {
             Self::StreamPostcommitIdleTimeout => "stream.postcommit.idle_timeout",
             Self::ShutdownRequestGracePeriod => "shutdown.request_grace_period",
             Self::ShutdownFinalizeTimeout => "shutdown.finalize_timeout",
-            Self::SchedulerOnSaturated => "scheduler.on_saturated",
+            Self::SchedulerOnRateLimited => "scheduler.on_rate_limited",
             Self::SchedulerQueueTimeout => "scheduler.queue_timeout",
             Self::SchedulerMaxWaitingRequests => "scheduler.max_waiting_requests",
-            Self::SchedulerFallbackOnSaturation => "scheduler.fallback_on_saturation",
-            Self::SchedulerAuxiliaryGlobalConcurrency => "scheduler.auxiliary_global_concurrency",
-            Self::SchedulerAuxiliaryPerCredentialConcurrency => {
-                "scheduler.auxiliary_per_credential_concurrency"
-            }
+            Self::SchedulerFallbackOnRateLimit => "scheduler.fallback_on_rate_limit",
             Self::RetryMaxTotalAttempts => "retry.max_total_attempts",
             Self::RetryMaxCredentialSwitches => "retry.max_credential_switches",
             Self::RetryMaxSameCredentialRetries => "retry.max_same_credential_retries",

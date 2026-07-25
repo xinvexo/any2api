@@ -18,7 +18,7 @@ const messages: Record<string, string> = {
   provider_credential_disabled: "已停用的 API Key 不能测试。",
   provider_endpoint_disabled: "Endpoint 已停用，不能测试 API Key。",
   provider_credential_proxy_unavailable: "API Key 的实际出口代理不可用。",
-  provider_credential_at_capacity: "API Key 当前并发已满，请稍后重试。",
+  provider_credential_rate_limited: "API Key 的本地 RPM 已用尽，请稍后重试。",
   provider_credential_test_unavailable: "API Key 测试服务不可用。",
   proxy_referenced: "该出口代理仍被 API Key 使用，不能删除。",
   provider_endpoint_in_use: "该 Endpoint 仍有 API Key，不能删除。",

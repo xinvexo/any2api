@@ -1,8 +1,8 @@
 use crate::settings::{
-    SaturationMode, SettingDefinition, SettingKey, SettingValue, SettingValueType,
+    RateLimitMode, SettingDefinition, SettingKey, SettingValue, SettingValueType,
     definition::{
-        MAX_SETTING_AUXILIARY, MAX_SETTING_COUNT, MAX_SETTING_DURATION_SECS,
-        definition as setting_definition, duration_definition,
+        MAX_SETTING_COUNT, MAX_SETTING_DURATION_SECS, definition as setting_definition,
+        duration_definition,
     },
 };
 
@@ -10,15 +10,15 @@ const ALLOWED_ACTIONS: &[&str] = &["wait", "reject"];
 
 pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
     match key {
-        SettingKey::SchedulerOnSaturated => setting_definition(
+        SettingKey::SchedulerOnRateLimited => setting_definition(
             key,
             SettingValueType::Enum,
-            SettingValue::Saturation(SaturationMode::Wait),
+            SettingValue::RateLimitMode(RateLimitMode::Wait),
             (None, None),
             ALLOWED_ACTIONS,
             (
                 "排队策略",
-                "所有可用 Credential 都达到并发上限时，等待容量或立即拒绝请求。",
+                "所有可用 Credential 都用尽本地 RPM 时，等待窗口到期或立即拒绝请求。",
             ),
         ),
         SettingKey::SchedulerQueueTimeout => duration_definition(
@@ -27,7 +27,7 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
             1,
             MAX_SETTING_DURATION_SECS,
             "排队策略",
-            "生成请求等待可用并发槽位的最长时间。",
+            "请求等待 RPM 名额或健康恢复的最长时间。",
         ),
         SettingKey::SchedulerMaxWaitingRequests => integer(
             key,
@@ -35,9 +35,9 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
             1,
             MAX_SETTING_COUNT,
             "排队策略",
-            "允许同时等待可用并发槽位的生成请求数量。",
+            "允许同时等待 RPM 名额或健康恢复的请求数量。",
         ),
-        SettingKey::SchedulerFallbackOnSaturation => setting_definition(
+        SettingKey::SchedulerFallbackOnRateLimit => setting_definition(
             key,
             SettingValueType::Boolean,
             SettingValue::Boolean(false),
@@ -45,24 +45,8 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
             &[],
             (
                 "排队策略",
-                "主 tier 满载时，是否允许继续选择 fallback tier。",
+                "主 tier RPM 全部用尽时，是否允许继续选择 fallback tier。",
             ),
-        ),
-        SettingKey::SchedulerAuxiliaryGlobalConcurrency => integer(
-            key,
-            32,
-            1,
-            MAX_SETTING_AUXILIARY,
-            "辅助请求",
-            "count_tokens 等辅助请求在整个进程内的并发上限。",
-        ),
-        SettingKey::SchedulerAuxiliaryPerCredentialConcurrency => integer(
-            key,
-            4,
-            1,
-            MAX_SETTING_AUXILIARY,
-            "辅助请求",
-            "单个 Credential 执行辅助请求的并发上限。",
         ),
         _ => unreachable!(),
     }

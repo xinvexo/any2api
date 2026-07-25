@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, OAuthAccountDraft,
-    OAuthAccountId, ProtocolDialect, ProviderCredentialDraft, ProviderEndpointDraft,
-    ProviderEndpointId, ProviderKind, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId,
-    SettingKey, SettingValue,
+    ConfigRevision, CredentialId, CredentialKind, OAuthAccountDraft, OAuthAccountId,
+    ProtocolDialect, ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId,
+    ProviderKind, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId, SettingKey, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use tempfile::{TempDir, tempdir};
@@ -353,7 +352,7 @@ impl TestContext {
             .load_configuration()
             .await
             .expect("initial configuration");
-        let runtime = Arc::new(RuntimeRegistry::new(initial.settings().scheduler()));
+        let runtime = Arc::new(RuntimeRegistry::new());
         let capabilities = crate::test_support::configuration_capabilities();
         let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
             initial,
@@ -399,19 +398,14 @@ fn credential_draft() -> ProviderCredentialDraft {
         "Primary",
         CredentialKind::ApiKey,
         ProxyProfileId::DIRECT,
-        MaxConcurrency::new(4).expect("max concurrency"),
+        None,
         true,
     )
     .expect("credential draft")
 }
 
 fn oauth_account_draft(label: &str) -> OAuthAccountDraft {
-    OAuthAccountDraft::new(
-        label,
-        MaxConcurrency::new(1).expect("max concurrency"),
-        true,
-    )
-    .expect("OAuth account draft")
+    OAuthAccountDraft::new(label, None, true).expect("OAuth account draft")
 }
 
 fn oauth_document(provider: ProviderKind, access_token: &str) -> OAuthAccountDocument {

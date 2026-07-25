@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 use crate::{
-    MaxConcurrency, ModelNameValidationError, OAuthAccountId, ProviderKind, ProxyProfileId,
+    ModelNameValidationError, OAuthAccountId, ProviderKind, ProxyProfileId, RequestsPerMinute,
     UpstreamModelName,
 };
 
@@ -12,19 +12,19 @@ const MAX_ACCOUNT_VERSION: u64 = u32::MAX as u64;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OAuthAccountDraft {
     label: String,
-    max_concurrency: MaxConcurrency,
+    requests_per_minute: Option<RequestsPerMinute>,
     enabled: bool,
 }
 
 impl OAuthAccountDraft {
     pub fn new(
         label: impl Into<String>,
-        max_concurrency: MaxConcurrency,
+        requests_per_minute: Option<RequestsPerMinute>,
         enabled: bool,
     ) -> Result<Self, OAuthAccountValidationError> {
         Ok(Self {
             label: validate_label(label.into())?,
-            max_concurrency,
+            requests_per_minute,
             enabled,
         })
     }
@@ -35,8 +35,8 @@ impl OAuthAccountDraft {
     }
 
     #[must_use]
-    pub const fn max_concurrency(&self) -> MaxConcurrency {
-        self.max_concurrency
+    pub const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
+        self.requests_per_minute
     }
 
     #[must_use]
@@ -51,7 +51,7 @@ pub struct OAuthAccount {
     provider_kind: ProviderKind,
     label: String,
     proxy_profile_id: ProxyProfileId,
-    max_concurrency: MaxConcurrency,
+    requests_per_minute: Option<RequestsPerMinute>,
     enabled: bool,
     safe_account_email: Option<String>,
     expires_at: Option<i64>,
@@ -114,7 +114,7 @@ impl OAuthAccount {
             provider_kind,
             label: draft.label,
             proxy_profile_id,
-            max_concurrency: draft.max_concurrency,
+            requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
             safe_account_email: validate_safe_email(safe_account_email)?,
             expires_at,
@@ -127,7 +127,7 @@ impl OAuthAccount {
 
     pub fn updated(&self, draft: OAuthAccountDraft) -> Result<Self, OAuthAccountValidationError> {
         if self.label == draft.label
-            && self.max_concurrency == draft.max_concurrency
+            && self.requests_per_minute == draft.requests_per_minute
             && self.enabled == draft.enabled
         {
             return Ok(self.clone());
@@ -139,7 +139,7 @@ impl OAuthAccount {
         };
         Ok(Self {
             label: draft.label,
-            max_concurrency: draft.max_concurrency,
+            requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
             account_generation,
             config_version: next_version(self.config_version)?,
@@ -202,8 +202,8 @@ impl OAuthAccount {
     }
 
     #[must_use]
-    pub const fn max_concurrency(&self) -> MaxConcurrency {
-        self.max_concurrency
+    pub const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
+        self.requests_per_minute
     }
 
     #[must_use]

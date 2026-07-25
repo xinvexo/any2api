@@ -68,8 +68,8 @@ impl ProviderCredentialTestService {
             .credential_test_plan(endpoint.base_url())
             .map_err(ProviderCredentialTestError::Provider)?;
         let permit = binding
-            .try_acquire()
-            .ok_or(ProviderCredentialTestError::CredentialAtCapacity)?;
+            .try_reserve_fixed()
+            .map_err(|_| ProviderCredentialTestError::CredentialRateLimited)?;
         let credential_headers = permit
             .credential_headers(driver.as_ref(), &HeaderMap::new())
             .map_err(ProviderCredentialTestError::Provider)?;
@@ -295,8 +295,8 @@ pub enum ProviderCredentialTestError {
     ProxyDisabled,
     #[error("provider driver is unavailable")]
     ProviderUnavailable,
-    #[error("provider credential is at capacity")]
-    CredentialAtCapacity,
+    #[error("provider credential has exhausted its local RPM limit")]
+    CredentialRateLimited,
     #[error("provider endpoint URI is invalid")]
     InvalidEndpointUri,
     #[error("provider test request is invalid: {0}")]

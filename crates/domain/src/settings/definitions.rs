@@ -42,12 +42,10 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
         SettingKey::ShutdownRequestGracePeriod | SettingKey::ShutdownFinalizeTimeout => {
             shutdown::definition(key)
         }
-        SettingKey::SchedulerOnSaturated
+        SettingKey::SchedulerOnRateLimited
         | SettingKey::SchedulerQueueTimeout
         | SettingKey::SchedulerMaxWaitingRequests
-        | SettingKey::SchedulerFallbackOnSaturation
-        | SettingKey::SchedulerAuxiliaryGlobalConcurrency
-        | SettingKey::SchedulerAuxiliaryPerCredentialConcurrency => scheduler::definition(key),
+        | SettingKey::SchedulerFallbackOnRateLimit => scheduler::definition(key),
         _ => reliability::definition(key),
     }
 }

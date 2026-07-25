@@ -249,7 +249,7 @@ async fn models_list_reflects_credential_model_selection() {
             "credential_kind": "api_key",
             "api_key": "sk-model-list-provider",
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "max_concurrency": 1,
+            "requests_per_minute": null,
             "enabled": true
         })),
         loopback,
@@ -378,7 +378,7 @@ async fn test_app() -> (
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),

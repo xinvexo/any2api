@@ -1,7 +1,7 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
-use any2api_domain::{FileLogLevel, SaturationMode, SettingKey};
+use any2api_domain::{FileLogLevel, RateLimitMode, SettingKey};
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -47,7 +47,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(51));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(49));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
@@ -158,18 +158,18 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     let (status, updated) = request_json(
         app.clone(),
         Method::PATCH,
-        "/api/admin/settings/scheduler.on_saturated",
+        "/api/admin/settings/scheduler.on_rate_limited",
         Some(json!({ "expected_revision": 1, "value": "reject" })),
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(updated["config_revision"], 2);
-    let saturated = find_setting(&updated, "scheduler.on_saturated");
-    assert_eq!(saturated["allowed_values"], json!(["wait", "reject"]));
-    assert_eq!(saturated["default_value"], "wait");
-    assert_eq!(saturated["override_value"], "reject");
-    assert_eq!(saturated["effective_value"], "reject");
+    let rate_limited = find_setting(&updated, "scheduler.on_rate_limited");
+    assert_eq!(rate_limited["allowed_values"], json!(["wait", "reject"]));
+    assert_eq!(rate_limited["default_value"], "wait");
+    assert_eq!(rate_limited["override_value"], "reject");
+    assert_eq!(rate_limited["effective_value"], "reject");
 
     let (status, invalid) = request_json(
         app.clone(),
@@ -207,27 +207,27 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     let (status, reset) = request_json(
         app,
         Method::DELETE,
-        "/api/admin/settings/scheduler.on_saturated?expected_revision=2",
+        "/api/admin/settings/scheduler.on_rate_limited?expected_revision=2",
         None,
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(reset["config_revision"], 3);
-    let saturated = find_setting(&reset, "scheduler.on_saturated");
-    assert_eq!(saturated["override_value"], Value::Null);
-    assert_eq!(saturated["effective_value"], "wait");
+    let rate_limited = find_setting(&reset, "scheduler.on_rate_limited");
+    assert_eq!(rate_limited["override_value"], Value::Null);
+    assert_eq!(rate_limited["effective_value"], "wait");
 
     let stored = storage.load_configuration().await.expect("stored settings");
     assert_eq!(stored.revision().get(), 3);
     assert_eq!(
-        stored.settings().scheduler().on_saturated(),
-        SaturationMode::Wait
+        stored.settings().scheduler().on_rate_limited(),
+        RateLimitMode::Wait
     );
     assert_eq!(
         stored
             .settings()
-            .override_value(SettingKey::SchedulerOnSaturated),
+            .override_value(SettingKey::SchedulerOnRateLimited),
         None
     );
 }
@@ -507,7 +507,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,
         runtime.as_ref(),

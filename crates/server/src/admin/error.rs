@@ -313,10 +313,10 @@ impl From<ProviderCredentialTestError> for AdminApiError {
                 "provider_credential_proxy_unavailable",
                 "the provider credential's resolved proxy is unavailable",
             ),
-            ProviderCredentialTestError::CredentialAtCapacity => Self::new(
-                StatusCode::CONFLICT,
-                "provider_credential_at_capacity",
-                "the provider credential is at capacity",
+            ProviderCredentialTestError::CredentialRateLimited => Self::new(
+                StatusCode::TOO_MANY_REQUESTS,
+                "provider_credential_rate_limited",
+                "the provider credential has exhausted its local RPM limit",
             ),
             ProviderCredentialTestError::CredentialRuntimeUnavailable
             | ProviderCredentialTestError::ProviderUnavailable

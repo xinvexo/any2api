@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use any2api_domain::{MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
 use any2api_provider::{CodexDriver, ProviderRegistry};
 use any2api_storage::api::{
     ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository, SqliteStore,
@@ -176,12 +176,7 @@ impl RefreshTestContext {
                 initial.revision(),
                 account_id,
                 ProviderKind::Codex,
-                OAuthAccountDraft::new(
-                    "Codex OAuth",
-                    MaxConcurrency::new(1).expect("max concurrency"),
-                    true,
-                )
-                .expect("OAuth draft"),
+                OAuthAccountDraft::new("Codex OAuth", None, true).expect("OAuth draft"),
                 Some("person@example.com".into()),
                 Some(0),
                 vec!["gpt-5.5".into()],
@@ -189,7 +184,7 @@ impl RefreshTestContext {
             )
             .await
             .expect("OAuth account");
-        let runtime = Arc::new(RuntimeRegistry::new(configured.settings().scheduler()));
+        let runtime = Arc::new(RuntimeRegistry::new());
         let capabilities = crate::test_support::configuration_capabilities();
         let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
             configured,

@@ -3,14 +3,11 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use any2api_domain::{
-    CredentialId, ModelRouteConfiguration, RoutingCredentialId, SchedulerSettings,
-};
+use any2api_domain::{CredentialId, ModelRouteConfiguration, RoutingCredentialId};
 use tokio::sync::watch;
 
 use crate::{
     affinity::{AffinityPolicy, AffinityRegistry, AffinityRuntimeSnapshot},
-    auxiliary_scheduler::{AuxiliaryConcurrencyLimits, AuxiliaryScheduler},
     balancing::{BalancingRuntimeSnapshot, snapshot as balancing_snapshot},
     credential_runtime::CredentialRuntimeHandle,
     health::{HealthBindings, HealthRegistry},
@@ -27,24 +24,24 @@ pub struct RuntimeRegistry {
     affinity: Arc<AffinityRegistry>,
     credentials: RwLock<HashMap<RoutingCredentialId, Arc<CredentialRuntimeHandle>>>,
     route_tier_cursors: RouteTierCursorRegistry,
-    auxiliary_scheduler: Arc<AuxiliaryScheduler>,
     queue_coordinator: Arc<QueueCoordinator>,
     health: HealthRegistry,
     lifecycle: ProcessLifecycle,
 }
 
+impl Default for RuntimeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RuntimeRegistry {
     #[must_use]
-    pub fn new(settings: &SchedulerSettings) -> Self {
+    pub fn new() -> Self {
         let lifecycle = ProcessLifecycle::new();
         let scheduler_epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());
-        let auxiliary_limits = AuxiliaryConcurrencyLimits::from_scheduler_settings(settings);
         Self {
             affinity: AffinityRegistry::new(),
-            auxiliary_scheduler: AuxiliaryScheduler::new(
-                auxiliary_limits,
-                Arc::clone(&scheduler_epoch),
-            ),
             scheduler_epoch: Arc::clone(&scheduler_epoch),
             credentials: RwLock::new(HashMap::new()),
             route_tier_cursors: RouteTierCursorRegistry::default(),
@@ -57,17 +54,6 @@ impl RuntimeRegistry {
     #[must_use]
     pub fn lifecycle(&self) -> ProcessLifecycle {
         self.lifecycle.clone()
-    }
-
-    #[must_use]
-    pub fn auxiliary_limits(&self) -> AuxiliaryConcurrencyLimits {
-        self.auxiliary_scheduler.limits()
-    }
-
-    pub(crate) fn reconcile_scheduler_settings(&self, settings: &SchedulerSettings) {
-        self.auxiliary_scheduler.reconcile_limits(
-            AuxiliaryConcurrencyLimits::from_scheduler_settings(settings),
-        );
     }
 
     #[must_use]
@@ -113,11 +99,11 @@ impl RuntimeRegistry {
             active_ids.insert(routing_id);
             let generation = spec.take_generation();
             let binding = if let Some(handle) = handles.get(&routing_id).cloned() {
-                handle.reconcile(routing_id, spec.max_concurrency(), generation)
+                handle.reconcile(routing_id, spec.requests_per_minute(), generation)
             } else {
                 let handle = CredentialRuntimeHandle::new(
                     routing_id,
-                    spec.max_concurrency(),
+                    spec.requests_per_minute(),
                     generation,
                     Arc::clone(&self.scheduler_epoch),
                 );
@@ -165,11 +151,11 @@ impl RuntimeRegistry {
                 ),
             );
             let binding = if let Some(handle) = handles.get(&id).cloned() {
-                handle.reconcile(id, credential.max_concurrency(), generation)
+                handle.reconcile(id, credential.requests_per_minute(), generation)
             } else {
                 let handle = CredentialRuntimeHandle::new(
                     id,
-                    credential.max_concurrency(),
+                    credential.requests_per_minute(),
                     generation,
                     Arc::clone(&self.scheduler_epoch),
                 );
@@ -208,10 +194,6 @@ impl RuntimeRegistry {
         proxies: &any2api_domain::ProxyConfiguration,
     ) -> HealthBindings {
         self.health.reconcile(endpoints, runtime_endpoints, proxies)
-    }
-
-    pub(crate) fn auxiliary_scheduler(&self) -> Arc<AuxiliaryScheduler> {
-        Arc::clone(&self.auxiliary_scheduler)
     }
 
     pub(crate) fn queue_coordinator(&self) -> Arc<QueueCoordinator> {
@@ -261,49 +243,14 @@ impl RuntimeRegistry {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use any2api_domain::{SettingKey, SettingOverrides, SettingValue, SettingsConfiguration};
-
     use super::RuntimeRegistry;
 
     #[test]
     fn scheduler_epoch_is_monotonic() {
-        let settings = SettingsConfiguration::defaults();
-        let registry = RuntimeRegistry::new(settings.scheduler());
+        let registry = RuntimeRegistry::new();
 
         assert_eq!(registry.advance_scheduler_epoch(), 1);
         assert_eq!(registry.advance_scheduler_epoch(), 2);
         assert_eq!(registry.scheduler_epoch(), 2);
-    }
-
-    #[test]
-    fn auxiliary_scheduler_is_stable_when_limits_change() {
-        let settings = scheduler_settings(8, 2);
-        let registry = RuntimeRegistry::new(settings.scheduler());
-        let scheduler = registry.auxiliary_scheduler();
-
-        let updated = scheduler_settings(4, 1);
-        registry.reconcile_scheduler_settings(updated.scheduler());
-
-        assert_eq!(registry.auxiliary_limits().global(), 4);
-        assert_eq!(registry.auxiliary_limits().per_credential(), 1);
-        assert!(Arc::ptr_eq(&scheduler, &registry.auxiliary_scheduler()));
-        assert_eq!(registry.scheduler_epoch(), 0);
-    }
-
-    fn scheduler_settings(global: u64, per_credential: u64) -> SettingsConfiguration {
-        let overrides = SettingOverrides::from_entries([
-            (
-                SettingKey::SchedulerAuxiliaryGlobalConcurrency,
-                SettingValue::Integer(global),
-            ),
-            (
-                SettingKey::SchedulerAuxiliaryPerCredentialConcurrency,
-                SettingValue::Integer(per_credential),
-            ),
-        ])
-        .expect("valid settings");
-        SettingsConfiguration::from_overrides(overrides).expect("scheduler settings")
     }
 }

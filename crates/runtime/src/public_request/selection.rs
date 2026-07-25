@@ -1,4 +1,3 @@
-mod auxiliary;
 mod fixed;
 mod generation;
 
@@ -10,17 +9,12 @@ use std::sync::Arc;
 use any2api_domain::{ModelRouteId, ProtocolOperation, PublicError, PublicErrorCode};
 use tokio::time::Instant;
 
-#[cfg(test)]
-use super::RequestPermit;
 use super::{
     SelectedCandidate,
     response::{internal_error, public_error},
 };
 #[cfg(test)]
-use crate::{
-    auxiliary_scheduler::AuxiliaryScheduler,
-    queue::{QueueCoordinator, QueuePolicy},
-};
+use crate::queue::{QueueCoordinator, QueuePolicy};
 use crate::{
     published_snapshot::PublishedSnapshot,
     route_candidates::{CandidateExclusions, RouteCandidate},
@@ -28,7 +22,7 @@ use crate::{
 
 pub(super) enum GenerationSelection {
     Acquired(Box<SelectedCandidate>),
-    AtCapacity,
+    RateLimited(Option<Instant>),
     TemporarilyUnavailable(Instant),
     NoCandidates,
 }
@@ -44,8 +38,8 @@ pub(super) enum FixedSelectionError {
 impl FixedSelectionError {
     pub(super) fn into_public_error(self) -> PublicError {
         match self {
-            Self::QueueFull => capacity_error("request queue is full"),
-            Self::Timeout => capacity_error("bound credential is at capacity"),
+            Self::QueueFull => rate_limit_error("request queue is full"),
+            Self::Timeout => rate_limit_error("bound credential has exhausted its local RPM"),
             Self::Unavailable => public_error(
                 PublicErrorCode::SessionBindingLost,
                 "session binding is unavailable",
@@ -57,21 +51,17 @@ impl FixedSelectionError {
 
 pub(super) async fn select_candidate(
     snapshot: &PublishedSnapshot,
-    operation: ProtocolOperation,
+    _operation: ProtocolOperation,
     route_id: ModelRouteId,
-    fallback_on_saturation: bool,
+    fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     exclusions: &CandidateExclusions,
 ) -> Result<SelectedCandidate, PublicError> {
-    if operation == ProtocolOperation::MessagesCountTokens {
-        return auxiliary::select(snapshot, route_id, tiers, exclusions);
-    }
-
     let try_select = || {
         generation::try_select(
             snapshot,
             route_id,
-            fallback_on_saturation,
+            fallback_on_rate_limit,
             tiers,
             exclusions,
         )
@@ -112,20 +102,11 @@ async fn wait_for_generation_candidate(
 
 #[cfg(test)]
 fn try_select_generation_candidate_for_test(
-    fallback_on_saturation: bool,
+    fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     tie_breaker: impl FnMut(u16) -> Option<u64>,
 ) -> Result<GenerationSelection, PublicError> {
-    generation::try_select_for_test(fallback_on_saturation, tiers, tie_breaker)
-}
-
-#[cfg(test)]
-fn select_auxiliary_candidate_for_test(
-    scheduler: &Arc<AuxiliaryScheduler>,
-    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
-    tie_breaker: impl FnMut(u16) -> Option<u64>,
-) -> Result<SelectedCandidate, PublicError> {
-    auxiliary::select_for_test(scheduler, tiers, tie_breaker)
+    generation::try_select_for_test(fallback_on_rate_limit, tiers, tie_breaker)
 }
 
 #[cfg(test)]
@@ -136,8 +117,19 @@ fn try_select_fixed_candidate_for_test(
     fixed::try_selected_for_test(policy, candidate)
 }
 
-fn capacity_error(message: &'static str) -> PublicError {
-    public_error(PublicErrorCode::LocalConcurrencyLimit, message)
+fn rate_limit_error(message: &'static str) -> PublicError {
+    public_error(PublicErrorCode::LocalRateLimit, message)
+}
+
+fn rate_limited(message: &'static str, retry_at: Option<Instant>) -> PublicError {
+    let error = rate_limit_error(message);
+    retry_at.map_or(error.clone(), |retry_at| {
+        let delay = retry_at.saturating_duration_since(Instant::now());
+        let seconds = delay
+            .as_secs()
+            .saturating_add(u64::from(delay.subsec_nanos() > 0));
+        error.with_retry_after_seconds(seconds)
+    })
 }
 
 fn no_available_credentials() -> PublicError {

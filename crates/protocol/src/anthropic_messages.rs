@@ -117,7 +117,7 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => "not_found_error",
-        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalConcurrencyLimit => {
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
             "rate_limit_error"
         }
         PublicErrorCode::SessionBindingLost => "invalid_request_error",
@@ -135,7 +135,7 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
-        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalConcurrencyLimit => {
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
             StatusCode::TOO_MANY_REQUESTS
         }
         PublicErrorCode::SessionBindingLost => StatusCode::CONFLICT,
@@ -212,10 +212,8 @@ mod tests {
         assert_eq!(body["future_field"], 42);
         assert_eq!(encoded.headers["anthropic-beta"], "messages-2024-09-04");
 
-        let response = adapter.error_response(&PublicError::new(
-            PublicErrorCode::LocalConcurrencyLimit,
-            "full",
-        ));
+        let response =
+            adapter.error_response(&PublicError::new(PublicErrorCode::LocalRateLimit, "full"));
         let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
         assert_eq!(body["type"], "error");
         assert_eq!(body["error"]["type"], "rate_limit_error");

@@ -119,8 +119,8 @@ impl OAuthQuotaService {
             .credential_runtime(RoutingCredentialId::oauth_account(id))
             .ok_or(OAuthQuotaError::RuntimeUnavailable)?;
         let permit = binding
-            .try_acquire()
-            .ok_or(OAuthQuotaError::CredentialAtCapacity)?;
+            .try_reserve_fixed()
+            .map_err(|_| OAuthQuotaError::CredentialRateLimited)?;
         let token = permit
             .generation()
             .oauth_token()
@@ -212,8 +212,8 @@ impl OAuthQuotaService {
             .credential_runtime(RoutingCredentialId::oauth_account(id))
             .ok_or(OAuthQuotaError::RuntimeUnavailable)?;
         let permit = binding
-            .try_acquire()
-            .ok_or(OAuthQuotaError::CredentialAtCapacity)?;
+            .try_reserve_fixed()
+            .map_err(|_| OAuthQuotaError::CredentialRateLimited)?;
         let token = permit
             .generation()
             .oauth_token()

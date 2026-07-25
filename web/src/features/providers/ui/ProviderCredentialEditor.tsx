@@ -51,8 +51,10 @@ export function ProviderCredentialEditor({
   const [proxyId, setProxyId] = useState(
     credential?.proxyProfileId ?? directProxyId(proxies),
   );
-  const [maxConcurrency, setMaxConcurrency] = useState(
-    String(credential?.maxConcurrency ?? 4),
+  const [requestsPerMinute, setRequestsPerMinute] = useState(
+    credential?.requestsPerMinute === null || credential === undefined
+      ? ""
+      : String(credential.requestsPerMinute),
   );
   const [enabled, setEnabled] = useState(credential?.enabled ?? true);
   const [apiKey, setApiKey] = useState("");
@@ -77,7 +79,7 @@ export function ProviderCredentialEditor({
     if (sourceConflict) {
       return;
     }
-    const nextErrors = validate(mode, label, maxConcurrency, apiKey);
+    const nextErrors = validate(mode, label, requestsPerMinute, apiKey);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
       return;
@@ -91,7 +93,7 @@ export function ProviderCredentialEditor({
             expectedRevision: configRevision,
             label,
             proxyProfileId: proxyId,
-            maxConcurrency: Number(maxConcurrency),
+            requestsPerMinute: parseOptionalRpm(requestsPerMinute),
             enabled,
             apiKey,
           },
@@ -106,7 +108,7 @@ export function ProviderCredentialEditor({
             expectedConfigVersion: credential.configVersion,
             label,
             proxyProfileId: proxyId,
-            maxConcurrency: Number(maxConcurrency),
+            requestsPerMinute: parseOptionalRpm(requestsPerMinute),
             enabled,
           },
           apiKey: trimmedKey.length > 0 ? trimmedKey : undefined,
@@ -154,17 +156,18 @@ export function ProviderCredentialEditor({
           ))}
         </select>
       </Field>
-      <Field label="最大并发" error={errors.maxConcurrency} htmlFor="credential-concurrency">
+      <Field label="RPM 限制" error={errors.requestsPerMinute} htmlFor="credential-rpm">
         <input
-          id="credential-concurrency"
-          className={controlClass(Boolean(errors.maxConcurrency))}
+          id="credential-rpm"
+          className={controlClass(Boolean(errors.requestsPerMinute))}
           type="number"
           min={1}
-          max={10_000}
+          max={100_000}
           step={1}
-          value={maxConcurrency}
+          value={requestsPerMinute}
+          placeholder="留空表示无限制"
           disabled={pending || sourceConflict !== null}
-          onChange={(event) => setMaxConcurrency(event.target.value)}
+          onChange={(event) => setRequestsPerMinute(event.target.value)}
         />
       </Field>
 
@@ -213,14 +216,14 @@ export function ProviderCredentialEditor({
   );
 }
 
-function validate(mode: "create" | "edit", label: string, concurrency: string, apiKey: string) {
+function validate(mode: "create" | "edit", label: string, rpm: string, apiKey: string) {
   const errors: Record<string, string> = {};
   if (label.trim() !== label || label.length === 0) {
     errors.label = "名称不能为空，且首尾不能包含空格";
   }
-  const numeric = Number(concurrency);
-  if (!Number.isInteger(numeric) || numeric < 1 || numeric > 10_000) {
-    errors.maxConcurrency = "最大并发必须是 1 到 10000 的整数";
+  const numeric = Number(rpm);
+  if (rpm.length > 0 && (!Number.isInteger(numeric) || numeric < 1 || numeric > 100_000)) {
+    errors.requestsPerMinute = "RPM 必须留空，或填写 1 到 100000 的整数";
   }
   if (mode === "create") {
     if (!validApiKey(apiKey)) {
@@ -230,6 +233,10 @@ function validate(mode: "create" | "edit", label: string, concurrency: string, a
     errors.apiKey = "API Key 必须为 1 到 8192 个可见 ASCII 字符";
   }
   return errors;
+}
+
+function parseOptionalRpm(value: string) {
+  return value.length === 0 ? null : Number(value);
 }
 
 function validApiKey(value: string) {

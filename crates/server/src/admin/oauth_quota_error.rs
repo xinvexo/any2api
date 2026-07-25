@@ -15,10 +15,10 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
             "oauth_quota_unsupported",
             "quota management is not supported for this OAuth provider",
         ),
-        OAuthQuotaError::CredentialAtCapacity => AdminApiError::new(
-            StatusCode::CONFLICT,
-            "oauth_account_busy",
-            "OAuth account is currently at its concurrency limit",
+        OAuthQuotaError::CredentialRateLimited => AdminApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "oauth_account_rate_limited",
+            "OAuth account has exhausted its local RPM limit",
         ),
         OAuthQuotaError::NoResetCredits => AdminApiError::new(
             StatusCode::CONFLICT,

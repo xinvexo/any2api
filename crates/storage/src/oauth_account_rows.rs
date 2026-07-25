@@ -1,8 +1,8 @@
 use std::{collections::HashMap, str::FromStr};
 
 use any2api_domain::{
-    MaxConcurrency, OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId,
-    ProviderKind, ProxyConfiguration, ProxyProfileId,
+    OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId, ProviderKind,
+    ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
 };
 use sqlx::{FromRow, SqliteConnection};
 
@@ -22,7 +22,7 @@ struct OAuthAccountRow {
     account_generation: i64,
     config_version: i64,
     proxy_profile_id: String,
-    max_concurrency: i64,
+    requests_per_minute: Option<i64>,
     enabled: i64,
     safe_account_email: Option<String>,
     expires_at: Option<i64>,
@@ -40,7 +40,7 @@ pub(crate) async fn load_oauth_accounts_from(
 ) -> Result<(OAuthAccountConfiguration, StoredOAuthAccountMaterials), StorageError> {
     let rows = sqlx::query_as::<_, OAuthAccountRow>(concat!(
         "SELECT id, provider_kind, label, oauth_json, token_version, account_generation, ",
-        "config_version, proxy_profile_id, max_concurrency, enabled, safe_account_email, ",
+        "config_version, proxy_profile_id, requests_per_minute, enabled, safe_account_email, ",
         "expires_at FROM oauth_accounts ORDER BY provider_kind, label"
     ))
     .fetch_all(&mut *connection)
@@ -76,15 +76,20 @@ fn parse_row(
     let provider_kind = parse_provider_kind(&row.provider_kind)?;
     let proxy_profile_id = ProxyProfileId::from_str(&row.proxy_profile_id)
         .map_err(|_| StorageError::CorruptConfiguration)?;
-    let max_concurrency = u32::try_from(row.max_concurrency)
-        .ok()
-        .and_then(|value| MaxConcurrency::new(value).ok())
-        .ok_or(StorageError::CorruptConfiguration)?;
+    let requests_per_minute = row
+        .requests_per_minute
+        .map(|value| {
+            u32::try_from(value)
+                .ok()
+                .and_then(|value| RequestsPerMinute::new(value).ok())
+                .ok_or(StorageError::CorruptConfiguration)
+        })
+        .transpose()?;
     let enabled = parse_bool(row.enabled)?;
     let token_version = parse_version(row.token_version)?;
     let account_generation = parse_version(row.account_generation)?;
     let config_version = parse_version(row.config_version)?;
-    let draft = OAuthAccountDraft::new(row.label, max_concurrency, enabled)
+    let draft = OAuthAccountDraft::new(row.label, requests_per_minute, enabled)
         .map_err(|_| StorageError::CorruptConfiguration)?;
     let account = OAuthAccount::restore(
         id,

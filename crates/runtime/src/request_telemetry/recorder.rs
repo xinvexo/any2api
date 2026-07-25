@@ -248,9 +248,9 @@ pub(crate) const fn public_error_class(code: PublicErrorCode) -> ErrorClass {
         | PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute => ErrorClass::InvalidRequest,
         PublicErrorCode::UpstreamNotFound => ErrorClass::OperationUnavailable,
+        PublicErrorCode::LocalRateLimit => ErrorClass::RateLimited,
         PublicErrorCode::InternalError => ErrorClass::Internal,
         PublicErrorCode::NoAvailableCredential
-        | PublicErrorCode::LocalConcurrencyLimit
         | PublicErrorCode::SessionBindingLost
         | PublicErrorCode::UpstreamError => ErrorClass::Upstream,
     }

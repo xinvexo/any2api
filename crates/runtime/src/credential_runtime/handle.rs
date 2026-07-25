@@ -1,19 +1,20 @@
 use std::{
     fmt,
     sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU32, Ordering},
     },
 };
 
-use any2api_domain::{MaxConcurrency, RoutingCredentialId};
+use any2api_domain::{RequestsPerMinute, RoutingCredentialId};
 use arc_swap::ArcSwap;
+use tokio::time::Instant;
 
 use super::{
     binding::CredentialRuntimeBinding,
-    capacity::{CredentialCapacity, pack, unpack},
     generation::{CredentialGenerationDefinition, CredentialGenerationRuntime},
     metrics::{CredentialBalancingCounters, CredentialBalancingMetrics, CredentialFilterKind},
+    rate_window::{CredentialRateSnapshot, CredentialRateWindow, RateLimited},
 };
 use crate::scheduler_epoch::SchedulerEpoch;
 
@@ -24,11 +25,16 @@ use crate::{
 #[cfg(test)]
 use any2api_domain::ProviderCredential;
 
+#[derive(Debug)]
+struct MutableRuntimeState {
+    rate_window: CredentialRateWindow,
+    fixed_waiters: u32,
+}
+
 pub(crate) struct CredentialRuntimeHandle {
     id: RoutingCredentialId,
-    capacity: AtomicU64,
-    fixed_waiters: AtomicU32,
-    auxiliary_in_flight: AtomicU32,
+    in_flight: AtomicU32,
+    mutable: Mutex<MutableRuntimeState>,
     current_generation: ArcSwap<CredentialGenerationRuntime>,
     retired: AtomicBool,
     balancing: CredentialBalancingMetrics,
@@ -45,7 +51,7 @@ impl CredentialRuntimeHandle {
         assert!(auth_material.matches(credential));
         Self::new(
             credential.id().into(),
-            credential.max_concurrency(),
+            credential.requests_per_minute(),
             CredentialGenerationDefinition::new(
                 credential.credential_generation(),
                 credential.secret_version(),
@@ -57,15 +63,17 @@ impl CredentialRuntimeHandle {
 
     pub(crate) fn new(
         id: RoutingCredentialId,
-        max_concurrency: MaxConcurrency,
+        requests_per_minute: Option<RequestsPerMinute>,
         generation: CredentialGenerationDefinition,
         scheduler_epoch: Arc<SchedulerEpoch>,
     ) -> Arc<Self> {
         Arc::new(Self {
             id,
-            capacity: AtomicU64::new(pack(max_concurrency.get(), 0)),
-            fixed_waiters: AtomicU32::new(0),
-            auxiliary_in_flight: AtomicU32::new(0),
+            in_flight: AtomicU32::new(0),
+            mutable: Mutex::new(MutableRuntimeState {
+                rate_window: CredentialRateWindow::new(requests_per_minute),
+                fixed_waiters: 0,
+            }),
             current_generation: ArcSwap::from_pointee(CredentialGenerationRuntime::new(
                 generation,
                 Arc::clone(&scheduler_epoch),
@@ -79,11 +87,15 @@ impl CredentialRuntimeHandle {
     pub(crate) fn reconcile(
         self: &Arc<Self>,
         id: RoutingCredentialId,
-        max_concurrency: MaxConcurrency,
+        requests_per_minute: Option<RequestsPerMinute>,
         generation: CredentialGenerationDefinition,
     ) -> CredentialRuntimeBinding {
         assert_eq!(self.id, id, "credential runtime id changed");
-        self.update_max_concurrency(max_concurrency);
+        self.mutable
+            .lock()
+            .expect("credential runtime lock poisoned")
+            .rate_window
+            .reconcile(requests_per_minute, Instant::now());
         self.retired.store(false, Ordering::Release);
 
         let current = self.current_generation.load_full();
@@ -115,19 +127,6 @@ impl CredentialRuntimeHandle {
         self.retired.store(true, Ordering::Release);
     }
 
-    pub(crate) fn capacity(&self) -> CredentialCapacity {
-        unpack(self.capacity.load(Ordering::Acquire))
-    }
-
-    pub(crate) fn normal_capacity(&self) -> CredentialCapacity {
-        let capacity = self.capacity();
-        if self.fixed_waiters.load(Ordering::Acquire) == 0 {
-            capacity
-        } else {
-            CredentialCapacity::full(capacity.max_concurrency())
-        }
-    }
-
     pub(crate) const fn id(&self) -> RoutingCredentialId {
         self.id
     }
@@ -136,136 +135,112 @@ impl CredentialRuntimeHandle {
         self.retired.load(Ordering::Acquire)
     }
 
-    pub(crate) fn auxiliary_in_flight(&self) -> u32 {
-        self.auxiliary_in_flight.load(Ordering::Acquire)
+    pub(crate) fn in_flight(&self) -> u32 {
+        self.in_flight.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn rate_snapshot(&self, now: Instant) -> CredentialRateSnapshot {
+        self.mutable
+            .lock()
+            .expect("credential runtime lock poisoned")
+            .rate_window
+            .snapshot(now)
     }
 
     pub(crate) fn fixed_waiter_count(&self) -> u32 {
-        self.fixed_waiters.load(Ordering::Acquire)
+        self.mutable
+            .lock()
+            .expect("credential runtime lock poisoned")
+            .fixed_waiters
     }
 
     pub(crate) fn balancing_counters(&self) -> CredentialBalancingCounters {
         self.balancing.snapshot()
     }
 
-    pub(crate) fn record_generation_selection(&self) {
-        self.balancing.record_generation_selection();
-    }
-
-    pub(crate) fn record_auxiliary_selection(&self) {
-        self.balancing.record_auxiliary_selection();
+    pub(crate) fn record_selection(&self) {
+        self.balancing.record_selection();
     }
 
     pub(crate) fn record_filter(&self, kind: CredentialFilterKind) {
         self.balancing.record_filter(kind);
     }
 
-    pub(crate) fn reserve_auxiliary(&self) {
-        self.auxiliary_in_flight
+    pub(crate) fn try_reserve_normal(
+        self: &Arc<Self>,
+        generation: Arc<CredentialGenerationRuntime>,
+        now: Instant,
+    ) -> Result<super::binding::RoutingPermit, RateLimited> {
+        self.try_reserve(generation, now, false)
+    }
+
+    pub(crate) fn try_reserve_fixed(
+        self: &Arc<Self>,
+        generation: Arc<CredentialGenerationRuntime>,
+        now: Instant,
+    ) -> Result<super::binding::RoutingPermit, RateLimited> {
+        self.try_reserve(generation, now, true)
+    }
+
+    fn try_reserve(
+        self: &Arc<Self>,
+        generation: Arc<CredentialGenerationRuntime>,
+        now: Instant,
+        fixed: bool,
+    ) -> Result<super::binding::RoutingPermit, RateLimited> {
+        {
+            let mut state = self
+                .mutable
+                .lock()
+                .expect("credential runtime lock poisoned");
+            let fixed_waiters = state.fixed_waiters;
+            state.rate_window.try_reserve(now, fixed_waiters, fixed)?;
+        }
+        self.in_flight
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current.checked_add(1)
             })
-            .expect("auxiliary in-flight counter overflowed u32");
+            .expect("credential in-flight counter overflowed u32");
+        Ok(super::binding::RoutingPermit {
+            handle: Arc::clone(self),
+            generation,
+        })
     }
 
-    pub(crate) fn release_auxiliary(&self) {
-        self.auxiliary_in_flight
+    pub(crate) fn release_in_flight(&self) {
+        self.in_flight
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current.checked_sub(1)
             })
-            .expect("auxiliary permit released without an active slot");
-    }
-
-    fn update_max_concurrency(&self, max_concurrency: MaxConcurrency) {
-        let max_concurrency = max_concurrency.get();
-        let mut current = self.capacity.load(Ordering::Acquire);
-        loop {
-            let capacity = unpack(current);
-            let next = pack(max_concurrency, capacity.in_flight());
-            match self.capacity.compare_exchange_weak(
-                current,
-                next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return,
-                Err(observed) => current = observed,
-            }
-        }
-    }
-
-    pub(crate) fn try_acquire_normal(
-        self: &Arc<Self>,
-        generation: Arc<CredentialGenerationRuntime>,
-    ) -> Option<super::binding::ConcurrencyPermit> {
-        if self.fixed_waiters.load(Ordering::Acquire) > 0 {
-            return None;
-        }
-        let permit = self.try_acquire_unreserved(generation)?;
-        if self.fixed_waiters.load(Ordering::Acquire) == 0 {
-            return Some(permit);
-        }
-        drop(permit);
-        None
-    }
-
-    pub(crate) fn try_acquire_unreserved(
-        self: &Arc<Self>,
-        generation: Arc<CredentialGenerationRuntime>,
-    ) -> Option<super::binding::ConcurrencyPermit> {
-        let mut current = self.capacity.load(Ordering::Acquire);
-        loop {
-            let capacity = unpack(current);
-            if capacity.is_full() {
-                return None;
-            }
-            let next = pack(capacity.max_concurrency(), capacity.in_flight() + 1);
-            match self.capacity.compare_exchange_weak(
-                current,
-                next,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    return Some(super::binding::ConcurrencyPermit {
-                        handle: Arc::clone(self),
-                        generation,
-                    });
-                }
-                Err(observed) => current = observed,
-            }
-        }
-    }
-
-    pub(crate) fn release(&self) {
-        self.capacity
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                let capacity = unpack(current);
-                (capacity.in_flight() > 0)
-                    .then(|| pack(capacity.max_concurrency(), capacity.in_flight() - 1))
-            })
-            .expect("concurrency permit released without an active slot");
-        self.scheduler_epoch.advance();
+            .expect("routing permit released without an in-flight request");
     }
 
     pub(crate) fn register_fixed_waiter(self: &Arc<Self>) -> FixedCredentialWaiter {
-        self.fixed_waiters
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                current.checked_add(1)
-            })
+        let mut state = self
+            .mutable
+            .lock()
+            .expect("credential runtime lock poisoned");
+        state.fixed_waiters = state
+            .fixed_waiters
+            .checked_add(1)
             .expect("fixed waiter counter overflowed u32");
+        drop(state);
         self.scheduler_epoch.advance();
         FixedCredentialWaiter {
             handle: Arc::clone(self),
         }
     }
 
-    pub(crate) fn release_fixed_waiter(&self) {
-        self.fixed_waiters
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
-                current.checked_sub(1)
-            })
+    fn release_fixed_waiter(&self) {
+        let mut state = self
+            .mutable
+            .lock()
+            .expect("credential runtime lock poisoned");
+        state.fixed_waiters = state
+            .fixed_waiters
+            .checked_sub(1)
             .expect("fixed waiter released without registration");
+        drop(state);
         self.scheduler_epoch.advance();
     }
 }
@@ -275,9 +250,9 @@ impl fmt::Debug for CredentialRuntimeHandle {
         formatter
             .debug_struct("CredentialRuntimeHandle")
             .field("id", &self.id)
-            .field("capacity", &self.capacity())
-            .field("fixed_waiters", &self.fixed_waiters.load(Ordering::Acquire))
-            .field("auxiliary_in_flight", &self.auxiliary_in_flight())
+            .field("in_flight", &self.in_flight())
+            .field("rate", &self.rate_snapshot(Instant::now()))
+            .field("fixed_waiters", &self.fixed_waiter_count())
             .field("generation", &self.current_generation.load())
             .field("retired", &self.retired.load(Ordering::Acquire))
             .finish()
@@ -285,7 +260,7 @@ impl fmt::Debug for CredentialRuntimeHandle {
 }
 
 pub(crate) struct FixedCredentialWaiter {
-    pub(crate) handle: Arc<CredentialRuntimeHandle>,
+    handle: Arc<CredentialRuntimeHandle>,
 }
 
 impl Drop for FixedCredentialWaiter {

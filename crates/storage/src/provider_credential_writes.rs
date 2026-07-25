@@ -86,7 +86,7 @@ async fn insert(
          (id, provider_endpoint_id, label, label_key, credential_kind, secret_schema_version, \
           secret_version, credential_generation, config_version, envelope_version, key_id, \
           algorithm, nonce, ciphertext, aad_version, fingerprint_version, secret_fingerprint, \
-          secret_tail, proxy_profile_id, max_concurrency, enabled) \
+          secret_tail, proxy_profile_id, requests_per_minute, enabled) \
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(credential.id().to_string())
@@ -108,7 +108,11 @@ async fn insert(
     .bind(credential.fingerprint().digest().as_slice())
     .bind(credential.fingerprint().tail())
     .bind(credential.proxy_profile_id().to_string())
-    .bind(i64::from(credential.max_concurrency().get()))
+    .bind(
+        credential
+            .requests_per_minute()
+            .map(|value| i64::from(value.get())),
+    )
     .bind(credential.enabled())
     .execute(connection)
     .await?;
@@ -121,13 +125,17 @@ async fn update_metadata(
 ) -> Result<(), StorageError> {
     let result = sqlx::query(
         "UPDATE provider_credentials SET label = ?, label_key = ?, proxy_profile_id = ?, \
-         max_concurrency = ?, enabled = ?, credential_generation = ?, config_version = ?, \
+         requests_per_minute = ?, enabled = ?, credential_generation = ?, config_version = ?, \
          updated_at = CURRENT_TIMESTAMP WHERE id = ?",
     )
     .bind(credential.label())
     .bind(credential.label_key())
     .bind(credential.proxy_profile_id().to_string())
-    .bind(i64::from(credential.max_concurrency().get()))
+    .bind(
+        credential
+            .requests_per_minute()
+            .map(|value| i64::from(value.get())),
+    )
     .bind(credential.enabled())
     .bind(to_i64(credential.credential_generation())?)
     .bind(to_i64(credential.config_version())?)

@@ -100,16 +100,12 @@ impl RouteCandidate {
         self.binding.record_filter(error.kind());
     }
 
-    pub(crate) fn record_capacity_filter(&self) {
-        self.binding.record_filter(CredentialFilterKind::Capacity);
+    pub(crate) fn record_rate_limit_filter(&self) {
+        self.binding.record_filter(CredentialFilterKind::RateLimit);
     }
 
-    pub(crate) fn record_generation_selection(&self) {
-        self.binding.record_generation_selection();
-    }
-
-    pub(crate) fn record_auxiliary_selection(&self) {
-        self.binding.record_auxiliary_selection();
+    pub(crate) fn record_selection(&self) {
+        self.binding.record_selection();
     }
 }
 

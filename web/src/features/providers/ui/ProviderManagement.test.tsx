@@ -272,7 +272,7 @@ function credential(overrides: Record<string, unknown> = {}) {
     fingerprint: "v1:0123456789abcdef",
     secret_tail: "test",
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
-    max_concurrency: 4,
+    requests_per_minute: null,
     enabled: true,
     secret_schema_version: 1,
     secret_version: 1,

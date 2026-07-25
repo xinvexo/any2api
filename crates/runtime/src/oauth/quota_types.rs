@@ -23,8 +23,8 @@ pub enum OAuthQuotaError {
     UnsupportedProvider,
     #[error("OAuth account runtime is unavailable")]
     RuntimeUnavailable,
-    #[error("OAuth account is at its concurrency limit")]
-    CredentialAtCapacity,
+    #[error("OAuth account has exhausted its local RPM limit")]
+    CredentialRateLimited,
     #[error("OAuth token material is unavailable")]
     TokenMaterialUnavailable,
     #[error("OAuth proxy path is unavailable")]

@@ -853,7 +853,7 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
             .expect("sqlite bootstrap"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         configuration.revision(),
@@ -1018,7 +1018,7 @@ async fn create_labeled_credential(
             "credential_kind": "api_key",
             "api_key": api_key,
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "max_concurrency": 2,
+            "requests_per_minute": null,
             "enabled": true
         })),
         remote,

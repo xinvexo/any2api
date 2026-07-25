@@ -4,8 +4,8 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    MaxConcurrency, OAuthAccountDraft, OAuthAccountId, ProviderKind, RetrySafety,
-    RoutingCredentialId, SettingsConfiguration, UpstreamErrorClassification, UpstreamErrorKind,
+    OAuthAccountDraft, OAuthAccountId, ProviderKind, RetrySafety, RoutingCredentialId,
+    SettingsConfiguration, UpstreamErrorClassification, UpstreamErrorKind,
 };
 use any2api_provider::{CodexDriver, ProviderRegistry};
 use any2api_storage::api::{
@@ -241,12 +241,7 @@ impl QuotaTestContext {
                 initial.revision(),
                 account_id,
                 ProviderKind::Codex,
-                OAuthAccountDraft::new(
-                    "Codex OAuth",
-                    MaxConcurrency::new(1).expect("max concurrency"),
-                    true,
-                )
-                .expect("OAuth draft"),
+                OAuthAccountDraft::new("Codex OAuth", None, true).expect("OAuth draft"),
                 Some("person@example.com".into()),
                 None,
                 vec!["gpt-5.5".into()],
@@ -255,7 +250,7 @@ impl QuotaTestContext {
             .await
             .expect("OAuth account");
         let providers = providers();
-        let runtime = Arc::new(RuntimeRegistry::new(configured.settings().scheduler()));
+        let runtime = Arc::new(RuntimeRegistry::new());
         let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
             configured,
             runtime.as_ref(),

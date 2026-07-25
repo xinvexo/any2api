@@ -39,7 +39,7 @@ async fn insert(
     sqlx::query(concat!(
         "INSERT INTO oauth_accounts ",
         "(id, provider_kind, label, label_key, oauth_json, token_version, account_generation, ",
-        "config_version, proxy_profile_id, max_concurrency, enabled, safe_account_email, expires_at) ",
+        "config_version, proxy_profile_id, requests_per_minute, enabled, safe_account_email, expires_at) ",
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ))
     .bind(account.id().to_string())
@@ -51,7 +51,11 @@ async fn insert(
     .bind(to_i64(account.account_generation())?)
     .bind(to_i64(account.config_version())?)
     .bind(account.proxy_profile_id().to_string())
-    .bind(i64::from(account.max_concurrency().get()))
+    .bind(
+        account
+            .requests_per_minute()
+            .map(|value| i64::from(value.get())),
+    )
     .bind(account.enabled())
     .bind(account.safe_account_email())
     .bind(account.expires_at())
@@ -65,12 +69,16 @@ async fn update_metadata(
     account: &OAuthAccount,
 ) -> Result<(), StorageError> {
     let result = sqlx::query(concat!(
-        "UPDATE oauth_accounts SET label = ?, label_key = ?, max_concurrency = ?, enabled = ?, ",
+        "UPDATE oauth_accounts SET label = ?, label_key = ?, requests_per_minute = ?, enabled = ?, ",
         "account_generation = ?, config_version = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
     ))
     .bind(account.label())
     .bind(account.label_key())
-    .bind(i64::from(account.max_concurrency().get()))
+    .bind(
+        account
+            .requests_per_minute()
+            .map(|value| i64::from(value.get())),
+    )
     .bind(account.enabled())
     .bind(to_i64(account.account_generation())?)
     .bind(to_i64(account.config_version())?)

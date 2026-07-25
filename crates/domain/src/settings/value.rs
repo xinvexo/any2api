@@ -4,12 +4,12 @@ use thiserror::Error;
 use super::{SettingKey, SettingValueType};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SaturationMode {
+pub enum RateLimitMode {
     Wait,
     Reject,
 }
 
-impl SaturationMode {
+impl RateLimitMode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Wait => "wait",
@@ -86,7 +86,7 @@ pub enum SettingValue {
     Boolean(bool),
     Integer(u64),
     DurationSecs(u64),
-    Saturation(SaturationMode),
+    RateLimitMode(RateLimitMode),
     AffinityMode(AffinityMode),
     FileLogLevel(FileLogLevel),
 }
@@ -124,7 +124,7 @@ impl SettingValue {
         match self {
             Self::Boolean(value) => json!(value),
             Self::Integer(value) | Self::DurationSecs(value) => json!(value),
-            Self::Saturation(value) => json!(value.as_str()),
+            Self::RateLimitMode(value) => json!(value.as_str()),
             Self::AffinityMode(value) => json!(value.as_str()),
             Self::FileLogLevel(value) => json!(value.as_str()),
         }
@@ -135,7 +135,7 @@ impl SettingValue {
             Self::Boolean(_) => SettingValueType::Boolean,
             Self::Integer(_) => SettingValueType::Integer,
             Self::DurationSecs(_) => SettingValueType::DurationSecs,
-            Self::Saturation(_) | Self::AffinityMode(_) | Self::FileLogLevel(_) => {
+            Self::RateLimitMode(_) | Self::AffinityMode(_) | Self::FileLogLevel(_) => {
                 SettingValueType::Enum
             }
         }
@@ -143,7 +143,7 @@ impl SettingValue {
 
     fn enum_value(self) -> Option<&'static str> {
         match self {
-            Self::Saturation(value) => Some(value.as_str()),
+            Self::RateLimitMode(value) => Some(value.as_str()),
             Self::AffinityMode(value) => Some(value.as_str()),
             Self::FileLogLevel(value) => Some(value.as_str()),
             _ => None,
@@ -205,8 +205,8 @@ pub(super) fn integer(value: SettingValue) -> Result<u64, SettingsValidationErro
 
 fn parse_enum(key: SettingKey, value: &str) -> Option<SettingValue> {
     match key {
-        SettingKey::SchedulerOnSaturated => {
-            SaturationMode::parse(value).map(SettingValue::Saturation)
+        SettingKey::SchedulerOnRateLimited => {
+            RateLimitMode::parse(value).map(SettingValue::RateLimitMode)
         }
         SettingKey::AffinitySoftMode => AffinityMode::parse(value).map(SettingValue::AffinityMode),
         SettingKey::LogsFileLevel => FileLogLevel::parse(value).map(SettingValue::FileLogLevel),

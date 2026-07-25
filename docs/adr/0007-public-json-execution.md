@@ -1,9 +1,12 @@
 # ADR-0007: 首版同协议 JSON 请求执行链
 
-- 状态：Accepted
+- 状态：Partially Superseded by ADR-0037
 - 日期：2026-07-19
 - 决策者：maintainer
 - 后续：`ADR-0008` 已接入 `/v1/messages/count_tokens` 与独立辅助并发，本 ADR 记录的“仅认证门”是当时切片边界。
+
+> 取代说明（2026-07-25）：ADR-0037 以 `RoutingPermit`、原子 select-and-reserve 和稳定轮询
+> RPM 调度取代本文的 `ConcurrencyPermit`、select-and-acquire 与最低负载率选择；协议和认证边界继续有效。
 
 ## 背景
 

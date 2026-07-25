@@ -103,7 +103,7 @@ async fn signal_captures_the_latest_published_shutdown_settings() {
             .expect("storage"),
     );
     let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(configuration.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let components = crate::build_public_request_components().expect("public request components");
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         configuration,

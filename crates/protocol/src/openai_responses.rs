@@ -179,7 +179,7 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound
         | PublicErrorCode::SessionBindingLost => "invalid_request_error",
-        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalConcurrencyLimit => {
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
             "rate_limit_error"
         }
         PublicErrorCode::UpstreamError | PublicErrorCode::InternalError => "server_error",
@@ -195,7 +195,7 @@ fn error_code(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "model_not_found",
         PublicErrorCode::UpstreamNotFound => "upstream_not_found",
         PublicErrorCode::NoAvailableCredential => "no_available_credential",
-        PublicErrorCode::LocalConcurrencyLimit => "local_concurrency_limit",
+        PublicErrorCode::LocalRateLimit => "local_rate_limit",
         PublicErrorCode::SessionBindingLost => "session_binding_lost",
         PublicErrorCode::UpstreamError => "upstream_error",
         PublicErrorCode::InternalError => "internal_error",
@@ -211,7 +211,7 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
-        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalConcurrencyLimit => {
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
             StatusCode::TOO_MANY_REQUESTS
         }
         PublicErrorCode::SessionBindingLost => StatusCode::CONFLICT,

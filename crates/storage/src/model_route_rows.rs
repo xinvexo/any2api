@@ -13,7 +13,7 @@ struct ModelRouteRow {
     id: String,
     public_model: String,
     ingress_protocol: String,
-    fallback_on_saturation: Option<i64>,
+    fallback_on_rate_limit: Option<i64>,
     enabled: i64,
     config_version: i64,
 }
@@ -34,7 +34,7 @@ pub(crate) async fn load_model_routes_from(
     endpoints: &ProviderEndpointConfiguration,
 ) -> Result<ModelRouteConfiguration, StorageError> {
     let route_rows = sqlx::query_as::<_, ModelRouteRow>(
-        "SELECT id, public_model, ingress_protocol, fallback_on_saturation, enabled, \
+        "SELECT id, public_model, ingress_protocol, fallback_on_rate_limit, enabled, \
          config_version FROM model_routes ORDER BY ingress_protocol, public_model",
     )
     .fetch_all(&mut *connection)
@@ -101,7 +101,7 @@ fn parse_route(
     let draft = ModelRouteDraft::new(
         row.public_model,
         parse_protocol(&row.ingress_protocol)?,
-        parse_optional_bool(row.fallback_on_saturation)?,
+        parse_optional_bool(row.fallback_on_rate_limit)?,
         parse_bool(row.enabled)?,
         targets,
     )
@@ -117,13 +117,13 @@ pub(crate) async fn insert_model_route(
 ) -> Result<(), StorageError> {
     sqlx::query(
         "INSERT INTO model_routes \
-         (id, public_model, ingress_protocol, fallback_on_saturation, enabled, config_version) \
+         (id, public_model, ingress_protocol, fallback_on_rate_limit, enabled, config_version) \
          VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(route.id().to_string())
     .bind(route.public_model().as_str())
     .bind(protocol_text(route.ingress_protocol()))
-    .bind(route.fallback_on_saturation())
+    .bind(route.fallback_on_rate_limit())
     .bind(route.enabled())
     .bind(i64::try_from(route.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
     .execute(&mut *connection)

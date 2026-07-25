@@ -3,12 +3,13 @@ use std::{fmt, sync::Arc};
 use any2api_domain::RoutingCredentialId;
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError};
 use http::HeaderMap;
+use tokio::time::Instant;
 
 use super::{
-    capacity::CredentialCapacity,
     generation::CredentialGenerationRuntime,
     handle::{CredentialRuntimeHandle, FixedCredentialWaiter},
     metrics::{CredentialBalancingCounters, CredentialFilterKind},
+    rate_window::{CredentialRateSnapshot, RateLimited},
 };
 
 #[derive(Clone, Debug)]
@@ -24,12 +25,13 @@ impl CredentialRuntimeBinding {
     }
 
     #[must_use]
-    pub fn capacity(&self) -> CredentialCapacity {
-        self.handle.capacity()
+    pub fn in_flight(&self) -> u32 {
+        self.handle.in_flight()
     }
 
-    pub(crate) fn normal_capacity(&self) -> CredentialCapacity {
-        self.handle.normal_capacity()
+    #[must_use]
+    pub fn rate_snapshot(&self) -> CredentialRateSnapshot {
+        self.handle.rate_snapshot(Instant::now())
     }
 
     #[must_use]
@@ -42,10 +44,6 @@ impl CredentialRuntimeBinding {
         self.handle.is_retired()
     }
 
-    pub(crate) fn auxiliary_in_flight(&self) -> u32 {
-        self.handle.auxiliary_in_flight()
-    }
-
     pub(crate) fn fixed_waiter_count(&self) -> u32 {
         self.handle.fixed_waiter_count()
     }
@@ -54,36 +52,22 @@ impl CredentialRuntimeBinding {
         self.handle.balancing_counters()
     }
 
-    pub(crate) fn record_generation_selection(&self) {
-        self.handle.record_generation_selection();
-    }
-
-    pub(crate) fn record_auxiliary_selection(&self) {
-        self.handle.record_auxiliary_selection();
+    pub(crate) fn record_selection(&self) {
+        self.handle.record_selection();
     }
 
     pub(crate) fn record_filter(&self, kind: CredentialFilterKind) {
         self.handle.record_filter(kind);
     }
 
-    pub(crate) fn reserve_auxiliary(
-        &self,
-    ) -> (
-        Arc<CredentialRuntimeHandle>,
-        Arc<CredentialGenerationRuntime>,
-    ) {
-        self.handle.reserve_auxiliary();
-        (Arc::clone(&self.handle), Arc::clone(&self.generation))
-    }
-
-    #[must_use]
-    pub fn try_acquire(&self) -> Option<ConcurrencyPermit> {
-        self.handle.try_acquire_normal(Arc::clone(&self.generation))
-    }
-
-    pub(crate) fn try_acquire_fixed(&self) -> Option<ConcurrencyPermit> {
+    pub(crate) fn try_reserve(&self) -> Result<RoutingPermit, RateLimited> {
         self.handle
-            .try_acquire_unreserved(Arc::clone(&self.generation))
+            .try_reserve_normal(Arc::clone(&self.generation), Instant::now())
+    }
+
+    pub(crate) fn try_reserve_fixed(&self) -> Result<RoutingPermit, RateLimited> {
+        self.handle
+            .try_reserve_fixed(Arc::clone(&self.generation), Instant::now())
     }
 
     pub(crate) fn register_fixed_waiter(&self) -> FixedCredentialWaiter {
@@ -91,12 +75,12 @@ impl CredentialRuntimeBinding {
     }
 }
 
-pub struct ConcurrencyPermit {
+pub struct RoutingPermit {
     pub(crate) handle: Arc<CredentialRuntimeHandle>,
     pub(crate) generation: Arc<CredentialGenerationRuntime>,
 }
 
-impl ConcurrencyPermit {
+impl RoutingPermit {
     #[must_use]
     pub fn credential_id(&self) -> RoutingCredentialId {
         self.handle.id()
@@ -116,19 +100,19 @@ impl ConcurrencyPermit {
     }
 }
 
-impl fmt::Debug for ConcurrencyPermit {
+impl fmt::Debug for RoutingPermit {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("ConcurrencyPermit")
+            .debug_struct("RoutingPermit")
             .field("credential_id", &self.handle.id())
             .field("generation", &self.generation)
             .finish_non_exhaustive()
     }
 }
 
-impl Drop for ConcurrencyPermit {
+impl Drop for RoutingPermit {
     fn drop(&mut self) {
-        self.handle.release();
+        self.handle.release_in_flight();
     }
 }
 

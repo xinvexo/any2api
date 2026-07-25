@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, MaxConcurrency, ProtocolDialect,
-    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyProfileId, PublicModelName, TransportMode,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName,
+    TransportMode,
 };
 use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
 use any2api_provider::{CodexDriver, api::ProviderRegistry};
@@ -27,7 +27,7 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
             .expect("storage"),
     );
     let initial = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new(initial.settings().scheduler()));
+    let runtime = Arc::new(RuntimeRegistry::new());
     let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
         initial,
         runtime.as_ref(),
@@ -152,7 +152,7 @@ fn credential_draft(label: &str) -> ProviderCredentialDraft {
         label,
         CredentialKind::ApiKey,
         ProxyProfileId::DIRECT,
-        MaxConcurrency::new(4).expect("max concurrency"),
+        None,
         true,
     )
     .expect("credential draft")
