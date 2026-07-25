@@ -22,3 +22,4 @@
 "0021_request_log_error_message.sql" = "edd0d4a009d3b3b37746cbbbba80135efe8c94aeb1d66807f896cc43b69f7e8d"
 "0022_single_optional_rpm.sql" = "26deb3ab840ea681f5fddbb0c24c43913e472fe72f7211a3c2f594959b852665"
 "0023_request_log_thinking_level.sql" = "9794132656d62dc5db07b2d5bd45c64b173d73b38a8af163fedebb7801060b09"
+"0024_grok_provider.sql" = "0eab886826262890fc1ba4ab0e57759e934f7e6b670d445804e751fb791ae32f"

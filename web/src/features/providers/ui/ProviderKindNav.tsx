@@ -15,7 +15,7 @@ export function ProviderKindNav({ selected, counts, onSelect }: ProviderKindNavP
   return (
     <nav aria-label="Provider 类型" className="min-w-0">
       {/* Mobile: equal-width segmented control. Desktop: vertical rail. */}
-      <ul className="grid grid-cols-2 gap-1 rounded-[12px] bg-surface-muted/55 p-1 sm:flex sm:flex-col sm:gap-1.5 sm:bg-transparent sm:p-0">
+      <ul className="grid grid-cols-3 gap-1 rounded-[12px] bg-surface-muted/55 p-1 sm:flex sm:flex-col sm:gap-1.5 sm:bg-transparent sm:p-0">
         {PROVIDER_KIND_OPTIONS.map((option) => (
           <li key={option.kind} className="min-w-0">
             <KindButton

@@ -12,3 +12,7 @@ pub(crate) async fn run(pool: &SqlitePool) -> Result<(), StorageError> {
 #[cfg(test)]
 #[path = "migration_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "migration_grok_tests.rs"]
+mod grok_tests;

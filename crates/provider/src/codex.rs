@@ -1,7 +1,7 @@
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
-use http::{HeaderMap, HeaderValue, header};
+use http::HeaderMap;
 use url::Url;
 
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthRequestPlan,
         OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
-    api_key, codex_error, codex_oauth, codex_quota,
+    api_key, codex_oauth, codex_quota, openai_error,
 };
 
 #[derive(Debug)]
@@ -81,13 +81,7 @@ impl ProviderDriver for CodexDriver {
         &self,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
-        self.validate_credential(secret)?;
-        let value = format!("Bearer {}", secret.expose());
-        let authorization = HeaderValue::from_str(&value)
-            .map_err(|_| ProviderError::InvalidCredential("invalid API Key header".into()))?;
-        let mut headers = HeaderMap::new();
-        headers.insert(header::AUTHORIZATION, authorization);
-        Ok(CredentialHeaders { headers })
+        api_key::bearer_credential_headers(secret)
     }
 
     fn credential_test_plan(
@@ -186,7 +180,7 @@ impl ProviderDriver for CodexDriver {
         meta: &UpstreamResponseMeta,
         bounded_body: &[u8],
     ) -> any2api_domain::UpstreamErrorClassification {
-        codex_error::classify(meta, bounded_body)
+        openai_error::classify(meta, bounded_body)
     }
 }
 

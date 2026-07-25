@@ -90,6 +90,43 @@ test("creates a Claude private HTTP endpoint directly from the Base URL", async 
   });
 });
 
+test("creates a Grok endpoint with the official xAI defaults", async () => {
+  let current = configuration(1, []);
+  const fetchMock = mockAdminApis(
+    () => current,
+    () => credentialConfiguration(1, []),
+    (input, init) => {
+      if (String(input).includes("/provider-endpoints") && init?.method === "POST") {
+        current = configuration(2, [
+          endpoint({
+            name: "Grok Primary",
+            provider_kind: "grok",
+            base_url: "https://api.x.ai/v1",
+          }),
+        ]);
+        return jsonResponse(current);
+      }
+      return null;
+    },
+  );
+
+  renderManagement(["/providers?kind=grok&editor=new"]);
+
+  fireEvent.change(await screen.findByLabelText("名称"), {
+    target: { value: "Grok Primary" },
+  });
+  expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.x.ai/v1");
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(await screen.findByText("https://api.x.ai/v1")).toBeInTheDocument();
+  const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+  expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+    provider_kind: "grok",
+    base_url: "https://api.x.ai/v1",
+    protocol_dialect: "openai_responses",
+  });
+});
+
 test("refetches after a revision conflict without discarding the endpoint draft", async () => {
   let getCount = 0;
   mockAdminApis(
@@ -251,6 +288,16 @@ function protocolOptions() {
       provider_kind: "claude",
       accepted_protocol: "anthropic_messages",
       upstream_protocols: ["anthropic_messages"],
+    },
+    {
+      provider_kind: "grok",
+      accepted_protocol: "openai_responses",
+      upstream_protocols: ["openai_responses", "openai_chat_completions"],
+    },
+    {
+      provider_kind: "grok",
+      accepted_protocol: "openai_chat_completions",
+      upstream_protocols: ["openai_chat_completions"],
     },
   ];
 }

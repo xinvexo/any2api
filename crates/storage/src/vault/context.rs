@@ -83,6 +83,7 @@ pub(crate) const fn provider_kind_code(kind: ProviderKind) -> u8 {
     match kind {
         ProviderKind::Codex => 1,
         ProviderKind::Claude => 2,
+        ProviderKind::Grok => 3,
     }
 }
 

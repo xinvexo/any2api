@@ -1,0 +1,99 @@
+/* Floating ambient orbs (markup in AuthCanvas) */
+.auth-orb {
+  position: absolute;
+  z-index: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  filter: blur(48px);
+  opacity: 0.7;
+  will-change: transform, opacity;
+}
+
+.auth-orb-a {
+  top: 6%;
+  left: 2%;
+  width: min(52vw, 360px);
+  height: min(52vw, 360px);
+  background: rgb(0 113 227 / 42%);
+  animation: auth-orb-a 12s ease-in-out infinite;
+}
+
+.auth-orb-b {
+  right: -2%;
+  bottom: 4%;
+  width: min(56vw, 400px);
+  height: min(56vw, 400px);
+  background: rgb(94 92 230 / 34%);
+  animation: auth-orb-b 15s ease-in-out infinite;
+}
+
+.auth-orb-c {
+  top: 48%;
+  left: 38%;
+  width: min(34vw, 240px);
+  height: min(34vw, 240px);
+  background: rgb(50 215 210 / 28%);
+  animation: auth-orb-c 10s ease-in-out infinite;
+}
+
+html[data-theme="dark"] .auth-orb-a {
+  background: rgb(10 132 255 / 50%);
+  opacity: 0.8;
+}
+
+html[data-theme="dark"] .auth-orb-b {
+  background: rgb(94 92 230 / 42%);
+  opacity: 0.75;
+}
+
+html[data-theme="dark"] .auth-orb-c {
+  background: rgb(50 215 210 / 34%);
+  opacity: 0.7;
+}
+
+@keyframes auth-orb-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translate3d(12%, 10%, 0) scale(1.18);
+    opacity: 0.85;
+  }
+}
+
+@keyframes auth-orb-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.05);
+    opacity: 0.5;
+  }
+  50% {
+    transform: translate3d(-14%, -8%, 0) scale(0.9);
+    opacity: 0.8;
+  }
+}
+
+@keyframes auth-orb-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(0.95);
+    opacity: 0.45;
+  }
+  33% {
+    transform: translate3d(-10%, 12%, 0) scale(1.2);
+    opacity: 0.75;
+  }
+  66% {
+    transform: translate3d(14%, -6%, 0) scale(1.05);
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-fx,
+  .auth-orb {
+    animation: none !important;
+  }
+}

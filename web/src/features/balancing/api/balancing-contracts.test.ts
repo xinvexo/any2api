@@ -24,9 +24,10 @@ test("parses aggregate-only balancing runtime", () => {
   });
   expect(parsed.providers[0]).toMatchObject({
     providerKind: "codex",
-    credentialCount: 700,
-    selected: 30_000,
+    credentialCount: 600,
+    selected: 28_000,
   });
+  expect(parsed.providers[2]?.providerKind).toBe("grok");
   expect("credentials" in parsed).toBe(false);
 });
 
@@ -60,25 +61,36 @@ function runtimeResponse() {
     providers: [
       {
         provider_kind: "codex",
-        credential_count: 700,
-        enabled_credential_count: 660,
-        limited_credential_count: 560,
+        credential_count: 600,
+        enabled_credential_count: 560,
+        limited_credential_count: 470,
         rate_limited_credential_count: 8,
-        in_flight: 20,
-        requests_in_window: 1_400,
+        in_flight: 18,
+        requests_in_window: 1_200,
         fixed_waiters: 2,
-        selected: 30_000,
+        selected: 28_000,
       },
       {
         provider_kind: "claude",
-        credential_count: 300,
-        enabled_credential_count: 280,
-        limited_credential_count: 240,
-        rate_limited_credential_count: 4,
-        in_flight: 7,
-        requests_in_window: 445,
+        credential_count: 250,
+        enabled_credential_count: 235,
+        limited_credential_count: 210,
+        rate_limited_credential_count: 3,
+        in_flight: 6,
+        requests_in_window: 400,
         fixed_waiters: 0,
-        selected: 12_000,
+        selected: 10_000,
+      },
+      {
+        provider_kind: "grok",
+        credential_count: 150,
+        enabled_credential_count: 145,
+        limited_credential_count: 120,
+        rate_limited_credential_count: 1,
+        in_flight: 3,
+        requests_in_window: 245,
+        fixed_waiters: 0,
+        selected: 4_000,
       },
     ],
   };

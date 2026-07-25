@@ -62,6 +62,23 @@ async fn provider_protocol_options_and_optional_bridge_are_registry_driven() {
                 })
             })
     );
+    assert!(
+        initial["protocol_options"]
+            .as_array()
+            .is_some_and(|options| {
+                options.iter().any(|option| {
+                    option["provider_kind"] == "grok"
+                        && option["accepted_protocol"] == "openai_responses"
+                        && option["upstream_protocols"]
+                            .as_array()
+                            .is_some_and(|protocols| {
+                                protocols
+                                    .iter()
+                                    .any(|protocol| protocol == "openai_chat_completions")
+                            })
+                })
+            })
+    );
 
     let (status, bridged) = request_json(
         app.clone(),
@@ -111,7 +128,7 @@ async fn provider_protocol_options_and_optional_bridge_are_registry_driven() {
     assert_eq!(direct_chat["upstream_protocol_dialect"], Value::Null);
 
     let (status, unsupported) = request_json(
-        app,
+        app.clone(),
         Method::POST,
         "/api/admin/provider-endpoints",
         Some(json!({
@@ -127,6 +144,28 @@ async fn provider_protocol_options_and_optional_bridge_are_registry_driven() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(unsupported["error"]["code"], "invalid_provider_protocol");
+
+    let (status, grok) = request_json(
+        app,
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 3,
+            "name": "Grok Primary",
+            "provider_kind": "grok",
+            "base_url": "https://api.x.ai/v1",
+            "protocol_dialect": "openai_responses",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        grok["items"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item["provider_kind"] == "grok"))
+    );
 }
 
 #[tokio::test]

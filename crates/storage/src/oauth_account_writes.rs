@@ -43,7 +43,7 @@ async fn insert(
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ))
     .bind(account.id().to_string())
-    .bind(provider_kind_text(account.provider_kind()))
+    .bind(provider_kind_text(account.provider_kind())?)
     .bind(account.label())
     .bind(account.label_key())
     .bind(bytes)
@@ -171,9 +171,10 @@ fn to_i64(value: u64) -> Result<i64, StorageError> {
     i64::try_from(value).map_err(|_| StorageError::RevisionOverflow)
 }
 
-const fn provider_kind_text(kind: ProviderKind) -> &'static str {
+const fn provider_kind_text(kind: ProviderKind) -> Result<&'static str, StorageError> {
     match kind {
-        ProviderKind::Codex => "codex",
-        ProviderKind::Claude => "claude",
+        ProviderKind::Codex => Ok("codex"),
+        ProviderKind::Claude => Ok("claude"),
+        ProviderKind::Grok => Err(StorageError::CorruptConfiguration),
     }
 }

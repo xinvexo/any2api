@@ -62,3 +62,18 @@ fn labels_are_unique_per_provider() {
     .expect_err("same-provider labels conflict");
     assert_eq!(error, OAuthAccountValidationError::DuplicateLabel);
 }
+
+#[test]
+fn grok_cannot_be_constructed_as_an_oauth_account() {
+    let error = OAuthAccount::create(
+        OAuthAccountId::new(),
+        ProviderKind::Grok,
+        OAuthAccountDraft::new("Grok", None, true).expect("valid draft"),
+        None,
+        None,
+        Vec::new(),
+    )
+    .expect_err("Grok is API Key-only");
+
+    assert_eq!(error, OAuthAccountValidationError::UnsupportedProvider);
+}

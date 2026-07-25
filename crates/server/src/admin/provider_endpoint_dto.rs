@@ -19,7 +19,7 @@ impl ProviderEndpointCollectionResponse {
         snapshot: &PublishedSnapshot,
         capabilities: &ConfigurationCapabilities,
     ) -> Self {
-        let protocol_options = [ProviderKind::Codex, ProviderKind::Claude]
+        let protocol_options = ProviderKind::ALL
             .into_iter()
             .flat_map(|provider| capabilities.provider_protocol_options(provider))
             .map(|option| ProviderProtocolOptionsResponse {

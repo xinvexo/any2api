@@ -270,6 +270,7 @@ fn document_bytes(provider: ProviderKind, access_token: &str) -> Vec<u8> {
     let provider = match provider {
         ProviderKind::Codex => "codex",
         ProviderKind::Claude => "claude",
+        ProviderKind::Grok => panic!("Grok is API Key-only"),
     };
     format!(
         r#"{{"access_token":"{access_token}","refresh_token":"refresh-secret","type":"{provider}"}}"#

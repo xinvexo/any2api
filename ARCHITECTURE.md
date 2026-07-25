@@ -10,9 +10,9 @@
 
 any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚合代理。
 
-项目目标是把多个 Codex、Claude 凭据聚合为统一入口，提供：
+项目目标是把多个 Codex、Claude、Grok 凭据聚合为统一入口，提供：
 
-- Codex、Claude 原生协议接入，并为后续协议转换保留扩展边界；
+- Codex、Claude 原生协议与 Grok 的 OpenAI 兼容协议接入，并为后续协议转换保留扩展边界；
 - 多 Provider Credential 管理；
 - 多个网关 API Key 管理；
 - 可选的账号级 RPM 限速与轮询负载均衡；
@@ -28,7 +28,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 当前已经确认的需求如下：
 
 1. 后端使用 Rust，前端使用 React Web。
-2. 首批只支持 Codex 和 Claude，其他 Provider 暂不实现。
+2. 首批支持 Codex、Claude 和 Grok；Grok 只使用 API Key，不进入 OAuthAccount。
 3. 一个 Provider URL 可以配置多个独立 `ProviderCredential`；当前只支持 API Key。
 4. 每个 `ProviderCredential` 可以分别启用、禁用、绑定代理和设置可选 RPM；未设置时不做本地限速。
 5. 代理类型仅支持：
@@ -59,7 +59,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 | 概念 | 方向 | 用途 |
 |---|---|---|
 | `GatewayApiKey` | 客户端 → any2api | 验证客户端是否允许访问当前 any2api 实例 |
-| `ProviderCredential`（下文可简称 `Credential`） | any2api → Codex/Claude | 注入 Provider API Key |
+| `ProviderCredential`（下文可简称 `Credential`） | any2api → Provider | 注入 Provider API Key |
 
 ```text
 Client ── GatewayApiKey ──> any2api ── ProviderCredential ──> Provider
@@ -175,7 +175,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 - `domain` 不依赖 Web、数据库、HTTP Client 或具体 Provider；
 - `protocol` 不依赖存储、代理、调度和管理 API；
 - `provider` 不依赖 Axum、React、SQLite 实现或调度器内部状态；
-- `transport` 不知道 Codex/Claude 的认证字段和业务错误；
+- `transport` 不知道具体 Provider 的认证字段和业务错误；
 - `storage` 不包含负载均衡、协议转换或 HTTP Handler；
 - `server` 只负责入口适配、鉴权、中间件和 DTO，不承载核心业务规则；
 - `app` 是唯一依赖装配根，负责把具体实现注册到运行时。
@@ -313,7 +313,7 @@ any2api/
 │  │  └─ src/                   # api/sqlite/repository/migration/vault
 │  └─ server/
 │     └─ src/
-│        ├─ public/             # Codex/Claude 公开入口
+│        ├─ public/             # OpenAI/Anthropic 兼容公开入口
 │        ├─ admin/              # 管理 API
 │        ├─ middleware/         # 鉴权、限制、Request ID
 │        └─ error/              # 协议兼容错误输出
@@ -391,7 +391,7 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 - Transport 集成测试：DIRECT、HTTP CONNECT、SOCKS5h、代理认证和 Client 代际；
 - 流式切分/模糊测试：任意字节切分、CRLF、多行 `data:`、无尾空行和畸形帧；
 - 热更新测试：编译失败不提交、revision 不倒退、Runtime 句柄跨快照复用；
-- 端到端测试：Codex/Claude JSON、SSE、GatewayApiKey 隔离、粘性和重试。
+- 端到端测试：Codex/Claude/Grok JSON、SSE、GatewayApiKey 隔离、粘性和重试。
 
 浏览器 E2E 使用独立临时数据目录、固定测试管理员密码和真实 Rust HTTP 服务；不得复用开发者本地数据库、主密钥或登录 Cookie。首个浏览器套件只覆盖跨页面共享且单元测试无法证明的契约：登录后保留目标 deep link、服务端 SPA fallback、核心管理页面刷新、移动导航、桌面/390px 视口无水平溢出和控制台无未处理错误。业务 CRUD、字段校验和错误分支继续由更快的 Domain、HTTP 契约与 React 单元测试覆盖，禁止在浏览器层重复堆叠全量矩阵。
 
@@ -444,7 +444,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 | backup peer | 后备 Route Target |
 | keepalive | 按代理配置复用的连接池 |
 | `proxy_next_upstream` | 响应提交前切换 `ProviderCredential` |
-| filter chain | Codex/Claude 请求与响应转换 |
+| filter chain | Provider 请求与响应转换 |
 | graceful reload | ArcSwap 配置代际切换 |
 
 ## 8. 请求阶段流水线
@@ -570,7 +570,7 @@ proxy_passwords
 provider_endpoints
 ├─ id
 ├─ name
-├─ provider_kind         # codex | claude
+├─ provider_kind         # codex | claude | grok
 ├─ base_url
 ├─ protocol_dialect      # 客户端接受协议，必填
 ├─ upstream_protocol_dialect  # 内部转换协议，可空；空值表示与接受协议相同
@@ -653,7 +653,7 @@ CredentialRuntimeHandle
 
 管理面提供 `POST /api/admin/provider-credentials/{id}/test`。测试固定使用当前
 `PublishedSnapshot` 中该 Credential 的认证材料、Provider Endpoint 与解析后的实际代理，
-由 Provider Driver 构造无生成副作用的凭据探测请求；首版 Codex 与 Claude 都使用各自
+由 Provider Driver 构造无生成副作用的凭据探测请求；首版 Codex、Claude 与 Grok 都使用各自
 Base URL 下的 `GET /models`。测试不经过模型路由、不切换 Credential、不回退代理，也不更新
 Endpoint/Proxy 冷却或熔断状态。只有收到 2xx 响应时，才清除本次捕获
 `CredentialGenerationRuntime` 的 `auth_error` 并推进统一 scheduler epoch；配置在测试期间发生
@@ -997,6 +997,7 @@ ProxyRuntime
 
 - Codex
 - Claude
+- Grok（xAI，API Key only）
 
 首批协议模块：
 
@@ -1007,7 +1008,8 @@ protocol/
 
 provider/
 ├─ codex/
-└─ claude/
+├─ claude/
+└─ grok/
 ```
 
 ### 11.1 Provider 与协议方言不是同一概念
@@ -1017,7 +1019,8 @@ Provider 表示上游供应方，ProtocolDialect 表示线协议。首批至少�
 ```text
 ProviderKind
 ├─ codex
-└─ claude
+├─ claude
+└─ grok
 
 ProtocolDialect
 ├─ openai_responses
@@ -1046,7 +1049,7 @@ ProviderKind
 
 | 入口 | 用途 | 上游方言 | JSON | SSE | 首版状态 |
 |---|---|---|---|---|---|
-| `POST /v1/responses` | Codex/OpenAI Responses 推理 | openai_responses | 是 | 是 | JSON + SSE vertical slice |
+| `POST /v1/responses` | Codex/Grok/OpenAI Responses 推理 | openai_responses | 是 | 是 | JSON + SSE vertical slice |
 | `POST /v1/responses` | Responses 兼容入口桥接 Chat 上游 | openai_chat_completions | 是 | 是 | 首个可选协议桥 |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | 是 | 否 | JSON vertical slice |
 | `POST /v1/chat/completions` | OpenAI Chat Completions 推理 | openai_chat_completions | 是 | 是 | JSON + SSE 直通 |
@@ -1064,7 +1067,7 @@ ProviderKind
 - 接收 OpenAI Responses Compact JSON，至少要求 `model` 和 `input`；
 - 只支持非流式 JSON；请求包含 `stream=true` 时返回 400；
 - 使用与 `/v1/responses` 相同的模型路由、Provider API Key、代理和账号 RPM；
-- 首版只转发到支持 compact 的同协议 Codex/OpenAI 上游；
+- 首版只转发到支持 compact 的同协议 Codex/Grok/OpenAI 上游；
 - 保留上游 compaction 响应和 usage，不自行解析或改写不透明 compaction 内容；
 - 不建立 Codex `previous_response_id` 硬绑定，但显式软会话头仍可使用软粘性。
 
@@ -1116,10 +1119,10 @@ Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字�
 
 规则：
 
-- 不强制 `codex/` 或 `claude/` 前缀；
+- 不强制 `codex/`、`claude/` 或 `grok/` 前缀；
 - 保存 Credential 模型选择时，`public_model` 固定复制 `upstream_model`；
 - 首版不在普通管理面提供本地别名和手工 Target/tier；需要别名时应另行设计不暴露调度内部结构的交互；
-- `codex/`、`claude/` 只作为可选命名习惯；
+- `codex/`、`claude/`、`grok/` 只作为可选命名习惯；
 - `(ingress_protocol, public_model)` 必须唯一，发生冲突时拒绝发布；
 - 模型所属协议由入口 Route 决定，不依赖名称前缀猜测；内部转换协议不改变客户端填写的模型名。
 
@@ -1193,7 +1196,7 @@ trait ProtocolBridgeSession: Send {
 ### 11.7 Provider URL 语义
 
 - `base_url` 表示配置中固定的上游 Origin 与可选固定 API 前缀，不是任意完整请求 URL；
-- Web 中 Codex 与 Claude 的官方默认 Base URL 分别为 `https://api.openai.com/v1` 和 `https://api.anthropic.com/v1`；自定义兼容服务必须把自身固定 API 前缀包含在 Base URL 中；
+- Web 中 Codex、Claude 与 Grok 的官方默认 Base URL 分别为 `https://api.openai.com/v1`、`https://api.anthropic.com/v1` 和 `https://api.x.ai/v1`；自定义兼容服务必须把自身固定 API 前缀包含在 Base URL 中；
 - 路径由 ProtocolDialect 使用结构化 URL API 安全拼接；
 - 客户端的 Host、absolute-form URL 和转发头不得改变上游 authority；
 - 默认禁用上游重定向；以后若允许，只允许显式策略并重新执行 SSRF 校验；
@@ -1233,7 +1236,7 @@ trait ProtocolBridgeSession: Send {
 
 有效上游协议等于接受协议时优先采用原始 JSON 透传加局部字段修改，保留未知字段。只有显式配置不同内部协议时才进入 Canonical IR。
 
-Codex 与 Claude 的上游 `ProviderCredential` 当前都只支持 API Key。OAuthAccount 的 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。普通 API Key 管理端点不接受 OAuth JSON。
+Codex、Claude 与 Grok 的上游 `ProviderCredential` 当前都只支持 API Key。Grok 不支持 OAuthAccount；OAuthAccount 仍只允许 Codex 与 Claude，其 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。普通 API Key 管理端点不接受 OAuth JSON。
 
 ## 12. 负载均衡
 
@@ -2178,7 +2181,7 @@ runtime_retired
 - 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；
 - SSE 只有在首帧验证与软绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
 - SQLite Writer 小批量事务写入父子记录，并按 retention/max_rows 任一上限分批清理；历史记录不参与启动恢复；
-- ProtocolAdapter 在已知 Codex/Claude 响应字段上生成无协议知识的 `TokenUsage` 旁路元数据；Runtime 只合并已解析元数据，禁止在调度器中按 Provider 分支搜索 JSON；
+- ProtocolAdapter 在已知 OpenAI/Anthropic 响应字段上生成无协议知识的 `TokenUsage` 旁路元数据；Runtime 只合并已解析元数据，禁止在调度器中按 Provider 分支搜索 JSON；
 - Codex JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`input_tokens_details.cached_tokens` 与 `input_tokens_details.cache_write_tokens`；SSE 只从 `response.completed`/`response.incomplete` 的 `response.usage` 读取相同字段；
 - Claude JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`cache_read_input_tokens` 与 `cache_creation_input_tokens`；SSE 使用 `message_start.message.usage` 与 `message_delta.usage` 的累计快照，按字段覆盖而不相加；
 - Token 字段只接受 `0..=9_007_199_254_740_991`（JavaScript `Number.MAX_SAFE_INTEGER`）的 JSON 整数，同时保证 SQLite INTEGER 与 Web 管理契约可无损表达；缺失、`null`、负数、浮点、字符串或超界值均保持未知，不得因遥测字段异常中断代理响应；
@@ -2261,7 +2264,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 ### 19.4 总览运行态
 
-- 全局及 Codex、Claude 汇总的账号总数、启用数、RPM 启用数与 RPM 已用尽数；
+- 全局及 Codex、Claude、Grok 汇总的账号总数、启用数、RPM 启用数与 RPM 已用尽数；
 - 全局及 Provider 汇总的滚动 60 秒请求数、当前 `in_flight` 与成功选中次数；
 - 排队请求数、固定等待者和 scheduler epoch；
 - 当前软绑定数、硬绑定数与 Creating 数；
@@ -2455,6 +2458,14 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - Claude Code 会话标识；
 - 软粘性。
 
+### 阶段 3.1：Grok API Key Provider
+
+- 独立 `ProviderKind::Grok` 与静态注册的 Grok Driver；
+- xAI Bearer API Key、`https://api.x.ai/v1` 默认 Base URL 与 `GET /models`；
+- OpenAI Responses、Responses Compact 和 Chat Completions 的 JSON/SSE 现有协议链；
+- 复用统一 RPM、轮询、粘性、健康、重试、代理与遥测，不增加中央调度分支；
+- OAuthAccount 继续只允许 Codex/Claude。完整决策见 `docs/adr/0040-grok-api-key-provider.md`。
+
 ### 阶段 4：可靠性
 
 - 错误分类；
@@ -2514,6 +2525,7 @@ OAuthAccount ──X ProviderEndpoint / ProviderCredential
 OAuthAccount ──> Fixed Provider Endpoint + DIRECT/Global Proxy + Selected Models
 OAuth Session/PKCE ──> Memory Only + 10 Minute TTL + One-Time Exchange
 OAuth Token ──> OAuthAccount SQLite JSON (Plaintext, No DTO/Log/Export)
+Grok ──> ProviderCredential API Key Only ──X OAuthAccount
 
 any2api Instance 1 ── N GatewayApiKey
 GatewayApiKey ──> Instance Access Only

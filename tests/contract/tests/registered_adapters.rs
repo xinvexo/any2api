@@ -80,7 +80,11 @@ fn composition_root_provider_registry_runs_every_contract() {
         .collect::<BTreeSet<_>>();
     assert_eq!(
         actual,
-        BTreeSet::from([ProviderKind::Codex, ProviderKind::Claude])
+        BTreeSet::from([
+            ProviderKind::Codex,
+            ProviderKind::Claude,
+            ProviderKind::Grok,
+        ])
     );
 
     for (kind, driver) in registry.iter() {
@@ -88,6 +92,7 @@ fn composition_root_provider_registry_runs_every_contract() {
         match kind {
             ProviderKind::Codex => codex_contract(driver.as_ref()),
             ProviderKind::Claude => claude_contract(driver.as_ref()),
+            ProviderKind::Grok => grok_contract(driver.as_ref()),
         }
     }
 }
@@ -411,6 +416,49 @@ fn claude_contract(driver: &dyn ProviderDriver) {
             .kind(),
         any2api_domain::UpstreamErrorKind::OperationUnavailable
     );
+}
+
+fn grok_contract(driver: &dyn ProviderDriver) {
+    assert!(
+        driver
+            .capabilities()
+            .protocols
+            .contains(&ProtocolDialect::OpenAiResponses)
+    );
+    assert!(
+        driver
+            .capabilities()
+            .protocols
+            .contains(&ProtocolDialect::OpenAiChatCompletions)
+    );
+    assert_common_capabilities(driver);
+    let compact = driver
+        .endpoint_plan(&provider_base_url(), ProtocolOperation::ResponsesCompact)
+        .expect("Grok compact endpoint plan");
+    assert_eq!(
+        compact.url.as_str(),
+        "https://api.example.com/v1/responses/compact"
+    );
+    let chat = driver
+        .endpoint_plan(&provider_base_url(), ProtocolOperation::ChatCompletions)
+        .expect("Grok chat endpoint plan");
+    assert_eq!(
+        chat.url.as_str(),
+        "https://api.example.com/v1/chat/completions"
+    );
+    assert_eq!(
+        driver
+            .credential_test_plan(&provider_base_url())
+            .expect("Grok credential test plan")
+            .url
+            .as_str(),
+        "https://api.example.com/v1/models"
+    );
+    let headers = driver
+        .credential_headers(&ProviderSecret::new(1, "xai-contract-key"))
+        .expect("Grok credential headers");
+    assert_eq!(headers.headers[AUTHORIZATION], "Bearer xai-contract-key");
+    assert_eq!(driver.oauth_redirect_uri(), None);
 }
 
 fn assert_common_capabilities(driver: &dyn ProviderDriver) {

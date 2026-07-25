@@ -3,9 +3,19 @@ use secrecy::ExposeSecret;
 use tempfile::tempdir;
 
 use super::{
-    SecretBytes, SecretContext, SecretEnvelope, SecretVault, context::AAD_VERSION,
-    envelope::ENVELOPE_VERSION, error::SecretVaultError, master_key::MasterKey,
+    SecretBytes, SecretContext, SecretEnvelope, SecretVault,
+    context::{AAD_VERSION, provider_kind_code},
+    envelope::ENVELOPE_VERSION,
+    error::SecretVaultError,
+    master_key::MasterKey,
 };
+
+#[test]
+fn provider_aad_codes_are_stable_and_distinct() {
+    assert_eq!(provider_kind_code(ProviderKind::Codex), 1);
+    assert_eq!(provider_kind_code(ProviderKind::Claude), 2);
+    assert_eq!(provider_kind_code(ProviderKind::Grok), 3);
+}
 
 #[test]
 fn secret_round_trip_uses_unique_nonces() {

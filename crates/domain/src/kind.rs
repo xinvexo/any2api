@@ -5,15 +5,24 @@ use serde::{Deserialize, Serialize};
 pub enum ProviderKind {
     Codex,
     Claude,
+    Grok,
 }
 
 impl ProviderKind {
+    pub const ALL: [Self; 3] = [Self::Codex, Self::Claude, Self::Grok];
+
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Codex => "codex",
             Self::Claude => "claude",
+            Self::Grok => "grok",
         }
+    }
+
+    #[must_use]
+    pub const fn supports_oauth(self) -> bool {
+        matches!(self, Self::Codex | Self::Claude)
     }
 }
 

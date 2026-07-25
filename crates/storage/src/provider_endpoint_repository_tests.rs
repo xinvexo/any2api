@@ -154,6 +154,38 @@ async fn accepted_and_optional_upstream_protocols_round_trip_without_storage_pai
 }
 
 #[tokio::test]
+async fn grok_endpoint_round_trips_as_an_api_key_provider() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
+        .await
+        .expect("store");
+    let id = ProviderEndpointId::new();
+
+    let published = store
+        .create_provider_endpoint(
+            ConfigRevision::INITIAL,
+            id,
+            ProviderEndpointDraft::new(
+                "Grok Primary",
+                ProviderKind::Grok,
+                "https://api.x.ai/v1",
+                ProtocolDialect::OpenAiResponses,
+                true,
+            )
+            .expect("Grok draft"),
+        )
+        .await
+        .expect("create Grok endpoint");
+    let endpoint = published
+        .provider_endpoints()
+        .get(id)
+        .expect("stored Grok endpoint");
+
+    assert_eq!(endpoint.provider_kind(), ProviderKind::Grok);
+    assert_eq!(endpoint.base_url().as_str(), "https://api.x.ai/v1");
+}
+
+#[tokio::test]
 async fn duplicate_endpoint_names_are_rejected_before_commit() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))

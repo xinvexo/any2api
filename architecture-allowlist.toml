@@ -1,2 +1,6 @@
-exceptions = []
-
+[[exceptions]]
+path = "crates/runtime/src/oauth/quota_tests.rs"
+reason = "Cohesive Codex OAuth quota integration fixture with a stateful fake transport for refresh and reset serialization."
+adr = "docs/adr/0034-codex-oauth-quota-reset.md"
+owner = "maintainer"
+expires_at = "2027-01-31"

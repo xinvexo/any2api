@@ -46,4 +46,21 @@ export function ClaudeIcon({ size = 16, className, ...props }: BrandIconProps) {
   );
 }
 
+/** Compact xAI/Grok monogram for provider navigation. */
+export function GrokIcon({ size = 16, className, ...props }: BrandIconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      aria-hidden="true"
+      className={cn("shrink-0", className)}
+      {...props}
+    >
+      <path d="M3.8 3.5h3.7l4.6 6.1 4.7-6.1h3.4l-6.4 8.3 6.6 8.7h-3.7l-4.8-6.4-4.8 6.4H3.6l6.6-8.6L3.8 3.5Z" />
+    </svg>
+  );
+}
+
 export type BrandIcon = typeof OpenAiIcon;

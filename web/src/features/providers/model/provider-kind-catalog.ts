@@ -1,4 +1,9 @@
-import { ClaudeIcon, OpenAiIcon, type BrandIcon } from "@/shared/icons/brand-icons";
+import {
+  ClaudeIcon,
+  GrokIcon,
+  OpenAiIcon,
+  type BrandIcon,
+} from "@/shared/icons/brand-icons";
 
 import type { ProviderKind } from "../api/provider-contracts";
 
@@ -12,6 +17,7 @@ export interface ProviderKindOption {
 export const PROVIDER_KIND_OPTIONS: readonly ProviderKindOption[] = [
   { kind: "codex", label: "Codex", icon: OpenAiIcon },
   { kind: "claude", label: "Claude", icon: ClaudeIcon },
+  { kind: "grok", label: "Grok", icon: GrokIcon },
 ] as const;
 
 export function isProviderKind(value: string | null | undefined): value is ProviderKind {

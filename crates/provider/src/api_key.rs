@@ -3,10 +3,11 @@ use std::collections::BTreeSet;
 use any2api_domain::{
     API_KEY_SECRET_SCHEMA_VERSION, ProtocolOperation, ProviderBaseUrl, UpstreamModelName,
 };
+use http::{HeaderMap, HeaderValue, header};
 use serde::Deserialize;
 use url::Url;
 
-use crate::{ProviderError, ProviderSecret};
+use crate::{ProviderError, ProviderSecret, api::CredentialHeaders};
 
 pub(crate) fn validate_secret(secret: &ProviderSecret) -> Result<(), ProviderError> {
     if secret.schema_version() != API_KEY_SECRET_SCHEMA_VERSION {
@@ -24,6 +25,18 @@ pub(crate) fn validate_secret(secret: &ProviderSecret) -> Result<(), ProviderErr
         ));
     }
     Ok(())
+}
+
+pub(crate) fn bearer_credential_headers(
+    secret: &ProviderSecret,
+) -> Result<CredentialHeaders, ProviderError> {
+    validate_secret(secret)?;
+    let value = format!("Bearer {}", secret.expose());
+    let authorization = HeaderValue::from_str(&value)
+        .map_err(|_| ProviderError::InvalidCredential("invalid API Key header".into()))?;
+    let mut headers = HeaderMap::new();
+    headers.insert(header::AUTHORIZATION, authorization);
+    Ok(CredentialHeaders { headers })
 }
 
 pub(crate) fn endpoint_url(

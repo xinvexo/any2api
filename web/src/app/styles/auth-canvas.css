@@ -1,0 +1,125 @@
+/* Auth screen — tech canvas with layered motion */
+.auth-canvas {
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(165deg, #e8eef8 0%, #f3f5f9 42%, #e6edf8 100%);
+}
+
+html[data-theme="dark"] .auth-canvas {
+  background: linear-gradient(165deg, #070b14 0%, #0c1018 45%, #0a0e16 100%);
+}
+
+.auth-canvas > :not(.auth-fx):not(.auth-orb) {
+  position: relative;
+  z-index: 1;
+}
+
+.auth-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Moving aurora mesh */
+.auth-fx-aurora {
+  background:
+    radial-gradient(ellipse 55% 45% at 18% 22%, rgb(0 113 227 / 32%), transparent 58%),
+    radial-gradient(ellipse 50% 40% at 82% 78%, rgb(94 92 230 / 24%), transparent 55%),
+    radial-gradient(ellipse 40% 35% at 55% 100%, rgb(50 215 210 / 18%), transparent 50%);
+  filter: blur(8px);
+  animation: auth-aurora 16s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+}
+
+html[data-theme="dark"] .auth-fx-aurora {
+  background:
+    radial-gradient(ellipse 55% 45% at 18% 22%, rgb(10 132 255 / 42%), transparent 58%),
+    radial-gradient(ellipse 50% 40% at 82% 78%, rgb(94 92 230 / 32%), transparent 55%),
+    radial-gradient(ellipse 40% 35% at 55% 100%, rgb(50 215 210 / 22%), transparent 50%);
+}
+
+/* Drifting tech grid */
+.auth-fx-grid {
+  background-image:
+    linear-gradient(rgb(0 113 227 / 12%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(0 113 227 / 12%) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 78% 72% at 50% 48%, #000 5%, transparent 72%);
+  animation: auth-grid-drift 22s linear infinite;
+  will-change: background-position;
+}
+
+html[data-theme="dark"] .auth-fx-grid {
+  background-image:
+    linear-gradient(rgb(10 132 255 / 16%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(10 132 255 / 16%) 1px, transparent 1px);
+  opacity: 0.85;
+}
+
+/* Cursor particle canvas (logic in AuthMouseParticles) */
+.auth-fx-cursor-particles {
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+@keyframes auth-aurora {
+  0% {
+    transform: translate3d(-4%, -2%, 0) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: translate3d(5%, 3%, 0) scale(1.08);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(3%, -4%, 0) scale(1.02);
+    opacity: 0.9;
+  }
+}
+
+@keyframes auth-grid-drift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 44px 44px;
+  }
+}
+
+.auth-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgb(0 113 227 / 18%);
+  border-radius: 24px;
+  background: linear-gradient(
+    165deg,
+    rgb(255 255 255 / 78%) 0%,
+    rgb(236 243 255 / 62%) 48%,
+    rgb(248 250 255 / 70%) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 75%) inset,
+    0 1px 0 rgb(255 255 255 / 55%) inset,
+    0 24px 64px rgb(0 50 120 / 14%),
+    0 0 100px rgb(0 113 227 / 12%);
+  backdrop-filter: blur(32px) saturate(1.4);
+  -webkit-backdrop-filter: blur(32px) saturate(1.4);
+}
+
+html[data-theme="dark"] .auth-card {
+  border-color: rgb(10 132 255 / 26%);
+  background: linear-gradient(
+    165deg,
+    rgb(32 42 64 / 78%) 0%,
+    rgb(18 26 44 / 68%) 52%,
+    rgb(14 20 36 / 74%) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 8%) inset,
+    0 1px 0 rgb(255 255 255 / 6%) inset,
+    0 28px 72px rgb(0 0 0 / 48%),
+    0 0 110px rgb(10 132 255 / 18%);
+}

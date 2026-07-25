@@ -113,7 +113,12 @@ function initialDraft(
 }
 
 function defaultBaseUrl(kind: ProviderKind) {
-  return kind === "codex" ? "https://api.openai.com/v1" : "https://api.anthropic.com/v1";
+  const defaults: Record<ProviderKind, string> = {
+    codex: "https://api.openai.com/v1",
+    claude: "https://api.anthropic.com/v1",
+    grok: "https://api.x.ai/v1",
+  };
+  return defaults[kind];
 }
 
 function validate(
@@ -155,7 +160,7 @@ function defaultProtocol(
 ): ProtocolDialect {
   return (
     options.find((option) => option.providerKind === kind)?.acceptedProtocol ??
-    (kind === "codex" ? "openai_responses" : "anthropic_messages")
+    (kind === "claude" ? "anthropic_messages" : "openai_responses")
   );
 }
 

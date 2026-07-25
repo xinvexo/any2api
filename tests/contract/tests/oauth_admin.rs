@@ -9,7 +9,7 @@ use std::{
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_domain::ProxyProfileId;
-use any2api_provider::{CodexDriver, ProviderRegistry};
+use any2api_provider::{CodexDriver, GrokDriver, ProviderRegistry};
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
 };
@@ -67,6 +67,17 @@ async fn oauth_start_is_loopback_protected_and_does_not_publish_configuration() 
     );
     assert_eq!(start["redirect_uri"], "http://localhost:1455/auth/callback");
     assert_eq!(start["expires_in_seconds"], 600);
+
+    let (status, unsupported) = request_json(
+        app,
+        Method::POST,
+        "/api/admin/oauth/start",
+        Some(json!({"provider": "grok"})),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(unsupported["error"]["code"], "oauth_provider_unsupported");
 
     let configuration = storage.load_configuration().await.expect("configuration");
     assert_eq!(configuration.revision().get(), 1);
@@ -228,6 +239,9 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     providers
         .register(Arc::new(CodexDriver::new()))
         .expect("Codex driver");
+    providers
+        .register(Arc::new(GrokDriver::new()))
+        .expect("Grok driver");
     let token_transport = Arc::new(TokenTransport::default());
     let oauth = Arc::new(OAuthService::new(
         Arc::new(providers),

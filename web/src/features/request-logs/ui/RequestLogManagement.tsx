@@ -112,7 +112,7 @@ export function RequestLogManagement() {
             <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
             <p className="mt-3 text-[13px] font-medium">还没有请求日志</p>
             <p className="mt-1 text-[12px] text-secondary">
-              通过网关完成一次 Codex 或 Claude 请求后，记录会出现在这里。
+              通过网关完成一次 Codex、Claude 或 Grok 请求后，记录会出现在这里。
             </p>
           </div>
         ) : (

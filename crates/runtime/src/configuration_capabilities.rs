@@ -231,6 +231,17 @@ mod tests {
             codex[1].upstream_protocols,
             [ProtocolDialect::OpenAiChatCompletions]
         );
+
+        let grok = capabilities.provider_protocol_options(ProviderKind::Grok);
+        assert_eq!(grok.len(), 2);
+        assert_eq!(grok[0].accepted_protocol, ProtocolDialect::OpenAiResponses);
+        assert_eq!(
+            grok[0].upstream_protocols,
+            [
+                ProtocolDialect::OpenAiResponses,
+                ProtocolDialect::OpenAiChatCompletions,
+            ]
+        );
     }
 
     #[test]

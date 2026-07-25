@@ -11,6 +11,7 @@ use super::{MIGRATOR, run};
 
 const DIRECT_PROXY_ID: &str = "00000000-0000-0000-0000-000000000000";
 const ENDPOINT_ID: &str = "10000000-0000-0000-0000-000000000000";
+const GROK_ENDPOINT_ID: &str = "20000000-0000-0000-0000-000000000000";
 const MIGRATION_15_SHA384: &str = "72b93c41006d479894e2abee0d11137e5a93bdbba1045394aba724579969941957adc0962dd895e7d216a680295591d3";
 const MIGRATION_16_SHA384: &str = "a208bd8d29ca5a5b6d16d43e0be135b304e512b296c09c8c3985aafec80efe9bb18ef1bf930a7faaf0cb7a6a366d1e93";
 
@@ -45,7 +46,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
             .fetch_all(&pool)
             .await
             .expect("migration versions");
-    assert_eq!(versions, (1..=23).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=24).collect::<Vec<_>>());
     let kind = sqlx::query_scalar::<_, String>(
         "SELECT credential_kind FROM provider_credentials WHERE id = ?",
     )
@@ -71,6 +72,13 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     assert!(schema.contains("credential_kind = 'api_key'"));
     assert!(schema.contains("requests_per_minute"));
     assert!(!schema.contains("max_concurrency"));
+    let endpoint_schema = sqlx::query_scalar::<_, String>(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'provider_endpoints'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("provider endpoint schema");
+    assert!(endpoint_schema.contains("'grok'"));
     let rpm = sqlx::query_scalar::<_, Option<i64>>(
         "SELECT requests_per_minute FROM provider_credentials WHERE id = ?",
     )
@@ -89,6 +97,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     assert!(oauth_schema.contains("proxy_profile_id = '00000000-0000-0000-0000-000000000000'"));
     assert!(oauth_schema.contains("requests_per_minute"));
     assert!(!oauth_schema.contains("max_concurrency"));
+    assert!(!oauth_schema.contains("'grok'"));
     let setting_keys =
         sqlx::query_scalar::<_, String>("SELECT key FROM setting_overrides ORDER BY key")
             .fetch_all(&pool)
@@ -109,6 +118,28 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
     .await
     .expect("upstream usage index");
     assert_eq!(usage_index, 1);
+    sqlx::query(
+        "INSERT INTO provider_endpoints \
+         (id, name, name_key, provider_kind, base_url, protocol_dialect, \
+          upstream_protocol_dialect, enabled, config_version) \
+         VALUES (?, 'Grok', 'grok', 'grok', 'https://api.x.ai/v1', \
+                 'openai_responses', NULL, 1, 1)",
+    )
+    .bind(GROK_ENDPOINT_ID)
+    .execute(&pool)
+    .await
+    .expect("migration 24 accepts Grok provider endpoints");
+    let oauth_error = sqlx::query(
+        "INSERT INTO oauth_accounts \
+         (id, provider_kind, label, label_key, oauth_json, token_version, \
+          account_generation, config_version, requests_per_minute, enabled) \
+         VALUES ('30000000-0000-0000-0000-000000000000', 'grok', 'Grok', 'grok', \
+                 x'7b7d', 1, 1, 1, NULL, 1)",
+    )
+    .execute(&pool)
+    .await
+    .expect_err("migration 24 must keep Grok out of OAuth accounts");
+    assert!(oauth_error.to_string().contains("CHECK constraint failed"));
     assert!(
         sqlx::query("PRAGMA foreign_key_check")
             .fetch_all(&pool)

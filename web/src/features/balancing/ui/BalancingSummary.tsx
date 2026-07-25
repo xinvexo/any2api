@@ -19,7 +19,7 @@ export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
             {runtime.providers.map((provider) => (
               <div key={provider.providerKind} className="rounded-[10px] bg-surface-muted/60 px-3.5 py-3">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm font-semibold">{provider.providerKind === "codex" ? "Codex" : "Claude"}</p>
+                  <p className="text-sm font-semibold">{providerLabel(provider.providerKind)}</p>
                   <p className="text-xs tabular-nums text-secondary">{formatCount(provider.requestsInWindow)} 次</p>
                 </div>
                 <p className="mt-1.5 text-xs leading-5 text-tertiary">
@@ -47,4 +47,8 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function formatCount(value: number) {
   return value.toLocaleString("zh-CN");
+}
+
+function providerLabel(provider: "codex" | "claude" | "grok") {
+  return { codex: "Codex", claude: "Claude", grok: "Grok" }[provider];
 }

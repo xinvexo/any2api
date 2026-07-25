@@ -47,6 +47,26 @@ test("rejects unregistered protocol pairs and unsafe response URL components", (
   ).toThrow("invalid provider endpoint response");
 });
 
+test("parses Grok as an OpenAI-compatible provider", () => {
+  const parsed = parseProviderEndpointConfiguration({
+    config_revision: 2,
+    items: [
+      endpoint({
+        name: "Grok Primary",
+        provider_kind: "grok",
+        base_url: "https://api.x.ai/v1",
+      }),
+    ],
+    protocol_options: protocolOptions(),
+  });
+
+  expect(parsed.items[0]).toMatchObject({
+    providerKind: "grok",
+    baseUrl: "https://api.x.ai/v1",
+    protocolDialect: "openai_responses",
+  });
+});
+
 function endpoint(overrides: Record<string, unknown> = {}) {
   return {
     id: "b9bc39b0-d05b-4731-a072-d05e48fb8a4f",
@@ -73,6 +93,19 @@ function protocolOptions() {
     },
     {
       provider_kind: "codex",
+      accepted_protocol: "openai_chat_completions",
+      upstream_protocols: ["openai_chat_completions"],
+    },
+    {
+      provider_kind: "grok",
+      accepted_protocol: "openai_responses",
+      upstream_protocols: [
+        "openai_responses",
+        "openai_chat_completions",
+      ],
+    },
+    {
+      provider_kind: "grok",
       accepted_protocol: "openai_chat_completions",
       upstream_protocols: ["openai_chat_completions"],
     },

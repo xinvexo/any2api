@@ -4,7 +4,7 @@ use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
     ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
-use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
+use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, ProviderRegistry};
 
 use crate::configuration_capabilities::ConfigurationCapabilities;
 
@@ -30,6 +30,9 @@ pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
     providers
         .register(Arc::new(ClaudeDriver::new()))
         .expect("Claude driver");
+    providers
+        .register(Arc::new(GrokDriver::new()))
+        .expect("Grok driver");
 
     Arc::new(ConfigurationCapabilities::new(
         Arc::new(protocols),

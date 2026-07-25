@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：API Key 数据面、OpenAI 协议桥和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新、Codex 额度查询/重置和管理 Web，正在收尾带真实账号夹具的浏览器验收。
-- 最近完成：Provider API Key 与 OAuthAccount 的单一可选 RPM 准入、精确滚动 60 秒窗口、统一轮询/排队，以及对应 SQLite、管理 API、运行态检查和 Web 改造；不再提供账号并发或 TPM 限制。
+- 当前阶段：API Key 数据面、OpenAI 协议桥、Grok API Key Provider 和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新、Codex 额度查询/重置和管理 Web，正在收尾带真实账号夹具的浏览器验收。
+- 最近完成：Grok 作为 API Key-only OpenAI 兼容 Provider 接入统一 Registry、SQLite、Vault AAD、路由候选池、管理 API、Provider Web 和总览聚合；OAuth 继续只允许 Codex/Claude。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -17,7 +17,7 @@
 - Model catalog 切片：`354a431 feat: expose published model catalog`。
 - 同协议 JSON 切片：`c83d6b0 feat: add same-protocol json execution`。
 - 上一切片提交主题：`feat: embed the management web app`。
-- 本切片主题：OAuthAccount 激活、独立管理与统一路由接入。
+- 本切片主题：Grok API Key Provider 接入。
 
 ## 已完成
 
@@ -48,7 +48,7 @@
 
 ### ProviderEndpoint 配置切片
 
-- 新增强类型 `ProviderEndpoint`、`ProviderBaseUrl` 与 `ProviderEndpointConfiguration`；首版只接受 Codex/`openai_responses` 和 Claude/`anthropic_messages` 配对。
+- 新增强类型 `ProviderEndpoint`、`ProviderBaseUrl` 与 `ProviderEndpointConfiguration`；该初始切片只接受 Codex/`openai_responses` 和 Claude/`anthropic_messages` 配对，Grok 已由后续 ADR-0040 切片接入。
 - Base URL 保存为固定 HTTPS/HTTP origin 加可选路径前缀；拒绝 query、fragment、userinfo、非 HTTP(S) scheme、空 host、零端口和路径穿越片段。
 - ADR-0029 将 Base URL 确认为管理员受信任目标；HTTP、HTTPS、公网、loopback、局域网和容器网络地址直接接受，不再保存 `allow_insecure_http` 或 `allow_private_network`。
 - 新增 SQLite `provider_endpoints` migration、配置仓储 CRUD、全局 revision 冲突保护，并纳入 `PublishedSnapshot` 的原子发布。
@@ -184,7 +184,7 @@
 
 ### ProviderCredential 连通性测试切片
 
-- Provider Driver 新增 `credential_test_plan`；当前注册的 Codex 与 Claude 都从各自 Base URL 结构化构造 `GET /models`，并复用同一 generation 的 Provider API Key 认证头。
+- Provider Driver 新增 `credential_test_plan`；当前注册的 Codex、Claude 与 Grok 都从各自 Base URL 结构化构造 `GET /models`，并复用同一 generation 的 Provider API Key 认证头。
 - 新增受保护管理 API `POST /api/admin/provider-credentials/{id}/test`；请求固定使用当前 PublishedSnapshot、Credential、Endpoint 与解析后的实际代理，占用普通 Credential 并发槽位但绕过已有 `auth_error`，专属代理失败仍 Fail-Closed。
 - 探测不经过模型路由、不切换 Credential、不回退代理，也不更新 Endpoint/Proxy 熔断或配置 revision；响应只返回捕获的配置/Secret/代理版本、HTTP 状态、延迟或 Transport 阶段/归因，不返回 URL、地址、正文或 Secret。
 - 只有 2xx 会清除本次捕获 `CredentialGenerationRuntime` 的 `auth_error` 并推进统一 scheduler epoch；测试期间发生 Secret/Endpoint 身份轮换时，旧探测只持有旧 generation，不能修改新 generation。
@@ -193,7 +193,7 @@
 
 ### 同协议 JSON 请求执行切片
 
-- 新增强类型 `ProtocolOperation`，静态注册 Codex/Claude Provider Driver 与 Responses/Messages ProtocolAdapter。
+- 新增强类型 `ProtocolOperation`，静态注册 Codex/Claude/Grok Provider Driver 与 Responses/Messages ProtocolAdapter。
 - `/v1/responses`、`/v1/responses/compact`、`/v1/messages` 和 `/v1/messages/count_tokens` 已接入 Runtime：同一 PublishedSnapshot 内解析 Route、过滤启用 Endpoint/Credential/Proxy、原子取得对应 Permit，并调用现有 Transport。
 - Codex Driver 追加 `responses`/`responses/compact`，注入 `Authorization: Bearer`；Claude Driver 追加 `messages`，注入 `x-api-key` 与 `Anthropic-Version: 2023-06-01`；Web 官方默认 Base URL 均包含 `/v1` 固定前缀。
 - Adapter 保留未知 JSON 字段，只替换上游 `model`，并按白名单保留 Claude `anthropic-beta`；成功响应恢复公开模型名；上游非 2xx 返回协议兼容的脱敏错误 envelope。
@@ -218,7 +218,7 @@
 - Protocol `SseDecoder` 覆盖任意字节切分、LF/CRLF、多行 `data:` 和 EOF 无尾空行，并限制单帧缓冲；Adapter 只改写顶层、`response.model` 与 `message.model`。
 - Runtime 在返回下游响应头前预读首个完整事件；空流、首帧错误和首帧 Transport 错误仍返回协议 JSON 错误。返回后由 `GuardedBody` 持有上游流、Permit、取消标记和 CommitState。
 - EOF、上游错误和客户端 Drop 都只释放一次 Permit；提交后的错误终止当前流，不自动切换 Credential、不拼接第二条流。
-- 模块、Driver/Adapter 契约和真实 chunked HTTP 测试覆盖 Codex/Claude 首帧增量、模型别名、流式响应头、Permit 生命周期与错误边界。
+- 模块、Driver/Adapter 契约和真实 chunked HTTP 测试覆盖 OpenAI/Anthropic 协议的首帧增量、模型别名、流式响应头、Permit 生命周期与错误边界。
 
 ### 生成请求有界 QueueTicket 切片
 
@@ -255,7 +255,7 @@
 
 ### 可靠性与预提交重试切片
 
-- `ProviderDriver::classify_error` 现在返回强类型 `UpstreamErrorClassification`，Codex/Claude 分别解析受限错误 envelope；认证、权限、额度、限流、模型不可用、操作不可用和临时故障不再折叠为一个上游错误。
+- `ProviderDriver::classify_error` 现在返回强类型 `UpstreamErrorClassification`，Codex/Grok 共享 OpenAI 错误分类，Claude 解析 Anthropic 错误 envelope；认证、权限、额度、限流、模型不可用、操作不可用和临时故障不再折叠为一个上游错误。
 - 标准 `Retry-After` 支持 delta-seconds 与 HTTP-date；无效值被忽略，公开响应只返回规范化秒数，不回显原始 Header 或上游正文。
 - Credential generation 保存认证健康与模型冷却；429/模型错误只影响当前 Credential+模型，401 使当前 generation 进入永久 `auth_error`，权限/额度使用 Credential 级冷却。
 - Endpoint 与 Proxy 按配置代际持有独立熔断器，支持真正的滑动失败窗口、Closed/Open/HalfOpen 和受限探测；DIRECT 网络失败归入 Endpoint，Provider 429/5xx 不会惩罚代理。
@@ -267,7 +267,7 @@
 - Buffered 上游成功后的硬 ID 提取、egress 编码、公开模型恢复和粘性提交错误会先结算健康成功、关闭 HalfOpen 探测，再释放 Credential Permit。
 - SSE 首帧在下游提交前仍由 `GuardedBody` 验证；首帧读取失败按不确定结果结束当前请求，不拼接第二条流。首个下游字节提交后永久禁止切换上游。
 - 新增运行时虚拟时间、熔断滑动窗口、健康代际隔离测试，以及真实发布快照上的连接前切换、Ambiguous 不重试、429 冷却/Retry-After、硬粘性不切换、Attempt/切换预算和 SSE 首帧边界契约测试。
-- 为遵守文件职责门禁，`credential_runtime`、健康 Runtime、请求选择和上游 Attempt 已拆为 generation/rate_window、credential/endpoint/proxy/attempt、fixed/generation、prepared/buffered/streaming/failure 等模块；架构检查不依赖临时 allowlist。
+- 为遵守文件职责门禁，`credential_runtime`、健康 Runtime、请求选择和上游 Attempt 已拆为 generation/rate_window、credential/endpoint/proxy/attempt、fixed/generation、prepared/buffered/streaming/failure 等模块；这些生产模块不依赖临时 allowlist。Codex OAuth 额度的有状态集成测试夹具按 ADR-0034 登记为带到期日的测试例外。
 
 ### 单管理员认证与远程 HTTP 管理切片
 
@@ -293,7 +293,7 @@
 - SSE 在首帧验证和软绑定提交成功后把记录责任交给 `GuardedBody`；EOF、提交后错误与客户端 Drop 只完成一次，首帧 Transport 错误保留 Network/Proxy 归因与 RetrySafety。
 - 新增管理 API：`GET /api/admin/request-logs`、`GET /api/admin/request-logs/{request_id}`；React `/logs` 与 `/logs/:requestId` 展示最近请求、队列/丢弃指标和 Attempt 时间线。
 - SettingRegistry 新增 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows`、`logs.telemetry_queue_capacity`，Web 可查看默认/覆盖/生效值并恢复默认。
-- Codex/Claude 协议级精确 usage 与内容首 Token 钩子已由后续切片接入；上游未返回、终止事件前断开或非流式无法精确计时时，对应字段仍保持 `NULL`而不猜测。
+- OpenAI/Anthropic 协议级精确 usage 与内容首 Token 钩子已由后续切片接入；上游未返回、终止事件前断开或非流式无法精确计时时，对应字段仍保持 `NULL`而不猜测。
 - 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Credential 切换后的多 Attempt 顺序、Attempt 预算耗尽、SSE EOF/提交后错误/客户端 Drop 的单次持久化、列表与详情成功/空态/错误态、DTO 解析、deep link 和敏感文本不展示。
 - 窄屏布局除超长模型名结构回归外，已由统一 Playwright 套件在真实服务和 390×844 Chromium 中覆盖移动导航、请求日志页面与全局水平溢出。
 
@@ -311,7 +311,7 @@
 - 稳定 `CredentialRuntimeHandle` 增加 Relaxed 原子计数，记录成功选中、RPM 用尽、Credential+模型、Endpoint、Proxy 健康过滤事件；只有 RPM、Credential Guard 与全部健康 Guard 都取得后才记录选中。
 - `RuntimeRegistry::balancing_snapshot` 从当前 `PublishedSnapshot` 单次遍历路由凭据，只聚合 scheduler epoch、QueueTicket、全局/Provider 账号数、RPM 窗口、`in_flight`、固定等待者和成功选中次数；不再构造 Credential×Model 健康快照。
 - 管理员只读 API `GET /api/admin/balancing` 复用既有管理员认证与 `Cache-Control: no-store`，只返回固定规模的全局和 Provider 汇总，不返回账号 ID、标签、Endpoint、Proxy、模型或单账号过滤计数。
-- 独立 `/balancing` 页面与一级导航已删除；固定规模的全局/Codex/Claude 汇总进入总览，`scheduler.*` 进入“设置 → 路由策略”。账号配置、模型与历史请求统计继续分别位于 Provider/OAuth 页面。
+- 独立 `/balancing` 页面与一级导航已删除；固定规模的全局/Codex/Claude/Grok 汇总进入总览，`scheduler.*` 进入“设置 → 路由策略”。账号配置、模型与历史请求统计继续分别位于 Provider/OAuth 页面。
 - Credential 级选择/过滤计数仍只属于当前进程的调度实现与测试，热更新复用句柄时保留，删除 Credential 或进程重启后清空，但普通管理页面不逐账号展示。
 - Runtime 模块测试覆盖多 Provider 聚合；HTTP 契约确认响应不含 `credentials`；Web 覆盖 1000 账号汇总、零值和刷新失败保留旧数据。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`。
 
@@ -368,7 +368,7 @@
 - `GuardedBody` 使用带内容标记的 PendingFrame；`first_token_ms` 从整个请求开始计时，只在第一个非空文本、reasoning 或工具参数增量真正 yield 时 first-write-wins。控制帧预读不计时，JSON 不伪造 TTFT。
 - `/v1/messages/count_tokens` 的根层 `input_tokens` 仍是辅助结果，不写入生成 usage；客户端 Drop 不为补齐日志继续 drain 上游。
 - React 请求日志详情页新增 TTFT 与四项 Token 计数；`NULL` 显示为“未记录”，与真实 `0` 严格区分。
-- Registry 契约枚举实际注册的 Codex/Claude Adapter；Runtime/SQLite 契约覆盖 Responses、Compact、Messages JSON/SSE 与 Count Tokens 排除，真实管理 HTTP 列表/详情与 Web 测试覆盖非空值、缺失值和真实零值。完整决策见 `docs/adr/0025-protocol-token-telemetry.md`。
+- Registry 契约枚举实际注册的 Codex/Claude/Grok Driver 与全部 ProtocolAdapter；Runtime/SQLite 契约覆盖 Responses、Compact、Messages JSON/SSE 与 Count Tokens 排除，真实管理 HTTP 列表/详情与 Web 测试覆盖非空值、缺失值和真实零值。完整决策见 `docs/adr/0025-protocol-token-telemetry.md`。
 
 ### 有界优雅停机切片
 
@@ -417,6 +417,15 @@
 - OAuth 账号集合已移除客户端分页，改用共享响应式 `VirtualGrid` 按动态网格行渲染完整 Provider 集合；Codex 页面新增“刷新全部额度”，覆盖禁用和离屏账号，最多 6 并发并汇总部分失败。额度 Query cache、批量进度与 reset mutation pending 独立于虚拟行挂载，滚动卸载不会取消批量请求，reset 后读取失败也不会保留旧快照。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 - React `/oauth` 已接入账号列表、标签/可选 RPM/启停编辑、模型替换、删除确认、过期提示和 URL deep link；登录成功后刷新账号列表，Token 与原始 JSON 不进入浏览器状态。真实 Chromium 已覆盖桌面 deep link、空账号态、390px 导航关闭和无横向溢出；仍需用预置 OAuth 账号夹具覆盖浏览器内编辑/删除。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
+### Grok API Key Provider 切片
+
+- 新增 `ProviderKind::Grok` 与独立 `GrokDriver`，使用 xAI Bearer API Key；支持 OpenAI Responses、Responses Compact、Chat Completions、JSON/SSE 和标准 `GET /models`，Web 默认 Base URL 为 `https://api.x.ai/v1`。
+- Composition Root 和 Registry 契约枚举 Grok；配置能力由 Driver/Protocol Registry 推导，Runtime 调度、RPM、粘性、健康、重试、代理、流式生命周期和遥测没有增加 Provider 分支。
+- Codex 与 Grok 共享具名 OpenAI 错误分类和 Bearer Header 构造，Claude 保持独立 Anthropic 行为；Provider Secret Vault 为 Grok 固定分配稳定 AAD code `3`。
+- Migration 0024 前向重建受 `provider_endpoints` 外键影响的配置与日志表，完整保留 Credential、模型、Route、RequestLog、Attempt、索引和外键；既有 Migration 未修改，migration 16 升级回归与 `foreign_key_check` 已覆盖。
+- `oauth_accounts` CHECK、OAuth Web 类型和 Provider JSON Schema 仍只允许 Codex/Claude；领域 `OAuthAccount`、SQLite OAuth 文档与真实 OAuth 管理 HTTP 契约都显式拒绝 Grok。
+- Provider Web 增加 Grok 分类、xAI 默认地址与三列窄屏切换；总览聚合与请求日志空态识别 Grok，不展示逐账号运行态详情。完整决策见 `docs/adr/0040-grok-api-key-provider.md`。
+
 ## 当前边界
 
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
@@ -458,4 +467,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、`cargo deny --offline check`，以及 Web typecheck、lint、115 项 Vitest、production build 和内嵌产物一致性检查。新增 Web 回归覆盖虚拟窗口滚动/换集合、完整 Codex 集合（含禁用和离屏账号）、6 并发上限、部分失败、虚拟卸载不取消额度请求、reset pending 跨卸载和 reset 后读取失败清空旧快照。真实 Chromium E2E 的 3 项用例已覆盖登录 deep link、OAuth 管理页与 390px 响应式导航。OAuth 契约覆盖独立账号 CRUD、固定数据面、统一 Permit、模型目录、认证头、动态过期、刷新 singleflight/token-version CAS、401 单次恢复、额度窗口/重置次数、服务端二次复核、并发 consume 串行、独立日志来源与配置重启；Provider/OAuth 管理契约覆盖带来源标签的最终请求聚合，Storage 测试覆盖同 UUID 来源隔离，原 Gateway API Key 统计回归继续通过。`cargo xtask architecture-check` 仍仅被既有 `web/src/app/styles/globals.css` 超过 600 code lines 阻塞。
+当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、架构检查和 `cargo deny --offline check`。Web 已通过 typecheck、lint、123 项 Vitest、production build、内嵌产物一致性检查与 3 项真实 Chromium E2E。Grok 回归覆盖 Driver/Registry、Bearer 认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、migration 16→24、migration 23 完整引用图保留和 `foreign_key_check`；登录页样式已按画布、表单与环境动效拆分，消除既有 `globals.css` 文件体积门禁。

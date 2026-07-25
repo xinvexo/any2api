@@ -58,6 +58,8 @@ impl fmt::Debug for OAuthAccountDocument {
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum OAuthAccountDocumentValidationError {
+    #[error("provider does not support OAuth accounts")]
+    UnsupportedProvider,
     #[error("OAuth account JSON is empty")]
     Empty,
     #[error("OAuth account JSON is too large")]
@@ -88,6 +90,9 @@ fn validate(
     let expected_provider = match provider {
         ProviderKind::Codex => "codex",
         ProviderKind::Claude => "claude",
+        ProviderKind::Grok => {
+            return Err(OAuthAccountDocumentValidationError::UnsupportedProvider);
+        }
     };
     if object.get("type").and_then(Value::as_str) != Some(expected_provider) {
         return Err(OAuthAccountDocumentValidationError::ProviderMismatch);
@@ -100,4 +105,25 @@ fn validate(
         return Err(OAuthAccountDocumentValidationError::MissingAccessToken);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::ProviderKind;
+
+    use super::{OAuthAccountDocument, OAuthAccountDocumentValidationError};
+
+    #[test]
+    fn grok_oauth_documents_are_rejected_before_storage() {
+        let error = OAuthAccountDocument::new(
+            ProviderKind::Grok,
+            br#"{"type":"grok","access_token":"secret"}"#.to_vec().into(),
+        )
+        .expect_err("Grok is API Key-only");
+
+        assert_eq!(
+            error,
+            OAuthAccountDocumentValidationError::UnsupportedProvider
+        );
+    }
 }
