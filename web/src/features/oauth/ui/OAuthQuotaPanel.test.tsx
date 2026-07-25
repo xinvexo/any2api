@@ -178,7 +178,11 @@ function createClient() {
 function renderPanel(client = createClient()) {
   return render(
     <QueryClientProvider client={client}>
-      <OAuthQuotaPanel accountId="account-1" accountLabel="Primary Codex" />
+      <OAuthQuotaPanel
+        accountId="account-1"
+        accountLabel="Primary Codex"
+        provider="codex"
+      />
       <NotificationHost />
     </QueryClientProvider>,
   );

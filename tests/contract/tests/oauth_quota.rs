@@ -135,12 +135,47 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
     assert_eq!(context.transport.calls(), calls_before_claude);
 }
 
+#[tokio::test]
+async fn grok_quota_query_returns_one_redacted_weekly_billing_window() {
+    let context = TestContext::new().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let response = request(
+        context.app,
+        Method::GET,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota",
+            context.grok_account_id
+        ),
+        loopback,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.cache_control.as_deref(), Some("no-store"));
+    assert_eq!(
+        response.json["rate_limit"]["primary_window"]["used_percent"],
+        42.5
+    );
+    assert_eq!(
+        response.json["rate_limit"]["primary_window"]["limit_window_seconds"],
+        604_800
+    );
+    assert!(response.json["reset_credits"].is_null());
+    assert_eq!(context.transport.calls(), 1);
+    assert!(context.transport.last_request_is_grok_billing());
+    let encoded = serde_json::to_string(&response.json).expect("Grok quota JSON");
+    assert!(!encoded.contains("grok-access-secret"));
+    assert!(!encoded.contains("grok-refresh-secret"));
+}
+
 struct TestContext {
     _directory: tempfile::TempDir,
     _storage: Arc<SqliteStore>,
     app: Router,
     transport: Arc<QuotaTransport>,
     codex_account_id: OAuthAccountId,
+    grok_account_id: OAuthAccountId,
     claude_account_id: OAuthAccountId,
 }
 
@@ -185,6 +220,22 @@ impl TestContext {
             )
             .await
             .expect("Codex account");
+        let grok_account_id = OAuthAccountId::new();
+        publisher
+            .activate_oauth_account(
+                grok_account_id,
+                ProviderKind::Grok,
+                draft("Grok OAuth"),
+                Some("grok@example.com".into()),
+                None,
+                vec!["grok-4.5".into()],
+                document(
+                    ProviderKind::Grok,
+                    br#"{"type":"grok","access_token":"grok-access-secret","refresh_token":"grok-refresh-secret","sub":"grok-subject"}"#,
+                ),
+            )
+            .await
+            .expect("Grok account");
         let claude_account_id = OAuthAccountId::new();
         publisher
             .activate_oauth_account(
@@ -221,6 +272,7 @@ impl TestContext {
             app,
             transport,
             codex_account_id,
+            grok_account_id,
             claude_account_id,
         }
     }
@@ -236,8 +288,11 @@ fn document(provider: ProviderKind, body: &'static [u8]) -> OAuthAccountDocument
 
 struct CapturedRequest {
     path: String,
+    path_and_query: String,
     authorization: Option<String>,
     account_id: Option<String>,
+    grok_token_auth: Option<String>,
+    grok_client_version: Option<String>,
     proxy_id: any2api_domain::ProxyProfileId,
 }
 
@@ -293,6 +348,21 @@ impl QuotaTransport {
                     && request.path.starts_with("/backend-api/wham/")
             })
     }
+
+    fn last_request_is_grok_billing(&self) -> bool {
+        self.captured
+            .lock()
+            .expect("captured lock")
+            .last()
+            .is_some_and(|request| {
+                request.path_and_query == "/v1/billing?format=credits"
+                    && request.authorization.as_deref() == Some("Bearer grok-access-secret")
+                    && request.account_id.is_none()
+                    && request.grok_token_auth.as_deref() == Some("xai-grok-cli")
+                    && request.grok_client_version.as_deref() == Some("0.2.93")
+                    && request.proxy_id == any2api_domain::ProxyProfileId::DIRECT
+            })
+    }
 }
 
 #[async_trait]
@@ -303,11 +373,16 @@ impl TransportManager for QuotaTransport {
         request: TransportRequest,
     ) -> Result<TransportResponse, any2api_transport::api::TransportError> {
         let path = request.uri.path().to_owned();
+        let path_and_query = request
+            .uri
+            .path_and_query()
+            .map_or_else(|| path.clone(), ToString::to_string);
         self.captured
             .lock()
             .expect("captured lock")
             .push(CapturedRequest {
                 path: path.clone(),
+                path_and_query,
                 authorization: request
                     .headers
                     .get("authorization")
@@ -316,6 +391,16 @@ impl TransportManager for QuotaTransport {
                 account_id: request
                     .headers
                     .get("chatgpt-account-id")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+                grok_token_auth: request
+                    .headers
+                    .get("x-xai-token-auth")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+                grok_client_version: request
+                    .headers
+                    .get("x-grok-client-version")
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned),
                 proxy_id: proxy.profile().id(),
@@ -350,6 +435,9 @@ impl TransportManager for QuotaTransport {
                     br#"{"code":"ok","windows_reset":2,"credit":{"id":"reset-credit-id"}}"#,
                 )
             }
+            "/v1/billing" => Bytes::from_static(
+                br#"{"config":{"currentPeriod":{"type":"WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"creditUsagePercent":42.5}}"#,
+            ),
             other => panic!("unexpected path: {other}"),
         };
         let body: BoxByteStream = Box::pin(stream::iter([Ok(body)]));

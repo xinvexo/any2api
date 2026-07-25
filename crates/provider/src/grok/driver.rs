@@ -1,4 +1,4 @@
-use super::{import as grok_import, oauth as grok_oauth};
+use super::{import as grok_import, oauth as grok_oauth, quota as grok_quota};
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
@@ -7,8 +7,9 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
-        OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
+        OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile,
+        OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
     api_key, openai_error,
 };
@@ -171,6 +172,17 @@ impl ProviderDriver for GrokDriver {
         _forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
         grok_oauth::credential_headers(token)
+    }
+
+    fn oauth_quota_query_plan(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
+        grok_quota::query_plan(token).map(Some)
+    }
+
+    fn parse_oauth_quota_usage(&self, body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError> {
+        grok_quota::parse_usage(body)
     }
 
     fn classify_error(

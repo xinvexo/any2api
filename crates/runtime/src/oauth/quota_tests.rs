@@ -7,7 +7,7 @@ use any2api_domain::{
     OAuthAccountDraft, OAuthAccountId, ProviderKind, RetrySafety, RoutingCredentialId,
     SettingsConfiguration, UpstreamErrorClassification, UpstreamErrorKind,
 };
-use any2api_provider::{CodexDriver, ProviderRegistry};
+use any2api_provider::{CodexDriver, GrokDriver, ProviderRegistry};
 use any2api_storage::api::{
     ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository, SqliteStore,
 };
@@ -114,6 +114,41 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         .expect("redeem request id")
         .to_owned();
     assert!(uuid::Uuid::parse_str(&redeem_id).is_ok());
+}
+
+#[tokio::test]
+async fn grok_query_uses_one_direct_billing_request_without_reset_credits() {
+    let context = QuotaTestContext::new_grok().await;
+
+    let quota = context
+        .service
+        .query_quota(context.account_id)
+        .await
+        .expect("Grok quota query");
+
+    assert_eq!(
+        quota
+            .usage
+            .rate_limit
+            .as_ref()
+            .and_then(|limit| limit.primary_window.as_ref())
+            .map(|window| (window.used_percent, window.limit_window_seconds)),
+        Some((37.5, 604_800))
+    );
+    assert!(quota.usage.reset_credits.is_none());
+    let captured = context.transport.captured();
+    assert_eq!(captured.len(), 1);
+    let request = &captured[0];
+    assert_eq!(request.path, "/v1/billing?format=credits");
+    assert_eq!(request.authorization.as_deref(), Some("Bearer grok-access"));
+    assert_eq!(request.grok_token_auth.as_deref(), Some("xai-grok-cli"));
+    assert_eq!(request.grok_client_version.as_deref(), Some("0.2.93"));
+    assert!(request.account_id.is_none());
+    assert_eq!(request.proxy_id, any2api_domain::ProxyProfileId::DIRECT);
+    assert_eq!(
+        request.strict_ssrf,
+        context.snapshots.load().settings().upstream().strict_ssrf()
+    );
 }
 
 #[tokio::test]
@@ -227,7 +262,38 @@ impl QuotaTestContext {
         .await
     }
 
+    async fn new_grok() -> Self {
+        Self::with_account(
+            Arc::new(QuotaTransport::new(0, AuthenticationMode::Accepted, false)),
+            ProviderKind::Grok,
+            "Grok OAuth",
+            None,
+            vec!["grok-4.5".into()],
+            grok_oauth_document(),
+        )
+        .await
+    }
+
     async fn with_transport(transport: Arc<QuotaTransport>) -> Self {
+        Self::with_account(
+            transport,
+            ProviderKind::Codex,
+            "Codex OAuth",
+            Some("person@example.com".into()),
+            vec!["gpt-5.5".into()],
+            oauth_document(),
+        )
+        .await
+    }
+
+    async fn with_account(
+        transport: Arc<QuotaTransport>,
+        provider: ProviderKind,
+        label: &str,
+        email: Option<String>,
+        models: Vec<String>,
+        document: OAuthAccountDocument,
+    ) -> Self {
         let directory = tempfile::tempdir().expect("temporary directory");
         let storage = Arc::new(
             SqliteStore::connect(&directory.path().join("oauth-quota.sqlite3"))
@@ -240,12 +306,12 @@ impl QuotaTestContext {
             .create_oauth_account(
                 initial.revision(),
                 account_id,
-                ProviderKind::Codex,
-                OAuthAccountDraft::new("Codex OAuth", None, true).expect("OAuth draft"),
-                Some("person@example.com".into()),
+                provider,
+                OAuthAccountDraft::new(label, None, true).expect("OAuth draft"),
+                email,
                 None,
-                vec!["gpt-5.5".into()],
-                oauth_document(),
+                models,
+                document,
             )
             .await
             .expect("OAuth account");
@@ -287,6 +353,9 @@ fn providers() -> Arc<ProviderRegistry> {
     providers
         .register(Arc::new(CodexDriver::new()))
         .expect("Codex driver");
+    providers
+        .register(Arc::new(GrokDriver::new()))
+        .expect("Grok driver");
     Arc::new(providers)
 }
 
@@ -300,6 +369,16 @@ fn oauth_document() -> OAuthAccountDocument {
     .expect("OAuth document")
 }
 
+fn grok_oauth_document() -> OAuthAccountDocument {
+    OAuthAccountDocument::new(
+        ProviderKind::Grok,
+        br#"{"type":"grok","access_token":"grok-access","refresh_token":"grok-refresh","sub":"grok-subject"}"#
+            .to_vec()
+            .into(),
+    )
+    .expect("Grok OAuth document")
+}
+
 #[derive(Clone, Copy)]
 enum AuthenticationMode {
     Accepted,
@@ -311,6 +390,8 @@ struct CapturedQuotaRequest {
     path: String,
     authorization: Option<String>,
     account_id: Option<String>,
+    grok_token_auth: Option<String>,
+    grok_client_version: Option<String>,
     proxy_id: any2api_domain::ProxyProfileId,
     strict_ssrf: bool,
     body: Bytes,
@@ -352,6 +433,8 @@ impl QuotaTransport {
                 path: request.path.clone(),
                 authorization: request.authorization.clone(),
                 account_id: request.account_id.clone(),
+                grok_token_auth: request.grok_token_auth.clone(),
+                grok_client_version: request.grok_client_version.clone(),
                 proxy_id: request.proxy_id,
                 strict_ssrf: request.strict_ssrf,
                 body: request.body.clone(),
@@ -400,6 +483,10 @@ impl TransportManager for QuotaTransport {
         request: TransportRequest,
     ) -> Result<TransportResponse, any2api_transport::api::TransportError> {
         let path = request.uri.path().to_owned();
+        let captured_path = request
+            .uri
+            .path_and_query()
+            .map_or_else(|| path.clone(), ToString::to_string);
         let authorization = request
             .headers
             .get(AUTHORIZATION)
@@ -409,11 +496,21 @@ impl TransportManager for QuotaTransport {
             .lock()
             .expect("captured request lock")
             .push(CapturedQuotaRequest {
-                path: path.clone(),
+                path: captured_path,
                 authorization,
                 account_id: request
                     .headers
                     .get("chatgpt-account-id")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+                grok_token_auth: request
+                    .headers
+                    .get("x-xai-token-auth")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+                grok_client_version: request
+                    .headers
+                    .get("x-grok-client-version")
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned),
                 proxy_id: proxy.profile().id(),
@@ -443,6 +540,15 @@ impl TransportManager for QuotaTransport {
                         ),
                     )
                 }
+            }
+            "/v1/billing" => {
+                self.usage_calls.fetch_add(1, Ordering::AcqRel);
+                (
+                    StatusCode::OK,
+                    Bytes::from_static(
+                        br#"{"config":{"currentPeriod":{"type":"WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"creditUsagePercent":37.5}}"#,
+                    ),
+                )
             }
             "/backend-api/wham/rate-limit-reset-credits" => (
                 StatusCode::OK,

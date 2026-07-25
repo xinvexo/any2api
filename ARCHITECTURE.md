@@ -1912,7 +1912,7 @@ RequestLog 切片接入 `logs.request.enabled`、`logs.request.retention`、`log
 
 `request_grace_period` 从收到 Ctrl-C 或 Unix SIGTERM 时捕获的 PublishedSnapshot 读取，只限制停止接收新请求后的自然 HTTP drain。超时后进入强制取消阶段。`finalize_timeout` 分别限制强制 HTTP 收敛、后台任务/遥测/SQLite 收尾以及 Tokio runtime 的最终关闭；旧进程不会因为 Writer、Argon2 blocking task 或静默 SSE 无限期占有实例锁。两项设置均热更新，但一次已经开始的停机固定使用信号时捕获的值。任一最终收尾失败都进入持锁致命退出，不得记录正常完成后释放锁。
 
-### 16.3 OAuth2 账号登录、持久化、刷新与 Codex 额度
+### 16.3 OAuth2 账号登录、持久化、刷新与 Provider 额度
 
 当前实现 Codex、Claude 与 Grok 的交互式 OAuth2 登录。成功结果是独立 `OAuthAccount`，不是浏览器下载、服务器文件或 `ProviderCredential`。
 
@@ -1971,11 +1971,11 @@ Claude: id_token, access_token, refresh_token,
 
 单进程刷新 Worker 定期扫描临近过期的已启用账号。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的 refresh token、ID token、账号 ID、邮箱和安全过期边界。成功后 SQLite CAS 更新 JSON 与版本，保留模型集合，发布新 generation；失败不写半成品。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。
 
-Codex OAuthAccount 额外支持管理面额度查询与 rate-limit reset credit 消费；Claude 当前显式不支持。Provider Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume` 的请求计划、认证头与有界 JSON 解析，Runtime 负责执行网络请求。三类请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。
+Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Grok OAuthAccount 支持只读的周订阅 credits 查询；Claude 当前显式不支持。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。Grok Driver 固定注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`，使用当前 OAuth access token 与 Grok CLI 身份头，只解析上游 `currentPeriod`、`creditUsagePercent` 和周期边界。Runtime 负责执行这些请求。额度请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。
 
-额度查询只返回主/次限流窗口、可用重置次数、安全到期时间与抓取时间。查询快照不进入 OAuth Provider JSON、SQLite、日志或 PublishedSnapshot；额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`。
+额度查询只返回经过校验的使用率窗口、Codex 可用重置次数、安全到期时间与抓取时间。查询快照不进入 OAuth Provider JSON、SQLite、日志或 PublishedSnapshot；不得从本地请求统计推算或伪造上游额度。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Grok billing 没有对应 reset credit，管理面不显示或调用重置操作。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md` 与 `docs/adr/0045-grok-oauth-billing-quota.md`。
 
-Web 的“刷新全部额度”只针对当前完整 Codex OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号；Claude 不显示该操作。前端以最多 6 个并发复用现有逐账号额度 GET，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 reset 后刷新共用账号级内存 Query cache；批量生命周期不得绑定虚拟行 observer 的挂载状态，额度快照仍不得进入 localStorage、sessionStorage 或其他持久存储。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
+Web 的“刷新全部额度”针对当前完整 Codex 或 Grok OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号；Claude 不显示该操作。前端以最多 6 个并发复用现有逐账号额度 GET，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 Codex reset 后刷新共用账号级内存 Query cache；批量生命周期不得绑定虚拟行 observer 的挂载状态，额度快照仍不得进入 localStorage、sessionStorage 或其他持久存储。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
 原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供读取、下载或导出端点。
 
@@ -2294,8 +2294,9 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - Codex/Claude 打开授权页面后允许粘贴完整 localhost callback URL；Grok 显示 Device user code 和验证地址，并按服务端给出的间隔自动轮询，不显示 callback 输入；
 - 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、可选 RPM 和已选模型；可在当前页面编辑这些账号属性或删除账号；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
-- Codex 账号可显式刷新上游主/次额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；Claude 不显示该入口；
-- Codex 页面提供“刷新全部额度”，覆盖当前完整 Codex 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
+- Codex 账号可显式刷新上游主/次额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
+- Grok 账号可显式刷新 xAI 返回的周订阅 credits 使用率与周期边界，但不显示重置操作；Claude 不显示额度入口；
+- Codex 与 Grok 页面提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - 页面提供 Provider 专用 JSON 导入抽屉，允许一次选择多个文件；文件只存在于抽屉局部状态，提交完成、失败或关闭后立即清空，导入成功后刷新 OAuthAccount 安全元数据集合；
@@ -2510,6 +2511,7 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - xAI Device Authorization Grant 登录、Token 刷新与安全账号元数据解析；
 - OAuth 原始 JSON 明文存入 SQLite，不进入 Vault、DTO、日志、浏览器存储或导出端点；
 - 固定 `https://cli-chat-proxy.grok.com/v1` Responses 数据面与 xAI CLI 身份头；
+- 通过同一 CLI 数据面的只读 billing 接口查询周订阅 credits 使用率，不提供额度重置；
 - 与 Grok API Key 在通用 `RoutingCredential` 投影合流，共用 RPM、轮询、粘性、健康、重试、代理、流式生命周期和遥测；
 - 只前向 Migration 扩展 `oauth_accounts.provider_kind`，保留既有账号和外键完整性。OAuthAccount 与数据面决策见 `docs/adr/0041-grok-oauth-account.md`，设备授权修正见 `docs/adr/0043-grok-device-authorization.md`。
 

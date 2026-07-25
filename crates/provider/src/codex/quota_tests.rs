@@ -20,6 +20,7 @@ fn token() -> OAuthTokenMaterial {
 #[test]
 fn builds_fixed_query_and_reset_plans_without_debugging_secrets() {
     let (usage, credits) = query_plan(&token()).expect("query plan").into_parts();
+    let credits = credits.expect("Codex reset credit plan");
     assert_eq!(usage.method, Method::GET);
     assert_eq!(
         usage.url.as_str(),

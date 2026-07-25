@@ -99,10 +99,11 @@ export function OAuthAccounts({
               details={
                 <>
                   <RequestUsageStats label={account.label} usage={account.usage} />
-                  {account.providerKind === "codex" ? (
+                  {account.providerKind !== "claude" ? (
                     <OAuthQuotaPanel
                       accountId={account.id}
                       accountLabel={account.label}
+                      provider={account.providerKind}
                       disabled={pending}
                     />
                   ) : null}

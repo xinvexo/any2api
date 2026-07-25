@@ -3,19 +3,26 @@ use crate::OAuthRequestPlan;
 #[derive(Clone, Debug)]
 pub struct OAuthQuotaQueryPlan {
     usage: OAuthRequestPlan,
-    reset_credits: OAuthRequestPlan,
+    reset_credits: Option<OAuthRequestPlan>,
 }
 
 impl OAuthQuotaQueryPlan {
     pub(crate) const fn new(usage: OAuthRequestPlan, reset_credits: OAuthRequestPlan) -> Self {
         Self {
             usage,
-            reset_credits,
+            reset_credits: Some(reset_credits),
+        }
+    }
+
+    pub(crate) const fn without_reset_credits(usage: OAuthRequestPlan) -> Self {
+        Self {
+            usage,
+            reset_credits: None,
         }
     }
 
     #[must_use]
-    pub fn into_parts(self) -> (OAuthRequestPlan, OAuthRequestPlan) {
+    pub fn into_parts(self) -> (OAuthRequestPlan, Option<OAuthRequestPlan>) {
         (self.usage, self.reset_credits)
     }
 }

@@ -4,7 +4,11 @@ import { useSearchParams } from "react-router-dom";
 
 import type { OAuthProvider } from "../api/oauth-contracts";
 import { getOAuthErrorMessage } from "../model/oauth-error";
-import { isOAuthProvider, OAUTH_PROVIDER_OPTIONS } from "../model/oauth-provider-catalog";
+import {
+  isOAuthProvider,
+  oauthProviderLabel,
+  OAUTH_PROVIDER_OPTIONS,
+} from "../model/oauth-provider-catalog";
 import { useOAuthAccounts } from "../model/use-oauth-accounts";
 import { useOAuthLogin } from "../model/use-oauth-login";
 import { useOAuthQuotaRefreshAll } from "../model/use-oauth-quota-refresh-all";
@@ -84,14 +88,15 @@ export function OAuthManagement() {
   }
 
   async function refreshAllQuotas() {
-    if (selectedProvider !== "codex" || kindAccounts.length === 0) {
+    const provider = selectedProvider;
+    if (provider === "claude" || kindAccounts.length === 0) {
       return;
     }
     const result = await quotaRefresh.refresh(kindAccounts.map((account) => account.id));
     if (!result) {
       return;
     }
-    const message = formatQuotaRefreshResult(result);
+    const message = formatQuotaRefreshResult(result, oauthProviderLabel(provider));
     if (result.failed === 0) {
       notify.success(message);
     } else if (result.failed === result.total) {
@@ -109,7 +114,7 @@ export function OAuthManagement() {
 
   const toolbarEnd = (
     <>
-      {selectedProvider === "codex" ? (
+      {selectedProvider !== "claude" ? (
         <Button
           variant="ghost"
           disabled={
@@ -264,12 +269,15 @@ function resolveSelectedProvider(value: string | null): OAuthProvider {
   return OAUTH_PROVIDER_OPTIONS[0]?.provider ?? "codex";
 }
 
-function formatQuotaRefreshResult(result: { total: number; failed: number }) {
+function formatQuotaRefreshResult(
+  result: { total: number; failed: number },
+  providerName: string,
+) {
   if (result.failed === 0) {
-    return `已刷新全部 ${result.total} 个 Codex 账号额度。`;
+    return `已刷新全部 ${result.total} 个 ${providerName} 账号额度。`;
   }
   if (result.failed === result.total) {
-    return `全部 ${result.total} 个 Codex 账号额度刷新失败。`;
+    return `全部 ${result.total} 个 ${providerName} 账号额度刷新失败。`;
   }
-  return `已刷新 ${result.total - result.failed} 个 Codex 账号额度，${result.failed} 个失败。`;
+  return `已刷新 ${result.total - result.failed} 个 ${providerName} 账号额度，${result.failed} 个失败。`;
 }

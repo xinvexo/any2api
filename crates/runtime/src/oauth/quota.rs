@@ -151,14 +151,15 @@ impl OAuthQuotaService {
         let mut usage = driver
             .parse_oauth_quota_usage(&usage_response.body)
             .map_err(OAuthQuotaError::Provider)?;
-        if let Ok(response) = quota_request::execute(
-            self.transport.as_ref(),
-            proxy,
-            strict_ssrf,
-            read_timeout,
-            credits_plan,
-        )
-        .await
+        if let Some(credits_plan) = credits_plan
+            && let Ok(response) = quota_request::execute(
+                self.transport.as_ref(),
+                proxy,
+                strict_ssrf,
+                read_timeout,
+                credits_plan,
+            )
+            .await
             && response.status.is_success()
             && let Ok(Some(credits)) = driver.parse_oauth_quota_reset_credits(&response.body)
         {
