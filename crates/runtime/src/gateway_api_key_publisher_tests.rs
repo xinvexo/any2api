@@ -5,6 +5,7 @@ use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::tempdir;
 
 use crate::{
+    gateway_api_key_token::GatewayApiKeyToken,
     published_snapshot::{PublishedSnapshot, SnapshotStore},
     publisher::ConfigPublisher,
     registry::RuntimeRegistry,
@@ -39,6 +40,7 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
             ConfigRevision::INITIAL,
             id,
             GatewayApiKeyDraft::new("CLI", true).expect("draft"),
+            GatewayApiKeyToken::generate().expect("token"),
         )
         .await
         .expect("create");
@@ -56,6 +58,7 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
             id,
             first_key.config_version(),
             first_key.token_version(),
+            GatewayApiKeyToken::generate().expect("rotated token"),
         )
         .await
         .expect("rotate");

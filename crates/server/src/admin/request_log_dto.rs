@@ -1,5 +1,5 @@
 use any2api_domain::{CompletedRequestLog, RequestAttempt, RequestLog};
-use any2api_runtime::api::RequestTelemetryMetrics;
+use any2api_runtime::api::{PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -9,9 +9,16 @@ pub(crate) struct RequestLogListResponse {
 }
 
 impl RequestLogListResponse {
-    pub(crate) fn new(logs: Vec<RequestLog>, metrics: RequestTelemetryMetrics) -> Self {
+    pub(crate) fn new(
+        logs: Vec<RequestLog>,
+        metrics: RequestTelemetryMetrics,
+        snapshot: &PublishedSnapshot,
+    ) -> Self {
         Self {
-            items: logs.into_iter().map(RequestLogResponse::from).collect(),
+            items: logs
+                .into_iter()
+                .map(|log| RequestLogResponse::from_log(log, snapshot))
+                .collect(),
             telemetry: metrics.into(),
         }
     }
@@ -25,13 +32,17 @@ pub(crate) struct RequestLogDetailResponse {
 }
 
 impl RequestLogDetailResponse {
-    pub(crate) fn new(record: CompletedRequestLog, metrics: RequestTelemetryMetrics) -> Self {
+    pub(crate) fn new(
+        record: CompletedRequestLog,
+        metrics: RequestTelemetryMetrics,
+        snapshot: &PublishedSnapshot,
+    ) -> Self {
         Self {
-            request: record.request.into(),
+            request: RequestLogResponse::from_log(record.request, snapshot),
             attempts: record
                 .attempts
                 .into_iter()
-                .map(RequestAttemptResponse::from)
+                .map(|attempt| RequestAttemptResponse::from_attempt(attempt, snapshot))
                 .collect(),
             telemetry: metrics.into(),
         }
@@ -64,10 +75,14 @@ struct RequestLogResponse {
     ingress_protocol: &'static str,
     operation: &'static str,
     public_model: Option<String>,
+    thinking_level: Option<String>,
     provider_endpoint_id: Option<String>,
     credential_id: Option<String>,
+    credential_label: Option<String>,
     oauth_account_id: Option<String>,
+    oauth_account_label: Option<String>,
     proxy_profile_id: Option<String>,
+    proxy_profile_label: Option<String>,
     status_code: u16,
     error_class: Option<&'static str>,
     error_message: Option<String>,
@@ -81,8 +96,40 @@ struct RequestLogResponse {
     is_stream: bool,
 }
 
-impl From<RequestLog> for RequestLogResponse {
-    fn from(value: RequestLog) -> Self {
+impl RequestLogResponse {
+    fn from_log(value: RequestLog, snapshot: &PublishedSnapshot) -> Self {
+        let credential_label = value.credential_id.and_then(|id| {
+            snapshot
+                .provider_credentials()
+                .get(id)
+                .map(|credential| credential.label().to_owned())
+        });
+        let oauth_account_label = value.oauth_account_id.and_then(|id| {
+            snapshot
+                .oauth_accounts()
+                .get(id)
+                .map(|account| account.label().to_owned())
+        });
+        let proxy_profile_label = value.proxy_profile_id.and_then(|id| {
+            snapshot
+                .proxies()
+                .get(id)
+                .map(|profile| profile.name().to_owned())
+        });
+        Self::from_parts(
+            value,
+            credential_label,
+            oauth_account_label,
+            proxy_profile_label,
+        )
+    }
+
+    fn from_parts(
+        value: RequestLog,
+        credential_label: Option<String>,
+        oauth_account_label: Option<String>,
+        proxy_profile_label: Option<String>,
+    ) -> Self {
         Self {
             request_id: value.request_id.to_string(),
             started_at_ms: value.started_at_ms,
@@ -91,10 +138,14 @@ impl From<RequestLog> for RequestLogResponse {
             ingress_protocol: value.ingress_protocol.as_str(),
             operation: value.operation.as_str(),
             public_model: value.public_model,
+            thinking_level: value.thinking_level,
             provider_endpoint_id: value.provider_endpoint_id.map(|id| id.to_string()),
             credential_id: value.credential_id.map(|id| id.to_string()),
+            credential_label,
             oauth_account_id: value.oauth_account_id.map(|id| id.to_string()),
+            oauth_account_label,
             proxy_profile_id: value.proxy_profile_id.map(|id| id.to_string()),
+            proxy_profile_label,
             status_code: value.status_code,
             error_class: value.error_class.map(|class| class.as_str()),
             error_message: value.error_message,
@@ -115,8 +166,11 @@ struct RequestAttemptResponse {
     attempt_no: u32,
     route_target_id: Option<String>,
     credential_id: Option<String>,
+    credential_label: Option<String>,
     oauth_account_id: Option<String>,
+    oauth_account_label: Option<String>,
     proxy_profile_id: Option<String>,
+    proxy_profile_label: Option<String>,
     started_at_ms: u64,
     duration_ms: u64,
     retry_safety: Option<&'static str>,
@@ -126,14 +180,35 @@ struct RequestAttemptResponse {
     outcome: &'static str,
 }
 
-impl From<RequestAttempt> for RequestAttemptResponse {
-    fn from(value: RequestAttempt) -> Self {
+impl RequestAttemptResponse {
+    fn from_attempt(value: RequestAttempt, snapshot: &PublishedSnapshot) -> Self {
+        let credential_label = value.credential_id.and_then(|id| {
+            snapshot
+                .provider_credentials()
+                .get(id)
+                .map(|credential| credential.label().to_owned())
+        });
+        let oauth_account_label = value.oauth_account_id.and_then(|id| {
+            snapshot
+                .oauth_accounts()
+                .get(id)
+                .map(|account| account.label().to_owned())
+        });
+        let proxy_profile_label = value.proxy_profile_id.and_then(|id| {
+            snapshot
+                .proxies()
+                .get(id)
+                .map(|profile| profile.name().to_owned())
+        });
         Self {
             attempt_no: value.attempt_no,
             route_target_id: value.route_target_id.map(|id| id.to_string()),
             credential_id: value.credential_id.map(|id| id.to_string()),
+            credential_label,
             oauth_account_id: value.oauth_account_id.map(|id| id.to_string()),
+            oauth_account_label,
             proxy_profile_id: value.proxy_profile_id.map(|id| id.to_string()),
+            proxy_profile_label,
             started_at_ms: value.started_at_ms,
             duration_ms: value.duration_ms,
             retry_safety: value.retry_safety.map(|safety| safety.as_str()),
@@ -150,14 +225,13 @@ mod tests {
     use any2api_domain::{
         ConfigRevision, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
     };
-    use any2api_runtime::api::RequestTelemetryMetrics;
 
-    use super::RequestLogListResponse;
+    use super::RequestLogResponse;
 
     #[test]
-    fn response_preserves_exact_token_telemetry() {
-        let response = RequestLogListResponse::new(
-            vec![RequestLog {
+    fn response_preserves_exact_token_telemetry_and_labels() {
+        let response = RequestLogResponse::from_parts(
+            RequestLog {
                 request_id: RequestId::new(),
                 started_at_ms: 1,
                 config_revision: ConfigRevision::INITIAL,
@@ -165,6 +239,7 @@ mod tests {
                 ingress_protocol: ProtocolDialect::OpenAiResponses,
                 operation: ProtocolOperation::Responses,
                 public_model: Some("codex-local".into()),
+                thinking_level: Some("high".into()),
                 provider_endpoint_id: None,
                 credential_id: None,
                 oauth_account_id: None,
@@ -180,15 +255,21 @@ mod tests {
                 cache_read_tokens: Some(30),
                 cache_write_tokens: Some(6),
                 is_stream: true,
-            }],
-            RequestTelemetryMetrics::default(),
+            },
+            Some("Primary Codex".into()),
+            Some("work-oauth".into()),
+            Some("DIRECT".into()),
         );
 
         let json = serde_json::to_value(response).expect("request log response JSON");
-        assert_eq!(json["items"][0]["first_token_ms"], 18);
-        assert_eq!(json["items"][0]["input_tokens"], 120);
-        assert_eq!(json["items"][0]["output_tokens"], 45);
-        assert_eq!(json["items"][0]["cache_read_tokens"], 30);
-        assert_eq!(json["items"][0]["cache_write_tokens"], 6);
+        assert_eq!(json["first_token_ms"], 18);
+        assert_eq!(json["input_tokens"], 120);
+        assert_eq!(json["output_tokens"], 45);
+        assert_eq!(json["cache_read_tokens"], 30);
+        assert_eq!(json["cache_write_tokens"], 6);
+        assert_eq!(json["thinking_level"], "high");
+        assert_eq!(json["credential_label"], "Primary Codex");
+        assert_eq!(json["oauth_account_label"], "work-oauth");
+        assert_eq!(json["proxy_profile_label"], "DIRECT");
     }
 }

@@ -65,9 +65,7 @@ fn compile_provider_credentials(
         specs.push(RoutingCredentialSpec {
             id: credential.id().into(),
             provider_kind: endpoint.provider_kind(),
-            label: credential.label().to_owned(),
             endpoint_id: endpoint.id(),
-            endpoint_name: endpoint.name().to_owned(),
             endpoint_config_version: endpoint.config_version(),
             base_url: endpoint.base_url().clone(),
             ingress_protocol: endpoint.protocol_dialect(),
@@ -121,9 +119,7 @@ fn compile_oauth_accounts(
         specs.push(RoutingCredentialSpec {
             id: account.id().into(),
             provider_kind: account.provider_kind(),
-            label: account.label().to_owned(),
             endpoint_id: oauth_endpoint_id(account.provider_kind()),
-            endpoint_name: format!("{:?} OAuth", account.provider_kind()),
             endpoint_config_version: 1,
             base_url: profile.base_url().clone(),
             ingress_protocol: profile.protocol_dialect(),

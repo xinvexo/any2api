@@ -24,7 +24,7 @@ use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn balancing_admin_exposes_live_rpm_window_and_compiled_queue_policy() {
+async fn balancing_admin_exposes_only_aggregate_runtime_and_queue_policy() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
@@ -121,24 +121,28 @@ async fn balancing_admin_exposes_live_rpm_window_and_compiled_queue_policy() {
     assert_eq!(body["queue"]["fallback_on_rate_limit"], false);
     assert!(body.get("auxiliary").is_none());
     assert_eq!(body["totals"]["in_flight"], 1);
+    assert_eq!(body["totals"]["credential_count"], 1);
     assert_eq!(body["totals"]["enabled_credential_count"], 0);
     assert_eq!(body["totals"]["limited_credential_count"], 1);
     assert_eq!(body["totals"]["rate_limited_credential_count"], 0);
     assert_eq!(body["totals"]["requests_in_window"], 1);
-    let credential = &body["credentials"][0];
-    assert_eq!(credential["credential_id"], credential_id.to_string());
-    assert_eq!(credential["label"], "Primary Key");
-    assert_eq!(credential["provider_kind"], "codex");
-    assert_eq!(credential["endpoint_name"], "Codex Primary");
-    assert_eq!(credential["proxy_name"], "Disabled Proxy");
-    assert_eq!(credential["proxy_enabled"], false);
-    assert_eq!(credential["in_flight"], 1);
-    assert_eq!(credential["requests_per_minute"], 2);
-    assert_eq!(credential["requests_in_window"], 1);
-    assert_eq!(credential["remaining_requests"], 1);
-    assert_eq!(credential["retry_in_ms"], Value::Null);
-    assert_eq!(credential["counters"]["selected"], 0);
-    assert!(credential["models"].as_array().is_some_and(Vec::is_empty));
+    assert_eq!(body["totals"]["fixed_waiters"], 0);
+    assert_eq!(body["totals"]["selected"], 0);
+    let provider = &body["providers"][0];
+    assert_eq!(provider["provider_kind"], "codex");
+    assert_eq!(provider["credential_count"], 1);
+    assert_eq!(provider["enabled_credential_count"], 0);
+    assert_eq!(provider["limited_credential_count"], 1);
+    assert_eq!(provider["rate_limited_credential_count"], 0);
+    assert_eq!(provider["in_flight"], 1);
+    assert_eq!(provider["requests_in_window"], 1);
+    assert_eq!(provider["fixed_waiters"], 0);
+    assert_eq!(provider["selected"], 0);
+    assert!(body.get("credentials").is_none());
+    let serialized = body.to_string();
+    assert!(!serialized.contains("Primary Key"));
+    assert!(!serialized.contains("Disabled Proxy"));
+    assert!(!serialized.contains(&credential_id.to_string()));
     drop(permit);
 }
 

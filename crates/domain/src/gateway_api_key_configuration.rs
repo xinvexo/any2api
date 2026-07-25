@@ -44,7 +44,11 @@ mod tests {
     use crate::{GatewayApiKey, GatewayApiKeyDraft, GatewayApiKeyId};
 
     fn key(name: &str) -> GatewayApiKey {
-        let token = format!("a2k_v1_{}", "a".repeat(43));
+        let token = format!(
+            "{}{}",
+            crate::GATEWAY_TOKEN_PREFIX,
+            "a".repeat(crate::GATEWAY_TOKEN_BODY_LEN)
+        );
         GatewayApiKey::create(
             GatewayApiKeyId::new(),
             GatewayApiKeyDraft::new(name, true).expect("draft"),

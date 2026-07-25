@@ -53,6 +53,8 @@ pub struct RequestLog {
     pub ingress_protocol: ProtocolDialect,
     pub operation: ProtocolOperation,
     pub public_model: Option<String>,
+    /// Optional reasoning/thinking level from the client request body.
+    pub thinking_level: Option<String>,
     pub provider_endpoint_id: Option<ProviderEndpointId>,
     pub credential_id: Option<CredentialId>,
     pub oauth_account_id: Option<OAuthAccountId>,
@@ -69,6 +71,30 @@ pub struct RequestLog {
     pub cache_read_tokens: Option<u64>,
     pub cache_write_tokens: Option<u64>,
     pub is_stream: bool,
+}
+
+/// Bounded thinking/reasoning level text for request logs.
+pub const MAX_REQUEST_LOG_THINKING_LEVEL_CHARS: usize = 64;
+
+/// Normalize optional thinking/reasoning level from a decoded request body.
+#[must_use]
+pub fn bound_thinking_level(value: impl AsRef<str>) -> Option<String> {
+    let trimmed = value.as_ref().trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut bounded = String::new();
+    for character in trimmed.chars() {
+        if character.is_control() {
+            continue;
+        }
+        if bounded.chars().count() >= MAX_REQUEST_LOG_THINKING_LEVEL_CHARS {
+            break;
+        }
+        bounded.push(character);
+    }
+    let bounded = bounded.trim().to_owned();
+    (!bounded.is_empty()).then_some(bounded)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

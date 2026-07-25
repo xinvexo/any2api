@@ -26,6 +26,7 @@ export function createGatewayApiKey(
       expected_revision: input.expectedRevision,
       name: input.name,
       enabled: input.enabled,
+      token: input.token,
     },
   }).then(parseGatewayApiKeySecretReceipt);
 }
@@ -55,6 +56,7 @@ export function rotateGatewayApiKey(
       expected_revision: input.expectedRevision,
       expected_config_version: input.expectedConfigVersion,
       expected_token_version: input.expectedTokenVersion,
+      token: input.token,
     },
   }).then(parseGatewayApiKeySecretReceipt);
 }

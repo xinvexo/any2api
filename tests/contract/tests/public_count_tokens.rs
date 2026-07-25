@@ -136,7 +136,7 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
         app.clone(),
         Method::POST,
         "/api/admin/gateway-api-keys",
-        Some(json!({"expected_revision":1,"name":"client","enabled":true})),
+        Some(json!({"expected_revision":1,"name":"client","enabled":true,"token":format!("sk-{}", "c".repeat(48))})),
         remote,
         &[],
     )

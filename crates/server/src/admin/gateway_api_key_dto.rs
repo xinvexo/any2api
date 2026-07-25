@@ -1,6 +1,7 @@
 use any2api_domain::{ConfigRevision, GatewayApiKey, GatewayApiKeyDraft, GatewayApiKeyId};
 use any2api_runtime::api::{
-    GatewayApiKeyPublishResult, GatewayApiKeyUsageSummary, PublishedSnapshot, RequestTelemetry,
+    GatewayApiKeyPublishResult, GatewayApiKeyToken, GatewayApiKeyUsageSummary, PublishedSnapshot,
+    RequestTelemetry,
 };
 use serde::{Deserialize, Serialize};
 
@@ -146,13 +147,17 @@ pub(crate) struct GatewayApiKeyCreateRequest {
     expected_revision: u64,
     name: String,
     enabled: bool,
+    token: String,
 }
 
 impl GatewayApiKeyCreateRequest {
-    pub(crate) fn into_domain(self) -> Result<(ConfigRevision, GatewayApiKeyDraft), AdminApiError> {
+    pub(crate) fn into_domain(
+        self,
+    ) -> Result<(ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyToken), AdminApiError> {
         Ok((
             parse_revision(self.expected_revision)?,
             build_draft(self.name, self.enabled)?,
+            parse_token(self.token)?,
         ))
     }
 }
@@ -187,10 +192,13 @@ pub(crate) struct GatewayApiKeyRotateRequest {
     expected_revision: u64,
     expected_config_version: u64,
     expected_token_version: u64,
+    token: String,
 }
 
 impl GatewayApiKeyRotateRequest {
-    pub(crate) fn into_domain(self) -> Result<(ConfigRevision, u64, u64), AdminApiError> {
+    pub(crate) fn into_domain(
+        self,
+    ) -> Result<(ConfigRevision, u64, u64, GatewayApiKeyToken), AdminApiError> {
         Ok((
             parse_revision(self.expected_revision)?,
             parse_version(
@@ -201,6 +209,7 @@ impl GatewayApiKeyRotateRequest {
                 self.expected_token_version,
                 "expected_token_version is invalid",
             )?,
+            parse_token(self.token)?,
         ))
     }
 }
@@ -226,6 +235,11 @@ impl GatewayApiKeyRevokeRequest {
 
 fn build_draft(name: String, enabled: bool) -> Result<GatewayApiKeyDraft, AdminApiError> {
     GatewayApiKeyDraft::new(name, enabled)
+        .map_err(|error| AdminApiError::invalid_gateway_api_key(error.to_string()))
+}
+
+fn parse_token(token: String) -> Result<GatewayApiKeyToken, AdminApiError> {
+    GatewayApiKeyToken::parse(token)
         .map_err(|error| AdminApiError::invalid_gateway_api_key(error.to_string()))
 }
 

@@ -1,7 +1,7 @@
-use any2api_domain::{ProtocolDialect, ProtocolOperation};
+use any2api_domain::{ProtocolDialect, ProtocolOperation, bound_thinking_level};
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, Method, Uri, header};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::{
     ProtocolError, affinity,
@@ -42,6 +42,7 @@ pub(crate) fn decode_request(
         ));
     }
     let affinity = affinity::extract(request.operation, &request.headers, object)?;
+    let thinking_level = extract_thinking_level(object);
 
     Ok(DecodedRequest {
         dialect,
@@ -49,9 +50,44 @@ pub(crate) fn decode_request(
         headers: forwarded_headers(&request.headers, dialect),
         model: Some(model),
         stream,
+        thinking_level,
         affinity,
         payload: AdapterPayload::RawJson(request.body),
     })
+}
+
+/// Best-effort thinking/reasoning level for request logs.
+///
+/// Supports common client shapes without failing decode on unknown fields:
+/// - `reasoning.effort` (Responses)
+/// - `reasoning_effort` (Chat Completions)
+/// - `thinking` string or `{ type, budget_tokens }` (Claude-style)
+fn extract_thinking_level(object: &Map<String, Value>) -> Option<String> {
+    if let Some(effort) = object
+        .get("reasoning")
+        .and_then(Value::as_object)
+        .and_then(|reasoning| reasoning.get("effort"))
+        .and_then(Value::as_str)
+    {
+        return bound_thinking_level(effort);
+    }
+    if let Some(effort) = object.get("reasoning_effort").and_then(Value::as_str) {
+        return bound_thinking_level(effort);
+    }
+    match object.get("thinking") {
+        Some(Value::String(value)) => bound_thinking_level(value),
+        Some(Value::Object(thinking)) => {
+            let kind = thinking.get("type").and_then(Value::as_str);
+            let budget = thinking.get("budget_tokens").and_then(Value::as_u64);
+            match (kind, budget) {
+                (Some(kind), Some(budget)) => bound_thinking_level(format!("{kind}:{budget}")),
+                (Some(kind), None) => bound_thinking_level(kind),
+                (None, Some(budget)) => bound_thinking_level(format!("budget:{budget}")),
+                (None, None) => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn encode_request(

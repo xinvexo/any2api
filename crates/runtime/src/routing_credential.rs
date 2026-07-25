@@ -12,9 +12,7 @@ mod compile;
 pub(crate) struct RoutingCredentialSpec {
     id: RoutingCredentialId,
     provider_kind: ProviderKind,
-    label: String,
     endpoint_id: ProviderEndpointId,
-    endpoint_name: String,
     endpoint_config_version: u64,
     base_url: ProviderBaseUrl,
     ingress_protocol: ProtocolDialect,
@@ -48,9 +46,7 @@ impl RoutingCredentialSpec {
         RoutingCredential {
             id: self.id,
             provider_kind: self.provider_kind,
-            label: self.label,
             endpoint_id: self.endpoint_id,
-            endpoint_name: self.endpoint_name,
             endpoint_config_version: self.endpoint_config_version,
             base_url: self.base_url,
             ingress_protocol: self.ingress_protocol,
@@ -70,9 +66,7 @@ impl RoutingCredentialSpec {
 pub(crate) struct RoutingCredential {
     id: RoutingCredentialId,
     provider_kind: ProviderKind,
-    label: String,
     endpoint_id: ProviderEndpointId,
-    endpoint_name: String,
     endpoint_config_version: u64,
     base_url: ProviderBaseUrl,
     ingress_protocol: ProtocolDialect,
@@ -93,14 +87,8 @@ impl RoutingCredential {
     pub(crate) const fn provider_kind(&self) -> ProviderKind {
         self.provider_kind
     }
-    pub(crate) fn label(&self) -> &str {
-        &self.label
-    }
     pub(crate) const fn endpoint_id(&self) -> ProviderEndpointId {
         self.endpoint_id
-    }
-    pub(crate) fn endpoint_name(&self) -> &str {
-        &self.endpoint_name
     }
     pub(crate) const fn endpoint_config_version(&self) -> u64 {
         self.endpoint_config_version

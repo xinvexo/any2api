@@ -156,7 +156,11 @@ impl PublicRequestService {
             self.providers.as_ref(),
         )
         .await?;
-        recorder.set_route(planned.public_model.clone(), planned.decoded.stream);
+        recorder.set_route(
+            planned.public_model.clone(),
+            planned.decoded.stream,
+            planned.decoded.thinking_level.clone(),
+        );
         retry::execute(
             snapshot,
             Arc::clone(&self.protocols),

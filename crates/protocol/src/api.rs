@@ -26,6 +26,8 @@ pub struct DecodedRequest {
     pub headers: HeaderMap,
     pub model: Option<String>,
     pub stream: bool,
+    /// Optional thinking/reasoning level extracted from the request body.
+    pub thinking_level: Option<String>,
     pub affinity: IngressAffinity,
     pub payload: AdapterPayload,
 }
@@ -233,6 +235,7 @@ impl fmt::Debug for DecodedRequest {
             .field("operation", &self.operation)
             .field("model", &self.model)
             .field("stream", &self.stream)
+            .field("thinking_level", &self.thinking_level)
             .field("affinity", &self.affinity)
             .field("payload", &self.payload)
             .finish()

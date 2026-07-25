@@ -58,8 +58,8 @@ impl ConfigPublisher {
         expected: ConfigRevision,
         id: GatewayApiKeyId,
         draft: GatewayApiKeyDraft,
+        token: GatewayApiKeyToken,
     ) -> Result<GatewayApiKeyPublishResult, ConfigPublishError> {
-        let token = generate_token()?;
         let outcome = self
             .publish_gateway_api_key(
                 expected,
@@ -70,7 +70,7 @@ impl ConfigPublisher {
             snapshot: outcome.snapshot,
             token: outcome
                 .token
-                .expect("create gateway API Key must return its generated token"),
+                .expect("create gateway API Key must return its token"),
         })
     }
 
@@ -99,8 +99,8 @@ impl ConfigPublisher {
         id: GatewayApiKeyId,
         expected_config_version: u64,
         expected_token_version: u64,
+        token: GatewayApiKeyToken,
     ) -> Result<GatewayApiKeyPublishResult, ConfigPublishError> {
-        let token = generate_token()?;
         let outcome = self
             .publish_gateway_api_key(
                 expected,
@@ -116,7 +116,7 @@ impl ConfigPublisher {
             snapshot: outcome.snapshot,
             token: outcome
                 .token
-                .expect("gateway API Key rotation must return its generated token"),
+                .expect("gateway API Key rotation must return its token"),
         })
     }
 
@@ -216,8 +216,4 @@ impl ConfigPublisher {
             token,
         })
     }
-}
-
-fn generate_token() -> Result<GatewayApiKeyToken, ConfigPublishError> {
-    GatewayApiKeyToken::generate().map_err(|_| ConfigPublishError::GatewayApiKeyTokenGeneration)
 }

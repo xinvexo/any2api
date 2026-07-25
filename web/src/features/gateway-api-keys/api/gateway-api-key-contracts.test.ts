@@ -5,13 +5,13 @@ import {
   parseGatewayApiKeySecretReceipt,
 } from "./gateway-api-key-contracts";
 
-const token = `a2k_v1_${"a".repeat(43)}`;
+const token = `sk-${"a".repeat(48)}`;
 
 const item = {
   id: "key-1",
   name: "Desktop",
   token,
-  token_prefix: "a2k_v1_aaaaaaaa",
+  token_prefix: token.slice(0, 16),
   token_version: 1,
   config_version: 1,
   enabled: true,
@@ -44,6 +44,12 @@ describe("gateway API Key contracts", () => {
       parseGatewayApiKeyConfiguration({
         config_revision: 2,
         items: [{ ...item, token: "short" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      parseGatewayApiKeyConfiguration({
+        config_revision: 2,
+        items: [{ ...item, token: `a2k_v1_${"a".repeat(43)}` }],
       }),
     ).toThrow();
     expect(() =>

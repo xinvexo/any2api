@@ -25,9 +25,19 @@ test("renders request logs in a table without leaving the page for details", asy
   expect(await screen.findByRole("list", { name: "请求日志列表" })).toBeInTheDocument();
   expect(screen.getByRole("table", { name: "请求日志表格" })).toBeInTheDocument();
   expect(screen.getAllByText("codex-local").length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByText("API Key").length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByText("44444444…").length).toBeGreaterThanOrEqual(1);
+  // List shows credential name in the pill (no separate "API Key" / "OAuth" badge).
+  expect(screen.getAllByText("Primary Codex").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("high").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("成功").length).toBeGreaterThanOrEqual(1);
+  // Split latency + token columns (mobile still uses compact pair/summary).
+  expect(screen.getAllByText("18 ms").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("42 ms").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("120").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("45").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("30").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("6").length).toBeGreaterThanOrEqual(1);
+  // generation window = 42-18 = 24ms → 45/0.024 = 1875 t/s
+  expect(screen.getAllByText("1875 t/s").length).toBeGreaterThanOrEqual(1);
   expect(screen.getByText(/丢弃/)).toBeInTheDocument();
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(screen.queryByText("private prompt")).not.toBeInTheDocument();
@@ -38,12 +48,15 @@ test("renders request logs in a table without leaving the page for details", asy
   expect(toggle).toBeTruthy();
   fireEvent.click(toggle!);
 
-  expect((await screen.findAllByText("Attempt 时间线")).length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByText("success").length).toBeGreaterThanOrEqual(1);
+  // Success expand: only non-list fields (request id / protocol / proxy…), no Attempt timeline.
   expect(
-    screen.getAllByText("11111111-1111-4111-8111-111111111111").length,
+    (await screen.findAllByText("11111111-1111-4111-8111-111111111111")).length,
   ).toBeGreaterThanOrEqual(1);
-  // successful log has no error banner
+  expect(screen.getAllByText("请求 ID").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("出口代理").length).toBeGreaterThanOrEqual(1);
+  expect(screen.queryByText("Attempt 时间线")).not.toBeInTheDocument();
+  // no duplicate list metrics in the panel
+  expect(screen.queryByText("输入 Token")).not.toBeInTheDocument();
   expect(screen.queryByText("错误详情")).not.toBeInTheDocument();
   expect(fetchMock.mock.calls.some(([path]) => String(path).includes("/request-logs/11111111"))).toBe(
     true,
@@ -56,15 +69,17 @@ test("distinguishes an OAuth final upstream source", async () => {
       {
         ...request(),
         credential_id: null,
+        credential_label: null,
         oauth_account_id: "55555555-5555-4555-8555-555555555555",
+        oauth_account_label: "work-oauth",
       },
     ]),
   );
 
   renderManagement();
 
-  expect((await screen.findAllByText("OAuth")).length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByText("55555555…").length).toBeGreaterThanOrEqual(1);
+  // List pill is the account label; kind is only in title/tone.
+  expect((await screen.findAllByText("work-oauth")).length).toBeGreaterThanOrEqual(1);
 });
 
 test("renders an empty state", async () => {
@@ -194,9 +209,12 @@ function request() {
     ingress_protocol: "openai_responses",
     operation: "responses",
     public_model: "codex-local",
+    thinking_level: "high",
     provider_endpoint_id: "33333333-3333-4333-8333-333333333333",
     credential_id: "44444444-4444-4444-8444-444444444444",
+    credential_label: "Primary Codex",
     oauth_account_id: null,
+    oauth_account_label: null,
     proxy_profile_id: "33333333-3333-4333-8333-333333333333",
     status_code: 200,
     error_class: null,

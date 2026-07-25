@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, ErrorClass, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
-    ProtocolDialect, ProtocolOperation, RequestAttempt, RequestAttemptOutcome, RequestId,
-    RequestLog, RetrySafety,
+    MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, ProtocolDialect, ProtocolOperation, RequestAttempt,
+    RequestAttemptOutcome, RequestId, RequestLog, RetrySafety,
 };
 use async_trait::async_trait;
 use sqlx::{FromRow, SqliteConnection};
@@ -79,10 +79,10 @@ impl RequestLogRepository for SqliteStore {
     async fn list_request_logs(&self, limit: u32) -> Result<Vec<RequestLog>, StorageError> {
         let rows = sqlx::query_as::<_, RequestLogRow>(
             "SELECT request_id, started_at_ms, config_revision, gateway_api_key_id, \
-             ingress_protocol, operation, public_model, provider_endpoint_id, credential_id, \
-             oauth_account_id, proxy_profile_id, status_code, error_class, error_message, \
-             attempt_count, latency_ms, first_token_ms, input_tokens, output_tokens, \
-             cache_read_tokens, cache_write_tokens, is_stream FROM request_logs \
+             ingress_protocol, operation, public_model, thinking_level, provider_endpoint_id, \
+             credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
+             error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
+             output_tokens, cache_read_tokens, cache_write_tokens, is_stream FROM request_logs \
              ORDER BY started_at_ms DESC, request_id DESC LIMIT ?",
         )
         .bind(i64::from(limit))
@@ -98,10 +98,11 @@ impl RequestLogRepository for SqliteStore {
         let mut transaction = self.pool().begin().await?;
         let row = sqlx::query_as::<_, RequestLogRow>(
             "SELECT request_id, started_at_ms, config_revision, gateway_api_key_id, \
-             ingress_protocol, operation, public_model, provider_endpoint_id, credential_id, \
-             oauth_account_id, proxy_profile_id, status_code, error_class, error_message, \
-             attempt_count, latency_ms, first_token_ms, input_tokens, output_tokens, \
-             cache_read_tokens, cache_write_tokens, is_stream FROM request_logs WHERE request_id = ?",
+             ingress_protocol, operation, public_model, thinking_level, provider_endpoint_id, \
+             credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
+             error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
+             output_tokens, cache_read_tokens, cache_write_tokens, is_stream \
+             FROM request_logs WHERE request_id = ?",
         )
         .bind(request_id.to_string())
         .fetch_optional(&mut *transaction)
@@ -134,13 +135,14 @@ async fn insert_request_log(
     log: &RequestLog,
 ) -> Result<(), StorageError> {
     let error_message = validate_error_message(log.error_message.as_deref())?;
+    let thinking_level = validate_thinking_level(log.thinking_level.as_deref())?;
     sqlx::query(
         "INSERT INTO request_logs (request_id, started_at_ms, config_revision, \
-         gateway_api_key_id, ingress_protocol, operation, public_model, provider_endpoint_id, \
-         credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
-         error_message, attempt_count, latency_ms, first_token_ms, input_tokens, output_tokens, \
-         cache_read_tokens, cache_write_tokens, is_stream) VALUES (?, ?, ?, \
-         (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, \
+         gateway_api_key_id, ingress_protocol, operation, public_model, thinking_level, \
+         provider_endpoint_id, credential_id, oauth_account_id, proxy_profile_id, status_code, \
+         error_class, error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
+         output_tokens, cache_read_tokens, cache_write_tokens, is_stream) VALUES (?, ?, ?, \
+         (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, ?, \
          (SELECT id FROM provider_endpoints WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
@@ -153,6 +155,7 @@ async fn insert_request_log(
     .bind(log.ingress_protocol.as_str())
     .bind(log.operation.as_str())
     .bind(log.public_model.as_deref())
+    .bind(thinking_level)
     .bind(optional_id(log.provider_endpoint_id))
     .bind(optional_id(log.credential_id))
     .bind(optional_id(log.oauth_account_id))
@@ -241,6 +244,7 @@ struct RequestLogRow {
     ingress_protocol: String,
     operation: String,
     public_model: Option<String>,
+    thinking_level: Option<String>,
     provider_endpoint_id: Option<String>,
     credential_id: Option<String>,
     oauth_account_id: Option<String>,
@@ -287,6 +291,7 @@ fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, StorageError> {
         operation: ProtocolOperation::parse(&row.operation)
             .ok_or(StorageError::CorruptTelemetry)?,
         public_model: row.public_model,
+        thinking_level: parse_thinking_level(row.thinking_level)?,
         provider_endpoint_id: parse_optional_id(row.provider_endpoint_id)?,
         credential_id: parse_optional_id(row.credential_id)?,
         oauth_account_id: parse_optional_id(row.oauth_account_id)?,
@@ -362,6 +367,25 @@ fn validate_error_message(value: Option<&str>) -> Result<Option<&str>, StorageEr
     if value.is_empty()
         || value.trim() != value
         || value.chars().count() > MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS
+        || value.chars().any(char::is_control)
+    {
+        return Err(StorageError::CorruptTelemetry);
+    }
+    Ok(Some(value))
+}
+
+fn parse_thinking_level(value: Option<String>) -> Result<Option<String>, StorageError> {
+    validate_thinking_level(value.as_deref())?;
+    Ok(value)
+}
+
+fn validate_thinking_level(value: Option<&str>) -> Result<Option<&str>, StorageError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_empty()
+        || value.trim() != value
+        || value.chars().count() > MAX_REQUEST_LOG_THINKING_LEVEL_CHARS
         || value.chars().any(char::is_control)
     {
         return Err(StorageError::CorruptTelemetry);

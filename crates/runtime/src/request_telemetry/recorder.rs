@@ -38,6 +38,7 @@ struct RequestRecorderInner {
 #[derive(Default)]
 struct RequestRecorderState {
     public_model: Option<String>,
+    thinking_level: Option<String>,
     is_stream: bool,
     final_target: Option<FinalTarget>,
     attempts: Vec<RequestAttempt>,
@@ -79,13 +80,19 @@ impl RequestRecorder {
         }
     }
 
-    pub(crate) fn set_route(&self, public_model: String, is_stream: bool) {
+    pub(crate) fn set_route(
+        &self,
+        public_model: String,
+        is_stream: bool,
+        thinking_level: Option<String>,
+    ) {
         let Some(inner) = &self.inner else {
             return;
         };
         let mut state = inner.state.lock().expect("request recorder state");
         state.public_model = Some(public_model);
         state.is_stream = is_stream;
+        state.thinking_level = thinking_level;
     }
 
     pub(crate) fn begin_attempt(
@@ -206,6 +213,7 @@ impl RequestRecorderInner {
                     ingress_protocol: self.operation.dialect(),
                     operation: self.operation,
                     public_model: state.public_model.clone(),
+                    thinking_level: state.thinking_level.clone(),
                     provider_endpoint_id: final_target.and_then(|target| target.endpoint_id),
                     credential_id: final_target.and_then(|target| target.credential_id),
                     oauth_account_id: final_target.and_then(|target| target.oauth_account_id),

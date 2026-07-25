@@ -37,6 +37,7 @@ export interface GatewayApiKeyCreateInput {
   expectedRevision: number;
   name: string;
   enabled: boolean;
+  token: string;
 }
 
 export interface GatewayApiKeyUpdateInput {
@@ -50,6 +51,7 @@ export interface GatewayApiKeyRotateInput {
   expectedRevision: number;
   expectedConfigVersion: number;
   expectedTokenVersion: number;
+  token: string;
 }
 
 export interface GatewayApiKeyRevokeInput {
@@ -143,7 +145,7 @@ function parseGatewayApiKeyRequestOutcome(value: unknown): GatewayApiKeyRequestO
 }
 
 function isGatewayToken(value: string) {
-  return /^a2k_v1_[A-Za-z0-9_-]{43}$/.test(value);
+  return /^sk-[A-Za-z0-9]{48}$/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

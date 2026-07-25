@@ -6,7 +6,7 @@ import { affinityQueryKeys } from "./affinity-query-keys";
 export function useAffinity() {
   return useQuery({
     queryKey: affinityQueryKeys.runtime(),
-    queryFn: ({ signal }) => getAffinity(100, signal),
+    queryFn: ({ signal }) => getAffinity(signal),
     refetchInterval: 5_000,
   });
 }

@@ -1,1 +1,1 @@
-export { BalancingManagement } from "./ui/BalancingManagement";
+export { BalancingOverview } from "./ui/BalancingOverview";

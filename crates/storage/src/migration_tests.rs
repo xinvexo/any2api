@@ -45,7 +45,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
             .fetch_all(&pool)
             .await
             .expect("migration versions");
-    assert_eq!(versions, (1..=22).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=23).collect::<Vec<_>>());
     let kind = sqlx::query_scalar::<_, String>(
         "SELECT credential_kind FROM provider_credentials WHERE id = ?",
     )

@@ -14,6 +14,7 @@ interface GatewayApiKeyListProps {
   onCreate: () => void;
   onRefresh: () => void;
   onEdit: (id: string) => void;
+  onToggleEnabled: (key: GatewayApiKey) => void;
   onDelete: (key: GatewayApiKey) => void;
 }
 
@@ -25,6 +26,7 @@ export function GatewayApiKeyList({
   onCreate,
   onRefresh,
   onEdit,
+  onToggleEnabled,
   onDelete,
 }: GatewayApiKeyListProps) {
   const [query, setQuery] = useState("");
@@ -35,7 +37,7 @@ export function GatewayApiKeyList({
     }
     return configuration.items.filter((key) => {
       const status = key.enabled ? "已启用" : "已停用";
-      return [key.name, status, key.token].join(" ").toLowerCase().includes(needle);
+      return [key.name, status].join(" ").toLowerCase().includes(needle);
     });
   }, [configuration.items, query]);
 
@@ -70,12 +72,11 @@ export function GatewayApiKeyList({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px] border-collapse text-left text-[12px]">
+        <table className="w-full min-w-[860px] border-collapse text-left text-[12px]">
           <caption className="sr-only">网关密钥列表</caption>
           <thead>
             <tr className="border-b border-subtle text-secondary">
               <th className="py-2.5 pr-3 font-medium">名称</th>
-              <th className="px-3 py-2.5 font-medium">密钥</th>
               <th className="px-3 py-2.5 font-medium">调用统计</th>
               <th className="px-3 py-2.5 font-medium">状态</th>
               <th className="px-3 py-2.5 font-medium">最后使用</th>
@@ -90,6 +91,7 @@ export function GatewayApiKeyList({
                 apiKey={key}
                 pending={pending}
                 onEdit={onEdit}
+                onToggleEnabled={onToggleEnabled}
                 onDelete={onDelete}
               />
             ))}

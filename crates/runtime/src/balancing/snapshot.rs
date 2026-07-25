@@ -1,12 +1,12 @@
-use any2api_domain::{ProviderEndpointId, ProxyProfileId};
-use tokio::time::Instant;
+use std::collections::BTreeMap;
+
+use any2api_domain::ProviderKind;
 
 use super::{
-    BalancingCredentialModelSnapshot, BalancingCredentialSnapshot, BalancingHealthStatus,
-    BalancingQueueSnapshot, BalancingRuntimeSnapshot,
+    BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
+    BalancingTotalsSnapshot,
 };
 use crate::{
-    credential_runtime::CredentialRuntimeBinding, health::HealthAcquireError,
     published_snapshot::PublishedSnapshot, queue::RateLimitAction, registry::RuntimeRegistry,
     routing_credential::RoutingCredential,
 };
@@ -16,14 +16,13 @@ pub(crate) fn snapshot(
     published: &PublishedSnapshot,
 ) -> BalancingRuntimeSnapshot {
     let queue_policy = published.queue_policy();
-    let credentials = published
-        .routing_credentials()
-        .iter()
-        .filter_map(|credential| {
-            published.proxies().get(credential.proxy_id())?;
-            Some(credential_snapshot(published, credential))
-        })
-        .collect();
+    let mut aggregate = BalancingAggregate::default();
+    for credential in published.routing_credentials() {
+        let Some(proxy) = published.proxies().get(credential.proxy_id()) else {
+            continue;
+        };
+        aggregate.record(CredentialAggregate::new(credential, proxy.enabled()));
+    }
 
     BalancingRuntimeSnapshot {
         scheduler_epoch: runtime.scheduler_epoch(),
@@ -34,92 +33,151 @@ pub(crate) fn snapshot(
             rejects_when_rate_limited: queue_policy.on_rate_limited() == RateLimitAction::Reject,
             fallback_on_rate_limit: queue_policy.fallback_on_rate_limit(),
         },
-        credentials,
+        totals: aggregate.totals,
+        providers: aggregate.providers.into_values().collect(),
     }
 }
 
-fn credential_snapshot(
-    published: &PublishedSnapshot,
-    credential: &RoutingCredential,
-) -> BalancingCredentialSnapshot {
-    let binding = credential.binding();
-    let rate = binding.rate_snapshot();
-    let models = credential
-        .models()
-        .iter()
-        .map(|model| {
-            model_health(
-                published,
-                binding,
-                credential.endpoint_id(),
-                credential.proxy_id(),
-                model.as_str(),
-            )
-        })
-        .collect();
-    BalancingCredentialSnapshot {
-        credential_id: binding.credential_id(),
-        label: credential.label().to_owned(),
-        provider_kind: credential.provider_kind(),
-        enabled: credential.enabled(),
-        authentication_expired: credential.authentication_expired(),
-        provider_endpoint_id: credential
-            .id()
-            .provider_credential_id()
-            .map(|_| credential.endpoint_id()),
-        endpoint_name: credential
-            .id()
-            .provider_credential_id()
-            .map(|_| credential.endpoint_name().to_owned()),
-        endpoint_enabled: credential.endpoint_enabled(),
-        proxy_id: credential.proxy_id(),
-        in_flight: binding.in_flight(),
-        requests_per_minute: rate.requests_per_minute(),
-        requests_in_window: rate.requests_in_window(),
-        remaining_requests: rate.remaining(),
-        retry_in_ms: rate
-            .retry_at()
-            .map(|retry_at| duration_ms(retry_at.saturating_duration_since(Instant::now())).max(1)),
-        fixed_waiters: binding.fixed_waiter_count(),
-        counters: binding.balancing_counters(),
-        models,
+#[derive(Debug, Default)]
+struct BalancingAggregate {
+    totals: BalancingTotalsSnapshot,
+    providers: BTreeMap<ProviderKind, BalancingProviderSnapshot>,
+}
+
+impl BalancingAggregate {
+    fn record(&mut self, credential: CredentialAggregate) {
+        add_credential(&mut self.totals, credential);
+        let provider =
+            self.providers
+                .entry(credential.provider_kind)
+                .or_insert(BalancingProviderSnapshot {
+                    provider_kind: credential.provider_kind,
+                    credential_count: 0,
+                    enabled_credential_count: 0,
+                    limited_credential_count: 0,
+                    rate_limited_credential_count: 0,
+                    in_flight: 0,
+                    requests_in_window: 0,
+                    fixed_waiters: 0,
+                    selected: 0,
+                });
+        add_credential(provider, credential);
     }
 }
 
-fn model_health(
-    published: &PublishedSnapshot,
-    binding: &CredentialRuntimeBinding,
-    endpoint_id: ProviderEndpointId,
-    proxy_id: ProxyProfileId,
-    model: &str,
-) -> BalancingCredentialModelSnapshot {
-    let policy = published.reliability_policy();
-    BalancingCredentialModelSnapshot {
-        upstream_model: model.to_owned(),
-        credential: health_status(binding.generation().health().availability(model)),
-        endpoint: published
-            .endpoint_health(endpoint_id)
-            .map_or(BalancingHealthStatus::Unavailable, |health| {
-                health_status(health.availability(&policy))
-            }),
-        proxy: published
-            .proxy_health(proxy_id)
-            .map_or(BalancingHealthStatus::Unavailable, |health| {
-                health_status(health.availability(&policy))
-            }),
+#[derive(Clone, Copy, Debug)]
+struct CredentialAggregate {
+    provider_kind: ProviderKind,
+    enabled: bool,
+    limited: bool,
+    rate_limited: bool,
+    in_flight: u64,
+    requests_in_window: u64,
+    fixed_waiters: u64,
+    selected: u64,
+}
+
+impl CredentialAggregate {
+    fn new(credential: &RoutingCredential, proxy_enabled: bool) -> Self {
+        let binding = credential.binding();
+        let rate = binding.rate_snapshot();
+        Self {
+            provider_kind: credential.provider_kind(),
+            enabled: credential.enabled()
+                && !credential.authentication_expired()
+                && credential.endpoint_enabled()
+                && proxy_enabled,
+            limited: rate.requests_per_minute().is_some(),
+            rate_limited: matches!(rate.remaining(), Some(0)),
+            in_flight: u64::from(binding.in_flight()),
+            requests_in_window: u64::from(rate.requests_in_window()),
+            fixed_waiters: u64::from(binding.fixed_waiter_count()),
+            selected: binding.balancing_counters().selected(),
+        }
     }
 }
 
-fn health_status(result: Result<(), HealthAcquireError>) -> BalancingHealthStatus {
-    match result {
-        Ok(()) => BalancingHealthStatus::Available,
-        Err(HealthAcquireError::Permanent) => BalancingHealthStatus::Unavailable,
-        Err(HealthAcquireError::Temporary(until)) => BalancingHealthStatus::Cooling {
-            retry_in_ms: duration_ms(until.saturating_duration_since(Instant::now())).max(1),
-        },
+trait AggregateTarget {
+    fn add(&mut self, credential: CredentialAggregate);
+}
+
+impl AggregateTarget for BalancingTotalsSnapshot {
+    fn add(&mut self, credential: CredentialAggregate) {
+        self.credential_count += 1;
+        self.enabled_credential_count += usize::from(credential.enabled);
+        self.limited_credential_count += usize::from(credential.limited);
+        self.rate_limited_credential_count += usize::from(credential.rate_limited);
+        self.in_flight += credential.in_flight;
+        self.requests_in_window += credential.requests_in_window;
+        self.fixed_waiters += credential.fixed_waiters;
+        self.selected += credential.selected;
     }
 }
 
-fn duration_ms(duration: std::time::Duration) -> u64 {
-    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+impl AggregateTarget for BalancingProviderSnapshot {
+    fn add(&mut self, credential: CredentialAggregate) {
+        self.credential_count += 1;
+        self.enabled_credential_count += usize::from(credential.enabled);
+        self.limited_credential_count += usize::from(credential.limited);
+        self.rate_limited_credential_count += usize::from(credential.rate_limited);
+        self.in_flight += credential.in_flight;
+        self.requests_in_window += credential.requests_in_window;
+        self.fixed_waiters += credential.fixed_waiters;
+        self.selected += credential.selected;
+    }
+}
+
+fn add_credential(target: &mut impl AggregateTarget, credential: CredentialAggregate) {
+    target.add(credential);
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::ProviderKind;
+
+    use super::{BalancingAggregate, CredentialAggregate};
+
+    #[test]
+    fn aggregation_keeps_only_global_and_provider_totals() {
+        let mut aggregate = BalancingAggregate::default();
+        aggregate.record(credential(ProviderKind::Codex, true, true, false, 2, 7));
+        aggregate.record(credential(ProviderKind::Codex, false, true, true, 0, 3));
+        aggregate.record(credential(ProviderKind::Claude, true, false, false, 1, 0));
+
+        assert_eq!(aggregate.totals.credential_count(), 3);
+        assert_eq!(aggregate.totals.enabled_credential_count(), 2);
+        assert_eq!(aggregate.totals.limited_credential_count(), 2);
+        assert_eq!(aggregate.totals.rate_limited_credential_count(), 1);
+        assert_eq!(aggregate.totals.in_flight(), 3);
+        assert_eq!(aggregate.totals.requests_in_window(), 10);
+        assert_eq!(aggregate.totals.fixed_waiters(), 3);
+        assert_eq!(aggregate.totals.selected(), 22);
+
+        let codex = aggregate.providers[&ProviderKind::Codex];
+        assert_eq!(codex.credential_count(), 2);
+        assert_eq!(codex.enabled_credential_count(), 1);
+        assert_eq!(codex.rate_limited_credential_count(), 1);
+        assert_eq!(codex.requests_in_window(), 10);
+        assert_eq!(codex.selected(), 18);
+    }
+
+    fn credential(
+        provider_kind: ProviderKind,
+        enabled: bool,
+        limited: bool,
+        rate_limited: bool,
+        in_flight: u64,
+        requests_in_window: u64,
+    ) -> CredentialAggregate {
+        CredentialAggregate {
+            provider_kind,
+            enabled,
+            limited,
+            rate_limited,
+            in_flight,
+            requests_in_window,
+            fixed_waiters: in_flight,
+            selected: requests_in_window + 4,
+        }
+    }
 }

@@ -17,6 +17,10 @@ use serde_json::{Value, json};
 use tempfile::tempdir;
 use tower::ServiceExt;
 
+fn sample_gateway_token(seed: char) -> String {
+    format!("sk-{}", seed.to_string().repeat(48))
+}
+
 #[tokio::test]
 async fn gateway_key_create_rotate_revoke_controls_public_access() {
     let (_directory, app, storage, telemetry) = test_app().await;
@@ -28,7 +32,8 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         Some(json!({
             "expected_revision": 1,
             "name": "Desktop",
-            "enabled": true
+            "enabled": true,
+            "token": sample_gateway_token('A')
         })),
         loopback,
         &[],
@@ -40,7 +45,8 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         .as_str()
         .expect("created token")
         .to_owned();
-    assert!(first_token.starts_with("a2k_v1_"));
+    assert!(first_token.starts_with("sk-"));
+    assert_eq!(first_token, sample_gateway_token('A'));
     assert_eq!(created.body["config_revision"], 2);
     let key_id = created.body["items"][0]["id"]
         .as_str()
@@ -106,7 +112,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         loopback,
         &[
             ("authorization", format!("Bearer {first_token}")),
-            ("x-api-key", "a2k_v1_conflicting".to_owned()),
+            ("x-api-key", "sk-conflicting".to_owned()),
         ],
     )
     .await;
@@ -120,7 +126,8 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         Some(json!({
             "expected_revision": 2,
             "expected_config_version": 1,
-            "expected_token_version": 1
+            "expected_token_version": 1,
+            "token": sample_gateway_token('B')
         })),
         loopback,
         &[],
@@ -206,7 +213,8 @@ async fn models_list_reflects_credential_model_selection() {
         Some(json!({
             "expected_revision": 1,
             "name": "Models client",
-            "enabled": true
+            "enabled": true,
+            "token": sample_gateway_token('C')
         })),
         loopback,
         &[],
@@ -331,7 +339,8 @@ async fn unknown_public_routes_never_fall_back_to_the_spa() {
         Some(json!({
             "expected_revision": 1,
             "name": "CLI",
-            "enabled": true
+            "enabled": true,
+            "token": sample_gateway_token('D')
         })),
         loopback,
         &[],

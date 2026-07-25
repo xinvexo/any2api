@@ -298,6 +298,13 @@ fn snapshots_are_redacted_and_cleanup_is_scoped() {
         assert!(!binding.session_hash_prefix().contains("private"));
     }
 
+    let aggregate = registry.snapshot(SOFT_TTL, HARD_TTL, CREATING_TTL, 0);
+    assert_eq!(aggregate.soft_binding_count(), 1);
+    assert_eq!(aggregate.hard_binding_count(), 1);
+    assert_eq!(aggregate.creating_count(), 1);
+    assert!(aggregate.credential_counts().is_empty());
+    assert!(aggregate.bindings().is_empty());
+
     assert_eq!(registry.clear_credential(credential_id.into()), 2);
     let snapshot = registry.snapshot(SOFT_TTL, HARD_TTL, CREATING_TTL, 10);
     assert_eq!(snapshot.soft_binding_count(), 0);

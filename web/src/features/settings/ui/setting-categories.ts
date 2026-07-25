@@ -3,6 +3,7 @@ export interface SettingSection {
   id: string;
   label: string;
   webGroups: readonly string[];
+  featuredKeys: readonly string[];
 }
 
 /**
@@ -11,34 +12,48 @@ export interface SettingSection {
  */
 export const SETTING_SECTIONS: readonly SettingSection[] = [
   {
-    id: "admin",
-    label: "远程管理",
+    id: "basic",
+    label: "基础",
     webGroups: ["远程管理"],
+    featuredKeys: ["admin.remote_enabled"],
   },
   {
-    id: "scheduler",
-    label: "调度",
-    webGroups: ["排队策略", "辅助请求"],
+    id: "routing",
+    label: "路由策略",
+    webGroups: ["排队策略", "软会话粘性", "硬会话粘性", "固定会话等待"],
+    featuredKeys: [
+      "scheduler.on_rate_limited",
+      "affinity.soft.enabled",
+      "affinity.soft.mode",
+    ],
   },
   {
-    id: "reliability",
-    label: "重试与熔断",
-    webGroups: ["重试预算", "重试退避", "冷却", "Endpoint 熔断", "出口代理熔断", "熔断探测"],
-  },
-  {
-    id: "upstream",
-    label: "上游与运行",
-    webGroups: ["上游网络", "OAuth 刷新", "流式预提交", "流式响应", "优雅停机"],
-  },
-  {
-    id: "affinity",
-    label: "会话粘性",
-    webGroups: ["软会话粘性", "硬会话粘性", "固定会话等待"],
+    id: "protection",
+    label: "运行保护",
+    webGroups: [
+      "重试预算",
+      "重试退避",
+      "冷却",
+      "Endpoint 熔断",
+      "代理熔断",
+      "熔断探测",
+      "上游网络",
+      "OAuth 刷新",
+      "流式预提交",
+      "流式响应",
+      "优雅停机",
+    ],
+    featuredKeys: [
+      "retry.max_total_attempts",
+      "upstream.read_timeout",
+      "upstream.strict_ssrf",
+    ],
   },
   {
     id: "logging",
     label: "日志",
     webGroups: ["请求日志", "本地文件日志"],
+    featuredKeys: ["logs.request.enabled", "logs.file.level"],
   },
 ] as const;
 
@@ -55,6 +70,7 @@ export function sectionForWebGroup(webGroup: string): SettingSection {
       id: `other:${webGroup}`,
       label: webGroup,
       webGroups: [webGroup],
+      featuredKeys: [],
     }
   );
 }

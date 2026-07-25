@@ -513,6 +513,22 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
         assert!(!hash.contains("resp_affinity"));
     }
 
+    let aggregate = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/affinity?limit=0",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(aggregate.status, StatusCode::OK);
+    assert_eq!(aggregate.body["soft_binding_count"], 1);
+    assert_eq!(aggregate.body["hard_binding_count"], 1);
+    assert_eq!(aggregate.body["credential_counts"], json!([]));
+    assert_eq!(aggregate.body["bindings"], json!([]));
+    assert!(!aggregate.body.to_string().contains(&credential_id));
+
     let cleared = request_json(
         app.clone(),
         Method::DELETE,
@@ -913,7 +929,7 @@ async fn create_gateway_key(app: &Router, remote: SocketAddr, revision: u64) -> 
         app.clone(),
         Method::POST,
         "/api/admin/gateway-api-keys",
-        Some(json!({"expected_revision": revision, "name":"client", "enabled":true})),
+        Some(json!({"expected_revision": revision, "name":"client", "enabled":true, "token": format!("sk-{}", "j".repeat(48))})),
         remote,
         &[],
     )

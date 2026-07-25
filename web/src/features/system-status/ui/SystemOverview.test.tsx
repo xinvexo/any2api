@@ -22,7 +22,7 @@ test("renders live system status metrics", async () => {
 
   render(<SystemOverview />, { wrapper: Wrapper });
 
-  expect(await screen.findByText("2")).toBeInTheDocument();
+  expect(await screen.findByText("7")).toBeInTheDocument();
   expect(screen.getByText("运行正常")).toBeInTheDocument();
   expect(screen.getByText("运行中")).toBeInTheDocument();
   expect(screen.getByText("1 / 2")).toBeInTheDocument();

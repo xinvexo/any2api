@@ -7,6 +7,7 @@ import { getGatewayApiKeyErrorMessage } from "../model/gateway-api-key-error";
 import { useGatewayApiKeyMutations } from "../model/use-gateway-api-key-mutations";
 import { useGatewayApiKeySecretActions } from "../model/use-gateway-api-key-secret-actions";
 import { useGatewayApiKeys } from "../model/use-gateway-api-keys";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
@@ -68,6 +69,7 @@ export function GatewayApiKeyManagement() {
         expectedRevision: query.data?.configRevision ?? 0,
         name: input.name,
         enabled: input.enabled,
+        token: input.token,
       });
       closeEditor(editorId);
       return;
@@ -81,6 +83,7 @@ export function GatewayApiKeyManagement() {
     let revision = query.data.configRevision;
     const metaChanged =
       current.name !== input.name || current.enabled !== input.enabled;
+    const tokenChanged = current.token !== input.token;
 
     if (metaChanged) {
       const configuration = await mutations.update.mutateAsync({
@@ -101,15 +104,37 @@ export function GatewayApiKeyManagement() {
       current = updated;
     }
 
-    if (input.regenerateToken) {
+    if (tokenChanged) {
       await secretActions.regenerate(current.id, {
         expectedRevision: revision,
         expectedConfigVersion: current.configVersion,
         expectedTokenVersion: current.tokenVersion,
+        token: input.token,
       });
     }
 
     closeEditor(editorId);
+  }
+
+  async function toggleEnabled(key: GatewayApiKey) {
+    if (!query.data || mutations.update.isPending) {
+      return;
+    }
+    const nextEnabled = !key.enabled;
+    try {
+      await mutations.update.mutateAsync({
+        id: key.id,
+        input: {
+          expectedRevision: query.data.configRevision,
+          expectedConfigVersion: key.configVersion,
+          name: key.name,
+          enabled: nextEnabled,
+        },
+      });
+      notify.success(nextEnabled ? `已启用「${key.name}」` : `已禁用「${key.name}」`);
+    } catch (error) {
+      notify.danger(getGatewayApiKeyErrorMessage(error));
+    }
   }
 
   function requestDelete(key: GatewayApiKey) {
@@ -167,8 +192,8 @@ export function GatewayApiKeyManagement() {
     editorId === "new" ? "新增" : selected ? `编辑「${selected.name}」` : "密钥不存在";
   const drawerDescription =
     editorId === "new"
-      ? "创建后密钥会明文保存在本机配置中，可随时在列表查看。"
-      : "可修改名称与启用状态；重新生成会立即替换旧密钥。";
+      ? "创建后密钥会明文保存在本机配置中，可随时在列表查看与编辑。"
+      : "可修改名称、启用状态与密钥；更改密钥后旧值立即失效。";
   const editorError = mutations.update.error ?? secretActions.error;
 
   return (
@@ -187,6 +212,7 @@ export function GatewayApiKeyManagement() {
         onCreate={() => openEditor("new")}
         onRefresh={() => void query.refetch()}
         onEdit={openEditor}
+        onToggleEnabled={(key) => void toggleEnabled(key)}
         onDelete={requestDelete}
       />
 

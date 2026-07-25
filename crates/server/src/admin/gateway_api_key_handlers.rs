@@ -26,10 +26,10 @@ pub(crate) async fn create(
     State(state): State<AppState>,
     payload: Result<Json<GatewayApiKeyCreateRequest>, JsonRejection>,
 ) -> Result<Response, AdminApiError> {
-    let (expected, draft) = parse_json(payload)?.into_domain()?;
+    let (expected, draft, token) = parse_json(payload)?.into_domain()?;
     let published = state
         .publisher()
-        .create_gateway_api_key(expected, GatewayApiKeyId::new(), draft)
+        .create_gateway_api_key(expected, GatewayApiKeyId::new(), draft, token)
         .await?;
     let usage = usage(&state).await;
     Ok(no_store::json(GatewayApiKeySecretResponse::from_publish(
@@ -59,7 +59,7 @@ pub(crate) async fn rotate(
     payload: Result<Json<GatewayApiKeyRotateRequest>, JsonRejection>,
 ) -> Result<Response, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version, expected_token_version) =
+    let (expected, expected_config_version, expected_token_version, token) =
         parse_json(payload)?.into_domain()?;
     let published = state
         .publisher()
@@ -68,6 +68,7 @@ pub(crate) async fn rotate(
             id,
             expected_config_version,
             expected_token_version,
+            token,
         )
         .await?;
     let usage = usage(&state).await;

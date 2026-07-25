@@ -4,6 +4,8 @@
 - 日期：2026-07-19
 - 决策者：maintainer
 
+> 管理界面归属于 2026-07-25 被 ADR-0039 调整：独立 Affinity 页面、逐 Credential 分布和绑定样本不再进入普通 Web；总览只展示固定规模的软/硬/Creating 汇总，`affinity.*` 进入“设置 → 路由策略”。运行时粘性、清理能力与安全边界保持不变。
+
 ## 背景
 
 Codex `previous_response_id` 可能引用上游 Credential 保存的服务端状态，普通 Codex/Claude 会话也需要尽量保持在同一 Credential。当前数据面已经具备同协议路由、原子 Permit、QueueTicket 与 SSE 预提交边界，但每次请求仍独立执行最低负载率选择。
@@ -27,7 +29,7 @@ Codex `previous_response_id` 可能引用上游 Credential 保存的服务端状
 - Codex 非流式成功响应的顶层 `id`，以及 SSE `response.created.response.id`，在向客户端可见前写入硬绑定。绑定容量耗尽或身份冲突时不得暴露该 Response ID。
 - `/v1/responses/compact` 只使用显式软会话，不创建硬绑定；`/v1/messages/count_tokens` 不参与任何会话粘性。
 - 绑定表使用明确的进程内容量上限，并在插入压力出现时先清理过期项；不会引入后台持久化、恢复或复杂缓存服务。
-- 管理 API 提供运行时统计、截断 Session Hash 样本、按 Credential 清理和全部清理。Affinity 页面复用统一 SettingRegistry 修改六项 `affinity.*` 设置。
+- 管理 API 可以保留受保护的清理能力；普通 Web 只读取软绑定、硬绑定与 Creating 聚合，不读取逐 Credential 分布或截断 Session Hash 样本。六项 `affinity.*` 继续由统一 SettingRegistry 管理，并进入“设置 → 路由策略”。
 
 ## 首个切片边界
 
@@ -48,4 +50,4 @@ Codex `previous_response_id` 可能引用上游 Credential 保存的服务端状
 - Protocol 测试覆盖提取优先级、Claude Code 两种 `metadata.user_id` 形式、无 Prompt 哈希兜底和 Response ID 提取。
 - Runtime 测试覆盖软命中、并发 Creating、prefer 超时重绑、strict/硬绑定不切换、固定等待优先、TTL、清理与重启空状态。
 - HTTP 契约覆盖 Codex JSON/SSE 硬续接、Claude 软粘性、未知旧 Response ID 和管理清理 API。
-- Web 单元测试覆盖 affinity 设置、统计、截断 Hash、按 Credential 清理和全部清理；真实浏览器验收覆盖 1440 桌面与 390×844 窄屏布局。
+- Web 单元测试覆盖总览 affinity 聚合、路由策略设置的常用/高级渐进披露，以及旧 deep link 重定向；真实浏览器验收覆盖桌面与 390×844 窄屏布局。

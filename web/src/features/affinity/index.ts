@@ -1,1 +1,1 @@
-export { AffinityManagement } from "./ui/AffinityManagement";
+export { AffinityOverview } from "./ui/AffinityOverview";

@@ -215,6 +215,7 @@ fn usage_record(
             ingress_protocol: ProtocolDialect::OpenAiResponses,
             operation: ProtocolOperation::Responses,
             public_model: Some("gpt-test".into()),
+            thinking_level: None,
             provider_endpoint_id: id.provider_credential_id().map(|_| endpoint_id),
             credential_id: id.provider_credential_id(),
             oauth_account_id: id.oauth_account_id(),

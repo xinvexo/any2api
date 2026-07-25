@@ -64,6 +64,7 @@ fn build_snapshot(
     hard_ttl: Duration,
     limit: usize,
 ) -> AffinityRuntimeSnapshot {
+    let include_details = limit > 0;
     let mut counts = HashMap::<RoutingCredentialId, (usize, usize)>::new();
     let mut bindings = Vec::new();
     let mut soft_binding_count = 0;
@@ -73,28 +74,32 @@ fn build_snapshot(
             SoftState::Creating { .. } => creating_count += 1,
             SoftState::Bound { binding, .. } => {
                 soft_binding_count += 1;
-                counts.entry(binding.target.credential_id()).or_default().0 += 1;
-                push_summary(
-                    &mut bindings,
-                    limit,
-                    *hash,
-                    binding,
-                    AffinityBindingKind::Soft,
-                    remaining_ms(now, binding.last_seen_at, soft_ttl),
-                );
+                if include_details {
+                    counts.entry(binding.target.credential_id()).or_default().0 += 1;
+                    push_summary(
+                        &mut bindings,
+                        limit,
+                        *hash,
+                        binding,
+                        AffinityBindingKind::Soft,
+                        remaining_ms(now, binding.last_seen_at, soft_ttl),
+                    );
+                }
             }
         }
     }
     for (hash, binding) in &state.hard {
-        counts.entry(binding.target.credential_id()).or_default().1 += 1;
-        push_summary(
-            &mut bindings,
-            limit,
-            *hash,
-            binding,
-            AffinityBindingKind::Hard,
-            remaining_ms(now, binding.last_seen_at, hard_ttl),
-        );
+        if include_details {
+            counts.entry(binding.target.credential_id()).or_default().1 += 1;
+            push_summary(
+                &mut bindings,
+                limit,
+                *hash,
+                binding,
+                AffinityBindingKind::Hard,
+                remaining_ms(now, binding.last_seen_at, hard_ttl),
+            );
+        }
     }
     bindings.sort_by(|left, right| left.session_hash_prefix.cmp(&right.session_hash_prefix));
     let mut credential_counts = counts

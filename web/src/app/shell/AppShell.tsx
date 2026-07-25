@@ -169,9 +169,11 @@ export function AppShell() {
             id="main-content"
             ref={mainRef}
             tabIndex={-1}
-            className="min-h-0 flex-1 overflow-y-auto rounded-panel bg-surface shadow-panel outline-none [scrollbar-gutter:stable]"
+            className="min-h-0 flex-1 overflow-y-scroll rounded-panel bg-surface shadow-panel outline-none [scrollbar-gutter:stable]"
           >
-            <div className="w-full p-4">
+            {/* h-full + min-h-0: pages can pin chrome to the panel height (request logs).
+                Taller pages still overflow and scroll inside main. */}
+            <div className="flex h-full min-h-0 w-full flex-col p-4">
               <Outlet />
             </div>
           </main>

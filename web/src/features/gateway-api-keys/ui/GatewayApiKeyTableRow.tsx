@@ -1,15 +1,15 @@
-import { Check, Copy, Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { Ban, Copy, Pencil, Power, Trash2 } from "lucide-react";
 
 import type { GatewayApiKey, GatewayApiKeyUsage } from "../api/gateway-api-key-contracts";
+import { notify } from "@/shared/notifications";
 import { cn } from "@/shared/lib/cn";
-import { IconButton } from "@/shared/ui/IconButton";
 import { RowActionButton } from "@/shared/ui/RowActionButton";
 
 export interface GatewayApiKeyTableRowProps {
   apiKey: GatewayApiKey;
   pending: boolean;
   onEdit: (id: string) => void;
+  onToggleEnabled: (key: GatewayApiKey) => void;
   onDelete: (key: GatewayApiKey) => void;
 }
 
@@ -17,18 +17,15 @@ export function GatewayApiKeyTableRow({
   apiKey,
   pending,
   onEdit,
+  onToggleEnabled,
   onDelete,
 }: GatewayApiKeyTableRowProps) {
-  const [revealed, setRevealed] = useState(true);
-  const [copied, setCopied] = useState(false);
-
   async function copyToken() {
     try {
       await navigator.clipboard.writeText(apiKey.token);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
+      notify.success(`已复制「${apiKey.name}」的密钥`);
     } catch {
-      setRevealed(true);
+      notify.danger("复制失败，请检查浏览器剪贴板权限后重试");
     }
   }
 
@@ -36,29 +33,6 @@ export function GatewayApiKeyTableRow({
     <tr className="border-b border-subtle last:border-b-0">
       <td className="py-2.5 pr-3 align-middle">
         <p className="break-words font-medium text-primary [overflow-wrap:anywhere]">{apiKey.name}</p>
-      </td>
-      <td className="px-3 py-2.5 align-middle">
-        <div className="flex min-w-0 items-center gap-1">
-          <code className="max-w-[22rem] truncate font-mono text-[12px] text-primary">
-            {revealed ? apiKey.token : maskToken(apiKey.token)}
-          </code>
-          <IconButton
-            size="sm"
-            className="size-7 rounded-[7px]"
-            label={revealed ? `隐藏 ${apiKey.name} 的密钥` : `显示 ${apiKey.name} 的密钥`}
-            onClick={() => setRevealed((value) => !value)}
-          >
-            {revealed ? <EyeOff size={13} /> : <Eye size={13} />}
-          </IconButton>
-          <IconButton
-            size="sm"
-            className="size-7 rounded-[7px]"
-            label={`复制 ${apiKey.name} 的密钥`}
-            onClick={() => void copyToken()}
-          >
-            {copied ? <Check size={13} /> : <Copy size={13} />}
-          </IconButton>
-        </div>
       </td>
       <td className="px-3 py-2.5 align-middle">
         <UsageStats name={apiKey.name} usage={apiKey.usage} />
@@ -74,6 +48,22 @@ export function GatewayApiKeyTableRow({
       </td>
       <td className="py-2.5 pl-3 align-middle">
         <div className="flex flex-wrap items-center justify-end gap-0.5">
+          <RowActionButton
+            label={`复制 ${apiKey.name} 的密钥`}
+            disabled={pending}
+            onClick={() => void copyToken()}
+          >
+            <Copy size={13} />
+            复制
+          </RowActionButton>
+          <RowActionButton
+            label={apiKey.enabled ? `禁用 ${apiKey.name}` : `启用 ${apiKey.name}`}
+            disabled={pending}
+            onClick={() => onToggleEnabled(apiKey)}
+          >
+            {apiKey.enabled ? <Ban size={13} /> : <Power size={13} />}
+            {apiKey.enabled ? "禁用" : "启用"}
+          </RowActionButton>
           <RowActionButton
             label={`编辑 ${apiKey.name}`}
             disabled={pending}
@@ -97,47 +87,45 @@ export function GatewayApiKeyTableRow({
   );
 }
 
+/** Matches storage `GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT` — fixed width, no row jitter. */
+const RECENT_OUTCOME_SLOTS = 24;
+
 function UsageStats({ name, usage }: { name: string; usage: GatewayApiKeyUsage }) {
-  const rate = usage.totalRequests
-    ? Math.round((usage.successfulRequests / usage.totalRequests) * 1_000) / 10
-    : null;
   const outcomes = usage.recentOutcomes;
+  // Left-pad empty slots so the bar is always RECENT_OUTCOME_SLOTS wide (newest on the right).
+  const slots: Array<number | null> = [
+    ...Array.from<number | null>({
+      length: Math.max(0, RECENT_OUTCOME_SLOTS - outcomes.length),
+    }).fill(null),
+    ...outcomes.map((outcome) => outcome.statusCode),
+  ].slice(-RECENT_OUTCOME_SLOTS);
   const outcomeLabel = outcomes
     .map((outcome) => (isSuccess(outcome.statusCode) ? "成功" : `失败 ${outcome.statusCode}`))
     .join("、");
 
   return (
-    <div className="min-w-[180px] space-y-1.5">
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px] tabular-nums">
-        <span className="rounded-md bg-success/10 px-1.5 py-0.5 font-medium text-success">
-          成功: {formatCount(usage.successfulRequests)}
+    <div className="flex min-w-0 max-w-full items-center gap-2">
+      <div className="flex shrink-0 items-center gap-x-2 text-[11px] tabular-nums">
+        <span className="font-medium text-success">
+          成功 {formatCount(usage.successfulRequests)}
         </span>
-        <span className="rounded-md bg-danger/10 px-1.5 py-0.5 font-medium text-danger">
-          失败: {formatCount(usage.failedRequests)}
+        <span className="font-medium text-danger">
+          失败 {formatCount(usage.failedRequests)}
         </span>
       </div>
-      {rate === null ? (
-        <p className="text-[11px] text-tertiary">暂无调用</p>
-      ) : (
-        <div className="flex items-center gap-2">
-          <div
-            className="flex min-w-0 flex-1 items-center gap-[3px]"
-            role="img"
-            aria-label={`${name} 最近 ${outcomes.length} 次调用：${outcomeLabel || "暂无结果"}`}
-          >
-            {outcomes.map((outcome, index) => (
-              <span
-                key={`${outcome.statusCode}-${index}`}
-                className={`block size-[4px] shrink-0 rounded-[1px] ${outcomeTone(outcome.statusCode)}`}
-                title={`HTTP ${outcome.statusCode}`}
-              />
-            ))}
-          </div>
-          <span className="shrink-0 rounded-md bg-danger/10 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-danger">
-            {rate.toFixed(1)}%
-          </span>
-        </div>
-      )}
+      <div
+        className="flex h-4 w-full min-w-[9rem] max-w-[16rem] flex-1 items-stretch gap-px"
+        role="img"
+        aria-label={`${name} 最近 ${outcomes.length} 次调用：${outcomeLabel || "暂无调用"}`}
+      >
+        {slots.map((statusCode, index) => (
+          <span
+            key={`slot-${index}`}
+            className={cn("min-w-[2px] flex-1 rounded-[2px]", outcomeSlotTone(statusCode))}
+            title={statusCode === null ? "无记录" : `HTTP ${statusCode}`}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -150,21 +138,17 @@ function isSuccess(statusCode: number) {
   return statusCode >= 200 && statusCode < 300;
 }
 
-function outcomeTone(statusCode: number) {
+function outcomeSlotTone(statusCode: number | null) {
+  if (statusCode === null) {
+    return "bg-black/[0.08] dark:bg-white/[0.12]";
+  }
   if (isSuccess(statusCode)) {
-    return "bg-success";
+    return "bg-success/85";
   }
   if (statusCode >= 400 && statusCode < 500) {
-    return "bg-warning";
+    return "bg-warning/85";
   }
-  return "bg-danger";
-}
-
-function maskToken(token: string) {
-  if (token.length <= 12) {
-    return "••••••••";
-  }
-  return `${token.slice(0, 8)}${"•".repeat(12)}${token.slice(-4)}`;
+  return "bg-danger/85";
 }
 
 function Status({ enabled }: { enabled: boolean }) {

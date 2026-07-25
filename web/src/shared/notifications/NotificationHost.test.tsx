@@ -19,6 +19,8 @@ test("renders a centered notification block with a countdown timer bar", () => {
   const host = document.querySelector("[data-notification-host]");
   expect(host?.className).toContain("justify-center");
   expect(host?.className).not.toContain("justify-end");
+  // Scroll containers flash macOS scrollbar gutters during enter animation.
+  expect(screen.getByLabelText("全局通知").className).not.toContain("overflow-y-auto");
 
   const status = screen.getByRole("status");
   expect(status).toHaveTextContent("已刷新全部 2 个 Codex 账号额度。");

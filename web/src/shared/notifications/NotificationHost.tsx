@@ -49,14 +49,19 @@ export function NotificationHost() {
   // the portal shell; cards stack independently and dismiss on their own timers.
   return createPortal(
     <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-[70] flex justify-center p-3 sm:p-4"
+      className="pointer-events-none fixed inset-x-0 top-0 z-[70] flex justify-center overflow-x-clip px-3 pb-3 pt-3 sm:px-4 sm:pb-4 sm:pt-4"
       data-notification-host=""
       aria-live="polite"
       aria-relevant="additions text"
       aria-atomic="false"
     >
+      {/*
+        No overflow-y scroll here: enter animation scale/translate would
+        briefly overflow and paint macOS scrollbar gutters on the toast.
+        Cap is small (MAX_VISIBLE=8); stack can grow downward freely.
+      */}
       <ol
-        className="flex max-h-[min(70dvh,32rem)] w-full max-w-[24rem] flex-col gap-2 overflow-y-auto overscroll-contain"
+        className="flex w-full max-w-[24rem] flex-col gap-2 overflow-visible"
         aria-label="全局通知"
       >
         {items.map((item) => (

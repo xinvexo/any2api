@@ -1,5 +1,4 @@
 use any2api_domain::{ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyId};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use secrecy::ExposeSecret;
 use tempfile::tempdir;
 
@@ -207,8 +206,16 @@ async fn gateway_api_key_last_used_updates_are_monotonic_and_do_not_publish_conf
     );
 }
 
-fn token(byte: u8) -> String {
-    format!("a2k_v1_{}", URL_SAFE_NO_PAD.encode([byte; 32]))
+fn token(seed: u8) -> String {
+    // Map arbitrary seeds onto a stable alphanumeric body character.
+    let alphabet = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let ch = char::from(alphabet[usize::from(seed) % alphabet.len()]);
+    format!(
+        "{}{}",
+        any2api_domain::GATEWAY_TOKEN_PREFIX,
+        ch.to_string()
+            .repeat(any2api_domain::GATEWAY_TOKEN_BODY_LEN)
+    )
 }
 
 fn secret(value: &str) -> SecretBytes {

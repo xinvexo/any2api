@@ -58,7 +58,7 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
 
   return (
     <form
-      className="grid gap-3 border-b border-subtle px-1 py-3.5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] sm:items-center sm:gap-6"
+      className="grid gap-3 border-b border-subtle px-1 py-3.5 sm:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] sm:items-center sm:gap-6"
       onSubmit={(event) => {
         event.preventDefault();
         void submit();

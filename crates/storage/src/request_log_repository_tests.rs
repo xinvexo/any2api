@@ -4,7 +4,6 @@ use any2api_domain::{
     ProviderEndpointId, ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId,
     RequestLog, RetrySafety, RouteTargetId,
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use tempfile::tempdir;
 
 use crate::{
@@ -281,6 +280,7 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             ingress_protocol: ProtocolDialect::OpenAiResponses,
             operation: ProtocolOperation::Responses,
             public_model: Some("codex-test".into()),
+            thinking_level: None,
             provider_endpoint_id: Some(ProviderEndpointId::new()),
             credential_id: Some(CredentialId::new()),
             oauth_account_id: None,
@@ -312,8 +312,15 @@ fn usage_record(
     record
 }
 
-fn gateway_token(byte: u8) -> SecretBytes {
-    format!("a2k_v1_{}", URL_SAFE_NO_PAD.encode([byte; 32]))
-        .into_bytes()
-        .into()
+fn gateway_token(seed: u8) -> SecretBytes {
+    let alphabet = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let ch = char::from(alphabet[usize::from(seed) % alphabet.len()]);
+    format!(
+        "{}{}",
+        any2api_domain::GATEWAY_TOKEN_PREFIX,
+        ch.to_string()
+            .repeat(any2api_domain::GATEWAY_TOKEN_BODY_LEN)
+    )
+    .into_bytes()
+    .into()
 }

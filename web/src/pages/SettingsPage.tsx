@@ -1,33 +1,34 @@
 import { Navigate, useParams } from "react-router-dom";
 
 import { AdminPasswordRotation } from "@/features/admin-auth";
-import { GlobalProxySettings } from "@/features/proxies";
 import { SettingsManagement, SETTING_SECTIONS } from "@/features/settings";
 import { PageTabs } from "@/shared/ui/PageTabs";
 
-const SETTINGS_TABS = [
-  { label: "管理员密码", path: "/settings/password" },
-  { label: "基础设置", path: "/settings/basic" },
-  ...SETTING_SECTIONS.filter((section) => section.id !== "admin").map((section) => ({
-    label: section.label,
-    path: `/settings/${section.id}`,
-  })),
-] as const;
+const SETTINGS_TABS = SETTING_SECTIONS.map((section) => ({
+  label: section.label,
+  path: `/settings/${section.id}`,
+}));
+
+const LEGACY_SECTIONS: Readonly<Record<string, string>> = {
+  password: "basic",
+  admin: "basic",
+  proxy: "basic",
+  scheduler: "routing",
+  affinity: "routing",
+  reliability: "protection",
+  upstream: "protection",
+};
 
 export function SettingsPage() {
-  const { section = "password" } = useParams<{ section: string }>();
-
-  const known =
-    section === "password" ||
-    section === "basic" ||
-    SETTING_SECTIONS.some((item) => item.id === section && item.id !== "admin");
-
-  if (section === "proxy" || section === "admin") {
-    return <Navigate to="/settings/basic" replace />;
+  const { section = "basic" } = useParams<{ section: string }>();
+  const legacyTarget = LEGACY_SECTIONS[section];
+  if (legacyTarget) {
+    return <Navigate to={`/settings/${legacyTarget}`} replace />;
   }
 
-  if (!known) {
-    return <Navigate to="/settings/password" replace />;
+  const selected = SETTING_SECTIONS.find((item) => item.id === section);
+  if (!selected) {
+    return <Navigate to="/settings/basic" replace />;
   }
 
   return (
@@ -35,29 +36,30 @@ export function SettingsPage() {
       <div className="border-b border-subtle pb-2">
         <PageTabs items={SETTINGS_TABS} ariaLabel="系统设置分类" />
       </div>
-      <SettingsSectionBody section={section} />
+      <SettingsSectionBody section={selected} />
     </div>
   );
 }
 
-function SettingsSectionBody({ section }: { section: string }) {
-  if (section === "password") {
-    return <AdminPasswordRotation />;
-  }
-
-  if (section === "basic") {
+function SettingsSectionBody({ section }: { section: (typeof SETTING_SECTIONS)[number] }) {
+  if (section.id === "basic") {
     return (
       <div className="space-y-8">
-        <GlobalProxySettings />
-        <SettingsManagement webGroups={["远程管理"]} showSectionHeading={false} />
+        <AdminPasswordRotation />
+        <SettingsManagement
+          webGroups={section.webGroups}
+          featuredKeys={section.featuredKeys}
+          showSectionHeading={false}
+        />
       </div>
     );
   }
 
-  const groups = SETTING_SECTIONS.find((item) => item.id === section)?.webGroups;
-  if (groups) {
-    return <SettingsManagement webGroups={groups} showSectionHeading={false} />;
-  }
-
-  return <Navigate to="/settings/password" replace />;
+  return (
+    <SettingsManagement
+      webGroups={section.webGroups}
+      featuredKeys={section.featuredKeys}
+      showSectionHeading={false}
+    />
+  );
 }

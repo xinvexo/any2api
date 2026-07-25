@@ -246,6 +246,7 @@ fn record(request_id: RequestId) -> CompletedRequestLog {
             ingress_protocol: ProtocolDialect::OpenAiResponses,
             operation: ProtocolOperation::Responses,
             public_model: Some("test".into()),
+            thinking_level: None,
             provider_endpoint_id: None,
             credential_id: None,
             oauth_account_id: None,

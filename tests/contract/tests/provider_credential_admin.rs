@@ -316,7 +316,8 @@ async fn successful_credential_test_clears_generation_auth_error() {
         Some(json!({
             "expected_revision": 4,
             "name": "Credential test client",
-            "enabled": true
+            "enabled": true,
+            "token": format!("sk-{}", "p".repeat(48))
         })),
         loopback,
     )
@@ -449,6 +450,7 @@ fn provider_request_log(
             ingress_protocol: ProtocolDialect::OpenAiResponses,
             operation: ProtocolOperation::Responses,
             public_model: Some("gpt-test".into()),
+            thinking_level: None,
             provider_endpoint_id: Some(endpoint_id),
             credential_id: Some(credential_id),
             oauth_account_id: None,

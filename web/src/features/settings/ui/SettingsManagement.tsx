@@ -1,4 +1,4 @@
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { useMemo } from "react";
 
 import type { SettingItem, SettingValue } from "../api/settings-contracts";
@@ -11,20 +11,17 @@ import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
 
 export interface SettingsManagementProps {
-  /** Filter items whose key starts with this prefix. */
-  keyPrefix?: string;
-  /** Filter items belonging to a single backend web group. */
-  webGroup?: string;
   /** Filter items belonging to any of these backend web groups. */
   webGroups?: readonly string[];
+  /** Items shown before the collapsed advanced section. */
+  featuredKeys?: readonly string[];
   /** When false, section titles are omitted (page tabs already label the section). */
   showSectionHeading?: boolean;
 }
 
 export function SettingsManagement({
-  keyPrefix,
-  webGroup,
   webGroups,
+  featuredKeys,
   showSectionHeading = true,
 }: SettingsManagementProps = {}) {
   const query = useSettings();
@@ -33,18 +30,17 @@ export function SettingsManagement({
   const filteredItems = useMemo(() => {
     const allowed = webGroups ? new Set(webGroups) : null;
     return (query.data?.items ?? []).filter((item) => {
-      if (keyPrefix && !item.key.startsWith(keyPrefix)) {
-        return false;
-      }
-      if (webGroup && item.webGroup !== webGroup) {
-        return false;
-      }
       if (allowed && !allowed.has(item.webGroup)) {
         return false;
       }
       return true;
     });
-  }, [keyPrefix, query.data, webGroup, webGroups]);
+  }, [query.data, webGroups]);
+
+  const featured = useMemo(
+    () => (featuredKeys ? new Set(featuredKeys) : null),
+    [featuredKeys],
+  );
 
   const groups = useMemo(() => groupSettings(filteredItems), [filteredItems]);
   const sections = useMemo(
@@ -119,6 +115,7 @@ export function SettingsManagement({
               pending={pending}
               mutations={mutations}
               showHeading={showSectionHeading}
+              featured={featured}
               onSave={save}
               onReset={reset}
             />
@@ -135,6 +132,7 @@ function SectionPanel({
   pending,
   mutations,
   showHeading,
+  featured,
   onSave,
   onReset,
 }: {
@@ -143,6 +141,7 @@ function SectionPanel({
   pending: boolean;
   mutations: ReturnType<typeof useSettingMutations>;
   showHeading: boolean;
+  featured: ReadonlySet<string> | null;
   onSave: (item: SettingItem, value: SettingValue) => Promise<void>;
   onReset: (item: SettingItem) => Promise<void>;
 }) {
@@ -163,6 +162,17 @@ function SectionPanel({
   }
 
   const headingId = `settings-section-${cssId(section.id)}`;
+  const primary = featured
+    ? subsections
+        .map(([name, items]) => [name, items.filter((item) => featured.has(item.key))] as const)
+        .filter(([, items]) => items.length > 0)
+    : subsections;
+  const advanced = featured
+    ? subsections
+        .map(([name, items]) => [name, items.filter((item) => !featured.has(item.key))] as const)
+        .filter(([, items]) => items.length > 0)
+    : [];
+  const advancedCount = advanced.reduce((total, [, items]) => total + items.length, 0);
 
   return (
     <section aria-labelledby={showHeading ? headingId : undefined} aria-label={showHeading ? undefined : section.label}>
@@ -174,29 +184,75 @@ function SectionPanel({
         </header>
       ) : null}
 
-      <div className="space-y-5">
-        {subsections.map(([group, items]) => (
-          <div key={group}>
-            {subsections.length > 1 || !showHeading ? (
-              <h3 className="mb-1 text-[12px] font-medium text-secondary">{group}</h3>
-            ) : null}
-            <div>
-              {items.map((item) => (
-                <SettingRow
-                  key={item.key}
-                  item={item}
-                  pending={pending}
-                  mutationError={mutationErrorFor(item.key, mutations.update, mutations.reset)}
-                  onSave={onSave}
-                  onReset={onReset}
-                />
-              ))}
+      <div className="space-y-4">
+        <SettingGroups
+          subsections={primary}
+          pending={pending}
+          mutations={mutations}
+          showGroupHeading={primary.length > 1 || !showHeading}
+          onSave={onSave}
+          onReset={onReset}
+        />
+        {advancedCount > 0 ? (
+          <details className="group border-y border-subtle">
+            <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-3 px-1 py-3.5 text-sm font-medium marker:hidden [&::-webkit-details-marker]:hidden">
+              <span>高级设置</span>
+              <span className="flex items-center gap-2 text-xs font-normal text-tertiary">
+                {advancedCount} 项
+                <ChevronDown size={15} className="transition-transform group-open:rotate-180" aria-hidden="true" />
+              </span>
+            </summary>
+            <div className="space-y-5 border-t border-subtle py-4">
+              <SettingGroups
+                subsections={advanced}
+                pending={pending}
+                mutations={mutations}
+                showGroupHeading
+                onSave={onSave}
+                onReset={onReset}
+              />
             </div>
-          </div>
-        ))}
+          </details>
+        ) : null}
       </div>
     </section>
   );
+}
+
+function SettingGroups({
+  subsections,
+  pending,
+  mutations,
+  showGroupHeading,
+  onSave,
+  onReset,
+}: {
+  subsections: readonly (readonly [string, SettingItem[]])[];
+  pending: boolean;
+  mutations: ReturnType<typeof useSettingMutations>;
+  showGroupHeading: boolean;
+  onSave: (item: SettingItem, value: SettingValue) => Promise<void>;
+  onReset: (item: SettingItem) => Promise<void>;
+}) {
+  return subsections.map(([group, items]) => (
+    <div key={group}>
+      {showGroupHeading ? (
+        <h3 className="mb-1.5 px-1 text-[12px] font-medium text-secondary">{group}</h3>
+      ) : null}
+      <div className="border-t border-subtle">
+        {items.map((item) => (
+          <SettingRow
+            key={item.key}
+            item={item}
+            pending={pending}
+            mutationError={mutationErrorFor(item.key, mutations.update, mutations.reset)}
+            onSave={onSave}
+            onReset={onReset}
+          />
+        ))}
+      </div>
+    </div>
+  ));
 }
 
 function cssId(value: string) {

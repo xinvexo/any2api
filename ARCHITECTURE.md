@@ -230,6 +230,10 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 
 OAuthAccount 管理页的长集合是首个已确认的虚拟化场景。前端使用共享虚拟网格组件按“响应式网格行”渲染完整 Provider 账号集合，支持动态行高、1–3 列布局、键盘可聚焦滚动区和语义化 list/listitem；页面不得再为该集合维护客户端分页。虚拟行允许随滚动卸载，因此额度缓存、批量操作进度和不可逆 reset 的 pending 状态不能只保存在行组件本地生命周期中。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
+负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与软、硬会话绑定总数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。旧 `/balancing`、`/affinity` deep link 只做到该设置页的重定向。总览不得请求或展示逐账号调度、逐 Credential 会话分布或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md` 与 `docs/adr/0039-overview-and-simplified-settings.md`。
+
+设置页只保留“基础、路由策略、运行保护、日志”四个一级页签。每个页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义或恢复默认能力。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。
+
 样式按 `tokens.css`、`globals.css` 和局部组件职责拆分。React 页面只组合 feature，业务请求、状态和 Schema 分别进入 feature 的 `api`、`model` 与私有 UI 模块。
 
 ## 5. 总体架构
@@ -2160,13 +2164,9 @@ runtime_retired
 
 运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
 
-负载均衡管理面使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务：
+总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只聚合软绑定、硬绑定与 Creating 数量。两者都不得返回逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本。
 
-- 每个 Credential 暴露 `in_flight`、可选 RPM、滚动窗口已用/剩余、下一名额到期时间、固定会话等待者、进程内成功选中次数与候选过滤次数；
-- 选中次数在 RPM 名额、Credential Guard 与全部健康 Guard 均取得后递增，每次上游 Attempt 选择计一次；
-- RPM 用尽、Credential/模型健康、Endpoint 健康和 Proxy 健康过滤分别计数。它们表示调度器实际执行的候选过滤事件，等待重选或锁竞争可能使同一客户端请求产生多次过滤，禁止把它们解释为请求量、配额或计费数据；
-- 健康状态按真实作用域展示：Credential + upstream model、Provider Endpoint 和实际 Proxy 分别报告可用、冷却剩余时间或永久认证不可用，禁止把模型级 429 合并成整把 Credential 故障；
-- 所有计数与健康快照只存在于当前进程，配置热更新复用同一 Credential 句柄时保留，Credential 删除或进程重启后清空，不持久化、不恢复。
+稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；这些计数不持久化、不恢复，也不要求通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级配置和 RequestLog 历史统计由各自管理页面负责，总览不复制第二份账号目录。
 
 历史请求统计与上述运行态调度计数分开：Gateway API Key、Provider API Key 与 OAuthAccount 都可以从 SQLite RequestLog 保留窗口读取最终请求总数、成功/失败数和最近状态；Gateway 维度不因新增上游维度而删除，上游两类来源也不得按 UUID 混合。统计查询失败不能阻塞配置读取，管理响应对当前对象降级为零值。
 
@@ -2210,8 +2210,6 @@ runtime_retired
 代理
 Provider
 OAuth2 登录
-负载均衡
-会话粘性
 网关密钥
 请求日志
 设置
@@ -2261,25 +2259,22 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - session ID、state、authorization code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage。
 
-### 19.4 负载均衡
+### 19.4 总览运行态
 
-- Codex、Claude 当前总 `in_flight`；
-- 每个 Credential 的可选 RPM、滚动 60 秒已用/剩余和实时 `in_flight`；
-- 排队请求数；
-- Credential 选择次数与比例；
-- 因 RPM 用尽、冷却、代理故障被跳过的次数；
-- RPM 用尽行为、队列超时和队列上限设置。
+- 全局及 Codex、Claude 汇总的账号总数、启用数、RPM 启用数与 RPM 已用尽数；
+- 全局及 Provider 汇总的滚动 60 秒请求数、当前 `in_flight` 与成功选中次数；
+- 排队请求数、固定等待者和 scheduler epoch；
+- 当前软绑定数、硬绑定数与 Creating 数；
+- 不展示、分页或虚拟化逐账号列表，不展示逐模型健康或单账号过滤明细；账号详情分别留在 Provider 与 OAuth2 登录页面。
+- 不展示逐 Credential 会话分布、Session Hash 或绑定样本。
 
-### 19.5 会话粘性
+### 19.5 路由策略设置
 
-- 启用/关闭软粘性；
-- `prefer`/`strict` 模式；
-- 软粘性 TTL；
-- Codex Response ID TTL；
-- 当前软绑定数和硬绑定数；
-- 每个 Credential 绑定的会话数；
-- 手动清除指定 Credential 或全部绑定；
-- 仅显示截断后的 Session Hash。
+- “设置 → 路由策略”统一编辑 RPM 用尽行为、排队和 fallback，以及软/硬会话粘性策略；
+- 默认直接显示 RPM 用尽行为、软粘性开关与 `prefer`/`strict` 模式；
+- 队列上限、fallback、TTL 和固定等待等低频项默认折叠到“高级设置”，需要时仍可编辑和恢复默认；
+- 设置页一级分类固定为“基础、路由策略、运行保护、日志”，不再按每个内部模块创建独立页签；
+- 全局代理只在代理页配置，设置页不重复提供入口。
 
 ### 19.6 网关密钥
 

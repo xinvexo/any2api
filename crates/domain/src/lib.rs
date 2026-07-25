@@ -42,8 +42,8 @@ pub use error::{ErrorClass, PublicError, PublicErrorCode};
 pub use gateway_api_key::{GatewayApiKey, GatewayApiKeyDraft};
 pub use gateway_api_key_configuration::GatewayApiKeyConfiguration;
 pub use gateway_api_key_validation::{
-    GATEWAY_TOKEN_HASH_VERSION, GATEWAY_TOKEN_PREFIX, GATEWAY_TOKEN_RANDOM_BYTES,
-    GATEWAY_TOKEN_VERSION, GatewayApiKeyValidationError,
+    GATEWAY_TOKEN_BODY_LEN, GATEWAY_TOKEN_HASH_VERSION, GATEWAY_TOKEN_PREFIX,
+    GATEWAY_TOKEN_VERSION, GatewayApiKeyValidationError, validate_token as validate_gateway_token,
 };
 pub use id::{
     CredentialId, GatewayApiKeyId, ModelRouteId, OAuthAccountId, ProviderEndpointId,
@@ -74,8 +74,8 @@ pub use proxy_authentication::{
 };
 pub use proxy_configuration::ProxyConfiguration;
 pub use request_log::{
-    CompletedRequestLog, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, RequestAttempt,
-    RequestAttemptOutcome, RequestLog, bound_error_message,
+    CompletedRequestLog, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS,
+    RequestAttempt, RequestAttemptOutcome, RequestLog, bound_error_message, bound_thinking_level,
 };
 pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};

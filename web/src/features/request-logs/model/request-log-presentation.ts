@@ -19,62 +19,89 @@ export function protocolLabel(value: RequestLogProtocol) {
   }
 }
 
+/** Public gateway path for the logged operation (matches `/v1/...` routes). */
 export function operationLabel(value: RequestLogOperation) {
   switch (value) {
     case "responses":
-      return "responses";
+      return "/v1/responses";
     case "responses_compact":
-      return "compact";
+      return "/v1/responses/compact";
     case "chat_completions":
-      return "chat";
+      return "/v1/chat/completions";
     case "messages":
-      return "messages";
+      return "/v1/messages";
     case "messages_count_tokens":
-      return "count_tokens";
+      return "/v1/messages/count_tokens";
   }
 }
 
+type UpstreamSourceFields = {
+  oauthAccountId: string | null;
+  credentialId: string | null;
+  oauthAccountLabel?: string | null;
+  credentialLabel?: string | null;
+};
+
 /** Final upstream routing source — Provider API Key or OAuth account, never Gateway Key. */
-export function upstreamSource(log: Pick<RequestLog, "oauthAccountId" | "credentialId">): {
+export function upstreamSource(log: UpstreamSourceFields): {
   kind: UpstreamSourceKind;
   kindLabel: string;
   id: string | null;
+  /** Prefer human label; fall back to short id when the account was deleted. */
+  displayName: string;
   shortId: string;
 } {
   if (log.oauthAccountId) {
+    const short = shortId(log.oauthAccountId);
     return {
       kind: "oauth",
       kindLabel: "OAuth",
       id: log.oauthAccountId,
-      shortId: shortId(log.oauthAccountId),
+      displayName: log.oauthAccountLabel?.trim() || short,
+      shortId: short,
     };
   }
   if (log.credentialId) {
+    const short = shortId(log.credentialId);
     return {
       kind: "api_key",
       kindLabel: "API Key",
       id: log.credentialId,
-      shortId: shortId(log.credentialId),
+      displayName: log.credentialLabel?.trim() || short,
+      shortId: short,
     };
   }
   return {
     kind: "none",
     kindLabel: "未选择",
     id: null,
+    displayName: "—",
     shortId: "—",
   };
 }
 
-export function upstreamLabel(log: Pick<RequestLog, "oauthAccountId" | "credentialId">) {
+export function upstreamLabel(log: UpstreamSourceFields) {
   const source = upstreamSource(log);
   if (source.kind === "none") {
     return "未选择上游";
   }
-  return `${source.kindLabel} ${source.shortId}`;
+  return `${source.kindLabel} ${source.displayName}`;
 }
 
 export function shortId(value: string | null | undefined) {
   return value ? `${value.slice(0, 8)}…` : "未记录";
+}
+
+/** Prefer proxy profile name from the live snapshot; fall back to short id. */
+export function proxyDisplayName(
+  id: string | null | undefined,
+  label?: string | null,
+) {
+  const trimmed = label?.trim();
+  if (trimmed) {
+    return trimmed;
+  }
+  return shortId(id);
 }
 
 export function isSuccessStatus(status: number) {
@@ -83,6 +110,11 @@ export function isSuccessStatus(status: number) {
 
 export function resultLabel(status: number) {
   return isSuccessStatus(status) ? "成功" : "失败";
+}
+
+/** List badge text: success plain, failure includes HTTP status. */
+export function resultBadgeLabel(status: number) {
+  return isSuccessStatus(status) ? "成功" : `失败 ${status}`;
 }
 
 export function statusTone(status: number) {
@@ -141,4 +173,85 @@ export function formatMetric(value: number | null, suffix = "") {
 
 export function formatTokenCount(value: number | null) {
   return value === null ? "—" : value.toLocaleString();
+}
+
+/** Compact list latency: first-token / total. */
+export function formatLatencyPair(firstTokenMs: number | null, latencyMs: number) {
+  return `${formatDurationMs(firstTokenMs)} / ${formatDurationMs(latencyMs)}`;
+}
+
+/**
+ * Output TPS from generation window.
+ * Prefer post-first-token duration for streams; otherwise full request latency.
+ */
+export function outputTps(
+  log: Pick<RequestLog, "outputTokens" | "latencyMs" | "firstTokenMs">,
+): number | null {
+  if (log.outputTokens === null || log.outputTokens <= 0 || log.latencyMs <= 0) {
+    return null;
+  }
+  const generationMs =
+    log.firstTokenMs !== null && log.latencyMs > log.firstTokenMs
+      ? log.latencyMs - log.firstTokenMs
+      : log.latencyMs;
+  if (generationMs <= 0) {
+    return null;
+  }
+  return log.outputTokens / (generationMs / 1_000);
+}
+
+export function formatTps(value: number | null) {
+  if (value === null) {
+    return "—";
+  }
+  if (value >= 100) {
+    return `${Math.round(value)} t/s`;
+  }
+  if (value >= 10) {
+    return `${value.toFixed(1)} t/s`;
+  }
+  return `${value.toFixed(2)} t/s`;
+}
+
+/**
+ * Compact list tokens:
+ * 入/出 · 命中/创建 · TPS
+ */
+export function formatTokenSummary(
+  log: Pick<
+    RequestLog,
+    | "inputTokens"
+    | "outputTokens"
+    | "cacheReadTokens"
+    | "cacheWriteTokens"
+    | "latencyMs"
+    | "firstTokenMs"
+  >,
+) {
+  if (
+    log.inputTokens === null
+    && log.outputTokens === null
+    && log.cacheReadTokens === null
+    && log.cacheWriteTokens === null
+  ) {
+    return "—";
+  }
+  const io = `${formatTokenCount(log.inputTokens)}/${formatTokenCount(log.outputTokens)}`;
+  const cache = `${formatTokenCount(log.cacheReadTokens)}/${formatTokenCount(log.cacheWriteTokens)}`;
+  return `${io} · ${cache} · ${formatTps(outputTps(log))}`;
+}
+
+/** @deprecated use formatTokenSummary */
+export function formatTokenTriple(
+  log: Pick<
+    RequestLog,
+    | "inputTokens"
+    | "outputTokens"
+    | "cacheReadTokens"
+    | "cacheWriteTokens"
+    | "latencyMs"
+    | "firstTokenMs"
+  >,
+) {
+  return formatTokenSummary(log);
 }

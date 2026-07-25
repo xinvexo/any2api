@@ -236,7 +236,7 @@
 - SQLite `setting_overrides` 只保存用户覆盖值；写入、恢复默认、no-op 和 revision 冲突沿用串行 `ConfigPublisher`。未知 key、损坏 JSON、类型错误和越界覆盖 Fail-Closed，显式覆盖等于默认值仍保留。
 - `PublishedSnapshot` 从已提交 `SettingsConfiguration` 捕获 QueuePolicy；Credential RPM 通过无失败 Runtime reconcile 更新稳定窗口，发布只推进一次 scheduler epoch。
 - 管理 API：`GET /api/admin/settings`、`PATCH /api/admin/settings/{key}`、`DELETE /api/admin/settings/{key}?expected_revision=N`。
-- React `/settings` 按功能分组拆为管理页、行级表单、控件、草稿校验和展示映射；同时显示默认、覆盖、生效值，支持恢复默认、revision 冲突后保留草稿和响应式窄屏。
+- React `/settings` 使用“基础、路由策略、运行保护、日志”四个页签；高频项直接展示，低频项默认折叠到同页高级设置。默认、覆盖、生效值与恢复默认、revision 冲突草稿和响应式窄屏能力保持不变。
 - Domain、Storage、Runtime、HTTP 和 Web 测试覆盖注册表元数据、持久化、缓存代际、冲突重试及真实 ConfigPublisher RPM 热更新。
 
 ### 会话粘性路由切片
@@ -248,8 +248,8 @@
 - 每个 Credential Runtime 增加固定等待者计数；普通调度不会抢占该 Credential 新释放的槽位，固定会话仍使用全局有界 QueueTicket。优先级只影响同一个 Credential，不阻塞其他 Credential。
 - Codex JSON 成功响应顶层 `id` 与 SSE `response.created.response.id` 在客户端可见前写入硬绑定；`Responses Compact` 只支持显式软会话，流式 Body 继续持有 Permit 到 EOF、错误、断连或 Drop。
 - 新增六项统一设置：`affinity.soft.enabled`、`affinity.soft.mode`、`affinity.soft.ttl`、`affinity.hard.ttl`、`affinity.soft.prefer_wait_timeout`、`affinity.fixed_wait_timeout`。默认值、覆盖值和生效值均通过现有 SettingRegistry 热更新。
-- 新增管理 API：`GET/DELETE /api/admin/affinity` 与 `DELETE /api/admin/affinity/credentials/{id}`；返回总量、Creating 数、按 Credential 统计和截断 HMAC 样本，并支持全部或按 Credential 清理。
-- React `/affinity` 已替换占位页，展示运行时指标、Credential 分布、脱敏绑定样本和清理操作，并复用统一 SettingsManagement 只显示 `affinity.*` 设置。
+- 管理 API 保留 `GET/DELETE /api/admin/affinity` 与按 Credential 清理能力；普通 Web 使用 `limit=0` 的固定规模聚合，只读取软绑定、硬绑定和 Creating 数，不读取账号分布或 HMAC 样本。
+- 独立 `/affinity` 页面与一级导航已删除，旧 deep link 跳转到“设置 → 路由策略”；会话聚合进入总览，`affinity.*` 与 `scheduler.*` 在同一设置分类中管理。
 - Runtime、Protocol、HTTP 契约与 Web 测试覆盖并发 Creating、租约唤醒、TTL、身份冲突、重启空状态、固定等待优先、Codex JSON/SSE 硬续接、Claude 软粘性、prefer 重绑、strict 不切换、未知旧 Response ID、管理清理和设置保存/恢复。
 - 真实浏览器完成 1440 桌面与 390×844 窄屏验证；桌面导航、移动菜单、自然滚动、设置表单和无水平溢出均通过，页面控制台无错误。
 
@@ -309,11 +309,18 @@
 ### 负载均衡运行态检查切片
 
 - 稳定 `CredentialRuntimeHandle` 增加 Relaxed 原子计数，记录成功选中、RPM 用尽、Credential+模型、Endpoint、Proxy 健康过滤事件；只有 RPM、Credential Guard 与全部健康 Guard 都取得后才记录选中。
-- `RuntimeRegistry::balancing_snapshot` 从当前 `PublishedSnapshot` 只读聚合 scheduler epoch、QueueTicket 等待数与策略、Credential RPM 窗口、`in_flight`、固定等待者、计数和按 upstream model 分层的三类健康状态。
-- 新增管理员只读 API `GET /api/admin/balancing`，复用既有管理员认证与 `Cache-Control: no-store`。响应只返回 ID、脱敏标签、启停状态和运行指标，不返回 URL、地址或 Secret。
-- React `/balancing` 展示总览与 Provider 汇总、Credential RPM 窗口、剩余名额/到期时间、`in_flight` 观测、选择比例、分开的过滤原因和三层健康状态，并组合现有 `scheduler.*` 设置表单。
-- 计数只表示当前进程内的调度检查事件；等待重选或健康竞态可使过滤次数高于客户端请求数，不能用于计费、额度或 RequestLog 替代。热更新复用 Credential 句柄时保留，删除 Credential 或进程重启后清空。
-- Runtime 热路径测试覆盖成功选中、RPM 过滤和 HalfOpen 健康竞态计数；HTTP 契约覆盖真实配置发布、实时 RPM 窗口、停用实际代理对可调度状态的影响、标签与 no-store；Web 覆盖严格 DTO、空态、分层健康和刷新失败保留旧数据。完整决策见 `docs/adr/0023-balancing-runtime-inspection.md`。
+- `RuntimeRegistry::balancing_snapshot` 从当前 `PublishedSnapshot` 单次遍历路由凭据，只聚合 scheduler epoch、QueueTicket、全局/Provider 账号数、RPM 窗口、`in_flight`、固定等待者和成功选中次数；不再构造 Credential×Model 健康快照。
+- 管理员只读 API `GET /api/admin/balancing` 复用既有管理员认证与 `Cache-Control: no-store`，只返回固定规模的全局和 Provider 汇总，不返回账号 ID、标签、Endpoint、Proxy、模型或单账号过滤计数。
+- 独立 `/balancing` 页面与一级导航已删除；固定规模的全局/Codex/Claude 汇总进入总览，`scheduler.*` 进入“设置 → 路由策略”。账号配置、模型与历史请求统计继续分别位于 Provider/OAuth 页面。
+- Credential 级选择/过滤计数仍只属于当前进程的调度实现与测试，热更新复用句柄时保留，删除 Credential 或进程重启后清空，但普通管理页面不逐账号展示。
+- Runtime 模块测试覆盖多 Provider 聚合；HTTP 契约确认响应不含 `credentials`；Web 覆盖 1000 账号汇总、零值和刷新失败保留旧数据。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`。
+
+### 总览与简化设置导航
+
+- 一级导航不再暴露负载均衡和会话粘性；总览用紧凑面板呈现服务、调度、Provider 和会话绑定聚合，不展示账号或绑定样本。
+- 系统设置固定为四类：基础、路由策略、运行保护、日志；旧 password/scheduler/affinity/reliability/upstream deep link 均重定向到新分类。
+- 路由策略默认只展示 RPM 用尽行为、软粘性开关和模式；队列、fallback、TTL 与固定等待等低频项进入高级折叠区。其他分类同样只直接展示高频项。
+- 全局代理只在出口代理页管理，不再在系统设置重复出现。完整决策见 `docs/adr/0039-overview-and-simplified-settings.md`。
 
 ### 本地文件日志轮转切片
 
@@ -421,7 +428,7 @@
 - 运行态 RPM 窗口、`in_flight`、请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后这些状态全部从零开始。
 - ProviderCredential 与 OAuthAccount 分别承载 API Key generation 和独立 token/account generation，并通过带来源标签的 `RoutingCredentialId` 编译到同一候选池；两类持久化模型和管理 API 保持分离。
 - 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
-- RequestLog/Attempt 对 API Key 与 OAuth 使用互斥来源列；OAuth 不暴露内部固定 Endpoint。Provider/OAuth 管理页显示各自日志窗口统计，请求日志列表显式标识最终上游来源；Gateway Key 入口统计保持不变。负载均衡运行态 API、Affinity 管理与对应页面已识别两类来源；RPM 窗口、`in_flight`、队列、选择/过滤计数及分层健康只读自当前进程内存，不持久化、不参与启动恢复。
+- RequestLog/Attempt 对 API Key 与 OAuth 使用互斥来源列；OAuth 不暴露内部固定 Endpoint。Provider/OAuth 管理页显示各自日志窗口统计，请求日志列表显式标识最终上游来源；Gateway Key 入口统计保持不变。负载均衡运行态 API 只返回两类来源合并后的全局/Provider 汇总；RPM 窗口、`in_flight`、队列和内部选择/过滤计数只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 - 正式运行默认从二进制内嵌 React 资源提供管理面；改变当前工作目录或删除源码树不会影响页面，外部 Web 目录必须通过 `ANY2API_WEB_DIR` 显式选择。
 

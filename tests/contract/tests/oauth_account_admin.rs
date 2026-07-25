@@ -299,6 +299,7 @@ fn oauth_request_log(
             ingress_protocol: ProtocolDialect::OpenAiResponses,
             operation: ProtocolOperation::Responses,
             public_model: Some("gpt-5.5".into()),
+            thinking_level: None,
             provider_endpoint_id: None,
             credential_id: None,
             oauth_account_id: Some(account_id),

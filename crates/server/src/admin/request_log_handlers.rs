@@ -37,7 +37,12 @@ pub(crate) async fn list(
         tracing::error!(%error, "request log list failed");
         AdminApiError::request_log_unavailable()
     })?;
-    Ok(Json(RequestLogListResponse::new(logs, telemetry.metrics())))
+    let snapshot = state.snapshots().load();
+    Ok(Json(RequestLogListResponse::new(
+        logs,
+        telemetry.metrics(),
+        snapshot.as_ref(),
+    )))
 }
 
 pub(crate) async fn get(
@@ -52,8 +57,10 @@ pub(crate) async fn get(
         AdminApiError::request_log_unavailable()
     })?;
     let record = record.ok_or_else(AdminApiError::request_log_not_found)?;
+    let snapshot = state.snapshots().load();
     Ok(Json(RequestLogDetailResponse::new(
         record,
         telemetry.metrics(),
+        snapshot.as_ref(),
     )))
 }

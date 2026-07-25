@@ -1,50 +1,18 @@
 export type ProviderKind = "codex" | "claude";
-export type ProxyKind = "direct" | "http" | "socks5";
-export type HealthStatus = "available" | "cooling" | "unavailable";
-export type CredentialSource = "provider_credential" | "oauth_account";
 
-export interface HealthState {
-  status: HealthStatus;
-  retryInMs: number | null;
-}
-
-export interface BalancingCounters {
-  selected: number;
-  filteredRateLimit: number;
-  filteredCredentialHealth: number;
-  filteredEndpointHealth: number;
-  filteredProxyHealth: number;
-}
-
-export interface CredentialModelHealth {
-  upstreamModel: string;
-  credential: HealthState;
-  endpoint: HealthState;
-  proxy: HealthState;
-}
-
-export interface BalancingCredential {
-  credentialId: string;
-  credentialSource: CredentialSource;
-  label: string;
-  enabled: boolean;
-  authenticationExpired: boolean;
-  providerKind: ProviderKind;
-  endpointId: string | null;
-  endpointName: string | null;
-  endpointEnabled: boolean;
-  proxyId: string;
-  proxyName: string;
-  proxyKind: ProxyKind;
-  proxyEnabled: boolean;
+export interface BalancingTotals {
+  credentialCount: number;
+  enabledCredentialCount: number;
+  limitedCredentialCount: number;
+  rateLimitedCredentialCount: number;
   inFlight: number;
-  requestsPerMinute: number | null;
   requestsInWindow: number;
-  remainingRequests: number | null;
-  retryInMs: number | null;
   fixedWaiters: number;
-  counters: BalancingCounters;
-  models: CredentialModelHealth[];
+  selected: number;
+}
+
+export interface BalancingProvider extends BalancingTotals {
+  providerKind: ProviderKind;
 }
 
 export interface BalancingRuntime {
@@ -57,31 +25,13 @@ export interface BalancingRuntime {
     onRateLimited: "wait" | "reject";
     fallbackOnRateLimit: boolean;
   };
-  totals: {
-    credentialCount: number;
-    enabledCredentialCount: number;
-    limitedCredentialCount: number;
-    rateLimitedCredentialCount: number;
-    inFlight: number;
-    requestsInWindow: number;
-    fixedWaiters: number;
-  };
-  providers: Array<{
-    providerKind: ProviderKind;
-    credentialCount: number;
-    limitedCredentialCount: number;
-    rateLimitedCredentialCount: number;
-    inFlight: number;
-    requestsInWindow: number;
-    selected: number;
-  }>;
-  credentials: BalancingCredential[];
+  totals: BalancingTotals;
+  providers: BalancingProvider[];
 }
 
 export function parseBalancingRuntime(value: unknown): BalancingRuntime {
   const root = record(value);
   const queue = record(root.queue);
-  const totals = record(root.totals);
   return {
     configRevision: positive(root.config_revision),
     schedulerEpoch: integer(root.scheduler_epoch),
@@ -92,99 +42,31 @@ export function parseBalancingRuntime(value: unknown): BalancingRuntime {
       onRateLimited: oneOf(queue.on_rate_limited, ["wait", "reject"]),
       fallbackOnRateLimit: boolean(queue.fallback_on_rate_limit),
     },
-    totals: {
-      credentialCount: integer(totals.credential_count),
-      enabledCredentialCount: integer(totals.enabled_credential_count),
-      limitedCredentialCount: integer(totals.limited_credential_count),
-      rateLimitedCredentialCount: integer(totals.rate_limited_credential_count),
-      inFlight: integer(totals.in_flight),
-      requestsInWindow: integer(totals.requests_in_window),
-      fixedWaiters: integer(totals.fixed_waiters),
-    },
+    totals: parseTotals(root.totals),
     providers: array(root.providers).map(parseProvider),
-    credentials: array(root.credentials).map(parseCredential),
   };
 }
 
-function parseProvider(value: unknown) {
+function parseProvider(value: unknown): BalancingProvider {
   const item = record(value);
   return {
-    providerKind: provider(item.provider_kind),
+    providerKind: oneOf(item.provider_kind, ["codex", "claude"]),
+    ...parseTotals(item),
+  };
+}
+
+function parseTotals(value: unknown): BalancingTotals {
+  const item = record(value);
+  return {
     credentialCount: integer(item.credential_count),
+    enabledCredentialCount: integer(item.enabled_credential_count),
     limitedCredentialCount: integer(item.limited_credential_count),
     rateLimitedCredentialCount: integer(item.rate_limited_credential_count),
     inFlight: integer(item.in_flight),
     requestsInWindow: integer(item.requests_in_window),
-    selected: integer(item.selected),
-  };
-}
-
-function parseCredential(value: unknown): BalancingCredential {
-  const item = record(value);
-  const requestsPerMinute = nullablePositive(item.requests_per_minute);
-  const requestsInWindow = integer(item.requests_in_window);
-  const remainingRequests = nullableInteger(item.remaining_requests);
-  const retryInMs = nullableInteger(item.retry_in_ms);
-  if (requestsPerMinute === null) {
-    if (requestsInWindow !== 0 || remainingRequests !== null || retryInMs !== null) throw invalid();
-  } else {
-    if (
-      remainingRequests !== Math.max(0, requestsPerMinute - requestsInWindow) ||
-      (remainingRequests === 0) !== (retryInMs !== null)
-    ) throw invalid();
-  }
-  return {
-    credentialId: string(item.credential_id),
-    credentialSource: oneOf(item.credential_source, ["provider_credential", "oauth_account"]),
-    label: string(item.label),
-    enabled: boolean(item.enabled),
-    authenticationExpired: boolean(item.authentication_expired),
-    providerKind: provider(item.provider_kind),
-    endpointId: nullableString(item.endpoint_id),
-    endpointName: nullableString(item.endpoint_name),
-    endpointEnabled: boolean(item.endpoint_enabled),
-    proxyId: string(item.proxy_id),
-    proxyName: string(item.proxy_name),
-    proxyKind: oneOf(item.proxy_kind, ["direct", "http", "socks5"]),
-    proxyEnabled: boolean(item.proxy_enabled),
-    inFlight: integer(item.in_flight),
-    requestsPerMinute,
-    requestsInWindow,
-    remainingRequests,
-    retryInMs,
     fixedWaiters: integer(item.fixed_waiters),
-    counters: parseCounters(item.counters),
-    models: array(item.models).map(parseModel),
-  };
-}
-
-function parseCounters(value: unknown): BalancingCounters {
-  const item = record(value);
-  return {
     selected: integer(item.selected),
-    filteredRateLimit: integer(item.filtered_rate_limit),
-    filteredCredentialHealth: integer(item.filtered_credential_health),
-    filteredEndpointHealth: integer(item.filtered_endpoint_health),
-    filteredProxyHealth: integer(item.filtered_proxy_health),
   };
-}
-
-function parseModel(value: unknown): CredentialModelHealth {
-  const item = record(value);
-  return {
-    upstreamModel: string(item.upstream_model),
-    credential: parseHealth(item.credential),
-    endpoint: parseHealth(item.endpoint),
-    proxy: parseHealth(item.proxy),
-  };
-}
-
-function parseHealth(value: unknown): HealthState {
-  const item = record(value);
-  const status = oneOf(item.status, ["available", "cooling", "unavailable"]);
-  const retryInMs = item.retry_in_ms === null ? null : positive(item.retry_in_ms);
-  if ((status === "cooling") !== (retryInMs !== null)) throw invalid();
-  return { status, retryInMs };
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -195,15 +77,6 @@ function record(value: unknown): Record<string, unknown> {
 function array(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw invalid();
   return value;
-}
-
-function string(value: unknown): string {
-  if (typeof value !== "string" || value.length === 0) throw invalid();
-  return value;
-}
-
-function nullableString(value: unknown): string | null {
-  return value === null ? null : string(value);
 }
 
 function boolean(value: unknown): boolean {
@@ -222,24 +95,9 @@ function positive(value: unknown): number {
   return result;
 }
 
-function nullableInteger(value: unknown): number | null {
-  return value === null ? null : integer(value);
-}
-
-function nullablePositive(value: unknown): number | null {
-  if (value === null) return null;
-  const result = positive(value);
-  if (result > 100_000) throw invalid();
-  return result;
-}
-
 function oneOf<const T extends string>(value: unknown, values: readonly T[]): T {
   if (typeof value !== "string" || !values.includes(value as T)) throw invalid();
   return value as T;
-}
-
-function provider(value: unknown) {
-  return oneOf(value, ["codex", "claude"]);
 }
 
 function invalid() {

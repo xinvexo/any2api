@@ -3,8 +3,8 @@ pub use crate::affinity::{
     AffinityRuntimeSnapshot,
 };
 pub use crate::balancing::{
-    BalancingCredentialModelSnapshot, BalancingCredentialSnapshot, BalancingHealthStatus,
-    BalancingQueueSnapshot, BalancingRuntimeSnapshot,
+    BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
+    BalancingTotalsSnapshot,
 };
 pub use crate::config_publish_error::ConfigPublishError;
 pub use crate::configuration_capabilities::{
@@ -15,7 +15,9 @@ pub use crate::credential_runtime::{
     CredentialRuntimeBinding, RoutingPermit,
 };
 pub use crate::gateway_api_key_publisher::GatewayApiKeyPublishResult;
-pub use crate::gateway_api_key_token::{GatewayApiKeyToken, GatewayApiKeyTokenGenerationError};
+pub use crate::gateway_api_key_token::{
+    GatewayApiKeyToken, GatewayApiKeyTokenError, GatewayApiKeyTokenGenerationError,
+};
 pub use crate::logging_reconciler::LoggingSettingsReconciler;
 pub use crate::oauth::{
     OAuthActivationResult, OAuthError, OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot,

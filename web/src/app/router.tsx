@@ -8,8 +8,6 @@ import { ProxiesPage } from "@/pages/ProxiesPage";
 import { ProvidersPage } from "@/pages/ProvidersPage";
 import { GatewayApiKeysPage } from "@/pages/GatewayApiKeysPage";
 import { SettingsPage } from "@/pages/SettingsPage";
-import { AffinityPage } from "@/pages/AffinityPage";
-import { BalancingPage } from "@/pages/BalancingPage";
 import { RequestLogDetailPage } from "@/pages/RequestLogDetailPage";
 import { RequestLogsPage } from "@/pages/RequestLogsPage";
 
@@ -24,12 +22,12 @@ export const router = createBrowserRouter([
       { path: "oauth", element: <OAuthPage /> },
       // Legacy kind-scoped deep links collapse into the unified providers page.
       { path: "providers/:kind", element: <Navigate to="/providers" replace /> },
-      { path: "balancing", element: <BalancingPage /> },
-      { path: "affinity", element: <AffinityPage /> },
+      { path: "balancing", element: <Navigate to="/settings/routing" replace /> },
+      { path: "affinity", element: <Navigate to="/settings/routing" replace /> },
       { path: "keys", element: <GatewayApiKeysPage /> },
       { path: "logs", element: <RequestLogsPage /> },
       { path: "logs/:requestId", element: <RequestLogDetailPage /> },
-      { path: "settings", element: <Navigate to="/settings/password" replace /> },
+      { path: "settings", element: <Navigate to="/settings/basic" replace /> },
       { path: "settings/:section", element: <SettingsPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],

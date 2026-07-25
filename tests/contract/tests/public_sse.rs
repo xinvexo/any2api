@@ -886,7 +886,7 @@ async fn create_gateway_key(app: &Router, remote: SocketAddr, revision: u64) -> 
     let response = request_admin(
         app.clone(),
         "/api/admin/gateway-api-keys",
-        json!({"expected_revision":revision,"name":"stream-client","enabled":true}),
+        json!({"expected_revision":revision,"name":"stream-client","enabled":true,"token":format!("sk-{}", "s".repeat(48))}),
         remote,
     )
     .await;

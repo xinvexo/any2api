@@ -261,7 +261,10 @@ html[data-theme="dark"] .confirm-dialog-panel {
 
 /* Global notification cards — fixed overlay, never shift page flow */
 .notification-card {
-  animation: notification-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: center top;
+  /* Avoid filter/blur during enter: it inflates the painted box and can
+     flash scrollbars on any ancestor with overflow auto. */
+  animation: notification-enter 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .notification-card__timer {
@@ -278,12 +281,23 @@ html[data-theme="dark"] .confirm-dialog-panel {
   animation-fill-mode: forwards;
 }
 
+/*
+ * Enter: drop in from above with a soft overshoot so the card is clearly
+ * noticed, then settle. Keep scale modest so layout boxes stay stable.
+ */
 @keyframes notification-enter {
-  from {
+  0% {
     opacity: 0;
-    transform: translate3d(0, -8px, 0) scale(0.98);
+    transform: translate3d(0, -20px, 0) scale(0.94);
   }
-  to {
+  62% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 1;
+    transform: translate3d(0, 2px, 0) scale(1.015);
+  }
+  100% {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
   }

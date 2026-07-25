@@ -3,16 +3,31 @@ import { ChevronRight } from "lucide-react";
 import type { RequestLog } from "../api/request-log-contracts";
 import {
   formatDurationMs,
+  formatLatencyPair,
   formatLogTime,
   formatTokenCount,
-  resultLabel,
+  formatTokenSummary,
+  formatTps,
+  isSuccessStatus,
+  outputTps,
+  resultBadgeLabel,
   statusTone,
-  totalTokens,
   upstreamKindTone,
   upstreamSource,
 } from "../model/request-log-presentation";
 import { RequestLogExpandedPanel } from "./RequestLogExpandedPanel";
 import { cn } from "@/shared/lib/cn";
+
+/**
+ * Full-width balanced grid: every column takes a share of free space.
+ * Avoids both “令牌/模型 oversized” and a dead empty band on the right.
+ */
+export const requestLogGridClass =
+  "grid w-full min-w-[52rem] items-center gap-x-2 " +
+  "[grid-template-columns:minmax(0,1.35fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.85fr)_minmax(0,0.55fr)_minmax(0,0.7fr)_minmax(0,0.5fr)_minmax(0,0.7fr)]";
+
+const cell = "min-w-0 px-1 py-2.5 text-left text-[12px]";
+const numCell = `${cell} tabular-nums text-secondary`;
 
 export interface RequestLogRowProps {
   log: RequestLog;
@@ -24,7 +39,6 @@ export interface RequestLogRowProps {
 export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) {
   const panelId = `request-log-card-${log.requestId}`;
   const source = upstreamSource(log);
-  const tokens = totalTokens(log);
   const model = log.publicModel?.trim() || null;
 
   return (
@@ -51,46 +65,44 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
           aria-hidden="true"
         />
         <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 truncate text-[13px] font-semibold text-primary">
-              {model ?? "未解析模型"}
-            </span>
-            <span
-              className={cn(
-                "inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                statusTone(log.statusCode),
-              )}
-            >
-              {resultLabel(log.statusCode)}
-            </span>
-          </div>
           <p className="text-[11px] tabular-nums text-tertiary">
             <time dateTime={new Date(log.startedAtMs).toISOString()}>
               {formatLogTime(log.startedAtMs)}
             </time>
           </p>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]">
-            <span className="text-tertiary">来源</span>
             <UpstreamSourceInline source={source} />
+          </div>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="min-w-0 truncate text-[13px] font-semibold text-primary">
+              {model ?? "未解析模型"}
+            </span>
+            <ThinkingLevel value={log.thinkingLevel} />
+            <span
+              className={cn(
+                "inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
+                statusTone(log.statusCode),
+              )}
+              title={`HTTP ${log.statusCode}`}
+            >
+              {resultBadgeLabel(log.statusCode)}
+            </span>
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-tertiary">
             <span>
-              首字{" "}
+              耗时{" "}
               <span className="font-medium text-secondary">
-                {formatDurationMs(log.firstTokenMs)}
+                {isSuccessStatus(log.statusCode)
+                  ? formatLatencyPair(log.firstTokenMs, log.latencyMs)
+                  : formatDurationMs(log.latencyMs)}
               </span>
             </span>
-            <span>
-              延迟{" "}
-              <span className="font-medium text-secondary">
-                {formatDurationMs(log.latencyMs)}
+            {isSuccessStatus(log.statusCode) ? (
+              <span>
+                Tokens{" "}
+                <span className="font-medium text-secondary">{formatTokenSummary(log)}</span>
               </span>
-            </span>
-            <span>
-              Token{" "}
-              <span className="font-medium text-secondary">{formatTokenCount(tokens)}</span>
-            </span>
-            {log.errorMessage ? (
+            ) : log.errorMessage ? (
               <span className="min-w-0 truncate text-danger" title={log.errorMessage}>
                 {log.errorMessage}
               </span>
@@ -111,82 +123,122 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
   );
 }
 
-/** Desktop: data row + optional full-width detail row. */
+/** Desktop: grid row + optional full-width detail. */
 export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowProps) {
   const panelId = `request-log-table-${log.requestId}`;
   const source = upstreamSource(log);
-  const tokens = totalTokens(log);
   const model = log.publicModel?.trim() || null;
 
   return (
-    <>
-      <tr
+    <div role="rowgroup">
+      <div
+        role="row"
         className={cn(
-          "border-b border-subtle/50 transition-colors",
+          requestLogGridClass,
+          "focus-ring cursor-pointer border-b border-subtle/50 transition-colors outline-none",
           expanded ? "bg-surface-muted/30" : "hover:bg-surface-muted/20",
         )}
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-controls={panelId}
+        aria-label={
+          expanded ? `收起 ${model ?? log.requestId}` : `展开 ${model ?? log.requestId}`
+        }
+        onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
       >
-        <td className="px-2 py-2.5 align-middle">
-          <button
-            type="button"
-            className="focus-ring flex max-w-full min-w-0 items-center gap-1.5 rounded-[6px] text-left"
-            aria-expanded={expanded}
-            aria-controls={panelId}
-            aria-label={
-              expanded ? `收起 ${model ?? log.requestId}` : `展开 ${model ?? log.requestId}`
-            }
-            onClick={onToggle}
-          >
-            <ChevronRight
-              size={14}
-              className={cn(
-                "shrink-0 text-tertiary transition-transform duration-150",
-                expanded && "rotate-90",
-              )}
-              aria-hidden="true"
-            />
-            <span className="min-w-0 truncate text-[12px] font-medium text-primary">
-              {model ?? "未解析模型"}
+        <div role="cell" className={`${cell} tabular-nums text-secondary`}>
+          <div className="flex min-w-0 items-center gap-0.5">
+            <span className="grid size-5 shrink-0 place-items-center text-tertiary" aria-hidden="true">
+              <ChevronRight
+                size={13}
+                className={cn(
+                  "transition-transform duration-150",
+                  expanded && "rotate-90",
+                )}
+              />
             </span>
-          </button>
-        </td>
-        <td className="whitespace-nowrap px-2 py-2.5 align-middle text-[12px] tabular-nums text-secondary">
-          <time dateTime={new Date(log.startedAtMs).toISOString()}>
-            {formatLogTime(log.startedAtMs)}
-          </time>
-        </td>
-        <td className="min-w-[9rem] px-2 py-2.5 align-middle">
+            <time className="truncate" dateTime={new Date(log.startedAtMs).toISOString()}>
+              {formatLogTime(log.startedAtMs)}
+            </time>
+          </div>
+        </div>
+        <div role="cell" className={cell}>
           <UpstreamSourceInline source={source} />
-        </td>
-        <td className="px-2 py-2.5 align-middle">
+        </div>
+        <div role="cell" className={cell}>
+          <span
+            className="block truncate font-medium text-primary"
+            title={model ?? undefined}
+          >
+            {model ?? "未解析模型"}
+          </span>
+        </div>
+        <div role="cell" className={cell}>
+          <ThinkingLevel value={log.thinkingLevel} />
+        </div>
+        <div role="cell" className={cell}>
           <span
             className={cn(
-              "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
+              "inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[11px] font-medium",
               statusTone(log.statusCode),
             )}
             title={`HTTP ${log.statusCode}`}
           >
-            {resultLabel(log.statusCode)}
+            {resultBadgeLabel(log.statusCode)}
           </span>
-        </td>
-        <td className="whitespace-nowrap px-2 py-2.5 align-middle text-[12px] tabular-nums text-secondary">
-          {formatDurationMs(log.firstTokenMs)}
-        </td>
-        <td className="whitespace-nowrap px-2 py-2.5 align-middle text-[12px] tabular-nums text-secondary">
-          {formatDurationMs(log.latencyMs)}
-        </td>
-        <td className="whitespace-nowrap px-2 py-2.5 text-right align-middle text-[12px] tabular-nums text-secondary">
-          {formatTokenCount(tokens)}
-        </td>
-      </tr>
+        </div>
+        <div role="cell" className={numCell}>
+          <span className="block truncate">
+            {isSuccessStatus(log.statusCode) ? formatDurationMs(log.firstTokenMs) : "—"}
+          </span>
+        </div>
+        <div role="cell" className={numCell}>
+          <span className="block truncate">{formatDurationMs(log.latencyMs)}</span>
+        </div>
+        <div role="cell" className={numCell}>
+          <span className="block truncate">
+            {isSuccessStatus(log.statusCode) ? formatTokenCount(log.inputTokens) : "—"}
+          </span>
+        </div>
+        <div role="cell" className={numCell}>
+          <span className="block truncate">
+            {isSuccessStatus(log.statusCode) ? formatTokenCount(log.outputTokens) : "—"}
+          </span>
+        </div>
+        <div role="cell" className={numCell}>
+          <span className="block truncate">
+            {isSuccessStatus(log.statusCode) ? formatTokenCount(log.cacheReadTokens) : "—"}
+          </span>
+        </div>
+        <div role="cell" className={numCell}>
+          <span className="block truncate">
+            {isSuccessStatus(log.statusCode) ? formatTokenCount(log.cacheWriteTokens) : "—"}
+          </span>
+        </div>
+        <div role="cell" className={numCell}>
+          <span className="block truncate">
+            {isSuccessStatus(log.statusCode) ? formatTps(outputTps(log)) : "—"}
+          </span>
+        </div>
+      </div>
       {expanded ? (
-        <tr className="border-b border-subtle/50 bg-surface-muted/20">
-          <td id={panelId} colSpan={7} className="px-3 pb-3 pt-2.5">
+        <div
+          id={panelId}
+          role="row"
+          className="border-b border-subtle/50 bg-surface-muted/20"
+        >
+          <div role="cell" className="px-3 pb-3 pt-2.5">
             <RequestLogExpandedPanel requestId={log.requestId} summary={log} />
-          </td>
-        </tr>
+          </div>
+        </div>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -198,22 +250,36 @@ function UpstreamSourceInline({
   if (source.kind === "none") {
     return <span className="text-[11px] text-tertiary">未选上游</span>;
   }
+  const title = [
+    source.kindLabel,
+    source.displayName,
+    source.id ? `(${source.id})` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <span
-        className={cn(
-          "inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-          upstreamKindTone(source.kind),
-        )}
-      >
-        {source.kindLabel}
-      </span>
-      <span
-        className="min-w-0 max-w-full truncate font-mono text-[11px] text-primary"
-        title={source.id ?? undefined}
-      >
-        {source.shortId}
-      </span>
-    </div>
+    <span
+      className={cn(
+        "inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[11px] font-medium",
+        upstreamKindTone(source.kind),
+      )}
+      title={title}
+    >
+      {source.displayName}
+    </span>
+  );
+}
+
+function ThinkingLevel({ value }: { value: string | null }) {
+  if (!value) {
+    return <span className="text-[11px] text-tertiary">—</span>;
+  }
+  return (
+    <span
+      className="inline-flex max-w-full truncate rounded-full bg-surface-muted px-1.5 py-0.5 text-[10px] font-medium text-secondary"
+      title={value}
+    >
+      {value}
+    </span>
   );
 }

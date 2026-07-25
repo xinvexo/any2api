@@ -1,5 +1,4 @@
 import {
-  Activity,
   Fingerprint,
   Gauge,
   KeyRound,
@@ -7,7 +6,6 @@ import {
   ScrollText,
   Server,
   Settings,
-  Waypoints,
   type LucideIcon,
 } from "lucide-react";
 
@@ -22,8 +20,6 @@ export const navigationItems: NavigationItem[] = [
   { label: "出口代理", path: "/proxies", icon: Network },
   { label: "上游提供", path: "/providers", icon: Server },
   { label: "认证文件", path: "/oauth", icon: Fingerprint },
-  { label: "负载均衡", path: "/balancing", icon: Activity },
-  { label: "会话粘性", path: "/affinity", icon: Waypoints },
   { label: "网关密钥", path: "/keys", icon: KeyRound },
   { label: "请求日志", path: "/logs", icon: ScrollText },
   { label: "系统设置", path: "/settings", icon: Settings },

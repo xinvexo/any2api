@@ -3,6 +3,12 @@ import { Link } from "react-router-dom";
 
 import type { RequestAttempt, RequestLogProtocol } from "../api/request-log-contracts";
 import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
+import {
+  formatTps,
+  operationLabel,
+  outputTps,
+  proxyDisplayName,
+} from "../model/request-log-presentation";
 import { useRequestLog } from "../model/use-request-logs";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
@@ -91,13 +97,16 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
 
         <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <Detail label="协议" value={protocolLabel(request.ingressProtocol)} />
-          <Detail label="操作" value={request.operation} />
+          <Detail label="接口" value={operationLabel(request.operation)} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
           <Detail label="错误分类" value={request.errorClass ?? "无"} />
           <Detail label="错误消息" value={request.errorMessage ?? "无"} />
           <Detail label={request.oauthAccountId ? "OAuth Account" : "Credential"} value={shortId(request.oauthAccountId ?? request.credentialId)} />
-          <Detail label="出口代理" value={shortId(request.proxyProfileId)} />
+          <Detail
+            label="出口代理"
+            value={proxyDisplayName(request.proxyProfileId, request.proxyProfileLabel)}
+          />
         </dl>
 
         {request.errorMessage ? (
@@ -114,15 +123,16 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <p className="mt-1 text-sm text-secondary">
             首 Token 延迟由本机在首个内容帧交付时测量；Token 计数仅取上游协议明确返回的字段，非流式请求不估算延迟。
           </p>
-          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-5">
+          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
             <Detail
               label="首 Token 延迟（TTFT）"
               value={formatMetric(request.firstTokenMs, " ms")}
             />
             <Detail label="输入 Token" value={formatMetric(request.inputTokens)} />
             <Detail label="输出 Token" value={formatMetric(request.outputTokens)} />
-            <Detail label="缓存读取" value={formatMetric(request.cacheReadTokens)} />
-            <Detail label="缓存写入" value={formatMetric(request.cacheWriteTokens)} />
+            <Detail label="缓存命中" value={formatMetric(request.cacheReadTokens)} />
+            <Detail label="缓存创建" value={formatMetric(request.cacheWriteTokens)} />
+            <Detail label="TPS" value={formatTps(outputTps(request))} />
           </dl>
         </div>
       </Surface>
@@ -155,7 +165,7 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
       <div className="min-w-0">
         <p className="font-semibold">{attempt.outcome}</p>
         <p className="mt-1 break-all text-xs text-tertiary">
-          {attempt.oauthAccountId ? "OAuth Account" : "Credential"} {shortId(attempt.oauthAccountId ?? attempt.credentialId)} · Proxy {shortId(attempt.proxyProfileId)}
+          {attempt.oauthAccountId ? "OAuth Account" : "Credential"} {shortId(attempt.oauthAccountId ?? attempt.credentialId)} · {proxyDisplayName(attempt.proxyProfileId, attempt.proxyProfileLabel)}
           {attempt.errorClass ? ` · ${attempt.errorClass}` : ""}
         </p>
         {attempt.errorMessage ? (

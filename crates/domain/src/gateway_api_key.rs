@@ -298,9 +298,12 @@ mod tests {
     use super::{GatewayApiKey, GatewayApiKeyDraft};
     use crate::GatewayApiKeyId;
 
-    // 43-char base64url body matches the production a2k_v1_ format length.
     fn sample_token(seed: char) -> String {
-        format!("a2k_v1_{}", seed.to_string().repeat(43))
+        format!(
+            "{}{}",
+            crate::GATEWAY_TOKEN_PREFIX,
+            seed.to_string().repeat(crate::GATEWAY_TOKEN_BODY_LEN)
+        )
     }
 
     fn key() -> GatewayApiKey {
@@ -320,7 +323,7 @@ mod tests {
     #[test]
     fn create_stores_plaintext_and_redacts_debug() {
         let key = key();
-        assert!(key.token().starts_with("a2k_v1_"));
+        assert!(key.token().starts_with(crate::GATEWAY_TOKEN_PREFIX));
         assert!(format!("{key:?}").contains("[REDACTED]"));
         assert!(!format!("{key:?}").contains(key.token()));
     }

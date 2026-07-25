@@ -1,8 +1,4 @@
-use crate::credential_runtime::CredentialBalancingCounters;
-use any2api_domain::{
-    CredentialId, OAuthAccountId, ProviderEndpointId, ProviderKind, ProxyProfileId,
-    RoutingCredentialId,
-};
+use any2api_domain::ProviderKind;
 
 mod snapshot;
 
@@ -12,7 +8,8 @@ pub(crate) use snapshot::snapshot;
 pub struct BalancingRuntimeSnapshot {
     scheduler_epoch: u64,
     queue: BalancingQueueSnapshot,
-    credentials: Vec<BalancingCredentialSnapshot>,
+    totals: BalancingTotalsSnapshot,
+    providers: Vec<BalancingProviderSnapshot>,
 }
 
 impl BalancingRuntimeSnapshot {
@@ -24,8 +21,12 @@ impl BalancingRuntimeSnapshot {
         self.queue
     }
 
-    pub fn credentials(&self) -> &[BalancingCredentialSnapshot] {
-        &self.credentials
+    pub const fn totals(&self) -> BalancingTotalsSnapshot {
+        self.totals
+    }
+
+    pub fn providers(&self) -> &[BalancingProviderSnapshot] {
+        &self.providers
     }
 }
 
@@ -60,134 +61,99 @@ impl BalancingQueueSnapshot {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BalancingCredentialSnapshot {
-    credential_id: RoutingCredentialId,
-    label: String,
-    provider_kind: ProviderKind,
-    enabled: bool,
-    authentication_expired: bool,
-    provider_endpoint_id: Option<ProviderEndpointId>,
-    endpoint_name: Option<String>,
-    endpoint_enabled: bool,
-    proxy_id: ProxyProfileId,
-    in_flight: u32,
-    requests_per_minute: Option<u32>,
-    requests_in_window: u32,
-    remaining_requests: Option<u32>,
-    retry_in_ms: Option<u64>,
-    fixed_waiters: u32,
-    counters: CredentialBalancingCounters,
-    models: Vec<BalancingCredentialModelSnapshot>,
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct BalancingTotalsSnapshot {
+    credential_count: usize,
+    enabled_credential_count: usize,
+    limited_credential_count: usize,
+    rate_limited_credential_count: usize,
+    in_flight: u64,
+    requests_in_window: u64,
+    fixed_waiters: u64,
+    selected: u64,
 }
 
-impl BalancingCredentialSnapshot {
-    pub const fn credential_id(&self) -> RoutingCredentialId {
-        self.credential_id
+impl BalancingTotalsSnapshot {
+    pub const fn credential_count(self) -> usize {
+        self.credential_count
     }
 
-    pub const fn provider_credential_id(&self) -> Option<CredentialId> {
-        self.credential_id.provider_credential_id()
+    pub const fn enabled_credential_count(self) -> usize {
+        self.enabled_credential_count
     }
 
-    pub const fn oauth_account_id(&self) -> Option<OAuthAccountId> {
-        self.credential_id.oauth_account_id()
+    pub const fn limited_credential_count(self) -> usize {
+        self.limited_credential_count
     }
 
-    pub fn label(&self) -> &str {
-        &self.label
+    pub const fn rate_limited_credential_count(self) -> usize {
+        self.rate_limited_credential_count
     }
 
-    pub const fn provider_kind(&self) -> ProviderKind {
-        self.provider_kind
-    }
-
-    pub const fn enabled(&self) -> bool {
-        self.enabled
-    }
-
-    pub const fn authentication_expired(&self) -> bool {
-        self.authentication_expired
-    }
-
-    pub const fn provider_endpoint_id(&self) -> Option<ProviderEndpointId> {
-        self.provider_endpoint_id
-    }
-
-    pub fn endpoint_name(&self) -> Option<&str> {
-        self.endpoint_name.as_deref()
-    }
-
-    pub const fn endpoint_enabled(&self) -> bool {
-        self.endpoint_enabled
-    }
-
-    pub const fn proxy_id(&self) -> ProxyProfileId {
-        self.proxy_id
-    }
-
-    pub const fn in_flight(&self) -> u32 {
+    pub const fn in_flight(self) -> u64 {
         self.in_flight
     }
 
-    pub const fn requests_per_minute(&self) -> Option<u32> {
-        self.requests_per_minute
-    }
-
-    pub const fn requests_in_window(&self) -> u32 {
+    pub const fn requests_in_window(self) -> u64 {
         self.requests_in_window
     }
 
-    pub const fn remaining_requests(&self) -> Option<u32> {
-        self.remaining_requests
-    }
-
-    pub const fn retry_in_ms(&self) -> Option<u64> {
-        self.retry_in_ms
-    }
-
-    pub const fn fixed_waiters(&self) -> u32 {
+    pub const fn fixed_waiters(self) -> u64 {
         self.fixed_waiters
     }
 
-    pub const fn counters(&self) -> CredentialBalancingCounters {
-        self.counters
-    }
-
-    pub fn models(&self) -> &[BalancingCredentialModelSnapshot] {
-        &self.models
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BalancingCredentialModelSnapshot {
-    upstream_model: String,
-    credential: BalancingHealthStatus,
-    endpoint: BalancingHealthStatus,
-    proxy: BalancingHealthStatus,
-}
-
-impl BalancingCredentialModelSnapshot {
-    pub fn upstream_model(&self) -> &str {
-        &self.upstream_model
-    }
-
-    pub const fn credential(&self) -> BalancingHealthStatus {
-        self.credential
-    }
-
-    pub const fn endpoint(&self) -> BalancingHealthStatus {
-        self.endpoint
-    }
-
-    pub const fn proxy(&self) -> BalancingHealthStatus {
-        self.proxy
+    pub const fn selected(self) -> u64 {
+        self.selected
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BalancingHealthStatus {
-    Available,
-    Cooling { retry_in_ms: u64 },
-    Unavailable,
+pub struct BalancingProviderSnapshot {
+    provider_kind: ProviderKind,
+    credential_count: usize,
+    enabled_credential_count: usize,
+    limited_credential_count: usize,
+    rate_limited_credential_count: usize,
+    in_flight: u64,
+    requests_in_window: u64,
+    fixed_waiters: u64,
+    selected: u64,
+}
+
+impl BalancingProviderSnapshot {
+    pub const fn provider_kind(self) -> ProviderKind {
+        self.provider_kind
+    }
+
+    pub const fn credential_count(self) -> usize {
+        self.credential_count
+    }
+
+    pub const fn enabled_credential_count(self) -> usize {
+        self.enabled_credential_count
+    }
+
+    pub const fn limited_credential_count(self) -> usize {
+        self.limited_credential_count
+    }
+
+    pub const fn rate_limited_credential_count(self) -> usize {
+        self.rate_limited_credential_count
+    }
+
+    pub const fn in_flight(self) -> u64 {
+        self.in_flight
+    }
+
+    pub const fn requests_in_window(self) -> u64 {
+        self.requests_in_window
+    }
+
+    pub const fn fixed_waiters(self) -> u64 {
+        self.fixed_waiters
+    }
+
+    pub const fn selected(self) -> u64 {
+        self.selected
+    }
 }
