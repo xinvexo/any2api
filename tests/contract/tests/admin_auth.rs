@@ -4,8 +4,8 @@ use any2api_contract_tests::build_public_request_components;
 use any2api_domain::SettingKey;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{
-    AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AdminNetworkPolicy,
-    AppState, StoredAdminPasswordHash, build_router,
+    AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AppState,
+    ClientAddressPolicy, StoredAdminPasswordHash, build_router,
 };
 use any2api_storage::api::{AdminCredentialRepository, ConfigurationRepository, SqliteStore};
 use async_trait::async_trait;
@@ -41,7 +41,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     let (app, setup_token) = build_test_app(
         Arc::clone(&storage),
         web_root.clone(),
-        AdminNetworkPolicy::default(),
+        ClientAddressPolicy::default(),
     )
     .await;
     let setup_token = setup_token.expect("setup token");
@@ -123,7 +123,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
             .and_then(|value| value.to_str().ok()),
         Some("no-store")
     );
-    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(49));
+    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(50));
 
     let response = request(
         &app,
@@ -319,7 +319,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     let (restarted, _) = build_test_app(
         Arc::clone(&storage),
         web_root,
-        AdminNetworkPolicy::default(),
+        ClientAddressPolicy::default(),
     )
     .await;
     let response = request(
@@ -383,7 +383,7 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
     let (app, setup_token) = build_test_app(
         storage,
         web_root,
-        AdminNetworkPolicy::new(vec!["127.0.0.0/8".parse::<IpNet>().expect("cidr")]),
+        ClientAddressPolicy::new(vec!["127.0.0.0/8".parse::<IpNet>().expect("cidr")]),
     )
     .await;
     let setup_token = setup_token.expect("setup token");
@@ -474,7 +474,7 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
 async fn build_test_app(
     storage: Arc<SqliteStore>,
     web_root: std::path::PathBuf,
-    network: AdminNetworkPolicy,
+    network: ClientAddressPolicy,
 ) -> (Router, Option<String>) {
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
@@ -504,7 +504,8 @@ async fn build_test_app(
     (
         build_router(
             AppState::new(snapshots, runtime, publisher, public_requests)
-                .with_admin_auth(auth, network),
+                .with_admin_auth(auth)
+                .with_client_address_policy(network),
             web_root,
         ),
         setup_token,

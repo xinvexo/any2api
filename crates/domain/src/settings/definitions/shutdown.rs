@@ -1,6 +1,6 @@
 use crate::settings::{SettingDefinition, SettingKey, definition::duration_definition};
 
-pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::ShutdownRequestGracePeriod => duration_definition(
             key,

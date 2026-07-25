@@ -9,6 +9,7 @@ describe("request log contracts", () => {
       telemetry: telemetry(),
     });
     expect(list.items[0]?.publicModel).toBe("codex-local");
+    expect(list.items[0]?.clientIp).toBe("203.0.113.8");
     expect(list.telemetry.droppedRecords).toBe(2);
 
     const detail = parseRequestLogDetail({
@@ -96,6 +97,15 @@ describe("request log contracts", () => {
     expect(list.items[0]?.operation).toBe("chat_completions");
   });
 
+  it("keeps a historical missing client address explicit", () => {
+    const list = parseRequestLogList({
+      items: [{ ...request(), client_ip: null }],
+      telemetry: telemetry(),
+    });
+
+    expect(list.items[0]?.clientIp).toBeNull();
+  });
+
   it("parses request and attempt error messages", () => {
     const detail = parseRequestLogDetail({
       request: {
@@ -132,6 +142,7 @@ function request() {
   return {
     request_id: "11111111-1111-4111-8111-111111111111",
     started_at_ms: 1_700_000_000_000,
+    client_ip: "203.0.113.8",
     config_revision: 9,
     gateway_api_key_id: "22222222-2222-4222-8222-222222222222",
     ingress_protocol: "openai_responses",

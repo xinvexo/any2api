@@ -5,7 +5,7 @@ use any2api_runtime::api::{
     SnapshotStore,
 };
 use any2api_server::api::{
-    AdminAuthService, AdminNetworkPolicy, AppState, WebAssets, build_router,
+    AdminAuthService, AppState, ClientAddressPolicy, WebAssets, build_router,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use anyhow::Context;
@@ -115,10 +115,10 @@ pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::S
         .with_proxy_tests(proxy_tests)
         .with_provider_credential_tests(provider_credential_tests)
         .with_request_telemetry(Arc::clone(&telemetry))
-        .with_admin_auth(
-            admin_auth,
-            AdminNetworkPolicy::new(settings.trusted_proxy_cidrs.clone()),
-        ),
+        .with_admin_auth(admin_auth)
+        .with_client_address_policy(ClientAddressPolicy::new(
+            settings.trusted_proxy_cidrs.clone(),
+        )),
         web_assets,
     );
     let listener = TcpListener::bind(settings.bind)

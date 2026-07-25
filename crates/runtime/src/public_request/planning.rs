@@ -73,6 +73,9 @@ fn plan_decoded(
     protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,
 ) -> Result<PlannedRequest, PublicError> {
+    if !snapshot.is_public_model_allowed(&public_model) {
+        return Err(model_not_found());
+    }
     let route = snapshot
         .model_routes()
         .resolve(decoded.dialect, &public_model)
@@ -109,10 +112,7 @@ fn plan_decoded(
             transport_mode,
         );
         if tiers.is_empty() {
-            return Err(public_error(
-                PublicErrorCode::ModelNotFound,
-                "model route was not found",
-            ));
+            return Err(model_not_found());
         }
         (
             route_id,
@@ -129,4 +129,8 @@ fn plan_decoded(
         fallback_on_rate_limit,
         tiers,
     })
+}
+
+fn model_not_found() -> PublicError {
+    public_error(PublicErrorCode::ModelNotFound, "model route was not found")
 }

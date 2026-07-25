@@ -1,4 +1,4 @@
-use crate::admin_auth::AdminConnection;
+use crate::client_address::ClientConnection;
 use serde::{Deserialize, Serialize};
 
 pub(super) struct PasswordRequest {
@@ -87,7 +87,7 @@ impl AdminSessionResponse {
         initialized: bool,
         csrf_token: Option<String>,
         remote_access_enabled: bool,
-        connection: AdminConnection,
+        connection: ClientConnection,
     ) -> Self {
         let authenticated = csrf_token.is_some();
         Self {

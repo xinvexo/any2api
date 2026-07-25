@@ -116,6 +116,7 @@ async fn execute_public_request(
             PublicRequest {
                 request_id: request_id.get(),
                 gateway_api_key_id: authenticated.id(),
+                client_ip: authenticated.client_ip(),
                 operation,
                 headers,
                 body,

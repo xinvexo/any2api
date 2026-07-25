@@ -5,8 +5,8 @@ use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
 };
 use any2api_server::api::{
-    AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AdminNetworkPolicy,
-    AppState, StoredAdminPasswordHash, build_router,
+    AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AppState,
+    StoredAdminPasswordHash, build_router,
 };
 use any2api_storage::api::{AdminCredentialRepository, ConfigurationRepository, SqliteStore};
 use axum::{
@@ -275,7 +275,7 @@ impl TestContext {
                 .expect("admin auth"),
             );
             let setup_token = auth.setup_token().await;
-            state = state.with_admin_auth(auth, AdminNetworkPolicy::default());
+            state = state.with_admin_auth(auth);
             setup_token
         } else {
             None

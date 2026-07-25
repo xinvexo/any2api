@@ -4,7 +4,7 @@ pub const MAX_SETTING_DURATION_SECS: u64 = 86_400;
 pub const MAX_SETTING_COUNT: u64 = 100_000;
 pub const MAX_AFFINITY_TTL_SECS: u64 = 2_592_000;
 
-pub(super) const fn definition(
+pub(super) fn definition(
     key: SettingKey,
     value_type: SettingValueType,
     default: SettingValue,
@@ -25,7 +25,7 @@ pub(super) const fn definition(
     }
 }
 
-pub(super) const fn duration_definition(
+pub(super) fn duration_definition(
     key: SettingKey,
     default: u64,
     min: u64,
@@ -52,6 +52,7 @@ pub enum SettingValueType {
     Integer,
     DurationSecs,
     Enum,
+    StringList,
 }
 
 impl SettingValueType {
@@ -61,6 +62,7 @@ impl SettingValueType {
             Self::Integer => "integer",
             Self::DurationSecs => "duration_secs",
             Self::Enum => "enum",
+            Self::StringList => "string_list",
         }
     }
 }
@@ -80,7 +82,7 @@ impl SettingApplyMode {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SettingDefinition {
     pub(super) key: SettingKey,
     pub(super) value_type: SettingValueType,
@@ -94,39 +96,39 @@ pub struct SettingDefinition {
 }
 
 impl SettingDefinition {
-    pub const fn key(self) -> SettingKey {
+    pub const fn key(&self) -> SettingKey {
         self.key
     }
 
-    pub const fn value_type(self) -> SettingValueType {
+    pub const fn value_type(&self) -> SettingValueType {
         self.value_type
     }
 
-    pub const fn default(self) -> SettingValue {
-        self.default
+    pub fn default(&self) -> SettingValue {
+        self.default.clone()
     }
 
-    pub const fn min(self) -> Option<SettingValue> {
-        self.min
+    pub fn min(&self) -> Option<SettingValue> {
+        self.min.clone()
     }
 
-    pub const fn max(self) -> Option<SettingValue> {
-        self.max
+    pub fn max(&self) -> Option<SettingValue> {
+        self.max.clone()
     }
 
-    pub const fn allowed_values(self) -> &'static [&'static str] {
+    pub const fn allowed_values(&self) -> &'static [&'static str] {
         self.allowed_values
     }
 
-    pub const fn apply_mode(self) -> SettingApplyMode {
+    pub const fn apply_mode(&self) -> SettingApplyMode {
         self.apply_mode
     }
 
-    pub const fn web_group(self) -> &'static str {
+    pub const fn web_group(&self) -> &'static str {
         self.web_group
     }
 
-    pub const fn description(self) -> &'static str {
+    pub const fn description(&self) -> &'static str {
         self.description
     }
 }

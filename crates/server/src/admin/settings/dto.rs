@@ -34,6 +34,7 @@ struct SettingResponse {
     min_value: Option<Value>,
     max_value: Option<Value>,
     allowed_values: Option<Vec<&'static str>>,
+    options: Option<Vec<String>>,
     apply_mode: &'static str,
     web_group: &'static str,
     description: &'static str,
@@ -55,6 +56,12 @@ impl SettingResponse {
             max_value: definition.max().map(SettingValue::to_json),
             allowed_values: (!definition.allowed_values().is_empty())
                 .then(|| definition.allowed_values().to_vec()),
+            options: (key == SettingKey::ModelsAllowed).then(|| {
+                snapshot
+                    .published_public_model_names()
+                    .into_iter()
+                    .collect()
+            }),
             apply_mode: definition.apply_mode().as_str(),
             web_group: definition.web_group(),
             description: definition.description(),

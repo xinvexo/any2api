@@ -7,6 +7,7 @@ pub enum SettingKey {
     AdminSessionAbsoluteTimeout,
     AdminLoginFailureWindow,
     AdminLoginMaxFailures,
+    ModelsAllowed,
     AffinitySoftEnabled,
     AffinitySoftMode,
     AffinitySoftTtl,
@@ -54,12 +55,13 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 49] = [
+    pub const ALL: [Self; 50] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
         Self::AdminLoginFailureWindow,
         Self::AdminLoginMaxFailures,
+        Self::ModelsAllowed,
         Self::AffinitySoftEnabled,
         Self::AffinitySoftMode,
         Self::AffinitySoftTtl,
@@ -113,6 +115,7 @@ impl SettingKey {
             Self::AdminSessionAbsoluteTimeout => "admin.session.absolute_timeout",
             Self::AdminLoginFailureWindow => "admin.login.failure_window",
             Self::AdminLoginMaxFailures => "admin.login.max_failures",
+            Self::ModelsAllowed => "models.allowed",
             Self::AffinitySoftEnabled => "affinity.soft.enabled",
             Self::AffinitySoftMode => "affinity.soft.mode",
             Self::AffinitySoftTtl => "affinity.soft.ttl",
@@ -164,7 +167,7 @@ impl SettingKey {
         Self::ALL.into_iter().find(|key| key.as_str() == value)
     }
 
-    pub const fn definition(self) -> SettingDefinition {
+    pub fn definition(self) -> SettingDefinition {
         definitions::definition(self)
     }
 }

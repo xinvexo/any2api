@@ -277,7 +277,7 @@ async fn models_list_reflects_credential_model_selection() {
         Some(json!({
             "expected_revision": 4,
             "expected_config_version": 1,
-            "models": ["gpt-5.1-codex"]
+            "models": ["gpt-a", "gpt-b"]
         })),
         loopback,
         &[],
@@ -296,16 +296,65 @@ async fn models_list_reflects_credential_model_selection() {
     .await;
     assert_eq!(listed.status, StatusCode::OK);
     assert_eq!(listed.body["object"], "list");
-    assert_eq!(listed.body["data"][0]["id"], "gpt-5.1-codex");
+    assert_eq!(listed.body["data"][0]["id"], "gpt-a");
     assert_eq!(listed.body["data"][0]["object"], "model");
     assert_eq!(listed.body["data"][0]["owned_by"], "any2api");
+    assert_eq!(listed.body["data"][1]["id"], "gpt-b");
+
+    let allowed = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/models.allowed",
+        Some(json!({
+            "expected_revision": 5,
+            "value": ["gpt-b"]
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(allowed.status, StatusCode::OK);
+    assert_eq!(allowed.body["config_revision"], 6);
+    let allowed_item = allowed.body["items"]
+        .as_array()
+        .expect("settings")
+        .iter()
+        .find(|item| item["key"] == "models.allowed")
+        .expect("model allowlist");
+    assert_eq!(allowed_item["options"], json!(["gpt-a", "gpt-b"]));
+    assert_eq!(allowed_item["override_value"], json!(["gpt-b"]));
+
+    let filtered = request_json(
+        app.clone(),
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(filtered.status, StatusCode::OK);
+    assert_eq!(filtered.body["data"].as_array().map(Vec::len), Some(1));
+    assert_eq!(filtered.body["data"][0]["id"], "gpt-b");
+
+    let rejected = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({"model":"gpt-a","input":"must stay local"})),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(rejected.status, StatusCode::NOT_FOUND);
+    assert_eq!(rejected.body["error"]["code"], "model_not_found");
 
     let cleared = request_json(
         app.clone(),
         Method::PUT,
         &format!("/api/admin/provider-credentials/{credential_id}/models"),
         Some(json!({
-            "expected_revision": 5,
+            "expected_revision": 6,
             "expected_config_version": 2,
             "models": []
         })),
@@ -314,6 +363,24 @@ async fn models_list_reflects_credential_model_selection() {
     )
     .await;
     assert_eq!(cleared.status, StatusCode::OK);
+
+    let settings = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/settings",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    let allowed_item = settings.body["items"]
+        .as_array()
+        .expect("settings")
+        .iter()
+        .find(|item| item["key"] == "models.allowed")
+        .expect("model allowlist");
+    assert_eq!(allowed_item["override_value"], json!([]));
+    assert_eq!(allowed_item["options"], json!([]));
 
     let listed = request_json(
         app,

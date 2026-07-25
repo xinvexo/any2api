@@ -6,6 +6,7 @@ const labels: Record<string, string> = {
   "admin.session.absolute_timeout": "会话绝对超时",
   "admin.login.failure_window": "登录失败窗口",
   "admin.login.max_failures": "最大登录失败次数",
+  "models.allowed": "可使用的模型",
   "affinity.soft.enabled": "启用软粘性",
   "affinity.soft.mode": "软粘性模式",
   "affinity.soft.ttl": "软绑定 TTL",
@@ -96,6 +97,9 @@ export function formatSettingValue(value: SettingValue | null, type: SettingValu
   }
   if (type === "enum") {
     return enumOptionLabel(String(value));
+  }
+  if (type === "string_list" && Array.isArray(value)) {
+    return value.length === 0 ? "全部" : `${value.length} 项`;
   }
   if (type === "duration_secs" && typeof value === "number") {
     return `${value} 秒`;

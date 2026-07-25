@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use any2api_domain::GatewayApiKeyId;
 use any2api_runtime::api::PublishedSnapshot;
 use axum::{
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{
         HeaderMap,
         header::{AUTHORIZATION, COOKIE, PROXY_AUTHORIZATION},
@@ -19,12 +19,17 @@ use super::error::PublicApiError;
 #[derive(Clone)]
 pub(crate) struct AuthenticatedGatewayApiKey {
     id: GatewayApiKeyId,
+    client_ip: std::net::IpAddr,
     snapshot: Arc<PublishedSnapshot>,
 }
 
 impl AuthenticatedGatewayApiKey {
     pub(crate) const fn id(&self) -> GatewayApiKeyId {
         self.id
+    }
+
+    pub(crate) const fn client_ip(&self) -> std::net::IpAddr {
+        self.client_ip
     }
 
     pub(crate) fn snapshot(&self) -> &PublishedSnapshot {
@@ -41,6 +46,17 @@ pub(crate) async fn require_gateway_api_key(
     mut request: Request,
     next: Next,
 ) -> Response {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(address)| *address);
+    let connection = match state.client_addresses().resolve(peer, request.headers()) {
+        Ok(connection) => connection,
+        Err(_) => {
+            return PublicApiError::invalid_forwarded_headers()
+                .into_response_for(&state, request.uri());
+        }
+    };
     let token = match extract_token(request.headers()) {
         Ok(token) => token,
         Err(error) => return error.into_response_for(&state, request.uri()),
@@ -52,9 +68,11 @@ pub(crate) async fn require_gateway_api_key(
     state.request_telemetry().record_gateway_key_use(id);
 
     strip_client_credentials(request.headers_mut());
-    request
-        .extensions_mut()
-        .insert(AuthenticatedGatewayApiKey { id, snapshot });
+    request.extensions_mut().insert(AuthenticatedGatewayApiKey {
+        id,
+        client_ip: connection.client_ip(),
+        snapshot,
+    });
     next.run(request).await
 }
 

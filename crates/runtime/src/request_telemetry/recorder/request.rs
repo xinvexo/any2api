@@ -1,4 +1,5 @@
 use std::{
+    net::IpAddr,
     sync::{Arc, Mutex},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -28,6 +29,7 @@ pub(super) struct RequestRecorderInner {
     pub(super) request_id: RequestId,
     pub(super) config_revision: ConfigRevision,
     pub(super) gateway_api_key_id: GatewayApiKeyId,
+    pub(super) client_ip: IpAddr,
     pub(super) operation: ProtocolOperation,
     pub(super) state: Mutex<RequestRecorderState>,
 }
@@ -61,6 +63,7 @@ impl RequestRecorder {
         policy: RequestLogPolicy,
         request_id: RequestId,
         gateway_api_key_id: GatewayApiKeyId,
+        client_ip: IpAddr,
         operation: ProtocolOperation,
     ) -> Self {
         if !policy.enabled {
@@ -75,6 +78,7 @@ impl RequestRecorder {
                 request_id,
                 config_revision: policy.revision,
                 gateway_api_key_id,
+                client_ip,
                 operation,
                 state: Mutex::new(RequestRecorderState::default()),
             })),

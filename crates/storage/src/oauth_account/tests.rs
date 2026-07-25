@@ -187,7 +187,6 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             .expose_for_test(),
         document_bytes(ProviderKind::Codex, "second-access").as_slice()
     );
-
     let stale = store
         .refresh_oauth_account(
             refreshed.revision(),

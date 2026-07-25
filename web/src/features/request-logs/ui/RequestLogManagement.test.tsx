@@ -54,6 +54,7 @@ test("renders request logs in a table without leaving the page for details", asy
   ).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("请求 ID").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("出口代理").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("203.0.113.8").length).toBeGreaterThanOrEqual(1);
   expect(screen.queryByText("Attempt 时间线")).not.toBeInTheDocument();
   // no duplicate list metrics in the panel
   expect(screen.queryByText("输入 Token")).not.toBeInTheDocument();
@@ -204,6 +205,7 @@ function request() {
   return {
     request_id: "11111111-1111-4111-8111-111111111111",
     started_at_ms: 1_700_000_000_000,
+    client_ip: "203.0.113.8",
     config_revision: 3,
     gateway_api_key_id: "22222222-2222-4222-8222-222222222222",
     ingress_protocol: "openai_responses",

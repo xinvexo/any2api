@@ -5,7 +5,7 @@ use crate::settings::{
     },
 };
 
-pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::AdminRemoteEnabled => setting_definition(
             key,

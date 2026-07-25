@@ -5,7 +5,7 @@ use any2api_runtime::api::{
     PublicRequestService, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
 
-use crate::admin_auth::{AdminAuthService, AdminNetworkPolicy};
+use crate::{admin_auth::AdminAuthService, client_address::ClientAddressPolicy};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -17,7 +17,7 @@ pub struct AppState {
     proxy_tests: Option<Arc<ProxyTestService>>,
     provider_credential_tests: Option<Arc<ProviderCredentialTestService>>,
     admin_auth: Option<Arc<AdminAuthService>>,
-    admin_network: Arc<AdminNetworkPolicy>,
+    client_addresses: Arc<ClientAddressPolicy>,
     request_telemetry: Arc<RequestTelemetry>,
 }
 
@@ -38,7 +38,7 @@ impl AppState {
             proxy_tests: None,
             provider_credential_tests: None,
             admin_auth: None,
-            admin_network: Arc::new(AdminNetworkPolicy::default()),
+            client_addresses: Arc::new(ClientAddressPolicy::default()),
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
         }
     }
@@ -65,13 +65,14 @@ impl AppState {
     }
 
     #[must_use]
-    pub fn with_admin_auth(
-        mut self,
-        admin_auth: Arc<AdminAuthService>,
-        admin_network: AdminNetworkPolicy,
-    ) -> Self {
+    pub fn with_admin_auth(mut self, admin_auth: Arc<AdminAuthService>) -> Self {
         self.admin_auth = Some(admin_auth);
-        self.admin_network = Arc::new(admin_network);
+        self
+    }
+
+    #[must_use]
+    pub fn with_client_address_policy(mut self, policy: ClientAddressPolicy) -> Self {
+        self.client_addresses = Arc::new(policy);
         self
     }
 
@@ -127,8 +128,8 @@ impl AppState {
     }
 
     #[must_use]
-    pub fn admin_network(&self) -> &AdminNetworkPolicy {
-        &self.admin_network
+    pub fn client_addresses(&self) -> &ClientAddressPolicy {
+        &self.client_addresses
     }
 
     #[must_use]

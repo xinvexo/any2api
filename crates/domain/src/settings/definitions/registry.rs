@@ -1,13 +1,16 @@
 use super::super::{SettingDefinition, SettingKey};
-use super::{admin, affinity, logging, oauth, reliability, scheduler, shutdown, stream, upstream};
+use super::{
+    admin, affinity, logging, models, oauth, reliability, scheduler, shutdown, stream, upstream,
+};
 
-pub(in crate::settings) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::AdminRemoteEnabled
         | SettingKey::AdminSessionIdleTimeout
         | SettingKey::AdminSessionAbsoluteTimeout
         | SettingKey::AdminLoginFailureWindow
         | SettingKey::AdminLoginMaxFailures => admin::definition(key),
+        SettingKey::ModelsAllowed => models::definition(key),
         SettingKey::AffinitySoftEnabled
         | SettingKey::AffinitySoftMode
         | SettingKey::AffinitySoftTtl

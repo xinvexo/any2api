@@ -87,6 +87,7 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
             PublicRequest {
                 request_id,
                 gateway_api_key_id: GatewayApiKeyId::new(),
+                client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::new(),
                 body: Bytes::from_static(br#"{"model":"gpt-5.5","input":"hello"}"#),

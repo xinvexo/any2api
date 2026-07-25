@@ -70,6 +70,7 @@ impl From<RequestTelemetryMetrics> for RequestTelemetryResponse {
 struct RequestLogResponse {
     request_id: String,
     started_at_ms: u64,
+    client_ip: Option<String>,
     config_revision: u64,
     gateway_api_key_id: Option<String>,
     ingress_protocol: &'static str,
@@ -133,6 +134,7 @@ impl RequestLogResponse {
         Self {
             request_id: value.request_id.to_string(),
             started_at_ms: value.started_at_ms,
+            client_ip: value.client_ip.map(|address| address.to_string()),
             config_revision: value.config_revision.get(),
             gateway_api_key_id: value.gateway_api_key_id.map(|id| id.to_string()),
             ingress_protocol: value.ingress_protocol.as_str(),
@@ -234,6 +236,7 @@ mod tests {
             RequestLog {
                 request_id: RequestId::new(),
                 started_at_ms: 1,
+                client_ip: Some("203.0.113.8".parse().expect("client IP")),
                 config_revision: ConfigRevision::INITIAL,
                 gateway_api_key_id: None,
                 ingress_protocol: ProtocolDialect::OpenAiResponses,
@@ -268,6 +271,7 @@ mod tests {
         assert_eq!(json["cache_read_tokens"], 30);
         assert_eq!(json["cache_write_tokens"], 6);
         assert_eq!(json["thinking_level"], "high");
+        assert_eq!(json["client_ip"], "203.0.113.8");
         assert_eq!(json["credential_label"], "Primary Codex");
         assert_eq!(json["oauth_account_label"], "work-oauth");
         assert_eq!(json["proxy_profile_label"], "DIRECT");

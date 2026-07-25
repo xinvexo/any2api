@@ -47,7 +47,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(49));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(50));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
@@ -57,6 +57,14 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(soft_mode["default_value"], "prefer");
     assert_eq!(soft_mode["effective_value"], "prefer");
     assert_eq!(soft_mode["allowed_values"], json!(["prefer", "strict"]));
+    let models = find_setting(&initial, "models.allowed");
+    assert_eq!(models["value_type"], "string_list");
+    assert_eq!(models["default_value"], json!([]));
+    assert_eq!(models["override_value"], Value::Null);
+    assert_eq!(models["effective_value"], json!([]));
+    assert_eq!(models["allowed_values"], Value::Null);
+    assert_eq!(models["options"], json!([]));
+    assert_eq!(models["web_group"], "公开模型");
     let hard_ttl = find_setting(&initial, "affinity.hard.ttl");
     assert_eq!(hard_ttl["default_value"], 86_400);
     assert_eq!(hard_ttl["min_value"], 1);

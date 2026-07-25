@@ -17,6 +17,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
     sync::oneshot,
+    time::{Duration, timeout},
 };
 use tower::ServiceExt;
 
@@ -95,6 +96,52 @@ async fn count_tokens_upstream_not_found_returns_anthropic_404() {
     );
     assert!(!response.body.to_string().contains("must-not-leak"));
     upstream.await.expect("upstream request");
+}
+
+#[tokio::test]
+async fn count_tokens_rejects_a_disallowed_model_before_upstream_io() {
+    let (upstream_address, upstream) = upstream_server(
+        StatusCode::OK,
+        r#"{"input_tokens":37}"#,
+        "/v1/messages/count_tokens",
+    )
+    .await;
+    let (_directory, app, token) = configured_app(upstream_address).await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let allowed = request_json_with_remote(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/models.allowed",
+        Some(json!({"expected_revision":5,"value":["claude-allowed"]})),
+        remote,
+        &[],
+    )
+    .await;
+    assert_eq!(allowed.status, StatusCode::OK);
+
+    let response = request_json(
+        app,
+        Method::POST,
+        "/v1/messages/count_tokens",
+        Some(json!({
+            "model": "claude-upstream",
+            "messages": [{"role":"user","content":"must stay local"}]
+        })),
+        &[("x-api-key", token)],
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    assert_eq!(response.body["type"], "error");
+    assert_eq!(response.body["error"]["type"], "not_found_error");
+    assert_eq!(
+        response.body["error"]["message"],
+        "model route was not found"
+    );
+    assert!(
+        timeout(Duration::from_millis(100), upstream).await.is_err(),
+        "disallowed model must not reach the upstream listener"
+    );
 }
 
 async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Router, String) {
@@ -188,7 +235,7 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
         Some(json!({
             "expected_revision": 4,
             "expected_config_version": 1,
-            "models": ["claude-upstream"]
+            "models": ["claude-allowed", "claude-upstream"]
         })),
         remote,
         &[],

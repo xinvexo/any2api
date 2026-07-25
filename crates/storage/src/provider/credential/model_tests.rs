@@ -1,10 +1,11 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, SettingKey,
+    SettingValue,
 };
 use tempfile::tempdir;
 
-use crate::api::{ConfigurationRepository, SecretBytes, SqliteStore};
+use crate::api::{ConfigurationRepository, SecretBytes, SettingRepository, SqliteStore};
 
 #[tokio::test]
 async fn selected_models_persist_sorted_and_rebuild_routes() {
@@ -134,6 +135,94 @@ async fn rotating_secret_clears_selected_models_and_materialized_routes() {
             .expect("rotated secret")
             .expose_for_test(),
         b"sk-after-rotation"
+    );
+}
+
+#[tokio::test]
+async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
+    let directory = tempdir().expect("temporary directory");
+    let database = directory.path().join("config.sqlite3");
+    let store = SqliteStore::connect(&database).await.expect("store");
+    let endpoint_id = ProviderEndpointId::new();
+    let credential_id = CredentialId::new();
+    let endpoint = store
+        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft())
+        .await
+        .expect("endpoint");
+    let created = store
+        .create_provider_credential(
+            endpoint.revision(),
+            credential_id,
+            endpoint_id,
+            credential_draft(),
+            secret("sk-allowlist-pruning"),
+        )
+        .await
+        .expect("credential");
+    let modeled = store
+        .set_provider_credential_models(
+            created.revision(),
+            credential_id,
+            1,
+            vec!["gpt-z".to_owned(), "gpt-a".to_owned()],
+        )
+        .await
+        .expect("models");
+    let allowed = store
+        .set_setting_override(
+            modeled.revision(),
+            SettingKey::ModelsAllowed,
+            SettingValue::StringList(vec![
+                "gpt-z".to_owned(),
+                "gpt-a".to_owned(),
+                "gpt-z".to_owned(),
+            ]),
+        )
+        .await
+        .expect("model allowlist");
+    assert_eq!(
+        allowed.settings().override_value(SettingKey::ModelsAllowed),
+        Some(SettingValue::StringList(vec![
+            "gpt-a".to_owned(),
+            "gpt-z".to_owned(),
+        ]))
+    );
+
+    let reduced = store
+        .set_provider_credential_models(
+            allowed.revision(),
+            credential_id,
+            2,
+            vec!["gpt-z".to_owned()],
+        )
+        .await
+        .expect("remove one model source");
+    assert_eq!(
+        reduced.settings().override_value(SettingKey::ModelsAllowed),
+        Some(SettingValue::StringList(vec!["gpt-z".to_owned()]))
+    );
+
+    let deleted = store
+        .delete_provider_credential(reduced.revision(), credential_id, 3)
+        .await
+        .expect("delete last source");
+    assert_eq!(
+        deleted.settings().override_value(SettingKey::ModelsAllowed),
+        Some(SettingValue::StringList(Vec::new()))
+    );
+
+    drop(store);
+    let restored = SqliteStore::connect(&database)
+        .await
+        .expect("reopen")
+        .load_configuration()
+        .await
+        .expect("configuration");
+    assert_eq!(
+        restored
+            .settings()
+            .override_value(SettingKey::ModelsAllowed),
+        Some(SettingValue::StringList(Vec::new()))
     );
 }
 

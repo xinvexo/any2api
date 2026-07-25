@@ -6,7 +6,7 @@ use crate::settings::{
     stream_settings::MAX_STREAM_PRECOMMIT_BYTES,
 };
 
-pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::StreamPrecommitMaxBytes => integer(
             key,
@@ -36,7 +36,7 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
     }
 }
 
-const fn integer(
+fn integer(
     key: SettingKey,
     default: u64,
     min: u64,

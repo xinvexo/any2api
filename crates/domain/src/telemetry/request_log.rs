@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use crate::{
     ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolDialect,
     ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestId, RetrySafety, RouteTargetId,
@@ -48,6 +50,8 @@ pub const MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS: usize = 1_024;
 pub struct RequestLog {
     pub request_id: RequestId,
     pub started_at_ms: u64,
+    /// Canonical client address resolved at ingress; absent only for historical records.
+    pub client_ip: Option<IpAddr>,
     pub config_revision: ConfigRevision,
     pub gateway_api_key_id: Option<GatewayApiKeyId>,
     pub ingress_protocol: ProtocolDialect,

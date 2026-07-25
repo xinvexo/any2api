@@ -51,6 +51,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只创建独立的 SQLite `OAuthAccount`。导入兼容已审计的 CLIProxyAPI 与 Sub2API OAuth 结构，先规范化为 any2api Provider JSON，再整批原子发布；明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程监听必须显式启用并使用独立管理员认证，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
+22. 系统设置提供全局公开模型允许列表；空列表表示不限制，非空列表只允许精确匹配的公开模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
 
 ### 2.1 两类凭据的术语边界
 
@@ -527,6 +528,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
    - 解析模型、流式模式和会话标识
 
 4. Route
+   - 按同一 PublishedSnapshot revision 的全局公开模型允许列表检查模型
    - 将公开模型解析为 Route Plan
    - 按能力矩阵生成候选 Route Target
    - 接受协议与有效上游协议相同时走直通
@@ -889,6 +891,7 @@ POST /api/admin/gateway-api-keys/{id}/revoke   # 语义：物理删除
 request_logs
 ├─ request_id
 ├─ started_at
+├─ client_ip
 ├─ gateway_api_key_id
 ├─ ingress_protocol
 ├─ public_model
@@ -909,6 +912,8 @@ request_logs
 ```
 
 默认不保存 Prompt、完整请求体、完整响应体、完整 `GatewayApiKey` 或上游凭据 Secret。
+
+`client_ip` 保存 Server 在请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。直连请求使用 TCP 对端地址；只有 TCP 对端命中 `ANY2API_TRUSTED_PROXY_CIDRS` 时才使用受校验的转发链，并从右向左剥离连续可信代理。Migration 26 之前的历史记录允许为 `NULL`，新进入模型执行链的 RequestLog 必须写入解析后的地址。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。
 
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
 
@@ -1135,7 +1140,7 @@ ProviderKind
 | `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 是 | 否 | JSON vertical slice |
 | `GET /v1/models` | 返回 Credential 已选择的公开模型 | 本地 PublishedSnapshot | 是 | 否 | 实现 |
 
-`/v1/models` 返回至少被一把 Credential 选中的模型，不根据瞬时冷却、RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议使用相同模型名时只返回一个标准模型对象，结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
+`/v1/models` 先取得至少被一把 Credential 选中的公开模型，再按全局 `models.allowed` 过滤；空列表表示不限制。目录不根据瞬时冷却、RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议使用相同模型名时只返回一个标准模型对象，结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
 
 首版不实现 WebSocket，也不接受 WebSocket Upgrade。未来如果增加，必须作为独立 TransportMode 和独立契约设计，不能由 SSE 代码顺带兼容。
 
@@ -1202,6 +1207,9 @@ Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字�
 - `codex/`、`claude/`、`grok/` 只作为可选命名习惯；
 - `(ingress_protocol, public_model)` 必须唯一，发生冲突时拒绝发布；
 - 模型所属协议由入口 Route 决定，不依赖名称前缀猜测；内部转换协议不改变客户端填写的模型名。
+- `models.allowed` 保存精确公开模型名，不支持 wildcard、前缀或 Provider 推断；保存时排序去重并按 `PublicModelName` 校验。每次配置发布都与事务内新物化的公开 Route 名称取交集；删除最后一把可提供某模型的 API Key/OAuth 账号或移除其模型后，该名称必须在同一事务中从允许列表和 SQLite 覆盖值自动删除。
+- 空允许列表表示全部已发布模型都可用；非空列表对所有公开推理与辅助入口统一执行。未知模型和未放行模型共享兼容的模型不存在错误边界，且拒绝必须发生在候选选择、RPM 预留、会话创建和上游 I/O 前。
+- 全局允许列表不修改 ProviderCredential/OAuthAccount 的已选模型，也不接受 GatewayApiKey 级覆盖。
 
 ### 11.5 扩展接口
 
@@ -1898,6 +1906,16 @@ QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的�
 
 SettingRegistry 实现以上四个 `scheduler.*` key。其余 affinity、retry、cooldown、breaker 与日志设置沿用同一注册表和发布边界，不能在使用模块中散落临时常量或另建第二套设置系统。
 
+#### 公开模型允许列表
+
+| 设置 | 类型 | 默认值 | 语义 |
+|---|---|---:|---|
+| `models.allowed` | string_list | `[]` | 空列表允许全部已发布模型；非空列表只允许精确匹配的公开模型名 |
+
+字符串列表使用带类型 JSON 数组持久化，保存时按 `PublicModelName` 校验、排序并去重。管理设置响应为该项附带当前 PublishedSnapshot 中全部已发布公开模型作为候选选项。配置发布在事务内完成 Route 物化后，将非空允许列表与新的公开模型集合取交集并持久化规范结果；已无任何 Route 的名称不得残留在设置响应或 SQLite 覆盖值中。若交集为空，仍遵守空列表允许全部当前模型的既定语义。
+
+`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在任何会话创建、候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误。`GET /v1/models` 使用同一快照过滤目录。旧请求继续使用其已捕获 revision，新请求在管理 API 成功返回后立即使用新列表。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
+
 #### 重试、冷却与熔断默认值
 
 | 设置 | 类型 | 默认值 |
@@ -2138,7 +2156,7 @@ SecretEnvelope
 - 远程管理同时支持明文 HTTP、内建 HTTPS 和可信 Nginx/Caddy TLS 反代；
 - TLS 是强烈推荐项，但不是启用远程管理的前置条件；
 - 使用明文 HTTP 时，Web 必须持续显示安全警告，明确管理员密码、会话 Cookie 和 OAuth callback/code 或 device user code 可能被同网络中的攻击者截获；
-- 只有实际使用反向代理且其 CIDR 在可信列表中时，才接受 Forwarded/X-Forwarded-* 管理来源信息；
+- 只有实际使用反向代理且其 CIDR 在可信列表中时，才接受 `X-Forwarded-For` / `X-Forwarded-Proto` 客户端来源信息；管理鉴权与公开请求日志复用同一解析策略；
 - OAuth2 JSON 不通过管理面返回；使用 HTTP 时不额外阻止 OAuth 登录，但必须显示 OAuth 登录代码明文传输警告；
 - `GatewayApiKey` 只允许从 Header 获取；
 - 默认拒绝 Query String 中携带 `GatewayApiKey`；
@@ -2274,6 +2292,7 @@ runtime_retired
 
 - `/v1` 外层生成本地 Request ID，并在所有公开响应中覆盖 `x-request-id`；
 - 已通过 GatewayApiKey 鉴权并进入模型执行链的请求创建 RequestLog，解码、规划、排队和上游错误均可形成最终记录；
+- 公开鉴权层使用 Server 级可信代理策略解析客户端地址；直连取 TCP 对端，可信代理链按右到左规则解析，缺失、重复或无效转发头 Fail-Closed。RequestLog 只保存规范化后的 `client_ip`，不保存原始转发头；
 - 每次上游 Attempt 在健康结算后、运行态 Guard 结束前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；
 - 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；
 - SSE 只有在首帧验证与软绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
@@ -2391,6 +2410,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 ### 19.7 设置与远程管理
 
 - 按功能分组显示 SettingRegistry；
+- “基础”设置提供可搜索的公开模型多选控件；空选择明确表示允许全部模型，非空选择显示已放行数量，并支持选择/清除当前搜索结果；
 - 每项同时显示默认值、用户覆盖值和当前生效值；
 - 支持修改覆盖值和一键恢复默认；
 - 清楚标记热更新设置与需要重启的设置；
@@ -2681,6 +2701,8 @@ OAuth2 JSON = OAuthAccount-only SQLite persistence, no read/download/export
 Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Vault-Keyed HMAC Digest
 Gateway Token Plaintext = Visible In Authenticated Management Responses, Never In Logs
 Public Ingress Auth = Same PublishedSnapshot Revision + Header Strip Before Driver
+Global Public Model Allowlist = Empty Allows All + Exact Names + Same PublishedSnapshot Revision
+Disallowed Model = Reject Before Affinity / RPM / Upstream + Filter From /v1/models
 
 New Feature ──> New Module + Stable Interface + Contract Test
 No Giant Files / No Central Provider Match / No Cross-Layer Logic

@@ -5,7 +5,7 @@ use crate::settings::{
     },
 };
 
-pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::RetryMaxTotalAttempts => integer(
             key,
@@ -155,7 +155,7 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
     }
 }
 
-const fn integer(
+fn integer(
     key: SettingKey,
     default: u64,
     min: u64,
@@ -176,7 +176,7 @@ const fn integer(
     )
 }
 
-const fn duration(
+fn duration(
     key: SettingKey,
     default: u64,
     min: u64,

@@ -34,6 +34,18 @@ test("edits duration settings in whole seconds", () => {
   expect(isSettingDraftDirty({ ...item, overrideValue: 5 }, "6")).toBe(true);
 });
 
+test("normalizes model selections and treats an explicit empty list as an override", () => {
+  const item = modelItem();
+  expect(createSettingDraft(item)).toEqual(["gpt-b"]);
+  expect(validateSettingDraft(item, ["gpt-b", "gpt-a", "gpt-b"])).toEqual({
+    value: ["gpt-a", "gpt-b"],
+    error: null,
+  });
+  expect(validateSettingDraft(item, ["removed-model"]).error).toMatch(/列表已发生变化/);
+  expect(isSettingDraftDirty(item, ["gpt-b"])).toBe(false);
+  expect(isSettingDraftDirty(item, [])).toBe(true);
+});
+
 function numericItem(): SettingItem {
   return {
     key: "scheduler.max_waiting_requests",
@@ -44,6 +56,7 @@ function numericItem(): SettingItem {
     minValue: 1,
     maxValue: 200,
     allowedValues: null,
+    options: null,
     applyMode: "hot_reload",
     webGroup: "排队策略",
     description: "Maximum queue size",
@@ -60,8 +73,26 @@ function durationItem(): SettingItem {
     minValue: 1,
     maxValue: 86_400,
     allowedValues: null,
+    options: null,
     applyMode: "hot_reload",
     webGroup: "排队策略",
     description: "Queue timeout",
+  };
+}
+
+function modelItem(): SettingItem {
+  return {
+    key: "models.allowed",
+    valueType: "string_list",
+    defaultValue: [],
+    overrideValue: ["gpt-b"],
+    effectiveValue: ["gpt-b"],
+    minValue: null,
+    maxValue: null,
+    allowedValues: null,
+    options: ["gpt-a", "gpt-b"],
+    applyMode: "hot_reload",
+    webGroup: "公开模型",
+    description: "Allowed public models",
   };
 }

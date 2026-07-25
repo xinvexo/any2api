@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
 use super::{
-    AdminSettings, AffinitySettings, LoggingSettings, OAuthSettings, ReliabilitySettings,
-    SchedulerSettings, SettingKey, SettingValue, SettingsValidationError, ShutdownSettings,
-    StreamSettings, UpstreamSettings, value::validate_value,
+    AdminSettings, AffinitySettings, LoggingSettings, ModelSettings, OAuthSettings,
+    ReliabilitySettings, SchedulerSettings, SettingKey, SettingValue, SettingsValidationError,
+    ShutdownSettings, StreamSettings, UpstreamSettings, value::normalize_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -25,7 +25,7 @@ impl SettingOverrides {
         key: SettingKey,
         value: SettingValue,
     ) -> Result<Option<SettingValue>, SettingsValidationError> {
-        validate_value(key, value)?;
+        let value = normalize_value(key, value)?;
         Ok(self.0.insert(key, value))
     }
 
@@ -34,11 +34,11 @@ impl SettingOverrides {
     }
 
     pub fn get(&self, key: SettingKey) -> Option<SettingValue> {
-        self.0.get(&key).copied()
+        self.0.get(&key).cloned()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (SettingKey, SettingValue)> + '_ {
-        self.0.iter().map(|(key, value)| (*key, *value))
+        self.0.iter().map(|(key, value)| (*key, value.clone()))
     }
 
     pub(super) fn effective_value(&self, key: SettingKey) -> SettingValue {
@@ -54,6 +54,7 @@ pub struct SettingsConfiguration {
     reliability: ReliabilitySettings,
     admin: AdminSettings,
     logging: LoggingSettings,
+    models: ModelSettings,
     oauth: OAuthSettings,
     upstream: UpstreamSettings,
     stream: StreamSettings,
@@ -67,6 +68,7 @@ impl SettingsConfiguration {
         let reliability = ReliabilitySettings::from_overrides(&overrides)?;
         let admin = AdminSettings::from_overrides(&overrides)?;
         let logging = LoggingSettings::from_overrides(&overrides)?;
+        let models = ModelSettings::from_overrides(&overrides)?;
         let oauth = OAuthSettings::from_overrides(&overrides)?;
         let upstream = UpstreamSettings::from_overrides(&overrides)?;
         let stream = StreamSettings::from_overrides(&overrides)?;
@@ -78,6 +80,7 @@ impl SettingsConfiguration {
             reliability,
             admin,
             logging,
+            models,
             oauth,
             upstream,
             stream,
@@ -108,6 +111,10 @@ impl SettingsConfiguration {
 
     pub const fn logging(&self) -> &LoggingSettings {
         &self.logging
+    }
+
+    pub const fn models(&self) -> &ModelSettings {
+        &self.models
     }
 
     pub const fn oauth(&self) -> &OAuthSettings {
@@ -180,6 +187,7 @@ mod tests {
         assert_eq!(settings.logging().file_retention_secs(), 604_800);
         assert_eq!(settings.logging().file_max_total_size(), 256 * 1024 * 1024);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
+        assert!(settings.models().allowed().is_empty());
         assert_eq!(settings.oauth().refresh_scan_interval_secs(), 30);
         assert_eq!(settings.oauth().refresh_lead_time_secs(), 300);
         assert_eq!(settings.upstream().read_timeout_secs(), 15);
@@ -220,6 +228,20 @@ mod tests {
                 SettingValue::AffinityMode(AffinityMode::Prefer),
             )]),
             Err(SettingsValidationError::InvalidEnum)
+        );
+        assert_eq!(
+            SettingValue::from_json(
+                SettingKey::ModelsAllowed,
+                &json!(["z-model", "a-model", "z-model"]),
+            ),
+            Ok(SettingValue::StringList(vec![
+                "a-model".to_owned(),
+                "z-model".to_owned(),
+            ]))
+        );
+        assert_eq!(
+            SettingValue::from_json(SettingKey::ModelsAllowed, &json!([" invalid "])),
+            Err(SettingsValidationError::InvalidListValue)
         );
     }
 

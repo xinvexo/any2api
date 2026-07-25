@@ -3,7 +3,7 @@ use crate::settings::{
     definition::{MAX_SETTING_DURATION_SECS, duration_definition},
 };
 
-pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::OAuthRefreshScanInterval => duration_definition(
             key,

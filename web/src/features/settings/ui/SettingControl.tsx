@@ -2,6 +2,7 @@ import type { SettingItem } from "../api/settings-contracts";
 import type { SettingDraft } from "../model/setting-draft";
 import { selectClass } from "@/shared/ui/form-control";
 import { Switch } from "@/shared/ui/Switch";
+import { ModelAllowlistControl } from "./ModelAllowlistControl";
 import { enumOptionLabel, formatSettingDefaultPlaceholder } from "./setting-presentation";
 
 interface SettingControlProps {
@@ -23,6 +24,19 @@ export function SettingControl({
   describedBy,
   onChange,
 }: SettingControlProps) {
+  if (item.valueType === "string_list") {
+    return (
+      <ModelAllowlistControl
+        item={item}
+        value={value}
+        disabled={disabled}
+        labelledBy={labelledBy}
+        describedBy={describedBy}
+        onChange={onChange}
+      />
+    );
+  }
+
   if (item.valueType === "boolean") {
     const checked = value === true;
     return (

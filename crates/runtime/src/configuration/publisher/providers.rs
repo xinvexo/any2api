@@ -149,6 +149,7 @@ impl ConfigPublisher {
         current: &PublishedSnapshot,
         command: &ConfigCommand,
     ) -> Result<(), ConfigPublishError> {
+        self.validate_setting_command(current, command)?;
         match command {
             ConfigCommand::CreateProviderEndpoint { draft, .. }
             | ConfigCommand::UpdateProviderEndpoint { draft, .. } => {

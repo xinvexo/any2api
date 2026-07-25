@@ -1,6 +1,7 @@
 //! Public request execution and response lifecycle entry point.
 
 use std::{
+    net::IpAddr,
     pin::Pin,
     sync::{Arc, OnceLock},
 };
@@ -27,6 +28,7 @@ use crate::{
 pub struct PublicRequest {
     pub request_id: RequestId,
     pub gateway_api_key_id: GatewayApiKeyId,
+    pub client_ip: IpAddr,
     pub operation: ProtocolOperation,
     pub headers: HeaderMap,
     pub body: Bytes,
@@ -97,6 +99,7 @@ impl PublicRequestService {
             policy,
             request.request_id,
             request.gateway_api_key_id,
+            request.client_ip,
             request.operation,
         );
         let adapter = Arc::clone(

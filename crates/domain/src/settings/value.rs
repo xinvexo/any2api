@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 use thiserror::Error;
 
 use super::{SettingKey, SettingValueType};
+use crate::PublicModelName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RateLimitMode {
@@ -81,7 +82,7 @@ impl FileLogLevel {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SettingValue {
     Boolean(bool),
     Integer(u64),
@@ -89,6 +90,7 @@ pub enum SettingValue {
     RateLimitMode(RateLimitMode),
     AffinityMode(AffinityMode),
     FileLogLevel(FileLogLevel),
+    StringList(Vec<String>),
 }
 
 impl SettingValue {
@@ -114,9 +116,23 @@ impl SettingValue {
                 }
                 parse_enum(key, value).ok_or(SettingsValidationError::InvalidEnum)
             }
+            SettingValueType::StringList => value
+                .as_array()
+                .ok_or(SettingsValidationError::InvalidType)
+                .and_then(|values| {
+                    values
+                        .iter()
+                        .map(|value| {
+                            value
+                                .as_str()
+                                .map(str::to_owned)
+                                .ok_or(SettingsValidationError::InvalidType)
+                        })
+                        .collect::<Result<Vec<_>, _>>()
+                        .map(Self::StringList)
+                }),
         }?;
-        validate_value(key, parsed)?;
-        Ok(parsed)
+        normalize_value(key, parsed)
     }
 
     #[must_use]
@@ -127,10 +143,11 @@ impl SettingValue {
             Self::RateLimitMode(value) => json!(value.as_str()),
             Self::AffinityMode(value) => json!(value.as_str()),
             Self::FileLogLevel(value) => json!(value.as_str()),
+            Self::StringList(value) => json!(value),
         }
     }
 
-    pub const fn value_type(self) -> SettingValueType {
+    pub const fn value_type(&self) -> SettingValueType {
         match self {
             Self::Boolean(_) => SettingValueType::Boolean,
             Self::Integer(_) => SettingValueType::Integer,
@@ -138,10 +155,11 @@ impl SettingValue {
             Self::RateLimitMode(_) | Self::AffinityMode(_) | Self::FileLogLevel(_) => {
                 SettingValueType::Enum
             }
+            Self::StringList(_) => SettingValueType::StringList,
         }
     }
 
-    fn enum_value(self) -> Option<&'static str> {
+    fn enum_value(&self) -> Option<&'static str> {
         match self {
             Self::RateLimitMode(value) => Some(value.as_str()),
             Self::AffinityMode(value) => Some(value.as_str()),
@@ -157,6 +175,8 @@ pub enum SettingsValidationError {
     InvalidType,
     #[error("setting enum value is invalid")]
     InvalidEnum,
+    #[error("setting list contains an invalid value")]
+    InvalidListValue,
     #[error("setting value is outside its allowed range")]
     OutOfRange,
     #[error("setting values form an invalid combination")]
@@ -165,7 +185,7 @@ pub enum SettingsValidationError {
 
 pub(super) fn validate_value(
     key: SettingKey,
-    value: SettingValue,
+    value: &SettingValue,
 ) -> Result<(), SettingsValidationError> {
     let definition = key.definition();
     if value.value_type() != definition.value_type() {
@@ -180,13 +200,37 @@ pub(super) fn validate_value(
     }
     if let (Some(min), Some(max)) = (definition.min(), definition.max()) {
         let value = numeric(value).ok_or(SettingsValidationError::InvalidType)?;
-        let min = numeric(min).ok_or(SettingsValidationError::InvalidType)?;
-        let max = numeric(max).ok_or(SettingsValidationError::InvalidType)?;
+        let min = numeric(&min).ok_or(SettingsValidationError::InvalidType)?;
+        let max = numeric(&max).ok_or(SettingsValidationError::InvalidType)?;
         if !(min..=max).contains(&value) {
             return Err(SettingsValidationError::OutOfRange);
         }
     }
     Ok(())
+}
+
+pub(super) fn normalize_value(
+    key: SettingKey,
+    value: SettingValue,
+) -> Result<SettingValue, SettingsValidationError> {
+    let value = match value {
+        SettingValue::StringList(values) => {
+            let mut values = values
+                .into_iter()
+                .map(|value| {
+                    PublicModelName::new(value)
+                        .map(|name| name.as_str().to_owned())
+                        .map_err(|_| SettingsValidationError::InvalidListValue)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            values.sort();
+            values.dedup();
+            SettingValue::StringList(values)
+        }
+        value => value,
+    };
+    validate_value(key, &value)?;
+    Ok(value)
 }
 
 pub(super) fn boolean(value: SettingValue) -> Result<bool, SettingsValidationError> {
@@ -214,9 +258,9 @@ fn parse_enum(key: SettingKey, value: &str) -> Option<SettingValue> {
     }
 }
 
-fn numeric(value: SettingValue) -> Option<u64> {
+fn numeric(value: &SettingValue) -> Option<u64> {
     match value {
-        SettingValue::Integer(value) | SettingValue::DurationSecs(value) => Some(value),
+        SettingValue::Integer(value) | SettingValue::DurationSecs(value) => Some(*value),
         _ => None,
     }
 }

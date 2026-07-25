@@ -3,7 +3,7 @@ use std::{net::SocketAddr, sync::Arc};
 use any2api_runtime::api::PublishedSnapshot;
 use axum::http::HeaderMap;
 
-use crate::{admin_auth::AdminConnection, state::AppState};
+use crate::{client_address::ClientConnection, state::AppState};
 
 use super::error::AdminApiError;
 
@@ -11,9 +11,9 @@ pub(super) fn resolve(
     state: &AppState,
     peer: Option<SocketAddr>,
     headers: &HeaderMap,
-) -> Result<(AdminConnection, Arc<PublishedSnapshot>), AdminApiError> {
+) -> Result<(ClientConnection, Arc<PublishedSnapshot>), AdminApiError> {
     let connection = state
-        .admin_network()
+        .client_addresses()
         .resolve(peer, headers)
         .map_err(|_| AdminApiError::invalid_forwarded_headers())?;
     let snapshot = state.snapshots().load();

@@ -5,6 +5,7 @@ use sqlx::SqliteConnection;
 use crate::{
     configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
+    settings::prune_model_allowlist,
     sqlite::SqliteStore,
     vault::SecretVault,
 };
@@ -229,6 +230,13 @@ async fn mutate_connection(
     };
     execute_oauth_account_change(connection, prepared.change()).await?;
     let expected_accounts = prepared.into_configuration();
+    prune_model_allowlist(
+        connection,
+        current.settings(),
+        current.model_routes(),
+        &expected_accounts,
+    )
+    .await?;
     let revision = bump_revision(connection, expected).await?;
     let configuration = load_configuration_from(connection, vault).await?;
     assert_eq!(configuration.revision(), revision);

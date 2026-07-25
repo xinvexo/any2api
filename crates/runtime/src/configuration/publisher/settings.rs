@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use any2api_domain::{ConfigRevision, SettingKey, SettingValue};
+use any2api_domain::{ConfigRevision, SettingKey, SettingValue, SettingsValidationError};
 
 use super::ConfigPublisher;
 use crate::configuration::{ConfigPublishError, PublishedSnapshot, command::ConfigCommand};
@@ -23,5 +23,26 @@ impl ConfigPublisher {
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         self.publish(expected, ConfigCommand::ResetSettingOverride { key })
             .await
+    }
+
+    pub(super) fn validate_setting_command(
+        &self,
+        current: &PublishedSnapshot,
+        command: &ConfigCommand,
+    ) -> Result<(), ConfigPublishError> {
+        let ConfigCommand::SetSettingOverride {
+            key: SettingKey::ModelsAllowed,
+            value: SettingValue::StringList(models),
+        } = command
+        else {
+            return Ok(());
+        };
+        let published = current.published_public_model_names();
+        if models.iter().any(|model| !published.contains(model)) {
+            return Err(ConfigPublishError::InvalidSetting(
+                SettingsValidationError::InvalidListValue,
+            ));
+        }
+        Ok(())
     }
 }

@@ -12,7 +12,8 @@ use axum::{
 };
 
 use crate::{
-    admin_auth::{AdminAuthError, AdminConnection, AuthenticatedAdminSession},
+    admin_auth::{AdminAuthError, AuthenticatedAdminSession},
+    client_address::ClientConnection,
     state::AppState,
 };
 
@@ -109,7 +110,7 @@ pub(super) async fn login(
 
 pub(super) async fn rotate_password(
     State(state): State<AppState>,
-    Extension(connection): Extension<AdminConnection>,
+    Extension(connection): Extension<ClientConnection>,
     Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
     payload: Result<Json<PasswordRotationRequest>, JsonRejection>,
 ) -> Result<Response, AdminApiError> {
@@ -139,7 +140,7 @@ pub(super) async fn rotate_password(
 pub(super) async fn logout(
     State(state): State<AppState>,
     Extension(session): Extension<AuthenticatedAdminSession>,
-    Extension(connection): Extension<AdminConnection>,
+    Extension(connection): Extension<ClientConnection>,
 ) -> Result<Response, AdminApiError> {
     state
         .admin_auth()
@@ -159,7 +160,7 @@ pub(super) async fn logout(
 
 fn session_response(
     issue: &crate::admin_auth::AdminSessionIssue,
-    connection: AdminConnection,
+    connection: ClientConnection,
     snapshot: &any2api_runtime::api::PublishedSnapshot,
 ) -> Result<Response, AdminApiError> {
     let settings = snapshot.settings().admin();

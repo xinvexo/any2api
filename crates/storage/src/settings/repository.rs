@@ -10,7 +10,10 @@ use crate::{
     sqlite::SqliteStore,
 };
 
-use super::rows::{delete_setting_override, upsert_setting_override};
+use super::{
+    model_allowlist::restrict_model_allowlist,
+    rows::{delete_setting_override, upsert_setting_override},
+};
 
 #[async_trait]
 pub trait SettingRepository: Send + Sync {
@@ -91,7 +94,13 @@ async fn mutate_connection(
             actual: current.revision(),
         });
     }
-    let Some((expected_settings, change)) = prepare_change(current.settings(), mutation)? else {
+    let Some((expected_settings, change)) = prepare_change(
+        current.settings(),
+        current.model_routes(),
+        current.oauth_accounts(),
+        mutation,
+    )?
+    else {
         return Ok((current, false));
     };
     match change {
@@ -121,16 +130,30 @@ enum PreparedSettingChange {
 
 fn prepare_change(
     current: &SettingsConfiguration,
+    routes: &any2api_domain::ModelRouteConfiguration,
+    accounts: &any2api_domain::OAuthAccountConfiguration,
     mutation: SettingMutation,
 ) -> Result<Option<(SettingsConfiguration, PreparedSettingChange)>, StorageError> {
     let mut overrides = SettingOverrides::from_entries(current.overrides().iter())?;
     let change = match mutation {
         SettingMutation::Set { key, value } => {
-            if overrides.get(key) == Some(value) {
+            let previous = overrides.get(key);
+            overrides.insert(key, value)?;
+            let normalized = restrict_model_allowlist(
+                overrides
+                    .get(key)
+                    .expect("the setting override was just inserted"),
+                routes,
+                accounts,
+            );
+            overrides.insert(key, normalized.clone())?;
+            if previous == Some(normalized.clone()) {
                 return Ok(None);
             }
-            overrides.insert(key, value)?;
-            PreparedSettingChange::Set { key, value }
+            PreparedSettingChange::Set {
+                key,
+                value: normalized,
+            }
         }
         SettingMutation::Reset { key } => {
             if overrides.remove(key).is_none() {

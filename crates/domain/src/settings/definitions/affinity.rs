@@ -8,7 +8,7 @@ use crate::settings::{
 
 const ALLOWED_MODES: &[&str] = &["prefer", "strict"];
 
-pub(super) const fn definition_for_mode(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition_for_mode(key: SettingKey) -> SettingDefinition {
     setting_definition(
         key,
         SettingValueType::Enum,
@@ -22,7 +22,7 @@ pub(super) const fn definition_for_mode(key: SettingKey) -> SettingDefinition {
     )
 }
 
-pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::AffinitySoftEnabled => setting_definition(
             key,

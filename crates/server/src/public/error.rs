@@ -9,6 +9,7 @@ use crate::state::AppState;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PublicErrorKind {
+    InvalidForwardedHeaders,
     Unauthorized,
     ConflictingCredentials,
     NotFound,
@@ -21,6 +22,12 @@ pub(crate) struct PublicApiError {
 }
 
 impl PublicApiError {
+    pub(crate) const fn invalid_forwarded_headers() -> Self {
+        Self {
+            kind: PublicErrorKind::InvalidForwardedHeaders,
+        }
+    }
+
     pub(crate) const fn unauthorized() -> Self {
         Self {
             kind: PublicErrorKind::Unauthorized,
@@ -51,6 +58,10 @@ impl PublicApiError {
 
     fn into_response_for_dialect(self, state: &AppState, dialect: ProtocolDialect) -> Response {
         let (code, message) = match self.kind {
+            PublicErrorKind::InvalidForwardedHeaders => (
+                PublicErrorCode::InvalidRequest,
+                "trusted proxy headers are invalid",
+            ),
             PublicErrorKind::Unauthorized => (
                 PublicErrorCode::Unauthorized,
                 "a valid Gateway API Key is required",

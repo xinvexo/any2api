@@ -13,6 +13,7 @@ test("labels upstream and postcommit timeout settings", () => {
   expect(settingLabel(item("oauth.refresh.lead_time"))).toBe("OAuth 提前刷新窗口");
   expect(settingLabel(item("shutdown.request_grace_period"))).toBe("请求排空宽限期");
   expect(settingLabel(item("shutdown.finalize_timeout"))).toBe("最终收尾超时");
+  expect(settingLabel(item("models.allowed"))).toBe("可使用的模型");
   expect(enumOptionLabel("debug")).toBe("调试");
 });
 
@@ -26,6 +27,7 @@ function item(key: string): SettingItem {
     minValue: 1,
     maxValue: 86_400,
     allowedValues: null,
+    options: null,
     applyMode: "hot_reload",
     webGroup: "Test",
     description: "Test setting",

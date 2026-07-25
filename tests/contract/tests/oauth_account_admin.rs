@@ -294,6 +294,7 @@ fn oauth_request_log(
         request: RequestLog {
             request_id: RequestId::new(),
             started_at_ms,
+            client_ip: None,
             config_revision: ConfigRevision::INITIAL,
             gateway_api_key_id: None,
             ingress_protocol: ProtocolDialect::OpenAiResponses,

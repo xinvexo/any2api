@@ -57,7 +57,19 @@ Do not run two any2api processes against one data directory. The process holds a
 
 Remote management is disabled by default even if the listener is exposed. Enable `admin.remote_enabled` from a local management session before remote use.
 
-Plain HTTP is supported, but it exposes the administrator password, session cookie, OAuth callback/code, and device user code to anyone able to observe the network. Prefer Caddy, Nginx, or another TLS-terminating reverse proxy. When forwarded client identity is required, set `ANY2API_TRUSTED_PROXY_CIDRS` only to the actual proxy networks; untrusted forwarded headers are rejected.
+Plain HTTP is supported, but it exposes the administrator password, session cookie, OAuth callback/code, and device user code to anyone able to observe the network. Prefer Caddy, Nginx, or another TLS-terminating reverse proxy. When forwarded client identity is required, set `ANY2API_TRUSTED_PROXY_CIDRS` only to the actual proxy networks. Headers from other peers are ignored; requests from a trusted proxy fail closed unless they contain exactly one valid `X-Forwarded-For` and `X-Forwarded-Proto` header.
+
+For a same-host Nginx proxy, trust only the loopback address actually used by Nginx and send one normalized client address:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:3210;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+If Cloudflare is in front of Nginx, configure Nginx's real-IP module with Cloudflare's current official CIDRs and `CF-Connecting-IP` first, then pass the normalized `$remote_addr` as above. Keep the origin restricted to Cloudflare. any2api deliberately does not trust `CF-Connecting-IP` directly. RequestLog stores only the resulting canonical IP, never the raw forwarding chain.
 
 ## Public API
 

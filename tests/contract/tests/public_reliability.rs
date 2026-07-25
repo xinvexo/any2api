@@ -464,6 +464,7 @@ async fn sse_postcommit_idle_timeout_does_not_start_a_second_stream() {
             PublicRequest {
                 request_id,
                 gateway_api_key_id: GatewayApiKeyId::new(),
+                client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::new(),
                 body: Bytes::from_static(
@@ -789,6 +790,7 @@ async fn execute_operation(
             PublicRequest {
                 request_id,
                 gateway_api_key_id: GatewayApiKeyId::new(),
+                client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation,
                 headers: HeaderMap::new(),
                 body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
@@ -826,6 +828,7 @@ async fn execute_stream_operation(
             PublicRequest {
                 request_id,
                 gateway_api_key_id: GatewayApiKeyId::new(),
+                client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation,
                 headers: HeaderMap::new(),
                 body: Bytes::from(serde_json::to_vec(&body).expect("stream request JSON")),

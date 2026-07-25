@@ -39,6 +39,10 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     let listed = store.list_request_logs(10).await.expect("list logs");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].request_id, request_id);
+    assert_eq!(
+        listed[0].client_ip,
+        Some("2001:db8::1".parse().expect("client IP"))
+    );
     assert_eq!(listed[0].attempt_count, 1);
     assert_eq!(listed[0].gateway_api_key_id, None);
     assert_eq!(listed[0].provider_endpoint_id, None);
@@ -85,6 +89,7 @@ async fn request_log_round_trip_preserves_null_zero_and_max_safe_telemetry() {
         .expect("storage");
     let request_id = RequestId::new();
     let mut record = record(request_id, 1_000, false);
+    record.request.client_ip = None;
     record.request.first_token_ms = None;
     record.request.input_tokens = Some(0);
     record.request.output_tokens = Some(MAX_TOKEN_COUNT);
@@ -103,10 +108,31 @@ async fn request_log_round_trip_preserves_null_zero_and_max_safe_telemetry() {
         .expect("stored log")
         .request;
     assert_eq!(loaded.first_token_ms, None);
+    assert_eq!(loaded.client_ip, None);
     assert_eq!(loaded.input_tokens, Some(0));
     assert_eq!(loaded.output_tokens, Some(MAX_TOKEN_COUNT));
     assert_eq!(loaded.cache_read_tokens, None);
     assert_eq!(loaded.cache_write_tokens, Some(0));
+}
+
+#[tokio::test]
+async fn request_log_rejects_a_malformed_persisted_client_ip() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("corrupt-client-ip.sqlite3"))
+        .await
+        .expect("storage");
+    let request_id = RequestId::new();
+    store
+        .append_request_logs(&[record(request_id, 1_000, false)])
+        .await
+        .expect("append request log");
+    sqlx::query("UPDATE request_logs SET client_ip = 'not-an-ip' WHERE request_id = ?")
+        .bind(request_id.to_string())
+        .execute(store.pool())
+        .await
+        .expect("inject corrupt address");
+
+    assert!(store.get_request_log(request_id).await.is_err());
 }
 
 #[tokio::test]
@@ -274,6 +300,7 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
         request: RequestLog {
             request_id,
             started_at_ms,
+            client_ip: Some("2001:db8::1".parse().expect("client IP")),
             config_revision: ConfigRevision::INITIAL,
             gateway_api_key_id: Some(GatewayApiKeyId::new()),
             ingress_protocol: ProtocolDialect::OpenAiResponses,

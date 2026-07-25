@@ -1,6 +1,6 @@
 import type { SettingItem, SettingValue } from "../api/settings-contracts";
 
-export type SettingDraft = boolean | string;
+export type SettingDraft = boolean | string | string[];
 
 export interface SettingDraftValidation {
   value: SettingValue | null;
@@ -8,6 +8,9 @@ export interface SettingDraftValidation {
 }
 
 export function createSettingDraft(item: SettingItem): SettingDraft {
+  if (Array.isArray(item.effectiveValue)) {
+    return [...item.effectiveValue];
+  }
   return typeof item.effectiveValue === "number"
     ? String(item.effectiveValue)
     : item.effectiveValue;
@@ -17,6 +20,16 @@ export function validateSettingDraft(
   item: SettingItem,
   draft: SettingDraft,
 ): SettingDraftValidation {
+  if (item.valueType === "string_list") {
+    if (!Array.isArray(draft)) {
+      return invalid("模型选择格式不正确");
+    }
+    const values = [...new Set(draft)].sort();
+    if (values.some((value) => !item.options?.includes(value))) {
+      return invalid("模型列表已发生变化，请刷新后重试");
+    }
+    return { value: values, error: null };
+  }
   if (item.valueType === "boolean") {
     return typeof draft === "boolean"
       ? { value: draft, error: null }
@@ -53,13 +66,23 @@ export function validateSettingDraft(
 
 export function isSettingDraftDirty(item: SettingItem, draft: SettingDraft) {
   const validation = validateSettingDraft(item, draft);
-  if (validation.error !== null) {
+  if (validation.error !== null || validation.value === null) {
     return true;
   }
   if (item.overrideValue === null) {
     return true;
   }
-  return validation.value !== item.overrideValue;
+  return !settingValuesEqual(validation.value, item.overrideValue);
+}
+
+function settingValuesEqual(left: SettingValue, right: SettingValue) {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => value === right[index]);
+  }
+  return left === right;
 }
 
 function invalid(error: string): SettingDraftValidation {

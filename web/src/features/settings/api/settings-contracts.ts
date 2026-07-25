@@ -1,6 +1,6 @@
-export type SettingValueType = "boolean" | "integer" | "duration_secs" | "enum";
+export type SettingValueType = "boolean" | "integer" | "duration_secs" | "enum" | "string_list";
 export type SettingApplyMode = "hot_reload" | "restart_required";
-export type SettingValue = boolean | number | string;
+export type SettingValue = boolean | number | string | string[];
 
 export interface SettingItem {
   key: string;
@@ -11,6 +11,7 @@ export interface SettingItem {
   minValue: number | null;
   maxValue: number | null;
   allowedValues: string[] | null;
+  options: string[] | null;
   applyMode: SettingApplyMode;
   webGroup: string;
   description: string;
@@ -46,16 +47,17 @@ function parseSettingItem(value: unknown): SettingItem {
   }
   const valueType = readValueType(value.value_type);
   const allowedValues = readAllowedValues(value.allowed_values, valueType);
+  const options = readOptions(value.options, valueType);
   const minValue = readBound(value.min_value, valueType);
   const maxValue = readBound(value.max_value, valueType);
   if (minValue !== null && maxValue !== null && minValue > maxValue) {
     throw invalidResponse();
   }
-  const defaultValue = readSettingValue(value.default_value, valueType, allowedValues);
+  const defaultValue = readSettingValue(value.default_value, valueType, allowedValues, options);
   const overrideValue = value.override_value === null
     ? null
-    : readSettingValue(value.override_value, valueType, allowedValues);
-  const effectiveValue = readSettingValue(value.effective_value, valueType, allowedValues);
+    : readSettingValue(value.override_value, valueType, allowedValues, options);
+  const effectiveValue = readSettingValue(value.effective_value, valueType, allowedValues, options);
   validateRange(defaultValue, minValue, maxValue);
   validateRange(overrideValue, minValue, maxValue);
   validateRange(effectiveValue, minValue, maxValue);
@@ -71,10 +73,25 @@ function parseSettingItem(value: unknown): SettingItem {
     minValue,
     maxValue,
     allowedValues,
+    options,
     applyMode: readApplyMode(value.apply_mode),
     webGroup: readString(value.web_group),
     description: readString(value.description),
   };
+}
+
+function readOptions(value: unknown, valueType: SettingValueType) {
+  if (valueType !== "string_list") {
+    if (value !== null) {
+      throw invalidResponse();
+    }
+    return null;
+  }
+  const values = readStringArray(value);
+  if (new Set(values).size !== values.length) {
+    throw invalidResponse();
+  }
+  return values;
 }
 
 function readAllowedValues(value: unknown, valueType: SettingValueType) {
@@ -106,6 +123,7 @@ function readSettingValue(
   value: unknown,
   valueType: SettingValueType,
   allowedValues: string[] | null,
+  options: string[] | null,
 ): SettingValue {
   if (valueType === "boolean") {
     return readBoolean(value);
@@ -116,6 +134,16 @@ function readSettingValue(
       throw invalidResponse();
     }
     return text;
+  }
+  if (valueType === "string_list") {
+    const values = readStringArray(value);
+    if (
+      new Set(values).size !== values.length
+      || values.some((item) => !options?.includes(item))
+    ) {
+      throw invalidResponse();
+    }
+    return values;
   }
   return readSafeNonNegativeInteger(value);
 }
@@ -166,7 +194,13 @@ function isSafePositiveInteger(value: unknown): value is number {
 }
 
 function readValueType(value: unknown): SettingValueType {
-  if (value !== "boolean" && value !== "integer" && value !== "duration_secs" && value !== "enum") {
+  if (
+    value !== "boolean"
+    && value !== "integer"
+    && value !== "duration_secs"
+    && value !== "enum"
+    && value !== "string_list"
+  ) {
     throw invalidResponse();
   }
   return value;
@@ -180,6 +214,12 @@ function readApplyMode(value: unknown): SettingApplyMode {
 }
 
 function settingValuesEqual(left: SettingValue, right: SettingValue) {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => value === right[index]);
+  }
   return typeof left === typeof right && left === right;
 }
 

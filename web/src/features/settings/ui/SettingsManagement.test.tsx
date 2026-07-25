@@ -89,6 +89,35 @@ test("keeps an advanced draft after a revision conflict", async () => {
   await waitFor(() => expect(revisions).toEqual([1, 2]));
 });
 
+test("searches, selects, clears, and saves the global model allowlist", async () => {
+  let current = modelConfiguration(1, null);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+    if (init?.method === "PATCH") {
+      current = modelConfiguration(2, ["gpt-b"]);
+    }
+    return jsonResponse(current);
+  });
+
+  renderModelSettings();
+  expect(await screen.findByText("全部 3 个模型可用")).toBeInTheDocument();
+  const search = screen.getByRole("textbox", { name: "搜索可用模型" });
+  fireEvent.change(search, { target: { value: "gpt" } });
+  fireEvent.click(screen.getByRole("button", { name: "选择当前" }));
+  expect(screen.getByRole("checkbox", { name: "gpt-a" })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "gpt-b" })).toBeChecked();
+  fireEvent.click(screen.getByRole("button", { name: "清除当前" }));
+  expect(screen.getByRole("checkbox", { name: "gpt-a" })).not.toBeChecked();
+  fireEvent.click(screen.getByRole("checkbox", { name: "gpt-b" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存可使用的模型" }));
+
+  await waitFor(() => expect(screen.getByText("已允许 1 / 3")).toBeInTheDocument());
+  const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+    expected_revision: 1,
+    value: ["gpt-b"],
+  });
+});
+
 function renderRoutingSettings() {
   const section = SETTING_SECTIONS.find((item) => item.id === "routing");
   if (!section) throw new Error("missing routing setting section");
@@ -100,6 +129,21 @@ function renderRoutingSettings() {
       <SettingsManagement
         webGroups={section.webGroups}
         featuredKeys={section.featuredKeys}
+        showSectionHeading={false}
+      />
+    </QueryClientProvider>,
+  );
+}
+
+function renderModelSettings() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <SettingsManagement
+        webGroups={["公开模型"]}
+        featuredKeys={["models.allowed"]}
         showSectionHeading={false}
       />
     </QueryClientProvider>,
@@ -124,15 +168,33 @@ function configuration(revision: number, timeoutOverride: number | null = null) 
   };
 }
 
+function modelConfiguration(revision: number, override: string[] | null) {
+  return {
+    config_revision: revision,
+    items: [setting(
+      "models.allowed",
+      "string_list",
+      [],
+      override,
+      null,
+      "公开模型",
+      null,
+      null,
+      ["claude", "gpt-a", "gpt-b"],
+    )],
+  };
+}
+
 function setting(
   key: string,
   valueType: string,
-  defaultValue: boolean | number | string,
-  overrideValue: boolean | number | string | null,
+  defaultValue: boolean | number | string | string[],
+  overrideValue: boolean | number | string | string[] | null,
   allowedValues: string[] | null,
   webGroup: string,
   minValue: number | null = null,
   maxValue: number | null = null,
+  options: string[] | null = null,
 ) {
   return {
     key,
@@ -143,6 +205,7 @@ function setting(
     min_value: minValue,
     max_value: maxValue,
     allowed_values: allowedValues,
+    options,
     apply_mode: "hot_reload",
     web_group: webGroup,
     description: "Test setting",

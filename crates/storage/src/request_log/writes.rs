@@ -12,11 +12,11 @@ pub(super) async fn insert_request_log(
     let error_message = validate_error_message(log.error_message.as_deref())?;
     let thinking_level = validate_thinking_level(log.thinking_level.as_deref())?;
     sqlx::query(
-        "INSERT INTO request_logs (request_id, started_at_ms, config_revision, \
+        "INSERT INTO request_logs (request_id, started_at_ms, client_ip, config_revision, \
          gateway_api_key_id, ingress_protocol, operation, public_model, thinking_level, \
          provider_endpoint_id, credential_id, oauth_account_id, proxy_profile_id, status_code, \
          error_class, error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
-         output_tokens, cache_read_tokens, cache_write_tokens, is_stream) VALUES (?, ?, ?, \
+         output_tokens, cache_read_tokens, cache_write_tokens, is_stream) VALUES (?, ?, ?, ?, \
          (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, ?, \
          (SELECT id FROM provider_endpoints WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
@@ -25,6 +25,7 @@ pub(super) async fn insert_request_log(
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
+    .bind(log.client_ip.map(|address| address.to_string()))
     .bind(to_i64(log.config_revision.get())?)
     .bind(optional_id(log.gateway_api_key_id))
     .bind(log.ingress_protocol.as_str())

@@ -98,6 +98,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
         <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <Detail label="协议" value={protocolLabel(request.ingressProtocol)} />
           <Detail label="接口" value={operationLabel(request.operation)} />
+          <Detail label="客户端 IP" value={request.clientIp ?? "未记录"} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
           <Detail label="错误分类" value={request.errorClass ?? "无"} />

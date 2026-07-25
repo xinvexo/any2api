@@ -39,6 +39,7 @@ export type RequestRetrySafety =
 export interface RequestLog {
   requestId: string;
   startedAtMs: number;
+  clientIp: string | null;
   configRevision: number;
   gatewayApiKeyId: string | null;
   ingressProtocol: RequestLogProtocol;
@@ -122,6 +123,7 @@ function parseRequestLog(value: unknown): RequestLog {
   return {
     requestId: readString(record.request_id),
     startedAtMs: readNonNegativeInteger(record.started_at_ms),
+    clientIp: readNullableString(record.client_ip),
     configRevision: readPositiveInteger(record.config_revision),
     gatewayApiKeyId: readNullableString(record.gateway_api_key_id),
     ingressProtocol: readProtocol(record.ingress_protocol),

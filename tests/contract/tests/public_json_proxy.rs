@@ -5,7 +5,7 @@ use any2api_domain::{MAX_TOKEN_COUNT, RequestId};
 use any2api_runtime::api::{
     ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
-use any2api_server::api::{AppState, build_router};
+use any2api_server::api::{AppState, ClientAddressPolicy, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
     Router,
@@ -14,6 +14,7 @@ use axum::{
     http::{HeaderMap, Method, Request, StatusCode, header::CONTENT_TYPE},
 };
 use http_body_util::BodyExt;
+use ipnet::IpNet;
 use serde_json::{Value, json};
 use tempfile::tempdir;
 use tokio::{
@@ -111,6 +112,7 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     assert_eq!(request.body["unknown_field"]["keep"], true);
     let logs = wait_for_request_log(&app, loopback, request_id).await;
     assert_eq!(logs["request"]["request_id"], request_id.to_string());
+    assert_eq!(logs["request"]["client_ip"], "127.0.0.1");
     assert_eq!(logs["request"]["credential_id"], credential_id);
     assert_eq!(logs["request"]["attempt_count"], 1);
     assert_eq!(logs["request"]["first_token_ms"], Value::Null);
@@ -132,6 +134,7 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     .await;
     assert_eq!(list.status, StatusCode::OK);
     assert_eq!(list.body["items"][0]["request_id"], request_id.to_string());
+    assert_eq!(list.body["items"][0]["client_ip"], "127.0.0.1");
     assert_eq!(list.body["items"][0]["first_token_ms"], Value::Null);
     assert_eq!(list.body["items"][0]["input_tokens"], 0);
     assert_eq!(
@@ -140,6 +143,72 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     );
     assert_eq!(list.body["items"][0]["cache_read_tokens"], Value::Null);
     assert_eq!(list.body["items"][0]["cache_write_tokens"], 0);
+}
+
+#[tokio::test]
+async fn trusted_proxy_chain_persists_the_first_untrusted_client_address() {
+    let (listener, upstream) = upstream_server(
+        "/v1/responses",
+        r#"{"id":"resp_proxy","model":"gpt-upstream","output":[]}"#,
+    )
+    .await;
+    let policy = ClientAddressPolicy::new(vec!["10.0.0.0/8".parse::<IpNet>().expect("CIDR")]);
+    let (_directory, app, revision) = test_app_with_client_address_policy(policy).await;
+    let admin = SocketAddr::from(([127, 0, 0, 1], 41_000));
+    let proxy = SocketAddr::from(([10, 0, 0, 1], 41_000));
+    let token = create_gateway_key(&app, admin, revision).await;
+    let endpoint_id = create_endpoint(
+        &app,
+        admin,
+        revision + 1,
+        "Codex proxied",
+        "codex",
+        &format!("http://{listener}/v1"),
+    )
+    .await;
+    create_credential(&app, admin, revision + 2, &endpoint_id, "sk-proxied").await;
+    select_models(&app, admin, revision + 3, &endpoint_id, "gpt-upstream").await;
+
+    let invalid = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({"model":"gpt-upstream","input":"hello"})),
+        proxy,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-forwarded-for", "198.51.100.9".into()),
+        ],
+    )
+    .await;
+    assert_eq!(invalid.status, StatusCode::BAD_REQUEST);
+    assert_eq!(invalid.body["error"]["code"], "invalid_request");
+
+    let response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({"model":"gpt-upstream","input":"hello"})),
+        proxy,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            (
+                "x-forwarded-for",
+                "127.0.0.1, 198.51.100.9, 10.0.0.2".into(),
+            ),
+            ("x-forwarded-proto", "https".into()),
+        ],
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
+    upstream.await.expect("upstream request");
+    let request_id = response.headers["x-request-id"]
+        .to_str()
+        .expect("request ID")
+        .parse::<RequestId>()
+        .expect("request ID value");
+    let log = wait_for_request_log(&app, admin, request_id).await;
+    assert_eq!(log["request"]["client_ip"], "198.51.100.9");
 }
 
 #[tokio::test]
@@ -862,6 +931,12 @@ async fn public_ingress_errors_require_authentication_and_use_protocol_envelopes
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, u64) {
+    test_app_with_client_address_policy(ClientAddressPolicy::default()).await
+}
+
+async fn test_app_with_client_address_policy(
+    policy: ClientAddressPolicy,
+) -> (tempfile::TempDir, Router, u64) {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
@@ -898,7 +973,9 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let revision = snapshots.load().revision().get();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher, service).with_request_telemetry(telemetry),
+        AppState::new(snapshots, runtime, publisher, service)
+            .with_request_telemetry(telemetry)
+            .with_client_address_policy(policy),
         web_root,
     );
     (directory, app, revision)

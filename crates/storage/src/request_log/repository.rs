@@ -76,7 +76,7 @@ impl RequestLogRepository for SqliteStore {
 
     async fn list_request_logs(&self, limit: u32) -> Result<Vec<RequestLog>, StorageError> {
         let rows = sqlx::query_as::<_, RequestLogRow>(
-            "SELECT request_id, started_at_ms, config_revision, gateway_api_key_id, \
+            "SELECT request_id, started_at_ms, client_ip, config_revision, gateway_api_key_id, \
              ingress_protocol, operation, public_model, thinking_level, provider_endpoint_id, \
              credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
              error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
@@ -95,7 +95,7 @@ impl RequestLogRepository for SqliteStore {
     ) -> Result<Option<CompletedRequestLog>, StorageError> {
         let mut transaction = self.pool().begin().await?;
         let row = sqlx::query_as::<_, RequestLogRow>(
-            "SELECT request_id, started_at_ms, config_revision, gateway_api_key_id, \
+            "SELECT request_id, started_at_ms, client_ip, config_revision, gateway_api_key_id, \
              ingress_protocol, operation, public_model, thinking_level, provider_endpoint_id, \
              credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
              error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \

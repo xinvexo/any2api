@@ -5,6 +5,7 @@ use crate::{
     configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
     provider::replace_model_routes,
+    settings::prune_model_allowlist,
     sqlite::SqliteStore,
     vault::SecretVault,
 };
@@ -59,6 +60,13 @@ async fn mutate_connection(
     let expected_model_routes = prepared.model_routes().cloned();
     if let Some(model_routes) = expected_model_routes.as_ref() {
         replace_model_routes(connection, model_routes).await?;
+        prune_model_allowlist(
+            connection,
+            current.settings(),
+            model_routes,
+            current.oauth_accounts(),
+        )
+        .await?;
     }
     let expected_credentials = prepared.into_configuration();
     let revision = bump_revision(connection, expected).await?;

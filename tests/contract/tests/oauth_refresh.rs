@@ -209,6 +209,7 @@ fn oauth_request() -> PublicRequest {
     PublicRequest {
         request_id: RequestId::new(),
         gateway_api_key_id: GatewayApiKeyId::new(),
+        client_ip: "127.0.0.1".parse().expect("client IP"),
         operation: ProtocolOperation::Responses,
         headers: HeaderMap::new(),
         body: Bytes::from_static(br#"{"model":"gpt-5.5","input":"hello"}"#),

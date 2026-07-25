@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：API Key 数据面、OpenAI 协议桥、三 Provider OAuth2 核心链路、OAuth JSON 原子导入、三 Provider 额度查询、管理 Web 和真实二进制浏览器验收均已完成；剩余发布验收主要依赖真实上游账号。
-- 最近完成：Rust Workspace 完成 feature-first 目录收敛；OAuth Web 恢复可写模型选择，并使用仅含假 Token 的真实 SQLite/发布链浏览器夹具覆盖导入、编辑、模型保存、删除、deep link、窄屏和浏览器持久状态脱敏。
+- 当前阶段：API Key 数据面、OpenAI 协议桥、三 Provider OAuth2 核心链路、OAuth JSON 原子导入、三 Provider 额度查询、全局公开模型允许列表、可信客户端 IP 请求日志、管理 Web 和真实二进制浏览器验收均已完成；剩余发布验收主要依赖真实上游账号与真实反代环境。
+- 最近完成：新增快照级 `models.allowed` 设置，并在最后一条模型 Route 消失时于同一事务自动裁剪；RequestLog 保存直连或可信代理链解析出的规范客户端 IP，管理 Web 可查看且不保留原始转发头。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -19,7 +19,7 @@
 - OAuth JSON 导入切片：`235a1bd feat: import OAuth JSON accounts`。
 - OAuth 额度扩展切片：`18f8e49 feat: expand OAuth quota support and organize modules`。
 - Feature-first 收敛切片：`5f3d9ff refactor: complete feature-first crate organization`。
-- 本切片主题：文档基线、OAuth 模型管理与真实二进制浏览器验收闭环。
+- 本切片主题：全局公开模型允许列表、真实客户端 IP 遥测与发布验证闭环。
 
 ## 已完成
 
@@ -138,7 +138,7 @@
 ### 严格 SSRF 本地 DNS 切片
 
 - 新增并接受 ADR-0019，明确 DIRECT、HTTP forward、HTTPS CONNECT 与 SOCKS5 的本地/远端 DNS 信任边界、A/AAAA 解析、目标固定、Host/SNI、DNS rebinding 与多地址失败语义；地址类别授权由 ADR-0029 移除。
-- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。该切片完成时 Registry 共 44 项；加入后续设置并由 ADR-0037 删除两项辅助容量后，当前总数为 49 项。
+- SettingRegistry 新增 `upstream.strict_ssrf`，默认 `false`、支持热更新；Web 设置页显示默认值、覆盖值和生效值，代理编辑器说明默认远端 DNS 与严格模式入口。该切片完成时 Registry 共 44 项；加入后续设置、由 ADR-0037 删除两项辅助容量并新增 `models.allowed` 后，当前总数为 50 项。
 - DIRECT 始终执行本地解析与 reqwest `resolve_to_addrs` 固定；严格模式关闭时 HTTP/SOCKS5 保持既有受信远端 DNS 行为。
 - 严格模式下，HTTP forward 的 absolute-form authority 使用已验证 IP 并保留原始 Host；HTTPS CONNECT 向代理发送已验证 IP，隧道后继续使用原始 TLS SNI、证书名、HTTP Host 与 HTTP/2 authority。
 - 严格 SOCKS5 使用 IP 地址类型，不发送目标域名；普通 HTTP 与 TLS 仍保留原始应用层 authority。代理自身地址仍是用户显式配置的信任边界。
@@ -164,6 +164,14 @@
 - 同一 Endpoint 下不同 Credential 可以保存不同模型集合；候选构建再次校验 `Credential + upstream_model`，不会把一把 Key 的模型权限套到另一把 Key。
 - SQLite migration 会把旧 Target 按 Endpoint 展开为 Credential 模型集合；后续模型保存会按新规则完整重建内部路由。
 - Provider、Storage、Runtime、HTTP 契约和 Web 测试覆盖目录解析、畸形 JSON、重复 ID、超大正文、读取失败、重启持久化、多 Key 模型隔离及“保存 Key -> 拉模型 -> 勾选 -> 保存”的完整流程。
+
+### 全局公开模型允许列表切片
+
+- SettingRegistry 新增 `models.allowed` 字符串列表，默认空列表表示允许当前 PublishedSnapshot 的全部公开模型；非空列表按精确、区分大小写的公开模型名放行，不支持通配符、Provider 推断或 Gateway Key 级覆盖。
+- 管理设置响应动态返回当前已物化公开模型作为候选；Web“基础”设置提供可搜索多选、当前搜索结果全选/清除、默认值/覆盖值/生效值展示和恢复默认。
+- `/v1/models` 使用同一快照过滤目录；Responses、Compact、Chat Completions、Messages 与 Count Tokens 在会话创建、候选选择、RPM 预留和上游 I/O 前统一拒绝未放行模型，并使用对应协议的模型不存在错误。
+- ProviderCredential 或 OAuthAccount 的创建、编辑、模型变更和删除仍走唯一串行发布链；当最后一条可提供某模型的 Route 消失时，同一事务会从允许列表及 SQLite 覆盖值自动删除该名称，再 Commit、reconcile 并切换一次快照。
+- Domain、Storage、Runtime、HTTP 与 Web 测试覆盖规范化、热更新快照隔离、目录过滤、零上游 I/O 拒绝、API Key/OAuth 最后 Route 删除时的自动裁剪、动态候选和恢复默认。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
 
 ### GatewayApiKey 管理与公开鉴权切片
 
@@ -288,12 +296,13 @@
 ### RequestLog 与 Attempt 有界遥测切片
 
 - `/v1` 外层统一生成本地 Request ID，并覆盖所有公开响应的 `x-request-id`；通过 GatewayApiKey 鉴权并进入模型执行链后创建请求记录。
+- 管理面与公开面复用 Server 级可信代理来源解析；直连记录 TCP 对端，可信代理从 XFF 右向左剥离连续可信跳。RequestLog 只保存规范化 `client_ip`，不保存原始 XFF/CF 头；Migration 26 前的历史记录保持 `NULL`。
 - 新增 `RequestLog`、`RequestAttempt` 与结果枚举，以及 SQLite `request_logs`/`request_attempts` 父子表；配置实体删除后历史外键自动置空，日志不参与启动恢复。
 - 每个请求在内存中聚合全部 Attempt，结束时只进行一次同步 `try_send`；队列满、Writer 关闭或 SQLite 写入失败只计数并丢弃，不等待或阻塞数据面。
 - 后台 Writer 使用小批量事务写入父子记录，并在空闲期也按保留期限或最大行数任一上限定时分批清理；日志设置随配置发布即时刷新，停机提供有限刷新窗口，不保存排队状态。
 - Attempt 在健康结算后、Permit 释放前完成记录；最终 RequestLog 优先保留最后一次 Attempt 的精确错误分类，不把限流、认证、网络或代理错误折叠为通用 `upstream`。
 - SSE 在首帧验证和软绑定提交成功后把记录责任交给 `GuardedBody`；EOF、提交后错误与客户端 Drop 只完成一次，首帧 Transport 错误保留 Network/Proxy 归因与 RetrySafety。
-- 新增管理 API：`GET /api/admin/request-logs`、`GET /api/admin/request-logs/{request_id}`；React `/logs` 与 `/logs/:requestId` 展示最近请求、队列/丢弃指标和 Attempt 时间线。
+- 新增管理 API：`GET /api/admin/request-logs`、`GET /api/admin/request-logs/{request_id}`；React `/logs` 与 `/logs/:requestId` 展示最近请求、解析后的客户端 IP、队列/丢弃指标和 Attempt 时间线。
 - SettingRegistry 新增 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows`、`logs.telemetry_queue_capacity`，Web 可查看默认/覆盖/生效值并恢复默认。
 - OpenAI/Anthropic 协议级精确 usage 与内容首 Token 钩子已由后续切片接入；上游未返回、终止事件前断开或非流式无法精确计时时，对应字段仍保持 `NULL`而不猜测。
 - 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Credential 切换后的多 Attempt 顺序、Attempt 预算耗尽、SSE EOF/提交后错误/客户端 Drop 的单次持久化、列表与详情成功/空态/错误态、DTO 解析、deep link 和敏感文本不展示。
@@ -326,7 +335,7 @@
 
 ### 本地文件日志轮转切片
 
-- SettingRegistry 新增 `logs.file.level`、`logs.file.retention` 与 `logs.file.max_total_size`，默认分别为 `info`、`7d` 与 `256 MiB`；该切片完成时 Registry 共 47 项；加入后续设置并由 ADR-0037 删除两项辅助容量后，当前总数为 49 项，Web 显示默认值、覆盖值和生效值并支持恢复默认。
+- SettingRegistry 新增 `logs.file.level`、`logs.file.retention` 与 `logs.file.max_total_size`，默认分别为 `info`、`7d` 与 `256 MiB`；该切片完成时 Registry 共 47 项；加入后续设置、由 ADR-0037 删除两项辅助容量并新增 `models.allowed` 后，当前总数为 50 项，Web 显示默认值、覆盖值和生效值并支持恢复默认。
 - Composition Root 在读取 SQLite 当前配置后一次性安装控制台与文件 tracing layer；控制台继续使用 `RUST_LOG`，文件层只服从 `logs.file.level`。
 - 本地日志写入 `<data-dir>/logs` 下的 JSONL 分段文件，使用 `tracing-appender` 的有界丢弃式非阻塞队列和独立写线程；请求线程不等待文件系统，进程结束时 Guard 尽力刷新已经入队的日志。
 - 分段同时按 UTC 日期与大小轮转；单段目标上限为总容量八分之一与 `32 MiB` 的较小值。关闭分段先按保留期限清理，再从最旧文件开始按总容量清理；活跃文件和非 any2api 命名文件不会被删除。
@@ -345,7 +354,7 @@
 
 ### 上游读取与 SSE 提交后空闲超时切片
 
-- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续设置加入且 ADR-0037 删除两项辅助容量后，当前总数为 49 项。
+- SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续设置加入、ADR-0037 删除两项辅助容量并新增 `models.allowed` 后，当前总数为 50 项。
 - `TransportRequest` 按请求快照携带 read timeout，不把它放进连接池 Client key。固定请求体开始被连接层消费后才启动响应头 timer，因此较短的 read timeout 不会取代 DNS、连接、代理握手或 TLS 的既有阶段边界。
 - 等待响应头超时记录为 `AwaitHeaders + Ambiguous`；JSON、Compact、Count Tokens 与非成功 SSE 错误正文逐 chunk 收集时使用相同空闲时长，超时记录为 `ReadBody + Ambiguous`。DIRECT 归因 Endpoint，无法证明责任的代理路径归入 `Unattributed`。
 - 成功 SSE 提交前只使用 `stream.precommit.max_duration`，不叠加通用 read timeout；首个下游帧交付时启动 post-commit idle timer，每个成功上游 chunk（包括不完整帧）重置，缓冲完整事件始终优先交付。
@@ -376,7 +385,7 @@
 
 - 新增进程级 `ProcessLifecycle`，状态固定为 `Running / Draining / Forced`；请求与后台任务分别追踪，健康定时任务在 Draining 退出，配置发布和密码轮换在 Forced 取消异步 future。
 - Server 最外层 Guard 覆盖完整 Handler 与响应 Body 生命周期；普通响应、SSE EOF/error、客户端 Drop 和 Forced 静默 Body 都通过 RAII 释放请求计数、QueueTicket、Permit 与上游连接。
-- SettingRegistry 新增 `shutdown.request_grace_period` 与 `shutdown.finalize_timeout`，默认 `30s` 与 `5s`；加入 OAuth 刷新后一度为 51 项，ADR-0037 删除两项辅助容量后当前为 49 项。Web 设置页支持默认/覆盖/生效值，总览显示 shutdown phase、活动请求与后台任务数。
+- SettingRegistry 新增 `shutdown.request_grace_period` 与 `shutdown.finalize_timeout`，默认 `30s` 与 `5s`；加入 OAuth 刷新后一度为 51 项，ADR-0037 删除两项辅助容量、再新增 `models.allowed` 后当前为 50 项。Web 设置页支持默认/覆盖/生效值，总览显示 shutdown phase、活动请求与后台任务数。
 - 停机信号到达时从当前 `PublishedSnapshot` 一次性捕获两项设置；配置热更新立即影响下一次停机，已经开始的停机不会混用后续 revision。
 - RequestTelemetry Writer 纳入同一 Tracker；关闭 sender 后先排空，超时则 abort 并 await，禁止遗留脱管 SQLite Writer。SQLite Pool 随后显式关闭。
 - Argon2 通过 Tracker 的 blocking 入口运行；请求或外层密码轮换 future 被取消后，blocking closure 仍保持计数直到真正返回，避免 Tokio Runtime Drop 无界等待被误判为已收尾。
@@ -449,12 +458,12 @@
 - DIRECT/HTTP/SOCKS5h 网络执行与连接池已接入公开 JSON/SSE 请求；代理认证和管理面代理测试已接入，健康熔断继续只由公开请求数据面驱动。
 - Credential 模型配置、内部 ModelRoute 物化、公开 `/v1/models`、同协议 JSON/SSE、Chat Completions 入口与 Responses → Chat Completions 桥、普通生成请求有界排队、会话粘性和提交前多 Attempt 已实现。
 - 当前代理支持 host/port 与 Vault 认证；HTTP/SOCKS5 默认使用远端 DNS，`upstream.strict_ssrf=true` 时统一改为本地解析和固定目标连接。Provider Base URL 可直接指向 HTTP(S) 公网或内网目标。
-- 当前实现 admin、affinity、scheduler、retry、cooldown、breaker、upstream、stream、OAuth refresh、request logging、file logging 与 shutdown 共 49 项 SettingRegistry。
+- 当前实现 admin、models、affinity、scheduler、retry、cooldown、breaker、upstream、stream、OAuth refresh、request logging、file logging 与 shutdown 共 50 项 SettingRegistry。
 - 远程反代必须先配置 `ANY2API_TRUSTED_PROXY_CIDRS`，并确认 `admin.remote_enabled=true`；未配置认证服务的测试/嵌入 Router 仍不能远程管理。
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态 RPM 窗口、`in_flight`、请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后这些状态全部从零开始。
 - ProviderCredential 与 OAuthAccount 分别承载 API Key generation 和独立 token/account generation，并通过带来源标签的 `RoutingCredentialId` 编译到同一候选池；两类持久化模型和管理 API 保持分离。
-- 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；无法精确获取时保持 `NULL`。
+- 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，规范客户端 IP、精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；Migration 26 前的 IP 和其他无法精确获取的值保持 `NULL`。
 - RequestLog/Attempt 对 API Key 与 OAuth 使用互斥来源列；OAuth 不暴露内部固定 Endpoint。Provider/OAuth 管理页显示各自日志窗口统计，请求日志列表显式标识最终上游来源；Gateway Key 入口统计保持不变。负载均衡运行态 API 只返回两类来源合并后的全局/Provider 汇总；RPM 窗口、`in_flight`、队列和内部选择/过滤计数只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 - 正式运行默认从二进制内嵌 React 资源提供管理面；改变当前工作目录或删除源码树不会影响页面，外部 Web 目录必须通过 `ANY2API_WEB_DIR` 显式选择。
@@ -462,8 +471,9 @@
 ## 下一步
 
 1. 使用实际 Codex、Claude 与 Grok 账号分别完成人工登录、JSON/SSE 数据面、自动刷新和 retry-safe 401 单次恢复，并 smoke 三 Provider 额度查询；只有 Codex 账号确有 reset credit 时才人工执行一次重置。该步骤需要外部账号授权，Token 不得写入测试产物或日志。
-2. 在 Unix CI 中增加真实子进程 SIGTERM 回归，补齐目前由单元测试和 Windows Ctrl-C 子进程测试覆盖的停机信号矩阵。
-3. `/backend-api/codex/responses`、Codex WebSocket、内建 Rustls listener及 Codex/OpenAI ↔ Claude 双向转换仍是明确的后续范围；通用 Secret 导入导出继续永久禁止。
+2. 在真实 Nginx，以及可选 Cloudflare -> Nginx 链路中 smoke `ANY2API_TRUSTED_PROXY_CIDRS`、HTTPS 判断和 RequestLog 客户端 IP，确认源站访问限制与 Nginx real-IP CIDR 配置符合部署环境。
+3. 在 Unix CI 中增加真实子进程 SIGTERM 回归，补齐目前由单元测试和 Windows Ctrl-C 子进程测试覆盖的停机信号矩阵。
+4. `/backend-api/codex/responses`、Codex WebSocket、内建 Rustls listener 及 Codex/OpenAI ↔ Claude 双向转换仍是明确的后续范围；通用 Secret 导入导出继续永久禁止。
 
 ## 验证结果
 
@@ -485,4 +495,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex/Claude/Grok 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、架构检查和 `cargo deny --offline check`。Web 已通过 typecheck、lint、44 个文件共 139 项 Vitest、production build、内嵌产物一致性检查与 4 项真实 Chromium E2E。Grok 回归覆盖 Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、migration 16→25、完整 Provider/OAuth 引用图保留和 `foreign_key_check`；登录页样式已按画布、表单与环境动效拆分，消除既有 `globals.css` 文件体积门禁。
+当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex/Claude/Grok 额度管理、全局公开模型允许列表、可信客户端 IP 请求日志、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、架构检查和 `cargo deny --offline check`。Web 已通过 typecheck、lint、44 个文件共 143 项 Vitest、production build、内嵌产物一致性检查与 4 项真实 Chromium E2E。回归覆盖 Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、模型允许列表裁剪、直连/可信代理/欺骗与无效转发头、migration 16→26、完整 Provider/OAuth/RequestLog 引用图保留和 `foreign_key_check`。

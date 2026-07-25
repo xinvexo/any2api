@@ -46,7 +46,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
             .fetch_all(&pool)
             .await
             .expect("migration versions");
-    assert_eq!(versions, (1..=25).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=26).collect::<Vec<_>>());
     let kind = sqlx::query_scalar::<_, String>(
         "SELECT credential_kind FROM provider_credentials WHERE id = ?",
     )
@@ -149,6 +149,39 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
 }
 
 #[tokio::test]
+async fn migration_26_preserves_existing_logs_with_an_unknown_client_ip() {
+    let (_directory, pool) = pool_at_migration_25().await;
+    sqlx::query(
+        "INSERT INTO request_logs \
+         (request_id, started_at_ms, config_revision, ingress_protocol, operation, \
+          status_code, attempt_count, latency_ms, is_stream) \
+         VALUES ('40000000-0000-0000-0000-000000000000', 1000, 1, \
+                 'openai_responses', 'responses', 200, 0, 10, 0)",
+    )
+    .execute(&pool)
+    .await
+    .expect("seed migration 25 request log");
+
+    run(&pool).await.expect("upgrade migration 25 database");
+
+    let client_ip = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT client_ip FROM request_logs WHERE request_id = \
+         '40000000-0000-0000-0000-000000000000'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("preserved request log");
+    assert_eq!(client_ip, None);
+    let schema = sqlx::query_scalar::<_, String>(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'request_logs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("request log schema");
+    assert!(schema.contains("client_ip TEXT"));
+}
+
+#[tokio::test]
 async fn legacy_oauth_credentials_block_upgrade_without_deletion() {
     let (_directory, pool) = pool_at_migration_16().await;
     seed_endpoint(&pool).await;
@@ -209,6 +242,32 @@ async fn pool_at_migration_16() -> (TempDir, SqlitePool) {
         .run(&pool)
         .await
         .expect("apply migrations through version 16");
+    (directory, pool)
+}
+
+async fn pool_at_migration_25() -> (TempDir, SqlitePool) {
+    let directory = tempdir().expect("temporary directory");
+    let options = SqliteConnectOptions::new()
+        .filename(directory.path().join("migration-25.sqlite3"))
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("migration 25 pool");
+    let migrations = MIGRATOR
+        .iter()
+        .filter(|migration| migration.version <= 25)
+        .cloned()
+        .collect::<Vec<_>>();
+    Migrator {
+        migrations: Cow::Owned(migrations),
+        ..Migrator::DEFAULT
+    }
+    .run(&pool)
+    .await
+    .expect("apply migrations through version 25");
     (directory, pool)
 }
 

@@ -42,7 +42,7 @@ impl PublishedSnapshot {
     }
 
     #[must_use]
-    pub fn public_model_names(&self) -> BTreeSet<String> {
+    pub fn published_public_model_names(&self) -> BTreeSet<String> {
         let mut names = self
             .model_routes
             .routes()
@@ -53,7 +53,7 @@ impl PublishedSnapshot {
         for credential in self
             .routing_credentials()
             .iter()
-            .filter(|credential| credential.is_oauth() && credential.routable())
+            .filter(|credential| credential.is_oauth())
         {
             names.extend(
                 credential
@@ -63,6 +63,21 @@ impl PublishedSnapshot {
             );
         }
         names
+    }
+
+    #[must_use]
+    pub fn public_model_names(&self) -> BTreeSet<String> {
+        let mut names = self.published_public_model_names();
+        let allowed = self.settings().models().allowed();
+        if !allowed.is_empty() {
+            names.retain(|name| allowed.binary_search(name).is_ok());
+        }
+        names
+    }
+
+    #[must_use]
+    pub fn is_public_model_allowed(&self, model: &PublicModelName) -> bool {
+        self.settings().models().allows(model)
     }
 }
 

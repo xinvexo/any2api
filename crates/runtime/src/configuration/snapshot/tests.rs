@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RateLimitMode,
-    RequestsPerMinute, SettingKey, SettingValue,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName,
+    RateLimitMode, RequestsPerMinute, SettingKey, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::tempdir;
 
 use crate::{
-    configuration::{ConfigPublisher, PublishedSnapshot, SnapshotStore},
+    configuration::{ConfigPublishError, ConfigPublisher, PublishedSnapshot, SnapshotStore},
     credential::ProviderApiKeySecret,
     registry::RuntimeRegistry,
     routing::{QueuePolicy, RateLimitAction},
@@ -136,6 +136,101 @@ async fn published_rpm_update_preserves_the_stable_runtime_window() {
     assert_eq!(runtime.scheduler_epoch(), epoch_before_publish + 1);
     drop((first, second));
     assert_eq!(after_binding.rate_snapshot().requests_in_window(), 2);
+}
+
+#[tokio::test]
+async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
+    let directory = tempdir().expect("temporary directory");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("config.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let initial = storage.load_configuration().await.expect("configuration");
+    let runtime = Arc::new(RuntimeRegistry::new());
+    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
+        initial,
+        runtime.as_ref(),
+        crate::test_support::configuration_capabilities().provider_registry(),
+    )));
+    let publisher = ConfigPublisher::new(
+        Arc::clone(&storage),
+        Arc::clone(&snapshots),
+        Arc::clone(&runtime),
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
+    let endpoint_id = ProviderEndpointId::new();
+    let credential_id = CredentialId::new();
+    let endpoint = publisher
+        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, codex_endpoint_draft())
+        .await
+        .expect("endpoint");
+    let credential = publisher
+        .create_provider_credential(
+            endpoint.revision(),
+            credential_id,
+            endpoint_id,
+            credential_draft(10),
+            ProviderApiKeySecret::new("sk-model-allowlist".to_owned()),
+        )
+        .await
+        .expect("credential");
+    let modeled = publisher
+        .set_provider_credential_models(
+            credential.revision(),
+            credential_id,
+            1,
+            vec!["gpt-a".to_owned(), "gpt-z".to_owned()],
+        )
+        .await
+        .expect("models");
+    assert_eq!(
+        modeled.public_model_names().into_iter().collect::<Vec<_>>(),
+        ["gpt-a", "gpt-z"]
+    );
+
+    let filtered = publisher
+        .set_setting_override(
+            modeled.revision(),
+            SettingKey::ModelsAllowed,
+            SettingValue::StringList(vec!["gpt-z".to_owned()]),
+        )
+        .await
+        .expect("allowlist");
+    assert_eq!(
+        filtered
+            .published_public_model_names()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        ["gpt-a", "gpt-z"]
+    );
+    assert_eq!(
+        filtered
+            .public_model_names()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        ["gpt-z"]
+    );
+    assert!(filtered.is_public_model_allowed(&PublicModelName::new("gpt-z").expect("model")));
+    assert!(!filtered.is_public_model_allowed(&PublicModelName::new("gpt-a").expect("model")));
+
+    let unavailable = publisher
+        .set_setting_override(
+            filtered.revision(),
+            SettingKey::ModelsAllowed,
+            SettingValue::StringList(vec!["missing".to_owned()]),
+        )
+        .await
+        .expect_err("unpublished selection");
+    assert!(matches!(unavailable, ConfigPublishError::InvalidSetting(_)));
+
+    let deleted = publisher
+        .delete_provider_credential(filtered.revision(), credential_id, 2)
+        .await
+        .expect("delete credential");
+    assert!(deleted.published_public_model_names().is_empty());
+    assert!(deleted.settings().models().allowed().is_empty());
 }
 
 fn codex_endpoint_draft() -> ProviderEndpointDraft {

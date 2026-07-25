@@ -163,6 +163,7 @@ async fn execute_request(
             PublicRequest {
                 request_id: RequestId::new(),
                 gateway_api_key_id: GatewayApiKeyId::new(),
+                client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation: ProtocolOperation::Responses,
                 headers: HeaderMap::from_iter([(
                     CONTENT_TYPE,

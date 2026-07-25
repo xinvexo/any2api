@@ -243,6 +243,7 @@ fn record(request_id: RequestId) -> CompletedRequestLog {
         request: RequestLog {
             request_id,
             started_at_ms: 1,
+            client_ip: None,
             config_revision: ConfigRevision::INITIAL,
             gateway_api_key_id: None,
             ingress_protocol: ProtocolDialect::OpenAiResponses,

@@ -3,7 +3,7 @@ use crate::settings::{
     definition::{MAX_SETTING_DURATION_SECS, definition as base_definition, duration_definition},
 };
 
-pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::UpstreamReadTimeout => duration_definition(
             key,

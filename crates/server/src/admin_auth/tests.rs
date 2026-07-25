@@ -1,5 +1,5 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -7,13 +7,10 @@ use std::{
 use any2api_domain::{SettingKey, SettingOverrides, SettingValue, SettingsConfiguration};
 use any2api_runtime::api::ProcessLifecycle;
 use async_trait::async_trait;
-use axum::http::{HeaderMap, HeaderValue};
-use ipnet::IpNet;
 use tokio::sync::Barrier;
 
 use super::{
-    AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AdminNetworkPolicy,
-    StoredAdminPasswordHash,
+    AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, StoredAdminPasswordHash,
     session::{SessionKey, SessionRecord, random_bytes},
 };
 
@@ -309,42 +306,6 @@ fn session_record_enforces_idle_and_absolute_deadlines() {
         record
             .authenticate(key, now + Duration::from_secs(121), settings.admin())
             .is_none()
-    );
-}
-
-#[test]
-fn forwarded_headers_only_apply_to_explicit_trusted_proxy_cidrs() {
-    let mut headers = HeaderMap::new();
-    headers.insert("x-forwarded-for", HeaderValue::from_static("203.0.113.8"));
-    headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
-    let peer = SocketAddr::from(([127, 0, 0, 1], 41000));
-
-    let direct = AdminNetworkPolicy::default()
-        .resolve(Some(peer), &headers)
-        .expect("direct source");
-    assert!(direct.is_loopback());
-    assert!(!direct.is_secure());
-
-    let trusted = AdminNetworkPolicy::new(vec!["127.0.0.0/8".parse::<IpNet>().expect("cidr")])
-        .resolve(Some(peer), &headers)
-        .expect("trusted source");
-    assert_eq!(
-        trusted.client_ip(),
-        "203.0.113.8".parse::<IpAddr>().expect("ip")
-    );
-    assert!(trusted.is_secure());
-    assert!(trusted.through_trusted_proxy());
-
-    headers.insert(
-        "x-forwarded-for",
-        HeaderValue::from_static("127.0.0.1, 203.0.113.8"),
-    );
-    let spoofed = AdminNetworkPolicy::new(vec!["127.0.0.0/8".parse::<IpNet>().expect("cidr")])
-        .resolve(Some(peer), &headers)
-        .expect("trusted chain");
-    assert_eq!(
-        spoofed.client_ip(),
-        "203.0.113.8".parse::<IpAddr>().expect("ip")
     );
 }
 

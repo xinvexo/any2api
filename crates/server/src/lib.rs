@@ -2,6 +2,7 @@ pub mod api;
 
 mod admin;
 mod admin_auth;
+mod client_address;
 mod embedded_web;
 mod health;
 mod public;

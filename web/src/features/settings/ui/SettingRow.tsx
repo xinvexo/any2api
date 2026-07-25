@@ -34,6 +34,7 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
   const describedBy = errorMessage ? `${descriptionId} ${errorId}` : descriptionId;
   const restartHint = reloadLabel(item);
   const showActions = dirty || item.overrideValue !== null;
+  const wideControl = item.valueType === "string_list";
 
   async function submit() {
     if (!dirty || validation.value === null) {
@@ -58,7 +59,9 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
 
   return (
     <form
-      className="grid gap-3 border-b border-subtle px-1 py-3.5 sm:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] sm:items-center sm:gap-6"
+      className={wideControl
+        ? "grid gap-3 border-b border-subtle px-1 py-3.5"
+        : "grid gap-3 border-b border-subtle px-1 py-3.5 sm:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] sm:items-center sm:gap-6"}
       onSubmit={(event) => {
         event.preventDefault();
         void submit();

@@ -1,10 +1,10 @@
-use std::{fs, sync::Arc};
+use std::{fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
-use axum::{body::Body, http::Request};
+use axum::{body::Body, extract::ConnectInfo, http::Request};
 use http_body_util::BodyExt;
 use tempfile::tempdir;
 use tower::ServiceExt;
@@ -164,6 +164,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
             .oneshot(
                 Request::builder()
                     .uri(uri)
+                    .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41_000))))
                     .body(Body::empty())
                     .expect("public api root request"),
             )

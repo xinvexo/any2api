@@ -9,7 +9,7 @@ use crate::settings::{
 
 const FILE_LOG_LEVELS: &[&str] = &["error", "warn", "info", "debug", "trace"];
 
-pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
+pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::LogsRequestEnabled => setting_definition(
             key,
@@ -74,7 +74,7 @@ pub(super) const fn definition(key: SettingKey) -> SettingDefinition {
     }
 }
 
-const fn integer(
+fn integer(
     key: SettingKey,
     default: u64,
     min: u64,
