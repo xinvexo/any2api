@@ -409,8 +409,8 @@
 - `/v1/models` 已合并 OAuth-only 模型；请求规划可在没有 ProviderEndpoint/ProviderCredential 时使用 OAuth 固定路由，同模型 API Key 与 OAuth 账号进入同一候选池。账号到期状态按请求时间动态判断，过期账号不进入目录或调度。
 - RequestLog/Attempt 使用独立 `oauth_account_id` 标识 OAuth 来源，`credential_id` 与内部固定 `provider_endpoint_id` 保持为空；Balancing、Affinity 与对应 Web 契约均使用来源标签，OAuth 清理令牌固定为 `oauth_account:<uuid>`。
 - Provider API Key 与 OAuthAccount 管理响应新增按带来源标签的最终 RequestLog 聚合：总请求、成功、失败和最近 24 次状态；中间重试只保留在 Attempt 时间线，不重复计数。该统计与 Gateway API Key 统计并存，只覆盖日志保留窗口且不参与路由、额度或计费。
-- SettingRegistry 新增 `oauth.refresh.scan_interval=30s` 与 `oauth.refresh.lead_time=300s`，要求提前窗口不短于扫描间隔；Worker 启动即扫描并由快照 revision 唤醒，配置热更新后重新读取账号和生效值。
-- 单进程 Worker 与请求侧共用 per-account singleflight gate；并发等待者共享成功或失败，拿锁后复核 token version。成功刷新保留模型/管理元数据和 Provider 未返回的稳定 Token 字段，通过 SQLite token-version CAS、Runtime reconcile 与单次快照切换发布新认证 generation。
+- SettingRegistry 新增 `oauth.refresh.scan_interval=30s` 与 `oauth.refresh.lead_time=300s`，要求提前窗口不短于扫描间隔；Worker 启动即扫描并由快照 revision 唤醒，配置热更新后重新读取账号和生效值。定时扫描覆盖启用和停用账号，`enabled=false` 只移除路由资格，不停止 Token 保活；删除账号才终止刷新。
+- 单进程 Worker 与请求侧共用 per-account singleflight gate；并发等待者共享成功或失败，拿锁后复核 token version。成功刷新保留启用状态、模型/管理元数据和 Provider 未返回的稳定 Token 字段，通过 SQLite token-version CAS、Runtime reconcile 与单次快照切换发布新认证 generation；停用账号刷新后仍不进入路由候选。完整决策见 `docs/adr/0048-disabled-oauth-token-keepalive.md`。
 - OAuth 账号返回 retry-safe 401 时，仅在下游仍为 Pending 且重试预算允许时触发一次刷新；刷新成功或并发请求已更新账号后，基于新 PublishedSnapshot 完整重建候选。第二个 401、Ambiguous、刷新失败或提交后错误都不会再次刷新或发送第三条 Attempt。
 - 刷新响应省略到期时间时继续使用 SQLite 账号的旧到期边界，禁止把有限 Token 误变成永不过期；Token Endpoint 和数据面始终使用 DIRECT/全局代理，失败无隐式直连回退。Worker 在 Draining 退出，已经进入串行发布的 CAS 按关键任务边界完成或在 Forced 取消。
 - Codex OAuth 账号新增 `GET /api/admin/oauth/accounts/{id}/quota` 与 `POST /api/admin/oauth/accounts/{id}/quota/reset`；Provider 固定调用 ChatGPT `wham/usage`、reset-credit 查询和 consume Endpoint，Runtime 复用 OAuth 代理/严格 SSRF、401 单次刷新和有界正文读取。

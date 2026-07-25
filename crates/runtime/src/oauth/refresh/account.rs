@@ -86,9 +86,7 @@ impl OAuthRefresher {
         if waited_for_flight {
             return Ok(RefreshResult::Unavailable);
         }
-        if !account.enabled()
-            || (trigger == RefreshTrigger::Scheduled && !is_due(account.expires_at(), lead_time))
-        {
+        if trigger == RefreshTrigger::Scheduled && !is_due(account.expires_at(), lead_time) {
             return Ok(RefreshResult::Unavailable);
         }
         let token = snapshot

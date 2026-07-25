@@ -68,6 +68,7 @@
 - Codex `previous_response_id` 是硬粘性，绑定 Credential、Route Target、上游模型和协议方言。
 - 普通会话是软粘性，支持 `prefer` 和 `strict`。
 - 会话、RPM 窗口、`in_flight`、排队、冷却和熔断仅保存在内存；进程重启后全部清空。
+- `OAuthAccount.enabled` 只控制路由资格；停用账号仍参与到期前 Token 刷新以保持认证存活，只有删除账号才终止定时保活。
 - 旧 `previous_response_id` 在重启后没有绑定时返回 `session_binding_lost`，禁止猜测 Credential。
 - 只有 `Pending` 且 RetrySafety 允许时才能重试或切换上游。
 - 一旦向客户端写出 HTTP 响应头或任何字节，永久禁止切换上游。

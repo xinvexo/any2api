@@ -123,6 +123,39 @@ async fn refresh_without_expiry_preserves_the_persisted_fail_closed_boundary() {
 }
 
 #[tokio::test]
+async fn disabled_account_refreshes_and_remains_unroutable() {
+    let transport = Arc::new(BlockingRefreshTransport::new());
+    let context = RefreshTestContext::with_account_enabled(Arc::clone(&transport), false).await;
+    let id = context.account_id.expect("OAuth account");
+    transport.release();
+
+    assert_eq!(
+        context
+            .refresher
+            .refresh_if_due(id, 1)
+            .await
+            .expect("refresh result"),
+        Some(2)
+    );
+
+    let published = context.snapshots.load();
+    let account = published
+        .oauth_accounts()
+        .get(id)
+        .expect("refreshed account");
+    assert!(!account.enabled());
+    assert_eq!(account.token_version(), 2);
+    let routing = published
+        .routing_credentials()
+        .iter()
+        .find(|credential| credential.id() == id.into())
+        .expect("OAuth routing projection");
+    assert!(!routing.enabled());
+    assert!(!routing.routable());
+    assert_eq!(transport.calls(), 1);
+}
+
+#[tokio::test]
 async fn concurrent_waiter_shares_a_failed_refresh_without_a_second_request() {
     let transport = Arc::new(BlockingRefreshTransport::with_status(
         StatusCode::BAD_REQUEST,
@@ -162,6 +195,10 @@ struct RefreshTestContext {
 
 impl RefreshTestContext {
     async fn with_account(transport: Arc<BlockingRefreshTransport>) -> Self {
+        Self::with_account_enabled(transport, true).await
+    }
+
+    async fn with_account_enabled(transport: Arc<BlockingRefreshTransport>, enabled: bool) -> Self {
         let directory = tempfile::tempdir().expect("temporary directory");
         let storage = Arc::new(
             SqliteStore::connect(&directory.path().join("oauth-refresh.sqlite3"))
@@ -175,7 +212,7 @@ impl RefreshTestContext {
                 initial.revision(),
                 account_id,
                 ProviderKind::Codex,
-                OAuthAccountDraft::new("Codex OAuth", None, true).expect("OAuth draft"),
+                OAuthAccountDraft::new("Codex OAuth", None, enabled).expect("OAuth draft"),
                 Some("person@example.com".into()),
                 Some(0),
                 vec!["gpt-5.5".into()],

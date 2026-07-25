@@ -88,7 +88,6 @@ impl OAuthRefresher {
             .oauth_accounts()
             .accounts()
             .iter()
-            .filter(|account| account.enabled())
             .filter(|account| is_due(account.expires_at(), lead_time))
             .map(|account| (account.id(), account.token_version()))
             .collect::<Vec<_>>();

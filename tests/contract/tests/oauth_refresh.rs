@@ -29,7 +29,7 @@ use http::{HeaderMap, StatusCode, header::AUTHORIZATION};
 use tempfile::tempdir;
 
 #[tokio::test]
-async fn oauth_refresh_worker_wakes_on_publication_and_stops_with_the_process() {
+async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_process() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("oauth-refresh.sqlite3"))
@@ -69,7 +69,7 @@ async fn oauth_refresh_worker_wakes_on_publication_and_stops_with_the_process() 
         .activate_oauth_account(
             account_id,
             ProviderKind::Codex,
-            OAuthAccountDraft::new("Codex OAuth", None, true).expect("OAuth draft"),
+            OAuthAccountDraft::new("Codex OAuth", None, false).expect("OAuth draft"),
             Some("person@example.com".into()),
             Some(0),
             vec!["gpt-5.5".into()],
@@ -103,6 +103,7 @@ async fn oauth_refresh_worker_wakes_on_publication_and_stops_with_the_process() 
     assert_eq!(account.token_version(), 2);
     assert_eq!(account.account_generation(), 2);
     assert_eq!(account.config_version(), 1);
+    assert!(!account.enabled());
     assert_eq!(account.safe_account_email(), Some("person@example.com"));
     assert_eq!(account.models()[0].as_str(), "gpt-5.5");
     assert_eq!(transport.calls(), 1);

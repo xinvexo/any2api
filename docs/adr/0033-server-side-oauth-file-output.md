@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-24
 - Supersedes: ADR-0031's browser-download and data-plane isolation decisions
-- Amended by: ADR-0037 (single optional RPM), ADR-0041 (Grok OAuthAccount), ADR-0044 (Provider OAuth JSON import)
+- Amended by: ADR-0037 (single optional RPM), ADR-0041 (Grok OAuthAccount), ADR-0044 (Provider OAuth JSON import), ADR-0048 (disabled-account token keepalive)
 
 > Current-state note: references below to configurable concurrency were replaced by the single optional RPM model in ADR-0037. Provider-specific JSON import is now implemented by ADR-0044; OAuth JSON export remains prohibited.
 
@@ -63,7 +63,7 @@ SQLite transaction writes OAuthAccount metadata + Provider JSON
 
 `POST /api/admin/oauth/exchange` returns `Cache-Control: no-store` JSON containing only Provider, OAuth account ID, safe account metadata, selected model count, and the new PublishedSnapshot revision. It never returns token fields or triggers a browser download.
 
-A single process-level worker scans enabled accounts approaching expiry. `oauth.refresh.scan_interval` defaults to 30 seconds and `oauth.refresh.lead_time` defaults to 300 seconds; both are hot-reload SettingRegistry values and the lead time must not be shorter than the scan interval. Startup and PublishedSnapshot revision changes wake the worker so it always rescans the current account set and current effective settings.
+A single process-level worker scans accounts approaching expiry. ADR-0048 extends this scan to disabled accounts because `enabled` controls routing eligibility rather than token keepalive. `oauth.refresh.scan_interval` defaults to 30 seconds and `oauth.refresh.lead_time` defaults to 300 seconds; both are hot-reload SettingRegistry values and the lead time must not be shorter than the scan interval. Startup and PublishedSnapshot revision changes wake the worker so it always rescans the current account set and current effective settings.
 
 Refresh uses the account's actual DIRECT resolution, including the global proxy, and a per-account singleflight gate. The gate reloads and compares token version after acquisition, so a stale refresh result cannot overwrite a newer login. Provider parsing preserves refresh responses' omitted stable refresh token, ID token, account identity, email, and the prior expiry as a fail-closed fallback. Successful refresh uses token-version CAS, preserves account metadata and selected models, creates a new routing generation, and completes one serialized snapshot publication.
 
