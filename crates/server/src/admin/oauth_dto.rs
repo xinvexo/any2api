@@ -2,91 +2,12 @@ use any2api_domain::{
     ConfigRevision, OAuthAccount, OAuthAccountDraft, OAuthAccountId, ProviderKind,
     RequestsPerMinute, RoutingCredentialId,
 };
-use any2api_runtime::api::{
-    OAuthActivationResult, OAuthStartResult, PublishedSnapshot, UpstreamCredentialUsageSummary,
-};
+use any2api_runtime::api::{PublishedSnapshot, UpstreamCredentialUsageSummary};
 use serde::{Deserialize, Serialize};
 
 use super::{
     error::AdminApiError, revision::parse_revision, upstream_usage::UpstreamCredentialUsageResponse,
 };
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct OAuthStartRequest {
-    provider: ProviderKind,
-}
-
-impl OAuthStartRequest {
-    pub(super) const fn provider(&self) -> ProviderKind {
-        self.provider
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct OAuthStartResponse {
-    provider: ProviderKind,
-    session_id: String,
-    authorization_url: String,
-    redirect_uri: &'static str,
-    expires_in_seconds: u64,
-}
-
-impl From<OAuthStartResult> for OAuthStartResponse {
-    fn from(result: OAuthStartResult) -> Self {
-        Self {
-            provider: result.provider(),
-            session_id: result.session_id().to_owned(),
-            authorization_url: result.authorization_url().to_owned(),
-            redirect_uri: result.redirect_uri(),
-            expires_in_seconds: result.expires_in_seconds(),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct OAuthExchangeRequest {
-    session_id: String,
-    callback_url: String,
-}
-
-impl OAuthExchangeRequest {
-    pub(super) fn into_parts(self) -> (String, String) {
-        (self.session_id, self.callback_url)
-    }
-}
-
-#[derive(Debug, Serialize)]
-pub(super) struct OAuthExchangeResponse {
-    provider: ProviderKind,
-    account_id: OAuthAccountId,
-    label: String,
-    requests_per_minute: Option<u32>,
-    enabled: bool,
-    safe_account_email: Option<String>,
-    expires_at: Option<i64>,
-    selected_model_count: usize,
-    config_version: u64,
-    config_revision: u64,
-}
-
-impl From<OAuthActivationResult> for OAuthExchangeResponse {
-    fn from(result: OAuthActivationResult) -> Self {
-        Self {
-            provider: result.provider(),
-            account_id: result.account_id(),
-            label: result.label().to_owned(),
-            requests_per_minute: result.requests_per_minute().map(RequestsPerMinute::get),
-            enabled: result.enabled(),
-            safe_account_email: result.safe_account_email().map(str::to_owned),
-            expires_at: result.expires_at(),
-            selected_model_count: result.selected_model_count(),
-            config_version: result.config_version(),
-            config_revision: result.config_revision().get(),
-        }
-    }
-}
 
 #[derive(Debug, Serialize)]
 pub(super) struct OAuthAccountCollectionResponse {

@@ -4,6 +4,7 @@
 - 日期：2026-07-25
 - 决策人：项目维护者
 - 取代：ADR-0040 中“Grok 不进入 OAuthAccount”的阶段性边界
+- 部分取代：登录方式已由 ADR-0043 改为 Device Authorization Grant；其余存储、数据面与路由决策继续有效
 
 ## 背景
 

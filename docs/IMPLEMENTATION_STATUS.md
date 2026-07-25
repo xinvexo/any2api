@@ -6,7 +6,7 @@
 ## 当前状态
 
 - 当前阶段：API Key 数据面、OpenAI 协议桥、Grok API Key Provider 和 OAuth2 核心链路已完成；OAuthAccount 已覆盖登录、SQLite 持久化、统一路由、定时/401 刷新、Codex 额度查询/重置和管理 Web，正在收尾带真实账号夹具的浏览器验收。
-- 最近完成：Grok OAuthAccount 通过 PKCE 登录、明文 SQLite 持久化、刷新与统一路由候选池接入；Grok API Key 与 OAuth 管理模型保持分离，仅在通用 `RoutingCredential` 投影处合流。
+- 最近完成：Grok OAuthAccount 改用 xAI Device Authorization Grant 登录，device code 仅保存在服务端内存并由管理 Web 自动轮询；明文 SQLite 持久化、刷新、统一路由候选池以及 API Key/OAuth 管理隔离保持不变。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -395,7 +395,7 @@
 ### OAuthAccount 与统一路由切片（核心完成）
 
 - `ProviderCredential` 继续只接受 `api_key`；旧 OAuth Credential migration 保持不可变，Provider 页面不增加 OAuth 类型或入口。
-- OAuth 登录使用 Codex/Claude/Grok Provider Driver 的固定 authorize/token Endpoint、Client ID、localhost Redirect URI、PKCE 及内存单次 session；HTTP exchange 不产生附件下载，并通过串行发布链创建 SQLite `OAuthAccount`。
+- OAuth 登录由 Provider Driver 显式声明流程：Codex/Claude 使用固定 authorize/token Endpoint、localhost Redirect URI、PKCE 与内存单次 session；Grok 使用固定 device/token Endpoint、内存 device-code session 和显式 poll API。两种流程都不产生附件下载，并通过同一串行发布链创建 SQLite `OAuthAccount`。
 - 已新增独立 `OAuthAccount` SQLite 聚合，明文保存 Provider JSON、账号安全元数据、模型、启用状态、可选 RPM、token/configuration/generation 版本；原始 JSON 不进 Vault、日志、DTO、浏览器状态或导出接口。
 - Storage 已实现全局 revision 串行写、账号 config-version 冲突、token-version CAS、刷新时模型保留、DIRECT 固定绑定、重启恢复和损坏 JSON fail-closed；ProviderCredential 表与 API-key-only 约束未改变。
 - 激活使用发布快照解析后的 DIRECT/全局代理并继承严格 SSRF 设置，失败不回退本机直连；多个同时完成的登录在发布锁内逐个读取最新 revision，均可完成 Commit/reconcile/快照切换。
@@ -424,7 +424,7 @@
 - Codex 与 Grok 共享具名 OpenAI 错误分类和 Bearer Header 构造，Claude 保持独立 Anthropic 行为；Provider Secret Vault 为 Grok 固定分配稳定 AAD code `3`。
 - Migration 0024 前向重建受 `provider_endpoints` 外键影响的配置与日志表，完整保留 Credential、模型、Route、RequestLog、Attempt、索引和外键；既有 Migration 未修改，migration 16 升级回归与 `foreign_key_check` 已覆盖。
 - Migration 0025 前向重建 OAuthAccount 与请求日志相关外键图，在保留账号、模型、RequestLog、Attempt、索引和级联语义的同时允许 Grok；既有 Migration 不修改，`foreign_key_check` 与升级回归已覆盖。
-- Grok OAuth 使用 Authorization Code + PKCE，固定 xAI CLI authorize/token Endpoint、Client ID、localhost callback、scope、数据面与身份头；Token 原始 JSON 作为独立 `OAuthAccount` 明文保存在 SQLite，不进入 Vault、管理 DTO、日志、浏览器状态或下载文件。
+- Grok OAuth 使用 Device Authorization Grant，固定 xAI CLI device/token Endpoint、Client ID、scope、数据面与身份头；Provider 分类 pending/slow-down/拒绝/过期，Web 展示 user code 并按服务端间隔自动轮询。device code 只在服务端内存，Token 原始 JSON 作为独立 `OAuthAccount` 明文保存在 SQLite，不进入 Vault、管理 DTO、日志、浏览器状态或下载文件。
 - Grok OAuth 首版只参与 Responses；API Key 与 OAuthAccount 仍通过同一 Registry 和通用 `RoutingCredential` 投影复用 RPM、排队、粘性、健康、重试、代理和流式生命周期，不复制第二套调度实现。
 - Provider 源码按 `codex/`、`claude/`、`grok/` feature 目录归档；Provider 根目录只保留跨 Provider 的稳定 API、Registry、错误、Secret 与 OAuth/Routing 通用模块。
 - Provider Web 增加 Grok 分类、xAI 默认地址与三列窄屏切换；总览聚合与请求日志空态识别 Grok，不展示逐账号运行态详情。完整决策见 `docs/adr/0040-grok-api-key-provider.md`。
@@ -470,4 +470,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、架构检查和 `cargo deny --offline check`。Web 已通过 typecheck、lint、123 项 Vitest、production build、内嵌产物一致性检查与 3 项真实 Chromium E2E。Grok 回归覆盖 Driver/Registry、Bearer 认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、migration 16→24、migration 23 完整引用图保留和 `foreign_key_check`；登录页样式已按画布、表单与环境动效拆分，消除既有 `globals.css` 文件体积门禁。
+当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex 额度管理、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、架构检查和 `cargo deny --offline check`。Web 已通过 typecheck、lint、129 项 Vitest、production build、内嵌产物一致性检查与 3 项真实 Chromium E2E。Grok 回归覆盖 Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、migration 16→24、migration 23 完整引用图保留和 `foreign_key_check`；登录页样式已按画布、表单与环境动效拆分，消除既有 `globals.css` 文件体积门禁。

@@ -60,6 +60,7 @@ async fn oauth_start_is_loopback_protected_and_does_not_publish_configuration() 
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(start["provider"], "codex");
+    assert_eq!(start["flow"], "authorization_code");
     assert!(
         start["authorization_url"]
             .as_str()
@@ -78,21 +79,97 @@ async fn oauth_start_is_loopback_protected_and_does_not_publish_configuration() 
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(grok_start["provider"], "grok");
-    assert!(
-        grok_start["authorization_url"]
-            .as_str()
-            .is_some_and(|url| url.starts_with("https://auth.x.ai/oauth2/authorize?"))
+    assert_eq!(grok_start["flow"], "device_code");
+    assert_eq!(grok_start["user_code"], "ABCD-1234");
+    assert_eq!(
+        grok_start["verification_uri"],
+        "https://accounts.x.ai/oauth2/device"
     );
     assert_eq!(
-        grok_start["redirect_uri"],
-        "http://127.0.0.1:56121/callback"
+        grok_start["verification_uri_complete"],
+        "https://accounts.x.ai/oauth2/device?user_code=ABCD-1234"
     );
-    assert_eq!(grok_start["expires_in_seconds"], 600);
+    assert_eq!(grok_start["expires_in_seconds"], 1_800);
+    assert_eq!(grok_start["poll_interval_seconds"], 5);
+    assert!(grok_start.get("device_code").is_none());
+    assert!(grok_start.get("redirect_uri").is_none());
 
     let configuration = storage.load_configuration().await.expect("configuration");
     assert_eq!(configuration.revision().get(), 1);
     assert!(configuration.provider_endpoints().endpoints().is_empty());
     drop(directory);
+}
+
+#[tokio::test]
+async fn grok_device_poll_activates_sqlite_account_without_exposing_tokens() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let (status, start) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/oauth/start",
+        Some(json!({"provider": "grok"})),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = start["session_id"].as_str().expect("device session id");
+
+    let response = request(
+        app.clone(),
+        Method::POST,
+        "/api/admin/oauth/device/poll",
+        Some(json!({"session_id": session_id})),
+        loopback,
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(
+        response
+            .headers
+            .get(CACHE_CONTROL)
+            .and_then(|value| value.to_str().ok()),
+        Some("no-store")
+    );
+    let poll: Value = serde_json::from_slice(&response.body).expect("poll response");
+    assert_eq!(poll["status"], "complete");
+    assert_eq!(poll["account"]["provider"], "grok");
+    assert_eq!(poll["account"]["safe_account_email"], "grok@example.com");
+    assert_eq!(poll["account"]["selected_model_count"], 7);
+    let text = String::from_utf8(response.body.to_vec()).expect("UTF-8 response");
+    assert!(!text.contains("device-secret"));
+    assert!(!text.contains("grok-access-token"));
+    assert!(!text.contains("grok-refresh-token"));
+
+    let stored = storage.load_configuration().await.expect("configuration");
+    let account = stored
+        .oauth_accounts()
+        .accounts()
+        .first()
+        .expect("persisted Grok OAuth account");
+    assert_eq!(account.provider_kind(), any2api_domain::ProviderKind::Grok);
+    assert_eq!(account.models().len(), 7);
+    let mut materials = stored.into_parts().oauth_account_materials.into_entries();
+    let document = materials
+        .pop()
+        .expect("Grok OAuth document")
+        .into_document()
+        .into_bytes();
+    let document: Value =
+        serde_json::from_slice(document.expose_secret()).expect("stored Grok document");
+    assert_eq!(document["type"], "grok");
+    assert_eq!(document["access_token"], "grok-access-token");
+
+    let (status, replay) = request_json(
+        app,
+        Method::POST,
+        "/api/admin/oauth/device/poll",
+        Some(json!({"session_id": session_id})),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(replay["error"]["code"], "oauth_session_invalid");
 }
 
 #[tokio::test]
@@ -321,7 +398,8 @@ async fn request(
 
 #[derive(Default)]
 struct TokenTransport {
-    called: AtomicBool,
+    codex_exchanged: AtomicBool,
+    grok_polled: AtomicBool,
 }
 
 #[async_trait]
@@ -332,16 +410,54 @@ impl TransportManager for TokenTransport {
         request: TransportRequest,
     ) -> Result<TransportResponse, any2api_transport::api::TransportError> {
         assert_eq!(proxy.profile().id(), ProxyProfileId::DIRECT);
-        assert_eq!(request.uri.host(), Some("auth.openai.com"));
-        assert!(!self.called.swap(true, Ordering::SeqCst));
+        let body = match (request.uri.host(), request.uri.path()) {
+            (Some("auth.openai.com"), "/oauth/token") => {
+                assert!(!self.codex_exchanged.swap(true, Ordering::SeqCst));
+                bytes::Bytes::from_static(
+                    br#"{"access_token":"access-token","refresh_token":"refresh-token","id_token":"header.eyJlbWFpbCI6InBlcnNvbkBleGFtcGxlLmNvbSIsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2NvdW50LTEyMyIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyJ9fQ.signature","expires_in":3600}"#,
+                )
+            }
+            (Some("auth.x.ai"), "/oauth2/device/code") => {
+                let form: std::collections::HashMap<_, _> =
+                    url::form_urlencoded::parse(&request.body)
+                        .into_owned()
+                        .collect();
+                assert_eq!(
+                    form.get("client_id").map(String::as_str),
+                    Some("b1a00492-073a-47ea-816f-4c329264a828")
+                );
+                assert_eq!(
+                    form.get("scope").map(String::as_str),
+                    Some("openid profile email offline_access grok-cli:access api:access")
+                );
+                bytes::Bytes::from_static(
+                    br#"{"device_code":"device-secret","user_code":"ABCD-1234","verification_uri":"https://accounts.x.ai/oauth2/device","verification_uri_complete":"https://accounts.x.ai/oauth2/device?user_code=ABCD-1234","expires_in":1800,"interval":5}"#,
+                )
+            }
+            (Some("auth.x.ai"), "/oauth2/token") => {
+                assert!(!self.grok_polled.swap(true, Ordering::SeqCst));
+                let form: std::collections::HashMap<_, _> =
+                    url::form_urlencoded::parse(&request.body)
+                        .into_owned()
+                        .collect();
+                assert_eq!(
+                    form.get("grant_type").map(String::as_str),
+                    Some("urn:ietf:params:oauth:grant-type:device_code")
+                );
+                assert_eq!(
+                    form.get("device_code").map(String::as_str),
+                    Some("device-secret")
+                );
+                bytes::Bytes::from_static(
+                    br#"{"access_token":"grok-access-token","refresh_token":"grok-refresh-token","id_token":"header.eyJlbWFpbCI6Imdyb2tAZXhhbXBsZS5jb20iLCJzdWIiOiJncm9rLXN1YmplY3QifQ.signature","expires_in":3600}"#,
+                )
+            }
+            target => panic!("unexpected OAuth request target: {target:?}"),
+        };
         Ok(TransportResponse {
             status: StatusCode::OK,
             headers: HeaderMap::new(),
-            body: Box::pin(futures_util::stream::once(async {
-                Ok(bytes::Bytes::from_static(
-                    br#"{"access_token":"access-token","refresh_token":"refresh-token","id_token":"header.eyJlbWFpbCI6InBlcnNvbkBleGFtcGxlLmNvbSIsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2NvdW50LTEyMyIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyJ9fQ.signature","expires_in":3600}"#,
-                ))
-            })),
+            body: Box::pin(futures_util::stream::once(async { Ok(body) })),
             read_failure_scope: TransportFailureScope::Endpoint,
         })
     }

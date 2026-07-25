@@ -3,6 +3,7 @@ import { requestJson } from "@/shared/api/http-client";
 import {
   parseOAuthActivationResult,
   parseOAuthAccountConfiguration,
+  parseOAuthDevicePollResult,
   parseOAuthStartResult,
   type OAuthAccountUpdateInput,
   type OAuthProvider,
@@ -16,6 +17,7 @@ export function startOAuthLogin(provider: OAuthProvider) {
   return requestJson<unknown>("/api/admin/oauth/start", {
     method: "POST",
     body: { provider },
+    timeoutMs: 35_000,
   }).then(parseOAuthStartResult);
 }
 
@@ -27,6 +29,15 @@ export function exchangeOAuthCallback(sessionId: string, callbackUrl: string) {
       callback_url: callbackUrl,
     },
   }).then(parseOAuthActivationResult);
+}
+
+export function pollOAuthDevice(sessionId: string, signal?: AbortSignal) {
+  return requestJson<unknown>("/api/admin/oauth/device/poll", {
+    method: "POST",
+    body: { session_id: sessionId },
+    signal,
+    timeoutMs: 35_000,
+  }).then(parseOAuthDevicePollResult);
 }
 
 const accountCollection = "/api/admin/oauth/accounts";

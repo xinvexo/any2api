@@ -4,10 +4,12 @@ use any2api_domain::{
     ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TransportMode,
 };
 use base64::Engine as _;
-use http::{header::AUTHORIZATION, header::CONTENT_TYPE};
+use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::GrokDriver;
-use crate::{OAuthGrant, ProviderSecret, api::ProviderDriver};
+use crate::{
+    OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, ProviderSecret, api::ProviderDriver,
+};
 
 #[test]
 fn builds_xai_paths_and_bearer_authentication() {
@@ -56,10 +58,8 @@ fn builds_xai_paths_and_bearer_authentication() {
             .transport_modes
             .contains(&TransportMode::Sse)
     );
-    assert_eq!(
-        driver.oauth_redirect_uri(),
-        Some("http://127.0.0.1:56121/callback")
-    );
+    assert_eq!(driver.oauth_login_flow(), Some(OAuthLoginFlow::DeviceCode));
+    assert_eq!(driver.oauth_redirect_uri(), None);
 }
 
 #[test]
@@ -75,27 +75,44 @@ fn rejects_anthropic_operations() {
 }
 
 #[test]
-fn builds_grok_pkce_and_refresh_requests() {
+fn builds_grok_device_authorization_and_refresh_requests() {
     let driver = GrokDriver::new();
     let authorization = driver
-        .oauth_authorization_url("state-value", "challenge-value")
-        .expect("authorization URL");
-    let query: std::collections::HashMap<_, _> = authorization.query_pairs().into_owned().collect();
-    assert_eq!(query.get("state").map(String::as_str), Some("state-value"));
-    assert_eq!(query.get("nonce").map(String::as_str), Some("state-value"));
+        .oauth_device_authorization_request()
+        .expect("device authorization request");
     assert_eq!(
-        query.get("scope").map(String::as_str),
+        authorization.url.as_str(),
+        "https://auth.x.ai/oauth2/device/code"
+    );
+    assert_eq!(
+        authorization.headers[CONTENT_TYPE],
+        "application/x-www-form-urlencoded"
+    );
+    let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&authorization.body)
+        .into_owned()
+        .collect();
+    assert_eq!(
+        form.get("client_id").map(String::as_str),
+        Some("b1a00492-073a-47ea-816f-4c329264a828")
+    );
+    assert_eq!(
+        form.get("scope").map(String::as_str),
         Some("openid profile email offline_access grok-cli:access api:access")
     );
 
-    let exchange = driver
-        .oauth_token_request(
-            OAuthGrant::AuthorizationCode,
-            "authorization-code",
-            None,
-            Some("verifier-value"),
+    let device = driver
+        .parse_oauth_device_authorization(
+            br#"{"device_code":"device-secret","user_code":"ABCD-1234","verification_uri":"https://accounts.x.ai/oauth2/device","verification_uri_complete":"https://accounts.x.ai/oauth2/device?user_code=ABCD-1234","expires_in":1800,"interval":2}"#,
         )
-        .expect("exchange request");
+        .expect("device authorization response");
+    assert_eq!(device.user_code(), "ABCD-1234");
+    assert_eq!(device.poll_interval_seconds(), 5);
+    assert_eq!(device.expires_in_seconds(), 1800);
+    assert!(!format!("{device:?}").contains("device-secret"));
+
+    let exchange = driver
+        .oauth_device_token_request(device.device_code())
+        .expect("device token request");
     assert_eq!(
         exchange.headers[CONTENT_TYPE],
         "application/x-www-form-urlencoded"
@@ -104,14 +121,19 @@ fn builds_grok_pkce_and_refresh_requests() {
         .into_owned()
         .collect();
     assert_eq!(
-        form.get("code").map(String::as_str),
-        Some("authorization-code")
+        form.get("grant_type").map(String::as_str),
+        Some("urn:ietf:params:oauth:grant-type:device_code")
     );
     assert_eq!(
-        form.get("code_verifier").map(String::as_str),
-        Some("verifier-value")
+        form.get("device_code").map(String::as_str),
+        Some("device-secret")
     );
-    assert!(!format!("{exchange:?}").contains("verifier-value"));
+    assert!(!format!("{exchange:?}").contains("device-secret"));
+    assert!(
+        driver
+            .oauth_token_request(OAuthGrant::AuthorizationCode, "code", None, None)
+            .is_err()
+    );
 
     let refresh = driver
         .oauth_token_request(OAuthGrant::RefreshToken, "refresh-secret", None, None)
@@ -128,6 +150,50 @@ fn builds_grok_pkce_and_refresh_requests() {
         Some("refresh-secret")
     );
     assert!(!format!("{refresh:?}").contains("refresh-secret"));
+}
+
+#[test]
+fn classifies_grok_device_poll_responses() {
+    let driver = GrokDriver::new();
+    assert!(matches!(
+        driver
+            .parse_oauth_device_token(
+                StatusCode::BAD_REQUEST,
+                br#"{"error":"authorization_pending"}"#,
+            )
+            .expect("pending response"),
+        OAuthDeviceTokenPoll::Pending
+    ));
+    assert!(matches!(
+        driver
+            .parse_oauth_device_token(StatusCode::BAD_REQUEST, br#"{"error":"slow_down"}"#)
+            .expect("slow-down response"),
+        OAuthDeviceTokenPoll::SlowDown
+    ));
+    assert!(matches!(
+        driver
+            .parse_oauth_device_token(StatusCode::BAD_REQUEST, br#"{"error":"access_denied"}"#)
+            .expect("denied response"),
+        OAuthDeviceTokenPoll::Denied
+    ));
+    assert!(matches!(
+        driver
+            .parse_oauth_device_token(StatusCode::BAD_REQUEST, br#"{"error":"expired_token"}"#)
+            .expect("expired response"),
+        OAuthDeviceTokenPoll::Expired
+    ));
+
+    let authorized = driver
+        .parse_oauth_device_token(
+            StatusCode::OK,
+            br#"{"access_token":"access-secret","refresh_token":"refresh-secret"}"#,
+        )
+        .expect("authorized response");
+    let OAuthDeviceTokenPoll::Authorized(token) = authorized else {
+        panic!("expected an authorized token")
+    };
+    assert_eq!(token.provider(), ProviderKind::Grok);
+    assert!(!format!("{token:?}").contains("access-secret"));
 }
 
 #[test]

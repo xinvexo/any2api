@@ -9,6 +9,7 @@ use url::Url;
 
 pub use crate::codex::oauth_plan_label as codex_oauth_plan_label;
 pub use crate::oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_document};
+pub use crate::oauth_device::{OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthLoginFlow};
 pub use crate::oauth_quota::{
     OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
     OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,
@@ -64,6 +65,10 @@ pub trait ProviderDriver: Send + Sync {
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError>;
 
+    fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {
+        None
+    }
+
     fn oauth_redirect_uri(&self) -> Option<&'static str> {
         None
     }
@@ -87,6 +92,40 @@ pub trait ProviderDriver: Send + Sync {
     ) -> Result<OAuthRequestPlan, ProviderError> {
         Err(ProviderError::InvalidCredential(
             "OAuth2 is not supported by this provider".into(),
+        ))
+    }
+
+    fn oauth_device_authorization_request(&self) -> Result<OAuthRequestPlan, ProviderError> {
+        Err(ProviderError::InvalidCredential(
+            "OAuth device authorization is not supported by this provider".into(),
+        ))
+    }
+
+    fn parse_oauth_device_authorization(
+        &self,
+        _body: &[u8],
+    ) -> Result<OAuthDeviceAuthorization, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth device authorization is not supported by this provider".into(),
+        ))
+    }
+
+    fn oauth_device_token_request(
+        &self,
+        _device_code: &str,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        Err(ProviderError::InvalidCredential(
+            "OAuth device authorization is not supported by this provider".into(),
+        ))
+    }
+
+    fn parse_oauth_device_token(
+        &self,
+        _status: StatusCode,
+        _body: &[u8],
+    ) -> Result<OAuthDeviceTokenPoll, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth device authorization is not supported by this provider".into(),
         ))
     }
 

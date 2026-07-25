@@ -20,8 +20,8 @@ pub use crate::gateway_api_key_token::{
 };
 pub use crate::logging_reconciler::LoggingSettingsReconciler;
 pub use crate::oauth::{
-    OAuthActivationResult, OAuthError, OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot,
-    OAuthService, OAuthStartResult,
+    OAuthActivationResult, OAuthDevicePollResult, OAuthError, OAuthQuotaError,
+    OAuthQuotaResetOutcome, OAuthQuotaSnapshot, OAuthService, OAuthStartFlow, OAuthStartResult,
 };
 pub use crate::process_lifecycle::{ActiveRequestGuard, ProcessLifecycle, ShutdownPhase};
 pub use crate::provider_api_key_secret::ProviderApiKeySecret;

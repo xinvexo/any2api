@@ -5,13 +5,25 @@ use any2api_domain::{
 pub struct OAuthStartResult {
     provider: ProviderKind,
     session_id: String,
-    authorization_url: String,
-    redirect_uri: &'static str,
     expires_in_seconds: u64,
+    flow: OAuthStartFlow,
+}
+
+pub enum OAuthStartFlow {
+    AuthorizationCode {
+        authorization_url: String,
+        redirect_uri: &'static str,
+    },
+    DeviceCode {
+        user_code: String,
+        verification_uri: String,
+        verification_uri_complete: Option<String>,
+        poll_interval_seconds: u64,
+    },
 }
 
 impl OAuthStartResult {
-    pub(super) fn new(
+    pub(super) fn authorization_code(
         provider: ProviderKind,
         session_id: String,
         authorization_url: String,
@@ -21,36 +33,50 @@ impl OAuthStartResult {
         Self {
             provider,
             session_id,
-            authorization_url,
-            redirect_uri,
             expires_in_seconds,
+            flow: OAuthStartFlow::AuthorizationCode {
+                authorization_url,
+                redirect_uri,
+            },
+        }
+    }
+
+    pub(super) fn device_code(
+        provider: ProviderKind,
+        session_id: String,
+        user_code: String,
+        verification_uri: String,
+        verification_uri_complete: Option<String>,
+        expires_in_seconds: u64,
+        poll_interval_seconds: u64,
+    ) -> Self {
+        Self {
+            provider,
+            session_id,
+            expires_in_seconds,
+            flow: OAuthStartFlow::DeviceCode {
+                user_code,
+                verification_uri,
+                verification_uri_complete,
+                poll_interval_seconds,
+            },
         }
     }
 
     #[must_use]
-    pub const fn provider(&self) -> ProviderKind {
-        self.provider
+    pub fn into_parts(self) -> (ProviderKind, String, u64, OAuthStartFlow) {
+        (
+            self.provider,
+            self.session_id,
+            self.expires_in_seconds,
+            self.flow,
+        )
     }
+}
 
-    #[must_use]
-    pub fn session_id(&self) -> &str {
-        &self.session_id
-    }
-
-    #[must_use]
-    pub fn authorization_url(&self) -> &str {
-        &self.authorization_url
-    }
-
-    #[must_use]
-    pub const fn redirect_uri(&self) -> &'static str {
-        self.redirect_uri
-    }
-
-    #[must_use]
-    pub const fn expires_in_seconds(&self) -> u64 {
-        self.expires_in_seconds
-    }
+pub enum OAuthDevicePollResult {
+    Pending { retry_after_seconds: u64 },
+    Complete(OAuthActivationResult),
 }
 
 pub struct OAuthActivationResult {

@@ -8,8 +8,9 @@ use url::Url;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthLoginFlow,
+        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        UpstreamResponseMeta,
     },
     api_key, openai_error,
 };
@@ -83,6 +84,10 @@ impl ProviderDriver for CodexDriver {
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
         api_key::bearer_credential_headers(secret)
+    }
+
+    fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {
+        Some(OAuthLoginFlow::AuthorizationCodePkce)
     }
 
     fn credential_test_plan(

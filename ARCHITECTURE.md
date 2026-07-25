@@ -296,7 +296,8 @@ any2api/
 │  │  └─ src/
 │  │     ├─ api.rs              # ProviderDriver 与 CapabilitySet
 │  │     ├─ codex/              # driver/auth/oauth/errors/capabilities
-│  │     └─ claude/             # driver/auth/oauth/errors/capabilities
+│  │     ├─ claude/             # driver/auth/oauth/errors/capabilities
+│  │     └─ grok/               # driver/auth/oauth/errors/capabilities
 │  ├─ transport/
 │  │  └─ src/                   # api/direct/http_proxy/socks5/client_pool/error
 │  ├─ runtime/
@@ -307,7 +308,7 @@ any2api/
 │  │     ├─ retry/              # RetrySafety、预算和退避
 │  │     ├─ health/             # Credential/Model/Endpoint/Proxy 状态
 │  │     ├─ config/             # PublishedSnapshot、Publisher、Registry
-│  │     ├─ oauth/              # 独立 PKCE session、Token exchange、账号发布与刷新
+│  │     ├─ oauth/              # PKCE/Device Code session、Token exchange、账号发布与刷新
 │  │     └─ shutdown/           # drain、TaskTracker、后台任务生命周期
 │  ├─ storage/
 │  │  └─ src/                   # api/sqlite/repository/migration/vault
@@ -648,7 +649,7 @@ CredentialRuntimeHandle
 - 同一 Endpoint 下的多把 Credential 可以拥有不同模型集合，调度器必须按 `Credential + upstream_model` 过滤，禁止因为 URL 相同就假定权限相同；
 - Endpoint 已有 Credential 时禁止修改 `provider_kind`、`protocol_dialect` 和 `upstream_protocol_dialect`；修改 Base URL 时所有子 Credential 增加 `credential_generation`；
 - Provider 列表和 Credential DTO 不展示 OAuth 类型或 OAuth 入口；OAuth 独立页面和 API 管理 `OAuthAccount`；
-- OAuth session、state 和 PKCE verifier 只保存在内存；Token 只存在于兑换栈、OAuthAccount SQLite JSON 和当前 routing generation，管理 HTTP 响应不返回 Token；
+- OAuth session、state、PKCE verifier 和 Device Code 只保存在内存；Token 只存在于兑换栈、OAuthAccount SQLite JSON 和当前 routing generation，管理 HTTP 响应不返回 Token；
 - 普通 Provider API Key 管理端点不接受 OAuth JSON；未来 Provider 专用导入或导出仍须单独设计。
 
 管理面提供 `POST /api/admin/provider-credentials/{id}/test`。测试固定使用当前
@@ -1255,7 +1256,7 @@ trait ProtocolBridgeSession: Send {
 
 Codex、Claude 与 Grok 的上游 `ProviderCredential` 当前都只支持 API Key。三者的 OAuth 登录结果都只能创建独立 `OAuthAccount`，其 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。普通 API Key 管理端点不接受 OAuth JSON。
 
-Grok OAuth 使用 xAI 公共客户端的 Authorization Code + PKCE 流程，Token Endpoint 为 `https://auth.x.ai/oauth2/token`，请求 `openid profile email offline_access grok-cli:access api:access` scope。登录、刷新与数据面都固定使用 OAuthAccount 的 DIRECT/全局代理路径。Grok API Key 继续使用管理员 Endpoint（官方默认 `https://api.x.ai/v1`）；Grok OAuth 则使用固定订阅数据面 `https://cli-chat-proxy.grok.com/v1`，并由 Grok Driver 注入 Bearer Token 与 xAI CLI 客户端身份头。两类凭据只在通用 `RoutingCredential` 投影处合流。
+Grok OAuth 使用 xAI 公共客户端的 Device Authorization Grant。设备授权端点为 `https://auth.x.ai/oauth2/device/code`，Token Endpoint 为 `https://auth.x.ai/oauth2/token`，请求 `openid profile email offline_access grok-cli:access api:access` scope；Runtime 按 Provider 返回的 `interval` 轮询并处理 `authorization_pending`、`slow_down`、`access_denied` 和 `expired_token`。Device Code 只存在于服务端内存 session，管理面只返回 user code、验证地址、轮询间隔与安全状态。登录、刷新与数据面都固定使用 OAuthAccount 的 DIRECT/全局代理路径。Grok API Key 继续使用管理员 Endpoint（官方默认 `https://api.x.ai/v1`）；Grok OAuth 则使用固定订阅数据面 `https://cli-chat-proxy.grok.com/v1`，并由 Grok Driver 注入 Bearer Token 与 xAI CLI 客户端身份头。两类凭据只在通用 `RoutingCredential` 投影处合流。
 
 Grok 订阅数据面首版只加入 OpenAI Responses 的 OAuth 候选；它不宣称支持原生 `/responses/compact`，也不借 OAuth 开放 Chat Completions 候选。Grok OAuth 的可选模型目录使用 Provider 内置且可测试的文本模型集合，不包含首版没有公开入口的图片、视频或其他媒体模型。
 
@@ -1913,9 +1914,9 @@ RequestLog 切片接入 `logs.request.enabled`、`logs.request.retention`、`log
 
 ### 16.3 OAuth2 账号登录、持久化、刷新与 Codex 额度
 
-当前实现 Codex 与 Claude 的交互式 OAuth2 登录。成功结果是独立 `OAuthAccount`，不是浏览器下载、服务器文件或 `ProviderCredential`。
+当前实现 Codex、Claude 与 Grok 的交互式 OAuth2 登录。成功结果是独立 `OAuthAccount`，不是浏览器下载、服务器文件或 `ProviderCredential`。
 
-流程：
+Codex 与 Claude 使用 Authorization Code + PKCE：
 
 ```text
 已认证管理面选择 Codex 或 Claude
@@ -1932,7 +1933,20 @@ RequestLog 切片接入 `logs.request.enabled`、`logs.request.retention`、`log
 → HTTP 只返回安全账号元数据和新 revision
 ```
 
-OAuth session 最多同时 64 个，10 分钟过期，只在内存存在。Codex 与 Claude 的 authorize/token Endpoint、Client ID 和 localhost Redirect URI 由各自 Driver 固定。登录、刷新和数据面都使用 OAuthAccount 的 DIRECT 绑定并继承全局代理，失败禁止回退本机直连。
+Grok 使用 Device Authorization Grant：
+
+```text
+已认证管理面选择 Grok
+→ Provider Driver 构建设备授权请求
+→ Runtime 使用当前 DIRECT/全局代理取得 device_code、user_code、验证地址、有效期和 interval
+→ device_code 只写入服务端内存 session；Web 只显示 user_code 与验证地址
+→ Web 按服务端返回的等待时间调用显式 poll API
+→ Runtime 原子取出 session，按 RFC 8628 向 Token Endpoint 轮询
+→ pending/slow_down 时更新内存轮询时间并恢复 session；拒绝或过期时终止
+→ 成功后与 PKCE 流程共用 Token 解析、SQLite 激活、Runtime reconcile 和快照发布链路
+```
+
+OAuth session 最多同时 64 个，只在内存存在。Codex 与 Claude 的 session 固定 10 分钟；Grok session 使用 Provider 返回的有效期且最长 30 分钟。Codex 与 Claude 的 authorize/token Endpoint、Client ID 和 localhost Redirect URI，以及 Grok 的 device/token Endpoint 与 Client ID，都由各自 Driver 固定。登录、刷新和数据面都使用 OAuthAccount 的 DIRECT 绑定并继承全局代理，失败禁止回退本机直连。
 
 OAuth 刷新使用统一 SettingRegistry 中的热更新参数：
 
@@ -1963,7 +1977,7 @@ Codex OAuthAccount 额外支持管理面额度查询与 rate-limit reset credit 
 
 Web 的“刷新全部额度”只针对当前完整 Codex OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号；Claude 不显示该操作。前端以最多 6 个并发复用现有逐账号额度 GET，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 reset 后刷新共用账号级内存 Query cache；批量生命周期不得绑定虚拟行 observer 的挂载状态，额度快照仍不得进入 localStorage、sessionStorage 或其他持久存储。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
-原始 callback URL、authorization code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。OAuth JSON 是 SQLite 明文持久化的明确例外；服务端不提供读取、下载或导出端点。
+原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供读取、下载或导出端点。
 
 ## 17. 存储与密钥安全
 
@@ -1975,6 +1989,7 @@ Web 的“刷新全部额度”只针对当前完整 Codex OAuthAccount 集合�
 - 外键约束开启；
 - Schema Migration；
 - 已发布且可能被数据库应用的 Migration 版本号、文件名和内容永久不可改写或删除；设计撤销只能追加更高版本的前向 Migration，并保留历史 checksum；
+- Migration 24 之前的数据库可能残留已经被物理删除的 `GatewayApiKey` 对应 RequestLog 引用；迁移入口在执行 Migration 24 前，仅把这种已确认的悬空 `request_logs.gateway_api_key_id` 按字段既有 `ON DELETE SET NULL` 语义归一化为 `NULL`。不得借此修补或删除 Provider、Credential、Route、Proxy、OAuthAccount 等配置真相，其他外键损坏仍须 fail-closed；
 - 请求日志设置保留期限和最大容量；
 - 配置写操作使用事务；
 - 运行时快照不直接引用数据库连接。
@@ -2061,9 +2076,9 @@ SecretEnvelope
 - 登录成功后使用服务端会话 Cookie，Cookie 必须为 HttpOnly、SameSite=Strict，并提供 CSRF 防护；仅 HTTPS 连接设置 `Secure`；
 - 远程管理同时支持明文 HTTP、内建 HTTPS 和可信 Nginx/Caddy TLS 反代；
 - TLS 是强烈推荐项，但不是启用远程管理的前置条件；
-- 使用明文 HTTP 时，Web 必须持续显示安全警告，明确管理员密码、会话 Cookie 和 OAuth callback/code 可能被同网络中的攻击者截获；
+- 使用明文 HTTP 时，Web 必须持续显示安全警告，明确管理员密码、会话 Cookie 和 OAuth callback/code 或 device user code 可能被同网络中的攻击者截获；
 - 只有实际使用反向代理且其 CIDR 在可信列表中时，才接受 Forwarded/X-Forwarded-* 管理来源信息；
-- OAuth2 JSON 不通过管理面返回；使用 HTTP 时不额外阻止 OAuth 登录，但必须显示 callback/code 明文传输警告；
+- OAuth2 JSON 不通过管理面返回；使用 HTTP 时不额外阻止 OAuth 登录，但必须显示 OAuth 登录代码明文传输警告；
 - `GatewayApiKey` 只允许从 Header 获取；
 - 默认拒绝 Query String 中携带 `GatewayApiKey`；
 - 请求体和解压后大小均有限制；
@@ -2273,15 +2288,15 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 ### 19.3 OAuth2 登录
 
 - 作为独立一级菜单和 `/oauth` deep link 页面存在；
-- 只选择 Codex 或 Claude，不选择 Provider Endpoint 或 Provider API Key；
-- 打开授权页面后，允许粘贴完整 localhost callback URL；
+- 只选择 Codex、Claude 或 Grok，不选择 Provider Endpoint 或 Provider API Key；
+- Codex/Claude 打开授权页面后允许粘贴完整 localhost callback URL；Grok 显示 Device user code 和验证地址，并按服务端给出的间隔自动轮询，不显示 callback 输入；
 - 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、可选 RPM 和已选模型；可在当前页面编辑这些账号属性或删除账号；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
 - Codex 账号可显式刷新上游主/次额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；Claude 不显示该入口；
 - Codex 页面提供“刷新全部额度”，覆盖当前完整 Codex 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
-- session ID、state、authorization code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage。
+- session ID、state、authorization code、device code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage；Grok user code 与验证地址只保留在当前组件内存。
 
 ### 19.4 总览运行态
 
@@ -2489,11 +2504,11 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 
 ### 阶段 3.2：Grok OAuthAccount
 
-- xAI Authorization Code + PKCE 登录、Token 刷新与安全账号元数据解析；
+- xAI Device Authorization Grant 登录、Token 刷新与安全账号元数据解析；
 - OAuth 原始 JSON 明文存入 SQLite，不进入 Vault、DTO、日志、浏览器存储或导出端点；
 - 固定 `https://cli-chat-proxy.grok.com/v1` Responses 数据面与 xAI CLI 身份头；
 - 与 Grok API Key 在通用 `RoutingCredential` 投影合流，共用 RPM、轮询、粘性、健康、重试、代理、流式生命周期和遥测；
-- 只前向 Migration 扩展 `oauth_accounts.provider_kind`，保留既有账号和外键完整性。完整决策见 `docs/adr/0041-grok-oauth-account.md`。
+- 只前向 Migration 扩展 `oauth_accounts.provider_kind`，保留既有账号和外键完整性。OAuthAccount 与数据面决策见 `docs/adr/0041-grok-oauth-account.md`，设备授权修正见 `docs/adr/0043-grok-device-authorization.md`。
 
 ### 阶段 4：可靠性
 
@@ -2553,6 +2568,7 @@ ProviderCredential ──> API Key Only
 OAuthAccount ──X ProviderEndpoint / ProviderCredential
 OAuthAccount ──> Fixed Provider Endpoint + DIRECT/Global Proxy + Selected Models
 OAuth Session/PKCE ──> Memory Only + 10 Minute TTL + One-Time Exchange
+Grok Device Code Session ──> Memory Only + Provider TTL (Max 30 Minutes) + Serialized Poll
 OAuth Token ──> OAuthAccount SQLite JSON (Plaintext, No DTO/Log/Export)
 Grok ──> ProviderCredential API Key + Independent OAuthAccount
 Grok API Key / OAuthAccount ──> Shared RoutingCredential Pool

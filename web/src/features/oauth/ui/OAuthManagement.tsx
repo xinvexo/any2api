@@ -214,7 +214,7 @@ export function OAuthManagement() {
       </KindSplitLayout>
 
       <OAuthLoginDrawer
-        open={loginOpen}
+        open={loginOpen && !login.completedAccount}
         provider={selectedProvider}
         session={login.session}
         pending={login.pending}

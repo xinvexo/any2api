@@ -13,12 +13,30 @@ use super::error::OAuthError;
 const MAX_TOKEN_RESPONSE_BYTES: usize = 64 * 1024;
 const TOKEN_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
+pub(super) struct OAuthHttpResponse {
+    pub(super) status: http::StatusCode,
+    pub(super) body: Bytes,
+}
+
 pub(super) async fn execute(
     transport: &dyn TransportManager,
     proxy: TransportProxy<'_>,
     strict_ssrf: bool,
     plan: OAuthRequestPlan,
 ) -> Result<Bytes, OAuthError> {
+    let response = execute_response(transport, proxy, strict_ssrf, plan).await?;
+    if !response.status.is_success() {
+        return Err(OAuthError::TokenRejected(response.status.as_u16()));
+    }
+    Ok(response.body)
+}
+
+pub(super) async fn execute_response(
+    transport: &dyn TransportManager,
+    proxy: TransportProxy<'_>,
+    strict_ssrf: bool,
+    plan: OAuthRequestPlan,
+) -> Result<OAuthHttpResponse, OAuthError> {
     let request = TransportRequest {
         method: plan.method,
         uri: plan.url.as_str().parse().map_err(|_| {
@@ -32,10 +50,10 @@ pub(super) async fn execute(
         read_timeout: TOKEN_READ_TIMEOUT,
     };
     let response = transport.execute(proxy, request).await?;
-    if !response.status.is_success() {
-        return Err(OAuthError::TokenRejected(response.status.as_u16()));
-    }
-    collect(response.body).await
+    Ok(OAuthHttpResponse {
+        status: response.status,
+        body: collect(response.body).await?,
+    })
 }
 
 async fn collect(mut body: any2api_transport::api::BoxByteStream) -> Result<Bytes, OAuthError> {

@@ -8,8 +8,9 @@ use url::Url;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthLoginFlow,
+        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        UpstreamResponseMeta,
     },
     api_key,
 };
@@ -82,6 +83,10 @@ impl ProviderDriver for ClaudeDriver {
         headers.insert("x-api-key", api_key);
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
         Ok(CredentialHeaders { headers })
+    }
+
+    fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {
+        Some(OAuthLoginFlow::AuthorizationCodePkce)
     }
 
     fn credential_test_plan(

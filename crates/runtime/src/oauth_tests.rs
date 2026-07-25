@@ -5,12 +5,12 @@ use any2api_provider::api::{OAuthTokenMaterial, serialize_document};
 
 use super::{
     callback,
-    session::{OAuthSession, OAuthSessionStore},
+    session::{AuthorizationCodeSession, DeviceCodeSession, OAuthSessionStore},
 };
 
 #[test]
 fn oauth_session_is_consumed_once() {
-    let prepared = OAuthSession::prepare(
+    let prepared = AuthorizationCodeSession::prepare(
         ProviderKind::Codex,
         "http://localhost:1455/auth/callback",
         Instant::now(),
@@ -19,13 +19,40 @@ fn oauth_session_is_consumed_once() {
     let id = prepared.id.clone();
     let mut store = OAuthSessionStore::default();
     store
-        .insert(id.clone(), prepared.session, Instant::now())
+        .insert_authorization_code(id.clone(), prepared.session, Instant::now())
         .expect("session should be inserted");
 
     store
-        .take(&id, Instant::now())
+        .take_authorization_code(&id, Instant::now())
         .expect("first exchange should consume the session");
-    assert!(store.take(&id, Instant::now()).is_err());
+    assert!(store.take_authorization_code(&id, Instant::now()).is_err());
+}
+
+#[test]
+fn device_session_is_rate_gated_and_keeps_flow_types_separate() {
+    let now = Instant::now();
+    let prepared = DeviceCodeSession::prepare(ProviderKind::Grok, "device-secret", 1_800, 5, now)
+        .expect("device session should be prepared");
+    let id = prepared.id.clone();
+    let mut store = OAuthSessionStore::default();
+    store
+        .insert_device_code(id.clone(), prepared.session, now)
+        .expect("device session should be inserted");
+
+    assert!(store.take_authorization_code(&id, now).is_err());
+    let mut session = store
+        .take_device_code(&id, now)
+        .expect("device poll should take the session");
+    assert_eq!(session.retry_after(now).expect("active session"), None);
+    assert_eq!(session.defer(now, false).expect("pending poll"), 5);
+    store.restore_device_code(id.clone(), session);
+
+    let mut session = store
+        .take_device_code(&id, now)
+        .expect("pending session should remain available");
+    assert_eq!(session.retry_after(now).expect("active session"), Some(5));
+    assert_eq!(session.defer(now, true).expect("slow-down poll"), 10);
+    assert_eq!(session.device_code(), "device-secret");
 }
 
 #[test]

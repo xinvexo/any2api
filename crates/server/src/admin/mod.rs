@@ -16,6 +16,7 @@ mod no_store;
 mod oauth_dto;
 mod oauth_error;
 mod oauth_handlers;
+mod oauth_login_dto;
 mod oauth_quota_dto;
 mod oauth_quota_error;
 mod provider_credential_dto;
@@ -70,22 +71,7 @@ fn protected_routes() -> Router<AppState> {
             axum::routing::delete(affinity_handlers::clear_credential),
         )
         .route("/balancing", get(balancing_handlers::get))
-        .route("/oauth/start", post(oauth_handlers::start))
-        .route("/oauth/exchange", post(oauth_handlers::exchange))
-        .route("/oauth/accounts", get(oauth_handlers::list))
-        .route(
-            "/oauth/accounts/{id}",
-            axum::routing::patch(oauth_handlers::update).delete(oauth_handlers::delete),
-        )
-        .route(
-            "/oauth/accounts/{id}/models",
-            axum::routing::put(oauth_handlers::set_models),
-        )
-        .route("/oauth/accounts/{id}/quota", get(oauth_handlers::quota))
-        .route(
-            "/oauth/accounts/{id}/quota/reset",
-            post(oauth_handlers::reset_quota),
-        )
+        .merge(oauth_handlers::routes())
         .route(
             "/gateway-api-keys",
             get(gateway_api_key_handlers::list).post(gateway_api_key_handlers::create),

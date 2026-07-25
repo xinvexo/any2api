@@ -1,10 +1,11 @@
 use std::str::FromStr;
 
 use axum::{
-    Json,
+    Json, Router,
     extract::{Path, Query, State, rejection::JsonRejection, rejection::QueryRejection},
     http::StatusCode,
     response::Response,
+    routing::{get, post},
 };
 
 use crate::state::AppState;
@@ -14,13 +15,34 @@ use super::{
     no_store,
     oauth_dto::{
         OAuthAccountCollectionResponse, OAuthAccountDeleteQuery, OAuthAccountModelsRequest,
-        OAuthAccountUpdateRequest, OAuthExchangeRequest, OAuthExchangeResponse, OAuthStartRequest,
-        OAuthStartResponse,
+        OAuthAccountUpdateRequest,
     },
     oauth_error,
+    oauth_login_dto::{
+        OAuthDevicePollRequest, OAuthDevicePollResponse, OAuthExchangeRequest,
+        OAuthExchangeResponse, OAuthStartRequest, OAuthStartResponse,
+    },
     oauth_quota_dto::{OAuthQuotaResetResponse, OAuthQuotaResponse},
     oauth_quota_error,
 };
+
+pub(super) fn routes() -> Router<AppState> {
+    Router::new()
+        .route("/oauth/start", post(start))
+        .route("/oauth/exchange", post(exchange))
+        .route("/oauth/device/poll", post(poll_device))
+        .route("/oauth/accounts", get(list))
+        .route(
+            "/oauth/accounts/{id}",
+            axum::routing::patch(update).delete(delete),
+        )
+        .route(
+            "/oauth/accounts/{id}/models",
+            axum::routing::put(set_models),
+        )
+        .route("/oauth/accounts/{id}/quota", get(quota))
+        .route("/oauth/accounts/{id}/quota/reset", post(reset_quota))
+}
 
 pub(super) async fn list(State(state): State<AppState>) -> Result<Response, AdminApiError> {
     Ok(accounts_response(&state, &state.snapshots().load()).await)
@@ -50,6 +72,19 @@ pub(super) async fn exchange(
         .await
         .map_err(oauth_error::map)?;
     Ok(no_store::json(OAuthExchangeResponse::from(result)))
+}
+
+pub(super) async fn poll_device(
+    State(state): State<AppState>,
+    payload: Result<Json<OAuthDevicePollRequest>, JsonRejection>,
+) -> Result<Response, AdminApiError> {
+    let session_id = parse_json(payload)?.into_session_id();
+    let service = state.oauth().ok_or_else(oauth_unavailable)?;
+    let result = service
+        .poll_device(&session_id)
+        .await
+        .map_err(oauth_error::map)?;
+    Ok(no_store::json(OAuthDevicePollResponse::from(result)))
 }
 
 pub(super) async fn update(

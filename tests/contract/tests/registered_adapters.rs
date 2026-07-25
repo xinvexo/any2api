@@ -6,7 +6,9 @@ use any2api_domain::{
     TransportMode,
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
-use any2api_provider::api::{ProviderDriver, ProviderSecret, UpstreamResponseMeta};
+use any2api_provider::api::{
+    OAuthDeviceTokenPoll, OAuthLoginFlow, ProviderDriver, ProviderSecret, UpstreamResponseMeta,
+};
 use axum::http::{
     HeaderMap, Method, StatusCode, Uri,
     header::{ACCEPT, AUTHORIZATION},
@@ -459,17 +461,34 @@ fn grok_contract(driver: &dyn ProviderDriver) {
         .expect("Grok credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer xai-contract-key");
 
-    assert_eq!(
-        driver.oauth_redirect_uri(),
-        Some("http://127.0.0.1:56121/callback")
-    );
+    assert_eq!(driver.oauth_login_flow(), Some(OAuthLoginFlow::DeviceCode));
+    assert_eq!(driver.oauth_redirect_uri(), None);
     assert!(driver.oauth_supports_operation(ProtocolOperation::Responses));
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ResponsesCompact));
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ChatCompletions));
     let authorization = driver
-        .oauth_authorization_url("state-value", "challenge-value")
-        .expect("Grok OAuth authorization URL");
-    assert_eq!(authorization.host_str(), Some("auth.x.ai"));
+        .oauth_device_authorization_request()
+        .expect("Grok device authorization request");
+    assert_eq!(authorization.url.host_str(), Some("auth.x.ai"));
+    assert_eq!(authorization.url.path(), "/oauth2/device/code");
+    let device = driver
+        .parse_oauth_device_authorization(
+            br#"{"device_code":"contract-device-secret","user_code":"ABCD-1234","verification_uri":"https://accounts.x.ai/oauth2/device","expires_in":1800,"interval":5}"#,
+        )
+        .expect("Grok device authorization response");
+    let poll = driver
+        .oauth_device_token_request(device.device_code())
+        .expect("Grok device token request");
+    assert_eq!(poll.url.host_str(), Some("auth.x.ai"));
+    assert!(matches!(
+        driver
+            .parse_oauth_device_token(
+                StatusCode::BAD_REQUEST,
+                br#"{"error":"authorization_pending"}"#,
+            )
+            .expect("Grok pending token response"),
+        OAuthDeviceTokenPoll::Pending
+    ));
     let token = driver
         .parse_oauth_token(
             br#"{"access_token":"grok-oauth-secret","refresh_token":"grok-refresh-secret"}"#,

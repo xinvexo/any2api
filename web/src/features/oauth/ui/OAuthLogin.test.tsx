@@ -7,11 +7,24 @@ import { OAuthLoginDrawer } from "./OAuthLogin";
 afterEach(() => vi.restoreAllMocks());
 
 const session: OAuthStartResult = {
+  flow: "authorization_code",
   provider: "codex",
   sessionId: "session-1",
   authorizationUrl: "https://auth.example/authorize?state=abc",
   redirectUri: "http://localhost:1455/auth/callback",
   expiresInSeconds: 600,
+};
+
+const deviceSession: OAuthStartResult = {
+  flow: "device_code",
+  provider: "grok",
+  sessionId: "grok-session",
+  userCode: "ABCD-1234",
+  verificationUri: "https://accounts.x.ai/oauth2/device",
+  verificationUriComplete:
+    "https://accounts.x.ai/oauth2/device?user_code=ABCD-1234",
+  expiresInSeconds: 1800,
+  pollIntervalSeconds: 5,
 };
 
 test("renders the open drawer with an active session form", () => {
@@ -99,4 +112,28 @@ test("shows loading state while starting a session", () => {
     />,
   );
   expect(screen.getByText("正在创建授权会话…")).toBeInTheDocument();
+});
+
+test("renders Grok device authorization without a callback form", () => {
+  render(
+    <OAuthLoginDrawer
+      open
+      provider="grok"
+      session={deviceSession}
+      pending="poll"
+      error={null}
+      onClose={() => undefined}
+      onRestart={() => undefined}
+      onExchange={async () => undefined}
+    />,
+  );
+
+  expect(screen.getByLabelText("设备授权码")).toHaveTextContent("ABCD-1234");
+  expect(screen.getByRole("link", { name: "打开验证页" })).toHaveAttribute(
+    "href",
+    "https://accounts.x.ai/oauth2/device?user_code=ABCD-1234",
+  );
+  expect(screen.getByText("正在确认授权状态…")).toBeInTheDocument();
+  expect(screen.queryByLabelText("回调 URL")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "激活账号" })).not.toBeInTheDocument();
 });

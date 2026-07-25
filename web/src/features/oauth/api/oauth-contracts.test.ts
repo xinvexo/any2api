@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseOAuthAccountConfiguration,
   parseOAuthActivationResult,
+  parseOAuthDevicePollResult,
   parseOAuthStartResult,
 } from "./oauth-contracts";
 
@@ -10,6 +11,7 @@ describe("parseOAuthStartResult", () => {
   it("parses a valid OAuth2 start response", () => {
     expect(
       parseOAuthStartResult({
+        flow: "authorization_code",
         provider: "codex",
         session_id: "session",
         authorization_url: "https://auth.example.com/authorize",
@@ -17,6 +19,7 @@ describe("parseOAuthStartResult", () => {
         expires_in_seconds: 600,
       }),
     ).toEqual({
+      flow: "authorization_code",
       provider: "codex",
       sessionId: "session",
       authorizationUrl: "https://auth.example.com/authorize",
@@ -28,6 +31,7 @@ describe("parseOAuthStartResult", () => {
   it("rejects an invalid provider or redirect URI", () => {
     expect(() =>
       parseOAuthStartResult({
+        flow: "authorization_code",
         provider: "other",
         session_id: "session",
         authorization_url: "https://auth.example.com/authorize",
@@ -37,19 +41,64 @@ describe("parseOAuthStartResult", () => {
     ).toThrow("invalid OAuth2 login response");
   });
 
-  it("parses the Grok PKCE login contract", () => {
+  it("parses the Grok device-code login contract", () => {
     expect(
       parseOAuthStartResult({
+        flow: "device_code",
         provider: "grok",
         session_id: "grok-session",
-        authorization_url: "https://auth.x.ai/oauth2/authorize?state=abc",
-        redirect_uri: "http://127.0.0.1:56121/callback",
-        expires_in_seconds: 600,
+        user_code: "ABCD-1234",
+        verification_uri: "https://accounts.x.ai/oauth2/device",
+        verification_uri_complete:
+          "https://accounts.x.ai/oauth2/device?user_code=ABCD-1234",
+        expires_in_seconds: 1800,
+        poll_interval_seconds: 5,
+      }),
+    ).toEqual({
+      flow: "device_code",
+      provider: "grok",
+      sessionId: "grok-session",
+      userCode: "ABCD-1234",
+      verificationUri: "https://accounts.x.ai/oauth2/device",
+      verificationUriComplete:
+        "https://accounts.x.ai/oauth2/device?user_code=ABCD-1234",
+      expiresInSeconds: 1800,
+      pollIntervalSeconds: 5,
+    });
+  });
+});
+
+describe("parseOAuthDevicePollResult", () => {
+  it("parses pending and completed polls", () => {
+    expect(
+      parseOAuthDevicePollResult({ status: "pending", retry_after_seconds: 5 }),
+    ).toEqual({ status: "pending", retryAfterSeconds: 5 });
+    expect(
+      parseOAuthDevicePollResult({
+        status: "complete",
+        account: {
+          provider: "grok",
+          account_id: "account-id",
+          label: "grok@example.com",
+          requests_per_minute: null,
+          enabled: true,
+          safe_account_email: "grok@example.com",
+          expires_at: 1_900_000_000,
+          selected_model_count: 7,
+          config_version: 1,
+          config_revision: 2,
+        },
       }),
     ).toMatchObject({
-      provider: "grok",
-      redirectUri: "http://127.0.0.1:56121/callback",
+      status: "complete",
+      account: { provider: "grok", selectedModelCount: 7 },
     });
+  });
+
+  it("rejects an invalid retry interval", () => {
+    expect(() =>
+      parseOAuthDevicePollResult({ status: "pending", retry_after_seconds: 0 }),
+    ).toThrow("invalid OAuth2 login response");
   });
 });
 

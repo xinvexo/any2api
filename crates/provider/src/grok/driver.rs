@@ -6,13 +6,13 @@ use any2api_domain::{
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
+        OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan, OAuthRoutingProfile,
+        OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
     api_key, openai_error,
 };
 use http::HeaderMap;
-use url::Url;
 
 #[derive(Debug)]
 pub struct GrokDriver {
@@ -98,16 +98,34 @@ impl ProviderDriver for GrokDriver {
         api_key::bearer_credential_headers(secret)
     }
 
-    fn oauth_redirect_uri(&self) -> Option<&'static str> {
-        Some(grok_oauth::redirect_uri())
+    fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {
+        Some(OAuthLoginFlow::DeviceCode)
     }
 
-    fn oauth_authorization_url(
+    fn oauth_device_authorization_request(&self) -> Result<OAuthRequestPlan, ProviderError> {
+        grok_oauth::device_authorization_request()
+    }
+
+    fn parse_oauth_device_authorization(
         &self,
-        state: &str,
-        code_challenge: &str,
-    ) -> Result<Url, ProviderError> {
-        grok_oauth::authorization_url(state, code_challenge)
+        body: &[u8],
+    ) -> Result<OAuthDeviceAuthorization, ProviderError> {
+        grok_oauth::parse_device_authorization(body)
+    }
+
+    fn oauth_device_token_request(
+        &self,
+        device_code: &str,
+    ) -> Result<OAuthRequestPlan, ProviderError> {
+        grok_oauth::device_token_request(device_code)
+    }
+
+    fn parse_oauth_device_token(
+        &self,
+        status: http::StatusCode,
+        body: &[u8],
+    ) -> Result<OAuthDeviceTokenPoll, ProviderError> {
+        grok_oauth::parse_device_token(status, body)
     }
 
     fn oauth_token_request(
@@ -115,9 +133,14 @@ impl ProviderDriver for GrokDriver {
         grant: OAuthGrant,
         code: &str,
         _state: Option<&str>,
-        code_verifier: Option<&str>,
+        _code_verifier: Option<&str>,
     ) -> Result<OAuthRequestPlan, ProviderError> {
-        grok_oauth::token_request(grant, code, code_verifier)
+        if grant != OAuthGrant::RefreshToken {
+            return Err(ProviderError::InvalidCredential(
+                "Grok uses OAuth device authorization".into(),
+            ));
+        }
+        grok_oauth::refresh_request(code)
     }
 
     fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {

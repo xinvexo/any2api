@@ -1,3 +1,4 @@
+mod activation;
 mod callback;
 mod document;
 mod error;
@@ -25,4 +26,4 @@ mod quota_tests;
 pub use error::OAuthError;
 pub use quota_types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot};
 pub use service::OAuthService;
-pub use types::{OAuthActivationResult, OAuthStartResult};
+pub use types::{OAuthActivationResult, OAuthDevicePollResult, OAuthStartFlow, OAuthStartResult};

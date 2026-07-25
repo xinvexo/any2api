@@ -19,7 +19,7 @@ interface OAuthLoginDrawerProps {
   open: boolean;
   provider: OAuthProvider;
   session: OAuthStartResult | null;
-  pending: "start" | "exchange" | null;
+  pending: "start" | "exchange" | "poll" | null;
   error: unknown;
   onClose: () => void;
   onRestart: () => void;
@@ -75,7 +75,11 @@ export function OAuthLoginDrawer({
     <SideDrawer
       open={open}
       title={`${providerName} OAuth 认证`}
-      description="生成一次性授权链接，完成后粘贴回调 URL 激活服务器账号。"
+      description={
+        provider === "grok"
+          ? "使用设备授权码登录，完成授权后服务器会自动激活账号。"
+          : "生成一次性授权链接，完成后粘贴回调 URL 激活服务器账号。"
+      }
       onClose={close}
     >
       <div className="space-y-5" aria-busy={pending !== null}>
@@ -86,7 +90,7 @@ export function OAuthLoginDrawer({
           </div>
         ) : null}
 
-        {activeSession ? (
+        {activeSession?.flow === "authorization_code" ? (
           <>
             <div className="flex flex-wrap gap-1.5">
               <a
@@ -131,6 +135,43 @@ export function OAuthLoginDrawer({
               </div>
             </form>
           </>
+        ) : null}
+
+        {activeSession?.flow === "device_code" ? (
+          <div className="space-y-5">
+            <div>
+              <p className="text-[12px] font-medium text-secondary">设备授权码</p>
+              <code
+                aria-label="设备授权码"
+                className="mt-2 block select-all rounded-[9px] bg-surface-muted px-4 py-3 text-center font-mono text-xl font-semibold tracking-[0.18em] text-primary"
+              >
+                {activeSession.userCode}
+              </code>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              <a
+                href={
+                  activeSession.verificationUriComplete ?? activeSession.verificationUri
+                }
+                target="_blank"
+                rel="noreferrer"
+                className="focus-ring inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[7px] bg-surface-muted px-3 text-[13px] font-medium text-primary transition-colors hover:bg-surface-hover"
+              >
+                <ExternalLink size={14} aria-hidden="true" />
+                打开验证页
+              </a>
+              <Button variant="ghost" disabled={pending !== null} onClick={restart}>
+                <RotateCcw size={14} aria-hidden="true" />
+                重新开始
+              </Button>
+            </div>
+
+            <p className="flex items-center gap-2 text-sm text-secondary" role="status">
+              <LoaderCircle size={15} className="animate-spin" aria-hidden="true" />
+              {pending === "poll" ? "正在确认授权状态…" : "等待授权完成，随后会自动激活…"}
+            </p>
+          </div>
         ) : null}
 
         {!activeSession && pending !== "start" ? (

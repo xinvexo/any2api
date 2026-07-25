@@ -5,13 +5,29 @@ import {
 
 export type OAuthProvider = "codex" | "claude" | "grok";
 
-export interface OAuthStartResult {
+interface OAuthStartCommon {
   provider: OAuthProvider;
   sessionId: string;
-  authorizationUrl: string;
-  redirectUri: string;
   expiresInSeconds: number;
 }
+
+export interface OAuthAuthorizationCodeStartResult extends OAuthStartCommon {
+  flow: "authorization_code";
+  authorizationUrl: string;
+  redirectUri: string;
+}
+
+export interface OAuthDeviceCodeStartResult extends OAuthStartCommon {
+  flow: "device_code";
+  userCode: string;
+  verificationUri: string;
+  verificationUriComplete: string | null;
+  pollIntervalSeconds: number;
+}
+
+export type OAuthStartResult =
+  | OAuthAuthorizationCodeStartResult
+  | OAuthDeviceCodeStartResult;
 
 export interface OAuthActivationResult {
   provider: OAuthProvider;
@@ -60,26 +76,58 @@ export interface OAuthAccountUpdateInput {
   enabled: boolean;
 }
 
+export type OAuthDevicePollResult =
+  | { status: "pending"; retryAfterSeconds: number }
+  | { status: "complete"; account: OAuthActivationResult };
+
 export function parseOAuthStartResult(value: unknown): OAuthStartResult {
   if (!isRecord(value)) {
     throw invalidResponse();
   }
   const provider = readOAuthProvider(value.provider);
-  const expiresInSeconds = value.expires_in_seconds;
-  if (
-    typeof expiresInSeconds !== "number" ||
-    !Number.isInteger(expiresInSeconds) ||
-    expiresInSeconds <= 0
-  ) {
-    throw invalidResponse();
-  }
-  return {
+  const common = {
     provider,
     sessionId: readString(value.session_id),
-    authorizationUrl: readHttpUrl(value.authorization_url),
-    redirectUri: readHttpUrl(value.redirect_uri),
-    expiresInSeconds,
+    expiresInSeconds: readInteger(value.expires_in_seconds, 1),
   };
+  if (value.flow === "authorization_code") {
+    return {
+      ...common,
+      flow: "authorization_code",
+      authorizationUrl: readHttpUrl(value.authorization_url),
+      redirectUri: readHttpUrl(value.redirect_uri),
+    };
+  }
+  if (value.flow === "device_code") {
+    return {
+      ...common,
+      flow: "device_code",
+      userCode: readString(value.user_code),
+      verificationUri: readHttpUrl(value.verification_uri),
+      verificationUriComplete: readOptionalHttpUrl(value.verification_uri_complete),
+      pollIntervalSeconds: readInteger(value.poll_interval_seconds, 1),
+    };
+  }
+  throw invalidResponse();
+}
+
+export function parseOAuthDevicePollResult(value: unknown): OAuthDevicePollResult {
+  if (!isRecord(value)) {
+    throw invalidResponse();
+  }
+  if (value.status === "pending") {
+    return {
+      status: "pending",
+      retryAfterSeconds: readInteger(value.retry_after_seconds, 1),
+    };
+  }
+  if (value.status === "complete") {
+    return {
+      status: "complete",
+      account: parseOAuthActivationResult(value.account),
+    };
+  }
+  throw invalidResponse();
 }
 
 export function parseOAuthActivationResult(value: unknown): OAuthActivationResult {
@@ -212,6 +260,10 @@ function readHttpUrl(value: unknown) {
     throw invalidResponse();
   }
   return text;
+}
+
+function readOptionalHttpUrl(value: unknown) {
+  return value === null ? null : readHttpUrl(value);
 }
 
 function invalidResponse() {
