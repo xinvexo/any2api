@@ -8,14 +8,14 @@ use tokio::sync::watch;
 
 use crate::{
     affinity::{AffinityPolicy, AffinityRegistry, AffinityRuntimeSnapshot},
-    balancing::{BalancingRuntimeSnapshot, snapshot as balancing_snapshot},
-    credential_runtime::CredentialRuntimeHandle,
+    credential::CredentialRuntimeHandle,
     health::{HealthBindings, HealthRegistry},
-    process_lifecycle::ProcessLifecycle,
-    queue::QueueCoordinator,
-    route_tier_cursor::{RouteTierCursorBindings, RouteTierCursorRegistry},
-    routing_credential::{RoutingCredentialSpec, RoutingCredentials},
-    scheduler_epoch::SchedulerEpoch,
+    lifecycle::ProcessLifecycle,
+    routing::{
+        BalancingRuntimeSnapshot, QueueCoordinator, RouteTierCursorBindings,
+        RouteTierCursorRegistry, RoutingCredentialSpec, RoutingCredentials, SchedulerEpoch,
+        balancing_snapshot,
+    },
 };
 
 #[derive(Debug)]
@@ -131,8 +131,8 @@ impl RuntimeRegistry {
     pub(crate) fn reconcile_provider_configuration_for_test(
         &self,
         configuration: &any2api_domain::ProviderCredentialConfiguration,
-        mut auth_materials: crate::credential_auth::CredentialAuthMaterials,
-    ) -> crate::credential_runtime::CredentialRuntimeBindings {
+        mut auth_materials: crate::credential::CredentialAuthMaterials,
+    ) -> crate::credential::CredentialRuntimeBindings {
         let mut handles = self
             .credentials
             .write()
@@ -143,10 +143,10 @@ impl RuntimeRegistry {
             let id = RoutingCredentialId::provider_credential(credential.id());
             active_ids.insert(id);
             let auth = auth_materials.take_for(credential);
-            let generation = crate::credential_runtime::CredentialGenerationDefinition::new(
+            let generation = crate::credential::CredentialGenerationDefinition::new(
                 credential.credential_generation(),
                 credential.secret_version(),
-                crate::credential_runtime::CredentialAuthentication::provider_api_key(
+                crate::credential::CredentialAuthentication::provider_api_key(
                     auth.into_provider_secret(),
                 ),
             );
@@ -175,7 +175,7 @@ impl RuntimeRegistry {
             }
         });
         self.affinity.retain_credentials(&active_ids);
-        crate::credential_runtime::CredentialRuntimeBindings::new(bindings)
+        crate::credential::CredentialRuntimeBindings::new(bindings)
     }
 
     pub(crate) fn reconcile_route_tier_cursors(
@@ -235,7 +235,7 @@ impl RuntimeRegistry {
     #[must_use]
     pub fn balancing_snapshot(
         &self,
-        published: &crate::published_snapshot::PublishedSnapshot,
+        published: &crate::configuration::PublishedSnapshot,
     ) -> BalancingRuntimeSnapshot {
         balancing_snapshot(self, published)
     }

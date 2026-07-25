@@ -6,7 +6,7 @@ use std::{
 use any2api_domain::{MAX_RETRY_AFTER_SECONDS, RetryAfterHint};
 use tokio::time::Instant;
 
-use crate::scheduler_epoch::SchedulerEpoch;
+use crate::routing::SchedulerEpoch;
 
 const MAX_HEALTH_DELAY: Duration = Duration::from_secs(MAX_RETRY_AFTER_SECONDS);
 

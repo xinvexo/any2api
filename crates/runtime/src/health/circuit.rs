@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use crate::scheduler_epoch::SchedulerEpoch;
+use crate::routing::SchedulerEpoch;
 use tokio::time::Instant;
 
 #[derive(Debug)]

@@ -1,86 +1,53 @@
-mod credential_fingerprint;
-mod credential_rate_limit;
+mod credential;
 mod error;
 mod gateway_api_key;
-mod gateway_api_key_configuration;
-mod gateway_api_key_validation;
 mod id;
 mod kind;
-mod model_name;
-mod model_route;
-mod model_route_configuration;
 mod oauth_account;
-mod oauth_account_configuration;
-#[cfg(test)]
-mod oauth_account_tests;
-mod provider_base_url;
-mod provider_credential;
-mod provider_credential_configuration;
-mod provider_endpoint;
-mod provider_endpoint_configuration;
+mod provider;
 mod proxy;
-mod proxy_address;
-mod proxy_authentication;
-mod proxy_configuration;
-mod request_log;
-mod retry_safety;
 mod revision;
-mod route_target;
-mod routing_credential_id;
+mod routing;
 mod settings;
-mod token_usage;
+mod telemetry;
 mod upstream_error;
 
-pub use credential_fingerprint::{
+pub use credential::{
     CREDENTIAL_FINGERPRINT_LENGTH, CREDENTIAL_FINGERPRINT_VERSION, CredentialFingerprintError,
-    CredentialSecretFingerprint,
-};
-pub use credential_rate_limit::{
-    MAX_REQUESTS_PER_MINUTE, RequestsPerMinute, RequestsPerMinuteError,
+    CredentialSecretFingerprint, MAX_REQUESTS_PER_MINUTE, RequestsPerMinute,
+    RequestsPerMinuteError,
 };
 pub use error::{ErrorClass, PublicError, PublicErrorCode};
-pub use gateway_api_key::{GatewayApiKey, GatewayApiKeyDraft};
-pub use gateway_api_key_configuration::GatewayApiKeyConfiguration;
-pub use gateway_api_key_validation::{
+pub use gateway_api_key::{
     GATEWAY_TOKEN_BODY_LEN, GATEWAY_TOKEN_HASH_VERSION, GATEWAY_TOKEN_PREFIX,
-    GATEWAY_TOKEN_VERSION, GatewayApiKeyValidationError, validate_token as validate_gateway_token,
+    GATEWAY_TOKEN_VERSION, GatewayApiKey, GatewayApiKeyConfiguration, GatewayApiKeyDraft,
+    GatewayApiKeyValidationError, validate_gateway_token,
 };
 pub use id::{
     CredentialId, GatewayApiKeyId, ModelRouteId, OAuthAccountId, ProviderEndpointId,
     ProxyProfileId, RequestId, RouteTargetId,
 };
 pub use kind::{CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode};
-pub use model_name::{
-    MAX_MODEL_NAME_CHARS, ModelNameValidationError, PublicModelName, UpstreamModelName,
+pub use oauth_account::{
+    OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountValidationError,
 };
-pub use model_route::{ModelRoute, ModelRouteDraft, ModelRouteValidationError};
-pub use model_route_configuration::ModelRouteConfiguration;
-pub use oauth_account::{OAuthAccount, OAuthAccountDraft, OAuthAccountValidationError};
-pub use oauth_account_configuration::OAuthAccountConfiguration;
-pub use provider_base_url::{ProviderBaseUrl, ProviderUrlValidationError};
-pub use provider_credential::{
-    API_KEY_SECRET_SCHEMA_VERSION, ProviderCredential, ProviderCredentialDraft,
-    ProviderCredentialValidationError,
+pub use provider::{
+    API_KEY_SECRET_SCHEMA_VERSION, ProviderBaseUrl, ProviderCredential,
+    ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderCredentialValidationError,
+    ProviderEndpoint, ProviderEndpointConfiguration, ProviderEndpointDraft,
+    ProviderEndpointValidationError, ProviderUrlValidationError,
 };
-pub use provider_credential_configuration::ProviderCredentialConfiguration;
-pub use provider_endpoint::{
-    ProviderEndpoint, ProviderEndpointDraft, ProviderEndpointValidationError,
+pub use proxy::{
+    MAX_PROXY_USERNAME_BYTES, ProxyAddress, ProxyAuthentication,
+    ProxyAuthenticationValidationError, ProxyConfiguration, ProxyDraft, ProxyKind, ProxyProfile,
+    ProxyValidationError,
 };
-pub use provider_endpoint_configuration::ProviderEndpointConfiguration;
-pub use proxy::{ProxyDraft, ProxyKind, ProxyProfile, ProxyValidationError};
-pub use proxy_address::ProxyAddress;
-pub use proxy_authentication::{
-    MAX_PROXY_USERNAME_BYTES, ProxyAuthentication, ProxyAuthenticationValidationError,
-};
-pub use proxy_configuration::ProxyConfiguration;
-pub use request_log::{
-    CompletedRequestLog, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS,
-    RequestAttempt, RequestAttemptOutcome, RequestLog, bound_error_message, bound_thinking_level,
-};
-pub use retry_safety::RetrySafety;
 pub use revision::{ConfigRevision, ConfigRevisionError};
-pub use route_target::{FallbackTier, RouteTarget, RouteTargetDraft};
-pub use routing_credential_id::RoutingCredentialId;
+pub use routing::{
+    FallbackTier, MAX_MODEL_NAME_CHARS, ModelNameValidationError, ModelRoute,
+    ModelRouteConfiguration, ModelRouteDraft, ModelRouteValidationError, PublicModelName,
+    RetrySafety, RouteTarget, RouteTargetDraft, RoutingCredentialId, UpstreamModelName,
+};
 pub use settings::{
     AdminSettings, AffinityMode, AffinitySettings, FileLogLevel, LoggingSettings,
     MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_SECS,
@@ -89,7 +56,11 @@ pub use settings::{
     SettingKey, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
     SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
 };
-pub use token_usage::{MAX_TOKEN_COUNT, TokenUsage};
+pub use telemetry::{
+    CompletedRequestLog, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS,
+    MAX_TOKEN_COUNT, RequestAttempt, RequestAttemptOutcome, RequestLog, TokenUsage,
+    bound_error_message, bound_thinking_level,
+};
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,
 };

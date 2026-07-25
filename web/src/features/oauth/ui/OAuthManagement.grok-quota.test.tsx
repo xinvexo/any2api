@@ -43,9 +43,19 @@ test("shows and refreshes Grok quota without a reset action", async () => {
   const panel = await screen.findByRole("region", { name: "Grok 额度" });
   expect(within(panel).queryByRole("button", { name: "重置额度" })).not.toBeInTheDocument();
   expect(within(panel).queryByText("重置次数")).not.toBeInTheDocument();
+  expect(within(panel).getByRole("button", { name: "刷新额度" })).toHaveAttribute(
+    "title",
+    "xAI unified billing 缺少使用率时会发送一次最小 Responses 探测",
+  );
+  expect(screen.getByRole("button", { name: "刷新全部额度" })).toHaveAttribute(
+    "title",
+    "每个 unified billing 账号可能发送一次最小 Responses 探测",
+  );
 
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
   expect(await within(panel).findByText("75%")).toBeInTheDocument();
+  expect(within(panel).getByText("请求限额")).toBeInTheDocument();
+  expect(within(panel).getByText("Token 限额")).toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "刷新全部额度" }));
   expect(await screen.findByRole("status")).toHaveTextContent(
@@ -93,13 +103,24 @@ function grokQuota() {
     rate_limit: {
       allowed: true,
       limit_reached: false,
-      primary_window: {
-        used_percent: 25,
-        limit_window_seconds: 604_800,
-        reset_after_seconds: 300,
-        reset_at: 1_900_000_300,
-      },
-      secondary_window: null,
+      windows: [
+        {
+          id: "requests",
+          kind: "requests",
+          used_percent: 25,
+          limit_window_seconds: null,
+          reset_after_seconds: 300,
+          reset_at: 1_900_000_300,
+        },
+        {
+          id: "tokens",
+          kind: "tokens",
+          used_percent: 60,
+          limit_window_seconds: null,
+          reset_after_seconds: 300,
+          reset_at: 1_900_000_300,
+        },
+      ],
     },
     reset_credits: null,
   };

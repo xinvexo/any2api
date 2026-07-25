@@ -1,53 +1,17 @@
 pub mod api;
 
 mod affinity;
-mod balancing;
-mod config_command;
-mod config_publish_error;
-mod configuration_capabilities;
-mod credential_auth;
-mod credential_runtime;
-mod gateway_api_key_publisher;
-mod gateway_api_key_token;
+mod configuration;
+mod credential;
+mod gateway_api_key;
 mod health;
-mod logging_reconciler;
+mod lifecycle;
 mod oauth;
-mod process_lifecycle;
-mod provider_api_key_secret;
-mod provider_credential_test;
-mod provider_model_catalog;
-mod proxy_auth;
-mod proxy_password_secret;
-mod proxy_test;
+mod proxy;
 mod public_request;
-mod publish_task;
-mod published_snapshot;
-mod publisher;
-mod queue;
 mod registry;
 mod request_telemetry;
-mod route_candidates;
-mod route_tier_cursor;
-mod routing_credential;
-mod scheduler;
-mod scheduler_epoch;
+mod routing;
 
-#[cfg(test)]
-mod balancing_tests;
-
-#[cfg(test)]
-mod credential_runtime_tests;
-#[cfg(test)]
-mod gateway_api_key_publisher_tests;
-#[cfg(test)]
-mod provider_credential_test_tests;
-#[cfg(test)]
-mod published_snapshot_tests;
-#[cfg(test)]
-mod publisher_tests;
-#[cfg(test)]
-mod request_telemetry_tests;
-#[cfg(test)]
-mod route_candidates_tests;
 #[cfg(test)]
 mod test_support;

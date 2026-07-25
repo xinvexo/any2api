@@ -11,12 +11,11 @@ use any2api_transport::api::TransportProxy;
 
 use super::PreparedAttempt;
 use crate::{
-    credential_auth::CredentialAuthMaterial,
-    credential_runtime::CredentialRuntimeHandle,
+    credential::{CredentialAuthMaterial, CredentialRuntimeHandle},
     health::{AttemptHealth, EndpointHealthRuntime, ReliabilityPolicy},
     public_request::response::public_error,
     request_telemetry::AttemptRecorder,
-    scheduler_epoch::SchedulerEpoch,
+    routing::SchedulerEpoch,
 };
 
 #[tokio::test(start_paused = true)]

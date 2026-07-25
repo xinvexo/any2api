@@ -13,8 +13,8 @@ use super::{
 };
 use crate::{
     affinity::{AffinityError, AffinityTarget, SoftBindingLease, SoftBindingStart},
-    published_snapshot::PublishedSnapshot,
-    route_candidates::{CandidateExclusions, RouteCandidate},
+    configuration::PublishedSnapshot,
+    routing::{CandidateExclusions, RouteCandidate},
 };
 
 pub(super) struct AffinitySelection {

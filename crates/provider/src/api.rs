@@ -8,17 +8,20 @@ use http::{HeaderMap, StatusCode};
 use url::Url;
 
 pub use crate::codex::oauth_plan_label as codex_oauth_plan_label;
-pub use crate::oauth::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_document};
-pub use crate::oauth_device::{OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthLoginFlow};
-pub use crate::oauth_import::{
+pub use crate::oauth::OAuthRoutingProfile;
+pub use crate::oauth::{
     MAX_OAUTH_IMPORT_ACCOUNTS_PER_DOCUMENT, OAuthImportParseError, OAuthImportedAccount,
     parse_oauth_import_document,
 };
-pub use crate::oauth_quota::{
-    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
-    OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,
+pub use crate::oauth::{
+    OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan,
+    OAuthTokenMaterial, serialize_document,
 };
-pub use crate::oauth_routing::OAuthRoutingProfile;
+pub use crate::oauth::{
+    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
+    OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaUsageParse, OAuthQuotaWindow,
+    OAuthQuotaWindowKind,
+};
 pub use crate::{ProviderError, ProviderRegistry, ProviderSecret};
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -185,9 +188,22 @@ pub trait ProviderDriver: Send + Sync {
         Ok(None)
     }
 
-    fn parse_oauth_quota_usage(&self, _body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError> {
+    fn parse_oauth_quota_usage(
+        &self,
+        _meta: &UpstreamResponseMeta,
+        _body: &[u8],
+    ) -> Result<OAuthQuotaUsageParse, ProviderError> {
         Err(ProviderError::InvalidResponse(
             "OAuth quota is not supported by this provider".into(),
+        ))
+    }
+
+    fn parse_oauth_quota_probe(
+        &self,
+        _meta: &UpstreamResponseMeta,
+    ) -> Result<OAuthQuotaUsage, ProviderError> {
+        Err(ProviderError::InvalidResponse(
+            "OAuth quota probe is not supported by this provider".into(),
         ))
     }
 

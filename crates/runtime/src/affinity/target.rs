@@ -1,6 +1,6 @@
 use any2api_domain::{ModelRouteId, ProtocolDialect, RouteTargetId, RoutingCredentialId};
 
-use crate::route_candidates::RouteCandidate;
+use crate::routing::RouteCandidate;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AffinityTarget {

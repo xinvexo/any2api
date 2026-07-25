@@ -3,7 +3,7 @@ use any2api_domain::{
 };
 use any2api_transport::api::{TransportError, TransportFailureScope};
 
-use crate::route_candidates::RouteCandidate;
+use crate::routing::RouteCandidate;
 
 use super::super::response::{classified_error, public_error};
 

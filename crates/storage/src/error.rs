@@ -8,9 +8,9 @@ use any2api_domain::{
 };
 use thiserror::Error;
 
-use crate::oauth_account_document::OAuthAccountDocumentValidationError;
-use crate::provider_api_key::ProviderApiKeyValidationError;
-use crate::proxy_password::ProxyPasswordValidationError;
+use crate::oauth_account::OAuthAccountDocumentValidationError;
+use crate::provider::ProviderApiKeyValidationError;
+use crate::proxy::ProxyPasswordValidationError;
 use crate::vault::SecretVaultError;
 
 #[derive(Debug, Error)]

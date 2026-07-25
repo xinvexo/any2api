@@ -22,7 +22,7 @@ use super::{
     policy::RequestLogPolicy,
     worker,
 };
-use crate::{logging_reconciler::LoggingSettingsReconciler, process_lifecycle::ProcessLifecycle};
+use crate::{configuration::LoggingSettingsReconciler, lifecycle::ProcessLifecycle};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RequestTelemetryMetrics {

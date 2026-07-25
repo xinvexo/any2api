@@ -202,13 +202,14 @@ function quota(availableCount: number) {
     rate_limit: {
       allowed: true,
       limit_reached: false,
-      primary_window: {
+      windows: [{
+        id: "primary",
+        kind: "time",
         used_percent: 37.5,
         limit_window_seconds: 18_000,
         reset_after_seconds: 300,
         reset_at: 1_900_000_300,
-      },
-      secondary_window: null,
+      }],
     },
     reset_credits: {
       available_count: availableCount,

@@ -1,4 +1,6 @@
-use super::{error as claude_error, import as claude_import, oauth as claude_oauth};
+use super::{
+    error as claude_error, import as claude_import, oauth as claude_oauth, quota as claude_quota,
+};
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
@@ -9,10 +11,10 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
-        UpstreamResponseMeta,
+        OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsageParse, OAuthRequestPlan,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
-    api_key,
+    credential::api_key,
 };
 
 #[derive(Debug)]
@@ -155,6 +157,21 @@ impl ProviderDriver for ClaudeDriver {
         forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
         claude_oauth::credential_headers(token, forwarded)
+    }
+
+    fn oauth_quota_query_plan(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
+        claude_quota::query_plan(token).map(Some)
+    }
+
+    fn parse_oauth_quota_usage(
+        &self,
+        _meta: &UpstreamResponseMeta,
+        body: &[u8],
+    ) -> Result<OAuthQuotaUsageParse, ProviderError> {
+        claude_quota::parse_usage(body).map(OAuthQuotaUsageParse::Complete)
     }
 
     fn classify_error(

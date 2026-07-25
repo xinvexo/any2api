@@ -29,7 +29,7 @@ export function OAuthQuotaPanel({
 }: {
   accountId: string;
   accountLabel: string;
-  provider: Extract<OAuthProvider, "codex" | "grok">;
+  provider: OAuthProvider;
   disabled?: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -122,6 +122,11 @@ export function OAuthQuotaPanel({
             size="sm"
             className="h-6 min-h-6 px-1.5 text-[11px]"
             disabled={disabled || pending !== null}
+            title={
+              provider === "grok"
+                ? "xAI unified billing 缺少使用率时会发送一次最小 Responses 探测"
+                : undefined
+            }
             onClick={() => void refreshQuota()}
           >
             <RefreshCw

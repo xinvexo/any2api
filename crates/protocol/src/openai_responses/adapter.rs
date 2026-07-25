@@ -1,0 +1,393 @@
+use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode};
+use bytes::Bytes;
+use http::{HeaderMap, HeaderValue, StatusCode, header};
+use serde_json::{Value, json};
+
+use crate::{
+    ProtocolError,
+    api::{
+        AdapterEvent, AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
+        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse,
+    },
+    json_codec,
+    sse::{json_event, rewrite_known_model},
+};
+
+use super::telemetry;
+
+#[derive(Debug, Default)]
+pub struct OpenAiResponsesAdapter;
+
+impl OpenAiResponsesAdapter {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self
+    }
+}
+
+impl ProtocolAdapter for OpenAiResponsesAdapter {
+    fn dialect(&self) -> ProtocolDialect {
+        ProtocolDialect::OpenAiResponses
+    }
+
+    fn decode_ingress_request(
+        &self,
+        request: IngressRequest,
+    ) -> Result<DecodedRequest, ProtocolError> {
+        json_codec::decode_request(request, self.dialect())
+    }
+
+    fn encode_upstream_request(
+        &self,
+        operation: ProtocolOperation,
+        headers: HeaderMap,
+        payload: AdapterPayload,
+        upstream_model: &str,
+    ) -> Result<EncodedUpstreamRequest, ProtocolError> {
+        if !matches!(
+            operation,
+            ProtocolOperation::Responses | ProtocolOperation::ResponsesCompact
+        ) {
+            return Err(ProtocolError::Unsupported(format!("{operation:?}")));
+        }
+        json_codec::encode_request(operation, headers, payload, upstream_model)
+    }
+
+    fn decode_upstream_response(
+        &self,
+        response: UpstreamResponse,
+    ) -> Result<DecodedUpstreamResponse, ProtocolError> {
+        Ok(DecodedUpstreamResponse {
+            status: response.status,
+            headers: response.headers,
+            telemetry: telemetry::response(&response.body),
+            payload: AdapterPayload::RawJson(response.body),
+        })
+    }
+
+    fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
+        let telemetry = telemetry::event(&frame.0);
+        Ok(AdapterEvent::new(frame.0, telemetry))
+    }
+
+    fn encode_egress_response(
+        &self,
+        response: DecodedUpstreamResponse,
+    ) -> Result<EgressResponse, ProtocolError> {
+        let AdapterPayload::RawJson(body) = response.payload;
+        Ok(EgressResponse {
+            status: response.status,
+            headers: response.headers,
+            body,
+        })
+    }
+
+    fn encode_egress_event(
+        &self,
+        event: AdapterEvent,
+        public_model: &str,
+    ) -> Result<SseFrame, ProtocolError> {
+        rewrite_known_model(SseFrame(event.into_bytes()), public_model)
+    }
+
+    fn hard_affinity_id_from_response(
+        &self,
+        operation: ProtocolOperation,
+        response: &DecodedUpstreamResponse,
+    ) -> Result<Option<String>, ProtocolError> {
+        if operation != ProtocolOperation::Responses {
+            return Ok(None);
+        }
+        let AdapterPayload::RawJson(body) = &response.payload;
+        let value: Value = serde_json::from_slice(body).map_err(|_| {
+            ProtocolError::InvalidPayload("response body must be valid JSON".into())
+        })?;
+        optional_non_empty_id(value.get("id"), "response id")
+    }
+
+    fn hard_affinity_id_from_event(
+        &self,
+        operation: ProtocolOperation,
+        event: &AdapterEvent,
+    ) -> Result<Option<String>, ProtocolError> {
+        if operation != ProtocolOperation::Responses {
+            return Ok(None);
+        }
+        let Some((event_name, value)) = json_event(event.bytes())? else {
+            return Ok(None);
+        };
+        let is_created = event_name.as_deref() == Some("response.created")
+            || value.get("type").and_then(Value::as_str) == Some("response.created");
+        if !is_created {
+            return Ok(None);
+        }
+        optional_non_empty_id(
+            value.get("response").and_then(|value| value.get("id")),
+            "response id",
+        )?
+        .map(Some)
+        .ok_or_else(|| {
+            ProtocolError::InvalidPayload("response.created is missing response.id".into())
+        })
+    }
+
+    fn error_response(&self, error: &PublicError) -> EgressResponse {
+        let code = error_code(error.code);
+        let error_type = error_type(error.code);
+        let mut response = json_response(
+            public_error_status(error.code),
+            json!({
+                "error": {
+                    "message": error.message,
+                    "type": error_type,
+                    "param": null,
+                    "code": code
+                }
+            }),
+        );
+        insert_retry_after(&mut response.headers, error.retry_after_seconds);
+        response
+    }
+}
+
+fn optional_non_empty_id(
+    value: Option<&Value>,
+    field: &'static str,
+) -> Result<Option<String>, ProtocolError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value
+        .as_str()
+        .ok_or_else(|| ProtocolError::InvalidPayload(format!("{field} must be a string")))?;
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ProtocolError::InvalidPayload(format!(
+            "{field} must not be empty"
+        )));
+    }
+    Ok(Some(value.to_owned()))
+}
+
+fn error_type(code: PublicErrorCode) -> &'static str {
+    match code {
+        PublicErrorCode::Unauthorized => "authentication_error",
+        PublicErrorCode::InvalidRequest
+        | PublicErrorCode::PublicApiNotFound
+        | PublicErrorCode::MethodNotAllowed
+        | PublicErrorCode::ModelNotFound
+        | PublicErrorCode::NoRoute
+        | PublicErrorCode::UpstreamNotFound
+        | PublicErrorCode::SessionBindingLost => "invalid_request_error",
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
+            "rate_limit_error"
+        }
+        PublicErrorCode::UpstreamError | PublicErrorCode::InternalError => "server_error",
+    }
+}
+
+fn error_code(code: PublicErrorCode) -> &'static str {
+    match code {
+        PublicErrorCode::Unauthorized => "unauthorized",
+        PublicErrorCode::InvalidRequest => "invalid_request",
+        PublicErrorCode::PublicApiNotFound => "public_api_not_found",
+        PublicErrorCode::MethodNotAllowed => "method_not_allowed",
+        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "model_not_found",
+        PublicErrorCode::UpstreamNotFound => "upstream_not_found",
+        PublicErrorCode::NoAvailableCredential => "no_available_credential",
+        PublicErrorCode::LocalRateLimit => "local_rate_limit",
+        PublicErrorCode::SessionBindingLost => "session_binding_lost",
+        PublicErrorCode::UpstreamError => "upstream_error",
+        PublicErrorCode::InternalError => "internal_error",
+    }
+}
+
+fn public_error_status(code: PublicErrorCode) -> StatusCode {
+    match code {
+        PublicErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
+        PublicErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
+        PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
+        PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
+        PublicErrorCode::ModelNotFound
+        | PublicErrorCode::NoRoute
+        | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
+            StatusCode::TOO_MANY_REQUESTS
+        }
+        PublicErrorCode::SessionBindingLost => StatusCode::CONFLICT,
+        PublicErrorCode::UpstreamError => StatusCode::BAD_GATEWAY,
+        PublicErrorCode::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+fn json_response(status: StatusCode, value: serde_json::Value) -> EgressResponse {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    EgressResponse {
+        status,
+        headers,
+        body: Bytes::from(serde_json::to_vec(&value).expect("JSON value encodes")),
+    }
+}
+
+fn insert_retry_after(headers: &mut HeaderMap, seconds: Option<u64>) {
+    if let Some(seconds) = seconds
+        && let Ok(value) = HeaderValue::from_str(&seconds.to_string())
+    {
+        headers.insert(header::RETRY_AFTER, value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode};
+    use bytes::Bytes;
+    use http::{HeaderMap, Method, Uri};
+    use serde_json::{Value, json};
+
+    use super::OpenAiResponsesAdapter;
+    use crate::api::{
+        AdapterEvent, AdapterPayload, DecodedUpstreamResponse, IngressRequest, ProtocolAdapter,
+        SseFrame,
+    };
+
+    #[test]
+    fn preserves_unknown_fields_and_rewrites_the_upstream_model() {
+        let adapter = OpenAiResponsesAdapter::new();
+        let decoded = adapter
+            .decode_ingress_request(IngressRequest {
+                method: Method::POST,
+                uri: Uri::from_static("/v1/responses"),
+                headers: HeaderMap::new(),
+                body: Bytes::from(
+                    serde_json::to_vec(&json!({
+                        "model": "public",
+                        "stream": false,
+                        "future_field": {"enabled": true}
+                    }))
+                    .expect("JSON"),
+                ),
+                operation: ProtocolOperation::Responses,
+            })
+            .expect("decoded request");
+        assert_eq!(decoded.model.as_deref(), Some("public"));
+        let encoded = adapter
+            .encode_upstream_request(
+                decoded.operation,
+                decoded.headers,
+                decoded.payload,
+                "upstream",
+            )
+            .expect("encoded request");
+        let body: Value = serde_json::from_slice(&encoded.body).expect("encoded JSON");
+        assert_eq!(body["model"], "upstream");
+        assert_eq!(body["future_field"]["enabled"], true);
+        let debug = format!("{encoded:?}");
+        assert!(!debug.contains("future_field"));
+        assert!(!debug.contains("upstream"));
+    }
+
+    #[test]
+    fn compact_rejects_streaming_and_errors_use_openai_shape() {
+        let adapter = OpenAiResponsesAdapter::new();
+        assert!(
+            adapter
+                .decode_ingress_request(IngressRequest {
+                    method: Method::POST,
+                    uri: Uri::from_static("/v1/responses/compact"),
+                    headers: HeaderMap::new(),
+                    body: Bytes::from_static(br#"{"model":"public","stream":true}"#),
+                    operation: ProtocolOperation::ResponsesCompact,
+                })
+                .is_err()
+        );
+        let response =
+            adapter.error_response(&PublicError::new(PublicErrorCode::ModelNotFound, "missing"));
+        let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
+        assert_eq!(body["error"]["type"], "invalid_request_error");
+        assert_eq!(body["error"]["code"], "model_not_found");
+
+        let not_found = adapter.error_response(&PublicError::new(
+            PublicErrorCode::PublicApiNotFound,
+            "missing route",
+        ));
+        let body: Value = serde_json::from_slice(&not_found.body).expect("error JSON");
+        assert_eq!(not_found.status, http::StatusCode::NOT_FOUND);
+        assert_eq!(body["error"]["code"], "public_api_not_found");
+
+        let method = adapter.error_response(&PublicError::new(
+            PublicErrorCode::MethodNotAllowed,
+            "wrong method",
+        ));
+        let body: Value = serde_json::from_slice(&method.body).expect("error JSON");
+        assert_eq!(method.status, http::StatusCode::METHOD_NOT_ALLOWED);
+        assert_eq!(body["error"]["code"], "method_not_allowed");
+    }
+
+    #[test]
+    fn raw_json_payload_is_the_only_first_release_payload() {
+        let payload = AdapterPayload::RawJson(Bytes::from_static(b"{}"));
+        assert!(matches!(payload, AdapterPayload::RawJson(_)));
+    }
+
+    #[test]
+    fn responses_stream_rewrites_the_public_model() {
+        let adapter = OpenAiResponsesAdapter::new();
+        let event = adapter
+            .decode_upstream_event(SseFrame(Bytes::from_static(
+                b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"model\":\"upstream\"}}\n\n",
+            )))
+            .expect("decoded event");
+        let frame = adapter
+            .encode_egress_event(event, "public")
+            .expect("encoded event");
+        assert!(String::from_utf8_lossy(&frame.0).contains(r#""model":"public""#));
+    }
+
+    #[test]
+    fn extracts_hard_affinity_from_a_json_response() {
+        let adapter = OpenAiResponsesAdapter::new();
+        let response = DecodedUpstreamResponse {
+            status: http::StatusCode::OK,
+            headers: HeaderMap::new(),
+            payload: AdapterPayload::RawJson(Bytes::from_static(
+                br#"{"id":"resp_json","object":"response"}"#,
+            )),
+            telemetry: Default::default(),
+        };
+
+        assert_eq!(
+            adapter
+                .hard_affinity_id_from_response(ProtocolOperation::Responses, &response)
+                .expect("response identity"),
+            Some("resp_json".into())
+        );
+        assert_eq!(
+            adapter
+                .hard_affinity_id_from_response(ProtocolOperation::ResponsesCompact, &response)
+                .expect("compact has no hard identity"),
+            None
+        );
+    }
+
+    #[test]
+    fn extracts_hard_affinity_from_response_created_sse() {
+        let adapter = OpenAiResponsesAdapter::new();
+        let event = AdapterEvent::new(
+            Bytes::from_static(
+                b"event: response.created\r\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_sse\"}}\r\n\r\n",
+            ),
+            Default::default(),
+        );
+
+        assert_eq!(
+            adapter
+                .hard_affinity_id_from_event(ProtocolOperation::Responses, &event)
+                .expect("event identity"),
+            Some("resp_sse".into())
+        );
+    }
+}

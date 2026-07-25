@@ -1,7 +1,7 @@
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
 use any2api_provider::api::{OAuthTokenMaterial, ProviderRegistry};
 
-use crate::publisher::ConfigPublisher;
+use crate::configuration::ConfigPublisher;
 
 use super::{document, error::OAuthError, types::OAuthActivationResult};
 

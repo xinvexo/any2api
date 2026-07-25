@@ -14,3 +14,6 @@ pub(crate) use metadata::initialize_vault;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod repository_tests;

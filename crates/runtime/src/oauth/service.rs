@@ -8,7 +8,7 @@ use any2api_provider::api::{
 use any2api_transport::api::TransportManager;
 use tokio::sync::Mutex;
 
-use crate::{process_lifecycle::ProcessLifecycle, publisher::ConfigPublisher};
+use crate::{configuration::ConfigPublisher, lifecycle::ProcessLifecycle};
 
 use super::{
     activation, callback,

@@ -5,9 +5,9 @@ use tokio::time::{Instant, sleep_until, timeout_at};
 use super::super::SelectedCandidate;
 use super::FixedSelectionError;
 use crate::{
+    configuration::PublishedSnapshot,
     health::{HealthAcquireError, ReliabilityPolicy},
-    published_snapshot::PublishedSnapshot,
-    route_candidates::RouteCandidate,
+    routing::RouteCandidate,
 };
 
 pub(super) async fn select(

@@ -6,7 +6,7 @@ use crate::{
         ReliabilityPolicy,
         circuit::{CircuitPermit, CircuitRuntime},
     },
-    scheduler_epoch::SchedulerEpoch,
+    routing::SchedulerEpoch,
 };
 
 #[derive(Debug)]

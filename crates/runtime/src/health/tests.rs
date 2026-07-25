@@ -13,9 +13,8 @@ use super::{
     runtime::{CredentialHealthRuntime, EndpointHealthRuntime, ProxyHealthRuntime},
 };
 use crate::{
-    credential_auth::CredentialAuthMaterial,
-    credential_runtime::{CredentialGenerationRuntime, CredentialRuntimeHandle},
-    scheduler_epoch::SchedulerEpoch,
+    credential::{CredentialAuthMaterial, CredentialGenerationRuntime, CredentialRuntimeHandle},
+    routing::SchedulerEpoch,
 };
 
 #[tokio::test(start_paused = true)]

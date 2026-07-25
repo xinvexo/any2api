@@ -1,15 +1,16 @@
 export interface OAuthQuotaWindow {
+  id: string;
+  kind: "time" | "credits" | "requests" | "tokens";
   usedPercent: number;
-  limitWindowSeconds: number;
-  resetAfterSeconds: number;
-  resetAt: number;
+  limitWindowSeconds: number | null;
+  resetAfterSeconds: number | null;
+  resetAt: number | null;
 }
 
 export interface OAuthQuotaRateLimit {
-  allowed: boolean;
-  limitReached: boolean;
-  primaryWindow: OAuthQuotaWindow | null;
-  secondaryWindow: OAuthQuotaWindow | null;
+  allowed: boolean | null;
+  limitReached: boolean | null;
+  windows: OAuthQuotaWindow[];
 }
 
 export interface OAuthQuotaResetCredits {
@@ -43,24 +44,31 @@ export function parseOAuthQuotaResetResult(value: unknown): OAuthQuotaResetResul
 
 function parseRateLimit(value: unknown): OAuthQuotaRateLimit | null {
   if (value === null) return null;
-  if (!isRecord(value)) throw invalidResponse();
+  if (!isRecord(value) || !Array.isArray(value.windows)) throw invalidResponse();
   return {
-    allowed: readBoolean(value.allowed),
-    limitReached: readBoolean(value.limit_reached),
-    primaryWindow: parseWindow(value.primary_window),
-    secondaryWindow: parseWindow(value.secondary_window),
+    allowed: readOptionalBoolean(value.allowed),
+    limitReached: readOptionalBoolean(value.limit_reached),
+    windows: value.windows.map(parseWindow),
   };
 }
 
-function parseWindow(value: unknown): OAuthQuotaWindow | null {
-  if (value === null) return null;
+function parseWindow(value: unknown): OAuthQuotaWindow {
   if (!isRecord(value)) throw invalidResponse();
   return {
+    id: readString(value.id),
+    kind: readWindowKind(value.kind),
     usedPercent: readNumber(value.used_percent, 0),
-    limitWindowSeconds: readInteger(value.limit_window_seconds, 0),
-    resetAfterSeconds: readInteger(value.reset_after_seconds, 0),
-    resetAt: readInteger(value.reset_at, 0),
+    limitWindowSeconds: readOptionalInteger(value.limit_window_seconds, 0),
+    resetAfterSeconds: readOptionalInteger(value.reset_after_seconds, 0),
+    resetAt: readOptionalInteger(value.reset_at, 0),
   };
+}
+
+function readWindowKind(value: unknown): OAuthQuotaWindow["kind"] {
+  if (value === "time" || value === "credits" || value === "requests" || value === "tokens") {
+    return value;
+  }
+  throw invalidResponse();
 }
 
 function parseResetCredits(value: unknown): OAuthQuotaResetCredits | null {
@@ -90,6 +98,10 @@ function readBoolean(value: unknown) {
   return value;
 }
 
+function readOptionalBoolean(value: unknown) {
+  return value === null ? null : readBoolean(value);
+}
+
 function readNumber(value: unknown, minimum: number) {
   if (typeof value !== "number" || !Number.isFinite(value) || value < minimum) {
     throw invalidResponse();
@@ -101,6 +113,10 @@ function readInteger(value: unknown, minimum: number) {
   const number = readNumber(value, minimum);
   if (!Number.isSafeInteger(number)) throw invalidResponse();
   return number;
+}
+
+function readOptionalInteger(value: unknown, minimum: number) {
+  return value === null ? null : readInteger(value, minimum);
 }
 
 function invalidResponse() {

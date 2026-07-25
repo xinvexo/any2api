@@ -9,11 +9,12 @@ use super::{
     temporarily_unavailable,
 };
 use crate::{
+    configuration::PublishedSnapshot,
     health::{HealthAcquireError, ReliabilityPolicy},
-    published_snapshot::PublishedSnapshot,
-    queue::{QueueCoordinator, QueuePolicy, RateLimitAction},
-    route_candidates::{CandidateExclusions, RouteCandidate},
-    scheduler::{IndexedSelectAndReserveResult, select_index_and_try_reserve},
+    routing::{
+        CandidateExclusions, IndexedSelectAndReserveResult, QueueCoordinator, QueuePolicy,
+        RateLimitAction, RouteCandidate, select_index_and_try_reserve,
+    },
 };
 
 pub(super) fn try_select(

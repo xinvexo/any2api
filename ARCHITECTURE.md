@@ -2,7 +2,7 @@
 
 > 状态：Draft<br>
 > 版本：1.0<br>
-> 最后更新：2026-07-25<br>
+> 最后更新：2026-07-26<br>
 > 用途：记录当前已经确认的需求、架构约束与后续待完善事项。<br>
 > 实施进度：见 `docs/IMPLEMENTATION_STATUS.md`。
 
@@ -289,37 +289,63 @@ any2api/
 │  ├─ domain/                    # ID、路由、错误、状态和领域不变量
 │  ├─ protocol/
 │  │  └─ src/
-│  │     ├─ api.rs              # ProtocolAdapter 与中立载荷
+│  │     ├─ api/                # ProtocolAdapter、中立载荷与 Exchange 契约
 │  │     ├─ openai_responses/   # request/response/sse/error/headers
 │  │     └─ anthropic_messages/ # request/response/sse/error/headers
 │  ├─ provider/
 │  │  └─ src/
 │  │     ├─ api.rs              # ProviderDriver 与 CapabilitySet
+│  │     ├─ credential/         # Provider API Key 与 Secret 输入
+│  │     ├─ oauth/              # OAuth 通用契约、导入与路由材料
+│  │     ├─ upstream_error/     # HTTP 错误、OpenAI 错误与 Retry-After
 │  │     ├─ codex/              # driver/auth/oauth/errors/capabilities
 │  │     ├─ claude/             # driver/auth/oauth/errors/capabilities
 │  │     └─ grok/               # driver/auth/oauth/errors/capabilities
 │  ├─ transport/
-│  │  └─ src/                   # api/direct/http_proxy/socks5/client_pool/error
+│  │  └─ src/
+│  │     ├─ api.rs              # 稳定 Transport 端口
+│  │     ├─ client/             # Client 缓存、请求执行与 Body 生命周期
+│  │     ├─ connection/         # 固定目标连接、TLS 与代理 TCP 连接器
+│  │     ├─ proxy/              # 代理 URL、认证与握手实现
+│  │     └─ resolution/         # Origin 解析与严格 SSRF 地址固定
 │  ├─ runtime/
 │  │  └─ src/
-│  │     ├─ request/            # RequestContext、Attempt、取消和 deadline
-│  │     ├─ scheduler/          # filter/select/rpm-window/queue/fallback
 │  │     ├─ affinity/           # hard/soft binding、锁和 CAS
-│  │     ├─ retry/              # RetrySafety、预算和退避
+│  │     ├─ configuration/      # PublishedSnapshot、Publisher 与发布任务
+│  │     ├─ credential/         # API Key 材料、模型探测与稳定运行态
+│  │     ├─ gateway_api_key/    # Gateway Key 生成与发布
 │  │     ├─ health/             # Credential/Model/Endpoint/Proxy 状态
-│  │     ├─ config/             # PublishedSnapshot、Publisher、Registry
+│  │     ├─ lifecycle/          # drain、TaskTracker、后台任务生命周期
 │  │     ├─ oauth/              # PKCE/Device Code session、Token exchange、账号发布与刷新
-│  │     └─ shutdown/           # drain、TaskTracker、后台任务生命周期
+│  │     ├─ proxy/              # 代理认证材料与连接探测
+│  │     ├─ public_request/     # 规划、选择、重试、上游执行与流式生命周期
+│  │     ├─ request_telemetry/  # 请求/Attempt 遥测与异步写入
+│  │     └─ routing/            # 候选、RPM、队列、轮询与聚合观测
 │  ├─ storage/
-│  │  └─ src/                   # api/sqlite/repository/migration/vault
+│  │  └─ src/
+│  │     ├─ api.rs              # 稳定 Storage 端口
+│  │     ├─ gateway_api_key/    # 该聚合根的 row/repository/write/usage
+│  │     ├─ oauth_account/      # OAuth 文档、material、row/repository/write
+│  │     ├─ provider/           # Endpoint、Credential、模型与 Secret 持久化
+│  │     ├─ proxy/              # Proxy 与认证 Secret 持久化
+│  │     ├─ request_log/        # RequestLog 与上游凭据历史聚合
+│  │     ├─ settings/           # Setting override 持久化
+│  │     ├─ migration/          # 只前向 Migration 与迁移前修复
+│  │     └─ vault/              # 版本化 AEAD 实现
 │  └─ server/
 │     └─ src/
 │        ├─ public/             # OpenAI/Anthropic 兼容公开入口
-│        ├─ admin/              # 管理 API
-│        ├─ middleware/         # 鉴权、限制、Request ID
-│        └─ error/              # 协议兼容错误输出
+│        ├─ admin/              # 按管理功能归档的 DTO、Handler 与错误映射
+│        ├─ admin_auth/         # 单管理员密码、Session、网络策略与轮换
+│        └─ embedded_web.rs     # 内嵌/外部 Web 资源入口适配
 ├─ app/
 │  └─ any2api/                   # 二进制入口与唯一 Composition Root
+│     └─ src/
+│        ├─ bootstrap/           # 环境配置、实例锁、Adapter 注册与应用装配
+│        ├─ logging/             # 本地文件日志与配置发布后的日志 reconcile
+│        ├─ shutdown/            # HTTP drain、信号、收尾与退出结果
+│        ├─ lib.rs               # 最小公开装配/契约测试出口
+│        └─ main.rs              # 同步二进制入口
 ├─ web/
 │  └─ src/
 │     ├─ app/                    # Router、Layout、全局 Provider
@@ -332,6 +358,12 @@ any2api/
 │  ├─ integration/              # HTTP/SOCKS、SQLite、热更新、停机
 │  └─ fixtures/                 # 脱敏协议和流式样本
 └─ xtask/                       # 架构检查、生成、发布辅助命令
+   └─ src/
+      ├─ main.rs               # 命令分派
+      └─ architecture/         # architecture-check 协调与各独立门禁
+         ├─ crate_dependencies.rs
+         ├─ migration_history.rs
+         └─ source_size/       # tokei 体积检查与其专属 Allowlist
 ```
 
 `A -> B` 表示 A 可以依赖 B。允许的主要方向：
@@ -429,6 +461,26 @@ web/src/features/providers/
 ```
 
 模块之间只能通过公开出口依赖，禁止深层导入其他 feature 的内部文件。后端 Handler 和前端 Page 都只负责编排，不直接实现加密、调度、代理解析、错误分类或复杂状态机。
+
+### 6.3 Rust 源码目录与公开出口
+
+Rust crate 内采用 feature-first 目录，而不是把 entity、row、repository、DTO、handler、error 和测试按技术后缀平铺在 `src/` 根目录：
+
+- `src/` 根目录只保留 `lib.rs`、稳定 `api.rs`、少量真正跨 feature 的基础类型，以及一级 feature 入口；
+- 同一业务对象的领域实体、配置校验、SQLite row/repository/write、管理 DTO/handler/error 和模块级测试分别收进该对象所属 feature 目录；
+- 已经包含多个协作文件的模块使用目录 `mod.rs` 作为声明和最小重导出入口；只有单一职责且没有协作文件的模块继续保留单文件，禁止为了减少根目录计数机械套空目录；
+- 测试紧邻被验证的 feature，crate 级能力矩阵测试统一收进 `tests/`，不得继续以大量 `*_tests.rs` 平铺根目录；
+- crate 之间只依赖对方稳定 `api` 模块；crate 内 feature 默认通过所属模块入口协作，不提供旧内部路径的兼容别名或转发层；
+- 只有被两个以上真实 feature 共同使用且语义稳定的逻辑才能提升为共享抽象；禁止创建无领域含义的 `common.rs`、`utils.rs`、万能 repository 或万能 handler。
+
+同一规则也适用于 Workspace 中的可执行与工具 crate：
+
+- `app/any2api` 仍是唯一 Composition Root；`bootstrap/` 只拥有启动环境、实例锁、具体 Adapter 注册和依赖装配，不能吸收 Runtime、Storage 或 Server 的业务规则；
+- 应用级本地日志实现与日志设置 reconcile 统一放入 `logging/`，HTTP drain、进程信号和有界收尾统一放入 `shutdown/`；`main.rs`、`lib.rs` 和各 `mod.rs` 只声明、重导出或调用装配入口；
+- `xtask` 按命令域组织；`architecture-check` 的依赖方向、Migration 历史和源文件体积检查保持独立，只有源文件体积检查使用的 Allowlist 归属于该检查；
+- `build.rs` 等工具链约定入口可以保留单文件，但仍只承担对应构建职责，不成为应用逻辑入口。
+
+本轮目录收敛只调整代码所有权与可发现性，不改变 crate 依赖方向、SQLite Schema、HTTP 契约或运行时行为。完整决策见 `docs/adr/0047-feature-first-crate-layout.md`。
 
 ## 7. Nginx 架构借鉴
 
@@ -1971,11 +2023,11 @@ Claude: id_token, access_token, refresh_token,
 
 单进程刷新 Worker 定期扫描临近过期的已启用账号。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的 refresh token、ID token、账号 ID、邮箱和安全过期边界。成功后 SQLite CAS 更新 JSON 与版本，保留模型集合，发布新 generation；失败不写半成品。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。
 
-Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Grok OAuthAccount 支持只读的周订阅 credits 查询；Claude 当前显式不支持。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。Grok Driver 固定注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`，使用当前 OAuth access token 与 Grok CLI 身份头，只解析上游 `currentPeriod`、`creditUsagePercent` 和周期边界。Runtime 负责执行这些请求。额度请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。
+Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Claude 和 Grok OAuthAccount 支持只读额度查询。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。Claude Driver 固定注册 `GET https://api.anthropic.com/api/oauth/usage`，使用当前 OAuth access token、`anthropic-beta: oauth-2025-04-20` 和固定 Claude Code 身份头，只解析 5 小时、7 天、Sonnet 7 天与 `seven_day_overage_included` 可选窗口。Grok Driver 先注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`；旧式响应存在权威 `creditUsagePercent` 时直接解析周窗口。新版 unified billing 只有 `currentPeriod`、`onDemandCap`、`onDemandUsed`、`prepaidBalance` 等账单字段，不能据此猜测订阅请求或 Token 剩余额度；此时 Driver 才要求 Runtime 执行一次最小 `POST https://cli-chat-proxy.grok.com/v1/responses` 流式探测，从允许列表中的 `x-ratelimit-*` 响应头读取 requests/tokens 限额与 reset。探测取得响应头后立即丢弃 Body，不把生成内容交给协议层，但仍会被 xAI 计作一次真实上游请求。Runtime 只执行 Provider 返回的通用查询计划，不增加 Provider 专用 `match`。额度请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。
 
-额度查询只返回经过校验的使用率窗口、Codex 可用重置次数、安全到期时间与抓取时间。查询快照不进入 OAuth Provider JSON、SQLite、日志或 PublishedSnapshot；不得从本地请求统计推算或伪造上游额度。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Grok billing 没有对应 reset credit，管理面不显示或调用重置操作。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md` 与 `docs/adr/0045-grok-oauth-billing-quota.md`。
+额度查询只返回经过校验的使用率窗口、稳定窗口标识、窗口维度、Codex 可用重置次数、安全到期时间与抓取时间。通用额度模型使用窗口列表而不是固定主/次槽位，并允许 Provider 没有返回总可用状态时保持未知；不得为迁就 Codex 的上游响应形状丢弃 Claude 的额外模型窗口或伪造全局可用状态。Claude 使用率必须是有限非负数，重置时间必须是有效 RFC 3339；缺失的可选窗口保持缺失。Grok 探测只允许读取 requests/tokens 的 limit、remaining、reset 以及明确的限流状态；缺失的周期长度保持未知，禁止用当前剩余时间或 billing 周期伪造。查询快照不进入 OAuth Provider JSON、SQLite、日志或 PublishedSnapshot；不得从本地请求统计推算或伪造上游额度。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Claude 与 Grok 没有对应 reset credit，管理面不显示或调用重置操作；Grok 单账号和批量刷新必须向管理员提示 unified billing 回退探测会消耗真实上游请求。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`、`docs/adr/0045-grok-oauth-billing-quota.md` 与 `docs/adr/0046-claude-oauth-usage-quota.md`。
 
-Web 的“刷新全部额度”针对当前完整 Codex 或 Grok OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号；Claude 不显示该操作。前端以最多 6 个并发复用现有逐账号额度 GET，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 Codex reset 后刷新共用账号级内存 Query cache；批量生命周期不得绑定虚拟行 observer 的挂载状态，额度快照仍不得进入 localStorage、sessionStorage 或其他持久存储。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
+Web 的“刷新全部额度”针对当前完整 Codex、Claude 或 Grok OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号。前端以最多 6 个并发复用现有逐账号额度 GET，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 Codex reset 后刷新共用账号级内存 Query cache；批量生命周期不得绑定虚拟行 observer 的挂载状态，额度快照仍不得进入 localStorage、sessionStorage 或其他持久存储。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
 原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供读取、下载或导出端点。
 
@@ -2294,9 +2346,9 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - Codex/Claude 打开授权页面后允许粘贴完整 localhost callback URL；Grok 显示 Device user code 和验证地址，并按服务端给出的间隔自动轮询，不显示 callback 输入；
 - 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、可选 RPM 和已选模型；可在当前页面编辑这些账号属性或删除账号；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
-- Codex 账号可显式刷新上游主/次额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
-- Grok 账号可显式刷新 xAI 返回的周订阅 credits 使用率与周期边界，但不显示重置操作；Claude 不显示额度入口；
-- Codex 与 Grok 页面提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
+- Codex 账号可显式刷新上游额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
+- Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的 credits 或 requests/tokens 窗口；两者都不显示重置操作；
+- Codex、Claude 与 Grok 页面均提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - 页面提供 Provider 专用 JSON 导入抽屉，允许一次选择多个文件；文件只存在于抽屉局部状态，提交完成、失败或关闭后立即清空，导入成功后刷新 OAuthAccount 安全元数据集合；
@@ -2511,7 +2563,7 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - xAI Device Authorization Grant 登录、Token 刷新与安全账号元数据解析；
 - OAuth 原始 JSON 明文存入 SQLite，不进入 Vault、DTO、日志、浏览器存储或导出端点；
 - 固定 `https://cli-chat-proxy.grok.com/v1` Responses 数据面与 xAI CLI 身份头；
-- 通过同一 CLI 数据面的只读 billing 接口查询周订阅 credits 使用率，不提供额度重置；
+- 先通过同一 CLI 数据面的只读 billing 接口查询额度；unified billing 缺失权威使用率时，回退到一次只读取限额响应头的最小 Responses 探测，不提供额度重置；
 - 与 Grok API Key 在通用 `RoutingCredential` 投影合流，共用 RPM、轮询、粘性、健康、重试、代理、流式生命周期和遥测；
 - 只前向 Migration 扩展 `oauth_accounts.provider_kind`，保留既有账号和外键完整性。OAuthAccount 与数据面决策见 `docs/adr/0041-grok-oauth-account.md`，设备授权修正见 `docs/adr/0043-grok-device-authorization.md`。
 
@@ -2538,7 +2590,7 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - Claude 交互式 OAuth2 登录；
 - 独立一级菜单与页面；
 - 内存 PKCE/session、DIRECT/global-proxy token exchange；
-- 独立 OAuthAccount SQLite 持久化、模型管理、单进程刷新、token-version CAS 和 Codex 上游额度/重置次数管理；
+- 独立 OAuthAccount SQLite 持久化、模型管理、单进程刷新、token-version CAS、三类 Provider 上游额度查询和 Codex 重置次数管理；
 - Provider API Key 与 OAuthAccount 编译为统一 RoutingCredential，复用调度、RPM、粘性、健康、重试和运行态 Guard；
 - Token 不进入 Vault、ProviderCredential、管理响应或浏览器存储；
 - `/backend-api/codex/responses` OAuth 兼容入口（未实现）；

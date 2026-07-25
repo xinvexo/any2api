@@ -11,10 +11,10 @@ use http::StatusCode;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::{published_snapshot::PublishedSnapshot, publisher::ConfigPublisher};
+use crate::configuration::{ConfigPublisher, PublishedSnapshot};
 
 use super::{
-    document, quota_request,
+    document, quota_observation, quota_request,
     quota_types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
     refresh::OAuthRefresher,
 };
@@ -129,7 +129,7 @@ impl OAuthQuotaService {
             .oauth_quota_query_plan(token.as_ref())
             .map_err(OAuthQuotaError::Provider)?
             .ok_or(OAuthQuotaError::UnsupportedProvider)?;
-        let (usage_plan, credits_plan) = plan.into_parts();
+        let (usage_plan, probe_plan, credits_plan) = plan.into_parts();
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_account()
             .ok_or(OAuthQuotaError::ProxyUnavailable)?;
@@ -148,9 +148,16 @@ impl OAuthQuotaService {
                 usage_response.status.as_u16(),
             ));
         }
-        let mut usage = driver
-            .parse_oauth_quota_usage(&usage_response.body)
-            .map_err(OAuthQuotaError::Provider)?;
+        let mut usage = quota_observation::resolve_usage(
+            driver.as_ref(),
+            self.transport.as_ref(),
+            proxy,
+            strict_ssrf,
+            read_timeout,
+            usage_response,
+            probe_plan,
+        )
+        .await?;
         if let Some(credits_plan) = credits_plan
             && let Ok(response) = quota_request::execute(
                 self.transport.as_ref(),

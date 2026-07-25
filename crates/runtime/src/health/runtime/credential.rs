@@ -10,7 +10,7 @@ use super::{
     error::HealthAcquireError,
     time::{deadline, max_deadline, retry_delay, schedule_wake},
 };
-use crate::{health::ReliabilityPolicy, scheduler_epoch::SchedulerEpoch};
+use crate::{health::ReliabilityPolicy, routing::SchedulerEpoch};
 
 #[derive(Debug)]
 pub(crate) struct CredentialHealthRuntime {

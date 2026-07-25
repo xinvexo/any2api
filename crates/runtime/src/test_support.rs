@@ -6,7 +6,7 @@ use any2api_protocol::{
 };
 use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, ProviderRegistry};
 
-use crate::configuration_capabilities::ConfigurationCapabilities;
+use crate::configuration::ConfigurationCapabilities;
 
 pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
     let mut protocols = ProtocolRegistry::new();

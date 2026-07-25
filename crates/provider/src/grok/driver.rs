@@ -8,10 +8,11 @@ use crate::{
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
         OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
-        OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile,
-        OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthQuotaUsageParse, OAuthRequestPlan,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
-    api_key, openai_error,
+    credential::api_key,
+    upstream_error::openai as openai_error,
 };
 use http::HeaderMap;
 
@@ -181,8 +182,19 @@ impl ProviderDriver for GrokDriver {
         grok_quota::query_plan(token).map(Some)
     }
 
-    fn parse_oauth_quota_usage(&self, body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError> {
+    fn parse_oauth_quota_usage(
+        &self,
+        _meta: &UpstreamResponseMeta,
+        body: &[u8],
+    ) -> Result<OAuthQuotaUsageParse, ProviderError> {
         grok_quota::parse_usage(body)
+    }
+
+    fn parse_oauth_quota_probe(
+        &self,
+        meta: &UpstreamResponseMeta,
+    ) -> Result<OAuthQuotaUsage, ProviderError> {
+        grok_quota::parse_probe(meta)
     }
 
     fn classify_error(

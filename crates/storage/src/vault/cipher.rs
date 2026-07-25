@@ -17,7 +17,7 @@ use super::{
     error::SecretVaultError,
     master_key::MasterKey,
 };
-use crate::gateway_api_key_verifier::GatewayApiKeyVerifier;
+use crate::gateway_api_key::GatewayApiKeyVerifier;
 
 const VERIFIER_AAD: &[u8] = b"any2api-secret-vault-verifier-aad-v1";
 const VERIFIER_PLAINTEXT: &[u8] = b"any2api-secret-vault-verifier-v1";

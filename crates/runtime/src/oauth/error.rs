@@ -3,7 +3,7 @@ use any2api_provider::api::ProviderError;
 use any2api_transport::api::TransportError;
 use thiserror::Error;
 
-use crate::config_publish_error::ConfigPublishError;
+use crate::configuration::ConfigPublishError;
 
 #[derive(Debug, Error)]
 pub enum OAuthError {

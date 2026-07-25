@@ -8,9 +8,9 @@ use url::Url;
 
 use crate::{
     OAuthRequestPlan, OAuthTokenMaterial, ProviderError,
-    oauth_quota::{
+    oauth::quota::{
         OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
-        OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,
+        OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
     },
 };
 
@@ -165,23 +165,31 @@ struct WindowPayload {
 }
 
 fn parse_rate_limit(value: RateLimitPayload) -> Result<OAuthQuotaRateLimit, ProviderError> {
+    let mut windows = Vec::with_capacity(2);
+    if let Some(window) = value.primary_window {
+        windows.push(parse_window("primary", window)?);
+    }
+    if let Some(window) = value.secondary_window {
+        windows.push(parse_window("secondary", window)?);
+    }
     Ok(OAuthQuotaRateLimit {
-        allowed: value.allowed,
-        limit_reached: value.limit_reached,
-        primary_window: value.primary_window.map(parse_window).transpose()?,
-        secondary_window: value.secondary_window.map(parse_window).transpose()?,
+        allowed: Some(value.allowed),
+        limit_reached: Some(value.limit_reached),
+        windows,
     })
 }
 
-fn parse_window(value: WindowPayload) -> Result<OAuthQuotaWindow, ProviderError> {
+fn parse_window(id: &'static str, value: WindowPayload) -> Result<OAuthQuotaWindow, ProviderError> {
     if !value.used_percent.is_finite() || value.used_percent < 0.0 {
         return Err(invalid_response("Codex quota percentage is invalid"));
     }
     Ok(OAuthQuotaWindow {
+        id,
+        kind: OAuthQuotaWindowKind::Time,
         used_percent: value.used_percent,
-        limit_window_seconds: value.limit_window_seconds,
-        reset_after_seconds: value.reset_after_seconds,
-        reset_at: value.reset_at,
+        limit_window_seconds: Some(value.limit_window_seconds),
+        reset_after_seconds: Some(value.reset_after_seconds),
+        reset_at: Some(value.reset_at),
     })
 }
 

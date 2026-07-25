@@ -10,10 +10,8 @@ use super::{
     response::{invalid_request, public_error},
 };
 use crate::{
-    published_snapshot::PublishedSnapshot,
-    route_candidates::{
-        OAuthRoute, build_oauth_route_candidates, build_route_candidates, oauth_route_id,
-    },
+    configuration::PublishedSnapshot,
+    routing::{OAuthRoute, build_oauth_route_candidates, build_route_candidates, oauth_route_id},
 };
 
 pub(super) struct PlannedRequest {
@@ -22,7 +20,7 @@ pub(super) struct PlannedRequest {
     pub(super) route_id: ModelRouteId,
     pub(super) dialect: ProtocolDialect,
     pub(super) fallback_on_rate_limit: bool,
-    pub(super) tiers: std::collections::BTreeMap<u16, Vec<crate::route_candidates::RouteCandidate>>,
+    pub(super) tiers: std::collections::BTreeMap<u16, Vec<crate::routing::RouteCandidate>>,
 }
 
 pub(super) async fn plan(

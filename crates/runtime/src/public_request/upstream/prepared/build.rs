@@ -10,12 +10,12 @@ use any2api_transport::api::{EndpointNetworkPolicy, TransportProxy, TransportReq
 
 use super::PreparedAttempt;
 use crate::{
+    configuration::PublishedSnapshot,
     public_request::{
         SelectedCandidate,
         response::{internal_error, invalid_request, public_error},
         upstream::failure::AttemptFailure,
     },
-    published_snapshot::PublishedSnapshot,
     request_telemetry::{AttemptRecorder, public_error_class},
 };
 

@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 use crate::{
     OAuthImportedAccount, ProviderError,
     oauth::OAuthTokenMaterial,
-    oauth_import::{
+    oauth::import::{
         ProviderHint, absolute_expiry, nested_object, path_text, provider_hint, safe_email, text,
     },
 };

@@ -6,10 +6,7 @@ use any2api_provider::api::{
 use bytes::Bytes;
 use thiserror::Error;
 
-use crate::{
-    config_publish_error::ConfigPublishError,
-    publisher::{ConfigPublisher, OAuthAccountActivation},
-};
+use crate::configuration::{ConfigPublishError, ConfigPublisher, OAuthAccountActivation};
 
 use super::document;
 

@@ -7,9 +7,7 @@ use serde_json::json;
 use tempfile::{TempDir, tempdir};
 
 use crate::{
-    configuration_capabilities::ConfigurationCapabilities,
-    published_snapshot::{PublishedSnapshot, SnapshotStore},
-    publisher::ConfigPublisher,
+    configuration::{ConfigPublisher, ConfigurationCapabilities, PublishedSnapshot, SnapshotStore},
     registry::RuntimeRegistry,
 };
 

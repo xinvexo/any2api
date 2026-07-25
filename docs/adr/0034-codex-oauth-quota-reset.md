@@ -12,14 +12,14 @@ Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_
 
 ## 决策
 
-- 仅 Codex OAuthAccount 支持该能力；Claude 明确返回不支持，不增加伪实现。
+- 本 ADR 的额度重置能力仅适用于 Codex OAuthAccount；Claude 后续只读额度查询由 ADR-0046 定义，仍不实现重置。
 - 管理 API 使用 `GET /api/admin/oauth/accounts/{id}/quota` 查询，使用 `POST /api/admin/oauth/accounts/{id}/quota/reset` 消耗一次重置次数；两者都受单管理员鉴权和 `no-store` 约束。
 - Codex Driver 固定构造 `/backend-api/wham/usage`、`/backend-api/wham/rate-limit-reset-credits` 与 `/consume` 请求，注入 Bearer、`chatgpt-account-id` 和 Codex quota 所需固定头，并把受限响应解析成安全类型。Provider 不执行网络请求。
 - Runtime 使用 OAuthAccount 固定 DIRECT 绑定解析出的全局代理和当前严格 SSRF 设置；不允许专属代理、重定向或隐式直连回退。响应正文按固定上限读取，错误正文不进入日志或管理响应。
 - 查询遇到 401 时沿用 OAuth per-account refresh singleflight，最多刷新并重试一次。额度详情查询失败只允许回退到同次 usage 响应中明确给出的 reset credit 数据；缺失时保持未知，禁止猜测为可用。
 - 重置按 OAuthAccount 串行。每次 POST 在持锁后重新执行额度查询，仅当最新 `available_count > 0` 才生成 UUID v4 `redeem_request_id` 并调用 consume；不相信客户端提交的次数。
 - consume 成功且响应确认至少重置一个窗口后，清除该账号当前运行代际的 credential/model 临时冷却并推进 scheduler epoch。认证错误、Endpoint/Proxy 状态和其他账号不受影响。
-- 管理 DTO 只返回主/次窗口、可用次数、credit 到期时间、抓取时间和已重置窗口数。额度快照不写 OAuth Provider JSON、SQLite、PublishedSnapshot、RequestLog、文件日志或浏览器持久存储。
+- 管理 DTO 只返回安全窗口、可用次数、credit 到期时间、抓取时间和已重置窗口数；窗口传输模型已由 ADR-0046 改为通用列表。额度快照不写 OAuth Provider JSON、SQLite、PublishedSnapshot、RequestLog、文件日志或浏览器持久存储。
 - Web 先显式查询并展示额度；只有查询成功且可用次数大于 0 时启用重置，确认框明确提示会消耗一次，成功后立即重新查询。
 
 ## 备选方案

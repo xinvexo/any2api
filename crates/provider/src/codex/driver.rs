@@ -9,10 +9,11 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
-        UpstreamResponseMeta,
+        OAuthLoginFlow, OAuthQuotaUsageParse, OAuthRequestPlan, OAuthRoutingProfile,
+        OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
-    api_key, openai_error,
+    credential::api_key,
+    upstream_error::openai as openai_error,
 };
 
 #[derive(Debug)]
@@ -167,9 +168,10 @@ impl ProviderDriver for CodexDriver {
 
     fn parse_oauth_quota_usage(
         &self,
+        _meta: &UpstreamResponseMeta,
         body: &[u8],
-    ) -> Result<crate::api::OAuthQuotaUsage, ProviderError> {
-        codex_quota::parse_usage(body)
+    ) -> Result<OAuthQuotaUsageParse, ProviderError> {
+        codex_quota::parse_usage(body).map(OAuthQuotaUsageParse::Complete)
     }
 
     fn parse_oauth_quota_reset_credits(

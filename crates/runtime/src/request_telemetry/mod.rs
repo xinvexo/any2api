@@ -4,6 +4,8 @@ mod observation;
 mod policy;
 mod recorder;
 mod telemetry;
+#[cfg(test)]
+mod tests;
 mod worker;
 
 use observation::RequestObservation;

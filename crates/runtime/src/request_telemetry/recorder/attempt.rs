@@ -5,8 +5,8 @@ use any2api_domain::{
     RequestAttemptOutcome, RequestId, RetrySafety, RouteTargetId, TokenUsage,
 };
 
-use super::{RequestRecorder, bound_optional_error_message, duration_ms};
-use crate::route_candidates::RouteCandidate;
+use super::request::{RequestRecorder, bound_optional_error_message, duration_ms};
+use crate::routing::RouteCandidate;
 
 pub(crate) struct AttemptRecorder {
     request: RequestRecorder,
@@ -45,7 +45,7 @@ impl AttemptRecorder {
 
     pub(crate) fn disabled() -> Self {
         Self {
-            request: RequestRecorder { inner: None },
+            request: RequestRecorder::disabled(),
             request_id: RequestId::new(),
             attempt_no: 1,
             route_target_id: None,

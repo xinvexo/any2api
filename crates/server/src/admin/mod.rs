@@ -1,57 +1,29 @@
-mod access;
-mod affinity_dto;
-mod affinity_handlers;
-mod auth_cookie;
-mod auth_dto;
-mod auth_handlers;
-mod auth_middleware;
-mod balancing_dto;
-mod balancing_handlers;
+mod affinity;
+mod auth;
+mod balancing;
 mod config_publish_error;
 mod error;
-mod gateway_api_key_dto;
-mod gateway_api_key_handlers;
-mod loopback;
+mod gateway_api_key;
 mod no_store;
-mod oauth_dto;
-mod oauth_error;
-mod oauth_handlers;
-mod oauth_import_dto;
-mod oauth_import_error;
-mod oauth_login_dto;
-mod oauth_quota_dto;
-mod oauth_quota_error;
-mod provider_credential_dto;
-mod provider_credential_handlers;
-mod provider_endpoint_dto;
-mod provider_endpoint_handlers;
-mod proxy_dto;
-mod proxy_handlers;
-mod request_log_dto;
-mod request_log_handlers;
+mod oauth;
+mod provider;
+mod proxy;
+mod request_log;
 mod revision;
-mod settings_dto;
-mod settings_handlers;
+mod settings;
 mod upstream_usage;
 
-use axum::{
-    Router, middleware,
-    routing::{get, post},
-};
+use axum::{Router, middleware};
 
 use crate::state::AppState;
 
 pub(crate) fn routes(state: AppState) -> Router<AppState> {
-    let auth = Router::new()
-        .route("/auth/session", get(auth_handlers::session))
-        .route("/auth/setup", post(auth_handlers::setup))
-        .route("/auth/login", post(auth_handlers::login));
     let protected = protected_routes().route_layer(middleware::from_fn_with_state(
         state,
-        auth_middleware::require_admin_session,
+        auth::require_admin_session,
     ));
     Router::new()
-        .merge(auth)
+        .merge(auth::public_routes())
         .merge(protected)
         .fallback(error::not_found)
         .layer(middleware::from_fn(no_store::responses))
@@ -59,93 +31,13 @@ pub(crate) fn routes(state: AppState) -> Router<AppState> {
 
 fn protected_routes() -> Router<AppState> {
     Router::new()
-        .route("/auth/logout", post(auth_handlers::logout))
-        .route(
-            "/auth/password/rotate",
-            post(auth_handlers::rotate_password),
-        )
-        .route(
-            "/affinity",
-            get(affinity_handlers::get).delete(affinity_handlers::clear_all),
-        )
-        .route(
-            "/affinity/credentials/{id}",
-            axum::routing::delete(affinity_handlers::clear_credential),
-        )
-        .route("/balancing", get(balancing_handlers::get))
-        .merge(oauth_handlers::routes())
-        .route(
-            "/gateway-api-keys",
-            get(gateway_api_key_handlers::list).post(gateway_api_key_handlers::create),
-        )
-        .route(
-            "/gateway-api-keys/{id}",
-            axum::routing::patch(gateway_api_key_handlers::update),
-        )
-        .route(
-            "/gateway-api-keys/{id}/rotate",
-            axum::routing::post(gateway_api_key_handlers::rotate),
-        )
-        .route(
-            "/gateway-api-keys/{id}/revoke",
-            axum::routing::post(gateway_api_key_handlers::revoke),
-        )
-        .route(
-            "/proxies",
-            get(proxy_handlers::list).post(proxy_handlers::create),
-        )
-        .route(
-            "/proxies/{id}",
-            axum::routing::patch(proxy_handlers::update).delete(proxy_handlers::delete),
-        )
-        .route(
-            "/proxies/{id}/set-global",
-            axum::routing::post(proxy_handlers::set_global),
-        )
-        .route(
-            "/proxies/{id}/authentication",
-            axum::routing::put(proxy_handlers::set_authentication)
-                .delete(proxy_handlers::clear_authentication),
-        )
-        .route(
-            "/proxies/{id}/test",
-            axum::routing::post(proxy_handlers::test),
-        )
-        .route(
-            "/provider-endpoints",
-            get(provider_endpoint_handlers::list).post(provider_endpoint_handlers::create),
-        )
-        .route(
-            "/provider-endpoints/{id}",
-            axum::routing::patch(provider_endpoint_handlers::update)
-                .delete(provider_endpoint_handlers::delete),
-        )
-        .route(
-            "/provider-endpoints/{endpoint_id}/credentials",
-            get(provider_credential_handlers::list).post(provider_credential_handlers::create),
-        )
-        .route(
-            "/provider-credentials/{id}",
-            axum::routing::patch(provider_credential_handlers::update)
-                .delete(provider_credential_handlers::delete),
-        )
-        .route(
-            "/provider-credentials/{id}/rotate-secret",
-            axum::routing::post(provider_credential_handlers::rotate_secret),
-        )
-        .route(
-            "/provider-credentials/{id}/test",
-            axum::routing::post(provider_credential_handlers::test),
-        )
-        .route(
-            "/provider-credentials/{id}/models",
-            axum::routing::put(provider_credential_handlers::set_models),
-        )
-        .route("/request-logs", get(request_log_handlers::list))
-        .route("/request-logs/{id}", get(request_log_handlers::get))
-        .route("/settings", get(settings_handlers::list))
-        .route(
-            "/settings/{key}",
-            axum::routing::patch(settings_handlers::update).delete(settings_handlers::reset),
-        )
+        .merge(auth::protected_routes())
+        .merge(affinity::routes())
+        .merge(balancing::routes())
+        .merge(oauth::routes())
+        .merge(gateway_api_key::routes())
+        .merge(proxy::routes())
+        .merge(provider::routes())
+        .merge(request_log::routes())
+        .merge(settings::routes())
 }

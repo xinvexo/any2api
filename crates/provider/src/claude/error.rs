@@ -7,7 +7,8 @@ use http::StatusCode;
 use serde::Deserialize;
 
 use crate::{
-    api::UpstreamResponseMeta, http_error::classify_status, retry_after::retry_after_hint,
+    api::UpstreamResponseMeta,
+    upstream_error::{http::classify_status, retry_after::retry_after_hint},
 };
 
 #[derive(Deserialize)]

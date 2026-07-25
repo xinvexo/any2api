@@ -15,8 +15,8 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    config_publish_error::ConfigPublishError, process_lifecycle::ProcessLifecycle,
-    publisher::ConfigPublisher,
+    configuration::{ConfigPublishError, ConfigPublisher, PublishedSnapshot},
+    lifecycle::ProcessLifecycle,
 };
 
 use super::{document, error::OAuthError, token_request};
@@ -146,7 +146,7 @@ impl OAuthRefresher {
         &self,
         id: OAuthAccountId,
         observed_token_version: u64,
-    ) -> Option<Arc<crate::published_snapshot::PublishedSnapshot>> {
+    ) -> Option<Arc<PublishedSnapshot>> {
         match self
             .refresh(
                 id,
@@ -296,8 +296,8 @@ enum RefreshTrigger {
 }
 
 enum RefreshResult {
-    Refreshed(Arc<crate::published_snapshot::PublishedSnapshot>),
-    AlreadyUpdated(Arc<crate::published_snapshot::PublishedSnapshot>),
+    Refreshed(Arc<PublishedSnapshot>),
+    AlreadyUpdated(Arc<PublishedSnapshot>),
     Unavailable,
 }
 

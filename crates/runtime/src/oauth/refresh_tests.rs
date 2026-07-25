@@ -21,8 +21,7 @@ use tokio::sync::Semaphore;
 
 use super::refresh::OAuthRefresher;
 use crate::{
-    published_snapshot::{PublishedSnapshot, SnapshotStore},
-    publisher::ConfigPublisher,
+    configuration::{ConfigPublisher, PublishedSnapshot, SnapshotStore},
     registry::RuntimeRegistry,
 };
 

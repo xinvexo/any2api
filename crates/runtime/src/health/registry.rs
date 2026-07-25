@@ -8,7 +8,7 @@ use any2api_domain::{
 };
 
 use super::runtime::{EndpointHealthRuntime, ProxyHealthRuntime};
-use crate::scheduler_epoch::SchedulerEpoch;
+use crate::routing::SchedulerEpoch;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct EndpointKey {

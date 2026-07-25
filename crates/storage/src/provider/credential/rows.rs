@@ -1,0 +1,238 @@
+use std::{collections::HashMap, str::FromStr};
+
+use any2api_domain::{
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ProviderCredential,
+    ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderEndpointConfiguration,
+    ProviderEndpointId, ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
+};
+use sqlx::{FromRow, SqliteConnection};
+use subtle::ConstantTimeEq;
+
+use crate::{
+    error::StorageError,
+    vault::{SecretContext, SecretEnvelope, SecretVault},
+};
+
+use super::{
+    api_key::build_fingerprint,
+    secret_material::{StoredProviderCredentialSecret, StoredProviderCredentialSecrets},
+};
+
+#[derive(Debug, FromRow)]
+struct ProviderCredentialRow {
+    id: String,
+    provider_endpoint_id: String,
+    label: String,
+    credential_kind: String,
+    secret_schema_version: i64,
+    secret_version: i64,
+    credential_generation: i64,
+    config_version: i64,
+    envelope_version: i64,
+    key_id: String,
+    algorithm: String,
+    nonce: Vec<u8>,
+    ciphertext: Vec<u8>,
+    aad_version: i64,
+    fingerprint_version: i64,
+    secret_fingerprint: Vec<u8>,
+    secret_tail: Option<String>,
+    proxy_profile_id: String,
+    requests_per_minute: Option<i64>,
+    enabled: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct ProviderCredentialModelRow {
+    credential_id: String,
+    upstream_model: String,
+}
+
+pub(crate) async fn load_provider_credentials_from(
+    connection: &mut SqliteConnection,
+    vault: &SecretVault,
+    endpoints: &ProviderEndpointConfiguration,
+    proxies: &ProxyConfiguration,
+) -> Result<
+    (
+        ProviderCredentialConfiguration,
+        StoredProviderCredentialSecrets,
+    ),
+    StorageError,
+> {
+    let rows = sqlx::query_as::<_, ProviderCredentialRow>(
+        "SELECT id, provider_endpoint_id, label, credential_kind, secret_schema_version, \
+         secret_version, credential_generation, config_version, envelope_version, key_id, \
+         algorithm, nonce, ciphertext, aad_version, fingerprint_version, secret_fingerprint, \
+         secret_tail, proxy_profile_id, requests_per_minute, enabled \
+         FROM provider_credentials ORDER BY provider_endpoint_id ASC, label ASC",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    let model_rows = sqlx::query_as::<_, ProviderCredentialModelRow>(
+        "SELECT credential_id, upstream_model FROM provider_credential_models \
+         ORDER BY credential_id, upstream_model",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    let mut models = group_models(model_rows);
+    let mut credentials = Vec::with_capacity(rows.len());
+    let mut secrets = Vec::with_capacity(rows.len());
+    for row in rows {
+        let selected_models = models.remove(&row.id).unwrap_or_default();
+        let (credential, secret) = parse_row(row, selected_models, vault, endpoints)?;
+        credentials.push(credential);
+        secrets.push(secret);
+    }
+    if !models.is_empty() {
+        return Err(StorageError::CorruptConfiguration);
+    }
+    let configuration = ProviderCredentialConfiguration::new(credentials, endpoints, proxies)
+        .map_err(|_| StorageError::CorruptConfiguration)?;
+    Ok((configuration, StoredProviderCredentialSecrets::new(secrets)))
+}
+
+fn parse_row(
+    row: ProviderCredentialRow,
+    models: Vec<String>,
+    vault: &SecretVault,
+    endpoints: &ProviderEndpointConfiguration,
+) -> Result<(ProviderCredential, StoredProviderCredentialSecret), StorageError> {
+    let ProviderCredentialRow {
+        id,
+        provider_endpoint_id,
+        label,
+        credential_kind,
+        secret_schema_version,
+        secret_version,
+        credential_generation,
+        config_version,
+        envelope_version,
+        key_id,
+        algorithm,
+        nonce,
+        ciphertext,
+        aad_version,
+        fingerprint_version,
+        secret_fingerprint,
+        secret_tail,
+        proxy_profile_id,
+        requests_per_minute,
+        enabled,
+    } = row;
+    let id = CredentialId::from_str(&id).map_err(|_| StorageError::CorruptConfiguration)?;
+    let endpoint_id = ProviderEndpointId::from_str(&provider_endpoint_id)
+        .map_err(|_| StorageError::CorruptConfiguration)?;
+    let endpoint = endpoints
+        .get(endpoint_id)
+        .ok_or(StorageError::CorruptConfiguration)?;
+    let credential_kind = parse_credential_kind(&credential_kind)?;
+    let proxy_profile_id = ProxyProfileId::from_str(&proxy_profile_id)
+        .map_err(|_| StorageError::CorruptConfiguration)?;
+    let requests_per_minute = requests_per_minute
+        .map(|value| {
+            u32::try_from(value)
+                .ok()
+                .and_then(|value| RequestsPerMinute::new(value).ok())
+                .ok_or(StorageError::CorruptConfiguration)
+        })
+        .transpose()?;
+    let secret_schema_version =
+        u32::try_from(secret_schema_version).map_err(|_| StorageError::CorruptConfiguration)?;
+    let secret_version = parse_version(secret_version)?;
+    let credential_generation = parse_version(credential_generation)?;
+    let config_version = parse_version(config_version)?;
+    let fingerprint_version =
+        u16::try_from(fingerprint_version).map_err(|_| StorageError::CorruptConfiguration)?;
+    let fingerprint_digest: [u8; 32] = secret_fingerprint
+        .try_into()
+        .map_err(|_| StorageError::CorruptConfiguration)?;
+    let fingerprint =
+        CredentialSecretFingerprint::restore(fingerprint_version, fingerprint_digest, secret_tail)
+            .map_err(|_| StorageError::CorruptConfiguration)?;
+    let draft = ProviderCredentialDraft::new(
+        label,
+        credential_kind,
+        proxy_profile_id,
+        requests_per_minute,
+        enabled == 1,
+    )
+    .map_err(|_| StorageError::CorruptConfiguration)?;
+    let credential = ProviderCredential::restore(
+        id,
+        endpoint_id,
+        draft,
+        fingerprint,
+        secret_schema_version,
+        secret_version,
+        credential_generation,
+        config_version,
+        models,
+    )
+    .map_err(|_| StorageError::CorruptConfiguration)?;
+    let envelope = SecretEnvelope::restore(
+        u16::try_from(envelope_version).map_err(|_| StorageError::CorruptConfiguration)?,
+        key_id,
+        &algorithm,
+        &nonce,
+        ciphertext,
+        u16::try_from(aad_version).map_err(|_| StorageError::CorruptConfiguration)?,
+    )?;
+    let secret = open_and_verify_secret(envelope, vault, endpoint.provider_kind(), &credential)?;
+    let material = StoredProviderCredentialSecret::new(
+        credential.id(),
+        credential.credential_kind(),
+        credential.secret_schema_version(),
+        credential.secret_version(),
+        credential.credential_generation(),
+        secret,
+    );
+    Ok((credential, material))
+}
+
+fn group_models(rows: Vec<ProviderCredentialModelRow>) -> HashMap<String, Vec<String>> {
+    let mut models = HashMap::<String, Vec<String>>::new();
+    for row in rows {
+        models
+            .entry(row.credential_id)
+            .or_default()
+            .push(row.upstream_model);
+    }
+    models
+}
+
+fn open_and_verify_secret(
+    envelope: SecretEnvelope,
+    vault: &SecretVault,
+    provider_kind: any2api_domain::ProviderKind,
+    credential: &ProviderCredential,
+) -> Result<crate::vault::SecretBytes, StorageError> {
+    let secret = vault.open(
+        SecretContext::provider_credential(
+            credential.id(),
+            provider_kind,
+            credential.credential_kind(),
+            credential.secret_schema_version(),
+            credential.secret_version(),
+        ),
+        &envelope,
+    )?;
+    let computed = build_fingerprint(vault, provider_kind, credential.credential_kind(), &secret)?;
+    if !bool::from(computed.digest().ct_eq(credential.fingerprint().digest()))
+        || computed.tail() != credential.fingerprint().tail()
+    {
+        return Err(StorageError::CorruptConfiguration);
+    }
+    Ok(secret)
+}
+
+fn parse_version(value: i64) -> Result<u64, StorageError> {
+    u64::try_from(value).map_err(|_| StorageError::CorruptConfiguration)
+}
+
+fn parse_credential_kind(value: &str) -> Result<CredentialKind, StorageError> {
+    match value {
+        "api_key" => Ok(CredentialKind::ApiKey),
+        _ => Err(StorageError::CorruptConfiguration),
+    }
+}

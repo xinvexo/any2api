@@ -5,7 +5,7 @@ use any2api_transport::api::TransportFailureScope;
 use tokio::time::Instant;
 
 use super::{endpoint::EndpointPermit, proxy::ProxyPermit};
-use crate::{credential_runtime::CredentialGenerationRuntime, health::ReliabilityPolicy};
+use crate::{credential::CredentialGenerationRuntime, health::ReliabilityPolicy};
 
 pub(crate) struct AttemptHealth {
     credential: Arc<CredentialGenerationRuntime>,

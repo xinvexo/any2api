@@ -1,0 +1,221 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, expect, test, vi } from "vitest";
+
+import { oauthQueryKeys } from "../model/oauth-query-keys";
+import { OAuthManagement } from "./OAuthManagement";
+import { clearNotifications, NotificationHost } from "@/shared/notifications";
+
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+test("virtualizes the full collection and refreshes every Codex quota", async () => {
+  const items = [
+    ...Array.from({ length: 12 }, (_, index) =>
+      oauthAccountJson(`a${index + 1}`, `Codex ${index + 1}`, "codex", index !== 11),
+    ),
+    oauthAccountJson("claude-1", "Claude One", "claude"),
+  ];
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/admin/oauth/accounts") {
+      return jsonResponse({ config_revision: 1, items });
+    }
+    const quotaPrefix = "/api/admin/oauth/accounts/";
+    const accountId =
+      path.startsWith(quotaPrefix) && path.endsWith("/quota")
+        ? path.slice(quotaPrefix.length, -"/quota".length)
+        : null;
+    if (accountId === "a12") {
+      return errorResponse("oauth_quota_upstream_failed", 502);
+    }
+    if (accountId?.match(/^a\d+$/)) {
+      return jsonResponse(quota(Number(accountId.slice(1))));
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  const { client } = renderManagement();
+  expect(await screen.findByText("Codex 1")).toBeInTheDocument();
+  expect(screen.queryByText("Codex 12")).not.toBeInTheDocument();
+  expect(screen.getByRole("list", { name: "Codex OAuth 账号列表" })).toBeInTheDocument();
+  expect(screen.getByLabelText("账号数量")).toHaveTextContent("共 12 个账号");
+  expect(screen.queryByLabelText("每页条数")).not.toBeInTheDocument();
+
+  const refreshAll = screen.getByRole("button", { name: "刷新全部额度" });
+  fireEvent.click(refreshAll);
+  const notification = await screen.findByRole("alert");
+  expect(notification).toHaveTextContent("已刷新 11 个 Codex 账号额度，1 个失败。");
+  expect(notification.className).toContain("notification-card");
+  await waitFor(() => expect(refreshAll).toBeEnabled());
+
+  const quotaPaths = fetchMock.mock.calls
+    .map(([input]) => String(input))
+    .filter((path) => path.endsWith("/quota"));
+  expect(new Set(quotaPaths)).toEqual(
+    new Set(
+      Array.from(
+        { length: 12 },
+        (_, index) => `/api/admin/oauth/accounts/a${index + 1}/quota`,
+      ),
+    ),
+  );
+  expect(quotaPaths.some((path) => path.includes("claude-1"))).toBe(false);
+  expect(client.getQueryData(oauthQueryKeys.quota("a11"))).toBeDefined();
+  expect(client.getQueryState(oauthQueryKeys.quota("a12"))?.status).toBe("error");
+});
+
+test("limits refresh-all concurrency and locks account actions", async () => {
+  const items = Array.from({ length: 8 }, (_, index) =>
+    oauthAccountJson(`a${index + 1}`, `Codex ${index + 1}`, "codex"),
+  );
+  const quotaGates: Array<ReturnType<typeof deferred<void>>> = [];
+  let active = 0;
+  let maxActive = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/admin/oauth/accounts") {
+      return jsonResponse({ config_revision: 1, items });
+    }
+    if (path.endsWith("/quota")) {
+      const gate = deferred<void>();
+      quotaGates.push(gate);
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await gate.promise;
+      active -= 1;
+      return jsonResponse(quota(1));
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderManagement();
+  expect(await screen.findByText("Codex 1")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "刷新全部额度" }));
+
+  await waitFor(() => expect(quotaGates).toHaveLength(6));
+  expect(maxActive).toBe(6);
+  expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeDisabled();
+  expect(
+    screen.getAllByRole("button", { name: "刷新额度" }).every((button) =>
+      button.hasAttribute("disabled"),
+    ),
+  ).toBe(true);
+
+  quotaGates.slice(0, 6).forEach((gate) => gate.resolve(undefined));
+  await waitFor(() => expect(quotaGates).toHaveLength(8));
+  quotaGates.slice(6).forEach((gate) => gate.resolve(undefined));
+
+  const notification = await screen.findByRole("status");
+  expect(notification).toHaveTextContent("已刷新全部 8 个 Codex 账号额度。");
+  expect(notification.className).toContain("notification-card");
+  expect(maxActive).toBe(6);
+  expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeEnabled();
+});
+
+function renderManagement() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 10_000 } },
+  });
+  return {
+    client,
+    ...render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={["/oauth"]}>
+          <OAuthManagement />
+          <NotificationHost />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    ),
+  };
+}
+
+function oauthAccountJson(
+  id: string,
+  label: string,
+  providerKind: "codex" | "claude",
+  enabled = true,
+) {
+  return {
+    id,
+    provider_kind: providerKind,
+    label,
+    requests_per_minute: null,
+    enabled,
+    safe_account_email: null,
+    expires_at: null,
+    token_version: 1,
+    account_generation: 1,
+    config_version: 1,
+    selected_model_count: 0,
+    models: [],
+    available_models:
+      providerKind === "codex" ? ["gpt-5.5"] : ["claude-sonnet-4-5"],
+    plan_type: "free",
+    usage: usage(),
+  };
+}
+
+function quota(accountNumber: number) {
+  return {
+    fetched_at: 1_900_000_000 + accountNumber,
+    rate_limit: {
+      allowed: true,
+      limit_reached: false,
+      windows: [{
+        id: "primary",
+        kind: "time",
+        used_percent: accountNumber,
+        limit_window_seconds: 18_000,
+        reset_after_seconds: 300,
+        reset_at: 1_900_000_300,
+      }],
+    },
+    reset_credits: { available_count: 1, expires_at: [] },
+  };
+}
+
+function errorResponse(code: string, status: number) {
+  return new Response(
+    JSON.stringify({ error: { code, message: "quota request failed" } }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function jsonResponse(body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
+function usage() {
+  const windowMs = 2 * 60 * 1000;
+  const newest = Math.floor(Date.now() / windowMs) * windowMs;
+  return {
+    total_requests: 3,
+    successful_requests: 2,
+    failed_requests: 1,
+    window_minutes: 2,
+    window_slots: Array.from({ length: 30 }, (_, index) => ({
+      started_at_ms: newest - (29 - index) * windowMs,
+      total_requests: index >= 27 ? 1 : 0,
+      successful_requests: index === 27 || index === 29 ? 1 : 0,
+      failed_requests: index === 28 ? 1 : 0,
+    })),
+  };
+}

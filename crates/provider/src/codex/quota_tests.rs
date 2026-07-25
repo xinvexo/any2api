@@ -19,8 +19,9 @@ fn token() -> OAuthTokenMaterial {
 
 #[test]
 fn builds_fixed_query_and_reset_plans_without_debugging_secrets() {
-    let (usage, credits) = query_plan(&token()).expect("query plan").into_parts();
+    let (usage, probe, credits) = query_plan(&token()).expect("query plan").into_parts();
     let credits = credits.expect("Codex reset credit plan");
+    assert!(probe.is_none());
     assert_eq!(usage.method, Method::GET);
     assert_eq!(
         usage.url.as_str(),
@@ -96,16 +97,12 @@ fn parses_primary_secondary_windows_and_usage_credit_count() {
     .expect("usage");
 
     let limit = usage.rate_limit.expect("rate limit");
-    assert!(limit.allowed);
-    assert!(!limit.limit_reached);
-    assert_eq!(
-        limit.primary_window.expect("primary").limit_window_seconds,
-        18_000
-    );
-    assert_eq!(
-        limit.secondary_window.expect("secondary").used_percent,
-        80.0
-    );
+    assert_eq!(limit.allowed, Some(true));
+    assert_eq!(limit.limit_reached, Some(false));
+    assert_eq!(limit.windows[0].limit_window_seconds, Some(18_000));
+    assert_eq!(limit.windows[0].id, "primary");
+    assert_eq!(limit.windows[1].id, "secondary");
+    assert_eq!(limit.windows[1].used_percent, 80.0);
     assert_eq!(
         usage.reset_credits.expect("reset credits").available_count,
         2

@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use any2api_provider::api::OAuthRequestPlan;
 use any2api_transport::api::{
-    EndpointNetworkPolicy, TransportManager, TransportProxy, TransportRequest,
+    EndpointNetworkPolicy, TransportManager, TransportProxy, TransportRequest, TransportResponse,
 };
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
-use http::StatusCode;
+use http::{HeaderMap, StatusCode};
 use tokio::time::timeout;
 
 use super::quota_types::OAuthQuotaError;
@@ -15,6 +15,7 @@ const MAX_QUOTA_RESPONSE_BYTES: usize = 128 * 1024;
 
 pub(super) struct OAuthQuotaResponse {
     pub status: StatusCode,
+    pub headers: HeaderMap,
     pub body: Bytes,
 }
 
@@ -25,6 +26,48 @@ pub(super) async fn execute(
     read_timeout: Duration,
     plan: OAuthRequestPlan,
 ) -> Result<OAuthQuotaResponse, OAuthQuotaError> {
+    let TransportResponse {
+        status,
+        headers,
+        body,
+        ..
+    } = start(transport, proxy, strict_ssrf, read_timeout, plan).await?;
+    let body = collect(body, read_timeout).await?;
+    Ok(OAuthQuotaResponse {
+        status,
+        headers,
+        body,
+    })
+}
+
+pub(super) async fn execute_headers(
+    transport: &dyn TransportManager,
+    proxy: TransportProxy<'_>,
+    strict_ssrf: bool,
+    read_timeout: Duration,
+    plan: OAuthRequestPlan,
+) -> Result<OAuthQuotaResponse, OAuthQuotaError> {
+    let TransportResponse {
+        status,
+        headers,
+        body,
+        ..
+    } = start(transport, proxy, strict_ssrf, read_timeout, plan).await?;
+    drop(body);
+    Ok(OAuthQuotaResponse {
+        status,
+        headers,
+        body: Bytes::new(),
+    })
+}
+
+async fn start(
+    transport: &dyn TransportManager,
+    proxy: TransportProxy<'_>,
+    strict_ssrf: bool,
+    read_timeout: Duration,
+    plan: OAuthRequestPlan,
+) -> Result<TransportResponse, OAuthQuotaError> {
     let request = TransportRequest {
         method: plan.method,
         uri: plan
@@ -37,15 +80,10 @@ pub(super) async fn execute(
         network_policy: EndpointNetworkPolicy::new().with_strict_ssrf(strict_ssrf),
         read_timeout,
     };
-    let response = transport
+    transport
         .execute(proxy, request)
         .await
-        .map_err(OAuthQuotaError::Transport)?;
-    let body = collect(response.body, read_timeout).await?;
-    Ok(OAuthQuotaResponse {
-        status: response.status,
-        body,
-    })
+        .map_err(OAuthQuotaError::Transport)
 }
 
 async fn collect(

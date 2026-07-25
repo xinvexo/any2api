@@ -11,18 +11,21 @@ export function OAuthQuotaDetails({
   quota: OAuthQuotaSnapshot;
   showResetCredits: boolean;
 }) {
-  const windows = [quota.rateLimit?.primaryWindow, quota.rateLimit?.secondaryWindow]
-    .filter((window): window is OAuthQuotaWindow => window !== null && window !== undefined)
-    .sort((left, right) => left.limitWindowSeconds - right.limitWindowSeconds);
+  const windows = quota.rateLimit?.windows ?? [];
   const creditExpiry = showResetCredits ? formatCreditExpiries(quota) : null;
 
   return (
     <div className="mt-2 space-y-2.5">
       {windows.map((window) => (
-        <QuotaWindowBar key={`${window.limitWindowSeconds}-${window.resetAt}`} window={window} />
+        <QuotaWindowBar
+          key={window.id}
+          window={window}
+        />
       ))}
       {windows.length === 0 ? (
-        <p className="text-[11px] text-tertiary">上游未返回限额窗口</p>
+        <p className="text-[11px] text-tertiary">
+          {quota.rateLimit?.limitReached ? "上游报告额度已用尽" : "上游未返回限额窗口"}
+        </p>
       ) : null}
       {showResetCredits ? (
         <div className="flex items-baseline justify-between gap-2 text-[11px]">
@@ -44,7 +47,8 @@ export function OAuthQuotaDetails({
 function QuotaWindowBar({ window }: { window: OAuthQuotaWindow }) {
   const used = Math.min(100, Math.max(0, window.usedPercent));
   const remaining = Math.max(0, 100 - used);
-  const label = windowLabel(window.limitWindowSeconds);
+  const label = windowLabel(window);
+  const reset = window.resetAt === null ? null : formatCompactTime(window.resetAt);
   return (
     <div className="min-w-0">
       <div className="flex items-baseline justify-between gap-2 text-[11px]">
@@ -53,7 +57,7 @@ function QuotaWindowBar({ window }: { window: OAuthQuotaWindow }) {
           <span className={cn("font-semibold", remainingTone(remaining))}>
             {remaining.toFixed(0)}%
           </span>
-          <span className="ml-1.5 text-tertiary">{formatCompactTime(window.resetAt)}</span>
+          {reset ? <span className="ml-1.5 text-tertiary">{reset}</span> : null}
         </span>
       </div>
       <div
@@ -89,11 +93,18 @@ function remainingBar(remaining: number) {
   return "bg-success";
 }
 
-function windowLabel(seconds: number) {
+function windowLabel(window: OAuthQuotaWindow) {
+  if (window.id === "five_hour") return "5 小时限额";
+  if (window.id === "seven_day") return "7 天限额";
+  if (window.id === "seven_day_sonnet") return "Sonnet 7 天限额";
+  if (window.id === "seven_day_overage_included") return "Fable 7 天限额";
+  if (window.kind === "requests") return "请求限额";
+  if (window.kind === "tokens") return "Token 限额";
+  const seconds = window.limitWindowSeconds;
   if (seconds === 18_000 || seconds === 5 * 3_600) return "5 小时限额";
   if (seconds === 604_800 || seconds === 7 * 86_400) return "周限额";
   if (seconds === 30 * 86_400) return "月限额";
-  return "限额";
+  return window.kind === "credits" ? "Credits 限额" : "限额";
 }
 
 function formatCompactTime(value: number) {

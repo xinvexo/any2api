@@ -89,7 +89,7 @@ export function OAuthManagement() {
 
   async function refreshAllQuotas() {
     const provider = selectedProvider;
-    if (provider === "claude" || kindAccounts.length === 0) {
+    if (kindAccounts.length === 0) {
       return;
     }
     const result = await quotaRefresh.refresh(kindAccounts.map((account) => account.id));
@@ -114,21 +114,22 @@ export function OAuthManagement() {
 
   const toolbarEnd = (
     <>
-      {selectedProvider !== "claude" ? (
-        <Button
-          variant="ghost"
-          disabled={
-            quotaRefresh.pending || accounts.isFetching || kindAccounts.length === 0
-          }
-          onClick={() => void refreshAllQuotas()}
-        >
-          <RefreshCw
-            size={14}
-            className={quotaRefresh.pending ? "animate-spin" : undefined}
-          />
-          {quotaRefresh.pending ? "正在刷新额度" : "刷新全部额度"}
-        </Button>
-      ) : null}
+      <Button
+        variant="ghost"
+        disabled={quotaRefresh.pending || accounts.isFetching || kindAccounts.length === 0}
+        title={
+          selectedProvider === "grok"
+            ? "每个 unified billing 账号可能发送一次最小 Responses 探测"
+            : undefined
+        }
+        onClick={() => void refreshAllQuotas()}
+      >
+        <RefreshCw
+          size={14}
+          className={quotaRefresh.pending ? "animate-spin" : undefined}
+        />
+        {quotaRefresh.pending ? "正在刷新额度" : "刷新全部额度"}
+      </Button>
       <Button
         variant="ghost"
         disabled={accounts.isFetching || !accounts.data}

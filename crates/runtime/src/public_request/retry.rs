@@ -13,9 +13,8 @@ use super::{
     upstream::{self, AttemptFailure},
 };
 use crate::{
-    health::ReliabilityPolicy, oauth::refresh::OAuthRefresher,
-    published_snapshot::PublishedSnapshot, request_telemetry::RequestRecorder,
-    route_candidates::CandidateExclusions,
+    configuration::PublishedSnapshot, health::ReliabilityPolicy, oauth::refresh::OAuthRefresher,
+    request_telemetry::RequestRecorder, routing::CandidateExclusions,
 };
 
 pub(super) async fn execute(
