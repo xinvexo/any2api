@@ -14,6 +14,7 @@ import { OAuthProviderNav } from "./OAuthProviderNav";
 import { Button } from "@/shared/ui/Button";
 import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
 import { Surface } from "@/shared/ui/Surface";
+import { notify } from "@/shared/notifications";
 
 /** Shares KindSplitLayout with 上游提供 so route switches keep chrome geometry. */
 export function OAuthManagement() {
@@ -48,7 +49,6 @@ export function OAuthManagement() {
     }
     setLoginOpen(false);
     login.reset();
-    quotaRefresh.clearResult();
     setSearchParams(
       (current) => {
         const params = new URLSearchParams(current);
@@ -77,7 +77,18 @@ export function OAuthManagement() {
     if (selectedProvider !== "codex" || kindAccounts.length === 0) {
       return;
     }
-    await quotaRefresh.refresh(kindAccounts.map((account) => account.id));
+    const result = await quotaRefresh.refresh(kindAccounts.map((account) => account.id));
+    if (!result) {
+      return;
+    }
+    const message = formatQuotaRefreshResult(result);
+    if (result.failed === 0) {
+      notify.success(message);
+    } else if (result.failed === result.total) {
+      notify.danger(message);
+    } else {
+      notify.warning(message);
+    }
   }
 
   const toolbarStart = (
@@ -192,19 +203,6 @@ export function OAuthManagement() {
               重新加载
             </Button>
           </Surface>
-        ) : null}
-
-        {selectedProvider === "codex" && quotaRefresh.result ? (
-          <p
-            className={
-              quotaRefresh.result.failed > 0
-                ? "mb-3 text-[12px] text-warning"
-                : "mb-3 text-[12px] text-success"
-            }
-            role={quotaRefresh.result.failed > 0 ? "alert" : "status"}
-          >
-            {formatQuotaRefreshResult(quotaRefresh.result)}
-          </p>
         ) : null}
 
         <OAuthAccounts

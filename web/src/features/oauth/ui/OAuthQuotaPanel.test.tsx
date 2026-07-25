@@ -6,8 +6,10 @@ import { parseOAuthQuotaSnapshot } from "../api/oauth-quota-contracts";
 import { oauthQueryKeys } from "../model/oauth-query-keys";
 import { refreshOAuthAccountQuota } from "../model/oauth-quota-query";
 import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
+import { clearNotifications, NotificationHost } from "@/shared/notifications";
 
 afterEach(() => {
+  clearNotifications();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -44,7 +46,10 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   expect(dialog).toHaveTextContent("当前剩余 1 次");
   fireEvent.click(within(dialog).getByRole("button", { name: "重置额度" }));
 
-  expect(await within(panel).findByText("已重置 2 个额度窗口。")).toBeInTheDocument();
+  const notification = await screen.findByRole("status");
+  expect(notification).toHaveTextContent("已重置 2 个额度窗口。");
+  expect(notification.className).toContain("notification-card");
+  expect(within(panel).queryByText("已重置 2 个额度窗口。")).not.toBeInTheDocument();
   await waitFor(() => expect(within(panel).getByText("0")).toBeInTheDocument());
   expect(within(panel).getByRole("button", { name: "重置额度" })).toBeDisabled();
   expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -174,6 +179,7 @@ function renderPanel(client = createClient()) {
   return render(
     <QueryClientProvider client={client}>
       <OAuthQuotaPanel accountId="account-1" accountLabel="Primary Codex" />
+      <NotificationHost />
     </QueryClientProvider>,
   );
 }

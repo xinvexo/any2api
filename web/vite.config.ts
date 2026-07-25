@@ -47,9 +47,17 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      host: "127.0.0.1",
+      port: 5173,
+      strictPort: true,
+      // Keep terminal output readable when running beside cargo via scripts/dev.mjs.
+      clearScreen: false,
       proxy: {
         "/api": {
-          target: env.VITE_API_TARGET || "http://127.0.0.1:3210",
+          target:
+            process.env.VITE_API_TARGET
+            || env.VITE_API_TARGET
+            || "http://127.0.0.1:3210",
           changeOrigin: true,
         },
       },

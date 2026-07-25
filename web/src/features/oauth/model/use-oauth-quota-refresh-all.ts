@@ -14,15 +14,15 @@ export function useOAuthQuotaRefreshAll() {
   const queryClient = useQueryClient();
   const pendingRef = useRef(false);
   const [pending, setPending] = useState(false);
-  const [result, setResult] = useState<OAuthQuotaRefreshResult | null>(null);
 
-  async function refresh(accountIds: readonly string[]) {
+  async function refresh(
+    accountIds: readonly string[],
+  ): Promise<OAuthQuotaRefreshResult | null> {
     if (pendingRef.current || accountIds.length === 0) {
-      return;
+      return null;
     }
     pendingRef.current = true;
     setPending(true);
-    setResult(null);
     let nextIndex = 0;
     let failed = 0;
     try {
@@ -41,16 +41,12 @@ export function useOAuthQuotaRefreshAll() {
         },
       );
       await Promise.all(workers);
-      setResult({ total: accountIds.length, failed });
+      return { total: accountIds.length, failed };
     } finally {
       setPending(false);
       pendingRef.current = false;
     }
   }
 
-  function clearResult() {
-    setResult(null);
-  }
-
-  return { pending, result, refresh, clearResult };
+  return { pending, refresh };
 }

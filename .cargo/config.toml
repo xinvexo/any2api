@@ -1,3 +1,5 @@
 [alias]
 xtask = "run --package xtask --"
+# Local hot-reload: backend auto-restarts + Vite HMR (see scripts/dev.mjs).
+# Equivalent: node scripts/dev.mjs  |  pnpm --dir web dev
 

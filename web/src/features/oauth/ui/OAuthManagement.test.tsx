@@ -5,8 +5,10 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { oauthQueryKeys } from "../model/oauth-query-keys";
 import { OAuthManagement } from "./OAuthManagement";
+import { clearNotifications, NotificationHost } from "@/shared/notifications";
 
 afterEach(() => {
+  clearNotifications();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -130,7 +132,9 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
 
   const refreshAll = screen.getByRole("button", { name: "刷新全部额度" });
   fireEvent.click(refreshAll);
-  expect(await screen.findByText("已刷新 11 个 Codex 账号额度，1 个失败。")).toBeInTheDocument();
+  const notification = await screen.findByRole("alert");
+  expect(notification).toHaveTextContent("已刷新 11 个 Codex 账号额度，1 个失败。");
+  expect(notification.className).toContain("notification-card");
   await waitFor(() => expect(refreshAll).toBeEnabled());
 
   const quotaPaths = fetchMock.mock.calls
@@ -191,9 +195,9 @@ test("limits refresh-all concurrency and locks account actions", async () => {
   await waitFor(() => expect(quotaGates).toHaveLength(8));
   quotaGates.slice(6).forEach((gate) => gate.resolve(undefined));
 
-  expect(
-    await screen.findByText("已刷新全部 8 个 Codex 账号额度。"),
-  ).toBeInTheDocument();
+  const notification = await screen.findByRole("status");
+  expect(notification).toHaveTextContent("已刷新全部 8 个 Codex 账号额度。");
+  expect(notification.className).toContain("notification-card");
   expect(maxActive).toBe(6);
   expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeEnabled();
 });
@@ -208,6 +212,7 @@ function renderManagement(initialEntries: string[] = ["/oauth"]) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={initialEntries}>
         <OAuthManagement />
+        <NotificationHost />
       </MemoryRouter>
     </QueryClientProvider>,
     ),

@@ -21,6 +21,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { notify } from "@/shared/notifications";
 
 export function OAuthQuotaPanel({
   accountId,
@@ -36,7 +37,6 @@ export function OAuthQuotaPanel({
   const quotaQuery = useQuery({ ...quotaOptions, enabled: false });
   const resetRequested = useRef(false);
   const [resetRefreshErrorAt, setResetRefreshErrorAt] = useState<number | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const resetMutationKey = oauthQueryKeys.quotaReset(accountId);
   const resetMutation = useMutation({
@@ -59,7 +59,7 @@ export function OAuthQuotaPanel({
       }
     },
     onSuccess: (result) => {
-      setSuccess(`已重置 ${result.windowsReset} 个额度窗口。`);
+      notify.success(`已重置 ${result.windowsReset} 个额度窗口。`);
       setResetRefreshErrorAt(result.quotaErrorUpdatedAt);
     },
     onError: () => setResetRefreshErrorAt(null),
@@ -84,7 +84,6 @@ export function OAuthQuotaPanel({
 
   async function refreshQuota() {
     setResetRefreshErrorAt(null);
-    setSuccess(null);
     resetMutation.reset();
     try {
       await refreshOAuthAccountQuota(queryClient, accountId);
@@ -99,7 +98,6 @@ export function OAuthQuotaPanel({
     }
     setConfirmOpen(false);
     setResetRefreshErrorAt(null);
-    setSuccess(null);
     resetMutation.reset();
     resetRequested.current = true;
     resetMutation.mutate(undefined, {
@@ -162,11 +160,6 @@ export function OAuthQuotaPanel({
       {visibleError ? (
         <p className="mt-1.5 text-[11px] text-danger" role="alert">
           {visibleError}
-        </p>
-      ) : null}
-      {success ? (
-        <p className="mt-1.5 text-[11px] text-success" role="status">
-          {success}
         </p>
       ) : null}
 
