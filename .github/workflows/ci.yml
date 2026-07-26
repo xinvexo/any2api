@@ -22,6 +22,9 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
       - run: cargo nextest run --locked --workspace --all-features
+      # ADR-0053: the export_bindings tests above regenerate the admin wire
+      # types; any drift between Rust DTOs and committed TS types fails here.
+      - run: git diff --exit-code web/src/shared/api/generated/
       - run: cargo test --locked --doc --workspace
       - run: cargo build --locked --release --workspace
       - run: cargo xtask architecture-check

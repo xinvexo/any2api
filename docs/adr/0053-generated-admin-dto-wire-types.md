@@ -1,6 +1,6 @@
 # ADR-0053: 管理 API 线格式类型由 Rust DTO 生成
 
-- 状态：Proposed
+- 状态：Accepted（试点切片 gateway-api-keys 已落地）
 - 日期：2026-07-26
 - 决策者：maintainer
 
@@ -17,7 +17,7 @@
 
 - 后端管理 DTO 通过 `ts-rs` 的 `#[derive(TS)]` 直接导出 TypeScript 线格式类型（保持 snake_case，与 HTTP 字节一致），输出到 `web/src/shared/api/generated/`。
 - 生成物是**线格式单一事实源**：前端解析器的输入参数从 `unknown` 收紧为生成的线类型；camelCase 领域模型与运行时校验（Token 形态、正整数、枚举白名单等安全断言）仍由前端手写，因为它们承载超出结构的语义规则。
-- 生成通过 `cargo test --package any2api-server export_bindings`（ts-rs 标准机制）执行；`web` CI 增加 drift 检查：重新生成后 `git diff --exit-code web/src/shared/api/generated/`，不一致即失败。
+- 生成通过 `cargo test --package any2api-server export_bindings`（ts-rs 标准机制）执行，导出目录与整数映射由 `.cargo/config.toml` 的 `TS_RS_EXPORT_DIR`/`TS_RS_LARGE_INT=number` 固定；drift 检查放在 Rust CI job：nextest 全量测试（含 export_bindings）后执行 `git diff --exit-code web/src/shared/api/generated/`，不一致即失败。
 - 生成目录禁止手工编辑，纳入 ESLint ignore 与 review 约定；前端 feature 仍只能从自身 `api/` 模块导入，生成类型经由各 feature 的 contracts 文件转发，不改变 feature 边界规则。
 - 公开协议入口（OpenAI/Anthropic 兼容面）**不在范围内**：其契约由上游协议规定，继续由协议 adapter 与契约测试拥有。
 

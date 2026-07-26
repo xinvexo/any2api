@@ -6,7 +6,16 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "coverage", "playwright-report", "test-results"] },
+  {
+    ignores: [
+      "dist",
+      "coverage",
+      "playwright-report",
+      "test-results",
+      // ADR-0053: generated wire types; regenerate via `cargo test -p any2api-server export_bindings`.
+      "src/shared/api/generated",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

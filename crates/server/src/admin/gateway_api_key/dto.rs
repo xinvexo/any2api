@@ -10,6 +10,7 @@ use crate::admin::request_usage::RequestUsageResponse;
 use super::{error::AdminApiError, revision::parse_revision};
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 pub(crate) struct GatewayApiKeyCollectionResponse {
     config_revision: u64,
     items: Vec<GatewayApiKeyResponse>,
@@ -40,6 +41,7 @@ impl GatewayApiKeyCollectionResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 pub(crate) struct GatewayApiKeySecretResponse {
     config_revision: u64,
     items: Vec<GatewayApiKeyResponse>,
@@ -63,7 +65,9 @@ impl GatewayApiKeySecretResponse {
 }
 
 #[derive(Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 struct GatewayApiKeyResponse {
+    #[cfg_attr(test, ts(as = "String"))]
     id: GatewayApiKeyId,
     name: String,
     token: String,
@@ -112,6 +116,7 @@ fn newest_timestamp(stored: Option<&str>, live: Option<&str>) -> Option<String> 
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GatewayApiKeyCreateRequest {
     expected_revision: u64,
@@ -133,6 +138,7 @@ impl GatewayApiKeyCreateRequest {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GatewayApiKeyUpdateRequest {
     expected_revision: u64,
@@ -157,6 +163,7 @@ impl GatewayApiKeyUpdateRequest {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GatewayApiKeyRotateRequest {
     expected_revision: u64,
@@ -185,6 +192,7 @@ impl GatewayApiKeyRotateRequest {
 }
 
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GatewayApiKeyRevokeRequest {
     expected_revision: u64,

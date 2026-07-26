@@ -6,6 +6,7 @@ use any2api_runtime::api::{
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 pub(crate) struct RequestUsageResponse {
     total_requests: u64,
     successful_requests: u64,
@@ -42,6 +43,7 @@ impl RequestUsageResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 struct RequestUsageWindowSlotResponse {
     started_at_ms: u64,
     total_requests: u64,

@@ -1,4 +1,24 @@
 import { parseRequestUsage, type RequestUsage } from "@/shared/api/request-usage";
+import type { GatewayApiKeyCollectionResponse } from "@/shared/api/generated/GatewayApiKeyCollectionResponse";
+import type { GatewayApiKeyCreateRequest } from "@/shared/api/generated/GatewayApiKeyCreateRequest";
+import type { GatewayApiKeyResponse } from "@/shared/api/generated/GatewayApiKeyResponse";
+import type { GatewayApiKeyRevokeRequest } from "@/shared/api/generated/GatewayApiKeyRevokeRequest";
+import type { GatewayApiKeyRotateRequest } from "@/shared/api/generated/GatewayApiKeyRotateRequest";
+import type { GatewayApiKeySecretResponse } from "@/shared/api/generated/GatewayApiKeySecretResponse";
+import type { GatewayApiKeyUpdateRequest } from "@/shared/api/generated/GatewayApiKeyUpdateRequest";
+
+// Wire types are generated from the Rust DTOs (ADR-0053); parsers below keep
+// the semantic assertions (token shape, positive versions, usage coherence)
+// that the structural types cannot express.
+export type {
+  GatewayApiKeyCollectionResponse,
+  GatewayApiKeyCreateRequest,
+  GatewayApiKeyResponse,
+  GatewayApiKeyRevokeRequest,
+  GatewayApiKeyRotateRequest,
+  GatewayApiKeySecretResponse,
+  GatewayApiKeyUpdateRequest,
+};
 
 export interface GatewayApiKey {
   id: string;
@@ -50,7 +70,9 @@ export interface GatewayApiKeyRevokeInput {
   expectedConfigVersion: number;
 }
 
-export function parseGatewayApiKeyConfiguration(value: unknown): GatewayApiKeyConfiguration {
+export function parseGatewayApiKeyConfiguration(
+  value: GatewayApiKeyCollectionResponse,
+): GatewayApiKeyConfiguration {
   if (!isRecord(value) || !Array.isArray(value.items)) {
     throw new Error("invalid gateway API Key response");
   }
@@ -60,7 +82,9 @@ export function parseGatewayApiKeyConfiguration(value: unknown): GatewayApiKeyCo
   };
 }
 
-export function parseGatewayApiKeySecretReceipt(value: unknown): GatewayApiKeySecretReceipt {
+export function parseGatewayApiKeySecretReceipt(
+  value: GatewayApiKeySecretResponse,
+): GatewayApiKeySecretReceipt {
   if (!isRecord(value) || typeof value.token !== "string" || !isGatewayToken(value.token)) {
     throw new Error("invalid gateway API Key secret receipt");
   }
@@ -73,7 +97,7 @@ export function parseGatewayApiKeySecretReceipt(value: unknown): GatewayApiKeySe
   };
 }
 
-function parseGatewayApiKey(value: unknown): GatewayApiKey {
+function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
   if (
     !isRecord(value) ||
     "secret" in value ||

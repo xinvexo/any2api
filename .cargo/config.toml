@@ -1,5 +1,12 @@
 [alias]
 xtask = "run --package xtask --"
+
+[env]
+# ADR-0053: ts-rs export tests write admin wire types here during cargo test.
+TS_RS_EXPORT_DIR = { value = "web/src/shared/api/generated", relative = true }
+# Admin DTO integers cross the wire as JSON numbers (JSON.parse yields
+# `number`), so large-int fields must not generate `bigint`.
+TS_RS_LARGE_INT = "number"
 # Local hot-reload: backend auto-restarts + Vite HMR (see scripts/dev.mjs).
 # Equivalent: node scripts/dev.mjs  |  pnpm --dir web dev
 
