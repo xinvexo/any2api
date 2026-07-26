@@ -42,6 +42,7 @@ hyper = { version = "1.10.1", features = ["client", "http1", "http2"] }
 hyper-rustls = { version = "0.27.9", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy", "client-proxy", "http1", "http2", "tokio"] }
 ipnet = "2.11.0"
+proptest = { version = "1.8.0", default-features = false, features = ["std"] }
 rcgen = { version = "0.13.2", default-features = false, features = ["ring"] }
 reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls-native-roots", "socks", "stream"] }
 rustls = { version = "0.23.42", default-features = false, features = ["ring", "std", "tls12"] }

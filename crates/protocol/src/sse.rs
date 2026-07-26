@@ -291,4 +291,71 @@ mod tests {
         let text = SseFrame(Bytes::from_static(b"data: plain text\n\n"));
         assert_eq!(rewrite(text.clone(), "public"), text);
     }
+
+    mod properties {
+        use proptest::prelude::*;
+
+        use super::super::{SseDecoder, parse_event_payload};
+        use crate::api::SseEventPayload;
+
+        /// Feed `input` to a decoder in the given chunk sizes and collect
+        /// every frame plus the EOF remainder.
+        fn decode_chunked(input: &[u8], chunk_sizes: &[usize]) -> Vec<Vec<u8>> {
+            let mut decoder = SseDecoder::new(1 << 20);
+            let mut frames = Vec::new();
+            let mut rest = input;
+            let mut sizes = chunk_sizes.iter().copied().cycle();
+            while !rest.is_empty() {
+                let take = sizes.next().unwrap_or(1).clamp(1, rest.len());
+                let (chunk, remaining) = rest.split_at(take);
+                rest = remaining;
+                decoder.push(chunk);
+                while let Some(frame) = decoder.next_frame().expect("frame within limit") {
+                    frames.push(frame.0.to_vec());
+                }
+            }
+            if let Some(frame) = decoder.finish().expect("finish within limit") {
+                frames.push(frame.0.to_vec());
+            }
+            frames
+        }
+
+        proptest! {
+            /// Frames must not depend on how the byte stream is chunked, and
+            /// reassembling them must reproduce the input losslessly.
+            #[test]
+            fn chunking_never_changes_frames_and_reassembly_is_lossless(
+                input in proptest::collection::vec(
+                    prop_oneof![
+                        Just(b'\n'), Just(b'\r'), Just(b':'), Just(b' '),
+                        any::<u8>(),
+                    ],
+                    0..200,
+                ),
+                chunk_sizes in proptest::collection::vec(1_usize..17, 1..8),
+            ) {
+                let chunked = decode_chunked(&input, &chunk_sizes);
+                let whole = decode_chunked(&input, &[input.len().max(1)]);
+                prop_assert_eq!(&chunked, &whole);
+                let reassembled = chunked.concat();
+                prop_assert_eq!(reassembled, input);
+            }
+
+            /// The payload parser must never panic and must classify every
+            /// frame into exactly one of the three payload shapes.
+            #[test]
+            fn payload_parse_is_total_over_arbitrary_frames(
+                input in proptest::collection::vec(any::<u8>(), 0..300),
+            ) {
+                match parse_event_payload(&input) {
+                    Ok(SseEventPayload::Empty | SseEventPayload::NonJson) => {}
+                    Ok(SseEventPayload::Json { .. }) => {}
+                    Err(_) => prop_assert!(
+                        std::str::from_utf8(&input).is_err(),
+                        "parse may only fail on invalid UTF-8",
+                    ),
+                }
+            }
+        }
+    }
 }

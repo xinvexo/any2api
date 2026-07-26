@@ -45,10 +45,7 @@ impl ChatHistoryStore {
             return;
         };
         state.prune();
-        let estimated_bytes = messages
-            .iter()
-            .map(|message| serde_json::to_string(message).map_or(0, |json| json.len()))
-            .sum();
+        let estimated_bytes = messages.iter().map(estimated_json_bytes).sum();
         state.remove(&response_id);
         state.order.push_back(response_id.clone());
         state.total_bytes += estimated_bytes;
@@ -70,6 +67,25 @@ impl ChatHistoryStore {
                 state.total_bytes = state.total_bytes.saturating_sub(entry.estimated_bytes);
             }
         }
+    }
+}
+
+/// Serialized size without materializing the JSON string.
+fn estimated_json_bytes(message: &Value) -> usize {
+    struct CountingWriter(usize);
+    impl std::io::Write for CountingWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.0 += buffer.len();
+            Ok(buffer.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut writer = CountingWriter(0);
+    match serde_json::to_writer(&mut writer, message) {
+        Ok(()) => writer.0,
+        Err(_) => 0,
     }
 }
 

@@ -428,7 +428,7 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 - 使用 `loom` 或等价模型测试验证关键原子状态（规划中，尚未引入；当前依赖多线程 Tokio 契约测试覆盖并发路径）；
 - Tokio 虚拟时间测试：排队超时、冷却、Retry-After、取消和停机；
 - Transport 集成测试：DIRECT、HTTP CONNECT、SOCKS5h、代理认证和 Client 代际；
-- 流式切分测试：任意字节切分、CRLF、多行 `data:`、无尾空行和畸形帧；专用 fuzz 工程（cargo-fuzz + corpus）为规划中项；
+- 流式切分测试：任意字节切分、CRLF、多行 `data:`、无尾空行和畸形帧；另有 proptest 属性测试验证任意字节流下切分不变性、重组无损性与 payload 解析全域性；专用 fuzz 工程（cargo-fuzz + corpus）为规划中项；
 - 热更新测试：编译失败不提交、revision 不倒退、Runtime 句柄跨快照复用；
 - 端到端测试：Codex/Claude/Grok JSON、SSE、GatewayApiKey 隔离、粘性和重试。
 
@@ -436,7 +436,7 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 
 浏览器 E2E 默认启动不设置 `ANY2API_WEB_DIR` 的正式二进制，验证内嵌 React 资源而不是工作区 `web/dist`。测试从 Cargo 本轮构建消息取得真实可执行文件路径，不能假定固定 `target/debug`、误跑旧二进制或绕过自定义 Target 目录；启动服务时清除宿主继承的全部 `ANY2API_*` 配置，只注入测试明确拥有的隔离值。外部目录模式只由 Server 契约覆盖其显式覆盖语义，避免浏览器主链绕过正式部署路径。
 
-fuzz 目标建立后：每个 PR 回放固定 fuzz corpus，长时间 fuzz 作为定时 CI 任务运行，不阻塞普通本地开发循环。在此之前，SSE 解析由确定性切分矩阵测试覆盖。
+fuzz 目标建立后：每个 PR 回放固定 fuzz corpus，长时间 fuzz 作为定时 CI 任务运行，不阻塞普通本地开发循环。在此之前，SSE 解析由确定性切分矩阵测试与 proptest 属性测试共同覆盖。
 
 ### 6.2 Feature 模块模板
 

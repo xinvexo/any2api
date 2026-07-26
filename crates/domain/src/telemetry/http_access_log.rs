@@ -60,6 +60,23 @@ impl HttpProtocolVersion {
     }
 }
 
+/// Storage enforces `length(method) BETWEEN 1 AND 32`; clients may send
+/// arbitrarily long extension methods, so collection must truncate first or
+/// one hostile request poisons a whole telemetry write batch.
+pub const MAX_HTTP_ACCESS_LOG_METHOD_CHARS: usize = 32;
+/// Request lines can carry paths of hundreds of kilobytes; bound what a
+/// single log row may retain.
+pub const MAX_HTTP_ACCESS_LOG_PATH_CHARS: usize = 1_024;
+
+/// Truncate to at most `max_chars` characters on a character boundary.
+#[must_use]
+pub fn bounded_log_text(value: &str, max_chars: usize) -> &str {
+    match value.char_indices().nth(max_chars) {
+        Some((offset, _)) => &value[..offset],
+        None => value,
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HttpAccessLog {
     pub request_id: RequestId,
@@ -67,11 +84,33 @@ pub struct HttpAccessLog {
     pub config_revision: ConfigRevision,
     pub client_ip: Option<IpAddr>,
     pub method: String,
-    /// The exact request URI path received by the server. Query parameters are excluded.
+    /// The request URI path received by the server, truncated to
+    /// [`MAX_HTTP_ACCESS_LOG_PATH_CHARS`]. Query parameters are excluded.
     pub path: String,
     pub http_version: HttpProtocolVersion,
     pub status_code: Option<u16>,
     pub duration_ms: u64,
     pub response_bytes: u64,
     pub outcome: HttpAccessLogOutcome,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_HTTP_ACCESS_LOG_METHOD_CHARS, bounded_log_text};
+
+    #[test]
+    fn bounded_log_text_truncates_on_character_boundaries() {
+        assert_eq!(
+            bounded_log_text("GET", MAX_HTTP_ACCESS_LOG_METHOD_CHARS),
+            "GET"
+        );
+        let long = "M".repeat(MAX_HTTP_ACCESS_LOG_METHOD_CHARS + 5);
+        assert_eq!(
+            bounded_log_text(&long, MAX_HTTP_ACCESS_LOG_METHOD_CHARS)
+                .chars()
+                .count(),
+            MAX_HTTP_ACCESS_LOG_METHOD_CHARS
+        );
+        assert_eq!(bounded_log_text("héllo", 2), "hé");
+    }
 }

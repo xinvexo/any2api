@@ -3,7 +3,10 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-use any2api_domain::{HttpProtocolVersion, RequestId};
+use any2api_domain::{
+    HttpProtocolVersion, MAX_HTTP_ACCESS_LOG_METHOD_CHARS, MAX_HTTP_ACCESS_LOG_PATH_CHARS,
+    RequestId, bounded_log_text,
+};
 use axum::{
     body::Body,
     extract::{ConnectInfo, Request, State},
@@ -57,8 +60,9 @@ pub(crate) async fn record(
             started_at_ms,
             snapshot.revision(),
             client_ip,
-            request.method().as_str().to_owned(),
-            request.uri().path().to_owned(),
+            bounded_log_text(request.method().as_str(), MAX_HTTP_ACCESS_LOG_METHOD_CHARS)
+                .to_owned(),
+            bounded_log_text(request.uri().path(), MAX_HTTP_ACCESS_LOG_PATH_CHARS).to_owned(),
             protocol_version(request.version()),
         ),
         started,
