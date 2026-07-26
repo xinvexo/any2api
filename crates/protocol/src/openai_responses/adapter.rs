@@ -7,10 +7,11 @@ use crate::{
     ProtocolError,
     api::{
         AdapterEvent, AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse,
+        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseEventPayload, SseFrame,
+        UpstreamResponse,
     },
     json_codec,
-    sse::{json_event, rewrite_known_model},
+    sse::{parse_event_payload, rewrite_known_model},
 };
 
 use super::telemetry;
@@ -66,8 +67,9 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
     }
 
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
-        let telemetry = telemetry::event(&frame.0);
-        Ok(AdapterEvent::new(frame.0, telemetry))
+        let payload = parse_event_payload(&frame.0)?;
+        let telemetry = telemetry::event(&payload);
+        Ok(AdapterEvent::new(frame.0, telemetry, payload))
     }
 
     fn encode_egress_response(
@@ -87,7 +89,8 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         event: AdapterEvent,
         public_model: &str,
     ) -> Result<SseFrame, ProtocolError> {
-        rewrite_known_model(SseFrame(event.into_bytes()), public_model)
+        let (bytes, payload) = event.into_parts();
+        rewrite_known_model(bytes, payload, public_model)
     }
 
     fn hard_affinity_id_from_response(
@@ -113,7 +116,11 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         if operation != ProtocolOperation::Responses {
             return Ok(None);
         }
-        let Some((event_name, value)) = json_event(event.bytes())? else {
+        let SseEventPayload::Json {
+            event_name,
+            data: value,
+        } = event.payload()
+        else {
             return Ok(None);
         };
         let is_created = event_name.as_deref() == Some("response.created")
@@ -253,8 +260,7 @@ mod tests {
 
     use super::OpenAiResponsesAdapter;
     use crate::api::{
-        AdapterEvent, AdapterPayload, DecodedUpstreamResponse, IngressRequest, ProtocolAdapter,
-        SseFrame,
+        AdapterPayload, DecodedUpstreamResponse, IngressRequest, ProtocolAdapter, SseFrame,
     };
 
     #[test]
@@ -379,12 +385,11 @@ mod tests {
     #[test]
     fn extracts_hard_affinity_from_response_created_sse() {
         let adapter = OpenAiResponsesAdapter::new();
-        let event = AdapterEvent::new(
-            Bytes::from_static(
+        let event = adapter
+            .decode_upstream_event(SseFrame(Bytes::from_static(
                 b"event: response.created\r\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_sse\"}}\r\n\r\n",
-            ),
-            Default::default(),
-        );
+            )))
+            .expect("decoded event");
 
         assert_eq!(
             adapter

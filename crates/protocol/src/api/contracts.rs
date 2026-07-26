@@ -3,6 +3,7 @@ use std::fmt;
 use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, TokenUsage};
 use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode, Uri};
+use serde_json::Value;
 
 pub use crate::{ProtocolError, ProtocolRegistry};
 
@@ -75,10 +76,26 @@ pub struct EgressResponse {
 #[derive(Clone, Eq, PartialEq)]
 pub struct SseFrame(pub Bytes);
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct AdapterEvent {
     bytes: Bytes,
     telemetry: ProtocolEventTelemetry,
+    payload: SseEventPayload,
+}
+
+/// SSE `data:` payload parsed once when the upstream frame is decoded, then
+/// shared by telemetry, hard-affinity extraction, and egress model rewriting.
+#[derive(Clone, PartialEq)]
+pub enum SseEventPayload {
+    /// The frame carries no data lines or only the `[DONE]` sentinel.
+    Empty,
+    /// The frame carries data lines that are not valid JSON.
+    NonJson,
+    /// The `event:` name (if present) and the JSON value of the data lines.
+    Json {
+        event_name: Option<String>,
+        data: Value,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -94,8 +111,12 @@ pub struct ProtocolEventTelemetry {
 
 impl AdapterEvent {
     #[must_use]
-    pub fn new(bytes: Bytes, telemetry: ProtocolEventTelemetry) -> Self {
-        Self { bytes, telemetry }
+    pub fn new(bytes: Bytes, telemetry: ProtocolEventTelemetry, payload: SseEventPayload) -> Self {
+        Self {
+            bytes,
+            telemetry,
+            payload,
+        }
     }
 
     #[must_use]
@@ -109,8 +130,13 @@ impl AdapterEvent {
     }
 
     #[must_use]
-    pub fn into_bytes(self) -> Bytes {
-        self.bytes
+    pub fn payload(&self) -> &SseEventPayload {
+        &self.payload
+    }
+
+    #[must_use]
+    pub fn into_parts(self) -> (Bytes, SseEventPayload) {
+        (self.bytes, self.payload)
     }
 }
 
@@ -128,7 +154,18 @@ impl fmt::Debug for AdapterEvent {
         formatter
             .debug_struct("AdapterEvent")
             .field("bytes", &self.bytes.len())
+            .field("payload", &self.payload)
             .finish()
+    }
+}
+
+impl fmt::Debug for SseEventPayload {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Empty => "Empty",
+            Self::NonJson => "NonJson",
+            Self::Json { .. } => "Json([REDACTED])",
+        })
     }
 }
 

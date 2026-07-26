@@ -7,6 +7,6 @@ export function useAffinity() {
   return useQuery({
     queryKey: affinityQueryKeys.runtime(),
     queryFn: ({ signal }) => getAffinity(signal),
-    refetchInterval: 5_000,
+    refetchInterval: 15_000,
   });
 }

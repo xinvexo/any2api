@@ -3,8 +3,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    api::{ProtocolEventTelemetry, ProtocolResponseTelemetry},
-    sse::json_event,
+    api::{ProtocolEventTelemetry, ProtocolResponseTelemetry, SseEventPayload},
     telemetry::{non_empty_string, token_usage},
 };
 
@@ -16,11 +15,10 @@ pub(super) fn response(body: &Bytes) -> ProtocolResponseTelemetry {
     ProtocolResponseTelemetry { token_usage: usage }
 }
 
-pub(super) fn event(bytes: &Bytes) -> ProtocolEventTelemetry {
-    let Ok(Some((event_name, value))) = json_event(bytes) else {
+pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
+    let SseEventPayload::Json { data: value, .. } = payload else {
         return ProtocolEventTelemetry::default();
     };
-    let _ = event_name;
     ProtocolEventTelemetry {
         token_usage: usage_from(value.get("usage")),
         has_content_delta: value

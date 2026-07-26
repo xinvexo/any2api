@@ -7,6 +7,6 @@ export function useBalancingRuntime() {
   return useQuery({
     queryKey: balancingQueryKeys.runtime(),
     queryFn: ({ signal }) => getBalancingRuntime(signal),
-    refetchInterval: 5_000,
+    refetchInterval: 15_000,
   });
 }

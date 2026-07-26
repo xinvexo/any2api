@@ -7,7 +7,7 @@ export function useRequestLogs(limit = 100) {
   return useQuery({
     queryKey: requestLogQueryKeys.list(limit),
     queryFn: ({ signal }) => getRequestLogs(limit, signal),
-    refetchInterval: 5_000,
+    refetchInterval: 15_000,
   });
 }
 

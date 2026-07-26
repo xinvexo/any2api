@@ -149,6 +149,23 @@ fn expired_bindings_are_not_reused() {
 }
 
 #[test]
+fn sweep_removes_only_expired_bindings() {
+    let registry = AffinityRegistry::new();
+    let route_id = ModelRouteId::new();
+    let target = target(route_id, CredentialId::new());
+    registry
+        .bind_hard("resp-sweep", target, HARD_TTL)
+        .expect("hard binding");
+
+    assert_eq!(registry.sweep_expired(SOFT_TTL, HARD_TTL, CREATING_TTL), 0);
+    assert_eq!(
+        registry.sweep_expired(SOFT_TTL, Duration::ZERO, CREATING_TTL),
+        1
+    );
+    assert!(registry.resolve_hard("resp-sweep", HARD_TTL).is_none());
+}
+
+#[test]
 fn hard_identity_conflicts_are_rejected() {
     let registry = AffinityRegistry::new();
     let route_id = ModelRouteId::new();

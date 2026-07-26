@@ -10,7 +10,7 @@ use crate::{
         EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse,
     },
     json_codec,
-    sse::rewrite_known_model,
+    sse::{parse_event_payload, rewrite_known_model},
 };
 
 use super::telemetry;
@@ -66,8 +66,9 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
     }
 
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
-        let telemetry = telemetry::event(&frame.0);
-        Ok(AdapterEvent::new(frame.0, telemetry))
+        let payload = parse_event_payload(&frame.0)?;
+        let telemetry = telemetry::event(&payload);
+        Ok(AdapterEvent::new(frame.0, telemetry, payload))
     }
 
     fn encode_egress_response(
@@ -87,7 +88,8 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         event: AdapterEvent,
         public_model: &str,
     ) -> Result<SseFrame, ProtocolError> {
-        rewrite_known_model(SseFrame(event.into_bytes()), public_model)
+        let (bytes, payload) = event.into_parts();
+        rewrite_known_model(bytes, payload, public_model)
     }
 
     fn error_response(&self, error: &PublicError) -> EgressResponse {

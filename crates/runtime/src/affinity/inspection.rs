@@ -27,6 +27,19 @@ impl AffinityRegistry {
         remove_expired(&mut state, now, soft_ttl, hard_ttl, creating_ttl);
         build_snapshot(&state, now, soft_ttl, hard_ttl, limit)
     }
+
+    pub(crate) fn sweep_expired(
+        &self,
+        soft_ttl: Duration,
+        hard_ttl: Duration,
+        creating_ttl: Duration,
+    ) -> usize {
+        let now = Instant::now();
+        let mut state = self.state.lock().expect("affinity state lock poisoned");
+        let before = state.soft.len() + state.hard.len();
+        remove_expired(&mut state, now, soft_ttl, hard_ttl, creating_ttl);
+        before - state.soft.len() - state.hard.len()
+    }
 }
 
 fn remove_expired(

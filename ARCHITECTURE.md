@@ -696,9 +696,8 @@ CredentialRuntimeHandle
 ├─ rolling_request_window
 ├─ current_generation    # ArcSwap<CredentialGenerationRuntime>
 ├─ retired
-├─ latency_ewma
-├─ success_count
-├─ failure_count
+├─ balancing             # selected 与各类 filtered 计数
+├─ fixed_waiters
 └─ scheduler_epoch
 ```
 

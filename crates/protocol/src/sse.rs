@@ -1,7 +1,10 @@
 use bytes::{Bytes, BytesMut};
 use serde_json::{Map, Value};
 
-use crate::{ProtocolError, api::SseFrame};
+use crate::{
+    ProtocolError,
+    api::{SseEventPayload, SseFrame},
+};
 
 #[derive(Debug)]
 pub struct SseDecoder {
@@ -86,11 +89,11 @@ fn find_event_end(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-pub(crate) fn json_event(bytes: &[u8]) -> Result<Option<(Option<String>, Value)>, ProtocolError> {
+pub(crate) fn parse_event_payload(bytes: &[u8]) -> Result<SseEventPayload, ProtocolError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| ProtocolError::InvalidPayload("SSE frame is not valid UTF-8".into()))?;
     let normalized = text.replace("\r\n", "\n");
-    let event = normalized
+    let event_name = normalized
         .lines()
         .find_map(|line| line.strip_prefix("event:"))
         .map(str::trim)
@@ -102,45 +105,36 @@ pub(crate) fn json_event(bytes: &[u8]) -> Result<Option<(Option<String>, Value)>
         .collect::<Vec<_>>()
         .join("\n");
     if data.is_empty() || data.trim() == "[DONE]" {
-        return Ok(None);
+        return Ok(SseEventPayload::Empty);
     }
-    let value = serde_json::from_str(&data)
-        .map_err(|_| ProtocolError::InvalidPayload("SSE data is not valid JSON".into()))?;
-    Ok(Some((event, value)))
+    match serde_json::from_str(&data) {
+        Ok(data) => Ok(SseEventPayload::Json { event_name, data }),
+        Err(_) => Ok(SseEventPayload::NonJson),
+    }
 }
 
 pub(crate) fn rewrite_known_model(
-    frame: SseFrame,
+    bytes: Bytes,
+    payload: SseEventPayload,
     public_model: &str,
 ) -> Result<SseFrame, ProtocolError> {
-    let original = frame.0.clone();
-    let text = std::str::from_utf8(&original)
-        .map_err(|_| ProtocolError::InvalidPayload("SSE frame is not valid UTF-8".into()))?;
-    let normalized = text.replace("\r\n", "\n");
-    let lines = normalized
-        .trim_end_matches('\n')
-        .split('\n')
-        .collect::<Vec<_>>();
-    let data = lines
-        .iter()
-        .filter_map(|line| line.strip_prefix("data:"))
-        .map(|value| value.strip_prefix(' ').unwrap_or(value))
-        .collect::<Vec<_>>()
-        .join("\n");
-    if data.is_empty() || data.trim() == "[DONE]" {
-        return Ok(SseFrame(original));
-    }
-    let Ok(mut value) = serde_json::from_str::<Value>(&data) else {
-        return Ok(SseFrame(original));
+    let SseEventPayload::Json {
+        data: mut value, ..
+    } = payload
+    else {
+        return Ok(SseFrame(bytes));
     };
     if !rewrite_model_fields(&mut value, public_model) {
-        return Ok(SseFrame(original));
+        return Ok(SseFrame(bytes));
     }
     let serialized = serde_json::to_string(&value)
         .map_err(|_| ProtocolError::InvalidPayload("SSE event could not be encoded".into()))?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| ProtocolError::InvalidPayload("SSE frame is not valid UTF-8".into()))?;
+    let normalized = text.replace("\r\n", "\n");
     let mut output = String::new();
     let mut replaced = false;
-    for line in lines {
+    for line in normalized.trim_end_matches('\n').split('\n') {
         if line.starts_with("data:") {
             if !replaced {
                 output.push_str("data: ");
@@ -189,8 +183,13 @@ fn replace_model(object: &mut Map<String, Value>, public_model: &str) -> bool {
 mod tests {
     use bytes::Bytes;
 
-    use super::{SseDecoder, rewrite_known_model};
+    use super::{SseDecoder, parse_event_payload, rewrite_known_model};
     use crate::api::SseFrame;
+
+    fn rewrite(frame: SseFrame, public_model: &str) -> SseFrame {
+        let payload = parse_event_payload(&frame.0).expect("payload");
+        rewrite_known_model(frame.0, payload, public_model).expect("rewrite")
+    }
 
     #[test]
     fn decoder_handles_arbitrary_chunks_crlf_and_multiline_data() {
@@ -273,7 +272,7 @@ mod tests {
         let frame = SseFrame(Bytes::from_static(
             b"event: response.created\ndata: {\"response\":{\"model\":\"upstream\"},\"model\":\"upstream\",\"metadata\":{\"model\":\"keep\"}}\n\n",
         ));
-        let rewritten = rewrite_known_model(frame, "public").expect("rewrite");
+        let rewritten = rewrite(frame, "public");
         let text = std::str::from_utf8(&rewritten.0).expect("UTF-8 event");
         let data = text
             .lines()
@@ -288,14 +287,8 @@ mod tests {
     #[test]
     fn model_rewrite_preserves_done_and_non_json_events() {
         let done = SseFrame(Bytes::from_static(b"data: [DONE]\n\n"));
-        assert_eq!(
-            rewrite_known_model(done.clone(), "public").expect("done"),
-            done
-        );
+        assert_eq!(rewrite(done.clone(), "public"), done);
         let text = SseFrame(Bytes::from_static(b"data: plain text\n\n"));
-        assert_eq!(
-            rewrite_known_model(text.clone(), "public").expect("text"),
-            text
-        );
+        assert_eq!(rewrite(text.clone(), "public"), text);
     }
 }

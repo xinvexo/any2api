@@ -3,8 +3,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
-    api::{ProtocolEventTelemetry, ProtocolResponseTelemetry},
-    sse::json_event,
+    api::{ProtocolEventTelemetry, ProtocolResponseTelemetry, SseEventPayload},
     telemetry::{event_type, non_empty_string, token_usage},
 };
 
@@ -16,11 +15,15 @@ pub(super) fn response(body: &Bytes) -> ProtocolResponseTelemetry {
     ProtocolResponseTelemetry { token_usage: usage }
 }
 
-pub(super) fn event(bytes: &Bytes) -> ProtocolEventTelemetry {
-    let Ok(Some((event_name, value))) = json_event(bytes) else {
+pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
+    let SseEventPayload::Json {
+        event_name,
+        data: value,
+    } = payload
+    else {
         return ProtocolEventTelemetry::default();
     };
-    let kind = event_type(event_name.as_deref(), &value);
+    let kind = event_type(event_name.as_deref(), value);
     let token_usage = match kind {
         Some("message_start") => usage(
             value
@@ -32,7 +35,7 @@ pub(super) fn event(bytes: &Bytes) -> ProtocolEventTelemetry {
     };
     ProtocolEventTelemetry {
         token_usage,
-        has_content_delta: kind == Some("content_block_delta") && content_delta(&value),
+        has_content_delta: kind == Some("content_block_delta") && content_delta(value),
     }
 }
 
@@ -63,7 +66,12 @@ mod tests {
     use any2api_domain::TokenUsage;
     use bytes::Bytes;
 
-    use super::{event, response};
+    use super::response;
+    use crate::{api::ProtocolEventTelemetry, sse::parse_event_payload};
+
+    fn event(bytes: &Bytes) -> ProtocolEventTelemetry {
+        super::event(&parse_event_payload(bytes).expect("payload"))
+    }
 
     #[test]
     fn extracts_json_usage_and_cumulative_stream_updates() {

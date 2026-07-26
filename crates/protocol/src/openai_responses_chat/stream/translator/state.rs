@@ -10,8 +10,7 @@ use super::super::super::response::{responses_usage, token_usage};
 use super::items::{TextState, ToolState};
 use crate::{
     ProtocolError,
-    api::{AdapterEvent, ProtocolEventTelemetry},
-    sse::json_event,
+    api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload},
 };
 
 use super::super::wire::sse;
@@ -60,16 +59,21 @@ impl ChatToResponsesStream {
 
     pub(crate) fn push(&mut self, event: AdapterEvent) -> Result<StreamUpdate, ProtocolError> {
         self.usage.merge(event.telemetry().token_usage);
-        let raw = event.bytes().clone();
-        let parsed = json_event(&raw)?;
-        let Some((_, value)) = parsed else {
-            if String::from_utf8_lossy(&raw).contains("[DONE]") {
-                return self.finish();
+        let (raw, payload) = event.into_parts();
+        let value = match payload {
+            SseEventPayload::Json { data, .. } => data,
+            SseEventPayload::NonJson => {
+                return Err(invalid("Chat Completions stream data is not valid JSON"));
             }
-            return Ok(StreamUpdate {
-                events: Vec::new(),
-                assistant_message: None,
-            });
+            SseEventPayload::Empty => {
+                if String::from_utf8_lossy(&raw).contains("[DONE]") {
+                    return self.finish();
+                }
+                return Ok(StreamUpdate {
+                    events: Vec::new(),
+                    assistant_message: None,
+                });
+            }
         };
         if let Some(usage) = value.get("usage").filter(|usage| !usage.is_null()) {
             self.usage_json = Some(usage.clone());

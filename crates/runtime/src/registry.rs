@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use any2api_domain::{CredentialId, ModelRouteConfiguration, RoutingCredentialId};
@@ -22,6 +25,7 @@ use crate::{
 pub struct RuntimeRegistry {
     scheduler_epoch: Arc<SchedulerEpoch>,
     affinity: Arc<AffinityRegistry>,
+    affinity_sweeper_started: AtomicBool,
     credentials: RwLock<HashMap<RoutingCredentialId, Arc<CredentialRuntimeHandle>>>,
     route_tier_cursors: RouteTierCursorRegistry,
     queue_coordinator: Arc<QueueCoordinator>,
@@ -42,6 +46,7 @@ impl RuntimeRegistry {
         let scheduler_epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());
         Self {
             affinity: AffinityRegistry::new(),
+            affinity_sweeper_started: AtomicBool::new(false),
             scheduler_epoch: Arc::clone(&scheduler_epoch),
             credentials: RwLock::new(HashMap::new()),
             route_tier_cursors: RouteTierCursorRegistry::default(),
@@ -49,6 +54,21 @@ impl RuntimeRegistry {
             health: HealthRegistry::new(Arc::clone(&scheduler_epoch)),
             lifecycle,
         }
+    }
+
+    pub fn start_affinity_sweeper(
+        &self,
+        publisher: Arc<crate::configuration::ConfigPublisher>,
+    ) -> bool {
+        if self
+            .affinity_sweeper_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return false;
+        }
+        crate::affinity::start_sweeper(Arc::clone(&self.affinity), publisher, &self.lifecycle);
+        true
     }
 
     #[must_use]

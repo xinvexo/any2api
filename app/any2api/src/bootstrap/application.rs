@@ -108,7 +108,7 @@ pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::S
         AppState::new(
             Arc::clone(&snapshots),
             Arc::clone(&runtime),
-            publisher,
+            Arc::clone(&publisher),
             public_requests,
         )
         .with_oauth(Arc::clone(&oauth))
@@ -129,6 +129,10 @@ pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::S
     anyhow::ensure!(
         oauth.start_refresh_worker(&lifecycle),
         "OAuth refresh worker was already started"
+    );
+    anyhow::ensure!(
+        runtime.start_affinity_sweeper(publisher),
+        "affinity sweeper was already started"
     );
     tracing::info!(address = %settings.bind, "any2api is listening");
     let served = shutdown::serve(
