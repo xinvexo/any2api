@@ -1,5 +1,4 @@
 use any2api_domain::TokenUsage;
-use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
@@ -19,12 +18,10 @@ const CONTENT_DELTA_EVENTS: &[&str] = &[
     "response.audio.transcript.delta",
 ];
 
-pub(super) fn response(body: &Bytes) -> ProtocolResponseTelemetry {
-    let usage = serde_json::from_slice::<Value>(body)
-        .ok()
-        .map(|value| usage(value.get("usage")))
-        .unwrap_or_default();
-    ProtocolResponseTelemetry { token_usage: usage }
+pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
+    ProtocolResponseTelemetry {
+        token_usage: usage(value.get("usage")),
+    }
 }
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
@@ -67,20 +64,21 @@ mod tests {
     use any2api_domain::TokenUsage;
     use bytes::Bytes;
 
-    use super::response;
     use crate::{api::ProtocolEventTelemetry, sse::parse_event_payload};
 
     fn event(bytes: &Bytes) -> ProtocolEventTelemetry {
         super::event(&parse_event_payload(bytes).expect("payload"))
     }
 
+    fn response(body: &[u8]) -> crate::api::ProtocolResponseTelemetry {
+        super::response(&serde_json::from_slice(body).expect("response JSON"))
+    }
+
     #[test]
     fn extracts_json_and_terminal_event_usage() {
         let expected = TokenUsage::new(Some(12), Some(7), Some(3), Some(2));
-        let json = Bytes::from_static(
-            br#"{"usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}"#,
-        );
-        assert_eq!(response(&json).token_usage, expected);
+        let json = br#"{"usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}"#;
+        assert_eq!(response(json).token_usage, expected);
 
         let sse = Bytes::from_static(
             b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":12,\"output_tokens\":7,\"input_tokens_details\":{\"cached_tokens\":3,\"cache_write_tokens\":2}}}}\n\n",
@@ -107,12 +105,10 @@ mod tests {
 
     #[test]
     fn malformed_or_unstorable_usage_is_ignored() {
-        let json = Bytes::from_static(
-            br#"{"usage":{"input_tokens":11,"output_tokens":"7","input_tokens_details":{"cached_tokens":9007199254740992,"cache_write_tokens":2}}}"#,
-        );
+        let json = br#"{"usage":{"input_tokens":11,"output_tokens":"7","input_tokens_details":{"cached_tokens":9007199254740992,"cache_write_tokens":2}}}"#;
 
         assert_eq!(
-            response(&json).token_usage,
+            response(json).token_usage,
             TokenUsage::new(Some(11), None, None, Some(2))
         );
     }

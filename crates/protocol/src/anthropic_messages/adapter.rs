@@ -57,11 +57,13 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         &self,
         response: UpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError> {
+        let parsed = json_codec::parse_response_body(&response.body)?;
         Ok(DecodedUpstreamResponse {
             status: response.status,
             headers: response.headers,
-            telemetry: telemetry::response(&response.body),
-            payload: AdapterPayload::RawJson(response.body),
+            telemetry: telemetry::response(&parsed),
+            body: Some(response.body),
+            parsed,
         })
     }
 
@@ -74,13 +76,9 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
     fn encode_egress_response(
         &self,
         response: DecodedUpstreamResponse,
+        public_model: &str,
     ) -> Result<EgressResponse, ProtocolError> {
-        let AdapterPayload::RawJson(body) = response.payload;
-        Ok(EgressResponse {
-            status: response.status,
-            headers: response.headers,
-            body,
-        })
+        json_codec::encode_response(response, public_model)
     }
 
     fn encode_egress_event(

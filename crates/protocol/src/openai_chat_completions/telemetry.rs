@@ -1,5 +1,4 @@
 use any2api_domain::TokenUsage;
-use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
@@ -7,12 +6,10 @@ use crate::{
     telemetry::{non_empty_string, token_usage},
 };
 
-pub(super) fn response(body: &Bytes) -> ProtocolResponseTelemetry {
-    let usage = serde_json::from_slice::<Value>(body)
-        .ok()
-        .map(|value| usage_from(value.get("usage")))
-        .unwrap_or_default();
-    ProtocolResponseTelemetry { token_usage: usage }
+pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
+    ProtocolResponseTelemetry {
+        token_usage: usage_from(value.get("usage")),
+    }
 }
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {

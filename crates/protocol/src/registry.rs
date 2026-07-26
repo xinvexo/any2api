@@ -178,6 +178,7 @@ mod tests {
         fn encode_egress_response(
             &self,
             _response: DecodedUpstreamResponse,
+            _public_model: &str,
         ) -> Result<EgressResponse, ProtocolError> {
             Err(ProtocolError::Unsupported("test".into()))
         }

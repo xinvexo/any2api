@@ -148,11 +148,12 @@ impl PreparedAttempt<'_> {
     pub(in crate::public_request::upstream) fn encode_egress_response(
         &self,
         response: DecodedUpstreamResponse,
+        public_model: &str,
     ) -> Result<EgressResponse, ProtocolError> {
         self.exchange
             .as_ref()
             .expect("prepared protocol exchange is present")
-            .encode_egress_response(response)
+            .encode_egress_response(response, public_model)
     }
 
     pub(in crate::public_request::upstream) fn fail_after_upstream_success(

@@ -150,8 +150,9 @@ impl ProtocolExchange {
     pub fn encode_egress_response(
         &self,
         response: DecodedUpstreamResponse,
+        public_model: &str,
     ) -> Result<EgressResponse, ProtocolError> {
-        self.ingress.encode_egress_response(response)
+        self.ingress.encode_egress_response(response, public_model)
     }
 
     pub fn encode_egress_event(

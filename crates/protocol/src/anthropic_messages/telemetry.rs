@@ -1,5 +1,4 @@
 use any2api_domain::TokenUsage;
-use bytes::Bytes;
 use serde_json::Value;
 
 use crate::{
@@ -7,12 +6,10 @@ use crate::{
     telemetry::{event_type, non_empty_string, token_usage},
 };
 
-pub(super) fn response(body: &Bytes) -> ProtocolResponseTelemetry {
-    let usage = serde_json::from_slice::<Value>(body)
-        .ok()
-        .map(|value| usage(value.get("usage")))
-        .unwrap_or_default();
-    ProtocolResponseTelemetry { token_usage: usage }
+pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
+    ProtocolResponseTelemetry {
+        token_usage: usage(value.get("usage")),
+    }
 }
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
@@ -66,20 +63,22 @@ mod tests {
     use any2api_domain::TokenUsage;
     use bytes::Bytes;
 
-    use super::response;
     use crate::{api::ProtocolEventTelemetry, sse::parse_event_payload};
 
     fn event(bytes: &Bytes) -> ProtocolEventTelemetry {
         super::event(&parse_event_payload(bytes).expect("payload"))
     }
 
+    fn response(body: &[u8]) -> crate::api::ProtocolResponseTelemetry {
+        super::response(&serde_json::from_slice(body).expect("response JSON"))
+    }
+
     #[test]
     fn extracts_json_usage_and_cumulative_stream_updates() {
-        let json = Bytes::from_static(
-            br#"{"usage":{"input_tokens":20,"output_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3}}"#,
-        );
+        let json =
+            br#"{"usage":{"input_tokens":20,"output_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3}}"#;
         assert_eq!(
-            response(&json).token_usage,
+            response(json).token_usage,
             TokenUsage::new(Some(20), Some(9), Some(4), Some(3))
         );
 
@@ -119,19 +118,18 @@ mod tests {
 
     #[test]
     fn count_tokens_root_value_is_not_generation_usage() {
-        let body = Bytes::from_static(br#"{"input_tokens":37}"#);
-
-        assert_eq!(response(&body).token_usage, TokenUsage::default());
+        assert_eq!(
+            response(br#"{"input_tokens":37}"#).token_usage,
+            TokenUsage::default()
+        );
     }
 
     #[test]
     fn malformed_fields_do_not_discard_valid_usage_fields() {
-        let body = Bytes::from_static(
-            br#"{"usage":{"input_tokens":15,"output_tokens":-1,"cache_read_input_tokens":3,"cache_creation_input_tokens":9007199254740992}}"#,
-        );
+        let body = br#"{"usage":{"input_tokens":15,"output_tokens":-1,"cache_read_input_tokens":3,"cache_creation_input_tokens":9007199254740992}}"#;
 
         assert_eq!(
-            response(&body).token_usage,
+            response(body).token_usage,
             TokenUsage::new(Some(15), None, Some(3), None)
         );
     }

@@ -52,11 +52,13 @@ impl ProtocolAdapter for OpenAiChatCompletionsAdapter {
         &self,
         response: UpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError> {
+        let parsed = json_codec::parse_response_body(&response.body)?;
         Ok(DecodedUpstreamResponse {
             status: response.status,
             headers: response.headers,
-            payload: AdapterPayload::RawJson(response.body.clone()),
-            telemetry: telemetry::response(&response.body),
+            telemetry: telemetry::response(&parsed),
+            body: Some(response.body),
+            parsed,
         })
     }
 
@@ -69,13 +71,9 @@ impl ProtocolAdapter for OpenAiChatCompletionsAdapter {
     fn encode_egress_response(
         &self,
         response: DecodedUpstreamResponse,
+        public_model: &str,
     ) -> Result<EgressResponse, ProtocolError> {
-        let AdapterPayload::RawJson(body) = response.payload;
-        Ok(EgressResponse {
-            status: response.status,
-            headers: response.headers,
-            body,
-        })
+        json_codec::encode_response(response, public_model)
     }
 
     fn encode_egress_event(

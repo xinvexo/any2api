@@ -58,11 +58,13 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         &self,
         response: UpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError> {
+        let parsed = json_codec::parse_response_body(&response.body)?;
         Ok(DecodedUpstreamResponse {
             status: response.status,
             headers: response.headers,
-            telemetry: telemetry::response(&response.body),
-            payload: AdapterPayload::RawJson(response.body),
+            telemetry: telemetry::response(&parsed),
+            body: Some(response.body),
+            parsed,
         })
     }
 
@@ -75,13 +77,9 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
     fn encode_egress_response(
         &self,
         response: DecodedUpstreamResponse,
+        public_model: &str,
     ) -> Result<EgressResponse, ProtocolError> {
-        let AdapterPayload::RawJson(body) = response.payload;
-        Ok(EgressResponse {
-            status: response.status,
-            headers: response.headers,
-            body,
-        })
+        json_codec::encode_response(response, public_model)
     }
 
     fn encode_egress_event(
@@ -101,11 +99,7 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         if operation != ProtocolOperation::Responses {
             return Ok(None);
         }
-        let AdapterPayload::RawJson(body) = &response.payload;
-        let value: Value = serde_json::from_slice(body).map_err(|_| {
-            ProtocolError::InvalidPayload("response body must be valid JSON".into())
-        })?;
-        optional_non_empty_id(value.get("id"), "response id")
+        optional_non_empty_id(response.parsed.get("id"), "response id")
     }
 
     fn hard_affinity_id_from_event(
@@ -337,9 +331,9 @@ mod tests {
     }
 
     #[test]
-    fn raw_json_payload_is_the_only_first_release_payload() {
-        let payload = AdapterPayload::RawJson(Bytes::from_static(b"{}"));
-        assert!(matches!(payload, AdapterPayload::RawJson(_)));
+    fn parsed_json_payload_is_the_only_first_release_payload() {
+        let payload = AdapterPayload::Json(json!({}));
+        assert!(matches!(payload, AdapterPayload::Json(_)));
     }
 
     #[test]
@@ -359,12 +353,12 @@ mod tests {
     #[test]
     fn extracts_hard_affinity_from_a_json_response() {
         let adapter = OpenAiResponsesAdapter::new();
+        let body = Bytes::from_static(br#"{"id":"resp_json","object":"response"}"#);
         let response = DecodedUpstreamResponse {
             status: http::StatusCode::OK,
             headers: HeaderMap::new(),
-            payload: AdapterPayload::RawJson(Bytes::from_static(
-                br#"{"id":"resp_json","object":"response"}"#,
-            )),
+            parsed: serde_json::from_slice(&body).expect("response JSON"),
+            body: Some(body),
             telemetry: Default::default(),
         };
 

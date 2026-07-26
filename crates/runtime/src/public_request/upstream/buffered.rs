@@ -6,8 +6,7 @@ use any2api_protocol::api::{DecodedRequest, EgressResponse, UpstreamResponse};
 use super::super::{
     affinity::{AffinitySelection, commit_soft_binding},
     response::{
-        CollectBodyError, collect_body, internal_error, public_error, restore_public_model,
-        sanitize_response_headers,
+        CollectBodyError, collect_body, internal_error, public_error, sanitize_response_headers,
     },
 };
 use super::{
@@ -98,10 +97,8 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             )
         })?;
     let mut response = prepared
-        .encode_egress_response(decoded)
+        .encode_egress_response(decoded, public_model)
         .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
-    restore_public_model(&mut response.body, public_model)
-        .map_err(|error| prepared.fail_after_upstream_success(status.as_u16(), error))?;
     sanitize_response_headers(&mut response.headers);
     let hard_affinity = hard_committer(
         services.snapshot,

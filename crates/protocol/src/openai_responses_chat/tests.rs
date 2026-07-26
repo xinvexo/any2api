@@ -94,7 +94,7 @@ fn json_bridge_converts_tools_usage_and_previous_response_history() {
         .expect("response identity")
         .expect("response id");
     let egress = exchange
-        .encode_egress_response(decoded_response)
+        .encode_egress_response(decoded_response, "public-model")
         .expect("egress response");
     let response: Value = serde_json::from_slice(&egress.body).expect("Responses JSON");
     assert_eq!(response["id"], response_id);

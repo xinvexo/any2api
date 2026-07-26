@@ -48,28 +48,6 @@ pub(super) async fn collect_body(
     Ok(collected.freeze())
 }
 
-pub(super) fn restore_public_model(
-    body: &mut Bytes,
-    public_model: &str,
-) -> Result<(), PublicError> {
-    let mut value: serde_json::Value = serde_json::from_slice(body).map_err(|_| {
-        public_error(
-            PublicErrorCode::UpstreamError,
-            "upstream response was not valid JSON",
-        )
-    })?;
-    if let Some(object) = value.as_object_mut()
-        && object.contains_key("model")
-    {
-        object.insert(
-            "model".into(),
-            serde_json::Value::String(public_model.to_owned()),
-        );
-        *body = Bytes::from(serde_json::to_vec(&value).map_err(|_| internal_error())?);
-    }
-    Ok(())
-}
-
 pub(super) fn sanitize_response_headers(headers: &mut HeaderMap) {
     let nominated = headers
         .get_all(header::CONNECTION)

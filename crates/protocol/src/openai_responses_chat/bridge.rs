@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use any2api_domain::{ProtocolDialect, ProtocolOperation};
-use bytes::Bytes;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -52,9 +51,7 @@ impl ProtocolBridge for ResponsesToChatCompletionsBridge {
                 decoded.operation
             )));
         }
-        let AdapterPayload::RawJson(raw) = decoded.payload;
-        let value: Value = serde_json::from_slice(&raw)
-            .map_err(|_| ProtocolError::InvalidPayload("request body must be valid JSON".into()))?;
+        let AdapterPayload::Json(value) = decoded.payload;
         let previous = match value.get("previous_response_id") {
             Some(Value::String(id)) if !id.is_empty() => self
                 .history
@@ -68,15 +65,10 @@ impl ProtocolBridge for ResponsesToChatCompletionsBridge {
             }
         };
         let converted = request::convert(value, upstream_model, previous)?;
-        let body = serde_json::to_vec(&converted.body)
-            .map(Bytes::from)
-            .map_err(|_| {
-                ProtocolError::InvalidPayload("request JSON could not be encoded".into())
-            })?;
         let request = json_codec::encode_request(
             ProtocolOperation::ChatCompletions,
             decoded.headers,
-            AdapterPayload::RawJson(body),
+            AdapterPayload::Json(converted.body),
             upstream_model,
         )?;
         let response_id = format!("resp_{}", Uuid::new_v4().simple());
@@ -119,16 +111,10 @@ impl ProtocolBridgeSession for ResponsesToChatSession {
         &mut self,
         mut decoded: DecodedUpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError> {
-        let AdapterPayload::RawJson(raw) = decoded.payload;
-        let value = serde_json::from_slice(&raw).map_err(|_| {
-            ProtocolError::InvalidPayload("Chat Completions response must be valid JSON".into())
-        })?;
-        let converted = response::convert(value, &self.response_id)?;
+        let converted = response::convert(decoded.parsed, &self.response_id)?;
         self.store(converted.assistant_message);
-        decoded.payload =
-            AdapterPayload::RawJson(Bytes::from(serde_json::to_vec(&converted.body).map_err(
-                |_| ProtocolError::InvalidPayload("Responses JSON could not be encoded".into()),
-            )?));
+        decoded.parsed = converted.body;
+        decoded.body = None;
         Ok(decoded)
     }
 

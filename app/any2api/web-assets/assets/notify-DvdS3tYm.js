@@ -1,0 +1,1 @@
+import{n as e}from"./notifications-DMo1_wJo.js";var t={show(t){return e(t)},success(t,n){return e({message:t,tone:`success`,durationMs:n})},warning(t,n){return e({message:t,tone:`warning`,durationMs:n})},danger(t,n){return e({message:t,tone:`danger`,durationMs:n})},info(t,n){return e({message:t,tone:`info`,durationMs:n})}};export{t};

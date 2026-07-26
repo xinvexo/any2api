@@ -5,7 +5,10 @@ use serde_json::{Map, Value};
 
 use crate::{
     ProtocolError, affinity,
-    api::{AdapterPayload, DecodedRequest, EncodedUpstreamRequest, IngressRequest},
+    api::{
+        AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
+        EncodedUpstreamRequest, IngressRequest,
+    },
 };
 
 pub(crate) fn decode_request(
@@ -52,7 +55,7 @@ pub(crate) fn decode_request(
         stream,
         thinking_level,
         affinity,
-        payload: AdapterPayload::RawJson(request.body),
+        payload: AdapterPayload::Json(value),
     })
 }
 
@@ -96,9 +99,7 @@ pub(crate) fn encode_request(
     payload: AdapterPayload,
     upstream_model: &str,
 ) -> Result<EncodedUpstreamRequest, ProtocolError> {
-    let AdapterPayload::RawJson(body) = payload;
-    let mut value: Value = serde_json::from_slice(&body)
-        .map_err(|_| ProtocolError::InvalidPayload("request body must be valid JSON".into()))?;
+    let AdapterPayload::Json(mut value) = payload;
     let object = value.as_object_mut().ok_or_else(|| {
         ProtocolError::InvalidPayload("request body must be a JSON object".into())
     })?;
@@ -131,6 +132,48 @@ pub(crate) fn encode_request(
     Ok(EncodedUpstreamRequest {
         method: Method::POST,
         uri: Uri::from_static("/"),
+        headers,
+        body,
+    })
+}
+
+pub(crate) fn parse_response_body(body: &Bytes) -> Result<Value, ProtocolError> {
+    serde_json::from_slice(body)
+        .map_err(|_| ProtocolError::InvalidPayload("upstream response must be valid JSON".into()))
+}
+
+/// Restore the public model name and emit the egress body, reusing the
+/// original wire bytes whenever nothing had to change.
+pub(crate) fn encode_response(
+    response: DecodedUpstreamResponse,
+    public_model: &str,
+) -> Result<EgressResponse, ProtocolError> {
+    let DecodedUpstreamResponse {
+        status,
+        headers,
+        body,
+        mut parsed,
+        ..
+    } = response;
+    let public = Value::String(public_model.to_owned());
+    let rewritten = match parsed
+        .as_object_mut()
+        .and_then(|object| object.get_mut("model"))
+    {
+        Some(model) if *model != public => {
+            *model = public;
+            true
+        }
+        _ => false,
+    };
+    let body = match body.filter(|_| !rewritten) {
+        Some(body) => body,
+        None => serde_json::to_vec(&parsed).map(Bytes::from).map_err(|_| {
+            ProtocolError::InvalidPayload("egress response could not be encoded".into())
+        })?,
+    };
+    Ok(EgressResponse {
+        status,
         headers,
         body,
     })

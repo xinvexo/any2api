@@ -38,9 +38,11 @@ pub enum IngressAffinity {
     Soft(String),
 }
 
+/// Request body parsed once at ingress decode; adapters and bridges mutate
+/// and re-serialize this value instead of re-parsing the wire bytes.
 #[derive(Clone)]
 pub enum AdapterPayload {
-    RawJson(Bytes),
+    Json(Value),
 }
 
 #[derive(Clone)]
@@ -62,7 +64,11 @@ pub struct UpstreamResponse {
 pub struct DecodedUpstreamResponse {
     pub status: StatusCode,
     pub headers: HeaderMap,
-    pub payload: AdapterPayload,
+    /// Original wire bytes; `None` once a bridge transform rewrote `parsed`.
+    pub body: Option<Bytes>,
+    /// JSON body parsed once at decode; telemetry, hard-affinity extraction,
+    /// and egress model rewriting all consume this shared parse.
+    pub parsed: Value,
     pub telemetry: ProtocolResponseTelemetry,
 }
 
@@ -195,6 +201,7 @@ pub trait ProtocolAdapter: Send + Sync {
     fn encode_egress_response(
         &self,
         response: DecodedUpstreamResponse,
+        public_model: &str,
     ) -> Result<EgressResponse, ProtocolError>;
 
     fn encode_egress_event(
@@ -290,10 +297,7 @@ impl fmt::Debug for IngressAffinity {
 impl fmt::Debug for AdapterPayload {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::RawJson(body) => formatter
-                .debug_struct("RawJson")
-                .field("body_bytes", &body.len())
-                .finish(),
+            Self::Json(_) => formatter.write_str("Json([REDACTED])"),
         }
     }
 }
@@ -333,7 +337,10 @@ impl fmt::Debug for DecodedUpstreamResponse {
             .debug_struct("DecodedUpstreamResponse")
             .field("status", &self.status)
             .field("header_count", &self.headers.len())
-            .field("payload", &self.payload)
+            .field(
+                "body_bytes",
+                &self.body.as_ref().map_or(0, bytes::Bytes::len),
+            )
             .finish()
     }
 }
