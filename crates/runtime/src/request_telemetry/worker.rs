@@ -1,4 +1,5 @@
 use std::{
+    mem,
     sync::{
         Arc, RwLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -6,9 +7,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use any2api_domain::CompletedRequestLog;
+use any2api_domain::{CompletedRequestLog, HttpAccessLog};
 use any2api_storage::api::{
-    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, RequestLogRepository,
+    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, HttpAccessLogRepository,
+    RequestLogRepository,
 };
 use tokio::sync::mpsc;
 
@@ -25,57 +27,109 @@ pub(super) struct WorkerState {
     pub(super) policy: Arc<RwLock<RequestLogPolicy>>,
 }
 
+#[derive(Default)]
+struct WriteBatch {
+    request_logs: Vec<CompletedRequestLog>,
+    http_access_logs: Vec<HttpAccessLog>,
+    gateway_usage: Vec<GatewayApiKeyLastUsedUpdate>,
+}
+
 pub(super) async fn run(
     mut receiver: mpsc::Receiver<TelemetryEvent>,
     request_logs: Arc<dyn RequestLogRepository>,
+    http_access_logs: Arc<dyn HttpAccessLogRepository>,
     gateway_usage: Arc<dyn GatewayApiKeyUsageRepository>,
     state: WorkerState,
 ) {
     let mut prune_interval = tokio::time::interval(PRUNE_INTERVAL);
     prune_interval.tick().await;
-    prune(request_logs.as_ref(), &state).await;
+    prune(request_logs.as_ref(), http_access_logs.as_ref(), &state).await;
     loop {
         tokio::select! {
             _ = prune_interval.tick() => {
-                prune(request_logs.as_ref(), &state).await;
+                prune(request_logs.as_ref(), http_access_logs.as_ref(), &state).await;
             }
             first = receiver.recv() => {
                 let Some(first) = first else {
                     break;
                 };
-                state.queued.fetch_sub(1, Ordering::AcqRel);
-                let mut request_batch = Vec::with_capacity(WRITE_BATCH_SIZE);
-                let mut usage_batch = Vec::with_capacity(WRITE_BATCH_SIZE);
-                push_event(first, &mut request_batch, &mut usage_batch);
-                while request_batch.len() + usage_batch.len() < WRITE_BATCH_SIZE {
-                    match receiver.try_recv() {
-                        Ok(event) => {
-                            state.queued.fetch_sub(1, Ordering::AcqRel);
-                            push_event(event, &mut request_batch, &mut usage_batch);
-                        }
+                let mut batch = WriteBatch::default();
+                receive_event(
+                    first,
+                    &mut batch,
+                    request_logs.as_ref(),
+                    http_access_logs.as_ref(),
+                    gateway_usage.as_ref(),
+                    &state,
+                ).await;
+                for _ in 1..WRITE_BATCH_SIZE {
+                    let event = match receiver.try_recv() {
+                        Ok(event) => event,
                         Err(mpsc::error::TryRecvError::Empty)
                         | Err(mpsc::error::TryRecvError::Disconnected) => break,
-                    }
+                    };
+                    receive_event(
+                        event,
+                        &mut batch,
+                        request_logs.as_ref(),
+                        http_access_logs.as_ref(),
+                        gateway_usage.as_ref(),
+                        &state,
+                    ).await;
                 }
-                flush_request_logs(request_logs.as_ref(), &state, request_batch).await;
-                flush_gateway_usage(gateway_usage.as_ref(), &state, usage_batch).await;
+                flush(
+                    &mut batch,
+                    request_logs.as_ref(),
+                    http_access_logs.as_ref(),
+                    gateway_usage.as_ref(),
+                    &state,
+                ).await;
             }
         }
     }
-    prune(request_logs.as_ref(), &state).await;
+    prune(request_logs.as_ref(), http_access_logs.as_ref(), &state).await;
 }
 
-fn push_event(
+async fn receive_event(
     event: TelemetryEvent,
-    request_batch: &mut Vec<CompletedRequestLog>,
-    usage_batch: &mut Vec<GatewayApiKeyLastUsedUpdate>,
+    batch: &mut WriteBatch,
+    request_logs: &dyn RequestLogRepository,
+    http_access_logs: &dyn HttpAccessLogRepository,
+    gateway_usage: &dyn GatewayApiKeyUsageRepository,
+    state: &WorkerState,
 ) {
+    state.queued.fetch_sub(1, Ordering::AcqRel);
     match event {
-        TelemetryEvent::RequestLog(record) => request_batch.push(*record),
+        TelemetryEvent::RequestLog(record) => batch.request_logs.push(*record),
+        TelemetryEvent::HttpAccessLog(record) => batch.http_access_logs.push(*record),
         TelemetryEvent::GatewayKeyLastUsed { id, last_used_at } => {
-            usage_batch.push(GatewayApiKeyLastUsedUpdate { id, last_used_at });
+            batch
+                .gateway_usage
+                .push(GatewayApiKeyLastUsedUpdate { id, last_used_at });
+        }
+        TelemetryEvent::ClearHttpAccessLogs { reply } => {
+            flush(batch, request_logs, http_access_logs, gateway_usage, state).await;
+            let result = http_access_logs.clear_http_access_logs().await;
+            let _ = reply.send(result);
         }
     }
+}
+
+async fn flush(
+    batch: &mut WriteBatch,
+    request_logs: &dyn RequestLogRepository,
+    http_access_logs: &dyn HttpAccessLogRepository,
+    gateway_usage: &dyn GatewayApiKeyUsageRepository,
+    state: &WorkerState,
+) {
+    flush_request_logs(request_logs, state, mem::take(&mut batch.request_logs)).await;
+    flush_http_access_logs(
+        http_access_logs,
+        state,
+        mem::take(&mut batch.http_access_logs),
+    )
+    .await;
+    flush_gateway_usage(gateway_usage, state, mem::take(&mut batch.gateway_usage)).await;
 }
 
 async fn flush_request_logs(
@@ -101,6 +155,29 @@ async fn flush_request_logs(
     }
 }
 
+async fn flush_http_access_logs(
+    repository: &dyn HttpAccessLogRepository,
+    state: &WorkerState,
+    batch: Vec<HttpAccessLog>,
+) {
+    if batch.is_empty() {
+        return;
+    }
+    match repository.append_http_access_logs(&batch).await {
+        Ok(()) => {
+            state
+                .persisted
+                .fetch_add(batch.len() as u64, Ordering::Relaxed);
+        }
+        Err(error) => {
+            state
+                .dropped
+                .fetch_add(batch.len() as u64, Ordering::Relaxed);
+            tracing::warn!(%error, records = batch.len(), "HTTP access log batch was dropped");
+        }
+    }
+}
+
 async fn flush_gateway_usage(
     repository: &dyn GatewayApiKeyUsageRepository,
     state: &WorkerState,
@@ -109,7 +186,6 @@ async fn flush_gateway_usage(
     if batch.is_empty() {
         return;
     }
-    // Keep the newest timestamp per key inside one batch.
     let mut collapsed = std::collections::HashMap::new();
     for update in batch {
         collapsed
@@ -137,14 +213,24 @@ async fn flush_gateway_usage(
     }
 }
 
-async fn prune(repository: &dyn RequestLogRepository, state: &WorkerState) {
+async fn prune(
+    request_logs: &dyn RequestLogRepository,
+    http_access_logs: &dyn HttpAccessLogRepository,
+    state: &WorkerState,
+) {
     let policy = *state.policy.read().expect("request telemetry policy");
     let cutoff = unix_time_ms().saturating_sub(policy.retention_secs.saturating_mul(1_000));
-    if let Err(error) = repository
+    if let Err(error) = request_logs
         .prune_request_logs(cutoff, policy.max_rows, PRUNE_BATCH_SIZE)
         .await
     {
         tracing::warn!(%error, "request telemetry retention cleanup failed");
+    }
+    if let Err(error) = http_access_logs
+        .prune_http_access_logs(cutoff, policy.max_rows, PRUNE_BATCH_SIZE)
+        .await
+    {
+        tracing::warn!(%error, "HTTP access log retention cleanup failed");
     }
 }
 

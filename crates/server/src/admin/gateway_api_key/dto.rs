@@ -5,6 +5,8 @@ use any2api_runtime::api::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::admin::request_usage::RequestUsageResponse;
+
 use super::{error::AdminApiError, revision::parse_revision};
 
 #[derive(Serialize)]
@@ -72,7 +74,7 @@ struct GatewayApiKeyResponse {
     revoked_at: Option<String>,
     created_at: String,
     last_used_at: Option<String>,
-    usage: GatewayApiKeyUsageResponse,
+    usage: RequestUsageResponse,
 }
 
 impl GatewayApiKeyResponse {
@@ -94,47 +96,15 @@ impl GatewayApiKeyResponse {
             revoked_at: key.revoked_at().map(str::to_owned),
             created_at: key.created_at().to_owned(),
             last_used_at,
-            usage: GatewayApiKeyUsageResponse::new(usage),
+            usage: usage.map_or_else(RequestUsageResponse::empty, |summary| {
+                RequestUsageResponse::new(
+                    summary.total_requests,
+                    summary.successful_requests,
+                    &summary.window_slots,
+                )
+            }),
         }
     }
-}
-
-#[derive(Serialize)]
-struct GatewayApiKeyUsageResponse {
-    total_requests: u64,
-    successful_requests: u64,
-    failed_requests: u64,
-    recent_outcomes: Vec<GatewayApiKeyRequestOutcomeResponse>,
-}
-
-impl GatewayApiKeyUsageResponse {
-    fn new(summary: Option<&GatewayApiKeyUsageSummary>) -> Self {
-        let Some(summary) = summary else {
-            return Self {
-                total_requests: 0,
-                successful_requests: 0,
-                failed_requests: 0,
-                recent_outcomes: Vec::new(),
-            };
-        };
-        Self {
-            total_requests: summary.total_requests,
-            successful_requests: summary.successful_requests,
-            failed_requests: summary.failed_requests(),
-            recent_outcomes: summary
-                .recent_outcomes
-                .iter()
-                .map(|outcome| GatewayApiKeyRequestOutcomeResponse {
-                    status_code: outcome.status_code,
-                })
-                .collect(),
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct GatewayApiKeyRequestOutcomeResponse {
-    status_code: u16,
 }
 
 fn newest_timestamp(stored: Option<&str>, live: Option<&str>) -> Option<String> {

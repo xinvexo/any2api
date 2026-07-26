@@ -6,6 +6,12 @@ import {
 } from "./gateway-api-key-contracts";
 
 const token = `sk-${"a".repeat(48)}`;
+const windowSlots = Array.from({ length: 30 }, (_, index) => ({
+  started_at_ms: 1_720_000_000_000 + index * 120_000,
+  total_requests: index === 28 ? 1 : index === 29 ? 2 : 0,
+  successful_requests: index >= 28 ? 1 : 0,
+  failed_requests: index === 29 ? 1 : 0,
+}));
 
 const item = {
   id: "key-1",
@@ -22,7 +28,8 @@ const item = {
     total_requests: 3,
     successful_requests: 2,
     failed_requests: 1,
-    recent_outcomes: [{ status_code: 200 }, { status_code: 429 }, { status_code: 204 }],
+    window_minutes: 2,
+    window_slots: windowSlots,
   },
 };
 
@@ -31,11 +38,18 @@ describe("gateway API Key contracts", () => {
     const configuration = parseGatewayApiKeyConfiguration({ config_revision: 2, items: [item] });
     expect(configuration.items[0].name).toBe("Desktop");
     expect(configuration.items[0].token).toBe(token);
-    expect(configuration.items[0].usage).toEqual({
+    expect(configuration.items[0].usage).toMatchObject({
       totalRequests: 3,
       successfulRequests: 2,
       failedRequests: 1,
-      recentOutcomes: [{ statusCode: 200 }, { statusCode: 429 }, { statusCode: 204 }],
+      windowMinutes: 2,
+    });
+    expect(configuration.items[0].usage.windowSlots).toHaveLength(30);
+    expect(configuration.items[0].usage.windowSlots[29]).toEqual({
+      startedAtMs: windowSlots[29].started_at_ms,
+      totalRequests: 2,
+      successfulRequests: 1,
+      failedRequests: 1,
     });
   });
 
@@ -44,6 +58,22 @@ describe("gateway API Key contracts", () => {
       parseGatewayApiKeyConfiguration({
         config_revision: 2,
         items: [{ ...item, token: "short" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      parseGatewayApiKeyConfiguration({
+        config_revision: 2,
+        items: [
+          {
+            ...item,
+            usage: {
+              ...item.usage,
+              window_slots: windowSlots.map((slot, index) =>
+                index === 10 ? { ...slot, started_at_ms: slot.started_at_ms + 1 } : slot,
+              ),
+            },
+          },
+        ],
       }),
     ).toThrow();
     expect(() =>

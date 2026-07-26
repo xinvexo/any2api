@@ -113,6 +113,7 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::InvalidRequest | PublicErrorCode::MethodNotAllowed => {
             "invalid_request_error"
         }
+        PublicErrorCode::PayloadTooLarge => "request_too_large",
         PublicErrorCode::PublicApiNotFound => "not_found_error",
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
@@ -130,6 +131,7 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
     match code {
         PublicErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         PublicErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
+        PublicErrorCode::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
         PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
         PublicErrorCode::ModelNotFound

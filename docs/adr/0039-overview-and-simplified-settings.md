@@ -18,6 +18,7 @@
 
 - 一级导航删除“负载均衡”和“会话粘性”。旧 `/balancing`、`/affinity` deep link 重定向到
   `/settings/routing`，不保留双轨页面。
+- 一级导航按“系统总览、上游提供、认证文件、网关密钥、出口代理、请求日志、系统日志、系统设置”排列；首页名称使用“系统总览”，出口代理紧随网关密钥。
 - 总览展示固定规模的服务、全局/Provider 调度、队列和会话绑定聚合。它不展示账号 ID、Credential
   分布、模型健康、Session Hash 或绑定样本。
 - `GET /api/admin/balancing` 继续使用 ADR-0038 的 aggregate-only 契约。

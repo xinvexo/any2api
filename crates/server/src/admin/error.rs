@@ -97,6 +97,14 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn system_log_unavailable() -> Self {
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "system_log_unavailable",
+            "system logs could not be read or cleared",
+        )
+    }
+
     pub(crate) fn proxy_test_unavailable() -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,

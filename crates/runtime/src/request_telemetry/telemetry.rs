@@ -7,12 +7,13 @@ use std::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, LoggingSettings,
+    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, LoggingSettings,
     MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
 };
 use any2api_storage::api::{
-    GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary, RequestLogRepository, StorageError,
-    UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
+    GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary, HttpAccessLogRepository,
+    RequestLogRepository, StorageError, UpstreamCredentialUsageRepository,
+    UpstreamCredentialUsageSummary,
 };
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -31,8 +32,17 @@ pub struct RequestTelemetryMetrics {
     pub persisted_records: u64,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RequestTelemetryControlError {
+    #[error("request telemetry writer is unavailable")]
+    WriterUnavailable,
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+}
+
 pub struct RequestTelemetry {
     request_logs: Option<Arc<dyn RequestLogRepository>>,
+    http_access_logs: Option<Arc<dyn HttpAccessLogRepository>>,
     gateway_usage_repository: Option<Arc<dyn GatewayApiKeyUsageRepository>>,
     upstream_usage_repository: Option<Arc<dyn UpstreamCredentialUsageRepository>>,
     sender: RwLock<Option<mpsc::Sender<TelemetryEvent>>>,
@@ -56,6 +66,7 @@ impl RequestTelemetry {
         policy.enabled = false;
         Self {
             request_logs: None,
+            http_access_logs: None,
             gateway_usage_repository: None,
             upstream_usage_repository: None,
             sender: RwLock::new(None),
@@ -76,11 +87,13 @@ impl RequestTelemetry {
     ) -> Self
     where
         R: RequestLogRepository
+            + HttpAccessLogRepository
             + GatewayApiKeyUsageRepository
             + UpstreamCredentialUsageRepository
             + 'static,
     {
         let request_logs: Arc<dyn RequestLogRepository> = Arc::clone(&repository) as _;
+        let http_access_logs: Arc<dyn HttpAccessLogRepository> = Arc::clone(&repository) as _;
         let gateway_usage: Arc<dyn GatewayApiKeyUsageRepository> = Arc::clone(&repository) as _;
         let upstream_usage: Arc<dyn UpstreamCredentialUsageRepository> = repository;
         let capacity = usize::try_from(MAX_TELEMETRY_QUEUE_CAPACITY)
@@ -95,6 +108,7 @@ impl RequestTelemetry {
         let worker = lifecycle.spawn_tracked(worker::run(
             receiver,
             Arc::clone(&request_logs),
+            Arc::clone(&http_access_logs),
             Arc::clone(&gateway_usage),
             worker::WorkerState {
                 queued: Arc::clone(&queued),
@@ -105,6 +119,7 @@ impl RequestTelemetry {
         ));
         Self {
             request_logs: Some(request_logs),
+            http_access_logs: Some(http_access_logs),
             gateway_usage_repository: Some(gateway_usage),
             upstream_usage_repository: Some(upstream_usage),
             sender: RwLock::new(Some(sender)),
@@ -137,7 +152,7 @@ impl RequestTelemetry {
         }
         let next = RequestLogPolicy::from_settings(revision, settings);
         let mut current = self.policy.write().expect("request telemetry policy");
-        if next.revision >= current.revision {
+        if next.revision > current.revision {
             *current = next;
         }
     }
@@ -150,6 +165,17 @@ impl RequestTelemetry {
             return;
         }
         self.send_event(TelemetryEvent::RequestLog(Box::new(record)));
+    }
+
+    pub fn try_record_http_access(&self, record: HttpAccessLog, settings: &LoggingSettings) {
+        let policy = self.policy(record.config_revision, settings);
+        if !policy.enabled || !self.reserve_queue_slot(policy.queue_capacity) {
+            if policy.enabled {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+            }
+            return;
+        }
+        self.send_event(TelemetryEvent::HttpAccessLog(Box::new(record)));
     }
 
     pub fn record_gateway_key_use(&self, id: GatewayApiKeyId) {
@@ -217,6 +243,39 @@ impl RequestTelemetry {
             Some(repository) => repository.get_request_log(request_id).await,
             None => Ok(None),
         }
+    }
+
+    pub async fn list_http_access_logs(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<HttpAccessLog>, StorageError> {
+        match &self.http_access_logs {
+            Some(repository) => repository.list_http_access_logs(limit).await,
+            None => Ok(Vec::new()),
+        }
+    }
+
+    pub async fn clear_http_access_logs(&self) -> Result<u64, RequestTelemetryControlError> {
+        if self.http_access_logs.is_none() {
+            return Ok(0);
+        }
+        let sender = self
+            .sender
+            .read()
+            .expect("request telemetry sender")
+            .clone()
+            .ok_or(RequestTelemetryControlError::WriterUnavailable)?;
+        let permit = sender
+            .reserve()
+            .await
+            .map_err(|_| RequestTelemetryControlError::WriterUnavailable)?;
+        let (reply, result) = tokio::sync::oneshot::channel();
+        self.queued.fetch_add(1, Ordering::AcqRel);
+        permit.send(TelemetryEvent::ClearHttpAccessLogs { reply });
+        result
+            .await
+            .map_err(|_| RequestTelemetryControlError::WriterUnavailable)?
+            .map_err(RequestTelemetryControlError::Storage)
     }
 
     pub async fn gateway_key_usage(&self) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {

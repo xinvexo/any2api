@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -73,7 +73,7 @@ test("creates a gateway key with the form token and exposes copy in row actions"
   expect(screen.getByTestId("location")).not.toHaveTextContent(tokenA);
 });
 
-test("lists keys without showing plaintext tokens", async () => {
+test("lists keys with a real time window and hover or focus details", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     jsonResponse({
       config_revision: 2,
@@ -93,12 +93,10 @@ test("lists keys without showing plaintext tokens", async () => {
             total_requests: 177,
             successful_requests: 134,
             failed_requests: 43,
-            recent_outcomes: [
-              { status_code: 200 },
-              { status_code: 429 },
-              { status_code: 204 },
-              { status_code: 503 },
-            ],
+            window_slots: usageSlots({
+              28: { total_requests: 2, successful_requests: 2, failed_requests: 0 },
+              29: { total_requests: 2, successful_requests: 1, failed_requests: 1 },
+            }),
           }),
         },
       ],
@@ -129,6 +127,23 @@ test("lists keys without showing plaintext tokens", async () => {
   expect(screen.getByText("成功 134")).toBeInTheDocument();
   expect(screen.getByText("失败 43")).toBeInTheDocument();
   expect(screen.queryByText("暂无调用")).not.toBeInTheDocument();
+
+  const timeline = screen.getByRole("group", { name: /Desktop 近 1 小时，每格 2 分钟/ });
+  const slots = within(timeline).getAllByRole("button");
+  expect(slots).toHaveLength(30);
+  expect(slots[29]).toHaveAccessibleName(/成功 1，失败 1/);
+
+  fireEvent.mouseEnter(slots[29]);
+  let tooltip = await screen.findByRole("tooltip");
+  expect(within(tooltip).getByText("成功 1")).toBeInTheDocument();
+  expect(within(tooltip).getByText("失败 1")).toBeInTheDocument();
+  fireEvent.mouseLeave(timeline);
+  expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+
+  fireEvent.focus(slots[28]);
+  tooltip = await screen.findByRole("tooltip");
+  expect(within(tooltip).getByText("成功 2")).toBeInTheDocument();
+  expect(within(tooltip).getByText("失败 0")).toBeInTheDocument();
 });
 
 test("toggles enabled from the row action without opening the editor", async () => {
@@ -299,7 +314,25 @@ function usage(overrides: Record<string, unknown> = {}) {
     total_requests: 0,
     successful_requests: 0,
     failed_requests: 0,
-    recent_outcomes: [],
+    window_minutes: 2,
+    window_slots: usageSlots(),
     ...overrides,
   };
+}
+
+function usageSlots(
+  overrides: Record<
+    number,
+    { total_requests: number; successful_requests: number; failed_requests: number }
+  > = {},
+) {
+  return Array.from({ length: 30 }, (_, index) => {
+    const slot = overrides[index];
+    return {
+      started_at_ms: 1_720_000_000_000 + index * 120_000,
+      total_requests: slot?.total_requests ?? 0,
+      successful_requests: slot?.successful_requests ?? 0,
+      failed_requests: slot?.failed_requests ?? 0,
+    };
+  });
 }

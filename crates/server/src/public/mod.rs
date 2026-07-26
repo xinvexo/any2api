@@ -1,16 +1,23 @@
 mod auth;
+mod body;
 mod error;
 mod handlers;
 mod models;
-mod request_id;
 mod response;
 
 use axum::{
-    Router, middleware,
+    Router,
+    extract::DefaultBodyLimit,
+    middleware,
     routing::{any, get, post},
 };
 
 use crate::state::AppState;
+
+/// Upper bound for buffered public request bodies. Large-context requests from
+/// Codex CLI / Claude Code routinely exceed axum's 2 MB default, so the public
+/// ingress accepts up to 32 MiB before rejecting with a protocol-shaped 413.
+const MAX_PUBLIC_REQUEST_BYTES: usize = 32 * 1024 * 1024;
 
 pub(crate) fn routes(state: AppState) -> Router {
     protected(
@@ -26,7 +33,8 @@ pub(crate) fn routes(state: AppState) -> Router {
                 post(handlers::messages_count_tokens),
             )
             .fallback(error::not_found)
-            .method_not_allowed_fallback(error::method_not_allowed),
+            .method_not_allowed_fallback(error::method_not_allowed)
+            .layer(DefaultBodyLimit::max(MAX_PUBLIC_REQUEST_BYTES)),
         state,
     )
 }
@@ -41,6 +49,5 @@ fn protected(router: Router<AppState>, state: AppState) -> Router {
             state.clone(),
             auth::require_gateway_api_key,
         ))
-        .layer(middleware::from_fn(request_id::assign))
         .with_state(state)
 }

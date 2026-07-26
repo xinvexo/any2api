@@ -4,12 +4,13 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, ProtocolDialect, ProtocolOperation,
-    RequestId, RequestLog, SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
+    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, HttpAccessLogOutcome,
+    HttpProtocolVersion, ProtocolDialect, ProtocolOperation, RequestId, RequestLog, SettingKey,
+    SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
-    RequestLogRepository, StorageError, UpstreamCredentialUsageRepository,
+    HttpAccessLogRepository, RequestLogRepository, StorageError, UpstreamCredentialUsageRepository,
     UpstreamCredentialUsageSummary,
 };
 use async_trait::async_trait;
@@ -157,12 +158,79 @@ async fn gateway_key_usage_is_live_immediately_and_duplicate_writes_are_throttle
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }
 
+#[tokio::test]
+async fn clear_http_access_logs_is_ordered_with_regular_events() {
+    let repository = Arc::new(BlockingRepository::default());
+    let settings = logging_settings(8);
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+
+    telemetry.try_record_http_access(access_log("/before-clear"), settings.logging());
+    assert_eq!(
+        telemetry
+            .clear_http_access_logs()
+            .await
+            .expect("clear HTTP access logs"),
+        1
+    );
+    telemetry.try_record_http_access(access_log("/after-clear"), settings.logging());
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+
+    assert_eq!(
+        repository
+            .access_logs
+            .lock()
+            .expect("HTTP access logs")
+            .iter()
+            .map(|log| log.path.as_str())
+            .collect::<Vec<_>>(),
+        vec!["/after-clear"]
+    );
+}
+
 #[derive(Default)]
 struct BlockingRepository {
     write_batches: AtomicUsize,
     prune_calls: AtomicUsize,
     release_first: Notify,
     usage_updates: Mutex<Vec<Vec<GatewayApiKeyLastUsedUpdate>>>,
+    access_logs: Mutex<Vec<HttpAccessLog>>,
+}
+
+#[async_trait]
+impl HttpAccessLogRepository for BlockingRepository {
+    async fn append_http_access_logs(&self, records: &[HttpAccessLog]) -> Result<(), StorageError> {
+        self.access_logs
+            .lock()
+            .expect("HTTP access logs")
+            .extend_from_slice(records);
+        Ok(())
+    }
+
+    async fn prune_http_access_logs(
+        &self,
+        _retention_before_ms: u64,
+        _max_rows: u64,
+        _batch_size: u32,
+    ) -> Result<u64, StorageError> {
+        Ok(0)
+    }
+
+    async fn list_http_access_logs(&self, _limit: u32) -> Result<Vec<HttpAccessLog>, StorageError> {
+        Ok(self.access_logs.lock().expect("HTTP access logs").clone())
+    }
+
+    async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {
+        let mut logs = self.access_logs.lock().expect("HTTP access logs");
+        let count = logs.len() as u64;
+        logs.clear();
+        Ok(count)
+    }
 }
 
 #[async_trait]
@@ -267,6 +335,22 @@ fn record(request_id: RequestId) -> CompletedRequestLog {
             is_stream: false,
         },
         attempts: Vec::new(),
+    }
+}
+
+fn access_log(path: &str) -> HttpAccessLog {
+    HttpAccessLog {
+        request_id: RequestId::new(),
+        started_at_ms: 1,
+        config_revision: ConfigRevision::INITIAL,
+        client_ip: None,
+        method: "GET".to_owned(),
+        path: path.to_owned(),
+        http_version: HttpProtocolVersion::Http11,
+        status_code: Some(200),
+        duration_ms: 1,
+        response_bytes: 0,
+        outcome: HttpAccessLogOutcome::Completed,
     }
 }
 

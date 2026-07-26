@@ -7,8 +7,8 @@ use axum::{
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::{
-    admin, embedded_web, health::health, public, request_lifecycle, state::AppState,
-    web_assets::WebAssets,
+    admin, embedded_web, health::health, http_access_log, public, request_lifecycle,
+    state::AppState, web_assets::WebAssets,
 };
 
 pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router {
@@ -18,7 +18,7 @@ pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router
         .route("/api/", any(api_not_found))
         .merge(public_root)
         .nest("/api", build_api_router(state.clone()))
-        .nest("/v1", public::routes(state));
+        .nest("/v1", public::routes(state.clone()));
     let router = match web_assets.into() {
         WebAssets::External(web_root) => router
             .nest_service("/assets", ServeDir::new(web_root.join("assets")))
@@ -31,10 +31,15 @@ pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router
             })
         }
     };
-    router.layer(middleware::from_fn_with_state(
-        lifecycle,
-        request_lifecycle::track,
-    ))
+    router
+        .layer(middleware::from_fn_with_state(
+            lifecycle,
+            request_lifecycle::track,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state,
+            http_access_log::record,
+        ))
 }
 
 fn build_api_router(state: AppState) -> Router {

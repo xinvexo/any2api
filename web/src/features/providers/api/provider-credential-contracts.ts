@@ -1,7 +1,7 @@
 import {
-  parseUpstreamRequestUsage,
-  type UpstreamRequestUsage,
-} from "@/shared/api/upstream-request-usage";
+  parseRequestUsage,
+  type RequestUsage,
+} from "@/shared/api/request-usage";
 
 export type CredentialKind = "api_key";
 
@@ -20,7 +20,7 @@ export interface ProviderCredential {
   credentialGeneration: number;
   configVersion: number;
   models: string[];
-  usage: UpstreamRequestUsage;
+  usage: RequestUsage;
 }
 
 export interface ProviderCredentialConfiguration {
@@ -179,7 +179,7 @@ function parseProviderCredential(value: unknown): ProviderCredential {
     credentialGeneration: readPositiveInteger(value.credential_generation),
     configVersion: readPositiveInteger(value.config_version),
     models: readModelNames(value.models),
-    usage: parseUpstreamRequestUsage(value.usage),
+    usage: parseRequestUsage(value.usage),
   };
 }
 

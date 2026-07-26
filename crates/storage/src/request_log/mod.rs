@@ -1,6 +1,7 @@
 mod repository;
 mod rows;
 mod usage;
+pub(crate) mod usage_window;
 mod writes;
 
 #[cfg(test)]
@@ -9,7 +10,8 @@ mod tests;
 mod usage_tests;
 
 pub use repository::RequestLogRepository;
-pub use usage::{
-    UPSTREAM_USAGE_WINDOW_COUNT, UPSTREAM_USAGE_WINDOW_MINUTES, UpstreamCredentialUsageRepository,
-    UpstreamCredentialUsageSummary, UpstreamCredentialWindowSlot, empty_upstream_window_slots,
+pub use usage::{UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary};
+pub use usage_window::{
+    REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestUsageWindowSlot,
+    empty_request_usage_window_slots,
 };

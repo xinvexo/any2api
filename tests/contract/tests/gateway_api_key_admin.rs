@@ -52,6 +52,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         .as_str()
         .expect("key id")
         .to_owned();
+    assert_usage_window_shape(&created.body["items"][0]["usage"]);
 
     let listed = request_json(
         app.clone(),
@@ -67,12 +68,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     assert_eq!(listed.body["items"][0]["usage"]["total_requests"], 0);
     assert_eq!(listed.body["items"][0]["usage"]["successful_requests"], 0);
     assert_eq!(listed.body["items"][0]["usage"]["failed_requests"], 0);
-    assert_eq!(
-        listed.body["items"][0]["usage"]["recent_outcomes"]
-            .as_array()
-            .map(Vec::len),
-        Some(0)
-    );
+    assert_usage_window_shape(&listed.body["items"][0]["usage"]);
 
     let missing = request_json(app.clone(), Method::GET, "/v1/models", None, loopback, &[]).await;
     assert_eq!(missing.status, StatusCode::UNAUTHORIZED);
@@ -140,6 +136,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         .to_owned();
     assert_ne!(first_token, second_token);
     assert_eq!(rotated.body["items"][0]["token_version"], 2);
+    assert_usage_window_shape(&rotated.body["items"][0]["usage"]);
 
     let old = request_json(
         app.clone(),
@@ -491,6 +488,20 @@ async fn test_app() -> (
         storage,
         telemetry,
     )
+}
+
+fn assert_usage_window_shape(usage: &Value) {
+    assert_eq!(usage["window_minutes"], 2);
+    assert!(usage.get("recent_outcomes").is_none());
+    let slots = usage["window_slots"]
+        .as_array()
+        .expect("usage window slots");
+    assert_eq!(slots.len(), 30);
+    for pair in slots.windows(2) {
+        let first = pair[0]["started_at_ms"].as_u64().expect("first slot time");
+        let second = pair[1]["started_at_ms"].as_u64().expect("second slot time");
+        assert_eq!(second - first, 120_000);
+    }
 }
 
 async fn wait_for_last_used(storage: &SqliteStore, key_id: &str) {

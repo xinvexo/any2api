@@ -151,21 +151,28 @@ impl ReqwestTransportManager {
             policy: self.policy,
             resolved_origin: resolved_origin.cloned(),
         };
-        let mut clients = self
+        if let Some(client) = self
             .clients
             .lock()
-            .expect("transport client cache lock poisoned");
-        let config = self.config;
-        let extra_root_certificates = &self.extra_root_certificates;
-        let resolved_origin = key.resolved_origin.clone();
-        clients.get_or_insert_with(key, || {
-            build_transport_client(
-                config,
-                extra_root_certificates,
-                proxy,
-                resolved_origin.as_ref(),
-            )
-        })
+            .expect("transport client cache lock poisoned")
+            .get(&key)
+        {
+            return Ok(client);
+        }
+        // TLS root loading and client construction can take tens of
+        // milliseconds; build outside the cache lock so concurrent cache hits
+        // are never blocked, then let the first inserted client win.
+        let client = Arc::new(build_transport_client(
+            self.config,
+            &self.extra_root_certificates,
+            proxy,
+            key.resolved_origin.clone().as_ref(),
+        )?);
+        Ok(self
+            .clients
+            .lock()
+            .expect("transport client cache lock poisoned")
+            .insert_if_absent(key, client))
     }
 }
 

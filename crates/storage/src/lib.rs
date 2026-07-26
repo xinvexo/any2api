@@ -4,6 +4,7 @@ mod admin_credential;
 mod configuration;
 mod error;
 mod gateway_api_key;
+mod http_access_log;
 mod migration;
 mod oauth_account;
 mod provider;

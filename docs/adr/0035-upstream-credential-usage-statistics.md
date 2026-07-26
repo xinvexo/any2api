@@ -12,7 +12,7 @@ Gateway Key 与上游凭据回答不同问题。新增上游维度不能删除 G
 
 ## 决策
 
-- 保留 ADR-0030 的 Gateway API Key 统计，不修改其 API、持久化或 Web 语义。
+- 保留 ADR-0030 的 Gateway API Key 统计维度；ADR-0052 后三类凭据共用同一固定时间窗口 API 与 Web 语义。
 - 新增带来源标签的上游统计身份：`ProviderCredential(CredentialId)` 与 `OAuthAccount(OAuthAccountId)`。即使 UUID 字节相同，两者仍是不同统计对象。
 - 统计直接读取最终 RequestLog：每个公开请求只归入最终上游目标一次，最终状态码为 2xx 计成功，其余计失败；每个对象返回总请求数、成功数、失败数，以及固定长度的 2 分钟时间窗条带（默认最近 30 格 / 1 小时，无请求的格子仍返回且计数为 0）。
 - RequestAttempt 继续完整记录重试和切换，但中间 Attempt 不重复计入最终请求统计。需要诊断某次切换时使用现有 Attempt 时间线。

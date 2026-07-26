@@ -4,10 +4,10 @@ pub use crate::configuration::{
 };
 pub use crate::error::StorageError;
 pub use crate::gateway_api_key::{
-    GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT, GatewayApiKeyLastUsedUpdate, GatewayApiKeyRepository,
-    GatewayApiKeyRequestOutcome, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
-    GatewayApiKeyVerifier,
+    GatewayApiKeyLastUsedUpdate, GatewayApiKeyRepository, GatewayApiKeyUsageRepository,
+    GatewayApiKeyUsageSummary, GatewayApiKeyVerifier,
 };
+pub use crate::http_access_log::HttpAccessLogRepository;
 pub use crate::oauth_account::{
     MAX_OAUTH_ACCOUNT_JSON_BYTES, OAuthAccountCreate, OAuthAccountDocument,
     OAuthAccountDocumentValidationError, OAuthAccountRepository, StoredOAuthAccountMaterial,
@@ -19,8 +19,9 @@ pub use crate::provider::{
 pub use crate::proxy::{ProxyPasswordValidationError, StoredProxyPassword, StoredProxyPasswords};
 pub use crate::request_log::RequestLogRepository;
 pub use crate::request_log::{
-    UPSTREAM_USAGE_WINDOW_COUNT, UPSTREAM_USAGE_WINDOW_MINUTES, UpstreamCredentialUsageRepository,
-    UpstreamCredentialUsageSummary, UpstreamCredentialWindowSlot, empty_upstream_window_slots,
+    REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestUsageWindowSlot,
+    UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
+    empty_request_usage_window_slots,
 };
 pub use crate::settings::SettingRepository;
 pub use crate::sqlite::SqliteStore;

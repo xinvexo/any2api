@@ -1,7 +1,7 @@
 import {
-  parseUpstreamRequestUsage,
-  type UpstreamRequestUsage,
-} from "@/shared/api/upstream-request-usage";
+  parseRequestUsage,
+  type RequestUsage,
+} from "@/shared/api/request-usage";
 
 export type OAuthProvider = "codex" | "claude" | "grok";
 
@@ -60,7 +60,7 @@ export interface OAuthAccount {
   availableModels: string[];
   /** Official Codex `chatgpt_plan_type` from the ID Token. */
   planType: string | null;
-  usage: UpstreamRequestUsage;
+  usage: RequestUsage;
 }
 
 export interface OAuthAccountConfiguration {
@@ -249,7 +249,7 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     models,
     availableModels,
     planType: readOptionalString(value.plan_type),
-    usage: parseUpstreamRequestUsage(value.usage),
+    usage: parseRequestUsage(value.usage),
   };
 }
 

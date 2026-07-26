@@ -11,7 +11,7 @@ export function NotFoundPage() {
         className="focus-ring mt-7 inline-flex h-10 items-center gap-2 rounded-control border border-subtle bg-surface px-4 text-sm font-semibold shadow-hairline hover:bg-surface-hover"
       >
         <ArrowLeft size={16} />
-        返回总览
+        返回系统总览
       </Link>
     </div>
   );

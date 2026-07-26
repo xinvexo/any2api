@@ -1,8 +1,9 @@
 import { Ban, Copy, Pencil, Power, Trash2 } from "lucide-react";
 
-import type { GatewayApiKey, GatewayApiKeyUsage } from "../api/gateway-api-key-contracts";
+import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
 import { notify } from "@/shared/notifications";
 import { cn } from "@/shared/lib/cn";
+import { RequestUsageStats } from "@/shared/ui/RequestUsageStats";
 import { RowActionButton } from "@/shared/ui/RowActionButton";
 
 export interface GatewayApiKeyTableRowProps {
@@ -35,7 +36,7 @@ export function GatewayApiKeyTableRow({
         <p className="break-words font-medium text-primary [overflow-wrap:anywhere]">{apiKey.name}</p>
       </td>
       <td className="px-3 py-2.5 align-middle">
-        <UsageStats name={apiKey.name} usage={apiKey.usage} />
+        <RequestUsageStats label={apiKey.name} usage={apiKey.usage} />
       </td>
       <td className="px-3 py-2.5 align-middle">
         <Status enabled={apiKey.enabled} />
@@ -85,70 +86,6 @@ export function GatewayApiKeyTableRow({
       </td>
     </tr>
   );
-}
-
-/** Matches storage `GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT` — fixed width, no row jitter. */
-const RECENT_OUTCOME_SLOTS = 24;
-
-function UsageStats({ name, usage }: { name: string; usage: GatewayApiKeyUsage }) {
-  const outcomes = usage.recentOutcomes;
-  // Left-pad empty slots so the bar is always RECENT_OUTCOME_SLOTS wide (newest on the right).
-  const slots: Array<number | null> = [
-    ...Array.from<number | null>({
-      length: Math.max(0, RECENT_OUTCOME_SLOTS - outcomes.length),
-    }).fill(null),
-    ...outcomes.map((outcome) => outcome.statusCode),
-  ].slice(-RECENT_OUTCOME_SLOTS);
-  const outcomeLabel = outcomes
-    .map((outcome) => (isSuccess(outcome.statusCode) ? "成功" : `失败 ${outcome.statusCode}`))
-    .join("、");
-
-  return (
-    <div className="flex min-w-0 max-w-full items-center gap-2">
-      <div className="flex shrink-0 items-center gap-x-2 text-[11px] tabular-nums">
-        <span className="font-medium text-success">
-          成功 {formatCount(usage.successfulRequests)}
-        </span>
-        <span className="font-medium text-danger">
-          失败 {formatCount(usage.failedRequests)}
-        </span>
-      </div>
-      <div
-        className="flex h-4 w-full min-w-[9rem] max-w-[16rem] flex-1 items-stretch gap-px"
-        role="img"
-        aria-label={`${name} 最近 ${outcomes.length} 次调用：${outcomeLabel || "暂无调用"}`}
-      >
-        {slots.map((statusCode, index) => (
-          <span
-            key={`slot-${index}`}
-            className={cn("min-w-[2px] flex-1 rounded-[2px]", outcomeSlotTone(statusCode))}
-            title={statusCode === null ? "无记录" : `HTTP ${statusCode}`}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function formatCount(value: number) {
-  return new Intl.NumberFormat("zh-CN").format(value);
-}
-
-function isSuccess(statusCode: number) {
-  return statusCode >= 200 && statusCode < 300;
-}
-
-function outcomeSlotTone(statusCode: number | null) {
-  if (statusCode === null) {
-    return "bg-black/[0.08] dark:bg-white/[0.12]";
-  }
-  if (isSuccess(statusCode)) {
-    return "bg-success/85";
-  }
-  if (statusCode >= 400 && statusCode < 500) {
-    return "bg-warning/85";
-  }
-  return "bg-danger/85";
 }
 
 function Status({ enabled }: { enabled: boolean }) {

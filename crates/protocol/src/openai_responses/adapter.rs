@@ -173,6 +173,7 @@ fn error_type(code: PublicErrorCode) -> &'static str {
     match code {
         PublicErrorCode::Unauthorized => "authentication_error",
         PublicErrorCode::InvalidRequest
+        | PublicErrorCode::PayloadTooLarge
         | PublicErrorCode::PublicApiNotFound
         | PublicErrorCode::MethodNotAllowed
         | PublicErrorCode::ModelNotFound
@@ -190,6 +191,7 @@ fn error_code(code: PublicErrorCode) -> &'static str {
     match code {
         PublicErrorCode::Unauthorized => "unauthorized",
         PublicErrorCode::InvalidRequest => "invalid_request",
+        PublicErrorCode::PayloadTooLarge => "payload_too_large",
         PublicErrorCode::PublicApiNotFound => "public_api_not_found",
         PublicErrorCode::MethodNotAllowed => "method_not_allowed",
         PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "model_not_found",
@@ -206,6 +208,7 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
     match code {
         PublicErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
         PublicErrorCode::InvalidRequest => StatusCode::BAD_REQUEST,
+        PublicErrorCode::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
         PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
         PublicErrorCode::ModelNotFound

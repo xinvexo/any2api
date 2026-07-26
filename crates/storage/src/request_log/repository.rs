@@ -60,17 +60,23 @@ impl RequestLogRepository for SqliteStore {
         let expired =
             delete_oldest_before(&mut transaction, retention_before_ms, u64::from(batch_size))
                 .await?;
+        transaction.commit().await?;
+        // The row-cap count runs outside the write transaction so the periodic
+        // full-table scan never blocks concurrent telemetry writers; a stale
+        // count only shifts overflow trimming to the next prune cycle.
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_logs")
-            .fetch_one(&mut *transaction)
+            .fetch_one(self.pool())
             .await?;
         let count = u64::try_from(count).map_err(|_| StorageError::CorruptTelemetry)?;
         let overflow = count.saturating_sub(max_rows).min(u64::from(batch_size));
         let trimmed = if overflow == 0 {
             0
         } else {
-            delete_oldest(&mut transaction, overflow).await?
+            let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+            let trimmed = delete_oldest(&mut transaction, overflow).await?;
+            transaction.commit().await?;
+            trimmed
         };
-        transaction.commit().await?;
         Ok(expired.saturating_add(trimmed))
     }
 

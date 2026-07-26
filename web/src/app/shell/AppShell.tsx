@@ -25,7 +25,7 @@ export function AppShell() {
   const pageTitle = getPageTitle(location.pathname);
 
   useEffect(() => {
-    document.title = pageTitle === "总览" ? "any2api" : `${pageTitle} · any2api`;
+    document.title = pageTitle === "系统总览" ? "any2api" : `${pageTitle} · any2api`;
     if (previousPath.current !== location.pathname) {
       previousPath.current = location.pathname;
       setMobileOpen(false);
@@ -210,7 +210,7 @@ function Brand({ onNavigate }: { onNavigate: () => void }) {
       to="/"
       onClick={onNavigate}
       className="focus-ring flex min-w-0 items-center gap-2.5 rounded-full sm:gap-3"
-      aria-label="any2api 总览"
+      aria-label="any2api 系统总览"
     >
       <span className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary text-surface">
         <Network size={17} strokeWidth={2.2} aria-hidden="true" />

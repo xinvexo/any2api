@@ -1,5 +1,6 @@
 import {
   Fingerprint,
+  FileClock,
   Gauge,
   KeyRound,
   Network,
@@ -16,12 +17,13 @@ export interface NavigationItem {
 }
 
 export const navigationItems: NavigationItem[] = [
-  { label: "总览", path: "/", icon: Gauge },
-  { label: "出口代理", path: "/proxies", icon: Network },
+  { label: "系统总览", path: "/", icon: Gauge },
   { label: "上游提供", path: "/providers", icon: Server },
   { label: "认证文件", path: "/oauth", icon: Fingerprint },
   { label: "网关密钥", path: "/keys", icon: KeyRound },
+  { label: "出口代理", path: "/proxies", icon: Network },
   { label: "请求日志", path: "/logs", icon: ScrollText },
+  { label: "系统日志", path: "/system-logs", icon: FileClock },
   { label: "系统设置", path: "/settings", icon: Settings },
 ];
 

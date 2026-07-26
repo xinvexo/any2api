@@ -12,6 +12,8 @@ enum PublicErrorKind {
     InvalidForwardedHeaders,
     Unauthorized,
     ConflictingCredentials,
+    PayloadTooLarge,
+    UnreadableBody,
     NotFound,
     MethodNotAllowed,
 }
@@ -37,6 +39,18 @@ impl PublicApiError {
     pub(crate) const fn conflicting_credentials() -> Self {
         Self {
             kind: PublicErrorKind::ConflictingCredentials,
+        }
+    }
+
+    pub(crate) const fn payload_too_large() -> Self {
+        Self {
+            kind: PublicErrorKind::PayloadTooLarge,
+        }
+    }
+
+    pub(crate) const fn unreadable_body() -> Self {
+        Self {
+            kind: PublicErrorKind::UnreadableBody,
         }
     }
 
@@ -69,6 +83,14 @@ impl PublicApiError {
             PublicErrorKind::ConflictingCredentials => (
                 PublicErrorCode::InvalidRequest,
                 "authentication headers must contain the same Gateway API Key",
+            ),
+            PublicErrorKind::PayloadTooLarge => (
+                PublicErrorCode::PayloadTooLarge,
+                "request body exceeds the public API request size limit",
+            ),
+            PublicErrorKind::UnreadableBody => (
+                PublicErrorCode::InvalidRequest,
+                "request body could not be read",
             ),
             PublicErrorKind::NotFound => (
                 PublicErrorCode::PublicApiNotFound,

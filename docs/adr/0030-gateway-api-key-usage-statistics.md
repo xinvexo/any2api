@@ -1,6 +1,6 @@
 # ADR-0030: Gateway API Key 本地调用统计
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0052
 - 日期：2026-07-23
 - 决策者：maintainer
 

@@ -8,7 +8,7 @@ use any2api_runtime::api::{
 };
 use serde::Serialize;
 
-use crate::admin::upstream_usage::UpstreamCredentialUsageResponse;
+use crate::admin::{request_usage::RequestUsageResponse, upstream_usage};
 
 #[derive(Serialize)]
 pub(crate) struct ProviderCredentialCollectionResponse {
@@ -51,7 +51,7 @@ struct ProviderCredentialResponse {
     credential_generation: u64,
     config_version: u64,
     models: Vec<String>,
-    usage: UpstreamCredentialUsageResponse,
+    usage: RequestUsageResponse,
 }
 
 impl ProviderCredentialResponse {
@@ -75,7 +75,7 @@ impl ProviderCredentialResponse {
                 .iter()
                 .map(|model| model.as_str().to_owned())
                 .collect(),
-            usage: UpstreamCredentialUsageResponse::for_id(
+            usage: upstream_usage::for_id(
                 RoutingCredentialId::provider_credential(credential.id()),
                 usage,
             ),

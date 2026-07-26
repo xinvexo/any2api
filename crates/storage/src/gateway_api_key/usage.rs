@@ -1,22 +1,24 @@
+use std::collections::HashMap;
+
 use any2api_domain::GatewayApiKeyId;
 use async_trait::async_trait;
 use sqlx::{FromRow, SqliteConnection};
 
-use crate::{error::StorageError, sqlite::SqliteStore};
-
-pub const GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT: u32 = 24;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GatewayApiKeyRequestOutcome {
-    pub status_code: u16,
-}
+use crate::{
+    error::StorageError,
+    request_log::usage_window::{
+        REQUEST_USAGE_WINDOW_MS, RequestUsageWindowSlot, build_request_usage_window_slots,
+        request_usage_window_range_start, unix_now_ms,
+    },
+    sqlite::SqliteStore,
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GatewayApiKeyUsageSummary {
     pub id: GatewayApiKeyId,
     pub total_requests: u64,
     pub successful_requests: u64,
-    pub recent_outcomes: Vec<GatewayApiKeyRequestOutcome>,
+    pub window_slots: Vec<RequestUsageWindowSlot>,
 }
 
 impl GatewayApiKeyUsageSummary {
@@ -64,6 +66,8 @@ impl GatewayApiKeyUsageRepository for SqliteStore {
     async fn list_gateway_api_key_usage(
         &self,
     ) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {
+        let now_ms = unix_now_ms()?;
+        let range_start_ms = request_usage_window_range_start(now_ms);
         let mut transaction = self.pool().begin().await?;
         let summary_rows = sqlx::query_as::<_, GatewayApiKeyUsageRow>(
             "SELECT gateway_api_key_id, COUNT(*) AS total_requests, \
@@ -75,34 +79,42 @@ impl GatewayApiKeyUsageRepository for SqliteStore {
         )
         .fetch_all(&mut *transaction)
         .await?;
-        let recent_rows = sqlx::query_as::<_, GatewayApiKeyRecentOutcomeRow>(
-            "SELECT gateway_api_key_id, status_code FROM ( \
-             SELECT gateway_api_key_id, status_code, \
-             ROW_NUMBER() OVER (PARTITION BY gateway_api_key_id \
-                 ORDER BY started_at_ms DESC, request_id DESC) AS row_number \
-             FROM request_logs WHERE gateway_api_key_id IS NOT NULL \
-             ) WHERE row_number <= ? \
-             ORDER BY gateway_api_key_id ASC, row_number DESC",
+        let slot_rows = sqlx::query_as::<_, GatewayApiKeyWindowSlotRow>(
+            "SELECT gateway_api_key_id, \
+             (started_at_ms / ?) * ? AS bucket_start_ms, \
+             COUNT(*) AS total_requests, \
+             SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+             AS successful_requests \
+             FROM request_logs \
+             WHERE gateway_api_key_id IS NOT NULL AND started_at_ms >= ? \
+             GROUP BY gateway_api_key_id, bucket_start_ms",
         )
-        .bind(i64::from(GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT))
+        .bind(i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?)
+        .bind(i64::try_from(REQUEST_USAGE_WINDOW_MS).map_err(|_| StorageError::CorruptTelemetry)?)
+        .bind(i64::try_from(range_start_ms).map_err(|_| StorageError::CorruptTelemetry)?)
         .fetch_all(&mut *transaction)
         .await?;
         transaction.commit().await?;
 
-        let mut summaries = summary_rows
-            .into_iter()
-            .map(parse_usage_row)
-            .collect::<Result<Vec<_>, _>>()?;
-        for row in recent_rows {
+        let mut slots_by_id: HashMap<GatewayApiKeyId, HashMap<u64, (u64, u64)>> = HashMap::new();
+        for row in slot_rows {
             let id = parse_id(&row.gateway_api_key_id)?;
-            let status_code = parse_status_code(row.status_code)?;
-            if let Some(summary) = summaries.iter_mut().find(|summary| summary.id == id) {
-                summary
-                    .recent_outcomes
-                    .push(GatewayApiKeyRequestOutcome { status_code });
+            let bucket = from_i64(row.bucket_start_ms)?;
+            let total = from_i64(row.total_requests)?;
+            let successful = from_i64(row.successful_requests)?;
+            if successful > total {
+                return Err(StorageError::CorruptTelemetry);
             }
+            slots_by_id
+                .entry(id)
+                .or_default()
+                .insert(bucket, (total, successful));
         }
-        Ok(summaries)
+
+        summary_rows
+            .into_iter()
+            .map(|row| parse_usage_row(row, now_ms, &mut slots_by_id))
+            .collect()
     }
 }
 
@@ -132,35 +144,35 @@ struct GatewayApiKeyUsageRow {
 }
 
 #[derive(FromRow)]
-struct GatewayApiKeyRecentOutcomeRow {
+struct GatewayApiKeyWindowSlotRow {
     gateway_api_key_id: String,
-    status_code: i64,
+    bucket_start_ms: i64,
+    total_requests: i64,
+    successful_requests: i64,
 }
 
-fn parse_usage_row(row: GatewayApiKeyUsageRow) -> Result<GatewayApiKeyUsageSummary, StorageError> {
+fn parse_usage_row(
+    row: GatewayApiKeyUsageRow,
+    now_ms: u64,
+    slots_by_id: &mut HashMap<GatewayApiKeyId, HashMap<u64, (u64, u64)>>,
+) -> Result<GatewayApiKeyUsageSummary, StorageError> {
     let total_requests = from_i64(row.total_requests)?;
     let successful_requests = from_i64(row.successful_requests)?;
     if successful_requests > total_requests {
         return Err(StorageError::CorruptTelemetry);
     }
+    let id = parse_id(&row.gateway_api_key_id)?;
+    let filled = slots_by_id.remove(&id).unwrap_or_default();
     Ok(GatewayApiKeyUsageSummary {
-        id: parse_id(&row.gateway_api_key_id)?,
+        id,
         total_requests,
         successful_requests,
-        recent_outcomes: Vec::new(),
+        window_slots: build_request_usage_window_slots(now_ms, &filled),
     })
 }
 
 fn parse_id<T: std::str::FromStr>(value: &str) -> Result<T, StorageError> {
     value.parse().map_err(|_| StorageError::CorruptTelemetry)
-}
-
-fn parse_status_code(value: i64) -> Result<u16, StorageError> {
-    let value = u16::try_from(value).map_err(|_| StorageError::CorruptTelemetry)?;
-    (100..=599)
-        .contains(&value)
-        .then_some(value)
-        .ok_or(StorageError::CorruptTelemetry)
 }
 
 fn from_i64(value: i64) -> Result<u64, StorageError> {

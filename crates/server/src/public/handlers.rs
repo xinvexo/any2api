@@ -7,16 +7,16 @@ use axum::{
     response::Response,
 };
 
-use crate::state::AppState;
+use crate::{http_access_log::HttpRequestId, state::AppState};
 
-use super::{auth::AuthenticatedGatewayApiKey, request_id::PublicRequestId};
+use super::{auth::AuthenticatedGatewayApiKey, body::PublicBody};
 
 pub(crate) async fn responses(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-    Extension(request_id): Extension<PublicRequestId>,
+    Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    body: Bytes,
+    PublicBody(body): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -32,9 +32,9 @@ pub(crate) async fn responses(
 pub(crate) async fn responses_compact(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-    Extension(request_id): Extension<PublicRequestId>,
+    Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    body: Bytes,
+    PublicBody(body): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -50,9 +50,9 @@ pub(crate) async fn responses_compact(
 pub(crate) async fn chat_completions(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-    Extension(request_id): Extension<PublicRequestId>,
+    Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    body: Bytes,
+    PublicBody(body): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -68,9 +68,9 @@ pub(crate) async fn chat_completions(
 pub(crate) async fn messages(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-    Extension(request_id): Extension<PublicRequestId>,
+    Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    body: Bytes,
+    PublicBody(body): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -86,9 +86,9 @@ pub(crate) async fn messages(
 pub(crate) async fn messages_count_tokens(
     State(state): State<AppState>,
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-    Extension(request_id): Extension<PublicRequestId>,
+    Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    body: Bytes,
+    PublicBody(body): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -104,7 +104,7 @@ pub(crate) async fn messages_count_tokens(
 async fn execute_public_request(
     state: AppState,
     authenticated: AuthenticatedGatewayApiKey,
-    request_id: PublicRequestId,
+    request_id: HttpRequestId,
     headers: HeaderMap,
     body: Bytes,
     operation: ProtocolOperation,

@@ -58,9 +58,10 @@ pub use settings::{
     UpstreamSettings,
 };
 pub use telemetry::{
-    CompletedRequestLog, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS,
-    MAX_TOKEN_COUNT, RequestAttempt, RequestAttemptOutcome, RequestLog, TokenUsage,
-    bound_error_message, bound_thinking_level,
+    CompletedRequestLog, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion,
+    MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TOKEN_COUNT,
+    RequestAttempt, RequestAttemptOutcome, RequestLog, TokenUsage, bound_error_message,
+    bound_thinking_level,
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,

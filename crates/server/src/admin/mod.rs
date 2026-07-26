@@ -9,6 +9,7 @@ mod oauth;
 mod provider;
 mod proxy;
 mod request_log;
+mod request_usage;
 mod revision;
 mod settings;
 mod upstream_usage;
@@ -16,6 +17,8 @@ mod upstream_usage;
 use axum::{Router, middleware};
 
 use crate::state::AppState;
+
+pub(crate) use error::AdminApiError;
 
 pub(crate) fn routes(state: AppState) -> Router<AppState> {
     let protected = protected_routes().route_layer(middleware::from_fn_with_state(
@@ -39,5 +42,6 @@ fn protected_routes() -> Router<AppState> {
         .merge(proxy::routes())
         .merge(provider::routes())
         .merge(request_log::routes())
+        .merge(crate::http_access_log::routes())
         .merge(settings::routes())
 }

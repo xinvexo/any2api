@@ -34,7 +34,7 @@ async fn dangling_gateway_key_log_reference_is_normalized_before_migration_24() 
     .expect("preserved request log");
     assert_eq!(gateway_key_id, None);
     assert_eq!(foreign_key_violation_count(&pool).await, 0);
-    assert_eq!(latest_migration(&pool).await, 26);
+    assert_eq!(latest_migration(&pool).await, 28);
 }
 
 #[tokio::test]

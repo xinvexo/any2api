@@ -60,6 +60,7 @@ impl ErrorClass {
 pub enum PublicErrorCode {
     Unauthorized,
     InvalidRequest,
+    PayloadTooLarge,
     PublicApiNotFound,
     MethodNotAllowed,
     ModelNotFound,

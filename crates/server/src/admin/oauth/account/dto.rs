@@ -6,7 +6,8 @@ use any2api_runtime::api::{PublishedSnapshot, UpstreamCredentialUsageSummary};
 use serde::{Deserialize, Serialize};
 
 use crate::admin::{
-    error::AdminApiError, revision::parse_revision, upstream_usage::UpstreamCredentialUsageResponse,
+    error::AdminApiError, request_usage::RequestUsageResponse, revision::parse_revision,
+    upstream_usage,
 };
 
 #[derive(Debug, Serialize)]
@@ -51,7 +52,7 @@ struct OAuthAccountResponse {
     available_models: Vec<String>,
     /// Official Codex `chatgpt_plan_type` from the ID Token (pass-through).
     plan_type: Option<String>,
-    usage: UpstreamCredentialUsageResponse,
+    usage: RequestUsageResponse,
 }
 
 impl OAuthAccountResponse {
@@ -89,10 +90,7 @@ impl OAuthAccountResponse {
             models: selected,
             available_models,
             plan_type: snapshot.oauth_plan_label(account.id()),
-            usage: UpstreamCredentialUsageResponse::for_id(
-                RoutingCredentialId::oauth_account(account.id()),
-                usage,
-            ),
+            usage: upstream_usage::for_id(RoutingCredentialId::oauth_account(account.id()), usage),
         }
     }
 }

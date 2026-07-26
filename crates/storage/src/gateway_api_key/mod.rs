@@ -11,8 +11,7 @@ mod tests;
 
 pub use repository::GatewayApiKeyRepository;
 pub use usage::{
-    GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT, GatewayApiKeyLastUsedUpdate, GatewayApiKeyRequestOutcome,
-    GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
+    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
 };
 pub use verifier::GatewayApiKeyVerifier;
 

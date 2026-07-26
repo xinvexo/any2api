@@ -11,10 +11,10 @@ use crate::{
         ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository,
         RequestLogRepository, SecretBytes, SqliteStore, UpstreamCredentialUsageRepository,
     },
-    request_log::{UPSTREAM_USAGE_WINDOW_COUNT, UPSTREAM_USAGE_WINDOW_MINUTES},
+    request_log::{REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES},
 };
 
-const WINDOW_MS: u64 = UPSTREAM_USAGE_WINDOW_MINUTES * 60 * 1_000;
+const WINDOW_MS: u64 = REQUEST_USAGE_WINDOW_MINUTES * 60 * 1_000;
 
 #[tokio::test]
 async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots() {
@@ -106,7 +106,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         usage_record(
             RoutingCredentialId::provider_credential(credential_id),
             endpoint_id,
-            now_bucket.saturating_sub(WINDOW_MS * (UPSTREAM_USAGE_WINDOW_COUNT as u64 + 2)),
+            now_bucket.saturating_sub(WINDOW_MS * (REQUEST_USAGE_WINDOW_COUNT as u64 + 2)),
             429,
         ),
     ];
@@ -157,7 +157,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
     assert_eq!(provider.total_requests, 4);
     assert_eq!(provider.successful_requests, 2);
     assert_eq!(provider.failed_requests(), 2);
-    assert_eq!(provider.window_slots.len(), UPSTREAM_USAGE_WINDOW_COUNT);
+    assert_eq!(provider.window_slots.len(), REQUEST_USAGE_WINDOW_COUNT);
     assert_eq!(
         provider.window_slots.last().map(|slot| slot.started_at_ms),
         Some(now_bucket)
@@ -165,7 +165,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
     let newest = provider.window_slots.last().expect("newest slot");
     assert_eq!(newest.total_requests, 2);
     assert_eq!(newest.successful_requests, 1);
-    let previous = &provider.window_slots[UPSTREAM_USAGE_WINDOW_COUNT - 2];
+    let previous = &provider.window_slots[REQUEST_USAGE_WINDOW_COUNT - 2];
     assert_eq!(previous.started_at_ms, now_bucket.saturating_sub(WINDOW_MS));
     assert_eq!(previous.total_requests, 1);
     assert_eq!(previous.successful_requests, 1);
@@ -173,7 +173,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         provider
             .window_slots
             .iter()
-            .take(UPSTREAM_USAGE_WINDOW_COUNT - 2)
+            .take(REQUEST_USAGE_WINDOW_COUNT - 2)
             .all(|slot| slot.total_requests == 0)
     );
 
@@ -184,7 +184,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
     assert_eq!(oauth.total_requests, 2);
     assert_eq!(oauth.successful_requests, 1);
     assert_eq!(oauth.failed_requests(), 1);
-    assert_eq!(oauth.window_slots.len(), UPSTREAM_USAGE_WINDOW_COUNT);
+    assert_eq!(oauth.window_slots.len(), REQUEST_USAGE_WINDOW_COUNT);
     let oauth_newest = oauth.window_slots.last().expect("oauth newest");
     assert_eq!(oauth_newest.total_requests, 2);
     assert_eq!(oauth_newest.successful_requests, 1);

@@ -3,6 +3,7 @@ export interface JsonRequestOptions {
   timeoutMs?: number;
   method?: string;
   body?: unknown;
+  headers?: Readonly<Record<string, string>>;
 }
 
 export const ADMIN_SESSION_EXPIRED_EVENT = "any2api:admin-session-expired";
@@ -26,7 +27,13 @@ export class ApiError extends Error {
 
 export async function requestJson<T>(
   path: string,
-  { signal, timeoutMs = 10_000, method = "GET", body }: JsonRequestOptions = {},
+  {
+    signal,
+    timeoutMs = 10_000,
+    method = "GET",
+    body,
+    headers: requestHeaders,
+  }: JsonRequestOptions = {},
 ): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
@@ -42,7 +49,10 @@ export async function requestJson<T>(
   }
 
   try {
-    const headers: Record<string, string> = { Accept: "application/json" };
+    const headers: Record<string, string> = {
+      ...requestHeaders,
+      Accept: "application/json",
+    };
     const formDataBody = isFormData(body);
     if (body !== undefined && !formDataBody) {
       headers["Content-Type"] = "application/json";

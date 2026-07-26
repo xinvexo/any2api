@@ -7,13 +7,13 @@ use any2api_domain::{
 use tempfile::tempdir;
 
 use crate::{
-    gateway_api_key::{
-        GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT, GatewayApiKeyRepository, GatewayApiKeyUsageRepository,
-    },
-    request_log::RequestLogRepository,
+    gateway_api_key::{GatewayApiKeyRepository, GatewayApiKeyUsageRepository},
+    request_log::{REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestLogRepository},
     sqlite::SqliteStore,
     vault::SecretBytes,
 };
+
+const USAGE_WINDOW_MS: u64 = REQUEST_USAGE_WINDOW_MINUTES * 60 * 1_000;
 
 #[tokio::test]
 async fn request_log_and_attempt_round_trip_without_requiring_live_config_references() {
@@ -199,7 +199,7 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
 }
 
 #[tokio::test]
-async fn gateway_key_usage_aggregates_final_requests_and_limits_recent_outcomes() {
+async fn gateway_key_usage_aggregates_final_requests_and_fills_time_windows() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("gateway-usage.sqlite3"))
         .await
@@ -225,20 +225,24 @@ async fn gateway_key_usage_aggregates_final_requests_and_limits_recent_outcomes(
         .await
         .expect("create second key");
 
-    let mut records = (0..=GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT)
-        .map(|index| {
-            let status = if index == 0 {
-                500
-            } else if index == GATEWAY_API_KEY_RECENT_OUTCOME_LIMIT {
-                429
-            } else {
-                200
-            };
-            usage_record(first_id, 100 + u64::from(index), status)
-        })
-        .collect::<Vec<_>>();
-    records.push(usage_record(second_id, 1_000, 503));
-    let mut anonymous = record(RequestId::new(), 2_000, false);
+    let now_bucket = align_usage_window_now();
+    let mut records = vec![
+        usage_record(first_id, now_bucket + 1_000, 200),
+        usage_record(first_id, now_bucket + 2_000, 500),
+        usage_record(
+            first_id,
+            now_bucket.saturating_sub(USAGE_WINDOW_MS) + 500,
+            204,
+        ),
+        // Outside the visible hour, but still part of the retention-window totals.
+        usage_record(
+            first_id,
+            now_bucket.saturating_sub(USAGE_WINDOW_MS * (REQUEST_USAGE_WINDOW_COUNT as u64 + 2)),
+            429,
+        ),
+        usage_record(second_id, now_bucket + 3_000, 503),
+    ];
+    let mut anonymous = record(RequestId::new(), now_bucket + 4_000, false);
     anonymous.request.gateway_api_key_id = None;
     records.push(anonymous);
     store
@@ -254,17 +258,28 @@ async fn gateway_key_usage_aggregates_final_requests_and_limits_recent_outcomes(
         .iter()
         .find(|summary| summary.id == first_id)
         .expect("first usage");
-    assert_eq!(first.total_requests, 25);
-    assert_eq!(first.successful_requests, 23);
+    assert_eq!(first.total_requests, 4);
+    assert_eq!(first.successful_requests, 2);
     assert_eq!(first.failed_requests(), 2);
-    assert_eq!(first.recent_outcomes.len(), 24);
+    assert_eq!(first.window_slots.len(), REQUEST_USAGE_WINDOW_COUNT);
     assert_eq!(
-        first.recent_outcomes.first().map(|item| item.status_code),
-        Some(200)
+        first.window_slots.last().map(|slot| slot.started_at_ms),
+        Some(now_bucket)
     );
-    assert_eq!(
-        first.recent_outcomes.last().map(|item| item.status_code),
-        Some(429)
+    let newest = first.window_slots.last().expect("newest slot");
+    assert_eq!(newest.total_requests, 2);
+    assert_eq!(newest.successful_requests, 1);
+    assert_eq!(newest.failed_requests(), 1);
+    let previous = &first.window_slots[REQUEST_USAGE_WINDOW_COUNT - 2];
+    assert_eq!(previous.started_at_ms, now_bucket - USAGE_WINDOW_MS);
+    assert_eq!(previous.total_requests, 1);
+    assert_eq!(previous.successful_requests, 1);
+    assert!(
+        first
+            .window_slots
+            .iter()
+            .take(REQUEST_USAGE_WINDOW_COUNT - 2)
+            .all(|slot| slot.total_requests == 0)
     );
 
     let second = usage
@@ -274,7 +289,11 @@ async fn gateway_key_usage_aggregates_final_requests_and_limits_recent_outcomes(
     assert_eq!(second.total_requests, 1);
     assert_eq!(second.successful_requests, 0);
     assert_eq!(second.failed_requests(), 1);
-    assert_eq!(second.recent_outcomes[0].status_code, 503);
+    assert_eq!(second.window_slots.len(), REQUEST_USAGE_WINDOW_COUNT);
+    let second_newest = second.window_slots.last().expect("second newest slot");
+    assert_eq!(second_newest.total_requests, 1);
+    assert_eq!(second_newest.successful_requests, 0);
+    assert_eq!(second_newest.failed_requests(), 1);
 }
 
 fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> CompletedRequestLog {
@@ -336,6 +355,14 @@ fn usage_record(
     record.request.gateway_api_key_id = Some(gateway_api_key_id);
     record.request.status_code = status_code;
     record
+}
+
+fn align_usage_window_now() -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis() as u64;
+    (now / USAGE_WINDOW_MS) * USAGE_WINDOW_MS
 }
 
 fn gateway_token(seed: u8) -> SecretBytes {

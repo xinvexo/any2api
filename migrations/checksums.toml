@@ -25,3 +25,5 @@
 "0024_grok_provider.sql" = "0eab886826262890fc1ba4ab0e57759e934f7e6b670d445804e751fb791ae32f"
 "0025_grok_oauth_accounts.sql" = "333e952543148f13c88b141f55fca3c0aab7cfa6512f30fdc2d8b264770f03d1"
 "0026_request_log_client_ip.sql" = "0bf7004ab4d392516f5885a9aaa533ab47bf0a2cc4f8023ad478624abacc7bbe"
+"0027_http_access_logs.sql" = "69047208b0714d34a2388d76ef7d6b0d1ede64a3bdf9787682b01ac1fcae3322"
+"0028_http_access_log_method.sql" = "1e1381500493d1283875a9c4e738e542487ff1fd5b8a9a72da722bc34ed65fa6"

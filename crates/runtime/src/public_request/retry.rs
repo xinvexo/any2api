@@ -273,6 +273,8 @@ impl RetryBudget {
     }
 }
 
+/// Retry jitter only needs de-synchronization, not unpredictability, so the
+/// wall-clock sub-second nanos stand in for a real RNG dependency.
 fn jitter(delay: Duration, ratio: u32) -> Duration {
     if ratio == 0 || delay.is_zero() {
         return delay;

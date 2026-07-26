@@ -39,7 +39,9 @@ pub use crate::public_request::{
     PublicResponseBody, PublicResponseStream,
 };
 pub use crate::registry::RuntimeRegistry;
-pub use crate::request_telemetry::{RequestTelemetry, RequestTelemetryMetrics};
+pub use crate::request_telemetry::{
+    RequestTelemetry, RequestTelemetryControlError, RequestTelemetryMetrics,
+};
 pub use crate::routing::{
     BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
     BalancingTotalsSnapshot,
@@ -50,8 +52,8 @@ pub use any2api_provider::api::{
     OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaUsage,
     OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
-pub use any2api_storage::api::{GatewayApiKeyRequestOutcome, GatewayApiKeyUsageSummary};
+pub use any2api_storage::api::GatewayApiKeyUsageSummary;
 pub use any2api_storage::api::{
-    UPSTREAM_USAGE_WINDOW_COUNT, UPSTREAM_USAGE_WINDOW_MINUTES, UpstreamCredentialUsageSummary,
-    UpstreamCredentialWindowSlot, empty_upstream_window_slots,
+    REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestUsageWindowSlot,
+    UpstreamCredentialUsageSummary, empty_request_usage_window_slots,
 };

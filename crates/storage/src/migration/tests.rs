@@ -14,6 +14,7 @@ const ENDPOINT_ID: &str = "10000000-0000-0000-0000-000000000000";
 const GROK_ENDPOINT_ID: &str = "20000000-0000-0000-0000-000000000000";
 const MIGRATION_15_SHA384: &str = "72b93c41006d479894e2abee0d11137e5a93bdbba1045394aba724579969941957adc0962dd895e7d216a680295591d3";
 const MIGRATION_16_SHA384: &str = "a208bd8d29ca5a5b6d16d43e0be135b304e512b296c09c8c3985aafec80efe9bb18ef1bf930a7faaf0cb7a6a366d1e93";
+const MIGRATION_27_SHA384: &str = "315a5d3130e2a50de456e376c9c82661d188120f8cb28abbda2147e275758df3586f71677552c397de50862603856604";
 
 #[tokio::test]
 async fn database_at_migration_16_upgrades_without_losing_api_keys() {
@@ -46,7 +47,7 @@ async fn database_at_migration_16_upgrades_without_losing_api_keys() {
             .fetch_all(&pool)
             .await
             .expect("migration versions");
-    assert_eq!(versions, (1..=26).collect::<Vec<_>>());
+    assert_eq!(versions, (1..=28).collect::<Vec<_>>());
     let kind = sqlx::query_scalar::<_, String>(
         "SELECT credential_kind FROM provider_credentials WHERE id = ?",
     )
@@ -182,6 +183,64 @@ async fn migration_26_preserves_existing_logs_with_an_unknown_client_ip() {
 }
 
 #[tokio::test]
+async fn migration_28_preserves_http_logs_and_accepts_long_methods() {
+    let (_directory, pool) = pool_at_migration_27().await;
+    sqlx::query(
+        "INSERT INTO http_access_logs \
+         (request_id, started_at_ms, config_revision, client_ip, method, path, http_version, \
+          status_code, duration_ms, response_bytes, outcome) \
+         VALUES ('50000000-0000-0000-0000-000000000000', 1000, 1, '127.0.0.1', \
+                 'CUSTOM', '/preserved', 'HTTP/1.1', 200, 10, 42, 'completed')",
+    )
+    .execute(&pool)
+    .await
+    .expect("seed migration 27 HTTP access log");
+
+    run(&pool).await.expect("upgrade migration 27 database");
+
+    let preserved = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT method, path, response_bytes FROM http_access_logs WHERE request_id = ?",
+    )
+    .bind("50000000-0000-0000-0000-000000000000")
+    .fetch_one(&pool)
+    .await
+    .expect("preserved HTTP access log");
+    assert_eq!(
+        preserved,
+        ("CUSTOM".to_owned(), "/preserved".to_owned(), 42)
+    );
+
+    let schema = sqlx::query_scalar::<_, String>(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'http_access_logs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("HTTP access log schema");
+    assert!(schema.contains("length(method) >= 1"));
+    assert!(!schema.contains("length(method) BETWEEN 1 AND 32"));
+
+    sqlx::query(
+        "INSERT INTO http_access_logs \
+         (request_id, started_at_ms, config_revision, method, path, http_version, duration_ms, \
+          response_bytes, outcome) \
+         VALUES ('50000000-0000-0000-0000-000000000001', 1001, 1, \
+                 'METHOD_WITH_MORE_THAN_THIRTY_TWO_CHARACTERS', '/long-method', 'HTTP/1.1', \
+                 1, 0, 'completed')",
+    )
+    .execute(&pool)
+    .await
+    .expect("migration 28 accepts a long HTTP method");
+    let index_count = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' \
+         AND name = 'http_access_logs_started_idx'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("HTTP access log index");
+    assert_eq!(index_count, 1);
+}
+
+#[tokio::test]
 async fn legacy_oauth_credentials_block_upgrade_without_deletion() {
     let (_directory, pool) = pool_at_migration_16().await;
     seed_endpoint(&pool).await;
@@ -268,6 +327,38 @@ async fn pool_at_migration_25() -> (TempDir, SqlitePool) {
     .run(&pool)
     .await
     .expect("apply migrations through version 25");
+    (directory, pool)
+}
+
+async fn pool_at_migration_27() -> (TempDir, SqlitePool) {
+    let directory = tempdir().expect("temporary directory");
+    let options = SqliteConnectOptions::new()
+        .filename(directory.path().join("migration-27.sqlite3"))
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("migration 27 pool");
+    let migrations = MIGRATOR
+        .iter()
+        .filter(|migration| migration.version <= 27)
+        .cloned()
+        .collect::<Vec<_>>();
+    let migration_27 = migrations
+        .iter()
+        .find(|migration| migration.version == 27)
+        .expect("migration 27");
+    assert_eq!(migration_27.description, "http access logs");
+    assert_eq!(hex(&migration_27.checksum), MIGRATION_27_SHA384);
+    Migrator {
+        migrations: Cow::Owned(migrations),
+        ..Migrator::DEFAULT
+    }
+    .run(&pool)
+    .await
+    .expect("apply migrations through version 27");
     (directory, pool)
 }
 

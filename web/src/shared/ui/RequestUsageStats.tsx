@@ -1,9 +1,6 @@
 import { useId, useRef, useState, type FocusEvent, type MouseEvent } from "react";
 
-import type {
-  UpstreamRequestUsage,
-  UpstreamRequestWindowSlot,
-} from "../api/upstream-request-usage";
+import type { RequestUsage, RequestUsageWindowSlot } from "../api/request-usage";
 import { cn } from "@/shared/lib/cn";
 import {
   FloatingPopover,
@@ -23,7 +20,7 @@ export function RequestUsageStats({
   usage,
 }: {
   label: string;
-  usage: UpstreamRequestUsage;
+  usage: RequestUsage;
 }) {
   const tooltipId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -63,7 +60,7 @@ export function RequestUsageStats({
 
       <div
         className="flex h-4 w-full min-w-[9rem] max-w-[16rem] flex-1 items-stretch gap-px"
-        role="img"
+        role="group"
         aria-label={`${label} 近 1 小时，每格 ${usage.windowMinutes} 分钟：${outcomeSummary || "暂无调用"}`}
         onMouseLeave={() => setHover(null)}
       >
@@ -115,7 +112,7 @@ export function RequestUsageStats({
   );
 }
 
-function slotTone(slot: UpstreamRequestWindowSlot) {
+function slotTone(slot: RequestUsageWindowSlot) {
   if (slot.totalRequests === 0) {
     // Slightly stronger than surface-muted so bars stay visible on muted card chrome.
     return "bg-black/[0.08] dark:bg-white/[0.12]";
@@ -126,14 +123,14 @@ function slotTone(slot: UpstreamRequestWindowSlot) {
   return "bg-success/85";
 }
 
-function slotToneLabel(slot: UpstreamRequestWindowSlot) {
+function slotToneLabel(slot: RequestUsageWindowSlot) {
   if (slot.failedRequests > 0) {
     return "失败";
   }
   return "成功";
 }
 
-function slotAriaLabel(slot: UpstreamRequestWindowSlot, windowMinutes: number) {
+function slotAriaLabel(slot: RequestUsageWindowSlot, windowMinutes: number) {
   const start = formatClock(slot.startedAtMs);
   const end = formatClock(slot.startedAtMs + windowMinutes * 60_000);
   return `${start} 至 ${end}，成功 ${slot.successfulRequests}，失败 ${slot.failedRequests}`;

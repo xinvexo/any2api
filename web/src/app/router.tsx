@@ -10,6 +10,7 @@ import { GatewayApiKeysPage } from "@/pages/GatewayApiKeysPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { RequestLogDetailPage } from "@/pages/RequestLogDetailPage";
 import { RequestLogsPage } from "@/pages/RequestLogsPage";
+import { SystemLogsPage } from "@/pages/SystemLogsPage";
 
 export const router = createBrowserRouter([
   {
@@ -27,6 +28,7 @@ export const router = createBrowserRouter([
       { path: "keys", element: <GatewayApiKeysPage /> },
       { path: "logs", element: <RequestLogsPage /> },
       { path: "logs/:requestId", element: <RequestLogDetailPage /> },
+      { path: "system-logs", element: <SystemLogsPage /> },
       { path: "settings", element: <Navigate to="/settings/basic" replace /> },
       { path: "settings/:section", element: <SettingsPage /> },
       { path: "*", element: <NotFoundPage /> },

@@ -194,6 +194,7 @@ pub(crate) const fn public_error_class(code: PublicErrorCode) -> ErrorClass {
     match code {
         PublicErrorCode::Unauthorized => ErrorClass::Authentication,
         PublicErrorCode::InvalidRequest
+        | PublicErrorCode::PayloadTooLarge
         | PublicErrorCode::PublicApiNotFound
         | PublicErrorCode::MethodNotAllowed
         | PublicErrorCode::ModelNotFound

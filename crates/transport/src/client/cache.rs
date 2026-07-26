@@ -23,20 +23,24 @@ where
         }
     }
 
-    pub(crate) fn get_or_insert_with<F, E>(&mut self, key: K, build: F) -> Result<Arc<V>, E>
-    where
-        F: FnOnce() -> Result<V, E>,
-    {
-        self.tick = self
-            .tick
-            .checked_add(1)
-            .expect("transport cache tick exhausted");
+    pub(crate) fn get(&mut self, key: &K) -> Option<Arc<V>> {
+        self.advance_tick();
+        let tick = self.tick;
+        self.entries.get_mut(key).map(|entry| {
+            entry.last_used = tick;
+            Arc::clone(&entry.client)
+        })
+    }
+
+    /// Inserts a freshly built client unless a concurrent builder already
+    /// cached one for the same key; the first cached client always wins so
+    /// every caller shares one connection pool per key.
+    pub(crate) fn insert_if_absent(&mut self, key: K, client: Arc<V>) -> Arc<V> {
+        self.advance_tick();
         if let Some(entry) = self.entries.get_mut(&key) {
             entry.last_used = self.tick;
-            return Ok(Arc::clone(&entry.client));
+            return Arc::clone(&entry.client);
         }
-
-        let client = Arc::new(build()?);
         if self.entries.len() >= self.capacity {
             let evicted = self
                 .entries
@@ -53,10 +57,17 @@ where
                 last_used: self.tick,
             },
         );
-        Ok(client)
+        client
     }
 
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    fn advance_tick(&mut self) {
+        self.tick = self
+            .tick
+            .checked_add(1)
+            .expect("transport cache tick exhausted");
     }
 }

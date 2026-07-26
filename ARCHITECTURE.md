@@ -52,6 +52,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程监听必须显式启用并使用独立管理员认证，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型允许列表；空列表表示不限制，非空列表只允许精确匹配的公开模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
+23. 系统提供独立的完整 HTTP 系统日志，覆盖所有到达 Axum 的公开 API、管理 API、健康检查、Web 资源、鉴权失败、404 与 405。日志保存客户端实际请求 URI 的原始 path，不使用路由模板、通配归一化或重写后的路径，但不保存 query；管理页面支持自动刷新、手动刷新和有序清理历史记录。
 
 ### 2.1 两类凭据的术语边界
 
@@ -333,6 +334,7 @@ any2api/
 │  │     ├─ provider/           # Endpoint、Credential、模型与 Secret 持久化
 │  │     ├─ proxy/              # Proxy 与认证 Secret 持久化
 │  │     ├─ request_log/        # repository/write/row 与上游凭据历史聚合
+│  │     ├─ http_access_log/    # 完整 HTTP 访问日志 row/repository/write/clear
 │  │     ├─ settings/           # Setting override 持久化
 │  │     ├─ migration/          # 只前向 Migration 与迁移前修复
 │  │     └─ vault/              # 版本化 AEAD 实现
@@ -341,6 +343,7 @@ any2api/
 │        ├─ public/             # OpenAI/Anthropic 兼容公开入口
 │        ├─ admin/              # 按管理功能归档；OAuth 再分 account/login/import/quota
 │        ├─ admin_auth/         # 单管理员密码、Session、网络策略与轮换
+│        ├─ http_access_log/    # 全局请求生命周期记录与管理端点
 │        └─ embedded_web.rs     # 内嵌/外部 Web 资源入口适配
 ├─ app/
 │  └─ any2api/                   # 二进制入口与唯一 Composition Root
@@ -358,9 +361,7 @@ any2api/
 │     └─ test/
 ├─ migrations/
 ├─ tests/
-│  ├─ contract/                 # Driver、Protocol、Storage 契约测试
-│  ├─ integration/              # HTTP/SOCKS、SQLite、热更新、停机
-│  └─ fixtures/                 # 脱敏协议和流式样本
+│  └─ contract/                 # Driver、Protocol、Storage 契约测试；HTTP/SOCKS、SQLite、热更新与停机集成场景当前也收敛于此，独立 integration/ 与 fixtures/ 目录在需要时再拆分
 └─ xtask/                       # 架构检查、生成、发布辅助命令
    └─ src/
       ├─ main.rs               # 命令分派
@@ -424,10 +425,10 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 - Domain 单元测试：代理解析、错误分类、路由和状态转换；
 - Provider/Protocol 契约测试：请求头、Secret 注入、未知字段、错误 envelope 和 SSE 事件；
 - 调度 RPM 测试：滚动窗口绝不超限、60 秒到期、动态升降限、无丢失唤醒、运行态 Guard 只结算一次；
-- 使用 `loom` 或等价模型测试验证关键原子状态；
+- 使用 `loom` 或等价模型测试验证关键原子状态（规划中，尚未引入；当前依赖多线程 Tokio 契约测试覆盖并发路径）；
 - Tokio 虚拟时间测试：排队超时、冷却、Retry-After、取消和停机；
 - Transport 集成测试：DIRECT、HTTP CONNECT、SOCKS5h、代理认证和 Client 代际；
-- 流式切分/模糊测试：任意字节切分、CRLF、多行 `data:`、无尾空行和畸形帧；
+- 流式切分测试：任意字节切分、CRLF、多行 `data:`、无尾空行和畸形帧；专用 fuzz 工程（cargo-fuzz + corpus）为规划中项；
 - 热更新测试：编译失败不提交、revision 不倒退、Runtime 句柄跨快照复用；
 - 端到端测试：Codex/Claude/Grok JSON、SSE、GatewayApiKey 隔离、粘性和重试。
 
@@ -435,7 +436,7 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 
 浏览器 E2E 默认启动不设置 `ANY2API_WEB_DIR` 的正式二进制，验证内嵌 React 资源而不是工作区 `web/dist`。测试从 Cargo 本轮构建消息取得真实可执行文件路径，不能假定固定 `target/debug`、误跑旧二进制或绕过自定义 Target 目录；启动服务时清除宿主继承的全部 `ANY2API_*` 配置，只注入测试明确拥有的隔离值。外部目录模式只由 Server 契约覆盖其显式覆盖语义，避免浏览器主链绕过正式部署路径。
 
-每个 PR 回放固定 fuzz corpus；长时间 fuzz 作为定时 CI 任务运行，不阻塞普通本地开发循环。
+fuzz 目标建立后：每个 PR 回放固定 fuzz corpus，长时间 fuzz 作为定时 CI 任务运行，不阻塞普通本地开发循环。在此之前，SSE 解析由确定性切分矩阵测试覆盖。
 
 ### 6.2 Feature 模块模板
 
@@ -515,6 +516,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 ```text
 1. PostRead
    - 生成 Request ID
+   - 捕获客户端实际请求的 method、原始 URI path、HTTP version、客户端地址、开始时间与当前 Config Revision
    - 请求体大小限制
    - 建立取消信号
 
@@ -564,6 +566,11 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 
 10. Log
     - 记录每次 Attempt、最终结果、耗时、首 Token、Token Usage 和错误分类
+
+11. HttpAccessLog
+    - 在响应 Body EOF、错误或 Drop 时只结算一次
+    - 记录可用的最终状态码、总耗时、实际写出的响应字节数和 completed/body_error/cancelled 结果
+    - 通过有界遥测队列异步写入独立系统日志表
 ```
 
 建议为每个请求建立显式上下文：
@@ -871,7 +878,7 @@ gateway_api_keys
 - 不包含 `user_id`、`tenant_id`、套餐、额度、余额和计费字段；
 - 请求统计可以按 `GatewayApiKey` 记录，但只用于本地观测，不参与收费、配额限制或上游路由。
 
-网关 Key 管理列表可以展示保留 RequestLog 中按 Key 聚合的本地观测：最终状态码为 2xx 的请求计为成功，其余状态码计为失败；统计只覆盖当前 RequestLog 保留窗口，最多展示最近 24 次结果。统计查询失败不能阻塞 Key 配置读写，日志关闭或尚无记录时返回零值与空结果。
+网关 Key 管理列表可以展示保留 RequestLog 中按 Key 聚合的本地观测：最终状态码为 2xx 的请求计为成功，其余状态码计为失败。累计总数覆盖当前 RequestLog 保留窗口；趋势固定展示最近 1 小时、30 个从旧到新排列的 2 分钟时间桶，空桶也必须返回。统计查询失败不能阻塞 Key 配置读写，日志关闭或尚无记录时返回零值与完整空时间条带。
 
 网关 Key 管理 API：
 
@@ -919,7 +926,32 @@ request_logs
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
-### 9.9 持久化实体关系
+### 9.9 HttpAccessLog
+
+```text
+http_access_logs
+├─ request_id
+├─ started_at
+├─ config_revision
+├─ client_ip
+├─ method
+├─ path
+├─ http_version
+├─ status_code         # Handler 已返回 Response 时存在；此前取消时为空
+├─ duration_ms
+├─ response_bytes
+└─ outcome             # completed | body_error | cancelled
+```
+
+`HttpAccessLog` 与模型 `RequestLog` 相互独立。前者覆盖所有到达 Axum 的请求，包括公开与管理鉴权失败、健康检查、Web 资源、deep link、404 和 405；后者只表达进入模型执行链后的调度与上游结果。两者共用全局 Request ID，以便在需要时关联，但不建立数据库外键或相互替代。
+
+`path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板。URI query 始终丢弃，避免 OAuth code、token、密钥或其他查询参数进入 SQLite。系统日志同样不保存 Header、Cookie、User-Agent、Referer、请求体或响应体。
+
+Migration 27 的首次发布版本曾把 `method` 长度限制为 32，并已进入本地数据库 checksum 历史，因此该文件必须保持不可变。Migration 28 通过前向重建 `http_access_logs` 放宽为任意非空 HTTP method token，并原样复制既有日志；禁止通过修改 Migration 27 或数据库 `_sqlx_migrations` checksum 解决升级问题。
+
+客户端地址使用与 RequestLog 相同的可信代理解析器和规范 IPv4/IPv6 表达。系统日志中间件位于全部应用路由之外；无论后续认证、路由或 Handler 是否成功，响应 Body 都负责在 EOF、错误或 Drop 时只结算一次。
+
+### 9.10 持久化实体关系
 
 ```mermaid
 erDiagram
@@ -1734,9 +1766,9 @@ request_attempts
 
 RequestLog 保存请求最终结果，RequestAttempt 保存调度与切换过程。
 
-管理面可从 RequestLog 按 `gateway_api_key_id` 聚合总请求数、成功数、失败数和最近结果序列。聚合只读取最终 RequestLog，不把每次 Attempt 重复计入，也不恢复任何运行态状态。
+管理面可从 RequestLog 按 `gateway_api_key_id` 聚合总请求数、成功数、失败数和最近 1 小时固定时间桶。聚合只读取最终 RequestLog，不把每次 Attempt 重复计入，也不恢复任何运行态状态。
 
-同一批最终 RequestLog 还按带来源标签的上游凭据聚合：Provider API Key 使用 `credential_id`，OAuthAccount 使用 `oauth_account_id`。每个公开请求只归入最终目标一次，2xx 计成功、其余状态计失败，并保留最近 24 次最终状态码；重试中的中间目标只存在于 Attempt 时间线，不重复计入请求统计。Gateway API Key 与上游凭据统计同时保留、独立查询，均只覆盖当前日志保留窗口且不构成计费、额度或配置绑定。
+同一批最终 RequestLog 还按带来源标签的上游凭据聚合：Provider API Key 使用 `credential_id`，OAuthAccount 使用 `oauth_account_id`。每个公开请求只归入最终目标一次，2xx 计成功、其余状态计失败；Gateway API Key、Provider API Key 和 OAuthAccount 使用同一固定时间条带契约：最近 1 小时、30 个从旧到新排列的 2 分钟桶，空桶保留为零。重试中的中间目标只存在于 Attempt 时间线，不重复计入请求统计。三类统计同时保留、独立查询，累计总数均只覆盖当前日志保留窗口且不构成计费、额度或配置绑定。完整决策见 `docs/adr/0052-credential-usage-time-windows.md`。
 
 ## 15. 流式响应状态机
 
@@ -1976,7 +2008,7 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 
 RequestLog 与 Attempt 共用保留策略；达到期限或容量任一上限就分批清理。上述参数均可在 Web“设置”页面修改、覆盖或恢复默认。
 
-RequestLog 切片接入 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows` 与 `logs.telemetry_queue_capacity`；本地文件日志切片随后把 `logs.file.*` 接入同一 SettingRegistry 和发布链，没有建立独立配置文件或第二套默认值来源。
+RequestLog/Attempt 与 HttpAccessLog 共用 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows` 和同一条 `logs.telemetry_queue_capacity` 有界队列；两个顶层日志表分别应用相同的 retention 与 max_rows 上限，避免一个高频日志挤掉另一类历史。关闭日志时两类 SQLite 历史日志都停止接收新记录。本地文件日志切片把 `logs.file.*` 接入同一 SettingRegistry 和发布链，没有建立独立配置文件或第二套默认值来源。
 
 本地日志写入 `<data-dir>/logs` 下的 JSONL 分段文件，使用有界丢弃式队列和独立写线程，按 UTC 日期与大小轮转。关闭分段先按保留期限清理，再从最旧文件开始按总容量清理；配置发布后的无失败 reconcile 只更新内存级别与清理策略，不执行文件 I/O。日志级别立即影响新事件，保留与容量策略在写线程下一次合格写入或轮转时应用。完整决策见 `docs/adr/0021-bounded-local-file-logging.md`。
 
@@ -2286,7 +2318,13 @@ runtime_retired
 
 稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；这些计数不持久化、不恢复，也不要求通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级配置和 RequestLog 历史统计由各自管理页面负责，总览不复制第二份账号目录。
 
-历史请求统计与上述运行态调度计数分开：Gateway API Key、Provider API Key 与 OAuthAccount 都可以从 SQLite RequestLog 保留窗口读取最终请求总数、成功/失败数和最近状态；Gateway 维度不因新增上游维度而删除，上游两类来源也不得按 UUID 混合。统计查询失败不能阻塞配置读取，管理响应对当前对象降级为零值。
+历史请求统计与上述运行态调度计数分开：Gateway API Key、Provider API Key 与 OAuthAccount 都可以从 SQLite RequestLog 保留窗口读取最终请求总数、成功/失败数，并读取最近 1 小时固定 2 分钟桶的趋势；Gateway 维度不因新增上游维度而删除，上游两类来源也不得按 UUID 混合。统计查询失败不能阻塞配置读取，管理响应对当前对象降级为零值与完整空时间条带。
+
+完整 HTTP 系统日志与模型 RequestLog 再次分开：最外层 Server 中间件覆盖所有到达 Axum 的公开 API、管理 API、健康检查、内嵌或外部 Web 资源、deep link、鉴权失败、404 与 405。每条记录保存全局 Request ID、开始时间、捕获的配置 revision、规范客户端 IP、method、客户端实际请求的原始 URI path、HTTP version、可用的最终状态码、Body 生命周期总耗时、响应字节数和完成结果。请求在 Handler 返回 Response 前被取消时没有可伪造的 HTTP 状态码，因此该字段为空。path 不使用 `MatchedPath` 或通配归一化；query、Header、Cookie、User-Agent、Referer 与 Body 不落库。
+
+系统日志管理读取和清理只对已认证管理面开放。普通 HTTP 日志继续使用非阻塞 `try_send`；手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除历史并返回确认，不能让旧队列记录在清理成功后重新出现。清理请求自身在响应 Body 完成后作为第一批新日志正常写入。Web 使用单一自动刷新开关，开启后固定每 5 秒查询，关闭后停止轮询；开关是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不进入 SettingRegistry；未保存、值无效或浏览器存储不可用时默认开启。
+
+只有 Web 定时器发起的、已通过管理员认证并成功进入系统日志列表 Handler 的自动刷新请求不写入 HttpAccessLog，避免页面轮询淹没有效访问历史。前端请求标记本身没有跳过日志的权限；Handler 必须在成功响应上附加内部排除标记，最外层日志中间件只识别该响应标记。首次加载、手动刷新、清理、认证失败、无效查询、404/405 和其他任何请求仍正常记录。
 
 首个请求遥测切片采用以下边界：
 
@@ -2325,13 +2363,14 @@ runtime_retired
 一级菜单：
 
 ```text
-总览
-代理
-Provider
-OAuth2 登录
+系统总览
+上游提供
+认证文件
 网关密钥
+出口代理
 请求日志
-设置
+系统日志
+系统设置
 ```
 
 ### 19.1 代理
@@ -2363,7 +2402,7 @@ API Key 保存后，Provider 页面立即使用该 Credential 的实际 Endpoint
 
 Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API Key 轮换使用单独表单和端点。列表只显示标签、CredentialKind、绑定代理、实际代理、可选 RPM、启用状态、版本、指纹和 API Key 可选尾号，不显示或导出明文 Secret。
 
-每把 Provider API Key 同时显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；这些本地观测不读取或展示 Secret，不参与调度、额度或计费。
+每把 Provider API Key 同时显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时的固定时间条带；这些本地观测不读取或展示 Secret，不参与调度、额度或计费。时间条带按 2 分钟分桶，鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数。
 
 ### 19.3 OAuth2 登录
 
@@ -2375,7 +2414,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - Codex 账号可显式刷新上游额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
 - Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的 credits 或 requests/tokens 窗口；两者都不显示重置操作；
 - Codex、Claude 与 Grok 页面均提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
-- 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数和最近状态；统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
+- 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时的固定 2 分钟时间条带；鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数，统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - 页面提供 Provider 专用 JSON 导入抽屉，允许一次选择多个文件；文件只存在于抽屉局部状态，提交完成、失败或关闭后立即清空，导入成功后刷新 OAuthAccount 安全元数据集合；
 - session ID、state、authorization code、device code、callback URL 和 Token 不进入地址栏、React Query、Mutation Cache、localStorage 或 sessionStorage；Grok user code 与验证地址只保留在当前组件内存。
@@ -2404,10 +2443,21 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 显示名称、完整密钥、创建时间、最后使用时间和启用状态；
 - 分别禁用、重新启用或物理删除网关密钥；
 - 支持为客户端轮换密钥，不要求停用其他网关密钥；
+- 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时固定 2 分钟时间条带；时间桶从旧到新排列，空桶显示灰色，鼠标悬浮或键盘聚焦时显示起止时间和成功/失败数；
 - 网关密钥不提供选择或绑定上游 `ProviderCredential` 的配置项；
 - 不提供用户归属、套餐、余额、额度和计费设置。
 
-### 19.7 设置与远程管理
+### 19.7 系统日志
+
+- 使用独立 `/system-logs` deep link，展示所有到达 Axum 的 HTTP 请求，不与模型请求日志混在一起；
+- 展示开始时间、规范客户端 IP、method、客户端实际请求 path、HTTP version、最终状态、Body 生命周期耗时、响应字节和 completed/body_error/cancelled 结果；
+- 桌面表格使用虚拟滚动，只渲染可视行和少量 overscan；固定表头与虚拟行滚动区分层，禁止数据穿透或覆盖表头；移动端使用自然滚动卡片；
+- 支持手动刷新和自动刷新开关；开关开启后固定每 5 秒刷新，开关状态使用带版本的 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启；
+- 仅排除已认证系统日志列表 Handler 成功响应的定时自动刷新访问；前端标记不能排除首次加载、手动刷新、清理、认证失败、无效查询或其他路径；
+- 支持带二次确认的“清理历史日志”；清理成功后重新读取，清理请求本身及清理边界后完成的并发请求可以形成新记录；
+- path 不显示路由模板或归一化通配路径；query、Header、Cookie、User-Agent、Referer、请求体和响应体不可通过此页面读取。
+
+### 19.8 设置与远程管理
 
 - 按功能分组显示 SettingRegistry；
 - “基础”设置提供可搜索的公开模型多选控件；空选择明确表示允许全部模型，非空选择显示已放行数量，并支持选择/清除当前搜索结果；
@@ -2703,6 +2753,10 @@ Gateway Token Plaintext = Visible In Authenticated Management Responses, Never I
 Public Ingress Auth = Same PublishedSnapshot Revision + Header Strip Before Driver
 Global Public Model Allowlist = Empty Allows All + Exact Names + Same PublishedSnapshot Revision
 Disallowed Model = Reject Before Affinity / RPM / Upstream + Filter From /v1/models
+
+HttpAccessLog = Every Axum Request + Original URI Path Without Query
+HttpAccessLog Completion = Body EOF / Error / Drop Exactly Once
+System Log Clear = Ordered Telemetry Command + Clear Before Ack
 
 New Feature ──> New Module + Stable Interface + Contract Test
 No Giant Files / No Central Provider Match / No Cross-Layer Logic

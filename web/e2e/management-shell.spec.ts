@@ -24,6 +24,18 @@ test("settings use four sections and legacy routing links collapse into route po
 test("desktop core management deep links render against the real service", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
   await loginAt(page, "/", "运行正常");
+  await expect(
+    page.locator("#desktop-navigation").getByRole("navigation", { name: "主导航" }).getByRole("link"),
+  ).toHaveText([
+    "系统总览",
+    "上游提供",
+    "认证文件",
+    "网关密钥",
+    "出口代理",
+    "请求日志",
+    "系统日志",
+    "系统设置",
+  ]);
 
   for (const [path, readyText] of [
     ["/", "运行正常"],
@@ -33,12 +45,128 @@ test("desktop core management deep links render against the real service", async
     ["/settings/routing", "RPM 用尽行为"],
     ["/keys", "尚未创建网关密钥"],
     ["/logs", "还没有请求日志"],
+    ["/system-logs", "自动刷新"],
   ] as const) {
     await page.goto(path);
     await expect(page.getByText(readyText, { exact: false }).first()).toBeVisible();
     await expectNoHorizontalOverflow(page);
   }
 
+  expect(browserErrors).toEqual([]);
+});
+
+test("gateway key usage is a fixed time axis with hover and keyboard details", async ({ page }) => {
+  const browserErrors = watchBrowserErrors(page);
+  await loginAt(page, "/keys", "尚未创建网关密钥");
+
+  await page.getByRole("button", { name: "新增", exact: true }).click();
+  await page.getByLabel("名称").fill("E2E 时间轴");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+
+  const timeline = page.getByRole("group", {
+    name: /E2E 时间轴 近 1 小时，每格 2 分钟/,
+  });
+  await expect(timeline).toBeVisible();
+  const slots = timeline.getByRole("button");
+  await expect(slots).toHaveCount(30);
+
+  await slots.last().hover();
+  let tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toContainText("成功 0");
+  await expect(tooltip).toContainText("失败 0");
+  await expect(tooltip.locator("p").first()).toContainText(/^\d{2}:\d{2}–\d{2}:\d{2}$/);
+
+  await slots.nth(10).focus();
+  tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toContainText("成功 0");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(
+    page.getByRole("group", { name: /E2E 时间轴 近 1 小时，每格 2 分钟/ }),
+  ).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.reload();
+  await page.getByRole("button", { name: "删除 E2E 时间轴" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "删除「E2E 时间轴」？" });
+  await dialog.getByRole("button", { name: "确认删除" }).click();
+  await expect(page.getByText("尚未创建网关密钥")).toBeVisible();
+  expect(browserErrors).toEqual([]);
+});
+
+test("system logs refresh and clear on desktop and mobile", async ({ page }) => {
+  const browserErrors = watchBrowserErrors(page);
+  await loginAt(page, "/system-logs", "自动刷新");
+
+  const autoRefresh = page.getByRole("switch", { name: "自动刷新" });
+  await expect(autoRefresh).toHaveAttribute("aria-checked", "true");
+  const automaticRefresh = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/admin/system-logs?limit=")
+      && response.request().headers()["x-any2api-system-log-refresh"] === "automatic",
+  );
+  await automaticRefresh;
+  await autoRefresh.click();
+  await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
+  const table = page.getByRole("table", { name: "系统日志表格" });
+  await expect(table).toBeVisible();
+
+  for (let index = 0; index < 80; index += 1) {
+    await page.request.get(`/api/e2e-virtual-row/${index}`);
+  }
+  await expect.poll(async () => {
+    const response = await page.request.get("/api/admin/system-logs?limit=200");
+    const payload = await response.json() as { items: Array<{ path: string }> };
+    return payload.items.filter((item) => item.path.startsWith("/api/e2e-virtual-row/")).length;
+  }).toBe(80);
+  const refreshed = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/admin/system-logs?limit=") &&
+      response.request().method() === "GET" &&
+      response.request().headers()["x-any2api-system-log-refresh"] === undefined,
+  );
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  const refreshedPayload = await (await refreshed).json() as { items: Array<{ path: string }> };
+  const targetPath = "/api/e2e-virtual-row/0";
+  const targetIndex = refreshedPayload.items.findIndex((item) => item.path === targetPath);
+  expect(targetIndex).toBeGreaterThanOrEqual(0);
+
+  const header = page.getByRole("rowgroup", { name: "系统日志表头" });
+  const rows = page.getByRole("rowgroup", { name: "系统日志表格数据" });
+  await expect(rows.getByText(targetPath)).toHaveCount(0);
+  expect(await rows.getByRole("row").count()).toBeLessThan(40);
+  const headerBox = await header.boundingBox();
+  const rowsBox = await rows.boundingBox();
+  expect(headerBox).not.toBeNull();
+  expect(rowsBox).not.toBeNull();
+  expect(rowsBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1);
+
+  await rows.evaluate((element, index) => {
+    element.scrollTop = Math.max(0, (index - 3) * 41);
+    element.dispatchEvent(new Event("scroll"));
+  }, targetIndex);
+  await expect(rows.getByText(targetPath)).toBeVisible();
+
+  await page.getByRole("button", { name: "清理历史日志" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "清理历史系统日志？" });
+  await expect(dialog).toBeVisible();
+  const cleared = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/admin/system-logs") &&
+      response.request().method() === "DELETE",
+  );
+  await dialog.getByRole("button", { name: "清理", exact: true }).click();
+  await cleared;
+  await expect(dialog).toBeHidden();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByRole("list", { name: "系统日志列表" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
   expect(browserErrors).toEqual([]);
 });
 

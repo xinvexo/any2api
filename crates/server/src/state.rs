@@ -136,4 +136,9 @@ impl AppState {
     pub fn request_telemetry(&self) -> &RequestTelemetry {
         &self.request_telemetry
     }
+
+    #[must_use]
+    pub(crate) fn request_telemetry_handle(&self) -> Arc<RequestTelemetry> {
+        Arc::clone(&self.request_telemetry)
+    }
 }

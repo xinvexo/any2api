@@ -5,8 +5,8 @@
 
 ## 当前状态
 
-- 当前阶段：API Key 数据面、OpenAI 协议桥、三 Provider OAuth2 核心链路、OAuth JSON 原子导入、三 Provider 额度查询、全局公开模型允许列表、可信客户端 IP 请求日志、管理 Web 和真实二进制浏览器验收均已完成；剩余发布验收主要依赖真实上游账号与真实反代环境。
-- 最近完成：新增快照级 `models.allowed` 设置，并在最后一条模型 Route 消失时于同一事务自动裁剪；RequestLog 保存直连或可信代理链解析出的规范客户端 IP，管理 Web 可查看且不保留原始转发头。
+- 当前阶段：API Key 数据面、OpenAI 协议桥、三 Provider OAuth2 核心链路、OAuth JSON 原子导入、三 Provider 额度查询、全局公开模型允许列表、可信客户端 IP 请求日志、完整 HTTP 系统日志、管理 Web 和真实二进制浏览器验收均已完成；剩余发布验收主要依赖真实上游账号与真实反代环境。
+- 最近完成：新增独立 `HttpAccessLog`，覆盖所有到达 Axum 的 API、管理面、健康检查和 Web 请求；保存客户端实际 URI path（不含 query），Web“系统日志”支持固定 5 秒周期的自动刷新 Switch 和通过有序 writer 命令手动清理历史。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -19,7 +19,7 @@
 - OAuth JSON 导入切片：`235a1bd feat: import OAuth JSON accounts`。
 - OAuth 额度扩展切片：`18f8e49 feat: expand OAuth quota support and organize modules`。
 - Feature-first 收敛切片：`5f3d9ff refactor: complete feature-first crate organization`。
-- 本切片主题：全局公开模型允许列表、真实客户端 IP 遥测与发布验证闭环。
+- 本切片主题：完整 HTTP 系统日志、自动刷新、有序手动清理与真实浏览器验收。
 
 ## 已完成
 
@@ -188,7 +188,7 @@
 - `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
 - 公开鉴权成功后立即更新进程内 `last_used_at`，并按每把 Key 最多每 60 秒一次进入现有有界遥测队列；SQLite 写入不推进配置 revision、不阻塞数据面，队列满时按遥测语义丢弃并计数。
 - 管理列表合并 PublishedSnapshot 中的持久值与当前进程内最新值，因此成功请求后无需发布新配置即可立即显示最后使用时间；重启后继续读取 SQLite 已落库值。
-- Gateway Key 管理列表从保留 RequestLog 按 `gateway_api_key_id` 聚合总请求、2xx 成功、非 2xx 失败和最近 24 次状态码；Web 以成功/失败徽标、彩色结果点和成功率展示，统计不参与权限、配额、计费或路由。
+- Gateway Key 管理列表从保留 RequestLog 按 `gateway_api_key_id` 聚合总请求、2xx 成功和非 2xx 失败；趋势与 Provider/OAuth 统一为最近 1 小时、30 个固定 2 分钟桶，Web 支持鼠标悬浮和键盘聚焦查看桶时间与成功/失败数，统计不参与权限、配额、计费或路由。
 - React `/keys` 已替换占位页，支持创建、编辑、停用、轮换、物理删除、deep link 和响应式布局；已认证管理列表始终可查看明文 Token，Token 不进入 URL、浏览器持久存储、日志或 Debug。
 - Storage、Runtime、HTTP 契约和 Web 测试覆盖 Token 生命周期、快照隔离、header 剥离、SPA fallback 防护、冲突版本、缓存脱敏、节流、单调落库和即时管理可见性。
 
@@ -308,6 +308,16 @@
 - 当前测试覆盖父子事务、保留清理、队列丢弃、Request ID、日志详情契约、Credential 切换后的多 Attempt 顺序、Attempt 预算耗尽、SSE EOF/提交后错误/客户端 Drop 的单次持久化、列表与详情成功/空态/错误态、DTO 解析、deep link 和敏感文本不展示。
 - 窄屏布局除超长模型名结构回归外，已由统一 Playwright 套件在真实服务和 390×844 Chromium 中覆盖移动导航、请求日志页面与全局水平溢出。
 
+### 完整 HTTP 系统日志切片
+
+- Migration 27 新增独立 `http_access_logs`，记录全局 Request ID、开始时间、配置 revision、规范客户端 IP、Method、客户端实际 URI path、HTTP version、可用状态码、Body 生命周期耗时、实际响应字节和 completed/body_error/cancelled 结果；Migration 28 在保持 27 首次 checksum 不变的前提下前向放宽 method 长度约束，并原样保留既有日志。
+- 最外层 Axum 中间件覆盖公开/管理鉴权失败、健康检查、Web 资源与 deep link、404/405 和正常 API；全部响应统一覆盖 `x-request-id`，模型 RequestLog 复用同一 ID，但两类日志模型、表和管理用途保持独立。
+- path 直接读取入口 `request.uri().path()`，不使用路由模板、不改为 `/api/*` 等通配形式，也不做内部路由归一化；query、Header、Cookie、User-Agent、Referer、请求体与响应体不落库。
+- 系统日志复用现有有界非阻塞遥测队列和 `logs.request.*` 策略；RequestLog 与 HttpAccessLog 分别执行相同的 retention/max_rows 上限，任一类型都不会挤掉另一类历史。
+- 新增受保护 `GET/DELETE /api/admin/system-logs`。DELETE 通过同一 FIFO writer 的控制消息执行：先刷完命令前记录，再清表并回执；清理请求本身和清理边界后完成的请求可以作为新记录保留。
+- React 新增一级“系统日志”和 `/system-logs`，以桌面虚拟滚动表格/手机自然滚动日志卡片展示实际 path；桌面固定表头与虚拟行滚动区分层，并提供手动刷新、固定 5 秒周期的自动刷新 Switch 与二次确认清理。自动刷新选择使用版本化 `localStorage` 按浏览器持久化，缺失、无效或不可用时默认开启；仅已认证 Handler 成功响应的定时轮询通过内部响应标记排除，首次加载、手动刷新与异常访问仍记录。
+- Storage/Runtime/HTTP/React 契约覆盖原始编码 path、query 排除、状态/字节、公开鉴权失败、队列顺序与清理后不回填；真实 Chromium 覆盖桌面虚拟滚动、固定表头、390×844、自动刷新开关、清理确认、控制台错误和整页横向溢出。完整决策见 `docs/adr/0051-complete-http-access-logging.md`。
+
 ### 真实服务浏览器 E2E 基础设施
 
 - 新增独立 Playwright Chromium 套件；`pnpm test:e2e` 自行构建 any2api 与 Web、分配空闲 loopback 端口并启动真实 HTTP 服务。
@@ -417,7 +427,7 @@
 - OAuthAccount 固定绑定 DIRECT 并继承已发布全局代理；Codex 注入 Bearer、`Chatgpt-Account-Id` 与 `Originator`，Claude 注入 Bearer、固定 `anthropic-version` 并合并所需 OAuth beta，Grok 注入 Bearer 与固定 xAI CLI 身份头；Gateway 认证头仍在进入 Driver 前剥离。
 - `/v1/models` 已合并 OAuth-only 模型；请求规划可在没有 ProviderEndpoint/ProviderCredential 时使用 OAuth 固定路由，同模型 API Key 与 OAuth 账号进入同一候选池。账号到期状态按请求时间动态判断，过期账号不进入目录或调度。
 - RequestLog/Attempt 使用独立 `oauth_account_id` 标识 OAuth 来源，`credential_id` 与内部固定 `provider_endpoint_id` 保持为空；Balancing、Affinity 与对应 Web 契约均使用来源标签，OAuth 清理令牌固定为 `oauth_account:<uuid>`。
-- Provider API Key 与 OAuthAccount 管理响应新增按带来源标签的最终 RequestLog 聚合：总请求、成功、失败和最近 24 次状态；中间重试只保留在 Attempt 时间线，不重复计数。该统计与 Gateway API Key 统计并存，只覆盖日志保留窗口且不参与路由、额度或计费。
+- Provider API Key、OAuthAccount 与 Gateway API Key 管理响应按各自来源聚合最终 RequestLog：累计总请求、成功、失败覆盖日志保留窗口，趋势统一为最近 1 小时、30 个固定 2 分钟桶；中间重试只保留在 Attempt 时间线，不重复计数，统计不参与路由、额度或计费。
 - SettingRegistry 新增 `oauth.refresh.scan_interval=30s` 与 `oauth.refresh.lead_time=300s`，要求提前窗口不短于扫描间隔；Worker 启动即扫描并由快照 revision 唤醒，配置热更新后重新读取账号和生效值。定时扫描覆盖启用和停用账号，`enabled=false` 只移除路由资格，不停止 Token 保活；删除账号才终止刷新。
 - 单进程 Worker 与请求侧共用 per-account singleflight gate；并发等待者共享成功或失败，拿锁后复核 token version。成功刷新保留启用状态、模型/管理元数据和 Provider 未返回的稳定 Token 字段，通过 SQLite token-version CAS、Runtime reconcile 与单次快照切换发布新认证 generation；停用账号刷新后仍不进入路由候选。完整决策见 `docs/adr/0048-disabled-oauth-token-keepalive.md`。
 - OAuth 账号返回 retry-safe 401 时，仅在下游仍为 Pending 且重试预算允许时触发一次刷新；刷新成功或并发请求已更新账号后，基于新 PublishedSnapshot 完整重建候选。第二个 401、Ambiguous、刷新失败或提交后错误都不会再次刷新或发送第三条 Attempt。
@@ -463,7 +473,7 @@
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态 RPM 窗口、`in_flight`、请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后这些状态全部从零开始。
 - ProviderCredential 与 OAuthAccount 分别承载 API Key generation 和独立 token/account generation，并通过带来源标签的 `RoutingCredentialId` 编译到同一候选池；两类持久化模型和管理 API 保持分离。
-- 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 已写入 SQLite，规范客户端 IP、精确 Token Usage 与客户端可见流式 TTFT 已按协议契约采集；Migration 26 前的 IP 和其他无法精确获取的值保持 `NULL`。
+- 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 与完整 HttpAccessLog 已写入 SQLite，规范客户端 IP、精确 Token Usage、客户端可见流式 TTFT 和 HTTP Body 生命周期已按各自协议契约采集；Migration 26 前的 RequestLog IP 和其他无法精确获取的值保持 `NULL`。
 - RequestLog/Attempt 对 API Key 与 OAuth 使用互斥来源列；OAuth 不暴露内部固定 Endpoint。Provider/OAuth 管理页显示各自日志窗口统计，请求日志列表显式标识最终上游来源；Gateway Key 入口统计保持不变。负载均衡运行态 API 只返回两类来源合并后的全局/Provider 汇总；RPM 窗口、`in_flight`、队列和内部选择/过滤计数只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 - 正式运行默认从二进制内嵌 React 资源提供管理面；改变当前工作目录或删除源码树不会影响页面，外部 Web 目录必须通过 `ANY2API_WEB_DIR` 显式选择。
@@ -495,4 +505,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex/Claude/Grok 额度管理、全局公开模型允许列表、可信客户端 IP 请求日志、上游凭据请求统计与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release 构建、架构检查和 `cargo deny --offline check`。Web 已通过 typecheck、lint、44 个文件共 143 项 Vitest、production build、内嵌产物一致性检查与 4 项真实 Chromium E2E。回归覆盖 Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、模型允许列表裁剪、直连/可信代理/欺骗与无效转发头、migration 16→26、完整 Provider/OAuth/RequestLog 引用图保留和 `foreign_key_check`。
+当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex/Claude/Grok 额度管理、全局公开模型允许列表、可信客户端 IP 请求日志、完整 HTTP 系统日志、统一凭据请求时间窗口与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）和架构检查。Web 已通过 typecheck、lint、50 个文件共 154 项 Vitest、production build、内嵌产物一致性检查与 6 项真实 Chromium E2E。回归覆盖 Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、模型允许列表裁剪、直连/可信代理/欺骗与无效转发头、migration 16→28、完整 Provider/OAuth/RequestLog 引用图保留、凭据统计固定时间桶与浮层交互、原始 HTTP path、响应 Body 结算、系统日志自动轮询排除、虚拟滚动和有序清理。
