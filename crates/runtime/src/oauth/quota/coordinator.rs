@@ -5,7 +5,10 @@ use std::{
 };
 
 use any2api_domain::{OAuthAccountId, RoutingCredentialId};
-use any2api_provider::api::{OAuthQuotaResetResult, OAuthQuotaUsage, ProviderRegistry};
+use any2api_provider::api::{
+    OAuthLocalTokenQuotaPolicy, OAuthQuotaExhaustion, OAuthQuotaResetResult,
+    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, ProviderRegistry,
+};
 use any2api_transport::api::TransportManager;
 use http::StatusCode;
 use tokio::sync::Mutex;
@@ -95,7 +98,7 @@ impl OAuthQuotaService {
                     .refresher
                     .refresh_after_authentication_failure(id, observed_token_version)
                     .await
-                    .ok_or(OAuthQuotaError::AuthenticationFailed)?;
+                    .ok_or(OAuthQuotaError::AuthenticationRefreshFailed)?;
                 self.query_attempt(refreshed, id)
                     .await
                     .map_err(map_second_authentication_failure)
@@ -131,7 +134,7 @@ impl OAuthQuotaService {
             .oauth_quota_query_plan(token.as_ref())
             .map_err(OAuthQuotaError::Provider)?
             .ok_or(OAuthQuotaError::UnsupportedProvider)?;
-        let (usage_plan, probe_plan, credits_plan) = plan.into_parts();
+        let (usage_plan, supplement_plan, credits_plan) = plan.into_parts();
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_account()
             .ok_or(OAuthQuotaError::ProxyUnavailable)?;
@@ -146,9 +149,7 @@ impl OAuthQuotaService {
         )
         .await?;
         if !usage_response.status.is_success() {
-            return Err(OAuthQuotaError::UpstreamRejected(
-                usage_response.status.as_u16(),
-            ));
+            return Err(request::rejection(usage_response.status));
         }
         let mut usage = observation::resolve_usage(
             driver.as_ref(),
@@ -157,9 +158,29 @@ impl OAuthQuotaService {
             strict_ssrf,
             read_timeout,
             usage_response,
-            probe_plan,
+            supplement_plan,
         )
         .await?;
+        let exhaustion = binding
+            .generation()
+            .health()
+            .quota_exhaustion()
+            .map(|observed| OAuthQuotaExhaustion {
+                observed_at: observed.observed_at,
+                used: observed.used,
+                limit: observed.limit,
+            });
+        usage.replace_quota_exhaustion(exhaustion);
+        let local_policy = driver.oauth_local_token_quota_policy(&usage);
+        let token_balance = local_policy.and_then(|policy| {
+            token_balance(
+                policy,
+                exhaustion,
+                usage.rate_limit.is_none(),
+                binding.token_usage_snapshot(policy.window_seconds),
+            )
+        });
+        usage.replace_token_balance(token_balance);
         if let Some(credits_plan) = credits_plan
             && let Ok(response) = request::execute(
                 self.transport.as_ref(),
@@ -196,7 +217,7 @@ impl OAuthQuotaService {
                     .refresher
                     .refresh_after_authentication_failure(id, observed_token_version)
                     .await
-                    .ok_or(OAuthQuotaError::AuthenticationFailed)?;
+                    .ok_or(OAuthQuotaError::AuthenticationRefreshFailed)?;
                 self.reset_attempt(refreshed, id)
                     .await
                     .map_err(map_second_authentication_failure)
@@ -244,7 +265,7 @@ impl OAuthQuotaService {
         )
         .await?;
         if !response.status.is_success() {
-            return Err(OAuthQuotaError::UpstreamRejected(response.status.as_u16()));
+            return Err(request::rejection(response.status));
         }
         let result = driver
             .parse_oauth_quota_reset(&response.body)
@@ -276,6 +297,33 @@ impl OAuthQuotaService {
         gates.insert(id, Arc::downgrade(&gate));
         gate
     }
+}
+
+fn token_balance(
+    policy: OAuthLocalTokenQuotaPolicy,
+    exhaustion: Option<OAuthQuotaExhaustion>,
+    use_local_fallback: bool,
+    local_used: u64,
+) -> Option<OAuthQuotaTokenBalance> {
+    if let Some(exhaustion) = exhaustion {
+        return exhaustion
+            .used
+            .zip(exhaustion.limit)
+            .map(|(used, limit)| OAuthQuotaTokenBalance {
+                source: OAuthQuotaTokenBalanceSource::Upstream,
+                used,
+                limit,
+                remaining: limit.saturating_sub(used),
+                window_seconds: None,
+            });
+    }
+    use_local_fallback.then_some(OAuthQuotaTokenBalance {
+        source: OAuthQuotaTokenBalanceSource::Local,
+        used: local_used,
+        limit: policy.limit,
+        remaining: policy.limit.saturating_sub(local_used),
+        window_seconds: Some(policy.window_seconds),
+    })
 }
 
 fn map_second_authentication_failure(error: OAuthQuotaError) -> OAuthQuotaError {

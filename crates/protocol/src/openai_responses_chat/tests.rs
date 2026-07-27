@@ -11,8 +11,8 @@ use crate::{
     api::{IngressRequest, SseFrame, UpstreamResponse},
 };
 
-#[test]
-fn json_bridge_converts_tools_usage_and_previous_response_history() {
+#[tokio::test]
+async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     let registry = registry();
     let first = decoded(
         &registry,
@@ -37,7 +37,8 @@ fn json_bridge_converts_tools_usage_and_previous_response_history() {
             }],
             "tool_choice":{"type":"function","name":"weather"}
         }),
-    );
+    )
+    .await;
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     let prepared = exchange
         .prepare_request(first, "upstream-model")
@@ -120,7 +121,8 @@ fn json_bridge_converts_tools_usage_and_previous_response_history() {
                 "output":"Sunny"
             }]
         }),
-    );
+    )
+    .await;
     let mut follow_up_exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     let prepared = follow_up_exchange
         .prepare_request(follow_up, "upstream-model")
@@ -136,14 +138,15 @@ fn json_bridge_converts_tools_usage_and_previous_response_history() {
     assert_eq!(messages[3]["content"], "Sunny");
 }
 
-#[test]
-fn streaming_bridge_emits_responses_events_tools_and_usage() {
+#[tokio::test]
+async fn streaming_bridge_emits_responses_events_tools_and_usage() {
     let registry = registry();
     let request = decoded(
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public-model","input":"hello","stream":true}),
-    );
+    )
+    .await;
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     let prepared = exchange
         .prepare_request(request, "upstream-model")
@@ -218,8 +221,8 @@ fn streaming_bridge_emits_responses_events_tools_and_usage() {
     assert_eq!(usage.cache_read_tokens(), Some(1));
 }
 
-#[test]
-fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
+#[tokio::test]
+async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
     let registry = registry();
 
     for body in [
@@ -227,7 +230,7 @@ fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         json!({"model":"public","input":"hello","n":2}),
         json!({"model":"public","input":"hello","tool_choice":"random"}),
     ] {
-        let request = decoded(&registry, ProtocolOperation::Responses, body);
+        let request = decoded(&registry, ProtocolOperation::Responses, body).await;
         let error = bridged_exchange(&registry, ProtocolOperation::Responses)
             .prepare_request(request, "upstream")
             .err()
@@ -239,7 +242,8 @@ fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public","input":"hello","previous_response_id":"resp_missing"}),
-    );
+    )
+    .await;
     assert_eq!(
         bridged_exchange(&registry, ProtocolOperation::Responses)
             .prepare_request(lost, "upstream")
@@ -261,7 +265,8 @@ fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public","input":"hello"}),
-    );
+    )
+    .await;
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     exchange
         .prepare_request(request, "upstream")
@@ -280,7 +285,8 @@ fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public","input":"hello","stream":true}),
-    );
+    )
+    .await;
     let mut stream_exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     stream_exchange
         .prepare_request(stream_request, "upstream")
@@ -307,7 +313,7 @@ fn registry() -> ProtocolRegistry {
     registry
 }
 
-fn decoded(
+async fn decoded(
     registry: &ProtocolRegistry,
     operation: ProtocolOperation,
     body: Value,
@@ -322,6 +328,7 @@ fn decoded(
             body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
             operation,
         })
+        .await
         .expect("decoded request")
 }
 

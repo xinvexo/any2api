@@ -67,6 +67,25 @@ test("parses Grok as an OpenAI-compatible provider", () => {
   });
 });
 
+test("parses a Codex OpenAI Images endpoint", () => {
+  const parsed = parseProviderEndpointConfiguration({
+    config_revision: 5,
+    items: [
+      endpoint({
+        name: "OpenAI Images",
+        protocol_dialect: "openai_images",
+      }),
+    ],
+    protocol_options: protocolOptions(),
+  });
+
+  expect(parsed.items[0]).toMatchObject({
+    providerKind: "codex",
+    protocolDialect: "openai_images",
+    upstreamProtocolDialect: null,
+  });
+});
+
 function endpoint(overrides: Record<string, unknown> = {}) {
   return {
     id: "b9bc39b0-d05b-4731-a072-d05e48fb8a4f",
@@ -95,6 +114,11 @@ function protocolOptions() {
       provider_kind: "codex",
       accepted_protocol: "openai_chat_completions",
       upstream_protocols: ["openai_chat_completions"],
+    },
+    {
+      provider_kind: "codex",
+      accepted_protocol: "openai_images",
+      upstream_protocols: ["openai_images"],
     },
     {
       provider_kind: "grok",

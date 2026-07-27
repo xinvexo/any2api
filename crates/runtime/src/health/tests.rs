@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, ProviderCredential,
     ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId, RetryAfterHint, RetrySafety,
-    SettingsConfiguration, UpstreamErrorClassification, UpstreamErrorKind,
+    SettingsConfiguration, UpstreamErrorClassification, UpstreamErrorKind, UpstreamQuotaExhaustion,
 };
 use any2api_transport::api::TransportFailureScope;
 
@@ -147,6 +147,30 @@ async fn quota_reset_clears_temporary_cooldowns_but_keeps_authentication_failure
     assert!(health.clear_auth_error());
     assert_eq!(health.availability("model-a"), Ok(()));
     assert_eq!(health.availability("model-b"), Ok(()));
+}
+
+#[tokio::test]
+async fn real_quota_exhaustion_observation_is_generation_local_and_success_clears_it() {
+    let epoch = SchedulerEpoch::new();
+    let health = CredentialHealthRuntime::new(epoch);
+    health.record(
+        "grok-4.5",
+        UpstreamErrorClassification::new(
+            UpstreamErrorKind::QuotaExhausted,
+            RetrySafety::RejectedBeforeExecution,
+            None,
+        )
+        .with_quota_exhaustion(UpstreamQuotaExhaustion::new(1_065_387, 1_000_000)),
+        &policy(),
+    );
+
+    let observed = health.quota_exhaustion().expect("quota observation");
+    assert_eq!(observed.used, Some(1_065_387));
+    assert_eq!(observed.limit, Some(1_000_000));
+    assert!(observed.observed_at > 0);
+
+    health.record_success();
+    assert!(health.quota_exhaustion().is_none());
 }
 
 #[tokio::test(start_paused = true)]

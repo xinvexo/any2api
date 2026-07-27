@@ -10,6 +10,8 @@ export function protocolLabel(value: RequestLogProtocol) {
   switch (value) {
     case "openai_chat_completions":
       return "Chat Completions";
+    case "openai_images":
+      return "Images";
     case "codex_backend":
       return "Codex Backend";
     case "anthropic_messages":
@@ -28,6 +30,10 @@ export function operationLabel(value: RequestLogOperation) {
       return "/v1/responses/compact";
     case "chat_completions":
       return "/v1/chat/completions";
+    case "images_generations":
+      return "/v1/images/generations";
+    case "images_edits":
+      return "/v1/images/edits";
     case "messages":
       return "/v1/messages";
     case "messages_count_tokens":

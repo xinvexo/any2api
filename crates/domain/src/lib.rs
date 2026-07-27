@@ -66,4 +66,5 @@ pub use telemetry::{
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,
+    UpstreamQuotaExhaustion,
 };

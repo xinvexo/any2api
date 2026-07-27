@@ -19,6 +19,14 @@ pub(super) struct OAuthQuotaResponse {
     pub body: Bytes,
 }
 
+pub(super) fn rejection(status: StatusCode) -> OAuthQuotaError {
+    if status == StatusCode::FORBIDDEN {
+        OAuthQuotaError::AccountRestricted
+    } else {
+        OAuthQuotaError::UpstreamRejected(status.as_u16())
+    }
+}
+
 pub(super) async fn execute(
     transport: &dyn TransportManager,
     proxy: TransportProxy<'_>,
@@ -37,27 +45,6 @@ pub(super) async fn execute(
         status,
         headers,
         body,
-    })
-}
-
-pub(super) async fn execute_headers(
-    transport: &dyn TransportManager,
-    proxy: TransportProxy<'_>,
-    strict_ssrf: bool,
-    read_timeout: Duration,
-    plan: OAuthRequestPlan,
-) -> Result<OAuthQuotaResponse, OAuthQuotaError> {
-    let TransportResponse {
-        status,
-        headers,
-        body,
-        ..
-    } = start(transport, proxy, strict_ssrf, read_timeout, plan).await?;
-    drop(body);
-    Ok(OAuthQuotaResponse {
-        status,
-        headers,
-        body: Bytes::new(),
     })
 }
 

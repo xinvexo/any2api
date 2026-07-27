@@ -45,8 +45,12 @@ impl QuotaTestContext {
     }
 
     pub(super) async fn new_grok() -> Self {
+        Self::new_grok_with_authentication(AuthenticationMode::Accepted).await
+    }
+
+    pub(super) async fn new_grok_with_authentication(authentication: AuthenticationMode) -> Self {
         Self::with_account(
-            Arc::new(QuotaTransport::new(0, AuthenticationMode::Accepted, false)),
+            Arc::new(QuotaTransport::new(0, authentication, false)),
             ProviderKind::Grok,
             "Grok OAuth",
             None,

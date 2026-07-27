@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -6,6 +7,7 @@ import { presentOAuthAccount } from "../model/oauth-account-presentation";
 import { getOAuthErrorMessage } from "../model/oauth-error";
 import { useOAuthAccountMutations } from "../model/use-oauth-account-mutations";
 import { oauthProviderLabel } from "../model/oauth-provider-catalog";
+import { oauthQuotaQueryOptions } from "../model/oauth-quota-query";
 import { OAuthAccountCard } from "./OAuthAccountCard";
 import { OAuthAccountEditor } from "./OAuthAccountEditor";
 import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
@@ -79,8 +81,8 @@ export function OAuthAccounts({
           items={accounts}
           getItemKey={(account) => account.id}
           renderItem={(account) => (
-            <OAuthAccountCard
-              presentation={presentOAuthAccount(account)}
+            <OAuthAccountItem
+              account={account}
               pending={pending}
               onToggleEnabled={(enabled) => {
                 mutations.update.mutate({
@@ -97,17 +99,6 @@ export function OAuthAccounts({
               onViewModels={() => open(account, "models")}
               onEdit={() => open(account, "metadata")}
               onDelete={() => setDeleteTarget(account)}
-              details={
-                <>
-                  <RequestUsageStats label={account.label} usage={account.usage} />
-                  <OAuthQuotaPanel
-                    accountId={account.id}
-                    accountLabel={account.label}
-                    provider={account.providerKind}
-                    disabled={pending}
-                  />
-                </>
-              }
             />
           )}
           ariaLabel={`${providerName} OAuth 账号列表`}
@@ -187,5 +178,49 @@ export function OAuthAccounts({
         }}
       />
     </div>
+  );
+}
+
+function OAuthAccountItem({
+  account,
+  pending,
+  onToggleEnabled,
+  onViewModels,
+  onEdit,
+  onDelete,
+}: {
+  account: OAuthAccount;
+  pending: boolean;
+  onToggleEnabled: (enabled: boolean) => void;
+  onViewModels: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const quotaQuery = useQuery({ ...oauthQuotaQueryOptions(account.id), enabled: false });
+  const quota = quotaQuery.isError ? null : (quotaQuery.data ?? null);
+  return (
+    <OAuthAccountCard
+      presentation={presentOAuthAccount(
+        account,
+        quota?.subscriptionTier ?? null,
+        quota?.accountStatus ?? null,
+      )}
+      pending={pending}
+      onToggleEnabled={onToggleEnabled}
+      onViewModels={onViewModels}
+      onEdit={onEdit}
+      onDelete={onDelete}
+      details={
+        <>
+          <RequestUsageStats label={account.label} usage={account.usage} />
+          <OAuthQuotaPanel
+            accountId={account.id}
+            accountLabel={account.label}
+            provider={account.providerKind}
+            disabled={pending}
+          />
+        </>
+      }
+    />
   );
 }

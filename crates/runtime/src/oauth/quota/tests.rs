@@ -149,6 +149,18 @@ async fn a_second_quota_401_does_not_refresh_or_query_a_third_time() {
 }
 
 #[tokio::test]
+async fn a_failed_token_refresh_does_not_claim_the_account_is_invalid() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::RefreshRejected).await;
+
+    assert!(matches!(
+        context.service.query_quota(context.account_id).await,
+        Err(OAuthQuotaError::AuthenticationRefreshFailed)
+    ));
+    assert_eq!(context.transport.refresh_calls(), 1);
+    assert_eq!(context.transport.usage_calls(), 1);
+}
+
+#[tokio::test]
 async fn concurrent_resets_serialize_and_only_consume_the_last_credit_once() {
     let context = QuotaTestContext::new_blocking_reset(1).await;
     let first_service = Arc::clone(&context.service);

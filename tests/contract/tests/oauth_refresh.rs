@@ -10,8 +10,8 @@ use any2api_domain::{
     RequestsPerMinute,
 };
 use any2api_protocol::{
-    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
-    ProtocolRegistry, ResponsesToChatCompletionsBridge,
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
+    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublicRequest, PublicRequestService, PublishedSnapshot,
@@ -303,6 +303,9 @@ fn protocols() -> Arc<ProtocolRegistry> {
     protocols
         .register(Arc::new(OpenAiChatCompletionsAdapter::new()))
         .expect("Chat Completions adapter");
+    protocols
+        .register(Arc::new(OpenAiImagesAdapter::new()))
+        .expect("Images adapter");
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("Messages adapter");

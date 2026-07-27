@@ -5,6 +5,9 @@ mod handlers;
 mod models;
 mod response;
 
+use any2api_runtime::api::{
+    IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
+};
 use axum::{
     Router,
     extract::DefaultBodyLimit,
@@ -14,27 +17,32 @@ use axum::{
 
 use crate::state::AppState;
 
-/// Upper bound for buffered public request bodies. Large-context requests from
-/// Codex CLI / Claude Code routinely exceed axum's 2 MB default, so the public
-/// ingress accepts up to 32 MiB before rejecting with a protocol-shaped 413.
-const MAX_PUBLIC_REQUEST_BYTES: usize = 32 * 1024 * 1024;
-
 pub(crate) fn routes(state: AppState) -> Router {
+    // Keep text and Images generation JSON at 32 MiB while the authenticated
+    // edit route uses its dedicated media upload limit from Runtime.
+    let standard = Router::new()
+        .route("/", any(error::not_found))
+        .route("/models", get(models::list_models))
+        .route("/responses", post(handlers::responses))
+        .route("/responses/compact", post(handlers::responses_compact))
+        .route("/chat/completions", post(handlers::chat_completions))
+        .route("/images/generations", post(handlers::images_generations))
+        .route("/messages", post(handlers::messages))
+        .route(
+            "/messages/count_tokens",
+            post(handlers::messages_count_tokens),
+        )
+        .layer(DefaultBodyLimit::max(
+            STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
+        ));
+    let image_edits = Router::new()
+        .route("/images/edits", post(handlers::images_edits))
+        .layer(DefaultBodyLimit::max(IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES));
     protected(
-        Router::new()
-            .route("/", any(error::not_found))
-            .route("/models", get(models::list_models))
-            .route("/responses", post(handlers::responses))
-            .route("/responses/compact", post(handlers::responses_compact))
-            .route("/chat/completions", post(handlers::chat_completions))
-            .route("/messages", post(handlers::messages))
-            .route(
-                "/messages/count_tokens",
-                post(handlers::messages_count_tokens),
-            )
+        standard
+            .merge(image_edits)
             .fallback(error::not_found)
-            .method_not_allowed_fallback(error::method_not_allowed)
-            .layer(DefaultBodyLimit::max(MAX_PUBLIC_REQUEST_BYTES)),
+            .method_not_allowed_fallback(error::method_not_allowed),
         state,
     )
 }

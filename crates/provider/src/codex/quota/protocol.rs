@@ -60,6 +60,10 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
     Ok(OAuthQuotaUsage {
         rate_limit,
         reset_credits,
+        billing: None,
+        token_balance: None,
+        subscription_tier: None,
+        account_status: None,
     })
 }
 

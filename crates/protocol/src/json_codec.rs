@@ -99,7 +99,11 @@ pub(crate) fn encode_request(
     payload: AdapterPayload,
     upstream_model: &str,
 ) -> Result<EncodedUpstreamRequest, ProtocolError> {
-    let AdapterPayload::Json(mut value) = payload;
+    let AdapterPayload::Json(mut value) = payload else {
+        return Err(ProtocolError::InvalidPayload(
+            "request body must be JSON".into(),
+        ));
+    };
     let object = value.as_object_mut().ok_or_else(|| {
         ProtocolError::InvalidPayload("request body must be a JSON object".into())
     })?;

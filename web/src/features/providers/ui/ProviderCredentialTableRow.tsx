@@ -1,4 +1,4 @@
-import { ListChecks, Pencil, Trash2 } from "lucide-react";
+import { ListChecks, Pencil, Power, PowerOff, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ProviderCredential } from "../api/provider-credential-contracts";
@@ -14,6 +14,7 @@ export interface ProviderCredentialTableRowProps {
   embedded?: boolean;
   onEdit: (id: string) => void;
   onModels: (id: string) => void;
+  onToggleEnabled: (credential: ProviderCredential) => void;
   onDelete: (credential: ProviderCredential) => void;
 }
 
@@ -24,6 +25,7 @@ export function ProviderCredentialTableRow({
   embedded = false,
   onEdit,
   onModels,
+  onToggleEnabled,
   onDelete,
 }: ProviderCredentialTableRowProps) {
   const proxyLabel = describeProxy(credential.proxyProfileId, proxies);
@@ -77,6 +79,7 @@ export function ProviderCredentialTableRow({
               quiet
               onEdit={onEdit}
               onModels={onModels}
+              onToggleEnabled={onToggleEnabled}
               onDelete={onDelete}
             />
           </div>
@@ -121,6 +124,7 @@ export function ProviderCredentialTableRow({
             pending={pending}
             onEdit={onEdit}
             onModels={onModels}
+            onToggleEnabled={onToggleEnabled}
             onDelete={onDelete}
           />
         </div>
@@ -135,6 +139,7 @@ function CredentialActions({
   quiet = false,
   onEdit,
   onModels,
+  onToggleEnabled,
   onDelete,
 }: {
   credential: ProviderCredential;
@@ -142,37 +147,51 @@ function CredentialActions({
   quiet?: boolean;
   onEdit: (id: string) => void;
   onModels: (id: string) => void;
+  onToggleEnabled: (credential: ProviderCredential) => void;
   onDelete: (credential: ProviderCredential) => void;
 }) {
   return (
     <>
       <RowActionButton
         label={`配置 ${credential.label} 的模型`}
+        title={`配置 ${credential.label} 的模型`}
         disabled={pending}
         quiet={quiet}
         onClick={() => onModels(credential.id)}
       >
         <ListChecks size={quiet ? 12 : 13} />
-        模型
       </RowActionButton>
       <RowActionButton
         label={`编辑 ${credential.label}`}
+        title={`编辑 ${credential.label}`}
         disabled={pending}
         quiet={quiet}
         onClick={() => onEdit(credential.id)}
       >
         <Pencil size={quiet ? 12 : 13} />
-        编辑
+      </RowActionButton>
+      <RowActionButton
+        label={`${credential.enabled ? "停用" : "启用"} ${credential.label}`}
+        title={`${credential.enabled ? "停用" : "启用"} ${credential.label}`}
+        disabled={pending}
+        quiet={quiet}
+        onClick={() => onToggleEnabled(credential)}
+      >
+        {credential.enabled ? (
+          <PowerOff size={quiet ? 12 : 13} />
+        ) : (
+          <Power size={quiet ? 12 : 13} />
+        )}
       </RowActionButton>
       <RowActionButton
         label={`删除 ${credential.label}`}
+        title={`删除 ${credential.label}`}
         disabled={pending}
         quiet={quiet}
         tone="danger"
         onClick={() => onDelete(credential)}
       >
         <Trash2 size={quiet ? 12 : 13} />
-        删除
       </RowActionButton>
     </>
   );

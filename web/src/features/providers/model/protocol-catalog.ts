@@ -6,6 +6,8 @@ export function protocolLabel(protocol: ProtocolDialect): string {
       return "OpenAI Responses";
     case "openai_chat_completions":
       return "OpenAI Chat Completions";
+    case "openai_images":
+      return "OpenAI Images";
     case "codex_backend":
       return "Codex Backend";
     case "anthropic_messages":

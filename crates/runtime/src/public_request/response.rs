@@ -9,7 +9,6 @@ use futures_util::StreamExt;
 use http::{HeaderMap, HeaderName, header};
 use tokio::time::timeout;
 
-pub(super) const MAX_UPSTREAM_JSON_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_CLASSIFIED_ERROR_BYTES: usize = 64 * 1024;
 
 #[derive(Debug)]
@@ -21,6 +20,7 @@ pub(super) enum CollectBodyError {
 pub(super) async fn collect_body(
     mut body: BoxByteStream,
     read_timeout: Duration,
+    max_bytes: usize,
     failure_scope: TransportFailureScope,
 ) -> Result<Bytes, CollectBodyError> {
     let mut collected = BytesMut::new();
@@ -37,7 +37,7 @@ pub(super) async fn collect_body(
             break;
         };
         let chunk = chunk.map_err(CollectBodyError::Transport)?;
-        if collected.len().saturating_add(chunk.len()) > MAX_UPSTREAM_JSON_BYTES {
+        if collected.len().saturating_add(chunk.len()) > max_bytes {
             return Err(CollectBodyError::Public(public_error(
                 PublicErrorCode::UpstreamError,
                 "upstream response exceeded the configured limit",
@@ -180,9 +180,14 @@ mod tests {
         );
         let body: BoxByteStream = Box::pin(stream::iter([Err(expected.clone())]));
 
-        let error = collect_body(body, Duration::from_secs(1), TransportFailureScope::Proxy)
-            .await
-            .expect_err("body must fail");
+        let error = collect_body(
+            body,
+            Duration::from_secs(1),
+            1024,
+            TransportFailureScope::Proxy,
+        )
+        .await
+        .expect_err("body must fail");
 
         match error {
             CollectBodyError::Transport(error) => assert_eq!(error, expected),
@@ -198,6 +203,7 @@ mod tests {
         let error = collect_body(
             body,
             Duration::from_millis(25),
+            1024,
             TransportFailureScope::Endpoint,
         )
         .await

@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use any2api_domain::StreamSettings;
+use any2api_domain::{ProtocolOperation, StreamSettings};
+
+use super::super::execution_limits;
 
 #[derive(Debug)]
 pub(in crate::public_request) struct PrecommitBudget {
@@ -11,11 +13,20 @@ pub(in crate::public_request) struct PrecommitBudget {
 }
 
 impl PrecommitBudget {
-    pub(in crate::public_request) fn from_settings(settings: &StreamSettings) -> Self {
+    pub(in crate::public_request) fn from_settings(
+        operation: ProtocolOperation,
+        settings: &StreamSettings,
+    ) -> Self {
         Self::new(
-            usize::try_from(settings.precommit_max_bytes())
-                .expect("validated precommit byte budget fits usize"),
-            Duration::from_secs(settings.precommit_max_duration_secs()),
+            execution_limits::stream_precommit_bytes(
+                operation,
+                usize::try_from(settings.precommit_max_bytes())
+                    .expect("validated precommit byte budget fits usize"),
+            ),
+            execution_limits::stream_timeout(
+                operation,
+                Duration::from_secs(settings.precommit_max_duration_secs()),
+            ),
         )
     }
 

@@ -15,6 +15,7 @@ import { useOAuthQuotaRefreshAll } from "../model/use-oauth-quota-refresh-all";
 import { OAuthAccounts } from "./OAuthAccounts";
 import { OAuthLoginDrawer } from "./OAuthLogin";
 import { OAuthImportDrawer } from "./OAuthImport";
+import { OAuthInvalidCleanupControl } from "./OAuthInvalidCleanupControl";
 import { OAuthProviderNav } from "./OAuthProviderNav";
 import { Button } from "@/shared/ui/Button";
 import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
@@ -30,6 +31,7 @@ export function OAuthManagement() {
   const selectedProvider = resolveSelectedProvider(searchParams.get("kind"));
   const [loginOpen, setLoginOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [invalidCleanupBusy, setInvalidCleanupBusy] = useState(false);
 
   const counts = useMemo(() => {
     const next = Object.fromEntries(
@@ -116,11 +118,11 @@ export function OAuthManagement() {
     <>
       <Button
         variant="ghost"
-        disabled={quotaRefresh.pending || accounts.isFetching || kindAccounts.length === 0}
-        title={
-          selectedProvider === "grok"
-            ? "每个 unified billing 账号可能发送一次最小 Responses 探测"
-            : undefined
+        disabled={
+          invalidCleanupBusy ||
+          quotaRefresh.pending ||
+          accounts.isFetching ||
+          kindAccounts.length === 0
         }
         onClick={() => void refreshAllQuotas()}
       >
@@ -130,19 +132,34 @@ export function OAuthManagement() {
         />
         {quotaRefresh.pending ? "正在刷新额度" : "刷新全部额度"}
       </Button>
+      <OAuthInvalidCleanupControl
+        key={selectedProvider}
+        provider={selectedProvider}
+        accounts={kindAccounts}
+        disabled={quotaRefresh.pending || accounts.isFetching}
+        onBusyChange={setInvalidCleanupBusy}
+      />
       <Button
         variant="ghost"
-        disabled={accounts.isFetching || !accounts.data}
+        disabled={invalidCleanupBusy || accounts.isFetching || !accounts.data}
         onClick={() => void accounts.refetch()}
       >
         <RefreshCw size={14} className={accounts.isFetching ? "animate-spin" : undefined} />
         刷新
       </Button>
-      <Button variant="secondary" disabled={!accounts.data} onClick={openImport}>
+      <Button
+        variant="secondary"
+        disabled={invalidCleanupBusy || quotaRefresh.pending || !accounts.data}
+        onClick={openImport}
+      >
         <Upload size={14} aria-hidden="true" />
         导入 JSON
       </Button>
-      <Button variant="primary" disabled={!accounts.data} onClick={openLogin}>
+      <Button
+        variant="primary"
+        disabled={invalidCleanupBusy || quotaRefresh.pending || !accounts.data}
+        onClick={openLogin}
+      >
         <LogIn size={14} aria-hidden="true" />
         OAuth认证
       </Button>
@@ -159,6 +176,7 @@ export function OAuthManagement() {
           <OAuthProviderNav
             selected={selectedProvider}
             counts={counts}
+            disabled={invalidCleanupBusy || quotaRefresh.pending}
             onSelect={selectProvider}
           />
         }
@@ -179,6 +197,7 @@ export function OAuthManagement() {
           <OAuthProviderNav
             selected={selectedProvider}
             counts={counts}
+            disabled={invalidCleanupBusy || quotaRefresh.pending}
             onSelect={selectProvider}
           />
         }
@@ -207,6 +226,7 @@ export function OAuthManagement() {
           <OAuthProviderNav
             selected={selectedProvider}
             counts={counts}
+            disabled={invalidCleanupBusy || quotaRefresh.pending}
             onSelect={selectProvider}
           />
         }
@@ -229,7 +249,7 @@ export function OAuthManagement() {
           provider={selectedProvider}
           accounts={kindAccounts}
           configRevision={configuration.configRevision}
-          quotaRefreshPending={quotaRefresh.pending}
+          quotaRefreshPending={quotaRefresh.pending || invalidCleanupBusy}
         />
       </KindSplitLayout>
 

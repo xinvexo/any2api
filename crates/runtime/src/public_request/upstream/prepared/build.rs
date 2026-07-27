@@ -12,7 +12,7 @@ use super::PreparedAttempt;
 use crate::{
     configuration::PublishedSnapshot,
     public_request::{
-        SelectedCandidate,
+        SelectedCandidate, execution_limits,
         response::{internal_error, invalid_request, public_error},
         upstream::failure::AttemptFailure,
     },
@@ -132,7 +132,10 @@ fn build_request<'a>(
             body: encoded.body,
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
-            read_timeout: Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
+            read_timeout: execution_limits::read_timeout(
+                ingress_operation,
+                Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
+            ),
         },
     })
 }

@@ -1,6 +1,6 @@
 # any2api
 
-any2api is a personal, self-hosted AI API aggregation proxy. One process combines Codex, Claude, and Grok API keys and OAuth accounts behind OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages endpoints.
+any2api is a personal, self-hosted AI API aggregation proxy. One process combines Codex, Claude, and Grok API keys and OAuth accounts behind OpenAI Responses, OpenAI Chat Completions, OpenAI Images, and Anthropic Messages endpoints.
 
 The project is intentionally single-node. It does not provide registration, tenants, billing, subscriptions, API key sales, or distributed scheduling.
 
@@ -79,8 +79,12 @@ Clients authenticate with a Gateway API Key using `Authorization: Bearer <key>` 
 - `POST /v1/responses`
 - `POST /v1/responses/compact`
 - `POST /v1/chat/completions`
+- `POST /v1/images/generations`
+- `POST /v1/images/edits`
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
+
+Images generation accepts JSON. Images edits accept JSON references or `multipart/form-data` uploads, and both endpoints support JSON or SSE responses when the configured OpenAI-compatible upstream supports them.
 
 Provider API keys and OAuth accounts remain separate management records, but eligible credentials for the same model and protocol share one runtime routing pool.
 

@@ -67,6 +67,26 @@ async fn dropping_body_releases_once_and_marks_cancellation() {
 }
 
 #[tokio::test]
+async fn terminal_usage_is_settled_once_when_the_body_drops_before_eof() {
+    let (binding, permit) = generation_permit();
+    let upstream: BoxByteStream = Box::pin(
+        stream::iter([Ok(Bytes::from_static(
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"upstream\",\"usage\":{\"input_tokens\":120,\"output_tokens\":30,\"input_tokens_details\":{\"cached_tokens\":80}}}}\n\n",
+        ))])
+        .chain(stream::pending()),
+    );
+    let guarded = guarded_body(upstream, permit)
+        .prime()
+        .await
+        .expect("terminal usage event");
+
+    assert_eq!(binding.token_usage_snapshot(86_400), 0);
+    drop(guarded);
+    assert_eq!(binding.token_usage_snapshot(86_400), 150);
+    assert_eq!(binding.in_flight(), 0);
+}
+
+#[tokio::test]
 async fn empty_stream_fails_before_commit_and_releases() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::empty());

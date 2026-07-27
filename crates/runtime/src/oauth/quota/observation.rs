@@ -1,11 +1,9 @@
 use std::time::Duration;
 
 use any2api_provider::api::{
-    OAuthQuotaUsage, OAuthQuotaUsageParse, OAuthRequestPlan, ProviderDriver, ProviderError,
-    UpstreamResponseMeta,
+    OAuthQuotaUsage, OAuthRequestPlan, ProviderDriver, UpstreamResponseMeta,
 };
 use any2api_transport::api::{TransportManager, TransportProxy};
-use http::StatusCode;
 
 use super::{
     request::{self, OAuthQuotaResponse},
@@ -19,34 +17,25 @@ pub(super) async fn resolve_usage(
     strict_ssrf: bool,
     read_timeout: Duration,
     response: OAuthQuotaResponse,
-    probe_plan: Option<OAuthRequestPlan>,
+    supplement_plan: Option<OAuthRequestPlan>,
 ) -> Result<OAuthQuotaUsage, OAuthQuotaError> {
-    let parsed = driver
-        .parse_oauth_quota_usage(&response_meta(&response), &response.body)
-        .map_err(OAuthQuotaError::Provider)?;
-    match parsed {
-        OAuthQuotaUsageParse::Complete(usage) => Ok(usage),
-        OAuthQuotaUsageParse::ProbeRequired => {
-            let plan = probe_plan.ok_or_else(|| {
-                OAuthQuotaError::Provider(ProviderError::InvalidResponse(
-                    "OAuth quota probe plan is missing".into(),
-                ))
-            })?;
-            let response =
-                request::execute_headers(transport, proxy, strict_ssrf, read_timeout, plan).await?;
-            if !response.status.is_success() && response.status != StatusCode::TOO_MANY_REQUESTS {
-                return Err(OAuthQuotaError::UpstreamRejected(response.status.as_u16()));
-            }
-            driver
-                .parse_oauth_quota_probe(&response_meta(&response))
-                .map_err(OAuthQuotaError::Provider)
-        }
-    }
-}
-
-fn response_meta(response: &OAuthQuotaResponse) -> UpstreamResponseMeta {
-    UpstreamResponseMeta {
+    let response_meta = UpstreamResponseMeta {
         status: response.status,
         headers: response.headers.clone(),
+    };
+    let mut usage = driver
+        .parse_oauth_quota_usage(&response_meta, &response.body)
+        .map_err(OAuthQuotaError::Provider)?;
+    let Some(plan) = supplement_plan else {
+        return Ok(usage);
+    };
+    let response = request::execute(transport, proxy, strict_ssrf, read_timeout, plan).await?;
+    if !response.status.is_success() {
+        return Err(request::rejection(response.status));
     }
+    let supplement = driver
+        .parse_oauth_quota_supplement(&response.body)
+        .map_err(OAuthQuotaError::Provider)?;
+    usage.apply_supplement(supplement);
+    Ok(usage)
 }

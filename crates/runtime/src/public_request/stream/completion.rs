@@ -42,6 +42,7 @@ impl GuardedBody {
                 ),
             }
         }
+        self.token_usage_recorder.take();
         self.permit.take();
     }
 
@@ -50,6 +51,7 @@ impl GuardedBody {
         self.cancellation.cancel();
         self.upstream = Box::pin(futures_util::stream::empty());
         self.health.take();
+        self.token_usage_recorder.take();
         self.permit.take();
     }
 

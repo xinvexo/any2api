@@ -139,6 +139,70 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
 }
 
 #[tokio::test]
+async fn images_stream_uses_its_dedicated_precommit_budget() {
+    let (upstream_address, upstream_request, release) = paused_sse_server(
+        "/v1/images/generations",
+        &[b"event: image_generation.partial_image\ndata: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"aW1hZ2UtcGFydGlhbC1ieXRlcw==\"}\n\n"],
+        &[b"event: image_generation.completed\ndata: {\"type\":\"image_generation.completed\",\"usage\":{\"input_tokens\":2,\"output_tokens\":3}}\n\n"],
+    )
+    .await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision,
+        "OpenAI Images SSE",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_images", None),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "images-stream",
+        "sk-images-stream",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-image-2").await;
+    revision += 1;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "stream.precommit.max_bytes",
+        json!(16),
+    )
+    .await;
+
+    let response = request(
+        app,
+        "/v1/images/generations",
+        json!({"model":"gpt-image-2","stream":true,"prompt":"draw a fox"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_stream_headers(&response);
+    let (first, rest) = read_paused_stream(response, release).await;
+    assert!(first.contains("image_generation.partial_image"));
+    assert!(rest.contains("image_generation.completed"));
+
+    let upstream = upstream_request.await.expect("Images upstream request");
+    assert_eq!(upstream.headers["accept"], "text/event-stream");
+    assert_eq!(upstream.headers["authorization"], "Bearer sk-images-stream");
+    assert_eq!(upstream.body["model"], "gpt-image-2");
+    assert_eq!(upstream.body["stream"], true);
+}
+
+#[tokio::test]
 async fn responses_stream_is_bridged_from_chat_completions_sse() {
     let (upstream_address, upstream_request, release) = paused_sse_server(
         "/v1/chat/completions",

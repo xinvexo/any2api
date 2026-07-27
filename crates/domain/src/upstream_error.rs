@@ -54,6 +54,29 @@ pub enum RetryAfterHint {
     At(SystemTime),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UpstreamQuotaExhaustion {
+    used: u64,
+    limit: u64,
+}
+
+impl UpstreamQuotaExhaustion {
+    #[must_use]
+    pub const fn new(used: u64, limit: u64) -> Self {
+        Self { used, limit }
+    }
+
+    #[must_use]
+    pub const fn used(self) -> u64 {
+        self.used
+    }
+
+    #[must_use]
+    pub const fn limit(self) -> u64 {
+        self.limit
+    }
+}
+
 impl RetryAfterHint {
     #[must_use]
     pub fn delay_from(self, now: SystemTime) -> Duration {
@@ -70,6 +93,7 @@ pub struct UpstreamErrorClassification {
     kind: UpstreamErrorKind,
     retry_safety: RetrySafety,
     retry_after: Option<RetryAfterHint>,
+    quota_exhaustion: Option<UpstreamQuotaExhaustion>,
 }
 
 impl UpstreamErrorClassification {
@@ -83,7 +107,14 @@ impl UpstreamErrorClassification {
             kind,
             retry_safety,
             retry_after,
+            quota_exhaustion: None,
         }
+    }
+
+    #[must_use]
+    pub const fn with_quota_exhaustion(mut self, observation: UpstreamQuotaExhaustion) -> Self {
+        self.quota_exhaustion = Some(observation);
+        self
     }
 
     #[must_use]
@@ -99,5 +130,10 @@ impl UpstreamErrorClassification {
     #[must_use]
     pub const fn retry_after(self) -> Option<RetryAfterHint> {
         self.retry_after
+    }
+
+    #[must_use]
+    pub const fn quota_exhaustion(self) -> Option<UpstreamQuotaExhaustion> {
+        self.quota_exhaustion
     }
 }

@@ -30,6 +30,9 @@ const messages: Record<string, string> = {
   oauth_quota_unsupported: "该 OAuth Provider 不支持额度管理。",
   oauth_quota_reset_unavailable: "当前没有可用的额度重置次数。",
   oauth_quota_timeout: "额度查询超时。",
+  oauth_account_authentication_unverified: "账号认证无法确认：上游返回 401，但 Token 刷新未完成。",
+  oauth_account_authentication_failed: "账号认证已失效：刷新 Token 后仍被上游拒绝。",
+  oauth_account_restricted: "账号访问被上游限制或封禁。",
   oauth_quota_upstream_failed: "上游额度请求失败。",
   oauth_quota_unavailable: "OAuth 额度管理当前不可用。",
 };

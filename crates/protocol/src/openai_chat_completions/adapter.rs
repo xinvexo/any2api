@@ -1,4 +1,5 @@
 use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError};
+use async_trait::async_trait;
 use http::HeaderMap;
 
 use crate::{
@@ -23,12 +24,13 @@ impl OpenAiChatCompletionsAdapter {
     }
 }
 
+#[async_trait]
 impl ProtocolAdapter for OpenAiChatCompletionsAdapter {
     fn dialect(&self) -> ProtocolDialect {
         ProtocolDialect::OpenAiChatCompletions
     }
 
-    fn decode_ingress_request(
+    async fn decode_ingress_request(
         &self,
         request: IngressRequest,
     ) -> Result<DecodedRequest, ProtocolError> {
@@ -100,8 +102,8 @@ mod tests {
     use super::OpenAiChatCompletionsAdapter;
     use crate::api::{IngressRequest, ProtocolAdapter, SseFrame};
 
-    #[test]
-    fn decodes_and_rewrites_chat_completions() {
+    #[tokio::test]
+    async fn decodes_and_rewrites_chat_completions() {
         let adapter = OpenAiChatCompletionsAdapter::new();
         let decoded = adapter
             .decode_ingress_request(IngressRequest {
@@ -111,6 +113,7 @@ mod tests {
                 body: Bytes::from_static(br#"{"model":"public","messages":[]}"#),
                 operation: ProtocolOperation::ChatCompletions,
             })
+            .await
             .expect("request");
         let encoded = adapter
             .encode_upstream_request(

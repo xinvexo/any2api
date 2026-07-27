@@ -27,3 +27,4 @@
 "0026_request_log_client_ip.sql" = "0bf7004ab4d392516f5885a9aaa533ab47bf0a2cc4f8023ad478624abacc7bbe"
 "0027_http_access_logs.sql" = "69047208b0714d34a2388d76ef7d6b0d1ede64a3bdf9787682b01ac1fcae3322"
 "0028_http_access_log_method.sql" = "1e1381500493d1283875a9c4e738e542487ff1fd5b8a9a72da722bc34ed65fa6"
+"0029_openai_images_protocol.sql" = "2016e35418fda8d5cede701374837b91138815621c93e3a406c67c09dd3c17de"

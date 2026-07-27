@@ -52,6 +52,8 @@ struct OAuthAccountResponse {
     available_models: Vec<String>,
     /// Official Codex `chatgpt_plan_type` from the ID Token (pass-through).
     plan_type: Option<String>,
+    /// Safe Grok Build `bot_flag_source` derivation; never exposes JWT claims.
+    bot_flagged: Option<bool>,
     usage: RequestUsageResponse,
 }
 
@@ -90,6 +92,7 @@ impl OAuthAccountResponse {
             models: selected,
             available_models,
             plan_type: snapshot.oauth_plan_label(account.id()),
+            bot_flagged: snapshot.oauth_grok_bot_flag(account.id()),
             usage: upstream_usage::for_id(RoutingCredentialId::oauth_account(account.id()), usage),
         }
     }

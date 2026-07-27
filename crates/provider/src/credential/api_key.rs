@@ -47,6 +47,8 @@ pub(crate) fn endpoint_url(
         ProtocolOperation::Responses => "responses",
         ProtocolOperation::ResponsesCompact => "responses/compact",
         ProtocolOperation::ChatCompletions => "chat/completions",
+        ProtocolOperation::ImagesGenerations => "images/generations",
+        ProtocolOperation::ImagesEdits => "images/edits",
         ProtocolOperation::Messages => "messages",
         ProtocolOperation::MessagesCountTokens => "messages/count_tokens",
     };

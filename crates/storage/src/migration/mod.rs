@@ -20,3 +20,6 @@ mod grok_provider_tests;
 
 #[cfg(test)]
 mod grok_oauth_tests;
+
+#[cfg(test)]
+mod openai_images_tests;

@@ -41,21 +41,33 @@ test("shows and refreshes Grok quota without a reset action", async () => {
   );
 
   const panel = await screen.findByRole("region", { name: "Grok 额度" });
+  const disabledBadge = screen.getByText("已停用");
+  const botIcon = screen.getByRole("img", { name: "机器人账号" });
+  expect(disabledBadge.nextElementSibling).toBe(botIcon);
+  expect(screen.queryByText("Build 已标记")).not.toBeInTheDocument();
   expect(within(panel).queryByRole("button", { name: "重置额度" })).not.toBeInTheDocument();
   expect(within(panel).queryByText("重置次数")).not.toBeInTheDocument();
-  expect(within(panel).getByRole("button", { name: "刷新额度" })).toHaveAttribute(
-    "title",
-    "xAI unified billing 缺少使用率时会发送一次最小 Responses 探测",
-  );
-  expect(screen.getByRole("button", { name: "刷新全部额度" })).toHaveAttribute(
-    "title",
-    "每个 unified billing 账号可能发送一次最小 Responses 探测",
-  );
+  expect(within(panel).getByRole("button", { name: "刷新额度" })).not.toHaveAttribute("title");
+  expect(screen.getByRole("button", { name: "刷新全部额度" })).not.toHaveAttribute("title");
 
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
-  expect(await within(panel).findByText("75%")).toBeInTheDocument();
-  expect(within(panel).getByText("请求限额")).toBeInTheDocument();
-  expect(within(panel).getByText("Token 限额")).toBeInTheDocument();
+  expect(await screen.findByText("Free")).toBeInTheDocument();
+  expect(within(panel).queryByText("Free")).not.toBeInTheDocument();
+  expect(within(panel).queryByText("当前套餐")).not.toBeInTheDocument();
+  expect(within(panel).queryByText("认证状态")).not.toBeInTheDocument();
+  expect(within(panel).queryByText("有效（本次刷新）")).not.toBeInTheDocument();
+  expect(within(panel).queryByText("Build 机器人标记")).not.toBeInTheDocument();
+  expect(within(panel).getByText("BLOCKED_REASON_BILLING")).toBeInTheDocument();
+  expect(within(panel).getByText("BLOCKED_REASON_NO_LOGS")).toBeInTheDocument();
+  expect(screen.getByText("xAI 受限")).toBeInTheDocument();
+  expect(within(panel).getByText("Token 余额 · Free 本地计量")).toBeInTheDocument();
+  expect(within(panel).getByText("1,000,000 / 1,000,000")).toBeInTheDocument();
+  expect(within(panel).queryByText(/已用 0/)).not.toBeInTheDocument();
+  expect(within(panel).queryByText(/滚动 1 天/)).not.toBeInTheDocument();
+  expect(within(panel).queryByText("100%")).not.toBeInTheDocument();
+  expect(within(panel).queryByText("周限额")).not.toBeInTheDocument();
+  expect(within(panel).getByText("$0.00")).toBeInTheDocument();
+  expect(within(panel).queryByText("按量使用")).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "刷新全部额度" }));
   expect(await screen.findByRole("status")).toHaveTextContent(
@@ -72,7 +84,7 @@ function grokAccount() {
     provider_kind: "grok",
     label: "Grok One",
     requests_per_minute: null,
-    enabled: true,
+    enabled: false,
     safe_account_email: null,
     expires_at: null,
     token_version: 1,
@@ -82,6 +94,7 @@ function grokAccount() {
     models: ["grok-4.5"],
     available_models: ["grok-4.5"],
     plan_type: null,
+    bot_flagged: true,
     usage: {
       total_requests: 0,
       successful_requests: 0,
@@ -100,27 +113,27 @@ function grokAccount() {
 function grokQuota() {
   return {
     fetched_at: 1_900_000_000,
-    rate_limit: {
-      allowed: true,
-      limit_reached: false,
-      windows: [
-        {
-          id: "requests",
-          kind: "requests",
-          used_percent: 25,
-          limit_window_seconds: null,
-          reset_after_seconds: 300,
-          reset_at: 1_900_000_300,
-        },
-        {
-          id: "tokens",
-          kind: "tokens",
-          used_percent: 60,
-          limit_window_seconds: null,
-          reset_after_seconds: 300,
-          reset_at: 1_900_000_300,
-        },
-      ],
+    rate_limit: null,
+    billing: {
+      currency: "USD",
+      prepaid_balance_minor: 0,
+      on_demand_used_minor: 0,
+      on_demand_cap_minor: 0,
+      is_unified_billing_user: true,
+    },
+    token_balance: {
+      source: "local",
+      used: 0,
+      limit: 1_000_000,
+      remaining: 1_000_000,
+      window_seconds: 86_400,
+    },
+    subscription_tier: "Free",
+    account_status: {
+      authentication: "valid",
+      user_blocked_reason: "BLOCKED_REASON_BILLING",
+      team_blocked_reasons: ["BLOCKED_REASON_NO_LOGS"],
+      quota_exhaustion: null,
     },
     reset_credits: null,
   };

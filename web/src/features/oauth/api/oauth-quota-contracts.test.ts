@@ -45,18 +45,81 @@ describe("OAuth quota contracts", () => {
         availableCount: 2,
         expiresAt: ["2026-07-30T00:00:00Z"],
       },
+      billing: null,
+      tokenBalance: null,
+      subscriptionTier: null,
+      accountStatus: null,
     });
   });
 
-  it("preserves an unknown Grok quota period without inventing reset data", () => {
+  it("parses Grok billing amounts and the current subscription tier", () => {
+    const parsed = parseOAuthQuotaSnapshot({
+      fetched_at: 1_900_000_000,
+      rate_limit: null,
+      reset_credits: null,
+      billing: {
+        currency: "USD",
+        prepaid_balance_minor: -2500,
+        on_demand_used_minor: 125,
+        on_demand_cap_minor: 5000,
+        is_unified_billing_user: true,
+      },
+      token_balance: {
+        source: "local",
+        used: 150_000,
+        limit: 1_000_000,
+        remaining: 850_000,
+        window_seconds: 86_400,
+      },
+      subscription_tier: "SuperGrokPro",
+      account_status: {
+        authentication: "valid",
+        user_blocked_reason: "BLOCKED_REASON_BILLING",
+        team_blocked_reasons: ["BLOCKED_REASON_NO_LOGS"],
+        quota_exhaustion: {
+          observed_at: 1_900_000_000,
+          used: 1_065_387,
+          limit: 1_000_000,
+        },
+      },
+    });
+
+    expect(parsed.billing).toEqual({
+      currency: "USD",
+      prepaidBalanceMinor: -2500,
+      onDemandUsedMinor: 125,
+      onDemandCapMinor: 5000,
+      isUnifiedBillingUser: true,
+    });
+    expect(parsed.tokenBalance).toEqual({
+      source: "local",
+      used: 150_000,
+      limit: 1_000_000,
+      remaining: 850_000,
+      windowSeconds: 86_400,
+    });
+    expect(parsed.subscriptionTier).toBe("SuperGrokPro");
+    expect(parsed.accountStatus).toEqual({
+      authentication: "valid",
+      userBlockedReason: "BLOCKED_REASON_BILLING",
+      teamBlockedReasons: ["BLOCKED_REASON_NO_LOGS"],
+      quotaExhaustion: {
+        observedAt: 1_900_000_000,
+        used: 1_065_387,
+        limit: 1_000_000,
+      },
+    });
+  });
+
+  it("preserves a Grok credit window without inventing reset data", () => {
     const parsed = parseOAuthQuotaSnapshot({
       fetched_at: 1_900_000_000,
         rate_limit: {
           allowed: true,
           limit_reached: false,
           windows: [{
-            id: "requests",
-            kind: "requests",
+            id: "weekly_credits",
+            kind: "credits",
             used_percent: 25,
             limit_window_seconds: null,
             reset_after_seconds: null,
@@ -67,8 +130,8 @@ describe("OAuth quota contracts", () => {
     });
 
     expect(parsed.rateLimit?.windows[0]).toEqual({
-      id: "requests",
-      kind: "requests",
+      id: "weekly_credits",
+      kind: "credits",
       usedPercent: 25,
       limitWindowSeconds: null,
       resetAfterSeconds: null,
@@ -115,6 +178,20 @@ describe("OAuth quota contracts", () => {
         fetched_at: 1,
         rate_limit: null,
         reset_credits: { available_count: 1, expires_at: "secret" },
+      }),
+    ).toThrow("invalid OAuth quota response");
+    expect(() =>
+      parseOAuthQuotaSnapshot({
+        fetched_at: 1,
+        rate_limit: null,
+        reset_credits: null,
+        billing: {
+          currency: "USD",
+          prepaid_balance_minor: Number.MAX_SAFE_INTEGER + 1,
+          on_demand_used_minor: null,
+          on_demand_cap_minor: null,
+          is_unified_billing_user: true,
+        },
       }),
     ).toThrow("invalid OAuth quota response");
   });

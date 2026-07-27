@@ -2,6 +2,7 @@ export type ProviderKind = "codex" | "claude" | "grok";
 export type ProtocolDialect =
   | "openai_responses"
   | "openai_chat_completions"
+  | "openai_images"
   | "codex_backend"
   | "anthropic_messages";
 
@@ -165,6 +166,7 @@ function readProtocolDialect(value: unknown): ProtocolDialect {
   if (
     value !== "openai_responses" &&
     value !== "openai_chat_completions" &&
+    value !== "openai_images" &&
     value !== "codex_backend" &&
     value !== "anthropic_messages"
   ) {

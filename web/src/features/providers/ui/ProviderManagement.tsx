@@ -152,6 +152,23 @@ export function ProviderManagement() {
     closeEditor(editorId);
   }
 
+  function toggleEndpoint(endpoint: ProviderEndpoint) {
+    mutations.update.reset();
+    mutations.update.mutate({
+      id: endpoint.id,
+      input: {
+        expectedRevision: configuration.configRevision,
+        expectedConfigVersion: endpoint.configVersion,
+        name: endpoint.name,
+        providerKind: endpoint.providerKind,
+        baseUrl: endpoint.baseUrl,
+        protocolDialect: endpoint.protocolDialect,
+        upstreamProtocolDialect: endpoint.upstreamProtocolDialect,
+        enabled: !endpoint.enabled,
+      },
+    });
+  }
+
   function confirmDelete() {
     if (!deleteTarget) {
       return;
@@ -183,10 +200,11 @@ export function ProviderManagement() {
         configuration={configuration}
         pending={mutations.isPending}
         refreshing={endpoints.isFetching}
-        actionError={mutations.remove.error}
+        actionError={mutations.remove.error ?? (editorId === null ? mutations.update.error : null)}
         onCreate={(kind) => openEditor("new", kind)}
         onRefresh={() => void endpoints.refetch()}
         onEdit={openEditor}
+        onToggleEnabled={toggleEndpoint}
         onDelete={setDeleteTarget}
       />
 

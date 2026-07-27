@@ -83,6 +83,7 @@ function claudeAccount() {
     models: ["claude-sonnet-4-5"],
     available_models: ["claude-sonnet-4-5"],
     plan_type: null,
+    bot_flagged: null,
     usage: {
       total_requests: 0,
       successful_requests: 0,

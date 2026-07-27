@@ -1,4 +1,4 @@
-import { ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, Pencil, Plus, Power, PowerOff, Trash2 } from "lucide-react";
 
 import type { ProviderEndpoint } from "../api/provider-contracts";
 import { protocolLabel } from "../model/protocol-catalog";
@@ -19,6 +19,7 @@ export interface ProviderEndpointTableRowProps {
   onToggle: () => void;
   onEdit: (id: string) => void;
   onCreateCredential: (endpointId: string) => void;
+  onToggleEnabled: (endpoint: ProviderEndpoint) => void;
   onDelete: (endpoint: ProviderEndpoint) => void;
 }
 
@@ -29,6 +30,7 @@ export function ProviderEndpointTableRow({
   onToggle,
   onEdit,
   onCreateCredential,
+  onToggleEnabled,
   onDelete,
 }: ProviderEndpointTableRowProps) {
   const accepted = protocolLabel(endpoint.protocolDialect);
@@ -86,24 +88,34 @@ export function ProviderEndpointTableRow({
         <RowActionButton
           quiet
           label={`新增 ${endpoint.name} 的 API Key`}
+          title={`新增 ${endpoint.name} 的 API Key`}
           disabled={pending}
           onClick={() => onCreateCredential(endpoint.id)}
         >
           <Plus size={12} />
-          新增
         </RowActionButton>
         <RowActionButton
           quiet
           label={`编辑 ${endpoint.name}`}
+          title={`编辑 ${endpoint.name}`}
           disabled={pending}
           onClick={() => onEdit(endpoint.id)}
         >
           <Pencil size={12} />
-          编辑
+        </RowActionButton>
+        <RowActionButton
+          quiet
+          label={`${endpoint.enabled ? "停用" : "启用"} ${endpoint.name}`}
+          title={`${endpoint.enabled ? "停用" : "启用"} ${endpoint.name}`}
+          disabled={pending}
+          onClick={() => onToggleEnabled(endpoint)}
+        >
+          {endpoint.enabled ? <PowerOff size={12} /> : <Power size={12} />}
         </RowActionButton>
         <RowActionButton
           quiet
           label={`删除 ${endpoint.name}`}
+          title={`删除 ${endpoint.name}`}
           disabled={pending}
           tone="danger"
           onClick={() => onDelete(endpoint)}

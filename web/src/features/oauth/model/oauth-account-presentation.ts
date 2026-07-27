@@ -1,4 +1,5 @@
 import type { OAuthAccount } from "../api/oauth-contracts";
+import type { OAuthQuotaAccountStatus } from "../api/oauth-quota-contracts";
 
 /** Neutral chip (plan tier, region, …) or warning (disabled / expired). */
 export type OAuthAccountBadgeTone = "neutral" | "warning";
@@ -18,7 +19,7 @@ export interface OAuthAccountMetric {
 
 /**
  * Provider-agnostic view model for OAuth account cards and drawers.
- * Codex/Claude only differ by how fields map into badges/metrics —
+ * Providers only differ by how fields map into badges/metrics —
  * the card chrome stays the same.
  */
 export interface OAuthAccountPresentation {
@@ -33,19 +34,27 @@ export interface OAuthAccountPresentation {
 
 export function presentOAuthAccount(
   account: OAuthAccount,
+  subscriptionTier: string | null = null,
+  accountStatus: OAuthQuotaAccountStatus | null = null,
   nowSeconds: number = Math.floor(Date.now() / 1_000),
 ): OAuthAccountPresentation {
   const expired = account.expiresAt !== null && account.expiresAt <= nowSeconds;
   const badges: OAuthAccountBadge[] = [];
 
-  // Official provider plan/tier string when present (Codex: chatgpt_plan_type, others later).
-  if (account.planType) {
-    badges.push({ key: "plan", label: account.planType, tone: "neutral" });
+  const planType = subscriptionTier ?? account.planType;
+  if (planType) {
+    badges.push({ key: "plan", label: planType, tone: "neutral" });
   }
   if (!account.enabled) {
     badges.push({ key: "disabled", label: "已停用", tone: "warning" });
   } else if (expired) {
     badges.push({ key: "expired", label: "已过期", tone: "warning" });
+  }
+  if (account.botFlagged === true) {
+    badges.push({ key: "bot-flagged", label: "机器人账号", tone: "warning" });
+  }
+  if (accountStatus?.userBlockedReason) {
+    badges.push({ key: "upstream-restricted", label: "xAI 受限", tone: "warning" });
   }
 
   const metrics: OAuthAccountMetric[] = [

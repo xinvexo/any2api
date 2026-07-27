@@ -11,7 +11,7 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsageParse, OAuthRequestPlan,
+        OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthRequestPlan,
         OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
     credential::api_key,
@@ -170,8 +170,8 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         _meta: &UpstreamResponseMeta,
         body: &[u8],
-    ) -> Result<OAuthQuotaUsageParse, ProviderError> {
-        claude_quota::parse_usage(body).map(OAuthQuotaUsageParse::Complete)
+    ) -> Result<OAuthQuotaUsage, ProviderError> {
+        claude_quota::parse_usage(body)
     }
 
     fn classify_error(

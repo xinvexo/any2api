@@ -7,7 +7,7 @@ use any2api_transport::api::{TransportFailureScope, TransportManager};
 use tokio::time::{Instant, timeout};
 
 use super::{
-    PublicResponse, affinity,
+    PublicResponse, affinity, execution_limits,
     planning::PlannedRequest,
     response::public_error,
     upstream::{self, AttemptFailure},
@@ -27,7 +27,7 @@ pub(super) async fn execute(
     recorder: RequestRecorder,
 ) -> Result<PublicResponse, PublicError> {
     let policy = snapshot.reliability_policy();
-    let mut budget = RetryBudget::new(policy);
+    let mut budget = RetryBudget::new(policy, plan.decoded.operation);
     let mut exclusions = CandidateExclusions::default();
     let mut previous_error = None;
     let mut oauth_refresh_attempted = false;
@@ -200,10 +200,11 @@ struct RetryBudget {
 }
 
 impl RetryBudget {
-    fn new(policy: ReliabilityPolicy) -> Self {
+    fn new(policy: ReliabilityPolicy, operation: any2api_domain::ProtocolOperation) -> Self {
         Self {
             policy,
-            deadline: Instant::now() + policy.precommit_total_budget,
+            deadline: Instant::now()
+                + execution_limits::retry_budget(operation, policy.precommit_total_budget),
             attempts: 0,
             switches: 0,
             last_credential: None,

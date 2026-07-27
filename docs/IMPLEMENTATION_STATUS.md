@@ -1,12 +1,12 @@
 # any2api 实施状态
 
-> 最后更新：2026-07-26
+> 最后更新：2026-07-27
 > 用途：简要记录已经完成的代码、当前边界和下一步顺序。架构真相仍以根目录 `ARCHITECTURE.md` 为准。
 
 ## 当前状态
 
-- 当前阶段：API Key 数据面、OpenAI 协议桥、三 Provider OAuth2 核心链路、OAuth JSON 原子导入、三 Provider 额度查询、全局公开模型允许列表、可信客户端 IP 请求日志、完整 HTTP 系统日志、管理 Web 和真实二进制浏览器验收均已完成；剩余发布验收主要依赖真实上游账号与真实反代环境。
-- 最近完成：新增独立 `HttpAccessLog`，覆盖所有到达 Axum 的 API、管理面、健康检查和 Web 请求；保存客户端实际 URI path（不含 query），Web“系统日志”支持固定 5 秒周期的自动刷新 Switch 和通过有序 writer 命令手动清理历史。
+- 当前阶段：API Key 数据面、OpenAI 协议桥与 Images API、三 Provider OAuth2 核心链路、OAuth JSON 原子导入、三 Provider 额度查询、全局公开模型允许列表、可信客户端 IP 请求日志、完整 HTTP 系统日志、管理 Web 和真实二进制浏览器验收均已完成；剩余发布验收主要依赖真实上游账号与真实反代环境。
+- 最近完成：接入 OpenAI Images 生成与编辑 API，支持 JSON、multipart 和 SSE，并为图片上传、base64 响应及长耗时请求设置独立缓冲和执行预算；同时保留文本链路既有限制。
 - 阶段 0 基线：`6b7d00f chore: scaffold any2api phase 0`。
 - ProviderEndpoint 切片：`08e4913 feat: add provider endpoint configuration`。
 - Secret Vault 切片：`e71b8b9 feat: add versioned secret vault`。
@@ -434,9 +434,9 @@
 - 刷新响应省略到期时间时继续使用 SQLite 账号的旧到期边界，禁止把有限 Token 误变成永不过期；Token Endpoint 和数据面始终使用 DIRECT/全局代理，失败无隐式直连回退。Worker 在 Draining 退出，已经进入串行发布的 CAS 按关键任务边界完成或在 Forced 取消。
 - Codex OAuth 账号新增 `GET /api/admin/oauth/accounts/{id}/quota` 与 `POST /api/admin/oauth/accounts/{id}/quota/reset`；Provider 固定调用 ChatGPT `wham/usage`、reset-credit 查询和 consume Endpoint，Runtime 复用 OAuth 代理/严格 SSRF、401 单次刷新和有界正文读取。
 - 重置前由服务端重新查询 `available_count`，无可用次数时返回结构化 409，不能仅依赖浏览器旧状态；每个账号的 reset 操作串行化，成功消费后只清除该账号当前 generation 的额度/限流临时冷却并唤醒 scheduler，不清除认证错误或其他账号状态。
-- 通用额度响应使用带稳定 ID 的窗口列表，只返回已验证的使用率、窗口维度、重置时间、可选全局状态和 Codex reset credit，不写入 OAuth JSON、SQLite、RequestLog、日志或浏览器持久存储。Codex 支持查询与重置；Claude 显示 5 小时、7 天及可选模型窗口；Grok 显示 credits 或探测得到的 requests/tokens 窗口。
-- OAuth 账号集合已移除客户端分页，改用共享响应式 `VirtualGrid` 按动态网格行渲染完整 Provider 集合；Codex、Claude 与 Grok 页面都提供“刷新全部额度”，覆盖禁用和离屏账号，最多 6 并发并汇总部分失败。额度 Query cache、批量进度与 reset mutation pending 独立于虚拟行挂载，滚动卸载不会取消批量请求，reset 后读取失败也不会保留旧快照。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
-- React `/oauth` 已接入账号列表、标签/可选 RPM/启停编辑、可搜索模型多选与保存、删除确认、JSON 导入、三 Provider 额度、过期提示和 URL deep link；Token 与原始 JSON 不进入管理响应或浏览器持久状态。真实 Chromium 使用假 Token 经真实导入、SQLite 和发布链覆盖桌面/390px 编辑、模型保存后刷新、删除确认、deep link、额度控件和无横向溢出。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
+- 通用额度响应使用带稳定 ID 的窗口列表，只返回已验证的使用率、窗口维度、重置时间、可选全局状态、Token 余额来源和 Codex reset credit，不写入 OAuth JSON、SQLite、RequestLog、日志或浏览器持久存储。Codex 支持查询与重置；Claude 显示 5 小时、7 天及可选模型窗口；Grok 显示官方套餐、credits/billing 信息，以及官方 Free 余额缺失时明确标注的本地 1M 滚动 24 小时 Token 计量。
+- OAuth 账号集合已移除客户端分页，改用共享响应式 `VirtualGrid` 按动态网格行渲染完整 Provider 集合；Codex、Claude 与 Grok 页面都提供“刷新全部额度”，覆盖禁用和离屏账号，最多 6 并发并汇总部分失败。页面同时提供“删除失效账号”：只把刷新 Token 后仍明确返回认证失败的账号列入确认集合，其他错误保留，检测后 Token 版本变化则跳过；删除串行复用现有 revisioned API。额度 Query cache、批量进度与 reset mutation pending 独立于虚拟行挂载，滚动卸载不会取消批量请求，reset 后读取失败也不会保留旧快照。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
+- React `/oauth` 已接入账号列表、标签/可选 RPM/启停编辑、可搜索模型多选与保存、单账号及失效批量删除确认、JSON 导入、三 Provider 额度、过期提示和 URL deep link；Token 与原始 JSON 不进入管理响应或浏览器持久状态。真实 Chromium 使用假 Token 经真实导入、SQLite 和发布链覆盖桌面/390px 编辑、模型保存后刷新、删除确认、deep link、额度控件和无横向溢出。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
 ### Grok Provider 与 OAuthAccount 切片
 
@@ -454,7 +454,7 @@
 
 - `POST /api/admin/oauth/import` 接受最多 32 个 JSON 文件和单文件多账号 envelope，兼容已审计的 CLIProxyAPI/Sub2API Codex、Claude 与 xAI/Grok OAuth 结构；全部账号先规范化，再在一个 SQLite 事务、一次 revision 和一次快照切换中原子发布。
 - 上传文件只存在于导入抽屉局部状态，提交开始、失败、关闭或卸载都会清空；服务端不保留文件副本，不提供 OAuth JSON 读取、下载或导出端点。
-- Grok 先读取 xAI unified billing；缺少权威百分比时发送一次最小 Responses 探测并只读取额度 Header。Claude 固定读取 Anthropic OAuth usage 并保留全部有效窗口；两者均只读且不提供 reset。
+- Grok 固定读取 xAI billing 与实时 subscription；缺少权威 Free 余额时使用当前进程观察到的真实响应 usage 做本地 1M 滚动 24 小时计量，禁止发送生成请求探测或把推理限流 Header 冒充余额。Claude 固定读取 Anthropic OAuth usage 并保留全部有效窗口；两者均只读且不提供 reset。
 - Provider、Runtime、Storage、HTTP、Web 与真实浏览器测试覆盖外部 JSON 解析、整批回滚、脱敏 DTO、额度窗口解析、代理/401 刷新边界和账号管理工作流。完整决策见 ADR-0044、ADR-0045 与 ADR-0046。
 
 ### Feature-first 目录收敛切片
@@ -462,6 +462,15 @@
 - Domain、Protocol、Provider、Runtime、Storage、Server、Transport、App 与 xtask 已按 feature/工作流归档；crate 根目录只保留稳定入口、一级领域地图和少量跨 feature 基础类型。
 - Runtime OAuth 分为 login/import/quota/refresh，Server OAuth 分为 account/login/import/quota；请求日志仓储、Responses → Chat 请求转换和 Reqwest Transport 已按职责拆分。
 - 已无含义不明的生产 `service.rs`、`manager.rs`、`utils.rs` 或 `common.rs`，也无旧式 `#[path = "...tests.rs"]`；源文件体积 allowlist 为空。完整决策见 ADR-0047。
+
+### OpenAI Images API 与媒体缓冲切片
+
+- 新增独立 `openai_images` 方言与 `images_generations`、`images_edits` 操作，公开注册 `POST /v1/images/generations` 和 `POST /v1/images/edits`。
+- 生成支持 JSON；编辑支持 JSON 图片引用和 multipart 文件上传。multipart 由协议层结构化解析并重新编码，保留未知字段、字段顺序、重复 `image[]`、文件字节与安全 Part Header，同时只替换已发布的上游模型。
+- Images 支持 JSON/SSE usage 遥测、OpenAI 错误 envelope、Gateway Key 剥离和既有 Route/RPM/代理/健康/重试/粘性/流式生命周期；不新增图片专用调度器或跨协议 Bridge。
+- Codex/OpenAI API Key Driver 声明 `images/generations` 与 `images/edits` 固定路径和 Images 能力；Codex OAuth、Claude 与 Grok 当前明确不声明该能力，避免把不兼容的上游图片契约误报为 OpenAI Images。
+- 编辑请求上限为 `512 MiB`；Images buffered 响应上限为 `512 MiB`；单个 SSE 帧和首个预提交事件上限为 `128 MiB`。Images 等待、读取、流式和重试预算至少为 `180s`，普通文本路径仍保持原有 `32 MiB`/`16 MiB` 限制与超时。
+- Rust/HTTP 契约覆盖 JSON、multipart、SSE、二进制图片响应、大响应边界、模型替换、敏感 Header 过滤和提交前重试；完整决策见 `docs/adr/0054-openai-images-api.md`。
 
 ## 当前边界
 
@@ -505,4 +514,4 @@ pnpm check:embedded
 pnpm test:e2e
 ```
 
-当前 Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex/Claude/Grok 额度管理、全局公开模型允许列表、可信客户端 IP 请求日志、完整 HTTP 系统日志、统一凭据请求时间窗口与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）和架构检查。Web 已通过 typecheck、lint、50 个文件共 154 项 Vitest、production build、内嵌产物一致性检查与 6 项真实 Chromium E2E。回归覆盖 Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝、Vault AAD、模型允许列表裁剪、直连/可信代理/欺骗与无效转发头、migration 16→28、完整 Provider/OAuth/RequestLog 引用图保留、凭据统计固定时间桶与浮层交互、原始 HTTP path、响应 Body 结算、系统日志自动轮询排除、虚拟滚动和有序清理。
+当前 OpenAI Images API、Grok API Key Provider、OAuthAccount 统一路由、自动刷新、401 恢复、Codex/Claude/Grok 额度管理、全局公开模型允许列表、可信客户端 IP 请求日志、完整 HTTP 系统日志、统一凭据请求时间窗口与管理 Web 已通过 Rust fmt、workspace 严格 clippy、workspace 全特性测试（含 doc tests）、release build 和架构检查。Web 已通过 typecheck、lint、55 个文件共 170 项 Vitest、production build 与内嵌产物一致性检查；既有 6 项真实 Chromium E2E 保持为上一轮发布验收结果。回归覆盖 Images JSON/multipart/SSE、专用缓冲与超时、Driver/Registry、Device Authorization 请求与轮询分类、Bearer 数据面认证、协议能力、Endpoint 管理、OAuth 拒绝及失效清理、Vault AAD、模型允许列表裁剪、直连/可信代理/欺骗与无效转发头、migration 16→29、完整 Provider/OAuth/RequestLog 引用图保留、凭据统计固定时间桶与浮层交互、原始 HTTP path、响应 Body 结算、系统日志自动轮询排除、虚拟滚动和有序清理。

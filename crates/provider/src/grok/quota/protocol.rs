@@ -1,7 +1,7 @@
-//! xAI CLI subscription billing quota contract.
+//! xAI CLI subscription billing and tier contracts.
 
 use any2api_domain::ProviderKind;
-use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
+use http::{HeaderValue, Method, header};
 use serde::Deserialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
@@ -9,16 +9,17 @@ use url::Url;
 use crate::grok::oauth;
 use crate::{
     OAuthRequestPlan, OAuthTokenMaterial, ProviderError,
-    api::UpstreamResponseMeta,
     oauth::quota::{
-        OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaUsage, OAuthQuotaUsageParse,
-        OAuthQuotaWindow, OAuthQuotaWindowKind,
+        OAuthLocalTokenQuotaPolicy, OAuthQuotaBilling, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
+        OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
     },
 };
 
 const BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
-const PROBE_URL: &str = "https://cli-chat-proxy.grok.com/v1/responses";
-const PROBE_MODEL: &str = "grok-4.5";
+const SUBSCRIPTION_URL: &str = "https://cli-chat-proxy.grok.com/v1/user?include=subscription";
+const MAX_SAFE_INTEGER_MINOR: u64 = 9_007_199_254_740_991;
+const FREE_TOKEN_LIMIT: u64 = 1_000_000;
+const FREE_TOKEN_WINDOW_SECONDS: u64 = 86_400;
 
 pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPlan, ProviderError> {
     if token.provider() != ProviderKind::Grok {
@@ -26,212 +27,267 @@ pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPl
             "OAuth token provider does not match Grok quota".into(),
         ));
     }
-    let mut billing_headers = oauth::credential_headers(token)?.headers;
-    billing_headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
-    billing_headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
+    let account_id = token.account_id().ok_or_else(|| {
+        ProviderError::InvalidCredential("Grok OAuth subject is required for quota".into())
+    })?;
+    let mut headers = oauth::credential_headers(token)?.headers;
+    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    headers.insert(
+        "x-userid",
+        HeaderValue::from_str(account_id).map_err(|_| {
+            ProviderError::InvalidCredential("Grok OAuth subject is invalid".into())
+        })?,
     );
-    let usage = OAuthRequestPlan {
-        method: Method::GET,
-        url: Url::parse(BILLING_URL)
-            .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?,
-        headers: billing_headers.clone(),
-        body: Vec::new(),
-    };
-    billing_headers.insert(
-        header::ACCEPT,
-        HeaderValue::from_static("application/json, text/event-stream"),
+    headers.insert(
+        "x-grok-client-mode",
+        HeaderValue::from_static("interactive"),
     );
-    let usage_probe = OAuthRequestPlan {
-        method: Method::POST,
-        url: Url::parse(PROBE_URL)
-            .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?,
-        headers: billing_headers,
-        body: serde_json::to_vec(&serde_json::json!({
-            "model": PROBE_MODEL,
-            "input": "hi",
-            "stream": true,
-        }))
-        .map_err(|_| invalid_response("Grok quota probe request is invalid"))?,
-    };
-    Ok(OAuthQuotaQueryPlan::with_usage_probe(usage, usage_probe))
+    let usage = get(BILLING_URL, headers.clone())?;
+    let supplement = get(SUBSCRIPTION_URL, headers)?;
+    Ok(OAuthQuotaQueryPlan::with_supplement(usage, supplement))
 }
 
-pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsageParse, ProviderError> {
+pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError> {
     let payload = serde_json::from_slice::<BillingPayload>(body)
         .map_err(|_| invalid_response("Grok billing response is invalid"))?;
-    let (end, duration) = parse_period(&payload.config.current_period)?;
-    let Some(used_percent) = payload.config.credit_usage_percent else {
-        return Ok(OAuthQuotaUsageParse::ProbeRequired);
+    let config = payload
+        .config
+        .ok_or_else(|| invalid_response("Grok billing config is missing"))?;
+    let monthly_limit = parse_optional_cent(config.monthly_limit.as_ref())?;
+    let legacy_used = parse_optional_cent(config.used.as_ref())?;
+    let prepaid_balance_minor = parse_optional_cent(config.prepaid_balance.as_ref())?;
+    let on_demand_used_minor = parse_optional_cent(config.on_demand_used.as_ref())?;
+    let on_demand_cap_minor = parse_optional_cent(config.on_demand_cap.as_ref())?;
+    let period = parse_period(&config)?;
+    let used_percent = parse_used_percent(config.credit_usage_percent, monthly_limit, legacy_used)?;
+    let rate_limit = match used_percent {
+        Some(used_percent) => {
+            let period =
+                period.ok_or_else(|| invalid_response("Grok billing period is missing"))?;
+            let limit_reached = used_percent >= 100.0;
+            Some(OAuthQuotaRateLimit {
+                allowed: Some(!limit_reached),
+                limit_reached: Some(limit_reached),
+                windows: vec![OAuthQuotaWindow {
+                    id: period.id,
+                    kind: OAuthQuotaWindowKind::Credits,
+                    used_percent,
+                    limit_window_seconds: Some(period.duration),
+                    reset_after_seconds: Some(
+                        u64::try_from(period.end.saturating_sub(unix_now())).unwrap_or_default(),
+                    ),
+                    reset_at: Some(period.end),
+                }],
+            })
+        }
+        None => None,
     };
-    if !used_percent.is_finite() || used_percent < 0.0 {
-        return Err(invalid_response("Grok billing percentage is invalid"));
+    let has_billing = prepaid_balance_minor.is_some()
+        || on_demand_used_minor.is_some()
+        || on_demand_cap_minor.is_some()
+        || config.is_unified_billing_user.is_some();
+    let billing = has_billing.then_some(OAuthQuotaBilling {
+        currency: "USD",
+        prepaid_balance_minor,
+        on_demand_used_minor,
+        on_demand_cap_minor,
+        is_unified_billing_user: config.is_unified_billing_user,
+    });
+    let subscription_tier = non_empty(payload.subscription_tier);
+    if rate_limit.is_none() && billing.is_none() && period.is_none() && subscription_tier.is_none()
+    {
+        return Err(invalid_response("Grok billing fields are missing"));
     }
-    let reset_after_seconds = u64::try_from(end.saturating_sub(unix_now())).unwrap_or_default();
-    let limit_reached = used_percent >= 100.0;
-    Ok(OAuthQuotaUsageParse::Complete(OAuthQuotaUsage {
-        rate_limit: Some(OAuthQuotaRateLimit {
-            allowed: Some(!limit_reached),
-            limit_reached: Some(limit_reached),
-            windows: vec![OAuthQuotaWindow {
-                id: "weekly_credits",
-                kind: OAuthQuotaWindowKind::Credits,
-                used_percent,
-                limit_window_seconds: Some(duration),
-                reset_after_seconds: Some(reset_after_seconds),
-                reset_at: Some(end),
-            }],
-        }),
+    Ok(OAuthQuotaUsage {
+        rate_limit,
         reset_credits: None,
-    }))
+        billing,
+        token_balance: None,
+        subscription_tier,
+        account_status: None,
+    })
 }
 
-pub(crate) fn parse_probe(meta: &UpstreamResponseMeta) -> Result<OAuthQuotaUsage, ProviderError> {
-    let requests = parse_header_window(
-        &meta.headers,
-        "requests",
-        "requests",
-        OAuthQuotaWindowKind::Requests,
-    )?;
-    let tokens = parse_header_window(
-        &meta.headers,
-        "tokens",
-        "tokens",
-        OAuthQuotaWindowKind::Tokens,
-    )?;
-    if requests.is_none() && tokens.is_none() && meta.status != StatusCode::TOO_MANY_REQUESTS {
-        return Err(invalid_response("Grok quota probe headers are missing"));
-    }
-    let limit_reached = meta.status == StatusCode::TOO_MANY_REQUESTS
-        || requests
-            .iter()
-            .chain(tokens.iter())
-            .any(|window| window.used_percent >= 100.0);
-    let windows = [requests, tokens].into_iter().flatten().collect();
-    Ok(OAuthQuotaUsage {
-        rate_limit: Some(OAuthQuotaRateLimit {
-            allowed: Some(!limit_reached),
-            limit_reached: Some(limit_reached),
-            windows,
-        }),
-        reset_credits: None,
+pub(crate) fn local_token_quota_policy(
+    usage: &OAuthQuotaUsage,
+) -> Option<OAuthLocalTokenQuotaPolicy> {
+    usage
+        .subscription_tier
+        .as_deref()
+        .is_some_and(|tier| tier.trim().eq_ignore_ascii_case("free"))
+        .then_some(OAuthLocalTokenQuotaPolicy {
+            limit: FREE_TOKEN_LIMIT,
+            window_seconds: FREE_TOKEN_WINDOW_SECONDS,
+        })
+}
+
+fn get(url: &str, headers: http::HeaderMap) -> Result<OAuthRequestPlan, ProviderError> {
+    Ok(OAuthRequestPlan {
+        method: Method::GET,
+        url: Url::parse(url).map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?,
+        headers,
+        body: Vec::new(),
     })
 }
 
 #[derive(Deserialize)]
 struct BillingPayload {
-    config: BillingConfig,
+    config: Option<BillingConfig>,
+    #[serde(rename = "subscriptionTier")]
+    subscription_tier: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct BillingConfig {
     #[serde(rename = "currentPeriod")]
-    current_period: BillingPeriod,
+    current_period: Option<BillingPeriod>,
     #[serde(rename = "creditUsagePercent")]
     credit_usage_percent: Option<f64>,
+    #[serde(rename = "monthlyLimit")]
+    monthly_limit: Option<Cent>,
+    used: Option<Cent>,
+    #[serde(rename = "onDemandCap")]
+    on_demand_cap: Option<Cent>,
+    #[serde(rename = "onDemandUsed")]
+    on_demand_used: Option<Cent>,
+    #[serde(rename = "prepaidBalance")]
+    prepaid_balance: Option<Cent>,
+    #[serde(rename = "isUnifiedBillingUser")]
+    is_unified_billing_user: Option<bool>,
+    #[serde(rename = "billingPeriodStart")]
+    billing_period_start: Option<String>,
+    #[serde(rename = "billingPeriodEnd")]
+    billing_period_end: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct BillingPeriod {
     #[serde(rename = "type")]
     kind: Option<String>,
-    start: String,
-    end: String,
+    start: Option<String>,
+    end: Option<String>,
 }
 
-fn parse_period(period: &BillingPeriod) -> Result<(i64, u64), ProviderError> {
-    if period.kind.as_deref().is_some_and(|kind| {
-        !kind.eq_ignore_ascii_case("weekly")
-            && !kind.eq_ignore_ascii_case("usage_period_type_weekly")
-    }) {
-        return Err(invalid_response("Grok billing period is not weekly"));
+#[derive(Deserialize)]
+struct Cent {
+    #[serde(default)]
+    val: Option<CentValue>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CentValue {
+    Integer(i64),
+    Text(String),
+}
+
+#[derive(Clone, Copy)]
+struct ParsedPeriod {
+    id: &'static str,
+    duration: u64,
+    end: i64,
+}
+
+fn parse_used_percent(
+    authoritative: Option<f64>,
+    monthly_limit: Option<i64>,
+    legacy_used: Option<i64>,
+) -> Result<Option<f64>, ProviderError> {
+    if let Some(value) = authoritative {
+        if !value.is_finite() || value < 0.0 {
+            return Err(invalid_response("Grok billing percentage is invalid"));
+        }
+        return Ok(Some(value.min(100.0)));
     }
-    let start = parse_timestamp(&period.start)?;
-    let end = parse_timestamp(&period.end)?;
+    match (monthly_limit, legacy_used) {
+        (Some(limit), Some(used)) if limit > 0 && used >= 0 => {
+            Ok(Some((used as f64 / limit as f64 * 100.0).min(100.0)))
+        }
+        (Some(limit), _) if limit < 0 => {
+            Err(invalid_response("Grok billing monthly limit is invalid"))
+        }
+        (_, Some(used)) if used < 0 => Err(invalid_response("Grok billing usage is invalid")),
+        _ => Ok(None),
+    }
+}
+
+fn parse_period(config: &BillingConfig) -> Result<Option<ParsedPeriod>, ProviderError> {
+    let (kind, start, end) = if let Some(period) = &config.current_period {
+        let kind = match period.kind.as_deref().map(str::trim) {
+            Some(value) if value.eq_ignore_ascii_case("WEEKLY") || value.ends_with("_WEEKLY") => {
+                "weekly_credits"
+            }
+            Some(value) if value.eq_ignore_ascii_case("MONTHLY") || value.ends_with("_MONTHLY") => {
+                "monthly_credits"
+            }
+            _ => return Err(invalid_response("Grok billing period type is invalid")),
+        };
+        (
+            kind,
+            period
+                .start
+                .as_deref()
+                .or(config.billing_period_start.as_deref()),
+            period
+                .end
+                .as_deref()
+                .or(config.billing_period_end.as_deref()),
+        )
+    } else if config.billing_period_start.is_some() || config.billing_period_end.is_some() {
+        (
+            "monthly_credits",
+            config.billing_period_start.as_deref(),
+            config.billing_period_end.as_deref(),
+        )
+    } else {
+        return Ok(None);
+    };
+    let start = parse_timestamp(
+        start.ok_or_else(|| invalid_response("Grok billing period is incomplete"))?,
+    )?;
+    let end =
+        parse_timestamp(end.ok_or_else(|| invalid_response("Grok billing period is incomplete"))?)?;
     let duration = end
         .checked_sub(start)
         .filter(|duration| *duration > 0)
         .and_then(|duration| u64::try_from(duration).ok())
         .ok_or_else(|| invalid_response("Grok billing period is invalid"))?;
-    Ok((end, duration))
-}
-
-fn parse_header_window(
-    headers: &HeaderMap,
-    dimension: &str,
-    id: &'static str,
-    kind: OAuthQuotaWindowKind,
-) -> Result<Option<OAuthQuotaWindow>, ProviderError> {
-    let limit = parse_integer_header(headers, &format!("x-ratelimit-limit-{dimension}"))?;
-    let remaining = parse_integer_header(headers, &format!("x-ratelimit-remaining-{dimension}"))?;
-    let (Some(limit), Some(remaining)) = (limit, remaining) else {
-        return if limit.is_none() && remaining.is_none() {
-            Ok(None)
-        } else {
-            Err(invalid_response("Grok quota limit headers are incomplete"))
-        };
-    };
-    if limit == 0 || remaining > limit {
-        return Err(invalid_response("Grok quota limit headers are invalid"));
-    }
-    let reset_at = parse_optional_reset(headers, &format!("x-ratelimit-reset-{dimension}"))?;
-    let reset_after_seconds = reset_at
-        .map(|reset_at| u64::try_from(reset_at.saturating_sub(unix_now())).unwrap_or_default());
-    Ok(Some(OAuthQuotaWindow {
-        id,
-        kind,
-        used_percent: (limit - remaining) as f64 / limit as f64 * 100.0,
-        limit_window_seconds: None,
-        reset_after_seconds,
-        reset_at,
+    Ok(Some(ParsedPeriod {
+        id: kind,
+        duration,
+        end,
     }))
 }
 
-fn parse_integer_header(headers: &HeaderMap, name: &str) -> Result<Option<u64>, ProviderError> {
-    let Some(value) = headers.get(name) else {
-        return Ok(None);
-    };
-    value
-        .to_str()
-        .ok()
-        .and_then(|value| value.trim().parse().ok())
-        .map(Some)
-        .ok_or_else(|| invalid_response("Grok quota integer header is invalid"))
+fn parse_optional_cent(value: Option<&Cent>) -> Result<Option<i64>, ProviderError> {
+    value.map(parse_cent).transpose()
 }
 
-fn parse_optional_reset(headers: &HeaderMap, name: &str) -> Result<Option<i64>, ProviderError> {
-    let Some(value) = headers.get(name) else {
-        return Ok(None);
+fn parse_cent(value: &Cent) -> Result<i64, ProviderError> {
+    let value = match value.val.as_ref() {
+        None => 0,
+        Some(CentValue::Integer(value)) => *value,
+        Some(CentValue::Text(value)) => value
+            .trim()
+            .parse()
+            .map_err(|_| invalid_response("Grok billing amount is invalid"))?,
     };
-    let value = value
-        .to_str()
-        .map(str::trim)
-        .map_err(|_| invalid_response("Grok quota reset header is invalid"))?;
-    let reset_at = value
-        .parse::<i64>()
-        .ok()
-        .map(|timestamp| {
-            if timestamp > 1_000_000_000_000 {
-                timestamp / 1_000
-            } else {
-                timestamp
-            }
-        })
-        .or_else(|| {
-            OffsetDateTime::parse(value, &Rfc3339)
-                .ok()
-                .map(OffsetDateTime::unix_timestamp)
-        })
-        .filter(|timestamp| *timestamp > 0)
-        .ok_or_else(|| invalid_response("Grok quota reset header is invalid"))?;
-    Ok(Some(reset_at))
+    if value.unsigned_abs() > MAX_SAFE_INTEGER_MINOR {
+        return Err(invalid_response("Grok billing amount is unsafe"));
+    }
+    Ok(value)
 }
 
 fn parse_timestamp(value: &str) -> Result<i64, ProviderError> {
     OffsetDateTime::parse(value.trim(), &Rfc3339)
         .map(OffsetDateTime::unix_timestamp)
         .map_err(|_| invalid_response("Grok billing timestamp is invalid"))
+}
+
+fn non_empty(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 fn unix_now() -> i64 {

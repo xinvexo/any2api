@@ -6,6 +6,7 @@ use http::{HeaderValue, header};
 use super::super::{
     PublicResponse, PublicResponseBody,
     affinity::{AffinitySelection, commit_soft_binding_before},
+    execution_limits,
     response::{CollectBodyError, collect_body, sanitize_response_headers},
     stream::{GuardedBody, GuardedBodyParts, PrecommitBudget},
 };
@@ -47,10 +48,19 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     let status = response.status;
     let mut headers = response.headers;
     let read_failure_scope = response.read_failure_scope;
-    let read_timeout =
-        Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs());
+    let read_timeout = execution_limits::read_timeout(
+        prepared.ingress_operation,
+        Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
+    );
     if !status.is_success() {
-        let body = match collect_body(response.body, read_timeout, read_failure_scope).await {
+        let body = match collect_body(
+            response.body,
+            read_timeout,
+            execution_limits::buffered_response_limit(prepared.ingress_operation, false),
+            read_failure_scope,
+        )
+        .await
+        {
             Ok(body) => body,
             Err(CollectBodyError::Transport(error)) => {
                 prepared.transport_failure(&error);
@@ -76,7 +86,10 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         prepared.ingress_operation,
         target.clone(),
     );
-    let precommit_budget = PrecommitBudget::from_settings(services.snapshot.settings().stream());
+    let precommit_budget = PrecommitBudget::from_settings(
+        prepared.ingress_operation,
+        services.snapshot.settings().stream(),
+    );
     let (exchange, permit, health, attempt_recorder) = prepared.take_guards();
     let mut body = GuardedBody::new(
         response.body,
@@ -89,12 +102,15 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             attempt_recorder,
             status_code: status.as_u16(),
             precommit_budget,
-            postcommit_idle_timeout: Duration::from_secs(
-                services
-                    .snapshot
-                    .settings()
-                    .stream()
-                    .postcommit_idle_timeout_secs(),
+            postcommit_idle_timeout: execution_limits::stream_timeout(
+                prepared.ingress_operation,
+                Duration::from_secs(
+                    services
+                        .snapshot
+                        .settings()
+                        .stream()
+                        .postcommit_idle_timeout_secs(),
+                ),
             ),
         },
     )

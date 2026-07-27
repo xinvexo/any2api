@@ -15,6 +15,7 @@ pub use codex::oauth_plan_label as codex_oauth_plan_label;
 pub use credential::ProviderSecret;
 pub use error::ProviderError;
 pub use grok::GrokDriver;
+pub use grok::oauth_bot_flag as grok_oauth_bot_flag;
 pub use oauth::OAuthRoutingProfile;
 pub use oauth::{
     MAX_OAUTH_IMPORT_ACCOUNTS_PER_DOCUMENT, OAuthImportParseError, OAuthImportedAccount,
@@ -25,8 +26,10 @@ pub use oauth::{
     OAuthTokenMaterial, serialize_document,
 };
 pub use oauth::{
-    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
-    OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaUsageParse, OAuthQuotaWindow,
+    OAuthLocalTokenQuotaPolicy, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
+    OAuthQuotaBilling, OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
+    OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement,
+    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
     OAuthQuotaWindowKind,
 };
 pub use registry::ProviderRegistry;

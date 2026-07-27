@@ -218,7 +218,7 @@ mod tests {
         let capabilities = crate::test_support::configuration_capabilities();
         let codex = capabilities.provider_protocol_options(ProviderKind::Codex);
 
-        assert_eq!(codex.len(), 2);
+        assert_eq!(codex.len(), 3);
         assert_eq!(codex[0].accepted_protocol, ProtocolDialect::OpenAiResponses);
         assert_eq!(
             codex[0].upstream_protocols,
@@ -231,6 +231,8 @@ mod tests {
             codex[1].upstream_protocols,
             [ProtocolDialect::OpenAiChatCompletions]
         );
+        assert_eq!(codex[2].accepted_protocol, ProtocolDialect::OpenAiImages);
+        assert_eq!(codex[2].upstream_protocols, [ProtocolDialect::OpenAiImages]);
 
         let grok = capabilities.provider_protocol_options(ProviderKind::Grok);
         assert_eq!(grok.len(), 2);
@@ -241,6 +243,10 @@ mod tests {
                 ProtocolDialect::OpenAiResponses,
                 ProtocolDialect::OpenAiChatCompletions,
             ]
+        );
+        assert!(
+            grok.iter()
+                .all(|option| option.accepted_protocol != ProtocolDialect::OpenAiImages)
         );
     }
 
@@ -254,6 +260,13 @@ mod tests {
                 ProtocolDialect::OpenAiChatCompletions,
             )
             .expect("registered bridge");
+        capabilities
+            .validate_endpoint(
+                ProviderKind::Codex,
+                ProtocolDialect::OpenAiImages,
+                ProtocolDialect::OpenAiImages,
+            )
+            .expect("registered Images adapter and Codex capability");
 
         assert!(matches!(
             capabilities.validate_endpoint(
@@ -268,6 +281,14 @@ mod tests {
                 ProviderKind::Claude,
                 ProtocolDialect::OpenAiResponses,
                 ProtocolDialect::OpenAiResponses,
+            ),
+            Err(ConfigurationCapabilityError::UnsupportedProviderProtocol { .. })
+        ));
+        assert!(matches!(
+            capabilities.validate_endpoint(
+                ProviderKind::Grok,
+                ProtocolDialect::OpenAiImages,
+                ProtocolDialect::OpenAiImages,
             ),
             Err(ConfigurationCapabilityError::UnsupportedProviderProtocol { .. })
         ));

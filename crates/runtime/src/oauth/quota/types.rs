@@ -43,7 +43,11 @@ pub enum OAuthQuotaError {
     ResponseTooLarge,
     #[error("OAuth quota upstream rejected the request with status {0}")]
     UpstreamRejected(u16),
-    #[error("OAuth quota authentication could not be refreshed")]
+    #[error("OAuth account access is restricted by the upstream provider")]
+    AccountRestricted,
+    #[error("OAuth account authentication could not be verified because token refresh failed")]
+    AuthenticationRefreshFailed,
+    #[error("OAuth account was rejected after token refresh")]
     AuthenticationFailed,
     #[error("OAuth account has no available quota reset credits")]
     NoResetCredits,

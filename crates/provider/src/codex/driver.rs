@@ -9,8 +9,8 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthQuotaUsageParse, OAuthRequestPlan, OAuthRoutingProfile,
-        OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        OAuthLoginFlow, OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial,
+        ProviderDriver, UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
@@ -35,6 +35,7 @@ impl CodexDriver {
                 protocols: [
                     ProtocolDialect::OpenAiResponses,
                     ProtocolDialect::OpenAiChatCompletions,
+                    ProtocolDialect::OpenAiImages,
                 ]
                 .into_iter()
                 .collect(),
@@ -70,6 +71,8 @@ impl ProviderDriver for CodexDriver {
             ProtocolOperation::Responses
                 | ProtocolOperation::ResponsesCompact
                 | ProtocolOperation::ChatCompletions
+                | ProtocolOperation::ImagesGenerations
+                | ProtocolOperation::ImagesEdits
         ) {
             return Err(ProviderError::InvalidEndpoint(
                 "operation is not supported by Codex".into(),
@@ -170,8 +173,8 @@ impl ProviderDriver for CodexDriver {
         &self,
         _meta: &UpstreamResponseMeta,
         body: &[u8],
-    ) -> Result<OAuthQuotaUsageParse, ProviderError> {
-        codex_quota::parse_usage(body).map(OAuthQuotaUsageParse::Complete)
+    ) -> Result<OAuthQuotaUsage, ProviderError> {
+        codex_quota::parse_usage(body)
     }
 
     fn parse_oauth_quota_reset_credits(

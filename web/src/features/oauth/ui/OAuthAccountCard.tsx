@@ -1,4 +1,4 @@
-import { Edit3, ListChecks, Trash2 } from "lucide-react";
+import { Bot, Edit3, ListChecks, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { OAuthAccountPresentation } from "../model/oauth-account-presentation";
@@ -51,7 +51,15 @@ export function OAuthAccountCard({
             >
               {presentation.title}
             </h3>
-            {statusBadges.map((badge) => (
+            {statusBadges.map((badge) => badge.key === "bot-flagged" ? (
+              <Bot
+                key={badge.key}
+                size={14}
+                className="shrink-0 text-warning"
+                role="img"
+                aria-label={badge.label}
+              />
+            ) : (
               <span
                 key={badge.key}
                 className="shrink-0 rounded-full bg-warning/12 px-1.5 py-px text-[10px] font-medium leading-4 text-warning"

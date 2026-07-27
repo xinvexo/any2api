@@ -6,9 +6,10 @@ use any2api_domain::{
 use base64::Engine as _;
 use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 
-use super::GrokDriver;
+use super::{GrokDriver, oauth_bot_flag};
 use crate::{
-    OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, ProviderSecret, api::ProviderDriver,
+    OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthTokenMaterial, ProviderSecret,
+    api::ProviderDriver,
 };
 
 #[test]
@@ -53,6 +54,12 @@ fn builds_xai_paths_and_bearer_authentication() {
             .contains(&ProtocolDialect::OpenAiResponses)
     );
     assert!(
+        !driver
+            .capabilities()
+            .protocols
+            .contains(&ProtocolDialect::OpenAiImages)
+    );
+    assert!(
         driver
             .capabilities()
             .transport_modes
@@ -72,6 +79,18 @@ fn rejects_anthropic_operations() {
             .endpoint_plan(&base, ProtocolOperation::Messages)
             .is_err()
     );
+    assert!(
+        driver
+            .endpoint_plan(&base, ProtocolOperation::ImagesGenerations)
+            .is_err()
+    );
+    assert!(
+        driver
+            .endpoint_plan(&base, ProtocolOperation::ImagesEdits)
+            .is_err()
+    );
+    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
+    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
 }
 
 #[test]
@@ -229,7 +248,43 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
         .expect("OAuth headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer access-secret");
     assert_eq!(headers.headers["x-xai-token-auth"], "xai-grok-cli");
-    assert_eq!(headers.headers["x-grok-client-version"], "0.2.93");
-    assert_eq!(headers.headers["user-agent"], "xai-grok-workspace/0.2.93");
+    assert_eq!(headers.headers["x-grok-client-version"], "0.2.112");
+    assert_eq!(headers.headers["user-agent"], "xai-grok-workspace/0.2.112");
     assert!(!format!("{headers:?}").contains("access-secret"));
+}
+
+#[test]
+fn derives_only_the_explicit_numeric_build_bot_flag() {
+    assert_eq!(oauth_bot_flag(&token_with_bot_claim(1)), Some(true));
+    assert_eq!(oauth_bot_flag(&token_with_bot_claim(0)), Some(false));
+    assert_eq!(oauth_bot_flag(&token_with_bot_claim(2)), None);
+
+    let claims =
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(br#"{"bot_flag_source":"1"}"#);
+    let token = OAuthTokenMaterial::new(
+        ProviderKind::Grok,
+        format!("header.{claims}.signature"),
+        None,
+        None,
+        None,
+        Some("subject-1".into()),
+        None,
+    )
+    .expect("token");
+    assert_eq!(oauth_bot_flag(&token), None);
+}
+
+fn token_with_bot_claim(value: i64) -> OAuthTokenMaterial {
+    let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(format!(r#"{{"bot_flag_source":{value}}}"#));
+    OAuthTokenMaterial::new(
+        ProviderKind::Grok,
+        format!("header.{claims}.signature"),
+        None,
+        None,
+        None,
+        Some("subject-1".into()),
+        None,
+    )
+    .expect("token")
 }

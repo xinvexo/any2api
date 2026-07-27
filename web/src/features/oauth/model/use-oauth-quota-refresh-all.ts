@@ -1,9 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
+import { runOAuthQuotaBatch } from "./oauth-quota-batch";
 import { refreshOAuthAccountQuota } from "./oauth-quota-query";
-
-const MAX_CONCURRENT_QUOTA_REFRESHES = 6;
 
 export interface OAuthQuotaRefreshResult {
   total: number;
@@ -23,25 +22,14 @@ export function useOAuthQuotaRefreshAll() {
     }
     pendingRef.current = true;
     setPending(true);
-    let nextIndex = 0;
-    let failed = 0;
     try {
-      const workers = Array.from(
-        { length: Math.min(MAX_CONCURRENT_QUOTA_REFRESHES, accountIds.length) },
-        async () => {
-          while (nextIndex < accountIds.length) {
-            const accountId = accountIds[nextIndex];
-            nextIndex += 1;
-            try {
-              await refreshOAuthAccountQuota(queryClient, accountId);
-            } catch {
-              failed += 1;
-            }
-          }
-        },
+      const outcomes = await runOAuthQuotaBatch(accountIds, (accountId) =>
+        refreshOAuthAccountQuota(queryClient, accountId),
       );
-      await Promise.all(workers);
-      return { total: accountIds.length, failed };
+      return {
+        total: accountIds.length,
+        failed: outcomes.filter((outcome) => outcome.status === "rejected").length,
+      };
     } finally {
       setPending(false);
       pendingRef.current = false;

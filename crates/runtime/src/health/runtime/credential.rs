@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use any2api_domain::{UpstreamErrorClassification, UpstreamErrorKind};
@@ -23,6 +24,14 @@ struct CredentialHealthState {
     auth_error: bool,
     credential_cooldown_until: Option<Instant>,
     model_cooldowns: HashMap<String, Instant>,
+    quota_exhaustion: Option<CredentialQuotaExhaustion>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CredentialQuotaExhaustion {
+    pub(crate) observed_at: i64,
+    pub(crate) used: Option<u64>,
+    pub(crate) limit: Option<u64>,
 }
 
 impl CredentialHealthRuntime {
@@ -63,8 +72,9 @@ impl CredentialHealthRuntime {
 
     pub(crate) fn clear_temporary_cooldowns(&self) -> bool {
         let mut state = self.state.lock().expect("credential health lock poisoned");
-        let changed =
-            state.credential_cooldown_until.take().is_some() || !state.model_cooldowns.is_empty();
+        let changed = state.credential_cooldown_until.take().is_some()
+            || !state.model_cooldowns.is_empty()
+            || state.quota_exhaustion.take().is_some();
         state.model_cooldowns.clear();
         drop(state);
         self.scheduler_epoch.advance();
@@ -77,6 +87,20 @@ impl CredentialHealthRuntime {
             .lock()
             .expect("credential health lock poisoned")
             .auth_error
+    }
+
+    pub(crate) fn quota_exhaustion(&self) -> Option<CredentialQuotaExhaustion> {
+        self.state
+            .lock()
+            .expect("credential health lock poisoned")
+            .quota_exhaustion
+    }
+
+    pub(crate) fn record_success(&self) {
+        self.state
+            .lock()
+            .expect("credential health lock poisoned")
+            .quota_exhaustion = None;
     }
 
     pub(crate) fn record(
@@ -92,10 +116,22 @@ impl CredentialHealthRuntime {
                 state.auth_error = true;
                 None
             }
-            UpstreamErrorKind::PermissionDenied | UpstreamErrorKind::QuotaExhausted => {
+            UpstreamErrorKind::PermissionDenied => {
                 let until = deadline(now, policy.permission_denied);
                 state.credential_cooldown_until =
                     max_deadline(state.credential_cooldown_until, Some(until));
+                Some(until)
+            }
+            UpstreamErrorKind::QuotaExhausted => {
+                let until = deadline(now, policy.permission_denied);
+                state.credential_cooldown_until =
+                    max_deadline(state.credential_cooldown_until, Some(until));
+                let numeric = classification.quota_exhaustion();
+                state.quota_exhaustion = Some(CredentialQuotaExhaustion {
+                    observed_at: unix_now(),
+                    used: numeric.map(|value| value.used()),
+                    limit: numeric.map(|value| value.limit()),
+                });
                 Some(until)
             }
             UpstreamErrorKind::RateLimited => {
@@ -118,6 +154,14 @@ impl CredentialHealthRuntime {
             schedule_wake(Arc::clone(&self.scheduler_epoch), wake_at);
         }
     }
+}
+
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+        .unwrap_or_default()
 }
 
 fn record_model_cooldown(

@@ -120,6 +120,10 @@ impl PreparedAttempt<'_> {
     }
 
     pub(in crate::public_request::upstream) fn observe_token_usage(&self, usage: TokenUsage) {
+        if let Some(permit) = &self.permit {
+            let mut local = permit.token_usage_recorder();
+            local.observe(usage);
+        }
         if let Some(recorder) = &self.attempt_recorder {
             recorder.observe_token_usage(usage);
         }

@@ -22,6 +22,7 @@ export interface ProviderCredentialListProps {
   onRefresh: () => void;
   onEdit: (id: string) => void;
   onModels: (id: string) => void;
+  onToggleEnabled: (credential: ProviderCredential) => void;
   onDelete: (credential: ProviderCredential) => void;
 }
 
@@ -36,6 +37,7 @@ export function ProviderCredentialList({
   onRefresh,
   onEdit,
   onModels,
+  onToggleEnabled,
   onDelete,
 }: ProviderCredentialListProps) {
   const [query, setQuery] = useState("");
@@ -108,6 +110,7 @@ export function ProviderCredentialList({
               embedded
               onEdit={onEdit}
               onModels={onModels}
+              onToggleEnabled={onToggleEnabled}
               onDelete={onDelete}
             />
           ))}
@@ -135,6 +138,7 @@ export function ProviderCredentialList({
                   pending={pending}
                   onEdit={onEdit}
                   onModels={onModels}
+                  onToggleEnabled={onToggleEnabled}
                   onDelete={onDelete}
                 />
               ))}

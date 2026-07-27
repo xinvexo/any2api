@@ -1,4 +1,6 @@
-use super::{import as grok_import, oauth as grok_oauth, quota as grok_quota};
+use super::{
+    import as grok_import, oauth as grok_oauth, quota as grok_quota, upstream_error as grok_error,
+};
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
 };
@@ -7,12 +9,11 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
-        OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
-        OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthQuotaUsageParse, OAuthRequestPlan,
+        OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLocalTokenQuotaPolicy,
+        OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthRequestPlan,
         OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
     },
     credential::api_key,
-    upstream_error::openai as openai_error,
 };
 use http::HeaderMap;
 
@@ -186,15 +187,22 @@ impl ProviderDriver for GrokDriver {
         &self,
         _meta: &UpstreamResponseMeta,
         body: &[u8],
-    ) -> Result<OAuthQuotaUsageParse, ProviderError> {
+    ) -> Result<OAuthQuotaUsage, ProviderError> {
         grok_quota::parse_usage(body)
     }
 
-    fn parse_oauth_quota_probe(
+    fn parse_oauth_quota_supplement(
         &self,
-        meta: &UpstreamResponseMeta,
-    ) -> Result<OAuthQuotaUsage, ProviderError> {
-        grok_quota::parse_probe(meta)
+        body: &[u8],
+    ) -> Result<crate::api::OAuthQuotaSupplement, ProviderError> {
+        grok_quota::parse_subscription(body)
+    }
+
+    fn oauth_local_token_quota_policy(
+        &self,
+        usage: &OAuthQuotaUsage,
+    ) -> Option<OAuthLocalTokenQuotaPolicy> {
+        grok_quota::local_token_quota_policy(usage)
     }
 
     fn classify_error(
@@ -203,6 +211,6 @@ impl ProviderDriver for GrokDriver {
         meta: &UpstreamResponseMeta,
         bounded_body: &[u8],
     ) -> any2api_domain::UpstreamErrorClassification {
-        openai_error::classify(meta, bounded_body)
+        grok_error::classify(meta, bounded_body)
     }
 }

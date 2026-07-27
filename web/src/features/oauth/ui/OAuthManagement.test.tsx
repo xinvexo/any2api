@@ -27,6 +27,7 @@ test("uses provider grid layout without a main-column session panel", async () =
   expect(screen.getByRole("button", { name: "导入 JSON" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新全部额度" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "删除失效账号" })).toBeDisabled();
   expect(screen.queryByLabelText("每页条数")).not.toBeInTheDocument();
   expect(screen.getByLabelText("账号数量")).toHaveTextContent("共 0 个账号");
 });
@@ -192,6 +193,7 @@ test("switches provider kind and keeps accounts in the content column", async ()
       models: [],
       available_models: ["gpt-5.5"],
       plan_type: "free",
+      bot_flagged: null,
       usage: usage(),
     },
   ]);
@@ -253,6 +255,7 @@ function oauthAccountJson(
           ? ["claude-sonnet-4-5"]
           : ["grok-4.5"],
     plan_type: "free",
+    bot_flagged: providerKind === "grok" ? false : null,
     usage: usage(),
   };
 }

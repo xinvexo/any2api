@@ -109,6 +109,7 @@ function account(label: string, configVersion: number): OAuthAccount {
     models: ["gpt-5.5"],
     availableModels: ["gpt-5.5", "gpt-5.6-luna"],
     planType: "plus",
+    botFlagged: null,
     usage: usageParsed(),
   };
 }
@@ -151,6 +152,7 @@ function accountJson(
     models,
     available_models: ["gpt-5.5", "gpt-5.6-luna"],
     plan_type: "plus",
+    bot_flagged: null,
     usage: usageJson(),
   };
 }

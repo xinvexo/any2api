@@ -30,8 +30,22 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
             "oauth_quota_timeout",
             "the OAuth quota request timed out",
         ),
+        OAuthQuotaError::AuthenticationRefreshFailed => AdminApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "oauth_account_authentication_unverified",
+            "the upstream rejected this OAuth account, but token refresh could not be completed",
+        ),
+        OAuthQuotaError::AuthenticationFailed => AdminApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "oauth_account_authentication_failed",
+            "the upstream rejected this OAuth account after token refresh",
+        ),
+        OAuthQuotaError::AccountRestricted => AdminApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "oauth_account_restricted",
+            "the upstream provider restricted this OAuth account",
+        ),
         OAuthQuotaError::UpstreamRejected(_)
-        | OAuthQuotaError::AuthenticationFailed
         | OAuthQuotaError::ResponseTooLarge
         | OAuthQuotaError::Provider(_)
         | OAuthQuotaError::Transport(_) => {

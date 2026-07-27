@@ -226,6 +226,21 @@ export function ProviderCredentialManagement({
     closeEditor(selected.id);
   }
 
+  function toggleCredential(credential: ProviderCredential) {
+    mutations.update.reset();
+    mutations.update.mutate({
+      id: credential.id,
+      input: {
+        expectedRevision: configuration.configRevision,
+        expectedConfigVersion: credential.configVersion,
+        label: credential.label,
+        proxyProfileId: credential.proxyProfileId,
+        requestsPerMinute: credential.requestsPerMinute,
+        enabled: !credential.enabled,
+      },
+    });
+  }
+
   function confirmDelete() {
     if (!deleteTarget) {
       return;
@@ -271,12 +286,13 @@ export function ProviderCredentialManagement({
           proxies={proxies.data}
           pending={pending}
           refreshing={credentials.isFetching || proxies.isFetching}
-          actionError={mutations.remove.error}
+          actionError={mutations.remove.error ?? (editorId === null ? mutations.update.error : null)}
           embedded={embedded}
           onCreate={() => openEditor("new")}
           onRefresh={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
           onEdit={(id) => openEditor(id)}
           onModels={openModels}
+          onToggleEnabled={toggleCredential}
           onDelete={setDeleteTarget}
         />
       ) : null}

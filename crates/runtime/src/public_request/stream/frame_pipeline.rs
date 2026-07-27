@@ -148,6 +148,9 @@ impl GuardedBody {
         }
         self.request_recorder
             .observe_token_usage(telemetry.token_usage);
+        if let Some(recorder) = &mut self.token_usage_recorder {
+            recorder.observe(telemetry.token_usage);
+        }
         self.pending.push_back(PendingFrame {
             bytes: frame.0,
             has_content_delta: telemetry.has_content_delta,

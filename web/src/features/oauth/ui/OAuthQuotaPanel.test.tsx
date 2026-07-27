@@ -169,6 +169,64 @@ test("clears stale quota after reset refresh failure and recovers on refresh", a
   ).not.toBeInTheDocument();
 });
 
+test("shows only a real Grok exhaustion observation with its actual limit", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => response({
+      fetched_at: 1_900_000_000,
+      rate_limit: null,
+      reset_credits: null,
+      billing: null,
+      token_balance: {
+        source: "upstream",
+        used: 1_065_387,
+        limit: 1_000_000,
+        remaining: 0,
+        window_seconds: null,
+      },
+      subscription_tier: "Free",
+      account_status: {
+        authentication: "valid",
+        user_blocked_reason: null,
+        team_blocked_reasons: [],
+        quota_exhaustion: {
+          observed_at: 1_900_000_000,
+          used: 1_065_387,
+          limit: 1_000_000,
+        },
+      },
+    })),
+  );
+
+  renderGrokPanel();
+  const panel = screen.getByRole("region", { name: "Grok 额度" });
+  fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
+
+  expect(await within(panel).findByText("0 / 1,000,000")).toBeInTheDocument();
+  expect(within(panel).getByText("Token 余额 · 上游真实观测")).toBeInTheDocument();
+  expect(within(panel).queryByText(/已用 1,065,387/)).not.toBeInTheDocument();
+  expect(within(panel).queryByText("xAI 用户限制")).not.toBeInTheDocument();
+  expect(within(panel).queryByText("未报告")).not.toBeInTheDocument();
+  expect(within(panel).queryByText("认证状态")).not.toBeInTheDocument();
+  expect(within(panel).queryByText("100%")).not.toBeInTheDocument();
+});
+
+test("reports a Grok OAuth token rejected after refresh as invalid", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => errorResponse("oauth_account_authentication_failed", 502)),
+  );
+
+  renderGrokPanel();
+  const panel = screen.getByRole("region", { name: "Grok 额度" });
+  fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
+
+  expect(
+    await within(panel).findByText("账号认证已失效：刷新 Token 后仍被上游拒绝。"),
+  ).toBeInTheDocument();
+  expect(within(panel).getByText("额度尚未刷新")).toBeInTheDocument();
+});
+
 function createClient() {
   return new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -182,6 +240,19 @@ function renderPanel(client = createClient()) {
         accountId="account-1"
         accountLabel="Primary Codex"
         provider="codex"
+      />
+      <NotificationHost />
+    </QueryClientProvider>,
+  );
+}
+
+function renderGrokPanel() {
+  return render(
+    <QueryClientProvider client={createClient()}>
+      <OAuthQuotaPanel
+        accountId="grok-1"
+        accountLabel="Grok Free"
+        provider="grok"
       />
       <NotificationHost />
     </QueryClientProvider>,

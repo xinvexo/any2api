@@ -37,6 +37,7 @@ impl AttemptHealth {
     }
 
     pub(crate) fn success(mut self) {
+        self.credential.health().record_success();
         if let Some(endpoint) = self.endpoint.take() {
             endpoint.success(self.started_at);
         }

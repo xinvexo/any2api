@@ -1,4 +1,5 @@
 mod affinity;
+mod execution_limits;
 mod executor;
 mod planning;
 mod response;
@@ -7,6 +8,9 @@ mod selection;
 mod stream;
 mod upstream;
 
+pub use execution_limits::{
+    IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
+};
 pub use executor::{
     PublicRequest, PublicRequestService, PublicRequestServiceError, PublicResponse,
     PublicResponseBody, PublicResponseStream,

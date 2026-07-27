@@ -8,10 +8,16 @@ import { cn } from "@/shared/lib/cn";
 interface OAuthProviderNavProps {
   selected: OAuthProvider;
   counts: Record<OAuthProvider, number>;
+  disabled?: boolean;
   onSelect: (provider: OAuthProvider) => void;
 }
 
-export function OAuthProviderNav({ selected, counts, onSelect }: OAuthProviderNavProps) {
+export function OAuthProviderNav({
+  selected,
+  counts,
+  disabled = false,
+  onSelect,
+}: OAuthProviderNavProps) {
   return (
     <nav aria-label="OAuth2 类型" className="min-w-0">
       {/* Mobile: equal-width segmented control. Desktop: vertical rail. */}
@@ -22,6 +28,7 @@ export function OAuthProviderNav({ selected, counts, onSelect }: OAuthProviderNa
               option={option}
               count={counts[option.provider] ?? 0}
               active={selected === option.provider}
+              disabled={disabled}
               onSelect={onSelect}
             />
           </li>
@@ -35,11 +42,13 @@ function ProviderButton({
   option,
   count,
   active,
+  disabled,
   onSelect,
 }: {
   option: OAuthProviderOption;
   count: number;
   active: boolean;
+  disabled: boolean;
   onSelect: (provider: OAuthProvider) => void;
 }) {
   const Icon = option.icon;
@@ -47,9 +56,11 @@ function ProviderButton({
     <button
       type="button"
       aria-current={active ? "page" : undefined}
+      disabled={disabled}
       onClick={() => onSelect(option.provider)}
       className={cn(
         "focus-ring flex h-9 w-full items-center gap-2 rounded-[10px] px-2.5 text-left transition-colors sm:h-11 sm:gap-2.5 sm:rounded-[12px] sm:px-3",
+        "disabled:pointer-events-none disabled:opacity-50",
         active
           ? "bg-surface text-primary shadow-sm sm:bg-surface-muted sm:shadow-none"
           : "text-secondary hover:bg-surface/70 hover:text-primary sm:hover:bg-surface-muted/70",

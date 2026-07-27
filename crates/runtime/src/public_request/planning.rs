@@ -38,6 +38,7 @@ pub(super) async fn plan(
             body: request.body,
             operation: request.operation,
         })
+        .await
         .map_err(|_| invalid_request("request body is not valid for this endpoint"))?;
     let public_model = decoded
         .model

@@ -32,6 +32,7 @@ interface ProviderEndpointListProps {
   onCreate: (kind: ProviderKind) => void;
   onRefresh: () => void;
   onEdit: (id: string) => void;
+  onToggleEnabled: (endpoint: ProviderEndpoint) => void;
   onDelete: (endpoint: ProviderEndpoint) => void;
 }
 
@@ -43,6 +44,7 @@ export function ProviderEndpointList({
   onCreate,
   onRefresh,
   onEdit,
+  onToggleEnabled,
   onDelete,
 }: ProviderEndpointListProps) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -235,6 +237,7 @@ export function ProviderEndpointList({
                     onToggle={() => toggleExpanded(endpoint.id)}
                     onEdit={onEdit}
                     onCreateCredential={openCreateCredential}
+                    onToggleEnabled={onToggleEnabled}
                     onDelete={onDelete}
                   />
                 </div>

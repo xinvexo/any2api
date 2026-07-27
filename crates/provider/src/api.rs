@@ -8,6 +8,7 @@ use http::{HeaderMap, StatusCode};
 use url::Url;
 
 pub use crate::codex::oauth_plan_label as codex_oauth_plan_label;
+pub use crate::grok::oauth_bot_flag as grok_oauth_bot_flag;
 pub use crate::oauth::OAuthRoutingProfile;
 pub use crate::oauth::{
     MAX_OAUTH_IMPORT_ACCOUNTS_PER_DOCUMENT, OAuthImportParseError, OAuthImportedAccount,
@@ -18,8 +19,10 @@ pub use crate::oauth::{
     OAuthTokenMaterial, serialize_document,
 };
 pub use crate::oauth::{
-    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
-    OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaUsageParse, OAuthQuotaWindow,
+    OAuthLocalTokenQuotaPolicy, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
+    OAuthQuotaBilling, OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
+    OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement,
+    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
     OAuthQuotaWindowKind,
 };
 pub use crate::{ProviderError, ProviderRegistry, ProviderSecret};
@@ -192,19 +195,26 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         _meta: &UpstreamResponseMeta,
         _body: &[u8],
-    ) -> Result<OAuthQuotaUsageParse, ProviderError> {
+    ) -> Result<OAuthQuotaUsage, ProviderError> {
         Err(ProviderError::InvalidResponse(
             "OAuth quota is not supported by this provider".into(),
         ))
     }
 
-    fn parse_oauth_quota_probe(
+    fn parse_oauth_quota_supplement(
         &self,
-        _meta: &UpstreamResponseMeta,
-    ) -> Result<OAuthQuotaUsage, ProviderError> {
+        _body: &[u8],
+    ) -> Result<OAuthQuotaSupplement, ProviderError> {
         Err(ProviderError::InvalidResponse(
-            "OAuth quota probe is not supported by this provider".into(),
+            "OAuth quota supplement is not supported by this provider".into(),
         ))
+    }
+
+    fn oauth_local_token_quota_policy(
+        &self,
+        _usage: &OAuthQuotaUsage,
+    ) -> Option<OAuthLocalTokenQuotaPolicy> {
+        None
     }
 
     fn parse_oauth_quota_reset_credits(

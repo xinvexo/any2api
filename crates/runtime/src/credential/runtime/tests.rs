@@ -4,7 +4,7 @@ use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, ProtocolDialect, ProviderCredential,
     ProviderCredentialConfiguration, ProviderCredentialDraft, ProviderEndpoint,
     ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
-    ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
+    ProxyConfiguration, ProxyProfileId, RequestsPerMinute, TokenUsage,
 };
 use tokio::sync::{mpsc, watch};
 
@@ -203,6 +203,9 @@ fn generation_changes_are_pinned_without_resetting_the_rate_window() {
     );
     let old_binding = initial.as_slice()[0].clone();
     let old_permit = old_binding.try_reserve().expect("old generation permit");
+    let mut usage = old_permit.token_usage_recorder();
+    usage.observe(TokenUsage::new(Some(120), Some(30), Some(80), None));
+    drop(usage);
 
     let rotated = reconcile(
         &runtime,
@@ -237,6 +240,7 @@ fn generation_changes_are_pinned_without_resetting_the_rate_window() {
     ));
     assert_eq!(new_binding.in_flight(), 1);
     assert_eq!(new_binding.rate_snapshot().requests_in_window(), 1);
+    assert_eq!(new_binding.token_usage_snapshot(86_400), 150);
 
     let new_permit = new_binding.try_reserve().expect("new generation permit");
     assert_eq!(new_permit.generation().routing_generation(), 2);

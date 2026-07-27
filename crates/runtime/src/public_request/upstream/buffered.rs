@@ -5,6 +5,7 @@ use any2api_protocol::api::{DecodedRequest, EgressResponse, UpstreamResponse};
 
 use super::super::{
     affinity::{AffinitySelection, commit_soft_binding},
+    execution_limits,
     response::{
         CollectBodyError, collect_body, internal_error, public_error, sanitize_response_headers,
     },
@@ -48,7 +49,11 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let headers = response.headers;
     let body = match collect_body(
         response.body,
-        Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
+        execution_limits::read_timeout(
+            prepared.ingress_operation,
+            Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
+        ),
+        execution_limits::buffered_response_limit(prepared.ingress_operation, status.is_success()),
         response.read_failure_scope,
     )
     .await

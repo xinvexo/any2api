@@ -66,7 +66,7 @@ export function OAuthQuotaPanel({
   });
   const resetPending =
     useIsMutating({ mutationKey: resetMutationKey, exact: true }) > 0;
-  const quota = quotaQuery.data ?? null;
+  const quota = quotaQuery.isError && !quotaQuery.isFetching ? null : (quotaQuery.data ?? null);
   const providerName = oauthProviderLabel(provider);
   const canReset = provider === "codex";
   const pending = resetPending ? "reset" : quotaQuery.isFetching ? "query" : null;
@@ -122,11 +122,6 @@ export function OAuthQuotaPanel({
             size="sm"
             className="h-6 min-h-6 px-1.5 text-[11px]"
             disabled={disabled || pending !== null}
-            title={
-              provider === "grok"
-                ? "xAI unified billing 缺少使用率时会发送一次最小 Responses 探测"
-                : undefined
-            }
             onClick={() => void refreshQuota()}
           >
             <RefreshCw
@@ -165,7 +160,11 @@ export function OAuthQuotaPanel({
       </div>
 
       {quota ? (
-        <OAuthQuotaDetails quota={quota} showResetCredits={canReset} />
+        <OAuthQuotaDetails
+          quota={quota}
+          provider={provider}
+          showResetCredits={canReset}
+        />
       ) : (
         <p className="mt-1.5 text-[11px] text-tertiary">额度尚未刷新</p>
       )}

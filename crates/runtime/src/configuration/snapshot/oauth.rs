@@ -41,6 +41,17 @@ impl PublishedSnapshot {
         any2api_provider::api::codex_oauth_plan_label(token.as_ref())
     }
 
+    /// Safe Grok Build risk flag derived from the current access token.
+    #[must_use]
+    pub fn oauth_grok_bot_flag(&self, id: OAuthAccountId) -> Option<bool> {
+        let account = self.oauth_accounts.get(id)?;
+        if account.provider_kind() != any2api_domain::ProviderKind::Grok {
+            return None;
+        }
+        let token = self.oauth_token_material(id)?;
+        any2api_provider::api::grok_oauth_bot_flag(token.as_ref())
+    }
+
     #[must_use]
     pub fn published_public_model_names(&self) -> BTreeSet<String> {
         let mut names = self

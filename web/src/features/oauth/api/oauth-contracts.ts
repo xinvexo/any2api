@@ -60,6 +60,8 @@ export interface OAuthAccount {
   availableModels: string[];
   /** Official Codex `chatgpt_plan_type` from the ID Token. */
   planType: string | null;
+  /** Safe Grok Build `bot_flag_source` derivation. */
+  botFlagged: boolean | null;
   usage: RequestUsage;
 }
 
@@ -249,6 +251,7 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     models,
     availableModels,
     planType: readOptionalString(value.plan_type),
+    botFlagged: readOptionalBoolean(value.bot_flagged),
     usage: parseRequestUsage(value.usage),
   };
 }
@@ -269,6 +272,10 @@ function readBoolean(value: unknown) {
     throw invalidResponse();
   }
   return value;
+}
+
+function readOptionalBoolean(value: unknown) {
+  return value === null ? null : readBoolean(value);
 }
 
 function readOAuthProvider(value: unknown): OAuthProvider {

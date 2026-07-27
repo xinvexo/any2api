@@ -3,7 +3,7 @@ use std::{
     net::SocketAddr,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU32, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
 };
 
@@ -121,8 +121,87 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
 }
 
 #[tokio::test]
-async fn grok_unified_billing_returns_redacted_request_and_token_windows() {
+async fn grok_billing_and_subscription_return_redacted_credits_and_tier() {
     let context = TestContext::new().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let response = request(
+        context.app.clone(),
+        Method::GET,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota",
+            context.grok_account_id
+        ),
+        loopback,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.cache_control.as_deref(), Some("no-store"));
+    assert_eq!(response.json["subscription_tier"], "SuperGrokPro");
+    assert_eq!(response.json["account_status"]["authentication"], "valid");
+    assert_eq!(
+        response.json["account_status"]["user_blocked_reason"],
+        "BLOCKED_REASON_BILLING"
+    );
+    assert_eq!(
+        response.json["account_status"]["team_blocked_reasons"],
+        json!(["BLOCKED_REASON_NO_LOGS"])
+    );
+    assert!(response.json["account_status"]["quota_exhaustion"].is_null());
+    assert_eq!(
+        response.json["rate_limit"]["windows"][0]["id"],
+        "weekly_credits"
+    );
+    assert_eq!(response.json["rate_limit"]["windows"][0]["kind"], "credits");
+    assert_eq!(
+        response.json["rate_limit"]["windows"][0]["used_percent"],
+        25.0
+    );
+    assert_eq!(
+        response.json["rate_limit"]["windows"][0]["limit_window_seconds"],
+        604_800
+    );
+    assert_eq!(response.json["billing"]["currency"], "USD");
+    assert_eq!(response.json["billing"]["prepaid_balance_minor"], 2_500);
+    assert_eq!(response.json["billing"]["on_demand_used_minor"], 125);
+    assert_eq!(response.json["billing"]["on_demand_cap_minor"], 5_000);
+    assert_eq!(response.json["billing"]["is_unified_billing_user"], true);
+    assert!(response.json["reset_credits"].is_null());
+    assert_eq!(context.transport.calls(), 2);
+    assert!(
+        context
+            .transport
+            .last_requests_are_grok_billing_and_subscription()
+    );
+    let encoded = serde_json::to_string(&response.json).expect("Grok quota JSON");
+    assert!(!encoded.contains("grok-access-secret"));
+    assert!(!encoded.contains("grok-refresh-secret"));
+    assert!(!encoded.contains("grok-upstream-secret"));
+    assert!(!encoded.contains("StaleBillingTier"));
+
+    let accounts = request(
+        context.app,
+        Method::GET,
+        "/api/admin/oauth/accounts",
+        loopback,
+    )
+    .await;
+    let grok = accounts.json["items"]
+        .as_array()
+        .expect("OAuth accounts")
+        .iter()
+        .find(|account| account["provider_kind"] == "grok")
+        .expect("Grok account");
+    assert_eq!(grok["bot_flagged"], true);
+    let accounts_text = serde_json::to_string(&accounts.json).expect("accounts JSON");
+    assert!(!accounts_text.contains("grok-access-secret"));
+}
+
+#[tokio::test]
+async fn grok_free_quota_returns_the_local_one_million_token_balance() {
+    let context = TestContext::new().await;
+    context.transport.use_grok_free_subscription();
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
 
     let response = request(
@@ -137,27 +216,19 @@ async fn grok_unified_billing_returns_redacted_request_and_token_windows() {
     .await;
 
     assert_eq!(response.status, StatusCode::OK);
-    assert_eq!(response.cache_control.as_deref(), Some("no-store"));
-    assert_eq!(
-        response.json["rate_limit"]["windows"][0]["kind"],
-        "requests"
-    );
-    assert_eq!(
-        response.json["rate_limit"]["windows"][0]["used_percent"],
-        25.0
-    );
-    assert!(response.json["rate_limit"]["windows"][0]["limit_window_seconds"].is_null());
-    assert_eq!(response.json["rate_limit"]["windows"][1]["kind"], "tokens");
-    assert_eq!(
-        response.json["rate_limit"]["windows"][1]["used_percent"],
-        60.0
-    );
-    assert!(response.json["reset_credits"].is_null());
+    assert_eq!(response.json["subscription_tier"], "Free");
+    assert!(response.json["rate_limit"].is_null());
+    assert_eq!(response.json["token_balance"]["source"], "local");
+    assert_eq!(response.json["token_balance"]["used"], 0);
+    assert_eq!(response.json["token_balance"]["limit"], 1_000_000);
+    assert_eq!(response.json["token_balance"]["remaining"], 1_000_000);
+    assert_eq!(response.json["token_balance"]["window_seconds"], 86_400);
     assert_eq!(context.transport.calls(), 2);
-    assert!(context.transport.last_requests_are_grok_hybrid_query());
-    let encoded = serde_json::to_string(&response.json).expect("Grok quota JSON");
-    assert!(!encoded.contains("grok-access-secret"));
-    assert!(!encoded.contains("grok-refresh-secret"));
+    assert!(
+        context
+            .transport
+            .last_requests_are_grok_billing_and_subscription()
+    );
 }
 
 #[tokio::test]
@@ -196,6 +267,56 @@ async fn claude_quota_returns_all_redacted_usage_windows() {
     assert!(!encoded.contains("claude-secret"));
     assert!(!encoded.contains("claude-refresh"));
     assert!(!encoded.contains("upstream-secret"));
+}
+
+#[tokio::test]
+async fn token_refresh_failure_does_not_report_a_definitively_invalid_account() {
+    let context = TestContext::new().await;
+    context.transport.use_authentication_refresh_failure();
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let response = request(
+        context.app,
+        Method::GET,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota",
+            context.codex_account_id
+        ),
+        loopback,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response.json["error"]["code"],
+        "oauth_account_authentication_unverified"
+    );
+    assert_eq!(context.transport.calls(), 2);
+}
+
+#[tokio::test]
+async fn a_second_unauthorized_response_after_refresh_is_definitively_invalid() {
+    let context = TestContext::new().await;
+    context.transport.use_persistent_authentication_rejection();
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let response = request(
+        context.app,
+        Method::GET,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota",
+            context.codex_account_id
+        ),
+        loopback,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response.json["error"]["code"],
+        "oauth_account_authentication_failed"
+    );
+    assert_eq!(context.transport.calls(), 3);
 }
 
 struct TestContext {
@@ -260,7 +381,7 @@ impl TestContext {
                 vec!["grok-4.5".into()],
                 document(
                     ProviderKind::Grok,
-                    br#"{"type":"grok","access_token":"grok-access-secret","refresh_token":"grok-refresh-secret","sub":"grok-subject"}"#,
+                    br#"{"type":"grok","access_token":"header.eyJib3RfZmxhZ19zb3VyY2UiOjF9.grok-access-secret","refresh_token":"grok-refresh-secret","sub":"grok-subject"}"#,
                 ),
             )
             .await
@@ -323,6 +444,8 @@ struct CapturedRequest {
     account_id: Option<String>,
     grok_token_auth: Option<String>,
     grok_client_version: Option<String>,
+    grok_user_id: Option<String>,
+    grok_client_mode: Option<String>,
     anthropic_beta: Option<String>,
     user_agent: Option<String>,
     proxy_id: any2api_domain::ProxyProfileId,
@@ -332,6 +455,9 @@ struct CapturedRequest {
 struct QuotaTransport {
     available_count: AtomicU32,
     consume_calls: AtomicUsize,
+    grok_free_subscription: AtomicBool,
+    authentication_refresh_failure: AtomicBool,
+    persistent_authentication_rejection: AtomicBool,
     captured: Mutex<Vec<CapturedRequest>>,
     redeem_request_id: Mutex<Option<String>>,
 }
@@ -341,6 +467,9 @@ impl QuotaTransport {
         Self {
             available_count: AtomicU32::new(1),
             consume_calls: AtomicUsize::new(0),
+            grok_free_subscription: AtomicBool::new(false),
+            authentication_refresh_failure: AtomicBool::new(false),
+            persistent_authentication_rejection: AtomicBool::new(false),
             captured: Mutex::new(Vec::new()),
             redeem_request_id: Mutex::new(None),
         }
@@ -352,6 +481,20 @@ impl QuotaTransport {
 
     fn consume_calls(&self) -> usize {
         self.consume_calls.load(Ordering::Acquire)
+    }
+
+    fn use_grok_free_subscription(&self) {
+        self.grok_free_subscription.store(true, Ordering::Release);
+    }
+
+    fn use_authentication_refresh_failure(&self) {
+        self.authentication_refresh_failure
+            .store(true, Ordering::Release);
+    }
+
+    fn use_persistent_authentication_rejection(&self) {
+        self.persistent_authentication_rejection
+            .store(true, Ordering::Release);
     }
 
     fn redeem_request_id(&self) -> String {
@@ -382,23 +525,26 @@ impl QuotaTransport {
             })
     }
 
-    fn last_requests_are_grok_hybrid_query(&self) -> bool {
+    fn last_requests_are_grok_billing_and_subscription(&self) -> bool {
         let captured = self.captured.lock().expect("captured lock");
-        let [billing, probe] = captured.as_slice() else {
+        let [billing, subscription] = captured.as_slice() else {
             return false;
         };
-        let probe_body = serde_json::from_slice::<Value>(&probe.body).ok();
         billing.method == Method::GET
             && billing.path_and_query == "/v1/billing?format=credits"
-            && probe.method == Method::POST
-            && probe.path_and_query == "/v1/responses"
-            && probe_body == Some(json!({"model":"grok-4.5","input":"hi","stream":true}))
-            && [billing, probe].iter().all(|request| {
-                request.authorization.as_deref() == Some("Bearer grok-access-secret")
+            && subscription.method == Method::GET
+            && subscription.path_and_query == "/v1/user?include=subscription"
+            && [billing, subscription].iter().all(|request| {
+                request.authorization.as_deref()
+                    == Some("Bearer header.eyJib3RfZmxhZ19zb3VyY2UiOjF9.grok-access-secret")
                     && request.account_id.is_none()
                     && request.grok_token_auth.as_deref() == Some("xai-grok-cli")
-                    && request.grok_client_version.as_deref() == Some("0.2.93")
+                    && request.grok_client_version.as_deref() == Some("0.2.112")
+                    && request.grok_user_id.as_deref() == Some("grok-subject")
+                    && request.grok_client_mode.as_deref() == Some("interactive")
+                    && request.user_agent.as_deref() == Some("xai-grok-workspace/0.2.112")
                     && request.proxy_id == any2api_domain::ProxyProfileId::DIRECT
+                    && request.body.is_empty()
             })
     }
 
@@ -458,6 +604,16 @@ impl TransportManager for QuotaTransport {
                     .get("x-grok-client-version")
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned),
+                grok_user_id: request
+                    .headers
+                    .get("x-userid")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+                grok_client_mode: request
+                    .headers
+                    .get("x-grok-client-mode")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
                 anthropic_beta: request
                     .headers
                     .get("anthropic-beta")
@@ -471,6 +627,44 @@ impl TransportManager for QuotaTransport {
                 proxy_id: proxy.profile().id(),
                 body: request.body.clone(),
             });
+        if self.authentication_refresh_failure.load(Ordering::Acquire) {
+            let forced_status = match path.as_str() {
+                "/backend-api/wham/usage" => Some(StatusCode::UNAUTHORIZED),
+                "/oauth/token" => Some(StatusCode::SERVICE_UNAVAILABLE),
+                _ => None,
+            };
+            if let Some(status) = forced_status {
+                return Ok(TransportResponse {
+                    status,
+                    headers: HeaderMap::new(),
+                    body: Box::pin(stream::iter([Ok(Bytes::from_static(b"{}"))])),
+                    read_failure_scope: TransportFailureScope::Endpoint,
+                });
+            }
+        }
+        if self
+            .persistent_authentication_rejection
+            .load(Ordering::Acquire)
+        {
+            let forced = match path.as_str() {
+                "/backend-api/wham/usage" => {
+                    Some((StatusCode::UNAUTHORIZED, Bytes::from_static(b"{}")))
+                }
+                "/oauth/token" => Some((
+                    StatusCode::OK,
+                    Bytes::from_static(br#"{"access_token":"new-access","expires_in":3600}"#),
+                )),
+                _ => None,
+            };
+            if let Some((status, body)) = forced {
+                return Ok(TransportResponse {
+                    status,
+                    headers: HeaderMap::new(),
+                    body: Box::pin(stream::iter([Ok(body)])),
+                    read_failure_scope: TransportFailureScope::Endpoint,
+                });
+            }
+        }
         let (body, headers) = match path.as_str() {
             "/backend-api/wham/usage" => (Bytes::from_static(
                 br#"{"user_id":"upstream-secret","account_id":"account-123","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":37.5,"limit_window_seconds":18000,"reset_after_seconds":300,"reset_at":1900000000},"secondary_window":null},"rate_limit_reset_credits":{"available_count":9}}"#,
@@ -501,25 +695,27 @@ impl TransportManager for QuotaTransport {
                     br#"{"code":"ok","windows_reset":2,"credit":{"id":"reset-credit-id"}}"#,
                 ), HeaderMap::new())
             }
-            "/v1/billing" => (Bytes::from_static(
-                br#"{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"onDemandCap":{"val":"0"},"onDemandUsed":{"val":"0"},"isUnifiedBillingUser":true,"prepaidBalance":{"val":"0"}}}"#,
-            ), HeaderMap::new()),
-            "/v1/responses" => {
-                let mut headers = HeaderMap::new();
-                for (name, value) in [
-                    ("x-ratelimit-limit-requests", "100"),
-                    ("x-ratelimit-remaining-requests", "75"),
-                    ("x-ratelimit-reset-requests", "1900000000"),
-                    ("x-ratelimit-limit-tokens", "1000"),
-                    ("x-ratelimit-remaining-tokens", "400"),
-                    ("x-ratelimit-reset-tokens", "1900000000"),
-                ] {
-                    headers.insert(
-                        http::header::HeaderName::from_bytes(name.as_bytes()).expect("header"),
-                        http::HeaderValue::from_static(value),
-                    );
-                }
-                (Bytes::new(), headers)
+            "/v1/billing" => {
+                let body = if self.grok_free_subscription.load(Ordering::Acquire) {
+                    Bytes::from_static(
+                        br#"{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"onDemandCap":{"val":"0"},"onDemandUsed":{"val":"0"},"isUnifiedBillingUser":true,"prepaidBalance":{"val":"0"}}}"#,
+                    )
+                } else {
+                    Bytes::from_static(
+                        br#"{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"creditUsagePercent":25.0,"onDemandCap":{"val":"5000"},"onDemandUsed":{"val":"125"},"isUnifiedBillingUser":true,"prepaidBalance":{"val":"2500"}},"subscriptionTier":"StaleBillingTier"}"#,
+                    )
+                };
+                (body, HeaderMap::new())
+            }
+            "/v1/user" => {
+                let body = if self.grok_free_subscription.load(Ordering::Acquire) {
+                    Bytes::from_static(br#"{"subscriptionTier":null,"teamBlockedReasons":[]}"#)
+                } else {
+                    Bytes::from_static(
+                        br#"{"subscriptionTier":"SuperGrokPro","userBlockedReason":"BLOCKED_REASON_BILLING","teamBlockedReasons":["BLOCKED_REASON_NO_LOGS"],"email":"grok-upstream-secret"}"#,
+                    )
+                };
+                (body, HeaderMap::new())
             }
             "/api/oauth/usage" => (Bytes::from_static(
                 br#"{"five_hour":{"utilization":12.5,"resets_at":"2030-01-01T01:00:00Z"},"seven_day":{"utilization":34.0,"resets_at":"2030-01-08T00:00:00Z"},"seven_day_sonnet":{"utilization":56.0,"resets_at":"2030-01-08T00:00:00Z"},"seven_day_overage_included":{"utilization":78.0,"resets_at":"2030-01-08T00:00:00Z"},"unknown":{"token":"upstream-secret"}}"#,

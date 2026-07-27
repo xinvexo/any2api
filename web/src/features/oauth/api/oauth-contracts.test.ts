@@ -176,6 +176,7 @@ describe("parseOAuthAccountConfiguration", () => {
             "gpt-5.6-terra",
           ],
           plan_type: "plus",
+          bot_flagged: null,
           usage: usage(),
         },
       ],
@@ -195,6 +196,7 @@ describe("parseOAuthAccountConfiguration", () => {
         "gpt-5.6-terra",
       ],
       planType: "plus",
+      botFlagged: null,
       usage: {
         totalRequests: 3,
         successfulRequests: 2,
@@ -224,6 +226,7 @@ describe("parseOAuthAccountConfiguration", () => {
             models: ["claude-sonnet-4-6"],
             available_models: ["claude-sonnet-4-6"],
             plan_type: null,
+            bot_flagged: null,
             usage: usage(),
           },
         ],

@@ -100,6 +100,50 @@ test("edits credential metadata without sending the secret", async () => {
   expect(body).not.toHaveProperty("api_key");
 });
 
+test("uses icon-only credential actions and toggles a credential inline", async () => {
+  let credentials = credentialConfiguration(3, [credential()]);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
+    if (init?.method === "PATCH") {
+      credentials = credentialConfiguration(4, [
+        credential({ enabled: false, config_version: 2 }),
+      ]);
+    }
+    return jsonResponse(credentials);
+  });
+  renderManagement([`/providers/codex?keys=${endpoint.id}`]);
+
+  const models = await screen.findByRole("button", {
+    name: "配置 Primary Key 的模型",
+  });
+  const edit = screen.getByRole("button", { name: "编辑 Primary Key" });
+  const remove = screen.getByRole("button", { name: "删除 Primary Key" });
+  const disable = screen.getByRole("button", { name: "停用 Primary Key" });
+
+  expect(models).not.toHaveTextContent("模型");
+  expect(edit).not.toHaveTextContent("编辑");
+  expect(remove).not.toHaveTextContent("删除");
+  expect(models).toHaveAttribute("title", "配置 Primary Key 的模型");
+
+  fireEvent.click(disable);
+
+  expect(await screen.findByRole("button", { name: "启用 Primary Key" })).toBeInTheDocument();
+  await waitFor(() => {
+    const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+      expected_revision: 3,
+      expected_config_version: 1,
+      label: "Primary Key",
+      proxy_profile_id: "00000000-0000-0000-0000-000000000000",
+      requests_per_minute: 4,
+      enabled: false,
+    });
+  });
+});
+
 test("opens a credential model picker and loads the current upstream catalog", async () => {
   const credentials = credentialConfiguration(3, [credential()]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {

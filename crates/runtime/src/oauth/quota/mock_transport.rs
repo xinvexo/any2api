@@ -15,11 +15,13 @@ use futures_util::stream;
 use http::{HeaderMap, StatusCode, header::AUTHORIZATION};
 use tokio::sync::Semaphore;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum AuthenticationMode {
     Accepted,
     RejectOnce,
     AlwaysReject,
+    AlwaysForbidden,
+    RefreshRejected,
 }
 
 pub(super) struct CapturedQuotaRequest {
@@ -28,6 +30,8 @@ pub(super) struct CapturedQuotaRequest {
     pub(super) account_id: Option<String>,
     pub(super) grok_token_auth: Option<String>,
     pub(super) grok_client_version: Option<String>,
+    pub(super) grok_user_id: Option<String>,
+    pub(super) grok_client_mode: Option<String>,
     pub(super) anthropic_beta: Option<String>,
     pub(super) user_agent: Option<String>,
     pub(super) proxy_id: any2api_domain::ProxyProfileId,
@@ -85,6 +89,8 @@ impl QuotaTransport {
                 account_id: request.account_id.clone(),
                 grok_token_auth: request.grok_token_auth.clone(),
                 grok_client_version: request.grok_client_version.clone(),
+                grok_user_id: request.grok_user_id.clone(),
+                grok_client_mode: request.grok_client_mode.clone(),
                 anthropic_beta: request.anthropic_beta.clone(),
                 user_agent: request.user_agent.clone(),
                 proxy_id: request.proxy_id,
@@ -153,6 +159,8 @@ impl TransportManager for QuotaTransport {
                 account_id: header(&request, "chatgpt-account-id"),
                 grok_token_auth: header(&request, "x-xai-token-auth"),
                 grok_client_version: header(&request, "x-grok-client-version"),
+                grok_user_id: header(&request, "x-userid"),
+                grok_client_mode: header(&request, "x-grok-client-mode"),
                 anthropic_beta: header(&request, "anthropic-beta"),
                 user_agent: header(&request, "user-agent"),
                 proxy_id: proxy.profile().id(),
@@ -160,11 +168,11 @@ impl TransportManager for QuotaTransport {
                 body: request.body,
             });
         let (status, headers, body, body_must_not_be_polled) = match path.as_str() {
-            "/oauth/token" | "/v1/oauth/token" => self.refresh_response(),
+            "/oauth/token" | "/oauth2/token" | "/v1/oauth/token" => self.refresh_response(),
             "/backend-api/wham/usage" => self.codex_usage_response(),
             "/api/oauth/usage" => self.claude_usage_response(),
             "/v1/billing" => self.grok_billing_response(),
-            "/v1/responses" => grok_probe_response(),
+            "/v1/user" => self.grok_subscription_response(),
             "/backend-api/wham/rate-limit-reset-credits" => self.reset_credits_response(),
             "/backend-api/wham/rate-limit-reset-credits/consume" => self.consume_response().await,
             other => panic!("unexpected quota request path: {other}"),
@@ -188,14 +196,17 @@ type MockResponse = (StatusCode, HeaderMap, Bytes, bool);
 impl QuotaTransport {
     fn refresh_response(&self) -> MockResponse {
         self.refresh_calls.fetch_add(1, Ordering::AcqRel);
+        if self.authentication == AuthenticationMode::RefreshRejected {
+            return service_unavailable();
+        }
         ok(Bytes::from_static(
             br#"{"access_token":"new-access","expires_in":3600}"#,
         ))
     }
 
     fn codex_usage_response(&self) -> MockResponse {
-        if self.reject_usage() {
-            return unauthorized();
+        if let Some(rejected) = self.authentication_rejection() {
+            return rejected;
         }
         ok(Bytes::from_static(
             br#"{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":25.0,"limit_window_seconds":18000,"reset_after_seconds":60,"reset_at":1900000000},"secondary_window":null},"rate_limit_reset_credits":{"available_count":7}}"#,
@@ -203,8 +214,8 @@ impl QuotaTransport {
     }
 
     fn claude_usage_response(&self) -> MockResponse {
-        if self.reject_usage() {
-            return unauthorized();
+        if let Some(rejected) = self.authentication_rejection() {
+            return rejected;
         }
         ok(Bytes::from_static(
             br#"{"five_hour":{"utilization":12.5,"resets_at":"2030-01-01T01:00:00Z"},"seven_day":{"utilization":34.0,"resets_at":"2030-01-08T00:00:00Z"},"seven_day_sonnet":{"utilization":56.0,"resets_at":"2030-01-08T00:00:00Z"},"seven_day_overage_included":{"utilization":78.0,"resets_at":"2030-01-08T00:00:00Z"}}"#,
@@ -212,10 +223,12 @@ impl QuotaTransport {
     }
 
     fn grok_billing_response(&self) -> MockResponse {
-        self.usage_calls.fetch_add(1, Ordering::AcqRel);
+        if let Some(rejected) = self.authentication_rejection() {
+            return rejected;
+        }
         let body = if self.grok_unified {
             Bytes::from_static(
-                br#"{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"onDemandCap":{"val":"0"},"onDemandUsed":{"val":"0"},"isUnifiedBillingUser":true,"prepaidBalance":{"val":"0"}}}"#,
+                br#"{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"onDemandCap":{"val":"0"},"onDemandUsed":{"val":"0"},"isUnifiedBillingUser":true,"prepaidBalance":{"val":"2500"}}}"#,
             )
         } else {
             Bytes::from_static(
@@ -223,6 +236,18 @@ impl QuotaTransport {
             )
         };
         ok(body)
+    }
+
+    fn grok_subscription_response(&self) -> MockResponse {
+        if self.grok_unified {
+            ok(Bytes::from_static(
+                br#"{"subscriptionTier":null,"teamBlockedReasons":[]}"#,
+            ))
+        } else {
+            ok(Bytes::from_static(
+                br#"{"subscriptionTier":"SuperGrokPro","userBlockedReason":"BLOCKED_REASON_BILLING","teamBlockedReasons":["BLOCKED_REASON_NO_LOGS"]}"#,
+            ))
+        }
     }
 
     fn reset_credits_response(&self) -> MockResponse {
@@ -257,10 +282,16 @@ impl QuotaTransport {
         ok(Bytes::from_static(br#"{"code":"ok","windows_reset":2}"#))
     }
 
-    fn reject_usage(&self) -> bool {
+    fn authentication_rejection(&self) -> Option<MockResponse> {
         let attempt = self.usage_calls.fetch_add(1, Ordering::AcqRel);
-        matches!(self.authentication, AuthenticationMode::AlwaysReject)
-            || matches!(self.authentication, AuthenticationMode::RejectOnce) && attempt == 0
+        match self.authentication {
+            AuthenticationMode::Accepted => None,
+            AuthenticationMode::RejectOnce if attempt == 0 => Some(unauthorized()),
+            AuthenticationMode::RejectOnce => None,
+            AuthenticationMode::AlwaysReject => Some(unauthorized()),
+            AuthenticationMode::AlwaysForbidden => Some(forbidden()),
+            AuthenticationMode::RefreshRejected => Some(unauthorized()),
+        }
     }
 }
 
@@ -272,24 +303,6 @@ fn header(request: &TransportRequest, name: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn grok_probe_response() -> MockResponse {
-    let mut headers = HeaderMap::new();
-    for (name, value) in [
-        ("x-ratelimit-limit-requests", "100"),
-        ("x-ratelimit-remaining-requests", "75"),
-        ("x-ratelimit-reset-requests", "1900000000"),
-        ("x-ratelimit-limit-tokens", "1000"),
-        ("x-ratelimit-remaining-tokens", "400"),
-        ("x-ratelimit-reset-tokens", "1900000000"),
-    ] {
-        headers.insert(
-            http::header::HeaderName::from_bytes(name.as_bytes()).expect("header"),
-            http::HeaderValue::from_static(value),
-        );
-    }
-    (StatusCode::OK, headers, Bytes::new(), true)
-}
-
 fn ok(body: Bytes) -> MockResponse {
     (StatusCode::OK, HeaderMap::new(), body, false)
 }
@@ -297,6 +310,24 @@ fn ok(body: Bytes) -> MockResponse {
 fn unauthorized() -> MockResponse {
     (
         StatusCode::UNAUTHORIZED,
+        HeaderMap::new(),
+        Bytes::from_static(b"{}"),
+        false,
+    )
+}
+
+fn forbidden() -> MockResponse {
+    (
+        StatusCode::FORBIDDEN,
+        HeaderMap::new(),
+        Bytes::from_static(br#"{"code":"unauthorized:blocked-user"}"#),
+        false,
+    )
+}
+
+fn service_unavailable() -> MockResponse {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
         HeaderMap::new(),
         Bytes::from_static(b"{}"),
         false,

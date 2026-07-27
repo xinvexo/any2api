@@ -1,100 +1,64 @@
-//! Grok billing request and parsing contracts.
+//! Grok billing and subscription request contracts.
 
 use any2api_domain::ProviderKind;
-use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
-use serde_json::Value;
+use http::{Method, header};
 
-use super::{parse_probe, parse_usage, query_plan};
-use crate::{
-    OAuthTokenMaterial,
-    api::{OAuthQuotaUsageParse, OAuthQuotaWindowKind, UpstreamResponseMeta},
-};
+use super::{local_token_quota_policy, parse_subscription, parse_usage, query_plan};
+use crate::{OAuthTokenMaterial, api::OAuthQuotaWindowKind};
 
-fn token() -> OAuthTokenMaterial {
+fn token(account_id: Option<&str>) -> OAuthTokenMaterial {
     OAuthTokenMaterial::new(
         ProviderKind::Grok,
         "access-secret".into(),
         Some("refresh-secret".into()),
         None,
         None,
-        Some("subject-1".into()),
+        account_id.map(str::to_owned),
         None,
     )
     .expect("token")
 }
 
 #[test]
-fn builds_single_billing_query_with_cli_identity() {
-    let (usage, probe, credits) = query_plan(&token()).expect("query plan").into_parts();
-    let probe = probe.expect("usage probe");
+fn builds_billing_and_subscription_queries_with_official_identity() {
+    let (usage, supplement, credits) = query_plan(&token(Some("subject-1")))
+        .expect("query plan")
+        .into_parts();
+    let supplement = supplement.expect("subscription query");
 
     assert_eq!(usage.method, Method::GET);
     assert_eq!(
         usage.url.as_str(),
         "https://cli-chat-proxy.grok.com/v1/billing?format=credits"
     );
-    assert_eq!(usage.headers[header::AUTHORIZATION], "Bearer access-secret");
-    assert_eq!(usage.headers["x-xai-token-auth"], "xai-grok-cli");
-    assert_eq!(usage.headers["x-grok-client-version"], "0.2.93");
-    assert_eq!(usage.headers[header::ACCEPT], "application/json");
-    assert!(usage.body.is_empty());
-    assert_eq!(probe.method, Method::POST);
     assert_eq!(
-        probe.url.as_str(),
-        "https://cli-chat-proxy.grok.com/v1/responses"
+        supplement.url.as_str(),
+        "https://cli-chat-proxy.grok.com/v1/user?include=subscription"
     );
-    assert_eq!(probe.headers[header::AUTHORIZATION], "Bearer access-secret");
-    assert_eq!(probe.headers[header::CONTENT_TYPE], "application/json");
-    assert_eq!(
-        probe.headers[header::ACCEPT],
-        "application/json, text/event-stream"
-    );
-    let body: Value = serde_json::from_slice(&probe.body).expect("probe body");
-    assert_eq!(
-        body,
-        serde_json::json!({"model":"grok-4.5","input":"hi","stream":true})
-    );
+    for request in [&usage, &supplement] {
+        assert_eq!(
+            request.headers[header::AUTHORIZATION],
+            "Bearer access-secret"
+        );
+        assert_eq!(request.headers["x-xai-token-auth"], "xai-grok-cli");
+        assert_eq!(request.headers["x-userid"], "subject-1");
+        assert_eq!(request.headers["x-grok-client-version"], "0.2.112");
+        assert_eq!(request.headers["x-grok-client-mode"], "interactive");
+        assert_eq!(request.headers[header::ACCEPT], "application/json");
+        assert!(request.body.is_empty());
+        assert!(!format!("{request:?}").contains("access-secret"));
+    }
     assert!(credits.is_none());
-    assert!(!format!("{usage:?}").contains("access-secret"));
-    assert!(!format!("{probe:?}").contains("access-secret"));
-    assert!(!format!("{probe:?}").contains("hi"));
 }
 
 #[test]
-fn parses_weekly_credit_usage_without_reset_credits() {
-    let usage = complete(
-        parse_usage(
-            br#"{
-          "config": {
-            "currentPeriod": {
-              "type": "WEEKLY",
-              "start": "2030-01-01T00:00:00Z",
-              "end": "2030-01-08T00:00:00Z"
-            },
-            "creditUsagePercent": 37.5,
-            "productUsage": [{"product":"Api","usagePercent":37.5}]
-          }
-        }"#,
-        )
-        .expect("billing usage"),
-    );
-
-    let rate_limit = usage.rate_limit.expect("rate limit");
-    assert_eq!(rate_limit.allowed, Some(true));
-    assert_eq!(rate_limit.limit_reached, Some(false));
-    let window = &rate_limit.windows[0];
-    assert_eq!(window.id, "weekly_credits");
-    assert_eq!(window.kind, OAuthQuotaWindowKind::Credits);
-    assert_eq!(window.used_percent, 37.5);
-    assert_eq!(window.limit_window_seconds, Some(604_800));
-    assert_eq!(window.reset_at, Some(1_894_060_800));
-    assert_eq!(rate_limit.windows.len(), 1);
-    assert!(usage.reset_credits.is_none());
+fn quota_query_requires_the_grok_subject() {
+    assert!(query_plan(&token(None)).is_err());
 }
 
 #[test]
-fn unified_billing_without_percentage_requires_a_header_probe() {
-    let parsed = parse_usage(
+fn parses_weekly_credit_usage_and_billing_amounts() {
+    let usage = parse_usage(
         br#"{
           "config": {
             "currentPeriod": {
@@ -102,120 +66,152 @@ fn unified_billing_without_percentage_requires_a_header_probe() {
               "start": "2030-01-01T00:00:00Z",
               "end": "2030-01-08T00:00:00Z"
             },
-            "onDemandCap": {"val":"0"},
-            "onDemandUsed": {"val":"0"},
-            "prepaidBalance": {"val":"0"},
-            "isUnifiedBillingUser": true,
+            "creditUsagePercent": 37.5,
+            "onDemandCap": {"val":"5000"},
+            "onDemandUsed": {"val":"1250"},
+            "prepaidBalance": {"val":"-975"},
+            "isUnifiedBillingUser": true
+          },
+          "subscriptionTier": "SuperGrok Heavy"
+        }"#,
+    )
+    .expect("billing usage");
+
+    let rate_limit = usage.rate_limit.expect("rate limit");
+    assert_eq!(rate_limit.allowed, Some(true));
+    let window = &rate_limit.windows[0];
+    assert_eq!(window.id, "weekly_credits");
+    assert_eq!(window.kind, OAuthQuotaWindowKind::Credits);
+    assert_eq!(window.used_percent, 37.5);
+    assert_eq!(window.limit_window_seconds, Some(604_800));
+    assert_eq!(window.reset_at, Some(1_894_060_800));
+    let billing = usage.billing.expect("billing amounts");
+    assert_eq!(billing.currency, "USD");
+    assert_eq!(billing.prepaid_balance_minor, Some(-975));
+    assert_eq!(billing.on_demand_used_minor, Some(1250));
+    assert_eq!(billing.on_demand_cap_minor, Some(5000));
+    assert_eq!(billing.is_unified_billing_user, Some(true));
+    assert_eq!(usage.subscription_tier.as_deref(), Some("SuperGrok Heavy"));
+}
+
+#[test]
+fn derives_legacy_monthly_usage() {
+    let usage = parse_usage(
+        br#"{
+          "config": {
+            "monthlyLimit": {"val": 2000},
+            "used": {"val": "500"},
             "billingPeriodStart": "2030-01-01T00:00:00Z",
-            "billingPeriodEnd": "2030-01-08T00:00:00Z"
+            "billingPeriodEnd": "2030-02-01T00:00:00Z"
+          }
+        }"#,
+    )
+    .expect("legacy billing");
+    let window = &usage.rate_limit.expect("rate limit").windows[0];
+    assert_eq!(window.id, "monthly_credits");
+    assert_eq!(window.used_percent, 25.0);
+    assert_eq!(window.limit_window_seconds, Some(2_678_400));
+}
+
+#[test]
+fn free_billing_keeps_missing_usage_unknown() {
+    let usage = parse_usage(
+        br#"{
+          "config": {
+            "currentPeriod": {
+              "type": "USAGE_PERIOD_TYPE_WEEKLY",
+              "start": "2030-01-01T00:00:00Z",
+              "end": "2030-01-08T00:00:00Z"
+            },
+            "onDemandCap": {},
+            "onDemandUsed": {"val":"0"},
+            "prepaidBalance": {"val":"2500"},
+            "isUnifiedBillingUser": true
           }
         }"#,
     )
     .expect("unified billing");
 
-    assert_eq!(parsed, OAuthQuotaUsageParse::ProbeRequired);
+    assert!(usage.rate_limit.is_none());
+    let billing = usage.billing.expect("billing amounts");
+    assert_eq!(billing.prepaid_balance_minor, Some(2500));
+    assert_eq!(billing.on_demand_cap_minor, Some(0));
+    assert_eq!(billing.on_demand_used_minor, Some(0));
 }
 
 #[test]
-fn parses_request_and_token_quota_headers() {
-    let mut headers = HeaderMap::new();
-    for (name, value) in [
-        ("x-ratelimit-limit-requests", "100"),
-        ("x-ratelimit-remaining-requests", "75"),
-        ("x-ratelimit-reset-requests", "1894060800"),
-        ("x-ratelimit-limit-tokens", "1000"),
-        ("x-ratelimit-remaining-tokens", "400"),
-        ("x-ratelimit-reset-tokens", "1894060800000"),
-    ] {
-        headers.insert(
-            http::header::HeaderName::from_bytes(name.as_bytes()).expect("header name"),
-            HeaderValue::from_static(value),
-        );
-    }
-    let usage = parse_probe(&UpstreamResponseMeta {
-        status: StatusCode::OK,
-        headers,
-    })
-    .expect("quota headers");
+fn preserves_an_explicit_zero_usage_percent() {
+    let usage = parse_usage(
+        br#"{
+          "config": {
+            "currentPeriod": {
+              "type": "USAGE_PERIOD_TYPE_WEEKLY",
+              "start": "2030-01-01T00:00:00Z",
+              "end": "2030-01-08T00:00:00Z"
+            },
+            "creditUsagePercent": 0
+          }
+        }"#,
+    )
+    .expect("explicit zero usage");
 
-    let rate_limit = usage.rate_limit.expect("rate limit");
-    assert_eq!(rate_limit.allowed, Some(true));
-    let requests = &rate_limit.windows[0];
-    assert_eq!(requests.id, "requests");
-    assert_eq!(requests.kind, OAuthQuotaWindowKind::Requests);
-    assert_eq!(requests.used_percent, 25.0);
-    assert_eq!(requests.limit_window_seconds, None);
-    assert_eq!(requests.reset_at, Some(1_894_060_800));
-    let tokens = &rate_limit.windows[1];
-    assert_eq!(tokens.id, "tokens");
-    assert_eq!(tokens.kind, OAuthQuotaWindowKind::Tokens);
-    assert_eq!(tokens.used_percent, 60.0);
-    assert_eq!(tokens.reset_at, Some(1_894_060_800));
+    let window = &usage.rate_limit.expect("rate limit").windows[0];
+    assert_eq!(window.id, "weekly_credits");
+    assert_eq!(window.used_percent, 0.0);
 }
 
 #[test]
-fn accepts_headerless_429_as_an_explicit_exhausted_observation() {
-    let usage = parse_probe(&UpstreamResponseMeta {
-        status: StatusCode::TOO_MANY_REQUESTS,
-        headers: HeaderMap::new(),
-    })
-    .expect("429 observation");
-    let rate_limit = usage.rate_limit.expect("rate limit");
-    assert_eq!(rate_limit.allowed, Some(false));
-    assert_eq!(rate_limit.limit_reached, Some(true));
-    assert!(rate_limit.windows.is_empty());
+fn parses_the_live_subscription_tier() {
+    let paid = parse_subscription(
+        br#"{
+          "subscriptionTier":"SuperGrokPro",
+          "userBlockedReason":"BLOCKED_REASON_BILLING",
+          "teamBlockedReasons":["BLOCKED_REASON_NO_LOGS", "  "]
+        }"#,
+    )
+    .expect("subscription");
+    assert_eq!(paid.subscription_tier.as_deref(), Some("SuperGrokPro"));
+    assert_eq!(
+        paid.user_blocked_reason.as_deref(),
+        Some("BLOCKED_REASON_BILLING")
+    );
+    assert_eq!(paid.team_blocked_reasons, ["BLOCKED_REASON_NO_LOGS"]);
+
+    let free = parse_subscription(br#"{"subscriptionTier":null}"#).expect("free subscription");
+    assert_eq!(free.subscription_tier.as_deref(), Some("Free"));
+    assert!(free.user_blocked_reason.is_none());
+    assert!(free.team_blocked_reasons.is_empty());
 }
 
 #[test]
-fn rejects_missing_negative_and_non_weekly_billing_values() {
+fn free_tier_uses_the_default_local_one_million_token_window() {
+    let mut usage =
+        parse_usage(br#"{"config":{"isUnifiedBillingUser":true}}"#).expect("billing usage");
+    usage.apply_supplement(
+        parse_subscription(br#"{"subscriptionTier":null}"#).expect("free subscription"),
+    );
+
+    let policy = local_token_quota_policy(&usage).expect("local Free policy");
+    assert_eq!(policy.limit, 1_000_000);
+    assert_eq!(policy.window_seconds, 86_400);
+
+    usage.apply_supplement(
+        parse_subscription(br#"{"subscriptionTier":"SuperGrokPro"}"#).expect("paid subscription"),
+    );
+    assert!(local_token_quota_policy(&usage).is_none());
+}
+
+#[test]
+fn rejects_malformed_billing_values() {
     for body in [
         br#"{}"#.as_slice(),
-        br#"{"config":{"currentPeriod":{"type":"WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"creditUsagePercent":-1}}"#,
-        br#"{"config":{"currentPeriod":{"type":"MONTHLY","start":"2030-01-01T00:00:00Z","end":"2030-02-01T00:00:00Z"},"creditUsagePercent":1}}"#,
+        br#"{"config":{}}"#,
+        br#"{"config":{"currentPeriod":{"type":"DAILY","start":"2030-01-01T00:00:00Z","end":"2030-01-02T00:00:00Z"},"creditUsagePercent":1}}"#,
         br#"{"config":{"currentPeriod":{"type":"WEEKLY","start":"2030-01-08T00:00:00Z","end":"2030-01-01T00:00:00Z"},"creditUsagePercent":1}}"#,
+        br#"{"config":{"currentPeriod":{"type":"WEEKLY","start":"2030-01-01T00:00:00Z","end":"2030-01-08T00:00:00Z"},"creditUsagePercent":-1}}"#,
+        br#"{"config":{"monthlyLimit":{"val":"-1"},"used":{"val":"0"}}}"#,
+        br#"{"config":{"prepaidBalance":{"val":"9007199254740992"}}}"#,
     ] {
-        assert!(parse_usage(body).is_err());
+        assert!(parse_usage(body).is_err(), "body should be rejected");
     }
-}
-
-#[test]
-fn rejects_incomplete_or_inconsistent_probe_headers() {
-    for headers in [
-        headers(&[("x-ratelimit-limit-requests", "100")]),
-        headers(&[
-            ("x-ratelimit-limit-requests", "100"),
-            ("x-ratelimit-remaining-requests", "101"),
-        ]),
-        headers(&[
-            ("x-ratelimit-limit-tokens", "100"),
-            ("x-ratelimit-remaining-tokens", "50"),
-            ("x-ratelimit-reset-tokens", "tomorrow"),
-        ]),
-    ] {
-        assert!(
-            parse_probe(&UpstreamResponseMeta {
-                status: StatusCode::OK,
-                headers,
-            })
-            .is_err()
-        );
-    }
-}
-
-fn complete(parsed: OAuthQuotaUsageParse) -> crate::api::OAuthQuotaUsage {
-    match parsed {
-        OAuthQuotaUsageParse::Complete(usage) => usage,
-        OAuthQuotaUsageParse::ProbeRequired => panic!("unexpected probe requirement"),
-    }
-}
-
-fn headers(values: &[(&str, &'static str)]) -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    for (name, value) in values {
-        headers.insert(
-            http::header::HeaderName::from_bytes(name.as_bytes()).expect("header name"),
-            HeaderValue::from_static(value),
-        );
-    }
-    headers
 }

@@ -22,7 +22,7 @@ const SCOPE: &str = "openid profile email offline_access grok-cli:access api:acc
 const DEVICE_CODE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
 const DATA_BASE_URL: &str = "https://cli-chat-proxy.grok.com/v1";
-const CLI_VERSION: &str = "0.2.93";
+const CLI_VERSION: &str = "0.2.112";
 const MODELS: &[&str] = &[
     "grok-4.5",
     "grok-4.3",
@@ -182,9 +182,21 @@ pub(crate) fn credential_headers(
     );
     headers.insert(
         header::USER_AGENT,
-        HeaderValue::from_static("xai-grok-workspace/0.2.93"),
+        HeaderValue::from_static("xai-grok-workspace/0.2.112"),
     );
     Ok(CredentialHeaders { headers })
+}
+
+pub(crate) fn bot_flagged(token: &OAuthTokenMaterial) -> Option<bool> {
+    if token.provider() != ProviderKind::Grok {
+        return None;
+    }
+    let claims = decode_json_claims(token.access_token())?;
+    match claims.get("bot_flag_source")?.as_i64()? {
+        1 => Some(true),
+        0 => Some(false),
+        _ => None,
+    }
 }
 
 #[derive(Deserialize)]
@@ -217,7 +229,11 @@ struct Claims {
 }
 
 fn decode_claims(token: Option<&str>) -> Option<Claims> {
-    let payload = token?.split('.').nth(1)?;
+    serde_json::from_value(decode_json_claims(token?)?).ok()
+}
+
+fn decode_json_claims(token: &str) -> Option<serde_json::Value> {
+    let payload = token.split('.').nth(1)?;
     let bytes = URL_SAFE_NO_PAD.decode(payload).ok()?;
     serde_json::from_slice(&bytes).ok()
 }
