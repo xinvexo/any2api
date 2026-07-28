@@ -14,6 +14,8 @@ test("labels upstream and postcommit timeout settings", () => {
   expect(settingLabel(item("shutdown.request_grace_period"))).toBe("请求排空宽限期");
   expect(settingLabel(item("shutdown.finalize_timeout"))).toBe("最终收尾超时");
   expect(settingLabel(item("models.allowed"))).toBe("可使用的模型");
+  expect(settingLabel(item("affinity.ttl"))).toBe("会话绑定 TTL");
+  expect(settingLabel(item("affinity.wait_timeout"))).toBe("会话绑定等待超时");
   expect(enumOptionLabel("debug")).toBe("调试");
 });
 

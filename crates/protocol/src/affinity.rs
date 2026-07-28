@@ -14,7 +14,7 @@ pub(crate) fn extract(
     if operation == ProtocolOperation::Responses
         && let Some(previous) = previous_response_id(object)?
     {
-        return Ok(IngressAffinity::Hard(previous));
+        return Ok(IngressAffinity::Continuation(previous));
     }
     if operation == ProtocolOperation::MessagesCountTokens {
         return Ok(IngressAffinity::None);
@@ -27,15 +27,15 @@ pub(crate) fn extract(
         ("session_id", "codex"),
     ] {
         if let Some(value) = header_value(headers, header)? {
-            return Ok(IngressAffinity::Soft(namespaced(source, value)?));
+            return Ok(IngressAffinity::Session(namespaced(source, value)?));
         }
     }
 
     if let Some(value) = claude_session_id(object)? {
-        return Ok(IngressAffinity::Soft(namespaced("claude", &value)?));
+        return Ok(IngressAffinity::Session(namespaced("claude", &value)?));
     }
     if let Some(value) = string_field(object, "conversation_id")? {
-        return Ok(IngressAffinity::Soft(namespaced("conversation", value)?));
+        return Ok(IngressAffinity::Session(namespaced("conversation", value)?));
     }
     Ok(IngressAffinity::None)
 }
@@ -141,7 +141,7 @@ mod tests {
                 body.as_object().expect("object"),
             )
             .expect("affinity"),
-            IngressAffinity::Hard("resp_1".into())
+            IngressAffinity::Continuation("resp_1".into())
         );
 
         let body = json!({"conversation_id": "conversation"});
@@ -152,7 +152,7 @@ mod tests {
                 body.as_object().expect("object"),
             )
             .expect("affinity"),
-            IngressAffinity::Soft("any2api:explicit".into())
+            IngressAffinity::Session("any2api:explicit".into())
         );
     }
 
@@ -176,7 +176,7 @@ mod tests {
                     body.as_object().expect("object"),
                 )
                 .expect("affinity"),
-                IngressAffinity::Soft(expected.into())
+                IngressAffinity::Session(expected.into())
             );
         }
     }
@@ -203,6 +203,18 @@ mod tests {
             )
             .expect("affinity"),
             IngressAffinity::None
+        );
+    }
+
+    #[test]
+    fn affinity_debug_never_exposes_identifiers() {
+        assert_eq!(
+            format!("{:?}", IngressAffinity::Continuation("resp-secret".into())),
+            "Continuation([REDACTED])"
+        );
+        assert_eq!(
+            format!("{:?}", IngressAffinity::Session("session-secret".into())),
+            "Session([REDACTED])"
         );
     }
 }

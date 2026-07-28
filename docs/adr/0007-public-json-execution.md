@@ -1,6 +1,6 @@
 # ADR-0007: 首版同协议 JSON 请求执行链
 
-- 状态：Partially Superseded by ADR-0037 and ADR-0057
+- 状态：Partially Superseded by ADR-0037 and ADR-0061
 - 日期：2026-07-19
 - 决策者：maintainer
 - 后续：`ADR-0008` 已接入 `/v1/messages/count_tokens` 与独立辅助并发，本 ADR 记录的“仅认证门”是当时切片边界。
@@ -8,8 +8,9 @@
 > 取代说明（2026-07-25）：ADR-0037 以 `RoutingPermit`、原子 select-and-reserve 和稳定轮询
 > RPM 调度取代本文的 `ConcurrencyPermit`、select-and-acquire 与最低负载率选择；协议和认证边界继续有效。
 
-> 调整说明（2026-07-28）：ADR-0057 允许把最终 Provider 已声明错误 envelope 中的官方
-> `message` 返回当前客户端；本文“不透传原始错误正文”的边界继续有效。
+> 取代说明（2026-07-28）：ADR-0061 取代本文的上游非 2xx 脱敏 502/envelope 重编码边界。
+> 最终上游错误现在透明保留原状态、安全 Header 和完整收集到的有界正文；只有 any2api 本地错误
+> 继续使用入口协议 envelope。
 
 ## 背景
 
@@ -26,8 +27,7 @@ Provider/Route/GatewayKey 配置切片、GatewayApiKey 认证和 Transport 的 D
 - Runtime 请求执行按规划、单次 Attempt 和响应处理拆分。上游响应会移除认证字段、Cookie、固定 hop-by-hop Header 以及 `Connection` 动态指定的 Header，避免 Provider Secret 或连接级元数据返回给客户端。
 - `/v1/*` 的 fallback 与方法错误和已知路由使用同一 GatewayApiKey 鉴权层；未知路径不会绕过 Access 阶段，已知路径的方法错误返回稳定 JSON 405。
 - 首版暂不自动重试、排队、冷却、健康熔断、会话粘性或 SSE 事件转换；`stream=true` 明确返回协议兼容的 invalid request，而不是把流式请求降级为 JSON。
-- 上游非 2xx 错误只返回协议兼容的脱敏错误 envelope；不透传上游原始错误正文。
-- 当前切片仍把已分类的上游错误统一映射为脱敏 `502` envelope，尚未透传 `Retry-After` 或细分客户端状态码；这属于后续可靠性切片，不把错误正文直接暴露给客户端。
+- 最终上游非 2xx 由 ADR-0061 透明返回原状态、安全 Header 和完整收集到的有界正文，不根据内部分类或入口协议重编码；被重试掉的中间 Attempt 仍不会暴露。
 - DIRECT 模式已执行最终 DNS/IP 校验并固定本次连接地址；HTTP/SOCKS5 远端 DNS 仍按显式受信代理边界处理，严格本地 DNS 模式尚未进入本切片。请求级绝对 deadline 也仍待可靠性切片，因此当前结果是可验证的非流式 JSON vertical slice，不宣称首个正式可靠性版本已完成。
 
 ## 后果

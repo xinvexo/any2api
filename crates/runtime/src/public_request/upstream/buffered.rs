@@ -5,7 +5,7 @@ use any2api_protocol::api::{DecodedRequest, EgressResponse, UpstreamResponse};
 use http::{HeaderValue, header};
 
 use super::super::{
-    affinity::{AffinitySelection, commit_soft_binding},
+    affinity::{AffinitySelection, commit_binding},
     execution_limits,
     response::{
         CollectBodyError, collect_body, collect_error_body, internal_error, public_error,
@@ -15,7 +15,7 @@ use super::super::{
 use super::{
     UpstreamServices,
     failure::AttemptFailure,
-    prepared::{AttemptInput, hard_committer, prepare_input},
+    prepared::{AttemptInput, continuation_committer, prepare_input},
 };
 use crate::request_telemetry::AttemptRecorder;
 
@@ -32,8 +32,8 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         mut prepared,
         candidate,
         target,
-        soft_lease,
-        fixed,
+        binding_lease,
+        bound,
     } = prepare_input(
         services.snapshot,
         services.protocols,
@@ -47,7 +47,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         Ok(response) => response,
         Err(error) => {
             prepared.transport_failure(&error);
-            return Err(AttemptFailure::transport(error, candidate, fixed));
+            return Err(AttemptFailure::transport(error, candidate, bound));
         }
     };
     let status = response.status;
@@ -70,7 +70,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             body,
             error,
             candidate,
-            fixed,
+            bound,
         ));
     }
     let body = match collect_body(
@@ -84,7 +84,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         Ok(body) => body,
         Err(CollectBodyError::Transport(error)) => {
             prepared.transport_failure(&error);
-            return Err(AttemptFailure::transport(error, candidate, fixed));
+            return Err(AttemptFailure::transport(error, candidate, bound));
         }
         Err(CollectBodyError::Public(error)) => {
             prepared.invalid_response(Some(status.as_u16()), error.telemetry_message());
@@ -109,8 +109,8 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     if prepared.ingress_operation != ProtocolOperation::MessagesCountTokens {
         prepared.observe_token_usage(decoded.telemetry.token_usage);
     }
-    let hard_id = prepared
-        .hard_affinity_id_from_response(&decoded)
+    let continuation_id = prepared
+        .continuation_id_from_response(&decoded)
         .map_err(|_| {
             prepared.fail_after_upstream_success(
                 status.as_u16(),
@@ -129,17 +129,17 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         HeaderValue::from_static("application/json"),
     );
     sanitize_response_headers(&mut response.headers);
-    let hard_affinity = hard_committer(
+    let continuation_binding = continuation_committer(
         services.snapshot,
         prepared.ingress_operation,
         target.clone(),
     );
-    if let Some(hard_id) = hard_id {
-        hard_affinity
-            .bind(&hard_id)
+    if let Some(continuation_id) = continuation_id {
+        continuation_binding
+            .bind(&continuation_id)
             .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
     }
-    commit_soft_binding(soft_lease, target)
+    commit_binding(binding_lease, target)
         .map_err(|error| prepared.fail_after_upstream_success(status.as_u16(), error))?;
     prepared.success(status.as_u16());
     Ok(response)

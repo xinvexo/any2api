@@ -90,6 +90,66 @@ async fn definitely_not_sent_failure_switches_to_another_credential() {
 }
 
 #[tokio::test]
+async fn session_retry_does_not_replay_turn_state_to_another_credential() {
+    let transport = Arc::new(ScriptedTransport::new([
+        failure_step(),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"retry-session","model":"upstream","output":[]}"#,
+        ),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"retry-session-follow","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["session-retry-model"], &[]).await;
+    let mut headers = HeaderMap::new();
+    headers.insert("session-id", HeaderValue::from_static("session-retry"));
+    headers.insert(
+        "x-codex-turn-state",
+        HeaderValue::from_static("credential-zero-state"),
+    );
+
+    let response = execute_operation_with_headers(
+        &harness,
+        ProtocolOperation::Responses,
+        "session-retry-model",
+        json!({"input":"hello"}),
+        headers,
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut follow_headers = HeaderMap::new();
+    follow_headers.insert("session-id", HeaderValue::from_static("session-retry"));
+    follow_headers.insert(
+        "x-codex-turn-state",
+        HeaderValue::from_static("final-credential-state"),
+    );
+    let follow = execute_operation_with_headers(
+        &harness,
+        ProtocolOperation::Responses,
+        "session-retry-model",
+        json!({"input":"follow"}),
+        follow_headers,
+    )
+    .await;
+    assert_eq!(follow.status(), StatusCode::OK);
+
+    let calls = transport.calls();
+    assert_eq!(calls.len(), 3);
+    assert_ne!(calls[0].authorization, calls[1].authorization);
+    assert_eq!(calls[2].authorization, calls[1].authorization);
+    assert_eq!(calls[0].turn_state, None);
+    assert_eq!(calls[1].turn_state, None);
+    assert_eq!(
+        calls[2].turn_state.as_deref(),
+        Some("final-credential-state")
+    );
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
 async fn buffered_response_persists_exact_usage_without_inventing_ttft() {
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
         StatusCode::OK,
@@ -929,11 +989,11 @@ async fn cross_protocol_upstream_error_is_not_reencoded() {
 }
 
 #[tokio::test]
-async fn hard_affinity_failure_never_switches_credentials() {
+async fn continuation_binding_failure_never_switches_credentials() {
     let transport = Arc::new(ScriptedTransport::new([
         ScriptStep::json(
             StatusCode::OK,
-            r#"{"id":"hard-id","model":"upstream","output":[]}"#,
+            r#"{"id":"bound-id","model":"upstream","output":[]}"#,
         ),
         ScriptStep::Error(TransportError::new(
             TransportErrorStage::Tcp,
@@ -946,16 +1006,16 @@ async fn hard_affinity_failure_never_switches_credentials() {
             r#"{"id":"wrong-target","model":"upstream","output":[]}"#,
         ),
     ]));
-    let harness = harness(transport.clone(), 2, &["hard-model"], &[]).await;
+    let harness = harness(transport.clone(), 2, &["bound-model"], &[]).await;
 
-    let first = execute_json(&harness, "hard-model", json!({"input":"start"})).await;
+    let first = execute_json(&harness, "bound-model", json!({"input":"start"})).await;
     assert_eq!(first.status(), StatusCode::OK);
     let first_auth = transport.calls()[0].authorization.clone();
 
     let second = execute_json(
         &harness,
-        "hard-model",
-        json!({"previous_response_id":"hard-id","input":"continue"}),
+        "bound-model",
+        json!({"previous_response_id":"bound-id","input":"continue"}),
     )
     .await;
 
@@ -1425,7 +1485,7 @@ fn default_overrides() -> Vec<(SettingKey, SettingValue)> {
         (SettingKey::RetryMaxDelay, SettingValue::DurationSecs(0)),
         (SettingKey::RetryJitterRatio, SettingValue::Integer(0)),
         (
-            SettingKey::AffinityFixedWaitTimeout,
+            SettingKey::AffinityWaitTimeout,
             SettingValue::DurationSecs(1),
         ),
         (
@@ -1445,6 +1505,16 @@ async fn execute_operation(
     model: &str,
     extra: Value,
 ) -> TestResponse {
+    execute_operation_with_headers(harness, operation, model, extra, HeaderMap::new()).await
+}
+
+async fn execute_operation_with_headers(
+    harness: &Harness,
+    operation: ProtocolOperation,
+    model: &str,
+    extra: Value,
+    headers: HeaderMap,
+) -> TestResponse {
     let mut body = extra;
     body["model"] = Value::String(model.to_owned());
     let request_id = RequestId::new();
@@ -1457,7 +1527,7 @@ async fn execute_operation(
                 gateway_api_key_id: GatewayApiKeyId::new(),
                 client_ip: "127.0.0.1".parse().expect("client IP"),
                 operation,
-                headers: HeaderMap::new(),
+                headers,
                 body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
             },
         )
@@ -1567,6 +1637,7 @@ async fn wait_for_log(harness: &Harness, request_id: RequestId) -> CompletedRequ
 struct TransportCall {
     uri: String,
     authorization: Option<String>,
+    turn_state: Option<String>,
     body: Bytes,
     read_timeout: Duration,
 }
@@ -1709,6 +1780,11 @@ impl TransportManager for ScriptedTransport {
             authorization: request
                 .headers
                 .get(header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
+            turn_state: request
+                .headers
+                .get("x-codex-turn-state")
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_owned),
             body: request.body.clone(),

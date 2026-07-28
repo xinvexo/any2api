@@ -154,7 +154,7 @@ pub(super) async fn execute(
                 if !should_retry(&failure) || !budget.can_retry() {
                     return Err(public);
                 }
-                if !failure.fixed() {
+                if !failure.bound() {
                     exclude_failed_path(&mut exclusions, &failure);
                 }
                 let delay = budget.next_delay();

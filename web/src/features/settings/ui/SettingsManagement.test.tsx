@@ -13,17 +13,17 @@ test("shows frequent routing choices and folds low-frequency settings", async ()
   renderRoutingSettings();
 
   expect(await screen.findByRole("combobox", { name: "RPM 用尽行为" })).toHaveValue("reject");
-  expect(screen.getByRole("switch", { name: "启用软粘性" })).toBeChecked();
-  expect(screen.getByRole("combobox", { name: "软粘性模式" })).toHaveValue("prefer");
   expect(screen.getByText("高级设置")).toBeInTheDocument();
-  expect(screen.getByText("7 项")).toBeInTheDocument();
+  expect(screen.getByText("5 项")).toBeInTheDocument();
   const advanced = screen.getByText("高级设置").closest("details");
   expect(advanced).not.toHaveAttribute("open");
 
   fireEvent.click(screen.getByText("高级设置"));
   expect(advanced).toHaveAttribute("open");
   expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("30");
-  expect(screen.getByRole("textbox", { name: "硬绑定 TTL" })).toHaveValue("86400");
+  expect(screen.getByRole("textbox", { name: "会话绑定 TTL" })).toHaveValue("86400");
+  expect(screen.getByRole("textbox", { name: "会话绑定等待超时" })).toHaveValue("30");
+  expect(screen.queryByText(/软粘性|硬粘性|Prefer/)).not.toBeInTheDocument();
   expect(screen.queryByText("已覆盖")).not.toBeInTheDocument();
   expect(screen.queryByText("未覆盖")).not.toBeInTheDocument();
 });
@@ -160,12 +160,8 @@ function configuration(revision: number, timeoutOverride: number | null = null) 
       setting("scheduler.queue_timeout", "duration_secs", 30, timeoutOverride, null, "排队策略", 1, 86_400),
       setting("scheduler.max_waiting_requests", "integer", 128, null, null, "排队策略", 1, 100_000),
       setting("scheduler.fallback_on_rate_limit", "boolean", false, null, null, "排队策略"),
-      setting("affinity.soft.enabled", "boolean", true, null, null, "软会话粘性"),
-      setting("affinity.soft.mode", "enum", "prefer", null, ["prefer", "strict"], "软会话粘性"),
-      setting("affinity.soft.ttl", "duration_secs", 3_600, null, null, "软会话粘性", 1, 2_592_000),
-      setting("affinity.hard.ttl", "duration_secs", 86_400, null, null, "硬会话粘性", 1, 2_592_000),
-      setting("affinity.soft.prefer_wait_timeout", "duration_secs", 2, null, null, "软会话粘性", 1, 86_400),
-      setting("affinity.fixed_wait_timeout", "duration_secs", 30, null, null, "固定会话等待", 1, 86_400),
+      setting("affinity.ttl", "duration_secs", 86_400, null, null, "会话粘性", 1, 2_592_000),
+      setting("affinity.wait_timeout", "duration_secs", 30, null, null, "会话粘性", 1, 86_400),
     ],
   };
 }

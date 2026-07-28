@@ -45,7 +45,7 @@ impl RuntimeRegistry {
         let lifecycle = ProcessLifecycle::new();
         let scheduler_epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());
         Self {
-            affinity: AffinityRegistry::new(),
+            affinity: AffinityRegistry::with_scheduler_epoch(Arc::clone(&scheduler_epoch)),
             affinity_sweeper_started: AtomicBool::new(false),
             scheduler_epoch: Arc::clone(&scheduler_epoch),
             credentials: RwLock::new(HashMap::new()),
@@ -230,12 +230,7 @@ impl RuntimeRegistry {
         policy: AffinityPolicy,
         limit: usize,
     ) -> AffinityRuntimeSnapshot {
-        self.affinity.snapshot(
-            policy.soft_ttl(),
-            policy.hard_ttl(),
-            policy.fixed_wait_timeout(),
-            limit,
-        )
+        self.affinity.snapshot(policy.ttl(), limit)
     }
 
     pub fn clear_all_affinity(&self) -> usize {

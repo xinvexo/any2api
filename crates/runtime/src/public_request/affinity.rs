@@ -1,10 +1,14 @@
-use std::{collections::BTreeMap, time::Instant};
+use std::{
+    collections::BTreeMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use any2api_domain::{
-    AffinityMode, ModelRouteId, ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode,
+    ModelRouteId, ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode,
 };
 use any2api_protocol::api::IngressAffinity;
-use tokio::time::timeout;
+use tokio::time::{Instant as TokioInstant, timeout_at};
 
 use super::{
     SelectedCandidate,
@@ -12,16 +16,16 @@ use super::{
     selection::{FixedSelectionError, select_candidate, select_fixed_candidate},
 };
 use crate::{
-    affinity::{AffinityError, AffinityTarget, SoftBindingLease, SoftBindingStart},
+    affinity::{AffinityError, AffinityRegistry, AffinityTarget, BindingLease, BindingStart},
     configuration::PublishedSnapshot,
-    routing::{CandidateExclusions, RouteCandidate},
+    routing::{CandidateExclusions, QueueCoordinator, RouteCandidate},
 };
 
 pub(super) struct AffinitySelection {
     pub(super) selected: SelectedCandidate,
     pub(super) target: AffinityTarget,
-    pub(super) soft_lease: Option<SoftBindingLease>,
-    pub(super) fixed: bool,
+    pub(super) binding_lease: Option<BindingLease>,
+    pub(super) bound: bool,
 }
 
 pub(super) struct AffinitySelectionInput<'a> {
@@ -38,121 +42,137 @@ pub(super) struct AffinitySelectionInput<'a> {
 pub(super) async fn select(
     input: AffinitySelectionInput<'_>,
 ) -> Result<AffinitySelection, PublicError> {
-    if let IngressAffinity::Hard(raw) = input.affinity {
-        return select_hard(&input, raw).await;
+    match input.affinity {
+        IngressAffinity::None => select_unbound(&input, None).await,
+        IngressAffinity::Continuation(raw) => select_continuation(&input, raw).await,
+        IngressAffinity::Session(raw) => select_session(&input, raw).await,
     }
-    if let IngressAffinity::Soft(raw) = input.affinity
-        && input.snapshot.affinity_policy().soft_enabled()
-    {
-        return select_soft(&input, raw).await;
-    }
-    select_unbound(&input, None).await
 }
 
-async fn select_hard(
+async fn select_continuation(
     input: &AffinitySelectionInput<'_>,
     raw: &str,
 ) -> Result<AffinitySelection, PublicError> {
     let target = input
         .snapshot
         .affinity_registry()
-        .resolve_hard(raw, input.snapshot.affinity_policy().hard_ttl())
+        .resolve_continuation(raw, input.snapshot.affinity_policy().ttl())
         .ok_or_else(binding_lost)?;
+    select_bound(input, target).await
+}
+
+async fn select_session(
+    input: &AffinitySelectionInput<'_>,
+    raw: &str,
+) -> Result<AffinitySelection, PublicError> {
+    let policy = input.snapshot.affinity_policy();
+    match acquire_session_binding(
+        input.snapshot.affinity_registry(),
+        input.snapshot.queue_coordinator(),
+        input.dialect,
+        input.route_id,
+        raw,
+        policy.ttl(),
+        policy.wait_timeout(),
+        input.snapshot.queue_policy().max_waiting_requests(),
+    )
+    .await?
+    {
+        SessionBindingStart::Create(lease) => select_unbound(input, Some(lease)).await,
+        SessionBindingStart::Bound(target) => select_bound(input, target).await,
+    }
+}
+
+#[derive(Debug)]
+enum SessionBindingStart {
+    Create(BindingLease),
+    Bound(AffinityTarget),
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn acquire_session_binding(
+    registry: &Arc<AffinityRegistry>,
+    queue: &Arc<QueueCoordinator>,
+    dialect: ProtocolDialect,
+    route_id: ModelRouteId,
+    raw: &str,
+    ttl: Duration,
+    wait_timeout: Duration,
+    max_waiting_requests: u32,
+) -> Result<SessionBindingStart, PublicError> {
+    let wait_deadline = TokioInstant::now() + wait_timeout;
+    let mut queue_ticket = None;
+    let mut scheduler_changes: Option<tokio::sync::watch::Receiver<u64>> = None;
+    loop {
+        if queue_ticket.is_some() && TokioInstant::now() >= wait_deadline {
+            return Err(binding_wait_timeout());
+        }
+        if let Some(changes) = scheduler_changes.as_mut() {
+            let _observed_epoch = *changes.borrow_and_update();
+        }
+        let start = registry
+            .begin_session(dialect, route_id, raw, ttl)
+            .map_err(affinity_error)?;
+        match start {
+            BindingStart::Create(lease) => {
+                return Ok(SessionBindingStart::Create(lease));
+            }
+            BindingStart::Wait => {
+                if queue_ticket.is_none() {
+                    let ticket = queue.try_ticket(max_waiting_requests).ok_or_else(|| {
+                        public_error(PublicErrorCode::LocalRateLimit, "request queue is full")
+                    })?;
+                    scheduler_changes = Some(ticket.subscribe());
+                    queue_ticket = Some(ticket);
+                    continue;
+                }
+                let changes = scheduler_changes
+                    .as_mut()
+                    .expect("queue ticket always carries an epoch subscription");
+                match timeout_at(wait_deadline, changes.changed()).await {
+                    Ok(Ok(())) => continue,
+                    Ok(Err(_)) => return Err(internal_error()),
+                    Err(_) => return Err(binding_wait_timeout()),
+                }
+            }
+            BindingStart::Bound(binding) => {
+                return Ok(SessionBindingStart::Bound(binding.target().clone()));
+            }
+        }
+    }
+}
+
+fn binding_wait_timeout() -> PublicError {
+    public_error(
+        PublicErrorCode::LocalRateLimit,
+        "session binding creation timed out",
+    )
+}
+
+async fn select_bound(
+    input: &AffinitySelectionInput<'_>,
+    target: AffinityTarget,
+) -> Result<AffinitySelection, PublicError> {
     let candidate = find_candidate(&target, input.route_id, input.dialect, input.tiers)
         .ok_or_else(binding_lost)?;
     let selected = select_fixed_candidate(
         input.snapshot,
         candidate,
-        input.snapshot.affinity_policy().fixed_wait_timeout(),
+        input.snapshot.affinity_policy().wait_timeout(),
     )
     .await
     .map_err(FixedSelectionError::into_public_error)?;
     Ok(AffinitySelection {
         selected,
         target,
-        soft_lease: None,
-        fixed: true,
+        binding_lease: None,
+        bound: true,
     })
-}
-
-async fn select_soft(
-    input: &AffinitySelectionInput<'_>,
-    raw: &str,
-) -> Result<AffinitySelection, PublicError> {
-    let policy = input.snapshot.affinity_policy();
-    loop {
-        let start = input
-            .snapshot
-            .affinity_registry()
-            .begin_soft(
-                input.dialect,
-                input.route_id,
-                raw,
-                policy.soft_ttl(),
-                policy.fixed_wait_timeout(),
-            )
-            .map_err(affinity_error)?;
-        match start {
-            SoftBindingStart::Create(lease) => {
-                return select_unbound(input, Some(lease)).await;
-            }
-            SoftBindingStart::Wait(mut wait) => {
-                match timeout(policy.fixed_wait_timeout(), wait.changed()).await {
-                    Ok(Ok(())) => continue,
-                    Ok(Err(_)) => return Err(internal_error()),
-                    Err(_) => {
-                        return Err(public_error(
-                            PublicErrorCode::LocalRateLimit,
-                            "session binding creation timed out",
-                        ));
-                    }
-                }
-            }
-            SoftBindingStart::Bound(binding) => {
-                let Some(candidate) =
-                    find_candidate(binding.target(), input.route_id, input.dialect, input.tiers)
-                else {
-                    if policy.soft_mode() == AffinityMode::Strict {
-                        return Err(binding_lost());
-                    }
-                    input.snapshot.affinity_registry().invalidate_soft(&binding);
-                    continue;
-                };
-                if !input.exclusions.allows(candidate) {
-                    if policy.soft_mode() == AffinityMode::Strict {
-                        return Err(binding_lost());
-                    }
-                    input.snapshot.affinity_registry().invalidate_soft(&binding);
-                    continue;
-                }
-                let wait_timeout = match policy.soft_mode() {
-                    AffinityMode::Prefer => policy.soft_prefer_wait_timeout(),
-                    AffinityMode::Strict => policy.fixed_wait_timeout(),
-                };
-                match select_fixed_candidate(input.snapshot, candidate, wait_timeout).await {
-                    Ok(selected) => {
-                        return Ok(AffinitySelection {
-                            selected,
-                            target: binding.target().clone(),
-                            soft_lease: None,
-                            fixed: policy.soft_mode() == AffinityMode::Strict,
-                        });
-                    }
-                    Err(FixedSelectionError::Timeout | FixedSelectionError::Unavailable)
-                        if policy.soft_mode() == AffinityMode::Prefer =>
-                    {
-                        input.snapshot.affinity_registry().invalidate_soft(&binding);
-                    }
-                    Err(error) => return Err(error.into_public_error()),
-                }
-            }
-        }
-    }
 }
 
 async fn select_unbound(
     input: &AffinitySelectionInput<'_>,
-    soft_lease: Option<SoftBindingLease>,
+    binding_lease: Option<BindingLease>,
 ) -> Result<AffinitySelection, PublicError> {
     let selected = select_candidate(
         input.snapshot,
@@ -167,8 +187,8 @@ async fn select_unbound(
     Ok(AffinitySelection {
         selected,
         target,
-        soft_lease,
-        fixed: false,
+        binding_lease,
+        bound: false,
     })
 }
 
@@ -197,14 +217,15 @@ fn affinity_error(error: AffinityError) -> PublicError {
             PublicErrorCode::LocalRateLimit,
             "session affinity capacity is full",
         ),
+        AffinityError::TargetInactive => binding_lost(),
         AffinityError::IdentityConflict
         | AffinityError::LeaseLost
         | AffinityError::DeadlineExceeded => internal_error(),
     }
 }
 
-pub(super) fn commit_soft_binding(
-    lease: Option<SoftBindingLease>,
+pub(super) fn commit_binding(
+    lease: Option<BindingLease>,
     target: AffinityTarget,
 ) -> Result<(), PublicError> {
     match lease {
@@ -213,8 +234,8 @@ pub(super) fn commit_soft_binding(
     }
 }
 
-pub(super) fn commit_soft_binding_before(
-    lease: Option<SoftBindingLease>,
+pub(super) fn commit_binding_before(
+    lease: Option<BindingLease>,
     target: AffinityTarget,
     deadline: Instant,
 ) -> Result<(), PublicError> {
@@ -231,3 +252,6 @@ pub(super) fn commit_soft_binding_before(
         None => Ok(()),
     }
 }
+
+#[cfg(test)]
+mod tests;

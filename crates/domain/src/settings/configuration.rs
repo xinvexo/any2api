@@ -152,23 +152,30 @@ mod tests {
 
     use super::{SettingOverrides, SettingsConfiguration};
     use crate::{
-        AffinityMode, FileLogLevel, RateLimitMode, SettingKey, SettingValue, SettingValueType,
+        FileLogLevel, RateLimitMode, SettingKey, SettingValue, SettingValueType,
         SettingsValidationError,
     };
 
     #[test]
     fn defaults_match_architecture() {
         let settings = SettingsConfiguration::defaults();
+        assert_eq!(SettingKey::ALL.len(), 46);
         assert_eq!(settings.scheduler().on_rate_limited(), RateLimitMode::Wait);
         assert_eq!(settings.scheduler().queue_timeout_secs(), 30);
         assert_eq!(settings.scheduler().max_waiting_requests(), 128);
         assert!(!settings.scheduler().fallback_on_rate_limit());
-        assert!(settings.affinity().soft_enabled());
-        assert_eq!(settings.affinity().soft_mode(), AffinityMode::Prefer);
-        assert_eq!(settings.affinity().soft_ttl_secs(), 3_600);
-        assert_eq!(settings.affinity().hard_ttl_secs(), 86_400);
-        assert_eq!(settings.affinity().soft_prefer_wait_timeout_secs(), 2);
-        assert_eq!(settings.affinity().fixed_wait_timeout_secs(), 30);
+        assert_eq!(settings.affinity().ttl_secs(), 86_400);
+        assert_eq!(settings.affinity().wait_timeout_secs(), 30);
+        for removed in [
+            "affinity.soft.enabled",
+            "affinity.soft.mode",
+            "affinity.soft.ttl",
+            "affinity.hard.ttl",
+            "affinity.soft.prefer_wait_timeout",
+            "affinity.fixed_wait_timeout",
+        ] {
+            assert_eq!(SettingKey::parse(removed), None);
+        }
         assert_eq!(settings.reliability().max_total_attempts(), 3);
         assert_eq!(settings.reliability().max_credential_switches(), 2);
         assert_eq!(settings.reliability().max_same_credential_retries(), 1);
@@ -211,12 +218,8 @@ mod tests {
         assert_eq!(value, SettingValue::DurationSecs(5));
         assert!(SettingValue::from_json(key, &json!(0)).is_err());
         assert_eq!(
-            SettingValue::from_json(SettingKey::AffinitySoftMode, &json!(true)),
+            SettingValue::from_json(SettingKey::AffinityTtl, &json!(true)),
             Err(SettingsValidationError::InvalidType)
-        );
-        assert_eq!(
-            SettingValue::from_json(SettingKey::AffinitySoftMode, &json!("wait")),
-            Err(SettingsValidationError::InvalidEnum)
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::LogsFileLevel, &json!("debug")),
@@ -225,7 +228,7 @@ mod tests {
         assert_eq!(
             SettingOverrides::from_entries([(
                 SettingKey::SchedulerOnRateLimited,
-                SettingValue::AffinityMode(AffinityMode::Prefer),
+                SettingValue::FileLogLevel(FileLogLevel::Info),
             )]),
             Err(SettingsValidationError::InvalidEnum)
         );
@@ -277,6 +280,20 @@ mod tests {
         assert_eq!(read_timeout.default(), SettingValue::DurationSecs(15));
         assert_eq!(read_timeout.min(), Some(SettingValue::DurationSecs(1)));
         assert_eq!(read_timeout.max(), Some(SettingValue::DurationSecs(86_400)));
+        let affinity_ttl = SettingKey::AffinityTtl.definition();
+        assert_eq!(affinity_ttl.default(), SettingValue::DurationSecs(86_400));
+        assert_eq!(affinity_ttl.min(), Some(SettingValue::DurationSecs(1)));
+        assert_eq!(
+            affinity_ttl.max(),
+            Some(SettingValue::DurationSecs(2_592_000))
+        );
+        let affinity_wait = SettingKey::AffinityWaitTimeout.definition();
+        assert_eq!(affinity_wait.default(), SettingValue::DurationSecs(30));
+        assert_eq!(affinity_wait.min(), Some(SettingValue::DurationSecs(1)));
+        assert_eq!(
+            affinity_wait.max(),
+            Some(SettingValue::DurationSecs(86_400))
+        );
         assert_eq!(SettingKey::parse("stream.precommit.max_events"), None);
     }
 
@@ -287,10 +304,7 @@ mod tests {
                 SettingKey::SchedulerFallbackOnRateLimit,
                 SettingValue::Boolean(true),
             ),
-            (
-                SettingKey::AffinitySoftMode,
-                SettingValue::AffinityMode(AffinityMode::Strict),
-            ),
+            (SettingKey::AffinityTtl, SettingValue::DurationSecs(120)),
             (
                 SettingKey::UpstreamReadTimeout,
                 SettingValue::DurationSecs(2),
@@ -304,13 +318,13 @@ mod tests {
         .expect("overrides");
         let settings = SettingsConfiguration::from_overrides(overrides).expect("settings");
         assert!(settings.scheduler().fallback_on_rate_limit());
-        assert_eq!(settings.affinity().soft_mode(), AffinityMode::Strict);
+        assert_eq!(settings.affinity().ttl_secs(), 120);
         assert_eq!(settings.upstream().read_timeout_secs(), 2);
         assert!(settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 3);
         assert_eq!(
-            settings.effective_value(SettingKey::AffinitySoftMode),
-            SettingValue::AffinityMode(AffinityMode::Strict)
+            settings.effective_value(SettingKey::AffinityTtl),
+            SettingValue::DurationSecs(120)
         );
     }
 

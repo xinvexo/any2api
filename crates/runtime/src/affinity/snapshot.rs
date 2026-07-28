@@ -1,23 +1,7 @@
 use any2api_domain::{ProtocolDialect, RouteTargetId, RoutingCredentialId};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AffinityBindingKind {
-    Soft,
-    Hard,
-}
-
-impl AffinityBindingKind {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Soft => "soft",
-            Self::Hard => "hard",
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AffinityBindingSummary {
-    pub(crate) kind: AffinityBindingKind,
     pub(crate) session_hash_prefix: String,
     pub(crate) credential_id: RoutingCredentialId,
     pub(crate) route_target_id: RouteTargetId,
@@ -27,10 +11,6 @@ pub struct AffinityBindingSummary {
 }
 
 impl AffinityBindingSummary {
-    pub const fn kind(&self) -> AffinityBindingKind {
-        self.kind
-    }
-
     pub fn session_hash_prefix(&self) -> &str {
         &self.session_hash_prefix
     }
@@ -59,8 +39,7 @@ impl AffinityBindingSummary {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AffinityCredentialCount {
     pub(crate) credential_id: RoutingCredentialId,
-    pub(crate) soft_bindings: usize,
-    pub(crate) hard_bindings: usize,
+    pub(crate) bindings: usize,
 }
 
 impl AffinityCredentialCount {
@@ -68,31 +47,22 @@ impl AffinityCredentialCount {
         self.credential_id
     }
 
-    pub const fn soft_bindings(&self) -> usize {
-        self.soft_bindings
-    }
-
-    pub const fn hard_bindings(&self) -> usize {
-        self.hard_bindings
+    pub const fn bindings(&self) -> usize {
+        self.bindings
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AffinityRuntimeSnapshot {
-    pub(crate) soft_binding_count: usize,
-    pub(crate) hard_binding_count: usize,
+    pub(crate) binding_count: usize,
     pub(crate) creating_count: usize,
     pub(crate) credential_counts: Vec<AffinityCredentialCount>,
     pub(crate) bindings: Vec<AffinityBindingSummary>,
 }
 
 impl AffinityRuntimeSnapshot {
-    pub const fn soft_binding_count(&self) -> usize {
-        self.soft_binding_count
-    }
-
-    pub const fn hard_binding_count(&self) -> usize {
-        self.hard_binding_count
+    pub const fn binding_count(&self) -> usize {
+        self.binding_count
     }
 
     pub const fn creating_count(&self) -> usize {

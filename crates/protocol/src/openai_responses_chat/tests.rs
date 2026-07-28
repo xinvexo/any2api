@@ -91,7 +91,7 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
         })))
         .expect("bridged response");
     let response_id = exchange
-        .hard_affinity_id_from_response(ProtocolOperation::Responses, &decoded_response)
+        .continuation_id_from_response(ProtocolOperation::Responses, &decoded_response)
         .expect("response identity")
         .expect("response id");
     let egress = exchange

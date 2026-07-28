@@ -15,7 +15,7 @@ use futures_util::{StreamExt, stream};
 
 use super::super::{CommitState, GuardedBody, GuardedBodyParts, PrecommitBudget};
 use crate::{
-    affinity::{AffinityRegistry, AffinityTarget, HardAffinityCommitter},
+    affinity::{AffinityRegistry, AffinityTarget, ContinuationBindingCommitter},
     credential::{CredentialAuthMaterial, CredentialRuntimeHandle, RoutingPermit},
     health::{AttemptHealth, EndpointHealthRuntime, ReliabilityPolicy},
     request_telemetry::AttemptRecorder,
@@ -298,7 +298,7 @@ pub(super) fn guarded_body_with_budget_health_and_idle(
         "upstream",
         ProtocolDialect::OpenAiResponses,
     );
-    let hard_affinity = HardAffinityCommitter::new(
+    let continuation_binding = ContinuationBindingCommitter::new(
         ProtocolOperation::Responses,
         AffinityRegistry::new(),
         target,
@@ -322,7 +322,7 @@ pub(super) fn guarded_body_with_budget_health_and_idle(
         GuardedBodyParts {
             permit,
             health,
-            hard_affinity,
+            continuation_binding,
             attempt_recorder: AttemptRecorder::disabled(),
             status_code: 200,
             precommit_budget,

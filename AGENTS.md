@@ -65,11 +65,10 @@
 - `RuntimeRegistry` 跨配置代际复用 RPM 窗口和 `in_flight` 观测状态；认证和健康状态按配置 generation 隔离。
 - `in_flight` 只用于运行态观测、流式资源生命周期与停机诊断，不参与准入、候选排序或 RPM 名额释放。
 - 所有等待使用有界 QueueTicket、统一 epoch 唤醒、超时和取消，禁止丢失唤醒。
-- Codex `previous_response_id` 是硬粘性，绑定 Credential、Route Target、上游模型和协议方言。
-- 普通会话是软粘性，支持 `prefer` 和 `strict`。
+- 会话粘性只有一种绑定语义：绑定一旦建立，后续请求固定使用原 Credential、Route Target、上游模型和协议方言，禁止按模式降低绑定强度或重新选择目标。
+- 普通显式 Session 未命中时允许首次建立绑定；Codex `previous_response_id` 必须命中已有绑定，未命中返回 `session_binding_lost`，禁止猜测 Credential。
 - 会话、RPM 窗口、`in_flight`、排队、冷却和熔断仅保存在内存；进程重启后全部清空。
 - `OAuthAccount.enabled` 只控制路由资格；停用账号仍参与到期前 Token 刷新以保持认证存活，只有删除账号才终止定时保活。
-- 旧 `previous_response_id` 在重启后没有绑定时返回 `session_binding_lost`，禁止猜测 Credential。
 - 只有 `Pending` 且 RetrySafety 允许时才能重试或切换上游。
 - 一旦向客户端写出 HTTP 响应头或任何字节，永久禁止切换上游。
 - 流式 Body 必须持有运行态 Guard 和取消令牌，EOF、错误、断连和 Drop 都只能结算一次；流结束不得归还 RPM 名额。

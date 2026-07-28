@@ -47,16 +47,25 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(50));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(46));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
     assert_eq!(remote["web_group"], "远程管理");
-    let soft_mode = find_setting(&initial, "affinity.soft.mode");
-    assert_eq!(soft_mode["value_type"], "enum");
-    assert_eq!(soft_mode["default_value"], "prefer");
-    assert_eq!(soft_mode["effective_value"], "prefer");
-    assert_eq!(soft_mode["allowed_values"], json!(["prefer", "strict"]));
+    let affinity_ttl = find_setting(&initial, "affinity.ttl");
+    assert_eq!(affinity_ttl["value_type"], "duration_secs");
+    assert_eq!(affinity_ttl["default_value"], 86_400);
+    assert_eq!(affinity_ttl["effective_value"], 86_400);
+    assert_eq!(affinity_ttl["min_value"], 1);
+    assert_eq!(affinity_ttl["max_value"], 2_592_000);
+    assert_eq!(affinity_ttl["web_group"], "会话粘性");
+    let affinity_wait = find_setting(&initial, "affinity.wait_timeout");
+    assert_eq!(affinity_wait["value_type"], "duration_secs");
+    assert_eq!(affinity_wait["default_value"], 30);
+    assert_eq!(affinity_wait["effective_value"], 30);
+    assert_eq!(affinity_wait["min_value"], 1);
+    assert_eq!(affinity_wait["max_value"], 86_400);
+    assert_eq!(affinity_wait["web_group"], "会话粘性");
     let models = find_setting(&initial, "models.allowed");
     assert_eq!(models["value_type"], "optional_string_list");
     assert_eq!(models["default_value"], Value::Null);
@@ -65,9 +74,6 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(models["allowed_values"], Value::Null);
     assert_eq!(models["options"], json!([]));
     assert_eq!(models["web_group"], "公开模型");
-    let hard_ttl = find_setting(&initial, "affinity.hard.ttl");
-    assert_eq!(hard_ttl["default_value"], 86_400);
-    assert_eq!(hard_ttl["min_value"], 1);
     let timeout = find_setting(&initial, "scheduler.queue_timeout");
     assert_eq!(timeout["value_type"], "duration_secs");
     assert_eq!(timeout["default_value"], 30);
@@ -238,6 +244,135 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
             .override_value(SettingKey::SchedulerOnRateLimited),
         None
     );
+}
+
+#[tokio::test]
+async fn affinity_settings_publish_persist_and_restore_defaults() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, ttl) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/affinity.ttl",
+        Some(json!({ "expected_revision": 1, "value": 7_200 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ttl["config_revision"], 2);
+    assert_eq!(find_setting(&ttl, "affinity.ttl")["override_value"], 7_200);
+    assert_eq!(find_setting(&ttl, "affinity.ttl")["effective_value"], 7_200);
+
+    let (status, wait) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/affinity.wait_timeout",
+        Some(json!({ "expected_revision": 2, "value": 12 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(wait["config_revision"], 3);
+    assert_eq!(
+        find_setting(&wait, "affinity.wait_timeout")["override_value"],
+        12
+    );
+    let stored = storage.load_configuration().await.expect("stored settings");
+    assert_eq!(stored.settings().affinity().ttl_secs(), 7_200);
+    assert_eq!(stored.settings().affinity().wait_timeout_secs(), 12);
+
+    let (status, ttl_reset) = request_json(
+        app.clone(),
+        Method::DELETE,
+        "/api/admin/settings/affinity.ttl?expected_revision=3",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ttl_reset["config_revision"], 4);
+    assert_eq!(
+        find_setting(&ttl_reset, "affinity.ttl")["effective_value"],
+        86_400
+    );
+
+    let (status, wait_reset) = request_json(
+        app,
+        Method::DELETE,
+        "/api/admin/settings/affinity.wait_timeout?expected_revision=4",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(wait_reset["config_revision"], 5);
+    assert_eq!(
+        find_setting(&wait_reset, "affinity.wait_timeout")["effective_value"],
+        30
+    );
+
+    let stored = storage.load_configuration().await.expect("reset settings");
+    assert_eq!(stored.settings().affinity().ttl_secs(), 86_400);
+    assert_eq!(stored.settings().affinity().wait_timeout_secs(), 30);
+    assert_eq!(
+        stored.settings().override_value(SettingKey::AffinityTtl),
+        None
+    );
+    assert_eq!(
+        stored
+            .settings()
+            .override_value(SettingKey::AffinityWaitTimeout),
+        None
+    );
+}
+
+#[tokio::test]
+async fn removed_affinity_setting_keys_are_not_exposed_or_writable() {
+    let (_directory, app, _storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let removed = [
+        "affinity.soft.enabled",
+        "affinity.soft.mode",
+        "affinity.soft.ttl",
+        "affinity.hard.ttl",
+        "affinity.soft.prefer_wait_timeout",
+        "affinity.fixed_wait_timeout",
+    ];
+    let (status, settings) = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/settings",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let items = settings["items"].as_array().expect("setting items");
+    assert!(
+        removed
+            .iter()
+            .all(|key| items.iter().all(|item| item["key"] != *key))
+    );
+
+    for key in removed {
+        let path = format!("/api/admin/settings/{key}");
+        let (status, body) = request_json(
+            app.clone(),
+            Method::PATCH,
+            &path,
+            Some(json!({ "expected_revision": 1, "value": 1 })),
+            loopback,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "PATCH {key}");
+        assert_eq!(body["error"]["code"], "setting_not_found");
+
+        let path = format!("/api/admin/settings/{key}?expected_revision=1");
+        let (status, body) = request_json(app.clone(), Method::DELETE, &path, None, loopback).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "DELETE {key}");
+        assert_eq!(body["error"]["code"], "setting_not_found");
+    }
 }
 
 #[tokio::test]

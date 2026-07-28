@@ -11,8 +11,7 @@ test("renders only aggregate affinity counts and links to routing settings", asy
   const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
     jsonResponse({
       config_revision: 7,
-      soft_binding_count: 12,
-      hard_binding_count: 4,
+      binding_count: 16,
       creating_count: 1,
       credential_counts: [],
       bindings: [],
@@ -22,8 +21,9 @@ test("renders only aggregate affinity counts and links to routing settings", asy
   const rendered = renderOverview();
 
   expect(await screen.findByRole("heading", { name: "会话绑定" })).toBeInTheDocument();
-  expect(screen.getByText("12")).toBeInTheDocument();
-  expect(screen.getByText("4")).toBeInTheDocument();
+  expect(screen.getByText("当前绑定")).toBeInTheDocument();
+  expect(screen.getByText("16")).toBeInTheDocument();
+  expect(screen.getByText("正在创建")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "调整策略" })).toHaveAttribute(
     "href",
     "/settings/routing",

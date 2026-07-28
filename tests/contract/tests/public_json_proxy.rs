@@ -981,8 +981,7 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
     .await;
     assert_eq!(affinity.status, StatusCode::OK);
     assert_eq!(affinity.headers["cache-control"], "no-store");
-    assert_eq!(affinity.body["soft_binding_count"], 1);
-    assert_eq!(affinity.body["hard_binding_count"], 1);
+    assert_eq!(affinity.body["binding_count"], 2);
     assert_eq!(affinity.body["creating_count"], 0);
     assert_eq!(
         affinity.body["credential_counts"][0]["credential_id"],
@@ -992,10 +991,12 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
         affinity.body["credential_counts"][0]["credential_label"],
         "primary"
     );
+    assert_eq!(affinity.body["credential_counts"][0]["bindings"], 2);
     for binding in affinity.body["bindings"]
         .as_array()
         .expect("binding samples")
     {
+        assert!(binding.get("kind").is_none());
         let hash = binding["session_hash_prefix"]
             .as_str()
             .expect("redacted hash");
@@ -1014,8 +1015,8 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
     )
     .await;
     assert_eq!(aggregate.status, StatusCode::OK);
-    assert_eq!(aggregate.body["soft_binding_count"], 1);
-    assert_eq!(aggregate.body["hard_binding_count"], 1);
+    assert_eq!(aggregate.body["binding_count"], 2);
+    assert_eq!(aggregate.body["creating_count"], 0);
     assert_eq!(aggregate.body["credential_counts"], json!([]));
     assert_eq!(aggregate.body["bindings"], json!([]));
     assert!(!aggregate.body.to_string().contains(&credential_id));
@@ -1041,8 +1042,8 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
         &[],
     )
     .await;
-    assert_eq!(empty.body["soft_binding_count"], 0);
-    assert_eq!(empty.body["hard_binding_count"], 0);
+    assert_eq!(empty.body["binding_count"], 0);
+    assert_eq!(empty.body["creating_count"], 0);
 
     let cleared_all = request_json(
         app,
@@ -1064,6 +1065,7 @@ async fn previous_response_id_stays_on_the_original_credential() {
         &[
             r#"{"id":"resp_sticky","model":"gpt-upstream","output":[]}"#,
             r#"{"id":"resp_follow","model":"gpt-upstream","output":[]}"#,
+            r#"{"id":"must_not_run","model":"gpt-upstream","output":[]}"#,
         ],
     )
     .await;
@@ -1074,7 +1076,7 @@ async fn previous_response_id_stays_on_the_original_credential() {
         &app,
         loopback,
         revision + 1,
-        "Codex hard affinity",
+        "Codex response affinity",
         "codex",
         &format!("http://{listener}/v1"),
     )
@@ -1085,7 +1087,7 @@ async fn previous_response_id_stays_on_the_original_credential() {
         revision + 2,
         &endpoint_id,
         "first",
-        "sk-hard-first",
+        "sk-response-first",
     )
     .await;
     create_labeled_credential(
@@ -1094,7 +1096,7 @@ async fn previous_response_id_stays_on_the_original_credential() {
         revision + 3,
         &endpoint_id,
         "second",
-        "sk-hard-second",
+        "sk-response-second",
     )
     .await;
     select_models(&app, loopback, revision + 4, &endpoint_id, "gpt-upstream").await;
@@ -1146,15 +1148,21 @@ async fn previous_response_id_stays_on_the_original_credential() {
     .await;
     assert_eq!(lost.status, StatusCode::CONFLICT);
     assert_eq!(lost.body["error"]["code"], "session_binding_lost");
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(50), upstream.recv())
+            .await
+            .is_err(),
+        "a missing continuation binding must not contact upstream"
+    );
 }
 
 #[tokio::test]
-async fn claude_explicit_soft_session_stays_on_the_original_credential() {
+async fn claude_explicit_session_stays_on_the_original_credential() {
     let (listener, mut upstream) = upstream_server_sequence(
         "/v1/messages",
         &[
-            r#"{"id":"msg_soft_1","type":"message","model":"claude-upstream","content":[]}"#,
-            r#"{"id":"msg_soft_2","type":"message","model":"claude-upstream","content":[]}"#,
+            r#"{"id":"msg_session_1","type":"message","model":"claude-upstream","content":[]}"#,
+            r#"{"id":"msg_session_2","type":"message","model":"claude-upstream","content":[]}"#,
         ],
     )
     .await;
@@ -1165,7 +1173,7 @@ async fn claude_explicit_soft_session_stays_on_the_original_credential() {
         &app,
         loopback,
         revision + 1,
-        "Claude soft affinity",
+        "Claude session affinity",
         "claude",
         &format!("http://{listener}/v1"),
     )
@@ -1176,7 +1184,7 @@ async fn claude_explicit_soft_session_stays_on_the_original_credential() {
         revision + 2,
         &endpoint_id,
         "first",
-        "sk-soft-first",
+        "sk-session-first",
     )
     .await;
     create_labeled_credential(
@@ -1185,7 +1193,7 @@ async fn claude_explicit_soft_session_stays_on_the_original_credential() {
         revision + 3,
         &endpoint_id,
         "second",
-        "sk-soft-second",
+        "sk-session-second",
     )
     .await;
     select_models(

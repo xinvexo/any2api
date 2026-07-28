@@ -14,7 +14,7 @@ pub(in crate::public_request) enum AttemptFailure {
     Transport {
         error: Box<TransportError>,
         candidate: Box<RouteCandidate>,
-        fixed: bool,
+        bound: bool,
     },
     Upstream {
         status: StatusCode,
@@ -22,17 +22,17 @@ pub(in crate::public_request) enum AttemptFailure {
         body: Bytes,
         error: Box<UpstreamError>,
         candidate: Box<RouteCandidate>,
-        fixed: bool,
+        bound: bool,
     },
     Public(PublicError),
 }
 
 impl AttemptFailure {
-    pub(super) fn transport(error: TransportError, candidate: RouteCandidate, fixed: bool) -> Self {
+    pub(super) fn transport(error: TransportError, candidate: RouteCandidate, bound: bool) -> Self {
         Self::Transport {
             error: Box::new(error),
             candidate: Box::new(candidate),
-            fixed,
+            bound,
         }
     }
 
@@ -42,7 +42,7 @@ impl AttemptFailure {
         body: Bytes,
         error: UpstreamError,
         candidate: RouteCandidate,
-        fixed: bool,
+        bound: bool,
     ) -> Self {
         Self::Upstream {
             status,
@@ -50,7 +50,7 @@ impl AttemptFailure {
             body,
             error: Box::new(error),
             candidate: Box::new(candidate),
-            fixed,
+            bound,
         }
     }
 
@@ -97,9 +97,9 @@ impl AttemptFailure {
         }
     }
 
-    pub(in crate::public_request) fn fixed(&self) -> bool {
+    pub(in crate::public_request) fn bound(&self) -> bool {
         match self {
-            Self::Transport { fixed, .. } | Self::Upstream { fixed, .. } => *fixed,
+            Self::Transport { bound, .. } | Self::Upstream { bound, .. } => *bound,
             Self::Public(_) => true,
         }
     }

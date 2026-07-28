@@ -36,11 +36,11 @@ impl SessionHasher {
         Self { key }
     }
 
-    pub(super) fn hard(&self, raw: &str) -> SessionHash {
-        self.digest(b"hard\0", &[], raw.as_bytes())
+    pub(super) fn continuation(&self, raw: &str) -> SessionHash {
+        self.digest(b"continuation\0", &[], raw.as_bytes())
     }
 
-    pub(super) fn soft(
+    pub(super) fn session(
         &self,
         dialect: ProtocolDialect,
         route_id: ModelRouteId,
@@ -54,7 +54,7 @@ impl SessionHasher {
             ProtocolDialect::OpenAiImages => [5_u8],
         };
         self.digest(
-            b"soft\0",
+            b"session\0",
             &[&dialect, route_id.as_uuid().as_bytes()],
             raw.as_bytes(),
         )

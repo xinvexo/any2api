@@ -174,20 +174,20 @@ impl ProtocolExchange {
         self.ingress.encode_egress_event(event, public_model)
     }
 
-    pub fn hard_affinity_id_from_response(
+    pub fn continuation_id_from_response(
         &self,
         operation: ProtocolOperation,
         response: &DecodedUpstreamResponse,
     ) -> Result<Option<String>, ProtocolError> {
         self.ingress
-            .hard_affinity_id_from_response(operation, response)
+            .continuation_id_from_response(operation, response)
     }
 
-    pub fn hard_affinity_id_from_event(
+    pub fn continuation_id_from_event(
         &self,
         operation: ProtocolOperation,
         event: &AdapterEvent,
     ) -> Result<Option<String>, ProtocolError> {
-        self.ingress.hard_affinity_id_from_event(operation, event)
+        self.ingress.continuation_id_from_event(operation, event)
     }
 }

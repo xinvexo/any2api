@@ -21,7 +21,7 @@ use super::super::super::{
 };
 use super::super::failure::AttemptFailure;
 use crate::{
-    affinity::{AffinityTarget, HardAffinityCommitter, SoftBindingLease},
+    affinity::{AffinityTarget, BindingLease, ContinuationBindingCommitter},
     configuration::PublishedSnapshot,
     health::AttemptHealth,
     request_telemetry::{AttemptRecorder, public_error_class},
@@ -34,8 +34,8 @@ pub(in crate::public_request::upstream) struct AttemptInput<'a> {
     pub(in crate::public_request::upstream) prepared: PreparedAttempt<'a>,
     pub(in crate::public_request::upstream) candidate: RouteCandidate,
     pub(in crate::public_request::upstream) target: AffinityTarget,
-    pub(in crate::public_request::upstream) soft_lease: Option<SoftBindingLease>,
-    pub(in crate::public_request::upstream) fixed: bool,
+    pub(in crate::public_request::upstream) binding_lease: Option<BindingLease>,
+    pub(in crate::public_request::upstream) bound: bool,
 }
 
 pub(in crate::public_request::upstream) fn prepare_input<'a>(
@@ -50,8 +50,8 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
     let AffinitySelection {
         selected,
         target,
-        soft_lease,
-        fixed,
+        binding_lease,
+        bound,
     } = affinity;
     let candidate = selected.candidate.clone();
     let prepared = prepare_attempt(
@@ -63,15 +63,15 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
         attempt_recorder,
         AttemptHeaderPolicy {
             allow_credential_bound: allow_credential_bound_headers,
-            allow_turn_state: fixed,
+            allow_turn_state: bound && allow_credential_bound_headers,
         },
     )?;
     Ok(AttemptInput {
         prepared,
         candidate,
         target,
-        soft_lease,
-        fixed,
+        binding_lease,
+        bound,
     })
 }
 
@@ -146,14 +146,14 @@ impl PreparedAttempt<'_> {
             .decode_upstream_response(response)
     }
 
-    pub(in crate::public_request::upstream) fn hard_affinity_id_from_response(
+    pub(in crate::public_request::upstream) fn continuation_id_from_response(
         &self,
         response: &DecodedUpstreamResponse,
     ) -> Result<Option<String>, ProtocolError> {
         self.exchange
             .as_ref()
             .expect("prepared protocol exchange is present")
-            .hard_affinity_id_from_response(self.ingress_operation, response)
+            .continuation_id_from_response(self.ingress_operation, response)
     }
 
     pub(in crate::public_request::upstream) fn encode_egress_response(
@@ -274,15 +274,15 @@ impl Drop for PreparedAttempt<'_> {
     }
 }
 
-pub(in crate::public_request::upstream) fn hard_committer(
+pub(in crate::public_request::upstream) fn continuation_committer(
     snapshot: &PublishedSnapshot,
     operation: ProtocolOperation,
     target: AffinityTarget,
-) -> HardAffinityCommitter {
-    HardAffinityCommitter::new(
+) -> ContinuationBindingCommitter {
+    ContinuationBindingCommitter::new(
         operation,
         Arc::clone(snapshot.affinity_registry()),
         target,
-        snapshot.affinity_policy().hard_ttl(),
+        snapshot.affinity_policy().ttl(),
     )
 }

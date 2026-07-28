@@ -7,12 +7,8 @@ const labels: Record<string, string> = {
   "admin.login.failure_window": "登录失败窗口",
   "admin.login.max_failures": "最大登录失败次数",
   "models.allowed": "可使用的模型",
-  "affinity.soft.enabled": "启用软粘性",
-  "affinity.soft.mode": "软粘性模式",
-  "affinity.soft.ttl": "软绑定 TTL",
-  "affinity.hard.ttl": "硬绑定 TTL",
-  "affinity.soft.prefer_wait_timeout": "Prefer 等待超时",
-  "affinity.fixed_wait_timeout": "固定绑定等待超时",
+  "affinity.ttl": "会话绑定 TTL",
+  "affinity.wait_timeout": "会话绑定等待超时",
   "logs.request.enabled": "启用请求日志",
   "logs.request.retention": "请求日志保留时间",
   "logs.request.max_rows": "请求日志最大行数",
@@ -63,12 +59,6 @@ export function enumOptionLabel(value: string) {
   }
   if (value === "reject") {
     return "立即拒绝";
-  }
-  if (value === "prefer") {
-    return "优先原 Credential，超时后重绑";
-  }
-  if (value === "strict") {
-    return "只允许原 Credential";
   }
   if (value === "error") {
     return "错误";

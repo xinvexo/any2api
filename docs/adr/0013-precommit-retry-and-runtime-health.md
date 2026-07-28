@@ -23,11 +23,11 @@
 - 冷却和 Open 到期通过进程内定时任务推进统一 epoch。等待者继续使用现有 QueueTicket、超时、取消和最大等待数量，不为健康状态增加第二套队列。
 - Public request 执行改为显式多 Attempt 循环。每次失败产生类型化 `AttemptFailure`，先更新健康状态，再释放当前 Permit，最后由 `RetryBudget` 判断是否退避和重新选择。
 - 自动重试必须同时满足：CommitState 仍为 Pending、`RetrySafety::allows_automatic_retry()`、总尝试/切换/同 Credential/总耗时预算未耗尽、请求未取消。
-- 硬粘性与 strict 软粘性只能重新取得原 Credential，绝不跨 Credential。未绑定与 prefer 可以切换；prefer 的重绑通过 AffinityRegistry 的版本化 Creating 租约完成。
+- 已建立会话绑定的请求只能重新取得原 Credential，绝不跨 Credential。未绑定请求可以在提交前按 RetrySafety 与预算切换；首次创建通过 AffinityRegistry 的版本化 Creating 租约提交最终目标。
 - 当前请求会临时排除已经确认失败的 Endpoint 或 Proxy，避免在全局熔断达到阈值前立即重复同一路径；该排除只存在于请求内存中。
 - HTTP 5xx、响应体读取失败和 SSE 成功状态后的无效/中断默认属于 `Ambiguous`。首版不提供 at-least-once 开关，也不因尚未向客户端输出就盲目重试。
 - `Retry-After` 解析和运行时 deadline 使用可失败加法，并把外部延迟限制为 30 天，避免异常值溢出后立即解除冷却。
-- 上游已经成功返回后发生的硬 ID 提取、egress 编码、公开模型恢复或粘性提交失败，仍先按健康成功结算并关闭 HalfOpen 探测，再释放 Credential Permit 并返回本地错误。
+- 上游已经成功返回后发生的续接 ID 提取、egress 编码、公开模型恢复或粘性提交失败，仍先按健康成功结算并关闭 HalfOpen 探测，再释放 Credential Permit 并返回本地错误。
 - SQLite Attempt/RequestLog 持久化不与本切片耦合；本切片只建立可靠性状态机与测试，历史遥测随后接入同一 Attempt 结果。
 
 ## 设置
@@ -45,5 +45,5 @@
 
 - Provider 测试覆盖 Codex/Claude 错误 envelope、429/额度/模型错误、Count Tokens 404 和两种 Retry-After。
 - Runtime 虚拟时间测试覆盖模型冷却、认证代际隔离、Endpoint/Proxy 熔断、HalfOpen 探测竞态、超大 Retry-After、成功后处理结算、到期 epoch 唤醒和热更新代际隔离。
-- Public request 契约覆盖提交前切换、硬粘性不切换、Ambiguous 不重试、Retry-After、总 Attempt 预算与 SSE 首帧提交边界。
+- Public request 契约覆盖提交前切换、已绑定请求不切换、Ambiguous 不重试、Retry-After、总 Attempt 预算与 SSE 首帧提交边界。
 - Web 测试覆盖新增设置的契约解析、中文展示、保存覆盖与恢复默认。

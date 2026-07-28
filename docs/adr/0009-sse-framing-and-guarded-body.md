@@ -8,7 +8,7 @@
 
 Responses 与 Messages 的非流式 JSON 已能完成鉴权、路由、Credential 选择、代理解析和上游执行，但 `stream=true` 仍在规划阶段被拒绝。直接把 Transport 字节流交给 Axum 会遗漏四个关键约束：SSE 帧可能跨任意网络 chunk；模型别名需要在协议事件中恢复；并发 Permit 必须覆盖完整响应体生命周期；首帧失败时不能先向客户端写出响应头。
 
-本切片只实现同协议 SSE。自动重试、QueueTicket、会话粘性、Response ID 硬绑定、完整 PrecommitBudget 和提交后的协议内错误事件仍属于后续可靠性切片。
+本切片只实现同协议 SSE。自动重试、QueueTicket、会话粘性、Response ID 续接绑定、完整 PrecommitBudget 和提交后的协议内错误事件仍属于后续可靠性切片。
 
 ## 决策
 
@@ -33,7 +33,7 @@ Responses 与 Messages 的非流式 JSON 已能完成鉴权、路由、Credentia
 - Responses 与 Messages 可以在同协议 Provider 上进行真实 SSE 转发，模型别名在身份事件中保持客户端可见名称。
 - 流式请求会在整个 Body 生命周期占用原 Credential 生成并发槽位；客户端断开后 Drop 路径立即释放。
 - 首个完整事件之前的错误仍可返回协议兼容 JSON；首字节之后的错误只能终止当前流。
-- 后续实现 PrecommitBudget、重试与硬粘性时，可以在现有 `Pending/TransportCommitted` 和 `GuardedBody` 边界上扩展，不需要改写 Server Handler。
+- 后续实现 PrecommitBudget、重试与固定会话绑定时，可以在现有 `Pending/TransportCommitted` 和 `GuardedBody` 边界上扩展，不需要改写 Server Handler。
 
 ## 验证
 

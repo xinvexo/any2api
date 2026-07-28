@@ -27,8 +27,7 @@ impl AffinityQuery {
 #[derive(Debug, Serialize)]
 pub(crate) struct AffinityRuntimeResponse {
     config_revision: u64,
-    soft_binding_count: usize,
-    hard_binding_count: usize,
+    binding_count: usize,
     creating_count: usize,
     credential_counts: Vec<AffinityCredentialCountResponse>,
     bindings: Vec<AffinityBindingResponse>,
@@ -38,8 +37,7 @@ impl AffinityRuntimeResponse {
     pub(crate) fn new(published: &PublishedSnapshot, snapshot: &AffinityRuntimeSnapshot) -> Self {
         Self {
             config_revision: published.revision().get(),
-            soft_binding_count: snapshot.soft_binding_count(),
-            hard_binding_count: snapshot.hard_binding_count(),
+            binding_count: snapshot.binding_count(),
             creating_count: snapshot.creating_count(),
             credential_counts: snapshot
                 .credential_counts()
@@ -71,8 +69,7 @@ struct AffinityCredentialCountResponse {
     credential_id: String,
     credential_source: &'static str,
     credential_label: String,
-    soft_bindings: usize,
-    hard_bindings: usize,
+    bindings: usize,
 }
 
 impl AffinityCredentialCountResponse {
@@ -82,15 +79,13 @@ impl AffinityCredentialCountResponse {
             credential_id: routing_credential_token(credential_id),
             credential_source: routing_credential_source(credential_id),
             credential_label: routing_credential_label(published, credential_id),
-            soft_bindings: value.soft_bindings(),
-            hard_bindings: value.hard_bindings(),
+            bindings: value.bindings(),
         }
     }
 }
 
 #[derive(Debug, Serialize)]
 struct AffinityBindingResponse {
-    kind: &'static str,
     session_hash_prefix: String,
     credential_id: String,
     credential_source: &'static str,
@@ -103,7 +98,6 @@ struct AffinityBindingResponse {
 impl From<&AffinityBindingSummary> for AffinityBindingResponse {
     fn from(value: &AffinityBindingSummary) -> Self {
         Self {
-            kind: value.kind().as_str(),
             session_hash_prefix: value.session_hash_prefix().to_owned(),
             credential_id: routing_credential_token(value.credential_id()),
             credential_source: routing_credential_source(value.credential_id()),

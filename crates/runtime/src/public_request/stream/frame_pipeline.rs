@@ -132,9 +132,9 @@ impl GuardedBody {
         }
         let telemetry = event.telemetry();
         let termination = event.termination();
-        let hard_id = self
+        let continuation_id = self
             .exchange
-            .hard_affinity_id_from_event(self.hard_affinity.operation(), &event)
+            .continuation_id_from_event(self.continuation_binding.operation(), &event)
             .map_err(|_| {
                 PendingStreamError::invalid_response("upstream SSE identity was invalid")
             })?;
@@ -148,12 +148,12 @@ impl GuardedBody {
         self.precommit_budget
             .observe_frame(frame.0.len())
             .map_err(|_| PendingStreamError::budget_exceeded())?;
-        if let Some(hard_id) = hard_id {
+        if let Some(continuation_id) = continuation_id {
             let result = match deadline {
-                Some(deadline) if check_deadline => {
-                    self.hard_affinity.bind_before(&hard_id, deadline)
-                }
-                _ => self.hard_affinity.bind(&hard_id),
+                Some(deadline) if check_deadline => self
+                    .continuation_binding
+                    .bind_before(&continuation_id, deadline),
+                _ => self.continuation_binding.bind(&continuation_id),
             };
             result.map_err(|error| match error {
                 AffinityError::DeadlineExceeded => PendingStreamError::timeout(),

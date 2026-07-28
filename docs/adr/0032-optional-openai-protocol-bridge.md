@@ -20,11 +20,11 @@ Provider Endpoint 目前只有一个 `protocol_dialect`，它同时表示客户�
   ```
 
 - 空值表示严格同协议直通。数据库不重复保存与接受协议相同的值；管理 API 收到相同值时归一化为空值。
-- 内部 ModelRoute 继续以接受协议作为 `ingress_protocol`；Route Target 保存已经解析的有效上游协议，使运行时、硬粘性和请求日志不依赖回查可变 Endpoint。
+- 内部 ModelRoute 继续以接受协议作为 `ingress_protocol`；Route Target 保存已经解析的有效上游协议，使运行时、会话绑定和请求日志不依赖回查可变 Endpoint。
 - 新增 `openai_chat_completions` 方言和 `/v1/chat/completions` JSON/SSE 入口。第一批有效组合固定为 Responses → Responses、Responses → Chat Completions、Chat Completions → Chat Completions、Messages → Messages。
 - 在 `ProtocolRegistry` 中按 `(ingress_dialect, upstream_dialect)` 静态注册 `ProtocolBridge`。协议相同走 Adapter 快速路径，不查找 Bridge；协议不同时必须在配置发布前找到 Bridge，否则拒绝发布。Domain、Runtime、Storage 和 Server 都不得为 Responses → Chat 写专用协议对分支；新增转换只增加 Bridge 实现、能力声明和 Composition Root 注册。
 - 第一座桥只实现 Responses → Chat Completions。它负责请求、非流式响应、SSE、工具调用、usage 和错误转换；无法可靠表达的字段在上游提交前 fail-closed，禁止静默丢弃。
-- Responses → Chat 的 `previous_response_id` 使用本地合成 ID 和有界内存对话历史；现有硬粘性注册表同时固定 Credential、Route Target、上游模型和协议对。任一状态过期或重启后都返回 `session_binding_lost`，不持久化、不恢复、不猜测。
+- Responses → Chat 的 `previous_response_id` 使用本地合成 ID 和有界内存对话历史；统一会话绑定注册表同时固定 Credential、Route Target、上游模型和协议对。任一状态过期或重启后都返回 `session_binding_lost`，不持久化、不恢复、不猜测。
 - Base URL 仍是管理员填写的受信任 HTTP(S) 目标。Provider Driver 仅根据有效上游协议结构化追加 `/responses` 或 `/chat/completions`，不改变 authority、不增加 HTTP/内网授权开关。
 - `/v1/responses/compact` 不桥接到 Chat Completions；Codex/OpenAI 与 Claude Messages 的双向转换不在本决策范围。
 

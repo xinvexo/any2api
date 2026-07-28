@@ -28,29 +28,6 @@ impl RateLimitMode {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AffinityMode {
-    Prefer,
-    Strict,
-}
-
-impl AffinityMode {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Prefer => "prefer",
-            Self::Strict => "strict",
-        }
-    }
-
-    fn parse(value: &str) -> Option<Self> {
-        match value {
-            "prefer" => Some(Self::Prefer),
-            "strict" => Some(Self::Strict),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileLogLevel {
     Error,
     Warn,
@@ -88,7 +65,6 @@ pub enum SettingValue {
     Integer(u64),
     DurationSecs(u64),
     RateLimitMode(RateLimitMode),
-    AffinityMode(AffinityMode),
     FileLogLevel(FileLogLevel),
     OptionalStringList(Option<Vec<String>>),
 }
@@ -133,7 +109,6 @@ impl SettingValue {
             Self::Boolean(value) => json!(value),
             Self::Integer(value) | Self::DurationSecs(value) => json!(value),
             Self::RateLimitMode(value) => json!(value.as_str()),
-            Self::AffinityMode(value) => json!(value.as_str()),
             Self::FileLogLevel(value) => json!(value.as_str()),
             Self::OptionalStringList(value) => json!(value),
         }
@@ -144,9 +119,7 @@ impl SettingValue {
             Self::Boolean(_) => SettingValueType::Boolean,
             Self::Integer(_) => SettingValueType::Integer,
             Self::DurationSecs(_) => SettingValueType::DurationSecs,
-            Self::RateLimitMode(_) | Self::AffinityMode(_) | Self::FileLogLevel(_) => {
-                SettingValueType::Enum
-            }
+            Self::RateLimitMode(_) | Self::FileLogLevel(_) => SettingValueType::Enum,
             Self::OptionalStringList(_) => SettingValueType::OptionalStringList,
         }
     }
@@ -154,7 +127,6 @@ impl SettingValue {
     fn enum_value(&self) -> Option<&'static str> {
         match self {
             Self::RateLimitMode(value) => Some(value.as_str()),
-            Self::AffinityMode(value) => Some(value.as_str()),
             Self::FileLogLevel(value) => Some(value.as_str()),
             _ => None,
         }
@@ -234,7 +206,6 @@ fn parse_enum(key: SettingKey, value: &str) -> Option<SettingValue> {
         SettingKey::SchedulerOnRateLimited => {
             RateLimitMode::parse(value).map(SettingValue::RateLimitMode)
         }
-        SettingKey::AffinitySoftMode => AffinityMode::parse(value).map(SettingValue::AffinityMode),
         SettingKey::LogsFileLevel => FileLogLevel::parse(value).map(SettingValue::FileLogLevel),
         _ => None,
     }

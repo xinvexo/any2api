@@ -1,53 +1,37 @@
 use std::{fmt, sync::Arc, time::Instant};
 
-use tokio::sync::watch;
-
 use super::{
     hash::SessionHash,
-    registry::{AffinityError, AffinityRegistry, SoftState, TimedBinding},
+    registry::{AffinityError, AffinityRegistry, BindingState, TimedBinding, target_is_active},
     target::AffinityTarget,
 };
 
 #[derive(Clone, Debug)]
-pub(crate) struct SoftBinding {
-    pub(super) key: SessionHash,
-    pub(super) version: u64,
+pub(crate) struct Binding {
     pub(super) target: AffinityTarget,
 }
 
-impl SoftBinding {
+impl Binding {
     pub(crate) fn target(&self) -> &AffinityTarget {
         &self.target
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct SoftBindingWait {
-    pub(super) changes: watch::Receiver<u64>,
+pub(crate) enum BindingStart {
+    Create(BindingLease),
+    Wait,
+    Bound(Binding),
 }
 
-impl SoftBindingWait {
-    pub(crate) async fn changed(&mut self) -> Result<(), watch::error::RecvError> {
-        self.changes.changed().await
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum SoftBindingStart {
-    Create(SoftBindingLease),
-    Wait(SoftBindingWait),
-    Bound(SoftBinding),
-}
-
-pub(crate) struct SoftBindingLease {
+pub(crate) struct BindingLease {
     pub(super) registry: Arc<AffinityRegistry>,
     pub(super) key: SessionHash,
     pub(super) version: u64,
-    pub(super) changes: watch::Sender<u64>,
     pub(super) active: bool,
 }
 
-impl SoftBindingLease {
+impl BindingLease {
     pub(crate) fn commit(mut self, target: AffinityTarget) -> Result<(), AffinityError> {
         self.commit_with_deadline(target, None)
     }
@@ -78,32 +62,35 @@ impl SoftBindingLease {
             return Err(AffinityError::DeadlineExceeded);
         }
         let matches = matches!(
-            state.soft.get(&self.key),
-            Some(SoftState::Creating { version, .. }) if *version == self.version
+            state.entries.get(&self.key),
+            Some(BindingState::Creating { version, .. }) if *version == self.version
         );
         if !matches {
             return Err(AffinityError::LeaseLost);
         }
+        if !target_is_active(&state, &target) {
+            return Err(AffinityError::TargetInactive);
+        }
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(AffinityError::DeadlineExceeded);
         }
-        state.soft.insert(
+        state.entries.insert(
             self.key,
-            SoftState::Bound {
-                version: self.version,
+            BindingState::Bound {
                 binding: TimedBinding {
                     target,
                     last_seen_at: committed_at,
                 },
             },
         );
-        self.changes.send_replace(1);
         self.active = false;
+        drop(state);
+        self.registry.wake_waiters();
         Ok(())
     }
 }
 
-impl Drop for SoftBindingLease {
+impl Drop for BindingLease {
     fn drop(&mut self) {
         if !self.active {
             return;
@@ -114,20 +101,26 @@ impl Drop for SoftBindingLease {
             .lock()
             .expect("affinity state lock poisoned");
         let matches = matches!(
-            state.soft.get(&self.key),
-            Some(SoftState::Creating { version, .. }) if *version == self.version
+            state.entries.get(&self.key),
+            Some(BindingState::Creating { version, .. }) if *version == self.version
         );
-        if matches {
-            state.soft.remove(&self.key);
-            self.changes.send_replace(1);
+        let removed = if matches {
+            state.entries.remove(&self.key);
+            true
+        } else {
+            false
+        };
+        drop(state);
+        if removed {
+            self.registry.wake_waiters();
         }
     }
 }
 
-impl fmt::Debug for SoftBindingLease {
+impl fmt::Debug for BindingLease {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("SoftBindingLease")
+            .debug_struct("BindingLease")
             .field("key", &self.key)
             .field("version", &self.version)
             .field("active", &self.active)

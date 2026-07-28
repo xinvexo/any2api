@@ -1,4 +1,4 @@
-import { Link2, LoaderCircle, LockKeyhole } from "lucide-react";
+import { Link2, LoaderCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { getAffinityErrorMessage } from "../model/affinity-error";
@@ -46,9 +46,8 @@ export function AffinityOverview() {
         </p>
       ) : null}
 
-      <dl className="mt-5 grid border-y border-subtle sm:grid-cols-3 lg:grid-cols-1">
-        <Metric icon={Link2} label="软绑定" value={runtime.softBindingCount} />
-        <Metric icon={LockKeyhole} label="硬绑定" value={runtime.hardBindingCount} />
+      <dl className="mt-5 grid border-y border-subtle sm:grid-cols-2 lg:grid-cols-1">
+        <Metric icon={Link2} label="当前绑定" value={runtime.bindingCount} />
         <Metric icon={LoaderCircle} label="正在创建" value={runtime.creatingCount} />
       </dl>
     </section>

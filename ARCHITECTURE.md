@@ -2,7 +2,7 @@
 
 > 状态：Draft<br>
 > 版本：1.0<br>
-> 最后更新：2026-07-28<br>
+> 最后更新：2026-07-29<br>
 > 用途：记录当前已经确认的需求、架构约束与后续待完善事项。<br>
 > 实施进度：见 `docs/IMPLEMENTATION_STATUS.md`。
 
@@ -239,7 +239,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 
 OAuthAccount 管理页的长集合是首个已确认的虚拟化场景。前端使用共享虚拟网格组件按“响应式网格行”渲染完整 Provider 账号集合，支持动态行高、1–3 列布局、键盘可聚焦滚动区和语义化 list/listitem；页面不得再为该集合维护客户端分页。虚拟行允许随滚动卸载，因此额度缓存、批量操作进度和不可逆 reset 的 pending 状态不能只保存在行组件本地生命周期中。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
-负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与软、硬会话绑定总数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。旧 `/balancing`、`/affinity` deep link 只做到该设置页的重定向。总览不得请求或展示逐账号调度、逐 Credential 会话分布或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md` 与 `docs/adr/0039-overview-and-simplified-settings.md`。
+负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与统一会话绑定总数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。旧 `/balancing`、`/affinity` deep link 只做到该设置页的重定向。总览不得请求或展示逐账号调度、逐 Credential 会话分布或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md` 与 `docs/adr/0062-unified-session-affinity.md`。
 
 设置页只保留“基础、路由策略、运行保护、日志”四个一级页签。每个页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义或恢复默认能力。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。
 
@@ -320,7 +320,7 @@ any2api/
 │  │     └─ resolution/         # Origin 解析与严格 SSRF 地址固定
 │  ├─ runtime/
 │  │  └─ src/
-│  │     ├─ affinity/           # hard/soft binding、锁和 CAS
+│  │     ├─ affinity/           # 统一会话绑定、锁和 CAS
 │  │     ├─ configuration/      # PublishedSnapshot、Publisher 与发布任务
 │  │     ├─ credential/         # API Key 材料、模型探测与稳定运行态
 │  │     ├─ gateway_api_key/    # Gateway Key 生成与发布
@@ -544,8 +544,8 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
    - 两者不同时要求存在已注册 ProtocolBridge，否则拒绝发布
 
 5. Affinity
-   - 检查 Codex 硬粘性
-   - 检查普通软粘性
+   - 解析显式会话或续接标识
+   - 检查统一会话绑定
 
 6. SelectAndReserve
    - 过滤禁用、冷却、代理不可用的 Credential
@@ -571,7 +571,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
    - 非流式响应转换
    - SSE 分帧与流式转换
    - 恢复客户端可见模型名
-   - 在身份事件可见前建立硬粘性绑定
+   - 在身份事件可见前建立会话续接绑定
    - 首次写出响应头或任意字节后禁止切换上游
 
 10. Log
@@ -807,7 +807,7 @@ route_targets
 - Route 的 `ingress_protocol` 来自 Endpoint 接受协议；Route Target 的有效上游 ProtocolDialect、CredentialKind 和 TransportMode 必须符合 Provider CapabilitySet；
 - 自动物化 Route 继承全局 RPM 用尽策略；首版 UI 不暴露每模型 fallback tier；
 - 接受协议与有效上游协议不同且没有已注册 ProtocolBridge 时拒绝发布；
-- Route Target 的稳定 ID 用于硬粘性，禁止通过数组位置表达身份。
+- Route Target 的稳定 ID 用于会话绑定，禁止通过数组位置表达身份。
 - `provider_credential_models` 是控制面真相来源；`model_routes` 与 `route_targets` 是同一事务内重建的内部物化表，稳定 ID 由协议、模型和 Endpoint 确定；
 - Target 的 `provider_endpoint_id` 与 `upstream_model` 是稳定身份字段；模型或 Endpoint 变化时，下一次物化删除旧 Target 并按确定性规则生成新 ID；
 - 重建 Route 时级联清理已失效 Target；Provider Endpoint 删除仍由其 Credential 引用约束保护。
@@ -831,27 +831,21 @@ CredentialModelRuntime
 
 ```text
 SessionBindingRuntime
-├─ scope_id
 ├─ session_hash
 ├─ credential_id
 ├─ route_target_id
 ├─ upstream_model
 ├─ protocol_dialect
-├─ binding_kind          # soft | hard
-├─ source
-├─ binding_version
-├─ created_at
-├─ last_seen_at
-└─ expires_at
+└─ last_seen_at
 ```
 
 原始 Session ID 不进入数据库，运行时 `session_hash` 使用进程级派生密钥 HMAC 生成。会话绑定只保存在内存中，进程重启后全部失效，不做恢复或回放。
 
 因此：
 
-- 软粘性会话在重启后重新参与普通负载均衡；
+- 普通显式会话在重启后重新参与普通负载均衡；
 - 重启前生成的 Codex `previous_response_id` 不保证可继续使用；
-- 如果请求携带旧 Response ID 但当前进程没有对应硬绑定，返回明确的 `session_binding_lost`，不得猜测原 Credential；
+- 如果请求携带旧 Response ID 但当前进程没有对应绑定，返回明确的 `session_binding_lost`，不得猜测原 Credential；
 - `scope_id` 不包含 `GatewayApiKey`，网关密钥不会影响上游选择。
 
 ### 9.7 GatewayApiKey
@@ -1030,8 +1024,8 @@ fn resolve_proxy(global: ProxyId, credential: ProxyId) -> ProxyId {
 - 不允许回退 DIRECT；
 - 结束当前 `ProviderCredential` 的 `in_flight` 生命周期 Guard；已预留 RPM 名额不归还；
 - 将代理或 Credential 标记为短暂不可用；
-- 对未绑定或 `prefer` 请求重新选择其他满足条件的 `ProviderCredential`；
-- 对硬绑定或 `strict` 请求不切换 Credential，只能等待原目标恢复、在 RetrySafety 允许时重试原目标，或返回绑定不可用错误。
+- 对未建立会话绑定的请求重新选择其他满足条件的 `ProviderCredential`；
+- 对已建立会话绑定的请求不切换 Credential，只能等待原目标恢复、在 RetrySafety 允许时重试原目标，或返回绑定不可用错误。
 
 ### 10.4 代理认证与管理测试
 
@@ -1227,7 +1221,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 - 使用与 `/v1/responses` 相同的模型路由、Provider API Key、代理和账号 RPM；
 - 首版只转发到支持 compact 的同协议 Codex/Grok/OpenAI 上游；
 - 保留上游 compaction 响应和 usage，不自行解析或改写不透明 compaction 内容；
-- 不建立 Codex `previous_response_id` 硬绑定，但显式软会话头仍可使用软粘性。
+- 不建立 Codex `previous_response_id` 续接绑定，但显式会话标识仍可使用统一会话粘性。
 
 参考实现中 CLIProxyAPI、sub2api 和 new-api 都支持该入口；公开语义参考 OpenAI Responses Compaction API。
 
@@ -1367,7 +1361,7 @@ trait ProtocolBridgeSession: Send {
 
 Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调度器不得新增按 Provider 扩张的 `match`。`x-grok-model-override` 必须由最终上游模型重建。Claude OAuth 必须保留全部有界的客户端 `anthropic-beta` Header 行并去重追加 `oauth-2025-04-20`。`x-oai-attestation` 只允许作为当前请求的原始不透明值投影，禁止生成、缓存、记录或在切换 Provider/凭据后重放。
 
-`x-codex-turn-state` 是上游服务端签发并与 Route Target/Credential 绑定的粘性状态。只有当前请求已经解析到同一 Credential 的硬/严格绑定时才允许发送；没有绑定、绑定丢失或切换 Credential 时必须删除，禁止把一个账号签发的状态令牌发送给另一个账号。响应中新的 `x-codex-turn-state` 只有在该 Attempt 最终提交时才能返回。
+`x-codex-turn-state` 是上游服务端签发并与 Route Target/Credential 绑定的粘性状态。只有当前请求已经解析到同一 Credential 的现有会话绑定时才允许发送；没有绑定、绑定丢失或首次创建会话时必须删除，禁止把一个账号签发的状态令牌发送给另一个账号。响应中新的 `x-codex-turn-state` 只有在该 Attempt 最终提交时才能返回。
 
 公开请求 Body 若声明 `Content-Encoding: zstd`，只在 JSON 型 Codex/OpenAI 入口接受。Server 同时限制压缩前字节数和流式解压后的字节数；未知/重复编码、损坏帧或解压后超限使用当前协议错误 envelope 拒绝。ProtocolAdapter 解析解压后的 JSON；同方言 Codex 上游若客户端原本使用 zstd，则对最终重编码 Body 重新压缩并重建 `Content-Encoding`/`Content-Length` 语义，绝不转发旧压缩元数据。multipart 图片入口不接受该编码。
 
@@ -1403,7 +1397,7 @@ Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调�
 - 未知模型、无路由或能力不匹配；
 - 无可用 Credential；
 - 本地 RPM 用尽与排队超时；
-- 硬绑定丢失或不可用；
+- 会话绑定丢失或不可用；
 - 重试预算耗尽；
 - 内部错误。
 
@@ -1463,8 +1457,8 @@ TPM（Tokens Per Minute）不实现：输出 Token 事前未知，Provider 的�
 7. 从 Route + fallback tier 的稳定轮询游标开始选择
 ```
 
-同一 tier 内按循环顺序尝试所有候选；一个账号 RPM 用尽时，普通请求和 `prefer` 软粘性可以继续
-尝试其他账号。首批不增加独立 `weight`，避免形成第二套吞吐配置。
+同一 tier 内按循环顺序尝试所有候选；一个账号 RPM 用尽时，未建立会话绑定的请求可以继续
+尝试其他账号，已绑定请求只等待原 Credential。首批不增加独立 `weight`，避免形成第二套吞吐配置。
 
 ### 12.3 RPM 预留与 `in_flight` Guard
 
@@ -1518,8 +1512,8 @@ max_waiting_requests
 - 代理或 Endpoint 从熔断状态恢复；
 - 配置快照切换导致候选集合变化。
 
-所有等待请求，包括硬粘性和 `strict` 软粘性，都使用 RAII QueueTicket 计入 `max_waiting_requests`。
-固定 Credential 的硬粘性/strict 等待者对该 Credential 下一 RPM 名额优先于普通未绑定请求，但
+所有等待请求，包括固定会话绑定，都使用 RAII QueueTicket 计入 `max_waiting_requests`。
+固定 Credential 的会话等待者对该 Credential 下一 RPM 名额优先于普通未绑定请求，但
 所有等待都受超时、取消和队列上限控制。
 
 如果队列超时、策略要求立即拒绝或超过最大等待数量，返回本地 RPM 限制错误，例如：
@@ -1585,7 +1579,7 @@ RateLimited { retry_at }
 Cooling { retry_at }
 ProxyUnavailable
 EndpointUnavailable
-HardBindingUnavailable
+BindingUnavailable
 PermanentlyIneligible
 NoRoute
 ```
@@ -1618,7 +1612,7 @@ NoRoute
 - 默认只在当前最低可用 tier 内执行负载均衡；
 - 当前 tier 没有永久可用候选时才进入下一 tier；
 - “主 tier RPM 全部用尽时等待还是溢出到下一 tier”是显式 Route 策略，不能隐式决定；
-- 硬粘性命中时忽略 fallback tier，只允许原绑定目标；
+- 会话绑定命中时忽略 fallback tier，只允许原绑定目标；
 - 每次升级 tier 都计入重试/切换预算并写入 Attempt 日志。
 
 ### 12.9 辅助操作
@@ -1629,7 +1623,8 @@ NoRoute
 
 ## 13. 会话粘性路由
 
-会话粘性分为硬粘性和软粘性。
+会话粘性只有一种绑定语义：绑定一旦建立，后续请求必须固定到原 Credential、Route Target、
+上游模型和协议方言。不提供多种绑定强度、可切换模式或等待超时后改换目标的第二套语义。
 
 ### 13.1 会话标识提取顺序
 
@@ -1645,9 +1640,15 @@ NoRoute
 
 不根据 Prompt、System Prompt 或消息内容计算会话 Hash。
 
-### 13.2 Codex 硬粘性
+### 13.2 首次创建与必须续接
 
-Codex `previous_response_id` 可能引用上游账号保存的服务端状态；Responses → Chat Completions 桥接时则引用本机内存历史，因此两种情况都必须绑定到产生该 Response ID 的原 Credential。
+协议解码只区分标识是否允许首次创建，不区分绑定强度：
+
+- `X-Any2API-Session`、`X-Session-ID`、`Session-Id` / `Session_id`、Claude
+  `metadata.user_id.session_id` 和 `conversation_id` 在未命中时可以建立新绑定；
+- Codex `previous_response_id` 是续接标识，必须命中已存在绑定。它可能引用上游账号保存的
+  服务端状态；Responses → Chat Completions 桥接时则引用本机内存历史，因此绑定丢失时
+  必须返回 `session_binding_lost`，禁止猜测或重建到另一个 Credential。
 
 ```text
 previous_response_id
@@ -1658,43 +1659,47 @@ previous_response_id
   → optional bridged conversation history
 ```
 
-规则：
+所有已建立绑定统一遵守：
 
 - 后续请求必须选择原 Credential；
 - Credential RPM 用尽时等待原 Credential 的最早窗口到期；
 - 不允许因为负载、冷却或代理故障切换其他 Credential；
 - 无法继续时返回明确的会话绑定错误；
-- Response ID 映射使用较长的内存 TTL；
-- Credential 删除时清理映射。
+- 所有绑定使用同一个可配置内存 TTL；
+- Credential 禁用、不再支持绑定模型或代理不可用时保留绑定并返回错误；
+- Credential 删除随配置发布原子清理映射，之后普通显式 Session 可重新创建，Continuation 返回 `session_binding_lost`。
 
-硬绑定必须在 Response ID 或等价上游状态标识对客户端可见之前写入内存。写入失败时不得暴露该 Response ID。
+由成功响应产生的 Response ID 或等价上游状态标识，必须在对客户端可见之前写入同一张
+绑定表。写入失败时不得暴露该标识。
 
-### 13.3 普通软粘性
+### 13.3 统一绑定创建
 
 第一次请求正常按轮询与 RPM 可用性选择 Credential。上游成功接受请求后建立：
 
 ```text
-scope_id + session_hash → credential_id + binding_version
+scope_id + session_hash
+  → credential_id
+  → route_target_id
+  → upstream_model
+  → ingress_protocol + upstream_protocol
+  → binding_version
 ```
 
-后续请求优先选择绑定 Credential。
+后续请求只允许选择绑定 Credential。绑定目标被禁用、不再支持模型或代理不可用时，返回明确错误，
+不删除绑定后重新负载均衡。Credential 删除随配置发布清理绑定；管理员显式清理、TTL 到期或进程
+重启也会使绑定消失。清理后普通显式 Session 可按首次请求重新创建，Continuation 只能返回
+`session_binding_lost`。
 
-软粘性支持两种策略：
+该绑定不提供可切换模式。
 
-- `prefer`：绑定 Credential 可用时优先使用；RPM 用尽时等待一段时间，超时后可切换并重绑定。
-- `strict`：只允许使用绑定 Credential；RPM 用尽时等待，超时返回错误。
-
-当前建议默认使用 `prefer`。
+- 绑定 Credential 临时无容量时只会在统一有界队列中等待；
+- 等待超时或目标不可用时返回错误，不切换或重新绑定。
 
 ### 13.4 粘性与 RPM 的组合顺序
 
 ```text
-硬粘性命中
+已建立绑定命中
   → 等待并预留指定 Credential RPM 名额
-
-软粘性命中
-  → 尝试绑定 Credential
-  → 根据 prefer/strict 处理 RPM 用尽和不可用
 
 未命中
   → 普通轮询调度并预留 RPM 名额
@@ -1709,20 +1714,20 @@ scope_id + session_hash → credential_id + binding_version
 缓存未命中
 → 获取 Session Lock
 → 再次检查绑定
-→ select_and_try_reserve
-→ 写入 Creating { lease_id, credential_id, version, notify, expires_at }
+→ 写入 Creating { version }
 → 释放 Session Lock
 
+→ select_and_try_reserve
 → 执行上游 Attempt
 
 → 使用 version CAS 将 Creating 提交为 Bound
-  或在失败时删除/更新 Creating
-→ 唤醒等待同一 Session 的请求
+  或在失败时由 Lease Drop 删除 Creating
+→ 推进统一 scheduler epoch，等待者重新检查自身 Session
 ```
 
-其他同 Session 请求命中 `Creating` 时等待其结果，不再启动第二个创建者。绑定只在协议定义的接受/身份提交点后变为 `Bound`；如果首次选择失败并安全切换，Creating 通过版本 CAS 更新为最终尝试的 Credential。
+其他同 Session 请求命中 `Creating` 时先取得全局有界 QueueTicket，并通过统一 scheduler epoch 等待其结果，不再启动第二个创建者。绑定只在协议定义的接受/身份提交点后变为 `Bound`；如果首次选择失败且允许安全切换，当前 Lease 随 Attempt 释放并推进同一 epoch，下一次选择用新 version 建立 Creating，旧请求不能覆盖新绑定。
 
-Session Lock 和 Creating Lease 必须支持 RAII、请求取消、超时清理和有界锁池。创建、重绑、管理员清理都通过同一版本化状态机，避免旧请求覆盖新绑定。
+Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定表。活跃 Lease 不按等待超时回收；等待超时只终止当前 waiter，Lease 由提交或 Drop 结束，避免长请求尚在执行时出现第二个创建者。显式 Session 创建通过 version CAS 避免旧请求覆盖新绑定；续接标识绑定、Credential 删除和管理员清理在同一张表的短锁事务内原子完成。
 
 ### 13.6 粘性绑定的是 Credential
 
@@ -1732,15 +1737,16 @@ Session Lock 和 Creating Lease 必须支持 RAII、请求取消、超时清理�
 
 ### 13.7 绑定作用域与配置变化
 
-- 软绑定 `scope_id` 至少包含入口协议和逻辑 Route，不包含 `GatewayApiKey`；
-- 硬绑定使用 Response ID 自身的 HMAC 标识，并保存完整续接目标；
-- 软绑定目标被禁用、删除或不再支持模型时，`prefer` 可以重新选择并重绑，`strict` 返回明确错误；
-- 硬绑定目标被禁用、删除或代理不可用时返回错误，绝不悄然切换；
-- 进程重启会清空全部软/硬绑定，旧 Response ID 返回 `session_binding_lost`。
+- 可首次创建的会话 `scope_id` 精确包含入口协议方言和 `ModelRouteId`，不包含 `GatewayApiKey`；
+- 续接标识只在独立 continuation 用途域中对 Response ID 自身做 HMAC，不叠加 Route scope，并保存完整续接目标；
+- 两种键使用用途域分离避免冲突，但命中后使用同一绑定类型、TTL、固定等待和失败语义；
+- 绑定目标被禁用、不再支持模型或代理不可用时保留绑定并返回错误，绝不悄然切换；
+- Credential 删除时清理对应绑定；之后普通显式 Session 可重新创建，Continuation 返回 `session_binding_lost`；
+- 进程重启会清空全部绑定，旧 Response ID 返回 `session_binding_lost`。
 
-首个会话粘性可运行切片采用稳定的进程内 `AffinityRegistry` 和快照级 `AffinityPolicy`。ProtocolAdapter 只提取显式会话标识；原始值进入 Runtime 后立即使用进程级随机 HMAC-SHA256 密钥和用途域分离转换为不可逆键。软会话通过短锁内版本化 `Creating` 租约避免并发首请求分裂，任何网络 I/O 都不持有 Session Lock。固定 Credential 等待继续使用全局 QueueTicket，并在对应 Credential 的 RPM 预留线性化点获得高于普通未绑定请求的优先级，不建立第二套全局队列。
+会话粘性采用稳定的进程内 `AffinityRegistry` 和快照级 `AffinityPolicy`。ProtocolAdapter 只提取显式会话标识及其“可创建/必须续接”意图；原始值进入 Runtime 后立即使用进程级随机 HMAC-SHA256 密钥和用途域分离转换为不可逆键。可创建会话通过短锁内版本化 `Creating` 租约避免并发首请求分裂，任何网络 I/O 都不持有 Session Lock。固定 Credential 等待继续使用全局 QueueTicket，并在对应 Credential 的 RPM 预留线性化点获得高于普通未绑定请求的优先级，不建立第二套全局队列。
 
-Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成硬绑定。`/v1/responses/compact` 只参与显式软粘性且不创建硬绑定；`/v1/messages/count_tokens` 不参与粘性。首个切片不同时加入健康、冷却或多 Attempt 重试：硬绑定和 `strict` 目标不可用时返回 `session_binding_lost`，`prefer` 只在目标不再有效或固定等待超时后重绑。完整决策见 `docs/adr/0012-in-memory-session-affinity.md`。
+Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md`；它取代 `docs/adr/0012-in-memory-session-affinity.md` 的旧分类设计。
 
 ## 14. 重试、冷却与错误分类
 
@@ -1751,9 +1757,9 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 | 402/403 | 由 Provider Driver 分类 | Credential 级冷却或停用 |
 | 404 | 由 Driver 判断模型、路径或 Response ID | 仅确认模型不支持时冷却 Credential + Model |
 | 408 | 仅在 RetrySafety 允许时重试 | 短暂错误计数 |
-| 429 | 未绑定/`prefer` 可切换；硬绑定/`strict` 不切换 | Credential + Model 冷却并尊重 Retry-After |
+| 429 | 未绑定请求可切换；已绑定请求不切换 | Credential + Model 冷却并尊重 Retry-After |
 | 500/502/503/504 | 仅在 RetrySafety 允许时重试 | Endpoint 短暂错误计数与退避 |
-| 代理连接错误 | 未绑定/`prefer` 可切换；硬绑定/`strict` 不切换 | Proxy Runtime 短暂降级，不回退 DIRECT |
+| 代理连接错误 | 未绑定请求可切换；已绑定请求不切换 | Proxy Runtime 短暂降级，不回退 DIRECT |
 | 客户端取消 | 否 | 不惩罚 Credential |
 | 流式响应提交后错误 | 否 | 发送协议内错误并结束 |
 
@@ -1765,7 +1771,7 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 - 单 Credential 临时重试次数；
 - 请求 Context 取消。
 
-硬粘性请求不允许跨 Credential 重试。
+已建立会话绑定的请求不允许跨 Credential 重试。
 
 首个可靠性切片固定以下实现边界：
 
@@ -1860,7 +1866,7 @@ stateDiagram-v2
 - HTTP 响应头或任何下游字节一旦写出就进入 `TransportCommitted`；
 - Ping、注释和控制事件如果要在重试前接收，必须先缓冲；一旦转发给客户端同样视为提交；
 - `response.created`、`message_start` 等携带身份或上游状态的事件属于 `IdentityCommitted`；
-- 硬粘性映射必须在身份事件写给客户端之前完成；
+- 会话续接映射必须在身份事件写给客户端之前完成；
 - 任意 Committed 状态都禁止切换上游；
 - 客户端断开时立即取消上游请求并结束 `in_flight` Guard；RPM 名额不归还；
 - 不为计费目的继续 Drain 上游，因为本项目不做计费；
@@ -1899,7 +1905,7 @@ Axum Handler 返回流式 Body 后，运行态 Guard 不能留在 Handler 局部
 
 首个 SSE 可运行切片固定以下边界：协议层使用增量分帧器处理任意字节切分、CRLF、多行 `data:` 与无尾空行；Runtime 在返回下游响应头前至少取得并验证一个完整事件，避免空流或首帧损坏时提前提交。首帧读取失败属于上游执行结果不确定的 `Ambiguous`，默认不自动启动第二条流；提交后 Transport 或协议错误直接终止连接，不发送臆造事件，也不切换上游。模型别名只改写协议已知的顶层 `model`、`response.model` 与 `message.model` 字段，禁止递归改写工具参数或用户内容中的同名字段。
 
-SSE 的 PrecommitBudget 按 PublishedSnapshot 捕获 `max_bytes` 与 `max_duration`。解码器按当前帧剩余容量增量消费 transport chunk，Runtime 每次只编码并排队一个完整事件；未消费的 `Bytes` 以零拷贝切片保留，禁止在响应头返回前把同一 chunk 的全部事件复制进待发送队列。`max_duration` 是首事件提交 deadline，覆盖上游等待、分帧、协议解码、模型恢复以及必要的硬/软粘性提交边界；同步临界区不能被强制抢占，但临界区返回后必须重新检查 deadline，超时后禁止写入绑定或接受首事件。
+SSE 的 PrecommitBudget 按 PublishedSnapshot 捕获 `max_bytes` 与 `max_duration`。解码器按当前帧剩余容量增量消费 transport chunk，Runtime 每次只编码并排队一个完整事件；未消费的 `Bytes` 以零拷贝切片保留，禁止在响应头返回前把同一 chunk 的全部事件复制进待发送队列。`max_duration` 是首事件提交 deadline，覆盖上游等待、分帧、协议解码、模型恢复以及必要的会话绑定提交边界；同步临界区不能被强制抢占，但临界区返回后必须重新检查 deadline，超时后禁止写入绑定或接受首事件。
 
 在首个可接受事件前耗尽预算则失败，一旦事件可提交就锁定当前 Attempt。同一上游 chunk 中后续帧损坏时，必须先交付已经锁定的合法事件，再以 Body 错误终止。编码后的公开事件超过字节预算时按公开上游错误返回，但按本地策略失败结算上游健康，禁止污染 Endpoint 或 Proxy 熔断。协议内错误事件仍留给后续流式增强切片。
 
@@ -1982,14 +1988,10 @@ QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的�
 
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
-| `affinity.soft.enabled` | boolean | `true` | `true` / `false` |
-| `affinity.soft.mode` | enum | `prefer` | `prefer` / `strict` |
-| `affinity.soft.ttl` | duration_secs | `3_600` | `1..=2_592_000` |
-| `affinity.hard.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
-| `affinity.soft.prefer_wait_timeout` | duration_secs | `2` | `1..=86_400` |
-| `affinity.fixed_wait_timeout` | duration_secs | `30` | `1..=86_400` |
+| `affinity.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
+| `affinity.wait_timeout` | duration_secs | `30` | `1..=86_400` |
 
-硬/软 TTL 都只作用于当前进程内存；进程重启后绑定立即清空，不根据 TTL 恢复。
+TTL 只作用于当前进程内存；进程重启后绑定立即清空，不根据 TTL 恢复。绑定命中后等待原 Credential 的最长时间使用同一 `affinity.wait_timeout`；超时返回本地错误，不改换目标。
 
 #### RPM 等待默认值
 
@@ -2363,7 +2365,7 @@ DNS 信任边界：
 - Provider Endpoint；
 - Credential ID 与掩码标签；
 - 实际 ProxyProfile；
-- 粘性命中层级；
+- 会话绑定是否命中；
 - Route Target 与 fallback tier；
 - 选择时的 RPM 窗口已用/上限；
 - Attempt 序号与 RetrySafety；
@@ -2384,10 +2386,9 @@ request_queue_timeout
 credential_cooldown
 endpoint_circuit_open
 proxy_degraded
-sticky_hit
-sticky_miss
-sticky_rebind
-hard_affinity_hit
+affinity_hit
+affinity_miss
+affinity_bind_failed
 retry_same_credential
 retry_next_credential
 stream_transport_committed
@@ -2403,7 +2404,7 @@ runtime_retired
 
 运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
 
-总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只聚合软绑定、硬绑定与 Creating 数量。两者都不得返回逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本。
+总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只聚合统一绑定总数与 Creating 数量。两者都不得返回逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本。
 
 稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；这些计数不持久化、不恢复，也不要求通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级配置和 RequestLog 历史统计由各自管理页面负责，总览不复制第二份账号目录。
 
@@ -2431,7 +2432,7 @@ runtime_retired
 - 每次上游 Attempt 在健康结算后、运行态 Guard 结束前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；
 - 客户端直接收到最终上游非 2xx 的有界原始正文；请求级和 Attempt 级遥测对该最终或中间 Attempt 只保存 Provider 已声明 envelope 中提取的有界原始 `message`，不保存整段正文，也不根据状态码或分类生成替代消息。any2api 本地失败保存自己的有界消息；两类消息都禁止包含已知 Secret；
 - 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；
-- SSE 只有在首帧验证与软绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
+- SSE 只有在首帧验证与会话绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
 - SQLite Writer 小批量事务写入父子记录，并按 retention/max_rows 任一上限分批清理；历史记录不参与启动恢复；
 - ProtocolAdapter 在已知 OpenAI/Anthropic 响应字段上生成无协议知识的 `TokenUsage` 旁路元数据；Runtime 只合并已解析元数据，禁止在调度器中按 Provider 分支搜索 JSON；
 - Codex JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`input_tokens_details.cached_tokens` 与 `input_tokens_details.cache_write_tokens`；SSE 只从 `response.completed`/`response.incomplete` 的 `response.usage` 读取相同字段；
@@ -2527,7 +2528,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 全局及 Codex、Claude、Grok 汇总的账号总数、启用数、RPM 启用数与 RPM 已用尽数；
 - 全局及 Provider 汇总的滚动 60 秒请求数、当前 `in_flight` 与成功选中次数；
 - 排队请求数、固定等待者和 scheduler epoch；
-- 当前软绑定数、硬绑定数与 Creating 数；
+- 当前会话绑定总数与 Creating 数；
 - 不展示、分页或虚拟化逐账号列表，不展示逐模型健康或单账号过滤明细；账号详情分别留在 Provider 与 OAuth2 登录页面。
 - 不展示逐 Credential 会话分布、Session Hash 或绑定样本。
 
@@ -2535,9 +2536,9 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 ### 19.5 路由策略设置
 
-- “设置 → 路由策略”统一编辑 RPM 用尽行为、排队和 fallback，以及软/硬会话粘性策略；
-- 默认直接显示 RPM 用尽行为、软粘性开关与 `prefer`/`strict` 模式；
-- 队列上限、fallback、TTL 和固定等待等低频项默认折叠到“高级设置”，需要时仍可编辑和恢复默认；
+- “设置 → 路由策略”统一编辑 RPM 用尽行为、排队、fallback，以及会话绑定 TTL 与等待超时；
+- 会话粘性不提供开关、绑定强度或目标切换模式；显式会话标识统一使用固定绑定。
+- 队列上限、fallback、会话 TTL 和等待超时等低频项默认折叠到“高级设置”，需要时仍可编辑和恢复默认；
 - 设置页一级分类固定为“基础、路由策略、运行保护、日志”，不再按每个内部模块创建独立页签；
 - 全局代理只在代理页配置，设置页不重复提供入口。
 
@@ -2740,7 +2741,7 @@ SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、�
 - SSE；
 - 多 Credential；
 - 原子 select-and-reserve、排队 epoch 和轮询 RPM 调度；
-- Codex 硬粘性。
+- Codex Response ID 续接绑定。
 
 ### 阶段 3：Claude 原生链路
 
@@ -2749,7 +2750,7 @@ SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、�
 - Claude Provider Driver；
 - Claude SSE；
 - Claude Code 会话标识；
-- 软粘性。
+- 统一会话粘性。
 
 ### 阶段 3.1：Grok API Key Provider
 
@@ -2856,8 +2857,7 @@ in_flight = Observation and Resource Lifetime Only
 RuntimeRegistry = Stable Across Config Generations
 Grok Free Tokens = Upstream Limit/Remaining Headers + No Local Default
 
-Hard Session ──> Fixed Credential + Route Target + Model + Dialect
-Soft Session ──> Preferred Credential
+Session Binding ──> Fixed Credential + Route Target + Model + Dialect
 All Session State ──> Memory Only
 
 Retry = Pending + RetrySafety Allows

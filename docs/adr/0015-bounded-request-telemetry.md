@@ -14,7 +14,7 @@
 - 首个切片持久化已通过 GatewayApiKey 鉴权并进入模型执行链的请求，包括解码、规划、排队和上游执行错误。鉴权失败、未知公开路由和方法错误只返回本地 Request ID 并写结构化文件/终端日志，不写 RequestLog。
 - Runtime 使用每请求 `RequestRecorder` 和每次上游执行 `AttemptRecorder`。Attempt 在健康状态结算之后、Credential Permit 释放之前完成；正常 JSON、错误、超时、取消和流式 Drop 都只能完成一次。
 - Request 与全部 Attempt 先在当前请求内存中聚合。请求结束时只执行一次同步 `try_send`，把完整聚合记录放入有界队列；队列满、Writer 已关闭或 SQLite 写入失败时丢弃该条遥测并增加计数，禁止等待、重试或反压数据面。
-- SSE 在首帧验证和软绑定提交成功后才把请求最终完成权交给 `GuardedBody`。正常 EOF、提交后错误和客户端 Drop 由 GuardedBody 记录最终结果；首帧或提交前失败仍由普通请求路径完成 RequestLog。
+- SSE 在首帧验证和会话绑定提交成功后才把请求最终完成权交给 `GuardedBody`。正常 EOF、提交后错误和客户端 Drop 由 GuardedBody 记录最终结果；首帧或提交前失败仍由普通请求路径完成 RequestLog。
 - Runtime 后台 Writer 从有界队列按小批次读取，在一个 SQLite 事务中先写父 RequestLog、再写 RequestAttempt。保留清理按时间与最大行数任一上限定时分批删除；配置发布会无失败地刷新清理策略，不依赖下一次公开请求，且不读取历史记录重建任何运行态。
 - SQLite 使用 `request_logs` 与 `request_attempts` 两张表。配置实体删除后历史外键使用 `ON DELETE SET NULL`，RequestLog 删除时 Attempt 使用 `ON DELETE CASCADE`。
 - 首个管理查询提供最近 RequestLog 列表与单条详情/Attempt 时间线。Web 使用真实 `/logs` 与 `/logs/:requestId` deep link，不把 Prompt、请求体或响应体放入缓存或 DOM。

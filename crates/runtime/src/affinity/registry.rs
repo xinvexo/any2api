@@ -6,41 +6,34 @@ use std::{
 
 use any2api_domain::{ModelRouteId, ProtocolDialect, RoutingCredentialId};
 use thiserror::Error;
-use tokio::sync::watch;
 
 use super::{
     hash::{SessionHash, SessionHasher},
-    lease::{SoftBinding, SoftBindingLease, SoftBindingStart, SoftBindingWait},
+    lease::{Binding, BindingLease, BindingStart},
     target::AffinityTarget,
 };
+use crate::routing::SchedulerEpoch;
 
-const MAX_SOFT_BINDINGS: usize = 100_000;
-const MAX_HARD_BINDINGS: usize = 200_000;
+const MAX_BINDINGS: usize = 300_000;
 
 #[derive(Debug)]
 pub(crate) struct AffinityRegistry {
     hasher: SessionHasher,
+    scheduler_epoch: Arc<SchedulerEpoch>,
     pub(super) state: Mutex<AffinityState>,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct AffinityState {
     next_version: u64,
-    pub(super) soft: HashMap<SessionHash, SoftState>,
-    pub(super) hard: HashMap<SessionHash, TimedBinding>,
+    active_credentials: Option<HashSet<RoutingCredentialId>>,
+    pub(super) entries: HashMap<SessionHash, BindingState>,
 }
 
 #[derive(Debug)]
-pub(super) enum SoftState {
-    Creating {
-        version: u64,
-        started_at: Instant,
-        changes: watch::Sender<u64>,
-    },
-    Bound {
-        version: u64,
-        binding: TimedBinding,
-    },
+pub(super) enum BindingState {
+    Creating { version: u64 },
+    Bound { binding: TimedBinding },
 }
 
 #[derive(Clone, Debug)]
@@ -50,121 +43,104 @@ pub(super) struct TimedBinding {
 }
 
 impl AffinityRegistry {
+    #[cfg(test)]
     pub(crate) fn new() -> Arc<Self> {
+        Self::with_scheduler_epoch(SchedulerEpoch::new())
+    }
+
+    pub(crate) fn with_scheduler_epoch(scheduler_epoch: Arc<SchedulerEpoch>) -> Arc<Self> {
         Arc::new(Self {
             hasher: SessionHasher::new(),
+            scheduler_epoch,
             state: Mutex::new(AffinityState::default()),
         })
     }
 
-    pub(crate) fn begin_soft(
+    #[cfg(test)]
+    pub(crate) fn subscribe_scheduler_epoch(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.scheduler_epoch.subscribe()
+    }
+
+    pub(crate) fn begin_session(
         self: &Arc<Self>,
         dialect: ProtocolDialect,
         route_id: ModelRouteId,
         raw: &str,
-        soft_ttl: Duration,
-        creating_ttl: Duration,
-    ) -> Result<SoftBindingStart, AffinityError> {
-        let key = self.hasher.soft(dialect, route_id, raw);
+        ttl: Duration,
+    ) -> Result<BindingStart, AffinityError> {
+        let key = self.hasher.session(dialect, route_id, raw);
         let now = Instant::now();
         let mut state = self.state.lock().expect("affinity state lock poisoned");
-        if let Some(existing) = state.soft.get_mut(&key) {
+        if let Some(existing) = state.entries.get_mut(&key) {
             match existing {
-                SoftState::Bound { version, binding }
-                    if now.saturating_duration_since(binding.last_seen_at) < soft_ttl =>
+                BindingState::Bound { binding }
+                    if now.saturating_duration_since(binding.last_seen_at) < ttl =>
                 {
                     binding.last_seen_at = now;
-                    return Ok(SoftBindingStart::Bound(SoftBinding {
-                        key,
-                        version: *version,
+                    return Ok(BindingStart::Bound(Binding {
                         target: binding.target.clone(),
                     }));
                 }
-                SoftState::Creating {
-                    started_at,
-                    changes,
-                    ..
-                } if now.saturating_duration_since(*started_at) < creating_ttl => {
-                    return Ok(SoftBindingStart::Wait(SoftBindingWait {
-                        changes: changes.subscribe(),
-                    }));
-                }
+                BindingState::Creating { .. } => return Ok(BindingStart::Wait),
                 _ => {}
             }
-            notify_removed(state.soft.remove(&key));
+            state.entries.remove(&key);
         }
-        ensure_soft_capacity(&mut state, now, soft_ttl, creating_ttl)?;
+        ensure_capacity(&mut state, now, ttl)?;
         let version = state.next_version();
-        let (changes, _) = watch::channel(0);
-        state.soft.insert(
-            key,
-            SoftState::Creating {
-                version,
-                started_at: now,
-                changes: changes.clone(),
-            },
-        );
-        Ok(SoftBindingStart::Create(SoftBindingLease {
+        state
+            .entries
+            .insert(key, BindingState::Creating { version });
+        Ok(BindingStart::Create(BindingLease {
             registry: Arc::clone(self),
             key,
             version,
-            changes,
             active: true,
         }))
     }
 
-    pub(crate) fn invalidate_soft(&self, binding: &SoftBinding) -> bool {
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        let matches = matches!(
-            state.soft.get(&binding.key),
-            Some(SoftState::Bound { version, .. }) if *version == binding.version
-        );
-        if matches {
-            state.soft.remove(&binding.key);
-        }
-        matches
-    }
-
-    pub(crate) fn resolve_hard(&self, raw: &str, ttl: Duration) -> Option<AffinityTarget> {
-        let key = self.hasher.hard(raw);
+    pub(crate) fn resolve_continuation(&self, raw: &str, ttl: Duration) -> Option<AffinityTarget> {
+        let key = self.hasher.continuation(raw);
         let now = Instant::now();
         let mut state = self.state.lock().expect("affinity state lock poisoned");
-        let binding = state.hard.get_mut(&key)?;
+        let BindingState::Bound { binding } = state.entries.get_mut(&key)? else {
+            return None;
+        };
         if now.saturating_duration_since(binding.last_seen_at) >= ttl {
-            state.hard.remove(&key);
+            state.entries.remove(&key);
             return None;
         }
         binding.last_seen_at = now;
         Some(binding.target.clone())
     }
 
-    pub(crate) fn bind_hard(
+    pub(crate) fn bind_continuation(
         &self,
         raw: &str,
         target: AffinityTarget,
         ttl: Duration,
     ) -> Result<(), AffinityError> {
-        self.bind_hard_with_deadline(raw, target, ttl, None)
+        self.bind_continuation_with_deadline(raw, target, ttl, None)
     }
 
-    pub(crate) fn bind_hard_before(
+    pub(crate) fn bind_continuation_before(
         &self,
         raw: &str,
         target: AffinityTarget,
         ttl: Duration,
         deadline: Instant,
     ) -> Result<(), AffinityError> {
-        self.bind_hard_with_deadline(raw, target, ttl, Some(deadline))
+        self.bind_continuation_with_deadline(raw, target, ttl, Some(deadline))
     }
 
-    fn bind_hard_with_deadline(
+    fn bind_continuation_with_deadline(
         &self,
         raw: &str,
         target: AffinityTarget,
         ttl: Duration,
         deadline: Option<Instant>,
     ) -> Result<(), AffinityError> {
-        let key = self.hasher.hard(raw);
+        let key = self.hasher.continuation(raw);
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(AffinityError::DeadlineExceeded);
         }
@@ -172,7 +148,22 @@ impl AffinityRegistry {
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(AffinityError::DeadlineExceeded);
         }
-        if let Some(binding) = state.hard.get_mut(&key) {
+        if !target_is_active(&state, &target) {
+            return Err(AffinityError::TargetInactive);
+        }
+        let now = Instant::now();
+        let expired = matches!(
+            state.entries.get(&key),
+            Some(BindingState::Bound { binding })
+                if now.saturating_duration_since(binding.last_seen_at) >= ttl
+        );
+        if expired {
+            state.entries.remove(&key);
+        }
+        if let Some(existing) = state.entries.get_mut(&key) {
+            let BindingState::Bound { binding } = existing else {
+                return Err(AffinityError::IdentityConflict);
+            };
             if binding.target != target {
                 return Err(AffinityError::IdentityConflict);
             }
@@ -183,24 +174,18 @@ impl AffinityRegistry {
             binding.last_seen_at = committed_at;
             return Ok(());
         }
-        if state.hard.len() >= MAX_HARD_BINDINGS {
-            let now = Instant::now();
-            state
-                .hard
-                .retain(|_, binding| now.saturating_duration_since(binding.last_seen_at) < ttl);
-        }
-        if state.hard.len() >= MAX_HARD_BINDINGS {
-            return Err(AffinityError::Capacity);
-        }
+        ensure_capacity(&mut state, Instant::now(), ttl)?;
         let committed_at = Instant::now();
         if deadline.is_some_and(|deadline| committed_at >= deadline) {
             return Err(AffinityError::DeadlineExceeded);
         }
-        state.hard.insert(
+        state.entries.insert(
             key,
-            TimedBinding {
-                target,
-                last_seen_at: committed_at,
+            BindingState::Bound {
+                binding: TimedBinding {
+                    target,
+                    last_seen_at: committed_at,
+                },
             },
         );
         Ok(())
@@ -208,36 +193,40 @@ impl AffinityRegistry {
 
     pub(crate) fn retain_credentials(&self, active: &HashSet<RoutingCredentialId>) {
         let mut state = self.state.lock().expect("affinity state lock poisoned");
-        state
-            .hard
-            .retain(|_, binding| active.contains(&binding.target.credential_id()));
-        state.soft.retain(|_, binding| match binding {
-            SoftState::Bound { binding, .. } => active.contains(&binding.target.credential_id()),
-            SoftState::Creating { .. } => true,
+        state.active_credentials = Some(active.clone());
+        state.entries.retain(|_, entry| match entry {
+            BindingState::Bound { binding } => active.contains(&binding.target.credential_id()),
+            BindingState::Creating { .. } => true,
         });
     }
 
     pub(crate) fn clear_all(&self) -> usize {
         let mut state = self.state.lock().expect("affinity state lock poisoned");
-        let cleared = state.soft.len() + state.hard.len();
-        for binding in state.soft.drain().map(|(_, binding)| binding) {
-            notify_removed(Some(binding));
+        let cleared = state.entries.len();
+        let creating_removed = state
+            .entries
+            .values()
+            .any(|entry| matches!(entry, BindingState::Creating { .. }));
+        state.entries.clear();
+        drop(state);
+        if creating_removed {
+            self.wake_waiters();
         }
-        state.hard.clear();
         cleared
     }
 
     pub(crate) fn clear_credential(&self, credential_id: RoutingCredentialId) -> usize {
         let mut state = self.state.lock().expect("affinity state lock poisoned");
-        let before = state.soft.len() + state.hard.len();
-        state
-            .hard
-            .retain(|_, binding| binding.target.credential_id() != credential_id);
-        state.soft.retain(|_, binding| match binding {
-            SoftState::Bound { binding, .. } => binding.target.credential_id() != credential_id,
-            SoftState::Creating { .. } => true,
+        let before = state.entries.len();
+        state.entries.retain(|_, entry| match entry {
+            BindingState::Bound { binding } => binding.target.credential_id() != credential_id,
+            BindingState::Creating { .. } => true,
         });
-        before - state.soft.len() - state.hard.len()
+        before - state.entries.len()
+    }
+
+    pub(super) fn wake_waiters(&self) {
+        self.scheduler_epoch.advance();
     }
 }
 
@@ -258,40 +247,32 @@ pub(crate) enum AffinityError {
     LeaseLost,
     #[error("affinity binding deadline elapsed")]
     DeadlineExceeded,
+    #[error("affinity target credential is no longer active")]
+    TargetInactive,
 }
 
-fn ensure_soft_capacity(
+fn ensure_capacity(
     state: &mut AffinityState,
     now: Instant,
-    soft_ttl: Duration,
-    creating_ttl: Duration,
+    ttl: Duration,
 ) -> Result<(), AffinityError> {
-    if state.soft.len() < MAX_SOFT_BINDINGS {
+    if state.entries.len() < MAX_BINDINGS {
         return Ok(());
     }
-    state.soft.retain(|_, binding| match binding {
-        SoftState::Creating {
-            started_at,
-            changes,
-            ..
-        } => {
-            let keep = now.saturating_duration_since(*started_at) < creating_ttl;
-            if !keep {
-                changes.send_replace(1);
-            }
-            keep
-        }
-        SoftState::Bound { binding, .. } => {
-            now.saturating_duration_since(binding.last_seen_at) < soft_ttl
+    state.entries.retain(|_, entry| match entry {
+        BindingState::Creating { .. } => true,
+        BindingState::Bound { binding } => {
+            now.saturating_duration_since(binding.last_seen_at) < ttl
         }
     });
-    (state.soft.len() < MAX_SOFT_BINDINGS)
+    (state.entries.len() < MAX_BINDINGS)
         .then_some(())
         .ok_or(AffinityError::Capacity)
 }
 
-fn notify_removed(binding: Option<SoftState>) {
-    if let Some(SoftState::Creating { changes, .. }) = binding {
-        changes.send_replace(1);
-    }
+pub(super) fn target_is_active(state: &AffinityState, target: &AffinityTarget) -> bool {
+    state
+        .active_credentials
+        .as_ref()
+        .is_none_or(|active| active.contains(&target.credential_id()))
 }

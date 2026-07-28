@@ -42,8 +42,10 @@ pub struct DecodedRequest {
 #[derive(Clone, Eq, PartialEq)]
 pub enum IngressAffinity {
     None,
-    Hard(String),
-    Soft(String),
+    /// A stateful continuation that must resolve to an existing binding.
+    Continuation(String),
+    /// An explicit session that may create a binding when one does not exist.
+    Session(String),
 }
 
 /// Request body parsed once at ingress decode; adapters and bridges mutate
@@ -91,7 +93,7 @@ pub struct DecodedUpstreamResponse {
     pub headers: HeaderMap,
     /// Original wire bytes; `None` once a bridge transform rewrote `parsed`.
     pub body: Option<Bytes>,
-    /// JSON body parsed once at decode; telemetry, hard-affinity extraction,
+    /// JSON body parsed once at decode; telemetry, continuation-ID extraction,
     /// and egress model rewriting all consume this shared parse.
     pub parsed: Value,
     pub telemetry: ProtocolResponseTelemetry,
@@ -116,7 +118,7 @@ pub struct AdapterEvent {
 }
 
 /// SSE `data:` payload parsed once when the upstream frame is decoded, then
-/// shared by telemetry, hard-affinity extraction, and egress model rewriting.
+/// shared by telemetry, continuation-ID extraction, and egress model rewriting.
 #[derive(Clone, PartialEq)]
 pub enum SseEventPayload {
     /// The frame carries no data lines or only the `[DONE]` sentinel.
@@ -281,7 +283,7 @@ pub trait ProtocolAdapter: Send + Sync {
         public_model: &str,
     ) -> Result<SseFrame, ProtocolError>;
 
-    fn hard_affinity_id_from_response(
+    fn continuation_id_from_response(
         &self,
         _operation: ProtocolOperation,
         _response: &DecodedUpstreamResponse,
@@ -289,7 +291,7 @@ pub trait ProtocolAdapter: Send + Sync {
         Ok(None)
     }
 
-    fn hard_affinity_id_from_event(
+    fn continuation_id_from_event(
         &self,
         _operation: ProtocolOperation,
         _event: &AdapterEvent,
@@ -362,8 +364,8 @@ impl fmt::Debug for IngressAffinity {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::None => "None",
-            Self::Hard(_) => "Hard([REDACTED])",
-            Self::Soft(_) => "Soft([REDACTED])",
+            Self::Continuation(_) => "Continuation([REDACTED])",
+            Self::Session(_) => "Session([REDACTED])",
         })
     }
 }

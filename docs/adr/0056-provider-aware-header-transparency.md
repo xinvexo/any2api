@@ -1,9 +1,12 @@
 # ADR-0056: Provider 感知的双向 Header 透明性
 
-- 状态：Accepted
+- 状态：Partially Superseded by ADR-0061
 - 日期：2026-07-28
 - 决策者：maintainer
 - 调整：ADR-0007、ADR-0015、ADR-0051 的 Header 与 Request ID 边界
+
+> 取代说明（2026-07-28）：ADR-0061 取代本文关于错误正文、Provider message 客户端投影和
+> 429/529 错误类型重建的决策。Provider Header 白名单、最终 Attempt 归属和认证隔离边界继续有效。
 
 ## 背景
 
@@ -29,19 +32,18 @@ Codex CLI、Claude Code 与 Grok Build 不只依赖 JSON/SSE Body。它们会发
 4. `x-grok-model-override` 按最终上游模型重建；Claude OAuth 保留全部有界的客户端 beta Header 行，并
    去重追加 `oauth-2025-04-20`。`x-oai-attestation` 只能原样用于同一请求的首个 Credential 路径，不能
    生成、缓存、记录或跨 Provider/Credential 重放。
-5. `x-codex-turn-state` 视为上游签发的 Credential/Route Target 粘性令牌。只有请求已有匹配的硬或严格
-   绑定时发送；无绑定、绑定丢失和换 Credential 均删除。新的响应状态只属于最终提交 Attempt。
+5. `x-codex-turn-state` 视为上游签发的 Credential/Route Target 粘性令牌。只有请求已有匹配的固定
+   会话绑定时发送；无绑定、绑定丢失和换 Credential 均删除。新的响应状态只属于最终提交 Attempt。
 6. 成功和错误响应都只投影最终 Attempt 的安全 Header。重试掉的 Attempt 不暴露任何 Header 或错误
-   消息；SSE 在首帧验证与绑定成功前保持 Pending。上游正文继续有界解析，不直接透传；只有 Provider
-   已声明错误 envelope 中的官方 `message` 可以进入当前客户端响应，且不得进入日志或持久化。完整
-   边界见 ADR-0057。
+   正文；SSE 在首帧验证与绑定成功前保持 Pending。最终上游非 2xx 的完整有界正文按 ADR-0061 原样
+   返回，Provider 已声明 envelope 中提取的 `message` 只用于内部分类和有界管理日志。
 7. 上游 `x-request-id`、`request-id` 与 `x-oai-request-id` 按 Provider 白名单保留；Codex 最终 Attempt
    只有 `x-oai-request-id` 时将同一上游值镜像为 `x-request-id`，避免官方客户端优先读到本地 ID。本地
    Request ID 始终使用 `x-any2api-request-id`；只有缺少可归一化的上游 `x-request-id` 时才用本地值补齐
    旧字段。本地错误因此同时返回两个本地关联字段。聚合模型目录使用 PublishedSnapshot 生成的本地
    ETag，不借用任一账号 ETag。
-8. 最终 429/529 保持协议可识别的 `rate_limit_error`/`overloaded_error` 语义和安全重试 Header；上游
-   Credential 的 401/403 仍返回脱敏上游错误，不能冒充 Gateway Key 认证失败。
+8. 最终 429/529 保持上游原状态、原正文和安全重试 Header，不重建 `rate_limit_error` 或
+   `overloaded_error`；上游 Credential 的 401/403 同样原样返回，不能冒充 Gateway Key 认证失败。
 9. JSON 型 Codex/OpenAI 入口支持有界 `Content-Encoding: zstd`：压缩体与解压结果分别限长，解析后
    对同方言 Codex 上游重新压缩最终 Body 并重建编码字段。未知/重复/损坏编码和 multipart 编码请求在
    上游 I/O 前按入口协议拒绝。

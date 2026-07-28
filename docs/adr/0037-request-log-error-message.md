@@ -1,12 +1,12 @@
 # ADR-0037: RequestLog 保存安全有界错误消息
 
-- 状态：Partially Superseded by ADR-0057
+- 状态：Superseded by ADR-0061
 - 日期：2026-07-25
 - 决策者：maintainer
 
-> 调整说明（2026-07-28）：ADR-0057 允许把最终 Provider 已声明错误 envelope 中的官方
-> `message` 返回当前客户端，但不改变本文的持久化边界。RequestLog 与 RequestAttempt 仍不得保存
-> 该消息，只保存 any2api 生成的安全摘要。
+> 取代说明（2026-07-28）：ADR-0061 允许把最终 Provider 已声明 envelope 中的原始 `message`
+> 写入有界 RequestLog/RequestAttempt 并供管理面展示，不再按状态码或内部分类生成 Provider 摘要。
+> 完整上游正文仍不进入 SQLite；any2api 本地错误继续保存自己的有界消息。
 
 ## 背景
 

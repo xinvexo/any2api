@@ -1,16 +1,9 @@
-use super::{
-    AffinityMode, SettingKey, SettingOverrides, SettingValue, SettingsValidationError,
-    value::{boolean, integer},
-};
+use super::{SettingKey, SettingOverrides, SettingsValidationError, value::integer};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AffinitySettings {
-    soft_enabled: bool,
-    soft_mode: AffinityMode,
-    soft_ttl_secs: u64,
-    hard_ttl_secs: u64,
-    soft_prefer_wait_timeout_secs: u64,
-    fixed_wait_timeout_secs: u64,
+    ttl_secs: u64,
+    wait_timeout_secs: u64,
 }
 
 impl AffinitySettings {
@@ -18,43 +11,17 @@ impl AffinitySettings {
         overrides: &SettingOverrides,
     ) -> Result<Self, SettingsValidationError> {
         let value = |key| overrides.effective_value(key);
-        let soft_mode = match value(SettingKey::AffinitySoftMode) {
-            SettingValue::AffinityMode(value) => value,
-            _ => return Err(SettingsValidationError::InvalidType),
-        };
         Ok(Self {
-            soft_enabled: boolean(value(SettingKey::AffinitySoftEnabled))?,
-            soft_mode,
-            soft_ttl_secs: integer(value(SettingKey::AffinitySoftTtl))?,
-            hard_ttl_secs: integer(value(SettingKey::AffinityHardTtl))?,
-            soft_prefer_wait_timeout_secs: integer(value(
-                SettingKey::AffinitySoftPreferWaitTimeout,
-            ))?,
-            fixed_wait_timeout_secs: integer(value(SettingKey::AffinityFixedWaitTimeout))?,
+            ttl_secs: integer(value(SettingKey::AffinityTtl))?,
+            wait_timeout_secs: integer(value(SettingKey::AffinityWaitTimeout))?,
         })
     }
 
-    pub const fn soft_enabled(&self) -> bool {
-        self.soft_enabled
+    pub const fn ttl_secs(&self) -> u64 {
+        self.ttl_secs
     }
 
-    pub const fn soft_mode(&self) -> AffinityMode {
-        self.soft_mode
-    }
-
-    pub const fn soft_ttl_secs(&self) -> u64 {
-        self.soft_ttl_secs
-    }
-
-    pub const fn hard_ttl_secs(&self) -> u64 {
-        self.hard_ttl_secs
-    }
-
-    pub const fn soft_prefer_wait_timeout_secs(&self) -> u64 {
-        self.soft_prefer_wait_timeout_secs
-    }
-
-    pub const fn fixed_wait_timeout_secs(&self) -> u64 {
-        self.fixed_wait_timeout_secs
+    pub const fn wait_timeout_secs(&self) -> u64 {
+        self.wait_timeout_secs
     }
 }

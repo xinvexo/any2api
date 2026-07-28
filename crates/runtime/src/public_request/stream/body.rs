@@ -24,7 +24,7 @@ use tokio::time::{Sleep, timeout};
 use super::super::{PublicResponseStream, RequestPermit};
 use super::{PrecommitBudget, pending_failure::PendingStreamError};
 use crate::request_telemetry::{AttemptRecorder, RequestRecorder};
-use crate::{affinity::HardAffinityCommitter, health::AttemptHealth};
+use crate::{affinity::ContinuationBindingCommitter, health::AttemptHealth};
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct CancellationToken {
@@ -51,7 +51,7 @@ pub(super) enum CommitState {
 pub(in crate::public_request) struct GuardedBodyParts {
     pub(in crate::public_request) permit: RequestPermit,
     pub(in crate::public_request) health: Option<AttemptHealth>,
-    pub(in crate::public_request) hard_affinity: HardAffinityCommitter,
+    pub(in crate::public_request) continuation_binding: ContinuationBindingCommitter,
     pub(in crate::public_request) attempt_recorder: AttemptRecorder,
     pub(in crate::public_request) status_code: u16,
     pub(in crate::public_request) precommit_budget: PrecommitBudget,
@@ -68,7 +68,7 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) pending_error: Option<PendingStreamError>,
     pub(super) permit: Option<RequestPermit>,
     pub(super) health: Option<AttemptHealth>,
-    pub(super) hard_affinity: HardAffinityCommitter,
+    pub(super) continuation_binding: ContinuationBindingCommitter,
     pub(super) cancellation: CancellationToken,
     pub(super) state: CommitState,
     pub(super) upstream_done: bool,
@@ -101,7 +101,7 @@ impl GuardedBody {
         let GuardedBodyParts {
             permit,
             health,
-            hard_affinity,
+            continuation_binding,
             attempt_recorder,
             status_code,
             precommit_budget,
@@ -119,7 +119,7 @@ impl GuardedBody {
             pending_error: None,
             permit: Some(permit),
             health,
-            hard_affinity,
+            continuation_binding,
             cancellation: CancellationToken::default(),
             state: CommitState::Pending,
             upstream_done: false,

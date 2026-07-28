@@ -5,7 +5,7 @@ use http::{HeaderValue, header};
 
 use super::super::{
     PublicResponse, PublicResponseBody,
-    affinity::{AffinitySelection, commit_soft_binding_before},
+    affinity::{AffinitySelection, commit_binding_before},
     execution_limits,
     response::{collect_error_body, sanitize_response_headers},
     stream::{GuardedBody, GuardedBodyParts, PrecommitBudget},
@@ -13,7 +13,7 @@ use super::super::{
 use super::{
     UpstreamServices,
     failure::AttemptFailure,
-    prepared::{AttemptInput, hard_committer, prepare_input},
+    prepared::{AttemptInput, continuation_committer, prepare_input},
 };
 use crate::request_telemetry::{AttemptRecorder, public_error_class};
 
@@ -30,8 +30,8 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         mut prepared,
         candidate,
         target,
-        soft_lease,
-        fixed,
+        binding_lease,
+        bound,
     } = prepare_input(
         services.snapshot,
         services.protocols,
@@ -45,7 +45,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         Ok(response) => response,
         Err(error) => {
             prepared.transport_failure(&error);
-            return Err(AttemptFailure::transport(error, candidate, fixed));
+            return Err(AttemptFailure::transport(error, candidate, bound));
         }
     };
     let status = response.status;
@@ -68,7 +68,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             body,
             error,
             candidate,
-            fixed,
+            bound,
         ));
     }
     headers = prepared.response_headers(&headers);
@@ -78,7 +78,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         HeaderValue::from_static("text/event-stream"),
     );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
-    let hard_affinity = hard_committer(
+    let continuation_binding = continuation_committer(
         services.snapshot,
         prepared.ingress_operation,
         target.clone(),
@@ -96,7 +96,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         GuardedBodyParts {
             permit,
             health,
-            hard_affinity,
+            continuation_binding,
             attempt_recorder,
             status_code: status.as_u16(),
             precommit_budget,
@@ -116,7 +116,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     .prime()
     .await
     .map_err(AttemptFailure::Public)?;
-    if let Err(error) = commit_soft_binding_before(soft_lease, target, body.precommit_deadline()) {
+    if let Err(error) = commit_binding_before(binding_lease, target, body.precommit_deadline()) {
         body.fail_before_handoff(public_error_class(error.code()), error.telemetry_message());
         return Err(AttemptFailure::Public(error));
     }

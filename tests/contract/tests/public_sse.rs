@@ -667,7 +667,7 @@ async fn codex_response_created_event_binds_the_follow_up_to_the_same_credential
 }
 
 #[tokio::test]
-async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
+async fn explicit_session_wait_timeout_never_switches_credentials() {
     let (upstream_address, mut upstream_requests, release_first) = held_stream_server().await;
     let (_directory, app, mut revision) = test_app().await;
     let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
@@ -677,7 +677,7 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
         &app,
         remote,
         revision,
-        "Codex prefer",
+        "Codex bound session",
         "codex",
         &format!("http://{upstream_address}/v1"),
     )
@@ -688,8 +688,8 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
         remote,
         revision,
         &endpoint,
-        "prefer-first",
-        "sk-prefer-first",
+        "session-first",
+        "sk-session-first",
         1,
     )
     .await;
@@ -699,22 +699,15 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
         remote,
         revision,
         &endpoint,
-        "prefer-second",
-        "sk-prefer-second",
+        "session-second",
+        "sk-session-second",
         1,
     )
     .await;
     revision += 1;
     select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
     revision += 2;
-    update_setting(
-        &app,
-        remote,
-        revision,
-        "affinity.soft.prefer_wait_timeout",
-        json!(1),
-    )
-    .await;
+    update_setting(&app, remote, revision, "affinity.wait_timeout", json!(1)).await;
 
     let held = request(
         app.clone(),
@@ -723,116 +716,7 @@ async fn prefer_soft_affinity_rebinds_after_its_wait_timeout() {
         remote,
         &[
             ("authorization", format!("Bearer {token}")),
-            ("x-any2api-session", "prefer-session".to_owned()),
-        ],
-    )
-    .await;
-    assert_eq!(held.status(), StatusCode::OK);
-    let first = upstream_requests
-        .recv()
-        .await
-        .expect("first upstream request");
-
-    let rebound = request(
-        app,
-        "/v1/responses",
-        json!({"model":"gpt-upstream","input":"continue"}),
-        remote,
-        &[
-            ("authorization", format!("Bearer {token}")),
-            ("x-any2api-session", "prefer-session".to_owned()),
-        ],
-    )
-    .await;
-    assert_eq!(rebound.status(), StatusCode::OK);
-    rebound
-        .into_body()
-        .collect()
-        .await
-        .expect("rebound response");
-    let second = upstream_requests
-        .recv()
-        .await
-        .expect("rebound upstream request");
-    assert_ne!(
-        first.headers.get("authorization"),
-        second.headers.get("authorization")
-    );
-
-    release_first.send(()).expect("release first stream");
-    held.into_body()
-        .collect()
-        .await
-        .expect("held stream completion");
-}
-
-#[tokio::test]
-async fn strict_soft_affinity_never_switches_credentials() {
-    let (upstream_address, mut upstream_requests, release_first) = held_stream_server().await;
-    let (_directory, app, mut revision) = test_app().await;
-    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
-    let token = create_gateway_key(&app, remote, revision).await;
-    revision += 1;
-    let endpoint = create_endpoint(
-        &app,
-        remote,
-        revision,
-        "Codex strict",
-        "codex",
-        &format!("http://{upstream_address}/v1"),
-    )
-    .await;
-    revision += 1;
-    create_rate_limited_credential(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "strict-first",
-        "sk-strict-first",
-        1,
-    )
-    .await;
-    revision += 1;
-    create_rate_limited_credential(
-        &app,
-        remote,
-        revision,
-        &endpoint,
-        "strict-second",
-        "sk-strict-second",
-        1,
-    )
-    .await;
-    revision += 1;
-    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
-    revision += 2;
-    update_setting(
-        &app,
-        remote,
-        revision,
-        "affinity.soft.mode",
-        json!("strict"),
-    )
-    .await;
-    revision += 1;
-    update_setting(
-        &app,
-        remote,
-        revision,
-        "affinity.fixed_wait_timeout",
-        json!(1),
-    )
-    .await;
-
-    let held = request(
-        app.clone(),
-        "/v1/responses",
-        json!({"model":"gpt-upstream","stream":true,"input":"start"}),
-        remote,
-        &[
-            ("authorization", format!("Bearer {token}")),
-            ("x-any2api-session", "strict-session".to_owned()),
+            ("x-any2api-session", "bound-session".to_owned()),
         ],
     )
     .await;
@@ -849,7 +733,7 @@ async fn strict_soft_affinity_never_switches_credentials() {
         remote,
         &[
             ("authorization", format!("Bearer {token}")),
-            ("x-any2api-session", "strict-session".to_owned()),
+            ("x-any2api-session", "bound-session".to_owned()),
         ],
     )
     .await;
@@ -858,15 +742,16 @@ async fn strict_soft_affinity_never_switches_credentials() {
         .into_body()
         .collect()
         .await
-        .expect("strict error response")
+        .expect("bound-session error response")
         .to_bytes();
-    let blocked_json: Value = serde_json::from_slice(&blocked_body).expect("strict error JSON");
+    let blocked_json: Value =
+        serde_json::from_slice(&blocked_body).expect("bound-session error JSON");
     assert_eq!(blocked_json["error"]["code"], "local_rate_limit");
     assert!(
         timeout(Duration::from_millis(50), upstream_requests.recv())
             .await
             .is_err(),
-        "strict affinity must not contact another credential"
+        "a bound session must not contact another credential"
     );
 
     release_first.send(()).expect("release first stream");
@@ -1393,7 +1278,7 @@ async fn held_stream_server() -> (
             request_sender_for_second
                 .send(second_request)
                 .expect("send second upstream request");
-            let body = r#"{"id":"resp_rebound","model":"gpt-upstream","output":[]}"#;
+            let body = r#"{"id":"resp_unexpected","model":"gpt-upstream","output":[]}"#;
             second_stream
                 .write_all(
                     format!(

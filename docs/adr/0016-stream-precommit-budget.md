@@ -12,7 +12,7 @@
 
 - 注册 `stream.precommit.max_bytes` 与 `stream.precommit.max_duration`，默认分别为 `256 KiB` 和 `5s`，全部支持热更新。
 - 每个流式请求从同一个 PublishedSnapshot 构造独立 `PrecommitBudget`。预算一旦进入 `GuardedBody` 就不再读取全局设置，确保旧请求保持原 revision。
-- `max_duration` 是取得首个可接受下游事件的提交 deadline，覆盖等待上游字节、分帧、协议解码、模型恢复以及必要的硬/软粘性提交边界，并且仍受请求级 `retry.precommit_total_budget` 外层预算约束。同步临界区不能被强制抢占，但临界区返回后必须重新检查 deadline；如果已经超时，不得写入绑定或接受首事件。
+- `max_duration` 是取得首个可接受下游事件的提交 deadline，覆盖等待上游字节、分帧、协议解码、模型恢复以及必要的会话绑定提交边界，并且仍受请求级 `retry.precommit_total_budget` 外层预算约束。同步临界区不能被强制抢占，但临界区返回后必须重新检查 deadline；如果已经超时，不得写入绑定或接受首事件。
 - `max_bytes` 同时作为 SSE 单帧上限和首个可接受事件提交前的编码后字节预算。解码器每次最多复制当前帧剩余容量再加一个判超字节，未消费的 transport `Bytes` 以零拷贝切片保留。
 - Runtime 每次只从解码器取得、编码并排队一个完整事件。首事件完成后立即返回下游响应，不在提交前批量处理同一 upstream chunk 的后续事件。
 - 在尚无可接受事件时超时、超字节、空流或协议失败，按提交前上游失败结束当前 Attempt。首个正式版本把这些流式首事件失败视为不确定结果，不自动启动第二条上游流。
@@ -31,5 +31,5 @@
 ## 验证
 
 - Domain 测试验证两项默认值、范围和 SettingRegistry 元数据。
-- Runtime 测试验证原始/编码后字节耗尽、deadline、单事件预缓冲、同 chunk 先交付后报错、硬/软绑定超时、提交后停止计费、健康归因、Permit 释放与错误边界。
+- Runtime 测试验证原始/编码后字节耗尽、deadline、单事件预缓冲、同 chunk 先交付后报错、会话绑定超时、提交后停止计费、健康归因、Permit 释放与错误边界。
 - HTTP 契约通过管理设置分别发布小字节预算和短等待时长，验证两类首事件失败都在下游提交前返回协议错误，并验证进行中的旧请求不会混入新 revision 的预算。

@@ -14,7 +14,7 @@
 
 生成请求原本在当前 Route tier 全部满载时立即返回本地并发错误。架构要求等待必须有上限、超时和取消语义，任何 Credential 释放容量后等待者重新执行完整选择，并避免“检查满载”和“开始等待”之间丢失唤醒。同时，排队参数属于已发布配置，不能让持有旧 `PublishedSnapshot` 的请求在等待过程中读取到新 revision 的策略。
 
-本切片只处理普通生成请求。硬粘性、软粘性优先级、冷却到期定时器和熔断恢复仍未实现；scheduler SettingRegistry/Web 配置已由 ADR-0011 接入，Count Tokens 继续使用独立辅助并发并立即拒绝。
+本切片只处理普通生成请求。固定会话绑定的等待优先级、冷却到期定时器和熔断恢复仍未实现；scheduler SettingRegistry/Web 配置已由 ADR-0011 接入，Count Tokens 继续使用独立辅助并发并立即拒绝。
 
 ## 决策
 
@@ -39,7 +39,7 @@
 
 - 生成请求满载时具有明确的等待、队列上限、超时和取消边界，Permit 释放能唤醒所有重新竞争者。
 - 热更新不会重置 waiting count，也不会让旧请求跨 revision 改变队列策略。
-- 当前等待者没有硬粘性/strict 优先级；加入会话粘性时必须扩展 QueueCoordinator 的等待类别，而不能另建绕过上限的等待链。
+- 当前等待者没有固定会话绑定优先级；加入会话粘性时必须扩展 QueueCoordinator 的等待类别，而不能另建绕过上限的等待链。
 - scheduler 默认值可由 SQLite SettingRegistry 覆盖并经 ConfigPublisher 热更新；其余设置组仍沿用后续切片边界。
 
 ## 验证

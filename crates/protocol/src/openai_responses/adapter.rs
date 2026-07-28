@@ -102,7 +102,7 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         rewrite_known_model(bytes, payload, public_model)
     }
 
-    fn hard_affinity_id_from_response(
+    fn continuation_id_from_response(
         &self,
         operation: ProtocolOperation,
         response: &DecodedUpstreamResponse,
@@ -113,7 +113,7 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         optional_non_empty_id(response.parsed.get("id"), "response id")
     }
 
-    fn hard_affinity_id_from_event(
+    fn continuation_id_from_event(
         &self,
         operation: ProtocolOperation,
         event: &AdapterEvent,
@@ -365,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn extracts_hard_affinity_from_a_json_response() {
+    fn extracts_continuation_id_from_a_json_response() {
         let adapter = OpenAiResponsesAdapter::new();
         let body = Bytes::from_static(br#"{"id":"resp_json","object":"response"}"#);
         let response = DecodedUpstreamResponse {
@@ -378,20 +378,20 @@ mod tests {
 
         assert_eq!(
             adapter
-                .hard_affinity_id_from_response(ProtocolOperation::Responses, &response)
+                .continuation_id_from_response(ProtocolOperation::Responses, &response)
                 .expect("response identity"),
             Some("resp_json".into())
         );
         assert_eq!(
             adapter
-                .hard_affinity_id_from_response(ProtocolOperation::ResponsesCompact, &response)
-                .expect("compact has no hard identity"),
+                .continuation_id_from_response(ProtocolOperation::ResponsesCompact, &response)
+                .expect("compact has no continuation identity"),
             None
         );
     }
 
     #[test]
-    fn extracts_hard_affinity_from_response_created_sse() {
+    fn extracts_continuation_id_from_response_created_sse() {
         let adapter = OpenAiResponsesAdapter::new();
         let event = adapter
             .decode_upstream_event(SseFrame(Bytes::from_static(
@@ -401,7 +401,7 @@ mod tests {
 
         assert_eq!(
             adapter
-                .hard_affinity_id_from_event(ProtocolOperation::Responses, &event)
+                .continuation_id_from_event(ProtocolOperation::Responses, &event)
                 .expect("event identity"),
             Some("resp_sse".into())
         );

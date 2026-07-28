@@ -17,11 +17,7 @@ pub(crate) fn start(
         loop {
             tokio::time::sleep(SWEEP_INTERVAL).await;
             let policy = publisher.current_snapshot().affinity_policy();
-            let removed = registry.sweep_expired(
-                policy.soft_ttl(),
-                policy.hard_ttl(),
-                policy.fixed_wait_timeout(),
-            );
+            let removed = registry.sweep_expired(policy.ttl());
             if removed > 0 {
                 tracing::debug!(removed, "expired affinity bindings swept");
             }
