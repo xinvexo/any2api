@@ -56,7 +56,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 24. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount 与 Grok 暂不声明该方言能力。
 25. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。
 26. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
-27. 官方 GitHub Release 由 `v*` Tag 触发，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
+27. 官方 GitHub Release 从 Actions 页面手动触发，按 Cargo 版本创建 Tag；首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 
 ### 2.1 两类凭据的术语边界
 
@@ -2636,7 +2636,8 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 
 ### 20.5 GitHub Release
 
-推送 `v*` Tag 时，GitHub Actions 使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建
+管理员从 GitHub Actions 页面手动运行 `Release` 工作流；工作流读取 Cargo 版本，在所选提交创建对应的
+`v<version>` Tag，并使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建
 `x86_64-unknown-linux-gnu`。首版只发布 Linux AMD64，不构建其他系统、架构或 musl 变体。
 
 Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和

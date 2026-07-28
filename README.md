@@ -32,8 +32,9 @@ tar -xzf "$ASSET"
 ANY2API_DATA_DIR=/var/lib/any2api ./any2api
 ```
 
-Pushing a `v*` tag builds the locked Linux AMD64 target, creates the archive and checksum, and publishes both to GitHub
-Releases. Before upgrading, stop the existing process and take an offline copy of the data directory and master key.
+Run the `Release` workflow manually from GitHub Actions. It reads the Cargo version, creates the matching `v<version>`
+tag at the selected commit, builds the locked Linux AMD64 target, and publishes the archive and checksum. Before
+upgrading, stop the existing process and take an offline copy of the data directory and master key.
 
 ## Startup Environment
 

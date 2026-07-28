@@ -1,9 +1,7 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,11 +14,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           targets: x86_64-unknown-linux-gnu
+
+      - name: Resolve version
+        run: |
+          version="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "any2api") | .version')"
+          echo "RELEASE_TAG=v${version}" >> "$GITHUB_ENV"
+
       - run: cargo build --locked --release -p any2api --target x86_64-unknown-linux-gnu
 
       - name: Package
         run: |
-          asset="any2api-${GITHUB_REF_NAME}-linux-amd64.tar.gz"
+          asset="any2api-${RELEASE_TAG}-linux-amd64.tar.gz"
           mkdir -p dist
           tar -C target/x86_64-unknown-linux-gnu/release -czf "dist/$asset" any2api
           cd dist
@@ -30,7 +34,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          gh release create "$RELEASE_TAG" dist/* \
             --generate-notes \
-            --title "$GITHUB_REF_NAME" \
-            --verify-tag
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG"
