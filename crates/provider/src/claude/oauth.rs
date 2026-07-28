@@ -139,33 +139,29 @@ pub(crate) fn credential_headers(
         })?;
     let mut headers = HeaderMap::new();
     headers.insert(header::AUTHORIZATION, authorization);
-    headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-    headers.insert(
-        "anthropic-beta",
-        merged_oauth_betas(forwarded.get("anthropic-beta"))?,
-    );
+    append_oauth_betas(&mut headers, forwarded)?;
     Ok(crate::api::CredentialHeaders { headers })
 }
 
-fn merged_oauth_betas(existing: Option<&HeaderValue>) -> Result<HeaderValue, ProviderError> {
+fn append_oauth_betas(headers: &mut HeaderMap, forwarded: &HeaderMap) -> Result<(), ProviderError> {
     const REQUIRED: &str = "oauth-2025-04-20";
-    let existing = existing
-        .map(HeaderValue::to_str)
-        .transpose()
-        .map_err(|_| ProviderError::InvalidCredential("invalid anthropic-beta header".into()))?
-        .unwrap_or_default();
-    let contains_required = existing
-        .split(',')
-        .any(|value| value.trim().eq_ignore_ascii_case(REQUIRED));
-    let merged = if existing.trim().is_empty() {
-        REQUIRED.to_owned()
-    } else if contains_required {
-        existing.to_owned()
-    } else {
-        format!("{existing},{REQUIRED}")
-    };
-    HeaderValue::from_str(&merged)
-        .map_err(|_| ProviderError::InvalidCredential("invalid anthropic-beta header".into()))
+    let mut contains_required = false;
+    for value in forwarded.get_all("anthropic-beta").iter() {
+        let text = value.to_str().map_err(|_| {
+            ProviderError::InvalidCredential("invalid anthropic-beta header".into())
+        })?;
+        if text.trim().is_empty() {
+            continue;
+        }
+        contains_required |= text
+            .split(',')
+            .any(|value| value.trim().eq_ignore_ascii_case(REQUIRED));
+        headers.append("anthropic-beta", value.clone());
+    }
+    if !contains_required {
+        headers.append("anthropic-beta", HeaderValue::from_static(REQUIRED));
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]

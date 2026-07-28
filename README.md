@@ -17,6 +17,24 @@ The default listener is `127.0.0.1:3210`. Open `http://127.0.0.1:3210` after sta
 
 The service health endpoint is `GET /api/health`.
 
+## GitHub Releases
+
+GitHub Releases currently provide one prebuilt target: Linux AMD64 (`x86_64-unknown-linux-gnu`), built on Ubuntu
+22.04. The host must provide a compatible glibc runtime and system CA certificates. For example, to install `v0.1.0`:
+
+```sh
+VERSION=v0.1.0
+ASSET="any2api-${VERSION}-linux-amd64.tar.gz"
+curl -fLO "https://github.com/xinvexo/any2api/releases/download/${VERSION}/${ASSET}"
+curl -fLO "https://github.com/xinvexo/any2api/releases/download/${VERSION}/${ASSET}.sha256"
+sha256sum -c "${ASSET}.sha256"
+tar -xzf "$ASSET"
+ANY2API_DATA_DIR=/var/lib/any2api ./any2api
+```
+
+Pushing a `v*` tag builds the locked Linux AMD64 target, creates the archive and checksum, and publishes both to GitHub
+Releases. Before upgrading, stop the existing process and take an offline copy of the data directory and master key.
+
 ## Startup Environment
 
 | Variable | Default | Purpose |

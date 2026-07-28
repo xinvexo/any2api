@@ -5,6 +5,7 @@ mod codex;
 mod credential;
 mod error;
 mod grok;
+mod header_policy;
 mod oauth;
 mod registry;
 mod upstream_error;

@@ -69,6 +69,8 @@ pub enum PublicErrorCode {
     LocalRateLimit,
     SessionBindingLost,
     UpstreamNotFound,
+    UpstreamRateLimit,
+    UpstreamOverloaded,
     UpstreamError,
     InternalError,
 }

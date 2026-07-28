@@ -7,10 +7,11 @@ use any2api_domain::{
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
 use any2api_provider::api::{
-    OAuthDeviceTokenPoll, OAuthLoginFlow, ProviderDriver, ProviderSecret, UpstreamResponseMeta,
+    OAuthDeviceTokenPoll, OAuthLoginFlow, ProviderDriver, ProviderRequestHeaderContext,
+    ProviderSecret, UpstreamResponseMeta,
 };
 use axum::http::{
-    HeaderMap, Method, StatusCode, Uri,
+    HeaderMap, HeaderValue, Method, StatusCode, Uri,
     header::{ACCEPT, AUTHORIZATION},
 };
 use bytes::Bytes;
@@ -95,6 +96,7 @@ fn composition_root_provider_registry_runs_every_contract() {
 
     for (kind, driver) in registry.iter() {
         assert_eq!(*kind, driver.kind());
+        provider_header_policy_contract(*kind, driver.as_ref());
         match kind {
             ProviderKind::Codex => codex_contract(driver.as_ref()),
             ProviderKind::Claude => claude_contract(driver.as_ref()),
@@ -532,7 +534,19 @@ fn claude_contract(driver: &dyn ProviderDriver) {
         .credential_headers(&ProviderSecret::new(1, "sk-claude-contract"))
         .expect("Claude credential headers");
     assert_eq!(headers.headers["x-api-key"], "sk-claude-contract");
-    assert_eq!(headers.headers["anthropic-version"], "2023-06-01");
+    assert!(!headers.headers.contains_key("anthropic-version"));
+    let identity = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::AnthropicMessages,
+            upstream_operation: ProtocolOperation::Messages,
+            upstream_model: "claude-contract-model",
+            client_headers: &HeaderMap::new(),
+            oauth: false,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("Claude identity headers");
+    assert_eq!(identity["anthropic-version"], "2023-06-01");
     assert_eq!(
         driver
             .classify_error(
@@ -637,7 +651,7 @@ fn grok_contract(driver: &dyn ProviderDriver) {
     ));
     let token = driver
         .parse_oauth_token(
-            br#"{"access_token":"grok-oauth-secret","refresh_token":"grok-refresh-secret"}"#,
+            br#"{"access_token":"grok-oauth-secret","refresh_token":"grok-refresh-secret","sub":"subject-1"}"#,
         )
         .expect("Grok OAuth token");
     let profile = driver
@@ -661,7 +675,249 @@ fn grok_contract(driver: &dyn ProviderDriver) {
         oauth_headers.headers[AUTHORIZATION],
         "Bearer grok-oauth-secret"
     );
-    assert_eq!(oauth_headers.headers["x-xai-token-auth"], "xai-grok-cli");
+    assert_eq!(oauth_headers.headers["x-userid"], "subject-1");
+    assert!(!oauth_headers.headers.contains_key("x-xai-token-auth"));
+    let identity = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "grok-4.5",
+            client_headers: &HeaderMap::new(),
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("Grok Build identity headers");
+    assert_eq!(identity["x-xai-token-auth"], "xai-grok-cli");
+    assert_eq!(identity["x-grok-model-override"], "grok-4.5");
+}
+
+fn provider_header_policy_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
+    let (ingress_dialect, operation, upstream_model, default_user_agent) = match kind {
+        ProviderKind::Codex => (
+            ProtocolDialect::OpenAiResponses,
+            ProtocolOperation::Responses,
+            "gpt-contract",
+            "codex_cli_rs/0.145.0",
+        ),
+        ProviderKind::Claude => (
+            ProtocolDialect::AnthropicMessages,
+            ProtocolOperation::Messages,
+            "claude-contract",
+            "claude-code/2.1.220",
+        ),
+        ProviderKind::Grok => (
+            ProtocolDialect::OpenAiResponses,
+            ProtocolOperation::Responses,
+            "grok-contract",
+            "grok-shell/0.2.112 (macos; aarch64)",
+        ),
+    };
+    let mut client = HeaderMap::new();
+    client.insert(
+        "user-agent",
+        HeaderValue::from_static("official-client/contract"),
+    );
+    client.insert(
+        "traceparent",
+        HeaderValue::from_static("00-contract-trace-parent"),
+    );
+    client.insert("tracestate", HeaderValue::from_static("contract=state"));
+    client.insert("connection", HeaderValue::from_static("tracestate"));
+    client.insert(
+        "authorization",
+        HeaderValue::from_static("Bearer gateway-secret"),
+    );
+    client.insert("x-api-key", HeaderValue::from_static("gateway-secret"));
+    client.insert("cookie", HeaderValue::from_static("session=secret"));
+    client.insert("x-forwarded-for", HeaderValue::from_static("192.0.2.1"));
+    client.insert("x-userid", HeaderValue::from_static("spoofed-account"));
+    client.insert("x-unknown-client", HeaderValue::from_static("private"));
+    client.insert("originator", HeaderValue::from_static("codex-contract"));
+    client.insert("x-codex-beta-features", HeaderValue::from_static("beta"));
+    client.insert("x-oai-attestation", HeaderValue::from_static("attestation"));
+    client.insert("x-codex-turn-state", HeaderValue::from_static("turn-state"));
+    client.insert("x-app", HeaderValue::from_static("claude-contract"));
+    client.insert(
+        "x-client-request-id",
+        HeaderValue::from_static("client-request"),
+    );
+    client.insert(
+        "anthropic-version",
+        HeaderValue::from_static("2024-contract"),
+    );
+    client.insert("x-stainless-runtime", HeaderValue::from_static("contract"));
+    client.insert(
+        "anthropic-usage-limit",
+        HeaderValue::from_static("extended"),
+    );
+    client.insert(
+        "x-grok-client-version",
+        HeaderValue::from_static("contract"),
+    );
+    client.insert("x-grok-conv-id", HeaderValue::from_static("conversation"));
+
+    let request = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect,
+            upstream_operation: operation,
+            upstream_model,
+            client_headers: &client,
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: true,
+        })
+        .expect("same-dialect provider request headers");
+    assert_eq!(request["user-agent"], "official-client/contract");
+    assert_eq!(request["traceparent"], "00-contract-trace-parent");
+    for forbidden in [
+        "authorization",
+        "x-api-key",
+        "cookie",
+        "x-forwarded-for",
+        "x-userid",
+        "x-unknown-client",
+        "tracestate",
+    ] {
+        assert!(
+            !request.contains_key(forbidden),
+            "{kind:?} leaked {forbidden}"
+        );
+    }
+    assert_provider_request_headers(kind, &request);
+
+    let cross_dialect = if ingress_dialect == ProtocolDialect::AnthropicMessages {
+        ProtocolDialect::OpenAiResponses
+    } else {
+        ProtocolDialect::AnthropicMessages
+    };
+    let bridged = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: cross_dialect,
+            upstream_operation: operation,
+            upstream_model,
+            client_headers: &client,
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: true,
+        })
+        .expect("cross-dialect provider request headers");
+    assert_eq!(bridged["user-agent"], default_user_agent);
+    assert!(!bridged.contains_key("traceparent"));
+
+    let upstream = provider_response_header_fixture();
+    let response = driver.response_headers(operation, &upstream);
+    assert_eq!(response["x-request-id"], "upstream-request");
+    assert_eq!(response["request-id"], "provider-request");
+    assert_eq!(response["retry-after"], "17");
+    for forbidden in [
+        "authorization",
+        "set-cookie",
+        "content-length",
+        "x-unknown-upstream",
+    ] {
+        assert!(
+            !response.contains_key(forbidden),
+            "{kind:?} leaked {forbidden}"
+        );
+    }
+    assert_provider_response_headers(kind, &response);
+}
+
+fn assert_provider_request_headers(kind: ProviderKind, headers: &HeaderMap) {
+    match kind {
+        ProviderKind::Codex => {
+            assert_eq!(headers["originator"], "codex-contract");
+            assert_eq!(headers["x-codex-beta-features"], "beta");
+            assert_eq!(headers["x-oai-attestation"], "attestation");
+            assert_eq!(headers["x-codex-turn-state"], "turn-state");
+            assert!(!headers.contains_key("x-app"));
+            assert!(!headers.contains_key("x-grok-conv-id"));
+        }
+        ProviderKind::Claude => {
+            assert_eq!(headers["x-app"], "claude-contract");
+            assert_eq!(headers["x-client-request-id"], "client-request");
+            assert_eq!(headers["anthropic-version"], "2024-contract");
+            assert_eq!(headers["x-stainless-runtime"], "contract");
+            assert_eq!(headers["anthropic-usage-limit"], "extended");
+            assert!(!headers.contains_key("originator"));
+            assert!(!headers.contains_key("x-grok-conv-id"));
+        }
+        ProviderKind::Grok => {
+            assert_eq!(headers["x-grok-client-version"], "contract");
+            assert_eq!(headers["x-grok-conv-id"], "conversation");
+            assert_eq!(headers["x-grok-model-override"], "grok-contract");
+            assert_eq!(headers["x-xai-token-auth"], "xai-grok-cli");
+            assert_eq!(headers["x-authenticateresponse"], "authenticate-response");
+            assert!(!headers.contains_key("originator"));
+            assert!(!headers.contains_key("x-app"));
+        }
+    }
+}
+
+fn provider_response_header_fixture() -> HeaderMap {
+    let mut upstream = HeaderMap::new();
+    upstream.insert("x-request-id", HeaderValue::from_static("upstream-request"));
+    upstream.insert("request-id", HeaderValue::from_static("provider-request"));
+    upstream.insert("retry-after", HeaderValue::from_static("17"));
+    upstream.insert(
+        "x-oai-request-id",
+        HeaderValue::from_static("openai-request"),
+    );
+    upstream.insert("x-codex-turn-state", HeaderValue::from_static("next-turn"));
+    upstream.insert("openai-model", HeaderValue::from_static("gpt-contract"));
+    upstream.insert(
+        "anthropic-ratelimit-tokens-limit",
+        HeaderValue::from_static("1000"),
+    );
+    upstream.insert(
+        "anthropic-usage-limit",
+        HeaderValue::from_static("contract"),
+    );
+    upstream.insert("cf-ray", HeaderValue::from_static("edge-contract"));
+    upstream.insert("x-grok-context-window", HeaderValue::from_static("131072"));
+    upstream.insert(
+        "x-grok-doom-loop-check",
+        HeaderValue::from_static("continue"),
+    );
+    upstream.insert("x-ratelimit-limit-requests", HeaderValue::from_static("60"));
+    upstream.insert(
+        "authorization",
+        HeaderValue::from_static("Bearer upstream-secret"),
+    );
+    upstream.insert("set-cookie", HeaderValue::from_static("upstream=secret"));
+    upstream.insert("content-length", HeaderValue::from_static("123"));
+    upstream.insert("x-unknown-upstream", HeaderValue::from_static("private"));
+    upstream
+}
+
+fn assert_provider_response_headers(kind: ProviderKind, headers: &HeaderMap) {
+    match kind {
+        ProviderKind::Codex => {
+            assert_eq!(headers["x-oai-request-id"], "openai-request");
+            assert_eq!(headers["x-codex-turn-state"], "next-turn");
+            assert_eq!(headers["openai-model"], "gpt-contract");
+            assert_eq!(headers["x-ratelimit-limit-requests"], "60");
+            assert!(!headers.contains_key("anthropic-usage-limit"));
+            assert!(!headers.contains_key("x-grok-context-window"));
+        }
+        ProviderKind::Claude => {
+            assert_eq!(headers["anthropic-ratelimit-tokens-limit"], "1000");
+            assert_eq!(headers["anthropic-usage-limit"], "contract");
+            assert_eq!(headers["cf-ray"], "edge-contract");
+            assert!(!headers.contains_key("x-oai-request-id"));
+            assert!(!headers.contains_key("x-grok-context-window"));
+            assert!(!headers.contains_key("x-ratelimit-limit-requests"));
+        }
+        ProviderKind::Grok => {
+            assert_eq!(headers["x-grok-context-window"], "131072");
+            assert_eq!(headers["x-grok-doom-loop-check"], "continue");
+            assert_eq!(headers["x-ratelimit-limit-requests"], "60");
+            assert!(!headers.contains_key("x-oai-request-id"));
+            assert!(!headers.contains_key("x-codex-turn-state"));
+            assert!(!headers.contains_key("anthropic-usage-limit"));
+        }
+    }
 }
 
 fn assert_common_capabilities(driver: &dyn ProviderDriver) {

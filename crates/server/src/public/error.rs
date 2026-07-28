@@ -14,6 +14,7 @@ enum PublicErrorKind {
     ConflictingCredentials,
     PayloadTooLarge,
     UnreadableBody,
+    UnsupportedContentEncoding,
     NotFound,
     MethodNotAllowed,
 }
@@ -54,6 +55,12 @@ impl PublicApiError {
         }
     }
 
+    pub(crate) const fn unsupported_content_encoding() -> Self {
+        Self {
+            kind: PublicErrorKind::UnsupportedContentEncoding,
+        }
+    }
+
     const fn not_found() -> Self {
         Self {
             kind: PublicErrorKind::NotFound,
@@ -91,6 +98,10 @@ impl PublicApiError {
             PublicErrorKind::UnreadableBody => (
                 PublicErrorCode::InvalidRequest,
                 "request body could not be read",
+            ),
+            PublicErrorKind::UnsupportedContentEncoding => (
+                PublicErrorCode::InvalidRequest,
+                "content-encoding is not supported for this public API route",
             ),
             PublicErrorKind::NotFound => (
                 PublicErrorCode::PublicApiNotFound,

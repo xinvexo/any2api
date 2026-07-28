@@ -10,7 +10,7 @@
 
 ## 决策
 
-- Server 在 `/v1` 鉴权层之外生成本地 `RequestId`，覆盖响应 `x-request-id`，并把同一个 ID 传入 Runtime。客户端提供的同名响应关联值不能覆盖本地 ID。
+- Server 在 `/v1` 鉴权层之外生成本地 `RequestId`，始终写入响应 `x-any2api-request-id`，并把同一个 ID 传入 Runtime。最终上游 Attempt 的安全 `x-request-id` 可以保留；缺失时才用本地 ID 补齐 `x-request-id`。本项由 ADR-0056 调整。
 - 首个切片持久化已通过 GatewayApiKey 鉴权并进入模型执行链的请求，包括解码、规划、排队和上游执行错误。鉴权失败、未知公开路由和方法错误只返回本地 Request ID 并写结构化文件/终端日志，不写 RequestLog。
 - Runtime 使用每请求 `RequestRecorder` 和每次上游执行 `AttemptRecorder`。Attempt 在健康状态结算之后、Credential Permit 释放之前完成；正常 JSON、错误、超时、取消和流式 Drop 都只能完成一次。
 - Request 与全部 Attempt 先在当前请求内存中聚合。请求结束时只执行一次同步 `try_send`，把完整聚合记录放入有界队列；队列满、Writer 已关闭或 SQLite 写入失败时丢弃该条遥测并增加计数，禁止等待、重试或反压数据面。

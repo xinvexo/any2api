@@ -183,10 +183,12 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound
         | PublicErrorCode::SessionBindingLost => "invalid_request_error",
-        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
-            "rate_limit_error"
-        }
-        PublicErrorCode::UpstreamError | PublicErrorCode::InternalError => "server_error",
+        PublicErrorCode::NoAvailableCredential
+        | PublicErrorCode::LocalRateLimit
+        | PublicErrorCode::UpstreamRateLimit => "rate_limit_error",
+        PublicErrorCode::UpstreamOverloaded
+        | PublicErrorCode::UpstreamError
+        | PublicErrorCode::InternalError => "server_error",
     }
 }
 
@@ -201,6 +203,8 @@ fn error_code(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::UpstreamNotFound => "upstream_not_found",
         PublicErrorCode::NoAvailableCredential => "no_available_credential",
         PublicErrorCode::LocalRateLimit => "local_rate_limit",
+        PublicErrorCode::UpstreamRateLimit => "rate_limit_exceeded",
+        PublicErrorCode::UpstreamOverloaded => "upstream_overloaded",
         PublicErrorCode::SessionBindingLost => "session_binding_lost",
         PublicErrorCode::UpstreamError => "upstream_error",
         PublicErrorCode::InternalError => "internal_error",
@@ -217,8 +221,11 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
-        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
-            StatusCode::TOO_MANY_REQUESTS
+        PublicErrorCode::NoAvailableCredential
+        | PublicErrorCode::LocalRateLimit
+        | PublicErrorCode::UpstreamRateLimit => StatusCode::TOO_MANY_REQUESTS,
+        PublicErrorCode::UpstreamOverloaded => {
+            StatusCode::from_u16(529).expect("529 is a valid HTTP status")
         }
         PublicErrorCode::SessionBindingLost => StatusCode::CONFLICT,
         PublicErrorCode::UpstreamError => StatusCode::BAD_GATEWAY,

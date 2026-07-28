@@ -1,4 +1,10 @@
-use axum::{Json, extract::Extension};
+use axum::{
+    Json,
+    body::Body,
+    extract::Extension,
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::{IntoResponse, Response},
+};
 use serde::Serialize;
 
 use super::auth::AuthenticatedGatewayApiKey;
@@ -19,7 +25,18 @@ struct ModelListItem {
 
 pub(super) async fn list_models(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-) -> Json<ModelListResponse> {
+    request_headers: HeaderMap,
+) -> Response {
+    let etag = format!(
+        "\"any2api-models-r{}\"",
+        authenticated.snapshot().revision().get()
+    );
+    if matches_etag(&request_headers, &etag) {
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::NOT_MODIFIED;
+        insert_catalog_etag(response.headers_mut(), &etag);
+        return response;
+    }
     let data = authenticated
         .snapshot()
         .public_model_names()
@@ -32,10 +49,28 @@ pub(super) async fn list_models(
         })
         .collect();
 
-    Json(ModelListResponse {
+    let mut response = Json(ModelListResponse {
         object: "list",
         data,
     })
+    .into_response();
+    insert_catalog_etag(response.headers_mut(), &etag);
+    response
+}
+
+fn matches_etag(headers: &HeaderMap, expected: &str) -> bool {
+    headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|value| value.trim() == expected || value.trim() == "*")
+}
+
+fn insert_catalog_etag(headers: &mut HeaderMap, etag: &str) {
+    let value = HeaderValue::from_str(etag).expect("catalog ETag is a valid header");
+    headers.insert(header::ETAG, value.clone());
+    headers.insert("x-models-etag", value);
 }
 
 #[cfg(test)]

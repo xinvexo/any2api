@@ -9,7 +9,7 @@ use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 use super::{GrokDriver, oauth_bot_flag};
 use crate::{
     OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthTokenMaterial, ProviderSecret,
-    api::ProviderDriver,
+    api::{ProviderDriver, ProviderRequestHeaderContext},
 };
 
 #[test]
@@ -247,9 +247,25 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
         .oauth_credential_headers(&token, &http::HeaderMap::new())
         .expect("OAuth headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer access-secret");
-    assert_eq!(headers.headers["x-xai-token-auth"], "xai-grok-cli");
-    assert_eq!(headers.headers["x-grok-client-version"], "0.2.112");
-    assert_eq!(headers.headers["user-agent"], "xai-grok-workspace/0.2.112");
+    assert_eq!(headers.headers["x-userid"], "subject-1");
+    assert!(!headers.headers.contains_key("x-xai-token-auth"));
+    let identity = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "grok-4.5",
+            client_headers: &http::HeaderMap::new(),
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("identity headers");
+    assert_eq!(identity["x-xai-token-auth"], "xai-grok-cli");
+    assert_eq!(identity["x-grok-client-version"], "0.2.112");
+    assert_eq!(
+        identity["user-agent"],
+        "grok-shell/0.2.112 (macos; aarch64)"
+    );
     assert!(!format!("{headers:?}").contains("access-secret"));
 }
 

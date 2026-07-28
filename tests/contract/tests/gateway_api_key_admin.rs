@@ -10,7 +10,7 @@ use axum::{
     Router,
     body::Body,
     extract::ConnectInfo,
-    http::{Method, Request, StatusCode, header::CONTENT_TYPE},
+    http::{HeaderMap, Method, Request, StatusCode, header::CONTENT_TYPE},
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
@@ -87,6 +87,27 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     assert_eq!(valid.status, StatusCode::OK);
     assert_eq!(valid.body["object"], "list");
     assert_eq!(valid.body["data"].as_array().map(Vec::len), Some(0));
+    let etag = valid.headers["etag"]
+        .to_str()
+        .expect("models ETag")
+        .to_owned();
+    assert_eq!(valid.headers["x-models-etag"], etag);
+    let unchanged = request_json(
+        app.clone(),
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[
+            ("authorization", format!("Bearer {first_token}")),
+            ("if-none-match", etag.clone()),
+        ],
+    )
+    .await;
+    assert_eq!(unchanged.status, StatusCode::NOT_MODIFIED);
+    assert!(unchanged.raw_body.is_empty());
+    assert_eq!(unchanged.headers["etag"], etag);
+    assert_eq!(unchanged.headers["x-models-etag"], etag);
 
     let used = request_json(
         app.clone(),
@@ -526,6 +547,7 @@ async fn wait_for_last_used(storage: &SqliteStore, key_id: &str) {
 
 struct JsonResponse {
     status: StatusCode,
+    headers: HeaderMap,
     body: Value,
     raw_body: String,
     cache_control: Option<String>,
@@ -557,6 +579,7 @@ async fn request_json(
         .await
         .expect("response");
     let status = response.status();
+    let headers = response.headers().clone();
     let cache_control = response
         .headers()
         .get("cache-control")
@@ -569,9 +592,14 @@ async fn request_json(
         .expect("response body")
         .to_bytes();
     let raw_body = String::from_utf8(bytes.to_vec()).expect("UTF-8 response");
-    let body = serde_json::from_str(&raw_body).expect("response json");
+    let body = if raw_body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_str(&raw_body).expect("response json")
+    };
     JsonResponse {
         status,
+        headers,
         body,
         raw_body,
         cache_control,

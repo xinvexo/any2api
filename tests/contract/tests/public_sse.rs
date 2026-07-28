@@ -881,11 +881,18 @@ fn assert_stream_headers(response: &Response) {
     assert_eq!(response.headers()["cache-control"], "no-cache");
     assert!(response.headers().get("x-api-key").is_none());
     assert!(response.headers().get("set-cookie").is_none());
+    let local_request_id = response.headers()["x-any2api-request-id"]
+        .to_str()
+        .expect("request ID text");
+    assert!(local_request_id.parse::<RequestId>().is_ok());
     let request_id = response.headers()["x-request-id"]
         .to_str()
         .expect("request ID text");
-    assert_ne!(request_id, "upstream-stream-request");
-    assert!(request_id.parse::<RequestId>().is_ok());
+    if request_id == "upstream-stream-request" {
+        assert_ne!(local_request_id, request_id);
+    } else {
+        assert_eq!(request_id, local_request_id);
+    }
 }
 
 async fn read_paused_stream(response: Response, release: oneshot::Sender<()>) -> (String, String) {

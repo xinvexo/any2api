@@ -30,7 +30,7 @@ use crate::{
     routing::RouteCandidate,
 };
 
-use super::build::prepare_attempt;
+use super::build::{AttemptHeaderPolicy, prepare_attempt};
 
 pub(in crate::public_request::upstream) struct AttemptInput<'a> {
     pub(in crate::public_request::upstream) prepared: PreparedAttempt<'a>,
@@ -47,6 +47,7 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
     affinity: AffinitySelection,
     providers: &'a ProviderRegistry,
     attempt_recorder: AttemptRecorder,
+    allow_credential_bound_headers: bool,
 ) -> Result<AttemptInput<'a>, AttemptFailure> {
     let AffinitySelection {
         selected,
@@ -62,6 +63,10 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
         selected,
         providers,
         attempt_recorder,
+        AttemptHeaderPolicy {
+            allow_credential_bound: allow_credential_bound_headers,
+            allow_turn_state: fixed,
+        },
     )?;
     Ok(AttemptInput {
         prepared,
@@ -107,6 +112,14 @@ impl PreparedAttempt<'_> {
             },
             &body[..body.len().min(MAX_CLASSIFIED_ERROR_BYTES)],
         )
+    }
+
+    pub(in crate::public_request::upstream) fn response_headers(
+        &self,
+        upstream: &http::HeaderMap,
+    ) -> http::HeaderMap {
+        self.driver
+            .response_headers(self.upstream_operation, upstream)
     }
 
     pub(in crate::public_request::upstream) fn success(&mut self, status_code: u16) {

@@ -472,6 +472,13 @@
 - 编辑请求上限为 `512 MiB`；Images buffered 响应上限为 `512 MiB`；单个 SSE 帧和首个预提交事件上限为 `128 MiB`。Images 等待、读取、流式和重试预算至少为 `180s`，普通文本路径仍保持原有 `32 MiB`/`16 MiB` 限制与超时。
 - Rust/HTTP 契约覆盖 JSON、multipart、SSE、二进制图片响应、大响应边界、模型替换、敏感 Header 过滤和提交前重试；完整决策见 `docs/adr/0054-openai-images-api.md`。
 
+### Provider 感知 Header 透明度切片
+
+- Codex、Claude、Grok 使用独立的请求/响应 Header 白名单；官方身份、会话、实验、限流和能力 Header 双向投影，认证、Cookie、连接级与 Body 校验字段仍严格隔离。
+- Header 只属于最终提交 Attempt；重试失败 Header 不泄漏，最终 429/529 保持兼容状态和错误类型，上游 401/403 不伪装成 Gateway Key 认证失败。
+- Codex/OpenAI JSON 入口支持有界 zstd 解压、模型重写和同方言 Codex 重压缩；本地 Request ID 固定使用 `x-any2api-request-id`，模型目录使用 PublishedSnapshot 生成的本地 ETag。
+- 注册表、真实 JSON/SSE、重试、Claude 529、zstd、Header 上限及 `/v1/models` 304 合同均已覆盖；完整决策见 `docs/adr/0056-provider-aware-header-transparency.md`。
+
 ### 系统总览调用分析切片
 
 - 总览移除卡片套卡片，使用扁平 section、指标带和分隔线；请求数、总 Token 与平均 RPM 全部跟随 URL 中的 `1h / 24h / 7d / 30d` 范围。

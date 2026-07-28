@@ -5,8 +5,10 @@ use any2api_protocol::{
     ProtocolError,
     api::{DecodedRequest, ProtocolExchange, ProtocolRegistry},
 };
-use any2api_provider::api::{ProviderDriver, ProviderRegistry};
+use any2api_provider::api::{ProviderDriver, ProviderRegistry, ProviderRequestHeaderContext};
 use any2api_transport::api::{EndpointNetworkPolicy, TransportProxy, TransportRequest};
+use bytes::Bytes;
+use http::{HeaderValue, header};
 
 use super::PreparedAttempt;
 use crate::{
@@ -28,6 +30,11 @@ struct BuiltRequest<'a> {
     request: TransportRequest,
 }
 
+pub(super) struct AttemptHeaderPolicy {
+    pub(super) allow_credential_bound: bool,
+    pub(super) allow_turn_state: bool,
+}
+
 pub(super) fn prepare_attempt<'a>(
     snapshot: &'a PublishedSnapshot,
     protocols: &ProtocolRegistry,
@@ -35,8 +42,16 @@ pub(super) fn prepare_attempt<'a>(
     selected: SelectedCandidate,
     providers: &'a ProviderRegistry,
     mut attempt_recorder: AttemptRecorder,
+    header_policy: AttemptHeaderPolicy,
 ) -> Result<PreparedAttempt<'a>, AttemptFailure> {
-    let result = build_request(snapshot, protocols, decoded, &selected, providers);
+    let result = build_request(
+        snapshot,
+        protocols,
+        decoded,
+        &selected,
+        providers,
+        header_policy,
+    );
     let BuiltRequest {
         driver,
         proxy,
@@ -78,6 +93,7 @@ fn build_request<'a>(
     decoded: DecodedRequest,
     selected: &SelectedCandidate,
     providers: &'a ProviderRegistry,
+    header_policy: AttemptHeaderPolicy,
 ) -> Result<BuiltRequest<'a>, PublicError> {
     let candidate = &selected.candidate;
     let driver = providers
@@ -94,6 +110,9 @@ fn build_request<'a>(
             )
         })?;
     let ingress_operation = decoded.operation;
+    let ingress_dialect = decoded.dialect;
+    let client_headers = decoded.client_headers.clone();
+    let body_encoding = decoded.body_encoding;
     let mut exchange = protocols
         .exchange(
             decoded.dialect,
@@ -114,11 +133,30 @@ fn build_request<'a>(
         .as_str()
         .parse()
         .map_err(|_| internal_error())?;
+    let header_context = ProviderRequestHeaderContext {
+        ingress_dialect,
+        upstream_operation,
+        upstream_model: &candidate.upstream_model,
+        client_headers: &client_headers,
+        oauth: selected.permit.credential_id().oauth_account_id().is_some(),
+        allow_credential_bound: header_policy.allow_credential_bound,
+        allow_turn_state: header_policy.allow_turn_state,
+    };
+    let mut headers = driver
+        .prepare_request_headers(header_context)
+        .map_err(|_| internal_error())?;
+    headers.extend(encoded.headers);
+    if driver.supports_request_body_encoding(header_context, body_encoding) {
+        encoded.body = encode_zstd(encoded.body)?;
+        headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("zstd"));
+    } else {
+        headers.remove(header::CONTENT_ENCODING);
+    }
     let credential_headers = selected
         .permit
-        .credential_headers(driver, &encoded.headers)
+        .credential_headers(driver, &headers)
         .map_err(|_| internal_error())?;
-    encoded.headers.extend(credential_headers.headers);
+    headers.extend(credential_headers.headers);
     Ok(BuiltRequest {
         driver,
         proxy,
@@ -128,7 +166,7 @@ fn build_request<'a>(
         request: TransportRequest {
             method: encoded.method,
             uri: encoded.uri,
-            headers: encoded.headers,
+            headers,
             body: encoded.body,
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
@@ -138,6 +176,12 @@ fn build_request<'a>(
             ),
         },
     })
+}
+
+fn encode_zstd(body: Bytes) -> Result<Bytes, PublicError> {
+    zstd::stream::encode_all(body.as_ref(), 3)
+        .map(Bytes::from)
+        .map_err(|_| internal_error())
 }
 
 fn protocol_request_error(error: ProtocolError) -> PublicError {

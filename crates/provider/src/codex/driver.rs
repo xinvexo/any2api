@@ -1,6 +1,9 @@
-use super::{import as codex_import, oauth as codex_oauth, quota as codex_quota};
+use super::{
+    headers as codex_headers, import as codex_import, oauth as codex_oauth, quota as codex_quota,
+};
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
+    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding,
+    TransportMode,
 };
 use http::HeaderMap;
 use url::Url;
@@ -10,7 +13,7 @@ use crate::{
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
         OAuthLoginFlow, OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial,
-        ProviderDriver, UpstreamResponseMeta,
+        ProviderDriver, ProviderRequestHeaderContext, UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
@@ -88,6 +91,25 @@ impl ProviderDriver for CodexDriver {
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
         api_key::bearer_credential_headers(secret)
+    }
+
+    fn prepare_request_headers(
+        &self,
+        context: ProviderRequestHeaderContext<'_>,
+    ) -> Result<HeaderMap, ProviderError> {
+        codex_headers::request(context)
+    }
+
+    fn response_headers(&self, _operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap {
+        codex_headers::response(upstream)
+    }
+
+    fn supports_request_body_encoding(
+        &self,
+        context: ProviderRequestHeaderContext<'_>,
+        encoding: RequestBodyEncoding,
+    ) -> bool {
+        codex_headers::supports_encoding(context, encoding)
     }
 
     fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {

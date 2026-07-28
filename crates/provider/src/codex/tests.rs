@@ -5,7 +5,10 @@ use base64::Engine as _;
 use http::{header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::CodexDriver;
-use crate::{OAuthGrant, ProviderSecret, api::ProviderDriver};
+use crate::{
+    OAuthGrant, ProviderSecret,
+    api::{ProviderDriver, ProviderRequestHeaderContext},
+};
 
 #[test]
 fn builds_responses_paths_and_bearer_authentication() {
@@ -228,6 +231,18 @@ fn builds_codex_oauth_headers_from_stored_account_document() {
 
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer oauth-secret");
     assert_eq!(headers.headers["chatgpt-account-id"], "account-123");
-    assert_eq!(headers.headers["originator"], "codex_cli_rs");
+    assert!(!headers.headers.contains_key("originator"));
+    let identity = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "gpt",
+            client_headers: &http::HeaderMap::new(),
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("identity headers");
+    assert_eq!(identity["originator"], "codex_cli_rs");
     assert!(!format!("{headers:?}").contains("oauth-secret"));
 }

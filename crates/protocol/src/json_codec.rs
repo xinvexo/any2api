@@ -1,4 +1,6 @@
-use any2api_domain::{ProtocolDialect, ProtocolOperation, bound_thinking_level};
+use any2api_domain::{
+    ProtocolDialect, ProtocolOperation, RequestBodyEncoding, bound_thinking_level,
+};
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, Method, Uri, header};
 use serde_json::{Map, Value};
@@ -46,17 +48,42 @@ pub(crate) fn decode_request(
     }
     let affinity = affinity::extract(request.operation, &request.headers, object)?;
     let thinking_level = extract_thinking_level(object);
+    let body_encoding = request_body_encoding(&request.headers)?;
 
     Ok(DecodedRequest {
         dialect,
         operation: request.operation,
-        headers: forwarded_headers(&request.headers, dialect),
+        client_headers: request.headers.clone(),
+        headers: HeaderMap::new(),
+        body_encoding,
         model: Some(model),
         stream,
         thinking_level,
         affinity,
         payload: AdapterPayload::Json(value),
     })
+}
+
+fn request_body_encoding(headers: &HeaderMap) -> Result<RequestBodyEncoding, ProtocolError> {
+    let mut values = headers.get_all(header::CONTENT_ENCODING).iter();
+    let Some(value) = values.next() else {
+        return Ok(RequestBodyEncoding::Identity);
+    };
+    if values.next().is_some() {
+        return Err(ProtocolError::InvalidPayload(
+            "content-encoding must appear at most once".into(),
+        ));
+    }
+    let value = value
+        .to_str()
+        .map_err(|_| ProtocolError::InvalidPayload("content-encoding is invalid".into()))?;
+    match value.trim().to_ascii_lowercase().as_str() {
+        "identity" => Ok(RequestBodyEncoding::Identity),
+        "zstd" => Ok(RequestBodyEncoding::Zstd),
+        _ => Err(ProtocolError::InvalidPayload(
+            "content-encoding is not supported".into(),
+        )),
+    }
 }
 
 /// Best-effort thinking/reasoning level for request logs.
@@ -181,14 +208,4 @@ pub(crate) fn encode_response(
         headers,
         body,
     })
-}
-
-fn forwarded_headers(headers: &HeaderMap, dialect: ProtocolDialect) -> HeaderMap {
-    let mut forwarded = HeaderMap::new();
-    if dialect == ProtocolDialect::AnthropicMessages {
-        for value in headers.get_all("anthropic-beta").iter() {
-            forwarded.append("anthropic-beta", value.clone());
-        }
-    }
-    forwarded
 }

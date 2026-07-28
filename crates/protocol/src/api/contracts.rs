@@ -1,6 +1,8 @@
 use std::fmt;
 
-use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, TokenUsage};
+use any2api_domain::{
+    ProtocolDialect, ProtocolOperation, PublicError, RequestBodyEncoding, TokenUsage,
+};
 use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode, Uri};
@@ -23,7 +25,11 @@ pub struct IngressRequest {
 pub struct DecodedRequest {
     pub dialect: ProtocolDialect,
     pub operation: ProtocolOperation,
+    /// Auth-stripped ingress headers retained only for the selected Provider's
+    /// bounded allowlist projection. Never log or forward this map wholesale.
+    pub client_headers: HeaderMap,
     pub headers: HeaderMap,
+    pub body_encoding: RequestBodyEncoding,
     pub model: Option<String>,
     pub stream: bool,
     /// Optional thinking/reasoning level extracted from the request body.
@@ -294,6 +300,8 @@ impl fmt::Debug for DecodedRequest {
             .debug_struct("DecodedRequest")
             .field("dialect", &self.dialect)
             .field("operation", &self.operation)
+            .field("client_header_count", &self.client_headers.len())
+            .field("body_encoding", &self.body_encoding)
             .field("model", &self.model)
             .field("stream", &self.stream)
             .field("thinking_level", &self.thinking_level)

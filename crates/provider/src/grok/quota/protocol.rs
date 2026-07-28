@@ -31,6 +31,16 @@ pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPl
         ProviderError::InvalidCredential("Grok OAuth subject is required for quota".into())
     })?;
     let mut headers = oauth::credential_headers(token)?.headers;
+    headers.insert("x-xai-token-auth", HeaderValue::from_static("xai-grok-cli"));
+    headers.insert(
+        "x-authenticateresponse",
+        HeaderValue::from_static("authenticate-response"),
+    );
+    headers.insert("x-grok-client-version", HeaderValue::from_static("0.2.112"));
+    headers.insert(
+        header::USER_AGENT,
+        HeaderValue::from_static("grok-shell/0.2.112 (macos; aarch64)"),
+    );
     headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
     headers.insert(
         "x-userid",

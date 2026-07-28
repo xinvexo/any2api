@@ -443,6 +443,7 @@ struct CapturedRequest {
     authorization: Option<String>,
     account_id: Option<String>,
     grok_token_auth: Option<String>,
+    grok_authenticate_response: Option<String>,
     grok_client_version: Option<String>,
     grok_user_id: Option<String>,
     grok_client_mode: Option<String>,
@@ -539,10 +540,12 @@ impl QuotaTransport {
                     == Some("Bearer header.eyJib3RfZmxhZ19zb3VyY2UiOjF9.grok-access-secret")
                     && request.account_id.is_none()
                     && request.grok_token_auth.as_deref() == Some("xai-grok-cli")
+                    && request.grok_authenticate_response.as_deref()
+                        == Some("authenticate-response")
                     && request.grok_client_version.as_deref() == Some("0.2.112")
                     && request.grok_user_id.as_deref() == Some("grok-subject")
                     && request.grok_client_mode.as_deref() == Some("interactive")
-                    && request.user_agent.as_deref() == Some("xai-grok-workspace/0.2.112")
+                    && request.user_agent.as_deref() == Some("grok-shell/0.2.112 (macos; aarch64)")
                     && request.proxy_id == any2api_domain::ProxyProfileId::DIRECT
                     && request.body.is_empty()
             })
@@ -597,6 +600,11 @@ impl TransportManager for QuotaTransport {
                 grok_token_auth: request
                     .headers
                     .get("x-xai-token-auth")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+                grok_authenticate_response: request
+                    .headers
+                    .get("x-authenticateresponse")
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned),
                 grok_client_version: request

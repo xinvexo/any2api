@@ -55,6 +55,8 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 23. 系统提供独立的完整 HTTP 系统日志，覆盖所有到达 Axum 的公开 API、管理 API、健康检查、Web 资源、鉴权失败、404 与 405。日志保存客户端实际请求 URI 的原始 path，不使用路由模板、通配归一化或重写后的路径，但不保存 query；管理页面支持自动刷新、手动刷新和有序清理历史记录。
 24. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount 与 Grok 暂不声明该方言能力。
 25. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。
+26. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
+27. 官方 GitHub Release 由 `v*` Tag 触发，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 
 ### 2.1 两类凭据的术语边界
 
@@ -528,6 +530,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
    - 按入口协议提取并验证 Gateway API Key
    - 多个认证头冲突时拒绝请求
    - 剥离所有客户端认证头、Cookie 和 Proxy-Authorization
+   - 保留有界、未记录日志的客户端 Header 视图，供选中 Provider 后执行白名单投影
 
 3. Decode
    - 识别具体 ProtocolDialect，而不是只识别 Provider 名称
@@ -552,14 +555,17 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 
 7. Attempt
    - 解析实际代理
-   - Provider Driver 构建请求计划并注入 ProviderCredential
+   - Provider Driver 按 Provider + 协议 + 端点投影真实客户端 Header，缺失时补官方默认身份
+   - ProtocolAdapter 覆盖与最终 Body 一致的 Content-Type、Accept 等协议 Header
+   - 最后只注入选中 ProviderCredential 或 OAuthAccount 的认证与账号 Header
    - TransportManager 执行请求
    - 根据 RetrySafety、预算和 CommitState 决定是否重试
 
 8. HeaderFilter
    - 在 Pending 阶段缓冲初始响应头
-   - 过滤敏感和 hop-by-hop 响应头
-   - 保留必要 Request ID 和限流信息
+   - 按最终 Attempt 的 Provider + 协议 + 端点白名单过滤敏感和 hop-by-hop 响应头
+   - 保留上游 Request ID、重试、限流、模型能力与 CLI 功能 Header
+   - 被重试或切换掉的 Attempt Header 永不进入客户端响应
 
 9. BodyFilter
    - 非流式响应转换
@@ -1276,6 +1282,8 @@ trait ProviderDriver: Send + Sync {
     fn credential_test_plan(&self, base_url: &ProviderBaseUrl) -> Result<EndpointPlan>;
     fn parse_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>>;
     fn credential_headers(&self, secret: &ProviderSecret) -> Result<CredentialHeaders>;
+    fn prepare_request_headers(&self, context: ProviderRequestHeaderContext<'_>) -> Result<HeaderMap>;
+    fn response_headers(&self, operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap;
     fn oauth_redirect_uri(&self) -> Option<&'static str>;
     fn oauth_authorization_url(&self, state: &str, code_challenge: &str) -> Result<Url>;
     fn oauth_token_request(&self, grant: OAuthGrant, code_or_refresh_token: &str, state: Option<&str>, code_verifier: Option<&str>) -> Result<OAuthRequestPlan>;
@@ -1314,7 +1322,7 @@ trait ProtocolBridgeSession: Send {
 
 同协议路径的 `AdapterPayload` 可以保留受限原始 JSON；只有显式选择不同内部协议时才进入 `ProtocolBridge` 和桥专用转换状态。Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态注册，配置发布前完整解析；错误正文只能在严格大小上限内交给 Driver 分类。
 
-具体方法可以在实现阶段调整，但职责边界不可合并为一个万能 Driver。Provider 只处理供应商、Endpoint、认证、OAuth 额度协议和错误差异，ProtocolAdapter 负责线协议双向编解码，Runtime 负责网络与编排。OAuth 方法同时服务登录、刷新、Provider 专属额度管理和选中 OAuthAccount 后的认证注入；它们不把 OAuthAccount 变成 ProviderCredential。`ProviderRegistry` 和 `ProtocolRegistry` 由 `app` 在编译期静态注册，Runtime 只依赖接口和 CapabilitySet。
+具体方法可以在实现阶段调整，但职责边界不可合并为一个万能 Driver。Provider 只处理供应商、Endpoint、认证、OAuth 额度协议、Header 契约和错误差异，ProtocolAdapter 负责线协议双向编解码以及与重编码 Body 一致的协议 Header，Runtime 负责网络、合并优先级与编排。OAuth 方法同时服务登录、刷新、Provider 专属额度管理和选中 OAuthAccount 后的认证注入；它们不把 OAuthAccount 变成 ProviderCredential。`ProviderRegistry` 和 `ProtocolRegistry` 由 `app` 在编译期静态注册，Runtime 只依赖接口和 CapabilitySet。
 
 ### 11.6 Gateway 鉴权与上游认证隔离
 
@@ -1328,7 +1336,17 @@ trait ProtocolBridgeSession: Send {
 
 首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。Responses、Responses Compact、Chat Completions、Messages 和 Count Tokens 均已接入；只有显式配置的 Responses → Chat Completions 组合进入协议桥。
 
-协议适配器只向上游转发明确允许的协议能力头；当前首版保留 Claude `anthropic-beta`，Provider Driver 仍负责覆盖上游认证和固定版本头。
+客户端 Header 不能全量透传。鉴权成功后，Server 先删除 `Authorization`、`x-api-key`、Provider 专属认证/账号字段、Cookie、`Proxy-Authorization`；Runtime 还必须删除或重建 `Host`、`Forwarded`、`X-Forwarded-*`、`Proxy-Authenticate`、所有 hop-by-hop Header、`Connection` 动态点名字段、`Content-Length`、客户端 `Accept-Encoding`、`baggage`，以及正文重编码后失效的 `Content-Encoding`、`ETag`、`Digest`、`Content-MD5`。Header 个数、单值长度和允许投影的总字节数均有固定上限，Header 不进入 RequestLog、HttpAccessLog 或普通错误正文。
+
+请求 Header 合并顺序固定为：Provider 官方缺省身份 < 同 Provider 且同入口/上游方言时的客户端白名单值 < ProtocolAdapter 根据最终 Body 重建的协议一致性字段 < 选中凭据的认证和账号字段。Provider 身份策略对 API Key 与 OAuthAccount 使用同一 Driver 接口，但允许按凭据类型补充不同的官方固定字段；认证字段本身只能来自当前选中凭据。跨协议桥默认不发送源协议身份、会话或实验 Header。
+
+Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调度器不得新增按 Provider 扩张的 `match`。`x-grok-model-override` 必须由最终上游模型重建。Claude OAuth 必须保留全部有界的客户端 `anthropic-beta` Header 行并去重追加 `oauth-2025-04-20`。`x-oai-attestation` 只允许作为当前请求的原始不透明值投影，禁止生成、缓存、记录或在切换 Provider/凭据后重放。
+
+`x-codex-turn-state` 是上游服务端签发并与 Route Target/Credential 绑定的粘性状态。只有当前请求已经解析到同一 Credential 的硬/严格绑定时才允许发送；没有绑定、绑定丢失或切换 Credential 时必须删除，禁止把一个账号签发的状态令牌发送给另一个账号。响应中新的 `x-codex-turn-state` 只有在该 Attempt 最终提交时才能返回。
+
+公开请求 Body 若声明 `Content-Encoding: zstd`，只在 JSON 型 Codex/OpenAI 入口接受。Server 同时限制压缩前字节数和流式解压后的字节数；未知/重复编码、损坏帧或解压后超限使用当前协议错误 envelope 拒绝。ProtocolAdapter 解析解压后的 JSON；同方言 Codex 上游若客户端原本使用 zstd，则对最终重编码 Body 重新压缩并重建 `Content-Encoding`/`Content-Length` 语义，绝不转发旧压缩元数据。multipart 图片入口不接受该编码。
+
+响应 Header 也不能使用宽泛 denylist。Driver 只投影最终 Attempt 的显式精确名称或受控 Provider 前缀；认证、Cookie、hop-by-hop 和正文校验 Header 始终删除。上游 `x-request-id`/`request-id`/`x-oai-request-id` 存在时原样保留；Codex 只有 `x-oai-request-id` 时还必须把同一上游值镜像为 `x-request-id`。any2api 为每个 HTTP 请求生成的本地追踪值始终写入 `x-any2api-request-id`。仅当响应没有可归一化的上游 `x-request-id` 时，Server 才用本地值补 `x-request-id`，因此本地错误仍同时具有两个关联字段。聚合 `/v1/models` 不透传某个账号的 `X-Models-Etag`，而应由当前 PublishedSnapshot 的公开目录生成本地 ETag。
 
 ### 11.7 Provider URL 语义
 
@@ -1365,7 +1383,7 @@ trait ProtocolBridgeSession: Send {
 - 重试预算耗尽；
 - 内部错误。
 
-所有错误返回 Request ID；适用时返回 `Retry-After`。不得把上游原始错误正文、内部 IP、代理地址或 Secret 直接透传给客户端。
+所有错误返回 Request ID；适用时返回 `Retry-After`。最终上游 429 与 529 分别保持客户端可识别的限流与过载状态/type，并投影该 Provider 白名单内的重试和限流 Header；上游凭据的 401/403 仍转换为脱敏的网关上游错误，不能伪装成客户端 Gateway Key 认证失败并诱导官方 CLI 退出登录。不得把上游原始错误正文、内部 IP、代理地址、认证诊断 Header 或 Secret 直接透传给客户端。
 
 公开入口在请求体解码前发生的错误也遵守同一边界：`/v1/responses` 与 `/v1/responses/compact` 使用 OpenAI Responses 错误 envelope，`/v1/chat/completions` 使用 OpenAI Chat Completions 错误 envelope，`/v1/messages` 与 `/v1/messages/count_tokens` 使用 Anthropic Messages 错误 envelope。Gateway 鉴权失败、已知入口的方法不匹配以及能够按上述稳定前缀归属协议的子路径 404，都必须先构造 `PublicError`，再调用同一个已注册 `ProtocolAdapter::error_response`；不得在 Axum 中间件或 fallback 中维护第二套协议 JSON。`PublicErrorCode` 保留 `public_api_not_found` 与 `method_not_allowed` 两个入口代码，使 Adapter 可以在保持 404/405 状态的同时输出稳定协议字段。`PublicRequestService` 因此是公开 Router 的必填 Composition Root 依赖，不提供缺少协议注册表的兼容构造路径。`/v1/models` 以及无法由路径可靠判断协议的未知 `/v1` 路径使用 OpenAI 兼容错误作为公开目录默认格式。所有 `/v1` fallback 仍先经过 Gateway 鉴权，避免未认证请求借路由差异探测实例配置。
 
@@ -1726,7 +1744,7 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 
 - `ProviderDriver::classify_error` 返回强类型 `UpstreamErrorClassification`，其中分别包含上游错误种类、`RetrySafety` 与可选 `Retry-After`，禁止让 Provider Driver 返回代理、DNS、取消或 Runtime 内部错误；
 - `TransportError` 的失败阶段与健康归因正交；`TransportFailureScope` 只允许 `Endpoint / Proxy / Unattributed`。只有可验证的 Endpoint 或 Proxy 故障才更新对应熔断器，reqwest 无法区分 CONNECT/SOCKS/目标 TLS 来源时使用 `Unattributed`，对两类健康状态均保持 neutral；
-- `Retry-After` 同时支持 delta-seconds 与 HTTP-date。无效值忽略，不把原始 Header 或正文透传给客户端；最终错误适用时只返回规范化的秒数；
+- `Retry-After` 同时支持 delta-seconds 与 HTTP-date。无效值忽略；分类使用规范化秒数，最终 Attempt 还可按 Provider 响应白名单返回 `Retry-After`、`retry-after-ms`、`x-should-retry` 和限流观测 Header，但被重试掉的 Header 与上游原始正文永不透传；
 - 429 与确认的模型错误只更新当前 Credential generation 下的 Credential + upstream model 冷却；401 把当前 API Key generation 标记为 `auth_error`；402/权限类错误使用 Credential 级冷却；
 - 上游 5xx/过载只更新 Endpoint config generation；代理连接/握手错误只更新 Proxy config generation；DIRECT 的 DNS/TCP 错误归入 Endpoint，禁止把 Provider 429/5xx 误判为代理故障；
 - Endpoint 与 Proxy 使用独立的滑动失败窗口和 `Closed / Open / HalfOpen` 熔断器。HalfOpen 探测 Permit 与上游 Attempt 同生命周期，取消或 Drop 必须归还探测名额；
@@ -2359,7 +2377,7 @@ runtime_retired
 
 首个请求遥测切片采用以下边界：
 
-- `/v1` 外层生成本地 Request ID，并在所有公开响应中覆盖 `x-request-id`；
+- 最外层为每个 HTTP 请求生成本地 Request ID，并始终写入 `x-any2api-request-id`；上游最终 Attempt 已返回 `x-request-id` 时保留它，否则再用本地 ID 补齐 `x-request-id`；
 - 已通过 GatewayApiKey 鉴权并进入模型执行链的请求创建 RequestLog，解码、规划、排队和上游错误均可形成最终记录；
 - 公开鉴权层使用 Server 级可信代理策略解析客户端地址；直连取 TCP 对端，可信代理链按右到左规则解析，缺失、重复或无效转发头 Fail-Closed。RequestLog 只保存规范化后的 `client_ip`，不保存原始转发头；
 - 每次上游 Attempt 在健康结算后、运行态 Guard 结束前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；
@@ -2615,6 +2633,14 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 提交的内嵌目录必须至少包含 `index.html`，构建时文件清单按稳定路径排序。源目录与提交目录只允许普通目录和普通文件，拒绝符号链接及其他特殊文件；Git 对整棵生成目录按原始字节追踪，避免跨平台换行转换改变同一哈希资源的内容。资源缺失、同步校验失败或重复规范路径直接使构建/CI 失败；不为旧文件名保留兼容别名。
 
 完整决策见 `docs/adr/0027-embedded-web-assets.md`。
+
+### 20.5 GitHub Release
+
+推送 `v*` Tag 时，GitHub Actions 使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建
+`x86_64-unknown-linux-gnu`。首版只发布 Linux AMD64，不构建其他系统、架构或 musl 变体。
+
+Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和
+SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、主密钥、配置、日志或 Secret。
 
 ## 21. 分阶段实施建议
 

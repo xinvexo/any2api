@@ -2,10 +2,11 @@ use any2api_domain::{
     OAuthAccountId, PublicError, RetrySafety, UpstreamErrorClassification, UpstreamErrorKind,
 };
 use any2api_transport::api::{TransportError, TransportFailureScope};
+use http::{HeaderMap, StatusCode};
 
 use crate::routing::RouteCandidate;
 
-use super::super::response::{classified_error, public_error};
+use super::super::response::{FinalFailure, classified_error, public_error};
 
 pub(in crate::public_request) enum AttemptFailure {
     Transport {
@@ -14,6 +15,8 @@ pub(in crate::public_request) enum AttemptFailure {
         fixed: bool,
     },
     Upstream {
+        status: StatusCode,
+        headers: Box<HeaderMap>,
         classification: UpstreamErrorClassification,
         candidate: Box<RouteCandidate>,
         fixed: bool,
@@ -31,11 +34,15 @@ impl AttemptFailure {
     }
 
     pub(super) fn upstream(
+        status: StatusCode,
+        headers: HeaderMap,
         classification: UpstreamErrorClassification,
         candidate: RouteCandidate,
         fixed: bool,
     ) -> Self {
         Self::Upstream {
+            status,
+            headers: Box::new(headers),
             classification,
             candidate: Box::new(candidate),
             fixed,
@@ -48,8 +55,28 @@ impl AttemptFailure {
                 any2api_domain::PublicErrorCode::UpstreamError,
                 "upstream request failed",
             ),
-            Self::Upstream { classification, .. } => classified_error(*classification),
+            Self::Upstream {
+                status,
+                classification,
+                ..
+            } => classified_error(*status, *classification),
             Self::Public(error) => error.clone(),
+        }
+    }
+
+    pub(in crate::public_request) fn final_failure(&self) -> FinalFailure {
+        match self {
+            Self::Upstream {
+                status,
+                headers,
+                classification,
+                ..
+            } => FinalFailure::upstream(
+                classified_error(*status, *classification),
+                headers.as_ref().clone(),
+                *status,
+            ),
+            _ => self.public_error().into(),
         }
     }
 

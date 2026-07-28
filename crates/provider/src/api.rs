@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, fmt};
 
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
-    TransportMode, UpstreamErrorClassification,
+    RequestBodyEncoding, TransportMode, UpstreamErrorClassification,
 };
 use http::{HeaderMap, StatusCode};
 use url::Url;
@@ -50,6 +50,17 @@ pub struct UpstreamResponseMeta {
     pub headers: HeaderMap,
 }
 
+#[derive(Clone, Copy)]
+pub struct ProviderRequestHeaderContext<'a> {
+    pub ingress_dialect: ProtocolDialect,
+    pub upstream_operation: ProtocolOperation,
+    pub upstream_model: &'a str,
+    pub client_headers: &'a HeaderMap,
+    pub oauth: bool,
+    pub allow_credential_bound: bool,
+    pub allow_turn_state: bool,
+}
+
 pub trait ProviderDriver: Send + Sync {
     fn kind(&self) -> ProviderKind;
 
@@ -74,6 +85,25 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError>;
+
+    fn prepare_request_headers(
+        &self,
+        _context: ProviderRequestHeaderContext<'_>,
+    ) -> Result<HeaderMap, ProviderError> {
+        Ok(HeaderMap::new())
+    }
+
+    fn response_headers(&self, _operation: ProtocolOperation, _upstream: &HeaderMap) -> HeaderMap {
+        HeaderMap::new()
+    }
+
+    fn supports_request_body_encoding(
+        &self,
+        _context: ProviderRequestHeaderContext<'_>,
+        _encoding: RequestBodyEncoding,
+    ) -> bool {
+        false
+    }
 
     fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {
         None
@@ -266,6 +296,21 @@ impl fmt::Debug for UpstreamResponseMeta {
             .debug_struct("UpstreamResponseMeta")
             .field("status", &self.status)
             .field("header_count", &self.headers.len())
+            .finish()
+    }
+}
+
+impl fmt::Debug for ProviderRequestHeaderContext<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderRequestHeaderContext")
+            .field("ingress_dialect", &self.ingress_dialect)
+            .field("upstream_operation", &self.upstream_operation)
+            .field("upstream_model", &self.upstream_model)
+            .field("client_header_count", &self.client_headers.len())
+            .field("oauth", &self.oauth)
+            .field("allow_credential_bound", &self.allow_credential_bound)
+            .field("allow_turn_state", &self.allow_turn_state)
             .finish()
     }
 }

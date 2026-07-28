@@ -11,7 +11,10 @@ use axum::{
     Router,
     body::Body,
     extract::ConnectInfo,
-    http::{HeaderMap, Method, Request, StatusCode, header::CONTENT_TYPE},
+    http::{
+        HeaderMap, Method, Request, StatusCode,
+        header::{CONTENT_TYPE, RETRY_AFTER, SET_COOKIE},
+    },
 };
 use http_body_util::BodyExt;
 use ipnet::IpNet;
@@ -47,7 +50,10 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
             ("Connection", "x-private-hop"),
             ("X-Private-Hop", "provider-secret"),
             ("ETag", "\"upstream-body\""),
-            ("X-Request-Id", "upstream-request-1"),
+            ("X-Oai-Request-Id", "upstream-request-1"),
+            ("X-Codex-Turn-State", "turn-state-1"),
+            ("X-Codex-Primary-Used-Percent", "17.5"),
+            ("X-Models-Etag", "models-v1"),
         ],
     )
     .await;
@@ -84,7 +90,16 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
             "unknown_field": {"keep": true}
         })),
         loopback,
-        &[("authorization", format!("Bearer {token}"))],
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("user-agent", "codex_cli_rs/0.145.0".to_owned()),
+            ("originator", "codex_vscode".to_owned()),
+            ("x-client-request-id", "client-request-1".to_owned()),
+            ("session-id", "session-1".to_owned()),
+            ("thread-id", "thread-1".to_owned()),
+            ("x-oai-attestation", "opaque-attestation".to_owned()),
+            ("x-codex-turn-state", "unbound-state".to_owned()),
+        ],
     )
     .await;
     assert_eq!(response.status, StatusCode::OK);
@@ -95,9 +110,14 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     assert!(response.headers.get("set-cookie").is_none());
     assert!(response.headers.get("x-private-hop").is_none());
     assert!(response.headers.get("etag").is_none());
-    let request_id = response.headers["x-request-id"]
+    assert_eq!(response.headers["x-request-id"], "upstream-request-1");
+    assert_eq!(response.headers["x-oai-request-id"], "upstream-request-1");
+    assert_eq!(response.headers["x-codex-turn-state"], "turn-state-1");
+    assert_eq!(response.headers["x-codex-primary-used-percent"], "17.5");
+    assert_eq!(response.headers["x-models-etag"], "models-v1");
+    let request_id = response.headers["x-any2api-request-id"]
         .to_str()
-        .expect("request ID header")
+        .expect("local request ID header")
         .parse::<RequestId>()
         .expect("local request ID");
     let request = upstream.await.expect("upstream request");
@@ -108,6 +128,13 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
         Some(&"Bearer sk-codex-contract".to_owned())
     );
     assert!(!request.headers.contains_key("x-api-key"));
+    assert_eq!(request.headers["user-agent"], "codex_cli_rs/0.145.0");
+    assert_eq!(request.headers["originator"], "codex_vscode");
+    assert_eq!(request.headers["x-client-request-id"], "client-request-1");
+    assert_eq!(request.headers["session-id"], "session-1");
+    assert_eq!(request.headers["thread-id"], "thread-1");
+    assert_eq!(request.headers["x-oai-attestation"], "opaque-attestation");
+    assert!(!request.headers.contains_key("x-codex-turn-state"));
     assert_eq!(request.body["model"], "gpt-upstream");
     assert_eq!(request.body["unknown_field"]["keep"], true);
     let logs = wait_for_request_log(&app, loopback, request_id).await;
@@ -143,6 +170,55 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     );
     assert_eq!(list.body["items"][0]["cache_read_tokens"], Value::Null);
     assert_eq!(list.body["items"][0]["cache_write_tokens"], 0);
+}
+
+#[tokio::test]
+async fn codex_zstd_request_is_decoded_rewritten_and_recompressed_upstream() {
+    let (listener, upstream) = upstream_server(
+        "/v1/responses",
+        r#"{"id":"resp_zstd","model":"gpt-zstd","output":[]}"#,
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint(
+        &app,
+        loopback,
+        revision + 1,
+        "Codex zstd",
+        "codex",
+        &format!("http://{listener}/v1"),
+    )
+    .await;
+    create_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "sk-zstd-contract",
+    )
+    .await;
+    select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-zstd").await;
+
+    let response = request_zstd_json(
+        app,
+        "/v1/responses",
+        json!({
+            "model": "gpt-zstd",
+            "input": "compressed",
+            "future": {"preserved": true}
+        }),
+        loopback,
+        &token,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    let request = upstream.await.expect("zstd upstream request");
+    assert_eq!(request.headers["content-encoding"], "zstd");
+    assert_eq!(request.body["model"], "gpt-zstd");
+    assert_eq!(request.body["future"]["preserved"], true);
 }
 
 #[tokio::test]
@@ -667,9 +743,14 @@ async fn responses_compact_uses_its_distinct_non_streaming_path() {
 
 #[tokio::test]
 async fn claude_messages_uses_anthropic_headers_and_path() {
-    let (listener, upstream) = upstream_server(
+    let (listener, upstream) = upstream_server_with_headers(
         "/v1/messages",
         r#"{"id":"msg_1","type":"message","model":"claude-upstream","content":[]}"#,
+        &[
+            ("Request-Id", "claude-request-1"),
+            ("Anthropic-Ratelimit-Unified-Status", "allowed"),
+            ("Cf-Ray", "claude-edge-1"),
+        ],
     )
     .await;
     let (_directory, app, revision) = test_app().await;
@@ -714,11 +795,23 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
         &[
             ("x-api-key", token),
             ("anthropic-beta", "messages-2024-09-04".to_owned()),
+            ("user-agent", "claude-code/2.1.220".to_owned()),
+            ("x-app", "cli".to_owned()),
+            ("x-client-request-id", "claude-client-request-1".to_owned()),
+            ("x-claude-code-session-id", "claude-session-1".to_owned()),
+            ("anthropic-usage-limit", "extended".to_owned()),
+            ("x-stainless-lang", "js".to_owned()),
         ],
     )
     .await;
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.body["model"], "claude-upstream");
+    assert_eq!(response.headers["request-id"], "claude-request-1");
+    assert_eq!(response.headers["cf-ray"], "claude-edge-1");
+    assert_eq!(
+        response.headers["anthropic-ratelimit-unified-status"],
+        "allowed"
+    );
     let request = upstream.await.expect("upstream request");
     assert_eq!(request.path, "/v1/messages");
     assert_eq!(
@@ -733,8 +826,90 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
         request.headers.get("anthropic-beta"),
         Some(&"messages-2024-09-04".to_owned())
     );
+    assert_eq!(request.headers["user-agent"], "claude-code/2.1.220");
+    assert_eq!(request.headers["x-app"], "cli");
+    assert_eq!(
+        request.headers["x-client-request-id"],
+        "claude-client-request-1"
+    );
+    assert_eq!(
+        request.headers["x-claude-code-session-id"],
+        "claude-session-1"
+    );
+    assert_eq!(request.headers["x-stainless-lang"], "js");
+    assert_eq!(request.headers["anthropic-usage-limit"], "extended");
     assert!(!request.headers.contains_key("authorization"));
     assert_eq!(request.body["model"], "claude-upstream");
+}
+
+#[tokio::test]
+async fn claude_messages_preserves_final_529_semantics_and_safe_headers() {
+    let (listener, upstream) = upstream_server_with_status_and_headers(
+        "/v1/messages",
+        StatusCode::from_u16(529).expect("529 status"),
+        r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#,
+        &[
+            ("Request-Id", "claude-overload-1"),
+            ("Retry-After", "3"),
+            ("Anthropic-Ratelimit-Unified-Status", "overloaded"),
+            ("Set-Cookie", "must-not-leak=1"),
+        ],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint(
+        &app,
+        loopback,
+        revision + 1,
+        "Claude overloaded",
+        "claude",
+        &format!("http://{listener}/v1"),
+    )
+    .await;
+    create_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "sk-claude-overload",
+    )
+    .await;
+    select_models(
+        &app,
+        loopback,
+        revision + 3,
+        &endpoint_id,
+        "claude-overload-model",
+    )
+    .await;
+
+    let response = request_json(
+        app,
+        Method::POST,
+        "/v1/messages",
+        Some(json!({
+            "model": "claude-overload-model",
+            "max_tokens": 32,
+            "messages": [{"role":"user","content":"hello"}]
+        })),
+        loopback,
+        &[("x-api-key", token)],
+    )
+    .await;
+
+    assert_eq!(response.status.as_u16(), 529);
+    assert_eq!(response.body["type"], "error");
+    assert_eq!(response.body["error"]["type"], "overloaded_error");
+    assert_eq!(response.headers["request-id"], "claude-overload-1");
+    assert_eq!(response.headers[RETRY_AFTER], "3");
+    assert_eq!(
+        response.headers["anthropic-ratelimit-unified-status"],
+        "overloaded"
+    );
+    assert!(!response.headers.contains_key(SET_COOKIE));
+    upstream.await.expect("upstream request");
 }
 
 #[tokio::test]
@@ -1456,6 +1631,40 @@ async fn request_json(
     }
 }
 
+async fn request_zstd_json(
+    app: Router,
+    uri: &str,
+    body: Value,
+    remote: SocketAddr,
+    gateway_token: &str,
+) -> JsonResponse {
+    let plain = serde_json::to_vec(&body).expect("request JSON");
+    let compressed = zstd::stream::encode_all(plain.as_slice(), 3).expect("zstd request");
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .extension(ConnectInfo(remote))
+        .header(CONTENT_TYPE, "application/json")
+        .header("content-encoding", "zstd")
+        .header("authorization", format!("Bearer {gateway_token}"))
+        .body(Body::from(compressed))
+        .expect("request");
+    let response = app.oneshot(request).await.expect("response");
+    let status = response.status();
+    let headers = response.headers().clone();
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("response body")
+        .to_bytes();
+    JsonResponse {
+        status,
+        headers,
+        body: serde_json::from_slice(&bytes).expect("JSON response"),
+    }
+}
+
 #[derive(Debug)]
 struct UpstreamRequest {
     method: Method,
@@ -1474,6 +1683,18 @@ fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
     haystack
         .windows(needle.len())
         .any(|window| window == needle)
+}
+
+fn parse_upstream_json(headers: &std::collections::HashMap<String, String>, body: &[u8]) -> Value {
+    let body = if headers
+        .get("content-encoding")
+        .is_some_and(|value| value.eq_ignore_ascii_case("zstd"))
+    {
+        zstd::stream::decode_all(body).expect("upstream zstd body")
+    } else {
+        body.to_vec()
+    };
+    serde_json::from_slice(&body).expect("upstream JSON body")
 }
 
 async fn upstream_server(
@@ -1564,6 +1785,21 @@ async fn upstream_server_with_headers(
     response_body: &str,
     response_headers: &[(&str, &str)],
 ) -> (SocketAddr, oneshot::Receiver<UpstreamRequest>) {
+    upstream_server_with_status_and_headers(
+        expected_path,
+        StatusCode::OK,
+        response_body,
+        response_headers,
+    )
+    .await
+}
+
+async fn upstream_server_with_status_and_headers(
+    expected_path: &str,
+    response_status: StatusCode,
+    response_body: &str,
+    response_headers: &[(&str, &str)],
+) -> (SocketAddr, oneshot::Receiver<UpstreamRequest>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("upstream listener");
@@ -1611,7 +1847,6 @@ async fn upstream_server_with_headers(
             }
             bytes.extend_from_slice(&buffer[..count]);
         }
-        let body = String::from_utf8(bytes[body_start..].to_vec()).expect("upstream body text");
         let mut lines = head.lines();
         let request_line = lines.next().expect("request line");
         let mut request_parts = request_line.split_whitespace();
@@ -1626,7 +1861,7 @@ async fn upstream_server_with_headers(
             .filter_map(|line| line.split_once(':'))
             .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
             .collect::<std::collections::HashMap<_, _>>();
-        let body = serde_json::from_str(body.trim()).expect("upstream JSON body");
+        let body = parse_upstream_json(&headers, &bytes[body_start..body_start + content_length]);
         sender
             .send(UpstreamRequest {
                 method,
@@ -1639,8 +1874,11 @@ async fn upstream_server_with_headers(
             .iter()
             .map(|(name, value)| format!("{name}: {value}\r\n"))
             .collect::<String>();
+        let reason = response_status.canonical_reason().unwrap_or("Unknown");
         let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
+            "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n{}",
+            response_status.as_u16(),
+            reason,
             response_body.len(),
             extra_headers,
             response_body
@@ -1704,7 +1942,6 @@ async fn upstream_server_sequence(
                 }
                 bytes.extend_from_slice(&buffer[..count]);
             }
-            let body = String::from_utf8(bytes[body_start..].to_vec()).expect("upstream body text");
             let mut lines = head.lines();
             let request_line = lines.next().expect("request line");
             let mut request_parts = request_line.split_whitespace();
@@ -1719,7 +1956,8 @@ async fn upstream_server_sequence(
                 .filter_map(|line| line.split_once(':'))
                 .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
                 .collect::<std::collections::HashMap<_, _>>();
-            let body = serde_json::from_str(body.trim()).expect("upstream JSON body");
+            let body =
+                parse_upstream_json(&headers, &bytes[body_start..body_start + content_length]);
             sender
                 .send(UpstreamRequest {
                     method,

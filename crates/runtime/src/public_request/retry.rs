@@ -9,7 +9,7 @@ use tokio::time::{Instant, timeout};
 use super::{
     PublicResponse, affinity, execution_limits,
     planning::PlannedRequest,
-    response::public_error,
+    response::{FinalFailure, public_error},
     upstream::{self, AttemptFailure},
 };
 use crate::{
@@ -25,17 +25,18 @@ pub(super) async fn execute(
     transport: &dyn TransportManager,
     oauth_refresher: Option<&OAuthRefresher>,
     recorder: RequestRecorder,
-) -> Result<PublicResponse, PublicError> {
+) -> Result<PublicResponse, FinalFailure> {
     let policy = snapshot.reliability_policy();
     let mut budget = RetryBudget::new(policy, plan.decoded.operation);
     let mut exclusions = CandidateExclusions::default();
     let mut previous_error = None;
     let mut oauth_refresh_attempted = false;
+    let mut credential_bound_header_owner = None;
 
     loop {
         let remaining = budget.remaining();
         if remaining.is_zero() {
-            return Err(previous_error.unwrap_or_else(budget_exhausted));
+            return Err(previous_error.unwrap_or_else(|| budget_exhausted().into()));
         }
         let selection = timeout(
             remaining,
@@ -53,12 +54,21 @@ pub(super) async fn execute(
         .await;
         let affinity = match selection {
             Ok(Ok(selection)) => selection,
-            Ok(Err(error)) => return Err(previous_error.unwrap_or(error)),
-            Err(_) => return Err(previous_error.unwrap_or_else(budget_exhausted)),
+            Ok(Err(error)) => return Err(previous_error.unwrap_or_else(|| error.into())),
+            Err(_) => {
+                return Err(previous_error.unwrap_or_else(|| budget_exhausted().into()));
+            }
         };
         let credential_id = affinity.selected.candidate.credential_id;
+        let allow_credential_bound_headers = match credential_bound_header_owner {
+            Some(owner) => owner == credential_id,
+            None => {
+                credential_bound_header_owner = Some(credential_id);
+                true
+            }
+        };
         let Some(attempt_no) = budget.register_attempt(credential_id) else {
-            return Err(previous_error.unwrap_or_else(budget_exhausted));
+            return Err(previous_error.unwrap_or_else(|| budget_exhausted().into()));
         };
         let attempt_recorder = recorder.begin_attempt(attempt_no, &affinity.selected.candidate);
         let remaining = budget.remaining();
@@ -77,10 +87,11 @@ pub(super) async fn execute(
                     plan.public_model.clone(),
                     affinity,
                     attempt_recorder,
+                    allow_credential_bound_headers,
                 ),
             )
             .await
-            .map_err(|_| budget_exhausted())?
+            .map_err(|_| FinalFailure::from(budget_exhausted()))?
         } else {
             timeout(
                 remaining,
@@ -90,16 +101,17 @@ pub(super) async fn execute(
                     &plan.public_model,
                     affinity,
                     attempt_recorder,
+                    allow_credential_bound_headers,
                 ),
             )
             .await
-            .map_err(|_| budget_exhausted())?
+            .map_err(|_| FinalFailure::from(budget_exhausted()))?
             .map(PublicResponse::from)
         };
         match attempt {
             Ok(response) => return Ok(response),
             Err(failure) => {
-                let public = failure.public_error();
+                let public = failure.final_failure();
                 if !oauth_refresh_attempted
                     && let Some(refresher) = oauth_refresher
                     && let Some((account_id, token_version)) = failure.oauth_authentication_target()

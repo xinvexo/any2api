@@ -110,6 +110,17 @@ fn strip_client_credentials(headers: &mut HeaderMap) {
     headers.remove(PROXY_AUTHORIZATION);
     headers.remove(COOKIE);
     headers.remove("x-request-id");
+    for name in [
+        "chatgpt-account-id",
+        "openai-organization",
+        "openai-project",
+        "x-openai-api-key",
+        "x-userid",
+        "x-xai-token-auth",
+        "x-authenticateresponse",
+    ] {
+        headers.remove(name);
+    }
 }
 
 #[cfg(test)]
@@ -138,10 +149,16 @@ mod tests {
         headers.insert("x-api-key", HeaderValue::from_static("secret"));
         headers.insert(PROXY_AUTHORIZATION, HeaderValue::from_static("proxy"));
         headers.insert(COOKIE, HeaderValue::from_static("session=secret"));
+        headers.insert("chatgpt-account-id", HeaderValue::from_static("account"));
+        headers.insert("x-userid", HeaderValue::from_static("subject"));
+        headers.insert("x-xai-token-auth", HeaderValue::from_static("spoofed"));
         strip_client_credentials(&mut headers);
         assert!(headers.get(AUTHORIZATION).is_none());
         assert!(headers.get("x-api-key").is_none());
         assert!(headers.get(PROXY_AUTHORIZATION).is_none());
         assert!(headers.get(COOKIE).is_none());
+        assert!(headers.get("chatgpt-account-id").is_none());
+        assert!(headers.get("x-userid").is_none());
+        assert!(headers.get("x-xai-token-auth").is_none());
     }
 }

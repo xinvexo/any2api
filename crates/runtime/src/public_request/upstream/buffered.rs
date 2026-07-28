@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use any2api_domain::{ProtocolOperation, PublicErrorCode};
 use any2api_protocol::api::{DecodedRequest, EgressResponse, UpstreamResponse};
+use http::{HeaderValue, header};
 
 use super::super::{
     affinity::{AffinitySelection, commit_soft_binding},
@@ -23,6 +24,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     public_model: &str,
     affinity: AffinitySelection,
     attempt_recorder: AttemptRecorder,
+    allow_credential_bound_headers: bool,
 ) -> Result<EgressResponse, AttemptFailure> {
     let AttemptInput {
         mut prepared,
@@ -37,6 +39,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         affinity,
         services.providers,
         attempt_recorder,
+        allow_credential_bound_headers,
     )?;
     let response = match prepared.send(services.transport).await {
         Ok(response) => response,
@@ -69,10 +72,18 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         }
     };
     if !status.is_success() {
+        let safe_headers = prepared.response_headers(&headers);
         let classification = prepared.classify(status, &headers, &body);
         prepared.upstream_failure(status.as_u16(), classification);
-        return Err(AttemptFailure::upstream(classification, candidate, fixed));
+        return Err(AttemptFailure::upstream(
+            status,
+            safe_headers,
+            classification,
+            candidate,
+            fixed,
+        ));
     }
+    let safe_headers = prepared.response_headers(&headers);
     let decoded = match prepared.decode_upstream_response(UpstreamResponse {
         status,
         headers,
@@ -104,6 +115,11 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let mut response = prepared
         .encode_egress_response(decoded, public_model)
         .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
+    response.headers = safe_headers;
+    response.headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     sanitize_response_headers(&mut response.headers);
     let hard_affinity = hard_committer(
         services.snapshot,

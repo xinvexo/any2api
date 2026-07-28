@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  linux-amd64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - run: cargo build --locked --release -p any2api --target x86_64-unknown-linux-gnu
+
+      - name: Package
+        run: |
+          asset="any2api-${GITHUB_REF_NAME}-linux-amd64.tar.gz"
+          mkdir -p dist
+          tar -C target/x86_64-unknown-linux-gnu/release -czf "dist/$asset" any2api
+          cd dist
+          sha256sum "$asset" > "$asset.sha256"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME" \
+            --verify-tag

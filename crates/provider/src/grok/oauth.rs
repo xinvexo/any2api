@@ -22,7 +22,6 @@ const SCOPE: &str = "openid profile email offline_access grok-cli:access api:acc
 const DEVICE_CODE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 const DEFAULT_POLL_INTERVAL_SECONDS: u64 = 5;
 const DATA_BASE_URL: &str = "https://cli-chat-proxy.grok.com/v1";
-const CLI_VERSION: &str = "0.2.112";
 const MODELS: &[&str] = &[
     "grok-4.5",
     "grok-4.3",
@@ -175,15 +174,12 @@ pub(crate) fn credential_headers(
         })?;
     let mut headers = HeaderMap::new();
     headers.insert(header::AUTHORIZATION, authorization);
-    headers.insert("x-xai-token-auth", HeaderValue::from_static("xai-grok-cli"));
-    headers.insert(
-        "x-grok-client-version",
-        HeaderValue::from_static(CLI_VERSION),
-    );
-    headers.insert(
-        header::USER_AGENT,
-        HeaderValue::from_static("xai-grok-workspace/0.2.112"),
-    );
+    if let Some(subject) = token.account_id() {
+        let subject = HeaderValue::from_str(subject).map_err(|_| {
+            ProviderError::InvalidCredential("invalid Grok OAuth subject header".into())
+        })?;
+        headers.insert("x-userid", subject);
+    }
     Ok(CredentialHeaders { headers })
 }
 

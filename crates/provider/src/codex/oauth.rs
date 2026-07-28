@@ -159,7 +159,6 @@ pub(crate) fn credential_headers(
         })?;
     let mut headers = HeaderMap::new();
     headers.insert(header::AUTHORIZATION, authorization);
-    headers.insert("originator", HeaderValue::from_static("codex_cli_rs"));
     if let Some(account_id) = token.account_id() {
         let account_id = HeaderValue::from_str(account_id).map_err(|_| {
             ProviderError::InvalidCredential("invalid Codex OAuth account id header".into())

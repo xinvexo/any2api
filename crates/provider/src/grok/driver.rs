@@ -1,5 +1,6 @@
 use super::{
-    import as grok_import, oauth as grok_oauth, quota as grok_quota, upstream_error as grok_error,
+    headers as grok_headers, import as grok_import, oauth as grok_oauth, quota as grok_quota,
+    upstream_error as grok_error,
 };
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
@@ -11,7 +12,8 @@ use crate::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
         OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLocalTokenQuotaPolicy,
         OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, ProviderRequestHeaderContext,
+        UpstreamResponseMeta,
     },
     credential::api_key,
 };
@@ -99,6 +101,17 @@ impl ProviderDriver for GrokDriver {
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
         api_key::bearer_credential_headers(secret)
+    }
+
+    fn prepare_request_headers(
+        &self,
+        context: ProviderRequestHeaderContext<'_>,
+    ) -> Result<HeaderMap, ProviderError> {
+        grok_headers::request(context)
+    }
+
+    fn response_headers(&self, _operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap {
+        grok_headers::response(upstream)
     }
 
     fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {

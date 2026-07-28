@@ -27,7 +27,10 @@ pub use id::{
     CredentialId, GatewayApiKeyId, ModelRouteId, OAuthAccountId, ProviderEndpointId,
     ProxyProfileId, RequestId, RouteTargetId,
 };
-pub use kind::{CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode};
+pub use kind::{
+    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding,
+    TransportMode,
+};
 pub use oauth_account::{
     OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountValidationError,
 };

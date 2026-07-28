@@ -15,6 +15,7 @@ use futures_util::Stream;
 use http::{HeaderMap, StatusCode};
 use thiserror::Error;
 
+use super::response::{FinalFailure, sanitize_response_headers};
 use super::{planning, retry};
 use crate::{
     configuration::PublishedSnapshot,
@@ -117,9 +118,14 @@ impl PublicRequestService {
                 }
                 response
             }
-            Err(error) => {
-                let response = adapter.error_response(&error);
-                recorder.finish_public_error(response.status.as_u16(), &error);
+            Err(failure) => {
+                let mut response = adapter.error_response(&failure.error);
+                if let Some(status) = failure.status {
+                    response.status = status;
+                }
+                response.headers.extend(failure.headers);
+                sanitize_response_headers(&mut response.headers);
+                recorder.finish_public_error(response.status.as_u16(), &failure.error);
                 response.into()
             }
         }
@@ -140,7 +146,7 @@ impl PublicRequestService {
         request: PublicRequest,
         adapter: Arc<dyn ProtocolAdapter>,
         recorder: RequestRecorder,
-    ) -> Result<PublicResponse, PublicError> {
+    ) -> Result<PublicResponse, FinalFailure> {
         let planned = planning::plan(
             snapshot.as_ref(),
             request,
@@ -148,7 +154,8 @@ impl PublicRequestService {
             self.protocols.as_ref(),
             self.providers.as_ref(),
         )
-        .await?;
+        .await
+        .map_err(FinalFailure::from)?;
         recorder.set_route(
             planned.public_model.clone(),
             planned.decoded.stream,

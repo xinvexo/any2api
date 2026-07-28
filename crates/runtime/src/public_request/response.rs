@@ -6,10 +6,36 @@ use any2api_transport::api::{
 };
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
-use http::{HeaderMap, HeaderName, header};
+use http::{HeaderMap, HeaderName, StatusCode, header};
 use tokio::time::timeout;
 
 pub(super) const MAX_CLASSIFIED_ERROR_BYTES: usize = 64 * 1024;
+
+pub(super) struct FinalFailure {
+    pub(super) error: PublicError,
+    pub(super) headers: HeaderMap,
+    pub(super) status: Option<StatusCode>,
+}
+
+impl FinalFailure {
+    pub(super) fn upstream(error: PublicError, headers: HeaderMap, status: StatusCode) -> Self {
+        Self {
+            error,
+            headers,
+            status: matches!(status.as_u16(), 429 | 529).then_some(status),
+        }
+    }
+}
+
+impl From<PublicError> for FinalFailure {
+    fn from(error: PublicError) -> Self {
+        Self {
+            error,
+            headers: HeaderMap::new(),
+            status: None,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub(super) enum CollectBodyError {
@@ -81,7 +107,6 @@ pub(super) fn sanitize_response_headers(headers: &mut HeaderMap) {
     headers.remove("content-encoding");
     headers.remove("digest");
     headers.remove("x-api-key");
-    headers.remove("x-request-id");
 }
 
 fn trim_ows(mut value: &[u8]) -> &[u8] {
@@ -100,7 +125,28 @@ fn trim_ows(mut value: &[u8]) -> &[u8] {
     value
 }
 
-pub(super) fn classified_error(classified: UpstreamErrorClassification) -> PublicError {
+pub(super) fn classified_error(
+    status: StatusCode,
+    classified: UpstreamErrorClassification,
+) -> PublicError {
+    if status == StatusCode::TOO_MANY_REQUESTS {
+        return with_retry_after(
+            public_error(
+                PublicErrorCode::UpstreamRateLimit,
+                "upstream rate limit was reached",
+            ),
+            classified,
+        );
+    }
+    if status.as_u16() == 529 {
+        return with_retry_after(
+            public_error(
+                PublicErrorCode::UpstreamOverloaded,
+                "upstream service is overloaded",
+            ),
+            classified,
+        );
+    }
     let class = classified.kind().error_class();
     if class == ErrorClass::OperationUnavailable {
         return public_error(
@@ -116,7 +162,13 @@ pub(super) fn classified_error(classified: UpstreamErrorClassification) -> Publi
         ErrorClass::ModelUnavailable => "upstream model is unavailable",
         _ => "upstream service returned an error",
     };
-    let error = public_error(PublicErrorCode::UpstreamError, message);
+    with_retry_after(
+        public_error(PublicErrorCode::UpstreamError, message),
+        classified,
+    )
+}
+
+fn with_retry_after(error: PublicError, classified: UpstreamErrorClassification) -> PublicError {
     match classified.retry_after() {
         Some(hint) => {
             let delay = hint.delay_from(SystemTime::now());
@@ -251,6 +303,6 @@ mod tests {
         assert!(headers.get("content-encoding").is_none());
         assert!(headers.get("x-api-key").is_none());
         assert!(headers.get("x-private-hop").is_none());
-        assert!(headers.get("x-request-id").is_none());
+        assert_eq!(headers["x-request-id"], "request-1");
     }
 }

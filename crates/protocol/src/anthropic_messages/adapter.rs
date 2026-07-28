@@ -120,9 +120,10 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => "not_found_error",
-        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
-            "rate_limit_error"
-        }
+        PublicErrorCode::NoAvailableCredential
+        | PublicErrorCode::LocalRateLimit
+        | PublicErrorCode::UpstreamRateLimit => "rate_limit_error",
+        PublicErrorCode::UpstreamOverloaded => "overloaded_error",
         PublicErrorCode::SessionBindingLost => "invalid_request_error",
         PublicErrorCode::UpstreamError => "api_error",
         PublicErrorCode::InternalError => "api_error",
@@ -139,8 +140,11 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
         PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
         | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
-        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
-            StatusCode::TOO_MANY_REQUESTS
+        PublicErrorCode::NoAvailableCredential
+        | PublicErrorCode::LocalRateLimit
+        | PublicErrorCode::UpstreamRateLimit => StatusCode::TOO_MANY_REQUESTS,
+        PublicErrorCode::UpstreamOverloaded => {
+            StatusCode::from_u16(529).expect("529 is a valid HTTP status")
         }
         PublicErrorCode::SessionBindingLost => StatusCode::CONFLICT,
         PublicErrorCode::UpstreamError => StatusCode::BAD_GATEWAY,
@@ -204,6 +208,10 @@ mod tests {
             })
             .await
             .expect("decoded request");
+        assert_eq!(
+            decoded.client_headers["anthropic-beta"],
+            "messages-2024-09-04"
+        );
         let encoded = adapter
             .encode_upstream_request(
                 decoded.operation,
@@ -215,7 +223,7 @@ mod tests {
         let body: Value = serde_json::from_slice(&encoded.body).expect("encoded JSON");
         assert_eq!(body["model"], "claude-upstream");
         assert_eq!(body["future_field"], 42);
-        assert_eq!(encoded.headers["anthropic-beta"], "messages-2024-09-04");
+        assert!(!encoded.headers.contains_key("anthropic-beta"));
 
         let response =
             adapter.error_response(&PublicError::new(PublicErrorCode::LocalRateLimit, "full"));

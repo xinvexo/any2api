@@ -282,6 +282,14 @@ async fn buffered_body_read_timeout_is_ambiguous_and_not_retried() {
 async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
     let mut retry_after = HeaderMap::new();
     retry_after.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+    retry_after.insert(
+        "x-request-id",
+        HeaderValue::from_static("rate-limit-request"),
+    );
+    retry_after.insert(
+        "x-codex-primary-used-percent",
+        HeaderValue::from_static("100"),
+    );
     let transport = Arc::new(ScriptedTransport::new([
         ScriptStep::json_with_headers(
             StatusCode::TOO_MANY_REQUESTS,
@@ -296,8 +304,12 @@ async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
     let harness = harness(transport.clone(), 1, &["limited-model", "other-model"], &[]).await;
 
     let limited = execute_json(&harness, "limited-model", json!({"input":"one"})).await;
-    assert_eq!(limited.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(limited.body["error"]["type"], "rate_limit_error");
+    assert_eq!(limited.body["error"]["code"], "rate_limit_exceeded");
     assert_eq!(limited.headers()[header::RETRY_AFTER], "5");
+    assert_eq!(limited.headers()["x-request-id"], "rate-limit-request");
+    assert_eq!(limited.headers()["x-codex-primary-used-percent"], "100");
 
     let limited_again = execute_json(&harness, "limited-model", json!({"input":"two"})).await;
     assert_eq!(limited_again.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -312,6 +324,79 @@ async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
     let other = execute_json(&harness, "other-model", json!({"input":"three"})).await;
     assert_eq!(other.status(), StatusCode::OK);
     assert_eq!(transport.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn final_openai_overload_keeps_529_and_safe_headers() {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::RETRY_AFTER, HeaderValue::from_static("2"));
+    headers.insert("x-request-id", HeaderValue::from_static("overload-request"));
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::json_with_headers(
+        StatusCode::from_u16(529).expect("529 status"),
+        headers,
+        r#"{"error":{"type":"overloaded_error"}}"#,
+    )]));
+    let harness = harness(transport, 1, &["overload-model"], &[]).await;
+
+    let response = execute_json(&harness, "overload-model", json!({"input":"one"})).await;
+
+    assert_eq!(response.status().as_u16(), 529);
+    assert_eq!(response.body["error"]["code"], "upstream_overloaded");
+    assert_eq!(response.headers()[header::RETRY_AFTER], "2");
+    assert_eq!(response.headers()["x-request-id"], "overload-request");
+}
+
+#[tokio::test]
+async fn retried_attempt_headers_are_discarded_in_favor_of_the_committed_attempt() {
+    let mut first_headers = HeaderMap::new();
+    first_headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("discarded-request"),
+    );
+    first_headers.insert(
+        "x-codex-promo-message",
+        HeaderValue::from_static("discarded-promo"),
+    );
+    let mut second_headers = HeaderMap::new();
+    second_headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("committed-request"),
+    );
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::json_with_headers(
+            StatusCode::TOO_MANY_REQUESTS,
+            first_headers,
+            r#"{"error":{"type":"rate_limit_error"}}"#,
+        ),
+        ScriptStep::json_with_headers(
+            StatusCode::OK,
+            second_headers,
+            r#"{"id":"ok","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["retry-header-model"], &[]).await;
+
+    let response = execute_json(&harness, "retry-header-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-request-id"], "committed-request");
+    assert!(!response.headers().contains_key("x-codex-promo-message"));
+    assert_eq!(transport.calls().len(), 2);
+}
+
+#[tokio::test]
+async fn upstream_credential_unauthorized_never_becomes_gateway_authentication_failure() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
+        StatusCode::UNAUTHORIZED,
+        r#"{"error":{"type":"authentication_error"}}"#,
+    )]));
+    let harness = harness(transport, 1, &["auth-model"], &[]).await;
+
+    let response = execute_json(&harness, "auth-model", json!({"input":"one"})).await;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_ne!(response.body["error"]["type"], "authentication_error");
 }
 
 #[tokio::test]

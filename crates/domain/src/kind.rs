@@ -92,6 +92,13 @@ pub enum TransportMode {
     Sse,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum RequestBodyEncoding {
+    #[default]
+    Identity,
+    Zstd,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialKind {

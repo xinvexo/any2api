@@ -1,5 +1,6 @@
 use super::{
-    error as claude_error, import as claude_import, oauth as claude_oauth, quota as claude_quota,
+    error as claude_error, headers as claude_headers, import as claude_import,
+    oauth as claude_oauth, quota as claude_quota,
 };
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
@@ -12,7 +13,8 @@ use crate::{
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
         OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, UpstreamResponseMeta,
+        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, ProviderRequestHeaderContext,
+        UpstreamResponseMeta,
     },
     credential::api_key,
 };
@@ -83,8 +85,18 @@ impl ProviderDriver for ClaudeDriver {
             .map_err(|_| ProviderError::InvalidCredential("invalid API Key header".into()))?;
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", api_key);
-        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
         Ok(CredentialHeaders { headers })
+    }
+
+    fn prepare_request_headers(
+        &self,
+        context: ProviderRequestHeaderContext<'_>,
+    ) -> Result<HeaderMap, ProviderError> {
+        claude_headers::request(context)
+    }
+
+    fn response_headers(&self, _operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap {
+        claude_headers::response(upstream)
     }
 
     fn oauth_login_flow(&self) -> Option<OAuthLoginFlow> {

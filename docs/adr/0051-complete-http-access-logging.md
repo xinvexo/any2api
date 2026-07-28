@@ -34,7 +34,7 @@ Migration 27 的首次执行版本对 `method` 使用 1 到 32 字符约束。�
 
 ### 生命周期与关联
 
-全局中间件生成 Request ID 并为全部响应覆盖 `x-request-id`。公开模型执行链复用同一个 ID 写入现有 `RequestLog`，使两类日志可按 ID 关联。
+全局中间件生成 Request ID 并为全部响应写入 `x-any2api-request-id`；仅在响应没有最终上游 `x-request-id` 时用本地值补齐该字段。公开模型执行链复用同一个本地 ID 写入现有 `RequestLog`，使两类日志可按 `x-any2api-request-id` 关联。本项由 ADR-0056 调整。
 
 响应 Body 包装器统计成功 yield 的 data frame 字节数，并在 EOF、Body 错误或客户端 Drop 时以原子完成标记只提交一次。状态码在 Handler 返回 Response 时捕获；Body 错误不会伪装成普通完成，Drop 记录为取消。
 

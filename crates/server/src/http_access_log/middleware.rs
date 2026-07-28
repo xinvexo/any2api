@@ -20,6 +20,7 @@ use crate::state::AppState;
 use super::body::{AccessLogBody, AccessLogCompletion, AccessLogMetadata};
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
+const ANY2API_REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-any2api-request-id");
 
 #[derive(Clone, Copy)]
 pub(crate) struct HttpRequestId(RequestId);
@@ -71,10 +72,16 @@ pub(crate) async fn record(
 
     let mut response = next.run(request).await;
     completion.set_status(response.status().as_u16());
-    response.headers_mut().insert(
-        REQUEST_ID_HEADER,
-        HeaderValue::from_str(&request_id.to_string()).expect("request UUID is a valid header"),
-    );
+    let request_id_value =
+        HeaderValue::from_str(&request_id.to_string()).expect("request UUID is a valid header");
+    response
+        .headers_mut()
+        .insert(ANY2API_REQUEST_ID_HEADER, request_id_value.clone());
+    if !response.headers().contains_key(&REQUEST_ID_HEADER) {
+        response
+            .headers_mut()
+            .insert(REQUEST_ID_HEADER, request_id_value);
+    }
     if response
         .extensions_mut()
         .remove::<ExcludeFromHttpAccessLog>()

@@ -1,4 +1,4 @@
-use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError};
+use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, RequestBodyEncoding};
 use async_trait::async_trait;
 use http::{HeaderMap, HeaderValue, Method, Uri, header};
 
@@ -64,7 +64,9 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
         Ok(DecodedRequest {
             dialect: self.dialect(),
             operation: request.operation,
+            client_headers: request.headers,
             headers: HeaderMap::new(),
+            body_encoding: RequestBodyEncoding::Identity,
             model: Some(model),
             stream: payload.stream,
             thinking_level: None,

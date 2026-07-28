@@ -23,6 +23,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     public_model: String,
     affinity: AffinitySelection,
     attempt_recorder: AttemptRecorder,
+    allow_credential_bound_headers: bool,
 ) -> Result<PublicResponse, AttemptFailure> {
     let AttemptInput {
         mut prepared,
@@ -37,6 +38,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         affinity,
         services.providers,
         attempt_recorder,
+        allow_credential_bound_headers,
     )?;
     let response = match prepared.send(services.transport).await {
         Ok(response) => response,
@@ -71,10 +73,18 @@ pub(in crate::public_request) async fn execute_stream_attempt(
                 return Err(AttemptFailure::Public(error));
             }
         };
+        let safe_headers = prepared.response_headers(&headers);
         let classification = prepared.classify(status, &headers, &body);
         prepared.upstream_failure(status.as_u16(), classification);
-        return Err(AttemptFailure::upstream(classification, candidate, fixed));
+        return Err(AttemptFailure::upstream(
+            status,
+            safe_headers,
+            classification,
+            candidate,
+            fixed,
+        ));
     }
+    headers = prepared.response_headers(&headers);
     sanitize_response_headers(&mut headers);
     headers.insert(
         header::CONTENT_TYPE,

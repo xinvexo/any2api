@@ -6,7 +6,7 @@ use http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
 use super::ClaudeDriver;
 use crate::{
     OAuthGrant, ProviderSecret,
-    api::{ProviderDriver, UpstreamResponseMeta},
+    api::{ProviderDriver, ProviderRequestHeaderContext, UpstreamResponseMeta},
 };
 
 #[test]
@@ -33,7 +33,19 @@ fn builds_messages_paths_and_anthropic_headers() {
         .credential_headers(&ProviderSecret::new(1, "sk-claude"))
         .expect("headers");
     assert_eq!(headers.headers["x-api-key"], "sk-claude");
-    assert_eq!(headers.headers["anthropic-version"], "2023-06-01");
+    assert!(!headers.headers.contains_key("anthropic-version"));
+    let identity = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::AnthropicMessages,
+            upstream_operation: ProtocolOperation::Messages,
+            upstream_model: "claude",
+            client_headers: &HeaderMap::new(),
+            oauth: false,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("identity headers");
+    assert_eq!(identity["anthropic-version"], "2023-06-01");
     assert!(
         driver
             .capabilities()
@@ -154,19 +166,60 @@ fn builds_claude_oauth_headers_and_preserves_client_betas() {
         .parse_oauth_token(br#"{"type":"claude","access_token":"oauth-secret"}"#)
         .expect("stored OAuth document");
     let mut forwarded = HeaderMap::new();
-    forwarded.insert(
+    forwarded.append(
         "anthropic-beta",
         "custom-beta".parse().expect("beta header"),
+    );
+    forwarded.append(
+        "anthropic-beta",
+        "second-beta".parse().expect("second beta header"),
     );
     let headers = driver
         .oauth_credential_headers(&token, &forwarded)
         .expect("OAuth headers");
 
     assert_eq!(headers.headers["authorization"], "Bearer oauth-secret");
-    assert_eq!(headers.headers["anthropic-version"], "2023-06-01");
+    assert!(!headers.headers.contains_key("anthropic-version"));
     assert_eq!(
-        headers.headers["anthropic-beta"],
-        "custom-beta,oauth-2025-04-20"
+        headers
+            .headers
+            .get_all("anthropic-beta")
+            .iter()
+            .map(|value| value.to_str().expect("beta text"))
+            .collect::<Vec<_>>(),
+        ["custom-beta", "second-beta", "oauth-2025-04-20"]
     );
+    let mut already_required = HeaderMap::new();
+    already_required.append("anthropic-beta", "first-beta".parse().expect("beta"));
+    already_required.append(
+        "anthropic-beta",
+        "second-beta,oauth-2025-04-20"
+            .parse()
+            .expect("required beta"),
+    );
+    let already_required = driver
+        .oauth_credential_headers(&token, &already_required)
+        .expect("OAuth headers with required beta");
+    assert_eq!(
+        already_required
+            .headers
+            .get_all("anthropic-beta")
+            .iter()
+            .map(|value| value.to_str().expect("beta text"))
+            .collect::<Vec<_>>(),
+        ["first-beta", "second-beta,oauth-2025-04-20"]
+    );
+    let identity = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::AnthropicMessages,
+            upstream_operation: ProtocolOperation::Messages,
+            upstream_model: "claude",
+            client_headers: &forwarded,
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("identity headers");
+    assert_eq!(identity["anthropic-version"], "2023-06-01");
     assert!(!format!("{headers:?}").contains("oauth-secret"));
 }
