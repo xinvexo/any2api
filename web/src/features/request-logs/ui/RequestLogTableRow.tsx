@@ -19,11 +19,11 @@ import { RequestLogExpandedPanel } from "./RequestLogExpandedPanel";
 import { cn } from "@/shared/lib/cn";
 
 /**
- * Full-width balanced grid: every column takes a share of free space.
- * Avoids both “令牌/模型 oversized” and a dead empty band on the right.
+ * Full-width balanced grid shared by header and body rows.
+ * Every column takes a share of free space — no dead right gutter.
  */
 export const requestLogGridClass =
-  "grid w-full min-w-[52rem] items-center gap-x-2 " +
+  "grid w-full items-center gap-x-2 px-1 " +
   "[grid-template-columns:minmax(0,1.35fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.85fr)_minmax(0,0.55fr)_minmax(0,0.7fr)_minmax(0,0.5fr)_minmax(0,0.7fr)]";
 
 const cell = "min-w-0 px-1 py-2.5 text-left text-[12px]";

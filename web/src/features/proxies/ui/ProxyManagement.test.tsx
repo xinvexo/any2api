@@ -30,8 +30,44 @@ test("renders DIRECT in a table-style proxy list", async () => {
   expect(await screen.findByRole("caption", { name: "出口代理列表" })).toBeInTheDocument();
   expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(0);
   expect(screen.getByText("本机网络")).toBeInTheDocument();
+  // Default global route is DIRECT — show the activation marker, no set-global action.
+  expect(screen.getByText("全局路由")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "将 DIRECT 设为全局出口" })).not.toBeInTheDocument();
   expect(screen.getByText("尚未添加自定义出口代理。新出口代理会独立保存，不会改变当前全局出口。")).toBeInTheDocument();
   expect(screen.queryByText(/Credential 绑定 DIRECT 时会继承此出口/)).not.toBeInTheDocument();
+});
+
+test("activates a custom proxy as the global route from the list", async () => {
+  const proxy = customProxy();
+  let current = configuration(1, [direct, proxy]);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = requestPath(input);
+    if (path.endsWith(`/proxies/${proxy.id}/set-global`) && init?.method === "POST") {
+      current = {
+        config_revision: 2,
+        global_proxy_id: proxy.id,
+        items: [direct, proxy],
+      };
+      return jsonResponse(current);
+    }
+    return jsonResponse(current);
+  });
+
+  renderManagement();
+
+  expect(await screen.findByText("全局路由")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: `将 ${proxy.name} 设为全局出口` }));
+
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "将 DIRECT 设为全局出口" })).toBeInTheDocument();
+  });
+  expect(screen.queryByRole("button", { name: `将 ${proxy.name} 设为全局出口` })).not.toBeInTheDocument();
+  // Marker moves to the newly activated proxy row (name cell).
+  expect(screen.getByText("全局路由")).toBeInTheDocument();
+
+  const call = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+  expect(String(call?.[0])).toContain(`/api/admin/proxies/${proxy.id}/set-global`);
+  expect(JSON.parse(String(call?.[1]?.body))).toEqual({ expected_revision: 1 });
 });
 
 test("creates a SOCKS5 proxy with the visible configuration revision", async () => {

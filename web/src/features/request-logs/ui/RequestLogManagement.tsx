@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, RefreshCw, ScrollText } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import {
   isRequestLogPageSize,
@@ -105,8 +105,8 @@ export function RequestLogManagement() {
         </Surface>
       ) : null}
 
-      {/* Only the list scrolls; toolbar and pagination stay put. */}
-      <div className="min-h-0 flex-1 overflow-auto pt-3 [scrollbar-gutter:stable]">
+      {/* List area fills remaining height; mobile/desktop each own their scroller (like system logs). */}
+      <div className="min-h-0 flex-1 pt-3">
         {total === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
             <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
@@ -118,7 +118,11 @@ export function RequestLogManagement() {
         ) : (
           <>
             {/* Mobile: adaptive borderless cards */}
-            <div className="space-y-2 md:hidden" role="list" aria-label="请求日志列表">
+            <div
+              className="h-full space-y-2 overflow-y-auto md:hidden [scrollbar-gutter:stable]"
+              role="list"
+              aria-label="请求日志列表"
+            >
               {pageItems.map((log) => (
                 <div key={log.requestId} role="listitem">
                   <RequestLogCard
@@ -134,73 +138,69 @@ export function RequestLogManagement() {
               ))}
             </div>
 
-            {/* Full-width CSS grid: free space shared across columns (no dead right gutter). */}
-            <div
-              className="hidden md:block"
-              role="table"
-              aria-label="请求日志表格"
-            >
+            {/* Desktop: fixed header + independent body scroll (same pattern as system logs). */}
+            <div className="hidden h-full min-h-0 overflow-x-auto md:block [scrollbar-gutter:stable]">
               <div
-                role="rowgroup"
-                className="sticky top-0 z-10 border-b border-subtle bg-surface"
+                role="table"
+                aria-label="请求日志表格"
+                aria-rowcount={pageItems.length + 1}
+                className="flex h-full min-w-[52rem] flex-col"
               >
                 <div
-                  role="row"
-                  className={cn(
-                    requestLogGridClass,
-                    "text-[11px] font-medium text-tertiary",
-                  )}
+                  role="rowgroup"
+                  aria-label="请求日志表头"
+                  className="shrink-0 overflow-y-auto border-b border-subtle bg-surface [scrollbar-gutter:stable]"
                 >
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    时间
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    令牌
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    模型
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    思考
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    结果
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    首字
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    总耗时
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    入
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    出
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    命中
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    创建
-                  </div>
-                  <div role="columnheader" className="min-w-0 truncate px-1 py-2 text-left">
-                    TPS
+                  <div
+                    role="row"
+                    aria-rowindex={1}
+                    className={cn(
+                      requestLogGridClass,
+                      "text-[11px] font-medium text-tertiary",
+                    )}
+                  >
+                    <RequestLogHeader>
+                      {/* Match body row chevron gutter so labels line up with values. */}
+                      <span className="inline-flex min-w-0 items-center gap-0.5">
+                        <span className="size-5 shrink-0" aria-hidden="true" />
+                        时间
+                      </span>
+                    </RequestLogHeader>
+                    <RequestLogHeader>令牌</RequestLogHeader>
+                    <RequestLogHeader>模型</RequestLogHeader>
+                    <RequestLogHeader>思考</RequestLogHeader>
+                    <RequestLogHeader>结果</RequestLogHeader>
+                    <RequestLogHeader>首字</RequestLogHeader>
+                    <RequestLogHeader>总耗时</RequestLogHeader>
+                    <RequestLogHeader>入</RequestLogHeader>
+                    <RequestLogHeader>出</RequestLogHeader>
+                    <RequestLogHeader>命中</RequestLogHeader>
+                    <RequestLogHeader>创建</RequestLogHeader>
+                    <RequestLogHeader>TPS</RequestLogHeader>
                   </div>
                 </div>
+                <div
+                  role="rowgroup"
+                  aria-label="请求日志表格数据"
+                  // Scrollable rowgroup must be keyboard-focusable.
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+                  tabIndex={0}
+                  className="focus-ring min-h-0 flex-1 overflow-y-auto bg-surface outline-none [scrollbar-gutter:stable]"
+                >
+                  {pageItems.map((log) => (
+                    <RequestLogTableRows
+                      key={log.requestId}
+                      log={log}
+                      expanded={visibleExpandedId === log.requestId}
+                      onToggle={() =>
+                        setExpandedId((current) =>
+                          current === log.requestId ? null : log.requestId,
+                        )
+                      }
+                    />
+                  ))}
+                </div>
               </div>
-              {pageItems.map((log) => (
-                <RequestLogTableRows
-                  key={log.requestId}
-                  log={log}
-                  expanded={visibleExpandedId === log.requestId}
-                  onToggle={() =>
-                    setExpandedId((current) =>
-                      current === log.requestId ? null : log.requestId,
-                    )
-                  }
-                />
-              ))}
             </div>
           </>
         )}
@@ -216,6 +216,14 @@ export function RequestLogManagement() {
           onPageSizeChange={handlePageSizeChange}
         />
       </div>
+    </div>
+  );
+}
+
+function RequestLogHeader({ children }: { children: ReactNode }) {
+  return (
+    <div role="columnheader" className="min-w-0 px-1 py-2 text-left">
+      {children}
     </div>
   );
 }

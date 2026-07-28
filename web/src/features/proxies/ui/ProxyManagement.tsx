@@ -10,6 +10,7 @@ import type { ProxyEditorSubmit } from "../model/use-proxy-editor";
 import { useProxyMutations } from "../model/use-proxy-mutations";
 import { ProxyEditor } from "./ProxyEditor";
 import { ProxyList } from "./ProxyList";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
@@ -161,6 +162,21 @@ export function ProxyManagement() {
     void proxies.refetch();
   }
 
+  function setGlobalRoute(proxy: ProxyProfile) {
+    mutations.setGlobal.reset();
+    mutations.setGlobal.mutate(
+      { id: proxy.id, expectedRevision: configuration.configRevision },
+      {
+        onSuccess: () => {
+          notify.success(`已将「${proxy.name}」设为全局出口`);
+        },
+        onError: (error) => {
+          notify.danger(getProxyErrorMessage(error));
+        },
+      },
+    );
+  }
+
   const drawerTitle = directEditor
     ? "DIRECT 不可编辑"
     : invalidEditor
@@ -198,10 +214,11 @@ export function ProxyManagement() {
         configuration={configuration}
         pending={mutations.isPending}
         refreshing={proxies.isFetching}
-        actionError={mutations.remove.error}
+        actionError={mutations.remove.error ?? mutations.setGlobal.error}
         onCreate={() => openEditor("new")}
         onRefresh={refreshData}
         onEdit={openEditor}
+        onSetGlobal={setGlobalRoute}
         onDelete={requestDelete}
       />
 

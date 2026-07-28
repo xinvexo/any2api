@@ -14,6 +14,7 @@ interface ProxyListProps {
   onCreate: () => void;
   onRefresh: () => void;
   onEdit: (id: string) => void;
+  onSetGlobal: (proxy: ProxyProfile) => void;
   onDelete: (proxy: ProxyProfile) => void;
 }
 
@@ -25,6 +26,7 @@ export function ProxyList({
   onCreate,
   onRefresh,
   onEdit,
+  onSetGlobal,
   onDelete,
 }: ProxyListProps) {
   const [query, setQuery] = useState("");
@@ -93,6 +95,7 @@ export function ProxyList({
                 isGlobal={proxy.id === configuration.globalProxyId}
                 pending={pending}
                 onEdit={onEdit}
+                onSetGlobal={onSetGlobal}
                 onDelete={onDelete}
               />
             ))}

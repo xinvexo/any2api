@@ -24,6 +24,12 @@ test("renders request logs in a table without leaving the page for details", asy
   // Mobile cards + desktop table both mount (CSS hides one); assert both shells exist.
   expect(await screen.findByRole("list", { name: "请求日志列表" })).toBeInTheDocument();
   expect(screen.getByRole("table", { name: "请求日志表格" })).toBeInTheDocument();
+  // Fixed header outside the body scroller (same pattern as system logs).
+  expect(screen.getByRole("rowgroup", { name: "请求日志表头" })).toBeInTheDocument();
+  expect(screen.getByRole("rowgroup", { name: "请求日志表格数据" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "时间" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "令牌" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "模型" })).toBeInTheDocument();
   expect(screen.getAllByText("codex-local").length).toBeGreaterThanOrEqual(1);
   // List shows credential name in the pill (no separate "API Key" / "OAuth" badge).
   expect(screen.getAllByText("Primary Codex").length).toBeGreaterThanOrEqual(1);
