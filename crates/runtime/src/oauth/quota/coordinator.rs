@@ -6,8 +6,8 @@ use std::{
 
 use any2api_domain::{OAuthAccountId, RoutingCredentialId};
 use any2api_provider::api::{
-    OAuthLocalTokenQuotaPolicy, OAuthQuotaExhaustion, OAuthQuotaResetResult,
-    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, ProviderRegistry,
+    OAuthQuotaExhaustion, OAuthQuotaResetResult, OAuthQuotaTokenBalance,
+    OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, ProviderRegistry,
 };
 use any2api_transport::api::TransportManager;
 use http::StatusCode;
@@ -161,6 +161,17 @@ impl OAuthQuotaService {
             supplement_plan,
         )
         .await?;
+        let queried_balance = observation::resolve_token_balance(
+            driver.as_ref(),
+            self.transport.as_ref(),
+            proxy,
+            strict_ssrf,
+            read_timeout,
+            token.as_ref(),
+            &usage,
+        )
+        .await?;
+        usage.replace_token_balance(queried_balance);
         let exhaustion = binding
             .generation()
             .health()
@@ -171,16 +182,9 @@ impl OAuthQuotaService {
                 limit: observed.limit,
             });
         usage.replace_quota_exhaustion(exhaustion);
-        let local_policy = driver.oauth_local_token_quota_policy(&usage);
-        let token_balance = local_policy.and_then(|policy| {
-            token_balance(
-                policy,
-                exhaustion,
-                usage.rate_limit.is_none(),
-                binding.token_usage_snapshot(policy.window_seconds),
-            )
-        });
-        usage.replace_token_balance(token_balance);
+        if let Some(balance) = exhaustion.and_then(exhaustion_token_balance) {
+            usage.replace_token_balance(Some(balance));
+        }
         if let Some(credits_plan) = credits_plan
             && let Ok(response) = request::execute(
                 self.transport.as_ref(),
@@ -299,31 +303,17 @@ impl OAuthQuotaService {
     }
 }
 
-fn token_balance(
-    policy: OAuthLocalTokenQuotaPolicy,
-    exhaustion: Option<OAuthQuotaExhaustion>,
-    use_local_fallback: bool,
-    local_used: u64,
-) -> Option<OAuthQuotaTokenBalance> {
-    if let Some(exhaustion) = exhaustion {
-        return exhaustion
-            .used
-            .zip(exhaustion.limit)
-            .map(|(used, limit)| OAuthQuotaTokenBalance {
-                source: OAuthQuotaTokenBalanceSource::Upstream,
-                used,
-                limit,
-                remaining: limit.saturating_sub(used),
-                window_seconds: None,
-            });
-    }
-    use_local_fallback.then_some(OAuthQuotaTokenBalance {
-        source: OAuthQuotaTokenBalanceSource::Local,
-        used: local_used,
-        limit: policy.limit,
-        remaining: policy.limit.saturating_sub(local_used),
-        window_seconds: Some(policy.window_seconds),
-    })
+fn exhaustion_token_balance(exhaustion: OAuthQuotaExhaustion) -> Option<OAuthQuotaTokenBalance> {
+    exhaustion
+        .used
+        .zip(exhaustion.limit)
+        .map(|(used, limit)| OAuthQuotaTokenBalance {
+            source: OAuthQuotaTokenBalanceSource::Upstream,
+            used,
+            limit,
+            remaining: limit.saturating_sub(used),
+            window_seconds: None,
+        })
 }
 
 fn map_second_authentication_failure(error: OAuthQuotaError) -> OAuthQuotaError {

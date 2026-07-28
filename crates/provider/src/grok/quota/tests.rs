@@ -1,10 +1,15 @@
 //! Grok billing and subscription request contracts.
 
 use any2api_domain::ProviderKind;
-use http::{Method, header};
+use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 
-use super::{local_token_quota_policy, parse_subscription, parse_usage, query_plan};
-use crate::{OAuthTokenMaterial, api::OAuthQuotaWindowKind};
+use super::{parse_subscription, parse_token_balance, parse_usage, query_plan, token_balance_plan};
+use crate::{
+    OAuthTokenMaterial,
+    api::{
+        OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindowKind, UpstreamResponseMeta,
+    },
+};
 
 fn token(account_id: Option<&str>) -> OAuthTokenMaterial {
     OAuthTokenMaterial::new(
@@ -183,22 +188,132 @@ fn parses_the_live_subscription_tier() {
     assert!(free.team_blocked_reasons.is_empty());
 }
 
-#[test]
-fn free_tier_uses_the_default_local_one_million_token_window() {
+fn free_usage() -> OAuthQuotaUsage {
     let mut usage =
         parse_usage(br#"{"config":{"isUnifiedBillingUser":true}}"#).expect("billing usage");
     usage.apply_supplement(
         parse_subscription(br#"{"subscriptionTier":null}"#).expect("free subscription"),
     );
+    usage
+}
 
-    let policy = local_token_quota_policy(&usage).expect("local Free policy");
-    assert_eq!(policy.limit, 1_000_000);
-    assert_eq!(policy.window_seconds, 86_400);
+#[test]
+fn free_tier_builds_a_minimal_token_balance_probe() {
+    let usage = free_usage();
+    let plan = token_balance_plan(&token(Some("subject-1")), &usage)
+        .expect("token balance plan")
+        .expect("Free probe");
 
-    usage.apply_supplement(
+    assert_eq!(plan.method, Method::POST);
+    assert_eq!(
+        plan.url.as_str(),
+        "https://cli-chat-proxy.grok.com/v1/chat/completions"
+    );
+    assert_eq!(plan.headers[header::AUTHORIZATION], "Bearer access-secret");
+    assert_eq!(plan.headers[header::CONTENT_TYPE], "application/json");
+    assert_eq!(plan.headers["x-grok-model-override"], "grok-4.5");
+    assert_eq!(plan.headers["x-userid"], "subject-1");
+    let body: serde_json::Value = serde_json::from_slice(&plan.body).expect("probe JSON");
+    assert_eq!(body["model"], "grok-4.5");
+    assert_eq!(body["max_tokens"], 1);
+    assert_eq!(body["stream"], false);
+    assert_eq!(body["messages"][0]["content"], "ping");
+
+    let mut paid = usage;
+    paid.apply_supplement(
         parse_subscription(br#"{"subscriptionTier":"SuperGrokPro"}"#).expect("paid subscription"),
     );
-    assert!(local_token_quota_policy(&usage).is_none());
+    assert!(
+        token_balance_plan(&token(Some("subject-1")), &paid)
+            .expect("paid balance plan")
+            .is_none()
+    );
+}
+
+#[test]
+fn parses_the_current_free_token_limit_from_response_headers() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-ratelimit-limit-tokens",
+        HeaderValue::from_static("2000000"),
+    );
+    headers.insert(
+        "x-ratelimit-remaining-tokens",
+        HeaderValue::from_static("1750000"),
+    );
+    let balance = parse_token_balance(
+        &free_usage(),
+        &UpstreamResponseMeta {
+            status: StatusCode::OK,
+            headers,
+        },
+        br#"{"choices":[]}"#,
+    )
+    .expect("token headers")
+    .expect("token balance");
+
+    assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Upstream);
+    assert_eq!(balance.used, 250_000);
+    assert_eq!(balance.limit, 2_000_000);
+    assert_eq!(balance.remaining, 1_750_000);
+    assert_eq!(balance.window_seconds, None);
+}
+
+#[test]
+fn incomplete_or_invalid_token_headers_remain_unknown() {
+    for (limit, remaining) in [
+        (Some("2000000"), None),
+        (None, Some("1750000")),
+        (Some("invalid"), Some("1750000")),
+        (Some("2000000"), Some("2000001")),
+        (Some("0"), Some("0")),
+        (Some("9007199254740992"), Some("1")),
+    ] {
+        let mut headers = HeaderMap::new();
+        if let Some(limit) = limit {
+            headers.insert(
+                "x-ratelimit-limit-tokens",
+                HeaderValue::from_str(limit).expect("limit header"),
+            );
+        }
+        if let Some(remaining) = remaining {
+            headers.insert(
+                "x-ratelimit-remaining-tokens",
+                HeaderValue::from_str(remaining).expect("remaining header"),
+            );
+        }
+        assert!(
+            parse_token_balance(
+                &free_usage(),
+                &UpstreamResponseMeta {
+                    status: StatusCode::OK,
+                    headers,
+                },
+                b"{}",
+            )
+            .expect("invalid headers stay unknown")
+            .is_none()
+        );
+    }
+}
+
+#[test]
+fn parses_actual_limit_from_a_free_exhaustion_response() {
+    let balance = parse_token_balance(
+        &free_usage(),
+        &UpstreamResponseMeta {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            headers: HeaderMap::new(),
+        },
+        br#"{"error":{"code":"subscription:free-usage-exhausted","message":"tokens (actual/limit): 2042591/2000000; Usage resets over a rolling window"}}"#,
+    )
+    .expect("exhaustion response")
+    .expect("exhaustion balance");
+
+    assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Upstream);
+    assert_eq!(balance.used, 2_042_591);
+    assert_eq!(balance.limit, 2_000_000);
+    assert_eq!(balance.remaining, 0);
 }
 
 #[test]

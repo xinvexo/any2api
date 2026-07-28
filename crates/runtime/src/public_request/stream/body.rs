@@ -21,10 +21,7 @@ use tokio::time::{Sleep, timeout};
 use super::super::{PublicResponseStream, RequestPermit};
 use super::{PrecommitBudget, pending_failure::PendingStreamError};
 use crate::request_telemetry::{AttemptRecorder, RequestRecorder};
-use crate::{
-    affinity::HardAffinityCommitter, credential::CredentialTokenUsageRecorder,
-    health::AttemptHealth,
-};
+use crate::{affinity::HardAffinityCommitter, health::AttemptHealth};
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct CancellationToken {
@@ -74,7 +71,6 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) upstream_done: bool,
     pub(super) decoder_finished: bool,
     pub(super) attempt_recorder: Option<AttemptRecorder>,
-    pub(super) token_usage_recorder: Option<CredentialTokenUsageRecorder>,
     pub(super) request_recorder: RequestRecorder,
     pub(super) status_code: u16,
     pub(super) owns_request_completion: bool,
@@ -105,7 +101,6 @@ impl GuardedBody {
             precommit_budget,
             postcommit_idle_timeout,
         } = parts;
-        let token_usage_recorder = permit.token_usage_recorder();
         let request_recorder = attempt_recorder.request();
         let decoder = SseDecoder::new(precommit_budget.max_frame_bytes());
         Self {
@@ -124,7 +119,6 @@ impl GuardedBody {
             upstream_done: false,
             decoder_finished: false,
             attempt_recorder: Some(attempt_recorder),
-            token_usage_recorder: Some(token_usage_recorder),
             request_recorder,
             status_code,
             owns_request_completion: false,

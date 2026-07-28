@@ -15,7 +15,7 @@ pub(crate) use model_catalog::{ModelCatalogReadError, collect as collect_model_c
 pub(crate) use runtime::CredentialRuntimeBindings;
 pub(crate) use runtime::{
     CredentialAuthentication, CredentialFilterKind, CredentialGenerationDefinition,
-    CredentialRuntimeHandle, CredentialTokenUsageRecorder, RateLimited,
+    CredentialRuntimeHandle, RateLimited,
 };
 pub use runtime::{
     CredentialBalancingCounters, CredentialGenerationRuntime, CredentialRateSnapshot,

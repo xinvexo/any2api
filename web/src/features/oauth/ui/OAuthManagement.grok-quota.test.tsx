@@ -60,9 +60,9 @@ test("shows and refreshes Grok quota without a reset action", async () => {
   expect(within(panel).getByText("BLOCKED_REASON_BILLING")).toBeInTheDocument();
   expect(within(panel).getByText("BLOCKED_REASON_NO_LOGS")).toBeInTheDocument();
   expect(screen.getByText("xAI 受限")).toBeInTheDocument();
-  expect(within(panel).getByText("Token 余额 · Free 本地计量")).toBeInTheDocument();
-  expect(within(panel).getByText("1,000,000 / 1,000,000")).toBeInTheDocument();
-  expect(within(panel).queryByText(/已用 0/)).not.toBeInTheDocument();
+  expect(within(panel).getByText("Token 余额 · 上游真实观测")).toBeInTheDocument();
+  expect(within(panel).getByText("1,750,000 / 2,000,000")).toBeInTheDocument();
+  expect(within(panel).queryByText(/已用 250,000/)).not.toBeInTheDocument();
   expect(within(panel).queryByText(/滚动 1 天/)).not.toBeInTheDocument();
   expect(within(panel).queryByText("100%")).not.toBeInTheDocument();
   expect(within(panel).queryByText("周限额")).not.toBeInTheDocument();
@@ -122,11 +122,11 @@ function grokQuota() {
       is_unified_billing_user: true,
     },
     token_balance: {
-      source: "local",
-      used: 0,
-      limit: 1_000_000,
-      remaining: 1_000_000,
-      window_seconds: 86_400,
+      source: "upstream",
+      used: 250_000,
+      limit: 2_000_000,
+      remaining: 1_750_000,
+      window_seconds: null,
     },
     subscription_tier: "Free",
     account_status: {

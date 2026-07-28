@@ -10,7 +10,6 @@ use super::{
     handle::{CredentialRuntimeHandle, FixedCredentialWaiter},
     metrics::{CredentialBalancingCounters, CredentialFilterKind},
     rate_window::{CredentialRateSnapshot, RateLimited},
-    token_window::CredentialTokenUsageRecorder,
 };
 
 #[derive(Clone, Debug)]
@@ -74,10 +73,6 @@ impl CredentialRuntimeBinding {
     pub(crate) fn register_fixed_waiter(&self) -> FixedCredentialWaiter {
         self.handle.register_fixed_waiter()
     }
-
-    pub(crate) fn token_usage_snapshot(&self, window_seconds: u64) -> u64 {
-        self.handle.token_usage_snapshot(window_seconds)
-    }
 }
 
 pub struct RoutingPermit {
@@ -102,10 +97,6 @@ impl RoutingPermit {
         forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
         self.generation.credential_headers(driver, forwarded)
-    }
-
-    pub(crate) fn token_usage_recorder(&self) -> CredentialTokenUsageRecorder {
-        self.handle.token_usage_recorder()
     }
 }
 

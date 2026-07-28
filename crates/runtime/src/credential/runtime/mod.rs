@@ -5,7 +5,6 @@ mod metrics;
 mod rate_window;
 #[cfg(test)]
 mod tests;
-mod token_window;
 
 #[cfg(test)]
 pub(crate) use binding::CredentialRuntimeBindings;
@@ -17,4 +16,3 @@ pub use metrics::CredentialBalancingCounters;
 pub(crate) use metrics::CredentialFilterKind;
 pub use rate_window::CredentialRateSnapshot;
 pub(crate) use rate_window::RateLimited;
-pub(crate) use token_window::CredentialTokenUsageRecorder;

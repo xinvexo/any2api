@@ -1,8 +1,9 @@
 use any2api_domain::{
-    RetrySafety, RoutingCredentialId, TokenUsage, UpstreamErrorClassification, UpstreamErrorKind,
+    RetrySafety, RoutingCredentialId, UpstreamErrorClassification, UpstreamErrorKind,
     UpstreamQuotaExhaustion,
 };
 use any2api_provider::api::OAuthQuotaTokenBalanceSource;
+use http::Method;
 
 use super::{
     test_support::{AuthenticationMode, QuotaTestContext},
@@ -67,7 +68,7 @@ async fn grok_query_reads_billing_and_current_subscription_over_direct_proxy() {
 }
 
 #[tokio::test]
-async fn grok_free_billing_uses_the_local_one_million_token_window() {
+async fn grok_free_billing_reads_the_current_upstream_token_headers() {
     let context = QuotaTestContext::new_grok_unified().await;
 
     let quota = context
@@ -82,41 +83,26 @@ async fn grok_free_billing_uses_the_local_one_million_token_window() {
     assert_eq!(billing.on_demand_used_minor, Some(0));
     assert_eq!(billing.on_demand_cap_minor, Some(0));
     assert_eq!(quota.usage.subscription_tier.as_deref(), Some("Free"));
-    let balance = quota.usage.token_balance.expect("local token balance");
-    assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Local);
-    assert_eq!(balance.used, 0);
-    assert_eq!(balance.limit, 1_000_000);
-    assert_eq!(balance.remaining, 1_000_000);
-    assert_eq!(balance.window_seconds, Some(86_400));
+    let balance = quota.usage.token_balance.expect("upstream token balance");
+    assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Upstream);
+    assert_eq!(balance.used, 250_000);
+    assert_eq!(balance.limit, 2_000_000);
+    assert_eq!(balance.remaining, 1_750_000);
+    assert_eq!(balance.window_seconds, None);
     let status = quota.usage.account_status.expect("account status");
     assert!(status.user_blocked_reason.is_none());
     assert!(status.team_blocked_reasons.is_empty());
-    assert_eq!(context.transport.captured().len(), 2);
-
-    let snapshot = context.snapshots.load();
-    let binding = snapshot
-        .credential_runtime(RoutingCredentialId::oauth_account(context.account_id))
-        .expect("credential runtime");
-    let permit = binding.try_reserve_fixed().expect("fixed permit");
-    let mut recorder = permit.token_usage_recorder();
-    recorder.observe(TokenUsage::new(
-        Some(100_000),
-        Some(50_000),
-        Some(80_000),
-        Some(10_000),
-    ));
-    drop(recorder);
-    drop(permit);
-    drop(snapshot);
-
-    let updated = context
-        .service
-        .query_quota(context.account_id)
-        .await
-        .expect("updated Grok quota");
-    let balance = updated.usage.token_balance.expect("updated local balance");
-    assert_eq!(balance.used, 150_000);
-    assert_eq!(balance.remaining, 850_000);
+    let captured = context.transport.captured();
+    assert_eq!(captured.len(), 3);
+    let probe = &captured[2];
+    assert_eq!(probe.method, Method::POST);
+    assert_eq!(probe.path, "/v1/chat/completions");
+    assert_eq!(probe.content_type.as_deref(), Some("application/json"));
+    assert_eq!(probe.grok_model_override.as_deref(), Some("grok-4.5"));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&probe.body).expect("probe JSON")["max_tokens"],
+        1
+    );
 }
 
 #[tokio::test]
@@ -162,7 +148,7 @@ async fn grok_quota_includes_only_real_runtime_exhaustion_observations() {
 }
 
 #[tokio::test]
-async fn grok_exhaustion_without_numbers_suppresses_the_local_balance() {
+async fn grok_exhaustion_without_numbers_keeps_the_fresh_header_balance() {
     let context = QuotaTestContext::new_grok_unified().await;
     let snapshot = context.snapshots.load();
     let binding = snapshot
@@ -185,7 +171,10 @@ async fn grok_exhaustion_without_numbers_suppresses_the_local_balance() {
         .await
         .expect("Grok quota query");
 
-    assert!(quota.usage.token_balance.is_none());
+    let balance = quota.usage.token_balance.expect("fresh header balance");
+    assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Upstream);
+    assert_eq!(balance.limit, 2_000_000);
+    assert_eq!(balance.remaining, 1_750_000);
     assert!(
         quota
             .usage

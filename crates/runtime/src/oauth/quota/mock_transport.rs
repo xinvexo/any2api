@@ -12,7 +12,7 @@ use any2api_transport::api::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
-use http::{HeaderMap, StatusCode, header::AUTHORIZATION};
+use http::{HeaderMap, HeaderValue, Method, StatusCode, header::AUTHORIZATION};
 use tokio::sync::Semaphore;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -25,6 +25,7 @@ pub(super) enum AuthenticationMode {
 }
 
 pub(super) struct CapturedQuotaRequest {
+    pub(super) method: Method,
     pub(super) path: String,
     pub(super) authorization: Option<String>,
     pub(super) account_id: Option<String>,
@@ -32,6 +33,8 @@ pub(super) struct CapturedQuotaRequest {
     pub(super) grok_client_version: Option<String>,
     pub(super) grok_user_id: Option<String>,
     pub(super) grok_client_mode: Option<String>,
+    pub(super) grok_model_override: Option<String>,
+    pub(super) content_type: Option<String>,
     pub(super) anthropic_beta: Option<String>,
     pub(super) user_agent: Option<String>,
     pub(super) proxy_id: any2api_domain::ProxyProfileId,
@@ -84,6 +87,7 @@ impl QuotaTransport {
             .expect("captured request lock")
             .iter()
             .map(|request| CapturedQuotaRequest {
+                method: request.method.clone(),
                 path: request.path.clone(),
                 authorization: request.authorization.clone(),
                 account_id: request.account_id.clone(),
@@ -91,6 +95,8 @@ impl QuotaTransport {
                 grok_client_version: request.grok_client_version.clone(),
                 grok_user_id: request.grok_user_id.clone(),
                 grok_client_mode: request.grok_client_mode.clone(),
+                grok_model_override: request.grok_model_override.clone(),
+                content_type: request.content_type.clone(),
                 anthropic_beta: request.anthropic_beta.clone(),
                 user_agent: request.user_agent.clone(),
                 proxy_id: request.proxy_id,
@@ -154,6 +160,7 @@ impl TransportManager for QuotaTransport {
             .lock()
             .expect("captured request lock")
             .push(CapturedQuotaRequest {
+                method: request.method.clone(),
                 path: captured_path,
                 authorization,
                 account_id: header(&request, "chatgpt-account-id"),
@@ -161,6 +168,8 @@ impl TransportManager for QuotaTransport {
                 grok_client_version: header(&request, "x-grok-client-version"),
                 grok_user_id: header(&request, "x-userid"),
                 grok_client_mode: header(&request, "x-grok-client-mode"),
+                grok_model_override: header(&request, "x-grok-model-override"),
+                content_type: header(&request, "content-type"),
                 anthropic_beta: header(&request, "anthropic-beta"),
                 user_agent: header(&request, "user-agent"),
                 proxy_id: proxy.profile().id(),
@@ -173,6 +182,7 @@ impl TransportManager for QuotaTransport {
             "/api/oauth/usage" => self.claude_usage_response(),
             "/v1/billing" => self.grok_billing_response(),
             "/v1/user" => self.grok_subscription_response(),
+            "/v1/chat/completions" => self.grok_token_balance_response(),
             "/backend-api/wham/rate-limit-reset-credits" => self.reset_credits_response(),
             "/backend-api/wham/rate-limit-reset-credits/consume" => self.consume_response().await,
             other => panic!("unexpected quota request path: {other}"),
@@ -248,6 +258,24 @@ impl QuotaTransport {
                 br#"{"subscriptionTier":"SuperGrokPro","userBlockedReason":"BLOCKED_REASON_BILLING","teamBlockedReasons":["BLOCKED_REASON_NO_LOGS"]}"#,
             ))
         }
+    }
+
+    fn grok_token_balance_response(&self) -> MockResponse {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-ratelimit-limit-tokens",
+            HeaderValue::from_static("2000000"),
+        );
+        headers.insert(
+            "x-ratelimit-remaining-tokens",
+            HeaderValue::from_static("1750000"),
+        );
+        (
+            StatusCode::OK,
+            headers,
+            Bytes::from_static(br#"{"choices":[]}"#),
+            false,
+        )
     }
 
     fn reset_credits_response(&self) -> MockResponse {

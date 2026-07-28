@@ -1,6 +1,6 @@
 # ADR-0045：Grok OAuth Billing 额度查询
 
-- 状态：Accepted
+- 状态：Accepted（Free Token 计量的第 6、9–12 条由 ADR-0060 取代）
 - 日期：2026-07-25
 - 决策人：项目维护者
 - 补充：ADR-0034、ADR-0041

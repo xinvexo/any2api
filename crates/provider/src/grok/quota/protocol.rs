@@ -10,16 +10,14 @@ use crate::grok::oauth;
 use crate::{
     OAuthRequestPlan, OAuthTokenMaterial, ProviderError,
     oauth::quota::{
-        OAuthLocalTokenQuotaPolicy, OAuthQuotaBilling, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
-        OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
+        OAuthQuotaBilling, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaUsage,
+        OAuthQuotaWindow, OAuthQuotaWindowKind,
     },
 };
 
 const BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 const SUBSCRIPTION_URL: &str = "https://cli-chat-proxy.grok.com/v1/user?include=subscription";
 const MAX_SAFE_INTEGER_MINOR: u64 = 9_007_199_254_740_991;
-const FREE_TOKEN_LIMIT: u64 = 1_000_000;
-const FREE_TOKEN_WINDOW_SECONDS: u64 = 86_400;
 
 pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPlan, ProviderError> {
     if token.provider() != ProviderKind::Grok {
@@ -27,31 +25,7 @@ pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPl
             "OAuth token provider does not match Grok quota".into(),
         ));
     }
-    let account_id = token.account_id().ok_or_else(|| {
-        ProviderError::InvalidCredential("Grok OAuth subject is required for quota".into())
-    })?;
-    let mut headers = oauth::credential_headers(token)?.headers;
-    headers.insert("x-xai-token-auth", HeaderValue::from_static("xai-grok-cli"));
-    headers.insert(
-        "x-authenticateresponse",
-        HeaderValue::from_static("authenticate-response"),
-    );
-    headers.insert("x-grok-client-version", HeaderValue::from_static("0.2.112"));
-    headers.insert(
-        header::USER_AGENT,
-        HeaderValue::from_static("grok-shell/0.2.112 (macos; aarch64)"),
-    );
-    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
-    headers.insert(
-        "x-userid",
-        HeaderValue::from_str(account_id).map_err(|_| {
-            ProviderError::InvalidCredential("Grok OAuth subject is invalid".into())
-        })?,
-    );
-    headers.insert(
-        "x-grok-client-mode",
-        HeaderValue::from_static("interactive"),
-    );
+    let headers = request_headers(token)?;
     let usage = get(BILLING_URL, headers.clone())?;
     let supplement = get(SUBSCRIPTION_URL, headers)?;
     Ok(OAuthQuotaQueryPlan::with_supplement(usage, supplement))
@@ -118,17 +92,40 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
     })
 }
 
-pub(crate) fn local_token_quota_policy(
-    usage: &OAuthQuotaUsage,
-) -> Option<OAuthLocalTokenQuotaPolicy> {
-    usage
-        .subscription_tier
-        .as_deref()
-        .is_some_and(|tier| tier.trim().eq_ignore_ascii_case("free"))
-        .then_some(OAuthLocalTokenQuotaPolicy {
-            limit: FREE_TOKEN_LIMIT,
-            window_seconds: FREE_TOKEN_WINDOW_SECONDS,
-        })
+pub(super) fn request_headers(
+    token: &OAuthTokenMaterial,
+) -> Result<http::HeaderMap, ProviderError> {
+    if token.provider() != ProviderKind::Grok {
+        return Err(ProviderError::InvalidCredential(
+            "OAuth token provider does not match Grok quota".into(),
+        ));
+    }
+    let account_id = token.account_id().ok_or_else(|| {
+        ProviderError::InvalidCredential("Grok OAuth subject is required for quota".into())
+    })?;
+    let mut headers = oauth::credential_headers(token)?.headers;
+    headers.insert("x-xai-token-auth", HeaderValue::from_static("xai-grok-cli"));
+    headers.insert(
+        "x-authenticateresponse",
+        HeaderValue::from_static("authenticate-response"),
+    );
+    headers.insert("x-grok-client-version", HeaderValue::from_static("0.2.112"));
+    headers.insert(
+        header::USER_AGENT,
+        HeaderValue::from_static("grok-shell/0.2.112 (macos; aarch64)"),
+    );
+    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    headers.insert(
+        "x-userid",
+        HeaderValue::from_str(account_id).map_err(|_| {
+            ProviderError::InvalidCredential("Grok OAuth subject is invalid".into())
+        })?,
+    );
+    headers.insert(
+        "x-grok-client-mode",
+        HeaderValue::from_static("interactive"),
+    );
+    Ok(headers)
 }
 
 fn get(url: &str, headers: http::HeaderMap) -> Result<OAuthRequestPlan, ProviderError> {

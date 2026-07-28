@@ -27,7 +27,7 @@ export interface OAuthQuotaBilling {
 }
 
 export interface OAuthQuotaTokenBalance {
-  source: "local" | "upstream";
+  source: "upstream";
   used: number;
   limit: number;
   remaining: number;
@@ -78,7 +78,7 @@ function parseTokenBalance(value: unknown): OAuthQuotaTokenBalance | null {
   if (value === null || value === undefined) return null;
   if (!isRecord(value)) throw invalidResponse();
   const source = value.source;
-  if (source !== "local" && source !== "upstream") throw invalidResponse();
+  if (source !== "upstream") throw invalidResponse();
   return {
     source,
     used: readInteger(value.used, 0),

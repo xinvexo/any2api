@@ -19,11 +19,10 @@ pub use crate::oauth::{
     OAuthTokenMaterial, serialize_document,
 };
 pub use crate::oauth::{
-    OAuthLocalTokenQuotaPolicy, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
-    OAuthQuotaBilling, OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
-    OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement,
-    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
-    OAuthQuotaWindowKind,
+    OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
+    OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit,
+    OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement, OAuthQuotaTokenBalance,
+    OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 pub use crate::{ProviderError, ProviderRegistry, ProviderSecret};
 
@@ -240,11 +239,21 @@ pub trait ProviderDriver: Send + Sync {
         ))
     }
 
-    fn oauth_local_token_quota_policy(
+    fn oauth_quota_token_balance_plan(
+        &self,
+        _token: &OAuthTokenMaterial,
+        _usage: &OAuthQuotaUsage,
+    ) -> Result<Option<OAuthRequestPlan>, ProviderError> {
+        Ok(None)
+    }
+
+    fn parse_oauth_quota_token_balance(
         &self,
         _usage: &OAuthQuotaUsage,
-    ) -> Option<OAuthLocalTokenQuotaPolicy> {
-        None
+        _meta: &UpstreamResponseMeta,
+        _body: &[u8],
+    ) -> Result<Option<OAuthQuotaTokenBalance>, ProviderError> {
+        Ok(None)
     }
 
     fn parse_oauth_quota_reset_credits(

@@ -434,7 +434,7 @@
 - 刷新响应省略到期时间时继续使用 SQLite 账号的旧到期边界，禁止把有限 Token 误变成永不过期；Token Endpoint 和数据面始终使用 DIRECT/全局代理，失败无隐式直连回退。Worker 在 Draining 退出，已经进入串行发布的 CAS 按关键任务边界完成或在 Forced 取消。
 - Codex OAuth 账号新增 `GET /api/admin/oauth/accounts/{id}/quota` 与 `POST /api/admin/oauth/accounts/{id}/quota/reset`；Provider 固定调用 ChatGPT `wham/usage`、reset-credit 查询和 consume Endpoint，Runtime 复用 OAuth 代理/严格 SSRF、401 单次刷新和有界正文读取。
 - 重置前由服务端重新查询 `available_count`，无可用次数时返回结构化 409，不能仅依赖浏览器旧状态；每个账号的 reset 操作串行化，成功消费后只清除该账号当前 generation 的额度/限流临时冷却并唤醒 scheduler，不清除认证错误或其他账号状态。
-- 通用额度响应使用带稳定 ID 的窗口列表，只返回已验证的使用率、窗口维度、重置时间、可选全局状态、Token 余额来源和 Codex reset credit，不写入 OAuth JSON、SQLite、RequestLog、日志或浏览器持久存储。Codex 支持查询与重置；Claude 显示 5 小时、7 天及可选模型窗口；Grok 显示官方套餐、credits/billing 信息，以及官方 Free 余额缺失时明确标注的本地 1M 滚动 24 小时 Token 计量。
+- 通用额度响应使用带稳定 ID 的窗口列表，只返回已验证的使用率、窗口维度、重置时间、可选全局状态、Token 余额来源和 Codex reset credit，不写入 OAuth JSON、SQLite、RequestLog、日志或浏览器持久存储。Codex 支持查询与重置；Claude 显示 5 小时、7 天及可选模型窗口；Grok 显示官方套餐、credits/billing 信息，Free Token 余额只使用最小探测响应头返回的真实 limit/remaining。
 - OAuth 账号集合已移除客户端分页，改用共享响应式 `VirtualGrid` 按动态网格行渲染完整 Provider 集合；Codex、Claude 与 Grok 页面都提供“刷新全部额度”，覆盖禁用和离屏账号，最多 6 并发并汇总部分失败。页面同时提供“删除失效账号”：只把刷新 Token 后仍明确返回认证失败的账号列入确认集合，其他错误保留，检测后 Token 版本变化则跳过；删除串行复用现有 revisioned API。额度 Query cache、批量进度与 reset mutation pending 独立于虚拟行挂载，滚动卸载不会取消批量请求，reset 后读取失败也不会保留旧快照。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 - React `/oauth` 已接入账号列表、标签/可选 RPM/启停编辑、可搜索模型多选与保存、单账号及失效批量删除确认、JSON 导入、三 Provider 额度、过期提示和 URL deep link；Token 与原始 JSON 不进入管理响应或浏览器持久状态。真实 Chromium 使用假 Token 经真实导入、SQLite 和发布链覆盖桌面/390px 编辑、模型保存后刷新、删除确认、deep link、额度控件和无横向溢出。完整决策见 `docs/adr/0033-server-side-oauth-file-output.md`。
 
@@ -454,7 +454,7 @@
 
 - `POST /api/admin/oauth/import` 接受最多 32 个 JSON 文件和单文件多账号 envelope，兼容已审计的 CLIProxyAPI/Sub2API Codex、Claude 与 xAI/Grok OAuth 结构；全部账号先规范化，再在一个 SQLite 事务、一次 revision 和一次快照切换中原子发布。
 - 上传文件只存在于导入抽屉局部状态，提交开始、失败、关闭或卸载都会清空；服务端不保留文件副本，不提供 OAuth JSON 读取、下载或导出端点。
-- Grok 固定读取 xAI billing 与实时 subscription；缺少权威 Free 余额时使用当前进程观察到的真实响应 usage 做本地 1M 滚动 24 小时计量，禁止发送生成请求探测或把推理限流 Header 冒充余额。Claude 固定读取 Anthropic OAuth usage 并保留全部有效窗口；两者均只读且不提供 reset。
+- Grok 固定读取 xAI billing 与实时 subscription；Free 套餐追加最小 Chat Completions 请求，只从 `x-ratelimit-limit-tokens` / `x-ratelimit-remaining-tokens` 读取真实 Token 余额，缺失时保持未知，不再默认 1M。Claude 固定读取 Anthropic OAuth usage 并保留全部有效窗口；两者均不提供 reset。
 - Provider、Runtime、Storage、HTTP、Web 与真实浏览器测试覆盖外部 JSON 解析、整批回滚、脱敏 DTO、额度窗口解析、代理/401 刷新边界和账号管理工作流。完整决策见 ADR-0044、ADR-0045 与 ADR-0046。
 
 ### Feature-first 目录收敛切片

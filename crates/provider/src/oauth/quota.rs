@@ -91,14 +91,7 @@ pub struct OAuthQuotaBilling {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OAuthLocalTokenQuotaPolicy {
-    pub limit: u64,
-    pub window_seconds: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthQuotaTokenBalanceSource {
-    Local,
     Upstream,
 }
 

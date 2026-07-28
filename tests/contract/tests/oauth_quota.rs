@@ -23,7 +23,7 @@ use axum::{
     Router,
     body::Body,
     extract::ConnectInfo,
-    http::{HeaderMap, Method, Request, StatusCode, header::CACHE_CONTROL},
+    http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header::CACHE_CONTROL},
 };
 use bytes::Bytes;
 use futures_util::stream;
@@ -199,7 +199,7 @@ async fn grok_billing_and_subscription_return_redacted_credits_and_tier() {
 }
 
 #[tokio::test]
-async fn grok_free_quota_returns_the_local_one_million_token_balance() {
+async fn grok_free_quota_returns_the_live_upstream_token_headers() {
     let context = TestContext::new().await;
     context.transport.use_grok_free_subscription();
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
@@ -218,17 +218,13 @@ async fn grok_free_quota_returns_the_local_one_million_token_balance() {
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.json["subscription_tier"], "Free");
     assert!(response.json["rate_limit"].is_null());
-    assert_eq!(response.json["token_balance"]["source"], "local");
-    assert_eq!(response.json["token_balance"]["used"], 0);
-    assert_eq!(response.json["token_balance"]["limit"], 1_000_000);
-    assert_eq!(response.json["token_balance"]["remaining"], 1_000_000);
-    assert_eq!(response.json["token_balance"]["window_seconds"], 86_400);
-    assert_eq!(context.transport.calls(), 2);
-    assert!(
-        context
-            .transport
-            .last_requests_are_grok_billing_and_subscription()
-    );
+    assert_eq!(response.json["token_balance"]["source"], "upstream");
+    assert_eq!(response.json["token_balance"]["used"], 250_000);
+    assert_eq!(response.json["token_balance"]["limit"], 2_000_000);
+    assert_eq!(response.json["token_balance"]["remaining"], 1_750_000);
+    assert!(response.json["token_balance"]["window_seconds"].is_null());
+    assert_eq!(context.transport.calls(), 3);
+    assert!(context.transport.grok_free_probe_is_minimal());
 }
 
 #[tokio::test]
@@ -447,6 +443,8 @@ struct CapturedRequest {
     grok_client_version: Option<String>,
     grok_user_id: Option<String>,
     grok_client_mode: Option<String>,
+    grok_model_override: Option<String>,
+    content_type: Option<String>,
     anthropic_beta: Option<String>,
     user_agent: Option<String>,
     proxy_id: any2api_domain::ProxyProfileId,
@@ -551,6 +549,32 @@ impl QuotaTransport {
             })
     }
 
+    fn grok_free_probe_is_minimal(&self) -> bool {
+        let captured = self.captured.lock().expect("captured lock");
+        let [billing, subscription, probe] = captured.as_slice() else {
+            return false;
+        };
+        billing.path_and_query == "/v1/billing?format=credits"
+            && subscription.path_and_query == "/v1/user?include=subscription"
+            && probe.method == Method::POST
+            && probe.path == "/v1/chat/completions"
+            && probe.grok_model_override.as_deref() == Some("grok-4.5")
+            && probe.content_type.as_deref() == Some("application/json")
+            && serde_json::from_slice::<Value>(&probe.body)
+                .ok()
+                .is_some_and(|body| {
+                    body["model"] == "grok-4.5"
+                        && body["max_tokens"] == 1
+                        && body["stream"] == false
+                })
+            && [billing, subscription, probe].iter().all(|request| {
+                request.authorization.as_deref()
+                    == Some("Bearer header.eyJib3RfZmxhZ19zb3VyY2UiOjF9.grok-access-secret")
+                    && request.grok_user_id.as_deref() == Some("grok-subject")
+                    && request.proxy_id == any2api_domain::ProxyProfileId::DIRECT
+            })
+    }
+
     fn last_request_is_claude_usage(&self) -> bool {
         self.captured
             .lock()
@@ -620,6 +644,16 @@ impl TransportManager for QuotaTransport {
                 grok_client_mode: request
                     .headers
                     .get("x-grok-client-mode")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+                grok_model_override: request
+                    .headers
+                    .get("x-grok-model-override")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned),
+                content_type: request
+                    .headers
+                    .get("content-type")
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned),
                 anthropic_beta: request
@@ -724,6 +758,18 @@ impl TransportManager for QuotaTransport {
                     )
                 };
                 (body, HeaderMap::new())
+            }
+            "/v1/chat/completions" => {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    "x-ratelimit-limit-tokens",
+                    HeaderValue::from_static("2000000"),
+                );
+                headers.insert(
+                    "x-ratelimit-remaining-tokens",
+                    HeaderValue::from_static("1750000"),
+                );
+                (Bytes::from_static(br#"{"choices":[]}"#), headers)
             }
             "/api/oauth/usage" => (Bytes::from_static(
                 br#"{"five_hour":{"utilization":12.5,"resets_at":"2030-01-01T01:00:00Z"},"seven_day":{"utilization":34.0,"resets_at":"2030-01-08T00:00:00Z"},"seven_day_sonnet":{"utilization":56.0,"resets_at":"2030-01-08T00:00:00Z"},"seven_day_overage_included":{"utilization":78.0,"resets_at":"2030-01-08T00:00:00Z"},"unknown":{"token":"upstream-secret"}}"#,

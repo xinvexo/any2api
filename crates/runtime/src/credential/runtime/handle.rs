@@ -15,7 +15,6 @@ use super::{
     generation::{CredentialGenerationDefinition, CredentialGenerationRuntime},
     metrics::{CredentialBalancingCounters, CredentialBalancingMetrics, CredentialFilterKind},
     rate_window::{CredentialRateSnapshot, CredentialRateWindow, RateLimited},
-    token_window::{CredentialTokenUsageRecorder, CredentialTokenUsageWindow},
 };
 use crate::routing::SchedulerEpoch;
 
@@ -37,7 +36,6 @@ pub(crate) struct CredentialRuntimeHandle {
     current_generation: ArcSwap<CredentialGenerationRuntime>,
     retired: AtomicBool,
     balancing: CredentialBalancingMetrics,
-    token_usage: Arc<CredentialTokenUsageWindow>,
     scheduler_epoch: Arc<SchedulerEpoch>,
 }
 
@@ -80,7 +78,6 @@ impl CredentialRuntimeHandle {
             )),
             retired: AtomicBool::new(false),
             balancing: CredentialBalancingMetrics::default(),
-            token_usage: Arc::new(CredentialTokenUsageWindow::default()),
             scheduler_epoch,
         })
     }
@@ -165,14 +162,6 @@ impl CredentialRuntimeHandle {
 
     pub(crate) fn record_filter(&self, kind: CredentialFilterKind) {
         self.balancing.record_filter(kind);
-    }
-
-    pub(crate) fn token_usage_recorder(&self) -> CredentialTokenUsageRecorder {
-        self.token_usage.recorder()
-    }
-
-    pub(crate) fn token_usage_snapshot(&self, window_seconds: u64) -> u64 {
-        self.token_usage.snapshot(window_seconds)
     }
 
     pub(crate) fn try_reserve_normal(

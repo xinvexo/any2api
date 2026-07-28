@@ -46,7 +46,6 @@ impl From<OAuthQuotaTokenBalance> for OAuthQuotaTokenBalanceResponse {
     fn from(value: OAuthQuotaTokenBalance) -> Self {
         Self {
             source: match value.source {
-                OAuthQuotaTokenBalanceSource::Local => "local",
                 OAuthQuotaTokenBalanceSource::Upstream => "upstream",
             },
             used: value.used,

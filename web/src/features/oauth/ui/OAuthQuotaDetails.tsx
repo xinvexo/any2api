@@ -101,12 +101,10 @@ function TokenBalanceBar({
   const remainingPercent = balance.limit === 0
     ? 0
     : Math.min(100, Math.max(0, balance.remaining / balance.limit * 100));
-  const source = balance.source === "local" ? "Free 本地计量" : "上游真实观测";
-
   return (
     <div className="min-w-0">
       <div className="flex items-baseline justify-between gap-2 text-[11px]">
-        <span className="min-w-0 truncate text-secondary">Token 余额 · {source}</span>
+        <span className="min-w-0 truncate text-secondary">Token 余额 · 上游真实观测</span>
         <span className={cn("shrink-0 font-semibold tabular-nums", remainingTone(remainingPercent))}>
           {balance.remaining.toLocaleString()} / {balance.limit.toLocaleString()}
         </span>

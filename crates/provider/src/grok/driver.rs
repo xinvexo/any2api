@@ -10,8 +10,8 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
-        OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLocalTokenQuotaPolicy,
-        OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthRequestPlan,
+        OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
+        OAuthQuotaQueryPlan, OAuthQuotaTokenBalance, OAuthQuotaUsage, OAuthRequestPlan,
         OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, ProviderRequestHeaderContext,
         UpstreamResponseMeta,
     },
@@ -211,11 +211,21 @@ impl ProviderDriver for GrokDriver {
         grok_quota::parse_subscription(body)
     }
 
-    fn oauth_local_token_quota_policy(
+    fn oauth_quota_token_balance_plan(
+        &self,
+        token: &OAuthTokenMaterial,
+        usage: &OAuthQuotaUsage,
+    ) -> Result<Option<OAuthRequestPlan>, ProviderError> {
+        grok_quota::token_balance_plan(token, usage)
+    }
+
+    fn parse_oauth_quota_token_balance(
         &self,
         usage: &OAuthQuotaUsage,
-    ) -> Option<OAuthLocalTokenQuotaPolicy> {
-        grok_quota::local_token_quota_policy(usage)
+        meta: &UpstreamResponseMeta,
+        body: &[u8],
+    ) -> Result<Option<OAuthQuotaTokenBalance>, ProviderError> {
+        grok_quota::parse_token_balance(usage, meta, body)
     }
 
     fn classify_error(

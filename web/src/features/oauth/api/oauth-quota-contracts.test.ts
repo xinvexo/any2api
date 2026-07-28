@@ -65,11 +65,11 @@ describe("OAuth quota contracts", () => {
         is_unified_billing_user: true,
       },
       token_balance: {
-        source: "local",
-        used: 150_000,
-        limit: 1_000_000,
-        remaining: 850_000,
-        window_seconds: 86_400,
+        source: "upstream",
+        used: 250_000,
+        limit: 2_000_000,
+        remaining: 1_750_000,
+        window_seconds: null,
       },
       subscription_tier: "SuperGrokPro",
       account_status: {
@@ -92,11 +92,11 @@ describe("OAuth quota contracts", () => {
       isUnifiedBillingUser: true,
     });
     expect(parsed.tokenBalance).toEqual({
-      source: "local",
-      used: 150_000,
-      limit: 1_000_000,
-      remaining: 850_000,
-      windowSeconds: 86_400,
+      source: "upstream",
+      used: 250_000,
+      limit: 2_000_000,
+      remaining: 1_750_000,
+      windowSeconds: null,
     });
     expect(parsed.subscriptionTier).toBe("SuperGrokPro");
     expect(parsed.accountStatus).toEqual({
@@ -171,6 +171,20 @@ describe("OAuth quota contracts", () => {
         fetched_at: 1,
         rate_limit: null,
         reset_credits: { available_count: -1, expires_at: [] },
+      }),
+    ).toThrow("invalid OAuth quota response");
+    expect(() =>
+      parseOAuthQuotaSnapshot({
+        fetched_at: 1,
+        rate_limit: null,
+        reset_credits: null,
+        token_balance: {
+          source: "local",
+          used: 0,
+          limit: 1_000_000,
+          remaining: 1_000_000,
+          window_seconds: 86_400,
+        },
       }),
     ).toThrow("invalid OAuth quota response");
     expect(() =>
