@@ -2,6 +2,15 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Cargo version to release, without the v prefix (for example, 0.1.0)
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -9,21 +18,38 @@ permissions:
 jobs:
   linux-amd64:
     runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@1.90.0
         with:
           targets: x86_64-unknown-linux-gnu
 
-      - name: Resolve version
+      - name: Validate release version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          version="$(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "any2api") | .version')"
-          echo "RELEASE_TAG=v${version}" >> "$GITHUB_ENV"
+          set -euo pipefail
+          cargo_version="$(cargo metadata --locked --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "any2api") | .version')"
+          if [[ "$INPUT_VERSION" != "$cargo_version" ]]; then
+            echo "version input '$INPUT_VERSION' does not match Cargo version '$cargo_version'" >&2
+            exit 1
+          fi
+          release_tag="v$cargo_version"
+          if git show-ref --verify --quiet "refs/tags/$release_tag"; then
+            echo "release tag '$release_tag' already exists" >&2
+            exit 1
+          fi
+          echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
 
       - run: cargo build --locked --release -p any2api --target x86_64-unknown-linux-gnu
 
       - name: Package
         run: |
+          set -euo pipefail
           asset="any2api-${RELEASE_TAG}-linux-amd64.tar.gz"
           mkdir -p dist
           tar -C target/x86_64-unknown-linux-gnu/release -czf "dist/$asset" any2api
@@ -34,6 +60,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           gh release create "$RELEASE_TAG" dist/* \
             --generate-notes \
             --target "$GITHUB_SHA" \

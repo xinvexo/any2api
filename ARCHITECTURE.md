@@ -56,7 +56,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 24. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount 与 Grok 暂不声明该方言能力。
 25. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。
 26. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
-27. 官方 GitHub Release 从 Actions 页面手动触发，按 Cargo 版本创建 Tag；首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
+27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的 Cargo SemVer；工作流只有在输入值与所选提交中 `any2api` 的 Cargo 版本完全一致时才创建 Tag，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 
 ### 2.1 两类凭据的术语边界
 
@@ -2644,9 +2644,14 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 
 ### 20.5 GitHub Release
 
-管理员从 GitHub Actions 页面手动运行 `Release` 工作流；工作流读取 Cargo 版本，在所选提交创建对应的
-`v<version>` Tag，并使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建
-`x86_64-unknown-linux-gnu`。首版只发布 Linux AMD64，不构建其他系统、架构或 musl 变体。
+管理员从 GitHub Actions 页面手动运行 `Release` 工作流，并输入不带 `v` 前缀的 `version`。该输入是
+对所选提交版本的显式发布断言，不是在 CI 中临时改写源码版本：工作流使用 `cargo metadata --locked`
+读取 `any2api` 的 Cargo 版本，只有输入值与其完全一致时才继续，在所选提交创建对应的
+`v<version>` Tag。版本不一致或远端已经存在同名 Tag 时必须在构建和发布前失败，避免 Tag、源码清单和
+二进制版本分叉；构建阶段不得持有 checkout 持久化的仓库写凭据，发布 Token 只注入最终发布步骤。
+
+构建使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建 `x86_64-unknown-linux-gnu`。首版只发布
+Linux AMD64，不构建其他系统、架构或 musl 变体。
 
 Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和
 SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、主密钥、配置、日志或 Secret。
