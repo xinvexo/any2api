@@ -244,7 +244,7 @@ export function ProviderEndpointList({
                 {mountCredentials ? (
                   <div
                     id={panelId}
-                    className="min-w-0"
+                    className={cn("min-w-0", expanded && "bg-surface/45")}
                     role={expanded ? "region" : undefined}
                     aria-label={expanded ? `${endpoint.name} 的 API Key` : undefined}
                   >
@@ -282,12 +282,7 @@ export function ProviderEndpointList({
 
       <div className="flex flex-wrap items-center justify-between gap-2 pt-3 text-[12px] text-secondary">
         <p>
-          {kindName} · 配置版本{" "}
-          <span className="font-medium tabular-nums text-primary">
-            {configuration.configRevision}
-          </span>
-          {" · "}
-          共 <span className="tabular-nums">{filtered.length}</span> 条
+          {kindName} · 共 <span className="tabular-nums">{filtered.length}</span> 条
         </p>
       </div>
 

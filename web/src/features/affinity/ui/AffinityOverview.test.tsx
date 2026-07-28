@@ -19,7 +19,7 @@ test("renders only aggregate affinity counts and links to routing settings", asy
     }),
   );
 
-  renderOverview();
+  const rendered = renderOverview();
 
   expect(await screen.findByRole("heading", { name: "会话绑定" })).toBeInTheDocument();
   expect(screen.getByText("12")).toBeInTheDocument();
@@ -30,6 +30,7 @@ test("renders only aggregate affinity counts and links to routing settings", asy
   );
   expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/admin/affinity?limit=0");
   expect(screen.queryByText("Credential 绑定分布")).not.toBeInTheDocument();
+  expect(rendered.container.querySelector(".rounded-\\[14px\\]")).toBeNull();
 });
 
 function renderOverview() {

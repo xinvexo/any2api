@@ -26,6 +26,11 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
   expect(await screen.findByRole("table", { name: "系统日志表格" })).toBeInTheDocument();
   expect(screen.getByRole("list", { name: "系统日志列表" })).toBeInTheDocument();
   expect(screen.getAllByText("/api/admin/provider-credentials/actual-id").length).toBeGreaterThan(1);
+  expect(screen.queryByText("配置版本")).not.toBeInTheDocument();
+  expect(screen.queryByTitle(/Config revision/i)).not.toBeInTheDocument();
+  expect(
+    screen.getByTitle("Request ID: 11111111-1111-4111-8111-111111111111"),
+  ).toBeInTheDocument();
 
   const autoRefresh = screen.getByRole("switch", { name: "自动刷新" });
   expect(autoRefresh).toHaveAttribute("aria-checked", "true");

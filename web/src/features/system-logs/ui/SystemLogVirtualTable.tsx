@@ -88,7 +88,7 @@ export function SystemLogVirtualTable({ items }: { items: readonly SystemLog[] }
                   data-index={virtualRow.index}
                   role="row"
                   aria-rowindex={virtualRow.index + 2}
-                  title={`Request ID: ${log.requestId} · Config revision: ${log.configRevision}`}
+                  title={`Request ID: ${log.requestId}`}
                   className={cn(
                     gridClass,
                     "absolute left-0 top-0 w-full border-b border-subtle/70 bg-surface text-[12px] hover:bg-surface-muted",

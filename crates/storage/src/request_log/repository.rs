@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use crate::{error::StorageError, sqlite::SqliteStore};
 
 use super::{
+    overview::{RequestLogOverview, RequestLogOverviewRange, load_request_log_overview},
     rows::{RequestAttemptRow, RequestLogRow, parse_request_attempt, parse_request_log},
     writes::{delete_oldest, delete_oldest_before, insert_request_attempt, insert_request_log},
 };
@@ -28,6 +29,11 @@ pub trait RequestLogRepository: Send + Sync {
         &self,
         request_id: RequestId,
     ) -> Result<Option<CompletedRequestLog>, StorageError>;
+
+    async fn request_log_overview(
+        &self,
+        range: RequestLogOverviewRange,
+    ) -> Result<RequestLogOverview, StorageError>;
 }
 
 #[async_trait]
@@ -131,5 +137,12 @@ impl RequestLogRepository for SqliteStore {
             .collect::<Result<Vec<_>, _>>()?;
         transaction.commit().await?;
         Ok(Some(CompletedRequestLog { request, attempts }))
+    }
+
+    async fn request_log_overview(
+        &self,
+        range: RequestLogOverviewRange,
+    ) -> Result<RequestLogOverview, StorageError> {
+        load_request_log_overview(self.pool(), range).await
     }
 }

@@ -6,6 +6,7 @@ mod error;
 mod gateway_api_key;
 mod no_store;
 mod oauth;
+mod overview;
 mod provider;
 mod proxy;
 mod request_log;
@@ -38,6 +39,7 @@ fn protected_routes() -> Router<AppState> {
         .merge(affinity::routes())
         .merge(balancing::routes())
         .merge(oauth::routes())
+        .merge(overview::routes())
         .merge(gateway_api_key::routes())
         .merge(proxy::routes())
         .merge(provider::routes())

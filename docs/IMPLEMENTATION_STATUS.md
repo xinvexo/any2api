@@ -1,6 +1,6 @@
 # any2api 实施状态
 
-> 最后更新：2026-07-27
+> 最后更新：2026-07-28
 > 用途：简要记录已经完成的代码、当前边界和下一步顺序。架构真相仍以根目录 `ARCHITECTURE.md` 为准。
 
 ## 当前状态
@@ -19,7 +19,7 @@
 - OAuth JSON 导入切片：`235a1bd feat: import OAuth JSON accounts`。
 - OAuth 额度扩展切片：`18f8e49 feat: expand OAuth quota support and organize modules`。
 - Feature-first 收敛切片：`5f3d9ff refactor: complete feature-first crate organization`。
-- 本切片主题：完整 HTTP 系统日志、自动刷新、有序手动清理与真实浏览器验收。
+- 本切片主题：系统总览扁平化、RequestLog Token 累计与按时间/公开模型的调用图表。
 
 ## 已完成
 
@@ -471,6 +471,13 @@
 - Codex/OpenAI API Key Driver 声明 `images/generations` 与 `images/edits` 固定路径和 Images 能力；Codex OAuth、Claude 与 Grok 当前明确不声明该能力，避免把不兼容的上游图片契约误报为 OpenAI Images。
 - 编辑请求上限为 `512 MiB`；Images buffered 响应上限为 `512 MiB`；单个 SSE 帧和首个预提交事件上限为 `128 MiB`。Images 等待、读取、流式和重试预算至少为 `180s`，普通文本路径仍保持原有 `32 MiB`/`16 MiB` 限制与超时。
 - Rust/HTTP 契约覆盖 JSON、multipart、SSE、二进制图片响应、大响应边界、模型替换、敏感 Header 过滤和提交前重试；完整决策见 `docs/adr/0054-openai-images-api.md`。
+
+### 系统总览调用分析切片
+
+- 总览移除卡片套卡片，使用扁平 section、指标带和分隔线；请求数、总 Token 与平均 RPM 全部跟随 URL 中的 `1h / 24h / 7d / 30d` 范围。
+- 新增只读 `GET /api/admin/overview/usage`，从最终 RequestLog 返回保留窗口与所选范围累计、连续时间桶及公开模型聚合；Token 通过十进制字符串传输，不新增计费或持久化计数器。
+- 宽屏左侧使用 Chart.js monotone 平滑调用/失败曲线，右侧使用紧凑模型饼图；窄屏上下排列，横轴压缩为至多七个可读标签，饼图最多八个守恒扇区。
+- Storage、Server DTO、真实 HTTP 契约、React 解析与组件测试覆盖统计口径、范围联动、空桶、模型聚合、超安全整数 Token 和无嵌套 Surface；桌面、390px、深色主题与无横向溢出已通过真实浏览器验收。完整决策见 `docs/adr/0055-flat-overview-request-analytics.md`。
 
 ## 当前边界
 

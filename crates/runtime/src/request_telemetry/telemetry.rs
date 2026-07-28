@@ -3,7 +3,7 @@ use std::{
         Arc, Mutex, RwLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use any2api_domain::{
@@ -12,8 +12,8 @@ use any2api_domain::{
 };
 use any2api_storage::api::{
     GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary, HttpAccessLogRepository,
-    RequestLogRepository, StorageError, UpstreamCredentialUsageRepository,
-    UpstreamCredentialUsageSummary,
+    RequestLogOverview, RequestLogOverviewRange, RequestLogRepository, StorageError,
+    UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
 };
 use tokio::{sync::mpsc, task::JoinHandle};
 
@@ -294,6 +294,16 @@ impl RequestTelemetry {
         }
     }
 
+    pub async fn overview_usage(
+        &self,
+        range: RequestLogOverviewRange,
+    ) -> Result<RequestLogOverview, StorageError> {
+        match &self.request_logs {
+            Some(repository) => repository.request_log_overview(range).await,
+            None => Ok(RequestLogOverview::empty(range, unix_now_ms()?)),
+        }
+    }
+
     pub async fn shutdown(&self, wait: Duration) {
         self.sender
             .write()
@@ -350,6 +360,13 @@ impl RequestTelemetry {
             }
         }
     }
+}
+
+fn unix_now_ms() -> Result<u64, StorageError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
+        .map_err(|_| StorageError::CorruptTelemetry)
 }
 
 impl LoggingSettingsReconciler for RequestTelemetry {

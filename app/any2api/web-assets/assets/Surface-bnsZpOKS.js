@@ -1,1 +1,0 @@
-import{n as e}from"./createLucideIcon-CAdyUWaY.js";import{s as t}from"./Button-XJ3pTYL0.js";var n=e();function r({className:e,...r}){return(0,n.jsx)(`div`,{className:t(`rounded-[14px] border border-subtle bg-surface`,e),...r})}export{r as t};

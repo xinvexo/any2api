@@ -9,7 +9,7 @@ afterEach(() => vi.restoreAllMocks());
 
 test("renders fixed-size routing aggregates for a large account collection", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(runtimeResponse()));
-  renderOverview();
+  const rendered = renderOverview();
 
   expect(await screen.findByRole("heading", { name: "请求调度" })).toBeInTheDocument();
   expect(screen.getByText("1,845")).toBeInTheDocument();
@@ -22,8 +22,10 @@ test("renders fixed-size routing aggregates for a large account collection", asy
     "href",
     "/settings/routing",
   );
+  expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
   expect(screen.queryByText("Credential 健康过滤")).not.toBeInTheDocument();
   expect(screen.queryByText("Endpoint 可用")).not.toBeInTheDocument();
+  expect(rendered.container.querySelector(".rounded-\\[14px\\]")).toBeNull();
 });
 
 test("renders an empty aggregate without an account directory", async () => {

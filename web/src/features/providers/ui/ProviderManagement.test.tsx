@@ -20,6 +20,7 @@ test("shows the empty Provider state", async () => {
 
   expect(await screen.findByText("还没有 Codex Endpoint")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "新增" })).toBeInTheDocument();
+  expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
 });
 
 test("expands endpoint accordion to show nested API keys on the same page", async () => {
@@ -40,6 +41,9 @@ test("expands endpoint accordion to show nested API keys on the same page", asyn
   expect(await screen.findByRole("button", { name: "收起 Codex Primary 的 API Key" })).toHaveAttribute(
     "aria-expanded",
     "true",
+  );
+  expect(screen.getByRole("region", { name: "Codex Primary 的 API Key" })).toHaveClass(
+    "bg-surface/45",
   );
   expect(await screen.findByText("Primary Key")).toBeInTheDocument();
   expect(screen.getByText("成功 2")).toBeInTheDocument();
@@ -76,9 +80,13 @@ test("uses icon-only endpoint actions and toggles an endpoint inline", async () 
   const create = await screen.findByRole("button", {
     name: "新增 Codex Primary 的 API Key",
   });
+  const expand = screen.getByRole("button", { name: "展开 Codex Primary 的 API Key" });
   const edit = screen.getByRole("button", { name: "编辑 Codex Primary" });
   const disable = screen.getByRole("button", { name: "停用 Codex Primary" });
 
+  expect(expand.parentElement).toHaveClass("sm:items-center");
+  expect(expand).not.toHaveClass("hover:bg-surface-muted/50");
+  expect(expand).not.toHaveClass("active:bg-surface-muted/70");
   expect(create).not.toHaveTextContent("新增");
   expect(edit).not.toHaveTextContent("编辑");
   expect(create).toHaveAttribute("title", "新增 Codex Primary 的 API Key");

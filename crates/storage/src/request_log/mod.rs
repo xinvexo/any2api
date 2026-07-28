@@ -1,3 +1,4 @@
+mod overview;
 mod repository;
 mod rows;
 mod usage;
@@ -9,6 +10,10 @@ mod tests;
 #[cfg(test)]
 mod usage_tests;
 
+pub use overview::{
+    RequestLogOverview, RequestLogOverviewBucket, RequestLogOverviewModel, RequestLogOverviewRange,
+    RequestLogOverviewTotals,
+};
 pub use repository::RequestLogRepository;
 pub use usage::{UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary};
 pub use usage_window::{

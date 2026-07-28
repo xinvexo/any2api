@@ -40,13 +40,12 @@ export function ProviderEndpointTableRow({
   const panelId = `endpoint-keys-${endpoint.id}`;
 
   return (
-    <div className="flex min-w-0 flex-col gap-1.5 overflow-hidden sm:flex-row sm:items-start sm:gap-2">
+    <div className="flex min-w-0 flex-col gap-1.5 overflow-hidden sm:flex-row sm:items-center sm:gap-2">
       <button
         type="button"
         className={cn(
           ENDPOINT_CONTENT_GRID_CLASS,
           "focus-ring min-w-0 flex-1 items-center rounded-[8px] py-0.5 text-left",
-          "hover:bg-surface-muted/50 active:bg-surface-muted/70",
         )}
         aria-expanded={expanded}
         aria-controls={panelId}

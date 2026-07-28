@@ -57,6 +57,8 @@ pub use any2api_provider::api::{
 };
 pub use any2api_storage::api::GatewayApiKeyUsageSummary;
 pub use any2api_storage::api::{
-    REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestUsageWindowSlot,
-    UpstreamCredentialUsageSummary, empty_request_usage_window_slots,
+    REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestLogOverview,
+    RequestLogOverviewBucket, RequestLogOverviewModel, RequestLogOverviewRange,
+    RequestLogOverviewTotals, RequestUsageWindowSlot, UpstreamCredentialUsageSummary,
+    empty_request_usage_window_slots,
 };

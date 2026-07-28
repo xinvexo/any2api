@@ -20,12 +20,13 @@ test("renders live system status metrics", async () => {
     ),
   );
 
-  render(<SystemOverview />, { wrapper: Wrapper });
+  const rendered = render(<SystemOverview />, { wrapper: Wrapper });
 
-  expect(await screen.findByText("7")).toBeInTheDocument();
-  expect(screen.getByText("运行正常")).toBeInTheDocument();
+  expect(await screen.findByText("运行正常")).toBeInTheDocument();
   expect(screen.getByText("运行中")).toBeInTheDocument();
   expect(screen.getByText("1 / 2")).toBeInTheDocument();
+  expect(screen.queryByText("配置版本")).not.toBeInTheDocument();
+  expect(rendered.container.querySelector(".rounded-\\[14px\\]")).toBeNull();
 });
 
 test("rejects an incompatible health payload", async () => {

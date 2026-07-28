@@ -2,22 +2,22 @@ import type { BalancingRuntime } from "../api/balancing-contracts";
 
 export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
   return (
-    <div className="border-t border-subtle">
-      <dl className="grid sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mt-5">
+      <dl className="grid border-y border-subtle sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="近 60 秒请求" value={formatCount(runtime.totals.requestsInWindow)} />
         <Metric label="处理中" value={formatCount(runtime.totals.inFlight)} />
         <Metric label="排队" value={`${formatCount(runtime.queue.waiting)} / ${formatCount(runtime.queue.maxWaiting)}`} />
         <Metric label="RPM 已用尽" value={`${formatCount(runtime.totals.rateLimitedCredentialCount)} / ${formatCount(runtime.totals.limitedCredentialCount)}`} />
       </dl>
 
-      <div className="border-t border-subtle px-5 py-4">
+      <div className="mt-4">
         <p className="text-xs leading-5 text-secondary">
           {formatCount(runtime.totals.enabledCredentialCount)} / {formatCount(runtime.totals.credentialCount)} 个账号已启用 · {formatCount(runtime.totals.limitedCredentialCount)} 个设置 RPM · 固定等待 {formatCount(runtime.totals.fixedWaiters)} · 累计选中 {formatCount(runtime.totals.selected)}
         </p>
         {runtime.providers.length > 0 ? (
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <div className="mt-3 divide-y divide-subtle border-y border-subtle">
             {runtime.providers.map((provider) => (
-              <div key={provider.providerKind} className="rounded-[10px] bg-surface-muted/60 px-3.5 py-3">
+              <div key={provider.providerKind} className="py-3">
                 <div className="flex items-center justify-between gap-4">
                   <p className="text-sm font-semibold">{providerLabel(provider.providerKind)}</p>
                   <p className="text-xs tabular-nums text-secondary">{formatCount(provider.requestsInWindow)} 次</p>
@@ -38,7 +38,7 @@ export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-b border-subtle px-5 py-4 last:border-b-0 sm:border-r sm:[&:nth-child(2)]:border-r-0 xl:border-b-0 xl:[&:nth-child(2)]:border-r xl:last:border-r-0">
+    <div className="border-b border-subtle px-3 py-3.5 last:border-b-0 sm:border-r sm:[&:nth-child(2)]:border-r-0 sm:px-4 xl:border-b-0 xl:[&:nth-child(2)]:border-r xl:last:border-r-0">
       <dt className="text-xs text-secondary">{label}</dt>
       <dd className="mt-1 text-xl font-semibold tabular-nums">{value}</dd>
     </div>

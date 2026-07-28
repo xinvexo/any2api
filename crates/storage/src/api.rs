@@ -19,9 +19,10 @@ pub use crate::provider::{
 pub use crate::proxy::{ProxyPasswordValidationError, StoredProxyPassword, StoredProxyPasswords};
 pub use crate::request_log::RequestLogRepository;
 pub use crate::request_log::{
-    REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestUsageWindowSlot,
-    UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
-    empty_request_usage_window_slots,
+    REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestLogOverview,
+    RequestLogOverviewBucket, RequestLogOverviewModel, RequestLogOverviewRange,
+    RequestLogOverviewTotals, RequestUsageWindowSlot, UpstreamCredentialUsageRepository,
+    UpstreamCredentialUsageSummary, empty_request_usage_window_slots,
 };
 pub use crate::settings::SettingRepository;
 pub use crate::sqlite::SqliteStore;

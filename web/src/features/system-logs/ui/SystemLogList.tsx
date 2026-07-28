@@ -43,7 +43,6 @@ export function SystemLogList({ items }: { items: SystemLog[] }) {
               <Detail label="耗时" value={formatDuration(log.durationMs)} />
               <Detail label="响应" value={formatBytes(log.responseBytes)} />
               <Detail label="结果" value={outcomeLabel(log.outcome)} />
-              <Detail label="配置版本" value={String(log.configRevision)} />
             </dl>
           </article>
         ))}

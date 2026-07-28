@@ -295,6 +295,13 @@ impl RequestLogRepository for BlockingRepository {
     ) -> Result<Option<CompletedRequestLog>, StorageError> {
         Ok(None)
     }
+
+    async fn request_log_overview(
+        &self,
+        range: any2api_storage::api::RequestLogOverviewRange,
+    ) -> Result<any2api_storage::api::RequestLogOverview, StorageError> {
+        Ok(any2api_storage::api::RequestLogOverview::empty(range, 1))
+    }
 }
 
 fn logging_settings(queue_capacity: u64) -> SettingsConfiguration {
