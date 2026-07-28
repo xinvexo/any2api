@@ -7,15 +7,18 @@ import type { RequestUsageWindowSlot } from "../api/request-usage";
  */
 export type RequestUsageSlotTone = "empty" | "ok" | "degraded" | "down";
 
+const OK_SUCCESS_RATE_MINIMUM = 0.95;
+const DEGRADED_SUCCESS_RATE_MINIMUM = 0.8;
+
 export function requestUsageSlotTone(slot: RequestUsageWindowSlot): RequestUsageSlotTone {
   if (slot.totalRequests === 0) {
     return "empty";
   }
   const rate = slot.successfulRequests / slot.totalRequests;
-  if (rate >= 1) {
+  if (rate >= OK_SUCCESS_RATE_MINIMUM) {
     return "ok";
   }
-  if (rate >= 0.5) {
+  if (rate >= DEGRADED_SUCCESS_RATE_MINIMUM) {
     return "degraded";
   }
   return "down";

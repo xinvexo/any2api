@@ -9,10 +9,11 @@ import {
 
 test("colors slots by success rate: green / yellow / red", () => {
   expect(requestUsageSlotTone(slot(0, 0, 0))).toBe("empty");
-  expect(requestUsageSlotTone(slot(3, 3, 0))).toBe("ok");
-  expect(requestUsageSlotTone(slot(2, 1, 1))).toBe("degraded");
-  expect(requestUsageSlotTone(slot(4, 3, 1))).toBe("degraded");
-  expect(requestUsageSlotTone(slot(3, 1, 2))).toBe("down");
+  expect(requestUsageSlotTone(slot(100, 100, 0))).toBe("ok");
+  expect(requestUsageSlotTone(slot(20, 19, 1))).toBe("ok");
+  expect(requestUsageSlotTone(slot(1_000, 949, 51))).toBe("degraded");
+  expect(requestUsageSlotTone(slot(5, 4, 1))).toBe("degraded");
+  expect(requestUsageSlotTone(slot(1_000, 799, 201))).toBe("down");
   expect(requestUsageSlotTone(slot(2, 0, 2))).toBe("down");
 });
 
