@@ -194,20 +194,20 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         .set_setting_override(
             modeled.revision(),
             SettingKey::ModelsAllowed,
-            SettingValue::OptionalStringList(Some(vec![
+            SettingValue::StringList(vec![
                 "gpt-z".to_owned(),
                 "gpt-a".to_owned(),
                 "gpt-z".to_owned(),
-            ])),
+            ]),
         )
         .await
         .expect("model allowlist");
     assert_eq!(
         allowed.settings().override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::OptionalStringList(Some(vec![
+        Some(SettingValue::StringList(vec![
             "gpt-a".to_owned(),
             "gpt-z".to_owned(),
-        ])))
+        ]))
     );
 
     let reduced = store
@@ -221,9 +221,7 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         .expect("remove one model source");
     assert_eq!(
         reduced.settings().override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::OptionalStringList(Some(vec![
-            "gpt-z".to_owned()
-        ])))
+        Some(SettingValue::StringList(vec!["gpt-z".to_owned()]))
     );
 
     let deleted = store
@@ -232,10 +230,10 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         .expect("delete last source");
     assert_eq!(
         deleted.settings().override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::OptionalStringList(Some(Vec::new())))
+        Some(SettingValue::StringList(Vec::new()))
     );
     assert!(
-        !deleted
+        deleted
             .settings()
             .models()
             .allows(&PublicModelName::new("gpt-b").expect("public model"))
@@ -252,7 +250,7 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         restored
             .settings()
             .override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::OptionalStringList(Some(Vec::new())))
+        Some(SettingValue::StringList(Vec::new()))
     );
 }
 

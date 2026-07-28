@@ -6,19 +6,19 @@
 
 ## 背景
 
-RequestLog 已同时保存客户端鉴权使用的 `gateway_api_key_id`，以及最终上游来源的互斥 `credential_id` / `oauth_account_id`；RequestAttempt 还保存每次重试选择。管理面目前只按 Gateway API Key 聚合调用统计，无法直接判断某把 Provider API Key 或某个 OAuthAccount 在日志保留窗口内实际承接了多少最终请求。
+RequestLog 同时保存客户端鉴权使用的 `gateway_api_key_id`，以及最终上游来源的互斥 `credential_id` / `oauth_account_id`；RequestAttempt 保存每次重试选择。管理面分别按入口 Gateway API Key 和上游路由凭据聚合调用统计。
 
 Gateway Key 与上游凭据回答不同问题。新增上游维度不能删除 Gateway Key 统计，也不能把两类 ID 绑定为所有权或路由关系。
 
 ## 决策
 
-- 保留 ADR-0030 的 Gateway API Key 统计维度；ADR-0052 后三类凭据共用同一固定时间窗口 API 与 Web 语义。
+- Gateway API Key、ProviderCredential 与 OAuthAccount 三类凭据共用同一固定时间窗口 API 与 Web 语义，但保持独立统计维度。
 - 新增带来源标签的上游统计身份：`ProviderCredential(CredentialId)` 与 `OAuthAccount(OAuthAccountId)`。即使 UUID 字节相同，两者仍是不同统计对象。
 - 统计直接读取最终 RequestLog：每个公开请求只归入最终上游目标一次，最终状态码为 2xx 计成功，其余计失败；每个对象返回总请求数、成功数、失败数，以及固定长度的 2 分钟时间窗条带（默认最近 30 格 / 1 小时，无请求的格子仍返回且计数为 0）。
 - RequestAttempt 继续完整记录重试和切换，但中间 Attempt 不重复计入最终请求统计。需要诊断某次切换时使用现有 Attempt 时间线。
 - 统计只覆盖当前 `logs.request.retention` / `logs.request.max_rows` 保留窗口。日志关闭、没有记录或查询失败时，Provider/OAuth 配置读取仍成功，并为当前对象返回零值与完整空条带。
 - Provider API Key 列表和 OAuthAccount 列表分别显示自身统计；管理 DTO 只返回来源 ID、计数和时间窗聚合，不返回 API Key、Token、OAuth JSON、请求体或响应体。
-- 统计只用于单机本地观测，不参与路由选择、Gateway Key 权限、并发、健康、额度、计费或启动恢复。
+- 统计只用于单机本地观测，不参与路由选择、Gateway Key 权限、RPM、健康、额度、计费或启动恢复。
 
 ## 备选方案
 
@@ -29,7 +29,7 @@ Gateway Key 与上游凭据回答不同问题。新增上游维度不能删除 G
 
 ## 后果
 
-管理读请求会增加一次有索引的 SQLite 聚合读取，公开数据面仍只通过既有有界遥测队列异步写 RequestLog。旧日志会随保留策略删除，因此统计不是永久账单。删除上游对象后外键置空的历史记录不再归入该对象，与现有 Gateway Key 删除语义一致。
+管理读请求会增加一次有索引的 SQLite 聚合读取，公开数据面只通过有界遥测队列异步写 RequestLog。日志会随保留策略删除，因此统计不是永久账单。删除上游对象后外键置空的记录不再归入该对象，与 Gateway Key 删除语义一致。
 
 ## 验证
 

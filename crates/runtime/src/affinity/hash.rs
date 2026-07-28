@@ -48,10 +48,8 @@ impl SessionHasher {
     ) -> SessionHash {
         let dialect = match dialect {
             ProtocolDialect::OpenAiResponses => [1_u8],
-            ProtocolDialect::CodexBackend => [2_u8],
             ProtocolDialect::AnthropicMessages => [3_u8],
             ProtocolDialect::OpenAiChatCompletions => [4_u8],
-            ProtocolDialect::OpenAiImages => [5_u8],
         };
         self.digest(
             b"session\0",

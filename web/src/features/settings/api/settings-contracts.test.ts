@@ -10,7 +10,7 @@ test("parses setting metadata and all value types", () => {
       item("scheduler.queue_timeout", "duration_secs", 30, null, null, 1, 86_400),
       item("scheduler.max_waiting_requests", "integer", 128, null, null, 1, 100_000),
       item("scheduler.fallback_on_rate_limit", "boolean", false, null, null),
-      item("models.allowed", "optional_string_list", null, ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
+      item("models.allowed", "string_list", [], ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
     ],
   });
 
@@ -25,6 +25,11 @@ test("rejects inconsistent bounds, values, and enum metadata", () => {
   expect(() => parseSettingsConfiguration({
     config_revision: 1,
     items: [item("scheduler.queue_timeout", "duration_secs", 30, null, null, 100, 10)],
+  })).toThrow("invalid settings response");
+
+  expect(() => parseSettingsConfiguration({
+    config_revision: 1,
+    items: [item("models.allowed", "string_list", null, null, null, null, null, [])],
   })).toThrow("invalid settings response");
 
   expect(() => parseSettingsConfiguration({

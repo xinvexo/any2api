@@ -1,4 +1,4 @@
-export const MAX_CONCURRENT_OAUTH_QUOTA_REQUESTS = 6;
+const MAX_CONCURRENT_OAUTH_QUOTA_REQUESTS = 6;
 
 export type OAuthQuotaBatchOutcome<T> =
   | { accountId: string; status: "fulfilled"; value: T }

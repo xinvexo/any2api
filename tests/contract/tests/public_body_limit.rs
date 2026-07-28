@@ -68,39 +68,6 @@ async fn multi_megabyte_request_passes_the_raised_body_limit() {
     assert_eq!(response.body["error"]["code"], "model_not_found");
 }
 
-#[tokio::test]
-async fn images_edit_request_can_exceed_the_standard_body_limit() {
-    let (_directory, app, token) = test_app_with_gateway_key().await;
-    let padding = "p".repeat(STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES + 1);
-    let body = serde_json::to_vec(&json!({
-        "model": "image-model-that-does-not-exist",
-        "prompt": "edit a test image",
-        "images": [{"file_id": "file-test-image"}],
-        "metadata": padding
-    }))
-    .expect("request JSON");
-    let response = send_raw(&app, "/v1/images/edits", &token, body).await;
-
-    assert_eq!(response.status, StatusCode::NOT_FOUND);
-    assert_eq!(response.body["error"]["code"], "model_not_found");
-}
-
-#[tokio::test]
-async fn oversized_images_generation_keeps_the_standard_body_limit() {
-    let (_directory, app, token) = test_app_with_gateway_key().await;
-    let response = send_raw(
-        &app,
-        "/v1/images/generations",
-        &token,
-        vec![b'x'; STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES + 1],
-    )
-    .await;
-
-    assert_eq!(response.status, StatusCode::PAYLOAD_TOO_LARGE);
-    assert_eq!(response.body["error"]["type"], "invalid_request_error");
-    assert_eq!(response.body["error"]["code"], "payload_too_large");
-}
-
 async fn send_raw(app: &Router, uri: &str, token: &str, body: Vec<u8>) -> JsonResponse {
     let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
     let request = Request::builder()

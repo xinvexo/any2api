@@ -34,7 +34,7 @@ test("edits duration settings in whole seconds", () => {
   expect(isSettingDraftDirty({ ...item, overrideValue: 5 }, "6")).toBe(true);
 });
 
-test("normalizes model selections and treats an explicit empty list as an override", () => {
+test("normalizes model selections and treats an empty list as allow all", () => {
   const item = modelItem();
   expect(createSettingDraft(item)).toEqual({ mode: "only", models: ["gpt-b"] });
   expect(validateSettingDraft(item, {
@@ -47,8 +47,12 @@ test("normalizes model selections and treats an explicit empty list as an overri
   expect(validateSettingDraft(item, { mode: "only", models: ["removed-model"] }).error)
     .toMatch(/列表已发生变化/);
   expect(validateSettingDraft(item, { mode: "all", models: [] })).toEqual({
-    value: null,
+    value: [],
     error: null,
+  });
+  expect(createSettingDraft({ ...item, overrideValue: null, effectiveValue: [] })).toEqual({
+    mode: "all",
+    models: [],
   });
   expect(isSettingDraftDirty(item, { mode: "only", models: ["gpt-b"] })).toBe(false);
   expect(isSettingDraftDirty(item, { mode: "only", models: [] })).toBe(true);
@@ -91,8 +95,8 @@ function durationItem(): SettingItem {
 function modelItem(): SettingItem {
   return {
     key: "models.allowed",
-    valueType: "optional_string_list",
-    defaultValue: null,
+    valueType: "string_list",
+    defaultValue: [],
     overrideValue: ["gpt-b"],
     effectiveValue: ["gpt-b"],
     minValue: null,

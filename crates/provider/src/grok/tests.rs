@@ -54,12 +54,6 @@ fn builds_xai_paths_and_bearer_authentication() {
             .contains(&ProtocolDialect::OpenAiResponses)
     );
     assert!(
-        !driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiImages)
-    );
-    assert!(
         driver
             .capabilities()
             .transport_modes
@@ -79,18 +73,6 @@ fn rejects_anthropic_operations() {
             .endpoint_plan(&base, ProtocolOperation::Messages)
             .is_err()
     );
-    assert!(
-        driver
-            .endpoint_plan(&base, ProtocolOperation::ImagesGenerations)
-            .is_err()
-    );
-    assert!(
-        driver
-            .endpoint_plan(&base, ProtocolOperation::ImagesEdits)
-            .is_err()
-    );
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
 }
 
 #[test]

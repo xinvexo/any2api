@@ -1,8 +1,8 @@
 use super::{SettingKey, SettingValue};
 
-pub const MAX_SETTING_DURATION_SECS: u64 = 86_400;
-pub const MAX_SETTING_COUNT: u64 = 100_000;
-pub const MAX_AFFINITY_TTL_SECS: u64 = 2_592_000;
+pub(super) const MAX_SETTING_DURATION_SECS: u64 = 86_400;
+pub(super) const MAX_SETTING_COUNT: u64 = 100_000;
+pub(super) const MAX_AFFINITY_TTL_SECS: u64 = 2_592_000;
 
 pub(super) fn definition(
     key: SettingKey,
@@ -52,7 +52,7 @@ pub enum SettingValueType {
     Integer,
     DurationSecs,
     Enum,
-    OptionalStringList,
+    StringList,
 }
 
 impl SettingValueType {
@@ -62,7 +62,7 @@ impl SettingValueType {
             Self::Integer => "integer",
             Self::DurationSecs => "duration_secs",
             Self::Enum => "enum",
-            Self::OptionalStringList => "optional_string_list",
+            Self::StringList => "string_list",
         }
     }
 }

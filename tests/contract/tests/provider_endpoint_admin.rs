@@ -191,11 +191,11 @@ async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves
         "/api/admin/provider-endpoints",
         Some(json!({
             "expected_revision": 1,
-            "name": "Legacy Flags",
+            "name": "Unknown Field",
             "provider_kind": "codex",
             "base_url": "http://127.0.0.1:8080/v1",
             "protocol_dialect": "openai_responses",
-            "allow_private_network": true,
+            "unsupported_option": true,
             "enabled": true
         })),
         loopback,
@@ -224,10 +224,6 @@ async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves
         created["items"][0]["base_url"],
         "https://api.example.com/v1"
     );
-    let created_endpoint = created["items"][0].as_object().expect("created endpoint");
-    assert!(!created_endpoint.contains_key("allow_insecure_http"));
-    assert!(!created_endpoint.contains_key("allow_private_network"));
-
     let (status, http_allowed) = request_json(
         app.clone(),
         Method::POST,

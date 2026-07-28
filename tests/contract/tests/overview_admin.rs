@@ -172,7 +172,7 @@ fn record(
         request: RequestLog {
             request_id: RequestId::new(),
             started_at_ms,
-            client_ip: None,
+            client_ip: "127.0.0.1".parse().expect("loopback address"),
             config_revision: ConfigRevision::INITIAL,
             gateway_api_key_id: None,
             ingress_protocol: ProtocolDialect::OpenAiResponses,

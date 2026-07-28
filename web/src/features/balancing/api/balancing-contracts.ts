@@ -1,6 +1,6 @@
-export type ProviderKind = "codex" | "claude" | "grok";
+type ProviderKind = "codex" | "claude" | "grok";
 
-export interface BalancingTotals {
+interface BalancingTotals {
   credentialCount: number;
   enabledCredentialCount: number;
   limitedCredentialCount: number;
@@ -11,7 +11,7 @@ export interface BalancingTotals {
   selected: number;
 }
 
-export interface BalancingProvider extends BalancingTotals {
+interface BalancingProvider extends BalancingTotals {
   providerKind: ProviderKind;
 }
 

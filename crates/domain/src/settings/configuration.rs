@@ -166,16 +166,6 @@ mod tests {
         assert!(!settings.scheduler().fallback_on_rate_limit());
         assert_eq!(settings.affinity().ttl_secs(), 86_400);
         assert_eq!(settings.affinity().wait_timeout_secs(), 30);
-        for removed in [
-            "affinity.soft.enabled",
-            "affinity.soft.mode",
-            "affinity.soft.ttl",
-            "affinity.hard.ttl",
-            "affinity.soft.prefer_wait_timeout",
-            "affinity.fixed_wait_timeout",
-        ] {
-            assert_eq!(SettingKey::parse(removed), None);
-        }
         assert_eq!(settings.reliability().max_total_attempts(), 3);
         assert_eq!(settings.reliability().max_credential_switches(), 2);
         assert_eq!(settings.reliability().max_same_credential_retries(), 1);
@@ -194,7 +184,11 @@ mod tests {
         assert_eq!(settings.logging().file_retention_secs(), 604_800);
         assert_eq!(settings.logging().file_max_total_size(), 256 * 1024 * 1024);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
-        assert_eq!(settings.models().access(), &crate::ModelAccessPolicy::All);
+        assert!(
+            settings
+                .models()
+                .allows(&crate::PublicModelName::new("any-model").expect("model"))
+        );
         assert_eq!(settings.oauth().refresh_scan_interval_secs(), 30);
         assert_eq!(settings.oauth().refresh_lead_time_secs(), 300);
         assert_eq!(settings.upstream().read_timeout_secs(), 15);
@@ -237,18 +231,18 @@ mod tests {
                 SettingKey::ModelsAllowed,
                 &json!(["z-model", "a-model", "z-model"]),
             ),
-            Ok(SettingValue::OptionalStringList(Some(vec![
+            Ok(SettingValue::StringList(vec![
                 "a-model".to_owned(),
                 "z-model".to_owned(),
-            ])))
+            ]))
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::ModelsAllowed, &serde_json::Value::Null),
-            Ok(SettingValue::OptionalStringList(None))
+            Err(SettingsValidationError::InvalidType)
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::ModelsAllowed, &json!([])),
-            Ok(SettingValue::OptionalStringList(Some(Vec::new())))
+            Ok(SettingValue::StringList(Vec::new()))
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::ModelsAllowed, &json!([" invalid "])),

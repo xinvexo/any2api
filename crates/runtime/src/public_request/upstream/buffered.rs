@@ -76,7 +76,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let body = match collect_body(
         response.body,
         read_timeout,
-        execution_limits::buffered_response_limit(prepared.ingress_operation, true),
+        execution_limits::STANDARD_BUFFERED_RESPONSE_LIMIT_BYTES,
         response.read_failure_scope,
     )
     .await

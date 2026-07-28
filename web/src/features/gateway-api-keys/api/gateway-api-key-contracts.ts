@@ -13,7 +13,6 @@ export type {
   GatewayApiKeyCollectionResponse,
   GatewayApiKeyCreateRequest,
   GatewayApiKeyDeleteRequest,
-  GatewayApiKeyResponse,
   GatewayApiKeyRotateRequest,
   GatewayApiKeyUpdateRequest,
 };

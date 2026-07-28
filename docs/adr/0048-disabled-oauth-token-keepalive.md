@@ -2,11 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-07-26
-- Amends: ADR-0033's enabled-account-only refresh scan
 
 ## Context
 
-`OAuthAccount.enabled` currently serves two unrelated purposes: it excludes an account from routing and also excludes it from scheduled token refresh. A temporarily disabled account can therefore lose a rotating refresh credential or remain expired until it is re-enabled. That makes administrative suspension accidentally change credential-lifecycle behavior.
+`OAuthAccount.enabled` controls routing eligibility only. Token keepalive follows account existence so that temporarily disabling model traffic does not abandon a rotating refresh credential or leave the account expired when it is re-enabled.
 
 An OAuth account stored in SQLite is still an intentionally retained account even while disabled. Disabling it should stop client traffic, not abandon its authentication state.
 

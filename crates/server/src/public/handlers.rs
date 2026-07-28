@@ -101,42 +101,6 @@ pub(crate) async fn messages_count_tokens(
     .await
 }
 
-pub(crate) async fn images_generations(
-    State(state): State<AppState>,
-    Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-    Extension(request_id): Extension<HttpRequestId>,
-    headers: HeaderMap,
-    PublicBody(body): PublicBody,
-) -> Response {
-    execute_public_request(
-        state,
-        authenticated,
-        request_id,
-        headers,
-        body,
-        ProtocolOperation::ImagesGenerations,
-    )
-    .await
-}
-
-pub(crate) async fn images_edits(
-    State(state): State<AppState>,
-    Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
-    Extension(request_id): Extension<HttpRequestId>,
-    headers: HeaderMap,
-    PublicBody(body): PublicBody,
-) -> Response {
-    execute_public_request(
-        state,
-        authenticated,
-        request_id,
-        headers,
-        body,
-        ProtocolOperation::ImagesEdits,
-    )
-    .await
-}
-
 async fn execute_public_request(
     state: AppState,
     authenticated: AuthenticatedGatewayApiKey,

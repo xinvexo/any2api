@@ -1,6 +1,6 @@
 import { getJson } from "@/shared/api/http-client";
 
-export interface HealthResponse {
+interface HealthResponse {
   status: "ok";
   config_revision: number;
   scheduler_epoch: number;

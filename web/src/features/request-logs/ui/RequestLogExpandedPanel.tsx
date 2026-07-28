@@ -1,4 +1,4 @@
-import type { RequestAttempt, RequestLog } from "../api/request-log-contracts";
+import type { RequestAttempt } from "../api/request-log-contracts";
 import {
   formatDurationMs,
   isSuccessStatus,
@@ -24,8 +24,6 @@ export function RequestLogExpandedPanel({
   requestId,
 }: {
   requestId: string;
-  /** Kept for call-site stability; list already renders summary fields. */
-  summary?: RequestLog;
 }) {
   const query = useRequestLog(requestId);
 
@@ -58,7 +56,7 @@ export function RequestLogExpandedPanel({
     <div className="min-w-0 max-w-full space-y-3 overflow-x-clip">
       <dl className="grid min-w-0 grid-cols-2 gap-x-3 gap-y-2 text-[11px] sm:grid-cols-3 lg:grid-cols-4">
         <Detail label="请求 ID" value={request.requestId} />
-        <Detail label="客户端 IP" value={request.clientIp ?? "未记录"} />
+        <Detail label="客户端 IP" value={request.clientIp} />
         <Detail label="协议" value={protocolLabel(request.ingressProtocol)} />
         {/* Gateway operation endpoint (responses / compact / count_tokens…), not a user action. */}
         <Detail label="接口" value={operationLabel(request.operation)} />

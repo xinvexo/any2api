@@ -23,7 +23,7 @@ Provider Endpoint 的 Base URL 是管理员明确配置的受信任目标。需�
 
 - 对域名收集所有 A/AAAA 结果并去重。管理员配置可以解析到公网、loopback、link-local、私网或其他地址类别，不在 Transport 中追加第二套授权判断。
 - 解析为空或无法取得有效端口统一归类为 `Dns + Endpoint + DefinitelyNotSent`。
-- 解析结果属于本次 Transport 请求的不可变计划。连接池 key 包含主机、端口、协议和完整解析地址集合；DNS 结果变化会进入新的 Client 代际，旧连接不会被新解析结果复用。
+- 解析结果属于本次 Transport 请求的不可变计划。连接池 key 包含主机、端口、协议和完整解析地址集合；DNS 结果变化会进入新的 Client 代际，先前解析结果的连接不会被当前结果复用。
 - 严格模式不会在连接失败后悄悄重新解析或回退远端 DNS。一次连接计划只使用其捕获的地址；是否开始新的上游 Attempt 由 Runtime 的 RetrySafety 和预算决定。
 - 多地址连接使用解析器给出的稳定顺序并去重。DIRECT 连接器可以在同一连接建立阶段按顺序尝试地址；HTTP CONNECT、SOCKS5 和 HTTP forward 的目标地址在本次请求中固定为首个可构造的解析地址，连接失败作为连接前失败返回，不在 Transport 内隐藏多次上游请求。
 
@@ -40,9 +40,9 @@ Provider Endpoint 的 Base URL 是管理员明确配置的受信任目标。需�
 
 ### 5. 重定向、Host/SNI 与 DNS rebinding
 
-- Transport 继续禁用自动重定向。未来若显式支持重定向，每一次跳转都必须重新解析，并且跨 authority 不得转发 Provider Credential；本 ADR 不开启重定向。
+- Transport 禁用自动重定向。任何显式重定向实现都必须对每一次跳转重新解析，且跨 authority 不得转发 Provider Credential；当前不注册重定向路径。
 - 客户端提供的 `Host`、absolute-form URL、`Forwarded` 和 `X-Forwarded-*` 不参与目标 authority 构造。只有已发布 Endpoint 的结构化 URL决定原始 Host/SNI。
-- Client 连接池只能复用同一 ProxyProfile 配置代际、同一 Endpoint scheme/authority 和同一已验证地址集合的连接。这样 DNS rebinding 不会把旧 IP 连接误当成新解析结果；已建立的旧连接在请求结束前继续使用其原代际。
+- Client 连接池只能复用同一 ProxyProfile 配置代际、同一 Endpoint scheme/authority 和同一已验证地址集合的连接。这样 DNS rebinding 不会把先前 IP 的连接误当成当前解析结果；已建立连接在请求结束前继续使用其捕获代际。
 
 ### 6. 与远端 DNS 模式的关系
 

@@ -2,7 +2,7 @@ import { NavLink } from "react-router-dom";
 
 import { cn } from "@/shared/lib/cn";
 
-export interface PageTabItem {
+interface PageTabItem {
   label: string;
   path: string;
   end?: boolean;

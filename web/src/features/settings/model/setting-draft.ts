@@ -13,12 +13,12 @@ export interface SettingDraftValidation {
 }
 
 export function createSettingDraft(item: SettingItem): SettingDraft {
-  if (item.valueType === "optional_string_list") {
-    if (item.effectiveValue === null) {
-      return { mode: "all", models: [] };
-    }
+  if (item.valueType === "string_list") {
     if (Array.isArray(item.effectiveValue)) {
-      return { mode: "only", models: [...item.effectiveValue] };
+      return {
+        mode: item.effectiveValue.length === 0 ? "all" : "only",
+        models: [...item.effectiveValue],
+      };
     }
     throw new Error("invalid model access setting");
   }
@@ -35,12 +35,12 @@ export function validateSettingDraft(
   item: SettingItem,
   draft: SettingDraft,
 ): SettingDraftValidation {
-  if (item.valueType === "optional_string_list") {
+  if (item.valueType === "string_list") {
     if (!isModelAccessDraft(draft)) {
       return invalid("模型选择格式不正确");
     }
     if (draft.mode === "all") {
-      return { value: null, error: null };
+      return { value: [], error: null };
     }
     const values = [...new Set(draft.models)].sort();
     if (values.some((value) => !item.options?.includes(value))) {

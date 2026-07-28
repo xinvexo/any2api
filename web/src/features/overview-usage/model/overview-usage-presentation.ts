@@ -41,7 +41,7 @@ export function formatOverviewRpm(value: number) {
   return new Intl.NumberFormat("zh-CN", { maximumFractionDigits }).format(value);
 }
 
-export function formatOverviewDateTime(value: number) {
+function formatOverviewDateTime(value: number) {
   return new Date(value).toLocaleString(undefined, {
     month: "2-digit",
     day: "2-digit",

@@ -11,8 +11,8 @@ use crate::{
     api::{IngressRequest, SseFrame, StreamTermination, UpstreamResponse},
 };
 
-#[tokio::test]
-async fn json_bridge_converts_tools_usage_and_previous_response_history() {
+#[test]
+fn json_bridge_converts_tools_usage_and_previous_response_history() {
     let registry = registry();
     let first = decoded(
         &registry,
@@ -37,8 +37,7 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
             }],
             "tool_choice":{"type":"function","name":"weather"}
         }),
-    )
-    .await;
+    );
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     let prepared = exchange
         .prepare_request(first, "upstream-model")
@@ -121,8 +120,7 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
                 "output":"Sunny"
             }]
         }),
-    )
-    .await;
+    );
     let mut follow_up_exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     let prepared = follow_up_exchange
         .prepare_request(follow_up, "upstream-model")
@@ -138,15 +136,14 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     assert_eq!(messages[3]["content"], "Sunny");
 }
 
-#[tokio::test]
-async fn streaming_bridge_emits_responses_events_tools_and_usage() {
+#[test]
+fn streaming_bridge_emits_responses_events_tools_and_usage() {
     let registry = registry();
     let request = decoded(
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public-model","input":"hello","stream":true}),
-    )
-    .await;
+    );
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     let prepared = exchange
         .prepare_request(request, "upstream-model")
@@ -222,15 +219,14 @@ async fn streaming_bridge_emits_responses_events_tools_and_usage() {
     assert_eq!(usage.cache_read_tokens(), Some(1));
 }
 
-#[tokio::test]
-async fn streaming_bridge_marks_incomplete_as_a_successful_terminal() {
+#[test]
+fn streaming_bridge_marks_incomplete_as_a_successful_terminal() {
     let registry = registry();
     let request = decoded(
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public-model","input":"hello","stream":true}),
-    )
-    .await;
+    );
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     exchange
         .prepare_request(request, "upstream-model")
@@ -253,8 +249,8 @@ async fn streaming_bridge_marks_incomplete_as_a_successful_terminal() {
     assert_eq!(terminal.termination(), StreamTermination::Completed);
 }
 
-#[tokio::test]
-async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
+#[test]
+fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
     let registry = registry();
 
     for body in [
@@ -262,7 +258,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         json!({"model":"public","input":"hello","n":2}),
         json!({"model":"public","input":"hello","tool_choice":"random"}),
     ] {
-        let request = decoded(&registry, ProtocolOperation::Responses, body).await;
+        let request = decoded(&registry, ProtocolOperation::Responses, body);
         let error = bridged_exchange(&registry, ProtocolOperation::Responses)
             .prepare_request(request, "upstream")
             .err()
@@ -274,8 +270,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public","input":"hello","previous_response_id":"resp_missing"}),
-    )
-    .await;
+    );
     assert_eq!(
         bridged_exchange(&registry, ProtocolOperation::Responses)
             .prepare_request(lost, "upstream")
@@ -297,8 +292,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public","input":"hello"}),
-    )
-    .await;
+    );
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     exchange
         .prepare_request(request, "upstream")
@@ -317,8 +311,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         &registry,
         ProtocolOperation::Responses,
         json!({"model":"public","input":"hello","stream":true}),
-    )
-    .await;
+    );
     let mut stream_exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     stream_exchange
         .prepare_request(stream_request, "upstream")
@@ -345,7 +338,7 @@ fn registry() -> ProtocolRegistry {
     registry
 }
 
-async fn decoded(
+fn decoded(
     registry: &ProtocolRegistry,
     operation: ProtocolOperation,
     body: Value,
@@ -360,7 +353,6 @@ async fn decoded(
             body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
             operation,
         })
-        .await
         .expect("decoded request")
 }
 

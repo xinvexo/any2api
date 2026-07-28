@@ -3,7 +3,6 @@ use std::fmt;
 use any2api_domain::{
     ProtocolDialect, ProtocolOperation, PublicError, RequestBodyEncoding, TokenUsage,
 };
-use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode, Uri};
 use serde_json::Value;
@@ -53,23 +52,6 @@ pub enum IngressAffinity {
 #[derive(Clone)]
 pub enum AdapterPayload {
     Json(Value),
-    Multipart(MultipartPayload),
-}
-
-/// A parsed multipart body whose ordered fields can be safely re-encoded
-/// after replacing routing-owned values such as `model`.
-#[derive(Clone)]
-pub struct MultipartPayload {
-    pub(crate) parts: Vec<MultipartPart>,
-    pub(crate) model_part_index: usize,
-    pub(crate) stream: bool,
-}
-
-#[derive(Clone)]
-pub struct MultipartPart {
-    pub(crate) name: String,
-    pub(crate) headers: HeaderMap,
-    pub(crate) body: Bytes,
 }
 
 #[derive(Clone)]
@@ -243,7 +225,6 @@ impl fmt::Debug for SseEventPayload {
     }
 }
 
-#[async_trait]
 pub trait ProtocolAdapter: Send + Sync {
     fn dialect(&self) -> ProtocolDialect;
 
@@ -251,7 +232,7 @@ pub trait ProtocolAdapter: Send + Sync {
         StreamCompletionPolicy::EofAllowed
     }
 
-    async fn decode_ingress_request(
+    fn decode_ingress_request(
         &self,
         request: IngressRequest,
     ) -> Result<DecodedRequest, ProtocolError>;
@@ -374,18 +355,6 @@ impl fmt::Debug for AdapterPayload {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Json(_) => formatter.write_str("Json([REDACTED])"),
-            Self::Multipart(payload) => formatter
-                .debug_struct("Multipart")
-                .field("part_count", &payload.parts.len())
-                .field(
-                    "body_bytes",
-                    &payload
-                        .parts
-                        .iter()
-                        .map(|part| part.body.len())
-                        .sum::<usize>(),
-                )
-                .finish(),
         }
     }
 }

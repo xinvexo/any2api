@@ -6,7 +6,7 @@
 
 ## 背景
 
-当前管理 API 只检查 TCP 对端是否为 loopback。该门禁不能提供管理员身份、会话撤销或 CSRF 防护，并且本机 Nginx/Caddy 反代会让远程请求看起来来自 loopback。项目需要支持个人实例的远程管理，同时明确允许用户在受信网络中选择明文 HTTP，不能把 TLS 设为强制前置条件。
+个人实例的管理面需要独立管理员身份、会话撤销和 CSRF 防护，并允许在明确知悉风险的前提下通过明文 HTTP 远程管理。反向代理来源也必须在信任边界内解析，不能仅凭 TCP 对端地址判断客户端身份。
 
 ## 决策
 
@@ -27,23 +27,22 @@ POST /api/admin/auth/logout
 ```
 
 - `admin.remote_enabled`、会话 idle/absolute timeout、登录失败窗口和最大失败次数进入 SettingRegistry 并热更新。监听地址仍由 `ANY2API_BIND` 决定；仅开启远程设置不会隐式修改 socket bind。
-- 首切片直接支持远程 HTTP，并支持外部 TLS 终止。可信反代 CIDR 由启动环境变量 `ANY2API_TRUSTED_PROXY_CIDRS` 显式配置；仅可信 TCP 对端可以提供 `X-Forwarded-For` 和 `X-Forwarded-Proto`。可信代理请求必须同时提供唯一且合法的两个头，来源链从 TCP 对端开始按 XFF 右到左剥离连续可信代理，防止客户端预置 loopback 值绕过远程开关或 Setup 限制。
-- 非 loopback 且未确认 HTTPS 的已登录管理界面持续展示明文传输风险，但不拒绝请求。内建 Rustls listener 独立排期，不与认证状态机同时实现。
-- 没有注入 `AdminAuthService` 的嵌入/契约测试 Router 保留旧的 loopback-only 门禁；正式 Composition Root 必须注入服务，且这种模式永远不能远程访问。
+- 服务支持远程 HTTP 和外部 TLS 终止。可信反代 CIDR 由启动环境变量 `ANY2API_TRUSTED_PROXY_CIDRS` 显式配置；仅可信 TCP 对端可以提供 `X-Forwarded-For` 和 `X-Forwarded-Proto`。可信代理请求必须同时提供唯一且合法的两个头，来源链从 TCP 对端开始按 XFF 右到左剥离连续可信代理，防止客户端预置 loopback 值绕过远程开关或 Setup 限制。
+- 非 loopback 且未确认 HTTPS 的已登录管理界面持续展示明文传输风险，但不拒绝请求。服务不提供内建 TLS listener。
 
 ## 备选方案
 
 - 使用 GatewayApiKey 登录管理面：拒绝。两类凭据职责必须隔离，Gateway Key 不能获得配置权限。
 - JWT 或客户端自包含会话：拒绝。单节点服务端会话更容易立即失效、执行 idle timeout，并且无需密钥轮换体系。
 - 强制 HTTPS 才允许远程管理：拒绝。项目明确支持本地部署和受信网络中的 HTTP；风险通过显式开关与持续警告表达。
-- 同时实现内建 TLS listener：暂不采用。它会扩大监听器、证书加载和重启配置的改动面，不是验证管理员认证链路所必需。
+- 内建 TLS listener：不采用。外部 TLS 终止已经满足部署需求，且保持服务监听边界简单。
 
 ## 后果
 
 - loopback 与远程管理使用同一管理员身份，不会形成两套权限模型。
 - 进程重启后管理员需要重新登录，符合“不恢复运行态”的项目边界。
 - 外部 TLS 反代必须正确配置可信代理 CIDR；未配置时转发头被忽略，Cookie 不会被错误标记为 Secure。
-- 本切片之后仍需实现内建 TLS 与 Web 中的可信代理/监听配置；管理员密码在线轮换由 ADR-0024 完成。
+- 管理员密码在线轮换与数据目录单实例锁遵循 ADR-0024。
 
 ## 验证
 

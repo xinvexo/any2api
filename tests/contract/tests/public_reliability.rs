@@ -11,8 +11,8 @@ use any2api_domain::{
     RequestId, RetrySafety, SettingKey, SettingValue,
 };
 use any2api_protocol::{
-    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
+    ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublicResponse,
@@ -261,19 +261,19 @@ async fn remote_compaction_v2_finishes_on_terminal_without_waiting_for_eof() {
 }
 
 #[tokio::test]
-async fn legacy_responses_compact_survives_a_delayed_unary_body() {
+async fn responses_compact_survives_a_delayed_unary_body() {
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::delayed_json(
         Duration::from_secs(30),
         StatusCode::OK,
-        r#"{"output":[{"type":"compaction","encrypted_content":"opaque-legacy"}]}"#,
+        r#"{"output":[{"type":"compaction","encrypted_content":"opaque"}]}"#,
     )]));
-    let harness = harness(transport.clone(), 1, &["compact-legacy-model"], &[]).await;
+    let harness = harness(transport.clone(), 1, &["compact-model"], &[]).await;
     tokio::time::pause();
 
     let response = execute_operation(
         &harness,
         ProtocolOperation::ResponsesCompact,
-        "compact-legacy-model",
+        "compact-model",
         json!({"input":[]}),
     )
     .await;
@@ -1451,9 +1451,6 @@ async fn harness_for_protocol(
     protocols
         .register(Arc::new(OpenAiChatCompletionsAdapter::new()))
         .expect("chat completions adapter");
-    protocols
-        .register(Arc::new(OpenAiImagesAdapter::new()))
-        .expect("images adapter");
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("messages adapter");

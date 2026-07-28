@@ -38,12 +38,13 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
         .config
         .ok_or_else(|| invalid_response("Grok billing config is missing"))?;
     let monthly_limit = parse_optional_cent(config.monthly_limit.as_ref())?;
-    let legacy_used = parse_optional_cent(config.used.as_ref())?;
+    let fallback_used = parse_optional_cent(config.used.as_ref())?;
     let prepaid_balance_minor = parse_optional_cent(config.prepaid_balance.as_ref())?;
     let on_demand_used_minor = parse_optional_cent(config.on_demand_used.as_ref())?;
     let on_demand_cap_minor = parse_optional_cent(config.on_demand_cap.as_ref())?;
     let period = parse_period(&config)?;
-    let used_percent = parse_used_percent(config.credit_usage_percent, monthly_limit, legacy_used)?;
+    let used_percent =
+        parse_used_percent(config.credit_usage_percent, monthly_limit, fallback_used)?;
     let rate_limit = match used_percent {
         Some(used_percent) => {
             let period =
@@ -198,7 +199,7 @@ struct ParsedPeriod {
 fn parse_used_percent(
     authoritative: Option<f64>,
     monthly_limit: Option<i64>,
-    legacy_used: Option<i64>,
+    fallback_used: Option<i64>,
 ) -> Result<Option<f64>, ProviderError> {
     if let Some(value) = authoritative {
         if !value.is_finite() || value < 0.0 {
@@ -206,7 +207,7 @@ fn parse_used_percent(
         }
         return Ok(Some(value.min(100.0)));
     }
-    match (monthly_limit, legacy_used) {
+    match (monthly_limit, fallback_used) {
         (Some(limit), Some(used)) if limit > 0 && used >= 0 => {
             Ok(Some((used as f64 / limit as f64 * 100.0).min(100.0)))
         }

@@ -6,25 +6,25 @@
 
 ## 背景
 
-Codex CLI 当前稳定且默认启用 `remote_compaction_v2`。该路径不会调用旧的
+Codex CLI 当前稳定且默认启用 `remote_compaction_v2`。该路径不会调用
 `POST /responses/compact`，而是把完整历史放入普通 Responses `input`，在数组末尾追加
 `{"type":"compaction_trigger"}`，再通过流式 `POST /responses` 等待压缩事件。Codex
-`rust-v0.145.0` 的 Provider 默认流空闲时长为 300 秒；旧 `/responses/compact` 是 unary 请求，
+`rust-v0.145.0` 的 Provider 默认流空闲时长为 300 秒；`/responses/compact` 是 unary 请求，
 客户端把同一时长乘以 4，形成 1200 秒完整响应 timeout。
 
-any2api 原先把现代压缩当作普通 Responses：等待响应头 15 秒、首事件 5 秒、提交前总预算
-20 秒、提交后空闲 60 秒。旧 Compact 也只得到 15/20 秒预算。真实长上下文压缩的首事件可能在
-一分钟以后才出现，因此正常上游会被 any2api 提前终止。单纯全局提高这些设置会无必要地放宽
-全部文本请求；把 `compaction_trigger` 翻译成 Chat Completions 又没有无损语义。
+远程压缩不能沿用普通 Responses 的等待响应头、首事件、提交前总预算和提交后空闲限制；unary
+Compact 也需要独立长时预算。真实长上下文压缩的首事件可能在一分钟以后才出现，普通请求预算
+会提前终止正常上游。单纯全局提高这些设置会无必要地放宽全部文本请求；把
+`compaction_trigger` 翻译成 Chat Completions 又没有无损语义。
 
-首轮实现还把 HTTP Body EOF 当作 SSE 成功边界。CLIProxyAPI 的 Codex executor 和 Codex
-`rust-v0.145.0` 客户端都以显式 Responses 终止事件为完成边界：终止事件到达后立即停止读取，
-EOF 先到则视为不完整流。any2api 若在终止事件后继续等待保持开启的上游连接，会让下游请求
-生命周期错误延长到 300 秒空闲超时；反过来，终止事件缺失的 EOF 又会被错误记录为成功。
+Responses 流必须以显式终止事件而不是 HTTP Body EOF 作为成功边界。CLIProxyAPI 的 Codex
+executor 和 Codex `rust-v0.145.0` 客户端都在终止事件到达后立即停止读取，EOF 先到则视为
+不完整流。any2api 若在终止事件后继续等待保持开启的上游连接，会让下游请求生命周期错误延长
+到 300 秒空闲超时；反过来，终止事件缺失的 EOF 又会被错误记录为成功。
 
 ## 决策
 
-1. 协议稳定 API 在 `DecodedRequest` 中携带强类型 `RequestExecutionProfile`，首版包含
+1. 协议稳定 API 在 `DecodedRequest` 中携带强类型 `RequestExecutionProfile`，包含
    `Standard` 与 `RemoteCompaction`。它是从已解析请求得到的旁路元数据，不进入 SQLite、管理
    DTO、Provider Driver 或 wire body。
 2. OpenAI Responses 解码只在以下两种情况标记 `RemoteCompaction`：操作本身是
@@ -49,7 +49,7 @@ EOF 先到则视为不完整流。any2api 若在终止事件后继续等待保�
 7. Runtime 的单一 execution-limits 模块按操作和执行 profile 计算下限：
    - 现代 Responses 远程压缩：等待响应头/错误正文读取、首事件、提交后流空闲和提交前总预算
      均至少 300 秒；
-   - 旧 Responses Compact：等待响应头、buffered body 每 chunk 空闲和提交前总预算均至少
+   - unary Responses Compact：等待响应头、buffered body 每 chunk 空闲和提交前总预算均至少
      1200 秒；
    - 管理员配置大于下限时保留更大值，普通请求的 SettingRegistry 默认值不变。
 8. 部署文档中的 Nginx 示例关闭响应缓冲，并把代理读写 timeout 设为至少 1200 秒。外部 CDN 或
@@ -65,12 +65,12 @@ EOF 先到则视为不完整流。any2api 若在终止事件后继续等待保�
 - 聚合 `response.output_item.done` 并补写最终 `response.output`：当前 Codex v2 不读取该字段，且会
   把生命周期修复扩张为 payload 翻译，拒绝。
 - 把 `compaction_trigger` 转为 Chat Completions system prompt：不能保证压缩结果、加密内容和
-  Codex 后续历史语义，拒绝。
+  Codex 多轮上下文语义，拒绝。
 - 在首事件前向客户端发送代理 keepalive：这会提交下游响应并永久关闭安全切换上游的机会，拒绝。
 
 ## 后果
 
-- 当前 Codex CLI 的默认远程压缩和旧 Compact 客户端都能跨过普通请求的短预算，同时仍有明确上界。
+- 当前 Codex CLI 的流式远程压缩和 unary Compact 请求都能跨过普通请求的短预算，同时仍有明确上界。
 - Responses 终止帧成为真实完成边界；保持开启或在终止后报错的上游 Body 不会拖住客户端，缺少
   终止帧的提前 EOF 也不再伪装成成功。
 - 现代压缩只能使用 Responses 原生 Target；如果某模型只配置了 Chat Completions Bridge，候选为空并
@@ -80,11 +80,11 @@ EOF 先到则视为不完整流。any2api 若在终止事件后继续等待保�
 
 ## 验证
 
-- Protocol 单元测试覆盖最终 trigger 识别、非最终/嵌套同名值不误识别、旧 Compact 标记和 JSON
+- Protocol 单元测试覆盖最终 trigger 识别、非最终/嵌套同名值不误识别、unary Compact 标记和 JSON
   原样保留。
-- Runtime 单元测试覆盖 300/1200 秒下限、较大管理员值保持、普通请求和 Images 既有下限不变。
+- Runtime 单元测试覆盖 300/1200 秒下限、较大管理员值保持和普通请求默认预算不变。
 - 候选测试覆盖远程压缩排除 Responses → Chat Completions Bridge、普通 Responses 仍可使用该桥。
-- Tokio 虚拟时间契约测试让现代压缩首事件晚于普通 5 秒预算、旧 Compact body 晚于普通 15/20 秒
+- Tokio 虚拟时间契约测试让流式压缩首事件晚于普通 5 秒预算、unary Compact body 晚于普通 15/20 秒
   预算后到达，确认两者成功且 Transport 收到相应 read timeout。
 - SSE 契约确认 `compaction_trigger` 请求仍发往 `/v1/responses`，并原样返回当前上游的
   `response.output_item.done` 远程压缩事件。

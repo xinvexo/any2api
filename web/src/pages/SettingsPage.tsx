@@ -9,23 +9,8 @@ const SETTINGS_TABS = SETTING_SECTIONS.map((section) => ({
   path: `/settings/${section.id}`,
 }));
 
-const LEGACY_SECTIONS: Readonly<Record<string, string>> = {
-  password: "basic",
-  admin: "basic",
-  proxy: "basic",
-  scheduler: "routing",
-  affinity: "routing",
-  reliability: "protection",
-  upstream: "protection",
-};
-
 export function SettingsPage() {
   const { section = "basic" } = useParams<{ section: string }>();
-  const legacyTarget = LEGACY_SECTIONS[section];
-  if (legacyTarget) {
-    return <Navigate to={`/settings/${legacyTarget}`} replace />;
-  }
-
   const selected = SETTING_SECTIONS.find((item) => item.id === section);
   if (!selected) {
     return <Navigate to="/settings/basic" replace />;

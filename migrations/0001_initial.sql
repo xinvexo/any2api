@@ -231,8 +231,6 @@ CREATE TABLE provider_endpoints (
         protocol_dialect IN (
             'openai_responses',
             'openai_chat_completions',
-            'openai_images',
-            'codex_backend',
             'anthropic_messages'
         )
     ),
@@ -242,8 +240,6 @@ CREATE TABLE provider_endpoints (
             upstream_protocol_dialect IN (
                 'openai_responses',
                 'openai_chat_completions',
-                'openai_images',
-                'codex_backend',
                 'anthropic_messages'
             )
             AND upstream_protocol_dialect <> protocol_dialect
@@ -366,8 +362,6 @@ CREATE TABLE model_routes (
         ingress_protocol IN (
             'openai_responses',
             'openai_chat_completions',
-            'openai_images',
-            'codex_backend',
             'anthropic_messages'
         )
     ),
@@ -394,8 +388,6 @@ CREATE TABLE route_targets (
         upstream_protocol_dialect IN (
             'openai_responses',
             'openai_chat_completions',
-            'openai_images',
-            'codex_backend',
             'anthropic_messages'
         )
     ),
@@ -425,8 +417,6 @@ CREATE TABLE request_logs (
         ingress_protocol IN (
             'openai_responses',
             'openai_chat_completions',
-            'openai_images',
-            'codex_backend',
             'anthropic_messages'
         )
     ),
@@ -435,8 +425,6 @@ CREATE TABLE request_logs (
             'responses',
             'responses_compact',
             'chat_completions',
-            'images_generations',
-            'images_edits',
             'messages',
             'messages_count_tokens'
         )
@@ -479,13 +467,10 @@ CREATE TABLE request_logs (
         )
     ),
     is_stream INTEGER NOT NULL CHECK (is_stream IN (0, 1)),
-    client_ip TEXT CHECK (
-        client_ip IS NULL
-        OR (
-            typeof(client_ip) = 'text'
-            AND client_ip = trim(client_ip)
-            AND length(client_ip) BETWEEN 2 AND 45
-        )
+    client_ip TEXT NOT NULL CHECK (
+        typeof(client_ip) = 'text'
+        AND client_ip = trim(client_ip)
+        AND length(client_ip) BETWEEN 2 AND 45
     ),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

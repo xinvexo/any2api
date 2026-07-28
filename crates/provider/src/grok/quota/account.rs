@@ -24,11 +24,11 @@ pub(crate) fn parse_subscription(body: &[u8]) -> Result<OAuthQuotaSupplement, Pr
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubscriptionPayload {
-    #[serde(default, alias = "subscription_tier")]
+    #[serde(default)]
     subscription_tier: Option<String>,
-    #[serde(default, alias = "user_blocked_reason")]
+    #[serde(default)]
     user_blocked_reason: Option<String>,
-    #[serde(default, alias = "team_blocked_reasons")]
+    #[serde(default)]
     team_blocked_reasons: Option<Vec<String>>,
 }
 

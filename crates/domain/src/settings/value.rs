@@ -66,7 +66,7 @@ pub enum SettingValue {
     DurationSecs(u64),
     RateLimitMode(RateLimitMode),
     FileLogLevel(FileLogLevel),
-    OptionalStringList(Option<Vec<String>>),
+    StringList(Vec<String>),
 }
 
 impl SettingValue {
@@ -92,13 +92,7 @@ impl SettingValue {
                 }
                 parse_enum(key, value).ok_or(SettingsValidationError::InvalidEnum)
             }
-            SettingValueType::OptionalStringList => {
-                if value.is_null() {
-                    Ok(Self::OptionalStringList(None))
-                } else {
-                    parse_string_list(value).map(|values| Self::OptionalStringList(Some(values)))
-                }
-            }
+            SettingValueType::StringList => parse_string_list(value).map(Self::StringList),
         }?;
         normalize_value(key, parsed)
     }
@@ -110,7 +104,7 @@ impl SettingValue {
             Self::Integer(value) | Self::DurationSecs(value) => json!(value),
             Self::RateLimitMode(value) => json!(value.as_str()),
             Self::FileLogLevel(value) => json!(value.as_str()),
-            Self::OptionalStringList(value) => json!(value),
+            Self::StringList(value) => json!(value),
         }
     }
 
@@ -120,7 +114,7 @@ impl SettingValue {
             Self::Integer(_) => SettingValueType::Integer,
             Self::DurationSecs(_) => SettingValueType::DurationSecs,
             Self::RateLimitMode(_) | Self::FileLogLevel(_) => SettingValueType::Enum,
-            Self::OptionalStringList(_) => SettingValueType::OptionalStringList,
+            Self::StringList(_) => SettingValueType::StringList,
         }
     }
 
@@ -178,9 +172,7 @@ pub(super) fn normalize_value(
     value: SettingValue,
 ) -> Result<SettingValue, SettingsValidationError> {
     let value = match value {
-        SettingValue::OptionalStringList(Some(values)) => {
-            SettingValue::OptionalStringList(Some(normalize_models(values)?))
-        }
+        SettingValue::StringList(values) => SettingValue::StringList(normalize_models(values)?),
         value => value,
     };
     validate_value(key, &value)?;

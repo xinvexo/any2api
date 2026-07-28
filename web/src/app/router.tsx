@@ -25,10 +25,6 @@ export const router = createBrowserRouter([
       { path: "proxies", element: page(() => import("@/pages/ProxiesPage"), "ProxiesPage") },
       { path: "providers", element: page(() => import("@/pages/ProvidersPage"), "ProvidersPage") },
       { path: "oauth", element: page(() => import("@/pages/OAuthPage"), "OAuthPage") },
-      // Legacy kind-scoped deep links collapse into the unified providers page.
-      { path: "providers/:kind", element: <Navigate to="/providers" replace /> },
-      { path: "balancing", element: <Navigate to="/settings/routing" replace /> },
-      { path: "affinity", element: <Navigate to="/settings/routing" replace /> },
       {
         path: "keys",
         element: page(() => import("@/pages/GatewayApiKeysPage"), "GatewayApiKeysPage"),

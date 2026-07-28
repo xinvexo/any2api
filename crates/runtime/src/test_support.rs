@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use any2api_protocol::{
-    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
+    ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
 use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, ProviderRegistry};
 
@@ -16,9 +16,6 @@ pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
     protocols
         .register(Arc::new(OpenAiChatCompletionsAdapter::new()))
         .expect("Chat Completions adapter");
-    protocols
-        .register(Arc::new(OpenAiImagesAdapter::new()))
-        .expect("Images adapter");
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("Messages adapter");

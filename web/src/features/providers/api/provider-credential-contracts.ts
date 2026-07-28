@@ -3,7 +3,7 @@ import {
   type RequestUsage,
 } from "@/shared/api/request-usage";
 
-export type CredentialKind = "api_key";
+type CredentialKind = "api_key";
 
 export interface ProviderCredential {
   id: string;

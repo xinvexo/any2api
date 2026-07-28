@@ -1,17 +1,17 @@
 # ADR-0053: 管理 API 线格式类型由 Rust DTO 生成
 
-- 状态：Accepted（试点切片 gateway-api-keys 已落地）
+- 状态：Accepted
 - 日期：2026-07-26
 - 决策者：maintainer
 
 ## 背景
 
-管理 API 的请求/响应契约目前在两处各自手写一份：
+管理 API 的请求/响应契约不能在两处各自手写一份：
 
 - 后端：`crates/server/src/admin/*/dto/` 中的 serde snake_case DTO；
 - 前端：`web/src/features/*/api/*-contracts.ts` 中的 camelCase 接口加逐字段运行时解析器，当前约 2100 行，并配套同等规模的 `.test.ts` 用例维持两份定义一致。
 
-每新增或修改一个管理端点都要同步四处（Rust DTO、TS 接口、TS 解析器、契约测试）。API 面持续增长（近期一个切片即触及 54 个文件），漂移只能靠测试事后发现，而测试本身也是手写的第三份契约。
+同时维护 Rust DTO、TypeScript 接口、运行时解析器和契约测试会产生字段漂移；线格式类型应从 Rust DTO 直接生成，前端只手写超出结构的语义校验。
 
 ## 决策
 
@@ -24,18 +24,18 @@
 ## 备选方案
 
 - `schemars` 导出 JSON Schema 再经 `json-schema-to-typescript`/`typescript-json-schema` 二段生成：链路多一跳、产物含 Schema 噪音，且仍需 Node 侧生成步骤；在只需要 TS 类型的场景下不如 ts-rs 直接。
-- OpenAPI（`utoipa`）全量描述管理 API：收益更大（可生成 client 与文档），但要求为每个 handler 补注解，侵入面与维护面显著更高；作为后续演进方向保留，不阻塞本切片。
-- 维持现状：每个端点四处同步的成本随 API 面线性增长，已被近期切片验证为主要摩擦点。
+- OpenAPI（`utoipa`）全量描述管理 API：要求为每个 handler 补注解，侵入面与维护面显著更高，而当前只需要 TypeScript 线类型。
+- 继续手写重复线类型：每个端点的同步成本随 API 面线性增长。
 
 ## 影响
 
 - 新增/修改 DTO 时,前端线类型自动跟随，遗漏同步从"运行时测试失败或线上解析异常"提前到"CI drift 检查失败"。
 - 手写解析器保留但输入有类型约束，`value.config_revision` 之类的字段访问获得编译期检查，契约测试可以收缩为语义校验（安全断言）而非全字段结构复读。
 - `ts-rs` 为 dev-dependency 加 test-only derive，不进入发布二进制；serde 属性（`rename_all`、`skip_serializing_if`）由 ts-rs 原生理解。
-- 逐 feature 渐进迁移：先 gateway-api-keys 一个 feature 验证工作流，再扩展到其余 contracts 文件；迁移期间新旧模式可共存。
+- 已标注 `ts-rs` 的 Gateway API Key、总览 Usage 与请求 Usage DTO 使用生成线类型；未标注的管理 DTO 不得伪装成已生成契约。
 
 ## 验证
 
-- 试点 feature 的生成类型与现有手写接口做一次字段级 diff，确认无隐藏漂移后删除手写线类型。
+- 生成类型与对应前端领域模型做字段级契约测试，避免隐藏漂移。
 - CI drift 检查在故意改动一个 Rust DTO 字段而不重新生成时必须失败。
 - 前端 typecheck 在解析器访问不存在字段时必须失败（现状不会）。

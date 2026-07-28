@@ -26,7 +26,7 @@ pub(super) struct PlannedRequest {
     pub(super) tiers: std::collections::BTreeMap<u16, Vec<crate::routing::RouteCandidate>>,
 }
 
-pub(super) async fn plan(
+pub(super) fn plan(
     snapshot: &PublishedSnapshot,
     request: PublicRequest,
     adapter: &dyn ProtocolAdapter,
@@ -41,7 +41,6 @@ pub(super) async fn plan(
             body: request.body,
             operation: request.operation,
         })
-        .await
         .map_err(|_| invalid_request("request body is not valid for this endpoint"))?;
     let public_model = decoded
         .model

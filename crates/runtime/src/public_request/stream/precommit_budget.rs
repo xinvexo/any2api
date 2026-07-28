@@ -20,11 +20,8 @@ impl PrecommitBudget {
         settings: &StreamSettings,
     ) -> Self {
         Self::new(
-            execution_limits::stream_precommit_bytes(
-                operation,
-                usize::try_from(settings.precommit_max_bytes())
-                    .expect("validated precommit byte budget fits usize"),
-            ),
+            usize::try_from(settings.precommit_max_bytes())
+                .expect("validated precommit byte budget fits usize"),
             execution_limits::stream_timeout(
                 operation,
                 profile,

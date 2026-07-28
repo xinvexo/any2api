@@ -6,23 +6,19 @@
 
 ## 背景
 
-Gateway API Key 最初展示最近 24 次请求的顺序点阵，而 Provider API Key 与
-OAuthAccount 已按真实时间展示固定窗口。顺序点阵无法表达请求之间的时间间隔：数小时前的
-请求会紧邻当前请求，空闲期也不会留下空格。Gateway Web 还只使用浏览器原生 `title`，不能
-提供稳定的悬浮位置或键盘交互。
-
-三类凭据都从最终 RequestLog 读取本地观测，使用不同趋势语义没有产品或架构上的必要。
+Gateway API Key、Provider API Key 与 OAuthAccount 的调用趋势都来自最终 RequestLog，必须使用
+相同的真实时间语义。固定时间窗口需要保留空闲区间，并为鼠标和键盘交互提供同一份稳定的桶详情。
 
 ## 决策
 
-- Gateway API Key、Provider API Key 与 OAuthAccount 的累计总请求、成功和失败数继续覆盖当前
+- Gateway API Key、Provider API Key 与 OAuthAccount 的累计总请求、成功和失败数覆盖当前
   RequestLog 保留窗口，不建立永久计数器。
-- 三类趋势统一为最近 1 小时的固定时间条带：30 个 2 分钟桶，按 Unix 时间对齐并从旧到新返回；
+- 三类趋势统一为最近 1 小时的固定时间条带：30 个 2 分钟桶，按 Unix 时间对齐并按时间升序返回；
   当前桶位于最右侧，没有请求的桶仍返回零值。
 - 每个桶返回开始时间、总请求、成功和失败数。最终状态码为 2xx 计成功，其余计失败；只读取最终
   RequestLog，不重复计算 RequestAttempt。
-- Gateway 管理响应删除按请求顺序排列的 `recent_outcomes`，改用与上游凭据相同的
-  `window_minutes` 和 `window_slots` 契约。新项目不保留双轨兼容字段。
+- 三类管理响应统一使用 `window_minutes` 和 `window_slots` 契约，不提供按请求顺序排列的
+  双轨字段。
 - Web 复用同一个调用统计组件。空桶显示灰色；有请求时按桶内成功率统一着色：大于或等于
   95% 显示绿色，大于或等于 80% 且低于 95% 显示黄色，低于 80% 显示红色。鼠标悬浮或
   键盘聚焦任一桶时，浮层显示该桶起止时间、状态文字、成功/失败数和成功率。
@@ -31,11 +27,11 @@ OAuthAccount 已按真实时间展示固定窗口。顺序点阵无法表达请�
 
 ## 后果
 
-Gateway 点阵现在表达真实时间而非请求序号；请求稀疏时空闲区间可见。管理响应契约发生直接替换，
-但 SQLite Schema 和 RequestLog 写入格式不变，因此不需要 Migration。
+所有凭据趋势表达真实时间；请求稀疏时空闲区间可见。该统计只读取现有 RequestLog，不增加
+SQLite Schema 或写入格式。
 
 ## 验证
 
-- Storage 测试覆盖跨桶聚合、空桶、窗外记录只进入累计总数，以及从旧到新的固定 30 格顺序。
+- Storage 测试覆盖跨桶聚合、空桶、窗外记录只进入累计总数，以及按时间升序的固定 30 格顺序。
 - Admin 契约测试覆盖 Gateway 列表、创建和轮换响应的统一时间窗口字段。
 - React 契约与组件测试覆盖固定时间轴、共享悬浮详情、键盘焦点和空桶显示。

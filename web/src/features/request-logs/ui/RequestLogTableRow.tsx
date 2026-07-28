@@ -112,7 +112,7 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
       </button>
       {expanded ? (
         <div id={panelId} className="border-t border-subtle/40 px-3 pb-3 pt-2.5">
-          <RequestLogExpandedPanel requestId={log.requestId} summary={log} />
+          <RequestLogExpandedPanel requestId={log.requestId} />
         </div>
       ) : null}
     </article>
@@ -230,7 +230,7 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
           className="border-b border-subtle/50 bg-surface-muted/20"
         >
           <div role="cell" className="px-3 pb-3 pt-2.5">
-            <RequestLogExpandedPanel requestId={log.requestId} summary={log} />
+            <RequestLogExpandedPanel requestId={log.requestId} />
           </div>
         </div>
       ) : null}

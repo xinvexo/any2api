@@ -108,11 +108,6 @@ function protocolOptions() {
       upstream_protocols: ["openai_chat_completions"],
     },
     {
-      provider_kind: "codex",
-      accepted_protocol: "openai_images",
-      upstream_protocols: ["openai_images"],
-    },
-    {
       provider_kind: "claude",
       accepted_protocol: "anthropic_messages",
       upstream_protocols: ["anthropic_messages"],

@@ -14,7 +14,7 @@ export interface SystemLog {
   outcome: SystemLogOutcome;
 }
 
-export interface SystemLogTelemetry {
+interface SystemLogTelemetry {
   queuedRecords: number;
   droppedRecords: number;
   persistedRecords: number;

@@ -38,7 +38,6 @@ impl CodexDriver {
                 protocols: [
                     ProtocolDialect::OpenAiResponses,
                     ProtocolDialect::OpenAiChatCompletions,
-                    ProtocolDialect::OpenAiImages,
                 ]
                 .into_iter()
                 .collect(),
@@ -74,8 +73,6 @@ impl ProviderDriver for CodexDriver {
             ProtocolOperation::Responses
                 | ProtocolOperation::ResponsesCompact
                 | ProtocolOperation::ChatCompletions
-                | ProtocolOperation::ImagesGenerations
-                | ProtocolOperation::ImagesEdits
         ) {
             return Err(ProviderError::InvalidEndpoint(
                 "operation is not supported by Codex".into(),

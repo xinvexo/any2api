@@ -1,6 +1,6 @@
 # any2api
 
-any2api is a personal, self-hosted AI API aggregation proxy. One process combines Codex, Claude, and Grok API keys and OAuth accounts behind OpenAI Responses, OpenAI Chat Completions, OpenAI Images, and Anthropic Messages endpoints.
+any2api is a personal, self-hosted AI API aggregation proxy. One process combines Codex, Claude, and Grok API keys and OAuth accounts behind OpenAI Responses, OpenAI Chat Completions, and Anthropic Messages endpoints.
 
 The project is intentionally single-node. It does not provide registration, tenants, billing, subscriptions, API key sales, or distributed scheduling.
 
@@ -62,16 +62,16 @@ Losing the master key makes encrypted credentials unrecoverable. Copying only th
 
 There is no built-in backup or restore workflow. For an offline filesystem backup, stop any2api first and copy the database, master key, and any SQLite sidecar files as one consistent set.
 
-## Upgrades
+## Database Compatibility
 
-Database migrations are forward-only and run before the server starts accepting requests.
+Before the first formal release, each build is paired with the canonical schema in
+`migrations/0001_initial.sql`; database compatibility between development builds is not
+provided. Start a build with an empty data directory. If that schema changes, stop the
+existing process and initialize a new data directory instead of reusing an earlier
+development database.
 
-1. Stop the existing process cleanly.
-2. Take an offline copy of the data directory and external master key.
-3. Replace the binary.
-4. Start it against the same data directory and verify `/api/health` and the management UI.
-
-Do not run two any2api processes against one data directory. The process holds an exclusive instance lock and rejects a second owner.
+Do not run two any2api processes against one data directory. The process holds an
+exclusive instance lock and rejects a second owner.
 
 ## Remote Management
 
@@ -93,8 +93,8 @@ location / {
 }
 ```
 
-The 1200-second proxy window is required for the legacy unary Responses Compact endpoint and also
-covers modern Codex `remote_compaction_v2` streams whose first event can take much longer than a
+The 1200-second proxy window is required for unary Responses Compact requests and also covers Codex
+`remote_compaction_v2` streams whose first event can take much longer than a
 normal generation. Configure every outer CDN/load balancer with an equal or longer timeout, or
 bypass that layer for `/v1`; an HTML 502/504 near a fixed elapsed time usually means the outer proxy
 expired before any2api or the model upstream did.
@@ -109,12 +109,8 @@ Clients authenticate with a Gateway API Key using `Authorization: Bearer <key>` 
 - `POST /v1/responses`
 - `POST /v1/responses/compact`
 - `POST /v1/chat/completions`
-- `POST /v1/images/generations`
-- `POST /v1/images/edits`
 - `POST /v1/messages`
 - `POST /v1/messages/count_tokens`
-
-Images generation accepts JSON. Images edits accept JSON references or `multipart/form-data` uploads, and both endpoints support JSON or SSE responses when the configured OpenAI-compatible upstream supports them.
 
 Provider API keys and OAuth accounts remain separate management records, but eligible credentials for the same model and protocol share one runtime routing pool.
 

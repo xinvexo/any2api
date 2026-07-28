@@ -5,7 +5,7 @@
 
 ## 背景
 
-现有 `RequestLog` 描述的是已经通过网关鉴权并进入模型执行链的请求。它包含模型、路由、上游凭据、Attempt 和 Token Usage，因此不适合表达管理 API、健康检查、Web 资源、公开鉴权失败、404 或 405。管理员需要一份覆盖整个 Axum 服务的 HTTP 访问历史，并能在 Web 中自动刷新和手动清理。
+`RequestLog` 描述已经通过网关鉴权并进入模型执行链的请求。它包含模型、路由、上游凭据、Attempt 和 Token Usage，因此不适合表达管理 API、健康检查、Web 资源、公开鉴权失败、404 或 405。独立 HTTP 访问日志覆盖整个 Axum 服务，并支持 Web 自动刷新和手动清理。
 
 系统仍需遵守 Secret 不落日志的边界。尤其是 OAuth callback、登录链接或客户端 URL 可能在 query 中携带 code、token 或其他敏感值，完整访问日志不能等同于保存完整 URI、Header 或 Body。
 
@@ -15,7 +15,7 @@
 
 新增独立 SQLite `http_access_logs` 表和 `HttpAccessLog` 领域模型。全局 Axum 中间件位于所有公开路由、管理路由、健康检查与 Web fallback 之外，因此每个到达 Axum 的请求都生成一条系统日志，包括认证失败、404 和 405。
 
-规范首版 Schema 对 `method` 只要求非空且去除首尾空白，不设置人为 32 字符上限。开发期临时约束与表重建迁移不进入首个正式版本。
+Schema 对 `method` 只要求非空且去除首尾空白，不设置人为 32 字符上限。
 
 `HttpAccessLog` 保存：
 
@@ -34,7 +34,7 @@
 
 ### 生命周期与关联
 
-全局中间件生成 Request ID 并为全部响应写入 `x-any2api-request-id`；仅在响应没有最终上游 `x-request-id` 时用本地值补齐该字段。公开模型执行链复用同一个本地 ID 写入现有 `RequestLog`，使两类日志可按 `x-any2api-request-id` 关联。本项由 ADR-0056 调整。
+全局中间件生成 Request ID 并为全部响应写入 `x-any2api-request-id`；仅在响应没有最终上游 `x-request-id` 时用本地值补齐该字段。公开模型执行链复用同一个本地 ID 写入 `RequestLog`，使两类日志可按 `x-any2api-request-id` 关联。
 
 响应 Body 包装器统计成功 yield 的 data frame 字节数，并在 EOF、Body 错误或客户端 Drop 时以原子完成标记只提交一次。状态码在 Handler 返回 Response 时捕获；Body 错误不会伪装成普通完成，Drop 记录为取消。
 
@@ -64,6 +64,6 @@ DELETE /api/admin/system-logs
 - 大量历史记录不会创建等量桌面 DOM 行，表头在滚动时保持完整且不被数据覆盖。
 - query、Header 与 Body 不落库，避免为了“完整 HTTP 日志”破坏 Secret 边界。
 - Body 生命周期可以区分成功、传输错误和客户端取消。
-- 有序清理不会被清理命令之前仍在 writer 队列中的旧记录回填。
+- 有序清理不会被清理命令之前仍在 writer 队列中的记录回填。
 - 定时轮询不会用系统日志读取记录淹没真正的访问历史，手动读取与异常访问仍可审计。
 - 自动刷新选择在页面重载和浏览器重启后保持，同时不会把一台设备的界面偏好扩散为实例级配置。

@@ -1,6 +1,6 @@
 use crate::error::StorageError;
 
-pub const REQUEST_LOG_OVERVIEW_MODEL_LIMIT: usize = 12;
+pub(super) const REQUEST_LOG_OVERVIEW_MODEL_LIMIT: usize = 12;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RequestLogOverviewRange {

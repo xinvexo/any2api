@@ -1,5 +1,16 @@
-export type ProxyKind = "direct" | "http" | "socks5";
+type ProxyKind = "direct" | "http" | "socks5";
 export type EditableProxyKind = Exclude<ProxyKind, "direct">;
+
+export type ProxyTestFailureStage =
+  | "dns"
+  | "tcp"
+  | "proxy_handshake"
+  | "tls"
+  | "write_request"
+  | "await_headers"
+  | "read_body";
+
+export type ProxyTestFailureScope = "endpoint" | "proxy" | "unattributed";
 
 export interface ProxyProfile {
   id: string;
@@ -44,8 +55,8 @@ export interface ProxyTestResult {
   reachable: boolean;
   statusCode: number | null;
   latencyMs: number;
-  errorStage: string | null;
-  failureScope: string | null;
+  errorStage: ProxyTestFailureStage | null;
+  failureScope: ProxyTestFailureScope | null;
 }
 
 export function parseProxyConfiguration(value: unknown): ProxyConfiguration {
@@ -163,13 +174,18 @@ export function parseProxyTestResult(value: unknown): ProxyTestResult {
   if (!isRecord(value)) {
     throw new Error("invalid proxy test response");
   }
+
   const reachable = readBoolean(value.reachable);
   const statusCode = readNullableStatusCode(value.status_code);
-  const errorStage = readNullableString(value.error_stage);
-  const failureScope = readNullableString(value.failure_scope);
-  if (reachable ? statusCode === null || errorStage !== null || failureScope !== null : statusCode !== null) {
+  const errorStage = readNullableFailureStage(value.error_stage);
+  const failureScope = readNullableFailureScope(value.failure_scope);
+  const validOutcome = reachable
+    ? statusCode !== null && errorStage === null && failureScope === null
+    : statusCode === null && errorStage !== null && failureScope !== null;
+  if (!validOutcome) {
     throw new Error("invalid proxy test response");
   }
+
   return {
     configRevision: readPositiveInteger(value.config_revision),
     proxyConfigVersion: readPositiveInteger(value.proxy_config_version),
@@ -192,4 +208,32 @@ function readNullableStatusCode(value: unknown): number | null {
     throw new Error("invalid proxy test response");
   }
   return Number(value);
+}
+
+function readNullableFailureStage(value: unknown): ProxyTestFailureStage | null {
+  if (value === null) {
+    return null;
+  }
+  if (
+    value !== "dns" &&
+    value !== "tcp" &&
+    value !== "proxy_handshake" &&
+    value !== "tls" &&
+    value !== "write_request" &&
+    value !== "await_headers" &&
+    value !== "read_body"
+  ) {
+    throw new Error("invalid proxy test response");
+  }
+  return value;
+}
+
+function readNullableFailureScope(value: unknown): ProxyTestFailureScope | null {
+  if (value === null) {
+    return null;
+  }
+  if (value !== "endpoint" && value !== "proxy" && value !== "unattributed") {
+    throw new Error("invalid proxy test response");
+  }
+  return value;
 }

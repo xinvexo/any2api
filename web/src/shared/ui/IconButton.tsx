@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { cn } from "@/shared/lib/cn";
 
-export type IconButtonTone = "neutral" | "danger";
+type IconButtonTone = "neutral" | "danger";
 
 export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label: string;

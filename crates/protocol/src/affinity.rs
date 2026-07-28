@@ -157,15 +157,15 @@ mod tests {
     }
 
     #[test]
-    fn claude_code_user_id_supports_json_and_legacy_forms() {
+    fn claude_code_user_id_supports_json_and_delimited_forms() {
         for (user_id, expected) in [
             (
                 r#"{"device_id":"d","session_id":"session-json"}"#,
                 "claude:session-json",
             ),
             (
-                "user_hash_account__session_session-legacy",
-                "claude:session-legacy",
+                "user_hash_account__session_session-delimited",
+                "claude:session-delimited",
             ),
         ] {
             let body = json!({"metadata": {"user_id": user_id}});

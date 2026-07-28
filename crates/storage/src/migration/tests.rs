@@ -58,20 +58,22 @@ async fn canonical_initial_schema_bootstraps_all_current_invariants() {
 
     let endpoint_schema = table_schema(&pool, "provider_endpoints").await;
     assert!(endpoint_schema.contains("'grok'"));
-    assert!(endpoint_schema.contains("'openai_images'"));
     let oauth_schema = table_schema(&pool, "oauth_accounts").await;
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("requests_per_minute"));
     assert!(!oauth_schema.contains("max_concurrency"));
 
-    let legacy_tables = sqlx::query_scalar::<_, String>(
+    let obsolete_tables = sqlx::query_scalar::<_, String>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND (\
          name GLOB '*_v[0-9]*' OR name GLOB '*_grok' OR name GLOB '*_images')",
     )
     .fetch_all(&pool)
     .await
-    .expect("legacy tables");
-    assert!(legacy_tables.is_empty(), "legacy tables: {legacy_tables:?}");
+    .expect("obsolete tables");
+    assert!(
+        obsolete_tables.is_empty(),
+        "obsolete tables: {obsolete_tables:?}"
+    );
     assert!(
         sqlx::query("PRAGMA foreign_key_check")
             .fetch_all(&pool)

@@ -3,7 +3,6 @@
 - 状态：Accepted
 - 日期：2026-07-25
 - 决策人：项目维护者
-- 补充：ADR-0033 的 OAuthAccount 创建边界
 
 ## 背景
 
@@ -27,7 +26,7 @@ any2api 已能通过交互式登录创建 Codex、Claude 和 Grok `OAuthAccount`
 
 - 逐账号调用现有激活接口：会产生多个 revision，并允许中途失败留下半批账号。
 - 原样保存上传文件：会把外部 wrapper 和无关运营字段变成持久化契约，也无法保证刷新与运行时读取使用 canonical schema。
-- 自动覆盖同邮箱或账号 ID 的既有记录：不同订阅账号可能共享邮箱或组织 ID，隐式合并会造成 Token 覆盖；本阶段只创建新账号。
+- 自动覆盖同邮箱或账号 ID 的既有记录：不同订阅账号可能共享邮箱或组织 ID，隐式合并会造成 Token 覆盖；导入只创建新账号。
 - 把导入放进 Provider API Key 页面：会混淆 `ProviderCredential` 与 `OAuthAccount` 的永久管理边界。
 
 ## 后果

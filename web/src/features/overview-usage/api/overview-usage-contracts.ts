@@ -3,7 +3,7 @@ import type { OverviewUsageResponse } from "@/shared/api/generated/OverviewUsage
 import type { OverviewUsageTimeBucketResponse } from "@/shared/api/generated/OverviewUsageTimeBucketResponse";
 import type { OverviewUsageTotalsResponse } from "@/shared/api/generated/OverviewUsageTotalsResponse";
 
-export const OVERVIEW_USAGE_RANGES = ["1h", "24h", "7d", "30d"] as const;
+const OVERVIEW_USAGE_RANGES = ["1h", "24h", "7d", "30d"] as const;
 export type OverviewUsageRange = (typeof OVERVIEW_USAGE_RANGES)[number];
 
 export const OVERVIEW_USAGE_RANGE_SPECS: Record<
@@ -16,7 +16,7 @@ export const OVERVIEW_USAGE_RANGE_SPECS: Record<
   "30d": { bucketCount: 30, bucketWidthMs: 24 * 60 * 60_000 },
 };
 
-export interface OverviewUsageTotals {
+interface OverviewUsageTotals {
   requestCount: number;
   successfulRequestCount: number;
   failedRequestCount: number;

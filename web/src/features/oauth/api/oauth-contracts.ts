@@ -11,13 +11,13 @@ interface OAuthStartCommon {
   expiresInSeconds: number;
 }
 
-export interface OAuthAuthorizationCodeStartResult extends OAuthStartCommon {
+interface OAuthAuthorizationCodeStartResult extends OAuthStartCommon {
   flow: "authorization_code";
   authorizationUrl: string;
   redirectUri: string;
 }
 
-export interface OAuthDeviceCodeStartResult extends OAuthStartCommon {
+interface OAuthDeviceCodeStartResult extends OAuthStartCommon {
   flow: "device_code";
   userCode: string;
   verificationUri: string;
@@ -84,7 +84,7 @@ export interface OAuthAccountModelsInput {
   models: string[];
 }
 
-export interface OAuthImportedAccount {
+interface OAuthImportedAccount {
   id: string;
   providerKind: OAuthProvider;
   label: string;

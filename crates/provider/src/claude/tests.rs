@@ -52,24 +52,6 @@ fn builds_messages_paths_and_anthropic_headers() {
             .transport_modes
             .contains(&TransportMode::Sse)
     );
-    assert!(
-        !driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiImages)
-    );
-    assert!(
-        driver
-            .endpoint_plan(&base, ProtocolOperation::ImagesGenerations)
-            .is_err()
-    );
-    assert!(
-        driver
-            .endpoint_plan(&base, ProtocolOperation::ImagesEdits)
-            .is_err()
-    );
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
 }
 
 #[test]

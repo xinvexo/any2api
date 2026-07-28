@@ -23,7 +23,6 @@ test("shows frequent routing choices and folds low-frequency settings", async ()
   expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("30");
   expect(screen.getByRole("textbox", { name: "会话绑定 TTL" })).toHaveValue("86400");
   expect(screen.getByRole("textbox", { name: "会话绑定等待超时" })).toHaveValue("30");
-  expect(screen.queryByText(/软粘性|硬粘性|Prefer/)).not.toBeInTheDocument();
   expect(screen.queryByText("已覆盖")).not.toBeInTheDocument();
   expect(screen.queryByText("未覆盖")).not.toBeInTheDocument();
 });
@@ -93,7 +92,8 @@ test("searches, selects, clears, and saves the global model allowlist", async ()
   let current = modelConfiguration(1, null);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "PATCH") {
-      current = modelConfiguration(2, ["gpt-b"]);
+      const body = JSON.parse(String(init.body)) as { value: string[] };
+      current = modelConfiguration(current.config_revision + 1, body.value);
     }
     return jsonResponse(current);
   });
@@ -101,22 +101,33 @@ test("searches, selects, clears, and saves the global model allowlist", async ()
   renderModelSettings();
   expect(await screen.findByText("全部 3 个模型可用")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("switch", { name: "允许全部公开模型" }));
-  expect(screen.getByText("已拒绝全部模型")).toBeInTheDocument();
+  expect(screen.getByText("已允许 3 / 3")).toBeInTheDocument();
   const search = screen.getByRole("textbox", { name: "搜索可用模型" });
   fireEvent.change(search, { target: { value: "gpt" } });
+  fireEvent.click(screen.getByRole("button", { name: "清除当前" }));
+  expect(screen.getByRole("checkbox", { name: "gpt-a" })).not.toBeChecked();
   fireEvent.click(screen.getByRole("button", { name: "选择当前" }));
   expect(screen.getByRole("checkbox", { name: "gpt-a" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "gpt-b" })).toBeChecked();
-  fireEvent.click(screen.getByRole("button", { name: "清除当前" }));
-  expect(screen.getByRole("checkbox", { name: "gpt-a" })).not.toBeChecked();
-  fireEvent.click(screen.getByRole("checkbox", { name: "gpt-b" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "gpt-a" }));
+  fireEvent.change(search, { target: { value: "" } });
+  fireEvent.click(screen.getByRole("checkbox", { name: "claude" }));
   fireEvent.click(screen.getByRole("button", { name: "保存可使用的模型" }));
 
   await waitFor(() => expect(screen.getByText("已允许 1 / 3")).toBeInTheDocument());
-  const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
-  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+  let patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+  expect(JSON.parse(String(patches[0]?.[1]?.body))).toEqual({
     expected_revision: 1,
     value: ["gpt-b"],
+  });
+
+  fireEvent.click(screen.getByRole("switch", { name: "允许全部公开模型" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存可使用的模型" }));
+  await waitFor(() => expect(screen.getByText("全部 3 个模型可用")).toBeInTheDocument());
+  patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
+  expect(JSON.parse(String(patches[1]?.[1]?.body))).toEqual({
+    expected_revision: 2,
+    value: [],
   });
 });
 
@@ -171,8 +182,8 @@ function modelConfiguration(revision: number, override: string[] | null) {
     config_revision: revision,
     items: [setting(
       "models.allowed",
-      "optional_string_list",
-      null,
+      "string_list",
+      [],
       override,
       null,
       "公开模型",

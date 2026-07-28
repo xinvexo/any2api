@@ -17,8 +17,8 @@ use axum::http::{
 use bytes::Bytes;
 use serde_json::{Value, json};
 
-#[tokio::test]
-async fn composition_root_protocol_registry_runs_every_contract() {
+#[test]
+fn composition_root_protocol_registry_runs_every_contract() {
     let components = build_public_request_components().expect("public request components");
     let registry = components.protocol_registry();
     let actual = registry
@@ -30,7 +30,6 @@ async fn composition_root_protocol_registry_runs_every_contract() {
         BTreeSet::from([
             ProtocolDialect::OpenAiResponses,
             ProtocolDialect::OpenAiChatCompletions,
-            ProtocolDialect::OpenAiImages,
             ProtocolDialect::AnthropicMessages,
         ])
     );
@@ -39,15 +38,9 @@ async fn composition_root_protocol_registry_runs_every_contract() {
         assert_eq!(*dialect, adapter.dialect());
         protocol_local_error_contract(adapter.as_ref());
         match dialect {
-            ProtocolDialect::OpenAiResponses => responses_contract(adapter.as_ref()).await,
-            ProtocolDialect::OpenAiChatCompletions => {
-                chat_completions_contract(adapter.as_ref()).await
-            }
-            ProtocolDialect::OpenAiImages => images_contract(adapter.as_ref()).await,
-            ProtocolDialect::AnthropicMessages => messages_contract(adapter.as_ref()).await,
-            ProtocolDialect::CodexBackend => {
-                panic!("registered Codex Backend adapter has no first-release contract")
-            }
+            ProtocolDialect::OpenAiResponses => responses_contract(adapter.as_ref()),
+            ProtocolDialect::OpenAiChatCompletions => chat_completions_contract(adapter.as_ref()),
+            ProtocolDialect::AnthropicMessages => messages_contract(adapter.as_ref()),
         }
     }
 
@@ -119,7 +112,7 @@ fn composition_root_provider_registry_runs_every_contract() {
     }
 }
 
-async fn responses_contract(adapter: &dyn ProtocolAdapter) {
+fn responses_contract(adapter: &dyn ProtocolAdapter) {
     let decoded = adapter
         .decode_ingress_request(ingress_request(
             ProtocolOperation::Responses,
@@ -130,7 +123,6 @@ async fn responses_contract(adapter: &dyn ProtocolAdapter) {
                 "future_field": {"preserved": true}
             }),
         ))
-        .await
         .expect("Responses request decodes");
     assert_eq!(decoded.dialect, ProtocolDialect::OpenAiResponses);
     let encoded = adapter
@@ -151,7 +143,6 @@ async fn responses_contract(adapter: &dyn ProtocolAdapter) {
             "/v1/responses",
             json!({"model":"public-model","stream":true}),
         ))
-        .await
         .expect("streaming Responses request decodes");
     assert!(streaming.stream);
     let streaming = adapter
@@ -198,7 +189,7 @@ async fn responses_contract(adapter: &dyn ProtocolAdapter) {
     );
 }
 
-async fn chat_completions_contract(adapter: &dyn ProtocolAdapter) {
+fn chat_completions_contract(adapter: &dyn ProtocolAdapter) {
     let decoded = adapter
         .decode_ingress_request(ingress_request(
             ProtocolOperation::ChatCompletions,
@@ -209,7 +200,6 @@ async fn chat_completions_contract(adapter: &dyn ProtocolAdapter) {
                 "future_field": {"preserved": true}
             }),
         ))
-        .await
         .expect("Chat Completions request decodes");
     assert_eq!(decoded.dialect, ProtocolDialect::OpenAiChatCompletions);
     let encoded = adapter
@@ -245,7 +235,7 @@ async fn chat_completions_contract(adapter: &dyn ProtocolAdapter) {
     assert!(content.telemetry().has_content_delta);
 }
 
-async fn messages_contract(adapter: &dyn ProtocolAdapter) {
+fn messages_contract(adapter: &dyn ProtocolAdapter) {
     let decoded = adapter
         .decode_ingress_request(ingress_request(
             ProtocolOperation::Messages,
@@ -256,7 +246,6 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
                 "future_field": 42
             }),
         ))
-        .await
         .expect("Messages request decodes");
     assert_eq!(decoded.dialect, ProtocolDialect::AnthropicMessages);
     let encoded = adapter
@@ -277,7 +266,6 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
             "/v1/messages",
             json!({"model":"public-model","stream":true,"messages":[]}),
         ))
-        .await
         .expect("streaming Messages request decodes");
     assert!(streaming.stream);
     let streaming = adapter
@@ -300,7 +288,6 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
             "/v1/messages/count_tokens",
             json!({"model":"public-model","messages":[],"future_count_field":true}),
         ))
-        .await
         .expect("Count Tokens request decodes");
     let count_tokens = adapter
         .encode_upstream_request(
@@ -352,86 +339,6 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
     assert_eq!(count_response.telemetry.token_usage, TokenUsage::default());
 }
 
-async fn images_contract(adapter: &dyn ProtocolAdapter) {
-    let generated = adapter
-        .decode_ingress_request(ingress_request(
-            ProtocolOperation::ImagesGenerations,
-            "/v1/images/generations",
-            json!({
-                "model": "gpt-image-2",
-                "prompt": "contract image",
-                "stream": true,
-                "future": {"preserved": true}
-            }),
-        ))
-        .await
-        .expect("Images generation request decodes");
-    assert_eq!(generated.dialect, ProtocolDialect::OpenAiImages);
-    let encoded = adapter
-        .encode_upstream_request(
-            generated.operation,
-            generated.headers,
-            generated.payload,
-            "upstream-image-model",
-        )
-        .expect("Images generation request encodes");
-    let body: Value = serde_json::from_slice(&encoded.body).expect("Images JSON");
-    assert_eq!(body["model"], "upstream-image-model");
-    assert_eq!(body["future"]["preserved"], true);
-    assert_eq!(encoded.headers[ACCEPT], "text/event-stream");
-
-    let edited = adapter
-        .decode_ingress_request(ingress_request(
-            ProtocolOperation::ImagesEdits,
-            "/v1/images/edits",
-            json!({
-                "model": "gpt-image-2",
-                "prompt": "contract edit",
-                "images": [{"image_url": "https://example.com/source.png"}]
-            }),
-        ))
-        .await
-        .expect("Images edit request decodes");
-    let encoded = adapter
-        .encode_upstream_request(
-            edited.operation,
-            edited.headers,
-            edited.payload,
-            "upstream-image-model",
-        )
-        .expect("Images edit request encodes");
-    let body: Value = serde_json::from_slice(&encoded.body).expect("Images edit JSON");
-    assert_eq!(body["model"], "upstream-image-model");
-    assert_eq!(
-        body["images"][0]["image_url"],
-        "https://example.com/source.png"
-    );
-
-    let response = adapter
-        .decode_upstream_response(UpstreamResponse {
-            status: StatusCode::OK,
-            headers: HeaderMap::new(),
-            body: Bytes::from_static(
-                br#"{"data":[{"b64_json":"abc"}],"usage":{"input_tokens":4,"output_tokens":3}}"#,
-            ),
-        })
-        .expect("Images response decodes");
-    assert_eq!(
-        response.telemetry.token_usage,
-        TokenUsage::new(Some(4), Some(3), None, None)
-    );
-    let event = adapter
-        .decode_upstream_event(SseFrame(Bytes::from_static(
-            b"event: image_generation.completed\ndata: {\"type\":\"image_generation.completed\",\"usage\":{\"input_tokens\":4,\"output_tokens\":3}}\n\n",
-        )))
-        .expect("Images completion event decodes");
-    assert_eq!(
-        event.telemetry().token_usage,
-        TokenUsage::new(Some(4), Some(3), None, None)
-    );
-    assert!(!event.telemetry().has_content_delta);
-}
-
 fn ingress_request(operation: ProtocolOperation, uri: &'static str, body: Value) -> IngressRequest {
     IngressRequest {
         method: Method::POST,
@@ -461,12 +368,6 @@ fn codex_contract(driver: &dyn ProviderDriver) {
             .protocols
             .contains(&ProtocolDialect::OpenAiResponses)
     );
-    assert!(
-        driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiImages)
-    );
     assert_common_capabilities(driver);
     let plan = driver
         .endpoint_plan(&provider_base_url(), ProtocolOperation::ResponsesCompact)
@@ -475,22 +376,6 @@ fn codex_contract(driver: &dyn ProviderDriver) {
         plan.url.as_str(),
         "https://api.example.com/v1/responses/compact"
     );
-    let generations = driver
-        .endpoint_plan(&provider_base_url(), ProtocolOperation::ImagesGenerations)
-        .expect("Codex Images generations endpoint plan");
-    assert_eq!(
-        generations.url.as_str(),
-        "https://api.example.com/v1/images/generations"
-    );
-    let edits = driver
-        .endpoint_plan(&provider_base_url(), ProtocolOperation::ImagesEdits)
-        .expect("Codex Images edits endpoint plan");
-    assert_eq!(
-        edits.url.as_str(),
-        "https://api.example.com/v1/images/edits"
-    );
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
     assert_eq!(
         driver
             .credential_test_plan(&provider_base_url())
@@ -511,22 +396,6 @@ fn claude_contract(driver: &dyn ProviderDriver) {
             .capabilities()
             .protocols
             .contains(&ProtocolDialect::AnthropicMessages)
-    );
-    assert!(
-        !driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiImages)
-    );
-    assert!(
-        driver
-            .endpoint_plan(&provider_base_url(), ProtocolOperation::ImagesGenerations)
-            .is_err()
-    );
-    assert!(
-        driver
-            .endpoint_plan(&provider_base_url(), ProtocolOperation::ImagesEdits)
-            .is_err()
     );
     assert_common_capabilities(driver);
     let plan = driver
@@ -638,22 +507,6 @@ fn grok_contract(driver: &dyn ProviderDriver) {
             .protocols
             .contains(&ProtocolDialect::OpenAiChatCompletions)
     );
-    assert!(
-        !driver
-            .capabilities()
-            .protocols
-            .contains(&ProtocolDialect::OpenAiImages)
-    );
-    assert!(
-        driver
-            .endpoint_plan(&provider_base_url(), ProtocolOperation::ImagesGenerations)
-            .is_err()
-    );
-    assert!(
-        driver
-            .endpoint_plan(&provider_base_url(), ProtocolOperation::ImagesEdits)
-            .is_err()
-    );
     assert_common_capabilities(driver);
     let compact = driver
         .endpoint_plan(&provider_base_url(), ProtocolOperation::ResponsesCompact)
@@ -687,8 +540,6 @@ fn grok_contract(driver: &dyn ProviderDriver) {
     assert!(driver.oauth_supports_operation(ProtocolOperation::Responses));
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ResponsesCompact));
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ChatCompletions));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
-    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
     let authorization = driver
         .oauth_device_authorization_request()
         .expect("Grok device authorization request");

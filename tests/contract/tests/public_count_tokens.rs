@@ -70,7 +70,7 @@ async fn count_tokens_preserves_request_fields() {
 async fn count_tokens_upstream_not_found_returns_the_upstream_response() {
     let (upstream_address, upstream) = upstream_server(
         StatusCode::NOT_FOUND,
-        r#"{"secret":"upstream-body-must-not-leak"}"#,
+        r#"{"error":{"message":"upstream model was not found"}}"#,
         "/v1/messages/count_tokens",
     )
     .await;
@@ -90,7 +90,7 @@ async fn count_tokens_upstream_not_found_returns_the_upstream_response() {
     assert_eq!(response.status, StatusCode::NOT_FOUND);
     assert_eq!(
         response.body,
-        json!({"secret": "upstream-body-must-not-leak"})
+        json!({"error": {"message": "upstream model was not found"}})
     );
     upstream.await.expect("upstream request");
 }

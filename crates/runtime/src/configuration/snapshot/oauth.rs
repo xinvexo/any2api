@@ -1,8 +1,8 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use any2api_domain::{
-    FallbackTier, ModelAccessPolicy, ModelRouteConfiguration, ModelRouteId, OAuthAccountId,
-    PublicModelName, RoutingCredentialId, UpstreamModelName,
+    FallbackTier, ModelRouteConfiguration, ModelRouteId, OAuthAccountId, PublicModelName,
+    RoutingCredentialId, UpstreamModelName,
 };
 use any2api_provider::api::OAuthTokenMaterial;
 
@@ -79,11 +79,10 @@ impl PublishedSnapshot {
     #[must_use]
     pub fn public_model_names(&self) -> BTreeSet<String> {
         let mut names = self.published_public_model_names();
-        if let ModelAccessPolicy::Only(allowed) = self.settings().models().access() {
-            names.retain(|name| {
-                PublicModelName::new(name.clone()).is_ok_and(|name| allowed.contains(&name))
-            });
-        }
+        names.retain(|name| {
+            PublicModelName::new(name.clone())
+                .is_ok_and(|name| self.settings().models().allows(&name))
+        });
         names
     }
 

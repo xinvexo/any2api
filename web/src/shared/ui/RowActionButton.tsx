@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { cn } from "@/shared/lib/cn";
 
-export type RowActionTone = "neutral" | "danger";
+type RowActionTone = "neutral" | "danger";
 
 export interface RowActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label: string;

@@ -1,10 +1,7 @@
 import {
   showNotification,
-  type NotificationTone,
   type ShowNotificationInput,
 } from "./notification-store";
-
-export type { NotificationTone, ShowNotificationInput };
 
 /**
  * Imperative global feedback API.

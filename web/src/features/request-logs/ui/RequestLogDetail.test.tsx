@@ -25,8 +25,6 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(screen.getByText("HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("The model was not found")).toBeInTheDocument();
   expect(screen.getAllByText("未收到上游状态")).toHaveLength(2);
-  expect(screen.queryByText("transport_error")).not.toBeInTheDocument();
-  expect(screen.queryByText("network")).not.toBeInTheDocument();
   expect(screen.getByText("18 ms")).toBeInTheDocument();
   expect(screen.getByText("203.0.113.8")).toBeInTheDocument();
   expect(screen.getByText("120")).toBeInTheDocument();
@@ -61,17 +59,6 @@ test("keeps unavailable token telemetry distinct from real zero values", async (
   expect(await screen.findByText("0 ms")).toBeInTheDocument();
   expect(screen.getByText("0")).toBeInTheDocument();
   expect(screen.getAllByText("未记录")).toHaveLength(3);
-});
-
-test("shows an unknown client address for historical logs", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    detailResponse([], { client_ip: null }),
-  );
-
-  renderDetail();
-
-  expect(await screen.findByText("客户端 IP")).toBeInTheDocument();
-  expect(screen.getByText("未记录")).toBeInTheDocument();
 });
 
 test("renders a terminal not-found state without a retry action", async () => {

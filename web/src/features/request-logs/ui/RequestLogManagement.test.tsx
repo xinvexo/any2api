@@ -65,7 +65,6 @@ test("renders request logs in a table without leaving the page for details", asy
   // no duplicate list metrics in the panel
   expect(screen.queryByText("输入 Token")).not.toBeInTheDocument();
   expect(screen.queryByText("错误详情")).not.toBeInTheDocument();
-  expect(screen.queryByText("错误分类")).not.toBeInTheDocument();
   expect(fetchMock.mock.calls.some(([path]) => String(path).includes("/request-logs/11111111"))).toBe(
     true,
   );
@@ -90,13 +89,12 @@ test("distinguishes an OAuth final upstream source", async () => {
   expect((await screen.findAllByText("work-oauth")).length).toBeGreaterThanOrEqual(1);
 });
 
-test("shows an upstream 429 and its message without an internal classification", async () => {
+test("shows an upstream 429 and its original message", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     listResponse([
       {
         ...request(),
         status_code: 429,
-        error_class: "rate_limited",
         error_message: "Too many requests",
       },
     ]),
@@ -106,7 +104,6 @@ test("shows an upstream 429 and its message without an internal classification",
 
   expect((await screen.findAllByText("失败 429")).length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("Too many requests").length).toBeGreaterThanOrEqual(1);
-  expect(screen.queryByText("rate_limited")).not.toBeInTheDocument();
 });
 
 test("renders an empty state", async () => {

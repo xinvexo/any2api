@@ -15,7 +15,7 @@
 1. Rust Workspace 源码采用 feature-first 目录。Domain 按 Gateway Key、OAuth Account、Provider、Proxy、Routing 和 Telemetry 分类；Storage 按持久化聚合根分类；Server Admin 按 HTTP feature 分类；Runtime 按配置发布、路由、凭据维护、OAuth、遥测和生命周期分类；Transport 按 client、connection、proxy 与 resolution 分类。
 2. 同一 feature 的 entity/configuration、row/repository/write、DTO/handler/error 与测试放在相邻目录；Transport 测试也跟随所验证的能力放置。`mod.rs` 只声明子模块、做最小重导出或组装 feature 路由，不承载大段业务逻辑。
 3. 单文件且职责独立的模块不机械创建同名目录。目录必须表示多个文件共同维护的真实领域边界。
-4. crate 之间继续只使用稳定 `api` 出口。内部模块路径一次性迁移到最终结构，不保留旧路径兼容别名、双轨模块或转发文件；本项目尚无需要维持的内部路径兼容负担。
+4. crate 之间继续只使用稳定 `api` 出口。内部模块路径一次性迁移到最终结构，不保留内部路径兼容别名、双轨模块或转发文件；本项目尚无需要维持的内部路径兼容负担。
 5. 共享抽象必须来自至少两个真实调用方的相同语义。仅仅拥有相似后缀不是抽象依据；禁止引入 `common.rs`、`utils.rs`、万能 repository、万能 handler 或只有一层调用的 facade。
 6. 目录迁移不得改变 SQLite Schema/Migration、HTTP 路由、Provider 注册、Secret 边界、调度规则或公开 DTO。行为变更必须另立 ADR 和独立提交边界。
 7. `app/any2api` 按 `bootstrap`、`logging` 与 `shutdown` 分类。`bootstrap` 是唯一应用装配域，包含环境配置、实例锁、具体 Registry/Adapter 注册和启动流程；它不能承载被装配 crate 的核心业务规则。`build.rs`、`main.rs` 与 `lib.rs` 保持工具链约定入口并维持最小内容。
@@ -28,7 +28,7 @@
 ## 备选方案
 
 - 只按 `entity/`、`repository/`、`handler/` 等技术层分类：拒绝。一个业务功能仍会散布在多个远端目录，查找成本没有实质下降。
-- 在 `lib.rs` 使用大量 `#[path = ...]` 把文件物理归档但保留旧模块图：拒绝。文件系统与 Rust 所有权边界会继续不一致。
+- 在 `lib.rs` 使用大量 `#[path = ...]` 把文件物理归档但保留迁移前模块图：拒绝。文件系统与 Rust 所有权边界会继续不一致。
 - 为每个单文件模块建立同名目录：拒绝。这只是把平铺从文件变成目录，没有形成真实聚合。
 - 提取通用 CRUD/repository/handler 框架：拒绝。当前各聚合根的事务、版本、Secret 和发布语义不同，强行统一会隐藏不变量。
 
@@ -42,4 +42,4 @@
 - `cargo xtask architecture-check` 继续验证依赖方向、文件体积和模块入口门禁。
 - `xtask` 单元测试覆盖 Allowlist 条目对应文件缺失和已低于例外阈值两种失效状态。
 - `rg --files crates/*/src app/any2api/src xtask/src` 人工核对根目录只保留稳定入口、跨 feature 基础类型和一级 feature。
-- Storage、Runtime、Provider 与 Server 契约测试继续枚举真实 Registry/HTTP/Repository 实现，不按旧文件路径猜测覆盖率。
+- Storage、Runtime、Provider 与 Server 契约测试继续枚举真实 Registry/HTTP/Repository 实现，不按文件路径猜测覆盖率。

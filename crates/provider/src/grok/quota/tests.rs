@@ -100,7 +100,7 @@ fn parses_weekly_credit_usage_and_billing_amounts() {
 }
 
 #[test]
-fn derives_legacy_monthly_usage() {
+fn derives_monthly_usage_when_percentage_is_absent() {
     let usage = parse_usage(
         br#"{
           "config": {
@@ -111,7 +111,7 @@ fn derives_legacy_monthly_usage() {
           }
         }"#,
     )
-    .expect("legacy billing");
+    .expect("monthly billing");
     let window = &usage.rate_limit.expect("rate limit").windows[0];
     assert_eq!(window.id, "monthly_credits");
     assert_eq!(window.used_percent, 25.0);

@@ -5,6 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { proxyQueryKeys } from "../model/proxy-query-keys";
 import { ProxyManagement } from "./ProxyManagement";
+import { isProviderEndpointPath, isProviderEndpointRequest, providerConfiguration } from "./proxy-test-fixtures";
 
 const direct = {
   id: "00000000-0000-0000-0000-000000000000",
@@ -23,7 +24,13 @@ const direct = {
 afterEach(() => vi.restoreAllMocks());
 
 test("renders DIRECT in a table-style proxy list", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(configuration(1, [direct])));
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+    jsonResponse(
+      isProviderEndpointRequest(input)
+        ? providerConfiguration()
+        : configuration(1, [direct]),
+    ),
+  );
 
   renderManagement();
 
@@ -42,6 +49,9 @@ test("activates a custom proxy as the global route from the list", async () => {
   let current = configuration(1, [direct, proxy]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = requestPath(input);
+    if (isProviderEndpointPath(path)) {
+      return jsonResponse(providerConfiguration());
+    }
     if (path.endsWith(`/proxies/${proxy.id}/set-global`) && init?.method === "POST") {
       current = {
         config_revision: 2,
@@ -72,7 +82,10 @@ test("activates a custom proxy as the global route from the list", async () => {
 
 test("creates a SOCKS5 proxy with the visible configuration revision", async () => {
   let current = configuration(1, [direct]);
-  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (isProviderEndpointRequest(input)) {
+      return jsonResponse(providerConfiguration());
+    }
     if (init?.method === "POST") {
       current = configuration(2, [
         direct,
@@ -116,7 +129,13 @@ test("creates a SOCKS5 proxy with the visible configuration revision", async () 
 });
 
 test("does not render an editor for a DIRECT deep link", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(configuration(1, [direct])));
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+    jsonResponse(
+      isProviderEndpointRequest(input)
+        ? providerConfiguration()
+        : configuration(1, [direct]),
+    ),
+  );
 
   renderManagement([`/proxies?editor=${direct.id}`]);
 
@@ -126,7 +145,10 @@ test("does not render an editor for a DIRECT deep link", async () => {
 
 test("refetches the revision after a write conflict without discarding the editor", async () => {
   let getCount = 0;
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    if (isProviderEndpointRequest(input)) {
+      return jsonResponse(providerConfiguration());
+    }
     if (init?.method === "POST") {
       return new Response(
         JSON.stringify({
@@ -155,7 +177,13 @@ test("refetches the revision after a write conflict without discarding the edito
 
 test("keeps authentication fields hidden until enabled", async () => {
   const proxy = customProxy();
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(configuration(1, [direct, proxy])));
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+    jsonResponse(
+      isProviderEndpointRequest(input)
+        ? providerConfiguration()
+        : configuration(1, [direct, proxy]),
+    ),
+  );
 
   renderManagement([`/proxies?editor=${proxy.id}`]);
   expect(await screen.findByRole("switch", { name: "出口代理认证" })).toHaveAttribute(
@@ -175,6 +203,9 @@ test("saves authentication together with the proxy profile", async () => {
   let current = configuration(1, [direct, proxy]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = requestPath(input);
+    if (isProviderEndpointPath(path)) {
+      return jsonResponse(providerConfiguration());
+    }
     if (path.endsWith(`/proxies/${proxy.id}`) && init?.method === "PATCH") {
       current = configuration(2, [direct, { ...proxy, config_version: 2 }]);
       return jsonResponse(current);
@@ -224,8 +255,12 @@ test("saves authentication together with the proxy profile", async () => {
 
 test("rejects an HTTP Basic separator before writing authentication", async () => {
   const proxy = customProxy();
-  const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    jsonResponse(configuration(1, [direct, proxy])),
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+    jsonResponse(
+      isProviderEndpointRequest(input)
+        ? providerConfiguration()
+        : configuration(1, [direct, proxy]),
+    ),
   );
 
   renderManagement([`/proxies?editor=${proxy.id}`]);
@@ -244,6 +279,9 @@ test("deletes a custom proxy through the confirmation dialog", async () => {
   let current = configuration(1, [direct, proxy]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const path = requestPath(input);
+    if (isProviderEndpointPath(path)) {
+      return jsonResponse(providerConfiguration());
+    }
     if (path.endsWith(`/proxies/${proxy.id}`) && init?.method === "DELETE") {
       current = configuration(2, [direct]);
       return jsonResponse(current);

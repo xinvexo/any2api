@@ -29,7 +29,7 @@ impl RequestRecorderInner {
                 request: RequestLog {
                     request_id: self.request_id,
                     started_at_ms: self.started_at_ms,
-                    client_ip: Some(self.client_ip),
+                    client_ip: self.client_ip,
                     config_revision: self.config_revision,
                     gateway_api_key_id: Some(self.gateway_api_key_id),
                     ingress_protocol: self.operation.dialect(),

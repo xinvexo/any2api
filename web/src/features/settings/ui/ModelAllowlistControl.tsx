@@ -33,7 +33,10 @@ export function ModelAllowlistControl({
   }, [options, query]);
 
   function publish(next: Set<string>) {
-    onChange({ mode: "only", models: [...next].sort() });
+    onChange({
+      mode: next.size === 0 ? "all" : "only",
+      models: [...next].sort(),
+    });
   }
 
   function toggle(model: string) {
@@ -60,11 +63,9 @@ export function ModelAllowlistControl({
     <div className="min-w-0 space-y-2.5" role="group" aria-labelledby={labelledBy}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-[12px] tabular-nums text-secondary">
-          {access.mode === "all"
+          {access.mode === "all" || selected.size === 0
             ? `全部 ${options.length} 个模型可用`
-            : selected.size === 0
-              ? "已拒绝全部模型"
-              : `已允许 ${selected.size} / ${options.length}`}
+            : `已允许 ${selected.size} / ${options.length}`}
         </span>
         <div className="flex items-center gap-2 text-[12px] text-secondary">
           <span>允许全部</span>
@@ -72,12 +73,13 @@ export function ModelAllowlistControl({
             checked={access.mode === "all"}
             disabled={disabled}
             aria-label="允许全部公开模型"
-            onCheckedChange={(checked) =>
-              onChange({
-                mode: checked ? "all" : "only",
-                models: access.models,
-              })
-            }
+            onCheckedChange={(checked) => {
+              if (checked) {
+                onChange({ mode: "all", models: access.models });
+                return;
+              }
+              publish(new Set(access.models.length > 0 ? access.models : options));
+            }}
           />
         </div>
       </div>

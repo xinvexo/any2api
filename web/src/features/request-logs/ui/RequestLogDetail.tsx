@@ -98,7 +98,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
         <dl className="mt-6 grid gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <Detail label="协议" value={protocolLabel(request.ingressProtocol)} />
           <Detail label="接口" value={operationLabel(request.operation)} />
-          <Detail label="客户端 IP" value={request.clientIp ?? "未记录"} />
+          <Detail label="客户端 IP" value={request.clientIp} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
           <Detail label="错误消息" value={request.errorMessage ?? "无"} />
@@ -196,10 +196,6 @@ function protocolLabel(value: RequestLogProtocol) {
   switch (value) {
     case "openai_chat_completions":
       return "OpenAI Chat Completions";
-    case "openai_images":
-      return "OpenAI Images";
-    case "codex_backend":
-      return "Codex Backend";
     case "anthropic_messages":
       return "Claude Messages";
     case "openai_responses":

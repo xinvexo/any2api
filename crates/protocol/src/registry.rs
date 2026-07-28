@@ -128,7 +128,6 @@ mod tests {
     use std::sync::Arc;
 
     use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError};
-    use async_trait::async_trait;
     use bytes::Bytes;
     use http::{HeaderMap, StatusCode};
 
@@ -143,13 +142,12 @@ mod tests {
 
     struct FakeAdapter;
 
-    #[async_trait]
     impl ProtocolAdapter for FakeAdapter {
         fn dialect(&self) -> ProtocolDialect {
             ProtocolDialect::OpenAiResponses
         }
 
-        async fn decode_ingress_request(
+        fn decode_ingress_request(
             &self,
             _request: IngressRequest,
         ) -> Result<DecodedRequest, ProtocolError> {

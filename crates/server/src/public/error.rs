@@ -146,8 +146,6 @@ fn dialect_for_uri(uri: &Uri) -> ProtocolDialect {
         ProtocolDialect::AnthropicMessages
     } else if path == "chat" || path.starts_with("chat/") {
         ProtocolDialect::OpenAiChatCompletions
-    } else if path == "images" || path.starts_with("images/") {
-        ProtocolDialect::OpenAiImages
     } else {
         ProtocolDialect::OpenAiResponses
     }
@@ -177,10 +175,6 @@ mod tests {
         assert_eq!(
             dialect_for_uri(&Uri::from_static("/v1/chat/completions")),
             ProtocolDialect::OpenAiChatCompletions
-        );
-        assert_eq!(
-            dialect_for_uri(&Uri::from_static("/v1/images/generations")),
-            ProtocolDialect::OpenAiImages
         );
         assert_eq!(
             dialect_for_uri(&Uri::from_static("/responses")),

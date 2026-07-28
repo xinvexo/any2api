@@ -1,5 +1,5 @@
-export const REQUEST_USAGE_WINDOW_MINUTES = 2;
-export const REQUEST_USAGE_WINDOW_SLOT_COUNT = 30;
+const REQUEST_USAGE_WINDOW_MINUTES = 2;
+const REQUEST_USAGE_WINDOW_SLOT_COUNT = 30;
 
 export interface RequestUsage {
   totalRequests: number;

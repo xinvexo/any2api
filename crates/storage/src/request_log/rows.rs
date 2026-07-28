@@ -13,7 +13,7 @@ use crate::error::StorageError;
 pub(super) struct RequestLogRow {
     request_id: String,
     started_at_ms: i64,
-    client_ip: Option<String>,
+    client_ip: String,
     config_revision: i64,
     gateway_api_key_id: Option<String>,
     ingress_protocol: String,
@@ -58,7 +58,10 @@ pub(super) fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, Storag
     Ok(RequestLog {
         request_id: parse_id(&row.request_id)?,
         started_at_ms: from_i64(row.started_at_ms)?,
-        client_ip: parse_optional_value(row.client_ip.as_deref(), |value| value.parse().ok())?,
+        client_ip: row
+            .client_ip
+            .parse()
+            .map_err(|_| StorageError::CorruptTelemetry)?,
         config_revision: ConfigRevision::new(from_i64(row.config_revision)?)
             .map_err(|_| StorageError::CorruptTelemetry)?,
         gateway_api_key_id: parse_optional_id(row.gateway_api_key_id)?,

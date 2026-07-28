@@ -51,11 +51,7 @@ impl ProtocolBridge for ResponsesToChatCompletionsBridge {
                 decoded.operation
             )));
         }
-        let AdapterPayload::Json(value) = decoded.payload else {
-            return Err(ProtocolError::InvalidPayload(
-                "Responses bridge requires a JSON request body".into(),
-            ));
-        };
+        let AdapterPayload::Json(value) = decoded.payload;
         let previous = match value.get("previous_response_id") {
             Some(Value::String(id)) if !id.is_empty() => self
                 .history

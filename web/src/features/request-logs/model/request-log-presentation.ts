@@ -10,10 +10,6 @@ export function protocolLabel(value: RequestLogProtocol) {
   switch (value) {
     case "openai_chat_completions":
       return "Chat Completions";
-    case "openai_images":
-      return "Images";
-    case "codex_backend":
-      return "Codex Backend";
     case "anthropic_messages":
       return "Messages";
     case "openai_responses":
@@ -30,10 +26,6 @@ export function operationLabel(value: RequestLogOperation) {
       return "/v1/responses/compact";
     case "chat_completions":
       return "/v1/chat/completions";
-    case "images_generations":
-      return "/v1/images/generations";
-    case "images_edits":
-      return "/v1/images/edits";
     case "messages":
       return "/v1/messages";
     case "messages_count_tokens":
@@ -89,15 +81,7 @@ export function upstreamSource(log: UpstreamSourceFields): {
   };
 }
 
-export function upstreamLabel(log: UpstreamSourceFields) {
-  const source = upstreamSource(log);
-  if (source.kind === "none") {
-    return "未选择上游";
-  }
-  return `${source.kindLabel} ${source.displayName}`;
-}
-
-export function shortId(value: string | null | undefined) {
+function shortId(value: string | null | undefined) {
   return value ? `${value.slice(0, 8)}…` : "未记录";
 }
 
@@ -115,10 +99,6 @@ export function proxyDisplayName(
 
 export function isSuccessStatus(status: number) {
   return status >= 200 && status < 300;
-}
-
-export function resultLabel(status: number) {
-  return isSuccessStatus(status) ? "成功" : "失败";
 }
 
 /** List badge text: success plain, failure includes HTTP status. */
@@ -167,17 +147,6 @@ export function formatDurationMs(value: number | null) {
     return `${value} ms`;
   }
   return `${(value / 1000).toFixed(2)} s`;
-}
-
-export function totalTokens(log: Pick<RequestLog, "inputTokens" | "outputTokens">) {
-  if (log.inputTokens === null && log.outputTokens === null) {
-    return null;
-  }
-  return (log.inputTokens ?? 0) + (log.outputTokens ?? 0);
-}
-
-export function formatMetric(value: number | null, suffix = "") {
-  return value === null ? "未记录" : value.toLocaleString() + suffix;
 }
 
 export function formatTokenCount(value: number | null) {
@@ -248,19 +217,4 @@ export function formatTokenSummary(
   const io = `${formatTokenCount(log.inputTokens)}/${formatTokenCount(log.outputTokens)}`;
   const cache = `${formatTokenCount(log.cacheReadTokens)}/${formatTokenCount(log.cacheWriteTokens)}`;
   return `${io} · ${cache} · ${formatTps(outputTps(log))}`;
-}
-
-/** @deprecated use formatTokenSummary */
-export function formatTokenTriple(
-  log: Pick<
-    RequestLog,
-    | "inputTokens"
-    | "outputTokens"
-    | "cacheReadTokens"
-    | "cacheWriteTokens"
-    | "latencyMs"
-    | "firstTokenMs"
-  >,
-) {
-  return formatTokenSummary(log);
 }

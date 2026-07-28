@@ -159,7 +159,7 @@ impl fmt::Debug for OAuthTokenMaterial {
     }
 }
 
-pub fn form_headers() -> HeaderMap {
+pub(crate) fn form_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
     headers.insert(
@@ -169,7 +169,7 @@ pub fn form_headers() -> HeaderMap {
     headers
 }
 
-pub fn json_headers() -> HeaderMap {
+pub(crate) fn json_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
     headers.insert(

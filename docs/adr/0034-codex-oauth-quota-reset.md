@@ -6,20 +6,20 @@
 
 ## 背景
 
-Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_limit_reset_credit`。现有 OAuthAccount 已具备登录、持久化、自动 Token 刷新和统一调度，但管理页的“刷新”只重新读取本地账号列表，无法查询上游额度，也不能在账号拥有可用重置次数时消费一次 credit。Token refresh 与 quota refresh 是两种不同能力，不能继续使用同一个模糊语义。
+Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_limit_reset_credit`。管理面需要显式查询上游额度，并在账号拥有可用重置次数时消费一次 credit。Token refresh 与 quota refresh 是两种不同能力，必须保持独立语义。
 
-额度重置会消耗稀缺且不可撤销的上游 credit。浏览器中的旧计数不能作为执行依据，原始额度响应也不能扩张 OAuth JSON 明文持久化例外或泄露 Token。
+额度重置会消耗稀缺且不可撤销的上游 credit。浏览器中此前读取的计数不能作为执行依据，原始额度响应也不能扩张 OAuth JSON 明文持久化例外或泄露 Token。
 
 ## 决策
 
-- 本 ADR 的额度重置能力仅适用于 Codex OAuthAccount；Claude 后续只读额度查询由 ADR-0046 定义，仍不实现重置。
+- 额度重置能力仅适用于 Codex OAuthAccount；Claude 与 Grok 只提供各自的只读额度查询，不实现重置。
 - 管理 API 使用 `GET /api/admin/oauth/accounts/{id}/quota` 查询，使用 `POST /api/admin/oauth/accounts/{id}/quota/reset` 消耗一次重置次数；两者都受单管理员鉴权和 `no-store` 约束。
 - Codex Driver 固定构造 `/backend-api/wham/usage`、`/backend-api/wham/rate-limit-reset-credits` 与 `/consume` 请求，注入 Bearer、`chatgpt-account-id` 和 Codex quota 所需固定头，并把受限响应解析成安全类型。Provider 不执行网络请求。
 - Runtime 使用 OAuthAccount 固定 DIRECT 绑定解析出的全局代理和当前严格 SSRF 设置；不允许专属代理、重定向或隐式直连回退。响应正文按固定上限读取，错误正文不进入日志或管理响应。
 - 查询遇到 401 时沿用 OAuth per-account refresh singleflight，最多刷新并重试一次。额度详情查询失败只允许回退到同次 usage 响应中明确给出的 reset credit 数据；缺失时保持未知，禁止猜测为可用。
 - 重置按 OAuthAccount 串行。每次 POST 在持锁后重新执行额度查询，仅当最新 `available_count > 0` 才生成 UUID v4 `redeem_request_id` 并调用 consume；不相信客户端提交的次数。
 - consume 成功且响应确认至少重置一个窗口后，清除该账号当前运行代际的 credential/model 临时冷却并推进 scheduler epoch。认证错误、Endpoint/Proxy 状态和其他账号不受影响。
-- 管理 DTO 只返回安全窗口、可用次数、credit 到期时间、抓取时间和已重置窗口数；窗口传输模型已由 ADR-0046 改为通用列表。额度快照不写 OAuth Provider JSON、SQLite、PublishedSnapshot、RequestLog、文件日志或浏览器持久存储。
+- 管理 DTO 使用通用窗口列表，只返回安全窗口、可用次数、credit 到期时间、抓取时间和已重置窗口数。额度快照不写 OAuth Provider JSON、SQLite、PublishedSnapshot、RequestLog、文件日志或浏览器持久存储。
 - Web 先显式查询并展示额度；只有查询成功且可用次数大于 0 时启用重置，确认框明确提示会消耗一次，成功后立即重新查询。
 
 ## 备选方案
@@ -37,5 +37,5 @@ Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_
 
 - Provider 单元测试覆盖固定 URL/认证头、usage 主次窗口、reset credit 多种响应形状、非 Codex credit 过滤和 consume 响应校验。
 - Runtime 测试覆盖 DIRECT/全局代理、严格 SSRF、正文上限、401 单次刷新、无次数拒绝、并发重置串行和成功后的临时冷却清理。
-- 管理契约测试覆盖鉴权、Codex 查询/重置、Claude 不支持、DTO 脱敏和 Token 不出现在响应。
+- 管理契约测试覆盖鉴权、Codex 查询/重置、Claude/Grok 无重置能力、DTO 脱敏和 Token 不出现在响应。
 - Web 测试覆盖额度展示、零次数禁用、确认消费、成功后重新查询和错误状态。

@@ -7,10 +7,8 @@
  * - Menu/route switches must not clear active notifications.
  */
 export { notify } from "./notify";
-export type { NotificationTone, ShowNotificationInput } from "./notify";
 export { NotificationHost } from "./NotificationHost";
 export {
   clearNotifications,
-  dismissNotification,
   getNotifications,
 } from "./notification-store";

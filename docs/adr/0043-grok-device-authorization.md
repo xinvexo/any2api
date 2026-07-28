@@ -3,13 +3,10 @@
 - 状态：Accepted
 - 日期：2026-07-25
 - 决策人：项目维护者
-- 取代：ADR-0041 中 Grok 使用 Authorization Code + PKCE 的登录决策
 
 ## 背景
 
-ADR-0041 正确确定了 Grok OAuthAccount 的 SQLite 存储、订阅数据面和统一路由边界，但错误地选择了 localhost callback + PKCE 登录。xAI 的 OIDC Discovery 公布 Device Authorization Grant，Grok CLI 使用公共客户端先申请 device code，再轮询 Token Endpoint。CLIProxyAPI 的 xAI 实现也采用该流程；Sub2API 的实现用于交叉核对公共客户端、scope、刷新协议和数据面身份头。
-
-继续保留 Grok callback 输入会让管理 Web 模拟另一种客户端，而不是复现 Grok CLI 的真实认证方式。项目是新项目，不保留错误登录设计的兼容分支。
+Grok OAuthAccount 使用 xAI OIDC Discovery 公布的 Device Authorization Grant。公共客户端先申请 device code，再轮询 Token Endpoint；管理 Web 不接收 localhost callback，也不持有 Device Code 或 Token。
 
 ## 决策
 
@@ -20,7 +17,7 @@ ADR-0041 正确确定了 Grok OAuthAccount 的 SQLite 存储、订阅数据面�
 5. Web 打开验证地址、突出显示 user code，并自动使用服务端给出的间隔轮询；Grok 不显示 callback URL 输入。Codex 与 Claude 继续使用现有 Authorization Code + PKCE 流程。
 6. Device session 使用 xAI 返回的有效期，最长 30 分钟；所有设备授权和 Token 请求继续走 OAuthAccount 的 DIRECT/全局代理解析结果，禁用重定向且不回退本机直连。
 7. Token 成功后复用现有 Provider 解析、SQLite 激活、Runtime reconcile、PublishedSnapshot 切换和通用 `RoutingCredential` 投影。Grok API Key 与 OAuthAccount 的存储和管理模型仍严格分离。
-8. Grok refresh grant、SQLite OAuth JSON、固定 `https://cli-chat-proxy.grok.com/v1` 数据面、Bearer 和 xAI CLI 身份头保持 ADR-0041 的既有决策。
+8. Grok refresh grant、SQLite OAuth JSON、固定 `https://cli-chat-proxy.grok.com/v1` 数据面、Bearer 和 xAI CLI 身份头遵循 ADR-0041。
 
 ## 依据
 
@@ -30,12 +27,12 @@ ADR-0041 正确确定了 Grok OAuthAccount 的 SQLite 存储、订阅数据面�
 
 ## 结果
 
-- Grok 管理登录与实际 CLI 客户端认证方式一致，不再要求管理员截取 localhost callback。
+- Grok 管理登录与 CLI 客户端认证方式一致，不要求管理员截取 localhost callback。
 - Device Code 不离开服务端，浏览器不会得到 Token 或 Provider JSON。
 - 新登录方式只增加 Provider 局部协议实现和通用 OAuth session 分支，不复制账号存储、刷新、调度或数据面。
 
 ## 未选择方案
 
-- 保留 Grok PKCE 作为第二种入口：会永久保留已确认错误的交互模型并扩大测试面。
+- 增加 Grok PKCE 作为第二种入口：会形成重复交互模型并扩大测试面。
 - 后端单个请求阻塞到用户授权完成：会占用长连接，难以表达页面关闭、取消和轮询退避。
 - 把 device code 存入 SQLite：登录 session 是短期运行态，持久化会扩大 Secret 泄漏面且不提供重启恢复价值。

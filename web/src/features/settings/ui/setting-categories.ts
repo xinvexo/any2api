@@ -60,7 +60,7 @@ for (const section of SETTING_SECTIONS) {
   }
 }
 
-export function sectionForWebGroup(webGroup: string): SettingSection {
+function sectionForWebGroup(webGroup: string): SettingSection {
   return (
     webGroupToSection.get(webGroup) ?? {
       id: `other:${webGroup}`,

@@ -7,18 +7,15 @@ publish.workspace = true
 
 [dependencies]
 any2api-domain = { path = "../domain" }
-async-trait.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 http.workspace = true
-multer.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-tokio.workspace = true
 
 [lints]
 workspace = true

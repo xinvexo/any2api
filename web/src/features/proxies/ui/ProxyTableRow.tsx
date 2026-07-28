@@ -1,7 +1,9 @@
-import { Globe, Pencil, Trash2 } from "lucide-react";
+import { Activity, Globe, LoaderCircle, Pencil, Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import type { ProxyProfile } from "../api/proxy-contracts";
+import type { ProxyProfile, ProxyTestResult } from "../api/proxy-contracts";
+import { getProxyErrorMessage } from "../model/proxy-error";
+import { formatProxyTestResult } from "./proxy-test-result";
 import { cn } from "@/shared/lib/cn";
 import { RowActionButton } from "@/shared/ui/RowActionButton";
 
@@ -9,6 +11,12 @@ export interface ProxyTableRowProps {
   proxy: ProxyProfile;
   isGlobal: boolean;
   pending: boolean;
+  canTest: boolean;
+  testing: boolean;
+  testPending: boolean;
+  testResult?: ProxyTestResult;
+  testError: unknown;
+  onTest: () => void;
   onEdit: (id: string) => void;
   onSetGlobal: (proxy: ProxyProfile) => void;
   onDelete: (proxy: ProxyProfile) => void;
@@ -18,6 +26,12 @@ export function ProxyTableRow({
   proxy,
   isGlobal,
   pending,
+  canTest,
+  testing,
+  testPending,
+  testResult,
+  testError,
+  onTest,
   onEdit,
   onSetGlobal,
   onDelete,
@@ -49,8 +63,19 @@ export function ProxyTableRow({
       <td className="px-3 py-2.5 align-middle text-secondary">
         {proxy.builtIn ? "—" : proxy.passwordConfigured ? proxy.username ?? "已配置" : "无"}
       </td>
+      <td className="px-3 py-2.5 align-middle">
+        <ProxyTestStatus testing={testing} result={testResult} error={testError} />
+      </td>
       <td className="py-2.5 pl-3 align-middle">
         <div className="flex flex-wrap items-center justify-end gap-0.5">
+          <RowActionButton
+            label={`测试 ${proxy.name}`}
+            disabled={!canTest || !proxy.enabled || testPending || pending}
+            onClick={onTest}
+          >
+            {testing ? <LoaderCircle size={13} className="animate-spin" /> : <Activity size={13} />}
+            {testing ? "测试中" : "测试"}
+          </RowActionButton>
           {!isGlobal && proxy.enabled ? (
             <RowActionButton
               label={`将 ${proxy.name} 设为全局出口`}
@@ -85,6 +110,35 @@ export function ProxyTableRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+function ProxyTestStatus({
+  testing,
+  result,
+  error,
+}: {
+  testing: boolean;
+  result?: ProxyTestResult;
+  error: unknown;
+}) {
+  if (testing) {
+    return <span className="text-secondary">正在测试</span>;
+  }
+  if (error) {
+    return (
+      <span className="block max-w-56 break-words text-danger" role="alert">
+        {getProxyErrorMessage(error)}
+      </span>
+    );
+  }
+  if (!result) {
+    return <span className="text-tertiary">—</span>;
+  }
+  return (
+    <span className={result.reachable ? "text-success" : "text-danger"}>
+      {formatProxyTestResult(result)}
+    </span>
   );
 }
 

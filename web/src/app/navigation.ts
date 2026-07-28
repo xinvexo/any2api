@@ -34,7 +34,7 @@ export function isNavigationPathActive(pathname: string, path: string) {
   return pathname === path || pathname.startsWith(`${path}/`);
 }
 
-export function findNavigationMatch(pathname: string): NavigationItem | null {
+function findNavigationMatch(pathname: string): NavigationItem | null {
   for (const item of navigationItems) {
     if (isNavigationPathActive(pathname, item.path)) {
       return item;

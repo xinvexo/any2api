@@ -2,22 +2,15 @@ import { expect, test, type Page } from "@playwright/test";
 
 const password = "any2api-e2e-password";
 
-test("settings use four sections and legacy routing links collapse into route policy", async ({ page }) => {
+test("settings expose the four current sections", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
 
   await loginAt(page, "/settings", "管理员密码");
   await expect(page).toHaveURL(/\/settings\/basic$/);
   await expect(page.getByText("管理员密码", { exact: false }).first()).toBeVisible();
   await expectNoHorizontalOverflow(page);
-
-  await page.goto("/affinity");
-  await expect(page).toHaveURL(/\/settings\/routing$/);
-  await expect(page.getByText("RPM 用尽行为", { exact: false }).first()).toBeVisible();
-
-  await page.goto("/balancing");
-  await expect(page).toHaveURL(/\/settings\/routing$/);
-  await page.reload();
-  await expect(page.getByText("高级设置", { exact: true })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "系统设置分类" }).getByRole("link"))
+    .toHaveText(["基础", "路由策略", "运行保护", "日志"]);
   expect(browserErrors).toEqual([]);
 });
 
@@ -41,7 +34,7 @@ test("desktop core management deep links render against the real service", async
     ["/", "运行正常"],
     ["/oauth", "还没有 Codex OAuth 账号"],
     ["/proxies", "代理列表"],
-    ["/providers/codex", "还没有 Codex Endpoint"],
+    ["/providers?kind=codex", "还没有 Codex Endpoint"],
     ["/settings/routing", "RPM 用尽行为"],
     ["/keys", "尚未创建网关密钥"],
     ["/logs", "还没有请求日志"],

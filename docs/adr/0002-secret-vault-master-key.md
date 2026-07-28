@@ -6,7 +6,7 @@
 
 ## 背景
 
-any2api 后续需要持久化 Provider API Key、OAuth Token 和代理密码。SQLite 必须只保存密文，主密钥位于数据库外；同时项目面向个人自托管，首次启动不能要求用户手工生成复杂密钥，但已有密文时也绝不能因文件丢失而静默换钥。
+any2api 使用 Secret Vault 持久化 Provider API Key 和代理密码。SQLite 对这些 Secret 只保存密文，主密钥位于数据库外；同时项目面向个人自托管，首次启动不能要求用户手工生成复杂密钥，但已有密文时也绝不能因文件丢失而静默换钥。`OAuthAccount.oauth_json` 是明确的明文 SQLite 例外，不进入 Vault。
 
 ## 决策
 
@@ -16,7 +16,7 @@ any2api 后续需要持久化 Provider API Key、OAuth Token 和代理密码。S
 - 首次初始化在 SQLite 中保存一个加密校验哨兵。之后每次启动必须用当前文件解密哨兵；文件缺失、格式错误、权限过宽、Key ID 不符、版本未知或认证失败均使启动失败。
 - Secret 信封保存 `version`、`key_id`、`algorithm`、`nonce`、`ciphertext` 和 `aad_version`。业务 Secret 的 AAD 使用固定二进制编码，并至少绑定记录 ID、Secret 类型和 Provider 类型。
 - Unix 创建权限为 `0600`，读取时拒绝 group/other 权限。Windows 依赖数据目录或挂载文件继承的用户 DACL，部署文档必须要求限制其他账户读取。
-- 首版不实现在线主密钥轮换、KMS、内建备份或恢复。迁移主密钥必须在未来单独设计可验证的离线流程。
+- 当前不实现在线主密钥轮换、KMS、内建备份或恢复。主密钥迁移不在本 ADR 范围内；任何迁移实现都必须采用可验证的离线流程。
 
 ## 备选方案
 

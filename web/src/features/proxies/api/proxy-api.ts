@@ -5,8 +5,8 @@ import {
   type ProxyAuthenticationInput,
   type ProxyTestResult,
   type ProxyWriteInput,
-  parseProxyTestResult,
   parseProxyConfiguration,
+  parseProxyTestResult,
 } from "./proxy-contracts";
 
 export function listProxies(signal?: AbortSignal) {
@@ -60,7 +60,7 @@ export function clearProxyAuthentication(id: string, expectedRevision: number) {
 export function testProxy(id: string, providerEndpointId: string): Promise<ProxyTestResult> {
   return requestJson<unknown>(`/api/admin/proxies/${encodeURIComponent(id)}/test`, {
     method: "POST",
-    // The server applies the configurable upstream read timeout (up to 24h).
+    // The server applies the configured upstream timeout, which can be as long as 24 hours.
     timeoutMs: 86_410_000,
     body: { provider_endpoint_id: providerEndpointId },
   }).then(parseProxyTestResult);

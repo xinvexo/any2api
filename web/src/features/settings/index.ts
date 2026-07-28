@@ -1,7 +1,2 @@
 export { SettingsManagement } from "./ui/SettingsManagement";
-export {
-  SETTING_SECTIONS,
-  sectionsForWebGroups,
-  type SettingSection,
-} from "./ui/setting-categories";
-export { useSettings } from "./model/use-settings";
+export { SETTING_SECTIONS } from "./ui/setting-categories";

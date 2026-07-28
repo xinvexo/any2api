@@ -1,6 +1,6 @@
-export type SettingValueType = "boolean" | "integer" | "duration_secs" | "enum" | "optional_string_list";
-export type SettingApplyMode = "hot_reload" | "restart_required";
-export type SettingValue = boolean | number | string | string[] | null;
+type SettingValueType = "boolean" | "integer" | "duration_secs" | "enum" | "string_list";
+type SettingApplyMode = "hot_reload" | "restart_required";
+export type SettingValue = boolean | number | string | string[];
 
 export interface SettingItem {
   key: string;
@@ -81,7 +81,7 @@ function parseSettingItem(value: unknown): SettingItem {
 }
 
 function readOptions(value: unknown, valueType: SettingValueType) {
-  if (valueType !== "optional_string_list") {
+  if (valueType !== "string_list") {
     if (value !== null) {
       throw invalidResponse();
     }
@@ -135,10 +135,7 @@ function readSettingValue(
     }
     return text;
   }
-  if (valueType === "optional_string_list") {
-    if (value === null) {
-      return null;
-    }
+  if (valueType === "string_list") {
     const values = readStringArray(value);
     if (
       new Set(values).size !== values.length
@@ -202,7 +199,7 @@ function readValueType(value: unknown): SettingValueType {
     && value !== "integer"
     && value !== "duration_secs"
     && value !== "enum"
-    && value !== "optional_string_list"
+    && value !== "string_list"
   ) {
     throw invalidResponse();
   }

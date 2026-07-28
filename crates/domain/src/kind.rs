@@ -29,13 +29,10 @@ impl ProviderKind {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ProtocolDialect {
-    #[serde(rename = "openai_responses", alias = "open_ai_responses")]
+    #[serde(rename = "openai_responses")]
     OpenAiResponses,
     #[serde(rename = "openai_chat_completions")]
     OpenAiChatCompletions,
-    #[serde(rename = "openai_images")]
-    OpenAiImages,
-    CodexBackend,
     AnthropicMessages,
 }
 
@@ -45,19 +42,15 @@ pub enum ProtocolOperation {
     Responses,
     ResponsesCompact,
     ChatCompletions,
-    ImagesGenerations,
-    ImagesEdits,
     Messages,
     MessagesCountTokens,
 }
 
 impl ProtocolOperation {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 5] = [
         Self::Responses,
         Self::ResponsesCompact,
         Self::ChatCompletions,
-        Self::ImagesGenerations,
-        Self::ImagesEdits,
         Self::Messages,
         Self::MessagesCountTokens,
     ];
@@ -67,7 +60,6 @@ impl ProtocolOperation {
         match self {
             Self::Responses | Self::ResponsesCompact => ProtocolDialect::OpenAiResponses,
             Self::ChatCompletions => ProtocolDialect::OpenAiChatCompletions,
-            Self::ImagesGenerations | Self::ImagesEdits => ProtocolDialect::OpenAiImages,
             Self::Messages | Self::MessagesCountTokens => ProtocolDialect::AnthropicMessages,
         }
     }
@@ -76,11 +68,7 @@ impl ProtocolOperation {
     pub const fn allows_stream(self) -> bool {
         matches!(
             self,
-            Self::Responses
-                | Self::ChatCompletions
-                | Self::ImagesGenerations
-                | Self::ImagesEdits
-                | Self::Messages
+            Self::Responses | Self::ChatCompletions | Self::Messages
         )
     }
 }
@@ -110,8 +98,6 @@ impl ProtocolDialect {
         match self {
             Self::OpenAiResponses => "openai_responses",
             Self::OpenAiChatCompletions => "openai_chat_completions",
-            Self::OpenAiImages => "openai_images",
-            Self::CodexBackend => "codex_backend",
             Self::AnthropicMessages => "anthropic_messages",
         }
     }
@@ -120,8 +106,6 @@ impl ProtocolDialect {
         match value {
             "openai_responses" => Some(Self::OpenAiResponses),
             "openai_chat_completions" => Some(Self::OpenAiChatCompletions),
-            "openai_images" => Some(Self::OpenAiImages),
-            "codex_backend" => Some(Self::CodexBackend),
             "anthropic_messages" => Some(Self::AnthropicMessages),
             _ => None,
         }
@@ -134,8 +118,6 @@ impl ProtocolOperation {
             Self::Responses => "responses",
             Self::ResponsesCompact => "responses_compact",
             Self::ChatCompletions => "chat_completions",
-            Self::ImagesGenerations => "images_generations",
-            Self::ImagesEdits => "images_edits",
             Self::Messages => "messages",
             Self::MessagesCountTokens => "messages_count_tokens",
         }
@@ -146,63 +128,9 @@ impl ProtocolOperation {
             "responses" => Some(Self::Responses),
             "responses_compact" => Some(Self::ResponsesCompact),
             "chat_completions" => Some(Self::ChatCompletions),
-            "images_generations" => Some(Self::ImagesGenerations),
-            "images_edits" => Some(Self::ImagesEdits),
             "messages" => Some(Self::Messages),
             "messages_count_tokens" => Some(Self::MessagesCountTokens),
             _ => None,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ProtocolDialect, ProtocolOperation};
-
-    #[test]
-    fn image_protocol_values_are_stable() {
-        assert_eq!(ProtocolDialect::OpenAiImages.as_str(), "openai_images");
-        assert_eq!(
-            ProtocolDialect::parse("openai_images"),
-            Some(ProtocolDialect::OpenAiImages)
-        );
-        assert_eq!(
-            serde_json::to_string(&ProtocolDialect::OpenAiImages).expect("serialize dialect"),
-            r#""openai_images""#
-        );
-        assert_eq!(
-            serde_json::from_str::<ProtocolDialect>(r#""openai_images""#)
-                .expect("deserialize dialect"),
-            ProtocolDialect::OpenAiImages
-        );
-        assert_eq!(
-            ProtocolOperation::ImagesGenerations.as_str(),
-            "images_generations"
-        );
-        assert_eq!(
-            ProtocolOperation::parse("images_generations"),
-            Some(ProtocolOperation::ImagesGenerations)
-        );
-        assert_eq!(ProtocolOperation::ImagesEdits.as_str(), "images_edits");
-        assert_eq!(
-            ProtocolOperation::parse("images_edits"),
-            Some(ProtocolOperation::ImagesEdits)
-        );
-        assert_eq!(
-            serde_json::to_string(&ProtocolOperation::ImagesEdits).expect("serialize operation"),
-            r#""images_edits""#
-        );
-    }
-
-    #[test]
-    fn image_operations_use_the_images_dialect_and_allow_streaming() {
-        for operation in [
-            ProtocolOperation::ImagesGenerations,
-            ProtocolOperation::ImagesEdits,
-        ] {
-            assert_eq!(operation.dialect(), ProtocolDialect::OpenAiImages);
-            assert!(operation.allows_stream());
-            assert!(ProtocolOperation::ALL.contains(&operation));
         }
     }
 }

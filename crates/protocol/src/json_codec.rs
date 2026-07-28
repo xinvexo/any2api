@@ -149,11 +149,7 @@ pub(crate) fn encode_request(
     payload: AdapterPayload,
     upstream_model: &str,
 ) -> Result<EncodedUpstreamRequest, ProtocolError> {
-    let AdapterPayload::Json(mut value) = payload else {
-        return Err(ProtocolError::InvalidPayload(
-            "request body must be JSON".into(),
-        ));
-    };
+    let AdapterPayload::Json(mut value) = payload;
     let object = value.as_object_mut().ok_or_else(|| {
         ProtocolError::InvalidPayload("request body must be a JSON object".into())
     })?;
@@ -273,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_responses_compact_always_uses_the_remote_profile() {
+    fn responses_compact_always_uses_the_remote_profile() {
         let request = json!({"input":[]});
         assert_eq!(
             request_execution_profile(

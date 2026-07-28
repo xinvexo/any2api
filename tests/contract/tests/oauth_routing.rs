@@ -5,8 +5,8 @@ use any2api_domain::{
     ProxyProfileId, RequestId,
 };
 use any2api_protocol::{
-    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
+    ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
 use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
 use any2api_runtime::api::{
@@ -143,9 +143,6 @@ fn protocols() -> Arc<ProtocolRegistry> {
     protocols
         .register(Arc::new(OpenAiChatCompletionsAdapter::new()))
         .expect("Chat Completions adapter");
-    protocols
-        .register(Arc::new(OpenAiImagesAdapter::new()))
-        .expect("Images adapter");
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("Messages adapter");

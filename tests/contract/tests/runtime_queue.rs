@@ -9,8 +9,8 @@ use any2api_domain::{
     ProxyProfileId, RequestId, RequestsPerMinute, SettingKey, SettingValue,
 };
 use any2api_protocol::{
-    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    OpenAiResponsesAdapter, ProtocolRegistry,
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
+    ProtocolRegistry,
 };
 use any2api_provider::{CodexDriver, ProviderRegistry};
 use any2api_runtime::api::{
@@ -142,9 +142,6 @@ fn build_service(transport: Arc<BlockingTransport>) -> PublicRequestService {
     protocols
         .register(Arc::new(OpenAiChatCompletionsAdapter::new()))
         .expect("chat completions adapter");
-    protocols
-        .register(Arc::new(OpenAiImagesAdapter::new()))
-        .expect("images adapter");
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("messages adapter");

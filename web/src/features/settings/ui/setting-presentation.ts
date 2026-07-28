@@ -1,4 +1,4 @@
-import type { SettingItem, SettingValue, SettingValueType } from "../api/settings-contracts";
+import type { SettingItem } from "../api/settings-contracts";
 
 const labels: Record<string, string> = {
   "admin.remote_enabled": "允许远程管理",
@@ -76,30 +76,6 @@ export function enumOptionLabel(value: string) {
     return "跟踪";
   }
   return value;
-}
-
-export function formatSettingValue(value: SettingValue | null, type: SettingValueType) {
-  if (value === null) {
-    return "—";
-  }
-  if (type === "boolean") {
-    return value ? "启用" : "关闭";
-  }
-  if (type === "enum") {
-    return enumOptionLabel(String(value));
-  }
-  if (type === "optional_string_list") {
-    if (value === null) {
-      return "全部";
-    }
-    if (Array.isArray(value)) {
-      return value.length === 0 ? "全部拒绝" : `${value.length} 项`;
-    }
-  }
-  if (type === "duration_secs" && typeof value === "number") {
-    return `${value} 秒`;
-  }
-  return String(value);
 }
 
 /** Placeholder inside numeric inputs — plain default value (seconds for durations). */

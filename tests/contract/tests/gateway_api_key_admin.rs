@@ -352,12 +352,39 @@ async fn models_list_reflects_credential_model_selection() {
     assert_eq!(rejected.status, StatusCode::NOT_FOUND);
     assert_eq!(rejected.body["error"]["code"], "model_not_found");
 
+    let unrestricted = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/models.allowed",
+        Some(json!({
+            "expected_revision": 6,
+            "value": []
+        })),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(unrestricted.status, StatusCode::OK);
+    assert_eq!(unrestricted.body["config_revision"], 7);
+
+    let listed = request_json(
+        app.clone(),
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(listed.body["data"].as_array().map(Vec::len), Some(2));
+
     let cleared = request_json(
         app.clone(),
         Method::PUT,
         &format!("/api/admin/provider-credentials/{credential_id}/models"),
         Some(json!({
-            "expected_revision": 6,
+            "expected_revision": 7,
             "expected_config_version": 2,
             "models": []
         })),

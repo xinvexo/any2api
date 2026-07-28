@@ -15,12 +15,12 @@ pub(super) fn restrict_model_allowlist(
     routes: &ModelRouteConfiguration,
     accounts: &OAuthAccountConfiguration,
 ) -> SettingValue {
-    let SettingValue::OptionalStringList(Some(mut values)) = value else {
+    let SettingValue::StringList(mut values) = value else {
         return value;
     };
     let published = configured_public_models(routes, accounts);
     values.retain(|value| published.contains(value));
-    SettingValue::OptionalStringList(Some(values))
+    SettingValue::StringList(values)
 }
 
 pub(crate) async fn prune_model_allowlist(
@@ -29,7 +29,7 @@ pub(crate) async fn prune_model_allowlist(
     routes: &ModelRouteConfiguration,
     accounts: &OAuthAccountConfiguration,
 ) -> Result<bool, StorageError> {
-    let Some(current @ SettingValue::OptionalStringList(_)) =
+    let Some(current @ SettingValue::StringList(_)) =
         settings.override_value(SettingKey::ModelsAllowed)
     else {
         return Ok(false);

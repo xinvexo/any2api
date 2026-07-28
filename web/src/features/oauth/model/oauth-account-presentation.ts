@@ -2,15 +2,15 @@ import type { OAuthAccount } from "../api/oauth-contracts";
 import type { OAuthQuotaAccountStatus } from "../api/oauth-quota-contracts";
 
 /** Neutral chip (plan tier, region, …) or warning (disabled / expired). */
-export type OAuthAccountBadgeTone = "neutral" | "warning";
+type OAuthAccountBadgeTone = "neutral" | "warning";
 
-export interface OAuthAccountBadge {
+interface OAuthAccountBadge {
   key: string;
   label: string;
   tone: OAuthAccountBadgeTone;
 }
 
-export interface OAuthAccountMetric {
+interface OAuthAccountMetric {
   key: string;
   label: string;
   value: string;

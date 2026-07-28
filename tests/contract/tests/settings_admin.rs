@@ -67,13 +67,23 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(affinity_wait["max_value"], 86_400);
     assert_eq!(affinity_wait["web_group"], "会话粘性");
     let models = find_setting(&initial, "models.allowed");
-    assert_eq!(models["value_type"], "optional_string_list");
-    assert_eq!(models["default_value"], Value::Null);
+    assert_eq!(models["value_type"], "string_list");
+    assert_eq!(models["default_value"], json!([]));
     assert_eq!(models["override_value"], Value::Null);
-    assert_eq!(models["effective_value"], Value::Null);
+    assert_eq!(models["effective_value"], json!([]));
     assert_eq!(models["allowed_values"], Value::Null);
     assert_eq!(models["options"], json!([]));
     assert_eq!(models["web_group"], "公开模型");
+    let (status, invalid_models) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/models.allowed",
+        Some(json!({ "expected_revision": 1, "value": null })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(invalid_models["error"]["code"], "invalid_setting");
     let timeout = find_setting(&initial, "scheduler.queue_timeout");
     assert_eq!(timeout["value_type"], "duration_secs");
     assert_eq!(timeout["default_value"], 30);
@@ -325,54 +335,6 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
             .override_value(SettingKey::AffinityWaitTimeout),
         None
     );
-}
-
-#[tokio::test]
-async fn removed_affinity_setting_keys_are_not_exposed_or_writable() {
-    let (_directory, app, _storage) = test_app().await;
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
-    let removed = [
-        "affinity.soft.enabled",
-        "affinity.soft.mode",
-        "affinity.soft.ttl",
-        "affinity.hard.ttl",
-        "affinity.soft.prefer_wait_timeout",
-        "affinity.fixed_wait_timeout",
-    ];
-    let (status, settings) = request_json(
-        app.clone(),
-        Method::GET,
-        "/api/admin/settings",
-        None,
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let items = settings["items"].as_array().expect("setting items");
-    assert!(
-        removed
-            .iter()
-            .all(|key| items.iter().all(|item| item["key"] != *key))
-    );
-
-    for key in removed {
-        let path = format!("/api/admin/settings/{key}");
-        let (status, body) = request_json(
-            app.clone(),
-            Method::PATCH,
-            &path,
-            Some(json!({ "expected_revision": 1, "value": 1 })),
-            loopback,
-        )
-        .await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "PATCH {key}");
-        assert_eq!(body["error"]["code"], "setting_not_found");
-
-        let path = format!("/api/admin/settings/{key}?expected_revision=1");
-        let (status, body) = request_json(app.clone(), Method::DELETE, &path, None, loopback).await;
-        assert_eq!(status, StatusCode::NOT_FOUND, "DELETE {key}");
-        assert_eq!(body["error"]["code"], "setting_not_found");
-    }
 }
 
 #[tokio::test]

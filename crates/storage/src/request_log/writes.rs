@@ -25,7 +25,7 @@ pub(super) async fn insert_request_log(
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
-    .bind(log.client_ip.map(|address| address.to_string()))
+    .bind(log.client_ip.to_string())
     .bind(to_i64(log.config_revision.get())?)
     .bind(optional_id(log.gateway_api_key_id))
     .bind(log.ingress_protocol.as_str())

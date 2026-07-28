@@ -1,22 +1,18 @@
 export type RequestLogProtocol =
   | "openai_responses"
   | "openai_chat_completions"
-  | "openai_images"
-  | "codex_backend"
   | "anthropic_messages";
 export type RequestLogOperation =
   | "responses"
   | "responses_compact"
   | "chat_completions"
-  | "images_generations"
-  | "images_edits"
   | "messages"
   | "messages_count_tokens";
 
 export interface RequestLog {
   requestId: string;
   startedAtMs: number;
-  clientIp: string | null;
+  clientIp: string;
   configRevision: number;
   gatewayApiKeyId: string | null;
   ingressProtocol: RequestLogProtocol;
@@ -58,7 +54,7 @@ export interface RequestAttempt {
   statusCode: number | null;
 }
 
-export interface RequestTelemetryMetrics {
+interface RequestTelemetryMetrics {
   queuedRecords: number;
   droppedRecords: number;
   persistedRecords: number;
@@ -97,7 +93,7 @@ function parseRequestLog(value: unknown): RequestLog {
   return {
     requestId: readString(record.request_id),
     startedAtMs: readNonNegativeInteger(record.started_at_ms),
-    clientIp: readNullableString(record.client_ip),
+    clientIp: readString(record.client_ip),
     configRevision: readPositiveInteger(record.config_revision),
     gatewayApiKeyId: readNullableString(record.gateway_api_key_id),
     ingressProtocol: readProtocol(record.ingress_protocol),
@@ -156,8 +152,6 @@ function readProtocol(value: unknown): RequestLogProtocol {
   if (
     value === "openai_responses" ||
     value === "openai_chat_completions" ||
-    value === "openai_images" ||
-    value === "codex_backend" ||
     value === "anthropic_messages"
   ) {
     return value;
@@ -170,8 +164,6 @@ function readOperation(value: unknown): RequestLogOperation {
     value === "responses" ||
     value === "responses_compact" ||
     value === "chat_completions" ||
-    value === "images_generations" ||
-    value === "images_edits" ||
     value === "messages" ||
     value === "messages_count_tokens"
   ) {

@@ -1,7 +1,5 @@
 # ADR-0006: Gateway API Key 管理与公开入口认证边界
 
-> 本 ADR 的认证边界保持有效；生成、明文持久化和物理删除模型按 ADR-0058 修订。
-
 - 状态：Accepted
 - 日期：2026-07-19
 - 决策者：maintainer
@@ -16,9 +14,9 @@ any2api 需要允许同一个个人实例创建多个客户端访问凭据。它
 - SQLite 保存名称、完整明文 token、前缀、版本、启用状态和摘要；摘要是由 Secret Vault 主密钥派生的独立 HMAC-SHA256。Provider Credential 的指纹域不可复用。
 - 管理列表、创建和轮换响应始终可以查看明文；响应使用 `Cache-Control: no-store`，Web 只在当前内存查询缓存中消费，不写入 URL、日志、浏览器持久化或导出文件。
 - 创建和轮换请求不接受客户端 token。删除执行物理删除，不保留撤销状态或第二套生命周期。
-- `GatewayApiKeyConfiguration` 与摘要验证材料随 `StoredConfiguration` 进入 `PublishedSnapshot`。管理写入、快照切换和公开鉴权使用同一 revision，旧请求继续持有旧快照。
+- `GatewayApiKeyConfiguration` 与摘要验证材料随 `StoredConfiguration` 进入 `PublishedSnapshot`。管理写入、快照切换和公开鉴权使用同一 revision，已开始请求继续持有其捕获快照。
 - 公开入口首版接受 `Authorization: Bearer <token>` 或 `x-api-key: <token>`。多个头携带不同 Token 时拒绝；认证成功后剥离客户端认证头、Cookie 和 `Proxy-Authorization`，仅通过请求扩展传递 Key ID。
-- 管理 API 仍沿用当前 loopback-only 门禁；Gateway Key 不能登录管理面。远程管理员认证属于后续切片。
+- 管理 API 使用独立的单管理员认证；Gateway Key 不能登录管理面。
 - 认证门只负责验证 Gateway Key、剥离客户端凭据并传递 Key ID；协议转换、Provider Driver 和 Transport 执行始终位于各自模块。
 
 ## 管理 API
@@ -36,6 +34,6 @@ DELETE /api/admin/gateway-api-keys/{id}?expected_revision=...&expected_config_ve
 ## 后果
 
 - 数据库泄露会暴露 Gateway Key 明文，这是个人自托管、管理面可随时查看密钥的明确取舍；Provider Secret 与代理密码仍保持 Vault 加密。
-- 公开入口可以先固定认证和 Secret 隔离契约，后续增加 Codex/Claude Adapter 不需要改动 Key 存储或管理页面。
-- 轮换会立即使旧 Token 失效，旧请求因持有旧快照仍可完成；新请求只能使用新快照。
+- 公开入口认证和 Secret 隔离契约不依赖具体的 Provider 或协议 Adapter。
+- 轮换会立即使被替换的 Token 失效；已开始的请求因持有其捕获快照仍可完成，新请求只能使用当前快照。
 - 公开协议路由与 SPA fallback 保持严格分离，未知 `/v1/*` 返回公开 API 404，不回落管理页面。

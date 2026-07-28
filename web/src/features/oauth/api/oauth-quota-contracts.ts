@@ -7,18 +7,18 @@ export interface OAuthQuotaWindow {
   resetAt: number | null;
 }
 
-export interface OAuthQuotaRateLimit {
+interface OAuthQuotaRateLimit {
   allowed: boolean | null;
   limitReached: boolean | null;
   windows: OAuthQuotaWindow[];
 }
 
-export interface OAuthQuotaResetCredits {
+interface OAuthQuotaResetCredits {
   availableCount: number;
   expiresAt: string[];
 }
 
-export interface OAuthQuotaBilling {
+interface OAuthQuotaBilling {
   currency: "USD";
   prepaidBalanceMinor: number | null;
   onDemandUsedMinor: number | null;
@@ -34,7 +34,7 @@ export interface OAuthQuotaTokenBalance {
   windowSeconds: number | null;
 }
 
-export interface OAuthQuotaExhaustion {
+interface OAuthQuotaExhaustion {
   observedAt: number;
   used: number | null;
   limit: number | null;

@@ -113,15 +113,12 @@ name = "any2api-protocol"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
- "async-trait",
  "bytes",
  "futures-util",
  "http",
- "multer",
  "proptest",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
  "uuid",
 ]
 
