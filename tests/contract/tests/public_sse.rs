@@ -32,7 +32,7 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
             b"ated\r\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\r\n",
             b"\r\n",
         ],
-        &[b"data: [DONE]\n\n"],
+        &[b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\n\n"],
     )
     .await;
     let (claude_address, claude_request, release_claude) = paused_sse_server(
@@ -103,7 +103,7 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
     assert_stream_headers(&codex);
     let (codex_first, codex_rest) = read_paused_stream(codex, release_codex).await;
     assert!(codex_first.contains(r#""model":"gpt-upstream""#));
-    assert!(codex_rest.contains("[DONE]"));
+    assert!(codex_rest.contains("response.completed"));
     let codex_request = codex_request.await.expect("Codex upstream request");
     assert_eq!(codex_request.headers["accept"], "text/event-stream");
     assert_eq!(
@@ -393,7 +393,7 @@ async fn stream_precommit_duration_is_applied_from_published_settings() {
 async fn stream_precommit_does_not_use_the_buffered_read_timeout() {
     let (upstream_address, upstream_ready, release) = gated_first_event_server(
         "/v1/responses",
-        b"{\"model\":\"gpt-upstream\",\"output\":[]}\n\n",
+        b"{\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-upstream\"}}\n\n",
     )
     .await;
     let (_directory, app, mut revision) = test_app().await;
@@ -522,7 +522,7 @@ async fn stream_postcommit_idle_timeout_ends_a_silent_connection() {
 async fn in_flight_stream_keeps_the_precommit_budget_from_its_snapshot() {
     let (upstream_address, upstream_ready, release) = gated_first_event_server(
         "/v1/responses",
-        b"{\"model\":\"gpt-upstream\",\"output\":[]}\n\n",
+        b"{\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-upstream\"}}\n\n",
     )
     .await;
     let (_directory, app, mut revision) = test_app().await;
@@ -1315,7 +1315,7 @@ async fn sse_then_json_server() -> (
         let (mut first_stream, _) = listener.accept().await.expect("first upstream accept");
         let (first_path, first_request) = read_upstream_request(&mut first_stream).await;
         assert_eq!(first_path, "/v1/responses");
-        let event = b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stream_affinity\",\"model\":\"gpt-upstream\"}}\n\ndata: [DONE]\n\n";
+        let event = b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stream_affinity\",\"model\":\"gpt-upstream\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_stream_affinity\",\"model\":\"gpt-upstream\"}}\n\n";
         first_stream
             .write_all(
                 format!(
@@ -1407,7 +1407,11 @@ async fn held_stream_server() -> (
         });
 
         let _ = release_receiver.await;
-        write_chunk(&mut first_stream, b"data: [DONE]\n\n").await;
+        write_chunk(
+            &mut first_stream,
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_held\",\"model\":\"gpt-upstream\"}}\n\n",
+        )
+        .await;
         first_stream
             .write_all(b"0\r\n\r\n")
             .await

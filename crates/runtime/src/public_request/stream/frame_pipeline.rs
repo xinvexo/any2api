@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use any2api_protocol::api::SseFrame;
+use any2api_protocol::api::{SseFrame, StreamCompletionPolicy};
 use bytes::Bytes;
 
 use super::{GuardedBody, PendingFrame, pending_failure::PendingStreamError};
@@ -78,12 +78,24 @@ impl GuardedBody {
                             self.set_pending_error(error);
                             break;
                         }
+                        if self.terminal_seen {
+                            break;
+                        }
                     }
                 }
                 Err(_) => self.set_pending_error(PendingStreamError::invalid_response(
                     "upstream SSE bridge could not be finalized",
                 )),
             }
+        }
+        if self.pending_error.is_none()
+            && self.exchange.stream_completion_policy()
+                == StreamCompletionPolicy::TerminalEventRequired
+            && !self.terminal_seen
+        {
+            self.set_pending_error(PendingStreamError::invalid_response(
+                "upstream SSE ended before a required terminal event",
+            ));
         }
     }
 
@@ -102,6 +114,9 @@ impl GuardedBody {
             .map_err(|_| PendingStreamError::invalid_response("upstream SSE event was invalid"))?;
         for event in events {
             self.push_event(event, deadline)?;
+            if self.terminal_seen {
+                break;
+            }
         }
         Ok(())
     }
@@ -116,6 +131,7 @@ impl GuardedBody {
             return Err(PendingStreamError::timeout());
         }
         let telemetry = event.telemetry();
+        let termination = event.termination();
         let hard_id = self
             .exchange
             .hard_affinity_id_from_event(self.hard_affinity.operation(), &event)
@@ -151,7 +167,9 @@ impl GuardedBody {
         self.pending.push_back(PendingFrame {
             bytes: frame.0,
             has_content_delta: telemetry.has_content_delta,
+            termination,
         });
+        self.terminal_seen |= termination.is_terminal();
         self.precommit_budget.commit();
         Ok(())
     }

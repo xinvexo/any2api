@@ -2,7 +2,7 @@ use any2api_domain::TokenUsage;
 use bytes::Bytes;
 use serde_json::Value;
 
-use crate::api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload};
+use crate::api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, StreamTermination};
 
 pub(super) fn sse_default(kind: &str, value: Value) -> AdapterEvent {
     sse(kind, value, ProtocolEventTelemetry::default())
@@ -21,6 +21,15 @@ pub(super) fn sse(kind: &str, value: Value, telemetry: ProtocolEventTelemetry) -
             data: value,
         },
     )
+}
+
+pub(super) fn sse_terminal(
+    kind: &str,
+    value: Value,
+    telemetry: ProtocolEventTelemetry,
+    termination: StreamTermination,
+) -> AdapterEvent {
+    sse(kind, value, telemetry).with_termination(termination)
 }
 
 pub(super) fn content_telemetry() -> ProtocolEventTelemetry {

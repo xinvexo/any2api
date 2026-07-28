@@ -12,7 +12,10 @@ use std::{
 };
 
 use any2api_domain::{ErrorClass, PublicError};
-use any2api_protocol::{SseDecoder, api::ProtocolExchange};
+use any2api_protocol::{
+    SseDecoder,
+    api::{ProtocolExchange, StreamTermination},
+};
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
@@ -70,6 +73,8 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) state: CommitState,
     pub(super) upstream_done: bool,
     pub(super) decoder_finished: bool,
+    pub(super) terminal_seen: bool,
+    pub(super) pending_termination: StreamTermination,
     pub(super) attempt_recorder: Option<AttemptRecorder>,
     pub(super) request_recorder: RequestRecorder,
     pub(super) status_code: u16,
@@ -83,6 +88,7 @@ pub(in crate::public_request) struct GuardedBody {
 pub(super) struct PendingFrame {
     pub(super) bytes: Bytes,
     pub(super) has_content_delta: bool,
+    pub(super) termination: StreamTermination,
 }
 
 impl GuardedBody {
@@ -118,6 +124,8 @@ impl GuardedBody {
             state: CommitState::Pending,
             upstream_done: false,
             decoder_finished: false,
+            terminal_seen: false,
+            pending_termination: StreamTermination::None,
             attempt_recorder: Some(attempt_recorder),
             request_recorder,
             status_code,
@@ -201,11 +209,28 @@ impl Stream for GuardedBody {
             if this.state == CommitState::Finished {
                 return Poll::Ready(None);
             }
+            if this.pending_termination.is_terminal() {
+                match std::mem::take(&mut this.pending_termination) {
+                    StreamTermination::None => unreachable!("terminal state was checked"),
+                    StreamTermination::Completed => this.finish(StreamOutcome::Success),
+                    StreamTermination::Failed => this.finish(StreamOutcome::Error {
+                        class: ErrorClass::Upstream,
+                        message: "upstream response stream reported a failure event".to_owned(),
+                    }),
+                }
+                return Poll::Ready(None);
+            }
             if let Some(frame) = this.pending.pop_front() {
                 this.state = CommitState::TransportCommitted;
-                this.start_idle_timer();
                 if frame.has_content_delta {
                     this.request_recorder.observe_first_token();
+                }
+                if frame.termination.is_terminal() {
+                    this.upstream = Box::pin(futures_util::stream::empty());
+                    this.pending_termination = frame.termination;
+                    this.idle_timer = None;
+                } else {
+                    this.start_idle_timer();
                 }
                 return Poll::Ready(Some(Ok(frame.bytes)));
             }

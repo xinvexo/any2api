@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::ResponsesToChatCompletionsBridge;
 use crate::{
     OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter, ProtocolError, ProtocolRegistry,
-    api::{IngressRequest, SseFrame, UpstreamResponse},
+    api::{IngressRequest, SseFrame, StreamTermination, UpstreamResponse},
 };
 
 #[tokio::test]
@@ -196,6 +196,7 @@ async fn streaming_bridge_emits_responses_events_tools_and_usage() {
                 .windows(18)
                 .any(|window| window == b"response.completed")
             {
+                assert_eq!(event.termination(), StreamTermination::Completed);
                 terminal_usage = Some(event.telemetry().token_usage);
             }
             let frame = exchange
@@ -219,6 +220,37 @@ async fn streaming_bridge_emits_responses_events_tools_and_usage() {
     assert_eq!(usage.input_tokens(), Some(4));
     assert_eq!(usage.output_tokens(), Some(3));
     assert_eq!(usage.cache_read_tokens(), Some(1));
+}
+
+#[tokio::test]
+async fn streaming_bridge_marks_incomplete_as_a_successful_terminal() {
+    let registry = registry();
+    let request = decoded(
+        &registry,
+        ProtocolOperation::Responses,
+        json!({"model":"public-model","input":"hello","stream":true}),
+    )
+    .await;
+    let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
+    exchange
+        .prepare_request(request, "upstream-model")
+        .expect("stream request");
+
+    exchange
+        .decode_upstream_event(chat_frame(json!({
+            "id":"chatcmpl_incomplete","model":"upstream-model",
+            "choices":[{"index":0,"delta":{"content":"partial"},"finish_reason":"length"}]
+        })))
+        .expect("partial event");
+    let terminal = exchange
+        .decode_upstream_event(SseFrame(Bytes::from_static(b"data: [DONE]\n\n")))
+        .expect("terminal event")
+        .into_iter()
+        .find(|event| event.is_terminal())
+        .expect("incomplete terminal");
+
+    assert!(String::from_utf8_lossy(terminal.bytes()).contains("response.incomplete"));
+    assert_eq!(terminal.termination(), StreamTermination::Completed);
 }
 
 #[tokio::test]

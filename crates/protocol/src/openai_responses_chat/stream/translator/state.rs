@@ -10,10 +10,10 @@ use super::super::super::response::{responses_usage, token_usage};
 use super::items::{TextState, ToolState};
 use crate::{
     ProtocolError,
-    api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload},
+    api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, StreamTermination},
 };
 
-use super::super::wire::sse;
+use super::super::wire::{sse, sse_terminal};
 
 pub(crate) struct StreamUpdate {
     pub(crate) events: Vec<AdapterEvent>,
@@ -157,13 +157,14 @@ impl ChatToResponsesStream {
         } else {
             "response.completed"
         };
-        events.push(sse(
+        events.push(sse_terminal(
             terminal_kind,
             json!({"type":terminal_kind,"response":response}),
             ProtocolEventTelemetry {
                 token_usage: self.usage,
                 has_content_delta: false,
             },
+            StreamTermination::Completed,
         ));
         self.completed = true;
         Ok(StreamUpdate {

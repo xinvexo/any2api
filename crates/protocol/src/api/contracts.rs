@@ -112,6 +112,7 @@ pub struct AdapterEvent {
     bytes: Bytes,
     telemetry: ProtocolEventTelemetry,
     payload: SseEventPayload,
+    termination: StreamTermination,
 }
 
 /// SSE `data:` payload parsed once when the upstream frame is decoded, then
@@ -140,6 +141,28 @@ pub struct ProtocolEventTelemetry {
     pub has_content_delta: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum StreamCompletionPolicy {
+    #[default]
+    EofAllowed,
+    TerminalEventRequired,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum StreamTermination {
+    #[default]
+    None,
+    Completed,
+    Failed,
+}
+
+impl StreamTermination {
+    #[must_use]
+    pub const fn is_terminal(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
 impl AdapterEvent {
     #[must_use]
     pub fn new(bytes: Bytes, telemetry: ProtocolEventTelemetry, payload: SseEventPayload) -> Self {
@@ -147,7 +170,14 @@ impl AdapterEvent {
             bytes,
             telemetry,
             payload,
+            termination: StreamTermination::None,
         }
+    }
+
+    #[must_use]
+    pub fn with_termination(mut self, termination: StreamTermination) -> Self {
+        self.termination = termination;
+        self
     }
 
     #[must_use]
@@ -163,6 +193,16 @@ impl AdapterEvent {
     #[must_use]
     pub fn payload(&self) -> &SseEventPayload {
         &self.payload
+    }
+
+    #[must_use]
+    pub const fn is_terminal(&self) -> bool {
+        self.termination.is_terminal()
+    }
+
+    #[must_use]
+    pub const fn termination(&self) -> StreamTermination {
+        self.termination
     }
 
     #[must_use]
@@ -186,6 +226,7 @@ impl fmt::Debug for AdapterEvent {
             .debug_struct("AdapterEvent")
             .field("bytes", &self.bytes.len())
             .field("payload", &self.payload)
+            .field("termination", &self.termination)
             .finish()
     }
 }
@@ -203,6 +244,10 @@ impl fmt::Debug for SseEventPayload {
 #[async_trait]
 pub trait ProtocolAdapter: Send + Sync {
     fn dialect(&self) -> ProtocolDialect;
+
+    fn stream_completion_policy(&self, _operation: ProtocolOperation) -> StreamCompletionPolicy {
+        StreamCompletionPolicy::EofAllowed
+    }
 
     async fn decode_ingress_request(
         &self,

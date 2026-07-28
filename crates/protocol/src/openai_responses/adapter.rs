@@ -9,13 +9,13 @@ use crate::{
     api::{
         AdapterEvent, AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
         EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseEventPayload, SseFrame,
-        UpstreamResponse,
+        StreamCompletionPolicy, UpstreamResponse,
     },
     json_codec,
     sse::{parse_event_payload, rewrite_known_model},
 };
 
-use super::telemetry;
+use super::{telemetry, termination};
 
 #[derive(Debug, Default)]
 pub struct OpenAiResponsesAdapter;
@@ -31,6 +31,14 @@ impl OpenAiResponsesAdapter {
 impl ProtocolAdapter for OpenAiResponsesAdapter {
     fn dialect(&self) -> ProtocolDialect {
         ProtocolDialect::OpenAiResponses
+    }
+
+    fn stream_completion_policy(&self, operation: ProtocolOperation) -> StreamCompletionPolicy {
+        if operation == ProtocolOperation::Responses {
+            StreamCompletionPolicy::TerminalEventRequired
+        } else {
+            StreamCompletionPolicy::EofAllowed
+        }
     }
 
     async fn decode_ingress_request(
@@ -73,7 +81,8 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
         let payload = parse_event_payload(&frame.0)?;
         let telemetry = telemetry::event(&payload);
-        Ok(AdapterEvent::new(frame.0, telemetry, payload))
+        let termination = termination::classify(&payload);
+        Ok(AdapterEvent::new(frame.0, telemetry, payload).with_termination(termination))
     }
 
     fn encode_egress_response(

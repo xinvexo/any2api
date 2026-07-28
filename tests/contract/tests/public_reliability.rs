@@ -136,13 +136,13 @@ async fn responses_compact_persists_exact_usage_without_ttft() {
 }
 
 #[tokio::test]
-async fn remote_compaction_v2_survives_a_delayed_first_event_and_preserves_the_wire_contract() {
+async fn remote_compaction_v2_finishes_on_terminal_without_waiting_for_eof() {
     let transport = Arc::new(ScriptedTransport::new([
-        ScriptStep::delayed_stream_with_gap(
+        ScriptStep::delayed_stalled_stream_with_gap(
             Duration::from_secs(6),
             "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"compact-v2-id\",\"model\":\"upstream\"}}\n\n",
             Duration::from_secs(61),
-            "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction\",\"encrypted_content\":\"opaque-v2\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"compact-v2-id\",\"model\":\"upstream\",\"usage\":{\"input_tokens\":241753,\"output_tokens\":0}}}\n\n",
+            "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":9,\"output_index\":0,\"item\":{\"id\":\"cmp_1\",\"type\":\"compaction_summary\",\"encrypted_content\":\"opaque-v2\",\"future_item_field\":{\"keep\":[1,2]}},\"future_event_field\":{\"keep\":true}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"compact-v2-id\",\"model\":\"upstream\",\"usage\":{\"input_tokens\":241753,\"output_tokens\":0}},\"future_terminal_field\":true}\n\n",
         ),
     ]));
     let harness = harness(transport.clone(), 1, &["compact-v2-model"], &[]).await;
@@ -158,7 +158,8 @@ async fn remote_compaction_v2_survives_a_delayed_first_event_and_preserves_the_w
             "input": [
                 {"type":"message","role":"user","content":"long history"},
                 {"type":"compaction_trigger"}
-            ]
+            ],
+            "reasoning":{"effort":"high","summary":"auto"}
         }),
     )
     .await;
@@ -169,8 +170,12 @@ async fn remote_compaction_v2_survives_a_delayed_first_event_and_preserves_the_w
     }
     let emitted = String::from_utf8(emitted).expect("SSE is UTF-8");
     assert!(emitted.contains("response.output_item.done"));
-    assert!(emitted.contains(r#""type":"compaction""#));
+    assert!(emitted.contains(r#""type":"compaction_summary""#));
     assert!(emitted.contains(r#""encrypted_content":"opaque-v2""#));
+    assert!(emitted.contains(r#""future_item_field":{"keep":[1,2]}"#));
+    assert!(emitted.contains(r#""future_event_field":{"keep":true}"#));
+    assert!(emitted.contains(r#""future_terminal_field":true"#));
+    assert!(emitted.contains("response.completed"));
 
     let calls = transport.calls();
     assert_eq!(calls.len(), 1);
@@ -184,7 +189,14 @@ async fn remote_compaction_v2_survives_a_delayed_first_event_and_preserves_the_w
             .and_then(|items| items.last()),
         Some(&json!({"type":"compaction_trigger"}))
     );
+    assert_eq!(
+        upstream_body["reasoning"],
+        json!({"effort":"high","summary":"auto"})
+    );
     tokio::time::resume();
+    let record = wait_for_log(&harness, request_id).await;
+    assert_eq!(record.request.error_class, None);
+    assert_eq!(record.attempts[0].outcome, RequestAttemptOutcome::Success);
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
@@ -871,7 +883,7 @@ async fn sse_postcommit_idle_timeout_does_not_start_a_second_stream() {
 }
 
 #[tokio::test]
-async fn sse_eof_persists_success() {
+async fn responses_eof_before_terminal_persists_a_stream_error() {
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::stream(
         "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"eof-id\",\"model\":\"upstream\"}}\n\n",
     )]));
@@ -880,19 +892,67 @@ async fn sse_eof_persists_success() {
     let response = execute_stream(&harness, request_id, "eof-model").await;
     let mut body = streaming_body(response);
 
-    while let Some(frame) = body.next().await {
-        frame.expect("valid SSE frame");
-    }
+    assert!(body.next().await.expect("created frame").is_ok());
+    let error = body
+        .next()
+        .await
+        .expect("missing terminal body error")
+        .expect_err("EOF without terminal must fail");
+    assert!(error.to_string().contains("terminal event"));
+    assert!(body.next().await.is_none());
 
     let record = wait_for_log(&harness, request_id).await;
     assert!(record.request.is_stream);
     assert_eq!(record.request.status_code, 200);
-    assert_eq!(record.request.error_class, None);
+    assert_eq!(record.request.error_class, Some(ErrorClass::Upstream));
     assert_eq!(record.request.first_token_ms, None);
     assert_eq!(record.request.input_tokens, None);
     assert_eq!(record.request.output_tokens, None);
     assert_eq!(record.attempts.len(), 1);
-    assert_eq!(record.attempts[0].outcome, RequestAttemptOutcome::Success);
+    assert_eq!(
+        record.attempts[0].outcome,
+        RequestAttemptOutcome::StreamError
+    );
+    assert_eq!(
+        record.attempts[0].retry_safety,
+        Some(RetrySafety::Ambiguous)
+    );
+    assert_eq!(record.attempts[0].error_class, Some(ErrorClass::Upstream));
+    assert_eq!(record.attempts[0].status_code, Some(200));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn responses_failed_terminal_is_delivered_and_persists_a_stream_error() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::stream(
+        "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"id\":\"failed-id\",\"model\":\"upstream\",\"error\":{\"code\":\"server_error\"}}}\n\n",
+    )]));
+    let harness = harness(transport, 1, &["failed-model"], &[]).await;
+    let request_id = RequestId::new();
+    let response = execute_stream(&harness, request_id, "failed-model").await;
+    let mut body = streaming_body(response);
+
+    let frame = body
+        .next()
+        .await
+        .expect("failed terminal frame")
+        .expect("failed terminal bytes");
+    assert!(String::from_utf8_lossy(&frame).contains("response.failed"));
+    assert!(body.next().await.is_none());
+
+    let record = wait_for_log(&harness, request_id).await;
+    assert_eq!(record.request.status_code, 200);
+    assert_eq!(record.request.error_class, Some(ErrorClass::Upstream));
+    assert_eq!(record.attempts.len(), 1);
+    assert_eq!(
+        record.attempts[0].outcome,
+        RequestAttemptOutcome::StreamError
+    );
+    assert_eq!(
+        record.attempts[0].retry_safety,
+        Some(RetrySafety::Ambiguous)
+    );
+    assert_eq!(record.attempts[0].error_class, Some(ErrorClass::Upstream));
     assert_eq!(record.attempts[0].status_code, Some(200));
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
@@ -1282,7 +1342,7 @@ enum ScriptStep {
         status: StatusCode,
         body: Bytes,
     },
-    DelayedStreamWithGap {
+    DelayedStalledStreamWithGap {
         first_delay: Duration,
         first: Bytes,
         second_delay: Duration,
@@ -1330,13 +1390,13 @@ impl ScriptStep {
         }
     }
 
-    fn delayed_stream_with_gap(
+    fn delayed_stalled_stream_with_gap(
         first_delay: Duration,
         first: &'static str,
         second_delay: Duration,
         second: &'static str,
     ) -> Self {
-        Self::DelayedStreamWithGap {
+        Self::DelayedStalledStreamWithGap {
             first_delay,
             first: Bytes::from_static(first.as_bytes()),
             second_delay,
@@ -1442,7 +1502,7 @@ impl TransportManager for ScriptedTransport {
                 })),
                 read_failure_scope: TransportFailureScope::Endpoint,
             }),
-            ScriptStep::DelayedStreamWithGap {
+            ScriptStep::DelayedStalledStreamWithGap {
                 first_delay,
                 first,
                 second_delay,
@@ -1458,7 +1518,8 @@ impl TransportManager for ScriptedTransport {
                     .chain(stream::once(async move {
                         tokio::time::sleep(second_delay).await;
                         Ok(second)
-                    })),
+                    }))
+                    .chain(stream::pending()),
                 ),
                 read_failure_scope: TransportFailureScope::Endpoint,
             }),

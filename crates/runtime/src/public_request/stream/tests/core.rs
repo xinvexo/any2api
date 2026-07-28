@@ -23,13 +23,15 @@ use crate::{
 };
 
 #[tokio::test]
-async fn guarded_body_primes_rewrites_and_releases_on_eof() {
+async fn guarded_body_primes_rewrites_and_releases_on_terminal_event() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::iter([
         Ok(Bytes::from_static(
             b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_stream\",\"model\":\"upstream\"}}\n\n",
         )),
-        Ok(Bytes::from_static(b"data: [DONE]\n\n")),
+        Ok(Bytes::from_static(
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+        )),
     ]));
     let mut body = guarded_body(upstream, permit)
         .prime()
@@ -45,7 +47,7 @@ async fn guarded_body_primes_rewrites_and_releases_on_eof() {
         .expect("first bytes");
     assert!(String::from_utf8_lossy(&first).contains(r#""model":"public""#));
     assert_eq!(binding.in_flight(), 1);
-    assert!(body.next().await.expect("done frame").is_ok());
+    assert!(body.next().await.expect("terminal frame").is_ok());
     assert!(body.next().await.is_none());
     assert_eq!(binding.in_flight(), 0);
     assert_eq!(binding.rate_snapshot().requests_in_window(), 1);
@@ -189,7 +191,7 @@ async fn complete_event_precedes_a_later_same_chunk_frame_error() {
 async fn prime_buffers_only_the_first_complete_event_from_a_chunk() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
-        b"data: {\"model\":\"upstream\",\"index\":1}\n\ndata: {\"model\":\"upstream\",\"index\":2}\n\ndata: {\"model\":\"upstream\",\"index\":3}\n\n",
+        b"data: {\"model\":\"upstream\",\"index\":1}\n\ndata: {\"model\":\"upstream\",\"index\":2}\n\ndata: {\"model\":\"upstream\",\"index\":3}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{}}\n\n",
     ))]));
     let guarded = guarded_body(upstream, permit)
         .prime()
@@ -206,6 +208,7 @@ async fn prime_buffers_only_the_first_complete_event_from_a_chunk() {
             .expect("stream bytes");
         assert!(String::from_utf8_lossy(&frame).contains(&format!(r#""index":{index}"#)));
     }
+    assert!(body.next().await.expect("terminal frame").is_ok());
     assert!(body.next().await.is_none());
     assert_eq!(binding.in_flight(), 0);
 }
@@ -236,7 +239,7 @@ async fn post_commit_error_releases_without_emitting_another_upstream() {
     assert_eq!(binding.in_flight(), 0);
 }
 
-fn guarded_body(upstream: BoxByteStream, permit: RoutingPermit) -> GuardedBody {
+pub(super) fn guarded_body(upstream: BoxByteStream, permit: RoutingPermit) -> GuardedBody {
     guarded_body_with_budget(
         upstream,
         permit,

@@ -4,7 +4,8 @@ use any2api_domain::ProtocolOperation;
 
 use super::{
     AdapterEvent, DecodedRequest, DecodedUpstreamResponse, EgressResponse, EncodedUpstreamRequest,
-    ProtocolAdapter, ProtocolBridge, ProtocolBridgeSession, SseFrame, UpstreamResponse,
+    ProtocolAdapter, ProtocolBridge, ProtocolBridgeSession, SseFrame, StreamCompletionPolicy,
+    UpstreamResponse,
 };
 use crate::ProtocolError;
 
@@ -48,6 +49,7 @@ pub struct ProtocolExchange {
     ingress: Arc<dyn ProtocolAdapter>,
     upstream: Arc<dyn ProtocolAdapter>,
     operation: ProtocolOperation,
+    upstream_operation: ProtocolOperation,
     bridge: Option<Arc<dyn ProtocolBridge>>,
     bridge_session: Option<Box<dyn ProtocolBridgeSession>>,
 }
@@ -58,6 +60,7 @@ impl ProtocolExchange {
             ingress: Arc::clone(&adapter),
             upstream: adapter,
             operation,
+            upstream_operation: operation,
             bridge: None,
             bridge_session: None,
         }
@@ -73,6 +76,7 @@ impl ProtocolExchange {
             ingress,
             upstream,
             operation,
+            upstream_operation: operation,
             bridge: Some(bridge),
             bridge_session: None,
         }
@@ -105,6 +109,7 @@ impl ProtocolExchange {
         };
         let started = bridge.start(request, upstream_model)?;
         let (upstream_operation, request, session) = started.into_parts();
+        self.upstream_operation = upstream_operation;
         self.bridge_session = Some(session);
         Ok(PreparedProtocolRequest {
             upstream_operation,
@@ -145,6 +150,12 @@ impl ProtocolExchange {
             Some(session) => session.finish_events(),
             None => Ok(Vec::new()),
         }
+    }
+
+    #[must_use]
+    pub fn stream_completion_policy(&self) -> StreamCompletionPolicy {
+        self.upstream
+            .stream_completion_policy(self.upstream_operation)
     }
 
     pub fn encode_egress_response(
