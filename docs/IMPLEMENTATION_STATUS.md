@@ -265,7 +265,7 @@
 
 ### 可靠性与预提交重试切片
 
-- `ProviderDriver::classify_error` 现在返回强类型 `UpstreamErrorClassification`，Codex/Grok 共享 OpenAI 错误分类，Claude 解析 Anthropic 错误 envelope；认证、权限、额度、限流、模型不可用、操作不可用和临时故障不再折叠为一个上游错误。
+- `ProviderDriver::classify_error` 现在返回强类型 `UpstreamError`，其中机器分类与可选官方消息分离；Codex/Grok 共享 OpenAI 错误分类，Claude 解析 Anthropic 错误 envelope；认证、权限、额度、限流、模型不可用、操作不可用和临时故障不再折叠为一个上游错误。
 - 标准 `Retry-After` 支持 delta-seconds 与 HTTP-date；无效值被忽略，公开响应只返回规范化秒数，不回显原始 Header 或上游正文。
 - Credential generation 保存认证健康与模型冷却；429/模型错误只影响当前 Credential+模型，401 使当前 generation 进入永久 `auth_error`，权限/额度使用 Credential 级冷却。
 - Endpoint 与 Proxy 按配置代际持有独立熔断器，支持真正的滑动失败窗口、Closed/Open/HalfOpen 和受限探测；DIRECT 网络失败归入 Endpoint，Provider 429/5xx 不会惩罚代理。
@@ -366,7 +366,7 @@
 
 - SettingRegistry 新增 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 与 `60_000ms`，均允许 `1..=86_400_000ms`、支持热更新且不能用 `0` 禁用；该切片完成时 Registry 共 43 项，后续设置加入、ADR-0037 删除两项辅助容量并新增 `models.allowed` 后，当前总数为 50 项。
 - `TransportRequest` 按请求快照携带 read timeout，不把它放进连接池 Client key。固定请求体开始被连接层消费后才启动响应头 timer，因此较短的 read timeout 不会取代 DNS、连接、代理握手或 TLS 的既有阶段边界。
-- 等待响应头超时记录为 `AwaitHeaders + Ambiguous`；JSON、Compact、Count Tokens 与非成功 SSE 错误正文逐 chunk 收集时使用相同空闲时长，超时记录为 `ReadBody + Ambiguous`。DIRECT 归因 Endpoint，无法证明责任的代理路径归入 `Unattributed`。
+- 等待响应头超时记录为 `AwaitHeaders + Ambiguous`；成功的 JSON、Compact 与 Count Tokens 响应正文逐 chunk 收集时使用统一空闲时长，超时记录为 `ReadBody + Ambiguous`。非 2xx 正文改走独立 64 KiB 收集路径，超限、超时或断流时放弃正文细化但保留已收到的状态、Header 与状态基线分类。DIRECT 传输失败归因 Endpoint，无法证明责任的代理路径归入 `Unattributed`。
 - 成功 SSE 提交前只使用 `stream.precommit.max_duration`，不叠加通用 read timeout；首个下游帧交付时启动 post-commit idle timer，每个成功上游 chunk（包括不完整帧）重置，缓冲完整事件始终优先交付。
 - 提交后 idle timeout 只返回 Body error 并终止当前流，不重试、不切换 Credential、不生成协议内错误事件，也不再次惩罚已按成功结算的 Endpoint/Proxy 健康；Attempt 记录为 `StreamError + Network + Ambiguous`。
 - Runtime/Transport/HTTP 契约覆盖响应头停滞、连接阶段隔离、buffered body 停滞、成功 SSE 不混用 read timeout、idle timer 启动/重置、缓冲帧优先、Permit 单次释放、健康不受罚和提交后不启动第二条流。
@@ -478,6 +478,13 @@
 - Header 只属于最终提交 Attempt；重试失败 Header 不泄漏，最终 429/529 保持兼容状态和错误类型，上游 401/403 不伪装成 Gateway Key 认证失败。
 - Codex/OpenAI JSON 入口支持有界 zstd 解压、模型重写和同方言 Codex 重压缩；本地 Request ID 固定使用 `x-any2api-request-id`，模型目录使用 PublishedSnapshot 生成的本地 ETag。
 - 注册表、真实 JSON/SSE、重试、Claude 529、zstd、Header 上限及 `/v1/models` 304 合同均已覆盖；完整决策见 `docs/adr/0056-provider-aware-header-transparency.md`。
+
+### Provider 官方错误消息透明度切片
+
+- Codex、Claude、Grok Driver 从各自明确声明的错误 envelope 提取官方 `message`；Runtime 只把最终 Attempt 的消息交给入口 ProtocolAdapter，HTTP 状态和公开 code/type 仍由网关协议语义控制。
+- `PublicError` 区分本地安全消息与 Provider 客户端消息；客户端访问器与遥测访问器分离，Provider 消息的 Debug/遥测视图固定脱敏，不进入 RequestLog、RequestAttempt、HttpAccessLog、文件日志或管理 DTO。
+- 所有 5xx、408、425、401 和 429 先建立不可矛盾的 HTTP 状态基线；正文只能相容细化。非 2xx 正文超出 64 KiB、超时或断流时使用固定摘要，不丢失 429/529、安全 Header 或正确健康归因。
+- Provider 与 Protocol 注册表契约、buffered/streaming 非 2xx、重试最终消息、401 网关鉴权隔离、429/529、正文超限/中断和日志脱敏均已覆盖；完整决策见 `docs/adr/0057-provider-error-message-transparency.md`。
 
 ### 系统总览调用分析切片
 

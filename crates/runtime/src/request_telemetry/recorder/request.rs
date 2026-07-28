@@ -6,8 +6,8 @@ use std::{
 
 use any2api_domain::{
     ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolOperation,
-    ProviderEndpointId, ProxyProfileId, PublicError, PublicErrorCode, RequestAttempt, RequestId,
-    TokenUsage, bound_error_message,
+    ProviderEndpointId, ProxyProfileId, PublicErrorCode, RequestAttempt, RequestId, TokenUsage,
+    bound_error_message,
 };
 
 use super::super::{RequestLogPolicy, RequestObservation, RequestTelemetry};
@@ -148,14 +148,6 @@ impl RequestRecorder {
             status_code,
             error_class,
             error_message.and_then(bound_optional_error_message),
-        );
-    }
-
-    pub(crate) fn finish_public_error(&self, status_code: u16, error: &PublicError) {
-        self.finish_with_message(
-            status_code,
-            Some(public_error_class(error.code)),
-            bound_optional_error_message(&error.message),
         );
     }
 

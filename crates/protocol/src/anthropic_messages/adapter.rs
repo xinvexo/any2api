@@ -93,18 +93,18 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
     }
 
     fn error_response(&self, error: &PublicError) -> EgressResponse {
-        let error_type = error_type(error.code);
+        let error_type = error_type(error.code());
         let mut response = json_response(
-            public_error_status(error.code),
+            public_error_status(error.code()),
             json!({
                 "type": "error",
                 "error": {
                     "type": error_type,
-                    "message": error.message
+                    "message": error.client_message()
                 }
             }),
         );
-        insert_retry_after(&mut response.headers, error.retry_after_seconds);
+        insert_retry_after(&mut response.headers, error.retry_after_seconds());
         response
     }
 }

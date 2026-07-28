@@ -40,8 +40,8 @@ mod tests {
     use std::sync::Arc;
 
     use any2api_domain::{
-        ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety, UpstreamErrorClassification,
-        UpstreamErrorKind,
+        ProtocolOperation, ProviderBaseUrl, ProviderKind, RetrySafety, UpstreamError,
+        UpstreamErrorClassification, UpstreamErrorKind,
     };
     use http::HeaderMap;
 
@@ -115,10 +115,13 @@ mod tests {
             _operation: ProtocolOperation,
             _meta: &UpstreamResponseMeta,
             _bounded_body: &[u8],
-        ) -> UpstreamErrorClassification {
-            UpstreamErrorClassification::new(
-                UpstreamErrorKind::Unknown,
-                RetrySafety::Ambiguous,
+        ) -> UpstreamError {
+            UpstreamError::new(
+                UpstreamErrorClassification::new(
+                    UpstreamErrorKind::Unknown,
+                    RetrySafety::Ambiguous,
+                    None,
+                ),
                 None,
             )
         }

@@ -226,7 +226,7 @@ impl ProviderDriver for CodexDriver {
         _operation: ProtocolOperation,
         meta: &UpstreamResponseMeta,
         bounded_body: &[u8],
-    ) -> any2api_domain::UpstreamErrorClassification {
+    ) -> any2api_domain::UpstreamError {
         openai_error::classify(meta, bounded_body)
     }
 }

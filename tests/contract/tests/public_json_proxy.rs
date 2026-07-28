@@ -902,6 +902,7 @@ async fn claude_messages_preserves_final_529_semantics_and_safe_headers() {
     assert_eq!(response.status.as_u16(), 529);
     assert_eq!(response.body["type"], "error");
     assert_eq!(response.body["error"]["type"], "overloaded_error");
+    assert_eq!(response.body["error"]["message"], "busy");
     assert_eq!(response.headers["request-id"], "claude-overload-1");
     assert_eq!(response.headers[RETRY_AFTER], "3");
     assert_eq!(

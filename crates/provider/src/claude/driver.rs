@@ -191,7 +191,7 @@ impl ProviderDriver for ClaudeDriver {
         operation: ProtocolOperation,
         meta: &UpstreamResponseMeta,
         bounded_body: &[u8],
-    ) -> any2api_domain::UpstreamErrorClassification {
+    ) -> any2api_domain::UpstreamError {
         claude_error::classify(operation, meta, bounded_body)
     }
 }

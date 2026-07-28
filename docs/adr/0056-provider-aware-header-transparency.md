@@ -31,8 +31,10 @@ Codex CLI、Claude Code 与 Grok Build 不只依赖 JSON/SSE Body。它们会发
    生成、缓存、记录或跨 Provider/Credential 重放。
 5. `x-codex-turn-state` 视为上游签发的 Credential/Route Target 粘性令牌。只有请求已有匹配的硬或严格
    绑定时发送；无绑定、绑定丢失和换 Credential 均删除。新的响应状态只属于最终提交 Attempt。
-6. 成功和错误响应都只投影最终 Attempt 的安全 Header。重试掉的 Attempt 不暴露任何 Header；SSE 在
-   首帧验证与绑定成功前保持 Pending。上游正文继续解析、分类和脱敏，不直接透传错误正文。
+6. 成功和错误响应都只投影最终 Attempt 的安全 Header。重试掉的 Attempt 不暴露任何 Header 或错误
+   消息；SSE 在首帧验证与绑定成功前保持 Pending。上游正文继续有界解析，不直接透传；只有 Provider
+   已声明错误 envelope 中的官方 `message` 可以进入当前客户端响应，且不得进入日志或持久化。完整
+   边界见 ADR-0057。
 7. 上游 `x-request-id`、`request-id` 与 `x-oai-request-id` 按 Provider 白名单保留；Codex 最终 Attempt
    只有 `x-oai-request-id` 时将同一上游值镜像为 `x-request-id`，避免官方客户端优先读到本地 ID。本地
    Request ID 始终使用 `x-any2api-request-id`；只有缺少可归一化的上游 `x-request-id` 时才用本地值补齐

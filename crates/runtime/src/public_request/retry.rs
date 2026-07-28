@@ -179,7 +179,7 @@ fn exclude_failed_path(exclusions: &mut CandidateExclusions, failure: &AttemptFa
             }
             None => {}
         },
-        AttemptFailure::Upstream { classification, .. } => match classification.kind() {
+        AttemptFailure::Upstream { error, .. } => match error.classification().kind() {
             UpstreamErrorKind::PermissionDenied
             | UpstreamErrorKind::QuotaExhausted
             | UpstreamErrorKind::RateLimited

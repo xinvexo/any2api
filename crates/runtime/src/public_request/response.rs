@@ -1,6 +1,8 @@
 use std::time::{Duration, SystemTime};
 
-use any2api_domain::{ErrorClass, PublicError, PublicErrorCode, UpstreamErrorClassification};
+use any2api_domain::{
+    ErrorClass, PublicError, PublicErrorCode, UpstreamError, UpstreamErrorClassification,
+};
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };
@@ -13,14 +15,20 @@ pub(super) const MAX_CLASSIFIED_ERROR_BYTES: usize = 64 * 1024;
 
 pub(super) struct FinalFailure {
     pub(super) error: PublicError,
+    pub(super) telemetry_message: String,
     pub(super) headers: HeaderMap,
     pub(super) status: Option<StatusCode>,
 }
 
 impl FinalFailure {
-    pub(super) fn upstream(error: PublicError, headers: HeaderMap, status: StatusCode) -> Self {
+    pub(super) fn upstream(
+        headers: HeaderMap,
+        status: StatusCode,
+        upstream: &UpstreamError,
+    ) -> Self {
         Self {
-            error,
+            error: classified_error(status, upstream),
+            telemetry_message: upstream_error_diagnostic(status, upstream.classification()),
             headers,
             status: matches!(status.as_u16(), 429 | 529).then_some(status),
         }
@@ -29,8 +37,10 @@ impl FinalFailure {
 
 impl From<PublicError> for FinalFailure {
     fn from(error: PublicError) -> Self {
+        let telemetry_message = error.telemetry_message().to_owned();
         Self {
             error,
+            telemetry_message,
             headers: HeaderMap::new(),
             status: None,
         }
@@ -72,6 +82,24 @@ pub(super) async fn collect_body(
         collected.extend_from_slice(&chunk);
     }
     Ok(collected.freeze())
+}
+
+pub(super) async fn collect_error_body(
+    mut body: BoxByteStream,
+    read_timeout: Duration,
+) -> Option<Bytes> {
+    let mut collected = BytesMut::new();
+    loop {
+        let next = timeout(read_timeout, body.next()).await.ok()?;
+        let Some(chunk) = next else {
+            return Some(collected.freeze());
+        };
+        let chunk = chunk.ok()?;
+        if collected.len().saturating_add(chunk.len()) > MAX_CLASSIFIED_ERROR_BYTES {
+            return None;
+        }
+        collected.extend_from_slice(&chunk);
+    }
 }
 
 pub(super) fn sanitize_response_headers(headers: &mut HeaderMap) {
@@ -125,46 +153,50 @@ fn trim_ows(mut value: &[u8]) -> &[u8] {
     value
 }
 
-pub(super) fn classified_error(
-    status: StatusCode,
-    classified: UpstreamErrorClassification,
-) -> PublicError {
-    if status == StatusCode::TOO_MANY_REQUESTS {
-        return with_retry_after(
-            public_error(
-                PublicErrorCode::UpstreamRateLimit,
-                "upstream rate limit was reached",
-            ),
-            classified,
-        );
-    }
-    if status.as_u16() == 529 {
-        return with_retry_after(
-            public_error(
-                PublicErrorCode::UpstreamOverloaded,
-                "upstream service is overloaded",
-            ),
-            classified,
-        );
-    }
+pub(super) fn classified_error(status: StatusCode, upstream: &UpstreamError) -> PublicError {
+    let classified = upstream.classification();
     let class = classified.kind().error_class();
-    if class == ErrorClass::OperationUnavailable {
-        return public_error(
+    let (code, fallback) = if status == StatusCode::TOO_MANY_REQUESTS {
+        (
+            PublicErrorCode::UpstreamRateLimit,
+            "upstream rate limit was reached",
+        )
+    } else if status.as_u16() == 529 {
+        (
+            PublicErrorCode::UpstreamOverloaded,
+            "upstream service is overloaded",
+        )
+    } else if class == ErrorClass::OperationUnavailable {
+        (
             PublicErrorCode::UpstreamNotFound,
             "upstream operation is unavailable",
-        );
-    }
-    let message = match class {
-        ErrorClass::Authentication => "upstream authentication failed",
-        ErrorClass::PermissionDenied => "upstream permission was denied",
-        ErrorClass::QuotaExhausted => "upstream quota was exhausted",
-        ErrorClass::RateLimited => "upstream rate limit was reached",
-        ErrorClass::ModelUnavailable => "upstream model is unavailable",
-        _ => "upstream service returned an error",
+        )
+    } else {
+        let fallback = match class {
+            ErrorClass::Authentication => "upstream authentication failed",
+            ErrorClass::PermissionDenied => "upstream permission was denied",
+            ErrorClass::QuotaExhausted => "upstream quota was exhausted",
+            ErrorClass::RateLimited => "upstream rate limit was reached",
+            ErrorClass::ModelUnavailable => "upstream model is unavailable",
+            _ => "upstream service returned an error",
+        };
+        (PublicErrorCode::UpstreamError, fallback)
     };
-    with_retry_after(
-        public_error(PublicErrorCode::UpstreamError, message),
-        classified,
+    let error = match upstream.official_message() {
+        Some(message) => PublicError::from_provider_message(code, message),
+        None => PublicError::new(code, fallback),
+    };
+    with_retry_after(error, classified)
+}
+
+fn upstream_error_diagnostic(
+    status: StatusCode,
+    classified: UpstreamErrorClassification,
+) -> String {
+    format!(
+        "upstream returned HTTP {} ({})",
+        status.as_u16(),
+        classified.kind().error_class().as_str(),
     )
 }
 
@@ -212,7 +244,9 @@ pub(super) fn public_error(code: PublicErrorCode, message: &'static str) -> Publ
 mod tests {
     use std::time::Duration;
 
-    use any2api_domain::RetrySafety;
+    use any2api_domain::{
+        RetrySafety, UpstreamError, UpstreamErrorClassification, UpstreamErrorKind,
+    };
     use any2api_transport::api::{
         BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
     };
@@ -220,7 +254,79 @@ mod tests {
     use futures_util::{StreamExt, stream};
     use http::{HeaderMap, HeaderValue, header};
 
-    use super::{CollectBodyError, collect_body, sanitize_response_headers};
+    use super::{
+        CollectBodyError, MAX_CLASSIFIED_ERROR_BYTES, classified_error, collect_body,
+        collect_error_body, sanitize_response_headers,
+    };
+
+    #[test]
+    fn classified_error_prefers_the_official_message_and_keeps_gateway_semantics() {
+        let upstream = UpstreamError::new(
+            UpstreamErrorClassification::new(
+                UpstreamErrorKind::Authentication,
+                RetrySafety::RejectedBeforeExecution,
+                None,
+            ),
+            Some("Official account restriction".to_owned()),
+        );
+
+        let error = classified_error(http::StatusCode::UNAUTHORIZED, &upstream);
+
+        assert_eq!(error.code(), any2api_domain::PublicErrorCode::UpstreamError);
+        assert_eq!(error.client_message(), "Official account restriction");
+        assert_eq!(error.telemetry_message(), "upstream request failed");
+    }
+
+    #[test]
+    fn classified_error_uses_a_fixed_fallback_when_no_official_message_exists() {
+        let upstream = UpstreamError::new(
+            UpstreamErrorClassification::new(
+                UpstreamErrorKind::RateLimited,
+                RetrySafety::RejectedBeforeExecution,
+                None,
+            ),
+            None,
+        );
+
+        let error = classified_error(http::StatusCode::TOO_MANY_REQUESTS, &upstream);
+
+        assert_eq!(error.client_message(), "upstream rate limit was reached");
+        assert_eq!(error.telemetry_message(), "upstream rate limit was reached");
+    }
+
+    #[tokio::test]
+    async fn error_body_is_available_only_when_complete_and_within_its_limit() {
+        let complete: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(b"complete"))]));
+        assert_eq!(
+            collect_error_body(complete, Duration::from_secs(1)).await,
+            Some(Bytes::from_static(b"complete"))
+        );
+
+        let oversized: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from(vec![
+            b'x';
+            MAX_CLASSIFIED_ERROR_BYTES
+                + 1
+        ]))]));
+        assert_eq!(
+            collect_error_body(oversized, Duration::from_secs(1)).await,
+            None
+        );
+
+        let read_error = TransportError::new(
+            TransportErrorStage::ReadBody,
+            TransportFailureScope::Endpoint,
+            RetrySafety::Ambiguous,
+            "truncated error body",
+        );
+        let incomplete: BoxByteStream = Box::pin(stream::iter([
+            Ok(Bytes::from_static(b"partial")),
+            Err(read_error),
+        ]));
+        assert_eq!(
+            collect_error_body(incomplete, Duration::from_secs(1)).await,
+            None
+        );
+    }
 
     #[tokio::test]
     async fn collect_body_preserves_transport_failure_metadata() {

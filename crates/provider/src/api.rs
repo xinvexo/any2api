@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, fmt};
 
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
-    RequestBodyEncoding, TransportMode, UpstreamErrorClassification,
+    RequestBodyEncoding, TransportMode, UpstreamError,
 };
 use http::{HeaderMap, StatusCode};
 use url::Url;
@@ -278,7 +278,7 @@ pub trait ProviderDriver: Send + Sync {
         operation: ProtocolOperation,
         meta: &UpstreamResponseMeta,
         bounded_body: &[u8],
-    ) -> UpstreamErrorClassification;
+    ) -> UpstreamError;
 }
 
 impl fmt::Debug for CredentialHeaders {

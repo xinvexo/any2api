@@ -1,7 +1,10 @@
-use any2api_domain::{RetrySafety, UpstreamErrorClassification, UpstreamErrorKind};
+use any2api_domain::{RetrySafety, UpstreamError, UpstreamErrorClassification, UpstreamErrorKind};
 use serde::Deserialize;
 
-use super::{http::classify_status, retry_after::retry_after_hint};
+use super::{
+    http::{classify_status, refine_kind},
+    retry_after::retry_after_hint,
+};
 use crate::api::UpstreamResponseMeta;
 
 #[derive(Deserialize)]
@@ -14,12 +17,10 @@ struct ErrorDetails {
     #[serde(rename = "type")]
     kind: Option<String>,
     code: Option<String>,
+    message: Option<String>,
 }
 
-pub(crate) fn classify(
-    meta: &UpstreamResponseMeta,
-    bounded_body: &[u8],
-) -> UpstreamErrorClassification {
+pub(crate) fn classify(meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> UpstreamError {
     let parsed = serde_json::from_slice::<ErrorEnvelope>(bounded_body).ok();
     let provider_kind = parsed.as_ref().and_then(|envelope| {
         classify_code(
@@ -27,8 +28,8 @@ pub(crate) fn classify(
             envelope.error.kind.as_deref(),
         )
     });
-    let kind =
-        provider_kind.unwrap_or_else(|| classify_status(meta, UpstreamErrorKind::Unknown).kind());
+    let baseline = classify_status(meta, UpstreamErrorKind::Unknown);
+    let kind = refine_kind(baseline.kind(), provider_kind);
     let safety = match kind {
         UpstreamErrorKind::Authentication
         | UpstreamErrorKind::PermissionDenied
@@ -36,9 +37,12 @@ pub(crate) fn classify(
         | UpstreamErrorKind::RateLimited
         | UpstreamErrorKind::ModelUnavailable
         | UpstreamErrorKind::OperationUnavailable => RetrySafety::RejectedBeforeExecution,
-        _ => classify_status(meta, UpstreamErrorKind::Unknown).retry_safety(),
+        _ => baseline.retry_safety(),
     };
-    UpstreamErrorClassification::new(kind, safety, retry_after_hint(&meta.headers))
+    let classification =
+        UpstreamErrorClassification::new(kind, safety, retry_after_hint(&meta.headers));
+    let message = parsed.and_then(|envelope| envelope.error.message);
+    UpstreamError::new(classification, message)
 }
 
 fn classify_code(code: Option<&str>, kind: Option<&str>) -> Option<UpstreamErrorKind> {
@@ -77,8 +81,14 @@ mod tests {
             },
             br#"{"error":{"type":"insufficient_quota","code":"insufficient_quota"}}"#,
         );
-        assert_eq!(quota.kind(), UpstreamErrorKind::QuotaExhausted);
-        assert_eq!(quota.retry_safety(), RetrySafety::RejectedBeforeExecution);
+        assert_eq!(
+            quota.classification().kind(),
+            UpstreamErrorKind::QuotaExhausted
+        );
+        assert_eq!(
+            quota.classification().retry_safety(),
+            RetrySafety::RejectedBeforeExecution
+        );
 
         let model = classify(
             &UpstreamResponseMeta {
@@ -87,7 +97,10 @@ mod tests {
             },
             br#"{"error":{"code":"model_not_found"}}"#,
         );
-        assert_eq!(model.kind(), UpstreamErrorKind::ModelUnavailable);
+        assert_eq!(
+            model.classification().kind(),
+            UpstreamErrorKind::ModelUnavailable
+        );
 
         let transient = classify(
             &UpstreamResponseMeta {
@@ -96,8 +109,14 @@ mod tests {
             },
             b"{}",
         );
-        assert_eq!(transient.kind(), UpstreamErrorKind::Transient);
-        assert_eq!(transient.retry_safety(), RetrySafety::Ambiguous);
+        assert_eq!(
+            transient.classification().kind(),
+            UpstreamErrorKind::Transient
+        );
+        assert_eq!(
+            transient.classification().retry_safety(),
+            RetrySafety::Ambiguous
+        );
     }
 
     #[test]
@@ -109,9 +128,37 @@ mod tests {
                 status: StatusCode::TOO_MANY_REQUESTS,
                 headers,
             },
+            br#"{"error":{"type":"rate_limit_error","message":"Official retry detail"}}"#,
+        );
+        assert_eq!(
+            classified.classification().kind(),
+            UpstreamErrorKind::RateLimited
+        );
+        assert!(classified.classification().retry_after().is_some());
+        assert_eq!(classified.official_message(), Some("Official retry detail"));
+    }
+
+    #[test]
+    fn body_codes_cannot_contradict_authentication_or_server_status() {
+        let authentication = classify(
+            &UpstreamResponseMeta {
+                status: StatusCode::UNAUTHORIZED,
+                headers: HeaderMap::new(),
+            },
             br#"{"error":{"type":"rate_limit_error"}}"#,
         );
-        assert_eq!(classified.kind(), UpstreamErrorKind::RateLimited);
-        assert!(classified.retry_after().is_some());
+        assert_eq!(
+            authentication.classification().kind(),
+            UpstreamErrorKind::Authentication
+        );
+
+        let server = classify(
+            &UpstreamResponseMeta {
+                status: StatusCode::NOT_IMPLEMENTED,
+                headers: HeaderMap::new(),
+            },
+            br#"{"error":{"code":"invalid_api_key"}}"#,
+        );
+        assert_eq!(server.classification().kind(), UpstreamErrorKind::Transient);
     }
 }

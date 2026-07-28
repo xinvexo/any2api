@@ -27,7 +27,7 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     record.request.error_class = Some(any2api_domain::ErrorClass::Authentication);
     record.request.error_message = Some("upstream authentication failed".into());
     record.attempts[0].error_class = Some(any2api_domain::ErrorClass::Authentication);
-    record.attempts[0].error_message = Some("Incorrect API key provided".into());
+    record.attempts[0].error_message = Some("upstream returned HTTP 401 (authentication)".into());
     record.attempts[0].status_code = Some(401);
     record.attempts[0].outcome = RequestAttemptOutcome::UpstreamError;
 
@@ -72,7 +72,7 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     );
     assert_eq!(
         loaded.attempts[0].error_message.as_deref(),
-        Some("Incorrect API key provided")
+        Some("upstream returned HTTP 401 (authentication)")
     );
     assert_eq!(loaded.request.first_token_ms, Some(12));
     assert_eq!(loaded.request.input_tokens, Some(120));

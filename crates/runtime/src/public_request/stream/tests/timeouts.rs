@@ -41,7 +41,7 @@ async fn configured_precommit_duration_bounds_the_first_event_wait() {
         Ok(_) => panic!("precommit wait must be bounded"),
         Err(error) => error,
     };
-    assert_eq!(error.code, PublicErrorCode::UpstreamError);
+    assert_eq!(error.code(), PublicErrorCode::UpstreamError);
     assert_eq!(binding.in_flight(), 0);
 }
 
@@ -64,7 +64,7 @@ async fn precommit_deadline_is_checked_after_a_non_cooperative_upstream_poll() {
         Ok(_) => panic!("event completed after the deadline must fail"),
         Err(error) => error,
     };
-    assert_eq!(error.code, PublicErrorCode::UpstreamError);
+    assert_eq!(error.code(), PublicErrorCode::UpstreamError);
     assert_eq!(binding.in_flight(), 0);
 }
 

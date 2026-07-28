@@ -83,12 +83,14 @@ fn count_tokens_not_found_is_operation_unavailable() {
     assert_eq!(
         driver
             .classify_error(ProtocolOperation::MessagesCountTokens, &response, b"{}")
+            .classification()
             .kind(),
         UpstreamErrorKind::OperationUnavailable
     );
     assert_eq!(
         driver
             .classify_error(ProtocolOperation::Messages, &response, b"{}")
+            .classification()
             .kind(),
         UpstreamErrorKind::ModelUnavailable
     );

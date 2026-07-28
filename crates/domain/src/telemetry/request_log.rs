@@ -65,7 +65,7 @@ pub struct RequestLog {
     pub proxy_profile_id: Option<ProxyProfileId>,
     pub status_code: u16,
     pub error_class: Option<ErrorClass>,
-    /// Client-visible public error message, or best attempt/transport summary.
+    /// any2api-generated safe diagnostic; never an official Provider message.
     pub error_message: Option<String>,
     pub attempt_count: u32,
     pub latency_ms: u64,

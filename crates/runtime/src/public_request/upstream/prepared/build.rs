@@ -66,8 +66,8 @@ pub(super) fn prepare_attempt<'a>(
             drop(health);
             attempt_recorder.local_error_before_send(
                 None,
-                public_error_class(error.code),
-                &error.message,
+                public_error_class(error.code()),
+                error.telemetry_message(),
             );
             drop(permit);
             return Err(AttemptFailure::Public(error));

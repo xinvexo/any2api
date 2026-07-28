@@ -96,7 +96,7 @@ async fn empty_stream_fails_before_commit_and_releases() {
         Err(error) => error,
     };
 
-    assert_eq!(error.code, PublicErrorCode::UpstreamError);
+    assert_eq!(error.code(), PublicErrorCode::UpstreamError);
     assert_eq!(binding.in_flight(), 0);
 }
 
@@ -115,7 +115,7 @@ async fn transport_error_before_the_first_frame_releases_without_commit() {
         Ok(_) => panic!("precommit transport error must fail"),
         Err(error) => error,
     };
-    assert_eq!(error.code, PublicErrorCode::UpstreamError);
+    assert_eq!(error.code(), PublicErrorCode::UpstreamError);
     assert_eq!(binding.in_flight(), 0);
 }
 
@@ -137,7 +137,7 @@ async fn oversized_first_event_exhausts_the_precommit_byte_budget() {
         Ok(_) => panic!("oversized first event must fail before commit"),
         Err(error) => error,
     };
-    assert_eq!(error.code, PublicErrorCode::UpstreamError);
+    assert_eq!(error.code(), PublicErrorCode::UpstreamError);
     assert_eq!(binding.in_flight(), 0);
 }
 
@@ -172,7 +172,7 @@ async fn encoded_event_budget_failure_is_reported_as_upstream_error() {
         Ok(_) => panic!("encoded output over budget must fail before commit"),
         Err(error) => error,
     };
-    assert_eq!(error.code, PublicErrorCode::UpstreamError);
+    assert_eq!(error.code(), PublicErrorCode::UpstreamError);
     assert_eq!(binding.in_flight(), 0);
     assert_eq!(endpoint.availability(&policy), Ok(()));
 }

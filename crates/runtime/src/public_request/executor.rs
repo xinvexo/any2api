@@ -21,7 +21,7 @@ use crate::{
     configuration::PublishedSnapshot,
     credential::RoutingPermit,
     oauth::{OAuthService, refresh::OAuthRefresher},
-    request_telemetry::{RequestRecorder, RequestTelemetry},
+    request_telemetry::{RequestRecorder, RequestTelemetry, public_error_class},
     routing::RouteCandidate,
 };
 
@@ -125,7 +125,11 @@ impl PublicRequestService {
                 }
                 response.headers.extend(failure.headers);
                 sanitize_response_headers(&mut response.headers);
-                recorder.finish_public_error(response.status.as_u16(), &failure.error);
+                recorder.finish_with_message(
+                    response.status.as_u16(),
+                    Some(public_error_class(failure.error.code())),
+                    Some(failure.telemetry_message),
+                );
                 response.into()
             }
         }

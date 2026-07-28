@@ -1,5 +1,6 @@
 use any2api_domain::{
-    OAuthAccountId, PublicError, RetrySafety, UpstreamErrorClassification, UpstreamErrorKind,
+    OAuthAccountId, PublicError, RetrySafety, UpstreamError, UpstreamErrorClassification,
+    UpstreamErrorKind,
 };
 use any2api_transport::api::{TransportError, TransportFailureScope};
 use http::{HeaderMap, StatusCode};
@@ -17,7 +18,7 @@ pub(in crate::public_request) enum AttemptFailure {
     Upstream {
         status: StatusCode,
         headers: Box<HeaderMap>,
-        classification: UpstreamErrorClassification,
+        error: UpstreamError,
         candidate: Box<RouteCandidate>,
         fixed: bool,
     },
@@ -36,14 +37,14 @@ impl AttemptFailure {
     pub(super) fn upstream(
         status: StatusCode,
         headers: HeaderMap,
-        classification: UpstreamErrorClassification,
+        error: UpstreamError,
         candidate: RouteCandidate,
         fixed: bool,
     ) -> Self {
         Self::Upstream {
             status,
             headers: Box::new(headers),
-            classification,
+            error,
             candidate: Box::new(candidate),
             fixed,
         }
@@ -55,11 +56,7 @@ impl AttemptFailure {
                 any2api_domain::PublicErrorCode::UpstreamError,
                 "upstream request failed",
             ),
-            Self::Upstream {
-                status,
-                classification,
-                ..
-            } => classified_error(*status, *classification),
+            Self::Upstream { status, error, .. } => classified_error(*status, error),
             Self::Public(error) => error.clone(),
         }
     }
@@ -69,13 +66,9 @@ impl AttemptFailure {
             Self::Upstream {
                 status,
                 headers,
-                classification,
+                error,
                 ..
-            } => FinalFailure::upstream(
-                classified_error(*status, *classification),
-                headers.as_ref().clone(),
-                *status,
-            ),
+            } => FinalFailure::upstream(headers.as_ref().clone(), *status, error),
             _ => self.public_error().into(),
         }
     }
@@ -83,7 +76,7 @@ impl AttemptFailure {
     pub(in crate::public_request) fn retry_safety(&self) -> RetrySafety {
         match self {
             Self::Transport { error, .. } => error.retry_safety,
-            Self::Upstream { classification, .. } => classification.retry_safety(),
+            Self::Upstream { error, .. } => error.classification().retry_safety(),
             Self::Public(_) => RetrySafety::Ambiguous,
         }
     }
@@ -91,7 +84,7 @@ impl AttemptFailure {
     pub(in crate::public_request) fn is_retry_candidate(&self) -> bool {
         match self {
             Self::Transport { .. } => true,
-            Self::Upstream { classification, .. } => classification.kind().is_retry_candidate(),
+            Self::Upstream { error, .. } => error.classification().kind().is_retry_candidate(),
             Self::Public(_) => false,
         }
     }
@@ -125,14 +118,12 @@ impl AttemptFailure {
         &self,
     ) -> Option<(OAuthAccountId, u64)> {
         let Self::Upstream {
-            classification,
-            candidate,
-            ..
+            error, candidate, ..
         } = self
         else {
             return None;
         };
-        if !allows_oauth_refresh(*classification) {
+        if !allows_oauth_refresh(error.classification()) {
             return None;
         }
         let id = candidate.credential_id.oauth_account_id()?;

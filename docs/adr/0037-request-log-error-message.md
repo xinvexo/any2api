@@ -1,19 +1,23 @@
 # ADR-0037: RequestLog 保存安全有界错误消息
 
-- 状态：Accepted
+- 状态：Partially Superseded by ADR-0057
 - 日期：2026-07-25
 - 决策者：maintainer
 
+> 调整说明（2026-07-28）：ADR-0057 允许把最终 Provider 已声明错误 envelope 中的官方
+> `message` 返回当前客户端，但不改变本文的持久化边界。RequestLog 与 RequestAttempt 仍不得保存
+> 该消息，只保存 any2api 生成的安全摘要。
+
 ## 背景
 
-RequestLog 与 RequestAttempt 原本只持久化 `error_class` 与状态码。管理面展开失败请求时无法看到客户端实际收到的公开错误，或区分 DNS、TLS、代理握手等受控传输阶段。
+RequestLog 与 RequestAttempt 原本只持久化 `error_class` 与状态码。管理面展开失败请求时无法看到 any2api 生成的安全错误摘要，或区分 DNS、TLS、代理握手等受控传输阶段。
 
 上游错误正文是不可信输入。兼容服务可能回显认证头、Prompt、Session 标识或完整请求，因此“截断后保存正文”仍会泄露 Provider API Key、OAuth access token 或用户内容，不能作为诊断来源。
 
 ## 决策
 
 - 为 `request_logs` 与 `request_attempts` 增加可选 `error_message` 文本列。
-- 请求级消息只保存客户端可见且由 any2api 构造的 `PublicError.message`，或固定的取消/流式诊断。
+- 请求级消息只保存由 any2api 根据本地错误、状态码和类型化分类构造的安全摘要，或固定的取消/流式诊断；不再以“客户端可见”为持久化准入条件。
 - Attempt 级消息只保存受控摘要：
   - 上游非 2xx：由 HTTP 状态码和类型化 `ErrorClass` 合成；
   - 传输错误：由类型化 DNS/TCP/代理握手/TLS/写入/等待响应头/读取响应体阶段合成；
@@ -30,7 +34,7 @@ RequestLog 与 RequestAttempt 原本只持久化 `error_class` 与状态码。�
 
 ## 后果
 
-管理面不会显示 Provider 返回的详细自然语言错误，只显示 any2api 的公开错误或安全类型摘要。诊断信息减少，但不扩大 RequestLog 的敏感数据边界；需要深挖 Provider 行为时仍使用脱敏的错误分类、状态码、阶段和 Request ID。
+管理面不会显示 Provider 返回的详细自然语言错误，只显示 any2api 的安全类型摘要。诊断信息减少，但不扩大 RequestLog 的敏感数据边界；需要深挖 Provider 行为时仍使用脱敏的错误分类、状态码、阶段和 Request ID。
 
 ## 验证
 

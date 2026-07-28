@@ -7,7 +7,7 @@ use super::super::{
     PublicResponse, PublicResponseBody,
     affinity::{AffinitySelection, commit_soft_binding_before},
     execution_limits,
-    response::{CollectBodyError, collect_body, sanitize_response_headers},
+    response::{collect_error_body, sanitize_response_headers},
     stream::{GuardedBody, GuardedBodyParts, PrecommitBudget},
 };
 use super::{
@@ -49,37 +49,21 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     };
     let status = response.status;
     let mut headers = response.headers;
-    let read_failure_scope = response.read_failure_scope;
     let read_timeout = execution_limits::read_timeout(
         prepared.ingress_operation,
         Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
     );
     if !status.is_success() {
-        let body = match collect_body(
-            response.body,
-            read_timeout,
-            execution_limits::buffered_response_limit(prepared.ingress_operation, false),
-            read_failure_scope,
-        )
-        .await
-        {
-            Ok(body) => body,
-            Err(CollectBodyError::Transport(error)) => {
-                prepared.transport_failure(&error);
-                return Err(AttemptFailure::transport(error, candidate, fixed));
-            }
-            Err(CollectBodyError::Public(error)) => {
-                prepared.invalid_response(Some(status.as_u16()), &error.message);
-                return Err(AttemptFailure::Public(error));
-            }
-        };
+        let body = collect_error_body(response.body, read_timeout)
+            .await
+            .unwrap_or_default();
         let safe_headers = prepared.response_headers(&headers);
-        let classification = prepared.classify(status, &headers, &body);
-        prepared.upstream_failure(status.as_u16(), classification);
+        let error = prepared.classify(status, &headers, &body);
+        prepared.upstream_failure(status.as_u16(), error.classification());
         return Err(AttemptFailure::upstream(
             status,
             safe_headers,
-            classification,
+            error,
             candidate,
             fixed,
         ));
@@ -128,7 +112,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     .await
     .map_err(AttemptFailure::Public)?;
     if let Err(error) = commit_soft_binding_before(soft_lease, target, body.precommit_deadline()) {
-        body.fail_before_handoff(public_error_class(error.code), &error.message);
+        body.fail_before_handoff(public_error_class(error.code()), error.telemetry_message());
         return Err(AttemptFailure::Public(error));
     }
     Ok(PublicResponse {

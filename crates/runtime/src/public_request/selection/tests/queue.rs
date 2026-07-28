@@ -30,7 +30,7 @@ async fn reject_policy_does_not_enter_the_queue() {
         Err(error) => error,
     };
 
-    assert_eq!(error.code, PublicErrorCode::LocalRateLimit);
+    assert_eq!(error.code(), PublicErrorCode::LocalRateLimit);
     assert_eq!(coordinator.waiting_count(), 0);
 }
 
@@ -49,8 +49,8 @@ async fn queue_limit_rejects_an_additional_waiter() {
         Err(error) => error,
     };
 
-    assert_eq!(error.code, PublicErrorCode::LocalRateLimit);
-    assert_eq!(error.message, "request queue is full");
+    assert_eq!(error.code(), PublicErrorCode::LocalRateLimit);
+    assert_eq!(error.client_message(), "request queue is full");
     assert_eq!(coordinator.waiting_count(), 1);
     drop(occupied);
     assert_eq!(coordinator.waiting_count(), 0);
@@ -103,7 +103,7 @@ async fn generation_wait_times_out_and_releases_its_ticket() {
         Err(error) => error,
     };
 
-    assert_eq!(error.code, PublicErrorCode::LocalRateLimit);
+    assert_eq!(error.code(), PublicErrorCode::LocalRateLimit);
     assert_eq!(coordinator.waiting_count(), 0);
 }
 

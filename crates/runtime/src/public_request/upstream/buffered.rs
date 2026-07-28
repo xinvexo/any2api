@@ -8,7 +8,8 @@ use super::super::{
     affinity::{AffinitySelection, commit_soft_binding},
     execution_limits,
     response::{
-        CollectBodyError, collect_body, internal_error, public_error, sanitize_response_headers,
+        CollectBodyError, collect_body, collect_error_body, internal_error, public_error,
+        sanitize_response_headers,
     },
 };
 use super::{
@@ -50,13 +51,29 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     };
     let status = response.status;
     let headers = response.headers;
+    let read_timeout = execution_limits::read_timeout(
+        prepared.ingress_operation,
+        Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
+    );
+    if !status.is_success() {
+        let body = collect_error_body(response.body, read_timeout)
+            .await
+            .unwrap_or_default();
+        let safe_headers = prepared.response_headers(&headers);
+        let error = prepared.classify(status, &headers, &body);
+        prepared.upstream_failure(status.as_u16(), error.classification());
+        return Err(AttemptFailure::upstream(
+            status,
+            safe_headers,
+            error,
+            candidate,
+            fixed,
+        ));
+    }
     let body = match collect_body(
         response.body,
-        execution_limits::read_timeout(
-            prepared.ingress_operation,
-            Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
-        ),
-        execution_limits::buffered_response_limit(prepared.ingress_operation, status.is_success()),
+        read_timeout,
+        execution_limits::buffered_response_limit(prepared.ingress_operation, true),
         response.read_failure_scope,
     )
     .await
@@ -67,22 +84,10 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             return Err(AttemptFailure::transport(error, candidate, fixed));
         }
         Err(CollectBodyError::Public(error)) => {
-            prepared.invalid_response(Some(status.as_u16()), &error.message);
+            prepared.invalid_response(Some(status.as_u16()), error.telemetry_message());
             return Err(AttemptFailure::Public(error));
         }
     };
-    if !status.is_success() {
-        let safe_headers = prepared.response_headers(&headers);
-        let classification = prepared.classify(status, &headers, &body);
-        prepared.upstream_failure(status.as_u16(), classification);
-        return Err(AttemptFailure::upstream(
-            status,
-            safe_headers,
-            classification,
-            candidate,
-            fixed,
-        ));
-    }
     let safe_headers = prepared.response_headers(&headers);
     let decoded = match prepared.decode_upstream_response(UpstreamResponse {
         status,

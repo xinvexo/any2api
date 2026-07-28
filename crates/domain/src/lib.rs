@@ -68,6 +68,6 @@ pub use telemetry::{
     bound_thinking_level, bounded_log_text,
 };
 pub use upstream_error::{
-    MAX_RETRY_AFTER_SECONDS, RetryAfterHint, UpstreamErrorClassification, UpstreamErrorKind,
-    UpstreamQuotaExhaustion,
+    MAX_RETRY_AFTER_SECONDS, MAX_UPSTREAM_ERROR_MESSAGE_BYTES, RetryAfterHint, UpstreamError,
+    UpstreamErrorClassification, UpstreamErrorKind, UpstreamQuotaExhaustion,
 };

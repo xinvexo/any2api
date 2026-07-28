@@ -86,7 +86,7 @@ fn final_error_class(
 }
 
 fn final_error_message(attempts: &[RequestAttempt], fallback: Option<String>) -> Option<String> {
-    // Prefer the public/client-visible message when finish provides one.
+    // Prefer the explicit request-level safe diagnostic when finish provides one.
     // Fall back to the last attempt diagnostic for stream/drop paths.
     let selected = match (
         attempts

@@ -14,7 +14,6 @@ use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
     OpenAiResponsesAdapter, ProtocolRegistry,
 };
-use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublicResponse,
     PublicResponseBody, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
@@ -294,7 +293,7 @@ async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
         ScriptStep::json_with_headers(
             StatusCode::TOO_MANY_REQUESTS,
             retry_after,
-            r#"{"error":{"type":"rate_limit_error"}}"#,
+            r#"{"error":{"type":"rate_limit_error","message":"Official rate limit detail"}}"#,
         ),
         ScriptStep::json(
             StatusCode::OK,
@@ -307,9 +306,29 @@ async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(limited.body["error"]["type"], "rate_limit_error");
     assert_eq!(limited.body["error"]["code"], "rate_limit_exceeded");
+    assert_eq!(
+        limited.body["error"]["message"],
+        "Official rate limit detail"
+    );
     assert_eq!(limited.headers()[header::RETRY_AFTER], "5");
     assert_eq!(limited.headers()["x-request-id"], "rate-limit-request");
     assert_eq!(limited.headers()["x-codex-primary-used-percent"], "100");
+    let record = wait_for_log(&harness, limited.request_id).await;
+    assert_eq!(
+        record.request.error_message.as_deref(),
+        Some("upstream returned HTTP 429 (rate_limited)")
+    );
+    assert_eq!(
+        record.attempts[0].error_message.as_deref(),
+        Some("upstream returned HTTP 429 (rate_limited)")
+    );
+    assert!(
+        record
+            .request
+            .error_message
+            .as_deref()
+            .is_none_or(|message| !message.contains("Official rate limit detail"))
+    );
 
     let limited_again = execute_json(&harness, "limited-model", json!({"input":"two"})).await;
     assert_eq!(limited_again.status(), StatusCode::TOO_MANY_REQUESTS);
@@ -334,7 +353,7 @@ async fn final_openai_overload_keeps_529_and_safe_headers() {
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::json_with_headers(
         StatusCode::from_u16(529).expect("529 status"),
         headers,
-        r#"{"error":{"type":"overloaded_error"}}"#,
+        r#"{"error":{"type":"overloaded_error","message":"Official overload detail"}}"#,
     )]));
     let harness = harness(transport, 1, &["overload-model"], &[]).await;
 
@@ -342,8 +361,108 @@ async fn final_openai_overload_keeps_529_and_safe_headers() {
 
     assert_eq!(response.status().as_u16(), 529);
     assert_eq!(response.body["error"]["code"], "upstream_overloaded");
+    assert_eq!(
+        response.body["error"]["message"],
+        "Official overload detail"
+    );
     assert_eq!(response.headers()[header::RETRY_AFTER], "2");
     assert_eq!(response.headers()["x-request-id"], "overload-request");
+}
+
+#[tokio::test]
+async fn oversized_error_body_keeps_529_headers_and_uses_the_safe_fallback() {
+    const DISCARDED_MESSAGE: &str = "must not escape an oversized error body";
+    let mut headers = HeaderMap::new();
+    headers.insert(header::RETRY_AFTER, HeaderValue::from_static("4"));
+    headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("oversized-overload-request"),
+    );
+    let body = Bytes::from(format!(
+        r#"{{"error":{{"type":"overloaded_error","message":"{DISCARDED_MESSAGE}"}},"padding":"{}"}}"#,
+        "x".repeat(70 * 1024)
+    ));
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::Json {
+        status: StatusCode::from_u16(529).expect("529 status"),
+        headers,
+        body,
+    }]));
+    let harness = harness(transport, 1, &["oversized-overload-model"], &[]).await;
+
+    let response = execute_json(
+        &harness,
+        "oversized-overload-model",
+        json!({"input":"hello"}),
+    )
+    .await;
+
+    assert_eq!(response.status().as_u16(), 529);
+    assert_eq!(response.body["error"]["code"], "upstream_overloaded");
+    assert_eq!(
+        response.body["error"]["message"],
+        "upstream service is overloaded"
+    );
+    assert!(!response.body.to_string().contains(DISCARDED_MESSAGE));
+    assert_eq!(response.headers()[header::RETRY_AFTER], "4");
+    assert_eq!(
+        response.headers()["x-request-id"],
+        "oversized-overload-request"
+    );
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.error_class, Some(ErrorClass::Upstream));
+    assert_eq!(
+        record.request.error_message.as_deref(),
+        Some("upstream returned HTTP 529 (upstream)")
+    );
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn incomplete_error_body_keeps_429_headers_and_uses_the_safe_fallback() {
+    const DISCARDED_MESSAGE: &str = "must not escape an incomplete error body";
+    let mut headers = HeaderMap::new();
+    headers.insert(header::RETRY_AFTER, HeaderValue::from_static("3"));
+    headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("incomplete-rate-limit-request"),
+    );
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::stalled_json_with_headers(
+            StatusCode::TOO_MANY_REQUESTS,
+            headers,
+            r#"{"error":{"type":"rate_limit_error","message":"must not escape an incomplete error body"}}"#,
+        ),
+    ]));
+    let harness = harness(
+        transport,
+        1,
+        &["incomplete-rate-limit-model"],
+        &[(
+            SettingKey::UpstreamReadTimeout,
+            SettingValue::DurationSecs(1),
+        )],
+    )
+    .await;
+
+    let response = execute_json(
+        &harness,
+        "incomplete-rate-limit-model",
+        json!({"input":"hello"}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.body["error"]["code"], "rate_limit_exceeded");
+    assert_eq!(
+        response.body["error"]["message"],
+        "upstream rate limit was reached"
+    );
+    assert!(!response.body.to_string().contains(DISCARDED_MESSAGE));
+    assert_eq!(response.headers()[header::RETRY_AFTER], "3");
+    assert_eq!(
+        response.headers()["x-request-id"],
+        "incomplete-rate-limit-request"
+    );
 }
 
 #[tokio::test]
@@ -385,10 +504,91 @@ async fn retried_attempt_headers_are_discarded_in_favor_of_the_committed_attempt
 }
 
 #[tokio::test]
+async fn only_the_final_attempt_official_message_reaches_the_client() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::json(
+            StatusCode::TOO_MANY_REQUESTS,
+            r#"{"error":{"type":"rate_limit_error","message":"discarded upstream detail"}}"#,
+        ),
+        ScriptStep::json(
+            StatusCode::UNAUTHORIZED,
+            r#"{"error":{"type":"authentication_error","message":"final upstream detail"}}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["final-message-model"], &[]).await;
+
+    let response = execute_json(&harness, "final-message-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.body["error"]["message"], "final upstream detail");
+    assert!(
+        !response
+            .body
+            .to_string()
+            .contains("discarded upstream detail")
+    );
+    assert_eq!(transport.calls().len(), 2);
+    let record = wait_for_log(&harness, response.request_id).await;
+    for message in record
+        .attempts
+        .iter()
+        .filter_map(|attempt| attempt.error_message.as_deref())
+        .chain(record.request.error_message.as_deref())
+    {
+        assert!(!message.contains("discarded upstream detail"));
+        assert!(!message.contains("final upstream detail"));
+    }
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn grok_non_success_stream_request_returns_official_message_without_logging_it() {
+    const OFFICIAL_MESSAGE: &str =
+        "tokens (actual/limit): 1065387/1000000; Usage resets over a rolling 24-hour window";
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
+        StatusCode::TOO_MANY_REQUESTS,
+        r#"{"error":{"code":"subscription:free-usage-exhausted","message":"tokens (actual/limit): 1065387/1000000; Usage resets over a rolling 24-hour window"}}"#,
+    )]));
+    let harness = harness_for_protocol(
+        transport,
+        1,
+        &["grok-stream-error-model"],
+        &[],
+        ProviderKind::Grok,
+        ProtocolDialect::OpenAiResponses,
+    )
+    .await;
+
+    let response = execute_json(
+        &harness,
+        "grok-stream-error-model",
+        json!({"input":"hello","stream":true}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.body["error"]["message"], OFFICIAL_MESSAGE);
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.error_class, Some(ErrorClass::QuotaExhausted));
+    assert_eq!(
+        record.request.error_message.as_deref(),
+        Some("upstream returned HTTP 429 (quota_exhausted)")
+    );
+    assert!(
+        record
+            .attempts
+            .iter()
+            .filter_map(|attempt| attempt.error_message.as_deref())
+            .all(|message| !message.contains(OFFICIAL_MESSAGE))
+    );
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
 async fn upstream_credential_unauthorized_never_becomes_gateway_authentication_failure() {
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
         StatusCode::UNAUTHORIZED,
-        r#"{"error":{"type":"authentication_error"}}"#,
+        r#"{"error":{"type":"authentication_error","message":"Official authentication detail"}}"#,
     )]));
     let harness = harness(transport, 1, &["auth-model"], &[]).await;
 
@@ -396,6 +596,10 @@ async fn upstream_credential_unauthorized_never_becomes_gateway_authentication_f
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(
+        response.body["error"]["message"],
+        "Official authentication detail"
+    );
     assert_ne!(response.body["error"]["type"], "authentication_error");
 }
 
@@ -817,16 +1021,10 @@ async fn harness_for_protocol(
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("messages adapter");
-    let mut providers = ProviderRegistry::new();
-    providers
-        .register(Arc::new(CodexDriver::new()))
-        .expect("codex driver");
-    providers
-        .register(Arc::new(ClaudeDriver::new()))
-        .expect("claude driver");
+    let providers = any2api_contract_tests::build_provider_registry();
     let transport_manager: Arc<dyn TransportManager> = transport;
     let service = Arc::new(
-        PublicRequestService::new(Arc::new(protocols), Arc::new(providers), transport_manager)
+        PublicRequestService::new(Arc::new(protocols), providers, transport_manager)
             .expect("public request service")
             .with_telemetry(Arc::clone(&telemetry)),
     );
@@ -998,6 +1196,7 @@ enum ScriptStep {
     },
     StalledJson {
         status: StatusCode,
+        headers: HeaderMap,
         body: Bytes,
     },
     StalledStream {
@@ -1032,6 +1231,19 @@ impl ScriptStep {
     fn stalled_json(status: StatusCode, body: &'static str) -> Self {
         Self::StalledJson {
             status,
+            headers: HeaderMap::new(),
+            body: Bytes::from_static(body.as_bytes()),
+        }
+    }
+
+    fn stalled_json_with_headers(
+        status: StatusCode,
+        headers: HeaderMap,
+        body: &'static str,
+    ) -> Self {
+        Self::StalledJson {
+            status,
+            headers,
             body: Bytes::from_static(body.as_bytes()),
         }
     }
@@ -1099,9 +1311,13 @@ impl TransportManager for ScriptedTransport {
                 body: boxed_body(stream::iter([Ok(body)])),
                 read_failure_scope: TransportFailureScope::Endpoint,
             }),
-            ScriptStep::StalledJson { status, body } => Ok(TransportResponse {
+            ScriptStep::StalledJson {
                 status,
-                headers: HeaderMap::new(),
+                headers,
+                body,
+            } => Ok(TransportResponse {
+                status,
+                headers,
                 body: boxed_body(stream::iter([Ok(body)]).chain(stream::pending())),
                 read_failure_scope: TransportFailureScope::Endpoint,
             }),

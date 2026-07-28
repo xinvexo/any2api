@@ -1,10 +1,14 @@
-use std::time::{Duration, SystemTime};
+use std::{
+    fmt,
+    time::{Duration, SystemTime},
+};
 
 use serde::{Deserialize, Serialize};
 
 use crate::{ErrorClass, RetrySafety};
 
 pub const MAX_RETRY_AFTER_SECONDS: u64 = 30 * 24 * 60 * 60;
+pub const MAX_UPSTREAM_ERROR_MESSAGE_BYTES: usize = 16 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -135,5 +139,93 @@ impl UpstreamErrorClassification {
     #[must_use]
     pub const fn quota_exhaustion(self) -> Option<UpstreamQuotaExhaustion> {
         self.quota_exhaustion
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub struct UpstreamError {
+    classification: UpstreamErrorClassification,
+    official_message: Option<String>,
+}
+
+impl UpstreamError {
+    #[must_use]
+    pub fn new(
+        classification: UpstreamErrorClassification,
+        official_message: Option<String>,
+    ) -> Self {
+        Self {
+            classification,
+            official_message: official_message.and_then(normalize_message),
+        }
+    }
+
+    #[must_use]
+    pub const fn classification(&self) -> UpstreamErrorClassification {
+        self.classification
+    }
+
+    #[must_use]
+    pub fn official_message(&self) -> Option<&str> {
+        self.official_message.as_deref()
+    }
+}
+
+impl fmt::Debug for UpstreamError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("UpstreamError")
+            .field("classification", &self.classification)
+            .field("official_message_present", &self.official_message.is_some())
+            .finish()
+    }
+}
+
+fn normalize_message(message: String) -> Option<String> {
+    let trimmed = message.trim();
+    if trimmed.is_empty() || trimmed.len() > MAX_UPSTREAM_ERROR_MESSAGE_BYTES {
+        return None;
+    }
+    if trimmed.len() == message.len() {
+        Some(message)
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn classification() -> UpstreamErrorClassification {
+        UpstreamErrorClassification::new(UpstreamErrorKind::Unknown, RetrySafety::Ambiguous, None)
+    }
+
+    #[test]
+    fn official_message_is_trimmed_and_kept_separate_from_classification() {
+        let error = UpstreamError::new(
+            classification(),
+            Some("  official provider detail  ".to_owned()),
+        );
+
+        assert_eq!(error.classification(), classification());
+        assert_eq!(error.official_message(), Some("official provider detail"));
+        assert!(!format!("{error:?}").contains("official provider detail"));
+    }
+
+    #[test]
+    fn empty_or_oversized_messages_are_not_public() {
+        assert_eq!(
+            UpstreamError::new(classification(), Some(" \n ".to_owned())).official_message(),
+            None
+        );
+        assert_eq!(
+            UpstreamError::new(
+                classification(),
+                Some("x".repeat(MAX_UPSTREAM_ERROR_MESSAGE_BYTES + 1)),
+            )
+            .official_message(),
+            None
+        );
     }
 }

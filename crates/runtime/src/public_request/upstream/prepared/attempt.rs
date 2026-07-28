@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamErrorClassification,
+    ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamError,
+    UpstreamErrorClassification,
 };
 use any2api_protocol::{
     ProtocolError,
@@ -103,7 +104,7 @@ impl PreparedAttempt<'_> {
         status: http::StatusCode,
         headers: &http::HeaderMap,
         body: &[u8],
-    ) -> UpstreamErrorClassification {
+    ) -> UpstreamError {
         self.driver.classify_error(
             self.upstream_operation,
             &UpstreamResponseMeta {
@@ -184,8 +185,8 @@ impl PreparedAttempt<'_> {
         if let Some(mut recorder) = self.attempt_recorder.take() {
             recorder.local_error(
                 Some(status_code),
-                public_error_class(error.code),
-                &error.message,
+                public_error_class(error.code()),
+                error.telemetry_message(),
             );
         }
         self.permit.take();

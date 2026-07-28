@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TokenUsage,
-    TransportMode,
+    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, PublicError,
+    PublicErrorCode, TokenUsage, TransportMode, UpstreamErrorKind,
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
 use any2api_provider::api::{
@@ -37,6 +37,7 @@ async fn composition_root_protocol_registry_runs_every_contract() {
 
     for (dialect, adapter) in registry.iter() {
         assert_eq!(*dialect, adapter.dialect());
+        protocol_error_message_contract(adapter.as_ref());
         match dialect {
             ProtocolDialect::OpenAiResponses => responses_contract(adapter.as_ref()).await,
             ProtocolDialect::OpenAiChatCompletions => {
@@ -77,6 +78,18 @@ async fn composition_root_protocol_registry_runs_every_contract() {
     ));
 }
 
+fn protocol_error_message_contract(adapter: &dyn ProtocolAdapter) {
+    const OFFICIAL_MESSAGE: &str = "官方错误 detail: \"model unavailable\"";
+    let response = adapter.error_response(&PublicError::from_provider_message(
+        PublicErrorCode::UpstreamError,
+        OFFICIAL_MESSAGE,
+    ));
+    let body: Value = serde_json::from_slice(&response.body).expect("protocol error JSON");
+
+    assert_eq!(response.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body["error"]["message"], OFFICIAL_MESSAGE);
+}
+
 #[test]
 fn composition_root_provider_registry_runs_every_contract() {
     let components = build_public_request_components().expect("public request components");
@@ -97,6 +110,7 @@ fn composition_root_provider_registry_runs_every_contract() {
     for (kind, driver) in registry.iter() {
         assert_eq!(*kind, driver.kind());
         provider_header_policy_contract(*kind, driver.as_ref());
+        provider_error_message_contract(*kind, driver.as_ref());
         match kind {
             ProviderKind::Codex => codex_contract(driver.as_ref()),
             ProviderKind::Claude => claude_contract(driver.as_ref()),
@@ -557,9 +571,58 @@ fn claude_contract(driver: &dyn ProviderDriver) {
                 },
                 b"{}",
             )
+            .classification()
             .kind(),
         any2api_domain::UpstreamErrorKind::OperationUnavailable
     );
+}
+
+fn provider_error_message_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
+    let (operation, status, body, expected_kind, expected_message) = match kind {
+        ProviderKind::Codex => (
+            ProtocolOperation::Responses,
+            StatusCode::BAD_REQUEST,
+            br#"{"error":{"type":"invalid_request_error","message":"Official Codex detail"}}"#.as_slice(),
+            UpstreamErrorKind::InvalidRequest,
+            "Official Codex detail",
+        ),
+        ProviderKind::Claude => (
+            ProtocolOperation::Messages,
+            StatusCode::BAD_REQUEST,
+            br#"{"type":"error","error":{"type":"invalid_request_error","message":"Official Claude detail"}}"#.as_slice(),
+            UpstreamErrorKind::InvalidRequest,
+            "Official Claude detail",
+        ),
+        ProviderKind::Grok => (
+            ProtocolOperation::Responses,
+            StatusCode::TOO_MANY_REQUESTS,
+            br#"{"error":{"code":"subscription:free-usage-exhausted","message":"Official Grok detail"}}"#.as_slice(),
+            UpstreamErrorKind::QuotaExhausted,
+            "Official Grok detail",
+        ),
+    };
+    let error = driver.classify_error(
+        operation,
+        &UpstreamResponseMeta {
+            status,
+            headers: HeaderMap::new(),
+        },
+        body,
+    );
+
+    assert_eq!(error.classification().kind(), expected_kind);
+    assert_eq!(error.official_message(), Some(expected_message));
+    assert!(!format!("{error:?}").contains(expected_message));
+
+    let invalid = driver.classify_error(
+        operation,
+        &UpstreamResponseMeta {
+            status,
+            headers: HeaderMap::new(),
+        },
+        br#"{"message":"must not be inferred","error":{"message":{"nested":"must not be inferred"}}}"#,
+    );
+    assert_eq!(invalid.official_message(), None);
 }
 
 fn grok_contract(driver: &dyn ProviderDriver) {

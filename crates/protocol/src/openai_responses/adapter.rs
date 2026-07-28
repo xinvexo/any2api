@@ -135,20 +135,20 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
     }
 
     fn error_response(&self, error: &PublicError) -> EgressResponse {
-        let code = error_code(error.code);
-        let error_type = error_type(error.code);
+        let code = error_code(error.code());
+        let error_type = error_type(error.code());
         let mut response = json_response(
-            public_error_status(error.code),
+            public_error_status(error.code()),
             json!({
                 "error": {
-                    "message": error.message,
+                    "message": error.client_message(),
                     "type": error_type,
                     "param": null,
                     "code": code
                 }
             }),
         );
-        insert_retry_after(&mut response.headers, error.retry_after_seconds);
+        insert_retry_after(&mut response.headers, error.retry_after_seconds());
         response
     }
 }

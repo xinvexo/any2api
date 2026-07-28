@@ -1,8 +1,11 @@
 //! Grok Build error codes that carry account-scoped meaning.
 
 use any2api_domain::{
-    RetrySafety, UpstreamErrorClassification, UpstreamErrorKind, UpstreamQuotaExhaustion,
+    RetrySafety, UpstreamError, UpstreamErrorClassification, UpstreamErrorKind,
+    UpstreamQuotaExhaustion,
 };
+use http::StatusCode;
+use serde::Deserialize;
 
 use crate::{api::UpstreamResponseMeta, upstream_error};
 
@@ -11,53 +14,87 @@ const BLOCKED_USER: &str = "unauthorized:blocked-user";
 const ACTUAL_LIMIT_MARKER: &str = "tokens (actual/limit):";
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
-pub(crate) fn classify(
-    meta: &UpstreamResponseMeta,
-    bounded_body: &[u8],
-) -> UpstreamErrorClassification {
-    if contains_error_code(bounded_body, FREE_USAGE_EXHAUSTED) {
+#[derive(Deserialize)]
+struct GrokErrorEnvelope {
+    code: Option<String>,
+    error: Option<GrokErrorField>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum GrokErrorField {
+    Message(String),
+    Details {
+        code: Option<String>,
+        message: Option<String>,
+    },
+}
+
+pub(crate) fn classify(meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> UpstreamError {
+    let parsed = serde_json::from_slice::<GrokErrorEnvelope>(bounded_body).ok();
+    let fallback = upstream_error::openai::classify(meta, bounded_body);
+    let message = parsed
+        .as_ref()
+        .and_then(GrokErrorEnvelope::message)
+        .or_else(|| fallback.official_message().map(str::to_owned));
+    if matches!(
+        meta.status,
+        StatusCode::PAYMENT_REQUIRED | StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS
+    ) && parsed
+        .as_ref()
+        .is_some_and(|value| value.has_code(FREE_USAGE_EXHAUSTED))
+    {
         let classified = UpstreamErrorClassification::new(
             UpstreamErrorKind::QuotaExhausted,
             RetrySafety::RejectedBeforeExecution,
             upstream_error::retry_after::retry_after_hint(&meta.headers),
         );
-        return parse_actual_limit(bounded_body)
+        let classified = message
+            .as_deref()
+            .and_then(parse_actual_limit)
             .map_or(classified, |value| classified.with_quota_exhaustion(value));
+        return UpstreamError::new(classified, message);
     }
-    if contains_error_code(bounded_body, BLOCKED_USER) {
-        return UpstreamErrorClassification::new(
-            UpstreamErrorKind::PermissionDenied,
-            RetrySafety::RejectedBeforeExecution,
-            upstream_error::retry_after::retry_after_hint(&meta.headers),
+    if meta.status == StatusCode::FORBIDDEN
+        && parsed
+            .as_ref()
+            .is_some_and(|value| value.has_code(BLOCKED_USER))
+    {
+        return UpstreamError::new(
+            UpstreamErrorClassification::new(
+                UpstreamErrorKind::PermissionDenied,
+                RetrySafety::RejectedBeforeExecution,
+                upstream_error::retry_after::retry_after_hint(&meta.headers),
+            ),
+            message,
         );
     }
-    upstream_error::openai::classify(meta, bounded_body)
+    UpstreamError::new(fallback.classification(), message)
 }
 
-fn contains_error_code(body: &[u8], expected: &str) -> bool {
-    serde_json::from_slice::<serde_json::Value>(body)
-        .ok()
-        .is_some_and(|value| value_contains_code(&value, expected))
-}
+impl GrokErrorEnvelope {
+    fn has_code(&self, expected: &str) -> bool {
+        self.code.as_deref() == Some(expected)
+            || match &self.error {
+                Some(GrokErrorField::Message(message)) => {
+                    message.contains(&format!("WKE={expected}"))
+                }
+                Some(GrokErrorField::Details { code, .. }) => code.as_deref() == Some(expected),
+                None => false,
+            }
+    }
 
-fn value_contains_code(value: &serde_json::Value, expected: &str) -> bool {
-    match value {
-        serde_json::Value::String(value) => {
-            value == expected || value.contains(&format!("WKE={expected}"))
+    fn message(&self) -> Option<String> {
+        match &self.error {
+            Some(GrokErrorField::Message(message)) => Some(message.clone()),
+            Some(GrokErrorField::Details { message, .. }) => message.clone(),
+            None => None,
         }
-        serde_json::Value::Array(values) => values
-            .iter()
-            .any(|value| value_contains_code(value, expected)),
-        serde_json::Value::Object(values) => values
-            .values()
-            .any(|value| value_contains_code(value, expected)),
-        _ => false,
     }
 }
 
-fn parse_actual_limit(body: &[u8]) -> Option<UpstreamQuotaExhaustion> {
-    let text = std::str::from_utf8(body).ok()?;
-    let values = text.split_once(ACTUAL_LIMIT_MARKER)?.1.trim_start();
+fn parse_actual_limit(message: &str) -> Option<UpstreamQuotaExhaustion> {
+    let values = message.split_once(ACTUAL_LIMIT_MARKER)?.1.trim_start();
     let (used, remainder) = decimal_prefix(values)?;
     let remainder = remainder.strip_prefix('/')?;
     let (limit, _) = decimal_prefix(remainder)?;
@@ -98,18 +135,34 @@ mod tests {
             br#"{"error":{"code":"subscription:free-usage-exhausted","message":"tokens (actual/limit): 1065387/1000000; Usage resets over a rolling 24-hour window"}}"#,
         );
 
-        assert_eq!(classified.kind(), UpstreamErrorKind::QuotaExhausted);
         assert_eq!(
-            classified.quota_exhaustion(),
+            classified.classification().kind(),
+            UpstreamErrorKind::QuotaExhausted
+        );
+        assert_eq!(
+            classified.classification().quota_exhaustion(),
             Some(UpstreamQuotaExhaustion::new(1_065_387, 1_000_000))
+        );
+        assert_eq!(
+            classified.official_message(),
+            Some(
+                "tokens (actual/limit): 1065387/1000000; Usage resets over a rolling 24-hour window"
+            )
         );
 
         let unsafe_values = classify(
             &meta(StatusCode::TOO_MANY_REQUESTS),
             br#"{"code":"subscription:free-usage-exhausted","error":"tokens (actual/limit): 9007199254740992/9007199254740992"}"#,
         );
-        assert_eq!(unsafe_values.kind(), UpstreamErrorKind::QuotaExhausted);
-        assert!(unsafe_values.quota_exhaustion().is_none());
+        assert_eq!(
+            unsafe_values.classification().kind(),
+            UpstreamErrorKind::QuotaExhausted
+        );
+        assert!(unsafe_values.classification().quota_exhaustion().is_none());
+        assert_eq!(
+            unsafe_values.official_message(),
+            Some("tokens (actual/limit): 9007199254740992/9007199254740992")
+        );
     }
 
     #[test]
@@ -119,12 +172,36 @@ mod tests {
                 &meta(StatusCode::FORBIDDEN),
                 br#"{"code":"unauthorized:blocked-user","error":"User is blocked"}"#,
             )
+            .classification()
             .kind(),
             UpstreamErrorKind::PermissionDenied
         );
+        let generic = classify(&meta(StatusCode::FORBIDDEN), br#"{"error":"denied"}"#);
         assert_eq!(
-            classify(&meta(StatusCode::FORBIDDEN), br#"{"error":"denied"}"#).kind(),
+            generic.classification().kind(),
             UpstreamErrorKind::PermissionDenied
+        );
+        assert_eq!(generic.official_message(), Some("denied"));
+    }
+
+    #[test]
+    fn special_codes_only_apply_in_declared_fields_and_compatible_statuses() {
+        let nested = classify(
+            &meta(StatusCode::TOO_MANY_REQUESTS),
+            br#"{"metadata":{"code":"subscription:free-usage-exhausted"},"error":{"message":"ordinary limit"}}"#,
+        );
+        assert_eq!(
+            nested.classification().kind(),
+            UpstreamErrorKind::RateLimited
+        );
+
+        let contradictory = classify(
+            &meta(StatusCode::UNAUTHORIZED),
+            br#"{"error":{"code":"subscription:free-usage-exhausted","message":"not authenticated"}}"#,
+        );
+        assert_eq!(
+            contradictory.classification().kind(),
+            UpstreamErrorKind::Authentication
         );
     }
 }
