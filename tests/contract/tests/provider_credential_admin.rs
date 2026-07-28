@@ -316,13 +316,14 @@ async fn successful_credential_test_clears_generation_auth_error() {
         Some(json!({
             "expected_revision": 4,
             "name": "Credential test client",
-            "enabled": true,
-            "token": format!("sk-{}", "p".repeat(48))
+            "enabled": true
         })),
         loopback,
     )
     .await;
-    let gateway_token = gateway.body["token"].as_str().expect("gateway token");
+    let gateway_token = gateway.body["items"][0]["token"]
+        .as_str()
+        .expect("gateway token in collection item");
 
     let failed = request_json_with_headers(
         app.clone(),

@@ -4,4 +4,6 @@ mod route;
 mod tests;
 
 pub(crate) use oauth::{OAuthRoute, build_oauth_route_candidates, oauth_route_id};
-pub(crate) use route::{CandidateExclusions, RouteCandidate, build_route_candidates};
+pub(crate) use route::{
+    CandidateExclusions, CandidateRequirements, RouteCandidate, build_route_candidates,
+};

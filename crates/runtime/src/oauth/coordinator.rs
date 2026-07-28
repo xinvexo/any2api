@@ -6,7 +6,6 @@ use any2api_provider::api::{
     ProviderRegistry,
 };
 use any2api_transport::api::TransportManager;
-use tokio::sync::Mutex;
 
 use crate::{configuration::ConfigPublisher, lifecycle::ProcessLifecycle};
 
@@ -17,7 +16,7 @@ use super::{
         OAuthActivationResult, OAuthDevicePollResult, OAuthStartResult, activation, callback,
         session::{
             AuthorizationCodeSession, CALLBACK_SESSION_TTL_SECONDS, DeviceCodeSession,
-            OAuthSessionStore,
+            DevicePollAcquisition, OAuthSessionRegistry,
         },
         token_request,
     },
@@ -29,7 +28,7 @@ pub struct OAuthService {
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
     publisher: Arc<ConfigPublisher>,
-    sessions: Mutex<OAuthSessionStore>,
+    sessions: OAuthSessionRegistry,
     refresher: Arc<OAuthRefresher>,
     quota: OAuthQuotaService,
 }
@@ -56,7 +55,7 @@ impl OAuthService {
             providers,
             transport,
             publisher,
-            sessions: Mutex::new(OAuthSessionStore::default()),
+            sessions: OAuthSessionRegistry::default(),
             refresher,
             quota,
         }
@@ -121,11 +120,8 @@ impl OAuthService {
             .oauth_authorization_url(&prepared.state, &prepared.code_challenge)?
             .to_string();
         let session_id = prepared.id.clone();
-        self.sessions.lock().await.insert_authorization_code(
-            prepared.id,
-            prepared.session,
-            Instant::now(),
-        )?;
+        self.sessions
+            .insert_authorization_code(prepared.id, prepared.session, Instant::now())?;
         Ok(OAuthStartResult::authorization_code(
             provider,
             session_id,
@@ -164,11 +160,8 @@ impl OAuthService {
             prepared.expires_in_seconds,
             prepared.poll_interval_seconds,
         );
-        self.sessions.lock().await.insert_device_code(
-            prepared.id,
-            prepared.session,
-            Instant::now(),
-        )?;
+        self.sessions
+            .insert_device_code(prepared.id, prepared.session, Instant::now())?;
         Ok(result)
     }
 
@@ -179,8 +172,6 @@ impl OAuthService {
     ) -> Result<OAuthActivationResult, OAuthError> {
         let session = self
             .sessions
-            .lock()
-            .await
             .take_authorization_code(session_id, Instant::now())?;
         let callback = callback::parse(callback_url, session.redirect_uri, session.state())?;
         let driver = self
@@ -207,60 +198,62 @@ impl OAuthService {
     }
 
     pub async fn poll_device(&self, session_id: &str) -> Result<OAuthDevicePollResult, OAuthError> {
-        let now = Instant::now();
-        let mut session = self
+        let lease = match self
             .sessions
-            .lock()
-            .await
-            .take_device_code(session_id, now)?;
-        if let Some(retry_after_seconds) = session.retry_after(now)? {
-            self.restore_device_session(session_id, session).await;
-            return Ok(OAuthDevicePollResult::Pending {
+            .acquire_device_poll(session_id, Instant::now())?
+        {
+            DevicePollAcquisition::Ready(lease) => lease,
+            DevicePollAcquisition::Pending {
                 retry_after_seconds,
-            });
-        }
+            } => {
+                return Ok(OAuthDevicePollResult::Pending {
+                    retry_after_seconds,
+                });
+            }
+        };
         let driver = self
             .providers
-            .get(session.provider)
+            .get(lease.provider())
             .ok_or(OAuthError::ProviderUnavailable)?;
-        let plan = driver.oauth_device_token_request(session.device_code())?;
+        let plan = driver.oauth_device_token_request(lease.device_code())?;
         let response = self.execute_request_with_status(plan).await?;
         let poll = driver
             .parse_oauth_device_token(response.status, &response.body)
             .map_err(OAuthError::from_token_response_error)?;
         match poll {
             OAuthDeviceTokenPoll::Pending => {
-                let retry_after_seconds = session.defer(Instant::now(), false)?;
-                self.restore_device_session(session_id, session).await;
+                let retry_after_seconds = lease.restore(false)?;
                 Ok(OAuthDevicePollResult::Pending {
                     retry_after_seconds,
                 })
             }
             OAuthDeviceTokenPoll::SlowDown => {
-                let retry_after_seconds = session.defer(Instant::now(), true)?;
-                self.restore_device_session(session_id, session).await;
+                let retry_after_seconds = lease.restore(true)?;
                 Ok(OAuthDevicePollResult::Pending {
                     retry_after_seconds,
                 })
             }
-            OAuthDeviceTokenPoll::Authorized(token) => activation::publish(
-                self.providers.as_ref(),
-                self.publisher.as_ref(),
-                session.provider,
-                token,
-            )
-            .await
-            .map(OAuthDevicePollResult::Complete),
-            OAuthDeviceTokenPoll::Denied => Err(OAuthError::AuthorizationDenied),
-            OAuthDeviceTokenPoll::Expired => Err(OAuthError::SessionExpired),
+            OAuthDeviceTokenPoll::Authorized(token) => {
+                let provider = lease.provider();
+                lease.finish();
+                activation::publish(
+                    self.providers.as_ref(),
+                    self.publisher.as_ref(),
+                    provider,
+                    token,
+                )
+                .await
+                .map(OAuthDevicePollResult::Complete)
+            }
+            OAuthDeviceTokenPoll::Denied => {
+                lease.finish();
+                Err(OAuthError::AuthorizationDenied)
+            }
+            OAuthDeviceTokenPoll::Expired => {
+                lease.finish();
+                Err(OAuthError::SessionExpired)
+            }
         }
-    }
-
-    async fn restore_device_session(&self, session_id: &str, session: DeviceCodeSession) {
-        self.sessions
-            .lock()
-            .await
-            .restore_device_code(session_id.to_owned(), session);
     }
 
     async fn execute_request(&self, plan: OAuthRequestPlan) -> Result<bytes::Bytes, OAuthError> {

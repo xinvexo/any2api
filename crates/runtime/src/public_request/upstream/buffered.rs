@@ -27,6 +27,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     attempt_recorder: AttemptRecorder,
     allow_credential_bound_headers: bool,
 ) -> Result<EgressResponse, AttemptFailure> {
+    let execution_profile = decoded.execution_profile;
     let AttemptInput {
         mut prepared,
         candidate,
@@ -53,6 +54,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let headers = response.headers;
     let read_timeout = execution_limits::read_timeout(
         prepared.ingress_operation,
+        execution_profile,
         Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
     );
     if !status.is_success() {

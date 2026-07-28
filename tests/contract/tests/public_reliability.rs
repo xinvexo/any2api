@@ -136,6 +136,87 @@ async fn responses_compact_persists_exact_usage_without_ttft() {
 }
 
 #[tokio::test]
+async fn remote_compaction_v2_survives_a_delayed_first_event_and_preserves_the_wire_contract() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::delayed_stream_with_gap(
+            Duration::from_secs(6),
+            "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"compact-v2-id\",\"model\":\"upstream\"}}\n\n",
+            Duration::from_secs(61),
+            "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction\",\"encrypted_content\":\"opaque-v2\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"compact-v2-id\",\"model\":\"upstream\",\"usage\":{\"input_tokens\":241753,\"output_tokens\":0}}}\n\n",
+        ),
+    ]));
+    let harness = harness(transport.clone(), 1, &["compact-v2-model"], &[]).await;
+    tokio::time::pause();
+    let request_id = RequestId::new();
+
+    let response = execute_stream_operation(
+        &harness,
+        request_id,
+        ProtocolOperation::Responses,
+        "compact-v2-model",
+        json!({
+            "input": [
+                {"type":"message","role":"user","content":"long history"},
+                {"type":"compaction_trigger"}
+            ]
+        }),
+    )
+    .await;
+    let mut body = streaming_body(response);
+    let mut emitted = Vec::new();
+    while let Some(frame) = body.next().await {
+        emitted.extend_from_slice(&frame.expect("valid compaction SSE frame"));
+    }
+    let emitted = String::from_utf8(emitted).expect("SSE is UTF-8");
+    assert!(emitted.contains("response.output_item.done"));
+    assert!(emitted.contains(r#""type":"compaction""#));
+    assert!(emitted.contains(r#""encrypted_content":"opaque-v2""#));
+
+    let calls = transport.calls();
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].uri.ends_with("/v1/responses"));
+    assert_eq!(calls[0].read_timeout, Duration::from_secs(300));
+    let upstream_body: Value =
+        serde_json::from_slice(&calls[0].body).expect("upstream request JSON");
+    assert_eq!(
+        upstream_body["input"]
+            .as_array()
+            .and_then(|items| items.last()),
+        Some(&json!({"type":"compaction_trigger"}))
+    );
+    tokio::time::resume();
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn legacy_responses_compact_survives_a_delayed_unary_body() {
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::delayed_json(
+        Duration::from_secs(30),
+        StatusCode::OK,
+        r#"{"output":[{"type":"compaction","encrypted_content":"opaque-legacy"}]}"#,
+    )]));
+    let harness = harness(transport.clone(), 1, &["compact-legacy-model"], &[]).await;
+    tokio::time::pause();
+
+    let response = execute_operation(
+        &harness,
+        ProtocolOperation::ResponsesCompact,
+        "compact-legacy-model",
+        json!({"input":[]}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.body["output"][0]["type"], "compaction");
+    assert_eq!(
+        transport.calls()[0].read_timeout,
+        Duration::from_secs(1_200)
+    );
+    tokio::time::resume();
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
 async fn claude_json_and_sse_persist_exact_cumulative_usage() {
     let transport = Arc::new(ScriptedTransport::new([
         ScriptStep::json(
@@ -1182,6 +1263,8 @@ async fn wait_for_log(harness: &Harness, request_id: RequestId) -> CompletedRequ
 struct TransportCall {
     uri: String,
     authorization: Option<String>,
+    body: Bytes,
+    read_timeout: Duration,
 }
 
 enum ScriptStep {
@@ -1193,6 +1276,17 @@ enum ScriptStep {
     },
     Stream {
         body: Bytes,
+    },
+    DelayedJson {
+        delay: Duration,
+        status: StatusCode,
+        body: Bytes,
+    },
+    DelayedStreamWithGap {
+        first_delay: Duration,
+        first: Bytes,
+        second_delay: Duration,
+        second: Bytes,
     },
     StalledJson {
         status: StatusCode,
@@ -1225,6 +1319,28 @@ impl ScriptStep {
     fn stream(body: &'static str) -> Self {
         Self::Stream {
             body: Bytes::from_static(body.as_bytes()),
+        }
+    }
+
+    fn delayed_json(delay: Duration, status: StatusCode, body: &'static str) -> Self {
+        Self::DelayedJson {
+            delay,
+            status,
+            body: Bytes::from_static(body.as_bytes()),
+        }
+    }
+
+    fn delayed_stream_with_gap(
+        first_delay: Duration,
+        first: &'static str,
+        second_delay: Duration,
+        second: &'static str,
+    ) -> Self {
+        Self::DelayedStreamWithGap {
+            first_delay,
+            first: Bytes::from_static(first.as_bytes()),
+            second_delay,
+            second: Bytes::from_static(second.as_bytes()),
         }
     }
 
@@ -1291,6 +1407,8 @@ impl TransportManager for ScriptedTransport {
                 .get(header::AUTHORIZATION)
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_owned),
+            body: request.body.clone(),
+            read_timeout: request.read_timeout,
         });
         let step = self.steps.lock().expect("steps lock").pop_front();
         match step.expect("scripted transport step") {
@@ -1309,6 +1427,39 @@ impl TransportManager for ScriptedTransport {
                 status: StatusCode::OK,
                 headers: HeaderMap::new(),
                 body: boxed_body(stream::iter([Ok(body)])),
+                read_failure_scope: TransportFailureScope::Endpoint,
+            }),
+            ScriptStep::DelayedJson {
+                delay,
+                status,
+                body,
+            } => Ok(TransportResponse {
+                status,
+                headers: HeaderMap::new(),
+                body: boxed_body(stream::once(async move {
+                    tokio::time::sleep(delay).await;
+                    Ok(body)
+                })),
+                read_failure_scope: TransportFailureScope::Endpoint,
+            }),
+            ScriptStep::DelayedStreamWithGap {
+                first_delay,
+                first,
+                second_delay,
+                second,
+            } => Ok(TransportResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: boxed_body(
+                    stream::once(async move {
+                        tokio::time::sleep(first_delay).await;
+                        Ok(first)
+                    })
+                    .chain(stream::once(async move {
+                        tokio::time::sleep(second_delay).await;
+                        Ok(second)
+                    })),
+                ),
                 read_failure_scope: TransportFailureScope::Endpoint,
             }),
             ScriptStep::StalledJson {

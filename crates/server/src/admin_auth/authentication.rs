@@ -16,7 +16,7 @@ use tokio::sync::{Mutex, RwLock, Semaphore};
 use super::{
     AdminCredentialStore, AdminCredentialStoreError, AdminSessionIssue, AuthenticatedAdminSession,
     password::{hash_password, validate_new_password, verify_password},
-    session::{SessionKey, SessionRecord, decode, prepare as prepare_session, random_bytes},
+    session::{AdminSessionStore, SessionKey, decode, prepare as prepare_session, random_bytes},
 };
 
 pub struct AdminAuthService {
@@ -24,7 +24,7 @@ pub struct AdminAuthService {
     pub(super) password_hash: RwLock<Option<String>>,
     setup_token: RwLock<Option<[u8; 32]>>,
     pub(super) credential_lock: Mutex<()>,
-    pub(super) sessions: Mutex<HashMap<SessionKey, SessionRecord>>,
+    pub(super) sessions: Mutex<AdminSessionStore>,
     pub(super) failures: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
     pub(super) password_checks: Arc<Semaphore>,
     pub(super) setup_checks: Arc<Semaphore>,
@@ -46,7 +46,7 @@ impl AdminAuthService {
             password_hash: RwLock::new(password_hash.map(|value| value.as_str().to_owned())),
             setup_token: RwLock::new(setup_token),
             credential_lock: Mutex::new(()),
-            sessions: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(AdminSessionStore::default()),
             failures: Mutex::new(HashMap::new()),
             password_checks: Arc::new(Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS)),
             setup_checks: Arc::new(Semaphore::new(1)),
@@ -139,7 +139,7 @@ impl AdminAuthService {
             return Err(AdminAuthError::InvalidCredentials);
         }
         self.failures.lock().await.remove(&source);
-        self.issue_session().await
+        self.issue_session(settings).await
     }
 
     pub async fn authenticate(
@@ -150,17 +150,11 @@ impl AdminAuthService {
         let key = SessionKey(decode(token)?);
         let now = Instant::now();
         let mut sessions = self.sessions.lock().await;
-        let authenticated = sessions
-            .get_mut(&key)
-            .and_then(|record| record.authenticate(key, now, settings));
-        if authenticated.is_none() {
-            sessions.remove(&key);
-        }
-        authenticated
+        sessions.authenticate(key, now, settings)
     }
 
     pub async fn logout(&self, session: AuthenticatedAdminSession) {
-        self.sessions.lock().await.remove(&session.key);
+        self.sessions.lock().await.remove(session.key);
     }
 
     #[cfg(test)]
@@ -182,12 +176,15 @@ impl AdminAuthService {
             .map_or(0, VecDeque::len)
     }
 
-    async fn issue_session(&self) -> Result<AdminSessionIssue, AdminAuthError> {
+    async fn issue_session(
+        &self,
+        settings: &AdminSettings,
+    ) -> Result<AdminSessionIssue, AdminAuthError> {
         let (key, csrf, issue) = prepare_session()?;
         self.sessions
             .lock()
             .await
-            .insert(key, SessionRecord::new(csrf, Instant::now()));
+            .issue(key, csrf, Instant::now(), settings);
         Ok(issue)
     }
 

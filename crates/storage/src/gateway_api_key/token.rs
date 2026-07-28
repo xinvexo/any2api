@@ -23,16 +23,26 @@ mod tests {
     use any2api_domain::{GATEWAY_TOKEN_BODY_LEN, GATEWAY_TOKEN_PREFIX};
 
     #[test]
-    fn gateway_token_requires_sk_alphanumeric_format() {
+    fn gateway_token_requires_versioned_urlsafe_base64_format() {
         let valid = format!(
-            "{GATEWAY_TOKEN_PREFIX}{}",
-            "A7b9".repeat(GATEWAY_TOKEN_BODY_LEN / 4)
+            "{GATEWAY_TOKEN_PREFIX}{}-_",
+            "A".repeat(GATEWAY_TOKEN_BODY_LEN - 2)
         );
         assert_eq!(
             display_prefix(&valid.clone().into_bytes().into()).expect("valid token"),
             &valid[..16]
         );
         assert!(display_prefix(&b"sk-short".to_vec().into()).is_err());
-        assert!(display_prefix(&format!("a2k_v1_{}", "a".repeat(43)).into_bytes().into()).is_err());
+        assert!(
+            display_prefix(
+                &format!(
+                    "{GATEWAY_TOKEN_PREFIX}{}+",
+                    "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1)
+                )
+                .into_bytes()
+                .into()
+            )
+            .is_err()
+        );
     }
 }

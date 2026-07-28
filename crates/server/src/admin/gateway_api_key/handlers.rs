@@ -3,7 +3,7 @@ use std::str::FromStr;
 use any2api_domain::GatewayApiKeyId;
 use axum::{
     Json,
-    extract::{Path, State, rejection::JsonRejection},
+    extract::{Path, Query, State, rejection::JsonRejection, rejection::QueryRejection},
     response::Response,
 };
 
@@ -11,8 +11,8 @@ use crate::state::AppState;
 
 use super::{
     dto::{
-        GatewayApiKeyCollectionResponse, GatewayApiKeyCreateRequest, GatewayApiKeyRevokeRequest,
-        GatewayApiKeyRotateRequest, GatewayApiKeySecretResponse, GatewayApiKeyUpdateRequest,
+        GatewayApiKeyCollectionResponse, GatewayApiKeyCreateRequest, GatewayApiKeyDeleteRequest,
+        GatewayApiKeyRotateRequest, GatewayApiKeyUpdateRequest,
     },
     error::AdminApiError,
     no_store,
@@ -26,17 +26,12 @@ pub(crate) async fn create(
     State(state): State<AppState>,
     payload: Result<Json<GatewayApiKeyCreateRequest>, JsonRejection>,
 ) -> Result<Response, AdminApiError> {
-    let (expected, draft, token) = parse_json(payload)?.into_domain()?;
-    let published = state
+    let (expected, draft) = parse_json(payload)?.into_domain()?;
+    let snapshot = state
         .publisher()
-        .create_gateway_api_key(expected, GatewayApiKeyId::new(), draft, token)
+        .create_gateway_api_key(expected, GatewayApiKeyId::new(), draft)
         .await?;
-    let usage = usage(&state).await;
-    Ok(no_store::json(GatewayApiKeySecretResponse::from_publish(
-        &published,
-        state.request_telemetry(),
-        &usage,
-    )))
+    Ok(response_for_snapshot(&state, &snapshot).await)
 }
 
 pub(crate) async fn update(
@@ -59,36 +54,37 @@ pub(crate) async fn rotate(
     payload: Result<Json<GatewayApiKeyRotateRequest>, JsonRejection>,
 ) -> Result<Response, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version, expected_token_version, token) =
+    let (expected, expected_config_version, expected_token_version) =
         parse_json(payload)?.into_domain()?;
-    let published = state
+    let snapshot = state
         .publisher()
         .rotate_gateway_api_key(
             expected,
             id,
             expected_config_version,
             expected_token_version,
-            token,
         )
         .await?;
-    let usage = usage(&state).await;
-    Ok(no_store::json(GatewayApiKeySecretResponse::from_publish(
-        &published,
-        state.request_telemetry(),
-        &usage,
-    )))
+    Ok(response_for_snapshot(&state, &snapshot).await)
 }
 
-pub(crate) async fn revoke(
+pub(crate) async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<GatewayApiKeyRevokeRequest>, JsonRejection>,
+    query: Result<Query<GatewayApiKeyDeleteRequest>, QueryRejection>,
 ) -> Result<Response, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version) = parse_json(payload)?.into_domain()?;
+    let (expected, expected_config_version) = query
+        .map_err(|_| {
+            AdminApiError::invalid_request(
+                "expected_revision and expected_config_version queries are required",
+            )
+        })?
+        .0
+        .into_domain()?;
     let snapshot = state
         .publisher()
-        .revoke_gateway_api_key(expected, id, expected_config_version)
+        .delete_gateway_api_key(expected, id, expected_config_version)
         .await?;
     Ok(response_for_snapshot(&state, &snapshot).await)
 }

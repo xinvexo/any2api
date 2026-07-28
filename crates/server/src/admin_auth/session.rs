@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{collections::HashMap, time::Instant};
 
 use any2api_domain::AdminSettings;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -7,6 +7,7 @@ use subtle::ConstantTimeEq;
 use super::AdminAuthError;
 
 pub(super) const TOKEN_BYTES: usize = 32;
+pub(super) const MAX_ACTIVE_ADMIN_SESSIONS: usize = 32;
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 pub(super) struct SessionKey(pub(super) [u8; TOKEN_BYTES]);
@@ -46,6 +47,77 @@ impl SessionRecord {
         now.duration_since(self.created_at).as_secs() >= settings.session_absolute_timeout_secs()
             || now.duration_since(self.last_seen_at).as_secs()
                 >= settings.session_idle_timeout_secs()
+    }
+
+    const fn created_at(&self) -> Instant {
+        self.created_at
+    }
+}
+
+#[derive(Default)]
+pub(super) struct AdminSessionStore {
+    sessions: HashMap<SessionKey, SessionRecord>,
+}
+
+impl AdminSessionStore {
+    pub(super) fn issue(
+        &mut self,
+        key: SessionKey,
+        csrf: [u8; TOKEN_BYTES],
+        now: Instant,
+        settings: &AdminSettings,
+    ) {
+        self.prune_expired(now, settings);
+        if self.sessions.len() >= MAX_ACTIVE_ADMIN_SESSIONS {
+            self.remove_oldest();
+        }
+        self.sessions.insert(key, SessionRecord::new(csrf, now));
+    }
+
+    pub(super) fn authenticate(
+        &mut self,
+        key: SessionKey,
+        now: Instant,
+        settings: &AdminSettings,
+    ) -> Option<AuthenticatedAdminSession> {
+        self.prune_expired(now, settings);
+        self.sessions
+            .get_mut(&key)
+            .and_then(|record| record.authenticate(key, now, settings))
+    }
+
+    pub(super) fn remove(&mut self, key: SessionKey) {
+        self.sessions.remove(&key);
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.sessions.clear();
+    }
+
+    pub(super) fn replace_with(&mut self, key: SessionKey, csrf: [u8; TOKEN_BYTES], now: Instant) {
+        self.sessions.clear();
+        self.sessions.insert(key, SessionRecord::new(csrf, now));
+    }
+
+    fn prune_expired(&mut self, now: Instant, settings: &AdminSettings) {
+        self.sessions
+            .retain(|_, record| !record.is_expired(now, settings));
+    }
+
+    fn remove_oldest(&mut self) {
+        let oldest = self
+            .sessions
+            .iter()
+            .min_by_key(|(_, record)| record.created_at())
+            .map(|(key, _)| *key);
+        if let Some(key) = oldest {
+            self.sessions.remove(&key);
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn len(&self) -> usize {
+        self.sessions.len()
     }
 }
 
@@ -110,3 +182,6 @@ pub(super) fn prepare() -> Result<(SessionKey, [u8; TOKEN_BYTES], AdminSessionIs
     let csrf = random_bytes()?;
     Ok((SessionKey(token), csrf, AdminSessionIssue::new(token, csrf)))
 }
+
+#[cfg(test)]
+mod tests;

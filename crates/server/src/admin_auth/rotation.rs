@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Instant};
 use super::{
     AdminAuthError, AdminAuthService, AdminSessionIssue,
     password::{hash_password, validate_new_password, verify_password},
-    session::{SessionRecord, prepare as prepare_session},
+    session::prepare as prepare_session,
 };
 
 impl AdminAuthService {
@@ -57,9 +57,10 @@ impl AdminAuthService {
 
         *password_hash_guard = Some(new_hash);
         self.failures.lock().await.clear();
-        let mut sessions = self.sessions.lock().await;
-        sessions.clear();
-        sessions.insert(session_key, SessionRecord::new(csrf, Instant::now()));
+        self.sessions
+            .lock()
+            .await
+            .replace_with(session_key, csrf, Instant::now());
         Ok(issue)
     }
 }

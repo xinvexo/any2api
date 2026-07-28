@@ -1418,12 +1418,15 @@ async fn create_gateway_key(app: &Router, remote: SocketAddr, revision: u64) -> 
         app.clone(),
         Method::POST,
         "/api/admin/gateway-api-keys",
-        Some(json!({"expected_revision": revision, "name":"client", "enabled":true, "token": format!("sk-{}", "j".repeat(48))})),
+        Some(json!({"expected_revision": revision, "name":"client", "enabled":true})),
         remote,
         &[],
     )
     .await;
-    response.body["token"].as_str().expect("token").to_owned()
+    response.body["items"][0]["token"]
+        .as_str()
+        .expect("gateway token in collection item")
+        .to_owned()
 }
 
 async fn create_endpoint(

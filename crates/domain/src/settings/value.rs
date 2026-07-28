@@ -90,7 +90,7 @@ pub enum SettingValue {
     RateLimitMode(RateLimitMode),
     AffinityMode(AffinityMode),
     FileLogLevel(FileLogLevel),
-    StringList(Vec<String>),
+    OptionalStringList(Option<Vec<String>>),
 }
 
 impl SettingValue {
@@ -116,21 +116,13 @@ impl SettingValue {
                 }
                 parse_enum(key, value).ok_or(SettingsValidationError::InvalidEnum)
             }
-            SettingValueType::StringList => value
-                .as_array()
-                .ok_or(SettingsValidationError::InvalidType)
-                .and_then(|values| {
-                    values
-                        .iter()
-                        .map(|value| {
-                            value
-                                .as_str()
-                                .map(str::to_owned)
-                                .ok_or(SettingsValidationError::InvalidType)
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                        .map(Self::StringList)
-                }),
+            SettingValueType::OptionalStringList => {
+                if value.is_null() {
+                    Ok(Self::OptionalStringList(None))
+                } else {
+                    parse_string_list(value).map(|values| Self::OptionalStringList(Some(values)))
+                }
+            }
         }?;
         normalize_value(key, parsed)
     }
@@ -143,7 +135,7 @@ impl SettingValue {
             Self::RateLimitMode(value) => json!(value.as_str()),
             Self::AffinityMode(value) => json!(value.as_str()),
             Self::FileLogLevel(value) => json!(value.as_str()),
-            Self::StringList(value) => json!(value),
+            Self::OptionalStringList(value) => json!(value),
         }
     }
 
@@ -155,7 +147,7 @@ impl SettingValue {
             Self::RateLimitMode(_) | Self::AffinityMode(_) | Self::FileLogLevel(_) => {
                 SettingValueType::Enum
             }
-            Self::StringList(_) => SettingValueType::StringList,
+            Self::OptionalStringList(_) => SettingValueType::OptionalStringList,
         }
     }
 
@@ -214,18 +206,8 @@ pub(super) fn normalize_value(
     value: SettingValue,
 ) -> Result<SettingValue, SettingsValidationError> {
     let value = match value {
-        SettingValue::StringList(values) => {
-            let mut values = values
-                .into_iter()
-                .map(|value| {
-                    PublicModelName::new(value)
-                        .map(|name| name.as_str().to_owned())
-                        .map_err(|_| SettingsValidationError::InvalidListValue)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            values.sort();
-            values.dedup();
-            SettingValue::StringList(values)
+        SettingValue::OptionalStringList(Some(values)) => {
+            SettingValue::OptionalStringList(Some(normalize_models(values)?))
         }
         value => value,
     };
@@ -263,4 +245,32 @@ fn numeric(value: &SettingValue) -> Option<u64> {
         SettingValue::Integer(value) | SettingValue::DurationSecs(value) => Some(*value),
         _ => None,
     }
+}
+
+fn parse_string_list(value: &Value) -> Result<Vec<String>, SettingsValidationError> {
+    value
+        .as_array()
+        .ok_or(SettingsValidationError::InvalidType)?
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .map(str::to_owned)
+                .ok_or(SettingsValidationError::InvalidType)
+        })
+        .collect()
+}
+
+fn normalize_models(values: Vec<String>) -> Result<Vec<String>, SettingsValidationError> {
+    let mut values = values
+        .into_iter()
+        .map(|value| {
+            PublicModelName::new(value)
+                .map(|name| name.as_str().to_owned())
+                .map_err(|_| SettingsValidationError::InvalidListValue)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    values.sort();
+    values.dedup();
+    Ok(values)
 }

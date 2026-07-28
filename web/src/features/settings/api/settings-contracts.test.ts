@@ -10,7 +10,7 @@ test("parses setting metadata and all value types", () => {
       item("scheduler.queue_timeout", "duration_secs", 30, null, null, 1, 86_400),
       item("scheduler.max_waiting_requests", "integer", 128, null, null, 1, 100_000),
       item("scheduler.fallback_on_rate_limit", "boolean", false, null, null),
-      item("models.allowed", "string_list", [], ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
+      item("models.allowed", "optional_string_list", null, ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
     ],
   });
 
@@ -44,7 +44,7 @@ test("rejects inconsistent bounds, values, and enum metadata", () => {
 function item(
   key: string,
   valueType: string,
-  defaultValue: boolean | number | string | string[],
+  defaultValue: boolean | number | string | string[] | null,
   overrideValue: boolean | number | string | string[] | null,
   allowedValues: string[] | null,
   minValue: number | null = null,

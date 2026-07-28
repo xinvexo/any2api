@@ -52,7 +52,7 @@ pub enum SettingValueType {
     Integer,
     DurationSecs,
     Enum,
-    StringList,
+    OptionalStringList,
 }
 
 impl SettingValueType {
@@ -62,7 +62,7 @@ impl SettingValueType {
             Self::Integer => "integer",
             Self::DurationSecs => "duration_secs",
             Self::Enum => "enum",
-            Self::StringList => "string_list",
+            Self::OptionalStringList => "optional_string_list",
         }
     }
 }

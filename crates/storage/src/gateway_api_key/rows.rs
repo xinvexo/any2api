@@ -19,7 +19,6 @@ struct GatewayApiKeyRow {
     token_version: i64,
     config_version: i64,
     enabled: i64,
-    revoked_at: Option<String>,
     created_at: String,
     last_used_at: Option<String>,
 }
@@ -30,7 +29,7 @@ pub(crate) async fn load_gateway_api_keys_from(
 ) -> Result<GatewayApiKeyConfiguration, StorageError> {
     let rows = sqlx::query_as::<_, GatewayApiKeyRow>(
         "SELECT id, name, token, token_prefix, token_hash, hash_version, hash_key_id, \
-         token_version, config_version, enabled, revoked_at, created_at, last_used_at \
+         token_version, config_version, enabled, created_at, last_used_at \
          FROM gateway_api_keys ORDER BY name ASC",
     )
     .fetch_all(connection)
@@ -66,7 +65,6 @@ fn parse_row(
         row.hash_key_id,
         parse_version(row.token_version)?,
         parse_version(row.config_version)?,
-        row.revoked_at,
         row.created_at,
         row.last_used_at,
     )

@@ -34,10 +34,10 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
   const describedBy = errorMessage ? `${descriptionId} ${errorId}` : descriptionId;
   const restartHint = reloadLabel(item);
   const showActions = dirty || item.overrideValue !== null;
-  const wideControl = item.valueType === "string_list";
+  const wideControl = item.valueType === "optional_string_list";
 
   async function submit() {
-    if (!dirty || validation.value === null) {
+    if (!dirty || validation.value === undefined) {
       return;
     }
     try {

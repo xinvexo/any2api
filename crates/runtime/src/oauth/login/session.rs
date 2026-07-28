@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant};
+use std::time::Instant;
 
 use any2api_domain::ProviderKind;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -10,7 +10,11 @@ use crate::oauth::error::OAuthError;
 pub(in crate::oauth) const CALLBACK_SESSION_TTL_SECONDS: u64 = 600;
 pub(in crate::oauth) const MAX_DEVICE_SESSION_TTL_SECONDS: u64 = 30 * 60;
 const DEVICE_SLOW_DOWN_SECONDS: u64 = 5;
-const MAX_ACTIVE_SESSIONS: usize = 64;
+pub(in crate::oauth) const MAX_ACTIVE_SESSIONS: usize = 64;
+
+mod store;
+
+pub(in crate::oauth) use store::{DevicePollAcquisition, OAuthSessionRegistry};
 
 pub(in crate::oauth) struct PreparedAuthorizationCodeSession {
     pub(in crate::oauth) id: String,
@@ -106,6 +110,10 @@ impl DeviceCodeSession {
         self.device_code.expose_secret()
     }
 
+    pub(in crate::oauth) const fn expires_at(&self) -> Instant {
+        self.expires_at
+    }
+
     pub(in crate::oauth) fn retry_after(&self, now: Instant) -> Result<Option<u64>, OAuthError> {
         if self.expires_at <= now {
             return Err(OAuthError::SessionExpired);
@@ -136,109 +144,6 @@ impl DeviceCodeSession {
         let retry_after = self.poll_interval_seconds.min(remaining);
         self.next_poll_at = now + std::time::Duration::from_secs(retry_after);
         Ok(retry_after)
-    }
-}
-
-enum OAuthSession {
-    AuthorizationCode(AuthorizationCodeSession),
-    DeviceCode(DeviceCodeSession),
-}
-
-impl OAuthSession {
-    const fn expires_at(&self) -> Instant {
-        match self {
-            Self::AuthorizationCode(session) => session.expires_at,
-            Self::DeviceCode(session) => session.expires_at,
-        }
-    }
-}
-
-#[derive(Default)]
-pub(in crate::oauth) struct OAuthSessionStore {
-    sessions: HashMap<String, OAuthSession>,
-}
-
-impl OAuthSessionStore {
-    pub(in crate::oauth) fn insert_authorization_code(
-        &mut self,
-        id: String,
-        session: AuthorizationCodeSession,
-        now: Instant,
-    ) -> Result<(), OAuthError> {
-        self.insert(id, OAuthSession::AuthorizationCode(session), now)
-    }
-
-    pub(in crate::oauth) fn insert_device_code(
-        &mut self,
-        id: String,
-        session: DeviceCodeSession,
-        now: Instant,
-    ) -> Result<(), OAuthError> {
-        self.insert(id, OAuthSession::DeviceCode(session), now)
-    }
-
-    fn insert(
-        &mut self,
-        id: String,
-        session: OAuthSession,
-        now: Instant,
-    ) -> Result<(), OAuthError> {
-        self.sessions
-            .retain(|_, session| session.expires_at() > now);
-        if self.sessions.len() >= MAX_ACTIVE_SESSIONS {
-            return Err(OAuthError::SessionCapacity);
-        }
-        self.sessions.insert(id, session);
-        Ok(())
-    }
-
-    pub(in crate::oauth) fn take_authorization_code(
-        &mut self,
-        id: &str,
-        now: Instant,
-    ) -> Result<AuthorizationCodeSession, OAuthError> {
-        self.validate_target(id, now, |session| {
-            matches!(session, OAuthSession::AuthorizationCode(_))
-        })?;
-        let Some(OAuthSession::AuthorizationCode(session)) = self.sessions.remove(id) else {
-            unreachable!("validated authorization-code session kind")
-        };
-        Ok(session)
-    }
-
-    pub(in crate::oauth) fn take_device_code(
-        &mut self,
-        id: &str,
-        now: Instant,
-    ) -> Result<DeviceCodeSession, OAuthError> {
-        self.validate_target(id, now, |session| {
-            matches!(session, OAuthSession::DeviceCode(_))
-        })?;
-        let Some(OAuthSession::DeviceCode(session)) = self.sessions.remove(id) else {
-            unreachable!("validated device-code session kind")
-        };
-        Ok(session)
-    }
-
-    pub(in crate::oauth) fn restore_device_code(&mut self, id: String, session: DeviceCodeSession) {
-        self.sessions.insert(id, OAuthSession::DeviceCode(session));
-    }
-
-    fn validate_target(
-        &mut self,
-        id: &str,
-        now: Instant,
-        expected: impl FnOnce(&OAuthSession) -> bool,
-    ) -> Result<(), OAuthError> {
-        let session = self.sessions.get(id).ok_or(OAuthError::InvalidSession)?;
-        if session.expires_at() <= now {
-            self.sessions.remove(id);
-            return Err(OAuthError::SessionExpired);
-        }
-        if !expected(session) {
-            return Err(OAuthError::InvalidSession);
-        }
-        Ok(())
     }
 }
 

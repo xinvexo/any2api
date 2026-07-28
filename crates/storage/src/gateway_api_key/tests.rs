@@ -86,7 +86,7 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     );
 
     let deleted = store
-        .revoke_gateway_api_key(rotated.revision(), id, rotated_key.config_version())
+        .delete_gateway_api_key(rotated.revision(), id, rotated_key.config_version())
         .await
         .expect("delete");
     assert!(deleted.gateway_api_keys().get(id).is_none());

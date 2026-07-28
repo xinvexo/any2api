@@ -5,7 +5,6 @@ import { useSearchParams } from "react-router-dom";
 import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
 import { getGatewayApiKeyErrorMessage } from "../model/gateway-api-key-error";
 import { useGatewayApiKeyMutations } from "../model/use-gateway-api-key-mutations";
-import { useGatewayApiKeySecretActions } from "../model/use-gateway-api-key-secret-actions";
 import { useGatewayApiKeys } from "../model/use-gateway-api-keys";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
@@ -22,21 +21,22 @@ import { GatewayApiKeyList } from "./GatewayApiKeyList";
 export function GatewayApiKeyManagement() {
   const query = useGatewayApiKeys();
   const mutations = useGatewayApiKeyMutations();
-  const secretActions = useGatewayApiKeySecretActions();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [rotateTarget, setRotateTarget] = useState<GatewayApiKey | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GatewayApiKey | null>(null);
   const editorId = searchParams.get("editor");
   const selected =
     editorId && editorId !== "new"
       ? query.data?.items.find((key) => key.id === editorId)
       : undefined;
-  const editorPending = mutations.update.isPending || secretActions.pending;
-  const confirmPending = mutations.revoke.isPending;
+  const editorPending = mutations.create.isPending || mutations.update.isPending;
+  const deletePending = mutations.remove.isPending;
 
   function openEditor(id: string) {
+    setRotateTarget(null);
     setDeleteTarget(null);
+    mutations.create.reset();
     mutations.update.reset();
-    secretActions.reset();
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
@@ -48,8 +48,8 @@ export function GatewayApiKeyManagement() {
   }
 
   function closeEditor(expectedId: string | null = editorId) {
+    mutations.create.reset();
     mutations.update.reset();
-    secretActions.reset();
     setSearchParams(
       (current) => {
         if (expectedId && current.get("editor") !== expectedId) {
@@ -65,11 +65,10 @@ export function GatewayApiKeyManagement() {
 
   async function submitEditor(input: GatewayApiKeyEditorSubmit) {
     if (editorId === "new") {
-      await secretActions.create({
+      await mutations.create.mutateAsync({
         expectedRevision: query.data?.configRevision ?? 0,
         name: input.name,
         enabled: input.enabled,
-        token: input.token,
       });
       closeEditor(editorId);
       return;
@@ -79,37 +78,18 @@ export function GatewayApiKeyManagement() {
       return;
     }
 
-    let current = selected;
-    let revision = query.data.configRevision;
     const metaChanged =
-      current.name !== input.name || current.enabled !== input.enabled;
-    const tokenChanged = current.token !== input.token;
+      selected.name !== input.name || selected.enabled !== input.enabled;
 
     if (metaChanged) {
-      const configuration = await mutations.update.mutateAsync({
-        id: current.id,
+      await mutations.update.mutateAsync({
+        id: selected.id,
         input: {
-          expectedRevision: revision,
-          expectedConfigVersion: current.configVersion,
+          expectedRevision: query.data.configRevision,
+          expectedConfigVersion: selected.configVersion,
           name: input.name,
           enabled: input.enabled,
         },
-      });
-      revision = configuration.configRevision;
-      const updated = configuration.items.find((item) => item.id === current.id);
-      if (!updated) {
-        closeEditor(editorId);
-        return;
-      }
-      current = updated;
-    }
-
-    if (tokenChanged) {
-      await secretActions.regenerate(current.id, {
-        expectedRevision: revision,
-        expectedConfigVersion: current.configVersion,
-        expectedTokenVersion: current.tokenVersion,
-        token: input.token,
       });
     }
 
@@ -138,7 +118,34 @@ export function GatewayApiKeyManagement() {
   }
 
   function requestDelete(key: GatewayApiKey) {
+    setRotateTarget(null);
     setDeleteTarget(key);
+  }
+
+  function requestRotate(key: GatewayApiKey) {
+    setDeleteTarget(null);
+    mutations.rotate.reset();
+    setRotateTarget(key);
+  }
+
+  async function confirmRotate() {
+    if (!rotateTarget || !query.data) {
+      return;
+    }
+    try {
+      await mutations.rotate.mutateAsync({
+        id: rotateTarget.id,
+        input: {
+          expectedRevision: query.data.configRevision,
+          expectedConfigVersion: rotateTarget.configVersion,
+          expectedTokenVersion: rotateTarget.tokenVersion,
+        },
+      });
+      notify.success(`已轮换「${rotateTarget.name}」的密钥`);
+      setRotateTarget(null);
+    } catch (error) {
+      notify.danger(getGatewayApiKeyErrorMessage(error));
+    }
   }
 
   async function confirmDelete() {
@@ -146,7 +153,7 @@ export function GatewayApiKeyManagement() {
       return;
     }
     try {
-      await mutations.revoke.mutateAsync({
+      await mutations.remove.mutateAsync({
         id: deleteTarget.id,
         input: {
           expectedRevision: query.data.configRevision,
@@ -192,9 +199,9 @@ export function GatewayApiKeyManagement() {
     editorId === "new" ? "新增" : selected ? `编辑「${selected.name}」` : "密钥不存在";
   const drawerDescription =
     editorId === "new"
-      ? "创建后密钥会明文保存在本机配置中，可随时在列表查看与编辑。"
-      : "可修改名称、启用状态与密钥；更改密钥后旧值立即失效。";
-  const editorError = mutations.update.error ?? secretActions.error;
+      ? "保存时由服务端生成强随机密钥，创建后可在列表复制。"
+      : "这里只修改名称和启用状态；轮换密钥请使用列表中的独立操作。";
+  const editorError = mutations.create.error ?? mutations.update.error;
 
   return (
     <div className="space-y-4">
@@ -206,13 +213,14 @@ export function GatewayApiKeyManagement() {
 
       <GatewayApiKeyList
         configuration={configuration}
-        pending={mutations.isPending || secretActions.pending}
+        pending={mutations.isPending}
         refreshing={query.isFetching}
-        actionError={mutations.revoke.error}
+        actionError={mutations.remove.error ?? mutations.rotate.error}
         onCreate={() => openEditor("new")}
         onRefresh={() => void query.refetch()}
         onEdit={openEditor}
         onToggleEnabled={(key) => void toggleEnabled(key)}
+        onRotate={requestRotate}
         onDelete={requestDelete}
       />
 
@@ -240,15 +248,30 @@ export function GatewayApiKeyManagement() {
       </SideDrawer>
 
       <ConfirmDialog
+        open={rotateTarget !== null}
+        title={rotateTarget ? `轮换「${rotateTarget.name}」的密钥？` : ""}
+        description="服务端会生成新的强随机 token，旧 token 在发布完成后立即失效。"
+        confirmLabel="确认轮换"
+        pending={mutations.rotate.isPending}
+        onConfirm={() => void confirmRotate()}
+        onClose={() => {
+          if (!mutations.rotate.isPending) {
+            setRotateTarget(null);
+            mutations.rotate.reset();
+          }
+        }}
+      />
+
+      <ConfirmDialog
         open={deleteTarget !== null}
         title={deleteTarget ? `删除「${deleteTarget.name}」？` : ""}
         description="删除后该密钥会从列表和数据库中移除，旧 token 立即失效，不可恢复。"
         confirmLabel="确认删除"
         tone="danger"
-        pending={confirmPending}
+        pending={deletePending}
         onConfirm={() => void confirmDelete()}
         onClose={() => {
-          if (!confirmPending) {
+          if (!deletePending) {
             setDeleteTarget(null);
           }
         }}

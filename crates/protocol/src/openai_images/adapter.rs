@@ -6,7 +6,8 @@ use crate::{
     ProtocolError, affinity,
     api::{
         AdapterEvent, AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse,
+        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, RequestExecutionProfile, SseFrame,
+        UpstreamResponse,
     },
     json_codec,
     sse::{parse_event_payload, rewrite_known_model},
@@ -64,6 +65,7 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
         Ok(DecodedRequest {
             dialect: self.dialect(),
             operation: request.operation,
+            execution_profile: RequestExecutionProfile::Standard,
             client_headers: request.headers,
             headers: HeaderMap::new(),
             body_encoding: RequestBodyEncoding::Identity,

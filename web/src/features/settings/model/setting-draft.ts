@@ -1,30 +1,48 @@
 import type { SettingItem, SettingValue } from "../api/settings-contracts";
 
-export type SettingDraft = boolean | string | string[];
+export interface ModelAccessDraft {
+  mode: "all" | "only";
+  models: string[];
+}
+
+export type SettingDraft = boolean | string | ModelAccessDraft;
 
 export interface SettingDraftValidation {
-  value: SettingValue | null;
+  value: SettingValue | undefined;
   error: string | null;
 }
 
 export function createSettingDraft(item: SettingItem): SettingDraft {
-  if (Array.isArray(item.effectiveValue)) {
-    return [...item.effectiveValue];
+  if (item.valueType === "optional_string_list") {
+    if (item.effectiveValue === null) {
+      return { mode: "all", models: [] };
+    }
+    if (Array.isArray(item.effectiveValue)) {
+      return { mode: "only", models: [...item.effectiveValue] };
+    }
+    throw new Error("invalid model access setting");
   }
-  return typeof item.effectiveValue === "number"
-    ? String(item.effectiveValue)
-    : item.effectiveValue;
+  if (typeof item.effectiveValue === "number") {
+    return String(item.effectiveValue);
+  }
+  if (typeof item.effectiveValue === "boolean" || typeof item.effectiveValue === "string") {
+    return item.effectiveValue;
+  }
+  throw new Error("invalid setting value");
 }
 
 export function validateSettingDraft(
   item: SettingItem,
   draft: SettingDraft,
 ): SettingDraftValidation {
-  if (item.valueType === "string_list") {
-    if (!Array.isArray(draft)) {
+  if (item.valueType === "optional_string_list") {
+    if (!isModelAccessDraft(draft)) {
       return invalid("模型选择格式不正确");
     }
-    const values = [...new Set(draft)].sort();
+    if (draft.mode === "all") {
+      return { value: null, error: null };
+    }
+    const values = [...new Set(draft.models)].sort();
     if (values.some((value) => !item.options?.includes(value))) {
       return invalid("模型列表已发生变化，请刷新后重试");
     }
@@ -66,7 +84,7 @@ export function validateSettingDraft(
 
 export function isSettingDraftDirty(item: SettingItem, draft: SettingDraft) {
   const validation = validateSettingDraft(item, draft);
-  if (validation.error !== null || validation.value === null) {
+  if (validation.error !== null || validation.value === undefined) {
     return true;
   }
   if (item.overrideValue === null) {
@@ -86,5 +104,12 @@ function settingValuesEqual(left: SettingValue, right: SettingValue) {
 }
 
 function invalid(error: string): SettingDraftValidation {
-  return { value: null, error };
+  return { value: undefined, error };
+}
+
+function isModelAccessDraft(value: SettingDraft): value is ModelAccessDraft {
+  return typeof value === "object"
+    && value !== null
+    && (value.mode === "all" || value.mode === "only")
+    && Array.isArray(value.models);
 }

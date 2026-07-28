@@ -342,7 +342,7 @@ any2api/
 │  │     ├─ request_log/        # repository/write/row 与上游凭据历史聚合
 │  │     ├─ http_access_log/    # 完整 HTTP 访问日志 row/repository/write/clear
 │  │     ├─ settings/           # Setting override 持久化
-│  │     ├─ migration/          # 只前向 Migration 与迁移前修复
+│  │     ├─ migration/          # 当前规范 Schema 与数据库不变量检查
 │  │     └─ vault/              # 版本化 AEAD 实现
 │  └─ server/
 │     └─ src/
@@ -868,7 +868,6 @@ gateway_api_keys
 ├─ token_version
 ├─ config_version
 ├─ enabled
-├─ revoked_at   # 遗留列；新删除走物理删除，不再写入
 ├─ created_at
 └─ last_used_at
 ```
@@ -879,7 +878,8 @@ gateway_api_keys
 - 每个网关 API Key 独立生成、禁用和物理删除；
 - 本项目为个人自托管，网关密钥以明文持久化，管理列表/详情始终可查看完整 token；创建与轮换成功后立即生效，无需“仅展示一次”回执；
 - 同时保存 HMAC-SHA256 `token_hash` 供公开面常量时间认证；摘要密钥由 Secret Vault 主密钥派生；
-- Key 使用至少 256 位 CSPRNG 随机值和 `a2k_v1_` 版本化格式；
+- Key 只能由服务端使用 CSPRNG 生成，使用 32 个随机字节的 URL-safe Base64 无填充编码和
+  `a2k_v1_` 版本化前缀；创建与轮换请求不得接收客户端自选 Secret；
 - `hash_key_id` 用于确认当前 Vault 主密钥派生代际，启动时不匹配必须拒绝加载；`token_version` 在轮换时递增，`config_version` 在元数据、启停或轮换变化时递增；
 - `token_prefix` 仅作展示辅助，不能用于认证；
 - 删除为物理删除（`DELETE FROM gateway_api_keys`），成功后立即从配置与 PublishedSnapshot 消失，旧 token 不可再认证；RequestLog 外键 `ON DELETE SET NULL`；
@@ -896,10 +896,10 @@ GET  /api/admin/gateway-api-keys
 POST /api/admin/gateway-api-keys
 PATCH /api/admin/gateway-api-keys/{id}
 POST /api/admin/gateway-api-keys/{id}/rotate
-POST /api/admin/gateway-api-keys/{id}/revoke   # 语义：物理删除
+DELETE /api/admin/gateway-api-keys/{id}
 ```
 
-列表、创建、更新、轮换与删除响应均在 item 中返回明文 `token`；创建/轮换响应可额外带顶层 `token` 字段方便客户端。日志与 Debug 仍不得打印完整 token。`GatewayApiKey` 不能访问管理 API，也不能选择 `ProviderCredential`。
+列表、创建、更新、轮换与删除统一返回 `GatewayApiKeyCollectionResponse`，并在 item 中返回明文 `token`；不保留“仅展示一次”语义衍生的专用回执 DTO、Publisher 结果或前端旁路状态。日志与 Debug 仍不得打印完整 token。`GatewayApiKey` 不能访问管理 API，也不能选择 `ProviderCredential`。
 
 ### 9.8 RequestLog
 
@@ -930,7 +930,7 @@ request_logs
 
 默认不保存 Prompt、完整请求体、完整响应体、完整 `GatewayApiKey` 或上游凭据 Secret。
 
-`client_ip` 保存 Server 在请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。直连请求使用 TCP 对端地址；只有 TCP 对端命中 `ANY2API_TRUSTED_PROXY_CIDRS` 时才使用受校验的转发链，并从右向左剥离连续可信代理。Migration 26 之前的历史记录允许为 `NULL`，新进入模型执行链的 RequestLog 必须写入解析后的地址。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。
+`client_ip` 保存 Server 在请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。直连请求使用 TCP 对端地址；只有 TCP 对端命中 `ANY2API_TRUSTED_PROXY_CIDRS` 时才使用受校验的转发链，并从右向左剥离连续可信代理。无法取得规范地址的非模型日志允许为 `NULL`，新进入模型执行链的 RequestLog 必须写入解析后的地址。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。
 
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
 
@@ -957,7 +957,7 @@ http_access_logs
 
 `path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板。URI query 始终丢弃，避免 OAuth code、token、密钥或其他查询参数进入 SQLite。系统日志同样不保存 Header、Cookie、User-Agent、Referer、请求体或响应体。
 
-Migration 27 的首次发布版本曾把 `method` 长度限制为 32，并已进入本地数据库 checksum 历史，因此该文件必须保持不可变。Migration 28 通过前向重建 `http_access_logs` 放宽为任意非空 HTTP method token，并原样复制既有日志；禁止通过修改 Migration 27 或数据库 `_sqlx_migrations` checksum 解决升级问题。
+`method` 保存任意非空、去除首尾空白后的 HTTP method token，不设置人为 32 字符上限；Schema 直接表达当前正确约束，不保留开发期临时约束和重建迁移。
 
 客户端地址使用与 RequestLog 相同的可信代理解析器和规范 IPv4/IPv6 表达。系统日志中间件位于全部应用路由之外；无论后续认证、路由或 Handler 是否成功，响应 Body 都负责在 EOF、错误或 Drop 时只结算一次。
 
@@ -1174,7 +1174,7 @@ ProviderKind
 
 | 入口 | 用途 | 上游方言 | JSON | SSE | 首版状态 |
 |---|---|---|---|---|---|
-| `POST /v1/responses` | Codex/Grok/OpenAI Responses 推理 | openai_responses | 是 | 是 | JSON + SSE vertical slice |
+| `POST /v1/responses` | Codex/Grok/OpenAI Responses 推理与 Codex v2 远程压缩 | openai_responses | 是 | 是 | JSON + SSE vertical slice |
 | `POST /v1/responses` | Responses 兼容入口桥接 Chat 上游 | openai_chat_completions | 是 | 是 | 首个可选协议桥 |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | 是 | 否 | JSON vertical slice |
 | `POST /v1/chat/completions` | OpenAI Chat Completions 推理 | openai_chat_completions | 是 | 是 | JSON + SSE 直通 |
@@ -1185,7 +1185,11 @@ ProviderKind
 | `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | 是 | 否 | JSON vertical slice |
 | `GET /v1/models` | 返回 Credential 已选择的公开模型 | 本地 PublishedSnapshot | 是 | 否 | 实现 |
 
-`/v1/models` 先取得至少被一把 Credential 选中的公开模型，再按全局 `models.allowed` 过滤；空列表表示不限制。目录不根据瞬时冷却、RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议使用相同模型名时只返回一个标准模型对象，结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回运行时错误，而不是让模型列表抖动。
+`/v1/models` 先取得至少被一把 Credential 选中的公开模型，再按全局 `models.allowed` 过滤；`null`
+表示允许全部已发布模型，数组只允许其中精确列出的模型，空数组表示拒绝全部模型。目录不根据瞬时冷却、
+RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议使用相同模型名时只返回一个标准模型对象，
+结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回
+运行时错误，而不是让模型列表抖动。
 
 首版不实现 WebSocket，也不接受 WebSocket Upgrade。未来如果增加，必须作为独立 TransportMode 和独立契约设计，不能由 SSE 代码顺带兼容。
 
@@ -1202,6 +1206,17 @@ ProviderKind
 - 官方说明复杂 GPT Image 请求可能处理约两分钟，因此 Images Attempt 的等待响应头、buffered body 空闲、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用至少 `180s` 的专用下限；管理员设置更大值时采用更大值。安全硬上限和协议专用下限集中定义，禁止散落在 Handler、Transport 或 Provider Driver。
 
 完整决策见 `docs/adr/0054-openai-images-api.md`。
+
+#### Codex `/v1/responses` 远程压缩 v2
+
+- 当前 Codex CLI 默认使用 `remote_compaction_v2`：它把完整历史作为 Responses `input`，并在数组末尾追加唯一的 `{"type":"compaction_trigger"}`，继续通过流式 `POST /v1/responses` 执行，而不是调用旧 `/v1/responses/compact`；
+- OpenAI Responses Adapter 只在 `Responses` 请求的最后一个 `input` 项精确为 `type=compaction_trigger` 时，把本次请求标记为远程压缩执行类别。该标记是协议旁路元数据，不改写、删除或递归搜索客户端 JSON；
+- 远程压缩必须使用同方言 Responses Target。Responses → Chat Completions Bridge 不宣称能够表达 `compaction_trigger`，候选构造在 RPM 预留和上游 I/O 前排除跨协议 Target；
+- 请求路径、SSE 分帧、Header、zstd 和响应事件仍走普通 Responses 直通链。`response.output_item.done` 中的 `item.type=compaction`、加密内容及未知字段保持不透明，不在 Runtime 中解释或转换；
+- 现代流式远程压缩的等待响应头、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `300s` 的较大值。旧 `/v1/responses/compact` 是完整收集的 unary 请求，其等待响应头、buffered body 空闲和提交前总预算使用当前设置与 `1200s` 的较大值；
+- 上述下限集中在请求执行限制模块，由解码结果随同一请求快照传递；普通 Responses、Chat、Messages 和 Count Tokens 不因此放宽。
+
+完整决策见 `docs/adr/0059-codex-remote-compaction.md`。
 
 #### `/v1/responses/compact`
 
@@ -1266,8 +1281,15 @@ Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字�
 - `codex/`、`claude/`、`grok/` 只作为可选命名习惯；
 - `(ingress_protocol, public_model)` 必须唯一，发生冲突时拒绝发布；
 - 模型所属协议由入口 Route 决定，不依赖名称前缀猜测；内部转换协议不改变客户端填写的模型名。
-- `models.allowed` 保存精确公开模型名，不支持 wildcard、前缀或 Provider 推断；保存时排序去重并按 `PublicModelName` 校验。每次配置发布都与事务内新物化的公开 Route 名称取交集；删除最后一把可提供某模型的 API Key/OAuth 账号或移除其模型后，该名称必须在同一事务中从允许列表和 SQLite 覆盖值自动删除。
-- 空允许列表表示全部已发布模型都可用；非空列表对所有公开推理与辅助入口统一执行。未知模型和未放行模型共享兼容的模型不存在错误边界，且拒绝必须发生在候选选择、RPM 预留、会话创建和上游 I/O 前。
+- `models.allowed` 使用显式 `ModelAccessPolicy::All | Only(BTreeSet<PublicModelName>)`；线协议与 SQLite
+  中 `null` 表示 `All`，数组表示 `Only`，空数组合法且表示拒绝全部模型，禁止再让同一个值同时承担
+  “全部允许”和“全部拒绝”两种语义；
+- `Only` 保存精确公开模型名，不支持 wildcard、前缀或 Provider 推断；保存时排序去重并按
+  `PublicModelName` 校验。每次配置发布都与事务内新物化的公开 Route 名称取交集；删除最后一把可提供
+  某模型的 API Key/OAuth 账号或移除其模型后，该名称必须在同一事务中自动删除，即使结果为空也保持
+  `Only(empty)` 并 Fail-Closed；
+- 允许策略对所有公开推理与辅助入口统一执行。未知模型和未放行模型共享兼容的模型不存在错误边界，且
+  拒绝必须发生在候选选择、RPM 预留、会话创建和上游 I/O 前。
 - 全局允许列表不修改 ProviderCredential/OAuthAccount 的已选模型，也不接受 GatewayApiKey 级覆盖。
 
 ### 11.5 扩展接口
@@ -1985,9 +2007,12 @@ SettingRegistry 实现以上四个 `scheduler.*` key。其余 affinity、retry�
 
 | 设置 | 类型 | 默认值 | 语义 |
 |---|---|---:|---|
-| `models.allowed` | string_list | `[]` | 空列表允许全部已发布模型；非空列表只允许精确匹配的公开模型名 |
+| `models.allowed` | optional_string_list | `null` | `null` 允许全部；数组只允许精确匹配项；`[]` 拒绝全部 |
 
-字符串列表使用带类型 JSON 数组持久化，保存时按 `PublicModelName` 校验、排序并去重。管理设置响应为该项附带当前 PublishedSnapshot 中全部已发布公开模型作为候选选项。配置发布在事务内完成 Route 物化后，将非空允许列表与新的公开模型集合取交集并持久化规范结果；已无任何 Route 的名称不得残留在设置响应或 SQLite 覆盖值中。若交集为空，仍遵守空列表允许全部当前模型的既定语义。
+允许策略使用 JSON `null` 或带类型 JSON 数组持久化；数组保存时按 `PublicModelName` 校验、排序并去重。
+管理设置响应为该项附带当前 PublishedSnapshot 中全部已发布公开模型作为候选选项。配置发布在事务内完成
+Route 物化后，将 `Only` 列表与新的公开模型集合取交集并持久化规范结果；已无任何 Route 的名称不得残留
+在设置响应或 SQLite 覆盖值中。交集为空时必须继续持久化 `[]` 并拒绝全部，不能回退为 `All`。
 
 `models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在任何会话创建、候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误。`GET /v1/models` 使用同一快照过滤目录。旧请求继续使用其已捕获 revision，新请求在管理 API 成功返回后立即使用新列表。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
 
@@ -2034,6 +2059,8 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 | `upstream.strict_ssrf` | boolean | `false` | `true` / `false` |
 
 `upstream.read_timeout` 是每次等待响应头或 buffered body 下一 chunk 的空闲时长，成功读取后重置，不是整个请求的总时长。`retry.precommit_total_budget` 仍是 Attempt 外层绝对 deadline；哪个先到期就先结束当前 Attempt。成功 SSE 分别使用 precommit 和 postcommit 设置，非 2xx SSE 错误正文仍按 buffered body 读取，因此使用通用 read timeout。
+
+协议识别出的长时请求可以在执行限制模块中应用不可低于兼容客户端的专用下限：Images 使用至少 `180s`；Codex v2 流式远程压缩使用至少 `300s`；旧 Responses Compact unary 请求使用至少 `1200s`。这些下限只提高当前请求捕获的有效预算，管理员配置的更大值保持不变，也不修改 SettingRegistry 的普通默认值。
 
 `upstream.strict_ssrf=false` 时，DIRECT 仍执行本地解析与目标固定，HTTP/SOCKS5 则把远端 DNS 视为用户配置的代理信任边界。开启后，HTTP forward、HTTPS CONNECT 与 SOCKS5 都使用本地解析结果并固定到解析所得 IP，同时保留原始 Host、HTTP/2 authority 与 TLS SNI。Endpoint URL 是管理员受信任配置，因此两种模式都不按公网/私网地址类别拒绝解析结果。完整决策见 `docs/adr/0019-strict-ssrf-local-dns.md` 与 `docs/adr/0029-provider-base-url-authority.md`。
 
@@ -2093,12 +2120,19 @@ Grok 使用 Device Authorization Grant：
 → Runtime 使用当前 DIRECT/全局代理取得 device_code、user_code、验证地址、有效期和 interval
 → device_code 只写入服务端内存 session；Web 只显示 user_code 与验证地址
 → Web 按服务端返回的等待时间调用显式 poll API
-→ Runtime 原子取出 session，按 RFC 8628 向 Token Endpoint 轮询
-→ pending/slow_down 时更新内存轮询时间并恢复 session；拒绝或过期时终止
+→ Runtime 取得带唯一代际的 DevicePollLease；Store 保留占位并继续计入 64 个容量
+→ 不持锁地按 RFC 8628 向 Token Endpoint 轮询
+→ pending/slow_down 或可重试的本地、网络、解析失败时更新轮询时间并恢复 session
+→ 请求取消或 Future Drop 时由 Lease 同步恢复 session；拒绝、过期或成功时终止
 → 成功后与 PKCE 流程共用 Token 解析、SQLite 激活、Runtime reconcile 和快照发布链路
 ```
 
-OAuth session 最多同时 64 个，只在内存存在。Codex 与 Claude 的 session 固定 10 分钟；Grok session 使用 Provider 返回的有效期且最长 30 分钟。Codex 与 Claude 的 authorize/token Endpoint、Client ID 和 localhost Redirect URI，以及 Grok 的 device/token Endpoint 与 Client ID，都由各自 Driver 固定。登录、刷新和数据面都使用 OAuthAccount 的 DIRECT 绑定并继承全局代理，失败禁止回退本机直连。
+OAuth session 最多同时 64 个，只在内存存在；DevicePollLease 的占位属于活动 session，轮询并发不能释放
+容量名额。Codex 与 Claude 的 session 固定 10 分钟；Grok session 使用 Provider 返回的有效期且最长 30
+分钟。同一 Device session 只允许一个活跃轮询 Lease，其他轮询得到有界等待提示。Codex 与 Claude 的
+authorize/token Endpoint、Client ID 和 localhost Redirect URI，以及 Grok 的 device/token Endpoint 与
+Client ID，都由各自 Driver 固定。登录、刷新和数据面都使用 OAuthAccount 的 DIRECT 绑定并继承全局代理，
+失败禁止回退本机直连。
 
 OAuth 刷新使用统一 SettingRegistry 中的热更新参数：
 
@@ -2143,13 +2177,14 @@ Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`P
 
 ### 17.1 SQLite
 
-建议：
+首个正式版本前采用一次性规范 Schema 基线：
 
 - WAL 模式；
 - 外键约束开启；
-- Schema Migration；
-- 已发布且可能被数据库应用的 Migration 版本号、文件名和内容永久不可改写或删除；设计撤销只能追加更高版本的前向 Migration，并保留历史 checksum；
-- Migration 24 之前的数据库可能残留已经被物理删除的 `GatewayApiKey` 对应 RequestLog 引用；迁移入口在执行 Migration 24 前，仅把这种已确认的悬空 `request_logs.gateway_api_key_id` 按字段既有 `ON DELETE SET NULL` 语义归一化为 `NULL`。不得借此修补或删除 Provider、Credential、Route、Proxy、OAuthAccount 等配置真相，其他外键损坏仍须 fail-closed；
+- 仓库只保留描述当前正确数据模型的 `0001_initial.sql` 和其 checksum，不保留开发期旧 Schema 的升级、
+  修复、双轨读取或兼容测试；现有开发数据库必须删除后重建；
+- 首个正式版本发布后，已经发布的 Migration 才进入不可改写历史，之后的 Schema 变化只允许追加前向
+  Migration；这一稳定性边界不反向要求首版前保留错误设计；
 - 请求日志设置保留期限和最大容量；
 - 配置写操作使用事务；
 - 运行时快照不直接引用数据库连接。
@@ -2263,6 +2298,8 @@ SecretEnvelope
 - SQLite 只保存 singleton 管理员的 Argon2id PHC 摘要和更新时间，不保存明文密码；
 - 首次初始化只允许实际客户端来源为 loopback 的 Setup 请求，且请求必须同时提交启动终端显示的 256 位一次性 Setup Token；Token 只在当前进程内存中存在，不通过管理 API 返回、不持久化，初始化成功后立即失效。也可在启动时通过一次性的 `ANY2API_ADMIN_PASSWORD` 环境变量完成；已有摘要时环境变量不会在线轮换密码；
 - 登录成功后生成 256 位随机服务端会话 Token 与独立 CSRF Token；会话、失败计数和 Token 均只保存在当前进程内存，进程重启后全部失效；
+- 管理员 Session Store 固定最多保存 32 个会话；签发和认证都先按当前 idle/absolute timeout 清理全部
+  过期记录，达到上限时淘汰最早签发的会话后再签发，禁止由未再次提交的过期 Cookie 造成无界增长；
 - Setup 与登录的 Argon2id 计算使用独立有界 Permit，Permit 随不可取消的 blocking 任务存活；blocking closure 同时注册到进程 TaskTracker，请求取消不能制造额外并行哈希、让停机误判任务已经结束或跳过登录失败记账；
 - 会话 Cookie 名固定为 `any2api_admin`，Path 固定为 `/api/admin`，并设置 `HttpOnly`、`SameSite=Strict`；只有已确认的 HTTPS 管理连接设置 `Secure`；
 - 所有管理写请求必须同时携带有效会话 Cookie 和 `X-CSRF-Token`，Token 必须匹配服务端会话；登录、Setup 与只读会话检查不要求 CSRF；
@@ -2468,7 +2505,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 授权成功后直接创建独立 `OAuthAccount`，显示安全账号元数据、启用状态、可选 RPM 和已选模型；可在当前页面编辑这些账号属性或删除账号；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
 - Codex 账号可显式刷新上游额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
-- Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的当前套餐层级、included allowance 使用率、预付余额和按量使用信息；Free 套餐追加最小 Chat Completions 探测并从响应头显示真实 Token 余额，响应头缺失时保持未知；两者都不显示重置操作；
+- Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的当前套餐层级、included allowance 使用率、预付余额和按量使用信息；Free 的 Token 上限与剩余量只显示同次探测响应头返回的真实值，缺失时保持未知；两者都不显示重置操作；
 - Codex、Claude 与 Grok 页面均提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - Codex、Claude 与 Grok 页面均提供“删除失效账号”；先对当前完整 Provider 集合执行实时认证检测，只把刷新 Token 后仍被上游 401 拒绝的账号列入候选，展示精确数量并二次确认后串行删除；其他失败保持账号不变，检测后 Token 已变化的账号也必须跳过；
 - 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时的固定 2 分钟时间条带；鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数，统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
@@ -2552,6 +2589,11 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 前置 Nginx/Caddy 提供 TLS；
 - 数据目录挂载。
 
+前置反向代理必须保留数据面的长请求语义：关闭 SSE 响应缓冲，并把 `/v1` 的 upstream read/write timeout
+配置为至少 `1200s`，从而覆盖旧 unary Responses Compact；现代 Codex v2 远程压缩至少需要 `300s`。
+如果还有 CDN 或外层负载均衡，每一层都必须提供相同或更长的窗口；固定时长后出现的代理 HTML
+`502/504` 属于外层部署 timeout，应用内预算无法覆盖。
+
 不依赖外部数据库或 Redis。
 
 React 构建产物属于正式二进制输入，不是运行时旁车目录。前端源码仍以 `web/src` 为真相；仓库提交机器生成的 `app/any2api/web-assets`，Rust `build.rs` 只扫描该目录并生成 `include_bytes!` 清单，不调用 Node、pnpm 或 Vite。因此干净环境只安装 Rust 也能构建当前已同步的正式二进制。
@@ -2566,7 +2608,7 @@ React 构建产物属于正式二进制输入，不是运行时旁车目录。�
 获取数据目录单实例文件锁
 →
 打开 SQLite
-→ 执行必要 Migration
+→ 校验并应用当前 Schema Migration
 → 读取并校验配置与 Secret
 → 编译 PublishedSnapshot
 → 创建全新的 RuntimeRegistry
@@ -2788,7 +2830,7 @@ ProviderCredential ──> API Key Only
 OAuthAccount ──X ProviderEndpoint / ProviderCredential
 OAuthAccount ──> Fixed Provider Endpoint + DIRECT/Global Proxy + Selected Models
 OAuth Session/PKCE ──> Memory Only + 10 Minute TTL + One-Time Exchange
-Grok Device Code Session ──> Memory Only + Provider TTL (Max 30 Minutes) + Serialized Poll
+Grok Device Code Session ──> Memory Only + Provider TTL (Max 30 Minutes) + Counted RAII Poll Lease
 OAuth Token ──> OAuthAccount SQLite JSON (Plaintext, No DTO/Log/Export)
 Grok ──> ProviderCredential API Key + Independent OAuthAccount
 Grok API Key / OAuthAccount ──> Shared RoutingCredential Pool
@@ -2800,6 +2842,7 @@ GatewayApiKey ──X User / Tenant / Balance / Billing
 
 Data Directory = One Process Instance Lock
 Admin Password Rotation = SQLite CAS + All Session Revocation + Current Session Reissue
+Admin Session Store = Memory Only + Global Expiry Pruning + 32 Session Hard Cap
 
 Credential Rate Limit = Optional requests_per_minute
 Rate Window = Attempts in Rolling 60 Seconds

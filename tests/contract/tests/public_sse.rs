@@ -957,13 +957,13 @@ async fn create_gateway_key(app: &Router, remote: SocketAddr, revision: u64) -> 
     let response = request_admin(
         app.clone(),
         "/api/admin/gateway-api-keys",
-        json!({"expected_revision":revision,"name":"stream-client","enabled":true,"token":format!("sk-{}", "s".repeat(48))}),
+        json!({"expected_revision":revision,"name":"stream-client","enabled":true}),
         remote,
     )
     .await;
-    response["token"]
+    response["items"][0]["token"]
         .as_str()
-        .expect("gateway token")
+        .expect("gateway token in collection item")
         .to_owned()
 }
 

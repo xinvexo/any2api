@@ -21,7 +21,7 @@ xAI 的 OIDC Discovery 文档公开 Authorization Code、Refresh Token 和 Devic
 5. Grok OAuth 首版只参与 OpenAI Responses 操作。订阅数据面没有原生 `/responses/compact`，因此 Grok OAuth 不进入 Responses Compact 或 Chat Completions 的候选；API Key Grok 的既有能力不变。
 6. Grok OAuth 使用 Provider 内置的文本模型目录：`grok-4.5`、`grok-4.3`、`grok-build-0.1`、`grok-composer-2.5-fast`、`grok-4.20-0309-reasoning`、`grok-4.20-0309-non-reasoning`、`grok-4.20-multi-agent-0309`。首版没有图片或视频入口，因此不发布媒体模型。
 7. Token JSON 使用 `type=grok`，保存 access token、可选 refresh/id token、subject、email、过期时间与刷新时间。刷新继续使用 Token Version CAS、串行配置发布、Runtime reconcile 和单次 PublishedSnapshot 切换。
-8. SQLite 只增加 Migration 25，重建 `oauth_accounts` 的 Provider CHECK 以接受 `grok`，并保留既有账号、模型关系、请求日志引用、索引和外键完整性；不修改历史 Migration。
+8. 规范首版 SQLite Schema 的 `oauth_accounts` Provider CHECK 直接接受 `grok`，并以当前账号、模型关系、请求日志引用、索引和外键不变量为唯一基线。
 9. Grok API Key 和 OAuthAccount 只在通用 `RoutingCredential` 投影处合流，共用 RPM、轮询、粘性、健康、重试、代理、流式生命周期和遥测。中央调度器不增加 Grok 分支。
 
 ## 依据

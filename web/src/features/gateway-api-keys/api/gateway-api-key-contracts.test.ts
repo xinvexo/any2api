@@ -1,11 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  parseGatewayApiKeyConfiguration,
-  parseGatewayApiKeySecretReceipt,
-} from "./gateway-api-key-contracts";
+import { parseGatewayApiKeyConfiguration } from "./gateway-api-key-contracts";
 
-const token = `sk-${"a".repeat(48)}`;
+const token = `a2k_v1_${"a".repeat(43)}`;
 const windowSlots = Array.from({ length: 30 }, (_, index) => ({
   started_at_ms: 1_720_000_000_000 + index * 120_000,
   total_requests: index === 28 ? 1 : index === 29 ? 2 : 0,
@@ -21,7 +18,6 @@ const item = {
   token_version: 1,
   config_version: 1,
   enabled: true,
-  revoked_at: null,
   created_at: "2026-07-19 10:00:00",
   last_used_at: null,
   usage: {
@@ -79,7 +75,7 @@ describe("gateway API Key contracts", () => {
     expect(() =>
       parseGatewayApiKeyConfiguration({
         config_revision: 2,
-        items: [{ ...item, token: `a2k_v1_${"a".repeat(43)}` }],
+        items: [{ ...item, token: `sk-${"a".repeat(48)}` }],
       }),
     ).toThrow();
     expect(() =>
@@ -95,20 +91,4 @@ describe("gateway API Key contracts", () => {
     ).toThrow();
   });
 
-  test("keeps create/rotate receipt token and item tokens", () => {
-    const receipt = parseGatewayApiKeySecretReceipt({
-      config_revision: 2,
-      items: [item],
-      token,
-    });
-    expect(receipt.token).toBe(token);
-    expect(receipt.configuration.items[0].token).toBe(token);
-    expect(() =>
-      parseGatewayApiKeySecretReceipt({
-        config_revision: 2,
-        items: [item],
-        token: "short",
-      }),
-    ).toThrow();
-  });
 });

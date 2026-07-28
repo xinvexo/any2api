@@ -2,10 +2,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
   GatewayApiKeyConfiguration,
-  GatewayApiKeyRevokeInput,
+  GatewayApiKeyCreateInput,
+  GatewayApiKeyDeleteInput,
+  GatewayApiKeyRotateInput,
   GatewayApiKeyUpdateInput,
 } from "../api/gateway-api-key-contracts";
-import { revokeGatewayApiKey, updateGatewayApiKey } from "../api/gateway-api-key-api";
+import {
+  createGatewayApiKey,
+  deleteGatewayApiKey,
+  rotateGatewayApiKey,
+  updateGatewayApiKey,
+} from "../api/gateway-api-key-api";
 import { selectNewestGatewayApiKeyConfiguration } from "./gateway-api-key-cache";
 import { gatewayApiKeyQueryKeys } from "./gateway-api-key-query-keys";
 
@@ -21,6 +28,12 @@ export function useGatewayApiKeyMutations() {
   const refreshAfterFailure = () => {
     void queryClient.refetchQueries({ queryKey: gatewayApiKeyQueryKeys.all, type: "active" });
   };
+  const create = useMutation({
+    mutationFn: (input: GatewayApiKeyCreateInput) => createGatewayApiKey(input),
+    onError: refreshAfterFailure,
+    onSuccess: publish,
+    retry: false,
+  });
   const update = useMutation({
     mutationFn: ({ id, input }: { id: string; input: GatewayApiKeyUpdateInput }) =>
       updateGatewayApiKey(id, input),
@@ -28,16 +41,25 @@ export function useGatewayApiKeyMutations() {
     onSuccess: publish,
     retry: false,
   });
-  const revoke = useMutation({
-    mutationFn: ({ id, input }: { id: string; input: GatewayApiKeyRevokeInput }) =>
-      revokeGatewayApiKey(id, input),
+  const remove = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: GatewayApiKeyDeleteInput }) =>
+      deleteGatewayApiKey(id, input),
+    onError: refreshAfterFailure,
+    onSuccess: publish,
+    retry: false,
+  });
+  const rotate = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: GatewayApiKeyRotateInput }) =>
+      rotateGatewayApiKey(id, input),
     onError: refreshAfterFailure,
     onSuccess: publish,
     retry: false,
   });
   return {
+    create,
     update,
-    revoke,
-    isPending: update.isPending || revoke.isPending,
+    remove,
+    rotate,
+    isPending: create.isPending || update.isPending || remove.isPending || rotate.isPending,
   };
 }

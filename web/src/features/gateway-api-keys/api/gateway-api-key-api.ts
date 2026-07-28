@@ -5,16 +5,13 @@ import {
   type GatewayApiKeyConfiguration,
   type GatewayApiKeyCreateInput,
   type GatewayApiKeyCreateRequest,
-  type GatewayApiKeyRevokeInput,
-  type GatewayApiKeyRevokeRequest,
+  type GatewayApiKeyDeleteInput,
+  type GatewayApiKeyDeleteRequest,
   type GatewayApiKeyRotateInput,
   type GatewayApiKeyRotateRequest,
-  type GatewayApiKeySecretReceipt,
-  type GatewayApiKeySecretResponse,
   type GatewayApiKeyUpdateInput,
   type GatewayApiKeyUpdateRequest,
   parseGatewayApiKeyConfiguration,
-  parseGatewayApiKeySecretReceipt,
 } from "./gateway-api-key-contracts";
 
 const collection = "/api/admin/gateway-api-keys";
@@ -27,17 +24,16 @@ export function listGatewayApiKeys(signal?: AbortSignal): Promise<GatewayApiKeyC
 
 export function createGatewayApiKey(
   input: GatewayApiKeyCreateInput,
-): Promise<GatewayApiKeySecretReceipt> {
+): Promise<GatewayApiKeyConfiguration> {
   const body: GatewayApiKeyCreateRequest = {
     expected_revision: input.expectedRevision,
     name: input.name,
     enabled: input.enabled,
-    token: input.token,
   };
-  return requestJson<GatewayApiKeySecretResponse>(collection, {
+  return requestJson<GatewayApiKeyCollectionResponse>(collection, {
     method: "POST",
     body,
-  }).then(parseGatewayApiKeySecretReceipt);
+  }).then(parseGatewayApiKeyConfiguration);
 }
 
 export function updateGatewayApiKey(
@@ -59,35 +55,37 @@ export function updateGatewayApiKey(
 export function rotateGatewayApiKey(
   id: string,
   input: GatewayApiKeyRotateInput,
-): Promise<GatewayApiKeySecretReceipt> {
+): Promise<GatewayApiKeyConfiguration> {
   const body: GatewayApiKeyRotateRequest = {
     expected_revision: input.expectedRevision,
     expected_config_version: input.expectedConfigVersion,
     expected_token_version: input.expectedTokenVersion,
-    token: input.token,
   };
-  return requestJson<GatewayApiKeySecretResponse>(
+  return requestJson<GatewayApiKeyCollectionResponse>(
     `${collection}/${encodeURIComponent(id)}/rotate`,
     {
       method: "POST",
       body,
     },
-  ).then(parseGatewayApiKeySecretReceipt);
+  ).then(parseGatewayApiKeyConfiguration);
 }
 
-export function revokeGatewayApiKey(
+export function deleteGatewayApiKey(
   id: string,
-  input: GatewayApiKeyRevokeInput,
+  input: GatewayApiKeyDeleteInput,
 ): Promise<GatewayApiKeyConfiguration> {
-  const body: GatewayApiKeyRevokeRequest = {
+  const query: GatewayApiKeyDeleteRequest = {
     expected_revision: input.expectedRevision,
     expected_config_version: input.expectedConfigVersion,
   };
+  const params = new URLSearchParams({
+    expected_revision: String(query.expected_revision),
+    expected_config_version: String(query.expected_config_version),
+  });
   return requestJson<GatewayApiKeyCollectionResponse>(
-    `${collection}/${encodeURIComponent(id)}/revoke`,
+    `${collection}/${encodeURIComponent(id)}?${params.toString()}`,
     {
-      method: "POST",
-      body,
+      method: "DELETE",
     },
   ).then(parseGatewayApiKeyConfiguration);
 }

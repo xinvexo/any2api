@@ -5,7 +5,7 @@ use any2api_domain::{
     ModelRoute, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderEndpointId,
     ProviderKind, ProxyProfileId, RouteTargetId, RoutingCredentialId, TransportMode,
 };
-use any2api_protocol::api::ProtocolRegistry;
+use any2api_protocol::api::{ProtocolRegistry, RequestExecutionProfile};
 use any2api_provider::api::ProviderRegistry;
 
 use super::{OAuthRoute, oauth};
@@ -27,6 +27,39 @@ pub(crate) struct RouteCandidate {
     pub(crate) endpoint_health: Option<Arc<EndpointHealthRuntime>>,
     pub(crate) proxy_health: Option<Arc<ProxyHealthRuntime>>,
     pub(crate) binding: CredentialRuntimeBinding,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CandidateRequirements {
+    operation: ProtocolOperation,
+    execution_profile: RequestExecutionProfile,
+    transport_mode: TransportMode,
+}
+
+impl CandidateRequirements {
+    pub(crate) const fn new(
+        operation: ProtocolOperation,
+        execution_profile: RequestExecutionProfile,
+        transport_mode: TransportMode,
+    ) -> Self {
+        Self {
+            operation,
+            execution_profile,
+            transport_mode,
+        }
+    }
+
+    pub(super) const fn operation(self) -> ProtocolOperation {
+        self.operation
+    }
+
+    pub(super) const fn execution_profile(self) -> RequestExecutionProfile {
+        self.execution_profile
+    }
+
+    pub(super) const fn transport_mode(self) -> TransportMode {
+        self.transport_mode
+    }
 }
 
 impl RouteCandidate {
@@ -131,8 +164,7 @@ pub(crate) fn build_route_candidates(
     route: &ModelRoute,
     protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,
-    operation: ProtocolOperation,
-    transport_mode: TransportMode,
+    requirements: CandidateRequirements,
 ) -> BTreeMap<u16, Vec<RouteCandidate>> {
     let mut tiers = BTreeMap::new();
     for target in route.targets().iter().filter(|target| target.enabled()) {
@@ -145,10 +177,12 @@ pub(crate) fn build_route_candidates(
         if !endpoint.enabled()
             || endpoint.protocol_dialect() != route.ingress_protocol()
             || endpoint.effective_upstream_protocol_dialect() != target.upstream_protocol_dialect()
+            || requirements.execution_profile().requires_same_dialect()
+                && target.upstream_protocol_dialect() != route.ingress_protocol()
             || !protocols.supports_operation(
                 route.ingress_protocol(),
                 target.upstream_protocol_dialect(),
-                operation,
+                requirements.operation(),
             )
         {
             continue;
@@ -160,7 +194,9 @@ pub(crate) fn build_route_candidates(
         if !capabilities
             .protocols
             .contains(&target.upstream_protocol_dialect())
-            || !capabilities.transport_modes.contains(&transport_mode)
+            || !capabilities
+                .transport_modes
+                .contains(&requirements.transport_mode())
         {
             continue;
         }
@@ -206,8 +242,7 @@ pub(crate) fn build_route_candidates(
         OAuthRoute::new(route.id(), route.ingress_protocol(), route.public_model()),
         protocols,
         providers,
-        operation,
-        transport_mode,
+        requirements,
     );
     tiers
 }

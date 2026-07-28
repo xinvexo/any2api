@@ -98,8 +98,13 @@ export function formatSettingValue(value: SettingValue | null, type: SettingValu
   if (type === "enum") {
     return enumOptionLabel(String(value));
   }
-  if (type === "string_list" && Array.isArray(value)) {
-    return value.length === 0 ? "全部" : `${value.length} 项`;
+  if (type === "optional_string_list") {
+    if (value === null) {
+      return "全部";
+    }
+    if (Array.isArray(value)) {
+      return value.length === 0 ? "全部拒绝" : `${value.length} 项`;
+    }
   }
   if (type === "duration_secs" && typeof value === "number") {
     return `${value} 秒`;

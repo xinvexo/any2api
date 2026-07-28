@@ -24,7 +24,7 @@ export function SettingControl({
   describedBy,
   onChange,
 }: SettingControlProps) {
-  if (item.valueType === "string_list") {
+  if (item.valueType === "optional_string_list") {
     return (
       <ModelAllowlistControl
         item={item}

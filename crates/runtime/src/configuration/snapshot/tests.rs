@@ -194,7 +194,7 @@ async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
         .set_setting_override(
             modeled.revision(),
             SettingKey::ModelsAllowed,
-            SettingValue::StringList(vec!["gpt-z".to_owned()]),
+            SettingValue::OptionalStringList(Some(vec!["gpt-z".to_owned()])),
         )
         .await
         .expect("allowlist");
@@ -219,7 +219,7 @@ async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
         .set_setting_override(
             filtered.revision(),
             SettingKey::ModelsAllowed,
-            SettingValue::StringList(vec!["missing".to_owned()]),
+            SettingValue::OptionalStringList(Some(vec!["missing".to_owned()])),
         )
         .await
         .expect_err("unpublished selection");
@@ -230,7 +230,10 @@ async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
         .await
         .expect("delete credential");
     assert!(deleted.published_public_model_names().is_empty());
-    assert!(deleted.settings().models().allowed().is_empty());
+    assert!(matches!(
+        deleted.settings().models().access(),
+        any2api_domain::ModelAccessPolicy::Only(allowed) if allowed.is_empty()
+    ));
 }
 
 fn codex_endpoint_draft() -> ProviderEndpointDraft {

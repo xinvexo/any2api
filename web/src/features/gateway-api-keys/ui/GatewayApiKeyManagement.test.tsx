@@ -7,33 +7,31 @@ import { GatewayApiKeyManagement } from "./GatewayApiKeyManagement";
 
 afterEach(() => vi.restoreAllMocks());
 
-const tokenA = `sk-${"b".repeat(48)}`;
-const tokenB = `sk-${"c".repeat(48)}`;
-const tokenC = `sk-${"d".repeat(48)}`;
+const tokenA = `a2k_v1_${"b".repeat(43)}`;
+const tokenB = `a2k_v1_${"c".repeat(43)}`;
+const tokenC = `a2k_v1_${"d".repeat(43)}`;
 
-test("creates a gateway key with the form token and exposes copy in row actions", async () => {
+test("creates a gateway key with a server-generated token and exposes copy in row actions", async () => {
   let configuration: Record<string, unknown> = { config_revision: 1, items: [] };
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "POST") {
-      const body = JSON.parse(String(init.body)) as { token: string; name: string };
+      const body = JSON.parse(String(init.body)) as { name: string };
       configuration = {
         config_revision: 2,
         items: [
           {
             id: "key-1",
             name: body.name,
-            token: body.token,
-            token_prefix: body.token.slice(0, 16),
+            token: tokenA,
+            token_prefix: tokenA.slice(0, 16),
             token_version: 1,
             config_version: 1,
             enabled: true,
-            revoked_at: null,
             created_at: "2026-07-19 10:00:00",
             last_used_at: null,
             usage: usage(),
           },
         ],
-        token: body.token,
       };
       return jsonResponse(configuration);
     }
@@ -52,9 +50,7 @@ test("creates a gateway key with the form token and exposes copy in row actions"
   );
 
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "Desktop" } });
-  const tokenInput = screen.getByLabelText("密钥") as HTMLInputElement;
-  expect(tokenInput.value).toMatch(/^sk-[A-Za-z0-9]{48}$/);
-  fireEvent.change(tokenInput, { target: { value: tokenA } });
+  expect(screen.queryByLabelText("密钥")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => {
@@ -67,9 +63,9 @@ test("creates a gateway key with the form token and exposes copy in row actions"
   const createCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
   expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
     name: "Desktop",
-    token: tokenA,
     enabled: true,
   });
+  expect(JSON.parse(String(createCall?.[1]?.body))).not.toHaveProperty("token");
   expect(screen.getByTestId("location")).not.toHaveTextContent(tokenA);
 });
 
@@ -86,7 +82,6 @@ test("lists keys with a real time window and hover or focus details", async () =
           token_version: 1,
           config_version: 1,
           enabled: true,
-          revoked_at: null,
           created_at: "2026-07-19 10:00:00",
           last_used_at: null,
           usage: usage({
@@ -123,6 +118,7 @@ test("lists keys with a real time window and hover or focus details", async () =
   expect(screen.queryByRole("columnheader", { name: "密钥" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "复制 Desktop 的密钥" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "禁用 Desktop" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "轮换 Desktop 的密钥" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除 Desktop" })).toBeInTheDocument();
   expect(screen.getByText("成功 134")).toBeInTheDocument();
   expect(screen.getByText("失败 43")).toBeInTheDocument();
@@ -158,7 +154,6 @@ test("toggles enabled from the row action without opening the editor", async () 
         token_version: 1,
         config_version: 1,
         enabled: true,
-        revoked_at: null,
         created_at: "2026-07-19 10:00:00",
         last_used_at: null,
         usage: usage(),
@@ -211,7 +206,7 @@ test("toggles enabled from the row action without opening the editor", async () 
   });
 });
 
-test("edit drawer echoes the key and rotate uses the generated value", async () => {
+test("rotates from an explicit confirmation and never sends client token material", async () => {
   let configuration: Record<string, unknown> = {
     config_revision: 3,
     items: [
@@ -223,7 +218,6 @@ test("edit drawer echoes the key and rotate uses the generated value", async () 
         token_version: 1,
         config_version: 1,
         enabled: true,
-        revoked_at: null,
         created_at: "2026-07-19 10:00:00",
         last_used_at: null,
         usage: usage(),
@@ -233,25 +227,22 @@ test("edit drawer echoes the key and rotate uses the generated value", async () 
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input);
     if (init?.method === "POST" && url.includes("/rotate")) {
-      const body = JSON.parse(String(init.body)) as { token: string };
       configuration = {
         config_revision: 4,
         items: [
           {
             id: "key-1",
             name: "Desktop",
-            token: body.token,
-            token_prefix: body.token.slice(0, 16),
+            token: tokenC,
+            token_prefix: tokenC.slice(0, 16),
             token_version: 2,
             config_version: 2,
             enabled: true,
-            revoked_at: null,
             created_at: "2026-07-19 10:00:00",
             last_used_at: null,
             usage: usage(),
           },
         ],
-        token: body.token,
       };
       return jsonResponse(configuration);
     }
@@ -266,24 +257,19 @@ test("edit drawer echoes the key and rotate uses the generated value", async () 
         })
       }
     >
-      <MemoryRouter initialEntries={["/keys?editor=key-1"]}>
+      <MemoryRouter initialEntries={["/keys"]}>
         <GatewayApiKeyManagement />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 
-  expect(await screen.findByLabelText("名称")).toHaveValue("Desktop");
-  expect(screen.getByLabelText("密钥")).toHaveValue(tokenB);
-  fireEvent.click(screen.getByRole("button", { name: "生成" }));
-  const generated = (screen.getByLabelText("密钥") as HTMLInputElement).value;
-  expect(generated).toMatch(/^sk-[A-Za-z0-9]{48}$/);
-  expect(generated).not.toBe(tokenB);
-  fireEvent.change(screen.getByLabelText("密钥"), { target: { value: tokenC } });
-  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  fireEvent.click(await screen.findByRole("button", { name: "轮换 Desktop 的密钥" }));
+  expect(
+    await screen.findByText("服务端会生成新的强随机 token，旧 token 在发布完成后立即失效。"),
+  ).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "确认轮换" }));
 
-  await waitFor(() => {
-    expect(screen.queryByLabelText("名称")).not.toBeInTheDocument();
-  });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "确认轮换" })).not.toBeInTheDocument());
   expect(screen.queryByText(tokenC)).not.toBeInTheDocument();
   expect(await screen.findByRole("button", { name: "复制 Desktop 的密钥" })).toBeInTheDocument();
   expect(
@@ -294,7 +280,61 @@ test("edit drawer echoes the key and rotate uses the generated value", async () 
   const rotateCall = fetchMock.mock.calls.find(
     ([input, init]) => init?.method === "POST" && String(input).includes("/rotate"),
   );
-  expect(JSON.parse(String(rotateCall?.[1]?.body)).token).toBe(tokenC);
+  expect(JSON.parse(String(rotateCall?.[1]?.body))).toEqual({
+    expected_revision: 3,
+    expected_config_version: 1,
+    expected_token_version: 1,
+  });
+});
+
+test("deletes a key with DELETE and CAS query parameters", async () => {
+  let configuration: Record<string, unknown> = {
+    config_revision: 4,
+    items: [
+      {
+        id: "key-1",
+        name: "Desktop",
+        token: tokenA,
+        token_prefix: tokenA.slice(0, 16),
+        token_version: 2,
+        config_version: 3,
+        enabled: true,
+        created_at: "2026-07-19 10:00:00",
+        last_used_at: null,
+        usage: usage(),
+      },
+    ],
+  };
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+    if (init?.method === "DELETE") {
+      configuration = { config_revision: 5, items: [] };
+    }
+    return jsonResponse(configuration);
+  });
+
+  render(
+    <QueryClientProvider
+      client={
+        new QueryClient({
+          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        })
+      }
+    >
+      <MemoryRouter initialEntries={["/keys"]}>
+        <GatewayApiKeyManagement />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+
+  fireEvent.click(await screen.findByRole("button", { name: "删除 Desktop" }));
+  fireEvent.click(await screen.findByRole("button", { name: "确认删除" }));
+  await waitFor(() => expect(screen.queryByText("Desktop")).not.toBeInTheDocument());
+
+  const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
+  expect(String(deleteCall?.[0])).toContain(
+    "/api/admin/gateway-api-keys/key-1?expected_revision=4&expected_config_version=3",
+  );
+  expect(deleteCall?.[1]?.body).toBeUndefined();
 });
 
 function LocationProbe() {

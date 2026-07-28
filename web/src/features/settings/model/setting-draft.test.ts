@@ -36,14 +36,22 @@ test("edits duration settings in whole seconds", () => {
 
 test("normalizes model selections and treats an explicit empty list as an override", () => {
   const item = modelItem();
-  expect(createSettingDraft(item)).toEqual(["gpt-b"]);
-  expect(validateSettingDraft(item, ["gpt-b", "gpt-a", "gpt-b"])).toEqual({
+  expect(createSettingDraft(item)).toEqual({ mode: "only", models: ["gpt-b"] });
+  expect(validateSettingDraft(item, {
+    mode: "only",
+    models: ["gpt-b", "gpt-a", "gpt-b"],
+  })).toEqual({
     value: ["gpt-a", "gpt-b"],
     error: null,
   });
-  expect(validateSettingDraft(item, ["removed-model"]).error).toMatch(/列表已发生变化/);
-  expect(isSettingDraftDirty(item, ["gpt-b"])).toBe(false);
-  expect(isSettingDraftDirty(item, [])).toBe(true);
+  expect(validateSettingDraft(item, { mode: "only", models: ["removed-model"] }).error)
+    .toMatch(/列表已发生变化/);
+  expect(validateSettingDraft(item, { mode: "all", models: [] })).toEqual({
+    value: null,
+    error: null,
+  });
+  expect(isSettingDraftDirty(item, { mode: "only", models: ["gpt-b"] })).toBe(false);
+  expect(isSettingDraftDirty(item, { mode: "only", models: [] })).toBe(true);
 });
 
 function numericItem(): SettingItem {
@@ -83,8 +91,8 @@ function durationItem(): SettingItem {
 function modelItem(): SettingItem {
   return {
     key: "models.allowed",
-    valueType: "string_list",
-    defaultValue: [],
+    valueType: "optional_string_list",
+    defaultValue: null,
     overrideValue: ["gpt-b"],
     effectiveValue: ["gpt-b"],
     minValue: null,

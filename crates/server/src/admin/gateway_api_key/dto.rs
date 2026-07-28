@@ -1,8 +1,5 @@
 use any2api_domain::{ConfigRevision, GatewayApiKey, GatewayApiKeyDraft, GatewayApiKeyId};
-use any2api_runtime::api::{
-    GatewayApiKeyPublishResult, GatewayApiKeyToken, GatewayApiKeyUsageSummary, PublishedSnapshot,
-    RequestTelemetry,
-};
+use any2api_runtime::api::{GatewayApiKeyUsageSummary, PublishedSnapshot, RequestTelemetry};
 use serde::{Deserialize, Serialize};
 
 use crate::admin::request_usage::RequestUsageResponse;
@@ -42,30 +39,6 @@ impl GatewayApiKeyCollectionResponse {
 
 #[derive(Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
-pub(crate) struct GatewayApiKeySecretResponse {
-    config_revision: u64,
-    items: Vec<GatewayApiKeyResponse>,
-    token: String,
-}
-
-impl GatewayApiKeySecretResponse {
-    pub(crate) fn from_publish(
-        result: &GatewayApiKeyPublishResult,
-        telemetry: &RequestTelemetry,
-        usage: &[GatewayApiKeyUsageSummary],
-    ) -> Self {
-        let configuration =
-            GatewayApiKeyCollectionResponse::from_snapshot(result.snapshot(), telemetry, usage);
-        Self {
-            config_revision: configuration.config_revision,
-            items: configuration.items,
-            token: result.token().as_str().to_owned(),
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 struct GatewayApiKeyResponse {
     #[cfg_attr(test, ts(as = "String"))]
     id: GatewayApiKeyId,
@@ -75,7 +48,6 @@ struct GatewayApiKeyResponse {
     token_version: u64,
     config_version: u64,
     enabled: bool,
-    revoked_at: Option<String>,
     created_at: String,
     last_used_at: Option<String>,
     usage: RequestUsageResponse,
@@ -97,7 +69,6 @@ impl GatewayApiKeyResponse {
             token_version: key.token_version(),
             config_version: key.config_version(),
             enabled: key.enabled(),
-            revoked_at: key.revoked_at().map(str::to_owned),
             created_at: key.created_at().to_owned(),
             last_used_at,
             usage: usage.map_or_else(RequestUsageResponse::empty, |summary| {
@@ -122,17 +93,13 @@ pub(crate) struct GatewayApiKeyCreateRequest {
     expected_revision: u64,
     name: String,
     enabled: bool,
-    token: String,
 }
 
 impl GatewayApiKeyCreateRequest {
-    pub(crate) fn into_domain(
-        self,
-    ) -> Result<(ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyToken), AdminApiError> {
+    pub(crate) fn into_domain(self) -> Result<(ConfigRevision, GatewayApiKeyDraft), AdminApiError> {
         Ok((
             parse_revision(self.expected_revision)?,
             build_draft(self.name, self.enabled)?,
-            parse_token(self.token)?,
         ))
     }
 }
@@ -169,13 +136,10 @@ pub(crate) struct GatewayApiKeyRotateRequest {
     expected_revision: u64,
     expected_config_version: u64,
     expected_token_version: u64,
-    token: String,
 }
 
 impl GatewayApiKeyRotateRequest {
-    pub(crate) fn into_domain(
-        self,
-    ) -> Result<(ConfigRevision, u64, u64, GatewayApiKeyToken), AdminApiError> {
+    pub(crate) fn into_domain(self) -> Result<(ConfigRevision, u64, u64), AdminApiError> {
         Ok((
             parse_revision(self.expected_revision)?,
             parse_version(
@@ -186,7 +150,6 @@ impl GatewayApiKeyRotateRequest {
                 self.expected_token_version,
                 "expected_token_version is invalid",
             )?,
-            parse_token(self.token)?,
         ))
     }
 }
@@ -194,12 +157,12 @@ impl GatewayApiKeyRotateRequest {
 #[derive(Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[serde(deny_unknown_fields)]
-pub(crate) struct GatewayApiKeyRevokeRequest {
+pub(crate) struct GatewayApiKeyDeleteRequest {
     expected_revision: u64,
     expected_config_version: u64,
 }
 
-impl GatewayApiKeyRevokeRequest {
+impl GatewayApiKeyDeleteRequest {
     pub(crate) fn into_domain(self) -> Result<(ConfigRevision, u64), AdminApiError> {
         Ok((
             parse_revision(self.expected_revision)?,
@@ -213,11 +176,6 @@ impl GatewayApiKeyRevokeRequest {
 
 fn build_draft(name: String, enabled: bool) -> Result<GatewayApiKeyDraft, AdminApiError> {
     GatewayApiKeyDraft::new(name, enabled)
-        .map_err(|error| AdminApiError::invalid_gateway_api_key(error.to_string()))
-}
-
-fn parse_token(token: String) -> Result<GatewayApiKeyToken, AdminApiError> {
-    GatewayApiKeyToken::parse(token)
         .map_err(|error| AdminApiError::invalid_gateway_api_key(error.to_string()))
 }
 

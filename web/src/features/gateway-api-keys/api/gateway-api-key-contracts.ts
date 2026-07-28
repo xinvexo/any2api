@@ -1,10 +1,9 @@
 import { parseRequestUsage, type RequestUsage } from "@/shared/api/request-usage";
 import type { GatewayApiKeyCollectionResponse } from "@/shared/api/generated/GatewayApiKeyCollectionResponse";
 import type { GatewayApiKeyCreateRequest } from "@/shared/api/generated/GatewayApiKeyCreateRequest";
+import type { GatewayApiKeyDeleteRequest } from "@/shared/api/generated/GatewayApiKeyDeleteRequest";
 import type { GatewayApiKeyResponse } from "@/shared/api/generated/GatewayApiKeyResponse";
-import type { GatewayApiKeyRevokeRequest } from "@/shared/api/generated/GatewayApiKeyRevokeRequest";
 import type { GatewayApiKeyRotateRequest } from "@/shared/api/generated/GatewayApiKeyRotateRequest";
-import type { GatewayApiKeySecretResponse } from "@/shared/api/generated/GatewayApiKeySecretResponse";
 import type { GatewayApiKeyUpdateRequest } from "@/shared/api/generated/GatewayApiKeyUpdateRequest";
 
 // Wire types are generated from the Rust DTOs (ADR-0053); parsers below keep
@@ -13,10 +12,9 @@ import type { GatewayApiKeyUpdateRequest } from "@/shared/api/generated/GatewayA
 export type {
   GatewayApiKeyCollectionResponse,
   GatewayApiKeyCreateRequest,
+  GatewayApiKeyDeleteRequest,
   GatewayApiKeyResponse,
-  GatewayApiKeyRevokeRequest,
   GatewayApiKeyRotateRequest,
-  GatewayApiKeySecretResponse,
   GatewayApiKeyUpdateRequest,
 };
 
@@ -28,7 +26,6 @@ export interface GatewayApiKey {
   tokenVersion: number;
   configVersion: number;
   enabled: boolean;
-  revokedAt: string | null;
   createdAt: string;
   lastUsedAt: string | null;
   usage: RequestUsage;
@@ -39,16 +36,10 @@ export interface GatewayApiKeyConfiguration {
   items: GatewayApiKey[];
 }
 
-export interface GatewayApiKeySecretReceipt {
-  configuration: GatewayApiKeyConfiguration;
-  token: string;
-}
-
 export interface GatewayApiKeyCreateInput {
   expectedRevision: number;
   name: string;
   enabled: boolean;
-  token: string;
 }
 
 export interface GatewayApiKeyUpdateInput {
@@ -62,10 +53,9 @@ export interface GatewayApiKeyRotateInput {
   expectedRevision: number;
   expectedConfigVersion: number;
   expectedTokenVersion: number;
-  token: string;
 }
 
-export interface GatewayApiKeyRevokeInput {
+export interface GatewayApiKeyDeleteInput {
   expectedRevision: number;
   expectedConfigVersion: number;
 }
@@ -79,21 +69,6 @@ export function parseGatewayApiKeyConfiguration(
   return {
     configRevision: readPositiveInteger(value.config_revision),
     items: value.items.map(parseGatewayApiKey),
-  };
-}
-
-export function parseGatewayApiKeySecretReceipt(
-  value: GatewayApiKeySecretResponse,
-): GatewayApiKeySecretReceipt {
-  if (!isRecord(value) || typeof value.token !== "string" || !isGatewayToken(value.token)) {
-    throw new Error("invalid gateway API Key secret receipt");
-  }
-  return {
-    configuration: parseGatewayApiKeyConfiguration({
-      config_revision: value.config_revision,
-      items: value.items,
-    }),
-    token: value.token,
   };
 }
 
@@ -119,7 +94,6 @@ function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
     tokenVersion: readPositiveInteger(value.token_version),
     configVersion: readPositiveInteger(value.config_version),
     enabled: readBoolean(value.enabled),
-    revokedAt: readNullableString(value.revoked_at),
     createdAt: readString(value.created_at),
     lastUsedAt: readNullableString(value.last_used_at),
     usage: parseRequestUsage(value.usage),
@@ -127,7 +101,7 @@ function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
 }
 
 function isGatewayToken(value: string) {
-  return /^sk-[A-Za-z0-9]{48}$/.test(value);
+  return /^a2k_v1_[A-Za-z0-9_-]{43}$/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

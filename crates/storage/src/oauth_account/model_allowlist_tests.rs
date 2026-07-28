@@ -31,7 +31,7 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
         .set_setting_override(
             created.revision(),
             SettingKey::ModelsAllowed,
-            SettingValue::StringList(vec!["gpt-a".into(), "gpt-b".into()]),
+            SettingValue::OptionalStringList(Some(vec!["gpt-a".into(), "gpt-b".into()])),
         )
         .await
         .expect("model allowlist");
@@ -44,10 +44,10 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
         disabled
             .settings()
             .override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::StringList(vec![
+        Some(SettingValue::OptionalStringList(Some(vec![
             "gpt-a".into(),
             "gpt-b".into(),
-        ]))
+        ])))
     );
 
     let reduced = store
@@ -56,7 +56,7 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
         .expect("remove one OAuth model source");
     assert_eq!(
         reduced.settings().override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::StringList(vec!["gpt-b".into()]))
+        Some(SettingValue::OptionalStringList(Some(vec!["gpt-b".into()])))
     );
 
     let deleted = store
@@ -65,7 +65,7 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
         .expect("delete OAuth account");
     assert_eq!(
         deleted.settings().override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::StringList(Vec::new()))
+        Some(SettingValue::OptionalStringList(Some(Vec::new())))
     );
 
     drop(store);

@@ -40,7 +40,7 @@ Images 必须继续经过统一鉴权、模型路由、RPM、代理、健康、�
 
 ## 验证
 
-- Domain/Storage 测试覆盖方言、操作稳定值、Migration 29 和旧数据保留。
+- Domain/Storage 测试覆盖方言、操作稳定值和规范首版 Schema 对 Images 值的接受。
 - Protocol 测试覆盖生成 JSON、编辑 JSON、multipart 多文件、模型替换、未知字段/Part 保留、畸形 boundary、缺失/重复 model、stream、普通 usage 与两类完成事件 usage。
 - Provider 契约覆盖 Codex API Key 能力和两个固定路径，并确认 Codex OAuth、Claude、Grok 不产生 Images 候选。
 - HTTP 契约使用本地上游覆盖生成/编辑 JSON、multipart、SSE、Gateway Key 剥离、模型改写、错误 envelope、普通 32 MiB 与 Images 512 MiB 请求边界、Images 大 JSON/SSE 响应和 180 秒预算选择。

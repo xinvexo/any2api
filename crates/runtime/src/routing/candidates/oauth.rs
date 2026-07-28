@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
 use any2api_domain::{
-    ModelRouteId, ProtocolDialect, ProtocolOperation, ProviderEndpointId, PublicModelName,
-    RouteTargetId, TransportMode, UpstreamModelName,
+    ModelRouteId, ProtocolDialect, ProviderEndpointId, PublicModelName, RouteTargetId,
+    UpstreamModelName,
 };
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
 use uuid::Uuid;
 
-use super::RouteCandidate;
+use super::{CandidateRequirements, RouteCandidate};
 use crate::configuration::PublishedSnapshot;
 
 #[derive(Clone, Copy)]
@@ -37,8 +37,7 @@ pub(crate) fn build_oauth_route_candidates(
     route: OAuthRoute<'_>,
     protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,
-    operation: ProtocolOperation,
-    transport_mode: TransportMode,
+    requirements: CandidateRequirements,
 ) -> BTreeMap<u16, Vec<RouteCandidate>> {
     let mut tiers = BTreeMap::new();
     add_oauth_candidates(
@@ -47,8 +46,7 @@ pub(crate) fn build_oauth_route_candidates(
         route,
         protocols,
         providers,
-        operation,
-        transport_mode,
+        requirements,
     );
     tiers
 }
@@ -59,8 +57,7 @@ pub(super) fn add_oauth_candidates(
     route: OAuthRoute<'_>,
     protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,
-    operation: ProtocolOperation,
-    transport_mode: TransportMode,
+    requirements: CandidateRequirements,
 ) {
     let Ok(model) = UpstreamModelName::new(route.public_model.as_str().to_owned()) else {
         return;
@@ -73,24 +70,31 @@ pub(super) fn add_oauth_candidates(
         .filter(|credential| credential.ingress_protocol() == route.ingress_protocol)
         .filter(|credential| credential.supports_model(&model))
     {
+        if requirements.execution_profile().requires_same_dialect()
+            && credential.upstream_protocol() != route.ingress_protocol
+        {
+            continue;
+        }
         if !protocols.supports_operation(
             route.ingress_protocol,
             credential.upstream_protocol(),
-            operation,
+            requirements.operation(),
         ) {
             continue;
         }
         let Some(driver) = providers.get(credential.provider_kind()) else {
             continue;
         };
-        if !driver.oauth_supports_operation(operation) {
+        if !driver.oauth_supports_operation(requirements.operation()) {
             continue;
         }
         let capabilities = driver.capabilities();
         if !capabilities
             .protocols
             .contains(&credential.upstream_protocol())
-            || !capabilities.transport_modes.contains(&transport_mode)
+            || !capabilities
+                .transport_modes
+                .contains(&requirements.transport_mode())
         {
             continue;
         }

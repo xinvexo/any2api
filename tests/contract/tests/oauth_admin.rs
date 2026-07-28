@@ -8,7 +8,7 @@ use std::{
 };
 
 use any2api_contract_tests::build_public_request_components;
-use any2api_domain::ProxyProfileId;
+use any2api_domain::{ProxyProfileId, RetrySafety};
 use any2api_provider::{CodexDriver, GrokDriver, ProviderRegistry};
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
@@ -16,7 +16,8 @@ use any2api_runtime::api::{
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
-    TransportFailureScope, TransportManager, TransportProxy, TransportRequest, TransportResponse,
+    TransportError, TransportErrorStage, TransportFailureScope, TransportManager, TransportProxy,
+    TransportRequest, TransportResponse,
 };
 use async_trait::async_trait;
 use axum::{
@@ -173,6 +174,50 @@ async fn grok_device_poll_activates_sqlite_account_without_exposing_tokens() {
 }
 
 #[tokio::test]
+async fn transient_grok_poll_failure_preserves_the_device_session() {
+    let transport = Arc::new(TokenTransport {
+        fail_next_grok_poll: AtomicBool::new(true),
+        ..TokenTransport::default()
+    });
+    let (_directory, app, _storage) =
+        test_app_with_transport(transport as Arc<dyn TransportManager>).await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let (status, start) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/oauth/start",
+        Some(json!({"provider": "grok"})),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = start["session_id"].as_str().expect("device session id");
+
+    let (status, failed) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/oauth/device/poll",
+        Some(json!({"session_id": session_id})),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(failed["error"]["code"], "oauth_token_exchange_failed");
+
+    let (status, pending) = request_json(
+        app,
+        Method::POST,
+        "/api/admin/oauth/device/poll",
+        Some(json!({"session_id": session_id})),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(pending["status"], "pending");
+    assert_eq!(pending["retry_after_seconds"], 5);
+}
+
+#[tokio::test]
 async fn oauth_exchange_rejects_unknown_sessions_without_network_access() {
     let (_directory, app, _storage) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
@@ -296,6 +341,12 @@ async fn oauth_exchange_activates_persisted_account_once_over_direct_transport()
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
+    test_app_with_transport(Arc::new(TokenTransport::default())).await
+}
+
+async fn test_app_with_transport(
+    token_transport: Arc<dyn TransportManager>,
+) -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
@@ -329,10 +380,9 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     providers
         .register(Arc::new(GrokDriver::new()))
         .expect("Grok driver");
-    let token_transport = Arc::new(TokenTransport::default());
     let oauth = Arc::new(OAuthService::new(
         Arc::new(providers),
-        token_transport as Arc<dyn TransportManager>,
+        token_transport,
         Arc::clone(&publisher),
     ));
     let app = build_router(
@@ -400,6 +450,7 @@ async fn request(
 struct TokenTransport {
     codex_exchanged: AtomicBool,
     grok_polled: AtomicBool,
+    fail_next_grok_poll: AtomicBool,
 }
 
 #[async_trait]
@@ -435,6 +486,14 @@ impl TransportManager for TokenTransport {
                 )
             }
             (Some("auth.x.ai"), "/oauth2/token") => {
+                if self.fail_next_grok_poll.swap(false, Ordering::SeqCst) {
+                    return Err(TransportError::new(
+                        TransportErrorStage::AwaitHeaders,
+                        TransportFailureScope::Endpoint,
+                        RetrySafety::DefinitelyNotSent,
+                        "temporary device token failure",
+                    ));
+                }
                 assert!(!self.grok_polled.swap(true, Ordering::SeqCst));
                 let form: std::collections::HashMap<_, _> =
                     url::form_urlencoded::parse(&request.body)

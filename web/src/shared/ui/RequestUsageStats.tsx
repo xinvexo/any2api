@@ -78,11 +78,11 @@ export function RequestUsageStats({
               key={slot.startedAtMs}
               type="button"
               className={cn(
-                "min-w-[2px] flex-1 rounded-[2.5px] transition-[transform,filter,box-shadow] duration-100",
+                "min-w-[2px] flex-1 rounded-[2.5px] transition-[filter] duration-100",
                 "focus-ring outline-none",
                 requestUsageSlotBarClass(tone),
                 hover?.index === index &&
-                  "relative z-[1] scale-y-125 shadow-[0_0_0_1px_rgb(0_0_0/12%)] dark:shadow-[0_0_0_1px_rgb(255_255_255/18%)] brightness-[0.96]",
+                  "brightness-[1.08] saturate-[1.12]",
               )}
               aria-describedby={hover?.index === index ? tooltipId : undefined}
               aria-label={slotAriaLabel(slot, usage.windowMinutes, tone)}

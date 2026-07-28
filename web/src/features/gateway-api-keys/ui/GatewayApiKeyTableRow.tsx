@@ -1,4 +1,4 @@
-import { Ban, Copy, Pencil, Power, Trash2 } from "lucide-react";
+import { Ban, Copy, Pencil, Power, RefreshCw, Trash2 } from "lucide-react";
 
 import type { GatewayApiKey } from "../api/gateway-api-key-contracts";
 import { notify } from "@/shared/notifications";
@@ -11,6 +11,7 @@ export interface GatewayApiKeyTableRowProps {
   pending: boolean;
   onEdit: (id: string) => void;
   onToggleEnabled: (key: GatewayApiKey) => void;
+  onRotate: (key: GatewayApiKey) => void;
   onDelete: (key: GatewayApiKey) => void;
 }
 
@@ -19,6 +20,7 @@ export function GatewayApiKeyTableRow({
   pending,
   onEdit,
   onToggleEnabled,
+  onRotate,
   onDelete,
 }: GatewayApiKeyTableRowProps) {
   async function copyToken() {
@@ -72,6 +74,14 @@ export function GatewayApiKeyTableRow({
           >
             <Pencil size={13} />
             编辑
+          </RowActionButton>
+          <RowActionButton
+            label={`轮换 ${apiKey.name} 的密钥`}
+            disabled={pending}
+            onClick={() => onRotate(apiKey)}
+          >
+            <RefreshCw size={13} />
+            轮换
           </RowActionButton>
           <RowActionButton
             label={`删除 ${apiKey.name}`}

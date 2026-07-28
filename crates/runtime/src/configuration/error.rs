@@ -83,8 +83,6 @@ pub enum ConfigPublishError {
     GatewayApiKeyTokenVersionConflict,
     #[error("gateway API Key name is already in use")]
     GatewayApiKeyNameConflict,
-    #[error("gateway API Key was revoked")]
-    GatewayApiKeyRevoked,
     #[error("invalid gateway API Key configuration: {0}")]
     InvalidGatewayApiKey(GatewayApiKeyValidationError),
     #[error("gateway API Key token generation failed")]
@@ -145,7 +143,6 @@ impl From<StorageError> for ConfigPublishError {
                 Self::GatewayApiKeyTokenVersionConflict
             }
             StorageError::GatewayApiKeyNameConflict => Self::GatewayApiKeyNameConflict,
-            StorageError::GatewayApiKeyRevoked => Self::GatewayApiKeyRevoked,
             StorageError::GatewayApiKeyValidation(error) => Self::InvalidGatewayApiKey(error),
             StorageError::ModelRouteValidation(error) => Self::InvalidModelRoute(error),
             StorageError::SettingsValidation(error) => Self::InvalidSetting(error),

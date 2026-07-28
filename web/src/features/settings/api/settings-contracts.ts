@@ -1,6 +1,6 @@
-export type SettingValueType = "boolean" | "integer" | "duration_secs" | "enum" | "string_list";
+export type SettingValueType = "boolean" | "integer" | "duration_secs" | "enum" | "optional_string_list";
 export type SettingApplyMode = "hot_reload" | "restart_required";
-export type SettingValue = boolean | number | string | string[];
+export type SettingValue = boolean | number | string | string[] | null;
 
 export interface SettingItem {
   key: string;
@@ -81,7 +81,7 @@ function parseSettingItem(value: unknown): SettingItem {
 }
 
 function readOptions(value: unknown, valueType: SettingValueType) {
-  if (valueType !== "string_list") {
+  if (valueType !== "optional_string_list") {
     if (value !== null) {
       throw invalidResponse();
     }
@@ -135,7 +135,10 @@ function readSettingValue(
     }
     return text;
   }
-  if (valueType === "string_list") {
+  if (valueType === "optional_string_list") {
+    if (value === null) {
+      return null;
+    }
     const values = readStringArray(value);
     if (
       new Set(values).size !== values.length
@@ -199,7 +202,7 @@ function readValueType(value: unknown): SettingValueType {
     && value !== "integer"
     && value !== "duration_secs"
     && value !== "enum"
-    && value !== "string_list"
+    && value !== "optional_string_list"
   ) {
     throw invalidResponse();
   }
@@ -220,7 +223,7 @@ function settingValuesEqual(left: SettingValue, right: SettingValue) {
       && left.length === right.length
       && left.every((value, index) => value === right[index]);
   }
-  return typeof left === typeof right && left === right;
+  return left === right;
 }
 
 function invalidResponse() {

@@ -11,7 +11,10 @@ use super::{
 };
 use crate::{
     configuration::PublishedSnapshot,
-    routing::{OAuthRoute, build_oauth_route_candidates, build_route_candidates, oauth_route_id},
+    routing::{
+        CandidateRequirements, OAuthRoute, build_oauth_route_candidates, build_route_candidates,
+        oauth_route_id,
+    },
 };
 
 pub(super) struct PlannedRequest {
@@ -86,6 +89,8 @@ fn plan_decoded(
     } else {
         TransportMode::Json
     };
+    let requirements =
+        CandidateRequirements::new(decoded.operation, decoded.execution_profile, transport_mode);
     let (route_id, dialect, fallback_on_rate_limit, tiers) = if let Some(route) = route {
         (
             route.id(),
@@ -93,14 +98,7 @@ fn plan_decoded(
             route
                 .fallback_on_rate_limit()
                 .unwrap_or_else(|| snapshot.queue_policy().fallback_on_rate_limit()),
-            build_route_candidates(
-                snapshot,
-                route,
-                protocols,
-                providers,
-                decoded.operation,
-                transport_mode,
-            ),
+            build_route_candidates(snapshot, route, protocols, providers, requirements),
         )
     } else {
         let route_id = oauth_route_id(decoded.dialect, &public_model);
@@ -109,8 +107,7 @@ fn plan_decoded(
             OAuthRoute::new(route_id, decoded.dialect, &public_model),
             protocols,
             providers,
-            decoded.operation,
-            transport_mode,
+            requirements,
         );
         if tiers.is_empty() {
             return Err(model_not_found());

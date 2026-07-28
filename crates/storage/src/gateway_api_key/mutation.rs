@@ -249,7 +249,6 @@ fn utf8_token(token: &SecretBytes) -> Result<String, StorageError> {
 fn map_validation(error: GatewayApiKeyValidationError) -> StorageError {
     match error {
         GatewayApiKeyValidationError::DuplicateName => StorageError::GatewayApiKeyNameConflict,
-        GatewayApiKeyValidationError::Revoked => StorageError::GatewayApiKeyRevoked,
         GatewayApiKeyValidationError::DuplicateId => StorageError::CorruptConfiguration,
         other => StorageError::GatewayApiKeyValidation(other),
     }

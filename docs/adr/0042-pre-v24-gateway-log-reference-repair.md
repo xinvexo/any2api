@@ -1,6 +1,8 @@
 # ADR-0042：Migration 24 前归一化悬空 Gateway Key 日志引用
 
-- 状态：Accepted
+> 已由 ADR-0058 取代；首版前数据库直接按规范 Schema 重建，不再执行此修复。
+
+- 状态：Superseded by ADR-0058
 - 日期：2026-07-25
 - 决策人：项目维护者
 

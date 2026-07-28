@@ -12,6 +12,9 @@ impl ConfigPublisher {
         key: SettingKey,
         value: SettingValue,
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        if key == SettingKey::ModelsAllowed && value == SettingValue::OptionalStringList(None) {
+            return self.reset_setting_override(expected, key).await;
+        }
         self.publish(expected, ConfigCommand::SetSettingOverride { key, value })
             .await
     }
@@ -32,7 +35,7 @@ impl ConfigPublisher {
     ) -> Result<(), ConfigPublishError> {
         let ConfigCommand::SetSettingOverride {
             key: SettingKey::ModelsAllowed,
-            value: SettingValue::StringList(models),
+            value: SettingValue::OptionalStringList(Some(models)),
         } = command
         else {
             return Ok(());

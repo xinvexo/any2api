@@ -58,10 +58,10 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(soft_mode["effective_value"], "prefer");
     assert_eq!(soft_mode["allowed_values"], json!(["prefer", "strict"]));
     let models = find_setting(&initial, "models.allowed");
-    assert_eq!(models["value_type"], "string_list");
-    assert_eq!(models["default_value"], json!([]));
+    assert_eq!(models["value_type"], "optional_string_list");
+    assert_eq!(models["default_value"], Value::Null);
     assert_eq!(models["override_value"], Value::Null);
-    assert_eq!(models["effective_value"], json!([]));
+    assert_eq!(models["effective_value"], Value::Null);
     assert_eq!(models["allowed_values"], Value::Null);
     assert_eq!(models["options"], json!([]));
     assert_eq!(models["web_group"], "公开模型");

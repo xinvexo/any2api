@@ -167,11 +167,6 @@ impl From<ConfigPublishError> for AdminApiError {
                 "gateway_api_key_name_conflict",
                 "gateway API Key name is already in use",
             ),
-            ConfigPublishError::GatewayApiKeyRevoked => AdminApiError::new(
-                StatusCode::CONFLICT,
-                "gateway_api_key_revoked",
-                "a revoked gateway API Key cannot be re-enabled or rotated",
-            ),
             ConfigPublishError::InvalidGatewayApiKey(error) => AdminApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalid_gateway_api_key",

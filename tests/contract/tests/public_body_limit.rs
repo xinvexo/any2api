@@ -165,7 +165,6 @@ async fn test_app_with_gateway_key() -> (tempfile::TempDir, Router, String) {
         web_root,
     );
 
-    let token = format!("sk-{}", "b".repeat(48));
     let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
     let request = Request::builder()
         .method(Method::POST)
@@ -176,13 +175,23 @@ async fn test_app_with_gateway_key() -> (tempfile::TempDir, Router, String) {
             serde_json::to_vec(&json!({
                 "expected_revision": revision,
                 "name": "body-limit-client",
-                "enabled": true,
-                "token": token
+                "enabled": true
             }))
             .expect("request JSON"),
         ))
         .expect("request");
     let response = app.clone().oneshot(request).await.expect("response");
     assert!(response.status().is_success());
+    let bytes = response
+        .into_body()
+        .collect()
+        .await
+        .expect("gateway response body")
+        .to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).expect("gateway response JSON");
+    let token = body["items"][0]["token"]
+        .as_str()
+        .expect("gateway token in collection item")
+        .to_owned();
     (directory, app, token)
 }

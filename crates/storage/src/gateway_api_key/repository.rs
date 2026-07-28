@@ -40,7 +40,7 @@ pub trait GatewayApiKeyRepository: Send + Sync {
         token: SecretBytes,
     ) -> Result<StoredConfiguration, StorageError>;
 
-    async fn revoke_gateway_api_key(
+    async fn delete_gateway_api_key(
         &self,
         expected: ConfigRevision,
         id: GatewayApiKeyId,
@@ -104,7 +104,7 @@ impl GatewayApiKeyRepository for SqliteStore {
         .await
     }
 
-    async fn revoke_gateway_api_key(
+    async fn delete_gateway_api_key(
         &self,
         expected: ConfigRevision,
         id: GatewayApiKeyId,

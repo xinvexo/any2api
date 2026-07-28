@@ -10,7 +10,7 @@ use serde_json::Value;
 
 pub use crate::{ProtocolError, ProtocolRegistry};
 
-use super::exchange::StartedProtocolBridge;
+use super::{exchange::StartedProtocolBridge, execution_profile::RequestExecutionProfile};
 
 #[derive(Clone)]
 pub struct IngressRequest {
@@ -25,6 +25,7 @@ pub struct IngressRequest {
 pub struct DecodedRequest {
     pub dialect: ProtocolDialect,
     pub operation: ProtocolOperation,
+    pub execution_profile: RequestExecutionProfile,
     /// Auth-stripped ingress headers retained only for the selected Provider's
     /// bounded allowlist projection. Never log or forward this map wholesale.
     pub client_headers: HeaderMap,
@@ -300,6 +301,7 @@ impl fmt::Debug for DecodedRequest {
             .debug_struct("DecodedRequest")
             .field("dialect", &self.dialect)
             .field("operation", &self.operation)
+            .field("execution_profile", &self.execution_profile)
             .field("client_header_count", &self.client_headers.len())
             .field("body_encoding", &self.body_encoding)
             .field("model", &self.model)

@@ -2,9 +2,10 @@ import { Check, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { SettingItem } from "../api/settings-contracts";
-import type { SettingDraft } from "../model/setting-draft";
+import type { ModelAccessDraft, SettingDraft } from "../model/setting-draft";
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
+import { Switch } from "@/shared/ui/Switch";
 
 export function ModelAllowlistControl({
   item,
@@ -23,17 +24,16 @@ export function ModelAllowlistControl({
 }) {
   const [query, setQuery] = useState("");
   const options = useMemo(() => item.options ?? [], [item.options]);
-  const selected = useMemo(
-    () => new Set(Array.isArray(value) ? value : []),
-    [value],
-  );
+  const access: ModelAccessDraft =
+    typeof value === "object" ? value : { mode: "all", models: [] };
+  const selected = useMemo(() => new Set(access.models), [access.models]);
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return options.filter((model) => !needle || model.toLowerCase().includes(needle));
   }, [options, query]);
 
   function publish(next: Set<string>) {
-    onChange([...next].sort());
+    onChange({ mode: "only", models: [...next].sort() });
   }
 
   function toggle(model: string) {
@@ -60,28 +60,46 @@ export function ModelAllowlistControl({
     <div className="min-w-0 space-y-2.5" role="group" aria-labelledby={labelledBy}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-[12px] tabular-nums text-secondary">
-          {selected.size === 0 ? `全部 ${options.length} 个模型可用` : `已允许 ${selected.size} / ${options.length}`}
+          {access.mode === "all"
+            ? `全部 ${options.length} 个模型可用`
+            : selected.size === 0
+              ? "已拒绝全部模型"
+              : `已允许 ${selected.size} / ${options.length}`}
         </span>
-        <div className="flex flex-wrap items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={disabled || visible.length === 0}
-            onClick={selectVisible}
-          >
-            <Check size={14} aria-hidden="true" />
-            选择当前
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={disabled || visible.length === 0}
-            onClick={clearVisible}
-          >
-            <X size={14} aria-hidden="true" />
-            清除当前
-          </Button>
+        <div className="flex items-center gap-2 text-[12px] text-secondary">
+          <span>允许全部</span>
+          <Switch
+            checked={access.mode === "all"}
+            disabled={disabled}
+            aria-label="允许全部公开模型"
+            onCheckedChange={(checked) =>
+              onChange({
+                mode: checked ? "all" : "only",
+                models: access.models,
+              })
+            }
+          />
         </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disabled || access.mode === "all" || visible.length === 0}
+          onClick={selectVisible}
+        >
+          <Check size={14} aria-hidden="true" />
+          选择当前
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={disabled || access.mode === "all" || visible.length === 0}
+          onClick={clearVisible}
+        >
+          <X size={14} aria-hidden="true" />
+          清除当前
+        </Button>
       </div>
 
       <div className="relative">
@@ -96,7 +114,7 @@ export function ModelAllowlistControl({
           placeholder="搜索模型"
           aria-label="搜索可用模型"
           aria-describedby={describedBy}
-          disabled={disabled}
+          disabled={disabled || access.mode === "all"}
           onChange={(event) => setQuery(event.target.value)}
         />
       </div>
@@ -117,7 +135,7 @@ export function ModelAllowlistControl({
                   type="checkbox"
                   className="size-4 accent-accent"
                   checked={selected.has(model)}
-                  disabled={disabled}
+                  disabled={disabled || access.mode === "all"}
                   aria-label={model}
                   onChange={() => toggle(model)}
                 />

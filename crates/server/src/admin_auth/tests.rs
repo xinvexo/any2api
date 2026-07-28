@@ -1,17 +1,16 @@
 use std::{
     net::{IpAddr, Ipv4Addr},
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use any2api_domain::{SettingKey, SettingOverrides, SettingValue, SettingsConfiguration};
+use any2api_domain::SettingsConfiguration;
 use any2api_runtime::api::ProcessLifecycle;
 use async_trait::async_trait;
 use tokio::sync::Barrier;
 
 use super::{
     AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, StoredAdminPasswordHash,
-    session::{SessionKey, SessionRecord, random_bytes},
 };
 
 #[tokio::test]
@@ -276,37 +275,6 @@ async fn cancelled_setup_keeps_the_single_hash_permit_and_does_not_initialize() 
     assert_eq!(service.available_setup_checks(), 0);
     wait_for_available_setup_checks(&service, 1).await;
     assert!(!service.is_initialized().await);
-}
-
-#[test]
-fn session_record_enforces_idle_and_absolute_deadlines() {
-    let settings = SettingsConfiguration::from_overrides(
-        SettingOverrides::from_entries([
-            (
-                SettingKey::AdminSessionIdleTimeout,
-                SettingValue::DurationSecs(60),
-            ),
-            (
-                SettingKey::AdminSessionAbsoluteTimeout,
-                SettingValue::DurationSecs(120),
-            ),
-        ])
-        .expect("overrides"),
-    )
-    .expect("settings");
-    let now = Instant::now();
-    let key = SessionKey(random_bytes().expect("key"));
-    let mut record = SessionRecord::new(random_bytes().expect("csrf"), now);
-    assert!(
-        record
-            .authenticate(key, now + Duration::from_secs(59), settings.admin())
-            .is_some()
-    );
-    assert!(
-        record
-            .authenticate(key, now + Duration::from_secs(121), settings.admin())
-            .is_none()
-    );
 }
 
 #[derive(Default)]

@@ -3,9 +3,9 @@ use thiserror::Error;
 pub const GATEWAY_TOKEN_HASH_VERSION: u32 = 1;
 pub const GATEWAY_TOKEN_VERSION: u64 = 1;
 /// Client-facing gateway tokens always start with this fixed prefix.
-pub const GATEWAY_TOKEN_PREFIX: &str = "sk-";
-/// Random body length after `sk-` (A-Za-z0-9 only).
-pub const GATEWAY_TOKEN_BODY_LEN: usize = 48;
+pub const GATEWAY_TOKEN_PREFIX: &str = "a2k_v1_";
+/// URL-safe Base64 without padding for exactly 32 random bytes.
+pub const GATEWAY_TOKEN_BODY_LEN: usize = 43;
 
 const MAX_CONFIG_VERSION: u64 = u32::MAX as u64;
 const MAX_NAME_CHARS: usize = 100;
@@ -29,10 +29,6 @@ pub enum GatewayApiKeyValidationError {
     InvalidVersion,
     #[error("gateway API Key timestamp is invalid")]
     InvalidTimestamp,
-    #[error("revoked gateway API Key must remain disabled")]
-    RevokedEnabled,
-    #[error("gateway API Key was revoked")]
-    Revoked,
     #[error("gateway API Key id is duplicated")]
     DuplicateId,
     #[error("gateway API Key name is duplicated")]
@@ -92,14 +88,16 @@ pub(crate) fn next_version(value: u64) -> Result<u64, GatewayApiKeyValidationErr
         .ok_or(GatewayApiKeyValidationError::InvalidVersion)
 }
 
-/// `sk-` + exactly [`GATEWAY_TOKEN_BODY_LEN`] ASCII letters/digits.
+/// Versioned prefix plus a 32-byte URL-safe Base64 body without padding.
 pub fn validate_token(token: String) -> Result<String, GatewayApiKeyValidationError> {
     let Some(body) = token.strip_prefix(GATEWAY_TOKEN_PREFIX) else {
         return Err(GatewayApiKeyValidationError::InvalidToken);
     };
     if body.len() != GATEWAY_TOKEN_BODY_LEN
         || !body.is_ascii()
-        || !body.bytes().all(|byte| byte.is_ascii_alphanumeric())
+        || !body
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
         || token.chars().count() > 128
     {
         return Err(GatewayApiKeyValidationError::InvalidToken);
@@ -112,10 +110,10 @@ mod tests {
     use super::{GATEWAY_TOKEN_BODY_LEN, GATEWAY_TOKEN_PREFIX, validate_token};
 
     #[test]
-    fn accepts_sk_prefix_with_alphanumeric_body() {
+    fn accepts_versioned_urlsafe_base64_body() {
         let token = format!(
             "{GATEWAY_TOKEN_PREFIX}{}",
-            "Aa0".repeat(GATEWAY_TOKEN_BODY_LEN / 3)
+            "A".repeat(GATEWAY_TOKEN_BODY_LEN)
         );
         assert_eq!(
             token.len(),
@@ -125,20 +123,20 @@ mod tests {
     }
 
     #[test]
-    fn rejects_legacy_and_malformed_tokens() {
-        assert!(validate_token(format!("a2k_v1_{}", "a".repeat(43))).is_err());
+    fn rejects_unversioned_and_malformed_tokens() {
+        assert!(validate_token(format!("sk-{}", "a".repeat(48))).is_err());
         assert!(validate_token(format!("{GATEWAY_TOKEN_PREFIX}{}", "a".repeat(10))).is_err());
         assert!(
             validate_token(format!(
                 "{GATEWAY_TOKEN_PREFIX}{}",
-                "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1) + "-"
+                "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1) + "+"
             ))
             .is_err()
         );
         assert!(
             validate_token(format!(
                 "{GATEWAY_TOKEN_PREFIX}{}",
-                "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1) + "_"
+                "a".repeat(GATEWAY_TOKEN_BODY_LEN - 1) + "="
             ))
             .is_err()
         );

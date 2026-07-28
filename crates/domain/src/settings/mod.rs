@@ -23,7 +23,7 @@ pub use logging_settings::{
     LoggingSettings, MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE,
     MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
 };
-pub use model_settings::ModelSettings;
+pub use model_settings::{ModelAccessPolicy, ModelSettings};
 pub use oauth_settings::OAuthSettings;
 pub use reliability_settings::ReliabilitySettings;
 pub use scheduler_settings::SchedulerSettings;

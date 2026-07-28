@@ -84,10 +84,20 @@ For a same-host Nginx proxy, trust only the loopback address actually used by Ng
 ```nginx
 location / {
     proxy_pass http://127.0.0.1:3210;
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_read_timeout 1200s;
+    proxy_send_timeout 1200s;
     proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
 }
 ```
+
+The 1200-second proxy window is required for the legacy unary Responses Compact endpoint and also
+covers modern Codex `remote_compaction_v2` streams whose first event can take much longer than a
+normal generation. Configure every outer CDN/load balancer with an equal or longer timeout, or
+bypass that layer for `/v1`; an HTML 502/504 near a fixed elapsed time usually means the outer proxy
+expired before any2api or the model upstream did.
 
 If Cloudflare is in front of Nginx, configure Nginx's real-IP module with Cloudflare's current official CIDRs and `CF-Connecting-IP` first, then pass the normalized `$remote_addr` as above. Keep the origin restricted to Cloudflare. any2api deliberately does not trust `CF-Connecting-IP` directly. RequestLog stores only the resulting canonical IP, never the raw forwarding chain.
 

@@ -162,12 +162,12 @@
 - `ModelRoute`/`RouteTarget` 保留为数据面内部物化结构，Route ID 由协议和模型、Target ID 由 Route 和 Endpoint 确定性派生；全部 Target 首版使用 tier 0。
 - 已删除 `/api/admin/model-routes` CRUD、Runtime 手工 Route 发布方法、React `/routes` 页面及整套模型路由编辑 feature，不保留别名和手工 tier 的兼容入口。
 - 同一 Endpoint 下不同 Credential 可以保存不同模型集合；候选构建再次校验 `Credential + upstream_model`，不会把一把 Key 的模型权限套到另一把 Key。
-- SQLite migration 会把旧 Target 按 Endpoint 展开为 Credential 模型集合；后续模型保存会按新规则完整重建内部路由。
+- 规范首版 SQLite Schema 直接以 Credential 模型集合为配置真相；模型保存按当前规则完整重建内部路由，不保留旧 Target 兼容迁移。
 - Provider、Storage、Runtime、HTTP 契约和 Web 测试覆盖目录解析、畸形 JSON、重复 ID、超大正文、读取失败、重启持久化、多 Key 模型隔离及“保存 Key -> 拉模型 -> 勾选 -> 保存”的完整流程。
 
 ### 全局公开模型允许列表切片
 
-- SettingRegistry 新增 `models.allowed` 字符串列表，默认空列表表示允许当前 PublishedSnapshot 的全部公开模型；非空列表按精确、区分大小写的公开模型名放行，不支持通配符、Provider 推断或 Gateway Key 级覆盖。
+- SettingRegistry 新增 `models.allowed` 可选字符串列表：默认 `null` 表示允许当前 PublishedSnapshot 的全部公开模型，数组按精确、区分大小写的公开模型名放行，`[]` 表示拒绝全部；不支持通配符、Provider 推断或 Gateway Key 级覆盖。
 - 管理设置响应动态返回当前已物化公开模型作为候选；Web“基础”设置提供可搜索多选、当前搜索结果全选/清除、默认值/覆盖值/生效值展示和恢复默认。
 - `/v1/models` 使用同一快照过滤目录；Responses、Compact、Chat Completions、Messages 与 Count Tokens 在会话创建、候选选择、RPM 预留和上游 I/O 前统一拒绝未放行模型，并使用对应协议的模型不存在错误。
 - ProviderCredential 或 OAuthAccount 的创建、编辑、模型变更和删除仍走唯一串行发布链；当最后一条可提供某模型的 Route 消失时，同一事务会从允许列表及 SQLite 覆盖值自动删除该名称，再 Commit、reconcile 并切换一次快照。
@@ -181,8 +181,8 @@
   - `GET/POST /api/admin/gateway-api-keys`
   - `PATCH /api/admin/gateway-api-keys/{id}`
   - `POST /api/admin/gateway-api-keys/{id}/rotate`
-  - `POST /api/admin/gateway-api-keys/{id}/revoke`
-- 管理写入继续使用全局 revision、资源 config version 和轮换 token version CAS；`revoke` 路由执行物理删除，成功后立即从 PublishedSnapshot 移除。
+  - `DELETE /api/admin/gateway-api-keys/{id}?expected_revision=...&expected_config_version=...`
+- 管理写入继续使用全局 revision、资源 config version 和轮换 token version CAS；DELETE 执行物理删除，成功后立即从 PublishedSnapshot 移除。
 - `PublishedSnapshot` 现在携带 Gateway Key 配置和 HMAC verifier；鉴权、路由和 revision 使用同一快照，旧请求持有旧快照时不会被热更新中途改变。
 - `/v1/models` 已返回 PublishedSnapshot 中的公开模型目录；Responses、Responses Compact、Chat Completions、Messages 和 Count Tokens 已进入执行链，Responses 可显式桥接到 Chat Completions；未知 `/v1/*` 不再回落到 SPA。
 - `/v1/*` 支持 `Authorization: Bearer` 与 `x-api-key`，冲突 Token 拒绝；认证成功后剥离 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie。
@@ -286,6 +286,7 @@
 - 新增认证 API：`GET /api/admin/auth/session`、`POST /api/admin/auth/setup`、`POST /api/admin/auth/login`、`POST /api/admin/auth/logout`。
 - 登录签发 256 位随机服务端会话和独立 CSRF Token；会话、登录失败窗口与 CSRF 状态只保存在内存。Cookie 固定为 `HttpOnly`、`SameSite=Strict`、`Path=/api/admin`，可信 HTTPS 连接额外设置 `Secure`。
 - Setup/登录 Argon2id 使用随 blocking 任务存活的有界 Permit；请求取消不会放大并发哈希或跳过登录失败记账。
+- 管理员会话最多 32 个；签发和认证都会全局清理过期记录，达到上限时淘汰最早签发的会话。
 - 受保护管理写请求统一检查会话 Cookie 与 `X-CSRF-Token`；`GatewayApiKey` 仍不能登录管理面。未注入认证服务的嵌入测试 Router 只保留 loopback-only 门禁，正式 Composition Root 始终注入认证服务。
 - 全部 `/api/admin` 响应统一设置 `Cache-Control: no-store` 与 `Vary: Cookie`，登出后不会从浏览器或共享反代复用旧配置响应。
 - 新增 `admin.remote_enabled`、会话 idle/absolute timeout、登录失败窗口与最大失败次数五项 SettingRegistry 设置；Web 显示默认/覆盖/生效值并支持热更新。
@@ -296,7 +297,7 @@
 ### RequestLog 与 Attempt 有界遥测切片
 
 - `/v1` 外层统一生成本地 Request ID，并覆盖所有公开响应的 `x-request-id`；通过 GatewayApiKey 鉴权并进入模型执行链后创建请求记录。
-- 管理面与公开面复用 Server 级可信代理来源解析；直连记录 TCP 对端，可信代理从 XFF 右向左剥离连续可信跳。RequestLog 只保存规范化 `client_ip`，不保存原始 XFF/CF 头；Migration 26 前的历史记录保持 `NULL`。
+- 管理面与公开面复用 Server 级可信代理来源解析；直连记录 TCP 对端，可信代理从 XFF 右向左剥离连续可信跳。RequestLog 只保存规范化 `client_ip`，不保存原始 XFF/CF 头。
 - 新增 `RequestLog`、`RequestAttempt` 与结果枚举，以及 SQLite `request_logs`/`request_attempts` 父子表；配置实体删除后历史外键自动置空，日志不参与启动恢复。
 - 每个请求在内存中聚合全部 Attempt，结束时只进行一次同步 `try_send`；队列满、Writer 关闭或 SQLite 写入失败只计数并丢弃，不等待或阻塞数据面。
 - 后台 Writer 使用小批量事务写入父子记录，并在空闲期也按保留期限或最大行数任一上限定时分批清理；日志设置随配置发布即时刷新，停机提供有限刷新窗口，不保存排队状态。
@@ -310,7 +311,7 @@
 
 ### 完整 HTTP 系统日志切片
 
-- Migration 27 新增独立 `http_access_logs`，记录全局 Request ID、开始时间、配置 revision、规范客户端 IP、Method、客户端实际 URI path、HTTP version、可用状态码、Body 生命周期耗时、实际响应字节和 completed/body_error/cancelled 结果；Migration 28 在保持 27 首次 checksum 不变的前提下前向放宽 method 长度约束，并原样保留既有日志。
+- 规范首版 Schema 包含独立 `http_access_logs`，记录全局 Request ID、开始时间、配置 revision、规范客户端 IP、任意非空 Method、客户端实际 URI path、HTTP version、可用状态码、Body 生命周期耗时、实际响应字节和 completed/body_error/cancelled 结果。
 - 最外层 Axum 中间件覆盖公开/管理鉴权失败、健康检查、Web 资源与 deep link、404/405 和正常 API；全部响应统一覆盖 `x-request-id`，模型 RequestLog 复用同一 ID，但两类日志模型、表和管理用途保持独立。
 - path 直接读取入口 `request.uri().path()`，不使用路由模板、不改为 `/api/*` 等通配形式，也不做内部路由归一化；query、Header、Cookie、User-Agent、Referer、请求体与响应体不落库。
 - 系统日志复用现有有界非阻塞遥测队列和 `logs.request.*` 策略；RequestLog 与 HttpAccessLog 分别执行相同的 retention/max_rows 上限，任一类型都不会挤掉另一类历史。
@@ -443,8 +444,8 @@
 - 新增 `ProviderKind::Grok` 与独立 `GrokDriver`，使用 xAI Bearer API Key；支持 OpenAI Responses、Responses Compact、Chat Completions、JSON/SSE 和标准 `GET /models`，Web 默认 Base URL 为 `https://api.x.ai/v1`。
 - Composition Root 和 Registry 契约枚举 Grok；配置能力由 Driver/Protocol Registry 推导，Runtime 调度、RPM、粘性、健康、重试、代理、流式生命周期和遥测没有增加 Provider 分支。
 - Codex 与 Grok 共享具名 OpenAI 错误分类和 Bearer Header 构造，Claude 保持独立 Anthropic 行为；Provider Secret Vault 为 Grok 固定分配稳定 AAD code `3`。
-- Migration 0024 前向重建受 `provider_endpoints` 外键影响的配置与日志表，完整保留 Credential、模型、Route、RequestLog、Attempt、索引和外键；既有 Migration 未修改，migration 16 升级回归与 `foreign_key_check` 已覆盖。
-- Migration 0025 前向重建 OAuthAccount 与请求日志相关外键图，在保留账号、模型、RequestLog、Attempt、索引和级联语义的同时允许 Grok；既有 Migration 不修改，`foreign_key_check` 与升级回归已覆盖。
+- 规范首版 Schema 直接表达 Grok Provider、Credential、模型、Route、RequestLog、Attempt、索引和完整外键图，并由 `foreign_key_check` 回归覆盖。
+- OAuthAccount、账号模型和请求日志引用直接接受 Grok，不保留开发期表重建或旧 Provider CHECK 的升级路径。
 - Grok OAuth 使用 Device Authorization Grant，固定 xAI CLI device/token Endpoint、Client ID、scope、数据面与身份头；Provider 分类 pending/slow-down/拒绝/过期，Web 展示 user code 并按服务端间隔自动轮询。device code 只在服务端内存，Token 原始 JSON 作为独立 `OAuthAccount` 明文保存在 SQLite，不进入 Vault、管理 DTO、日志、浏览器状态或下载文件。
 - Grok OAuth 首版只参与 Responses；API Key 与 OAuthAccount 仍通过同一 Registry 和通用 `RoutingCredential` 投影复用 RPM、排队、粘性、健康、重试、代理和流式生命周期，不复制第二套调度实现。
 - Provider 源码按 `codex/`、`claude/`、`grok/` feature 目录归档；Provider 根目录只保留跨 Provider 的稳定 API、Registry、错误、Secret 与 OAuth/Routing 通用模块。
@@ -503,7 +504,7 @@
 - 数据目录由进程级文件锁独占；管理员密码可在线轮换，成功后仅保留当前请求获得的新会话，其他旧会话立即失效。
 - 运行态 RPM 窗口、`in_flight`、请求等待、会话绑定、健康、冷却和熔断都只保存在内存；进程重启后这些状态全部从零开始。
 - ProviderCredential 与 OAuthAccount 分别承载 API Key generation 和独立 token/account generation，并通过带来源标签的 `RoutingCredentialId` 编译到同一候选池；两类持久化模型和管理 API 保持分离。
-- 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 与完整 HttpAccessLog 已写入 SQLite，规范客户端 IP、精确 Token Usage、客户端可见流式 TTFT 和 HTTP Body 生命周期已按各自协议契约采集；Migration 26 前的 RequestLog IP 和其他无法精确获取的值保持 `NULL`。
+- 当前 JSON/Compact/Count Tokens 与非成功 SSE 错误正文已使用统一上游 read timeout；成功 SSE 分别使用可配置 PrecommitBudget 与提交后 idle timeout。RequestLog/Attempt 与完整 HttpAccessLog 已写入 SQLite，规范客户端 IP、精确 Token Usage、客户端可见流式 TTFT 和 HTTP Body 生命周期已按各自协议契约采集；其他无法精确获取的值保持 `NULL`。
 - RequestLog/Attempt 对 API Key 与 OAuth 使用互斥来源列；OAuth 不暴露内部固定 Endpoint。Provider/OAuth 管理页显示各自日志窗口统计，请求日志列表显式标识最终上游来源；Gateway Key 入口统计保持不变。负载均衡运行态 API 只返回两类来源合并后的全局/Provider 汇总；RPM 窗口、`in_flight`、队列和内部选择/过滤计数只读自当前进程内存，不持久化、不参与启动恢复。
 - Gateway 鉴权失败、认证头冲突、公开 404/405 与已认证执行错误都由对应 Responses/Messages Adapter 编码；公开 Router 不再存在第二套简化 JSON。
 - 正式运行默认从二进制内嵌 React 资源提供管理面；改变当前工作目录或删除源码树不会影响页面，外部 Web 目录必须通过 `ANY2API_WEB_DIR` 显式选择。

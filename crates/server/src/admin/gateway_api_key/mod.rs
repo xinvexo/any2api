@@ -14,7 +14,9 @@ pub(super) fn routes() -> Router<AppState> {
             "/gateway-api-keys",
             get(handlers::list).post(handlers::create),
         )
-        .route("/gateway-api-keys/{id}", patch(handlers::update))
+        .route(
+            "/gateway-api-keys/{id}",
+            patch(handlers::update).delete(handlers::delete),
+        )
         .route("/gateway-api-keys/{id}/rotate", post(handlers::rotate))
-        .route("/gateway-api-keys/{id}/revoke", post(handlers::revoke))
 }

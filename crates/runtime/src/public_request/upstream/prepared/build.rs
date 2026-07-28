@@ -110,6 +110,7 @@ fn build_request<'a>(
             )
         })?;
     let ingress_operation = decoded.operation;
+    let execution_profile = decoded.execution_profile;
     let ingress_dialect = decoded.dialect;
     let client_headers = decoded.client_headers.clone();
     let body_encoding = decoded.body_encoding;
@@ -172,6 +173,7 @@ fn build_request<'a>(
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
             read_timeout: execution_limits::read_timeout(
                 ingress_operation,
+                execution_profile,
                 Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
             ),
         },

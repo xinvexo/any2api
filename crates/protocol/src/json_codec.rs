@@ -9,7 +9,7 @@ use crate::{
     ProtocolError, affinity,
     api::{
         AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-        EncodedUpstreamRequest, IngressRequest,
+        EncodedUpstreamRequest, IngressRequest, RequestExecutionProfile,
     },
 };
 
@@ -49,10 +49,12 @@ pub(crate) fn decode_request(
     let affinity = affinity::extract(request.operation, &request.headers, object)?;
     let thinking_level = extract_thinking_level(object);
     let body_encoding = request_body_encoding(&request.headers)?;
+    let execution_profile = request_execution_profile(request.operation, object);
 
     Ok(DecodedRequest {
         dialect,
         operation: request.operation,
+        execution_profile,
         client_headers: request.headers.clone(),
         headers: HeaderMap::new(),
         body_encoding,
@@ -62,6 +64,27 @@ pub(crate) fn decode_request(
         affinity,
         payload: AdapterPayload::Json(value),
     })
+}
+
+fn request_execution_profile(
+    operation: ProtocolOperation,
+    object: &Map<String, Value>,
+) -> RequestExecutionProfile {
+    if operation == ProtocolOperation::ResponsesCompact
+        || operation == ProtocolOperation::Responses
+            && object
+                .get("input")
+                .and_then(Value::as_array)
+                .and_then(|input| input.last())
+                .and_then(Value::as_object)
+                .and_then(|item| item.get("type"))
+                .and_then(Value::as_str)
+                == Some("compaction_trigger")
+    {
+        RequestExecutionProfile::RemoteCompaction
+    } else {
+        RequestExecutionProfile::Standard
+    }
 }
 
 fn request_body_encoding(headers: &HeaderMap) -> Result<RequestBodyEncoding, ProtocolError> {
@@ -208,4 +231,56 @@ pub(crate) fn encode_response(
         headers,
         body,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::ProtocolOperation;
+    use serde_json::json;
+
+    use super::request_execution_profile;
+    use crate::api::RequestExecutionProfile;
+
+    #[test]
+    fn only_a_final_responses_compaction_trigger_selects_the_remote_profile() {
+        let remote = json!({
+            "input": [
+                {"type":"message","role":"user","content":"hello"},
+                {"type":"compaction_trigger"}
+            ]
+        });
+        assert_eq!(
+            request_execution_profile(
+                ProtocolOperation::Responses,
+                remote.as_object().expect("request object"),
+            ),
+            RequestExecutionProfile::RemoteCompaction
+        );
+
+        for ordinary in [
+            json!({"input":[{"type":"compaction_trigger"},{"type":"message"}]}),
+            json!({"input":[{"type":"message","content":{"type":"compaction_trigger"}}]}),
+            json!({"input":"compaction_trigger"}),
+        ] {
+            assert_eq!(
+                request_execution_profile(
+                    ProtocolOperation::Responses,
+                    ordinary.as_object().expect("request object"),
+                ),
+                RequestExecutionProfile::Standard
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_responses_compact_always_uses_the_remote_profile() {
+        let request = json!({"input":[]});
+        assert_eq!(
+            request_execution_profile(
+                ProtocolOperation::ResponsesCompact,
+                request.as_object().expect("request object"),
+            ),
+            RequestExecutionProfile::RemoteCompaction
+        );
+    }
 }

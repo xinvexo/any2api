@@ -5,7 +5,7 @@ use any2api_domain::{
     ProtocolDialect, ProtocolOperation, ProviderCredentialDraft, ProviderEndpointDraft,
     ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName, TransportMode,
 };
-use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
+use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry, api::RequestExecutionProfile};
 use any2api_provider::{CodexDriver, GrokDriver, api::ProviderRegistry};
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use tempfile::tempdir;
@@ -14,7 +14,10 @@ use crate::{
     configuration::{ConfigPublisher, PublishedSnapshot, SnapshotStore},
     credential::ProviderApiKeySecret,
     registry::RuntimeRegistry,
-    routing::{OAuthRoute, build_oauth_route_candidates, build_route_candidates, oauth_route_id},
+    routing::{
+        CandidateRequirements, OAuthRoute, build_oauth_route_candidates, build_route_candidates,
+        oauth_route_id,
+    },
 };
 
 #[tokio::test]
@@ -102,6 +105,100 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
 }
 
 #[tokio::test]
+async fn remote_compaction_excludes_responses_to_chat_bridge_targets() {
+    let directory = tempdir().expect("temporary directory");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("config.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let initial = storage.load_configuration().await.expect("configuration");
+    let runtime = Arc::new(RuntimeRegistry::new());
+    let capabilities = crate::test_support::configuration_capabilities();
+    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
+        initial,
+        runtime.as_ref(),
+        capabilities.provider_registry(),
+    )));
+    let publisher = ConfigPublisher::new(
+        Arc::clone(&storage),
+        Arc::clone(&snapshots),
+        Arc::clone(&runtime),
+        Arc::clone(&capabilities),
+    )
+    .expect("configuration publisher");
+    let endpoint_id = ProviderEndpointId::new();
+    let credential_id = CredentialId::new();
+    let model = PublicModelName::new("bridge-only-model").expect("public model");
+
+    let endpoint = publisher
+        .create_provider_endpoint(
+            ConfigRevision::INITIAL,
+            endpoint_id,
+            ProviderEndpointDraft::with_upstream_protocol(
+                "Chat bridge",
+                ProviderKind::Codex,
+                "https://api.example.com/v1",
+                ProtocolDialect::OpenAiResponses,
+                Some(ProtocolDialect::OpenAiChatCompletions),
+                true,
+            )
+            .expect("endpoint draft"),
+        )
+        .await
+        .expect("endpoint");
+    let credential = publisher
+        .create_provider_credential(
+            endpoint.revision(),
+            credential_id,
+            endpoint_id,
+            credential_draft("Bridge credential"),
+            ProviderApiKeySecret::new("sk-chat-bridge-key".to_owned()),
+        )
+        .await
+        .expect("credential");
+    let snapshot = publisher
+        .set_provider_credential_models(
+            credential.revision(),
+            credential_id,
+            1,
+            vec![model.as_str().to_owned()],
+        )
+        .await
+        .expect("credential models");
+    let route = snapshot
+        .model_routes()
+        .resolve(ProtocolDialect::OpenAiResponses, &model)
+        .expect("derived route");
+
+    let standard = build_route_candidates(
+        &snapshot,
+        route,
+        capabilities.protocol_registry(),
+        capabilities.provider_registry(),
+        CandidateRequirements::new(
+            ProtocolOperation::Responses,
+            RequestExecutionProfile::Standard,
+            TransportMode::Json,
+        ),
+    );
+    assert_eq!(standard.values().flatten().count(), 1);
+
+    let compact = build_route_candidates(
+        &snapshot,
+        route,
+        capabilities.protocol_registry(),
+        capabilities.provider_registry(),
+        CandidateRequirements::new(
+            ProtocolOperation::Responses,
+            RequestExecutionProfile::RemoteCompaction,
+            TransportMode::Sse,
+        ),
+    );
+    assert!(compact.is_empty());
+}
+
+#[tokio::test]
 async fn grok_oauth_routes_responses_but_not_compact() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
@@ -161,8 +258,11 @@ async fn grok_oauth_routes_responses_but_not_compact() {
         route,
         &protocols,
         &providers,
-        ProtocolOperation::Responses,
-        TransportMode::Json,
+        CandidateRequirements::new(
+            ProtocolOperation::Responses,
+            RequestExecutionProfile::Standard,
+            TransportMode::Json,
+        ),
     );
     let candidate = responses
         .values()
@@ -180,8 +280,11 @@ async fn grok_oauth_routes_responses_but_not_compact() {
         route,
         &protocols,
         &providers,
-        ProtocolOperation::ResponsesCompact,
-        TransportMode::Json,
+        CandidateRequirements::new(
+            ProtocolOperation::ResponsesCompact,
+            RequestExecutionProfile::RemoteCompaction,
+            TransportMode::Json,
+        ),
     );
     assert!(compact.is_empty());
 }
@@ -205,8 +308,11 @@ fn candidates_for(
         route,
         &protocols,
         providers,
-        any2api_domain::ProtocolOperation::Responses,
-        TransportMode::Json,
+        CandidateRequirements::new(
+            any2api_domain::ProtocolOperation::Responses,
+            RequestExecutionProfile::Standard,
+            TransportMode::Json,
+        ),
     );
     candidates
         .values()

@@ -15,6 +15,7 @@ interface GatewayApiKeyListProps {
   onRefresh: () => void;
   onEdit: (id: string) => void;
   onToggleEnabled: (key: GatewayApiKey) => void;
+  onRotate: (key: GatewayApiKey) => void;
   onDelete: (key: GatewayApiKey) => void;
 }
 
@@ -27,6 +28,7 @@ export function GatewayApiKeyList({
   onRefresh,
   onEdit,
   onToggleEnabled,
+  onRotate,
   onDelete,
 }: GatewayApiKeyListProps) {
   const [query, setQuery] = useState("");
@@ -92,6 +94,7 @@ export function GatewayApiKeyList({
                 pending={pending}
                 onEdit={onEdit}
                 onToggleEnabled={onToggleEnabled}
+                onRotate={onRotate}
                 onDelete={onDelete}
               />
             ))}

@@ -17,12 +17,8 @@ use serde_json::{Value, json};
 use tempfile::tempdir;
 use tower::ServiceExt;
 
-fn sample_gateway_token(seed: char) -> String {
-    format!("sk-{}", seed.to_string().repeat(48))
-}
-
 #[tokio::test]
-async fn gateway_key_create_rotate_revoke_controls_public_access() {
+async fn gateway_key_create_rotate_delete_controls_public_access() {
     let (_directory, app, storage, telemetry) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let created = request_json(
@@ -32,8 +28,7 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         Some(json!({
             "expected_revision": 1,
             "name": "Desktop",
-            "enabled": true,
-            "token": sample_gateway_token('A')
+            "enabled": true
         })),
         loopback,
         &[],
@@ -41,12 +36,10 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
     .await;
     assert_eq!(created.status, StatusCode::OK);
     assert_eq!(created.cache_control.as_deref(), Some("no-store"));
-    let first_token = created.body["token"]
-        .as_str()
-        .expect("created token")
-        .to_owned();
-    assert!(first_token.starts_with("sk-"));
-    assert_eq!(first_token, sample_gateway_token('A'));
+    assert!(created.body.get("token").is_none());
+    let first_token = gateway_token(&created.body);
+    assert!(first_token.starts_with(any2api_domain::GATEWAY_TOKEN_PREFIX));
+    any2api_domain::validate_gateway_token(first_token.clone()).expect("generated token");
     assert_eq!(created.body["config_revision"], 2);
     let key_id = created.body["items"][0]["id"]
         .as_str()
@@ -143,18 +136,15 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
         Some(json!({
             "expected_revision": 2,
             "expected_config_version": 1,
-            "expected_token_version": 1,
-            "token": sample_gateway_token('B')
+            "expected_token_version": 1
         })),
         loopback,
         &[],
     )
     .await;
     assert_eq!(rotated.status, StatusCode::OK);
-    let second_token = rotated.body["token"]
-        .as_str()
-        .expect("rotated token")
-        .to_owned();
+    assert!(rotated.body.get("token").is_none());
+    let second_token = gateway_token(&rotated.body);
     assert_ne!(first_token, second_token);
     assert_eq!(rotated.body["items"][0]["token_version"], 2);
     assert_usage_window_shape(&rotated.body["items"][0]["usage"]);
@@ -182,12 +172,11 @@ async fn gateway_key_create_rotate_revoke_controls_public_access() {
 
     let deleted = request_json(
         app.clone(),
-        Method::POST,
-        &format!("/api/admin/gateway-api-keys/{key_id}/revoke"),
-        Some(json!({
-            "expected_revision": 3,
-            "expected_config_version": 2
-        })),
+        Method::DELETE,
+        &format!(
+            "/api/admin/gateway-api-keys/{key_id}?expected_revision=3&expected_config_version=2"
+        ),
+        None,
         loopback,
         &[],
     )
@@ -231,17 +220,13 @@ async fn models_list_reflects_credential_model_selection() {
         Some(json!({
             "expected_revision": 1,
             "name": "Models client",
-            "enabled": true,
-            "token": sample_gateway_token('C')
+            "enabled": true
         })),
         loopback,
         &[],
     )
     .await;
-    let token = created_key.body["token"]
-        .as_str()
-        .expect("gateway token")
-        .to_owned();
+    let token = gateway_token(&created_key.body);
 
     let endpoint = request_json(
         app.clone(),
@@ -424,14 +409,13 @@ async fn unknown_public_routes_never_fall_back_to_the_spa() {
         Some(json!({
             "expected_revision": 1,
             "name": "CLI",
-            "enabled": true,
-            "token": sample_gateway_token('D')
+            "enabled": true
         })),
         loopback,
         &[],
     )
     .await;
-    let token = created.body["token"].as_str().expect("token").to_owned();
+    let token = gateway_token(&created.body);
     let response = request_json(
         app.clone(),
         Method::GET,
@@ -523,6 +507,13 @@ fn assert_usage_window_shape(usage: &Value) {
         let second = pair[1]["started_at_ms"].as_u64().expect("second slot time");
         assert_eq!(second - first, 120_000);
     }
+}
+
+fn gateway_token(body: &Value) -> String {
+    body["items"][0]["token"]
+        .as_str()
+        .expect("gateway token in collection item")
+        .to_owned()
 }
 
 async fn wait_for_last_used(storage: &SqliteStore, key_id: &str) {

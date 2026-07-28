@@ -4,25 +4,8 @@ use any2api_domain::{ConfigRevision, GatewayApiKeyDraft, GatewayApiKeyId};
 
 use crate::{
     configuration::{ConfigPublishError, ConfigPublisher, PublishedSnapshot, publish_task},
-    gateway_api_key::GatewayApiKeyToken,
+    gateway_api_key::token::GatewayApiKeyToken,
 };
-
-pub struct GatewayApiKeyPublishResult {
-    snapshot: Arc<PublishedSnapshot>,
-    token: GatewayApiKeyToken,
-}
-
-impl GatewayApiKeyPublishResult {
-    #[must_use]
-    pub fn snapshot(&self) -> &PublishedSnapshot {
-        &self.snapshot
-    }
-
-    #[must_use]
-    pub const fn token(&self) -> &GatewayApiKeyToken {
-        &self.token
-    }
-}
 
 enum GatewayApiKeyPublishCommand {
     Create {
@@ -41,15 +24,10 @@ enum GatewayApiKeyPublishCommand {
         expected_token_version: u64,
         token: GatewayApiKeyToken,
     },
-    Revoke {
+    Delete {
         id: GatewayApiKeyId,
         expected_config_version: u64,
     },
-}
-
-struct GatewayApiKeyPublishOutcome {
-    snapshot: Arc<PublishedSnapshot>,
-    token: Option<GatewayApiKeyToken>,
 }
 
 impl ConfigPublisher {
@@ -58,20 +36,14 @@ impl ConfigPublisher {
         expected: ConfigRevision,
         id: GatewayApiKeyId,
         draft: GatewayApiKeyDraft,
-        token: GatewayApiKeyToken,
-    ) -> Result<GatewayApiKeyPublishResult, ConfigPublishError> {
-        let outcome = self
-            .publish_gateway_api_key(
-                expected,
-                GatewayApiKeyPublishCommand::Create { id, draft, token },
-            )
-            .await?;
-        Ok(GatewayApiKeyPublishResult {
-            snapshot: outcome.snapshot,
-            token: outcome
-                .token
-                .expect("create gateway API Key must return its token"),
-        })
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        let token = GatewayApiKeyToken::generate()
+            .map_err(|_| ConfigPublishError::GatewayApiKeyTokenGeneration)?;
+        self.publish_gateway_api_key(
+            expected,
+            GatewayApiKeyPublishCommand::Create { id, draft, token },
+        )
+        .await
     }
 
     pub async fn update_gateway_api_key(
@@ -90,7 +62,6 @@ impl ConfigPublisher {
             },
         )
         .await
-        .map(|outcome| outcome.snapshot)
     }
 
     pub async fn rotate_gateway_api_key(
@@ -99,28 +70,22 @@ impl ConfigPublisher {
         id: GatewayApiKeyId,
         expected_config_version: u64,
         expected_token_version: u64,
-        token: GatewayApiKeyToken,
-    ) -> Result<GatewayApiKeyPublishResult, ConfigPublishError> {
-        let outcome = self
-            .publish_gateway_api_key(
-                expected,
-                GatewayApiKeyPublishCommand::Rotate {
-                    id,
-                    expected_config_version,
-                    expected_token_version,
-                    token,
-                },
-            )
-            .await?;
-        Ok(GatewayApiKeyPublishResult {
-            snapshot: outcome.snapshot,
-            token: outcome
-                .token
-                .expect("gateway API Key rotation must return its token"),
-        })
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
+        let token = GatewayApiKeyToken::generate()
+            .map_err(|_| ConfigPublishError::GatewayApiKeyTokenGeneration)?;
+        self.publish_gateway_api_key(
+            expected,
+            GatewayApiKeyPublishCommand::Rotate {
+                id,
+                expected_config_version,
+                expected_token_version,
+                token,
+            },
+        )
+        .await
     }
 
-    pub async fn revoke_gateway_api_key(
+    pub async fn delete_gateway_api_key(
         &self,
         expected: ConfigRevision,
         id: GatewayApiKeyId,
@@ -128,20 +93,19 @@ impl ConfigPublisher {
     ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         self.publish_gateway_api_key(
             expected,
-            GatewayApiKeyPublishCommand::Revoke {
+            GatewayApiKeyPublishCommand::Delete {
                 id,
                 expected_config_version,
             },
         )
         .await
-        .map(|outcome| outcome.snapshot)
     }
 
     async fn publish_gateway_api_key(
         &self,
         expected: ConfigRevision,
         command: GatewayApiKeyPublishCommand,
-    ) -> Result<GatewayApiKeyPublishOutcome, ConfigPublishError> {
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         let publisher = self.clone();
         publish_task::run(self.runtime.lifecycle(), async move {
             publisher
@@ -156,7 +120,7 @@ impl ConfigPublisher {
         &self,
         expected: ConfigRevision,
         command: GatewayApiKeyPublishCommand,
-    ) -> Result<GatewayApiKeyPublishOutcome, ConfigPublishError> {
+    ) -> Result<Arc<PublishedSnapshot>, ConfigPublishError> {
         let _guard = self.snapshots.acquire_publish().await;
         let current = self.snapshots.load();
         if current.revision() != expected {
@@ -165,32 +129,28 @@ impl ConfigPublisher {
                 actual: current.revision(),
             });
         }
-        let (committed, token) = match command {
+        let committed = match command {
             GatewayApiKeyPublishCommand::Create { id, draft, token } => {
-                let committed = self
-                    .repository
+                self.repository
                     .create_gateway_api_key(expected, id, draft, token.storage_secret())
-                    .await?;
-                (committed, Some(token))
+                    .await?
             }
             GatewayApiKeyPublishCommand::Update {
                 id,
                 expected_config_version,
                 draft,
-            } => (
+            } => {
                 self.repository
                     .update_gateway_api_key(expected, id, expected_config_version, draft)
-                    .await?,
-                None,
-            ),
+                    .await?
+            }
             GatewayApiKeyPublishCommand::Rotate {
                 id,
                 expected_config_version,
                 expected_token_version,
                 token,
             } => {
-                let committed = self
-                    .repository
+                self.repository
                     .rotate_gateway_api_key(
                         expected,
                         id,
@@ -198,22 +158,17 @@ impl ConfigPublisher {
                         expected_token_version,
                         token.storage_secret(),
                     )
-                    .await?;
-                (committed, Some(token))
+                    .await?
             }
-            GatewayApiKeyPublishCommand::Revoke {
+            GatewayApiKeyPublishCommand::Delete {
                 id,
                 expected_config_version,
-            } => (
+            } => {
                 self.repository
-                    .revoke_gateway_api_key(expected, id, expected_config_version)
-                    .await?,
-                None,
-            ),
+                    .delete_gateway_api_key(expected, id, expected_config_version)
+                    .await?
+            }
         };
-        Ok(GatewayApiKeyPublishOutcome {
-            snapshot: self.publish_committed(current, expected, committed),
-            token,
-        })
+        Ok(self.publish_committed(current, expected, committed))
     }
 }

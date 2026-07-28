@@ -15,7 +15,7 @@
 
 新增独立 SQLite `http_access_logs` 表和 `HttpAccessLog` 领域模型。全局 Axum 中间件位于所有公开路由、管理路由、健康检查与 Web fallback 之外，因此每个到达 Axum 的请求都生成一条系统日志，包括认证失败、404 和 405。
 
-Migration 27 的首次执行版本对 `method` 使用 1 到 32 字符约束。该 checksum 已进入开发数据库后，不再回写历史 migration；Migration 28 前向重建表、原样复制已有记录，并把约束放宽为任意非空 method，从而既保留迁移历史，也按入口请求记录完整方法名。禁止修改 `_sqlx_migrations` 记录绕过校验。
+规范首版 Schema 对 `method` 只要求非空且去除首尾空白，不设置人为 32 字符上限。开发期临时约束与表重建迁移不进入首个正式版本。
 
 `HttpAccessLog` 保存：
 

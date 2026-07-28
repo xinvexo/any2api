@@ -47,7 +47,6 @@ pub struct GatewayApiKey {
     token_version: u64,
     config_version: u64,
     enabled: bool,
-    revoked_at: Option<String>,
     created_at: String,
     last_used_at: Option<String>,
 }
@@ -77,7 +76,6 @@ impl GatewayApiKey {
             token_version: GATEWAY_TOKEN_VERSION,
             config_version: GATEWAY_TOKEN_VERSION,
             enabled: draft.enabled,
-            revoked_at: None,
             created_at,
             last_used_at: None,
         })
@@ -94,7 +92,6 @@ impl GatewayApiKey {
         hash_key_id: String,
         token_version: u64,
         config_version: u64,
-        revoked_at: Option<String>,
         created_at: String,
         last_used_at: Option<String>,
     ) -> Result<Self, GatewayApiKeyValidationError> {
@@ -109,12 +106,6 @@ impl GatewayApiKey {
         let hash_key_id = validate_hash_key_id(hash_key_id)?;
         if created_at.trim().is_empty() {
             return Err(GatewayApiKeyValidationError::InvalidTimestamp);
-        }
-        if revoked_at.is_some() && draft.enabled {
-            return Err(GatewayApiKeyValidationError::RevokedEnabled);
-        }
-        if let Some(value) = revoked_at.as_ref() {
-            validate_timestamp(value.clone())?;
         }
         if let Some(value) = last_used_at.as_ref() {
             validate_timestamp(value.clone())?;
@@ -131,7 +122,6 @@ impl GatewayApiKey {
             token_version,
             config_version,
             enabled: draft.enabled,
-            revoked_at,
             created_at,
             last_used_at,
         })
@@ -140,9 +130,6 @@ impl GatewayApiKey {
     pub fn updated(&self, draft: GatewayApiKeyDraft) -> Result<Self, GatewayApiKeyValidationError> {
         if self.name == draft.name && self.enabled == draft.enabled {
             return Ok(self.clone());
-        }
-        if self.is_revoked() && draft.enabled {
-            return Err(GatewayApiKeyValidationError::Revoked);
         }
         Ok(Self {
             name: draft.name,
@@ -159,31 +146,12 @@ impl GatewayApiKey {
         token_hash: [u8; 32],
         hash_key_id: impl Into<String>,
     ) -> Result<Self, GatewayApiKeyValidationError> {
-        if self.is_revoked() {
-            return Err(GatewayApiKeyValidationError::Revoked);
-        }
         Ok(Self {
             token: validate_token(token.into())?,
             token_prefix: validate_prefix(token_prefix.into())?,
             token_hash,
             hash_key_id: validate_hash_key_id(hash_key_id.into())?,
             token_version: next_version(self.token_version)?,
-            config_version: next_version(self.config_version)?,
-            ..self.clone()
-        })
-    }
-
-    pub fn revoked(
-        &self,
-        revoked_at: impl Into<String>,
-    ) -> Result<Self, GatewayApiKeyValidationError> {
-        if self.is_revoked() {
-            return Ok(self.clone());
-        }
-        let revoked_at = validate_timestamp(revoked_at.into())?;
-        Ok(Self {
-            enabled: false,
-            revoked_at: Some(revoked_at),
             config_version: next_version(self.config_version)?,
             ..self.clone()
         })
@@ -245,11 +213,6 @@ impl GatewayApiKey {
     }
 
     #[must_use]
-    pub fn revoked_at(&self) -> Option<&str> {
-        self.revoked_at.as_deref()
-    }
-
-    #[must_use]
     pub fn created_at(&self) -> &str {
         &self.created_at
     }
@@ -260,13 +223,8 @@ impl GatewayApiKey {
     }
 
     #[must_use]
-    pub const fn is_revoked(&self) -> bool {
-        self.revoked_at.is_some()
-    }
-
-    #[must_use]
     pub const fn is_active(&self) -> bool {
-        self.enabled && self.revoked_at.is_none()
+        self.enabled
     }
 }
 
@@ -284,7 +242,6 @@ impl fmt::Debug for GatewayApiKey {
             .field("token_version", &self.token_version)
             .field("config_version", &self.config_version)
             .field("enabled", &self.enabled)
-            .field("revoked_at", &self.revoked_at)
             .field("created_at", &self.created_at)
             .field("last_used_at", &self.last_used_at)
             .finish()
@@ -327,20 +284,13 @@ mod tests {
     }
 
     #[test]
-    fn rotate_and_soft_revoke_still_work_in_domain() {
+    fn rotate_updates_the_token_without_a_second_lifecycle_state() {
         let token = sample_token('b');
         let rotated = key()
             .rotated(token.clone(), &token[..16], [9; 32], "gk1_test")
             .expect("rotated");
         assert_eq!(rotated.token_version(), 2);
         assert_eq!(rotated.token(), token);
-        let revoked = rotated.revoked("2026-07-19 00:00:00").expect("revoked");
-        assert!(revoked.is_revoked());
-        assert!(!revoked.is_active());
-        assert!(
-            revoked
-                .updated(GatewayApiKeyDraft::new("Desktop", true).expect("draft"))
-                .is_err()
-        );
+        assert!(rotated.is_active());
     }
 }

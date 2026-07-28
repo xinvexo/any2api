@@ -5,7 +5,10 @@ use any2api_provider::api::{OAuthTokenMaterial, serialize_document};
 
 use super::{
     callback,
-    session::{AuthorizationCodeSession, DeviceCodeSession, OAuthSessionStore},
+    session::{
+        AuthorizationCodeSession, DeviceCodeSession, DevicePollAcquisition, MAX_ACTIVE_SESSIONS,
+        OAuthSessionRegistry,
+    },
 };
 
 #[test]
@@ -17,7 +20,7 @@ fn oauth_session_is_consumed_once() {
     )
     .expect("session should be prepared");
     let id = prepared.id.clone();
-    let mut store = OAuthSessionStore::default();
+    let store = OAuthSessionRegistry::default();
     store
         .insert_authorization_code(id.clone(), prepared.session, Instant::now())
         .expect("session should be inserted");
@@ -34,25 +37,106 @@ fn device_session_is_rate_gated_and_keeps_flow_types_separate() {
     let prepared = DeviceCodeSession::prepare(ProviderKind::Grok, "device-secret", 1_800, 5, now)
         .expect("device session should be prepared");
     let id = prepared.id.clone();
-    let mut store = OAuthSessionStore::default();
+    let store = OAuthSessionRegistry::default();
     store
         .insert_device_code(id.clone(), prepared.session, now)
         .expect("device session should be inserted");
 
     assert!(store.take_authorization_code(&id, now).is_err());
-    let mut session = store
-        .take_device_code(&id, now)
-        .expect("device poll should take the session");
-    assert_eq!(session.retry_after(now).expect("active session"), None);
-    assert_eq!(session.defer(now, false).expect("pending poll"), 5);
-    store.restore_device_code(id.clone(), session);
+    let DevicePollAcquisition::Ready(lease) = store
+        .acquire_device_poll(&id, now)
+        .expect("device poll should acquire a lease")
+    else {
+        panic!("first poll must be ready");
+    };
+    assert_eq!(lease.device_code(), "device-secret");
+    assert_eq!(lease.restore(false).expect("pending poll"), 5);
 
-    let mut session = store
-        .take_device_code(&id, now)
-        .expect("pending session should remain available");
-    assert_eq!(session.retry_after(now).expect("active session"), Some(5));
-    assert_eq!(session.defer(now, true).expect("slow-down poll"), 10);
-    assert_eq!(session.device_code(), "device-secret");
+    assert!(matches!(
+        store
+            .acquire_device_poll(&id, Instant::now())
+            .expect("pending session should remain available"),
+        DevicePollAcquisition::Pending {
+            retry_after_seconds: 5
+        }
+    ));
+}
+
+#[test]
+fn dropped_device_poll_lease_restores_and_serializes_the_session() {
+    let now = Instant::now();
+    let prepared = DeviceCodeSession::prepare(ProviderKind::Grok, "device-secret", 1_800, 5, now)
+        .expect("device session");
+    let id = prepared.id.clone();
+    let store = OAuthSessionRegistry::default();
+    store
+        .insert_device_code(id.clone(), prepared.session, now)
+        .expect("insert session");
+
+    let DevicePollAcquisition::Ready(lease) =
+        store.acquire_device_poll(&id, now).expect("first lease")
+    else {
+        panic!("first poll must be ready");
+    };
+    assert!(matches!(
+        store
+            .acquire_device_poll(&id, now)
+            .expect("serialized poll"),
+        DevicePollAcquisition::Pending {
+            retry_after_seconds: 1
+        }
+    ));
+
+    drop(lease);
+    assert!(matches!(
+        store
+            .acquire_device_poll(&id, Instant::now())
+            .expect("restored session"),
+        DevicePollAcquisition::Pending {
+            retry_after_seconds: 5
+        }
+    ));
+}
+
+#[test]
+fn device_poll_leases_remain_inside_the_global_session_capacity() {
+    let now = Instant::now();
+    let store = OAuthSessionRegistry::default();
+    let mut ids = Vec::new();
+    for index in 0..MAX_ACTIVE_SESSIONS {
+        let prepared = DeviceCodeSession::prepare(
+            ProviderKind::Grok,
+            &format!("device-secret-{index}"),
+            1_800,
+            5,
+            now,
+        )
+        .expect("device session");
+        ids.push(prepared.id.clone());
+        store
+            .insert_device_code(prepared.id, prepared.session, now)
+            .expect("capacity slot");
+    }
+
+    let leases = ids
+        .iter()
+        .map(
+            |id| match store.acquire_device_poll(id, now).expect("poll lease") {
+                DevicePollAcquisition::Ready(lease) => lease,
+                DevicePollAcquisition::Pending { .. } => panic!("poll must be ready"),
+            },
+        )
+        .collect::<Vec<_>>();
+    assert_eq!(store.active_len(), MAX_ACTIVE_SESSIONS);
+
+    let overflow =
+        DeviceCodeSession::prepare(ProviderKind::Grok, "overflow-device-secret", 1_800, 5, now)
+            .expect("overflow session");
+    assert!(matches!(
+        store.insert_device_code(overflow.id, overflow.session, now),
+        Err(crate::oauth::error::OAuthError::SessionCapacity)
+    ));
+    drop(leases);
 }
 
 #[test]

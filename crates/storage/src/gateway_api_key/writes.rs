@@ -22,8 +22,8 @@ async fn insert(
     sqlx::query(
         "INSERT INTO gateway_api_keys \
          (id, name, name_key, token, token_prefix, token_hash, hash_version, hash_key_id, \
-          token_version, config_version, enabled, revoked_at, created_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          token_version, config_version, enabled, created_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(key.id().to_string())
     .bind(key.name())
@@ -36,7 +36,6 @@ async fn insert(
     .bind(to_i64(key.token_version())?)
     .bind(to_i64(key.config_version())?)
     .bind(key.enabled())
-    .bind(key.revoked_at())
     .bind(key.created_at())
     .execute(connection)
     .await?;

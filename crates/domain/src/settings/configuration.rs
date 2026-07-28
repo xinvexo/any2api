@@ -187,7 +187,7 @@ mod tests {
         assert_eq!(settings.logging().file_retention_secs(), 604_800);
         assert_eq!(settings.logging().file_max_total_size(), 256 * 1024 * 1024);
         assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
-        assert!(settings.models().allowed().is_empty());
+        assert_eq!(settings.models().access(), &crate::ModelAccessPolicy::All);
         assert_eq!(settings.oauth().refresh_scan_interval_secs(), 30);
         assert_eq!(settings.oauth().refresh_lead_time_secs(), 300);
         assert_eq!(settings.upstream().read_timeout_secs(), 15);
@@ -234,10 +234,18 @@ mod tests {
                 SettingKey::ModelsAllowed,
                 &json!(["z-model", "a-model", "z-model"]),
             ),
-            Ok(SettingValue::StringList(vec![
+            Ok(SettingValue::OptionalStringList(Some(vec![
                 "a-model".to_owned(),
                 "z-model".to_owned(),
-            ]))
+            ])))
+        );
+        assert_eq!(
+            SettingValue::from_json(SettingKey::ModelsAllowed, &serde_json::Value::Null),
+            Ok(SettingValue::OptionalStringList(None))
+        );
+        assert_eq!(
+            SettingValue::from_json(SettingKey::ModelsAllowed, &json!([])),
+            Ok(SettingValue::OptionalStringList(Some(Vec::new())))
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::ModelsAllowed, &json!([" invalid "])),

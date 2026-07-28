@@ -96,8 +96,6 @@ pub enum StorageError {
     GatewayApiKeyTokenVersionConflict { expected: u64, actual: u64 },
     #[error("gateway API Key name is already in use")]
     GatewayApiKeyNameConflict,
-    #[error("gateway API Key was revoked")]
-    GatewayApiKeyRevoked,
     #[error("gateway API Key configuration is invalid: {0}")]
     GatewayApiKeyValidation(#[from] GatewayApiKeyValidationError),
     #[error("generated gateway API Key token is invalid")]

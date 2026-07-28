@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use any2api_domain::{ProtocolOperation, StreamSettings};
+use any2api_protocol::api::RequestExecutionProfile;
 
 use super::super::execution_limits;
 
@@ -15,6 +16,7 @@ pub(in crate::public_request) struct PrecommitBudget {
 impl PrecommitBudget {
     pub(in crate::public_request) fn from_settings(
         operation: ProtocolOperation,
+        profile: RequestExecutionProfile,
         settings: &StreamSettings,
     ) -> Self {
         Self::new(
@@ -25,6 +27,7 @@ impl PrecommitBudget {
             ),
             execution_limits::stream_timeout(
                 operation,
+                profile,
                 Duration::from_secs(settings.precommit_max_duration_secs()),
             ),
         )

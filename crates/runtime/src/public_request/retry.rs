@@ -27,7 +27,11 @@ pub(super) async fn execute(
     recorder: RequestRecorder,
 ) -> Result<PublicResponse, FinalFailure> {
     let policy = snapshot.reliability_policy();
-    let mut budget = RetryBudget::new(policy, plan.decoded.operation);
+    let mut budget = RetryBudget::new(
+        policy,
+        plan.decoded.operation,
+        plan.decoded.execution_profile,
+    );
     let mut exclusions = CandidateExclusions::default();
     let mut previous_error = None;
     let mut oauth_refresh_attempted = false;
@@ -212,11 +216,15 @@ struct RetryBudget {
 }
 
 impl RetryBudget {
-    fn new(policy: ReliabilityPolicy, operation: any2api_domain::ProtocolOperation) -> Self {
+    fn new(
+        policy: ReliabilityPolicy,
+        operation: any2api_domain::ProtocolOperation,
+        profile: any2api_protocol::api::RequestExecutionProfile,
+    ) -> Self {
         Self {
             policy,
             deadline: Instant::now()
-                + execution_limits::retry_budget(operation, policy.precommit_total_budget),
+                + execution_limits::retry_budget(operation, profile, policy.precommit_total_budget),
             attempts: 0,
             switches: 0,
             last_credential: None,

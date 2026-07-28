@@ -100,6 +100,8 @@ test("searches, selects, clears, and saves the global model allowlist", async ()
 
   renderModelSettings();
   expect(await screen.findByText("全部 3 个模型可用")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("switch", { name: "允许全部公开模型" }));
+  expect(screen.getByText("已拒绝全部模型")).toBeInTheDocument();
   const search = screen.getByRole("textbox", { name: "搜索可用模型" });
   fireEvent.change(search, { target: { value: "gpt" } });
   fireEvent.click(screen.getByRole("button", { name: "选择当前" }));
@@ -173,8 +175,8 @@ function modelConfiguration(revision: number, override: string[] | null) {
     config_revision: revision,
     items: [setting(
       "models.allowed",
-      "string_list",
-      [],
+      "optional_string_list",
+      null,
       override,
       null,
       "公开模型",
@@ -188,7 +190,7 @@ function modelConfiguration(revision: number, override: string[] | null) {
 function setting(
   key: string,
   valueType: string,
-  defaultValue: boolean | number | string | string[],
+  defaultValue: boolean | number | string | string[] | null,
   overrideValue: boolean | number | string | string[] | null,
   allowedValues: string[] | null,
   webGroup: string,

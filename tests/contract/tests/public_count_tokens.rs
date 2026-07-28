@@ -183,12 +183,15 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
         app.clone(),
         Method::POST,
         "/api/admin/gateway-api-keys",
-        Some(json!({"expected_revision":1,"name":"client","enabled":true,"token":format!("sk-{}", "c".repeat(48))})),
+        Some(json!({"expected_revision":1,"name":"client","enabled":true})),
         remote,
         &[],
     )
     .await;
-    let token = gateway.body["token"].as_str().expect("token").to_owned();
+    let token = gateway.body["items"][0]["token"]
+        .as_str()
+        .expect("gateway token in collection item")
+        .to_owned();
     let endpoint = request_json_with_remote(
         app.clone(),
         Method::POST,
