@@ -15,7 +15,9 @@ use futures_util::Stream;
 use http::{HeaderMap, StatusCode};
 use thiserror::Error;
 
-use super::response::{FinalFailure, sanitize_response_headers};
+use super::response::{
+    FinalFailure, sanitize_response_headers, sanitize_upstream_error_response_headers,
+};
 use super::{planning, retry};
 use crate::{
     configuration::PublishedSnapshot,
@@ -118,17 +120,26 @@ impl PublicRequestService {
                 }
                 response
             }
-            Err(failure) => {
-                let mut response = adapter.error_response(&failure.error);
-                if let Some(status) = failure.status {
-                    response.status = status;
-                }
-                response.headers.extend(failure.headers);
+            Err(FinalFailure::Local { error }) => {
+                let mut response = adapter.error_response(&error);
                 sanitize_response_headers(&mut response.headers);
                 recorder.finish_with_message(
                     response.status.as_u16(),
-                    Some(public_error_class(failure.error.code())),
-                    Some(failure.telemetry_message),
+                    Some(public_error_class(error.code())),
+                    Some(error.telemetry_message().to_owned()),
+                );
+                response.into()
+            }
+            Err(FinalFailure::Upstream {
+                mut response,
+                error_class,
+                error_message,
+            }) => {
+                sanitize_upstream_error_response_headers(&mut response.headers, &response.body);
+                recorder.finish_with_message(
+                    response.status.as_u16(),
+                    Some(error_class),
+                    error_message,
                 );
                 response.into()
             }

@@ -1,9 +1,6 @@
 use std::sync::Arc;
 
-use any2api_domain::{
-    ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamError,
-    UpstreamErrorClassification,
-};
+use any2api_domain::{ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamError};
 use any2api_protocol::{
     ProtocolError,
     api::{
@@ -20,7 +17,7 @@ use any2api_transport::api::{
 use super::super::super::{
     RequestPermit,
     affinity::AffinitySelection,
-    response::{MAX_CLASSIFIED_ERROR_BYTES, transport_error_diagnostic},
+    response::{MAX_UPSTREAM_ERROR_BODY_BYTES, transport_error_diagnostic},
 };
 use super::super::failure::AttemptFailure;
 use crate::{
@@ -111,7 +108,7 @@ impl PreparedAttempt<'_> {
                 status,
                 headers: headers.clone(),
             },
-            &body[..body.len().min(MAX_CLASSIFIED_ERROR_BYTES)],
+            &body[..body.len().min(MAX_UPSTREAM_ERROR_BODY_BYTES)],
         )
     }
 
@@ -192,8 +189,9 @@ impl PreparedAttempt<'_> {
     pub(in crate::public_request::upstream) fn upstream_failure(
         &mut self,
         status_code: u16,
-        classification: UpstreamErrorClassification,
+        error: &UpstreamError,
     ) {
+        let classification = error.classification();
         if let Some(health) = self.health.take() {
             health.upstream_failure(classification);
         }
@@ -202,6 +200,7 @@ impl PreparedAttempt<'_> {
                 status_code,
                 classification.retry_safety(),
                 classification.kind().error_class(),
+                error.official_message(),
             );
         }
         self.permit.take();

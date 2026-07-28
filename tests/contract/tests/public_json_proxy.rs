@@ -141,14 +141,19 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     assert_eq!(logs["request"]["request_id"], request_id.to_string());
     assert_eq!(logs["request"]["client_ip"], "127.0.0.1");
     assert_eq!(logs["request"]["credential_id"], credential_id);
+    assert_eq!(logs["request"]["provider_endpoint_name"], "Codex local");
+    assert_eq!(logs["request"]["credential_label"], "primary");
     assert_eq!(logs["request"]["attempt_count"], 1);
     assert_eq!(logs["request"]["first_token_ms"], Value::Null);
     assert_eq!(logs["request"]["input_tokens"], 0);
     assert_eq!(logs["request"]["output_tokens"], json!(MAX_TOKEN_COUNT));
     assert_eq!(logs["request"]["cache_read_tokens"], Value::Null);
     assert_eq!(logs["request"]["cache_write_tokens"], 0);
-    assert_eq!(logs["attempts"][0]["outcome"], "success");
     assert_eq!(logs["attempts"][0]["status_code"], 200);
+    assert!(logs["request"].get("error_class").is_none());
+    assert!(logs["attempts"][0].get("retry_safety").is_none());
+    assert!(logs["attempts"][0].get("error_class").is_none());
+    assert!(logs["attempts"][0].get("outcome").is_none());
 
     let list = request_json(
         app,
@@ -162,6 +167,11 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     assert_eq!(list.status, StatusCode::OK);
     assert_eq!(list.body["items"][0]["request_id"], request_id.to_string());
     assert_eq!(list.body["items"][0]["client_ip"], "127.0.0.1");
+    assert_eq!(
+        list.body["items"][0]["provider_endpoint_name"],
+        "Codex local"
+    );
+    assert_eq!(list.body["items"][0]["credential_label"], "primary");
     assert_eq!(list.body["items"][0]["first_token_ms"], Value::Null);
     assert_eq!(list.body["items"][0]["input_tokens"], 0);
     assert_eq!(

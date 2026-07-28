@@ -1,4 +1,4 @@
-use any2api_domain::{ErrorClass, PublicError, PublicErrorCode};
+use any2api_domain::{ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, PublicError, PublicErrorCode};
 use any2api_transport::api::{TransportError, TransportFailureScope};
 
 use super::{
@@ -94,6 +94,12 @@ impl GuardedBody {
                     recorder.invalid_response(Some(self.status_code), &diagnostic);
                 }
             }
+            PendingStreamErrorKind::Timeout => {
+                self.health.take();
+                if let Some(mut recorder) = self.attempt_recorder.take() {
+                    recorder.local_error(Some(self.status_code), ErrorClass::Network, &diagnostic);
+                }
+            }
             PendingStreamErrorKind::Local => {
                 if let Some(health) = self.health.take() {
                     health.success();
@@ -105,6 +111,10 @@ impl GuardedBody {
         }
         self.release_guards();
         match kind {
+            PendingStreamErrorKind::Timeout => public_error(
+                PublicErrorCode::GatewayTimeout,
+                ANY2API_UPSTREAM_TIMEOUT_MESSAGE,
+            ),
             PendingStreamErrorKind::Local => public_error(
                 PublicErrorCode::InternalError,
                 "internal stream processing failed",

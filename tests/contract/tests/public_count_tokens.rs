@@ -67,7 +67,7 @@ async fn count_tokens_preserves_request_fields() {
 }
 
 #[tokio::test]
-async fn count_tokens_upstream_not_found_returns_anthropic_404() {
+async fn count_tokens_upstream_not_found_returns_the_upstream_response() {
     let (upstream_address, upstream) = upstream_server(
         StatusCode::NOT_FOUND,
         r#"{"secret":"upstream-body-must-not-leak"}"#,
@@ -88,13 +88,10 @@ async fn count_tokens_upstream_not_found_returns_anthropic_404() {
     .await;
 
     assert_eq!(response.status, StatusCode::NOT_FOUND);
-    assert_eq!(response.body["type"], "error");
-    assert_eq!(response.body["error"]["type"], "not_found_error");
     assert_eq!(
-        response.body["error"]["message"],
-        "upstream operation is unavailable"
+        response.body,
+        json!({"secret": "upstream-body-must-not-leak"})
     );
-    assert!(!response.body.to_string().contains("must-not-leak"));
     upstream.await.expect("upstream request");
 }
 

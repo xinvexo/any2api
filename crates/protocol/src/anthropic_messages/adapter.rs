@@ -117,15 +117,12 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         }
         PublicErrorCode::PayloadTooLarge => "request_too_large",
         PublicErrorCode::PublicApiNotFound => "not_found_error",
-        PublicErrorCode::ModelNotFound
-        | PublicErrorCode::NoRoute
-        | PublicErrorCode::UpstreamNotFound => "not_found_error",
-        PublicErrorCode::NoAvailableCredential
-        | PublicErrorCode::LocalRateLimit
-        | PublicErrorCode::UpstreamRateLimit => "rate_limit_error",
-        PublicErrorCode::UpstreamOverloaded => "overloaded_error",
+        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "not_found_error",
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
+            "rate_limit_error"
+        }
         PublicErrorCode::SessionBindingLost => "invalid_request_error",
-        PublicErrorCode::UpstreamError => "api_error",
+        PublicErrorCode::UpstreamError | PublicErrorCode::GatewayTimeout => "api_error",
         PublicErrorCode::InternalError => "api_error",
     }
 }
@@ -137,17 +134,13 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
         PublicErrorCode::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
         PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-        PublicErrorCode::ModelNotFound
-        | PublicErrorCode::NoRoute
-        | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
-        PublicErrorCode::NoAvailableCredential
-        | PublicErrorCode::LocalRateLimit
-        | PublicErrorCode::UpstreamRateLimit => StatusCode::TOO_MANY_REQUESTS,
-        PublicErrorCode::UpstreamOverloaded => {
-            StatusCode::from_u16(529).expect("529 is a valid HTTP status")
+        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => StatusCode::NOT_FOUND,
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
+            StatusCode::TOO_MANY_REQUESTS
         }
         PublicErrorCode::SessionBindingLost => StatusCode::CONFLICT,
         PublicErrorCode::UpstreamError => StatusCode::BAD_GATEWAY,
+        PublicErrorCode::GatewayTimeout => StatusCode::GATEWAY_TIMEOUT,
         PublicErrorCode::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
@@ -233,7 +226,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn count_tokens_preserves_fields_and_upstream_not_found_is_compatible() {
+    async fn count_tokens_preserves_fields_and_rejects_streaming() {
         let adapter = AnthropicMessagesAdapter::new();
         let decoded = adapter
             .decode_ingress_request(IngressRequest {
@@ -272,14 +265,6 @@ mod tests {
                 .await
                 .is_err()
         );
-
-        let response = adapter.error_response(&PublicError::new(
-            PublicErrorCode::UpstreamNotFound,
-            "unavailable",
-        ));
-        let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
-        assert_eq!(response.status, StatusCode::NOT_FOUND);
-        assert_eq!(body["error"]["type"], "not_found_error");
 
         let method = adapter.error_response(&PublicError::new(
             PublicErrorCode::MethodNotAllowed,

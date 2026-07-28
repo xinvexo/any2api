@@ -13,15 +13,20 @@ afterEach(() => vi.restoreAllMocks());
 test("loads a deep-linked request and renders attempts in order", async () => {
   const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
     detailResponse([
-      attempt(1, "transport_error", null, "definitely_not_sent", "network"),
-      attempt(2, "success", 200, null, null),
+      attempt(1, 404, "The model was not found"),
+      attempt(2, 200, null),
+      attempt(3, null, "any2api timed out waiting for an upstream response"),
     ]),
   );
 
   renderDeepLink(`/logs/${requestId}`);
 
-  expect(await screen.findByText("transport_error")).toBeInTheDocument();
-  expect(screen.getByText("success")).toBeInTheDocument();
+  expect(await screen.findByText("HTTP 404")).toBeInTheDocument();
+  expect(screen.getByText("HTTP 200")).toBeInTheDocument();
+  expect(screen.getByText("The model was not found")).toBeInTheDocument();
+  expect(screen.getAllByText("未收到上游状态")).toHaveLength(2);
+  expect(screen.queryByText("transport_error")).not.toBeInTheDocument();
+  expect(screen.queryByText("network")).not.toBeInTheDocument();
   expect(screen.getByText("18 ms")).toBeInTheDocument();
   expect(screen.getByText("203.0.113.8")).toBeInTheDocument();
   expect(screen.getByText("120")).toBeInTheDocument();
@@ -153,7 +158,6 @@ function request(overrides: Record<string, unknown> = {}) {
     oauth_account_id: null,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
     status_code: 200,
-    error_class: null,
     error_message: null,
     attempt_count: 2,
     latency_ms: 30,
@@ -169,10 +173,8 @@ function request(overrides: Record<string, unknown> = {}) {
 
 function attempt(
   attemptNo: number,
-  outcome: string,
   statusCode: number | null,
-  retrySafety: string | null,
-  errorClass: string | null,
+  errorMessage: string | null,
 ) {
   return {
     attempt_no: attemptNo,
@@ -182,10 +184,7 @@ function attempt(
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
     started_at_ms: 1_700_000_000_000 + attemptNo,
     duration_ms: 10,
-    retry_safety: retrySafety,
-    error_class: errorClass,
-    error_message: null,
+    error_message: errorMessage,
     status_code: statusCode,
-    outcome,
   };
 }

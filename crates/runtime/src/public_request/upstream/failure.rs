@@ -3,11 +3,12 @@ use any2api_domain::{
     UpstreamErrorKind,
 };
 use any2api_transport::api::{TransportError, TransportFailureScope};
+use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 
 use crate::routing::RouteCandidate;
 
-use super::super::response::{FinalFailure, classified_error, public_error};
+use super::super::response::{FinalFailure, public_error};
 
 pub(in crate::public_request) enum AttemptFailure {
     Transport {
@@ -18,7 +19,8 @@ pub(in crate::public_request) enum AttemptFailure {
     Upstream {
         status: StatusCode,
         headers: Box<HeaderMap>,
-        error: UpstreamError,
+        body: Bytes,
+        error: Box<UpstreamError>,
         candidate: Box<RouteCandidate>,
         fixed: bool,
     },
@@ -37,6 +39,7 @@ impl AttemptFailure {
     pub(super) fn upstream(
         status: StatusCode,
         headers: HeaderMap,
+        body: Bytes,
         error: UpstreamError,
         candidate: RouteCandidate,
         fixed: bool,
@@ -44,32 +47,28 @@ impl AttemptFailure {
         Self::Upstream {
             status,
             headers: Box::new(headers),
-            error,
+            body,
+            error: Box::new(error),
             candidate: Box::new(candidate),
             fixed,
         }
     }
 
-    pub(in crate::public_request) fn public_error(&self) -> PublicError {
+    pub(in crate::public_request) fn final_failure(&self) -> FinalFailure {
         match self {
             Self::Transport { .. } => public_error(
                 any2api_domain::PublicErrorCode::UpstreamError,
                 "upstream request failed",
-            ),
-            Self::Upstream { status, error, .. } => classified_error(*status, error),
-            Self::Public(error) => error.clone(),
-        }
-    }
-
-    pub(in crate::public_request) fn final_failure(&self) -> FinalFailure {
-        match self {
+            )
+            .into(),
             Self::Upstream {
                 status,
                 headers,
+                body,
                 error,
                 ..
-            } => FinalFailure::upstream(headers.as_ref().clone(), *status, error),
-            _ => self.public_error().into(),
+            } => FinalFailure::upstream(headers.as_ref().clone(), *status, body.clone(), error),
+            Self::Public(error) => error.clone().into(),
         }
     }
 

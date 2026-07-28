@@ -12,7 +12,7 @@ use any2api_provider::api::{
 };
 use axum::http::{
     HeaderMap, HeaderValue, Method, StatusCode, Uri,
-    header::{ACCEPT, AUTHORIZATION},
+    header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE},
 };
 use bytes::Bytes;
 use serde_json::{Value, json};
@@ -37,7 +37,7 @@ async fn composition_root_protocol_registry_runs_every_contract() {
 
     for (dialect, adapter) in registry.iter() {
         assert_eq!(*dialect, adapter.dialect());
-        protocol_error_message_contract(adapter.as_ref());
+        protocol_local_error_contract(adapter.as_ref());
         match dialect {
             ProtocolDialect::OpenAiResponses => responses_contract(adapter.as_ref()).await,
             ProtocolDialect::OpenAiChatCompletions => {
@@ -78,16 +78,16 @@ async fn composition_root_protocol_registry_runs_every_contract() {
     ));
 }
 
-fn protocol_error_message_contract(adapter: &dyn ProtocolAdapter) {
-    const OFFICIAL_MESSAGE: &str = "官方错误 detail: \"model unavailable\"";
-    let response = adapter.error_response(&PublicError::from_provider_message(
+fn protocol_local_error_contract(adapter: &dyn ProtocolAdapter) {
+    const LOCAL_MESSAGE: &str = "any2api local error detail";
+    let response = adapter.error_response(&PublicError::new(
         PublicErrorCode::UpstreamError,
-        OFFICIAL_MESSAGE,
+        LOCAL_MESSAGE,
     ));
     let body: Value = serde_json::from_slice(&response.body).expect("protocol error JSON");
 
     assert_eq!(response.status, StatusCode::BAD_GATEWAY);
-    assert_eq!(body["error"]["message"], OFFICIAL_MESSAGE);
+    assert_eq!(body["error"]["message"], LOCAL_MESSAGE);
 }
 
 #[test]
@@ -870,6 +870,7 @@ fn provider_header_policy_contract(kind: ProviderKind, driver: &dyn ProviderDriv
 
     let upstream = provider_response_header_fixture();
     let response = driver.response_headers(operation, &upstream);
+    assert_eq!(response[CONTENT_TYPE], "application/problem+json");
     assert_eq!(response["x-request-id"], "upstream-request");
     assert_eq!(response["request-id"], "provider-request");
     assert_eq!(response["retry-after"], "17");
@@ -920,6 +921,10 @@ fn assert_provider_request_headers(kind: ProviderKind, headers: &HeaderMap) {
 
 fn provider_response_header_fixture() -> HeaderMap {
     let mut upstream = HeaderMap::new();
+    upstream.insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/problem+json"),
+    );
     upstream.insert("x-request-id", HeaderValue::from_static("upstream-request"));
     upstream.insert("request-id", HeaderValue::from_static("provider-request"));
     upstream.insert("retry-after", HeaderValue::from_static("17"));

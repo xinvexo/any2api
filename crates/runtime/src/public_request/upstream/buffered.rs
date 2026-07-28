@@ -58,15 +58,16 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         Duration::from_secs(services.snapshot.settings().upstream().read_timeout_secs()),
     );
     if !status.is_success() {
-        let body = collect_error_body(response.body, read_timeout)
+        let body = collect_error_body(response.body, read_timeout, services.attempt_deadline)
             .await
             .unwrap_or_default();
         let safe_headers = prepared.response_headers(&headers);
         let error = prepared.classify(status, &headers, &body);
-        prepared.upstream_failure(status.as_u16(), error.classification());
+        prepared.upstream_failure(status.as_u16(), &error);
         return Err(AttemptFailure::upstream(
             status,
             safe_headers,
+            body,
             error,
             candidate,
             fixed,

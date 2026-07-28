@@ -1,6 +1,9 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 
-use any2api_domain::{PublicError, PublicErrorCode, RoutingCredentialId, UpstreamErrorKind};
+use any2api_domain::{
+    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, PublicError, PublicErrorCode, RoutingCredentialId,
+    UpstreamErrorKind,
+};
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
 use any2api_transport::api::{TransportFailureScope, TransportManager};
@@ -13,8 +16,11 @@ use super::{
     upstream::{self, AttemptFailure},
 };
 use crate::{
-    configuration::PublishedSnapshot, health::ReliabilityPolicy, oauth::refresh::OAuthRefresher,
-    request_telemetry::RequestRecorder, routing::CandidateExclusions,
+    configuration::PublishedSnapshot,
+    health::ReliabilityPolicy,
+    oauth::refresh::OAuthRefresher,
+    request_telemetry::{AttemptTimeoutMarker, RequestRecorder},
+    routing::CandidateExclusions,
 };
 
 pub(super) async fn execute(
@@ -75,16 +81,19 @@ pub(super) async fn execute(
             return Err(previous_error.unwrap_or_else(|| budget_exhausted().into()));
         };
         let attempt_recorder = recorder.begin_attempt(attempt_no, &affinity.selected.candidate);
-        let remaining = budget.remaining();
+        let timeout_marker = attempt_recorder.timeout_marker();
+        let attempt_deadline = budget.deadline();
         let services = upstream::UpstreamServices {
             snapshot: snapshot.as_ref(),
             protocols: protocols.as_ref(),
             providers,
             transport,
+            attempt_deadline,
         };
         let attempt = if plan.decoded.stream {
-            timeout(
-                remaining,
+            within_attempt_budget(
+                attempt_deadline,
+                timeout_marker,
                 upstream::execute_stream_attempt(
                     services,
                     plan.decoded.clone(),
@@ -94,11 +103,11 @@ pub(super) async fn execute(
                     allow_credential_bound_headers,
                 ),
             )
-            .await
-            .map_err(|_| FinalFailure::from(budget_exhausted()))?
+            .await?
         } else {
-            timeout(
-                remaining,
+            within_attempt_budget(
+                attempt_deadline,
+                timeout_marker,
                 upstream::execute_buffered_attempt(
                     services,
                     plan.decoded.clone(),
@@ -108,8 +117,7 @@ pub(super) async fn execute(
                     allow_credential_bound_headers,
                 ),
             )
-            .await
-            .map_err(|_| FinalFailure::from(budget_exhausted()))?
+            .await?
             .map(PublicResponse::from)
         };
         match attempt {
@@ -201,9 +209,27 @@ fn exclude_failed_path(exclusions: &mut CandidateExclusions, failure: &AttemptFa
 
 fn budget_exhausted() -> PublicError {
     public_error(
-        PublicErrorCode::UpstreamError,
-        "upstream precommit retry budget was exhausted",
+        PublicErrorCode::GatewayTimeout,
+        ANY2API_UPSTREAM_TIMEOUT_MESSAGE,
     )
+}
+
+async fn within_attempt_budget<T>(
+    deadline: Instant,
+    timeout_marker: AttemptTimeoutMarker,
+    future: impl Future<Output = T>,
+) -> Result<T, FinalFailure> {
+    let deadline = tokio::time::sleep_until(deadline);
+    tokio::pin!(deadline);
+    tokio::pin!(future);
+    tokio::select! {
+        biased;
+        result = &mut future => Ok(result),
+        _ = &mut deadline => {
+            timeout_marker.mark_timed_out();
+            Err(budget_exhausted().into())
+        }
+    }
 }
 
 struct RetryBudget {
@@ -234,6 +260,10 @@ impl RetryBudget {
 
     fn remaining(&self) -> Duration {
         self.deadline.saturating_duration_since(Instant::now())
+    }
+
+    fn deadline(&self) -> Instant {
+        self.deadline
     }
 
     fn register_attempt(&mut self, credential_id: RoutingCredentialId) -> Option<u32> {
@@ -307,4 +337,29 @@ fn jitter(delay: Duration, ratio: u32) -> Duration {
     let offset = (nanos % width) as i64 - i64::from(ratio);
     let percent = (100_i64 + offset).max(0) as u32;
     delay.saturating_mul(percent) / 100
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::time::Instant;
+
+    use super::within_attempt_budget;
+    use crate::request_telemetry::AttemptRecorder;
+
+    #[tokio::test(start_paused = true)]
+    async fn attempt_result_at_the_deadline_wins_over_the_outer_timeout() {
+        let deadline = Instant::now() + Duration::from_millis(25);
+        let marker = AttemptRecorder::disabled().timeout_marker();
+        let attempt = async {
+            tokio::time::sleep_until(deadline).await;
+            7
+        };
+
+        match within_attempt_budget(deadline, marker, attempt).await {
+            Ok(value) => assert_eq!(value, 7),
+            Err(_) => panic!("the completed attempt must win at the shared deadline"),
+        }
+    }
 }

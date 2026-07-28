@@ -17,7 +17,7 @@ pub use credential::{
     CredentialSecretFingerprint, MAX_REQUESTS_PER_MINUTE, RequestsPerMinute,
     RequestsPerMinuteError,
 };
-pub use error::{ErrorClass, PublicError, PublicErrorCode};
+pub use error::{ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, PublicError, PublicErrorCode};
 pub use gateway_api_key::{
     GATEWAY_TOKEN_BODY_LEN, GATEWAY_TOKEN_HASH_VERSION, GATEWAY_TOKEN_PREFIX,
     GATEWAY_TOKEN_VERSION, GatewayApiKey, GatewayApiKeyConfiguration, GatewayApiKeyDraft,

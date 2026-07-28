@@ -27,6 +27,8 @@ const REQUEST_HEADERS: &[&str] = &[
 ];
 
 const RESPONSE_HEADERS: &[&str] = &[
+    "content-encoding",
+    "content-type",
     "request-id",
     "x-request-id",
     "retry-after",

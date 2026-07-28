@@ -44,6 +44,7 @@ export function operationLabel(value: RequestLogOperation) {
 type UpstreamSourceFields = {
   oauthAccountId: string | null;
   credentialId: string | null;
+  providerEndpointName?: string | null;
   oauthAccountLabel?: string | null;
   credentialLabel?: string | null;
 };
@@ -69,11 +70,13 @@ export function upstreamSource(log: UpstreamSourceFields): {
   }
   if (log.credentialId) {
     const short = shortId(log.credentialId);
+    const credentialName = log.credentialLabel?.trim() || short;
+    const endpointName = log.providerEndpointName?.trim();
     return {
       kind: "api_key",
       kindLabel: "API Key",
       id: log.credentialId,
-      displayName: log.credentialLabel?.trim() || short,
+      displayName: endpointName ? `${endpointName}-${credentialName}` : credentialName,
       shortId: short,
     };
   }

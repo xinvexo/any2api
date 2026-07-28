@@ -10,5 +10,7 @@ mod worker;
 
 use observation::RequestObservation;
 pub(crate) use policy::RequestLogPolicy;
-pub(crate) use recorder::{AttemptRecorder, RequestRecorder, public_error_class};
+pub(crate) use recorder::{
+    AttemptRecorder, AttemptTimeoutMarker, RequestRecorder, public_error_class,
+};
 pub use telemetry::{RequestTelemetry, RequestTelemetryControlError, RequestTelemetryMetrics};

@@ -31,8 +31,8 @@ test("renders request logs in a table without leaving the page for details", asy
   expect(screen.getByRole("columnheader", { name: "令牌" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "模型" })).toBeInTheDocument();
   expect(screen.getAllByText("codex-local").length).toBeGreaterThanOrEqual(1);
-  // List shows credential name in the pill (no separate "API Key" / "OAuth" badge).
-  expect(screen.getAllByText("Primary Codex").length).toBeGreaterThanOrEqual(1);
+  // API Key rows identify both the Provider Endpoint and credential label.
+  expect(screen.getAllByText("frapi-key").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("high").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("成功").length).toBeGreaterThanOrEqual(1);
   // Split latency + token columns (mobile still uses compact pair/summary).
@@ -65,6 +65,7 @@ test("renders request logs in a table without leaving the page for details", asy
   // no duplicate list metrics in the panel
   expect(screen.queryByText("输入 Token")).not.toBeInTheDocument();
   expect(screen.queryByText("错误详情")).not.toBeInTheDocument();
+  expect(screen.queryByText("错误分类")).not.toBeInTheDocument();
   expect(fetchMock.mock.calls.some(([path]) => String(path).includes("/request-logs/11111111"))).toBe(
     true,
   );
@@ -87,6 +88,25 @@ test("distinguishes an OAuth final upstream source", async () => {
 
   // List pill is the account label; kind is only in title/tone.
   expect((await screen.findAllByText("work-oauth")).length).toBeGreaterThanOrEqual(1);
+});
+
+test("shows an upstream 429 and its message without an internal classification", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    listResponse([
+      {
+        ...request(),
+        status_code: 429,
+        error_class: "rate_limited",
+        error_message: "Too many requests",
+      },
+    ]),
+  );
+
+  renderManagement();
+
+  expect((await screen.findAllByText("失败 429")).length).toBeGreaterThanOrEqual(1);
+  expect(screen.getAllByText("Too many requests").length).toBeGreaterThanOrEqual(1);
+  expect(screen.queryByText("rate_limited")).not.toBeInTheDocument();
 });
 
 test("renders an empty state", async () => {
@@ -187,11 +207,8 @@ function detailResponse() {
           proxy_profile_id: "33333333-3333-4333-8333-333333333333",
           started_at_ms: 1_700_000_000_000,
           duration_ms: 12,
-          retry_safety: null,
-          error_class: null,
           error_message: null,
           status_code: 200,
-          outcome: "success",
         },
       ],
       telemetry: { queued_records: 0, dropped_records: 2, persisted_records: 1 },
@@ -219,13 +236,13 @@ function request() {
     public_model: "codex-local",
     thinking_level: "high",
     provider_endpoint_id: "33333333-3333-4333-8333-333333333333",
+    provider_endpoint_name: "frapi",
     credential_id: "44444444-4444-4444-8444-444444444444",
-    credential_label: "Primary Codex",
+    credential_label: "key",
     oauth_account_id: null,
     oauth_account_label: null,
     proxy_profile_id: "33333333-3333-4333-8333-333333333333",
     status_code: 200,
-    error_class: null,
     error_message: null,
     attempt_count: 1,
     latency_ms: 42,

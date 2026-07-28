@@ -10,6 +10,7 @@ pub(super) use streaming::execute_stream_attempt;
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
 use any2api_transport::api::TransportManager;
+use tokio::time::Instant;
 
 use crate::configuration::PublishedSnapshot;
 
@@ -19,4 +20,5 @@ pub(super) struct UpstreamServices<'a> {
     pub(super) protocols: &'a ProtocolRegistry,
     pub(super) providers: &'a ProviderRegistry,
     pub(super) transport: &'a dyn TransportManager,
+    pub(super) attempt_deadline: Instant,
 }

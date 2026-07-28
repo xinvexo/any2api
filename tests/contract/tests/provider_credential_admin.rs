@@ -334,7 +334,11 @@ async fn successful_credential_test_clears_generation_auth_error() {
         &[("authorization", format!("Bearer {gateway_token}"))],
     )
     .await;
-    assert_eq!(failed.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(failed.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        failed.raw_body,
+        r#"{"error":{"type":"authentication_error","code":"invalid_api_key"}}"#
+    );
     let first = upstream_requests
         .recv()
         .await

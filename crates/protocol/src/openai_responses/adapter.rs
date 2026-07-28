@@ -190,13 +190,12 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         | PublicErrorCode::MethodNotAllowed
         | PublicErrorCode::ModelNotFound
         | PublicErrorCode::NoRoute
-        | PublicErrorCode::UpstreamNotFound
         | PublicErrorCode::SessionBindingLost => "invalid_request_error",
-        PublicErrorCode::NoAvailableCredential
-        | PublicErrorCode::LocalRateLimit
-        | PublicErrorCode::UpstreamRateLimit => "rate_limit_error",
-        PublicErrorCode::UpstreamOverloaded
-        | PublicErrorCode::UpstreamError
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
+            "rate_limit_error"
+        }
+        PublicErrorCode::UpstreamError
+        | PublicErrorCode::GatewayTimeout
         | PublicErrorCode::InternalError => "server_error",
     }
 }
@@ -209,13 +208,11 @@ fn error_code(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::PublicApiNotFound => "public_api_not_found",
         PublicErrorCode::MethodNotAllowed => "method_not_allowed",
         PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "model_not_found",
-        PublicErrorCode::UpstreamNotFound => "upstream_not_found",
         PublicErrorCode::NoAvailableCredential => "no_available_credential",
         PublicErrorCode::LocalRateLimit => "local_rate_limit",
-        PublicErrorCode::UpstreamRateLimit => "rate_limit_exceeded",
-        PublicErrorCode::UpstreamOverloaded => "upstream_overloaded",
         PublicErrorCode::SessionBindingLost => "session_binding_lost",
         PublicErrorCode::UpstreamError => "upstream_error",
+        PublicErrorCode::GatewayTimeout => "gateway_timeout",
         PublicErrorCode::InternalError => "internal_error",
     }
 }
@@ -227,17 +224,13 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
         PublicErrorCode::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
         PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-        PublicErrorCode::ModelNotFound
-        | PublicErrorCode::NoRoute
-        | PublicErrorCode::UpstreamNotFound => StatusCode::NOT_FOUND,
-        PublicErrorCode::NoAvailableCredential
-        | PublicErrorCode::LocalRateLimit
-        | PublicErrorCode::UpstreamRateLimit => StatusCode::TOO_MANY_REQUESTS,
-        PublicErrorCode::UpstreamOverloaded => {
-            StatusCode::from_u16(529).expect("529 is a valid HTTP status")
+        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => StatusCode::NOT_FOUND,
+        PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
+            StatusCode::TOO_MANY_REQUESTS
         }
         PublicErrorCode::SessionBindingLost => StatusCode::CONFLICT,
         PublicErrorCode::UpstreamError => StatusCode::BAD_GATEWAY,
+        PublicErrorCode::GatewayTimeout => StatusCode::GATEWAY_TIMEOUT,
         PublicErrorCode::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }

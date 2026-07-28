@@ -74,7 +74,6 @@ fn forbidden(name: &str) -> bool {
             | "transfer-encoding"
             | "upgrade"
             | "content-length"
-            | "content-encoding"
             | "content-md5"
             | "digest"
             | "etag"
@@ -114,6 +113,7 @@ mod tests {
         let mut source = HeaderMap::new();
         source.insert("x-api-key", HeaderValue::from_static("secret"));
         source.insert("x-client-request-id", HeaderValue::from_static("client"));
+        source.insert("content-encoding", HeaderValue::from_static("gzip"));
         source.insert("x-private-hop", HeaderValue::from_static("private"));
         source.insert(
             header::CONNECTION,
@@ -121,10 +121,16 @@ mod tests {
         );
         let projected = project(
             &source,
-            &["x-api-key", "x-client-request-id", "x-private-hop"],
+            &[
+                "content-encoding",
+                "x-api-key",
+                "x-client-request-id",
+                "x-private-hop",
+            ],
             &[],
         );
         assert_eq!(projected["x-client-request-id"], "client");
+        assert_eq!(projected["content-encoding"], "gzip");
         assert!(!projected.contains_key("x-api-key"));
         assert!(!projected.contains_key("x-private-hop"));
     }

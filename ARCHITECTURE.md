@@ -147,9 +147,9 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 - 模型冷却状态；
 - 请求统计。
 
-### 4.5 错误必须分类
+### 4.5 内部错误分类不得改写上游响应
 
-请求错误、认证错误、额度错误、代理错误、网络错误和上游服务错误必须分别处理，不能统一按“失败”冷却 `ProviderCredential`。
+请求错误、认证错误、额度错误、代理错误、网络错误和上游服务错误必须在 Runtime 内部分别处理，不能统一按“失败”冷却 `ProviderCredential`。该分类只服务重试、健康、冷却和熔断，不是客户端或管理 Web 的错误协议；真正收到的最终上游 HTTP 响应必须保留上游状态码与错误正文，禁止根据内部分类重建 `type`、`code` 或 `message`。
 
 ### 4.6 流式响应不可拼接
 
@@ -917,7 +917,7 @@ request_logs
 ├─ proxy_profile_id
 ├─ status_code
 ├─ error_class
-├─ error_message          # any2api 生成的安全有界摘要；不保存 Provider 官方 message
+├─ error_message          # 本地错误消息，或最终 Provider 已声明 envelope 中的原始 message
 ├─ attempt_count
 ├─ latency_ms
 ├─ first_token_ms
@@ -1345,7 +1345,7 @@ trait ProtocolBridgeSession: Send {
 }
 ```
 
-同协议路径的 `AdapterPayload` 可以保留受限原始 JSON；只有显式选择不同内部协议时才进入 `ProtocolBridge` 和桥专用转换状态。Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态注册，配置发布前完整解析；错误正文只能在严格大小上限内交给 Driver。Driver 返回的 `UpstreamError` 必须同时携带机器可用的 `UpstreamErrorClassification`，以及从该 Provider 已声明错误 envelope 中提取的可选官方 `message`，不得把任意 JSON 字段或整段正文冒充公开消息。
+同协议路径的 `AdapterPayload` 可以保留受限原始 JSON；只有显式选择不同内部协议时才进入 `ProtocolBridge` 和桥专用转换状态。Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态注册，配置发布前完整解析；错误正文只能在严格大小上限内交给 Driver。Driver 返回的 `UpstreamError` 必须同时携带机器可用的 `UpstreamErrorClassification`，以及从该 Provider 已声明错误 envelope 中提取的可选原始 `message`。分类只决定内部重试与健康行为，原始 `message` 只供管理日志显示；最终客户端响应直接使用上游正文，二者都不得由分类结果反向生成。
 
 具体方法可以在实现阶段调整，但职责边界不可合并为一个万能 Driver。Provider 只处理供应商、Endpoint、认证、OAuth 额度协议、Header 契约和错误差异，ProtocolAdapter 负责线协议双向编解码以及与重编码 Body 一致的协议 Header，Runtime 负责网络、合并优先级与编排。OAuth 方法同时服务登录、刷新、Provider 专属额度管理和选中 OAuthAccount 后的认证注入；它们不把 OAuthAccount 变成 ProviderCredential。`ProviderRegistry` 和 `ProtocolRegistry` 由 `app` 在编译期静态注册，Runtime 只依赖接口和 CapabilitySet。
 
@@ -1371,7 +1371,7 @@ Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调�
 
 公开请求 Body 若声明 `Content-Encoding: zstd`，只在 JSON 型 Codex/OpenAI 入口接受。Server 同时限制压缩前字节数和流式解压后的字节数；未知/重复编码、损坏帧或解压后超限使用当前协议错误 envelope 拒绝。ProtocolAdapter 解析解压后的 JSON；同方言 Codex 上游若客户端原本使用 zstd，则对最终重编码 Body 重新压缩并重建 `Content-Encoding`/`Content-Length` 语义，绝不转发旧压缩元数据。multipart 图片入口不接受该编码。
 
-响应 Header 也不能使用宽泛 denylist。Driver 只投影最终 Attempt 的显式精确名称或受控 Provider 前缀；认证、Cookie、hop-by-hop 和正文校验 Header 始终删除。上游 `x-request-id`/`request-id`/`x-oai-request-id` 存在时原样保留；Codex 只有 `x-oai-request-id` 时还必须把同一上游值镜像为 `x-request-id`。any2api 为每个 HTTP 请求生成的本地追踪值始终写入 `x-any2api-request-id`。仅当响应没有可归一化的上游 `x-request-id` 时，Server 才用本地值补 `x-request-id`，因此本地错误仍同时具有两个关联字段。聚合 `/v1/models` 不透传某个账号的 `X-Models-Etag`，而应由当前 PublishedSnapshot 的公开目录生成本地 ETag。
+响应 Header 也不能使用宽泛 denylist。Driver 只投影最终 Attempt 的显式精确名称或受控 Provider 前缀；认证、Cookie、hop-by-hop 和正文校验 Header 始终删除。上游 `x-request-id`/`request-id`/`x-oai-request-id` 存在时原样保留；Codex 只有 `x-oai-request-id` 时还必须把同一上游值镜像为 `x-request-id`。any2api 为每个 HTTP 请求生成的本地追踪值始终写入 `x-any2api-request-id`。仅当响应没有可归一化的上游 `x-request-id` 时，Server 才用本地值补 `x-request-id`，因此本地错误仍同时具有两个关联字段。完整收集并按原始字节透明返回的上游错误正文可以同时投影白名单内的 `Content-Type` 与 `Content-Encoding`；成功响应重编码、本地错误或错误正文被丢弃为空时必须删除旧 `Content-Encoding`。聚合 `/v1/models` 不透传某个账号的 `X-Models-Etag`，而应由当前 PublishedSnapshot 的公开目录生成本地 ETag。
 
 ### 11.7 Provider URL 语义
 
@@ -1394,9 +1394,9 @@ Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调�
 
 结构化 URL 仍禁止非 HTTP(S) scheme、userinfo、query、fragment、零端口和路径穿越片段。客户端请求头和 absolute-form URL 不能改变已发布 Endpoint 的 authority，Transport 继续禁用自动重定向。
 
-### 11.8 兼容错误输出
+### 11.8 本地错误编码与上游错误透明返回
 
-内部错误统一为类型化 `PublicError`，再由入口 ProtocolAdapter 转换为 OpenAI/Codex 或 Anthropic 兼容格式。至少覆盖：
+只有 any2api 自己产生的错误使用类型化 `PublicError`，再由入口 ProtocolAdapter 转换为 OpenAI/Codex 或 Anthropic 兼容格式。至少覆盖：
 
 - Gateway 鉴权失败；
 - 请求格式或版本头错误；
@@ -1404,13 +1404,14 @@ Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调�
 - 无可用 Credential；
 - 本地 RPM 用尽与排队超时；
 - 硬绑定丢失或不可用；
-- 上游认证、额度、限流和服务错误；
 - 重试预算耗尽；
 - 内部错误。
 
-所有错误返回 Request ID；适用时返回 `Retry-After`。最终上游 429 与 529 分别保持客户端可识别的限流与过载状态/type，并投影该 Provider 白名单内的重试和限流 Header；上游凭据的 401/403 仍使用网关上游错误 code/type，不能伪装成客户端 Gateway Key 认证失败并诱导官方 CLI 退出登录。
+本地错误返回本地 Request ID；适用时返回本地 `Retry-After`。本地等待上游响应超时使用 `504 Gateway Timeout` 和明确的 any2api 消息，连接、代理或 TLS 等没有收到上游 HTTP 响应的失败才使用对应本地网关错误。禁止把本地预算到期、Future 取消或 Transport 失败伪装成上游返回的状态或消息。
 
-上游最终失败响应若符合当前 Provider 明确声明的错误 envelope，客户端错误 envelope 的 `message` 使用其中的官方 `message`；字段缺失、为空、超出有界错误正文、正文读取不完整或 envelope 无法解析时才使用 any2api 固定摘要。错误正文只是状态与 Header 之外的可选补充：一旦收到非 2xx 响应头，正文超限、超时或中途断开都不得抹掉既有 HTTP 状态、可安全投影的 Header、健康归因或重试语义，也不得另行改写为传输/本地错误。只保留实际返回客户端的最后一次 Attempt 消息，被重试或切换掉的消息不得进入最终响应。这里不是原始正文透传：不得返回任意 JSON 字段、纯文本/HTML 正文、内部 IP、代理地址、认证诊断 Header 或 Secret。官方消息只用于当前客户端响应，不进入 RequestLog、RequestAttempt、HttpAccessLog、本地文件日志或管理 DTO；这些持久化与日志边界继续只保存状态码、错误分类和 any2api 生成的安全摘要。`PublicError` 必须保留本地安全消息与 Provider 客户端消息的来源区分，Provider 消息的 `Debug`/遥测视图固定脱敏，协议 Adapter 只能通过客户端消息访问器编码响应。完整决策见 `docs/adr/0057-provider-error-message-transparency.md`。
+真正收到最终上游非 2xx 响应时，Runtime 不构造 `PublicError`，也不调用 `ProtocolAdapter::error_response`。它必须原样返回上游状态码和完整收集到的有界正文，并只投影 Provider 明确允许且经过通用安全清理的响应 Header；不得把 401/403/404/408/429/5xx 映射成其他状态，不得重建或补充 `type`、`code`、`message`，跨协议桥也不得把最终上游错误改写成入口协议 envelope。被重试或切换掉的 Attempt 响应仍全部丢弃，只有实际结束请求的最终 Attempt 可以返回。错误正文超限、读取超时或中途断开时保留已经收到的上游状态和安全 Header，但不生成替代错误正文。
+
+Provider Driver 仍可从已声明 envelope 提取原始 `message`，但只用于有界 RequestLog/RequestAttempt 管理展示；缺失时保持为空，禁止根据状态或内部分类生成摘要。管理 DTO 和 Web 不再暴露 `error_class`、`retry_safety` 或 Attempt `outcome`，只显示真实 HTTP 状态、是否收到上游状态、实际消息、耗时与路由来源。内部分类字段可以继续存在于 Runtime/SQLite 以支持重试和健康实现，但不能成为公开错误类型。完整决策见 `docs/adr/0061-transparent-upstream-error-responses.md`。
 
 公开入口在请求体解码前发生的错误也遵守同一边界：`/v1/responses` 与 `/v1/responses/compact` 使用 OpenAI Responses 错误 envelope，`/v1/chat/completions` 使用 OpenAI Chat Completions 错误 envelope，`/v1/messages` 与 `/v1/messages/count_tokens` 使用 Anthropic Messages 错误 envelope。Gateway 鉴权失败、已知入口的方法不匹配以及能够按上述稳定前缀归属协议的子路径 404，都必须先构造 `PublicError`，再调用同一个已注册 `ProtocolAdapter::error_response`；不得在 Axum 中间件或 fallback 中维护第二套协议 JSON。`PublicErrorCode` 保留 `public_api_not_found` 与 `method_not_allowed` 两个入口代码，使 Adapter 可以在保持 404/405 状态的同时输出稳定协议字段。`PublicRequestService` 因此是公开 Router 的必填 Composition Root 依赖，不提供缺少协议注册表的兼容构造路径。`/v1/models` 以及无法由路径可靠判断协议的未知 `/v1` 路径使用 OpenAI 兼容错误作为公开目录默认格式。所有 `/v1` fallback 仍先经过 Gateway 鉴权，避免未认证请求借路由差异探测实例配置。
 
@@ -1768,10 +1769,10 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 
 首个可靠性切片固定以下实现边界：
 
-- `ProviderDriver::classify_error` 返回强类型 `UpstreamError`：其中的 `UpstreamErrorClassification` 包含上游错误种类、`RetrySafety` 与可选 `Retry-After`，可选公开消息只来自当前 Provider 已声明的结构化错误 envelope；禁止让 Provider Driver 返回代理、DNS、取消或 Runtime 内部错误；
+- `ProviderDriver::classify_error` 返回强类型 `UpstreamError`：其中的 `UpstreamErrorClassification` 包含上游错误种类、`RetrySafety` 与可选 `Retry-After`，可选管理日志消息只来自当前 Provider 已声明的结构化错误 envelope；禁止让 Provider Driver 返回代理、DNS、取消或 Runtime 内部错误，也禁止用分类结果生成客户端错误正文；
 - HTTP 状态先建立不可矛盾的分类基线，Provider 正文只能做相容细化：401 固定为认证错误，5xx/408/425 固定为临时上游错误，429 可以细分为限流或已确认额度耗尽，正文不得把这些状态改写成不同健康作用域；Provider 特殊 code 只从已声明字段读取，禁止递归扫描任意 JSON 值改变重试、OAuth 刷新或健康状态；
 - `TransportError` 的失败阶段与健康归因正交；`TransportFailureScope` 只允许 `Endpoint / Proxy / Unattributed`。只有可验证的 Endpoint 或 Proxy 故障才更新对应熔断器，reqwest 无法区分 CONNECT/SOCKS/目标 TLS 来源时使用 `Unattributed`，对两类健康状态均保持 neutral；
-- `Retry-After` 同时支持 delta-seconds 与 HTTP-date。无效值忽略；分类使用规范化秒数，最终 Attempt 还可按 Provider 响应白名单返回 `Retry-After`、`retry-after-ms`、`x-should-retry` 和限流观测 Header，并返回 Provider 已声明 envelope 中的官方 `message`；非 2xx 正文使用独立收集路径，在读取阶段即受 64 KiB 分类上限约束，不得先按普通成功响应上限聚合；正文超限、超时或中途断开时丢弃不完整正文，以空正文执行 HTTP 状态基线分类和固定消息回退，不得覆盖已经收到的非 2xx 状态与 Header；被重试掉的 Header/消息与上游原始正文永不透传；
+- `Retry-After` 同时支持 delta-seconds 与 HTTP-date。无效值忽略；分类使用规范化秒数，最终 Attempt 还可按 Provider 响应白名单返回 `Retry-After`、`retry-after-ms`、`x-should-retry` 和限流观测 Header；非 2xx 正文使用独立收集路径，在读取阶段即受 64 KiB 上限约束，完整取得时作为不透明字节返回客户端并把声明 envelope 中的原始 `message` 写入有界管理日志。正文超限、超时或中途断开时以空正文执行 HTTP 状态基线分类，但不得生成固定消息、覆盖已经收到的状态与 Header，或把该响应改写成本地错误；被重试掉的 Header、消息与正文全部丢弃；
 - 429 与确认的模型错误只更新当前 Credential generation 下的 Credential + upstream model 冷却；401 把当前 API Key generation 标记为 `auth_error`；402/权限类错误使用 Credential 级冷却；
 - 上游 5xx/过载只更新 Endpoint config generation；代理连接/握手错误只更新 Proxy config generation；DIRECT 的 DNS/TCP 错误归入 Endpoint，禁止把 Provider 429/5xx 误判为代理故障；
 - Endpoint 与 Proxy 使用独立的滑动失败窗口和 `Closed / Open / HalfOpen` 熔断器。HalfOpen 探测 Permit 与上游 Attempt 同生命周期，取消或 Drop 必须归还探测名额；
@@ -1826,7 +1827,7 @@ request_attempts
 ├─ duration_ms
 ├─ retry_safety
 ├─ error_class
-├─ error_message          # 状态码/分类/阶段合成的安全有界摘要
+├─ error_message          # 本地失败消息，或最终 Provider 已声明 envelope 中的原始 message
 ├─ status_code
 └─ outcome
 ```
@@ -2060,7 +2061,7 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 | `upstream.read_timeout` | duration_secs | `15` | `1..=86_400` |
 | `upstream.strict_ssrf` | boolean | `false` | `true` / `false` |
 
-`upstream.read_timeout` 是每次等待响应头或 buffered body 下一 chunk 的空闲时长，成功读取后重置，不是整个请求的总时长。`retry.precommit_total_budget` 仍是 Attempt 外层绝对 deadline；哪个先到期就先结束当前 Attempt。成功 SSE 分别使用 precommit 和 postcommit 设置，非 2xx SSE 错误正文仍按 buffered body 读取，因此使用通用 read timeout。
+`upstream.read_timeout` 是每次等待响应头或 buffered body 下一 chunk 的空闲时长，成功读取后重置，不是整个请求的总时长。`retry.precommit_total_budget` 仍是 Attempt 外层绝对 deadline；尚未收到上游 HTTP 响应头时，哪个 deadline 先到期就先结束当前 Attempt。已经收到非 2xx 响应头后，错误正文收集同时受 read timeout、64 KiB 上限和 Attempt 绝对 deadline 约束；任一边界先到都以空正文结算已经收到的上游状态与安全 Header，禁止再改写成本地 504。成功 SSE 分别使用 precommit 和 postcommit 设置，非 2xx SSE 错误正文仍按 buffered body 读取，因此使用同一规则。
 
 协议识别出的长时请求可以在执行限制模块中应用不可低于兼容客户端的专用下限：Images 使用至少 `180s`；Codex v2 流式远程压缩使用至少 `300s`；旧 Responses Compact unary 请求使用至少 `1200s`。这些下限只提高当前请求捕获的有效预算，管理员配置的更大值保持不变，也不修改 SettingRegistry 的普通默认值。
 
@@ -2353,7 +2354,7 @@ DNS 信任边界：
 
 使用 Rust `tracing` 记录结构化事件。
 
-每个请求至少记录：
+每个请求的内部结构化观测至少记录：
 
 - Request ID；
 - Config Revision；
@@ -2368,7 +2369,7 @@ DNS 信任边界：
 - Attempt 序号与 RetrySafety；
 - 排队、Session Lock、退避耗时；
 - 状态码；
-- 错误分类；
+- 内部错误分类（只供 Runtime/文件诊断，不进入管理 DTO/Web）；
 - 总耗时；
 - 首 Token 耗时；
 - Token Usage。
@@ -2408,6 +2409,8 @@ runtime_retired
 
 历史请求统计与上述运行态调度计数分开：Gateway API Key、Provider API Key 与 OAuthAccount 都可以从 SQLite RequestLog 保留窗口读取最终请求总数、成功/失败数，并读取最近 1 小时固定 2 分钟桶的趋势；Gateway 维度不因新增上游维度而删除，上游两类来源也不得按 UUID 混合。统计查询失败不能阻塞配置读取，管理响应对当前对象降级为零值与完整空时间条带。
 
+请求日志管理响应把当前 PublishedSnapshot 中的 Provider Endpoint 名称与 ProviderCredential 标签作为两个独立、可空的展示字段投影，SQLite RequestLog 仍只保存稳定 ID。管理 Web 的“令牌”列对 Provider API Key 显示 `<Provider Endpoint 名称>-<Credential 标签>`；Endpoint 已删除或名称不可用时退回 Credential 标签/短 ID。OAuthAccount 继续只显示账号标签，不伪造 Provider Endpoint，也不在任何展示字段中暴露 Secret。
+
 三类凭据复用同一时间条带颜色语义：无调用的桶显示灰色；有调用时按桶内成功率着色，成功率大于或等于 95% 显示绿色，大于或等于 80% 且低于 95% 显示黄色，低于 80% 显示红色。颜色必须同时配合状态文字、成功/失败数和成功率，不能作为唯一信息来源。
 
 系统总览的历史调用统计同样只读取最终 RequestLog，不把 RequestAttempt 重复计入，也不建立启动恢复用的累计表。`GET /api/admin/overview/usage` 接受固定 `range=1h|24h|7d|30d`，默认 `24h`；分别返回 12 个 5 分钟桶、24 个 1 小时桶、28 个 6 小时桶或 30 个 1 天桶，空桶从旧到新保留为零。响应同时包含当前日志保留窗口累计、所选时间段累计，以及所选时间段按 `public_model` 聚合的前 12 项；更多模型合并为明确的“其他”，没有公开模型的记录保持“未识别”，两者不能混淆。
@@ -2426,7 +2429,7 @@ runtime_retired
 - 已通过 GatewayApiKey 鉴权并进入模型执行链的请求创建 RequestLog，解码、规划、排队和上游错误均可形成最终记录；
 - 公开鉴权层使用 Server 级可信代理策略解析客户端地址；直连取 TCP 对端，可信代理链按右到左规则解析，缺失、重复或无效转发头 Fail-Closed。RequestLog 只保存规范化后的 `client_ip`，不保存原始转发头；
 - 每次上游 Attempt 在健康结算后、运行态 Guard 结束前完成内存记录；整个请求结束时把 RequestLog 与全部 Attempt 聚合成一条有界队列消息；
-- 客户端可以收到最终 Provider 已声明错误 envelope 中的官方 `message`，但请求级和 Attempt 级遥测仍只写入 any2api 根据状态码、分类和失败阶段生成的安全摘要；官方消息不得进入遥测队列、SQLite、文件日志或管理响应；
+- 客户端直接收到最终上游非 2xx 的有界原始正文；请求级和 Attempt 级遥测对该最终或中间 Attempt 只保存 Provider 已声明 envelope 中提取的有界原始 `message`，不保存整段正文，也不根据状态码或分类生成替代消息。any2api 本地失败保存自己的有界消息；两类消息都禁止包含已知 Secret；
 - 入队只允许同步 `try_send`，队列满或 Writer 不可用时丢弃并计数，禁止等待 SQLite；
 - SSE 只有在首帧验证与软绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
 - SQLite Writer 小批量事务写入父子记录，并按 retention/max_rows 任一上限分批清理；历史记录不参与启动恢复；

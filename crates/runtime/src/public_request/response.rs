@@ -1,49 +1,50 @@
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
-use any2api_domain::{
-    ErrorClass, PublicError, PublicErrorCode, UpstreamError, UpstreamErrorClassification,
-};
+use any2api_domain::{ErrorClass, PublicError, PublicErrorCode, UpstreamError};
+use any2api_protocol::api::EgressResponse;
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use http::{HeaderMap, HeaderName, StatusCode, header};
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout, timeout_at};
 
-pub(super) const MAX_CLASSIFIED_ERROR_BYTES: usize = 64 * 1024;
+pub(super) const MAX_UPSTREAM_ERROR_BODY_BYTES: usize = 64 * 1024;
 
-pub(super) struct FinalFailure {
-    pub(super) error: PublicError,
-    pub(super) telemetry_message: String,
-    pub(super) headers: HeaderMap,
-    pub(super) status: Option<StatusCode>,
+pub(super) enum FinalFailure {
+    Local {
+        error: PublicError,
+    },
+    Upstream {
+        response: EgressResponse,
+        error_class: ErrorClass,
+        error_message: Option<String>,
+    },
 }
 
 impl FinalFailure {
     pub(super) fn upstream(
         headers: HeaderMap,
         status: StatusCode,
+        body: Bytes,
         upstream: &UpstreamError,
     ) -> Self {
-        Self {
-            error: classified_error(status, upstream),
-            telemetry_message: upstream_error_diagnostic(status, upstream.classification()),
-            headers,
-            status: matches!(status.as_u16(), 429 | 529).then_some(status),
+        Self::Upstream {
+            response: EgressResponse {
+                status,
+                headers,
+                body,
+            },
+            error_class: upstream.classification().kind().error_class(),
+            error_message: upstream.official_message().map(ToOwned::to_owned),
         }
     }
 }
 
 impl From<PublicError> for FinalFailure {
     fn from(error: PublicError) -> Self {
-        let telemetry_message = error.telemetry_message().to_owned();
-        Self {
-            error,
-            telemetry_message,
-            headers: HeaderMap::new(),
-            status: None,
-        }
+        Self::Local { error }
     }
 }
 
@@ -87,15 +88,19 @@ pub(super) async fn collect_body(
 pub(super) async fn collect_error_body(
     mut body: BoxByteStream,
     read_timeout: Duration,
+    attempt_deadline: Instant,
 ) -> Option<Bytes> {
     let mut collected = BytesMut::new();
     loop {
-        let next = timeout(read_timeout, body.next()).await.ok()?;
+        let idle_deadline = Instant::now() + read_timeout;
+        let next = timeout_at(idle_deadline.min(attempt_deadline), body.next())
+            .await
+            .ok()?;
         let Some(chunk) = next else {
             return Some(collected.freeze());
         };
         let chunk = chunk.ok()?;
-        if collected.len().saturating_add(chunk.len()) > MAX_CLASSIFIED_ERROR_BYTES {
+        if collected.len().saturating_add(chunk.len()) > MAX_UPSTREAM_ERROR_BODY_BYTES {
             return None;
         }
         collected.extend_from_slice(&chunk);
@@ -103,6 +108,14 @@ pub(super) async fn collect_error_body(
 }
 
 pub(super) fn sanitize_response_headers(headers: &mut HeaderMap) {
+    sanitize_response_headers_inner(headers, false);
+}
+
+pub(super) fn sanitize_upstream_error_response_headers(headers: &mut HeaderMap, body: &Bytes) {
+    sanitize_response_headers_inner(headers, !body.is_empty());
+}
+
+fn sanitize_response_headers_inner(headers: &mut HeaderMap, preserve_content_encoding: bool) {
     let nominated = headers
         .get_all(header::CONNECTION)
         .iter()
@@ -132,7 +145,9 @@ pub(super) fn sanitize_response_headers(headers: &mut HeaderMap) {
     }
     headers.remove("keep-alive");
     headers.remove("content-md5");
-    headers.remove("content-encoding");
+    if !preserve_content_encoding {
+        headers.remove("content-encoding");
+    }
     headers.remove("digest");
     headers.remove("x-api-key");
 }
@@ -151,66 +166,6 @@ fn trim_ows(mut value: &[u8]) -> &[u8] {
         value = &value[..value.len() - 1];
     }
     value
-}
-
-pub(super) fn classified_error(status: StatusCode, upstream: &UpstreamError) -> PublicError {
-    let classified = upstream.classification();
-    let class = classified.kind().error_class();
-    let (code, fallback) = if status == StatusCode::TOO_MANY_REQUESTS {
-        (
-            PublicErrorCode::UpstreamRateLimit,
-            "upstream rate limit was reached",
-        )
-    } else if status.as_u16() == 529 {
-        (
-            PublicErrorCode::UpstreamOverloaded,
-            "upstream service is overloaded",
-        )
-    } else if class == ErrorClass::OperationUnavailable {
-        (
-            PublicErrorCode::UpstreamNotFound,
-            "upstream operation is unavailable",
-        )
-    } else {
-        let fallback = match class {
-            ErrorClass::Authentication => "upstream authentication failed",
-            ErrorClass::PermissionDenied => "upstream permission was denied",
-            ErrorClass::QuotaExhausted => "upstream quota was exhausted",
-            ErrorClass::RateLimited => "upstream rate limit was reached",
-            ErrorClass::ModelUnavailable => "upstream model is unavailable",
-            _ => "upstream service returned an error",
-        };
-        (PublicErrorCode::UpstreamError, fallback)
-    };
-    let error = match upstream.official_message() {
-        Some(message) => PublicError::from_provider_message(code, message),
-        None => PublicError::new(code, fallback),
-    };
-    with_retry_after(error, classified)
-}
-
-fn upstream_error_diagnostic(
-    status: StatusCode,
-    classified: UpstreamErrorClassification,
-) -> String {
-    format!(
-        "upstream returned HTTP {} ({})",
-        status.as_u16(),
-        classified.kind().error_class().as_str(),
-    )
-}
-
-fn with_retry_after(error: PublicError, classified: UpstreamErrorClassification) -> PublicError {
-    match classified.retry_after() {
-        Some(hint) => {
-            let delay = hint.delay_from(SystemTime::now());
-            let seconds = delay
-                .as_secs()
-                .saturating_add(u64::from(delay.subsec_nanos() > 0));
-            error.with_retry_after_seconds(seconds)
-        }
-        None => error,
-    }
 }
 
 pub(super) fn invalid_request(message: &'static str) -> PublicError {
@@ -244,9 +199,7 @@ pub(super) fn public_error(code: PublicErrorCode, message: &'static str) -> Publ
 mod tests {
     use std::time::Duration;
 
-    use any2api_domain::{
-        RetrySafety, UpstreamError, UpstreamErrorClassification, UpstreamErrorKind,
-    };
+    use any2api_domain::RetrySafety;
     use any2api_transport::api::{
         BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
     };
@@ -255,60 +208,35 @@ mod tests {
     use http::{HeaderMap, HeaderValue, header};
 
     use super::{
-        CollectBodyError, MAX_CLASSIFIED_ERROR_BYTES, classified_error, collect_body,
-        collect_error_body, sanitize_response_headers,
+        CollectBodyError, MAX_UPSTREAM_ERROR_BODY_BYTES, collect_body, collect_error_body,
+        sanitize_response_headers, sanitize_upstream_error_response_headers,
     };
-
-    #[test]
-    fn classified_error_prefers_the_official_message_and_keeps_gateway_semantics() {
-        let upstream = UpstreamError::new(
-            UpstreamErrorClassification::new(
-                UpstreamErrorKind::Authentication,
-                RetrySafety::RejectedBeforeExecution,
-                None,
-            ),
-            Some("Official account restriction".to_owned()),
-        );
-
-        let error = classified_error(http::StatusCode::UNAUTHORIZED, &upstream);
-
-        assert_eq!(error.code(), any2api_domain::PublicErrorCode::UpstreamError);
-        assert_eq!(error.client_message(), "Official account restriction");
-        assert_eq!(error.telemetry_message(), "upstream request failed");
-    }
-
-    #[test]
-    fn classified_error_uses_a_fixed_fallback_when_no_official_message_exists() {
-        let upstream = UpstreamError::new(
-            UpstreamErrorClassification::new(
-                UpstreamErrorKind::RateLimited,
-                RetrySafety::RejectedBeforeExecution,
-                None,
-            ),
-            None,
-        );
-
-        let error = classified_error(http::StatusCode::TOO_MANY_REQUESTS, &upstream);
-
-        assert_eq!(error.client_message(), "upstream rate limit was reached");
-        assert_eq!(error.telemetry_message(), "upstream rate limit was reached");
-    }
 
     #[tokio::test]
     async fn error_body_is_available_only_when_complete_and_within_its_limit() {
         let complete: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(b"complete"))]));
         assert_eq!(
-            collect_error_body(complete, Duration::from_secs(1)).await,
+            collect_error_body(
+                complete,
+                Duration::from_secs(1),
+                tokio::time::Instant::now() + Duration::from_secs(1),
+            )
+            .await,
             Some(Bytes::from_static(b"complete"))
         );
 
         let oversized: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from(vec![
             b'x';
-            MAX_CLASSIFIED_ERROR_BYTES
+            MAX_UPSTREAM_ERROR_BODY_BYTES
                 + 1
         ]))]));
         assert_eq!(
-            collect_error_body(oversized, Duration::from_secs(1)).await,
+            collect_error_body(
+                oversized,
+                Duration::from_secs(1),
+                tokio::time::Instant::now() + Duration::from_secs(1),
+            )
+            .await,
             None
         );
 
@@ -323,9 +251,29 @@ mod tests {
             Err(read_error),
         ]));
         assert_eq!(
-            collect_error_body(incomplete, Duration::from_secs(1)).await,
+            collect_error_body(
+                incomplete,
+                Duration::from_secs(1),
+                tokio::time::Instant::now() + Duration::from_secs(1),
+            )
+            .await,
             None
         );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn attempt_deadline_discards_an_unfinished_error_body() {
+        let body: BoxByteStream =
+            Box::pin(stream::iter([Ok(Bytes::from_static(b"partial"))]).chain(stream::pending()));
+
+        let collected = collect_error_body(
+            body,
+            Duration::from_secs(1),
+            tokio::time::Instant::now() + Duration::from_millis(25),
+        )
+        .await;
+
+        assert_eq!(collected, None);
     }
 
     #[tokio::test]
@@ -410,5 +358,18 @@ mod tests {
         assert!(headers.get("x-api-key").is_none());
         assert!(headers.get("x-private-hop").is_none());
         assert_eq!(headers["x-request-id"], "request-1");
+    }
+
+    #[test]
+    fn transparent_error_headers_keep_content_encoding_only_with_a_body() {
+        let mut complete = HeaderMap::new();
+        complete.insert("content-encoding", HeaderValue::from_static("gzip"));
+        sanitize_upstream_error_response_headers(&mut complete, &Bytes::from_static(b"compressed"));
+        assert_eq!(complete["content-encoding"], "gzip");
+
+        let mut empty = HeaderMap::new();
+        empty.insert("content-encoding", HeaderValue::from_static("gzip"));
+        sanitize_upstream_error_response_headers(&mut empty, &Bytes::new());
+        assert!(!empty.contains_key("content-encoding"));
     }
 }

@@ -1,6 +1,7 @@
-use std::fmt;
-
 use serde::{Deserialize, Serialize};
+
+pub const ANY2API_UPSTREAM_TIMEOUT_MESSAGE: &str =
+    "any2api timed out waiting for an upstream response";
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -69,24 +70,16 @@ pub enum PublicErrorCode {
     NoAvailableCredential,
     LocalRateLimit,
     SessionBindingLost,
-    UpstreamNotFound,
-    UpstreamRateLimit,
-    UpstreamOverloaded,
     UpstreamError,
+    GatewayTimeout,
     InternalError,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicError {
     code: PublicErrorCode,
-    message: PublicErrorMessage,
+    message: String,
     retry_after_seconds: Option<u64>,
-}
-
-#[derive(Clone, Eq, PartialEq)]
-enum PublicErrorMessage {
-    Local(String),
-    Provider(String),
 }
 
 impl PublicError {
@@ -94,16 +87,7 @@ impl PublicError {
     pub fn new(code: PublicErrorCode, message: impl Into<String>) -> Self {
         Self {
             code,
-            message: PublicErrorMessage::Local(message.into()),
-            retry_after_seconds: None,
-        }
-    }
-
-    #[must_use]
-    pub fn from_provider_message(code: PublicErrorCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: PublicErrorMessage::Provider(message.into()),
+            message: message.into(),
             retry_after_seconds: None,
         }
     }
@@ -115,17 +99,12 @@ impl PublicError {
 
     #[must_use]
     pub fn client_message(&self) -> &str {
-        match &self.message {
-            PublicErrorMessage::Local(message) | PublicErrorMessage::Provider(message) => message,
-        }
+        &self.message
     }
 
     #[must_use]
     pub fn telemetry_message(&self) -> &str {
-        match &self.message {
-            PublicErrorMessage::Local(message) => message,
-            PublicErrorMessage::Provider(_) => "upstream request failed",
-        }
+        &self.message
     }
 
     #[must_use]
@@ -140,34 +119,15 @@ impl PublicError {
     }
 }
 
-impl fmt::Debug for PublicError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let message_source = match self.message {
-            PublicErrorMessage::Local(_) => "local",
-            PublicErrorMessage::Provider(_) => "provider",
-        };
-        formatter
-            .debug_struct("PublicError")
-            .field("code", &self.code)
-            .field("message_source", &message_source)
-            .field("retry_after_seconds", &self.retry_after_seconds)
-            .finish()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn provider_message_is_client_visible_but_not_a_telemetry_or_debug_message() {
-        let error = PublicError::from_provider_message(
-            PublicErrorCode::UpstreamError,
-            "official provider detail",
-        );
+    fn local_message_is_shared_by_the_client_and_telemetry_views() {
+        let error = PublicError::new(PublicErrorCode::InternalError, "local detail");
 
-        assert_eq!(error.client_message(), "official provider detail");
-        assert_eq!(error.telemetry_message(), "upstream request failed");
-        assert!(!format!("{error:?}").contains("official provider detail"));
+        assert_eq!(error.client_message(), "local detail");
+        assert_eq!(error.telemetry_message(), "local detail");
     }
 }

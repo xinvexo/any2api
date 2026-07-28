@@ -101,7 +101,6 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="客户端 IP" value={request.clientIp ?? "未记录"} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
-          <Detail label="错误分类" value={request.errorClass ?? "无"} />
           <Detail label="错误消息" value={request.errorMessage ?? "无"} />
           <Detail label={request.oauthAccountId ? "OAuth Account" : "Credential"} value={shortId(request.oauthAccountId ?? request.credentialId)} />
           <Detail
@@ -164,10 +163,11 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
         {attempt.attemptNo}
       </span>
       <div className="min-w-0">
-        <p className="font-semibold">{attempt.outcome}</p>
+        <p className="font-semibold">
+          {attempt.statusCode === null ? "未收到上游状态" : `HTTP ${attempt.statusCode}`}
+        </p>
         <p className="mt-1 break-all text-xs text-tertiary">
           {attempt.oauthAccountId ? "OAuth Account" : "Credential"} {shortId(attempt.oauthAccountId ?? attempt.credentialId)} · {proxyDisplayName(attempt.proxyProfileId, attempt.proxyProfileLabel)}
-          {attempt.errorClass ? ` · ${attempt.errorClass}` : ""}
         </p>
         {attempt.errorMessage ? (
           <p className="mt-1 break-all text-xs text-danger [overflow-wrap:anywhere]">
@@ -176,7 +176,7 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
         ) : null}
       </div>
       <div className="text-left text-xs text-secondary md:text-right">
-        <p>{attempt.statusCode ?? "未收到状态"}</p>
+        <p>{attempt.statusCode ?? "未收到上游状态"}</p>
         <p className="mt-1">{attempt.durationMs} ms</p>
       </div>
     </article>

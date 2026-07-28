@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs, net::SocketAddr, sync::Arc, time::Duration};
 
 use any2api_contract_tests::build_public_request_components;
-use any2api_domain::RequestId;
+use any2api_domain::{ANY2API_UPSTREAM_TIMEOUT_MESSAGE, RequestId};
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -377,7 +377,7 @@ async fn stream_precommit_duration_is_applied_from_published_settings() {
         &[("authorization", format!("Bearer {token}"))],
     )
     .await;
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
     let body = response
         .into_body()
         .collect()
@@ -385,7 +385,8 @@ async fn stream_precommit_duration_is_applied_from_published_settings() {
         .expect("duration error body")
         .to_bytes();
     let error: Value = serde_json::from_slice(&body).expect("duration error JSON");
-    assert_eq!(error["error"]["code"], "upstream_error");
+    assert_eq!(error["error"]["code"], "gateway_timeout");
+    assert_eq!(error["error"]["message"], ANY2API_UPSTREAM_TIMEOUT_MESSAGE);
     release.send(()).expect("release upstream stream");
 }
 

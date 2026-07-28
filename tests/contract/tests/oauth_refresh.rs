@@ -14,8 +14,8 @@ use any2api_protocol::{
     OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
 use any2api_runtime::api::{
-    ConfigPublisher, OAuthService, PublicRequest, PublicRequestService, PublishedSnapshot,
-    RuntimeRegistry, SnapshotStore,
+    ConfigPublisher, OAuthService, PublicRequest, PublicRequestService, PublicResponseBody,
+    PublishedSnapshot, RuntimeRegistry, SnapshotStore,
 };
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use any2api_transport::api::{
@@ -177,7 +177,16 @@ async fn a_second_oauth_401_never_refreshes_or_sends_a_third_attempt() {
         .execute(context.snapshots.load(), oauth_request())
         .await;
 
-    assert_eq!(response.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
+    match response.body {
+        PublicResponseBody::Buffered(body) => assert_eq!(
+            body,
+            Bytes::from_static(
+                br#"{"error":{"type":"authentication_error","code":"authentication_error"}}"#,
+            )
+        ),
+        PublicResponseBody::Streaming(_) => panic!("401 response must be buffered"),
+    }
     assert_eq!(context.transport.refresh_calls(), 1);
     assert_eq!(
         context.transport.data_authorizations(),

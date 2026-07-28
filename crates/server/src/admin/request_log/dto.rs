@@ -78,6 +78,7 @@ struct RequestLogResponse {
     public_model: Option<String>,
     thinking_level: Option<String>,
     provider_endpoint_id: Option<String>,
+    provider_endpoint_name: Option<String>,
     credential_id: Option<String>,
     credential_label: Option<String>,
     oauth_account_id: Option<String>,
@@ -85,7 +86,6 @@ struct RequestLogResponse {
     proxy_profile_id: Option<String>,
     proxy_profile_label: Option<String>,
     status_code: u16,
-    error_class: Option<&'static str>,
     error_message: Option<String>,
     attempt_count: u32,
     latency_ms: u64,
@@ -99,6 +99,12 @@ struct RequestLogResponse {
 
 impl RequestLogResponse {
     fn from_log(value: RequestLog, snapshot: &PublishedSnapshot) -> Self {
+        let provider_endpoint_name = value.provider_endpoint_id.and_then(|id| {
+            snapshot
+                .provider_endpoints()
+                .get(id)
+                .map(|endpoint| endpoint.name().to_owned())
+        });
         let credential_label = value.credential_id.and_then(|id| {
             snapshot
                 .provider_credentials()
@@ -119,6 +125,7 @@ impl RequestLogResponse {
         });
         Self::from_parts(
             value,
+            provider_endpoint_name,
             credential_label,
             oauth_account_label,
             proxy_profile_label,
@@ -127,6 +134,7 @@ impl RequestLogResponse {
 
     fn from_parts(
         value: RequestLog,
+        provider_endpoint_name: Option<String>,
         credential_label: Option<String>,
         oauth_account_label: Option<String>,
         proxy_profile_label: Option<String>,
@@ -142,6 +150,7 @@ impl RequestLogResponse {
             public_model: value.public_model,
             thinking_level: value.thinking_level,
             provider_endpoint_id: value.provider_endpoint_id.map(|id| id.to_string()),
+            provider_endpoint_name,
             credential_id: value.credential_id.map(|id| id.to_string()),
             credential_label,
             oauth_account_id: value.oauth_account_id.map(|id| id.to_string()),
@@ -149,7 +158,6 @@ impl RequestLogResponse {
             proxy_profile_id: value.proxy_profile_id.map(|id| id.to_string()),
             proxy_profile_label,
             status_code: value.status_code,
-            error_class: value.error_class.map(|class| class.as_str()),
             error_message: value.error_message,
             attempt_count: value.attempt_count,
             latency_ms: value.latency_ms,
@@ -175,11 +183,8 @@ struct RequestAttemptResponse {
     proxy_profile_label: Option<String>,
     started_at_ms: u64,
     duration_ms: u64,
-    retry_safety: Option<&'static str>,
-    error_class: Option<&'static str>,
     error_message: Option<String>,
     status_code: Option<u16>,
-    outcome: &'static str,
 }
 
 impl RequestAttemptResponse {
@@ -213,11 +218,8 @@ impl RequestAttemptResponse {
             proxy_profile_label,
             started_at_ms: value.started_at_ms,
             duration_ms: value.duration_ms,
-            retry_safety: value.retry_safety.map(|safety| safety.as_str()),
-            error_class: value.error_class.map(|class| class.as_str()),
             error_message: value.error_message,
             status_code: value.status_code,
-            outcome: value.outcome.as_str(),
         }
     }
 }
@@ -225,7 +227,7 @@ impl RequestAttemptResponse {
 #[cfg(test)]
 mod tests {
     use any2api_domain::{
-        ConfigRevision, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+        ConfigRevision, ErrorClass, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
     };
 
     use super::RequestLogResponse;
@@ -248,8 +250,8 @@ mod tests {
                 oauth_account_id: None,
                 proxy_profile_id: None,
                 status_code: 200,
-                error_class: None,
-                error_message: None,
+                error_class: Some(ErrorClass::Upstream),
+                error_message: Some("The upstream model was not found".into()),
                 attempt_count: 1,
                 latency_ms: 30,
                 first_token_ms: Some(18),
@@ -259,6 +261,7 @@ mod tests {
                 cache_write_tokens: Some(6),
                 is_stream: true,
             },
+            Some("Codex upstream".into()),
             Some("Primary Codex".into()),
             Some("work-oauth".into()),
             Some("DIRECT".into()),
@@ -272,8 +275,11 @@ mod tests {
         assert_eq!(json["cache_write_tokens"], 6);
         assert_eq!(json["thinking_level"], "high");
         assert_eq!(json["client_ip"], "203.0.113.8");
+        assert_eq!(json["provider_endpoint_name"], "Codex upstream");
         assert_eq!(json["credential_label"], "Primary Codex");
         assert_eq!(json["oauth_account_label"], "work-oauth");
         assert_eq!(json["proxy_profile_label"], "DIRECT");
+        assert_eq!(json["error_message"], "The upstream model was not found");
+        assert!(json.get("error_class").is_none());
     }
 }

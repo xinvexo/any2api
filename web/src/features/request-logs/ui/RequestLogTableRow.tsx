@@ -106,10 +106,6 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
               <span className="min-w-0 truncate text-danger" title={log.errorMessage}>
                 {log.errorMessage}
               </span>
-            ) : log.errorClass ? (
-              <span className="text-warning" title={log.errorClass}>
-                {log.errorClass}
-              </span>
             ) : null}
           </div>
         </div>

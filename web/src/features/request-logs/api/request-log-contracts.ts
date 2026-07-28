@@ -12,32 +12,6 @@ export type RequestLogOperation =
   | "images_edits"
   | "messages"
   | "messages_count_tokens";
-export type RequestLogErrorClass =
-  | "invalid_request"
-  | "authentication"
-  | "permission_denied"
-  | "quota_exhausted"
-  | "rate_limited"
-  | "model_unavailable"
-  | "operation_unavailable"
-  | "proxy"
-  | "network"
-  | "upstream"
-  | "cancelled"
-  | "internal";
-export type RequestAttemptOutcome =
-  | "success"
-  | "transport_error"
-  | "upstream_error"
-  | "invalid_response"
-  | "local_error"
-  | "stream_error"
-  | "cancelled";
-export type RequestRetrySafety =
-  | "definitely_not_sent"
-  | "rejected_before_execution"
-  | "idempotent"
-  | "ambiguous";
 
 export interface RequestLog {
   requestId: string;
@@ -50,6 +24,7 @@ export interface RequestLog {
   publicModel: string | null;
   thinkingLevel: string | null;
   providerEndpointId: string | null;
+  providerEndpointName: string | null;
   credentialId: string | null;
   credentialLabel: string | null;
   oauthAccountId: string | null;
@@ -57,7 +32,6 @@ export interface RequestLog {
   proxyProfileId: string | null;
   proxyProfileLabel: string | null;
   statusCode: number;
-  errorClass: RequestLogErrorClass | null;
   errorMessage: string | null;
   attemptCount: number;
   latencyMs: number;
@@ -80,11 +54,8 @@ export interface RequestAttempt {
   proxyProfileLabel: string | null;
   startedAtMs: number;
   durationMs: number;
-  retrySafety: RequestRetrySafety | null;
-  errorClass: RequestLogErrorClass | null;
   errorMessage: string | null;
   statusCode: number | null;
-  outcome: RequestAttemptOutcome;
 }
 
 export interface RequestTelemetryMetrics {
@@ -134,6 +105,7 @@ function parseRequestLog(value: unknown): RequestLog {
     publicModel: readNullableString(record.public_model),
     thinkingLevel: readOptionalNullableString(record.thinking_level),
     providerEndpointId: readNullableString(record.provider_endpoint_id),
+    providerEndpointName: readOptionalNullableString(record.provider_endpoint_name),
     credentialId: readNullableString(record.credential_id),
     credentialLabel: readOptionalNullableString(record.credential_label),
     oauthAccountId: readNullableString(record.oauth_account_id),
@@ -141,7 +113,6 @@ function parseRequestLog(value: unknown): RequestLog {
     proxyProfileId: readNullableString(record.proxy_profile_id),
     proxyProfileLabel: readOptionalNullableString(record.proxy_profile_label),
     statusCode: readStatusCode(record.status_code),
-    errorClass: readNullableEnum(record.error_class, readErrorClass),
     errorMessage: readOptionalNullableString(record.error_message),
     attemptCount: readNonNegativeInteger(record.attempt_count),
     latencyMs: readNonNegativeInteger(record.latency_ms),
@@ -167,11 +138,8 @@ function parseAttempt(value: unknown): RequestAttempt {
     proxyProfileLabel: readOptionalNullableString(record.proxy_profile_label),
     startedAtMs: readNonNegativeInteger(record.started_at_ms),
     durationMs: readNonNegativeInteger(record.duration_ms),
-    retrySafety: readNullableEnum(record.retry_safety, readRetrySafety),
-    errorClass: readNullableEnum(record.error_class, readErrorClass),
     errorMessage: readOptionalNullableString(record.error_message),
     statusCode: readNullableStatusCode(record.status_code),
-    outcome: readOutcome(record.outcome),
   };
 }
 
@@ -208,55 +176,6 @@ function readOperation(value: unknown): RequestLogOperation {
     value === "messages_count_tokens"
   ) {
     return value;
-  }
-  throw invalidResponse();
-}
-
-function readErrorClass(value: string): RequestLogErrorClass {
-  const values: RequestLogErrorClass[] = [
-    "invalid_request",
-    "authentication",
-    "permission_denied",
-    "quota_exhausted",
-    "rate_limited",
-    "model_unavailable",
-    "operation_unavailable",
-    "proxy",
-    "network",
-    "upstream",
-    "cancelled",
-    "internal",
-  ];
-  if (values.includes(value as RequestLogErrorClass)) {
-    return value as RequestLogErrorClass;
-  }
-  throw invalidResponse();
-}
-
-function readRetrySafety(value: string): RequestRetrySafety {
-  if (
-    value === "definitely_not_sent" ||
-    value === "rejected_before_execution" ||
-    value === "idempotent" ||
-    value === "ambiguous"
-  ) {
-    return value;
-  }
-  throw invalidResponse();
-}
-
-function readOutcome(value: unknown): RequestAttemptOutcome {
-  const values: RequestAttemptOutcome[] = [
-    "success",
-    "transport_error",
-    "upstream_error",
-    "invalid_response",
-    "local_error",
-    "stream_error",
-    "cancelled",
-  ];
-  if (typeof value === "string" && values.includes(value as RequestAttemptOutcome)) {
-    return value as RequestAttemptOutcome;
   }
   throw invalidResponse();
 }
@@ -334,10 +253,6 @@ function readStatusCode(value: unknown): number {
 
 function readNullableStatusCode(value: unknown): number | null {
   return value === null ? null : readStatusCode(value);
-}
-
-function readNullableEnum<T>(value: unknown, parser: (value: string) => T): T | null {
-  return value === null ? null : parser(readString(value));
 }
 
 function invalidResponse() {

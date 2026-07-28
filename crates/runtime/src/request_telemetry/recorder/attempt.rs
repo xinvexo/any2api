@@ -1,8 +1,14 @@
-use std::time::Instant;
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
+};
 
 use any2api_domain::{
-    CredentialId, ErrorClass, OAuthAccountId, ProxyProfileId, RequestAttempt,
-    RequestAttemptOutcome, RequestId, RetrySafety, RouteTargetId, TokenUsage,
+    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, CredentialId, ErrorClass, OAuthAccountId, ProxyProfileId,
+    RequestAttempt, RequestAttemptOutcome, RequestId, RetrySafety, RouteTargetId, TokenUsage,
 };
 
 use super::request::{RequestRecorder, bound_optional_error_message, duration_ms};
@@ -18,7 +24,21 @@ pub(crate) struct AttemptRecorder {
     proxy_profile_id: Option<ProxyProfileId>,
     started_at_ms: u64,
     started_at: Instant,
+    timeout: AttemptTimeoutMarker,
     finished: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct AttemptTimeoutMarker(Arc<AtomicBool>);
+
+impl AttemptTimeoutMarker {
+    pub(crate) fn mark_timed_out(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    fn timed_out(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
 }
 
 impl AttemptRecorder {
@@ -39,6 +59,7 @@ impl AttemptRecorder {
             proxy_profile_id: Some(candidate.proxy_id),
             started_at_ms,
             started_at: Instant::now(),
+            timeout: AttemptTimeoutMarker(Arc::new(AtomicBool::new(false))),
             finished: false,
         }
     }
@@ -54,8 +75,13 @@ impl AttemptRecorder {
             proxy_profile_id: None,
             started_at_ms: 0,
             started_at: Instant::now(),
+            timeout: AttemptTimeoutMarker(Arc::new(AtomicBool::new(false))),
             finished: true,
         }
+    }
+
+    pub(crate) fn timeout_marker(&self) -> AttemptTimeoutMarker {
+        self.timeout.clone()
     }
 
     pub(crate) fn request(&self) -> RequestRecorder {
@@ -96,15 +122,13 @@ impl AttemptRecorder {
         status_code: u16,
         retry_safety: RetrySafety,
         error_class: ErrorClass,
+        message: Option<&str>,
     ) {
         self.complete(
             RequestAttemptOutcome::UpstreamError,
             Some(retry_safety),
             Some(error_class),
-            bound_optional_error_message(format!(
-                "upstream returned HTTP {status_code} ({})",
-                error_class.as_str(),
-            )),
+            message.and_then(bound_optional_error_message),
             Some(status_code),
         );
     }
@@ -174,6 +198,16 @@ impl AttemptRecorder {
     }
 
     pub(crate) fn cancelled(&mut self, status_code: Option<u16>) {
+        if self.timeout.timed_out() {
+            self.complete(
+                RequestAttemptOutcome::LocalError,
+                Some(RetrySafety::Ambiguous),
+                Some(ErrorClass::Network),
+                bound_optional_error_message(ANY2API_UPSTREAM_TIMEOUT_MESSAGE),
+                None,
+            );
+            return;
+        }
         self.complete(
             RequestAttemptOutcome::Cancelled,
             Some(RetrySafety::Ambiguous),

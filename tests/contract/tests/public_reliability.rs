@@ -12,7 +12,7 @@ use any2api_domain::{
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    OpenAiResponsesAdapter, ProtocolRegistry,
+    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublicResponse,
@@ -219,7 +219,7 @@ async fn legacy_responses_compact_survives_a_delayed_unary_body() {
     .await;
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.body["output"][0]["type"], "compaction");
+    assert_eq!(response.json_body()["output"][0]["type"], "compaction");
     assert_eq!(
         transport.calls()[0].read_timeout,
         Duration::from_secs(1_200)
@@ -246,6 +246,7 @@ async fn claude_json_and_sse_persist_exact_cumulative_usage() {
         &[],
         ProviderKind::Claude,
         ProtocolDialect::AnthropicMessages,
+        None,
     )
     .await;
 
@@ -299,6 +300,7 @@ async fn count_tokens_result_is_not_recorded_as_generation_usage() {
         &[],
         ProviderKind::Claude,
         ProtocolDialect::AnthropicMessages,
+        None,
     )
     .await;
 
@@ -339,7 +341,7 @@ async fn ambiguous_transport_failure_is_not_retried() {
     let response = execute_json(&harness, "ambiguous-model", json!({"input":"hello"})).await;
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(response.json_body()["error"]["code"], "upstream_error");
     assert_eq!(transport.calls().len(), 1);
 }
 
@@ -366,13 +368,19 @@ async fn buffered_body_read_timeout_is_ambiguous_and_not_retried() {
     let response = execute_json(&harness, "body-timeout-model", json!({"input":"hello"})).await;
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(response.json_body()["error"]["code"], "upstream_error");
     assert_eq!(transport.calls().len(), 1);
 }
 
 #[tokio::test]
 async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
+    const UPSTREAM_BODY: &str =
+        r#"{"error":{"type":"rate_limit_error","message":"Official rate limit detail"}}"#;
     let mut retry_after = HeaderMap::new();
+    retry_after.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/problem+json"),
+    );
     retry_after.insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
     retry_after.insert(
         "x-request-id",
@@ -383,11 +391,7 @@ async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
         HeaderValue::from_static("100"),
     );
     let transport = Arc::new(ScriptedTransport::new([
-        ScriptStep::json_with_headers(
-            StatusCode::TOO_MANY_REQUESTS,
-            retry_after,
-            r#"{"error":{"type":"rate_limit_error","message":"Official rate limit detail"}}"#,
-        ),
+        ScriptStep::json_with_headers(StatusCode::TOO_MANY_REQUESTS, retry_after, UPSTREAM_BODY),
         ScriptStep::json(
             StatusCode::OK,
             r#"{"id":"other-ok","model":"upstream","output":[]}"#,
@@ -397,11 +401,10 @@ async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
 
     let limited = execute_json(&harness, "limited-model", json!({"input":"one"})).await;
     assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(limited.body["error"]["type"], "rate_limit_error");
-    assert_eq!(limited.body["error"]["code"], "rate_limit_exceeded");
+    assert_eq!(limited.body_bytes(), UPSTREAM_BODY.as_bytes());
     assert_eq!(
-        limited.body["error"]["message"],
-        "Official rate limit detail"
+        limited.headers()[header::CONTENT_TYPE],
+        "application/problem+json"
     );
     assert_eq!(limited.headers()[header::RETRY_AFTER], "5");
     assert_eq!(limited.headers()["x-request-id"], "rate-limit-request");
@@ -409,18 +412,11 @@ async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
     let record = wait_for_log(&harness, limited.request_id).await;
     assert_eq!(
         record.request.error_message.as_deref(),
-        Some("upstream returned HTTP 429 (rate_limited)")
+        Some("Official rate limit detail")
     );
     assert_eq!(
         record.attempts[0].error_message.as_deref(),
-        Some("upstream returned HTTP 429 (rate_limited)")
-    );
-    assert!(
-        record
-            .request
-            .error_message
-            .as_deref()
-            .is_none_or(|message| !message.contains("Official rate limit detail"))
+        Some("Official rate limit detail")
     );
 
     let limited_again = execute_json(&harness, "limited-model", json!({"input":"two"})).await;
@@ -439,40 +435,129 @@ async fn rate_limit_returns_retry_after_and_cools_only_that_model() {
 }
 
 #[tokio::test]
-async fn final_openai_overload_keeps_529_and_safe_headers() {
+async fn upstream_error_status_headers_and_body_are_forwarded_verbatim() {
+    const CASES: &[(u16, &str, &str)] = &[
+        (
+            401,
+            "application/json",
+            r#"{"error":{"type":"authentication_error","message":"upstream 401"}}"#,
+        ),
+        (
+            404,
+            "application/problem+json",
+            r#"{"error":{"code":"model_not_found","message":"upstream 404"}}"#,
+        ),
+        (429, "text/plain; charset=utf-8", "upstream 429 plain text"),
+        (500, "text/plain", "upstream 500 plain text"),
+        (
+            529,
+            "application/json",
+            r#"{"error":{"type":"overloaded_error","message":"upstream 529"}}"#,
+        ),
+        (598, "text/plain", "unknown upstream status 598"),
+    ];
+
+    for &(status, content_type, upstream_body) in CASES {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_str(content_type).expect("content type"),
+        );
+        headers.insert(
+            "x-request-id",
+            HeaderValue::from_str(&format!("status-{status}")).expect("request id"),
+        );
+        let transport = Arc::new(ScriptedTransport::new([ScriptStep::json_with_headers(
+            StatusCode::from_u16(status).expect("upstream status"),
+            headers,
+            upstream_body,
+        )]));
+        let model = format!("status-{status}-model");
+        let harness = harness(transport, 1, &[model.as_str()], &[]).await;
+
+        let response = execute_json(&harness, &model, json!({"input":"one"})).await;
+
+        assert_eq!(response.status().as_u16(), status);
+        assert_eq!(response.body_bytes(), upstream_body.as_bytes());
+        assert_eq!(response.headers()[header::CONTENT_TYPE], content_type);
+        assert_eq!(
+            response.headers()["x-request-id"],
+            format!("status-{status}")
+        );
+        harness.telemetry.shutdown(Duration::from_secs(1)).await;
+    }
+}
+
+#[tokio::test]
+async fn encoded_upstream_error_keeps_content_encoding_and_body_verbatim() {
+    const UPSTREAM_BODY: &[u8] = b"\x1f\x8b\x08\x00encoded-upstream-error";
     let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+    headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("encoded-error-request"),
+    );
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::Json {
+        status: StatusCode::BAD_REQUEST,
+        headers,
+        body: Bytes::from_static(UPSTREAM_BODY),
+    }]));
+    let harness = harness(transport, 1, &["encoded-error-model"], &[]).await;
+
+    let response = execute_json(&harness, "encoded-error-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.body_bytes(), UPSTREAM_BODY);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+    assert_eq!(response.headers()[header::CONTENT_ENCODING], "gzip");
+    assert_eq!(response.headers()["x-request-id"], "encoded-error-request");
+}
+
+#[tokio::test]
+async fn final_openai_overload_keeps_529_body_and_safe_headers() {
+    const UPSTREAM_BODY: &str =
+        r#"{"error":{"type":"overloaded_error","message":"Official overload detail"}}"#;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     headers.insert(header::RETRY_AFTER, HeaderValue::from_static("2"));
     headers.insert("x-request-id", HeaderValue::from_static("overload-request"));
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::json_with_headers(
         StatusCode::from_u16(529).expect("529 status"),
         headers,
-        r#"{"error":{"type":"overloaded_error","message":"Official overload detail"}}"#,
+        UPSTREAM_BODY,
     )]));
     let harness = harness(transport, 1, &["overload-model"], &[]).await;
 
     let response = execute_json(&harness, "overload-model", json!({"input":"one"})).await;
 
     assert_eq!(response.status().as_u16(), 529);
-    assert_eq!(response.body["error"]["code"], "upstream_overloaded");
-    assert_eq!(
-        response.body["error"]["message"],
-        "Official overload detail"
-    );
+    assert_eq!(response.body_bytes(), UPSTREAM_BODY.as_bytes());
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
     assert_eq!(response.headers()[header::RETRY_AFTER], "2");
     assert_eq!(response.headers()["x-request-id"], "overload-request");
 }
 
 #[tokio::test]
-async fn oversized_error_body_keeps_529_headers_and_uses_the_safe_fallback() {
-    const DISCARDED_MESSAGE: &str = "must not escape an oversized error body";
+async fn oversized_error_body_keeps_529_headers_and_returns_an_empty_body() {
     let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     headers.insert(header::RETRY_AFTER, HeaderValue::from_static("4"));
     headers.insert(
         "x-request-id",
         HeaderValue::from_static("oversized-overload-request"),
     );
     let body = Bytes::from(format!(
-        r#"{{"error":{{"type":"overloaded_error","message":"{DISCARDED_MESSAGE}"}},"padding":"{}"}}"#,
+        r#"{{"error":{{"type":"overloaded_error","message":"discarded"}},"padding":"{}"}}"#,
         "x".repeat(70 * 1024)
     ));
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::Json {
@@ -490,12 +575,8 @@ async fn oversized_error_body_keeps_529_headers_and_uses_the_safe_fallback() {
     .await;
 
     assert_eq!(response.status().as_u16(), 529);
-    assert_eq!(response.body["error"]["code"], "upstream_overloaded");
-    assert_eq!(
-        response.body["error"]["message"],
-        "upstream service is overloaded"
-    );
-    assert!(!response.body.to_string().contains(DISCARDED_MESSAGE));
+    assert!(response.body_bytes().is_empty());
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
     assert_eq!(response.headers()[header::RETRY_AFTER], "4");
     assert_eq!(
         response.headers()["x-request-id"],
@@ -503,17 +584,17 @@ async fn oversized_error_body_keeps_529_headers_and_uses_the_safe_fallback() {
     );
     let record = wait_for_log(&harness, response.request_id).await;
     assert_eq!(record.request.error_class, Some(ErrorClass::Upstream));
-    assert_eq!(
-        record.request.error_message.as_deref(),
-        Some("upstream returned HTTP 529 (upstream)")
-    );
+    assert_eq!(record.request.error_message, None);
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
 #[tokio::test]
-async fn incomplete_error_body_keeps_429_headers_and_uses_the_safe_fallback() {
-    const DISCARDED_MESSAGE: &str = "must not escape an incomplete error body";
+async fn incomplete_error_body_keeps_429_headers_and_returns_an_empty_body() {
     let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/problem+json"),
+    );
     headers.insert(header::RETRY_AFTER, HeaderValue::from_static("3"));
     headers.insert(
         "x-request-id",
@@ -545,16 +626,123 @@ async fn incomplete_error_body_keeps_429_headers_and_uses_the_safe_fallback() {
     .await;
 
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(response.body["error"]["code"], "rate_limit_exceeded");
+    assert!(response.body_bytes().is_empty());
     assert_eq!(
-        response.body["error"]["message"],
-        "upstream rate limit was reached"
+        response.headers()[header::CONTENT_TYPE],
+        "application/problem+json"
     );
-    assert!(!response.body.to_string().contains(DISCARDED_MESSAGE));
     assert_eq!(response.headers()[header::RETRY_AFTER], "3");
     assert_eq!(
         response.headers()["x-request-id"],
         "incomplete-rate-limit-request"
+    );
+}
+
+#[tokio::test]
+async fn buffered_error_body_deadline_keeps_upstream_status_and_headers() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/problem+json"),
+    );
+    headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+    headers.insert(header::RETRY_AFTER, HeaderValue::from_static("7"));
+    headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("buffered-deadline-request"),
+    );
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::stalled_json_with_headers(
+            StatusCode::TOO_MANY_REQUESTS,
+            headers,
+            r#"{"error":{"message":"partial"}}"#,
+        ),
+    ]));
+    let harness = harness(
+        transport,
+        1,
+        &["buffered-deadline-model"],
+        &[(
+            SettingKey::UpstreamReadTimeout,
+            SettingValue::DurationSecs(10),
+        )],
+    )
+    .await;
+    tokio::time::pause();
+
+    let response = execute_json(
+        &harness,
+        "buffered-deadline-model",
+        json!({"input":"hello"}),
+    )
+    .await;
+    tokio::time::resume();
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(response.body_bytes().is_empty());
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "application/problem+json"
+    );
+    assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
+    assert_eq!(response.headers()[header::RETRY_AFTER], "7");
+    assert_eq!(
+        response.headers()["x-request-id"],
+        "buffered-deadline-request"
+    );
+}
+
+#[tokio::test]
+async fn stream_request_error_body_deadline_keeps_upstream_status_and_headers() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/problem+json"),
+    );
+    headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("gzip"));
+    headers.insert(header::RETRY_AFTER, HeaderValue::from_static("9"));
+    headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("stream-deadline-request"),
+    );
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::stalled_json_with_headers(
+            StatusCode::TOO_MANY_REQUESTS,
+            headers,
+            r#"{"error":{"message":"partial"}}"#,
+        ),
+    ]));
+    let harness = harness(
+        transport,
+        1,
+        &["stream-deadline-model"],
+        &[(
+            SettingKey::UpstreamReadTimeout,
+            SettingValue::DurationSecs(10),
+        )],
+    )
+    .await;
+    tokio::time::pause();
+
+    let response = execute_json(
+        &harness,
+        "stream-deadline-model",
+        json!({"input":"hello","stream":true}),
+    )
+    .await;
+    tokio::time::resume();
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(response.body_bytes().is_empty());
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "application/problem+json"
+    );
+    assert!(!response.headers().contains_key(header::CONTENT_ENCODING));
+    assert_eq!(response.headers()[header::RETRY_AFTER], "9");
+    assert_eq!(
+        response.headers()["x-request-id"],
+        "stream-deadline-request"
     );
 }
 
@@ -597,50 +785,55 @@ async fn retried_attempt_headers_are_discarded_in_favor_of_the_committed_attempt
 }
 
 #[tokio::test]
-async fn only_the_final_attempt_official_message_reaches_the_client() {
+async fn only_the_final_attempt_status_headers_and_body_reach_the_client() {
+    const FIRST_BODY: &str =
+        r#"{"error":{"type":"rate_limit_error","message":"discarded upstream detail"}}"#;
+    const FINAL_BODY: &str =
+        r#"{"error":{"type":"authentication_error","message":"final upstream detail"}}"#;
+    let mut first_headers = HeaderMap::new();
+    first_headers.insert(
+        "x-request-id",
+        HeaderValue::from_static("discarded-request"),
+    );
+    let mut final_headers = HeaderMap::new();
+    final_headers.insert("x-request-id", HeaderValue::from_static("final-request"));
     let transport = Arc::new(ScriptedTransport::new([
-        ScriptStep::json(
-            StatusCode::TOO_MANY_REQUESTS,
-            r#"{"error":{"type":"rate_limit_error","message":"discarded upstream detail"}}"#,
-        ),
-        ScriptStep::json(
-            StatusCode::UNAUTHORIZED,
-            r#"{"error":{"type":"authentication_error","message":"final upstream detail"}}"#,
-        ),
+        ScriptStep::json_with_headers(StatusCode::TOO_MANY_REQUESTS, first_headers, FIRST_BODY),
+        ScriptStep::json_with_headers(StatusCode::UNAUTHORIZED, final_headers, FINAL_BODY),
     ]));
     let harness = harness(transport.clone(), 2, &["final-message-model"], &[]).await;
 
     let response = execute_json(&harness, "final-message-model", json!({"input":"hello"})).await;
 
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(response.body["error"]["message"], "final upstream detail");
-    assert!(
-        !response
-            .body
-            .to_string()
-            .contains("discarded upstream detail")
-    );
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.body_bytes(), FINAL_BODY.as_bytes());
+    assert_eq!(response.headers()["x-request-id"], "final-request");
     assert_eq!(transport.calls().len(), 2);
     let record = wait_for_log(&harness, response.request_id).await;
-    for message in record
-        .attempts
-        .iter()
-        .filter_map(|attempt| attempt.error_message.as_deref())
-        .chain(record.request.error_message.as_deref())
-    {
-        assert!(!message.contains("discarded upstream detail"));
-        assert!(!message.contains("final upstream detail"));
-    }
+    assert_eq!(record.attempts.len(), 2);
+    assert_eq!(
+        record.attempts[0].error_message.as_deref(),
+        Some("discarded upstream detail")
+    );
+    assert_eq!(
+        record.attempts[1].error_message.as_deref(),
+        Some("final upstream detail")
+    );
+    assert_eq!(
+        record.request.error_message.as_deref(),
+        Some("final upstream detail")
+    );
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
 #[tokio::test]
-async fn grok_non_success_stream_request_returns_official_message_without_logging_it() {
+async fn grok_non_success_stream_request_returns_and_logs_official_message() {
+    const UPSTREAM_BODY: &str = r#"{"error":{"code":"subscription:free-usage-exhausted","message":"tokens (actual/limit): 1065387/1000000; Usage resets over a rolling 24-hour window"}}"#;
     const OFFICIAL_MESSAGE: &str =
         "tokens (actual/limit): 1065387/1000000; Usage resets over a rolling 24-hour window";
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
         StatusCode::TOO_MANY_REQUESTS,
-        r#"{"error":{"code":"subscription:free-usage-exhausted","message":"tokens (actual/limit): 1065387/1000000; Usage resets over a rolling 24-hour window"}}"#,
+        UPSTREAM_BODY,
     )]));
     let harness = harness_for_protocol(
         transport,
@@ -649,6 +842,7 @@ async fn grok_non_success_stream_request_returns_official_message_without_loggin
         &[],
         ProviderKind::Grok,
         ProtocolDialect::OpenAiResponses,
+        None,
     )
     .await;
 
@@ -660,40 +854,78 @@ async fn grok_non_success_stream_request_returns_official_message_without_loggin
     .await;
 
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(response.body["error"]["message"], OFFICIAL_MESSAGE);
+    assert_eq!(response.body_bytes(), UPSTREAM_BODY.as_bytes());
     let record = wait_for_log(&harness, response.request_id).await;
     assert_eq!(record.request.error_class, Some(ErrorClass::QuotaExhausted));
     assert_eq!(
         record.request.error_message.as_deref(),
-        Some("upstream returned HTTP 429 (quota_exhausted)")
+        Some(OFFICIAL_MESSAGE)
     );
     assert!(
         record
             .attempts
             .iter()
             .filter_map(|attempt| attempt.error_message.as_deref())
-            .all(|message| !message.contains(OFFICIAL_MESSAGE))
+            .all(|message| message == OFFICIAL_MESSAGE)
     );
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
 #[tokio::test]
-async fn upstream_credential_unauthorized_never_becomes_gateway_authentication_failure() {
+async fn upstream_credential_unauthorized_is_forwarded_verbatim() {
+    const UPSTREAM_BODY: &str =
+        r#"{"error":{"type":"authentication_error","message":"Official authentication detail"}}"#;
     let transport = Arc::new(ScriptedTransport::new([ScriptStep::json(
         StatusCode::UNAUTHORIZED,
-        r#"{"error":{"type":"authentication_error","message":"Official authentication detail"}}"#,
+        UPSTREAM_BODY,
     )]));
     let harness = harness(transport, 1, &["auth-model"], &[]).await;
 
     let response = execute_json(&harness, "auth-model", json!({"input":"one"})).await;
 
-    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(response.body["error"]["code"], "upstream_error");
-    assert_eq!(
-        response.body["error"]["message"],
-        "Official authentication detail"
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(response.body_bytes(), UPSTREAM_BODY.as_bytes());
+}
+
+#[tokio::test]
+async fn cross_protocol_upstream_error_is_not_reencoded() {
+    const UPSTREAM_BODY: &str = "chat upstream says model missing";
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; charset=utf-8"),
     );
-    assert_ne!(response.body["error"]["type"], "authentication_error");
+    let transport = Arc::new(ScriptedTransport::new([ScriptStep::json_with_headers(
+        StatusCode::NOT_FOUND,
+        headers,
+        UPSTREAM_BODY,
+    )]));
+    let harness = harness_for_protocol(
+        transport.clone(),
+        1,
+        &["cross-protocol-error-model"],
+        &[],
+        ProviderKind::Codex,
+        ProtocolDialect::OpenAiResponses,
+        Some(ProtocolDialect::OpenAiChatCompletions),
+    )
+    .await;
+
+    let response = execute_json(
+        &harness,
+        "cross-protocol-error-model",
+        json!({"input":"one"}),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.body_bytes(), UPSTREAM_BODY.as_bytes());
+    assert_eq!(
+        response.headers()[header::CONTENT_TYPE],
+        "text/plain; charset=utf-8"
+    );
+    assert!(transport.calls()[0].uri.ends_with("/chat/completions"));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
 #[tokio::test]
@@ -749,7 +981,7 @@ async fn total_attempt_budget_stops_before_a_fourth_attempt() {
     let response = execute_json(&harness, "budget-model", json!({"input":"hello"})).await;
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(response.json_body()["error"]["code"], "upstream_error");
     assert_eq!(transport.calls().len(), 3);
     let record = wait_for_log(&harness, response.request_id).await;
     assert_eq!(record.request.attempt_count, 3);
@@ -788,7 +1020,7 @@ async fn credential_switch_budget_stops_before_switching_again() {
     let response = execute_json(&harness, "switch-model", json!({"input":"hello"})).await;
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    assert_eq!(response.body["error"]["code"], "upstream_error");
+    assert_eq!(response.json_body()["error"]["code"], "upstream_error");
     assert_eq!(transport.calls().len(), 2);
 }
 
@@ -1050,6 +1282,7 @@ async fn harness(
         overrides,
         ProviderKind::Codex,
         ProtocolDialect::OpenAiResponses,
+        None,
     )
     .await
 }
@@ -1061,6 +1294,7 @@ async fn harness_for_protocol(
     overrides: &[(SettingKey, SettingValue)],
     provider_kind: ProviderKind,
     protocol_dialect: ProtocolDialect,
+    upstream_protocol_dialect: Option<ProtocolDialect>,
 ) -> Harness {
     let directory = tempfile::tempdir().expect("temporary directory");
     let storage = Arc::new(
@@ -1109,11 +1343,12 @@ async fn harness_for_protocol(
             .create_provider_endpoint(
                 published.revision(),
                 endpoint_id,
-                ProviderEndpointDraft::new(
+                ProviderEndpointDraft::with_upstream_protocol(
                     format!("Endpoint {index}"),
                     provider_kind,
                     format!("https://upstream-{index}.example.com/v1"),
                     protocol_dialect,
+                    upstream_protocol_dialect,
                     true,
                 )
                 .expect("endpoint draft"),
@@ -1162,6 +1397,9 @@ async fn harness_for_protocol(
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("messages adapter");
+    protocols
+        .register_bridge(Arc::new(ResponsesToChatCompletionsBridge::new()))
+        .expect("Responses to Chat Completions bridge");
     let providers = any2api_contract_tests::build_provider_registry();
     let transport_manager: Arc<dyn TransportManager> = transport;
     let service = Arc::new(
@@ -1276,22 +1514,20 @@ struct TestResponse {
     request_id: RequestId,
     status: StatusCode,
     headers: HeaderMap,
-    body: Value,
+    raw_body: Bytes,
 }
 
 impl TestResponse {
     fn from_response(request_id: RequestId, response: PublicResponse) -> Self {
-        let body = match response.body {
-            PublicResponseBody::Buffered(body) => {
-                serde_json::from_slice(&body).expect("JSON response body")
-            }
+        let raw_body = match response.body {
+            PublicResponseBody::Buffered(body) => body,
             PublicResponseBody::Streaming(_) => panic!("test expected buffered response"),
         };
         Self {
             request_id,
             status: response.status,
             headers: response.headers,
-            body,
+            raw_body,
         }
     }
 
@@ -1301,6 +1537,14 @@ impl TestResponse {
 
     fn headers(&self) -> &HeaderMap {
         &self.headers
+    }
+
+    fn body_bytes(&self) -> &[u8] {
+        &self.raw_body
+    }
+
+    fn json_body(&self) -> Value {
+        serde_json::from_slice(&self.raw_body).expect("JSON response body")
     }
 }
 

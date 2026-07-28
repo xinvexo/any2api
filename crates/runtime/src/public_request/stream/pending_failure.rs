@@ -1,6 +1,6 @@
 use std::io;
 
-use any2api_domain::{ErrorClass, RetrySafety};
+use any2api_domain::{ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, RetrySafety};
 use any2api_transport::api::{TransportError, TransportFailureScope};
 
 use super::super::response::transport_error_diagnostic;
@@ -23,11 +23,8 @@ impl PendingStreamError {
 
     pub(super) fn timeout() -> Self {
         Self {
-            error: stream_error("upstream stream precommit timed out"),
-            kind: PendingStreamErrorKind::Transport {
-                retry_safety: RetrySafety::Ambiguous,
-                failure_scope: TransportFailureScope::Unattributed,
-            },
+            error: stream_error(ANY2API_UPSTREAM_TIMEOUT_MESSAGE),
+            kind: PendingStreamErrorKind::Timeout,
         }
     }
 
@@ -75,6 +72,7 @@ pub(super) enum PendingStreamErrorKind {
     },
     InvalidResponse,
     BudgetExceeded,
+    Timeout,
     Local,
 }
 
@@ -83,6 +81,7 @@ impl PendingStreamErrorKind {
         match self {
             Self::Transport { failure_scope, .. } => transport_error_class(failure_scope),
             Self::InvalidResponse | Self::BudgetExceeded => ErrorClass::Upstream,
+            Self::Timeout => ErrorClass::Network,
             Self::Local => ErrorClass::Internal,
         }
     }
@@ -103,7 +102,7 @@ fn stream_error(message: impl Into<String>) -> io::Error {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ErrorClass, RetrySafety};
+    use any2api_domain::ErrorClass;
     use any2api_transport::api::TransportFailureScope;
 
     use super::{PendingStreamError, PendingStreamErrorKind, transport_error_class};
@@ -124,10 +123,7 @@ mod tests {
     fn runtime_precommit_timeout_is_not_attributed_to_endpoint_or_proxy() {
         assert_eq!(
             PendingStreamError::timeout().kind,
-            PendingStreamErrorKind::Transport {
-                retry_safety: RetrySafety::Ambiguous,
-                failure_scope: TransportFailureScope::Unattributed,
-            }
+            PendingStreamErrorKind::Timeout
         );
     }
 }

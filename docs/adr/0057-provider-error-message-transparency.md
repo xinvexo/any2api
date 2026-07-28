@@ -1,6 +1,6 @@
 # ADR-0057: 最终 Provider 官方错误消息透明返回
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0061
 - 日期：2026-07-28
 - 决策者：maintainer
 - 调整：ADR-0007、ADR-0037、ADR-0056 的上游错误正文边界

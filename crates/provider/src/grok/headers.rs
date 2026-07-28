@@ -22,6 +22,8 @@ const REQUEST_HEADERS: &[&str] = &[
 ];
 
 const RESPONSE_HEADERS: &[&str] = &[
+    "content-encoding",
+    "content-type",
     "x-request-id",
     "request-id",
     "x-grok-context-window",

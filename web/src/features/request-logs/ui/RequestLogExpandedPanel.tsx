@@ -68,9 +68,6 @@ export function RequestLogExpandedPanel({
           label="出口代理"
           value={proxyDisplayName(request.proxyProfileId, request.proxyProfileLabel)}
         />
-        {!success && request.errorClass ? (
-          <Detail label="错误分类" value={request.errorClass} />
-        ) : null}
         {!success && request.errorMessage ? (
           <Detail label="错误消息" value={request.errorMessage} />
         ) : null}
@@ -97,7 +94,7 @@ export function RequestLogExpandedPanel({
 
 function AttemptLine({ attempt }: { attempt: RequestAttempt }) {
   const source = upstreamSource(attempt);
-  const failed = attempt.outcome !== "success";
+  const failed = attempt.statusCode === null || !isSuccessStatus(attempt.statusCode);
   const upstreamIdentity = source.displayName;
   const proxyIdentity = proxyDisplayName(
     attempt.proxyProfileId,
@@ -109,9 +106,8 @@ function AttemptLine({ attempt }: { attempt: RequestAttempt }) {
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className="shrink-0 font-semibold tabular-nums text-primary">#{attempt.attemptNo}</span>
         <span className={cn("shrink-0 font-medium", failed ? "text-danger" : "text-primary")}>
-          {attempt.outcome}
+          {attempt.statusCode === null ? "未收到上游状态" : `HTTP ${attempt.statusCode}`}
         </span>
-        <span className="shrink-0 text-secondary">{attempt.statusCode ?? "未收到状态"}</span>
         <span className="shrink-0 tabular-nums text-tertiary">
           {formatDurationMs(attempt.durationMs)}
         </span>
@@ -133,10 +129,6 @@ function AttemptLine({ attempt }: { attempt: RequestAttempt }) {
         ) : (
           <span className="shrink-0 text-tertiary">未选上游 · {proxyIdentity}</span>
         )}
-        {attempt.errorClass
-          && attempt.errorClass.trim().toLowerCase() !== attempt.outcome.trim().toLowerCase() ? (
-          <span className="shrink-0 text-tertiary">{attempt.errorClass}</span>
-        ) : null}
         {attempt.errorMessage ? (
           <span className="min-w-0 break-words text-danger [overflow-wrap:anywhere]">
             {attempt.errorMessage}

@@ -10,6 +10,7 @@ describe("request log contracts", () => {
     });
     expect(list.items[0]?.publicModel).toBe("codex-local");
     expect(list.items[0]?.clientIp).toBe("203.0.113.8");
+    expect(list.items[0]?.providerEndpointName).toBe("frapi");
     expect(list.telemetry.droppedRecords).toBe(2);
 
     const detail = parseRequestLogDetail({
@@ -23,16 +24,13 @@ describe("request log contracts", () => {
           proxy_profile_id: "proxy-1",
           started_at_ms: 1_700_000_000_001,
           duration_ms: 25,
-          retry_safety: "ambiguous",
-          error_class: null,
           error_message: null,
           status_code: 200,
-          outcome: "success",
         },
       ],
       telemetry: telemetry(),
     });
-    expect(detail.attempts[0]?.outcome).toBe("success");
+    expect(detail.attempts[0]?.statusCode).toBe(200);
     expect(detail.request.firstTokenMs).toBe(18);
     expect(detail.request.inputTokens).toBe(120);
     expect(detail.request.outputTokens).toBe(45);
@@ -40,7 +38,7 @@ describe("request log contracts", () => {
     expect(detail.request.cacheWriteTokens).toBe(6);
   });
 
-  it("rejects unknown outcomes and invalid status codes", () => {
+  it("rejects invalid request and attempt status codes", () => {
     expect(() =>
       parseRequestLogDetail({
         request: { ...request(), status_code: 99 },
@@ -60,11 +58,8 @@ describe("request log contracts", () => {
             proxy_profile_id: null,
             started_at_ms: 1,
             duration_ms: 1,
-            retry_safety: null,
-            error_class: null,
             error_message: null,
-            status_code: null,
-            outcome: "guessed",
+            status_code: 600,
           },
         ],
         telemetry: telemetry(),
@@ -129,8 +124,7 @@ describe("request log contracts", () => {
       request: {
         ...request(),
         status_code: 401,
-        error_class: "authentication",
-        error_message: "upstream authentication failed",
+        error_message: "Incorrect API key provided",
       },
       attempts: [
         {
@@ -141,18 +135,19 @@ describe("request log contracts", () => {
           proxy_profile_id: "proxy-1",
           started_at_ms: 1,
           duration_ms: 12,
-          retry_safety: "rejected_before_execution",
-          error_class: "authentication",
           error_message: "Incorrect API key provided",
           status_code: 401,
-          outcome: "upstream_error",
         },
       ],
       telemetry: telemetry(),
     });
 
-    expect(detail.request.errorMessage).toBe("upstream authentication failed");
+    expect(detail.request.errorMessage).toBe("Incorrect API key provided");
     expect(detail.attempts[0]?.errorMessage).toBe("Incorrect API key provided");
+    expect(detail.request).not.toHaveProperty("errorClass");
+    expect(detail.attempts[0]).not.toHaveProperty("retrySafety");
+    expect(detail.attempts[0]).not.toHaveProperty("errorClass");
+    expect(detail.attempts[0]).not.toHaveProperty("outcome");
   });
 });
 
@@ -167,11 +162,11 @@ function request() {
     operation: "responses",
     public_model: "codex-local",
     provider_endpoint_id: "33333333-3333-4333-8333-333333333333",
+    provider_endpoint_name: "frapi",
     credential_id: "44444444-4444-4444-8444-444444444444",
     oauth_account_id: null,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
     status_code: 200,
-    error_class: null,
     error_message: null,
     attempt_count: 1,
     latency_ms: 30,
