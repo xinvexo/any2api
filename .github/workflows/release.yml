@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Cargo version to release, without the v prefix (for example, 0.1.0)
+        description: Release version, without the v prefix (for example, 0.1.1)
         required: true
         type: string
 
@@ -28,17 +28,12 @@ jobs:
         with:
           targets: x86_64-unknown-linux-gnu
 
-      - name: Validate release version
+      - name: Resolve release tag
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          cargo_version="$(cargo metadata --locked --no-deps --format-version 1 | jq -er '.packages[] | select(.name == "any2api") | .version')"
-          if [[ "$INPUT_VERSION" != "$cargo_version" ]]; then
-            echo "version input '$INPUT_VERSION' does not match Cargo version '$cargo_version'" >&2
-            exit 1
-          fi
-          release_tag="v$cargo_version"
+          release_tag="v$INPUT_VERSION"
           if git show-ref --verify --quiet "refs/tags/$release_tag"; then
             echo "release tag '$release_tag' already exists" >&2
             exit 1

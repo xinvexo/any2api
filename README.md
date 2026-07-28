@@ -32,10 +32,10 @@ tar -xzf "$ASSET"
 ANY2API_DATA_DIR=/var/lib/any2api ./any2api
 ```
 
-Run the `Release` workflow manually from GitHub Actions and enter the Cargo version without the `v` prefix (for
-example, `0.1.0`). The workflow requires that input to exactly match the selected commit's `any2api` Cargo version,
-then creates the matching `v<version>` tag, builds the locked Linux AMD64 target, and publishes the archive and
-checksum. Before upgrading, stop the existing process and take an offline copy of the data directory and master key.
+Run the `Release` workflow manually from GitHub Actions and enter the release version without the `v` prefix (for
+example, `0.1.1`). The workflow uses that input directly to create the matching `v<version>` tag, builds the selected
+commit for Linux AMD64, and publishes the archive and checksum. Before upgrading, stop the existing process and take
+an offline copy of the data directory and master key.
 
 ## Startup Environment
 
