@@ -43,4 +43,5 @@ any2api 以单个内嵌管理 Web 的 Rust 二进制发布，官方 Release 首�
 - Updater 单元测试覆盖 SemVer/资产选择、checksum、大小上限、额外归档成员和原子替换。
 - 管理契约测试使用假 UpdateService 覆盖关于、检查、安装、错误映射和缺失服务。
 - Web 契约与组件测试覆盖响应校验、有更新、安装请求后的环境不支持提示和重启提示。
-- 发布工作流在构建前验证输入版本与 Cargo metadata 完全一致，并继续生成固定资产名和 checksum。
+- 发布工作流验证输入是稳定 SemVer，并用它生成 Tag、固定资产名、checksum 以及编译进二进制的正式版本；
+  Cargo package version 不限制也不参与产品版本，本地开发构建固定使用 `0.0.0-dev`。

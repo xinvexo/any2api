@@ -13,7 +13,7 @@ use super::{
 
 pub(crate) fn client() -> Result<Client, UpdateError> {
     Client::builder()
-        .user_agent(format!("any2api/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("any2api/{}", crate::BUILD_VERSION))
         .https_only(true)
         .connect_timeout(Duration::from_secs(10))
         .redirect(redirect::Policy::custom(|attempt| {

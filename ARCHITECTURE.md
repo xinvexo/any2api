@@ -55,7 +55,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude 与 Grok 不声明该方言能力。
-27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的 Cargo SemVer；工作流只有在输入值与所选提交中 `any2api` 的 Cargo 版本完全一致时才创建 Tag，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
+27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；该输入同时决定 Tag、资产名和编译进二进制的正式版本，不依赖 Cargo package version，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256，成功后沿用有界优雅停机并以新二进制替换当前进程，不在后台静默检查或自动安装。
 
 ### 2.1 两类凭据的术语边界
@@ -2597,7 +2597,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 ### 19.9 关于与版本更新
 
-- “关于”页签只显示运行中二进制的 Cargo SemVer 和固定 GitHub 仓库地址；仓库链接使用普通外链，不接受服务端或浏览器输入改写；
+- “关于”页签只显示运行中二进制的编译版本和固定 GitHub 仓库地址；官方 Release 使用 Actions 输入的版本，本地开发构建固定为 `0.0.0-dev`，两者都不读取 Cargo package version；仓库链接使用普通外链，不接受服务端或浏览器输入改写；
 - “检查更新”只在管理员显式点击后调用 GitHub 最新正式 Release API，不在页面加载、定时器或后台 Worker 中自动轮询；
 - 检查结果显示最新版本、是否有更新和对应 Release 页面。草稿、预发布、非法 SemVer、Tag 与资产版本不一致或缺少固定资产时均视为不可用 Release；
 - “更新版本”不接受客户端指定版本或下载 URL；服务端重新读取最新 Release，下载固定 Linux AMD64 GNU 归档与同名 `.sha256`，完成大小限制、SHA-256 和归档结构校验后才替换二进制；

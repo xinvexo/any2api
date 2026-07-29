@@ -32,7 +32,7 @@ impl GitHubReleaseUpdater {
         embedded_web: bool,
         restart: Arc<dyn RestartRequester>,
     ) -> Result<Self, UpdateError> {
-        let current_version = Version::parse(env!("CARGO_PKG_VERSION")).map_err(|error| {
+        let current_version = Version::parse(crate::BUILD_VERSION).map_err(|error| {
             UpdateError::new(
                 UpdateErrorKind::InvalidRelease,
                 format!("current application version is invalid: {error}"),

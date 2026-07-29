@@ -12,6 +12,18 @@ use crate::{
 };
 
 #[test]
+fn compiled_build_version_uses_the_release_override_or_dev_default() {
+    let version = semver::Version::parse(crate::BUILD_VERSION).expect("build version is SemVer");
+    if let Some(expected) = option_env!("ANY2API_BUILD_VERSION") {
+        assert_eq!(crate::BUILD_VERSION, expected);
+        assert!(version.pre.is_empty());
+        assert!(version.build.is_empty());
+    } else {
+        assert_eq!(crate::BUILD_VERSION, "0.0.0-dev");
+    }
+}
+
+#[test]
 fn release_metadata_requires_exact_stable_assets() {
     let archive = "any2api-v1.2.3-linux-amd64.tar.gz";
     let document = json!({

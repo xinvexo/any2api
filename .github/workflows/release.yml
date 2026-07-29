@@ -33,12 +33,8 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          manifest_version="$(
-            cargo metadata --locked --no-deps --format-version 1 \
-              | jq -er '[.packages[] | select(.name == "any2api") | .version] | if length == 1 then .[0] else error("expected one any2api package") end'
-          )"
-          if [[ "$INPUT_VERSION" != "$manifest_version" ]]; then
-            echo "release version '$INPUT_VERSION' does not match Cargo version '$manifest_version'" >&2
+          if [[ ! "$INPUT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "release version '$INPUT_VERSION' must be a stable SemVer without the v prefix" >&2
             exit 1
           fi
           release_tag="v$INPUT_VERSION"
@@ -47,6 +43,7 @@ jobs:
             exit 1
           fi
           echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
+          echo "ANY2API_BUILD_VERSION=$INPUT_VERSION" >> "$GITHUB_ENV"
 
       - run: cargo build --locked --release -p any2api --target x86_64-unknown-linux-gnu
 
