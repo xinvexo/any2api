@@ -338,7 +338,6 @@ fn record(request_id: RequestId) -> CompletedRequestLog {
             input_tokens: None,
             output_tokens: None,
             cache_read_tokens: None,
-            cache_write_tokens: None,
             is_stream: false,
         },
         attempts: Vec::new(),

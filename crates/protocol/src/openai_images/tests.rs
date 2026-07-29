@@ -226,7 +226,7 @@ fn image_json_and_completion_events_report_usage_without_content_deltas() {
         .expect("Images response decodes");
     assert_eq!(
         response.telemetry.token_usage,
-        TokenUsage::new(Some(12), Some(7), None, None)
+        TokenUsage::new(Some(12), Some(7), None)
     );
     let egress = adapter
         .encode_egress_response(response, "public-image-model")
@@ -242,7 +242,7 @@ fn image_json_and_completion_events_report_usage_without_content_deltas() {
             .expect("completion event decodes");
         assert_eq!(
             event.telemetry().token_usage,
-            TokenUsage::new(Some(12), Some(7), None, None)
+            TokenUsage::new(Some(12), Some(7), None)
         );
         assert!(!event.telemetry().has_content_delta);
         assert_eq!(

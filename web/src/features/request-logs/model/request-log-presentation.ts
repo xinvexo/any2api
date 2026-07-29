@@ -199,7 +199,7 @@ export function formatTps(value: number | null) {
 
 /**
  * Compact list tokens:
- * 入/出 · 命中/创建 · TPS
+ * 输入/输出 · 命中 · TPS
  */
 export function formatTokenSummary(
   log: Pick<
@@ -207,7 +207,6 @@ export function formatTokenSummary(
     | "inputTokens"
     | "outputTokens"
     | "cacheReadTokens"
-    | "cacheWriteTokens"
     | "latencyMs"
     | "firstTokenMs"
   >,
@@ -216,11 +215,9 @@ export function formatTokenSummary(
     log.inputTokens === null
     && log.outputTokens === null
     && log.cacheReadTokens === null
-    && log.cacheWriteTokens === null
   ) {
     return "—";
   }
   const io = `${formatTokenCount(log.inputTokens)}/${formatTokenCount(log.outputTokens)}`;
-  const cache = `${formatTokenCount(log.cacheReadTokens)}/${formatTokenCount(log.cacheWriteTokens)}`;
-  return `${io} · ${cache} · ${formatTps(outputTps(log))}`;
+  return `${io} · ${formatTokenCount(log.cacheReadTokens)} · ${formatTps(outputTps(log))}`;
 }

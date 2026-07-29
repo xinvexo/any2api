@@ -42,7 +42,6 @@ fn usage(value: Option<&Value>) -> TokenUsage {
         &["input_tokens"],
         &["output_tokens"],
         &["cache_read_input_tokens"],
-        &["cache_creation_input_tokens"],
     )
 }
 
@@ -79,7 +78,7 @@ mod tests {
             br#"{"usage":{"input_tokens":20,"output_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3}}"#;
         assert_eq!(
             response(json).token_usage,
-            TokenUsage::new(Some(20), Some(9), Some(4), Some(3))
+            TokenUsage::new(Some(20), Some(9), Some(4))
         );
 
         let start = Bytes::from_static(
@@ -90,11 +89,11 @@ mod tests {
         );
         assert_eq!(
             event(&start).token_usage,
-            TokenUsage::new(Some(20), Some(1), Some(4), Some(3))
+            TokenUsage::new(Some(20), Some(1), Some(4))
         );
         assert_eq!(
             event(&delta).token_usage,
-            TokenUsage::new(None, Some(9), None, None)
+            TokenUsage::new(None, Some(9), None)
         );
     }
 
@@ -130,7 +129,7 @@ mod tests {
 
         assert_eq!(
             response(body).token_usage,
-            TokenUsage::new(Some(15), None, Some(3), None)
+            TokenUsage::new(Some(15), None, Some(3))
         );
     }
 }

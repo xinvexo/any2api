@@ -6,13 +6,11 @@ pub(crate) fn token_usage(
     input_path: &[&str],
     output_path: &[&str],
     cache_read_path: &[&str],
-    cache_write_path: &[&str],
 ) -> TokenUsage {
     TokenUsage::new(
         token_at(usage, input_path),
         token_at(usage, output_path),
         token_at(usage, cache_read_path),
-        token_at(usage, cache_write_path),
     )
 }
 

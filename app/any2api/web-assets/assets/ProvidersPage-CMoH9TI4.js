@@ -1,0 +1,1 @@
+import{n as e}from"./createLucideIcon-CAdyUWaY.js";import{t}from"./providers-DQD6CZ7i.js";var n=e();function r(){return(0,n.jsx)(t,{})}export{r as ProvidersPage};

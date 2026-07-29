@@ -40,12 +40,12 @@ mod tests {
     #[test]
     fn usage_updates_are_merged_by_field() {
         let mut observation = RequestObservation::default();
-        observation.observe_token_usage(TokenUsage::new(Some(10), Some(1), Some(2), None));
-        observation.observe_token_usage(TokenUsage::new(None, Some(7), None, Some(3)));
+        observation.observe_token_usage(TokenUsage::new(Some(10), Some(1), Some(2)));
+        observation.observe_token_usage(TokenUsage::new(None, Some(7), None));
 
         assert_eq!(
             observation.token_usage(),
-            TokenUsage::new(Some(10), Some(7), Some(2), Some(3))
+            TokenUsage::new(Some(10), Some(7), Some(2))
         );
     }
 

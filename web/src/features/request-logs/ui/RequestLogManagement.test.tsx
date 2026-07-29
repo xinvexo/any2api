@@ -30,6 +30,9 @@ test("renders request logs in a table without leaving the page for details", asy
   expect(screen.getByRole("columnheader", { name: "时间" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "令牌" })).toBeInTheDocument();
   expect(screen.getByRole("columnheader", { name: "模型" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "输入" })).toBeInTheDocument();
+  expect(screen.getByRole("columnheader", { name: "输出" })).toBeInTheDocument();
+  expect(screen.queryByRole("columnheader", { name: "创建" })).not.toBeInTheDocument();
   expect(screen.getAllByText("codex-local").length).toBeGreaterThanOrEqual(1);
   // API Key rows identify both the Provider Endpoint and credential label.
   expect(screen.getAllByText("frapi-key").length).toBeGreaterThanOrEqual(1);
@@ -41,7 +44,6 @@ test("renders request logs in a table without leaving the page for details", asy
   expect(screen.getAllByText("120").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("45").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("30").length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByText("6").length).toBeGreaterThanOrEqual(1);
   // generation window = 42-18 = 24ms → 45/0.024 = 1875 t/s
   expect(screen.getAllByText("1875 t/s").length).toBeGreaterThanOrEqual(1);
   expect(screen.getByText(/丢弃/)).toBeInTheDocument();
@@ -247,7 +249,6 @@ function request() {
     input_tokens: 120,
     output_tokens: 45,
     cache_read_tokens: 30,
-    cache_write_tokens: 6,
     is_stream: false,
   };
 }

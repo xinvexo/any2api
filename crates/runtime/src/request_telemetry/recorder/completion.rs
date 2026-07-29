@@ -49,7 +49,6 @@ impl RequestRecorderInner {
                     input_tokens: token_usage.input_tokens(),
                     output_tokens: token_usage.output_tokens(),
                     cache_read_tokens: token_usage.cache_read_tokens(),
-                    cache_write_tokens: token_usage.cache_write_tokens(),
                     is_stream: state.is_stream,
                 },
                 attempts,

@@ -919,7 +919,6 @@ request_logs
 ├─ input_tokens
 ├─ output_tokens
 ├─ cache_read_tokens
-├─ cache_write_tokens
 └─ is_stream
 ```
 
@@ -2415,7 +2414,7 @@ runtime_retired
 
 系统总览的历史调用统计同样只读取最终 RequestLog，不把 RequestAttempt 重复计入，也不建立启动恢复用的累计表。`GET /api/admin/overview/usage` 接受固定 `range=1h|24h|7d|30d`，默认 `24h`；分别返回 12 个 5 分钟桶、24 个 1 小时桶、28 个 6 小时桶或 30 个 1 天桶，空桶按时间升序保留为零。响应同时包含当前日志保留窗口累计、所选时间段累计，以及所选时间段按 `public_model` 聚合的前 12 项；更多模型合并为明确的“其他”，没有公开模型的记录保持“未识别”，两者不能混淆。
 
-总 Token 固定为每条 RequestLog 的 `input_tokens + output_tokens`；`cache_read_tokens` 与 `cache_write_tokens` 是输入明细，不再重复相加。缺少上游 usage 的请求按零 Token 参与求和，但响应必须另外返回实际包含输入或输出 Token 的请求数，让 Web 显示统计覆盖度而不是把缺失值伪装成精确零。Token 累计在管理 HTTP 契约中使用十进制字符串，避免超过 JavaScript 安全整数后失真；请求数仍使用受日志行数上限约束的整数。总览统计只用于本地观测，不参与路由、RPM、额度、计费或账号状态。
+总 Token 固定为每条 RequestLog 的 `input_tokens + output_tokens`；`cache_read_tokens` 是输入明细，不再重复相加。缓存创建 Token 不纳入 RequestLog、SQLite 或管理 API，因为当前上游响应未提供稳定可用的数据。缺少上游 usage 的请求按零 Token 参与求和，但响应必须另外返回实际包含输入或输出 Token 的请求数，让 Web 显示统计覆盖度而不是把缺失值伪装成精确零。Token 累计在管理 HTTP 契约中使用十进制字符串，避免超过 JavaScript 安全整数后失真；请求数仍使用受日志行数上限约束的整数。总览统计只用于本地观测，不参与路由、RPM、额度、计费或账号状态。
 
 完整 HTTP 系统日志与模型 RequestLog 再次分开：最外层 Server 中间件覆盖所有到达 Axum 的公开 API、管理 API、健康检查、内嵌或外部 Web 资源、deep link、鉴权失败、404 与 405。每条记录保存全局 Request ID、开始时间、捕获的配置 revision、规范客户端 IP、method、客户端实际请求的原始 URI path、HTTP version、可用的最终状态码、Body 生命周期总耗时、响应字节数和完成结果。请求在 Handler 返回 Response 前被取消时没有可伪造的 HTTP 状态码，因此该字段为空。path 不使用 `MatchedPath` 或通配归一化；query、Header、Cookie、User-Agent、Referer 与 Body 不落库。
 
@@ -2434,8 +2433,8 @@ runtime_retired
 - SSE 只有在首帧验证与会话绑定提交成功后才把最终记录责任交给 GuardedBody；EOF、提交后错误与客户端 Drop 都只完成一次；
 - SQLite Writer 小批量事务写入父子记录，并按 retention/max_rows 任一上限分批清理；历史记录不参与启动恢复；
 - ProtocolAdapter 在已知 OpenAI/Anthropic 响应字段上生成无协议知识的 `TokenUsage` 旁路元数据；Runtime 只合并已解析元数据，禁止在调度器中按 Provider 分支搜索 JSON；
-- Codex JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`input_tokens_details.cached_tokens` 与 `input_tokens_details.cache_write_tokens`；SSE 只从 `response.completed`/`response.incomplete` 的 `response.usage` 读取相同字段；
-- Claude JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`cache_read_input_tokens` 与 `cache_creation_input_tokens`；SSE 使用 `message_start.message.usage` 与 `message_delta.usage` 的累计快照，按字段覆盖而不相加；
+- Codex JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens` 与 `input_tokens_details.cached_tokens`；SSE 只从 `response.completed`/`response.incomplete` 的 `response.usage` 读取相同字段；
+- Claude JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens` 与 `cache_read_input_tokens`；SSE 使用 `message_start.message.usage` 与 `message_delta.usage` 的累计快照，按字段覆盖而不相加；
 - Images JSON 只从顶层 `usage.input_tokens` 与 `usage.output_tokens` 读取；SSE 只从 `image_generation.completed` 与 `image_edit.completed` 的顶层 `usage` 读取相同字段，图片事件不标记为文本 content delta；
 - Token 字段只接受 `0..=9_007_199_254_740_991`（JavaScript `Number.MAX_SAFE_INTEGER`）的 JSON 整数，同时保证 SQLite INTEGER 与 Web 管理契约可无损表达；缺失、`null`、负数、浮点、字符串或超界值均保持未知，不得因遥测字段异常中断代理响应；
 - `first_token_ms` 从请求进入 Runtime 时开始计时，只在第一个非空模型内容 delta 真正从 GuardedBody 向下游 yield 时 first-write-wins；`response.created`、`message_start`、ping、done 与其他控制帧不计入；

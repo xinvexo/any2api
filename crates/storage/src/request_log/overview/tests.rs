@@ -150,7 +150,6 @@ fn record(
             input_tokens,
             output_tokens,
             cache_read_tokens: Some(999),
-            cache_write_tokens: Some(888),
             is_stream: false,
         },
         attempts: Vec::new(),

@@ -465,7 +465,6 @@ CREATE TABLE request_logs (
     input_tokens INTEGER CHECK (input_tokens IS NULL OR input_tokens >= 0),
     output_tokens INTEGER CHECK (output_tokens IS NULL OR output_tokens >= 0),
     cache_read_tokens INTEGER CHECK (cache_read_tokens IS NULL OR cache_read_tokens >= 0),
-    cache_write_tokens INTEGER CHECK (cache_write_tokens IS NULL OR cache_write_tokens >= 0),
     thinking_level TEXT CHECK (
         thinking_level IS NULL
         OR (

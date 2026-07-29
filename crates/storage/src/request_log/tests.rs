@@ -80,7 +80,6 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     assert_eq!(loaded.request.input_tokens, Some(120));
     assert_eq!(loaded.request.output_tokens, Some(45));
     assert_eq!(loaded.request.cache_read_tokens, Some(30));
-    assert_eq!(loaded.request.cache_write_tokens, Some(6));
 }
 
 #[tokio::test]
@@ -95,7 +94,6 @@ async fn request_log_round_trip_preserves_optional_zero_and_max_safe_telemetry()
     record.request.input_tokens = Some(0);
     record.request.output_tokens = Some(MAX_TOKEN_COUNT);
     record.request.cache_read_tokens = None;
-    record.request.cache_write_tokens = Some(0);
 
     store
         .append_request_logs(std::slice::from_ref(&record))
@@ -118,7 +116,6 @@ async fn request_log_round_trip_preserves_optional_zero_and_max_safe_telemetry()
     assert_eq!(loaded.input_tokens, Some(0));
     assert_eq!(loaded.output_tokens, Some(MAX_TOKEN_COUNT));
     assert_eq!(loaded.cache_read_tokens, None);
-    assert_eq!(loaded.cache_write_tokens, Some(0));
 }
 
 #[tokio::test]
@@ -345,7 +342,6 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             input_tokens: Some(120),
             output_tokens: Some(45),
             cache_read_tokens: Some(30),
-            cache_write_tokens: Some(6),
             is_stream: true,
         },
         attempts,

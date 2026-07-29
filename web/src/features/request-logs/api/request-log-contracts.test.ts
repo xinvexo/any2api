@@ -35,7 +35,6 @@ describe("request log contracts", () => {
     expect(detail.request.inputTokens).toBe(120);
     expect(detail.request.outputTokens).toBe(45);
     expect(detail.request.cacheReadTokens).toBe(30);
-    expect(detail.request.cacheWriteTokens).toBe(6);
   });
 
   it("rejects invalid request and attempt status codes", () => {
@@ -161,7 +160,6 @@ function request() {
     input_tokens: 120,
     output_tokens: 45,
     cache_read_tokens: 30,
-    cache_write_tokens: 6,
     is_stream: true,
   };
 }

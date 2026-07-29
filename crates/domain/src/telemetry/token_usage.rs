@@ -5,7 +5,6 @@ pub struct TokenUsage {
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
     cache_read_tokens: Option<u64>,
-    cache_write_tokens: Option<u64>,
 }
 
 impl TokenUsage {
@@ -14,13 +13,11 @@ impl TokenUsage {
         input_tokens: Option<u64>,
         output_tokens: Option<u64>,
         cache_read_tokens: Option<u64>,
-        cache_write_tokens: Option<u64>,
     ) -> Self {
         Self {
             input_tokens: valid_count(input_tokens),
             output_tokens: valid_count(output_tokens),
             cache_read_tokens: valid_count(cache_read_tokens),
-            cache_write_tokens: valid_count(cache_write_tokens),
         }
     }
 
@@ -39,11 +36,6 @@ impl TokenUsage {
         self.cache_read_tokens
     }
 
-    #[must_use]
-    pub const fn cache_write_tokens(self) -> Option<u64> {
-        self.cache_write_tokens
-    }
-
     pub fn merge(&mut self, update: Self) {
         if update.input_tokens.is_some() {
             self.input_tokens = update.input_tokens;
@@ -53,9 +45,6 @@ impl TokenUsage {
         }
         if update.cache_read_tokens.is_some() {
             self.cache_read_tokens = update.cache_read_tokens;
-        }
-        if update.cache_write_tokens.is_some() {
-            self.cache_write_tokens = update.cache_write_tokens;
         }
     }
 }
@@ -73,18 +62,18 @@ mod tests {
 
     #[test]
     fn cumulative_updates_replace_only_present_fields() {
-        let mut usage = TokenUsage::new(Some(12), Some(1), Some(3), None);
+        let mut usage = TokenUsage::new(Some(12), Some(1), Some(3));
 
-        usage.merge(TokenUsage::new(None, Some(8), None, Some(5)));
+        usage.merge(TokenUsage::new(None, Some(8), None));
 
-        assert_eq!(usage, TokenUsage::new(Some(12), Some(8), Some(3), Some(5)));
+        assert_eq!(usage, TokenUsage::new(Some(12), Some(8), Some(3)));
     }
 
     #[test]
     fn counts_must_be_safe_for_sqlite_and_json_consumers() {
         assert_eq!(
-            TokenUsage::new(Some(MAX_TOKEN_COUNT), Some(MAX_TOKEN_COUNT + 1), None, None),
-            TokenUsage::new(Some(MAX_TOKEN_COUNT), None, None, None)
+            TokenUsage::new(Some(MAX_TOKEN_COUNT), Some(MAX_TOKEN_COUNT + 1), None),
+            TokenUsage::new(Some(MAX_TOKEN_COUNT), None, None)
         );
     }
 }

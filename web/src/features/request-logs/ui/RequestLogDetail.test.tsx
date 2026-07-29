@@ -30,7 +30,6 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(screen.getByText("120")).toBeInTheDocument();
   expect(screen.getByText("45")).toBeInTheDocument();
   expect(screen.getByText("30")).toBeInTheDocument();
-  expect(screen.getByText("6")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`/api/admin/request-logs/${requestId}`);
 });
@@ -50,7 +49,6 @@ test("keeps unavailable token telemetry distinct from real zero values", async (
       input_tokens: 0,
       output_tokens: null,
       cache_read_tokens: null,
-      cache_write_tokens: null,
     }),
   );
 
@@ -58,7 +56,7 @@ test("keeps unavailable token telemetry distinct from real zero values", async (
 
   expect(await screen.findByText("0 ms")).toBeInTheDocument();
   expect(screen.getByText("0")).toBeInTheDocument();
-  expect(screen.getAllByText("未记录")).toHaveLength(3);
+  expect(screen.getAllByText("未记录")).toHaveLength(2);
 });
 
 test("renders OpenAI Images protocol and operation labels", async () => {
@@ -166,7 +164,6 @@ function request(overrides: Record<string, unknown> = {}) {
     input_tokens: 120,
     output_tokens: 45,
     cache_read_tokens: 30,
-    cache_write_tokens: 6,
     is_stream: true,
     ...overrides,
   };

@@ -116,7 +116,6 @@ pub(super) fn token_usage(value: Option<&Value>) -> TokenUsage {
         token(value, &["prompt_tokens"]),
         token(value, &["completion_tokens"]),
         token(value, &["prompt_tokens_details", "cached_tokens"]),
-        token(value, &["prompt_tokens_details", "cache_write_tokens"]),
     )
 }
 

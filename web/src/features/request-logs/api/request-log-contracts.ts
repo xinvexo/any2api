@@ -38,7 +38,6 @@ export interface RequestLog {
   inputTokens: number | null;
   outputTokens: number | null;
   cacheReadTokens: number | null;
-  cacheWriteTokens: number | null;
   isStream: boolean;
 }
 
@@ -119,7 +118,6 @@ function parseRequestLog(value: unknown): RequestLog {
     inputTokens: readNullableInteger(record.input_tokens),
     outputTokens: readNullableInteger(record.output_tokens),
     cacheReadTokens: readNullableInteger(record.cache_read_tokens),
-    cacheWriteTokens: readNullableInteger(record.cache_write_tokens),
     isStream: readBoolean(record.is_stream),
   };
 }

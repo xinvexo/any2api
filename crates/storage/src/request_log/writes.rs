@@ -16,12 +16,12 @@ pub(super) async fn insert_request_log(
          gateway_api_key_id, ingress_protocol, operation, public_model, thinking_level, \
          provider_endpoint_id, credential_id, oauth_account_id, proxy_profile_id, status_code, \
          error_class, error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
-         output_tokens, cache_read_tokens, cache_write_tokens, is_stream) VALUES (?, ?, ?, ?, \
+         output_tokens, cache_read_tokens, is_stream) VALUES (?, ?, ?, ?, \
          (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, ?, \
          (SELECT id FROM provider_endpoints WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
-         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -45,7 +45,6 @@ pub(super) async fn insert_request_log(
     .bind(optional_i64(log.input_tokens)?)
     .bind(optional_i64(log.output_tokens)?)
     .bind(optional_i64(log.cache_read_tokens)?)
-    .bind(optional_i64(log.cache_write_tokens)?)
     .bind(if log.is_stream { 1_i64 } else { 0_i64 })
     .execute(connection)
     .await?;

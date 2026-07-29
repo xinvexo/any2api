@@ -176,7 +176,7 @@ async fn responses_contract(adapter: &dyn ProtocolAdapter) {
         .expect("Responses telemetry decodes");
     assert_eq!(
         response.telemetry.token_usage,
-        TokenUsage::new(Some(12), Some(7), Some(3), Some(2))
+        TokenUsage::new(Some(12), Some(7), Some(3))
     );
     let content = adapter
         .decode_upstream_event(SseFrame(Bytes::from_static(
@@ -191,7 +191,7 @@ async fn responses_contract(adapter: &dyn ProtocolAdapter) {
         .expect("Responses terminal event decodes");
     assert_eq!(
         terminal.telemetry().token_usage,
-        TokenUsage::new(Some(12), Some(7), None, None)
+        TokenUsage::new(Some(12), Some(7), None)
     );
 }
 
@@ -232,7 +232,7 @@ async fn chat_completions_contract(adapter: &dyn ProtocolAdapter) {
         .expect("Chat Completions telemetry decodes");
     assert_eq!(
         response.telemetry.token_usage,
-        TokenUsage::new(Some(12), Some(7), Some(3), None)
+        TokenUsage::new(Some(12), Some(7), Some(3))
     );
     let content = adapter
         .decode_upstream_event(SseFrame(Bytes::from_static(
@@ -322,7 +322,7 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
         .expect("Messages telemetry decodes");
     assert_eq!(
         response.telemetry.token_usage,
-        TokenUsage::new(Some(20), Some(9), Some(4), Some(3))
+        TokenUsage::new(Some(20), Some(9), Some(4))
     );
     let start = adapter
         .decode_upstream_event(SseFrame(Bytes::from_static(
@@ -331,7 +331,7 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
         .expect("Messages start event decodes");
     assert_eq!(
         start.telemetry().token_usage,
-        TokenUsage::new(Some(20), Some(1), None, None)
+        TokenUsage::new(Some(20), Some(1), None)
     );
     let content = adapter
         .decode_upstream_event(SseFrame(Bytes::from_static(
@@ -415,7 +415,7 @@ async fn images_contract(adapter: &dyn ProtocolAdapter) {
         .expect("Images response decodes");
     assert_eq!(
         response.telemetry.token_usage,
-        TokenUsage::new(Some(4), Some(3), None, None)
+        TokenUsage::new(Some(4), Some(3), None)
     );
     let event = adapter
         .decode_upstream_event(SseFrame(Bytes::from_static(
@@ -424,7 +424,7 @@ async fn images_contract(adapter: &dyn ProtocolAdapter) {
         .expect("Images completion event decodes");
     assert_eq!(
         event.telemetry().token_usage,
-        TokenUsage::new(Some(4), Some(3), None, None)
+        TokenUsage::new(Some(4), Some(3), None)
     );
     assert!(!event.telemetry().has_content_delta);
 }

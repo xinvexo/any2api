@@ -37,6 +37,5 @@ fn usage(value: Option<&Value>) -> TokenUsage {
         &["input_tokens"],
         &["output_tokens"],
         &["cache_read_tokens"],
-        &["cache_write_tokens"],
     )
 }

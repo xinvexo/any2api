@@ -165,7 +165,6 @@ async fn buffered_response_persists_exact_usage_without_inventing_ttft() {
     assert_eq!(record.request.input_tokens, Some(120));
     assert_eq!(record.request.output_tokens, Some(45));
     assert_eq!(record.request.cache_read_tokens, Some(30));
-    assert_eq!(record.request.cache_write_tokens, Some(6));
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
@@ -191,7 +190,6 @@ async fn responses_compact_persists_exact_usage_without_ttft() {
     assert_eq!(record.request.input_tokens, Some(70));
     assert_eq!(record.request.output_tokens, Some(5));
     assert_eq!(record.request.cache_read_tokens, Some(10));
-    assert_eq!(record.request.cache_write_tokens, Some(2));
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
@@ -323,7 +321,6 @@ async fn claude_json_and_sse_persist_exact_cumulative_usage() {
     assert_eq!(json_record.request.input_tokens, Some(60));
     assert_eq!(json_record.request.output_tokens, Some(8));
     assert_eq!(json_record.request.cache_read_tokens, Some(12));
-    assert_eq!(json_record.request.cache_write_tokens, Some(3));
 
     let stream_request_id = RequestId::new();
     let stream_response = execute_stream_operation(
@@ -343,7 +340,6 @@ async fn claude_json_and_sse_persist_exact_cumulative_usage() {
     assert_eq!(stream_record.request.input_tokens, Some(55));
     assert_eq!(stream_record.request.output_tokens, Some(9));
     assert_eq!(stream_record.request.cache_read_tokens, Some(11));
-    assert_eq!(stream_record.request.cache_write_tokens, Some(4));
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
@@ -378,7 +374,6 @@ async fn count_tokens_result_is_not_recorded_as_generation_usage() {
     assert_eq!(record.request.input_tokens, None);
     assert_eq!(record.request.output_tokens, None);
     assert_eq!(record.request.cache_read_tokens, None);
-    assert_eq!(record.request.cache_write_tokens, None);
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
@@ -1268,7 +1263,6 @@ async fn sse_persists_client_visible_ttft_and_terminal_usage() {
     assert_eq!(record.request.input_tokens, Some(80));
     assert_eq!(record.request.output_tokens, Some(12));
     assert_eq!(record.request.cache_read_tokens, Some(20));
-    assert_eq!(record.request.cache_write_tokens, Some(4));
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 

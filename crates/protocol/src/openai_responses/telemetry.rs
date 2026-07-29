@@ -55,7 +55,6 @@ fn usage(value: Option<&Value>) -> TokenUsage {
         &["input_tokens"],
         &["output_tokens"],
         &["input_tokens_details", "cached_tokens"],
-        &["input_tokens_details", "cache_write_tokens"],
     )
 }
 
@@ -76,7 +75,7 @@ mod tests {
 
     #[test]
     fn extracts_json_and_terminal_event_usage() {
-        let expected = TokenUsage::new(Some(12), Some(7), Some(3), Some(2));
+        let expected = TokenUsage::new(Some(12), Some(7), Some(3));
         let json = br#"{"usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":3,"cache_write_tokens":2}}}"#;
         assert_eq!(response(json).token_usage, expected);
 
@@ -109,7 +108,7 @@ mod tests {
 
         assert_eq!(
             response(json).token_usage,
-            TokenUsage::new(Some(11), None, None, Some(2))
+            TokenUsage::new(Some(11), None, None)
         );
     }
 }

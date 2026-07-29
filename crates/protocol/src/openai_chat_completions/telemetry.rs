@@ -47,6 +47,5 @@ fn usage_from(value: Option<&Value>) -> TokenUsage {
         &["prompt_tokens"],
         &["completion_tokens"],
         &["prompt_tokens_details", "cached_tokens"],
-        &["prompt_tokens_details", "cache_write_tokens"],
     )
 }

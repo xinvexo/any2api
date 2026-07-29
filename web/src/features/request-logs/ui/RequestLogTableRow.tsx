@@ -24,7 +24,7 @@ import { cn } from "@/shared/lib/cn";
  */
 export const requestLogGridClass =
   "grid w-full items-center gap-x-2 px-1 " +
-  "[grid-template-columns:minmax(0,1.35fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.85fr)_minmax(0,0.55fr)_minmax(0,0.7fr)_minmax(0,0.5fr)_minmax(0,0.7fr)]";
+  "[grid-template-columns:minmax(0,1.35fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.85fr)_minmax(0,0.55fr)_minmax(0,0.7fr)_minmax(0,0.7fr)]";
 
 const cell = "min-w-0 px-1 py-2.5 text-left text-[12px]";
 const numCell = `${cell} tabular-nums text-secondary`;
@@ -210,11 +210,6 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
         <div role="cell" className={numCell}>
           <span className="block truncate">
             {isSuccessStatus(log.statusCode) ? formatTokenCount(log.cacheReadTokens) : "—"}
-          </span>
-        </div>
-        <div role="cell" className={numCell}>
-          <span className="block truncate">
-            {isSuccessStatus(log.statusCode) ? formatTokenCount(log.cacheWriteTokens) : "—"}
           </span>
         </div>
         <div role="cell" className={numCell}>

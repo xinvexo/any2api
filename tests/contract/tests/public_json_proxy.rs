@@ -148,7 +148,7 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     assert_eq!(logs["request"]["input_tokens"], 0);
     assert_eq!(logs["request"]["output_tokens"], json!(MAX_TOKEN_COUNT));
     assert_eq!(logs["request"]["cache_read_tokens"], Value::Null);
-    assert_eq!(logs["request"]["cache_write_tokens"], 0);
+    assert!(logs["request"].get("cache_write_tokens").is_none());
     assert_eq!(logs["attempts"][0]["status_code"], 200);
     assert!(logs["request"].get("error_class").is_none());
     assert!(logs["attempts"][0].get("retry_safety").is_none());
@@ -179,7 +179,7 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
         json!(MAX_TOKEN_COUNT)
     );
     assert_eq!(list.body["items"][0]["cache_read_tokens"], Value::Null);
-    assert_eq!(list.body["items"][0]["cache_write_tokens"], 0);
+    assert!(list.body["items"][0].get("cache_write_tokens").is_none());
 }
 
 #[tokio::test]

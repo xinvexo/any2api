@@ -172,10 +172,9 @@ export function RequestLogManagement() {
                     <RequestLogHeader>结果</RequestLogHeader>
                     <RequestLogHeader>首字</RequestLogHeader>
                     <RequestLogHeader>总耗时</RequestLogHeader>
-                    <RequestLogHeader>入</RequestLogHeader>
-                    <RequestLogHeader>出</RequestLogHeader>
+                    <RequestLogHeader>输入</RequestLogHeader>
+                    <RequestLogHeader>输出</RequestLogHeader>
                     <RequestLogHeader>命中</RequestLogHeader>
-                    <RequestLogHeader>创建</RequestLogHeader>
                     <RequestLogHeader>TPS</RequestLogHeader>
                   </div>
                 </div>
