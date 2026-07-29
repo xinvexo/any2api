@@ -2,7 +2,10 @@ use std::{fmt, sync::Arc, time::Instant};
 
 use super::{
     hash::SessionHash,
-    registry::{AffinityError, AffinityRegistry, BindingState, TimedBinding, target_is_active},
+    registry::{
+        AffinityError, AffinityRegistry, BindingSource, BindingState, TimedBinding,
+        target_is_active,
+    },
     target::AffinityTarget,
 };
 
@@ -80,6 +83,7 @@ impl BindingLease {
                 binding: TimedBinding {
                     target,
                     last_seen_at: committed_at,
+                    source: BindingSource::Session,
                 },
             },
         );

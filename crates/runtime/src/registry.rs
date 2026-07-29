@@ -225,12 +225,8 @@ impl RuntimeRegistry {
     }
 
     #[must_use]
-    pub fn affinity_snapshot(
-        &self,
-        policy: AffinityPolicy,
-        limit: usize,
-    ) -> AffinityRuntimeSnapshot {
-        self.affinity.snapshot(policy.ttl(), limit)
+    pub fn affinity_snapshot(&self, policy: AffinityPolicy) -> AffinityRuntimeSnapshot {
+        self.affinity.snapshot(policy.ttl(), policy.enabled())
     }
 
     pub fn clear_all_affinity(&self) -> usize {

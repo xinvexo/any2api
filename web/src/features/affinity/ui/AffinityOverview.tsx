@@ -10,7 +10,7 @@ export function AffinityOverview() {
   if (query.isPending && !query.data) {
     return (
       <section className="border-t border-subtle py-6 text-sm text-secondary lg:border-t-0 lg:pl-6" aria-busy="true">
-        正在读取会话绑定汇总
+        正在读取活动会话汇总
       </section>
     );
   }
@@ -18,7 +18,7 @@ export function AffinityOverview() {
   if (!query.data) {
     return (
       <section className="border-t border-subtle py-6 lg:border-t-0 lg:pl-6" role="alert">
-        <h2 className="font-semibold">会话绑定</h2>
+        <h2 className="font-semibold">活动会话</h2>
         <p className="mt-2 text-sm text-secondary">{getAffinityErrorMessage(query.error)}</p>
       </section>
     );
@@ -29,8 +29,12 @@ export function AffinityOverview() {
     <section className="min-w-0 border-t border-subtle py-6 lg:border-t-0 lg:pl-6" aria-busy={query.isFetching}>
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-semibold">会话绑定</h2>
-          <p className="mt-1 text-xs leading-5 text-secondary">只统计当前进程，重启后自动清空。</p>
+          <h2 className="font-semibold">活动会话</h2>
+          <p className="mt-1 text-xs leading-5 text-secondary">
+            {runtime.affinityEnabled
+              ? "统计有效期内仍会命中的显式会话，不包含 Response ID 续接索引。"
+              : "会话粘性已关闭；Response ID 续接索引不计入会话数。"}
+          </p>
         </div>
         <Link
           to="/settings/routing"
@@ -47,8 +51,8 @@ export function AffinityOverview() {
       ) : null}
 
       <dl className="mt-5 grid border-y border-subtle sm:grid-cols-2 lg:grid-cols-1">
-        <Metric icon={Link2} label="当前绑定" value={runtime.bindingCount} />
-        <Metric icon={LoaderCircle} label="正在创建" value={runtime.creatingCount} />
+        <Metric icon={Link2} label="当前活动" value={runtime.activeSessionCount} />
+        <Metric icon={LoaderCircle} label="正在建立" value={runtime.creatingSessionCount} />
       </dl>
     </section>
   );

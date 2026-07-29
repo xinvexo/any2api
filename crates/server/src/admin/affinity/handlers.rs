@@ -2,33 +2,24 @@ use std::str::FromStr;
 
 use any2api_domain::{CredentialId, OAuthAccountId, RoutingCredentialId};
 use axum::{
-    extract::{Path, Query, State, rejection::QueryRejection},
+    extract::{Path, State},
     response::Response,
 };
 
 use crate::state::AppState;
 
 use super::{
-    dto::{AffinityClearResponse, AffinityQuery, AffinityRuntimeResponse},
+    dto::{AffinityClearResponse, AffinityRuntimeResponse},
     error::AdminApiError,
     no_store,
 };
 
-pub(crate) async fn get(
-    State(state): State<AppState>,
-    query: Result<Query<AffinityQuery>, QueryRejection>,
-) -> Result<Response, AdminApiError> {
-    let limit = query
-        .map_err(|_| AdminApiError::invalid_request("affinity query is invalid"))?
-        .0
-        .limit()?;
+pub(crate) async fn get(State(state): State<AppState>) -> Response {
     let published = state.snapshots().load();
     let runtime = state
         .runtime()
-        .affinity_snapshot(published.affinity_policy(), limit);
-    Ok(no_store::json(AffinityRuntimeResponse::new(
-        &published, &runtime,
-    )))
+        .affinity_snapshot(published.affinity_policy());
+    no_store::json(AffinityRuntimeResponse::new(&published, &runtime))
 }
 
 pub(crate) async fn clear_all(State(state): State<AppState>) -> Response {

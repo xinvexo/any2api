@@ -55,19 +55,7 @@ impl AffinityTarget {
             && self.upstream_model == candidate.upstream_model
     }
 
-    pub(crate) const fn target_id(&self) -> RouteTargetId {
-        self.target_id
-    }
-
     pub(crate) const fn credential_id(&self) -> RoutingCredentialId {
         self.credential_id
-    }
-
-    pub(crate) fn upstream_model(&self) -> &str {
-        &self.upstream_model
-    }
-
-    pub(crate) const fn protocol_dialect(&self) -> ProtocolDialect {
-        self.protocol_dialect
     }
 }

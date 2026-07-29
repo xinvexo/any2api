@@ -36,10 +36,17 @@ pub(super) enum BindingState {
     Bound { binding: TimedBinding },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BindingSource {
+    Session,
+    Continuation,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct TimedBinding {
     pub(super) target: AffinityTarget,
     pub(super) last_seen_at: Instant,
+    pub(super) source: BindingSource,
 }
 
 impl AffinityRegistry {
@@ -185,6 +192,7 @@ impl AffinityRegistry {
                 binding: TimedBinding {
                     target,
                     last_seen_at: committed_at,
+                    source: BindingSource::Continuation,
                 },
             },
         );

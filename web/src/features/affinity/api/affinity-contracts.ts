@@ -1,15 +1,17 @@
 export interface AffinityRuntime {
   configRevision: number;
-  bindingCount: number;
-  creatingCount: number;
+  affinityEnabled: boolean;
+  activeSessionCount: number;
+  creatingSessionCount: number;
 }
 
 export function parseAffinityRuntime(value: unknown): AffinityRuntime {
   const record = readRecord(value);
   return {
     configRevision: readPositiveInteger(record.config_revision),
-    bindingCount: readNonNegativeInteger(record.binding_count),
-    creatingCount: readNonNegativeInteger(record.creating_count),
+    affinityEnabled: readBoolean(record.affinity_enabled),
+    activeSessionCount: readNonNegativeInteger(record.active_session_count),
+    creatingSessionCount: readNonNegativeInteger(record.creating_session_count),
   };
 }
 
@@ -26,6 +28,13 @@ function readPositiveInteger(value: unknown): number {
     throw new Error("invalid affinity response");
   }
   return number;
+}
+
+function readBoolean(value: unknown): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error("invalid affinity response");
+  }
+  return value;
 }
 
 function readNonNegativeInteger(value: unknown): number {

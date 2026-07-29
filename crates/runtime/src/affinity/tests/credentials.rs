@@ -33,9 +33,9 @@ fn credential_removal_before_commit_prevents_a_binding_from_reappearing() {
         registry.bind_continuation("response-being-removed", target, TTL),
         Err(AffinityError::TargetInactive)
     );
-    let snapshot = registry.snapshot(TTL, 10);
-    assert_eq!(snapshot.binding_count(), 0);
-    assert_eq!(snapshot.creating_count(), 0);
+    let snapshot = registry.snapshot(TTL, true);
+    assert_eq!(snapshot.active_session_count(), 0);
+    assert_eq!(snapshot.creating_session_count(), 0);
 }
 
 #[test]
@@ -57,5 +57,5 @@ fn credential_removal_after_commit_clears_the_binding() {
             .resolve_continuation("response-before-removal", TTL)
             .is_none()
     );
-    assert_eq!(registry.snapshot(TTL, 10).binding_count(), 0);
+    assert_eq!(registry.snapshot(TTL, true).active_session_count(), 0);
 }

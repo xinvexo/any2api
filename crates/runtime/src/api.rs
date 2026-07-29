@@ -1,6 +1,4 @@
-pub use crate::affinity::{
-    AffinityBindingSummary, AffinityCredentialCount, AffinityPolicy, AffinityRuntimeSnapshot,
-};
+pub use crate::affinity::{AffinityPolicy, AffinityRuntimeSnapshot};
 pub use crate::configuration::{
     ConfigPublishError, ConfigPublisher, LoggingSettingsReconciler, PublishedSnapshot,
     SnapshotStore,

@@ -9,7 +9,7 @@ mod sweeper;
 mod target;
 
 pub use policy::AffinityPolicy;
-pub use snapshot::{AffinityBindingSummary, AffinityCredentialCount, AffinityRuntimeSnapshot};
+pub use snapshot::AffinityRuntimeSnapshot;
 
 pub(crate) use commit::ContinuationBindingCommitter;
 pub(crate) use lease::{BindingLease, BindingStart};

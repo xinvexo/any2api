@@ -121,7 +121,12 @@ async fn active_creating_state_is_not_expired_by_binding_cleanup() {
     };
 
     assert_eq!(registry.sweep_expired(Duration::ZERO), 0);
-    assert_eq!(registry.snapshot(Duration::ZERO, 10).creating_count(), 1);
+    assert_eq!(
+        registry
+            .snapshot(Duration::ZERO, true)
+            .creating_session_count(),
+        1
+    );
     match registry
         .begin_session(
             ProtocolDialect::OpenAiResponses,

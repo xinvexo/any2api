@@ -134,7 +134,7 @@ fn session_and_continuation_access_refresh_the_same_ttl() {
 }
 
 #[test]
-fn snapshots_are_unified_redacted_and_cleanup_is_scoped() {
+fn snapshots_only_count_explicit_sessions_honored_by_the_current_policy() {
     let registry = AffinityRegistry::new();
     let route_id = ModelRouteId::new();
     let credential_id = CredentialId::new();
@@ -167,26 +167,23 @@ fn snapshots_are_unified_redacted_and_cleanup_is_scoped() {
         )
         .expect("creating binding");
 
-    let snapshot = registry.snapshot(TTL, 10);
-    assert_eq!(snapshot.binding_count(), 2);
-    assert_eq!(snapshot.creating_count(), 1);
-    assert_eq!(snapshot.credential_counts().len(), 1);
-    assert_eq!(snapshot.credential_counts()[0].bindings(), 2);
-    assert_eq!(snapshot.bindings().len(), 2);
-    for binding in snapshot.bindings() {
-        assert_eq!(binding.session_hash_prefix().len(), 12);
-        assert!(!binding.session_hash_prefix().contains("private"));
-    }
+    let enabled = registry.snapshot(TTL, true);
+    assert_eq!(enabled.active_session_count(), 1);
+    assert_eq!(enabled.creating_session_count(), 1);
 
-    let aggregate = registry.snapshot(TTL, 0);
-    assert_eq!(aggregate.binding_count(), 2);
-    assert_eq!(aggregate.creating_count(), 1);
-    assert!(aggregate.credential_counts().is_empty());
-    assert!(aggregate.bindings().is_empty());
+    let disabled = registry.snapshot(TTL, false);
+    assert_eq!(disabled.active_session_count(), 0);
+    assert_eq!(disabled.creating_session_count(), 0);
+
+    assert!(
+        registry
+            .resolve_continuation("private-response-id", TTL)
+            .is_some()
+    );
 
     assert_eq!(registry.clear_credential(credential_id.into()), 2);
-    let snapshot = registry.snapshot(TTL, 10);
-    assert_eq!(snapshot.binding_count(), 0);
-    assert_eq!(snapshot.creating_count(), 1);
+    let snapshot = registry.snapshot(TTL, true);
+    assert_eq!(snapshot.active_session_count(), 0);
+    assert_eq!(snapshot.creating_session_count(), 1);
     assert_eq!(registry.clear_all(), 1);
 }

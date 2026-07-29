@@ -484,18 +484,12 @@ async fn openai_images_requests_ignore_session_identifiers_and_continue_round_ro
             "{path} must continue normal Credential round-robin",
         );
 
-        let affinity = request_json(
-            app,
-            Method::GET,
-            "/api/admin/affinity?limit=10",
-            None,
-            loopback,
-            &[],
-        )
-        .await;
+        let affinity =
+            request_json(app, Method::GET, "/api/admin/affinity", None, loopback, &[]).await;
         assert_eq!(affinity.status, StatusCode::OK);
-        assert_eq!(affinity.body["binding_count"], 0, "{path}");
-        assert_eq!(affinity.body["creating_count"], 0, "{path}");
+        assert_eq!(affinity.body["affinity_enabled"], true, "{path}");
+        assert_eq!(affinity.body["active_session_count"], 0, "{path}");
+        assert_eq!(affinity.body["creating_session_count"], 0, "{path}");
     }
 }
 
@@ -1134,7 +1128,7 @@ async fn claude_messages_preserves_final_529_semantics_and_safe_headers() {
 }
 
 #[tokio::test]
-async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential() {
+async fn affinity_admin_exposes_active_sessions_and_clears_by_credential() {
     let (listener, upstream) = upstream_server(
         "/v1/responses",
         r#"{"id":"resp_affinity","model":"gpt-upstream","output":[]}"#,
@@ -1183,7 +1177,7 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
     let affinity = request_json(
         app.clone(),
         Method::GET,
-        "/api/admin/affinity?limit=10",
+        "/api/admin/affinity",
         None,
         loopback,
         &[],
@@ -1191,45 +1185,12 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
     .await;
     assert_eq!(affinity.status, StatusCode::OK);
     assert_eq!(affinity.headers["cache-control"], "no-store");
-    assert_eq!(affinity.body["binding_count"], 2);
-    assert_eq!(affinity.body["creating_count"], 0);
-    assert_eq!(
-        affinity.body["credential_counts"][0]["credential_id"],
-        credential_id
-    );
-    assert_eq!(
-        affinity.body["credential_counts"][0]["credential_label"],
-        "primary"
-    );
-    assert_eq!(affinity.body["credential_counts"][0]["bindings"], 2);
-    for binding in affinity.body["bindings"]
-        .as_array()
-        .expect("binding samples")
-    {
-        assert!(binding.get("kind").is_none());
-        let hash = binding["session_hash_prefix"]
-            .as_str()
-            .expect("redacted hash");
-        assert_eq!(hash.len(), 12);
-        assert!(!hash.contains("private-session-id"));
-        assert!(!hash.contains("resp_affinity"));
-    }
-
-    let aggregate = request_json(
-        app.clone(),
-        Method::GET,
-        "/api/admin/affinity?limit=0",
-        None,
-        loopback,
-        &[],
-    )
-    .await;
-    assert_eq!(aggregate.status, StatusCode::OK);
-    assert_eq!(aggregate.body["binding_count"], 2);
-    assert_eq!(aggregate.body["creating_count"], 0);
-    assert_eq!(aggregate.body["credential_counts"], json!([]));
-    assert_eq!(aggregate.body["bindings"], json!([]));
-    assert!(!aggregate.body.to_string().contains(&credential_id));
+    assert_eq!(affinity.body["affinity_enabled"], true);
+    assert_eq!(affinity.body["active_session_count"], 1);
+    assert_eq!(affinity.body["creating_session_count"], 0);
+    assert!(affinity.body.get("binding_count").is_none());
+    assert!(!affinity.body.to_string().contains(&credential_id));
+    assert!(!affinity.body.to_string().contains("resp_affinity"));
 
     let cleared = request_json(
         app.clone(),
@@ -1252,8 +1213,8 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
         &[],
     )
     .await;
-    assert_eq!(empty.body["binding_count"], 0);
-    assert_eq!(empty.body["creating_count"], 0);
+    assert_eq!(empty.body["active_session_count"], 0);
+    assert_eq!(empty.body["creating_session_count"], 0);
 
     let cleared_all = request_json(
         app,
@@ -1392,6 +1353,20 @@ async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuati
         "previous_response_id must remain fixed while explicit affinity is disabled",
     );
 
+    let disabled_affinity = request_json(
+        app.clone(),
+        Method::GET,
+        "/api/admin/affinity",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(disabled_affinity.status, StatusCode::OK);
+    assert_eq!(disabled_affinity.body["affinity_enabled"], false);
+    assert_eq!(disabled_affinity.body["active_session_count"], 0);
+    assert_eq!(disabled_affinity.body["creating_session_count"], 0);
+
     let reset = request_json(
         app.clone(),
         Method::DELETE,
@@ -1429,17 +1404,11 @@ async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuati
         "restoring the default must hot-reload explicit-session affinity",
     );
 
-    let affinity = request_json(
-        app,
-        Method::GET,
-        "/api/admin/affinity?limit=0",
-        None,
-        loopback,
-        &[],
-    )
-    .await;
+    let affinity = request_json(app, Method::GET, "/api/admin/affinity", None, loopback, &[]).await;
     assert_eq!(affinity.status, StatusCode::OK);
-    assert_eq!(affinity.body["binding_count"], 6);
+    assert_eq!(affinity.body["affinity_enabled"], true);
+    assert_eq!(affinity.body["active_session_count"], 1);
+    assert_eq!(affinity.body["creating_session_count"], 0);
 }
 
 #[tokio::test]

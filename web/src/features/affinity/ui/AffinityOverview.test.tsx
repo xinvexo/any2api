@@ -11,24 +11,24 @@ test("renders only aggregate affinity counts and links to routing settings", asy
   const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
     jsonResponse({
       config_revision: 7,
-      binding_count: 16,
-      creating_count: 1,
-      credential_counts: [],
-      bindings: [],
+      affinity_enabled: false,
+      active_session_count: 0,
+      creating_session_count: 0,
     }),
   );
 
   const rendered = renderOverview();
 
-  expect(await screen.findByRole("heading", { name: "会话绑定" })).toBeInTheDocument();
-  expect(screen.getByText("当前绑定")).toBeInTheDocument();
-  expect(screen.getByText("16")).toBeInTheDocument();
-  expect(screen.getByText("正在创建")).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "活动会话" })).toBeInTheDocument();
+  expect(screen.getByText("会话粘性已关闭；Response ID 续接索引不计入会话数。")).toBeInTheDocument();
+  expect(screen.getByText("当前活动")).toBeInTheDocument();
+  expect(screen.getAllByText("0")).toHaveLength(2);
+  expect(screen.getByText("正在建立")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "调整策略" })).toHaveAttribute(
     "href",
     "/settings/routing",
   );
-  expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/admin/affinity?limit=0");
+  expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/api/admin/affinity");
   expect(screen.queryByText("Credential 绑定分布")).not.toBeInTheDocument();
   expect(rendered.container.querySelector(".rounded-\\[14px\\]")).toBeNull();
 });

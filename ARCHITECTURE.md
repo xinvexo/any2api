@@ -239,7 +239,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 
 OAuthAccount 管理页的长集合是首个已确认的虚拟化场景。前端使用共享虚拟网格组件按“响应式网格行”渲染完整 Provider 账号集合，支持动态行高、1–3 列布局、键盘可聚焦滚动区和语义化 list/listitem；页面不得再为该集合维护客户端分页。虚拟行允许随滚动卸载，因此额度缓存、批量操作进度和不可逆 reset 的 pending 状态不能只保存在行组件本地生命周期中。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
-负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与统一会话绑定总数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md` 与 `docs/adr/0064-optional-session-affinity-toggle.md`。
+负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与当前策略下的活动显式会话数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布、Continuation 索引数或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md` 与 `docs/adr/0066-active-session-overview.md`。
 
 设置页只保留“基础、路由策略、运行保护、日志”四个一级页签。每个页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义或恢复默认能力。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。
 
@@ -840,6 +840,7 @@ CredentialModelRuntime
 ```text
 SessionBindingRuntime
 ├─ session_hash
+├─ binding_source              # session | continuation，仅用于聚合观测
 ├─ credential_id
 ├─ route_target_id
 ├─ upstream_model
@@ -848,6 +849,8 @@ SessionBindingRuntime
 ```
 
 原始 Session ID 不进入数据库，运行时 `session_hash` 使用进程级派生密钥 HMAC 生成。会话绑定只保存在内存中，进程重启后全部失效，不做恢复或回放。
+
+统一绑定表同时包含普通显式 Session 绑定和 Response ID Continuation 索引；两者共享目标、TTL 和清理实现，但必须保留最小的内部来源标记以支持正确的聚合观测。总览的“活动会话”只统计当前 PublishedSnapshot 会实际命中的、TTL 内的普通显式 Session；Continuation 索引不等于会话数，不进入该指标。
 
 因此：
 
@@ -1757,8 +1760,9 @@ Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定�
 
 关闭 `affinity.enabled` 不清空进程内已有绑定，只让新快照中的普通显式 Session 忽略它们；重新开启后，
 尚未过期的绑定可以继续命中。Response ID 的续接绑定仍照常创建、刷新和清理。
+由于关闭时普通显式 Session 已不再是当前策略的活动绑定，总览必须返回活动会话数 `0`，不得把保留的普通绑定或仍必须维护的 Continuation 索引算作活动会话。
 
-Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md` 与 `docs/adr/0064-optional-session-affinity-toggle.md`。
+Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md` 与 `docs/adr/0066-active-session-overview.md`。
 
 ## 14. 重试、冷却与错误分类
 
@@ -2421,7 +2425,7 @@ runtime_retired
 
 运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
 
-总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只聚合统一绑定总数与 Creating 数量。两者都不得返回逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本。
+总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
 
 稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；这些计数不持久化、不恢复，也不要求通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级配置和 RequestLog 历史统计由各自管理页面负责，总览不复制第二份账号目录。
 
@@ -2546,7 +2550,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 全局及 Codex、Claude、Grok 汇总的账号总数、启用数、RPM 启用数与 RPM 已用尽数；
 - 全局及 Provider 汇总的滚动 60 秒请求数、当前 `in_flight` 与成功选中次数；
 - 排队请求数、固定等待者和 scheduler epoch；
-- 当前会话绑定总数与 Creating 数；
+- 当前策略下 TTL 内的普通显式活动会话数与正在建立数；会话粘性关闭时均为 `0`，Continuation 索引不计入；
 - 不展示、分页或虚拟化逐账号列表，不展示逐模型健康或单账号过滤明细；账号详情分别留在 Provider 与 OAuth2 登录页面。
 - 不展示逐 Credential 会话分布、Session Hash 或绑定样本。
 
