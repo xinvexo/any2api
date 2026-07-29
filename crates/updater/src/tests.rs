@@ -1,0 +1,133 @@
+use std::{fs, io::Write};
+
+use flate2::{Compression, write::GzEncoder};
+use serde_json::json;
+use tar::{Builder, Header};
+use tempfile::tempdir;
+
+use crate::{
+    api::UpdateErrorKind,
+    github::{MAX_ARCHIVE_BYTES, parse_release_for_test},
+    install::{extract_and_replace_for_test, verify_checksum_for_test},
+};
+
+#[test]
+fn release_metadata_requires_exact_stable_assets() {
+    let archive = "any2api-v1.2.3-linux-amd64.tar.gz";
+    let document = json!({
+        "tag_name": "v1.2.3",
+        "draft": false,
+        "prerelease": false,
+        "published_at": "2026-07-29T00:00:00Z",
+        "assets": [
+            { "name": archive, "size": 1234 },
+            { "name": format!("{archive}.sha256"), "size": 100 }
+        ]
+    });
+    let release = parse_release_for_test(&serde_json::to_vec(&document).expect("metadata"))
+        .expect("valid release");
+    assert_eq!(release.version.to_string(), "1.2.3");
+    assert_eq!(release.archive_name, archive);
+
+    let mut oversized = document.clone();
+    oversized["assets"][0]["size"] = json!(MAX_ARCHIVE_BYTES + 1);
+    let error = parse_release_for_test(&serde_json::to_vec(&oversized).expect("large metadata"))
+        .expect_err("oversized archive must fail");
+    assert_eq!(error.kind(), UpdateErrorKind::InvalidRelease);
+
+    let mut missing_checksum = document;
+    missing_checksum["assets"] = json!([{ "name": archive, "size": 1234 }]);
+    let error =
+        parse_release_for_test(&serde_json::to_vec(&missing_checksum).expect("invalid metadata"))
+            .expect_err("checksum is required");
+    assert_eq!(error.kind(), UpdateErrorKind::InvalidRelease);
+}
+
+#[test]
+fn checksum_must_name_and_match_the_archive() {
+    let name = "any2api-v1.2.3-linux-amd64.tar.gz";
+    let digest = "a".repeat(64);
+    verify_checksum_for_test(format!("{digest}  {name}\n").as_bytes(), name, &digest)
+        .expect("valid checksum");
+    let error = verify_checksum_for_test(
+        format!("{}  {name}\n", "b".repeat(64)).as_bytes(),
+        name,
+        &digest,
+    )
+    .expect_err("mismatch must fail");
+    assert_eq!(error.kind(), UpdateErrorKind::VerificationFailed);
+}
+
+#[test]
+fn verified_archive_atomically_replaces_the_binary() {
+    let directory = tempdir().expect("temporary directory");
+    let executable = directory.path().join("any2api");
+    fs::write(&executable, b"old binary").expect("old binary");
+    let archive = directory.path().join("release.tar.gz");
+    write_archive(&archive, &[("any2api", b"new binary")]);
+
+    extract_and_replace_for_test(&archive, &directory.path().join("staged"), &executable)
+        .expect("replace binary");
+    assert_eq!(fs::read(executable).expect("new binary"), b"new binary");
+}
+
+#[cfg(unix)]
+#[test]
+fn replacement_preserves_restrictive_executable_permissions() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for mode in [0o700, 0o555] {
+        let directory = tempdir().expect("temporary directory");
+        let executable = directory.path().join("any2api");
+        fs::write(&executable, b"old binary").expect("old binary");
+        fs::set_permissions(&executable, fs::Permissions::from_mode(mode))
+            .expect("old permissions");
+        let archive = directory.path().join("release.tar.gz");
+        write_archive(&archive, &[("any2api", b"new binary")]);
+
+        extract_and_replace_for_test(&archive, &directory.path().join("staged"), &executable)
+            .expect("replace binary");
+        let actual = fs::metadata(executable)
+            .expect("new binary")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(actual, mode);
+    }
+}
+
+#[test]
+fn archive_with_extra_entries_is_rejected_before_replacement() {
+    let directory = tempdir().expect("temporary directory");
+    let executable = directory.path().join("any2api");
+    fs::write(&executable, b"old binary").expect("old binary");
+    let archive = directory.path().join("release.tar.gz");
+    write_archive(&archive, &[("any2api", b"new binary"), ("extra", b"bad")]);
+
+    let error =
+        extract_and_replace_for_test(&archive, &directory.path().join("staged"), &executable)
+            .expect_err("extra archive member must fail");
+    assert_eq!(error.kind(), UpdateErrorKind::VerificationFailed);
+    assert_eq!(fs::read(executable).expect("old binary"), b"old binary");
+}
+
+fn write_archive(path: &std::path::Path, entries: &[(&str, &[u8])]) {
+    let file = fs::File::create(path).expect("archive file");
+    let encoder = GzEncoder::new(file, Compression::default());
+    let mut builder = Builder::new(encoder);
+    for (name, contents) in entries {
+        let mut header = Header::new_gnu();
+        header.set_size(u64::try_from(contents.len()).expect("content size"));
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, name, *contents)
+            .expect("archive entry");
+    }
+    let encoder = builder.into_inner().expect("tar finish");
+    encoder
+        .finish()
+        .expect("gzip finish")
+        .flush()
+        .expect("flush");
+}

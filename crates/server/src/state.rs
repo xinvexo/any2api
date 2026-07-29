@@ -4,6 +4,7 @@ use any2api_runtime::api::{
     ConfigPublisher, OAuthService, ProviderCredentialTestService, ProxyTestService,
     PublicRequestService, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
+use any2api_updater::api::ApplicationUpdateService;
 
 use crate::{admin_auth::AdminAuthService, client_address::ClientAddressPolicy};
 
@@ -19,6 +20,7 @@ pub struct AppState {
     admin_auth: Option<Arc<AdminAuthService>>,
     client_addresses: Arc<ClientAddressPolicy>,
     request_telemetry: Arc<RequestTelemetry>,
+    application_updates: Option<Arc<dyn ApplicationUpdateService>>,
 }
 
 impl AppState {
@@ -40,6 +42,7 @@ impl AppState {
             admin_auth: None,
             client_addresses: Arc::new(ClientAddressPolicy::default()),
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
+            application_updates: None,
         }
     }
 
@@ -79,6 +82,12 @@ impl AppState {
     #[must_use]
     pub fn with_request_telemetry(mut self, telemetry: Arc<RequestTelemetry>) -> Self {
         self.request_telemetry = telemetry;
+        self
+    }
+
+    #[must_use]
+    pub fn with_application_updates(mut self, updates: Arc<dyn ApplicationUpdateService>) -> Self {
+        self.application_updates = Some(updates);
         self
     }
 
@@ -140,5 +149,10 @@ impl AppState {
     #[must_use]
     pub(crate) fn request_telemetry_handle(&self) -> Arc<RequestTelemetry> {
         Arc::clone(&self.request_telemetry)
+    }
+
+    #[must_use]
+    pub fn application_updates(&self) -> Option<&dyn ApplicationUpdateService> {
+        self.application_updates.as_deref()
     }
 }

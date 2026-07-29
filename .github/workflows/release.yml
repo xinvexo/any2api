@@ -33,6 +33,14 @@ jobs:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          manifest_version="$(
+            cargo metadata --locked --no-deps --format-version 1 \
+              | jq -er '[.packages[] | select(.name == "any2api") | .version] | if length == 1 then .[0] else error("expected one any2api package") end'
+          )"
+          if [[ "$INPUT_VERSION" != "$manifest_version" ]]; then
+            echo "release version '$INPUT_VERSION' does not match Cargo version '$manifest_version'" >&2
+            exit 1
+          fi
           release_tag="v$INPUT_VERSION"
           if git show-ref --verify --quiet "refs/tags/$release_tag"; then
             echo "release tag '$release_tag' already exists" >&2

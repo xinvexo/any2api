@@ -47,7 +47,7 @@ fn is_any2api_workspace_dependency(name: &str) -> bool {
 
 fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
     match package {
-        "any2api-domain" | "xtask" => BTreeSet::new(),
+        "any2api-domain" | "any2api-updater" | "xtask" => BTreeSet::new(),
         "any2api-protocol" | "any2api-provider" | "any2api-transport" | "any2api-storage" => {
             BTreeSet::from(["any2api-domain"])
         }
@@ -58,7 +58,9 @@ fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
             "any2api-storage",
             "any2api-transport",
         ]),
-        "any2api-server" => BTreeSet::from(["any2api-domain", "any2api-runtime"]),
+        "any2api-server" => {
+            BTreeSet::from(["any2api-domain", "any2api-runtime", "any2api-updater"])
+        }
         "any2api" => BTreeSet::from([
             "any2api-domain",
             "any2api-protocol",
@@ -67,6 +69,7 @@ fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
             "any2api-server",
             "any2api-storage",
             "any2api-transport",
+            "any2api-updater",
         ]),
         "any2api-contract-tests" => BTreeSet::from([
             "any2api",
@@ -77,6 +80,7 @@ fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
             "any2api-server",
             "any2api-storage",
             "any2api-transport",
+            "any2api-updater",
         ]),
         _ => BTreeSet::new(),
     }

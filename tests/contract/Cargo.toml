@@ -14,6 +14,7 @@ any2api-runtime = { path = "../../crates/runtime" }
 any2api-server = { path = "../../crates/server" }
 any2api-storage = { path = "../../crates/storage" }
 any2api-transport = { path = "../../crates/transport" }
+any2api-updater = { path = "../../crates/updater" }
 async-trait.workspace = true
 axum.workspace = true
 bytes.workspace = true

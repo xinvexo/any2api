@@ -6,6 +6,7 @@ pub(crate) struct ShutdownOutcome {
     result: anyhow::Result<()>,
     timeouts: ShutdownTimeouts,
     fatal: bool,
+    restart_requested: bool,
 }
 
 impl ShutdownOutcome {
@@ -14,6 +15,7 @@ impl ShutdownOutcome {
             result,
             timeouts,
             fatal: false,
+            restart_requested: false,
         }
     }
 
@@ -22,6 +24,7 @@ impl ShutdownOutcome {
             result: Err(error),
             timeouts,
             fatal: true,
+            restart_requested: false,
         }
     }
 
@@ -31,6 +34,15 @@ impl ShutdownOutcome {
 
     pub(crate) const fn is_fatal(&self) -> bool {
         self.fatal
+    }
+
+    pub(crate) const fn restart_requested(&self) -> bool {
+        self.restart_requested
+    }
+
+    pub(crate) fn with_restart_requested(mut self, requested: bool) -> Self {
+        self.restart_requested = requested;
+        self
     }
 
     pub(crate) fn into_result(self) -> anyhow::Result<()> {

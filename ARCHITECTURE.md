@@ -56,6 +56,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude 与 Grok 不声明该方言能力。
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的 Cargo SemVer；工作流只有在输入值与所选提交中 `any2api` 的 Cargo 版本完全一致时才创建 Tag，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
+28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256，成功后沿用有界优雅停机并以新二进制替换当前进程，不在后台静默检查或自动安装。
 
 ### 2.1 两类凭据的术语边界
 
@@ -345,6 +346,11 @@ any2api/
 │  │     ├─ settings/           # Setting override 持久化
 │  │     ├─ migration/          # 当前规范 Schema 与数据库不变量检查
 │  │     └─ vault/              # 版本化 AEAD 实现
+│  ├─ updater/
+│  │  └─ src/
+│  │     ├─ api.rs              # 版本信息、检查/安装端口与重启请求契约
+│  │     ├─ github/             # 固定官方 Release 元数据与有界下载
+│  │     └─ install.rs          # 校验、受限解包与同目录原子替换
 │  └─ server/
 │     └─ src/
 │        ├─ public/             # OpenAI/Anthropic 兼容公开入口
@@ -386,8 +392,9 @@ provider  -> domain
 transport -> domain
 storage   -> domain
 runtime   -> domain + protocol + provider + transport + storage 的公开接口
-server    -> domain + runtime
-app       -> server + runtime + 所有具体 Adapter
+updater   -> 独立的 GitHub Release、文件替换与进程重启请求端口
+server    -> domain + runtime + updater 的公开接口
+app       -> server + runtime + updater + 所有具体 Adapter
 ```
 
 额外约束：
@@ -2552,7 +2559,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
   保持必须续接语义；
 - 会话粘性不提供绑定强度或目标切换模式；启用时显式会话标识统一使用固定绑定。
 - 队列上限、fallback、会话 TTL 和等待超时等低频项默认折叠到“高级设置”，需要时仍可编辑和恢复默认；
-- 设置页一级分类固定为“基础、路由策略、运行保护、日志”，不再按每个内部模块创建独立页签；
+- 设置页一级分类固定为“基础、路由策略、运行保护、日志、关于”，不再按每个内部模块创建独立页签；
 - 全局代理只在代理页配置，设置页不重复提供入口。
 
 ### 19.6 网关密钥
@@ -2587,6 +2594,19 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 明文 HTTP 远程管理必须显示醒目的安全状态，但不阻止使用；
 - Provider URL 表单只要求填写 Base URL；合法的 HTTP(S) 公网或内网地址直接保存，不提供额外网络授权开关；
 - 不提供通用配置导入、配置导出或 Secret 导出入口。
+
+### 19.9 关于与版本更新
+
+- “关于”页签只显示运行中二进制的 Cargo SemVer 和固定 GitHub 仓库地址；仓库链接使用普通外链，不接受服务端或浏览器输入改写；
+- “检查更新”只在管理员显式点击后调用 GitHub 最新正式 Release API，不在页面加载、定时器或后台 Worker 中自动轮询；
+- 检查结果显示最新版本、是否有更新和对应 Release 页面。草稿、预发布、非法 SemVer、Tag 与资产版本不一致或缺少固定资产时均视为不可用 Release；
+- “更新版本”不接受客户端指定版本或下载 URL；服务端重新读取最新 Release，下载固定 Linux AMD64 GNU 归档与同名 `.sha256`，完成大小限制、SHA-256 和归档结构校验后才替换二进制；
+- 安装只允许官方 Release 构建支持的 `x86_64-unknown-linux-gnu` release 二进制且使用内嵌 Web；其他平台、debug 构建和 `ANY2API_WEB_DIR` 开发模式仍可检查并打开 GitHub，不常驻展示环境能力，只有管理员点击安装时才返回并显示 `update_unsupported`；
+- 同一进程最多执行一个安装操作。安装在当前可执行文件同目录暂存并以原子 rename 替换，不能修改 SQLite、数据目录、主密钥、配置或日志；校验后的最终解包、替换和重启请求之间不再出现可取消等待点，禁止请求取消后只替换文件而不重启；
+- 替换成功后由更新器请求现有有界优雅停机。HTTP 请求完成、后台任务和 SQLite 收尾成功、Tokio runtime 关闭后，进程以启动时捕获的可执行路径和原参数 `exec` 新二进制；收尾失败时保持既有致命退出语义，不绕过停机边界强制重启；
+- Docker 部署应优先更新镜像；容器内原地安装只会改变当前可写层，容器重建仍以镜像版本为准。系统不访问 Docker socket，也不替用户拉取或重建容器。
+
+完整决策见 `docs/adr/0065-verified-github-release-self-update.md`。
 
 ## 20. 部署模型
 
@@ -2714,6 +2734,12 @@ Linux AMD64，不构建其他系统、架构或 musl 变体。
 
 Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和
 SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、主密钥、配置、日志或 Secret。
+
+管理面的版本检查固定读取 `xinvexo/any2api` 最新正式 Release。安装端不信任客户端版本或 URL，也不把
+GitHub 元数据中的任意资产名当作可执行输入；只有由已校验 SemVer 推导出的上述归档和 checksum 名称同时
+存在时才允许下载。归档和 checksum 均有独立大小上限，下载跟随重定向时只允许 HTTPS GitHub 域名，
+解包只接受根目录下唯一的普通文件 `any2api`。checksum 验证、文件 `sync_all`、同目录原子替换全部成功后
+才请求重启。版本检查失败、无更新或安装失败都不改变当前二进制和运行状态。
 
 ## 21. 当前核心约束摘要
 

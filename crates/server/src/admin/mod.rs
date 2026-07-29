@@ -1,3 +1,4 @@
+mod about;
 mod affinity;
 mod auth;
 mod balancing;
@@ -35,6 +36,7 @@ pub(crate) fn routes(state: AppState) -> Router<AppState> {
 
 fn protected_routes() -> Router<AppState> {
     Router::new()
+        .merge(about::routes())
         .merge(auth::protected_routes())
         .merge(affinity::routes())
         .merge(balancing::routes())

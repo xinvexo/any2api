@@ -1,5 +1,6 @@
 mod bootstrap;
 mod logging;
+mod self_update;
 mod shutdown;
 
 pub use bootstrap::run;

@@ -13,6 +13,7 @@ any2api-runtime = { path = "../../crates/runtime" }
 any2api-server = { path = "../../crates/server" }
 any2api-storage = { path = "../../crates/storage" }
 any2api-transport = { path = "../../crates/transport" }
+any2api-updater = { path = "../../crates/updater" }
 anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
@@ -21,6 +22,7 @@ ipnet.workspace = true
 secrecy.workspace = true
 time.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true
 tracing-subscriber.workspace = true

@@ -33,9 +33,17 @@ ANY2API_DATA_DIR=/var/lib/any2api ./any2api
 ```
 
 Run the `Release` workflow manually from GitHub Actions and enter the release version without the `v` prefix (for
-example, `0.1.1`). The workflow uses that input directly to create the matching `v<version>` tag, builds the selected
-commit for Linux AMD64, and publishes the archive and checksum. Before upgrading, stop the existing process and take
-an offline copy of the data directory and master key.
+example, `0.1.1`). The workflow verifies that the input exactly matches the selected commit's Cargo version, creates
+the matching `v<version>` tag, builds Linux AMD64, and publishes the archive and checksum.
+
+An authenticated administrator can open **Settings → About** to view the running version and repository, explicitly
+check the latest official release, and install it on a supported Linux AMD64 GNU release build. The installer downloads
+the fixed archive and checksum, verifies SHA-256, atomically replaces the executable, completes the existing bounded
+graceful shutdown, and restarts the same executable with its original arguments. Development builds, other platforms,
+and `ANY2API_WEB_DIR` mode can check releases but cannot install them in place. Docker deployments should update the
+image instead; an in-container replacement only affects that container's writable layer.
+
+Before upgrading, take an offline copy of the data directory and master key.
 
 ## Startup Environment
 
@@ -64,11 +72,9 @@ There is no built-in backup or restore workflow. For an offline filesystem backu
 
 ## Database Compatibility
 
-Before the first formal release, each build is paired with the canonical schema in
-`migrations/0001_initial.sql`; database compatibility between development builds is not
-provided. Start a build with an empty data directory. If that schema changes, stop the
-existing process and initialize a new data directory instead of reusing an earlier
-development database.
+Database migrations are immutable forward-only scripts. `migrations/0001_initial.sql` and every committed migration
+must not be edited; schema changes append the next numbered SQL script and existing data directories upgrade through
+the complete migration chain on startup.
 
 Do not run two any2api processes against one data directory. The process holds an
 exclusive instance lock and rejects a second owner.

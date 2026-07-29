@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublishedSnapshot, RequestTelemetry, RuntimeRegistry,
@@ -8,6 +8,7 @@ use any2api_server::api::{
     AdminAuthService, AppState, ClientAddressPolicy, WebAssets, build_router,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_updater::api::GitHubReleaseUpdater;
 use anyhow::Context;
 use secrecy::ExposeSecret;
 use tokio::net::TcpListener;
@@ -18,10 +19,14 @@ use super::{
 };
 use crate::{
     logging::{AppLoggingReconciler, FileLogging},
+    self_update::RestartSignal,
     shutdown,
 };
 
-pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::ShutdownOutcome> {
+pub(super) async fn run(
+    settings: StartupSettings,
+    executable_path: PathBuf,
+) -> anyhow::Result<shutdown::ShutdownOutcome> {
     let storage = Arc::new(
         SqliteStore::connect_with_master_key(&settings.database_path, &settings.master_key_path)
             .await
@@ -100,6 +105,12 @@ pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::S
     );
     let proxy_tests = request_components.proxy_test_service();
     let provider_credential_tests = request_components.provider_credential_test_service();
+    let embedded_web = settings.web_root.is_none();
+    let restart = RestartSignal::new();
+    let application_updates = Arc::new(
+        GitHubReleaseUpdater::official(executable_path, embedded_web, Arc::new(restart.clone()))
+            .context("failed to initialize application updater")?,
+    );
     let web_assets = settings
         .web_root
         .map(WebAssets::external)
@@ -115,6 +126,7 @@ pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::S
         .with_proxy_tests(proxy_tests)
         .with_provider_credential_tests(provider_credential_tests)
         .with_request_telemetry(Arc::clone(&telemetry))
+        .with_application_updates(application_updates)
         .with_admin_auth(admin_auth)
         .with_client_address_policy(ClientAddressPolicy::new(
             settings.trusted_proxy_cidrs.clone(),
@@ -140,7 +152,12 @@ pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::S
         app,
         lifecycle.clone(),
         snapshots.as_ref(),
-        shutdown::signal(),
+        async {
+            tokio::select! {
+                () = shutdown::signal() => {}
+                () = restart.wait() => {}
+            }
+        },
     )
     .await;
     let result = served.result.context("http server failed");
@@ -153,6 +170,9 @@ pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::S
     .await
     .context("shutdown finalization failed");
 
+    // Release service roots that retain the configuration publisher and logging reconciler.
+    drop(request_components);
+    drop(oauth);
     let finalized = finalized.and_then(|()| FileLogging::finish(file_logging));
     let outcome = match finalized {
         Ok(()) => shutdown::ShutdownOutcome::complete(result, served.timeouts),
@@ -161,5 +181,5 @@ pub(super) async fn run(settings: StartupSettings) -> anyhow::Result<shutdown::S
             shutdown::ShutdownOutcome::fatal(error, served.timeouts)
         }
     };
-    Ok(outcome)
+    Ok(outcome.with_restart_requested(restart.requested()))
 }
