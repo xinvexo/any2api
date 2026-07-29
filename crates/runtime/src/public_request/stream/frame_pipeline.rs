@@ -33,10 +33,10 @@ impl GuardedBody {
                     return true;
                 }
                 Ok(None) => {}
-                Err(_) => {
-                    self.set_pending_error(PendingStreamError::invalid_response(
-                        "upstream SSE frame was invalid",
-                    ));
+                Err(error) => {
+                    self.set_pending_error(PendingStreamError::invalid_response(format!(
+                        "upstream SSE frame was invalid: {error}"
+                    )));
                     return true;
                 }
             }
@@ -64,10 +64,10 @@ impl GuardedBody {
                 }
             }
             Ok(None) => {}
-            Err(_) => {
-                self.set_pending_error(PendingStreamError::invalid_response(
-                    "upstream SSE frame was invalid",
-                ));
+            Err(error) => {
+                self.set_pending_error(PendingStreamError::invalid_response(format!(
+                    "upstream SSE frame was invalid: {error}"
+                )));
             }
         }
         if self.pending_error.is_none() {

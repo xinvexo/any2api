@@ -194,14 +194,21 @@ async fn responses_compact_persists_exact_usage_without_ttft() {
 }
 
 #[tokio::test]
-async fn remote_compaction_v2_finishes_on_terminal_without_waiting_for_eof() {
+async fn remote_compaction_v2_accepts_a_large_first_event_and_finishes_on_terminal() {
+    const LARGE_COMPACTION_CONTENT_BYTES: usize = 300 * 1024;
+    let encrypted_content = "x".repeat(LARGE_COMPACTION_CONTENT_BYTES);
+    let compaction = format!(
+        "event: response.output_item.done\ndata: {{\"type\":\"response.output_item.done\",\"sequence_number\":9,\"output_index\":0,\"item\":{{\"id\":\"cmp_1\",\"type\":\"compaction_summary\",\"encrypted_content\":\"{encrypted_content}\",\"future_item_field\":{{\"keep\":[1,2]}}}},\"future_event_field\":{{\"keep\":true}}}}\n\n"
+    );
     let transport = Arc::new(ScriptedTransport::new([
-        ScriptStep::delayed_stalled_stream_with_gap(
-            Duration::from_secs(6),
-            "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"compact-v2-id\",\"model\":\"upstream\"}}\n\n",
-            Duration::from_secs(61),
-            "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"sequence_number\":9,\"output_index\":0,\"item\":{\"id\":\"cmp_1\",\"type\":\"compaction_summary\",\"encrypted_content\":\"opaque-v2\",\"future_item_field\":{\"keep\":[1,2]}},\"future_event_field\":{\"keep\":true}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"compact-v2-id\",\"model\":\"upstream\",\"usage\":{\"input_tokens\":241753,\"output_tokens\":0}},\"future_terminal_field\":true}\n\n",
-        ),
+        ScriptStep::DelayedStalledStreamWithGap {
+            first_delay: Duration::from_secs(84),
+            first: Bytes::from(compaction),
+            second_delay: Duration::from_secs(61),
+            second: Bytes::from_static(
+                b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"compact-v2-id\",\"model\":\"upstream\",\"usage\":{\"input_tokens\":241753,\"output_tokens\":0}},\"future_terminal_field\":true}\n\n",
+            ),
+        },
     ]));
     let harness = harness(transport.clone(), 1, &["compact-v2-model"], &[]).await;
     tokio::time::pause();
@@ -229,7 +236,8 @@ async fn remote_compaction_v2_finishes_on_terminal_without_waiting_for_eof() {
     let emitted = String::from_utf8(emitted).expect("SSE is UTF-8");
     assert!(emitted.contains("response.output_item.done"));
     assert!(emitted.contains(r#""type":"compaction_summary""#));
-    assert!(emitted.contains(r#""encrypted_content":"opaque-v2""#));
+    assert!(emitted.len() > LARGE_COMPACTION_CONTENT_BYTES);
+    assert!(emitted.contains(r#""encrypted_content":"xxxxxxxx"#));
     assert!(emitted.contains(r#""future_item_field":{"keep":[1,2]}"#));
     assert!(emitted.contains(r#""future_event_field":{"keep":true}"#));
     assert!(emitted.contains(r#""future_terminal_field":true"#));
@@ -1696,20 +1704,6 @@ impl ScriptStep {
             delay,
             status,
             body: Bytes::from_static(body.as_bytes()),
-        }
-    }
-
-    fn delayed_stalled_stream_with_gap(
-        first_delay: Duration,
-        first: &'static str,
-        second_delay: Duration,
-        second: &'static str,
-    ) -> Self {
-        Self::DelayedStalledStreamWithGap {
-            first_delay,
-            first: Bytes::from_static(first.as_bytes()),
-            second_delay,
-            second: Bytes::from_static(second.as_bytes()),
         }
     }
 

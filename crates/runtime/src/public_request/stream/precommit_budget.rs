@@ -22,6 +22,7 @@ impl PrecommitBudget {
         Self::new(
             execution_limits::stream_precommit_bytes(
                 operation,
+                profile,
                 usize::try_from(settings.precommit_max_bytes())
                     .expect("validated precommit byte budget fits usize"),
             ),

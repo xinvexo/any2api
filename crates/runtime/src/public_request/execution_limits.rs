@@ -10,6 +10,7 @@ pub(super) const STANDARD_BUFFERED_RESPONSE_LIMIT_BYTES: usize = 16 * 1024 * 102
 const IMAGES_BUFFERED_RESPONSE_LIMIT_BYTES: usize = 512 * 1024 * 1024;
 const IMAGES_SSE_PRECOMMIT_LIMIT_BYTES: usize = 128 * 1024 * 1024;
 const IMAGES_MINIMUM_TIMEOUT: Duration = Duration::from_secs(180);
+const REMOTE_COMPACTION_SSE_PRECOMMIT_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const REMOTE_COMPACTION_MINIMUM_TIMEOUT: Duration = Duration::from_secs(300);
 const RESPONSES_COMPACT_MINIMUM_TIMEOUT: Duration = Duration::from_secs(1_200);
 
@@ -47,8 +48,16 @@ pub(super) fn retry_budget(
     timeout_floor(operation, profile, configured)
 }
 
-pub(super) fn stream_precommit_bytes(operation: ProtocolOperation, configured: usize) -> usize {
-    if is_images(operation) {
+pub(super) fn stream_precommit_bytes(
+    operation: ProtocolOperation,
+    profile: RequestExecutionProfile,
+    configured: usize,
+) -> usize {
+    if operation == ProtocolOperation::Responses
+        && profile == RequestExecutionProfile::RemoteCompaction
+    {
+        configured.max(REMOTE_COMPACTION_SSE_PRECOMMIT_LIMIT_BYTES)
+    } else if is_images(operation) {
         IMAGES_SSE_PRECOMMIT_LIMIT_BYTES
     } else {
         configured
@@ -89,9 +98,10 @@ mod tests {
     use super::{
         IMAGES_BUFFERED_RESPONSE_LIMIT_BYTES, IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES,
         IMAGES_MINIMUM_TIMEOUT, IMAGES_SSE_PRECOMMIT_LIMIT_BYTES,
-        REMOTE_COMPACTION_MINIMUM_TIMEOUT, RESPONSES_COMPACT_MINIMUM_TIMEOUT,
-        STANDARD_BUFFERED_RESPONSE_LIMIT_BYTES, buffered_response_limit, read_timeout,
-        retry_budget, stream_precommit_bytes, stream_timeout,
+        REMOTE_COMPACTION_MINIMUM_TIMEOUT, REMOTE_COMPACTION_SSE_PRECOMMIT_LIMIT_BYTES,
+        RESPONSES_COMPACT_MINIMUM_TIMEOUT, STANDARD_BUFFERED_RESPONSE_LIMIT_BYTES,
+        buffered_response_limit, read_timeout, retry_budget, stream_precommit_bytes,
+        stream_timeout,
     };
 
     #[test]
@@ -105,7 +115,11 @@ mod tests {
             IMAGES_BUFFERED_RESPONSE_LIMIT_BYTES
         );
         assert_eq!(
-            stream_precommit_bytes(ProtocolOperation::ImagesGenerations, 256 * 1024),
+            stream_precommit_bytes(
+                ProtocolOperation::ImagesGenerations,
+                RequestExecutionProfile::Standard,
+                256 * 1024,
+            ),
             IMAGES_SSE_PRECOMMIT_LIMIT_BYTES
         );
         assert_eq!(IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, 512 * 1024 * 1024);
@@ -119,8 +133,51 @@ mod tests {
             STANDARD_BUFFERED_RESPONSE_LIMIT_BYTES
         );
         assert_eq!(
-            stream_precommit_bytes(ProtocolOperation::Responses, 256 * 1024),
+            stream_precommit_bytes(
+                ProtocolOperation::Responses,
+                RequestExecutionProfile::Standard,
+                256 * 1024,
+            ),
             256 * 1024
+        );
+    }
+
+    #[test]
+    fn remote_compaction_uses_a_large_frame_floor_without_widening_other_responses() {
+        let configured = 256 * 1024;
+        assert_eq!(
+            stream_precommit_bytes(
+                ProtocolOperation::Responses,
+                RequestExecutionProfile::RemoteCompaction,
+                configured,
+            ),
+            REMOTE_COMPACTION_SSE_PRECOMMIT_LIMIT_BYTES
+        );
+        assert_eq!(
+            stream_precommit_bytes(
+                ProtocolOperation::Responses,
+                RequestExecutionProfile::Standard,
+                configured,
+            ),
+            configured
+        );
+        assert_eq!(
+            stream_precommit_bytes(
+                ProtocolOperation::ResponsesCompact,
+                RequestExecutionProfile::RemoteCompaction,
+                configured,
+            ),
+            configured
+        );
+
+        let larger = 80 * 1024 * 1024;
+        assert_eq!(
+            stream_precommit_bytes(
+                ProtocolOperation::Responses,
+                RequestExecutionProfile::RemoteCompaction,
+                larger,
+            ),
+            larger
         );
     }
 

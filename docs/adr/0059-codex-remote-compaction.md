@@ -22,6 +22,12 @@ executor 和 Codex `rust-v0.145.0` 客户端都在终止事件到达后立即停
 不完整流。any2api 若在终止事件后继续等待保持开启的上游连接，会让下游请求生命周期错误延长
 到 300 秒空闲超时；反过来，终止事件缺失的 EOF 又会被错误记录为成功。
 
+远程压缩还会把不透明加密结果集中放在单个
+`response.output_item.done` 事件中。普通流默认的 `256 KiB` 预提交/单帧上限同时作用于
+整个解码器，因此大型压缩帧无论是首个事件，还是在 `response.created` 后到达都会被中断。
+前者在返回下游响应头前变成 502；后者因 HTTP 状态和部分 Body 已经提交，客户端只能
+观察到低层 response body 解码失败。
+
 ## 决策
 
 1. 协议稳定 API 在 `DecodedRequest` 中携带强类型 `RequestExecutionProfile`，包含
@@ -48,7 +54,7 @@ executor 和 Codex `rust-v0.145.0` 客户端都在终止事件到达后立即停
    面向其他客户端的兼容性补全更符合本项目边界。
 7. Runtime 的单一 execution-limits 模块按操作和执行 profile 计算下限：
    - 现代 Responses 远程压缩：等待响应头/错误正文读取、首事件、提交后流空闲和提交前总预算
-     均至少 300 秒；
+     均至少 300 秒；SSE 单帧与提交前字节上限至少 `64 MiB`，普通 Responses 仍使用设置值；
    - unary Responses Compact：等待响应头、buffered body 每 chunk 空闲和提交前总预算均至少
      1200 秒；
    - 管理员配置大于下限时保留更大值，普通请求的 SettingRegistry 默认值不变。
@@ -62,6 +68,7 @@ executor 和 Codex `rust-v0.145.0` 客户端都在终止事件到达后立即停
   `/responses`，会造成入口与真实客户端不一致，拒绝。
 - 在 Runtime 递归搜索 JSON 或解析加密 compaction item：协议 Adapter 已有唯一解析边界，且响应
   内容应保持不透明，拒绝。
+- 全局放大普通 Responses 的 SSE 单帧上限：不必要地放大所有文本流的内存边界，拒绝。
 - 聚合 `response.output_item.done` 并补写最终 `response.output`：当前 Codex v2 不读取该字段，且会
   把生命周期修复扩张为 payload 翻译，拒绝。
 - 把 `compaction_trigger` 转为 Chat Completions system prompt：不能保证压缩结果、加密内容和
@@ -71,6 +78,7 @@ executor 和 Codex `rust-v0.145.0` 客户端都在终止事件到达后立即停
 ## 后果
 
 - 当前 Codex CLI 的流式远程压缩和 unary Compact 请求都能跨过普通请求的短预算，同时仍有明确上界。
+- 大型加密压缩项不再被普通文本流的 `256 KiB` 单帧默认值截断；额外内存上限只对精确识别的远程压缩请求生效。
 - Responses 终止帧成为真实完成边界；保持开启或在终止后报错的上游 Body 不会拖住客户端，缺少
   终止帧的提前 EOF 也不再伪装成成功。
 - 现代压缩只能使用 Responses 原生 Target；如果某模型只配置了 Chat Completions Bridge，候选为空并
@@ -82,11 +90,11 @@ executor 和 Codex `rust-v0.145.0` 客户端都在终止事件到达后立即停
 
 - Protocol 单元测试覆盖最终 trigger 识别、非最终/嵌套同名值不误识别、unary Compact 标记和 JSON
   原样保留。
-- Runtime 单元测试覆盖 Images 的 180 秒、远程压缩的 300/1200 秒下限、较大管理员值保持和普通请求默认预算不变。
+- Runtime 单元测试覆盖 Images 的 180 秒、远程压缩的 300/1200 秒下限与 `64 MiB` 单帧下限、较大管理员值保持和普通请求默认预算不变。
 - 候选测试覆盖远程压缩排除 Responses → Chat Completions Bridge、普通 Responses 仍可使用该桥。
 - Tokio 虚拟时间契约测试让流式压缩首事件晚于普通 5 秒预算、unary Compact body 晚于普通 15/20 秒
   预算后到达，确认两者成功且 Transport 收到相应 read timeout。
 - SSE 契约确认 `compaction_trigger` 请求仍发往 `/v1/responses`，并原样返回当前上游的
-  `response.output_item.done` 远程压缩事件。
+  大于普通单帧默认值的首个 `response.output_item.done` 远程压缩事件。
 - 流生命周期测试覆盖终止事件后上游永久 pending、终止事件后的传输错误、终止事件前 EOF，以及
   compaction item 与终止帧的原样、有序交付。
