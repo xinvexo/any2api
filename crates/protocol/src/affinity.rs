@@ -11,13 +11,18 @@ pub(crate) fn extract(
     headers: &HeaderMap,
     object: &Map<String, Value>,
 ) -> Result<IngressAffinity, ProtocolError> {
+    if matches!(
+        operation,
+        ProtocolOperation::ImagesGenerations
+            | ProtocolOperation::ImagesEdits
+            | ProtocolOperation::MessagesCountTokens
+    ) {
+        return Ok(IngressAffinity::None);
+    }
     if operation == ProtocolOperation::Responses
         && let Some(previous) = previous_response_id(object)?
     {
         return Ok(IngressAffinity::Continuation(previous));
-    }
-    if operation == ProtocolOperation::MessagesCountTokens {
-        return Ok(IngressAffinity::None);
     }
 
     for (header, source) in [
@@ -193,17 +198,30 @@ mod tests {
             .expect("affinity"),
             IngressAffinity::None
         );
+    }
+
+    #[test]
+    fn stateless_operations_ignore_explicit_session_identifiers() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-session-id", HeaderValue::from_static("ignored"));
-        assert_eq!(
-            extract(
-                ProtocolOperation::MessagesCountTokens,
-                &headers,
-                body.as_object().expect("object"),
-            )
-            .expect("affinity"),
-            IngressAffinity::None
+        headers.insert(
+            "x-any2api-session",
+            HeaderValue::from_static("must-be-ignored"),
         );
+        let body = json!({
+            "previous_response_id": "resp_ignored",
+            "metadata": {"user_id": "{\"session_id\":\"ignored\"}"},
+            "conversation_id": "ignored"
+        });
+        for operation in [
+            ProtocolOperation::ImagesGenerations,
+            ProtocolOperation::ImagesEdits,
+            ProtocolOperation::MessagesCountTokens,
+        ] {
+            assert_eq!(
+                extract(operation, &headers, body.as_object().expect("object")).expect("affinity"),
+                IngressAffinity::None
+            );
+        }
     }
 
     #[test]

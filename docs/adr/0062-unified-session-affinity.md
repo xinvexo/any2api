@@ -12,6 +12,13 @@
 
 ## 决策
 
+### 适用操作
+
+会话绑定只适用于 Responses、Responses Compact、Chat Completions 和 Messages。Images Generations、
+Images Edits 与 Messages Count Tokens 没有会话或续接语义，ProtocolAdapter 必须为这些操作返回
+`IngressAffinity::None`。通用 Session Header、`conversation_id` 或其他未知字段可以继续按各自协议的
+透传规则处理，但不得让这些无会话操作创建、命中或等待绑定。
+
 ### 单一绑定对象
 
 `AffinityRegistry` 只保存一种 `SessionBinding`：
@@ -100,7 +107,7 @@ SettingRegistry 不提供其他粘性设置键、别名、双读或模式分支�
 ## 验证
 
 - Protocol 测试覆盖显式 Session 与 Continuation 两种创建意图、代表性标识来源和
-  `previous_response_id` 未命中。
+  `previous_response_id` 未命中，并确认 Images 与 Count Tokens 忽略全部会话标识。
 - Runtime 测试覆盖并发 `Creating`、单一 TTL、访问刷新、固定目标等待、超时不切换、目标不可用不
   切换、清理、Credential 删除和重启空状态。
 - JSON/SSE 契约覆盖 Response ID 在可见前绑定、普通 Session 首次创建、后续固定完整目标、

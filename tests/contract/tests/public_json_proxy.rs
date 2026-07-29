@@ -371,6 +371,135 @@ async fn openai_images_edit_uses_its_distinct_upstream_path() {
 }
 
 #[tokio::test]
+async fn openai_images_requests_ignore_session_identifiers_and_continue_round_robin() {
+    for (path, body) in [
+        (
+            "/v1/images/generations",
+            json!({
+                "model": "gpt-image-stateless",
+                "prompt": "generate independently",
+                "conversation_id": "must-be-ignored"
+            }),
+        ),
+        (
+            "/v1/images/edits",
+            json!({
+                "model": "gpt-image-stateless",
+                "prompt": "edit independently",
+                "images": [{"file_id": "file-image-source"}],
+                "conversation_id": "must-be-ignored"
+            }),
+        ),
+    ] {
+        let (listener, mut upstream) = upstream_server_sequence(
+            path,
+            &[
+                r#"{"created":1721000003,"data":[{"b64_json":"Zmlyc3Q="}]}"#,
+                r#"{"created":1721000004,"data":[{"b64_json":"c2Vjb25k"}]}"#,
+            ],
+        )
+        .await;
+        let (_directory, app, revision) = test_app().await;
+        let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+        let token = create_gateway_key(&app, loopback, revision).await;
+        let endpoint_id = create_endpoint_with_protocol(
+            &app,
+            loopback,
+            revision + 1,
+            &format!(
+                "Images stateless {}",
+                path.rsplit('/').next().expect("operation")
+            ),
+            "codex",
+            &format!("http://{listener}/v1"),
+            ("openai_images", None),
+        )
+        .await;
+        create_labeled_credential(
+            &app,
+            loopback,
+            revision + 2,
+            &endpoint_id,
+            "first",
+            "sk-images-stateless-first",
+        )
+        .await;
+        create_labeled_credential(
+            &app,
+            loopback,
+            revision + 3,
+            &endpoint_id,
+            "second",
+            "sk-images-stateless-second",
+        )
+        .await;
+        select_models(
+            &app,
+            loopback,
+            revision + 4,
+            &endpoint_id,
+            "gpt-image-stateless",
+        )
+        .await;
+
+        for _ in 0..2 {
+            let response = request_json(
+                app.clone(),
+                Method::POST,
+                path,
+                Some(body.clone()),
+                loopback,
+                &[
+                    ("authorization", format!("Bearer {token}")),
+                    ("x-any2api-session", "must-be-ignored".to_owned()),
+                ],
+            )
+            .await;
+            assert_eq!(response.status, StatusCode::OK);
+        }
+
+        let first = upstream.recv().await.expect("first Images request");
+        let second = upstream.recv().await.expect("second Images request");
+        assert_eq!(first.body["conversation_id"], "must-be-ignored");
+        assert_eq!(second.body["conversation_id"], "must-be-ignored");
+        let mut authorization = [
+            first
+                .headers
+                .get("authorization")
+                .map(String::as_str)
+                .expect("first Images authorization"),
+            second
+                .headers
+                .get("authorization")
+                .map(String::as_str)
+                .expect("second Images authorization"),
+        ];
+        authorization.sort_unstable();
+        assert_eq!(
+            authorization,
+            [
+                "Bearer sk-images-stateless-first",
+                "Bearer sk-images-stateless-second"
+            ],
+            "{path} must continue normal Credential round-robin",
+        );
+
+        let affinity = request_json(
+            app,
+            Method::GET,
+            "/api/admin/affinity?limit=10",
+            None,
+            loopback,
+            &[],
+        )
+        .await;
+        assert_eq!(affinity.status, StatusCode::OK);
+        assert_eq!(affinity.body["binding_count"], 0, "{path}");
+        assert_eq!(affinity.body["creating_count"], 0, "{path}");
+    }
+}
+
+#[tokio::test]
 async fn openai_images_edit_accepts_and_reencodes_multipart_uploads() {
     let (listener, upstream) = multipart_upstream_server("/v1/images/edits").await;
     let (_directory, app, revision) = test_app().await;

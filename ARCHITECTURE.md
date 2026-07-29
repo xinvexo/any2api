@@ -1189,7 +1189,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 
 #### `/v1/images/generations` 与 `/v1/images/edits`
 
-- Images 使用独立 `openai_images` 方言和 `images_generations`、`images_edits` 操作，不借用 Responses 或 Chat Completions 方言；两个入口继续复用 Gateway Key 鉴权、公开模型允许列表、Route、RPM、代理、健康、重试、统一固定会话绑定、流式 Guard 和请求遥测。
+- Images 使用独立 `openai_images` 方言和 `images_generations`、`images_edits` 操作，不借用 Responses 或 Chat Completions 方言；两个入口继续复用 Gateway Key 鉴权、公开模型允许列表、Route、RPM、代理、健康、重试、流式 Guard 和请求遥测。Images 协议没有会话或续接语义，显式 Session Header、`conversation_id` 和其他未知字段都不得为 Images 建立粘性绑定，每次请求都按普通候选调度。
 - `images/generations` 接受 OpenAI JSON；`images/edits` 同时接受 JSON 的 `images`/`mask` 引用和 `multipart/form-data` 的 `image`/`image[]`、可选 `mask` 及其他字段。ProtocolAdapter 只提取并校验路由必需的 `model`、`stream`，保留未知 JSON 字段、multipart 字段顺序、文件字节和安全 Part Header；替换上游模型时重新编码结构化 multipart，禁止用字符串搜索修改二进制 Body。
 - OpenAI API Key 的 Codex Driver 声明 `openai_images` JSON/SSE 能力并追加固定 `images/generations`、`images/edits` 路径。Codex OAuth 固定 ChatGPT 数据面不支持 Images；Claude 与 Grok 不声明该方言能力。
 - Provider Endpoint 只有一组接受/上游方言；同一 API Key 同时承接文本和图片时，管理员为相同 Base URL 建立独立 Images Endpoint 与 Credential。公开模型名仍固定等于上游模型名，不增加图片模型别名编辑。
@@ -1620,6 +1620,10 @@ NoRoute
 会话粘性只有一种绑定语义：绑定一旦建立，后续请求必须固定到原 Credential、Route Target、
 上游模型和协议方言。不提供多种绑定强度、可切换模式或等待超时后改换目标的第二套语义。
 
+会话粘性只适用于 Responses、Responses Compact、Chat Completions 和 Messages。Images Generations、
+Images Edits 与 Messages Count Tokens 始终是无会话操作；即使请求携带通用 Session Header 或正文中
+出现 `conversation_id`，也不得创建、命中或等待会话绑定。
+
 ### 13.1 会话标识提取顺序
 
 ```text
@@ -1636,7 +1640,7 @@ NoRoute
 
 ### 13.2 首次创建与必须续接
 
-协议解码只区分标识是否允许首次创建，不区分绑定强度：
+支持会话的协议操作在解码时只区分标识是否允许首次创建，不区分绑定强度：
 
 - `X-Any2API-Session`、`X-Session-ID`、`Session-Id` / `Session_id`、Claude
   `metadata.user_id.session_id` 和 `conversation_id` 在未命中时可以建立新绑定；
@@ -2013,7 +2017,7 @@ SettingRegistry 实现以上四个 `scheduler.*` key。其余 affinity、retry�
 Route 物化后，将非空允许列表与新的公开模型集合取交集并持久化规范结果；已无任何 Route 的名称不得残留
 在设置响应或 SQLite 覆盖值中。交集为空时持久化 `[]`，按空列表语义允许全部当前公开模型。
 
-`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在任何会话创建、候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新列表。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
+`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误，并在会话适用的入口早于会话创建。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新列表。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
 
 #### 重试、冷却与熔断默认值
 

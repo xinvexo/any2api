@@ -8,7 +8,7 @@ use multer::Multipart;
 use serde_json::{Value, json};
 
 use super::OpenAiImagesAdapter;
-use crate::api::{IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
+use crate::api::{IngressAffinity, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
 
 #[tokio::test]
 async fn generation_and_json_edit_preserve_unknown_fields_and_rewrite_model() {
@@ -159,6 +159,56 @@ async fn multipart_edit_rejects_invalid_boundary_model_and_stream() {
             multipart_request("invalid-payload", multipart_body("invalid-payload", &parts));
         assert!(adapter.decode_ingress_request(request).await.is_err());
     }
+}
+
+#[tokio::test]
+async fn image_json_and_multipart_requests_ignore_session_identifiers() {
+    let adapter = OpenAiImagesAdapter::new();
+    for (operation, uri) in [
+        (
+            ProtocolOperation::ImagesGenerations,
+            "/v1/images/generations",
+        ),
+        (ProtocolOperation::ImagesEdits, "/v1/images/edits"),
+    ] {
+        let mut request = json_request(
+            operation,
+            uri,
+            json!({
+                "model": "gpt-image-2",
+                "prompt": "stateless image request",
+                "conversation_id": "must-be-ignored"
+            }),
+        );
+        request.headers.insert(
+            "x-any2api-session",
+            HeaderValue::from_static("must-be-ignored"),
+        );
+        let decoded = adapter
+            .decode_ingress_request(request)
+            .await
+            .expect("Images JSON request decodes");
+        assert_eq!(decoded.affinity, IngressAffinity::None);
+    }
+
+    let boundary = "stateless-multipart";
+    let body = multipart_body(
+        boundary,
+        &[
+            Part::text("model", b"gpt-image-2"),
+            Part::file("image", "source.png", "image/png", b"image-bytes"),
+        ],
+    );
+    let mut request = multipart_request(boundary, body);
+    request.headers.insert(
+        "x-any2api-session",
+        HeaderValue::from_static("must-be-ignored"),
+    );
+    let decoded = adapter
+        .decode_ingress_request(request)
+        .await
+        .expect("Images multipart request decodes");
+    assert_eq!(decoded.affinity, IngressAffinity::None);
 }
 
 #[test]
