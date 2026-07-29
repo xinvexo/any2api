@@ -67,7 +67,9 @@ test("gateway key usage is a fixed time axis with hover and keyboard details", a
   let tooltip = page.getByRole("tooltip");
   await expect(tooltip).toContainText("成功 0");
   await expect(tooltip).toContainText("失败 0");
-  await expect(tooltip.locator("p").first()).toContainText(/^\d{2}:\d{2}–\d{2}:\d{2}$/);
+  await expect(tooltip.locator("p").first()).toHaveText(
+    /^\d{2}:\d{2}–\d{2}:\d{2}·无调用$/,
+  );
 
   await slots.nth(10).focus();
   tooltip = page.getByRole("tooltip");
