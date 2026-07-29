@@ -82,7 +82,7 @@ executor 和 Codex `rust-v0.145.0` 客户端都在终止事件到达后立即停
 
 - Protocol 单元测试覆盖最终 trigger 识别、非最终/嵌套同名值不误识别、unary Compact 标记和 JSON
   原样保留。
-- Runtime 单元测试覆盖 300/1200 秒下限、较大管理员值保持和普通请求默认预算不变。
+- Runtime 单元测试覆盖 Images 的 180 秒、远程压缩的 300/1200 秒下限、较大管理员值保持和普通请求默认预算不变。
 - 候选测试覆盖远程压缩排除 Responses → Chat Completions Bridge、普通 Responses 仍可使用该桥。
 - Tokio 虚拟时间契约测试让流式压缩首事件晚于普通 5 秒预算、unary Compact body 晚于普通 15/20 秒
   预算后到达，确认两者成功且 Transport 收到相应 read timeout。

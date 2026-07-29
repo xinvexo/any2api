@@ -11,7 +11,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 
 项目目标是把多个 Codex、Claude、Grok 凭据聚合为统一入口，提供：
 
-- Codex、Claude 原生协议与 Grok 的 OpenAI 兼容协议接入；
+- Codex、Claude 原生协议、OpenAI Images API 与 Grok 的 OpenAI 兼容协议接入；
 - 多 Provider Credential 管理；
 - 多个网关 API Key 管理；
 - 可选的账号级 RPM 限速与轮询负载均衡；
@@ -54,7 +54,8 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 23. 系统提供独立的完整 HTTP 系统日志，覆盖所有到达 Axum 的公开 API、管理 API、健康检查、Web 资源、鉴权失败、404 与 405。日志保存客户端实际请求 URI 的原始 path，不使用路由模板、通配归一化或重写后的路径，但不保存 query；管理页面支持自动刷新、手动刷新和有序清理历史记录。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
-26. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的 Cargo SemVer；工作流只有在输入值与所选提交中 `any2api` 的 Cargo 版本完全一致时才创建 Tag，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
+26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude 与 Grok 不声明该方言能力。
+27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的 Cargo SemVer；工作流只有在输入值与所选提交中 `any2api` 的 Cargo 版本完全一致时才创建 Tag，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 
 ### 2.1 两类凭据的术语边界
 
@@ -299,6 +300,7 @@ any2api/
 │  │     ├─ api/                # ProtocolAdapter、中立载荷与 Exchange 契约
 │  │     ├─ openai_responses/   # request/response/sse/error/headers
 │  │     ├─ openai_chat_completions/ # Chat Completions request/response/sse/error/headers
+│  │     ├─ openai_images/      # Images JSON/multipart/response/sse/telemetry
 │  │     ├─ openai_responses_chat/ # Responses → Chat request/input/options/tools bridge
 │  │     └─ anthropic_messages/ # request/response/sse/error/headers
 │  ├─ provider/
@@ -1104,6 +1106,8 @@ ProxyRuntime
 ```text
 protocol/
 ├─ openai_responses/
+├─ openai_chat_completions/
+├─ openai_images/
 └─ anthropic_messages/
 
 provider/
@@ -1142,6 +1146,7 @@ ProviderKind
 ProtocolDialect
 ├─ openai_responses
 ├─ openai_chat_completions
+├─ openai_images
 └─ anthropic_messages
 
 TransportMode
@@ -1169,6 +1174,8 @@ ProviderKind
 | `POST /v1/responses` | Codex/Grok/OpenAI Responses 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | JSON |
 | `POST /v1/chat/completions` | OpenAI Chat Completions 推理 | openai_chat_completions | JSON + SSE |
+| `POST /v1/images/generations` | OpenAI 图片生成 | openai_images | JSON + SSE |
+| `POST /v1/images/edits` | OpenAI 图片编辑 | openai_images | JSON/multipart + SSE |
 | `POST /v1/messages` | Claude Messages 推理 | anthropic_messages | JSON + SSE |
 | `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | JSON |
 
@@ -1179,6 +1186,19 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 运行时错误，而不是让模型列表抖动。
 
 首版不实现 WebSocket，也不接受 WebSocket Upgrade。
+
+#### `/v1/images/generations` 与 `/v1/images/edits`
+
+- Images 使用独立 `openai_images` 方言和 `images_generations`、`images_edits` 操作，不借用 Responses 或 Chat Completions 方言；两个入口继续复用 Gateway Key 鉴权、公开模型允许列表、Route、RPM、代理、健康、重试、统一固定会话绑定、流式 Guard 和请求遥测。
+- `images/generations` 接受 OpenAI JSON；`images/edits` 同时接受 JSON 的 `images`/`mask` 引用和 `multipart/form-data` 的 `image`/`image[]`、可选 `mask` 及其他字段。ProtocolAdapter 只提取并校验路由必需的 `model`、`stream`，保留未知 JSON 字段、multipart 字段顺序、文件字节和安全 Part Header；替换上游模型时重新编码结构化 multipart，禁止用字符串搜索修改二进制 Body。
+- OpenAI API Key 的 Codex Driver 声明 `openai_images` JSON/SSE 能力并追加固定 `images/generations`、`images/edits` 路径。Codex OAuth 固定 ChatGPT 数据面不支持 Images；Claude 与 Grok 不声明该方言能力。
+- Provider Endpoint 只有一组接受/上游方言；同一 API Key 同时承接文本和图片时，管理员为相同 Base URL 建立独立 Images Endpoint 与 Credential。公开模型名仍固定等于上游模型名，不增加图片模型别名编辑。
+- 首版不公开 `/v1/images/variations`，不代理 Files API，也不在管理 Web 中制作图片生成器；客户端直接使用标准 OpenAI SDK 或 HTTP API。
+- Images 普通成功响应保留上游 JSON 原始字段，只在已知 `model` 字段恢复公开模型名，并把 usage 投影到通用 TokenUsage；SSE 保留已知事件与图片数据，只改写已知模型字段，并从 `image_generation.completed`、`image_edit.completed` 的 usage 提取遥测。图片事件没有文本 content delta，不伪造首 Token。
+- Images 使用专用硬安全边界：编辑请求聚合 Body 最大 `512 MiB`，buffered 成功 JSON 最大 `512 MiB`，单个 SSE 帧与预提交编码后帧最大 `128 MiB`。普通公开请求继续使用 `32 MiB`，普通 buffered JSON 继续使用 `16 MiB`，普通 SSE 继续使用 SettingRegistry 的流式预算。
+- Images 的等待响应头、buffered body 空闲、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `180s` 的较大值。最终上游非 2xx 仍按第 11.8 节原样返回状态、允许 Header 和有界正文，不由 Images Adapter 重建错误。
+
+完整决策见 `docs/adr/0054-openai-images-api.md`。
 
 #### Codex `/v1/responses` 远程压缩 v2
 
@@ -1233,6 +1253,7 @@ effective_upstream = upstream_protocol_dialect ?? protocol_dialect
 openai_responses         -> openai_responses
 openai_responses         -> openai_chat_completions
 openai_chat_completions  -> openai_chat_completions
+openai_images            -> openai_images
 anthropic_messages       -> anthropic_messages
 ```
 
@@ -1326,7 +1347,7 @@ trait ProtocolBridgeSession: Send {
 - 只有统一调度器选中的 ProviderCredential 或 OAuthAccount 可以重新注入上游认证字段；
 - Gateway Key 永远不会被转发给 Provider，也不能影响任何上游路由凭据的选择。
 
-首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。Responses、Responses Compact、Chat Completions、Messages 和 Count Tokens 均已接入；只有显式配置的 Responses → Chat Completions 组合进入协议桥。
+首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。Responses、Responses Compact、Chat Completions、Images Generations、Images Edits、Messages 和 Count Tokens 均已接入；只有显式配置的 Responses → Chat Completions 组合进入协议桥。
 
 客户端 Header 不能全量透传。鉴权成功后，Server 先删除 `Authorization`、`x-api-key`、Provider 专属认证/账号字段、Cookie、`Proxy-Authorization`；Runtime 还必须删除或重建 `Host`、`Forwarded`、`X-Forwarded-*`、`Proxy-Authenticate`、所有 hop-by-hop Header、`Connection` 动态点名字段、`Content-Length`、客户端 `Accept-Encoding`、`baggage`，以及正文重编码后失效的 `Content-Encoding`、`ETag`、`Digest`、`Content-MD5`。Header 个数、单值长度和允许投影的总字节数均有固定上限，Header 不进入 RequestLog、HttpAccessLog 或普通错误正文。
 
@@ -1380,7 +1401,7 @@ Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调�
 
 Provider Driver 仍可从已声明 envelope 提取原始 `message`，但只用于有界 RequestLog/RequestAttempt 管理展示；缺失时保持为空，禁止根据状态或内部分类生成摘要。管理 DTO 和 Web 不再暴露 `error_class`、`retry_safety` 或 Attempt `outcome`，只显示真实 HTTP 状态、是否收到上游状态、实际消息、耗时与路由来源。内部分类字段可以继续存在于 Runtime/SQLite 以支持重试和健康实现，但不能成为公开错误类型。完整决策见 `docs/adr/0061-transparent-upstream-error-responses.md`。
 
-公开入口在请求体解码前发生的错误也遵守同一边界：`/v1/responses` 与 `/v1/responses/compact` 使用 OpenAI Responses 错误 envelope，`/v1/chat/completions` 使用 OpenAI Chat Completions 错误 envelope，`/v1/messages` 与 `/v1/messages/count_tokens` 使用 Anthropic Messages 错误 envelope。Gateway 鉴权失败、已知入口的方法不匹配以及能够按上述稳定前缀归属协议的子路径 404，都必须先构造 `PublicError`，再调用同一个已注册 `ProtocolAdapter::error_response`；不得在 Axum 中间件或 fallback 中维护第二套协议 JSON。`PublicErrorCode` 保留 `public_api_not_found` 与 `method_not_allowed` 两个入口代码，使 Adapter 可以在保持 404/405 状态的同时输出稳定协议字段。`PublicRequestService` 因此是公开 Router 的必填 Composition Root 依赖，不提供缺少协议注册表的兼容构造路径。`/v1/models` 以及无法由路径可靠判断协议的未知 `/v1` 路径使用 OpenAI 兼容错误作为公开目录默认格式。所有 `/v1` fallback 仍先经过 Gateway 鉴权，避免未认证请求借路由差异探测实例配置。
+公开入口在请求体解码前发生的错误也遵守同一边界：`/v1/responses` 与 `/v1/responses/compact` 使用 OpenAI Responses 错误 envelope，`/v1/chat/completions` 使用 OpenAI Chat Completions 错误 envelope，`/v1/images/generations` 与 `/v1/images/edits` 使用 OpenAI Images 错误 envelope，`/v1/messages` 与 `/v1/messages/count_tokens` 使用 Anthropic Messages 错误 envelope。Gateway 鉴权失败、已知入口的方法不匹配以及能够按上述稳定前缀归属协议的子路径 404，都必须先构造 `PublicError`，再调用同一个已注册 `ProtocolAdapter::error_response`；不得在 Axum 中间件或 fallback 中维护第二套协议 JSON。`PublicErrorCode` 保留 `public_api_not_found` 与 `method_not_allowed` 两个入口代码，使 Adapter 可以在保持 404/405 状态的同时输出稳定协议字段。`PublicRequestService` 因此是公开 Router 的必填 Composition Root 依赖，不提供缺少协议注册表的兼容构造路径。`/v1/models` 以及无法由路径可靠判断协议的未知 `/v1` 路径使用 OpenAI 兼容错误作为公开目录默认格式。所有 `/v1` fallback 仍先经过 Gateway 鉴权，避免未认证请求借路由差异探测实例配置。
 
 ### 11.9 透传与 Secret 类型
 
@@ -1390,7 +1411,7 @@ Codex、Claude 与 Grok 的上游 `ProviderCredential` 当前都只支持 API Ke
 
 Grok OAuth 使用 xAI 公共客户端的 Device Authorization Grant。设备授权端点为 `https://auth.x.ai/oauth2/device/code`，Token Endpoint 为 `https://auth.x.ai/oauth2/token`，请求 `openid profile email offline_access grok-cli:access api:access` scope；Runtime 按 Provider 返回的 `interval` 轮询并处理 `authorization_pending`、`slow_down`、`access_denied` 和 `expired_token`。Device Code 只存在于服务端内存 session，管理面只返回 user code、验证地址、轮询间隔与安全状态。登录、刷新与数据面都固定使用 OAuthAccount 的 DIRECT/全局代理路径。Grok API Key 继续使用管理员 Endpoint（官方默认 `https://api.x.ai/v1`）；Grok OAuth 则使用固定订阅数据面 `https://cli-chat-proxy.grok.com/v1`，并由 Grok Driver 注入 Bearer Token 与 xAI CLI 客户端身份头。两类凭据只在通用 `RoutingCredential` 投影处合流。
 
-Grok 订阅数据面首版只加入 OpenAI Responses 的 OAuth 候选；它不宣称支持原生 `/responses/compact`，也不借 OAuth 开放 Chat Completions 候选。Grok OAuth 的可选模型目录使用 Provider 内置且可测试的文本模型集合。
+Grok 订阅数据面首版只加入 OpenAI Responses 的 OAuth 候选；它不宣称支持原生 `/responses/compact`，也不借 OAuth 开放 Chat Completions 或 Images 候选。Grok OAuth 的可选模型目录使用 Provider 内置且可测试的文本模型集合。
 
 ## 12. 负载均衡
 
@@ -1992,7 +2013,7 @@ SettingRegistry 实现以上四个 `scheduler.*` key。其余 affinity、retry�
 Route 物化后，将非空允许列表与新的公开模型集合取交集并持久化规范结果；已无任何 Route 的名称不得残留
 在设置响应或 SQLite 覆盖值中。交集为空时持久化 `[]`，按空列表语义允许全部当前公开模型。
 
-`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在任何会话创建、候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新列表。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
+`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在任何会话创建、候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新列表。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
 
 #### 重试、冷却与熔断默认值
 
@@ -2038,7 +2059,7 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 
 `upstream.read_timeout` 是每次等待响应头或 buffered body 下一 chunk 的空闲时长，成功读取后重置，不是整个请求的总时长。`retry.precommit_total_budget` 仍是 Attempt 外层绝对 deadline；尚未收到上游 HTTP 响应头时，哪个 deadline 先到期就先结束当前 Attempt。已经收到非 2xx 响应头后，错误正文收集同时受 read timeout、64 KiB 上限和 Attempt 绝对 deadline 约束；任一边界先到都以空正文结算已经收到的上游状态与安全 Header，禁止再改写成本地 504。成功 SSE 分别使用 precommit 和 postcommit 设置，非 2xx SSE 错误正文仍按 buffered body 读取，因此使用同一规则。
 
-协议识别出的长时请求可以在执行限制模块中应用不可低于兼容客户端的专用下限：Codex v2 流式远程压缩使用至少 `300s`；Responses Compact unary 请求使用至少 `1200s`。这些下限只提高当前请求捕获的有效预算，管理员配置的更大值保持不变，也不修改 SettingRegistry 的普通默认值。
+协议识别出的长时请求可以在执行限制模块中应用不可低于兼容客户端的专用下限：Images 使用至少 `180s`；Codex v2 流式远程压缩使用至少 `300s`；Responses Compact unary 请求使用至少 `1200s`。这些下限只提高当前请求捕获的有效预算，管理员配置的更大值保持不变，也不修改 SettingRegistry 的普通默认值。
 
 `upstream.strict_ssrf=false` 时，DIRECT 仍执行本地解析与目标固定，HTTP/SOCKS5 则把远端 DNS 视为用户配置的代理信任边界。开启后，HTTP forward、HTTPS CONNECT 与 SOCKS5 都使用本地解析结果并固定到解析所得 IP，同时保留原始 Host、HTTP/2 authority 与 TLS SNI。Endpoint URL 是管理员受信任配置，因此两种模式都不按公网/私网地址类别拒绝解析结果。完整决策见 `docs/adr/0019-strict-ssrf-local-dns.md` 与 `docs/adr/0029-provider-base-url-authority.md`。
 
@@ -2411,6 +2432,7 @@ runtime_retired
 - ProtocolAdapter 在已知 OpenAI/Anthropic 响应字段上生成无协议知识的 `TokenUsage` 旁路元数据；Runtime 只合并已解析元数据，禁止在调度器中按 Provider 分支搜索 JSON；
 - Codex JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`input_tokens_details.cached_tokens` 与 `input_tokens_details.cache_write_tokens`；SSE 只从 `response.completed`/`response.incomplete` 的 `response.usage` 读取相同字段；
 - Claude JSON 只从顶层 `usage` 读取 `input_tokens`、`output_tokens`、`cache_read_input_tokens` 与 `cache_creation_input_tokens`；SSE 使用 `message_start.message.usage` 与 `message_delta.usage` 的累计快照，按字段覆盖而不相加；
+- Images JSON 只从顶层 `usage.input_tokens` 与 `usage.output_tokens` 读取；SSE 只从 `image_generation.completed` 与 `image_edit.completed` 的顶层 `usage` 读取相同字段，图片事件不标记为文本 content delta；
 - Token 字段只接受 `0..=9_007_199_254_740_991`（JavaScript `Number.MAX_SAFE_INTEGER`）的 JSON 整数，同时保证 SQLite INTEGER 与 Web 管理契约可无损表达；缺失、`null`、负数、浮点、字符串或超界值均保持未知，不得因遥测字段异常中断代理响应；
 - `first_token_ms` 从请求进入 Runtime 时开始计时，只在第一个非空模型内容 delta 真正从 GuardedBody 向下游 yield 时 first-write-wins；`response.created`、`message_start`、ping、done 与其他控制帧不计入；
 - 非流式 JSON 无法提供精确内容首 Token 时间，`first_token_ms` 保持 `NULL`；`/v1/messages/count_tokens` 是辅助操作，Runtime 必须按 `ProtocolOperation` 强制忽略根层 `input_tokens` 与兼容上游可能夹带的任何 `usage`，不写入生成请求 Token Usage；
@@ -2570,7 +2592,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 数据目录挂载。
 
 前置反向代理必须保留数据面的长请求语义：关闭 SSE 响应缓冲，并把 `/v1` 的 upstream read/write timeout
-配置为至少 `1200s`，从而覆盖 unary Responses Compact；Codex v2 流式远程压缩至少需要 `300s`。
+配置为至少 `1200s`，从而覆盖 unary Responses Compact；Codex v2 流式远程压缩至少需要 `300s`，Images 请求至少需要 `180s`。
 如果还有 CDN 或外层负载均衡，每一层都必须提供相同或更长的窗口；固定时长后出现的代理 HTML
 `502/504` 属于外层部署 timeout，应用内预算无法覆盖。
 
@@ -2722,6 +2744,8 @@ Registered Bridge = Responses -> Chat Completions
 Codex WebSocket = Disabled
 /v1/responses = JSON + SSE enabled; /v1/responses/compact = JSON only
 /v1/chat/completions = JSON + SSE enabled
+/v1/images/generations = JSON + SSE enabled
+/v1/images/edits = JSON or multipart + SSE enabled
 /v1/messages = JSON + SSE enabled; /v1/messages/count_tokens = JSON only
 
 Validate + Compile Candidate ──> Database Commit ──> Registry Reconcile ──> Atomic Swap

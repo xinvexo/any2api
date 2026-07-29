@@ -1,4 +1,5 @@
 use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode};
+use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use serde_json::{Value, json};
@@ -26,6 +27,7 @@ impl OpenAiResponsesAdapter {
     }
 }
 
+#[async_trait]
 impl ProtocolAdapter for OpenAiResponsesAdapter {
     fn dialect(&self) -> ProtocolDialect {
         ProtocolDialect::OpenAiResponses
@@ -39,7 +41,7 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         }
     }
 
-    fn decode_ingress_request(
+    async fn decode_ingress_request(
         &self,
         request: IngressRequest,
     ) -> Result<DecodedRequest, ProtocolError> {
@@ -266,8 +268,8 @@ mod tests {
         AdapterPayload, DecodedUpstreamResponse, IngressRequest, ProtocolAdapter, SseFrame,
     };
 
-    #[test]
-    fn preserves_unknown_fields_and_rewrites_the_upstream_model() {
+    #[tokio::test]
+    async fn preserves_unknown_fields_and_rewrites_the_upstream_model() {
         let adapter = OpenAiResponsesAdapter::new();
         let decoded = adapter
             .decode_ingress_request(IngressRequest {
@@ -284,6 +286,7 @@ mod tests {
                 ),
                 operation: ProtocolOperation::Responses,
             })
+            .await
             .expect("decoded request");
         assert_eq!(decoded.model.as_deref(), Some("public"));
         let encoded = adapter
@@ -302,8 +305,8 @@ mod tests {
         assert!(!debug.contains("upstream"));
     }
 
-    #[test]
-    fn compact_rejects_streaming_and_errors_use_openai_shape() {
+    #[tokio::test]
+    async fn compact_rejects_streaming_and_errors_use_openai_shape() {
         let adapter = OpenAiResponsesAdapter::new();
         assert!(
             adapter
@@ -314,6 +317,7 @@ mod tests {
                     body: Bytes::from_static(br#"{"model":"public","stream":true}"#),
                     operation: ProtocolOperation::ResponsesCompact,
                 })
+                .await
                 .is_err()
         );
         let response =

@@ -30,8 +30,9 @@ pub use crate::proxy::{
     ProxyTestResult, ProxyTestService,
 };
 pub use crate::public_request::{
-    PublicRequest, PublicRequestService, PublicRequestServiceError, PublicResponse,
-    PublicResponseBody, PublicResponseStream, STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
+    IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, PublicRequest, PublicRequestService,
+    PublicRequestServiceError, PublicResponse, PublicResponseBody, PublicResponseStream,
+    STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
 };
 pub use crate::registry::RuntimeRegistry;
 pub use crate::request_telemetry::{

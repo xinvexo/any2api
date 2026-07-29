@@ -92,6 +92,24 @@ describe("request log contracts", () => {
     expect(list.items[0]?.operation).toBe("chat_completions");
   });
 
+  it("accepts Images generation and edit request logs", () => {
+    for (const operation of ["images_generations", "images_edits"]) {
+      const list = parseRequestLogList({
+        items: [
+          {
+            ...request(),
+            ingress_protocol: "openai_images",
+            operation,
+          },
+        ],
+        telemetry: telemetry(),
+      });
+
+      expect(list.items[0]?.ingressProtocol).toBe("openai_images");
+      expect(list.items[0]?.operation).toBe(operation);
+    }
+  });
+
   it("parses request and attempt error messages", () => {
     const detail = parseRequestLogDetail({
       request: {

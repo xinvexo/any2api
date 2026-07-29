@@ -141,6 +141,8 @@ mod tests {
         assert!(path_supports_zstd("/v1/responses"));
         assert!(path_supports_zstd("/v1/responses/compact"));
         assert!(!path_supports_zstd("/v1/messages"));
+        assert!(!path_supports_zstd("/v1/images/generations"));
+        assert!(!path_supports_zstd("/v1/images/edits"));
         headers.append(header::CONTENT_ENCODING, HeaderValue::from_static("zstd"));
         assert!(matches!(
             content_encoding(&headers),

@@ -1,4 +1,5 @@
 use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode};
+use async_trait::async_trait;
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use serde_json::json;
@@ -25,12 +26,13 @@ impl AnthropicMessagesAdapter {
     }
 }
 
+#[async_trait]
 impl ProtocolAdapter for AnthropicMessagesAdapter {
     fn dialect(&self) -> ProtocolDialect {
         ProtocolDialect::AnthropicMessages
     }
 
-    fn decode_ingress_request(
+    async fn decode_ingress_request(
         &self,
         request: IngressRequest,
     ) -> Result<DecodedRequest, ProtocolError> {
@@ -174,8 +176,8 @@ mod tests {
     use super::AnthropicMessagesAdapter;
     use crate::api::{IngressRequest, ProtocolAdapter, SseFrame};
 
-    #[test]
-    fn messages_rewrites_model_and_uses_anthropic_error_shape() {
+    #[tokio::test]
+    async fn messages_rewrites_model_and_uses_anthropic_error_shape() {
         let adapter = AnthropicMessagesAdapter::new();
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -197,6 +199,7 @@ mod tests {
                 ),
                 operation: ProtocolOperation::Messages,
             })
+            .await
             .expect("decoded request");
         assert_eq!(
             decoded.client_headers["anthropic-beta"],
@@ -222,8 +225,8 @@ mod tests {
         assert_eq!(body["error"]["type"], "rate_limit_error");
     }
 
-    #[test]
-    fn count_tokens_preserves_fields_and_rejects_streaming() {
+    #[tokio::test]
+    async fn count_tokens_preserves_fields_and_rejects_streaming() {
         let adapter = AnthropicMessagesAdapter::new();
         let decoded = adapter
             .decode_ingress_request(IngressRequest {
@@ -235,6 +238,7 @@ mod tests {
                 ),
                 operation: ProtocolOperation::MessagesCountTokens,
             })
+            .await
             .expect("decoded count tokens request");
         let encoded = adapter
             .encode_upstream_request(
@@ -258,6 +262,7 @@ mod tests {
                     body: Bytes::from_static(br#"{"model":"public","stream":true}"#),
                     operation: ProtocolOperation::MessagesCountTokens,
                 })
+                .await
                 .is_err()
         );
 

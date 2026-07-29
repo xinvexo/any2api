@@ -231,6 +231,7 @@ CREATE TABLE provider_endpoints (
         protocol_dialect IN (
             'openai_responses',
             'openai_chat_completions',
+            'openai_images',
             'anthropic_messages'
         )
     ),
@@ -240,6 +241,7 @@ CREATE TABLE provider_endpoints (
             upstream_protocol_dialect IN (
                 'openai_responses',
                 'openai_chat_completions',
+                'openai_images',
                 'anthropic_messages'
             )
             AND upstream_protocol_dialect <> protocol_dialect
@@ -362,6 +364,7 @@ CREATE TABLE model_routes (
         ingress_protocol IN (
             'openai_responses',
             'openai_chat_completions',
+            'openai_images',
             'anthropic_messages'
         )
     ),
@@ -388,6 +391,7 @@ CREATE TABLE route_targets (
         upstream_protocol_dialect IN (
             'openai_responses',
             'openai_chat_completions',
+            'openai_images',
             'anthropic_messages'
         )
     ),
@@ -417,6 +421,7 @@ CREATE TABLE request_logs (
         ingress_protocol IN (
             'openai_responses',
             'openai_chat_completions',
+            'openai_images',
             'anthropic_messages'
         )
     ),
@@ -425,6 +430,8 @@ CREATE TABLE request_logs (
             'responses',
             'responses_compact',
             'chat_completions',
+            'images_generations',
+            'images_edits',
             'messages',
             'messages_count_tokens'
         )

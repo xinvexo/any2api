@@ -61,6 +61,20 @@ test("keeps unavailable token telemetry distinct from real zero values", async (
   expect(screen.getAllByText("未记录")).toHaveLength(3);
 });
 
+test("renders OpenAI Images protocol and operation labels", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    detailResponse([], {
+      ingress_protocol: "openai_images",
+      operation: "images_edits",
+    }),
+  );
+
+  renderDetail();
+
+  expect(await screen.findByText("OpenAI Images")).toBeInTheDocument();
+  expect(screen.getByText("/v1/images/edits")).toBeInTheDocument();
+});
+
 test("renders a terminal not-found state without a retry action", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     errorResponse(404, "request_log_not_found", "request log not found"),

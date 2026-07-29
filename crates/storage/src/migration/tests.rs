@@ -58,6 +58,17 @@ async fn canonical_initial_schema_bootstraps_all_current_invariants() {
 
     let endpoint_schema = table_schema(&pool, "provider_endpoints").await;
     assert!(endpoint_schema.contains("'grok'"));
+    assert!(endpoint_schema.contains("'openai_images'"));
+    assert!(!endpoint_schema.contains("'codex_backend'"));
+    let model_route_schema = table_schema(&pool, "model_routes").await;
+    assert!(model_route_schema.contains("'openai_images'"));
+    let route_target_schema = table_schema(&pool, "route_targets").await;
+    assert!(route_target_schema.contains("'openai_images'"));
+    let request_log_schema = table_schema(&pool, "request_logs").await;
+    assert!(request_log_schema.contains("'openai_images'"));
+    assert!(request_log_schema.contains("'images_generations'"));
+    assert!(request_log_schema.contains("'images_edits'"));
+    assert!(request_log_schema.contains("client_ip TEXT NOT NULL"));
     let oauth_schema = table_schema(&pool, "oauth_accounts").await;
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("requests_per_minute"));

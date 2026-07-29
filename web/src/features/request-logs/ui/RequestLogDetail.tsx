@@ -196,6 +196,8 @@ function protocolLabel(value: RequestLogProtocol) {
   switch (value) {
     case "openai_chat_completions":
       return "OpenAI Chat Completions";
+    case "openai_images":
+      return "OpenAI Images";
     case "anthropic_messages":
       return "Claude Messages";
     case "openai_responses":

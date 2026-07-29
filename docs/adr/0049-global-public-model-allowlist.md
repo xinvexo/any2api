@@ -36,5 +36,5 @@ The global policy must hot reload atomically with gateway authentication and rou
 - Domain tests cover array parsing, validation, sorting, deduplication and the empty-list default.
 - Storage tests cover JSON-array persistence, reset and fail-closed loading of invalid rows.
 - Runtime tests prove empty arrays allow all, non-empty arrays filter the catalog, and disallowed models fail before RPM reservation or transport execution.
-- HTTP contracts cover OpenAI and Anthropic error envelopes, including `/v1/messages/count_tokens`.
+- HTTP contracts cover OpenAI Responses, Chat Completions, Images and Anthropic error envelopes, including `/v1/messages/count_tokens`.
 - React tests cover list drafts, search, select/clear-visible behavior, save and reset-to-default.

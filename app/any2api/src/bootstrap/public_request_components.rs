@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use any2api_protocol::{
-    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
-    ProtocolRegistry, ResponsesToChatCompletionsBridge,
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
+    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
 use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, ProviderRegistry};
 use any2api_runtime::api::{
@@ -73,6 +73,7 @@ pub fn build_public_request_components_with_telemetry(
     let mut protocols = ProtocolRegistry::new();
     protocols.register(Arc::new(OpenAiResponsesAdapter::new()))?;
     protocols.register(Arc::new(OpenAiChatCompletionsAdapter::new()))?;
+    protocols.register(Arc::new(OpenAiImagesAdapter::new()))?;
     protocols.register(Arc::new(AnthropicMessagesAdapter::new()))?;
     protocols.register_bridge(Arc::new(ResponsesToChatCompletionsBridge::new()))?;
     let protocols = Arc::new(protocols);

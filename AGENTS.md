@@ -29,10 +29,12 @@
   - `POST /v1/responses`
   - `POST /v1/responses/compact`
   - `POST /v1/chat/completions`
+  - `POST /v1/images/generations`
+  - `POST /v1/images/edits`
   - `POST /v1/messages`
   - `POST /v1/messages/count_tokens`
 - 首版不实现 `/backend-api/codex/responses`、Codex WebSocket 和 Codex/Claude 双向跨协议路由。
-- 首版允许 Responses → Responses、Responses → Chat Completions、Chat Completions → Chat Completions 和 Messages → Messages；不注册其他跨协议组合。
+- 首版允许 Responses → Responses、Responses → Chat Completions、Chat Completions → Chat Completions、Images → Images 和 Messages → Messages；不注册其他组合。
 - 公开模型名不强制 Provider 前缀，首版固定等于上游模型名，不提供别名编辑。
 
 ## 4. 两类 Key 必须严格隔离

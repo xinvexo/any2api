@@ -169,6 +169,7 @@ impl PublicRequestService {
             self.protocols.as_ref(),
             self.providers.as_ref(),
         )
+        .await
         .map_err(FinalFailure::from)?;
         recorder.set_route(
             planned.public_model.clone(),

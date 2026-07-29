@@ -24,6 +24,22 @@ fn builds_responses_paths_and_bearer_authentication() {
     );
     assert_eq!(
         driver
+            .endpoint_plan(&base, ProtocolOperation::ImagesGenerations)
+            .expect("image generation endpoint")
+            .url
+            .as_str(),
+        "https://api.example.com/v1/images/generations"
+    );
+    assert_eq!(
+        driver
+            .endpoint_plan(&base, ProtocolOperation::ImagesEdits)
+            .expect("image edit endpoint")
+            .url
+            .as_str(),
+        "https://api.example.com/v1/images/edits"
+    );
+    assert_eq!(
+        driver
             .credential_test_plan(&base)
             .expect("credential test endpoint")
             .url
@@ -41,6 +57,14 @@ fn builds_responses_paths_and_bearer_authentication() {
             .transport_modes
             .contains(&TransportMode::Sse)
     );
+    assert!(
+        driver
+            .capabilities()
+            .protocols
+            .contains(&ProtocolDialect::OpenAiImages)
+    );
+    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
+    assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
 }
 
 #[test]

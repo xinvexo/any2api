@@ -1,6 +1,18 @@
 import { expect, test } from "vitest";
 
-import { upstreamSource } from "./request-log-presentation";
+import {
+  operationLabel,
+  protocolLabel,
+  upstreamSource,
+} from "./request-log-presentation";
+
+test("labels OpenAI Images request logs", () => {
+  expect(protocolLabel("openai_images")).toBe("Images");
+  expect(operationLabel("images_generations")).toBe(
+    "/v1/images/generations",
+  );
+  expect(operationLabel("images_edits")).toBe("/v1/images/edits");
+});
 
 test("prefixes an API key label with its provider endpoint name", () => {
   const source = upstreamSource({

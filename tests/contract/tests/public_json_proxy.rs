@@ -9,7 +9,7 @@ use any2api_server::api::{AppState, ClientAddressPolicy, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
     Router,
-    body::Body,
+    body::{Body, Bytes},
     extract::ConnectInfo,
     http::{
         HeaderMap, Method, Request, StatusCode,
@@ -229,6 +229,323 @@ async fn codex_zstd_request_is_decoded_rewritten_and_recompressed_upstream() {
     assert_eq!(request.headers["content-encoding"], "zstd");
     assert_eq!(request.body["model"], "gpt-zstd");
     assert_eq!(request.body["future"]["preserved"], true);
+}
+
+#[tokio::test]
+async fn openai_images_generation_uses_images_route_and_provider_key() {
+    let encoded_image = "a".repeat(17 * 1024 * 1024);
+    let upstream_body = json!({
+        "created": 1_721_000_000,
+        "data": [{
+            "b64_json": encoded_image,
+            "revised_prompt": "a small red fox"
+        }],
+        "usage": {
+            "input_tokens": 11,
+            "output_tokens": 23
+        }
+    })
+    .to_string();
+    let (listener, upstream) = upstream_server("/v1/images/generations", &upstream_body).await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint_with_protocol(
+        &app,
+        loopback,
+        revision + 1,
+        "OpenAI Images",
+        "codex",
+        &format!("http://{listener}/v1"),
+        ("openai_images", None),
+    )
+    .await;
+    let credential_id = create_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "sk-images-contract",
+    )
+    .await;
+    select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-image-2").await;
+
+    let response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/images/generations",
+        Some(json!({
+            "model": "gpt-image-2",
+            "prompt": "a small red fox",
+            "size": "1024x1024",
+            "unknown_option": {"preserved": true}
+        })),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(
+        response.body["data"][0]["b64_json"]
+            .as_str()
+            .expect("base64 image")
+            .len(),
+        17 * 1024 * 1024
+    );
+    let request = upstream.await.expect("upstream request");
+    assert_eq!(request.path, "/v1/images/generations");
+    assert_eq!(request.body["model"], "gpt-image-2");
+    assert_eq!(request.body["unknown_option"]["preserved"], true);
+    assert_eq!(
+        request.headers.get("authorization"),
+        Some(&"Bearer sk-images-contract".to_owned())
+    );
+
+    let request_id = response.headers["x-request-id"]
+        .to_str()
+        .expect("request ID")
+        .parse::<RequestId>()
+        .expect("request ID value");
+    let log = wait_for_request_log(&app, loopback, request_id).await;
+    assert_eq!(log["request"]["credential_id"], credential_id);
+    assert_eq!(log["request"]["ingress_protocol"], "openai_images");
+    assert_eq!(log["request"]["operation"], "images_generations");
+    assert_eq!(log["request"]["input_tokens"], 11);
+    assert_eq!(log["request"]["output_tokens"], 23);
+}
+
+#[tokio::test]
+async fn openai_images_edit_uses_its_distinct_upstream_path() {
+    let (listener, upstream) = upstream_server(
+        "/v1/images/edits",
+        r#"{"created":1721000001,"data":[{"b64_json":"ZWRpdGVkLWltYWdl"}]}"#,
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint_with_protocol(
+        &app,
+        loopback,
+        revision + 1,
+        "OpenAI Image Edits",
+        "codex",
+        &format!("http://{listener}/v1"),
+        ("openai_images", None),
+    )
+    .await;
+    create_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "sk-image-edits-contract",
+    )
+    .await;
+    select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-image-2").await;
+
+    let response = request_json(
+        app,
+        Method::POST,
+        "/v1/images/edits",
+        Some(json!({
+            "model": "gpt-image-2",
+            "prompt": "replace the sky",
+            "images": [{"file_id": "file-image-source"}]
+        })),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.body["data"][0]["b64_json"], "ZWRpdGVkLWltYWdl");
+    let request = upstream.await.expect("upstream request");
+    assert_eq!(request.path, "/v1/images/edits");
+    assert_eq!(request.body["images"][0]["file_id"], "file-image-source");
+    assert_eq!(
+        request.headers.get("authorization"),
+        Some(&"Bearer sk-image-edits-contract".to_owned())
+    );
+}
+
+#[tokio::test]
+async fn openai_images_edit_accepts_and_reencodes_multipart_uploads() {
+    let (listener, upstream) = multipart_upstream_server("/v1/images/edits").await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint_with_protocol(
+        &app,
+        loopback,
+        revision + 1,
+        "OpenAI Multipart Edits",
+        "codex",
+        &format!("http://{listener}/v1"),
+        ("openai_images", None),
+    )
+    .await;
+    create_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "sk-multipart-edit-contract",
+    )
+    .await;
+    select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-image-2").await;
+
+    let boundary = "client_boundary_123";
+    let image_bytes = b"\x89PNG\r\n\x1a\nclient-image-bytes";
+    let mut multipart = Vec::new();
+    multipart.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2\r\n"
+        )
+        .as_bytes(),
+    );
+    multipart.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\nreplace the sky\r\n"
+        )
+        .as_bytes(),
+    );
+    multipart.extend_from_slice(
+        format!(
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"image[]\"; filename=\"source.png\"\r\nContent-Type: image/png\r\nX-Image-Metadata: keep\r\n\r\n"
+        )
+        .as_bytes(),
+    );
+    multipart.extend_from_slice(image_bytes);
+    multipart.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/v1/images/edits")
+        .extension(ConnectInfo(loopback))
+        .header(
+            CONTENT_TYPE,
+            format!("multipart/form-data; boundary={boundary}"),
+        )
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(multipart))
+        .expect("multipart request");
+    let response = app.oneshot(request).await.expect("multipart response");
+    assert_eq!(response.status(), StatusCode::OK);
+    let response_body: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("multipart response body")
+            .to_bytes(),
+    )
+    .expect("multipart response JSON");
+    assert_eq!(response_body["data"][0]["b64_json"], "ZWRpdGVk");
+
+    let request = upstream.await.expect("multipart upstream request");
+    assert_eq!(
+        request.headers.get("authorization"),
+        Some(&"Bearer sk-multipart-edit-contract".to_owned())
+    );
+    assert!(
+        request
+            .headers
+            .get("content-type")
+            .is_some_and(|value| value.starts_with("multipart/form-data; boundary=any2api_"))
+    );
+    assert!(contains_bytes(
+        &request.body,
+        b"name=\"model\"\r\n\r\ngpt-image-2"
+    ));
+    assert!(contains_bytes(
+        &request.body,
+        b"name=\"prompt\"\r\n\r\nreplace the sky"
+    ));
+    assert!(contains_bytes(&request.body, b"x-image-metadata: keep"));
+    assert!(contains_bytes(&request.body, image_bytes));
+}
+
+#[tokio::test]
+async fn openai_images_upstream_errors_preserve_status_headers_and_body() {
+    for (status, body, retry_after) in [
+        (
+            StatusCode::NOT_FOUND,
+            r#"{"error":{"type":"vendor_image_missing","code":"image_404","message":"exact upstream 404 message","extra":{"keep":true}}}"#,
+            None,
+        ),
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            r#"{"error":{"type":"vendor_image_limit","code":"image_429","message":"exact upstream 429 message","extra":{"keep":true}}}"#,
+            Some("7"),
+        ),
+    ] {
+        assert_openai_images_upstream_error(status, body, retry_after).await;
+    }
+}
+
+async fn assert_openai_images_upstream_error(
+    status: StatusCode,
+    upstream_body: &str,
+    retry_after: Option<&str>,
+) {
+    let request_id = format!("images-upstream-{}", status.as_u16());
+    let mut response_headers = vec![("X-Request-ID", request_id.as_str())];
+    if let Some(retry_after) = retry_after {
+        response_headers.push(("Retry-After", retry_after));
+    }
+    let (listener, upstream) = upstream_server_with_status_and_headers(
+        "/v1/images/generations",
+        status,
+        upstream_body,
+        &response_headers,
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_name = format!("OpenAI Images error {}", status.as_u16());
+    let endpoint_id = create_endpoint_with_protocol(
+        &app,
+        loopback,
+        revision + 1,
+        &endpoint_name,
+        "codex",
+        &format!("http://{listener}/v1"),
+        ("openai_images", None),
+    )
+    .await;
+    create_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        &format!("sk-images-error-{}", status.as_u16()),
+    )
+    .await;
+    let model = format!("gpt-image-error-{}", status.as_u16());
+    select_models(&app, loopback, revision + 3, &endpoint_id, &model).await;
+
+    let response = request_json(
+        app,
+        Method::POST,
+        "/v1/images/generations",
+        Some(json!({"model": model, "prompt": "draw an error"})),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+
+    assert_eq!(response.status, status);
+    assert_eq!(response.raw_body, upstream_body.as_bytes());
+    assert_eq!(response.headers[CONTENT_TYPE], "application/json");
+    assert_eq!(response.headers["x-request-id"], request_id);
+    match retry_after {
+        Some(expected) => assert_eq!(response.headers[RETRY_AFTER], expected),
+        None => assert!(!response.headers.contains_key(RETRY_AFTER)),
+    }
+    upstream.await.expect("Images error upstream request");
 }
 
 #[tokio::test]
@@ -1374,6 +1691,7 @@ async fn select_models(
 struct JsonResponse {
     status: StatusCode,
     headers: HeaderMap,
+    raw_body: Bytes,
     body: Value,
 }
 
@@ -1414,6 +1732,7 @@ async fn request_json(
         status,
         headers,
         body: serde_json::from_slice(&bytes).expect("JSON response"),
+        raw_body: bytes,
     }
 }
 
@@ -1448,6 +1767,7 @@ async fn request_zstd_json(
         status,
         headers,
         body: serde_json::from_slice(&bytes).expect("JSON response"),
+        raw_body: bytes,
     }
 }
 
@@ -1457,6 +1777,18 @@ struct UpstreamRequest {
     path: String,
     headers: std::collections::HashMap<String, String>,
     body: Value,
+}
+
+#[derive(Debug)]
+struct RawUpstreamRequest {
+    headers: std::collections::HashMap<String, String>,
+    body: Vec<u8>,
+}
+
+fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
 }
 
 fn parse_upstream_json(headers: &std::collections::HashMap<String, String>, body: &[u8]) -> Value {
@@ -1476,6 +1808,82 @@ async fn upstream_server(
     response_body: &str,
 ) -> (SocketAddr, oneshot::Receiver<UpstreamRequest>) {
     upstream_server_with_headers(expected_path, response_body, &[]).await
+}
+
+async fn multipart_upstream_server(
+    expected_path: &str,
+) -> (SocketAddr, oneshot::Receiver<RawUpstreamRequest>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (sender, receiver) = oneshot::channel();
+    let expected_path = expected_path.to_owned();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("upstream accept");
+        let mut bytes = Vec::new();
+        let mut buffer = [0_u8; 4096];
+        loop {
+            let count = stream.read(&mut buffer).await.expect("upstream read");
+            if count == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&buffer[..count]);
+            if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let header_end = bytes
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("request boundary");
+        let head = String::from_utf8(bytes[..header_end].to_vec()).expect("upstream headers");
+        let content_length = head
+            .lines()
+            .find_map(|line| {
+                line.split_once(':').and_then(|(name, value)| {
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().expect("content length"))
+                })
+            })
+            .unwrap_or(0);
+        let body_start = header_end + 4;
+        while bytes.len() < body_start + content_length {
+            let count = stream.read(&mut buffer).await.expect("upstream body read");
+            if count == 0 {
+                break;
+            }
+            bytes.extend_from_slice(&buffer[..count]);
+        }
+        let mut lines = head.lines();
+        let request_line = lines.next().expect("request line");
+        let path = request_line
+            .split_whitespace()
+            .nth(1)
+            .expect("request path");
+        assert_eq!(path, expected_path);
+        let headers = lines
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
+            .collect::<std::collections::HashMap<_, _>>();
+        sender
+            .send(RawUpstreamRequest {
+                headers,
+                body: bytes[body_start..body_start + content_length].to_vec(),
+            })
+            .expect("send upstream request");
+        let response_body = r#"{"created":1721000002,"data":[{"b64_json":"ZWRpdGVk"}]}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body
+        );
+        stream
+            .write_all(response.as_bytes())
+            .await
+            .expect("upstream response");
+    });
+    (address, receiver)
 }
 
 async fn upstream_server_with_headers(

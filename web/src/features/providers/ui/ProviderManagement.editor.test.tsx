@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import {
@@ -90,6 +90,47 @@ test("creates a Grok endpoint with the official xAI defaults", async () => {
     provider_kind: "grok",
     base_url: "https://api.x.ai/v1",
     protocol_dialect: "openai_responses",
+  });
+});
+
+test("creates a Codex endpoint for the OpenAI Images protocol", async () => {
+  let current = configuration(1, []);
+  const fetchMock = mockAdminApis(
+    () => current,
+    () => credentialConfiguration(1, []),
+    (input, init) => {
+      if (String(input).includes("/provider-endpoints") && init?.method === "POST") {
+        current = configuration(2, [
+          endpoint({
+            name: "OpenAI Images",
+            protocol_dialect: "openai_images",
+          }),
+        ]);
+        return jsonResponse(current);
+      }
+      return null;
+    },
+  );
+
+  renderManagement(["/providers?kind=codex&editor=new"]);
+
+  fireEvent.change(await screen.findByLabelText("名称"), {
+    target: { value: "OpenAI Images" },
+  });
+  fireEvent.change(screen.getByLabelText("接受协议"), {
+    target: { value: "openai_images" },
+  });
+  expect(screen.getByLabelText("内部转换协议（可选）")).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true);
+  });
+  const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
+  expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
+    provider_kind: "codex",
+    protocol_dialect: "openai_images",
+    upstream_protocol_dialect: null,
   });
 });
 

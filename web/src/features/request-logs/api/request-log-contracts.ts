@@ -1,11 +1,14 @@
 export type RequestLogProtocol =
   | "openai_responses"
   | "openai_chat_completions"
+  | "openai_images"
   | "anthropic_messages";
 export type RequestLogOperation =
   | "responses"
   | "responses_compact"
   | "chat_completions"
+  | "images_generations"
+  | "images_edits"
   | "messages"
   | "messages_count_tokens";
 
@@ -152,6 +155,7 @@ function readProtocol(value: unknown): RequestLogProtocol {
   if (
     value === "openai_responses" ||
     value === "openai_chat_completions" ||
+    value === "openai_images" ||
     value === "anthropic_messages"
   ) {
     return value;
@@ -164,6 +168,8 @@ function readOperation(value: unknown): RequestLogOperation {
     value === "responses" ||
     value === "responses_compact" ||
     value === "chat_completions" ||
+    value === "images_generations" ||
+    value === "images_edits" ||
     value === "messages" ||
     value === "messages_count_tokens"
   ) {

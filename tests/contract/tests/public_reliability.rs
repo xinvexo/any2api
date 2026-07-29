@@ -11,8 +11,8 @@ use any2api_domain::{
     RequestId, RetrySafety, SettingKey, SettingValue,
 };
 use any2api_protocol::{
-    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
-    ProtocolRegistry, ResponsesToChatCompletionsBridge,
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
+    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublicResponse,
@@ -1451,6 +1451,9 @@ async fn harness_for_protocol(
     protocols
         .register(Arc::new(OpenAiChatCompletionsAdapter::new()))
         .expect("chat completions adapter");
+    protocols
+        .register(Arc::new(OpenAiImagesAdapter::new()))
+        .expect("images adapter");
     protocols
         .register(Arc::new(AnthropicMessagesAdapter::new()))
         .expect("messages adapter");
