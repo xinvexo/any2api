@@ -184,7 +184,7 @@ function SectionPanel({
         </header>
       ) : null}
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         <SettingGroups
           subsections={primary}
           pending={pending}
@@ -194,15 +194,15 @@ function SectionPanel({
           onReset={onReset}
         />
         {advancedCount > 0 ? (
-          <details className="group border-y border-subtle">
-            <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-3 px-1 py-3.5 text-sm font-medium marker:hidden [&::-webkit-details-marker]:hidden">
+          <details className="group rounded-[10px] bg-surface-muted">
+            <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-3 rounded-[10px] px-3 py-3 text-sm font-medium marker:hidden [&::-webkit-details-marker]:hidden">
               <span>高级设置</span>
               <span className="flex items-center gap-2 text-xs font-normal text-tertiary">
                 {advancedCount} 项
                 <ChevronDown size={15} className="transition-transform group-open:rotate-180" aria-hidden="true" />
               </span>
             </summary>
-            <div className="space-y-5 border-t border-subtle py-4">
+            <div className="space-y-5 px-3 pb-3 pt-1">
               <SettingGroups
                 subsections={advanced}
                 pending={pending}
@@ -234,25 +234,29 @@ function SettingGroups({
   onSave: (item: SettingItem, value: SettingValue) => Promise<void>;
   onReset: (item: SettingItem) => Promise<void>;
 }) {
-  return subsections.map(([group, items]) => (
-    <div key={group}>
-      {showGroupHeading ? (
-        <h3 className="mb-1.5 px-1 text-[12px] font-medium text-secondary">{group}</h3>
-      ) : null}
-      <div className="border-t border-subtle">
-        {items.map((item) => (
-          <SettingRow
-            key={item.key}
-            item={item}
-            pending={pending}
-            mutationError={mutationErrorFor(item.key, mutations.update, mutations.reset)}
-            onSave={onSave}
-            onReset={onReset}
-          />
-        ))}
-      </div>
+  return (
+    <div className="space-y-6">
+      {subsections.map(([group, items]) => (
+        <div key={group}>
+          {showGroupHeading ? (
+            <h3 className="mb-1.5 px-1 text-[12px] font-medium text-secondary">{group}</h3>
+          ) : null}
+          <div className="space-y-1">
+            {items.map((item) => (
+              <SettingRow
+                key={item.key}
+                item={item}
+                pending={pending}
+                mutationError={mutationErrorFor(item.key, mutations.update, mutations.reset)}
+                onSave={onSave}
+                onReset={onReset}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
-  ));
+  );
 }
 
 function cssId(value: string) {

@@ -60,8 +60,8 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
   return (
     <form
       className={wideControl
-        ? "grid gap-3 border-b border-subtle px-1 py-3.5"
-        : "grid gap-3 border-b border-subtle px-1 py-3.5 sm:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] sm:items-center sm:gap-6"}
+        ? "grid gap-3 px-1 py-3"
+        : "grid gap-3 px-1 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] sm:items-center sm:gap-6"}
       onSubmit={(event) => {
         event.preventDefault();
         void submit();

@@ -30,7 +30,7 @@ export function SettingsPage() {
 function SettingsPageLayout({ children }: { children: ReactNode }) {
   return (
     <div className="space-y-5">
-      <div className="border-b border-subtle pb-2">
+      <div className="sticky -top-4 z-20 -mx-4 -mt-4 bg-surface px-4 pb-3 pt-4">
         <PageTabs items={SETTINGS_TABS} ariaLabel="系统设置分类" />
       </div>
       {children}

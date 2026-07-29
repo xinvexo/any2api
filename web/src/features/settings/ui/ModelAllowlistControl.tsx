@@ -121,17 +121,20 @@ export function ModelAllowlistControl({
         />
       </div>
 
-      <div className="max-h-64 min-h-12 overflow-y-auto border-y border-subtle" aria-label="可用模型">
+      <div
+        className="max-h-64 min-h-12 overflow-y-auto rounded-[10px] bg-surface-muted p-1"
+        aria-label="可用模型"
+      >
         {visible.length === 0 ? (
           <p className="px-2 py-4 text-center text-[12px] text-secondary">
             {query.trim() ? "没有匹配的模型" : "暂无已发布模型"}
           </p>
         ) : (
-          <div className="divide-y divide-subtle">
+          <div className="space-y-0.5">
             {visible.map((model) => (
               <label
                 key={model}
-                className="flex cursor-pointer items-center gap-3 px-2 py-2.5 hover:bg-surface-hover"
+                className="flex cursor-pointer items-center gap-3 rounded-[7px] px-2 py-2.5 hover:bg-surface-hover"
               >
                 <input
                   type="checkbox"

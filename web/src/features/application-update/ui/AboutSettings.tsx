@@ -53,7 +53,7 @@ export function AboutSettings() {
             any2api
           </h2>
         </header>
-        <dl className="divide-y divide-subtle border-y border-subtle text-[13px]">
+        <dl className="space-y-1 rounded-[10px] bg-surface-muted px-3 text-[13px]">
           <InfoRow label="当前版本" value={`v${about.currentVersion}`} />
           <div className="flex min-h-12 items-center justify-between gap-4 py-3">
             <dt className="text-secondary">GitHub</dt>
@@ -88,7 +88,7 @@ export function AboutSettings() {
           </Button>
         </header>
 
-        <div className="border-y border-subtle py-4" aria-live="polite">
+        <div className="rounded-[10px] bg-surface-muted px-3 py-4" aria-live="polite">
           {!checked && !update.check.error && !installed ? (
             <p className="text-[13px] text-secondary">尚未检查更新。</p>
           ) : null}
