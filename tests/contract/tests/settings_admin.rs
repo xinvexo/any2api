@@ -47,11 +47,16 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(46));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(47));
     let remote = find_setting(&initial, "admin.remote_enabled");
     assert_eq!(remote["default_value"], false);
     assert_eq!(remote["effective_value"], false);
     assert_eq!(remote["web_group"], "远程管理");
+    let affinity_enabled = find_setting(&initial, "affinity.enabled");
+    assert_eq!(affinity_enabled["value_type"], "boolean");
+    assert_eq!(affinity_enabled["default_value"], true);
+    assert_eq!(affinity_enabled["effective_value"], true);
+    assert_eq!(affinity_enabled["web_group"], "会话粘性");
     let affinity_ttl = find_setting(&initial, "affinity.ttl");
     assert_eq!(affinity_ttl["value_type"], "duration_secs");
     assert_eq!(affinity_ttl["default_value"], 86_400);
@@ -261,16 +266,35 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
     let (_directory, app, storage) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
 
-    let (status, ttl) = request_json(
+    let (status, enabled) = request_json(
         app.clone(),
         Method::PATCH,
-        "/api/admin/settings/affinity.ttl",
-        Some(json!({ "expected_revision": 1, "value": 7_200 })),
+        "/api/admin/settings/affinity.enabled",
+        Some(json!({ "expected_revision": 1, "value": false })),
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(ttl["config_revision"], 2);
+    assert_eq!(enabled["config_revision"], 2);
+    assert_eq!(
+        find_setting(&enabled, "affinity.enabled")["override_value"],
+        false
+    );
+    assert_eq!(
+        find_setting(&enabled, "affinity.enabled")["effective_value"],
+        false
+    );
+
+    let (status, ttl) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/affinity.ttl",
+        Some(json!({ "expected_revision": 2, "value": 7_200 })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ttl["config_revision"], 3);
     assert_eq!(find_setting(&ttl, "affinity.ttl")["override_value"], 7_200);
     assert_eq!(find_setting(&ttl, "affinity.ttl")["effective_value"], 7_200);
 
@@ -278,30 +302,46 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
         app.clone(),
         Method::PATCH,
         "/api/admin/settings/affinity.wait_timeout",
-        Some(json!({ "expected_revision": 2, "value": 12 })),
+        Some(json!({ "expected_revision": 3, "value": 12 })),
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(wait["config_revision"], 3);
+    assert_eq!(wait["config_revision"], 4);
     assert_eq!(
         find_setting(&wait, "affinity.wait_timeout")["override_value"],
         12
     );
     let stored = storage.load_configuration().await.expect("stored settings");
+    assert!(!stored.settings().affinity().enabled());
     assert_eq!(stored.settings().affinity().ttl_secs(), 7_200);
     assert_eq!(stored.settings().affinity().wait_timeout_secs(), 12);
 
-    let (status, ttl_reset) = request_json(
+    let (status, enabled_reset) = request_json(
         app.clone(),
         Method::DELETE,
-        "/api/admin/settings/affinity.ttl?expected_revision=3",
+        "/api/admin/settings/affinity.enabled?expected_revision=4",
         None,
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(ttl_reset["config_revision"], 4);
+    assert_eq!(enabled_reset["config_revision"], 5);
+    assert_eq!(
+        find_setting(&enabled_reset, "affinity.enabled")["effective_value"],
+        true
+    );
+
+    let (status, ttl_reset) = request_json(
+        app.clone(),
+        Method::DELETE,
+        "/api/admin/settings/affinity.ttl?expected_revision=5",
+        None,
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ttl_reset["config_revision"], 6);
     assert_eq!(
         find_setting(&ttl_reset, "affinity.ttl")["effective_value"],
         86_400
@@ -310,21 +350,28 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
     let (status, wait_reset) = request_json(
         app,
         Method::DELETE,
-        "/api/admin/settings/affinity.wait_timeout?expected_revision=4",
+        "/api/admin/settings/affinity.wait_timeout?expected_revision=6",
         None,
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(wait_reset["config_revision"], 5);
+    assert_eq!(wait_reset["config_revision"], 7);
     assert_eq!(
         find_setting(&wait_reset, "affinity.wait_timeout")["effective_value"],
         30
     );
 
     let stored = storage.load_configuration().await.expect("reset settings");
+    assert!(stored.settings().affinity().enabled());
     assert_eq!(stored.settings().affinity().ttl_secs(), 86_400);
     assert_eq!(stored.settings().affinity().wait_timeout_secs(), 30);
+    assert_eq!(
+        stored
+            .settings()
+            .override_value(SettingKey::AffinityEnabled),
+        None
+    );
     assert_eq!(
         stored.settings().override_value(SettingKey::AffinityTtl),
         None

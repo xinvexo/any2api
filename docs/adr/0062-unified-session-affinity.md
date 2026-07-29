@@ -73,17 +73,23 @@ Continuation 使用独立 continuation 用途域，只对 Response ID 自身做 
 绑定值已经保存 Credential、Route Target、上游模型和协议方言，续接请求必须按该完整目标恢复。
 两种键空间的差异只防止标识碰撞，不产生不同的绑定类型、TTL、等待或失败语义。
 
-### 单一设置
+### 设置
 
-SettingRegistry 只保留：
+SettingRegistry 只保留一个开关和两项统一策略参数：
 
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
+| `affinity.enabled` | boolean | `true` | `true` / `false` |
 | `affinity.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
 | `affinity.wait_timeout` | duration_secs | `30` | `1..=86_400` |
 
-两项设置按 PublishedSnapshot revision 捕获并支持现有默认值、覆盖值、生效值和恢复默认语义。
-Web 将它们放在“设置 → 路由策略”的高级设置中，不提供粘性开关、绑定强度或可重绑模式。
+三项设置按 PublishedSnapshot revision 捕获并支持现有默认值、覆盖值、生效值和恢复默认语义。
+`affinity.enabled` 只控制允许首次创建的普通显式 Session：关闭时 Runtime 忽略这类标识，不创建、命中
+或等待其绑定；Continuation 始终要求命中原绑定。开关关闭不清空 Registry，重新开启后尚未过期的
+普通 Session 绑定可继续命中。
+
+Web 将开关直接展示在“设置 → 路由策略”，TTL 与等待超时放在高级设置中。不提供绑定强度或可重绑
+模式。
 
 SettingRegistry 不提供其他粘性设置键、别名、双读或模式分支。会话绑定从不持久化，因此不存在运行态
 恢复或数据迁移。
@@ -100,7 +106,7 @@ SettingRegistry 不提供其他粘性设置键、别名、双读或模式分支�
 
 - 调度器只需处理“未绑定选择候选”和“已绑定固定目标”两条路径。
 - 普通 Session 和 Response ID 复用同一绑定表、TTL、等待与清理实现。
-- 配置面只提供两项会话设置，不包含绑定强度或重绑模式分支。
+- 配置面只提供一个普通 Session 粘性开关和两项统一策略参数，不包含绑定强度或重绑模式分支。
 - 绑定目标暂时不可用时可用性低于自动换号策略，但不会破坏有状态会话或把账号专属状态泄漏给另一个
   Credential；这是明确选择的正确性边界。
 
@@ -112,4 +118,5 @@ SettingRegistry 不提供其他粘性设置键、别名、双读或模式分支�
   切换、清理、Credential 删除和重启空状态。
 - JSON/SSE 契约覆盖 Response ID 在可见前绑定、普通 Session 首次创建、后续固定完整目标、
   `session_binding_lost` 和提交后禁止切换。
-- Settings、管理 API 和 Web 测试覆盖两个键、统一聚合以及保存/恢复默认。
+- Settings、管理 API 和 Web 测试覆盖三个键、开关热更新、Continuation 不受开关影响、统一聚合以及
+  保存/恢复默认。

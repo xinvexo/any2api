@@ -21,7 +21,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
     id: "routing",
     label: "路由策略",
     webGroups: ["排队策略", "会话粘性"],
-    featuredKeys: ["scheduler.on_rate_limited"],
+    featuredKeys: ["scheduler.on_rate_limited", "affinity.enabled"],
   },
   {
     id: "protection",

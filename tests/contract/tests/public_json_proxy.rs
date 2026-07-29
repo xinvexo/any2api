@@ -1269,6 +1269,180 @@ async fn affinity_admin_exposes_redacted_runtime_state_and_clears_by_credential(
 }
 
 #[tokio::test]
+async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuations() {
+    let (listener, mut upstream) = upstream_server_sequence(
+        "/v1/responses",
+        &[
+            r#"{"id":"resp_disabled_first","model":"gpt-upstream","output":[]}"#,
+            r#"{"id":"resp_disabled_second","model":"gpt-upstream","output":[]}"#,
+            r#"{"id":"resp_disabled_follow","model":"gpt-upstream","output":[]}"#,
+            r#"{"id":"resp_reenabled_first","model":"gpt-upstream","output":[]}"#,
+            r#"{"id":"resp_reenabled_second","model":"gpt-upstream","output":[]}"#,
+        ],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+    let endpoint_id = create_endpoint(
+        &app,
+        loopback,
+        revision + 1,
+        "Codex optional affinity",
+        "codex",
+        &format!("http://{listener}/v1"),
+    )
+    .await;
+    create_labeled_credential(
+        &app,
+        loopback,
+        revision + 2,
+        &endpoint_id,
+        "first",
+        "sk-disabled-first",
+    )
+    .await;
+    create_labeled_credential(
+        &app,
+        loopback,
+        revision + 3,
+        &endpoint_id,
+        "second",
+        "sk-disabled-second",
+    )
+    .await;
+    select_models(&app, loopback, revision + 4, &endpoint_id, "gpt-upstream").await;
+
+    let disabled = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/affinity.enabled",
+        Some(json!({"expected_revision": revision + 6, "value": false})),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(disabled.status, StatusCode::OK);
+    assert_eq!(
+        disabled.body["items"]
+            .as_array()
+            .expect("setting items")
+            .iter()
+            .find(|item| item["key"] == "affinity.enabled")
+            .expect("affinity setting")["effective_value"],
+        false
+    );
+
+    let first_response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({"model": "gpt-upstream", "input": "first"})),
+        loopback,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "ignored-session".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(first_response.status, StatusCode::OK);
+    let first = upstream.recv().await.expect("first upstream request");
+
+    let second_response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({"model": "gpt-upstream", "input": "second"})),
+        loopback,
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("x-any2api-session", "ignored-session".to_owned()),
+        ],
+    )
+    .await;
+    assert_eq!(second_response.status, StatusCode::OK);
+    let second = upstream.recv().await.expect("second upstream request");
+    assert_ne!(
+        first.headers.get("authorization"),
+        second.headers.get("authorization"),
+        "disabled explicit-session affinity must preserve normal round-robin",
+    );
+
+    let follow_response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model": "gpt-upstream",
+            "previous_response_id": first_response.body["id"],
+            "input": "continue first"
+        })),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(follow_response.status, StatusCode::OK);
+    let follow = upstream
+        .recv()
+        .await
+        .expect("continuation upstream request");
+    assert_eq!(
+        first.headers.get("authorization"),
+        follow.headers.get("authorization"),
+        "previous_response_id must remain fixed while explicit affinity is disabled",
+    );
+
+    let reset = request_json(
+        app.clone(),
+        Method::DELETE,
+        &format!(
+            "/api/admin/settings/affinity.enabled?expected_revision={}",
+            revision + 7
+        ),
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(reset.status, StatusCode::OK);
+
+    for input in ["re-enabled first", "re-enabled second"] {
+        let response = request_json(
+            app.clone(),
+            Method::POST,
+            "/v1/responses",
+            Some(json!({"model": "gpt-upstream", "input": input})),
+            loopback,
+            &[
+                ("authorization", format!("Bearer {token}")),
+                ("x-any2api-session", "restored-session".to_owned()),
+            ],
+        )
+        .await;
+        assert_eq!(response.status, StatusCode::OK);
+    }
+    let reenabled_first = upstream.recv().await.expect("first re-enabled request");
+    let reenabled_second = upstream.recv().await.expect("second re-enabled request");
+    assert_eq!(
+        reenabled_first.headers.get("authorization"),
+        reenabled_second.headers.get("authorization"),
+        "restoring the default must hot-reload explicit-session affinity",
+    );
+
+    let affinity = request_json(
+        app,
+        Method::GET,
+        "/api/admin/affinity?limit=0",
+        None,
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(affinity.status, StatusCode::OK);
+    assert_eq!(affinity.body["binding_count"], 6);
+}
+
+#[tokio::test]
 async fn previous_response_id_stays_on_the_original_credential() {
     let (listener, mut upstream) = upstream_server_sequence(
         "/v1/responses",

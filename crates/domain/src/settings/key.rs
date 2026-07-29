@@ -8,6 +8,7 @@ pub enum SettingKey {
     AdminLoginFailureWindow,
     AdminLoginMaxFailures,
     ModelsAllowed,
+    AffinityEnabled,
     AffinityTtl,
     AffinityWaitTimeout,
     LogsRequestEnabled,
@@ -51,13 +52,14 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 46] = [
+    pub const ALL: [Self; 47] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
         Self::AdminLoginFailureWindow,
         Self::AdminLoginMaxFailures,
         Self::ModelsAllowed,
+        Self::AffinityEnabled,
         Self::AffinityTtl,
         Self::AffinityWaitTimeout,
         Self::LogsRequestEnabled,
@@ -108,6 +110,7 @@ impl SettingKey {
             Self::AdminLoginFailureWindow => "admin.login.failure_window",
             Self::AdminLoginMaxFailures => "admin.login.max_failures",
             Self::ModelsAllowed => "models.allowed",
+            Self::AffinityEnabled => "affinity.enabled",
             Self::AffinityTtl => "affinity.ttl",
             Self::AffinityWaitTimeout => "affinity.wait_timeout",
             Self::LogsRequestEnabled => "logs.request.enabled",

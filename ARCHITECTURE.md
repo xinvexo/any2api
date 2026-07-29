@@ -238,7 +238,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 
 OAuthAccount 管理页的长集合是首个已确认的虚拟化场景。前端使用共享虚拟网格组件按“响应式网格行”渲染完整 Provider 账号集合，支持动态行高、1–3 列布局、键盘可聚焦滚动区和语义化 list/listitem；页面不得再为该集合维护客户端分页。虚拟行允许随滚动卸载，因此额度缓存、批量操作进度和不可逆 reset 的 pending 状态不能只保存在行组件本地生命周期中。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
-负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与统一会话绑定总数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md` 与 `docs/adr/0062-unified-session-affinity.md`。
+负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与统一会话绑定总数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md` 与 `docs/adr/0064-optional-session-affinity-toggle.md`。
 
 设置页只保留“基础、路由策略、运行保护、日志”四个一级页签。每个页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义或恢复默认能力。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。
 
@@ -1207,7 +1207,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 - 请求路径、SSE 分帧、Header、zstd 和响应事件仍走普通 Responses 直通链。`response.output_item.done` 中的远程压缩项、加密内容及未知字段保持不透明，不按 `compaction`、`compaction_summary` 或其他类型名在 Runtime 中解释或转换；
 - Responses Adapter 把 `response.completed` 和 `response.incomplete` 识别为成功终止，把 `response.failed` 和顶层 `error` 识别为失败终止。终止帧必须先原样交付客户端，随后立即结束下游 Body 并停止读取上游，不得继续等待 HTTP EOF；成功终止记为成功，失败终止记为上游流错误；上游若在任何终止事件前 EOF，则该 Attempt 是不完整上游流，不能记为成功；
 - 终止判定由 Protocol Adapter 通过稳定 API 提供，Runtime 的通用 GuardedBody 只消费终止元数据，禁止在中央流管线按 Provider 或压缩类型分支。Codex 远程压缩内容仍只来自上游 `response.output_item.done`，any2api 不重建 `response.output`、不解密内容，也不在本地执行压缩；
-- 流式远程压缩的等待响应头、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `300s` 的较大值。`/v1/responses/compact` 是完整收集的 unary 请求，其等待响应头、buffered body 空闲和提交前总预算使用当前设置与 `1200s` 的较大值；
+- 流式远程压缩的等待响应头、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `300s` 的较大值；SSE 单帧与提交前字节上限使用当前设置与 `64 MiB` 的较大值，以容纳单个 `response.output_item.done` 中的不透明加密压缩项。`/v1/responses/compact` 是完整收集的 unary 请求，其等待响应头、buffered body 空闲和提交前总预算使用当前设置与 `1200s` 的较大值；
 - 上述下限集中在请求执行限制模块，由解码结果随同一请求快照传递；普通 Responses、Chat、Messages 和 Count Tokens 不因此放宽。
 
 完整决策见 `docs/adr/0059-codex-remote-compaction.md`。
@@ -1618,6 +1618,9 @@ NoRoute
 
 会话粘性只有一种绑定语义：绑定一旦建立，后续请求必须固定到原 Credential、Route Target、
 上游模型和协议方言。不提供多种绑定强度、可切换模式或等待超时后改换目标的第二套语义。
+`affinity.enabled` 控制允许首次创建的普通显式 Session 是否参与粘性；关闭时把这类标识视为无会话
+请求并正常负载均衡。Codex `previous_response_id` 是必须续接的上游状态引用，不受该开关影响，始终
+要求命中原绑定，未命中返回 `session_binding_lost`。
 
 会话粘性只适用于 Responses、Responses Compact、Chat Completions 和 Messages。Images Generations、
 Images Edits 与 Messages Count Tokens 始终是无会话操作；即使请求携带通用 Session Header 或正文中
@@ -1636,6 +1639,8 @@ Images Edits 与 Messages Count Tokens 始终是无会话操作；即使请求�
 ```
 
 不根据 Prompt、System Prompt 或消息内容计算会话 Hash。
+当 `affinity.enabled=false` 时，第 2–6 类允许首次创建的普通显式 Session 按第 7 项处理；第 1 类
+Continuation 仍执行必须续接语义。
 
 ### 13.2 首次创建与必须续接
 
@@ -1743,7 +1748,10 @@ Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定�
 
 会话粘性采用稳定的进程内 `AffinityRegistry` 和快照级 `AffinityPolicy`。ProtocolAdapter 只提取显式会话标识及其“可创建/必须续接”意图；原始值进入 Runtime 后立即使用进程级随机 HMAC-SHA256 密钥和用途域分离转换为不可逆键。可创建会话通过短锁内版本化 `Creating` 租约避免并发首请求分裂，任何网络 I/O 都不持有 Session Lock。固定 Credential 等待继续使用全局 QueueTicket，并在对应 Credential 的 RPM 预留线性化点获得高于普通未绑定请求的优先级，不建立第二套全局队列。
 
-Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md`。
+关闭 `affinity.enabled` 不清空进程内已有绑定，只让新快照中的普通显式 Session 忽略它们；重新开启后，
+尚未过期的绑定可以继续命中。Response ID 的续接绑定仍照常创建、刷新和清理。
+
+Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md` 与 `docs/adr/0064-optional-session-affinity-toggle.md`。
 
 ## 14. 重试、冷却与错误分类
 
@@ -1985,10 +1993,13 @@ QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的�
 
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
+| `affinity.enabled` | boolean | `true` | `true` / `false` |
 | `affinity.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
 | `affinity.wait_timeout` | duration_secs | `30` | `1..=86_400` |
 
-TTL 只作用于当前进程内存；进程重启后绑定立即清空，不根据 TTL 恢复。绑定命中后等待原 Credential 的最长时间使用同一 `affinity.wait_timeout`；超时返回本地错误，不改换目标。
+`affinity.enabled` 只控制允许首次创建的普通显式 Session；Continuation 不受影响。TTL 只作用于当前
+进程内存；进程重启后绑定立即清空，不根据 TTL 恢复。绑定命中后等待原 Credential 的最长时间使用
+同一 `affinity.wait_timeout`；超时返回本地错误，不改换目标。
 
 #### RPM 等待默认值
 
@@ -2062,7 +2073,7 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 
 `upstream.read_timeout` 是每次等待响应头或 buffered body 下一 chunk 的空闲时长，成功读取后重置，不是整个请求的总时长。`retry.precommit_total_budget` 仍是 Attempt 外层绝对 deadline；尚未收到上游 HTTP 响应头时，哪个 deadline 先到期就先结束当前 Attempt。已经收到非 2xx 响应头后，错误正文收集同时受 read timeout、64 KiB 上限和 Attempt 绝对 deadline 约束；任一边界先到都以空正文结算已经收到的上游状态与安全 Header，禁止再改写成本地 504。成功 SSE 分别使用 precommit 和 postcommit 设置，非 2xx SSE 错误正文仍按 buffered body 读取，因此使用同一规则。
 
-协议识别出的长时请求可以在执行限制模块中应用不可低于兼容客户端的专用下限：Images 使用至少 `180s`；Codex v2 流式远程压缩使用至少 `300s`；Responses Compact unary 请求使用至少 `1200s`。这些下限只提高当前请求捕获的有效预算，管理员配置的更大值保持不变，也不修改 SettingRegistry 的普通默认值。
+协议识别出的长时或大帧请求可以在执行限制模块中应用不可低于兼容客户端的专用下限：Images 使用至少 `180s`；Codex v2 流式远程压缩使用至少 `300s` 且 SSE 单帧/提交前字节上限至少 `64 MiB`；Responses Compact unary 请求使用至少 `1200s`。这些下限只提高当前请求捕获的有效预算，管理员配置的更大值保持不变，也不修改 SettingRegistry 的普通默认值。
 
 `upstream.strict_ssrf=false` 时，DIRECT 仍执行本地解析与目标固定，HTTP/SOCKS5 则把远端 DNS 视为用户配置的代理信任边界。开启后，HTTP forward、HTTPS CONNECT 与 SOCKS5 都使用本地解析结果并固定到解析所得 IP，同时保留原始 Host、HTTP/2 authority 与 TLS SNI。Endpoint URL 是管理员受信任配置，因此两种模式都不按公网/私网地址类别拒绝解析结果。完整决策见 `docs/adr/0019-strict-ssrf-local-dns.md` 与 `docs/adr/0029-provider-base-url-authority.md`。
 
@@ -2179,14 +2190,15 @@ Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`P
 
 ### 17.1 SQLite
 
-首个正式版本前采用一次性规范 Schema 基线：
+SQLite Schema 使用不可改写的顺序迁移历史：
 
 - WAL 模式；
 - 外键约束开启；
-- 仓库只保留描述当前正确数据模型的 `0001_initial.sql` 和其 checksum，不保留开发期 Schema 的升级、
-  修复、双轨读取或兼容测试；现有开发数据库必须删除后重建；
-- 首个正式版本发布后，已经发布的 Migration 才进入不可改写历史，之后的 Schema 变化只允许追加前向
-  Migration；这一稳定性边界不反向要求首版前保留错误设计；
+- `0001_initial.sql` 及所有已经提交的 Migration 与 checksum 一经进入仓库即视为不可改写历史；
+- 后续 Schema 增删改只允许追加编号连续的前向 Migration，禁止通过修改旧 Migration 或校验和伪装历史；
+- 当前规范 Schema 是从空数据库顺序执行全部 Migration 的结果，不要求单独的 `0001_initial.sql` 直接等于
+  最新结构；升级测试必须覆盖已有数据库保留数据后应用新增 Migration；
+- 项目仍不保留双轨领域模型、兼容读取或运行时 Schema 分支；迁移完成后生产代码只面向最新 Schema；
 - 请求日志设置保留期限和最大容量；
 - 配置写操作使用事务；
 - 运行时快照不直接引用数据库连接。
@@ -2535,8 +2547,10 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 ### 19.5 路由策略设置
 
-- “设置 → 路由策略”统一编辑 RPM 用尽行为、排队、fallback，以及会话绑定 TTL 与等待超时；
-- 会话粘性不提供开关、绑定强度或目标切换模式；显式会话标识统一使用固定绑定。
+- “设置 → 路由策略”统一编辑 RPM 用尽行为、排队、fallback，以及会话粘性开关、绑定 TTL 与等待超时；
+- 会话粘性开关作为高频设置直接展示；它只控制允许首次创建的普通显式 Session，Continuation 始终
+  保持必须续接语义；
+- 会话粘性不提供绑定强度或目标切换模式；启用时显式会话标识统一使用固定绑定。
 - 队列上限、fallback、会话 TTL 和等待超时等低频项默认折叠到“高级设置”，需要时仍可编辑和恢复默认；
 - 设置页一级分类固定为“基础、路由策略、运行保护、日志”，不再按每个内部模块创建独立页签；
 - 全局代理只在代理页配置，设置页不重复提供入口。

@@ -45,7 +45,10 @@ pub(super) async fn select(
     match input.affinity {
         IngressAffinity::None => select_unbound(&input, None).await,
         IngressAffinity::Continuation(raw) => select_continuation(&input, raw).await,
-        IngressAffinity::Session(raw) => select_session(&input, raw).await,
+        IngressAffinity::Session(raw) if input.snapshot.affinity_policy().enabled() => {
+            select_session(&input, raw).await
+        }
+        IngressAffinity::Session(_) => select_unbound(&input, None).await,
     }
 }
 

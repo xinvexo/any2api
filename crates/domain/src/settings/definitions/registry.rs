@@ -11,7 +11,9 @@ pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::AdminLoginFailureWindow
         | SettingKey::AdminLoginMaxFailures => admin::definition(key),
         SettingKey::ModelsAllowed => models::definition(key),
-        SettingKey::AffinityTtl | SettingKey::AffinityWaitTimeout => affinity::definition(key),
+        SettingKey::AffinityEnabled | SettingKey::AffinityTtl | SettingKey::AffinityWaitTimeout => {
+            affinity::definition(key)
+        }
         SettingKey::LogsRequestEnabled
         | SettingKey::LogsRequestRetention
         | SettingKey::LogsRequestMaxRows

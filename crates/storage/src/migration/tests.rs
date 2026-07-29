@@ -1,12 +1,17 @@
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use std::borrow::Cow;
+
+use sqlx::{
+    migrate::Migrator,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+};
 use tempfile::tempdir;
 
-use super::run;
+use super::{MIGRATOR, run};
 
 const DIRECT_PROXY_ID: &str = "00000000-0000-0000-0000-000000000000";
 
 #[tokio::test]
-async fn canonical_initial_schema_bootstraps_all_current_invariants() {
+async fn full_migration_chain_bootstraps_all_current_invariants() {
     let directory = tempdir().expect("temporary directory");
     let options = SqliteConnectOptions::new()
         .filename(directory.path().join("initial.sqlite3"))
@@ -18,7 +23,7 @@ async fn canonical_initial_schema_bootstraps_all_current_invariants() {
         .await
         .expect("SQLite pool");
 
-    run(&pool).await.expect("initial migration");
+    run(&pool).await.expect("full migration chain");
 
     let migrations = sqlx::query_as::<_, (i64, String)>(
         "SELECT version, description FROM _sqlx_migrations ORDER BY version",
@@ -26,7 +31,13 @@ async fn canonical_initial_schema_bootstraps_all_current_invariants() {
     .fetch_all(&pool)
     .await
     .expect("migration rows");
-    assert_eq!(migrations, vec![(1, "initial".to_owned())]);
+    assert_eq!(
+        migrations,
+        vec![
+            (1, "initial".to_owned()),
+            (2, "drop request log cache write tokens".to_owned()),
+        ]
+    );
 
     let revision =
         sqlx::query_scalar::<_, i64>("SELECT revision FROM config_state WHERE singleton_id = 1")
@@ -69,6 +80,7 @@ async fn canonical_initial_schema_bootstraps_all_current_invariants() {
     assert!(request_log_schema.contains("'images_generations'"));
     assert!(request_log_schema.contains("'images_edits'"));
     assert!(request_log_schema.contains("client_ip TEXT NOT NULL"));
+    assert!(!request_log_schema.contains("cache_write_tokens"));
     let oauth_schema = table_schema(&pool, "oauth_accounts").await;
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("requests_per_minute"));
@@ -85,6 +97,77 @@ async fn canonical_initial_schema_bootstraps_all_current_invariants() {
         obsolete_tables.is_empty(),
         "obsolete tables: {obsolete_tables:?}"
     );
+    assert!(
+        sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .expect("foreign key check")
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn request_log_cache_write_token_migration_preserves_existing_rows() {
+    let directory = tempdir().expect("temporary directory");
+    let options = SqliteConnectOptions::new()
+        .filename(directory.path().join("upgrade.sqlite3"))
+        .create_if_missing(true)
+        .foreign_keys(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("SQLite pool");
+    let initial = Migrator {
+        migrations: Cow::Owned(
+            MIGRATOR
+                .iter()
+                .filter(|migration| migration.version == 1)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    };
+    initial.run(&pool).await.expect("initial migration");
+    assert!(
+        table_schema(&pool, "request_logs")
+            .await
+            .contains("cache_write_tokens")
+    );
+
+    sqlx::query(
+        "INSERT INTO request_logs (request_id, started_at_ms, config_revision, \
+         ingress_protocol, operation, status_code, attempt_count, latency_ms, input_tokens, \
+         output_tokens, cache_read_tokens, cache_write_tokens, is_stream, client_ip) \
+         VALUES ('migration-log', 1000, 1, 'openai_responses', 'responses', 200, 1, 9, \
+         11, 7, 3, 5, 0, '127.0.0.1')",
+    )
+    .execute(&pool)
+    .await
+    .expect("legacy request log");
+
+    run(&pool).await.expect("forward migration");
+
+    let usage = sqlx::query_as::<_, (i64, i64, i64)>(
+        "SELECT input_tokens, output_tokens, cache_read_tokens FROM request_logs \
+         WHERE request_id = 'migration-log'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("migrated request log");
+    assert_eq!(usage, (11, 7, 3));
+    assert!(
+        !table_schema(&pool, "request_logs")
+            .await
+            .contains("cache_write_tokens")
+    );
+
+    let versions =
+        sqlx::query_scalar::<_, i64>("SELECT version FROM _sqlx_migrations ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .expect("migration versions");
+    assert_eq!(versions, vec![1, 2]);
     assert!(
         sqlx::query("PRAGMA foreign_key_check")
             .fetch_all(&pool)
