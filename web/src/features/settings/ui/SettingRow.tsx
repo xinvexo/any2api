@@ -1,71 +1,49 @@
-import { RotateCcw } from "lucide-react";
-import { useId, useState } from "react";
+import { RotateCcw, Undo2 } from "lucide-react";
+import { useId } from "react";
 
-import type { SettingItem, SettingValue } from "../api/settings-contracts";
-import {
-  createSettingDraft,
-  isSettingDraftDirty,
-  type SettingDraft,
-  validateSettingDraft,
-} from "../model/setting-draft";
-import { getSettingsErrorMessage } from "../model/settings-error";
+import type { SettingItem } from "../api/settings-contracts";
+import { type SettingDraft, validateSettingDraft } from "../model/setting-draft";
 import { Button } from "@/shared/ui/Button";
 import { SettingControl } from "./SettingControl";
 import { reloadLabel, settingLabel } from "./setting-presentation";
 
 interface SettingRowProps {
   item: SettingItem;
+  value: SettingDraft;
   pending: boolean;
-  mutationError: unknown;
-  onSave: (item: SettingItem, value: SettingValue) => Promise<void>;
-  onReset: (item: SettingItem) => Promise<void>;
+  dirty: boolean;
+  resetPending: boolean;
+  onChange: (item: SettingItem, value: SettingDraft) => void;
+  onReset: (item: SettingItem) => void;
+  onDiscard: (item: SettingItem) => void;
 }
 
-export function SettingRow({ item, pending, mutationError, onSave, onReset }: SettingRowProps) {
-  const [draft, setDraft] = useState<SettingDraft | null>(null);
+export function SettingRow({
+  item,
+  value,
+  pending,
+  dirty,
+  resetPending,
+  onChange,
+  onReset,
+  onDiscard,
+}: SettingRowProps) {
   const label = settingLabel(item);
   const headingId = useId();
   const descriptionId = useId();
   const errorId = useId();
-  const value = draft ?? createSettingDraft(item);
   const validation = validateSettingDraft(item, value);
-  const dirty = draft !== null && isSettingDraftDirty(item, draft);
-  const errorMessage = validation.error ?? (mutationError ? getSettingsErrorMessage(mutationError) : null);
+  const errorMessage = validation.error;
   const describedBy = errorMessage ? `${descriptionId} ${errorId}` : descriptionId;
   const restartHint = reloadLabel(item);
-  const showActions = dirty || item.overrideValue !== null;
+  const showActions = dirty || (item.overrideValue !== null && !resetPending);
   const wideControl = item.valueType === "string_list";
 
-  async function submit() {
-    if (!dirty || validation.value === undefined) {
-      return;
-    }
-    try {
-      await onSave(item, validation.value);
-      setDraft(null);
-    } catch {
-      // The mutation owns the error state; keep the draft available for retry.
-    }
-  }
-
-  async function reset() {
-    try {
-      await onReset(item);
-      setDraft(null);
-    } catch {
-      // The mutation owns the error state; keep the draft available for retry.
-    }
-  }
-
   return (
-    <form
+    <div
       className={wideControl
         ? "grid gap-3 px-1 py-3"
         : "grid gap-3 px-1 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(200px,240px)] sm:items-center sm:gap-6"}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
     >
       <div className="min-w-0">
         <h3 id={headingId} className="text-[13px] font-medium text-primary">
@@ -90,17 +68,17 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
           invalid={validation.error !== null}
           labelledBy={headingId}
           describedBy={describedBy}
-          onChange={setDraft}
+          onChange={(next) => onChange(item, next)}
         />
 
         {showActions ? (
           <div className="flex flex-wrap items-center justify-end gap-1">
-            {item.overrideValue !== null ? (
+            {item.overrideValue !== null && !resetPending ? (
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => void reset()}
+                onClick={() => onReset(item)}
                 disabled={pending}
                 aria-label={`恢复${label}默认值`}
               >
@@ -110,18 +88,20 @@ export function SettingRow({ item, pending, mutationError, onSave, onReset }: Se
             ) : null}
             {dirty ? (
               <Button
-                type="submit"
-                variant="primary"
+                type="button"
+                variant="ghost"
                 size="sm"
-                disabled={pending || validation.error !== null}
-                aria-label={`保存${label}`}
+                onClick={() => onDiscard(item)}
+                disabled={pending}
+                aria-label={`撤销${label}修改`}
               >
-                保存
+                <Undo2 size={13} />
+                撤销修改
               </Button>
             ) : null}
           </div>
         ) : null}
       </div>
-    </form>
+    </div>
   );
 }

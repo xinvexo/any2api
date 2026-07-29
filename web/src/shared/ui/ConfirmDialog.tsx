@@ -12,9 +12,13 @@ interface ConfirmDialogProps {
   description?: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
+  alternateLabel?: string;
+  alternateTone?: "danger" | "default";
   pending?: boolean;
+  confirmDisabled?: boolean;
   tone?: "danger" | "default";
   onConfirm: () => void;
+  onAlternate?: () => void;
   onClose: () => void;
 }
 
@@ -23,6 +27,8 @@ interface DialogView {
   description?: ReactNode;
   confirmLabel: string;
   cancelLabel: string;
+  alternateLabel?: string;
+  alternateTone: "danger" | "default";
   tone: "danger" | "default";
 }
 
@@ -32,9 +38,13 @@ export function ConfirmDialog({
   description,
   confirmLabel = "确认",
   cancelLabel = "取消",
+  alternateLabel,
+  alternateTone = "default",
   pending = false,
+  confirmDisabled = false,
   tone = "default",
   onConfirm,
+  onAlternate,
   onClose,
 }: ConfirmDialogProps) {
   const titleId = useId();
@@ -42,12 +52,15 @@ export function ConfirmDialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const onConfirmRef = useRef(onConfirm);
+  const onAlternateRef = useRef(onAlternate);
 
   const [view, setView] = useState<DialogView>({
     title,
     description,
     confirmLabel,
     cancelLabel,
+    alternateLabel,
+    alternateTone,
     tone,
   });
   const [mounted, setMounted] = useState(open);
@@ -62,14 +75,35 @@ export function ConfirmDialog({
   }, [onConfirm]);
 
   useEffect(() => {
+    onAlternateRef.current = onAlternate;
+  }, [onAlternate]);
+
+  useEffect(() => {
     if (!open) {
       return;
     }
     const frame = window.requestAnimationFrame(() => {
-      setView({ title, description, confirmLabel, cancelLabel, tone });
+      setView({
+        title,
+        description,
+        confirmLabel,
+        cancelLabel,
+        alternateLabel,
+        alternateTone,
+        tone,
+      });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [open, title, description, confirmLabel, cancelLabel, tone]);
+  }, [
+    open,
+    title,
+    description,
+    confirmLabel,
+    cancelLabel,
+    alternateLabel,
+    alternateTone,
+    tone,
+  ]);
 
   useEffect(() => {
     if (open && !mounted) {
@@ -127,7 +161,15 @@ export function ConfirmDialog({
   }
 
   const activeView = open
-    ? { title, description, confirmLabel, cancelLabel, tone }
+    ? {
+        title,
+        description,
+        confirmLabel,
+        cancelLabel,
+        alternateLabel,
+        alternateTone,
+        tone,
+      }
     : view;
   const isVisible = open && visible;
 
@@ -176,10 +218,20 @@ export function ConfirmDialog({
           >
             {activeView.cancelLabel}
           </Button>
+          {activeView.alternateLabel && onAlternate ? (
+            <Button
+              variant={activeView.alternateTone === "danger" ? "dangerSolid" : "secondary"}
+              className="min-w-[4.5rem]"
+              disabled={pending}
+              onClick={() => onAlternateRef.current?.()}
+            >
+              {activeView.alternateLabel}
+            </Button>
+          ) : null}
           <Button
             variant={activeView.tone === "danger" ? "dangerSolid" : "primary"}
             className="min-w-[4.5rem]"
-            disabled={pending}
+            disabled={pending || confirmDisabled}
             onClick={() => onConfirmRef.current()}
           >
             {pending ? "处理中…" : activeView.confirmLabel}

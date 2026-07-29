@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi, type MockInstance } from "vitest";
 
+import { useSettingsEditor } from "../model/use-settings-editor";
 import { SettingsManagement } from "./SettingsManagement";
 import { SETTING_SECTIONS } from "./setting-categories";
 
@@ -24,17 +25,17 @@ test("shows frequent routing choices and folds low-frequency settings", async ()
   expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("30");
   expect(screen.getByRole("textbox", { name: "会话绑定 TTL" })).toHaveValue("86400");
   expect(screen.getByRole("textbox", { name: "会话绑定等待超时" })).toHaveValue("30");
-  expect(screen.queryByText("已覆盖")).not.toBeInTheDocument();
-  expect(screen.queryByText("未覆盖")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "保存页面设置" })).not.toBeInTheDocument();
 });
 
-test("saves and restores an advanced setting using the visible revision", async () => {
+test("saves all staged changes from one page action and stages restore default", async () => {
   let current = configuration(1);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "PATCH") {
-      current = configuration(2, 5);
-    } else if (init?.method === "DELETE") {
-      current = configuration(3);
+      const body = JSON.parse(String(init.body)) as BatchBody;
+      current = body.resets.includes("scheduler.queue_timeout")
+        ? configuration(3)
+        : configuration(2, 5);
     }
     return jsonResponse(current);
   });
@@ -44,25 +45,37 @@ test("saves and restores an advanced setting using the visible revision", async 
   fireEvent.click(screen.getByText("高级设置"));
   const input = screen.getByRole("textbox", { name: "排队超时" });
   fireEvent.change(input, { target: { value: "5" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存排队超时" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
 
   await waitFor(() => expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("5"));
-  const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
-  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({ expected_revision: 1, value: 5 });
+  let patches = patchBodies(fetchMock);
+  expect(patches[0]).toEqual({
+    expected_revision: 1,
+    updates: [{ key: "scheduler.queue_timeout", value: 5 }],
+    resets: [],
+  });
+  expect(screen.queryByRole("button", { name: "保存页面设置" })).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "恢复排队超时默认值" }));
-  await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(true));
-  const remove = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
-  expect(String(remove?.[0])).toContain("expected_revision=2");
-  await waitFor(() => expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("30"));
+  expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("30");
+  expect(patchBodies(fetchMock)).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
+
+  await waitFor(() => expect(screen.queryByRole("button", { name: "保存页面设置" })).not.toBeInTheDocument());
+  patches = patchBodies(fetchMock);
+  expect(patches[1]).toEqual({
+    expected_revision: 2,
+    updates: [],
+    resets: ["scheduler.queue_timeout"],
+  });
 });
 
-test("keeps an advanced draft after a revision conflict", async () => {
+test("keeps all drafts after a revision conflict and retries with refreshed revision", async () => {
   let getCount = 0;
   const revisions: number[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "PATCH") {
-      const body = JSON.parse(String(init.body)) as { expected_revision: number };
+      const body = JSON.parse(String(init.body)) as BatchBody;
       revisions.push(body.expected_revision);
       if (revisions.length === 1) {
         return new Response(
@@ -81,20 +94,21 @@ test("keeps an advanced draft after a revision conflict", async () => {
   fireEvent.click(screen.getByText("高级设置"));
   const input = screen.getByRole("textbox", { name: "排队超时" });
   fireEvent.change(input, { target: { value: "5" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存排队超时" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
 
-  expect(await screen.findByText("configuration changed")).toBeInTheDocument();
+  expect(await screen.findByText(/configuration changed/)).toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("5");
-  fireEvent.click(screen.getByRole("button", { name: "保存排队超时" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
   await waitFor(() => expect(revisions).toEqual([1, 2]));
 });
 
-test("searches, selects, clears, and saves the global model allowlist", async () => {
+test("searches, selects, clears, and batch-saves the global model allowlist", async () => {
   let current = modelConfiguration(1, null);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "PATCH") {
-      const body = JSON.parse(String(init.body)) as { value: string[] };
-      current = modelConfiguration(current.config_revision + 1, body.value);
+      const body = JSON.parse(String(init.body)) as BatchBody;
+      const value = body.updates[0]?.value;
+      current = modelConfiguration(current.config_revision + 1, Array.isArray(value) ? value : null);
     }
     return jsonResponse(current);
   });
@@ -108,60 +122,89 @@ test("searches, selects, clears, and saves the global model allowlist", async ()
   fireEvent.click(screen.getByRole("button", { name: "清除当前" }));
   expect(screen.getByRole("checkbox", { name: "gpt-a" })).not.toBeChecked();
   fireEvent.click(screen.getByRole("button", { name: "选择当前" }));
-  expect(screen.getByRole("checkbox", { name: "gpt-a" })).toBeChecked();
-  expect(screen.getByRole("checkbox", { name: "gpt-b" })).toBeChecked();
   fireEvent.click(screen.getByRole("checkbox", { name: "gpt-a" }));
   fireEvent.change(search, { target: { value: "" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "claude" }));
-  fireEvent.click(screen.getByRole("button", { name: "保存可使用的模型" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
 
   await waitFor(() => expect(screen.getByText("已允许 1 / 3")).toBeInTheDocument());
-  let patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
-  expect(JSON.parse(String(patches[0]?.[1]?.body))).toEqual({
+  let patches = patchBodies(fetchMock);
+  expect(patches[0]).toEqual({
     expected_revision: 1,
-    value: ["gpt-b"],
+    updates: [{ key: "models.allowed", value: ["gpt-b"] }],
+    resets: [],
   });
 
   fireEvent.click(screen.getByRole("switch", { name: "允许全部公开模型" }));
-  fireEvent.click(screen.getByRole("button", { name: "保存可使用的模型" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
   await waitFor(() => expect(screen.getByText("全部 3 个模型可用")).toBeInTheDocument());
-  patches = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH");
-  expect(JSON.parse(String(patches[1]?.[1]?.body))).toEqual({
+  patches = patchBodies(fetchMock);
+  expect(patches[1]).toEqual({
     expected_revision: 2,
-    value: [],
+    updates: [{ key: "models.allowed", value: [] }],
+    resets: [],
   });
 });
 
 function renderRoutingSettings() {
   const section = SETTING_SECTIONS.find((item) => item.id === "routing");
   if (!section) throw new Error("missing routing setting section");
+  return renderSettings(section.webGroups, section.featuredKeys);
+}
+
+function renderModelSettings() {
+  return renderSettings(["公开模型"], ["models.allowed"]);
+}
+
+function renderSettings(webGroups: readonly string[], featuredKeys: readonly string[]) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={client}>
-      <SettingsManagement
-        webGroups={section.webGroups}
-        featuredKeys={section.featuredKeys}
-        showSectionHeading={false}
-      />
+      <SettingsHarness webGroups={webGroups} featuredKeys={featuredKeys} />
     </QueryClientProvider>,
   );
 }
 
-function renderModelSettings() {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return render(
-    <QueryClientProvider client={client}>
+function SettingsHarness({
+  webGroups,
+  featuredKeys,
+}: {
+  webGroups: readonly string[];
+  featuredKeys: readonly string[];
+}) {
+  const editor = useSettingsEditor(webGroups);
+  return (
+    <>
+      {editor.isDirty ? (
+        <button
+          type="button"
+          disabled={editor.pending || editor.hasValidationErrors}
+          onClick={() => void editor.save()}
+        >
+          保存页面设置
+        </button>
+      ) : null}
       <SettingsManagement
-        webGroups={["公开模型"]}
-        featuredKeys={["models.allowed"]}
+        editor={editor}
+        featuredKeys={featuredKeys}
         showSectionHeading={false}
       />
-    </QueryClientProvider>,
+    </>
   );
+}
+
+interface BatchBody {
+  expected_revision: number;
+  updates: Array<{ key: string; value: unknown }>;
+  resets: string[];
+}
+
+function patchBodies(mock: MockInstance<typeof fetch>) {
+  return mock.mock.calls
+    .filter(([, init]) => init?.method === "PATCH")
+    .map(([, init]) => JSON.parse(String(init?.body)) as BatchBody);
 }
 
 function configuration(revision: number, timeoutOverride: number | null = null) {

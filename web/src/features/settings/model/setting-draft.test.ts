@@ -18,7 +18,7 @@ test("keeps numeric input as text and validates empty, fractional, and bounded v
 
 test("does not mark a draft dirty when it equals the effective value", () => {
   const item = numericItem();
-  expect(isSettingDraftDirty(item, "128")).toBe(true);
+  expect(isSettingDraftDirty(item, "128")).toBe(false);
   expect(isSettingDraftDirty(item, "64")).toBe(true);
   expect(isSettingDraftDirty({ ...item, overrideValue: 128 }, "128")).toBe(false);
 });
@@ -30,8 +30,9 @@ test("edits duration settings in whole seconds", () => {
   expect(validateSettingDraft(item, "0.5").error).toBe("请输入非负整数");
   expect(validateSettingDraft(item, "0").error).toMatch(/不能小于/);
   expect(validateSettingDraft(item, "90000").error).toMatch(/不能大于/);
-  expect(isSettingDraftDirty({ ...item, overrideValue: 5 }, "5")).toBe(false);
-  expect(isSettingDraftDirty({ ...item, overrideValue: 5 }, "6")).toBe(true);
+  const overridden = { ...item, overrideValue: 5, effectiveValue: 5 };
+  expect(isSettingDraftDirty(overridden, "5")).toBe(false);
+  expect(isSettingDraftDirty(overridden, "6")).toBe(true);
 });
 
 test("normalizes model selections and treats an empty list as allow all", () => {

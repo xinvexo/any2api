@@ -1,7 +1,7 @@
 import { requestJson } from "@/shared/api/http-client";
 
 import {
-  type SettingWriteInput,
+  type SettingBatchWriteInput,
   parseSettingsConfiguration,
 } from "./settings-contracts";
 
@@ -9,16 +9,13 @@ export function listSettings(signal?: AbortSignal) {
   return requestJson<unknown>("/api/admin/settings", { signal }).then(parseSettingsConfiguration);
 }
 
-export function updateSetting(key: string, input: SettingWriteInput) {
-  return requestJson<unknown>(`/api/admin/settings/${encodeURIComponent(key)}`, {
+export function applySettingChanges(input: SettingBatchWriteInput) {
+  return requestJson<unknown>("/api/admin/settings", {
     method: "PATCH",
-    body: { expected_revision: input.expectedRevision, value: input.value },
+    body: {
+      expected_revision: input.expectedRevision,
+      updates: input.updates,
+      resets: input.resets,
+    },
   }).then(parseSettingsConfiguration);
-}
-
-export function resetSetting(key: string, expectedRevision: number) {
-  return requestJson<unknown>(
-    `/api/admin/settings/${encodeURIComponent(key)}?expected_revision=${expectedRevision}`,
-    { method: "DELETE" },
-  ).then(parseSettingsConfiguration);
 }

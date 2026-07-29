@@ -1,4 +1,6 @@
-use any2api_domain::{ConfigRevision, RateLimitMode, SettingKey, SettingValue};
+use any2api_domain::{
+    ConfigRevision, RateLimitMode, SettingKey, SettingOverrideChange, SettingValue,
+};
 use tempfile::tempdir;
 
 use crate::{
@@ -101,6 +103,58 @@ async fn explicit_override_equal_to_default_is_preserved() {
             .override_value(SettingKey::SchedulerFallbackOnRateLimit),
         Some(SettingValue::Boolean(false))
     );
+}
+
+#[tokio::test]
+async fn setting_batch_validates_and_commits_as_one_revision() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("settings.sqlite3"))
+        .await
+        .expect("store");
+
+    let updated = store
+        .apply_setting_changes(
+            ConfigRevision::INITIAL,
+            vec![
+                SettingOverrideChange::Set {
+                    key: SettingKey::OAuthRefreshScanInterval,
+                    value: SettingValue::DurationSecs(600),
+                },
+                SettingOverrideChange::Set {
+                    key: SettingKey::OAuthRefreshLeadTime,
+                    value: SettingValue::DurationSecs(900),
+                },
+            ],
+        )
+        .await
+        .expect("atomic setting batch");
+    assert_eq!(updated.revision().get(), 2);
+    assert_eq!(updated.settings().oauth().refresh_scan_interval_secs(), 600);
+    assert_eq!(updated.settings().oauth().refresh_lead_time_secs(), 900);
+
+    let invalid = store
+        .apply_setting_changes(
+            updated.revision(),
+            vec![
+                SettingOverrideChange::Set {
+                    key: SettingKey::OAuthRefreshScanInterval,
+                    value: SettingValue::DurationSecs(1_000),
+                },
+                SettingOverrideChange::Set {
+                    key: SettingKey::OAuthRefreshLeadTime,
+                    value: SettingValue::DurationSecs(500),
+                },
+            ],
+        )
+        .await
+        .expect_err("invalid batch");
+    assert!(matches!(invalid, StorageError::SettingsValidation(_)));
+    let unchanged = store
+        .load_configuration()
+        .await
+        .expect("unchanged settings");
+    assert_eq!(unchanged.revision(), updated.revision());
+    assert_eq!(unchanged.settings(), updated.settings());
 }
 
 #[tokio::test]

@@ -56,8 +56,9 @@ pub use settings::{
     MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS,
     MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY, ModelSettings, OAuthSettings,
     RateLimitMode, ReliabilitySettings, SchedulerSettings, SettingApplyMode, SettingDefinition,
-    SettingKey, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
-    SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
+    SettingKey, SettingOverrideChange, SettingOverrides, SettingValue, SettingValueType,
+    SettingsConfiguration, SettingsValidationError, ShutdownSettings, StreamSettings,
+    UpstreamSettings,
 };
 pub use telemetry::{
     CompletedRequestLog, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion,

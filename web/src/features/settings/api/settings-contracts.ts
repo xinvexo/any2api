@@ -22,9 +22,10 @@ export interface SettingsConfiguration {
   items: SettingItem[];
 }
 
-export interface SettingWriteInput {
+export interface SettingBatchWriteInput {
   expectedRevision: number;
-  value: SettingValue;
+  updates: Array<{ key: string; value: SettingValue }>;
+  resets: string[];
 }
 
 export function parseSettingsConfiguration(value: unknown): SettingsConfiguration {

@@ -262,6 +262,88 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
 }
 
 #[tokio::test]
+async fn settings_batch_is_atomic_and_publishes_one_revision() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, updated) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings",
+        Some(json!({
+            "expected_revision": 1,
+            "updates": [
+                { "key": "oauth.refresh.scan_interval", "value": 600 },
+                { "key": "oauth.refresh.lead_time", "value": 900 }
+            ],
+            "resets": []
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["config_revision"], 2);
+    assert_eq!(
+        find_setting(&updated, "oauth.refresh.scan_interval")["effective_value"],
+        600
+    );
+    assert_eq!(
+        find_setting(&updated, "oauth.refresh.lead_time")["effective_value"],
+        900
+    );
+
+    let (status, invalid) = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings",
+        Some(json!({
+            "expected_revision": 2,
+            "updates": [
+                { "key": "oauth.refresh.scan_interval", "value": 1_000 },
+                { "key": "oauth.refresh.lead_time", "value": 500 }
+            ],
+            "resets": []
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(invalid["error"]["code"], "invalid_setting");
+    assert_eq!(
+        storage
+            .load_configuration()
+            .await
+            .expect("unchanged settings")
+            .revision()
+            .get(),
+        2
+    );
+
+    let (status, reset) = request_json(
+        app,
+        Method::PATCH,
+        "/api/admin/settings",
+        Some(json!({
+            "expected_revision": 2,
+            "updates": [],
+            "resets": ["oauth.refresh.scan_interval", "oauth.refresh.lead_time"]
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(reset["config_revision"], 3);
+    assert_eq!(
+        find_setting(&reset, "oauth.refresh.scan_interval")["effective_value"],
+        30
+    );
+    assert_eq!(
+        find_setting(&reset, "oauth.refresh.lead_time")["effective_value"],
+        300
+    );
+}
+
+#[tokio::test]
 async fn affinity_settings_publish_persist_and_restore_defaults() {
     let (_directory, app, storage) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));

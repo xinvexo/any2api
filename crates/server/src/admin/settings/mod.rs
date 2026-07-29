@@ -9,8 +9,13 @@ use axum::{
 };
 
 pub(super) fn routes() -> Router<AppState> {
-    Router::new().route("/settings", get(handlers::list)).route(
-        "/settings/{key}",
-        patch(handlers::update).delete(handlers::reset),
-    )
+    Router::new()
+        .route(
+            "/settings",
+            get(handlers::list).patch(handlers::update_batch),
+        )
+        .route(
+            "/settings/{key}",
+            patch(handlers::update).delete(handlers::reset),
+        )
 }

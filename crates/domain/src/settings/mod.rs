@@ -7,6 +7,7 @@ mod key;
 mod logging_settings;
 mod model_settings;
 mod oauth_settings;
+mod override_change;
 mod reliability_settings;
 mod scheduler_settings;
 mod shutdown_settings;
@@ -25,6 +26,7 @@ pub use logging_settings::{
 };
 pub use model_settings::ModelSettings;
 pub use oauth_settings::OAuthSettings;
+pub use override_change::SettingOverrideChange;
 pub use reliability_settings::ReliabilitySettings;
 pub use scheduler_settings::SchedulerSettings;
 pub use shutdown_settings::ShutdownSettings;

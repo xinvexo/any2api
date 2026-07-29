@@ -1,7 +1,7 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, OAuthAccountDraft, OAuthAccountId, ProviderCredentialDraft,
     ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyDraft, ProxyProfileId,
-    SettingKey, SettingValue,
+    SettingKey, SettingOverrideChange, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, StoredConfiguration};
 
@@ -106,6 +106,9 @@ pub(crate) enum ConfigCommand {
     },
     ResetSettingOverride {
         key: SettingKey,
+    },
+    ApplySettingChanges {
+        changes: Vec<SettingOverrideChange>,
     },
 }
 
@@ -281,6 +284,9 @@ pub(crate) async fn execute(
         }
         ConfigCommand::ResetSettingOverride { key } => {
             repository.reset_setting_override(expected, key).await
+        }
+        ConfigCommand::ApplySettingChanges { changes } => {
+            repository.apply_setting_changes(expected, changes).await
         }
     };
     result.map_err(ConfigPublishError::from)

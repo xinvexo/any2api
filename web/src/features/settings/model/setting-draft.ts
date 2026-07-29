@@ -13,20 +13,27 @@ export interface SettingDraftValidation {
 }
 
 export function createSettingDraft(item: SettingItem): SettingDraft {
+  return createSettingDraftFromValue(item, item.effectiveValue);
+}
+
+export function createSettingDraftFromValue(
+  item: SettingItem,
+  value: SettingValue,
+): SettingDraft {
   if (item.valueType === "string_list") {
-    if (Array.isArray(item.effectiveValue)) {
+    if (Array.isArray(value)) {
       return {
-        mode: item.effectiveValue.length === 0 ? "all" : "only",
-        models: [...item.effectiveValue],
+        mode: value.length === 0 ? "all" : "only",
+        models: [...value],
       };
     }
     throw new Error("invalid model access setting");
   }
-  if (typeof item.effectiveValue === "number") {
-    return String(item.effectiveValue);
+  if (typeof value === "number") {
+    return String(value);
   }
-  if (typeof item.effectiveValue === "boolean" || typeof item.effectiveValue === "string") {
-    return item.effectiveValue;
+  if (typeof value === "boolean" || typeof value === "string") {
+    return value;
   }
   throw new Error("invalid setting value");
 }
@@ -87,10 +94,7 @@ export function isSettingDraftDirty(item: SettingItem, draft: SettingDraft) {
   if (validation.error !== null || validation.value === undefined) {
     return true;
   }
-  if (item.overrideValue === null) {
-    return true;
-  }
-  return !settingValuesEqual(validation.value, item.overrideValue);
+  return !settingValuesEqual(validation.value, item.effectiveValue);
 }
 
 function settingValuesEqual(left: SettingValue, right: SettingValue) {

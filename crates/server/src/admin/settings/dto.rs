@@ -1,4 +1,8 @@
-use any2api_domain::{ConfigRevision, SettingDefinition, SettingKey, SettingValue};
+use std::collections::HashSet;
+
+use any2api_domain::{
+    ConfigRevision, SettingDefinition, SettingKey, SettingOverrideChange, SettingValue,
+};
 use any2api_runtime::api::PublishedSnapshot;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -85,4 +89,58 @@ impl SettingWriteRequest {
             .map_err(|error| AdminApiError::invalid_setting(error.to_string()))?;
         Ok((revision, value))
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct SettingBatchWriteRequest {
+    expected_revision: u64,
+    updates: Vec<SettingBatchUpdate>,
+    resets: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SettingBatchUpdate {
+    key: String,
+    value: Value,
+}
+
+impl SettingBatchWriteRequest {
+    pub(crate) fn into_domain(
+        self,
+    ) -> Result<(ConfigRevision, Vec<SettingOverrideChange>), AdminApiError> {
+        let revision = parse_revision(self.expected_revision)?;
+        if self.updates.is_empty() && self.resets.is_empty() {
+            return Err(AdminApiError::invalid_request(
+                "at least one setting change is required",
+            ));
+        }
+        let mut keys = HashSet::new();
+        let mut changes = Vec::with_capacity(self.updates.len() + self.resets.len());
+        for update in self.updates {
+            let key = parse_setting_key(&update.key)?;
+            ensure_unique(&mut keys, key)?;
+            let value = SettingValue::from_json(key, &update.value)
+                .map_err(|error| AdminApiError::invalid_setting(error.to_string()))?;
+            changes.push(SettingOverrideChange::Set { key, value });
+        }
+        for reset in self.resets {
+            let key = parse_setting_key(&reset)?;
+            ensure_unique(&mut keys, key)?;
+            changes.push(SettingOverrideChange::Reset { key });
+        }
+        Ok((revision, changes))
+    }
+}
+
+pub(crate) fn parse_setting_key(value: &str) -> Result<SettingKey, AdminApiError> {
+    SettingKey::parse(value).ok_or_else(AdminApiError::setting_not_found)
+}
+
+fn ensure_unique(keys: &mut HashSet<SettingKey>, key: SettingKey) -> Result<(), AdminApiError> {
+    if !keys.insert(key) {
+        return Err(AdminApiError::invalid_request(
+            "a setting can only appear once in a batch",
+        ));
+    }
+    Ok(())
 }
