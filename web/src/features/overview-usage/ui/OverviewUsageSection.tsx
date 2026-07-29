@@ -11,7 +11,6 @@ import {
   formatOverviewInteger,
   formatOverviewRpm,
   OVERVIEW_RANGE_OPTIONS,
-  overviewRangeLabel,
 } from "../model/overview-usage-presentation";
 import { useOverviewUsage } from "../model/use-overview-usage";
 import { OverviewModelChart } from "./OverviewModelChart";
@@ -39,16 +38,18 @@ export function OverviewUsageSection() {
 
   if (query.isPending && !query.data) {
     return (
-      <section className="border-t border-subtle py-6 text-sm text-secondary" aria-busy="true">
+      <section className="text-sm text-secondary" aria-busy="true">
         正在汇总调用与 Token 记录
       </section>
     );
   }
   if (!query.data) {
     return (
-      <section className="border-t border-subtle py-6" role="alert">
-        <h2 className="font-semibold">调用统计</h2>
-        <p className="mt-2 text-sm text-secondary">{getOverviewUsageErrorMessage(query.error)}</p>
+      <section role="alert">
+        <h2 className="text-base font-semibold tracking-tight">调用统计</h2>
+        <p className="mt-2 text-sm leading-6 text-secondary">
+          {getOverviewUsageErrorMessage(query.error)}
+        </p>
         <Button className="mt-4" onClick={() => void query.refetch()} disabled={query.isFetching}>
           <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
           重试
@@ -64,14 +65,12 @@ export function OverviewUsageSection() {
     overview.rangeStartedAtMs,
     overview.rangeEndedAtMs,
   );
+
   return (
-    <section className="border-t border-subtle py-6" aria-busy={query.isFetching}>
-      <header className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <h2 className="font-semibold">调用统计</h2>
-          <p className="mt-1 text-xs leading-5 text-secondary">
-            来自本地 RequestLog，当前显示近 {overviewRangeLabel(range)}。
-          </p>
+    <section className="min-w-0" aria-busy={query.isFetching}>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold tracking-tight">调用统计</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <SegmentedControl
@@ -80,7 +79,12 @@ export function OverviewUsageSection() {
             selected={range}
             onSelect={setRange}
           />
-          <Button variant="ghost" onClick={() => void query.refetch()} disabled={query.isFetching}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
             <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
             刷新
           </Button>
@@ -88,12 +92,12 @@ export function OverviewUsageSection() {
       </header>
 
       {query.isError ? (
-        <p className="mt-3 border-l-2 border-warning pl-3 text-xs text-secondary" role="status">
+        <p className="mt-4 border-l-2 border-warning pl-3 text-xs leading-5 text-secondary" role="status">
           刷新失败，仍显示最近数据：{getOverviewUsageErrorMessage(query.error)}
         </p>
       ) : null}
 
-      <dl className="mt-5 grid grid-cols-3 border-y border-subtle [&>div]:border-r [&>div]:border-subtle [&>div:last-child]:border-r-0">
+      <dl className="mt-5 grid gap-3 sm:grid-cols-3">
         <OverviewMetric
           label="请求数"
           value={formatOverviewInteger(overview.selected.requestCount)}
@@ -102,7 +106,7 @@ export function OverviewUsageSection() {
         <OverviewMetric
           label="Token 总消耗"
           value={formatOverviewInteger(overview.selected.totalTokens)}
-          note={`usage 覆盖 ${formatOverviewInteger(overview.selected.tokenUsageRequestCount)} / ${formatOverviewInteger(overview.selected.requestCount)} 次请求`}
+          note={`usage 覆盖 ${formatOverviewInteger(overview.selected.tokenUsageRequestCount)} / ${formatOverviewInteger(overview.selected.requestCount)} 次`}
         />
         <OverviewMetric
           label="平均 RPM"
@@ -111,20 +115,31 @@ export function OverviewUsageSection() {
         />
       </dl>
 
-      <div className="mt-6 grid min-w-0 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <section className="min-w-0 pb-6 lg:pb-0 lg:pr-6">
-          <h3 className="text-sm font-semibold">调用趋势</h3>
-          <p className="mt-1 text-xs text-secondary">
-            近 {overviewRangeLabel(range)} · {formatOverviewInteger(overview.selected.requestCount)} 次调用 · 成功 {formatOverviewInteger(overview.selected.successfulRequestCount)} · 失败 {formatOverviewInteger(overview.selected.failedRequestCount)}
-          </p>
-          <OverviewTimeChart buckets={overview.timeBuckets} range={range} />
+      <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-8 lg:items-stretch">
+        <section className="flex min-w-0 flex-col">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h3 className="text-sm font-semibold tracking-tight">调用趋势</h3>
+            <p className="text-xs tabular-nums text-secondary">
+              {formatOverviewInteger(overview.selected.requestCount)} 次 · 成功{" "}
+              {formatOverviewInteger(overview.selected.successfulRequestCount)} · 失败{" "}
+              {formatOverviewInteger(overview.selected.failedRequestCount)}
+            </p>
+          </div>
+          <div className="flex-1 rounded-[12px] bg-surface-muted/70 px-3 py-3 sm:px-4 sm:py-4">
+            <OverviewTimeChart buckets={overview.timeBuckets} range={range} />
+          </div>
         </section>
-        <section className="min-w-0 border-t border-subtle pt-6 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-          <h3 className="text-sm font-semibold">模型分布</h3>
-          <p className="mt-1 text-xs text-secondary">
-            {formatOverviewInteger(overview.models.length)} 个模型 · {formatOverviewInteger(overview.selected.requestCount)} 次调用
-          </p>
-          <OverviewModelChart models={overview.models} />
+
+        <section className="flex min-w-0 flex-col">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+            <h3 className="text-sm font-semibold tracking-tight">模型分布</h3>
+            <p className="text-xs tabular-nums text-secondary">
+              {formatOverviewInteger(overview.models.length)} 个模型
+            </p>
+          </div>
+          <div className="flex-1 rounded-[12px] bg-surface-muted/70 px-3 py-3 sm:px-4 sm:py-4">
+            <OverviewModelChart models={overview.models} />
+          </div>
         </section>
       </div>
     </section>
@@ -133,12 +148,12 @@ export function OverviewUsageSection() {
 
 function OverviewMetric({ label, value, note }: { label: string; value: string; note: string }) {
   return (
-    <div className="min-w-0 px-2.5 py-4 sm:px-4">
-      <dt className="text-[11px] text-secondary">{label}</dt>
-      <dd className="mt-1 truncate text-lg font-semibold tabular-nums sm:text-2xl" title={value}>
+    <div className="min-w-0 rounded-[12px] bg-surface-muted px-4 py-4">
+      <dt className="text-xs font-medium text-secondary">{label}</dt>
+      <dd className="mt-2 truncate text-[1.75rem] font-semibold tracking-tight tabular-nums" title={value}>
         {value}
       </dd>
-      <p className="mt-1 truncate text-[10px] text-tertiary" title={note}>
+      <p className="mt-2 truncate text-xs leading-5 text-tertiary" title={note}>
         {note}
       </p>
     </div>
@@ -157,25 +172,27 @@ function SegmentedControl<T extends string>({
   onSelect: (value: T) => void;
 }) {
   return (
-    <div className="flex items-center rounded-[9px] bg-surface-muted p-0.5" role="group" aria-label={label}>
-      {options.map((option) => {
-        return (
-          <button
-            key={option.value}
-            type="button"
-            className={cn(
-              "focus-ring inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11px] font-medium transition-colors",
-              selected === option.value
-                ? "bg-surface text-primary shadow-hairline"
-                : "text-secondary hover:text-primary",
-            )}
-            aria-pressed={selected === option.value}
-            onClick={() => onSelect(option.value)}
-          >
-            {option.label}
-          </button>
-        );
-      })}
+    <div
+      className="flex items-center rounded-[9px] bg-surface-muted p-0.5"
+      role="group"
+      aria-label={label}
+    >
+      {options.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className={cn(
+            "focus-ring inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11px] font-medium transition-colors",
+            selected === option.value
+              ? "bg-surface text-primary shadow-hairline"
+              : "text-secondary hover:text-primary",
+          )}
+          aria-pressed={selected === option.value}
+          onClick={() => onSelect(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
     </div>
   );
 }

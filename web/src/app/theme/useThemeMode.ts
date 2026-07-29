@@ -7,10 +7,6 @@ export function useThemeMode() {
 
   useEffect(() => {
     applyTheme(mode);
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const updateSystemTheme = () => mode === "system" && applyTheme("system");
-    media.addEventListener("change", updateSystemTheme);
-    return () => media.removeEventListener("change", updateSystemTheme);
   }, [mode]);
 
   return [mode, setMode] as const;

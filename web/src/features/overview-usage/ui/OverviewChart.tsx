@@ -3,6 +3,7 @@ import {
   ArcElement,
   CategoryScale,
   Chart as ChartJs,
+  DoughnutController,
   Filler,
   Legend,
   LinearScale,
@@ -20,6 +21,7 @@ import { cn } from "@/shared/lib/cn";
 ChartJs.register(
   ArcElement,
   CategoryScale,
+  DoughnutController,
   Filler,
   Legend,
   LinearScale,

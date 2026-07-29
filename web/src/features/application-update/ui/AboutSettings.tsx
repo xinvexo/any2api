@@ -2,7 +2,6 @@ import {
   CheckCircle2,
   Download,
   ExternalLink,
-  GitFork,
   LoaderCircle,
   RefreshCw,
 } from "lucide-react";
@@ -47,38 +46,42 @@ export function AboutSettings() {
 
   return (
     <div className="space-y-8" aria-busy={update.isPending}>
-      <section aria-labelledby="about-application-heading">
-        <header className="mb-2">
-          <h2 id="about-application-heading" className="text-[15px] font-semibold tracking-tight">
-            any2api
-          </h2>
-        </header>
-        <dl className="space-y-1 rounded-[10px] bg-surface-muted px-3 text-[13px]">
-          <InfoRow label="当前版本" value={`v${about.currentVersion}`} />
-          <div className="flex min-h-12 items-center justify-between gap-4 py-3">
-            <dt className="text-secondary">GitHub</dt>
+      <section aria-label="版本信息">
+        <dl className="space-y-1">
+          <div className="flex min-h-11 items-center justify-between gap-4 py-2">
+            <dt className="text-sm text-secondary">当前版本</dt>
+            <dd className="font-mono text-sm font-medium tabular-nums tracking-tight">
+              v{about.currentVersion}
+            </dd>
+          </div>
+          <div className="flex min-h-11 items-center justify-between gap-4 py-2">
+            <dt className="text-sm text-secondary">源码仓库</dt>
             <dd>
               <a
-                className="focus-ring inline-flex items-center gap-1.5 rounded text-accent hover:underline"
+                className="focus-ring inline-flex items-center gap-1.5 rounded-md text-sm font-medium text-accent transition-colors hover:text-accent-strong"
                 href={about.repositoryUrl}
                 target="_blank"
                 rel="noreferrer"
               >
-                <GitFork size={14} aria-hidden="true" />
                 xinvexo/any2api
-                <ExternalLink size={12} aria-hidden="true" />
+                <ExternalLink size={13} aria-hidden="true" />
               </a>
             </dd>
           </div>
         </dl>
       </section>
 
-      <section aria-labelledby="about-update-heading">
-        <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="about-update-heading" className="text-[15px] font-semibold tracking-tight">
-            版本更新
-          </h2>
-          <Button onClick={checkForUpdate} disabled={update.isPending}>
+      <section aria-labelledby="about-update-heading" className="space-y-3">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="about-update-heading" className="text-[15px] font-semibold tracking-tight">
+              版本更新
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-secondary">
+              从 GitHub Release 检查并安装官方构建。
+            </p>
+          </div>
+          <Button size="sm" onClick={checkForUpdate} disabled={update.isPending}>
             {update.check.isPending ? (
               <LoaderCircle size={14} className="animate-spin" />
             ) : (
@@ -88,73 +91,63 @@ export function AboutSettings() {
           </Button>
         </header>
 
-        <div className="rounded-[10px] bg-surface-muted px-3 py-4" aria-live="polite">
+        <div className="rounded-[12px] bg-surface-muted px-4 py-4" aria-live="polite">
           {!checked && !update.check.error && !installed ? (
-            <p className="text-[13px] text-secondary">尚未检查更新。</p>
+            <p className="text-sm text-secondary">尚未检查更新。</p>
           ) : null}
           {update.check.error ? (
-            <p className="text-[13px] text-danger" role="alert">
+            <p className="text-sm text-danger" role="alert">
               {getUpdateErrorMessage(update.check.error)}
             </p>
           ) : null}
           {checked ? (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-[13px] font-medium">
-                    {checked.updateAvailable
-                      ? `发现新版本 v${checked.latestVersion}`
-                      : "当前已是最新版本"}
-                  </p>
-                  <a
-                    className="focus-ring mt-1 inline-flex items-center gap-1 rounded text-[12px] text-accent hover:underline"
-                    href={checked.releaseUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    查看 Release
-                    <ExternalLink size={11} aria-hidden="true" />
-                  </a>
-                </div>
-                {checked.updateAvailable && !installed ? (
-                  <Button
-                    variant="primary"
-                    onClick={() => update.install.mutate()}
-                    disabled={update.isPending}
-                  >
-                    {update.install.isPending ? (
-                      <LoaderCircle size={14} className="animate-spin" />
-                    ) : (
-                      <Download size={14} />
-                    )}
-                    更新到 v{checked.latestVersion}
-                  </Button>
-                ) : null}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium tracking-tight">
+                  {checked.updateAvailable
+                    ? `发现新版本 v${checked.latestVersion}`
+                    : "当前已是最新版本"}
+                </p>
+                <a
+                  className="focus-ring mt-1.5 inline-flex items-center gap-1 rounded text-xs text-accent hover:text-accent-strong"
+                  href={checked.releaseUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  查看 Release
+                  <ExternalLink size={11} aria-hidden="true" />
+                </a>
               </div>
+              {checked.updateAvailable && !installed ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => update.install.mutate()}
+                  disabled={update.isPending}
+                >
+                  {update.install.isPending ? (
+                    <LoaderCircle size={14} className="animate-spin" />
+                  ) : (
+                    <Download size={14} />
+                  )}
+                  更新到 v{checked.latestVersion}
+                </Button>
+              ) : null}
             </div>
           ) : null}
           {update.install.error ? (
-            <p className="mt-3 text-[13px] text-danger" role="alert">
+            <p className="mt-3 text-sm text-danger" role="alert">
               {getUpdateErrorMessage(update.install.error)}
             </p>
           ) : null}
           {installed ? (
-            <p className="flex items-center gap-2 text-[13px] text-success" role="status">
+            <p className="mt-1 flex items-center gap-2 text-sm text-success" role="status">
               <CheckCircle2 size={15} aria-hidden="true" />
               v{installed.installedVersion} 已安装，服务正在优雅重启。
             </p>
           ) : null}
         </div>
       </section>
-    </div>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex min-h-12 items-center justify-between gap-4 py-3">
-      <dt className="text-secondary">{label}</dt>
-      <dd className="font-medium">{value}</dd>
     </div>
   );
 }

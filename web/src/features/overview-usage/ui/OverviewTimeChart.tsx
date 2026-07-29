@@ -27,18 +27,22 @@ export function OverviewTimeChart({
         labels: compactAxisLabels(buckets, range),
         datasets: [
           {
-            backgroundColor: chartColorWithAlpha(palette.chartColors[0], 0.1),
+            backgroundColor: chartColorWithAlpha(palette.chartColors[0], 0.12),
             borderColor: palette.chartColors[0],
             borderWidth: 2.25,
             cubicInterpolationMode: "monotone",
             data: buckets.map((bucket) => bucket.requestCount),
             fill: "origin",
             label: "总调用",
-            pointBackgroundColor: palette.surface,
+            pointBackgroundColor: palette.chartColors[0],
             pointBorderColor: palette.chartColors[0],
-            pointBorderWidth: 2,
+            pointBorderWidth: 0,
+            pointHoverBackgroundColor: palette.chartColors[0],
+            pointHoverBorderColor: palette.surface,
+            pointHoverBorderWidth: 2,
             pointHoverRadius: 5,
-            pointRadius: 2.5,
+            pointRadius: 0,
+            pointStyle: "circle",
             tension: 0.35,
           },
           {
@@ -49,11 +53,15 @@ export function OverviewTimeChart({
             data: buckets.map((bucket) => bucket.failedRequestCount),
             fill: false,
             label: "失败",
-            pointBackgroundColor: palette.surface,
+            pointBackgroundColor: palette.chartColors[3],
             pointBorderColor: palette.chartColors[3],
-            pointBorderWidth: 2,
+            pointBorderWidth: 0,
+            pointHoverBackgroundColor: palette.chartColors[3],
+            pointHoverBorderColor: palette.surface,
+            pointHoverBorderWidth: 2,
             pointHoverRadius: 5,
-            pointRadius: 2.5,
+            pointRadius: 0,
+            pointStyle: "circle",
             tension: 0.35,
           },
         ],
@@ -65,31 +73,62 @@ export function OverviewTimeChart({
         normalized: true,
         plugins: {
           legend: {
-            align: "start",
+            align: "end",
             labels: {
-              boxHeight: 2,
-              boxWidth: 18,
+              boxHeight: 8,
+              boxWidth: 8,
               color: palette.textSecondary,
-              font: { family: "inherit", size: 10, weight: 500 },
-              padding: 16,
-              pointStyle: "line",
+              font: { family: "inherit", size: 11, weight: 500 },
+              generateLabels: (chart) => {
+                const datasets = chart.data.datasets ?? [];
+                return datasets.map((dataset, index) => {
+                  const color = String(dataset.borderColor ?? palette.chartColors[0]);
+                  return {
+                    text: String(dataset.label ?? ""),
+                    fillStyle: color,
+                    strokeStyle: color,
+                    lineWidth: 0,
+                    hidden: !chart.isDatasetVisible(index),
+                    datasetIndex: index,
+                    pointStyle: "circle" as const,
+                  };
+                });
+              },
+              padding: 14,
+              pointStyle: "circle",
               usePointStyle: true,
             },
-            position: "bottom",
+            position: "top",
           },
           tooltip: {
             backgroundColor: palette.surface,
+            bodyColor: palette.textSecondary,
+            bodySpacing: 6,
             borderColor: palette.borderSubtle,
             borderWidth: 1,
-            bodyColor: palette.textSecondary,
+            boxHeight: 8,
+            boxPadding: 6,
+            boxWidth: 8,
             callbacks: {
               label: (context) =>
-                `${context.dataset.label}: ${formatOverviewInteger(context.parsed.y ?? 0)} 次`,
+                ` ${context.dataset.label}  ${formatOverviewInteger(context.parsed.y ?? 0)} 次`,
+              labelColor: (context) => {
+                const color = String(context.dataset.borderColor ?? palette.chartColors[0]);
+                return {
+                  backgroundColor: color,
+                  borderColor: color,
+                  borderWidth: 0,
+                  borderRadius: 99,
+                };
+              },
             },
-            cornerRadius: 9,
+            cornerRadius: 10,
             displayColors: true,
-            padding: 10,
+            padding: { top: 10, right: 12, bottom: 10, left: 10 },
             titleColor: palette.textPrimary,
+            titleFont: { family: "inherit", size: 11, weight: 600 },
+            titleMarginBottom: 8,
+            usePointStyle: true,
           },
         },
         responsive: true,
@@ -100,19 +139,23 @@ export function OverviewTimeChart({
             ticks: {
               autoSkip: false,
               color: palette.textTertiary,
-              font: { family: "inherit", size: 9 },
+              font: { family: "inherit", size: 10 },
               maxRotation: 0,
-              padding: 6,
+              padding: 8,
             },
           },
           y: {
             beginAtZero: true,
             border: { display: false },
-            grid: { color: palette.borderSubtle },
+            grid: {
+              color: palette.borderSubtle,
+              drawTicks: false,
+            },
             max: yMaximum,
             ticks: {
               color: palette.textTertiary,
-              font: { family: "inherit", size: 9 },
+              font: { family: "inherit", size: 10 },
+              padding: 8,
               precision: 0,
             },
           },
@@ -124,12 +167,11 @@ export function OverviewTimeChart({
   );
 
   return (
-    <div className="mt-5 min-w-0" data-testid="overview-time-chart">
-      <p className="text-[11px] text-secondary">平滑曲线分别展示总调用与失败调用，悬浮数据点可查看明细。</p>
-      <div className="mt-2" role="group" aria-label={`按时间展示的 ${buckets.length} 个调用桶`}>
+    <div className="min-w-0" data-testid="overview-time-chart">
+      <div role="group" aria-label={`按时间展示的 ${buckets.length} 个调用桶`}>
         <OverviewChart
           ariaLabel={`近 ${buckets.length} 个时间桶的总调用与失败调用曲线`}
-          className="h-60 w-full"
+          className="h-72 w-full"
           createConfiguration={createConfiguration}
         />
       </div>

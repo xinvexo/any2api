@@ -35,7 +35,7 @@ test("shows range metrics with simultaneous time and model charts", async () => 
   );
 
   expect(await screen.findByText("15")).toBeInTheDocument();
-  expect(screen.getByText("usage 覆盖 2 / 2 次请求")).toBeInTheDocument();
+  expect(screen.getByText("usage 覆盖 2 / 2 次")).toBeInTheDocument();
   expect(screen.getByText("0.033")).toBeInTheDocument();
   expect(screen.queryByText("输入 Token")).not.toBeInTheDocument();
   expect(screen.queryByText("输出 Token")).not.toBeInTheDocument();

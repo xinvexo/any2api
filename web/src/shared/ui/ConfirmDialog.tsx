@@ -209,7 +209,7 @@ export function ConfirmDialog({
             </div>
           ) : null}
         </div>
-        <div className="mt-5 flex items-center justify-end gap-2 border-t border-subtle px-5 py-4">
+        <div className="mt-5 flex items-center justify-end gap-2 border-t border-subtle/70 px-5 py-4">
           <Button
             variant="secondary"
             className="min-w-[4.5rem]"

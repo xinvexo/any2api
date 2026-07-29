@@ -36,54 +36,76 @@ export function OverviewModelChart({ models }: { models: OverviewUsageModel[] })
   }, [models]);
   const total = segments.reduce((sum, segment) => sum + segment.requestCount, 0);
   const createConfiguration = useCallback(
-    (palette: OverviewChartPalette): ChartConfiguration<"pie", number[], string> => ({
+    (palette: OverviewChartPalette): ChartConfiguration<"doughnut", number[], string> => ({
       data: {
         labels: segments.map((segment) => segment.label),
         datasets: [
           {
             backgroundColor: palette.chartColors.slice(0, segments.length),
             borderColor: palette.surface,
-            borderRadius: 3,
+            borderRadius: 4,
             borderWidth: 2,
             data: segments.map((segment) => segment.requestCount),
-            hoverOffset: 6,
+            hoverOffset: 4,
             spacing: 1,
           },
         ],
       },
       options: {
         animation: { duration: 550, easing: "easeOutQuart" },
-        layout: { padding: 8 },
+        cutout: "62%",
+        layout: { padding: 2 },
         maintainAspectRatio: false,
         plugins: {
           legend: { display: false },
           tooltip: {
             backgroundColor: palette.surface,
+            bodyColor: palette.textSecondary,
             borderColor: palette.borderSubtle,
             borderWidth: 1,
-            bodyColor: palette.textSecondary,
+            boxHeight: 8,
+            boxPadding: 6,
+            boxWidth: 8,
             callbacks: {
               label: (context) => {
                 const value = context.parsed;
                 const share = total === 0 ? 0 : (value / total) * 100;
-                return `${formatOverviewInteger(value)} 次 · ${formatShare(share)}`;
+                return ` ${formatOverviewInteger(value)} 次 · ${formatShare(share)}`;
+              },
+              labelColor: (context) => {
+                const colors = context.dataset.backgroundColor;
+                const color = Array.isArray(colors)
+                  ? String(colors[context.dataIndex] ?? palette.chartColors[0])
+                  : String(colors ?? palette.chartColors[0]);
+                return {
+                  backgroundColor: color,
+                  borderColor: color,
+                  borderWidth: 0,
+                  borderRadius: 99,
+                };
               },
             },
-            cornerRadius: 9,
+            cornerRadius: 10,
             displayColors: true,
-            padding: 10,
+            padding: { top: 10, right: 12, bottom: 10, left: 10 },
             titleColor: palette.textPrimary,
+            titleFont: { family: "inherit", size: 11, weight: 600 },
+            usePointStyle: true,
           },
         },
         responsive: true,
       },
-      type: "pie",
+      type: "doughnut",
     }),
     [segments, total],
   );
 
   if (models.length === 0) {
-    return <p className="mt-6 text-xs text-tertiary">当前时间段还没有模型调用。</p>;
+    return (
+      <div className="flex-1 flex items-center justify-center py-8 text-center text-sm text-tertiary">
+        当前时间段还没有模型调用。
+      </div>
+    );
   }
 
   const chartLabel = `模型调用占比：${segments
@@ -91,42 +113,50 @@ export function OverviewModelChart({ models }: { models: OverviewUsageModel[] })
     .join("，")}`;
 
   return (
-    <div className="mt-3 min-w-0" data-testid="overview-model-chart">
-      <div className="mx-auto w-full max-w-[264px] text-center">
+    <div className="min-w-0" data-testid="overview-model-chart">
+      <div className="relative mx-auto w-full max-w-[200px]">
         <OverviewChart
           ariaLabel={chartLabel}
-          className="h-[190px] w-full"
+          className="h-[168px] w-full"
           createConfiguration={createConfiguration}
         />
-        <p className="mt-1 text-[11px] text-secondary">
-          <strong className="font-semibold tabular-nums text-primary">
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+          <p className="text-[1.25rem] font-semibold tabular-nums tracking-tight text-primary">
             {formatOverviewInteger(total)}
-          </strong>{" "}
-          次调用
-        </p>
+          </p>
+          <p className="mt-0.5 text-[11px] text-tertiary">次调用</p>
+        </div>
       </div>
 
-      <ul
-        className="mt-4 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2"
-        aria-label="模型调用占比图例"
-      >
+      <ul className="mt-4 space-y-2.5" aria-label="模型调用占比图例">
         {segments.map((segment) => (
           <li
             key={segment.key}
-            className="flex min-w-0 items-start gap-1.5"
+            className="min-w-0"
             title={`${segment.label}：${formatOverviewInteger(segment.requestCount)} 次，${formatShare(segment.percentage)}`}
           >
-            <span
-              className="mt-0.5 size-2.5 shrink-0 rounded-[3px]"
-              style={{ backgroundColor: segment.color }}
-              aria-hidden="true"
-            />
-            <span className="min-w-0">
-              <span className="block truncate text-[10px] font-medium">{segment.label}</span>
-              <span className="mt-px block text-[9px] tabular-nums text-tertiary">
-                {formatOverviewInteger(segment.requestCount)} 次 · {formatShare(segment.percentage)}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: segment.color }}
+                  aria-hidden="true"
+                />
+                <span className="truncate text-xs font-medium">{segment.label}</span>
+              </div>
+              <span className="shrink-0 text-[11px] tabular-nums text-tertiary">
+                {formatShare(segment.percentage)}
               </span>
-            </span>
+            </div>
+            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${Math.max(segment.percentage, segment.percentage > 0 ? 2 : 0)}%`,
+                  backgroundColor: segment.color,
+                }}
+              />
+            </div>
           </li>
         ))}
       </ul>

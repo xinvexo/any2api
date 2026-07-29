@@ -80,12 +80,8 @@ export function RequestLogManagement() {
       className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       aria-busy={query.isFetching}
     >
-      {/* Fixed top chrome: refresh + telemetry */}
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-subtle pb-3">
-        <Button variant="ghost" onClick={() => void query.refetch()} disabled={query.isFetching}>
-          <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
-          刷新
-        </Button>
+      {/* Fixed top chrome: stats left, actions right */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-subtle pb-3">
         <p className="text-[12px] text-secondary">
           队列{" "}
           <span className="tabular-nums text-primary">
@@ -97,6 +93,10 @@ export function RequestLogManagement() {
             {query.data.telemetry.droppedRecords}
           </span>
         </p>
+        <Button variant="ghost" onClick={() => void query.refetch()} disabled={query.isFetching}>
+          <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
+          刷新
+        </Button>
       </div>
 
       {query.isError ? (
@@ -112,7 +112,7 @@ export function RequestLogManagement() {
             <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
             <p className="mt-3 text-[13px] font-medium">还没有请求日志</p>
             <p className="mt-1 text-[12px] text-secondary">
-              通过网关完成一次 Codex、Claude 或 Grok 请求后，记录会出现在这里。
+              通过网关完成一次请求后，记录会出现在这里。
             </p>
           </div>
         ) : (
@@ -149,7 +149,7 @@ export function RequestLogManagement() {
                 <div
                   role="rowgroup"
                   aria-label="请求日志表头"
-                  className="shrink-0 overflow-y-auto border-b border-subtle bg-surface [scrollbar-gutter:stable]"
+                  className="shrink-0 overflow-y-scroll border-b border-subtle bg-transparent [scrollbar-gutter:stable]"
                 >
                   <div
                     role="row"
@@ -184,7 +184,7 @@ export function RequestLogManagement() {
                   // Scrollable rowgroup must be keyboard-focusable.
                   // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                   tabIndex={0}
-                  className="focus-ring min-h-0 flex-1 overflow-y-auto bg-surface outline-none [scrollbar-gutter:stable]"
+                  className="focus-ring min-h-0 flex-1 overflow-y-scroll bg-transparent outline-none [scrollbar-gutter:stable]"
                 >
                   {pageItems.map((log) => (
                     <RequestLogTableRows

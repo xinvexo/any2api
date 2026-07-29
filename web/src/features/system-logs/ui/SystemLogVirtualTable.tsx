@@ -16,7 +16,7 @@ import { cn } from "@/shared/lib/cn";
 
 const ESTIMATED_ROW_HEIGHT = 41;
 const gridClass =
-  "grid grid-cols-[9.5rem_8rem_4.5rem_minmax(16rem,1fr)_4rem_5.5rem_5rem_5.5rem_5rem] items-start gap-2 px-1";
+  "grid grid-cols-[9.5rem_8rem_4.5rem_minmax(16rem,1fr)_4rem_5.5rem_5rem_5.5rem_5rem] items-start gap-2 px-0";
 
 export function SystemLogVirtualTable({ items }: { items: readonly SystemLog[] }) {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -45,7 +45,7 @@ export function SystemLogVirtualTable({ items }: { items: readonly SystemLog[] }
   });
 
   return (
-    <div className="hidden h-full min-h-0 overflow-x-auto md:block [scrollbar-gutter:stable]">
+    <div className="hidden h-full min-h-0 overflow-x-auto md:block">
       <div
         role="table"
         aria-label="系统日志表格"
@@ -55,7 +55,8 @@ export function SystemLogVirtualTable({ items }: { items: readonly SystemLog[] }
         <div
           role="rowgroup"
           aria-label="系统日志表头"
-          className="shrink-0 overflow-y-auto border-b border-subtle bg-surface [scrollbar-gutter:stable]"
+          /* overflow-y-scroll + gutter: match body width so columns line up with the scroller */
+          className="shrink-0 overflow-y-scroll border-b border-subtle bg-transparent [scrollbar-gutter:stable]"
         >
           <div role="row" aria-rowindex={1} className={cn(gridClass, "text-[11px] font-medium text-tertiary")}>
             <Header>时间</Header>
@@ -76,7 +77,7 @@ export function SystemLogVirtualTable({ items }: { items: readonly SystemLog[] }
           // This scrollable rowgroup must be keyboard-focusable.
           // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
           tabIndex={0}
-          className="focus-ring min-h-0 flex-1 overflow-y-auto bg-surface outline-none [scrollbar-gutter:stable]"
+          className="focus-ring min-h-0 flex-1 overflow-y-scroll bg-transparent outline-none [scrollbar-gutter:stable]"
         >
           <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
             {virtualizer.getVirtualItems().map((virtualRow) => {
@@ -91,7 +92,7 @@ export function SystemLogVirtualTable({ items }: { items: readonly SystemLog[] }
                   title={`Request ID: ${log.requestId}`}
                   className={cn(
                     gridClass,
-                    "absolute left-0 top-0 w-full border-b border-subtle/70 bg-surface text-[12px] hover:bg-surface-muted",
+                    "absolute left-0 top-0 w-full border-b border-subtle/50 bg-transparent text-[12px] hover:bg-surface-muted/50",
                   )}
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >

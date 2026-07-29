@@ -30,7 +30,7 @@ test("rotates the password with the in-memory CSRF token and refreshes the sessi
 
   const client = renderRotation();
 
-  await screen.findByRole("heading", { name: "管理员密码" });
+  await screen.findByLabelText("当前密码");
   fireEvent.change(screen.getByLabelText("当前密码"), {
     target: { value: "correct horse battery staple" },
   });
@@ -85,7 +85,7 @@ test("current password errors do not expire the administrator session", async ()
   );
 
   renderRotation();
-  await screen.findByRole("heading", { name: "管理员密码" });
+  await screen.findByLabelText("当前密码");
   fireEvent.change(screen.getByLabelText("当前密码"), { target: { value: "old" } });
   fireEvent.change(screen.getByLabelText("新密码"), { target: { value: "new password value" } });
   fireEvent.change(screen.getByLabelText("确认新密码"), { target: { value: "new password value" } });

@@ -104,8 +104,10 @@ export function FloatingPopover({
     >
       <div
         className={cn(
-          "relative rounded-[11px] border border-subtle bg-surface",
-          "px-2.5 py-1.5 text-[11px] leading-4 text-primary shadow-panel",
+          "relative rounded-[11px] border border-white/50 bg-white/80 shadow-panel",
+          "px-2.5 py-1.5 text-[11px] leading-4 text-primary",
+          "backdrop-blur-xl backdrop-saturate-150",
+          "dark:border-white/10 dark:bg-white/12",
           className,
         )}
       >

@@ -70,15 +70,22 @@ export function ProxyList({
   return (
     <div>
       <div className="flex flex-col gap-2.5 border-b border-subtle pb-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button variant="primary" onClick={onCreate} disabled={pending}>
-            <Plus size={14} />
-            新增
-          </Button>
-          <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
-            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
-            刷新
-          </Button>
+        <label className="relative min-w-0 sm:w-52">
+          <span className="sr-only">搜索出口代理</span>
+          <Search
+            size={13}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
+            aria-hidden="true"
+          />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索关键字"
+            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
+          />
+        </label>
+
+        <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
           <label className="relative min-w-0 sm:w-52">
             <span className="sr-only">代理测试目标</span>
             <Activity
@@ -107,22 +114,15 @@ export function ProxyList({
               ))}
             </select>
           </label>
+          <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
+            刷新
+          </Button>
+          <Button variant="primary" onClick={onCreate} disabled={pending}>
+            <Plus size={14} />
+            新增
+          </Button>
         </div>
-
-        <label className="relative min-w-0 sm:w-52">
-          <span className="sr-only">搜索出口代理</span>
-          <Search
-            size={13}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
-            aria-hidden="true"
-          />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索关键字"
-            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
-          />
-        </label>
       </div>
 
       {endpointError ? (
@@ -182,14 +182,8 @@ export function ProxyList({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="border-t border-subtle py-8 text-center text-sm text-secondary">
+        <p className="py-8 text-center text-sm text-secondary">
           {query.trim() ? "没有匹配的出口代理" : "暂无出口代理"}
-        </p>
-      ) : null}
-
-      {configuration.items.length === 1 && !query.trim() ? (
-        <p className="border-t border-subtle py-3 text-sm text-secondary">
-          尚未添加自定义出口代理。新出口代理会独立保存，不会改变当前全局出口。
         </p>
       ) : null}
 

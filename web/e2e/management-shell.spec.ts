@@ -2,15 +2,15 @@ import { expect, test, type Page } from "@playwright/test";
 
 const password = "any2api-e2e-password";
 
-test("settings expose the four current sections", async ({ page }) => {
+test("settings expose the five current sections", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
 
-  await loginAt(page, "/settings", "管理员密码");
+  await loginAt(page, "/settings", "允许远程管理");
   await expect(page).toHaveURL(/\/settings\/basic$/);
-  await expect(page.getByText("管理员密码", { exact: false }).first()).toBeVisible();
+  await expect(page.getByText("允许远程管理", { exact: false }).first()).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expect(page.getByRole("navigation", { name: "系统设置分类" }).getByRole("link"))
-    .toHaveText(["基础", "路由策略", "运行保护", "日志"]);
+    .toHaveText(["基础", "路由策略", "运行保护", "日志", "关于"]);
   expect(browserErrors).toEqual([]);
 });
 
@@ -168,7 +168,7 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
 test("390px OAuth navigation closes after a deep-link transition without horizontal overflow", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await loginAt(page, "/settings", "管理员密码");
+  await loginAt(page, "/settings", "允许远程管理");
 
   const menu = page.getByRole("button", { name: "打开导航" });
   await menu.click();

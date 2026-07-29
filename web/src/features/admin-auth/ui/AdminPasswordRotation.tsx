@@ -5,7 +5,13 @@ import { getAdminAuthErrorMessage } from "../model/admin-auth-error";
 import { useAdminAuth } from "../model/use-admin-auth";
 import { Button } from "@/shared/ui/Button";
 
-export function AdminPasswordRotation() {
+export function AdminPasswordRotation({
+  onCancel,
+  onCompleted,
+}: {
+  onCancel?: () => void;
+  onCompleted?: () => void;
+} = {}) {
   const auth = useAdminAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -26,6 +32,7 @@ export function AdminPasswordRotation() {
     try {
       await auth.rotatePassword(currentPassword, newPassword);
       setCompleted(true);
+      onCompleted?.();
     } catch (nextError) {
       setError(nextError);
     } finally {
@@ -36,63 +43,61 @@ export function AdminPasswordRotation() {
   }
 
   return (
-    <section aria-labelledby="admin-password-heading">
-      <header className="mb-4">
-        <h2 id="admin-password-heading" className="text-[15px] font-semibold tracking-tight">
-          管理员密码
-        </h2>
-        <p className="mt-1 text-[12px] leading-5 text-secondary">
-          更新后，其他已登录浏览器需要重新登录。
+    <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)} aria-busy={auth.submitting}>
+      <PasswordInput
+        label="当前密码"
+        value={currentPassword}
+        autoComplete="current-password"
+        onChange={setCurrentPassword}
+      />
+      <PasswordInput
+        label="新密码"
+        value={newPassword}
+        autoComplete="new-password"
+        onChange={setNewPassword}
+      />
+      <PasswordInput
+        label="确认新密码"
+        value={confirmation}
+        autoComplete="new-password"
+        onChange={setConfirmation}
+      />
+
+      {mismatch ? (
+        <p className="text-[12px] text-danger" role="alert">
+          两次输入的新密码不一致。
         </p>
-      </header>
+      ) : null}
+      {error ? (
+        <p className="text-[12px] text-danger" role="alert">
+          {getAdminAuthErrorMessage(error)}
+        </p>
+      ) : null}
+      {completed ? (
+        <p className="flex items-center gap-2 text-[12px] text-success" role="status">
+          <CheckCircle2 size={14} aria-hidden="true" />
+          密码已更新，当前会话已刷新。
+        </p>
+      ) : null}
 
-      <form className="space-y-4" onSubmit={(event) => void submit(event)} aria-busy={auth.submitting}>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <PasswordInput
-            label="当前密码"
-            value={currentPassword}
-            autoComplete="current-password"
-            onChange={setCurrentPassword}
-          />
-          <PasswordInput
-            label="新密码"
-            value={newPassword}
-            autoComplete="new-password"
-            onChange={setNewPassword}
-          />
-          <PasswordInput
-            label="确认新密码"
-            value={confirmation}
-            autoComplete="new-password"
-            onChange={setConfirmation}
-          />
-        </div>
-
-        {mismatch ? (
-          <p className="text-[12px] text-danger" role="alert">
-            两次输入的新密码不一致。
-          </p>
-        ) : null}
-        {error ? (
-          <p className="text-[12px] text-danger" role="alert">
-            {getAdminAuthErrorMessage(error)}
-          </p>
-        ) : null}
-        {completed ? (
-          <p className="flex items-center gap-2 text-[12px] text-success" role="status">
-            <CheckCircle2 size={14} aria-hidden="true" />
-            密码已更新，当前会话已刷新。
-          </p>
-        ) : null}
-
-        <div className="flex justify-end">
-          <Button type="submit" variant="primary" disabled={auth.submitting || incomplete || mismatch}>
-            {auth.submitting ? <LoaderCircle size={14} className="animate-spin" /> : <KeyRound size={14} />}
-            更新密码
+      <div className="mt-2 flex items-center justify-end gap-2 border-t border-subtle/70 pt-4">
+        {onCancel ? (
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-w-[4.5rem]"
+            disabled={auth.submitting}
+            onClick={onCancel}
+          >
+            取消
           </Button>
-        </div>
-      </form>
-    </section>
+        ) : null}
+        <Button type="submit" variant="primary" disabled={auth.submitting || incomplete || mismatch}>
+          {auth.submitting ? <LoaderCircle size={14} className="animate-spin" /> : <KeyRound size={14} />}
+          更新密码
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -111,7 +116,7 @@ function PasswordInput({
     <label className="block min-w-0">
       <span className="text-[12px] font-medium text-primary">{label}</span>
       <input
-        className="focus-ring mt-1.5 h-8 w-full rounded-[8px] border-0 bg-surface-muted px-2.5 text-[12px]"
+        className="focus-ring mt-1.5 h-9 w-full rounded-[8px] border-0 bg-surface-muted px-3 text-[13px]"
         type="password"
         value={value}
         autoComplete={autoComplete}

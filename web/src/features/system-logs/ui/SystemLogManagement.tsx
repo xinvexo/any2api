@@ -57,11 +57,7 @@ export function SystemLogManagement() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy={query.isFetching}>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle pb-3">
-        <Button variant="ghost" onClick={() => void query.refetch()} disabled={query.isFetching}>
-          <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
-          刷新
-        </Button>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-subtle pb-3">
         <div className="flex items-center gap-2 text-[12px] text-secondary">
           <span id="system-log-auto-refresh-label">自动刷新</span>
           <Switch
@@ -71,18 +67,26 @@ export function SystemLogManagement() {
             onCheckedChange={handleAutoRefreshChange}
           />
         </div>
-        <Button
-          className="ml-auto"
-          variant="danger"
-          disabled={items.length === 0 || clearMutation.isPending}
-          onClick={() => setConfirmClear(true)}
-        >
-          <Trash2 size={14} />
-          清理历史日志
-        </Button>
-        <p className="w-full text-[11px] text-tertiary sm:w-auto">
-          最近 {items.length} 条 · 队列 {query.data.telemetry.queuedRecords} · 丢弃 {query.data.telemetry.droppedRecords}
-        </p>
+        <div className="flex items-center gap-0.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
+            <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
+            刷新
+          </Button>
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={items.length === 0 || clearMutation.isPending}
+            onClick={() => setConfirmClear(true)}
+          >
+            <Trash2 size={14} />
+            清理历史日志
+          </Button>
+        </div>
       </div>
 
       {query.isError ? (

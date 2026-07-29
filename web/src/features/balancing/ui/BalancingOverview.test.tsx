@@ -18,10 +18,8 @@ test("renders fixed-size routing aggregates for a large account collection", asy
   expect(screen.getByText("Codex")).toBeInTheDocument();
   expect(screen.getByText("Claude")).toBeInTheDocument();
   expect(screen.getByText("Grok")).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "调整策略" })).toHaveAttribute(
-    "href",
-    "/settings/routing",
-  );
+  expect(screen.queryByText(/调度 Epoch/)).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "调整策略" })).not.toBeInTheDocument();
   expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
   expect(screen.queryByText("Credential 健康过滤")).not.toBeInTheDocument();
   expect(screen.queryByText("Endpoint 可用")).not.toBeInTheDocument();

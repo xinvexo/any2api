@@ -62,8 +62,8 @@ function ProviderButton({
         "focus-ring flex h-9 w-full items-center gap-2 rounded-[10px] px-2.5 text-left transition-colors sm:h-11 sm:gap-2.5 sm:rounded-[12px] sm:px-3",
         "disabled:pointer-events-none disabled:opacity-50",
         active
-          ? "bg-surface text-primary shadow-sm sm:bg-surface-muted sm:shadow-none"
-          : "text-secondary hover:bg-surface/70 hover:text-primary sm:hover:bg-surface-muted/70",
+          ? "bg-nav-active text-nav-active-fg"
+          : "text-secondary hover:bg-surface-hover hover:text-primary",
       )}
     >
       <Icon size={16} className={cn("shrink-0", active ? "text-primary" : "text-secondary")} />
@@ -73,7 +73,7 @@ function ProviderButton({
       <span
         className={cn(
           "shrink-0 tabular-nums text-[11px] sm:text-[12px]",
-          active ? "text-secondary" : "text-tertiary",
+          active ? "font-medium text-secondary" : "text-tertiary",
         )}
       >
         {count}

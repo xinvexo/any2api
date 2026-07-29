@@ -1,6 +1,4 @@
-const themeModes = ["light", "system", "dark"] as const;
-
-export type ThemeMode = (typeof themeModes)[number];
+export type ThemeMode = "light" | "dark";
 
 const THEME_COLOR = {
   light: "#f0f4f9",
@@ -10,21 +8,25 @@ const THEME_COLOR = {
 export function readThemeMode(): ThemeMode {
   try {
     const value = localStorage.getItem("any2api-theme");
-    return themeModes.includes(value as ThemeMode) ? (value as ThemeMode) : "system";
+    if (value === "light" || value === "dark") {
+      return value;
+    }
+    // Migrate legacy "system" (and anything else) to the current OS preference once.
+    if (value === "system") {
+      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
   } catch {
-    return "system";
+    // fall through
   }
+  return "light";
 }
 
 export function applyTheme(mode: ThemeMode) {
-  const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  const resolved = mode === "system" ? (systemDark ? "dark" : "light") : mode;
-
-  document.documentElement.dataset.theme = resolved;
+  document.documentElement.dataset.theme = mode;
   document.documentElement.dataset.themeMode = mode;
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute("content", THEME_COLOR[resolved]);
+    ?.setAttribute("content", THEME_COLOR[mode]);
 
   try {
     localStorage.setItem("any2api-theme", mode);

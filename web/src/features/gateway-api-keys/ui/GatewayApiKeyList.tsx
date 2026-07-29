@@ -46,17 +46,6 @@ export function GatewayApiKeyList({
   return (
     <div>
       <div className="flex flex-col gap-2.5 border-b border-subtle pb-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Button variant="primary" onClick={onCreate} disabled={pending}>
-            <Plus size={14} />
-            新增
-          </Button>
-          <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
-            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
-            刷新
-          </Button>
-        </div>
-
         <label className="relative min-w-0 sm:w-52">
           <span className="sr-only">搜索密钥</span>
           <Search
@@ -71,6 +60,17 @@ export function GatewayApiKeyList({
             className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
           />
         </label>
+
+        <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+          <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
+            刷新
+          </Button>
+          <Button variant="primary" onClick={onCreate} disabled={pending}>
+            <Plus size={14} />
+            新增
+          </Button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -103,7 +103,7 @@ export function GatewayApiKeyList({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="border-t border-subtle py-8 text-center text-sm text-secondary">
+        <p className="py-8 text-center text-sm text-secondary">
           {query.trim()
             ? "没有匹配的密钥"
             : "尚未创建网关密钥。客户端使用这些密钥访问本地网关。"}

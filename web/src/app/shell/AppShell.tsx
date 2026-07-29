@@ -1,4 +1,4 @@
-import { LogOut, Menu, Network, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { KeyRound, LogOut, Menu, Network, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
@@ -6,16 +6,24 @@ import { getPageTitle } from "@/app/navigation";
 import { AppNavigation } from "@/app/shell/AppNavigation";
 import { ThemeSelector } from "@/app/theme/ThemeSelector";
 import { useThemeMode } from "@/app/theme/useThemeMode";
-import { AdminSecurityBanner, useAdminAuth } from "@/features/admin-auth";
+import {
+  AdminPasswordDrawer,
+  AdminSecurityBanner,
+  useAdminAuth,
+} from "@/features/admin-auth";
 import { cn } from "@/shared/lib/cn";
 
 const SIDEBAR_EXPANDED = "w-[256px]";
 const SIDEBAR_COLLAPSED = "w-[72px]";
 const SIDEBAR_STORAGE_KEY = "any2api.sidebar-collapsed";
+/** Header icon controls: pill hover, not circular. */
+const HEADER_ICON_BUTTON =
+  "focus-ring inline-flex h-8 shrink-0 items-center justify-center rounded-full px-3 text-secondary transition-colors hover:bg-surface-hover hover:text-primary";
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [themeMode, setThemeMode] = useThemeMode();
   const adminAuth = useAdminAuth();
   const location = useLocation();
@@ -60,7 +68,12 @@ export function AppShell() {
   }, [mobileOpen]);
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-primary">
+    <div className="app-shell flex h-dvh flex-col overflow-hidden text-primary">
+      <div className="app-shell-fx" aria-hidden="true">
+        <div className="app-shell-fx-bloom absolute inset-0" />
+        <div className="app-shell-fx-grid absolute inset-0" />
+      </div>
+
       <a
         href="#main-content"
         className="focus-ring fixed left-4 top-3 z-50 -translate-y-[calc(100%+1rem)] whitespace-nowrap rounded-full bg-accent px-3 py-2 text-sm font-semibold text-on-accent focus:translate-y-0"
@@ -68,23 +81,23 @@ export function AppShell() {
         跳到主要内容
       </a>
 
-      {/* Chrome: header + sidebar share the same outer surface */}
-      <header className="z-30 shrink-0">
+      {/* Chrome: header + sidebar share the ambient glass canvas */}
+      <header className="app-shell-layer z-30 shrink-0">
         <div className="flex h-14 items-center gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4">
           <button
             type="button"
-            className="focus-ring grid size-10 shrink-0 place-items-center rounded-full text-secondary transition-colors hover:bg-surface-hover hover:text-primary lg:hidden"
+            className={cn(HEADER_ICON_BUTTON, "lg:hidden")}
             aria-label={mobileOpen ? "关闭导航" : "打开导航"}
             aria-expanded={mobileOpen}
             aria-controls="responsive-navigation"
             onClick={() => setMobileOpen((open) => !open)}
           >
-            {mobileOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+            {mobileOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
           </button>
 
           <button
             type="button"
-            className="focus-ring hidden size-10 shrink-0 place-items-center rounded-full text-secondary transition-colors hover:bg-surface-hover hover:text-primary lg:grid"
+            className={cn(HEADER_ICON_BUTTON, "hidden lg:inline-flex")}
             aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
             aria-expanded={!collapsed}
             aria-controls="desktop-navigation"
@@ -92,16 +105,25 @@ export function AppShell() {
             onClick={() => setCollapsed((value) => !value)}
           >
             {collapsed ? (
-              <PanelLeftOpen size={20} aria-hidden="true" />
+              <PanelLeftOpen size={18} aria-hidden="true" />
             ) : (
-              <PanelLeftClose size={20} aria-hidden="true" />
+              <PanelLeftClose size={18} aria-hidden="true" />
             )}
           </button>
 
           <Brand onNavigate={() => setMobileOpen(false)} />
 
-          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-1.5">
             <ThemeSelector mode={themeMode} onModeChange={setThemeMode} compact />
+            <button
+              type="button"
+              className={HEADER_ICON_BUTTON}
+              aria-label="修改密码"
+              title="修改密码"
+              onClick={() => setPasswordOpen(true)}
+            >
+              <KeyRound size={17} aria-hidden="true" />
+            </button>
             <LogoutButton
               pending={adminAuth.submitting}
               onLogout={() => void adminAuth.logout()}
@@ -109,6 +131,8 @@ export function AppShell() {
           </div>
         </div>
       </header>
+
+      <AdminPasswordDrawer open={passwordOpen} onClose={() => setPasswordOpen(false)} />
 
       {mobileOpen ? (
         <div className="fixed inset-0 top-14 z-40 sm:top-16 lg:hidden" role="presentation">
@@ -121,7 +145,7 @@ export function AppShell() {
           <aside
             id="responsive-navigation"
             className={cn(
-              "absolute inset-y-0 left-0 flex h-full max-w-[86vw] flex-col bg-canvas shadow-panel",
+              "app-glass-panel absolute inset-y-0 left-0 flex h-full max-w-[86vw] flex-col",
               SIDEBAR_EXPANDED,
             )}
             aria-labelledby={titleId}
@@ -132,11 +156,11 @@ export function AppShell() {
               </span>
               <button
                 type="button"
-                className="focus-ring grid size-10 place-items-center rounded-full text-secondary transition-colors hover:bg-surface-hover hover:text-primary"
+                className={HEADER_ICON_BUTTON}
                 aria-label="关闭导航"
                 onClick={() => setMobileOpen(false)}
               >
-                <X size={18} aria-hidden="true" />
+                <X size={17} aria-hidden="true" />
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
@@ -146,7 +170,7 @@ export function AppShell() {
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="app-shell-layer flex min-h-0 flex-1">
         <aside
           id="desktop-navigation"
           className={cn(
@@ -160,7 +184,7 @@ export function AppShell() {
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2 p-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-2 p-2 sm:p-2.5">
           <AdminSecurityBanner />
           <p className="sr-only" aria-live="polite">
             当前页面：{pageTitle}
@@ -169,10 +193,11 @@ export function AppShell() {
             id="main-content"
             ref={mainRef}
             tabIndex={-1}
-            className="min-h-0 flex-1 overflow-y-scroll rounded-panel bg-surface shadow-panel outline-none [scrollbar-gutter:stable]"
+            className="app-glass-panel min-h-0 flex-1 overflow-y-scroll rounded-panel outline-none [scrollbar-gutter:stable_both-edges]"
           >
             {/* h-full + min-h-0: pages can pin chrome to the panel height (request logs).
-                Taller pages still overflow and scroll inside main. */}
+                Taller pages still overflow and scroll inside main.
+                both-edges keeps left/right inset equal when the gutter is reserved. */}
             <div className="flex h-full min-h-0 w-full flex-col p-4">
               <Outlet />
             </div>
@@ -193,13 +218,13 @@ function LogoutButton({
   return (
     <button
       type="button"
-      className="focus-ring grid size-10 place-items-center rounded-full text-secondary transition-colors hover:bg-surface-hover hover:text-primary disabled:opacity-50"
+      className={cn(HEADER_ICON_BUTTON, "disabled:opacity-50")}
       disabled={pending}
       aria-label="退出"
       title="退出"
       onClick={onLogout}
     >
-      <LogOut size={18} aria-hidden="true" />
+      <LogOut size={17} aria-hidden="true" />
     </button>
   );
 }

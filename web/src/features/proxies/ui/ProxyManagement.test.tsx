@@ -40,7 +40,9 @@ test("renders DIRECT in a table-style proxy list", async () => {
   // Default global route is DIRECT — show the activation marker, no set-global action.
   expect(screen.getByText("全局路由")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "将 DIRECT 设为全局出口" })).not.toBeInTheDocument();
-  expect(screen.getByText("尚未添加自定义出口代理。新出口代理会独立保存，不会改变当前全局出口。")).toBeInTheDocument();
+  expect(
+    screen.queryByText("尚未添加自定义出口代理。新出口代理会独立保存，不会改变当前全局出口。"),
+  ).not.toBeInTheDocument();
   expect(screen.queryByText(/Credential 绑定 DIRECT 时会继承此出口/)).not.toBeInTheDocument();
 });
 

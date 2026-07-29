@@ -1,0 +1,123 @@
+/* Management shell — restrained macOS frosted glass base */
+
+.app-shell {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse 70% 55% at 12% 8%, rgb(0 113 227 / 10%), transparent 58%),
+    radial-gradient(ellipse 55% 45% at 88% 18%, rgb(94 92 230 / 8%), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 70% 92%, rgb(52 199 89 / 6%), transparent 52%),
+    linear-gradient(165deg, #eef2f8 0%, #f5f6f8 42%, #ebf0f7 100%);
+}
+
+html[data-theme="dark"] .app-shell {
+  background:
+    radial-gradient(ellipse 70% 55% at 12% 8%, rgb(10 132 255 / 16%), transparent 58%),
+    radial-gradient(ellipse 55% 45% at 88% 18%, rgb(94 92 230 / 12%), transparent 55%),
+    radial-gradient(ellipse 60% 50% at 70% 92%, rgb(48 209 88 / 8%), transparent 52%),
+    linear-gradient(165deg, #0a0c10 0%, #101215 45%, #0c0e12 100%);
+}
+
+/* Do NOT force position on all children — that overrides Tailwind `fixed`
+   on the skip link and leaves a blank layout gap at the top. */
+.app-shell-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.app-shell-layer {
+  position: relative;
+  z-index: 1;
+}
+
+/* Soft ambient bloom behind chrome */
+.app-shell-fx-bloom {
+  background:
+    radial-gradient(circle at 20% 15%, rgb(255 255 255 / 55%), transparent 42%),
+    radial-gradient(circle at 82% 28%, rgb(210 225 255 / 40%), transparent 38%),
+    radial-gradient(circle at 55% 88%, rgb(230 240 255 / 35%), transparent 45%);
+  filter: blur(28px);
+  opacity: 0.9;
+}
+
+html[data-theme="dark"] .app-shell-fx-bloom {
+  background:
+    radial-gradient(circle at 20% 15%, rgb(40 55 90 / 45%), transparent 42%),
+    radial-gradient(circle at 82% 28%, rgb(30 50 100 / 35%), transparent 38%),
+    radial-gradient(circle at 55% 88%, rgb(20 40 70 / 30%), transparent 45%);
+  opacity: 0.85;
+}
+
+/* Faint tech grid, masked to center like the reference */
+.app-shell-fx-grid {
+  background-image:
+    linear-gradient(rgb(0 113 227 / 7%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(0 113 227 / 7%) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 72% 68% at 48% 42%, #000 8%, transparent 72%);
+  opacity: 0.55;
+}
+
+html[data-theme="dark"] .app-shell-fx-grid {
+  background-image:
+    linear-gradient(rgb(10 132 255 / 10%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(10 132 255 / 10%) 1px, transparent 1px);
+  opacity: 0.4;
+}
+
+/* Main content frosted glass panel */
+.app-glass-panel {
+  border: 1px solid rgb(255 255 255 / 58%);
+  background:
+    linear-gradient(
+      165deg,
+      rgb(255 255 255 / 78%) 0%,
+      rgb(255 255 255 / 62%) 48%,
+      rgb(248 250 255 / 68%) 100%
+    );
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 40%) inset,
+    0 1px 0 rgb(255 255 255 / 55%) inset,
+    var(--panel-shadow);
+  backdrop-filter: blur(40px) saturate(1.55);
+  -webkit-backdrop-filter: blur(40px) saturate(1.55);
+}
+
+html[data-theme="dark"] .app-glass-panel {
+  border-color: rgb(255 255 255 / 10%);
+  background:
+    linear-gradient(
+      165deg,
+      rgb(44 44 48 / 72%) 0%,
+      rgb(28 28 32 / 64%) 52%,
+      rgb(22 22 26 / 70%) 100%
+    );
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 6%) inset,
+    0 1px 0 rgb(255 255 255 / 5%) inset,
+    var(--panel-shadow);
+}
+
+/* Floating chrome controls over glass (header chips, mobile nav) */
+.app-glass-chip {
+  border: 1px solid rgb(255 255 255 / 45%);
+  background: rgb(255 255 255 / 55%);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 40%) inset;
+  backdrop-filter: blur(20px) saturate(1.35);
+  -webkit-backdrop-filter: blur(20px) saturate(1.35);
+}
+
+html[data-theme="dark"] .app-glass-chip {
+  border-color: rgb(255 255 255 / 10%);
+  background: rgb(40 40 44 / 62%);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 5%) inset;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell-fx-bloom {
+    filter: blur(20px);
+  }
+}

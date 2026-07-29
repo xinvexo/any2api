@@ -18,6 +18,18 @@ body {
   background: var(--canvas-accent);
 }
 
+/* Nested cards on glass stay slightly more solid for readability */
+.bg-surface {
+  background-color: var(--surface);
+}
+
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .app-glass-panel {
+    /* Prefer GPU-friendly compositing for frosted panels */
+    transform: translateZ(0);
+  }
+}
+
 /*
  * Element resets live in @layer base so utility classes (text-on-accent, etc.)
  * win over them. Never force `color: inherit` on button — that made primary
@@ -113,12 +125,11 @@ body {
   }
 }
 
-/* Side drawer
+/* Side drawer + confirm dialog share the shell frosted-glass language.
  *
- * Scrim uses solid black + element opacity (not premultiplied alpha color), so
- * fade never looks milky/white over the page.
- * Panel only translates — never fades — so the white surface never composites
- * as translucent white over the dimmed content.
+ * Scrim: solid black + element opacity (not premultiplied alpha) so fade
+ * never looks milky. Panel: glass fill + backdrop-filter so overlays match
+ * the main app-glass-panel.
  */
 .side-drawer-root {
   isolation: isolate;
@@ -139,26 +150,40 @@ body {
 }
 
 .side-drawer-scrim.is-open {
-  opacity: 0.24;
+  opacity: 0.22;
 }
 
 html[data-theme="dark"] .side-drawer-scrim.is-open {
-  opacity: 0.48;
+  opacity: 0.5;
 }
 
 .side-drawer-panel {
   position: absolute;
-  inset-block: 0;
-  right: 0;
+  inset-block: 0.5rem;
+  right: 0.5rem;
   display: flex;
-  width: 100%;
+  width: calc(100% - 1rem);
   max-width: 28rem;
-  height: 100%;
+  height: auto;
   flex-direction: column;
-  background: var(--surface);
+  border: 1px solid rgb(255 255 255 / 55%);
+  border-radius: var(--panel-radius);
+  background:
+    linear-gradient(
+      165deg,
+      rgb(255 255 255 / 82%) 0%,
+      rgb(255 255 255 / 68%) 48%,
+      rgb(248 250 255 / 74%) 100%
+    );
   outline: none;
-  box-shadow: -12px 0 40px rgb(0 0 0 / 10%);
-  transform: translate3d(100%, 0, 0);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 40%) inset,
+    0 1px 0 rgb(255 255 255 / 55%) inset,
+    -12px 0 40px rgb(15 40 90 / 10%),
+    0 16px 48px rgb(15 40 90 / 8%);
+  backdrop-filter: blur(40px) saturate(1.55);
+  -webkit-backdrop-filter: blur(40px) saturate(1.55);
+  transform: translate3d(calc(100% + 0.75rem), 0, 0);
   transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
   backface-visibility: hidden;
@@ -178,10 +203,21 @@ html[data-theme="dark"] .side-drawer-scrim.is-open {
 }
 
 html[data-theme="dark"] .side-drawer-panel {
-  box-shadow: -16px 0 48px rgb(0 0 0 / 40%);
+  border-color: rgb(255 255 255 / 10%);
+  background:
+    linear-gradient(
+      165deg,
+      rgb(44 44 48 / 82%) 0%,
+      rgb(28 28 32 / 72%) 52%,
+      rgb(22 22 26 / 78%) 100%
+    );
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 6%) inset,
+    0 1px 0 rgb(255 255 255 / 5%) inset,
+    -16px 0 48px rgb(0 0 0 / 42%),
+    0 20px 56px rgb(0 0 0 / 28%);
 }
 
-/* Confirm dialog — solid panel + pure black scrim (same compositing rules as drawer) */
 .confirm-dialog-root {
   isolation: isolate;
 }
@@ -200,7 +236,7 @@ html[data-theme="dark"] .side-drawer-panel {
 }
 
 .confirm-dialog-scrim.is-open {
-  opacity: 0.28;
+  opacity: 0.26;
 }
 
 html[data-theme="dark"] .confirm-dialog-scrim.is-open {
@@ -211,10 +247,22 @@ html[data-theme="dark"] .confirm-dialog-scrim.is-open {
   position: relative;
   z-index: 1;
   width: min(100%, 22rem);
-  border-radius: 14px;
-  background: var(--surface);
-  box-shadow: 0 18px 48px rgb(0 0 0 / 18%);
+  border: 1px solid rgb(255 255 255 / 55%);
+  border-radius: var(--panel-radius);
+  background:
+    linear-gradient(
+      165deg,
+      rgb(255 255 255 / 86%) 0%,
+      rgb(255 255 255 / 72%) 52%,
+      rgb(248 250 255 / 78%) 100%
+    );
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 45%) inset,
+    0 1px 0 rgb(255 255 255 / 55%) inset,
+    0 18px 48px rgb(15 40 90 / 14%);
   outline: none;
+  backdrop-filter: blur(36px) saturate(1.5);
+  -webkit-backdrop-filter: blur(36px) saturate(1.5);
   transform: translate3d(0, 8px, 0) scale(0.98);
   opacity: 0;
   transition:
@@ -235,7 +283,18 @@ html[data-theme="dark"] .confirm-dialog-scrim.is-open {
 }
 
 html[data-theme="dark"] .confirm-dialog-panel {
-  box-shadow: 0 20px 56px rgb(0 0 0 / 48%);
+  border-color: rgb(255 255 255 / 10%);
+  background:
+    linear-gradient(
+      165deg,
+      rgb(44 44 48 / 86%) 0%,
+      rgb(28 28 32 / 76%) 52%,
+      rgb(22 22 26 / 82%) 100%
+    );
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 6%) inset,
+    0 1px 0 rgb(255 255 255 / 5%) inset,
+    0 20px 56px rgb(0 0 0 / 48%);
 }
 
 /* Global notification cards — fixed overlay, never shift page flow */

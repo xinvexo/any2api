@@ -2,7 +2,6 @@ import { LoaderCircle, RefreshCw, Save } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Navigate, useBlocker, useParams } from "react-router-dom";
 
-import { AdminPasswordRotation } from "@/features/admin-auth";
 import { AboutSettings } from "@/features/application-update";
 import {
   SettingsManagement,
@@ -91,8 +90,10 @@ function SettingsSectionPage({ section }: { section: (typeof SETTING_SECTIONS)[n
   }
 
   return (
-    <SettingsPageLayout actions={<SettingsPageActions editor={editor} onRefresh={refresh} />}>
-      <SettingsSectionBody section={section} editor={editor} />
+    <>
+      <SettingsPageLayout actions={<SettingsPageActions editor={editor} onRefresh={refresh} />}>
+        <SettingsSectionBody section={section} editor={editor} />
+      </SettingsPageLayout>
       <ConfirmDialog
         open={dialogOpen}
         title={refreshRequested ? "刷新前保存修改？" : "离开前保存修改？"}
@@ -109,22 +110,26 @@ function SettingsSectionPage({ section }: { section: (typeof SETTING_SECTIONS)[n
         onAlternate={discardAndContinue}
         onClose={cancelPendingAction}
       />
-    </SettingsPageLayout>
+    </>
   );
 }
 
+/**
+ * Same pin pattern as system/request logs: fixed toolbar, only the body scrolls.
+ * Avoids sticky chrome (and its top-offset / glass bugs) inside the main panel.
+ */
 function SettingsPageLayout({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
   return (
-    <div className="space-y-5">
-      <div className="sticky -top-4 z-20 -mx-4 -mt-4 bg-surface px-4 pb-3 pt-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="min-w-0 flex-1">
-            <PageTabs items={SETTINGS_TABS} ariaLabel="系统设置分类" />
-          </div>
-          {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-subtle pb-3">
+        <div className="min-w-0 flex-1">
+          <PageTabs items={SETTINGS_TABS} ariaLabel="系统设置分类" />
         </div>
+        {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
       </div>
-      {children}
+      <div className="min-h-0 flex-1 overflow-y-auto pt-5 [scrollbar-gutter:stable]">
+        {children}
+      </div>
     </div>
   );
 }
@@ -164,22 +169,13 @@ function SettingsSectionBody({
   section: (typeof SETTING_SECTIONS)[number];
   editor: SettingsEditor;
 }) {
-  const settings = (
+  return (
     <SettingsManagement
       editor={editor}
       featuredKeys={section.featuredKeys}
       showSectionHeading={false}
     />
   );
-  if (section.id === "basic") {
-    return (
-      <div className="space-y-8">
-        <AdminPasswordRotation />
-        {settings}
-      </div>
-    );
-  }
-  return settings;
 }
 
 function useBeforeUnloadWarning(enabled: boolean) {
