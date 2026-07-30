@@ -19,7 +19,7 @@ export function ModelAllowlistControl({
   value: SettingDraft;
   disabled: boolean;
   labelledBy: string;
-  describedBy: string;
+  describedBy?: string;
   onChange: (value: SettingDraft) => void;
 }) {
   const [query, setQuery] = useState("");

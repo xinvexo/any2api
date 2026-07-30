@@ -76,22 +76,19 @@
 }
 
 .application-update-symbol__core {
+  z-index: 1;
   display: grid;
-  width: 4.75rem;
-  height: 4.75rem;
+  width: 4.25rem;
+  height: 4.25rem;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--border-strong) 70%, transparent);
-  border-radius: 24px;
+  border-radius: 50%;
   color: var(--accent);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  box-shadow:
-    0 1px 0 color-mix(in srgb, white 56%, transparent) inset,
-    0 10px 24px color-mix(in srgb, var(--text-primary) 8%, transparent);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
 }
 
 .application-update-symbol__core svg {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 1.85rem;
+  height: 1.85rem;
   stroke-width: 1.75;
 }
 
@@ -227,12 +224,6 @@ html[data-theme="dark"] .application-update-panel {
     0 1px 0 rgb(255 255 255 / 7%) inset,
     0 30px 90px rgb(0 0 0 / 48%),
     var(--panel-shadow);
-}
-
-html[data-theme="dark"] .application-update-symbol__core {
-  box-shadow:
-    0 1px 0 rgb(255 255 255 / 7%) inset,
-    0 12px 28px rgb(0 0 0 / 28%);
 }
 
 @media (max-width: 520px) {

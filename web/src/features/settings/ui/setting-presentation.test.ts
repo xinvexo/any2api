@@ -13,7 +13,7 @@ test("labels upstream and postcommit timeout settings", () => {
   expect(settingLabel(item("oauth.refresh.lead_time"))).toBe("OAuth 提前刷新窗口");
   expect(settingLabel(item("shutdown.request_grace_period"))).toBe("请求排空宽限期");
   expect(settingLabel(item("shutdown.finalize_timeout"))).toBe("最终收尾超时");
-  expect(settingLabel(item("models.allowed"))).toBe("可使用的模型");
+  expect(settingLabel(item("models.allowed"))).toBe("客户端可使用模型");
   expect(settingLabel(item("network.trusted_proxy_cidrs"))).toBe("可信反向代理地址");
   expect(settingLabel(item("affinity.enabled"))).toBe("启用会话粘性");
   expect(settingLabel(item("affinity.ttl"))).toBe("会话绑定 TTL");

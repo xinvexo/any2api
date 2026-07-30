@@ -7,7 +7,7 @@ const labels: Record<string, string> = {
   "admin.login.failure_window": "登录失败窗口",
   "admin.login.max_failures": "最大登录失败次数",
   "network.trusted_proxy_cidrs": "可信反向代理地址",
-  "models.allowed": "可使用的模型",
+  "models.allowed": "客户端可使用模型",
   "affinity.enabled": "启用会话粘性",
   "affinity.ttl": "会话绑定 TTL",
   "affinity.wait_timeout": "会话绑定等待超时",

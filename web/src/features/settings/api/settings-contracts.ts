@@ -76,7 +76,7 @@ function parseSettingItem(value: unknown): SettingItem {
     options,
     applyMode: readApplyMode(value.apply_mode),
     webGroup: readString(value.web_group),
-    description: readString(value.description),
+    description: readDescription(value.description),
   };
 }
 
@@ -166,6 +166,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown): string {
   if (typeof value !== "string" || value.length === 0) {
+    throw invalidResponse();
+  }
+  return value;
+}
+
+/** Setting help text may be empty when the UI only needs a label. */
+function readDescription(value: unknown): string {
+  if (typeof value !== "string") {
     throw invalidResponse();
   }
   return value;

@@ -11,7 +11,7 @@ interface SettingControlProps {
   disabled: boolean;
   invalid: boolean;
   labelledBy: string;
-  describedBy: string;
+  describedBy?: string;
   onChange: (value: SettingDraft) => void;
 }
 

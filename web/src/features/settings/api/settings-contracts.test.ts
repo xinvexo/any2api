@@ -24,6 +24,17 @@ test("parses setting metadata and all value types", () => {
   expect(configuration.items[5]?.effectiveValue).toEqual(["127.0.0.1/32"]);
 });
 
+test("accepts empty setting description", () => {
+  const configuration = parseSettingsConfiguration({
+    config_revision: 1,
+    items: [{
+      ...item("models.allowed", "string_list", [], null, null, null, null, ["gpt-a"]),
+      description: "",
+    }],
+  });
+  expect(configuration.items[0]?.description).toBe("");
+});
+
 test("rejects inconsistent bounds, values, and enum metadata", () => {
   expect(() => parseSettingsConfiguration({
     config_revision: 1,

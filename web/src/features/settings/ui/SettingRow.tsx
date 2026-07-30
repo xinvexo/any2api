@@ -24,7 +24,13 @@ export function SettingRow({
   const errorId = useId();
   const validation = validateSettingDraft(item, value);
   const errorMessage = validation.error;
-  const describedBy = errorMessage ? `${descriptionId} ${errorId}` : descriptionId;
+  const hasDescription = item.description.trim().length > 0;
+  const describedBy = [
+    hasDescription ? descriptionId : null,
+    errorMessage ? errorId : null,
+  ]
+    .filter(Boolean)
+    .join(" ") || undefined;
   const restartHint = reloadLabel(item);
   const wideControl = item.valueType === "string_list";
 
@@ -38,9 +44,11 @@ export function SettingRow({
         <h3 id={headingId} className="text-[13px] font-medium text-primary">
           {label}
         </h3>
-        <p id={descriptionId} className="mt-0.5 text-[12px] leading-5 text-secondary">
-          {item.description}
-        </p>
+        {hasDescription ? (
+          <p id={descriptionId} className="mt-0.5 text-[12px] leading-5 text-secondary">
+            {item.description}
+          </p>
+        ) : null}
         {restartHint ? <p className="mt-1 text-[11px] text-warning">{restartHint}</p> : null}
         {errorMessage ? (
           <p id={errorId} className="mt-1.5 text-[12px] text-danger" role="alert">

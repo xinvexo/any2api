@@ -1,10 +1,10 @@
 import {
   ArrowDownToLine,
   Check,
-  CircleAlert,
   LockKeyhole,
   PackageCheck,
   RotateCw,
+  TriangleAlert,
 } from "lucide-react";
 import { useEffect, useId, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
@@ -91,7 +91,7 @@ function UpdateSymbol({ phase, progress }: { phase: ViewPhase; progress: number 
     <div className="application-update-symbol" style={style} aria-hidden="true">
       <span className="application-update-symbol__ring" />
       <span className="application-update-symbol__core">
-        {phase === "failed" ? <CircleAlert /> : null}
+        {phase === "failed" ? <TriangleAlert /> : null}
         {phase === "complete" ? <Check /> : null}
         {phase === "checking" || phase === "downloading" ? <ArrowDownToLine /> : null}
         {phase === "installing" ? <PackageCheck /> : null}

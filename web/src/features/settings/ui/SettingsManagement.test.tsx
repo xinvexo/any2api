@@ -134,7 +134,7 @@ test("searches, toggles, and batch-saves the global model allowlist", async () =
   expect(screen.getByRole("group", { name: "可用模型" }).querySelector(".flex-wrap")).not.toBeNull();
   expect(screen.queryByRole("button", { name: "选择当前" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "清除当前" })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "撤销可使用的模型修改" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "撤销客户端可使用模型修改" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "claude" }));
   fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
 
