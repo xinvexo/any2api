@@ -45,7 +45,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 14. 项目按个人单节点场景设计，不引入 Redis、PostgreSQL、支付和用户分发体系。
 15. Provider Endpoint 必须选择客户端接受协议，并可选选择内部转换协议；未选择时上游协议等于接受协议并走直通。首个协议桥只实现 OpenAI Responses → Chat Completions，不启用 Codex/OpenAI ↔ Claude 双向转换。
 16. Codex WebSocket 不进入首个正式版本，首版 TransportMode 只有 JSON 和 SSE。
-17. Provider API Key 保存后使用实际 Endpoint、认证材料与代理读取上游 `/models`；用户勾选的模型按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
+17. Provider API Key 保存后使用实际 Endpoint、认证材料与代理读取上游 `/models` 作为候选目录；管理员最终确认的目录选择与手工模型名按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中覆盖或恢复默认。
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只创建独立的 SQLite `OAuthAccount`。导入兼容已审计的 CLIProxyAPI 与 Sub2API OAuth 结构，先规范化为 any2api Provider JSON，再整批原子发布；明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程监听必须显式启用并使用独立管理员认证，TLS 推荐但不强制。
@@ -730,7 +730,9 @@ CredentialRuntimeHandle
 - `credential_generation` 隔离认证和模型健康代际，Secret 轮换、重新启用或 Endpoint URL 身份变化时增加；
 - `config_version` 是管理资源乐观锁版本，元数据修改和 Secret 轮换时增加，无变化更新不增加；
 - 模型集合变化增加 `config_version`，不增加 `secret_version` 或 `credential_generation`；API Key 轮换会清空轮换前模型集合；
-- 新建 Credential 初始没有公开模型。管理面使用该 Credential 的实际代理请求 `/models`，用户勾选并保存后才进入公开模型目录和调度候选；
+- 新建 Credential 初始没有公开模型。管理面可使用该 Credential 的实际代理请求
+  `/models` 作为候选目录，也必须允许管理员手工输入其已确认的上游模型名。
+  模型发现超时、失败、无法解析或返回空列表均不得禁用手工输入与保存；
 - 同一 Endpoint 下的多把 Credential 可以拥有不同模型集合，调度器必须按 `Credential + upstream_model` 过滤，禁止因为 URL 相同就假定权限相同；
 - Endpoint 已有 Credential 时禁止修改 `provider_kind`、`protocol_dialect` 和 `upstream_protocol_dialect`；修改 Base URL 时所有子 Credential 增加 `credential_generation`；
 - Provider 列表和 Credential DTO 不展示 OAuth 类型或 OAuth 入口；OAuth 独立页面和 API 管理 `OAuthAccount`；
@@ -745,8 +747,11 @@ Endpoint/Proxy 冷却或熔断状态。只有收到 2xx 响应时，才清除本
 `CredentialGenerationRuntime` 的 `auth_error` 并推进统一 scheduler epoch；配置在测试期间发生
 轮换时，退役 generation 的测试结果不得修改当前 generation。2xx 响应体在严格大小与读取超时内交给 Provider
 Driver 解析，只向管理面返回排序去重后的模型 ID，不返回原始响应正文、URL、地址或 Secret。
-用户通过 `PUT /api/admin/provider-credentials/{id}/models` 提交勾选结果；写入与内部模型映射、
+用户通过 `PUT /api/admin/provider-credentials/{id}/models` 提交最终确认集合；写入与内部模型映射、
 全局配置 revision 和 PublishedSnapshot 切换属于同一个串行配置发布。
+该端点接收的 `models` 是管理员最终确认集合，可同时包含发现目录中的模型和手工输入模型；
+后端仅执行 `UpstreamModelName` 精确名称校验、排序和去重约束，不要求名称必须出现在本次
+`/models` 结果中。保存手工名称只表示管理员声明该 Key 可调用它，不伪造模型探测成功。
 
 ### 9.4 OAuthAccount
 
@@ -1056,7 +1061,7 @@ ProxyProfile 可见元数据
 - HTTP 与 SOCKS5 统一使用 reqwest 的逐 Client 代理认证配置，禁止把凭据拼进代理 URL；
 - 认证失败继续遵守 Fail-Closed，不得回退全局代理或 DIRECT。
 
-管理面提供 `POST /api/admin/proxies/{id}/test`。请求只能选择当前配置中已有的 `ProviderEndpoint` 作为探测目标，禁止提交任意 URL。探测不携带 ProviderCredential，只验证 DNS、代理连接/认证、TLS 与响应头可达性；普通上游 HTTP 状态（包括 401、403、404）表示网络链路可达，但 HTTP forward proxy 返回 `407 Proxy Authentication Required` 属于代理认证握手拒绝，必须作为失败归因 `ProxyHandshake + Proxy`，不能被当作上游响应交给 Provider 分类器。响应返回关联的 Proxy/Endpoint ID、捕获的配置 revision 与两项资源 config version、延迟、HTTP 状态或脱敏失败阶段/归因，不返回目标 IP、代理地址、响应正文或 Secret；Web 只展示与当前配置代际完全匹配的结果。管理探测不更新 Proxy/Endpoint 熔断状态，也不占用 Credential RPM 名额。
+管理面提供 `POST /api/admin/proxies/{id}/test`。该端点不接受 Provider Endpoint 或 URL，Runtime 统一对代码内集中定义的中立 HTTPS 目标 `https://example.com/` 发送空 GET，并以有界响应头等待时间验证 DNS、代理连接/认证、TLS 与响应头可达性。这是通用公网连通性探测，不表示任何 Provider 可用；它不携带 ProviderCredential，也不依赖 Provider Endpoint 是否存在、启用或可达。普通目标 HTTP 响应头（包括非 2xx）表示网络链路可达，但 HTTP forward proxy 返回 `407 Proxy Authentication Required` 属于代理认证握手拒绝，必须作为失败归因 `ProxyHandshake + Proxy`。响应只关联 Proxy ID、捕获的配置 revision 与 Proxy config version，并返回延迟、HTTP 状态或脱敏失败阶段/归因；不返回目标 IP、代理地址、响应正文或 Secret。Web 只展示与当前 Proxy 配置代际完全匹配的结果。管理探测不更新熔断或冷却状态，也不占用 Credential RPM 名额。
 
 ### 10.5 TransportManager
 
@@ -1278,6 +1283,8 @@ Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字�
 
 - 不强制 `codex/`、`claude/` 或 `grok/` 前缀；
 - 保存 Credential 模型选择时，`public_model` 固定复制 `upstream_model`；
+- Credential 模型可来自上游目录勾选或管理员手工输入；来源不进入持久化模型，
+  两者使用同一 `provider_credential_models` 集合、同一校验和同一 Route 物化路径；
 - 首版不在普通管理面提供本地别名和手工 Target/tier；需要别名时应另行设计不暴露调度内部结构的交互；
 - `codex/`、`claude/`、`grok/` 只作为可选命名习惯；
 - `(ingress_protocol, public_model)` 必须唯一，发生冲突时拒绝发布；
@@ -2449,7 +2456,7 @@ runtime_retired
 
 运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
 
-总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
+总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。Web 必须把两项明确标为显式会话，关闭时展示策略状态而不是把 API 的零值伪装成活动计数；“建立中”必须说明它只覆盖首次绑定提交前的瞬时状态。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
 
 稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；这些计数不持久化、不恢复，也不要求通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级配置和 RequestLog 历史统计由各自管理页面负责，总览不复制第二份账号目录。
 
@@ -2529,7 +2536,7 @@ runtime_retired
 - 查看被哪些 Credential 引用；
 - 被引用的代理禁止直接删除。
 
-代理测试目标从已有 Provider Endpoint 中选择。测试结果在对应代理行内显示可达状态、延迟、HTTP 状态或失败阶段；密码输入只保存在认证表单的局部组件状态，提交完成、关闭或卸载后立即清空。
+代理测试固定使用 Runtime 内的中立公网 HTTPS 目标，页面不加载或选择 Provider Endpoint。测试列为状态和延迟预留固定尺寸的两个胶囊：完成后只显示“成功/失败”与“延迟”，未测试、测试中和请求错误也使用同一布局槽位，禁止通过变长行内文字导致列宽或表格抖动。脱敏失败阶段可作为非布局诊断信息，不增加可见胶囊。密码输入只保存在认证表单的局部组件状态，提交完成、关闭或卸载后立即清空。
 
 ### 19.2 Provider
 
@@ -2543,7 +2550,12 @@ Provider 详情页包含 Credential 表格：
 
 Provider 页面只管理 API Key Credential，不提供 OAuth 入口，也不显示 OAuth Credential 类型。
 
-API Key 保存后，Provider 页面立即使用该 Credential 的实际 Endpoint 与代理读取 `/models`，展示可搜索的模型多选列表。用户保存勾选结果后模型直接出现在公开 `/v1/models` 并参与调度；列表行显示已选择模型数量并提供重新拉取与修改入口。原始模型响应不进入浏览器缓存或 SQLite。
+API Key 保存后，Provider 页面立即使用该 Credential 的实际 Endpoint 与代理读取
+`/models`，展示可搜索的模型多选列表。同一界面始终提供手工模型名输入；即使目录请求
+失败、返回空列表或正在进行，管理员仍可添加、移除并保存精确模型名。保存后模型
+直接出现在公开 `/v1/models` 并参与调度；列表行显示已选择模型数量并提供重新拉取与
+修改入口。手工模型名不是别名，`public_model` 仍固定等于 `upstream_model`。原始模型响应
+不进入浏览器缓存或 SQLite。
 
 Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API Key 轮换使用单独表单和端点。列表只显示标签、CredentialKind、绑定代理、实际代理、可选 RPM、启用状态、指纹和 API Key 可选尾号，不显示配置版本，也不显示或导出明文 Secret。
 
@@ -2574,7 +2586,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 全局及 Codex、Claude、Grok 汇总的账号总数、启用数、RPM 启用数与 RPM 已用尽数；
 - 全局及 Provider 汇总的滚动 60 秒请求数、当前 `in_flight` 与成功选中次数；
 - 排队请求数、固定等待者和 scheduler epoch；
-- 当前策略下 TTL 内的普通显式活动会话数与正在建立数；会话粘性关闭时均为 `0`，Continuation 索引不计入；
+- 当前策略下 TTL 内的普通显式活动会话数与正在建立数；会话粘性关闭时 API 均为 `0`，Web 显示“已关闭”状态而非两个零值；建立中只表示首次绑定提交前的瞬时状态，Continuation 索引不计入；
 - 不展示、分页或虚拟化逐账号列表，不展示逐模型健康或单账号过滤明细；账号详情分别留在 Provider 与 OAuth2 登录页面。
 - 不展示逐 Credential 会话分布、Session Hash 或绑定样本。
 

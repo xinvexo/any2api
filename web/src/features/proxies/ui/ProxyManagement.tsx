@@ -2,7 +2,6 @@ import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { useProviderEndpoints } from "@/features/providers";
 import type { ProxyProfile } from "../api/proxy-contracts";
 import { getProxyErrorMessage } from "../model/proxy-error";
 import { useProxies } from "../model/use-proxies";
@@ -20,24 +19,13 @@ import { Surface } from "@/shared/ui/Surface";
 
 export function ProxyManagement() {
   const proxies = useProxies();
-  const providerEndpoints = useProviderEndpoints();
   const mutations = useProxyMutations();
   const authentication = useProxyAuthenticationActions();
   const [searchParams, setSearchParams] = useSearchParams();
   const [deleteTarget, setDeleteTarget] = useState<ProxyProfile | null>(null);
-  const [requestedTestEndpointId, setRequestedTestEndpointId] = useState("");
   const editorId = searchParams.get("editor");
   const confirmPending = mutations.remove.isPending;
-  const endpoints = providerEndpoints.data?.items ?? [];
-  const testEndpointId = endpoints.some((endpoint) => endpoint.id === requestedTestEndpointId)
-    ? requestedTestEndpointId
-    : endpoints.find((endpoint) => endpoint.enabled)?.id ?? endpoints[0]?.id ?? "";
-  const testEndpointVersion = endpoints.find(
-    (endpoint) => endpoint.id === testEndpointId,
-  )?.configVersion;
-  const proxyTest = useProxyTest(
-    `${proxies.data?.configRevision ?? 0}:${testEndpointId}:${testEndpointVersion ?? 0}`,
-  );
+  const proxyTest = useProxyTest(String(proxies.data?.configRevision ?? 0));
 
   function openEditor(id: string) {
     setDeleteTarget(null);
@@ -173,13 +161,11 @@ export function ProxyManagement() {
   }
 
   function refreshData() {
-    void Promise.all([proxies.refetch(), providerEndpoints.refetch()]);
+    void proxies.refetch();
   }
 
   function test(proxyId: string) {
-    if (testEndpointId) {
-      void proxyTest.test(proxyId, testEndpointId);
-    }
+    void proxyTest.test(proxyId);
   }
 
   function setGlobalRoute(proxy: ProxyProfile) {
@@ -220,7 +206,6 @@ export function ProxyManagement() {
         editorPending ||
         mutations.isPending ||
         proxies.isFetching ||
-        providerEndpoints.isFetching ||
         proxyTest.testingProxyId !== null
       }
     >
@@ -234,7 +219,7 @@ export function ProxyManagement() {
           </p>
           <Button
             onClick={refreshData}
-            disabled={proxies.isFetching || providerEndpoints.isFetching}
+            disabled={proxies.isFetching}
           >
             重新加载
           </Button>
@@ -244,19 +229,14 @@ export function ProxyManagement() {
       <ProxyList
         configuration={configuration}
         pending={mutations.isPending}
-        refreshing={proxies.isFetching || providerEndpoints.isFetching}
+        refreshing={proxies.isFetching}
         actionError={mutations.remove.error ?? mutations.setGlobal.error}
-        endpoints={endpoints}
-        endpointsLoading={providerEndpoints.isPending && !providerEndpoints.data}
-        endpointError={providerEndpoints.error}
-        testEndpointId={testEndpointId}
         testingProxyId={proxyTest.testingProxyId}
         testResults={proxyTest.results}
         testError={proxyTest.error}
         testErrorProxyId={proxyTest.errorProxyId}
         onCreate={() => openEditor("new")}
         onRefresh={refreshData}
-        onTestEndpointChange={setRequestedTestEndpointId}
         onTest={test}
         onEdit={openEditor}
         onSetGlobal={setGlobalRoute}

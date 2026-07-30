@@ -1,4 +1,3 @@
-import type { ProviderEndpoint } from "@/features/providers";
 import type {
   ProxyProfile,
   ProxyTestFailureScope,
@@ -10,25 +9,17 @@ export function isCurrentTestResult(
   result: ProxyTestResult | undefined,
   proxy: ProxyProfile,
   configRevision: number,
-  endpoints: ProviderEndpoint[],
-  selectedEndpointId: string,
 ) {
-  if (
-    !result ||
-    result.proxyId !== proxy.id ||
-    result.providerEndpointId !== selectedEndpointId
-  ) {
+  if (!result || result.proxyId !== proxy.id) {
     return false;
   }
-  const endpoint = endpoints.find((candidate) => candidate.id === result.providerEndpointId);
   return (
     result.configRevision === configRevision &&
-    result.proxyConfigVersion === proxy.configVersion &&
-    endpoint?.configVersion === result.providerEndpointConfigVersion
+    result.proxyConfigVersion === proxy.configVersion
   );
 }
 
-export function formatProxyTestResult(result: ProxyTestResult) {
+export function formatProxyTestDiagnostic(result: ProxyTestResult) {
   if (result.reachable) {
     return `可达 · HTTP ${result.statusCode} · ${result.latencyMs} ms`;
   }
@@ -46,7 +37,7 @@ const stageLabels: Record<ProxyTestFailureStage, string> = {
 };
 
 const scopeLabels: Record<ProxyTestFailureScope, string> = {
-  endpoint: "Endpoint",
+  probe_target: "探测站点",
   proxy: "代理",
   unattributed: "未归因",
 };

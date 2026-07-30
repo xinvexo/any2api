@@ -12,7 +12,7 @@ export function useProxyTest(configurationScope: string) {
     ? state
     : emptyState(configurationScope);
 
-  async function test(proxyId: string, providerEndpointId: string) {
+  async function test(proxyId: string) {
     const startedScope = scope.current;
     const requestId = ++sequence.current;
     setState((current) => ({
@@ -24,7 +24,7 @@ export function useProxyTest(configurationScope: string) {
     }));
 
     try {
-      const result = await testProxy(proxyId, providerEndpointId);
+      const result = await testProxy(proxyId);
       if (isActive(scope, sequence, startedScope, requestId)) {
         setState((current) => ({
           ...current,

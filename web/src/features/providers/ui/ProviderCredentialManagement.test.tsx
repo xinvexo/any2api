@@ -186,6 +186,49 @@ test("opens a credential model picker and loads the current upstream catalog", a
   expect(request?.[1]?.body).toBeUndefined();
 });
 
+test("saves a manually entered model when discovery returns an empty catalog", async () => {
+  let credentials = credentialConfiguration(3, [credential()]);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
+    if (path.endsWith(`/provider-credentials/${credentialId}/test`)) {
+      return jsonResponse({ ...credentialTestResult(), models: [] });
+    }
+    if (path.endsWith(`/provider-credentials/${credentialId}/models`) && init?.method === "PUT") {
+      credentials = credentialConfiguration(4, [
+        credential({ config_version: 2, models: ["gpt-5.6-sol"] }),
+      ]);
+      return jsonResponse(credentials);
+    }
+    return jsonResponse(credentials);
+  });
+  renderManagement([`/providers/codex?keys=${endpoint.id}`]);
+
+  fireEvent.click(await screen.findByRole("button", { name: "配置 Primary Key 的模型" }));
+  expect(await screen.findByText(/上游返回了空模型列表/)).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("手动添加模型"), {
+    target: { value: "gpt-5.6-sol" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "添加" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => {
+    const modelPut = fetchMock.mock.calls.find(
+      ([input, init]) =>
+        String(input).endsWith(`/provider-credentials/${credentialId}/models`) &&
+        init?.method === "PUT",
+    );
+    expect(JSON.parse(String(modelPut?.[1]?.body))).toEqual({
+      expected_revision: 3,
+      expected_config_version: 1,
+      models: ["gpt-5.6-sol"],
+    });
+  });
+});
+
 function renderManagement(initialEntries: string[]) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },

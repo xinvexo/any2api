@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import type {
@@ -16,7 +16,8 @@ test("shows an explicit message when the upstream rejects the API Key", () => {
   });
 
   expect(screen.getByRole("alert")).toHaveTextContent("上游拒绝了这把 API Key（HTTP 401）");
-  expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  expect(screen.getByLabelText("手动添加模型")).toBeEnabled();
+  expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
 });
 
 test("keeps a saved model visible when the refreshed catalog no longer returns it", () => {
@@ -34,21 +35,53 @@ test("keeps a saved model visible when the refreshed catalog no longer returns i
   expect(screen.getByText("已保存")).toBeInTheDocument();
 });
 
+test("adds and saves an exact model name when the upstream catalog is empty", () => {
+  const { onSave } = renderModels({ models: [] });
+
+  fireEvent.change(screen.getByLabelText("手动添加模型"), {
+    target: { value: "gpt-5.6-sol" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "添加" }));
+
+  expect(screen.getByRole("checkbox", { name: "gpt-5.6-sol" })).toBeChecked();
+  expect(screen.getByText("手动")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  expect(onSave).toHaveBeenCalledWith(["gpt-5.6-sol"]);
+});
+
+test("keeps manual model editing available while discovery is pending", () => {
+  const { onSave } = renderModels(null, {}, { discovering: true });
+
+  expect(screen.getByText("正在读取上游模型")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("手动添加模型"), {
+    target: { value: "claude-manual" },
+  });
+  fireEvent.keyDown(screen.getByLabelText("手动添加模型"), { key: "Enter" });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  expect(onSave).toHaveBeenCalledWith(["claude-manual"]);
+});
+
 function renderModels(
-  resultOverrides: Partial<ProviderCredentialTestResult>,
+  resultOverrides: Partial<ProviderCredentialTestResult> | null,
   credentialOverrides: Partial<ProviderCredential> = {},
+  stateOverrides: { discovering?: boolean; saving?: boolean } = {},
 ) {
-  return render(
+  const onSave = vi.fn(async () => undefined);
+  const view = render(
     <ProviderCredentialModels
       credential={{ ...credential, ...credentialOverrides }}
-      result={{ ...acceptedResult, ...resultOverrides }}
-      pending={false}
+      result={resultOverrides ? { ...acceptedResult, ...resultOverrides } : undefined}
+      discovering={stateOverrides.discovering ?? false}
+      saving={stateOverrides.saving ?? false}
       error={null}
       onDiscover={vi.fn()}
-      onSave={vi.fn(async () => undefined)}
+      onSave={onSave}
       onClose={vi.fn()}
     />,
   );
+  return { ...view, onSave };
 }
 
 const credential: ProviderCredential = {

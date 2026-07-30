@@ -57,12 +57,10 @@ export function clearProxyAuthentication(id: string, expectedRevision: number) {
   ).then(parseProxyConfiguration);
 }
 
-export function testProxy(id: string, providerEndpointId: string): Promise<ProxyTestResult> {
+export function testProxy(id: string): Promise<ProxyTestResult> {
   return requestJson<unknown>(`/api/admin/proxies/${encodeURIComponent(id)}/test`, {
     method: "POST",
-    // The server applies the configured upstream timeout, which can be as long as 24 hours.
-    timeoutMs: 86_410_000,
-    body: { provider_endpoint_id: providerEndpointId },
+    timeoutMs: 25_000,
   }).then(parseProxyTestResult);
 }
 

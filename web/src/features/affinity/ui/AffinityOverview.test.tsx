@@ -20,10 +20,13 @@ test("renders only aggregate affinity counts and links to routing settings", asy
   const rendered = renderOverview();
 
   expect(await screen.findByRole("heading", { name: "活动会话" })).toBeInTheDocument();
-  expect(screen.getByText("会话粘性已关闭；Response ID 续接索引不计入会话数。")).toBeInTheDocument();
-  expect(screen.getByText("当前活动")).toBeInTheDocument();
-  expect(screen.getAllByText("0")).toHaveLength(2);
-  expect(screen.getByText("正在建立")).toBeInTheDocument();
+  expect(
+    screen.getByText("显式会话粘性已关闭；Response ID 续接仍按原目标处理，但不计入会话数。"),
+  ).toBeInTheDocument();
+  expect(screen.getByText("活动显式会话")).toBeInTheDocument();
+  expect(screen.getByText("已关闭")).toBeInTheDocument();
+  expect(screen.getByText("建立中显式会话")).toBeInTheDocument();
+  expect(screen.getByText("显式会话粘性未启用")).toBeInTheDocument();
   expect(screen.getByRole("link", { name: "调整策略" })).toHaveAttribute(
     "href",
     "/settings/routing",

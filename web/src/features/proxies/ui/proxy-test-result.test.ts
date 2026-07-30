@@ -1,34 +1,33 @@
 import { describe, expect, test } from "vitest";
 
-import type { ProviderEndpoint } from "@/features/providers";
 import type { ProxyProfile, ProxyTestResult } from "../api/proxy-contracts";
-import { isCurrentTestResult } from "./proxy-test-result";
+import { formatProxyTestDiagnostic, isCurrentTestResult } from "./proxy-test-result";
 
 describe("isCurrentTestResult", () => {
-  test("accepts a result from the current configuration and resource versions", () => {
-    expect(isCurrentTestResult(result, proxy, 7, [endpoint], endpoint.id)).toBe(true);
+  test("accepts a result from the current proxy configuration generation", () => {
+    expect(isCurrentTestResult(result, proxy, 7)).toBe(true);
   });
 
   test.each([
-    ["configuration revision", { ...result, configRevision: 8 }, proxy, endpoint],
-    ["proxy config version", { ...result, proxyConfigVersion: 3 }, proxy, endpoint],
-    [
-      "Endpoint config version",
-      result,
-      proxy,
-      { ...endpoint, configVersion: endpoint.configVersion + 1 },
-    ],
-  ])("rejects a stale %s", (_name, candidate, currentProxy, currentEndpoint) => {
-    expect(
-      isCurrentTestResult(
-        candidate as ProxyTestResult,
-        currentProxy as ProxyProfile,
-        7,
-        [currentEndpoint as ProviderEndpoint],
-        endpoint.id,
-      ),
-    ).toBe(false);
+    ["configuration revision", { ...result, configRevision: 8 }],
+    ["proxy config version", { ...result, proxyConfigVersion: 3 }],
+    ["proxy identity", { ...result, proxyId: "589f7e46-5433-466a-8856-f643bcf8ab39" }],
+  ])("rejects a stale %s", (_name, candidate) => {
+    expect(isCurrentTestResult(candidate as ProxyTestResult, proxy, 7)).toBe(false);
   });
+});
+
+test("describes a fixed-target failure without calling it a Provider Endpoint", () => {
+  expect(
+    formatProxyTestDiagnostic({
+      ...result,
+      reachable: false,
+      statusCode: null,
+      latencyMs: 31,
+      errorStage: "tls",
+      failureScope: "probe_target",
+    }),
+  ).toBe("失败 · TLS · 探测站点 · 31 ms");
 });
 
 const proxy: ProxyProfile = {
@@ -45,23 +44,10 @@ const proxy: ProxyProfile = {
   configVersion: 2,
 };
 
-const endpoint: ProviderEndpoint = {
-  id: "7dd71e36-cc35-4727-903c-9555ab17290a",
-  name: "Codex",
-  providerKind: "codex",
-  baseUrl: "https://api.openai.com/v1",
-  protocolDialect: "openai_responses",
-  upstreamProtocolDialect: null,
-  enabled: true,
-  configVersion: 4,
-};
-
 const result: ProxyTestResult = {
   configRevision: 7,
   proxyConfigVersion: proxy.configVersion,
-  providerEndpointConfigVersion: endpoint.configVersion,
   proxyId: proxy.id,
-  providerEndpointId: endpoint.id,
   reachable: true,
   statusCode: 204,
   latencyMs: 18,

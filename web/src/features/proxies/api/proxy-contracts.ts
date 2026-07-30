@@ -10,7 +10,7 @@ export type ProxyTestFailureStage =
   | "await_headers"
   | "read_body";
 
-export type ProxyTestFailureScope = "endpoint" | "proxy" | "unattributed";
+export type ProxyTestFailureScope = "probe_target" | "proxy" | "unattributed";
 
 export interface ProxyProfile {
   id: string;
@@ -49,9 +49,7 @@ export interface ProxyAuthenticationInput {
 export interface ProxyTestResult {
   configRevision: number;
   proxyConfigVersion: number;
-  providerEndpointConfigVersion: number;
   proxyId: string;
-  providerEndpointId: string;
   reachable: boolean;
   statusCode: number | null;
   latencyMs: number;
@@ -189,9 +187,7 @@ export function parseProxyTestResult(value: unknown): ProxyTestResult {
   return {
     configRevision: readPositiveInteger(value.config_revision),
     proxyConfigVersion: readPositiveInteger(value.proxy_config_version),
-    providerEndpointConfigVersion: readPositiveInteger(value.provider_endpoint_config_version),
     proxyId: readString(value.proxy_id),
-    providerEndpointId: readString(value.provider_endpoint_id),
     reachable,
     statusCode,
     latencyMs: readNonNegativeInteger(value.latency_ms),
@@ -232,7 +228,7 @@ function readNullableFailureScope(value: unknown): ProxyTestFailureScope | null 
   if (value === null) {
     return null;
   }
-  if (value !== "endpoint" && value !== "proxy" && value !== "unattributed") {
+  if (value !== "probe_target" && value !== "proxy" && value !== "unattributed") {
     throw new Error("invalid proxy test response");
   }
   return value;

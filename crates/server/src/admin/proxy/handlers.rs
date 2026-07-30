@@ -3,6 +3,7 @@ use std::str::FromStr;
 use any2api_domain::ProxyProfileId;
 use axum::{
     Json,
+    body::Bytes,
     extract::{Path, Query, State, rejection::JsonRejection, rejection::QueryRejection},
 };
 
@@ -10,8 +11,7 @@ use crate::state::AppState;
 
 use super::{
     dto::{
-        ProxyAuthenticationRequest, ProxyCollectionResponse, ProxyTestRequest, ProxyTestResponse,
-        ProxyWriteRequest,
+        ProxyAuthenticationRequest, ProxyCollectionResponse, ProxyTestResponse, ProxyWriteRequest,
     },
     error::AdminApiError,
     revision::{ExpectedRevisionQuery, ExpectedRevisionRequest},
@@ -112,16 +112,18 @@ pub(crate) async fn clear_authentication(
 pub(crate) async fn test(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<ProxyTestRequest>, JsonRejection>,
+    body: Bytes,
 ) -> Result<Json<ProxyTestResponse>, AdminApiError> {
     let id = parse_id(&id)?;
-    let request = parse_json(payload)?;
+    if !body.is_empty() {
+        return Err(AdminApiError::invalid_request(
+            "proxy test request body must be empty",
+        ));
+    }
     let service = state
         .proxy_tests()
         .ok_or_else(AdminApiError::proxy_test_unavailable)?;
-    let result = service
-        .test(state.snapshots().load(), id, request.provider_endpoint_id())
-        .await?;
+    let result = service.test(state.snapshots().load(), id).await?;
     Ok(Json(result.into()))
 }
 

@@ -4,6 +4,7 @@ import {
 } from "@/shared/api/request-usage";
 
 type CredentialKind = "api_key";
+export const MAX_UPSTREAM_MODEL_NAME_CHARS = 255;
 
 export interface ProviderCredential {
   id: string;
@@ -238,7 +239,12 @@ function readModelNames(value: unknown): string[] {
     throw new Error("invalid provider credential response");
   }
   const models = value.map((item) => readString(item));
-  if (models.some((model) => model.trim() !== model || [...model].length > 255)) {
+  if (
+    models.some(
+      (model) =>
+        model.trim() !== model || [...model].length > MAX_UPSTREAM_MODEL_NAME_CHARS,
+    )
+  ) {
     throw new Error("invalid provider credential response");
   }
   if (new Set(models).size !== models.length) {

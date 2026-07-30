@@ -248,6 +248,99 @@ async fn provider_credential_requests_reject_unknown_secret_fields() {
 }
 
 #[tokio::test]
+async fn manually_configured_model_materializes_without_discovery() {
+    let (_directory, app, _storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let endpoint = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Manual Catalog",
+            "provider_kind": "codex",
+            "base_url": "https://api.example.com/v1",
+            "protocol_dialect": "openai_responses",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(endpoint.status, StatusCode::OK);
+    let endpoint_id = endpoint.body["items"][0]["id"]
+        .as_str()
+        .expect("endpoint id");
+
+    let credential = request_json(
+        app.clone(),
+        Method::POST,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
+        Some(json!({
+            "expected_revision": 2,
+            "label": "Manually configured key",
+            "credential_kind": "api_key",
+            "api_key": "sk-manual-model-secret",
+            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
+            "requests_per_minute": null,
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(credential.status, StatusCode::OK);
+    let credential_id = credential.body["items"][0]["id"]
+        .as_str()
+        .expect("credential id");
+
+    let configured = request_json(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/admin/provider-credentials/{credential_id}/models"),
+        Some(json!({
+            "expected_revision": 3,
+            "expected_config_version": 1,
+            "models": ["gpt-manual-only"]
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(configured.status, StatusCode::OK);
+    assert_eq!(
+        configured.body["items"][0]["models"],
+        json!(["gpt-manual-only"])
+    );
+
+    let gateway = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/gateway-api-keys",
+        Some(json!({
+            "expected_revision": 4,
+            "name": "Manual model client",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(gateway.status, StatusCode::OK);
+    let gateway_token = gateway.body["items"][0]["token"]
+        .as_str()
+        .expect("gateway token");
+
+    let models = request_json_with_headers(
+        app,
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[("authorization", format!("Bearer {gateway_token}"))],
+    )
+    .await;
+    assert_eq!(models.status, StatusCode::OK);
+    assert_eq!(models.body["data"][0]["id"], "gpt-manual-only");
+}
+
+#[tokio::test]
 async fn successful_credential_test_clears_generation_auth_error() {
     let (upstream_address, mut upstream_requests) = credential_test_upstream().await;
     let (_directory, app, _storage) = test_app().await;

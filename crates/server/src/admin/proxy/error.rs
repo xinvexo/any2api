@@ -16,15 +16,6 @@ impl From<ProxyTestError> for AdminApiError {
                 "proxy_disabled",
                 "a disabled proxy cannot be tested",
             ),
-            ProxyTestError::ProviderEndpointNotFound => Self::provider_endpoint_not_found(),
-            ProxyTestError::InvalidEndpointUri => {
-                tracing::error!("published provider endpoint URI is invalid");
-                Self::new(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "internal_error",
-                    "proxy test could not be started",
-                )
-            }
         }
     }
 }

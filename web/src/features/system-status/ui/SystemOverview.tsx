@@ -1,13 +1,18 @@
 import { CheckCircle2, LoaderCircle, RefreshCw, ServerCrash } from "lucide-react";
 
 import { useHealth } from "../model/use-health";
-import { useAffinity } from "@/features/affinity";
+import {
+  describeAffinityMetrics,
+  type AffinityMetricPresentation,
+  useAffinity,
+} from "@/features/affinity";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
 
 export function SystemOverview() {
   const health = useHealth();
   const affinity = useAffinity();
+  const affinityMetrics = describeAffinityMetrics(affinity.data);
   const status = health.isPending ? "pending" : health.isError ? "error" : "ok";
   const busy = health.isFetching || affinity.isFetching;
 
@@ -31,19 +36,17 @@ export function SystemOverview() {
 
       <dl className="mt-5 grid gap-3 sm:grid-cols-3">
         <MetricCard
-          label="当前活动"
-          value={
-            affinity.data ? affinity.data.activeSessionCount.toLocaleString("zh-CN") : "—"
-          }
+          label={affinityMetrics.active.label}
+          value={affinityMetrics.active.value}
+          note={affinityMetrics.active.note}
         />
         <MetricCard
-          label="正在建立"
-          value={
-            affinity.data ? affinity.data.creatingSessionCount.toLocaleString("zh-CN") : "—"
-          }
+          label={affinityMetrics.creating.label}
+          value={affinityMetrics.creating.value}
+          note={affinityMetrics.creating.note}
         />
         <MetricCard
-          label="活动 / 后台任务"
+          label="活动请求 / 后台任务"
           value={
             health.data
               ? `${health.data.active_requests} / ${health.data.background_tasks}`
@@ -80,13 +83,18 @@ function StatusBadge({ status }: { status: "pending" | "error" | "ok" }) {
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({
+  label,
+  value,
+  note,
+}: Pick<AffinityMetricPresentation, "label" | "value"> & { note?: string }) {
   return (
     <div className="min-w-0 rounded-[12px] bg-surface-muted px-4 py-4">
       <dt className="text-xs font-medium text-secondary">{label}</dt>
       <dd className="mt-2 truncate text-[1.75rem] font-semibold tracking-tight tabular-nums" title={value}>
         {value}
       </dd>
+      {note ? <p className="mt-1.5 text-[11px] leading-4 text-tertiary">{note}</p> : null}
     </div>
   );
 }

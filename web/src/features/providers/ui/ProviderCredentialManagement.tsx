@@ -301,7 +301,7 @@ export function ProviderCredentialManagement({
         open={editorOpen}
         title={modelMode ? "选择上游模型" : drawerTitle}
         description={
-          modelMode ? "拉取并保存这把 API Key 可用的模型" : "绑定出口代理与可选 RPM 限制"
+          modelMode ? "发现或手动配置这把 API Key 可用的模型" : "绑定出口代理与可选 RPM 限制"
         }
         onClose={() => closeEditor(editorId)}
       >
@@ -310,7 +310,8 @@ export function ProviderCredentialManagement({
             key={`${selected.id}:${selected.configVersion}`}
             credential={selected}
             result={credentialTest.results[selected.id]}
-            pending={pending}
+            discovering={modelTesting}
+            saving={mutations.models.isPending}
             error={editorError}
             onDiscover={() => void credentialTest.test(selected.id)}
             onSave={saveModels}

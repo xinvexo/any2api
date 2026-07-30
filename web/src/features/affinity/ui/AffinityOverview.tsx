@@ -1,6 +1,10 @@
 import { Link } from "react-router-dom";
 
 import { getAffinityErrorMessage } from "../model/affinity-error";
+import {
+  describeAffinityMetrics,
+  type AffinityMetricPresentation,
+} from "../model/affinity-metric-presentation";
 import { useAffinity } from "../model/use-affinity";
 
 export function AffinityOverview() {
@@ -26,6 +30,7 @@ export function AffinityOverview() {
   }
 
   const runtime = query.data;
+  const metrics = describeAffinityMetrics(runtime);
   return (
     <section className="min-w-0 lg:pl-8" aria-busy={query.isFetching}>
       <header className="flex items-start justify-between gap-4">
@@ -33,8 +38,8 @@ export function AffinityOverview() {
           <h2 className="text-base font-semibold tracking-tight">活动会话</h2>
           <p className="mt-1.5 text-sm leading-6 text-secondary">
             {runtime.affinityEnabled
-              ? "统计有效期内仍会命中的显式会话，不包含 Response ID 续接索引。"
-              : "会话粘性已关闭；Response ID 续接索引不计入会话数。"}
+              ? "只统计 TTL 内仍会命中的显式 Session；Response ID 续接不计入。"
+              : "显式会话粘性已关闭；Response ID 续接仍按原目标处理，但不计入会话数。"}
           </p>
         </div>
         <Link
@@ -52,20 +57,21 @@ export function AffinityOverview() {
       ) : null}
 
       <dl className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-        <Metric label="当前活动" value={runtime.activeSessionCount} />
-        <Metric label="正在建立" value={runtime.creatingSessionCount} />
+        <Metric metric={metrics.active} />
+        <Metric metric={metrics.creating} />
       </dl>
     </section>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ metric }: { metric: AffinityMetricPresentation }) {
   return (
     <div className="min-w-0 rounded-[12px] bg-surface-muted px-4 py-4">
-      <dt className="text-xs font-medium text-secondary">{label}</dt>
+      <dt className="text-xs font-medium text-secondary">{metric.label}</dt>
       <dd className="mt-2 text-[1.75rem] font-semibold tracking-tight tabular-nums">
-        {value.toLocaleString("zh-CN")}
+        {metric.value}
       </dd>
+      <p className="mt-1.5 text-[11px] leading-4 text-tertiary">{metric.note}</p>
     </div>
   );
 }

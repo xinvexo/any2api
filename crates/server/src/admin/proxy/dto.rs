@@ -1,6 +1,5 @@
 use any2api_domain::{
-    ConfigRevision, ProviderEndpointId, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile,
-    ProxyProfileId,
+    ConfigRevision, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId,
 };
 use any2api_runtime::api::{
     ProxyPasswordSecret, ProxyTestOutcome, ProxyTestResult, PublishedSnapshot,
@@ -97,25 +96,11 @@ impl ProxyAuthenticationRequest {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ProxyTestRequest {
-    provider_endpoint_id: ProviderEndpointId,
-}
-
-impl ProxyTestRequest {
-    pub(crate) const fn provider_endpoint_id(&self) -> ProviderEndpointId {
-        self.provider_endpoint_id
-    }
-}
-
 #[derive(Debug, Serialize)]
 pub(crate) struct ProxyTestResponse {
     config_revision: u64,
     proxy_config_version: u64,
-    provider_endpoint_config_version: u64,
     proxy_id: ProxyProfileId,
-    provider_endpoint_id: ProviderEndpointId,
     reachable: bool,
     status_code: Option<u16>,
     latency_ms: u64,
@@ -134,9 +119,7 @@ impl From<ProxyTestResult> for ProxyTestResponse {
         Self {
             config_revision: result.config_revision().get(),
             proxy_config_version: result.proxy_config_version(),
-            provider_endpoint_config_version: result.provider_endpoint_config_version(),
             proxy_id: result.proxy_id(),
-            provider_endpoint_id: result.provider_endpoint_id(),
             reachable,
             status_code,
             latency_ms: result.latency_ms(),

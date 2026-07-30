@@ -1,15 +1,21 @@
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
-use any2api_domain::{ConfigRevision, ProviderEndpointId, ProxyProfileId};
+use any2api_domain::{ConfigRevision, ProxyProfileId};
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportErrorStage, TransportFailureScope, TransportManager,
     TransportRequest,
 };
 use bytes::Bytes;
-use http::{HeaderMap, Method};
+use http::{HeaderMap, Method, Uri};
 use thiserror::Error;
 
 use crate::configuration::PublishedSnapshot;
+
+const CONNECTIVITY_PROBE_URI: &str = "https://example.com/";
+const CONNECTIVITY_PROBE_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct ProxyTestService {
     transport: Arc<dyn TransportManager>,
@@ -25,7 +31,6 @@ impl ProxyTestService {
         &self,
         snapshot: Arc<PublishedSnapshot>,
         proxy_id: ProxyProfileId,
-        endpoint_id: ProviderEndpointId,
     ) -> Result<ProxyTestResult, ProxyTestError> {
         let proxy = snapshot
             .transport_proxy(proxy_id)
@@ -33,28 +38,16 @@ impl ProxyTestService {
         if !proxy.profile().enabled() {
             return Err(ProxyTestError::ProxyDisabled);
         }
-        let endpoint = snapshot
-            .provider_endpoints()
-            .get(endpoint_id)
-            .ok_or(ProxyTestError::ProviderEndpointNotFound)?;
         let config_revision = snapshot.revision();
         let proxy_config_version = proxy.profile().config_version();
-        let provider_endpoint_config_version = endpoint.config_version();
-        let uri = endpoint
-            .base_url()
-            .as_str()
-            .parse()
-            .map_err(|_| ProxyTestError::InvalidEndpointUri)?;
         let request = TransportRequest {
             method: Method::GET,
-            uri,
+            uri: Uri::from_static(CONNECTIVITY_PROBE_URI),
             headers: HeaderMap::new(),
             body: Bytes::new(),
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
-            read_timeout: std::time::Duration::from_secs(
-                snapshot.settings().upstream().read_timeout_secs(),
-            ),
+            read_timeout: CONNECTIVITY_PROBE_READ_TIMEOUT,
         };
         let started = Instant::now();
         let outcome = match self.transport.execute(proxy, request).await {
@@ -69,9 +62,7 @@ impl ProxyTestService {
         Ok(ProxyTestResult {
             config_revision,
             proxy_config_version,
-            provider_endpoint_config_version,
             proxy_id,
-            provider_endpoint_id: endpoint_id,
             latency_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
             outcome,
         })
@@ -82,9 +73,7 @@ impl ProxyTestService {
 pub struct ProxyTestResult {
     config_revision: ConfigRevision,
     proxy_config_version: u64,
-    provider_endpoint_config_version: u64,
     proxy_id: ProxyProfileId,
-    provider_endpoint_id: ProviderEndpointId,
     latency_ms: u64,
     outcome: ProxyTestOutcome,
 }
@@ -101,18 +90,8 @@ impl ProxyTestResult {
     }
 
     #[must_use]
-    pub const fn provider_endpoint_config_version(self) -> u64 {
-        self.provider_endpoint_config_version
-    }
-
-    #[must_use]
     pub const fn proxy_id(self) -> ProxyProfileId {
         self.proxy_id
-    }
-
-    #[must_use]
-    pub const fn provider_endpoint_id(self) -> ProviderEndpointId {
-        self.provider_endpoint_id
     }
 
     #[must_use]
@@ -179,7 +158,7 @@ impl From<TransportErrorStage> for ProxyTestFailureStage {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProxyTestFailureScope {
-    Endpoint,
+    ProbeTarget,
     Proxy,
     Unattributed,
 }
@@ -188,7 +167,7 @@ impl ProxyTestFailureScope {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Endpoint => "endpoint",
+            Self::ProbeTarget => "probe_target",
             Self::Proxy => "proxy",
             Self::Unattributed => "unattributed",
         }
@@ -198,7 +177,7 @@ impl ProxyTestFailureScope {
 impl From<TransportFailureScope> for ProxyTestFailureScope {
     fn from(value: TransportFailureScope) -> Self {
         match value {
-            TransportFailureScope::Endpoint => Self::Endpoint,
+            TransportFailureScope::Endpoint => Self::ProbeTarget,
             TransportFailureScope::Proxy => Self::Proxy,
             TransportFailureScope::Unattributed => Self::Unattributed,
         }
@@ -211,8 +190,4 @@ pub enum ProxyTestError {
     ProxyNotFound,
     #[error("proxy profile is disabled")]
     ProxyDisabled,
-    #[error("provider endpoint was not found")]
-    ProviderEndpointNotFound,
-    #[error("provider endpoint URI is invalid")]
-    InvalidEndpointUri,
 }
