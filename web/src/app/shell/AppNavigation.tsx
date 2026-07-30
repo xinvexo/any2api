@@ -35,7 +35,7 @@ export function AppNavigation({
                 mobile
                   ? "h-10 gap-3 rounded-[8px] px-3 text-sm"
                   : "h-9 rounded-[10px] text-[13px]",
-                !mobile && (collapsed ? "justify-center px-0" : "gap-2.5 px-3"),
+                !mobile && (collapsed ? "justify-center px-0" : "gap-2.5 pl-4 pr-3"),
                 mobile
                   ? "text-primary hover:bg-accent/10 hover:text-accent"
                   : "text-secondary hover:bg-surface-hover hover:text-primary",

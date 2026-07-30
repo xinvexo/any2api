@@ -18,3 +18,13 @@ test("uses the compact accent treatment for mobile navigation", () => {
   expect(inactiveLink).toHaveClass("text-primary");
   expect(inactiveLink).not.toHaveClass("bg-accent/10");
 });
+
+test("aligns expanded desktop icons with the sidebar toggle", () => {
+  render(
+    <MemoryRouter>
+      <AppNavigation />
+    </MemoryRouter>,
+  );
+
+  expect(screen.getByRole("link", { name: "系统总览" })).toHaveClass("pl-4", "pr-3");
+});

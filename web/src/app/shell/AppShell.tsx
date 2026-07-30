@@ -1,4 +1,4 @@
-import { KeyRound, LogOut, Menu, Network, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { KeyRound, LogOut, Menu, Network, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
@@ -104,11 +104,7 @@ export function AppShell() {
             title={collapsed ? "展开侧栏" : "收起侧栏"}
             onClick={() => setCollapsed((value) => !value)}
           >
-            {collapsed ? (
-              <PanelLeftOpen size={18} aria-hidden="true" />
-            ) : (
-              <PanelLeftClose size={18} aria-hidden="true" />
-            )}
+            <Menu size={18} aria-hidden="true" />
           </button>
 
           <Brand onNavigate={() => setMobileOpen(false)} />

@@ -1,1 +1,0 @@
-import{n as e}from"./createLucideIcon-CAdyUWaY.js";import{t}from"./proxies-BQ2i6-0X.js";var n=e();function r(){return(0,n.jsx)(t,{})}export{r as ProxiesPage};
