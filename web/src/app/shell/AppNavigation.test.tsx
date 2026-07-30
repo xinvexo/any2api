@@ -19,12 +19,28 @@ test("uses the compact accent treatment for mobile navigation", () => {
   expect(inactiveLink).not.toHaveClass("bg-accent/10");
 });
 
-test("aligns expanded desktop icons with the sidebar toggle", () => {
-  render(
+test("keeps desktop icons on the same rail while the sidebar collapses", () => {
+  const rendered = render(
     <MemoryRouter>
       <AppNavigation />
     </MemoryRouter>,
   );
 
-  expect(screen.getByRole("link", { name: "系统总览" })).toHaveClass("pl-4", "pr-3");
+  const expandedLink = screen.getByRole("link", { name: "系统总览" });
+  expect(expandedLink).toHaveClass("pl-4", "pr-3");
+  expect(expandedLink.querySelector("svg")).toHaveClass("shrink-0");
+  expect(expandedLink.querySelector("span")).toHaveClass(
+    "min-w-0",
+    "overflow-hidden",
+    "whitespace-nowrap",
+  );
+
+  rendered.rerender(
+    <MemoryRouter>
+      <AppNavigation collapsed />
+    </MemoryRouter>,
+  );
+
+  expect(screen.getByRole("link", { name: "系统总览" })).toHaveClass("px-4");
+  expect(screen.getByRole("link", { name: "系统总览" })).not.toHaveClass("justify-center");
 });

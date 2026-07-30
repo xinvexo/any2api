@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 
 import type { SettingItem } from "../api/settings-contracts";
 import type { ModelAccessDraft, SettingDraft } from "../model/setting-draft";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
 import { Switch } from "@/shared/ui/Switch";
@@ -122,33 +123,46 @@ export function ModelAllowlistControl({
       </div>
 
       <div
-        className="max-h-64 min-h-12 overflow-y-auto rounded-[10px] bg-surface-muted p-1"
+        className="max-h-64 min-h-12 overflow-y-auto"
+        role="group"
         aria-label="可用模型"
       >
         {visible.length === 0 ? (
-          <p className="px-2 py-4 text-center text-[12px] text-secondary">
+          <p className="rounded-[8px] bg-surface-muted px-2 py-4 text-center text-[12px] text-secondary">
             {query.trim() ? "没有匹配的模型" : "暂无已发布模型"}
           </p>
         ) : (
-          <div className="space-y-0.5">
-            {visible.map((model) => (
-              <label
-                key={model}
-                className="flex cursor-pointer items-center gap-3 rounded-[7px] px-2 py-2.5 hover:bg-surface-hover"
-              >
-                <input
-                  type="checkbox"
-                  className="size-4 accent-accent"
-                  checked={selected.has(model)}
-                  disabled={disabled || access.mode === "all"}
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-1.5 p-0.5">
+            {visible.map((model) => {
+              const checked = selected.has(model);
+              return (
+                <button
+                  key={model}
+                  type="button"
+                  className={cn(
+                    "focus-ring flex h-9 min-w-0 items-center gap-2 rounded-[7px] border px-2.5 text-left transition-colors",
+                    "disabled:cursor-not-allowed disabled:opacity-45",
+                    checked
+                      ? "border-accent/40 bg-accent/10 text-accent-copy hover:bg-accent/15"
+                      : "border-subtle bg-surface text-primary hover:border-strong hover:bg-surface-hover",
+                  )}
                   aria-label={model}
-                  onChange={() => toggle(model)}
-                />
-                <span className="min-w-0 flex-1 break-all font-mono text-[12px] text-primary">
-                  {model}
-                </span>
-              </label>
-            ))}
+                  aria-pressed={checked}
+                  title={model}
+                  disabled={disabled || access.mode === "all"}
+                  onClick={() => toggle(model)}
+                >
+                  <Check
+                    size={14}
+                    className={cn("shrink-0", checked ? "opacity-100" : "opacity-0")}
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+                    {model}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

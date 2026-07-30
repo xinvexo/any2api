@@ -120,11 +120,12 @@ test("searches, selects, clears, and batch-saves the global model allowlist", as
   const search = screen.getByRole("textbox", { name: "搜索可用模型" });
   fireEvent.change(search, { target: { value: "gpt" } });
   fireEvent.click(screen.getByRole("button", { name: "清除当前" }));
-  expect(screen.getByRole("checkbox", { name: "gpt-a" })).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "gpt-a" })).toHaveAttribute("aria-pressed", "false");
   fireEvent.click(screen.getByRole("button", { name: "选择当前" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "gpt-a" }));
+  fireEvent.click(screen.getByRole("button", { name: "gpt-a" }));
   fireEvent.change(search, { target: { value: "" } });
-  fireEvent.click(screen.getByRole("checkbox", { name: "claude" }));
+  expect(screen.getByRole("group", { name: "可用模型" }).querySelector(".grid")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "claude" }));
   fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
 
   await waitFor(() => expect(screen.getByText("已允许 1 / 3")).toBeInTheDocument());

@@ -35,7 +35,7 @@ export function AppNavigation({
                 mobile
                   ? "h-10 gap-3 rounded-[8px] px-3 text-sm"
                   : "h-9 rounded-[10px] text-[13px]",
-                !mobile && (collapsed ? "justify-center px-0" : "gap-2.5 pl-4 pr-3"),
+                !mobile && (collapsed ? "px-4" : "gap-2.5 pl-4 pr-3"),
                 mobile
                   ? "text-primary hover:bg-accent/10 hover:text-accent"
                   : "text-secondary hover:bg-surface-hover hover:text-primary",
@@ -46,8 +46,19 @@ export function AppNavigation({
               )
             }
           >
-            <Icon size={mobile ? 17 : 16} strokeWidth={active ? 2.1 : 1.85} aria-hidden="true" />
-            {collapsed ? <span className="sr-only">{label}</span> : <span>{label}</span>}
+            <Icon
+              className="shrink-0"
+              size={mobile ? 17 : 16}
+              strokeWidth={active ? 2.1 : 1.85}
+              aria-hidden="true"
+            />
+            {collapsed ? (
+              <span className="sr-only">{label}</span>
+            ) : (
+              <span className={cn("whitespace-nowrap", !mobile && "min-w-0 overflow-hidden")}>
+                {label}
+              </span>
+            )}
           </NavLink>
         );
       })}
