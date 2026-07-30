@@ -85,7 +85,7 @@ impl RequestRecorder {
         }
     }
 
-    pub(crate) fn set_route(
+    pub(crate) fn set_request_metadata(
         &self,
         public_model: String,
         is_stream: bool,
@@ -189,8 +189,7 @@ pub(crate) const fn public_error_class(code: PublicErrorCode) -> ErrorClass {
         | PublicErrorCode::PayloadTooLarge
         | PublicErrorCode::PublicApiNotFound
         | PublicErrorCode::MethodNotAllowed
-        | PublicErrorCode::ModelNotFound
-        | PublicErrorCode::NoRoute => ErrorClass::InvalidRequest,
+        | PublicErrorCode::ModelNotFound => ErrorClass::InvalidRequest,
         PublicErrorCode::LocalRateLimit => ErrorClass::RateLimited,
         PublicErrorCode::InternalError => ErrorClass::Internal,
         PublicErrorCode::GatewayTimeout => ErrorClass::Network,

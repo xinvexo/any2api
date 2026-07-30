@@ -307,7 +307,7 @@ fn local_image_errors_use_the_openai_error_envelope() {
         "missing image model",
     ));
     let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
-    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"]["type"], "invalid_request_error");
     assert_eq!(body["error"]["code"], "model_not_found");
 }

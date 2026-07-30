@@ -183,6 +183,58 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
 }
 
 #[tokio::test]
+async fn unknown_responses_model_is_a_terminal_parameter_error_and_keeps_request_metadata() {
+    let (_directory, app, revision) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, loopback, revision).await;
+
+    let response = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model": "gpt-5.6-luna",
+            "input": "background helper request",
+            "stream": true,
+            "reasoning": {"effort": "max"}
+        })),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    assert_eq!(response.body["error"]["type"], "invalid_request_error");
+    assert_eq!(response.body["error"]["code"], "model_not_found");
+    assert_eq!(response.body["error"]["param"], "model");
+    assert_eq!(
+        response.body["error"]["message"],
+        "The model 'gpt-5.6-luna' is not available through this gateway."
+    );
+
+    let request_id = response.headers["x-any2api-request-id"]
+        .to_str()
+        .expect("local request ID header")
+        .parse::<RequestId>()
+        .expect("local request ID");
+    let log = wait_for_request_log(&app, loopback, request_id).await;
+    assert_eq!(log["request"]["public_model"], "gpt-5.6-luna");
+    assert_eq!(log["request"]["thinking_level"], "max");
+    assert_eq!(log["request"]["is_stream"], true);
+    assert_eq!(log["request"]["status_code"], 400);
+    assert_eq!(log["request"]["attempt_count"], 0);
+    assert_eq!(log["request"]["provider_endpoint_id"], Value::Null);
+    assert_eq!(log["request"]["credential_id"], Value::Null);
+    assert_eq!(log["request"]["oauth_account_id"], Value::Null);
+    assert_eq!(log["request"]["proxy_profile_id"], Value::Null);
+    assert_eq!(
+        log["request"]["error_message"],
+        "The model 'gpt-5.6-luna' is not available through this gateway."
+    );
+    assert_eq!(log["attempts"], json!([]));
+}
+
+#[tokio::test]
 async fn codex_zstd_request_is_decoded_rewritten_and_recompressed_upstream() {
     let (listener, upstream) = upstream_server(
         "/v1/responses",

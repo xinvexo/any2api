@@ -112,12 +112,11 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
 fn error_type(code: PublicErrorCode) -> &'static str {
     match code {
         PublicErrorCode::Unauthorized => "authentication_error",
-        PublicErrorCode::InvalidRequest | PublicErrorCode::MethodNotAllowed => {
-            "invalid_request_error"
-        }
+        PublicErrorCode::InvalidRequest
+        | PublicErrorCode::MethodNotAllowed
+        | PublicErrorCode::ModelNotFound => "invalid_request_error",
         PublicErrorCode::PayloadTooLarge => "request_too_large",
         PublicErrorCode::PublicApiNotFound => "not_found_error",
-        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "not_found_error",
         PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
             "rate_limit_error"
         }
@@ -134,7 +133,7 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
         PublicErrorCode::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
         PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => StatusCode::NOT_FOUND,
+        PublicErrorCode::ModelNotFound => StatusCode::BAD_REQUEST,
         PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
             StatusCode::TOO_MANY_REQUESTS
         }
@@ -223,6 +222,14 @@ mod tests {
         let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
         assert_eq!(body["type"], "error");
         assert_eq!(body["error"]["type"], "rate_limit_error");
+
+        let missing_model = adapter.error_response(&PublicError::new(
+            PublicErrorCode::ModelNotFound,
+            "model is unavailable",
+        ));
+        let body: Value = serde_json::from_slice(&missing_model.body).expect("error JSON");
+        assert_eq!(missing_model.status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["error"]["type"], "invalid_request_error");
     }
 
     #[tokio::test]

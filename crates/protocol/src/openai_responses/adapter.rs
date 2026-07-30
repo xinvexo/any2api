@@ -148,13 +148,14 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
     fn error_response(&self, error: &PublicError) -> EgressResponse {
         let code = error_code(error.code());
         let error_type = error_type(error.code());
+        let param = error_param(error.code());
         let mut response = json_response(
             public_error_status(error.code()),
             json!({
                 "error": {
                     "message": error.client_message(),
                     "type": error_type,
-                    "param": null,
+                    "param": param,
                     "code": code
                 }
             }),
@@ -191,7 +192,6 @@ fn error_type(code: PublicErrorCode) -> &'static str {
         | PublicErrorCode::PublicApiNotFound
         | PublicErrorCode::MethodNotAllowed
         | PublicErrorCode::ModelNotFound
-        | PublicErrorCode::NoRoute
         | PublicErrorCode::SessionBindingLost => "invalid_request_error",
         PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
             "rate_limit_error"
@@ -209,7 +209,7 @@ fn error_code(code: PublicErrorCode) -> &'static str {
         PublicErrorCode::PayloadTooLarge => "payload_too_large",
         PublicErrorCode::PublicApiNotFound => "public_api_not_found",
         PublicErrorCode::MethodNotAllowed => "method_not_allowed",
-        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => "model_not_found",
+        PublicErrorCode::ModelNotFound => "model_not_found",
         PublicErrorCode::NoAvailableCredential => "no_available_credential",
         PublicErrorCode::LocalRateLimit => "local_rate_limit",
         PublicErrorCode::SessionBindingLost => "session_binding_lost",
@@ -219,6 +219,10 @@ fn error_code(code: PublicErrorCode) -> &'static str {
     }
 }
 
+fn error_param(code: PublicErrorCode) -> Option<&'static str> {
+    (code == PublicErrorCode::ModelNotFound).then_some("model")
+}
+
 fn public_error_status(code: PublicErrorCode) -> StatusCode {
     match code {
         PublicErrorCode::Unauthorized => StatusCode::UNAUTHORIZED,
@@ -226,7 +230,7 @@ fn public_error_status(code: PublicErrorCode) -> StatusCode {
         PublicErrorCode::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
         PublicErrorCode::PublicApiNotFound => StatusCode::NOT_FOUND,
         PublicErrorCode::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-        PublicErrorCode::ModelNotFound | PublicErrorCode::NoRoute => StatusCode::NOT_FOUND,
+        PublicErrorCode::ModelNotFound => StatusCode::BAD_REQUEST,
         PublicErrorCode::NoAvailableCredential | PublicErrorCode::LocalRateLimit => {
             StatusCode::TOO_MANY_REQUESTS
         }
@@ -325,8 +329,10 @@ mod tests {
         let response =
             adapter.error_response(&PublicError::new(PublicErrorCode::ModelNotFound, "missing"));
         let body: Value = serde_json::from_slice(&response.body).expect("error JSON");
+        assert_eq!(response.status, http::StatusCode::BAD_REQUEST);
         assert_eq!(body["error"]["type"], "invalid_request_error");
         assert_eq!(body["error"]["code"], "model_not_found");
+        assert_eq!(body["error"]["param"], "model");
 
         let not_found = adapter.error_response(&PublicError::new(
             PublicErrorCode::PublicApiNotFound,

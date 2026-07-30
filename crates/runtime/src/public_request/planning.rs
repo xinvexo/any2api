@@ -5,10 +5,7 @@ use any2api_protocol::api::{DecodedRequest, IngressRequest, ProtocolAdapter, Pro
 use any2api_provider::api::ProviderRegistry;
 use http::{Method, Uri};
 
-use super::{
-    PublicRequest,
-    response::{invalid_request, public_error},
-};
+use super::{PublicRequest, response::invalid_request};
 use crate::{
     configuration::PublishedSnapshot,
     routing::{
@@ -26,13 +23,15 @@ pub(super) struct PlannedRequest {
     pub(super) tiers: std::collections::BTreeMap<u16, Vec<crate::routing::RouteCandidate>>,
 }
 
-pub(super) async fn plan(
-    snapshot: &PublishedSnapshot,
+pub(super) struct DecodedPublicRequest {
+    pub(super) decoded: DecodedRequest,
+    pub(super) public_model: PublicModelName,
+}
+
+pub(super) async fn decode(
     request: PublicRequest,
     adapter: &dyn ProtocolAdapter,
-    protocols: &ProtocolRegistry,
-    providers: &ProviderRegistry,
-) -> Result<PlannedRequest, PublicError> {
+) -> Result<DecodedPublicRequest, PublicError> {
     let decoded = adapter
         .decode_ingress_request(IngressRequest {
             method: Method::POST,
@@ -50,7 +49,25 @@ pub(super) async fn plan(
         .and_then(|model| {
             PublicModelName::new(model).map_err(|_| invalid_request("model name is invalid"))
         })?;
-    plan_decoded(snapshot, decoded, public_model, protocols, providers)
+    Ok(DecodedPublicRequest {
+        decoded,
+        public_model,
+    })
+}
+
+pub(super) fn plan(
+    snapshot: &PublishedSnapshot,
+    request: DecodedPublicRequest,
+    protocols: &ProtocolRegistry,
+    providers: &ProviderRegistry,
+) -> Result<PlannedRequest, PublicError> {
+    plan_decoded(
+        snapshot,
+        request.decoded,
+        request.public_model,
+        protocols,
+        providers,
+    )
 }
 
 pub(super) fn replan(
@@ -78,7 +95,7 @@ fn plan_decoded(
     providers: &ProviderRegistry,
 ) -> Result<PlannedRequest, PublicError> {
     if !snapshot.is_public_model_allowed(&public_model) {
-        return Err(model_not_found());
+        return Err(model_not_found(&public_model));
     }
     let route = snapshot
         .model_routes()
@@ -110,7 +127,7 @@ fn plan_decoded(
             requirements,
         );
         if tiers.is_empty() {
-            return Err(model_not_found());
+            return Err(model_not_found(&public_model));
         }
         (
             route_id,
@@ -129,6 +146,12 @@ fn plan_decoded(
     })
 }
 
-fn model_not_found() -> PublicError {
-    public_error(PublicErrorCode::ModelNotFound, "model route was not found")
+fn model_not_found(model: &PublicModelName) -> PublicError {
+    PublicError::new(
+        PublicErrorCode::ModelNotFound,
+        format!(
+            "The model '{}' is not available through this gateway.",
+            model.as_str()
+        ),
+    )
 }

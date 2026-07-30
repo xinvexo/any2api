@@ -64,8 +64,9 @@ async fn multi_megabyte_request_passes_the_raised_body_limit() {
     .expect("request JSON");
     let response = send_raw(&app, "/v1/responses", &token, body).await;
 
-    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
     assert_eq!(response.body["error"]["code"], "model_not_found");
+    assert_eq!(response.body["error"]["param"], "model");
 }
 
 #[tokio::test]
@@ -81,8 +82,9 @@ async fn images_edit_request_can_exceed_the_standard_body_limit() {
     .expect("request JSON");
     let response = send_raw(&app, "/v1/images/edits", &token, body).await;
 
-    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
     assert_eq!(response.body["error"]["code"], "model_not_found");
+    assert_eq!(response.body["error"]["param"], "model");
 }
 
 #[tokio::test]

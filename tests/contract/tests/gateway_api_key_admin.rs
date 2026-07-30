@@ -349,8 +349,9 @@ async fn models_list_reflects_credential_model_selection() {
         &[("authorization", format!("Bearer {token}"))],
     )
     .await;
-    assert_eq!(rejected.status, StatusCode::NOT_FOUND);
+    assert_eq!(rejected.status, StatusCode::BAD_REQUEST);
     assert_eq!(rejected.body["error"]["code"], "model_not_found");
+    assert_eq!(rejected.body["error"]["param"], "model");
 
     let unrestricted = request_json(
         app.clone(),

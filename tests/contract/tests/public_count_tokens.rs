@@ -128,12 +128,12 @@ async fn count_tokens_rejects_a_disallowed_model_before_upstream_io() {
     )
     .await;
 
-    assert_eq!(response.status, StatusCode::NOT_FOUND);
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
     assert_eq!(response.body["type"], "error");
-    assert_eq!(response.body["error"]["type"], "not_found_error");
+    assert_eq!(response.body["error"]["type"], "invalid_request_error");
     assert_eq!(
         response.body["error"]["message"],
-        "model route was not found"
+        "The model 'claude-upstream' is not available through this gateway."
     );
     assert!(
         timeout(Duration::from_millis(100), upstream).await.is_err(),

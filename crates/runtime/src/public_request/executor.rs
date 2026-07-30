@@ -162,20 +162,21 @@ impl PublicRequestService {
         adapter: Arc<dyn ProtocolAdapter>,
         recorder: RequestRecorder,
     ) -> Result<PublicResponse, FinalFailure> {
+        let decoded = planning::decode(request, adapter.as_ref())
+            .await
+            .map_err(FinalFailure::from)?;
+        recorder.set_request_metadata(
+            decoded.public_model.as_str().to_owned(),
+            decoded.decoded.stream,
+            decoded.decoded.thinking_level.clone(),
+        );
         let planned = planning::plan(
             snapshot.as_ref(),
-            request,
-            adapter.as_ref(),
+            decoded,
             self.protocols.as_ref(),
             self.providers.as_ref(),
         )
-        .await
         .map_err(FinalFailure::from)?;
-        recorder.set_route(
-            planned.public_model.clone(),
-            planned.decoded.stream,
-            planned.decoded.thinking_level.clone(),
-        );
         retry::execute(
             snapshot,
             Arc::clone(&self.protocols),

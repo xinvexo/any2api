@@ -1288,7 +1288,11 @@ Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字�
   `PublicModelName` 校验。每次配置发布都与事务内新物化的公开 Route 名称取交集；删除最后一把可提供
   某模型的 API Key/OAuth 账号或移除其模型后，该名称必须在同一事务中自动删除；
 - 允许策略对所有公开推理与辅助入口统一执行。未知模型和未放行模型共享兼容的模型不存在错误边界，且
-  拒绝必须发生在候选选择、RPM 预留、会话创建和上游 I/O 前。
+  拒绝必须发生在候选选择、RPM 预留、会话创建和上游 I/O 前。该拒绝是对客户端 `model`
+  参数的终局校验失败：HTTP 状态固定为 400，OpenAI 方言使用
+  `type=invalid_request_error`、`code=model_not_found`、`param=model`；Anthropic 方言使用
+  `invalid_request_error`。错误消息可回显经 `PublicModelName` 验证的请求模型，但不得暴露
+  已配置模型集合、凭据或候选差异。
 - 全局允许列表不修改 ProviderCredential/OAuthAccount 的已选模型，也不接受 GatewayApiKey 级覆盖。
 
 ### 11.5 扩展接口
@@ -1405,6 +1409,12 @@ Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调�
 - 内部错误。
 
 本地错误返回本地 Request ID；适用时返回本地 `Retry-After`。本地等待上游响应超时使用 `504 Gateway Timeout` 和明确的 any2api 消息，连接、代理或 TLS 等没有收到上游 HTTP 响应的失败才使用对应本地网关错误。禁止把本地预算到期、Future 取消或 Transport 失败伪装成上游返回的状态或消息。
+
+已成功解码并验证的 `model`、`stream` 和思考级别是请求本身元数据，不是路由结果。
+Runtime 必须在模型允许列表与 Route 解析之前将它们写入 RequestRecorder；因此未知、未放行或
+暂无 Route 的有效模型请求仍必须在 RequestLog 中保留客户端填写的精确模型，而候选、
+凭据和代理字段保持为空。只有在 Body 无法解码、缺少 `model` 或模型名本身无效时，
+`public_model` 才保持为空。完整决策见 `docs/adr/0068-local-model-rejection-contract.md`。
 
 真正收到最终上游非 2xx 响应时，Runtime 不构造 `PublicError`，也不调用 `ProtocolAdapter::error_response`。它必须原样返回上游状态码和完整收集到的有界正文，并只投影 Provider 明确允许且经过通用安全清理的响应 Header；不得把 401/403/404/408/429/5xx 映射成其他状态，不得重建或补充 `type`、`code`、`message`，跨协议桥也不得把最终上游错误改写成入口协议 envelope。被重试或切换掉的 Attempt 响应仍全部丢弃，只有实际结束请求的最终 Attempt 可以返回。错误正文超限、读取超时或中途断开时保留已经收到的上游状态和安全 Header，但不生成替代错误正文。
 

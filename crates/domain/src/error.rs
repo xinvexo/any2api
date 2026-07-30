@@ -66,7 +66,6 @@ pub enum PublicErrorCode {
     PublicApiNotFound,
     MethodNotAllowed,
     ModelNotFound,
-    NoRoute,
     NoAvailableCredential,
     LocalRateLimit,
     SessionBindingLost,
