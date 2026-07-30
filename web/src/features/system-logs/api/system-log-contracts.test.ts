@@ -11,6 +11,9 @@ test("parses exact HTTP paths and nullable pre-response status", () => {
       systemLog("/api/admin/provider-credentials/actual-id"),
       { ...systemLog("/assets/app%20name.js"), status_code: null, outcome: "cancelled" },
     ],
+    total: 2,
+    page: 1,
+    page_size: 20,
     telemetry: { queued_records: 1, dropped_records: 2, persisted_records: 3 },
   });
 
@@ -27,12 +30,24 @@ test("rejects unknown outcomes and invalid response counts", () => {
   expect(() =>
     parseSystemLogList({
       items: [{ ...systemLog("/"), outcome: "unknown" }],
+      total: 1,
+      page: 1,
+      page_size: 20,
       telemetry: { queued_records: 0, dropped_records: 0, persisted_records: 0 },
     }),
   ).toThrow("invalid system log response");
   expect(() => parseClearSystemLogsResult({ deleted: -1 })).toThrow(
     "invalid system log response",
   );
+  expect(() =>
+    parseSystemLogList({
+      items: [systemLog("/v1/models")],
+      total: 0,
+      page: 1,
+      page_size: 20,
+      telemetry: { queued_records: 0, dropped_records: 0, persisted_records: 0 },
+    }),
+  ).toThrow("invalid system log response");
 });
 
 function systemLog(path: string) {

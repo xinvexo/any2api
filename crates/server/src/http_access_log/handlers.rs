@@ -4,50 +4,41 @@ use axum::{
     http::HeaderMap,
     response::{IntoResponse, Response},
 };
-use serde::Deserialize;
 
-use crate::{admin::AdminApiError, state::AppState};
+use crate::{admin::AdminApiError, log_pagination::LogListQuery, state::AppState};
 
 use super::{
     dto::{ClearSystemLogsResponse, SystemLogListResponse},
+    is_automatic_log_refresh,
     middleware::ExcludeFromHttpAccessLog,
 };
-
-const REFRESH_KIND_HEADER: &str = "x-any2api-system-log-refresh";
-const AUTOMATIC_REFRESH: &[u8] = b"automatic";
-
-#[derive(Deserialize)]
-pub(super) struct SystemLogListQuery {
-    limit: Option<u32>,
-}
 
 pub(super) async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
-    query: Result<Query<SystemLogListQuery>, QueryRejection>,
+    query: Result<Query<LogListQuery>, QueryRejection>,
 ) -> Result<Response, AdminApiError> {
     let query = query
         .map_err(|_| AdminApiError::invalid_request("system log query is invalid"))?
-        .0;
-    let limit = query.limit.unwrap_or(200);
-    if !(1..=500).contains(&limit) {
-        return Err(AdminApiError::invalid_request(
-            "system log limit must be between 1 and 500",
-        ));
-    }
+        .0
+        .validate()
+        .ok_or_else(|| AdminApiError::invalid_request("system log page is invalid"))?;
     let telemetry = state.request_telemetry();
     let logs = telemetry
-        .list_http_access_logs(limit)
+        .list_http_access_logs(query.since_ms, query.offset, query.page_size)
         .await
         .map_err(|error| {
             tracing::error!(%error, "system log list failed");
             AdminApiError::system_log_unavailable()
         })?;
-    let mut response = Json(SystemLogListResponse::new(logs, telemetry.metrics())).into_response();
-    if headers
-        .get(REFRESH_KIND_HEADER)
-        .is_some_and(|value| value.as_bytes() == AUTOMATIC_REFRESH)
-    {
+    let mut response = Json(SystemLogListResponse::new(
+        logs,
+        query.page,
+        query.page_size,
+        telemetry.metrics(),
+    ))
+    .into_response();
+    if is_automatic_log_refresh(&headers) {
         response.extensions_mut().insert(ExcludeFromHttpAccessLog);
     }
     Ok(response)

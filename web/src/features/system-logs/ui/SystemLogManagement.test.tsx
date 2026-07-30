@@ -15,7 +15,7 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
     if (String(input) === "/api/admin/system-logs" && init?.method === "DELETE") {
       return jsonResponse({ deleted: 1 });
     }
-    if (String(input).startsWith("/api/admin/system-logs?limit=")) {
+    if (String(input).startsWith("/api/admin/system-logs?page=")) {
       return listResponse();
     }
     throw new Error(`unexpected request: ${String(input)}`);
@@ -52,7 +52,7 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
 
 test("persists the automatic refresh choice across remounts", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    if (String(input).startsWith("/api/admin/system-logs?limit=")) {
+    if (String(input).startsWith("/api/admin/system-logs?page=")) {
       return listResponse();
     }
     throw new Error(`unexpected request: ${String(input)}`);
@@ -89,6 +89,27 @@ test("defaults automatic refresh to enabled for an invalid saved value", async (
   );
 });
 
+test("paginates system logs on the server", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path === "/api/admin/system-logs?page=1&page_size=20") {
+      return listResponse("/v1/responses", 21, 1, 20);
+    }
+    if (path === "/api/admin/system-logs?page=2&page_size=20") {
+      return listResponse("/v1/models", 21, 2, 20);
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  renderManagement();
+  expect((await screen.findAllByText("/v1/responses")).length).toBeGreaterThan(1);
+  expect(screen.getByText("共 21 条")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect((await screen.findAllByText("/v1/models")).length).toBeGreaterThan(1);
+  expect(screen.queryByText("/v1/responses")).not.toBeInTheDocument();
+});
+
 function renderManagement() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -98,7 +119,12 @@ function renderManagement() {
   );
 }
 
-function listResponse() {
+function listResponse(
+  path = "/api/admin/provider-credentials/actual-id",
+  total = 1,
+  page = 1,
+  pageSize = 20,
+) {
   return jsonResponse({
     items: [
       {
@@ -107,7 +133,7 @@ function listResponse() {
         config_revision: 3,
         client_ip: "203.0.113.8",
         method: "GET",
-        path: "/api/admin/provider-credentials/actual-id",
+        path,
         http_version: "HTTP/1.1",
         status_code: 200,
         duration_ms: 12,
@@ -115,6 +141,9 @@ function listResponse() {
         outcome: "completed",
       },
     ],
+    total,
+    page,
+    page_size: pageSize,
     telemetry: { queued_records: 0, dropped_records: 0, persisted_records: 1 },
   });
 }

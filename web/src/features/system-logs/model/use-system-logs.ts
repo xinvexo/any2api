@@ -3,16 +3,20 @@ import { useEffect, useState } from "react";
 
 import { clearSystemLogs, getSystemLogs } from "../api/system-log-api";
 
-const systemLogQueryKey = ["system-logs", 200] as const;
+const systemLogQueryKeys = {
+  all: ["system-logs"] as const,
+  list: (page: number, pageSize: number) => ["system-logs", "list", page, pageSize] as const,
+};
 const AUTO_REFRESH_INTERVAL_MS = 5_000;
 
-export function useSystemLogs(autoRefresh: boolean) {
+export function useSystemLogs(autoRefresh: boolean, page: number, pageSize: number) {
   const queryClient = useQueryClient();
-  const [automaticFetching, setAutomaticFetching] = useState(false);
-  const [automaticError, setAutomaticError] = useState(false);
+  const pageKey = `${page}:${pageSize}`;
+  const [automaticErrorPage, setAutomaticErrorPage] = useState<string | null>(null);
+  const queryKey = systemLogQueryKeys.list(page, pageSize);
   const query = useQuery({
-    queryKey: systemLogQueryKey,
-    queryFn: ({ signal }) => getSystemLogs(200, signal),
+    queryKey,
+    queryFn: ({ signal }) => getSystemLogs(page, pageSize, signal),
   });
 
   useEffect(() => {
@@ -27,25 +31,21 @@ export function useSystemLogs(autoRefresh: boolean) {
         return;
       }
       controller = new AbortController();
-      setAutomaticFetching(true);
-      setAutomaticError(false);
-      void getSystemLogs(200, controller.signal, "automatic")
+      setAutomaticErrorPage(null);
+      void getSystemLogs(page, pageSize, controller.signal, "automatic")
         .then((data) => {
           if (active) {
-            queryClient.setQueryData(systemLogQueryKey, data);
-            setAutomaticError(false);
+            queryClient.setQueryData(systemLogQueryKeys.list(page, pageSize), data);
+            setAutomaticErrorPage(null);
           }
         })
         .catch((error: unknown) => {
           if (active && !isAbortError(error)) {
-            setAutomaticError(true);
+            setAutomaticErrorPage(pageKey);
           }
         })
         .finally(() => {
           controller = null;
-          if (active) {
-            setAutomaticFetching(false);
-          }
         });
     };
     const interval = window.setInterval(refresh, AUTO_REFRESH_INTERVAL_MS);
@@ -55,17 +55,16 @@ export function useSystemLogs(autoRefresh: boolean) {
       window.clearInterval(interval);
       controller?.abort();
     };
-  }, [autoRefresh, queryClient]);
+  }, [autoRefresh, page, pageKey, pageSize, queryClient]);
 
   const refetch: typeof query.refetch = (options) => {
-    setAutomaticError(false);
+    setAutomaticErrorPage(null);
     return query.refetch(options);
   };
 
   return {
     ...query,
-    isFetching: query.isFetching || (autoRefresh && automaticFetching),
-    isError: query.isError || (autoRefresh && automaticError),
+    isError: query.isError || (autoRefresh && automaticErrorPage === pageKey),
     refetch,
   };
 }
@@ -75,7 +74,7 @@ export function useClearSystemLogs() {
   return useMutation({
     mutationFn: clearSystemLogs,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: systemLogQueryKey });
+      await queryClient.invalidateQueries({ queryKey: systemLogQueryKeys.all });
     },
   });
 }

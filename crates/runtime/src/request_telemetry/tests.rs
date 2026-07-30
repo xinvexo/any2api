@@ -5,8 +5,8 @@ use std::sync::{
 
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, HttpAccessLogOutcome,
-    HttpProtocolVersion, ProtocolDialect, ProtocolOperation, RequestId, RequestLog, SettingKey,
-    SettingOverrides, SettingValue, SettingsConfiguration,
+    HttpProtocolVersion, LogPage, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+    SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
@@ -221,8 +221,21 @@ impl HttpAccessLogRepository for BlockingRepository {
         Ok(0)
     }
 
-    async fn list_http_access_logs(&self, _limit: u32) -> Result<Vec<HttpAccessLog>, StorageError> {
-        Ok(self.access_logs.lock().expect("HTTP access logs").clone())
+    async fn list_http_access_logs(
+        &self,
+        _since_ms: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Result<LogPage<HttpAccessLog>, StorageError> {
+        let logs = self.access_logs.lock().expect("HTTP access logs");
+        let total = logs.len() as u64;
+        let items = logs
+            .iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .cloned()
+            .collect();
+        Ok(LogPage::new(items, total))
     }
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {
@@ -285,8 +298,13 @@ impl RequestLogRepository for BlockingRepository {
         Ok(0)
     }
 
-    async fn list_request_logs(&self, _limit: u32) -> Result<Vec<RequestLog>, StorageError> {
-        Ok(Vec::new())
+    async fn list_request_logs(
+        &self,
+        _since_ms: u64,
+        _offset: u64,
+        _limit: u32,
+    ) -> Result<LogPage<RequestLog>, StorageError> {
+        Ok(LogPage::empty())
     }
 
     async fn get_request_log(

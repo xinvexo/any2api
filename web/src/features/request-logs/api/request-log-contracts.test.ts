@@ -4,10 +4,7 @@ import { parseRequestLogDetail, parseRequestLogList } from "./request-log-contra
 
 describe("request log contracts", () => {
   it("parses list metrics and a detail attempt timeline", () => {
-    const list = parseRequestLogList({
-      items: [request()],
-      telemetry: telemetry(),
-    });
+    const list = parseRequestLogList(requestLogPage([request()]));
     expect(list.items[0]?.publicModel).toBe("codex-local");
     expect(list.items[0]?.clientIp).toBe("203.0.113.8");
     expect(list.items[0]?.providerEndpointName).toBe("frapi");
@@ -67,25 +64,23 @@ describe("request log contracts", () => {
   });
 
   it("accepts the largest lossless token count", () => {
-    const list = parseRequestLogList({
-      items: [{ ...request(), input_tokens: Number.MAX_SAFE_INTEGER }],
-      telemetry: telemetry(),
-    });
+    const list = parseRequestLogList(
+      requestLogPage([{ ...request(), input_tokens: Number.MAX_SAFE_INTEGER }]),
+    );
 
     expect(list.items[0]?.inputTokens).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it("accepts Chat Completions request logs", () => {
-    const list = parseRequestLogList({
-      items: [
+    const list = parseRequestLogList(
+      requestLogPage([
         {
           ...request(),
           ingress_protocol: "openai_chat_completions",
           operation: "chat_completions",
         },
-      ],
-      telemetry: telemetry(),
-    });
+      ]),
+    );
 
     expect(list.items[0]?.ingressProtocol).toBe("openai_chat_completions");
     expect(list.items[0]?.operation).toBe("chat_completions");
@@ -93,16 +88,15 @@ describe("request log contracts", () => {
 
   it("accepts Images generation and edit request logs", () => {
     for (const operation of ["images_generations", "images_edits"]) {
-      const list = parseRequestLogList({
-        items: [
+      const list = parseRequestLogList(
+        requestLogPage([
           {
             ...request(),
             ingress_protocol: "openai_images",
             operation,
           },
-        ],
-        telemetry: telemetry(),
-      });
+        ]),
+      );
 
       expect(list.items[0]?.ingressProtocol).toBe("openai_images");
       expect(list.items[0]?.operation).toBe(operation);
@@ -135,7 +129,26 @@ describe("request log contracts", () => {
     expect(detail.request.errorMessage).toBe("Incorrect API key provided");
     expect(detail.attempts[0]?.errorMessage).toBe("Incorrect API key provided");
   });
+
+  it("rejects inconsistent page metadata", () => {
+    expect(() =>
+      parseRequestLogList({ ...requestLogPage([request()]), total: 0 }),
+    ).toThrow("invalid request log response");
+    expect(() =>
+      parseRequestLogList({ ...requestLogPage([]), page_size: 101 }),
+    ).toThrow("invalid request log response");
+  });
 });
+
+function requestLogPage(items: unknown[]) {
+  return {
+    items,
+    total: items.length,
+    page: 1,
+    page_size: 20,
+    telemetry: telemetry(),
+  };
+}
 
 function request() {
   return {

@@ -22,6 +22,9 @@ interface SystemLogTelemetry {
 
 export interface SystemLogList {
   items: SystemLog[];
+  total: number;
+  page: number;
+  pageSize: number;
   telemetry: SystemLogTelemetry;
 }
 
@@ -31,8 +34,18 @@ export interface ClearSystemLogsResult {
 
 export function parseSystemLogList(value: unknown): SystemLogList {
   const record = readRecord(value);
+  const items = readArray(record.items).map(parseSystemLog);
+  const total = readNonNegativeInteger(record.total);
+  const page = readPositiveInteger(record.page);
+  const pageSize = readPositiveInteger(record.page_size);
+  if (pageSize > 100 || items.length > pageSize || items.length > total) {
+    throw invalidResponse();
+  }
   return {
-    items: readArray(record.items).map(parseSystemLog),
+    items,
+    total,
+    page,
+    pageSize,
     telemetry: parseTelemetry(record.telemetry),
   };
 }

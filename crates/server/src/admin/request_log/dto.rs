@@ -1,24 +1,33 @@
-use any2api_domain::{CompletedRequestLog, RequestAttempt, RequestLog};
+use any2api_domain::{CompletedRequestLog, LogPage, RequestAttempt, RequestLog};
 use any2api_runtime::api::{PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
 
 #[derive(Serialize)]
 pub(crate) struct RequestLogListResponse {
     items: Vec<RequestLogResponse>,
+    total: u64,
+    page: u32,
+    page_size: u32,
     telemetry: RequestTelemetryResponse,
 }
 
 impl RequestLogListResponse {
     pub(crate) fn new(
-        logs: Vec<RequestLog>,
+        logs: LogPage<RequestLog>,
+        page: u32,
+        page_size: u32,
         metrics: RequestTelemetryMetrics,
         snapshot: &PublishedSnapshot,
     ) -> Self {
         Self {
             items: logs
+                .items
                 .into_iter()
                 .map(|log| RequestLogResponse::from_log(log, snapshot))
                 .collect(),
+            total: logs.total,
+            page,
+            page_size,
             telemetry: metrics.into(),
         }
     }

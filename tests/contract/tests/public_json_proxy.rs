@@ -158,13 +158,16 @@ async fn codex_responses_uses_upstream_path_and_provider_key() {
     let list = request_json(
         app,
         Method::GET,
-        "/api/admin/request-logs?limit=10",
+        "/api/admin/request-logs?page=1&page_size=10",
         None,
         loopback,
         &[],
     )
     .await;
     assert_eq!(list.status, StatusCode::OK);
+    assert_eq!(list.body["total"], 1);
+    assert_eq!(list.body["page"], 1);
+    assert_eq!(list.body["page_size"], 10);
     assert_eq!(list.body["items"][0]["request_id"], request_id.to_string());
     assert_eq!(list.body["items"][0]["client_ip"], "127.0.0.1");
     assert_eq!(

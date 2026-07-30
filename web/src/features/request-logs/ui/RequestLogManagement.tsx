@@ -1,12 +1,6 @@
-import { ChevronLeft, ChevronRight, RefreshCw, ScrollText } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { RefreshCw, ScrollText } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
-import {
-  isRequestLogPageSize,
-  paginateItems,
-  REQUEST_LOG_PAGE_SIZE_OPTIONS,
-  type RequestLogPageSize,
-} from "../model/request-log-pagination";
 import { getRequestLogErrorMessage } from "../model/request-log-error";
 import { useRequestLogs } from "../model/use-request-logs";
 import {
@@ -15,26 +9,22 @@ import {
   requestLogGridClass,
 } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
-import { selectClass } from "@/shared/ui/form-control";
+import { logPageCount, type LogPageSize } from "@/shared/lib/log-pagination";
 import { Button } from "@/shared/ui/Button";
-import { IconButton } from "@/shared/ui/IconButton";
+import { LogPagination } from "@/shared/ui/LogPagination";
 import { Surface } from "@/shared/ui/Surface";
 
 export function RequestLogManagement() {
-  const query = useRequestLogs();
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState<RequestLogPageSize>(20);
+  const [pageSize, setPageSize] = useState<LogPageSize>(20);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const query = useRequestLogs(page, pageSize);
 
-  const items = useMemo(() => query.data?.items ?? [], [query.data?.items]);
-  const total = items.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const items = query.data?.items ?? [];
+  const total = query.data?.total ?? 0;
+  const totalPages = logPageCount(total, pageSize);
   const safePage = Math.min(Math.max(1, page), totalPages);
-  const pageItems = useMemo(
-    () => paginateItems(items, safePage, pageSize),
-    [items, safePage, pageSize],
-  );
-  const visibleExpandedId = pageItems.some((item) => item.requestId === expandedId)
+  const visibleExpandedId = items.some((item) => item.requestId === expandedId)
     ? expandedId
     : null;
 
@@ -43,7 +33,7 @@ export function RequestLogManagement() {
     setPage(nextPage);
   };
 
-  const handlePageSizeChange = (size: RequestLogPageSize) => {
+  const handlePageSizeChange = (size: LogPageSize) => {
     setExpandedId(null);
     setPageSize(size);
     setPage(1);
@@ -123,7 +113,7 @@ export function RequestLogManagement() {
               role="list"
               aria-label="请求日志列表"
             >
-              {pageItems.map((log) => (
+              {items.map((log) => (
                 <div key={log.requestId} role="listitem">
                   <RequestLogCard
                     log={log}
@@ -143,7 +133,7 @@ export function RequestLogManagement() {
               <div
                 role="table"
                 aria-label="请求日志表格"
-                aria-rowcount={pageItems.length + 1}
+                aria-rowcount={items.length + 1}
                 className="flex h-full min-w-[52rem] flex-col"
               >
                 <div
@@ -186,7 +176,7 @@ export function RequestLogManagement() {
                   tabIndex={0}
                   className="focus-ring min-h-0 flex-1 overflow-y-scroll bg-transparent outline-none [scrollbar-gutter:stable]"
                 >
-                  {pageItems.map((log) => (
+                  {items.map((log) => (
                     <RequestLogTableRows
                       key={log.requestId}
                       log={log}
@@ -207,7 +197,7 @@ export function RequestLogManagement() {
 
       {/* Fixed bottom chrome: pagination only (total is already in the control). */}
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-subtle pt-3 text-[12px] text-secondary">
-        <RequestLogPagination
+        <LogPagination
           page={safePage}
           pageSize={pageSize}
           total={total}
@@ -223,68 +213,6 @@ function RequestLogHeader({ children }: { children: ReactNode }) {
   return (
     <div role="columnheader" className="min-w-0 px-1 py-2 text-left">
       {children}
-    </div>
-  );
-}
-
-function RequestLogPagination({
-  page,
-  pageSize,
-  total,
-  onPageChange,
-  onPageSizeChange,
-}: {
-  page: number;
-  pageSize: RequestLogPageSize;
-  total: number;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (size: RequestLogPageSize) => void;
-}) {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(Math.max(1, page), totalPages);
-
-  return (
-    <div className="flex h-8 min-w-0 flex-wrap items-center gap-1.5 text-[12px] text-secondary">
-      <label className="flex items-center gap-1.5">
-        <span className="sr-only">每页条数</span>
-        <select
-          className={selectClass(false, "w-auto min-w-[4.5rem]")}
-          value={pageSize}
-          aria-label="每页条数"
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (isRequestLogPageSize(next)) {
-              onPageSizeChange(next);
-            }
-          }}
-        >
-          {REQUEST_LOG_PAGE_SIZE_OPTIONS.map((size) => (
-            <option key={size} value={size}>
-              {size} 条/页
-            </option>
-          ))}
-        </select>
-      </label>
-      <span className="tabular-nums text-tertiary">共 {total} 条</span>
-      <div className="flex items-center gap-0.5">
-        <IconButton
-          label="上一页"
-          disabled={safePage <= 1}
-          onClick={() => onPageChange(safePage - 1)}
-        >
-          <ChevronLeft size={16} strokeWidth={1.75} />
-        </IconButton>
-        <span className="min-w-[3.25rem] text-center tabular-nums text-primary">
-          {safePage}/{totalPages}
-        </span>
-        <IconButton
-          label="下一页"
-          disabled={safePage >= totalPages}
-          onClick={() => onPageChange(safePage + 1)}
-        >
-          <ChevronRight size={16} strokeWidth={1.75} />
-        </IconButton>
-      </div>
     </div>
   );
 }

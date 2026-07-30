@@ -1,4 +1,4 @@
-use any2api_domain::HttpAccessLog;
+use any2api_domain::{HttpAccessLog, LogPage};
 use async_trait::async_trait;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
@@ -19,7 +19,12 @@ pub trait HttpAccessLogRepository: Send + Sync {
         batch_size: u32,
     ) -> Result<u64, StorageError>;
 
-    async fn list_http_access_logs(&self, limit: u32) -> Result<Vec<HttpAccessLog>, StorageError>;
+    async fn list_http_access_logs(
+        &self,
+        since_ms: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Result<LogPage<HttpAccessLog>, StorageError>;
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError>;
 }
@@ -68,16 +73,44 @@ impl HttpAccessLogRepository for SqliteStore {
         Ok(expired.saturating_add(trimmed))
     }
 
-    async fn list_http_access_logs(&self, limit: u32) -> Result<Vec<HttpAccessLog>, StorageError> {
+    async fn list_http_access_logs(
+        &self,
+        since_ms: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Result<LogPage<HttpAccessLog>, StorageError> {
+        let since_ms = to_i64(since_ms)?;
+        let offset = to_i64(offset)?;
+        let mut transaction = self.pool().begin().await?;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM http_access_logs WHERE started_at_ms >= ? AND (\
+             path = '/v1' OR path GLOB '/v1/*' OR client_ip IS NULL OR \
+             (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
+             status_code IS NULL OR status_code >= 400 OR outcome <> 'completed')",
+        )
+        .bind(since_ms)
+        .fetch_one(&mut *transaction)
+        .await?;
         let rows = sqlx::query_as::<_, HttpAccessLogRow>(
             "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, \
              http_version, status_code, duration_ms, response_bytes, outcome \
-             FROM http_access_logs ORDER BY started_at_ms DESC, request_id DESC LIMIT ?",
+             FROM http_access_logs WHERE started_at_ms >= ? AND (\
+             path = '/v1' OR path GLOB '/v1/*' OR client_ip IS NULL OR \
+             (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
+             status_code IS NULL OR status_code >= 400 OR outcome <> 'completed') \
+             ORDER BY started_at_ms DESC, request_id DESC LIMIT ? OFFSET ?",
         )
+        .bind(since_ms)
         .bind(i64::from(limit))
-        .fetch_all(self.pool())
+        .bind(offset)
+        .fetch_all(&mut *transaction)
         .await?;
-        rows.into_iter().map(parse).collect()
+        transaction.commit().await?;
+        let items = rows.into_iter().map(parse).collect::<Result<Vec<_>, _>>()?;
+        Ok(LogPage::new(
+            items,
+            u64::try_from(total).map_err(|_| StorageError::CorruptTelemetry)?,
+        ))
     }
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {
@@ -86,4 +119,8 @@ impl HttpAccessLogRepository for SqliteStore {
             .await?;
         Ok(result.rows_affected())
     }
+}
+
+fn to_i64(value: u64) -> Result<i64, StorageError> {
+    i64::try_from(value).map_err(|_| StorageError::CorruptTelemetry)
 }

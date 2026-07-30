@@ -6,6 +6,7 @@ mod client_address;
 mod embedded_web;
 mod health;
 mod http_access_log;
+mod log_pagination;
 mod public;
 mod request_lifecycle;
 mod router;

@@ -7,16 +7,23 @@ import {
 } from "../model/system-log-auto-refresh-preference";
 import { useClearSystemLogs, useSystemLogs } from "../model/use-system-logs";
 import { SystemLogList } from "./SystemLogList";
+import { logPageCount, type LogPageSize } from "@/shared/lib/log-pagination";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
+import { LogPagination } from "@/shared/ui/LogPagination";
 import { Switch } from "@/shared/ui/Switch";
 
 export function SystemLogManagement() {
   const [autoRefresh, setAutoRefresh] = useState(loadSystemLogAutoRefreshPreference);
   const [confirmClear, setConfirmClear] = useState(false);
-  const query = useSystemLogs(autoRefresh);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<LogPageSize>(20);
+  const query = useSystemLogs(autoRefresh, page, pageSize);
   const clearMutation = useClearSystemLogs();
+  const total = query.data?.total ?? 0;
+  const totalPages = logPageCount(total, pageSize);
+  const safePage = Math.min(Math.max(1, page), totalPages);
 
   const handleAutoRefreshChange = (enabled: boolean) => {
     setAutoRefresh(enabled);
@@ -27,6 +34,7 @@ export function SystemLogManagement() {
     clearMutation.mutate(undefined, {
       onSuccess: (result) => {
         setConfirmClear(false);
+        setPage(1);
         notify.success(`已清理 ${result.deleted} 条历史系统日志`);
       },
       onError: () => notify.danger("系统日志清理失败"),
@@ -80,7 +88,7 @@ export function SystemLogManagement() {
           <Button
             size="sm"
             variant="danger"
-            disabled={items.length === 0 || clearMutation.isPending}
+            disabled={clearMutation.isPending}
             onClick={() => setConfirmClear(true)}
           >
             <Trash2 size={14} />
@@ -106,10 +114,23 @@ export function SystemLogManagement() {
         )}
       </div>
 
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-subtle pt-3">
+        <LogPagination
+          page={safePage}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={setPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPage(1);
+          }}
+        />
+      </div>
+
       <ConfirmDialog
         open={confirmClear}
         title="清理历史系统日志？"
-        description={`将删除当前保留的 ${items.length} 条记录，此操作不可撤销。清理操作本身会作为一条新记录保留。`}
+        description="将删除数据库中当前保留的全部系统日志，此操作不可撤销。"
         confirmLabel="清理"
         tone="danger"
         pending={clearMutation.isPending}

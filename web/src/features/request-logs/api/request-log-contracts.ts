@@ -64,6 +64,9 @@ interface RequestTelemetryMetrics {
 
 export interface RequestLogList {
   items: RequestLog[];
+  total: number;
+  page: number;
+  pageSize: number;
   telemetry: RequestTelemetryMetrics;
 }
 
@@ -75,8 +78,18 @@ export interface RequestLogDetail {
 
 export function parseRequestLogList(value: unknown): RequestLogList {
   const record = readRecord(value);
+  const items = readArray(record.items).map(parseRequestLog);
+  const total = readNonNegativeInteger(record.total);
+  const page = readPositiveInteger(record.page);
+  const pageSize = readPositiveInteger(record.page_size);
+  if (pageSize > 100 || items.length > pageSize || items.length > total) {
+    throw invalidResponse();
+  }
   return {
-    items: readArray(record.items).map(parseRequestLog),
+    items,
+    total,
+    page,
+    pageSize,
     telemetry: parseTelemetry(record.telemetry),
   };
 }

@@ -1,16 +1,19 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { RequestLogManagement } from "./RequestLogManagement";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 test("renders request logs in a table without leaving the page for details", async () => {
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const path = String(input);
-    if (path.startsWith("/api/admin/request-logs?") || path === "/api/admin/request-logs?limit=100") {
+    if (path.startsWith("/api/admin/request-logs?")) {
       return listResponse([request()]);
     }
     if (path === "/api/admin/request-logs/11111111-1111-4111-8111-111111111111") {
@@ -146,15 +149,24 @@ test("keeps the latest data visible when a refresh fails", async () => {
 });
 
 test("paginates request logs from the toolbar", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    listResponse(
-      Array.from({ length: 12 }, (_, index) => ({
-        ...request(),
-        request_id: `11111111-1111-4111-8111-1111111111${String(index).padStart(2, "0")}`,
-        public_model: `model-${index + 1}`,
-      })),
-    ),
-  );
+  const items = Array.from({ length: 12 }, (_, index) => ({
+    ...request(),
+    request_id: `11111111-1111-4111-8111-1111111111${String(index).padStart(2, "0")}`,
+    public_model: `model-${index + 1}`,
+  }));
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path === "/api/admin/request-logs?page=1&page_size=20") {
+      return listResponse(items, 12, 1, 20);
+    }
+    if (path === "/api/admin/request-logs?page=1&page_size=10") {
+      return listResponse(items.slice(0, 10), 12, 1, 10);
+    }
+    if (path === "/api/admin/request-logs?page=2&page_size=10") {
+      return listResponse(items.slice(10), 12, 2, 10);
+    }
+    throw new Error(`unexpected ${path}`);
+  });
 
   renderManagement();
   expect((await screen.findAllByText("model-1")).length).toBeGreaterThanOrEqual(1);
@@ -162,14 +174,42 @@ test("paginates request logs from the toolbar", async () => {
   expect(screen.getAllByText("model-12").length).toBeGreaterThanOrEqual(1);
 
   fireEvent.change(screen.getAllByLabelText("每页条数")[0]!, { target: { value: "10" } });
-  expect(screen.getAllByText("model-1").length).toBeGreaterThanOrEqual(1);
+  expect((await screen.findAllByText("model-1")).length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("model-10").length).toBeGreaterThanOrEqual(1);
   expect(screen.queryByText("model-11")).not.toBeInTheDocument();
 
   fireEvent.click(screen.getAllByRole("button", { name: "下一页" })[0]!);
-  expect(screen.getAllByText("model-11").length).toBeGreaterThanOrEqual(1);
+  expect((await screen.findAllByText("model-11")).length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("model-12").length).toBeGreaterThanOrEqual(1);
   expect(screen.queryByText("model-1")).not.toBeInTheDocument();
+});
+
+test("refreshes the current request-log page every second", async () => {
+  vi.useFakeTimers();
+  let calls = 0;
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+    calls += 1;
+    const automatic = (init?.headers as Record<string, string> | undefined)?.[
+      "X-Any2API-Log-Refresh"
+    ];
+    return listResponse(
+      [{ ...request(), public_model: automatic === "automatic" ? "model-live" : "model-old" }],
+    );
+  });
+
+  renderManagement();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(screen.getAllByText("model-old").length).toBeGreaterThanOrEqual(1);
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1_000);
+  });
+
+  expect(screen.getAllByText("model-live").length).toBeGreaterThanOrEqual(1);
+  expect(calls).toBe(2);
+  expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/admin/request-logs?page=1&page_size=20");
 });
 
 function renderManagement() {
@@ -183,10 +223,13 @@ function renderManagement() {
   );
 }
 
-function listResponse(items: unknown[]) {
+function listResponse(items: unknown[], total = items.length, page = 1, pageSize = 20) {
   return new Response(
     JSON.stringify({
       items,
+      total,
+      page,
+      page_size: pageSize,
       telemetry: { queued_records: 0, dropped_records: 2, persisted_records: items.length },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },

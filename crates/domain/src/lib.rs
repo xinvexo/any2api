@@ -61,7 +61,7 @@ pub use settings::{
     UpstreamSettings,
 };
 pub use telemetry::{
-    CompletedRequestLog, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion,
+    CompletedRequestLog, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion, LogPage,
     MAX_HTTP_ACCESS_LOG_METHOD_CHARS, MAX_HTTP_ACCESS_LOG_PATH_CHARS,
     MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TOKEN_COUNT,
     RequestAttempt, RequestAttemptOutcome, RequestLog, TokenUsage, bound_error_message,

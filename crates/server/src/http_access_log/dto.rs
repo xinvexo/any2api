@@ -1,17 +1,32 @@
-use any2api_domain::HttpAccessLog;
+use any2api_domain::{HttpAccessLog, LogPage};
 use any2api_runtime::api::RequestTelemetryMetrics;
 use serde::Serialize;
 
 #[derive(Serialize)]
 pub(super) struct SystemLogListResponse {
     items: Vec<SystemLogResponse>,
+    total: u64,
+    page: u32,
+    page_size: u32,
     telemetry: TelemetryResponse,
 }
 
 impl SystemLogListResponse {
-    pub(super) fn new(logs: Vec<HttpAccessLog>, metrics: RequestTelemetryMetrics) -> Self {
+    pub(super) fn new(
+        logs: LogPage<HttpAccessLog>,
+        page: u32,
+        page_size: u32,
+        metrics: RequestTelemetryMetrics,
+    ) -> Self {
         Self {
-            items: logs.into_iter().map(SystemLogResponse::from).collect(),
+            items: logs
+                .items
+                .into_iter()
+                .map(SystemLogResponse::from)
+                .collect(),
+            total: logs.total,
+            page,
+            page_size,
             telemetry: metrics.into(),
         }
     }

@@ -17,7 +17,7 @@ use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn complete_http_logs_keep_exact_paths_and_clear_in_writer_order() {
+async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
@@ -32,11 +32,11 @@ async fn complete_http_logs_keep_exact_paths_and_clear_in_writer_order() {
     let (app, telemetry) = build_test_app(Arc::clone(&storage), web_root).await;
     for (uri, status) in [
         ("/api/health?token=must-not-be-stored", StatusCode::OK),
+        ("/client/actual%20value?code=secret", StatusCode::OK),
         (
             "/v1/models?api_key=must-not-be-stored",
             StatusCode::UNAUTHORIZED,
         ),
-        ("/client/actual%20value?code=secret", StatusCode::OK),
         (
             "/api/not-a-real-route?session=secret",
             StatusCode::NOT_FOUND,
@@ -46,33 +46,64 @@ async fn complete_http_logs_keep_exact_paths_and_clear_in_writer_order() {
         assert_eq!(response.status, status);
         assert!(response.request_id.len() > 20);
     }
+    let unknown_client = send_without_peer(&app, Method::GET, "/api/health").await;
+    assert_eq!(unknown_client.status, StatusCode::OK);
 
-    wait_for_log_count(storage.as_ref(), 4).await;
-    let automatic_list =
-        send_automatic_refresh(&app, Method::GET, "/api/admin/system-logs?limit=100").await;
+    wait_for_log_count(storage.as_ref(), 3).await;
+    let automatic_list = send_automatic_refresh(
+        &app,
+        Method::GET,
+        "/api/admin/system-logs?page=1&page_size=20",
+    )
+    .await;
     assert_eq!(automatic_list.status, StatusCode::OK);
 
     let invalid_automatic_list =
-        send_automatic_refresh(&app, Method::GET, "/api/admin/system-logs?limit=0").await;
+        send_automatic_refresh(&app, Method::GET, "/api/admin/system-logs?page=0").await;
     assert_eq!(invalid_automatic_list.status, StatusCode::BAD_REQUEST);
+    wait_for_log_count(storage.as_ref(), 4).await;
 
-    let list = send(&app, Method::GET, "/api/admin/system-logs?limit=100").await;
-    assert_eq!(list.status, StatusCode::OK);
-    let items = list.json["items"].as_array().expect("system log items");
+    let first_page = send(
+        &app,
+        Method::GET,
+        "/api/admin/system-logs?page=1&page_size=2",
+    )
+    .await;
+    assert_eq!(first_page.status, StatusCode::OK);
+    assert_eq!(first_page.json["total"], 4);
+    assert_eq!(first_page.json["page"], 1);
+    assert_eq!(first_page.json["page_size"], 2);
+    let second_page = send(
+        &app,
+        Method::GET,
+        "/api/admin/system-logs?page=2&page_size=2",
+    )
+    .await;
+    assert_eq!(second_page.status, StatusCode::OK);
+    let items = first_page.json["items"]
+        .as_array()
+        .expect("first system log page")
+        .iter()
+        .chain(
+            second_page.json["items"]
+                .as_array()
+                .expect("second system log page"),
+        )
+        .collect::<Vec<_>>();
     let paths = items
         .iter()
         .map(|item| item["path"].as_str().expect("system log path"))
         .collect::<Vec<_>>();
-    assert!(paths.contains(&"/api/health"));
     assert!(paths.contains(&"/v1/models"));
-    assert!(paths.contains(&"/client/actual%20value"));
     assert!(paths.contains(&"/api/not-a-real-route"));
+    assert!(paths.contains(&"/api/health"));
+    assert!(paths.contains(&"/api/admin/system-logs"));
+    assert!(!paths.contains(&"/client/actual%20value"));
     assert!(paths.iter().all(|path| !path.contains('?')));
-    assert!(items.iter().all(|item| item["client_ip"] == "127.0.0.1"));
     let health = items
         .iter()
-        .find(|item| item["path"] == "/api/health")
-        .expect("health access log");
+        .find(|item| item["path"] == "/api/health" && item["client_ip"].is_null())
+        .expect("unknown-client health access log");
     assert_eq!(health["status_code"], 200);
     assert_eq!(health["outcome"], "completed");
     assert!(health["response_bytes"].as_u64().expect("response bytes") > 0);
@@ -82,42 +113,17 @@ async fn complete_http_logs_keep_exact_paths_and_clear_in_writer_order() {
         .expect("public authentication failure access log");
     assert_eq!(unauthorized["status_code"], 401);
 
-    wait_for_log_count(storage.as_ref(), 6).await;
-    let persisted = storage
-        .list_http_access_logs(100)
-        .await
-        .expect("persisted HTTP access logs");
-    let system_log_reads = persisted
-        .iter()
-        .filter(|log| log.method == "GET" && log.path == "/api/admin/system-logs")
-        .collect::<Vec<_>>();
-    assert_eq!(system_log_reads.len(), 2);
-    assert!(
-        system_log_reads
-            .iter()
-            .any(|log| log.status_code == Some(200))
-    );
-    assert!(
-        system_log_reads
-            .iter()
-            .any(|log| log.status_code == Some(400))
-    );
-
     let cleared = send(&app, Method::DELETE, "/api/admin/system-logs").await;
     assert_eq!(cleared.status, StatusCode::OK);
-    assert!(cleared.json["deleted"].as_u64().expect("deleted count") >= 4);
+    assert_eq!(cleared.json["deleted"], 4);
 
-    wait_for_delete_audit(storage.as_ref()).await;
+    tokio::time::sleep(Duration::from_millis(20)).await;
     let remaining = storage
-        .list_http_access_logs(100)
+        .list_http_access_logs(0, 0, 100)
         .await
         .expect("remaining HTTP access logs");
-    assert!(
-        remaining
-            .iter()
-            .all(|log| log.path == "/api/admin/system-logs")
-    );
-    assert!(remaining.iter().any(|log| log.method == "DELETE"));
+    assert_eq!(remaining.total, 0);
+    assert!(remaining.items.is_empty());
 
     telemetry.shutdown(Duration::from_secs(1)).await;
 }
@@ -171,6 +177,21 @@ async fn send_automatic_refresh(app: &Router, method: Method, uri: &str) -> Test
     send_request(app, method, uri, true).await
 }
 
+async fn send_without_peer(app: &Router, method: Method, uri: &str) -> TestResponse {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(method)
+                .uri(uri)
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    collect_response(response).await
+}
+
 async fn send_request(
     app: &Router,
     method: Method,
@@ -182,13 +203,17 @@ async fn send_request(
         .uri(uri)
         .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41_000))));
     if automatic_refresh {
-        request = request.header("x-any2api-system-log-refresh", "automatic");
+        request = request.header("x-any2api-log-refresh", "automatic");
     }
     let response = app
         .clone()
         .oneshot(request.body(Body::empty()).expect("request"))
         .await
         .expect("response");
+    collect_response(response).await
+}
+
+async fn collect_response(response: axum::response::Response) -> TestResponse {
     let status = response.status();
     let request_id = response.headers()["x-request-id"]
         .to_str()
@@ -211,9 +236,10 @@ async fn send_request(
 async fn wait_for_log_count(storage: &SqliteStore, minimum: usize) {
     for _ in 0..200 {
         if storage
-            .list_http_access_logs(100)
+            .list_http_access_logs(0, 0, 100)
             .await
             .expect("HTTP access logs")
+            .items
             .len()
             >= minimum
         {
@@ -222,20 +248,4 @@ async fn wait_for_log_count(storage: &SqliteStore, minimum: usize) {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     panic!("HTTP access logs were not persisted");
-}
-
-async fn wait_for_delete_audit(storage: &SqliteStore) {
-    for _ in 0..200 {
-        if storage
-            .list_http_access_logs(100)
-            .await
-            .expect("HTTP access logs")
-            .iter()
-            .any(|log| log.method == "DELETE")
-        {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    panic!("system log clear audit record was not persisted");
 }

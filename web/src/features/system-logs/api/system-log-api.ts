@@ -1,4 +1,5 @@
 import { requestJson } from "@/shared/api/http-client";
+import { AUTOMATIC_LOG_REFRESH_HEADERS } from "@/shared/api/log-refresh";
 
 import {
   parseClearSystemLogsResult,
@@ -7,19 +8,15 @@ import {
   type SystemLogList,
 } from "./system-log-contracts";
 
-const AUTOMATIC_REFRESH_HEADER = "X-Any2API-System-Log-Refresh";
-
 export function getSystemLogs(
-  limit = 200,
+  page = 1,
+  pageSize = 20,
   signal?: AbortSignal,
   refreshKind: "ordinary" | "automatic" = "ordinary",
 ): Promise<SystemLogList> {
-  return requestJson<unknown>(`/api/admin/system-logs?limit=${limit}`, {
+  return requestJson<unknown>(`/api/admin/system-logs?page=${page}&page_size=${pageSize}`, {
     signal,
-    headers:
-      refreshKind === "automatic"
-        ? { [AUTOMATIC_REFRESH_HEADER]: "automatic" }
-        : undefined,
+    headers: refreshKind === "automatic" ? AUTOMATIC_LOG_REFRESH_HEADERS : undefined,
   }).then(parseSystemLogList);
 }
 

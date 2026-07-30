@@ -26,7 +26,7 @@ const ANY2API_REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-any2api
 pub(crate) struct HttpRequestId(RequestId);
 
 #[derive(Clone, Copy)]
-pub(super) struct ExcludeFromHttpAccessLog;
+pub(crate) struct ExcludeFromHttpAccessLog;
 
 impl HttpRequestId {
     pub(crate) const fn get(self) -> RequestId {

@@ -7,7 +7,7 @@ use std::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, LoggingSettings,
+    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, LogPage, LoggingSettings,
     MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
 };
 use any2api_storage::api::{
@@ -228,10 +228,15 @@ impl RequestTelemetry {
         *self.policy.read().expect("request telemetry policy")
     }
 
-    pub async fn list(&self, limit: u32) -> Result<Vec<RequestLog>, StorageError> {
+    pub async fn list(
+        &self,
+        since_ms: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Result<LogPage<RequestLog>, StorageError> {
         match &self.request_logs {
-            Some(repository) => repository.list_request_logs(limit).await,
-            None => Ok(Vec::new()),
+            Some(repository) => repository.list_request_logs(since_ms, offset, limit).await,
+            None => Ok(LogPage::empty()),
         }
     }
 
@@ -247,11 +252,17 @@ impl RequestTelemetry {
 
     pub async fn list_http_access_logs(
         &self,
+        since_ms: u64,
+        offset: u64,
         limit: u32,
-    ) -> Result<Vec<HttpAccessLog>, StorageError> {
+    ) -> Result<LogPage<HttpAccessLog>, StorageError> {
         match &self.http_access_logs {
-            Some(repository) => repository.list_http_access_logs(limit).await,
-            None => Ok(Vec::new()),
+            Some(repository) => {
+                repository
+                    .list_http_access_logs(since_ms, offset, limit)
+                    .await
+            }
+            None => Ok(LogPage::empty()),
         }
     }
 

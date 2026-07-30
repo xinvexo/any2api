@@ -1,4 +1,4 @@
-use any2api_domain::{CompletedRequestLog, RequestId, RequestLog};
+use any2api_domain::{CompletedRequestLog, LogPage, RequestId, RequestLog};
 use async_trait::async_trait;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
@@ -23,7 +23,12 @@ pub trait RequestLogRepository: Send + Sync {
         batch_size: u32,
     ) -> Result<u64, StorageError>;
 
-    async fn list_request_logs(&self, limit: u32) -> Result<Vec<RequestLog>, StorageError>;
+    async fn list_request_logs(
+        &self,
+        since_ms: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Result<LogPage<RequestLog>, StorageError>;
 
     async fn get_request_log(
         &self,
@@ -86,19 +91,43 @@ impl RequestLogRepository for SqliteStore {
         Ok(expired.saturating_add(trimmed))
     }
 
-    async fn list_request_logs(&self, limit: u32) -> Result<Vec<RequestLog>, StorageError> {
+    async fn list_request_logs(
+        &self,
+        since_ms: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Result<LogPage<RequestLog>, StorageError> {
+        let since_ms = to_i64(since_ms)?;
+        let offset = to_i64(offset)?;
+        let mut transaction = self.pool().begin().await?;
+        let total: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM request_logs WHERE started_at_ms >= ?")
+                .bind(since_ms)
+                .fetch_one(&mut *transaction)
+                .await?;
         let rows = sqlx::query_as::<_, RequestLogRow>(
             "SELECT request_id, started_at_ms, client_ip, config_revision, gateway_api_key_id, \
              ingress_protocol, operation, public_model, thinking_level, provider_endpoint_id, \
              credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
              error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
              output_tokens, cache_read_tokens, is_stream FROM request_logs \
-             ORDER BY started_at_ms DESC, request_id DESC LIMIT ?",
+             WHERE started_at_ms >= ? ORDER BY started_at_ms DESC, request_id DESC \
+             LIMIT ? OFFSET ?",
         )
+        .bind(since_ms)
         .bind(i64::from(limit))
-        .fetch_all(self.pool())
+        .bind(offset)
+        .fetch_all(&mut *transaction)
         .await?;
-        rows.into_iter().map(parse_request_log).collect()
+        transaction.commit().await?;
+        let items = rows
+            .into_iter()
+            .map(parse_request_log)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(LogPage::new(
+            items,
+            u64::try_from(total).map_err(|_| StorageError::CorruptTelemetry)?,
+        ))
     }
 
     async fn get_request_log(
@@ -145,4 +174,8 @@ impl RequestLogRepository for SqliteStore {
     ) -> Result<RequestLogOverview, StorageError> {
         load_request_log_overview(self.pool(), range).await
     }
+}
+
+fn to_i64(value: u64) -> Result<i64, StorageError> {
+    i64::try_from(value).map_err(|_| StorageError::CorruptTelemetry)
 }

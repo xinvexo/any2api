@@ -13,6 +13,8 @@ use any2api_runtime::api::RequestTelemetry;
 use axum::body::{Body, Bytes, HttpBody};
 use http_body::{Frame, SizeHint};
 
+use super::policy::should_record;
+
 pub(super) struct AccessLogCompletion {
     telemetry: Arc<RequestTelemetry>,
     settings: LoggingSettings,
@@ -85,22 +87,22 @@ impl AccessLogCompletion {
         }
         self.pending = false;
         let duration_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        self.telemetry.try_record_http_access(
-            HttpAccessLog {
-                request_id: self.metadata.request_id,
-                started_at_ms: self.metadata.started_at_ms,
-                config_revision: self.metadata.config_revision,
-                client_ip: self.metadata.client_ip,
-                method: self.metadata.method.clone(),
-                path: self.metadata.path.clone(),
-                http_version: self.metadata.http_version,
-                status_code: self.status_code,
-                duration_ms,
-                response_bytes,
-                outcome,
-            },
-            &self.settings,
-        );
+        let log = HttpAccessLog {
+            request_id: self.metadata.request_id,
+            started_at_ms: self.metadata.started_at_ms,
+            config_revision: self.metadata.config_revision,
+            client_ip: self.metadata.client_ip,
+            method: self.metadata.method.clone(),
+            path: self.metadata.path.clone(),
+            http_version: self.metadata.http_version,
+            status_code: self.status_code,
+            duration_ms,
+            response_bytes,
+            outcome,
+        };
+        if should_record(&log) {
+            self.telemetry.try_record_http_access(log, &self.settings);
+        }
     }
 }
 

@@ -51,7 +51,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程监听必须显式启用并使用独立管理员认证，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型允许列表；空列表表示不限制，非空列表只允许精确匹配的公开模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
-23. 系统提供独立的完整 HTTP 系统日志，覆盖所有到达 Axum 的公开 API、管理 API、健康检查、Web 资源、鉴权失败、404 与 405。日志保存客户端实际请求 URI 的原始 path，不使用路由模板、通配归一化或重写后的路径，但不保存 query；管理页面支持自动刷新、手动刷新和有序清理历史记录。
+23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志保存客户端实际请求 URI 的原始 path，不使用路由模板、通配归一化或重写后的路径，也不保存 query；请求日志与系统日志管理列表均使用服务端分页且只展示最近 3 天，请求日志页面每秒自动读取最新页，自动轮询自身不进入系统日志。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude 与 Grok 不声明该方言能力。
@@ -945,6 +945,8 @@ request_logs
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
+请求日志管理列表固定查询最近 3 天，使用 1-based `page` 与有界 `page_size` 做服务端分页并返回该窗口的精确 `total`；分页不得把总历史截断为固定 100/200 条。Web 默认每秒自动刷新当前页，首次读取与手动刷新是普通管理访问，后续自动轮询使用受服务端成功 Handler 确认的内部标记从 HttpAccessLog 排除。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。
+
 ### 9.9 HttpAccessLog
 
 ```text
@@ -962,13 +964,15 @@ http_access_logs
 └─ outcome             # completed | body_error | cancelled
 ```
 
-`HttpAccessLog` 与模型 `RequestLog` 相互独立。前者覆盖所有到达 Axum 的请求，包括公开与管理鉴权失败、健康检查、Web 资源、deep link、404 和 405；后者只表达进入模型执行链后的调度与上游结果。两者共用全局 Request ID，以便在需要时关联，但不建立数据库外键或相互替代。
+`HttpAccessLog` 与模型 `RequestLog` 相互独立。前者用于异常与访问审计：公开 `/v1` 请求无论结果都保留；客户端地址未知或不是 loopback 的访问无论结果都保留；任意 HTTP 4xx/5xx、Body 错误或取消也保留。本机 loopback 发起、非 `/v1`、状态低于 400 且 Body 正常完成的管理 API、健康检查、Web 资源和 deep link 属于正常内部流量，不写入。管理查询必须应用同一规则，立即隐藏规则发布前已经写入的内部噪音。RequestLog 只表达进入模型执行链后的调度与上游结果。两者共用全局 Request ID，以便在需要时关联，但不建立数据库外键或相互替代。
 
 `path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板。URI query 始终丢弃，避免 OAuth code、token、密钥或其他查询参数进入 SQLite。系统日志同样不保存 Header、Cookie、User-Agent、Referer、请求体或响应体。
 
 `method` 保存任意非空、去除首尾空白后的 HTTP method token，不设置人为 32 字符上限；Schema 直接表达当前正确约束，不保留开发期临时约束和重建迁移。
 
 客户端地址使用与 RequestLog 相同的可信代理解析器和规范 IPv4/IPv6 表达。系统日志中间件位于全部应用路由之外，无法取得规范地址时 `HttpAccessLog.client_ip` 可以为 `NULL`；无论后续认证、路由或 Handler 是否成功，响应 Body 都负责在 EOF、错误或 Drop 时只结算一次。
+
+系统日志管理列表与请求日志使用相同的最近 3 天、服务端分页和精确窗口总数语义。清理仍删除 SQLite 中全部保留的 HttpAccessLog，不只删除当前页或 3 天窗口；因此确认文案不得把当前页条数伪装为清理总数。
 
 ### 9.10 持久化实体关系
 
@@ -2470,11 +2474,11 @@ runtime_retired
 
 总 Token 固定为每条 RequestLog 的 `input_tokens + output_tokens`；`cache_read_tokens` 是输入明细，不再重复相加。缓存创建 Token 不纳入 RequestLog、SQLite 或管理 API，因为当前上游响应未提供稳定可用的数据。缺少上游 usage 的请求按零 Token 参与求和，但响应必须另外返回实际包含输入或输出 Token 的请求数，让 Web 显示统计覆盖度而不是把缺失值伪装成精确零。Token 累计在管理 HTTP 契约中使用十进制字符串，避免超过 JavaScript 安全整数后失真；请求数仍使用受日志行数上限约束的整数。总览统计只用于本地观测，不参与路由、RPM、额度、计费或账号状态。
 
-完整 HTTP 系统日志与模型 RequestLog 再次分开：最外层 Server 中间件覆盖所有到达 Axum 的公开 API、管理 API、健康检查、内嵌或外部 Web 资源、deep link、鉴权失败、404 与 405。每条记录保存全局 Request ID、开始时间、捕获的配置 revision、规范客户端 IP、method、客户端实际请求的原始 URI path、HTTP version、可用的最终状态码、Body 生命周期总耗时、响应字节数和完成结果。请求在 Handler 返回 Response 前被取消时没有可伪造的 HTTP 状态码，因此该字段为空。path 不使用 `MatchedPath` 或通配归一化；query、Header、Cookie、User-Agent、Referer 与 Body 不落库。
+完整 HTTP 生命周期观测与模型 RequestLog 再次分开：最外层 Server 中间件先覆盖所有到达 Axum 的公开 API、管理 API、健康检查、内嵌或外部 Web 资源、deep link、鉴权失败、404 与 405，再在 Body 结算时应用系统日志保留规则。公开 `/v1`、非 loopback/未知客户端、4xx/5xx、Body 错误与取消保留；成功完成的本机非公开内部流量丢弃。每条保留记录保存全局 Request ID、开始时间、捕获的配置 revision、规范客户端 IP、method、客户端实际请求的原始 URI path、HTTP version、可用的最终状态码、Body 生命周期总耗时、响应字节数和完成结果。请求在 Handler 返回 Response 前被取消时没有可伪造的 HTTP 状态码，因此该字段为空。path 不使用 `MatchedPath` 或通配归一化；query、Header、Cookie、User-Agent、Referer 与 Body 不落库。
 
-系统日志管理读取和清理只对已认证管理面开放。普通 HTTP 日志继续使用非阻塞 `try_send`；手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求自身在响应 Body 完成后作为第一批新日志正常写入。Web 使用单一自动刷新开关，开启后固定每 5 秒查询，关闭后停止轮询；开关是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不进入 SettingRegistry；未保存、值无效或浏览器存储不可用时默认开启。
+两类日志管理读取只对已认证管理面开放，统一固定为最近 3 天并采用服务端分页；响应返回当前页、页大小与该窗口精确总数，不能再用一次最多 100/200/500 条的列表伪装分页。普通 HTTP 日志继续使用非阻塞 `try_send`；系统日志手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除全部保留历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求若来自 loopback 且成功完成，会按正常内部流量规则过滤；外部清理或失败清理仍保留。系统日志 Web 使用单一自动刷新开关，开启后固定每 5 秒查询，关闭后停止轮询；请求日志固定每 1 秒自动刷新当前页。自动刷新偏好只适用于系统日志，是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不进入 SettingRegistry；未保存、值无效或浏览器存储不可用时默认开启。
 
-只有 Web 定时器发起的、已通过管理员认证并成功进入系统日志列表 Handler 的自动刷新请求不写入 HttpAccessLog，避免页面轮询淹没有效访问历史。前端请求标记本身没有跳过日志的权限；Handler 必须在成功响应上附加内部排除标记，最外层日志中间件只识别该响应标记。首次加载、手动刷新、清理、认证失败、无效查询、404/405 和其他任何请求仍正常记录。
+只有 Web 定时器发起的、已通过管理员认证并成功进入请求日志或系统日志列表 Handler 的自动刷新请求强制不写入 HttpAccessLog，避免页面轮询淹没有效访问历史。前端请求标记本身没有跳过日志的权限；Handler 必须在成功响应上附加内部排除标记，最外层日志中间件只识别该响应标记。首次加载、手动刷新、认证失败、无效查询、404/405 和其他请求仍由统一系统日志保留规则决定。
 
 请求遥测采用以下边界：
 
