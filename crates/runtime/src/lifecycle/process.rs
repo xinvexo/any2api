@@ -118,6 +118,10 @@ impl ProcessLifecycle {
         self.inner.requests.wait().await;
     }
 
+    pub async fn draining(&self) {
+        self.inner.draining.cancelled().await;
+    }
+
     pub async fn forced(&self) {
         self.inner.forced.cancelled().await;
     }
@@ -223,6 +227,16 @@ mod tests {
         );
         drop(guard);
         lifecycle.wait_for_requests().await;
+    }
+
+    #[tokio::test]
+    async fn draining_signal_is_visible_to_noncritical_streams() {
+        let lifecycle = ProcessLifecycle::new();
+        let waiting = lifecycle.clone();
+        let task = tokio::spawn(async move { waiting.draining().await });
+
+        assert!(lifecycle.begin_draining());
+        task.await.expect("draining observer");
     }
 
     #[test]

@@ -1,23 +1,16 @@
 use axum::{
     Json,
     extract::{Query, State, rejection::QueryRejection},
-    http::HeaderMap,
-    response::{IntoResponse, Response},
 };
 
 use crate::{admin::AdminApiError, log_pagination::LogListQuery, state::AppState};
 
-use super::{
-    dto::{ClearSystemLogsResponse, SystemLogListResponse},
-    is_automatic_log_refresh,
-    middleware::ExcludeFromHttpAccessLog,
-};
+use super::dto::{ClearSystemLogsResponse, SystemLogListResponse};
 
 pub(super) async fn list(
     State(state): State<AppState>,
-    headers: HeaderMap,
     query: Result<Query<LogListQuery>, QueryRejection>,
-) -> Result<Response, AdminApiError> {
+) -> Result<Json<SystemLogListResponse>, AdminApiError> {
     let query = query
         .map_err(|_| AdminApiError::invalid_request("system log query is invalid"))?
         .0
@@ -31,17 +24,12 @@ pub(super) async fn list(
             tracing::error!(%error, "system log list failed");
             AdminApiError::system_log_unavailable()
         })?;
-    let mut response = Json(SystemLogListResponse::new(
+    Ok(Json(SystemLogListResponse::new(
         logs,
         query.page,
         query.page_size,
         telemetry.metrics(),
-    ))
-    .into_response();
-    if is_automatic_log_refresh(&headers) {
-        response.extensions_mut().insert(ExcludeFromHttpAccessLog);
-    }
-    Ok(response)
+    )))
 }
 
 pub(super) async fn clear(

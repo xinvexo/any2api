@@ -18,6 +18,7 @@ use any2api_storage::api::{
 use tokio::{sync::mpsc, task::JoinHandle};
 
 use super::{
+    changes::LogChangeNotifier,
     event::TelemetryEvent,
     gateway_usage::{GatewayUsageTracker, utc_timestamp},
     policy::RequestLogPolicy,
@@ -52,6 +53,7 @@ pub struct RequestTelemetry {
     persisted: Arc<AtomicU64>,
     policy: Arc<RwLock<RequestLogPolicy>>,
     gateway_usage: Mutex<GatewayUsageTracker>,
+    changes: LogChangeNotifier,
 }
 
 impl RequestTelemetry {
@@ -76,6 +78,7 @@ impl RequestTelemetry {
             persisted: Arc::new(AtomicU64::new(0)),
             policy: Arc::new(RwLock::new(policy)),
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
+            changes: LogChangeNotifier::new(),
         }
     }
 
@@ -105,6 +108,7 @@ impl RequestTelemetry {
         let policy = Arc::new(RwLock::new(RequestLogPolicy::from_settings(
             revision, settings,
         )));
+        let changes = LogChangeNotifier::new();
         let worker = lifecycle.spawn_tracked(worker::run(
             receiver,
             Arc::clone(&request_logs),
@@ -115,6 +119,7 @@ impl RequestTelemetry {
                 dropped: Arc::clone(&dropped),
                 persisted: Arc::clone(&persisted),
                 policy: Arc::clone(&policy),
+                changes: changes.clone(),
             },
         ));
         Self {
@@ -129,6 +134,7 @@ impl RequestTelemetry {
             persisted,
             policy,
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
+            changes,
         }
     }
 
@@ -221,6 +227,16 @@ impl RequestTelemetry {
             dropped_records: self.dropped.load(Ordering::Relaxed),
             persisted_records: self.persisted.load(Ordering::Relaxed),
         }
+    }
+
+    #[must_use]
+    pub fn subscribe_request_log_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changes.subscribe_request_logs()
+    }
+
+    #[must_use]
+    pub fn subscribe_http_access_log_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.changes.subscribe_http_access_logs()
     }
 
     #[cfg(test)]

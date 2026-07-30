@@ -6,7 +6,7 @@
 
 ## 背景
 
-`RequestLog` 描述已经通过网关鉴权并进入模型执行链的请求。它包含模型、路由、上游凭据、Attempt 和 Token Usage，因此不适合表达管理 API、健康检查、Web 资源、公开鉴权失败、404 或 405。独立 HTTP 访问日志覆盖整个 Axum 服务，并支持 Web 自动刷新和手动清理。
+`RequestLog` 描述已经通过网关鉴权并进入模型执行链的请求。它包含模型、路由、上游凭据、Attempt 和 Token Usage，因此不适合表达管理 API、健康检查、Web 资源、公开鉴权失败、404 或 405。独立 HTTP 访问日志覆盖整个 Axum 服务，并支持 Web 事件驱动刷新和手动清理。
 
 系统仍需遵守 Secret 不落日志的边界。尤其是 OAuth callback、登录链接或客户端 URL 可能在 query 中携带 code、token 或其他敏感值，完整访问日志不能等同于保存完整 URI、Header 或 Body。
 
@@ -63,9 +63,11 @@ DELETE /api/admin/system-logs
 
 ### Web 行为
 
-新增一级菜单“系统日志”和 `/system-logs` deep link。页面展示时间、客户端 IP、method、实际 path、状态、HTTP version、耗时、响应字节与结果，并提供与请求日志一致的分页、手动刷新、自动刷新 Switch 和带确认的历史清理。Switch 开启后固定每 5 秒刷新当前页，关闭后停止轮询。自动刷新状态是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不写入服务端 SettingRegistry；没有保存值、值无效或浏览器拒绝存储时默认开启。桌面表格继续使用 `@tanstack/react-virtual`，并保持固定表头与独立滚动区；移动端保留自然滚动卡片。
+新增一级菜单“系统日志”和 `/system-logs` deep link。页面展示时间、客户端 IP、method、实际 path、状态、HTTP version、耗时、响应字节与结果，并提供与请求日志一致的分页、手动刷新、自动刷新 Switch 和带确认的历史清理。Switch 开启后订阅已认证的 `/api/admin/log-events`，收到 `system_logs_changed` 后重新读取当前页；关闭后断开订阅。自动刷新状态是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不写入服务端 SettingRegistry；没有保存值、值无效或浏览器拒绝存储时默认开启。桌面表格继续使用 `@tanstack/react-virtual`，并保持固定表头与独立滚动区；移动端保留自然滚动卡片。
 
-请求日志和系统日志的定时自动刷新共用内部用途标记，但请求标记本身不能绕过日志。只有请求已经通过管理员认证、分页校验并进入对应列表 Handler 后，Handler 才在成功响应扩展中附加排除标记；最外层 HttpAccessLog 中间件看到该响应标记后取消本次记录。首次页面加载与手动刷新不携带自动标记，认证失败、无效查询、404/405 和其他路径也无法产生受信任的响应标记，继续由统一审计规则决定。
+RequestTelemetry Writer 在 RequestLog 或 HttpAccessLog 批次成功提交后推进对应的进程内 epoch，有序清理和保留删除只在确实删除记录后推进。SSE 只发送 `request_logs_changed`、`system_logs_changed` 与 epoch，不发送日志正文；同一批次允许合并通知。epoch 不持久化、不恢复、不提供事件回放，新连接先发送当前值以覆盖断线窗口，keepalive 不触发页面读取。
+
+成功通过管理员认证并建立的 SSE 响应由服务端附加 HttpAccessLog 排除标记，避免长连接断开形成系统日志噪音。客户端 Header 不再拥有或声明任何排除语义；认证失败、无效查询、404/405、首次页面读取、手动刷新和其他路径继续由统一审计规则决定。
 
 ## 结果
 
@@ -75,5 +77,5 @@ DELETE /api/admin/system-logs
 - query、Header 与 Body 不落库，避免为了“完整 HTTP 日志”破坏 Secret 边界。
 - Body 生命周期可以区分成功、传输错误和客户端取消。
 - 有序清理不会被清理命令之前仍在 writer 队列中的记录回填。
-- 定时轮询不会用系统日志读取记录淹没真正的访问历史，手动读取与异常访问仍可审计。
+- 事件驱动刷新不会用固定轮询淹没 SQLite 与访问历史，手动读取与异常访问仍可审计。
 - 自动刷新选择在页面重载和浏览器重启后保持，同时不会把一台设备的界面偏好扩散为实例级配置。

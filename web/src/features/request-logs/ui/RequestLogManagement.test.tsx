@@ -4,10 +4,13 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { RequestLogManagement } from "./RequestLogManagement";
+import { FakeEventSource } from "@/test/fake-event-source";
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  FakeEventSource.reset();
 });
 
 test("renders request logs in a table without leaving the page for details", async () => {
@@ -184,30 +187,26 @@ test("paginates request logs from the toolbar", async () => {
   expect(screen.queryByText("model-1")).not.toBeInTheDocument();
 });
 
-test("refreshes the current request-log page every second", async () => {
-  vi.useFakeTimers();
+test("refreshes the current request-log page after a committed SSE change", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
   let calls = 0;
-  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
     calls += 1;
-    const automatic = (init?.headers as Record<string, string> | undefined)?.[
-      "X-Any2API-Log-Refresh"
-    ];
     return listResponse(
-      [{ ...request(), public_model: automatic === "automatic" ? "model-live" : "model-old" }],
+      [{ ...request(), public_model: calls > 1 ? "model-live" : "model-old" }],
     );
   });
 
   renderManagement();
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(0);
-  });
-  expect(screen.getAllByText("model-old").length).toBeGreaterThanOrEqual(1);
+  expect((await screen.findAllByText("model-old")).length).toBeGreaterThanOrEqual(1);
+  expect(FakeEventSource.instances).toHaveLength(1);
+  expect(FakeEventSource.instances[0]?.url).toBe("/api/admin/log-events");
 
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(1_000);
+    FakeEventSource.instances[0]?.emit("request_logs_changed");
   });
 
-  expect(screen.getAllByText("model-live").length).toBeGreaterThanOrEqual(1);
+  expect((await screen.findAllByText("model-live")).length).toBeGreaterThanOrEqual(1);
   expect(calls).toBe(2);
   expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/admin/request-logs?page=1&page_size=20");
 });

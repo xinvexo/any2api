@@ -4,17 +4,15 @@ import { getSystemLogs } from "./system-log-api";
 
 afterEach(() => vi.restoreAllMocks());
 
-test("marks only automatic system log reads", async () => {
+test("paginates system logs without client-controlled audit headers", async () => {
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => listResponse());
 
-  await getSystemLogs(2, 50, undefined, "automatic");
+  await getSystemLogs(2, 50);
   await getSystemLogs();
 
-  const automaticHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
-  const ordinaryHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>;
+  const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
   expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/admin/system-logs?page=2&page_size=50");
-  expect(automaticHeaders["X-Any2API-Log-Refresh"]).toBe("automatic");
-  expect(ordinaryHeaders["X-Any2API-Log-Refresh"]).toBeUndefined();
+  expect(firstHeaders["X-Any2API-Log-Refresh"]).toBeUndefined();
 });
 
 function listResponse() {

@@ -4,15 +4,9 @@ use any2api_domain::RequestId;
 use axum::{
     Json,
     extract::{Path, Query, State, rejection::QueryRejection},
-    http::HeaderMap,
-    response::{IntoResponse, Response},
 };
 
-use crate::{
-    http_access_log::{ExcludeFromHttpAccessLog, is_automatic_log_refresh},
-    log_pagination::LogListQuery,
-    state::AppState,
-};
+use crate::{log_pagination::LogListQuery, state::AppState};
 
 use super::{
     dto::{RequestLogDetailResponse, RequestLogListResponse},
@@ -21,9 +15,8 @@ use super::{
 
 pub(crate) async fn list(
     State(state): State<AppState>,
-    headers: HeaderMap,
     query: Result<Query<LogListQuery>, QueryRejection>,
-) -> Result<Response, AdminApiError> {
+) -> Result<Json<RequestLogListResponse>, AdminApiError> {
     let query = query
         .map_err(|_| AdminApiError::invalid_request("request log query is invalid"))?
         .0
@@ -38,18 +31,13 @@ pub(crate) async fn list(
             AdminApiError::request_log_unavailable()
         })?;
     let snapshot = state.snapshots().load();
-    let mut response = Json(RequestLogListResponse::new(
+    Ok(Json(RequestLogListResponse::new(
         logs,
         query.page,
         query.page_size,
         telemetry.metrics(),
         snapshot.as_ref(),
-    ))
-    .into_response();
-    if is_automatic_log_refresh(&headers) {
-        response.extensions_mut().insert(ExcludeFromHttpAccessLog);
-    }
-    Ok(response)
+    )))
 }
 
 pub(crate) async fn get(

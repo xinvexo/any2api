@@ -1,6 +1,6 @@
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use any2api_domain::{
@@ -67,6 +67,63 @@ async fn full_logical_queue_drops_without_waiting_for_the_writer() {
     assert_eq!(telemetry.metrics().persisted_records, 2);
 }
 
+#[tokio::test]
+async fn request_log_change_epoch_advances_only_after_commit() {
+    let repository = Arc::new(BlockingRepository::default());
+    let settings = logging_settings(8);
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    let mut changes = telemetry.subscribe_request_log_changes();
+    let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
+
+    telemetry.try_record(record(RequestId::new()), policy);
+    wait_for(|| repository.write_batches.load(Ordering::Acquire) == 1).await;
+    assert_eq!(*changes.borrow(), 0);
+
+    repository.release_first.notify_waiters();
+    tokio::time::timeout(std::time::Duration::from_secs(1), changes.changed())
+        .await
+        .expect("request log commit notification")
+        .expect("request log notifier remains open");
+    assert_eq!(*changes.borrow_and_update(), 1);
+
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn failed_request_log_batch_does_not_advance_change_epoch() {
+    let repository = Arc::new(BlockingRepository::default());
+    repository
+        .fail_request_writes
+        .store(true, Ordering::Release);
+    let settings = logging_settings(8);
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    let changes = telemetry.subscribe_request_log_changes();
+    let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
+
+    telemetry.try_record(record(RequestId::new()), policy);
+    wait_for(|| telemetry.metrics().dropped_records == 1).await;
+
+    assert_eq!(*changes.borrow(), 0);
+    assert!(
+        !changes
+            .has_changed()
+            .expect("request log notifier remains open")
+    );
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn writer_prunes_while_idle() {
     let repository = Arc::new(BlockingRepository::default());
@@ -83,6 +140,34 @@ async fn writer_prunes_while_idle() {
     let initial_calls = repository.prune_calls.load(Ordering::Acquire);
     tokio::time::advance(std::time::Duration::from_secs(60)).await;
     wait_for(|| repository.prune_calls.load(Ordering::Acquire) > initial_calls).await;
+
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn retention_deletions_advance_both_change_epochs() {
+    let repository = Arc::new(BlockingRepository::default());
+    repository
+        .request_prune_deletions
+        .store(2, Ordering::Release);
+    repository
+        .access_prune_deletions
+        .store(3, Ordering::Release);
+    let settings = logging_settings(8);
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    let request_changes = telemetry.subscribe_request_log_changes();
+    let access_changes = telemetry.subscribe_http_access_log_changes();
+
+    wait_for(|| repository.prune_calls.load(Ordering::Acquire) >= 1).await;
+    wait_for(|| repository.access_prune_calls.load(Ordering::Acquire) >= 1).await;
+    assert_eq!(*request_changes.borrow(), 1);
+    assert_eq!(*access_changes.borrow(), 1);
 
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }
@@ -169,6 +254,7 @@ async fn clear_http_access_logs_is_ordered_with_regular_events() {
         settings.logging(),
         &lifecycle,
     );
+    let access_changes = telemetry.subscribe_http_access_log_changes();
 
     telemetry.try_record_http_access(access_log("/before-clear"), settings.logging());
     assert_eq!(
@@ -178,8 +264,10 @@ async fn clear_http_access_logs_is_ordered_with_regular_events() {
             .expect("clear HTTP access logs"),
         1
     );
+    assert_eq!(*access_changes.borrow(), 2);
     telemetry.try_record_http_access(access_log("/after-clear"), settings.logging());
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+    assert_eq!(*access_changes.borrow(), 3);
 
     assert_eq!(
         repository
@@ -197,6 +285,10 @@ async fn clear_http_access_logs_is_ordered_with_regular_events() {
 struct BlockingRepository {
     write_batches: AtomicUsize,
     prune_calls: AtomicUsize,
+    access_prune_calls: AtomicUsize,
+    request_prune_deletions: AtomicUsize,
+    access_prune_deletions: AtomicUsize,
+    fail_request_writes: AtomicBool,
     release_first: Notify,
     usage_updates: Mutex<Vec<Vec<GatewayApiKeyLastUsedUpdate>>>,
     access_logs: Mutex<Vec<HttpAccessLog>>,
@@ -218,7 +310,8 @@ impl HttpAccessLogRepository for BlockingRepository {
         _max_rows: u64,
         _batch_size: u32,
     ) -> Result<u64, StorageError> {
-        Ok(0)
+        self.access_prune_calls.fetch_add(1, Ordering::AcqRel);
+        Ok(self.access_prune_deletions.swap(0, Ordering::AcqRel) as u64)
     }
 
     async fn list_http_access_logs(
@@ -282,6 +375,9 @@ impl RequestLogRepository for BlockingRepository {
         _records: &[CompletedRequestLog],
     ) -> Result<(), StorageError> {
         let batch = self.write_batches.fetch_add(1, Ordering::AcqRel);
+        if self.fail_request_writes.load(Ordering::Acquire) {
+            return Err(StorageError::CorruptTelemetry);
+        }
         if batch == 0 {
             self.release_first.notified().await;
         }
@@ -295,7 +391,7 @@ impl RequestLogRepository for BlockingRepository {
         _batch_size: u32,
     ) -> Result<u64, StorageError> {
         self.prune_calls.fetch_add(1, Ordering::AcqRel);
-        Ok(0)
+        Ok(self.request_prune_deletions.swap(0, Ordering::AcqRel) as u64)
     }
 
     async fn list_request_logs(

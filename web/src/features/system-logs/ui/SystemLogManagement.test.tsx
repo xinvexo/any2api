@@ -1,16 +1,20 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY } from "../model/system-log-auto-refresh-preference";
 import { SystemLogManagement } from "./SystemLogManagement";
+import { FakeEventSource } from "@/test/fake-event-source";
 
 afterEach(() => {
   window.localStorage.removeItem(SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY);
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  FakeEventSource.reset();
 });
 
 test("shows exact paths, automatic refresh choices, and clears with confirmation", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     if (String(input) === "/api/admin/system-logs" && init?.method === "DELETE") {
       return jsonResponse({ deleted: 1 });
@@ -32,10 +36,24 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
     screen.getByTitle("Request ID: 11111111-1111-4111-8111-111111111111"),
   ).toBeInTheDocument();
 
+  await act(async () => {
+    FakeEventSource.instances[0]?.emit("system_logs_changed");
+  });
+  await waitFor(() => {
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).startsWith("/api/admin/system-logs?page="),
+      ),
+    ).toHaveLength(2);
+  });
+
   const autoRefresh = screen.getByRole("switch", { name: "自动刷新" });
   expect(autoRefresh).toHaveAttribute("aria-checked", "true");
+  expect(FakeEventSource.instances).toHaveLength(1);
+  expect(FakeEventSource.instances[0]?.url).toBe("/api/admin/log-events");
   fireEvent.click(autoRefresh);
   expect(autoRefresh).toHaveAttribute("aria-checked", "false");
+  expect(FakeEventSource.instances[0]?.closed).toBe(true);
 
   fireEvent.click(screen.getByRole("button", { name: "清理历史日志" }));
   const dialog = await screen.findByRole("alertdialog");

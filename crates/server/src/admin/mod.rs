@@ -5,6 +5,7 @@ mod balancing;
 mod config_publish_error;
 mod error;
 mod gateway_api_key;
+mod log_events;
 mod no_store;
 mod oauth;
 mod overview;
@@ -43,6 +44,7 @@ fn protected_routes() -> Router<AppState> {
         .merge(oauth::routes())
         .merge(overview::routes())
         .merge(gateway_api_key::routes())
+        .merge(log_events::routes())
         .merge(proxy::routes())
         .merge(provider::routes())
         .merge(request_log::routes())

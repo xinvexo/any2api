@@ -14,7 +14,7 @@ use any2api_storage::api::{
 };
 use tokio::sync::mpsc;
 
-use super::{RequestLogPolicy, event::TelemetryEvent};
+use super::{RequestLogPolicy, changes::LogChangeNotifier, event::TelemetryEvent};
 
 const WRITE_BATCH_SIZE: usize = 64;
 const PRUNE_BATCH_SIZE: u32 = 1_000;
@@ -25,6 +25,7 @@ pub(super) struct WorkerState {
     pub(super) dropped: Arc<AtomicU64>,
     pub(super) persisted: Arc<AtomicU64>,
     pub(super) policy: Arc<RwLock<RequestLogPolicy>>,
+    pub(super) changes: LogChangeNotifier,
 }
 
 #[derive(Default)]
@@ -110,6 +111,9 @@ async fn receive_event(
         TelemetryEvent::ClearHttpAccessLogs { reply } => {
             flush(batch, request_logs, http_access_logs, gateway_usage, state).await;
             let result = http_access_logs.clear_http_access_logs().await;
+            if result.as_ref().is_ok_and(|deleted| *deleted > 0) {
+                state.changes.http_access_logs_changed();
+            }
             let _ = reply.send(result);
         }
     }
@@ -145,6 +149,7 @@ async fn flush_request_logs(
             state
                 .persisted
                 .fetch_add(batch.len() as u64, Ordering::Relaxed);
+            state.changes.request_logs_changed();
         }
         Err(error) => {
             state
@@ -168,6 +173,7 @@ async fn flush_http_access_logs(
             state
                 .persisted
                 .fetch_add(batch.len() as u64, Ordering::Relaxed);
+            state.changes.http_access_logs_changed();
         }
         Err(error) => {
             state
@@ -220,17 +226,21 @@ async fn prune(
 ) {
     let policy = *state.policy.read().expect("request telemetry policy");
     let cutoff = unix_time_ms().saturating_sub(policy.retention_secs.saturating_mul(1_000));
-    if let Err(error) = request_logs
+    match request_logs
         .prune_request_logs(cutoff, policy.max_rows, PRUNE_BATCH_SIZE)
         .await
     {
-        tracing::warn!(%error, "request telemetry retention cleanup failed");
+        Ok(deleted) if deleted > 0 => state.changes.request_logs_changed(),
+        Ok(_) => {}
+        Err(error) => tracing::warn!(%error, "request telemetry retention cleanup failed"),
     }
-    if let Err(error) = http_access_logs
+    match http_access_logs
         .prune_http_access_logs(cutoff, policy.max_rows, PRUNE_BATCH_SIZE)
         .await
     {
-        tracing::warn!(%error, "HTTP access log retention cleanup failed");
+        Ok(deleted) if deleted > 0 => state.changes.http_access_logs_changed(),
+        Ok(_) => {}
+        Err(error) => tracing::warn!(%error, "HTTP access log retention cleanup failed"),
     }
 }
 

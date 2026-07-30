@@ -50,33 +50,52 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     assert_eq!(unknown_client.status, StatusCode::OK);
 
     wait_for_log_count(storage.as_ref(), 3).await;
-    let automatic_list = send_automatic_refresh(
-        &app,
-        Method::GET,
-        "/api/admin/system-logs?page=1&page_size=20",
-    )
-    .await;
-    assert_eq!(automatic_list.status, StatusCode::OK);
+    let (mut log_events, initial_events) = open_log_events(&app).await;
+    assert!(initial_events.contains("event: request_logs_changed\n"));
+    assert!(initial_events.contains("event: system_logs_changed\n"));
+    assert_eq!(
+        storage
+            .list_http_access_logs(0, 0, 100)
+            .await
+            .expect("HTTP access logs after SSE connect")
+            .total,
+        3
+    );
 
-    let invalid_automatic_list =
-        send_automatic_refresh(&app, Method::GET, "/api/admin/system-logs?page=0").await;
-    assert_eq!(invalid_automatic_list.status, StatusCode::BAD_REQUEST);
+    let changed = send(&app, Method::GET, "/api/another-missing-route").await;
+    assert_eq!(changed.status, StatusCode::NOT_FOUND);
+    let changed_event = next_sse_data(&mut log_events).await;
+    assert!(changed_event.contains("event: system_logs_changed\n"));
     wait_for_log_count(storage.as_ref(), 4).await;
+    drop(log_events);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert_eq!(
+        storage
+            .list_http_access_logs(0, 0, 100)
+            .await
+            .expect("HTTP access logs after SSE disconnect")
+            .total,
+        4
+    );
+
+    let invalid_list = send(&app, Method::GET, "/api/admin/system-logs?page=0").await;
+    assert_eq!(invalid_list.status, StatusCode::BAD_REQUEST);
+    wait_for_log_count(storage.as_ref(), 5).await;
 
     let first_page = send(
         &app,
         Method::GET,
-        "/api/admin/system-logs?page=1&page_size=2",
+        "/api/admin/system-logs?page=1&page_size=3",
     )
     .await;
     assert_eq!(first_page.status, StatusCode::OK);
-    assert_eq!(first_page.json["total"], 4);
+    assert_eq!(first_page.json["total"], 5);
     assert_eq!(first_page.json["page"], 1);
-    assert_eq!(first_page.json["page_size"], 2);
+    assert_eq!(first_page.json["page_size"], 3);
     let second_page = send(
         &app,
         Method::GET,
-        "/api/admin/system-logs?page=2&page_size=2",
+        "/api/admin/system-logs?page=2&page_size=3",
     )
     .await;
     assert_eq!(second_page.status, StatusCode::OK);
@@ -115,7 +134,7 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
 
     let cleared = send(&app, Method::DELETE, "/api/admin/system-logs").await;
     assert_eq!(cleared.status, StatusCode::OK);
-    assert_eq!(cleared.json["deleted"], 4);
+    assert_eq!(cleared.json["deleted"], 5);
 
     tokio::time::sleep(Duration::from_millis(20)).await;
     let remaining = storage
@@ -124,6 +143,22 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
         .expect("remaining HTTP access logs");
     assert_eq!(remaining.total, 0);
     assert!(remaining.items.is_empty());
+
+    let denied = send_from_peer(
+        &app,
+        Method::GET,
+        "/api/admin/log-events",
+        SocketAddr::from(([203, 0, 113, 9], 41_001)),
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN);
+    assert_eq!(denied.json["error"]["code"], "admin_loopback_only");
+    wait_for_log_count(storage.as_ref(), 1).await;
+    let denied_logs = storage
+        .list_http_access_logs(0, 0, 100)
+        .await
+        .expect("denied SSE access log");
+    assert_eq!(denied_logs.items[0].path, "/api/admin/log-events");
 
     telemetry.shutdown(Duration::from_secs(1)).await;
 }
@@ -170,11 +205,7 @@ struct TestResponse {
 }
 
 async fn send(app: &Router, method: Method, uri: &str) -> TestResponse {
-    send_request(app, method, uri, false).await
-}
-
-async fn send_automatic_refresh(app: &Router, method: Method, uri: &str) -> TestResponse {
-    send_request(app, method, uri, true).await
+    send_request(app, method, uri).await
 }
 
 async fn send_without_peer(app: &Router, method: Method, uri: &str) -> TestResponse {
@@ -192,25 +223,56 @@ async fn send_without_peer(app: &Router, method: Method, uri: &str) -> TestRespo
     collect_response(response).await
 }
 
-async fn send_request(
-    app: &Router,
-    method: Method,
-    uri: &str,
-    automatic_refresh: bool,
-) -> TestResponse {
-    let mut request = Request::builder()
+async fn send_request(app: &Router, method: Method, uri: &str) -> TestResponse {
+    send_from_peer(app, method, uri, SocketAddr::from(([127, 0, 0, 1], 41_000))).await
+}
+
+async fn send_from_peer(app: &Router, method: Method, uri: &str, peer: SocketAddr) -> TestResponse {
+    let request = Request::builder()
         .method(method)
         .uri(uri)
-        .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41_000))));
-    if automatic_refresh {
-        request = request.header("x-any2api-log-refresh", "automatic");
-    }
+        .extension(ConnectInfo(peer));
     let response = app
         .clone()
         .oneshot(request.body(Body::empty()).expect("request"))
         .await
         .expect("response");
     collect_response(response).await
+}
+
+async fn open_log_events(app: &Router) -> (Body, String) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/admin/log-events")
+                .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41_000))))
+                .body(Body::empty())
+                .expect("log events request"),
+        )
+        .await
+        .expect("log events response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(response.headers()["x-accel-buffering"], "no");
+    let mut body = response.into_body();
+    let first = next_sse_data(&mut body).await;
+    let second = next_sse_data(&mut body).await;
+    (body, first + &second)
+}
+
+async fn next_sse_data(body: &mut Body) -> String {
+    loop {
+        let frame = tokio::time::timeout(Duration::from_secs(1), body.frame())
+            .await
+            .expect("SSE frame timeout")
+            .expect("SSE stream remains open")
+            .expect("SSE frame");
+        if let Ok(data) = frame.into_data() {
+            return String::from_utf8(data.to_vec()).expect("UTF-8 SSE event");
+        }
+    }
 }
 
 async fn collect_response(response: axum::response::Response) -> TestResponse {
