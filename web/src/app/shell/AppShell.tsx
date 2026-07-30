@@ -138,33 +138,20 @@ export function AppShell() {
         <div className="fixed inset-0 top-14 z-40 sm:top-16 lg:hidden" role="presentation">
           <button
             type="button"
-            className="absolute inset-0 bg-scrim"
+            className="mobile-navigation-scrim absolute inset-0"
             aria-label="关闭导航遮罩"
             onClick={() => setMobileOpen(false)}
           />
           <aside
             id="responsive-navigation"
-            className={cn(
-              "app-glass-panel absolute inset-y-0 left-0 flex h-full max-w-[86vw] flex-col",
-              SIDEBAR_EXPANDED,
-            )}
+            className="app-glass-panel mobile-navigation-panel absolute left-2 top-2 flex max-h-[calc(100dvh-4.5rem)] w-[272px] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-[12px] sm:max-h-[calc(100dvh-5rem)]"
             aria-labelledby={titleId}
           >
-            <div className="flex h-14 items-center justify-between gap-3 px-4">
-              <span id={titleId} className="text-sm font-semibold tracking-tight text-primary">
-                导航
-              </span>
-              <button
-                type="button"
-                className={HEADER_ICON_BUTTON}
-                aria-label="关闭导航"
-                onClick={() => setMobileOpen(false)}
-              >
-                <X size={17} aria-hidden="true" />
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4">
-              <AppNavigation onNavigate={() => setMobileOpen(false)} />
+            <span id={titleId} className="sr-only">
+              导航
+            </span>
+            <div className="min-h-0 overflow-y-auto p-2">
+              <AppNavigation variant="mobile" onNavigate={() => setMobileOpen(false)} />
             </div>
           </aside>
         </div>

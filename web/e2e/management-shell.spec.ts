@@ -176,6 +176,15 @@ test("390px OAuth navigation closes after a deep-link transition without horizon
     name: "主导航",
   });
   await expect(navigation).toBeVisible();
+  const panelBounds = await page.locator("#responsive-navigation").boundingBox();
+  expect(panelBounds).not.toBeNull();
+  expect(panelBounds!.x).toBeGreaterThan(0);
+  expect(panelBounds!.y).toBeGreaterThan(56);
+  expect(panelBounds!.width).toBeLessThan(300);
+  expect(panelBounds!.height).toBeLessThan(500);
+  await expect(
+    page.locator("#responsive-navigation").getByRole("button", { name: "关闭导航" }),
+  ).toHaveCount(0);
   await navigation.getByRole("link", { name: "认证文件" }).click();
 
   await expect(page).toHaveURL(/\/oauth$/);

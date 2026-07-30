@@ -116,8 +116,55 @@ html[data-theme="dark"] .app-glass-chip {
   box-shadow: 0 1px 0 rgb(255 255 255 / 5%) inset;
 }
 
+/* Mobile navigation is a compact popover beneath the persistent app chrome. */
+.mobile-navigation-scrim {
+  background: rgb(24 30 42 / 18%);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.mobile-navigation-panel {
+  border-color: rgb(255 255 255 / 76%);
+  background: rgb(250 251 253 / 88%);
+  box-shadow:
+    0 18px 48px rgb(30 42 62 / 18%),
+    0 3px 10px rgb(30 42 62 / 10%),
+    0 1px 0 rgb(255 255 255 / 80%) inset;
+  animation: mobile-navigation-enter 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform-origin: top left;
+}
+
+html[data-theme="dark"] .mobile-navigation-scrim {
+  background: rgb(0 0 0 / 34%);
+}
+
+html[data-theme="dark"] .mobile-navigation-panel {
+  border-color: rgb(255 255 255 / 13%);
+  background: rgb(34 34 38 / 90%);
+  box-shadow:
+    0 18px 48px rgb(0 0 0 / 42%),
+    0 3px 10px rgb(0 0 0 / 28%),
+    0 1px 0 rgb(255 255 255 / 8%) inset;
+}
+
+@keyframes mobile-navigation-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-shell-fx-bloom {
     filter: blur(20px);
+  }
+
+  .mobile-navigation-panel {
+    animation: none;
   }
 }
