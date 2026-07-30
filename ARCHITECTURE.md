@@ -1416,6 +1416,15 @@ Provider Driver 仍可从已声明 envelope 提取原始 `message`，但只用�
 
 有效上游协议等于接受协议时优先采用原始 JSON 透传加局部字段修改，保留未知字段。只有显式配置不同内部协议时才进入 Canonical IR。
 
+OpenAI Responses 的完整历史在同方言目标之间重放时，顶层 `input` 中具体 item 的 `id` 不能被视为
+可跨上游的语义内容。Responses Adapter 必须在入口解析后、路由前统一执行类型化身份归一化：已知
+具体 item 的字符串 `id` 若不具有该类型允许的非空前缀，只删除该字段，禁止改名或生成伪造 ID；
+正确前缀、`call_id`、`item_reference.id`、`previous_response_id`、加密内容、未知 item 类型、嵌套
+`id` 和其他未知字段保持不变。该规则同时适用于 Responses、Responses Compact 和 v2 远程压缩，
+并且不得依赖最终 Provider、API Key/OAuth 来源、Credential、affinity 状态或重试 Attempt。显式服务器
+状态引用仍必须遵守固定绑定与 `session_binding_lost`，不能借归一化跨 Credential 使用。完整决策见
+`docs/adr/0067-portable-responses-replay-identities.md`。
+
 Codex、Claude 与 Grok 的上游 `ProviderCredential` 当前都只支持 API Key。三者的 OAuth 登录结果都只能创建独立 `OAuthAccount`，其 Provider JSON 通过独立 Repository 加载并进入自己的 Runtime generation；选中后由同一个运行态 Guard 入口调用 Provider 的 OAuth Header 注入。普通 API Key 管理端点不接受 OAuth JSON。
 
 Grok OAuth 使用 xAI 公共客户端的 Device Authorization Grant。设备授权端点为 `https://auth.x.ai/oauth2/device/code`，Token Endpoint 为 `https://auth.x.ai/oauth2/token`，请求 `openid profile email offline_access grok-cli:access api:access` scope；Runtime 按 Provider 返回的 `interval` 轮询并处理 `authorization_pending`、`slow_down`、`access_denied` 和 `expired_token`。Device Code 只存在于服务端内存 session，管理面只返回 user code、验证地址、轮询间隔与安全状态。登录、刷新与数据面都固定使用 OAuthAccount 的 DIRECT/全局代理路径。Grok API Key 继续使用管理员 Endpoint（官方默认 `https://api.x.ai/v1`）；Grok OAuth 则使用固定订阅数据面 `https://cli-chat-proxy.grok.com/v1`，并由 Grok Driver 注入 Bearer Token 与 xAI CLI 客户端身份头。两类凭据只在通用 `RoutingCredential` 投影处合流。
@@ -1631,6 +1640,11 @@ NoRoute
 `affinity.enabled` 控制允许首次创建的普通显式 Session 是否参与粘性；关闭时把这类标识视为无会话
 请求并正常负载均衡。Codex `previous_response_id` 是必须续接的上游状态引用，不受该开关影响，始终
 要求命中原绑定，未命中返回 `session_binding_lost`。
+
+关闭普通 Session 粘性只能改变候选选择，不能改变完整 Responses 历史的协议合法性。可物化的历史
+item 在进入调度前按第 11.9 节统一移除不可移植的错误类型 `id`；调度器不得根据是否命中绑定、是否
+OAuth 或选择到哪个 Credential 再修改正文。`previous_response_id`、`item_reference.id` 等显式服务器
+状态引用不是可移植历史，继续使用各自的固定状态边界。
 
 会话粘性只适用于 Responses、Responses Compact、Chat Completions 和 Messages。Images Generations、
 Images Edits 与 Messages Count Tokens 始终是无会话操作；即使请求携带通用 Session Header 或正文中

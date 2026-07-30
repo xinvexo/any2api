@@ -15,7 +15,7 @@ use crate::{
     sse::{parse_event_payload, rewrite_known_model},
 };
 
-use super::{telemetry, termination};
+use super::{replay_identity, telemetry, termination};
 
 #[derive(Debug, Default)]
 pub struct OpenAiResponsesAdapter;
@@ -45,7 +45,9 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         &self,
         request: IngressRequest,
     ) -> Result<DecodedRequest, ProtocolError> {
-        json_codec::decode_request(request, self.dialect())
+        let mut decoded = json_codec::decode_request(request, self.dialect())?;
+        replay_identity::normalize(&mut decoded.payload);
+        Ok(decoded)
     }
 
     fn encode_upstream_request(

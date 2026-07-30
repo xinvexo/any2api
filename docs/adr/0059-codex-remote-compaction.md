@@ -41,9 +41,9 @@ executor 和 Codex `rust-v0.145.0` 客户端都在终止事件到达后立即停
    I/O 前排除跨协议 Target；现有 Responses → Chat Completions Bridge 继续只负责能够无损表达的
    普通 Responses，不增加压缩兼容分支。
 4. 现代 `/responses` 远程压缩继续走现有 Responses JSON/SSE、Header 投影、zstd、模型恢复和
-   GuardedBody 链路。请求 JSON 与 `response.output_item.done` 中的远程压缩项保持不透明直通，
-   不按 `compaction`、`compaction_summary` 或其他类型名新增 payload 翻译、专用 Provider 分支或
-   第二套流状态机。
+   GuardedBody 链路。除 ADR-0067 规定的顶层 `input` 可重放 item 身份归一化外，请求 JSON 与
+   `response.output_item.done` 中的远程压缩项保持不透明直通，不按 `compaction`、
+   `compaction_summary` 或其他类型名新增 payload 翻译、专用 Provider 分支或第二套流状态机。
 5. OpenAI Responses Adapter 通过协议稳定 API 把 `response.completed` 和 `response.incomplete`
    标记为成功终止，把 `response.failed` 和顶层 `error` 标记为失败终止。GuardedBody 先交付终止
    帧，再立即结束下游 Body 并停止读取上游；成功终止记为成功，失败终止记为上游流错误，终止

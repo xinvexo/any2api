@@ -942,7 +942,13 @@ async fn responses_compact_uses_its_distinct_non_streaming_path() {
         "/v1/responses/compact",
         Some(json!({
             "model": "gpt-upstream",
-            "input": [{"role":"user","content":"compact this"}]
+            "input": [{
+                "type": "message",
+                "id": "item_incompatible_message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "compact this"}],
+                "metadata": {"id": "item_nested"}
+            }]
         })),
         loopback,
         &[("authorization", format!("Bearer {token}"))],
@@ -953,6 +959,12 @@ async fn responses_compact_uses_its_distinct_non_streaming_path() {
     let request = upstream.await.expect("upstream request");
     assert_eq!(request.path, "/v1/responses/compact");
     assert_eq!(request.body["model"], "gpt-upstream");
+    assert!(request.body["input"][0].get("id").is_none());
+    assert_eq!(
+        request.body["input"][0]["content"][0]["text"],
+        "compact this"
+    );
+    assert_eq!(request.body["input"][0]["metadata"]["id"], "item_nested");
 }
 
 #[tokio::test]
@@ -1294,11 +1306,34 @@ async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuati
         false
     );
 
+    let replay_history = json!([
+        {
+            "type": "reasoning",
+            "id": "item_incompatible_reasoning",
+            "summary": [],
+            "encrypted_content": "opaque-reasoning"
+        },
+        {
+            "type": "message",
+            "id": "item_incompatible_message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "answer"}]
+        },
+        {
+            "type": "custom_tool_call",
+            "id": "ctc_portable",
+            "call_id": "call_semantic",
+            "name": "tool",
+            "input": "{}"
+        },
+        {"type": "item_reference", "id": "item_server_state"}
+    ]);
+
     let first_response = request_json(
         app.clone(),
         Method::POST,
         "/v1/responses",
-        Some(json!({"model": "gpt-upstream", "input": "first"})),
+        Some(json!({"model": "gpt-upstream", "input": replay_history.clone()})),
         loopback,
         &[
             ("authorization", format!("Bearer {token}")),
@@ -1313,7 +1348,7 @@ async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuati
         app.clone(),
         Method::POST,
         "/v1/responses",
-        Some(json!({"model": "gpt-upstream", "input": "second"})),
+        Some(json!({"model": "gpt-upstream", "input": replay_history})),
         loopback,
         &[
             ("authorization", format!("Bearer {token}")),
@@ -1328,6 +1363,16 @@ async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuati
         second.headers.get("authorization"),
         "disabled explicit-session affinity must preserve normal round-robin",
     );
+    assert_eq!(first.body["input"], second.body["input"]);
+    assert!(first.body["input"][0].get("id").is_none());
+    assert!(first.body["input"][1].get("id").is_none());
+    assert_eq!(
+        first.body["input"][0]["encrypted_content"],
+        "opaque-reasoning"
+    );
+    assert_eq!(first.body["input"][2]["id"], "ctc_portable");
+    assert_eq!(first.body["input"][2]["call_id"], "call_semantic");
+    assert_eq!(first.body["input"][3]["id"], "item_server_state");
 
     let follow_response = request_json(
         app.clone(),
