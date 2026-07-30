@@ -13,10 +13,29 @@ export interface UpdateCheckResult {
   publishedAt: string | null;
 }
 
-export interface UpdateInstallResult {
-  installedVersion: string;
-  restartRequested: boolean;
-}
+export type UpdateFailureCode =
+  | "update_unsupported"
+  | "update_not_available"
+  | "update_in_progress"
+  | "update_check_failed"
+  | "update_download_failed"
+  | "update_verification_failed"
+  | "update_install_failed";
+
+export type UpdateStatus =
+  | { phase: "idle" | "checking" }
+  | {
+      phase: "downloading";
+      targetVersion: string;
+      downloadedBytes: number;
+      totalBytes: number;
+    }
+  | { phase: "installing" | "restarting"; targetVersion: string }
+  | {
+      phase: "failed";
+      targetVersion: string | null;
+      failureCode: UpdateFailureCode;
+    };
 
 export function parseApplicationAbout(value: unknown): ApplicationAbout {
   const record = readRecord(value);
@@ -47,16 +66,44 @@ export function parseUpdateCheckResult(value: unknown): UpdateCheckResult {
   };
 }
 
-export function parseUpdateInstallResult(value: unknown): UpdateInstallResult {
+export function parseUpdateStatus(value: unknown): UpdateStatus {
   const record = readRecord(value);
-  const restartRequested = readBoolean(record.restart_requested);
-  if (!restartRequested) {
-    throw invalidResponse();
+  const phase = readString(record.phase);
+  if (phase === "idle" || phase === "checking") {
+    requireNull(record.target_version, record.downloaded_bytes, record.total_bytes, record.failure_code);
+    return { phase };
   }
-  return {
-    installedVersion: readVersion(record.installed_version),
-    restartRequested,
-  };
+  if (phase === "downloading") {
+    const downloadedBytes = readUnsignedInteger(record.downloaded_bytes);
+    const totalBytes = readPositiveInteger(record.total_bytes);
+    requireNull(record.failure_code);
+    if (downloadedBytes > totalBytes) {
+      throw invalidResponse();
+    }
+    return {
+      phase,
+      targetVersion: readVersion(record.target_version),
+      downloadedBytes,
+      totalBytes,
+    };
+  }
+  if (phase === "installing" || phase === "restarting") {
+    requireNull(record.downloaded_bytes, record.total_bytes, record.failure_code);
+    return { phase, targetVersion: readVersion(record.target_version) };
+  }
+  if (phase === "failed") {
+    requireNull(record.downloaded_bytes, record.total_bytes);
+    return {
+      phase,
+      targetVersion: readNullableVersion(record.target_version),
+      failureCode: readFailureCode(record.failure_code),
+    };
+  }
+  throw invalidResponse();
+}
+
+export function parseApplicationHealthVersion(value: unknown) {
+  return readVersion(readRecord(value).application_version);
 }
 
 function readRecord(value: unknown): Record<string, unknown> {
@@ -84,6 +131,21 @@ function readBoolean(value: unknown) {
   return value;
 }
 
+function readUnsignedInteger(value: unknown) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw invalidResponse();
+  }
+  return value;
+}
+
+function readPositiveInteger(value: unknown) {
+  const number = readUnsignedInteger(value);
+  if (number === 0) {
+    throw invalidResponse();
+  }
+  return number;
+}
+
 function readVersion(value: unknown) {
   const version = readString(value);
   if (!SEMVER.test(version)) {
@@ -92,6 +154,33 @@ function readVersion(value: unknown) {
   return version;
 }
 
+function readNullableVersion(value: unknown) {
+  return value === null ? null : readVersion(value);
+}
+
+function readFailureCode(value: unknown): UpdateFailureCode {
+  const code = readString(value);
+  if (!FAILURE_CODES.has(code as UpdateFailureCode)) {
+    throw invalidResponse();
+  }
+  return code as UpdateFailureCode;
+}
+
+function requireNull(...values: unknown[]) {
+  if (values.some((value) => value !== null)) {
+    throw invalidResponse();
+  }
+}
+
+const FAILURE_CODES = new Set<UpdateFailureCode>([
+  "update_unsupported",
+  "update_not_available",
+  "update_in_progress",
+  "update_check_failed",
+  "update_download_failed",
+  "update_verification_failed",
+  "update_install_failed",
+]);
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function invalidResponse() {

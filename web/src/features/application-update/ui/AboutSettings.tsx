@@ -1,5 +1,4 @@
 import {
-  CheckCircle2,
   Download,
   ExternalLink,
   LoaderCircle,
@@ -8,11 +7,13 @@ import {
 
 import { getUpdateErrorMessage } from "../model/update-error";
 import { useApplicationUpdate } from "../model/use-application-update";
+import { useApplicationUpdateInstall } from "../model/application-update-context";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
 
 export function AboutSettings() {
   const update = useApplicationUpdate();
+  const installation = useApplicationUpdateInstall();
 
   if (update.about.isPending && !update.about.data) {
     return (
@@ -36,16 +37,14 @@ export function AboutSettings() {
 
   const about = update.about.data;
   const checked = update.check.data;
-  const installed = update.install.data;
 
   function checkForUpdate() {
-    update.install.reset();
     update.check.reset();
     update.check.mutate();
   }
 
   return (
-    <div className="space-y-8" aria-busy={update.isPending}>
+    <div className="space-y-8" aria-busy={update.isPending || installation.active}>
       <section aria-label="版本信息">
         <dl className="space-y-1">
           <div className="flex min-h-11 items-center justify-between gap-4 py-2">
@@ -92,7 +91,7 @@ export function AboutSettings() {
         </header>
 
         <div className="rounded-[12px] bg-surface-muted px-4 py-4" aria-live="polite">
-          {!checked && !update.check.error && !installed ? (
+          {!checked && !update.check.error ? (
             <p className="text-sm text-secondary">尚未检查更新。</p>
           ) : null}
           {update.check.error ? (
@@ -118,33 +117,18 @@ export function AboutSettings() {
                   <ExternalLink size={11} aria-hidden="true" />
                 </a>
               </div>
-              {checked.updateAvailable && !installed ? (
+              {checked.updateAvailable ? (
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => update.install.mutate()}
-                  disabled={update.isPending}
+                  onClick={() => installation.beginInstall(checked.latestVersion)}
+                  disabled={update.isPending || installation.active}
                 >
-                  {update.install.isPending ? (
-                    <LoaderCircle size={14} className="animate-spin" />
-                  ) : (
-                    <Download size={14} />
-                  )}
+                  <Download size={14} />
                   更新到 v{checked.latestVersion}
                 </Button>
               ) : null}
             </div>
-          ) : null}
-          {update.install.error ? (
-            <p className="mt-3 text-sm text-danger" role="alert">
-              {getUpdateErrorMessage(update.install.error)}
-            </p>
-          ) : null}
-          {installed ? (
-            <p className="mt-1 flex items-center gap-2 text-sm text-success" role="status">
-              <CheckCircle2 size={15} aria-hidden="true" />
-              v{installed.installedVersion} 已安装，服务正在优雅重启。
-            </p>
           ) : null}
         </div>
       </section>

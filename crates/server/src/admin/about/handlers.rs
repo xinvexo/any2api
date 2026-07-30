@@ -1,9 +1,12 @@
-use any2api_updater::api::{ApplicationUpdateService, UpdateError, UpdateErrorKind};
+use any2api_updater::api::ApplicationUpdateService;
 use axum::{Json, extract::State, http::StatusCode};
 
 use crate::{admin::AdminApiError, state::AppState};
 
-use super::dto::{AboutResponse, UpdateCheckResponse, UpdateInstallResponse};
+use super::{
+    dto::{AboutResponse, UpdateCheckResponse, UpdateStatusResponse},
+    error::map_error,
+};
 
 pub(crate) async fn about(
     State(state): State<AppState>,
@@ -21,9 +24,15 @@ pub(crate) async fn check(
 
 pub(crate) async fn install(
     State(state): State<AppState>,
-) -> Result<Json<UpdateInstallResponse>, AdminApiError> {
-    let result = service(&state)?.install().await.map_err(map_error)?;
-    Ok(Json(result.into()))
+) -> Result<(StatusCode, Json<UpdateStatusResponse>), AdminApiError> {
+    let result = service(&state)?.start_install().map_err(map_error)?;
+    Ok((StatusCode::ACCEPTED, Json(result.into())))
+}
+
+pub(crate) async fn status(
+    State(state): State<AppState>,
+) -> Result<Json<UpdateStatusResponse>, AdminApiError> {
+    Ok(Json(service(&state)?.install_status().into()))
 }
 
 fn service(state: &AppState) -> Result<&dyn ApplicationUpdateService, AdminApiError> {
@@ -34,46 +43,4 @@ fn service(state: &AppState) -> Result<&dyn ApplicationUpdateService, AdminApiEr
             "application updates are unavailable",
         )
     })
-}
-
-fn map_error(error: UpdateError) -> AdminApiError {
-    let kind = error.kind();
-    tracing::warn!(?kind, %error, "application update operation failed");
-    match kind {
-        UpdateErrorKind::Unsupported => AdminApiError::new(
-            StatusCode::CONFLICT,
-            "update_unsupported",
-            "this runtime environment does not support automatic updates",
-        ),
-        UpdateErrorKind::NoUpdate => AdminApiError::new(
-            StatusCode::CONFLICT,
-            "update_not_available",
-            "the current version is already up to date",
-        ),
-        UpdateErrorKind::InProgress => AdminApiError::new(
-            StatusCode::CONFLICT,
-            "update_in_progress",
-            "an application update is already in progress",
-        ),
-        UpdateErrorKind::CheckFailed | UpdateErrorKind::InvalidRelease => AdminApiError::new(
-            StatusCode::BAD_GATEWAY,
-            "update_check_failed",
-            "the latest official release could not be verified",
-        ),
-        UpdateErrorKind::DownloadFailed => AdminApiError::new(
-            StatusCode::BAD_GATEWAY,
-            "update_download_failed",
-            "the official release could not be downloaded",
-        ),
-        UpdateErrorKind::VerificationFailed => AdminApiError::new(
-            StatusCode::BAD_GATEWAY,
-            "update_verification_failed",
-            "the downloaded release did not pass verification",
-        ),
-        UpdateErrorKind::InstallFailed => AdminApiError::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "update_install_failed",
-            "the verified release could not replace the current executable",
-        ),
-    }
 }

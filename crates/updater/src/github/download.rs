@@ -70,11 +70,15 @@ pub(crate) async fn download_checksum(
     Ok(bytes)
 }
 
-pub(crate) async fn download_archive(
+pub(crate) async fn download_archive<Progress>(
     client: &Client,
     release: &Release,
     path: &Path,
-) -> Result<String, UpdateError> {
+    mut progress: Progress,
+) -> Result<String, UpdateError>
+where
+    Progress: FnMut(u64) + Send,
+{
     let mut response = client
         .get(release.archive_url())
         .timeout(Duration::from_secs(300))
@@ -108,6 +112,7 @@ pub(crate) async fn download_archive(
         file.write_all(&chunk)
             .await
             .map_err(|error| download_failed(format!("failed to write update archive: {error}")))?;
+        progress(size);
     }
     ensure_exact_size_u64(size, release.archive_size, "release archive")?;
     file.sync_all()

@@ -5,6 +5,8 @@ use thiserror::Error;
 
 pub use crate::service::GitHubReleaseUpdater;
 
+pub const APPLICATION_VERSION: &str = crate::BUILD_VERSION;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationAbout {
     pub current_version: String,
@@ -21,9 +23,37 @@ pub struct UpdateCheck {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct UpdateInstall {
-    pub installed_version: String,
-    pub restart_requested: bool,
+pub enum UpdateStatus {
+    Idle,
+    Checking,
+    Downloading {
+        target_version: String,
+        downloaded_bytes: u64,
+        total_bytes: u64,
+    },
+    Installing {
+        target_version: String,
+    },
+    Restarting {
+        target_version: String,
+    },
+    Failed {
+        target_version: Option<String>,
+        kind: UpdateErrorKind,
+    },
+}
+
+impl UpdateStatus {
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
+        matches!(
+            self,
+            Self::Checking
+                | Self::Downloading { .. }
+                | Self::Installing { .. }
+                | Self::Restarting { .. }
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,7 +100,9 @@ pub trait ApplicationUpdateService: Send + Sync {
 
     async fn check(&self) -> Result<UpdateCheck, UpdateError>;
 
-    async fn install(&self) -> Result<UpdateInstall, UpdateError>;
+    fn start_install(&self) -> Result<UpdateStatus, UpdateError>;
+
+    fn install_status(&self) -> UpdateStatus;
 }
 
 impl GitHubReleaseUpdater {

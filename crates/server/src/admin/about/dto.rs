@@ -1,5 +1,7 @@
-use any2api_updater::api::{ApplicationAbout, UpdateCheck, UpdateInstall};
+use any2api_updater::api::{ApplicationAbout, UpdateCheck, UpdateStatus};
 use serde::Serialize;
+
+use super::error::stable_error_code;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct AboutResponse {
@@ -38,16 +40,55 @@ impl From<UpdateCheck> for UpdateCheckResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct UpdateInstallResponse {
-    installed_version: String,
-    restart_requested: bool,
+pub(crate) struct UpdateStatusResponse {
+    phase: &'static str,
+    target_version: Option<String>,
+    downloaded_bytes: Option<u64>,
+    total_bytes: Option<u64>,
+    failure_code: Option<&'static str>,
 }
 
-impl From<UpdateInstall> for UpdateInstallResponse {
-    fn from(value: UpdateInstall) -> Self {
+impl From<UpdateStatus> for UpdateStatusResponse {
+    fn from(value: UpdateStatus) -> Self {
+        match value {
+            UpdateStatus::Idle => Self::simple("idle", None),
+            UpdateStatus::Checking => Self::simple("checking", None),
+            UpdateStatus::Downloading {
+                target_version,
+                downloaded_bytes,
+                total_bytes,
+            } => Self {
+                phase: "downloading",
+                target_version: Some(target_version),
+                downloaded_bytes: Some(downloaded_bytes),
+                total_bytes: Some(total_bytes),
+                failure_code: None,
+            },
+            UpdateStatus::Installing { target_version } => {
+                Self::simple("installing", Some(target_version))
+            }
+            UpdateStatus::Restarting { target_version } => {
+                Self::simple("restarting", Some(target_version))
+            }
+            UpdateStatus::Failed {
+                target_version,
+                kind,
+            } => Self {
+                failure_code: Some(stable_error_code(kind)),
+                ..Self::simple("failed", target_version)
+            },
+        }
+    }
+}
+
+impl UpdateStatusResponse {
+    fn simple(phase: &'static str, target_version: Option<String>) -> Self {
         Self {
-            installed_version: value.installed_version,
-            restart_requested: value.restart_requested,
+            phase,
+            target_version,
+            downloaded_bytes: None,
+            total_bytes: None,
+            failure_code: None,
         }
     }
 }

@@ -1,9 +1,10 @@
 import { requestJson } from "@/shared/api/http-client";
 
 import {
+  parseApplicationHealthVersion,
   parseApplicationAbout,
   parseUpdateCheckResult,
-  parseUpdateInstallResult,
+  parseUpdateStatus,
 } from "./update-contracts";
 
 export function getApplicationAbout(signal?: AbortSignal) {
@@ -17,9 +18,20 @@ export function checkApplicationUpdate() {
   }).then(parseUpdateCheckResult);
 }
 
-export function installApplicationUpdate() {
+export function startApplicationUpdate() {
   return requestJson<unknown>("/api/admin/update/install", {
     method: "POST",
-    timeoutMs: 360_000,
-  }).then(parseUpdateInstallResult);
+  }).then(parseUpdateStatus);
+}
+
+export function getApplicationUpdateStatus() {
+  return requestJson<unknown>("/api/admin/update/status", {
+    timeoutMs: 2_500,
+  }).then(parseUpdateStatus);
+}
+
+export function getApplicationHealthVersion() {
+  return requestJson<unknown>("/api/health", {
+    timeoutMs: 2_500,
+  }).then(parseApplicationHealthVersion);
 }

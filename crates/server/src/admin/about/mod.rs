@@ -1,4 +1,5 @@
 mod dto;
+mod error;
 mod handlers;
 
 use axum::{
@@ -13,4 +14,5 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/about", get(handlers::about))
         .route("/update/check", post(handlers::check))
         .route("/update/install", post(handlers::install))
+        .route("/update/status", get(handlers::status))
 }

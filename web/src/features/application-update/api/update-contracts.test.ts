@@ -3,8 +3,9 @@ import { expect, test } from "vitest";
 import {
   OFFICIAL_REPOSITORY_URL,
   parseApplicationAbout,
+  parseApplicationHealthVersion,
   parseUpdateCheckResult,
-  parseUpdateInstallResult,
+  parseUpdateStatus,
 } from "./update-contracts";
 
 test("parses the fixed application repository", () => {
@@ -38,13 +39,49 @@ test("parses only the release URL derived from the latest version", () => {
   })).toThrow("invalid application update response");
 });
 
-test("requires installation to request a restart", () => {
-  expect(parseUpdateInstallResult({
-    installed_version: "1.3.0",
-    restart_requested: true,
-  })).toEqual({ installedVersion: "1.3.0", restartRequested: true });
-  expect(() => parseUpdateInstallResult({
-    installed_version: "1.3.0",
-    restart_requested: false,
-  })).toThrow("invalid application update response");
+test("requires internally consistent update progress", () => {
+  expect(parseUpdateStatus(status({
+    phase: "downloading",
+    target_version: "1.3.0",
+    downloaded_bytes: 512,
+    total_bytes: 1024,
+  }))).toEqual({
+    phase: "downloading",
+    targetVersion: "1.3.0",
+    downloadedBytes: 512,
+    totalBytes: 1024,
+  });
+  expect(parseUpdateStatus(status({
+    phase: "failed",
+    target_version: "1.3.0",
+    failure_code: "update_verification_failed",
+  }))).toEqual({
+    phase: "failed",
+    targetVersion: "1.3.0",
+    failureCode: "update_verification_failed",
+  });
+  expect(() => parseUpdateStatus(status({
+    phase: "downloading",
+    target_version: "1.3.0",
+    downloaded_bytes: 1025,
+    total_bytes: 1024,
+  }))).toThrow("invalid application update response");
 });
+
+test("reads the running build version from health", () => {
+  expect(parseApplicationHealthVersion({ application_version: "1.3.0" })).toBe("1.3.0");
+  expect(() => parseApplicationHealthVersion({ application_version: "latest" })).toThrow(
+    "invalid application update response",
+  );
+});
+
+function status(overrides: Record<string, unknown>) {
+  return {
+    phase: "idle",
+    target_version: null,
+    downloaded_bytes: null,
+    total_bytes: null,
+    failure_code: null,
+    ...overrides,
+  };
+}

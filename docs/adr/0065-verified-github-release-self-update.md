@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
+- 修订：2026-07-30
 - 决策者：maintainer
 
 ## 背景
@@ -14,8 +15,10 @@ any2api 以单个内嵌管理 Web 的 Rust 二进制发布，官方 Release 首�
 
 - 新增独立 `updater` Adapter crate。它拥有 GitHub Release 查询、有界下载、checksum 校验、受限归档
   解包和可执行文件替换；`server` 只暴露管理 DTO/Handler，`app` 负责装配更新器和重启信号。
-- 管理 API 提供 `GET /api/admin/about`、`POST /api/admin/update/check` 和
-  `POST /api/admin/update/install`。三者都需要管理员会话；两个 POST 继续使用统一 CSRF 校验。
+- 管理 API 提供 `GET /api/admin/about`、`POST /api/admin/update/check`、
+  `POST /api/admin/update/install` 和 `GET /api/admin/update/status`。四者都需要管理员会话；两个 POST
+  继续使用统一 CSRF 校验。Install 只接受任务并返回 `202 Accepted`，Status 返回阶段、目标版本、下载
+  字节进度或稳定失败码。
 - 仓库固定为 `https://github.com/xinvexo/any2api`。检查操作读取最新正式 Release，要求 `v<SemVer>` Tag
   和 `any2api-v<SemVer>-linux-amd64.tar.gz`、同名 `.sha256` 同时存在，不接受客户端版本、仓库或 URL。
 - 安装端重新检查最新 Release，不复用浏览器提交的结果。归档下载受字节上限约束，checksum 必须匹配；
@@ -24,13 +27,20 @@ any2api 以单个内嵌管理 Web 的 Rust 二进制发布，官方 Release 首�
   Docker 不获得 Docker socket 或镜像管理能力。
 - 新二进制先写到当前可执行文件同目录，设置可执行权限并 `sync_all`，随后以同文件系统 rename 原子替换。
   失败时删除暂存目录并继续运行旧二进制；任何步骤都不触碰数据目录或 SQLite Migration。
-- 下载和校验仍可取消；进入最终解包后不再创建脱离请求生命周期的后台任务，也不在替换与重启请求之间
-  增加等待点，避免请求取消后磁盘二进制已替换但当前进程没有重启。
+- 管理员确认安装后，更新器原子创建至多一个进程内安装任务；Release 重检、下载、校验、替换和重启均由
+  该任务持有，不再借用 Install HTTP 请求生命周期。请求取消、页面刷新或浏览器断开都不能取消已接受的
+  任务；任务状态只在内存中保存，不跨进程恢复。最终解包、替换与重启请求之间仍不增加可取消等待点。
 - 替换成功后设置一次性重启信号。Axum 完成本次响应并按现有预算 drain，后台任务和存储完成收尾，Tokio
   runtime 关闭后，外层进程使用启动时捕获的路径和原参数 `exec` 新程序。若收尾失败则沿用致命退出，
   不以更新为由跳过资源生命周期边界。
-- Web 不自动轮询或静默安装。管理员显式检查后看到最新版本和 Release 链接，有更新时再显式触发安装；
-  页面不常驻展示环境能力，不支持的环境只在安装请求后提示，安装成功后提示服务正在重启。
+- 公共 `/api/health` 增加当前运行中二进制的 `application_version` 并返回 `Cache-Control: no-store`。版本本身不是 Secret；这一窄字段允许
+  浏览器在管理员会话随进程重启丢失后，确认响应者确实是目标版本，而不是把旧进程恢复或一次网络成功误判
+  为安装成功。
+- Web 不自动检查或静默安装。管理员显式检查后看到最新版本和 Release 链接，有更新时再显式触发安装；
+  页面不常驻展示环境能力，不支持的环境只在安装请求后提示。安装一经触发即覆盖为不可关闭的全屏模态状态：
+  下载显示确定进度，随后显示安装和重启阶段；仅明确失败时提供重试或返回。Web 观察到目标版本健康响应后
+  短暂显示完成并自动刷新。浏览器只在 `sessionStorage` 保存预期目标版本，用于误刷新后恢复该锁定界面；
+  下载进度和任务状态始终重新读取服务端内存状态，不持久化到浏览器。
 
 ## 后果
 
@@ -41,7 +51,10 @@ any2api 以单个内嵌管理 Web 的 Rust 二进制发布，官方 Release 首�
 ## 验证
 
 - Updater 单元测试覆盖 SemVer/资产选择、checksum、大小上限、额外归档成员和原子替换。
-- 管理契约测试使用假 UpdateService 覆盖关于、检查、安装、错误映射和缺失服务。
-- Web 契约与组件测试覆盖响应校验、有更新、安装请求后的环境不支持提示和重启提示。
+- Updater 状态测试覆盖单任务准入、请求返回后任务继续、下载进度单调、失败状态和替换后的重启请求。
+- 管理契约测试使用假 UpdateService 覆盖关于、检查、任务接受、状态、错误映射和缺失服务；健康契约验证
+  运行版本字段。
+- Web 契约与组件测试覆盖响应校验、有更新、不可关闭的全屏阶段、真实字节进度、失败出口、目标版本健康
+  确认与自动刷新。
 - 发布工作流验证输入是稳定 SemVer，并用它生成 Tag、固定资产名、checksum 以及编译进二进制的正式版本；
   Cargo package version 不限制也不参与产品版本，本地开发构建固定使用 `0.0.0-dev`。

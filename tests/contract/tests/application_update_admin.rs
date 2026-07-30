@@ -6,7 +6,7 @@ use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_updater::api::{
     ApplicationAbout, ApplicationUpdateService, UpdateCheck, UpdateError, UpdateErrorKind,
-    UpdateInstall,
+    UpdateStatus,
 };
 use async_trait::async_trait;
 use axum::{
@@ -41,11 +41,16 @@ impl ApplicationUpdateService for SuccessfulUpdates {
         })
     }
 
-    async fn install(&self) -> Result<UpdateInstall, UpdateError> {
-        Ok(UpdateInstall {
-            installed_version: "1.1.0".to_owned(),
-            restart_requested: true,
-        })
+    fn start_install(&self) -> Result<UpdateStatus, UpdateError> {
+        Ok(UpdateStatus::Checking)
+    }
+
+    fn install_status(&self) -> UpdateStatus {
+        UpdateStatus::Downloading {
+            target_version: "1.1.0".to_owned(),
+            downloaded_bytes: 512,
+            total_bytes: 1024,
+        }
     }
 }
 
@@ -61,8 +66,15 @@ impl ApplicationUpdateService for FailingUpdates {
         Err(UpdateError::new(self.0, "test failure"))
     }
 
-    async fn install(&self) -> Result<UpdateInstall, UpdateError> {
+    fn start_install(&self) -> Result<UpdateStatus, UpdateError> {
         Err(UpdateError::new(self.0, "test failure"))
+    }
+
+    fn install_status(&self) -> UpdateStatus {
+        UpdateStatus::Failed {
+            target_version: Some("1.1.0".to_owned()),
+            kind: self.0,
+        }
     }
 }
 
@@ -96,11 +108,25 @@ async fn update_admin_exposes_about_check_and_install_contracts() {
     assert_eq!(check["update_available"], true);
     assert_eq!(check["published_at"], "2026-07-29T00:00:00Z");
 
-    let (status, _, installed) =
-        request(app, Method::POST, "/api/admin/update/install", loopback).await;
+    let (status, _, accepted) = request(
+        app.clone(),
+        Method::POST,
+        "/api/admin/update/install",
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(accepted["phase"], "checking");
+    assert!(accepted["target_version"].is_null());
+
+    let (status, _, progress) =
+        request(app, Method::GET, "/api/admin/update/status", loopback).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(installed["installed_version"], "1.1.0");
-    assert_eq!(installed["restart_requested"], true);
+    assert_eq!(progress["phase"], "downloading");
+    assert_eq!(progress["target_version"], "1.1.0");
+    assert_eq!(progress["downloaded_bytes"], 512);
+    assert_eq!(progress["total_bytes"], 1024);
+    assert!(progress["failure_code"].is_null());
 }
 
 #[tokio::test]
@@ -164,10 +190,21 @@ async fn update_errors_map_to_stable_admin_codes() {
         ),
     ] {
         let (_directory, app) = test_app(Some(Arc::new(FailingUpdates(kind)))).await;
-        let (status, _, body) =
-            request(app, Method::POST, "/api/admin/update/install", loopback).await;
+        let (status, _, body) = request(
+            app.clone(),
+            Method::POST,
+            "/api/admin/update/install",
+            loopback,
+        )
+        .await;
         assert_eq!(status, expected_status, "{kind:?}");
         assert_eq!(body["error"]["code"], expected_code, "{kind:?}");
+
+        let (status, _, progress) =
+            request(app, Method::GET, "/api/admin/update/status", loopback).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(progress["phase"], "failed");
+        assert_eq!(progress["failure_code"], expected_code, "{kind:?}");
     }
 }
 

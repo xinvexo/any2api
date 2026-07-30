@@ -11,6 +11,10 @@ const messages: Record<string, string> = {
   update_install_failed: "新版本已验证，但无法替换当前程序。请检查安装目录权限。",
 };
 
+export function getUpdateFailureMessage(code: string) {
+  return messages[code] ?? "版本更新操作失败";
+}
+
 export function getUpdateErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
     return messages[error.code] ?? error.message;

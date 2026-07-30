@@ -11,11 +11,17 @@ use crate::{
 
 const MAX_BINARY_BYTES: u64 = 256 * 1024 * 1024;
 
-pub(crate) async fn replace_from_release(
+pub(crate) async fn replace_from_release<Progress, Installing>(
     client: &Client,
     release: &Release,
     executable_path: &Path,
-) -> Result<(), UpdateError> {
+    progress: Progress,
+    installing: Installing,
+) -> Result<(), UpdateError>
+where
+    Progress: FnMut(u64) + Send,
+    Installing: FnOnce() + Send,
+{
     let parent = executable_path
         .parent()
         .ok_or_else(|| install_failed("current executable has no parent directory"))?;
@@ -25,7 +31,8 @@ pub(crate) async fn replace_from_release(
         .map_err(|error| install_failed(format!("failed to create update directory: {error}")))?;
     let archive_path = temporary.path().join("release.tar.gz");
     let checksum = github::download_checksum(client, release).await?;
-    let actual_digest = github::download_archive(client, release, &archive_path).await?;
+    let actual_digest = github::download_archive(client, release, &archive_path, progress).await?;
+    installing();
     verify_checksum(&checksum, &release.archive_name, &actual_digest)?;
 
     // Keep the commit synchronous so cancellation cannot detach replacement from restart.

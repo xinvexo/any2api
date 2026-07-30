@@ -6,23 +6,27 @@ use std::{
 use async_trait::async_trait;
 use reqwest::Client;
 use semver::Version;
-use tokio::sync::Mutex;
 
 use crate::{
     api::{
         ApplicationAbout, ApplicationUpdateService, RestartRequester, UpdateCheck, UpdateError,
-        UpdateErrorKind, UpdateInstall,
+        UpdateErrorKind, UpdateStatus,
     },
     github::{self, REPOSITORY_URL},
     install,
+    state::UpdateTaskState,
 };
 
 pub struct GitHubReleaseUpdater {
+    inner: Arc<UpdaterInner>,
+}
+
+struct UpdaterInner {
     client: Client,
     current_version: Version,
     executable_path: PathBuf,
     install_support_reason: Option<String>,
-    install_gate: Mutex<()>,
+    task: UpdateTaskState,
     restart: Arc<dyn RestartRequester>,
 }
 
@@ -39,15 +43,19 @@ impl GitHubReleaseUpdater {
             )
         })?;
         Ok(Self {
-            client: github::client()?,
-            install_support_reason: install_support_reason(&executable_path, embedded_web),
-            current_version,
-            executable_path,
-            install_gate: Mutex::new(()),
-            restart,
+            inner: Arc::new(UpdaterInner {
+                client: github::client()?,
+                install_support_reason: install_support_reason(&executable_path, embedded_web),
+                current_version,
+                executable_path,
+                task: UpdateTaskState::new(),
+                restart,
+            }),
         })
     }
+}
 
+impl UpdaterInner {
     async fn latest_check(&self) -> Result<(github::Release, UpdateCheck), UpdateError> {
         let release = github::latest(&self.client).await?;
         let check = UpdateCheck {
@@ -59,47 +67,72 @@ impl GitHubReleaseUpdater {
         };
         Ok((release, check))
     }
-}
 
-#[async_trait]
-impl ApplicationUpdateService for GitHubReleaseUpdater {
-    fn about(&self) -> ApplicationAbout {
-        ApplicationAbout {
-            current_version: self.current_version.to_string(),
-            repository_url: REPOSITORY_URL.to_owned(),
+    async fn run_install(self: Arc<Self>) {
+        let mut target_version = None;
+        let result = self.install_latest(&mut target_version).await;
+        if let Err(error) = result {
+            let kind = error.kind();
+            tracing::warn!(?kind, %error, "application update task failed");
+            self.task.failed(target_version, kind);
         }
     }
 
-    async fn check(&self) -> Result<UpdateCheck, UpdateError> {
-        self.latest_check().await.map(|(_, check)| check)
-    }
-
-    async fn install(&self) -> Result<UpdateInstall, UpdateError> {
-        let _gate = self.install_gate.try_lock().map_err(|_| {
-            UpdateError::new(
-                UpdateErrorKind::InProgress,
-                "an update is already in progress",
-            )
-        })?;
-        if let Some(reason) = &self.install_support_reason {
-            return Err(UpdateError::new(
-                UpdateErrorKind::Unsupported,
-                reason.clone(),
-            ));
-        }
+    async fn install_latest(&self, target_version: &mut Option<String>) -> Result<(), UpdateError> {
         let (release, check) = self.latest_check().await?;
+        let version = release.version.to_string();
+        *target_version = Some(version.clone());
         if !check.update_available {
             return Err(UpdateError::new(
                 UpdateErrorKind::NoUpdate,
                 "the current version is already up to date",
             ));
         }
-        install::replace_from_release(&self.client, &release, &self.executable_path).await?;
+
+        self.task.downloading(&version, release.archive_size);
+        let progress_task = &self.task;
+        let installing_task = &self.task;
+        install::replace_from_release(
+            &self.client,
+            &release,
+            &self.executable_path,
+            |downloaded_bytes| progress_task.downloaded(&version, downloaded_bytes),
+            || installing_task.installing(&version),
+        )
+        .await?;
+        self.task.restarting(&version);
         self.restart.request_restart();
-        Ok(UpdateInstall {
-            installed_version: release.version.to_string(),
-            restart_requested: true,
-        })
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ApplicationUpdateService for GitHubReleaseUpdater {
+    fn about(&self) -> ApplicationAbout {
+        ApplicationAbout {
+            current_version: self.inner.current_version.to_string(),
+            repository_url: REPOSITORY_URL.to_owned(),
+        }
+    }
+
+    async fn check(&self) -> Result<UpdateCheck, UpdateError> {
+        self.inner.latest_check().await.map(|(_, check)| check)
+    }
+
+    fn start_install(&self) -> Result<UpdateStatus, UpdateError> {
+        if let Some(reason) = &self.inner.install_support_reason {
+            return Err(UpdateError::new(
+                UpdateErrorKind::Unsupported,
+                reason.clone(),
+            ));
+        }
+        let accepted = self.inner.task.begin()?;
+        tokio::spawn(Arc::clone(&self.inner).run_install());
+        Ok(accepted)
+    }
+
+    fn install_status(&self) -> UpdateStatus {
+        self.inner.task.status()
     }
 }
 

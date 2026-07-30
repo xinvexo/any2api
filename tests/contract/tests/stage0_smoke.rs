@@ -4,7 +4,11 @@ use any2api_contract_tests::build_public_request_components;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
-use axum::{body::Body, extract::ConnectInfo, http::Request};
+use axum::{
+    body::Body,
+    extract::ConnectInfo,
+    http::{Request, header::CACHE_CONTROL},
+};
 use http_body_util::BodyExt;
 use tempfile::tempdir;
 use tower::ServiceExt;
@@ -57,6 +61,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         .expect("health response");
 
     assert_eq!(response.status(), 200);
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
     let body = response
         .into_body()
         .collect()
@@ -66,6 +71,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
     let value: serde_json::Value = serde_json::from_slice(&body).expect("health json");
 
     assert_eq!(value["status"], "ok");
+    assert_eq!(value["application_version"], "0.0.0-dev");
     assert_eq!(value["config_revision"], 1);
     assert_eq!(value["scheduler_epoch"], 0);
     assert_eq!(value["shutdown_phase"], "running");
