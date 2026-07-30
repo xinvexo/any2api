@@ -1,3 +1,6 @@
+use std::net::IpAddr;
+
+use ipnet::IpNet;
 use serde_json::{Value, json};
 use thiserror::Error;
 
@@ -171,9 +174,14 @@ pub(super) fn normalize_value(
     key: SettingKey,
     value: SettingValue,
 ) -> Result<SettingValue, SettingsValidationError> {
-    let value = match value {
-        SettingValue::StringList(values) => SettingValue::StringList(normalize_models(values)?),
-        value => value,
+    let value = match (key, value) {
+        (SettingKey::ModelsAllowed, SettingValue::StringList(values)) => {
+            SettingValue::StringList(normalize_models(values)?)
+        }
+        (SettingKey::NetworkTrustedProxyCidrs, SettingValue::StringList(values)) => {
+            SettingValue::StringList(normalize_trusted_proxy_cidrs(values)?)
+        }
+        (_, value) => value,
     };
     validate_value(key, &value)?;
     Ok(value)
@@ -236,4 +244,26 @@ fn normalize_models(values: Vec<String>) -> Result<Vec<String>, SettingsValidati
     values.sort();
     values.dedup();
     Ok(values)
+}
+
+fn normalize_trusted_proxy_cidrs(
+    values: Vec<String>,
+) -> Result<Vec<String>, SettingsValidationError> {
+    let mut networks = values
+        .into_iter()
+        .map(|value| {
+            let value = value.trim();
+            value
+                .parse::<IpNet>()
+                .or_else(|_| value.parse::<IpAddr>().map(IpNet::from))
+                .map(|network| network.trunc())
+                .map_err(|_| SettingsValidationError::InvalidListValue)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    networks.sort();
+    networks.dedup();
+    Ok(networks
+        .into_iter()
+        .map(|network| network.to_string())
+        .collect())
 }

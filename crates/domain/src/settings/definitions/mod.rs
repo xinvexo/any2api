@@ -2,6 +2,7 @@ mod admin;
 mod affinity;
 mod logging;
 mod models;
+mod network;
 mod oauth;
 mod registry;
 mod reliability;

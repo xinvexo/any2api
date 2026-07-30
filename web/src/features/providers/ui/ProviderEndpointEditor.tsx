@@ -7,11 +7,11 @@ import type {
   ProviderProtocolOptions,
   ProtocolDialect,
 } from "../api/provider-contracts";
-import { PROVIDER_KIND_OPTIONS, providerKindLabel } from "../model/provider-kind-catalog";
 import { protocolLabel } from "../model/protocol-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderEditor } from "../model/use-provider-editor";
 import { Button } from "@/shared/ui/Button";
+import { Select } from "@/shared/ui/Select";
 import { controlClass } from "@/shared/ui/form-control";
 import { Field, FormError } from "@/shared/ui/form-field";
 import { Switch } from "@/shared/ui/Switch";
@@ -43,7 +43,6 @@ export function ProviderEndpointEditor({
   const formRef = useRef<HTMLFormElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const focusInvalidAfterRender = useRef(false);
-  const creating = !endpoint;
   const locked = pending || sourceConflict !== null;
   const acceptedOptions = protocolOptions.filter(
     (option) => option.providerKind === editor.draft.providerKind,
@@ -115,54 +114,24 @@ export function ProviderEndpointEditor({
         />
       </Field>
 
-      {creating ? (
-        <Field label="类型" htmlFor="provider-kind">
-          <select
-            id="provider-kind"
-            className={controlClass(false)}
-            value={editor.draft.providerKind}
-            disabled={locked}
-            onChange={(event) =>
-              editor.updateProviderKind(event.target.value as ProviderKind)
-            }
-          >
-            {PROVIDER_KIND_OPTIONS.map((option) => (
-              <option key={option.kind} value={option.kind}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-      ) : (
-        <div className="space-y-1.5">
-          <p className="text-[12px] font-medium text-secondary">类型</p>
-          <p className="text-[13px] text-primary">
-            {providerKindLabel(editor.draft.providerKind)}
-          </p>
-        </div>
-      )}
-
       <Field
         label="接受协议"
         error={editor.errors.protocolDialect}
         htmlFor="provider-protocol"
       >
-        <select
+        <Select<ProtocolDialect>
           id="provider-protocol"
-          className={controlClass(Boolean(editor.errors.protocolDialect))}
           value={editor.draft.protocolDialect}
+          options={acceptedOptions.map((option) => ({
+            value: option.acceptedProtocol,
+            label: protocolLabel(option.acceptedProtocol),
+          }))}
+          aria-label="接受协议"
+          aria-describedby={editor.errors.protocolDialect ? "provider-protocol-error" : undefined}
           disabled={locked}
-          aria-invalid={Boolean(editor.errors.protocolDialect)}
-          onChange={(event) =>
-            editor.updateProtocolDialect(event.target.value as ProtocolDialect)
-          }
-        >
-          {acceptedOptions.map((option) => (
-            <option key={option.acceptedProtocol} value={option.acceptedProtocol}>
-              {protocolLabel(option.acceptedProtocol)}
-            </option>
-          ))}
-        </select>
+          invalid={Boolean(editor.errors.protocolDialect)}
+          onValueChange={editor.updateProtocolDialect}
+        />
       </Field>
 
       <Field
@@ -170,28 +139,28 @@ export function ProviderEndpointEditor({
         error={editor.errors.upstreamProtocolDialect}
         htmlFor="provider-upstream-protocol"
       >
-        <select
+        <Select<ProtocolDialect | "">
           id="provider-upstream-protocol"
-          className={controlClass(Boolean(editor.errors.upstreamProtocolDialect))}
           value={editor.draft.upstreamProtocolDialect ?? ""}
-          disabled={locked || conversionOptions.length === 0}
-          aria-invalid={Boolean(editor.errors.upstreamProtocolDialect)}
-          onChange={(event) =>
-            editor.update(
-              "upstreamProtocolDialect",
-              event.target.value
-                ? (event.target.value as ProtocolDialect)
-                : null,
-            )
+          options={[
+            { value: "", label: "不转换（使用接受协议）" },
+            ...conversionOptions.map((protocol) => ({
+              value: protocol,
+              label: protocolLabel(protocol),
+            })),
+          ]}
+          aria-label="内部转换协议（可选）"
+          aria-describedby={
+            editor.errors.upstreamProtocolDialect
+              ? "provider-upstream-protocol-error"
+              : undefined
           }
-        >
-          <option value="">不转换（使用接受协议）</option>
-          {conversionOptions.map((protocol) => (
-            <option key={protocol} value={protocol}>
-              {protocolLabel(protocol)}
-            </option>
-          ))}
-        </select>
+          disabled={locked || conversionOptions.length === 0}
+          invalid={Boolean(editor.errors.upstreamProtocolDialect)}
+          onValueChange={(value) =>
+            editor.update("upstreamProtocolDialect", value || null)
+          }
+        />
       </Field>
 
       <Field label="Base URL" error={editor.errors.baseUrl} htmlFor="provider-base-url">

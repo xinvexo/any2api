@@ -1,5 +1,6 @@
 import { LoaderCircle, RefreshCw, Save } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Navigate, useBlocker, useParams } from "react-router-dom";
 
 import { AboutSettings } from "@/features/application-update";
@@ -23,17 +24,26 @@ const SETTINGS_TABS = [
 
 export function SettingsPage() {
   const { section = "basic" } = useParams<{ section: string }>();
-  if (section === "about") {
-    return <SettingsPageLayout><AboutSettings /></SettingsPageLayout>;
-  }
   const selected = SETTING_SECTIONS.find((item) => item.id === section);
-  if (!selected) {
+  if (section !== "about" && !selected) {
     return <Navigate to="/settings/basic" replace />;
   }
-  return <SettingsSectionPage section={selected} />;
+  return (
+    <SettingsPageLayout>
+      {(actionsHost) => section === "about"
+        ? <AboutSettings />
+        : <SettingsSectionPage section={selected!} actionsHost={actionsHost} />}
+    </SettingsPageLayout>
+  );
 }
 
-function SettingsSectionPage({ section }: { section: (typeof SETTING_SECTIONS)[number] }) {
+function SettingsSectionPage({
+  section,
+  actionsHost,
+}: {
+  section: (typeof SETTING_SECTIONS)[number];
+  actionsHost: HTMLDivElement | null;
+}) {
   const editor = useSettingsEditor(section.webGroups);
   const blocker = useBlocker(({ currentLocation, nextLocation }) =>
     editor.isDirty && locationChanged(currentLocation, nextLocation));
@@ -91,9 +101,10 @@ function SettingsSectionPage({ section }: { section: (typeof SETTING_SECTIONS)[n
 
   return (
     <>
-      <SettingsPageLayout actions={<SettingsPageActions editor={editor} onRefresh={refresh} />}>
-        <SettingsSectionBody section={section} editor={editor} />
-      </SettingsPageLayout>
+      {actionsHost
+        ? createPortal(<SettingsPageActions editor={editor} onRefresh={refresh} />, actionsHost)
+        : null}
+      <SettingsSectionBody section={section} editor={editor} />
       <ConfirmDialog
         open={dialogOpen}
         title={refreshRequested ? "刷新前保存修改？" : "离开前保存修改？"}
@@ -118,17 +129,22 @@ function SettingsSectionPage({ section }: { section: (typeof SETTING_SECTIONS)[n
  * Same pin pattern as system/request logs: fixed toolbar, only the body scrolls.
  * Avoids sticky chrome (and its top-offset / glass bugs) inside the main panel.
  */
-function SettingsPageLayout({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+function SettingsPageLayout({
+  children,
+}: {
+  children: (actionsHost: HTMLDivElement | null) => ReactNode;
+}) {
+  const [actionsHost, setActionsHost] = useState<HTMLDivElement | null>(null);
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-subtle pb-3">
         <div className="min-w-0 flex-1">
           <PageTabs items={SETTINGS_TABS} ariaLabel="系统设置分类" />
         </div>
-        {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
+        <div ref={setActionsHost} className="flex shrink-0 items-center gap-1.5" />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pt-5 [scrollbar-gutter:stable]">
-        {children}
+        {children(actionsHost)}
       </div>
     </div>
   );

@@ -114,17 +114,6 @@ body {
   background: transparent;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-  }
-}
-
 /* Side drawer + confirm dialog share the shell frosted-glass language.
  *
  * Scrim: solid black + element opacity (not premultiplied alpha) so fade
@@ -355,29 +344,4 @@ html[data-theme="dark"] .confirm-dialog-panel {
   to {
     transform: scaleX(0);
   }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .notification-card {
-    animation: none;
-  }
-
-  /* Keep the countdown bar functional; only drop the enter motion. */
-  .notification-card__timer-bar {
-    animation-timing-function: linear;
-  }
-}
-
-/* Custom select chevron — avoid WebKit's rounded hover chip on the native indicator */
-select.field-select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.55rem center;
-  background-size: 14px 14px;
-}
-
-select.field-select:hover,
-select.field-select:active,
-select.field-select:focus {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }

@@ -90,10 +90,3 @@ html[data-theme="dark"] .auth-orb-c {
     opacity: 0.6;
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .auth-fx,
-  .auth-orb {
-    animation: none !important;
-  }
-}

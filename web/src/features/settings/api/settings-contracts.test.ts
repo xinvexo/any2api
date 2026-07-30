@@ -11,6 +11,7 @@ test("parses setting metadata and all value types", () => {
       item("scheduler.max_waiting_requests", "integer", 128, null, null, 1, 100_000),
       item("scheduler.fallback_on_rate_limit", "boolean", false, null, null),
       item("models.allowed", "string_list", [], ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
+      item("network.trusted_proxy_cidrs", "string_list", [], ["127.0.0.1/32"], null),
     ],
   });
 
@@ -19,6 +20,8 @@ test("parses setting metadata and all value types", () => {
   expect(configuration.items[0]?.allowedValues).toEqual(["wait", "reject"]);
   expect(configuration.items[4]?.effectiveValue).toEqual(["gpt-b"]);
   expect(configuration.items[4]?.options).toEqual(["gpt-a", "gpt-b"]);
+  expect(configuration.items[5]?.options).toBeNull();
+  expect(configuration.items[5]?.effectiveValue).toEqual(["127.0.0.1/32"]);
 });
 
 test("rejects inconsistent bounds, values, and enum metadata", () => {

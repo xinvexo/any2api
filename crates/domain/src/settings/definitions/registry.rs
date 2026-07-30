@@ -1,6 +1,7 @@
 use super::super::{SettingDefinition, SettingKey};
 use super::{
-    admin, affinity, logging, models, oauth, reliability, scheduler, shutdown, stream, upstream,
+    admin, affinity, logging, models, network, oauth, reliability, scheduler, shutdown, stream,
+    upstream,
 };
 
 pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
@@ -10,6 +11,7 @@ pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::AdminSessionAbsoluteTimeout
         | SettingKey::AdminLoginFailureWindow
         | SettingKey::AdminLoginMaxFailures => admin::definition(key),
+        SettingKey::NetworkTrustedProxyCidrs => network::definition(key),
         SettingKey::ModelsAllowed => models::definition(key),
         SettingKey::AffinityEnabled | SettingKey::AffinityTtl | SettingKey::AffinityWaitTimeout => {
             affinity::definition(key)

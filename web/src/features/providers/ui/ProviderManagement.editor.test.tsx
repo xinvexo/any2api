@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import {
@@ -35,7 +35,9 @@ test("creates a Claude private HTTP endpoint directly from the Base URL", async 
 
   renderManagement(["/providers?kind=claude&editor=new"]);
 
+  expect(await screen.findByText("配置 Claude 上游地址")).toBeInTheDocument();
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "本地 Claude" } });
+  expect(screen.queryByLabelText("类型")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Base URL"), {
     target: { value: "http://127.0.0.1:8080" },
   });
@@ -78,9 +80,19 @@ test("creates a Grok endpoint with the official xAI defaults", async () => {
 
   renderManagement(["/providers?kind=grok&editor=new"]);
 
+  expect(await screen.findByText("配置 Grok 上游地址")).toBeInTheDocument();
+  expect(screen.getByRole("combobox", { name: "接受协议" })).toHaveAttribute(
+    "aria-haspopup",
+    "listbox",
+  );
+  expect(screen.getByRole("combobox", { name: "内部转换协议（可选）" })).toHaveAttribute(
+    "aria-haspopup",
+    "listbox",
+  );
   fireEvent.change(await screen.findByLabelText("名称"), {
     target: { value: "Grok Primary" },
   });
+  expect(screen.queryByLabelText("类型")).not.toBeInTheDocument();
   expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.x.ai/v1");
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
@@ -114,12 +126,13 @@ test("creates a Codex endpoint for the OpenAI Images protocol", async () => {
 
   renderManagement(["/providers?kind=codex&editor=new"]);
 
+  expect(await screen.findByText("配置 Codex 上游地址")).toBeInTheDocument();
   fireEvent.change(await screen.findByLabelText("名称"), {
     target: { value: "OpenAI Images" },
   });
-  fireEvent.change(screen.getByLabelText("接受协议"), {
-    target: { value: "openai_images" },
-  });
+  expect(screen.queryByLabelText("类型")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("combobox", { name: "接受协议" }));
+  fireEvent.click(screen.getByRole("option", { name: "OpenAI Images" }));
   expect(screen.getByLabelText("内部转换协议（可选）")).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
@@ -194,6 +207,7 @@ test("preserves the draft but blocks overwrite when the endpoint version changed
 
   renderManagement(["/providers?editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f"]);
   const name = await screen.findByLabelText("名称");
+  expect(within(screen.getByRole("dialog")).queryByText("类型")).not.toBeInTheDocument();
   fireEvent.change(name, { target: { value: "Local Draft" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 

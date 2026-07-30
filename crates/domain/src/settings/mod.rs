@@ -6,6 +6,7 @@ mod definitions;
 mod key;
 mod logging_settings;
 mod model_settings;
+mod network_settings;
 mod oauth_settings;
 mod override_change;
 mod reliability_settings;
@@ -25,6 +26,7 @@ pub use logging_settings::{
     MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
 };
 pub use model_settings::ModelSettings;
+pub use network_settings::NetworkSettings;
 pub use oauth_settings::OAuthSettings;
 pub use override_change::SettingOverrideChange;
 pub use reliability_settings::ReliabilitySettings;

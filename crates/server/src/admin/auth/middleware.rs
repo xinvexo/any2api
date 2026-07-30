@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 
+use any2api_runtime::api::PublishedSnapshot;
 use axum::{
     extract::{ConnectInfo, Request, State},
     http::Method,
@@ -23,7 +24,12 @@ pub(in crate::admin) async fn require_admin_session(
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(address)| *address);
-    let (connection, snapshot) = match access::resolve(&state, peer, request.headers()) {
+    let snapshot = request
+        .extensions()
+        .get::<std::sync::Arc<PublishedSnapshot>>()
+        .cloned()
+        .unwrap_or_else(|| state.snapshots().load());
+    let (connection, snapshot) = match access::resolve(snapshot, peer, request.headers()) {
         Ok(value) => value,
         Err(error) => return error.into_response(),
     };

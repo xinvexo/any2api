@@ -14,9 +14,12 @@ test("uses the compact accent treatment for mobile navigation", () => {
   const activeLink = screen.getByRole("link", { name: "请求日志" });
   const inactiveLink = screen.getByRole("link", { name: "系统总览" });
 
-  expect(activeLink).toHaveClass("h-10", "rounded-[8px]", "bg-accent/10", "text-accent");
+  expect(activeLink).toHaveClass("h-10", "rounded-[8px]", "text-accent");
   expect(inactiveLink).toHaveClass("text-primary");
-  expect(inactiveLink).not.toHaveClass("bg-accent/10");
+  expect(activeLink.className).not.toContain("bg-");
+  expect(inactiveLink.className).not.toContain("hover:bg-");
+  expect(document.querySelector("[data-sliding-selection-indicator]"))
+    .toHaveAttribute("data-active-value", "/logs");
 });
 
 test("keeps desktop icons on the same rail while the sidebar collapses", () => {

@@ -22,6 +22,9 @@ export function createSettingDraftFromValue(
 ): SettingDraft {
   if (item.valueType === "string_list") {
     if (Array.isArray(value)) {
+      if (item.key !== "models.allowed") {
+        return value.join("\n");
+      }
       return {
         mode: value.length === 0 ? "all" : "only",
         models: [...value],
@@ -43,6 +46,18 @@ export function validateSettingDraft(
   draft: SettingDraft,
 ): SettingDraftValidation {
   if (item.valueType === "string_list") {
+    if (item.key !== "models.allowed") {
+      if (typeof draft !== "string") {
+        return invalid("地址列表格式不正确");
+      }
+      const values = [...new Set(
+        draft
+          .split(/[\n,]/u)
+          .map((value) => value.trim())
+          .filter(Boolean),
+      )].sort();
+      return { value: values, error: null };
+    }
     if (!isModelAccessDraft(draft)) {
       return invalid("模型选择格式不正确");
     }

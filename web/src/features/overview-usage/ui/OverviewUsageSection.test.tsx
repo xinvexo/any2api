@@ -39,14 +39,22 @@ test("shows range metrics with simultaneous time and model charts", async () => 
   expect(screen.getByText("0.033")).toBeInTheDocument();
   expect(screen.queryByText("输入 Token")).not.toBeInTheDocument();
   expect(screen.queryByText("输出 Token")).not.toBeInTheDocument();
-  expect(screen.getByTestId("overview-time-chart")).toBeInTheDocument();
-  expect(screen.getByTestId("overview-model-chart")).toBeInTheDocument();
+  const timeChart = screen.getByTestId("overview-time-chart");
+  const modelChart = screen.getByTestId("overview-model-chart");
+  expect(timeChart.parentElement).toHaveClass("flex-1");
+  expect(modelChart.parentElement).toHaveClass("flex-1");
+  expect(timeChart.parentElement).not.toHaveClass("h-80");
+  expect(modelChart.parentElement).not.toHaveClass("h-80");
   expect(screen.getByRole("img", { name: /模型调用占比/ })).toBeInTheDocument();
   expect(screen.getByText("gpt-test")).toBeInTheDocument();
   expect(String(fetchMock.mock.calls[0]?.[0])).toContain("range=1h");
   expect(rendered.container.querySelector(".rounded-\\[14px\\]")).toBeNull();
+  const rangeIndicator = rendered.container.querySelector("[data-sliding-selection-indicator]");
+  expect(rangeIndicator).toHaveAttribute("data-active-value", "1h");
 
   fireEvent.click(screen.getByRole("button", { name: "7 天" }));
+  expect(rangeIndicator).toBeInTheDocument();
+  expect(rangeIndicator).toHaveAttribute("data-active-value", "7d");
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("range=7d"));
   await waitFor(() =>
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes("range=7d"))).toBe(true),
@@ -73,6 +81,13 @@ test("limits the compact model pie to eight slices", () => {
   const legend = screen.getByRole("list", { name: "模型调用占比图例" });
   expect(within(legend).getAllByRole("listitem")).toHaveLength(8);
   expect(within(legend).getByText("其余 2 个模型")).toBeInTheDocument();
+  expect(legend.querySelectorAll(":scope > li > div")).toHaveLength(8);
+});
+
+test("centers the empty model state in the shared chart height", () => {
+  render(<OverviewModelChart models={[]} />);
+
+  expect(screen.getByText("当前时间段还没有模型调用。")).toHaveClass("h-full");
 });
 
 test("does not invent a remaining model count for an API aggregate", () => {

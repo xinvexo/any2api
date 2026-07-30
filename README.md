@@ -54,7 +54,6 @@ Before upgrading, take an offline copy of the data directory and master key.
 | `ANY2API_DATA_DIR` | `./data` | SQLite database, instance lock, default master key, and logs |
 | `ANY2API_MASTER_KEY_FILE` | `<data-dir>/master-key.json` | External master-key file path |
 | `ANY2API_ADMIN_PASSWORD` | unset | Initialize the first administrator password; it does not rotate an existing password |
-| `ANY2API_TRUSTED_PROXY_CIDRS` | unset | Comma-separated trusted reverse-proxy networks allowed to supply forwarded client/protocol headers |
 | `ANY2API_WEB_DIR` | unset | Explicit external Web assets for development; production normally uses embedded assets |
 | `RUST_LOG` | process default | Console log filter; file-log level is managed in the Web settings |
 
@@ -82,9 +81,9 @@ exclusive instance lock and rejects a second owner.
 
 ## Remote Management
 
-Remote management is disabled by default even if the listener is exposed. Enable `admin.remote_enabled` from a local management session before remote use.
+Remote management is enabled by default, but it does not expose a new socket: the listener still defaults to `127.0.0.1:3210` and is controlled by `ANY2API_BIND`. On a new remote deployment, initialize the administrator password with `ANY2API_ADMIN_PASSWORD` because the one-time Setup API remains loopback-only.
 
-Plain HTTP is supported, but it exposes the administrator password, session cookie, OAuth callback/code, and device user code to anyone able to observe the network. Prefer Caddy, Nginx, or another TLS-terminating reverse proxy. When forwarded client identity is required, set `ANY2API_TRUSTED_PROXY_CIDRS` only to the actual proxy networks. Headers from other peers are ignored; requests from a trusted proxy fail closed unless they contain exactly one valid `X-Forwarded-For` and `X-Forwarded-Proto` header.
+Plain HTTP is supported, but it exposes the administrator password, session cookie, OAuth callback/code, and device user code to anyone able to observe the network. Prefer Caddy, Nginx, or another TLS-terminating reverse proxy. Configure **Settings → Basic → Trusted reverse proxy addresses** only with the IP addresses or CIDRs that can connect directly to any2api; leave it empty when no reverse proxy is used. The setting takes effect immediately. Headers from other peers are ignored; requests from a trusted proxy fail closed unless they contain exactly one valid `X-Forwarded-For` and `X-Forwarded-Proto` header.
 
 For a same-host Nginx proxy, trust only the loopback address actually used by Nginx and send one normalized client address:
 

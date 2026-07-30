@@ -1,5 +1,6 @@
 use std::{
     net::SocketAddr,
+    sync::Arc,
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -15,7 +16,7 @@ use axum::{
     response::Response,
 };
 
-use crate::state::AppState;
+use crate::{client_address, state::AppState};
 
 use super::body::{AccessLogBody, AccessLogCompletion, AccessLogMetadata};
 
@@ -43,16 +44,19 @@ pub(crate) async fn record(
     let started = Instant::now();
     let started_at_ms = unix_time_ms();
     let snapshot = state.snapshots().load();
+    request.extensions_mut().insert(Arc::clone(&snapshot));
     let peer = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(address)| *address);
-    let client_ip = state
-        .client_addresses()
-        .resolve(peer, request.headers())
-        .map(|connection| connection.client_ip())
-        .ok()
-        .or_else(|| peer.map(|address| address.ip()));
+    let client_ip = client_address::resolve(
+        snapshot.settings().network().trusted_proxy_cidrs(),
+        peer,
+        request.headers(),
+    )
+    .map(|connection| connection.client_ip())
+    .ok()
+    .or_else(|| peer.map(|address| address.ip()));
     let mut completion = AccessLogCompletion::new(
         state.request_telemetry_handle(),
         snapshot.settings().logging().clone(),

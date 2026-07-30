@@ -1,7 +1,6 @@
 use std::{env, net::SocketAddr, path::PathBuf};
 
 use anyhow::{Context, Result};
-use ipnet::IpNet;
 use secrecy::SecretString;
 
 pub(super) struct StartupSettings {
@@ -11,7 +10,6 @@ pub(super) struct StartupSettings {
     pub(crate) log_directory: PathBuf,
     pub(crate) web_root: Option<PathBuf>,
     pub(crate) admin_password: Option<SecretString>,
-    pub(crate) trusted_proxy_cidrs: Vec<IpNet>,
 }
 
 impl StartupSettings {
@@ -34,8 +32,6 @@ impl StartupSettings {
             .ok()
             .filter(|value| !value.is_empty())
             .map(SecretString::from);
-        let trusted_proxy_cidrs = parse_trusted_proxy_cidrs()?;
-
         Ok(Self {
             bind,
             database_path: data_dir.join("any2api.sqlite3"),
@@ -43,25 +39,6 @@ impl StartupSettings {
             log_directory: data_dir.join("logs"),
             web_root,
             admin_password,
-            trusted_proxy_cidrs,
         })
     }
-}
-
-fn parse_trusted_proxy_cidrs() -> Result<Vec<IpNet>> {
-    let Some(value) = env::var("ANY2API_TRUSTED_PROXY_CIDRS")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-    else {
-        return Ok(Vec::new());
-    };
-    value
-        .split(',')
-        .map(str::trim)
-        .map(|value| {
-            value
-                .parse()
-                .with_context(|| format!("invalid trusted proxy CIDR {value}"))
-        })
-        .collect()
 }

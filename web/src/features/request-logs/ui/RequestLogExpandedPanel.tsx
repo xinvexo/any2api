@@ -13,8 +13,10 @@ import {
   isRequestLogNotFound,
 } from "../model/request-log-error";
 import { useRequestLog } from "../model/use-request-logs";
+import { RequestLogExpandedSkeleton } from "./RequestLogExpandedSkeleton";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
+import { useAccordionReveal } from "@/shared/ui/use-accordion-reveal";
 
 /**
  * Accordion detail: only fields the list row does not already show.
@@ -22,13 +24,17 @@ import { Button } from "@/shared/ui/Button";
  */
 export function RequestLogExpandedPanel({
   requestId,
+  failed,
 }: {
   requestId: string;
+  failed: boolean;
 }) {
   const query = useRequestLog(requestId);
+  const initialPending = query.isPending && !query.data;
+  const revealContent = useAccordionReveal(true, !initialPending);
 
-  if (query.isPending && !query.data) {
-    return <p className="text-[12px] text-secondary">正在读取详情…</p>;
+  if (initialPending || !revealContent) {
+    return <RequestLogExpandedSkeleton failed={failed} />;
   }
 
   if (!query.data) {

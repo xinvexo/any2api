@@ -18,7 +18,6 @@ anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 fs2.workspace = true
-ipnet.workspace = true
 secrecy.workspace = true
 time.workspace = true
 tokio.workspace = true

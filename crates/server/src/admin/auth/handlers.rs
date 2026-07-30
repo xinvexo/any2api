@@ -26,10 +26,11 @@ use super::{
 
 pub(super) async fn session(
     State(state): State<AppState>,
+    Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Result<Response, AdminApiError> {
-    let (connection, snapshot) = access::resolve(&state, Some(peer), &headers)?;
+    let (connection, snapshot) = access::resolve(snapshot, Some(peer), &headers)?;
     let auth = state
         .admin_auth()
         .ok_or_else(AdminApiError::auth_unavailable)?;
@@ -52,11 +53,12 @@ pub(super) async fn session(
 
 pub(super) async fn setup(
     State(state): State<AppState>,
+    Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     payload: Result<Json<SetupRequest>, JsonRejection>,
 ) -> Result<Response, AdminApiError> {
-    let (connection, snapshot) = access::resolve(&state, Some(peer), &headers)?;
+    let (connection, snapshot) = access::resolve(snapshot, Some(peer), &headers)?;
     if !connection.is_loopback() {
         return Err(AdminApiError::setup_loopback_only());
     }
@@ -86,11 +88,12 @@ pub(super) async fn setup(
 
 pub(super) async fn login(
     State(state): State<AppState>,
+    Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     payload: Result<Json<PasswordRequest>, JsonRejection>,
 ) -> Result<Response, AdminApiError> {
-    let (connection, snapshot) = access::resolve(&state, Some(peer), &headers)?;
+    let (connection, snapshot) = access::resolve(snapshot, Some(peer), &headers)?;
     let request = payload
         .map(|Json(value)| value)
         .map_err(|_| AdminApiError::invalid_request("request body must be valid JSON"))?;

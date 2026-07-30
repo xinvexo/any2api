@@ -15,7 +15,11 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
     id: "basic",
     label: "基础",
     webGroups: ["远程管理", "公开模型"],
-    featuredKeys: ["admin.remote_enabled", "models.allowed"],
+    featuredKeys: [
+      "admin.remote_enabled",
+      "network.trusted_proxy_cidrs",
+      "models.allowed",
+    ],
   },
   {
     id: "routing",

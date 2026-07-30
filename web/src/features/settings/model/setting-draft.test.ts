@@ -59,6 +59,18 @@ test("normalizes model selections and treats an empty list as allow all", () => 
   expect(isSettingDraftDirty(item, { mode: "only", models: [] })).toBe(true);
 });
 
+test("edits free-form trusted proxy addresses one per line or comma", () => {
+  const item = trustedProxyItem();
+  expect(createSettingDraft(item)).toBe("10.0.0.0/8\n127.0.0.1/32");
+  expect(validateSettingDraft(item, "10.0.0.0/8, 127.0.0.1\n10.0.0.0/8"))
+    .toEqual({
+      value: ["10.0.0.0/8", "127.0.0.1"],
+      error: null,
+    });
+  expect(validateSettingDraft(item, "  \n")).toEqual({ value: [], error: null });
+  expect(isSettingDraftDirty(item, "10.0.0.0/8\n127.0.0.1/32")).toBe(false);
+});
+
 function numericItem(): SettingItem {
   return {
     key: "scheduler.max_waiting_requests",
@@ -107,5 +119,22 @@ function modelItem(): SettingItem {
     applyMode: "hot_reload",
     webGroup: "公开模型",
     description: "Allowed public models",
+  };
+}
+
+function trustedProxyItem(): SettingItem {
+  return {
+    key: "network.trusted_proxy_cidrs",
+    valueType: "string_list",
+    defaultValue: [],
+    overrideValue: ["10.0.0.0/8", "127.0.0.1/32"],
+    effectiveValue: ["10.0.0.0/8", "127.0.0.1/32"],
+    minValue: null,
+    maxValue: null,
+    allowedValues: null,
+    options: null,
+    applyMode: "hot_reload",
+    webGroup: "远程管理",
+    description: "Trusted reverse proxies",
   };
 }

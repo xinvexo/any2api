@@ -1,6 +1,6 @@
 import type { SettingItem } from "../api/settings-contracts";
 import type { SettingDraft } from "../model/setting-draft";
-import { selectClass } from "@/shared/ui/form-control";
+import { Select } from "@/shared/ui/Select";
 import { Switch } from "@/shared/ui/Switch";
 import { ModelAllowlistControl } from "./ModelAllowlistControl";
 import { enumOptionLabel, formatSettingDefaultPlaceholder } from "./setting-presentation";
@@ -25,6 +25,20 @@ export function SettingControl({
   onChange,
 }: SettingControlProps) {
   if (item.valueType === "string_list") {
+    if (item.key !== "models.allowed") {
+      return (
+        <textarea
+          className="focus-ring min-h-24 w-full resize-y rounded-[8px] border-0 bg-surface-muted px-3 py-2 font-mono text-[12px] leading-5 text-primary placeholder:text-tertiary disabled:cursor-not-allowed disabled:opacity-50"
+          value={typeof value === "string" ? value : ""}
+          placeholder={"例如：\n127.0.0.1/32\n10.0.0.0/8"}
+          aria-labelledby={labelledBy}
+          aria-describedby={describedBy}
+          aria-invalid={invalid}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      );
+    }
     return (
       <ModelAllowlistControl
         item={item}
@@ -54,21 +68,19 @@ export function SettingControl({
 
   if (item.valueType === "enum") {
     return (
-      <select
-        className={selectClass(invalid, "min-w-0 disabled:cursor-not-allowed disabled:opacity-50")}
+      <Select
+        className="min-w-0"
         value={String(value)}
+        options={(item.allowedValues ?? []).map((option) => ({
+          value: option,
+          label: enumOptionLabel(option),
+        }))}
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
-        aria-invalid={invalid}
+        invalid={invalid}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {item.allowedValues?.map((option) => (
-          <option key={option} value={option}>
-            {enumOptionLabel(option)}
-          </option>
-        ))}
-      </select>
+        onValueChange={onChange}
+      />
     );
   }
 

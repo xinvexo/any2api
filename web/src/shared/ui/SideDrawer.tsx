@@ -121,6 +121,11 @@ export function SideDrawer({
     <div
       className="side-drawer-root fixed inset-0 z-50 overflow-hidden"
       data-state={isVisible ? "open" : "closed"}
+      data-overlay-root
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={activeView.description ? descriptionId : undefined}
     >
       <button
         type="button"
@@ -131,10 +136,6 @@ export function SideDrawer({
       />
       <div
         ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={activeView.description ? descriptionId : undefined}
         tabIndex={-1}
         className={cn(
           "side-drawer-panel",

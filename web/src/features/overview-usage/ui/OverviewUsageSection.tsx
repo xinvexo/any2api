@@ -17,6 +17,7 @@ import { OverviewModelChart } from "./OverviewModelChart";
 import { OverviewTimeChart } from "./OverviewTimeChart";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
+import { SlidingSelectionIndicator } from "@/shared/ui/SlidingSelectionIndicator";
 
 export function OverviewUsageSection() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -115,7 +116,7 @@ export function OverviewUsageSection() {
         />
       </dl>
 
-      <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:gap-8 lg:items-stretch">
+      <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-stretch lg:gap-8">
         <section className="flex min-w-0 flex-col">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
             <h3 className="text-sm font-semibold tracking-tight">调用趋势</h3>
@@ -173,20 +174,25 @@ function SegmentedControl<T extends string>({
 }) {
   return (
     <div
-      className="flex items-center rounded-[9px] bg-surface-muted p-0.5"
+      className="relative isolate flex items-center rounded-[9px] bg-surface-muted p-0.5"
       role="group"
       aria-label={label}
     >
+      <SlidingSelectionIndicator
+        selected={selected}
+        className="rounded-[7px] bg-surface shadow-hairline"
+      />
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
           className={cn(
-            "focus-ring inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11px] font-medium transition-colors",
+            "focus-ring relative z-10 inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-[11px] font-medium transition-colors",
             selected === option.value
-              ? "bg-surface text-primary shadow-hairline"
+              ? "text-primary"
               : "text-secondary hover:text-primary",
           )}
+          data-sliding-selection-item={option.value}
           aria-pressed={selected === option.value}
           onClick={() => onSelect(option.value)}
         >

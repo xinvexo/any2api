@@ -102,7 +102,7 @@ export function OverviewModelChart({ models }: { models: OverviewUsageModel[] })
 
   if (models.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center py-8 text-center text-sm text-tertiary">
+      <div className="flex h-full items-center justify-center text-center text-sm text-tertiary">
         当前时间段还没有模型调用。
       </div>
     );
@@ -113,49 +113,40 @@ export function OverviewModelChart({ models }: { models: OverviewUsageModel[] })
     .join("，")}`;
 
   return (
-    <div className="min-w-0" data-testid="overview-model-chart">
-      <div className="relative mx-auto w-full max-w-[200px]">
+    <div className="h-full min-w-0" data-testid="overview-model-chart">
+      <div className="relative mx-auto w-full max-w-[168px]">
         <OverviewChart
           ariaLabel={chartLabel}
-          className="h-[168px] w-full"
+          className="h-[136px] w-full"
           createConfiguration={createConfiguration}
         />
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <p className="text-[1.25rem] font-semibold tabular-nums tracking-tight text-primary">
+          <p className="text-lg font-semibold leading-5 tabular-nums tracking-tight text-primary">
             {formatOverviewInteger(total)}
           </p>
-          <p className="mt-0.5 text-[11px] text-tertiary">次调用</p>
+          <p className="mt-0.5 text-[11px] leading-4 text-tertiary">次调用</p>
         </div>
       </div>
 
-      <ul className="mt-4 space-y-2.5" aria-label="模型调用占比图例">
+      <ul className="mt-3 space-y-1" aria-label="模型调用占比图例">
         {segments.map((segment) => (
           <li
             key={segment.key}
             className="min-w-0"
             title={`${segment.label}：${formatOverviewInteger(segment.requestCount)} 次，${formatShare(segment.percentage)}`}
           >
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 text-[11px] leading-[14px]">
               <div className="flex min-w-0 items-center gap-2">
                 <span
                   className="size-2 shrink-0 rounded-full"
                   style={{ backgroundColor: segment.color }}
                   aria-hidden="true"
                 />
-                <span className="truncate text-xs font-medium">{segment.label}</span>
+                <span className="truncate font-medium">{segment.label}</span>
               </div>
-              <span className="shrink-0 text-[11px] tabular-nums text-tertiary">
+              <span className="shrink-0 tabular-nums text-tertiary">
                 {formatShare(segment.percentage)}
               </span>
-            </div>
-            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-surface">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${Math.max(segment.percentage, segment.percentage > 0 ? 2 : 0)}%`,
-                  backgroundColor: segment.color,
-                }}
-              />
             </div>
           </li>
         ))}

@@ -7,6 +7,7 @@ pub enum SettingKey {
     AdminSessionAbsoluteTimeout,
     AdminLoginFailureWindow,
     AdminLoginMaxFailures,
+    NetworkTrustedProxyCidrs,
     ModelsAllowed,
     AffinityEnabled,
     AffinityTtl,
@@ -52,12 +53,13 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 47] = [
+    pub const ALL: [Self; 48] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
         Self::AdminLoginFailureWindow,
         Self::AdminLoginMaxFailures,
+        Self::NetworkTrustedProxyCidrs,
         Self::ModelsAllowed,
         Self::AffinityEnabled,
         Self::AffinityTtl,
@@ -109,6 +111,7 @@ impl SettingKey {
             Self::AdminSessionAbsoluteTimeout => "admin.session.absolute_timeout",
             Self::AdminLoginFailureWindow => "admin.login.failure_window",
             Self::AdminLoginMaxFailures => "admin.login.max_failures",
+            Self::NetworkTrustedProxyCidrs => "network.trusted_proxy_cidrs",
             Self::ModelsAllowed => "models.allowed",
             Self::AffinityEnabled => "affinity.enabled",
             Self::AffinityTtl => "affinity.ttl",

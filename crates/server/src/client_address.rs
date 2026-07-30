@@ -7,53 +7,31 @@ use axum::http::HeaderMap;
 use ipnet::IpNet;
 use thiserror::Error;
 
-#[derive(Clone, Debug)]
-pub struct ClientAddressPolicy {
-    trusted_proxies: Vec<IpNet>,
+pub(crate) fn resolve(
+    trusted_proxies: &[IpNet],
+    peer: Option<SocketAddr>,
+    headers: &HeaderMap,
+) -> Result<ClientConnection, ClientAddressError> {
+    let peer = peer.ok_or(ClientAddressError::MissingPeer)?;
+    if !is_trusted_proxy(trusted_proxies, peer.ip()) {
+        return Ok(ClientConnection::direct(peer.ip()));
+    }
+
+    let client_ip = forwarded_client_ip(headers, peer.ip(), |address| {
+        is_trusted_proxy(trusted_proxies, address)
+    })?;
+    let secure = forwarded_proto(headers)? == "https";
+    Ok(ClientConnection {
+        client_ip,
+        secure,
+        through_trusted_proxy: true,
+    })
 }
 
-impl ClientAddressPolicy {
-    #[must_use]
-    pub fn new(trusted_proxies: Vec<IpNet>) -> Self {
-        Self { trusted_proxies }
-    }
-
-    #[must_use]
-    pub fn direct_only() -> Self {
-        Self::new(Vec::new())
-    }
-
-    pub fn resolve(
-        &self,
-        peer: Option<SocketAddr>,
-        headers: &HeaderMap,
-    ) -> Result<ClientConnection, ClientAddressError> {
-        let peer = peer.ok_or(ClientAddressError::MissingPeer)?;
-        if !self.is_trusted_proxy(peer.ip()) {
-            return Ok(ClientConnection::direct(peer.ip()));
-        }
-
-        let client_ip =
-            forwarded_client_ip(headers, peer.ip(), |address| self.is_trusted_proxy(address))?;
-        let secure = forwarded_proto(headers)? == "https";
-        Ok(ClientConnection {
-            client_ip,
-            secure,
-            through_trusted_proxy: true,
-        })
-    }
-
-    fn is_trusted_proxy(&self, address: IpAddr) -> bool {
-        self.trusted_proxies
-            .iter()
-            .any(|network| network.contains(&address))
-    }
-}
-
-impl Default for ClientAddressPolicy {
-    fn default() -> Self {
-        Self::direct_only()
-    }
+fn is_trusted_proxy(trusted_proxies: &[IpNet], address: IpAddr) -> bool {
+    trusted_proxies
+        .iter()
+        .any(|network| network.contains(&address))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -160,14 +138,12 @@ mod tests {
     use axum::http::{HeaderMap, HeaderValue};
     use ipnet::IpNet;
 
-    use super::{ClientAddressError, ClientAddressPolicy};
+    use super::{ClientAddressError, resolve};
 
     #[test]
     fn direct_peer_ignores_untrusted_forwarded_headers() {
         let headers = forwarded_headers("203.0.113.8", "https");
-        let connection = ClientAddressPolicy::default()
-            .resolve(Some(loopback_peer()), &headers)
-            .expect("direct source");
+        let connection = resolve(&[], Some(loopback_peer()), &headers).expect("direct source");
 
         assert_eq!(connection.client_ip(), loopback_peer().ip());
         assert!(connection.is_loopback());
@@ -177,11 +153,10 @@ mod tests {
 
     #[test]
     fn trusted_chain_discards_a_spoofed_leftmost_address() {
-        let policy = trusted_loopback_policy();
+        let trusted = trusted_loopback_networks();
         let headers = forwarded_headers("127.0.0.1, 203.0.113.8", "https");
-        let connection = policy
-            .resolve(Some(loopback_peer()), &headers)
-            .expect("trusted source");
+        let connection =
+            resolve(&trusted, Some(loopback_peer()), &headers).expect("trusted source");
 
         assert_eq!(connection.client_ip(), ip("203.0.113.8"));
         assert!(connection.is_secure());
@@ -190,28 +165,28 @@ mod tests {
 
     #[test]
     fn trusted_proxy_headers_fail_closed_when_missing_repeated_or_invalid() {
-        let policy = trusted_loopback_policy();
+        let trusted = trusted_loopback_networks();
         assert_eq!(
-            policy.resolve(Some(loopback_peer()), &HeaderMap::new()),
+            resolve(&trusted, Some(loopback_peer()), &HeaderMap::new()),
             Err(ClientAddressError::InvalidForwardedHeaders)
         );
 
         let mut repeated = forwarded_headers("203.0.113.8", "https");
         repeated.append("x-forwarded-for", HeaderValue::from_static("198.51.100.2"));
         assert_eq!(
-            policy.resolve(Some(loopback_peer()), &repeated),
+            resolve(&trusted, Some(loopback_peer()), &repeated),
             Err(ClientAddressError::InvalidForwardedHeaders)
         );
 
         let invalid = forwarded_headers("not-an-ip", "ftp");
         assert_eq!(
-            policy.resolve(Some(loopback_peer()), &invalid),
+            resolve(&trusted, Some(loopback_peer()), &invalid),
             Err(ClientAddressError::InvalidForwardedHeaders)
         );
     }
 
-    fn trusted_loopback_policy() -> ClientAddressPolicy {
-        ClientAddressPolicy::new(vec!["127.0.0.0/8".parse::<IpNet>().expect("CIDR")])
+    fn trusted_loopback_networks() -> Vec<IpNet> {
+        vec!["127.0.0.0/8".parse::<IpNet>().expect("CIDR")]
     }
 
     fn forwarded_headers(addresses: &'static str, protocol: &'static str) -> HeaderMap {

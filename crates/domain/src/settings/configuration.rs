@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
 use super::{
-    AdminSettings, AffinitySettings, LoggingSettings, ModelSettings, OAuthSettings,
-    ReliabilitySettings, SchedulerSettings, SettingKey, SettingValue, SettingsValidationError,
-    ShutdownSettings, StreamSettings, UpstreamSettings, value::normalize_value,
+    AdminSettings, AffinitySettings, LoggingSettings, ModelSettings, NetworkSettings,
+    OAuthSettings, ReliabilitySettings, SchedulerSettings, SettingKey, SettingValue,
+    SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
+    value::normalize_value,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -55,6 +56,7 @@ pub struct SettingsConfiguration {
     admin: AdminSettings,
     logging: LoggingSettings,
     models: ModelSettings,
+    network: NetworkSettings,
     oauth: OAuthSettings,
     upstream: UpstreamSettings,
     stream: StreamSettings,
@@ -69,6 +71,7 @@ impl SettingsConfiguration {
         let admin = AdminSettings::from_overrides(&overrides)?;
         let logging = LoggingSettings::from_overrides(&overrides)?;
         let models = ModelSettings::from_overrides(&overrides)?;
+        let network = NetworkSettings::from_overrides(&overrides)?;
         let oauth = OAuthSettings::from_overrides(&overrides)?;
         let upstream = UpstreamSettings::from_overrides(&overrides)?;
         let stream = StreamSettings::from_overrides(&overrides)?;
@@ -81,6 +84,7 @@ impl SettingsConfiguration {
             admin,
             logging,
             models,
+            network,
             oauth,
             upstream,
             stream,
@@ -115,6 +119,10 @@ impl SettingsConfiguration {
 
     pub const fn models(&self) -> &ModelSettings {
         &self.models
+    }
+
+    pub const fn network(&self) -> &NetworkSettings {
+        &self.network
     }
 
     pub const fn oauth(&self) -> &OAuthSettings {
@@ -159,7 +167,7 @@ mod tests {
     #[test]
     fn defaults_match_architecture() {
         let settings = SettingsConfiguration::defaults();
-        assert_eq!(SettingKey::ALL.len(), 47);
+        assert_eq!(SettingKey::ALL.len(), 48);
         assert_eq!(settings.scheduler().on_rate_limited(), RateLimitMode::Wait);
         assert_eq!(settings.scheduler().queue_timeout_secs(), 30);
         assert_eq!(settings.scheduler().max_waiting_requests(), 128);
@@ -173,7 +181,8 @@ mod tests {
         assert_eq!(settings.reliability().precommit_total_budget_secs(), 20);
         assert_eq!(settings.reliability().endpoint_failure_threshold(), 3);
         assert_eq!(settings.reliability().proxy_open_duration_secs(), 30);
-        assert!(!settings.admin().remote_enabled());
+        assert!(settings.admin().remote_enabled());
+        assert!(settings.network().trusted_proxy_cidrs().is_empty());
         assert_eq!(settings.admin().session_idle_timeout_secs(), 43_200);
         assert_eq!(settings.admin().session_absolute_timeout_secs(), 604_800);
         assert_eq!(settings.admin().login_failure_window_secs(), 900);
@@ -247,6 +256,23 @@ mod tests {
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::ModelsAllowed, &json!([" invalid "])),
+            Err(SettingsValidationError::InvalidListValue)
+        );
+        assert_eq!(
+            SettingValue::from_json(
+                SettingKey::NetworkTrustedProxyCidrs,
+                &json!([" 127.0.0.1 ", "10.0.3.4/8", "127.0.0.1/32"]),
+            ),
+            Ok(SettingValue::StringList(vec![
+                "10.0.0.0/8".to_owned(),
+                "127.0.0.1/32".to_owned(),
+            ]))
+        );
+        assert_eq!(
+            SettingValue::from_json(
+                SettingKey::NetworkTrustedProxyCidrs,
+                &json!(["not-an-address"]),
+            ),
             Err(SettingsValidationError::InvalidListValue)
         );
     }

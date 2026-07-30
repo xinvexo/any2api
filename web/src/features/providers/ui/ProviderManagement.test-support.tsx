@@ -21,7 +21,10 @@ export function renderManagement(initialEntries = ["/providers"]) {
 export function mockAdminApis(
   endpoints: () => unknown,
   credentials: () => unknown = () => credentialConfiguration(1, []),
-  override?: (input: RequestInfo | URL, init?: RequestInit) => Response | null,
+  override?: (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => Response | Promise<Response> | null,
 ) {
   return vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     if (override) {

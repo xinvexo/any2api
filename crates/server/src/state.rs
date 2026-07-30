@@ -6,7 +6,7 @@ use any2api_runtime::api::{
 };
 use any2api_updater::api::ApplicationUpdateService;
 
-use crate::{admin_auth::AdminAuthService, client_address::ClientAddressPolicy};
+use crate::admin_auth::AdminAuthService;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -18,7 +18,6 @@ pub struct AppState {
     proxy_tests: Option<Arc<ProxyTestService>>,
     provider_credential_tests: Option<Arc<ProviderCredentialTestService>>,
     admin_auth: Option<Arc<AdminAuthService>>,
-    client_addresses: Arc<ClientAddressPolicy>,
     request_telemetry: Arc<RequestTelemetry>,
     application_updates: Option<Arc<dyn ApplicationUpdateService>>,
 }
@@ -40,7 +39,6 @@ impl AppState {
             proxy_tests: None,
             provider_credential_tests: None,
             admin_auth: None,
-            client_addresses: Arc::new(ClientAddressPolicy::default()),
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
             application_updates: None,
         }
@@ -70,12 +68,6 @@ impl AppState {
     #[must_use]
     pub fn with_admin_auth(mut self, admin_auth: Arc<AdminAuthService>) -> Self {
         self.admin_auth = Some(admin_auth);
-        self
-    }
-
-    #[must_use]
-    pub fn with_client_address_policy(mut self, policy: ClientAddressPolicy) -> Self {
-        self.client_addresses = Arc::new(policy);
         self
     }
 
@@ -134,11 +126,6 @@ impl AppState {
     #[must_use]
     pub fn admin_auth_handle(&self) -> Option<Arc<AdminAuthService>> {
         self.admin_auth.clone()
-    }
-
-    #[must_use]
-    pub fn client_addresses(&self) -> &ClientAddressPolicy {
-        &self.client_addresses
     }
 
     #[must_use]

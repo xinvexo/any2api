@@ -10,12 +10,12 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         SettingKey::AdminRemoteEnabled => setting_definition(
             key,
             SettingValueType::Boolean,
-            SettingValue::Boolean(false),
+            SettingValue::Boolean(true),
             (None, None),
             &[],
             (
                 "远程管理",
-                "允许非 loopback 客户端访问管理员登录和管理 API；监听地址仍由 ANY2API_BIND 决定。",
+                "允许其他设备打开管理页面并登录。关闭后，只有运行 any2api 的这台设备可以访问管理功能。",
             ),
         ),
         SettingKey::AdminSessionIdleTimeout => duration_definition(

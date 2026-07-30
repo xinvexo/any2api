@@ -1,13 +1,12 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import {
-  isLogPageSize,
   logPageCount,
   LOG_PAGE_SIZE_OPTIONS,
   type LogPageSize,
 } from "@/shared/lib/log-pagination";
 import { IconButton } from "@/shared/ui/IconButton";
-import { selectClass } from "@/shared/ui/form-control";
+import { Select } from "@/shared/ui/Select";
 
 export function LogPagination({
   page,
@@ -27,26 +26,18 @@ export function LogPagination({
 
   return (
     <div className="flex h-8 min-w-0 flex-wrap items-center gap-1.5 text-[12px] text-secondary">
-      <label className="flex items-center gap-1.5">
-        <span className="sr-only">每页条数</span>
-        <select
-          className={selectClass(false, "w-auto min-w-[4.5rem]")}
+      <div className="flex items-center gap-1.5">
+        <Select
+          className="w-auto min-w-28"
           value={pageSize}
+          options={LOG_PAGE_SIZE_OPTIONS.map((size) => ({
+            value: size,
+            label: `${size} 条/页`,
+          }))}
           aria-label="每页条数"
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (isLogPageSize(next)) {
-              onPageSizeChange(next);
-            }
-          }}
-        >
-          {LOG_PAGE_SIZE_OPTIONS.map((size) => (
-            <option key={size} value={size}>
-              {size} 条/页
-            </option>
-          ))}
-        </select>
-      </label>
+          onValueChange={onPageSizeChange}
+        />
+      </div>
       <span className="tabular-nums text-tertiary">共 {total} 条</span>
       <div className="flex items-center gap-0.5">
         <IconButton

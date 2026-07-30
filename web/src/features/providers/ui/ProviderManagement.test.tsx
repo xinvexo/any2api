@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import {
@@ -21,6 +21,34 @@ test("shows the empty Provider state", async () => {
   expect(await screen.findByText("还没有 Codex Endpoint")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "新增" })).toBeInTheDocument();
   expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
+});
+
+test("shows a stable API Key skeleton while an endpoint accordion loads", async () => {
+  let resolveCredentials!: (response: Response) => void;
+  const pendingCredentials = new Promise<Response>((resolve) => {
+    resolveCredentials = resolve;
+  });
+  mockAdminApis(
+    () => configuration(1, [endpoint()]),
+    () => credentialConfiguration(1, [credential()]),
+    (input) => String(input).includes("/credentials") ? pendingCredentials : null,
+  );
+
+  renderManagement();
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: "展开 Codex Primary 的 API Key" }),
+  );
+  const loading = await screen.findByRole("status", { name: "正在读取 API Key 配置" });
+  expect(loading.querySelectorAll("[data-skeleton]").length).toBeGreaterThan(0);
+
+  await act(async () => {
+    resolveCredentials(jsonResponse(credentialConfiguration(1, [credential()])));
+  });
+  expect(screen.getByRole("status", { name: "正在读取 API Key 配置" })).toBeInTheDocument();
+  expect(screen.queryByText("Primary Key")).not.toBeInTheDocument();
+  expect(await screen.findByText("Primary Key")).toBeInTheDocument();
+  expect(screen.queryByRole("status", { name: "正在读取 API Key 配置" })).not.toBeInTheDocument();
 });
 
 test("expands endpoint accordion to show nested API keys on the same page", async () => {

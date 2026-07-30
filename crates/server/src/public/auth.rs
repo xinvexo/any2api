@@ -12,7 +12,7 @@ use axum::{
     response::Response,
 };
 
-use crate::state::AppState;
+use crate::{client_address, state::AppState};
 
 use super::error::PublicApiError;
 
@@ -50,7 +50,16 @@ pub(crate) async fn require_gateway_api_key(
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(address)| *address);
-    let connection = match state.client_addresses().resolve(peer, request.headers()) {
+    let snapshot = request
+        .extensions()
+        .get::<Arc<PublishedSnapshot>>()
+        .cloned()
+        .unwrap_or_else(|| state.snapshots().load());
+    let connection = match client_address::resolve(
+        snapshot.settings().network().trusted_proxy_cidrs(),
+        peer,
+        request.headers(),
+    ) {
         Ok(connection) => connection,
         Err(_) => {
             return PublicApiError::invalid_forwarded_headers()
@@ -61,7 +70,6 @@ pub(crate) async fn require_gateway_api_key(
         Ok(token) => token,
         Err(error) => return error.into_response_for(&state, request.uri()),
     };
-    let snapshot = state.snapshots().load();
     let Some(id) = snapshot.authenticate_gateway_api_key(&token) else {
         return PublicApiError::unauthorized().into_response_for(&state, request.uri());
     };

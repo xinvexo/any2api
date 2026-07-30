@@ -33,8 +33,11 @@ test("creates a credential without retaining its secret in application caches", 
   });
   const { client } = renderManagement([`/providers/codex?keys=${endpoint.id}&credential=new`]);
 
+  const proxySelect = await screen.findByRole("combobox", { name: "出口代理" });
+  fireEvent.click(proxySelect);
   expect(await screen.findByRole("option", { name: "DIRECT" })).toBeInTheDocument();
   expect(screen.getByRole("option", { name: "香港代理" })).toBeInTheDocument();
+  fireEvent.keyDown(proxySelect, { key: "Escape" });
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "Primary Key" } });
   fireEvent.change(screen.getByLabelText("API Key"), { target: { value: secret } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));

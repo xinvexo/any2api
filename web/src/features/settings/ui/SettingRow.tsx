@@ -1,9 +1,7 @@
-import { RotateCcw } from "lucide-react";
 import { useId } from "react";
 
 import type { SettingItem } from "../api/settings-contracts";
 import { type SettingDraft, validateSettingDraft } from "../model/setting-draft";
-import { Button } from "@/shared/ui/Button";
 import { SettingControl } from "./SettingControl";
 import { reloadLabel, settingLabel } from "./setting-presentation";
 
@@ -11,18 +9,14 @@ interface SettingRowProps {
   item: SettingItem;
   value: SettingDraft;
   pending: boolean;
-  resetPending: boolean;
   onChange: (item: SettingItem, value: SettingDraft) => void;
-  onReset: (item: SettingItem) => void;
 }
 
 export function SettingRow({
   item,
   value,
   pending,
-  resetPending,
   onChange,
-  onReset,
 }: SettingRowProps) {
   const label = settingLabel(item);
   const headingId = useId();
@@ -65,22 +59,6 @@ export function SettingRow({
           describedBy={describedBy}
           onChange={(next) => onChange(item, next)}
         />
-
-        {item.overrideValue !== null && !resetPending ? (
-          <div className="flex flex-wrap items-center justify-end gap-1">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onReset(item)}
-              disabled={pending}
-              aria-label={`恢复${label}默认值`}
-            >
-              <RotateCcw size={13} />
-              恢复默认
-            </Button>
-          </div>
-        ) : null}
       </div>
     </div>
   );

@@ -7,7 +7,8 @@ import {
   type ProxyEditorSubmit,
 } from "../model/use-proxy-editor";
 import { Button } from "@/shared/ui/Button";
-import { controlClass, selectClass } from "@/shared/ui/form-control";
+import { Select } from "@/shared/ui/Select";
+import { controlClass } from "@/shared/ui/form-control";
 import { Field, FormError } from "@/shared/ui/form-field";
 import { Switch } from "@/shared/ui/Switch";
 
@@ -78,17 +79,16 @@ export function ProxyEditor({
       </Field>
 
       <Field label="类型" htmlFor="proxy-kind">
-        <select
+        <Select<"http" | "socks5">
           id="proxy-kind"
-          className={selectClass()}
           value={editor.draft.kind}
-          onChange={(event) =>
-            editor.update("kind", event.target.value === "socks5" ? "socks5" : "http")
-          }
-        >
-          <option value="http">HTTP</option>
-          <option value="socks5">SOCKS5</option>
-        </select>
+          options={[
+            { value: "http", label: "HTTP" },
+            { value: "socks5", label: "SOCKS5" },
+          ]}
+          aria-label="类型"
+          onValueChange={(value) => editor.update("kind", value)}
+        />
       </Field>
 
       <Field label="主机" error={editor.errors.host} htmlFor="proxy-host">

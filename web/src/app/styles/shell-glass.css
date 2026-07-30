@@ -158,13 +158,3 @@ html[data-theme="dark"] .mobile-navigation-panel {
     transform: translateY(0) scale(1);
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .app-shell-fx-bloom {
-    filter: blur(20px);
-  }
-
-  .mobile-navigation-panel {
-    animation: none;
-  }
-}

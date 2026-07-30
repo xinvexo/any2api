@@ -78,6 +78,47 @@ test("renders request logs in a table without leaving the page for details", asy
   );
 });
 
+test("shows a layout-matched skeleton while accordion details load", async () => {
+  let resolveDetail!: (response: Response) => void;
+  const pendingDetail = new Promise<Response>((resolve) => {
+    resolveDetail = resolve;
+  });
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path.startsWith("/api/admin/request-logs?")) {
+      return listResponse([request()]);
+    }
+    if (path === "/api/admin/request-logs/11111111-1111-4111-8111-111111111111") {
+      return pendingDetail;
+    }
+    throw new Error(`unexpected ${path}`);
+  });
+
+  renderManagement();
+  const toggle = (await screen.findAllByRole("button")).find(
+    (button) => button.getAttribute("aria-expanded") === "false",
+  );
+  fireEvent.click(toggle!);
+
+  const loading = await screen.findAllByRole("status", {
+    name: "正在读取请求日志详情",
+  });
+  expect(loading.length).toBeGreaterThan(0);
+  expect(loading[0]?.querySelectorAll("[data-skeleton]").length).toBeGreaterThan(0);
+
+  await act(async () => {
+    resolveDetail(detailResponse());
+  });
+  expect(
+    screen.getAllByRole("status", { name: "正在读取请求日志详情" }).length,
+  ).toBeGreaterThan(0);
+  expect(screen.queryByText("请求 ID")).not.toBeInTheDocument();
+  expect((await screen.findAllByText("请求 ID")).length).toBeGreaterThan(0);
+  expect(
+    screen.queryAllByRole("status", { name: "正在读取请求日志详情" }),
+  ).toHaveLength(0);
+});
+
 test("distinguishes an OAuth final upstream source", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     listResponse([
@@ -176,7 +217,8 @@ test("paginates request logs from the toolbar", async () => {
   // default page size 20 shows all 12
   expect(screen.getAllByText("model-12").length).toBeGreaterThanOrEqual(1);
 
-  fireEvent.change(screen.getAllByLabelText("每页条数")[0]!, { target: { value: "10" } });
+  fireEvent.click(screen.getAllByRole("combobox", { name: "每页条数" })[0]!);
+  fireEvent.click(screen.getByRole("option", { name: "10 条/页" }));
   expect((await screen.findAllByText("model-1")).length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("model-10").length).toBeGreaterThanOrEqual(1);
   expect(screen.queryByText("model-11")).not.toBeInTheDocument();

@@ -109,7 +109,8 @@ test("creates a SOCKS5 proxy with the visible configuration revision", async () 
   renderManagement(["/proxies?editor=new"]);
 
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "香港出口" } });
-  fireEvent.change(screen.getByLabelText("类型"), { target: { value: "socks5" } });
+  fireEvent.click(screen.getByRole("combobox", { name: "类型" }));
+  fireEvent.click(screen.getByRole("option", { name: "SOCKS5" }));
   fireEvent.change(screen.getByLabelText("主机"), { target: { value: "hk.example.com" } });
   fireEvent.change(screen.getByLabelText("端口"), { target: { value: "1080" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));

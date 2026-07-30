@@ -12,13 +12,14 @@ import { useProviderCredentialTest } from "../model/use-provider-credential-test
 import type { CredentialEditorSubmission } from "./ProviderCredentialEditor";
 import { CredentialEditorSlot } from "./CredentialEditorSlot";
 import { ProviderCredentialList } from "./ProviderCredentialList";
+import { ProviderCredentialListSkeleton } from "./ProviderCredentialListSkeleton";
 import { ProviderCredentialModels } from "./ProviderCredentialModels";
 import { useCredentialProxyOptions } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 import { Surface } from "@/shared/ui/Surface";
-import { cn } from "@/shared/lib/cn";
+import { useAccordionReveal } from "@/shared/ui/use-accordion-reveal";
 
 export function ProviderCredentialManagement({
   endpoint,
@@ -51,6 +52,9 @@ export function ProviderCredentialManagement({
     isActiveEndpoint && editorId && editorId !== "new"
       ? credentials.data?.items.find((credential) => credential.id === editorId)
       : undefined;
+  const initialListPending =
+    (credentials.isPending && !credentials.data) || (proxies.isPending && !proxies.data);
+  const revealListContent = useAccordionReveal(showList, !initialListPending);
 
   function openEditor(id: string) {
     mutations.update.reset();
@@ -104,19 +108,15 @@ export function ProviderCredentialManagement({
     );
   }
 
-  if ((credentials.isPending && !credentials.data) || (proxies.isPending && !proxies.data)) {
+  if (initialListPending || (showList && !revealListContent)) {
     if (!showList) {
       return null;
     }
-    return (
-      <div
-        className={cn(
-          "flex items-center justify-center text-sm text-secondary",
-          embedded ? "min-h-12 py-3" : "min-h-56",
-        )}
-        aria-busy="true"
-      >
-        正在读取 API Key 配置
+    return embedded ? (
+      <ProviderCredentialListSkeleton />
+    ) : (
+      <div className="min-h-56 px-3 py-4">
+        <ProviderCredentialListSkeleton />
       </div>
     );
   }
@@ -281,20 +281,22 @@ export function ProviderCredentialManagement({
       ) : null}
 
       {showList ? (
-        <ProviderCredentialList
-          configuration={configuration}
-          proxies={proxies.data}
-          pending={pending}
-          refreshing={credentials.isFetching || proxies.isFetching}
-          actionError={mutations.remove.error ?? (editorId === null ? mutations.update.error : null)}
-          embedded={embedded}
-          onCreate={() => openEditor("new")}
-          onRefresh={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
-          onEdit={(id) => openEditor(id)}
-          onModels={openModels}
-          onToggleEnabled={toggleCredential}
-          onDelete={setDeleteTarget}
-        />
+        <div className={embedded ? "min-h-[109px] sm:min-h-[51px]" : undefined}>
+          <ProviderCredentialList
+            configuration={configuration}
+            proxies={proxies.data}
+            pending={pending}
+            refreshing={credentials.isFetching || proxies.isFetching}
+            actionError={mutations.remove.error ?? (editorId === null ? mutations.update.error : null)}
+            embedded={embedded}
+            onCreate={() => openEditor("new")}
+            onRefresh={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
+            onEdit={(id) => openEditor(id)}
+            onModels={openModels}
+            onToggleEnabled={toggleCredential}
+            onDelete={setDeleteTarget}
+          />
+        </div>
       ) : null}
 
       <SideDrawer

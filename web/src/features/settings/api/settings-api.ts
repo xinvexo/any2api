@@ -15,7 +15,7 @@ export function applySettingChanges(input: SettingBatchWriteInput) {
     body: {
       expected_revision: input.expectedRevision,
       updates: input.updates,
-      resets: input.resets,
+      resets: [],
     },
   }).then(parseSettingsConfiguration);
 }

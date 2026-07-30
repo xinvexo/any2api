@@ -1,9 +1,12 @@
 import type { OAuthProvider } from "../api/oauth-contracts";
-import {
-  OAUTH_PROVIDER_OPTIONS,
-  type OAuthProviderOption,
-} from "../model/oauth-provider-catalog";
-import { cn } from "@/shared/lib/cn";
+import { OAUTH_PROVIDER_OPTIONS } from "../model/oauth-provider-catalog";
+import { SlidingKindNav } from "@/shared/ui/SlidingKindNav";
+
+const NAV_OPTIONS = OAUTH_PROVIDER_OPTIONS.map((option) => ({
+  value: option.provider,
+  label: option.label,
+  icon: option.icon,
+}));
 
 interface OAuthProviderNavProps {
   selected: OAuthProvider;
@@ -19,65 +22,13 @@ export function OAuthProviderNav({
   onSelect,
 }: OAuthProviderNavProps) {
   return (
-    <nav aria-label="OAuth2 类型" className="min-w-0">
-      {/* Mobile: equal-width segmented control. Desktop: vertical rail. */}
-      <ul className="grid grid-cols-2 gap-1 rounded-[12px] bg-surface-muted/55 p-1 sm:flex sm:flex-col sm:gap-1.5 sm:bg-transparent sm:p-0">
-        {OAUTH_PROVIDER_OPTIONS.map((option) => (
-          <li key={option.provider} className="min-w-0">
-            <ProviderButton
-              option={option}
-              count={counts[option.provider] ?? 0}
-              active={selected === option.provider}
-              disabled={disabled}
-              onSelect={onSelect}
-            />
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-function ProviderButton({
-  option,
-  count,
-  active,
-  disabled,
-  onSelect,
-}: {
-  option: OAuthProviderOption;
-  count: number;
-  active: boolean;
-  disabled: boolean;
-  onSelect: (provider: OAuthProvider) => void;
-}) {
-  const Icon = option.icon;
-  return (
-    <button
-      type="button"
-      aria-current={active ? "page" : undefined}
+    <SlidingKindNav
+      ariaLabel="OAuth2 类型"
+      selected={selected}
+      options={NAV_OPTIONS}
+      counts={counts}
       disabled={disabled}
-      onClick={() => onSelect(option.provider)}
-      className={cn(
-        "focus-ring flex h-9 w-full items-center gap-2 rounded-[10px] px-2.5 text-left transition-colors sm:h-11 sm:gap-2.5 sm:rounded-[12px] sm:px-3",
-        "disabled:pointer-events-none disabled:opacity-50",
-        active
-          ? "bg-nav-active text-nav-active-fg"
-          : "text-secondary hover:bg-surface-hover hover:text-primary",
-      )}
-    >
-      <Icon size={16} className={cn("shrink-0", active ? "text-primary" : "text-secondary")} />
-      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold tracking-tight sm:text-[14px]">
-        {option.label}
-      </span>
-      <span
-        className={cn(
-          "shrink-0 tabular-nums text-[11px] sm:text-[12px]",
-          active ? "font-medium text-secondary" : "text-tertiary",
-        )}
-      >
-        {count}
-      </span>
-    </button>
+      onSelect={onSelect}
+    />
   );
 }

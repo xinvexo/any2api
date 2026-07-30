@@ -9,7 +9,6 @@ import type {
 import { applySettingChanges } from "../api/settings-api";
 import {
   createSettingDraft,
-  createSettingDraftFromValue,
   isSettingDraftDirty,
   type SettingDraft,
   validateSettingDraft,
@@ -18,8 +17,7 @@ import { selectNewestSettingsConfiguration } from "./settings-cache";
 import { settingsQueryKeys } from "./settings-query-keys";
 import { useSettings } from "./use-settings";
 
-type PendingDraft = SettingDraft | null;
-type PendingDrafts = Record<string, PendingDraft>;
+type PendingDrafts = Record<string, SettingDraft>;
 
 export function useSettingsEditor(webGroups?: readonly string[]) {
   const query = useSettings();
@@ -46,25 +44,12 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
   const dirtyItems = items.filter((item) => itemIsDirty(item, drafts));
   const hasValidationErrors = dirtyItems.some((item) => {
     const draft = drafts[item.key];
-    return draft !== null && validateSettingDraft(item, draft).error !== null;
+    return draft !== undefined && validateSettingDraft(item, draft).error !== null;
   });
 
   function setDraft(item: SettingItem, draft: SettingDraft) {
     mutation.reset();
     setDrafts((current) => withDraft(current, item, draft));
-  }
-
-  function stageReset(item: SettingItem) {
-    mutation.reset();
-    setDrafts((current) => {
-      const next = { ...current };
-      if (item.overrideValue === null) {
-        delete next[item.key];
-      } else {
-        next[item.key] = null;
-      }
-      return next;
-    });
   }
 
   function discard() {
@@ -83,13 +68,9 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
       return false;
     }
     const updates: Array<{ key: string; value: SettingValue }> = [];
-    const resets: string[] = [];
     for (const item of dirtyItems) {
       const draft = drafts[item.key];
-      if (draft === null) {
-        resets.push(item.key);
-        continue;
-      }
+      if (draft === undefined) return false;
       const validation = validateSettingDraft(item, draft);
       if (validation.value === undefined) {
         return false;
@@ -101,7 +82,6 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
       await mutation.mutateAsync({
         expectedRevision: configuration.configRevision,
         updates,
-        resets,
       });
       setDrafts({});
       return true;
@@ -120,9 +100,7 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
     saveError: mutation.error,
     draftFor: (item: SettingItem) => draftFor(item, drafts),
     isItemDirty: (item: SettingItem) => itemIsDirty(item, drafts),
-    isResetPending: (item: SettingItem) => hasDraft(drafts, item.key) && drafts[item.key] === null,
     setDraft,
-    stageReset,
     discard,
     refresh,
     save,
@@ -135,8 +113,7 @@ function draftFor(item: SettingItem, drafts: PendingDrafts) {
   if (!hasDraft(drafts, item.key)) {
     return createSettingDraft(item);
   }
-  const draft = drafts[item.key];
-  return draft === null ? createSettingDraftFromValue(item, item.defaultValue) : draft;
+  return drafts[item.key] ?? createSettingDraft(item);
 }
 
 function itemIsDirty(item: SettingItem, drafts: PendingDrafts) {
@@ -144,7 +121,7 @@ function itemIsDirty(item: SettingItem, drafts: PendingDrafts) {
     return false;
   }
   const draft = drafts[item.key];
-  return draft === null ? item.overrideValue !== null : isSettingDraftDirty(item, draft);
+  return draft !== undefined && isSettingDraftDirty(item, draft);
 }
 
 function withDraft(current: PendingDrafts, item: SettingItem, draft: SettingDraft) {

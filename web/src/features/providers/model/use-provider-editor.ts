@@ -39,21 +39,6 @@ export function useProviderEditor(
     setErrors((current) => ({ ...current, [field]: undefined }));
   }
 
-  function updateProviderKind(providerKind: ProviderKind) {
-    const protocolDialect = defaultProtocol(providerKind, protocolOptions);
-    setDraft((current) => ({
-      ...current,
-      providerKind,
-      protocolDialect,
-      upstreamProtocolDialect: null,
-      baseUrl:
-        current.baseUrl.length === 0 || current.baseUrl === defaultBaseUrl(current.providerKind)
-          ? defaultBaseUrl(providerKind)
-          : current.baseUrl,
-    }));
-    setErrors((current) => ({ ...current, providerKind: undefined }));
-  }
-
   function updateProtocolDialect(protocolDialect: ProtocolDialect) {
     setDraft((current) => ({
       ...current,
@@ -89,7 +74,6 @@ export function useProviderEditor(
     draft,
     errors,
     update,
-    updateProviderKind,
     updateProtocolDialect,
     buildInput,
   };

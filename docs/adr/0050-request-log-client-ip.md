@@ -4,6 +4,8 @@
 - 日期：2026-07-26
 - 决策者：maintainer
 
+> 可信代理列表的配置来源已由 ADR-0072 改为热更新的 `network.trusted_proxy_cidrs`。
+
 ## 背景
 
 any2api 部署时可能由 Nginx 反代，Nginx 前还可能存在 Cloudflare。RequestLog 需要保存可信解析后的客户端地址；直接记录任意 `X-Forwarded-For` 或 `CF-Connecting-IP` 会把客户端可伪造文本写入日志，公开面另写一套代理头解析又会与管理面来源判断产生分歧。

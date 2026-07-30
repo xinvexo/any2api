@@ -8,7 +8,8 @@ import type {
 import { getProviderErrorMessage } from "../model/provider-error";
 import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
-import { controlClass, selectClass } from "@/shared/ui/form-control";
+import { Select } from "@/shared/ui/Select";
+import { controlClass } from "@/shared/ui/form-control";
 import { Field, FormError } from "@/shared/ui/form-field";
 import { Switch } from "@/shared/ui/Switch";
 
@@ -142,19 +143,14 @@ export function ProviderCredentialEditor({
         />
       </Field>
       <Field label="出口代理" htmlFor="credential-proxy">
-        <select
+        <Select
           id="credential-proxy"
-          className={selectClass()}
           value={proxyId}
+          options={options.map((proxy) => ({ value: proxy.id, label: proxy.name }))}
+          aria-label="出口代理"
           disabled={pending || sourceConflict !== null}
-          onChange={(event) => setProxyId(event.target.value)}
-        >
-          {options.map((proxy) => (
-            <option key={proxy.id} value={proxy.id}>
-              {proxy.name}
-            </option>
-          ))}
-        </select>
+          onValueChange={setProxyId}
+        />
       </Field>
       <Field label="RPM 限制" error={errors.requestsPerMinute} htmlFor="credential-rpm">
         <input

@@ -46,9 +46,9 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 15. Provider Endpoint 必须选择客户端接受协议，并可选选择内部转换协议；未选择时上游协议等于接受协议并走直通。首个协议桥只实现 OpenAI Responses → Chat Completions，不启用 Codex/OpenAI ↔ Claude 双向转换。
 16. Codex WebSocket 不进入首个正式版本，首版 TransportMode 只有 JSON 和 SSE。
 17. Provider API Key 保存后使用实际 Endpoint、认证材料与代理读取上游 `/models` 作为候选目录；管理员最终确认的目录选择与手工模型名按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
-18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中覆盖或恢复默认。
+18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只创建独立的 SQLite `OAuthAccount`。导入兼容已审计的 CLIProxyAPI 与 Sub2API OAuth 结构，先规范化为 any2api Provider JSON，再整批原子发布；明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
-20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程监听必须显式启用并使用独立管理员认证，TLS 推荐但不强制。
+20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型允许列表；空列表表示不限制，非空列表只允许精确匹配的公开模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
 23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志保存客户端实际请求 URI 的原始 path，不使用路由模板、通配归一化或重写后的路径，也不保存 query；请求日志与系统日志管理列表均使用服务端分页且只展示最近 3 天。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 收到后重新读取当前页；固定定时轮询和客户端自报的日志排除 Header 均不存在。
@@ -241,7 +241,7 @@ OAuthAccount 管理页的长集合是首个已确认的虚拟化场景。前端�
 
 负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与当前策略下的活动显式会话数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布、Continuation 索引数或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md` 与 `docs/adr/0066-active-session-overview.md`。
 
-设置页只保留“基础、路由策略、运行保护、日志、关于”五个一级页签。每个配置页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义或恢复默认能力。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。
+设置页只保留“基础、路由策略、运行保护、日志、关于”五个一级页签。每个配置页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义。Web 只提供覆盖值编辑，不提供恢复默认入口。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。
 
 样式按 `tokens.css`、`globals.css` 和局部组件职责拆分。React 页面只组合 feature，业务请求、状态和 Schema 分别进入 feature 的 `api`、`model` 与私有 UI 模块。
 
@@ -939,7 +939,7 @@ request_logs
 
 默认不保存 Prompt、完整请求体、完整响应体、完整 `GatewayApiKey` 或上游凭据 Secret。
 
-`RequestLog.client_ip` 是必填字段，保存 Server 在公开请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。直连请求使用 TCP 对端地址；只有 TCP 对端命中 `ANY2API_TRUSTED_PROXY_CIDRS` 时才使用受校验的转发链，并从右向左剥离连续可信代理。无法取得规范地址的请求不能进入模型执行链。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。
+`RequestLog.client_ip` 是必填字段，保存 Server 在公开请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。直连请求使用 TCP 对端地址；只有 TCP 对端命中当前 PublishedSnapshot 的 `network.trusted_proxy_cidrs` 时才使用受校验的转发链，并从右向左剥离连续可信代理。无法取得规范地址的请求不能进入模型执行链。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。
 
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
 
@@ -2035,7 +2035,7 @@ effective_value = user_override.unwrap_or(compiled_default)
 
 设置值使用带类型的 JSON。Duration 在 SQLite 与管理 HTTP 契约中统一使用整数秒，不接受模糊字符串。未知 key、损坏 JSON、类型错误或越界的持久化覆盖值会使配置加载失败；禁止带着部分默认值继续启动。显式覆盖即使等于当前默认值也必须保留，以表达用户意图并隔离未来默认值变化。
 
-Web 必须同时显示默认值、覆盖值和当前生效值，并提供“恢复默认”操作。恢复默认表示删除覆盖记录。版本升级不得覆盖用户已有覆盖值；未覆盖的设置自动采用新版本默认值。所有修改仍通过 ConfigPublisher 校验和热更新。
+Web 必须同时显示默认值、覆盖值和当前生效值，并允许写入具体覆盖值，但不得提供“恢复默认”按钮、草稿动作或其他清除覆盖入口。删除覆盖记录仍是管理 API、ConfigPublisher 与存储的基础能力，不进入浏览器交互。版本升级不得覆盖用户已有覆盖值；未覆盖的设置自动采用新版本默认值。所有修改仍通过 ConfigPublisher 校验和热更新。完整决策见 `docs/adr/0071-remove-web-setting-reset-actions.md`。
 
 QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；已捕获快照继续持有其策略。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止让一个已开始的请求在等待中途混用两个配置 revision。Credential 的可选 RPM 属于其配置实体，通过无失败 Runtime reconcile 更新稳定窗口，并在快照切换后由统一 epoch 唤醒。
 
@@ -2079,6 +2079,16 @@ Route 物化后，将非空允许列表与新的公开模型集合取交集并�
 
 `models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误，并在会话适用的入口早于会话创建。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新列表。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
 
+#### 可信反向代理
+
+| 设置 | 类型 | 默认值 | 语义 |
+|---|---|---:|---|
+| `network.trusted_proxy_cidrs` | string_list | `[]` | 允许提供客户端来源与协议转发头的反向代理 IP/CIDR；空数组表示不信任任何代理 |
+
+该列表接受单个 IP 或 CIDR，保存时把单个 IPv4/IPv6 地址规范化为 `/32` 或 `/128`，把网段截断到网络地址，并排序去重。它只配置到达 any2api 的反向代理信任边界，不配置 any2api 访问上游时使用的出口代理。未使用 Nginx、Caddy 等反向代理时必须留空；使用反向代理时只填写实际可能作为 TCP 对端连接 any2api 的代理地址或网段。
+
+`network.trusted_proxy_cidrs` 是热更新设置，也是可信代理列表的唯一运行时来源，不再读取 `ANY2API_TRUSTED_PROXY_CIDRS`。管理鉴权、Gateway Key 鉴权、RequestLog 与 HttpAccessLog 对每个请求先捕获一个 PublishedSnapshot，再使用该 revision 的可信代理列表解析来源；同一请求不得混用两个 revision。可信 TCP 对端缺少、重复或携带无效的 `X-Forwarded-For` / `X-Forwarded-Proto` 时继续 Fail-Closed。完整决策见 `docs/adr/0072-trusted-proxy-setting-and-remote-default.md`。
+
 #### 重试、冷却与熔断默认值
 
 | 设置 | 类型 | 默认值 |
@@ -2104,7 +2114,7 @@ Route 物化后，将非空允许列表与新的公开模型集合取交集并�
 
 API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到管理员修改 Key、重新启用或手动测试成功。
 
-`retry.jitter_ratio` 使用 `0..=100` 的整数百分比表达，不在 JSON 中使用浮点数。`retry.base_delay` 与 `retry.max_delay` 允许配置为 `0`；当 `max_delay < base_delay` 时配置编译失败。上述十八项设置全部进入统一 SettingRegistry，在 Web 中显示默认值、覆盖值和生效值，并支持恢复默认。
+`retry.jitter_ratio` 使用 `0..=100` 的整数百分比表达，不在 JSON 中使用浮点数。`retry.base_delay` 与 `retry.max_delay` 允许配置为 `0`；当 `max_delay < base_delay` 时配置编译失败。上述十八项设置全部进入统一 SettingRegistry，在 Web 中显示默认值、覆盖值和生效值，并允许写入覆盖值；Web 不提供恢复默认入口。
 
 #### 流式响应默认值
 
@@ -2139,7 +2149,7 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 | `logs.file.max_total_size` | `256 MiB` |
 | `logs.telemetry_queue_capacity` | `4096` |
 
-RequestLog 与 Attempt 共用保留策略；达到期限或容量任一上限就分批清理。上述参数均可在 Web“设置”页面修改、覆盖或恢复默认。
+RequestLog 与 Attempt 共用保留策略；达到期限或容量任一上限就分批清理。上述参数均可在 Web“设置”页面修改并写入覆盖值，但不能从 Web 清除覆盖。
 
 RequestLog/Attempt 与 HttpAccessLog 共用 `logs.request.enabled`、`logs.request.retention`、`logs.request.max_rows` 和同一条 `logs.telemetry_queue_capacity` 有界队列；两个顶层日志表分别应用相同的 retention 与 max_rows 上限，避免一个高频日志挤掉另一类历史。关闭日志时两类 SQLite 历史日志都停止接收新记录。本地文件日志切片把 `logs.file.*` 接入同一 SettingRegistry 和发布链，没有建立独立配置文件或第二套默认值来源。
 
@@ -2330,8 +2340,8 @@ SecretEnvelope
 
 ### 17.3 管理面安全
 
-- 默认只监听本机管理地址；
-- 支持远程访问管理 UI 和管理 API，但必须显式开启；
+- 默认监听地址仍为 `127.0.0.1:3210`；需要直接接受其他主机连接时由部署者显式修改 `ANY2API_BIND`，同机 Nginx/Caddy 可以继续反代到默认 loopback 地址；
+- `admin.remote_enabled` 默认开启，允许已经能够连接到监听地址的其他设备访问管理员登录和管理 API；关闭后仅解析出的 loopback 客户端可以访问；
 - 管理面采用单管理员模型，不引入用户注册或多租户；
 - 管理员凭据与 `GatewayApiKey` 完全独立，禁止使用 Gateway Key 登录管理面；
 - 管理员密码使用 Argon2id 摘要保存，首次初始化通过本机 Setup 流程或启动环境变量设置；
@@ -2352,13 +2362,14 @@ SecretEnvelope
 
 | 设置 | 默认值 |
 |---|---:|
-| `admin.remote_enabled` | `false` |
+| `admin.remote_enabled` | `true` |
+| `network.trusted_proxy_cidrs` | `[]` |
 | `admin.tls.enabled` | `false` |
 | `admin.session.idle_timeout` | `12h` |
 | `admin.session.absolute_timeout` | `7d` |
 | `admin.login.max_failures` | `15m` 内 `5` 次 |
 
-这些设置进入同一 SettingRegistry，可在本机管理面修改并按需热更新；改变监听地址或 TLS 绑定等必须重启的设置需明确标记 `apply_mode=restart_required`。启用远程监听而未启用 TLS 是受支持配置，不视为配置错误。
+这些设置进入同一 SettingRegistry，可在管理面修改并按需热更新；改变监听地址或 TLS 绑定等必须重启的设置需明确标记 `apply_mode=restart_required`。允许远程管理而未启用 TLS 是受支持配置，不视为配置错误，但 Web 必须持续提示明文风险。远程访问默认开启不改变首次密码初始化边界：未初始化实例仍只允许 loopback Setup，远程部署应在首次启动时使用 `ANY2API_ADMIN_PASSWORD` 初始化密码。
 
 管理员认证固定以下边界：
 
@@ -2372,7 +2383,7 @@ SecretEnvelope
 - 所有管理写请求必须同时携带有效会话 Cookie 和 `X-CSRF-Token`，Token 必须匹配服务端会话；登录、Setup 与只读会话检查不要求 CSRF；
 - 整个 `/api/admin` 响应统一设置 `Cache-Control: no-store` 和 `Vary: Cookie`，禁止浏览器或共享反代缓存 Cookie 认证后的配置内容；
 - `admin.remote_enabled=false` 时，解析后的非 loopback 客户端来源不能访问登录、会话检查或受保护管理 API；loopback 仍可完成 Setup、登录和配置；
-- 服务直接监听 HTTP；HTTPS 通过显式可信的 Nginx/Caddy 反代接入。只有 TCP 对端命中 `ANY2API_TRUSTED_PROXY_CIDRS` 时才读取 `X-Forwarded-For` 与 `X-Forwarded-Proto`；可信代理请求缺少、重复或含无效值时 Fail-Closed，客户端来源从 TCP 对端开始按 XFF 右到左剥离连续可信代理，禁止直接相信客户端可控的最左值；未命中可信 CIDR 时完全忽略这些头；
+- 服务直接监听 HTTP；HTTPS 通过显式可信的 Nginx/Caddy 反代接入。只有 TCP 对端命中当前 PublishedSnapshot 的 `network.trusted_proxy_cidrs` 时才读取 `X-Forwarded-For` 与 `X-Forwarded-Proto`；可信代理请求缺少、重复或含无效值时 Fail-Closed，客户端来源从 TCP 对端开始按 XFF 右到左剥离连续可信代理，禁止直接相信客户端可控的最左值；未命中可信 CIDR 时完全忽略这些头；
 - 明文远程 HTTP 会话响应必须标记风险状态，React 管理壳在整个已登录会话持续显示密码、Cookie 和 OAuth callback/code 可能被截获的警告；该警告不阻止操作；
 - 不提供内建 Rustls HTTPS listener、会话跨重启恢复或通用身份体系；管理员密码在线轮换按第 17.4 节执行。
 
@@ -2517,8 +2528,11 @@ runtime_retired
 - 首页优先呈现实例状态、真实 Token 累计、Provider/代理健康与 RPM 使用；只使用一组随时间范围联动、并列展示时间趋势和模型维度的功能性调用图表，不用装饰性图表填充空间；
 - 配置页以分组表单、清晰说明、即时校验和危险操作确认作为主要交互；
 - 数据密集页面可以使用表格，但需提供窄屏降级方案，不能把桌面固定列宽直接压缩到移动端；
+- 上游提供与请求日志等异步手风琴在首次读取详情时，必须使用与最终响应式布局同轨且尺寸稳定的骨架占位；数据即使提前返回，也必须等展开过渡完成后再替换骨架，禁止用单行加载文字或在展开途中切换正文造成明显抖动；
+- Provider 与 OAuth 类型导航使用单一选中背景层；切换类型时，背景层在桌面纵向滑动、窄屏横向滑动到新项目；项目悬浮只过渡图标、文字和计数颜色，不得生成第二层块状背景；文字字重和控件几何不得随激活状态变化，禁止因悬浮层切换造成闪变或与选中背景叠色；
+- 主导航、主题切换、总览时间范围和设置页签等互斥选择控件沿用同一单背景层语义；共享指示器必须按实际激活元素的位置与尺寸测量并平滑移动，支持纵向、横向、等宽、变宽和可滚动布局，切换过程中不得通过卸载控件或为每个选项分别绘制背景来伪造选中状态；
 - 安全警告、RPM 用尽、冷却和代理故障使用克制的语义色与文字说明，不依赖颜色作为唯一信息；
-- 动效只用于状态过渡、抽屉和反馈，遵循 `prefers-reduced-motion`。
+- 动效只用于状态过渡、抽屉和反馈。
 
 `E:\clashx` 可参考的仅包括 React/Vite/Tailwind v4、语义 Token、Provider 组合、`cn()` 类名合并和按需 UI Primitive；其 Tauri 壳层、固定桌面布局、原生窗口元素与页面密度不进入 any2api。
 
@@ -2549,6 +2563,11 @@ runtime_retired
 代理测试固定使用 Runtime 内的中立公网 HTTPS 目标，页面不加载或选择 Provider Endpoint。测试列为状态和延迟预留固定尺寸的两个胶囊：完成后只显示“成功/失败”与“延迟”，未测试、测试中和请求错误也使用同一布局槽位，禁止通过变长行内文字导致列宽或表格抖动。脱敏失败阶段可作为非布局诊断信息，不增加可见胶囊。密码输入只保存在认证表单的局部组件状态，提交完成、关闭或卸载后立即清空。
 
 ### 19.2 Provider
+
+Provider 类型由左侧 Codex、Claude、Grok 分组决定。新增 Endpoint 时，当前分组直接写入
+`provider_kind`；编辑时沿用 Endpoint 已有类型。Endpoint 抽屉不得重复展示或提供 Provider 类型字段，
+避免页面分组与提交类型产生两套可编辑来源。抽屉说明必须从当前 Provider 注册目录的展示名称生成
+`配置 {Provider} 上游地址`，新增 Provider 适配时沿用同一规则，不维护按 Provider 分支的文案。
 
 Provider 详情页包含 Credential 表格：
 
@@ -2608,10 +2627,10 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 会话粘性开关作为高频设置直接展示；它只控制允许首次创建的普通显式 Session，Continuation 始终
   保持必须续接语义；
 - 会话粘性不提供绑定强度或目标切换模式；启用时显式会话标识统一使用固定绑定。
-- 队列上限、fallback、会话 TTL 和等待超时等低频项默认折叠到“高级设置”，需要时仍可编辑和恢复默认；
+- 队列上限、fallback、会话 TTL 和等待超时等低频项默认折叠到“高级设置”，需要时仍可编辑覆盖值；
 - 设置页一级分类固定为“基础、路由策略、运行保护、日志、关于”，不再按每个内部模块创建独立页签；
 - 设置分类 Tab 固定在主内容滚动区域顶部；设置组、设置行、模型列表与高级设置使用留白和语义背景分区，禁止堆叠顶线、底线和连续行分割线；
-- 固定 Tab 顶栏是设置页唯一的页面级操作区：当前配置页统一在此刷新，只有存在有效未保存修改时才显示“保存”；设置行不再提供独立保存或立即刷新。恢复默认也先进入当前页草稿，和其他修改一起按同一 `config_revision` 在一个 SQLite 事务中原子校验、提交并只发布一次配置快照，禁止由 Web 串行调用多个单项写接口产生部分保存；
+- 固定 Tab 顶栏是设置页唯一的页面级操作区：当前配置页统一在此刷新，只有存在有效未保存修改时才显示“保存”；设置行不提供独立保存、立即刷新或恢复默认操作。页面草稿只包含具体覆盖值，并按同一 `config_revision` 在一个 SQLite 事务中原子校验、提交并只发布一次配置快照，禁止由 Web 串行调用多个单项写接口产生部分保存；
 - 当前配置页存在未保存修改时，站内路由切换必须提供“保存并离开、放弃修改、取消”三种选择；浏览器刷新或关闭使用原生 `beforeunload` 警告。保存失败或草稿无效时保持原页和草稿，不得继续导航；
 - 全局代理只在代理页配置，设置页不重复提供入口。
 
@@ -2640,8 +2659,9 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 - 按功能分组显示 SettingRegistry；
 - “基础”设置提供可搜索的公开模型多选控件；空选择明确表示允许全部模型，非空选择显示已放行数量，并支持选择/清除当前搜索结果；
+- “基础”设置直接展示远程管理开关和可信代理地址列表；可信代理支持逐行或逗号分隔输入 IP/CIDR，并明确提示未使用反向代理时留空；
 - 每项同时显示默认值、用户覆盖值和当前生效值；
-- 支持修改覆盖值和一键恢复默认；
+- 支持修改覆盖值；不提供一键恢复默认或其他浏览器侧清除覆盖入口；
 - 清楚标记热更新设置与需要重启的设置；
 - 管理远程监听、可选 TLS、可信反代、管理员会话和日志保留；
 - 明文 HTTP 远程管理必须显示醒目的安全状态，但不阻止使用；

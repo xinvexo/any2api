@@ -5,7 +5,7 @@ use any2api_domain::{MAX_TOKEN_COUNT, RequestId};
 use any2api_runtime::api::{
     ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
-use any2api_server::api::{AppState, ClientAddressPolicy, build_router};
+use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
     Router,
@@ -17,7 +17,6 @@ use axum::{
     },
 };
 use http_body_util::BodyExt;
-use ipnet::IpNet;
 use serde_json::{Value, json};
 use tempfile::tempdir;
 use tokio::{
@@ -733,10 +732,22 @@ async fn trusted_proxy_chain_persists_the_first_untrusted_client_address() {
         r#"{"id":"resp_proxy","model":"gpt-upstream","output":[]}"#,
     )
     .await;
-    let policy = ClientAddressPolicy::new(vec!["10.0.0.0/8".parse::<IpNet>().expect("CIDR")]);
-    let (_directory, app, revision) = test_app_with_client_address_policy(policy).await;
+    let (_directory, app, revision) = test_app().await;
     let admin = SocketAddr::from(([127, 0, 0, 1], 41_000));
     let proxy = SocketAddr::from(([10, 0, 0, 1], 41_000));
+    let updated = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/network.trusted_proxy_cidrs",
+        Some(json!({ "expected_revision": revision, "value": ["10.0.0.0/8"] })),
+        admin,
+        &[],
+    )
+    .await;
+    assert_eq!(updated.status, StatusCode::OK);
+    let revision = updated.body["config_revision"]
+        .as_u64()
+        .expect("settings revision");
     let token = create_gateway_key(&app, admin, revision).await;
     let endpoint_id = create_endpoint(
         &app,
@@ -1814,12 +1825,6 @@ async fn public_ingress_errors_require_authentication_and_use_protocol_envelopes
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, u64) {
-    test_app_with_client_address_policy(ClientAddressPolicy::default()).await
-}
-
-async fn test_app_with_client_address_policy(
-    policy: ClientAddressPolicy,
-) -> (tempfile::TempDir, Router, u64) {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
@@ -1856,9 +1861,7 @@ async fn test_app_with_client_address_policy(
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let revision = snapshots.load().revision().get();
     let app = build_router(
-        AppState::new(snapshots, runtime, publisher, service)
-            .with_request_telemetry(telemetry)
-            .with_client_address_policy(policy),
+        AppState::new(snapshots, runtime, publisher, service).with_request_telemetry(telemetry),
         web_root,
     );
     (directory, app, revision)

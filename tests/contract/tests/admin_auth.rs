@@ -5,7 +5,7 @@ use any2api_domain::SettingKey;
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{
     AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AppState,
-    ClientAddressPolicy, StoredAdminPasswordHash, build_router,
+    StoredAdminPasswordHash, build_router,
 };
 use any2api_storage::api::{AdminCredentialRepository, ConfigurationRepository, SqliteStore};
 use async_trait::async_trait;
@@ -19,7 +19,6 @@ use axum::{
     },
 };
 use http_body_util::BodyExt;
-use ipnet::IpNet;
 use serde_json::{Value, json};
 use tempfile::tempdir;
 use tower::ServiceExt;
@@ -38,12 +37,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let (app, setup_token) = build_test_app(
-        Arc::clone(&storage),
-        web_root.clone(),
-        ClientAddressPolicy::default(),
-    )
-    .await;
+    let (app, setup_token) = build_test_app(Arc::clone(&storage), web_root.clone()).await;
     let setup_token = setup_token.expect("setup token");
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let remote = SocketAddr::from(([203, 0, 113, 10], 41000));
@@ -57,8 +51,9 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
         &[],
     )
     .await;
-    assert_eq!(response.status, StatusCode::FORBIDDEN);
-    assert_eq!(response.json()["error"]["code"], "admin_remote_disabled");
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.json()["initialized"], false);
+    assert_eq!(response.json()["remote_access_enabled"], true);
 
     let response = request(
         &app,
@@ -123,13 +118,13 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
             .and_then(|value| value.to_str().ok()),
         Some("no-store")
     );
-    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(47));
+    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(48));
 
     let response = request(
         &app,
         Method::PATCH,
         "/api/admin/settings/admin.remote_enabled",
-        Some(json!({ "expected_revision": 1, "value": true })),
+        Some(json!({ "expected_revision": 1, "value": false })),
         loopback,
         &[("cookie", &cookie_pair)],
     )
@@ -141,7 +136,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
         &app,
         Method::PATCH,
         "/api/admin/settings/admin.remote_enabled",
-        Some(json!({ "expected_revision": 1, "value": true })),
+        Some(json!({ "expected_revision": 1, "value": false })),
         loopback,
         &[("cookie", &cookie_pair), ("x-csrf-token", &csrf)],
     )
@@ -149,8 +144,31 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(
         find_setting(response.json(), SettingKey::AdminRemoteEnabled.as_str())["effective_value"],
-        true
+        false
     );
+
+    let response = request(
+        &app,
+        Method::GET,
+        "/api/admin/auth/session",
+        None,
+        remote,
+        &[],
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::FORBIDDEN);
+    assert_eq!(response.json()["error"]["code"], "admin_remote_disabled");
+
+    let response = request(
+        &app,
+        Method::PATCH,
+        "/api/admin/settings/admin.remote_enabled",
+        Some(json!({ "expected_revision": 2, "value": true })),
+        loopback,
+        &[("cookie", &cookie_pair), ("x-csrf-token", &csrf)],
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
 
     let response = request(
         &app,
@@ -316,12 +334,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     .await;
     assert_eq!(new_password.status, StatusCode::OK);
 
-    let (restarted, _) = build_test_app(
-        Arc::clone(&storage),
-        web_root,
-        ClientAddressPolicy::default(),
-    )
-    .await;
+    let (restarted, _) = build_test_app(Arc::clone(&storage), web_root).await;
     let response = request(
         &restarted,
         Method::GET,
@@ -380,14 +393,35 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
     let web_root = directory.path().join("web");
     fs::create_dir(&web_root).expect("web directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let (app, setup_token) = build_test_app(
-        storage,
-        web_root,
-        ClientAddressPolicy::new(vec!["127.0.0.0/8".parse::<IpNet>().expect("cidr")]),
-    )
-    .await;
+    let (app, setup_token) = build_test_app(storage, web_root).await;
     let setup_token = setup_token.expect("setup token");
     let proxy = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let setup = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/setup",
+        Some(json!({ "setup_token": setup_token, "password": PASSWORD })),
+        proxy,
+        &[],
+    )
+    .await;
+    assert_eq!(setup.status, StatusCode::OK);
+    let cookie_pair = setup.cookie().split(';').next().expect("cookie").to_owned();
+    let csrf = setup.json()["csrf_token"]
+        .as_str()
+        .expect("csrf")
+        .to_owned();
+    let updated = request(
+        &app,
+        Method::PATCH,
+        "/api/admin/settings/network.trusted_proxy_cidrs",
+        Some(json!({ "expected_revision": 1, "value": ["127.0.0.0/8"] })),
+        proxy,
+        &[("cookie", &cookie_pair), ("x-csrf-token", &csrf)],
+    )
+    .await;
+    assert_eq!(updated.status, StatusCode::OK);
+
     let missing_forwarded = request(
         &app,
         Method::GET,
@@ -406,7 +440,7 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
         &app,
         Method::POST,
         "/api/admin/auth/setup",
-        Some(json!({ "setup_token": setup_token.clone(), "password": PASSWORD })),
+        Some(json!({ "setup_token": "already-used", "password": PASSWORD })),
         proxy,
         &[
             ("x-forwarded-for", "127.0.0.1, 203.0.113.8"),
@@ -417,40 +451,8 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
     assert_eq!(spoofed_loopback.status, StatusCode::FORBIDDEN);
     assert_eq!(
         spoofed_loopback.json()["error"]["code"],
-        "admin_remote_disabled"
+        "admin_setup_loopback_only"
     );
-    let setup = request(
-        &app,
-        Method::POST,
-        "/api/admin/auth/setup",
-        Some(json!({ "setup_token": setup_token, "password": PASSWORD })),
-        proxy,
-        &[
-            ("x-forwarded-for", "127.0.0.1"),
-            ("x-forwarded-proto", "http"),
-        ],
-    )
-    .await;
-    let cookie_pair = setup.cookie().split(';').next().expect("cookie").to_owned();
-    let csrf = setup.json()["csrf_token"]
-        .as_str()
-        .expect("csrf")
-        .to_owned();
-    let updated = request(
-        &app,
-        Method::PATCH,
-        "/api/admin/settings/admin.remote_enabled",
-        Some(json!({ "expected_revision": 1, "value": true })),
-        proxy,
-        &[
-            ("cookie", &cookie_pair),
-            ("x-csrf-token", &csrf),
-            ("x-forwarded-for", "127.0.0.1"),
-            ("x-forwarded-proto", "http"),
-        ],
-    )
-    .await;
-    assert_eq!(updated.status, StatusCode::OK);
 
     let login = request(
         &app,
@@ -474,7 +476,6 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
 async fn build_test_app(
     storage: Arc<SqliteStore>,
     web_root: std::path::PathBuf,
-    network: ClientAddressPolicy,
 ) -> (Router, Option<String>) {
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
@@ -503,9 +504,7 @@ async fn build_test_app(
         .service();
     (
         build_router(
-            AppState::new(snapshots, runtime, publisher, public_requests)
-                .with_admin_auth(auth)
-                .with_client_address_policy(network),
+            AppState::new(snapshots, runtime, publisher, public_requests).with_admin_auth(auth),
             web_root,
         ),
         setup_token,

@@ -140,6 +140,7 @@ export function ProviderManagement() {
   const editorOpen = editorId !== null;
   const editorError = editorId === "new" ? mutations.create.error : mutations.update.error;
   const editorPending = mutations.create.isPending || mutations.update.isPending;
+  const editorKindName = providerKindLabel(selected?.providerKind ?? selectedKind);
 
   async function submitEditor(input: ProviderEndpointWriteInput) {
     if (editorId === "new") {
@@ -211,7 +212,7 @@ export function ProviderManagement() {
       <SideDrawer
         open={editorOpen}
         title={editorId === "new" ? "新增" : "编辑 Endpoint"}
-        description="配置上游地址"
+        description={`配置 ${editorKindName} 上游地址`}
         onClose={() => closeEditor(editorId)}
       >
         {editorId ? (

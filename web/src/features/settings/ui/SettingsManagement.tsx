@@ -193,9 +193,7 @@ function SettingGroups({
                 item={item}
                 value={editor.draftFor(item)}
                 pending={editor.pending}
-                resetPending={editor.isResetPending(item)}
                 onChange={editor.setDraft}
-                onReset={editor.stageReset}
               />
             ))}
           </div>

@@ -64,7 +64,6 @@ dependencies = [
  "async-trait",
  "axum",
  "fs2",
- "ipnet",
  "secrecy",
  "serde_json",
  "tempfile",
@@ -110,6 +109,7 @@ dependencies = [
 name = "any2api-domain"
 version = "0.1.0"
 dependencies = [
+ "ipnet",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

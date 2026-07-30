@@ -25,7 +25,6 @@ export interface SettingsConfiguration {
 export interface SettingBatchWriteInput {
   expectedRevision: number;
   updates: Array<{ key: string; value: SettingValue }>;
-  resets: string[];
 }
 
 export function parseSettingsConfiguration(value: unknown): SettingsConfiguration {
@@ -88,6 +87,9 @@ function readOptions(value: unknown, valueType: SettingValueType) {
     }
     return null;
   }
+  if (value === null) {
+    return null;
+  }
   const values = readStringArray(value);
   if (new Set(values).size !== values.length) {
     throw invalidResponse();
@@ -140,7 +142,7 @@ function readSettingValue(
     const values = readStringArray(value);
     if (
       new Set(values).size !== values.length
-      || values.some((item) => !options?.includes(item))
+      || (options !== null && values.some((item) => !options.includes(item)))
     ) {
       throw invalidResponse();
     }

@@ -47,11 +47,23 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(47));
+    assert_eq!(initial["items"].as_array().map(Vec::len), Some(48));
     let remote = find_setting(&initial, "admin.remote_enabled");
-    assert_eq!(remote["default_value"], false);
-    assert_eq!(remote["effective_value"], false);
+    assert_eq!(remote["default_value"], true);
+    assert_eq!(remote["effective_value"], true);
     assert_eq!(remote["web_group"], "远程管理");
+    assert!(
+        remote["description"]
+            .as_str()
+            .is_some_and(|value| value.contains("其他设备") && !value.contains("loopback"))
+    );
+    let trusted_proxies = find_setting(&initial, "network.trusted_proxy_cidrs");
+    assert_eq!(trusted_proxies["value_type"], "string_list");
+    assert_eq!(trusted_proxies["default_value"], json!([]));
+    assert_eq!(trusted_proxies["override_value"], Value::Null);
+    assert_eq!(trusted_proxies["effective_value"], json!([]));
+    assert_eq!(trusted_proxies["options"], Value::Null);
+    assert_eq!(trusted_proxies["web_group"], "远程管理");
     let affinity_enabled = find_setting(&initial, "affinity.enabled");
     assert_eq!(affinity_enabled["value_type"], "boolean");
     assert_eq!(affinity_enabled["default_value"], true);

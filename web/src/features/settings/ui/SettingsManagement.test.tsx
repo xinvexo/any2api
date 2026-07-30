@@ -13,7 +13,10 @@ test("shows frequent routing choices and folds low-frequency settings", async ()
 
   renderRoutingSettings();
 
-  expect(await screen.findByRole("combobox", { name: "RPM 用尽行为" })).toHaveValue("reject");
+  expect(await screen.findByRole("combobox", { name: "RPM 用尽行为" })).toHaveAttribute(
+    "data-value",
+    "reject",
+  );
   expect(screen.getByRole("switch", { name: "启用会话粘性" })).toBeChecked();
   expect(screen.getByText("高级设置")).toBeInTheDocument();
   expect(screen.getByText("5 项")).toBeInTheDocument();
@@ -28,14 +31,16 @@ test("shows frequent routing choices and folds low-frequency settings", async ()
   expect(screen.queryByRole("button", { name: "保存页面设置" })).not.toBeInTheDocument();
 });
 
-test("saves all staged changes from one page action and stages restore default", async () => {
+test("saves explicit overrides and exposes no restore-default action", async () => {
   let current = configuration(1);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "PATCH") {
       const body = JSON.parse(String(init.body)) as BatchBody;
-      current = body.resets.includes("scheduler.queue_timeout")
-        ? configuration(3)
-        : configuration(2, 5);
+      const timeout = body.updates.find(
+        (update) => update.key === "scheduler.queue_timeout",
+      )?.value;
+      if (typeof timeout !== "number") throw new Error("missing queue timeout update");
+      current = configuration(current.config_revision + 1, timeout);
     }
     return jsonResponse(current);
   });
@@ -55,19 +60,23 @@ test("saves all staged changes from one page action and stages restore default",
     resets: [],
   });
   expect(screen.queryByRole("button", { name: "保存页面设置" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /恢复.+默认值/ })).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "恢复排队超时默认值" }));
-  expect(screen.getByRole("textbox", { name: "排队超时" })).toHaveValue("30");
-  expect(patchBodies(fetchMock)).toHaveLength(1);
+  fireEvent.change(screen.getByRole("textbox", { name: "排队超时" }), {
+    target: { value: "30" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
 
-  await waitFor(() => expect(screen.queryByRole("button", { name: "保存页面设置" })).not.toBeInTheDocument());
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: "保存页面设置" })).not.toBeInTheDocument();
+  });
   patches = patchBodies(fetchMock);
   expect(patches[1]).toEqual({
     expected_revision: 2,
-    updates: [],
-    resets: ["scheduler.queue_timeout"],
+    updates: [{ key: "scheduler.queue_timeout", value: 30 }],
+    resets: [],
   });
+  expect(screen.queryByRole("button", { name: /恢复.+默认值/ })).not.toBeInTheDocument();
 });
 
 test("keeps all drafts after a revision conflict and retries with refreshed revision", async () => {
@@ -148,6 +157,40 @@ test("searches, toggles, and batch-saves the global model allowlist", async () =
   });
 });
 
+test("shows friendly remote access copy and saves trusted proxy addresses", async () => {
+  let current = basicConfiguration(1, null);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+    if (init?.method === "PATCH") {
+      const body = JSON.parse(String(init.body)) as BatchBody;
+      const value = body.updates.find(
+        (update) => update.key === "network.trusted_proxy_cidrs",
+      )?.value;
+      if (!Array.isArray(value)) throw new Error("missing trusted proxy update");
+      current = basicConfiguration(current.config_revision + 1, value as string[]);
+    }
+    return jsonResponse(current);
+  });
+
+  renderBasicSettings();
+  expect(await screen.findByRole("switch", { name: "允许远程管理" })).toBeChecked();
+  expect(screen.getByText(/允许其他设备打开管理页面并登录/)).toBeInTheDocument();
+  expect(screen.queryByText(/loopback|ANY2API_BIND/)).not.toBeInTheDocument();
+  const proxies = screen.getByRole("textbox", { name: "可信反向代理地址" });
+  expect(proxies).toHaveValue("");
+  fireEvent.change(proxies, { target: { value: "127.0.0.1, 10.0.0.0/8" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
+
+  await waitFor(() => expect(proxies).toHaveValue("10.0.0.0/8\n127.0.0.1"));
+  expect(patchBodies(fetchMock)[0]).toEqual({
+    expected_revision: 1,
+    updates: [{
+      key: "network.trusted_proxy_cidrs",
+      value: ["10.0.0.0/8", "127.0.0.1"],
+    }],
+    resets: [],
+  });
+});
+
 function renderRoutingSettings() {
   const section = SETTING_SECTIONS.find((item) => item.id === "routing");
   if (!section) throw new Error("missing routing setting section");
@@ -156,6 +199,12 @@ function renderRoutingSettings() {
 
 function renderModelSettings() {
   return renderSettings(["公开模型"], ["models.allowed"]);
+}
+
+function renderBasicSettings() {
+  const section = SETTING_SECTIONS.find((item) => item.id === "basic");
+  if (!section) throw new Error("missing basic setting section");
+  return renderSettings(section.webGroups, section.featuredKeys);
 }
 
 function renderSettings(webGroups: readonly string[], featuredKeys: readonly string[]) {
@@ -241,6 +290,38 @@ function modelConfiguration(revision: number, override: string[] | null) {
   };
 }
 
+function basicConfiguration(revision: number, trustedProxies: string[] | null) {
+  return {
+    config_revision: revision,
+    items: [
+      setting(
+        "admin.remote_enabled",
+        "boolean",
+        true,
+        null,
+        null,
+        "远程管理",
+        null,
+        null,
+        null,
+        "允许其他设备打开管理页面并登录。关闭后，只有运行 any2api 的这台设备可以访问管理功能。",
+      ),
+      setting(
+        "network.trusted_proxy_cidrs",
+        "string_list",
+        [],
+        trustedProxies,
+        null,
+        "远程管理",
+        null,
+        null,
+        null,
+        "使用反向代理时填写代理服务器地址；没有反向代理请留空。",
+      ),
+    ],
+  };
+}
+
 function setting(
   key: string,
   valueType: string,
@@ -251,6 +332,7 @@ function setting(
   minValue: number | null = null,
   maxValue: number | null = null,
   options: string[] | null = null,
+  description = "Test setting",
 ) {
   return {
     key,
@@ -264,7 +346,7 @@ function setting(
     options,
     apply_mode: "hot_reload",
     web_group: webGroup,
-    description: "Test setting",
+    description,
   };
 }
 

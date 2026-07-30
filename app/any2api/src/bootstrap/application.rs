@@ -4,9 +4,7 @@ use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublishedSnapshot, RequestTelemetry, RuntimeRegistry,
     SnapshotStore,
 };
-use any2api_server::api::{
-    AdminAuthService, AppState, ClientAddressPolicy, WebAssets, build_router,
-};
+use any2api_server::api::{AdminAuthService, AppState, WebAssets, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_updater::api::GitHubReleaseUpdater;
 use anyhow::Context;
@@ -127,10 +125,7 @@ pub(super) async fn run(
         .with_provider_credential_tests(provider_credential_tests)
         .with_request_telemetry(Arc::clone(&telemetry))
         .with_application_updates(application_updates)
-        .with_admin_auth(admin_auth)
-        .with_client_address_policy(ClientAddressPolicy::new(
-            settings.trusted_proxy_cidrs.clone(),
-        )),
+        .with_admin_auth(admin_auth),
         web_assets,
     );
     let listener = TcpListener::bind(settings.bind)
