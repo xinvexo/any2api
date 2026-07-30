@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use any2api_domain::OAuthAccountId;
-use any2api_provider::api::OAuthGrant;
+use any2api_provider::api::{OAuthGrant, OAuthRefreshRejection};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -26,7 +26,9 @@ impl OAuthRefresher {
                 .oauth_accounts()
                 .get(id)
                 .map(|account| account.token_version()),
-            RefreshResult::AlreadyUpdated(_) | RefreshResult::Unavailable => None,
+            RefreshResult::AlreadyUpdated(_)
+            | RefreshResult::MissingRefreshToken
+            | RefreshResult::Unavailable => None,
         })
     }
 
@@ -34,7 +36,7 @@ impl OAuthRefresher {
         &self,
         id: OAuthAccountId,
         observed_token_version: u64,
-    ) -> Option<Arc<PublishedSnapshot>> {
+    ) -> OAuthAuthenticationRefreshResult {
         match self
             .refresh(
                 id,
@@ -45,17 +47,25 @@ impl OAuthRefresher {
         {
             Ok(RefreshResult::Refreshed(snapshot)) => {
                 tracing::info!(oauth_account_id = %id, "OAuth account refreshed after authentication failure");
-                Some(snapshot)
+                OAuthAuthenticationRefreshResult::Refreshed(snapshot)
             }
-            Ok(RefreshResult::AlreadyUpdated(snapshot)) => Some(snapshot),
-            Ok(RefreshResult::Unavailable) => None,
+            Ok(RefreshResult::AlreadyUpdated(snapshot)) => {
+                OAuthAuthenticationRefreshResult::Refreshed(snapshot)
+            }
+            Ok(RefreshResult::MissingRefreshToken) => {
+                OAuthAuthenticationRefreshResult::AuthenticationFailed
+            }
+            Err(OAuthRefreshError::RefreshRejected(OAuthRefreshRejection::InvalidGrant)) => {
+                OAuthAuthenticationRefreshResult::AuthenticationFailed
+            }
+            Ok(RefreshResult::Unavailable) => OAuthAuthenticationRefreshResult::Unverified,
             Err(error) => {
                 tracing::warn!(
                     oauth_account_id = %id,
                     error = %error,
                     "OAuth account refresh after authentication failure failed"
                 );
-                None
+                OAuthAuthenticationRefreshResult::Unverified
             }
         }
     }
@@ -94,7 +104,7 @@ impl OAuthRefresher {
             .ok_or(OAuthRefreshError::TokenMaterialUnavailable)?;
         let Some(refresh_token) = token.refresh_token() else {
             tracing::debug!(oauth_account_id = %id, "OAuth account has no refresh token");
-            return Ok(RefreshResult::Unavailable);
+            return Ok(RefreshResult::MissingRefreshToken);
         };
         let driver = self
             .providers
@@ -107,10 +117,16 @@ impl OAuthRefresher {
             .resolved_transport_proxy_for_oauth_account()
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
-        let body =
-            token_request::execute(self.transport.as_ref(), proxy, strict_ssrf, plan).await?;
+        let response =
+            token_request::execute_response(self.transport.as_ref(), proxy, strict_ssrf, plan)
+                .await?;
+        if !response.status.is_success() {
+            return Err(OAuthRefreshError::RefreshRejected(
+                driver.classify_oauth_refresh_rejection(response.status, &response.body),
+            ));
+        }
         let refreshed = driver
-            .parse_oauth_refresh_token(&body, token.as_ref())
+            .parse_oauth_refresh_token(&response.body, token.as_ref())
             .map_err(OAuthError::from_token_response_error)?;
         if refreshed.provider() != account.provider_kind() {
             return Err(OAuthError::TokenResponseInvalid.into());
@@ -177,7 +193,14 @@ enum RefreshTrigger {
 enum RefreshResult {
     Refreshed(Arc<PublishedSnapshot>),
     AlreadyUpdated(Arc<PublishedSnapshot>),
+    MissingRefreshToken,
     Unavailable,
+}
+
+pub(crate) enum OAuthAuthenticationRefreshResult {
+    Refreshed(Arc<PublishedSnapshot>),
+    AuthenticationFailed,
+    Unverified,
 }
 
 pub(super) fn is_due(expires_at: Option<i64>, lead_time_secs: u64) -> bool {
@@ -196,6 +219,8 @@ pub(super) enum OAuthRefreshError {
     ProviderUnavailable,
     #[error("OAuth token material is unavailable")]
     TokenMaterialUnavailable,
+    #[error("OAuth refresh endpoint rejected the token")]
+    RefreshRejected(OAuthRefreshRejection),
     #[error(transparent)]
     OAuth(#[from] OAuthError),
     #[error("OAuth refresh publication failed")]

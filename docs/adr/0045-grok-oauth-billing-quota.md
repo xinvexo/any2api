@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-25
 - 决策人：项目维护者
+- 部分修订：ADR-0070
 
 ## 背景
 
@@ -28,7 +29,7 @@ Free Token 总额和剩余值只接受同一次上游探测响应的权威 Heade
 8. 查询复用现有 OAuth quota Runtime：固定 DIRECT/全局代理、严格 SSRF、禁用重定向、有界响应体和读取超时；401 最多刷新 Token 一次并完整重试一次。两次均被拒绝时返回明确认证失效错误；403 返回账号访问受限错误。Provider 差异通过查询计划与解析结果表达，中央 Runtime 不增加 Provider `match`。
 9. Free Token 余额只有在 limit/remaining 同时存在、均为安全非负整数、limit 大于零且 remaining 不超过 limit 时才返回 `source=upstream`；任一字段缺失或无效时保持未知，不从 billing 金额、本地 usage、请求数或其他 Header 猜测。
 10. Grok 数据面错误分类可以识别稳定错误码 `subscription:free-usage-exhausted`，并只在真实响应出现时记录当前运行代际的内存耗尽观测。若正文包含 `tokens (actual/limit)`，只接受非负安全整数并随观测时间展示；该观测不得改写客户端收到的上游状态、正文或类型。成功数据面请求清除此观测。
-11. Grok quota、Token 余额与账号诊断都是只读临时快照，不写 SQLite、RequestLog、OAuth JSON、PublishedSnapshot 或浏览器持久化，也不参与路由准入、RPM、冷却或账号启停。完整 Header 解析契约见 ADR-0060。
+11. Grok quota、Token 余额与账号诊断都是只读临时快照，不写 SQLite、RequestLog、OAuth JSON、PublishedSnapshot 或浏览器持久化，也不参与 RPM 或持久化账号启停。ADR-0070 允许明确的额度耗尽或权威 Token 零余额临时影响当前认证 generation 的路由健康；完整 Header 解析契约见 ADR-0060。
 13. Grok 不实现 `quota/reset`。Web 使用与 Codex/Claude 相同的账号卡片和额度面板；实时套餐层级映射到账号卡片既有的 `plan` badge。刷新成功本身不再显示“认证状态”，机器人状态按第 7 条只用卡片顶部图标表达，上游账号/团队限制只在真实返回时显示；通用额度详情继续显示 included allowance、本地或上游 Token 余额、真实耗尽观测、预付余额和按量使用，不增加 Grok 专属面板。只有 Codex 显示 reset credit 与重置按钮；Claude 的只读额度入口由 ADR-0046 定义。
 
 ## 参考

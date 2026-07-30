@@ -200,11 +200,7 @@ function OAuthAccountItem({
   const quota = quotaQuery.isError ? null : (quotaQuery.data ?? null);
   return (
     <OAuthAccountCard
-      presentation={presentOAuthAccount(
-        account,
-        quota?.subscriptionTier ?? null,
-        quota?.accountStatus ?? null,
-      )}
+      presentation={presentOAuthAccount(account, quota)}
       pending={pending}
       onToggleEnabled={onToggleEnabled}
       onViewModels={onViewModels}

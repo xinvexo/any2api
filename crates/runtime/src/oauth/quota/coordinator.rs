@@ -16,11 +16,14 @@ use uuid::Uuid;
 
 use crate::{
     configuration::{ConfigPublisher, PublishedSnapshot},
-    oauth::{document, refresh::OAuthRefresher},
+    oauth::{
+        document,
+        refresh::{OAuthAuthenticationRefreshResult, OAuthRefresher},
+    },
 };
 
 use super::{
-    observation, request,
+    health, observation, request,
     types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
 };
 
@@ -94,14 +97,16 @@ impl OAuthQuotaService {
             Err(OAuthQuotaError::UpstreamRejected(status))
                 if status == StatusCode::UNAUTHORIZED.as_u16() =>
             {
-                let refreshed = self
+                let refresh_result = self
                     .refresher
                     .refresh_after_authentication_failure(id, observed_token_version)
-                    .await
-                    .ok_or(OAuthQuotaError::AuthenticationRefreshFailed)?;
-                self.query_attempt(refreshed, id)
-                    .await
-                    .map_err(map_second_authentication_failure)
+                    .await;
+                let refreshed =
+                    self.resolve_authentication_refresh(&snapshot, id, refresh_result)?;
+                let refreshed_for_health = Arc::clone(&refreshed);
+                self.query_attempt(refreshed, id).await.map_err(|error| {
+                    self.map_second_authentication_failure(refreshed_for_health.as_ref(), id, error)
+                })
             }
             result => result,
         }
@@ -172,6 +177,11 @@ impl OAuthQuotaService {
         )
         .await?;
         usage.replace_token_balance(queried_balance);
+        health::synchronize(
+            permit.generation().health().as_ref(),
+            &usage,
+            snapshot.reliability_policy().permission_denied,
+        );
         let exhaustion = binding
             .generation()
             .health()
@@ -217,14 +227,16 @@ impl OAuthQuotaService {
             Err(OAuthQuotaError::UpstreamRejected(status))
                 if status == StatusCode::UNAUTHORIZED.as_u16() =>
             {
-                let refreshed = self
+                let refresh_result = self
                     .refresher
                     .refresh_after_authentication_failure(id, observed_token_version)
-                    .await
-                    .ok_or(OAuthQuotaError::AuthenticationRefreshFailed)?;
-                self.reset_attempt(refreshed, id)
-                    .await
-                    .map_err(map_second_authentication_failure)
+                    .await;
+                let refreshed =
+                    self.resolve_authentication_refresh(&snapshot, id, refresh_result)?;
+                let refreshed_for_health = Arc::clone(&refreshed);
+                self.reset_attempt(refreshed, id).await.map_err(|error| {
+                    self.map_second_authentication_failure(refreshed_for_health.as_ref(), id, error)
+                })
             }
             result => result,
         }
@@ -288,6 +300,50 @@ impl OAuthQuotaService {
         }
     }
 
+    fn resolve_authentication_refresh(
+        &self,
+        initial_snapshot: &PublishedSnapshot,
+        id: OAuthAccountId,
+        result: OAuthAuthenticationRefreshResult,
+    ) -> Result<Arc<PublishedSnapshot>, OAuthQuotaError> {
+        match result {
+            OAuthAuthenticationRefreshResult::Refreshed(snapshot) => Ok(snapshot),
+            OAuthAuthenticationRefreshResult::AuthenticationFailed => {
+                self.mark_authentication_failed(initial_snapshot, id);
+                Err(OAuthQuotaError::AuthenticationFailed)
+            }
+            OAuthAuthenticationRefreshResult::Unverified => {
+                Err(OAuthQuotaError::AuthenticationRefreshFailed)
+            }
+        }
+    }
+
+    fn map_second_authentication_failure(
+        &self,
+        snapshot: &PublishedSnapshot,
+        id: OAuthAccountId,
+        error: OAuthQuotaError,
+    ) -> OAuthQuotaError {
+        match error {
+            OAuthQuotaError::UpstreamRejected(status)
+                if status == StatusCode::UNAUTHORIZED.as_u16() =>
+            {
+                self.mark_authentication_failed(snapshot, id);
+                OAuthQuotaError::AuthenticationFailed
+            }
+            error => error,
+        }
+    }
+
+    fn mark_authentication_failed(&self, snapshot: &PublishedSnapshot, id: OAuthAccountId) {
+        if let Some(binding) = snapshot.credential_runtime(RoutingCredentialId::oauth_account(id)) {
+            binding
+                .generation()
+                .health()
+                .record_authentication_failure();
+        }
+    }
+
     fn reset_gate(&self, id: OAuthAccountId) -> Arc<Mutex<()>> {
         let mut gates = self
             .reset_gates
@@ -314,15 +370,4 @@ fn exhaustion_token_balance(exhaustion: OAuthQuotaExhaustion) -> Option<OAuthQuo
             remaining: limit.saturating_sub(used),
             window_seconds: None,
         })
-}
-
-fn map_second_authentication_failure(error: OAuthQuotaError) -> OAuthQuotaError {
-    match error {
-        OAuthQuotaError::UpstreamRejected(status)
-            if status == StatusCode::UNAUTHORIZED.as_u16() =>
-        {
-            OAuthQuotaError::AuthenticationFailed
-        }
-        error => error,
-    }
 }

@@ -34,7 +34,7 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
       return errorResponse("oauth_quota_upstream_failed", 502);
     }
     if (accountId?.match(/^a\d+$/)) {
-      return jsonResponse(quota(Number(accountId.slice(1))));
+      return jsonResponse(quota(Number(accountId.slice(1)), accountId === "a1"));
     }
     throw new Error(`unexpected request: ${path}`);
   });
@@ -68,6 +68,7 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
   expect(quotaPaths.some((path) => path.includes("claude-1"))).toBe(false);
   expect(client.getQueryData(oauthQueryKeys.quota("a11"))).toBeDefined();
   expect(client.getQueryState(oauthQueryKeys.quota("a12"))?.status).toBe("error");
+  expect(screen.getByText("额度耗尽")).toBeInTheDocument();
 });
 
 test("limits refresh-all concurrency and locks account actions", async () => {
@@ -163,16 +164,16 @@ function oauthAccountJson(
   };
 }
 
-function quota(accountNumber: number) {
+function quota(accountNumber: number, exhausted = false) {
   return {
     fetched_at: 1_900_000_000 + accountNumber,
     rate_limit: {
-      allowed: true,
-      limit_reached: false,
+      allowed: !exhausted,
+      limit_reached: exhausted,
       windows: [{
         id: "primary",
         kind: "time",
-        used_percent: accountNumber,
+        used_percent: exhausted ? 100 : accountNumber,
         limit_window_seconds: 18_000,
         reset_after_seconds: 300,
         reset_at: 1_900_000_300,

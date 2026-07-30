@@ -25,9 +25,11 @@ interface HoverState {
 export function RequestUsageStats({
   label,
   usage,
+  className,
 }: {
   label: string;
   usage: RequestUsage;
+  className?: string;
 }) {
   const tooltipId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -55,7 +57,10 @@ export function RequestUsageStats({
   }
 
   return (
-    <div ref={rootRef} className="flex min-w-0 max-w-full items-center gap-2.5">
+    <div
+      ref={rootRef}
+      className={cn("flex min-w-0 max-w-full items-center gap-2.5", className)}
+    >
       <div className="flex shrink-0 items-center gap-x-2 text-[11px] tabular-nums">
         <span className="font-medium text-[#1fa382] dark:text-[#24c19a]">
           成功 {formatCount(usage.successfulRequests)}

@@ -95,7 +95,7 @@ Client ── GatewayApiKey ──> any2api ── ProviderCredential ──> Pr
 
 支持多个 `GatewayApiKey` 不改变上述定位。它们只是同一个个人实例下的多个本地访问凭据，不代表多个用户或租户，也不分别计算额度、余额和账单。
 
-管理面可以为上游 OAuthAccount 展示 Provider 官方额度。这只是上游账号的瞬时观测，不是 GatewayApiKey 余额、客户端套餐、收费账单或路由准入限制，因此不改变上述永久非目标。
+管理面可以为上游 OAuthAccount 展示 Provider 官方额度。这只是上游账号的瞬时观测，不是 GatewayApiKey 余额、客户端套餐、收费账单或持久化准入配置，因此不改变上述永久非目标。只有 Provider 明确返回全局不可用、额度已耗尽或权威 Token 剩余量为零时，该观测才临时影响同一 OAuthAccount 当前认证代际的路由资格；未知状态、单个模型窗口百分比和本地估算不得据此排除账号。
 
 ### 3.2 当前首批范围外
 
@@ -1327,6 +1327,7 @@ trait ProviderDriver: Send + Sync {
     fn oauth_authorization_url(&self, state: &str, code_challenge: &str) -> Result<Url>;
     fn oauth_token_request(&self, grant: OAuthGrant, code_or_refresh_token: &str, state: Option<&str>, code_verifier: Option<&str>) -> Result<OAuthRequestPlan>;
     fn parse_oauth_token(&self, body: &[u8], previous: Option<&OAuthTokenMaterial>) -> Result<OAuthTokenMaterial>;
+    fn classify_oauth_refresh_rejection(&self, status: StatusCode, bounded_body: &[u8]) -> OAuthRefreshRejection;
     fn oauth_routing_profile(&self, token: &OAuthTokenMaterial) -> Result<OAuthRoutingProfile>;
     fn oauth_credential_headers(&self, token: &OAuthTokenMaterial) -> Result<CredentialHeaders>;
     fn classify_error(&self, operation: ProtocolOperation, meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> UpstreamError;
@@ -1626,6 +1627,7 @@ NoRoute
 | 故障类型 | 状态作用域 |
 |---|---|
 | API Key 无效、账号停用 | Credential |
+| Provider 明确报告 OAuth 账号额度耗尽 | OAuth Credential generation |
 | 模型不支持、模型级 429 | Credential + Model |
 | Provider 连接正常但上游整体 5xx/过载 | Provider Endpoint |
 | HTTP/SOCKS5 握手、认证或代理连接失败 | ProxyProfile + ConfigVersion |
@@ -1640,7 +1642,7 @@ NoRoute
 → RPM 名额保留到滚动窗口自然过期
 ```
 
-状态更新携带版本或发生时间，较早请求的成功不得清除较晚请求建立的冷却。熔断器使用 `Closed / Open / HalfOpen`，HalfOpen 探测并发必须有上限。
+状态更新携带版本或发生时间，较早请求的成功不得清除较晚请求建立的冷却。OAuth 额度耗尽只保存在当前认证 generation 的内存健康状态中，在上游 reset 时刻或策略定义的有界探测时刻前排除该账号；明确可用的后续额度查询、成功数据面请求或成功 reset 可以清除该状态。状态建立、清除和到期都必须推进统一 scheduler epoch，不能建立额度专用队列。熔断器使用 `Closed / Open / HalfOpen`，HalfOpen 探测并发必须有上限。
 
 ### 12.8 fallback tier
 
@@ -2218,7 +2220,7 @@ Claude: id_token, access_token, refresh_token,
 
 单进程刷新 Worker 定期扫描所有临近过期且具备 refresh token 的账号，包括 `enabled=false` 的停用账号。`enabled` 只控制账号是否进入路由候选池，不控制认证保活；停用账号刷新后必须继续保持停用，不能产生数据面 Attempt、占用路由 RPM 或恢复会话绑定，只有删除账号才终止定时保活。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的 refresh token、ID token、账号 ID、邮箱和安全过期边界。成功后 SQLite CAS 更新 JSON 与版本，保留启用状态、模型集合和管理元数据，发布新认证 generation；失败不写半成品。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。完整决策见 `docs/adr/0048-disabled-oauth-token-keepalive.md`。
 
-Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Claude 和 Grok OAuthAccount 支持只读额度查询。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。Claude Driver 固定注册 `GET https://api.anthropic.com/api/oauth/usage`，使用当前 OAuth access token、`anthropic-beta: oauth-2025-04-20` 和固定 Claude Code 身份头，只解析 5 小时、7 天、Sonnet 7 天与 `seven_day_overage_included` 可选窗口。Grok Driver 固定注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` 和 `GET https://cli-chat-proxy.grok.com/v1/user?include=subscription`，除 Bearer 与 CLI 身份头外还必须发送 OAuth subject 对应的 `x-userid` 和官方 `x-grok-client-mode`。Driver 优先把 billing 的 `creditUsagePercent` 投影为当前 included allowance 使用率，并使用 `used / monthlyLimit` 作为备用字段；只有实际上游字段能够产生使用率窗口，`currentPeriod` 只决定周/月周期和重置时间，不能把缺失的使用率解释成 `0%` 已用。`prepaidBalance`、`onDemandUsed` 和 `onDemandCap` 按 xAI 定义的美元分分别投影为预付余额和按量使用信息，不与 included allowance 百分比互相换算。`/user?include=subscription` 按官方 camelCase 契约解析；非空 `subscriptionTier` 是当前套餐层级的权威来源，空值表示 Free，禁止用可能过期的 JWT tier 覆盖它。同次 `/user` 返回的非空 `userBlockedReason` 与 `teamBlockedReasons` 作为原始上游限制/团队策略展示；缺失时 Web 不渲染占位行，后者可能包含 ZDR/数据保留策略，禁止把它们等同于机器人标记或笼统宣称账号失效。Grok Build access token 中只有数值型 `bot_flag_source == 1` 才表示该 Token 被 Build 标记；管理响应只允许暴露由当前 Token 派生的非敏感布尔/未知状态，禁止返回 JWT claim 集合或 Token 本身。Web 只在该值为 `true` 时于账号卡片顶部状态标记之后显示机器人图标，不显示 Build 标记文字，`false` 或未知时不占展示位置。Free 套餐的 Token 余额由 Driver 在套餐层级确认后构造最小 `POST https://cli-chat-proxy.grok.com/v1/chat/completions` 查询，只接受响应头 `x-ratelimit-limit-tokens` 与 `x-ratelimit-remaining-tokens` 的安全整数；总额、已用和剩余值全部来自同次上游响应，禁止再硬编码 `1_000_000` 或任何其他默认额度。两个响应头任一缺失或无效时 Token 余额保持未知，不从 billing 金额、本地用量或其他限流头猜测。Runtime 只执行 Provider 返回的通用查询计划，不增加 Provider 专用 `match`。额度请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。billing 与 user 查询均成功只证明该 Token 在抓取时通过认证，Web 不为成功结果重复显示“认证状态”；Token 成功刷新后仍被 401 拒绝必须返回明确的认证失效错误，Token 刷新本身失败只能返回“认证无法确认”，403 必须返回明确的账号访问受限错误，三者不能继续折叠成普通“额度读取失败”。
+Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Claude 和 Grok OAuthAccount 支持只读额度查询。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。Claude Driver 固定注册 `GET https://api.anthropic.com/api/oauth/usage`，使用当前 OAuth access token、`anthropic-beta: oauth-2025-04-20` 和固定 Claude Code 身份头，只解析 5 小时、7 天、Sonnet 7 天与 `seven_day_overage_included` 可选窗口。Grok Driver 固定注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` 和 `GET https://cli-chat-proxy.grok.com/v1/user?include=subscription`，除 Bearer 与 CLI 身份头外还必须发送 OAuth subject 对应的 `x-userid` 和官方 `x-grok-client-mode`。Driver 优先把 billing 的 `creditUsagePercent` 投影为当前 included allowance 使用率，并使用 `used / monthlyLimit` 作为备用字段；只有实际上游字段能够产生使用率窗口，`currentPeriod` 只决定周/月周期和重置时间，不能把缺失的使用率解释成 `0%` 已用。`prepaidBalance`、`onDemandUsed` 和 `onDemandCap` 按 xAI 定义的美元分分别投影为预付余额和按量使用信息，不与 included allowance 百分比互相换算。`/user?include=subscription` 按官方 camelCase 契约解析；非空 `subscriptionTier` 是当前套餐层级的权威来源，空值表示 Free，禁止用可能过期的 JWT tier 覆盖它。同次 `/user` 返回的非空 `userBlockedReason` 与 `teamBlockedReasons` 作为原始上游限制/团队策略展示；缺失时 Web 不渲染占位行，后者可能包含 ZDR/数据保留策略，禁止把它们等同于机器人标记或笼统宣称账号失效。Grok Build access token 中只有数值型 `bot_flag_source == 1` 才表示该 Token 被 Build 标记；管理响应只允许暴露由当前 Token 派生的非敏感布尔/未知状态，禁止返回 JWT claim 集合或 Token 本身。Web 只在该值为 `true` 时于账号卡片顶部状态标记之后显示机器人图标，不显示 Build 标记文字，`false` 或未知时不占展示位置。Free 套餐的 Token 余额由 Driver 在套餐层级确认后构造最小 `POST https://cli-chat-proxy.grok.com/v1/chat/completions` 查询，只接受响应头 `x-ratelimit-limit-tokens` 与 `x-ratelimit-remaining-tokens` 的安全整数；总额、已用和剩余值全部来自同次上游响应，禁止再硬编码 `1_000_000` 或任何其他默认额度。两个响应头任一缺失或无效时 Token 余额保持未知，不从 billing 金额、本地用量或其他限流头猜测。Runtime 只执行 Provider 返回的通用查询计划，不增加 Provider 专用 `match`。额度请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。billing 与 user 查询均成功只证明该 Token 在抓取时通过认证，Web 不为成功结果重复显示“认证状态”；Token 成功刷新后仍被 401 拒绝、前一 access token 已被 401 拒绝且账号没有 refresh token，或 refresh Endpoint 返回经过 Provider 声明 envelope 验证的永久失效码（至少 `invalid_grant`）时，必须返回明确的认证失效错误。刷新网络错误、5xx、超时或无法识别的拒绝仍返回“认证无法确认”；403 必须返回明确的账号访问受限错误，三者不能继续折叠成普通“额度读取失败”。
 
 额度查询只返回经过校验的使用率窗口、稳定窗口标识、窗口维度、Codex 可用重置次数、安全到期时间、Grok billing 金额、账号诊断证据、可选上游 Token 余额与抓取时间。通用额度模型使用窗口列表而不是固定主/次槽位，并允许 Provider 没有返回总可用状态时保持未知；不得为迁就 Codex 的上游响应形状丢弃 Claude 的额外模型窗口或伪造全局可用状态。Claude 使用率必须是有限非负数，重置时间必须是有效 RFC 3339；缺失的可选窗口保持缺失。Grok 金额必须是可安全表示的整数美元分；预付余额和按量上限/使用量独立展示，缺失字段保持未知，禁止从金额或有效周期猜测 included allowance 百分比。
 
@@ -2226,9 +2228,11 @@ Grok Free Token 余额是按需抓取的上游快照。Provider 只在同次 `/u
 
 真实数据面或本次额度探测响应包含 `subscription:free-usage-exhausted` 且正文同时包含 `tokens (actual/limit)` 时，可以投影经过安全整数校验的 actual/limit，其优先级高于响应头快照。数据面的耗尽观测必须携带时间，成功数据面请求可将其清除；它与额度快照都不进入 SQLite、OAuth JSON、日志、PublishedSnapshot 或浏览器持久化。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Claude 与 Grok 没有对应 reset credit，管理面不显示或调用重置操作。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`、`docs/adr/0045-grok-oauth-billing-quota.md`、`docs/adr/0046-claude-oauth-usage-quota.md` 与 `docs/adr/0060-grok-free-token-header-quota.md`。
 
+明确的 `allowed=false`、`limit_reached=true`、权威 Token `remaining=0` 或 Provider 声明的耗尽诊断会同步到同一 OAuthAccount 当前认证 generation 的内存健康状态，在已知 reset 时刻或有界兜底探测前从路由候选排除；明确可用的后续额度查询可以提前清除。未知字段、单个窗口达到 100% 和本地推算均不得建立该状态。完整决策见 `docs/adr/0070-oauth-authentication-and-quota-routing-health.md`。
+
 Web 的“刷新全部额度”针对当前完整 Codex、Claude 或 Grok OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号。前端以最多 6 个并发复用现有逐账号额度 GET，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 Codex reset 后刷新共用账号级内存 Query cache；批量生命周期不得绑定虚拟行 observer 的挂载状态，额度快照仍不得进入 localStorage、sessionStorage 或其他持久存储。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
-Web 的“删除失效账号”只清理当前 Provider 完整集合中经过实时认证诊断、明确返回 `oauth_account_authentication_failed` 的账号。该错误只允许表示 Token 已成功刷新但再次被上游 401 拒绝；Token 刷新过程失败必须返回独立的 `oauth_account_authentication_unverified`。检测复用相同逐账号额度 GET 和最多 6 个并发；认证无法确认、超时、代理/网络错误、403 访问受限、额度耗尽、机器人标记或其他额度读取失败都不得进入删除集合。检测完成后必须重新读取安全账号元数据，展示精确删除数量并二次确认；删除按最新配置 revision 复用现有逐账号 DELETE 串行执行。若账号在检测后消失，或 `token_version` 在确认/删除前发生变化，则跳过而不是删除；配置冲突只允许在重新读取并再次核对同一 Token 版本后重试。该操作不得读取、返回或在浏览器解析原始 OAuth JSON，也不新增后端批量删除协议。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
+Web 的“删除失效账号”只清理当前 Provider 完整集合中经过实时认证诊断、明确返回 `oauth_account_authentication_failed` 的账号。该错误只允许表示以下可验证情形：Token 已成功刷新但再次被上游 401 拒绝；前一 access token 已被 401 拒绝且账号没有 refresh token；或 refresh Endpoint 通过 Provider 声明的结构化 envelope 返回永久失效码（至少 `invalid_grant`）。刷新网络错误、超时、5xx 和未知拒绝必须返回独立的 `oauth_account_authentication_unverified`。检测复用相同逐账号额度 GET 和最多 6 个并发；认证无法确认、代理/网络错误、403 访问受限、额度耗尽、机器人标记或其他额度读取失败都不得进入删除集合。检测完成后必须重新读取安全账号元数据，展示精确删除数量并二次确认；删除按最新配置 revision 复用现有逐账号 DELETE 串行执行。若账号在检测后消失，或 `token_version` 在确认/删除前发生变化，则跳过而不是删除；配置冲突只允许在重新读取并再次核对同一 Token 版本后重试。该操作不得读取、返回或在浏览器解析原始 OAuth JSON，也不新增后端批量删除协议。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md` 与 `docs/adr/0070-oauth-authentication-and-quota-routing-health.md`。
 
 原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供读取、下载或导出端点。
 
@@ -2577,7 +2581,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - Codex 账号可显式刷新上游额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
 - Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的当前套餐层级、included allowance 使用率、预付余额和按量使用信息；Free 的 Token 上限与剩余量只显示同次探测响应头返回的真实值，缺失时保持未知；两者都不显示重置操作；
 - Codex、Claude 与 Grok 页面均提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
-- Codex、Claude 与 Grok 页面均提供“删除失效账号”；先对当前完整 Provider 集合执行实时认证检测，只把刷新 Token 后仍被上游 401 拒绝的账号列入候选，展示精确数量并二次确认后串行删除；其他失败保持账号不变，检测后 Token 已变化的账号也必须跳过；
+- Codex、Claude 与 Grok 页面均提供“删除失效账号”；先对当前完整 Provider 集合执行实时认证检测，只把刷新后仍被 401 拒绝、已被 401 拒绝且没有 refresh token，或刷新端点明确返回永久失效码的账号列入候选，展示精确数量并二次确认后串行删除；其他失败保持账号不变，检测后 Token 已变化的账号也必须跳过；
 - 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时的固定 2 分钟时间条带；鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数，统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
 - 页面不展示、下载、缓存或导出 Token/Provider JSON，也不跳转到 Provider API Key 管理流程；
 - 页面提供 Provider 专用 JSON 导入抽屉，允许一次选择多个文件；文件只存在于抽屉局部状态，提交完成、失败或关闭后立即清空，导入成功后刷新 OAuthAccount 安全元数据集合；

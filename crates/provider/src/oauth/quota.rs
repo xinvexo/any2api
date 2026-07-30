@@ -157,9 +157,17 @@ impl OAuthQuotaUsage {
     }
 
     pub fn replace_quota_exhaustion(&mut self, observation: Option<OAuthQuotaExhaustion>) {
-        if let Some(status) = &mut self.account_status {
-            status.quota_exhaustion = observation;
+        if observation.is_none() && self.account_status.is_none() {
+            return;
         }
+        self.account_status
+            .get_or_insert_with(|| OAuthQuotaAccountStatus {
+                authentication: OAuthQuotaAuthenticationStatus::Valid,
+                user_blocked_reason: None,
+                team_blocked_reasons: Vec::new(),
+                quota_exhaustion: None,
+            })
+            .quota_exhaustion = observation;
     }
 
     pub fn replace_token_balance(&mut self, balance: Option<OAuthQuotaTokenBalance>) {

@@ -168,9 +168,34 @@ async fn real_quota_exhaustion_observation_is_generation_local_and_success_clear
     assert_eq!(observed.used, Some(1_065_387));
     assert_eq!(observed.limit, Some(1_000_000));
     assert!(observed.observed_at > 0);
+    assert!(matches!(
+        health.availability("grok-4.5"),
+        Err(HealthAcquireError::Temporary(_))
+    ));
 
     health.record_success();
     assert!(health.quota_exhaustion().is_none());
+    assert_eq!(health.availability("grok-4.5"), Ok(()));
+}
+
+#[tokio::test(start_paused = true)]
+async fn quota_exhaustion_wakes_and_allows_a_probe_at_reset_time() {
+    let epoch = SchedulerEpoch::new();
+    let health = CredentialHealthRuntime::new(Arc::clone(&epoch));
+    let before = epoch.current();
+
+    health.record_quota_exhaustion(Duration::from_secs(2), None, None);
+    assert!(epoch.current() > before);
+    assert!(matches!(
+        health.availability("model"),
+        Err(HealthAcquireError::Temporary(_))
+    ));
+    let marked = epoch.current();
+
+    tokio::time::advance(Duration::from_secs(2)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(health.availability("model"), Ok(()));
+    assert!(epoch.current() > marked);
 }
 
 #[tokio::test(start_paused = true)]

@@ -3,6 +3,7 @@ pub(crate) mod import;
 #[cfg(test)]
 mod import_tests;
 pub(crate) mod quota;
+mod refresh;
 mod routing;
 mod token;
 
@@ -17,6 +18,7 @@ pub use quota::{
     OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement, OAuthQuotaTokenBalance,
     OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
+pub use refresh::OAuthRefreshRejection;
 pub use routing::OAuthRoutingProfile;
 pub use token::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_document};
 pub(crate) use token::{form_headers, json_headers};

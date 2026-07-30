@@ -78,17 +78,57 @@ test("gateway key usage is a fixed time axis with hover and keyboard details", a
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
-  await expect(
-    page.getByRole("group", { name: /E2E 时间轴 近 1 小时，每格 2 分钟/ }),
-  ).toBeVisible();
+  const mobileTable = page.getByRole("table", { name: "网关密钥列表" });
+  const mobileRow = mobileTable.locator("tbody > tr");
+  await expect(mobileRow).toHaveCount(1);
+  await expect(mobileRow).toHaveCSS("display", "grid");
+  await expect(mobileRow).toHaveCSS("border-radius", "8px");
+  await expect(mobileTable.getByRole("columnheader", { name: "名称" })).toBeHidden();
+  await expect(mobileRow.getByText("调用统计", { exact: true })).toBeVisible();
+  await expect(mobileRow.getByText("最后使用", { exact: true })).toBeVisible();
+  await expect(mobileRow.getByText("创建时间", { exact: true })).toBeVisible();
+  await expect(mobileRow.getByRole("switch", { name: "禁用 E2E 时间轴" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
+  await expect(mobileRow.getByRole("button", { name: "复制 E2E 时间轴 的密钥" })).toBeVisible();
+  await expect(page.getByRole("group", { name: /E2E 时间轴 近 1 小时，每格 2 分钟/ })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.reload();
+  const desktopTable = page.getByRole("table", { name: "网关密钥列表" });
+  await expect(desktopTable.locator("tbody > tr")).toHaveCSS("display", "table-row");
+  await expect(desktopTable.getByRole("columnheader", { name: "名称" })).toBeVisible();
   await page.getByRole("button", { name: "删除 E2E 时间轴" }).click();
   const dialog = page.getByRole("alertdialog", { name: "删除「E2E 时间轴」？" });
   await dialog.getByRole("button", { name: "确认删除" }).click();
   await expect(page.getByText("尚未创建网关密钥")).toBeVisible();
+  expect(browserErrors).toEqual([]);
+});
+
+test("proxy rows reflow into single mobile cards and return to desktop rows", async ({ page }) => {
+  const browserErrors = watchBrowserErrors(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await loginAt(page, "/proxies", "代理列表");
+
+  const table = page.getByRole("table", { name: "出口代理列表" });
+  const row = table.locator("tbody > tr");
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveCSS("display", "grid");
+  await expect(row).toHaveCSS("border-radius", "8px");
+  await expect(table.getByRole("columnheader", { name: "名称" })).toBeHidden();
+  await expect(row.getByText("地址", { exact: true })).toBeVisible();
+  await expect(row.getByText("认证", { exact: true })).toBeVisible();
+  await expect(row.getByText("连通性", { exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: "测试 DIRECT" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.reload();
+  await expect(table.locator("tbody > tr")).toHaveCount(1);
+  await expect(table.locator("tbody > tr")).toHaveCSS("display", "table-row");
+  await expect(table.getByRole("columnheader", { name: "名称" })).toBeVisible();
   expect(browserErrors).toEqual([]);
 });
 

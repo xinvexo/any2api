@@ -4,6 +4,7 @@
 - 日期：2026-07-26
 - 决策人：项目维护者
 - 补充：ADR-0034、ADR-0036
+- 部分修订：ADR-0070
 
 ## 背景
 
@@ -17,7 +18,7 @@ Anthropic 为 Claude Code OAuth 提供 `GET https://api.anthropic.com/api/oauth/
 2. Provider 只构造请求并解析响应，不执行网络。Runtime 复用现有 OAuth quota 编排、账号固定 DIRECT/全局代理、严格 SSRF、禁重定向、有界响应体和读取超时；401 最多触发一次 Token refresh，并用新版本 Token 完整重建计划后重试一次。
 3. 只解析 `five_hour`、`seven_day`、`seven_day_sonnet` 和 `seven_day_overage_included`。使用率必须是有限非负数，重置时间必须是有效 RFC 3339；缺失或 `null` 的可选窗口保持缺失，出现但畸形的窗口使整次查询失败。原始响应、未知字段和 Token 不进入 DTO、日志或持久化。
 4. 通用 `OAuthQuotaRateLimit` 改为带稳定 `id` 的窗口列表，并把 `allowed`、`limit_reached` 改为可空观测。Codex 与 Grok 同步投影到该模型；Claude 不推断上游未提供的全局可用状态。该项目尚无需要兼容的正式内部/API 契约，不保留固定主/次槽位的双轨结构。
-5. Claude 额度是只读瞬时快照，不写 SQLite、OAuth Provider JSON、PublishedSnapshot、RequestLog、浏览器存储或文件，也不参与 RPM、健康、冷却、粘性或调度。Claude 不实现 quota reset。
+5. Claude 额度是只读瞬时快照，不写 SQLite、OAuth Provider JSON、PublishedSnapshot、RequestLog、浏览器存储或文件，也不参与 RPM 或粘性。Claude 当前窗口没有全局可用状态，因此单个窗口 100% 不得影响路由；若未来 Provider 契约明确返回全局耗尽信号，则按 ADR-0070 只更新当前认证 generation 的临时健康。Claude 不实现 quota reset。
 6. Web 为 Claude 显示单账号“刷新额度”和 Provider 级“刷新全部额度”，复用既有账号级内存 Query cache、最多 6 个并发与 all-settled 汇总。所有返回窗口均展示；只有 Codex 显示 reset credit 与重置按钮。
 
 ## 备选方案

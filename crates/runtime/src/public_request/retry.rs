@@ -18,7 +18,7 @@ use super::{
 use crate::{
     configuration::PublishedSnapshot,
     health::ReliabilityPolicy,
-    oauth::refresh::OAuthRefresher,
+    oauth::refresh::{OAuthAuthenticationRefreshResult, OAuthRefresher},
     request_telemetry::{AttemptTimeoutMarker, RequestRecorder},
     routing::CandidateExclusions,
 };
@@ -137,7 +137,11 @@ pub(super) async fn execute(
                     )
                     .await
                     .ok()
-                    .flatten();
+                    .and_then(|result| match result {
+                        OAuthAuthenticationRefreshResult::Refreshed(snapshot) => Some(snapshot),
+                        OAuthAuthenticationRefreshResult::AuthenticationFailed
+                        | OAuthAuthenticationRefreshResult::Unverified => None,
+                    });
                     if let Some(next_snapshot) = refreshed {
                         let next_plan = super::planning::replan(
                             next_snapshot.as_ref(),

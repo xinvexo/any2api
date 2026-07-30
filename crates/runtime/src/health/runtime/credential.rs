@@ -32,6 +32,7 @@ pub(crate) struct CredentialQuotaExhaustion {
     pub(crate) observed_at: i64,
     pub(crate) used: Option<u64>,
     pub(crate) limit: Option<u64>,
+    retry_at: Instant,
 }
 
 impl CredentialHealthRuntime {
@@ -52,6 +53,7 @@ impl CredentialHealthRuntime {
             .credential_cooldown_until
             .into_iter()
             .chain(state.model_cooldowns.get(model).copied())
+            .chain(state.quota_exhaustion.map(|value| value.retry_at))
             .max();
         match until {
             Some(until) if now < until => Err(HealthAcquireError::Temporary(until)),
@@ -70,14 +72,28 @@ impl CredentialHealthRuntime {
         true
     }
 
-    pub(crate) fn clear_temporary_cooldowns(&self) -> bool {
+    pub(crate) fn record_authentication_failure(&self) -> bool {
         let mut state = self.state.lock().expect("credential health lock poisoned");
-        let changed = state.credential_cooldown_until.take().is_some()
-            || !state.model_cooldowns.is_empty()
-            || state.quota_exhaustion.take().is_some();
-        state.model_cooldowns.clear();
+        if state.auth_error {
+            return false;
+        }
+        state.auth_error = true;
         drop(state);
         self.scheduler_epoch.advance();
+        true
+    }
+
+    pub(crate) fn clear_temporary_cooldowns(&self) -> bool {
+        let mut state = self.state.lock().expect("credential health lock poisoned");
+        let had_credential_cooldown = state.credential_cooldown_until.take().is_some();
+        let had_model_cooldown = !state.model_cooldowns.is_empty();
+        let had_quota_exhaustion = state.quota_exhaustion.take().is_some();
+        state.model_cooldowns.clear();
+        let changed = had_credential_cooldown || had_model_cooldown || had_quota_exhaustion;
+        drop(state);
+        if changed {
+            self.scheduler_epoch.advance();
+        }
         changed
     }
 
@@ -96,11 +112,37 @@ impl CredentialHealthRuntime {
             .quota_exhaustion
     }
 
+    pub(crate) fn clear_quota_exhaustion(&self) -> bool {
+        let mut state = self.state.lock().expect("credential health lock poisoned");
+        if state.quota_exhaustion.take().is_none() {
+            return false;
+        }
+        drop(state);
+        self.scheduler_epoch.advance();
+        true
+    }
+
+    pub(crate) fn record_quota_exhaustion(
+        &self,
+        delay: std::time::Duration,
+        used: Option<u64>,
+        limit: Option<u64>,
+    ) {
+        let retry_at = deadline(Instant::now(), delay);
+        let mut state = self.state.lock().expect("credential health lock poisoned");
+        state.quota_exhaustion = Some(CredentialQuotaExhaustion {
+            observed_at: unix_now(),
+            used,
+            limit,
+            retry_at,
+        });
+        drop(state);
+        self.scheduler_epoch.advance();
+        schedule_wake(Arc::clone(&self.scheduler_epoch), retry_at);
+    }
+
     pub(crate) fn record_success(&self) {
-        self.state
-            .lock()
-            .expect("credential health lock poisoned")
-            .quota_exhaustion = None;
+        self.clear_quota_exhaustion();
     }
 
     pub(crate) fn record(
@@ -109,29 +151,26 @@ impl CredentialHealthRuntime {
         classification: UpstreamErrorClassification,
         policy: &ReliabilityPolicy,
     ) {
+        if classification.kind() == UpstreamErrorKind::Authentication {
+            self.record_authentication_failure();
+            return;
+        }
+        if classification.kind() == UpstreamErrorKind::QuotaExhausted {
+            let numeric = classification.quota_exhaustion();
+            self.record_quota_exhaustion(
+                retry_delay(classification.retry_after(), policy.permission_denied),
+                numeric.map(|value| value.used()),
+                numeric.map(|value| value.limit()),
+            );
+            return;
+        }
         let now = Instant::now();
         let mut state = self.state.lock().expect("credential health lock poisoned");
         let wake_at = match classification.kind() {
-            UpstreamErrorKind::Authentication => {
-                state.auth_error = true;
-                None
-            }
             UpstreamErrorKind::PermissionDenied => {
                 let until = deadline(now, policy.permission_denied);
                 state.credential_cooldown_until =
                     max_deadline(state.credential_cooldown_until, Some(until));
-                Some(until)
-            }
-            UpstreamErrorKind::QuotaExhausted => {
-                let until = deadline(now, policy.permission_denied);
-                state.credential_cooldown_until =
-                    max_deadline(state.credential_cooldown_until, Some(until));
-                let numeric = classification.quota_exhaustion();
-                state.quota_exhaustion = Some(CredentialQuotaExhaustion {
-                    observed_at: unix_now(),
-                    used: numeric.map(|value| value.used()),
-                    limit: numeric.map(|value| value.limit()),
-                });
                 Some(until)
             }
             UpstreamErrorKind::RateLimited => {

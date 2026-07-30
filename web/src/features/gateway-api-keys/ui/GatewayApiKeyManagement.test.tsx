@@ -112,12 +112,23 @@ test("lists keys with a real time window and hover or focus details", async () =
     </QueryClientProvider>,
   );
 
-  expect(await screen.findByRole("caption", { name: "网关密钥列表" })).toBeInTheDocument();
+  const caption = await screen.findByRole("caption", { name: "网关密钥列表" });
+  const table = caption.closest("table");
+  expect(table).toHaveAttribute("data-responsive-table", "cards");
+  expect(within(table!).getAllByRole("row")).toHaveLength(2);
+  const keyRow = within(table!).getByText("Desktop").closest("tr");
+  expect(keyRow).toHaveAttribute("data-responsive-row", "card");
+  expect(within(keyRow!).getByText("调用统计")).toBeInTheDocument();
+  expect(within(keyRow!).getByText("最后使用")).toBeInTheDocument();
+  expect(within(keyRow!).getByText("创建时间")).toBeInTheDocument();
   expect(screen.getByText("Desktop")).toBeInTheDocument();
   expect(screen.queryByText(tokenA)).not.toBeInTheDocument();
   expect(screen.queryByRole("columnheader", { name: "密钥" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "复制 Desktop 的密钥" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "禁用 Desktop" })).toBeInTheDocument();
+  expect(screen.getByRole("switch", { name: "禁用 Desktop" })).toHaveAttribute(
+    "aria-checked",
+    "true",
+  );
   expect(screen.getByRole("button", { name: "轮换 Desktop 的密钥" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除 Desktop" })).toBeInTheDocument();
   expect(screen.getByText("成功 134")).toBeInTheDocument();
@@ -142,7 +153,7 @@ test("lists keys with a real time window and hover or focus details", async () =
   expect(within(tooltip).getByText("失败 0")).toBeInTheDocument();
 });
 
-test("toggles enabled from the row action without opening the editor", async () => {
+test("toggles enabled from the row switch without opening the editor", async () => {
   let configuration: Record<string, unknown> = {
     config_revision: 2,
     items: [
@@ -192,13 +203,16 @@ test("toggles enabled from the row action without opening the editor", async () 
     </QueryClientProvider>,
   );
 
-  expect(await screen.findByText("已启用")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "禁用 Desktop" }));
+  const enabledSwitch = await screen.findByRole("switch", { name: "禁用 Desktop" });
+  expect(enabledSwitch).toHaveAttribute("aria-checked", "true");
+  fireEvent.click(enabledSwitch);
 
   await waitFor(() => {
-    expect(screen.getByText("已停用")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "启用 Desktop" })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
   });
-  expect(screen.getByRole("button", { name: "启用 Desktop" })).toBeInTheDocument();
   const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
   expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
     name: "Desktop",

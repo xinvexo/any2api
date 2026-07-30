@@ -222,7 +222,7 @@ test("reports a Grok OAuth token rejected after refresh as invalid", async () =>
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
 
   expect(
-    await within(panel).findByText("账号认证已失效：刷新 Token 后仍被上游拒绝。"),
+    await within(panel).findByText("账号认证已失效：上游已明确拒绝当前认证。"),
   ).toBeInTheDocument();
   expect(within(panel).getByText("额度尚未刷新")).toBeInTheDocument();
 });

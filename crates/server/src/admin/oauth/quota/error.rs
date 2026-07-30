@@ -38,7 +38,7 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
         OAuthQuotaError::AuthenticationFailed => AdminApiError::new(
             StatusCode::BAD_GATEWAY,
             "oauth_account_authentication_failed",
-            "the upstream rejected this OAuth account after token refresh",
+            "the upstream definitively rejected this OAuth account authentication",
         ),
         OAuthQuotaError::AccountRestricted => AdminApiError::new(
             StatusCode::BAD_GATEWAY,

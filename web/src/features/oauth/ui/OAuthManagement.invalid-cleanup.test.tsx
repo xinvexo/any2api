@@ -53,7 +53,9 @@ test("inspects, confirms, and deletes only explicitly invalid OAuth accounts", a
   const dialog = await screen.findByRole("alertdialog", {
     name: "删除失效账号",
   });
-  expect(within(dialog).getByText(/已确认 1 个 Codex 账号/)).toBeInTheDocument();
+  expect(
+    within(dialog).getByText(/已通过上游认证诊断确认 1 个 Codex 账号失效/),
+  ).toBeInTheDocument();
   expect(within(dialog).getByText("目标：Invalid Account")).toBeInTheDocument();
   expect(within(dialog).getByText("另有 1 个账号无法确认，均会保留。")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除 Invalid Account" })).toBeDisabled();

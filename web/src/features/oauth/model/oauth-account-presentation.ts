@@ -1,5 +1,5 @@
 import type { OAuthAccount } from "../api/oauth-contracts";
-import type { OAuthQuotaAccountStatus } from "../api/oauth-quota-contracts";
+import type { OAuthQuotaSnapshot } from "../api/oauth-quota-contracts";
 
 /** Neutral chip (plan tier, region, …) or warning (disabled / expired). */
 type OAuthAccountBadgeTone = "neutral" | "warning";
@@ -34,14 +34,13 @@ export interface OAuthAccountPresentation {
 
 export function presentOAuthAccount(
   account: OAuthAccount,
-  subscriptionTier: string | null = null,
-  accountStatus: OAuthQuotaAccountStatus | null = null,
+  quota: OAuthQuotaSnapshot | null = null,
   nowSeconds: number = Math.floor(Date.now() / 1_000),
 ): OAuthAccountPresentation {
   const expired = account.expiresAt !== null && account.expiresAt <= nowSeconds;
   const badges: OAuthAccountBadge[] = [];
 
-  const planType = subscriptionTier ?? account.planType;
+  const planType = quota?.subscriptionTier ?? account.planType;
   if (planType) {
     badges.push({ key: "plan", label: planType, tone: "neutral" });
   }
@@ -50,10 +49,13 @@ export function presentOAuthAccount(
   } else if (expired) {
     badges.push({ key: "expired", label: "已过期", tone: "warning" });
   }
+  if (quotaIsExhausted(quota)) {
+    badges.push({ key: "quota-exhausted", label: "额度耗尽", tone: "warning" });
+  }
   if (account.botFlagged === true) {
     badges.push({ key: "bot-flagged", label: "机器人账号", tone: "warning" });
   }
-  if (accountStatus?.userBlockedReason) {
+  if (quota?.accountStatus?.userBlockedReason) {
     badges.push({ key: "upstream-restricted", label: "xAI 受限", tone: "warning" });
   }
 
@@ -87,6 +89,17 @@ export function presentOAuthAccount(
       left.localeCompare(right),
     ),
   };
+}
+
+function quotaIsExhausted(quota: OAuthQuotaSnapshot | null) {
+  if (quota === null) return false;
+  const observedExhaustion = quota.accountStatus?.quotaExhaustion;
+  return (
+    quota.rateLimit?.allowed === false
+    || quota.rateLimit?.limitReached === true
+    || quota.tokenBalance?.remaining === 0
+    || observedExhaustion !== null && observedExhaustion !== undefined
+  );
 }
 
 function formatExpiry(value: number | null) {

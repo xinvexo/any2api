@@ -114,8 +114,8 @@ function cleanupDescription(
   return (
     <div className="space-y-2">
       <p>
-        已确认 {labels.length} 个 {providerName} 账号在刷新 Token
-        后仍被上游拒绝。确认后将永久删除账号配置和服务器中的 OAuth Token。
+        已通过上游认证诊断确认 {labels.length} 个 {providerName} 账号失效。
+        确认后将永久删除账号配置和服务器中的 OAuth Token。
       </p>
       <p className="break-words text-primary">目标：{preview}{remainder}</p>
       {inspection.inconclusive > 0 ? (

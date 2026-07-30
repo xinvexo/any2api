@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -29,7 +29,15 @@ test("renders DIRECT in a table-style proxy list", async () => {
 
   renderManagement();
 
-  expect(await screen.findByRole("caption", { name: "出口代理列表" })).toBeInTheDocument();
+  const caption = await screen.findByRole("caption", { name: "出口代理列表" });
+  const table = caption.closest("table");
+  expect(table).toHaveAttribute("data-responsive-table", "cards");
+  expect(within(table!).getAllByRole("row")).toHaveLength(2);
+  const directRow = within(table!).getByText("本机网络").closest("tr");
+  expect(directRow).toHaveAttribute("data-responsive-row", "card");
+  expect(within(directRow!).getByText("地址")).toBeInTheDocument();
+  expect(within(directRow!).getByText("认证")).toBeInTheDocument();
+  expect(within(directRow!).getByText("连通性")).toBeInTheDocument();
   expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(0);
   expect(screen.getByText("本机网络")).toBeInTheDocument();
   // Default global route is DIRECT — show the activation marker, no set-global action.

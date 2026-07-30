@@ -106,7 +106,7 @@ async fn grok_free_billing_reads_the_current_upstream_token_headers() {
 }
 
 #[tokio::test]
-async fn grok_quota_includes_only_real_runtime_exhaustion_observations() {
+async fn grok_fresh_authoritative_balance_clears_numeric_exhaustion_observation() {
     let context = QuotaTestContext::new_grok_unified().await;
     let snapshot = context.snapshots.load();
     let binding = snapshot
@@ -129,26 +129,24 @@ async fn grok_quota_includes_only_real_runtime_exhaustion_observations() {
         .query_quota(context.account_id)
         .await
         .expect("Grok quota query");
-    let observed = quota
-        .usage
-        .account_status
-        .expect("account status")
-        .quota_exhaustion
-        .expect("quota exhaustion");
-
-    assert_eq!(observed.used, Some(1_065_387));
-    assert_eq!(observed.limit, Some(1_000_000));
-    assert!(observed.observed_at > 0);
+    assert!(
+        quota
+            .usage
+            .account_status
+            .expect("account status")
+            .quota_exhaustion
+            .is_none()
+    );
     let balance = quota.usage.token_balance.expect("upstream token balance");
     assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Upstream);
-    assert_eq!(balance.used, 1_065_387);
-    assert_eq!(balance.limit, 1_000_000);
-    assert_eq!(balance.remaining, 0);
+    assert_eq!(balance.used, 250_000);
+    assert_eq!(balance.limit, 2_000_000);
+    assert_eq!(balance.remaining, 1_750_000);
     assert_eq!(balance.window_seconds, None);
 }
 
 #[tokio::test]
-async fn grok_exhaustion_without_numbers_keeps_the_fresh_header_balance() {
+async fn grok_fresh_authoritative_balance_clears_non_numeric_exhaustion_observation() {
     let context = QuotaTestContext::new_grok_unified().await;
     let snapshot = context.snapshots.load();
     let binding = snapshot
@@ -181,7 +179,7 @@ async fn grok_exhaustion_without_numbers_keeps_the_fresh_header_balance() {
             .account_status
             .expect("account status")
             .quota_exhaustion
-            .is_some()
+            .is_none()
     );
 }
 

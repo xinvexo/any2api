@@ -57,27 +57,42 @@ export function GatewayApiKeyList({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="搜索关键字"
-            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
+            className="focus-ring h-10 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[13px] text-primary placeholder:text-tertiary sm:h-8 sm:text-[12px]"
           />
         </label>
 
-        <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
-          <Button variant="ghost" onClick={onRefresh} disabled={refreshing}>
+        <div className="flex items-center justify-end gap-1.5">
+          <Button
+            className="size-10 min-h-10 px-0 sm:h-7 sm:min-h-7 sm:w-auto sm:px-3"
+            variant="ghost"
+            onClick={onRefresh}
+            disabled={refreshing}
+            aria-label="刷新"
+            title="刷新"
+          >
             <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
-            刷新
+            <span className="hidden sm:inline">刷新</span>
           </Button>
-          <Button variant="primary" onClick={onCreate} disabled={pending}>
+          <Button
+            className="h-10 min-h-10 px-4 sm:h-7 sm:min-h-7 sm:px-3"
+            variant="primary"
+            onClick={onCreate}
+            disabled={pending}
+          >
             <Plus size={14} />
             新增
           </Button>
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[860px] border-collapse text-left text-[12px]">
+      <div className="sm:overflow-x-auto">
+        <table
+          className="block w-full text-left text-[12px] sm:table sm:min-w-[860px] sm:border-collapse"
+          data-responsive-table="cards"
+        >
           <caption className="sr-only">网关密钥列表</caption>
-          <thead>
-            <tr className="border-b border-subtle text-secondary">
+          <thead className="hidden sm:table-header-group">
+            <tr className="border-b border-subtle text-secondary whitespace-nowrap">
               <th className="py-2.5 pr-3 font-medium">名称</th>
               <th className="px-3 py-2.5 font-medium">调用统计</th>
               <th className="px-3 py-2.5 font-medium">状态</th>
@@ -86,7 +101,7 @@ export function GatewayApiKeyList({
               <th className="py-2.5 pl-3 text-right font-medium">操作</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="grid gap-2 py-3 sm:table-row-group sm:py-0">
             {filtered.map((key) => (
               <GatewayApiKeyTableRow
                 key={key.id}

@@ -291,6 +291,31 @@ async fn token_refresh_failure_does_not_report_a_definitively_invalid_account() 
 }
 
 #[tokio::test]
+async fn invalid_grant_is_reported_as_a_definitively_invalid_account() {
+    let context = TestContext::new().await;
+    context.transport.use_invalid_grant_refresh_rejection();
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let response = request(
+        context.app,
+        Method::GET,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota",
+            context.codex_account_id
+        ),
+        loopback,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response.json["error"]["code"],
+        "oauth_account_authentication_failed"
+    );
+    assert_eq!(context.transport.calls(), 2);
+}
+
+#[tokio::test]
 async fn a_second_unauthorized_response_after_refresh_is_definitively_invalid() {
     let context = TestContext::new().await;
     context.transport.use_persistent_authentication_rejection();
@@ -456,6 +481,7 @@ struct QuotaTransport {
     consume_calls: AtomicUsize,
     grok_free_subscription: AtomicBool,
     authentication_refresh_failure: AtomicBool,
+    invalid_grant_refresh_rejection: AtomicBool,
     persistent_authentication_rejection: AtomicBool,
     captured: Mutex<Vec<CapturedRequest>>,
     redeem_request_id: Mutex<Option<String>>,
@@ -468,6 +494,7 @@ impl QuotaTransport {
             consume_calls: AtomicUsize::new(0),
             grok_free_subscription: AtomicBool::new(false),
             authentication_refresh_failure: AtomicBool::new(false),
+            invalid_grant_refresh_rejection: AtomicBool::new(false),
             persistent_authentication_rejection: AtomicBool::new(false),
             captured: Mutex::new(Vec::new()),
             redeem_request_id: Mutex::new(None),
@@ -488,6 +515,11 @@ impl QuotaTransport {
 
     fn use_authentication_refresh_failure(&self) {
         self.authentication_refresh_failure
+            .store(true, Ordering::Release);
+    }
+
+    fn use_invalid_grant_refresh_rejection(&self) {
+        self.invalid_grant_refresh_rejection
             .store(true, Ordering::Release);
     }
 
@@ -680,6 +712,26 @@ impl TransportManager for QuotaTransport {
                     status,
                     headers: HeaderMap::new(),
                     body: Box::pin(stream::iter([Ok(Bytes::from_static(b"{}"))])),
+                    read_failure_scope: TransportFailureScope::Endpoint,
+                });
+            }
+        }
+        if self.invalid_grant_refresh_rejection.load(Ordering::Acquire) {
+            let forced = match path.as_str() {
+                "/backend-api/wham/usage" => {
+                    Some((StatusCode::UNAUTHORIZED, Bytes::from_static(b"{}")))
+                }
+                "/oauth/token" => Some((
+                    StatusCode::BAD_REQUEST,
+                    Bytes::from_static(br#"{"error":"invalid_grant"}"#),
+                )),
+                _ => None,
+            };
+            if let Some((status, body)) = forced {
+                return Ok(TransportResponse {
+                    status,
+                    headers: HeaderMap::new(),
+                    body: Box::pin(stream::iter([Ok(body)])),
                     read_failure_scope: TransportFailureScope::Endpoint,
                 });
             }

@@ -2,7 +2,7 @@
 
 use std::sync::{
     Mutex,
-    atomic::{AtomicU32, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
 };
 
 use any2api_transport::api::{
@@ -22,6 +22,7 @@ pub(super) enum AuthenticationMode {
     AlwaysReject,
     AlwaysForbidden,
     RefreshRejected,
+    RefreshInvalidGrant,
 }
 
 pub(super) struct CapturedQuotaRequest {
@@ -50,6 +51,7 @@ pub(super) struct QuotaTransport {
     consume_calls: AtomicUsize,
     block_consume: bool,
     grok_unified: bool,
+    codex_exhausted: AtomicBool,
     consume_started: Semaphore,
     consume_release: Semaphore,
     captured: Mutex<Vec<CapturedQuotaRequest>>,
@@ -69,6 +71,7 @@ impl QuotaTransport {
             consume_calls: AtomicUsize::new(0),
             block_consume,
             grok_unified: false,
+            codex_exhausted: AtomicBool::new(false),
             consume_started: Semaphore::new(0),
             consume_release: Semaphore::new(0),
             captured: Mutex::new(Vec::new()),
@@ -136,6 +139,10 @@ impl QuotaTransport {
             .filter(|request| request.path.ends_with("/usage"))
             .filter_map(|request| request.authorization)
             .collect()
+    }
+
+    pub(super) fn set_codex_exhausted(&self, exhausted: bool) {
+        self.codex_exhausted.store(exhausted, Ordering::Release);
     }
 }
 
@@ -209,6 +216,9 @@ impl QuotaTransport {
         if self.authentication == AuthenticationMode::RefreshRejected {
             return service_unavailable();
         }
+        if self.authentication == AuthenticationMode::RefreshInvalidGrant {
+            return invalid_grant();
+        }
         ok(Bytes::from_static(
             br#"{"access_token":"new-access","expires_in":3600}"#,
         ))
@@ -218,9 +228,15 @@ impl QuotaTransport {
         if let Some(rejected) = self.authentication_rejection() {
             return rejected;
         }
-        ok(Bytes::from_static(
-            br#"{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":25.0,"limit_window_seconds":18000,"reset_after_seconds":60,"reset_at":1900000000},"secondary_window":null},"rate_limit_reset_credits":{"available_count":7}}"#,
-        ))
+        if self.codex_exhausted.load(Ordering::Acquire) {
+            ok(Bytes::from_static(
+                br#"{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100.0,"limit_window_seconds":18000,"reset_after_seconds":60,"reset_at":1900000000},"secondary_window":null},"rate_limit_reset_credits":{"available_count":7}}"#,
+            ))
+        } else {
+            ok(Bytes::from_static(
+                br#"{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":25.0,"limit_window_seconds":18000,"reset_after_seconds":60,"reset_at":1900000000},"secondary_window":null},"rate_limit_reset_credits":{"available_count":7}}"#,
+            ))
+        }
     }
 
     fn claude_usage_response(&self) -> MockResponse {
@@ -318,7 +334,9 @@ impl QuotaTransport {
             AuthenticationMode::RejectOnce => None,
             AuthenticationMode::AlwaysReject => Some(unauthorized()),
             AuthenticationMode::AlwaysForbidden => Some(forbidden()),
-            AuthenticationMode::RefreshRejected => Some(unauthorized()),
+            AuthenticationMode::RefreshRejected | AuthenticationMode::RefreshInvalidGrant => {
+                Some(unauthorized())
+            }
         }
     }
 }
@@ -358,6 +376,15 @@ fn service_unavailable() -> MockResponse {
         StatusCode::SERVICE_UNAVAILABLE,
         HeaderMap::new(),
         Bytes::from_static(b"{}"),
+        false,
+    )
+}
+
+fn invalid_grant() -> MockResponse {
+    (
+        StatusCode::BAD_REQUEST,
+        HeaderMap::new(),
+        Bytes::from_static(br#"{"error":"invalid_grant"}"#),
         false,
     )
 }

@@ -161,6 +161,90 @@ async fn a_failed_token_refresh_does_not_claim_the_account_is_invalid() {
 }
 
 #[tokio::test]
+async fn invalid_grant_marks_the_account_authentication_as_failed() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::RefreshInvalidGrant).await;
+
+    assert!(matches!(
+        context.service.query_quota(context.account_id).await,
+        Err(OAuthQuotaError::AuthenticationFailed)
+    ));
+    let snapshot = context.snapshots.load();
+    let health = snapshot
+        .credential_runtime(RoutingCredentialId::oauth_account(context.account_id))
+        .expect("OAuth runtime")
+        .generation()
+        .health();
+    assert_eq!(
+        health.availability("gpt-5.5"),
+        Err(HealthAcquireError::Permanent)
+    );
+    assert_eq!(context.transport.refresh_calls(), 1);
+    assert_eq!(context.transport.usage_calls(), 1);
+}
+
+#[tokio::test]
+async fn rejected_access_token_without_refresh_token_is_authentication_failed() {
+    let context = QuotaTestContext::new_without_refresh_token().await;
+
+    assert!(matches!(
+        context.service.query_quota(context.account_id).await,
+        Err(OAuthQuotaError::AuthenticationFailed)
+    ));
+    let snapshot = context.snapshots.load();
+    let health = snapshot
+        .credential_runtime(RoutingCredentialId::oauth_account(context.account_id))
+        .expect("OAuth runtime")
+        .generation()
+        .health();
+    assert_eq!(
+        health.availability("gpt-5.5"),
+        Err(HealthAcquireError::Permanent)
+    );
+    assert_eq!(context.transport.refresh_calls(), 0);
+}
+
+#[tokio::test]
+async fn explicit_quota_exhaustion_blocks_routing_until_a_fresh_available_snapshot() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+    context.transport.set_codex_exhausted(true);
+
+    let exhausted = context
+        .service
+        .query_quota(context.account_id)
+        .await
+        .expect("exhausted quota snapshot");
+    assert!(
+        exhausted
+            .usage
+            .account_status
+            .as_ref()
+            .and_then(|status| status.quota_exhaustion)
+            .is_some()
+    );
+    let snapshot = context.snapshots.load();
+    let generation = Arc::clone(
+        snapshot
+            .credential_runtime(RoutingCredentialId::oauth_account(context.account_id))
+            .expect("OAuth runtime")
+            .generation(),
+    );
+    assert!(matches!(
+        generation.health().availability("gpt-5.5"),
+        Err(HealthAcquireError::Temporary(_))
+    ));
+    drop(snapshot);
+
+    context.transport.set_codex_exhausted(false);
+    let available = context
+        .service
+        .query_quota(context.account_id)
+        .await
+        .expect("available quota snapshot");
+    assert!(available.usage.account_status.is_none());
+    assert_eq!(generation.health().availability("gpt-5.5"), Ok(()));
+}
+
+#[tokio::test]
 async fn concurrent_resets_serialize_and_only_consume_the_last_credit_once() {
     let context = QuotaTestContext::new_blocking_reset(1).await;
     let first_service = Arc::clone(&context.service);

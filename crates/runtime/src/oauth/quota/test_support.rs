@@ -44,6 +44,22 @@ impl QuotaTestContext {
         .await
     }
 
+    pub(super) async fn new_without_refresh_token() -> Self {
+        Self::with_account(
+            Arc::new(QuotaTransport::new(
+                0,
+                AuthenticationMode::AlwaysReject,
+                false,
+            )),
+            ProviderKind::Codex,
+            "Codex OAuth",
+            Some("person@example.com".into()),
+            vec!["gpt-5.5".into()],
+            codex_oauth_document_without_refresh_token(),
+        )
+        .await
+    }
+
     pub(super) async fn new_grok() -> Self {
         Self::new_grok_with_authentication(AuthenticationMode::Accepted).await
     }
@@ -176,6 +192,16 @@ fn codex_oauth_document() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Codex,
         br#"{"type":"codex","access_token":"old-access","refresh_token":"old-refresh","account_id":"account-123"}"#
+            .to_vec()
+            .into(),
+    )
+    .expect("OAuth document")
+}
+
+fn codex_oauth_document_without_refresh_token() -> OAuthAccountDocument {
+    OAuthAccountDocument::new(
+        ProviderKind::Codex,
+        br#"{"type":"codex","access_token":"old-access","account_id":"account-123"}"#
             .to_vec()
             .into(),
     )

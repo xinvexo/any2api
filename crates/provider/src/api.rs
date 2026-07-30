@@ -15,8 +15,8 @@ pub use crate::oauth::{
     parse_oauth_import_document,
 };
 pub use crate::oauth::{
-    OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan,
-    OAuthTokenMaterial, serialize_document,
+    OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow,
+    OAuthRefreshRejection, OAuthRequestPlan, OAuthTokenMaterial, serialize_document,
 };
 pub use crate::oauth::{
     OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
@@ -188,6 +188,14 @@ pub trait ProviderDriver: Send + Sync {
     ) -> Result<OAuthTokenMaterial, ProviderError> {
         self.parse_oauth_token(body)?
             .with_refresh_fallbacks(previous)
+    }
+
+    fn classify_oauth_refresh_rejection(
+        &self,
+        status: StatusCode,
+        bounded_body: &[u8],
+    ) -> OAuthRefreshRejection {
+        OAuthRefreshRejection::classify(status, bounded_body)
     }
 
     fn oauth_routing_profile(
