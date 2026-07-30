@@ -67,15 +67,6 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
     });
   }
 
-  function discardItem(item: SettingItem) {
-    mutation.reset();
-    setDrafts((current) => {
-      const next = { ...current };
-      delete next[item.key];
-      return next;
-    });
-  }
-
   function discard() {
     mutation.reset();
     setDrafts({});
@@ -132,7 +123,6 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
     isResetPending: (item: SettingItem) => hasDraft(drafts, item.key) && drafts[item.key] === null,
     setDraft,
     stageReset,
-    discardItem,
     discard,
     refresh,
     save,

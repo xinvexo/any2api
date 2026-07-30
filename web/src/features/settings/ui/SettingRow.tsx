@@ -1,4 +1,4 @@
-import { RotateCcw, Undo2 } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useId } from "react";
 
 import type { SettingItem } from "../api/settings-contracts";
@@ -11,22 +11,18 @@ interface SettingRowProps {
   item: SettingItem;
   value: SettingDraft;
   pending: boolean;
-  dirty: boolean;
   resetPending: boolean;
   onChange: (item: SettingItem, value: SettingDraft) => void;
   onReset: (item: SettingItem) => void;
-  onDiscard: (item: SettingItem) => void;
 }
 
 export function SettingRow({
   item,
   value,
   pending,
-  dirty,
   resetPending,
   onChange,
   onReset,
-  onDiscard,
 }: SettingRowProps) {
   const label = settingLabel(item);
   const headingId = useId();
@@ -36,7 +32,6 @@ export function SettingRow({
   const errorMessage = validation.error;
   const describedBy = errorMessage ? `${descriptionId} ${errorId}` : descriptionId;
   const restartHint = reloadLabel(item);
-  const showActions = dirty || (item.overrideValue !== null && !resetPending);
   const wideControl = item.valueType === "string_list";
 
   return (
@@ -71,34 +66,19 @@ export function SettingRow({
           onChange={(next) => onChange(item, next)}
         />
 
-        {showActions ? (
+        {item.overrideValue !== null && !resetPending ? (
           <div className="flex flex-wrap items-center justify-end gap-1">
-            {item.overrideValue !== null && !resetPending ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onReset(item)}
-                disabled={pending}
-                aria-label={`恢复${label}默认值`}
-              >
-                <RotateCcw size={13} />
-                恢复默认
-              </Button>
-            ) : null}
-            {dirty ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onDiscard(item)}
-                disabled={pending}
-                aria-label={`撤销${label}修改`}
-              >
-                <Undo2 size={13} />
-                撤销修改
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onReset(item)}
+              disabled={pending}
+              aria-label={`恢复${label}默认值`}
+            >
+              <RotateCcw size={13} />
+              恢复默认
+            </Button>
           </div>
         ) : null}
       </div>

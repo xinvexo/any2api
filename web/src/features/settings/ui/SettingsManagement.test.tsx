@@ -102,7 +102,7 @@ test("keeps all drafts after a revision conflict and retries with refreshed revi
   await waitFor(() => expect(revisions).toEqual([1, 2]));
 });
 
-test("searches, selects, clears, and batch-saves the global model allowlist", async () => {
+test("searches, toggles, and batch-saves the global model allowlist", async () => {
   let current = modelConfiguration(1, null);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "PATCH") {
@@ -119,12 +119,13 @@ test("searches, selects, clears, and batch-saves the global model allowlist", as
   expect(screen.getByText("已允许 3 / 3")).toBeInTheDocument();
   const search = screen.getByRole("textbox", { name: "搜索可用模型" });
   fireEvent.change(search, { target: { value: "gpt" } });
-  fireEvent.click(screen.getByRole("button", { name: "清除当前" }));
-  expect(screen.getByRole("button", { name: "gpt-a" })).toHaveAttribute("aria-pressed", "false");
-  fireEvent.click(screen.getByRole("button", { name: "选择当前" }));
   fireEvent.click(screen.getByRole("button", { name: "gpt-a" }));
+  expect(screen.getByRole("button", { name: "gpt-a" })).toHaveAttribute("aria-pressed", "false");
   fireEvent.change(search, { target: { value: "" } });
-  expect(screen.getByRole("group", { name: "可用模型" }).querySelector(".grid")).not.toBeNull();
+  expect(screen.getByRole("group", { name: "可用模型" }).querySelector(".flex-wrap")).not.toBeNull();
+  expect(screen.queryByRole("button", { name: "选择当前" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "清除当前" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "撤销可使用的模型修改" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "claude" }));
   fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
 

@@ -1,10 +1,9 @@
-import { Check, Search, X } from "lucide-react";
+import { Check, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { SettingItem } from "../api/settings-contracts";
 import type { ModelAccessDraft, SettingDraft } from "../model/setting-draft";
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
 import { Switch } from "@/shared/ui/Switch";
 
@@ -50,16 +49,6 @@ export function ModelAllowlistControl({
     publish(next);
   }
 
-  function selectVisible() {
-    publish(new Set([...selected, ...visible]));
-  }
-
-  function clearVisible() {
-    const next = new Set(selected);
-    visible.forEach((model) => next.delete(model));
-    publish(next);
-  }
-
   return (
     <div className="min-w-0 space-y-2.5" role="group" aria-labelledby={labelledBy}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -84,27 +73,6 @@ export function ModelAllowlistControl({
           />
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={disabled || access.mode === "all" || visible.length === 0}
-          onClick={selectVisible}
-        >
-          <Check size={14} aria-hidden="true" />
-          选择当前
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={disabled || access.mode === "all" || visible.length === 0}
-          onClick={clearVisible}
-        >
-          <X size={14} aria-hidden="true" />
-          清除当前
-        </Button>
-      </div>
-
       <div className="relative">
         <Search
           size={14}
@@ -132,7 +100,7 @@ export function ModelAllowlistControl({
             {query.trim() ? "没有匹配的模型" : "暂无已发布模型"}
           </p>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-1.5 p-0.5">
+          <div className="flex flex-wrap items-center gap-1.5 p-0.5">
             {visible.map((model) => {
               const checked = selected.has(model);
               return (
@@ -140,11 +108,11 @@ export function ModelAllowlistControl({
                   key={model}
                   type="button"
                   className={cn(
-                    "focus-ring flex h-9 min-w-0 items-center gap-2 rounded-[7px] border px-2.5 text-left transition-colors",
+                    "focus-ring inline-flex h-8 w-fit max-w-full min-w-0 shrink-0 items-center gap-1.5 rounded-[7px] border px-2.5 text-left transition-colors",
                     "disabled:cursor-not-allowed disabled:opacity-45",
                     checked
-                      ? "border-accent/40 bg-accent/10 text-accent-copy hover:bg-accent/15"
-                      : "border-subtle bg-surface text-primary hover:border-strong hover:bg-surface-hover",
+                      ? "border-accent/35 bg-accent/10 text-accent-copy hover:bg-accent/15"
+                      : "border-transparent bg-surface-muted text-primary hover:bg-surface-hover",
                   )}
                   aria-label={model}
                   aria-pressed={checked}
@@ -157,7 +125,7 @@ export function ModelAllowlistControl({
                     className={cn("shrink-0", checked ? "opacity-100" : "opacity-0")}
                     aria-hidden="true"
                   />
-                  <span className="min-w-0 flex-1 truncate font-mono text-[12px]">
+                  <span className="min-w-0 truncate font-mono text-[12px]">
                     {model}
                   </span>
                 </button>
