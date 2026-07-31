@@ -1,4 +1,12 @@
-import { Activity, Globe, LoaderCircle, Pencil, Trash2 } from "lucide-react";
+import {
+  Activity,
+  Globe,
+  LoaderCircle,
+  LockKeyhole,
+  Network,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { ProxyProfile, ProxyTestResult } from "../api/proxy-contracts";
@@ -22,7 +30,7 @@ export interface ProxyTableRowProps {
 }
 
 const MOBILE_ICON_ACTION =
-  "h-10 w-10 shrink-0 justify-center whitespace-nowrap px-0 sm:h-7 sm:w-auto sm:px-1.5";
+  "h-9 w-9 shrink-0 justify-center whitespace-nowrap rounded-full px-0 sm:h-7 sm:w-auto sm:rounded-[7px] sm:px-1.5";
 
 export function ProxyTableRow({
   proxy,
@@ -38,47 +46,60 @@ export function ProxyTableRow({
   onDelete,
 }: ProxyTableRowProps) {
   const endpoint = proxy.host && proxy.port ? `${proxy.host}:${proxy.port}` : "本机网络";
+  const authentication = proxy.builtIn
+    ? "无需认证"
+    : proxy.passwordConfigured
+      ? proxy.username ?? "已配置认证"
+      : "无认证";
 
   return (
     <tr
       data-responsive-row="card"
-      className="grid grid-cols-[minmax(0,1fr)_auto] overflow-hidden rounded-[14px] bg-surface-muted/45 transition-colors sm:table-row sm:rounded-none sm:border-b sm:border-subtle/50 sm:bg-transparent sm:last:border-b-0 sm:hover:bg-surface-muted/20"
+      className="grid grid-cols-[minmax(0,1fr)_auto] rounded-[14px] bg-surface-muted/55 p-3 transition-colors sm:table-row sm:rounded-none sm:border-b sm:border-subtle/50 sm:bg-transparent sm:p-0 sm:last:border-b-0 sm:hover:bg-surface-muted/20"
     >
-      <td className="col-start-1 row-start-1 min-w-0 px-3 pb-2.5 pt-3 align-middle sm:table-cell sm:py-2.5 sm:pl-0 sm:pr-3">
+      <td className="col-start-1 row-start-1 min-w-0 align-middle sm:table-cell sm:py-2.5 sm:pl-0 sm:pr-3">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <p className="min-w-0 break-words font-medium text-primary [overflow-wrap:anywhere]">
+          <p className="min-w-0 break-words text-[13px] font-semibold tracking-tight text-primary [overflow-wrap:anywhere] sm:text-[12px] sm:font-medium sm:tracking-normal">
             {proxy.name}
           </p>
           {isGlobal ? <GlobalRouteBadge /> : null}
         </div>
       </td>
-      <td className="col-start-2 row-start-1 flex items-center justify-end px-3 pb-2.5 pt-3 align-middle sm:table-cell sm:px-3 sm:py-2.5">
+      <td className="col-start-2 row-start-1 flex items-center justify-end align-middle sm:table-cell sm:px-3 sm:py-2.5">
         <Badge>{proxy.kind.toUpperCase()}</Badge>
       </td>
-      <td className="col-span-2 row-start-2 grid min-w-0 grid-cols-1 gap-1 border-t border-subtle px-3 py-2.5 align-middle sm:table-cell sm:border-t-0 sm:px-3">
+      <td className="col-span-2 row-start-2 min-w-0 pt-1.5 align-middle sm:table-cell sm:px-3 sm:py-2.5">
         <MobileFieldLabel>地址</MobileFieldLabel>
-        <span className="min-w-0 break-words text-secondary [overflow-wrap:anywhere]">{endpoint}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-secondary sm:block sm:text-[12px]">
+          <Network size={12} className="shrink-0 text-tertiary sm:hidden" aria-hidden="true" />
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">{endpoint}</span>
+        </span>
       </td>
-      <td className="col-start-1 row-start-3 min-w-0 px-3 py-1.5 align-middle sm:table-cell sm:px-3 sm:py-2.5">
+      <td className="col-start-1 row-start-3 min-w-0 pt-2.5 align-middle sm:table-cell sm:px-3 sm:py-2.5">
         <MobileFieldLabel>状态</MobileFieldLabel>
-        <div className="mt-1 flex flex-wrap items-center gap-2 sm:mt-0">
+        <div className="flex flex-wrap items-center gap-2">
           <ProxyStatus enabled={proxy.enabled} />
           {proxy.builtIn ? <span className="text-[11px] text-tertiary">内置</span> : null}
         </div>
       </td>
-      <td className="col-start-2 row-start-3 min-w-0 px-3 py-1.5 align-middle sm:table-cell sm:px-3 sm:py-2.5 sm:text-secondary">
+      <td className="col-start-2 row-start-3 min-w-0 pt-2.5 text-right align-middle sm:table-cell sm:px-3 sm:py-2.5 sm:text-left sm:text-secondary">
         <MobileFieldLabel>认证</MobileFieldLabel>
-        <span className="mt-1 block break-words text-secondary [overflow-wrap:anywhere] sm:mt-0">
+        <span className="inline-flex min-w-0 items-center justify-end gap-1.5 text-[11px] text-tertiary sm:hidden">
+          <LockKeyhole size={11} className="shrink-0" aria-hidden="true" />
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">{authentication}</span>
+        </span>
+        <span className="hidden break-words text-secondary [overflow-wrap:anywhere] sm:inline">
           {proxy.builtIn ? "—" : proxy.passwordConfigured ? proxy.username ?? "已配置" : "无"}
         </span>
       </td>
-      <td className="col-span-2 row-start-4 grid min-w-0 grid-cols-[4.5rem_minmax(0,1fr)] items-center gap-3 px-3 pb-2.5 pt-1.5 align-middle sm:table-cell sm:w-[178px] sm:min-w-[178px] sm:max-w-[178px] sm:px-3 sm:py-2.5">
+      <td className="col-start-1 row-start-4 min-w-0 pt-2 align-middle sm:table-cell sm:w-[178px] sm:min-w-[178px] sm:max-w-[178px] sm:px-3 sm:py-2.5">
         <MobileFieldLabel>连通性</MobileFieldLabel>
-        <div className="flex min-w-0 justify-end sm:block">
+        <div className="flex min-w-0 items-center gap-1.5 sm:block">
+          <Activity size={12} className="shrink-0 text-tertiary sm:hidden" aria-hidden="true" />
           <ProxyTestStatus testing={testing} result={testResult} error={testError} />
         </div>
       </td>
-      <td className="col-span-2 row-start-5 border-t border-subtle px-2 py-1.5 align-middle sm:table-cell sm:border-t-0 sm:py-2.5 sm:pl-3 sm:pr-0">
+      <td className="col-start-2 row-start-4 pt-1 align-middle sm:table-cell sm:py-2.5 sm:pl-3 sm:pr-0">
         <div className="flex items-center justify-end gap-0.5">
           <RowActionButton
             label={`测试 ${proxy.name}`}
@@ -134,11 +155,7 @@ export function ProxyTableRow({
 }
 
 function MobileFieldLabel({ children }: { children: ReactNode }) {
-  return (
-    <span className="text-[11px] font-medium text-tertiary sm:hidden">
-      {children}
-    </span>
-  );
+  return <span className="sr-only sm:hidden">{children}</span>;
 }
 
 function ProxyTestStatus({
@@ -172,14 +189,21 @@ function ProxyTestStatus({
 
   return (
     <div
-      className="grid h-6 w-[154px] shrink-0 grid-cols-[64px_84px] items-center gap-1.5 text-[11px] font-medium"
+      className="flex h-7 w-auto shrink-0 items-center gap-1.5 text-[11px] font-medium sm:grid sm:h-6 sm:w-[154px] sm:grid-cols-[64px_84px]"
       role={error ? "alert" : "status"}
       aria-label={diagnostic}
       title={diagnostic}
       data-testid="proxy-test-status"
     >
-      <span className={cn("text-center", proxyTestToneClass(tone))}>{status}</span>
-      <span className="text-center text-tertiary tabular-nums">{latency}</span>
+      <span className={cn("sm:text-center", proxyTestToneClass(tone))}>{status}</span>
+      <span
+        className={cn(
+          "text-tertiary tabular-nums sm:text-center",
+          latency === "—" && "hidden sm:block",
+        )}
+      >
+        {latency}
+      </span>
     </div>
   );
 }
@@ -238,9 +262,9 @@ function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+        "inline-flex items-center rounded-full bg-surface/70 px-1.5 py-0.5 text-[10px] font-medium text-secondary sm:rounded-md sm:bg-surface-muted sm:text-[11px]",
         tone === "success" && "bg-success/10 text-success",
-        tone === "neutral" && "bg-surface-muted text-secondary",
+        tone === "neutral" && "text-secondary",
       )}
     >
       {children}

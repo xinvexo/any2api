@@ -35,9 +35,11 @@ test("renders DIRECT in a table-style proxy list", async () => {
   expect(within(table!).getAllByRole("row")).toHaveLength(2);
   const directRow = within(table!).getByText("本机网络").closest("tr");
   expect(directRow).toHaveAttribute("data-responsive-row", "card");
+  expect(directRow).toHaveClass("rounded-[14px]", "bg-surface-muted/55");
   expect(within(directRow!).getByText("地址")).toBeInTheDocument();
   expect(within(directRow!).getByText("认证")).toBeInTheDocument();
   expect(within(directRow!).getByText("连通性")).toBeInTheDocument();
+  expect(within(directRow!).getByText("无需认证")).toBeInTheDocument();
   expect(screen.getAllByText("DIRECT").length).toBeGreaterThan(0);
   expect(screen.getByText("本机网络")).toBeInTheDocument();
   // Default global route is DIRECT — show the activation marker, no set-global action.

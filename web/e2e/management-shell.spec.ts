@@ -82,7 +82,7 @@ test("gateway key usage is a fixed time axis with hover and keyboard details", a
   const mobileRow = mobileTable.locator("tbody > tr");
   await expect(mobileRow).toHaveCount(1);
   await expect(mobileRow).toHaveCSS("display", "grid");
-  await expect(mobileRow).toHaveCSS("border-radius", "8px");
+  await expect(mobileRow).toHaveCSS("border-radius", "14px");
   await expect(mobileTable.getByRole("columnheader", { name: "名称" })).toBeHidden();
   await expect(mobileRow.getByText("调用统计", { exact: true })).toBeVisible();
   await expect(mobileRow.getByText("最后使用", { exact: true })).toBeVisible();
@@ -116,11 +116,11 @@ test("proxy rows reflow into single mobile cards and return to desktop rows", as
   const row = table.locator("tbody > tr");
   await expect(row).toHaveCount(1);
   await expect(row).toHaveCSS("display", "grid");
-  await expect(row).toHaveCSS("border-radius", "8px");
+  await expect(row).toHaveCSS("border-radius", "14px");
   await expect(table.getByRole("columnheader", { name: "名称" })).toBeHidden();
-  await expect(row.getByText("地址", { exact: true })).toBeVisible();
-  await expect(row.getByText("认证", { exact: true })).toBeVisible();
-  await expect(row.getByText("连通性", { exact: true })).toBeVisible();
+  await expect(row.getByText("本机网络", { exact: true })).toBeVisible();
+  await expect(row.locator("td").nth(4)).toContainText(/无需认证|无认证|—/);
+  await expect(row.getByText("未测试", { exact: true })).toBeVisible();
   await expect(row.getByRole("button", { name: "测试 DIRECT" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 

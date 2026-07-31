@@ -118,6 +118,7 @@ test("lists keys with a real time window and hover or focus details", async () =
   expect(within(table!).getAllByRole("row")).toHaveLength(2);
   const keyRow = within(table!).getByText("Desktop").closest("tr");
   expect(keyRow).toHaveAttribute("data-responsive-row", "card");
+  expect(keyRow).toHaveClass("rounded-[14px]", "bg-surface-muted/55");
   expect(within(keyRow!).getByText("调用统计")).toBeInTheDocument();
   expect(within(keyRow!).getByText("最后使用")).toBeInTheDocument();
   expect(within(keyRow!).getByText("创建时间")).toBeInTheDocument();
@@ -129,6 +130,11 @@ test("lists keys with a real time window and hover or focus details", async () =
   expect(screen.getByRole("switch", { name: "禁用 Desktop" })).toHaveAttribute(
     "aria-checked",
     "true",
+  );
+  expect(screen.getByRole("switch", { name: "禁用 Desktop" }).parentElement).toHaveClass(
+    "absolute",
+    "right-3",
+    "top-3",
   );
   expect(screen.getByRole("button", { name: "轮换 Desktop 的密钥" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除 Desktop" })).toBeInTheDocument();

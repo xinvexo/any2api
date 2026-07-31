@@ -16,7 +16,7 @@ export interface GatewayApiKeyTableRowProps {
 }
 
 const MOBILE_ICON_ACTION =
-  "h-10 w-10 shrink-0 justify-center whitespace-nowrap px-0 sm:h-7 sm:w-auto sm:px-1.5";
+  "h-9 w-9 shrink-0 justify-center whitespace-nowrap rounded-full px-0 sm:h-7 sm:w-auto sm:rounded-[7px] sm:px-1.5";
 
 export function GatewayApiKeyTableRow({
   apiKey,
@@ -39,35 +39,37 @@ export function GatewayApiKeyTableRow({
     <tr
       data-floating-bounds
       data-responsive-row="card"
-      className="grid grid-cols-1 overflow-hidden rounded-[14px] bg-surface-muted/45 transition-colors sm:table-row sm:rounded-none sm:border-b sm:border-subtle/50 sm:bg-transparent sm:last:border-b-0 sm:hover:bg-surface-muted/20"
+      className="relative grid grid-cols-1 rounded-[14px] bg-surface-muted/55 p-3 transition-colors sm:table-row sm:rounded-none sm:border-b sm:border-subtle/50 sm:bg-transparent sm:p-0 sm:last:border-b-0 sm:hover:bg-surface-muted/20"
     >
-      <td className="min-w-0 px-3 pb-2.5 pt-3 align-middle sm:table-cell sm:py-2.5 sm:pl-0 sm:pr-3">
-        <p className="break-words font-medium text-primary [overflow-wrap:anywhere]">{apiKey.name}</p>
+      <td className="min-w-0 pr-14 align-middle sm:table-cell sm:py-2.5 sm:pl-0 sm:pr-3">
+        <p className="break-words text-[13px] font-semibold tracking-tight text-primary [overflow-wrap:anywhere] sm:text-[12px] sm:font-medium sm:tracking-normal">
+          {apiKey.name}
+        </p>
       </td>
-      <td className="min-w-0 border-t border-subtle px-3 py-2.5 align-middle sm:table-cell sm:border-t-0">
+      <td className="min-w-0 pt-2.5 align-middle sm:table-cell sm:px-3 sm:py-2.5">
         <MobileFieldLabel>调用统计</MobileFieldLabel>
         <RequestUsageStats
-          className="mt-2 flex-wrap items-center gap-x-1.5 gap-y-2 sm:mt-0 sm:flex-nowrap sm:gap-2.5"
+          className="mt-1.5 flex-wrap items-center gap-x-1.5 gap-y-2 sm:mt-0 sm:flex-nowrap sm:gap-2.5"
           label={apiKey.name}
           usage={apiKey.usage}
         />
       </td>
-      <td className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-3 px-3 py-1.5 align-middle sm:table-cell sm:px-3 sm:py-2.5 sm:text-secondary sm:tabular-nums">
+      <td className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-3 pt-2.5 align-middle sm:table-cell sm:px-3 sm:py-2.5 sm:text-secondary sm:tabular-nums">
         <MobileFieldLabel>最后使用</MobileFieldLabel>
         <span className="min-w-0 text-right text-secondary tabular-nums sm:text-left">
           {apiKey.lastUsedAt ? formatTimestamp(apiKey.lastUsedAt) : "—"}
         </span>
       </td>
-      <td className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-3 px-3 pb-2.5 pt-1.5 align-middle sm:table-cell sm:px-3 sm:py-2.5 sm:text-secondary sm:tabular-nums">
+      <td className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-3 pt-1.5 align-middle sm:table-cell sm:px-3 sm:py-2.5 sm:text-secondary sm:tabular-nums">
         <MobileFieldLabel>创建时间</MobileFieldLabel>
         <span className="min-w-0 text-right text-secondary tabular-nums sm:text-left">
           {formatTimestamp(apiKey.createdAt)}
         </span>
       </td>
-      <td className="border-t border-subtle px-2 py-1.5 align-middle sm:table-cell sm:border-t-0 sm:py-2.5 sm:pl-3 sm:pr-0">
-        <div className="flex items-center justify-end gap-1.5">
+      <td className="pt-1.5 align-middle sm:table-cell sm:py-2.5 sm:pl-3 sm:pr-0">
+        <div className="flex items-center justify-end gap-0.5 sm:gap-1.5">
           <span
-            className="inline-flex h-10 items-center sm:h-7"
+            className="absolute right-3 top-3 inline-flex h-7 items-center sm:static sm:h-7"
             title={apiKey.enabled ? "已启用" : "已停用"}
           >
             <Switch

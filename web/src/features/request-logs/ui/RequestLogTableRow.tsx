@@ -227,7 +227,7 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
           role="row"
           className="border-b border-subtle/50 bg-surface-muted/20"
         >
-          <div role="cell" className="px-3 pb-3 pt-2.5">
+          <div role="cell" className="pb-3 pl-[1.875rem] pr-3 pt-2.5">
             <RequestLogExpandedPanel
               requestId={log.requestId}
               failed={!isSuccessStatus(log.statusCode)}
