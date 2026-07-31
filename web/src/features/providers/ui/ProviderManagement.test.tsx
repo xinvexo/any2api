@@ -43,7 +43,9 @@ test("shows a stable API Key skeleton while an endpoint accordion loads", async 
   expect(loading.querySelectorAll("[data-skeleton]").length).toBeGreaterThan(0);
   expect(loading.parentElement).toHaveClass("col-span-2", "sm:col-span-1");
   expect(loading.parentElement?.previousElementSibling).toHaveClass("hidden", "sm:block");
-  expect(loading.children[1]).toHaveClass("pl-6", "pr-2", "sm:px-0");
+  expect(loading.parentElement?.parentElement).not.toHaveClass("px-2.5");
+  expect(loading.parentElement?.parentElement).toHaveClass("sm:px-3");
+  expect(loading.children[1]).toHaveClass("pl-[2.125rem]", "pr-2.5", "sm:px-0");
 
   await act(async () => {
     resolveCredentials(jsonResponse(credentialConfiguration(1, [credential()])));
@@ -53,7 +55,7 @@ test("shows a stable API Key skeleton while an endpoint accordion loads", async 
   const credentialName = await screen.findByText("Primary Key");
   expect(credentialName).toBeInTheDocument();
   const credentialCard = credentialName.closest("[data-floating-bounds]");
-  expect(credentialCard).toHaveClass("pl-6", "pr-2", "sm:px-0");
+  expect(credentialCard).toHaveClass("pl-[2.125rem]", "pr-2.5", "sm:px-0");
   expect(credentialCard?.closest(".col-span-2")).toHaveClass(
     "col-span-2",
     "sm:col-span-1",

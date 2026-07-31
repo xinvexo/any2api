@@ -37,7 +37,7 @@ export function ProviderCredentialTableRow({
     return (
       <div
         data-floating-bounds
-        className="min-w-0 max-w-full overflow-hidden rounded-[10px] bg-surface/80 py-2 pl-6 pr-2 sm:rounded-none sm:bg-transparent sm:px-0 sm:py-1.5"
+        className="min-w-0 max-w-full overflow-hidden rounded-[10px] bg-surface/80 py-2 pl-[2.125rem] pr-2.5 sm:rounded-none sm:bg-transparent sm:px-0 sm:py-1.5"
       >
         <div className="flex min-w-0 max-w-full flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <div className="min-w-0 flex-1 space-y-1 overflow-hidden">

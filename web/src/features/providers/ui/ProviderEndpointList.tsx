@@ -254,7 +254,7 @@ export function ProviderEndpointList({
                         expanded
                           ? cn(
                               ENDPOINT_CONTENT_GRID_CLASS,
-                              "min-w-0 px-2.5 pb-2 pt-1.5 sm:px-3",
+                              "min-w-0 pb-2 pt-1.5 sm:px-3",
                             )
                           : undefined
                       }
