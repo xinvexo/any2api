@@ -7,8 +7,8 @@ use any2api_domain::{
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
 use any2api_provider::api::{
-    OAuthDeviceTokenPoll, OAuthLoginFlow, ProviderDriver, ProviderRequestHeaderContext,
-    ProviderSecret, UpstreamResponseMeta,
+    OAuthDeviceTokenPoll, OAuthLoginFlow, OAuthProviderEgressStatus, OAuthQuotaRejection,
+    ProviderDriver, ProviderRequestHeaderContext, ProviderSecret, UpstreamResponseMeta,
 };
 use axum::http::{
     HeaderMap, HeaderValue, Method, StatusCode, Uri,
@@ -500,6 +500,32 @@ fn codex_contract(driver: &dyn ProviderDriver) {
         .credential_headers(&ProviderSecret::new(1, "sk-codex-contract"))
         .expect("Codex credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-codex-contract");
+    let egress = driver
+        .oauth_provider_egress_probe_plan()
+        .expect("Codex egress probe plan")
+        .expect("Codex egress probe");
+    assert_eq!(egress.method, Method::GET);
+    assert_eq!(
+        egress.url.as_str(),
+        "https://chatgpt.com/backend-api/wham/usage"
+    );
+    assert!(!egress.headers.contains_key(AUTHORIZATION));
+    assert!(!egress.headers.contains_key("chatgpt-account-id"));
+    let forbidden = UpstreamResponseMeta {
+        status: StatusCode::FORBIDDEN,
+        headers: HeaderMap::new(),
+    };
+    assert_eq!(
+        driver.classify_oauth_quota_rejection(
+            &forbidden,
+            br#"{"error":{"code":"unsupported_country_region_territory"}}"#,
+        ),
+        OAuthQuotaRejection::ProviderEgressRestricted
+    );
+    assert_eq!(
+        driver.classify_oauth_provider_egress(&forbidden, b"{}"),
+        OAuthProviderEgressStatus::Restricted
+    );
 }
 
 fn claude_contract(driver: &dyn ProviderDriver) {
@@ -686,6 +712,16 @@ fn grok_contract(driver: &dyn ProviderDriver) {
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ChatCompletions));
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesGenerations));
     assert!(!driver.oauth_supports_operation(ProtocolOperation::ImagesEdits));
+    assert_eq!(
+        driver.classify_oauth_quota_rejection(
+            &UpstreamResponseMeta {
+                status: StatusCode::FORBIDDEN,
+                headers: HeaderMap::new(),
+            },
+            br#"{"code":"unauthorized:blocked-user"}"#,
+        ),
+        OAuthQuotaRejection::AccountRestricted
+    );
     let authorization = driver
         .oauth_device_authorization_request()
         .expect("Grok device authorization request");

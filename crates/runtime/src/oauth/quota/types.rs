@@ -45,6 +45,8 @@ pub enum OAuthQuotaError {
     UpstreamRejected(u16),
     #[error("OAuth account access is restricted by the upstream provider")]
     AccountRestricted,
+    #[error("the OAuth provider rejected the current network egress")]
+    ProviderEgressRestricted,
     #[error("OAuth account authentication could not be verified because token refresh failed")]
     AuthenticationRefreshFailed,
     #[error("OAuth account was rejected after token refresh")]

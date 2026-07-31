@@ -32,7 +32,8 @@ const messages: Record<string, string> = {
   oauth_quota_timeout: "额度查询超时。",
   oauth_account_authentication_unverified: "账号认证无法确认：上游返回 401，但 Token 刷新未完成。",
   oauth_account_authentication_failed: "账号认证已失效：上游已明确拒绝当前认证。",
-  oauth_account_restricted: "账号访问被上游限制或封禁。",
+  oauth_account_restricted: "上游已明确限制此账号访问。",
+  oauth_provider_egress_restricted: "当前网络出口被上游拒绝，请检查或更换全局代理。",
   oauth_quota_upstream_failed: "上游额度请求失败。",
   oauth_quota_unavailable: "OAuth 额度管理当前不可用。",
 };

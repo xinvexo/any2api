@@ -45,6 +45,11 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
             "oauth_account_restricted",
             "the upstream provider restricted this OAuth account",
         ),
+        OAuthQuotaError::ProviderEgressRestricted => AdminApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "oauth_provider_egress_restricted",
+            "the OAuth provider rejected the current network egress",
+        ),
         OAuthQuotaError::UpstreamRejected(_)
         | OAuthQuotaError::ResponseTooLarge
         | OAuthQuotaError::Provider(_)

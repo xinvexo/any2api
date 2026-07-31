@@ -19,10 +19,11 @@ pub use crate::oauth::{
     OAuthRefreshRejection, OAuthRequestPlan, OAuthTokenMaterial, serialize_document,
 };
 pub use crate::oauth::{
-    OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
-    OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit,
-    OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement, OAuthQuotaTokenBalance,
-    OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
+    OAuthProviderEgressStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
+    OAuthQuotaBilling, OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
+    OAuthQuotaRejection, OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult,
+    OAuthQuotaSupplement, OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage,
+    OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 pub use crate::{ProviderError, ProviderRegistry, ProviderSecret};
 
@@ -226,6 +227,26 @@ pub trait ProviderDriver: Send + Sync {
         _token: &OAuthTokenMaterial,
     ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
         Ok(None)
+    }
+
+    fn classify_oauth_quota_rejection(
+        &self,
+        _meta: &UpstreamResponseMeta,
+        _bounded_body: &[u8],
+    ) -> OAuthQuotaRejection {
+        OAuthQuotaRejection::Unclassified
+    }
+
+    fn oauth_provider_egress_probe_plan(&self) -> Result<Option<OAuthRequestPlan>, ProviderError> {
+        Ok(None)
+    }
+
+    fn classify_oauth_provider_egress(
+        &self,
+        _meta: &UpstreamResponseMeta,
+        _bounded_body: &[u8],
+    ) -> OAuthProviderEgressStatus {
+        OAuthProviderEgressStatus::Unverified
     }
 
     fn parse_oauth_quota_usage(

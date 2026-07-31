@@ -21,6 +21,8 @@ pub(super) enum AuthenticationMode {
     RejectOnce,
     AlwaysReject,
     AlwaysForbidden,
+    CodexEgressRejected,
+    CodexEgressReachable,
     RefreshRejected,
     RefreshInvalidGrant,
 }
@@ -163,6 +165,7 @@ impl TransportManager for QuotaTransport {
             .get(AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
+        let authenticated = authorization.is_some();
         self.captured
             .lock()
             .expect("captured request lock")
@@ -185,7 +188,7 @@ impl TransportManager for QuotaTransport {
             });
         let (status, headers, body, body_must_not_be_polled) = match path.as_str() {
             "/oauth/token" | "/oauth2/token" | "/v1/oauth/token" => self.refresh_response(),
-            "/backend-api/wham/usage" => self.codex_usage_response(),
+            "/backend-api/wham/usage" => self.codex_usage_response(authenticated),
             "/api/oauth/usage" => self.claude_usage_response(),
             "/v1/billing" => self.grok_billing_response(),
             "/v1/user" => self.grok_subscription_response(),
@@ -224,7 +227,22 @@ impl QuotaTransport {
         ))
     }
 
-    fn codex_usage_response(&self) -> MockResponse {
+    fn codex_usage_response(&self, authenticated: bool) -> MockResponse {
+        match self.authentication {
+            AuthenticationMode::CodexEgressRejected => {
+                self.usage_calls.fetch_add(1, Ordering::AcqRel);
+                return forbidden_unknown();
+            }
+            AuthenticationMode::CodexEgressReachable => {
+                self.usage_calls.fetch_add(1, Ordering::AcqRel);
+                return if authenticated {
+                    forbidden_unknown()
+                } else {
+                    unauthorized()
+                };
+            }
+            _ => {}
+        }
         if let Some(rejected) = self.authentication_rejection() {
             return rejected;
         }
@@ -337,6 +355,9 @@ impl QuotaTransport {
             AuthenticationMode::RefreshRejected | AuthenticationMode::RefreshInvalidGrant => {
                 Some(unauthorized())
             }
+            AuthenticationMode::CodexEgressRejected | AuthenticationMode::CodexEgressReachable => {
+                None
+            }
         }
     }
 }
@@ -367,6 +388,15 @@ fn forbidden() -> MockResponse {
         StatusCode::FORBIDDEN,
         HeaderMap::new(),
         Bytes::from_static(br#"{"code":"unauthorized:blocked-user"}"#),
+        false,
+    )
+}
+
+fn forbidden_unknown() -> MockResponse {
+    (
+        StatusCode::FORBIDDEN,
+        HeaderMap::new(),
+        Bytes::from_static(br#"{"error":{"code":"unknown_forbidden"}}"#),
         false,
     )
 }

@@ -26,6 +26,12 @@ pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPl
     ))
 }
 
+pub(crate) fn egress_probe_plan() -> Result<OAuthRequestPlan, ProviderError> {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    request(Method::GET, USAGE_URL, headers, Vec::new())
+}
+
 pub(crate) fn reset_plan(
     token: &OAuthTokenMaterial,
     redeem_request_id: &str,

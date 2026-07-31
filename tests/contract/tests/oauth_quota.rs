@@ -340,6 +340,32 @@ async fn a_second_unauthorized_response_after_refresh_is_definitively_invalid() 
     assert_eq!(context.transport.calls(), 3);
 }
 
+#[tokio::test]
+async fn provider_egress_rejection_is_not_reported_as_an_account_restriction() {
+    let context = TestContext::new().await;
+    context.transport.use_provider_egress_rejection();
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let response = request(
+        context.app,
+        Method::GET,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota",
+            context.codex_account_id
+        ),
+        loopback,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response.json["error"]["code"],
+        "oauth_provider_egress_restricted"
+    );
+    assert_eq!(context.transport.calls(), 2);
+    assert!(context.transport.codex_egress_probe_is_account_free());
+}
+
 struct TestContext {
     _directory: tempfile::TempDir,
     _storage: Arc<SqliteStore>,
@@ -483,6 +509,7 @@ struct QuotaTransport {
     authentication_refresh_failure: AtomicBool,
     invalid_grant_refresh_rejection: AtomicBool,
     persistent_authentication_rejection: AtomicBool,
+    provider_egress_rejection: AtomicBool,
     captured: Mutex<Vec<CapturedRequest>>,
     redeem_request_id: Mutex<Option<String>>,
 }
@@ -496,6 +523,7 @@ impl QuotaTransport {
             authentication_refresh_failure: AtomicBool::new(false),
             invalid_grant_refresh_rejection: AtomicBool::new(false),
             persistent_authentication_rejection: AtomicBool::new(false),
+            provider_egress_rejection: AtomicBool::new(false),
             captured: Mutex::new(Vec::new()),
             redeem_request_id: Mutex::new(None),
         }
@@ -525,6 +553,11 @@ impl QuotaTransport {
 
     fn use_persistent_authentication_rejection(&self) {
         self.persistent_authentication_rejection
+            .store(true, Ordering::Release);
+    }
+
+    fn use_provider_egress_rejection(&self) {
+        self.provider_egress_rejection
             .store(true, Ordering::Release);
     }
 
@@ -622,6 +655,21 @@ impl QuotaTransport {
                     && request.proxy_id == any2api_domain::ProxyProfileId::DIRECT
             })
     }
+
+    fn codex_egress_probe_is_account_free(&self) -> bool {
+        let captured = self.captured.lock().expect("captured lock");
+        let [quota, probe] = captured.as_slice() else {
+            return false;
+        };
+        quota.path == "/backend-api/wham/usage"
+            && quota.authorization.as_deref() == Some("Bearer access-secret")
+            && quota.account_id.as_deref() == Some("account-123")
+            && probe.path == "/backend-api/wham/usage"
+            && probe.authorization.is_none()
+            && probe.account_id.is_none()
+            && quota.proxy_id == any2api_domain::ProxyProfileId::DIRECT
+            && probe.proxy_id == any2api_domain::ProxyProfileId::DIRECT
+    }
 }
 
 #[async_trait]
@@ -701,6 +749,18 @@ impl TransportManager for QuotaTransport {
                 proxy_id: proxy.profile().id(),
                 body: request.body.clone(),
             });
+        if self.provider_egress_rejection.load(Ordering::Acquire)
+            && path == "/backend-api/wham/usage"
+        {
+            return Ok(TransportResponse {
+                status: StatusCode::FORBIDDEN,
+                headers: HeaderMap::new(),
+                body: Box::pin(stream::iter([Ok(Bytes::from_static(
+                    br#"{"error":{"code":"unknown_forbidden"}}"#,
+                ))])),
+                read_failure_scope: TransportFailureScope::Endpoint,
+            });
+        }
         if self.authentication_refresh_failure.load(Ordering::Acquire) {
             let forced_status = match path.as_str() {
                 "/backend-api/wham/usage" => Some(StatusCode::UNAUTHORIZED),

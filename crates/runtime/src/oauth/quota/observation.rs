@@ -1,22 +1,12 @@
-use std::time::Duration;
-
 use any2api_provider::api::{
-    OAuthQuotaTokenBalance, OAuthQuotaUsage, OAuthRequestPlan, OAuthTokenMaterial, ProviderDriver,
+    OAuthQuotaTokenBalance, OAuthQuotaUsage, OAuthRequestPlan, OAuthTokenMaterial,
     UpstreamResponseMeta,
 };
-use any2api_transport::api::{TransportManager, TransportProxy};
 
-use super::{
-    request::{self, OAuthQuotaResponse},
-    types::OAuthQuotaError,
-};
+use super::{rejection::RequestContext, request::OAuthQuotaResponse, types::OAuthQuotaError};
 
 pub(super) async fn resolve_usage(
-    driver: &dyn ProviderDriver,
-    transport: &dyn TransportManager,
-    proxy: TransportProxy<'_>,
-    strict_ssrf: bool,
-    read_timeout: Duration,
+    context: &RequestContext<'_>,
     response: OAuthQuotaResponse,
     supplement_plan: Option<OAuthRequestPlan>,
 ) -> Result<OAuthQuotaUsage, OAuthQuotaError> {
@@ -24,17 +14,19 @@ pub(super) async fn resolve_usage(
         status: response.status,
         headers: response.headers.clone(),
     };
-    let mut usage = driver
+    let mut usage = context
+        .driver()
         .parse_oauth_quota_usage(&response_meta, &response.body)
         .map_err(OAuthQuotaError::Provider)?;
     let Some(plan) = supplement_plan else {
         return Ok(usage);
     };
-    let response = request::execute(transport, proxy, strict_ssrf, read_timeout, plan).await?;
+    let response = context.execute(plan).await?;
     if !response.status.is_success() {
-        return Err(request::rejection(response.status));
+        return Err(context.rejection(&response).await);
     }
-    let supplement = driver
+    let supplement = context
+        .driver()
         .parse_oauth_quota_supplement(&response.body)
         .map_err(OAuthQuotaError::Provider)?;
     usage.apply_supplement(supplement);
@@ -42,31 +34,35 @@ pub(super) async fn resolve_usage(
 }
 
 pub(super) async fn resolve_token_balance(
-    driver: &dyn ProviderDriver,
-    transport: &dyn TransportManager,
-    proxy: TransportProxy<'_>,
-    strict_ssrf: bool,
-    read_timeout: Duration,
+    context: &RequestContext<'_>,
     token: &OAuthTokenMaterial,
     usage: &OAuthQuotaUsage,
 ) -> Result<Option<OAuthQuotaTokenBalance>, OAuthQuotaError> {
-    let Some(plan) = driver
+    let Some(plan) = context
+        .driver()
         .oauth_quota_token_balance_plan(token, usage)
         .map_err(OAuthQuotaError::Provider)?
     else {
         return Ok(None);
     };
-    let response = request::execute(transport, proxy, strict_ssrf, read_timeout, plan).await?;
+    let response = context.execute(plan).await?;
     let meta = UpstreamResponseMeta {
         status: response.status,
         headers: response.headers,
     };
-    let balance = driver
+    let balance = context
+        .driver()
         .parse_oauth_quota_token_balance(usage, &meta, &response.body)
         .map_err(OAuthQuotaError::Provider)?;
     if meta.status.is_success() || balance.is_some() {
         Ok(balance)
     } else {
-        Err(request::rejection(meta.status))
+        Err(context
+            .rejection(&OAuthQuotaResponse {
+                status: meta.status,
+                headers: meta.headers,
+                body: response.body,
+            })
+            .await)
     }
 }

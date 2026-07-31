@@ -29,6 +29,11 @@ describe("invalid OAuth account cleanup", () => {
     ).toBe(false);
     expect(
       isInvalidOAuthAuthenticationError(
+        new ApiError(502, "oauth_provider_egress_restricted", "egress"),
+      ),
+    ).toBe(false);
+    expect(
+      isInvalidOAuthAuthenticationError(
         new ApiError(504, "oauth_quota_timeout", "timeout"),
       ),
     ).toBe(false);

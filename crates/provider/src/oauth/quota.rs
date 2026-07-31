@@ -1,5 +1,19 @@
 use crate::OAuthRequestPlan;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OAuthQuotaRejection {
+    AccountRestricted,
+    ProviderEgressRestricted,
+    Unclassified,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OAuthProviderEgressStatus {
+    Reachable,
+    Restricted,
+    Unverified,
+}
+
 #[derive(Clone, Debug)]
 pub struct OAuthQuotaQueryPlan {
     usage: OAuthRequestPlan,

@@ -12,8 +12,9 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial,
-        ProviderDriver, ProviderRequestHeaderContext, UpstreamResponseMeta,
+        OAuthLoginFlow, OAuthProviderEgressStatus, OAuthQuotaRejection, OAuthQuotaUsage,
+        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        ProviderRequestHeaderContext, UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
@@ -189,6 +190,26 @@ impl ProviderDriver for CodexDriver {
         token: &OAuthTokenMaterial,
     ) -> Result<Option<crate::api::OAuthQuotaQueryPlan>, ProviderError> {
         codex_quota::query_plan(token).map(Some)
+    }
+
+    fn classify_oauth_quota_rejection(
+        &self,
+        meta: &UpstreamResponseMeta,
+        bounded_body: &[u8],
+    ) -> OAuthQuotaRejection {
+        codex_quota::classify_quota_rejection(meta, bounded_body)
+    }
+
+    fn oauth_provider_egress_probe_plan(&self) -> Result<Option<OAuthRequestPlan>, ProviderError> {
+        codex_quota::egress_probe_plan().map(Some)
+    }
+
+    fn classify_oauth_provider_egress(
+        &self,
+        meta: &UpstreamResponseMeta,
+        bounded_body: &[u8],
+    ) -> OAuthProviderEgressStatus {
+        codex_quota::classify_egress(meta, bounded_body)
     }
 
     fn parse_oauth_quota_usage(

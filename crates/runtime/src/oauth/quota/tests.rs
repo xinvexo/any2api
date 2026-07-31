@@ -161,6 +161,62 @@ async fn a_failed_token_refresh_does_not_claim_the_account_is_invalid() {
 }
 
 #[tokio::test]
+async fn ambiguous_codex_403_uses_an_account_free_probe_and_caches_egress_rejection() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::CodexEgressRejected).await;
+
+    let (first, second) = tokio::join!(
+        context.service.query_quota(context.account_id),
+        context.service.query_quota(context.account_id),
+    );
+    for result in [first, second] {
+        assert!(matches!(
+            result,
+            Err(OAuthQuotaError::ProviderEgressRestricted)
+        ));
+    }
+    assert!(matches!(
+        context.service.query_quota(context.account_id).await,
+        Err(OAuthQuotaError::ProviderEgressRestricted)
+    ));
+
+    let captured = context.transport.captured();
+    assert_eq!(captured.len(), 4);
+    assert_eq!(
+        captured
+            .iter()
+            .filter(|request| request.authorization.is_none())
+            .count(),
+        1
+    );
+    let probe = captured
+        .iter()
+        .find(|request| request.authorization.is_none())
+        .expect("account-free egress probe");
+    assert_eq!(probe.path, "/backend-api/wham/usage");
+    assert!(probe.account_id.is_none());
+    assert_eq!(probe.proxy_id, any2api_domain::ProxyProfileId::DIRECT);
+    assert_eq!(
+        probe.strict_ssrf,
+        context.snapshots.load().settings().upstream().strict_ssrf()
+    );
+}
+
+#[tokio::test]
+async fn reachable_codex_egress_keeps_an_unknown_403_neutral() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::CodexEgressReachable).await;
+
+    assert!(matches!(
+        context.service.query_quota(context.account_id).await,
+        Err(OAuthQuotaError::UpstreamRejected(403))
+    ));
+    let captured = context.transport.captured();
+    assert_eq!(captured.len(), 2);
+    assert!(captured[0].authorization.is_some());
+    assert!(captured[1].authorization.is_none());
+    assert!(captured[1].account_id.is_none());
+}
+
+#[tokio::test]
 async fn invalid_grant_marks_the_account_authentication_as_failed() {
     let context = QuotaTestContext::new(1, AuthenticationMode::RefreshInvalidGrant).await;
 

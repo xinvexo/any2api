@@ -13,10 +13,11 @@ pub use import::{
     parse_oauth_import_document,
 };
 pub use quota::{
-    OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
-    OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit,
-    OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement, OAuthQuotaTokenBalance,
-    OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
+    OAuthProviderEgressStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
+    OAuthQuotaBilling, OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
+    OAuthQuotaRejection, OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult,
+    OAuthQuotaSupplement, OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage,
+    OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 pub use refresh::OAuthRefreshRejection;
 pub use routing::OAuthRoutingProfile;

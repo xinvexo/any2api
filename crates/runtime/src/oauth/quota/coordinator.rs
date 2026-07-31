@@ -23,7 +23,8 @@ use crate::{
 };
 
 use super::{
-    health, observation, request,
+    health, observation,
+    rejection::{EgressProbeCache, RequestContext},
     types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
 };
 
@@ -33,6 +34,7 @@ pub(in crate::oauth) struct OAuthQuotaService {
     publisher: Arc<ConfigPublisher>,
     refresher: Arc<OAuthRefresher>,
     reset_gates: StdMutex<HashMap<OAuthAccountId, Weak<Mutex<()>>>>,
+    egress_probes: EgressProbeCache,
 }
 
 impl OAuthQuotaService {
@@ -48,6 +50,7 @@ impl OAuthQuotaService {
             publisher,
             refresher,
             reset_gates: StdMutex::new(HashMap::new()),
+            egress_probes: EgressProbeCache::default(),
         }
     }
 
@@ -145,37 +148,23 @@ impl OAuthQuotaService {
             .ok_or(OAuthQuotaError::ProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         let read_timeout = Duration::from_secs(snapshot.settings().upstream().read_timeout_secs());
-        let usage_response = request::execute(
+        let request = RequestContext::new(
+            driver.as_ref(),
             self.transport.as_ref(),
             proxy,
             strict_ssrf,
             read_timeout,
-            usage_plan,
-        )
-        .await?;
+            snapshot.revision(),
+            &self.egress_probes,
+        );
+        let usage_response = request.execute(usage_plan).await?;
         if !usage_response.status.is_success() {
-            return Err(request::rejection(usage_response.status));
+            return Err(request.rejection(&usage_response).await);
         }
-        let mut usage = observation::resolve_usage(
-            driver.as_ref(),
-            self.transport.as_ref(),
-            proxy,
-            strict_ssrf,
-            read_timeout,
-            usage_response,
-            supplement_plan,
-        )
-        .await?;
-        let queried_balance = observation::resolve_token_balance(
-            driver.as_ref(),
-            self.transport.as_ref(),
-            proxy,
-            strict_ssrf,
-            read_timeout,
-            token.as_ref(),
-            &usage,
-        )
-        .await?;
+        let mut usage =
+            observation::resolve_usage(&request, usage_response, supplement_plan).await?;
+        let queried_balance =
+            observation::resolve_token_balance(&request, token.as_ref(), &usage).await?;
         usage.replace_token_balance(queried_balance);
         health::synchronize(
             permit.generation().health().as_ref(),
@@ -196,14 +185,7 @@ impl OAuthQuotaService {
             usage.replace_token_balance(Some(balance));
         }
         if let Some(credits_plan) = credits_plan
-            && let Ok(response) = request::execute(
-                self.transport.as_ref(),
-                proxy,
-                strict_ssrf,
-                read_timeout,
-                credits_plan,
-            )
-            .await
+            && let Ok(response) = request.execute(credits_plan).await
             && response.status.is_success()
             && let Ok(Some(credits)) = driver.parse_oauth_quota_reset_credits(&response.body)
         {
@@ -272,16 +254,20 @@ impl OAuthQuotaService {
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_account()
             .ok_or(OAuthQuotaError::ProxyUnavailable)?;
-        let response = request::execute(
+        let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
+        let read_timeout = Duration::from_secs(snapshot.settings().upstream().read_timeout_secs());
+        let request = RequestContext::new(
+            driver.as_ref(),
             self.transport.as_ref(),
             proxy,
-            snapshot.settings().upstream().strict_ssrf(),
-            Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),
-            plan,
-        )
-        .await?;
+            strict_ssrf,
+            read_timeout,
+            snapshot.revision(),
+            &self.egress_probes,
+        );
+        let response = request.execute(plan).await?;
         if !response.status.is_success() {
-            return Err(request::rejection(response.status));
+            return Err(request.rejection(&response).await);
         }
         let result = driver
             .parse_oauth_quota_reset(&response.body)

@@ -1,6 +1,7 @@
 mod coordinator;
 mod health;
 mod observation;
+mod rejection;
 mod request;
 mod types;
 

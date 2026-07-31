@@ -7,7 +7,10 @@ use any2api_domain::{
 use http::StatusCode;
 use serde::Deserialize;
 
-use crate::{api::UpstreamResponseMeta, upstream_error};
+use crate::{
+    api::{OAuthQuotaRejection, UpstreamResponseMeta},
+    upstream_error,
+};
 
 const FREE_USAGE_EXHAUSTED: &str = "subscription:free-usage-exhausted";
 const BLOCKED_USER: &str = "unauthorized:blocked-user";
@@ -70,6 +73,21 @@ pub(crate) fn classify(meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> Upst
         );
     }
     UpstreamError::new(fallback.classification(), message)
+}
+
+pub(crate) fn classify_oauth_quota_rejection(
+    meta: &UpstreamResponseMeta,
+    bounded_body: &[u8],
+) -> OAuthQuotaRejection {
+    let blocked = meta.status == StatusCode::FORBIDDEN
+        && serde_json::from_slice::<GrokErrorEnvelope>(bounded_body)
+            .ok()
+            .is_some_and(|value| value.has_code(BLOCKED_USER));
+    if blocked {
+        OAuthQuotaRejection::AccountRestricted
+    } else {
+        OAuthQuotaRejection::Unclassified
+    }
 }
 
 impl GrokErrorEnvelope {
@@ -182,6 +200,17 @@ mod tests {
             UpstreamErrorKind::PermissionDenied
         );
         assert_eq!(generic.official_message(), Some("denied"));
+        assert_eq!(
+            classify_oauth_quota_rejection(
+                &meta(StatusCode::FORBIDDEN),
+                br#"{"code":"unauthorized:blocked-user"}"#,
+            ),
+            crate::api::OAuthQuotaRejection::AccountRestricted
+        );
+        assert_eq!(
+            classify_oauth_quota_rejection(&meta(StatusCode::FORBIDDEN), br#"{"error":"denied"}"#,),
+            crate::api::OAuthQuotaRejection::Unclassified
+        );
     }
 
     #[test]

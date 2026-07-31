@@ -1,11 +1,14 @@
 //! Codex OAuth quota parsing and request contracts.
 
 use any2api_domain::ProviderKind;
-use http::{Method, header};
+use http::{HeaderMap, Method, StatusCode, header};
 use serde_json::Value;
 
 use super::*;
-use crate::{OAuthTokenMaterial, ProviderError};
+use crate::{
+    OAuthProviderEgressStatus, OAuthQuotaRejection, OAuthTokenMaterial, ProviderError,
+    api::UpstreamResponseMeta,
+};
 
 fn token() -> OAuthTokenMaterial {
     OAuthTokenMaterial::new(
@@ -53,6 +56,78 @@ fn builds_fixed_query_and_reset_plans_without_debugging_secrets() {
         "00000000-0000-4000-8000-000000000001"
     );
     assert!(!format!("{reset:?}").contains("00000000-0000"));
+}
+
+#[test]
+fn builds_account_free_egress_probe() {
+    let probe = egress_probe_plan().expect("egress probe");
+
+    assert_eq!(probe.method, Method::GET);
+    assert_eq!(
+        probe.url.as_str(),
+        "https://chatgpt.com/backend-api/wham/usage"
+    );
+    assert_eq!(probe.headers[header::ACCEPT], "application/json");
+    assert!(!probe.headers.contains_key(header::AUTHORIZATION));
+    assert!(!probe.headers.contains_key("chatgpt-account-id"));
+    assert!(probe.body.is_empty());
+}
+
+#[test]
+fn quota_rejection_requires_declared_account_or_egress_codes() {
+    let forbidden = UpstreamResponseMeta {
+        status: StatusCode::FORBIDDEN,
+        headers: HeaderMap::new(),
+    };
+
+    assert_eq!(
+        classify_quota_rejection(
+            &forbidden,
+            br#"{"error":{"code":"unsupported_country_region_territory"}}"#,
+        ),
+        OAuthQuotaRejection::ProviderEgressRestricted
+    );
+    assert_eq!(
+        classify_quota_rejection(
+            &forbidden,
+            br#"{"code":"account_deactivated","error":{"message":"ignored"}}"#,
+        ),
+        OAuthQuotaRejection::AccountRestricted
+    );
+    for body in [
+        br#"{"error":{"message":"account_deactivated"}}"#.as_slice(),
+        br#"{"metadata":{"code":"account_suspended"}}"#.as_slice(),
+        br#"{"error":{"code":"unknown_forbidden"}}"#.as_slice(),
+        br#"{"code":"account_disabled","error":{"code":"unsupported_country_region_territory"}}"#
+            .as_slice(),
+        b"not-json".as_slice(),
+    ] {
+        assert_eq!(
+            classify_quota_rejection(&forbidden, body),
+            OAuthQuotaRejection::Unclassified
+        );
+    }
+}
+
+#[test]
+fn account_free_probe_distinguishes_reachable_and_rejected_egress() {
+    let status = |status| UpstreamResponseMeta {
+        status,
+        headers: HeaderMap::new(),
+    };
+
+    assert_eq!(
+        classify_egress(&status(StatusCode::UNAUTHORIZED), b"{}"),
+        OAuthProviderEgressStatus::Reachable
+    );
+    assert_eq!(
+        classify_egress(&status(StatusCode::FORBIDDEN), b"{}"),
+        OAuthProviderEgressStatus::Restricted
+    );
+    assert_eq!(
+        classify_egress(&status(StatusCode::SERVICE_UNAVAILABLE), b"{}"),
+        OAuthProviderEgressStatus::Unverified
+    );
 }
 
 #[test]

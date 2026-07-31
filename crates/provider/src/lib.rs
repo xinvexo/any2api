@@ -27,9 +27,10 @@ pub use oauth::{
     OAuthTokenMaterial, serialize_document,
 };
 pub use oauth::{
-    OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
-    OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit,
-    OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement, OAuthQuotaTokenBalance,
-    OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
+    OAuthProviderEgressStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
+    OAuthQuotaBilling, OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
+    OAuthQuotaRejection, OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult,
+    OAuthQuotaSupplement, OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage,
+    OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 pub use registry::ProviderRegistry;

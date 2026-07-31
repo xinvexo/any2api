@@ -11,9 +11,9 @@ use crate::{
     api::{
         CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
         OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
-        OAuthQuotaQueryPlan, OAuthQuotaTokenBalance, OAuthQuotaUsage, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, ProviderRequestHeaderContext,
-        UpstreamResponseMeta,
+        OAuthQuotaQueryPlan, OAuthQuotaRejection, OAuthQuotaTokenBalance, OAuthQuotaUsage,
+        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        ProviderRequestHeaderContext, UpstreamResponseMeta,
     },
     credential::api_key,
 };
@@ -194,6 +194,14 @@ impl ProviderDriver for GrokDriver {
         token: &OAuthTokenMaterial,
     ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
         grok_quota::query_plan(token).map(Some)
+    }
+
+    fn classify_oauth_quota_rejection(
+        &self,
+        meta: &UpstreamResponseMeta,
+        bounded_body: &[u8],
+    ) -> OAuthQuotaRejection {
+        grok_error::classify_oauth_quota_rejection(meta, bounded_body)
     }
 
     fn parse_oauth_quota_usage(
