@@ -109,6 +109,18 @@ body {
   background: transparent;
 }
 
+/* Fixed management chrome uses an inner scroller. Keep its content clear of
+ * the native scrollbar without changing the desktop table geometry. */
+.management-scroll-viewport {
+  padding-inline-end: 0.5rem;
+}
+
+@media (min-width: 48rem) {
+  .management-scroll-viewport {
+    padding-inline-end: 0;
+  }
+}
+
 /* Route tabs stay horizontally swipeable on narrow screens without painting a rail.
  * Keep this rule unlayered so it can override the unlayered global scrollbar styles. */
 .page-tabs {

@@ -9,11 +9,12 @@ import { cn } from "@/shared/lib/cn";
  * Desktop grid:
  *   row1: [empty] | start … end
  *   row2: kind    | content
+ * The content row consumes the remaining panel height on both breakpoints.
  */
 const KIND_SPLIT_GRID_CLASS = cn(
-  "grid grid-cols-1 gap-2.5",
+  "grid h-full min-h-0 grid-cols-1 grid-rows-[auto_auto_auto_minmax(0,1fr)] gap-2.5",
   "[grid-template-areas:'start'_'kind'_'end'_'content']",
-  "sm:grid-cols-[13rem_minmax(0,1fr)_auto] sm:gap-x-5 sm:gap-y-3",
+  "sm:grid-cols-[13rem_minmax(0,1fr)_auto] sm:grid-rows-[auto_minmax(0,1fr)] sm:gap-x-5 sm:gap-y-3",
   "sm:[grid-template-areas:'._start_end'_'kind_content_content']",
   "lg:grid-cols-[14rem_minmax(0,1fr)_auto]",
 );
@@ -55,7 +56,7 @@ export function KindSplitLayout({
         {toolbarEnd}
       </div>
 
-      <div className="min-w-0 [grid-area:content]">{children}</div>
+      <div className="min-h-0 min-w-0 [grid-area:content]">{children}</div>
     </div>
   );
 }

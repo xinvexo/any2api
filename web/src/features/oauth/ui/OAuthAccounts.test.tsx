@@ -76,7 +76,11 @@ test("selects and saves OAuth routing models through the account-specific endpoi
 
 test("shows kind-scoped empty state without a session panel", () => {
   renderAccounts([]);
+  const emptyState = screen.getByRole("status", { name: "暂无 Codex OAuth 账号" });
+  expect(emptyState).toHaveClass("h-full", "min-h-40");
+  expect(emptyState).not.toHaveClass("border", "bg-surface");
   expect(screen.getByText("还没有 Codex OAuth 账号")).toBeInTheDocument();
+  expect(screen.queryByText(/点击「OAuth认证」/)).not.toBeInTheDocument();
   expect(screen.queryByText("还没有 Codex 登录会话")).not.toBeInTheDocument();
 });
 

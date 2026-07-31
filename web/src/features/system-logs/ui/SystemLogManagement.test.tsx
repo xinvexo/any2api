@@ -30,7 +30,12 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
   expect(await screen.findByRole("table", { name: "系统日志表格" })).toBeInTheDocument();
   const mobileList = screen.getByRole("list", { name: "系统日志列表" });
   const mobileLog = within(mobileList).getByRole("listitem");
-  expect(mobileList).toHaveClass("h-full", "overflow-y-auto", "[scrollbar-gutter:stable]");
+  expect(mobileList).toHaveClass(
+    "management-scroll-viewport",
+    "h-full",
+    "overflow-y-auto",
+    "[scrollbar-gutter:stable]",
+  );
   expect(mobileLog).toHaveClass("relative", "rounded-[14px]", "bg-surface-muted/55");
   expect(within(mobileLog).getByLabelText("HTTP 状态 200，结果完成")).toBeInTheDocument();
   expect(within(mobileLog).getByText("203.0.113.8")).toBeInTheDocument();

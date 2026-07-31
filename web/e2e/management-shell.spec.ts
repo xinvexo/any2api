@@ -14,6 +14,7 @@ test("settings expose the five current sections", async ({ page }) => {
   await expect(settingsTabs.getByRole("link"))
     .toHaveText(["基础", "路由策略", "运行保护", "日志", "关于"]);
   await expect(settingsTabs).toHaveCSS("scrollbar-width", "none");
+  await expect(page.locator(".management-scroll-viewport")).toHaveCSS("padding-right", "8px");
   const tabWidths = await settingsTabs.evaluate((element) => ({
     client: element.clientWidth,
     scroll: element.scrollWidth,
@@ -198,12 +199,22 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
   await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
   const mobileList = page.getByRole("list", { name: "系统日志列表" });
   await expect(mobileList).toBeVisible();
+  await expect(mobileList).toHaveCSS("padding-right", "8px");
   const mobileCard = mobileList.getByRole("listitem").first();
   await expect(mobileCard).toHaveCSS("border-radius", "14px");
   await expect(mobileCard).toHaveCSS("border-top-width", "0px");
   await expect(page.getByRole("button", { name: "刷新", exact: true })).toHaveCSS("width", "36px");
   await expect(page.getByRole("button", { name: "清理历史日志" })).toHaveCSS("width", "36px");
   await expectNoHorizontalOverflow(page);
+  const contentGap = await mobileList.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) return 0;
+    const card = element.querySelector('[role="listitem"]');
+    if (!card) return 0;
+    const scrollbarStart = element.getBoundingClientRect().right
+      - (element.offsetWidth - element.clientWidth);
+    return Math.round(scrollbarStart - card.getBoundingClientRect().right);
+  });
+  expect(contentGap).toBe(8);
 
   const toolbar = page.locator('[data-system-log-fixed="toolbar"]');
   const pagination = page.locator('[data-system-log-fixed="pagination"]');

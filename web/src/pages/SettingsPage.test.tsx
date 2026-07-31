@@ -18,6 +18,8 @@ test("puts refresh and conditional batch save in the fixed page toolbar", async 
   renderSettingsPage();
 
   const affinity = await screen.findByRole("switch", { name: "启用会话粘性" });
+  expect(screen.getByRole("region", { name: "路由策略" }).closest(".management-scroll-viewport"))
+    .not.toBeNull();
   expect(screen.getAllByRole("button", { name: "刷新当前设置页" })).toHaveLength(1);
   expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
 

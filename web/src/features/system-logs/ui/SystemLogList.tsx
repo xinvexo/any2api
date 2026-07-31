@@ -16,7 +16,7 @@ export function SystemLogList({ items }: { items: SystemLog[] }) {
   return (
     <>
       <div
-        className="h-full space-y-2 overflow-y-auto md:hidden [scrollbar-gutter:stable]"
+        className="management-scroll-viewport h-full space-y-2 overflow-y-auto md:hidden [scrollbar-gutter:stable]"
         role="list"
         aria-label="系统日志列表"
       >

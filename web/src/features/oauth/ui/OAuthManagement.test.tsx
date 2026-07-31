@@ -20,7 +20,13 @@ test("uses provider grid layout without a main-column session panel", async () =
   expect(await screen.findByRole("navigation", { name: "OAuth2 类型" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: /Codex/ })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("button", { name: /Grok/ })).toBeInTheDocument();
-  expect(await screen.findByText("还没有 Codex OAuth 账号")).toBeInTheDocument();
+  const emptyState = await screen.findByRole("status", { name: "暂无 Codex OAuth 账号" });
+  expect(emptyState.closest(".grid")).toHaveClass(
+    "h-full",
+    "grid-rows-[auto_auto_auto_minmax(0,1fr)]",
+    "sm:grid-rows-[auto_minmax(0,1fr)]",
+  );
+  expect(screen.getByText("还没有 Codex OAuth 账号")).toBeInTheDocument();
   expect(screen.queryByText("还没有 Codex 登录会话")).not.toBeInTheDocument();
   expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "OAuth认证" })).toBeInTheDocument();

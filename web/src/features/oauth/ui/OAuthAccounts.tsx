@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { KeyRound } from "lucide-react";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -13,7 +14,6 @@ import { OAuthAccountEditor } from "./OAuthAccountEditor";
 import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
-import { Surface } from "@/shared/ui/Surface";
 import { RequestUsageStats } from "@/shared/ui/RequestUsageStats";
 import { VirtualGrid } from "@/shared/ui/VirtualGrid";
 
@@ -68,14 +68,18 @@ export function OAuthAccounts({
   }
 
   return (
-    <div aria-busy={pending}>
+    <div className="h-full min-h-0 flex-1" aria-busy={pending}>
       {accounts.length === 0 ? (
-        <Surface className="flex min-h-48 flex-col items-center justify-center px-4 py-10 text-center">
-          <p className="text-[13px] font-medium">还没有 {providerName} OAuth 账号</p>
-          <p className="mt-1 max-w-sm text-[12px] text-secondary">
-            点击「OAuth认证」生成一次性授权链接，完成后粘贴回调 URL 激活服务器账号。
+        <div
+          className="flex h-full min-h-40 flex-col items-center justify-center px-6 py-9 text-center"
+          role="status"
+          aria-label={`暂无 ${providerName} OAuth 账号`}
+        >
+          <KeyRound size={20} strokeWidth={1.6} className="text-tertiary" aria-hidden="true" />
+          <p className="mt-2.5 text-[13px] font-medium text-primary">
+            还没有 {providerName} OAuth 账号
           </p>
-        </Surface>
+        </div>
       ) : (
         <VirtualGrid
           items={accounts}

@@ -109,7 +109,7 @@ export function RequestLogManagement() {
           <>
             {/* Mobile: adaptive borderless cards */}
             <div
-              className="h-full space-y-2 overflow-y-auto md:hidden [scrollbar-gutter:stable]"
+              className="management-scroll-viewport h-full space-y-2 overflow-y-auto md:hidden [scrollbar-gutter:stable]"
               role="list"
               aria-label="请求日志列表"
             >

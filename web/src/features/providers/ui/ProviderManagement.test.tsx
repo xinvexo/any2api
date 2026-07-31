@@ -18,9 +18,33 @@ test("shows the empty Provider state", async () => {
 
   renderManagement();
 
-  expect(await screen.findByText("还没有 Codex Endpoint")).toBeInTheDocument();
+  const emptyState = await screen.findByRole("status", { name: "暂无 Codex Endpoint" });
+  expect(emptyState).toHaveClass("flex-1", "min-h-40");
+  expect(emptyState).not.toHaveClass("border", "bg-surface");
+  expect(emptyState.closest(".grid")).toHaveClass(
+    "h-full",
+    "grid-rows-[auto_auto_auto_minmax(0,1fr)]",
+    "sm:grid-rows-[auto_minmax(0,1fr)]",
+  );
+  expect(screen.getByText("还没有 Codex Endpoint")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "新增" })).toBeInTheDocument();
   expect(screen.queryByText(/配置版本/)).not.toBeInTheDocument();
+});
+
+test("uses the same unframed state when an Endpoint search has no matches", async () => {
+  mockAdminApis(() => configuration(1, [endpoint()]));
+
+  renderManagement();
+  await screen.findByRole("button", { name: "展开 Codex Primary 的 API Key" });
+  fireEvent.change(screen.getByRole("textbox", { name: "搜索 Codex" }), {
+    target: { value: "missing-endpoint" },
+  });
+
+  const emptyState = screen.getByRole("status", {
+    name: "没有匹配的 Codex Endpoint",
+  });
+  expect(emptyState).not.toHaveClass("border", "bg-surface");
+  expect(screen.getByText("没有匹配的 Endpoint")).toBeInTheDocument();
 });
 
 test("shows a stable API Key skeleton while an endpoint accordion loads", async () => {

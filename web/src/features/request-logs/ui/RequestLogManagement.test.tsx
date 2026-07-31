@@ -28,7 +28,9 @@ test("renders request logs in a table without leaving the page for details", asy
   renderManagement();
 
   // Mobile cards + desktop table both mount (CSS hides one); assert both shells exist.
-  expect(await screen.findByRole("list", { name: "请求日志列表" })).toBeInTheDocument();
+  expect(await screen.findByRole("list", { name: "请求日志列表" })).toHaveClass(
+    "management-scroll-viewport",
+  );
   expect(screen.getByRole("table", { name: "请求日志表格" })).toBeInTheDocument();
   // Fixed header outside the body scroller (same pattern as system logs).
   expect(screen.getByRole("rowgroup", { name: "请求日志表头" })).toBeInTheDocument();

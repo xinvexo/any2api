@@ -143,7 +143,7 @@ function SettingsPageLayout({
         </div>
         <div ref={setActionsHost} className="flex shrink-0 items-center gap-1.5" />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto pt-5 pb-4 [scrollbar-gutter:stable]">
+      <div className="management-scroll-viewport min-h-0 flex-1 overflow-y-auto pt-5 pb-4 [scrollbar-gutter:stable]">
         {children(actionsHost)}
       </div>
     </div>

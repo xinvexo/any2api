@@ -102,7 +102,7 @@ export function ProviderManagement() {
         canCreate={false}
         onCreate={() => undefined}
       >
-        <div className="flex min-h-48 items-center justify-center text-sm text-secondary">
+        <div className="flex h-full min-h-48 items-center justify-center text-sm text-secondary">
           正在读取 Provider 配置
         </div>
       </ProviderChrome>
@@ -204,7 +204,10 @@ export function ProviderManagement() {
   }
 
   return (
-    <div aria-busy={editorPending || mutations.isPending || endpoints.isFetching}>
+    <div
+      className="flex h-full min-h-0 flex-col"
+      aria-busy={editorPending || mutations.isPending || endpoints.isFetching}
+    >
       {endpoints.isError ? (
         <Surface
           className="mb-5 flex flex-col gap-3 border-warning/40 p-4 sm:flex-row sm:items-center sm:justify-between"

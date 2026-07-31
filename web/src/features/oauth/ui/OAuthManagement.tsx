@@ -181,7 +181,7 @@ export function OAuthManagement() {
           />
         }
       >
-        <div className="flex min-h-48 items-center justify-center text-sm text-secondary">
+        <div className="flex h-full min-h-48 items-center justify-center text-sm text-secondary">
           正在读取 OAuth 账号
         </div>
       </KindSplitLayout>
@@ -231,26 +231,28 @@ export function OAuthManagement() {
           />
         }
       >
-        {accounts.isError ? (
-          <Surface
-            className="mb-3 flex flex-col gap-3 border-warning/40 p-4 sm:flex-row sm:items-center sm:justify-between"
-            role="status"
-          >
-            <p className="text-sm text-secondary">
-              配置刷新失败，当前仍显示最近一次有效数据：{getOAuthErrorMessage(accounts.error)}
-            </p>
-            <Button onClick={() => void accounts.refetch()} disabled={accounts.isFetching}>
-              重新加载
-            </Button>
-          </Surface>
-        ) : null}
+        <div className="flex h-full min-h-0 flex-col">
+          {accounts.isError ? (
+            <Surface
+              className="mb-3 flex shrink-0 flex-col gap-3 border-warning/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+              role="status"
+            >
+              <p className="text-sm text-secondary">
+                配置刷新失败，当前仍显示最近一次有效数据：{getOAuthErrorMessage(accounts.error)}
+              </p>
+              <Button onClick={() => void accounts.refetch()} disabled={accounts.isFetching}>
+                重新加载
+              </Button>
+            </Surface>
+          ) : null}
 
-        <OAuthAccounts
-          provider={selectedProvider}
-          accounts={kindAccounts}
-          configRevision={configuration.configRevision}
-          quotaRefreshPending={quotaRefresh.pending || invalidCleanupBusy}
-        />
+          <OAuthAccounts
+            provider={selectedProvider}
+            accounts={kindAccounts}
+            configRevision={configuration.configRevision}
+            quotaRefreshPending={quotaRefresh.pending || invalidCleanupBusy}
+          />
+        </div>
       </KindSplitLayout>
 
       <OAuthLoginDrawer
