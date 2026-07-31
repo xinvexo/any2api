@@ -5,6 +5,7 @@ const password = "any2api-e2e-password";
 test("settings expose the five current sections", async ({ page }) => {
   const browserErrors = watchBrowserErrors(page);
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await loginAt(page, "/settings", "允许远程管理");
   await expect(page).toHaveURL(/\/settings\/basic$/);
   await expect(page.getByText("允许远程管理", { exact: false }).first()).toBeVisible();
@@ -13,6 +14,11 @@ test("settings expose the five current sections", async ({ page }) => {
   await expect(settingsTabs.getByRole("link"))
     .toHaveText(["基础", "路由策略", "运行保护", "日志", "关于"]);
   await expect(settingsTabs).toHaveCSS("scrollbar-width", "none");
+  const tabWidths = await settingsTabs.evaluate((element) => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(tabWidths.scroll).toBeGreaterThan(tabWidths.client);
   expect(browserErrors).toEqual([]);
 });
 

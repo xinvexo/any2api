@@ -110,8 +110,7 @@ body {
 }
 
 /* Route tabs stay horizontally swipeable on narrow screens without painting a rail.
- * Keep this named rule outside Tailwind utilities so WebKit's scrollbar pseudo-element
- * cannot be lost during utility generation or minification. */
+ * Keep this rule unlayered so it can override the unlayered global scrollbar styles. */
 .page-tabs {
   -ms-overflow-style: none;
   scrollbar-width: none;
