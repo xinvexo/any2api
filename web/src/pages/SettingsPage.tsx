@@ -127,7 +127,7 @@ function SettingsSectionPage({
 
 /**
  * Same pin pattern as system/request logs: fixed toolbar, only the body scrolls.
- * Avoids sticky chrome (and its top-offset / glass bugs) inside the main panel.
+ * -mb-4 cancels shell `p-4` bottom so the scroller reaches the panel edge.
  */
 function SettingsPageLayout({
   children,
@@ -136,14 +136,14 @@ function SettingsPageLayout({
 }) {
   const [actionsHost, setActionsHost] = useState<HTMLDivElement | null>(null);
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="-mb-4 flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-subtle pb-3">
         <div className="min-w-0 flex-1">
           <PageTabs items={SETTINGS_TABS} ariaLabel="系统设置分类" />
         </div>
         <div ref={setActionsHost} className="flex shrink-0 items-center gap-1.5" />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto pt-5 [scrollbar-gutter:stable]">
+      <div className="min-h-0 flex-1 overflow-y-auto pt-5 pb-4 [scrollbar-gutter:stable]">
         {children(actionsHost)}
       </div>
     </div>

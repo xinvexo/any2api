@@ -103,7 +103,7 @@ export function SystemLogManagement() {
         </p>
       ) : null}
 
-      <div className="min-h-0 flex-1 pt-3">
+      <div className="min-h-0 flex-1">
         {items.length === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
             <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
