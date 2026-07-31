@@ -1,10 +1,19 @@
 use any2api_domain::{HttpAccessLog, HttpAccessLogOutcome};
+use any2api_runtime::api::HttpAccessLogChangeNotification;
 
 pub(super) fn should_record(log: &HttpAccessLog) -> bool {
     is_public_proxy_path(&log.path)
         || log.client_ip.is_none_or(|address| !address.is_loopback())
         || log.status_code.is_none_or(|status| status >= 400)
         || log.outcome != HttpAccessLogOutcome::Completed
+}
+
+pub(super) fn change_notification(log: &HttpAccessLog) -> HttpAccessLogChangeNotification {
+    if log.method == "GET" && log.path == "/api/admin/system-logs" {
+        HttpAccessLogChangeNotification::Suppress
+    } else {
+        HttpAccessLogChangeNotification::Notify
+    }
 }
 
 fn is_public_proxy_path(path: &str) -> bool {
@@ -39,6 +48,28 @@ mod tests {
         log.status_code = Some(200);
         log.outcome = HttpAccessLogOutcome::BodyError;
         assert!(should_record(&log));
+    }
+
+    #[test]
+    fn system_log_reads_are_audited_without_notifying_their_own_watchers() {
+        let mut log = fixture("/api/admin/system-logs", "203.0.113.8", 200);
+        assert!(should_record(&log));
+        assert_eq!(
+            change_notification(&log),
+            HttpAccessLogChangeNotification::Suppress
+        );
+
+        log.method = "DELETE".to_owned();
+        assert_eq!(
+            change_notification(&log),
+            HttpAccessLogChangeNotification::Notify
+        );
+        log.method = "GET".to_owned();
+        log.path = "/api/admin/system-logs/archive".to_owned();
+        assert_eq!(
+            change_notification(&log),
+            HttpAccessLogChangeNotification::Notify
+        );
     }
 
     fn fixture(path: &str, client_ip: &str, status_code: u16) -> HttpAccessLog {

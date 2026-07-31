@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-26
-- 修订：2026-07-30
+- 修订：2026-07-31
 
 ## 背景
 
@@ -65,9 +65,9 @@ DELETE /api/admin/system-logs
 
 新增一级菜单“系统日志”和 `/system-logs` deep link。页面展示时间、客户端 IP、method、实际 path、状态、HTTP version、耗时、响应字节与结果，并提供与请求日志一致的分页、手动刷新、自动刷新 Switch 和带确认的历史清理。Switch 开启后订阅已认证的 `/api/admin/log-events`，收到 `system_logs_changed` 后重新读取当前页；关闭后断开订阅。自动刷新状态是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不写入服务端 SettingRegistry；没有保存值、值无效或浏览器拒绝存储时默认开启。桌面表格继续使用 `@tanstack/react-virtual`，并保持固定表头与独立滚动区；移动端保留自然滚动卡片。
 
-RequestTelemetry Writer 在 RequestLog 或 HttpAccessLog 批次成功提交后推进对应的进程内 epoch，有序清理和保留删除只在确实删除记录后推进。SSE 只发送 `request_logs_changed`、`system_logs_changed` 与 epoch，不发送日志正文；同一批次允许合并通知。epoch 不持久化、不恢复、不提供事件回放，新连接先发送当前值以覆盖断线窗口，keepalive 不触发页面读取。
+RequestTelemetry Writer 在 RequestLog 批次成功提交后推进对应的进程内 epoch；HttpAccessLog 批次只有包含至少一条非 `GET /api/admin/system-logs` 记录时才推进系统日志 epoch。系统日志列表读取仍按统一规则决定是否持久化，但不能通过记录自身再次触发列表读取。有序清理和保留删除只在确实删除记录后推进。SSE 只发送 `request_logs_changed`、`system_logs_changed` 与 epoch，不发送日志正文；同一批次允许合并通知。epoch 不持久化、不恢复、不提供事件回放，新连接先发送当前值以覆盖断线窗口，keepalive 不触发页面读取。
 
-成功通过管理员认证并建立的 SSE 响应由服务端附加 HttpAccessLog 排除标记，避免长连接断开形成系统日志噪音。客户端 Header 不再拥有或声明任何排除语义；认证失败、无效查询、404/405、首次页面读取、手动刷新和其他路径继续由统一审计规则决定。
+成功通过管理员认证并建立的 SSE 响应由服务端附加 HttpAccessLog 排除标记，避免长连接断开形成系统日志噪音。系统日志列表 `GET` 不排除持久化，只由 Server 抑制其变更通知；客户端 Header 不再拥有或声明任何排除、自动刷新或通知抑制语义。认证失败、无效查询、404/405、首次页面读取、自动刷新、手动刷新和其他路径继续由统一审计规则决定。
 
 ## 结果
 

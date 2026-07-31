@@ -19,7 +19,7 @@ use tokio::{sync::mpsc, task::JoinHandle};
 
 use super::{
     changes::LogChangeNotifier,
-    event::TelemetryEvent,
+    event::{HttpAccessLogChangeNotification, TelemetryEvent},
     gateway_usage::{GatewayUsageTracker, utc_timestamp},
     policy::RequestLogPolicy,
     worker,
@@ -173,7 +173,12 @@ impl RequestTelemetry {
         self.send_event(TelemetryEvent::RequestLog(Box::new(record)));
     }
 
-    pub fn try_record_http_access(&self, record: HttpAccessLog, settings: &LoggingSettings) {
+    pub fn try_record_http_access(
+        &self,
+        record: HttpAccessLog,
+        settings: &LoggingSettings,
+        notification: HttpAccessLogChangeNotification,
+    ) {
         let policy = self.policy(record.config_revision, settings);
         if !policy.enabled || !self.reserve_queue_slot(policy.queue_capacity) {
             if policy.enabled {
@@ -181,7 +186,10 @@ impl RequestTelemetry {
             }
             return;
         }
-        self.send_event(TelemetryEvent::HttpAccessLog(Box::new(record)));
+        self.send_event(TelemetryEvent::HttpAccessLog {
+            record: Box::new(record),
+            notification,
+        });
     }
 
     pub fn record_gateway_key_use(&self, id: GatewayApiKeyId) {

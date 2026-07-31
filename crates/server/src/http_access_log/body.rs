@@ -13,7 +13,7 @@ use any2api_runtime::api::RequestTelemetry;
 use axum::body::{Body, Bytes, HttpBody};
 use http_body::{Frame, SizeHint};
 
-use super::policy::should_record;
+use super::policy::{change_notification, should_record};
 
 pub(super) struct AccessLogCompletion {
     telemetry: Arc<RequestTelemetry>,
@@ -101,7 +101,9 @@ impl AccessLogCompletion {
             outcome,
         };
         if should_record(&log) {
-            self.telemetry.try_record_http_access(log, &self.settings);
+            let notification = change_notification(&log);
+            self.telemetry
+                .try_record_http_access(log, &self.settings, notification);
         }
     }
 }

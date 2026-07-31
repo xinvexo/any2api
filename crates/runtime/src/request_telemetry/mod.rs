@@ -9,6 +9,7 @@ mod telemetry;
 mod tests;
 mod worker;
 
+pub use event::HttpAccessLogChangeNotification;
 use observation::RequestObservation;
 pub(crate) use policy::RequestLogPolicy;
 pub(crate) use recorder::{

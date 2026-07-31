@@ -31,8 +31,14 @@ pub(super) struct WorkerState {
 #[derive(Default)]
 struct WriteBatch {
     request_logs: Vec<CompletedRequestLog>,
-    http_access_logs: Vec<HttpAccessLog>,
+    http_access_logs: HttpAccessLogBatch,
     gateway_usage: Vec<GatewayApiKeyLastUsedUpdate>,
+}
+
+#[derive(Default)]
+struct HttpAccessLogBatch {
+    records: Vec<HttpAccessLog>,
+    notify_changes: bool,
 }
 
 pub(super) async fn run(
@@ -102,7 +108,13 @@ async fn receive_event(
     state.queued.fetch_sub(1, Ordering::AcqRel);
     match event {
         TelemetryEvent::RequestLog(record) => batch.request_logs.push(*record),
-        TelemetryEvent::HttpAccessLog(record) => batch.http_access_logs.push(*record),
+        TelemetryEvent::HttpAccessLog {
+            record,
+            notification,
+        } => {
+            batch.http_access_logs.records.push(*record);
+            batch.http_access_logs.notify_changes |= notification.should_notify();
+        }
         TelemetryEvent::GatewayKeyLastUsed { id, last_used_at } => {
             batch
                 .gateway_usage
@@ -163,23 +175,25 @@ async fn flush_request_logs(
 async fn flush_http_access_logs(
     repository: &dyn HttpAccessLogRepository,
     state: &WorkerState,
-    batch: Vec<HttpAccessLog>,
+    batch: HttpAccessLogBatch,
 ) {
-    if batch.is_empty() {
+    if batch.records.is_empty() {
         return;
     }
-    match repository.append_http_access_logs(&batch).await {
+    match repository.append_http_access_logs(&batch.records).await {
         Ok(()) => {
             state
                 .persisted
-                .fetch_add(batch.len() as u64, Ordering::Relaxed);
-            state.changes.http_access_logs_changed();
+                .fetch_add(batch.records.len() as u64, Ordering::Relaxed);
+            if batch.notify_changes {
+                state.changes.http_access_logs_changed();
+            }
         }
         Err(error) => {
             state
                 .dropped
-                .fetch_add(batch.len() as u64, Ordering::Relaxed);
-            tracing::warn!(%error, records = batch.len(), "HTTP access log batch was dropped");
+                .fetch_add(batch.records.len() as u64, Ordering::Relaxed);
+            tracing::warn!(%error, records = batch.records.len(), "HTTP access log batch was dropped");
         }
     }
 }

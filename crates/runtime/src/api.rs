@@ -34,7 +34,8 @@ pub use crate::public_request::{
 };
 pub use crate::registry::RuntimeRegistry;
 pub use crate::request_telemetry::{
-    RequestTelemetry, RequestTelemetryControlError, RequestTelemetryMetrics,
+    HttpAccessLogChangeNotification, RequestTelemetry, RequestTelemetryControlError,
+    RequestTelemetryMetrics,
 };
 pub use crate::routing::{
     BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,

@@ -67,20 +67,10 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     let changed_event = next_sse_data(&mut log_events).await;
     assert!(changed_event.contains("event: system_logs_changed\n"));
     wait_for_log_count(storage.as_ref(), 4).await;
-    drop(log_events);
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    assert_eq!(
-        storage
-            .list_http_access_logs(0, 0, 100)
-            .await
-            .expect("HTTP access logs after SSE disconnect")
-            .total,
-        4
-    );
-
     let invalid_list = send(&app, Method::GET, "/api/admin/system-logs?page=0").await;
     assert_eq!(invalid_list.status, StatusCode::BAD_REQUEST);
     wait_for_log_count(storage.as_ref(), 5).await;
+    drop(log_events);
 
     let first_page = send(
         &app,
@@ -144,6 +134,8 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     assert_eq!(remaining.total, 0);
     assert!(remaining.items.is_empty());
 
+    let mut system_log_changes = telemetry.subscribe_http_access_log_changes();
+    let epoch_before_denied = *system_log_changes.borrow_and_update();
     let denied = send_from_peer(
         &app,
         Method::GET,
@@ -154,13 +146,23 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     assert_eq!(denied.status, StatusCode::FORBIDDEN);
     assert_eq!(denied.json["error"]["code"], "admin_loopback_only");
     wait_for_log_count(storage.as_ref(), 1).await;
+    tokio::time::timeout(Duration::from_secs(1), system_log_changes.changed())
+        .await
+        .expect("denied request change notification")
+        .expect("system log notifier remains open");
+    let epoch_after_denied = *system_log_changes.borrow_and_update();
+    assert!(epoch_after_denied > epoch_before_denied);
     let denied_logs = storage
         .list_http_access_logs(0, 0, 100)
         .await
         .expect("denied SSE access log");
     assert_eq!(denied_logs.items[0].path, "/api/admin/log-events");
 
+    let self_read = send(&app, Method::GET, "/api/admin/system-logs?page=0").await;
+    assert_eq!(self_read.status, StatusCode::BAD_REQUEST);
+    wait_for_log_count(storage.as_ref(), 2).await;
     telemetry.shutdown(Duration::from_secs(1)).await;
+    assert_eq!(*system_log_changes.borrow(), epoch_after_denied);
 }
 
 async fn build_test_app(
