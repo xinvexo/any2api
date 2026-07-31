@@ -30,7 +30,8 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
   expect(await screen.findByRole("table", { name: "系统日志表格" })).toBeInTheDocument();
   const mobileList = screen.getByRole("list", { name: "系统日志列表" });
   const mobileLog = within(mobileList).getByRole("listitem");
-  expect(mobileLog).toHaveClass("rounded-[14px]", "bg-surface-muted/55");
+  expect(mobileList).toHaveClass("h-full", "overflow-y-auto", "[scrollbar-gutter:stable]");
+  expect(mobileLog).toHaveClass("relative", "rounded-[14px]", "bg-surface-muted/55");
   expect(within(mobileLog).getByLabelText("HTTP 状态 200，结果完成")).toBeInTheDocument();
   expect(within(mobileLog).getByText("203.0.113.8")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新" })).toHaveClass("h-9", "w-9", "rounded-full");
@@ -39,6 +40,10 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
     "w-9",
     "rounded-full",
   );
+  expect(screen.getByText("自动刷新").closest('[data-system-log-fixed="toolbar"]')).not.toBeNull();
+  expect(
+    screen.getByRole("combobox", { name: "每页条数" }).closest('[data-system-log-fixed="pagination"]'),
+  ).not.toBeNull();
   expect(screen.getAllByText("/api/admin/provider-credentials/actual-id").length).toBeGreaterThan(1);
   expect(screen.queryByText("配置版本")).not.toBeInTheDocument();
   expect(screen.queryByTitle(/Config revision/i)).not.toBeInTheDocument();

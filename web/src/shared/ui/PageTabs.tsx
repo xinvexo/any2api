@@ -21,7 +21,7 @@ export function PageTabs({ items, ariaLabel }: PageTabsProps) {
   return (
     <nav
       aria-label={ariaLabel}
-      className="relative isolate -mx-1 flex gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      className="page-tabs relative isolate -mx-1 flex gap-1 overflow-x-auto px-1"
     >
       <SlidingSelectionIndicator
         selected={selectedPath}

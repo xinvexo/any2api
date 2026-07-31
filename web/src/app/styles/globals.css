@@ -109,6 +109,20 @@ body {
   background: transparent;
 }
 
+/* Route tabs stay horizontally swipeable on narrow screens without painting a rail.
+ * Keep this named rule outside Tailwind utilities so WebKit's scrollbar pseudo-element
+ * cannot be lost during utility generation or minification. */
+.page-tabs {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.page-tabs::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 /* Side drawer + confirm dialog share the shell frosted-glass language.
  *
  * Scrim: solid black + element opacity (not premultiplied alpha) so fade

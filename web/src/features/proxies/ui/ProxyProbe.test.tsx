@@ -94,7 +94,7 @@ test("keeps the two fixed-width slots through idle, testing, and completed state
   renderManagement();
 
   const idle = (await screen.findAllByTestId("proxy-test-status"))[1];
-  expect(idle).toHaveClass("w-[154px]", "grid-cols-[64px_84px]");
+  expect(idle).toHaveClass("sm:w-[154px]", "sm:grid-cols-[64px_84px]");
   expect(idle.children).toHaveLength(2);
   fireEvent.click(screen.getByRole("button", { name: `测试 ${proxy.name}` }));
 

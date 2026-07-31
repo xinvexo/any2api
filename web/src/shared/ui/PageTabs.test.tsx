@@ -17,8 +17,10 @@ test("slides one background across variable-width route tabs", () => {
     </MemoryRouter>,
   );
   const indicator = container.querySelector("[data-sliding-selection-indicator]");
+  const navigation = screen.getByRole("navigation", { name: "系统设置分类" });
   const routing = screen.getByRole("link", { name: "路由策略" });
 
+  expect(navigation).toHaveClass("page-tabs", "overflow-x-auto");
   expect(indicator).toHaveAttribute("data-active-value", "/settings/basic");
   expect(routing.className).not.toContain("hover:bg-");
 

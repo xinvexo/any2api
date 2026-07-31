@@ -1,1 +1,0 @@
-import{n as e}from"./createLucideIcon-CAdyUWaY.js";import{t}from"./request-logs-CH93Yr1f.js";var n=e();function r(){return(0,n.jsx)(t,{})}export{r as RequestLogsPage};

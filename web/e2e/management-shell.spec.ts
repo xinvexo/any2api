@@ -9,8 +9,10 @@ test("settings expose the five current sections", async ({ page }) => {
   await expect(page).toHaveURL(/\/settings\/basic$/);
   await expect(page.getByText("允许远程管理", { exact: false }).first()).toBeVisible();
   await expectNoHorizontalOverflow(page);
-  await expect(page.getByRole("navigation", { name: "系统设置分类" }).getByRole("link"))
+  const settingsTabs = page.getByRole("navigation", { name: "系统设置分类" });
+  await expect(settingsTabs.getByRole("link"))
     .toHaveText(["基础", "路由策略", "运行保护", "日志", "关于"]);
+  await expect(settingsTabs).toHaveCSS("scrollbar-width", "none");
   expect(browserErrors).toEqual([]);
 });
 
@@ -196,6 +198,27 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
   await expect(page.getByRole("button", { name: "刷新", exact: true })).toHaveCSS("width", "36px");
   await expect(page.getByRole("button", { name: "清理历史日志" })).toHaveCSS("width", "36px");
   await expectNoHorizontalOverflow(page);
+
+  const toolbar = page.locator('[data-system-log-fixed="toolbar"]');
+  const pagination = page.locator('[data-system-log-fixed="pagination"]');
+  const toolbarBefore = await toolbar.boundingBox();
+  const paginationBefore = await pagination.boundingBox();
+  const main = page.locator("#main-content");
+  const mainMetrics = await main.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+    scrollTop: element.scrollTop,
+  }));
+  expect(mainMetrics.scrollHeight).toBe(mainMetrics.clientHeight);
+  expect(mainMetrics.scrollTop).toBe(0);
+  await mobileList.evaluate((element) => {
+    element.scrollTop = Math.min(400, element.scrollHeight - element.clientHeight);
+    element.dispatchEvent(new Event("scroll"));
+  });
+  await expect.poll(() => mobileList.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBe(0);
+  expect((await toolbar.boundingBox())?.y).toBe(toolbarBefore?.y);
+  expect((await pagination.boundingBox())?.y).toBe(paginationBefore?.y);
 
   await page.getByRole("button", { name: "清理历史日志" }).click();
   const dialog = page.getByRole("alertdialog", { name: "清理历史系统日志？" });

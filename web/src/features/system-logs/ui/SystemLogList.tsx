@@ -16,7 +16,7 @@ export function SystemLogList({ items }: { items: SystemLog[] }) {
   return (
     <>
       <div
-        className="h-full space-y-2 overflow-y-auto pr-1 md:hidden [scrollbar-gutter:stable]"
+        className="h-full space-y-2 overflow-y-auto md:hidden [scrollbar-gutter:stable]"
         role="list"
         aria-label="系统日志列表"
       >
@@ -25,7 +25,7 @@ export function SystemLogList({ items }: { items: SystemLog[] }) {
             key={log.requestId}
             role="listitem"
             data-responsive-row="card"
-            className="rounded-[14px] bg-surface-muted/55 p-3 transition-colors"
+            className="relative rounded-[14px] bg-surface-muted/55 p-3 transition-colors"
           >
             <div className="flex min-w-0 items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
