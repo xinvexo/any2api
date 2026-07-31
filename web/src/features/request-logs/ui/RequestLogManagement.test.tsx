@@ -66,6 +66,9 @@ test("renders request logs in a table without leaving the page for details", asy
   expect(
     (await screen.findAllByText("11111111-1111-4111-8111-111111111111")).length,
   ).toBeGreaterThanOrEqual(1);
+  expect(
+    document.getElementById("request-log-card-11111111-1111-4111-8111-111111111111"),
+  ).toHaveClass("pl-8", "pr-3");
   expect(screen.getAllByText("请求 ID").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("出口代理").length).toBeGreaterThanOrEqual(1);
   expect(screen.getAllByText("203.0.113.8").length).toBeGreaterThanOrEqual(1);

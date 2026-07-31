@@ -111,7 +111,7 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
         </div>
       </button>
       {expanded ? (
-        <div id={panelId} className="border-t border-subtle/40 px-3 pb-3 pt-2.5">
+        <div id={panelId} className="border-t border-subtle/40 pb-3 pl-8 pr-3 pt-2.5">
           <RequestLogExpandedPanel
             requestId={log.requestId}
             failed={!isSuccessStatus(log.statusCode)}
