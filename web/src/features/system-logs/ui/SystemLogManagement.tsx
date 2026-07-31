@@ -79,20 +79,24 @@ export function SystemLogManagement() {
           <Button
             size="sm"
             variant="ghost"
+            className="h-9 min-h-9 w-9 rounded-full px-0 md:h-7 md:min-h-7 md:w-auto md:rounded-[6px] md:px-2.5"
             onClick={() => void query.refetch()}
             disabled={query.isFetching}
+            title="刷新"
           >
             <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
-            刷新
+            <span className="sr-only md:not-sr-only">刷新</span>
           </Button>
           <Button
             size="sm"
             variant="danger"
+            className="h-9 min-h-9 w-9 rounded-full px-0 md:h-7 md:min-h-7 md:w-auto md:rounded-[6px] md:px-2.5"
             disabled={clearMutation.isPending}
             onClick={() => setConfirmClear(true)}
+            title="清理历史日志"
           >
             <Trash2 size={14} />
-            清理历史日志
+            <span className="sr-only md:not-sr-only">清理历史日志</span>
           </Button>
         </div>
       </div>

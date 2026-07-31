@@ -1,3 +1,6 @@
+import { ArrowDownToLine, Clock3, Monitor, Network } from "lucide-react";
+import type { ReactNode } from "react";
+
 import type { SystemLog } from "../api/system-log-contracts";
 import { SystemLogVirtualTable } from "./SystemLogVirtualTable";
 import {
@@ -21,28 +24,60 @@ export function SystemLogList({ items }: { items: SystemLog[] }) {
           <article
             key={log.requestId}
             role="listitem"
-            className="rounded-[6px] border border-subtle bg-surface-muted/40 p-3"
+            data-responsive-row="card"
+            className="rounded-[14px] bg-surface-muted/55 p-3 transition-colors"
           >
-            <div className="flex min-w-0 items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-[11px] tabular-nums text-tertiary">
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="shrink-0 rounded-[6px] bg-surface/70 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-secondary">
+                  {log.method}
+                </span>
+                <time
+                  dateTime={new Date(log.startedAtMs).toISOString()}
+                  className="min-w-0 truncate text-[11px] tabular-nums text-tertiary"
+                >
                   {formatSystemLogTime(log.startedAtMs)}
-                </p>
-                <p className="mt-1 break-all font-mono text-[12px] leading-5 text-primary">
-                  <span className="mr-2 font-semibold">{log.method}</span>
-                  {log.path}
-                </p>
+                </time>
               </div>
-              <span className={cn("shrink-0 font-mono text-[13px] font-semibold", statusTone(log))}>
-                {log.statusCode ?? "-"}
+              <span
+                aria-label={`HTTP 状态 ${log.statusCode ?? "未知"}，结果${outcomeLabel(log.outcome)}`}
+                className={cn(
+                  "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px]",
+                  statusTone(log),
+                  statusSurfaceTone(log),
+                )}
+              >
+                <span className="font-mono font-semibold">{log.statusCode ?? "-"}</span>
+                <span className="mx-1 opacity-45" aria-hidden="true">·</span>
+                <span className="text-[10px] font-medium">{outcomeLabel(log.outcome)}</span>
               </span>
             </div>
-            <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[11px]">
-              <Detail label="客户端" value={log.clientIp ?? "未知"} />
-              <Detail label="协议" value={log.httpVersion} />
-              <Detail label="耗时" value={formatDuration(log.durationMs)} />
-              <Detail label="响应" value={formatBytes(log.responseBytes)} />
-              <Detail label="结果" value={outcomeLabel(log.outcome)} />
+            <p className="mt-2 break-words font-mono text-[12px] leading-[1.45] text-primary [overflow-wrap:anywhere]">
+              {log.path}
+            </p>
+            <dl className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-secondary">
+              <Metadata
+                icon={<Monitor size={11} aria-hidden="true" />}
+                label="客户端"
+                value={log.clientIp ?? "未知"}
+                mono
+              />
+              <Metadata
+                icon={<Network size={11} aria-hidden="true" />}
+                label="协议"
+                value={log.httpVersion}
+                mono
+              />
+              <Metadata
+                icon={<Clock3 size={11} aria-hidden="true" />}
+                label="耗时"
+                value={formatDuration(log.durationMs)}
+              />
+              <Metadata
+                icon={<ArrowDownToLine size={11} aria-hidden="true" />}
+                label="响应"
+                value={formatBytes(log.responseBytes)}
+              />
             </dl>
           </article>
         ))}
@@ -52,11 +87,42 @@ export function SystemLogList({ items }: { items: SystemLog[] }) {
   );
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Metadata({
+  icon,
+  label,
+  value,
+  mono = false,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div className="min-w-0">
-      <dt className="text-tertiary">{label}</dt>
-      <dd className="mt-0.5 break-all font-mono text-secondary">{value}</dd>
+      <dt className="sr-only">{label}</dt>
+      <dd
+        className={cn(
+          "flex min-w-0 items-center gap-1 text-secondary [&_svg]:shrink-0 [&_svg]:text-tertiary",
+          mono && "font-mono",
+        )}
+      >
+        {icon}
+        <span className="min-w-0 break-all tabular-nums">{value}</span>
+      </dd>
     </div>
   );
+}
+
+function statusSurfaceTone(log: SystemLog) {
+  switch (statusTone(log)) {
+    case "text-success":
+      return "bg-success/10";
+    case "text-warning":
+      return "bg-warning/10";
+    case "text-danger":
+      return "bg-danger/10";
+    default:
+      return "bg-surface/70";
+  }
 }

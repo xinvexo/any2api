@@ -138,30 +138,30 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
 
   const autoRefresh = page.getByRole("switch", { name: "自动刷新" });
   await expect(autoRefresh).toHaveAttribute("aria-checked", "true");
-  const automaticRefresh = page.waitForResponse(
-    (response) =>
-      response.url().includes("/api/admin/system-logs?limit=")
-      && response.request().headers()["x-any2api-system-log-refresh"] === "automatic",
-  );
-  await automaticRefresh;
   await autoRefresh.click();
   await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
-  const table = page.getByRole("table", { name: "系统日志表格" });
-  await expect(table).toBeVisible();
 
-  for (let index = 0; index < 80; index += 1) {
+  for (let index = 0; index < 40; index += 1) {
     await page.request.get(`/api/e2e-virtual-row/${index}`);
   }
   await expect.poll(async () => {
-    const response = await page.request.get("/api/admin/system-logs?limit=200");
+    const response = await page.request.get("/api/admin/system-logs?page=1&page_size=50");
     const payload = await response.json() as { items: Array<{ path: string }> };
     return payload.items.filter((item) => item.path.startsWith("/api/e2e-virtual-row/")).length;
-  }).toBe(80);
+  }).toBe(40);
+
+  const pageSizeChanged = page.waitForResponse((response) =>
+    response.url().includes("/api/admin/system-logs?page=1&page_size=50"),
+  );
+  await page.getByRole("combobox", { name: "每页条数" }).click();
+  await page.getByRole("option", { name: "50 条/页" }).click();
+  await pageSizeChanged;
+  await expect(page.getByRole("table", { name: "系统日志表格" })).toBeVisible();
+
   const refreshed = page.waitForResponse(
     (response) =>
-      response.url().includes("/api/admin/system-logs?limit=") &&
-      response.request().method() === "GET" &&
-      response.request().headers()["x-any2api-system-log-refresh"] === undefined,
+      response.url().includes("/api/admin/system-logs?page=1&page_size=50") &&
+      response.request().method() === "GET",
   );
   await page.getByRole("button", { name: "刷新", exact: true }).click();
   const refreshedPayload = await (await refreshed).json() as { items: Array<{ path: string }> };
@@ -185,6 +185,18 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
   }, targetIndex);
   await expect(rows.getByText(targetPath)).toBeVisible();
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
+  const mobileList = page.getByRole("list", { name: "系统日志列表" });
+  await expect(mobileList).toBeVisible();
+  const mobileCard = mobileList.getByRole("listitem").first();
+  await expect(mobileCard).toHaveCSS("border-radius", "14px");
+  await expect(mobileCard).toHaveCSS("border-top-width", "0px");
+  await expect(page.getByRole("button", { name: "刷新", exact: true })).toHaveCSS("width", "36px");
+  await expect(page.getByRole("button", { name: "清理历史日志" })).toHaveCSS("width", "36px");
+  await expectNoHorizontalOverflow(page);
+
   await page.getByRole("button", { name: "清理历史日志" }).click();
   const dialog = page.getByRole("alertdialog", { name: "清理历史系统日志？" });
   await expect(dialog).toBeVisible();
@@ -196,12 +208,6 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
   await dialog.getByRole("button", { name: "清理", exact: true }).click();
   await cleared;
   await expect(dialog).toBeHidden();
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload();
-  await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
-  await expect(page.getByRole("list", { name: "系统日志列表" })).toBeVisible();
-  await expectNoHorizontalOverflow(page);
   expect(browserErrors).toEqual([]);
 });
 

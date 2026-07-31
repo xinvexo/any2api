@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY } from "../model/system-log-auto-refresh-preference";
@@ -28,7 +28,17 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
   renderManagement();
 
   expect(await screen.findByRole("table", { name: "系统日志表格" })).toBeInTheDocument();
-  expect(screen.getByRole("list", { name: "系统日志列表" })).toBeInTheDocument();
+  const mobileList = screen.getByRole("list", { name: "系统日志列表" });
+  const mobileLog = within(mobileList).getByRole("listitem");
+  expect(mobileLog).toHaveClass("rounded-[14px]", "bg-surface-muted/55");
+  expect(within(mobileLog).getByLabelText("HTTP 状态 200，结果完成")).toBeInTheDocument();
+  expect(within(mobileLog).getByText("203.0.113.8")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "刷新" })).toHaveClass("h-9", "w-9", "rounded-full");
+  expect(screen.getByRole("button", { name: "清理历史日志" })).toHaveClass(
+    "h-9",
+    "w-9",
+    "rounded-full",
+  );
   expect(screen.getAllByText("/api/admin/provider-credentials/actual-id").length).toBeGreaterThan(1);
   expect(screen.queryByText("配置版本")).not.toBeInTheDocument();
   expect(screen.queryByTitle(/Config revision/i)).not.toBeInTheDocument();
