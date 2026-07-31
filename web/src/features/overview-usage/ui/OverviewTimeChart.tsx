@@ -151,7 +151,7 @@ export function OverviewTimeChart({
               color: palette.borderSubtle,
               drawTicks: false,
             },
-            max: yMaximum,
+            suggestedMax: yMaximum,
             ticks: {
               color: palette.textTertiary,
               font: { family: "inherit", size: 10 },
