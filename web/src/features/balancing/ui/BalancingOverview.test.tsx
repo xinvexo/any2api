@@ -14,6 +14,8 @@ test("renders fixed-size routing aggregates for a large account collection", asy
   expect(await screen.findByRole("heading", { name: "请求调度" })).toBeInTheDocument();
   expect(screen.getByText("1,845")).toBeInTheDocument();
   expect(screen.getByText("12 / 800")).toBeInTheDocument();
+  expect(screen.getByText("RPM 用尽账号")).toBeInTheDocument();
+  expect(screen.queryByText("RPM 已用尽")).not.toBeInTheDocument();
   expect(screen.getByText(/940 \/ 1,000 个账号已启用/)).toBeInTheDocument();
   expect(screen.getByText("Codex")).toBeInTheDocument();
   expect(screen.getByText("Claude")).toBeInTheDocument();
@@ -24,6 +26,18 @@ test("renders fixed-size routing aggregates for a large account collection", asy
   expect(screen.queryByText("Credential 健康过滤")).not.toBeInTheDocument();
   expect(screen.queryByText("Endpoint 可用")).not.toBeInTheDocument();
   expect(rendered.container.querySelector(".rounded-\\[14px\\]")).toBeNull();
+});
+
+test("describes RPM exhaustion as an account count when none are exhausted", async () => {
+  const runtime = runtimeResponse();
+  runtime.totals.limited_credential_count = 16;
+  runtime.totals.rate_limited_credential_count = 0;
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(runtime));
+  renderOverview();
+
+  expect(await screen.findByText("RPM 用尽账号")).toBeInTheDocument();
+  expect(screen.getByText("0 / 16")).toBeInTheDocument();
+  expect(screen.queryByText("RPM 已用尽")).not.toBeInTheDocument();
 });
 
 test("renders an empty aggregate without an account directory", async () => {

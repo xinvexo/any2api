@@ -11,7 +11,7 @@ export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
           value={`${formatCount(runtime.queue.waiting)} / ${formatCount(runtime.queue.maxWaiting)}`}
         />
         <Metric
-          label="RPM 已用尽"
+          label="RPM 用尽账号"
           value={`${formatCount(runtime.totals.rateLimitedCredentialCount)} / ${formatCount(runtime.totals.limitedCredentialCount)}`}
         />
       </dl>
