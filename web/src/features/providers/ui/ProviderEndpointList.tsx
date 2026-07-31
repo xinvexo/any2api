@@ -259,8 +259,10 @@ export function ProviderEndpointList({
                           : undefined
                       }
                     >
-                      {expanded ? <div aria-hidden="true" /> : null}
-                      <div className={expanded ? "min-w-0 overflow-hidden" : undefined}>
+                      {expanded ? <div className="hidden sm:block" aria-hidden="true" /> : null}
+                      <div
+                        className={expanded ? "col-span-2 min-w-0 overflow-hidden sm:col-span-1" : undefined}
+                      >
                         <ProviderCredentialManagement
                           endpoint={endpoint}
                           embedded

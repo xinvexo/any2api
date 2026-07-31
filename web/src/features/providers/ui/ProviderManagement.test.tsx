@@ -41,13 +41,23 @@ test("shows a stable API Key skeleton while an endpoint accordion loads", async 
   );
   const loading = await screen.findByRole("status", { name: "正在读取 API Key 配置" });
   expect(loading.querySelectorAll("[data-skeleton]").length).toBeGreaterThan(0);
+  expect(loading.parentElement).toHaveClass("col-span-2", "sm:col-span-1");
+  expect(loading.parentElement?.previousElementSibling).toHaveClass("hidden", "sm:block");
+  expect(loading.children[1]).toHaveClass("pl-6", "pr-2", "sm:px-0");
 
   await act(async () => {
     resolveCredentials(jsonResponse(credentialConfiguration(1, [credential()])));
   });
   expect(screen.getByRole("status", { name: "正在读取 API Key 配置" })).toBeInTheDocument();
   expect(screen.queryByText("Primary Key")).not.toBeInTheDocument();
-  expect(await screen.findByText("Primary Key")).toBeInTheDocument();
+  const credentialName = await screen.findByText("Primary Key");
+  expect(credentialName).toBeInTheDocument();
+  const credentialCard = credentialName.closest("[data-floating-bounds]");
+  expect(credentialCard).toHaveClass("pl-6", "pr-2", "sm:px-0");
+  expect(credentialCard?.closest(".col-span-2")).toHaveClass(
+    "col-span-2",
+    "sm:col-span-1",
+  );
   expect(screen.queryByRole("status", { name: "正在读取 API Key 配置" })).not.toBeInTheDocument();
 });
 
