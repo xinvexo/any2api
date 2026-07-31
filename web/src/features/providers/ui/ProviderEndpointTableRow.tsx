@@ -104,6 +104,7 @@ export function ProviderEndpointTableRow({
         </RowActionButton>
         <RowActionButton
           quiet
+          tone={endpoint.enabled ? "danger" : "success"}
           label={`${endpoint.enabled ? "停用" : "启用"} ${endpoint.name}`}
           title={`${endpoint.enabled ? "停用" : "启用"} ${endpoint.name}`}
           disabled={pending}

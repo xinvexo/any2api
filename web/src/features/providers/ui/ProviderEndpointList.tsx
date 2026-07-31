@@ -12,7 +12,6 @@ import {
   providerKindLabel,
   PROVIDER_KIND_OPTIONS,
 } from "../model/provider-kind-catalog";
-import { getProviderErrorMessage } from "../model/provider-error";
 import { ProviderCredentialManagement } from "./ProviderCredentialManagement";
 import {
   ENDPOINT_CONTENT_GRID_CLASS,
@@ -28,7 +27,6 @@ interface ProviderEndpointListProps {
   configuration: ProviderEndpointConfiguration;
   pending: boolean;
   refreshing: boolean;
-  actionError: unknown;
   onCreate: (kind: ProviderKind) => void;
   onRefresh: () => void;
   onEdit: (id: string) => void;
@@ -40,7 +38,6 @@ export function ProviderEndpointList({
   configuration,
   pending,
   refreshing,
-  actionError,
   onCreate,
   onRefresh,
   onEdit,
@@ -285,12 +282,6 @@ export function ProviderEndpointList({
           {kindName} · 共 <span className="tabular-nums">{filtered.length}</span> 条
         </p>
       </div>
-
-      {actionError ? (
-        <p className="pt-2 text-sm text-danger" role="alert">
-          {getProviderErrorMessage(actionError)}
-        </p>
-      ) : null}
     </KindSplitLayout>
   );
 }

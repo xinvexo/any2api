@@ -353,7 +353,7 @@ async fn models_list_reflects_credential_model_selection() {
     assert_eq!(rejected.body["error"]["code"], "model_not_found");
     assert_eq!(rejected.body["error"]["param"], "model");
 
-    let unrestricted = request_json(
+    let denied_all = request_json(
         app.clone(),
         Method::PATCH,
         "/api/admin/settings/models.allowed",
@@ -365,8 +365,47 @@ async fn models_list_reflects_credential_model_selection() {
         &[],
     )
     .await;
+    assert_eq!(denied_all.status, StatusCode::OK);
+    assert_eq!(denied_all.body["config_revision"], 7);
+
+    let listed = request_json(
+        app.clone(),
+        Method::GET,
+        "/v1/models",
+        None,
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(listed.body["data"].as_array().map(Vec::len), Some(0));
+
+    let rejected = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({"model":"gpt-b","input":"must stay local"})),
+        loopback,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(rejected.status, StatusCode::BAD_REQUEST);
+    assert_eq!(rejected.body["error"]["code"], "model_not_found");
+
+    let unrestricted = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/models.allowed",
+        Some(json!({
+            "expected_revision": 7,
+            "value": "all"
+        })),
+        loopback,
+        &[],
+    )
+    .await;
     assert_eq!(unrestricted.status, StatusCode::OK);
-    assert_eq!(unrestricted.body["config_revision"], 7);
+    assert_eq!(unrestricted.body["config_revision"], 8);
 
     let listed = request_json(
         app.clone(),
@@ -385,7 +424,7 @@ async fn models_list_reflects_credential_model_selection() {
         Method::PUT,
         &format!("/api/admin/provider-credentials/{credential_id}/models"),
         Some(json!({
-            "expected_revision": 7,
+            "expected_revision": 8,
             "expected_config_version": 2,
             "models": []
         })),
@@ -410,7 +449,7 @@ async fn models_list_reflects_credential_model_selection() {
         .iter()
         .find(|item| item["key"] == "models.allowed")
         .expect("model allowlist");
-    assert_eq!(allowed_item["override_value"], json!([]));
+    assert_eq!(allowed_item["override_value"], "all");
     assert_eq!(allowed_item["options"], json!([]));
 
     let listed = request_json(

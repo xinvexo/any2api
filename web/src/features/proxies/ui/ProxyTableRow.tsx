@@ -42,7 +42,7 @@ export function ProxyTableRow({
   return (
     <tr
       data-responsive-row="card"
-      className="grid grid-cols-[minmax(0,1fr)_auto] overflow-hidden rounded-[8px] border border-subtle bg-surface sm:table-row sm:rounded-none sm:border-x-0 sm:border-t-0 sm:bg-transparent sm:last:border-b-0"
+      className="grid grid-cols-[minmax(0,1fr)_auto] overflow-hidden rounded-[14px] bg-surface-muted/45 transition-colors sm:table-row sm:rounded-none sm:border-b sm:border-subtle/50 sm:bg-transparent sm:last:border-b-0 sm:hover:bg-surface-muted/20"
     >
       <td className="col-start-1 row-start-1 min-w-0 px-3 pb-2.5 pt-3 align-middle sm:table-cell sm:py-2.5 sm:pl-0 sm:pr-3">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">

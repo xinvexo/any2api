@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use any2api_domain::{
-    ModelRouteConfiguration, OAuthAccountConfiguration, SettingKey, SettingValue,
+    ModelAccess, ModelRouteConfiguration, OAuthAccountConfiguration, SettingKey, SettingValue,
     SettingsConfiguration,
 };
 use sqlx::SqliteConnection;
@@ -15,12 +15,12 @@ pub(super) fn restrict_model_allowlist(
     routes: &ModelRouteConfiguration,
     accounts: &OAuthAccountConfiguration,
 ) -> SettingValue {
-    let SettingValue::StringList(mut values) = value else {
+    let SettingValue::ModelAccess(ModelAccess::Allowlist(mut values)) = value else {
         return value;
     };
     let published = configured_public_models(routes, accounts);
     values.retain(|value| published.contains(value));
-    SettingValue::StringList(values)
+    SettingValue::ModelAccess(ModelAccess::Allowlist(values))
 }
 
 pub(crate) async fn prune_model_allowlist(
@@ -29,7 +29,7 @@ pub(crate) async fn prune_model_allowlist(
     routes: &ModelRouteConfiguration,
     accounts: &OAuthAccountConfiguration,
 ) -> Result<bool, StorageError> {
-    let Some(current @ SettingValue::StringList(_)) =
+    let Some(current @ SettingValue::ModelAccess(ModelAccess::Allowlist(_))) =
         settings.override_value(SettingKey::ModelsAllowed)
     else {
         return Ok(false);

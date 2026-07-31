@@ -5,7 +5,6 @@ import type {
   ProviderCredential,
   ProviderCredentialConfiguration,
 } from "../api/provider-credential-contracts";
-import { getProviderErrorMessage } from "../model/provider-error";
 import { ProviderCredentialTableRow } from "./ProviderCredentialTableRow";
 import type { ProxyConfiguration } from "@/features/proxies";
 import { Button } from "@/shared/ui/Button";
@@ -16,7 +15,6 @@ export interface ProviderCredentialListProps {
   proxies: ProxyConfiguration;
   pending: boolean;
   refreshing: boolean;
-  actionError: unknown;
   embedded?: boolean;
   onCreate: () => void;
   onRefresh: () => void;
@@ -31,7 +29,6 @@ export function ProviderCredentialList({
   proxies,
   pending,
   refreshing,
-  actionError,
   embedded = false,
   onCreate,
   onRefresh,
@@ -153,12 +150,6 @@ export function ProviderCredentialList({
             共 <span className="tabular-nums">{filtered.length}</span> 条
           </p>
         </div>
-      ) : null}
-
-      {actionError ? (
-        <p className="py-2 text-[12px] text-danger" role="alert">
-          {getProviderErrorMessage(actionError)}
-        </p>
       ) : null}
     </div>
   );

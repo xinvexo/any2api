@@ -24,21 +24,7 @@ export function SettingControl({
   describedBy,
   onChange,
 }: SettingControlProps) {
-  if (item.valueType === "string_list") {
-    if (item.key !== "models.allowed") {
-      return (
-        <textarea
-          className="focus-ring min-h-24 w-full resize-y rounded-[8px] border-0 bg-surface-muted px-3 py-2 font-mono text-[12px] leading-5 text-primary placeholder:text-tertiary disabled:cursor-not-allowed disabled:opacity-50"
-          value={typeof value === "string" ? value : ""}
-          placeholder={"例如：\n127.0.0.1/32\n10.0.0.0/8"}
-          aria-labelledby={labelledBy}
-          aria-describedby={describedBy}
-          aria-invalid={invalid}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      );
-    }
+  if (item.valueType === "model_access") {
     return (
       <ModelAllowlistControl
         item={item}
@@ -47,6 +33,20 @@ export function SettingControl({
         labelledBy={labelledBy}
         describedBy={describedBy}
         onChange={onChange}
+      />
+    );
+  }
+  if (item.valueType === "string_list") {
+    return (
+      <textarea
+        className="focus-ring min-h-24 w-full resize-y rounded-[8px] border-0 bg-surface-muted px-3 py-2 font-mono text-[12px] leading-5 text-primary placeholder:text-tertiary disabled:cursor-not-allowed disabled:opacity-50"
+        value={typeof value === "string" ? value : ""}
+        placeholder={"例如：\n127.0.0.1/32\n10.0.0.0/8"}
+        aria-labelledby={labelledBy}
+        aria-describedby={describedBy}
+        aria-invalid={invalid}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
       />
     );
   }

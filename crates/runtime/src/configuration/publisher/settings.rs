@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, SettingKey, SettingOverrideChange, SettingValue, SettingsValidationError,
+    ConfigRevision, ModelAccess, SettingKey, SettingOverrideChange, SettingValue,
+    SettingsValidationError,
 };
 
 use super::ConfigPublisher;
@@ -63,7 +64,9 @@ fn validate_model_allowlist(
     key: SettingKey,
     value: &SettingValue,
 ) -> Result<(), ConfigPublishError> {
-    let (SettingKey::ModelsAllowed, SettingValue::StringList(models)) = (key, value) else {
+    let (SettingKey::ModelsAllowed, SettingValue::ModelAccess(ModelAccess::Allowlist(models))) =
+        (key, value)
+    else {
         return Ok(());
     };
     let published = current.published_public_model_names();

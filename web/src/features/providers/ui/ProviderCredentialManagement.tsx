@@ -15,6 +15,7 @@ import { ProviderCredentialList } from "./ProviderCredentialList";
 import { ProviderCredentialListSkeleton } from "./ProviderCredentialListSkeleton";
 import { ProviderCredentialModels } from "./ProviderCredentialModels";
 import { useCredentialProxyOptions } from "@/features/proxies";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
@@ -227,33 +228,54 @@ export function ProviderCredentialManagement({
   }
 
   function toggleCredential(credential: ProviderCredential) {
+    const nextEnabled = !credential.enabled;
     mutations.update.reset();
-    mutations.update.mutate({
-      id: credential.id,
-      input: {
-        expectedRevision: configuration.configRevision,
-        expectedConfigVersion: credential.configVersion,
-        label: credential.label,
-        proxyProfileId: credential.proxyProfileId,
-        requestsPerMinute: credential.requestsPerMinute,
-        enabled: !credential.enabled,
+    mutations.update.mutate(
+      {
+        id: credential.id,
+        input: {
+          expectedRevision: configuration.configRevision,
+          expectedConfigVersion: credential.configVersion,
+          label: credential.label,
+          proxyProfileId: credential.proxyProfileId,
+          requestsPerMinute: credential.requestsPerMinute,
+          enabled: nextEnabled,
+        },
       },
-    });
+      {
+        onSuccess: () => {
+          notify.success(
+            nextEnabled ? `已启用「${credential.label}」` : `已停用「${credential.label}」`,
+          );
+        },
+        onError: (error) => {
+          notify.danger(getProviderErrorMessage(error));
+        },
+      },
+    );
   }
 
   function confirmDelete() {
     if (!deleteTarget) {
       return;
     }
+    const target = deleteTarget;
     mutations.remove.reset();
     mutations.remove.mutate(
       {
-        id: deleteTarget.id,
+        id: target.id,
         expectedRevision: configuration.configRevision,
-        expectedConfigVersion: deleteTarget.configVersion,
+        expectedConfigVersion: target.configVersion,
       },
       {
-        onSettled: () => setDeleteTarget(null),
+        onSuccess: () => {
+          notify.success(`已删除「${target.label}」`);
+          setDeleteTarget(null);
+        },
+        onError: (error) => {
+          notify.danger(getProviderErrorMessage(error));
+          setDeleteTarget(null);
+        },
       },
     );
   }
@@ -287,7 +309,6 @@ export function ProviderCredentialManagement({
             proxies={proxies.data}
             pending={pending}
             refreshing={credentials.isFetching || proxies.isFetching}
-            actionError={mutations.remove.error ?? (editorId === null ? mutations.update.error : null)}
             embedded={embedded}
             onCreate={() => openEditor("new")}
             onRefresh={() => void Promise.all([credentials.refetch(), proxies.refetch()])}

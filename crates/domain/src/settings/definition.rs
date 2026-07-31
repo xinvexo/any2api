@@ -52,6 +52,7 @@ pub enum SettingValueType {
     Integer,
     DurationSecs,
     Enum,
+    ModelAccess,
     StringList,
 }
 
@@ -62,6 +63,7 @@ impl SettingValueType {
             Self::Integer => "integer",
             Self::DurationSecs => "duration_secs",
             Self::Enum => "enum",
+            Self::ModelAccess => "model_access",
             Self::StringList => "string_list",
         }
     }

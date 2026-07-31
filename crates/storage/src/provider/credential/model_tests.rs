@@ -1,7 +1,7 @@
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName,
-    SettingKey, SettingValue,
+    ConfigRevision, CredentialId, CredentialKind, ModelAccess, ProtocolDialect,
+    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, PublicModelName, SettingKey, SettingValue,
 };
 use tempfile::tempdir;
 
@@ -194,20 +194,20 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         .set_setting_override(
             modeled.revision(),
             SettingKey::ModelsAllowed,
-            SettingValue::StringList(vec![
+            SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
                 "gpt-z".to_owned(),
                 "gpt-a".to_owned(),
                 "gpt-z".to_owned(),
-            ]),
+            ])),
         )
         .await
         .expect("model allowlist");
     assert_eq!(
         allowed.settings().override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::StringList(vec![
+        Some(SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
             "gpt-a".to_owned(),
             "gpt-z".to_owned(),
-        ]))
+        ])))
     );
 
     let reduced = store
@@ -221,7 +221,9 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         .expect("remove one model source");
     assert_eq!(
         reduced.settings().override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::StringList(vec!["gpt-z".to_owned()]))
+        Some(SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
+            "gpt-z".to_owned()
+        ])))
     );
 
     let deleted = store
@@ -230,10 +232,12 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         .expect("delete last source");
     assert_eq!(
         deleted.settings().override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::StringList(Vec::new()))
+        Some(SettingValue::ModelAccess(
+            ModelAccess::Allowlist(Vec::new())
+        ))
     );
     assert!(
-        deleted
+        !deleted
             .settings()
             .models()
             .allows(&PublicModelName::new("gpt-b").expect("public model"))
@@ -250,7 +254,9 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         restored
             .settings()
             .override_value(SettingKey::ModelsAllowed),
-        Some(SettingValue::StringList(Vec::new()))
+        Some(SettingValue::ModelAccess(
+            ModelAccess::Allowlist(Vec::new())
+        ))
     );
 }
 

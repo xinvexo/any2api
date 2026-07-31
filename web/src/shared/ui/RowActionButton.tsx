@@ -2,7 +2,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import { cn } from "@/shared/lib/cn";
 
-type RowActionTone = "neutral" | "danger";
+type RowActionTone = "neutral" | "success" | "danger";
 
 export interface RowActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label: string;
@@ -12,9 +12,15 @@ export interface RowActionButtonProps extends ButtonHTMLAttributes<HTMLButtonEle
   children: ReactNode;
 }
 
+const toneClassName: Record<RowActionTone, string> = {
+  neutral: "text-secondary hover:bg-surface-muted hover:text-primary",
+  success: "text-success hover:bg-surface-muted hover:text-success",
+  danger: "text-danger/75 hover:bg-danger/8 hover:text-danger",
+};
+
 /**
  * Table/list row action control.
- * Keeps every inline action visually equal weight so none outshines the row content.
+ * Neutral actions stay quiet; success / danger only change icon color.
  */
 export function RowActionButton({
   label,
@@ -36,9 +42,7 @@ export function RowActionButton({
         quiet
           ? "h-6 gap-1 rounded-[6px] px-1.5 text-[11px]"
           : "h-7 gap-1 rounded-[7px] px-2 text-[12px]",
-        tone === "danger"
-          ? "text-danger/75 hover:bg-danger/8 hover:text-danger"
-          : "text-secondary hover:bg-surface-muted hover:text-primary",
+        toneClassName[tone],
         className,
       )}
       {...props}

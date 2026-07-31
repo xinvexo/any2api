@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.0<br>
-> 最后更新：2026-07-30<br>
+> 最后更新：2026-07-31<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 1. 项目定位
@@ -50,7 +50,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只创建独立的 SQLite `OAuthAccount`。导入兼容已审计的 CLIProxyAPI 与 Sub2API OAuth 结构，先规范化为 any2api Provider JSON，再整批原子发布；明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
-22. 系统设置提供全局公开模型允许列表；空列表表示不限制，非空列表只允许精确匹配的公开模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
+22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
 23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志保存客户端实际请求 URI 的原始 path，不使用路由模板、通配归一化或重写后的路径，也不保存 query；请求日志与系统日志管理列表均使用服务端分页且只展示最近 3 天。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 收到后重新读取当前页；固定定时轮询和客户端自报的日志排除 Header 均不存在。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
@@ -1199,8 +1199,8 @@ ProviderKind
 | `POST /v1/messages` | Claude Messages 推理 | anthropic_messages | JSON + SSE |
 | `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | JSON |
 
-`/v1/models` 先取得至少被一把 Credential 选中的公开模型，再按全局 `models.allowed` 过滤；空数组
-表示允许全部已发布模型，非空数组只允许其中精确列出的模型。目录不根据瞬时冷却、
+`/v1/models` 先取得至少被一把 Credential 选中的公开模型，再按全局 `models.allowed` 过滤；显式
+`"all"` 模式允许全部已发布模型，数组只允许其中精确列出的模型，空数组返回空目录。目录不根据瞬时冷却、
 RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议使用相同模型名时只返回一个标准模型对象，
 结果按模型名稳定排序；具体请求仍按入口协议精确解析内部 Route。无可用 Credential 时，请求模型接口返回
 运行时错误，而不是让模型列表抖动。
@@ -1295,9 +1295,9 @@ Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字�
 - `codex/`、`claude/`、`grok/` 只作为可选命名习惯；
 - `(ingress_protocol, public_model)` 必须唯一，发生冲突时拒绝发布；
 - 模型所属协议由入口 Route 决定，不依赖名称前缀猜测；内部转换协议不改变客户端填写的模型名。
-- `models.allowed` 使用字符串列表；空数组表示允许当前 PublishedSnapshot 中的全部公开模型，非空数组
-  只允许其中精确列出的模型；
-- 非空列表保存精确公开模型名，不支持 wildcard、前缀或 Provider 推断；保存时排序去重并按
+- `models.allowed` 使用显式模型访问策略；`"all"` 表示允许当前 PublishedSnapshot 中的全部公开模型，
+  数组表示只允许其中精确列出的模型，空数组表示不开放任何模型；
+- 数组保存精确公开模型名，不支持 wildcard、前缀或 Provider 推断；保存时排序去重并按
   `PublicModelName` 校验。每次配置发布都与事务内新物化的公开 Route 名称取交集；删除最后一把可提供
   某模型的 API Key/OAuth 账号或移除其模型后，该名称必须在同一事务中自动删除；
 - 允许策略对所有公开推理与辅助入口统一执行。未知模型和未放行模型共享兼容的模型不存在错误边界，且
@@ -2070,14 +2070,14 @@ SettingRegistry 实现以上四个 `scheduler.*` key。其余 affinity、retry�
 
 | 设置 | 类型 | 默认值 | 语义 |
 |---|---|---:|---|
-| `models.allowed` | string_list | `[]` | `[]` 允许全部；非空数组只允许精确匹配项 |
+| `models.allowed` | model_access | `"all"` | `"all"` 允许全部；数组只允许精确匹配项；`[]` 禁止全部 |
 
-允许策略使用带类型 JSON 数组持久化；保存时按 `PublicModelName` 校验、排序并去重。
+允许策略使用带类型 JSON 的 `"all"` 模式或模型名数组持久化；数组保存时按 `PublicModelName` 校验、排序并去重。
 管理设置响应为该项附带当前 PublishedSnapshot 中全部已发布公开模型作为候选选项。配置发布在事务内完成
-Route 物化后，将非空允许列表与新的公开模型集合取交集并持久化规范结果；已无任何 Route 的名称不得残留
-在设置响应或 SQLite 覆盖值中。交集为空时持久化 `[]`，按空列表语义允许全部当前公开模型。
+Route 物化后，将数组策略与新的公开模型集合取交集并持久化规范结果；已无任何 Route 的名称不得残留
+在设置响应或 SQLite 覆盖值中。交集为空时持久化 `[]` 并继续禁止全部；`"all"` 模式不参与名称裁剪。
 
-`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误，并在会话适用的入口早于会话创建。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新列表。完整决策见 `docs/adr/0049-global-public-model-allowlist.md`。
+`models.allowed` 作为快照级入口策略与路由、网关鉴权一起原子发布。`/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions`、`/v1/images/generations`、`/v1/images/edits`、`/v1/messages` 与 `/v1/messages/count_tokens` 在规划阶段统一检查；未放行时在候选选择、RPM 预留或上游 I/O 前返回对应协议的模型不存在错误，并在会话适用的入口早于会话创建。`GET /v1/models` 使用同一快照过滤目录。已开始的请求继续使用其捕获的 revision，新请求在管理 API 成功返回后立即使用新策略。完整决策见 `docs/adr/0049-global-public-model-allowlist.md` 与 `docs/adr/0073-explicit-public-model-access-mode.md`。
 
 #### 可信反向代理
 
@@ -2658,7 +2658,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 ### 19.8 设置与远程管理
 
 - 按功能分组显示 SettingRegistry；
-- “基础”设置提供可搜索的公开模型多选控件；空选择明确表示允许全部模型，非空选择显示已放行数量，并支持选择/清除当前搜索结果；
+- “基础”设置提供可搜索的公开模型多选控件；“允许全部”开关显式选择全部模式，关闭开关后的空选择明确表示不开放任何模型，非空选择显示已放行数量；
 - “基础”设置直接展示远程管理开关和可信代理地址列表；可信代理支持逐行或逗号分隔输入 IP/CIDR，并明确提示未使用反向代理时留空；
 - 每项同时显示默认值、用户覆盖值和当前生效值；
 - 支持修改覆盖值；不提供一键恢复默认或其他浏览器侧清除覆盖入口；
@@ -2883,7 +2883,7 @@ OAuth2 JSON = OAuthAccount-only SQLite persistence, no read/download/export
 Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Vault-Keyed HMAC Digest
 Gateway Token Plaintext = Visible In Authenticated Management Responses, Never In Logs
 Public Ingress Auth = Same PublishedSnapshot Revision + Header Strip Before Driver
-Global Public Model Allowlist = Empty Allows All + Exact Names + Same PublishedSnapshot Revision
+Global Public Model Access = Explicit All Mode Or Exact Name Array + Empty Array Denies All + Same PublishedSnapshot Revision
 Disallowed Model = Reject Before Affinity / RPM / Upstream + Filter From /v1/models
 
 HttpAccessLog = Every Axum Request + Original URI Path Without Query

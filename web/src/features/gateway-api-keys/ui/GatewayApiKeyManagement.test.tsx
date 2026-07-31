@@ -124,6 +124,7 @@ test("lists keys with a real time window and hover or focus details", async () =
   expect(screen.getByText("Desktop")).toBeInTheDocument();
   expect(screen.queryByText(tokenA)).not.toBeInTheDocument();
   expect(screen.queryByRole("columnheader", { name: "密钥" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("columnheader", { name: "状态" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "复制 Desktop 的密钥" })).toBeInTheDocument();
   expect(screen.getByRole("switch", { name: "禁用 Desktop" })).toHaveAttribute(
     "aria-checked",

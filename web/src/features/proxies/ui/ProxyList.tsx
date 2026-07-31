@@ -105,16 +105,16 @@ export function ProxyList({
         >
           <caption className="sr-only">出口代理列表</caption>
           <thead className="hidden sm:table-header-group">
-            <tr className="border-b border-subtle text-secondary whitespace-nowrap">
-              <th className="py-2.5 pr-3 font-medium">名称</th>
-              <th className="px-3 py-2.5 font-medium">类型</th>
-              <th className="px-3 py-2.5 font-medium">地址</th>
-              <th className="px-3 py-2.5 font-medium">状态</th>
-              <th className="px-3 py-2.5 font-medium">认证</th>
-              <th className="w-[178px] min-w-[178px] max-w-[178px] px-3 py-2.5 font-medium">
+            <tr className="border-b border-subtle text-[11px] text-tertiary whitespace-nowrap">
+              <th className="py-2 pr-3 font-medium">名称</th>
+              <th className="px-3 py-2 font-medium">类型</th>
+              <th className="px-3 py-2 font-medium">地址</th>
+              <th className="px-3 py-2 font-medium">状态</th>
+              <th className="px-3 py-2 font-medium">认证</th>
+              <th className="w-[178px] min-w-[178px] max-w-[178px] px-3 py-2 font-medium">
                 连通性
               </th>
-              <th className="py-2.5 pl-3 text-right font-medium">操作</th>
+              <th className="py-2 pl-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody className="grid gap-2 py-3 sm:table-row-group sm:py-0">

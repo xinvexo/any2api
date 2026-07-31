@@ -34,7 +34,7 @@ export function ModelAllowlistControl({
 
   function publish(next: Set<string>) {
     onChange({
-      mode: next.size === 0 ? "all" : "only",
+      mode: "only",
       models: [...next].sort(),
     });
   }
@@ -53,7 +53,7 @@ export function ModelAllowlistControl({
     <div className="min-w-0 space-y-2.5" role="group" aria-labelledby={labelledBy}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-[12px] tabular-nums text-secondary">
-          {access.mode === "all" || selected.size === 0
+          {access.mode === "all"
             ? `全部 ${options.length} 个模型可用`
             : `已允许 ${selected.size} / ${options.length}`}
         </span>

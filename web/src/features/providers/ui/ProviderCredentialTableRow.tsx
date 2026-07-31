@@ -50,8 +50,8 @@ export function ProviderCredentialTableRow({
               </span>
               <span
                 className={cn(
-                  "shrink-0 text-[10px]",
-                  credential.enabled ? "text-success" : "text-tertiary",
+                  "shrink-0 text-[10px] font-medium",
+                  credential.enabled ? "text-success" : "text-warning",
                 )}
               >
                 {credential.enabled ? "启用" : "停用"}
@@ -108,7 +108,7 @@ export function ProviderCredentialTableRow({
         {credential.enabled ? (
           <Badge tone="success">已启用</Badge>
         ) : (
-          <Badge>已停用</Badge>
+          <Badge tone="warning">已停用</Badge>
         )}
       </td>
       <td className="px-3 py-2 align-middle">
@@ -175,6 +175,7 @@ function CredentialActions({
         title={`${credential.enabled ? "停用" : "启用"} ${credential.label}`}
         disabled={pending}
         quiet={quiet}
+        tone={credential.enabled ? "danger" : "success"}
         onClick={() => onToggleEnabled(credential)}
       >
         {credential.enabled ? (
@@ -216,13 +217,14 @@ function Badge({
   tone = "neutral",
 }: {
   children: ReactNode;
-  tone?: "neutral" | "success";
+  tone?: "neutral" | "success" | "warning";
 }) {
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium",
         tone === "success" && "bg-success/10 text-success",
+        tone === "warning" && "bg-warning/12 text-warning",
         tone === "neutral" && "bg-surface-muted text-secondary",
       )}
     >

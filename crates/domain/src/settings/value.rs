@@ -63,12 +63,19 @@ impl FileLogLevel {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModelAccess {
+    All,
+    Allowlist(Vec<String>),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SettingValue {
     Boolean(bool),
     Integer(u64),
     DurationSecs(u64),
     RateLimitMode(RateLimitMode),
     FileLogLevel(FileLogLevel),
+    ModelAccess(ModelAccess),
     StringList(Vec<String>),
 }
 
@@ -95,6 +102,7 @@ impl SettingValue {
                 }
                 parse_enum(key, value).ok_or(SettingsValidationError::InvalidEnum)
             }
+            SettingValueType::ModelAccess => parse_model_access(value).map(Self::ModelAccess),
             SettingValueType::StringList => parse_string_list(value).map(Self::StringList),
         }?;
         normalize_value(key, parsed)
@@ -107,6 +115,8 @@ impl SettingValue {
             Self::Integer(value) | Self::DurationSecs(value) => json!(value),
             Self::RateLimitMode(value) => json!(value.as_str()),
             Self::FileLogLevel(value) => json!(value.as_str()),
+            Self::ModelAccess(ModelAccess::All) => json!("all"),
+            Self::ModelAccess(ModelAccess::Allowlist(value)) => json!(value),
             Self::StringList(value) => json!(value),
         }
     }
@@ -117,6 +127,7 @@ impl SettingValue {
             Self::Integer(_) => SettingValueType::Integer,
             Self::DurationSecs(_) => SettingValueType::DurationSecs,
             Self::RateLimitMode(_) | Self::FileLogLevel(_) => SettingValueType::Enum,
+            Self::ModelAccess(_) => SettingValueType::ModelAccess,
             Self::StringList(_) => SettingValueType::StringList,
         }
     }
@@ -175,8 +186,8 @@ pub(super) fn normalize_value(
     value: SettingValue,
 ) -> Result<SettingValue, SettingsValidationError> {
     let value = match (key, value) {
-        (SettingKey::ModelsAllowed, SettingValue::StringList(values)) => {
-            SettingValue::StringList(normalize_models(values)?)
+        (SettingKey::ModelsAllowed, SettingValue::ModelAccess(ModelAccess::Allowlist(values))) => {
+            SettingValue::ModelAccess(ModelAccess::Allowlist(normalize_models(values)?))
         }
         (SettingKey::NetworkTrustedProxyCidrs, SettingValue::StringList(values)) => {
             SettingValue::StringList(normalize_trusted_proxy_cidrs(values)?)
@@ -230,6 +241,13 @@ fn parse_string_list(value: &Value) -> Result<Vec<String>, SettingsValidationErr
                 .ok_or(SettingsValidationError::InvalidType)
         })
         .collect()
+}
+
+fn parse_model_access(value: &Value) -> Result<ModelAccess, SettingsValidationError> {
+    if value.as_str() == Some("all") {
+        return Ok(ModelAccess::All);
+    }
+    parse_string_list(value).map(ModelAccess::Allowlist)
 }
 
 fn normalize_models(values: Vec<String>) -> Result<Vec<String>, SettingsValidationError> {

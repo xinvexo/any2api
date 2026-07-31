@@ -84,10 +84,10 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(affinity_wait["max_value"], 86_400);
     assert_eq!(affinity_wait["web_group"], "会话粘性");
     let models = find_setting(&initial, "models.allowed");
-    assert_eq!(models["value_type"], "string_list");
-    assert_eq!(models["default_value"], json!([]));
+    assert_eq!(models["value_type"], "model_access");
+    assert_eq!(models["default_value"], "all");
     assert_eq!(models["override_value"], Value::Null);
-    assert_eq!(models["effective_value"], json!([]));
+    assert_eq!(models["effective_value"], "all");
     assert_eq!(models["allowed_values"], Value::Null);
     assert_eq!(models["options"], json!([]));
     assert_eq!(models["web_group"], "公开模型");

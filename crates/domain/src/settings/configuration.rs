@@ -160,7 +160,7 @@ mod tests {
 
     use super::{SettingOverrides, SettingsConfiguration};
     use crate::{
-        FileLogLevel, RateLimitMode, SettingKey, SettingValue, SettingValueType,
+        FileLogLevel, ModelAccess, RateLimitMode, SettingKey, SettingValue, SettingValueType,
         SettingsValidationError,
     };
 
@@ -241,10 +241,10 @@ mod tests {
                 SettingKey::ModelsAllowed,
                 &json!(["z-model", "a-model", "z-model"]),
             ),
-            Ok(SettingValue::StringList(vec![
+            Ok(SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
                 "a-model".to_owned(),
                 "z-model".to_owned(),
-            ]))
+            ])))
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::ModelsAllowed, &serde_json::Value::Null),
@@ -252,7 +252,13 @@ mod tests {
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::ModelsAllowed, &json!([])),
-            Ok(SettingValue::StringList(Vec::new()))
+            Ok(SettingValue::ModelAccess(
+                ModelAccess::Allowlist(Vec::new())
+            ))
+        );
+        assert_eq!(
+            SettingValue::from_json(SettingKey::ModelsAllowed, &json!("all")),
+            Ok(SettingValue::ModelAccess(ModelAccess::All))
         );
         assert_eq!(
             SettingValue::from_json(SettingKey::ModelsAllowed, &json!([" invalid "])),

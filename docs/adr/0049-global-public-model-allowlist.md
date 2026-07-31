@@ -1,6 +1,6 @@
 # ADR-0049: Global public model allowlist
 
-- Status: Accepted
+- Status: Superseded by ADR-0073
 - Date: 2026-07-26
 - Decision maker: maintainer
 

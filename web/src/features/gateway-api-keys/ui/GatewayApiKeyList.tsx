@@ -87,18 +87,17 @@ export function GatewayApiKeyList({
 
       <div className="sm:overflow-x-auto">
         <table
-          className="block w-full text-left text-[12px] sm:table sm:min-w-[860px] sm:border-collapse"
+          className="block w-full text-left text-[12px] sm:table sm:min-w-[780px] sm:border-collapse"
           data-responsive-table="cards"
         >
           <caption className="sr-only">网关密钥列表</caption>
           <thead className="hidden sm:table-header-group">
-            <tr className="border-b border-subtle text-secondary whitespace-nowrap">
-              <th className="py-2.5 pr-3 font-medium">名称</th>
-              <th className="px-3 py-2.5 font-medium">调用统计</th>
-              <th className="px-3 py-2.5 font-medium">状态</th>
-              <th className="px-3 py-2.5 font-medium">最后使用</th>
-              <th className="px-3 py-2.5 font-medium">创建时间</th>
-              <th className="py-2.5 pl-3 text-right font-medium">操作</th>
+            <tr className="border-b border-subtle text-[11px] text-tertiary whitespace-nowrap">
+              <th className="py-2 pr-3 font-medium">名称</th>
+              <th className="px-3 py-2 font-medium">调用统计</th>
+              <th className="px-3 py-2 font-medium">最后使用</th>
+              <th className="px-3 py-2 font-medium">创建时间</th>
+              <th className="py-2 pl-3 text-right font-medium">操作</th>
             </tr>
           </thead>
           <tbody className="grid gap-2 py-3 sm:table-row-group sm:py-0">

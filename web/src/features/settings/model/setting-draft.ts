@@ -20,17 +20,20 @@ export function createSettingDraftFromValue(
   item: SettingItem,
   value: SettingValue,
 ): SettingDraft {
-  if (item.valueType === "string_list") {
+  if (item.valueType === "model_access") {
+    if (value === "all") {
+      return { mode: "all", models: [] };
+    }
     if (Array.isArray(value)) {
-      if (item.key !== "models.allowed") {
-        return value.join("\n");
-      }
-      return {
-        mode: value.length === 0 ? "all" : "only",
-        models: [...value],
-      };
+      return { mode: "only", models: [...value] };
     }
     throw new Error("invalid model access setting");
+  }
+  if (item.valueType === "string_list") {
+    if (Array.isArray(value)) {
+      return value.join("\n");
+    }
+    throw new Error("invalid string list setting");
   }
   if (typeof value === "number") {
     return String(value);
@@ -45,29 +48,29 @@ export function validateSettingDraft(
   item: SettingItem,
   draft: SettingDraft,
 ): SettingDraftValidation {
-  if (item.valueType === "string_list") {
-    if (item.key !== "models.allowed") {
-      if (typeof draft !== "string") {
-        return invalid("地址列表格式不正确");
-      }
-      const values = [...new Set(
-        draft
-          .split(/[\n,]/u)
-          .map((value) => value.trim())
-          .filter(Boolean),
-      )].sort();
-      return { value: values, error: null };
-    }
+  if (item.valueType === "model_access") {
     if (!isModelAccessDraft(draft)) {
       return invalid("模型选择格式不正确");
     }
     if (draft.mode === "all") {
-      return { value: [], error: null };
+      return { value: "all", error: null };
     }
     const values = [...new Set(draft.models)].sort();
     if (values.some((value) => !item.options?.includes(value))) {
       return invalid("模型列表已发生变化，请刷新后重试");
     }
+    return { value: values, error: null };
+  }
+  if (item.valueType === "string_list") {
+    if (typeof draft !== "string") {
+      return invalid("地址列表格式不正确");
+    }
+    const values = [...new Set(
+      draft
+        .split(/[\n,]/u)
+        .map((value) => value.trim())
+        .filter(Boolean),
+    )].sort();
     return { value: values, error: null };
   }
   if (item.valueType === "boolean") {

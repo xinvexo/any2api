@@ -10,7 +10,7 @@ test("parses setting metadata and all value types", () => {
       item("scheduler.queue_timeout", "duration_secs", 30, null, null, 1, 86_400),
       item("scheduler.max_waiting_requests", "integer", 128, null, null, 1, 100_000),
       item("scheduler.fallback_on_rate_limit", "boolean", false, null, null),
-      item("models.allowed", "string_list", [], ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
+      item("models.allowed", "model_access", "all", ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
       item("network.trusted_proxy_cidrs", "string_list", [], ["127.0.0.1/32"], null),
     ],
   });
@@ -28,7 +28,7 @@ test("accepts empty setting description", () => {
   const configuration = parseSettingsConfiguration({
     config_revision: 1,
     items: [{
-      ...item("models.allowed", "string_list", [], null, null, null, null, ["gpt-a"]),
+      ...item("models.allowed", "model_access", "all", null, null, null, null, ["gpt-a"]),
       description: "",
     }],
   });
@@ -43,7 +43,12 @@ test("rejects inconsistent bounds, values, and enum metadata", () => {
 
   expect(() => parseSettingsConfiguration({
     config_revision: 1,
-    items: [item("models.allowed", "string_list", null, null, null, null, null, [])],
+    items: [item("models.allowed", "model_access", null, null, null, null, null, [])],
+  })).toThrow("invalid settings response");
+
+  expect(() => parseSettingsConfiguration({
+    config_revision: 1,
+    items: [item("models.allowed", "model_access", "everything", null, null, null, null, [])],
   })).toThrow("invalid settings response");
 
   expect(() => parseSettingsConfiguration({

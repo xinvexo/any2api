@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName,
-    RateLimitMode, RequestsPerMinute, SettingKey, SettingValue,
+    ConfigRevision, CredentialId, CredentialKind, ModelAccess, ProtocolDialect,
+    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, PublicModelName, RateLimitMode, RequestsPerMinute, SettingKey, SettingValue,
 };
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use tempfile::tempdir;
@@ -194,7 +194,7 @@ async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
         .set_setting_override(
             modeled.revision(),
             SettingKey::ModelsAllowed,
-            SettingValue::StringList(vec!["gpt-z".to_owned()]),
+            SettingValue::ModelAccess(ModelAccess::Allowlist(vec!["gpt-z".to_owned()])),
         )
         .await
         .expect("allowlist");
@@ -215,11 +215,38 @@ async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
     assert!(filtered.is_public_model_allowed(&PublicModelName::new("gpt-z").expect("model")));
     assert!(!filtered.is_public_model_allowed(&PublicModelName::new("gpt-a").expect("model")));
 
+    let denied = publisher
+        .set_setting_override(
+            filtered.revision(),
+            SettingKey::ModelsAllowed,
+            SettingValue::ModelAccess(ModelAccess::Allowlist(Vec::new())),
+        )
+        .await
+        .expect("deny every model");
+    assert_eq!(
+        denied
+            .published_public_model_names()
+            .into_iter()
+            .collect::<Vec<_>>(),
+        ["gpt-a", "gpt-z"]
+    );
+    assert!(denied.public_model_names().is_empty());
+    assert!(!denied.is_public_model_allowed(&PublicModelName::new("gpt-z").expect("model")));
+
+    let filtered = publisher
+        .set_setting_override(
+            denied.revision(),
+            SettingKey::ModelsAllowed,
+            SettingValue::ModelAccess(ModelAccess::Allowlist(vec!["gpt-z".to_owned()])),
+        )
+        .await
+        .expect("restore filtered allowlist");
+
     let unavailable = publisher
         .set_setting_override(
             filtered.revision(),
             SettingKey::ModelsAllowed,
-            SettingValue::StringList(vec!["missing".to_owned()]),
+            SettingValue::ModelAccess(ModelAccess::Allowlist(vec!["missing".to_owned()])),
         )
         .await
         .expect_err("unpublished selection");
@@ -231,10 +258,16 @@ async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
         .expect("delete credential");
     assert!(deleted.published_public_model_names().is_empty());
     assert!(
-        deleted
+        !deleted
             .settings()
             .models()
             .allows(&PublicModelName::new("gpt-after-prune").expect("public model"))
+    );
+    assert_eq!(
+        deleted.settings().override_value(SettingKey::ModelsAllowed),
+        Some(SettingValue::ModelAccess(
+            ModelAccess::Allowlist(Vec::new())
+        ))
     );
 }
 

@@ -84,7 +84,7 @@
 - OAuth 登录只有在 SQLite 提交、Runtime reconcile 和快照切换完成后才能返回成功；Token 刷新也必须通过版本 CAS 和串行发布整批切换。
 - 运行参数通过版本化 `SettingRegistry` 定义；代码保存默认值，SQLite 只保存用户覆盖值。
 - Web 必须显示默认值、覆盖值和生效值，并允许修改覆盖值；不得提供“恢复默认”按钮或其他浏览器侧清除覆盖入口。底层管理 API、ConfigPublisher 与存储仍保留删除覆盖记录的能力。
-- `models.allowed` 是全局公开模型允许列表：空列表表示允许当前 PublishedSnapshot 中的全部公开模型，非空列表只按精确公开模型名放行；它必须随同一 PublishedSnapshot revision 热更新，在路由、RPM 预留和上游 I/O 前执行，并同步过滤 `GET /v1/models`。配置发布后已经没有任何 Route 的名称必须在同一事务中从列表和 SQLite 覆盖值自动移除。Gateway Key 不得影响该列表，该列表也不得改写 ProviderCredential 或 OAuthAccount 各自的模型选择。
+- `models.allowed` 是全局公开模型访问策略：显式模式 `"all"` 表示允许当前 PublishedSnapshot 中的全部公开模型，数组表示只按精确公开模型名放行，其中空数组表示不开放任何模型；它必须随同一 PublishedSnapshot revision 热更新，在路由、RPM 预留和上游 I/O 前执行，并同步过滤 `GET /v1/models`。配置发布后已经没有任何 Route 的名称必须在同一事务中从数组和 SQLite 覆盖值自动移除，裁剪为空后仍保持空数组的禁止全部语义。Gateway Key 不得影响该策略，该策略也不得改写 ProviderCredential 或 OAuthAccount 各自的模型选择。
 - 禁止在各模块中散落无法集中查询或覆盖的魔法常量。
 
 ## 8. 模块与依赖边界

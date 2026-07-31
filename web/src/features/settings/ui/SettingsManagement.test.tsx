@@ -117,7 +117,10 @@ test("searches, toggles, and batch-saves the global model allowlist", async () =
     if (init?.method === "PATCH") {
       const body = JSON.parse(String(init.body)) as BatchBody;
       const value = body.updates[0]?.value;
-      current = modelConfiguration(current.config_revision + 1, Array.isArray(value) ? value : null);
+      if (value !== "all" && !Array.isArray(value)) {
+        throw new Error("missing model access update");
+      }
+      current = modelConfiguration(current.config_revision + 1, value);
     }
     return jsonResponse(current);
   });
@@ -152,6 +155,21 @@ test("searches, toggles, and batch-saves the global model allowlist", async () =
   patches = patchBodies(fetchMock);
   expect(patches[1]).toEqual({
     expected_revision: 2,
+    updates: [{ key: "models.allowed", value: "all" }],
+    resets: [],
+  });
+
+  fireEvent.click(screen.getByRole("switch", { name: "允许全部公开模型" }));
+  fireEvent.click(screen.getByRole("button", { name: "claude" }));
+  fireEvent.click(screen.getByRole("button", { name: "gpt-a" }));
+  fireEvent.click(screen.getByRole("button", { name: "gpt-b" }));
+  expect(screen.getByRole("switch", { name: "允许全部公开模型" })).not.toBeChecked();
+  expect(screen.getByText("已允许 0 / 3")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "保存页面设置" }));
+  await waitFor(() => expect(screen.getByText("已允许 0 / 3")).toBeInTheDocument());
+  patches = patchBodies(fetchMock);
+  expect(patches[2]).toEqual({
+    expected_revision: 3,
     updates: [{ key: "models.allowed", value: [] }],
     resets: [],
   });
@@ -273,13 +291,13 @@ function configuration(revision: number, timeoutOverride: number | null = null) 
   };
 }
 
-function modelConfiguration(revision: number, override: string[] | null) {
+function modelConfiguration(revision: number, override: "all" | string[] | null) {
   return {
     config_revision: revision,
     items: [setting(
       "models.allowed",
-      "string_list",
-      [],
+      "model_access",
+      "all",
       override,
       null,
       "公开模型",

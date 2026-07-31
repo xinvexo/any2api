@@ -14,6 +14,7 @@ import { useProviderEndpoints } from "../model/use-providers";
 import { ProviderEditorSlot } from "./ProviderEditorSlot";
 import { ProviderEndpointList } from "./ProviderEndpointList";
 import { ProviderKindNav } from "./ProviderKindNav";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
@@ -154,30 +155,51 @@ export function ProviderManagement() {
   }
 
   function toggleEndpoint(endpoint: ProviderEndpoint) {
+    const nextEnabled = !endpoint.enabled;
     mutations.update.reset();
-    mutations.update.mutate({
-      id: endpoint.id,
-      input: {
-        expectedRevision: configuration.configRevision,
-        expectedConfigVersion: endpoint.configVersion,
-        name: endpoint.name,
-        providerKind: endpoint.providerKind,
-        baseUrl: endpoint.baseUrl,
-        protocolDialect: endpoint.protocolDialect,
-        upstreamProtocolDialect: endpoint.upstreamProtocolDialect,
-        enabled: !endpoint.enabled,
+    mutations.update.mutate(
+      {
+        id: endpoint.id,
+        input: {
+          expectedRevision: configuration.configRevision,
+          expectedConfigVersion: endpoint.configVersion,
+          name: endpoint.name,
+          providerKind: endpoint.providerKind,
+          baseUrl: endpoint.baseUrl,
+          protocolDialect: endpoint.protocolDialect,
+          upstreamProtocolDialect: endpoint.upstreamProtocolDialect,
+          enabled: nextEnabled,
+        },
       },
-    });
+      {
+        onSuccess: () => {
+          notify.success(nextEnabled ? `已启用「${endpoint.name}」` : `已停用「${endpoint.name}」`);
+        },
+        onError: (error) => {
+          notify.danger(getProviderErrorMessage(error));
+        },
+      },
+    );
   }
 
   function confirmDelete() {
     if (!deleteTarget) {
       return;
     }
+    const target = deleteTarget;
     mutations.remove.reset();
     mutations.remove.mutate(
-      { id: deleteTarget.id, expectedRevision: configuration.configRevision },
-      { onSettled: () => setDeleteTarget(null) },
+      { id: target.id, expectedRevision: configuration.configRevision },
+      {
+        onSuccess: () => {
+          notify.success(`已删除「${target.name}」`);
+          setDeleteTarget(null);
+        },
+        onError: (error) => {
+          notify.danger(getProviderErrorMessage(error));
+          setDeleteTarget(null);
+        },
+      },
     );
   }
 
@@ -201,7 +223,6 @@ export function ProviderManagement() {
         configuration={configuration}
         pending={mutations.isPending}
         refreshing={endpoints.isFetching}
-        actionError={mutations.remove.error ?? (editorId === null ? mutations.update.error : null)}
         onCreate={(kind) => openEditor("new", kind)}
         onRefresh={() => void endpoints.refetch()}
         onEdit={openEditor}
