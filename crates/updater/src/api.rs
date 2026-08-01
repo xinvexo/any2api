@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
 use thiserror::Error;
@@ -6,6 +6,8 @@ use thiserror::Error;
 pub use crate::service::GitHubReleaseUpdater;
 
 pub const APPLICATION_VERSION: &str = crate::BUILD_VERSION;
+
+pub type UpdateTask = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationAbout {
@@ -63,6 +65,7 @@ pub enum UpdateErrorKind {
     InvalidRelease,
     NoUpdate,
     InProgress,
+    ShuttingDown,
     DownloadFailed,
     VerificationFailed,
     InstallFailed,
@@ -94,6 +97,13 @@ pub trait RestartRequester: Send + Sync {
     fn request_restart(&self);
 }
 
+pub trait UpdateTaskExecutor: Send + Sync {
+    fn accepts_new_tasks(&self) -> bool;
+
+    /// A `false` result guarantees that `task` was never polled.
+    fn try_spawn(&self, task: UpdateTask) -> bool;
+}
+
 #[async_trait]
 pub trait ApplicationUpdateService: Send + Sync {
     fn about(&self) -> ApplicationAbout;
@@ -110,7 +120,8 @@ impl GitHubReleaseUpdater {
         executable_path: PathBuf,
         embedded_web: bool,
         restart: Arc<dyn RestartRequester>,
+        tasks: Arc<dyn UpdateTaskExecutor>,
     ) -> Result<Self, UpdateError> {
-        Self::new(executable_path, embedded_web, restart)
+        Self::new(executable_path, embedded_web, restart, tasks)
     }
 }

@@ -13,4 +13,6 @@ pub use error::ConfigPublishError;
 pub use logging::LoggingSettingsReconciler;
 pub use publisher::ConfigPublisher;
 pub(crate) use publisher::OAuthAccountActivation;
-pub use snapshot::{PublishedSnapshot, SnapshotStore};
+pub use snapshot::{
+    PreparedPublishedSnapshot, PublishedSnapshot, SnapshotCompileError, SnapshotStore,
+};

@@ -7,9 +7,10 @@ pub(super) fn map_error(error: UpdateError) -> AdminApiError {
     let kind = error.kind();
     tracing::warn!(?kind, %error, "application update operation failed");
     let status = match kind {
-        UpdateErrorKind::Unsupported | UpdateErrorKind::NoUpdate | UpdateErrorKind::InProgress => {
-            StatusCode::CONFLICT
-        }
+        UpdateErrorKind::Unsupported
+        | UpdateErrorKind::NoUpdate
+        | UpdateErrorKind::InProgress
+        | UpdateErrorKind::ShuttingDown => StatusCode::CONFLICT,
         UpdateErrorKind::CheckFailed
         | UpdateErrorKind::InvalidRelease
         | UpdateErrorKind::DownloadFailed
@@ -24,6 +25,7 @@ pub(super) const fn stable_error_code(kind: UpdateErrorKind) -> &'static str {
         UpdateErrorKind::Unsupported => "update_unsupported",
         UpdateErrorKind::NoUpdate => "update_not_available",
         UpdateErrorKind::InProgress => "update_in_progress",
+        UpdateErrorKind::ShuttingDown => "update_shutting_down",
         UpdateErrorKind::CheckFailed | UpdateErrorKind::InvalidRelease => "update_check_failed",
         UpdateErrorKind::DownloadFailed => "update_download_failed",
         UpdateErrorKind::VerificationFailed => "update_verification_failed",
@@ -38,6 +40,9 @@ const fn stable_error_message(kind: UpdateErrorKind) -> &'static str {
         }
         UpdateErrorKind::NoUpdate => "the current version is already up to date",
         UpdateErrorKind::InProgress => "an application update is already in progress",
+        UpdateErrorKind::ShuttingDown => {
+            "the process is shutting down and cannot accept an application update"
+        }
         UpdateErrorKind::CheckFailed | UpdateErrorKind::InvalidRelease => {
             "the latest official release could not be verified"
         }

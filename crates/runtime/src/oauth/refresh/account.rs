@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use any2api_domain::OAuthAccountId;
 use any2api_provider::api::{OAuthGrant, OAuthRefreshRejection};
+use any2api_storage::api::OAuthAccountDocument;
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{
     configuration::{ConfigPublishError, PublishedSnapshot},
@@ -13,6 +14,7 @@ use crate::{
 use super::worker::OAuthRefresher;
 
 impl OAuthRefresher {
+    #[cfg(test)]
     pub(super) async fn refresh_if_due(
         &self,
         id: OAuthAccountId,
@@ -30,6 +32,24 @@ impl OAuthRefresher {
             | RefreshResult::MissingRefreshToken
             | RefreshResult::Unavailable => None,
         })
+    }
+
+    pub(super) async fn prepare_scheduled_refresh(
+        &self,
+        id: OAuthAccountId,
+        observed_token_version: u64,
+    ) -> Result<Option<PreparedOAuthRefresh>, OAuthRefreshError> {
+        Ok(
+            match self
+                .prepare_refresh(id, observed_token_version, RefreshTrigger::Scheduled)
+                .await?
+            {
+                RefreshPreparation::Ready(prepared) => Some(prepared),
+                RefreshPreparation::AlreadyUpdated(_)
+                | RefreshPreparation::MissingRefreshToken
+                | RefreshPreparation::Unavailable => None,
+            },
+        )
     }
 
     pub(crate) async fn refresh_after_authentication_failure(
@@ -76,69 +96,21 @@ impl OAuthRefresher {
         observed_token_version: u64,
         trigger: RefreshTrigger,
     ) -> Result<RefreshResult, OAuthRefreshError> {
-        let gate = self.gate(id);
-        let (_guard, waited_for_flight) = match gate.try_lock() {
-            Ok(guard) => (guard, false),
-            Err(_) => (gate.lock().await, true),
+        let prepared = match self
+            .prepare_refresh(id, observed_token_version, trigger)
+            .await?
+        {
+            RefreshPreparation::Ready(prepared) => prepared,
+            RefreshPreparation::AlreadyUpdated(snapshot) => {
+                return Ok(RefreshResult::AlreadyUpdated(snapshot));
+            }
+            RefreshPreparation::MissingRefreshToken => {
+                return Ok(RefreshResult::MissingRefreshToken);
+            }
+            RefreshPreparation::Unavailable => return Ok(RefreshResult::Unavailable),
         };
-        let snapshot = self.publisher.current_snapshot();
-        let Some(account) = snapshot.oauth_accounts().get(id) else {
-            return Ok(RefreshResult::Unavailable);
-        };
-        let lead_time = snapshot.settings().oauth().refresh_lead_time_secs();
-        if account.token_version() != observed_token_version {
-            return Ok(if account.token_version() > observed_token_version {
-                RefreshResult::AlreadyUpdated(snapshot)
-            } else {
-                RefreshResult::Unavailable
-            });
-        }
-        if waited_for_flight {
-            return Ok(RefreshResult::Unavailable);
-        }
-        if trigger == RefreshTrigger::Scheduled && !is_due(account.expires_at(), lead_time) {
-            return Ok(RefreshResult::Unavailable);
-        }
-        let token = snapshot
-            .oauth_token_material(id)
-            .ok_or(OAuthRefreshError::TokenMaterialUnavailable)?;
-        let Some(refresh_token) = token.refresh_token() else {
-            tracing::debug!(oauth_account_id = %id, "OAuth account has no refresh token");
-            return Ok(RefreshResult::MissingRefreshToken);
-        };
-        let driver = self
-            .providers
-            .get(account.provider_kind())
-            .ok_or(OAuthRefreshError::ProviderUnavailable)?;
-        let plan = driver
-            .oauth_token_request(OAuthGrant::RefreshToken, refresh_token, None, None)
-            .map_err(OAuthError::Provider)?;
-        let proxy = snapshot
-            .resolved_transport_proxy_for_oauth_account()
-            .ok_or(OAuthError::PublishedProxyUnavailable)?;
-        let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
-        let response =
-            token_request::execute_response(self.transport.as_ref(), proxy, strict_ssrf, plan)
-                .await?;
-        if !response.status.is_success() {
-            return Err(OAuthRefreshError::RefreshRejected(
-                driver.classify_oauth_refresh_rejection(response.status, &response.body),
-            ));
-        }
-        let refreshed = driver
-            .parse_oauth_refresh_token(&response.body, token.as_ref())
-            .map_err(OAuthError::from_token_response_error)?;
-        if refreshed.provider() != account.provider_kind() {
-            return Err(OAuthError::TokenResponseInvalid.into());
-        }
-        driver
-            .oauth_routing_profile(&refreshed)
-            .map_err(OAuthError::Provider)?;
-        let document = document::serialize(&refreshed)?;
-        let safe_account_email = refreshed.email().map(str::to_owned);
-        let expires_at = refreshed.expires_at();
-        drop(snapshot);
-
+        let (id, observed_token_version, safe_account_email, expires_at, document, _gate) =
+            prepared.into_parts();
         let published = match self
             .publisher
             .refresh_oauth_account(
@@ -173,6 +145,84 @@ impl OAuthRefresher {
         Ok(RefreshResult::Refreshed(published))
     }
 
+    async fn prepare_refresh(
+        &self,
+        id: OAuthAccountId,
+        observed_token_version: u64,
+        trigger: RefreshTrigger,
+    ) -> Result<RefreshPreparation, OAuthRefreshError> {
+        let gate = self.gate(id);
+        let (guard, waited_for_flight) = match Arc::clone(&gate).try_lock_owned() {
+            Ok(guard) => (guard, false),
+            Err(_) => (gate.lock_owned().await, true),
+        };
+        let snapshot = self.publisher.current_snapshot();
+        let Some(account) = snapshot.oauth_accounts().get(id) else {
+            return Ok(RefreshPreparation::Unavailable);
+        };
+        let lead_time = snapshot.settings().oauth().refresh_lead_time_secs();
+        if account.token_version() != observed_token_version {
+            return Ok(if account.token_version() > observed_token_version {
+                RefreshPreparation::AlreadyUpdated(snapshot)
+            } else {
+                RefreshPreparation::Unavailable
+            });
+        }
+        if waited_for_flight {
+            return Ok(RefreshPreparation::Unavailable);
+        }
+        if trigger == RefreshTrigger::Scheduled && !is_due(account.expires_at(), lead_time) {
+            return Ok(RefreshPreparation::Unavailable);
+        }
+        let token = snapshot
+            .oauth_token_material(id)
+            .ok_or(OAuthRefreshError::TokenMaterialUnavailable)?;
+        let Some(refresh_token) = token.refresh_token() else {
+            tracing::debug!(oauth_account_id = %id, "OAuth account has no refresh token");
+            return Ok(RefreshPreparation::MissingRefreshToken);
+        };
+        let driver = self
+            .providers
+            .get(account.provider_kind())
+            .ok_or(OAuthRefreshError::ProviderUnavailable)?;
+        let plan = driver
+            .oauth_token_request(OAuthGrant::RefreshToken, refresh_token, None, None)
+            .map_err(OAuthError::Provider)?;
+        let proxy = snapshot
+            .resolved_transport_proxy_for_oauth_account()
+            .ok_or(OAuthError::PublishedProxyUnavailable)?;
+        let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
+        let response =
+            token_request::execute_response(self.transport.as_ref(), proxy, strict_ssrf, plan)
+                .await?;
+        if !response.status.is_success() {
+            return Err(OAuthRefreshError::RefreshRejected(
+                driver.classify_oauth_refresh_rejection(response.status, &response.body),
+            ));
+        }
+        let refreshed = driver
+            .parse_oauth_refresh_token(&response.body, token.as_ref())
+            .map_err(OAuthError::from_token_response_error)?;
+        if refreshed.provider() != account.provider_kind() {
+            return Err(OAuthError::TokenResponseInvalid.into());
+        }
+        driver
+            .oauth_routing_profile(&refreshed)
+            .map_err(OAuthError::Provider)?;
+        let document = document::serialize(&refreshed)?;
+        let safe_account_email = refreshed.email().map(str::to_owned);
+        let expires_at = refreshed.expires_at();
+        drop(snapshot);
+        Ok(RefreshPreparation::Ready(PreparedOAuthRefresh {
+            id,
+            observed_token_version,
+            safe_account_email,
+            expires_at,
+            document,
+            gate: guard,
+        }))
+    }
+
     fn gate(&self, id: OAuthAccountId) -> Arc<Mutex<()>> {
         let mut gates = self.gates.lock().expect("OAuth refresh gate lock poisoned");
         if let Some(gate) = gates.get(&id).and_then(std::sync::Weak::upgrade) {
@@ -184,6 +234,37 @@ impl OAuthRefresher {
     }
 }
 
+pub(super) struct PreparedOAuthRefresh {
+    id: OAuthAccountId,
+    observed_token_version: u64,
+    safe_account_email: Option<String>,
+    expires_at: Option<i64>,
+    document: OAuthAccountDocument,
+    gate: OwnedMutexGuard<()>,
+}
+
+type PreparedOAuthRefreshParts = (
+    OAuthAccountId,
+    u64,
+    Option<String>,
+    Option<i64>,
+    OAuthAccountDocument,
+    OwnedMutexGuard<()>,
+);
+
+impl PreparedOAuthRefresh {
+    pub(super) fn into_parts(self) -> PreparedOAuthRefreshParts {
+        (
+            self.id,
+            self.observed_token_version,
+            self.safe_account_email,
+            self.expires_at,
+            self.document,
+            self.gate,
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RefreshTrigger {
     Scheduled,
@@ -192,6 +273,13 @@ enum RefreshTrigger {
 
 enum RefreshResult {
     Refreshed(Arc<PublishedSnapshot>),
+    AlreadyUpdated(Arc<PublishedSnapshot>),
+    MissingRefreshToken,
+    Unavailable,
+}
+
+enum RefreshPreparation {
+    Ready(PreparedOAuthRefresh),
     AlreadyUpdated(Arc<PublishedSnapshot>),
     MissingRefreshToken,
     Unavailable,

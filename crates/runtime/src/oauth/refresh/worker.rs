@@ -7,15 +7,18 @@ use std::{
     time::Duration,
 };
 
-use any2api_domain::OAuthAccountId;
+use any2api_domain::{ConfigRevision, OAuthAccountId};
 use any2api_provider::api::ProviderRegistry;
+use any2api_storage::api::OAuthAccountRefresh;
 use any2api_transport::api::TransportManager;
 use futures_util::{StreamExt, stream};
 use tokio::sync::Mutex;
 
 use crate::{configuration::ConfigPublisher, lifecycle::ProcessLifecycle};
 
-use super::account::is_due;
+use super::account::{PreparedOAuthRefresh, is_due};
+
+const SCHEDULED_REFRESH_CONCURRENCY: usize = 6;
 
 pub(crate) struct OAuthRefresher {
     pub(super) providers: Arc<ProviderRegistry>,
@@ -58,9 +61,9 @@ impl OAuthRefresher {
     async fn run(self: Arc<Self>) {
         let mut revisions = self.publisher.subscribe_revision();
         loop {
-            revisions.borrow_and_update();
-            self.scan_due_accounts().await;
-            if revisions.has_changed().unwrap_or(false) {
+            let outcome = self.scan_due_accounts().await;
+            let latest_revision = *revisions.borrow_and_update();
+            if outcome.requires_immediate_rescan(latest_revision) {
                 continue;
             }
             let interval = Duration::from_secs(
@@ -81,8 +84,9 @@ impl OAuthRefresher {
         }
     }
 
-    async fn scan_due_accounts(&self) {
+    pub(super) async fn scan_due_accounts(&self) -> ScanOutcome {
         let snapshot = self.publisher.current_snapshot();
+        let started_at = snapshot.revision();
         let lead_time = snapshot.settings().oauth().refresh_lead_time_secs();
         let due = snapshot
             .oauth_accounts()
@@ -101,23 +105,93 @@ impl OAuthRefresher {
         );
         drop(snapshot);
 
-        stream::iter(due)
-            .for_each_concurrent(None, |(id, token_version)| async move {
-                match self.refresh_if_due(id, token_version).await {
-                    Ok(Some(next_version)) => tracing::info!(
-                        oauth_account_id = %id,
-                        token_version = next_version,
-                        "OAuth account token refreshed"
-                    ),
-                    Ok(None) => {}
-                    Err(error) => tracing::warn!(
-                        oauth_account_id = %id,
-                        error = %error,
-                        "OAuth account token refresh failed"
-                    ),
-                }
+        let prepared = stream::iter(due)
+            .map(|(id, token_version)| async move {
+                (
+                    id,
+                    token_version,
+                    self.prepare_scheduled_refresh(id, token_version).await,
+                )
             })
+            .buffer_unordered(SCHEDULED_REFRESH_CONCURRENCY)
+            .collect::<Vec<_>>()
             .await;
+        let published = self.publish_prepared_refreshes(prepared).await;
+        ScanOutcome {
+            started_at,
+            published,
+        }
+    }
+
+    async fn publish_prepared_refreshes(
+        &self,
+        prepared: Vec<(
+            OAuthAccountId,
+            u64,
+            Result<Option<PreparedOAuthRefresh>, super::account::OAuthRefreshError>,
+        )>,
+    ) -> Option<ConfigRevision> {
+        let mut refreshes = Vec::new();
+        let mut pending = Vec::new();
+        let mut gates = Vec::new();
+        for (id, _token_version, result) in prepared {
+            match result {
+                Ok(Some(prepared)) => {
+                    let (id, token_version, email, expires_at, document, gate) =
+                        prepared.into_parts();
+                    refreshes.push(OAuthAccountRefresh::new(
+                        id,
+                        token_version,
+                        email,
+                        expires_at,
+                        document,
+                    ));
+                    pending.push((id, token_version));
+                    gates.push(gate);
+                }
+                Ok(None) => {}
+                Err(error) => tracing::warn!(
+                    oauth_account_id = %id,
+                    error = %error,
+                    "OAuth account token refresh failed"
+                ),
+            }
+        }
+        if refreshes.is_empty() {
+            return None;
+        }
+
+        match self
+            .publisher
+            .refresh_oauth_accounts(refreshes, gates)
+            .await
+        {
+            Ok((snapshot, changed)) => {
+                for (id, observed_token_version) in pending {
+                    if let Some(next_version) = snapshot
+                        .oauth_accounts()
+                        .get(id)
+                        .map(|account| account.token_version())
+                        .filter(|version| *version > observed_token_version)
+                    {
+                        tracing::info!(
+                            oauth_account_id = %id,
+                            token_version = next_version,
+                            "OAuth account token refreshed"
+                        );
+                    }
+                }
+                changed.then(|| snapshot.revision())
+            }
+            Err(error) => {
+                tracing::warn!(
+                    prepared_account_count = pending.len(),
+                    error = %error,
+                    "OAuth account refresh batch publication failed"
+                );
+                None
+            }
+        }
     }
 
     fn retain_active_gates(&self, active: HashSet<OAuthAccountId>) {
@@ -125,5 +199,26 @@ impl OAuthRefresher {
             .lock()
             .expect("OAuth refresh gate lock poisoned")
             .retain(|id, gate| active.contains(id) || gate.strong_count() > 0);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ScanOutcome {
+    started_at: ConfigRevision,
+    published: Option<ConfigRevision>,
+}
+
+impl ScanOutcome {
+    fn requires_immediate_rescan(self, latest: ConfigRevision) -> bool {
+        match self.published {
+            Some(published) => {
+                let own_next = self
+                    .started_at
+                    .checked_next()
+                    .expect("a successful publication proves the revision can advance");
+                published > own_next || latest > published
+            }
+            None => latest > self.started_at,
+        }
     }
 }

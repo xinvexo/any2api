@@ -297,6 +297,7 @@ pub(super) fn guarded_body_with_budget_health_and_idle(
         permit.credential_id(),
         "upstream",
         ProtocolDialect::OpenAiResponses,
+        ProtocolDialect::OpenAiResponses,
     );
     let continuation_binding = ContinuationBindingCommitter::new(
         ProtocolOperation::Responses,
@@ -349,8 +350,7 @@ pub(super) fn generation_permit() -> (crate::credential::CredentialRuntimeBindin
         &credential,
         CredentialAuthMaterial::for_test(&credential, "sk-stream-test".into()),
         SchedulerEpoch::new(),
-    )
-    .current_binding();
+    );
     let permit = binding.try_reserve().expect("generation permit");
     (binding, permit)
 }

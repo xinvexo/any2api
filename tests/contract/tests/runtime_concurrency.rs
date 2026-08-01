@@ -25,11 +25,14 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
     let storage = Arc::new(SqliteStore::connect(&database).await.expect("storage"));
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        any2api_contract_tests::build_provider_registry().as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),
@@ -114,7 +117,7 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
     assert_eq!(rotated_binding.in_flight(), 0);
     assert_rate_limited(&rotated_binding);
     let raised = publisher
-        .update_provider_credential(rotated.revision(), credential_id, 3, credential_draft(2))
+        .update_provider_credential(rotated.revision(), credential_id, 3, credential_draft(3))
         .await
         .expect("raised RPM");
     let raised_binding = raised
@@ -137,7 +140,8 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
         restarted_configuration,
         &restarted_runtime,
         providers.as_ref(),
-    );
+    )
+    .expect("restarted snapshot");
     let restarted_binding = restarted_snapshot
         .credential_runtime(credential_id.into())
         .expect("restarted credential runtime");
@@ -152,8 +156,12 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
         .expect("credential delete");
     assert!(deleted.credential_runtime(credential_id.into()).is_none());
     assert_eq!(runtime.active_credential_count(), 0);
-    assert!(rotated_binding.is_retired());
+    let post_delete_permit = reserve(raised_binding);
+    assert_eq!(post_delete_permit.generation().routing_generation(), 2);
+    assert_bearer(&post_delete_permit, &driver, "sk-runtime-rotated");
     drop(new_permit);
+    drop(post_delete_permit);
+    assert_eq!(rotated_binding.in_flight(), 0);
 }
 
 fn reserve(binding: &any2api_runtime::api::CredentialRuntimeBinding) -> RoutingPermit {

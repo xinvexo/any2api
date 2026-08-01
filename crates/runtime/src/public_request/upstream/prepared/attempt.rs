@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
 use any2api_domain::{ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamError};
-use any2api_protocol::{
-    ProtocolError,
-    api::{
-        DecodedRequest, DecodedUpstreamResponse, EgressResponse, ProtocolExchange,
-        ProtocolRegistry, UpstreamResponse,
-    },
+use any2api_protocol::api::{
+    BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
+    ProtocolError, ProtocolExchange, ProtocolRegistry, UpstreamResponse,
 };
 use any2api_provider::api::{ProviderDriver, ProviderRegistry, UpstreamResponseMeta};
 use any2api_transport::api::{
@@ -28,7 +25,7 @@ use crate::{
     routing::RouteCandidate,
 };
 
-use super::build::{AttemptHeaderPolicy, prepare_attempt};
+use super::build::{AttemptHeaderPolicy, AttemptPreparation, prepare_attempt};
 
 pub(in crate::public_request::upstream) struct AttemptInput<'a> {
     pub(in crate::public_request::upstream) prepared: PreparedAttempt<'a>,
@@ -52,20 +49,22 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
         target,
         binding_lease,
         bound,
+        continuation_state,
     } = affinity;
     let candidate = selected.candidate.clone();
-    let prepared = prepare_attempt(
+    let prepared = prepare_attempt(AttemptPreparation {
         snapshot,
         protocols,
         decoded,
         selected,
+        continuation_state,
         providers,
         attempt_recorder,
-        AttemptHeaderPolicy {
+        header_policy: AttemptHeaderPolicy {
             allow_credential_bound: allow_credential_bound_headers,
             allow_turn_state: bound && allow_credential_bound_headers,
         },
-    )?;
+    })?;
     Ok(AttemptInput {
         prepared,
         candidate,
@@ -154,6 +153,15 @@ impl PreparedAttempt<'_> {
             .as_ref()
             .expect("prepared protocol exchange is present")
             .continuation_id_from_response(self.ingress_operation, response)
+    }
+
+    pub(in crate::public_request::upstream) fn bridge_continuation_state(
+        &self,
+    ) -> BridgeContinuationState {
+        self.exchange
+            .as_ref()
+            .expect("prepared protocol exchange is present")
+            .bridge_continuation_state()
     }
 
     pub(in crate::public_request::upstream) fn encode_egress_response(

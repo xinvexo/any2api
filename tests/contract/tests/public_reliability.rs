@@ -1372,11 +1372,14 @@ async fn harness_for_protocol(
         configuration.settings().logging(),
         &runtime.lifecycle(),
     ));
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        any2api_contract_tests::build_provider_registry().as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),

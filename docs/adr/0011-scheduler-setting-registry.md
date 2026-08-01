@@ -21,8 +21,8 @@
 - `QueuePolicy` 属于 Snapshot scope。每个 `PublishedSnapshot` 从同一事务候选配置编译一份策略值；已开始的请求继续使用其捕获 revision 的等待、超时和 fallback 策略。
 - RPM 窗口、`in_flight`、QueueCoordinator 与 scheduler epoch 属于 Runtime scope。连续快照按稳定路由凭据身份复用这些句柄，配置发布只更新其可选 RPM 值，不重置现有窗口或等待计数。
 - 有效配置发布使用全局串行锁。在事务中读取并校验完整候选配置、编译候选快照并提交 SQLite 后，Runtime 执行无 I/O、无 `Result` 的 reconcile，随后单次替换 Snapshot，最后推进统一 scheduler epoch。失败或 no-op 不推进 epoch。
-- 管理 API 提供列表、覆盖和恢复默认；响应同时包含默认值、覆盖值、生效值、范围、枚举值和应用模式。Web 按分组渲染合适控件，并保留 revision 冲突后的草稿。
-- `ConfigurationRepository` 只组合窄能力；设置写入由独立 `SettingRepository` 定义，禁止把每类配置 mutation 塞进一个膨胀接口。
+- 管理 API 提供列表、写入覆盖和删除覆盖；响应同时包含默认值、覆盖值、生效值、范围、枚举值和应用模式。Web 按分组渲染合适控件并保留 revision 冲突后的草稿，但不提供删除覆盖或“恢复默认”入口。
+- `ConfigurationRepository` 只负责加载配置与准备事务内候选配置；全部设置和其他管理员配置写入统一由 `ConfigPublisher` 接收类型化 `ConfigurationMutation`，执行串行预编译、提交、Runtime reconcile 与单次 Snapshot 切换，不保留按配置类别拆分的写 Repository。
 
 ## 边界
 
@@ -34,7 +34,7 @@
 
 - 不采用巨型 YAML 或整份 JSON 设置文档：单项覆盖、版本默认值和恢复默认会失去稳定语义。
 - 不在 QueueCoordinator 中保存可变 QueuePolicy：已捕获快照会观察到其他 revision 的参数，甚至一个请求可能混用两组策略。
-- 不为每个设置组建立独立更新 API：统一 Registry 和 Repository 已提供完整能力边界。
+- 不为每个设置组建立独立更新 API：统一 Registry、`ConfigPublisher` 和候选配置事务已经提供完整能力边界。
 
 ## 后果
 
@@ -49,4 +49,4 @@
 - Storage 测试覆盖写入、no-op、显式默认覆盖、恢复默认、revision 冲突、重启读取和损坏行 Fail-Closed。
 - Runtime 测试覆盖 QueuePolicy revision 隔离、Runtime 句柄复用、RPM 窗口不被热更新重置和单次 epoch。
 - HTTP 契约覆盖默认/覆盖/生效元数据、PATCH、DELETE、非法值、未知 key 和 revision 冲突。
-- Web 测试覆盖响应解析、最新 revision 缓存、草稿校验、保存、恢复默认和冲突刷新。
+- Web 测试覆盖响应解析、最新 revision 缓存、草稿校验、保存、无恢复默认入口和冲突刷新。

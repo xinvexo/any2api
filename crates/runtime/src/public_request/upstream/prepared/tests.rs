@@ -50,8 +50,7 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
         &credential,
         CredentialAuthMaterial::for_test(&credential, "sk-postprocess-test".into()),
         epoch,
-    )
-    .current_binding();
+    );
     let permit = binding.try_reserve().expect("credential permit");
     let health = AttemptHealth::new(
         Arc::clone(binding.generation()),

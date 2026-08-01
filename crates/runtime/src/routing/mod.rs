@@ -15,8 +15,10 @@ pub(crate) use candidates::{
     CandidateExclusions, CandidateRequirements, OAuthRoute, RouteCandidate,
     build_oauth_route_candidates, build_route_candidates, oauth_route_id,
 };
-pub(crate) use credential::{RoutingCredential, RoutingCredentialSpec, RoutingCredentials};
-pub(crate) use epoch::SchedulerEpoch;
+pub(crate) use credential::{
+    RoutingCredential, RoutingCredentialCompileError, RoutingCredentialSpec, RoutingCredentials,
+};
+pub(crate) use epoch::{SchedulerEpoch, SchedulerWakeSlot};
 pub(crate) use queue::QueueCoordinator;
 pub use queue::{QueuePolicy, QueuePolicyError, RateLimitAction};
 pub(crate) use scheduler::{IndexedSelectAndReserveResult, select_index_and_try_reserve};

@@ -76,8 +76,7 @@ function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
     !isRecord(value) ||
     "secret" in value ||
     "api_key" in value ||
-    "token_hash" in value ||
-    "ciphertext" in value
+    "token_hash" in value
   ) {
     throw new Error("invalid gateway API Key response");
   }

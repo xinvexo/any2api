@@ -3,7 +3,7 @@ use std::sync::Arc;
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
 use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, ProviderRegistry};
 use any2api_storage::api::{
-    ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository, SqliteStore,
+    ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
 };
 use any2api_transport::api::TransportManager;
 
@@ -94,7 +94,7 @@ impl QuotaTestContext {
             ProviderKind::Claude,
             "Claude OAuth",
             Some("claude@example.com".into()),
-            vec!["claude-sonnet-4-5".into()],
+            vec!["claude-sonnet-4-5-20250929".into()],
             claude_oauth_document(),
         )
         .await
@@ -128,26 +128,27 @@ impl QuotaTestContext {
         );
         let initial = storage.load_configuration().await.expect("configuration");
         let account_id = OAuthAccountId::new();
-        let configured = storage
-            .create_oauth_account(
-                initial.revision(),
-                account_id,
-                provider,
-                OAuthAccountDraft::new(label, None, true).expect("OAuth draft"),
-                email,
-                None,
+        let configured = crate::test_support::commit_configuration(
+            storage.as_ref(),
+            initial.revision(),
+            ConfigurationMutation::CreateOAuthAccount {
+                id: account_id,
+                provider_kind: provider,
+                draft: OAuthAccountDraft::new(label, None, true).expect("OAuth draft"),
+                safe_account_email: email,
+                expires_at: None,
                 models,
                 document,
-            )
-            .await
-            .expect("OAuth account");
+            },
+        )
+        .await
+        .expect("OAuth account");
         let providers = providers();
         let runtime = Arc::new(RuntimeRegistry::new());
-        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-            configured,
-            runtime.as_ref(),
-            providers.as_ref(),
-        )));
+        let snapshots = Arc::new(SnapshotStore::new(
+            PublishedSnapshot::new(configured, runtime.as_ref(), providers.as_ref())
+                .expect("initial snapshot"),
+        ));
         let publisher = Arc::new(
             ConfigPublisher::new(
                 Arc::clone(&storage),

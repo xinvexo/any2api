@@ -2,7 +2,7 @@ use std::fmt;
 
 use thiserror::Error;
 
-pub const CREDENTIAL_FINGERPRINT_VERSION: u16 = 1;
+pub const CREDENTIAL_FINGERPRINT_VERSION: u16 = 2;
 pub const CREDENTIAL_FINGERPRINT_LENGTH: usize = 32;
 
 #[derive(Clone, Eq, PartialEq)]
@@ -93,7 +93,7 @@ mod tests {
         let fingerprint = CredentialSecretFingerprint::new([0xab; 32], Some("test".to_owned()))
             .expect("fingerprint");
 
-        assert_eq!(fingerprint.display(), "v1:abababababababab");
+        assert_eq!(fingerprint.display(), "v2:abababababababab");
         assert_eq!(fingerprint.tail(), Some("test"));
         assert!(!format!("{fingerprint:?}").contains(&"ab".repeat(32)));
     }

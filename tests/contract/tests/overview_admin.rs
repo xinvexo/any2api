@@ -98,11 +98,14 @@ async fn overview_usage_exposes_real_tokens_and_bounded_time_and_model_views() {
 async fn test_router(directory: &tempfile::TempDir, storage: Arc<SqliteStore>) -> Router {
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        any2api_contract_tests::build_provider_registry().as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(
             Arc::clone(&storage),

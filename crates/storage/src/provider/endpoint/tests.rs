@@ -4,7 +4,8 @@ use any2api_domain::{
 use tempfile::tempdir;
 
 use crate::{
-    api::{ConfigurationRepository, SqliteStore},
+    api::{ConfigurationMutation, ConfigurationRepository, SqliteStore},
+    configuration::commit_configuration,
     error::StorageError,
 };
 
@@ -28,32 +29,38 @@ async fn provider_endpoint_crud_uses_the_global_configuration_revision() {
         .expect("store");
     let id = ProviderEndpointId::new();
 
-    let created = store
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
             id,
-            codex_draft("https://api.example.com/v1/"),
-        )
-        .await
-        .expect("create endpoint");
-    let no_op = store
-        .update_provider_endpoint(
-            created.revision(),
+            draft: codex_draft("https://api.example.com/v1/"),
+        },
+    )
+    .await
+    .expect("create endpoint");
+    let no_op = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::UpdateProviderEndpoint {
             id,
-            1,
-            codex_draft("https://api.example.com/v1"),
-        )
-        .await
-        .expect("no-op update");
-    let updated = store
-        .update_provider_endpoint(
-            no_op.revision(),
+            expected_config_version: 1,
+            draft: codex_draft("https://api.example.com/v1"),
+        },
+    )
+    .await
+    .expect("no-op update");
+    let updated = commit_configuration(
+        &store,
+        no_op.revision(),
+        ConfigurationMutation::UpdateProviderEndpoint {
             id,
-            1,
-            codex_draft("https://edge.example.com/openai"),
-        )
-        .await
-        .expect("update endpoint");
+            expected_config_version: 1,
+            draft: codex_draft("https://edge.example.com/openai"),
+        },
+    )
+    .await
+    .expect("update endpoint");
     let endpoint = updated
         .provider_endpoints()
         .get(id)
@@ -68,15 +75,17 @@ async fn provider_endpoint_crud_uses_the_global_configuration_revision() {
         "https://edge.example.com/openai"
     );
 
-    let stale = store
-        .update_provider_endpoint(
-            updated.revision(),
+    let stale = commit_configuration(
+        &store,
+        updated.revision(),
+        ConfigurationMutation::UpdateProviderEndpoint {
             id,
-            1,
-            codex_draft("https://stale.example.com"),
-        )
-        .await
-        .expect_err("stale endpoint version must fail");
+            expected_config_version: 1,
+            draft: codex_draft("https://stale.example.com"),
+        },
+    )
+    .await
+    .expect_err("stale endpoint version must fail");
     assert!(matches!(
         stale,
         StorageError::ProviderEndpointVersionConflict {
@@ -85,10 +94,13 @@ async fn provider_endpoint_crud_uses_the_global_configuration_revision() {
         }
     ));
 
-    let deleted = store
-        .delete_provider_endpoint(updated.revision(), id)
-        .await
-        .expect("delete endpoint");
+    let deleted = commit_configuration(
+        &store,
+        updated.revision(),
+        ConfigurationMutation::DeleteProviderEndpoint { id },
+    )
+    .await
+    .expect("delete endpoint");
     assert_eq!(deleted.revision().get(), 4);
     assert!(deleted.provider_endpoints().endpoints().is_empty());
 }
@@ -102,11 +114,12 @@ async fn accepted_and_optional_upstream_protocols_round_trip_without_storage_pai
     let bridged_id = ProviderEndpointId::new();
     let direct_id = ProviderEndpointId::new();
 
-    let bridged = store
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
-            bridged_id,
-            ProviderEndpointDraft::with_upstream_protocol(
+    let bridged = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: bridged_id,
+            draft: ProviderEndpointDraft::with_upstream_protocol(
                 "Responses through Chat",
                 ProviderKind::Codex,
                 "https://api.example.com/v1",
@@ -115,14 +128,16 @@ async fn accepted_and_optional_upstream_protocols_round_trip_without_storage_pai
                 true,
             )
             .expect("bridged draft"),
-        )
-        .await
-        .expect("bridged endpoint");
-    let direct = store
-        .create_provider_endpoint(
-            bridged.revision(),
-            direct_id,
-            ProviderEndpointDraft::new(
+        },
+    )
+    .await
+    .expect("bridged endpoint");
+    let direct = commit_configuration(
+        &store,
+        bridged.revision(),
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: direct_id,
+            draft: ProviderEndpointDraft::new(
                 "Direct Chat",
                 ProviderKind::Codex,
                 "https://chat.example.com/v1",
@@ -130,9 +145,10 @@ async fn accepted_and_optional_upstream_protocols_round_trip_without_storage_pai
                 true,
             )
             .expect("direct draft"),
-        )
-        .await
-        .expect("direct endpoint");
+        },
+    )
+    .await
+    .expect("direct endpoint");
 
     let bridged = direct
         .provider_endpoints()
@@ -161,11 +177,12 @@ async fn grok_endpoint_round_trips_as_an_api_key_provider() {
         .expect("store");
     let id = ProviderEndpointId::new();
 
-    let published = store
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
+    let published = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
             id,
-            ProviderEndpointDraft::new(
+            draft: ProviderEndpointDraft::new(
                 "Grok Primary",
                 ProviderKind::Grok,
                 "https://api.x.ai/v1",
@@ -173,9 +190,10 @@ async fn grok_endpoint_round_trips_as_an_api_key_provider() {
                 true,
             )
             .expect("Grok draft"),
-        )
-        .await
-        .expect("create Grok endpoint");
+        },
+    )
+    .await
+    .expect("create Grok endpoint");
     let endpoint = published
         .provider_endpoints()
         .get(id)
@@ -191,23 +209,27 @@ async fn duplicate_endpoint_names_are_rejected_before_commit() {
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
         .await
         .expect("store");
-    let first = store
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
-            ProviderEndpointId::new(),
-            codex_draft("https://api.example.com"),
-        )
-        .await
-        .expect("first endpoint");
+    let first = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: ProviderEndpointId::new(),
+            draft: codex_draft("https://api.example.com"),
+        },
+    )
+    .await
+    .expect("first endpoint");
 
-    let error = store
-        .create_provider_endpoint(
-            first.revision(),
-            ProviderEndpointId::new(),
-            codex_draft("https://edge.example.com"),
-        )
-        .await
-        .expect_err("duplicate name must fail");
+    let error = commit_configuration(
+        &store,
+        first.revision(),
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: ProviderEndpointId::new(),
+            draft: codex_draft("https://edge.example.com"),
+        },
+    )
+    .await
+    .expect_err("duplicate name must fail");
 
     assert!(matches!(error, StorageError::ProviderEndpointNameConflict));
     assert_eq!(

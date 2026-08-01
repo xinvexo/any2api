@@ -162,7 +162,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 扩展目标：
 
 - 新增 Provider 时，不修改负载均衡、会话粘性、排队和重试内核；
-- 新增协议方言时，不修改 TransportManager 和 Secret Vault；
+- 新增协议方言时，不修改 TransportManager 和 Storage Secret 持久化；
 - 新增代理类型时，不修改 Provider Driver；
 - 新增管理页面时，不把业务逻辑写进 Axum Handler 或 React 页面组件；
 - 新增功能可以通过模块级单元测试、契约测试和集成测试独立验证；
@@ -173,8 +173,8 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 ### 4.8 强类型边界
 
 - 核心模块之间使用领域类型和显式枚举，不使用无约束的 `HashMap<String, Value>` 传递关键状态；
-- Provider API Key 使用版本化 Secret 载荷，不把认证字段塞入通用字符串 Map；
-- OAuth2 登录产生的 Provider JSON 只允许明文持久化在独立 `OAuthAccount` SQLite 记录中；HTTP 响应、浏览器状态、Vault、日志和 Debug 输出都不得包含 Token，也不提供读取或导出端点；
+- Provider API Key 使用专用强类型 Secret 载荷，不把认证字段塞入通用字符串 Map；
+- OAuth2 登录产生的 Provider JSON 只允许明文持久化在独立 `OAuthAccount` SQLite 记录中；HTTP 响应、浏览器状态、日志和 Debug 输出都不得包含 Token，也不提供读取或导出端点；
 - ID、时间、RPM、配置版本和错误类型使用 newtype，避免互相误传；
 - 所有跨模块接口必须明确取消、超时、错误分类和所有权语义。
 
@@ -282,7 +282,7 @@ flowchart LR
     REGISTRY --> TRANSPORT
     STATIC["Provider / Protocol Registries"] --> DECODE
     STATIC --> DRIVER
-    VAULT["Encrypted Secret Vault"] --> DRIVER
+    STORED_SECRETS["SQLite Secret Material"] --> DRIVER
 ```
 
 ## 6. 工程结构与模块边界
@@ -345,7 +345,7 @@ any2api/
 │  │     ├─ http_access_log/    # 完整 HTTP 访问日志 row/repository/write/clear
 │  │     ├─ settings/           # Setting override 持久化
 │  │     ├─ migration/          # 当前规范 Schema 与数据库不变量检查
-│  │     └─ vault/              # 版本化 AEAD 实现
+│  │     └─ secret/             # 明文 Secret 类型、指纹与读取边界
 │  ├─ updater/
 │  │  └─ src/
 │  │     ├─ api.rs              # 版本信息、检查/安装端口与重启请求契约
@@ -446,7 +446,7 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 - 热更新测试：编译失败不提交、revision 不倒退、Runtime 句柄跨快照复用；
 - 端到端测试：Codex/Claude/Grok JSON、SSE、GatewayApiKey 隔离、粘性和重试。
 
-浏览器 E2E 使用独立临时数据目录、固定测试管理员密码和真实 Rust HTTP 服务；不得复用开发者本地数据库、主密钥或登录 Cookie。首个浏览器套件只覆盖跨页面共享且单元测试无法证明的契约：登录后保留目标 deep link、服务端 SPA fallback、核心管理页面刷新、移动导航、桌面/390px 视口无水平溢出和控制台无未处理错误。业务 CRUD、字段校验和错误分支继续由更快的 Domain、HTTP 契约与 React 单元测试覆盖，禁止在浏览器层重复堆叠全量矩阵。
+浏览器 E2E 使用独立临时数据目录、固定测试管理员密码和真实 Rust HTTP 服务；不得复用开发者本地数据库或登录 Cookie。首个浏览器套件只覆盖跨页面共享且单元测试无法证明的契约：登录后保留目标 deep link、服务端 SPA fallback、核心管理页面刷新、移动导航、桌面/390px 视口无水平溢出和控制台无未处理错误。业务 CRUD、字段校验和错误分支继续由更快的 Domain、HTTP 契约与 React 单元测试覆盖，禁止在浏览器层重复堆叠全量矩阵。
 
 浏览器 E2E 默认启动不设置 `ANY2API_WEB_DIR` 的正式二进制，验证内嵌 React 资源而不是工作区 `web/dist`。测试从 Cargo 本轮构建消息取得真实可执行文件路径，不能假定固定 `target/debug`、误跑此前构建的二进制或绕过自定义 Target 目录；启动服务时清除宿主继承的全部 `ANY2API_*` 配置，只注入测试明确拥有的隔离值。外部目录模式只由 Server 契约覆盖其显式覆盖语义，避免浏览器主链绕过正式部署路径。
 
@@ -480,7 +480,7 @@ web/src/features/providers/
 └─ index.ts            # feature 唯一公开出口
 ```
 
-模块之间只能通过公开出口依赖，禁止深层导入其他 feature 的内部文件。后端 Handler 和前端 Page 都只负责编排，不直接实现加密、调度、代理解析、错误分类或复杂状态机。
+模块之间只能通过公开出口依赖，禁止深层导入其他 feature 的内部文件。后端 Handler 和前端 Page 都只负责编排，不直接实现 Secret 持久化、调度、代理解析、错误分类或复杂状态机。
 
 ### 6.3 Rust 源码目录与公开出口
 
@@ -632,24 +632,19 @@ proxy_passwords
 ├─ proxy_profile_id
 ├─ username
 ├─ authentication_version
-├─ envelope_version
-├─ key_id
-├─ algorithm
-├─ nonce
-├─ ciphertext
-└─ aad_version
+└─ password
 ```
 
 约束：
 
 - 系统内置固定 ID 的 `DIRECT`；
 - `DIRECT` 不允许删除或禁用；
-- HTTP/SOCKS5 代理认证要么完全关闭，要么用户名和密码成对存在；用户名是可见配置元数据，但不能为空、不能超过 255 字节、不能包含控制字符或 HTTP Basic 分隔符 `:`；密码只保存在独立的 Vault 密文记录中；
-- `authentication_version` 在认证状态实际发生设置、替换或清除时单调增加，并进入密码 AAD；同一次实际认证变更也必须增加 `ProxyProfile.config_version`，使 Transport Client 切换到新代际；对已经关闭认证状态的重复清除是 no-op，不增加版本；
+- HTTP/SOCKS5 代理认证要么完全关闭，要么用户名和密码成对存在；用户名是可见配置元数据，但不能为空、不能超过 255 字节、不能包含控制字符或 HTTP Basic 分隔符 `:`；密码只保存在独立的 SQLite 明文 Secret 记录中；
+- `authentication_version` 在认证状态实际发生设置、替换或清除时单调增加；同一次实际认证变更也必须增加 `ProxyProfile.config_version`，使 Transport Client 切换到新代际；对已经关闭认证状态的重复清除是 no-op，不增加版本；
 - 禁止在普通日志和管理 DTO 中返回代理密码；
 - `SOCKS5` 默认使用远程 DNS 解析语义，避免本地 DNS 泄漏。
 
-认证设置、替换和实际清除增加 `authentication_version` 与 `config_version`；进程重启只从 SQLite 和 Vault 重新装配认证材料，不恢复连接、健康或请求状态。
+认证设置、替换和实际清除增加 `authentication_version` 与 `config_version`；进程重启只从 SQLite 重新装配认证材料，不恢复连接、健康或请求状态。
 
 ### 9.2 ProviderEndpoint
 
@@ -685,16 +680,15 @@ provider_credential_models
 ### 9.3 Credential
 
 ```text
-credentials
+provider_credentials
 ├─ id
 ├─ provider_endpoint_id
 ├─ label
 ├─ credential_kind       # api_key
-├─ secret_schema_version
 ├─ secret_version
 ├─ credential_generation
 ├─ config_version
-├─ encrypted_secret
+├─ api_key
 ├─ fingerprint_version
 ├─ secret_fingerprint
 ├─ secret_tail
@@ -710,23 +704,25 @@ credentials
 ```text
 CredentialRuntimeHandle
 ├─ in_flight
-├─ requests_per_minute
-├─ rolling_request_window
-├─ current_generation    # ArcSwap<CredentialGenerationRuntime>
-├─ retired
+├─ rolling_request_timestamps
 ├─ balancing             # selected 与各类 filtered 计数
 ├─ fixed_waiters
 └─ scheduler_epoch
+
+CredentialRuntimeBinding (per PublishedSnapshot)
+├─ Arc<CredentialRuntimeHandle>
+├─ requests_per_minute
+└─ Arc<CredentialGenerationRuntime>
 ```
 
 认证材料和健康状态位于 generation-scoped 对象中，详见第 12.5 节。这样热更新可以保留 RPM 窗口和观测状态，同时隔离退役 Secret/URL 代际的迟到错误。
 
 首版约束：
 
-- 配置编译器只接受 `credential_kind=api_key`；OAuth2 登录结果不进入 ProviderCredential、Provider Endpoint 或 Vault；
+- 配置编译器只接受 `credential_kind=api_key`；OAuth2 登录结果不进入 ProviderCredential 或 Provider Endpoint；
 - `requests_per_minute` 可空；非空值范围固定为 `1..=100_000`。空值表示不做本地限速，禁用必须使用 `enabled=false`；
-- `secret_schema_version` 当前固定为 `1`；API Key 是可见 ASCII，并使用 Provider Credential 专用 AAD Kind；
-- `secret_version` 是认证材料 CAS 版本，任何 Secret 替换或未来重封装都增加；
+- API Key 是有界可见 ASCII，明文只存在于专用 SQLite 字段和当前 routing generation 的受控内存材料；
+- `secret_version` 是认证材料 CAS 版本，任何 Secret 替换都增加；
 - `credential_generation` 隔离认证和模型健康代际，Secret 轮换、重新启用或 Endpoint URL 身份变化时增加；
 - `config_version` 是管理资源乐观锁版本，元数据修改和 Secret 轮换时增加，无变化更新不增加；
 - 模型集合变化增加 `config_version`，不增加 `secret_version` 或 `credential_generation`；API Key 轮换会清空轮换前模型集合；
@@ -778,7 +774,7 @@ oauth_account_models
 └─ created_at
 ```
 
-OAuthAccount is deliberately separate from `provider_credentials`: it has no configurable Provider Endpoint and no API Key Secret envelope. The JSON uses the Provider-specific schema; the repository validates Provider, access token, required account metadata, expiry representation, and bounded size before it can be published. OAuth JSON is plaintext in SQLite by explicit product decision, but must never appear in logs, DTOs, Debug, browser storage, or an export API.
+OAuthAccount is deliberately separate from `provider_credentials`: it has no configurable Provider Endpoint and no API Key field. The JSON uses the Provider-specific schema; the repository validates Provider, access token, required account metadata, expiry representation, and bounded size before it can be published. OAuth JSON is plaintext in SQLite by explicit product decision, but must never appear in logs, DTOs, Debug, browser storage, or an export API.
 
 Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profile。它们的已选模型、DIRECT/全局代理解析、可选 `requests_per_minute`、启用状态、代际和健康状态与 API Key Credential 一起进入同一个 `RoutingCredential` 投影。调度器不根据投影来自 `ProviderCredential` 还是 `OAuthAccount` 增加分支。
 
@@ -849,13 +845,16 @@ SessionBindingRuntime
 ├─ credential_id
 ├─ route_target_id
 ├─ upstream_model
-├─ protocol_dialect
+├─ ingress_protocol_dialect
+├─ upstream_protocol_dialect
+├─ continuation_lifecycle      # pending | ready，仅 continuation
+├─ optional_protocol_state     # 强类型不透明 Bridge 状态，仅 ready 时存在
 └─ last_seen_at
 ```
 
 原始 Session ID 不进入数据库，运行时 `session_hash` 使用进程级派生密钥 HMAC 生成。会话绑定只保存在内存中，进程重启后全部失效，不做恢复或回放。
 
-统一绑定表同时包含普通显式 Session 绑定和 Response ID Continuation 索引；两者共享目标、TTL 和清理实现，但必须保留最小的内部来源标记以支持正确的聚合观测。总览的“活动会话”只统计当前 PublishedSnapshot 会实际命中的、TTL 内的普通显式 Session；Continuation 索引不等于会话数，不进入该指标。
+统一绑定表同时包含普通显式 Session 绑定和 Response ID Continuation 索引；两者共享目标、TTL 和清理实现，但必须保留最小的内部来源标记以支持正确的聚合观测。Continuation 的固定路由目标、协议对与可选 Bridge 状态属于同一条原子记录，Protocol 不维护第二张 History 表。总览的“活动会话”只统计当前 PublishedSnapshot 会实际命中的、TTL 内的普通显式 Session；Continuation 索引不等于会话数，不进入该指标。
 
 因此：
 
@@ -874,7 +873,6 @@ gateway_api_keys
 ├─ token_prefix
 ├─ token_hash
 ├─ hash_version
-├─ hash_key_id
 ├─ token_version
 ├─ config_version
 ├─ enabled
@@ -887,10 +885,10 @@ gateway_api_keys
 - 支持创建多个网关 API Key；
 - 每个网关 API Key 独立生成、禁用和物理删除；
 - 本项目为个人自托管，网关密钥以明文持久化，管理列表/详情始终可查看完整 token；创建与轮换成功后立即生效，无需“仅展示一次”回执；
-- 同时保存 HMAC-SHA256 `token_hash` 供公开面常量时间认证；摘要密钥由 Secret Vault 主密钥派生；
+- 同时保存带 Gateway 专用域前缀的 SHA-256 `token_hash`，供公开面索引和常量时间认证；
 - Key 只能由服务端使用 CSPRNG 生成，使用 32 个随机字节的 URL-safe Base64 无填充编码和
   `a2k_v1_` 版本化前缀；创建与轮换请求不得接收客户端自选 Secret；
-- `hash_key_id` 用于确认当前 Vault 主密钥派生代际，启动时不匹配必须拒绝加载；`token_version` 在轮换时递增，`config_version` 在元数据、启停或轮换变化时递增；
+- `hash_version` 标识无密钥摘要格式；`token_version` 在轮换时递增，`config_version` 在元数据、启停或轮换变化时递增；
 - `token_prefix` 仅作展示辅助，不能用于认证；
 - 删除为物理删除（`DELETE FROM gateway_api_keys`），成功后立即从配置与 PublishedSnapshot 消失，被删除 token 不可再认证；RequestLog 外键 `ON DELETE SET NULL`；
 - 首批所有网关 API Key 权限等价，只做实例级访问控制；
@@ -968,7 +966,7 @@ http_access_logs
 
 `path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板。URI query 始终丢弃，避免 OAuth code、token、密钥或其他查询参数进入 SQLite。系统日志同样不保存 Header、Cookie、User-Agent、Referer、请求体或响应体。
 
-`method` 保存任意非空、去除首尾空白后的 HTTP method token，不设置人为 32 字符上限；Schema 直接表达当前正确约束，不保留开发期临时约束和重建迁移。
+`method` 保存任意非空、去除首尾空白后的 HTTP method token，不设置人为 32 字符上限；当前约束由不可改写的完整 Migration 链演进得到，不能通过重写既有 Migration 消除历史结构。
 
 客户端地址使用与 RequestLog 相同的可信代理解析器和规范 IPv4/IPv6 表达。系统日志中间件位于全部应用路由之外，无法取得规范地址时 `HttpAccessLog.client_ip` 可以为 `NULL`；无论后续认证、路由或 Handler 是否成功，响应 Body 都负责在 EOF、错误或 Drop 时只结算一次。
 
@@ -1054,16 +1052,16 @@ fn resolve_proxy(global: ProxyId, credential: ProxyId) -> ProxyId {
 
 ```text
 ProxyProfile 可见元数据
-+ StoredProxyPassword(Vault 密文)
++ StoredProxyPassword(SQLite 明文 Secret)
 → PublishedSnapshot 中的脱敏 ProxyAuthMaterial
 → Transport Client 构建时配置 HTTP Basic / SOCKS5 用户名密码
 ```
 
 规则：
 
-- 普通代理列表和编辑响应中的认证字段只返回 `username`、`password_configured` 与 `authentication_version`，绝不返回密码、密文或可逆导出材料；
+- 普通代理列表和编辑响应中的认证字段只返回 `username`、`password_configured` 与 `authentication_version`，绝不返回密码或可逆导出材料；
 - 设置或替换认证使用专用管理写端点，清除认证使用独立删除端点；普通代理元数据 PATCH 不接受密码；
-- 密码只在专用管理请求体、Vault 加密边界和对应 PublishedSnapshot 代际的内存 Secret 中短暂存在，不进入普通读取/响应 DTO、`TransportRequest.headers`、URL、日志、React Query Cache 或浏览器存储；Transport 仅在受控 Client 构建边界将其编码为代理认证头或 SOCKS5 握手材料；
+- 密码只在专用管理请求体、SQLite Secret 字段和对应 PublishedSnapshot 代际的内存 Secret 中存在，不进入普通读取/响应 DTO、`TransportRequest.headers`、URL、日志、React Query Cache 或浏览器存储；Transport 仅在受控 Client 构建边界将其编码为代理认证头或 SOCKS5 握手材料；
 - HTTP 与 SOCKS5 统一使用 reqwest 的逐 Client 代理认证配置，禁止把凭据拼进代理 URL；
 - 认证失败继续遵守 Fail-Closed，不得回退全局代理或 DIRECT。
 
@@ -1086,11 +1084,14 @@ TransportKey
 
 相同 TransportKey 的 Credential 共享连接池。代理配置修改后创建新一代 Client，已开始请求继续持有其捕获 Client，直到请求结束后自动释放。
 
-`connect_timeout` 属于 Client/连接池代际；`upstream.read_timeout` 属于请求快照，不进入 TransportKey。Transport 在固定请求体开始被连接层消费后启动等待响应头的请求级 timeout，不让较短的 read timeout 取代 DNS、连接、代理握手或 TLS 的阶段边界；Runtime 对需要完整收集的响应体按每次成功读取重置同一 timeout。成功 SSE 不叠加通用 body read timer：提交前继续使用 `stream.precommit.max_duration`，提交后切换为 `stream.postcommit.idle_timeout`，避免同一流同时存在两个含义不清的计时器。
+`connect_timeout` 属于 Client/连接池代际，并在每次 `TransportManager::execute` 开始时捕获为绝对连接阶段 deadline；手工本地 DNS、Client 获取或构造、TCP、HTTP CONNECT/SOCKS5 握手与 TLS 都消耗同一个 deadline，任何子阶段都不得重置或延长它。同步 Client 构造不能被 Tokio timer 抢占，但其耗时仍计入该 deadline；构造返回后必须先检查 deadline，已经到期就返回连接前失败且禁止启动网络 I/O。连接池命中不会改变边界：直到固定请求 Body 首次被连接层消费前都受该 deadline 约束，超时返回连接前失败；Body 首次被消费后连接阶段结束并停止该 timer。
+
+`upstream.read_timeout` 属于请求快照，不进入 TransportKey。Transport 只在上述 Body 首次消费信号之后启动等待响应头的请求级 timeout，因此它不覆盖也不替代 DNS、TCP、代理握手或 TLS；Runtime 对需要完整收集的响应体按每次成功读取重置同一 timeout。成功 SSE 不叠加通用 body read timer：提交前继续使用 `stream.precommit.max_duration`，提交后切换为 `stream.postcommit.idle_timeout`，避免同一流同时存在两个含义不清的计时器。
 
 约束：
 
 - SOCKS5 默认使用远端 DNS 语义，例如 `socks5h`；开启 `upstream.strict_ssrf` 后改用本地解析并向代理发送已验证 IP；
+- DIRECT 与严格 SSRF 的本地 DNS 解析，以及严格 HTTP CONNECT/SOCKS5 固定目标连接器，都必须受本次 `execute` 捕获的同一个绝对 `connect_timeout` deadline 约束，禁止代理握手或 TLS 在 TCP 成功后无限等待；
 - HTTP/SOCKS5 认证材料作为脱敏 sidecar 传入 Transport；`DIRECT` 必须没有代理认证；
 - Provider Authorization 逐请求注入，禁止放进 HTTP Client 默认 Header；
 - Client 禁用 Cookie Store；
@@ -1215,7 +1216,10 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 - Provider Endpoint 只有一组接受/上游方言；同一 API Key 同时承接文本和图片时，管理员为相同 Base URL 建立独立 Images Endpoint 与 Credential。公开模型名仍固定等于上游模型名，不增加图片模型别名编辑。
 - 首版不公开 `/v1/images/variations`，不代理 Files API，也不在管理 Web 中制作图片生成器；客户端直接使用标准 OpenAI SDK 或 HTTP API。
 - Images 普通成功响应保留上游 JSON 原始字段，只在已知 `model` 字段恢复公开模型名，并把 usage 投影到通用 TokenUsage；SSE 保留已知事件与图片数据，只改写已知模型字段，并从 `image_generation.completed`、`image_edit.completed` 的 usage 提取遥测。图片事件没有文本 content delta，不伪造首 Token。
-- Images 使用专用硬安全边界：编辑请求聚合 Body 最大 `512 MiB`，buffered 成功 JSON 最大 `512 MiB`，单个 SSE 帧与预提交编码后帧最大 `128 MiB`。普通公开请求继续使用 `32 MiB`，普通 buffered JSON 继续使用 `16 MiB`，普通 SSE 继续使用 SettingRegistry 的流式预算。
+- Images 使用专用硬安全边界：编辑请求聚合 Body 最大 `64 MiB`，buffered 成功 JSON 最大 `64 MiB`，单个 SSE 帧与预提交编码后帧最大 `64 MiB`。普通公开请求继续使用 `32 MiB`，普通 buffered JSON 继续使用 `16 MiB`，普通 SSE 继续使用 SettingRegistry 的流式预算。
+- 进程内唯一的 `PublicRequestService` 持有固定 `256 MiB` 的公开请求内存准入预算；这是代码级安全边界，不进入 SettingRegistry，也不是 Credential 并发限制。HTTP 层必须在聚合 Body 前按端点最大 Body 的 `4x` 权重预留，读取完成后按实际大小缩减；协议解码后、Route 选择、RPM 预留和上游 I/O 前，再把同一 Permit 调整为 `max(4 × 实际 Body, 实际 Body + 3 × buffered/SSE 硬上限)`。预算不足立即返回带短 Retry-After 的本地 `429`，不得进入 RPM 或候选调度。zstd 解压等客户端取消后仍可能继续运行的 blocking 工作必须由工作本身持有该 Permit，直至实际结束，禁止请求 Future 被 Drop 时提前释放容量。
+- `IngressAffinity::Continuation` 在上述执行阶段公式中额外加上固定 `16 MiB` 续接工作集：`max(4 × 实际 Body, 实际 Body + 3 × buffered/SSE 硬上限 + 16 MiB)`。该预留覆盖从 `AffinityRegistry` 取得不透明状态后的 Arc 引用、桥会话恢复和对话工作副本；即使原 Registry 条目随后因 TTL 或显式清理被移除，在途请求仍由同一 Permit 计量到 buffered/SSE 响应结束。它不改写 Registry 独立的 `64 MiB` 存量预算。
+- 内存 Permit 必须覆盖 ingress 聚合、multipart 结构化解析与重编码、重试期间的请求 payload、上游响应转换以及客户端响应生命周期。Buffered 响应把 Permit 附着到共享 `Bytes` owner，流式响应把 Permit 附着到 Stream；正常 EOF、错误、客户端断连、取消和 Drop 都释放同一 Permit。该预算只限制所有公开请求的加权字节总量，不改变 RPM 窗口、Credential 选择、排序或 `in_flight` 语义。
 - Images 的等待响应头、buffered body 空闲、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `180s` 的较大值。最终上游非 2xx 仍按第 11.8 节原样返回状态、允许 Header 和有界正文，不由 Images Adapter 重建错误。
 
 完整决策见 `docs/adr/0054-openai-images-api.md`。
@@ -1279,7 +1283,7 @@ anthropic_messages       -> anthropic_messages
 
 当前只注册 Responses → Chat Completions 转换桥。Runtime 只按协议对查询注册表，不对这个组合写专用 `match`；新增桥只能通过独立实现与 Composition Root 注册扩展。每座桥都必须覆盖 JSON 请求/响应、SSE、工具调用、usage 和多轮状态；最终上游非 2xx 仍透明返回，无法无损表达的输入在请求提交上游前明确报错，禁止静默删除字段。Chat Completions → Responses、Codex/OpenAI ↔ Claude 和 `/v1/responses/compact` → Chat Completions 不注册。
 
-Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字段。桥接路径返回本地合成的 Response ID，并在有界内存中保存该 ID 对应的规范化历史、Credential、Route Target、模型和协议对；重启或过期后继续返回现有 `session_binding_lost`，禁止猜测 Credential 或仅凭客户端内容重建已经丢失的绑定。
+Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字段。桥接路径返回本地合成的 Response ID，并在 `AffinityRegistry` 的同一条原子记录中保存该 ID 对应的规范化历史、Credential、Route Target、模型和协议对；Protocol 不保留独立 ID 索引。桥状态使用强类型不透明 continuation 能力对象，Runtime 只保存并交还，不使用 `Any` 或具体 Bridge 分支。重启或过期后继续返回现有 `session_binding_lost`，禁止猜测 Credential 或仅凭客户端内容重建已经丢失的绑定。完整决策见 `docs/adr/0076-atomic-bridge-continuation-state.md`。
 
 ### 11.4 公开模型命名
 
@@ -1357,10 +1361,11 @@ trait ProtocolBridgeSession: Send {
         -> Result<DecodedUpstreamResponse>;
     fn transform_event(&mut self, event: AdapterEvent) -> Result<Vec<AdapterEvent>>;
     fn finish_events(&mut self) -> Result<Vec<AdapterEvent>>;
+    fn continuation_state(&self) -> BridgeContinuationState;
 }
 ```
 
-同协议路径的 `AdapterPayload` 可以保留受限原始 JSON；只有显式选择不同内部协议时才进入 `ProtocolBridge` 和桥专用转换状态。Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态注册，配置发布前完整解析；错误正文只能在严格大小上限内交给 Driver。Driver 返回的 `UpstreamError` 必须同时携带机器可用的 `UpstreamErrorClassification`，以及从该 Provider 已声明错误 envelope 中提取的可选原始 `message`。分类只决定内部重试与健康行为，原始 `message` 只供管理日志显示；最终客户端响应直接使用上游正文，二者都不得由分类结果反向生成。
+同协议路径的 `AdapterPayload` 可以保留受限原始 JSON；只有显式选择不同内部协议时才进入 `ProtocolBridge` 和桥专用转换状态。Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态注册，配置发布前完整解析；有状态 Bridge 通过 `ProtocolContinuationState` 封装可恢复下一次 Session 的强类型能力，Runtime 不解释其内部消息。错误正文只能在严格大小上限内交给 Driver。Driver 返回的 `UpstreamError` 必须同时携带机器可用的 `UpstreamErrorClassification`，以及从该 Provider 已声明错误 envelope 中提取的可选原始 `message`。分类只决定内部重试与健康行为，原始 `message` 只供管理日志显示；最终客户端响应直接使用上游正文，二者都不得由分类结果反向生成。
 
 具体方法可以在实现阶段调整，但职责边界不可合并为一个万能 Driver。Provider 只处理供应商、Endpoint、认证、OAuth 额度协议、Header 契约和错误差异，ProtocolAdapter 负责线协议双向编解码以及与重编码 Body 一致的协议 Header，Runtime 负责网络、合并优先级与编排。OAuth 方法同时服务登录、刷新、Provider 专属额度管理和选中 OAuthAccount 后的认证注入；它们不把 OAuthAccount 变成 ProviderCredential。`ProviderRegistry` 和 `ProtocolRegistry` 由 `app` 在编译期静态注册，Runtime 只依赖接口和 CapabilitySet。
 
@@ -1457,7 +1462,7 @@ Grok 订阅数据面首版只加入 OpenAI Responses 的 OAuth 候选；它不�
 
 ## 12. 负载均衡
 
-### 12.1 可选 RPM 是唯一的本地准入限制
+### 12.1 可选 RPM 是唯一的 Credential 调度准入限制
 
 每个 ProviderCredential 与 OAuthAccount 配置：
 
@@ -1475,8 +1480,11 @@ rolling_request_window = [attempt_started_at, ...]
 available = requests_in_window < requests_per_minute
 ```
 
-RPM 是唯一用户可配置的本地限制。不增加 `max_concurrency`、辅助请求并发、TPM、权重或隐藏
-Semaphore。`in_flight` 仍作为无上限的运行态观测和资源生命周期计数存在，但不参与准入或选择。
+RPM 是唯一用户可配置、参与 Credential 调度的本地限制。不增加 `max_concurrency`、辅助请求并发、
+TPM、调度权重或按请求数量限制 Credential 的隐藏 Semaphore。第 11.2 节的固定进程内内存预算只按
+所有公开请求的 payload 字节权重保护进程，不进入候选选择、Credential 排序或 SettingRegistry，
+因此不是第二套账号并发限制。`in_flight` 仍作为无上限的运行态观测和资源生命周期计数存在，但不参与
+调度准入或选择。
 
 TPM（Tokens Per Minute）不实现：输出 Token 事前未知，Provider 的输入、输出、缓存和推理 Token
 口径也不一致，增加 TPM 会重新形成与 RPM 互相制约的第二套限制。
@@ -1569,6 +1577,14 @@ QueueTicket 使用跨快照复用的 `QueueCoordinator`。等待者先订阅统�
 `fallback_on_rate_limit` 覆盖全局默认，允许主 tier RPM 全部用尽时进入下一 tier。
 `/v1/messages/count_tokens` 使用相同选择、RPM 和 QueueTicket，不建立辅助队列。
 
+健康到期广播由 `SchedulerEpoch` 内唯一、按需启动的可重排 worker 执行，不允许每次失败或每个 deadline
+创建 Tokio task。Credential、模型、额度、Endpoint transient 和 Circuit Open 各自用稳定 keyed slot
+表达当前边界；同一 slot 的重复记录只替换 deadline，清除或运行态 Drop 同步撤销。worker 保留全部仍有效
+slot，始终等待最早 deadline，到期后批量删除并推进一次 epoch，再继续等待其余 slot；因此任务数在
+`Running` 期间固定为 `0..=1`，与错误次数、Credential 数量和冷却时长无关。QueueTicket 同时直接等待本轮
+选择返回的最早 `retry_at`，所以 epoch 广播发生合并、重排或某个 slot 被撤销都不会造成丢失唤醒。
+完整决策见 `docs/adr/0077-coalesced-health-wake-worker.md`。
+
 ### 12.5 稳定 RuntimeRegistry
 
 `PublishedSnapshot` 只保存不可变配置、网关鉴权快照和稳定运行时句柄，不直接拥有会在热更新时重建的计数器。
@@ -1586,19 +1602,19 @@ RuntimeRegistry
 
 - 同一个 Credential ID 在配置代际之间复用稳定的 RPM 窗口与 `in_flight` 观测；
 - Credential 的认证材料、认证健康和模型健康属于 generation-scoped 状态，不跨身份配置代际复用；
-- `CredentialRuntimeHandle` 内部通过 `ArcSwap<CredentialGenerationRuntime>` 指向当前代际；
+- `CredentialRuntimeBinding` 按 PublishedSnapshot 固化 RPM 限额和认证代际；Handle 只共享滚动时间戳、`in_flight`、等待者和观测计数；
 - Endpoint、Proxy 健康状态按配置版本隔离；
 - 热更新不得把仍有限制的共享 RPM 窗口或 `in_flight` 重置为零，但修改 URL、Secret、ProviderKind 等身份字段时必须创建新的健康代际；
 - `QueueCoordinator` 与 waiting count 跨 PublishedSnapshot 复用；`QueuePolicy` 按值进入具体快照，同一请求在整个等待期只使用其已持有 revision 的策略，禁止从共享可变对象读取新 revision 的队列参数；
-- 删除的对象标记为 `retired`，立即从新快照候选中移除；
-- 已开始请求和 Guard 释放最后一个引用后再回收 retired 对象；
+- 删除的对象立即从新快照候选中移除，但不得在共享 Handle 上设置会反向影响旧 Binding 的 `retired` 开关；
+- 已开始请求和 Guard 释放最后一个 Arc 后再自然回收旧 Handle 与 Generation；
 - 进程重启时创建全新的 Registry，所有运行态从空状态开始。
 
 ```text
 CredentialGenerationRuntime
 ├─ credential_generation
 ├─ secret_version
-├─ auth_material: ArcSwap<VersionedAuthMaterial>
+├─ auth_material
 ├─ credential_health
 └─ model_health
 ```
@@ -1707,7 +1723,7 @@ previous_response_id
   → route_target_id
   → upstream_model
   → ingress_protocol + upstream_protocol
-  → optional bridged conversation history
+  → pending | ready(optional opaque bridged conversation state)
 ```
 
 所有已建立绑定统一遵守：
@@ -1718,10 +1734,19 @@ previous_response_id
 - 无法继续时返回明确的会话绑定错误；
 - 所有绑定使用同一个可配置内存 TTL；
 - Credential 禁用、不再支持绑定模型或代理不可用时保留绑定并返回错误；
-- Credential 删除随配置发布原子清理映射，之后普通显式 Session 可重新创建，Continuation 返回 `session_binding_lost`。
+- Credential 删除后，新 revision 对仍指向该目标的普通显式 Session 与 Continuation 都返回 `session_binding_lost`；绑定不自动降级或重新创建，由 TTL、管理员显式清理或进程重启回收。当前 revision 无法解析固定目标的失败访问不得刷新 TTL，重复失败请求不能阻止旧记录自然到期。
 
-由成功响应产生的 Response ID 或等价上游状态标识，必须在对客户端可见之前写入同一张
-绑定表。写入失败时不得暴露该标识。
+由成功响应产生的 Response ID 或等价上游状态标识，必须在对客户端可见之前写入同一张绑定表。
+同协议路径直接写入 Ready；桥接 buffered 响应原子写入 Ready 状态；桥接流在身份事件可见前写入
+Pending 并预留完整单条容量，在成功终止事件可见前转为 Ready。EOF、错误、取消和 Body Drop 通过
+Lease 删除 Pending。写入或预留失败时不得暴露该标识。
+
+命中 Pending 的后续请求使用统一有界 QueueTicket、scheduler epoch 与 `affinity.wait_timeout` 取消安全地
+等待其 Ready 或 Abort，且等待必须发生在固定候选选择和 RPM 预留之前。单条桥状态完整序列化大小硬上限
+为 `16 MiB`，全部 Ready/Pending 桥状态合计硬上限为 `64 MiB`；Pending 先预留 `16 MiB`，Ready 后按
+实际字节缩减。两项状态字节预算独立于绑定索引的 300,000 条数量上限，活跃状态不为腾出空间而提前 LRU
+驱逐；流式累积一旦将超过单条上限立即 Abort。续接请求取得状态后的恢复工作集不能借用这个存量计数；它在 Route 和 RPM 之前向公开请求内存 Permit 额外预留一条最大状态的 `16 MiB`，并持有到响应生命周期结束。完整决策见
+`docs/adr/0076-atomic-bridge-continuation-state.md`。
 
 ### 13.3 统一绑定创建
 
@@ -1737,9 +1762,7 @@ scope_id + session_hash
 ```
 
 后续请求只允许选择绑定 Credential。绑定目标被禁用、不再支持模型或代理不可用时，返回明确错误，
-不删除绑定后重新负载均衡。Credential 删除随配置发布清理绑定；管理员显式清理、TTL 到期或进程
-重启也会使绑定消失。清理后普通显式 Session 可按首次请求重新创建，Continuation 只能返回
-`session_binding_lost`。
+不删除绑定后重新负载均衡。Credential 删除不反向清理旧请求正在提交的绑定；新 revision 命中已不存在的固定目标时返回 `session_binding_lost`。管理员显式清理、TTL 到期或进程重启会使绑定消失；之后普通显式 Session 可按首次请求重新创建，Continuation 只能返回 `session_binding_lost`。
 
 该绑定不提供可切换模式。
 
@@ -1818,6 +1841,8 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 | 客户端取消 | 否 | 不惩罚 Credential |
 | 流式响应提交后错误 | 否 | 以 Body 错误终止连接，不生成协议事件 |
 
+HTTP 状态码本身不能证明账号级语义。尤其是 OAuth 管理请求的 `403`，只有 Provider Driver 在声明的结构化字段中识别到明确账号限制码时才能报告账号受限；区域/IP 出口拒绝必须使用独立错误，未知响应保持中性上游失败，不得触发账号停用、删除或永久认证健康状态。
+
 重试必须同时受以下预算限制：
 
 - 最大总尝试次数；
@@ -1837,7 +1862,7 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 - 429 与确认的模型错误只更新当前 Credential generation 下的 Credential + upstream model 冷却；401 把当前 API Key generation 标记为 `auth_error`；402/权限类错误使用 Credential 级冷却；
 - 上游 5xx/过载只更新 Endpoint config generation；代理连接/握手错误只更新 Proxy config generation；DIRECT 的 DNS/TCP 错误归入 Endpoint，禁止把 Provider 429/5xx 误判为代理故障；
 - Endpoint 与 Proxy 使用独立的滑动失败窗口和 `Closed / Open / HalfOpen` 熔断器。HalfOpen 探测 Permit 与上游 Attempt 同生命周期，取消或 Drop 必须归还探测名额；
-- 冷却或熔断到期由进程内定时唤醒推进统一 `scheduler_epoch`，等待请求仍使用同一个有界 QueueTicket，不创建健康模块私有队列；
+- 冷却或熔断到期由 `SchedulerEpoch` 的单个 keyed-slot worker 合并并推进统一 `scheduler_epoch`；同一健康状态重排 deadline 不增加任务，等待请求仍直接监听本轮最早 `retry_at` 并使用同一个有界 QueueTicket，不创建健康模块私有队列；
 - 健康预检查与 HalfOpen Guard 获取之间发生竞态时，必须释放已经取得的 Credential 运行态 Guard、移除当前候选并继续选择同 tier 其他候选；已经预留的 RPM 名额采取保守计数；只有该 tier 确实没有可执行候选时才等待或返回临时不可用；
 - 每个请求在第一次上游 Attempt 前固定当前 PublishedSnapshot 的重试、冷却与熔断策略；热更新只影响之后开始的请求和之后记录的失败；
 - 同一个失败路径在当前请求内会被排除，避免在全局熔断阈值尚未达到时立即重复选择同一坏 Endpoint 或 Proxy；
@@ -1921,7 +1946,8 @@ stateDiagram-v2
 - HTTP 响应头或任何下游字节一旦写出就进入 `TransportCommitted`；
 - Ping、注释和控制事件如果要在重试前接收，必须先缓冲；一旦转发给客户端同样视为提交；
 - `response.created`、`message_start` 等携带身份或上游状态的事件属于 `IdentityCommitted`；
-- 会话续接映射必须在身份事件写给客户端之前完成；
+- 会话续接映射必须在身份事件写给客户端之前完成；需要等待完整桥历史的流先原子写入带容量预留的
+  Pending，成功终止事件可见前转为 Ready，任何异常或 Drop 都 Abort；
 - 任意 Committed 状态都禁止切换上游；
 - 客户端断开时立即取消上游请求并结束 `in_flight` Guard；RPM 名额不归还；
 - 不为计费目的继续 Drain 上游，因为本项目不做计费；
@@ -1984,14 +2010,14 @@ React 提交配置
 → 编译候选 PublishedSnapshot 并完成当前实现所需的本地校验
 → 分配单调 config_revision
 → Commit
-→ 执行已验证且不返回 Result 的 RuntimeRegistry reconcile
+→ 构造不修改已发布 Binding 行为的 RuntimeRegistry bindings
 → 单次 ArcSwap 原子替换 PublishedSnapshot
 → 新请求使用新快照
 → 已开始请求继续持有其捕获 Arc
 → 返回管理 API 成功
 ```
 
-任何校验或编译失败都在 Commit 前终止。Commit 后只执行无 I/O、无 `Result` 的 RuntimeRegistry reconcile 与一次 ArcSwap；RPM 窗口和 `in_flight` 是 Runtime 作用域，连续快照共享稳定句柄，epoch 只在新快照可见后推进。任何可能失败的本地资源都必须在 Commit 前准备，不能把失败点放入 Commit 后路径。
+任何校验或编译失败都在 Commit 前终止。Commit 后只执行无 I/O、无 `Result` 的 Runtime Binding 构造与一次 ArcSwap；RPM 时间戳和 `in_flight` 是 Runtime 作用域，RPM 限额和认证代际属于具体 PublishedSnapshot Binding，epoch 只在新快照可见后推进。任何可能失败的本地资源都必须在 Commit 前准备，不能把失败点放入 Commit 后路径。
 
 ```text
 PublishedSnapshot
@@ -2003,10 +2029,11 @@ PublishedSnapshot
 规则：
 
 - 所有配置发布串行执行，禁止较低 revision 晚于较高 revision 覆盖运行时；
+- `ConfigurationRepository::prepare_configuration` 只是跨 crate 的候选事务边界；生产代码唯一允许调用它的模块是 `runtime/configuration/publisher`。Storage 的 trait/实现负责提供边界，其他生产模块不得直接提交或消费候选事务；测试只能通过显式夹具使用该边界。`xtask architecture-check` 固定检查这一调用边界，防止配置写入绕过 ConfigPublisher；
 - 发布流程脱离管理 HTTP 请求的取消令牌，客户端断开不能中断已经开始的提交；
 - 管理 API 只有在数据库提交和快照切换都完成后才返回成功；
 - 请求在 Access 前只 `load_full()` 一次 `PublishedSnapshot`，鉴权和路由必须来自同一 revision，并在整个请求期间持有同一 Arc；
-- 实时 RPM 窗口、`in_flight`、健康和冷却从稳定 RuntimeRegistry 读取；
+- 实时 RPM 时间戳、`in_flight` 和观测计数从稳定 RuntimeRegistry 读取；RPM 限额、认证 Generation 和策略从请求捕获的 Binding 读取；
 - `GatewayApiKey` 删除进入 PublishedSnapshot：删除 API 成功返回后，新请求不得再通过被删除 Key；
 - 进程重启时直接从 SQLite 当前配置编译新快照，不恢复此前 revision 对应的运行状态。
 
@@ -2037,7 +2064,7 @@ effective_value = user_override.unwrap_or(compiled_default)
 
 Web 必须同时显示默认值、覆盖值和当前生效值，并允许写入具体覆盖值，但不得提供“恢复默认”按钮、草稿动作或其他清除覆盖入口。删除覆盖记录仍是管理 API、ConfigPublisher 与存储的基础能力，不进入浏览器交互。版本升级不得覆盖用户已有覆盖值；未覆盖的设置自动采用新版本默认值。所有修改仍通过 ConfigPublisher 校验和热更新。完整决策见 `docs/adr/0071-remove-web-setting-reset-actions.md`。
 
-QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；已捕获快照继续持有其策略。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止让一个已开始的请求在等待中途混用两个配置 revision。Credential 的可选 RPM 属于其配置实体，通过无失败 Runtime reconcile 更新稳定窗口，并在快照切换后由统一 epoch 唤醒。
+QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；已捕获快照继续持有其策略。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止让一个已开始的请求在等待中途混用两个配置 revision。Credential 的可选 RPM 固化在对应 Runtime Binding；不同 revision 共享滚动时间戳但分别使用各自限额，并在快照切换后由统一 epoch 唤醒。完整决策见 `docs/adr/0075-revision-scoped-runtime-bindings.md`。
 
 #### 会话粘性默认值
 
@@ -2214,7 +2241,7 @@ OAuth 刷新使用统一 SettingRegistry 中的热更新参数：
 | `oauth.refresh.scan_interval` | duration_secs | `30` | `1..=86_400` |
 | `oauth.refresh.lead_time` | duration_secs | `300` | `1..=86_400` |
 
-`oauth.refresh.lead_time` 必须大于或等于 `oauth.refresh.scan_interval`，避免正常扫描节奏跨过刷新窗口。Worker 启动时立即扫描；后续等待扫描间隔或 PublishedSnapshot revision 变化，醒来后总是重新读取当前生效值和账号版本，不持有先前配置继续刷新。
+`oauth.refresh.lead_time` 必须大于或等于 `oauth.refresh.scan_interval`，避免正常扫描节奏跨过刷新窗口。Worker 启动时立即扫描；后续等待扫描间隔或 PublishedSnapshot revision 变化，醒来后总是重新读取当前生效值和账号版本，不持有先前配置继续刷新。扫描自身产生的批量发布通知只消费到该次已知 revision，随后恢复正常扫描间隔；扫描期间或发布之后出现的其他 revision 必须立即重扫。这样 Provider 未返回新过期时间、系统保留已过期安全边界时，也不会由自身发布通知形成无等待刷新循环。
 
 数据库 JSON Schema 以 CLIProxyAPI 的 Provider token storage 为基线，并兼容 new-api 与 Sub2API 实际使用字段：
 
@@ -2228,7 +2255,9 @@ Claude: id_token, access_token, refresh_token,
 
 时间字段规范化为 UTC RFC 3339，同时接受已审计实现使用的 `expires_at` 数值/字符串别名。Provider 没有返回的可选字段不伪造。成功兑换会在开始网络请求前消费 session；同一 session 不能再次提交。
 
-单进程刷新 Worker 定期扫描所有临近过期且具备 refresh token 的账号，包括 `enabled=false` 的停用账号。`enabled` 只控制账号是否进入路由候选池，不控制认证保活；停用账号刷新后必须继续保持停用，不能产生数据面 Attempt、占用路由 RPM 或恢复会话绑定，只有删除账号才终止定时保活。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的 refresh token、ID token、账号 ID、邮箱和安全过期边界。成功后 SQLite CAS 更新 JSON 与版本，保留启用状态、模型集合和管理元数据，发布新认证 generation；失败不写半成品。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。完整决策见 `docs/adr/0048-disabled-oauth-token-keepalive.md`。
+单进程刷新 Worker 定期扫描所有临近过期且具备 refresh token 的账号，包括 `enabled=false` 的停用账号。`enabled` 只控制账号是否进入路由候选池，不控制认证保活；停用账号刷新后必须继续保持停用，不能产生数据面 Attempt、占用路由 RPM 或恢复会话绑定，只有删除账号才终止定时保活。定时扫描的上游刷新请求使用代码级固定并发上限，禁止按到期账号数量无界并发。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的 refresh token、ID token、账号 ID、邮箱和安全过期边界。
+
+同一扫描批次的网络成功结果进入一次串行发布：发布锁内按账号 `token_version` CAS，已经删除或 Token 已变化的结果只跳过该账号，不得阻断同批其他新鲜结果；至少一个结果仍新鲜时，整批使用一个 SQLite 事务、一个配置 revision、一次 Runtime reconcile 和一次 `PublishedSnapshot` 切换。网络失败或过期结果不写半成品。认证失败触发的按需刷新不等待定时批次，继续通过账号 singleflight 立即执行单账号 CAS 发布，使当前 Pending 请求可以按 RetrySafety 继续。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。完整决策见 `docs/adr/0048-disabled-oauth-token-keepalive.md` 与 `docs/adr/0078-bounded-batched-oauth-refresh.md`。
 
 Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Claude 和 Grok OAuthAccount 支持只读额度查询。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。Claude Driver 固定注册 `GET https://api.anthropic.com/api/oauth/usage`，使用当前 OAuth access token、`anthropic-beta: oauth-2025-04-20` 和固定 Claude Code 身份头，只解析 5 小时、7 天、Sonnet 7 天与 `seven_day_overage_included` 可选窗口。Grok Driver 固定注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` 和 `GET https://cli-chat-proxy.grok.com/v1/user?include=subscription`，除 Bearer 与 CLI 身份头外还必须发送 OAuth subject 对应的 `x-userid` 和官方 `x-grok-client-mode`。Driver 优先把 billing 的 `creditUsagePercent` 投影为当前 included allowance 使用率，并使用 `used / monthlyLimit` 作为备用字段；只有实际上游字段能够产生使用率窗口，`currentPeriod` 只决定周/月周期和重置时间，不能把缺失的使用率解释成 `0%` 已用。`prepaidBalance`、`onDemandUsed` 和 `onDemandCap` 按 xAI 定义的美元分分别投影为预付余额和按量使用信息，不与 included allowance 百分比互相换算。`/user?include=subscription` 按官方 camelCase 契约解析；非空 `subscriptionTier` 是当前套餐层级的权威来源，空值表示 Free，禁止用可能过期的 JWT tier 覆盖它。同次 `/user` 返回的非空 `userBlockedReason` 与 `teamBlockedReasons` 作为原始上游限制/团队策略展示；缺失时 Web 不渲染占位行，后者可能包含 ZDR/数据保留策略，禁止把它们等同于机器人标记或笼统宣称账号失效。Grok Build access token 中只有数值型 `bot_flag_source == 1` 才表示该 Token 被 Build 标记；管理响应只允许暴露由当前 Token 派生的非敏感布尔/未知状态，禁止返回 JWT claim 集合或 Token 本身。Web 只在该值为 `true` 时于账号卡片顶部状态标记之后显示机器人图标，不显示 Build 标记文字，`false` 或未知时不占展示位置。Free 套餐的 Token 余额由 Driver 在套餐层级确认后构造最小 `POST https://cli-chat-proxy.grok.com/v1/chat/completions` 查询，只接受响应头 `x-ratelimit-limit-tokens` 与 `x-ratelimit-remaining-tokens` 的安全整数；总额、已用和剩余值全部来自同次上游响应，禁止再硬编码 `1_000_000` 或任何其他默认额度。两个响应头任一缺失或无效时 Token 余额保持未知，不从 billing 金额、本地用量或其他限流头猜测。Runtime 只执行 Provider 返回的通用查询计划，不增加 Provider 专用 `match`。
 
@@ -2250,7 +2279,7 @@ Web 的“刷新全部额度”针对当前完整 Codex、Claude 或 Grok OAuthA
 
 Web 的“删除失效账号”只清理当前 Provider 完整集合中经过实时认证诊断、明确返回 `oauth_account_authentication_failed` 的账号。该错误只允许表示以下可验证情形：Token 已成功刷新但再次被上游 401 拒绝；前一 access token 已被 401 拒绝且账号没有 refresh token；或 refresh Endpoint 通过 Provider 声明的结构化 envelope 返回永久失效码（至少 `invalid_grant`）。刷新网络错误、超时、5xx 和未知拒绝必须返回独立的 `oauth_account_authentication_unverified`。检测复用相同逐账号额度 GET 和最多 6 个并发；认证无法确认、代理/网络错误、Provider 出口拒绝、明确账号访问受限、额度耗尽、机器人标记或其他额度读取失败都不得进入删除集合。检测完成后必须重新读取安全账号元数据，展示精确删除数量并二次确认；删除按最新配置 revision 复用现有逐账号 DELETE 串行执行。若账号在检测后消失，或 `token_version` 在确认/删除前发生变化，则跳过而不是删除；配置冲突只允许在重新读取并再次核对同一 Token 版本后重试。该操作不得读取、返回或在浏览器解析原始 OAuth JSON，也不新增后端批量删除协议。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`、`docs/adr/0070-oauth-authentication-and-quota-routing-health.md` 与 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md`。
 
-原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、Vault、管理响应、React Query、浏览器存储或页面长期 DOM。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供读取、下载或导出端点。
+原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、管理响应、React Query、浏览器存储或页面长期 DOM。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供读取、下载或导出端点。
 
 Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`POST /api/admin/oauth/import` 接收多个 multipart JSON 文件，每个文件可以是单账号、账号数组或 Sub2API `accounts` envelope。Provider Driver 把 CLIProxyAPI/Sub2API 字段规范化为 `OAuthTokenMaterial`，Runtime 为全部账号生成 canonical Provider JSON 和默认模型，并在一个 SQLite 事务中创建整批账号、增加一次 revision、执行一次 reconcile 和一次快照切换。任一文件或账号无效时整批回滚。响应只返回安全账号元数据；文件、Token、原始 JSON 和外部 wrapper 不进入日志、DTO、查询缓存或浏览器持久化。完整决策见 `docs/adr/0044-provider-oauth-json-import.md`。
 
@@ -2258,15 +2287,15 @@ Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`P
 
 ### 17.1 SQLite
 
-SQLite Schema 使用不可改写的顺序迁移历史：
+SQLite Schema 始终使用不可改写、只追加的顺序迁移历史，不以正式版本状态区分兼容规则：
 
 - WAL 模式；
 - 外键约束开启；
-- `0001_initial.sql` 及所有已经提交的 Migration 与 checksum 一经进入仓库即视为不可改写历史；
-- 后续 Schema 增删改只允许追加编号连续的前向 Migration，禁止通过修改旧 Migration 或校验和伪装历史；
-- 当前规范 Schema 是从空数据库顺序执行全部 Migration 的结果，不要求单独的 `0001_initial.sql` 直接等于
-  最新结构；升级测试必须覆盖已有数据库保留数据后应用新增 Migration；
-- 项目仍不保留双轨领域模型、兼容读取或运行时 Schema 分支；迁移完成后生产代码只面向最新 Schema；
+- `0001_initial.sql` 以及以后每个已经进入仓库的编号 Migration 与 checksum 一经创建即冻结，禁止改写或删除；
+- Schema 增删改只允许追加编号连续的前向 Migration；旧脚本可以包含已经由后续脚本移除的结构；
+- 每个改变既有 Schema 的 Migration 必须提供带代表性数据的升级测试，验证数据保留、最终结构和 Migration 记录；
+- 不兼容数据清理只能由独立 ADR 明确批准；对应 Migration 必须在任何结构或数据修改前拒绝非空旧记录，禁止静默删除，也禁止把旧格式兼容带入 Repository；
+- 生产代码只面向当前规范 Schema，不保留双轨领域模型、兼容读取或运行时 Schema 分支；
 - 请求日志设置保留期限和最大容量；
 - 配置写操作使用事务；
 - 运行时快照不直接引用数据库连接。
@@ -2308,41 +2337,20 @@ SQLite 不持久化：
 
 RequestLog、Attempt、审计日志和 `last_used_at` 属于历史遥测，不属于需要恢复的运行状态。启动时不会读取它们来重建路由、粘性、RPM 窗口、`in_flight` 或健康状态；可以单独关闭、清理或设置容量上限。同一请求日志中记录 GatewayApiKey ID 与 Credential ID 只表示该次请求的观测结果，不构成两类凭据之间的配置绑定或路由关系。
 
-### 17.2 Secret Vault
+### 17.2 本地 Secret 持久化
 
-Credential Secret 和代理密码使用版本化 AEAD 加密保存。OAuthAccount Provider JSON 不进入 Vault，而是按产品决策明文存入其专用 SQLite 表；该例外不能扩张到 API Key、代理密码或其他 Secret。
-
-建议密文信封：
-
-```text
-SecretEnvelope
-├─ version
-├─ key_id
-├─ algorithm
-├─ nonce
-├─ ciphertext
-└─ aad_version
-```
+Provider API Key、代理密码、Gateway API Key 与 OAuthAccount Provider JSON 都按产品决策原样明文存入 SQLite。应用层不实现加密、解密、主密钥、加密密钥轮换、密文 Schema 或密文兼容分支；SQLite 与数据目录权限是唯一持久化保护边界，不引入第二份密钥状态。`Secret` 在代码中只表示需要禁止日志和非必要暴露的敏感值，不表示加密载荷；完整决策见 ADR-0074。
 
 约束：
 
-- 主密钥必须稳定保存；
-- 禁止在检测到已有密文时临时生成新主密钥；
-- 首批固定使用 XChaCha20-Poly1305，密钥为 256 位随机值，每次加密使用独立的 192 位随机 nonce；
-- 默认主密钥文件为数据目录中的 `master-key.json`，可通过 `ANY2API_MASTER_KEY_FILE` 指向数据库外的受保护文件或容器 Secret 挂载；
-- 首次初始化且数据库尚无 Vault 元数据时：优先读取已有主密钥文件；文件不存在时使用 CSPRNG 创建版本化主密钥文件，并以 create-new 语义防止覆盖；
-- 首次初始化成功后，SQLite 保存一个版本化 AEAD 加密校验哨兵，用于后续启动验证主密钥文件与数据库是否匹配；
-- 一旦数据库存在 Vault 元数据，主密钥文件缺失、格式错误、权限不安全、Key ID 不匹配或校验哨兵无法解密都必须直接启动失败，禁止自动生成替代密钥；
-- Unix 主密钥文件创建为 `0600`，读取时拒绝 group/other 权限；Windows 使用数据目录或容器挂载继承的用户 DACL，部署者必须确保其他账户不可读；
-- 首批不实现在线主密钥轮换、密钥托管服务或灾难恢复流程；
-- AAD 至少包含记录 ID、Secret 类型和 Provider 类型；
-- Provider Credential AAD 还必须包含 `secret_schema_version` 和 `secret_version`，使先前版本密文不能在同一记录内回放为新版本；
-- Secret 指纹首版使用从主密钥经域分离 HMAC-SHA256 派生的独立指纹键，再对 ProviderKind、CredentialKind 和 Secret 字节计算 HMAC-SHA256；数据库保存完整 32 字节 MAC 和 `fingerprint_version=1`，管理 DTO 只显示 64 位截断值；
-- API Key 长度至少 8 个可见 ASCII 字符时可以额外保存并显示末 4 位；短 Key 只显示指纹；指纹不设唯一约束；
-- 管理 API 默认只返回 Secret 指纹和尾号；
+- Unix 数据目录使用 `0700`，SQLite、WAL、SHM、实例锁和日志使用 `0600`；既有路径权限迁移不得跟随符号链接或修改不属于当前用户的文件；
+- Provider API Key、代理密码和 OAuth Token 不得进入普通读取 DTO、URL、日志、Debug、React Query Cache、浏览器持久化或导出端点；
+- Gateway API Key 继续在已认证管理列表中完整展示，但禁止进入日志；
+- Gateway Token 使用带稳定域前缀的 SHA-256 摘要进行索引和常量时间验证，不依赖秘密摘要键；
+- Provider Secret 指纹使用带 Provider/Kind 稳定域前缀的 SHA-256，只用于管理展示和变更识别，不作为认证或唯一约束；
+- API Key 长度至少 8 个可见 ASCII 字符时可以额外保存并显示末 4 位；短 Key 只显示指纹；
 - Provider API Key 创建和轮换响应不回显明文；Web 只在写入成功后把本次提交值作为组件内一次性回执，关闭、离开页面或卸载后立即清除，不进入 URL、Query/Mutation Cache 或浏览器存储；
-- Secret 类型使用 `secrecy`/`zeroize` 一类内存保护封装；
-- 日志格式化不得实现 Secret 的明文 `Debug`。
+- Secret 类型继续使用不暴露明文 `Debug` 的内存封装，日志格式化不得实现 Secret 明文输出。
 
 ### 17.3 管理面安全
 
@@ -2352,7 +2360,8 @@ SecretEnvelope
 - 管理员凭据与 `GatewayApiKey` 完全独立，禁止使用 Gateway Key 登录管理面；
 - 管理员密码使用 Argon2id 摘要保存，首次初始化通过本机 Setup 流程或启动环境变量设置；
 - 登录成功后使用服务端会话 Cookie，Cookie 必须为 HttpOnly、SameSite=Strict，并提供 CSRF 防护；仅 HTTPS 连接设置 `Secure`；
-- 远程管理同时支持明文 HTTP、内建 HTTPS 和可信 Nginx/Caddy TLS 反代；
+- Web 不得把管理员密码写入 `localStorage`、`sessionStorage`、React Query 或其他浏览器持久化状态；登录表单使用标准 `autocomplete=current-password` 交给浏览器密码管理器，且不识别或处理任何历史密码存储格式；
+- 服务自身只监听 HTTP；远程管理支持直接使用明文 HTTP，或由可信 Nginx/Caddy 反代终止 TLS；
 - TLS 是强烈推荐项，但不是启用远程管理的前置条件；
 - 使用明文 HTTP 时，Web 必须持续显示安全警告，明确管理员密码、会话 Cookie 和 OAuth callback/code 或 device user code 可能被同网络中的攻击者截获；
 - 只有实际使用反向代理且其 CIDR 在可信列表中时，才接受 `X-Forwarded-For` / `X-Forwarded-Proto` 客户端来源信息；管理鉴权与公开请求日志复用同一解析策略；
@@ -2363,6 +2372,7 @@ SecretEnvelope
 - Provider 自定义 URL 必须结构化解析，且只有管理员配置能够决定目标 authority；
 - Provider Base URL 是受信任配置，可直接指向 HTTP(S) 公网、loopback、局域网或容器网络地址；
 - Provider 和代理错误输出必须移除内部 IP、端口和凭据。
+- 管理 Web 的 HTML 与静态资源统一设置 `Content-Security-Policy`、`X-Content-Type-Options: nosniff` 和限制来源泄露的 `Referrer-Policy`；CSP 禁止被其他页面嵌入，并只允许当前构建实际需要的同源脚本、样式、字体、图片与连接。该响应策略不得强制 HTTPS，也不得设置 HSTS。
 
 管理面默认设置：
 
@@ -2370,12 +2380,11 @@ SecretEnvelope
 |---|---:|
 | `admin.remote_enabled` | `true` |
 | `network.trusted_proxy_cidrs` | `[]` |
-| `admin.tls.enabled` | `false` |
 | `admin.session.idle_timeout` | `12h` |
 | `admin.session.absolute_timeout` | `7d` |
 | `admin.login.max_failures` | `15m` 内 `5` 次 |
 
-这些设置进入同一 SettingRegistry，可在管理面修改并按需热更新；改变监听地址或 TLS 绑定等必须重启的设置需明确标记 `apply_mode=restart_required`。允许远程管理而未启用 TLS 是受支持配置，不视为配置错误，但 Web 必须持续提示明文风险。远程访问默认开启不改变首次密码初始化边界：未初始化实例仍只允许 loopback Setup，远程部署应在首次启动时使用 `ANY2API_ADMIN_PASSWORD` 初始化密码。
+这些设置进入同一 SettingRegistry，可在管理面修改并按需热更新。监听地址只由启动环境变量决定，TLS 只由外部反向代理终止，不伪装为运行时设置。允许远程管理而未使用 TLS 是受支持配置，不视为配置错误，但 Web 必须持续提示明文风险。远程访问默认开启不改变首次密码初始化边界：未初始化实例仍只允许 loopback Setup，远程部署应在首次启动时使用 `ANY2API_ADMIN_PASSWORD` 初始化密码。
 
 管理员认证固定以下边界：
 
@@ -2476,12 +2485,12 @@ stream_failed_after_commit
 config_publish_started
 config_publish_rejected
 config_revision_swapped
-runtime_retired
+runtime_binding_released
 ```
 
 日志中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。
 
-运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、retired Runtime 数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
+运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
 
 总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照，不建立第二套采集服务。调度响应只聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数以及队列状态。会话响应在总览场景只返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。Web 必须把两项明确标为显式会话，关闭时展示策略状态而不是把 API 的零值伪装成活动计数；“建立中”必须说明它只覆盖首次绑定提交前的瞬时状态。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号 RPM 窗口、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
 
@@ -2669,7 +2678,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 每项同时显示默认值、用户覆盖值和当前生效值；
 - 支持修改覆盖值；不提供一键恢复默认或其他浏览器侧清除覆盖入口；
 - 清楚标记热更新设置与需要重启的设置；
-- 管理远程监听、可选 TLS、可信反代、管理员会话和日志保留；
+- 管理远程访问策略、可信反代、管理员会话和日志保留；监听地址由 `ANY2API_BIND` 决定，TLS 由外部反向代理配置，不进入 SettingRegistry；
 - 明文 HTTP 远程管理必须显示醒目的安全状态，但不阻止使用；
 - Provider URL 表单只要求填写 Base URL；合法的 HTTP(S) 公网或内网地址直接保存，不提供额外网络授权开关；
 - 不提供通用配置导入、配置导出或 Secret 导出入口。
@@ -2683,7 +2692,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 安装只允许官方 Release 构建支持的 `x86_64-unknown-linux-gnu` release 二进制且使用内嵌 Web；其他平台、debug 构建和 `ANY2API_WEB_DIR` 开发模式仍可检查并打开 GitHub，不常驻展示环境能力，只有管理员点击安装时才返回并显示 `update_unsupported`；
 - `POST /api/admin/update/install` 只负责原子接受一次安装并启动进程内任务，返回后下载、校验、替换和重启不再绑定该 HTTP 请求或浏览器连接；同一进程最多执行一个安装任务，运行态只保存在内存，不持久化、不恢复；
 - `GET /api/admin/update/status` 返回 `checking`、`downloading`、`installing`、`restarting`、`failed` 或 `idle`，下载阶段同时返回已下载字节和 Release 声明的总字节，失败阶段只返回稳定错误码，不返回内部错误或下载地址；
-- 安装在当前可执行文件同目录暂存并以原子 rename 替换，不能修改 SQLite、数据目录、主密钥、配置或日志；从任务被接受开始，管理请求取消、页面刷新或连接断开都不能取消任务，校验后的最终解包、替换和重启请求之间也不再出现可取消等待点；
+- 安装在当前可执行文件同目录暂存并以原子 rename 替换，不能修改 SQLite、数据目录、配置或日志；从任务被接受开始，管理请求取消、页面刷新或连接断开都不能取消任务，校验后的最终解包、替换和重启请求之间也不再出现可取消等待点；
 - 替换成功后由更新器请求现有有界优雅停机。HTTP 请求完成、后台任务和 SQLite 收尾成功、Tokio runtime 关闭后，进程以启动时捕获的可执行路径和原参数 `exec` 新二进制；收尾失败时保持既有致命退出语义，不绕过停机边界强制重启；
 - Web 在管理员确认安装后立即进入覆盖整个管理面的模态更新状态，不提供关闭、取消、导航或其他操作；下载阶段显示确定进度，安装和重启阶段显示明确状态。更新失败后才提供重试或返回；更新进行中使用 `beforeunload` 防止误刷新，并仅在 `sessionStorage` 保存预期目标版本以便误刷新后恢复锁定界面，不保存下载状态、服务端任务状态或任何凭据；即使浏览器被关闭也不影响服务端任务；
 - 公共 `GET /api/health` 返回当前运行中二进制的 `application_version` 并明确使用 `Cache-Control: no-store`。Web 只把目标版本的新进程健康响应视为更新成功，短暂展示完成状态后自动刷新；旧版本健康响应、管理会话因重启失效、缓存响应或单次网络错误都不能伪装成成功；
@@ -2700,7 +2709,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 ├─ Axum API
 ├─ 嵌入的 React dist
 ├─ SQLite 数据库
-├─ 加密 Secret
+├─ SQLite 明文 Secret
 └─ 本地日志
 ```
 
@@ -2744,7 +2753,7 @@ React 构建产物属于正式二进制输入，不是运行时旁车目录。�
 
 ### 20.2 不提供内建备份与容灾
 
-首批不提供内建备份、灾难恢复、远程副本、增量快照或自动恢复系统。需要保留配置时，由使用者在程序停止后自行复制数据目录和主密钥文件；这属于部署操作，不进入 any2api 的运行时架构。
+首批不提供内建备份、灾难恢复、远程副本、增量快照或自动恢复系统。需要保留配置时，由使用者在程序停止后自行复制数据目录；这属于部署操作，不进入 any2api 的运行时架构。
 
 ### 20.3 优雅停机
 
@@ -2759,14 +2768,14 @@ React 构建产物属于正式二进制输入，不是运行时旁车目录。�
 → 释放实例锁并退出
 ```
 
-流式 Body、OAuth token exchange、健康检查和日志写入任务统一交给进程级 TaskTracker 管理。停机完成后，所有 RPM 窗口、`in_flight`、队列、冷却和会话状态直接丢弃。
+流式 Body、OAuth token exchange、应用更新、健康检查和日志写入任务统一交给进程级 TaskTracker 管理。停机完成后，所有 RPM 窗口、`in_flight`、队列、冷却和会话状态直接丢弃。
 
 进程生命周期固定为 `Running → Draining → Forced`：
 
 - 跨平台监听 Ctrl-C；Unix 同时监听 SIGTERM。任一信号只触发一次 `Draining`，并立即让 Axum 停止 accept；信号监听安装失败不能被误当成停机信号。
 - Server 最外层为每个已经进入的请求取得活动 Guard。Handler 返回流式或普通响应后，Guard 必须转移到响应 Body，直到 EOF、Body error、客户端断连或 Drop 才释放；不能把“Handler 已返回”误当成请求结束。
 - `Draining` 期间允许已经进入的请求自然完成。超过 `shutdown.request_grace_period` 后进入 `Forced`，进程级取消令牌使仍在等待的 Handler 和响应 Body 被 Drop，从而沿现有 RAII 链取消上游、归还 QueueTicket、结束 `in_flight` Guard 并完成一次取消遥测；已预留 RPM 名额不归还。
-- 配置发布、管理员密码轮换、Argon2 blocking closure、健康唤醒定时器与 RequestTelemetry Writer 使用同一个进程级 TaskTracker。健康定时器在 `Draining` 时直接退出；必须脱离客户端继续的配置事务和密码轮换允许在宽限期内完成，`Forced` 后取消异步 future 并依赖事务 Drop 回滚未提交写入。已经开始的 Argon2 closure 不可取消，必须继续保持 Tracker 计数直到返回。
+- 配置发布、管理员密码轮换、应用更新、Argon2 blocking closure、唯一健康唤醒 worker 与 RequestTelemetry Writer 使用同一个进程级 TaskTracker。健康 worker 只在首个 slot 注册时按需启动，`Running` 期间最多一个；进入 `Draining` 后直接退出并拒绝重新启动。必须脱离客户端继续的配置事务、密码轮换和已经接受的应用更新允许在宽限期内完成，`Forced` 后取消异步 future 并依赖事务 Drop 回滚未提交写入；更新器只有在完整替换成功后才能请求重启。已经开始的 Argon2 closure 不可取消，必须继续保持 Tracker 计数直到返回。
 - HTTP 不再产生新记录后才关闭 RequestTelemetry sender。Writer 先排空有界队列；超过 `shutdown.finalize_timeout` 必须 abort 并 join，禁止丢弃 JoinHandle 让 SQLite Writer 脱管。
 - 后台 Tokio 任务结束后显式关闭 SQLite Pool，确认 Composition Root 持有最后一个文件日志根 `Arc`，再 Drop `WorkerGuard` 完成其有界 best-effort flush。文件日志线程不是 Tokio TaskTracker 的替代品。
 - 同步二进制入口在 Tokio Runtime 外持有实例锁。正常收尾完成后调用 `Runtime::shutdown_timeout`，随后才释放实例锁；后台任务、SQLite、文件日志所有权或 runtime 收尾失败时，在仍持有实例锁的情况下直接终止进程，由操作系统释放锁。
@@ -2800,6 +2809,8 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 - `index.html` 与未带内容哈希的根资源使用 `Cache-Control: no-cache`；Vite `/assets/*` 使用一年 `immutable` 缓存；
 - 不读取请求路径对应的文件系统。
 
+管理 Web 的外部目录与内嵌资源必须共享同一组安全响应头，避免开发/诊断入口形成不同的浏览器安全边界。
+
 提交的内嵌目录必须至少包含 `index.html`，构建时文件清单按稳定路径排序。源目录与提交目录只允许普通目录和普通文件，拒绝符号链接及其他特殊文件；Git 对整棵生成目录按原始字节追踪，避免跨平台换行转换改变同一哈希资源的内容。资源缺失、同步校验失败或重复规范路径直接使构建/CI 失败；不为被替换文件名保留兼容别名。
 
 完整决策见 `docs/adr/0027-embedded-web-assets.md`。
@@ -2816,7 +2827,7 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 Linux AMD64，不构建其他系统、架构或 musl 变体。
 
 Release 上传 `any2api-v<version>-linux-amd64.tar.gz` 及其 SHA-256 文件；归档只包含已内嵌 Web 和
-SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、主密钥、配置、日志或 Secret。
+SQLite Migration 的 `any2api` 二进制，不包含数据库、数据目录、配置、日志或 Secret。
 
 管理面的版本检查固定读取 `xinvexo/any2api` 最新正式 Release。安装端不信任客户端版本或 URL，也不把
 GitHub 元数据中的任意资产名当作可执行输入；只有由已校验 SemVer 推导出的上述归档和 checksum 名称同时
@@ -2833,7 +2844,7 @@ Provider URL 1 ── N Credential
 Credential 1 ── 1 Proxy Binding
 Credential DIRECT ──> Global Proxy
 Global DIRECT ──> Local Network
-HTTP/SOCKS5 Proxy Auth ──> Vault + Per-Client Sidecar
+HTTP/SOCKS5 Proxy Auth ──> SQLite Plaintext + Per-Client Sidecar
 ProviderCredential ──> API Key Only
 OAuthAccount ──X ProviderEndpoint / ProviderCredential
 OAuthAccount ──> Fixed Provider Endpoint + DIRECT/Global Proxy + Selected Models
@@ -2860,6 +2871,8 @@ RuntimeRegistry = Stable Across Config Generations
 Grok Free Tokens = Upstream Limit/Remaining Headers + No Local Default
 
 Session Binding ──> Fixed Credential + Route Target + Model + Dialect
+Bridge Continuation ──> Same Binding Record + Pending/Ready/Abort + Opaque Typed State
+Bridge Continuation Memory ──> 16 MiB Per Entry + 64 MiB Total Hard Cap
 All Session State ──> Memory Only
 
 Retry = Pending + RetrySafety Allows
@@ -2888,7 +2901,7 @@ OAuth2 JSON = OAuthAccount-only SQLite persistence, no read/download/export
 OAuth Quota 403 = Driver Evidence; Account Restriction != Provider Egress Rejection
 Codex Egress Probe = Same Global Proxy + No Account Authentication + Revision-Scoped Memory Cache
 
-Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Vault-Keyed HMAC Digest
+Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Domain-Separated SHA-256 Digest
 Gateway Token Plaintext = Visible In Authenticated Management Responses, Never In Logs
 Public Ingress Auth = Same PublishedSnapshot Revision + Header Strip Before Driver
 Global Public Model Access = Explicit All Mode Or Exact Name Array + Empty Array Denies All + Same PublishedSnapshot Revision

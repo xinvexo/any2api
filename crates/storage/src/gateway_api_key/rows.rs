@@ -5,7 +5,7 @@ use any2api_domain::{
 };
 use sqlx::{FromRow, SqliteConnection};
 
-use crate::{error::StorageError, gateway_api_key::verifier::GatewayApiKeyVerifier};
+use crate::{error::StorageError, gateway_api_key::GatewayApiKeyVerifier};
 
 #[derive(FromRow)]
 struct GatewayApiKeyRow {
@@ -15,7 +15,6 @@ struct GatewayApiKeyRow {
     token_prefix: String,
     token_hash: Vec<u8>,
     hash_version: i64,
-    hash_key_id: String,
     token_version: i64,
     config_version: i64,
     enabled: i64,
@@ -28,7 +27,7 @@ pub(crate) async fn load_gateway_api_keys_from(
     verifier: &GatewayApiKeyVerifier,
 ) -> Result<GatewayApiKeyConfiguration, StorageError> {
     let rows = sqlx::query_as::<_, GatewayApiKeyRow>(
-        "SELECT id, name, token, token_prefix, token_hash, hash_version, hash_key_id, \
+        "SELECT id, name, token, token_prefix, token_hash, hash_version, \
          token_version, config_version, enabled, created_at, last_used_at \
          FROM gateway_api_keys ORDER BY name ASC",
     )
@@ -45,14 +44,14 @@ fn parse_row(
     row: GatewayApiKeyRow,
     verifier: &GatewayApiKeyVerifier,
 ) -> Result<GatewayApiKey, StorageError> {
-    if row.hash_key_id != verifier.key_id() {
-        return Err(StorageError::GatewayApiKeyHashKeyMismatch);
-    }
     let id = GatewayApiKeyId::from_str(&row.id).map_err(|_| StorageError::CorruptConfiguration)?;
     let token_hash: [u8; 32] = row
         .token_hash
         .try_into()
         .map_err(|_| StorageError::CorruptConfiguration)?;
+    if !verifier.verify(row.token.as_bytes(), &token_hash) {
+        return Err(StorageError::CorruptConfiguration);
+    }
     let draft = GatewayApiKeyDraft::new(row.name, parse_bool(row.enabled)?)
         .map_err(|_| StorageError::CorruptConfiguration)?;
     GatewayApiKey::restore(
@@ -62,7 +61,6 @@ fn parse_row(
         row.token_prefix,
         token_hash,
         u32::try_from(row.hash_version).map_err(|_| StorageError::CorruptConfiguration)?,
-        row.hash_key_id,
         parse_version(row.token_version)?,
         parse_version(row.config_version)?,
         row.created_at,

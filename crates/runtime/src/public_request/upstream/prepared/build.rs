@@ -1,9 +1,8 @@
 use std::time::Duration;
 
 use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode};
-use any2api_protocol::{
-    ProtocolError,
-    api::{DecodedRequest, ProtocolExchange, ProtocolRegistry},
+use any2api_protocol::api::{
+    DecodedRequest, ProtocolContinuationState, ProtocolError, ProtocolExchange, ProtocolRegistry,
 };
 use any2api_provider::api::{ProviderDriver, ProviderRegistry, ProviderRequestHeaderContext};
 use any2api_transport::api::{EndpointNetworkPolicy, TransportProxy, TransportRequest};
@@ -35,20 +34,36 @@ pub(super) struct AttemptHeaderPolicy {
     pub(super) allow_turn_state: bool,
 }
 
-pub(super) fn prepare_attempt<'a>(
-    snapshot: &'a PublishedSnapshot,
-    protocols: &ProtocolRegistry,
-    decoded: DecodedRequest,
-    selected: SelectedCandidate,
-    providers: &'a ProviderRegistry,
-    mut attempt_recorder: AttemptRecorder,
-    header_policy: AttemptHeaderPolicy,
+pub(super) struct AttemptPreparation<'a, 'p> {
+    pub(super) snapshot: &'a PublishedSnapshot,
+    pub(super) protocols: &'p ProtocolRegistry,
+    pub(super) decoded: DecodedRequest,
+    pub(super) selected: SelectedCandidate,
+    pub(super) continuation_state: Option<ProtocolContinuationState>,
+    pub(super) providers: &'a ProviderRegistry,
+    pub(super) attempt_recorder: AttemptRecorder,
+    pub(super) header_policy: AttemptHeaderPolicy,
+}
+
+pub(super) fn prepare_attempt<'a, 'p>(
+    input: AttemptPreparation<'a, 'p>,
 ) -> Result<PreparedAttempt<'a>, AttemptFailure> {
+    let AttemptPreparation {
+        snapshot,
+        protocols,
+        decoded,
+        selected,
+        continuation_state,
+        providers,
+        mut attempt_recorder,
+        header_policy,
+    } = input;
     let result = build_request(
         snapshot,
         protocols,
         decoded,
         &selected,
+        continuation_state,
         providers,
         header_policy,
     );
@@ -92,6 +107,7 @@ fn build_request<'a>(
     protocols: &ProtocolRegistry,
     decoded: DecodedRequest,
     selected: &SelectedCandidate,
+    continuation_state: Option<ProtocolContinuationState>,
     providers: &'a ProviderRegistry,
     header_policy: AttemptHeaderPolicy,
 ) -> Result<BuiltRequest<'a>, PublicError> {
@@ -122,7 +138,7 @@ fn build_request<'a>(
         )
         .map_err(|_| internal_error())?;
     let prepared = exchange
-        .prepare_request(decoded, &candidate.upstream_model)
+        .prepare_request(decoded, &candidate.upstream_model, continuation_state)
         .map_err(protocol_request_error)?;
     let upstream_operation = prepared.upstream_operation;
     let endpoint_plan = driver
@@ -194,6 +210,9 @@ fn protocol_request_error(error: ProtocolError) -> PublicError {
         ),
         ProtocolError::InvalidPayload(_) => {
             invalid_request("request cannot be represented by the configured upstream protocol")
+        }
+        ProtocolError::ContinuationTooLarge { .. } => {
+            invalid_request("request continuation exceeds the configured protocol state limit")
         }
         ProtocolError::DuplicateDialect(_)
         | ProtocolError::DuplicateBridge(_, _)

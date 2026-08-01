@@ -178,11 +178,14 @@ async fn build_test_app(
         &runtime.lifecycle(),
     ));
     let components = build_public_request_components().expect("public request components");
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        components.provider_registry(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            components.provider_registry(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(
             Arc::clone(&storage),

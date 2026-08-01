@@ -4,8 +4,7 @@ use sqlx::SqliteConnection;
 use crate::{
     configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
-    sqlite::SqliteStore,
-    vault::{SecretBytes, SecretContext, SecretVault},
+    secret::SecretBytes,
 };
 
 use super::{authentication_writes, password::validate};
@@ -21,31 +20,12 @@ pub(crate) enum ProxyAuthenticationMutation {
     },
 }
 
-impl SqliteStore {
-    pub(crate) async fn mutate_proxy_authentication(
-        &self,
-        expected: ConfigRevision,
-        mutation: ProxyAuthenticationMutation,
-    ) -> Result<StoredConfiguration, StorageError> {
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
-        let (configuration, changed) =
-            mutate_connection(&mut transaction, self.secret_vault(), expected, mutation).await?;
-        if changed {
-            transaction.commit().await?;
-        } else {
-            transaction.rollback().await?;
-        }
-        Ok(configuration)
-    }
-}
-
-async fn mutate_connection(
+pub(crate) async fn mutate_connection(
     connection: &mut SqliteConnection,
-    vault: &SecretVault,
     expected: ConfigRevision,
     mutation: ProxyAuthenticationMutation,
 ) -> Result<(StoredConfiguration, bool), StorageError> {
-    let current = load_configuration_from(connection, vault).await?;
+    let current = load_configuration_from(connection).await?;
     if current.revision() != expected {
         return Err(StorageError::RevisionConflict {
             expected,
@@ -61,11 +41,7 @@ async fn mutate_connection(
             let existing = editable_proxy(&current, id)?;
             validate(&password)?;
             let updated = existing.set_authentication(username)?;
-            let envelope = vault.seal(
-                SecretContext::proxy_password(id, updated.authentication_version()),
-                &password,
-            )?;
-            authentication_writes::set_authentication(connection, &updated, &envelope).await?;
+            authentication_writes::set_authentication(connection, &updated, &password).await?;
             updated
         }
         ProxyAuthenticationMutation::Clear { id } => {
@@ -79,7 +55,7 @@ async fn mutate_connection(
         }
     };
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection, vault).await?;
+    let configuration = load_configuration_from(connection).await?;
     assert_eq!(configuration.revision(), revision);
     assert_eq!(configuration.proxies().get(updated.id()), Some(&updated));
     Ok((configuration, true))

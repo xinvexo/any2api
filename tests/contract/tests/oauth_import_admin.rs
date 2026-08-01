@@ -236,11 +236,10 @@ impl TestContext {
         let configuration = storage.load_configuration().await.expect("configuration");
         let providers = any2api_contract_tests::build_provider_registry();
         let runtime = Arc::new(RuntimeRegistry::new());
-        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            providers.as_ref(),
-        )));
+        let snapshots = Arc::new(SnapshotStore::new(
+            PublishedSnapshot::new(configuration, runtime.as_ref(), providers.as_ref())
+                .expect("initial snapshot"),
+        ));
         let publisher = Arc::new(
             ConfigPublisher::new(
                 Arc::clone(&storage),

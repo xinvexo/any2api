@@ -497,7 +497,7 @@ fn codex_contract(driver: &dyn ProviderDriver) {
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new(1, "sk-codex-contract"))
+        .credential_headers(&ProviderSecret::new("sk-codex-contract"))
         .expect("Codex credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-codex-contract");
     let egress = driver
@@ -568,7 +568,7 @@ fn claude_contract(driver: &dyn ProviderDriver) {
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new(1, "sk-claude-contract"))
+        .credential_headers(&ProviderSecret::new("sk-claude-contract"))
         .expect("Claude credential headers");
     assert_eq!(headers.headers["x-api-key"], "sk-claude-contract");
     assert!(!headers.headers.contains_key("anthropic-version"));
@@ -701,7 +701,7 @@ fn grok_contract(driver: &dyn ProviderDriver) {
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new(1, "xai-contract-key"))
+        .credential_headers(&ProviderSecret::new("xai-contract-key"))
         .expect("Grok credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer xai-contract-key");
 

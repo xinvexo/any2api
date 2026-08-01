@@ -13,7 +13,7 @@ any2api 部署时可能由 Nginx 反代，Nginx 前还可能存在 Cloudflare。
 ## 决策
 
 - 将管理面已有的可信代理解析器提升为 Server 级 `ClientAddressPolicy`，管理鉴权与公开 API 入口复用同一实现。
-- TCP 对端不在 `ANY2API_TRUSTED_PROXY_CIDRS` 时，忽略所有转发头并使用 TCP 对端 IP。
+- TCP 对端不在当前 PublishedSnapshot 的 `network.trusted_proxy_cidrs` 时，忽略所有转发头并使用 TCP 对端 IP。
 - TCP 对端可信时，要求恰好一个有效的 `X-Forwarded-For` 和 `X-Forwarded-Proto`；从 TCP 对端开始按 XFF 右到左剥离连续可信代理，首个不可信地址是客户端地址。缺失、重复、空值或非法 IP/协议一律 Fail-Closed。
 - Cloudflare 来源规范化属于前置 Nginx 的职责。any2api 不直接信任或持久化 `CF-Connecting-IP`，也不保存原始 `Forwarded` / `X-Forwarded-*` 文本。
 - `PublicRequest` 携带解析后的 `IpAddr` 进入 Runtime，`RequestRecorder` 将其写入最终 RequestLog。该地址不参与上游选择、RPM、会话粘性、重试或鉴权结果。

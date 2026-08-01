@@ -1,12 +1,13 @@
 use any2api_domain::{
     ConfigRevision, ModelAccess, OAuthAccountDraft, OAuthAccountId, ProviderKind, SettingKey,
-    SettingValue,
+    SettingOverrideChange, SettingValue,
 };
 use tempfile::tempdir;
 
-use crate::api::{
-    ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository, SettingRepository,
-    SqliteStore,
+use crate::{
+    configuration::{ConfigurationMutation, ConfigurationRepository, commit_configuration},
+    oauth_account::OAuthAccountDocument,
+    sqlite::SqliteStore,
 };
 
 #[tokio::test]
@@ -15,32 +16,48 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
     let database = directory.path().join("config.sqlite3");
     let store = SqliteStore::connect(&database).await.expect("store");
     let account_id = OAuthAccountId::new();
-    let created = store
-        .create_oauth_account(
-            ConfigRevision::INITIAL,
-            account_id,
-            ProviderKind::Codex,
-            draft(true),
-            None,
-            None,
-            vec!["gpt-a".into(), "gpt-b".into()],
-            document(),
-        )
-        .await
-        .expect("OAuth account");
-    let allowed = store
-        .set_setting_override(
-            created.revision(),
-            SettingKey::ModelsAllowed,
-            SettingValue::ModelAccess(ModelAccess::Allowlist(vec!["gpt-a".into(), "gpt-b".into()])),
-        )
-        .await
-        .expect("model allowlist");
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateOAuthAccount {
+            id: account_id,
+            provider_kind: ProviderKind::Codex,
+            draft: draft(true),
+            safe_account_email: None,
+            expires_at: None,
+            models: vec!["gpt-a".into(), "gpt-b".into()],
+            document: document(),
+        },
+    )
+    .await
+    .expect("OAuth account");
+    let allowed = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![SettingOverrideChange::Set {
+                key: SettingKey::ModelsAllowed,
+                value: SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
+                    "gpt-a".into(),
+                    "gpt-b".into(),
+                ])),
+            }],
+        },
+    )
+    .await
+    .expect("model allowlist");
 
-    let disabled = store
-        .update_oauth_account(allowed.revision(), account_id, 1, draft(false))
-        .await
-        .expect("disable account");
+    let disabled = commit_configuration(
+        &store,
+        allowed.revision(),
+        ConfigurationMutation::UpdateOAuthAccount {
+            id: account_id,
+            expected_config_version: 1,
+            draft: draft(false),
+        },
+    )
+    .await
+    .expect("disable account");
     assert_eq!(
         disabled
             .settings()
@@ -51,10 +68,17 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
         ])))
     );
 
-    let reduced = store
-        .set_oauth_account_models(disabled.revision(), account_id, 2, vec!["gpt-b".into()])
-        .await
-        .expect("remove one OAuth model source");
+    let reduced = commit_configuration(
+        &store,
+        disabled.revision(),
+        ConfigurationMutation::SetOAuthAccountModels {
+            id: account_id,
+            expected_config_version: 2,
+            models: vec!["gpt-b".into()],
+        },
+    )
+    .await
+    .expect("remove one OAuth model source");
     assert_eq!(
         reduced.settings().override_value(SettingKey::ModelsAllowed),
         Some(SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
@@ -62,10 +86,16 @@ async fn model_allowlist_tracks_oauth_sources_without_treating_disabled_as_remov
         ])))
     );
 
-    let deleted = store
-        .delete_oauth_account(reduced.revision(), account_id, 3)
-        .await
-        .expect("delete OAuth account");
+    let deleted = commit_configuration(
+        &store,
+        reduced.revision(),
+        ConfigurationMutation::DeleteOAuthAccount {
+            id: account_id,
+            expected_config_version: 3,
+        },
+    )
+    .await
+    .expect("delete OAuth account");
     assert_eq!(
         deleted.settings().override_value(SettingKey::ModelsAllowed),
         Some(SettingValue::ModelAccess(

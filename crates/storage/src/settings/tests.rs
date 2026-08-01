@@ -4,7 +4,8 @@ use any2api_domain::{
 use tempfile::tempdir;
 
 use crate::{
-    configuration::ConfigurationRepository, error::StorageError, settings::SettingRepository,
+    configuration::{ConfigurationMutation, ConfigurationRepository, commit_configuration},
+    error::StorageError,
     sqlite::SqliteStore,
 };
 
@@ -26,28 +27,36 @@ async fn scheduler_overrides_persist_and_reset_to_compiled_defaults() {
         None
     );
 
-    let updated = store
-        .set_setting_override(
-            ConfigRevision::INITIAL,
-            SettingKey::SchedulerOnRateLimited,
-            SettingValue::RateLimitMode(RateLimitMode::Reject),
-        )
-        .await
-        .expect("override setting");
+    let updated = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![SettingOverrideChange::Set {
+                key: SettingKey::SchedulerOnRateLimited,
+                value: SettingValue::RateLimitMode(RateLimitMode::Reject),
+            }],
+        },
+    )
+    .await
+    .expect("override setting");
     assert_eq!(updated.revision().get(), 2);
     assert_eq!(
         updated.settings().scheduler().on_rate_limited(),
         RateLimitMode::Reject
     );
 
-    let no_op = store
-        .set_setting_override(
-            updated.revision(),
-            SettingKey::SchedulerOnRateLimited,
-            SettingValue::RateLimitMode(RateLimitMode::Reject),
-        )
-        .await
-        .expect("same override is a no-op");
+    let no_op = commit_configuration(
+        &store,
+        updated.revision(),
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![SettingOverrideChange::Set {
+                key: SettingKey::SchedulerOnRateLimited,
+                value: SettingValue::RateLimitMode(RateLimitMode::Reject),
+            }],
+        },
+    )
+    .await
+    .expect("same override is a no-op");
     assert_eq!(no_op.revision(), updated.revision());
 
     drop(store);
@@ -63,10 +72,17 @@ async fn scheduler_overrides_persist_and_reset_to_compiled_defaults() {
         RateLimitMode::Reject
     );
 
-    let reset = reopened
-        .reset_setting_override(persisted.revision(), SettingKey::SchedulerOnRateLimited)
-        .await
-        .expect("reset setting");
+    let reset = commit_configuration(
+        &reopened,
+        persisted.revision(),
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![SettingOverrideChange::Reset {
+                key: SettingKey::SchedulerOnRateLimited,
+            }],
+        },
+    )
+    .await
+    .expect("reset setting");
     assert_eq!(reset.revision().get(), 3);
     assert_eq!(
         reset.settings().scheduler().on_rate_limited(),
@@ -87,14 +103,18 @@ async fn explicit_override_equal_to_default_is_preserved() {
         .await
         .expect("store");
 
-    let updated = store
-        .set_setting_override(
-            ConfigRevision::INITIAL,
-            SettingKey::SchedulerFallbackOnRateLimit,
-            SettingValue::Boolean(false),
-        )
-        .await
-        .expect("explicit default override");
+    let updated = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![SettingOverrideChange::Set {
+                key: SettingKey::SchedulerFallbackOnRateLimit,
+                value: SettingValue::Boolean(false),
+            }],
+        },
+    )
+    .await
+    .expect("explicit default override");
 
     assert_eq!(updated.revision().get(), 2);
     assert_eq!(
@@ -112,10 +132,11 @@ async fn setting_batch_validates_and_commits_as_one_revision() {
         .await
         .expect("store");
 
-    let updated = store
-        .apply_setting_changes(
-            ConfigRevision::INITIAL,
-            vec![
+    let updated = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![
                 SettingOverrideChange::Set {
                     key: SettingKey::OAuthRefreshScanInterval,
                     value: SettingValue::DurationSecs(600),
@@ -125,17 +146,19 @@ async fn setting_batch_validates_and_commits_as_one_revision() {
                     value: SettingValue::DurationSecs(900),
                 },
             ],
-        )
-        .await
-        .expect("atomic setting batch");
+        },
+    )
+    .await
+    .expect("atomic setting batch");
     assert_eq!(updated.revision().get(), 2);
     assert_eq!(updated.settings().oauth().refresh_scan_interval_secs(), 600);
     assert_eq!(updated.settings().oauth().refresh_lead_time_secs(), 900);
 
-    let invalid = store
-        .apply_setting_changes(
-            updated.revision(),
-            vec![
+    let invalid = commit_configuration(
+        &store,
+        updated.revision(),
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![
                 SettingOverrideChange::Set {
                     key: SettingKey::OAuthRefreshScanInterval,
                     value: SettingValue::DurationSecs(1_000),
@@ -145,9 +168,10 @@ async fn setting_batch_validates_and_commits_as_one_revision() {
                     value: SettingValue::DurationSecs(500),
                 },
             ],
-        )
-        .await
-        .expect_err("invalid batch");
+        },
+    )
+    .await
+    .expect_err("invalid batch");
     assert!(matches!(invalid, StorageError::SettingsValidation(_)));
     let unchanged = store
         .load_configuration()
@@ -163,23 +187,31 @@ async fn stale_revision_and_corrupt_rows_fail_closed() {
     let store = SqliteStore::connect(&directory.path().join("settings.sqlite3"))
         .await
         .expect("store");
-    let updated = store
-        .set_setting_override(
-            ConfigRevision::INITIAL,
-            SettingKey::SchedulerMaxWaitingRequests,
-            SettingValue::Integer(64),
-        )
-        .await
-        .expect("first override");
+    let updated = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![SettingOverrideChange::Set {
+                key: SettingKey::SchedulerMaxWaitingRequests,
+                value: SettingValue::Integer(64),
+            }],
+        },
+    )
+    .await
+    .expect("first override");
 
-    let conflict = store
-        .set_setting_override(
-            ConfigRevision::INITIAL,
-            SettingKey::SchedulerMaxWaitingRequests,
-            SettingValue::Integer(32),
-        )
-        .await
-        .expect_err("stale revision");
+    let conflict = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![SettingOverrideChange::Set {
+                key: SettingKey::SchedulerMaxWaitingRequests,
+                value: SettingValue::Integer(32),
+            }],
+        },
+    )
+    .await
+    .expect_err("stale revision");
     assert!(matches!(conflict, StorageError::RevisionConflict { .. }));
     assert_eq!(
         store

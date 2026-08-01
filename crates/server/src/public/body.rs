@@ -1,5 +1,7 @@
 use std::io::{Cursor, Read};
 
+use any2api_domain::ProtocolOperation;
+use any2api_runtime::api::{PublicRequestAdmissionError, PublicRequestMemoryAdmission};
 use axum::{
     body::Bytes,
     extract::{FromRequest, Request},
@@ -16,7 +18,7 @@ const MAX_DECOMPRESSED_PUBLIC_BODY_BYTES: usize =
 
 /// Buffered public request body whose rejection uses the dialect-aware
 /// protocol error envelope instead of axum's plain-text response.
-pub(super) struct PublicBody(pub(super) Bytes);
+pub(super) struct PublicBody(pub(super) Bytes, pub(super) PublicRequestMemoryAdmission);
 
 impl FromRequest<AppState> for PublicBody {
     type Rejection = Response;
@@ -31,15 +33,29 @@ impl FromRequest<AppState> for PublicBody {
                 PublicApiError::unsupported_content_encoding().into_response_for(state, &uri)
             );
         }
+        let operation = operation_for_path(uri.path())
+            .ok_or_else(|| PublicApiError::unreadable_body().into_response_for(state, &uri))?;
+        let mut admission = state
+            .public_requests()
+            .try_admit_request_body(operation)
+            .map_err(|error| admission_rejection(error, state, &uri))?;
         match Bytes::from_request(request, state).await {
             Ok(bytes) if encoding == ContentEncoding::Zstd => {
-                let decoded = tokio::task::spawn_blocking(move || decode_zstd(bytes))
+                // The blocking decoder cannot be cancelled. Keep its admission in the
+                // closure so dropping the HTTP future cannot expose memory still in use.
+                let (decoded, mut admission) = admission
+                    .run_blocking(move || decode_zstd(bytes))
                     .await
                     .map_err(|_| {
                         PublicApiError::unreadable_body().into_response_for(state, &uri)
                     })?;
                 match decoded {
-                    Ok(bytes) => Ok(Self(bytes)),
+                    Ok(bytes) => {
+                        admission
+                            .set_body_len(bytes.len())
+                            .map_err(|error| admission_rejection(error, state, &uri))?;
+                        Ok(Self(bytes, admission))
+                    }
                     Err(ZstdBodyError::TooLarge) => {
                         Err(PublicApiError::payload_too_large().into_response_for(state, &uri))
                     }
@@ -48,7 +64,12 @@ impl FromRequest<AppState> for PublicBody {
                     }
                 }
             }
-            Ok(bytes) => Ok(Self(bytes)),
+            Ok(bytes) => {
+                admission
+                    .set_body_len(bytes.len())
+                    .map_err(|error| admission_rejection(error, state, &uri))?;
+                Ok(Self(bytes, admission))
+            }
             Err(rejection) => {
                 let error = if rejection.into_response().status() == StatusCode::PAYLOAD_TOO_LARGE {
                     PublicApiError::payload_too_large()
@@ -58,6 +79,37 @@ impl FromRequest<AppState> for PublicBody {
                 Err(error.into_response_for(state, &uri))
             }
         }
+    }
+}
+
+fn admission_rejection(
+    error: PublicRequestAdmissionError,
+    state: &AppState,
+    uri: &axum::http::Uri,
+) -> Response {
+    let error = match error {
+        PublicRequestAdmissionError::Capacity => PublicApiError::resource_exhausted(),
+        PublicRequestAdmissionError::PayloadTooLarge => PublicApiError::payload_too_large(),
+        PublicRequestAdmissionError::OperationMismatch => PublicApiError::unreadable_body(),
+    };
+    error.into_response_for(state, uri)
+}
+
+fn operation_for_path(path: &str) -> Option<ProtocolOperation> {
+    let path = path
+        .trim_end_matches('/')
+        .trim_start_matches('/')
+        .strip_prefix("v1/")
+        .unwrap_or_else(|| path.trim_end_matches('/').trim_start_matches('/'));
+    match path {
+        "responses" => Some(ProtocolOperation::Responses),
+        "responses/compact" => Some(ProtocolOperation::ResponsesCompact),
+        "chat/completions" => Some(ProtocolOperation::ChatCompletions),
+        "images/generations" => Some(ProtocolOperation::ImagesGenerations),
+        "images/edits" => Some(ProtocolOperation::ImagesEdits),
+        "messages" => Some(ProtocolOperation::Messages),
+        "messages/count_tokens" => Some(ProtocolOperation::MessagesCountTokens),
+        _ => None,
     }
 }
 
@@ -122,7 +174,7 @@ mod tests {
 
     use super::{
         ContentEncoding, MAX_DECOMPRESSED_PUBLIC_BODY_BYTES, ZstdBodyError, content_encoding,
-        decode_zstd, path_supports_zstd,
+        decode_zstd, operation_for_path, path_supports_zstd,
     };
 
     #[test]
@@ -153,6 +205,23 @@ mod tests {
             content_encoding(&headers),
             ContentEncoding::Invalid
         ));
+    }
+
+    #[test]
+    fn public_body_paths_map_to_their_exact_operations() {
+        assert_eq!(
+            operation_for_path("/v1/images/edits"),
+            Some(any2api_domain::ProtocolOperation::ImagesEdits)
+        );
+        assert_eq!(
+            operation_for_path("/images/edits"),
+            Some(any2api_domain::ProtocolOperation::ImagesEdits)
+        );
+        assert_eq!(
+            operation_for_path("/v1/messages/count_tokens"),
+            Some(any2api_domain::ProtocolOperation::MessagesCountTokens)
+        );
+        assert_eq!(operation_for_path("/v1/images/unknown"), None);
     }
 
     #[test]

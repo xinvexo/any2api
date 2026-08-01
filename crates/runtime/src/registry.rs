@@ -105,7 +105,7 @@ impl RuntimeRegistry {
 
     pub(crate) fn reconcile_configuration(
         &self,
-        mut specs: Vec<RoutingCredentialSpec>,
+        specs: Vec<RoutingCredentialSpec>,
     ) -> RoutingCredentials {
         let mut handles = self
             .credentials
@@ -114,35 +114,26 @@ impl RuntimeRegistry {
         let mut active_ids = HashSet::with_capacity(specs.len());
         let mut credentials = Vec::with_capacity(specs.len());
 
-        for mut spec in specs.drain(..) {
+        for spec in specs {
             let routing_id = spec.id();
             active_ids.insert(routing_id);
-            let generation = spec.take_generation();
+            let (projection, requests_per_minute, generation) = spec.into_parts();
             let binding = if let Some(handle) = handles.get(&routing_id).cloned() {
-                handle.reconcile(routing_id, spec.requests_per_minute(), generation)
+                handle.reconcile(requests_per_minute, generation)
             } else {
                 let handle = CredentialRuntimeHandle::new(
                     routing_id,
-                    spec.requests_per_minute(),
                     generation,
                     Arc::clone(&self.scheduler_epoch),
                 );
-                let binding = handle.current_binding();
+                let binding = handle.current_binding(requests_per_minute);
                 handles.insert(routing_id, handle);
                 binding
             };
-            credentials.push(spec.bind(binding));
+            credentials.push(projection.bind(binding));
         }
 
-        handles.retain(|id, handle| {
-            if active_ids.contains(id) {
-                true
-            } else {
-                handle.retire();
-                false
-            }
-        });
-        self.affinity.retain_credentials(&active_ids);
+        handles.retain(|id, _| active_ids.contains(id));
 
         RoutingCredentials::new(credentials)
     }
@@ -162,7 +153,9 @@ impl RuntimeRegistry {
         for credential in configuration.credentials() {
             let id = RoutingCredentialId::provider_credential(credential.id());
             active_ids.insert(id);
-            let auth = auth_materials.take_for(credential);
+            let auth = auth_materials
+                .take_for(credential)
+                .expect("test auth material matches the credential");
             let generation = crate::credential::CredentialGenerationDefinition::new(
                 credential.credential_generation(),
                 credential.secret_version(),
@@ -171,30 +164,20 @@ impl RuntimeRegistry {
                 ),
             );
             let binding = if let Some(handle) = handles.get(&id).cloned() {
-                handle.reconcile(id, credential.requests_per_minute(), generation)
+                handle.reconcile(credential.requests_per_minute(), generation)
             } else {
-                let handle = CredentialRuntimeHandle::new(
-                    id,
-                    credential.requests_per_minute(),
-                    generation,
-                    Arc::clone(&self.scheduler_epoch),
-                );
-                let binding = handle.current_binding();
+                let handle =
+                    CredentialRuntimeHandle::new(id, generation, Arc::clone(&self.scheduler_epoch));
+                let binding = handle.current_binding(credential.requests_per_minute());
                 handles.insert(id, handle);
                 binding
             };
             bindings.push(binding);
         }
-        auth_materials.assert_consumed();
-        handles.retain(|id, handle| {
-            if active_ids.contains(id) {
-                true
-            } else {
-                handle.retire();
-                false
-            }
-        });
-        self.affinity.retain_credentials(&active_ids);
+        auth_materials
+            .ensure_consumed()
+            .expect("all test auth material was consumed");
+        handles.retain(|id, _| active_ids.contains(id));
         crate::credential::CredentialRuntimeBindings::new(bindings)
     }
 

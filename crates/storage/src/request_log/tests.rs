@@ -7,10 +7,11 @@ use any2api_domain::{
 use tempfile::tempdir;
 
 use crate::{
-    gateway_api_key::{GatewayApiKeyRepository, GatewayApiKeyUsageRepository},
+    configuration::{ConfigurationMutation, commit_configuration},
+    gateway_api_key::GatewayApiKeyUsageRepository,
     request_log::{REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES, RequestLogRepository},
+    secret::SecretBytes,
     sqlite::SqliteStore,
-    vault::SecretBytes,
 };
 
 const USAGE_WINDOW_MS: u64 = REQUEST_USAGE_WINDOW_MINUTES * 60 * 1_000;
@@ -239,25 +240,29 @@ async fn gateway_key_usage_aggregates_final_requests_and_fills_time_windows() {
         .await
         .expect("storage");
     let first_id = GatewayApiKeyId::new();
-    let first_configuration = store
-        .create_gateway_api_key(
-            ConfigRevision::INITIAL,
-            first_id,
-            GatewayApiKeyDraft::new("Desktop", true).expect("first draft"),
-            gateway_token(b'a'),
-        )
-        .await
-        .expect("create first key");
+    let first_configuration = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateGatewayApiKey {
+            id: first_id,
+            draft: GatewayApiKeyDraft::new("Desktop", true).expect("first draft"),
+            token: gateway_token(b'a'),
+        },
+    )
+    .await
+    .expect("create first key");
     let second_id = GatewayApiKeyId::new();
-    store
-        .create_gateway_api_key(
-            first_configuration.revision(),
-            second_id,
-            GatewayApiKeyDraft::new("Laptop", true).expect("second draft"),
-            gateway_token(b'b'),
-        )
-        .await
-        .expect("create second key");
+    commit_configuration(
+        &store,
+        first_configuration.revision(),
+        ConfigurationMutation::CreateGatewayApiKey {
+            id: second_id,
+            draft: GatewayApiKeyDraft::new("Laptop", true).expect("second draft"),
+            token: gateway_token(b'b'),
+        },
+    )
+    .await
+    .expect("create second key");
 
     let now_bucket = align_usage_window_now();
     let mut records = vec![

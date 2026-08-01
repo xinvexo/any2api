@@ -1,12 +1,7 @@
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
 use any2api_domain::{MAX_RETRY_AFTER_SECONDS, RetryAfterHint};
 use tokio::time::Instant;
-
-use crate::routing::SchedulerEpoch;
 
 const MAX_HEALTH_DELAY: Duration = Duration::from_secs(MAX_RETRY_AFTER_SECONDS);
 
@@ -23,8 +18,4 @@ pub(super) fn deadline(now: Instant, delay: Duration) -> Instant {
 
 pub(super) fn max_deadline(current: Option<Instant>, next: Option<Instant>) -> Option<Instant> {
     current.into_iter().chain(next).max()
-}
-
-pub(super) fn schedule_wake(epoch: Arc<SchedulerEpoch>, at: Instant) {
-    epoch.schedule_wake(at);
 }

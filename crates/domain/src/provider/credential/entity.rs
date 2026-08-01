@@ -7,7 +7,6 @@ use crate::{
 
 const MAX_CREDENTIAL_LABEL_CHARS: usize = 100;
 const MAX_CREDENTIAL_VERSION: u64 = u32::MAX as u64;
-pub const API_KEY_SECRET_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProviderCredentialDraft {
@@ -71,7 +70,6 @@ pub struct ProviderCredential {
     proxy_profile_id: ProxyProfileId,
     requests_per_minute: Option<RequestsPerMinute>,
     enabled: bool,
-    secret_schema_version: u32,
     secret_version: u64,
     credential_generation: u64,
     config_version: u64,
@@ -90,7 +88,6 @@ impl ProviderCredential {
             provider_endpoint_id,
             draft,
             fingerprint,
-            API_KEY_SECRET_SCHEMA_VERSION,
             1,
             1,
             1,
@@ -104,14 +101,12 @@ impl ProviderCredential {
         provider_endpoint_id: ProviderEndpointId,
         draft: ProviderCredentialDraft,
         fingerprint: CredentialSecretFingerprint,
-        secret_schema_version: u32,
         secret_version: u64,
         credential_generation: u64,
         config_version: u64,
         models: Vec<String>,
     ) -> Result<Self, ProviderCredentialValidationError> {
-        if secret_schema_version != API_KEY_SECRET_SCHEMA_VERSION
-            || !valid_version(secret_version)
+        if !valid_version(secret_version)
             || !valid_version(credential_generation)
             || !valid_version(config_version)
         {
@@ -122,7 +117,6 @@ impl ProviderCredential {
             provider_endpoint_id,
             draft,
             fingerprint,
-            secret_schema_version,
             secret_version,
             credential_generation,
             config_version,
@@ -148,7 +142,6 @@ impl ProviderCredential {
             self.provider_endpoint_id,
             draft,
             self.fingerprint.clone(),
-            self.secret_schema_version,
             self.secret_version,
             credential_generation,
             config_version,
@@ -238,11 +231,6 @@ impl ProviderCredential {
     }
 
     #[must_use]
-    pub const fn secret_schema_version(&self) -> u32 {
-        self.secret_schema_version
-    }
-
-    #[must_use]
     pub const fn secret_version(&self) -> u64 {
         self.secret_version
     }
@@ -273,7 +261,6 @@ impl ProviderCredential {
         provider_endpoint_id: ProviderEndpointId,
         draft: ProviderCredentialDraft,
         fingerprint: CredentialSecretFingerprint,
-        secret_schema_version: u32,
         secret_version: u64,
         credential_generation: u64,
         config_version: u64,
@@ -288,7 +275,6 @@ impl ProviderCredential {
             proxy_profile_id: draft.proxy_profile_id,
             requests_per_minute: draft.requests_per_minute,
             enabled: draft.enabled,
-            secret_schema_version,
             secret_version,
             credential_generation,
             config_version,

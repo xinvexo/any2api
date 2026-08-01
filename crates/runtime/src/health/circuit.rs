@@ -4,13 +4,14 @@ use std::{
     time::Duration,
 };
 
-use crate::routing::SchedulerEpoch;
+use crate::routing::{SchedulerEpoch, SchedulerWakeSlot};
 use tokio::time::Instant;
 
 #[derive(Debug)]
 pub(super) struct CircuitRuntime {
     state: Mutex<CircuitState>,
     scheduler_epoch: Arc<SchedulerEpoch>,
+    wake: SchedulerWakeSlot,
 }
 
 #[derive(Debug)]
@@ -23,6 +24,7 @@ struct CircuitState {
 
 impl CircuitRuntime {
     pub(super) fn new(scheduler_epoch: Arc<SchedulerEpoch>) -> Arc<Self> {
+        let wake = scheduler_epoch.wake_slot();
         Arc::new(Self {
             state: Mutex::new(CircuitState {
                 failure_times: VecDeque::new(),
@@ -31,6 +33,7 @@ impl CircuitRuntime {
                 last_failure_at: None,
             }),
             scheduler_epoch,
+            wake,
         })
     }
 
@@ -90,6 +93,7 @@ impl CircuitRuntime {
         state.failure_times.clear();
         state.open_until = None;
         state.last_failure_at = None;
+        self.wake.cancel();
         drop(state);
         if changed {
             self.scheduler_epoch.advance();
@@ -122,11 +126,9 @@ impl CircuitRuntime {
         if let Some(open_until) = open_until {
             state.open_until = Some(open_until);
             state.failure_times.clear();
+            self.wake.schedule(open_until);
         }
         drop(state);
-        if let Some(open_until) = open_until {
-            self.schedule_wake(open_until);
-        }
         open_until
     }
 
@@ -135,10 +137,6 @@ impl CircuitRuntime {
         state.half_open_in_flight = state.half_open_in_flight.saturating_sub(1);
         drop(state);
         self.scheduler_epoch.advance();
-    }
-
-    fn schedule_wake(&self, wake_at: Instant) {
-        self.scheduler_epoch.schedule_wake(wake_at);
     }
 }
 

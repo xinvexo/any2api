@@ -4,29 +4,30 @@ use tokio::time::Instant;
 
 use super::{
     error::HealthAcquireError,
-    time::{deadline, max_deadline, schedule_wake},
+    time::{deadline, max_deadline},
 };
 use crate::{
     health::{
         ReliabilityPolicy,
         circuit::{CircuitPermit, CircuitRuntime},
     },
-    routing::SchedulerEpoch,
+    routing::{SchedulerEpoch, SchedulerWakeSlot},
 };
 
 #[derive(Debug)]
 pub(crate) struct EndpointHealthRuntime {
     circuit: Arc<CircuitRuntime>,
     transient_until: Mutex<Option<Instant>>,
-    scheduler_epoch: Arc<SchedulerEpoch>,
+    transient_wake: SchedulerWakeSlot,
 }
 
 impl EndpointHealthRuntime {
     pub(crate) fn new(scheduler_epoch: Arc<SchedulerEpoch>) -> Arc<Self> {
+        let transient_wake = scheduler_epoch.wake_slot();
         Arc::new(Self {
             circuit: CircuitRuntime::new(Arc::clone(&scheduler_epoch)),
             transient_until: Mutex::new(None),
-            scheduler_epoch,
+            transient_wake,
         })
     }
 
@@ -73,8 +74,9 @@ impl EndpointHealthRuntime {
             .lock()
             .expect("endpoint health lock poisoned");
         *current = max_deadline(*current, Some(until));
+        self.transient_wake
+            .schedule(current.expect("transient deadline was just recorded"));
         drop(current);
-        schedule_wake(Arc::clone(&self.scheduler_epoch), until);
         if let Some(permit) = permit {
             let _ = permit.failure(
                 policy.endpoint_failure_threshold,
@@ -94,6 +96,7 @@ impl EndpointHealthRuntime {
             .expect("endpoint health lock poisoned");
         if current.is_some_and(|until| until <= started_at) {
             *current = None;
+            self.transient_wake.cancel();
         }
     }
 }

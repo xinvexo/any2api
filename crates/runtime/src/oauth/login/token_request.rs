@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use any2api_provider::api::OAuthRequestPlan;
+use any2api_provider::api::{OAuthRequestPlan, ProviderError};
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportManager, TransportProxy, TransportRequest,
 };
@@ -40,7 +40,7 @@ pub(in crate::oauth) async fn execute_response(
     let request = TransportRequest {
         method: plan.method,
         uri: plan.url.as_str().parse().map_err(|_| {
-            OAuthError::Provider(any2api_provider::ProviderError::InvalidEndpoint(
+            OAuthError::Provider(ProviderError::InvalidEndpoint(
                 "OAuth token URI is invalid".into(),
             ))
         })?,

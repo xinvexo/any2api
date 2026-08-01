@@ -1,5 +1,6 @@
 mod cache;
 mod construction;
+mod deadline;
 mod failure;
 mod pinned;
 mod request_body;

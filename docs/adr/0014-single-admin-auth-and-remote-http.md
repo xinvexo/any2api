@@ -19,6 +19,8 @@
 - Setup 使用单独的 Argon2id Permit，登录使用固定上限的 Argon2id Permit；Permit 被移动进 blocking 任务，HTTP 请求取消不会提前释放。登录尝试在校验前进入失败窗口，只有成功后才清除，取消请求不能绕过失败记账。
 - 会话 Cookie 固定使用 `any2api_admin`、`Path=/api/admin`、`HttpOnly`、`SameSite=Strict`；确认 HTTPS 时增加 `Secure`。所有非安全方法必须提供匹配会话的 `X-CSRF-Token`。
 - 全部 `/api/admin` 成功与失败响应统一添加 `Cache-Control: no-store` 和 `Vary: Cookie`。
+- Web 登录表单只在组件内存中持有管理员密码，使用标准 `autocomplete=current-password` 交给浏览器密码管理器；禁止把密码写入 `localStorage`、`sessionStorage`、React Query 或其他浏览器持久化状态，也不识别任何历史密码存储格式。
+- 管理 HTML 与静态资源统一返回最小权限 CSP、`X-Content-Type-Options: nosniff` 和 `Referrer-Policy: no-referrer`；CSP 使用 `frame-ancestors 'none'` 禁止嵌入。服务继续支持明文 HTTP，不设置 HSTS、不强制跳转 HTTPS。
 - 管理认证 API 固定为：
 
 ```text
@@ -29,7 +31,7 @@ POST /api/admin/auth/logout
 ```
 
 - `admin.remote_enabled`、会话 idle/absolute timeout、登录失败窗口和最大失败次数进入 SettingRegistry 并热更新。监听地址仍由 `ANY2API_BIND` 决定；仅开启远程设置不会隐式修改 socket bind。
-- 服务支持远程 HTTP 和外部 TLS 终止。可信反代 CIDR 由启动环境变量 `ANY2API_TRUSTED_PROXY_CIDRS` 显式配置；仅可信 TCP 对端可以提供 `X-Forwarded-For` 和 `X-Forwarded-Proto`。可信代理请求必须同时提供唯一且合法的两个头，来源链从 TCP 对端开始按 XFF 右到左剥离连续可信代理，防止客户端预置 loopback 值绕过远程开关或 Setup 限制。
+- 服务支持远程 HTTP 和外部 TLS 终止。可信反代 CIDR 只来自当前 PublishedSnapshot 的热更新设置 `network.trusted_proxy_cidrs`；仅可信 TCP 对端可以提供 `X-Forwarded-For` 和 `X-Forwarded-Proto`。可信代理请求必须同时提供唯一且合法的两个头，来源链从 TCP 对端开始按 XFF 右到左剥离连续可信代理，防止客户端预置 loopback 值绕过远程开关或 Setup 限制。
 - 非 loopback 且未确认 HTTPS 的已登录管理界面持续展示明文传输风险，但不拒绝请求。服务不提供内建 TLS listener。
 
 ## 备选方案
@@ -51,4 +53,4 @@ POST /api/admin/auth/logout
 - Storage 测试覆盖 singleton 初始化、重复初始化和重启读取 Argon2id 摘要。
 - Server 单元测试覆盖密码校验、会话 idle/absolute 过期、失败窗口、CSRF、取消后 Argon2 permit 生命周期和可信代理来源解析。
 - HTTP 契约测试覆盖 loopback Setup Token、登录、Cookie/缓存属性、远程开关、明文风险、受保护 CRUD、CSRF、登出和重启会话失效。
-- Web 测试覆盖 Setup/Login 门、CSRF 注入、401 响应头立即关闭会话、管理缓存清理和登录前/登录后的持续明文 HTTP 警告。
+- Web 测试覆盖 Setup/Login 门、密码不进入浏览器持久化状态、浏览器密码管理属性、CSRF 注入、401 响应头立即关闭会话、管理缓存清理和登录前/登录后的持续明文 HTTP 警告；Server 测试覆盖内嵌与外部管理资源的安全响应头。

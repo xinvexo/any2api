@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use any2api_domain::RoutingCredentialId;
+use any2api_domain::{RequestsPerMinute, RoutingCredentialId};
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError};
 use http::HeaderMap;
 use tokio::time::Instant;
@@ -16,6 +16,7 @@ use super::{
 pub struct CredentialRuntimeBinding {
     pub(crate) handle: Arc<CredentialRuntimeHandle>,
     pub(crate) generation: Arc<CredentialGenerationRuntime>,
+    pub(crate) requests_per_minute: Option<RequestsPerMinute>,
 }
 
 impl CredentialRuntimeBinding {
@@ -31,17 +32,13 @@ impl CredentialRuntimeBinding {
 
     #[must_use]
     pub fn rate_snapshot(&self) -> CredentialRateSnapshot {
-        self.handle.rate_snapshot(Instant::now())
+        self.handle
+            .rate_snapshot(self.requests_per_minute, Instant::now())
     }
 
     #[must_use]
     pub fn generation(&self) -> &Arc<CredentialGenerationRuntime> {
         &self.generation
-    }
-
-    #[must_use]
-    pub fn is_retired(&self) -> bool {
-        self.handle.is_retired()
     }
 
     pub(crate) fn fixed_waiter_count(&self) -> u32 {
@@ -61,13 +58,19 @@ impl CredentialRuntimeBinding {
     }
 
     pub(crate) fn try_reserve(&self) -> Result<RoutingPermit, RateLimited> {
-        self.handle
-            .try_reserve_normal(Arc::clone(&self.generation), Instant::now())
+        self.handle.try_reserve_normal(
+            Arc::clone(&self.generation),
+            self.requests_per_minute,
+            Instant::now(),
+        )
     }
 
     pub(crate) fn try_reserve_fixed(&self) -> Result<RoutingPermit, RateLimited> {
-        self.handle
-            .try_reserve_fixed(Arc::clone(&self.generation), Instant::now())
+        self.handle.try_reserve_fixed(
+            Arc::clone(&self.generation),
+            self.requests_per_minute,
+            Instant::now(),
+        )
     }
 
     pub(crate) fn register_fixed_waiter(&self) -> FixedCredentialWaiter {

@@ -28,7 +28,8 @@ session_key
   -> Credential
   + Route Target
   + upstream model
-  + protocol dialect
+  + ingress/upstream protocol dialects
+  + optional opaque continuation state
   + last-seen timestamp
 ```
 
@@ -37,9 +38,11 @@ session_key
 错误，不得切换 Credential、Route Target、模型或方言，不得删除现有绑定并自动建立新绑定。上游已经
 返回的非 2xx 状态、正文和协议错误仍按透明上游错误契约返回，不因会话绑定生成替代消息或类型。
 
-Credential 删除随配置发布原子清理它的全部绑定，并阻止在途 `Creating` Lease 或 Continuation 提交
-把已删除目标重新写回。删除后普通显式 Session 可按全新首次请求重新创建，Continuation 未命中则返回
-`session_binding_lost`。
+Credential 删除不反向清理 Registry，也不使已经捕获旧 PublishedSnapshot 的在途 `Creating` Lease 或
+Continuation 失效；旧请求仍可按其 snapshot 提交固定目标。新 revision 无法在当前候选集中解析该目标时，
+普通显式 Session 与 Continuation 都返回 `session_binding_lost`，不得删除绑定后自动重建或改选其他目标。
+此类失败访问不得刷新 `last_seen_at`，重复请求不能阻止旧记录按统一 TTL 到期；管理员显式清理或进程
+重启也会回收记录。
 
 ### 创建意图
 
@@ -52,7 +55,7 @@ ProtocolAdapter 只随会话标识传递以下创建意图，不产生绑定分�
 
 可创建 Session 的首个请求继续使用版本化 `Creating` 租约串行确定目标。只有在绑定尚未提交、
 下游仍为 `Pending` 且 RetrySafety 允许时，首次创建流程才可安全改用另一个候选；一旦提交为
-`Bound`，目标永久固定到绑定被显式清理、Credential 删除、TTL 到期或进程退出。
+`Bound`，目标永久固定到绑定被显式清理、TTL 到期或进程退出。
 
 活跃 `Creating` Lease 不按 `affinity.wait_timeout` 或 TTL 回收。其他请求的等待超时只结束该 waiter；
 创建者提交或 RAII Drop 才结束 Lease 并唤醒等待者，防止长请求执行期间出现第二个创建者。
@@ -73,6 +76,10 @@ Continuation 使用独立 continuation 用途域，只对 Response ID 自身做 
 绑定值已经保存 Credential、Route Target、上游模型和协议方言，续接请求必须按该完整目标恢复。
 两种键空间的差异只防止标识碰撞，不产生不同的绑定类型、TTL、等待或失败语义。
 
+有状态协议桥的恢复状态与上述目标属于同一条记录，并按 ADR-0076 使用 Pending/Ready/Abort 生命周期；
+Protocol 不维护第二个按 Response ID 查询的 History Store。Pending 等待在 Credential 选择和 RPM 预留前
+通过统一 QueueTicket 与 scheduler epoch 完成。
+
 ### 设置
 
 SettingRegistry 只保留一个开关和两项统一策略参数：
@@ -83,7 +90,8 @@ SettingRegistry 只保留一个开关和两项统一策略参数：
 | `affinity.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
 | `affinity.wait_timeout` | duration_secs | `30` | `1..=86_400` |
 
-三项设置按 PublishedSnapshot revision 捕获并支持现有默认值、覆盖值、生效值和恢复默认语义。
+三项设置按 PublishedSnapshot revision 捕获并支持现有默认值、覆盖值、生效值和底层删除覆盖语义；Web
+只允许保存具体覆盖值，不提供删除覆盖或恢复默认入口。
 `affinity.enabled` 只控制允许首次创建的普通显式 Session：关闭时 Runtime 忽略这类标识，不创建、命中
 或等待其绑定；Continuation 始终要求命中原绑定。开关关闭不清空 Registry，重新开启后尚未过期的
 普通 Session 绑定可继续命中。
@@ -114,9 +122,10 @@ SettingRegistry 不提供其他粘性设置键、别名、双读或模式分支�
 
 - Protocol 测试覆盖显式 Session 与 Continuation 两种创建意图、代表性标识来源和
   `previous_response_id` 未命中，并确认 Images 与 Count Tokens 忽略全部会话标识。
-- Runtime 测试覆盖并发 `Creating`、单一 TTL、访问刷新、固定目标等待、超时不切换、目标不可用不
-  切换、清理、Credential 删除和重启空状态。
+- Runtime 测试覆盖并发 `Creating`、单一 TTL、有效访问刷新、固定目标等待、超时不切换、目标不可用不
+  切换且失败访问不刷新 TTL、显式清理、Credential 删除后旧 snapshot 可提交而新 revision 解析失败，
+  以及重启空状态。
 - JSON/SSE 契约覆盖 Response ID 在可见前绑定、普通 Session 首次创建、后续固定完整目标、
   `session_binding_lost` 和提交后禁止切换。
-- Settings、管理 API 和 Web 测试覆盖三个键、开关热更新、Continuation 不受开关影响、统一聚合以及
-  保存/恢复默认。
+- Settings 与管理 API 测试覆盖三个键、删除覆盖、开关热更新、Continuation 不受开关影响和统一聚合；
+  Web 测试覆盖保存具体覆盖值且不存在恢复默认入口。

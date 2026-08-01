@@ -12,10 +12,7 @@ use std::{
 };
 
 use any2api_domain::{ErrorClass, PublicError};
-use any2api_protocol::{
-    SseDecoder,
-    api::{ProtocolExchange, StreamTermination},
-};
+use any2api_protocol::api::{ProtocolExchange, SseDecoder, StreamTermination};
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
@@ -24,7 +21,10 @@ use tokio::time::{Sleep, timeout};
 use super::super::{PublicResponseStream, RequestPermit};
 use super::{PrecommitBudget, pending_failure::PendingStreamError};
 use crate::request_telemetry::{AttemptRecorder, RequestRecorder};
-use crate::{affinity::ContinuationBindingCommitter, health::AttemptHealth};
+use crate::{
+    affinity::{ContinuationBindingCommitter, ContinuationLease},
+    health::AttemptHealth,
+};
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct CancellationToken {
@@ -69,6 +69,8 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) permit: Option<RequestPermit>,
     pub(super) health: Option<AttemptHealth>,
     pub(super) continuation_binding: ContinuationBindingCommitter,
+    pub(super) continuation_lease: Option<ContinuationLease>,
+    pub(super) continuation_id: Option<String>,
     pub(super) cancellation: CancellationToken,
     pub(super) state: CommitState,
     pub(super) upstream_done: bool,
@@ -120,6 +122,8 @@ impl GuardedBody {
             permit: Some(permit),
             health,
             continuation_binding,
+            continuation_lease: None,
+            continuation_id: None,
             cancellation: CancellationToken::default(),
             state: CommitState::Pending,
             upstream_done: false,

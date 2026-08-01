@@ -3,10 +3,7 @@ use any2api_domain::{
     ProviderEndpointConfiguration, ProviderEndpointId, ProxyConfiguration,
 };
 
-use crate::{
-    error::StorageError,
-    vault::{SecretBytes, SecretContext, SecretEnvelope, SecretVault},
-};
+use crate::{error::StorageError, secret::SecretBytes};
 
 use super::{
     api_key::build_fingerprint,
@@ -20,7 +17,6 @@ pub(crate) struct CredentialSecretMutationContext<'a> {
     pub(crate) current: &'a ProviderCredentialConfiguration,
     pub(crate) endpoints: &'a ProviderEndpointConfiguration,
     pub(crate) proxies: &'a ProxyConfiguration,
-    pub(crate) vault: &'a SecretVault,
 }
 
 impl<'a> CredentialSecretMutationContext<'a> {
@@ -28,13 +24,11 @@ impl<'a> CredentialSecretMutationContext<'a> {
         current: &'a ProviderCredentialConfiguration,
         endpoints: &'a ProviderEndpointConfiguration,
         proxies: &'a ProxyConfiguration,
-        vault: &'a SecretVault,
     ) -> Self {
         Self {
             current,
             endpoints,
             proxies,
-            vault,
         }
     }
 }
@@ -50,19 +44,9 @@ pub(crate) fn create(
         .endpoints
         .get(endpoint_id)
         .ok_or(StorageError::ProviderEndpointNotFound(endpoint_id))?;
-    let fingerprint = build_fingerprint(
-        context.vault,
-        endpoint.provider_kind(),
-        draft.credential_kind(),
-        &api_key,
-    )?;
+    let fingerprint =
+        build_fingerprint(endpoint.provider_kind(), draft.credential_kind(), &api_key)?;
     let credential = ProviderCredential::create(id, endpoint_id, draft, fingerprint);
-    let envelope = seal(
-        context.vault,
-        endpoint.provider_kind(),
-        &credential,
-        &api_key,
-    )?;
     let mut credentials = context.current.credentials().to_vec();
     credentials.push(credential.clone());
     let configuration =
@@ -72,7 +56,7 @@ pub(crate) fn create(
         configuration,
         ProviderCredentialDatabaseChange::Create {
             credential,
-            envelope,
+            api_key,
         },
     ))
 }
@@ -100,13 +84,11 @@ pub(crate) fn rotate_secret(
         .get(existing.provider_endpoint_id())
         .ok_or(StorageError::CorruptConfiguration)?;
     let fingerprint = build_fingerprint(
-        context.vault,
         endpoint.provider_kind(),
         existing.credential_kind(),
         &api_key,
     )?;
     let rotated = existing.rotated(fingerprint)?;
-    let envelope = seal(context.vault, endpoint.provider_kind(), &rotated, &api_key)?;
     let configuration = replace(
         context.current,
         context.endpoints,
@@ -117,27 +99,7 @@ pub(crate) fn rotate_secret(
         configuration,
         ProviderCredentialDatabaseChange::RotateSecret {
             credential: rotated,
-            envelope,
+            api_key,
         },
     ))
-}
-
-fn seal(
-    vault: &SecretVault,
-    provider_kind: any2api_domain::ProviderKind,
-    credential: &ProviderCredential,
-    api_key: &SecretBytes,
-) -> Result<SecretEnvelope, StorageError> {
-    vault
-        .seal(
-            SecretContext::provider_credential(
-                credential.id(),
-                provider_kind,
-                credential.credential_kind(),
-                credential.secret_schema_version(),
-                credential.secret_version(),
-            ),
-            api_key,
-        )
-        .map_err(StorageError::from)
 }

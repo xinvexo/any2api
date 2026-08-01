@@ -7,6 +7,7 @@ use std::{
 };
 
 use any2api_domain::PublicErrorCode;
+use tokio::time::Instant;
 
 use super::{candidate, try_reserve_candidate};
 use crate::{
@@ -75,6 +76,36 @@ async fn generation_wait_reselects_when_the_oldest_rpm_reservation_expires() {
     wait_until_waiting(&coordinator, 1).await;
     tokio::time::advance(Duration::from_secs(60)).await;
     let selected = task.await.expect("queue task").expect("selected candidate");
+    assert_eq!(selected.candidate.credential_id, candidate.credential_id);
+    drop(selected);
+    assert_eq!(coordinator.waiting_count(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn generation_wait_uses_health_retry_at_without_an_epoch_broadcast() {
+    let epoch = SchedulerEpoch::new();
+    let coordinator = QueueCoordinator::new(Arc::clone(&epoch));
+    let candidate = candidate("health-deadline", 1, Arc::clone(&epoch), 0);
+    let retry_at = Instant::now() + Duration::from_secs(5);
+    let queued_candidate = candidate.clone();
+    let policy = policy(RateLimitAction::Wait, Duration::from_secs(10), 1);
+    let coordinator_for_task = Arc::clone(&coordinator);
+    let task = tokio::spawn(async move {
+        select_generation_candidate(&coordinator_for_task, policy, || {
+            if Instant::now() < retry_at {
+                Ok(GenerationSelection::TemporarilyUnavailable(retry_at))
+            } else {
+                try_reserve_candidate(&queued_candidate)
+            }
+        })
+        .await
+    });
+
+    wait_until_waiting(&coordinator, 1).await;
+    tokio::time::advance(Duration::from_secs(5)).await;
+    let selected = task.await.expect("queue task").expect("selected candidate");
+
+    assert_eq!(epoch.current(), 0);
     assert_eq!(selected.candidate.credential_id, candidate.credential_id);
     drop(selected);
     assert_eq!(coordinator.waiting_count(), 0);

@@ -16,13 +16,14 @@
 - RuntimeRegistry 不保存可变 QueuePolicy；ConfigPublisher 从已校验的 SettingsConfiguration 编译策略，在提交后放入新快照再原子切换。
 - RPM 用尽且策略为 `wait` 时取得 RAII `QueueTicket`。Ticket 在创建时订阅统一 epoch，并计入 `max_waiting_requests`；成功、超时、取消或错误均通过 Drop 归还名额。
 - 等待循环先标记当前 epoch 已观察，再执行一次完整 select-and-reserve；若仍无可执行候选才等待 epoch 变化，避免 RPM 到期或状态变化发生在检查与休眠之间时丢失唤醒。
+- 每轮选择返回可知的最早 `retry_at` 时，QueueTicket 同时直接等待该 deadline；统一 epoch 是配置和健康状态变化的合并广播，不是定时正确性的唯一来源。健康到期 worker 的重排、合并或 slot 撤销因此不会造成丢失唤醒。
 - 超时边界执行最后一次完整选择，避免容量与 timeout 同时发生时错误拒绝本可执行请求。
 - `scheduler.fallback_on_rate_limit` 决定当前 tier RPM 用尽时是否继续检查下一 tier；禁止时在当前 tier 等待或拒绝。
 - Count Tokens 使用同一 Credential RPM、QueueTicket 和 fallback 策略，不建立辅助并发路径。
 
 ## 备选方案
 
-- 不使用固定 `tokio::Semaphore`：本地准入只由滚动 RPM 窗口决定，Semaphore 还会形成额外并发限制。
+- 不在 Scheduler 或 Credential 上使用按请求数量计数的固定 `tokio::Semaphore`：调度准入只由滚动 RPM 窗口决定，否则会形成额外账号并发限制。ADR-0054 的固定 payload 字节预算位于公开 HTTP/执行资源边界，不参与本 ADR 的候选调度。
 - 不为每个 Credential 建独立 FIFO：普通请求等待的是 Route 候选集合，而不是预先固定一个 Credential；独立队列容易造成容量闲置和队头阻塞。
 - 不把 QueuePolicy 放进共享可变 Coordinator：已捕获快照会观察到其他 revision 的参数，甚至一个请求可能混用两组策略。
 - 不在 QueueTicket 前先选择固定 Credential：RPM 预留失败后必须重新执行完整选择，不能携带未预留名额的过期选择结果。
@@ -38,5 +39,6 @@
 
 - 单元测试覆盖默认值和非法零值、Ticket 上限与 Drop、Reject、不存在候选、fallback 开关、RPM 到期后重选、取消归还、超时归还和超时边界最后一次选择。
 - 并发测试覆盖 epoch 在复查与等待之间推进时不会丢失唤醒。
+- 虚拟时间测试覆盖健康 worker 合并多个 deadline 时，QueueTicket 仍按自身 `retry_at` 完成最终重选。
 - 快照测试覆盖 QueueCoordinator/waiting count 跨快照复用、QueuePolicy 按 revision 捕获。
 - Runtime、Workspace、Clippy、架构检查和 HTTP 契约测试作为提交门禁。

@@ -23,11 +23,14 @@ async fn connectivity_probe_uses_the_fixed_public_target_without_provider_config
         .expect("storage");
     let configuration = storage.load_configuration().await.expect("configuration");
     assert!(configuration.provider_endpoints().endpoints().is_empty());
-    let snapshot = Arc::new(PublishedSnapshot::new(
-        configuration,
-        &RuntimeRegistry::new(),
-        crate::test_support::configuration_capabilities().provider_registry(),
-    ));
+    let snapshot = Arc::new(
+        PublishedSnapshot::new(
+            configuration,
+            &RuntimeRegistry::new(),
+            crate::test_support::configuration_capabilities().provider_registry(),
+        )
+        .expect("initial snapshot"),
+    );
     let transport = Arc::new(CapturingTransport::default());
     let service = ProxyTestService::new(Arc::clone(&transport) as Arc<dyn TransportManager>);
 

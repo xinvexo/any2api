@@ -8,7 +8,7 @@ use any2api_storage::api::{
 };
 use thiserror::Error;
 
-use super::capabilities::ConfigurationCapabilityError;
+use super::{capabilities::ConfigurationCapabilityError, snapshot::SnapshotCompileError};
 
 #[derive(Debug, Error)]
 pub enum ConfigPublishError {
@@ -21,6 +21,11 @@ pub enum ConfigPublishError {
     },
     #[error("configuration revision cannot be incremented")]
     RevisionOverflow,
+    #[error("storage returned an unexpected candidate revision")]
+    UnexpectedCandidateRevision {
+        expected: ConfigRevision,
+        actual: ConfigRevision,
+    },
     #[error("proxy profile was not found")]
     ProxyNotFound,
     #[error("the built-in DIRECT proxy cannot be changed")]
@@ -51,6 +56,8 @@ pub enum ConfigPublishError {
     InvalidProviderEndpoint(ProviderEndpointValidationError),
     #[error("provider protocol capability is invalid: {0}")]
     InvalidProviderCapability(#[from] ConfigurationCapabilityError),
+    #[error("published configuration could not be compiled: {0}")]
+    InvalidPublishedSnapshot(#[from] SnapshotCompileError),
     #[error("provider credential was not found")]
     ProviderCredentialNotFound,
     #[error("provider credential version conflict")]

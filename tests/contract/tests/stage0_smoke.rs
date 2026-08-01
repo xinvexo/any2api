@@ -28,11 +28,14 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     fs::write(web_root.join("assets/app.js"), "console.log('asset')").expect("web asset");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        any2api_contract_tests::build_provider_registry().as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(
             storage,
@@ -62,6 +65,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
 
     assert_eq!(response.status(), 200);
     assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    assert!(!response.headers().contains_key("content-security-policy"));
     let body = response
         .into_body()
         .collect()
@@ -89,6 +93,19 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         .await
         .expect("deep link response");
     assert_eq!(deep_link.status(), 200);
+    assert_eq!(deep_link.headers()["x-content-type-options"], "nosniff");
+    assert_eq!(deep_link.headers()["referrer-policy"], "no-referrer");
+    assert!(
+        deep_link.headers()["content-security-policy"]
+            .to_str()
+            .expect("content security policy")
+            .contains("frame-ancestors 'none'")
+    );
+    assert!(
+        !deep_link
+            .headers()
+            .contains_key("strict-transport-security")
+    );
     let deep_link_body = deep_link
         .into_body()
         .collect()

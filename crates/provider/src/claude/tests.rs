@@ -30,7 +30,7 @@ fn builds_messages_paths_and_anthropic_headers() {
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new(1, "sk-claude"))
+        .credential_headers(&ProviderSecret::new("sk-claude"))
         .expect("headers");
     assert_eq!(headers.headers["x-api-key"], "sk-claude");
     assert!(!headers.headers.contains_key("anthropic-version"));

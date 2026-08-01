@@ -10,7 +10,10 @@ use serde_json::Value;
 
 pub use crate::{ProtocolError, ProtocolRegistry};
 
-use super::{exchange::StartedProtocolBridge, execution_profile::RequestExecutionProfile};
+use super::{
+    continuation::BridgeContinuationState, exchange::StartedProtocolBridge,
+    execution_profile::RequestExecutionProfile,
+};
 
 #[derive(Clone)]
 pub struct IngressRequest {
@@ -326,6 +329,10 @@ pub trait ProtocolBridgeSession: Send {
 
     fn finish_events(&mut self) -> Result<Vec<AdapterEvent>, ProtocolError> {
         Ok(Vec::new())
+    }
+
+    fn continuation_state(&self) -> BridgeContinuationState {
+        BridgeContinuationState::Stateless
     }
 }
 

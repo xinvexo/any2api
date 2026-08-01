@@ -162,7 +162,7 @@ fn finite_limit_changes_preserve_the_current_window() {
 }
 
 #[test]
-fn disabling_rpm_clears_the_window_without_limiting_in_flight() {
+fn unlimited_revision_does_not_clear_the_shared_finite_window() {
     let runtime = RuntimeRegistry::new();
     let fixture = CredentialFixture::new();
     let initial = reconcile(
@@ -180,6 +180,9 @@ fn disabling_rpm_clears_the_window_without_limiting_in_flight() {
     assert_eq!(unlimited.in_flight(), 3);
     assert_eq!(unlimited.rate_snapshot().requests_per_minute(), None);
     assert_eq!(unlimited.rate_snapshot().requests_in_window(), 0);
+    assert_eq!(binding.rate_snapshot().requests_per_minute(), Some(1));
+    assert_eq!(binding.rate_snapshot().requests_in_window(), 1);
+    assert!(binding.try_reserve().is_err());
 
     let limited_again = reconcile(
         &runtime,
@@ -187,7 +190,6 @@ fn disabling_rpm_clears_the_window_without_limiting_in_flight() {
         "sk-unlimited",
     );
     let limited_again = &limited_again.as_slice()[0];
-    assert!(limited_again.try_reserve().is_ok());
     assert!(limited_again.try_reserve().is_err());
     drop((first, second, third));
 }
@@ -380,7 +382,6 @@ impl CredentialFixture {
             self.endpoint_id,
             draft,
             fingerprint,
-            1,
             secret_version,
             credential_generation,
             credential_generation,

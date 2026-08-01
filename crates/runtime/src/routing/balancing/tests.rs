@@ -17,7 +17,8 @@ async fn fresh_runtime_snapshot_reports_compiled_queue_and_no_credentials() {
     let runtime = RuntimeRegistry::new();
     let capabilities = crate::test_support::configuration_capabilities();
     let published =
-        PublishedSnapshot::new(configuration, &runtime, capabilities.provider_registry());
+        PublishedSnapshot::new(configuration, &runtime, capabilities.provider_registry())
+            .expect("initial snapshot");
     let snapshot = runtime.balancing_snapshot(&published);
 
     assert_eq!(snapshot.scheduler_epoch(), 0);

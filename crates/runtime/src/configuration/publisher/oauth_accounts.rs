@@ -1,7 +1,9 @@
 use std::{collections::HashSet, sync::Arc};
 
 use any2api_domain::{ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProviderKind};
-use any2api_storage::api::{OAuthAccountCreate, OAuthAccountDocument};
+use any2api_storage::api::{
+    ConfigurationMutation, OAuthAccountCreate, OAuthAccountDocument, OAuthAccountRefresh,
+};
 
 use super::ConfigPublisher;
 use crate::configuration::{
@@ -113,11 +115,14 @@ impl ConfigPublisher {
                 activation.document,
             ));
         }
-        let committed = self
-            .repository
-            .create_oauth_accounts(expected, creates)
+        let (published, _) = self
+            .publish_mutation_serialized(
+                current,
+                expected,
+                ConfigurationMutation::CreateOAuthAccounts { accounts: creates },
+            )
             .await?;
-        Ok(self.publish_committed(current, expected, committed))
+        Ok(published)
     }
 
     pub async fn update_oauth_account(
@@ -171,6 +176,39 @@ impl ConfigPublisher {
             expires_at,
             document,
         })
+        .await
+    }
+
+    pub(crate) async fn refresh_oauth_accounts<K>(
+        &self,
+        refreshes: Vec<OAuthAccountRefresh>,
+        publication_keepalive: K,
+    ) -> Result<(Arc<PublishedSnapshot>, bool), ConfigPublishError>
+    where
+        K: Send + 'static,
+    {
+        let publisher = self.clone();
+        publish_task::run(self.runtime.lifecycle(), async move {
+            let result = publisher.refresh_oauth_accounts_serialized(refreshes).await;
+            drop(publication_keepalive);
+            result
+        })
+        .await
+        .ok_or(ConfigPublishError::ShuttingDown)?
+    }
+
+    async fn refresh_oauth_accounts_serialized(
+        &self,
+        refreshes: Vec<OAuthAccountRefresh>,
+    ) -> Result<(Arc<PublishedSnapshot>, bool), ConfigPublishError> {
+        let _guard = self.snapshots.acquire_publish().await;
+        let current = self.snapshots.load();
+        let expected = current.revision();
+        self.publish_mutation_serialized(
+            current,
+            expected,
+            ConfigurationMutation::RefreshOAuthAccounts { refreshes },
+        )
         .await
     }
 

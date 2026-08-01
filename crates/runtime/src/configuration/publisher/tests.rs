@@ -18,81 +18,8 @@ use crate::{
     request_telemetry::RequestTelemetry,
 };
 
-#[tokio::test]
-async fn commit_reconcile_and_snapshot_switch_share_one_revision() {
-    let context = TestContext::new().await;
-    let id = ProxyProfileId::new();
-
-    let published = context
-        .publisher
-        .create_proxy(ConfigRevision::INITIAL, id, proxy_draft("Hong Kong"))
-        .await
-        .expect("publish proxy");
-    let stored = context
-        .repository
-        .load_configuration()
-        .await
-        .expect("stored configuration");
-
-    assert_eq!(published.revision().get(), 2);
-    assert_eq!(published.revision(), stored.revision());
-    assert_eq!(context.snapshots.load().revision(), stored.revision());
-    assert!(published.proxies().get(id).is_some());
-    assert_eq!(context.runtime.scheduler_epoch(), 1);
-}
-
-#[tokio::test]
-async fn stale_publish_is_rejected_before_storage_changes() {
-    let context = TestContext::new().await;
-    let first_id = ProxyProfileId::new();
-    let current = context
-        .publisher
-        .create_proxy(ConfigRevision::INITIAL, first_id, proxy_draft("Hong Kong"))
-        .await
-        .expect("first publish");
-    let second_id = ProxyProfileId::new();
-
-    let error = context
-        .publisher
-        .create_proxy(
-            ConfigRevision::INITIAL,
-            second_id,
-            proxy_draft("United States"),
-        )
-        .await
-        .expect_err("stale publish must fail");
-    let stored = context
-        .repository
-        .load_configuration()
-        .await
-        .expect("stored configuration");
-
-    assert!(matches!(error, ConfigPublishError::RevisionConflict { .. }));
-    assert_eq!(stored.revision(), current.revision());
-    assert!(stored.proxies().get(second_id).is_none());
-    assert_eq!(context.snapshots.load().revision(), current.revision());
-    assert_eq!(context.runtime.scheduler_epoch(), 1);
-}
-
-#[tokio::test]
-async fn no_op_publish_keeps_revision_and_scheduler_epoch() {
-    let context = TestContext::new().await;
-
-    let published = context
-        .publisher
-        .set_global_proxy(ConfigRevision::INITIAL, ProxyProfileId::DIRECT)
-        .await
-        .expect("no-op publish");
-    let stored = context
-        .repository
-        .load_configuration()
-        .await
-        .expect("stored configuration");
-
-    assert_eq!(published.revision(), ConfigRevision::INITIAL);
-    assert_eq!(stored.revision(), ConfigRevision::INITIAL);
-    assert_eq!(context.runtime.scheduler_epoch(), 0);
-}
+mod atomicity;
+mod ordering;
 
 #[tokio::test]
 async fn settings_publish_updates_request_telemetry_policy() {
@@ -332,7 +259,7 @@ async fn concurrent_oauth_activations_each_publish_the_latest_revision() {
 }
 
 struct TestContext {
-    _directory: TempDir,
+    directory: TempDir,
     repository: Arc<SqliteStore>,
     snapshots: Arc<SnapshotStore>,
     runtime: Arc<RuntimeRegistry>,
@@ -353,11 +280,10 @@ impl TestContext {
             .expect("initial configuration");
         let runtime = Arc::new(RuntimeRegistry::new());
         let capabilities = crate::test_support::configuration_capabilities();
-        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-            initial,
-            runtime.as_ref(),
-            capabilities.provider_registry(),
-        )));
+        let snapshots = Arc::new(SnapshotStore::new(
+            PublishedSnapshot::new(initial, runtime.as_ref(), capabilities.provider_registry())
+                .expect("initial snapshot"),
+        ));
         let publisher = ConfigPublisher::new(
             Arc::clone(&repository),
             Arc::clone(&snapshots),
@@ -367,7 +293,7 @@ impl TestContext {
         .expect("configuration publisher");
 
         Self {
-            _directory: directory,
+            directory,
             repository,
             snapshots,
             runtime,

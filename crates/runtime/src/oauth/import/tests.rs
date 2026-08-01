@@ -123,11 +123,10 @@ impl ImportContext {
             .expect("initial configuration");
         let runtime = Arc::new(RuntimeRegistry::new());
         let capabilities = crate::test_support::configuration_capabilities();
-        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-            initial,
-            runtime.as_ref(),
-            capabilities.provider_registry(),
-        )));
+        let snapshots = Arc::new(SnapshotStore::new(
+            PublishedSnapshot::new(initial, runtime.as_ref(), capabilities.provider_registry())
+                .expect("initial snapshot"),
+        ));
         let publisher = ConfigPublisher::new(
             Arc::clone(&repository),
             Arc::clone(&snapshots),

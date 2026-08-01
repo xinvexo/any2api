@@ -7,7 +7,7 @@ use secrecy::ExposeSecret;
 use crate::{
     error::StorageError,
     gateway_api_key::{token::display_prefix, verifier::GatewayApiKeyVerifier},
-    vault::SecretBytes,
+    secret::SecretBytes,
 };
 
 pub(crate) enum GatewayApiKeyMutation {
@@ -115,15 +115,7 @@ fn create(
     let prefix = display_prefix(&token)?;
     let hash = verifier.hash(token.expose_secret());
     let plaintext = utf8_token(&token)?;
-    let key = GatewayApiKey::create(
-        id,
-        draft,
-        plaintext,
-        prefix,
-        hash,
-        verifier.key_id(),
-        created_at,
-    )?;
+    let key = GatewayApiKey::create(id, draft, plaintext, prefix, hash, created_at)?;
     let configuration = append(current, key.clone())?;
     Ok(PreparedGatewayApiKeyMutation::new(
         configuration,
@@ -173,7 +165,7 @@ fn rotate(
     let prefix = display_prefix(&token)?;
     let hash = verifier.hash(token.expose_secret());
     let plaintext = utf8_token(&token)?;
-    let rotated = existing.rotated(plaintext, prefix, hash, verifier.key_id())?;
+    let rotated = existing.rotated(plaintext, prefix, hash)?;
     let configuration = replace(current, rotated.clone())?;
     Ok(PreparedGatewayApiKeyMutation::new(
         configuration,

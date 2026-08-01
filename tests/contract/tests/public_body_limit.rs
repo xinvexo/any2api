@@ -1,18 +1,19 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{convert::Infallible, fs, future::Future, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
 use any2api_runtime::api::{
-    ConfigPublisher, PublishedSnapshot, RuntimeRegistry, STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
-    SnapshotStore,
+    ConfigPublisher, IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, PublishedSnapshot, RuntimeRegistry,
+    STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES, SnapshotStore,
 };
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
     Router,
-    body::Body,
+    body::{Body, Bytes},
     extract::ConnectInfo,
-    http::{Method, Request, StatusCode, header::CONTENT_TYPE},
+    http::{HeaderMap, Method, Request, StatusCode, header::CONTENT_TYPE},
 };
+use futures_util::{StreamExt, stream};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tempfile::tempdir;
@@ -88,6 +89,53 @@ async fn images_edit_request_can_exceed_the_standard_body_limit() {
 }
 
 #[tokio::test]
+async fn images_edit_request_over_the_dedicated_limit_returns_413() {
+    let (_directory, app, token) = test_app_with_gateway_key().await;
+    let response = send_raw(
+        &app,
+        "/v1/images/edits",
+        &token,
+        vec![b'x'; IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES + 1],
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(response.body["error"]["code"], "payload_too_large");
+}
+
+#[tokio::test]
+async fn concurrent_body_reads_share_a_bounded_memory_admission() {
+    let (_directory, app, token) = test_app_with_gateway_key().await;
+    let (first, first_started) = pending_image_edit(app.clone(), token.clone());
+    let first = tokio::spawn(first);
+    first_started.await.expect("first body was polled");
+
+    let rejected = send_raw(
+        &app,
+        "/v1/images/edits",
+        &token,
+        br#"{"model":"missing-image-model"}"#.to_vec(),
+    )
+    .await;
+    assert_eq!(rejected.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(rejected.body["error"]["code"], "local_rate_limit");
+    assert_eq!(rejected.headers["retry-after"], "1");
+
+    first.abort();
+    let _ = first.await;
+
+    let admitted = send_raw(
+        &app,
+        "/v1/images/edits",
+        &token,
+        br#"{"model":"missing-image-model"}"#.to_vec(),
+    )
+    .await;
+    assert_eq!(admitted.status, StatusCode::BAD_REQUEST);
+    assert_eq!(admitted.body["error"]["code"], "model_not_found");
+}
+
+#[tokio::test]
 async fn oversized_images_generation_keeps_the_standard_body_limit() {
     let (_directory, app, token) = test_app_with_gateway_key().await;
     let response = send_raw(
@@ -115,6 +163,7 @@ async fn send_raw(app: &Router, uri: &str, token: &str, body: Vec<u8>) -> JsonRe
         .expect("request");
     let response = app.clone().oneshot(request).await.expect("response");
     let status = response.status();
+    let headers = response.headers().clone();
     let bytes = response
         .into_body()
         .collect()
@@ -123,13 +172,40 @@ async fn send_raw(app: &Router, uri: &str, token: &str, body: Vec<u8>) -> JsonRe
         .to_bytes();
     JsonResponse {
         status,
+        headers,
         body: serde_json::from_slice(&bytes).expect("JSON error envelope"),
     }
 }
 
 struct JsonResponse {
     status: StatusCode,
+    headers: HeaderMap,
     body: Value,
+}
+
+fn pending_image_edit(
+    app: Router,
+    token: String,
+) -> (
+    impl Future<Output = Result<axum::response::Response, Infallible>> + Send + 'static,
+    tokio::sync::oneshot::Receiver<()>,
+) {
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let (started, receiver) = tokio::sync::oneshot::channel();
+    let body = stream::once(async move {
+        let _ = started.send(());
+        Ok::<Bytes, Infallible>(Bytes::from_static(b"{"))
+    })
+    .chain(stream::pending());
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/v1/images/edits")
+        .extension(ConnectInfo(remote))
+        .header(CONTENT_TYPE, "application/json")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from_stream(body))
+        .expect("pending request");
+    (async move { app.oneshot(request).await }, receiver)
 }
 
 async fn test_app_with_gateway_key() -> (tempfile::TempDir, Router, String) {
@@ -141,11 +217,14 @@ async fn test_app_with_gateway_key() -> (tempfile::TempDir, Router, String) {
     );
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        any2api_contract_tests::build_provider_registry().as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(
             Arc::clone(&storage),

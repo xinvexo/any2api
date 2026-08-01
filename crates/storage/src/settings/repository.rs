@@ -1,14 +1,11 @@
 use any2api_domain::{
-    ConfigRevision, SettingKey, SettingOverrideChange, SettingOverrides, SettingValue,
-    SettingsConfiguration,
+    ConfigRevision, SettingKey, SettingOverrideChange, SettingOverrides, SettingsConfiguration,
 };
-use async_trait::async_trait;
 use sqlx::SqliteConnection;
 
 use crate::{
     configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
-    sqlite::SqliteStore,
 };
 
 use super::{
@@ -16,83 +13,12 @@ use super::{
     rows::{delete_setting_override, upsert_setting_override},
 };
 
-#[async_trait]
-pub trait SettingRepository: Send + Sync {
-    async fn apply_setting_changes(
-        &self,
-        expected: ConfigRevision,
-        changes: Vec<SettingOverrideChange>,
-    ) -> Result<StoredConfiguration, StorageError>;
-
-    async fn set_setting_override(
-        &self,
-        expected: ConfigRevision,
-        key: SettingKey,
-        value: SettingValue,
-    ) -> Result<StoredConfiguration, StorageError>;
-
-    async fn reset_setting_override(
-        &self,
-        expected: ConfigRevision,
-        key: SettingKey,
-    ) -> Result<StoredConfiguration, StorageError>;
-}
-
-#[async_trait]
-impl SettingRepository for SqliteStore {
-    async fn apply_setting_changes(
-        &self,
-        expected: ConfigRevision,
-        changes: Vec<SettingOverrideChange>,
-    ) -> Result<StoredConfiguration, StorageError> {
-        self.mutate_settings(expected, changes).await
-    }
-
-    async fn set_setting_override(
-        &self,
-        expected: ConfigRevision,
-        key: SettingKey,
-        value: SettingValue,
-    ) -> Result<StoredConfiguration, StorageError> {
-        self.mutate_settings(expected, vec![SettingOverrideChange::Set { key, value }])
-            .await
-    }
-
-    async fn reset_setting_override(
-        &self,
-        expected: ConfigRevision,
-        key: SettingKey,
-    ) -> Result<StoredConfiguration, StorageError> {
-        self.mutate_settings(expected, vec![SettingOverrideChange::Reset { key }])
-            .await
-    }
-}
-
-impl SqliteStore {
-    async fn mutate_settings(
-        &self,
-        expected: ConfigRevision,
-        changes: Vec<SettingOverrideChange>,
-    ) -> Result<StoredConfiguration, StorageError> {
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
-        let (configuration, changed) =
-            mutate_connection(&mut transaction, self.secret_vault(), expected, changes).await?;
-        if changed {
-            transaction.commit().await?;
-        } else {
-            transaction.rollback().await?;
-        }
-        Ok(configuration)
-    }
-}
-
-async fn mutate_connection(
+pub(crate) async fn mutate_connection(
     connection: &mut SqliteConnection,
-    vault: &crate::vault::SecretVault,
     expected: ConfigRevision,
     changes: Vec<SettingOverrideChange>,
 ) -> Result<(StoredConfiguration, bool), StorageError> {
-    let current = load_configuration_from(connection, vault).await?;
+    let current = load_configuration_from(connection).await?;
     if current.revision() != expected {
         return Err(StorageError::RevisionConflict {
             expected,
@@ -110,7 +36,7 @@ async fn mutate_connection(
     };
     persist_changes(connection, current.settings(), &expected_settings).await?;
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection, vault).await?;
+    let configuration = load_configuration_from(connection).await?;
     assert_eq!(configuration.revision(), revision);
     assert_eq!(configuration.settings(), &expected_settings);
     Ok((configuration, true))

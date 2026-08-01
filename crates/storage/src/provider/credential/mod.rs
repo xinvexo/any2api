@@ -15,5 +15,6 @@ pub use api_key::ProviderApiKeyValidationError;
 pub use secret_material::{StoredProviderCredentialSecret, StoredProviderCredentialSecrets};
 
 pub(crate) use mutation::ProviderCredentialMutation;
+pub(crate) use repository::mutate_connection as mutate_provider_credential_configuration;
 pub(crate) use rows::load_provider_credentials_from;
 pub(crate) use writes::bump_endpoint_credential_generations;

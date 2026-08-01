@@ -15,7 +15,7 @@ SQLite is already the configuration truth, so storing OAuth material in addition
 
 `OAuthAccount` is a separate aggregate managed only through the OAuth page and OAuth admin API. It is not a `ProviderCredential` and is never nested beneath an administrator-configured Provider Endpoint.
 
-SQLite stores the complete Provider OAuth JSON as plaintext together with stable ID, Provider, label, enabled state, fixed DIRECT proxy binding, optional `requests_per_minute`, selected models, token version, account generation, configuration version, safe account metadata, and timestamps. OAuth JSON intentionally does not use the Secret Vault. API Keys, proxy passwords, and other Secret classes keep their encryption rules.
+SQLite stores the complete Provider OAuth JSON as plaintext together with stable ID, Provider, label, enabled state, fixed DIRECT proxy binding, optional `requests_per_minute`, selected models, token version, account generation, configuration version, safe account metadata, and timestamps. ADR-0074 applies the same plaintext persistence boundary to API Keys and proxy passwords.
 
 SQLite is the only OAuth account truth source. Login and Provider-specific import create an account directly; the service does not return attachments, create server-local auth files, maintain a download cache, or expose a read/export endpoint. Generic Secret import/export remains prohibited.
 
@@ -54,7 +54,7 @@ Success responses use `Cache-Control: no-store` and contain only safe account me
 
 A single process worker scans all accounts approaching expiry, including `enabled=false` accounts. `oauth.refresh.scan_interval` and `oauth.refresh.lead_time` are hot-reload SettingRegistry values, and the lead time cannot be shorter than the scan interval. Startup and PublishedSnapshot revision changes wake the worker so it always rescans current accounts and settings.
 
-Refresh uses the account's DIRECT/global-proxy path and a per-account singleflight gate. The gate reloads and compares token version after acquisition, so stale results cannot overwrite newer material. Successful refresh uses token-version CAS, preserves account metadata, enabled state and selected models, creates a new routing generation, and completes one serialized snapshot publication.
+Refresh uses the account's DIRECT/global-proxy path and a per-account singleflight gate. The gate reloads and compares token version after acquisition, so stale results cannot overwrite newer material. Scheduled network refreshes use a fixed code-level concurrency limit. Successful results from one scan are token-version-CAS applied in one SQLite transaction and complete one serialized snapshot publication; stale or deleted accounts are skipped without blocking fresh results. Authentication-failure refresh remains an immediate single-account publication so a pending request does not wait for the next scan batch.
 
 Refresh failure never falls back to another network path. A still-valid access token may remain eligible until expiry; an expired or authentication-rejected account is fail-closed. A 401-triggered refresh/retry is allowed at most once and only while the attempt is `Pending`, `RetrySafety` permits it, and no downstream headers or bytes have been committed.
 

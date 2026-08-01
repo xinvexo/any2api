@@ -2,10 +2,7 @@ use std::{fmt, sync::Arc, time::Instant};
 
 use super::{
     hash::SessionHash,
-    registry::{
-        AffinityError, AffinityRegistry, BindingSource, BindingState, TimedBinding,
-        target_is_active,
-    },
+    registry::{AffinityError, AffinityRegistry, BindingSource, BindingState, TimedBinding},
     target::AffinityTarget,
 };
 
@@ -70,9 +67,6 @@ impl BindingLease {
         );
         if !matches {
             return Err(AffinityError::LeaseLost);
-        }
-        if !target_is_active(&state, &target) {
-            return Err(AffinityError::TargetInactive);
         }
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(AffinityError::DeadlineExceeded);

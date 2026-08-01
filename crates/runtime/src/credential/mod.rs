@@ -9,7 +9,7 @@ mod test_tests;
 pub use api_key_secret::ProviderApiKeySecret;
 #[cfg(test)]
 pub(crate) use auth::CredentialAuthMaterial;
-pub(crate) use auth::CredentialAuthMaterials;
+pub(crate) use auth::{CredentialAuthMaterialError, CredentialAuthMaterials};
 pub(crate) use model_catalog::{ModelCatalogReadError, collect as collect_model_catalog};
 #[cfg(test)]
 pub(crate) use runtime::CredentialRuntimeBindings;

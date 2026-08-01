@@ -92,6 +92,41 @@ fn managed_file_names_require_a_real_calendar_date() {
     assert!(!is_managed_file(Path::new("notes.jsonl")));
 }
 
+#[cfg(unix)]
+#[test]
+fn log_directory_and_segments_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = tempdir().expect("temporary directory");
+    let directory = root.path().join("logs");
+    fs::create_dir(&directory).expect("log directory");
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))
+        .expect("directory permissions");
+    let now = OffsetDateTime::now_utc();
+    let existing = directory.join(format!("any2api-{}-000001.jsonl", date_key(now)));
+    fs::write(&existing, b"existing").expect("existing log");
+    fs::set_permissions(&existing, fs::Permissions::from_mode(0o644))
+        .expect("existing permissions");
+
+    let policy = Arc::new(RwLock::new(test_policy(86_400, MIB)));
+    let mut writer = RotatingFileWriter::new(directory.clone(), policy).expect("writer");
+    writer.write_at(now, b"new\n").expect("new segment");
+
+    assert_eq!(mode(&directory), 0o700);
+    assert_eq!(mode(&existing), 0o600);
+    assert_eq!(
+        mode(&writer.active.as_ref().expect("active segment").path),
+        0o600
+    );
+}
+
+#[cfg(unix)]
+fn mode(path: &Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::metadata(path).expect("metadata").permissions().mode() & 0o777
+}
+
 fn test_policy(retention_secs: u64, max_total_size: u64) -> FileLogPolicy {
     FileLogPolicy {
         revision: ConfigRevision::INITIAL,

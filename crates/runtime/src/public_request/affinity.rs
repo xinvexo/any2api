@@ -7,7 +7,7 @@ use std::{
 use any2api_domain::{
     ModelRouteId, ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode,
 };
-use any2api_protocol::api::IngressAffinity;
+use any2api_protocol::api::{IngressAffinity, ProtocolContinuationState};
 use tokio::time::{Instant as TokioInstant, timeout_at};
 
 use super::{
@@ -16,7 +16,10 @@ use super::{
     selection::{FixedSelectionError, select_candidate, select_fixed_candidate},
 };
 use crate::{
-    affinity::{AffinityError, AffinityRegistry, AffinityTarget, BindingLease, BindingStart},
+    affinity::{
+        AffinityError, AffinityRegistry, AffinityTarget, BindingLease, BindingStart,
+        ContinuationLookup,
+    },
     configuration::PublishedSnapshot,
     routing::{CandidateExclusions, QueueCoordinator, RouteCandidate},
 };
@@ -26,6 +29,7 @@ pub(super) struct AffinitySelection {
     pub(super) target: AffinityTarget,
     pub(super) binding_lease: Option<BindingLease>,
     pub(super) bound: bool,
+    pub(super) continuation_state: Option<ProtocolContinuationState>,
 }
 
 pub(super) struct AffinitySelectionInput<'a> {
@@ -56,12 +60,56 @@ async fn select_continuation(
     input: &AffinitySelectionInput<'_>,
     raw: &str,
 ) -> Result<AffinitySelection, PublicError> {
-    let target = input
-        .snapshot
-        .affinity_registry()
-        .resolve_continuation(raw, input.snapshot.affinity_policy().ttl())
-        .ok_or_else(binding_lost)?;
-    select_bound(input, target).await
+    let continuation = acquire_continuation_binding(input, raw).await?;
+    let (target, state) = continuation.into_parts();
+    select_bound(input, target, state).await
+}
+
+async fn acquire_continuation_binding(
+    input: &AffinitySelectionInput<'_>,
+    raw: &str,
+) -> Result<crate::affinity::ResolvedContinuation, PublicError> {
+    let snapshot = input.snapshot;
+    let policy = snapshot.affinity_policy();
+    let wait_deadline = TokioInstant::now() + policy.wait_timeout();
+    let mut queue_ticket = None;
+    let mut scheduler_changes: Option<tokio::sync::watch::Receiver<u64>> = None;
+    loop {
+        if queue_ticket.is_some() && TokioInstant::now() >= wait_deadline {
+            return Err(binding_lost());
+        }
+        if let Some(changes) = scheduler_changes.as_mut() {
+            let _observed_epoch = *changes.borrow_and_update();
+        }
+        match snapshot
+            .affinity_registry()
+            .resolve_continuation(raw, policy.ttl(), |target| {
+                find_candidate(target, input.route_id, input.dialect, input.tiers).is_some()
+            }) {
+            ContinuationLookup::Missing => return Err(binding_lost()),
+            ContinuationLookup::Ready(continuation) => return Ok(continuation),
+            ContinuationLookup::Pending if queue_ticket.is_none() => {
+                let ticket = snapshot
+                    .queue_coordinator()
+                    .try_ticket(snapshot.queue_policy().max_waiting_requests())
+                    .ok_or_else(|| {
+                        public_error(PublicErrorCode::LocalRateLimit, "request queue is full")
+                    })?;
+                scheduler_changes = Some(ticket.subscribe());
+                queue_ticket = Some(ticket);
+            }
+            ContinuationLookup::Pending => {
+                let changes = scheduler_changes
+                    .as_mut()
+                    .expect("queue ticket always carries an epoch subscription");
+                match timeout_at(wait_deadline, changes.changed()).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) => return Err(internal_error()),
+                    Err(_) => return Err(binding_lost()),
+                }
+            }
+        }
+    }
 }
 
 async fn select_session(
@@ -82,7 +130,7 @@ async fn select_session(
     .await?
     {
         SessionBindingStart::Create(lease) => select_unbound(input, Some(lease)).await,
-        SessionBindingStart::Bound(target) => select_bound(input, target).await,
+        SessionBindingStart::Bound(target) => select_bound(input, target, None).await,
     }
 }
 
@@ -155,6 +203,7 @@ fn binding_wait_timeout() -> PublicError {
 async fn select_bound(
     input: &AffinitySelectionInput<'_>,
     target: AffinityTarget,
+    continuation_state: Option<ProtocolContinuationState>,
 ) -> Result<AffinitySelection, PublicError> {
     let candidate = find_candidate(&target, input.route_id, input.dialect, input.tiers)
         .ok_or_else(binding_lost)?;
@@ -170,6 +219,7 @@ async fn select_bound(
         target,
         binding_lease: None,
         bound: true,
+        continuation_state,
     })
 }
 
@@ -192,6 +242,7 @@ async fn select_unbound(
         target,
         binding_lease,
         bound: false,
+        continuation_state: None,
     })
 }
 
@@ -214,16 +265,23 @@ fn binding_lost() -> PublicError {
     )
 }
 
-fn affinity_error(error: AffinityError) -> PublicError {
+pub(super) fn affinity_error(error: AffinityError) -> PublicError {
     match error {
         AffinityError::Capacity => public_error(
             PublicErrorCode::LocalRateLimit,
             "session affinity capacity is full",
         ),
-        AffinityError::TargetInactive => binding_lost(),
         AffinityError::IdentityConflict
         | AffinityError::LeaseLost
         | AffinityError::DeadlineExceeded => internal_error(),
+        AffinityError::ContinuationCapacity => public_error(
+            PublicErrorCode::LocalRateLimit,
+            "protocol continuation memory capacity is full",
+        ),
+        AffinityError::ContinuationTooLarge => public_error(
+            PublicErrorCode::UpstreamError,
+            "protocol continuation state exceeded its size limit",
+        ),
     }
 }
 

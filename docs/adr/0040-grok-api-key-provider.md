@@ -10,11 +10,11 @@ any2api 接入 xAI Grok 时继续遵守 Provider、协议、调度和凭据类�
 
 ## 决策
 
-1. 新增独立的 `ProviderKind::Grok`，SQLite 文本值固定为 `grok`，Secret Vault Provider 稳定代码固定为 `3`。
+1. 新增独立的 `ProviderKind::Grok`，SQLite 文本值固定为 `grok`，Provider Secret 指纹域稳定代码固定为 `3`。
 2. `GrokDriver` 只支持 `CredentialKind::ApiKey`，使用 `Authorization: Bearer <XAI_API_KEY>`。Web 的官方默认 Base URL 为 `https://api.x.ai/v1`。
 3. Grok 注册 OpenAI Responses 与 OpenAI Chat Completions 能力，支持 Responses、Responses Compact、Chat Completions 的 JSON/SSE 现有执行路径，以及标准 `GET /models` 模型发现。
 4. Grok 复用现有 OpenAI ProtocolAdapter、协议桥、错误分类、Transport、RPM、轮询、粘性、健康、重试、代理和遥测实现。中央调度器不增加 Grok 分支。
-5. `provider_endpoints` 与 ProviderCredential 只接受 Grok API Key；Grok OAuth JSON 只能创建独立 OAuthAccount，不能进入该表或 Vault。
+5. `provider_endpoints` 与 ProviderCredential 只接受 Grok API Key；Grok OAuth JSON 只能创建独立 OAuthAccount，不能进入该表。
 6. Provider Registry 契约必须枚举并验证 Grok Driver；Storage 契约验证 Grok Endpoint 与 Credential 可写。
 
 ## 依据
@@ -31,6 +31,6 @@ any2api 接入 xAI Grok 时继续遵守 Provider、协议、调度和凭据类�
 
 ## 未选择方案
 
-- 把 Grok 伪装成 Codex：会混淆 Provider 能力、管理展示、Vault AAD 和运行态汇总。
+- 把 Grok 伪装成 Codex：会混淆 Provider 能力、管理展示、Secret 指纹域和运行态汇总。
 - 为 Grok 新建协议栈：其当前接口可由既有 OpenAI 协议 Adapter 表达，会造成重复实现。
 - 把 Grok OAuth JSON 存入 ProviderCredential：会破坏 API Key 与 OAuthAccount 的持久化和 Secret 边界。

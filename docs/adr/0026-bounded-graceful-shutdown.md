@@ -6,7 +6,7 @@
 
 ## 背景
 
-进程停机必须先停止 accept，再在有界时间内收敛现有连接、静默 SSE、配置发布、密码轮换、健康唤醒、RequestTelemetry Writer 和文件日志。任何未跟踪任务都可能越过实例锁生命周期或让最终 flush 顺序不确定。
+进程停机必须先停止 accept，再在有界时间内收敛现有连接、静默 SSE、配置发布、密码轮换、应用更新、健康唤醒、RequestTelemetry Writer 和文件日志。任何未跟踪任务都可能越过实例锁生命周期或让最终 flush 顺序不确定。
 
 项目不恢复任何运行态，但仍必须在当前进程退出前有界地释放请求、上游连接、SQLite Writer、文件日志和实例锁。
 
@@ -15,7 +15,7 @@
 - Runtime 提供唯一的进程级 `ProcessLifecycle`，状态为 `Running / Draining / Forced`，内部持有请求 TaskTracker、后台 TaskTracker、draining 通知与 forced 取消令牌。App 驱动状态，Server 和 Runtime 只消费稳定 API。
 - Server 最外层 middleware 追踪完整 HTTP 生命周期。活动 Guard 在 Handler 完成后转移到包装响应 Body；强制取消时 Drop Handler future 或内部 Body，复用现有 QueueTicket、PreparedAttempt 与 GuardedBody 的 RAII 取消链。
 - Axum graceful future 在收到 Ctrl-C 或 Unix SIGTERM 时立即完成，从而立刻停止 accept；宽限计时器独立等待 server future，禁止为了“等待宽限期”继续接受新连接。
-- 配置发布和管理员密码轮换继续脱离客户端取消，但通过后台 TaskTracker 注册；Forced 后丢弃尚未完成的异步 future。Argon2 使用同一 Tracker 的 `spawn_blocking` 注册，外层 future 被 Drop 后仍保持计数，直到不可取消的 blocking closure 真正返回。健康唤醒任务同时监听 draining 通知，无需等待远期 cooldown deadline。
+- 配置发布、管理员密码轮换和已经接受的应用更新继续脱离客户端取消，但通过后台 TaskTracker 注册；Forced 后丢弃尚未完成的异步 future。应用更新不得使用脱管的 `tokio::spawn`，也不得在停机已开始后接受新安装；只有完整替换成功才请求重启。Argon2 使用同一 Tracker 的 `spawn_blocking` 注册，外层 future 被 Drop 后仍保持计数，直到不可取消的 blocking closure 真正返回。`SchedulerEpoch` 的健康唤醒是唯一、按需启动且可重排的后台 worker；它同时监听 draining 通知，进入 Draining 后退出并拒绝重新启动，无需等待任何远期 cooldown deadline。
 - RequestTelemetry Worker 由同一 TaskTracker spawn，但保留专用 sender/JoinHandle 以执行“停止生产 → 排空 → 有界等待”。超时后 abort 并再次 await，保证 API 返回时 Writer 已退出。
 - 二进制入口显式构建 Tokio Runtime，并在 Runtime 外先取得实例锁。Composition Root 保留文件日志根 `Arc`；HTTP、后台任务和遥测结束后显式关闭 SQLite Pool，确认根 `Arc` 是最后一个文件日志所有者，再 Drop `WorkerGuard`。
 - 正常收尾完成后使用 `Runtime::shutdown_timeout` 有界关闭 Tokio worker/blocking pool，随后释放实例锁。后台任务、SQLite 或文件日志所有权检查失败时进入致命退出：仍持有实例锁完成 runtime shutdown timeout，然后直接终止进程，由操作系统释放锁，禁止退出中 blocking task 与新实例重叠运行。
@@ -39,7 +39,7 @@
 
 ## 验证
 
-- Lifecycle 单元测试覆盖状态单调转换、Draining 拒绝新 Guard、请求 Guard 持有到 Drop、异步任务 forced 收敛，以及 blocking JoinHandle 被 Drop 后仍保持追踪。
+- Lifecycle 单元测试覆盖状态单调转换、Draining 拒绝新 Guard、请求 Guard 持有到 Drop、配置/更新等异步任务 forced 收敛，以及 blocking JoinHandle 被 Drop 后仍保持追踪。
 - Server 单元测试覆盖 Guard 随普通/静默响应 Body 存活，并验证 Forced 会 Drop 静默 Body、结束活动计数。
 - RequestTelemetry 测试覆盖正常排空与超时 abort + join 后 Tracker 归零。
 - App 测试使用可注入信号验证自然 drain、信号时读取最新 PublishedSnapshot 设置、后台任务 forced 收敛，以及 blocking 任务错过期限时明确返回收尾失败。

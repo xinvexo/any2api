@@ -6,10 +6,12 @@ use any2api_domain::{
 use tempfile::tempdir;
 
 use crate::{
-    api::{ConfigurationRepository, SecretBytes, SqliteStore},
+    api::{ConfigurationMutation, ConfigurationRepository, SecretBytes, SqliteStore},
+    configuration::commit_configuration,
     error::StorageError,
-    vault::SecretVaultError,
 };
+
+mod integrity;
 
 #[tokio::test]
 async fn credential_lifecycle_persists_versions_and_secret_metadata() {
@@ -19,24 +21,28 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
 
-    let endpoint = store
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
+    let endpoint = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: endpoint_id,
+            draft: codex_draft("Codex Primary", "https://api.example.com"),
+        },
+    )
+    .await
+    .expect("create endpoint");
+    let created = commit_configuration(
+        &store,
+        endpoint.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: credential_id,
             endpoint_id,
-            codex_draft("Codex Primary", "https://api.example.com"),
-        )
-        .await
-        .expect("create endpoint");
-    let created = store
-        .create_provider_credential(
-            endpoint.revision(),
-            credential_id,
-            endpoint_id,
-            credential_draft("Primary", ProxyProfileId::DIRECT, Some(40), true),
-            secret("sk-first-credential"),
-        )
-        .await
-        .expect("create credential");
+            draft: credential_draft("Primary", ProxyProfileId::DIRECT, Some(40), true),
+            api_key: secret("sk-first-credential"),
+        },
+    )
+    .await
+    .expect("create credential");
     let credential = created
         .provider_credentials()
         .get(credential_id)
@@ -61,26 +67,30 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
     );
     assert!(!format!("{created:?}").contains("sk-first-credential"));
 
-    let no_op = store
-        .update_provider_credential(
-            created.revision(),
-            credential_id,
-            1,
-            credential_draft("Primary", ProxyProfileId::DIRECT, Some(40), true),
-        )
-        .await
-        .expect("no-op update");
+    let no_op = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::UpdateProviderCredential {
+            id: credential_id,
+            expected_config_version: 1,
+            draft: credential_draft("Primary", ProxyProfileId::DIRECT, Some(40), true),
+        },
+    )
+    .await
+    .expect("no-op update");
     assert_eq!(no_op.revision(), created.revision());
 
-    let disabled = store
-        .update_provider_credential(
-            no_op.revision(),
-            credential_id,
-            1,
-            credential_draft("Primary", ProxyProfileId::DIRECT, None, false),
-        )
-        .await
-        .expect("disable credential");
+    let disabled = commit_configuration(
+        &store,
+        no_op.revision(),
+        ConfigurationMutation::UpdateProviderCredential {
+            id: credential_id,
+            expected_config_version: 1,
+            draft: credential_draft("Primary", ProxyProfileId::DIRECT, None, false),
+        },
+    )
+    .await
+    .expect("disable credential");
     let disabled_credential = disabled
         .provider_credentials()
         .get(credential_id)
@@ -89,25 +99,29 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
     assert_eq!(disabled_credential.credential_generation(), 1);
     assert_eq!(disabled_credential.requests_per_minute(), None);
 
-    let enabled = store
-        .update_provider_credential(
-            disabled.revision(),
-            credential_id,
-            2,
-            credential_draft("Primary", ProxyProfileId::DIRECT, Some(80), true),
-        )
-        .await
-        .expect("enable credential");
-    let rotated = store
-        .rotate_provider_credential_secret(
-            enabled.revision(),
-            credential_id,
-            3,
-            1,
-            secret("sk-second-rotated"),
-        )
-        .await
-        .expect("rotate credential");
+    let enabled = commit_configuration(
+        &store,
+        disabled.revision(),
+        ConfigurationMutation::UpdateProviderCredential {
+            id: credential_id,
+            expected_config_version: 2,
+            draft: credential_draft("Primary", ProxyProfileId::DIRECT, Some(80), true),
+        },
+    )
+    .await
+    .expect("enable credential");
+    let rotated = commit_configuration(
+        &store,
+        enabled.revision(),
+        ConfigurationMutation::RotateProviderCredentialSecret {
+            id: credential_id,
+            expected_config_version: 3,
+            expected_secret_version: 1,
+            api_key: secret("sk-second-rotated"),
+        },
+    )
+    .await
+    .expect("rotate credential");
     let rotated_credential = rotated
         .provider_credentials()
         .get(credential_id)
@@ -160,65 +174,85 @@ async fn credential_references_protect_proxy_and_endpoint() {
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
 
-    let proxy = store
-        .create_proxy(ConfigRevision::INITIAL, proxy_id, proxy_draft())
-        .await
-        .expect("create proxy");
-    let endpoint = store
-        .create_provider_endpoint(
-            proxy.revision(),
+    let proxy = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProxy {
+            id: proxy_id,
+            draft: proxy_draft(),
+        },
+    )
+    .await
+    .expect("create proxy");
+    let endpoint = commit_configuration(
+        &store,
+        proxy.revision(),
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: endpoint_id,
+            draft: codex_draft("Codex Primary", "https://api.example.com"),
+        },
+    )
+    .await
+    .expect("create endpoint");
+    let created = commit_configuration(
+        &store,
+        endpoint.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: credential_id,
             endpoint_id,
-            codex_draft("Codex Primary", "https://api.example.com"),
-        )
-        .await
-        .expect("create endpoint");
-    let created = store
-        .create_provider_credential(
-            endpoint.revision(),
-            credential_id,
-            endpoint_id,
-            credential_draft("Primary", proxy_id, Some(20), true),
-            secret("sk-reference-test"),
-        )
-        .await
-        .expect("create credential");
+            draft: credential_draft("Primary", proxy_id, Some(20), true),
+            api_key: secret("sk-reference-test"),
+        },
+    )
+    .await
+    .expect("create credential");
 
     assert!(matches!(
-        store
-            .delete_proxy(created.revision(), proxy_id)
-            .await
-            .expect_err("referenced proxy must be protected"),
+        commit_configuration(
+            &store,
+            created.revision(),
+            ConfigurationMutation::DeleteProxy { id: proxy_id },
+        )
+        .await
+        .expect_err("referenced proxy must be protected"),
         StorageError::ProxyReferenced
     ));
     assert!(matches!(
-        store
-            .delete_provider_endpoint(created.revision(), endpoint_id)
-            .await
-            .expect_err("referenced endpoint must be protected"),
+        commit_configuration(
+            &store,
+            created.revision(),
+            ConfigurationMutation::DeleteProviderEndpoint { id: endpoint_id },
+        )
+        .await
+        .expect_err("referenced endpoint must be protected"),
         StorageError::ProviderEndpointInUse
     ));
     assert!(matches!(
-        store
-            .update_provider_endpoint(
-                created.revision(),
-                endpoint_id,
-                1,
-                claude_draft("Codex Primary", "https://api.anthropic.com"),
-            )
-            .await
-            .expect_err("provider identity must stay stable"),
+        commit_configuration(
+            &store,
+            created.revision(),
+            ConfigurationMutation::UpdateProviderEndpoint {
+                id: endpoint_id,
+                expected_config_version: 1,
+                draft: claude_draft("Codex Primary", "https://api.anthropic.com"),
+            },
+        )
+        .await
+        .expect_err("provider identity must stay stable"),
         StorageError::ProviderEndpointIdentityInUse
     ));
 
-    let moved = store
-        .update_provider_endpoint(
-            created.revision(),
-            endpoint_id,
-            1,
-            codex_draft("Codex Primary", "https://edge.example.com"),
-        )
-        .await
-        .expect("change base URL");
+    let moved = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::UpdateProviderEndpoint {
+            id: endpoint_id,
+            expected_config_version: 1,
+            draft: codex_draft("Codex Primary", "https://edge.example.com"),
+        },
+    )
+    .await
+    .expect("change base URL");
     assert_eq!(
         moved
             .provider_credentials()
@@ -238,49 +272,57 @@ async fn credential_conflicts_do_not_advance_revision() {
     let endpoint_id = ProviderEndpointId::new();
     let first_id = CredentialId::new();
 
-    let endpoint = store
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
+    let endpoint = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: endpoint_id,
+            draft: codex_draft("Codex Primary", "https://api.example.com"),
+        },
+    )
+    .await
+    .expect("create endpoint");
+    let created = commit_configuration(
+        &store,
+        endpoint.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: first_id,
             endpoint_id,
-            codex_draft("Codex Primary", "https://api.example.com"),
-        )
-        .await
-        .expect("create endpoint");
-    let created = store
-        .create_provider_credential(
-            endpoint.revision(),
-            first_id,
-            endpoint_id,
-            credential_draft("Primary", ProxyProfileId::DIRECT, Some(10), true),
-            secret("sk-conflict-first"),
-        )
-        .await
-        .expect("create credential");
+            draft: credential_draft("Primary", ProxyProfileId::DIRECT, Some(10), true),
+            api_key: secret("sk-conflict-first"),
+        },
+    )
+    .await
+    .expect("create credential");
 
     assert!(matches!(
-        store
-            .create_provider_credential(
-                created.revision(),
-                CredentialId::new(),
+        commit_configuration(
+            &store,
+            created.revision(),
+            ConfigurationMutation::CreateProviderCredential {
+                id: CredentialId::new(),
                 endpoint_id,
-                credential_draft("primary", ProxyProfileId::DIRECT, Some(10), true),
-                secret("sk-conflict-second"),
-            )
-            .await
-            .expect_err("duplicate label must fail"),
+                draft: credential_draft("primary", ProxyProfileId::DIRECT, Some(10), true),
+                api_key: secret("sk-conflict-second"),
+            },
+        )
+        .await
+        .expect_err("duplicate label must fail"),
         StorageError::ProviderCredentialLabelConflict
     ));
     assert!(matches!(
-        store
-            .rotate_provider_credential_secret(
-                created.revision(),
-                first_id,
-                1,
-                2,
-                secret("sk-stale-secret"),
-            )
-            .await
-            .expect_err("stale secret version must fail"),
+        commit_configuration(
+            &store,
+            created.revision(),
+            ConfigurationMutation::RotateProviderCredentialSecret {
+                id: first_id,
+                expected_config_version: 1,
+                expected_secret_version: 2,
+                api_key: secret("sk-stale-secret"),
+            },
+        )
+        .await
+        .expect_err("stale secret version must fail"),
         StorageError::ProviderCredentialSecretVersionConflict {
             expected: 2,
             actual: 1
@@ -294,50 +336,6 @@ async fn credential_conflicts_do_not_advance_revision() {
             .revision(),
         created.revision()
     );
-}
-
-#[tokio::test]
-async fn corrupted_credential_ciphertext_fails_configuration_loading() {
-    let directory = tempdir().expect("temporary directory");
-    let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
-        .await
-        .expect("store");
-    let endpoint_id = ProviderEndpointId::new();
-    let credential_id = CredentialId::new();
-    let endpoint = store
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
-            endpoint_id,
-            codex_draft("Codex Primary", "https://api.example.com"),
-        )
-        .await
-        .expect("create endpoint");
-    store
-        .create_provider_credential(
-            endpoint.revision(),
-            credential_id,
-            endpoint_id,
-            credential_draft("Primary", ProxyProfileId::DIRECT, None, true),
-            secret("sk-corruption-test"),
-        )
-        .await
-        .expect("create credential");
-    sqlx::query(
-        "UPDATE provider_credentials SET ciphertext = zeroblob(length(ciphertext)) WHERE id = ?",
-    )
-    .bind(credential_id.to_string())
-    .execute(store.pool())
-    .await
-    .expect("corrupt ciphertext");
-
-    let error = store
-        .load_configuration()
-        .await
-        .expect_err("corrupt ciphertext must fail");
-    assert!(matches!(
-        error,
-        StorageError::SecretVault(SecretVaultError::AuthenticationFailed)
-    ));
 }
 
 fn credential_draft(

@@ -196,5 +196,6 @@ fn target(route_id: ModelRouteId) -> AffinityTarget {
         CredentialId::new().into(),
         "upstream-model",
         ProtocolDialect::OpenAiResponses,
+        ProtocolDialect::OpenAiResponses,
     )
 }

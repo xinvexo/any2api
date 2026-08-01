@@ -1,5 +1,4 @@
 mod bridge;
-mod history;
 mod request;
 mod response;
 mod stream;

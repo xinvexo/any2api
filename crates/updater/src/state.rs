@@ -6,6 +6,18 @@ pub(crate) struct UpdateTaskState {
     status: Mutex<UpdateStatus>,
 }
 
+#[derive(Debug)]
+pub(crate) struct UpdateTaskAdmission {
+    previous: UpdateStatus,
+    accepted: UpdateStatus,
+}
+
+impl UpdateTaskAdmission {
+    pub(crate) fn accepted(&self) -> UpdateStatus {
+        self.accepted.clone()
+    }
+}
+
 impl UpdateTaskState {
     pub(crate) fn new() -> Self {
         Self {
@@ -13,7 +25,7 @@ impl UpdateTaskState {
         }
     }
 
-    pub(crate) fn begin(&self) -> Result<UpdateStatus, UpdateError> {
+    pub(crate) fn begin(&self) -> Result<UpdateTaskAdmission, UpdateError> {
         let mut status = self.lock();
         if status.is_active() {
             return Err(UpdateError::new(
@@ -21,8 +33,19 @@ impl UpdateTaskState {
                 "an update is already in progress",
             ));
         }
+        let previous = status.clone();
         *status = UpdateStatus::Checking;
-        Ok(status.clone())
+        Ok(UpdateTaskAdmission {
+            previous,
+            accepted: status.clone(),
+        })
+    }
+
+    pub(crate) fn rollback(&self, admission: UpdateTaskAdmission) {
+        let mut status = self.lock();
+        if *status == admission.accepted {
+            *status = admission.previous;
+        }
     }
 
     pub(crate) fn status(&self) -> UpdateStatus {
@@ -85,14 +108,37 @@ mod tests {
     #[test]
     fn only_one_active_task_is_admitted_and_failure_allows_retry() {
         let state = UpdateTaskState::new();
-        assert_eq!(state.begin().expect("first task"), UpdateStatus::Checking);
+        assert_eq!(
+            state.begin().expect("first task").accepted(),
+            UpdateStatus::Checking
+        );
         assert_eq!(
             state.begin().expect_err("second task").kind(),
             UpdateErrorKind::InProgress
         );
 
         state.failed(None, UpdateErrorKind::CheckFailed);
-        assert_eq!(state.begin().expect("retry"), UpdateStatus::Checking);
+        assert_eq!(
+            state.begin().expect("retry").accepted(),
+            UpdateStatus::Checking
+        );
+    }
+
+    #[test]
+    fn rejected_task_registration_restores_the_previous_status() {
+        let state = UpdateTaskState::new();
+        state.failed(Some("1.2.3".to_owned()), UpdateErrorKind::DownloadFailed);
+        let admission = state.begin().expect("retry admission");
+
+        state.rollback(admission);
+
+        assert_eq!(
+            state.status(),
+            UpdateStatus::Failed {
+                target_version: Some("1.2.3".to_owned()),
+                kind: UpdateErrorKind::DownloadFailed,
+            }
+        );
     }
 
     #[test]

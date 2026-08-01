@@ -164,6 +164,11 @@ async fn update_errors_map_to_stable_admin_codes() {
             "update_in_progress",
         ),
         (
+            UpdateErrorKind::ShuttingDown,
+            StatusCode::CONFLICT,
+            "update_shutting_down",
+        ),
+        (
             UpdateErrorKind::CheckFailed,
             StatusCode::BAD_GATEWAY,
             "update_check_failed",
@@ -219,11 +224,14 @@ async fn test_app(
     );
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        any2api_contract_tests::build_provider_registry().as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(
             Arc::clone(&storage),

@@ -8,7 +8,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::{
     admin, embedded_web, health::health, http_access_log, public, request_lifecycle,
-    state::AppState, web_assets::WebAssets,
+    state::AppState, web_assets::WebAssets, web_security_headers,
 };
 
 pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router {
@@ -19,19 +19,21 @@ pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router
         .merge(public_root)
         .nest("/api", build_api_router(state.clone()))
         .nest("/v1", public::routes(state.clone()));
-    let router = match web_assets.into() {
-        WebAssets::External(web_root) => router
+    let web_router = match web_assets.into() {
+        WebAssets::External(web_root) => Router::new()
             .nest_service("/assets", ServeDir::new(web_root.join("assets")))
             .fallback_service(
                 ServeDir::new(&web_root).fallback(ServeFile::new(web_root.join("index.html"))),
-            ),
+            )
+            .layer(middleware::from_fn(web_security_headers::add)),
         WebAssets::Embedded(assets) => {
-            router.fallback(move |method: Method, uri: Uri| async move {
+            Router::new().fallback(move |method: Method, uri: Uri| async move {
                 embedded_web::response(&method, &uri, assets)
             })
         }
     };
     router
+        .merge(web_router)
         .layer(middleware::from_fn_with_state(
             lifecycle,
             request_lifecycle::track,

@@ -23,12 +23,7 @@ impl AffinityRegistry {
 }
 
 fn remove_expired(state: &mut AffinityState, now: Instant, ttl: Duration) {
-    state.entries.retain(|_, entry| match entry {
-        BindingState::Creating { .. } => true,
-        BindingState::Bound { binding } => {
-            now.saturating_duration_since(binding.last_seen_at) < ttl
-        }
-    });
+    state.remove_expired(now, ttl);
 }
 
 fn build_snapshot(state: &AffinityState, enabled: bool) -> AffinityRuntimeSnapshot {
@@ -44,7 +39,7 @@ fn build_snapshot(state: &AffinityState, enabled: bool) -> AffinityRuntimeSnapsh
     for entry in state.entries.values() {
         match entry {
             BindingState::Creating { .. } => creating_session_count += 1,
-            BindingState::Bound { binding } if binding.source == BindingSource::Session => {
+            BindingState::Bound { binding } if matches!(binding.source, BindingSource::Session) => {
                 active_session_count += 1;
             }
             BindingState::Bound { .. } => {}

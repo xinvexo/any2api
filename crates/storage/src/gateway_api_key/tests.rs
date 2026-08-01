@@ -3,13 +3,11 @@ use secrecy::ExposeSecret;
 use tempfile::tempdir;
 
 use crate::{
-    configuration::ConfigurationRepository,
+    configuration::{ConfigurationMutation, ConfigurationRepository, commit_configuration},
     error::StorageError,
-    gateway_api_key::{
-        GatewayApiKeyLastUsedUpdate, GatewayApiKeyRepository, GatewayApiKeyUsageRepository,
-    },
+    gateway_api_key::{GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository},
+    secret::SecretBytes,
     sqlite::SqliteStore,
-    vault::SecretBytes,
 };
 
 #[tokio::test]
@@ -20,15 +18,17 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     let id = GatewayApiKeyId::new();
     let first = token(7);
 
-    let created = store
-        .create_gateway_api_key(
-            ConfigRevision::INITIAL,
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateGatewayApiKey {
             id,
-            GatewayApiKeyDraft::new("Desktop", true).expect("draft"),
-            secret(&first),
-        )
-        .await
-        .expect("create");
+            draft: GatewayApiKeyDraft::new("Desktop", true).expect("draft"),
+            token: secret(&first),
+        },
+    )
+    .await
+    .expect("create");
     assert_eq!(created.revision().get(), 2);
     let key = created.gateway_api_keys().get(id).expect("created key");
     assert_eq!(key.token(), first);
@@ -49,28 +49,32 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
     assert_eq!(stored.1, key.token_prefix());
     assert_eq!(stored.2, 32);
 
-    let unchanged = store
-        .update_gateway_api_key(
-            created.revision(),
+    let unchanged = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::UpdateGatewayApiKey {
             id,
-            key.config_version(),
-            GatewayApiKeyDraft::new("Desktop", true).expect("draft"),
-        )
-        .await
-        .expect("no-op update");
+            expected_config_version: key.config_version(),
+            draft: GatewayApiKeyDraft::new("Desktop", true).expect("draft"),
+        },
+    )
+    .await
+    .expect("no-op update");
     assert_eq!(unchanged.revision(), created.revision());
 
     let second = token(9);
-    let rotated = store
-        .rotate_gateway_api_key(
-            created.revision(),
+    let rotated = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::RotateGatewayApiKey {
             id,
-            key.config_version(),
-            key.token_version(),
-            secret(&second),
-        )
-        .await
-        .expect("rotate");
+            expected_config_version: key.config_version(),
+            expected_token_version: key.token_version(),
+            token: secret(&second),
+        },
+    )
+    .await
+    .expect("rotate");
     let rotated_key = rotated.gateway_api_keys().get(id).expect("rotated key");
     assert_eq!(rotated_key.token_version(), 2);
     assert_eq!(rotated_key.token(), second);
@@ -85,10 +89,16 @@ async fn gateway_api_key_lifecycle_persists_plaintext_and_physically_deletes() {
             .verify(second.as_bytes(), rotated_key.token_hash())
     );
 
-    let deleted = store
-        .delete_gateway_api_key(rotated.revision(), id, rotated_key.config_version())
-        .await
-        .expect("delete");
+    let deleted = commit_configuration(
+        &store,
+        rotated.revision(),
+        ConfigurationMutation::DeleteGatewayApiKey {
+            id,
+            expected_config_version: rotated_key.config_version(),
+        },
+    )
+    .await
+    .expect("delete");
     assert!(deleted.gateway_api_keys().get(id).is_none());
     assert!(deleted.gateway_api_keys().keys().is_empty());
 
@@ -110,40 +120,46 @@ async fn gateway_api_key_conflicts_do_not_advance_revision() {
         .await
         .expect("store");
     let first_id = GatewayApiKeyId::new();
-    let created = store
-        .create_gateway_api_key(
-            ConfigRevision::INITIAL,
-            first_id,
-            GatewayApiKeyDraft::new("CLI", true).expect("draft"),
-            secret(&token(1)),
-        )
-        .await
-        .expect("create");
-    let duplicate = store
-        .create_gateway_api_key(
-            created.revision(),
-            GatewayApiKeyId::new(),
-            GatewayApiKeyDraft::new("cli", true).expect("draft"),
-            secret(&token(2)),
-        )
-        .await
-        .expect_err("duplicate name");
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateGatewayApiKey {
+            id: first_id,
+            draft: GatewayApiKeyDraft::new("CLI", true).expect("draft"),
+            token: secret(&token(1)),
+        },
+    )
+    .await
+    .expect("create");
+    let duplicate = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::CreateGatewayApiKey {
+            id: GatewayApiKeyId::new(),
+            draft: GatewayApiKeyDraft::new("cli", true).expect("draft"),
+            token: secret(&token(2)),
+        },
+    )
+    .await
+    .expect_err("duplicate name");
     assert!(matches!(duplicate, StorageError::GatewayApiKeyNameConflict));
 
     let key = created
         .gateway_api_keys()
         .get(first_id)
         .expect("created key");
-    let stale = store
-        .rotate_gateway_api_key(
-            created.revision(),
-            first_id,
-            key.config_version(),
-            key.token_version() + 1,
-            secret(&token(3)),
-        )
-        .await
-        .expect_err("stale token version");
+    let stale = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::RotateGatewayApiKey {
+            id: first_id,
+            expected_config_version: key.config_version(),
+            expected_token_version: key.token_version() + 1,
+            token: secret(&token(3)),
+        },
+    )
+    .await
+    .expect_err("stale token version");
     assert!(matches!(
         stale,
         StorageError::GatewayApiKeyTokenVersionConflict { .. }
@@ -159,21 +175,54 @@ async fn gateway_api_key_conflicts_do_not_advance_revision() {
 }
 
 #[tokio::test]
+async fn gateway_api_key_digest_mismatch_fails_configuration_loading() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
+        .await
+        .expect("store");
+    let id = GatewayApiKeyId::new();
+    commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateGatewayApiKey {
+            id,
+            draft: GatewayApiKeyDraft::new("Corrupted", true).expect("draft"),
+            token: secret(&token(5)),
+        },
+    )
+    .await
+    .expect("create");
+
+    sqlx::query("UPDATE gateway_api_keys SET token_hash = zeroblob(32) WHERE id = ?")
+        .bind(id.to_string())
+        .execute(store.pool())
+        .await
+        .expect("corrupt digest");
+
+    assert!(matches!(
+        store.load_configuration().await,
+        Err(StorageError::CorruptConfiguration)
+    ));
+}
+
+#[tokio::test]
 async fn gateway_api_key_last_used_updates_are_monotonic_and_do_not_publish_configuration() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
         .await
         .expect("store");
     let id = GatewayApiKeyId::new();
-    let created = store
-        .create_gateway_api_key(
-            ConfigRevision::INITIAL,
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateGatewayApiKey {
             id,
-            GatewayApiKeyDraft::new("Telemetry", true).expect("draft"),
-            secret(&token(4)),
-        )
-        .await
-        .expect("create");
+            draft: GatewayApiKeyDraft::new("Telemetry", true).expect("draft"),
+            token: secret(&token(4)),
+        },
+    )
+    .await
+    .expect("create");
 
     store
         .touch_gateway_api_key_last_used(&[GatewayApiKeyLastUsedUpdate {

@@ -124,6 +124,7 @@ async fn unavailable_explicit_proxy_fails_closed_without_reaching_origin() {
     })
     .expect("transport manager");
     let proxy = network_proxy("Unavailable", ProxyKind::Http, unavailable_address, true);
+    manager.client_for(&proxy).expect("warm proxy client");
 
     let error = match manager
         .execute(

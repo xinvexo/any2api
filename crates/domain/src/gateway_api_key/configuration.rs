@@ -55,7 +55,6 @@ mod tests {
             token.clone(),
             &token[..16],
             [7; 32],
-            "gk1_test",
             "2026-07-19 00:00:00",
         )
         .expect("key")

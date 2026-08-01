@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-pub const GATEWAY_TOKEN_HASH_VERSION: u32 = 1;
+pub const GATEWAY_TOKEN_HASH_VERSION: u32 = 2;
 pub const GATEWAY_TOKEN_VERSION: u64 = 1;
 /// Client-facing gateway tokens always start with this fixed prefix.
 pub const GATEWAY_TOKEN_PREFIX: &str = "a2k_v1_";
@@ -23,8 +23,6 @@ pub enum GatewayApiKeyValidationError {
     InvalidTokenPrefix,
     #[error("gateway API Key token is invalid")]
     InvalidToken,
-    #[error("gateway API Key hash key id is invalid")]
-    InvalidHashKeyId,
     #[error("gateway API Key version is invalid")]
     InvalidVersion,
     #[error("gateway API Key timestamp is invalid")]
@@ -57,17 +55,6 @@ pub(crate) fn validate_prefix(prefix: String) -> Result<String, GatewayApiKeyVal
         return Err(GatewayApiKeyValidationError::InvalidTokenPrefix);
     }
     Ok(prefix)
-}
-
-pub(crate) fn validate_hash_key_id(value: String) -> Result<String, GatewayApiKeyValidationError> {
-    if value.trim().is_empty()
-        || value.trim() != value
-        || value.chars().count() > 128
-        || value.chars().any(char::is_control)
-    {
-        return Err(GatewayApiKeyValidationError::InvalidHashKeyId);
-    }
-    Ok(value)
 }
 
 pub(crate) fn validate_timestamp(value: String) -> Result<String, GatewayApiKeyValidationError> {

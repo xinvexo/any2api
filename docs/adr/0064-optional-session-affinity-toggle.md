@@ -15,8 +15,8 @@ Codex `previous_response_id` 不只是负载均衡提示，而是对原 Credenti
 
 ## 决策
 
-- SettingRegistry 新增 `affinity.enabled`，类型为 boolean，编译默认值为 `true`，支持覆盖、恢复默认和
-  PublishedSnapshot 热更新。
+- SettingRegistry 新增 `affinity.enabled`，类型为 boolean，编译默认值为 `true`，支持覆盖、底层删除覆盖和
+  PublishedSnapshot 热更新；Web 只允许写入具体覆盖值。
 - 开关只作用于 ProtocolAdapter 标记为可首次创建的普通显式 Session。关闭时 Runtime 把这些标识按
   `IngressAffinity::None` 路径处理，不创建、命中或等待普通 Session 绑定。
 - Continuation 不受开关影响；`previous_response_id` 始终必须命中原绑定，未命中返回
@@ -38,4 +38,4 @@ Codex `previous_response_id` 不只是负载均衡提示，而是对原 Credenti
 - Runtime/契约测试确认关闭后相同普通 Session 可选择不同 Credential，重新开启后恢复固定目标。
 - 契约测试确认关闭期间 `previous_response_id` 仍固定到原 Credential，丢失绑定仍返回
   `session_binding_lost`。
-- Web 测试确认开关直接显示在路由策略页，并可保存与恢复默认。
+- Web 测试确认开关直接显示在路由策略页、可保存具体覆盖值且不存在恢复默认入口。

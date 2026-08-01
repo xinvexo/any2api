@@ -1,4 +1,11 @@
-use std::{fs, io::Write};
+use std::{
+    fs,
+    io::Write,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+};
 
 use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
@@ -6,10 +13,71 @@ use tar::{Builder, Header};
 use tempfile::tempdir;
 
 use crate::{
-    api::UpdateErrorKind,
+    api::{
+        ApplicationUpdateService, RestartRequester, UpdateErrorKind, UpdateStatus, UpdateTask,
+        UpdateTaskExecutor,
+    },
     github::{MAX_ARCHIVE_BYTES, parse_release_for_test},
     install::{extract_and_replace_for_test, verify_checksum_for_test},
+    service::GitHubReleaseUpdater,
 };
+
+struct CapturingTaskExecutor {
+    accepting: AtomicBool,
+    spawn_accepting: AtomicBool,
+    tasks: Mutex<Vec<UpdateTask>>,
+}
+
+impl CapturingTaskExecutor {
+    fn new(accepting: bool, spawn_accepting: bool) -> Self {
+        Self {
+            accepting: AtomicBool::new(accepting),
+            spawn_accepting: AtomicBool::new(spawn_accepting),
+            tasks: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn take_task(&self) -> UpdateTask {
+        self.tasks
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pop()
+            .expect("captured update task")
+    }
+
+    fn task_count(&self) -> usize {
+        self.tasks
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .len()
+    }
+}
+
+impl UpdateTaskExecutor for CapturingTaskExecutor {
+    fn accepts_new_tasks(&self) -> bool {
+        self.accepting.load(Ordering::Acquire)
+    }
+
+    fn try_spawn(&self, task: UpdateTask) -> bool {
+        if !self.spawn_accepting.load(Ordering::Acquire) {
+            return false;
+        }
+        self.tasks
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(task);
+        true
+    }
+}
+
+#[derive(Default)]
+struct CountingRestartRequester(AtomicUsize);
+
+impl RestartRequester for CountingRestartRequester {
+    fn request_restart(&self) {
+        self.0.fetch_add(1, Ordering::AcqRel);
+    }
+}
 
 #[test]
 fn compiled_build_version_uses_the_release_override_or_dev_default() {
@@ -21,6 +89,73 @@ fn compiled_build_version_uses_the_release_override_or_dev_default() {
     } else {
         assert_eq!(crate::BUILD_VERSION, "0.0.0-dev");
     }
+}
+
+#[tokio::test]
+async fn accepted_install_task_continues_after_the_start_call_returns() {
+    let tasks = Arc::new(CapturingTaskExecutor::new(true, true));
+    let completed = Arc::new(AtomicBool::new(false));
+    let task_completed = Arc::clone(&completed);
+    let updater = test_updater(tasks.clone(), Arc::new(CountingRestartRequester::default()));
+
+    assert_eq!(
+        updater
+            .start_task_for_test(async move {
+                task_completed.store(true, Ordering::Release);
+            })
+            .expect("accepted update task"),
+        UpdateStatus::Checking
+    );
+    assert!(!completed.load(Ordering::Acquire));
+
+    tasks.take_task().await;
+
+    assert!(completed.load(Ordering::Acquire));
+}
+
+#[test]
+fn lifecycle_rejection_rolls_back_task_admission() {
+    let tasks = Arc::new(CapturingTaskExecutor::new(true, false));
+    let updater = test_updater(tasks.clone(), Arc::new(CountingRestartRequester::default()));
+
+    let error = updater
+        .start_task_for_test(std::future::ready(()))
+        .expect_err("task registration must fail");
+
+    assert_eq!(error.kind(), UpdateErrorKind::ShuttingDown);
+    assert_eq!(updater.install_status(), UpdateStatus::Idle);
+    assert_eq!(tasks.task_count(), 0);
+}
+
+#[test]
+fn non_running_lifecycle_rejects_before_task_admission() {
+    let tasks = Arc::new(CapturingTaskExecutor::new(false, false));
+    let updater = test_updater(tasks.clone(), Arc::new(CountingRestartRequester::default()));
+
+    let error = updater
+        .start_install()
+        .expect_err("shutting down lifecycle must reject");
+
+    assert_eq!(error.kind(), UpdateErrorKind::ShuttingDown);
+    assert_eq!(updater.install_status(), UpdateStatus::Idle);
+    assert_eq!(tasks.task_count(), 0);
+}
+
+#[test]
+fn completed_install_requests_restart_exactly_once() {
+    let tasks = Arc::new(CapturingTaskExecutor::new(true, true));
+    let restart = Arc::new(CountingRestartRequester::default());
+    let updater = test_updater(tasks, restart.clone());
+
+    updater.complete_install_for_test("1.2.3");
+
+    assert_eq!(restart.0.load(Ordering::Acquire), 1);
+    assert_eq!(
+        updater.install_status(),
+        UpdateStatus::Restarting {
+            target_version: "1.2.3".to_owned(),
+        }
+    );
 }
 
 #[test]
@@ -142,4 +277,12 @@ fn write_archive(path: &std::path::Path, entries: &[(&str, &[u8])]) {
         .expect("gzip finish")
         .flush()
         .expect("flush");
+}
+
+fn test_updater(
+    tasks: Arc<dyn UpdateTaskExecutor>,
+    restart: Arc<dyn RestartRequester>,
+) -> GitHubReleaseUpdater {
+    GitHubReleaseUpdater::new(std::path::PathBuf::new(), true, restart, tasks)
+        .expect("test updater")
 }

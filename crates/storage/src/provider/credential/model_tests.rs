@@ -5,7 +5,10 @@ use any2api_domain::{
 };
 use tempfile::tempdir;
 
-use crate::api::{ConfigurationRepository, SecretBytes, SettingRepository, SqliteStore};
+use crate::{
+    api::{ConfigurationMutation, ConfigurationRepository, SecretBytes, SqliteStore},
+    configuration::commit_configuration,
+};
 
 #[tokio::test]
 async fn selected_models_persist_sorted_and_rebuild_routes() {
@@ -14,29 +17,39 @@ async fn selected_models_persist_sorted_and_rebuild_routes() {
     let store = SqliteStore::connect(&database).await.expect("store");
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
-    let endpoint = store
-        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft())
-        .await
-        .expect("endpoint");
-    let created = store
-        .create_provider_credential(
-            endpoint.revision(),
-            credential_id,
+    let endpoint = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: endpoint_id,
+            draft: endpoint_draft(),
+        },
+    )
+    .await
+    .expect("endpoint");
+    let created = commit_configuration(
+        &store,
+        endpoint.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: credential_id,
             endpoint_id,
-            credential_draft(),
-            secret("sk-model-persistence"),
-        )
-        .await
-        .expect("credential");
-    let modeled = store
-        .set_provider_credential_models(
-            created.revision(),
-            credential_id,
-            1,
-            vec!["gpt-z".to_owned(), "gpt-a".to_owned()],
-        )
-        .await
-        .expect("set models");
+            draft: credential_draft(),
+            api_key: secret("sk-model-persistence"),
+        },
+    )
+    .await
+    .expect("credential");
+    let modeled = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::SetProviderCredentialModels {
+            id: credential_id,
+            expected_config_version: 1,
+            models: vec!["gpt-z".to_owned(), "gpt-a".to_owned()],
+        },
+    )
+    .await
+    .expect("set models");
     let credential = modeled
         .provider_credentials()
         .get(credential_id)
@@ -52,15 +65,17 @@ async fn selected_models_persist_sorted_and_rebuild_routes() {
     );
     assert_eq!(modeled.model_routes().routes().len(), 2);
 
-    let unchanged = store
-        .set_provider_credential_models(
-            modeled.revision(),
-            credential_id,
-            2,
-            vec!["gpt-a".to_owned(), "gpt-z".to_owned()],
-        )
-        .await
-        .expect("no-op model update");
+    let unchanged = commit_configuration(
+        &store,
+        modeled.revision(),
+        ConfigurationMutation::SetProviderCredentialModels {
+            id: credential_id,
+            expected_config_version: 2,
+            models: vec!["gpt-a".to_owned(), "gpt-z".to_owned()],
+        },
+    )
+    .await
+    .expect("no-op model update");
     assert_eq!(unchanged.revision(), modeled.revision());
 
     drop(store);
@@ -86,41 +101,53 @@ async fn rotating_secret_clears_selected_models_and_materialized_routes() {
         .expect("store");
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
-    let endpoint = store
-        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft())
-        .await
-        .expect("endpoint");
-    let created = store
-        .create_provider_credential(
-            endpoint.revision(),
-            credential_id,
+    let endpoint = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: endpoint_id,
+            draft: endpoint_draft(),
+        },
+    )
+    .await
+    .expect("endpoint");
+    let created = commit_configuration(
+        &store,
+        endpoint.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: credential_id,
             endpoint_id,
-            credential_draft(),
-            secret("sk-before-rotation"),
-        )
-        .await
-        .expect("credential");
-    let selected = store
-        .set_provider_credential_models(
-            created.revision(),
-            credential_id,
-            1,
-            vec!["gpt-5.1-codex".to_owned()],
-        )
-        .await
-        .expect("selected model");
+            draft: credential_draft(),
+            api_key: secret("sk-before-rotation"),
+        },
+    )
+    .await
+    .expect("credential");
+    let selected = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::SetProviderCredentialModels {
+            id: credential_id,
+            expected_config_version: 1,
+            models: vec!["gpt-5.1-codex".to_owned()],
+        },
+    )
+    .await
+    .expect("selected model");
     assert_eq!(selected.model_routes().routes().len(), 1);
 
-    let rotated = store
-        .rotate_provider_credential_secret(
-            selected.revision(),
-            credential_id,
-            2,
-            1,
-            secret("sk-after-rotation"),
-        )
-        .await
-        .expect("rotated credential");
+    let rotated = commit_configuration(
+        &store,
+        selected.revision(),
+        ConfigurationMutation::RotateProviderCredentialSecret {
+            id: credential_id,
+            expected_config_version: 2,
+            expected_secret_version: 1,
+            api_key: secret("sk-after-rotation"),
+        },
+    )
+    .await
+    .expect("rotated credential");
     let credential = rotated
         .provider_credentials()
         .get(credential_id)
@@ -145,36 +172,47 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
     let store = SqliteStore::connect(&database).await.expect("store");
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
-    let endpoint = store
-        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft())
-        .await
-        .expect("endpoint");
-    let created = store
-        .create_provider_credential(
-            endpoint.revision(),
-            credential_id,
+    let endpoint = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: endpoint_id,
+            draft: endpoint_draft(),
+        },
+    )
+    .await
+    .expect("endpoint");
+    let created = commit_configuration(
+        &store,
+        endpoint.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: credential_id,
             endpoint_id,
-            credential_draft(),
-            secret("sk-allowlist-pruning"),
-        )
-        .await
-        .expect("credential");
-    let modeled = store
-        .set_provider_credential_models(
-            created.revision(),
-            credential_id,
-            1,
-            vec!["gpt-z".to_owned(), "gpt-a".to_owned()],
-        )
-        .await
-        .expect("models");
+            draft: credential_draft(),
+            api_key: secret("sk-allowlist-pruning"),
+        },
+    )
+    .await
+    .expect("credential");
+    let modeled = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::SetProviderCredentialModels {
+            id: credential_id,
+            expected_config_version: 1,
+            models: vec!["gpt-z".to_owned(), "gpt-a".to_owned()],
+        },
+    )
+    .await
+    .expect("models");
     let other_id = CredentialId::new();
-    let other = store
-        .create_provider_credential(
-            modeled.revision(),
-            other_id,
+    let other = commit_configuration(
+        &store,
+        modeled.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: other_id,
             endpoint_id,
-            ProviderCredentialDraft::new(
+            draft: ProviderCredentialDraft::new(
                 "Other",
                 CredentialKind::ApiKey,
                 ProxyProfileId::DIRECT,
@@ -182,26 +220,38 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
                 true,
             )
             .expect("other credential draft"),
-            secret("sk-other-model"),
-        )
-        .await
-        .expect("other credential");
-    let modeled = store
-        .set_provider_credential_models(other.revision(), other_id, 1, vec!["gpt-b".to_owned()])
-        .await
-        .expect("other model");
-    let allowed = store
-        .set_setting_override(
-            modeled.revision(),
-            SettingKey::ModelsAllowed,
-            SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
-                "gpt-z".to_owned(),
-                "gpt-a".to_owned(),
-                "gpt-z".to_owned(),
-            ])),
-        )
-        .await
-        .expect("model allowlist");
+            api_key: secret("sk-other-model"),
+        },
+    )
+    .await
+    .expect("other credential");
+    let modeled = commit_configuration(
+        &store,
+        other.revision(),
+        ConfigurationMutation::SetProviderCredentialModels {
+            id: other_id,
+            expected_config_version: 1,
+            models: vec!["gpt-b".to_owned()],
+        },
+    )
+    .await
+    .expect("other model");
+    let allowed = commit_configuration(
+        &store,
+        modeled.revision(),
+        ConfigurationMutation::ApplySettingChanges {
+            changes: vec![any2api_domain::SettingOverrideChange::Set {
+                key: SettingKey::ModelsAllowed,
+                value: SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
+                    "gpt-z".to_owned(),
+                    "gpt-a".to_owned(),
+                    "gpt-z".to_owned(),
+                ])),
+            }],
+        },
+    )
+    .await
+    .expect("model allowlist");
     assert_eq!(
         allowed.settings().override_value(SettingKey::ModelsAllowed),
         Some(SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
@@ -210,15 +260,17 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         ])))
     );
 
-    let reduced = store
-        .set_provider_credential_models(
-            allowed.revision(),
-            credential_id,
-            2,
-            vec!["gpt-z".to_owned()],
-        )
-        .await
-        .expect("remove one model source");
+    let reduced = commit_configuration(
+        &store,
+        allowed.revision(),
+        ConfigurationMutation::SetProviderCredentialModels {
+            id: credential_id,
+            expected_config_version: 2,
+            models: vec!["gpt-z".to_owned()],
+        },
+    )
+    .await
+    .expect("remove one model source");
     assert_eq!(
         reduced.settings().override_value(SettingKey::ModelsAllowed),
         Some(SettingValue::ModelAccess(ModelAccess::Allowlist(vec![
@@ -226,10 +278,16 @@ async fn removing_the_last_model_source_prunes_the_persisted_allowlist() {
         ])))
     );
 
-    let deleted = store
-        .delete_provider_credential(reduced.revision(), credential_id, 3)
-        .await
-        .expect("delete last source");
+    let deleted = commit_configuration(
+        &store,
+        reduced.revision(),
+        ConfigurationMutation::DeleteProviderCredential {
+            id: credential_id,
+            expected_config_version: 3,
+        },
+    )
+    .await
+    .expect("delete last source");
     assert_eq!(
         deleted.settings().override_value(SettingKey::ModelsAllowed),
         Some(SettingValue::ModelAccess(

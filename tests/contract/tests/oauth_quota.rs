@@ -387,11 +387,10 @@ impl TestContext {
         let configuration = storage.load_configuration().await.expect("configuration");
         let providers = build_provider_registry();
         let runtime = Arc::new(RuntimeRegistry::new());
-        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            providers.as_ref(),
-        )));
+        let snapshots = Arc::new(SnapshotStore::new(
+            PublishedSnapshot::new(configuration, runtime.as_ref(), providers.as_ref())
+                .expect("initial snapshot"),
+        ));
         let publisher = Arc::new(
             ConfigPublisher::new(
                 Arc::clone(&storage),
@@ -441,7 +440,7 @@ impl TestContext {
                 draft("Claude OAuth"),
                 None,
                 None,
-                vec!["claude-sonnet-4-5".into()],
+                vec!["claude-sonnet-4-5-20250929".into()],
                 document(
                     ProviderKind::Claude,
                     br#"{"type":"claude","access_token":"claude-secret","refresh_token":"claude-refresh"}"#,

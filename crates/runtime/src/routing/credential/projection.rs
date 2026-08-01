@@ -8,6 +8,28 @@ use any2api_domain::{
 use crate::credential::{CredentialGenerationDefinition, CredentialRuntimeBinding};
 
 pub(crate) struct RoutingCredentialSpec {
+    pub(super) projection: RoutingCredentialProjection,
+    pub(super) requests_per_minute: Option<RequestsPerMinute>,
+    pub(super) generation: CredentialGenerationDefinition,
+}
+
+impl RoutingCredentialSpec {
+    pub(crate) const fn id(&self) -> RoutingCredentialId {
+        self.projection.id
+    }
+
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        RoutingCredentialProjection,
+        Option<RequestsPerMinute>,
+        CredentialGenerationDefinition,
+    ) {
+        (self.projection, self.requests_per_minute, self.generation)
+    }
+}
+
+pub(crate) struct RoutingCredentialProjection {
     pub(super) id: RoutingCredentialId,
     pub(super) provider_kind: ProviderKind,
     pub(super) endpoint_id: ProviderEndpointId,
@@ -21,25 +43,9 @@ pub(crate) struct RoutingCredentialSpec {
     pub(super) endpoint_enabled: bool,
     pub(super) models: Vec<UpstreamModelName>,
     pub(super) available_models: Vec<UpstreamModelName>,
-    pub(super) requests_per_minute: Option<RequestsPerMinute>,
-    pub(super) generation: Option<CredentialGenerationDefinition>,
 }
 
-impl RoutingCredentialSpec {
-    pub(crate) const fn id(&self) -> RoutingCredentialId {
-        self.id
-    }
-
-    pub(crate) const fn requests_per_minute(&self) -> Option<RequestsPerMinute> {
-        self.requests_per_minute
-    }
-
-    pub(crate) fn take_generation(&mut self) -> CredentialGenerationDefinition {
-        self.generation
-            .take()
-            .expect("routing credential generation is consumed once")
-    }
-
+impl RoutingCredentialProjection {
     pub(crate) fn bind(self, binding: CredentialRuntimeBinding) -> RoutingCredential {
         RoutingCredential {
             id: self.id,

@@ -1,12 +1,15 @@
 use std::borrow::Cow;
 
 use sqlx::{
+    SqliteConnection,
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
 use tempfile::tempdir;
 
 use super::{MIGRATOR, run};
+
+mod plaintext_schema;
 
 const DIRECT_PROXY_ID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -16,14 +19,16 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     let options = SqliteConnectOptions::new()
         .filename(directory.path().join("initial.sqlite3"))
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(false);
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect_with(options)
         .await
         .expect("SQLite pool");
 
-    run(&pool).await.expect("full migration chain");
+    let mut connection = pool.acquire().await.expect("migration connection");
+    run(&mut connection).await.expect("full migration chain");
+    drop(connection);
 
     let migrations = sqlx::query_as::<_, (i64, String)>(
         "SELECT version, description FROM _sqlx_migrations ORDER BY version",
@@ -36,6 +41,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
         vec![
             (1, "initial".to_owned()),
             (2, "drop request log cache write tokens".to_owned()),
+            (3, "plaintext local secrets".to_owned()),
         ]
     );
 
@@ -85,6 +91,10 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("requests_per_minute"));
     assert!(!oauth_schema.contains("max_concurrency"));
+    let provider_credential_schema = table_schema(&pool, "provider_credentials").await;
+    assert!(provider_credential_schema.contains("api_key BLOB NOT NULL"));
+    let proxy_password_schema = table_schema(&pool, "proxy_passwords").await;
+    assert!(proxy_password_schema.contains("password BLOB NOT NULL"));
 
     let obsolete_tables = sqlx::query_scalar::<_, String>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND (\
@@ -110,27 +120,18 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
 async fn request_log_cache_write_token_migration_preserves_existing_rows() {
     let directory = tempdir().expect("temporary directory");
     let options = SqliteConnectOptions::new()
-        .filename(directory.path().join("upgrade.sqlite3"))
+        .filename(directory.path().join("request-log-upgrade.sqlite3"))
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(false);
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect_with(options)
         .await
         .expect("SQLite pool");
-    let initial = Migrator {
-        migrations: Cow::Owned(
-            MIGRATOR
-                .iter()
-                .filter(|migration| migration.version == 1)
-                .cloned()
-                .collect(),
-        ),
-        ..Migrator::DEFAULT
-    };
-    initial.run(&pool).await.expect("initial migration");
+    let mut connection = pool.acquire().await.expect("migration connection");
+    migrate_through(&mut connection, 1).await;
     assert!(
-        table_schema(&pool, "request_logs")
+        table_schema_on_connection(&mut connection, "request_logs")
             .await
             .contains("cache_write_tokens")
     );
@@ -142,39 +143,69 @@ async fn request_log_cache_write_token_migration_preserves_existing_rows() {
          VALUES ('migration-log', 1000, 1, 'openai_responses', 'responses', 200, 1, 9, \
          11, 7, 3, 5, 0, '127.0.0.1')",
     )
-    .execute(&pool)
+    .execute(&mut *connection)
     .await
     .expect("legacy request log");
 
-    run(&pool).await.expect("forward migration");
+    migrate_through(&mut connection, 2).await;
 
     let usage = sqlx::query_as::<_, (i64, i64, i64)>(
         "SELECT input_tokens, output_tokens, cache_read_tokens FROM request_logs \
          WHERE request_id = 'migration-log'",
     )
-    .fetch_one(&pool)
+    .fetch_one(&mut *connection)
     .await
     .expect("migrated request log");
     assert_eq!(usage, (11, 7, 3));
     assert!(
-        !table_schema(&pool, "request_logs")
+        !table_schema_on_connection(&mut connection, "request_logs")
             .await
             .contains("cache_write_tokens")
     );
+    assert_eq!(migration_versions(&mut connection).await, vec![1, 2]);
+    assert!(foreign_key_violations(&mut connection).await.is_empty());
+}
 
-    let versions =
-        sqlx::query_scalar::<_, i64>("SELECT version FROM _sqlx_migrations ORDER BY version")
-            .fetch_all(&pool)
-            .await
-            .expect("migration versions");
-    assert_eq!(versions, vec![1, 2]);
-    assert!(
-        sqlx::query("PRAGMA foreign_key_check")
-            .fetch_all(&pool)
-            .await
-            .expect("foreign key check")
-            .is_empty()
-    );
+fn migrator_through(maximum_version: i64) -> Migrator {
+    Migrator {
+        migrations: Cow::Owned(
+            MIGRATOR
+                .iter()
+                .filter(|migration| migration.version <= maximum_version)
+                .cloned()
+                .collect(),
+        ),
+        ..Migrator::DEFAULT
+    }
+}
+
+async fn migrate_through(connection: &mut SqliteConnection, maximum_version: i64) {
+    migrator_through(maximum_version)
+        .run_direct(connection)
+        .await
+        .expect("migration subset");
+}
+
+async fn migration_versions(connection: &mut SqliteConnection) -> Vec<i64> {
+    sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+        .fetch_all(connection)
+        .await
+        .expect("migration versions")
+}
+
+async fn foreign_key_violations(connection: &mut SqliteConnection) -> Vec<sqlx::sqlite::SqliteRow> {
+    sqlx::query("PRAGMA foreign_key_check")
+        .fetch_all(connection)
+        .await
+        .expect("foreign key check")
+}
+
+async fn table_schema_on_connection(connection: &mut SqliteConnection, table: &str) -> String {
+    sqlx::query_scalar("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?")
+        .bind(table)
+        .fetch_one(connection)
+        .await
+        .expect("table schema")
 }
 
 async fn table_schema(pool: &sqlx::SqlitePool, table: &str) -> String {

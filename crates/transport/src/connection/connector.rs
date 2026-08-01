@@ -12,6 +12,7 @@ use http::{HeaderValue, Uri};
 use hyper_rustls::{HttpsConnector, MaybeHttpsStream};
 use hyper_util::client::legacy::connect::proxy::{SocksV5, Tunnel};
 use rustls::pki_types::{CertificateDer, ServerName};
+use tokio::time::timeout;
 use tower_service::Service;
 
 use super::tls::{build_tls_config, wrap_tls};
@@ -31,6 +32,7 @@ pub(crate) type PinnedIo = MaybeHttpsStream<ProxyTcpStream>;
 #[derive(Clone)]
 pub(crate) struct PinnedConnector {
     inner: PinnedConnectorInner,
+    connect_timeout: Duration,
 }
 
 #[derive(Clone)]
@@ -67,6 +69,7 @@ impl PinnedConnector {
                         tls_config,
                         server_name,
                     )),
+                    connect_timeout,
                 })
             }
             (ProxyKind::Http, true) => {
@@ -82,6 +85,7 @@ impl PinnedConnector {
                         tls_config,
                         server_name,
                     )),
+                    connect_timeout,
                 })
             }
             (ProxyKind::Socks5, _) => {
@@ -100,6 +104,7 @@ impl PinnedConnector {
                         tls_config,
                         server_name,
                     )),
+                    connect_timeout,
                 })
             }
             (ProxyKind::Direct, _) => Err(TransportError::configuration(
@@ -138,14 +143,16 @@ impl Service<Uri> for PinnedConnector {
 
     fn call(&mut self, destination: Uri) -> Self::Future {
         let kind = self.kind();
+        let connect_timeout = self.connect_timeout;
         let future = match &mut self.inner {
             PinnedConnectorInner::HttpForward(connector) => connector.call(destination),
             PinnedConnectorInner::HttpTunnel(connector) => connector.call(destination),
             PinnedConnectorInner::Socks(connector) => connector.call(destination),
         };
         Box::pin(async move {
-            future
+            timeout(connect_timeout, future)
                 .await
+                .map_err(|_| connect_timeout_error(kind))?
                 .map_err(|error| classify_connect_error(kind, error.as_ref()))
         })
     }
@@ -203,6 +210,21 @@ fn classify_connect_error(
         stage: TransportErrorStage::ProxyHandshake,
         scope: TransportFailureScope::Proxy,
         rejected_before_execution: false,
+    }
+}
+
+fn connect_timeout_error(kind: PinnedConnectorKind) -> PinnedConnectError {
+    match kind {
+        PinnedConnectorKind::HttpForward => PinnedConnectError {
+            stage: TransportErrorStage::ProxyHandshake,
+            scope: TransportFailureScope::Proxy,
+            rejected_before_execution: false,
+        },
+        PinnedConnectorKind::HttpTunnel | PinnedConnectorKind::Socks => PinnedConnectError {
+            stage: TransportErrorStage::ProxyHandshake,
+            scope: TransportFailureScope::Unattributed,
+            rejected_before_execution: false,
+        },
     }
 }
 

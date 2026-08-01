@@ -1,0 +1,220 @@
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
+
+use any2api_domain::{
+    CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion,
+    LogPage, ProtocolDialect, ProtocolOperation, RequestId, RequestLog, SettingKey,
+    SettingOverrides, SettingValue, SettingsConfiguration,
+};
+use any2api_storage::api::{
+    GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
+    HttpAccessLogRepository, RequestLogRepository, StorageError, UpstreamCredentialUsageRepository,
+    UpstreamCredentialUsageSummary,
+};
+use async_trait::async_trait;
+use tokio::sync::Notify;
+
+#[derive(Default)]
+pub(super) struct BlockingRepository {
+    pub(super) write_batches: AtomicUsize,
+    pub(super) prune_calls: AtomicUsize,
+    pub(super) access_prune_calls: AtomicUsize,
+    pub(super) request_prune_deletions: AtomicUsize,
+    pub(super) access_prune_deletions: AtomicUsize,
+    pub(super) fail_request_writes: AtomicBool,
+    pub(super) release_first: Notify,
+    pub(super) usage_updates: Mutex<Vec<Vec<GatewayApiKeyLastUsedUpdate>>>,
+    pub(super) access_logs: Mutex<Vec<HttpAccessLog>>,
+}
+
+#[async_trait]
+impl HttpAccessLogRepository for BlockingRepository {
+    async fn append_http_access_logs(&self, records: &[HttpAccessLog]) -> Result<(), StorageError> {
+        self.access_logs
+            .lock()
+            .expect("HTTP access logs")
+            .extend_from_slice(records);
+        Ok(())
+    }
+
+    async fn prune_http_access_logs(
+        &self,
+        _retention_before_ms: u64,
+        _max_rows: u64,
+        _batch_size: u32,
+    ) -> Result<u64, StorageError> {
+        self.access_prune_calls.fetch_add(1, Ordering::AcqRel);
+        Ok(self.access_prune_deletions.swap(0, Ordering::AcqRel) as u64)
+    }
+
+    async fn list_http_access_logs(
+        &self,
+        _since_ms: u64,
+        offset: u64,
+        limit: u32,
+    ) -> Result<LogPage<HttpAccessLog>, StorageError> {
+        let logs = self.access_logs.lock().expect("HTTP access logs");
+        let total = logs.len() as u64;
+        let items = logs
+            .iter()
+            .skip(offset as usize)
+            .take(limit as usize)
+            .cloned()
+            .collect();
+        Ok(LogPage::new(items, total))
+    }
+
+    async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {
+        let mut logs = self.access_logs.lock().expect("HTTP access logs");
+        let count = logs.len() as u64;
+        logs.clear();
+        Ok(count)
+    }
+}
+
+#[async_trait]
+impl GatewayApiKeyUsageRepository for BlockingRepository {
+    async fn touch_gateway_api_key_last_used(
+        &self,
+        updates: &[GatewayApiKeyLastUsedUpdate],
+    ) -> Result<(), StorageError> {
+        self.usage_updates
+            .lock()
+            .expect("usage updates")
+            .push(updates.to_vec());
+        Ok(())
+    }
+
+    async fn list_gateway_api_key_usage(
+        &self,
+    ) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl UpstreamCredentialUsageRepository for BlockingRepository {
+    async fn list_upstream_credential_usage(
+        &self,
+    ) -> Result<Vec<UpstreamCredentialUsageSummary>, StorageError> {
+        Ok(Vec::new())
+    }
+}
+
+#[async_trait]
+impl RequestLogRepository for BlockingRepository {
+    async fn append_request_logs(
+        &self,
+        _records: &[CompletedRequestLog],
+    ) -> Result<(), StorageError> {
+        let batch = self.write_batches.fetch_add(1, Ordering::AcqRel);
+        if self.fail_request_writes.load(Ordering::Acquire) {
+            return Err(StorageError::CorruptTelemetry);
+        }
+        if batch == 0 {
+            self.release_first.notified().await;
+        }
+        Ok(())
+    }
+
+    async fn prune_request_logs(
+        &self,
+        _retention_before_ms: u64,
+        _max_rows: u64,
+        _batch_size: u32,
+    ) -> Result<u64, StorageError> {
+        self.prune_calls.fetch_add(1, Ordering::AcqRel);
+        Ok(self.request_prune_deletions.swap(0, Ordering::AcqRel) as u64)
+    }
+
+    async fn list_request_logs(
+        &self,
+        _since_ms: u64,
+        _offset: u64,
+        _limit: u32,
+    ) -> Result<LogPage<RequestLog>, StorageError> {
+        Ok(LogPage::empty())
+    }
+
+    async fn get_request_log(
+        &self,
+        _request_id: RequestId,
+    ) -> Result<Option<CompletedRequestLog>, StorageError> {
+        Ok(None)
+    }
+
+    async fn request_log_overview(
+        &self,
+        range: any2api_storage::api::RequestLogOverviewRange,
+    ) -> Result<any2api_storage::api::RequestLogOverview, StorageError> {
+        Ok(any2api_storage::api::RequestLogOverview::empty(range, 1))
+    }
+}
+
+pub(super) fn logging_settings(queue_capacity: u64) -> SettingsConfiguration {
+    let overrides = SettingOverrides::from_entries([(
+        SettingKey::LogsTelemetryQueueCapacity,
+        SettingValue::Integer(queue_capacity),
+    )])
+    .expect("logging override");
+    SettingsConfiguration::from_overrides(overrides).expect("logging settings")
+}
+
+pub(super) fn record(request_id: RequestId) -> CompletedRequestLog {
+    CompletedRequestLog {
+        request: RequestLog {
+            request_id,
+            started_at_ms: 1,
+            client_ip: "127.0.0.1".parse().expect("loopback address"),
+            config_revision: ConfigRevision::INITIAL,
+            gateway_api_key_id: None,
+            ingress_protocol: ProtocolDialect::OpenAiResponses,
+            operation: ProtocolOperation::Responses,
+            public_model: Some("test".into()),
+            thinking_level: None,
+            provider_endpoint_id: None,
+            credential_id: None,
+            oauth_account_id: None,
+            proxy_profile_id: None,
+            status_code: 200,
+            error_class: None,
+            error_message: None,
+            attempt_count: 0,
+            latency_ms: 1,
+            first_token_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            is_stream: false,
+        },
+        attempts: Vec::new(),
+    }
+}
+
+pub(super) fn access_log(path: &str) -> HttpAccessLog {
+    HttpAccessLog {
+        request_id: RequestId::new(),
+        started_at_ms: 1,
+        config_revision: ConfigRevision::INITIAL,
+        client_ip: None,
+        method: "GET".to_owned(),
+        path: path.to_owned(),
+        http_version: HttpProtocolVersion::Http11,
+        status_code: Some(200),
+        duration_ms: 1,
+        response_bytes: 0,
+        outcome: HttpAccessLogOutcome::Completed,
+    }
+}
+
+pub(super) async fn wait_for(condition: impl Fn() -> bool) {
+    for _ in 0..10_000 {
+        if condition() {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("condition was not reached");
+}

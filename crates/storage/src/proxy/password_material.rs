@@ -2,7 +2,7 @@ use std::fmt;
 
 use any2api_domain::ProxyProfileId;
 
-use crate::vault::SecretBytes;
+use crate::secret::SecretBytes;
 
 pub struct StoredProxyPassword {
     proxy_profile_id: ProxyProfileId,

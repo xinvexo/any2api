@@ -3,9 +3,9 @@ use std::sync::Arc;
 use any2api_domain::ProtocolOperation;
 
 use super::{
-    AdapterEvent, DecodedRequest, DecodedUpstreamResponse, EgressResponse, EncodedUpstreamRequest,
-    ProtocolAdapter, ProtocolBridge, ProtocolBridgeSession, SseFrame, StreamCompletionPolicy,
-    UpstreamResponse,
+    AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
+    EncodedUpstreamRequest, ProtocolAdapter, ProtocolBridge, ProtocolBridgeSession,
+    ProtocolContinuationState, SseFrame, StreamCompletionPolicy, UpstreamResponse,
 };
 use crate::ProtocolError;
 
@@ -86,6 +86,7 @@ impl ProtocolExchange {
         &mut self,
         request: DecodedRequest,
         upstream_model: &str,
+        continuation: Option<ProtocolContinuationState>,
     ) -> Result<PreparedProtocolRequest, ProtocolError> {
         if request.dialect != self.ingress.dialect() || request.operation != self.operation {
             return Err(ProtocolError::Unsupported(format!(
@@ -95,6 +96,9 @@ impl ProtocolExchange {
             )));
         }
         let Some(bridge) = &self.bridge else {
+            if continuation.is_some() {
+                return Err(ProtocolError::SessionBindingLost);
+            }
             let operation = request.operation;
             let encoded = self.ingress.encode_upstream_request(
                 operation,
@@ -107,7 +111,16 @@ impl ProtocolExchange {
                 request: encoded,
             });
         };
-        let started = bridge.start(request, upstream_model)?;
+        let started = match continuation {
+            Some(continuation) => continuation.resume(
+                self.ingress.dialect(),
+                self.upstream.dialect(),
+                self.operation,
+                request,
+                upstream_model,
+            )?,
+            None => bridge.start(request, upstream_model)?,
+        };
         let (upstream_operation, request, session) = started.into_parts();
         self.upstream_operation = upstream_operation;
         self.bridge_session = Some(session);
@@ -150,6 +163,15 @@ impl ProtocolExchange {
             Some(session) => session.finish_events(),
             None => Ok(Vec::new()),
         }
+    }
+
+    #[must_use]
+    pub fn bridge_continuation_state(&self) -> BridgeContinuationState {
+        self.bridge_session
+            .as_ref()
+            .map_or(BridgeContinuationState::Stateless, |session| {
+                session.continuation_state()
+            })
     }
 
     #[must_use]

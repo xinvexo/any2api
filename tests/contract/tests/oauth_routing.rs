@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use any2api_domain::{
-    GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, ProtocolOperation, ProviderKind,
-    ProxyProfileId, RequestId,
+    ConfigRevision, GatewayApiKeyId, OAuthAccountDraft, OAuthAccountId, ProtocolOperation,
+    ProviderKind, ProxyProfileId, RequestId,
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
@@ -14,7 +14,8 @@ use any2api_runtime::api::{
     RuntimeRegistry,
 };
 use any2api_storage::api::{
-    ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository, SqliteStore,
+    ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
+    StoredConfiguration,
 };
 use any2api_transport::api::{
     BoxByteStream, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
@@ -36,26 +37,27 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
     );
     let initial = storage.load_configuration().await.expect("configuration");
     let account_id = OAuthAccountId::new();
-    let configuration = storage
-        .create_oauth_account(
-            initial.revision(),
-            account_id,
-            ProviderKind::Codex,
-            OAuthAccountDraft::new("Codex OAuth", None, true)
-            .expect("OAuth account draft"),
-            Some("person@example.com".into()),
-            None,
-            vec!["gpt-5.5".into()],
-            OAuthAccountDocument::new(
+    let configuration = commit_configuration(
+        storage.as_ref(),
+        initial.revision(),
+        ConfigurationMutation::CreateOAuthAccount {
+            id: account_id,
+            provider_kind: ProviderKind::Codex,
+            draft: OAuthAccountDraft::new("Codex OAuth", None, true)
+                .expect("OAuth account draft"),
+            safe_account_email: Some("person@example.com".into()),
+            expires_at: None,
+            models: vec!["gpt-5.5".into()],
+            document: OAuthAccountDocument::new(
                 ProviderKind::Codex,
                 br#"{"type":"codex","access_token":"oauth-access-secret","account_id":"account-123"}"#
                     .to_vec()
                     .into(),
             )
             .expect("OAuth document"),
-        )
-        .await
-        .expect("OAuth account");
+        },
+    )
+    .await;
 
     let providers = providers();
     let protocols = protocols();
@@ -66,11 +68,10 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
         configuration.settings().logging(),
         &runtime.lifecycle(),
     ));
-    let snapshot = Arc::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        providers.as_ref(),
-    ));
+    let snapshot = Arc::new(
+        PublishedSnapshot::new(configuration, runtime.as_ref(), providers.as_ref())
+            .expect("initial snapshot"),
+    );
     let transport = Arc::new(CapturingTransport::default());
     let service = PublicRequestService::new(
         protocols,
@@ -141,6 +142,20 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
     assert_eq!(log.attempts.len(), 1);
     assert_eq!(log.attempts[0].credential_id, None);
     assert_eq!(log.attempts[0].oauth_account_id, Some(account_id));
+}
+
+async fn commit_configuration(
+    storage: &SqliteStore,
+    expected: ConfigRevision,
+    mutation: ConfigurationMutation,
+) -> StoredConfiguration {
+    let prepared = storage
+        .prepare_configuration(expected, mutation)
+        .await
+        .expect("prepare configuration");
+    let (configuration, commit) = prepared.into_parts();
+    commit.finish().await.expect("commit configuration");
+    configuration
 }
 
 fn providers() -> Arc<ProviderRegistry> {

@@ -4,10 +4,7 @@ use any2api_domain::{
     ProviderEndpointId, ProxyConfiguration,
 };
 
-use crate::{
-    error::StorageError,
-    vault::{SecretBytes, SecretEnvelope, SecretVault},
-};
+use crate::{error::StorageError, secret::SecretBytes};
 
 use super::secret_mutation::{CredentialSecretMutationContext, create, rotate_secret};
 
@@ -43,12 +40,12 @@ pub(crate) enum ProviderCredentialMutation {
 pub(crate) enum ProviderCredentialDatabaseChange {
     Create {
         credential: ProviderCredential,
-        envelope: SecretEnvelope,
+        api_key: SecretBytes,
     },
     Update(ProviderCredential),
     RotateSecret {
         credential: ProviderCredential,
-        envelope: SecretEnvelope,
+        api_key: SecretBytes,
     },
     SetModels(ProviderCredential),
     Delete(CredentialId),
@@ -94,10 +91,9 @@ pub(crate) fn prepare_provider_credential_mutation(
     current: &ProviderCredentialConfiguration,
     endpoints: &ProviderEndpointConfiguration,
     proxies: &ProxyConfiguration,
-    vault: &SecretVault,
     mutation: ProviderCredentialMutation,
 ) -> Result<Option<PreparedProviderCredentialMutation>, StorageError> {
-    let secret_context = CredentialSecretMutationContext::new(current, endpoints, proxies, vault);
+    let secret_context = CredentialSecretMutationContext::new(current, endpoints, proxies);
     match mutation {
         ProviderCredentialMutation::Create {
             id,

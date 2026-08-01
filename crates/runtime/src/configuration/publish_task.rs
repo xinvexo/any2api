@@ -9,10 +9,13 @@ pub(crate) async fn run<T>(
 where
     T: Send + 'static,
 {
-    lifecycle
-        .spawn_critical(future)
-        .await
-        .expect("configuration publish task must run to completion")
+    match lifecycle.spawn_critical(future).await {
+        Ok(output) => output,
+        Err(_) => {
+            tracing::error!("critical configuration publish task failed; terminating process");
+            std::process::abort();
+        }
+    }
 }
 
 #[cfg(test)]

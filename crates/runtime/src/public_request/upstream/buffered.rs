@@ -1,11 +1,13 @@
 use std::time::Duration;
 
 use any2api_domain::{ProtocolOperation, PublicErrorCode};
-use any2api_protocol::api::{DecodedRequest, EgressResponse, UpstreamResponse};
+use any2api_protocol::api::{
+    BridgeContinuationState, DecodedRequest, EgressResponse, UpstreamResponse,
+};
 use http::{HeaderValue, header};
 
 use super::super::{
-    affinity::{AffinitySelection, commit_binding},
+    affinity::{AffinitySelection, affinity_error, commit_binding},
     execution_limits,
     response::{
         CollectBodyError, collect_body, collect_error_body, internal_error, public_error,
@@ -120,6 +122,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
                 ),
             )
         })?;
+    let continuation_state = prepared.bridge_continuation_state();
     let mut response = prepared
         .encode_egress_response(decoded, public_model)
         .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
@@ -135,9 +138,32 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         target.clone(),
     );
     if let Some(continuation_id) = continuation_id {
+        let state = match continuation_state {
+            BridgeContinuationState::Stateless => None,
+            BridgeContinuationState::Ready(state) => Some(state),
+            BridgeContinuationState::Pending => {
+                return Err(prepared.fail_after_upstream_success(
+                    status.as_u16(),
+                    public_error(
+                        PublicErrorCode::UpstreamError,
+                        "upstream response continuation was incomplete",
+                    ),
+                ));
+            }
+        };
         continuation_binding
-            .bind(&continuation_id)
-            .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
+            .bind_ready(&continuation_id, state)
+            .map_err(|error| {
+                prepared.fail_after_upstream_success(status.as_u16(), affinity_error(error))
+            })?;
+    } else if !matches!(continuation_state, BridgeContinuationState::Stateless) {
+        return Err(prepared.fail_after_upstream_success(
+            status.as_u16(),
+            public_error(
+                PublicErrorCode::UpstreamError,
+                "upstream response continuation identity was missing",
+            ),
+        ));
     }
     commit_binding(binding_lease, target)
         .map_err(|error| prepared.fail_after_upstream_success(status.as_u16(), error))?;

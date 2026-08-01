@@ -1,9 +1,9 @@
 use std::convert::Infallible;
 
 use bytes::{Bytes, BytesMut};
-use futures_util::stream;
+use futures_util::{StreamExt, stream};
 use http::{HeaderMap, HeaderValue, header};
-use multer::Multipart;
+use multer::{Field, Multipart};
 use uuid::Uuid;
 
 use crate::{
@@ -37,10 +37,7 @@ pub(crate) async fn parse(
             .ok_or_else(|| ProtocolError::InvalidPayload("multipart field name is missing".into()))?
             .to_owned();
         let headers = safe_headers(field.headers())?;
-        let body = field
-            .bytes()
-            .await
-            .map_err(|_| ProtocolError::InvalidPayload("multipart field is malformed".into()))?;
+        let body = read_field_body(field).await?;
 
         if name == "model" {
             if model_part_index.is_some() {
@@ -111,7 +108,7 @@ pub(crate) fn encode(
         ));
     }
 
-    let mut output = BytesMut::new();
+    let mut output = BytesMut::with_capacity(encoded_capacity(&payload.parts, &boundary)?);
     for part in payload.parts {
         if part.name.is_empty() {
             return Err(ProtocolError::InvalidPayload(
@@ -139,6 +136,61 @@ pub(crate) fn encode(
     let content_type = HeaderValue::from_str(&content_type)
         .map_err(|_| ProtocolError::InvalidPayload("multipart boundary is invalid".into()))?;
     Ok((output.freeze(), content_type))
+}
+
+async fn read_field_body(mut field: Field<'_>) -> Result<Bytes, ProtocolError> {
+    // Ingress supplies one in-memory chunk, so retain Multer's field slice.
+    // The coalescing path only handles a future multi-chunk caller.
+    let Some(first) = field
+        .next()
+        .await
+        .transpose()
+        .map_err(|_| ProtocolError::InvalidPayload("multipart field is malformed".into()))?
+    else {
+        return Ok(Bytes::new());
+    };
+    let Some(second) = field
+        .next()
+        .await
+        .transpose()
+        .map_err(|_| ProtocolError::InvalidPayload("multipart field is malformed".into()))?
+    else {
+        return Ok(first);
+    };
+
+    let mut output = BytesMut::with_capacity(first.len().saturating_add(second.len()));
+    output.extend_from_slice(&first);
+    output.extend_from_slice(&second);
+    while let Some(chunk) = field
+        .next()
+        .await
+        .transpose()
+        .map_err(|_| ProtocolError::InvalidPayload("multipart field is malformed".into()))?
+    {
+        output.extend_from_slice(&chunk);
+    }
+    Ok(output.freeze())
+}
+
+fn encoded_capacity(parts: &[MultipartPart], boundary: &str) -> Result<usize, ProtocolError> {
+    let mut total = boundary.len().checked_add(6).ok_or_else(size_error)?;
+    for part in parts {
+        total = total
+            .checked_add(boundary.len().saturating_add(4))
+            .and_then(|total| total.checked_add(part.body.len().saturating_add(4)))
+            .ok_or_else(size_error)?;
+        for (name, value) in &part.headers {
+            total = total
+                .checked_add(name.as_str().len())
+                .and_then(|total| total.checked_add(value.as_bytes().len().saturating_add(4)))
+                .ok_or_else(size_error)?;
+        }
+    }
+    Ok(total)
+}
+
+fn size_error() -> ProtocolError {
+    ProtocolError::InvalidPayload("multipart body is too large to encode".into())
 }
 
 fn safe_headers(headers: &HeaderMap) -> Result<HeaderMap, ProtocolError> {

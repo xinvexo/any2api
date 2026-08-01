@@ -73,6 +73,17 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
     assert!(!created.raw_body.contains(create_key));
     assert_eq!(created.body["config_revision"], 3);
     assert_eq!(created.body["items"][0]["credential_kind"], "api_key");
+    assert_eq!(
+        created.body["items"][0]["fingerprint"]
+            .as_str()
+            .map(str::len),
+        Some(19)
+    );
+    assert!(
+        created.body["items"][0]["fingerprint"]
+            .as_str()
+            .is_some_and(|fingerprint| fingerprint.starts_with("v2:"))
+    );
     assert_eq!(created.body["items"][0]["secret_version"], 1);
     assert_eq!(created.body["items"][0]["config_version"], 1);
     assert_eq!(created.body["items"][0]["requests_per_minute"], 4);
@@ -499,11 +510,14 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     );
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        any2api_contract_tests::build_provider_registry().as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(
             Arc::clone(&storage),

@@ -17,6 +17,7 @@ Provider Endpoint 的 Base URL 是管理员明确配置的受信任目标。需�
 - `DIRECT` 始终使用 any2api 的本地解析路径，无论严格模式开关是否开启。字面 IP 不执行 DNS。
 - 严格模式关闭时，HTTP 代理和 SOCKS5 保持既有受信远端 DNS 语义：HTTP forward/CONNECT 把原始域名交给代理，SOCKS5 使用远端域名地址类型（等价于 `socks5h`）。管理界面必须显示这一信任边界。
 - 严格模式开启时，HTTP forward、HTTPS CONNECT 和 SOCKS5 均先由 any2api 解析 Endpoint 主机，然后只使用本次解析所得地址发起连接。代理仍只负责到达目标地址，不再负责解析 Endpoint 主机。
+- 本地解析与随后固定目标的 TCP、HTTP CONNECT/SOCKS5 握手、TLS 不各自获得独立 timeout，而是共同消耗从本次 `TransportManager::execute` 开始计算的绝对 `connect_timeout` deadline；在请求 Body 首次被连接层消费前超时必须取消当前连接 Future，禁止严格模式的代理握手无限挂起。
 - 严格模式通过 `upstream.strict_ssrf` SettingRegistry 设置控制，默认 `false`，可热更新并显示默认值、覆盖值和生效值。
 
 ### 2. A/AAAA 解析与目标固定

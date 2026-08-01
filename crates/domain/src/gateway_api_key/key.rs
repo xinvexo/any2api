@@ -2,8 +2,7 @@ use std::fmt;
 
 use super::validation::{
     GATEWAY_TOKEN_HASH_VERSION, GATEWAY_TOKEN_VERSION, GatewayApiKeyValidationError, next_version,
-    valid_version, validate_hash_key_id, validate_name, validate_prefix, validate_timestamp,
-    validate_token,
+    valid_version, validate_name, validate_prefix, validate_timestamp, validate_token,
 };
 use crate::GatewayApiKeyId;
 
@@ -43,7 +42,6 @@ pub struct GatewayApiKey {
     token_prefix: String,
     token_hash: [u8; 32],
     hash_version: u32,
-    hash_key_id: String,
     token_version: u64,
     config_version: u64,
     enabled: bool,
@@ -58,12 +56,10 @@ impl GatewayApiKey {
         token: impl Into<String>,
         token_prefix: impl Into<String>,
         token_hash: [u8; 32],
-        hash_key_id: impl Into<String>,
         created_at: impl Into<String>,
     ) -> Result<Self, GatewayApiKeyValidationError> {
         let token = validate_token(token.into())?;
         let token_prefix = validate_prefix(token_prefix.into())?;
-        let hash_key_id = validate_hash_key_id(hash_key_id.into())?;
         let created_at = validate_timestamp(created_at.into())?;
         Ok(Self {
             id,
@@ -72,7 +68,6 @@ impl GatewayApiKey {
             token_prefix,
             token_hash,
             hash_version: GATEWAY_TOKEN_HASH_VERSION,
-            hash_key_id,
             token_version: GATEWAY_TOKEN_VERSION,
             config_version: GATEWAY_TOKEN_VERSION,
             enabled: draft.enabled,
@@ -89,7 +84,6 @@ impl GatewayApiKey {
         token_prefix: String,
         token_hash: [u8; 32],
         hash_version: u32,
-        hash_key_id: String,
         token_version: u64,
         config_version: u64,
         created_at: String,
@@ -103,7 +97,6 @@ impl GatewayApiKey {
         }
         let token = validate_token(token)?;
         let token_prefix = validate_prefix(token_prefix)?;
-        let hash_key_id = validate_hash_key_id(hash_key_id)?;
         if created_at.trim().is_empty() {
             return Err(GatewayApiKeyValidationError::InvalidTimestamp);
         }
@@ -118,7 +111,6 @@ impl GatewayApiKey {
             token_prefix,
             token_hash,
             hash_version,
-            hash_key_id,
             token_version,
             config_version,
             enabled: draft.enabled,
@@ -144,13 +136,11 @@ impl GatewayApiKey {
         token: impl Into<String>,
         token_prefix: impl Into<String>,
         token_hash: [u8; 32],
-        hash_key_id: impl Into<String>,
     ) -> Result<Self, GatewayApiKeyValidationError> {
         Ok(Self {
             token: validate_token(token.into())?,
             token_prefix: validate_prefix(token_prefix.into())?,
             token_hash,
-            hash_key_id: validate_hash_key_id(hash_key_id.into())?,
             token_version: next_version(self.token_version)?,
             config_version: next_version(self.config_version)?,
             ..self.clone()
@@ -190,11 +180,6 @@ impl GatewayApiKey {
     #[must_use]
     pub const fn hash_version(&self) -> u32 {
         self.hash_version
-    }
-
-    #[must_use]
-    pub fn hash_key_id(&self) -> &str {
-        &self.hash_key_id
     }
 
     #[must_use]
@@ -238,7 +223,6 @@ impl fmt::Debug for GatewayApiKey {
             .field("token_prefix", &self.token_prefix)
             .field("token_hash", &"[REDACTED]")
             .field("hash_version", &self.hash_version)
-            .field("hash_key_id", &self.hash_key_id)
             .field("token_version", &self.token_version)
             .field("config_version", &self.config_version)
             .field("enabled", &self.enabled)
@@ -269,7 +253,6 @@ mod tests {
             token.clone(),
             &token[..16],
             [7; 32],
-            "gk1_test",
             "2026-07-19 00:00:00",
         )
         .expect("key")
@@ -287,7 +270,7 @@ mod tests {
     fn rotate_updates_the_token_without_a_second_lifecycle_state() {
         let token = sample_token('b');
         let rotated = key()
-            .rotated(token.clone(), &token[..16], [9; 32], "gk1_test")
+            .rotated(token.clone(), &token[..16], [9; 32])
             .expect("rotated");
         assert_eq!(rotated.token_version(), 2);
         assert_eq!(rotated.token(), token);

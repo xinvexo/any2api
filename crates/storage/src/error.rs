@@ -11,12 +11,10 @@ use thiserror::Error;
 use crate::oauth_account::OAuthAccountDocumentValidationError;
 use crate::provider::ProviderApiKeyValidationError;
 use crate::proxy::ProxyPasswordValidationError;
-use crate::vault::SecretVaultError;
-
 #[derive(Debug, Error)]
 pub enum StorageError {
-    #[error("failed to create database directory {path}: {source}")]
-    CreateDirectory {
+    #[error("failed to protect local data path {path}: {source}")]
+    ProtectLocalData {
         path: PathBuf,
         #[source]
         source: std::io::Error,
@@ -100,14 +98,10 @@ pub enum StorageError {
     GatewayApiKeyValidation(#[from] GatewayApiKeyValidationError),
     #[error("generated gateway API Key token is invalid")]
     InvalidGatewayApiKeyToken,
-    #[error("stored gateway API Key hash key does not match the current vault")]
-    GatewayApiKeyHashKeyMismatch,
     #[error("stored configuration is invalid")]
     CorruptConfiguration,
     #[error("stored request telemetry is invalid")]
     CorruptTelemetry,
     #[error("setting value is invalid: {0}")]
     SettingsValidation(#[from] SettingsValidationError),
-    #[error("secret vault initialization failed: {0}")]
-    SecretVault(#[from] SecretVaultError),
 }

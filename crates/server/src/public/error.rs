@@ -15,6 +15,7 @@ enum PublicErrorKind {
     PayloadTooLarge,
     UnreadableBody,
     UnsupportedContentEncoding,
+    ResourceExhausted,
     NotFound,
     MethodNotAllowed,
 }
@@ -61,6 +62,12 @@ impl PublicApiError {
         }
     }
 
+    pub(crate) const fn resource_exhausted() -> Self {
+        Self {
+            kind: PublicErrorKind::ResourceExhausted,
+        }
+    }
+
     const fn not_found() -> Self {
         Self {
             kind: PublicErrorKind::NotFound,
@@ -78,41 +85,57 @@ impl PublicApiError {
     }
 
     fn into_response_for_dialect(self, state: &AppState, dialect: ProtocolDialect) -> Response {
-        let (code, message) = match self.kind {
+        let (code, message, retry_after_seconds) = match self.kind {
             PublicErrorKind::InvalidForwardedHeaders => (
                 PublicErrorCode::InvalidRequest,
                 "trusted proxy headers are invalid",
+                None,
             ),
             PublicErrorKind::Unauthorized => (
                 PublicErrorCode::Unauthorized,
                 "a valid Gateway API Key is required",
+                None,
             ),
             PublicErrorKind::ConflictingCredentials => (
                 PublicErrorCode::InvalidRequest,
                 "authentication headers must contain the same Gateway API Key",
+                None,
             ),
             PublicErrorKind::PayloadTooLarge => (
                 PublicErrorCode::PayloadTooLarge,
                 "request body exceeds the public API request size limit",
+                None,
             ),
             PublicErrorKind::UnreadableBody => (
                 PublicErrorCode::InvalidRequest,
                 "request body could not be read",
+                None,
             ),
             PublicErrorKind::UnsupportedContentEncoding => (
                 PublicErrorCode::InvalidRequest,
                 "content-encoding is not supported for this public API route",
+                None,
+            ),
+            PublicErrorKind::ResourceExhausted => (
+                PublicErrorCode::LocalRateLimit,
+                "server request memory budget is exhausted",
+                Some(1),
             ),
             PublicErrorKind::NotFound => (
                 PublicErrorCode::PublicApiNotFound,
                 "public API route was not found",
+                None,
             ),
             PublicErrorKind::MethodNotAllowed => (
                 PublicErrorCode::MethodNotAllowed,
                 "request method is not allowed for this public API route",
+                None,
             ),
         };
-        let public_error = PublicError::new(code, message);
+        let mut public_error = PublicError::new(code, message);
+        if let Some(seconds) = retry_after_seconds {
+            public_error = public_error.with_retry_after_seconds(seconds);
+        }
         let mut response = super::response::from_runtime(
             state
                 .public_requests()

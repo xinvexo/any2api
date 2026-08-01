@@ -8,7 +8,8 @@ pub(crate) struct AffinityTarget {
     target_id: RouteTargetId,
     credential_id: RoutingCredentialId,
     upstream_model: String,
-    protocol_dialect: ProtocolDialect,
+    ingress_protocol_dialect: ProtocolDialect,
+    upstream_protocol_dialect: ProtocolDialect,
 }
 
 impl AffinityTarget {
@@ -17,14 +18,16 @@ impl AffinityTarget {
         target_id: RouteTargetId,
         credential_id: RoutingCredentialId,
         upstream_model: impl Into<String>,
-        protocol_dialect: ProtocolDialect,
+        ingress_protocol_dialect: ProtocolDialect,
+        upstream_protocol_dialect: ProtocolDialect,
     ) -> Self {
         Self {
             route_id,
             target_id,
             credential_id,
             upstream_model: upstream_model.into(),
-            protocol_dialect,
+            ingress_protocol_dialect,
+            upstream_protocol_dialect,
         }
     }
 
@@ -39,6 +42,7 @@ impl AffinityTarget {
             candidate.credential_id,
             candidate.upstream_model.clone(),
             protocol_dialect,
+            candidate.upstream_protocol_dialect,
         )
     }
 
@@ -49,7 +53,8 @@ impl AffinityTarget {
         candidate: &RouteCandidate,
     ) -> bool {
         self.route_id == route_id
-            && self.protocol_dialect == protocol_dialect
+            && self.ingress_protocol_dialect == protocol_dialect
+            && self.upstream_protocol_dialect == candidate.upstream_protocol_dialect
             && self.target_id == candidate.target_id
             && self.credential_id == candidate.credential_id
             && self.upstream_model == candidate.upstream_model

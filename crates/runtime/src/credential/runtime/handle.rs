@@ -2,7 +2,7 @@ use std::{
     fmt,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicU32, Ordering},
     },
 };
 
@@ -34,7 +34,6 @@ pub(crate) struct CredentialRuntimeHandle {
     in_flight: AtomicU32,
     mutable: Mutex<MutableRuntimeState>,
     current_generation: ArcSwap<CredentialGenerationRuntime>,
-    retired: AtomicBool,
     balancing: CredentialBalancingMetrics,
     scheduler_epoch: Arc<SchedulerEpoch>,
 }
@@ -45,23 +44,22 @@ impl CredentialRuntimeHandle {
         credential: &ProviderCredential,
         auth_material: CredentialAuthMaterial,
         scheduler_epoch: Arc<SchedulerEpoch>,
-    ) -> Arc<Self> {
+    ) -> CredentialRuntimeBinding {
         assert!(auth_material.matches(credential));
-        Self::new(
+        let handle = Self::new(
             credential.id().into(),
-            credential.requests_per_minute(),
             CredentialGenerationDefinition::new(
                 credential.credential_generation(),
                 credential.secret_version(),
                 CredentialAuthentication::provider_api_key(auth_material.into_provider_secret()),
             ),
             scheduler_epoch,
-        )
+        );
+        handle.current_binding(credential.requests_per_minute())
     }
 
     pub(crate) fn new(
         id: RoutingCredentialId,
-        requests_per_minute: Option<RequestsPerMinute>,
         generation: CredentialGenerationDefinition,
         scheduler_epoch: Arc<SchedulerEpoch>,
     ) -> Arc<Self> {
@@ -69,14 +67,13 @@ impl CredentialRuntimeHandle {
             id,
             in_flight: AtomicU32::new(0),
             mutable: Mutex::new(MutableRuntimeState {
-                rate_window: CredentialRateWindow::new(requests_per_minute),
+                rate_window: CredentialRateWindow::new(),
                 fixed_waiters: 0,
             }),
             current_generation: ArcSwap::from_pointee(CredentialGenerationRuntime::new(
                 generation,
                 Arc::clone(&scheduler_epoch),
             )),
-            retired: AtomicBool::new(false),
             balancing: CredentialBalancingMetrics::default(),
             scheduler_epoch,
         })
@@ -84,18 +81,9 @@ impl CredentialRuntimeHandle {
 
     pub(crate) fn reconcile(
         self: &Arc<Self>,
-        id: RoutingCredentialId,
         requests_per_minute: Option<RequestsPerMinute>,
         generation: CredentialGenerationDefinition,
     ) -> CredentialRuntimeBinding {
-        assert_eq!(self.id, id, "credential runtime id changed");
-        self.mutable
-            .lock()
-            .expect("credential runtime lock poisoned")
-            .rate_window
-            .reconcile(requests_per_minute, Instant::now());
-        self.retired.store(false, Ordering::Release);
-
         let current = self.current_generation.load_full();
         let generation = if current.matches(&generation) {
             current
@@ -111,38 +99,39 @@ impl CredentialRuntimeHandle {
         CredentialRuntimeBinding {
             handle: Arc::clone(self),
             generation,
+            requests_per_minute,
         }
     }
 
-    pub(crate) fn current_binding(self: &Arc<Self>) -> CredentialRuntimeBinding {
+    pub(crate) fn current_binding(
+        self: &Arc<Self>,
+        requests_per_minute: Option<RequestsPerMinute>,
+    ) -> CredentialRuntimeBinding {
         CredentialRuntimeBinding {
             handle: Arc::clone(self),
             generation: self.current_generation.load_full(),
+            requests_per_minute,
         }
-    }
-
-    pub(crate) fn retire(&self) {
-        self.retired.store(true, Ordering::Release);
     }
 
     pub(crate) const fn id(&self) -> RoutingCredentialId {
         self.id
     }
 
-    pub(crate) fn is_retired(&self) -> bool {
-        self.retired.load(Ordering::Acquire)
-    }
-
     pub(crate) fn in_flight(&self) -> u32 {
         self.in_flight.load(Ordering::Acquire)
     }
 
-    pub(crate) fn rate_snapshot(&self, now: Instant) -> CredentialRateSnapshot {
+    pub(crate) fn rate_snapshot(
+        &self,
+        requests_per_minute: Option<RequestsPerMinute>,
+        now: Instant,
+    ) -> CredentialRateSnapshot {
         self.mutable
             .lock()
             .expect("credential runtime lock poisoned")
             .rate_window
-            .snapshot(now)
+            .snapshot(now, requests_per_minute)
     }
 
     pub(crate) fn fixed_waiter_count(&self) -> u32 {
@@ -167,22 +156,25 @@ impl CredentialRuntimeHandle {
     pub(crate) fn try_reserve_normal(
         self: &Arc<Self>,
         generation: Arc<CredentialGenerationRuntime>,
+        requests_per_minute: Option<RequestsPerMinute>,
         now: Instant,
     ) -> Result<super::binding::RoutingPermit, RateLimited> {
-        self.try_reserve(generation, now, false)
+        self.try_reserve(generation, requests_per_minute, now, false)
     }
 
     pub(crate) fn try_reserve_fixed(
         self: &Arc<Self>,
         generation: Arc<CredentialGenerationRuntime>,
+        requests_per_minute: Option<RequestsPerMinute>,
         now: Instant,
     ) -> Result<super::binding::RoutingPermit, RateLimited> {
-        self.try_reserve(generation, now, true)
+        self.try_reserve(generation, requests_per_minute, now, true)
     }
 
     fn try_reserve(
         self: &Arc<Self>,
         generation: Arc<CredentialGenerationRuntime>,
+        requests_per_minute: Option<RequestsPerMinute>,
         now: Instant,
         fixed: bool,
     ) -> Result<super::binding::RoutingPermit, RateLimited> {
@@ -192,7 +184,9 @@ impl CredentialRuntimeHandle {
                 .lock()
                 .expect("credential runtime lock poisoned");
             let fixed_waiters = state.fixed_waiters;
-            state.rate_window.try_reserve(now, fixed_waiters, fixed)?;
+            state
+                .rate_window
+                .try_reserve(now, requests_per_minute, fixed_waiters, fixed)?;
         }
         self.in_flight
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
@@ -249,10 +243,8 @@ impl fmt::Debug for CredentialRuntimeHandle {
             .debug_struct("CredentialRuntimeHandle")
             .field("id", &self.id)
             .field("in_flight", &self.in_flight())
-            .field("rate", &self.rate_snapshot(Instant::now()))
             .field("fixed_waiters", &self.fixed_waiter_count())
             .field("generation", &self.current_generation.load())
-            .field("retired", &self.retired.load(Ordering::Acquire))
             .finish()
     }
 }

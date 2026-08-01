@@ -4,34 +4,52 @@ use any2api_domain::{CredentialId, CredentialKind, ProviderCredential};
 use any2api_provider::api::ProviderSecret;
 use any2api_storage::api::{StoredProviderCredentialSecret, StoredProviderCredentialSecrets};
 use secrecy::ExposeSecret;
+use thiserror::Error;
+
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub(crate) enum CredentialAuthMaterialError {
+    #[error("provider API Key material is not valid UTF-8 for credential {0}")]
+    InvalidUtf8(CredentialId),
+    #[error("duplicate provider API Key material for credential {0}")]
+    Duplicate(CredentialId),
+    #[error("provider API Key material is missing for credential {0}")]
+    Missing(CredentialId),
+    #[error("provider API Key kind does not match credential {0}")]
+    KindMismatch(CredentialId),
+    #[error("provider API Key version does not match credential {0}")]
+    VersionMismatch(CredentialId),
+    #[error("provider API Key generation does not match credential {0}")]
+    GenerationMismatch(CredentialId),
+    #[error("provider API Key material references unknown credential {0}")]
+    Unknown(CredentialId),
+}
 
 pub(crate) struct CredentialAuthMaterial {
     credential_id: CredentialId,
     credential_kind: CredentialKind,
-    secret_schema_version: u32,
     secret_version: u64,
     credential_generation: u64,
     provider_secret: Arc<ProviderSecret>,
 }
 
 impl CredentialAuthMaterial {
-    fn from_stored(stored: StoredProviderCredentialSecret) -> Self {
+    fn from_stored(
+        stored: StoredProviderCredentialSecret,
+    ) -> Result<Self, CredentialAuthMaterialError> {
         let credential_id = stored.credential_id();
         let credential_kind = stored.credential_kind();
-        let secret_schema_version = stored.secret_schema_version();
         let secret_version = stored.secret_version();
         let credential_generation = stored.credential_generation();
         let secret = stored.into_secret();
         let value = String::from_utf8(secret.expose_secret().to_vec())
-            .expect("storage validated Provider API Key as visible ASCII");
-        Self {
+            .map_err(|_| CredentialAuthMaterialError::InvalidUtf8(credential_id))?;
+        Ok(Self {
             credential_id,
             credential_kind,
-            secret_schema_version,
             secret_version,
             credential_generation,
-            provider_secret: Arc::new(ProviderSecret::new(secret_schema_version, value)),
-        }
+            provider_secret: Arc::new(ProviderSecret::new(value)),
+        })
     }
 
     #[cfg(test)]
@@ -39,20 +57,16 @@ impl CredentialAuthMaterial {
         Self {
             credential_id: credential.id(),
             credential_kind: credential.credential_kind(),
-            secret_schema_version: credential.secret_schema_version(),
             secret_version: credential.secret_version(),
             credential_generation: credential.credential_generation(),
-            provider_secret: Arc::new(ProviderSecret::new(
-                credential.secret_schema_version(),
-                value,
-            )),
+            provider_secret: Arc::new(ProviderSecret::new(value)),
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn matches(&self, credential: &ProviderCredential) -> bool {
         self.credential_id == credential.id()
             && self.credential_kind == credential.credential_kind()
-            && self.secret_schema_version == credential.secret_schema_version()
             && self.secret_version == credential.secret_version()
             && self.credential_generation == credential.credential_generation()
     }
@@ -68,7 +82,6 @@ impl fmt::Debug for CredentialAuthMaterial {
             .debug_struct("CredentialAuthMaterial")
             .field("credential_id", &self.credential_id)
             .field("credential_kind", &self.credential_kind)
-            .field("secret_schema_version", &self.secret_schema_version)
             .field("secret_version", &self.secret_version)
             .field("credential_generation", &self.credential_generation)
             .field("provider_secret", &"[REDACTED]")
@@ -81,35 +94,50 @@ pub(crate) struct CredentialAuthMaterials {
 }
 
 impl CredentialAuthMaterials {
-    pub(crate) fn from_stored(stored: StoredProviderCredentialSecrets) -> Self {
+    pub(crate) fn from_stored(
+        stored: StoredProviderCredentialSecrets,
+    ) -> Result<Self, CredentialAuthMaterialError> {
         let mut by_id = HashMap::new();
         for entry in stored.into_entries() {
-            let material = CredentialAuthMaterial::from_stored(entry);
-            assert!(
-                by_id.insert(material.credential_id, material).is_none(),
-                "storage returned duplicate Credential auth material"
-            );
+            let material = CredentialAuthMaterial::from_stored(entry)?;
+            let id = material.credential_id;
+            if by_id.insert(id, material).is_some() {
+                return Err(CredentialAuthMaterialError::Duplicate(id));
+            }
         }
-        Self { by_id }
+        Ok(Self { by_id })
     }
 
-    pub(crate) fn take_for(&mut self, credential: &ProviderCredential) -> CredentialAuthMaterial {
+    pub(crate) fn take_for(
+        &mut self,
+        credential: &ProviderCredential,
+    ) -> Result<CredentialAuthMaterial, CredentialAuthMaterialError> {
         let material = self
             .by_id
             .remove(&credential.id())
-            .expect("storage omitted Credential auth material");
-        assert!(
-            material.matches(credential),
-            "Credential auth material version does not match configuration"
-        );
-        material
+            .ok_or(CredentialAuthMaterialError::Missing(credential.id()))?;
+        if material.credential_kind != credential.credential_kind() {
+            return Err(CredentialAuthMaterialError::KindMismatch(credential.id()));
+        }
+        if material.secret_version != credential.secret_version() {
+            return Err(CredentialAuthMaterialError::VersionMismatch(
+                credential.id(),
+            ));
+        }
+        if material.credential_generation != credential.credential_generation() {
+            return Err(CredentialAuthMaterialError::GenerationMismatch(
+                credential.id(),
+            ));
+        }
+        Ok(material)
     }
 
-    pub(crate) fn assert_consumed(self) {
-        assert!(
-            self.by_id.is_empty(),
-            "storage returned auth material for an unknown Credential"
-        );
+    pub(crate) fn ensure_consumed(self) -> Result<(), CredentialAuthMaterialError> {
+        self.by_id
+            .keys()
+            .next()
+            .copied()
+            .map_or(Ok(()), |id| Err(CredentialAuthMaterialError::Unknown(id)))
     }
 
     #[cfg(test)]

@@ -2,6 +2,7 @@ mod affinity;
 mod execution_limits;
 mod executor;
 mod planning;
+mod resource_admission;
 mod response;
 mod retry;
 mod selection;
@@ -16,3 +17,6 @@ pub use executor::{
     PublicResponseBody, PublicResponseStream,
 };
 use executor::{RequestPermit, SelectedCandidate};
+pub use resource_admission::{
+    PUBLIC_REQUEST_MEMORY_BUDGET_BYTES, PublicRequestAdmissionError, PublicRequestMemoryAdmission,
+};

@@ -5,8 +5,6 @@ use crate::{
     configuration::{StoredConfiguration, bump_revision, load_configuration_from},
     error::StorageError,
     provider::bump_endpoint_credential_generations,
-    sqlite::SqliteStore,
-    vault::SecretVault,
 };
 
 use super::{
@@ -14,31 +12,12 @@ use super::{
     rows::execute_provider_endpoint_change,
 };
 
-impl SqliteStore {
-    pub(crate) async fn mutate_provider_endpoint(
-        &self,
-        expected: ConfigRevision,
-        mutation: ProviderEndpointMutation,
-    ) -> Result<StoredConfiguration, StorageError> {
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
-        let (configuration, changed) =
-            mutate_connection(&mut transaction, self.secret_vault(), expected, mutation).await?;
-        if changed {
-            transaction.commit().await?;
-        } else {
-            transaction.rollback().await?;
-        }
-        Ok(configuration)
-    }
-}
-
-async fn mutate_connection(
+pub(crate) async fn mutate_connection(
     connection: &mut SqliteConnection,
-    vault: &SecretVault,
     expected: ConfigRevision,
     mutation: ProviderEndpointMutation,
 ) -> Result<(StoredConfiguration, bool), StorageError> {
-    let current = load_configuration_from(connection, vault).await?;
+    let current = load_configuration_from(connection).await?;
     if current.revision() != expected {
         return Err(StorageError::RevisionConflict {
             expected,
@@ -61,7 +40,7 @@ async fn mutate_connection(
     }
     let (expected_endpoints, expected_credentials) = prepared.into_configurations();
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection, vault).await?;
+    let configuration = load_configuration_from(connection).await?;
     assert_eq!(configuration.revision(), revision);
     assert_eq!(configuration.provider_endpoints(), &expected_endpoints);
     assert_eq!(configuration.provider_credentials(), &expected_credentials);

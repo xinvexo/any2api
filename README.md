@@ -44,37 +44,31 @@ graceful shutdown, and restarts the same executable with its original arguments.
 and `ANY2API_WEB_DIR` mode can check releases but cannot install them in place. Docker deployments should update the
 image instead; an in-container replacement only affects that container's writable layer.
 
-Before upgrading, take an offline copy of the data directory and master key.
+Before upgrading, take an offline copy of the data directory.
 
 ## Startup Environment
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `ANY2API_BIND` | `127.0.0.1:3210` | HTTP listen address |
-| `ANY2API_DATA_DIR` | `./data` | SQLite database, instance lock, default master key, and logs |
-| `ANY2API_MASTER_KEY_FILE` | `<data-dir>/master-key.json` | External master-key file path |
+| `ANY2API_DATA_DIR` | `./data` | SQLite database, instance lock, and logs |
 | `ANY2API_ADMIN_PASSWORD` | unset | Initialize the first administrator password; it does not rotate an existing password |
 | `ANY2API_WEB_DIR` | unset | Explicit external Web assets for development; production normally uses embedded assets |
 | `RUST_LOG` | process default | Console log filter; file-log level is managed in the Web settings |
 
 ## Data Protection
 
-The data directory contains configuration, credentials, request history, and local logs. Provider API keys and proxy passwords are encrypted with the master key. OAuth Provider JSON is deliberately stored as plaintext in SQLite and is never exposed by a read/download/export endpoint.
+The data directory contains configuration, credentials, request history, and local logs. Provider API keys, proxy passwords, Gateway API keys, and OAuth Provider JSON are stored as plaintext in SQLite by product decision. Provider and OAuth secrets are not exposed by ordinary read/download/export endpoints; Gateway API keys remain visible to an authenticated administrator.
 
-Protect both of these files together:
+The data directory is the local protection boundary. On Unix any2api enforces `0700` on the data and log directories and `0600` on the SQLite database, WAL/SHM sidecars, instance lock, and application log files. On Windows, restrict the data directory to the service account with the host ACL.
 
-- `<data-dir>/any2api.sqlite3`
-- `<data-dir>/master-key.json`, or the file selected by `ANY2API_MASTER_KEY_FILE`
-
-Losing the master key makes encrypted credentials unrecoverable. Copying only the master key without the database is also insufficient. On Unix the key file must not be readable by group or other users. On Windows, restrict the data directory and key file to the service account with the host ACL.
-
-There is no built-in backup or restore workflow. For an offline filesystem backup, stop any2api first and copy the database, master key, and any SQLite sidecar files as one consistent set.
+There is no built-in backup or restore workflow. For an offline filesystem backup, stop any2api first and copy the data directory as one consistent set.
 
 ## Database Compatibility
 
-Database migrations are immutable forward-only scripts. `migrations/0001_initial.sql` and every committed migration
-must not be edited; schema changes append the next numbered SQL script and existing data directories upgrade through
-the complete migration chain on startup.
+Database migrations are immutable forward-only scripts. `migrations/0001_initial.sql` and every numbered migration
+and checksum are frozen once added to the repository; schema changes append the next numbered SQL script. Existing
+data directories and fresh databases both reach the current schema by running the complete migration chain on startup.
 
 Do not run two any2api processes against one data directory. The process holds an
 exclusive instance lock and rejects a second owner.

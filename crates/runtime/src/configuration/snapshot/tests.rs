@@ -30,11 +30,14 @@ async fn snapshots_reuse_queue_state_but_capture_policy_per_revision() {
     let initial_policy =
         QueuePolicy::from_scheduler_settings(initial_configuration.settings().scheduler());
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        initial_configuration,
-        runtime.as_ref(),
-        crate::test_support::configuration_capabilities().provider_registry(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            initial_configuration,
+            runtime.as_ref(),
+            crate::test_support::configuration_capabilities().provider_registry(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),
@@ -78,11 +81,14 @@ async fn published_rpm_update_preserves_the_stable_runtime_window() {
     );
     let initial = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        initial,
-        runtime.as_ref(),
-        crate::test_support::configuration_capabilities().provider_registry(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            initial,
+            runtime.as_ref(),
+            crate::test_support::configuration_capabilities().provider_registry(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),
@@ -127,6 +133,12 @@ async fn published_rpm_update_preserves_the_stable_runtime_window() {
         .expect("updated credential runtime");
 
     assert!(Arc::ptr_eq(&generation, after_binding.generation()));
+    assert_eq!(
+        before_binding.rate_snapshot().requests_per_minute(),
+        Some(1)
+    );
+    assert_eq!(before_binding.rate_snapshot().requests_in_window(), 1);
+    assert!(before_binding.try_reserve().is_err());
     assert_eq!(after_binding.rate_snapshot().requests_per_minute(), Some(2));
     assert_eq!(after_binding.rate_snapshot().requests_in_window(), 1);
     let second = after_binding
@@ -148,11 +160,14 @@ async fn model_allowlist_filters_the_snapshot_and_prunes_removed_routes() {
     );
     let initial = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        initial,
-        runtime.as_ref(),
-        crate::test_support::configuration_capabilities().provider_registry(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            initial,
+            runtime.as_ref(),
+            crate::test_support::configuration_capabilities().provider_registry(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),

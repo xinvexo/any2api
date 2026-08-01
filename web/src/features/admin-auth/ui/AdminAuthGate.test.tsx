@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers";
@@ -9,12 +9,10 @@ import { useAdminAuth } from "../model/use-admin-auth";
 import { AdminAuthGate } from "./AdminAuthGate";
 import { AdminSecurityBanner } from "./AdminSecurityBanner";
 
-const REMEMBER_PASSWORD_KEY = "any2api.admin.remember-password";
-
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   setAdminCsrfToken(null);
-  window.localStorage.removeItem(REMEMBER_PASSWORD_KEY);
 });
 
 test("local first run completes setup and enters the protected application", async () => {
@@ -107,7 +105,8 @@ test("remote HTTP login warns before the password is submitted", async () => {
   expect(screen.getByText(/当前连接使用明文 HTTP/)).toBeInTheDocument();
 });
 
-test("login can remember the password for the next visit", async () => {
+test("login input supports the browser password manager", async () => {
+  const storageWrites = vi.spyOn(Storage.prototype, "setItem");
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path === "/api/admin/auth/session") {
@@ -129,57 +128,19 @@ test("login can remember the password for the next visit", async () => {
   );
 
   expect(await screen.findByRole("heading", { name: "any2api" })).toBeInTheDocument();
-  const remember = screen.getByRole("checkbox", { name: "记住密码" });
-  expect(remember).not.toBeChecked();
+  const password = screen.getByLabelText("管理员密码");
+  expect(password).toHaveValue("");
+  expect(password).toHaveAttribute("autocomplete", "current-password");
+  expect(screen.queryByRole("checkbox", { name: "记住密码" })).not.toBeInTheDocument();
 
-  fireEvent.change(screen.getByLabelText("管理员密码"), {
-    target: { value: "secret-admin-password" },
+  const submittedPassword = "secret-admin-password";
+  fireEvent.change(password, {
+    target: { value: submittedPassword },
   });
-  fireEvent.click(remember);
   fireEvent.click(screen.getByRole("button", { name: "进入控制台" }));
 
   expect(await screen.findByText("protected console")).toBeInTheDocument();
-  expect(window.localStorage.getItem(REMEMBER_PASSWORD_KEY)).toBe("secret-admin-password");
-});
-
-test("login prefills a remembered password and can forget it", async () => {
-  window.localStorage.setItem(REMEMBER_PASSWORD_KEY, "stored-password");
-  let authenticated = false;
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input);
-      if (path === "/api/admin/auth/session") {
-        return jsonResponse(session(true, authenticated, authenticated ? "csrf-token" : null));
-      }
-      if (path === "/api/admin/auth/login" && init?.method === "POST") {
-        authenticated = true;
-        return jsonResponse(session(true, true, "csrf-token"));
-      }
-      throw new Error(`unexpected request ${path}`);
-    }),
-  );
-
-  render(
-    <AppProviders>
-      <AdminAuthGate>
-        <p>protected console</p>
-      </AdminAuthGate>
-    </AppProviders>,
-  );
-
-  expect(await screen.findByDisplayValue("stored-password")).toBeInTheDocument();
-  const remember = screen.getByRole("checkbox", { name: "记住密码" });
-  expect(remember).toBeChecked();
-
-  fireEvent.click(remember);
-  expect(window.localStorage.getItem(REMEMBER_PASSWORD_KEY)).toBeNull();
-
-  fireEvent.click(screen.getByRole("button", { name: "进入控制台" }));
-  expect(await screen.findByText("protected console")).toBeInTheDocument();
-  await waitFor(() => {
-    expect(window.localStorage.getItem(REMEMBER_PASSWORD_KEY)).toBeNull();
-  });
+  expect(storageWrites.mock.calls.flat().join("\n")).not.toContain(submittedPassword);
 });
 
 test("session expiry immediately closes the protected view", async () => {

@@ -13,6 +13,9 @@ mod tests;
 pub use password::ProxyPasswordValidationError;
 pub use password_material::{StoredProxyPassword, StoredProxyPasswords};
 
-pub(crate) use authentication::ProxyAuthenticationMutation;
+pub(crate) use authentication::{
+    ProxyAuthenticationMutation, mutate_connection as mutate_proxy_authentication_configuration,
+};
 pub(crate) use mutation::ProxyMutation;
+pub(crate) use repository::mutate_connection as mutate_proxy_configuration;
 pub(crate) use rows::load_proxies_from;

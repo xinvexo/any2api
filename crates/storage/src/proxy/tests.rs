@@ -5,7 +5,8 @@ use tempfile::tempdir;
 use tokio::sync::oneshot;
 
 use crate::{
-    api::{ConfigurationRepository, SqliteStore},
+    api::{ConfigurationMutation, ConfigurationRepository, SqliteStore},
+    configuration::commit_configuration,
     error::StorageError,
 };
 
@@ -36,18 +37,27 @@ async fn proxy_mutations_increment_revision_and_protect_global_proxy() {
     let address = ProxyAddress::new("proxy.example.com", 1080).expect("address");
     let draft = ProxyDraft::new("Hong Kong", ProxyKind::Socks5, address, true).expect("draft");
 
-    let created = store
-        .create_proxy(ConfigRevision::INITIAL, id, draft)
-        .await
-        .expect("create proxy");
-    let global = store
-        .set_global_proxy(created.revision(), id)
-        .await
-        .expect("set global");
-    let error = store
-        .delete_proxy(global.revision(), id)
-        .await
-        .expect_err("global proxy cannot be deleted");
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProxy { id, draft },
+    )
+    .await
+    .expect("create proxy");
+    let global = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::SetGlobalProxy { id },
+    )
+    .await
+    .expect("set global");
+    let error = commit_configuration(
+        &store,
+        global.revision(),
+        ConfigurationMutation::DeleteProxy { id },
+    )
+    .await
+    .expect_err("global proxy cannot be deleted");
 
     assert_eq!(global.revision().get(), 3);
     assert!(matches!(error, StorageError::ProxyInUse));
@@ -69,19 +79,31 @@ async fn current_global_proxy_cannot_be_disabled() {
         .expect("store");
     let id = ProxyProfileId::new();
     let enabled = proxy_draft("Hong Kong", true);
-    let created = store
-        .create_proxy(ConfigRevision::INITIAL, id, enabled)
-        .await
-        .expect("create proxy");
-    let global = store
-        .set_global_proxy(created.revision(), id)
-        .await
-        .expect("set global");
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProxy { id, draft: enabled },
+    )
+    .await
+    .expect("create proxy");
+    let global = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::SetGlobalProxy { id },
+    )
+    .await
+    .expect("set global");
 
-    let error = store
-        .update_proxy(global.revision(), id, proxy_draft("Hong Kong", false))
-        .await
-        .expect_err("global proxy cannot be disabled");
+    let error = commit_configuration(
+        &store,
+        global.revision(),
+        ConfigurationMutation::UpdateProxy {
+            id,
+            draft: proxy_draft("Hong Kong", false),
+        },
+    )
+    .await
+    .expect_err("global proxy cannot be disabled");
     let stored = store.load_configuration().await.expect("configuration");
 
     assert!(matches!(error, StorageError::ProxyInUse));
@@ -90,29 +112,33 @@ async fn current_global_proxy_cannot_be_disabled() {
 }
 
 #[tokio::test]
-async fn proxy_authentication_is_encrypted_versioned_and_clearable() {
+async fn proxy_authentication_is_plaintext_versioned_and_clearable() {
     let directory = tempdir().expect("temporary directory");
     let database = directory.path().join("config.sqlite3");
     let store = SqliteStore::connect(&database).await.expect("store");
     let id = ProxyProfileId::new();
-    let created = store
-        .create_proxy(
-            ConfigRevision::INITIAL,
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProxy {
             id,
-            proxy_draft("Authenticated", true),
-        )
-        .await
-        .expect("create proxy");
+            draft: proxy_draft("Authenticated", true),
+        },
+    )
+    .await
+    .expect("create proxy");
 
-    let authenticated = store
-        .set_proxy_authentication(
-            created.revision(),
+    let authenticated = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::SetProxyAuthentication {
             id,
-            "proxy-user".to_owned(),
-            b"proxy-password".to_vec().into(),
-        )
-        .await
-        .expect("set proxy authentication");
+            username: "proxy-user".to_owned(),
+            password: b"proxy-password".to_vec().into(),
+        },
+    )
+    .await
+    .expect("set proxy authentication");
     let profile = authenticated.proxies().get(id).expect("profile");
     assert_eq!(
         profile.authentication().expect("authentication").username(),
@@ -129,15 +155,17 @@ async fn proxy_authentication_is_encrypted_versioned_and_clearable() {
     );
     assert!(!format!("{authenticated:?}").contains("proxy-password"));
 
-    let replaced = store
-        .set_proxy_authentication(
-            authenticated.revision(),
+    let replaced = commit_configuration(
+        &store,
+        authenticated.revision(),
+        ConfigurationMutation::SetProxyAuthentication {
             id,
-            "proxy-user-2".to_owned(),
-            b"replacement".to_vec().into(),
-        )
-        .await
-        .expect("replace proxy authentication");
+            username: "proxy-user-2".to_owned(),
+            password: b"replacement".to_vec().into(),
+        },
+    )
+    .await
+    .expect("replace proxy authentication");
     assert_eq!(
         replaced
             .proxies()
@@ -170,19 +198,25 @@ async fn proxy_authentication_is_encrypted_versioned_and_clearable() {
         b"replacement"
     );
 
-    let cleared = store
-        .clear_proxy_authentication(reloaded_authenticated.revision(), id)
-        .await
-        .expect("clear proxy authentication");
+    let cleared = commit_configuration(
+        &store,
+        reloaded_authenticated.revision(),
+        ConfigurationMutation::ClearProxyAuthentication { id },
+    )
+    .await
+    .expect("clear proxy authentication");
     let profile = cleared.proxies().get(id).expect("profile");
     assert!(profile.authentication().is_none());
     assert_eq!(profile.authentication_version(), 3);
     assert!(cleared.proxy_passwords().get(id).is_none());
 
-    let repeated = store
-        .clear_proxy_authentication(cleared.revision(), id)
-        .await
-        .expect("repeat clear proxy authentication");
+    let repeated = commit_configuration(
+        &store,
+        cleared.revision(),
+        ConfigurationMutation::ClearProxyAuthentication { id },
+    )
+    .await
+    .expect("repeat clear proxy authentication");
     assert_eq!(repeated.revision(), cleared.revision());
     assert_eq!(
         repeated
@@ -228,14 +262,16 @@ async fn dropping_an_immediate_transaction_releases_the_sqlite_writer() {
     task.abort();
     let _ = task.await;
 
-    let created = store
-        .create_proxy(
-            ConfigRevision::INITIAL,
-            ProxyProfileId::new(),
-            proxy_draft("After Cancellation", true),
-        )
-        .await
-        .expect("writer must be released");
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProxy {
+            id: ProxyProfileId::new(),
+            draft: proxy_draft("After Cancellation", true),
+        },
+    )
+    .await
+    .expect("writer must be released");
 
     assert_eq!(created.revision().get(), 2);
 }

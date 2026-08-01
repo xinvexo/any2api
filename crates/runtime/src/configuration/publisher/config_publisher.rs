@@ -3,14 +3,13 @@
 use std::sync::Arc;
 
 use any2api_domain::ConfigRevision;
-use any2api_storage::api::ConfigurationRepository;
+use any2api_storage::api::{ConfigurationMutation, ConfigurationRepository, StoredConfiguration};
 use tokio::sync::watch;
 
 use crate::{
     configuration::{
         ConfigPublishError, ConfigurationCapabilities, LoggingSettingsReconciler,
-        PublishedSnapshot, SnapshotStore,
-        command::{ConfigCommand, execute},
+        PreparedPublishedSnapshot, PublishedSnapshot, SnapshotStore, command::ConfigCommand,
         publish_task,
     },
     registry::RuntimeRegistry,
@@ -72,7 +71,7 @@ impl ConfigPublisher {
         self.snapshots.subscribe_revision()
     }
 
-    pub(super) async fn publish(
+    pub(crate) async fn publish(
         &self,
         expected: ConfigRevision,
         command: ConfigCommand,
@@ -99,8 +98,10 @@ impl ConfigPublisher {
             });
         }
         self.validate_command(current.as_ref(), &command)?;
-        let committed = execute(self.repository.as_ref(), expected, command).await?;
-        Ok(self.publish_committed(current, expected, committed))
+        let (published, _) = self
+            .publish_mutation_serialized(current, expected, command.into_mutation())
+            .await?;
+        Ok(published)
     }
 
     pub(super) async fn publish_current(
@@ -123,37 +124,68 @@ impl ConfigPublisher {
         let current = self.snapshots.load();
         let expected = current.revision();
         self.validate_command(current.as_ref(), &command)?;
-        let committed = execute(self.repository.as_ref(), expected, command).await?;
-        Ok(self.publish_committed(current, expected, committed))
+        let (published, _) = self
+            .publish_mutation_serialized(current, expected, command.into_mutation())
+            .await?;
+        Ok(published)
     }
 
-    pub(crate) fn publish_committed(
+    pub(super) async fn publish_mutation_serialized(
         &self,
         current: Arc<PublishedSnapshot>,
         expected: ConfigRevision,
-        committed: any2api_storage::api::StoredConfiguration,
-    ) -> Arc<PublishedSnapshot> {
-        if committed.revision() == expected {
-            return current;
+        mutation: ConfigurationMutation,
+    ) -> Result<(Arc<PublishedSnapshot>, bool), ConfigPublishError> {
+        let prepared = self
+            .repository
+            .prepare_configuration(expected, mutation)
+            .await?;
+        let changed = prepared.changed();
+        let (candidate, commit) = prepared.into_parts();
+        if !changed {
+            commit.finish().await?;
+            return Ok((current, false));
         }
+
+        let prepared_snapshot = match self.compile_candidate(expected, candidate) {
+            Ok(prepared_snapshot) => prepared_snapshot,
+            Err(error) => {
+                commit.rollback().await?;
+                return Err(error);
+            }
+        };
+        commit.finish().await?;
+
+        let published = self
+            .snapshots
+            .replace(prepared_snapshot.bind(&self.runtime));
+        if let Some(reconciler) = &self.logging_reconciler {
+            reconciler.reconcile(published.revision(), published.settings().logging());
+        }
+        self.runtime.advance_scheduler_epoch();
+        Ok((published, true))
+    }
+
+    fn compile_candidate(
+        &self,
+        expected: ConfigRevision,
+        candidate: StoredConfiguration,
+    ) -> Result<PreparedPublishedSnapshot, ConfigPublishError> {
         let next = expected
             .checked_next()
-            .expect("repository committed a revision after the persisted maximum");
-        assert_eq!(
-            committed.revision(),
-            next,
-            "repository committed an unexpected configuration revision"
-        );
-        let snapshot = PublishedSnapshot::new(
-            committed,
-            self.runtime.as_ref(),
-            self.capabilities.provider_registry(),
-        );
-        if let Some(reconciler) = &self.logging_reconciler {
-            reconciler.reconcile(snapshot.revision(), snapshot.settings().logging());
+            .map_err(|_| ConfigPublishError::RevisionOverflow)?;
+        if candidate.revision() != next {
+            return Err(ConfigPublishError::UnexpectedCandidateRevision {
+                expected: next,
+                actual: candidate.revision(),
+            });
         }
-        let published = self.snapshots.replace(snapshot);
-        self.runtime.advance_scheduler_epoch();
-        published
+        self.capabilities.validate_configuration(
+            candidate.provider_endpoints(),
+            candidate.provider_credentials(),
+            candidate.model_routes(),
+        )?;
+        PreparedPublishedSnapshot::compile(candidate, self.capabilities.provider_registry())
+            .map_err(Into::into)
     }
 }

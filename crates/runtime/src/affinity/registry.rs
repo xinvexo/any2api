@@ -1,10 +1,11 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use any2api_domain::{ModelRouteId, ProtocolDialect, RoutingCredentialId};
+use any2api_protocol::api::{MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolContinuationState};
 use thiserror::Error;
 
 use super::{
@@ -18,7 +19,7 @@ const MAX_BINDINGS: usize = 300_000;
 
 #[derive(Debug)]
 pub(crate) struct AffinityRegistry {
-    hasher: SessionHasher,
+    pub(super) hasher: SessionHasher,
     scheduler_epoch: Arc<SchedulerEpoch>,
     pub(super) state: Mutex<AffinityState>,
 }
@@ -26,7 +27,7 @@ pub(crate) struct AffinityRegistry {
 #[derive(Debug, Default)]
 pub(super) struct AffinityState {
     next_version: u64,
-    active_credentials: Option<HashSet<RoutingCredentialId>>,
+    pub(super) continuation_bytes: usize,
     pub(super) entries: HashMap<SessionHash, BindingState>,
 }
 
@@ -36,10 +37,20 @@ pub(super) enum BindingState {
     Bound { binding: TimedBinding },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(super) enum BindingSource {
     Session,
-    Continuation,
+    Continuation(ContinuationLifecycle),
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum ContinuationLifecycle {
+    Pending {
+        version: u64,
+    },
+    Ready {
+        state: Option<ProtocolContinuationState>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -68,6 +79,14 @@ impl AffinityRegistry {
         self.scheduler_epoch.subscribe()
     }
 
+    #[cfg(test)]
+    pub(crate) fn continuation_bytes_for_test(&self) -> usize {
+        self.state
+            .lock()
+            .expect("affinity state lock poisoned")
+            .continuation_bytes
+    }
+
     pub(crate) fn begin_session(
         self: &Arc<Self>,
         dialect: ProtocolDialect,
@@ -91,7 +110,7 @@ impl AffinityRegistry {
                 BindingState::Creating { .. } => return Ok(BindingStart::Wait),
                 _ => {}
             }
-            state.entries.remove(&key);
+            state.remove(&key);
         }
         ensure_capacity(&mut state, now, ttl)?;
         let version = state.next_version();
@@ -106,118 +125,17 @@ impl AffinityRegistry {
         }))
     }
 
-    pub(crate) fn resolve_continuation(&self, raw: &str, ttl: Duration) -> Option<AffinityTarget> {
-        let key = self.hasher.continuation(raw);
-        let now = Instant::now();
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        let BindingState::Bound { binding } = state.entries.get_mut(&key)? else {
-            return None;
-        };
-        if now.saturating_duration_since(binding.last_seen_at) >= ttl {
-            state.entries.remove(&key);
-            return None;
-        }
-        binding.last_seen_at = now;
-        Some(binding.target.clone())
-    }
-
-    pub(crate) fn bind_continuation(
-        &self,
-        raw: &str,
-        target: AffinityTarget,
-        ttl: Duration,
-    ) -> Result<(), AffinityError> {
-        self.bind_continuation_with_deadline(raw, target, ttl, None)
-    }
-
-    pub(crate) fn bind_continuation_before(
-        &self,
-        raw: &str,
-        target: AffinityTarget,
-        ttl: Duration,
-        deadline: Instant,
-    ) -> Result<(), AffinityError> {
-        self.bind_continuation_with_deadline(raw, target, ttl, Some(deadline))
-    }
-
-    fn bind_continuation_with_deadline(
-        &self,
-        raw: &str,
-        target: AffinityTarget,
-        ttl: Duration,
-        deadline: Option<Instant>,
-    ) -> Result<(), AffinityError> {
-        let key = self.hasher.continuation(raw);
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return Err(AffinityError::DeadlineExceeded);
-        }
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
-            return Err(AffinityError::DeadlineExceeded);
-        }
-        if !target_is_active(&state, &target) {
-            return Err(AffinityError::TargetInactive);
-        }
-        let now = Instant::now();
-        let expired = matches!(
-            state.entries.get(&key),
-            Some(BindingState::Bound { binding })
-                if now.saturating_duration_since(binding.last_seen_at) >= ttl
-        );
-        if expired {
-            state.entries.remove(&key);
-        }
-        if let Some(existing) = state.entries.get_mut(&key) {
-            let BindingState::Bound { binding } = existing else {
-                return Err(AffinityError::IdentityConflict);
-            };
-            if binding.target != target {
-                return Err(AffinityError::IdentityConflict);
-            }
-            let committed_at = Instant::now();
-            if deadline.is_some_and(|deadline| committed_at >= deadline) {
-                return Err(AffinityError::DeadlineExceeded);
-            }
-            binding.last_seen_at = committed_at;
-            return Ok(());
-        }
-        ensure_capacity(&mut state, Instant::now(), ttl)?;
-        let committed_at = Instant::now();
-        if deadline.is_some_and(|deadline| committed_at >= deadline) {
-            return Err(AffinityError::DeadlineExceeded);
-        }
-        state.entries.insert(
-            key,
-            BindingState::Bound {
-                binding: TimedBinding {
-                    target,
-                    last_seen_at: committed_at,
-                    source: BindingSource::Continuation,
-                },
-            },
-        );
-        Ok(())
-    }
-
-    pub(crate) fn retain_credentials(&self, active: &HashSet<RoutingCredentialId>) {
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        state.active_credentials = Some(active.clone());
-        state.entries.retain(|_, entry| match entry {
-            BindingState::Bound { binding } => active.contains(&binding.target.credential_id()),
-            BindingState::Creating { .. } => true,
-        });
-    }
-
     pub(crate) fn clear_all(&self) -> usize {
         let mut state = self.state.lock().expect("affinity state lock poisoned");
         let cleared = state.entries.len();
-        let creating_removed = state
-            .entries
-            .values()
-            .any(|entry| matches!(entry, BindingState::Creating { .. }));
+        let waiting_state_removed = state.entries.values().any(|entry| match entry {
+            BindingState::Creating { .. } => true,
+            BindingState::Bound { binding } => binding.is_pending_continuation(),
+        });
         state.entries.clear();
+        state.continuation_bytes = 0;
         drop(state);
-        if creating_removed {
+        if waiting_state_removed {
             self.wake_waiters();
         }
         cleared
@@ -226,11 +144,33 @@ impl AffinityRegistry {
     pub(crate) fn clear_credential(&self, credential_id: RoutingCredentialId) -> usize {
         let mut state = self.state.lock().expect("affinity state lock poisoned");
         let before = state.entries.len();
-        state.entries.retain(|_, entry| match entry {
-            BindingState::Bound { binding } => binding.target.credential_id() != credential_id,
-            BindingState::Creating { .. } => true,
+        let removed = state
+            .entries
+            .iter()
+            .filter_map(|(key, entry)| match entry {
+                BindingState::Bound { binding }
+                    if binding.target.credential_id() == credential_id =>
+                {
+                    Some(*key)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let waiting_state_removed = removed.iter().any(|key| {
+            matches!(
+                state.entries.get(key),
+                Some(BindingState::Bound { binding }) if binding.is_pending_continuation()
+            )
         });
-        before - state.entries.len()
+        for key in removed {
+            state.remove(&key);
+        }
+        let cleared = before - state.entries.len();
+        drop(state);
+        if waiting_state_removed {
+            self.wake_waiters();
+        }
+        cleared
     }
 
     pub(super) fn wake_waiters(&self) {
@@ -239,9 +179,47 @@ impl AffinityRegistry {
 }
 
 impl AffinityState {
-    fn next_version(&mut self) -> u64 {
+    pub(super) fn next_version(&mut self) -> u64 {
         self.next_version = self.next_version.wrapping_add(1).max(1);
         self.next_version
+    }
+
+    pub(super) fn remove(&mut self, key: &SessionHash) -> Option<BindingState> {
+        let removed = self.entries.remove(key)?;
+        self.continuation_bytes = self
+            .continuation_bytes
+            .saturating_sub(continuation_bytes(&removed));
+        Some(removed)
+    }
+
+    pub(super) fn remove_expired(&mut self, now: Instant, ttl: Duration) -> usize {
+        let expired = self
+            .entries
+            .iter()
+            .filter_map(|(key, entry)| match entry {
+                BindingState::Bound { binding }
+                    if !binding.is_pending_continuation()
+                        && now.saturating_duration_since(binding.last_seen_at) >= ttl =>
+                {
+                    Some(*key)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let removed = expired.len();
+        for key in expired {
+            self.remove(&key);
+        }
+        removed
+    }
+}
+
+impl TimedBinding {
+    pub(super) fn is_pending_continuation(&self) -> bool {
+        matches!(
+            &self.source,
+            BindingSource::Continuation(ContinuationLifecycle::Pending { .. })
+        )
     }
 }
 
@@ -255,11 +233,13 @@ pub(crate) enum AffinityError {
     LeaseLost,
     #[error("affinity binding deadline elapsed")]
     DeadlineExceeded,
-    #[error("affinity target credential is no longer active")]
-    TargetInactive,
+    #[error("protocol continuation state capacity is full")]
+    ContinuationCapacity,
+    #[error("protocol continuation state exceeds its per-entry limit")]
+    ContinuationTooLarge,
 }
 
-fn ensure_capacity(
+pub(super) fn ensure_capacity(
     state: &mut AffinityState,
     now: Instant,
     ttl: Duration,
@@ -267,20 +247,23 @@ fn ensure_capacity(
     if state.entries.len() < MAX_BINDINGS {
         return Ok(());
     }
-    state.entries.retain(|_, entry| match entry {
-        BindingState::Creating { .. } => true,
-        BindingState::Bound { binding } => {
-            now.saturating_duration_since(binding.last_seen_at) < ttl
-        }
-    });
+    state.remove_expired(now, ttl);
     (state.entries.len() < MAX_BINDINGS)
         .then_some(())
         .ok_or(AffinityError::Capacity)
 }
 
-pub(super) fn target_is_active(state: &AffinityState, target: &AffinityTarget) -> bool {
-    state
-        .active_credentials
-        .as_ref()
-        .is_none_or(|active| active.contains(&target.credential_id()))
+fn continuation_bytes(entry: &BindingState) -> usize {
+    let BindingState::Bound { binding } = entry else {
+        return 0;
+    };
+    match &binding.source {
+        BindingSource::Session => 0,
+        BindingSource::Continuation(ContinuationLifecycle::Pending { .. }) => {
+            MAX_BRIDGE_CONTINUATION_STATE_BYTES
+        }
+        BindingSource::Continuation(ContinuationLifecycle::Ready { state }) => state
+            .as_ref()
+            .map_or(0, ProtocolContinuationState::serialized_bytes),
+    }
 }

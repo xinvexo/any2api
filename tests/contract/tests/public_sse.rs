@@ -268,6 +268,212 @@ async fn responses_stream_is_bridged_from_chat_completions_sse() {
 }
 
 #[tokio::test]
+async fn bridged_stream_follow_up_waits_for_ready_before_reserving_rpm() {
+    let (upstream_address, mut upstream_requests, release) = held_chat_bridge_server().await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Held Responses over Chat",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_rate_limited_credential(
+        &app,
+        remote,
+        revision + 2,
+        &endpoint,
+        "held-chat-bridge",
+        "sk-held-chat-bridge",
+        10,
+    )
+    .await;
+    select_models(&app, remote, revision + 3, &endpoint, "gpt-upstream").await;
+
+    let first = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"start"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_stream_headers(&first);
+    let first_upstream = upstream_requests
+        .recv()
+        .await
+        .expect("first upstream request");
+    assert_eq!(first_upstream.body["messages"][0]["content"], "start");
+    let mut first_body = first.into_body();
+    let first_frame = timeout(Duration::from_secs(1), first_body.frame())
+        .await
+        .expect("first downstream frame timeout")
+        .expect("first downstream frame")
+        .expect("first downstream frame body");
+    let response_id = response_id_from_sse(
+        &first_frame
+            .into_data()
+            .expect("first downstream frame is data"),
+    );
+
+    let follow_up = tokio::spawn({
+        let app = app.clone();
+        let token = token.clone();
+        let response_id = response_id.clone();
+        async move {
+            request(
+                app,
+                "/v1/responses",
+                json!({
+                    "model":"gpt-upstream",
+                    "previous_response_id":response_id,
+                    "input":"continue"
+                }),
+                remote,
+                &[("authorization", format!("Bearer {token}"))],
+            )
+            .await
+        }
+    });
+
+    tokio::task::yield_now().await;
+    assert_eq!(requests_in_window(&app, remote).await, 1);
+    assert!(
+        timeout(Duration::from_millis(50), upstream_requests.recv())
+            .await
+            .is_err(),
+        "Pending continuation must not start a second upstream request"
+    );
+
+    release.send(()).expect("release bridge terminal event");
+    first_body
+        .collect()
+        .await
+        .expect("finish first downstream stream");
+    let follow_up = follow_up.await.expect("follow-up task");
+    assert_eq!(follow_up.status(), StatusCode::OK);
+    follow_up
+        .into_body()
+        .collect()
+        .await
+        .expect("follow-up response body");
+    let second_upstream = upstream_requests
+        .recv()
+        .await
+        .expect("follow-up upstream request");
+    assert_eq!(second_upstream.body["messages"][0]["content"], "start");
+    assert_eq!(second_upstream.body["messages"][1]["role"], "assistant");
+    assert_eq!(second_upstream.body["messages"][1]["content"], "Hello");
+    assert_eq!(second_upstream.body["messages"][2]["content"], "continue");
+    assert_eq!(requests_in_window(&app, remote).await, 2);
+}
+
+#[tokio::test]
+async fn dropping_a_pending_bridged_stream_aborts_without_reserving_follow_up_rpm() {
+    let (upstream_address, mut upstream_requests, release) = held_chat_bridge_server().await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Dropped Responses over Chat",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_rate_limited_credential(
+        &app,
+        remote,
+        revision + 2,
+        &endpoint,
+        "dropped-chat-bridge",
+        "sk-dropped-chat-bridge",
+        10,
+    )
+    .await;
+    select_models(&app, remote, revision + 3, &endpoint, "gpt-upstream").await;
+
+    let first = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"start"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    let _first_upstream = upstream_requests
+        .recv()
+        .await
+        .expect("first upstream request");
+    let mut first_body = first.into_body();
+    let first_frame = timeout(Duration::from_secs(1), first_body.frame())
+        .await
+        .expect("first downstream frame timeout")
+        .expect("first downstream frame")
+        .expect("first downstream frame body");
+    let response_id = response_id_from_sse(
+        &first_frame
+            .into_data()
+            .expect("first downstream frame is data"),
+    );
+    let follow_up = tokio::spawn({
+        let app = app.clone();
+        let token = token.clone();
+        async move {
+            request(
+                app,
+                "/v1/responses",
+                json!({
+                    "model":"gpt-upstream",
+                    "previous_response_id":response_id,
+                    "input":"continue"
+                }),
+                remote,
+                &[("authorization", format!("Bearer {token}"))],
+            )
+            .await
+        }
+    });
+
+    tokio::task::yield_now().await;
+    assert_eq!(requests_in_window(&app, remote).await, 1);
+    assert!(
+        timeout(Duration::from_millis(50), upstream_requests.recv())
+            .await
+            .is_err(),
+        "Pending continuation must not start a second upstream request"
+    );
+    drop(first_body);
+
+    let follow_up = follow_up.await.expect("follow-up task");
+    assert_eq!(follow_up.status(), StatusCode::CONFLICT);
+    let body = follow_up
+        .into_body()
+        .collect()
+        .await
+        .expect("follow-up error body")
+        .to_bytes();
+    let error: Value = serde_json::from_slice(&body).expect("follow-up error JSON");
+    assert_eq!(error["error"]["code"], "session_binding_lost");
+    assert_eq!(requests_in_window(&app, remote).await, 1);
+    assert!(
+        timeout(Duration::from_millis(50), upstream_requests.recv())
+            .await
+            .is_err(),
+        "aborted continuation must not contact upstream"
+    );
+    release.send(()).expect("release dropped upstream stream");
+}
+
+#[tokio::test]
 async fn stream_precommit_byte_budget_is_applied_from_published_settings() {
     let (upstream_address, _upstream_request, release) = paused_sse_server(
         "/v1/responses",
@@ -811,11 +1017,14 @@ async fn test_app() -> (tempfile::TempDir, Router, u64) {
     );
     let configuration = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        any2api_contract_tests::build_provider_registry().as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            any2api_contract_tests::build_provider_registry().as_ref(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(
             Arc::clone(&storage),
@@ -1052,6 +1261,19 @@ async fn request_admin_method(
     serde_json::from_slice(&bytes).expect("admin response JSON")
 }
 
+async fn requests_in_window(app: &Router, remote: SocketAddr) -> u64 {
+    request_admin_method(
+        app.clone(),
+        Method::GET,
+        "/api/admin/balancing",
+        None,
+        remote,
+    )
+    .await["totals"]["requests_in_window"]
+        .as_u64()
+        .expect("requests in window")
+}
+
 async fn update_setting(app: &Router, remote: SocketAddr, revision: u64, key: &str, value: Value) {
     let response = app
         .clone()
@@ -1151,6 +1373,70 @@ async fn paused_sse_server(
             .write_all(b"0\r\n\r\n")
             .await
             .expect("finish chunked response");
+    });
+    (address, request_receiver, release_sender)
+}
+
+async fn held_chat_bridge_server() -> (
+    SocketAddr,
+    mpsc::UnboundedReceiver<UpstreamRequest>,
+    oneshot::Sender<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (request_sender, request_receiver) = mpsc::unbounded_channel();
+    let (release_sender, release_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut first_stream, _) = listener.accept().await.expect("first upstream accept");
+        let (first_path, first_request) = read_upstream_request(&mut first_stream).await;
+        assert_eq!(first_path, "/v1/chat/completions");
+        request_sender
+            .send(first_request)
+            .expect("send first upstream request");
+        first_stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("first response headers");
+        write_chunk(
+            &mut first_stream,
+            b"data: {\"id\":\"chatcmpl_held\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"}}]}\n\n",
+        )
+        .await;
+        first_stream.flush().await.expect("flush first event");
+        tokio::spawn(async move {
+            let _ = release_receiver.await;
+            let _ = try_write_chunk(
+                &mut first_stream,
+                b"data: {\"id\":\"chatcmpl_held\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n",
+            )
+            .await;
+            let _ = try_write_chunk(&mut first_stream, b"data: [DONE]\n\n").await;
+            let _ = first_stream.write_all(b"0\r\n\r\n").await;
+        });
+
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let (path, request) = read_upstream_request(&mut stream).await;
+            assert_eq!(path, "/v1/chat/completions");
+            if request_sender.send(request).is_err() {
+                return;
+            }
+            let body = r#"{"id":"chatcmpl_follow","model":"gpt-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"continued"},"finish_reason":"stop"}]}"#;
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("follow-up response");
+        }
     });
     (address, request_receiver, release_sender)
 }
@@ -1314,6 +1600,27 @@ async fn write_chunk(stream: &mut tokio::net::TcpStream, chunk: &[u8]) {
         .expect("chunk length");
     stream.write_all(chunk).await.expect("chunk body");
     stream.write_all(b"\r\n").await.expect("chunk ending");
+}
+
+async fn try_write_chunk(stream: &mut tokio::net::TcpStream, chunk: &[u8]) -> std::io::Result<()> {
+    stream
+        .write_all(format!("{:X}\r\n", chunk.len()).as_bytes())
+        .await?;
+    stream.write_all(chunk).await?;
+    stream.write_all(b"\r\n").await
+}
+
+fn response_id_from_sse(bytes: &[u8]) -> String {
+    let text = std::str::from_utf8(bytes).expect("UTF-8 SSE frame");
+    let data = text
+        .lines()
+        .find_map(|line| line.strip_prefix("data: "))
+        .expect("SSE data line");
+    let value: Value = serde_json::from_str(data).expect("SSE data JSON");
+    value["response"]["id"]
+        .as_str()
+        .expect("response.created ID")
+        .to_owned()
 }
 
 async fn read_upstream_request(stream: &mut tokio::net::TcpStream) -> (String, UpstreamRequest) {

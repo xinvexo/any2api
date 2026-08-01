@@ -10,7 +10,7 @@ use semver::Version;
 use crate::{
     api::{
         ApplicationAbout, ApplicationUpdateService, RestartRequester, UpdateCheck, UpdateError,
-        UpdateErrorKind, UpdateStatus,
+        UpdateErrorKind, UpdateStatus, UpdateTask, UpdateTaskExecutor,
     },
     github::{self, REPOSITORY_URL},
     install,
@@ -28,6 +28,7 @@ struct UpdaterInner {
     install_support_reason: Option<String>,
     task: UpdateTaskState,
     restart: Arc<dyn RestartRequester>,
+    tasks: Arc<dyn UpdateTaskExecutor>,
 }
 
 impl GitHubReleaseUpdater {
@@ -35,6 +36,7 @@ impl GitHubReleaseUpdater {
         executable_path: PathBuf,
         embedded_web: bool,
         restart: Arc<dyn RestartRequester>,
+        tasks: Arc<dyn UpdateTaskExecutor>,
     ) -> Result<Self, UpdateError> {
         let current_version = Version::parse(crate::BUILD_VERSION).map_err(|error| {
             UpdateError::new(
@@ -50,6 +52,7 @@ impl GitHubReleaseUpdater {
                 executable_path,
                 task: UpdateTaskState::new(),
                 restart,
+                tasks,
             }),
         })
     }
@@ -100,9 +103,41 @@ impl UpdaterInner {
             || installing_task.installing(&version),
         )
         .await?;
-        self.task.restarting(&version);
-        self.restart.request_restart();
+        self.complete_install(&version);
         Ok(())
+    }
+
+    fn complete_install(&self, version: &str) {
+        self.task.restarting(version);
+        self.restart.request_restart();
+    }
+}
+
+impl GitHubReleaseUpdater {
+    fn start_task(&self, task: UpdateTask) -> Result<UpdateStatus, UpdateError> {
+        if !self.inner.tasks.accepts_new_tasks() {
+            return Err(shutting_down());
+        }
+        let admission = self.inner.task.begin()?;
+        let accepted = admission.accepted();
+        if !self.inner.tasks.try_spawn(task) {
+            self.inner.task.rollback(admission);
+            return Err(shutting_down());
+        }
+        Ok(accepted)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn start_task_for_test<F>(&self, task: F) -> Result<UpdateStatus, UpdateError>
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        self.start_task(Box::pin(task))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn complete_install_for_test(&self, version: &str) {
+        self.inner.complete_install(version);
     }
 }
 
@@ -120,20 +155,28 @@ impl ApplicationUpdateService for GitHubReleaseUpdater {
     }
 
     fn start_install(&self) -> Result<UpdateStatus, UpdateError> {
+        if !self.inner.tasks.accepts_new_tasks() {
+            return Err(shutting_down());
+        }
         if let Some(reason) = &self.inner.install_support_reason {
             return Err(UpdateError::new(
                 UpdateErrorKind::Unsupported,
                 reason.clone(),
             ));
         }
-        let accepted = self.inner.task.begin()?;
-        tokio::spawn(Arc::clone(&self.inner).run_install());
-        Ok(accepted)
+        self.start_task(Box::pin(Arc::clone(&self.inner).run_install()))
     }
 
     fn install_status(&self) -> UpdateStatus {
         self.inner.task.status()
     }
+}
+
+fn shutting_down() -> UpdateError {
+    UpdateError::new(
+        UpdateErrorKind::ShuttingDown,
+        "the process is shutting down and cannot accept an application update",
+    )
 }
 
 fn install_support_reason(executable_path: &Path, embedded_web: bool) -> Option<String> {

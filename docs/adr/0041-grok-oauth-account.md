@@ -10,7 +10,7 @@ Grok 订阅账号必须作为独立 OAuthAccount 接入，不能把 OAuth JSON �
 
 ## 决策
 
-1. `ProviderKind::Grok` 支持独立 `OAuthAccount`。Grok OAuth JSON 明文保存在 `oauth_accounts.oauth_json`，不进入 ProviderCredential、Provider Endpoint、Vault、管理 DTO、日志、浏览器存储或导出接口。
+1. `ProviderKind::Grok` 支持独立 `OAuthAccount`。Grok OAuth JSON 明文保存在 `oauth_accounts.oauth_json`，不进入 ProviderCredential、Provider Endpoint、管理 DTO、日志、浏览器存储或导出接口。
 2. 登录使用 `POST https://auth.x.ai/oauth2/device/code` 和 `https://auth.x.ai/oauth2/token`，公共客户端 ID 为 `b1a00492-073a-47ea-816f-4c329264a828`，scope 为 `openid profile email offline_access grok-cli:access api:access`。Device Code 只保存在服务端内存，浏览器只获得 session ID、user code、验证地址、有效期和安全轮询间隔；刷新使用同一客户端与 Refresh Token grant。完整轮询契约见 ADR-0043。
 3. 登录兑换、刷新和数据面固定使用 OAuthAccount 的 DIRECT/全局代理解析结果，禁用自动重定向，不增加 Grok 专用代理或隐式本机直连回退。
 4. Grok OAuth 的固定数据面为 `https://cli-chat-proxy.grok.com/v1`。Driver 注入 `Authorization: Bearer`、`X-XAI-Token-Auth: xai-grok-cli`、稳定的 Grok CLI 版本头和对应 User-Agent。Grok API Key 仍使用管理员配置的 Endpoint，二者不共享存储模型。
@@ -35,7 +35,7 @@ Grok 订阅账号必须作为独立 OAuthAccount 接入，不能把 OAuth JSON �
 
 ## 未选择方案
 
-- 把 Grok OAuth JSON 存进 ProviderCredential：会破坏两类凭据的永久隔离和 Vault 语义。
+- 把 Grok OAuth JSON 存进 ProviderCredential：会破坏两类凭据的永久隔离和管理语义。
 - 保存或下载 OAuth 文件：SQLite 已是唯一持久化真相来源，额外文件会产生双写和泄漏面。
 - 为 Grok OAuth 新建调度器：会复制 RPM、粘性、健康、重试和流式生命周期。
 - 增加 PKCE callback 入口：会形成第二套 Grok 登录交互和无必要的兼容分支。

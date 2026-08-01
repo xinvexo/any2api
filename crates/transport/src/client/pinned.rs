@@ -10,9 +10,12 @@ use http::{
 use http_body_util::BodyExt;
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use rustls::pki_types::CertificateDer;
-use tokio::time::timeout;
+use tokio::time::Instant;
 
-use super::request_body::{SignaledBody, signaled_body};
+use super::{
+    deadline::await_response_headers,
+    request_body::{SignaledBody, signaled_body},
+};
 use crate::{
     api::{
         BoxByteStream, TransportManagerConfig, TransportProxy, TransportRequest, TransportResponse,
@@ -63,6 +66,8 @@ impl PinnedClient {
     pub(crate) async fn execute(
         &self,
         request: TransportRequest,
+        connect_deadline: Instant,
+        connect_timeout_error: TransportError,
     ) -> Result<TransportResponse, TransportError> {
         let read_timeout = request.read_timeout;
         let mut headers = request.headers;
@@ -112,22 +117,16 @@ impl PinnedClient {
             })?;
         *upstream.headers_mut() = headers;
 
-        let send = self.client.request(upstream);
-        tokio::pin!(send);
-        let response = tokio::select! {
-            biased;
-            result = &mut send => result.map_err(map_send_error),
-            signal = body_sent => {
-                if signal.is_err() {
-                    (&mut send).await.map_err(map_send_error)
-                } else {
-                    timeout(read_timeout, &mut send)
-                        .await
-                        .map_err(|_| await_headers_timeout())?
-                        .map_err(map_send_error)
-                }
-            }
-        }?;
+        let response = await_response_headers(
+            self.client.request(upstream),
+            body_sent,
+            connect_deadline,
+            read_timeout,
+            map_send_error,
+            connect_timeout_error,
+            await_headers_timeout(),
+        )
+        .await?;
         let status = response.status();
         if self.forward_proxy && status == http::StatusCode::PROXY_AUTHENTICATION_REQUIRED {
             return Err(TransportError::new(

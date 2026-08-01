@@ -7,12 +7,22 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use crate::web_assets::EmbeddedWebAsset;
+use crate::{web_assets::EmbeddedWebAsset, web_security_headers};
 
 const CACHE_NO_CACHE: &str = "no-cache";
 const CACHE_IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
 pub(crate) fn response(
+    method: &Method,
+    uri: &Uri,
+    assets: &'static [EmbeddedWebAsset],
+) -> Response {
+    let mut response = response_without_security_headers(method, uri, assets);
+    web_security_headers::insert(response.headers_mut());
+    response
+}
+
+fn response_without_security_headers(
     method: &Method,
     uri: &Uri,
     assets: &'static [EmbeddedWebAsset],
@@ -107,6 +117,14 @@ mod tests {
         assert_eq!(index.status(), StatusCode::OK);
         assert_eq!(index.headers()[CONTENT_TYPE], "text/html; charset=utf-8");
         assert_eq!(index.headers()[CACHE_CONTROL], "no-cache");
+        assert_eq!(index.headers()["x-content-type-options"], "nosniff");
+        assert_eq!(index.headers()["referrer-policy"], "no-referrer");
+        let policy = index.headers()["content-security-policy"]
+            .to_str()
+            .expect("content security policy");
+        assert!(policy.contains("frame-ancestors 'none'"));
+        assert!(!policy.contains("upgrade-insecure-requests"));
+        assert!(!index.headers().contains_key("strict-transport-security"));
         assert_eq!(body(index).await.as_ref(), b"<main>embedded</main>");
 
         let deep_link = response(&Method::GET, &Uri::from_static("/settings"), ASSETS);

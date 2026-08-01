@@ -1,7 +1,7 @@
 use secrecy::ExposeSecret;
 use thiserror::Error;
 
-use crate::vault::SecretBytes;
+use crate::secret::SecretBytes;
 
 const MAX_PROXY_PASSWORD_BYTES: usize = 255;
 

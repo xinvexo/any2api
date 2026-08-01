@@ -7,6 +7,9 @@ use std::{
 
 use time::{Date, Month, OffsetDateTime};
 
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+
 const FILE_PREFIX: &str = "any2api-";
 const FILE_SUFFIX: &str = ".jsonl";
 
@@ -26,7 +29,11 @@ pub(in crate::logging::file) struct ManagedFile {
 pub(super) fn open_segment(directory: &Path, date: String) -> io::Result<ActiveFile> {
     for sequence in 0_u32.. {
         let path = directory.join(format!("{FILE_PREFIX}{date}-{sequence:06}{FILE_SUFFIX}"));
-        match OpenOptions::new().create_new(true).append(true).open(&path) {
+        let mut options = OpenOptions::new();
+        options.create_new(true).append(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        match options.open(&path) {
             Ok(file) => {
                 return Ok(ActiveFile {
                     path,

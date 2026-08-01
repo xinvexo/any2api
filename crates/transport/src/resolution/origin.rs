@@ -5,7 +5,10 @@ use std::{
 
 use any2api_domain::{ProxyKind, RetrySafety};
 use http::Uri;
-use tokio::net::lookup_host;
+use tokio::{
+    net::lookup_host,
+    time::{Instant, timeout_at},
+};
 
 use crate::{
     api::EndpointNetworkPolicy,
@@ -24,6 +27,7 @@ pub(crate) async fn resolve_origin(
     uri: &Uri,
     policy: EndpointNetworkPolicy,
     proxy_kind: ProxyKind,
+    connect_deadline: Instant,
 ) -> Result<Option<ResolvedOrigin>, TransportError> {
     if proxy_kind != ProxyKind::Direct && !policy.strict_ssrf() {
         return Ok(None);
@@ -64,8 +68,9 @@ pub(crate) async fn resolve_origin(
         }));
     }
 
-    let mut addresses = lookup_host((host, port))
+    let mut addresses = timeout_at(connect_deadline, lookup_host((host, port)))
         .await
+        .map_err(|_| dns_timeout())?
         .map_err(|_| {
             TransportError::new(
                 TransportErrorStage::Dns,
@@ -91,4 +96,13 @@ pub(crate) async fn resolve_origin(
         secure: uri.scheme_str() == Some("https"),
         addresses: Arc::from(addresses.into_boxed_slice()),
     }))
+}
+
+fn dns_timeout() -> TransportError {
+    TransportError::new(
+        TransportErrorStage::Dns,
+        TransportFailureScope::Endpoint,
+        RetrySafety::DefinitelyNotSent,
+        "upstream DNS resolution timed out",
+    )
 }

@@ -39,11 +39,10 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
     let initial = storage.load_configuration().await.expect("configuration");
     let providers = build_provider_registry();
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        initial,
-        runtime.as_ref(),
-        providers.as_ref(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(initial, runtime.as_ref(), providers.as_ref())
+            .expect("initial snapshot"),
+    ));
     let publisher = Arc::new(
         ConfigPublisher::new(
             Arc::clone(&storage),
@@ -247,11 +246,10 @@ impl AuthenticationRetryContext {
         let providers = build_provider_registry();
         let protocols = protocols();
         let runtime = Arc::new(RuntimeRegistry::new());
-        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-            initial,
-            runtime.as_ref(),
-            providers.as_ref(),
-        )));
+        let snapshots = Arc::new(SnapshotStore::new(
+            PublishedSnapshot::new(initial, runtime.as_ref(), providers.as_ref())
+                .expect("initial snapshot"),
+        ));
         let publisher = Arc::new(
             ConfigPublisher::new(
                 Arc::clone(&storage),

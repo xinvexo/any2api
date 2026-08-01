@@ -49,8 +49,10 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
-      - run: pnpm build
-      - run: pnpm check:embedded
+      - name: Build web distribution without syncing committed assets
+        run: pnpm build
+      - name: Verify committed embedded assets
+        run: pnpm check:embedded
 
   e2e:
     runs-on: ubuntu-latest

@@ -1,12 +1,13 @@
 use any2api_domain::ProxyProfile;
+use secrecy::ExposeSecret;
 use sqlx::SqliteConnection;
 
-use crate::{error::StorageError, vault::SecretEnvelope};
+use crate::{error::StorageError, secret::SecretBytes};
 
 pub(crate) async fn set_authentication(
     connection: &mut SqliteConnection,
     profile: &ProxyProfile,
-    envelope: &SecretEnvelope,
+    password: &SecretBytes,
 ) -> Result<(), StorageError> {
     let authentication = profile
         .authentication()
@@ -14,25 +15,17 @@ pub(crate) async fn set_authentication(
     update_profile_versions(connection, profile).await?;
     sqlx::query(
         "INSERT INTO proxy_passwords \
-         (proxy_profile_id, username, authentication_version, envelope_version, key_id, \
-          algorithm, nonce, ciphertext, aad_version) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         (proxy_profile_id, username, authentication_version, password) \
+         VALUES (?, ?, ?, ?) \
          ON CONFLICT(proxy_profile_id) DO UPDATE SET \
           username = excluded.username, authentication_version = excluded.authentication_version, \
-          envelope_version = excluded.envelope_version, key_id = excluded.key_id, \
-          algorithm = excluded.algorithm, nonce = excluded.nonce, \
-          ciphertext = excluded.ciphertext, aad_version = excluded.aad_version, \
+          password = excluded.password, \
           updated_at = CURRENT_TIMESTAMP",
     )
     .bind(profile.id().to_string())
     .bind(authentication.username())
     .bind(to_i64(profile.authentication_version())?)
-    .bind(i64::from(envelope.version()))
-    .bind(envelope.key_id())
-    .bind(envelope.algorithm().as_str())
-    .bind(envelope.nonce().as_slice())
-    .bind(envelope.ciphertext())
-    .bind(i64::from(envelope.aad_version()))
+    .bind(password.expose_secret())
     .execute(connection)
     .await?;
     Ok(())

@@ -79,3 +79,31 @@ pub(super) fn failure_scope_for_unverified_path(profile: &ProxyProfile) -> Trans
         TransportFailureScope::Unattributed
     }
 }
+
+pub(super) fn connect_timeout_error(
+    profile: &ProxyProfile,
+    uses_http_forward_proxy: bool,
+) -> TransportError {
+    if profile.kind() == ProxyKind::Direct {
+        TransportError::new(
+            TransportErrorStage::Tcp,
+            TransportFailureScope::Endpoint,
+            RetrySafety::DefinitelyNotSent,
+            "direct connection timed out",
+        )
+    } else if uses_http_forward_proxy {
+        TransportError::new(
+            TransportErrorStage::ProxyHandshake,
+            TransportFailureScope::Proxy,
+            RetrySafety::DefinitelyNotSent,
+            "configured proxy connection timed out",
+        )
+    } else {
+        TransportError::new(
+            TransportErrorStage::ProxyHandshake,
+            TransportFailureScope::Unattributed,
+            RetrySafety::DefinitelyNotSent,
+            "proxied connection timed out",
+        )
+    }
+}

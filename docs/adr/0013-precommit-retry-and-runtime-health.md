@@ -20,7 +20,7 @@
 - Transport 阶段与健康归因显式分离。Runtime 只根据 `TransportFailureScope` 更新 Endpoint/Proxy；reqwest 无法可靠区分的 CONNECT、SOCKS 或目标 TLS 故障使用 `Unattributed`，不污染共享健康状态，请求内只排除当前 Credential。
 - Candidate 选择同时检查 Credential、模型、Endpoint 与 Proxy 的动态可用性，并原子预留 RPM 名额。HalfOpen 探测 Permit 与运行态 Guard 都由 `SelectedCandidate` 持有；健康状态在 Guard 结算前发布，随后统一推进 scheduler epoch。
 - HalfOpen 探测名额在健康预检查后被并发请求抢占时，选择器结算已经取得的运行态 Guard、移除该候选并继续检查同 tier 其他候选；已经预留的 RPM 名额保守计数。
-- 冷却和 Open 到期通过进程内定时任务推进统一 epoch。等待者继续使用现有 QueueTicket、超时、取消和最大等待数量，不为健康状态增加第二套队列。
+- 冷却和 Open 到期通过 `SchedulerEpoch` 唯一的 keyed-slot worker 推进统一 epoch。每个实际健康状态边界只占一个可替换 slot，同一错误重复发生不会增加 Tokio task；slot 清除或运行态 Drop 时撤销。worker 保留较晚 deadline 并始终按最早值重排，到期批量推进一次 epoch。等待者继续直接监听本轮 `retry_at`，并使用现有 QueueTicket、超时、取消和最大等待数量，不为健康状态增加第二套队列。
 - Public request 使用显式多 Attempt 循环。每次失败产生只供内部使用的类型化 `AttemptFailure`，先更新健康状态，再结算当前 Guard，最后由 `RetryBudget` 判断是否退避和重新选择。
 - 自动重试必须同时满足：CommitState 仍为 Pending、`RetrySafety::allows_automatic_retry()`、总尝试/切换/同 Credential/总耗时预算未耗尽、请求未取消。
 - 已建立会话绑定的请求只能重新取得原 Credential，绝不跨 Credential。未绑定请求可以在提交前按 RetrySafety 与预算切换；首次创建通过 AffinityRegistry 的版本化 Creating 租约提交最终目标。
@@ -45,6 +45,6 @@
 ## 验证
 
 - Provider 测试覆盖 Codex/Claude 错误 envelope、429/额度/模型错误、Count Tokens 404 和两种 Retry-After。
-- Runtime 虚拟时间测试覆盖模型冷却、认证代际隔离、Endpoint/Proxy 熔断、HalfOpen 探测竞态、超大 Retry-After、成功后处理结算、到期 epoch 唤醒和热更新代际隔离。
+- Runtime 虚拟时间测试覆盖模型冷却、认证代际隔离、Endpoint/Proxy 熔断、HalfOpen 探测竞态、超大 Retry-After、成功后处理结算、重复 schedule 去重、更早/更晚 deadline 重排、多 slot 到期 epoch 唤醒和热更新代际隔离；并断言健康 worker 的后台任务数始终不超过一个。
 - Public request 契约覆盖提交前切换、已绑定请求不切换、Ambiguous 不重试、Retry-After、总 Attempt 预算、SSE 首帧提交边界，以及最终上游状态/正文/Header 不被内部分类改写。
-- Web 测试覆盖新增设置的契约解析、中文展示、保存覆盖与恢复默认。
+- Web 测试覆盖新增设置的契约解析、中文展示、保存具体覆盖值与无恢复默认入口。

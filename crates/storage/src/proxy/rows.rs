@@ -5,10 +5,7 @@ use any2api_domain::{
 };
 use sqlx::{FromRow, SqliteConnection};
 
-use crate::{
-    error::StorageError,
-    vault::{SecretContext, SecretEnvelope, SecretVault},
-};
+use crate::{error::StorageError, secret::SecretBytes};
 
 use super::{
     password::validate as validate_proxy_password,
@@ -27,22 +24,16 @@ struct ProxyRow {
     config_version: i64,
 }
 
-#[derive(Debug, FromRow)]
+#[derive(FromRow)]
 struct ProxyPasswordRow {
     proxy_profile_id: String,
     username: String,
     authentication_version: i64,
-    envelope_version: i64,
-    key_id: String,
-    algorithm: String,
-    nonce: Vec<u8>,
-    ciphertext: Vec<u8>,
-    aad_version: i64,
+    password: Vec<u8>,
 }
 
 pub(crate) async fn load_proxies_from(
     connection: &mut SqliteConnection,
-    vault: &SecretVault,
 ) -> Result<(ProxyConfiguration, StoredProxyPasswords), StorageError> {
     let global_id: String = sqlx::query_scalar(
         "SELECT global_proxy_profile_id FROM proxy_settings WHERE singleton_id = 1",
@@ -56,8 +47,7 @@ pub(crate) async fn load_proxies_from(
     .fetch_all(&mut *connection)
     .await?;
     let password_rows = sqlx::query_as::<_, ProxyPasswordRow>(
-        "SELECT proxy_profile_id, username, authentication_version, envelope_version, key_id, \
-         algorithm, nonce, ciphertext, aad_version FROM proxy_passwords",
+        "SELECT proxy_profile_id, username, authentication_version, password FROM proxy_passwords",
     )
     .fetch_all(&mut *connection)
     .await?;
@@ -71,7 +61,7 @@ pub(crate) async fn load_proxies_from(
         let id =
             ProxyProfileId::from_str(&row.id).map_err(|_| StorageError::CorruptConfiguration)?;
         let password_row = password_rows.remove(&id);
-        let (profile, password) = parse_profile(row, password_row, vault)?;
+        let (profile, password) = parse_profile(row, password_row)?;
         profiles.push(profile);
         if let Some(password) = password {
             proxy_passwords.push(password);
@@ -88,7 +78,6 @@ pub(crate) async fn load_proxies_from(
 fn parse_profile(
     row: ProxyRow,
     password_row: Option<ProxyPasswordRow>,
-    vault: &SecretVault,
 ) -> Result<(ProxyProfile, Option<StoredProxyPassword>), StorageError> {
     let id = ProxyProfileId::from_str(&row.id).map_err(|_| StorageError::CorruptConfiguration)?;
     let kind = parse_kind(&row.kind)?;
@@ -122,7 +111,7 @@ fn parse_profile(
     )
     .map_err(|_| StorageError::CorruptConfiguration)?;
     let password = password_row
-        .map(|row| open_proxy_password(row, vault, &profile))
+        .map(|row| parse_proxy_password(row, &profile))
         .transpose()?;
     Ok((profile, password))
 }
@@ -141,9 +130,8 @@ fn password_rows_by_id(
     Ok(by_id)
 }
 
-fn open_proxy_password(
+fn parse_proxy_password(
     row: ProxyPasswordRow,
-    vault: &SecretVault,
     profile: &ProxyProfile,
 ) -> Result<StoredProxyPassword, StorageError> {
     let authentication_version = u64::try_from(row.authentication_version)
@@ -153,18 +141,7 @@ fn open_proxy_password(
     {
         return Err(StorageError::CorruptConfiguration);
     }
-    let envelope = SecretEnvelope::restore(
-        u16::try_from(row.envelope_version).map_err(|_| StorageError::CorruptConfiguration)?,
-        row.key_id,
-        &row.algorithm,
-        &row.nonce,
-        row.ciphertext,
-        u16::try_from(row.aad_version).map_err(|_| StorageError::CorruptConfiguration)?,
-    )?;
-    let secret = vault.open(
-        SecretContext::proxy_password(profile.id(), authentication_version),
-        &envelope,
-    )?;
+    let secret: SecretBytes = row.password.into();
     validate_proxy_password(&secret)?;
     Ok(StoredProxyPassword::new(
         profile.id(),

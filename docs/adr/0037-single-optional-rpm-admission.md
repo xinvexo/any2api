@@ -17,8 +17,9 @@ TPM（Tokens Per Minute）不进入本地限制。输出 Token 在请求前未�
 - `ProviderCredential` 与 `OAuthAccount` 各自保存可空的 `requests_per_minute`。`NULL` 表示不做
   本地 RPM 限制，交由上游 `429`、`Retry-After`、冷却和重试策略处理；非空值必须位于
   `1..=100_000`。
-- 删除 `max_concurrency` 和辅助请求并发设置，不保留隐藏 Semaphore、固定连接数或其他本地并发
-  上限。`/v1/messages/count_tokens` 与生成请求使用同一个账号 RPM。
+- 删除 `max_concurrency` 和辅助请求并发设置，不保留按请求数量限制 Credential 的隐藏 Semaphore、
+  固定连接数或其他账号并发上限。ADR-0054 的固定进程级 payload 字节预算仅保护总内存，不进入
+  Credential 选择、排序或配置。`/v1/messages/count_tokens` 与生成请求使用同一个账号 RPM。
 - 每个稳定 `CredentialRuntimeHandle` 在内存中维护精确的滚动 60 秒请求时间窗。配置代际切换、
   Secret/Token 轮换不重置有限 RPM 的当前窗口；进程重启会清空。有限值改为另一个有限值时保留
   窗口并立即按新值判断；改为无限制时清空窗口，之后重新启用 RPM 时从空窗口开始。
@@ -49,9 +50,10 @@ TPM（Tokens Per Minute）不进入本地限制。输出 Token 在请求前未�
 
 ## 后果
 
-管理面只有一套可选的账号级限速配置。未配置 RPM 时，本地不会为了一个隐含并发值阻止请求；
-配置后则可以在发送上游 Attempt 前确定性地限制滚动 60 秒请求数。长流不会独占可配置容量，
-但仍计入 `in_flight` 供管理员观察。
+管理面只有一套可选的账号级限速配置。未配置 RPM 时，本地不会为了一个隐含的账号并发值阻止请求；
+固定 payload 字节预算仍可在进程内存不足时拒绝公开请求，但它与 Credential 无关且不可配置。配置 RPM
+后则可以在发送上游 Attempt 前确定性地限制滚动 60 秒请求数。长流不会独占可配置容量，但仍计入
+`in_flight` 供管理员观察。
 
 精确窗口需要为有限 RPM 的最近请求保存时间戳，内存使用量受每账号 `100_000` 的 Schema 上限
 约束。RPM 名额是请求速率事实而不是可归还资源，因此本地准备阶段后续失败会采取保守计数；这

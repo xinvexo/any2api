@@ -30,11 +30,14 @@ async fn credentials_on_same_endpoint_only_serve_their_selected_models() {
     );
     let initial = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        initial,
-        runtime.as_ref(),
-        crate::test_support::configuration_capabilities().provider_registry(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            initial,
+            runtime.as_ref(),
+            crate::test_support::configuration_capabilities().provider_registry(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),
@@ -115,11 +118,10 @@ async fn remote_compaction_excludes_responses_to_chat_bridge_targets() {
     let initial = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
     let capabilities = crate::test_support::configuration_capabilities();
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        initial,
-        runtime.as_ref(),
-        capabilities.provider_registry(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(initial, runtime.as_ref(), capabilities.provider_registry())
+            .expect("initial snapshot"),
+    ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),
@@ -208,11 +210,14 @@ async fn grok_oauth_routes_responses_but_not_compact() {
     );
     let initial = storage.load_configuration().await.expect("configuration");
     let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        initial,
-        runtime.as_ref(),
-        crate::test_support::configuration_capabilities().provider_registry(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            initial,
+            runtime.as_ref(),
+            crate::test_support::configuration_capabilities().provider_registry(),
+        )
+        .expect("initial snapshot"),
+    ));
     let publisher = ConfigPublisher::new(
         Arc::clone(&storage),
         Arc::clone(&snapshots),

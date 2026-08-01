@@ -178,8 +178,7 @@ pub(super) fn candidate(
         &credential,
         CredentialAuthMaterial::for_test(&credential, format!("sk-{label}-test")),
         scheduler_epoch,
-    )
-    .current_binding();
+    );
     RouteCandidate {
         target_id: RouteTargetId::new(),
         endpoint_id: credential.provider_endpoint_id(),

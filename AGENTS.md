@@ -16,7 +16,7 @@
 - 永久不做：用户注册、多租户、套餐、余额、充值、计费、支付、API Key 销售和多节点分布式调度。
 - 不引入 Redis、PostgreSQL、消息队列或微服务来解决单节点问题。
 - 不提供通用配置、数据库或 Secret 导入导出。
-- OAuth2 JSON 只允许作为独立 `OAuthAccount` 明文存入 SQLite；不进入 Vault、日志、管理响应或浏览器存储，也不提供读取/导出端点。
+- OAuth2 JSON 只允许作为独立 `OAuthAccount` 明文存入 SQLite；不进入日志、管理响应或浏览器存储，也不提供读取/导出端点。
 - 不实现运行态恢复、请求回放、队列恢复、会话恢复或复杂备份容灾。
 
 ## 3. 首个正式版本范围
@@ -95,7 +95,7 @@
 - `provider` 只处理供应商能力、Endpoint、认证注入、OAuth JSON Schema、刷新协议和错误分类，不执行网络请求。
 - `transport` 只处理 DIRECT/HTTP/SOCKS5、连接池和分阶段网络错误，不知道 Codex/Claude 业务。
 - `runtime` 负责编排、调度、粘性、重试、健康状态和调用 Transport。
-- `storage` 只处理 SQLite、Repository、Migration 和 Secret Vault；OAuthAccount 使用独立 Repository，禁止复用 ProviderCredential 表或 Vault 载荷。
+- `storage` 只处理 SQLite、Repository、Migration 和本地 Secret 持久化；OAuthAccount 使用独立 Repository，禁止复用 ProviderCredential 表。
 - `server` 只处理 Axum 路由、中间件、鉴权和 DTO，不承载核心业务规则。
 - `app` 是唯一 Composition Root，负责注册和装配具体实现。
 - Runtime 只能依赖各 Adapter crate 的稳定 `api` 模块，禁止导入其内部实现。
@@ -122,11 +122,14 @@
 
 ## 10. 安全与持久化
 
+- `0001_initial.sql` 和所有后续编号 Migration、checksum 一经进入仓库即冻结；任何 Schema 变化只允许追加编号连续的前向 Migration，不因项目尚未正式发布而重写或删除历史脚本。
+- 每个改变既有 Schema 的 Migration 必须提供带代表性数据的升级测试；生产代码仍只面向完整迁移后的最新 Schema，不保留双轨领域模型或运行时 Schema 分支。
+- 默认保留已有数据；若用户明确拒绝兼容某个旧格式，必须由 ADR 记录，并在 Migration 修改任何结构或数据前拒绝非空旧记录，禁止静默删除和兼容代码回流。
 - SQLite 只持久化配置、必要凭据、Gateway Key 明文与校验摘要、OAuthAccount 原始 JSON 和可选历史日志。
 - RPM 滚动窗口、`in_flight`、等待队列、健康、冷却、熔断、会话和请求进度不得持久化。
-- Provider API Key、代理密码等现有 Secret 使用版本化 AEAD 加密；主密钥位于数据库外，缺失或错误时启动失败。OAuth Token 是明确的明文 SQLite 例外，但仍禁止进入日志、DTO、Debug 或浏览器状态。
+- Provider API Key、代理密码、Gateway Key 和 OAuth JSON 都按产品决策明文存入 SQLite。数据目录与其中的数据库、WAL、锁和日志文件是唯一的本地持久化保护边界；Secret 仍禁止进入日志、非必要 DTO、Debug 或浏览器持久化状态。
 - 管理 DTO 对 Provider Secret 默认只返回指纹或尾号，创建时仅展示一次；`GatewayApiKey` 例外：明文持久化，管理列表始终可查看。
-- 远程管理默认关闭；启用后必须使用独立单管理员认证，允许 HTTP 或 HTTPS，TLS 推荐但不强制。
+- 远程管理默认开启，但不改变默认 loopback 监听地址；管理面必须使用独立单管理员认证，允许 HTTP 或 HTTPS，公网部署应由 Nginx/Caddy 等反向代理终止 TLS。
 - 明文 HTTP 是受支持配置，不能在实现中强制跳转 HTTPS 或拒绝管理请求；Web 必须明确提示密码、Cookie 和 OAuth callback/code 的明文传输风险。
 - `GatewayApiKey` 不能登录管理面。
 - 所有自定义 URL 必须经过结构化解析并禁用自动重定向；客户端输入不得改变已发布 Provider Endpoint 的 authority，Provider Base URL 不按公网/私网地址类别设门禁。

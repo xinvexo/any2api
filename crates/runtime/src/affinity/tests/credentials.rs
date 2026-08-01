@@ -1,12 +1,10 @@
-use std::collections::HashSet;
-
 use any2api_domain::{CredentialId, ModelRouteId, ProtocolDialect};
 
 use super::{TTL, target};
-use crate::affinity::{AffinityError, AffinityRegistry, BindingStart};
+use crate::affinity::{AffinityRegistry, BindingStart, ContinuationLookup};
 
 #[test]
-fn credential_removal_before_commit_prevents_a_binding_from_reappearing() {
+fn credential_cleanup_does_not_invalidate_an_in_progress_binding_commit() {
     let registry = AffinityRegistry::new();
     let route_id = ModelRouteId::new();
     let credential_id = CredentialId::new();
@@ -24,38 +22,59 @@ fn credential_removal_before_commit_prevents_a_binding_from_reappearing() {
         other => panic!("first caller must create the binding: {other:?}"),
     };
 
-    registry.retain_credentials(&HashSet::new());
-    assert_eq!(
-        lease.commit(target.clone()),
-        Err(AffinityError::TargetInactive)
-    );
-    assert_eq!(
-        registry.bind_continuation("response-being-removed", target, TTL),
-        Err(AffinityError::TargetInactive)
-    );
+    assert_eq!(registry.clear_credential(credential_id.into()), 0);
+    lease
+        .commit(target.clone())
+        .expect("captured request commit");
+    registry
+        .bind_ready_continuation("response-being-removed", target, None, TTL)
+        .expect("captured continuation commit");
     let snapshot = registry.snapshot(TTL, true);
-    assert_eq!(snapshot.active_session_count(), 0);
+    assert_eq!(snapshot.active_session_count(), 1);
     assert_eq!(snapshot.creating_session_count(), 0);
 }
 
 #[test]
-fn credential_removal_after_commit_clears_the_binding() {
+fn explicit_credential_cleanup_clears_existing_bindings() {
     let registry = AffinityRegistry::new();
     let route_id = ModelRouteId::new();
     let credential_id = CredentialId::new();
-    let routing_id = credential_id.into();
     let target = target(route_id, credential_id);
-    registry.retain_credentials(&HashSet::from([routing_id]));
     registry
-        .bind_continuation("response-before-removal", target, TTL)
+        .bind_ready_continuation("response-before-removal", target, None, TTL)
         .expect("active credential binding");
 
-    registry.retain_credentials(&HashSet::new());
+    assert_eq!(registry.clear_credential(credential_id.into()), 1);
 
-    assert!(
-        registry
-            .resolve_continuation("response-before-removal", TTL)
-            .is_none()
-    );
+    assert!(matches!(
+        registry.resolve_continuation("response-before-removal", TTL, |_| true),
+        ContinuationLookup::Missing
+    ));
     assert_eq!(registry.snapshot(TTL, true).active_session_count(), 0);
+}
+
+#[tokio::test]
+async fn credential_cleanup_aborts_pending_continuation_and_wakes_waiters() {
+    let registry = AffinityRegistry::new();
+    let mut changes = registry.subscribe_scheduler_epoch();
+    let credential_id = CredentialId::new();
+    let lease = registry
+        .begin_pending_continuation(
+            "response-being-created",
+            target(ModelRouteId::new(), credential_id),
+            TTL,
+        )
+        .expect("pending continuation");
+
+    assert_eq!(registry.clear_credential(credential_id.into()), 1);
+    changes
+        .changed()
+        .await
+        .expect("credential cleanup wakes continuation waiters");
+    assert!(matches!(
+        registry.resolve_continuation("response-being-created", TTL, |_| true),
+        ContinuationLookup::Missing
+    ));
+    assert_eq!(registry.continuation_bytes_for_test(), 0);
+    drop(lease);
 }

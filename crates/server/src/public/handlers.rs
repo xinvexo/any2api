@@ -16,7 +16,7 @@ pub(crate) async fn responses(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
     Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    PublicBody(body): PublicBody,
+    PublicBody(body, admission): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -24,6 +24,7 @@ pub(crate) async fn responses(
         request_id,
         headers,
         body,
+        admission,
         ProtocolOperation::Responses,
     )
     .await
@@ -34,7 +35,7 @@ pub(crate) async fn responses_compact(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
     Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    PublicBody(body): PublicBody,
+    PublicBody(body, admission): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -42,6 +43,7 @@ pub(crate) async fn responses_compact(
         request_id,
         headers,
         body,
+        admission,
         ProtocolOperation::ResponsesCompact,
     )
     .await
@@ -52,7 +54,7 @@ pub(crate) async fn chat_completions(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
     Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    PublicBody(body): PublicBody,
+    PublicBody(body, admission): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -60,6 +62,7 @@ pub(crate) async fn chat_completions(
         request_id,
         headers,
         body,
+        admission,
         ProtocolOperation::ChatCompletions,
     )
     .await
@@ -70,7 +73,7 @@ pub(crate) async fn messages(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
     Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    PublicBody(body): PublicBody,
+    PublicBody(body, admission): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -78,6 +81,7 @@ pub(crate) async fn messages(
         request_id,
         headers,
         body,
+        admission,
         ProtocolOperation::Messages,
     )
     .await
@@ -88,7 +92,7 @@ pub(crate) async fn messages_count_tokens(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
     Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    PublicBody(body): PublicBody,
+    PublicBody(body, admission): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -96,6 +100,7 @@ pub(crate) async fn messages_count_tokens(
         request_id,
         headers,
         body,
+        admission,
         ProtocolOperation::MessagesCountTokens,
     )
     .await
@@ -106,7 +111,7 @@ pub(crate) async fn images_generations(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
     Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    PublicBody(body): PublicBody,
+    PublicBody(body, admission): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -114,6 +119,7 @@ pub(crate) async fn images_generations(
         request_id,
         headers,
         body,
+        admission,
         ProtocolOperation::ImagesGenerations,
     )
     .await
@@ -124,7 +130,7 @@ pub(crate) async fn images_edits(
     Extension(authenticated): Extension<AuthenticatedGatewayApiKey>,
     Extension(request_id): Extension<HttpRequestId>,
     headers: HeaderMap,
-    PublicBody(body): PublicBody,
+    PublicBody(body, admission): PublicBody,
 ) -> Response {
     execute_public_request(
         state,
@@ -132,6 +138,7 @@ pub(crate) async fn images_edits(
         request_id,
         headers,
         body,
+        admission,
         ProtocolOperation::ImagesEdits,
     )
     .await
@@ -143,11 +150,12 @@ async fn execute_public_request(
     request_id: HttpRequestId,
     headers: HeaderMap,
     body: Bytes,
+    admission: any2api_runtime::api::PublicRequestMemoryAdmission,
     operation: ProtocolOperation,
 ) -> Response {
     let response = state
         .public_requests()
-        .execute(
+        .execute_admitted(
             authenticated.snapshot_arc(),
             PublicRequest {
                 request_id: request_id.get(),
@@ -157,6 +165,7 @@ async fn execute_public_request(
                 headers,
                 body,
             },
+            admission,
         )
         .await;
     super::response::from_runtime(response)

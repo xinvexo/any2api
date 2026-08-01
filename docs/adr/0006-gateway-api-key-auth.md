@@ -11,7 +11,7 @@ any2api 需要允许同一个个人实例创建多个客户端访问凭据。它
 ## 决策
 
 - 网关 Key 由服务端生成，格式为 `a2k_v1_` 加 256 位随机值的 URL-safe Base64，无需用户提交 Secret。
-- SQLite 保存名称、完整明文 token、前缀、版本、启用状态和摘要；摘要是由 Secret Vault 主密钥派生的独立 HMAC-SHA256。Provider Credential 的指纹域不可复用。
+- SQLite 保存名称、完整明文 token、前缀、版本、启用状态和无密钥 SHA-256 摘要。摘要使用 Gateway 专用稳定域前缀，不能复用 Provider Credential 指纹域。
 - 管理列表、创建和轮换响应始终可以查看明文；响应使用 `Cache-Control: no-store`，Web 只在当前内存查询缓存中消费，不写入 URL、日志、浏览器持久化或导出文件。
 - 创建和轮换请求不接受客户端 token。删除执行物理删除，不保留撤销状态或第二套生命周期。
 - `GatewayApiKeyConfiguration` 与摘要验证材料随 `StoredConfiguration` 进入 `PublishedSnapshot`。管理写入、快照切换和公开鉴权使用同一 revision，已开始请求继续持有其捕获快照。
@@ -33,7 +33,7 @@ DELETE /api/admin/gateway-api-keys/{id}?expected_revision=...&expected_config_ve
 
 ## 后果
 
-- 数据库泄露会暴露 Gateway Key 明文，这是个人自托管、管理面可随时查看密钥的明确取舍；Provider Secret 与代理密码仍保持 Vault 加密。
+- 数据库泄露会暴露 Gateway Key、Provider Secret 与代理密码明文，这是 ADR-0074 明确接受的本地部署信任边界。
 - 公开入口认证和 Secret 隔离契约不依赖具体的 Provider 或协议 Adapter。
 - 轮换会立即使被替换的 Token 失效；已开始的请求因持有其捕获快照仍可完成，新请求只能使用当前快照。
 - 公开协议路由与 SPA fallback 保持严格分离，未知 `/v1/*` 返回公开 API 404，不回落管理页面。

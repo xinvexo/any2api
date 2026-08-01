@@ -2,12 +2,11 @@ use std::fmt;
 
 use any2api_domain::{CredentialId, CredentialKind};
 
-use crate::vault::SecretBytes;
+use crate::secret::SecretBytes;
 
 pub struct StoredProviderCredentialSecret {
     credential_id: CredentialId,
     credential_kind: CredentialKind,
-    secret_schema_version: u32,
     secret_version: u64,
     credential_generation: u64,
     secret: SecretBytes,
@@ -17,7 +16,6 @@ impl StoredProviderCredentialSecret {
     pub(crate) const fn new(
         credential_id: CredentialId,
         credential_kind: CredentialKind,
-        secret_schema_version: u32,
         secret_version: u64,
         credential_generation: u64,
         secret: SecretBytes,
@@ -25,7 +23,6 @@ impl StoredProviderCredentialSecret {
         Self {
             credential_id,
             credential_kind,
-            secret_schema_version,
             secret_version,
             credential_generation,
             secret,
@@ -40,11 +37,6 @@ impl StoredProviderCredentialSecret {
     #[must_use]
     pub const fn credential_kind(&self) -> CredentialKind {
         self.credential_kind
-    }
-
-    #[must_use]
-    pub const fn secret_schema_version(&self) -> u32 {
-        self.secret_schema_version
     }
 
     #[must_use]
@@ -76,7 +68,6 @@ impl fmt::Debug for StoredProviderCredentialSecret {
             .debug_struct("StoredProviderCredentialSecret")
             .field("credential_id", &self.credential_id)
             .field("credential_kind", &self.credential_kind)
-            .field("secret_schema_version", &self.secret_schema_version)
             .field("secret_version", &self.secret_version)
             .field("credential_generation", &self.credential_generation)
             .field("secret", &"[REDACTED]")

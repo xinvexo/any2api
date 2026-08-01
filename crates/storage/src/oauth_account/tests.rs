@@ -4,72 +4,13 @@ use any2api_domain::{
 use tempfile::tempdir;
 
 use crate::{
-    api::{
-        ConfigurationRepository, OAuthAccountCreate, OAuthAccountDocument, OAuthAccountRepository,
-        SqliteStore,
-    },
+    configuration::{ConfigurationMutation, ConfigurationRepository, commit_configuration},
     error::StorageError,
+    oauth_account::{OAuthAccountCreate, OAuthAccountDocument},
+    sqlite::SqliteStore,
 };
 
-#[tokio::test]
-async fn oauth_account_batch_is_one_transaction_and_one_revision() {
-    let directory = tempdir().expect("temporary directory");
-    let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
-        .await
-        .expect("store");
-    let codex_id = OAuthAccountId::new();
-    let claude_id = OAuthAccountId::new();
-
-    let created = store
-        .create_oauth_accounts(
-            ConfigRevision::INITIAL,
-            vec![
-                create(codex_id, ProviderKind::Codex, "Codex Imported"),
-                create(claude_id, ProviderKind::Claude, "Claude Imported"),
-            ],
-        )
-        .await
-        .expect("batch create");
-
-    assert_eq!(created.revision().get(), 2);
-    assert!(created.oauth_accounts().get(codex_id).is_some());
-    assert!(created.oauth_accounts().get(claude_id).is_some());
-    let persisted_revision =
-        sqlx::query_scalar::<_, i64>("SELECT revision FROM config_state WHERE singleton_id = 1")
-            .fetch_one(store.pool())
-            .await
-            .expect("revision");
-    assert_eq!(persisted_revision, 2);
-}
-
-#[tokio::test]
-async fn invalid_oauth_account_batch_rolls_back_every_account() {
-    let directory = tempdir().expect("temporary directory");
-    let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
-        .await
-        .expect("store");
-
-    let error = store
-        .create_oauth_accounts(
-            ConfigRevision::INITIAL,
-            vec![
-                create(OAuthAccountId::new(), ProviderKind::Codex, "Duplicate"),
-                create(OAuthAccountId::new(), ProviderKind::Codex, "Duplicate"),
-            ],
-        )
-        .await
-        .expect_err("duplicate batch label");
-    assert!(matches!(error, StorageError::OAuthAccountLabelConflict));
-
-    let restored = store.load_configuration().await.expect("configuration");
-    assert_eq!(restored.revision(), ConfigRevision::INITIAL);
-    assert!(restored.oauth_accounts().accounts().is_empty());
-    let row_count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM oauth_accounts")
-        .fetch_one(store.pool())
-        .await
-        .expect("row count");
-    assert_eq!(row_count, 0);
-}
+mod batches;
 
 #[tokio::test]
 async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
@@ -78,19 +19,21 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
     let store = SqliteStore::connect(&database).await.expect("store");
     let account_id = OAuthAccountId::new();
 
-    let created = store
-        .create_oauth_account(
-            ConfigRevision::INITIAL,
-            account_id,
-            ProviderKind::Codex,
-            draft("Primary", Some(10), true),
-            Some("owner@example.com".into()),
-            Some(100),
-            vec!["gpt-b".into(), "gpt-a".into()],
-            document(ProviderKind::Codex, "first-access"),
-        )
-        .await
-        .expect("create account");
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateOAuthAccount {
+            id: account_id,
+            provider_kind: ProviderKind::Codex,
+            draft: draft("Primary", Some(10), true),
+            safe_account_email: Some("owner@example.com".into()),
+            expires_at: Some(100),
+            models: vec!["gpt-b".into(), "gpt-a".into()],
+            document: document(ProviderKind::Codex, "first-access"),
+        },
+    )
+    .await
+    .expect("create account");
     let account = created.oauth_accounts().get(account_id).expect("account");
 
     assert_eq!(created.revision().get(), 2);
@@ -117,55 +60,70 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
     );
     assert!(!format!("{created:?}").contains("first-access"));
 
-    let no_op = store
-        .update_oauth_account(
-            created.revision(),
-            account_id,
-            1,
-            draft("Primary", Some(10), true),
-        )
-        .await
-        .expect("no-op update");
+    let no_op = commit_configuration(
+        &store,
+        created.revision(),
+        ConfigurationMutation::UpdateOAuthAccount {
+            id: account_id,
+            expected_config_version: 1,
+            draft: draft("Primary", Some(10), true),
+        },
+    )
+    .await
+    .expect("no-op update");
     assert_eq!(no_op.revision(), created.revision());
 
-    let disabled = store
-        .update_oauth_account(
-            no_op.revision(),
-            account_id,
-            1,
-            draft("Primary", None, false),
-        )
-        .await
-        .expect("disable account");
+    let disabled = commit_configuration(
+        &store,
+        no_op.revision(),
+        ConfigurationMutation::UpdateOAuthAccount {
+            id: account_id,
+            expected_config_version: 1,
+            draft: draft("Primary", None, false),
+        },
+    )
+    .await
+    .expect("disable account");
     let disabled_account = disabled.oauth_accounts().get(account_id).expect("disabled");
     assert_eq!(disabled_account.config_version(), 2);
     assert_eq!(disabled_account.account_generation(), 1);
     assert_eq!(disabled_account.requests_per_minute(), None);
 
-    let enabled = store
-        .update_oauth_account(
-            disabled.revision(),
-            account_id,
-            2,
-            draft("Primary", Some(20), true),
-        )
-        .await
-        .expect("enable account");
-    let with_models = store
-        .set_oauth_account_models(enabled.revision(), account_id, 3, vec!["gpt-c".into()])
-        .await
-        .expect("replace models");
-    let refreshed = store
-        .refresh_oauth_account(
-            with_models.revision(),
-            account_id,
-            1,
-            Some("new@example.com".into()),
-            Some(200),
-            document(ProviderKind::Codex, "second-access"),
-        )
-        .await
-        .expect("refresh account");
+    let enabled = commit_configuration(
+        &store,
+        disabled.revision(),
+        ConfigurationMutation::UpdateOAuthAccount {
+            id: account_id,
+            expected_config_version: 2,
+            draft: draft("Primary", Some(20), true),
+        },
+    )
+    .await
+    .expect("enable account");
+    let with_models = commit_configuration(
+        &store,
+        enabled.revision(),
+        ConfigurationMutation::SetOAuthAccountModels {
+            id: account_id,
+            expected_config_version: 3,
+            models: vec!["gpt-c".into()],
+        },
+    )
+    .await
+    .expect("replace models");
+    let refreshed = commit_configuration(
+        &store,
+        with_models.revision(),
+        ConfigurationMutation::RefreshOAuthAccount {
+            id: account_id,
+            expected_token_version: 1,
+            safe_account_email: Some("new@example.com".into()),
+            expires_at: Some(200),
+            document: document(ProviderKind::Codex, "second-access"),
+        },
+    )
+    .await
+    .expect("refresh account");
     let refreshed_account = refreshed
         .oauth_accounts()
         .get(account_id)
@@ -187,17 +145,19 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             .expose_for_test(),
         document_bytes(ProviderKind::Codex, "second-access").as_slice()
     );
-    let stale = store
-        .refresh_oauth_account(
-            refreshed.revision(),
-            account_id,
-            1,
-            None,
-            Some(300),
-            document(ProviderKind::Codex, "stale-access"),
-        )
-        .await
-        .expect_err("stale refresh must fail");
+    let stale = commit_configuration(
+        &store,
+        refreshed.revision(),
+        ConfigurationMutation::RefreshOAuthAccount {
+            id: account_id,
+            expected_token_version: 1,
+            safe_account_email: None,
+            expires_at: Some(300),
+            document: document(ProviderKind::Codex, "stale-access"),
+        },
+    )
+    .await
+    .expect_err("stale refresh must fail");
     assert!(matches!(
         stale,
         StorageError::OAuthAccountTokenVersionConflict {
@@ -223,10 +183,16 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
         document_bytes(ProviderKind::Codex, "second-access").as_slice()
     );
 
-    let deleted = reopened
-        .delete_oauth_account(restored.revision(), account_id, 4)
-        .await
-        .expect("delete account");
+    let deleted = commit_configuration(
+        &reopened,
+        restored.revision(),
+        ConfigurationMutation::DeleteOAuthAccount {
+            id: account_id,
+            expected_config_version: 4,
+        },
+    )
+    .await
+    .expect("delete account");
     assert!(deleted.oauth_accounts().get(account_id).is_none());
 }
 
@@ -236,46 +202,52 @@ async fn oauth_account_labels_are_unique_only_within_provider() {
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
         .await
         .expect("store");
-    let codex = store
-        .create_oauth_account(
-            ConfigRevision::INITIAL,
-            OAuthAccountId::new(),
-            ProviderKind::Codex,
-            draft("Primary", Some(10), true),
-            None,
-            None,
-            vec!["gpt".into()],
-            document(ProviderKind::Codex, "codex-access"),
-        )
-        .await
-        .expect("Codex account");
-    let claude = store
-        .create_oauth_account(
-            codex.revision(),
-            OAuthAccountId::new(),
-            ProviderKind::Claude,
-            draft("Primary", Some(10), true),
-            None,
-            None,
-            vec!["claude".into()],
-            document(ProviderKind::Claude, "claude-access"),
-        )
-        .await
-        .expect("Claude account");
+    let codex = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateOAuthAccount {
+            id: OAuthAccountId::new(),
+            provider_kind: ProviderKind::Codex,
+            draft: draft("Primary", Some(10), true),
+            safe_account_email: None,
+            expires_at: None,
+            models: vec!["gpt".into()],
+            document: document(ProviderKind::Codex, "codex-access"),
+        },
+    )
+    .await
+    .expect("Codex account");
+    let claude = commit_configuration(
+        &store,
+        codex.revision(),
+        ConfigurationMutation::CreateOAuthAccount {
+            id: OAuthAccountId::new(),
+            provider_kind: ProviderKind::Claude,
+            draft: draft("Primary", Some(10), true),
+            safe_account_email: None,
+            expires_at: None,
+            models: vec!["claude".into()],
+            document: document(ProviderKind::Claude, "claude-access"),
+        },
+    )
+    .await
+    .expect("Claude account");
 
-    let error = store
-        .create_oauth_account(
-            claude.revision(),
-            OAuthAccountId::new(),
-            ProviderKind::Codex,
-            draft("Primary", Some(10), true),
-            None,
-            None,
-            vec!["gpt".into()],
-            document(ProviderKind::Codex, "duplicate-access"),
-        )
-        .await
-        .expect_err("duplicate label must fail");
+    let error = commit_configuration(
+        &store,
+        claude.revision(),
+        ConfigurationMutation::CreateOAuthAccount {
+            id: OAuthAccountId::new(),
+            provider_kind: ProviderKind::Codex,
+            draft: draft("Primary", Some(10), true),
+            safe_account_email: None,
+            expires_at: None,
+            models: vec!["gpt".into()],
+            document: document(ProviderKind::Codex, "duplicate-access"),
+        },
+    )
+    .await
+    .expect_err("duplicate label must fail");
     assert!(matches!(error, StorageError::OAuthAccountLabelConflict));
 }
 
@@ -285,19 +257,21 @@ async fn grok_oauth_account_round_trips_as_plaintext_sqlite_json() {
     let database = directory.path().join("config.sqlite3");
     let store = SqliteStore::connect(&database).await.expect("store");
     let account_id = OAuthAccountId::new();
-    let created = store
-        .create_oauth_account(
-            ConfigRevision::INITIAL,
-            account_id,
-            ProviderKind::Grok,
-            draft("Grok Primary", None, true),
-            Some("grok@example.com".into()),
-            Some(1_900_000_000),
-            vec!["grok-4.5".into()],
-            document(ProviderKind::Grok, "grok-access"),
-        )
-        .await
-        .expect("create Grok OAuth account");
+    let created = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateOAuthAccount {
+            id: account_id,
+            provider_kind: ProviderKind::Grok,
+            draft: draft("Grok Primary", None, true),
+            safe_account_email: Some("grok@example.com".into()),
+            expires_at: Some(1_900_000_000),
+            models: vec!["grok-4.5".into()],
+            document: document(ProviderKind::Grok, "grok-access"),
+        },
+    )
+    .await
+    .expect("create Grok OAuth account");
     drop(store);
 
     let reopened = SqliteStore::connect(&database).await.expect("reopen store");
@@ -332,19 +306,21 @@ async fn corrupt_oauth_json_fails_closed_without_exposing_token_data() {
         .await
         .expect("store");
     let account_id = OAuthAccountId::new();
-    store
-        .create_oauth_account(
-            ConfigRevision::INITIAL,
-            account_id,
-            ProviderKind::Codex,
-            draft("Primary", None, true),
-            None,
-            None,
-            vec!["gpt".into()],
-            document(ProviderKind::Codex, "secret-access"),
-        )
-        .await
-        .expect("account");
+    commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateOAuthAccount {
+            id: account_id,
+            provider_kind: ProviderKind::Codex,
+            draft: draft("Primary", None, true),
+            safe_account_email: None,
+            expires_at: None,
+            models: vec!["gpt".into()],
+            document: document(ProviderKind::Codex, "secret-access"),
+        },
+    )
+    .await
+    .expect("account");
     sqlx::query("UPDATE oauth_accounts SET oauth_json = ? WHERE id = ?")
         .bind(b"{broken".as_slice())
         .bind(account_id.to_string())

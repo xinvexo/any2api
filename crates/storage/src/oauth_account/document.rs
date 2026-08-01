@@ -5,7 +5,7 @@ use secrecy::ExposeSecret;
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::vault::SecretBytes;
+use crate::secret::SecretBytes;
 
 pub const MAX_OAUTH_ACCOUNT_JSON_BYTES: usize = 64 * 1024;
 

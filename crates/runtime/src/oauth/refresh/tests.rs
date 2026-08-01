@@ -6,7 +6,7 @@ use std::sync::{
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
 use any2api_provider::{CodexDriver, ProviderRegistry};
 use any2api_storage::api::{
-    ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository, SqliteStore,
+    ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
 };
 use any2api_transport::api::{
     BoxByteStream, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
@@ -24,6 +24,8 @@ use crate::{
     configuration::{ConfigPublisher, PublishedSnapshot, SnapshotStore},
     registry::RuntimeRegistry,
 };
+
+mod scheduled;
 
 #[tokio::test]
 async fn concurrent_refreshes_share_one_request_and_publish_one_generation() {
@@ -191,6 +193,7 @@ struct RefreshTestContext {
     _runtime: Arc<RuntimeRegistry>,
     refresher: Arc<OAuthRefresher>,
     account_id: Option<OAuthAccountId>,
+    account_ids: Vec<OAuthAccountId>,
 }
 
 impl RefreshTestContext {
@@ -199,34 +202,56 @@ impl RefreshTestContext {
     }
 
     async fn with_account_enabled(transport: Arc<BlockingRefreshTransport>, enabled: bool) -> Self {
+        Self::with_accounts_enabled(transport, 1, enabled).await
+    }
+
+    async fn with_accounts(transport: Arc<dyn TransportManager>, account_count: usize) -> Self {
+        Self::with_accounts_enabled(transport, account_count, true).await
+    }
+
+    async fn with_accounts_enabled(
+        transport: Arc<dyn TransportManager>,
+        account_count: usize,
+        enabled: bool,
+    ) -> Self {
         let directory = tempfile::tempdir().expect("temporary directory");
         let storage = Arc::new(
             SqliteStore::connect(&directory.path().join("oauth-refresh.sqlite3"))
                 .await
                 .expect("storage"),
         );
-        let initial = storage.load_configuration().await.expect("configuration");
-        let account_id = OAuthAccountId::new();
-        let configured = storage
-            .create_oauth_account(
-                initial.revision(),
-                account_id,
-                ProviderKind::Codex,
-                OAuthAccountDraft::new("Codex OAuth", None, enabled).expect("OAuth draft"),
-                Some("person@example.com".into()),
-                Some(0),
-                vec!["gpt-5.5".into()],
-                oauth_document(),
+        let mut configured = storage.load_configuration().await.expect("configuration");
+        let mut account_ids = Vec::with_capacity(account_count);
+        for sequence in 0..account_count {
+            let account_id = OAuthAccountId::new();
+            configured = crate::test_support::commit_configuration(
+                storage.as_ref(),
+                configured.revision(),
+                ConfigurationMutation::CreateOAuthAccount {
+                    id: account_id,
+                    provider_kind: ProviderKind::Codex,
+                    draft: OAuthAccountDraft::new(format!("Codex OAuth {sequence}"), None, enabled)
+                        .expect("OAuth draft"),
+                    safe_account_email: Some("person@example.com".into()),
+                    expires_at: Some(0),
+                    models: vec!["gpt-5.5".into()],
+                    document: oauth_document(),
+                },
             )
             .await
             .expect("OAuth account");
+            account_ids.push(account_id);
+        }
         let runtime = Arc::new(RuntimeRegistry::new());
         let capabilities = crate::test_support::configuration_capabilities();
-        let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-            configured,
-            runtime.as_ref(),
-            capabilities.provider_registry(),
-        )));
+        let snapshots = Arc::new(SnapshotStore::new(
+            PublishedSnapshot::new(
+                configured,
+                runtime.as_ref(),
+                capabilities.provider_registry(),
+            )
+            .expect("initial snapshot"),
+        ));
         let publisher = Arc::new(
             ConfigPublisher::new(
                 Arc::clone(&storage),
@@ -237,15 +262,15 @@ impl RefreshTestContext {
             .expect("publisher"),
         );
         let providers = providers();
-        let refresher =
-            OAuthRefresher::new(providers, transport as Arc<dyn TransportManager>, publisher);
+        let refresher = OAuthRefresher::new(providers, transport, publisher);
         Self {
             _directory: directory,
             _storage: storage,
             snapshots,
             _runtime: runtime,
             refresher,
-            account_id: Some(account_id),
+            account_id: account_ids.first().copied(),
+            account_ids,
         }
     }
 }

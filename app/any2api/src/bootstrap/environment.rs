@@ -6,7 +6,6 @@ use secrecy::SecretString;
 pub(super) struct StartupSettings {
     pub(crate) bind: SocketAddr,
     pub(crate) database_path: PathBuf,
-    pub(crate) master_key_path: PathBuf,
     pub(crate) log_directory: PathBuf,
     pub(crate) web_root: Option<PathBuf>,
     pub(crate) admin_password: Option<SecretString>,
@@ -24,10 +23,6 @@ impl StartupSettings {
         let web_root = env::var_os("ANY2API_WEB_DIR")
             .filter(|value| !value.is_empty())
             .map(PathBuf::from);
-        let master_key_path = env::var_os("ANY2API_MASTER_KEY_FILE")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| data_dir.join("master-key.json"));
         let admin_password = env::var("ANY2API_ADMIN_PASSWORD")
             .ok()
             .filter(|value| !value.is_empty())
@@ -35,7 +30,6 @@ impl StartupSettings {
         Ok(Self {
             bind,
             database_path: data_dir.join("any2api.sqlite3"),
-            master_key_path,
             log_directory: data_dir.join("logs"),
             web_root,
             admin_password,

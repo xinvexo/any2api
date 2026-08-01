@@ -1,8 +1,6 @@
 use std::collections::BTreeSet;
 
-use any2api_domain::{
-    API_KEY_SECRET_SCHEMA_VERSION, ProtocolOperation, ProviderBaseUrl, UpstreamModelName,
-};
+use any2api_domain::{ProtocolOperation, ProviderBaseUrl, UpstreamModelName};
 use http::{HeaderMap, HeaderValue, header};
 use serde::Deserialize;
 use url::Url;
@@ -10,11 +8,6 @@ use url::Url;
 use crate::{ProviderError, ProviderSecret, api::CredentialHeaders};
 
 pub(crate) fn validate_secret(secret: &ProviderSecret) -> Result<(), ProviderError> {
-    if secret.schema_version() != API_KEY_SECRET_SCHEMA_VERSION {
-        return Err(ProviderError::InvalidCredential(
-            "unsupported API Key schema".into(),
-        ));
-    }
     let value = secret.expose().as_bytes();
     if value.is_empty()
         || value.len() > 8_192

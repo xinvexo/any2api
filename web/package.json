@@ -18,7 +18,7 @@
     "test": "vitest run",
     "test:e2e": "pnpm build && pnpm check:embedded && node e2e/run-playwright.mjs",
     "build": "tsc -b && vite build",
-    "build:embedded": "pnpm build",
+    "build:embedded": "pnpm build && node scripts/sync-embedded-web.mjs",
     "check:embedded": "node scripts/sync-embedded-web.mjs --check"
   },
   "dependencies": {

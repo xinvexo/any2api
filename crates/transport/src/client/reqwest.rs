@@ -7,12 +7,15 @@ use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::Client;
 use rustls::pki_types::CertificateDer;
-use tokio::time::timeout;
+use tokio::time::Instant;
 
 use super::{
     cache::ClientCache,
     construction::build_transport_client,
-    failure::{failure_scope_for_unverified_path, map_send_error, validate_uri},
+    deadline::await_response_headers,
+    failure::{
+        connect_timeout_error, failure_scope_for_unverified_path, map_send_error, validate_uri,
+    },
     pinned::PinnedClient,
     request_body::signaled_request_body,
 };
@@ -133,6 +136,23 @@ impl ReqwestTransportManager {
         self.client_for_resolved(proxy, None)
     }
 
+    #[cfg(test)]
+    pub(crate) async fn warm_client_for_request(
+        &self,
+        proxy: TransportProxy<'_>,
+        request: &TransportRequest,
+    ) -> Result<(), TransportError> {
+        let resolved_origin = resolve_origin(
+            &request.uri,
+            request.network_policy,
+            proxy.profile().kind(),
+            Instant::now() + self.config.connect_timeout,
+        )
+        .await?;
+        self.client_for_resolved(proxy, resolved_origin.as_ref())?;
+        Ok(())
+    }
+
     fn client_for_resolved(
         &self,
         proxy: TransportProxy<'_>,
@@ -189,17 +209,29 @@ impl TransportManager for ReqwestTransportManager {
         proxy: TransportProxy<'_>,
         request: TransportRequest,
     ) -> Result<TransportResponse, TransportError> {
+        let connect_deadline = Instant::now() + self.config.connect_timeout;
         let profile = proxy.profile();
         validate_uri(&request.uri)?;
         let uses_http_forward_proxy =
             profile.kind() == ProxyKind::Http && request.uri.scheme_str() == Some("http");
+        let connect_timeout_error = connect_timeout_error(profile, uses_http_forward_proxy);
         let body_failure_scope = failure_scope_for_unverified_path(profile);
         let read_timeout = request.read_timeout;
-        let resolved_origin =
-            resolve_origin(&request.uri, request.network_policy, profile.kind()).await?;
+        let resolved_origin = resolve_origin(
+            &request.uri,
+            request.network_policy,
+            profile.kind(),
+            connect_deadline,
+        )
+        .await?;
         let client = self.client_for_resolved(proxy, resolved_origin.as_ref())?;
+        if Instant::now() >= connect_deadline {
+            return Err(connect_timeout_error);
+        }
         if let TransportClient::Pinned(client) = client.as_ref() {
-            return client.execute(request).await;
+            return client
+                .execute(request, connect_deadline, connect_timeout_error)
+                .await;
         }
         let TransportClient::Reqwest(client) = client.as_ref() else {
             unreachable!("transport client variant was checked")
@@ -210,34 +242,21 @@ impl TransportManager for ReqwestTransportManager {
             .headers(request.headers)
             .body(body)
             .send();
-        tokio::pin!(send);
-        let response = tokio::select! {
-            biased;
-            result = &mut send => result.map_err(|error| {
-                map_send_error(profile, uses_http_forward_proxy, error)
-            }),
-            signal = body_sent => {
-                if signal.is_err() {
-                    (&mut send).await.map_err(|error| {
-                        map_send_error(profile, uses_http_forward_proxy, error)
-                    })
-                } else {
-                    timeout(read_timeout, &mut send)
-                        .await
-                        .map_err(|_| {
-                            TransportError::new(
-                                TransportErrorStage::AwaitHeaders,
-                                body_failure_scope,
-                                any2api_domain::RetrySafety::Ambiguous,
-                                "upstream response headers timed out",
-                            )
-                        })?
-                        .map_err(|error| {
-                            map_send_error(profile, uses_http_forward_proxy, error)
-                        })
-                }
-            }
-        }?;
+        let response = await_response_headers(
+            send,
+            body_sent,
+            connect_deadline,
+            read_timeout,
+            |error| map_send_error(profile, uses_http_forward_proxy, error),
+            connect_timeout_error,
+            TransportError::new(
+                TransportErrorStage::AwaitHeaders,
+                body_failure_scope,
+                any2api_domain::RetrySafety::Ambiguous,
+                "upstream response headers timed out",
+            ),
+        )
+        .await?;
         let status = response.status();
         if uses_http_forward_proxy && status == reqwest::StatusCode::PROXY_AUTHENTICATION_REQUIRED {
             return Err(TransportError::new(

@@ -13,7 +13,7 @@ use super::{
     material::{StoredOAuthAccountMaterial, StoredOAuthAccountMaterials},
 };
 
-#[derive(Debug, FromRow)]
+#[derive(FromRow)]
 struct OAuthAccountRow {
     id: String,
     provider_kind: String,

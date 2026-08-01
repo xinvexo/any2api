@@ -30,7 +30,6 @@ axum = { version = "0.8.9", features = ["multipart"] }
 base64 = "0.22.1"
 bytes = "1.12.1"
 cargo_metadata = "0.23.1"
-chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
 futures-core = "0.3.32"
 futures-util = "0.3.32"
 fs2 = "0.4.3"
@@ -48,6 +47,7 @@ multer = "3.1.0"
 proptest = { version = "1.8.0", default-features = false, features = ["std"] }
 rcgen = { version = "0.13.2", default-features = false, features = ["ring"] }
 reqwest = { version = "0.12", default-features = false, features = ["http2", "rustls-tls-native-roots", "socks", "stream"] }
+rustix = { version = "1.1.4", features = ["process"] }
 rustls = { version = "0.23.42", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8.4"
 secrecy = "0.10.3"

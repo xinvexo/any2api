@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use any2api_domain::{
     CredentialKind, ModelRouteConfiguration, ProtocolDialect, ProtocolOperation,
-    ProviderCredentialConfiguration, ProviderEndpointConfiguration, ProviderKind,
+    ProviderCredentialConfiguration, ProviderEndpointConfiguration, ProviderEndpointId,
+    ProviderKind,
 };
-use any2api_protocol::ProtocolRegistry;
-use any2api_provider::ProviderRegistry;
+use any2api_protocol::api::ProtocolRegistry;
+use any2api_provider::api::ProviderRegistry;
 use thiserror::Error;
 
 #[derive(Clone)]
@@ -23,6 +24,8 @@ pub struct ProviderProtocolOptions {
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
 pub enum ConfigurationCapabilityError {
+    #[error("provider endpoint is not present in the candidate configuration: {0}")]
+    MissingProviderEndpoint(ProviderEndpointId),
     #[error("provider driver is not registered: {0:?}")]
     MissingProviderDriver(ProviderKind),
     #[error("protocol adapter is not registered: {0:?}")]
@@ -113,16 +116,20 @@ impl ConfigurationCapabilities {
             )?;
         }
         for credential in credentials.credentials() {
-            let endpoint = endpoints
-                .get(credential.provider_endpoint_id())
-                .expect("domain configuration validates endpoint references");
+            let endpoint = endpoints.get(credential.provider_endpoint_id()).ok_or(
+                ConfigurationCapabilityError::MissingProviderEndpoint(
+                    credential.provider_endpoint_id(),
+                ),
+            )?;
             self.validate_credential(endpoint.provider_kind(), credential.credential_kind())?;
         }
         for route in routes.routes() {
             for target in route.targets() {
-                let endpoint = endpoints
-                    .get(target.provider_endpoint_id())
-                    .expect("domain configuration validates target endpoint references");
+                let endpoint = endpoints.get(target.provider_endpoint_id()).ok_or(
+                    ConfigurationCapabilityError::MissingProviderEndpoint(
+                        target.provider_endpoint_id(),
+                    ),
+                )?;
                 self.validate_endpoint(
                     endpoint.provider_kind(),
                     route.ingress_protocol(),

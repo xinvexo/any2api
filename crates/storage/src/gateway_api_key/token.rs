@@ -1,7 +1,7 @@
 use any2api_domain::{GATEWAY_TOKEN_BODY_LEN, GATEWAY_TOKEN_PREFIX, validate_gateway_token};
 use secrecy::ExposeSecret;
 
-use crate::{error::StorageError, vault::SecretBytes};
+use crate::{error::StorageError, secret::SecretBytes};
 
 const DISPLAY_PREFIX_BYTES: usize = 16;
 

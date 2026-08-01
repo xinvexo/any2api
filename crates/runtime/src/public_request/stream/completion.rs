@@ -15,6 +15,7 @@ impl GuardedBody {
         self.state = super::CommitState::Finished;
         self.cancellation.cancel();
         self.upstream = Box::pin(futures_util::stream::empty());
+        self.continuation_lease.take();
         self.health.take();
         if let Some(mut recorder) = self.attempt_recorder.take() {
             match &outcome {
@@ -49,6 +50,7 @@ impl GuardedBody {
         self.state = super::CommitState::Finished;
         self.cancellation.cancel();
         self.upstream = Box::pin(futures_util::stream::empty());
+        self.continuation_lease.take();
         self.health.take();
         self.permit.take();
     }

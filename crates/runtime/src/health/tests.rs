@@ -14,6 +14,7 @@ use super::{
 };
 use crate::{
     credential::{CredentialAuthMaterial, CredentialGenerationRuntime, CredentialRuntimeHandle},
+    lifecycle::ProcessLifecycle,
     routing::SchedulerEpoch,
 };
 
@@ -41,6 +42,26 @@ async fn rate_limit_cools_only_the_model_and_wakes_at_expiry() {
     tokio::task::yield_now().await;
     assert_eq!(health.availability("model-a"), Ok(()));
     assert!(epoch.current() > 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn expired_model_cooldowns_are_lazily_reclaimed_on_health_access() {
+    let epoch = SchedulerEpoch::new();
+    let health = CredentialHealthRuntime::new(Arc::clone(&epoch));
+    let policy = policy();
+    let rate_limit = UpstreamErrorClassification::new(
+        UpstreamErrorKind::RateLimited,
+        RetrySafety::RejectedBeforeExecution,
+        Some(RetryAfterHint::Delay(Duration::from_secs(2))),
+    );
+
+    health.record("model-a", rate_limit, &policy);
+    health.record("model-b", rate_limit, &policy);
+    assert_eq!(health.model_cooldown_count(), 2);
+
+    tokio::time::advance(Duration::from_secs(2)).await;
+    assert_eq!(health.availability("model-a"), Ok(()));
+    assert_eq!(health.model_cooldown_count(), 0);
 }
 
 #[tokio::test(start_paused = true)]
@@ -199,6 +220,45 @@ async fn quota_exhaustion_wakes_and_allows_a_probe_at_reset_time() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn repeated_health_failures_share_one_background_wake_worker() {
+    let lifecycle = ProcessLifecycle::new();
+    let epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());
+    let credential = CredentialHealthRuntime::new(Arc::clone(&epoch));
+    let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
+    let proxy = ProxyHealthRuntime::new(Arc::clone(&epoch));
+    let policy = policy();
+    let rate_limit = UpstreamErrorClassification::new(
+        UpstreamErrorKind::RateLimited,
+        RetrySafety::RejectedBeforeExecution,
+        Some(RetryAfterHint::Delay(Duration::from_secs(60))),
+    );
+
+    for model in 0..128 {
+        let model = format!("model-{model}");
+        credential.record(&model, rate_limit, &policy);
+        credential.record(&model, rate_limit, &policy);
+    }
+    let endpoint_permits = (0..policy.endpoint_failure_threshold)
+        .map(|_| endpoint.try_acquire(&policy).expect("closed endpoint"))
+        .collect::<Vec<_>>();
+    for permit in endpoint_permits {
+        permit.failure(&policy);
+    }
+    let proxy_permits = (0..policy.proxy_failure_threshold)
+        .map(|_| proxy.try_acquire(&policy).expect("closed proxy"))
+        .collect::<Vec<_>>();
+    for permit in proxy_permits {
+        permit.failure(&policy);
+    }
+
+    assert_eq!(lifecycle.background_task_count(), 1);
+    lifecycle.begin_draining();
+    lifecycle.close_background_tasks();
+    lifecycle.wait_for_background_tasks().await;
+    assert_eq!(lifecycle.background_task_count(), 0);
+}
+
+#[tokio::test(start_paused = true)]
 async fn endpoint_and_proxy_breakers_open_and_allow_a_single_half_open_probe() {
     let epoch = SchedulerEpoch::new();
     let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
@@ -345,7 +405,6 @@ fn test_generation(epoch: Arc<SchedulerEpoch>) -> Arc<CredentialGenerationRuntim
         CredentialAuthMaterial::for_test(&credential, "sk-health-test".into()),
         epoch,
     )
-    .current_binding()
     .generation()
     .clone()
 }

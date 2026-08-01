@@ -16,7 +16,6 @@ export interface ProviderCredential {
   proxyProfileId: string;
   requestsPerMinute: number | null;
   enabled: boolean;
-  secretSchemaVersion: number;
   secretVersion: number;
   credentialGeneration: number;
   configVersion: number;
@@ -152,13 +151,12 @@ function parseProviderCredential(value: unknown): ProviderCredential {
     !isRecord(value) ||
     value.credential_kind !== "api_key" ||
     "api_key" in value ||
-    "secret" in value ||
-    "ciphertext" in value
+    "secret" in value
   ) {
     throw new Error("invalid provider credential response");
   }
   const fingerprint = readString(value.fingerprint);
-  if (!/^v1:[0-9a-f]{16}$/.test(fingerprint)) {
+  if (!/^v2:[0-9a-f]{16}$/.test(fingerprint)) {
     throw new Error("invalid provider credential response");
   }
   const secretTail = readNullableString(value.secret_tail);
@@ -175,7 +173,6 @@ function parseProviderCredential(value: unknown): ProviderCredential {
     proxyProfileId: readString(value.proxy_profile_id),
     requestsPerMinute: readOptionalRpm(value.requests_per_minute),
     enabled: readBoolean(value.enabled),
-    secretSchemaVersion: readPositiveInteger(value.secret_schema_version),
     secretVersion: readPositiveInteger(value.secret_version),
     credentialGeneration: readPositiveInteger(value.credential_generation),
     configVersion: readPositiveInteger(value.config_version),

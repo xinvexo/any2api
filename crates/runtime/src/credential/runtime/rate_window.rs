@@ -44,34 +44,25 @@ pub(crate) struct RateLimited {
 
 #[derive(Debug)]
 pub(super) struct CredentialRateWindow {
-    limit: Option<RequestsPerMinute>,
     attempts: VecDeque<Instant>,
 }
 
 impl CredentialRateWindow {
-    pub(super) fn new(limit: Option<RequestsPerMinute>) -> Self {
+    pub(super) const fn new() -> Self {
         Self {
-            limit,
             attempts: VecDeque::new(),
-        }
-    }
-
-    pub(super) fn reconcile(&mut self, limit: Option<RequestsPerMinute>, now: Instant) {
-        self.prune(now);
-        self.limit = limit;
-        if limit.is_none() {
-            self.attempts.clear();
         }
     }
 
     pub(super) fn try_reserve(
         &mut self,
         now: Instant,
+        limit: Option<RequestsPerMinute>,
         fixed_waiters: u32,
         fixed: bool,
     ) -> Result<(), RateLimited> {
         self.prune(now);
-        let Some(limit) = self.limit else {
+        let Some(limit) = limit else {
             return Ok(());
         };
         if !fixed && fixed_waiters > 0 {
@@ -86,14 +77,22 @@ impl CredentialRateWindow {
         Ok(())
     }
 
-    pub(super) fn snapshot(&mut self, now: Instant) -> CredentialRateSnapshot {
+    pub(super) fn snapshot(
+        &mut self,
+        now: Instant,
+        limit: Option<RequestsPerMinute>,
+    ) -> CredentialRateSnapshot {
         self.prune(now);
-        let requests_per_minute = self.limit.map(RequestsPerMinute::get);
-        let retry_at = self.limit.and_then(|limit| self.next_available_at(limit));
+        let requests_per_minute = limit.map(RequestsPerMinute::get);
+        let retry_at = limit.and_then(|limit| self.next_available_at(limit));
         CredentialRateSnapshot {
             requests_per_minute,
-            requests_in_window: u32::try_from(self.attempts.len())
-                .expect("RPM window is bounded by the validated u32 limit"),
+            requests_in_window: if limit.is_some() {
+                u32::try_from(self.attempts.len())
+                    .expect("RPM window is bounded by the validated u32 limit")
+            } else {
+                0
+            },
             retry_at,
         }
     }
@@ -128,18 +127,19 @@ mod tests {
     #[test]
     fn lowering_a_limit_reports_when_enough_old_attempts_expire() {
         let start = Instant::now();
-        let mut window = CredentialRateWindow::new(Some(rpm(3)));
-        window.try_reserve(start, 0, false).expect("first");
+        let mut window = CredentialRateWindow::new();
         window
-            .try_reserve(start + Duration::from_secs(1), 0, false)
+            .try_reserve(start, Some(rpm(3)), 0, false)
+            .expect("first");
+        window
+            .try_reserve(start + Duration::from_secs(1), Some(rpm(3)), 0, false)
             .expect("second");
         window
-            .try_reserve(start + Duration::from_secs(2), 0, false)
+            .try_reserve(start + Duration::from_secs(2), Some(rpm(3)), 0, false)
             .expect("third");
 
-        window.reconcile(Some(rpm(1)), start + Duration::from_secs(3));
         let limited = window
-            .try_reserve(start + Duration::from_secs(3), 0, false)
+            .try_reserve(start + Duration::from_secs(3), Some(rpm(1)), 0, false)
             .expect_err("lowered window is full");
         assert_eq!(limited.retry_at, Some(start + Duration::from_secs(62)));
     }

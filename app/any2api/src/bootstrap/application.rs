@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     logging::{AppLoggingReconciler, FileLogging},
-    self_update::RestartSignal,
+    self_update::{LifecycleUpdateTaskExecutor, RestartSignal},
     shutdown,
 };
 
@@ -26,7 +26,7 @@ pub(super) async fn run(
     executable_path: PathBuf,
 ) -> anyhow::Result<shutdown::ShutdownOutcome> {
     let storage = Arc::new(
-        SqliteStore::connect_with_master_key(&settings.database_path, &settings.master_key_path)
+        SqliteStore::connect(&settings.database_path)
             .await
             .context("failed to initialize sqlite storage")?,
     );
@@ -40,16 +40,17 @@ pub(super) async fn run(
         configuration.settings().logging(),
     )?;
     let runtime = Arc::new(RuntimeRegistry::new());
+    let lifecycle = runtime.lifecycle();
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         configuration.revision(),
         configuration.settings().logging(),
-        &runtime.lifecycle(),
+        &lifecycle,
     ));
     let admin_auth = Arc::new(
         AdminAuthService::load(
             Arc::new(SqliteAdminCredentialStore::new(Arc::clone(&storage))),
-            runtime.lifecycle(),
+            lifecycle.clone(),
         )
         .await
         .context("failed to load administrator authentication")?,
@@ -72,11 +73,14 @@ pub(super) async fn run(
     let request_components = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
         .context("failed to initialize public request adapters")?;
     let configuration_capabilities = request_components.configuration_capabilities();
-    let snapshots = Arc::new(SnapshotStore::new(PublishedSnapshot::new(
-        configuration,
-        runtime.as_ref(),
-        request_components.provider_registry(),
-    )));
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            request_components.provider_registry(),
+        )
+        .context("failed to compile the stored configuration")?,
+    ));
     let logging_reconciler = Arc::new(AppLoggingReconciler::new(
         Arc::clone(&telemetry),
         Arc::clone(&file_logging),
@@ -105,9 +109,15 @@ pub(super) async fn run(
     let provider_credential_tests = request_components.provider_credential_test_service();
     let embedded_web = settings.web_root.is_none();
     let restart = RestartSignal::new();
+    let update_tasks = Arc::new(LifecycleUpdateTaskExecutor::new(lifecycle.clone()));
     let application_updates = Arc::new(
-        GitHubReleaseUpdater::official(executable_path, embedded_web, Arc::new(restart.clone()))
-            .context("failed to initialize application updater")?,
+        GitHubReleaseUpdater::official(
+            executable_path,
+            embedded_web,
+            Arc::new(restart.clone()),
+            update_tasks,
+        )
+        .context("failed to initialize application updater")?,
     );
     let web_assets = settings
         .web_root
@@ -132,7 +142,6 @@ pub(super) async fn run(
         .await
         .with_context(|| format!("failed to bind {}", settings.bind))?;
 
-    let lifecycle = runtime.lifecycle();
     anyhow::ensure!(
         oauth.start_refresh_worker(&lifecycle),
         "OAuth refresh worker was already started"

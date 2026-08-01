@@ -1,7 +1,8 @@
 use any2api_domain::{CredentialKind, ProviderCredential, ProviderEndpointId};
+use secrecy::ExposeSecret;
 use sqlx::SqliteConnection;
 
-use crate::{error::StorageError, vault::SecretEnvelope};
+use crate::{error::StorageError, secret::SecretBytes};
 
 use super::mutation::ProviderCredentialDatabaseChange;
 
@@ -12,16 +13,16 @@ pub(crate) async fn execute_provider_credential_change(
     match change {
         ProviderCredentialDatabaseChange::Create {
             credential,
-            envelope,
-        } => insert(connection, credential, envelope).await?,
+            api_key,
+        } => insert(connection, credential, api_key).await?,
         ProviderCredentialDatabaseChange::Update(credential) => {
             update_metadata(connection, credential).await?
         }
         ProviderCredentialDatabaseChange::RotateSecret {
             credential,
-            envelope,
+            api_key,
         } => {
-            rotate_secret(connection, credential, envelope).await?;
+            rotate_secret(connection, credential, api_key).await?;
             replace_models(connection, credential).await?;
         }
         ProviderCredentialDatabaseChange::SetModels(credential) => {
@@ -78,31 +79,24 @@ pub(crate) async fn bump_endpoint_credential_generations(
 async fn insert(
     connection: &mut SqliteConnection,
     credential: &ProviderCredential,
-    envelope: &SecretEnvelope,
+    api_key: &SecretBytes,
 ) -> Result<(), StorageError> {
     sqlx::query(
         "INSERT INTO provider_credentials \
-         (id, provider_endpoint_id, label, label_key, credential_kind, secret_schema_version, \
-          secret_version, credential_generation, config_version, envelope_version, key_id, \
-          algorithm, nonce, ciphertext, aad_version, fingerprint_version, secret_fingerprint, \
+         (id, provider_endpoint_id, label, label_key, credential_kind, \
+          secret_version, credential_generation, config_version, api_key, fingerprint_version, secret_fingerprint, \
           secret_tail, proxy_profile_id, requests_per_minute, enabled) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(credential.id().to_string())
     .bind(credential.provider_endpoint_id().to_string())
     .bind(credential.label())
     .bind(credential.label_key())
     .bind(credential_kind_text(credential.credential_kind()))
-    .bind(i64::from(credential.secret_schema_version()))
     .bind(to_i64(credential.secret_version())?)
     .bind(to_i64(credential.credential_generation())?)
     .bind(to_i64(credential.config_version())?)
-    .bind(i64::from(envelope.version()))
-    .bind(envelope.key_id())
-    .bind(envelope.algorithm().as_str())
-    .bind(envelope.nonce().as_slice())
-    .bind(envelope.ciphertext())
-    .bind(i64::from(envelope.aad_version()))
+    .bind(api_key.expose_secret())
     .bind(i64::from(credential.fingerprint().version()))
     .bind(credential.fingerprint().digest().as_slice())
     .bind(credential.fingerprint().tail())
@@ -147,23 +141,17 @@ async fn update_metadata(
 async fn rotate_secret(
     connection: &mut SqliteConnection,
     credential: &ProviderCredential,
-    envelope: &SecretEnvelope,
+    api_key: &SecretBytes,
 ) -> Result<(), StorageError> {
     let result = sqlx::query(
         "UPDATE provider_credentials SET secret_version = ?, credential_generation = ?, \
-         config_version = ?, envelope_version = ?, key_id = ?, algorithm = ?, nonce = ?, \
-         ciphertext = ?, aad_version = ?, fingerprint_version = ?, secret_fingerprint = ?, \
+         config_version = ?, api_key = ?, fingerprint_version = ?, secret_fingerprint = ?, \
          secret_tail = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
     )
     .bind(to_i64(credential.secret_version())?)
     .bind(to_i64(credential.credential_generation())?)
     .bind(to_i64(credential.config_version())?)
-    .bind(i64::from(envelope.version()))
-    .bind(envelope.key_id())
-    .bind(envelope.algorithm().as_str())
-    .bind(envelope.nonce().as_slice())
-    .bind(envelope.ciphertext())
-    .bind(i64::from(envelope.aad_version()))
+    .bind(api_key.expose_secret())
     .bind(i64::from(credential.fingerprint().version()))
     .bind(credential.fingerprint().digest().as_slice())
     .bind(credential.fingerprint().tail())

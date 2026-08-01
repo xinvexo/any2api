@@ -6,6 +6,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use any2api_storage::api::{ensure_private_directory, protect_private_file};
 use time::OffsetDateTime;
 
 use super::policy::FileLogPolicy;
@@ -29,7 +30,10 @@ pub(super) struct RotatingFileWriter {
 
 impl RotatingFileWriter {
     pub(super) fn new(directory: PathBuf, policy: Arc<RwLock<FileLogPolicy>>) -> io::Result<Self> {
-        fs::create_dir_all(&directory)?;
+        ensure_private_directory(&directory)?;
+        for file in managed_files(&directory, None)? {
+            protect_private_file(&file.path)?;
+        }
         let mut writer = Self {
             directory,
             policy,

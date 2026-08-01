@@ -1,12 +1,7 @@
-import { Check, Eye, EyeOff, LoaderCircle, Network, Shield } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle, Network, Shield } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { getAdminAuthErrorMessage } from "../model/admin-auth-error";
-import {
-  clearRememberedAdminPassword,
-  loadRememberedAdminPassword,
-  saveRememberedAdminPassword,
-} from "../model/remembered-admin-password";
 import { useAdminAuth } from "../model/use-admin-auth";
 import { AuthMouseParticles } from "./AuthMouseParticles";
 import { cn } from "@/shared/lib/cn";
@@ -15,21 +10,12 @@ import { Button } from "@/shared/ui/Button";
 export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
   const auth = useAdminAuth();
   const [setupToken, setSetupToken] = useState("");
-  const remembered = mode === "login" ? loadRememberedAdminPassword() : null;
-  const [password, setPassword] = useState(remembered ?? "");
+  const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
-  const [rememberPassword, setRememberPassword] = useState(remembered !== null);
   const [visible, setVisible] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const setup = mode === "setup";
   const mismatch = setup && confirmation.length > 0 && password !== confirmation;
-
-  function changeRememberPassword(next: boolean) {
-    setRememberPassword(next);
-    if (!next) {
-      clearRememberedAdminPassword();
-    }
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,11 +28,6 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
         await auth.setup(password, setupToken);
       } else {
         await auth.login(password);
-        if (rememberPassword) {
-          saveRememberedAdminPassword(password);
-        } else {
-          clearRememberedAdminPassword();
-        }
       }
     } catch (nextError) {
       setError(nextError);
@@ -118,32 +99,6 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
               onChange={setConfirmation}
               onToggle={() => setVisible((current) => !current)}
             />
-          ) : null}
-
-          {!setup ? (
-            <div className="auth-form-meta">
-              <label className="auth-remember">
-                <span className="auth-remember-box">
-                  <input
-                    type="checkbox"
-                    className="auth-remember-input"
-                    checked={rememberPassword}
-                    onChange={(event) => changeRememberPassword(event.target.checked)}
-                  />
-                  <span className="auth-remember-face" aria-hidden="true" />
-                  <Check
-                    size={11}
-                    strokeWidth={2.75}
-                    className={cn(
-                      "auth-remember-check",
-                      rememberPassword ? "is-checked" : undefined,
-                    )}
-                    aria-hidden="true"
-                  />
-                </span>
-                记住密码
-              </label>
-            </div>
           ) : null}
 
           {mismatch ? (

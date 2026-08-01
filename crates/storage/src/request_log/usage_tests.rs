@@ -8,9 +8,10 @@ use tempfile::tempdir;
 
 use crate::{
     api::{
-        ConfigurationRepository, OAuthAccountDocument, OAuthAccountRepository,
-        RequestLogRepository, SecretBytes, SqliteStore, UpstreamCredentialUsageRepository,
+        OAuthAccountDocument, RequestLogRepository, SecretBytes, SqliteStore,
+        UpstreamCredentialUsageRepository,
     },
+    configuration::{ConfigurationMutation, commit_configuration},
     request_log::{REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES},
 };
 
@@ -25,11 +26,12 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
     let credential_id = CredentialId::new();
     let oauth_account_id = OAuthAccountId::from_uuid(*credential_id.as_uuid());
     let endpoint_id = ProviderEndpointId::new();
-    let endpoint = store
-        .create_provider_endpoint(
-            ConfigRevision::INITIAL,
-            endpoint_id,
-            ProviderEndpointDraft::new(
+    let endpoint = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: endpoint_id,
+            draft: ProviderEndpointDraft::new(
                 "Codex",
                 ProviderKind::Codex,
                 "https://api.example.com/v1",
@@ -37,15 +39,17 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
                 true,
             )
             .expect("endpoint draft"),
-        )
-        .await
-        .expect("create endpoint");
-    let credential = store
-        .create_provider_credential(
-            endpoint.revision(),
-            credential_id,
+        },
+    )
+    .await
+    .expect("create endpoint");
+    let credential = commit_configuration(
+        &store,
+        endpoint.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: credential_id,
             endpoint_id,
-            ProviderCredentialDraft::new(
+            draft: ProviderCredentialDraft::new(
                 "API Key",
                 CredentialKind::ApiKey,
                 ProxyProfileId::DIRECT,
@@ -53,32 +57,35 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
                 true,
             )
             .expect("credential draft"),
-            SecretBytes::from(b"sk-test-credential".to_vec()),
-        )
-        .await
-        .expect("create credential");
-    store
-        .create_oauth_account(
-            credential.revision(),
-            oauth_account_id,
-            ProviderKind::Codex,
-            OAuthAccountDraft::new(
+            api_key: SecretBytes::from(b"sk-test-credential".to_vec()),
+        },
+    )
+    .await
+    .expect("create credential");
+    commit_configuration(
+        &store,
+        credential.revision(),
+        ConfigurationMutation::CreateOAuthAccount {
+            id: oauth_account_id,
+            provider_kind: ProviderKind::Codex,
+            draft: OAuthAccountDraft::new(
                 "OAuth",
                 None,
                 true,
             )
             .expect("OAuth draft"),
-            None,
-            None,
-            vec!["gpt-test".into()],
-            OAuthAccountDocument::new(
+            safe_account_email: None,
+            expires_at: None,
+            models: vec!["gpt-test".into()],
+            document: OAuthAccountDocument::new(
                 ProviderKind::Codex,
                 br#"{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret"}"#
                     .to_vec()
                     .into(),
             )
             .expect("OAuth document"),
-        )
+        },
+    )
         .await
         .expect("create OAuth account");
 

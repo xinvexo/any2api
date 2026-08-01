@@ -6,8 +6,6 @@ use crate::{
     error::StorageError,
     provider::replace_model_routes,
     settings::prune_model_allowlist,
-    sqlite::SqliteStore,
-    vault::SecretVault,
 };
 
 use super::{
@@ -15,31 +13,12 @@ use super::{
     writes::execute_provider_credential_change,
 };
 
-impl SqliteStore {
-    pub(crate) async fn mutate_provider_credential(
-        &self,
-        expected: ConfigRevision,
-        mutation: ProviderCredentialMutation,
-    ) -> Result<StoredConfiguration, StorageError> {
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
-        let (configuration, changed) =
-            mutate_connection(&mut transaction, self.secret_vault(), expected, mutation).await?;
-        if changed {
-            transaction.commit().await?;
-        } else {
-            transaction.rollback().await?;
-        }
-        Ok(configuration)
-    }
-}
-
-async fn mutate_connection(
+pub(crate) async fn mutate_connection(
     connection: &mut SqliteConnection,
-    vault: &SecretVault,
     expected: ConfigRevision,
     mutation: ProviderCredentialMutation,
 ) -> Result<(StoredConfiguration, bool), StorageError> {
-    let current = load_configuration_from(connection, vault).await?;
+    let current = load_configuration_from(connection).await?;
     if current.revision() != expected {
         return Err(StorageError::RevisionConflict {
             expected,
@@ -50,7 +29,6 @@ async fn mutate_connection(
         current.provider_credentials(),
         current.provider_endpoints(),
         current.proxies(),
-        vault,
         mutation,
     )?
     else {
@@ -70,7 +48,7 @@ async fn mutate_connection(
     }
     let expected_credentials = prepared.into_configuration();
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection, vault).await?;
+    let configuration = load_configuration_from(connection).await?;
     assert_eq!(configuration.revision(), revision);
     assert_eq!(configuration.provider_credentials(), &expected_credentials);
     if let Some(expected_model_routes) = expected_model_routes {

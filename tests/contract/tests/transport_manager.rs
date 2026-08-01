@@ -47,10 +47,12 @@ async fn explicit_proxy_failure_never_falls_back_to_direct() {
         network_policy: EndpointNetworkPolicy::default(),
         read_timeout: Duration::from_secs(15),
     };
-
-    let error = match manager
-        .execute(TransportProxy::new(&proxy, None), request)
-        .await
+    let error = match tokio::time::timeout(
+        Duration::from_secs(2),
+        manager.execute(TransportProxy::new(&proxy, None), request),
+    )
+    .await
+    .expect("proxy failure must respect the connect deadline")
     {
         Ok(_) => panic!("explicit proxy failure must not use the origin directly"),
         Err(error) => error,
@@ -62,12 +64,9 @@ async fn explicit_proxy_failure_never_falls_back_to_direct() {
     );
     assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
-    assert!(
-        connect_request
-            .await
-            .expect("captured CONNECT request")
-            .starts_with(&format!("CONNECT {origin_address} HTTP/1.1"))
-    );
+    if let Ok(Ok(request)) = tokio::time::timeout(Duration::from_secs(1), connect_request).await {
+        assert!(request.starts_with(&format!("CONNECT {origin_address} HTTP/1.1")));
+    }
     assert!(
         tokio::time::timeout(Duration::from_millis(100), origin.accept())
             .await

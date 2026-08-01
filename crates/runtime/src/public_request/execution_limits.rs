@@ -4,11 +4,11 @@ use any2api_domain::ProtocolOperation;
 use any2api_protocol::api::RequestExecutionProfile;
 
 pub const STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES: usize = 32 * 1024 * 1024;
-pub const IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES: usize = 512 * 1024 * 1024;
+pub const IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 pub(super) const STANDARD_BUFFERED_RESPONSE_LIMIT_BYTES: usize = 16 * 1024 * 1024;
-const IMAGES_BUFFERED_RESPONSE_LIMIT_BYTES: usize = 512 * 1024 * 1024;
-const IMAGES_SSE_PRECOMMIT_LIMIT_BYTES: usize = 128 * 1024 * 1024;
+const IMAGES_BUFFERED_RESPONSE_LIMIT_BYTES: usize = 64 * 1024 * 1024;
+const IMAGES_SSE_PRECOMMIT_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const IMAGES_MINIMUM_TIMEOUT: Duration = Duration::from_secs(180);
 const REMOTE_COMPACTION_SSE_PRECOMMIT_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const REMOTE_COMPACTION_MINIMUM_TIMEOUT: Duration = Duration::from_secs(300);
@@ -19,6 +19,13 @@ pub(super) const fn is_images(operation: ProtocolOperation) -> bool {
         operation,
         ProtocolOperation::ImagesGenerations | ProtocolOperation::ImagesEdits
     )
+}
+
+pub(super) const fn request_body_limit(operation: ProtocolOperation) -> usize {
+    match operation {
+        ProtocolOperation::ImagesEdits => IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES,
+        _ => STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
+    }
 }
 
 pub(super) const fn buffered_response_limit(
@@ -100,8 +107,8 @@ mod tests {
         IMAGES_MINIMUM_TIMEOUT, IMAGES_SSE_PRECOMMIT_LIMIT_BYTES,
         REMOTE_COMPACTION_MINIMUM_TIMEOUT, REMOTE_COMPACTION_SSE_PRECOMMIT_LIMIT_BYTES,
         RESPONSES_COMPACT_MINIMUM_TIMEOUT, STANDARD_BUFFERED_RESPONSE_LIMIT_BYTES,
-        buffered_response_limit, read_timeout, retry_budget, stream_precommit_bytes,
-        stream_timeout,
+        buffered_response_limit, read_timeout, request_body_limit, retry_budget,
+        stream_precommit_bytes, stream_timeout,
     };
 
     #[test]
@@ -122,7 +129,15 @@ mod tests {
             ),
             IMAGES_SSE_PRECOMMIT_LIMIT_BYTES
         );
-        assert_eq!(IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, 512 * 1024 * 1024);
+        assert_eq!(IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, 64 * 1024 * 1024);
+        assert_eq!(
+            request_body_limit(ProtocolOperation::ImagesEdits),
+            IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES
+        );
+        assert_eq!(
+            request_body_limit(ProtocolOperation::ImagesGenerations),
+            super::STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES
+        );
 
         assert_eq!(
             buffered_response_limit(ProtocolOperation::Responses, true),
