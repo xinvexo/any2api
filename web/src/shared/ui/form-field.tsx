@@ -1,3 +1,4 @@
+import { AlertTriangle, XCircle } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -39,9 +40,29 @@ export function FormError({ children }: { children: ReactNode }) {
     return null;
   }
 
+  return <FormNotice tone="danger">{children}</FormNotice>;
+}
+
+export function FormNotice({
+  tone,
+  children,
+}: {
+  tone: "danger" | "warning";
+  children: ReactNode;
+}) {
+  const Icon = tone === "danger" ? XCircle : AlertTriangle;
+
   return (
-    <p className="text-[13px] leading-5 text-danger" role="alert">
-      {children}
-    </p>
+    <div
+      className={cn(
+        "flex items-start gap-2 rounded-[10px] border px-3 py-2.5 text-[13px] leading-5",
+        tone === "danger" && "border-danger/20 bg-danger/8 text-danger",
+        tone === "warning" && "border-warning/25 bg-warning/10 text-warning",
+      )}
+      role={tone === "danger" ? "alert" : "status"}
+    >
+      <Icon size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
   );
 }

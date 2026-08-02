@@ -9,7 +9,7 @@ import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderCredentialModelSelection } from "../model/use-provider-credential-model-selection";
 import { Button } from "@/shared/ui/Button";
 import { controlClass } from "@/shared/ui/form-control";
-import { Field, FormError } from "@/shared/ui/form-field";
+import { Field, FormError, FormNotice } from "@/shared/ui/form-field";
 
 const EMPTY_MODELS: readonly string[] = [];
 
@@ -55,14 +55,7 @@ export function ProviderCredentialModels({
         </p>
       ) : null}
 
-      {status ? (
-        <p
-          className={status.tone === "danger" ? "text-sm text-danger" : "text-sm text-warning"}
-          role={status.tone === "danger" ? "alert" : "status"}
-        >
-          {status.message}
-        </p>
-      ) : null}
+      {status ? <FormNotice tone={status.tone}>{status.message}</FormNotice> : null}
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12px] text-secondary">
         <span>
