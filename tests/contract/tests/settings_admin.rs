@@ -66,8 +66,8 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(trusted_proxies["web_group"], "远程管理");
     let affinity_enabled = find_setting(&initial, "affinity.enabled");
     assert_eq!(affinity_enabled["value_type"], "boolean");
-    assert_eq!(affinity_enabled["default_value"], true);
-    assert_eq!(affinity_enabled["effective_value"], true);
+    assert_eq!(affinity_enabled["default_value"], false);
+    assert_eq!(affinity_enabled["effective_value"], false);
     assert_eq!(affinity_enabled["web_group"], "会话粘性");
     let affinity_ttl = find_setting(&initial, "affinity.ttl");
     assert_eq!(affinity_ttl["value_type"], "duration_secs");
@@ -364,7 +364,7 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
         app.clone(),
         Method::PATCH,
         "/api/admin/settings/affinity.enabled",
-        Some(json!({ "expected_revision": 1, "value": false })),
+        Some(json!({ "expected_revision": 1, "value": true })),
         loopback,
     )
     .await;
@@ -372,11 +372,11 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
     assert_eq!(enabled["config_revision"], 2);
     assert_eq!(
         find_setting(&enabled, "affinity.enabled")["override_value"],
-        false
+        true
     );
     assert_eq!(
         find_setting(&enabled, "affinity.enabled")["effective_value"],
-        false
+        true
     );
 
     let (status, ttl) = request_json(
@@ -407,7 +407,7 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
         12
     );
     let stored = storage.load_configuration().await.expect("stored settings");
-    assert!(!stored.settings().affinity().enabled());
+    assert!(stored.settings().affinity().enabled());
     assert_eq!(stored.settings().affinity().ttl_secs(), 7_200);
     assert_eq!(stored.settings().affinity().wait_timeout_secs(), 12);
 
@@ -423,7 +423,7 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
     assert_eq!(enabled_reset["config_revision"], 5);
     assert_eq!(
         find_setting(&enabled_reset, "affinity.enabled")["effective_value"],
-        true
+        false
     );
 
     let (status, ttl_reset) = request_json(
@@ -457,7 +457,7 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
     );
 
     let stored = storage.load_configuration().await.expect("reset settings");
-    assert!(stored.settings().affinity().enabled());
+    assert!(!stored.settings().affinity().enabled());
     assert_eq!(stored.settings().affinity().ttl_secs(), 86_400);
     assert_eq!(stored.settings().affinity().wait_timeout_secs(), 30);
     assert_eq!(

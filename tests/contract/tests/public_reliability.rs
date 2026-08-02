@@ -102,7 +102,13 @@ async fn session_retry_does_not_replay_turn_state_to_another_credential() {
             r#"{"id":"retry-session-follow","model":"upstream","output":[]}"#,
         ),
     ]));
-    let harness = harness(transport.clone(), 2, &["session-retry-model"], &[]).await;
+    let harness = harness(
+        transport.clone(),
+        2,
+        &["session-retry-model"],
+        &[(SettingKey::AffinityEnabled, SettingValue::Boolean(true))],
+    )
+    .await;
     let mut headers = HeaderMap::new();
     headers.insert("session-id", HeaderValue::from_static("session-retry"));
     headers.insert(

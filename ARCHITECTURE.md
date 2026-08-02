@@ -2084,13 +2084,14 @@ QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的�
 
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
-| `affinity.enabled` | boolean | `true` | `true` / `false` |
+| `affinity.enabled` | boolean | `false` | `true` / `false` |
 | `affinity.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
 | `affinity.wait_timeout` | duration_secs | `30` | `1..=86_400` |
 
-`affinity.enabled` 只控制允许首次创建的普通显式 Session；Continuation 不受影响。TTL 只作用于当前
-进程内存；进程重启后绑定立即清空，不根据 TTL 恢复。绑定命中后等待原 Credential 的最长时间使用
-同一 `affinity.wait_timeout`；超时返回本地错误，不改换目标。
+`affinity.enabled` 默认关闭，只控制允许首次创建的普通显式 Session；管理员显式开启后，这类 Session
+才建立并命中固定路由。Continuation 不受影响。TTL 只作用于当前进程内存；进程重启后绑定立即清空，
+不根据 TTL 恢复。绑定命中后等待原 Credential 的最长时间使用同一 `affinity.wait_timeout`；超时返回
+本地错误，不改换目标。
 
 #### RPM 等待默认值
 

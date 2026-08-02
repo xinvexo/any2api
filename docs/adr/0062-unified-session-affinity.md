@@ -86,15 +86,15 @@ SettingRegistry 只保留一个开关和两项统一策略参数：
 
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
-| `affinity.enabled` | boolean | `true` | `true` / `false` |
+| `affinity.enabled` | boolean | `false` | `true` / `false` |
 | `affinity.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
 | `affinity.wait_timeout` | duration_secs | `30` | `1..=86_400` |
 
 三项设置按 PublishedSnapshot revision 捕获并支持现有默认值、覆盖值、生效值和底层删除覆盖语义；Web
 只允许保存具体覆盖值，不提供删除覆盖或恢复默认入口。
-`affinity.enabled` 只控制允许首次创建的普通显式 Session：关闭时 Runtime 忽略这类标识，不创建、命中
-或等待其绑定；Continuation 始终要求命中原绑定。开关关闭不清空 Registry，重新开启后尚未过期的
-普通 Session 绑定可继续命中。
+`affinity.enabled` 默认关闭，只控制允许首次创建的普通显式 Session：关闭时 Runtime 忽略这类标识，
+不创建、命中或等待其绑定；管理员显式开启后才启用固定路由。Continuation 始终要求命中原绑定。
+开关关闭不清空 Registry，重新开启后尚未过期的普通 Session 绑定可继续命中。
 
 Web 将开关直接展示在“设置 → 路由策略”，TTL 与等待超时放在高级设置中。不提供绑定强度或可重绑
 模式。

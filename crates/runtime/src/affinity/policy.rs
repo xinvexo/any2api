@@ -40,14 +40,14 @@ mod tests {
     #[test]
     fn policy_captures_the_explicit_session_toggle() {
         let defaults = SettingsConfiguration::defaults();
-        assert!(AffinityPolicy::from_settings(defaults.affinity()).enabled());
+        assert!(!AffinityPolicy::from_settings(defaults.affinity()).enabled());
 
         let overrides = SettingOverrides::from_entries([(
             SettingKey::AffinityEnabled,
-            SettingValue::Boolean(false),
+            SettingValue::Boolean(true),
         )])
         .expect("affinity override");
         let settings = SettingsConfiguration::from_overrides(overrides).expect("settings");
-        assert!(!AffinityPolicy::from_settings(settings.affinity()).enabled());
+        assert!(AffinityPolicy::from_settings(settings.affinity()).enabled());
     }
 }

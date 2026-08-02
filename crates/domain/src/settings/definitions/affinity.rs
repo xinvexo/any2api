@@ -11,7 +11,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         SettingKey::AffinityEnabled => setting_definition(
             key,
             SettingValueType::Boolean,
-            SettingValue::Boolean(true),
+            SettingValue::Boolean(false),
             (None, None),
             &[],
             (

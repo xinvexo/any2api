@@ -12,10 +12,10 @@ afterEach(() => {
 });
 
 test("puts refresh and conditional batch save in the fixed page toolbar", async () => {
-  let current = configuration(1, true);
+  let current = configuration(1, false);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "PATCH") {
-      current = configuration(2, false);
+      current = configuration(2, true);
     }
     return jsonResponse(current);
   });
@@ -44,17 +44,17 @@ test("puts refresh and conditional batch save in the fixed page toolbar", async 
   const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
   expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
     expected_revision: 1,
-    updates: [{ key: "affinity.enabled", value: false }],
+    updates: [{ key: "affinity.enabled", value: true }],
     resets: [],
   });
 });
 
 test("offers save, discard, and cancel before refresh or navigation", async () => {
-  let current = configuration(1, true);
+  let current = configuration(1, false);
   let getCount = 0;
   vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
     if (init?.method === "PATCH") {
-      current = configuration(2, false);
+      current = configuration(2, true);
       return jsonResponse(current);
     }
     getCount += 1;
@@ -116,7 +116,7 @@ function configuration(revision: number, affinityEnabled: boolean) {
       setting("scheduler.queue_timeout", "duration_secs", 30, null, null, "排队策略", 1, 86_400),
       setting("scheduler.max_waiting_requests", "integer", 128, null, null, "排队策略", 1, 100_000),
       setting("scheduler.fallback_on_rate_limit", "boolean", false, null, null, "排队策略"),
-      setting("affinity.enabled", "boolean", true, affinityEnabled, null, "会话粘性"),
+      setting("affinity.enabled", "boolean", false, affinityEnabled, null, "会话粘性"),
       setting("affinity.ttl", "duration_secs", 86_400, null, null, "会话粘性", 1, 2_592_000),
       setting("affinity.wait_timeout", "duration_secs", 30, null, null, "会话粘性", 1, 86_400),
     ],

@@ -17,7 +17,7 @@ test("shows frequent routing choices and folds low-frequency settings", async ()
     "data-value",
     "reject",
   );
-  expect(screen.getByRole("switch", { name: "启用会话粘性" })).toBeChecked();
+  expect(screen.getByRole("switch", { name: "启用会话粘性" })).not.toBeChecked();
   expect(screen.getByText("高级设置")).toBeInTheDocument();
   expect(screen.getByText("5 项")).toBeInTheDocument();
   const advanced = screen.getByText("高级设置").closest("details");
@@ -284,7 +284,7 @@ function configuration(revision: number, timeoutOverride: number | null = null) 
       setting("scheduler.queue_timeout", "duration_secs", 30, timeoutOverride, null, "排队策略", 1, 86_400),
       setting("scheduler.max_waiting_requests", "integer", 128, null, null, "排队策略", 1, 100_000),
       setting("scheduler.fallback_on_rate_limit", "boolean", false, null, null, "排队策略"),
-      setting("affinity.enabled", "boolean", true, null, null, "会话粘性"),
+      setting("affinity.enabled", "boolean", false, null, null, "会话粘性"),
       setting("affinity.ttl", "duration_secs", 86_400, null, null, "会话粘性", 1, 2_592_000),
       setting("affinity.wait_timeout", "duration_secs", 30, null, null, "会话粘性", 1, 86_400),
     ],

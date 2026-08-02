@@ -925,6 +925,8 @@ async fn explicit_session_wait_timeout_never_switches_credentials() {
     revision += 1;
     select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
     revision += 2;
+    update_setting(&app, remote, revision, "affinity.enabled", json!(true)).await;
+    revision += 1;
     update_setting(&app, remote, revision, "affinity.wait_timeout", json!(1)).await;
 
     let held = request(

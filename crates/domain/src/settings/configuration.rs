@@ -172,7 +172,7 @@ mod tests {
         assert_eq!(settings.scheduler().queue_timeout_secs(), 30);
         assert_eq!(settings.scheduler().max_waiting_requests(), 128);
         assert!(!settings.scheduler().fallback_on_rate_limit());
-        assert!(settings.affinity().enabled());
+        assert!(!settings.affinity().enabled());
         assert_eq!(settings.affinity().ttl_secs(), 86_400);
         assert_eq!(settings.affinity().wait_timeout_secs(), 30);
         assert_eq!(settings.reliability().max_total_attempts(), 3);
@@ -331,7 +331,7 @@ mod tests {
                 SettingKey::SchedulerFallbackOnRateLimit,
                 SettingValue::Boolean(true),
             ),
-            (SettingKey::AffinityEnabled, SettingValue::Boolean(false)),
+            (SettingKey::AffinityEnabled, SettingValue::Boolean(true)),
             (SettingKey::AffinityTtl, SettingValue::DurationSecs(120)),
             (
                 SettingKey::UpstreamReadTimeout,
@@ -346,7 +346,7 @@ mod tests {
         .expect("overrides");
         let settings = SettingsConfiguration::from_overrides(overrides).expect("settings");
         assert!(settings.scheduler().fallback_on_rate_limit());
-        assert!(!settings.affinity().enabled());
+        assert!(settings.affinity().enabled());
         assert_eq!(settings.affinity().ttl_secs(), 120);
         assert_eq!(settings.upstream().read_timeout_secs(), 2);
         assert!(settings.upstream().strict_ssrf());

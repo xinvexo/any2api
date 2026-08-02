@@ -541,7 +541,7 @@ async fn openai_images_requests_ignore_session_identifiers_and_continue_round_ro
         let affinity =
             request_json(app, Method::GET, "/api/admin/affinity", None, loopback, &[]).await;
         assert_eq!(affinity.status, StatusCode::OK);
-        assert_eq!(affinity.body["affinity_enabled"], true, "{path}");
+        assert_eq!(affinity.body["affinity_enabled"], false, "{path}");
         assert_eq!(affinity.body["active_session_count"], 0, "{path}");
         assert_eq!(affinity.body["creating_session_count"], 0, "{path}");
     }
@@ -1233,6 +1233,16 @@ async fn affinity_admin_exposes_active_sessions_and_clears_by_credential() {
     )
     .await;
     select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-upstream").await;
+    let enabled = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/affinity.enabled",
+        Some(json!({"expected_revision": revision + 4, "value": true})),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(enabled.status, StatusCode::OK);
 
     let response = request_json(
         app.clone(),
@@ -1308,7 +1318,7 @@ async fn affinity_admin_exposes_active_sessions_and_clears_by_credential() {
 }
 
 #[tokio::test]
-async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuations() {
+async fn affinity_defaults_off_and_can_be_enabled_without_weakening_continuations() {
     let (listener, mut upstream) = upstream_server_sequence(
         "/v1/responses",
         &[
@@ -1351,26 +1361,6 @@ async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuati
     )
     .await;
     select_models(&app, loopback, revision + 4, &endpoint_id, "gpt-upstream").await;
-
-    let disabled = request_json(
-        app.clone(),
-        Method::PATCH,
-        "/api/admin/settings/affinity.enabled",
-        Some(json!({"expected_revision": revision + 6, "value": false})),
-        loopback,
-        &[],
-    )
-    .await;
-    assert_eq!(disabled.status, StatusCode::OK);
-    assert_eq!(
-        disabled.body["items"]
-            .as_array()
-            .expect("setting items")
-            .iter()
-            .find(|item| item["key"] == "affinity.enabled")
-            .expect("affinity setting")["effective_value"],
-        false
-    );
 
     let replay_history = json!([
         {
@@ -1478,19 +1468,25 @@ async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuati
     assert_eq!(disabled_affinity.body["active_session_count"], 0);
     assert_eq!(disabled_affinity.body["creating_session_count"], 0);
 
-    let reset = request_json(
+    let enabled = request_json(
         app.clone(),
-        Method::DELETE,
-        &format!(
-            "/api/admin/settings/affinity.enabled?expected_revision={}",
-            revision + 7
-        ),
-        None,
+        Method::PATCH,
+        "/api/admin/settings/affinity.enabled",
+        Some(json!({"expected_revision": revision + 6, "value": true})),
         loopback,
         &[],
     )
     .await;
-    assert_eq!(reset.status, StatusCode::OK);
+    assert_eq!(enabled.status, StatusCode::OK);
+    assert_eq!(
+        enabled.body["items"]
+            .as_array()
+            .expect("setting items")
+            .iter()
+            .find(|item| item["key"] == "affinity.enabled")
+            .expect("affinity setting")["effective_value"],
+        true
+    );
 
     for input in ["re-enabled first", "re-enabled second"] {
         let response = request_json(
@@ -1512,7 +1508,7 @@ async fn affinity_toggle_disables_explicit_sessions_without_weakening_continuati
     assert_eq!(
         reenabled_first.headers.get("authorization"),
         reenabled_second.headers.get("authorization"),
-        "restoring the default must hot-reload explicit-session affinity",
+        "enabling the setting must hot-reload explicit-session affinity",
     );
 
     let affinity = request_json(app, Method::GET, "/api/admin/affinity", None, loopback, &[]).await;
@@ -1668,6 +1664,16 @@ async fn claude_explicit_session_stays_on_the_original_credential() {
         "claude-upstream",
     )
     .await;
+    let enabled = request_json(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings/affinity.enabled",
+        Some(json!({"expected_revision": revision + 6, "value": true})),
+        loopback,
+        &[],
+    )
+    .await;
+    assert_eq!(enabled.status, StatusCode::OK);
 
     for input in ["start", "continue"] {
         let response = request_json(
