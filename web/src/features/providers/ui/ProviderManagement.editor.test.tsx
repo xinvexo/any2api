@@ -41,6 +41,7 @@ test("creates a Claude private HTTP endpoint directly from the Base URL", async 
   renderManagement(["/providers?kind=claude&editor=new"]);
 
   expect(await screen.findByText("配置 Claude 上游地址")).toBeInTheDocument();
+  expect(screen.getByLabelText("Base URL")).toHaveValue("https://api.anthropic.com");
   fireEvent.change(await screen.findByLabelText("名称"), { target: { value: "本地 Claude" } });
   expect(screen.queryByLabelText("类型")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Base URL"), {

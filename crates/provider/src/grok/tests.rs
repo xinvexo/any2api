@@ -43,7 +43,7 @@ fn builds_xai_paths_and_bearer_authentication() {
         "https://api.x.ai/v1/models"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new("xai-test-key"))
+        .credential_headers(&base, &ProviderSecret::new("xai-test-key"))
         .expect("headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer xai-test-key");
     assert!(!format!("{headers:?}").contains("xai-test-key"));

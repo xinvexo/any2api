@@ -1170,7 +1170,7 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
         revision + 1,
         "Claude local",
         "claude",
-        &format!("http://{listener}/v1"),
+        &format!("http://{listener}"),
     )
     .await;
     create_credential(
@@ -1223,9 +1223,10 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
     let request = upstream.await.expect("upstream request");
     assert_eq!(request.path, "/v1/messages");
     assert_eq!(
-        request.headers.get("x-api-key"),
-        Some(&"sk-claude-contract".to_owned())
+        request.headers.get("authorization"),
+        Some(&"Bearer sk-claude-contract".to_owned())
     );
+    assert!(!request.headers.contains_key("x-api-key"));
     assert_eq!(
         request.headers.get("anthropic-version"),
         Some(&"2023-06-01".to_owned())
@@ -1246,7 +1247,6 @@ async fn claude_messages_uses_anthropic_headers_and_path() {
     );
     assert_eq!(request.headers["x-stainless-lang"], "js");
     assert_eq!(request.headers["anthropic-usage-limit"], "extended");
-    assert!(!request.headers.contains_key("authorization"));
     assert_eq!(request.body["model"], "claude-upstream");
 }
 
@@ -1273,7 +1273,7 @@ async fn claude_messages_preserves_final_529_semantics_and_safe_headers() {
         revision + 1,
         "Claude overloaded",
         "claude",
-        &format!("http://{listener}/v1"),
+        &format!("http://{listener}"),
     )
     .await;
     create_credential(
@@ -1751,7 +1751,7 @@ async fn claude_explicit_session_stays_on_the_original_credential() {
         revision + 1,
         "Claude session affinity",
         "claude",
-        &format!("http://{listener}/v1"),
+        &format!("http://{listener}"),
     )
     .await;
     create_labeled_credential(
@@ -1813,9 +1813,11 @@ async fn claude_explicit_session_stays_on_the_original_credential() {
     let first = upstream.recv().await.expect("first upstream request");
     let second = upstream.recv().await.expect("second upstream request");
     assert_eq!(
-        first.headers.get("x-api-key"),
-        second.headers.get("x-api-key")
+        first.headers.get("authorization"),
+        second.headers.get("authorization")
     );
+    assert!(!first.headers.contains_key("x-api-key"));
+    assert!(!second.headers.contains_key("x-api-key"));
 }
 
 #[tokio::test]

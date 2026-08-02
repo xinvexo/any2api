@@ -10,7 +10,7 @@ use any2api_transport::api::{
     TransportRequest,
 };
 use bytes::Bytes;
-use http::{HeaderMap, Method};
+use http::Method;
 use thiserror::Error;
 
 use crate::{
@@ -58,23 +58,25 @@ impl ProviderCredentialTestService {
             .providers
             .get(endpoint.provider_kind())
             .ok_or(ProviderCredentialTestError::ProviderUnavailable)?;
-        let endpoint_plan = driver
+        let test_plan = driver
             .credential_test_plan(endpoint.base_url())
             .map_err(ProviderCredentialTestError::Provider)?;
         let permit = binding
             .try_reserve_fixed()
             .map_err(|_| ProviderCredentialTestError::CredentialRateLimited)?;
+        let mut headers = test_plan.headers;
         let credential_headers = permit
-            .credential_headers(driver.as_ref(), &HeaderMap::new())
+            .credential_headers(driver.as_ref(), endpoint.base_url(), &headers)
             .map_err(ProviderCredentialTestError::Provider)?;
+        headers.extend(credential_headers.headers);
         let request = TransportRequest {
             method: Method::GET,
-            uri: endpoint_plan
+            uri: test_plan
                 .url
                 .as_str()
                 .parse()
                 .map_err(|_| ProviderCredentialTestError::InvalidEndpointUri)?,
-            headers: credential_headers.headers,
+            headers,
             body: Bytes::new(),
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),

@@ -497,7 +497,10 @@ fn codex_contract(driver: &dyn ProviderDriver) {
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new("sk-codex-contract"))
+        .credential_headers(
+            &provider_base_url(),
+            &ProviderSecret::new("sk-codex-contract"),
+        )
         .expect("Codex credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-codex-contract");
     let egress = driver
@@ -529,6 +532,8 @@ fn codex_contract(driver: &dyn ProviderDriver) {
 }
 
 fn claude_contract(driver: &dyn ProviderDriver) {
+    let base_url = ProviderBaseUrl::parse("https://api.example.com/gateway")
+        .expect("Claude provider base URL");
     assert!(
         driver
             .capabilities()
@@ -553,25 +558,40 @@ fn claude_contract(driver: &dyn ProviderDriver) {
     );
     assert_common_capabilities(driver);
     let plan = driver
-        .endpoint_plan(&provider_base_url(), ProtocolOperation::MessagesCountTokens)
+        .endpoint_plan(&base_url, ProtocolOperation::MessagesCountTokens)
         .expect("Claude endpoint plan");
     assert_eq!(
         plan.url.as_str(),
-        "https://api.example.com/v1/messages/count_tokens"
+        "https://api.example.com/gateway/v1/messages/count_tokens"
     );
     assert_eq!(
         driver
-            .credential_test_plan(&provider_base_url())
+            .credential_test_plan(&base_url)
             .expect("Claude credential test plan")
             .url
             .as_str(),
-        "https://api.example.com/v1/models"
+        "https://api.example.com/gateway/v1/models"
+    );
+    assert_eq!(
+        driver
+            .credential_test_plan(&base_url)
+            .expect("Claude credential test plan")
+            .headers["anthropic-version"],
+        "2023-06-01"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new("sk-claude-contract"))
+        .credential_headers(&base_url, &ProviderSecret::new("sk-claude-contract"))
         .expect("Claude credential headers");
-    assert_eq!(headers.headers["x-api-key"], "sk-claude-contract");
+    assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-claude-contract");
+    assert!(!headers.headers.contains_key("x-api-key"));
     assert!(!headers.headers.contains_key("anthropic-version"));
+    let official = ProviderBaseUrl::parse("https://api.anthropic.com")
+        .expect("official Claude provider base URL");
+    let official_headers = driver
+        .credential_headers(&official, &ProviderSecret::new("sk-claude-official"))
+        .expect("official Claude credential headers");
+    assert_eq!(official_headers.headers["x-api-key"], "sk-claude-official");
+    assert!(!official_headers.headers.contains_key(AUTHORIZATION));
     let identity = driver
         .prepare_request_headers(ProviderRequestHeaderContext {
             ingress_dialect: ProtocolDialect::AnthropicMessages,
@@ -701,7 +721,10 @@ fn grok_contract(driver: &dyn ProviderDriver) {
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new("xai-contract-key"))
+        .credential_headers(
+            &provider_base_url(),
+            &ProviderSecret::new("xai-contract-key"),
+        )
         .expect("Grok credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer xai-contract-key");
 

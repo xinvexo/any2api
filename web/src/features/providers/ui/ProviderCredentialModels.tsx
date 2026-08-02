@@ -211,7 +211,7 @@ function describeResult(result: ProviderCredentialTestResult) {
     if (result.statusCode === 401 || result.statusCode === 403) {
       return {
         tone: "danger" as const,
-        message: `上游拒绝了这把 API Key（HTTP ${result.statusCode}）。`,
+        message: `模型目录请求被上游拒绝（HTTP ${result.statusCode}）；请核对 Base URL 与上游认证要求，也可手动添加模型。`,
       };
     }
     return {

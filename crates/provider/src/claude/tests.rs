@@ -1,7 +1,10 @@
 use any2api_domain::{
     ProtocolDialect, ProtocolOperation, ProviderBaseUrl, TransportMode, UpstreamErrorKind,
 };
-use http::{HeaderMap, StatusCode, header::CONTENT_TYPE};
+use http::{
+    HeaderMap, StatusCode,
+    header::{AUTHORIZATION, CONTENT_TYPE},
+};
 
 use super::ClaudeDriver;
 use crate::{
@@ -12,14 +15,14 @@ use crate::{
 #[test]
 fn builds_messages_paths_and_anthropic_headers() {
     let driver = ClaudeDriver::new();
-    let base = ProviderBaseUrl::parse("https://api.example.com/v1").expect("base URL");
+    let base = ProviderBaseUrl::parse("https://api.example.com/gateway").expect("base URL");
     assert_eq!(
         driver
             .endpoint_plan(&base, ProtocolOperation::MessagesCountTokens)
             .expect("endpoint")
             .url
             .as_str(),
-        "https://api.example.com/v1/messages/count_tokens"
+        "https://api.example.com/gateway/v1/messages/count_tokens"
     );
     assert_eq!(
         driver
@@ -27,13 +30,27 @@ fn builds_messages_paths_and_anthropic_headers() {
             .expect("credential test endpoint")
             .url
             .as_str(),
-        "https://api.example.com/v1/models"
+        "https://api.example.com/gateway/v1/models"
+    );
+    assert_eq!(
+        driver
+            .credential_test_plan(&base)
+            .expect("credential test endpoint")
+            .headers["anthropic-version"],
+        "2023-06-01"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new("sk-claude"))
+        .credential_headers(&base, &ProviderSecret::new("sk-claude"))
         .expect("headers");
-    assert_eq!(headers.headers["x-api-key"], "sk-claude");
+    assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-claude");
+    assert!(!headers.headers.contains_key("x-api-key"));
     assert!(!headers.headers.contains_key("anthropic-version"));
+    let official = ProviderBaseUrl::parse("https://api.anthropic.com").expect("official base URL");
+    let official_headers = driver
+        .credential_headers(&official, &ProviderSecret::new("sk-ant-official"))
+        .expect("official headers");
+    assert_eq!(official_headers.headers["x-api-key"], "sk-ant-official");
+    assert!(!official_headers.headers.contains_key(AUTHORIZATION));
     let identity = driver
         .prepare_request_headers(ProviderRequestHeaderContext {
             ingress_dialect: ProtocolDialect::AnthropicMessages,
@@ -145,7 +162,7 @@ fn parses_claude_account_email() {
     let profile = driver
         .oauth_routing_profile(&token)
         .expect("OAuth routing profile");
-    assert_eq!(profile.base_url().as_str(), "https://api.anthropic.com/v1");
+    assert_eq!(profile.base_url().as_str(), "https://api.anthropic.com");
     assert_eq!(
         profile.protocol_dialect(),
         ProtocolDialect::AnthropicMessages

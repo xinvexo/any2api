@@ -76,7 +76,7 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
         revision,
         "Claude SSE",
         "claude",
-        &format!("http://{claude_address}/v1"),
+        &format!("http://{claude_address}"),
     )
     .await;
     revision += 1;
@@ -132,7 +132,11 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
     assert!(claude_rest.contains("message_stop"));
     let claude_request = claude_request.await.expect("Claude upstream request");
     assert_eq!(claude_request.headers["accept"], "text/event-stream");
-    assert_eq!(claude_request.headers["x-api-key"], "sk-claude-stream");
+    assert_eq!(
+        claude_request.headers["authorization"],
+        "Bearer sk-claude-stream"
+    );
+    assert!(!claude_request.headers.contains_key("x-api-key"));
     assert_eq!(claude_request.headers["anthropic-version"], "2023-06-01");
     assert_eq!(claude_request.body["model"], "claude-upstream");
     assert_eq!(claude_request.body["stream"], true);

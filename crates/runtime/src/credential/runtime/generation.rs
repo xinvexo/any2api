@@ -1,5 +1,6 @@
 use std::{fmt, sync::Arc};
 
+use any2api_domain::ProviderBaseUrl;
 use any2api_provider::api::{
     CredentialHeaders, OAuthTokenMaterial, ProviderDriver, ProviderError, ProviderSecret,
 };
@@ -44,10 +45,11 @@ impl CredentialAuthentication {
     fn headers(
         &self,
         driver: &dyn ProviderDriver,
+        base_url: &ProviderBaseUrl,
         forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
         match self {
-            Self::ProviderApiKey(secret) => driver.credential_headers(secret),
+            Self::ProviderApiKey(secret) => driver.credential_headers(base_url, secret),
             Self::OAuth(token) => driver.oauth_credential_headers(token, forwarded),
         }
     }
@@ -93,9 +95,10 @@ impl CredentialGenerationRuntime {
     pub(crate) fn credential_headers(
         &self,
         driver: &dyn ProviderDriver,
+        base_url: &ProviderBaseUrl,
         forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
-        self.authentication.headers(driver, forwarded)
+        self.authentication.headers(driver, base_url, forwarded)
     }
 
     pub(crate) fn oauth_token(&self) -> Option<Arc<OAuthTokenMaterial>> {

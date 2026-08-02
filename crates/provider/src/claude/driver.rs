@@ -3,7 +3,8 @@ use super::{
     oauth as claude_oauth, quota as claude_quota,
 };
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, TransportMode,
+    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
+    TransportMode,
 };
 use http::{HeaderMap, HeaderValue};
 use url::Url;
@@ -11,10 +12,10 @@ use url::Url;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage, OAuthRequestPlan,
-        OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver, ProviderRequestHeaderContext,
-        UpstreamResponseMeta,
+        CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
+        OAuthImportedAccount, OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage,
+        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        ProviderRequestHeaderContext, UpstreamResponseMeta,
     },
     credential::api_key,
 };
@@ -60,26 +61,31 @@ impl ProviderDriver for ClaudeDriver {
 
     fn endpoint_plan(
         &self,
-        base_url: &any2api_domain::ProviderBaseUrl,
+        base_url: &ProviderBaseUrl,
         operation: ProtocolOperation,
     ) -> Result<EndpointPlan, ProviderError> {
-        if !matches!(
-            operation,
-            ProtocolOperation::Messages | ProtocolOperation::MessagesCountTokens
-        ) {
-            return Err(ProviderError::InvalidEndpoint(
-                "operation is not supported by Claude".into(),
-            ));
-        }
+        let path = match operation {
+            ProtocolOperation::Messages => "v1/messages",
+            ProtocolOperation::MessagesCountTokens => "v1/messages/count_tokens",
+            _ => {
+                return Err(ProviderError::InvalidEndpoint(
+                    "operation is not supported by Claude".into(),
+                ));
+            }
+        };
         Ok(EndpointPlan {
-            url: api_key::endpoint_url(base_url, operation)?,
+            url: api_key::path_url(base_url, path)?,
         })
     }
 
     fn credential_headers(
         &self,
+        base_url: &ProviderBaseUrl,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
+        if base_url.as_str() != "https://api.anthropic.com" {
+            return api_key::bearer_credential_headers(secret);
+        }
         self.validate_credential(secret)?;
         let api_key = HeaderValue::from_str(secret.expose())
             .map_err(|_| ProviderError::InvalidCredential("invalid API Key header".into()))?;
@@ -105,10 +111,13 @@ impl ProviderDriver for ClaudeDriver {
 
     fn credential_test_plan(
         &self,
-        base_url: &any2api_domain::ProviderBaseUrl,
-    ) -> Result<EndpointPlan, ProviderError> {
-        Ok(EndpointPlan {
-            url: api_key::credential_test_url(base_url)?,
+        base_url: &ProviderBaseUrl,
+    ) -> Result<CredentialTestPlan, ProviderError> {
+        let mut headers = HeaderMap::new();
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+        Ok(CredentialTestPlan {
+            url: api_key::path_url(base_url, "v1/models")?,
+            headers,
         })
     }
 

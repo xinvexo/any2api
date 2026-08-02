@@ -42,3 +42,5 @@
 - 虚拟时间测试覆盖健康 worker 合并多个 deadline 时，QueueTicket 仍按自身 `retry_at` 完成最终重选。
 - 快照测试覆盖 QueueCoordinator/waiting count 跨快照复用、QueuePolicy 按 revision 捕获。
 - Runtime、Workspace、Clippy、架构检查和 HTTP 契约测试作为提交门禁。
+
+其中对 ADR-0054 固定 payload 字节预算的引用已由 ADR-0082 取代；调度仍不增加任何内存或请求数量 Semaphore。

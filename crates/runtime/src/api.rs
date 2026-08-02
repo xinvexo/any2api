@@ -28,10 +28,9 @@ pub use crate::proxy::{
     ProxyTestResult, ProxyTestService,
 };
 pub use crate::public_request::{
-    IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, PUBLIC_REQUEST_MEMORY_BUDGET_BYTES, PublicRequest,
-    PublicRequestAdmissionError, PublicRequestMemoryAdmission, PublicRequestService,
+    IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, PublicRequest, PublicRequestService,
     PublicRequestServiceError, PublicResponse, PublicResponseBody, PublicResponseStream,
-    STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
+    STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES, request_body_limit,
 };
 pub use crate::registry::RuntimeRegistry;
 pub use crate::request_telemetry::{

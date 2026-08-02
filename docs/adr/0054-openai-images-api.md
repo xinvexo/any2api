@@ -50,3 +50,5 @@ Images 必须继续经过统一鉴权、模型路由、RPM、代理、健康、�
 - 提交前运行相关 fmt、clippy、Rust 单元/契约测试、前端 typecheck/lint/build 与 embedded 资源校验。
 
 本决策与 ADR-0049 的全局模型允许列表、ADR-0061 的上游错误透明返回和 ADR-0062 的统一固定会话绑定共同生效。
+
+其中第 11 条的进程级固定内存预算、`4x` 权重、执行阶段响应预留和 Permit 生命周期已由 ADR-0082 取代；单请求 Body、buffered 响应、SSE 帧硬上限和逐块聚合继续生效。

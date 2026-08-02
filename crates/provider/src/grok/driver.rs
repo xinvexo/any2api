@@ -9,10 +9,10 @@ use any2api_domain::{
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthDeviceAuthorization,
-        OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount, OAuthLoginFlow,
-        OAuthQuotaQueryPlan, OAuthQuotaRejection, OAuthQuotaTokenBalance, OAuthQuotaUsage,
-        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan,
+        OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount,
+        OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaRejection, OAuthQuotaTokenBalance,
+        OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
         ProviderRequestHeaderContext, UpstreamResponseMeta,
     },
     credential::api_key,
@@ -86,9 +86,10 @@ impl ProviderDriver for GrokDriver {
     fn credential_test_plan(
         &self,
         base_url: &any2api_domain::ProviderBaseUrl,
-    ) -> Result<EndpointPlan, ProviderError> {
-        Ok(EndpointPlan {
+    ) -> Result<CredentialTestPlan, ProviderError> {
+        Ok(CredentialTestPlan {
             url: api_key::credential_test_url(base_url)?,
+            headers: HeaderMap::new(),
         })
     }
 
@@ -98,6 +99,7 @@ impl ProviderDriver for GrokDriver {
 
     fn credential_headers(
         &self,
+        _base_url: &any2api_domain::ProviderBaseUrl,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
         api_key::bearer_credential_headers(secret)

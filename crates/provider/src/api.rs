@@ -39,6 +39,12 @@ pub struct EndpointPlan {
     pub url: Url,
 }
 
+#[derive(Clone)]
+pub struct CredentialTestPlan {
+    pub url: Url,
+    pub headers: HeaderMap,
+}
+
 #[derive(Clone, Default)]
 pub struct CredentialHeaders {
     pub headers: HeaderMap,
@@ -77,12 +83,13 @@ pub trait ProviderDriver: Send + Sync {
     fn credential_test_plan(
         &self,
         base_url: &ProviderBaseUrl,
-    ) -> Result<EndpointPlan, ProviderError>;
+    ) -> Result<CredentialTestPlan, ProviderError>;
 
     fn parse_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>, ProviderError>;
 
     fn credential_headers(
         &self,
+        base_url: &ProviderBaseUrl,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError>;
 

@@ -3,3 +3,4 @@
 "0002_drop_request_log_cache_write_tokens.sql" = "1a4c647ef6838c6157090fd3476590f44fdff6cc875e29e0ccfb039c93919ec1"
 "0003_plaintext_local_secrets.sql" = "9e4dfb87412e9d1dbc2ab85f14cc323fd6db56f5b8dad35d7bc51993e872a3a6"
 "0004_raw_http_access_log_exchange.sql" = "a9ac42f3cd6bed5e227a04f695868c9b342db97dc1fe3dce316adfb1f04c3aa0"
+"0005_normalize_claude_base_urls.sql" = "2c5f5658394ea4b5ee98f348915c47a3a8527850e2279830bba483fe2df821d7"

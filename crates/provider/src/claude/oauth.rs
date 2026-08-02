@@ -15,7 +15,7 @@ const AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
 const TOKEN_URL: &str = "https://api.anthropic.com/v1/oauth/token";
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const REDIRECT_URI: &str = "http://localhost:54545/callback";
-const DATA_BASE_URL: &str = "https://api.anthropic.com/v1";
+const DATA_BASE_URL: &str = "https://api.anthropic.com";
 const MODELS: &[&str] = &[
     "claude-3-5-haiku-20241022",
     "claude-3-7-sonnet-20250219",

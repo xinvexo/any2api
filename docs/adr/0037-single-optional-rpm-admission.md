@@ -67,3 +67,5 @@ TPM（Tokens Per Minute）不进入本地限制。输出 Token 在请求前未�
 - 流式测试继续覆盖 `in_flight` 在 EOF、错误、取消和 Drop 时只释放一次，但验证流结束不会归还
   RPM 名额。
 - 管理 HTTP 与 Web 测试覆盖可选 RPM 的创建、编辑、展示、恢复无限制，以及负载均衡运行态 DTO。
+
+其中固定进程级 payload 字节预算及其本地拒绝语义已由 ADR-0082 取代；RPM 继续是唯一参与 Credential 准入的本地限制。

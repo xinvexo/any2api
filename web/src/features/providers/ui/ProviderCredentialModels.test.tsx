@@ -7,7 +7,7 @@ import type {
 } from "../api/provider-credential-contracts";
 import { ProviderCredentialModels } from "./ProviderCredentialModels";
 
-test("shows an explicit message when the upstream rejects the API Key", () => {
+test("does not misdiagnose an authentication response as a rejected API Key", () => {
   renderModels({
     reachable: true,
     accepted: false,
@@ -15,7 +15,9 @@ test("shows an explicit message when the upstream rejects the API Key", () => {
     statusCode: 401,
   });
 
-  expect(screen.getByRole("alert")).toHaveTextContent("上游拒绝了这把 API Key（HTTP 401）");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "模型目录请求被上游拒绝（HTTP 401）；请核对 Base URL 与上游认证要求，也可手动添加模型。",
+  );
   expect(screen.getByLabelText("手动添加模型")).toBeEnabled();
   expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
 });

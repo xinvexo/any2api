@@ -47,7 +47,7 @@ fn builds_responses_paths_and_bearer_authentication() {
         "https://api.example.com/v1/models"
     );
     let headers = driver
-        .credential_headers(&ProviderSecret::new("sk-codex"))
+        .credential_headers(&base, &ProviderSecret::new("sk-codex"))
         .expect("headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-codex");
     assert!(!format!("{headers:?}").contains("sk-codex"));

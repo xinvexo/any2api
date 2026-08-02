@@ -11,9 +11,9 @@ use url::Url;
 use crate::{
     ProviderError, ProviderSecret,
     api::{
-        CapabilitySet, CredentialHeaders, EndpointPlan, OAuthGrant, OAuthImportedAccount,
-        OAuthLoginFlow, OAuthProviderEgressStatus, OAuthQuotaRejection, OAuthQuotaUsage,
-        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
+        OAuthImportedAccount, OAuthLoginFlow, OAuthProviderEgressStatus, OAuthQuotaRejection,
+        OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
         ProviderRequestHeaderContext, UpstreamResponseMeta,
     },
     credential::api_key,
@@ -89,6 +89,7 @@ impl ProviderDriver for CodexDriver {
 
     fn credential_headers(
         &self,
+        _base_url: &any2api_domain::ProviderBaseUrl,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
         api_key::bearer_credential_headers(secret)
@@ -120,9 +121,10 @@ impl ProviderDriver for CodexDriver {
     fn credential_test_plan(
         &self,
         base_url: &any2api_domain::ProviderBaseUrl,
-    ) -> Result<EndpointPlan, ProviderError> {
-        Ok(EndpointPlan {
+    ) -> Result<CredentialTestPlan, ProviderError> {
+        Ok(CredentialTestPlan {
             url: api_key::credential_test_url(base_url)?,
+            headers: HeaderMap::new(),
         })
     }
 

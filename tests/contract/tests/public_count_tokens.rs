@@ -53,13 +53,16 @@ async fn count_tokens_preserves_request_fields() {
     let request = upstream.await.expect("upstream request");
     assert_eq!(request.method, Method::POST);
     assert_eq!(request.path, "/v1/messages/count_tokens");
-    assert_eq!(request.headers["x-api-key"], "sk-count-tokens-provider");
+    assert_eq!(
+        request.headers["authorization"],
+        "Bearer sk-count-tokens-provider"
+    );
     assert_eq!(request.headers["anthropic-version"], "2023-06-01");
     assert_eq!(
         request.headers["anthropic-beta"],
         "token-counting-2024-11-01"
     );
-    assert!(!request.headers.contains_key("authorization"));
+    assert!(!request.headers.contains_key("x-api-key"));
     assert_eq!(request.body["model"], "claude-upstream");
     assert_eq!(request.body["system"], "system prompt");
     assert_eq!(request.body["tools"][0]["name"], "lookup");
@@ -200,7 +203,7 @@ async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Rou
             "expected_revision": 2,
             "name": "Claude local",
             "provider_kind": "claude",
-            "base_url": format!("http://{upstream_address}/v1"),
+            "base_url": format!("http://{upstream_address}"),
             "protocol_dialect": "anthropic_messages",
             "enabled": true
         })),

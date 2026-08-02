@@ -18,13 +18,7 @@ use thiserror::Error;
 use super::response::{
     FinalFailure, sanitize_response_headers, sanitize_upstream_error_response_headers,
 };
-use super::{
-    execution_limits, planning,
-    resource_admission::{
-        self, PublicRequestAdmissionError, PublicRequestMemoryAdmission, PublicRequestMemoryBudget,
-    },
-    retry,
-};
+use super::{planning, retry};
 use crate::{
     configuration::PublishedSnapshot,
     credential::RoutingPermit,
@@ -63,7 +57,6 @@ pub struct PublicRequestService {
     transport: Arc<dyn TransportManager>,
     telemetry: Arc<RequestTelemetry>,
     oauth_refresher: OnceLock<Arc<OAuthRefresher>>,
-    memory_budget: PublicRequestMemoryBudget,
 }
 
 impl PublicRequestService {
@@ -83,7 +76,6 @@ impl PublicRequestService {
             transport,
             telemetry: Arc::new(RequestTelemetry::disabled()),
             oauth_refresher: OnceLock::new(),
-            memory_budget: PublicRequestMemoryBudget::new(),
         })
     }
 
@@ -97,40 +89,11 @@ impl PublicRequestService {
         self.oauth_refresher.set(oauth.refresher()).is_ok()
     }
 
-    pub fn try_admit_request_body(
-        &self,
-        operation: ProtocolOperation,
-    ) -> Result<PublicRequestMemoryAdmission, PublicRequestAdmissionError> {
-        self.memory_budget.try_admit_max_body(operation)
-    }
-
     pub async fn execute(
         &self,
         snapshot: Arc<PublishedSnapshot>,
         request: PublicRequest,
     ) -> PublicResponse {
-        let admission = match self
-            .memory_budget
-            .try_admit_body(request.operation, request.body.len())
-        {
-            Ok(admission) => admission,
-            Err(error) => return self.admission_error_response(request.operation, error),
-        };
-        self.execute_admitted(snapshot, request, admission).await
-    }
-
-    pub async fn execute_admitted(
-        &self,
-        snapshot: Arc<PublishedSnapshot>,
-        request: PublicRequest,
-        mut admission: PublicRequestMemoryAdmission,
-    ) -> PublicResponse {
-        if let Err(error) = admission
-            .validate_operation(request.operation)
-            .and_then(|()| admission.set_body_len(request.body.len()))
-        {
-            return self.admission_error_response(request.operation, error);
-        }
         let policy = self
             .telemetry
             .policy(snapshot.revision(), snapshot.settings().logging());
@@ -148,15 +111,9 @@ impl PublicRequestService {
                 .expect("validated protocol registry"),
         );
         let result = self
-            .execute_inner(
-                snapshot,
-                request,
-                Arc::clone(&adapter),
-                recorder.clone(),
-                &mut admission,
-            )
+            .execute_inner(snapshot, request, Arc::clone(&adapter), recorder.clone())
             .await;
-        let response = match result {
+        match result {
             Ok(response) => {
                 if matches!(response.body, PublicResponseBody::Buffered(_)) {
                     recorder.finish(response.status.as_u16(), None);
@@ -186,8 +143,7 @@ impl PublicRequestService {
                 );
                 response.into()
             }
-        };
-        resource_admission::hold_response_memory(admission, response)
+        }
     }
 
     #[must_use]
@@ -199,44 +155,15 @@ impl PublicRequestService {
             .into()
     }
 
-    fn admission_error_response(
-        &self,
-        operation: ProtocolOperation,
-        error: PublicRequestAdmissionError,
-    ) -> PublicResponse {
-        let mut response = self
-            .protocols
-            .get(operation.dialect())
-            .expect("validated protocol registry")
-            .error_response(&resource_admission::public_error(error));
-        sanitize_response_headers(&mut response.headers);
-        response.into()
-    }
-
     async fn execute_inner(
         &self,
         snapshot: Arc<PublishedSnapshot>,
         request: PublicRequest,
         adapter: Arc<dyn ProtocolAdapter>,
         recorder: RequestRecorder,
-        admission: &mut PublicRequestMemoryAdmission,
     ) -> Result<PublicResponse, FinalFailure> {
         let decoded = planning::decode(request, adapter.as_ref())
             .await
-            .map_err(FinalFailure::from)?;
-        let response_limit = if decoded.decoded.stream {
-            execution_limits::stream_precommit_bytes(
-                decoded.decoded.operation,
-                decoded.decoded.execution_profile,
-                usize::try_from(snapshot.settings().stream().precommit_max_bytes())
-                    .expect("validated stream byte limit fits usize"),
-            )
-        } else {
-            execution_limits::buffered_response_limit(decoded.decoded.operation, true)
-        };
-        admission
-            .reserve_execution(response_limit, &decoded.decoded.affinity)
-            .map_err(resource_admission::public_error)
             .map_err(FinalFailure::from)?;
         recorder.set_request_metadata(
             decoded.public_model.as_str().to_owned(),

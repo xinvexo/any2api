@@ -423,6 +423,78 @@ async fn disabled_endpoint_and_credential_still_allow_model_discovery() {
 }
 
 #[tokio::test]
+async fn claude_root_base_url_probe_uses_v1_models_and_bearer_authentication() {
+    let (upstream_address, mut upstream_requests) = model_catalog_upstream().await;
+    let (_directory, app, _storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let endpoint = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Claude compatible",
+            "provider_kind": "claude",
+            "base_url": format!("http://{upstream_address}"),
+            "protocol_dialect": "anthropic_messages",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(endpoint.status, StatusCode::OK);
+    let endpoint_id = endpoint.body["items"][0]["id"]
+        .as_str()
+        .expect("endpoint id");
+    let credential = request_json(
+        app.clone(),
+        Method::POST,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
+        Some(json!({
+            "expected_revision": 2,
+            "label": "Claude compatible key",
+            "credential_kind": "api_key",
+            "api_key": "sk-claude-compatible",
+            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
+            "requests_per_minute": null,
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(credential.status, StatusCode::OK);
+    let credential_id = credential.body["items"][0]["id"]
+        .as_str()
+        .expect("credential id");
+
+    let tested = request_json(
+        app,
+        Method::POST,
+        &format!("/api/admin/provider-credentials/{credential_id}/test"),
+        None,
+        loopback,
+    )
+    .await;
+
+    assert_eq!(tested.status, StatusCode::OK);
+    assert_eq!(tested.body["accepted"], true);
+    assert_eq!(tested.body["catalog_valid"], true);
+    assert_eq!(tested.body["models"], json!(["gpt-disabled"]));
+    let probe = upstream_requests
+        .recv()
+        .await
+        .expect("Claude model catalog request");
+    assert_eq!(probe.method, Method::GET);
+    assert_eq!(probe.path, "/v1/models");
+    assert_eq!(
+        probe.headers["authorization"],
+        "Bearer sk-claude-compatible"
+    );
+    assert_eq!(probe.headers["anthropic-version"], "2023-06-01");
+    assert!(!probe.headers.contains_key("x-api-key"));
+}
+
+#[tokio::test]
 async fn successful_credential_test_clears_generation_auth_error() {
     let (upstream_address, mut upstream_requests) = credential_test_upstream().await;
     let (_directory, app, _storage) = test_app().await;

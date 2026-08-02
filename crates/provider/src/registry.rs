@@ -49,7 +49,8 @@ mod tests {
     use crate::{
         ProviderError, ProviderSecret,
         api::{
-            CapabilitySet, CredentialHeaders, EndpointPlan, ProviderDriver, UpstreamResponseMeta,
+            CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDriver,
+            UpstreamResponseMeta,
         },
     };
 
@@ -90,6 +91,7 @@ mod tests {
 
         fn credential_headers(
             &self,
+            _base_url: &ProviderBaseUrl,
             _secret: &ProviderSecret,
         ) -> Result<CredentialHeaders, ProviderError> {
             Ok(CredentialHeaders {
@@ -100,9 +102,10 @@ mod tests {
         fn credential_test_plan(
             &self,
             base_url: &ProviderBaseUrl,
-        ) -> Result<EndpointPlan, ProviderError> {
-            Ok(EndpointPlan {
+        ) -> Result<CredentialTestPlan, ProviderError> {
+            Ok(CredentialTestPlan {
                 url: url::Url::parse(base_url.as_str()).expect("validated URL"),
+                headers: HeaderMap::new(),
             })
         }
 

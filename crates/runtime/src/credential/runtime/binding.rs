@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc};
 
-use any2api_domain::{RequestsPerMinute, RoutingCredentialId};
+use any2api_domain::{ProviderBaseUrl, RequestsPerMinute, RoutingCredentialId};
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError};
 use http::HeaderMap;
 use tokio::time::Instant;
@@ -97,9 +97,11 @@ impl RoutingPermit {
     pub fn credential_headers(
         &self,
         driver: &dyn ProviderDriver,
+        base_url: &ProviderBaseUrl,
         forwarded: &HeaderMap,
     ) -> Result<CredentialHeaders, ProviderError> {
-        self.generation.credential_headers(driver, forwarded)
+        self.generation
+            .credential_headers(driver, base_url, forwarded)
     }
 }
 

@@ -45,6 +45,10 @@ pub(crate) fn endpoint_url(
         ProtocolOperation::Messages => "messages",
         ProtocolOperation::MessagesCountTokens => "messages/count_tokens",
     };
+    path_url(base_url, suffix)
+}
+
+pub(crate) fn path_url(base_url: &ProviderBaseUrl, suffix: &str) -> Result<Url, ProviderError> {
     let value = base_url
         .append_path(suffix)
         .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?;
@@ -52,10 +56,7 @@ pub(crate) fn endpoint_url(
 }
 
 pub(crate) fn credential_test_url(base_url: &ProviderBaseUrl) -> Result<Url, ProviderError> {
-    let value = base_url
-        .append_path("models")
-        .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?;
-    Url::parse(&value).map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))
+    path_url(base_url, "models")
 }
 
 pub(crate) fn parse_model_catalog(body: &[u8]) -> Result<Vec<String>, ProviderError> {

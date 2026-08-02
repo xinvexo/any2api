@@ -1410,6 +1410,11 @@ async fn harness_for_protocol(
         .collect::<Vec<_>>();
     for index in 0..endpoint_count {
         let endpoint_id = ProviderEndpointId::new();
+        let base_url = if provider_kind == ProviderKind::Claude {
+            format!("https://upstream-{index}.example.com")
+        } else {
+            format!("https://upstream-{index}.example.com/v1")
+        };
         let endpoint = publisher
             .create_provider_endpoint(
                 published.revision(),
@@ -1417,7 +1422,7 @@ async fn harness_for_protocol(
                 ProviderEndpointDraft::with_upstream_protocol(
                     format!("Endpoint {index}"),
                     provider_kind,
-                    format!("https://upstream-{index}.example.com/v1"),
+                    base_url,
                     protocol_dialect,
                     upstream_protocol_dialect,
                     true,

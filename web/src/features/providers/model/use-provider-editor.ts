@@ -99,7 +99,7 @@ function initialDraft(
 function defaultBaseUrl(kind: ProviderKind) {
   const defaults: Record<ProviderKind, string> = {
     codex: "https://api.openai.com/v1",
-    claude: "https://api.anthropic.com/v1",
+    claude: "https://api.anthropic.com",
     grok: "https://api.x.ai/v1",
   };
   return defaults[kind];

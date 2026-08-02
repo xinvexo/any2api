@@ -11,7 +11,7 @@ use axum::{
     Router,
     body::{Body, Bytes},
     extract::ConnectInfo,
-    http::{HeaderMap, Method, Request, StatusCode, header::CONTENT_TYPE},
+    http::{Method, Request, StatusCode, header::CONTENT_TYPE},
 };
 use futures_util::{StreamExt, stream};
 use http_body_util::BodyExt;
@@ -104,35 +104,49 @@ async fn images_edit_request_over_the_dedicated_limit_returns_413() {
 }
 
 #[tokio::test]
-async fn concurrent_body_reads_share_a_bounded_memory_admission() {
+async fn pending_small_body_does_not_reserve_the_endpoint_maximum() {
     let (_directory, app, token) = test_app_with_gateway_key().await;
-    let (first, first_started) = pending_image_edit(app.clone(), token.clone());
+    let (first, first_started) = pending_image_edit(app.clone(), token.clone(), 1);
     let first = tokio::spawn(first);
     first_started.await.expect("first body was polled");
 
-    let rejected = send_raw(
+    let concurrent = send_raw(
         &app,
         "/v1/images/edits",
         &token,
         br#"{"model":"missing-image-model"}"#.to_vec(),
     )
     .await;
-    assert_eq!(rejected.status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(rejected.body["error"]["code"], "local_rate_limit");
-    assert_eq!(rejected.headers["retry-after"], "1");
+    assert_eq!(concurrent.status, StatusCode::BAD_REQUEST);
+    assert_eq!(concurrent.body["error"]["code"], "model_not_found");
 
     first.abort();
     let _ = first.await;
+}
 
-    let admitted = send_raw(
+#[tokio::test]
+async fn fully_grown_body_does_not_block_an_independent_request() {
+    let (_directory, app, token) = test_app_with_gateway_key().await;
+    let (first, first_started) = pending_image_edit(
+        app.clone(),
+        token.clone(),
+        IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES,
+    );
+    let first = tokio::spawn(first);
+    first_started.await.expect("full body was buffered");
+
+    let concurrent = send_raw(
         &app,
         "/v1/images/edits",
         &token,
         br#"{"model":"missing-image-model"}"#.to_vec(),
     )
     .await;
-    assert_eq!(admitted.status, StatusCode::BAD_REQUEST);
-    assert_eq!(admitted.body["error"]["code"], "model_not_found");
+    assert_eq!(concurrent.status, StatusCode::BAD_REQUEST);
+    assert_eq!(concurrent.body["error"]["code"], "model_not_found");
+
+    first.abort();
+    let _ = first.await;
 }
 
 #[tokio::test]
@@ -163,7 +177,6 @@ async fn send_raw(app: &Router, uri: &str, token: &str, body: Vec<u8>) -> JsonRe
         .expect("request");
     let response = app.clone().oneshot(request).await.expect("response");
     let status = response.status();
-    let headers = response.headers().clone();
     let bytes = response
         .into_body()
         .collect()
@@ -172,31 +185,40 @@ async fn send_raw(app: &Router, uri: &str, token: &str, body: Vec<u8>) -> JsonRe
         .to_bytes();
     JsonResponse {
         status,
-        headers,
         body: serde_json::from_slice(&bytes).expect("JSON error envelope"),
     }
 }
 
 struct JsonResponse {
     status: StatusCode,
-    headers: HeaderMap,
     body: Value,
 }
 
 fn pending_image_edit(
     app: Router,
     token: String,
+    body_bytes: usize,
 ) -> (
     impl Future<Output = Result<axum::response::Response, Infallible>> + Send + 'static,
     tokio::sync::oneshot::Receiver<()>,
 ) {
     let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
     let (started, receiver) = tokio::sync::oneshot::channel();
-    let body = stream::once(async move {
+    let chunks = stream::unfold(body_bytes, |remaining| async move {
+        if remaining == 0 {
+            return None;
+        }
+        let chunk_len = remaining.min(1024 * 1024);
+        Some((
+            Ok::<Bytes, Infallible>(Bytes::from(vec![b'x'; chunk_len])),
+            remaining - chunk_len,
+        ))
+    });
+    let pending_tail = stream::once(async move {
         let _ = started.send(());
-        Ok::<Bytes, Infallible>(Bytes::from_static(b"{"))
-    })
-    .chain(stream::pending());
+        std::future::pending::<Result<Bytes, Infallible>>().await
+    });
+    let body = chunks.chain(pending_tail);
     let request = Request::builder()
         .method(Method::POST)
         .uri("/v1/images/edits")

@@ -136,7 +136,7 @@ async fn provider_protocol_options_and_optional_bridge_are_registry_driven() {
             "expected_revision": 3,
             "name": "Unsupported",
             "provider_kind": "claude",
-            "base_url": "https://api.example.com/v1",
+            "base_url": "https://api.example.com",
             "protocol_dialect": "openai_responses",
             "enabled": true
         })),
@@ -182,7 +182,7 @@ async fn provider_endpoint_protocol_can_change_with_existing_credential() {
             "expected_revision": 1,
             "name": "Protocol Editable",
             "provider_kind": "codex",
-            "base_url": "https://api.example.com/v1",
+            "base_url": "https://api.example.com",
             "protocol_dialect": "openai_responses",
             "enabled": true
         })),

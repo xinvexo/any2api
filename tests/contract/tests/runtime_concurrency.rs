@@ -7,8 +7,8 @@ use any2api_domain::{
     UpstreamErrorClassification, UpstreamErrorKind,
 };
 use any2api_provider::api::{
-    CapabilitySet, CredentialHeaders, EndpointPlan, ProviderDriver, ProviderError, ProviderSecret,
-    UpstreamResponseMeta,
+    CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, ProviderDriver,
+    ProviderError, ProviderSecret, UpstreamResponseMeta,
 };
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublishedSnapshot, RoutingPermit, RuntimeRegistry,
@@ -179,8 +179,9 @@ fn assert_rate_limited(binding: &any2api_runtime::api::CredentialRuntimeBinding)
 }
 
 fn assert_bearer(permit: &RoutingPermit, driver: &HeaderEchoDriver, api_key: &str) {
+    let base_url = ProviderBaseUrl::parse("https://api.example.com/v1").expect("base URL");
     let headers = permit
-        .credential_headers(driver, &HeaderMap::new())
+        .credential_headers(driver, &base_url, &HeaderMap::new())
         .expect("credential headers");
     assert_eq!(
         headers
@@ -221,6 +222,7 @@ impl ProviderDriver for HeaderEchoDriver {
 
     fn credential_headers(
         &self,
+        _base_url: &ProviderBaseUrl,
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError> {
         let mut headers = CredentialHeaders::default();
@@ -235,9 +237,10 @@ impl ProviderDriver for HeaderEchoDriver {
     fn credential_test_plan(
         &self,
         base_url: &ProviderBaseUrl,
-    ) -> Result<EndpointPlan, ProviderError> {
-        Ok(EndpointPlan {
+    ) -> Result<CredentialTestPlan, ProviderError> {
+        Ok(CredentialTestPlan {
             url: base_url.as_str().parse().expect("validated endpoint URL"),
+            headers: HeaderMap::new(),
         })
     }
 

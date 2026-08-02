@@ -171,7 +171,7 @@ fn build_request<'a>(
     }
     let credential_headers = selected
         .permit
-        .credential_headers(driver, &headers)
+        .credential_headers(driver, &candidate.base_url, &headers)
         .map_err(|_| internal_error())?;
     headers.extend(credential_headers.headers);
     Ok(BuiltRequest {

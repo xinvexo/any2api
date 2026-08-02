@@ -21,7 +21,7 @@ pub(super) const fn is_images(operation: ProtocolOperation) -> bool {
     )
 }
 
-pub(super) const fn request_body_limit(operation: ProtocolOperation) -> usize {
+pub const fn request_body_limit(operation: ProtocolOperation) -> usize {
     match operation {
         ProtocolOperation::ImagesEdits => IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES,
         _ => STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,

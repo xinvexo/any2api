@@ -45,7 +45,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 14. 项目按个人单节点场景设计，不引入 Redis、PostgreSQL、支付和用户分发体系。
 15. Provider Endpoint 必须选择客户端接受协议，并可选选择内部转换协议；未选择时上游协议等于接受协议并走直通。首个协议桥只实现 OpenAI Responses → Chat Completions，不启用 Codex/OpenAI ↔ Claude 双向转换。
 16. Codex WebSocket 不进入首个正式版本，首版 TransportMode 只有 JSON 和 SSE。
-17. Provider API Key 保存后使用实际 Endpoint、认证材料与代理读取上游 `/models` 作为候选目录；管理员最终确认的目录选择与手工模型名按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
+17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。
 19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只创建独立的 SQLite `OAuthAccount`。导入兼容已审计的 CLIProxyAPI 与 Sub2API OAuth 结构，先规范化为 any2api Provider JSON，再整批原子发布；明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
@@ -729,7 +729,7 @@ CredentialRuntimeBinding (per PublishedSnapshot)
 - `config_version` 是管理资源乐观锁版本，元数据修改和 Secret 轮换时增加，无变化更新不增加；
 - 模型集合变化增加 `config_version`，不增加 `secret_version` 或 `credential_generation`；API Key 轮换会清空轮换前模型集合；
 - 新建 Credential 初始没有公开模型。管理面可使用该 Credential 的实际代理请求
-  `/models` 作为候选目录，也必须允许管理员手工输入其已确认的上游模型名。
+  Provider 定义的模型目录作为候选目录，也必须允许管理员手工输入其已确认的上游模型名。
   模型发现超时、失败、无法解析或返回空列表均不得禁用手工输入与保存；
 - 同一 Endpoint 下的多把 Credential 可以拥有不同模型集合，调度器必须按 `Credential + upstream_model` 过滤，禁止因为 URL 相同就假定权限相同；
 - Endpoint 的 `provider_kind` 创建后不可修改；`protocol_dialect` 和 `upstream_protocol_dialect` 即使已有 Credential 也允许修改。修改 Base URL 或任一协议字段时，所有子 Credential 增加 `credential_generation`；协议变化还必须在同一配置事务中重建 Route/Target，并裁剪已经没有公开 Route 的模型允许列表项；
@@ -739,8 +739,10 @@ CredentialRuntimeBinding (per PublishedSnapshot)
 
 管理面提供 `POST /api/admin/provider-credentials/{id}/test`。测试固定使用当前
 `PublishedSnapshot` 中该 Credential 的认证材料、Provider Endpoint 与解析后的实际代理，
-由 Provider Driver 构造无生成副作用的凭据探测请求；首版 Codex、Claude 与 Grok 都使用各自
-Base URL 下的 `GET /models`。测试不经过模型路由、不切换 Credential、不回退代理，也不更新
+由 Provider Driver 构造无生成副作用的凭据探测请求；Codex 与 Grok 使用各自 Base URL 下的
+`GET /models`，Claude 使用根 Base URL 下的 `GET /v1/models` 并发送固定 `anthropic-version`。
+测试计划同时携带 Provider 所需的非敏感固定 Header，当前 Credential 的认证 Header 仍由同一
+Driver 独立生成并最后合并。测试不经过模型路由、不切换 Credential、不回退代理，也不更新
 Endpoint/Proxy 冷却或熔断状态。`ProviderCredential.enabled` 与 `ProviderEndpoint.enabled` 只控制
 数据面路由资格，测试不要求两者启用；停用的 Endpoint 或 Credential 仍使用当前明确配置的 URL、
 认证材料和实际代理读取模型目录。只有收到 2xx 响应时，才清除本次捕获
@@ -751,7 +753,7 @@ Driver 解析，只向管理面返回排序去重后的模型 ID，不返回原�
 全局配置 revision 和 PublishedSnapshot 切换属于同一个串行配置发布。
 该端点接收的 `models` 是管理员最终确认集合，可同时包含发现目录中的模型和手工输入模型；
 后端仅执行 `UpstreamModelName` 精确名称校验、排序和去重约束，不要求名称必须出现在本次
-`/models` 结果中。保存手工名称只表示管理员声明该 Key 可调用它，不伪造模型探测成功。
+模型目录结果中。保存手工名称只表示管理员声明该 Key 可调用它，不伪造模型探测成功。
 
 ### 9.4 OAuthAccount
 
@@ -782,7 +784,7 @@ OAuthAccount is deliberately separate from `provider_credentials`: it has no con
 
 Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profile。它们的已选模型、DIRECT/全局代理解析、可选 `requests_per_minute`、启用状态、代际和健康状态与 API Key Credential 一起进入同一个 `RoutingCredential` 投影。调度器不根据投影来自 `ProviderCredential` 还是 `OAuthAccount` 增加分支。
 
-Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。Claude 固定路由基址为 `https://api.anthropic.com/v1`，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选，并使用 Driver 注册的文本模型目录。固定基址、方言和目录只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。
+Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。Claude 固定路由基址为 `https://api.anthropic.com`，由 Driver 统一追加 `/v1` API 路径，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选，并使用 Driver 注册的文本模型目录。固定基址、方言和目录只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。
 
 ### 9.5 内部 ModelRoute
 
@@ -1229,9 +1231,8 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 - 首版不公开 `/v1/images/variations`，不代理 Files API，也不在管理 Web 中制作图片生成器；客户端直接使用标准 OpenAI SDK 或 HTTP API。
 - Images 普通成功响应保留上游 JSON 原始字段，只在已知 `model` 字段恢复公开模型名，并把 usage 投影到通用 TokenUsage；SSE 保留已知事件与图片数据，只改写已知模型字段，并从 `image_generation.completed`、`image_edit.completed` 的 usage 提取遥测。图片事件没有文本 content delta，不伪造首 Token。
 - Images 使用专用硬安全边界：编辑请求聚合 Body 最大 `64 MiB`，buffered 成功 JSON 最大 `64 MiB`，单个 SSE 帧与预提交编码后帧最大 `64 MiB`。普通公开请求继续使用 `32 MiB`，普通 buffered JSON 继续使用 `16 MiB`，普通 SSE 继续使用 SettingRegistry 的流式预算。
-- 进程内唯一的 `PublicRequestService` 持有固定 `256 MiB` 的公开请求内存准入预算；这是代码级安全边界，不进入 SettingRegistry，也不是 Credential 并发限制。HTTP 层必须在聚合 Body 前按端点最大 Body 的 `4x` 权重预留，读取完成后按实际大小缩减；协议解码后、Route 选择、RPM 预留和上游 I/O 前，再把同一 Permit 调整为 `max(4 × 实际 Body, 实际 Body + 3 × buffered/SSE 硬上限)`。预算不足立即返回带短 Retry-After 的本地 `429`，不得进入 RPM 或候选调度。zstd 解压等客户端取消后仍可能继续运行的 blocking 工作必须由工作本身持有该 Permit，直至实际结束，禁止请求 Future 被 Drop 时提前释放容量。
-- `IngressAffinity::Continuation` 在上述执行阶段公式中额外加上固定 `16 MiB` 续接工作集：`max(4 × 实际 Body, 实际 Body + 3 × buffered/SSE 硬上限 + 16 MiB)`。该预留覆盖从 `AffinityRegistry` 取得不透明状态后的 Arc 引用、桥会话恢复和对话工作副本；即使原 Registry 条目随后因 TTL 或显式清理被移除，在途请求仍由同一 Permit 计量到 buffered/SSE 响应结束。它不改写 Registry 独立的 `64 MiB` 存量预算。
-- 内存 Permit 必须覆盖 ingress 聚合、multipart 结构化解析与重编码、重试期间的请求 payload、上游响应转换以及客户端响应生命周期。Buffered 响应把 Permit 附着到共享 `Bytes` owner，流式响应把 Permit 附着到 Stream；正常 EOF、错误、客户端断连、取消和 Drop 都释放同一 Permit。该预算只限制所有公开请求的加权字节总量，不改变 RPM 窗口、Credential 选择、排序或 `in_flight` 语义。
+- 公开请求不设置进程级总内存预算、加权内存 Semaphore、Permit 或基于预计工作集的本地 `429`。并发请求不得因端点理论最大 Body、buffered/SSE 硬上限或 Continuation 最大状态而预占尚未实际分配的内存；机器可承载的并发量由实际工作集、分配器与操作系统资源决定，不在应用层另设总量阈值。
+- HTTP Body 必须逐块读取，在写入聚合缓冲区前以 checked arithmetic 检查对应操作的 `32 MiB`/`64 MiB` 单请求硬上限，不按理论最大值预分配，也不信任 `Content-Length` 代替实际累计。zstd 在 blocking 任务中以固定小块增量解压，通过 `max + 1` 哨兵检测解压上限，压缩输入在返回解压结果前释放；客户端取消不得让仍在运行的 blocking 任务丢失其输入所有权。协议和 Transport 继续复用共享 `Bytes`、按实际输出构造缓冲并执行既有 buffered/SSE 单响应硬上限；EOF、错误、断连、取消和 Drop 按所有权自然释放真实分配，不附加估算容量 Guard。
 - Images 的等待响应头、buffered body 空闲、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `180s` 的较大值。最终上游非 2xx 仍按第 11.8 节原样返回状态、允许 Header 和有界正文，不由 Images Adapter 重建错误。
 
 完整决策见 `docs/adr/0054-openai-images-api.md`。
@@ -1349,9 +1350,9 @@ trait ProviderDriver: Send + Sync {
     fn capabilities(&self) -> &CapabilitySet;
     fn validate_credential(&self, secret: &ProviderSecret) -> Result<()>;
     fn endpoint_plan(&self, base_url: &ProviderBaseUrl, operation: ProtocolOperation) -> Result<EndpointPlan>;
-    fn credential_test_plan(&self, base_url: &ProviderBaseUrl) -> Result<EndpointPlan>;
+    fn credential_test_plan(&self, base_url: &ProviderBaseUrl) -> Result<CredentialTestPlan>;
     fn parse_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>>;
-    fn credential_headers(&self, secret: &ProviderSecret) -> Result<CredentialHeaders>;
+    fn credential_headers(&self, base_url: &ProviderBaseUrl, secret: &ProviderSecret) -> Result<CredentialHeaders>;
     fn prepare_request_headers(&self, context: ProviderRequestHeaderContext<'_>) -> Result<HeaderMap>;
     fn response_headers(&self, operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap;
     fn oauth_redirect_uri(&self) -> Option<&'static str>;
@@ -1423,7 +1424,9 @@ Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调�
 ### 11.7 Provider URL 语义
 
 - `base_url` 表示配置中固定的上游 Origin 与可选固定 API 前缀，不是任意完整请求 URL；
-- Web 中 Codex、Claude 与 Grok 的官方默认 Base URL 分别为 `https://api.openai.com/v1`、`https://api.anthropic.com/v1` 和 `https://api.x.ai/v1`；自定义兼容服务必须把自身固定 API 前缀包含在 Base URL 中；
+- Web 中 Codex、Claude 与 Grok 的官方默认 Base URL 分别为 `https://api.openai.com/v1`、`https://api.anthropic.com` 和 `https://api.x.ai/v1`；
+- Claude Base URL 表示 Anthropic API 版本路径之前的根地址或固定代理前缀，Driver 必须统一追加 `/v1/messages`、`/v1/messages/count_tokens` 或 `/v1/models`，管理员不填写结尾 `/v1`；Codex 与 Grok 的自定义兼容服务仍把自身固定 API 前缀包含在 Base URL 中；
+- Claude 官方 `https://api.anthropic.com` API Key 使用 `x-api-key`；自定义 Claude Endpoint 使用 `Authorization: Bearer`，凭据认证选择只能由 Driver 根据已发布 Base URL 决定；
 - 路径由 ProtocolDialect 使用结构化 URL API 安全拼接；
 - 客户端的 Host、absolute-form URL 和转发头不得改变上游 authority；
 - 禁用上游重定向；任何重定向支持都必须由显式策略重新执行 SSRF 校验；
@@ -1435,6 +1438,7 @@ Codex、Claude 与 Grok 分别维护独立的请求/响应白名单，中央调�
 | Provider URL | 结果 |
 |---|---|
 | `https://api.openai.com/v1` | 允许 |
+| `https://api.anthropic.com` | 允许；Claude Driver 请求 `/v1/...` |
 | `http://api.example.com/v1` | 允许 |
 | `https://192.168.1.10/v1` | 允许 |
 | `http://127.0.0.1:8080/v1` | 允许 |
@@ -1508,10 +1512,9 @@ available = requests_in_window < requests_per_minute
 ```
 
 RPM 是唯一用户可配置、参与 Credential 调度的本地限制。不增加 `max_concurrency`、辅助请求并发、
-TPM、调度权重或按请求数量限制 Credential 的隐藏 Semaphore。第 11.2 节的固定进程内内存预算只按
-所有公开请求的 payload 字节权重保护进程，不进入候选选择、Credential 排序或 SettingRegistry，
-因此不是第二套账号并发限制。`in_flight` 仍作为无上限的运行态观测和资源生命周期计数存在，但不参与
-调度准入或选择。
+TPM、调度权重、按请求数量限制 Credential 的隐藏 Semaphore，或按公开请求预计工作集限制全进程并发
+的内存准入 Semaphore。`in_flight` 仍作为无上限的运行态观测和资源生命周期计数存在，但不参与调度
+准入或选择。
 
 TPM（Tokens Per Minute）不实现：输出 Token 事前未知，Provider 的输入、输出、缓存和推理 Token
 口径也不一致，增加 TPM 会重新形成与 RPM 互相制约的第二套限制。
@@ -1772,7 +1775,8 @@ Lease 删除 Pending。写入或预留失败时不得暴露该标识。
 等待其 Ready 或 Abort，且等待必须发生在固定候选选择和 RPM 预留之前。单条桥状态完整序列化大小硬上限
 为 `16 MiB`，全部 Ready/Pending 桥状态合计硬上限为 `64 MiB`；Pending 先预留 `16 MiB`，Ready 后按
 实际字节缩减。两项状态字节预算独立于绑定索引的 300,000 条数量上限，活跃状态不为腾出空间而提前 LRU
-驱逐；流式累积一旦将超过单条上限立即 Abort。续接请求取得状态后的恢复工作集不能借用这个存量计数；它在 Route 和 RPM 之前向公开请求内存 Permit 额外预留一条最大状态的 `16 MiB`，并持有到响应生命周期结束。完整决策见
+驱逐；流式累积一旦将超过单条上限立即 Abort。续接请求取得 Ready 状态后只持有实际状态引用并按需构造
+恢复工作副本，不再按最大状态向进程级公开请求内存预算预留容量。完整决策见
 `docs/adr/0076-atomic-bridge-continuation-state.md`。
 
 ### 13.3 统一绑定创建
@@ -2628,7 +2632,7 @@ Provider 详情页包含 Credential 表格：
 Provider 页面只管理 API Key Credential，不提供 OAuth 入口，也不显示 OAuth Credential 类型。
 
 API Key 保存后，Provider 页面立即使用该 Credential 的实际 Endpoint 与代理读取
-`/models`，展示可搜索的模型多选列表。同一界面始终提供手工模型名输入；即使目录请求
+Provider Driver 定义的模型目录，展示可搜索的模型多选列表。同一界面始终提供手工模型名输入；即使目录请求
 失败、返回空列表或正在进行，管理员仍可添加、移除并保存精确模型名。保存后模型
 直接出现在公开 `/v1/models` 并参与调度；列表行显示已选择模型数量并提供重新拉取与
 修改入口。手工模型名不是别名，`public_model` 仍固定等于 `upstream_model`。原始模型响应

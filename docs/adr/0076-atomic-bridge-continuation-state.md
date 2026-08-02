@@ -77,3 +77,5 @@ Runtime 的 `AffinityRegistry` 另行保存 Credential、Route Target、模型�
 - 公开请求内存测试覆盖续接工作集在路由前预留、并发容量拒绝，以及 buffered/SSE Drop 释放同一 Permit。
 - JSON/SSE 契约覆盖 buffered 原子提交、`response.created` 前 Pending、终止前 Ready、客户端 Drop 后
   `session_binding_lost`，并确认原 `ChatHistoryStore` 不再存在。
+
+其中“Continuation 在途工作集向 PublicRequest Permit 额外预留 `16 MiB`”的决策已由 ADR-0082 取代；Registry 自身单条 `16 MiB`、合计 `64 MiB` 的状态存量边界及 Pending/Ready 原子语义不变。
