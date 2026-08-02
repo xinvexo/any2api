@@ -2107,7 +2107,7 @@ QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的�
 |---|---|---:|---:|
 | `affinity.enabled` | boolean | `false` | `true` / `false` |
 | `affinity.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
-| `affinity.wait_timeout` | duration_secs | `30` | `1..=86_400` |
+| `affinity.wait_timeout` | duration_secs | `180` | `1..=86_400` |
 
 `affinity.enabled` 默认关闭，只控制允许首次创建的普通显式 Session；管理员显式开启后，这类 Session
 才建立并命中固定路由。Continuation 不受影响。TTL 只作用于当前进程内存；进程重启后绑定立即清空，
@@ -2119,7 +2119,7 @@ QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的�
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
 | `scheduler.on_rate_limited` | enum | `wait` | `wait` / `reject` |
-| `scheduler.queue_timeout` | duration_secs | `30` | `1..=86_400` |
+| `scheduler.queue_timeout` | duration_secs | `180` | `1..=86_400` |
 | `scheduler.max_waiting_requests` | integer | `128` | `1..=100_000` |
 | `scheduler.fallback_on_rate_limit` | boolean | `false` | `true` / `false` |
 
@@ -2159,7 +2159,7 @@ Route 物化后，将数组策略与新的公开模型集合取交集并持久�
 | `retry.max_total_attempts` | integer | `3` |
 | `retry.max_credential_switches` | integer | `2` |
 | `retry.max_same_credential_retries` | integer | `1` |
-| `retry.precommit_total_budget` | duration_secs | `20` |
+| `retry.precommit_total_budget` | duration_secs | `600` |
 | `retry.base_delay` | duration_secs | `0` |
 | `retry.max_delay` | duration_secs | `2` |
 | `retry.jitter_ratio` | integer percentage | `20` |
@@ -2184,17 +2184,25 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
 | `stream.precommit.max_bytes` | integer | `256 KiB` | `1..=16 MiB` |
-| `stream.precommit.max_duration` | duration_secs | `5` | `1..=86_400` |
-| `stream.postcommit.idle_timeout` | duration_secs | `60` | `1..=86_400` |
+| `stream.precommit.max_duration` | duration_secs | `300` | `1..=86_400` |
+| `stream.postcommit.idle_timeout` | duration_secs | `300` | `1..=86_400` |
 
 #### 上游读取默认值
 
 | 设置 | 类型 | 默认值 | 允许范围 |
 |---|---|---:|---:|
-| `upstream.read_timeout` | duration_secs | `15` | `1..=86_400` |
+| `upstream.read_timeout` | duration_secs | `300` | `1..=86_400` |
 | `upstream.strict_ssrf` | boolean | `false` | `true` / `false` |
 
 `upstream.read_timeout` 是每次等待响应头或 buffered body 下一 chunk 的空闲时长，成功读取后重置，不是整个请求的总时长。`retry.precommit_total_budget` 仍是 Attempt 外层绝对 deadline；尚未收到上游 HTTP 响应头时，哪个 deadline 先到期就先结束当前 Attempt。已经收到非 2xx 响应头后，错误正文收集同时受 read timeout、64 KiB 上限和 Attempt 绝对 deadline 约束；任一边界先到都以空正文结算已经收到的上游状态与安全 Header，禁止再改写成本地 504。成功 SSE 分别使用 precommit 和 postcommit 设置，非 2xx SSE 错误正文仍按 buffered body 读取，因此使用同一规则。
+
+普通默认值以可能较慢的第三方 API Key 上游为基线：等待响应头、首个 SSE 事件和提交后连续静默均允许
+`300s`，全部提交前 Attempt 共用 `600s` 预算；RPM/健康恢复队列和固定会话等待均允许 `180s`。
+这些默认值同样适用于 OAuthAccount，不按凭据来源维护第二套执行分支。已经提交的 SSE 只限制连续
+无上游数据的空闲时间，只要每次静默不超过 `300s`，总响应时长可以超过该值。DNS、TCP、代理握手与 TLS
+仍使用独立的短连接阶段 deadline，以便在明确尚未发送请求时快速切换；尝试次数、冷却和熔断默认值不因
+慢响应容忍而扩大。显式用户覆盖值继续优先于新默认值。完整决策见
+`docs/adr/0084-tolerant-upstream-timeout-defaults.md`。
 
 协议识别出的长时或大帧请求可以在执行限制模块中应用不可低于兼容客户端的专用下限：Images 使用至少 `180s`；Codex v2 流式远程压缩使用至少 `300s` 且 SSE 单帧/提交前字节上限至少 `64 MiB`；Responses Compact unary 请求使用至少 `1200s`。这些下限只提高当前请求捕获的有效预算，管理员配置的更大值保持不变，也不修改 SettingRegistry 的普通默认值。
 

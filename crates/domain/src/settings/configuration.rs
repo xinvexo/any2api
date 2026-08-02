@@ -169,16 +169,16 @@ mod tests {
         let settings = SettingsConfiguration::defaults();
         assert_eq!(SettingKey::ALL.len(), 48);
         assert_eq!(settings.scheduler().on_rate_limited(), RateLimitMode::Wait);
-        assert_eq!(settings.scheduler().queue_timeout_secs(), 30);
+        assert_eq!(settings.scheduler().queue_timeout_secs(), 180);
         assert_eq!(settings.scheduler().max_waiting_requests(), 128);
         assert!(!settings.scheduler().fallback_on_rate_limit());
         assert!(!settings.affinity().enabled());
         assert_eq!(settings.affinity().ttl_secs(), 86_400);
-        assert_eq!(settings.affinity().wait_timeout_secs(), 30);
+        assert_eq!(settings.affinity().wait_timeout_secs(), 180);
         assert_eq!(settings.reliability().max_total_attempts(), 3);
         assert_eq!(settings.reliability().max_credential_switches(), 2);
         assert_eq!(settings.reliability().max_same_credential_retries(), 1);
-        assert_eq!(settings.reliability().precommit_total_budget_secs(), 20);
+        assert_eq!(settings.reliability().precommit_total_budget_secs(), 600);
         assert_eq!(settings.reliability().endpoint_failure_threshold(), 3);
         assert_eq!(settings.reliability().proxy_open_duration_secs(), 30);
         assert!(settings.admin().remote_enabled());
@@ -201,11 +201,11 @@ mod tests {
         );
         assert_eq!(settings.oauth().refresh_scan_interval_secs(), 30);
         assert_eq!(settings.oauth().refresh_lead_time_secs(), 300);
-        assert_eq!(settings.upstream().read_timeout_secs(), 15);
+        assert_eq!(settings.upstream().read_timeout_secs(), 300);
         assert!(!settings.upstream().strict_ssrf());
         assert_eq!(settings.stream().precommit_max_bytes(), 256 * 1024);
-        assert_eq!(settings.stream().precommit_max_duration_secs(), 5);
-        assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 60);
+        assert_eq!(settings.stream().precommit_max_duration_secs(), 300);
+        assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 300);
         assert_eq!(settings.shutdown().request_grace_period_secs(), 30);
         assert_eq!(settings.shutdown().finalize_timeout_secs(), 5);
         assert!(
@@ -294,17 +294,17 @@ mod tests {
 
         let duration = SettingKey::StreamPrecommitMaxDuration.definition();
         assert_eq!(duration.value_type(), SettingValueType::DurationSecs);
-        assert_eq!(duration.default(), SettingValue::DurationSecs(5));
+        assert_eq!(duration.default(), SettingValue::DurationSecs(300));
         assert_eq!(duration.min(), Some(SettingValue::DurationSecs(1)));
         assert_eq!(duration.max(), Some(SettingValue::DurationSecs(86_400)));
         let postcommit = SettingKey::StreamPostcommitIdleTimeout.definition();
         assert_eq!(postcommit.value_type(), SettingValueType::DurationSecs);
-        assert_eq!(postcommit.default(), SettingValue::DurationSecs(60));
+        assert_eq!(postcommit.default(), SettingValue::DurationSecs(300));
         assert_eq!(postcommit.min(), Some(SettingValue::DurationSecs(1)));
         assert_eq!(postcommit.max(), Some(SettingValue::DurationSecs(86_400)));
         let read_timeout = SettingKey::UpstreamReadTimeout.definition();
         assert_eq!(read_timeout.value_type(), SettingValueType::DurationSecs);
-        assert_eq!(read_timeout.default(), SettingValue::DurationSecs(15));
+        assert_eq!(read_timeout.default(), SettingValue::DurationSecs(300));
         assert_eq!(read_timeout.min(), Some(SettingValue::DurationSecs(1)));
         assert_eq!(read_timeout.max(), Some(SettingValue::DurationSecs(86_400)));
         let affinity_ttl = SettingKey::AffinityTtl.definition();

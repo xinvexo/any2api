@@ -18,7 +18,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::StreamPrecommitMaxDuration => duration_definition(
             key,
-            5,
+            300,
             1,
             MAX_SETTING_DURATION_SECS,
             "流式预提交",
@@ -26,7 +26,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::StreamPostcommitIdleTimeout => duration_definition(
             key,
-            60,
+            300,
             1,
             MAX_SETTING_DURATION_SECS,
             "流式响应",

@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-29
 - 决策者：maintainer
+- 修订：ADR-0084 将 `affinity.wait_timeout` 的当前默认值调整为 `180s`
 
 ## 背景
 
@@ -88,7 +89,7 @@ SettingRegistry 只保留一个开关和两项统一策略参数：
 |---|---|---:|---:|
 | `affinity.enabled` | boolean | `false` | `true` / `false` |
 | `affinity.ttl` | duration_secs | `86_400` | `1..=2_592_000` |
-| `affinity.wait_timeout` | duration_secs | `30` | `1..=86_400` |
+| `affinity.wait_timeout` | duration_secs | `180` | `1..=86_400` |
 
 三项设置按 PublishedSnapshot revision 捕获并支持现有默认值、覆盖值、生效值和底层删除覆盖语义；Web
 只允许保存具体覆盖值，不提供删除覆盖或恢复默认入口。

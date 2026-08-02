@@ -167,7 +167,7 @@ mod tests {
         let settings = any2api_domain::SettingsConfiguration::defaults();
         let policy = QueuePolicy::from_scheduler_settings(settings.scheduler());
         assert_eq!(policy.on_rate_limited(), RateLimitAction::Wait);
-        assert_eq!(policy.queue_timeout().as_secs(), 30);
+        assert_eq!(policy.queue_timeout().as_secs(), 180);
         assert_eq!(policy.max_waiting_requests(), 128);
         assert!(!policy.fallback_on_rate_limit());
     }

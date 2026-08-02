@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-20
 - 决策者：maintainer
+- 修订：ADR-0084 将 `stream.precommit.max_duration` 的当前默认值调整为 `300s`
 
 ## 背景
 
@@ -10,7 +11,7 @@ Runtime 在返回下游响应头前等待并验证一个完整 SSE 事件。上�
 
 ## 决策
 
-- 注册 `stream.precommit.max_bytes` 与 `stream.precommit.max_duration`，默认分别为 `256 KiB` 和 `5s`，全部支持热更新。
+- 注册 `stream.precommit.max_bytes` 与 `stream.precommit.max_duration`，当前默认分别为 `256 KiB` 和 `300s`，全部支持热更新。
 - 每个流式请求从同一个 PublishedSnapshot 构造独立 `PrecommitBudget`。预算一旦进入 `GuardedBody` 就不再读取全局设置，确保已开始请求保持其捕获 revision。
 - `max_duration` 是取得首个可接受下游事件的提交 deadline，覆盖等待上游字节、分帧、协议解码、模型恢复以及必要的会话绑定提交边界，并且仍受请求级 `retry.precommit_total_budget` 外层预算约束。同步临界区不能被强制抢占，但临界区返回后必须重新检查 deadline；如果已经超时，不得写入绑定或接受首事件。
 - `max_bytes` 同时作为 SSE 单帧上限和首个可接受事件提交前的编码后字节预算。解码器每次最多复制当前帧剩余容量再加一个判超字节，未消费的 transport `Bytes` 以零拷贝切片保留。

@@ -78,8 +78,8 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(affinity_ttl["web_group"], "会话粘性");
     let affinity_wait = find_setting(&initial, "affinity.wait_timeout");
     assert_eq!(affinity_wait["value_type"], "duration_secs");
-    assert_eq!(affinity_wait["default_value"], 30);
-    assert_eq!(affinity_wait["effective_value"], 30);
+    assert_eq!(affinity_wait["default_value"], 180);
+    assert_eq!(affinity_wait["effective_value"], 180);
     assert_eq!(affinity_wait["min_value"], 1);
     assert_eq!(affinity_wait["max_value"], 86_400);
     assert_eq!(affinity_wait["web_group"], "会话粘性");
@@ -103,9 +103,9 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(invalid_models["error"]["code"], "invalid_setting");
     let timeout = find_setting(&initial, "scheduler.queue_timeout");
     assert_eq!(timeout["value_type"], "duration_secs");
-    assert_eq!(timeout["default_value"], 30);
+    assert_eq!(timeout["default_value"], 180);
     assert_eq!(timeout["override_value"], Value::Null);
-    assert_eq!(timeout["effective_value"], 30);
+    assert_eq!(timeout["effective_value"], 180);
     assert_eq!(timeout["min_value"], 1);
     assert_eq!(timeout["max_value"], 86_400);
     assert_eq!(timeout["allowed_values"], Value::Null);
@@ -121,6 +121,9 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(attempts["min_value"], 1);
     assert_eq!(attempts["max_value"], 10);
     assert_eq!(attempts["web_group"], "重试预算");
+    let precommit_budget = find_setting(&initial, "retry.precommit_total_budget");
+    assert_eq!(precommit_budget["default_value"], 600);
+    assert_eq!(precommit_budget["effective_value"], 600);
     let endpoint_window = find_setting(&initial, "breaker.endpoint.failure_window");
     assert_eq!(endpoint_window["value_type"], "duration_secs");
     assert_eq!(endpoint_window["default_value"], 30);
@@ -137,12 +140,12 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     );
     let stream_duration = find_setting(&initial, "stream.precommit.max_duration");
     assert_eq!(stream_duration["value_type"], "duration_secs");
-    assert_eq!(stream_duration["default_value"], 5);
+    assert_eq!(stream_duration["default_value"], 300);
     assert_eq!(stream_duration["min_value"], 1);
     assert_eq!(stream_duration["max_value"], 86_400);
     let read_timeout = find_setting(&initial, "upstream.read_timeout");
     assert_eq!(read_timeout["value_type"], "duration_secs");
-    assert_eq!(read_timeout["default_value"], 15);
+    assert_eq!(read_timeout["default_value"], 300);
     assert_eq!(read_timeout["min_value"], 1);
     assert_eq!(read_timeout["max_value"], 86_400);
     assert_eq!(read_timeout["web_group"], "上游网络");
@@ -161,7 +164,7 @@ async fn settings_api_exposes_defaults_overrides_and_effective_values() {
     assert_eq!(strict_ssrf["effective_value"], false);
     let postcommit_idle = find_setting(&initial, "stream.postcommit.idle_timeout");
     assert_eq!(postcommit_idle["value_type"], "duration_secs");
-    assert_eq!(postcommit_idle["default_value"], 60);
+    assert_eq!(postcommit_idle["default_value"], 300);
     assert_eq!(postcommit_idle["min_value"], 1);
     assert_eq!(postcommit_idle["max_value"], 86_400);
     assert_eq!(postcommit_idle["web_group"], "流式响应");
@@ -453,13 +456,13 @@ async fn affinity_settings_publish_persist_and_restore_defaults() {
     assert_eq!(wait_reset["config_revision"], 7);
     assert_eq!(
         find_setting(&wait_reset, "affinity.wait_timeout")["effective_value"],
-        30
+        180
     );
 
     let stored = storage.load_configuration().await.expect("reset settings");
     assert!(!stored.settings().affinity().enabled());
     assert_eq!(stored.settings().affinity().ttl_secs(), 86_400);
-    assert_eq!(stored.settings().affinity().wait_timeout_secs(), 30);
+    assert_eq!(stored.settings().affinity().wait_timeout_secs(), 180);
     assert_eq!(
         stored
             .settings()

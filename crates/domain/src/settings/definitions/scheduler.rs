@@ -23,7 +23,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::SchedulerQueueTimeout => duration_definition(
             key,
-            30,
+            180,
             1,
             MAX_SETTING_DURATION_SECS,
             "排队策略",

@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-20
 - 决策者：maintainer
+- 修订：ADR-0084 将两个超时的当前默认值统一调整为 `300s`
 
 ## 背景
 
@@ -10,7 +11,7 @@
 
 ## 决策
 
-- 注册 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，默认分别为 `15_000ms` 和 `60_000ms`，范围均为 `1..=86_400_000ms`，支持热更新且不允许 `0` 禁用。
+- 注册 `upstream.read_timeout` 与 `stream.postcommit.idle_timeout`，当前默认均为 `300_000ms`，范围均为 `1..=86_400_000ms`，支持热更新且不允许 `0` 禁用。
 - 每个请求从同一个 PublishedSnapshot 捕获 timeout。已开始的请求保持其捕获 revision，新请求使用当前设置，SQLite 继续只保存用户覆盖值。
 - `upstream.read_timeout` 约束等待响应头，以及 JSON、Count Tokens、Compact 和非成功 SSE 错误正文的每次 body 读取。成功读取 chunk 后重新计时；它不是总请求 deadline。
 - 成功 SSE 在首事件提交前继续使用 `stream.precommit.max_duration`。首个下游帧实际交付时启用 `stream.postcommit.idle_timeout`，每次成功读取任意上游 chunk 后重置；已缓冲事件优先交付。

@@ -29,7 +29,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::AffinityWaitTimeout => duration_definition(
             key,
-            30,
+            180,
             1,
             MAX_SETTING_DURATION_SECS,
             "会话粘性",

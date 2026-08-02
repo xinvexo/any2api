@@ -33,7 +33,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::RetryPrecommitTotalBudget => duration(
             key,
-            20,
+            600,
             1,
             MAX_SETTING_DURATION_SECS,
             "重试预算",

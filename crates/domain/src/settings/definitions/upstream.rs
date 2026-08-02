@@ -7,7 +7,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
     match key {
         SettingKey::UpstreamReadTimeout => duration_definition(
             key,
-            15,
+            300,
             1,
             MAX_SETTING_DURATION_SECS,
             "上游网络",
