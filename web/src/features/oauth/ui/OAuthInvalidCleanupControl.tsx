@@ -77,6 +77,7 @@ export function OAuthInvalidCleanupControl({
     <>
       <Button
         variant="danger"
+        aria-label="删除失效账号"
         disabled={disabled || busy || accounts.length === 0}
         onClick={() => void inspect()}
       >
@@ -85,7 +86,7 @@ export function OAuthInvalidCleanupControl({
         ) : (
           <Trash2 size={14} aria-hidden="true" />
         )}
-        {inspecting ? "正在检查" : "删除失效账号"}
+        {inspecting ? "检查中" : "清理失效"}
       </Button>
 
       <ConfirmDialog

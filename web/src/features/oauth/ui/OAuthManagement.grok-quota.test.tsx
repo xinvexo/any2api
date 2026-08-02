@@ -47,7 +47,10 @@ test("shows and refreshes Grok quota without a reset action", async () => {
   expect(screen.queryByText("Build 已标记")).not.toBeInTheDocument();
   expect(within(panel).queryByRole("button", { name: "重置额度" })).not.toBeInTheDocument();
   expect(within(panel).queryByText("重置次数")).not.toBeInTheDocument();
-  expect(within(panel).getByRole("button", { name: "刷新额度" })).not.toHaveAttribute("title");
+  expect(within(panel).getByRole("button", { name: "刷新额度" })).toHaveAttribute(
+    "title",
+    "刷新额度",
+  );
   expect(screen.getByRole("button", { name: "刷新全部额度" })).not.toHaveAttribute("title");
 
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));

@@ -39,7 +39,13 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   // used 37.5% → remaining 62.5% rendered as 63%
   expect(await within(panel).findByText("63%")).toBeInTheDocument();
   expect(await screen.findByText("已刷新「Primary Codex」的额度")).toBeInTheDocument();
-  expect(within(panel).getByText("1")).toBeInTheDocument();
+  expect(within(panel).getByText("可重置")).toHaveTextContent("可重置 1");
+  expect(within(panel).queryByText("重置次数")).not.toBeInTheDocument();
+  expect(within(panel).getByRole("button", { name: "刷新额度" })).toHaveAttribute(
+    "title",
+    "刷新额度",
+  );
+  expect(resetButton).toHaveAttribute("data-variant", "danger");
   expect(resetButton).toBeEnabled();
 
   fireEvent.click(resetButton);
@@ -50,7 +56,9 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   const notification = await screen.findByText("已重置 2 个额度窗口。");
   expect(notification.closest(".notification-card")).not.toBeNull();
   expect(within(panel).queryByText("已重置 2 个额度窗口。")).not.toBeInTheDocument();
-  await waitFor(() => expect(within(panel).getByText("0")).toBeInTheDocument());
+  await waitFor(() =>
+    expect(within(panel).getByText("可重置")).toHaveTextContent("可重置 0"),
+  );
   expect(within(panel).getByRole("button", { name: "重置额度" })).toBeDisabled();
   expect(fetchMock).toHaveBeenCalledTimes(3);
   expect(fetchMock.mock.calls.map(([path]) => String(path))).toEqual([
@@ -95,7 +103,9 @@ test("keeps reset pending when a virtualized account panel remounts", async () =
   expect(within(panel).getByRole("button", { name: "重置额度" })).toBeDisabled();
 
   resetResponse.resolve(response({ windows_reset: 1 }));
-  await waitFor(() => expect(within(panel).getByText("0")).toBeInTheDocument());
+  await waitFor(() =>
+    expect(within(panel).getByText("可重置")).toHaveTextContent("可重置 0"),
+  );
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
@@ -162,7 +172,9 @@ test("clears stale quota after reset refresh failure and recovers on refresh", a
   expect(client.getQueryData(oauthQueryKeys.quota("account-1"))).toBeUndefined();
 
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
-  await waitFor(() => expect(within(panel).getByText("0")).toBeInTheDocument());
+  await waitFor(() =>
+    expect(within(panel).getByText("可重置")).toHaveTextContent("可重置 0"),
+  );
   panel = screen.getByRole("region", { name: "Codex 额度" });
   expect(
     within(panel).queryByText("额度已重置，但最新额度读取失败。"),

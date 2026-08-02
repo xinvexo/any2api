@@ -63,14 +63,6 @@ export function OAuthQuotaDetails({
           value={`${formatUsdMinor(quota.billing?.onDemandUsedMinor ?? 0)} / ${formatUsdMinor(quota.billing?.onDemandCapMinor ?? 0)}`}
         />
       ) : null}
-      {showResetCredits ? (
-        <div className="flex items-baseline justify-between gap-2 text-[11px]">
-          <span className="text-secondary">重置次数</span>
-          <span className="font-medium tabular-nums text-primary">
-            {quota.resetCredits?.availableCount ?? "未知"}
-          </span>
-        </div>
-      ) : null}
       {creditExpiry ? (
         <p className="truncate text-[10px] text-tertiary" title={creditExpiry}>
           {creditExpiry}
@@ -227,8 +219,8 @@ function formatCreditExpiries(quota: OAuthQuotaSnapshot): string | null {
   if (expiries.length === 0) return null;
   const first = formatExpiry(expiries[0]);
   return expiries.length === 1
-    ? `重置次数 ${first} 到期`
-    : `重置次数 ${first} 到期，另有 ${expiries.length - 1} 次`;
+    ? `最早 ${first} 到期`
+    : `最早 ${first} 到期 · 共 ${expiries.length} 次`;
 }
 
 function formatExpiry(value: string) {

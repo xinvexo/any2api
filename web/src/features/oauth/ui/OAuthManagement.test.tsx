@@ -36,12 +36,17 @@ test("uses provider grid layout without a main-column session panel", async () =
   expect(screen.getByRole("button", { name: "OAuth认证" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "导入 JSON" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新" })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "刷新全部额度" })).toBeDisabled();
+  const refreshQuota = screen.getByRole("button", { name: "刷新全部额度" });
+  expect(refreshQuota).toBeDisabled();
+  expect(refreshQuota).toHaveTextContent("刷新额度");
   expect(getNotifications()).toHaveLength(0);
 
   fireEvent.click(screen.getByRole("button", { name: "刷新" }));
   expect(await screen.findByText("OAuth 账号已刷新")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "删除失效账号" })).toBeDisabled();
+  const cleanupInvalid = screen.getByRole("button", { name: "删除失效账号" });
+  expect(cleanupInvalid).toBeDisabled();
+  expect(cleanupInvalid).toHaveTextContent("清理失效");
+  expect(cleanupInvalid).toHaveAttribute("data-variant", "danger");
   expect(screen.queryByLabelText("每页条数")).not.toBeInTheDocument();
   expect(screen.getByLabelText("账号数量")).toHaveTextContent("共 0 个账号");
 });

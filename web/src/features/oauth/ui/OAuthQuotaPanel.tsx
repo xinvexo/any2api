@@ -118,10 +118,17 @@ export function OAuthQuotaPanel({
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-medium text-secondary">{providerName} 额度</p>
         <div className="flex items-center gap-0.5">
+          {canReset && quota ? (
+            <span className="mr-1 text-[10px] tabular-nums text-tertiary">
+              可重置 <span className="font-medium text-secondary">{availableCount}</span>
+            </span>
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
-            className="h-6 min-h-6 px-1.5 text-[11px]"
+            className="size-6 min-h-6 p-0"
+            aria-label="刷新额度"
+            title="刷新额度"
             disabled={disabled || pending !== null}
             onClick={() => void refreshQuota()}
           >
@@ -130,13 +137,13 @@ export function OAuthQuotaPanel({
               className={pending === "query" ? "animate-spin" : undefined}
               aria-hidden="true"
             />
-            刷新额度
           </Button>
           {canReset ? (
             <Button
               variant="danger"
               size="sm"
-              className="h-6 min-h-6 px-1.5 text-[11px]"
+              className="size-6 min-h-6 p-0"
+              aria-label="重置额度"
               disabled={disabled || pending !== null || availableCount === 0}
               title={
                 disabled
@@ -145,7 +152,7 @@ export function OAuthQuotaPanel({
                   ? "请先刷新额度"
                   : availableCount === 0
                     ? "没有可用的重置次数"
-                    : undefined
+                    : "重置额度"
               }
               onClick={() => setConfirmOpen(true)}
             >
@@ -154,7 +161,6 @@ export function OAuthQuotaPanel({
                 className={pending === "reset" ? "animate-spin" : undefined}
                 aria-hidden="true"
               />
-              重置额度
             </Button>
           ) : null}
         </div>

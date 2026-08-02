@@ -140,6 +140,7 @@ export function OAuthManagement() {
     <>
       <Button
         variant="ghost"
+        aria-label="刷新全部额度"
         disabled={
           invalidCleanupBusy ||
           quotaRefresh.pending ||
@@ -152,7 +153,7 @@ export function OAuthManagement() {
           size={14}
           className={quotaRefresh.pending ? "animate-spin" : undefined}
         />
-        {quotaRefresh.pending ? "正在刷新额度" : "刷新全部额度"}
+        {quotaRefresh.pending ? "刷新中" : "刷新额度"}
       </Button>
       <OAuthInvalidCleanupControl
         key={selectedProvider}
