@@ -150,6 +150,15 @@ test("loads and shows the complete raw HTTP exchange on demand", async () => {
   expect(within(drawer).getByText('{"prompt":"blocked word"}')).toBeInTheDocument();
   expect(within(drawer).getByText("[Base64] /wA=")).toBeInTheDocument();
   expect(within(drawer).getByText("/v1/responses?search=raw-query")).toBeInTheDocument();
+  const responseSection = within(drawer).getByRole("region", { name: "响应详情" });
+  expect(responseSection.querySelector('[data-body-view="formatted-json"]')?.textContent).toBe(
+    '{\n  "ok": true,\n  "count": 2\n}',
+  );
+  expect(responseSection.querySelector('[data-json-token="boolean"]')).toHaveClass("text-accent");
+  fireEvent.click(within(responseSection).getByRole("button", { name: "查看 JSON 原文" }));
+  expect(responseSection.querySelector('[data-body-view="raw"]')?.textContent).toBe(
+    '{"ok":true,"count":2}',
+  );
 });
 
 test("defaults automatic refresh to enabled for an invalid saved value", async () => {
@@ -233,6 +242,8 @@ function jsonResponse(value: unknown) {
 }
 
 function detailResponse() {
+  const responseBody = '{"ok":true,"count":2}';
+  const responseBytes = new TextEncoder().encode(responseBody).length;
   return {
     log: {
       request_id: "11111111-1111-4111-8111-111111111111",
@@ -245,7 +256,7 @@ function detailResponse() {
       http_version: "HTTP/1.1",
       status_code: 200,
       duration_ms: 12,
-      response_bytes: 2,
+      response_bytes: responseBytes,
       outcome: "completed",
       exchange_captured: true,
     },
@@ -267,10 +278,10 @@ function detailResponse() {
       response: {
         headers: [{ name: "content-type", value: "application/json", encoding: "utf8" }],
         body: {
-          content: "ok",
+          content: responseBody,
           encoding: "utf8",
-          captured_bytes: 2,
-          total_bytes: 2,
+          captured_bytes: responseBytes,
+          total_bytes: responseBytes,
           complete: true,
           truncated: false,
         },

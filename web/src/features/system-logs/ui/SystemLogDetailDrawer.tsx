@@ -1,13 +1,13 @@
 import { RefreshCw } from "lucide-react";
 
 import type {
-  SystemLogBody,
   SystemLogDetail,
   SystemLogHeader,
   SystemLogMessage,
 } from "../api/system-log-contracts";
 import { formatBytes, formatDuration } from "../model/system-log-presentation";
 import { useSystemLog } from "../model/use-system-logs";
+import { SystemLogBody } from "./SystemLogBody";
 import { Button } from "@/shared/ui/Button";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 
@@ -84,7 +84,7 @@ function MessageSection({ title, message }: { title: string; message: SystemLogM
     <section className="border-t border-subtle pt-5" aria-label={`${title}详情`}>
       <h3 className="text-[14px] font-semibold">{title}</h3>
       <HeaderList headers={message.headers} />
-      <BodyView body={message.body} />
+      <SystemLogBody body={message.body} headers={message.headers} />
     </section>
   );
 }
@@ -109,24 +109,6 @@ function HeaderList({ headers }: { headers: SystemLogHeader[] }) {
           ))}
         </ul>
       )}
-    </div>
-  );
-}
-
-function BodyView({ body }: { body: SystemLogBody }) {
-  const state = body.truncated ? "已截断" : body.complete ? "完整" : "未完整";
-  return (
-    <div className="mt-5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-tertiary">Body</p>
-        <p className="text-[11px] tabular-nums text-secondary">
-          {state} · 捕获 {formatBytes(body.capturedBytes)} / 总计 {formatBytes(body.totalBytes)}
-          {body.encoding === "base64" ? " · Base64" : ""}
-        </p>
-      </div>
-      <pre className="mt-2 max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-[10px] bg-surface-muted/70 p-3 font-mono text-[12px] leading-5 text-primary [overflow-wrap:anywhere] [scrollbar-gutter:stable]">
-        {body.content.length > 0 ? body.content : "（空）"}
-      </pre>
     </div>
   );
 }
