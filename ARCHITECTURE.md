@@ -1285,6 +1285,11 @@ anthropic_messages       -> anthropic_messages
 
 当前只注册 Responses → Chat Completions 转换桥。Runtime 只按协议对查询注册表，不对这个组合写专用 `match`；新增桥只能通过独立实现与 Composition Root 注册扩展。每座桥都必须覆盖 JSON 请求/响应、SSE、工具调用、usage 和多轮状态；最终上游非 2xx 仍透明返回，无法无损表达的输入在请求提交上游前明确报错，禁止静默删除字段。Chat Completions → Responses、Codex/OpenAI ↔ Claude 和 `/v1/responses/compact` → Chat Completions 不注册。
 
+Responses → Chat Completions Bridge 合成的每个 Responses SSE JSON 事件都必须包含
+`sequence_number`。序号由单个 Bridge 流状态统一持有，`response.created` 从 `0` 开始，随后按实际
+发送顺序连续递增，包括 reasoning、文本、工具调用、usage 和终止事件；禁止由各事件分支自行编号，
+也禁止按 Provider 类型维护第二套序号规则。原生 Responses → Responses 直通流不改写上游序号。
+
 Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字段。桥接路径返回本地合成的 Response ID，并在 `AffinityRegistry` 的同一条原子记录中保存该 ID 对应的规范化历史、Credential、Route Target、模型和协议对；Protocol 不保留独立 ID 索引。桥状态使用强类型不透明 continuation 能力对象，Runtime 只保存并交还，不使用 `Any` 或具体 Bridge 分支。重启或过期后继续返回现有 `session_binding_lost`，禁止猜测 Credential 或仅凭客户端内容重建已经丢失的绑定。完整决策见 `docs/adr/0076-atomic-bridge-continuation-state.md`。
 
 ADR-0032 明确登记的 `reasoning.summary` 与 `include=["reasoning.encrypted_content"]` 属于该 Bridge

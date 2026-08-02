@@ -29,6 +29,7 @@ pub(crate) struct ChatToResponsesStream {
     pub(super) finish_reason: Option<String>,
     pub(super) usage: TokenUsage,
     pub(super) usage_json: Option<Value>,
+    next_sequence_number: u64,
     pub(super) next_output_index: usize,
     pub(super) reasoning: TextState,
     pub(super) message: TextState,
@@ -49,6 +50,7 @@ impl ChatToResponsesStream {
             finish_reason: None,
             usage: TokenUsage::default(),
             usage_json: None,
+            next_sequence_number: 0,
             next_output_index: 0,
             reasoning: TextState::default(),
             message: TextState::default(),
@@ -115,7 +117,7 @@ impl ChatToResponsesStream {
             }
         }
         Ok(StreamUpdate {
-            events,
+            events: self.sequence_events(events)?,
             assistant_message: None,
         })
     }
@@ -166,11 +168,45 @@ impl ChatToResponsesStream {
             },
             StreamTermination::Completed,
         ));
+        let events = self.sequence_events(events)?;
         self.completed = true;
         Ok(StreamUpdate {
             events,
             assistant_message: Some(self.assistant_message()),
         })
+    }
+
+    fn sequence_events(
+        &mut self,
+        events: Vec<AdapterEvent>,
+    ) -> Result<Vec<AdapterEvent>, ProtocolError> {
+        events
+            .into_iter()
+            .map(|event| {
+                let telemetry = event.telemetry();
+                let termination = event.termination();
+                let (_, payload) = event.into_parts();
+                let SseEventPayload::Json {
+                    event_name: Some(kind),
+                    mut data,
+                } = payload
+                else {
+                    return Err(invalid("bridged Responses event must contain JSON data"));
+                };
+                let object = data
+                    .as_object_mut()
+                    .ok_or_else(|| invalid("bridged Responses event data must be an object"))?;
+                object.insert(
+                    "sequence_number".to_owned(),
+                    json!(self.next_sequence_number),
+                );
+                self.next_sequence_number = self
+                    .next_sequence_number
+                    .checked_add(1)
+                    .ok_or_else(|| invalid("bridged Responses sequence number overflowed"))?;
+                Ok(sse(&kind, data, telemetry).with_termination(termination))
+            })
+            .collect()
     }
 
     fn ensure_started(&mut self) -> Vec<AdapterEvent> {

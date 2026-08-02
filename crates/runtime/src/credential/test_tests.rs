@@ -119,8 +119,6 @@ async fn probe_ignores_credential_and_endpoint_routing_enabled_state() {
 }
 
 async fn assert_probe_available(endpoint_enabled: bool, credential_enabled: bool) {
-    use any2api_provider::WorkBuddyDriver;
-
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(
         SqliteStore::connect(&directory.path().join("config.sqlite3"))
@@ -167,7 +165,7 @@ async fn assert_probe_available(endpoint_enabled: bool, credential_enabled: bool
     let mut providers = ProviderRegistry::new();
     providers
         .register(Arc::new(CodexDriver::new()))
-        .expect("WorkBuddy driver");
+        .expect("Codex driver");
     let transport = Arc::new(CapturingTransport::default());
     let service = ProviderCredentialTestService::new(
         Arc::new(providers),

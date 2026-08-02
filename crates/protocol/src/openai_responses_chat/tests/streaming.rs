@@ -93,6 +93,7 @@ async fn streaming_bridge_emits_responses_events_tools_and_usage() {
     assert!(output.contains("Paris"));
     assert!(output.contains(r#""model":"public-model""#));
     assert!(output.contains(r#""input_tokens":4"#));
+    assert_contiguous_sequence_numbers(&output);
     let usage = terminal_usage.expect("terminal usage");
     assert_eq!(usage.input_tokens(), Some(4));
     assert_eq!(usage.output_tokens(), Some(3));
@@ -161,4 +162,22 @@ async fn streaming_bridge_aborts_when_incremental_state_exceeds_the_hard_limit()
         exchange.bridge_continuation_state(),
         BridgeContinuationState::Pending
     ));
+}
+
+fn assert_contiguous_sequence_numbers(stream: &str) {
+    let sequence_numbers = stream
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .map(|data| serde_json::from_str::<Value>(data).expect("Responses SSE JSON"))
+        .map(|event| {
+            event["sequence_number"]
+                .as_u64()
+                .expect("Responses SSE sequence_number")
+        })
+        .collect::<Vec<_>>();
+    assert!(!sequence_numbers.is_empty());
+    assert_eq!(
+        sequence_numbers,
+        (0..sequence_numbers.len() as u64).collect::<Vec<_>>()
+    );
 }

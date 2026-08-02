@@ -32,6 +32,7 @@ Completions 的 Provider Endpoint，禁止按 `provider_kind` 增加 Grok 或其
 - 有效组合固定为 Responses -> Responses、Responses -> Chat Completions、Chat Completions -> Chat Completions、Images -> Images、Messages -> Messages。Images -> Images 是同协议直通，不注册新的跨协议 Bridge。
 - 在 `ProtocolRegistry` 中按 `(ingress_dialect, upstream_dialect)` 静态注册 `ProtocolBridge`。协议相同走 Adapter 快速路径，不查找 Bridge；协议不同时必须在配置发布前找到 Bridge，否则拒绝发布。Domain、Runtime、Storage 和 Server 都不得为 Responses → Chat 写专用协议对分支；新增转换只增加 Bridge 实现、能力声明和 Composition Root 注册。
 - 唯一注册的跨协议桥是 Responses -> Chat Completions。它负责请求、非流式响应、SSE、工具调用和 usage 转换；影响模型执行、工具语义、输出格式或续接语义且无法可靠表达的字段，在上游提交前 fail-closed，禁止静默丢弃。最终上游非 2xx 仍透明返回，不经 Bridge 重编码错误正文。
+- Bridge 合成的每个 Responses SSE JSON 事件必须包含 `sequence_number`。单个流从 `response.created=0` 开始，按实际发送顺序连续递增直到 `response.completed` 或 `response.incomplete`；编号由流转换器统一完成，不能散落到 reasoning、文本或工具调用分支。原生 Responses 直通流保持上游事件不变。
 - Bridge 只允许两项经过审计的输出投影降级：
   - `reasoning.summary` 仅接受 `auto`、`concise`、`detailed`。`reasoning.effort` 仍映射为 Chat `reasoning_effort`；summary 不伪造成上游控制字段，Chat 返回的 `reasoning_content` 或 `reasoning` 继续转换为 Responses reasoning summary。summary 可以在没有 effort 时单独出现。
   - `include` 仅接受空数组或 `reasoning.encrypted_content`。跨协议续接由 any2api 的本地 continuation 状态承担，Bridge 不伪造 Chat 上游不存在的不透明 reasoning 内容，也不把该 include 值发送上游。
@@ -57,6 +58,6 @@ Completions 的 Provider Endpoint，禁止按 `provider_kind` 增加 Grok 或其
 ## 验证
 
 - Domain/Storage 测试覆盖空值回退、相同值归一化和无 Bridge 组合拒绝。
-- Protocol 契约覆盖 Responses 请求、JSON、任意字节切分 SSE、CRLF、多行 data、工具调用、usage、错误、不支持字段，以及实际客户端使用的 `reasoning.summary` 与 `include=["reasoning.encrypted_content"]`；HTTP 契约必须证明该行为不依赖 Provider 类型。
+- Protocol 契约覆盖 Responses 请求、JSON、任意字节切分 SSE、CRLF、多行 data、工具调用、usage、错误、不支持字段、所有合成事件连续的 `sequence_number`，以及实际客户端使用的 `reasoning.summary` 与 `include=["reasoning.encrypted_content"]`；HTTP 契约必须证明该行为不依赖 Provider 类型。
 - Runtime/HTTP 契约覆盖直通不进入 Bridge、Responses -> Chat 路径、首字节后禁止切换、Guard 单次结算、合成 Response ID、多轮内存状态和重启后 `session_binding_lost`。
 - Web 测试覆盖转换协议可留空、空值说明、按接受协议过滤可用转换目标和编辑回显。

@@ -263,6 +263,7 @@ async fn responses_stream_is_bridged_from_chat_completions_sse() {
     assert!(rest.contains("response.completed"));
     assert!(rest.contains(r#""input_tokens":4"#));
     assert!(rest.contains(r#""cached_tokens":1"#));
+    assert_contiguous_sequence_numbers(&format!("{first}{rest}"));
     let upstream = upstream_request.await.expect("upstream request");
     assert_eq!(
         upstream.headers["authorization"],
@@ -1632,6 +1633,24 @@ fn response_id_from_sse(bytes: &[u8]) -> String {
         .as_str()
         .expect("response.created ID")
         .to_owned()
+}
+
+fn assert_contiguous_sequence_numbers(stream: &str) {
+    let sequence_numbers = stream
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .map(|data| serde_json::from_str::<Value>(data).expect("Responses SSE JSON"))
+        .map(|event| {
+            event["sequence_number"]
+                .as_u64()
+                .expect("Responses SSE sequence_number")
+        })
+        .collect::<Vec<_>>();
+    assert!(!sequence_numbers.is_empty());
+    assert_eq!(
+        sequence_numbers,
+        (0..sequence_numbers.len() as u64).collect::<Vec<_>>()
+    );
 }
 
 async fn read_upstream_request(stream: &mut tokio::net::TcpStream) -> (String, UpstreamRequest) {
