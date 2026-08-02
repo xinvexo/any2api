@@ -47,7 +47,7 @@ pub(crate) fn decode_request(
         ));
     }
     let affinity = affinity::extract(request.operation, &request.headers, object)?;
-    let thinking_level = extract_thinking_level(object);
+    let thinking_level = extract_thinking_level(dialect, object);
     let body_encoding = request_body_encoding(&request.headers)?;
     let execution_profile = request_execution_profile(request.operation, object);
 
@@ -109,38 +109,30 @@ fn request_body_encoding(headers: &HeaderMap) -> Result<RequestBodyEncoding, Pro
     }
 }
 
-/// Best-effort thinking/reasoning level for request logs.
+/// Explicit thinking/reasoning effort level for request logs.
 ///
-/// Supports common client shapes without failing decode on unknown fields:
+/// Reads only the field defined by the ingress protocol:
 /// - `reasoning.effort` (Responses)
 /// - `reasoning_effort` (Chat Completions)
-/// - `thinking` string or `{ type, budget_tokens }` (Claude-style)
-fn extract_thinking_level(object: &Map<String, Value>) -> Option<String> {
-    if let Some(effort) = object
-        .get("reasoning")
-        .and_then(Value::as_object)
-        .and_then(|reasoning| reasoning.get("effort"))
-        .and_then(Value::as_str)
-    {
-        return bound_thinking_level(effort);
-    }
-    if let Some(effort) = object.get("reasoning_effort").and_then(Value::as_str) {
-        return bound_thinking_level(effort);
-    }
-    match object.get("thinking") {
-        Some(Value::String(value)) => bound_thinking_level(value),
-        Some(Value::Object(thinking)) => {
-            let kind = thinking.get("type").and_then(Value::as_str);
-            let budget = thinking.get("budget_tokens").and_then(Value::as_u64);
-            match (kind, budget) {
-                (Some(kind), Some(budget)) => bound_thinking_level(format!("{kind}:{budget}")),
-                (Some(kind), None) => bound_thinking_level(kind),
-                (None, Some(budget)) => bound_thinking_level(format!("budget:{budget}")),
-                (None, None) => None,
-            }
+/// - `output_config.effort` (Claude adaptive thinking)
+fn extract_thinking_level(dialect: ProtocolDialect, object: &Map<String, Value>) -> Option<String> {
+    let effort = match dialect {
+        ProtocolDialect::OpenAiResponses => object
+            .get("reasoning")
+            .and_then(Value::as_object)
+            .and_then(|reasoning| reasoning.get("effort"))
+            .and_then(Value::as_str),
+        ProtocolDialect::OpenAiChatCompletions => {
+            object.get("reasoning_effort").and_then(Value::as_str)
         }
-        _ => None,
-    }
+        ProtocolDialect::AnthropicMessages => object
+            .get("output_config")
+            .and_then(Value::as_object)
+            .and_then(|config| config.get("effort"))
+            .and_then(Value::as_str),
+        ProtocolDialect::OpenAiImages => None,
+    };
+    effort.and_then(bound_thinking_level)
 }
 
 pub(crate) fn encode_request(

@@ -1465,6 +1465,10 @@ Runtime 必须在模型允许列表与 Route 解析之前将它们写入 Request
 暂无 Route 的有效模型请求仍必须在 RequestLog 中保留客户端填写的精确模型，而候选、
 凭据和代理字段保持为空。只有在 Body 无法解码、缺少 `model` 或模型名本身无效时，
 `public_model` 才保持为空。完整决策见 `docs/adr/0068-local-model-rejection-contract.md`。
+思考级别只按客户端显式 effort 记录：OpenAI Responses 使用 `reasoning.effort`，Chat Completions
+使用 `reasoning_effort`，Anthropic Messages 使用 `output_config.effort`。Claude 的
+`thinking.type` 是思考模式，`thinking.budget_tokens` 是预算，二者都不得写入思考级别字段；
+缺少显式 effort 时该字段为空。
 
 真正收到最终上游非 2xx 响应时，Runtime 不构造 `PublicError`，也不调用 `ProtocolAdapter::error_response`。它必须原样返回上游状态码和完整收集到的有界正文，并只投影 Provider 明确允许且经过通用安全清理的响应 Header；不得把 401/403/404/408/429/5xx 映射成其他状态，不得重建或补充 `type`、`code`、`message`，跨协议桥也不得把最终上游错误改写成入口协议 envelope。被重试或切换掉的 Attempt 响应仍全部丢弃，只有实际结束请求的最终 Attempt 可以返回。错误正文超限、读取超时或中途断开时保留已经收到的上游状态和安全 Header，但不生成替代错误正文。
 
