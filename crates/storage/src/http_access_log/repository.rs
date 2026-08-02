@@ -1,10 +1,10 @@
-use any2api_domain::{HttpAccessLog, LogPage};
+use any2api_domain::{HttpAccessLog, HttpAccessLogSummary, LogPage, RequestId};
 use async_trait::async_trait;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
 use super::{
-    rows::{HttpAccessLogRow, parse},
+    rows::{HttpAccessLogDetailRow, HttpAccessLogSummaryRow, parse_detail, parse_summary},
     writes::{delete_oldest, delete_oldest_before, insert},
 };
 
@@ -24,7 +24,12 @@ pub trait HttpAccessLogRepository: Send + Sync {
         since_ms: u64,
         offset: u64,
         limit: u32,
-    ) -> Result<LogPage<HttpAccessLog>, StorageError>;
+    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError>;
+
+    async fn get_http_access_log(
+        &self,
+        request_id: RequestId,
+    ) -> Result<Option<HttpAccessLog>, StorageError>;
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError>;
 }
@@ -78,7 +83,7 @@ impl HttpAccessLogRepository for SqliteStore {
         since_ms: u64,
         offset: u64,
         limit: u32,
-    ) -> Result<LogPage<HttpAccessLog>, StorageError> {
+    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
         let since_ms = to_i64(since_ms)?;
         let offset = to_i64(offset)?;
         let mut transaction = self.pool().begin().await?;
@@ -91,9 +96,9 @@ impl HttpAccessLogRepository for SqliteStore {
         .bind(since_ms)
         .fetch_one(&mut *transaction)
         .await?;
-        let rows = sqlx::query_as::<_, HttpAccessLogRow>(
-            "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, \
-             http_version, status_code, duration_ms, response_bytes, outcome \
+        let rows = sqlx::query_as::<_, HttpAccessLogSummaryRow>(
+            "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, uri, \
+             http_version, status_code, duration_ms, response_bytes, outcome, exchange_captured \
              FROM http_access_logs WHERE started_at_ms >= ? AND (\
              path = '/v1' OR path GLOB '/v1/*' OR client_ip IS NULL OR \
              (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
@@ -106,11 +111,31 @@ impl HttpAccessLogRepository for SqliteStore {
         .fetch_all(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        let items = rows.into_iter().map(parse).collect::<Result<Vec<_>, _>>()?;
+        let items = rows
+            .into_iter()
+            .map(parse_summary)
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(LogPage::new(
             items,
             u64::try_from(total).map_err(|_| StorageError::CorruptTelemetry)?,
         ))
+    }
+
+    async fn get_http_access_log(
+        &self,
+        request_id: RequestId,
+    ) -> Result<Option<HttpAccessLog>, StorageError> {
+        let row = sqlx::query_as::<_, HttpAccessLogDetailRow>(
+            "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, uri, \
+             http_version, status_code, duration_ms, response_bytes, outcome, exchange_captured, \
+             request_headers, request_body, request_body_bytes, request_body_complete, \
+             request_body_truncated, response_headers, response_body, response_body_complete, \
+             response_body_truncated FROM http_access_logs WHERE request_id = ?",
+        )
+        .bind(request_id.to_string())
+        .fetch_optional(self.pool())
+        .await?;
+        row.map(parse_detail).transpose()
     }
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {

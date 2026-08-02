@@ -1,4 +1,6 @@
 mod body;
+mod capture;
+mod detail_dto;
 mod dto;
 mod handlers;
 mod middleware;
@@ -11,5 +13,7 @@ use crate::state::AppState;
 pub(crate) use middleware::{ExcludeFromHttpAccessLog, HttpRequestId, record};
 
 pub(crate) fn routes() -> Router<AppState> {
-    Router::new().route("/system-logs", get(handlers::list).delete(handlers::clear))
+    Router::new()
+        .route("/system-logs", get(handlers::list).delete(handlers::clear))
+        .route("/system-logs/{id}", get(handlers::get))
 }

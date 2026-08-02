@@ -105,6 +105,14 @@ impl AdminApiError {
         )
     }
 
+    pub(crate) fn system_log_not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "system_log_not_found",
+            "system log was not found",
+        )
+    }
+
     pub(crate) fn proxy_test_unavailable() -> Self {
         Self::new(
             StatusCode::SERVICE_UNAVAILABLE,

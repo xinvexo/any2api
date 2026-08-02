@@ -1,3 +1,4 @@
+mod history;
 mod input;
 mod options;
 mod tools;
@@ -13,6 +14,7 @@ const PASSTHROUGH_FIELDS: &[&str] = &[
     "metadata",
     "parallel_tool_calls",
     "presence_penalty",
+    "prompt_cache_key",
     "seed",
     "service_tier",
     "stop",
@@ -38,6 +40,7 @@ pub(super) fn convert(
         .ok_or_else(|| invalid("request must be an object"))?;
     validate_top_level_fields(source)?;
     reject_multiple_choices(source)?;
+    validate_prompt_cache_key(source.get("prompt_cache_key"))?;
     options::validate_include(source.get("include"))?;
     let mut messages = previous;
     input::append_instructions(source.get("instructions"), &mut messages)?;
@@ -117,6 +120,13 @@ fn reject_multiple_choices(source: &Map<String, Value>) -> Result<(), ProtocolEr
         return Err(invalid("Responses bridge supports exactly one choice"));
     }
     Ok(())
+}
+
+fn validate_prompt_cache_key(value: Option<&Value>) -> Result<(), ProtocolError> {
+    match value {
+        None | Some(Value::String(_)) => Ok(()),
+        Some(_) => Err(invalid("prompt_cache_key must be a string")),
+    }
 }
 
 fn required_string<'a>(

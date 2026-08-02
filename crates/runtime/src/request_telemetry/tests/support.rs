@@ -4,9 +4,9 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion,
-    LogPage, ProtocolDialect, ProtocolOperation, RequestId, RequestLog, SettingKey,
-    SettingOverrides, SettingValue, SettingsConfiguration,
+    CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpAccessLogSummary,
+    HttpProtocolVersion, LogPage, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+    SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
@@ -54,16 +54,29 @@ impl HttpAccessLogRepository for BlockingRepository {
         _since_ms: u64,
         offset: u64,
         limit: u32,
-    ) -> Result<LogPage<HttpAccessLog>, StorageError> {
+    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
         let logs = self.access_logs.lock().expect("HTTP access logs");
         let total = logs.len() as u64;
         let items = logs
             .iter()
             .skip(offset as usize)
             .take(limit as usize)
-            .cloned()
+            .map(HttpAccessLog::summary)
             .collect();
         Ok(LogPage::new(items, total))
+    }
+
+    async fn get_http_access_log(
+        &self,
+        request_id: RequestId,
+    ) -> Result<Option<HttpAccessLog>, StorageError> {
+        Ok(self
+            .access_logs
+            .lock()
+            .expect("HTTP access logs")
+            .iter()
+            .find(|log| log.request_id == request_id)
+            .cloned())
     }
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {
@@ -201,11 +214,13 @@ pub(super) fn access_log(path: &str) -> HttpAccessLog {
         client_ip: None,
         method: "GET".to_owned(),
         path: path.to_owned(),
+        uri: path.to_owned(),
         http_version: HttpProtocolVersion::Http11,
         status_code: Some(200),
         duration_ms: 1,
         response_bytes: 0,
         outcome: HttpAccessLogOutcome::Completed,
+        exchange: None,
     }
 }
 

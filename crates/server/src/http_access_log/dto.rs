@@ -1,4 +1,4 @@
-use any2api_domain::{HttpAccessLog, LogPage};
+use any2api_domain::{HttpAccessLogSummary, LogPage};
 use any2api_runtime::api::RequestTelemetryMetrics;
 use serde::Serialize;
 
@@ -13,7 +13,7 @@ pub(super) struct SystemLogListResponse {
 
 impl SystemLogListResponse {
     pub(super) fn new(
-        logs: LogPage<HttpAccessLog>,
+        logs: LogPage<HttpAccessLogSummary>,
         page: u32,
         page_size: u32,
         metrics: RequestTelemetryMetrics,
@@ -61,22 +61,24 @@ impl From<RequestTelemetryMetrics> for TelemetryResponse {
 }
 
 #[derive(Serialize)]
-struct SystemLogResponse {
+pub(super) struct SystemLogResponse {
     request_id: String,
     started_at_ms: u64,
     config_revision: u64,
     client_ip: Option<String>,
     method: String,
     path: String,
+    uri: String,
     http_version: &'static str,
     status_code: Option<u16>,
     duration_ms: u64,
     response_bytes: u64,
     outcome: &'static str,
+    exchange_captured: bool,
 }
 
-impl From<HttpAccessLog> for SystemLogResponse {
-    fn from(value: HttpAccessLog) -> Self {
+impl From<HttpAccessLogSummary> for SystemLogResponse {
+    fn from(value: HttpAccessLogSummary) -> Self {
         Self {
             request_id: value.request_id.to_string(),
             started_at_ms: value.started_at_ms,
@@ -84,11 +86,13 @@ impl From<HttpAccessLog> for SystemLogResponse {
             client_ip: value.client_ip.map(|address| address.to_string()),
             method: value.method,
             path: value.path,
+            uri: value.uri,
             http_version: value.http_version.as_str(),
             status_code: value.status_code,
             duration_ms: value.duration_ms,
             response_bytes: value.response_bytes,
             outcome: value.outcome.as_str(),
+            exchange_captured: value.exchange_captured,
         }
     }
 }

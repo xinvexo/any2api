@@ -6,14 +6,17 @@ use std::{
 };
 
 use any2api_domain::{
-    ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion, LoggingSettings,
-    RequestId,
+    ConfigRevision, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome, HttpHeader,
+    HttpProtocolVersion, LoggingSettings, RequestId,
 };
 use any2api_runtime::api::RequestTelemetry;
 use axum::body::{Body, Bytes, HttpBody};
 use http_body::{Frame, SizeHint};
 
-use super::policy::{change_notification, should_record};
+use super::{
+    capture::{BodyCapture, SharedBodyCapture},
+    policy::{change_notification, should_record},
+};
 
 pub(super) struct AccessLogCompletion {
     telemetry: Arc<RequestTelemetry>,
@@ -21,6 +24,7 @@ pub(super) struct AccessLogCompletion {
     metadata: AccessLogMetadata,
     started: Instant,
     status_code: Option<u16>,
+    response_headers: Vec<HttpHeader>,
     pending: bool,
 }
 
@@ -31,10 +35,14 @@ pub(super) struct AccessLogMetadata {
     client_ip: Option<std::net::IpAddr>,
     method: String,
     path: String,
+    uri: String,
     http_version: HttpProtocolVersion,
+    request_headers: Vec<HttpHeader>,
+    request_body: SharedBodyCapture,
 }
 
 impl AccessLogMetadata {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         request_id: RequestId,
         started_at_ms: u64,
@@ -42,7 +50,10 @@ impl AccessLogMetadata {
         client_ip: Option<std::net::IpAddr>,
         method: String,
         path: String,
+        uri: String,
         http_version: HttpProtocolVersion,
+        request_headers: Vec<HttpHeader>,
+        request_body: SharedBodyCapture,
     ) -> Self {
         Self {
             request_id,
@@ -51,7 +62,10 @@ impl AccessLogMetadata {
             client_ip,
             method,
             path,
+            uri,
             http_version,
+            request_headers,
+            request_body,
         }
     }
 }
@@ -69,23 +83,27 @@ impl AccessLogCompletion {
             metadata,
             started,
             status_code: None,
+            response_headers: Vec::new(),
             pending: true,
         }
     }
 
-    pub(super) fn set_status(&mut self, status_code: u16) {
+    pub(super) fn set_response(&mut self, status_code: u16, headers: Vec<HttpHeader>) {
         self.status_code = Some(status_code);
+        self.response_headers = headers;
     }
 
     pub(super) fn exclude(&mut self) {
         self.pending = false;
     }
 
-    fn finish(&mut self, outcome: HttpAccessLogOutcome, response_bytes: u64) {
+    fn finish(&mut self, outcome: HttpAccessLogOutcome, mut response_body: BodyCapture) {
         if !self.pending {
             return;
         }
         self.pending = false;
+        response_body.finish(outcome == HttpAccessLogOutcome::Completed);
+        let response_body = response_body.snapshot();
         let duration_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let log = HttpAccessLog {
             request_id: self.metadata.request_id,
@@ -94,11 +112,18 @@ impl AccessLogCompletion {
             client_ip: self.metadata.client_ip,
             method: self.metadata.method.clone(),
             path: self.metadata.path.clone(),
+            uri: self.metadata.uri.clone(),
             http_version: self.metadata.http_version,
             status_code: self.status_code,
             duration_ms,
-            response_bytes,
+            response_bytes: response_body.total_bytes,
             outcome,
+            exchange: Some(HttpAccessLogExchange {
+                request_headers: self.metadata.request_headers.clone(),
+                request_body: self.metadata.request_body.snapshot(),
+                response_headers: self.response_headers.clone(),
+                response_body,
+            }),
         };
         if should_record(&log) {
             let notification = change_notification(&log);
@@ -110,28 +135,30 @@ impl AccessLogCompletion {
 
 impl Drop for AccessLogCompletion {
     fn drop(&mut self) {
-        self.finish(HttpAccessLogOutcome::Cancelled, 0);
+        self.finish(HttpAccessLogOutcome::Cancelled, BodyCapture::new(false));
     }
 }
 
 pub(super) struct AccessLogBody {
     inner: Body,
     completion: Option<AccessLogCompletion>,
-    response_bytes: u64,
+    capture: BodyCapture,
 }
 
 impl AccessLogBody {
     pub(super) fn new(inner: Body, completion: AccessLogCompletion) -> Self {
+        let complete = inner.is_end_stream();
         Self {
             inner,
             completion: Some(completion),
-            response_bytes: 0,
+            capture: BodyCapture::new(complete),
         }
     }
 
     fn finish(&mut self, outcome: HttpAccessLogOutcome) {
         if let Some(mut completion) = self.completion.take() {
-            completion.finish(outcome, self.response_bytes);
+            let capture = std::mem::replace(&mut self.capture, BodyCapture::new(false));
+            completion.finish(outcome, capture);
         }
     }
 }
@@ -148,9 +175,7 @@ impl HttpBody for AccessLogBody {
         match &frame {
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(data) = frame.data_ref() {
-                    self.response_bytes = self
-                        .response_bytes
-                        .saturating_add(u64::try_from(data.len()).unwrap_or(u64::MAX));
+                    self.capture.observe(data);
                 }
                 if self.inner.is_end_stream() {
                     self.finish(HttpAccessLogOutcome::Completed);

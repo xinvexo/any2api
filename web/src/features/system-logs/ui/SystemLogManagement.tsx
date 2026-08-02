@@ -7,6 +7,7 @@ import {
 } from "../model/system-log-auto-refresh-preference";
 import { useClearSystemLogs, useSystemLogs } from "../model/use-system-logs";
 import { SystemLogList } from "./SystemLogList";
+import { SystemLogDetailDrawer } from "./SystemLogDetailDrawer";
 import { logPageCount, type LogPageSize } from "@/shared/lib/log-pagination";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
@@ -19,6 +20,7 @@ export function SystemLogManagement() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<LogPageSize>(20);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const query = useSystemLogs(autoRefresh, page, pageSize);
   const clearMutation = useClearSystemLogs();
   const total = query.data?.total ?? 0;
@@ -41,6 +43,7 @@ export function SystemLogManagement() {
     clearMutation.mutate(undefined, {
       onSuccess: (result) => {
         setConfirmClear(false);
+        setSelectedRequestId(null);
         setPage(1);
         notify.success(`已清理 ${result.deleted} 条历史系统日志`);
       },
@@ -124,7 +127,7 @@ export function SystemLogManagement() {
             <p className="mt-3 text-[13px] font-medium">还没有系统日志</p>
           </div>
         ) : (
-          <SystemLogList items={items} />
+          <SystemLogList items={items} onSelect={setSelectedRequestId} />
         )}
       </div>
 
@@ -153,6 +156,10 @@ export function SystemLogManagement() {
         pending={clearMutation.isPending}
         onClose={() => setConfirmClear(false)}
         onConfirm={handleClear}
+      />
+      <SystemLogDetailDrawer
+        requestId={selectedRequestId}
+        onClose={() => setSelectedRequestId(null)}
       />
     </div>
   );

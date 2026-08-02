@@ -4,8 +4,8 @@ mod request_log;
 mod token_usage;
 
 pub use http_access_log::{
-    HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion, MAX_HTTP_ACCESS_LOG_METHOD_CHARS,
-    MAX_HTTP_ACCESS_LOG_PATH_CHARS, bounded_log_text,
+    HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome, HttpAccessLogSummary,
+    HttpBodyCapture, HttpHeader, HttpProtocolVersion, MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES,
 };
 pub use log_page::LogPage;
 pub use request_log::{

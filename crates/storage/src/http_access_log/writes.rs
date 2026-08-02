@@ -1,4 +1,4 @@
-use any2api_domain::HttpAccessLog;
+use any2api_domain::{HttpAccessLog, HttpBodyCapture, HttpHeader};
 use sqlx::SqliteConnection;
 
 use crate::error::StorageError;
@@ -7,10 +7,29 @@ pub(super) async fn insert(
     connection: &mut SqliteConnection,
     log: &HttpAccessLog,
 ) -> Result<(), StorageError> {
+    let empty_body = HttpBodyCapture {
+        content: Vec::new(),
+        total_bytes: 0,
+        complete: false,
+        truncated: false,
+    };
+    let empty_headers: &[HttpHeader] = &[];
+    let exchange = log.exchange.as_ref();
+    let request_headers = serialize_headers(
+        exchange.map_or(empty_headers, |value| value.request_headers.as_slice()),
+    )?;
+    let response_headers = serialize_headers(
+        exchange.map_or(empty_headers, |value| value.response_headers.as_slice()),
+    )?;
+    let request_body = exchange.map_or(&empty_body, |value| &value.request_body);
+    let response_body = exchange.map_or(&empty_body, |value| &value.response_body);
     sqlx::query(
         "INSERT INTO http_access_logs (request_id, started_at_ms, config_revision, client_ip, \
-         method, path, http_version, status_code, duration_ms, response_bytes, outcome) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
+         exchange_captured, request_headers, request_body, request_body_bytes, \
+         request_body_complete, request_body_truncated, response_headers, response_body, \
+         response_body_complete, response_body_truncated) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -18,14 +37,33 @@ pub(super) async fn insert(
     .bind(log.client_ip.map(|address| address.to_string()))
     .bind(&log.method)
     .bind(&log.path)
+    .bind(&log.uri)
     .bind(log.http_version.as_str())
     .bind(log.status_code.map(i64::from))
     .bind(to_i64(log.duration_ms)?)
     .bind(to_i64(log.response_bytes)?)
     .bind(log.outcome.as_str())
+    .bind(bool_value(exchange.is_some()))
+    .bind(request_headers)
+    .bind(&request_body.content)
+    .bind(to_i64(request_body.total_bytes)?)
+    .bind(bool_value(request_body.complete))
+    .bind(bool_value(request_body.truncated))
+    .bind(response_headers)
+    .bind(&response_body.content)
+    .bind(bool_value(response_body.complete))
+    .bind(bool_value(response_body.truncated))
     .execute(connection)
     .await?;
     Ok(())
+}
+
+fn serialize_headers(headers: &[HttpHeader]) -> Result<Vec<u8>, StorageError> {
+    serde_json::to_vec(headers).map_err(|_| StorageError::CorruptTelemetry)
+}
+
+const fn bool_value(value: bool) -> i64 {
+    if value { 1 } else { 0 }
 }
 
 pub(super) async fn delete_oldest_before(

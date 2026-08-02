@@ -1,11 +1,17 @@
+use std::str::FromStr;
+
+use any2api_domain::RequestId;
 use axum::{
     Json,
-    extract::{Query, State, rejection::QueryRejection},
+    extract::{Path, Query, State, rejection::QueryRejection},
 };
 
 use crate::{admin::AdminApiError, log_pagination::LogListQuery, state::AppState};
 
-use super::dto::{ClearSystemLogsResponse, SystemLogListResponse};
+use super::{
+    detail_dto::SystemLogDetailResponse,
+    dto::{ClearSystemLogsResponse, SystemLogListResponse},
+};
 
 pub(super) async fn list(
     State(state): State<AppState>,
@@ -30,6 +36,24 @@ pub(super) async fn list(
         query.page_size,
         telemetry.metrics(),
     )))
+}
+
+pub(super) async fn get(
+    State(state): State<AppState>,
+    Path(request_id): Path<String>,
+) -> Result<Json<SystemLogDetailResponse>, AdminApiError> {
+    let request_id = RequestId::from_str(&request_id)
+        .map_err(|_| AdminApiError::invalid_request("request ID is invalid"))?;
+    let record = state
+        .request_telemetry()
+        .get_http_access_log(request_id)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "system log detail failed");
+            AdminApiError::system_log_unavailable()
+        })?
+        .ok_or_else(AdminApiError::system_log_not_found)?;
+    Ok(Json(record.into()))
 }
 
 pub(super) async fn clear(

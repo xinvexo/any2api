@@ -42,6 +42,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (1, "initial".to_owned()),
             (2, "drop request log cache write tokens".to_owned()),
             (3, "plaintext local secrets".to_owned()),
+            (4, "raw http access log exchange".to_owned()),
         ]
     );
 
@@ -95,6 +96,10 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(provider_credential_schema.contains("api_key BLOB NOT NULL"));
     let proxy_password_schema = table_schema(&pool, "proxy_passwords").await;
     assert!(proxy_password_schema.contains("password BLOB NOT NULL"));
+    let access_log_schema = table_schema(&pool, "http_access_logs").await;
+    assert!(access_log_schema.contains("exchange_captured INTEGER NOT NULL"));
+    assert!(access_log_schema.contains("request_headers BLOB NOT NULL"));
+    assert!(access_log_schema.contains("response_body BLOB NOT NULL"));
 
     let obsolete_tables = sqlx::query_scalar::<_, String>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND (\
@@ -114,6 +119,49 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             .expect("foreign key check")
             .is_empty()
     );
+}
+
+#[tokio::test]
+async fn raw_http_exchange_migration_preserves_legacy_summary_and_marks_detail_unavailable() {
+    let directory = tempdir().expect("temporary directory");
+    let options = SqliteConnectOptions::new()
+        .filename(directory.path().join("access-log-upgrade.sqlite3"))
+        .create_if_missing(true)
+        .foreign_keys(false);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .expect("SQLite pool");
+    let mut connection = pool.acquire().await.expect("migration connection");
+    migrate_through(&mut connection, 3).await;
+    sqlx::query(
+        "INSERT INTO http_access_logs \
+         (request_id, started_at_ms, config_revision, client_ip, method, path, http_version, \
+          status_code, duration_ms, response_bytes, outcome) \
+         VALUES ('11111111-1111-4111-8111-111111111111', 1000, 1, '203.0.113.8', 'GET', \
+                 '/v1/models', 'HTTP/1.1', 200, 9, 42, 'completed')",
+    )
+    .execute(&mut *connection)
+    .await
+    .expect("legacy access log");
+
+    migrate_through(&mut connection, 4).await;
+
+    let migrated = sqlx::query_as::<_, (String, String, i64, Vec<u8>, Vec<u8>)>(
+        "SELECT path, uri, exchange_captured, request_headers, response_body \
+         FROM http_access_logs WHERE request_id = '11111111-1111-4111-8111-111111111111'",
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .expect("migrated access log");
+    assert_eq!(migrated.0, "/v1/models");
+    assert_eq!(migrated.1, "/v1/models");
+    assert_eq!(migrated.2, 0);
+    assert_eq!(migrated.3, b"[]");
+    assert!(migrated.4.is_empty());
+    assert_eq!(migration_versions(&mut connection).await, vec![1, 2, 3, 4]);
+    assert!(foreign_key_violations(&mut connection).await.is_empty());
 }
 
 #[tokio::test]

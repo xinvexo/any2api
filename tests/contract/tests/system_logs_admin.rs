@@ -1,6 +1,7 @@
 use std::{fs, net::SocketAddr, sync::Arc, time::Duration};
 
 use any2api_contract_tests::build_public_request_components;
+use any2api_domain::RequestId;
 use any2api_runtime::api::{
     ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
@@ -165,6 +166,96 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     assert_eq!(*system_log_changes.borrow(), epoch_after_denied);
 }
 
+#[tokio::test]
+async fn system_log_detail_preserves_raw_client_http_exchange() {
+    let directory = tempdir().expect("temporary directory");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("raw-system-log.sqlite3"))
+            .await
+            .expect("SQLite store"),
+    );
+    let web_root = directory.path().join("web");
+    fs::create_dir(&web_root).expect("web directory");
+    fs::create_dir(web_root.join("assets")).expect("asset directory");
+    fs::write(web_root.join("index.html"), "<main>any2api</main>").expect("web index");
+    let (app, telemetry) = build_test_app(Arc::clone(&storage), web_root).await;
+    let raw_body = r#"{"password":"raw-password","keyword":"do-not-redact"}"#;
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/api/admin/auth/login?search=raw-query-value")
+        .header("content-type", "application/json")
+        .header("authorization", "Bearer raw-gateway-key")
+        .header("x-repeated", "first")
+        .header("x-repeated", "second")
+        .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41_000))))
+        .body(Body::from(raw_body))
+        .expect("raw request");
+    let response = app.clone().oneshot(request).await.expect("raw response");
+    let response = collect_response(response).await;
+    assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+    let request_id = response
+        .request_id
+        .parse::<RequestId>()
+        .expect("system log request ID");
+    wait_for_log_detail(storage.as_ref(), request_id).await;
+
+    let detail = send(
+        &app,
+        Method::GET,
+        &format!("/api/admin/system-logs/{request_id}"),
+    )
+    .await;
+    assert_eq!(detail.status, StatusCode::OK);
+    assert_eq!(
+        detail.json["log"]["uri"],
+        "/api/admin/auth/login?search=raw-query-value"
+    );
+    assert_eq!(detail.json["log"]["exchange_captured"], true);
+    let request_headers = detail.json["exchange"]["request"]["headers"]
+        .as_array()
+        .expect("request headers");
+    let repeated = request_headers
+        .iter()
+        .filter(|header| header["name"] == "x-repeated")
+        .map(|header| header["value"].as_str().expect("header value"))
+        .collect::<Vec<_>>();
+    assert_eq!(repeated, vec!["first", "second"]);
+    assert!(request_headers.iter().any(|header| {
+        header["name"] == "authorization" && header["value"] == "Bearer raw-gateway-key"
+    }));
+    assert_eq!(
+        detail.json["exchange"]["request"]["body"]["content"],
+        raw_body
+    );
+    assert_eq!(
+        detail.json["exchange"]["request"]["body"]["total_bytes"],
+        raw_body.len()
+    );
+    assert_eq!(detail.json["exchange"]["request"]["body"]["complete"], true);
+    assert_eq!(
+        detail.json["exchange"]["request"]["body"]["truncated"],
+        false
+    );
+    let response_headers = detail.json["exchange"]["response"]["headers"]
+        .as_array()
+        .expect("response headers");
+    assert!(response_headers.iter().any(|header| {
+        header["name"] == "x-any2api-request-id" && header["value"] == request_id.to_string()
+    }));
+    assert!(
+        detail.json["exchange"]["response"]["body"]["content"]
+            .as_str()
+            .expect("response body")
+            .contains("admin_auth_unavailable")
+    );
+    assert_eq!(
+        detail.json["exchange"]["response"]["body"]["complete"],
+        true
+    );
+
+    telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
 async fn build_test_app(
     storage: Arc<SqliteStore>,
     web_root: std::path::PathBuf,
@@ -315,4 +406,19 @@ async fn wait_for_log_count(storage: &SqliteStore, minimum: usize) {
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     panic!("HTTP access logs were not persisted");
+}
+
+async fn wait_for_log_detail(storage: &SqliteStore, request_id: RequestId) {
+    for _ in 0..200 {
+        if storage
+            .get_http_access_log(request_id)
+            .await
+            .expect("HTTP access log detail")
+            .is_some()
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    panic!("HTTP access log detail was not persisted");
 }

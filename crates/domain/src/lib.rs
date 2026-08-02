@@ -60,11 +60,11 @@ pub use settings::{
     StreamSettings, UpstreamSettings,
 };
 pub use telemetry::{
-    CompletedRequestLog, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion, LogPage,
-    MAX_HTTP_ACCESS_LOG_METHOD_CHARS, MAX_HTTP_ACCESS_LOG_PATH_CHARS,
-    MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TOKEN_COUNT,
-    RequestAttempt, RequestAttemptOutcome, RequestLog, TokenUsage, bound_error_message,
-    bound_thinking_level, bounded_log_text,
+    CompletedRequestLog, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome,
+    HttpAccessLogSummary, HttpBodyCapture, HttpHeader, HttpProtocolVersion, LogPage,
+    MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
+    MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TOKEN_COUNT, RequestAttempt, RequestAttemptOutcome,
+    RequestLog, TokenUsage, bound_error_message, bound_thinking_level,
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, MAX_UPSTREAM_ERROR_MESSAGE_BYTES, RetryAfterHint, UpstreamError,

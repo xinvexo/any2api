@@ -1,4 +1,4 @@
-import { ArrowDownToLine, Clock3, Monitor, Network } from "lucide-react";
+import { ArrowDownToLine, Clock3, Eye, Monitor, Network } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { SystemLog } from "../api/system-log-contracts";
@@ -11,8 +11,15 @@ import {
   statusTone,
 } from "../model/system-log-presentation";
 import { cn } from "@/shared/lib/cn";
+import { IconButton } from "@/shared/ui/IconButton";
 
-export function SystemLogList({ items }: { items: SystemLog[] }) {
+export function SystemLogList({
+  items,
+  onSelect,
+}: {
+  items: SystemLog[];
+  onSelect: (requestId: string) => void;
+}) {
   return (
     <>
       <div
@@ -39,21 +46,29 @@ export function SystemLogList({ items }: { items: SystemLog[] }) {
                   {formatSystemLogTime(log.startedAtMs)}
                 </time>
               </div>
-              <span
-                aria-label={`HTTP 状态 ${log.statusCode ?? "未知"}，结果${outcomeLabel(log.outcome)}`}
-                className={cn(
-                  "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px]",
-                  statusTone(log),
-                  statusSurfaceTone(log),
-                )}
-              >
-                <span className="font-mono font-semibold">{log.statusCode ?? "-"}</span>
-                <span className="mx-1 opacity-45" aria-hidden="true">·</span>
-                <span className="text-[10px] font-medium">{outcomeLabel(log.outcome)}</span>
-              </span>
+              <div className="flex shrink-0 items-center gap-1">
+                <span
+                  aria-label={`HTTP 状态 ${log.statusCode ?? "未知"}，结果${outcomeLabel(log.outcome)}`}
+                  className={cn(
+                    "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px]",
+                    statusTone(log),
+                    statusSurfaceTone(log),
+                  )}
+                >
+                  <span className="font-mono font-semibold">{log.statusCode ?? "-"}</span>
+                  <span className="mx-1 opacity-45" aria-hidden="true">·</span>
+                  <span className="text-[10px] font-medium">{outcomeLabel(log.outcome)}</span>
+                </span>
+                <IconButton
+                  label={`查看完整请求 ${log.uri}`}
+                  onClick={() => onSelect(log.requestId)}
+                >
+                  <Eye size={14} aria-hidden="true" />
+                </IconButton>
+              </div>
             </div>
             <p className="mt-2 break-words font-mono text-[12px] leading-[1.45] text-primary [overflow-wrap:anywhere]">
-              {log.path}
+              {log.uri}
             </p>
             <dl className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-secondary">
               <Metadata
@@ -82,7 +97,7 @@ export function SystemLogList({ items }: { items: SystemLog[] }) {
           </article>
         ))}
       </div>
-      <SystemLogVirtualTable items={items} />
+      <SystemLogVirtualTable items={items} onSelect={onSelect} />
     </>
   );
 }

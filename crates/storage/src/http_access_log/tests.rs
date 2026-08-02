@@ -1,5 +1,6 @@
 use any2api_domain::{
-    ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion, RequestId,
+    ConfigRevision, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome, HttpBodyCapture,
+    HttpHeader, HttpProtocolVersion, RequestId,
 };
 use tempfile::tempdir;
 
@@ -23,7 +24,14 @@ async fn stores_exact_paths_prunes_and_clears_history() {
             .list_http_access_logs(0, 0, 10)
             .await
             .expect("list access logs"),
-        any2api_domain::LogPage::new(vec![second.clone(), first], 2)
+        any2api_domain::LogPage::new(vec![second.summary(), first.summary()], 2)
+    );
+    assert_eq!(
+        store
+            .get_http_access_log(second.request_id)
+            .await
+            .expect("access log detail"),
+        Some(second.clone())
     );
 
     assert_eq!(
@@ -83,7 +91,7 @@ async fn access_log_pages_hide_local_success_noise_and_keep_auditable_traffic() 
         .expect("first page");
     assert_eq!(first_page.total, 3);
     assert_eq!(first_page.items.len(), 2);
-    assert_eq!(first_page.items[1], local_error);
+    assert_eq!(first_page.items[1], local_error.summary());
 
     let second_page = store
         .list_http_access_logs(250, 2, 2)
@@ -102,10 +110,33 @@ fn record(started_at_ms: u64, path: &str) -> HttpAccessLog {
         client_ip: Some("203.0.113.8".parse().expect("client IP")),
         method: "GET".to_owned(),
         path: path.to_owned(),
+        uri: format!("{path}?raw=query"),
         http_version: HttpProtocolVersion::Http11,
         status_code: Some(200),
         duration_ms: 12,
         response_bytes: 42,
         outcome: HttpAccessLogOutcome::Completed,
+        exchange: Some(HttpAccessLogExchange {
+            request_headers: vec![HttpHeader {
+                name: "x-raw".to_owned(),
+                value: vec![0xff, 0x00, b'a'],
+            }],
+            request_body: HttpBodyCapture {
+                content: b"request body".to_vec(),
+                total_bytes: 12,
+                complete: true,
+                truncated: false,
+            },
+            response_headers: vec![HttpHeader {
+                name: "set-cookie".to_owned(),
+                value: b"session=raw".to_vec(),
+            }],
+            response_body: HttpBodyCapture {
+                content: b"response body prefix".to_vec(),
+                total_bytes: 42,
+                complete: true,
+                truncated: true,
+            },
+        }),
     }
 }

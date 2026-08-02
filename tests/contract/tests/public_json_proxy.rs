@@ -974,6 +974,122 @@ async fn responses_bridge_converts_json_tools_usage_and_follow_up_history() {
 }
 
 #[tokio::test]
+async fn grok_responses_bridge_uses_the_shared_request_translation() {
+    let (listener, upstream) = upstream_server(
+        "/v1/chat/completions",
+        r#"{"id":"chatcmpl_grok_bridge","created":125,"model":"grok-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":18,"completion_tokens":1}}"#,
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint_id = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Grok Responses over Chat",
+        "grok",
+        &format!("http://{listener}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_credential(
+        &app,
+        remote,
+        revision + 2,
+        &endpoint_id,
+        "sk-grok-chat-bridge",
+    )
+    .await;
+    select_models(&app, remote, revision + 3, &endpoint_id, "grok-upstream").await;
+
+    let response = request_json(
+        app,
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model":"grok-upstream",
+            "prompt_cache_key":"shared-cache-prefix",
+            "input":[
+                {
+                    "type":"message",
+                    "role":"user",
+                    "content":[
+                        {"type":"input_text","text":"Inspect both slots"},
+                        {
+                            "type":"input_image",
+                            "image_url":"https://example.com/source.png",
+                            "detail":"original"
+                        }
+                    ]
+                },
+                {
+                    "type":"reasoning",
+                    "summary":[{"type":"summary_text","text":"Inspect both slots together"}]
+                },
+                {
+                    "type":"function_call",
+                    "call_id":"call_a",
+                    "name":"inspect",
+                    "arguments":"{\"slot\":\"a\"}"
+                },
+                {
+                    "type":"function_call",
+                    "call_id":"call_b",
+                    "name":"inspect",
+                    "arguments":"{\"slot\":\"b\"}"
+                },
+                {
+                    "type":"message",
+                    "role":"user",
+                    "content":[{"type":"input_text","text":"keep after tool outputs"}]
+                },
+                {"type":"function_call_output","call_id":"call_a","output":"first"},
+                {"type":"function_call_output","call_id":"call_b","output":"second"}
+            ],
+            "tools":[{
+                "type":"function",
+                "name":"inspect",
+                "parameters":{"type":"object","properties":{"slot":{"type":"string"}}}
+            }]
+        })),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(response.body["output"][0]["content"][0]["text"], "done");
+    let request = upstream.await.expect("Grok bridge upstream request");
+    assert_eq!(request.body["prompt_cache_key"], "shared-cache-prefix");
+    assert_eq!(
+        request.body["messages"][0]["content"][1]["image_url"]["detail"],
+        "original"
+    );
+    assert_eq!(request.body["messages"][1]["role"], "assistant");
+    assert_eq!(
+        request.body["messages"][1]["tool_calls"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        request.body["messages"][1]["reasoning_content"],
+        "Inspect both slots together"
+    );
+    assert_eq!(request.body["messages"][2]["tool_call_id"], "call_a");
+    assert_eq!(request.body["messages"][3]["tool_call_id"], "call_b");
+    assert_eq!(
+        request.body["messages"][4]["content"][0]["text"],
+        "keep after tool outputs"
+    );
+    assert_eq!(
+        request.headers.get("authorization"),
+        Some(&"Bearer sk-grok-chat-bridge".to_owned())
+    );
+}
+
+#[tokio::test]
 async fn responses_compact_uses_its_distinct_non_streaming_path() {
     let (listener, upstream) = upstream_server(
         "/v1/responses/compact",

@@ -1,27 +1,47 @@
 use any2api_domain::{
-    ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpProtocolVersion, RequestId,
+    ConfigRevision, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome,
+    HttpAccessLogSummary, HttpBodyCapture, HttpHeader, HttpProtocolVersion, RequestId,
 };
 use sqlx::FromRow;
 
 use crate::error::StorageError;
 
 #[derive(FromRow)]
-pub(super) struct HttpAccessLogRow {
+pub(super) struct HttpAccessLogSummaryRow {
     request_id: String,
     started_at_ms: i64,
     config_revision: i64,
     client_ip: Option<String>,
     method: String,
     path: String,
+    uri: String,
     http_version: String,
     status_code: Option<i64>,
     duration_ms: i64,
     response_bytes: i64,
     outcome: String,
+    exchange_captured: i64,
 }
 
-pub(super) fn parse(row: HttpAccessLogRow) -> Result<HttpAccessLog, StorageError> {
-    Ok(HttpAccessLog {
+#[derive(FromRow)]
+pub(super) struct HttpAccessLogDetailRow {
+    #[sqlx(flatten)]
+    summary: HttpAccessLogSummaryRow,
+    request_headers: Vec<u8>,
+    request_body: Vec<u8>,
+    request_body_bytes: i64,
+    request_body_complete: i64,
+    request_body_truncated: i64,
+    response_headers: Vec<u8>,
+    response_body: Vec<u8>,
+    response_body_complete: i64,
+    response_body_truncated: i64,
+}
+
+pub(super) fn parse_summary(
+    row: HttpAccessLogSummaryRow,
+) -> Result<HttpAccessLogSummary, StorageError> {
+    Ok(HttpAccessLogSummary {
         request_id: row
             .request_id
             .parse::<RequestId>()
@@ -35,6 +55,7 @@ pub(super) fn parse(row: HttpAccessLogRow) -> Result<HttpAccessLog, StorageError
             .transpose()?,
         method: row.method,
         path: row.path,
+        uri: row.uri,
         http_version: HttpProtocolVersion::parse(&row.http_version)
             .ok_or(StorageError::CorruptTelemetry)?,
         status_code: row
@@ -45,7 +66,59 @@ pub(super) fn parse(row: HttpAccessLogRow) -> Result<HttpAccessLog, StorageError
         duration_ms: to_u64(row.duration_ms)?,
         response_bytes: to_u64(row.response_bytes)?,
         outcome: HttpAccessLogOutcome::parse(&row.outcome).ok_or(StorageError::CorruptTelemetry)?,
+        exchange_captured: parse_bool(row.exchange_captured)?,
     })
+}
+
+pub(super) fn parse_detail(row: HttpAccessLogDetailRow) -> Result<HttpAccessLog, StorageError> {
+    let request_headers = parse_headers(&row.request_headers)?;
+    let response_headers = parse_headers(&row.response_headers)?;
+    let request_body = HttpBodyCapture {
+        content: row.request_body,
+        total_bytes: to_u64(row.request_body_bytes)?,
+        complete: parse_bool(row.request_body_complete)?,
+        truncated: parse_bool(row.request_body_truncated)?,
+    };
+    let response_body = HttpBodyCapture {
+        content: row.response_body,
+        total_bytes: to_u64(row.summary.response_bytes)?,
+        complete: parse_bool(row.response_body_complete)?,
+        truncated: parse_bool(row.response_body_truncated)?,
+    };
+    let summary = parse_summary(row.summary)?;
+    let exchange = summary.exchange_captured.then_some(HttpAccessLogExchange {
+        request_headers,
+        request_body,
+        response_headers,
+        response_body,
+    });
+    Ok(HttpAccessLog {
+        request_id: summary.request_id,
+        started_at_ms: summary.started_at_ms,
+        config_revision: summary.config_revision,
+        client_ip: summary.client_ip,
+        method: summary.method,
+        path: summary.path,
+        uri: summary.uri,
+        http_version: summary.http_version,
+        status_code: summary.status_code,
+        duration_ms: summary.duration_ms,
+        response_bytes: summary.response_bytes,
+        outcome: summary.outcome,
+        exchange,
+    })
+}
+
+fn parse_headers(bytes: &[u8]) -> Result<Vec<HttpHeader>, StorageError> {
+    serde_json::from_slice(bytes).map_err(|_| StorageError::CorruptTelemetry)
+}
+
+fn parse_bool(value: i64) -> Result<bool, StorageError> {
+    match value {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(StorageError::CorruptTelemetry),
+    }
 }
 
 fn to_u64(value: i64) -> Result<u64, StorageError> {

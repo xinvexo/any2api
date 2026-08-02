@@ -4,21 +4,21 @@ use std::{
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-use any2api_domain::{
-    HttpProtocolVersion, MAX_HTTP_ACCESS_LOG_METHOD_CHARS, MAX_HTTP_ACCESS_LOG_PATH_CHARS,
-    RequestId, bounded_log_text,
-};
+use any2api_domain::{HttpHeader, HttpProtocolVersion, RequestId};
 use axum::{
-    body::Body,
+    body::{Body, HttpBody},
     extract::{ConnectInfo, Request, State},
-    http::{HeaderValue, Version, header::HeaderName},
+    http::{HeaderMap, HeaderValue, Version, header::HeaderName},
     middleware::Next,
     response::Response,
 };
 
 use crate::{client_address, state::AppState};
 
-use super::body::{AccessLogBody, AccessLogCompletion, AccessLogMetadata};
+use super::{
+    body::{AccessLogBody, AccessLogCompletion, AccessLogMetadata},
+    capture::{RequestCaptureBody, SharedBodyCapture},
+};
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 const ANY2API_REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-any2api-request-id");
@@ -57,6 +57,8 @@ pub(crate) async fn record(
     .map(|connection| connection.client_ip())
     .ok()
     .or_else(|| peer.map(|address| address.ip()));
+    let request_headers = capture_headers(request.headers());
+    let request_body_capture = SharedBodyCapture::new(request.body().is_end_stream());
     let mut completion = AccessLogCompletion::new(
         state.request_telemetry_handle(),
         snapshot.settings().logging().clone(),
@@ -65,17 +67,20 @@ pub(crate) async fn record(
             started_at_ms,
             snapshot.revision(),
             client_ip,
-            bounded_log_text(request.method().as_str(), MAX_HTTP_ACCESS_LOG_METHOD_CHARS)
-                .to_owned(),
-            bounded_log_text(request.uri().path(), MAX_HTTP_ACCESS_LOG_PATH_CHARS).to_owned(),
+            request.method().as_str().to_owned(),
+            request.uri().path().to_owned(),
+            request.uri().to_string(),
             protocol_version(request.version()),
+            request_headers,
+            request_body_capture.clone(),
         ),
         started,
     );
     request.extensions_mut().insert(HttpRequestId(request_id));
+    let request =
+        request.map(|body| Body::new(RequestCaptureBody::new(body, request_body_capture)));
 
     let mut response = next.run(request).await;
-    completion.set_status(response.status().as_u16());
     let request_id_value =
         HeaderValue::from_str(&request_id.to_string()).expect("request UUID is a valid header");
     response
@@ -86,6 +91,10 @@ pub(crate) async fn record(
             .headers_mut()
             .insert(REQUEST_ID_HEADER, request_id_value);
     }
+    completion.set_response(
+        response.status().as_u16(),
+        capture_headers(response.headers()),
+    );
     if response
         .extensions_mut()
         .remove::<ExcludeFromHttpAccessLog>()
@@ -95,6 +104,16 @@ pub(crate) async fn record(
         return response;
     }
     response.map(|body| Body::new(AccessLogBody::new(body, completion)))
+}
+
+fn capture_headers(headers: &HeaderMap) -> Vec<HttpHeader> {
+    headers
+        .iter()
+        .map(|(name, value)| HttpHeader {
+            name: name.as_str().to_owned(),
+            value: value.as_bytes().to_vec(),
+        })
+        .collect()
 }
 
 fn protocol_version(version: Version) -> HttpProtocolVersion {

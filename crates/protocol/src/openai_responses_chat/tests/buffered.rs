@@ -6,6 +6,55 @@ use crate::api::BridgeContinuationState;
 use super::{bridged_exchange, decoded, registry, upstream_response};
 
 #[tokio::test]
+async fn request_bridge_preserves_cache_image_detail_and_tool_history_order() {
+    let registry = registry();
+    let request = decoded(
+        &registry,
+        ProtocolOperation::Responses,
+        json!({
+            "model":"public-model",
+            "prompt_cache_key":"recap-prefix",
+            "input":[
+                {"type":"message","role":"user","content":[
+                    {"type":"input_text","text":"Inspect this image"},
+                    {"type":"input_image","image_url":"data:image/png;base64,AA==","detail":"original"}
+                ]},
+                {"type":"reasoning","summary":[
+                    {"type":"summary_text","text":"Run both checks."}
+                ]},
+                {"type":"function_call","call_id":"call_a","name":"inspect_a","arguments":"{}"},
+                {"type":"function_call","call_id":"call_b","name":"inspect_b","arguments":"{}"},
+                {"type":"message","role":"user","content":"approval metadata"},
+                {"type":"function_call_output","call_id":"call_a","output":"A"},
+                {"type":"function_call_output","call_id":"call_b","output":"B"},
+                {"type":"message","role":"user","content":"continue"}
+            ]
+        }),
+    )
+    .await;
+    let prepared = bridged_exchange(&registry, ProtocolOperation::Responses)
+        .prepare_request(request, "upstream-model", None)
+        .expect("representable long history");
+    let upstream: Value =
+        serde_json::from_slice(&prepared.request.body).expect("upstream request JSON");
+    let messages = upstream["messages"].as_array().expect("messages");
+
+    assert_eq!(upstream["prompt_cache_key"], "recap-prefix");
+    assert_eq!(messages[0]["content"][1]["image_url"]["detail"], "original");
+    assert_eq!(messages[1]["role"], "assistant");
+    assert_eq!(messages[1]["reasoning_content"], "Run both checks.");
+    assert_eq!(messages[1]["tool_calls"].as_array().map(Vec::len), Some(2));
+    assert_eq!(messages[1]["tool_calls"][0]["id"], "call_a");
+    assert_eq!(messages[1]["tool_calls"][1]["id"], "call_b");
+    assert_eq!(messages[2]["role"], "tool");
+    assert_eq!(messages[2]["tool_call_id"], "call_a");
+    assert_eq!(messages[3]["role"], "tool");
+    assert_eq!(messages[3]["tool_call_id"], "call_b");
+    assert_eq!(messages[4]["content"], "approval metadata");
+    assert_eq!(messages[5]["content"], "continue");
+}
+
+#[tokio::test]
 async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     let registry = registry();
     let first = decoded(

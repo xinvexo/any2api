@@ -1,6 +1,6 @@
 # ADR-0051：完整 HTTP 访问系统日志
 
-- 状态：Accepted
+- 状态：Accepted（原始交换字段由 ADR-0081 修订）
 - 日期：2026-07-26
 - 修订：2026-07-31
 
@@ -8,7 +8,7 @@
 
 `RequestLog` 描述已经通过网关鉴权并进入模型执行链的请求。它包含模型、路由、上游凭据、Attempt 和 Token Usage，因此不适合表达管理 API、健康检查、Web 资源、公开鉴权失败、404 或 405。独立 HTTP 访问日志覆盖整个 Axum 服务，并支持 Web 事件驱动刷新和手动清理。
 
-系统仍需遵守 Secret 不落日志的边界。尤其是 OAuth callback、登录链接或客户端 URL 可能在 query 中携带 code、token 或其他敏感值，完整访问日志不能等同于保存完整 URI、Header 或 Body。
+本 ADR 最初排除了 query、Header 与 Body。操作员随后明确要求系统日志保存原始客户端侧 HTTP 交换；该字段范围、1 MiB 单向 Body 捕获边界和安全例外由 ADR-0081 取代本 ADR 的旧排除规则。
 
 ## 决策
 
@@ -38,7 +38,7 @@ Schema 对 `method` 只要求非空且去除首尾空白，不设置人为 32 �
 - 实际向下游 yield 的响应字节数；
 - `completed`、`body_error` 或 `cancelled` 结果。
 
-它不保存 query、Header、Cookie、User-Agent、Referer、请求体或响应体。`path` 直接来自 `request.uri().path()`，不使用 `MatchedPath`，不做通配归一化，也不保存框架路由模板或内部重写结果。这保证管理页面看到的就是客户端实际访问的路径，同时明确排除最容易携带 Secret 的 query。
+`path` 仍直接来自 `request.uri().path()` 并服务摘要与保留规则，不使用 `MatchedPath`、通配归一化、框架路由模板或内部重写结果。ADR-0081 另行增加含 query 的完整 URI、两侧 Header 与有界 Body 详情；这些值不做脱敏。
 
 ### 生命周期与关联
 
@@ -74,7 +74,7 @@ RequestTelemetry Writer 在 RequestLog 批次成功提交后推进对应的进�
 - 管理员可从一处查看有审计价值的 HTTP 异常、外部访问和公开代理历史，而模型请求日志继续保持调度语义。
 - 请求路径按客户端实际访问值显示，不被框架模板或归一化逻辑改写。
 - 大量历史通过服务端分页浏览，不再受固定 200/500 条截断，表头在滚动时保持完整且不被数据覆盖。
-- query、Header 与 Body 不落库，避免为了“完整 HTTP 日志”破坏 Secret 边界。
+- 原有“不保存 query、Header 与 Body”结论已由 ADR-0081 取代；系统日志详情现在显式保存原始值并由本地数据目录权限与管理员认证保护。
 - Body 生命周期可以区分成功、传输错误和客户端取消。
 - 有序清理不会被清理命令之前仍在 writer 队列中的记录回填。
 - 事件驱动刷新不会用固定轮询淹没 SQLite 与访问历史，手动读取与异常访问仍可审计。

@@ -127,6 +127,31 @@ test("persists the automatic refresh choice across remounts", async () => {
   expect(window.localStorage.getItem(SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY)).toBe("true");
 });
 
+test("loads and shows the complete raw HTTP exchange on demand", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path.startsWith("/api/admin/system-logs?page=")) {
+      return listResponse("/v1/responses?search=raw-query");
+    }
+    if (path === "/api/admin/system-logs/11111111-1111-4111-8111-111111111111") {
+      return jsonResponse(detailResponse());
+    }
+    throw new Error(`unexpected request: ${path}`);
+  });
+
+  renderManagement();
+  const detailButtons = await screen.findAllByRole("button", {
+    name: "查看完整请求 /v1/responses?search=raw-query",
+  });
+  fireEvent.click(detailButtons[0]!);
+
+  const drawer = await screen.findByRole("dialog", { name: "完整 HTTP 请求" });
+  expect(await within(drawer).findByText("Bearer raw-gateway-key")).toBeInTheDocument();
+  expect(within(drawer).getByText('{"prompt":"blocked word"}')).toBeInTheDocument();
+  expect(within(drawer).getByText("[Base64] /wA=")).toBeInTheDocument();
+  expect(within(drawer).getByText("/v1/responses?search=raw-query")).toBeInTheDocument();
+});
+
 test("defaults automatic refresh to enabled for an invalid saved value", async () => {
   window.localStorage.setItem(SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY, "invalid");
   vi.spyOn(globalThis, "fetch").mockResolvedValue(listResponse());
@@ -184,11 +209,13 @@ function listResponse(
         client_ip: "203.0.113.8",
         method: "GET",
         path,
+        uri: path,
         http_version: "HTTP/1.1",
         status_code: 200,
         duration_ms: 12,
         response_bytes: 42,
         outcome: "completed",
+        exchange_captured: true,
       },
     ],
     total,
@@ -203,4 +230,51 @@ function jsonResponse(value: unknown) {
     status: 200,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function detailResponse() {
+  return {
+    log: {
+      request_id: "11111111-1111-4111-8111-111111111111",
+      started_at_ms: 1_700_000_000_000,
+      config_revision: 3,
+      client_ip: "203.0.113.8",
+      method: "POST",
+      path: "/v1/responses",
+      uri: "/v1/responses?search=raw-query",
+      http_version: "HTTP/1.1",
+      status_code: 200,
+      duration_ms: 12,
+      response_bytes: 2,
+      outcome: "completed",
+      exchange_captured: true,
+    },
+    exchange: {
+      request: {
+        headers: [
+          { name: "authorization", value: "Bearer raw-gateway-key", encoding: "utf8" },
+          { name: "x-binary", value: "/wA=", encoding: "base64" },
+        ],
+        body: {
+          content: '{"prompt":"blocked word"}',
+          encoding: "utf8",
+          captured_bytes: 25,
+          total_bytes: 25,
+          complete: true,
+          truncated: false,
+        },
+      },
+      response: {
+        headers: [{ name: "content-type", value: "application/json", encoding: "utf8" }],
+        body: {
+          content: "ok",
+          encoding: "utf8",
+          captured_bytes: 2,
+          total_bytes: 2,
+          complete: true,
+          truncated: false,
+        },
+      },
+    },
+  };
 }

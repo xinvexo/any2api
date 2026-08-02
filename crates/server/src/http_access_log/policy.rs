@@ -80,11 +80,13 @@ mod tests {
             client_ip: Some(client_ip.parse().expect("client address")),
             method: "GET".to_owned(),
             path: path.to_owned(),
+            uri: path.to_owned(),
             http_version: HttpProtocolVersion::Http11,
             status_code: Some(status_code),
             duration_ms: 1,
             response_bytes: 1,
             outcome: HttpAccessLogOutcome::Completed,
+            exchange: None,
         }
     }
 }

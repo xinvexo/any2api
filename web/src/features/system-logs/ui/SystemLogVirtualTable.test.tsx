@@ -8,7 +8,7 @@ test("renders only the visible system log rows", async () => {
   const items = Array.from({ length: 200 }, (_, index) => systemLog(index + 1));
   render(
     <div className="h-[320px]">
-      <SystemLogVirtualTable items={items} />
+      <SystemLogVirtualTable items={items} onSelect={() => {}} />
     </div>,
   );
 
@@ -32,10 +32,12 @@ function systemLog(index: number): SystemLog {
     clientIp: "127.0.0.1",
     method: "GET",
     path: `/system/${index}`,
+    uri: `/system/${index}`,
     httpVersion: "HTTP/1.1",
     statusCode: 200,
     durationMs: 2,
     responseBytes: 128,
     outcome: "completed",
+    exchangeCaptured: true,
   };
 }

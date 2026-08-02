@@ -16,6 +16,13 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         json!({"model":"public","input":"hello","include":["message.output_text.logprobs"]}),
         json!({"model":"public","input":"hello","reasoning":{"summary":"verbose"}}),
         json!({"model":"public","input":"hello","reasoning":{"effort":"high","future":true}}),
+        json!({"model":"public","input":"hello","prompt_cache_key":42}),
+        json!({"model":"public","input":"hello","prompt_cache_key":null}),
+        json!({"model":"public","input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://example.com/image.png","detail":"maximum"}]}]}),
+        json!({"model":"public","input":[
+            {"type":"function_call","call_id":"call_1","name":"tool","arguments":"{}"},
+            {"type":"function_call","call_id":"call_1","name":"tool","arguments":"{}"}
+        ]}),
     ] {
         let request = decoded(&registry, ProtocolOperation::Responses, body).await;
         let error = bridged_exchange(&registry, ProtocolOperation::Responses)
@@ -110,6 +117,7 @@ async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
         json!({
             "model":"public",
             "input":"title this session",
+            "prompt_cache_key":"shared-session-prefix",
             "reasoning":{"summary":"concise"},
             "include":["reasoning.encrypted_content"]
         }),
@@ -122,6 +130,7 @@ async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
         serde_json::from_slice(&prepared.request.body).expect("upstream request JSON");
 
     assert_eq!(upstream["messages"][0]["content"], "title this session");
+    assert_eq!(upstream["prompt_cache_key"], "shared-session-prefix");
     assert!(upstream.get("reasoning_effort").is_none());
     assert!(upstream.get("reasoning").is_none());
     assert!(upstream.get("include").is_none());

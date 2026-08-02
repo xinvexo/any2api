@@ -7,8 +7,8 @@ use std::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, LogPage, LoggingSettings,
-    MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
+    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, HttpAccessLogSummary,
+    LogPage, LoggingSettings, MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
 };
 use any2api_storage::api::{
     GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary, HttpAccessLogRepository,
@@ -279,7 +279,7 @@ impl RequestTelemetry {
         since_ms: u64,
         offset: u64,
         limit: u32,
-    ) -> Result<LogPage<HttpAccessLog>, StorageError> {
+    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
         match &self.http_access_logs {
             Some(repository) => {
                 repository
@@ -287,6 +287,16 @@ impl RequestTelemetry {
                     .await
             }
             None => Ok(LogPage::empty()),
+        }
+    }
+
+    pub async fn get_http_access_log(
+        &self,
+        request_id: RequestId,
+    ) -> Result<Option<HttpAccessLog>, StorageError> {
+        match &self.http_access_logs {
+            Some(repository) => repository.get_http_access_log(request_id).await,
+            None => Ok(None),
         }
     }
 

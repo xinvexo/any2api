@@ -588,6 +588,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 
 11. HttpAccessLog
     - 在响应 Body EOF、错误或 Drop 时只结算一次
+    - 在 Axum 边界旁路捕获完整 URI、请求/响应 Header 与两侧 Body 前缀，不改变流式传输和业务解析
     - 记录可用的最终状态码、总耗时、实际写出的响应字节数和 completed/body_error/cancelled 结果
     - 通过有界遥测队列异步写入独立系统日志表
 ```
@@ -958,16 +959,24 @@ http_access_logs
 ├─ client_ip           # nullable when the outer middleware cannot resolve an address
 ├─ method
 ├─ path
+├─ uri                  # Axum 收到的完整 URI，包含 query
 ├─ http_version
 ├─ status_code         # Handler 已返回 Response 时存在；此前取消时为空
 ├─ duration_ms
 ├─ response_bytes
-└─ outcome             # completed | body_error | cancelled
+├─ outcome             # completed | body_error | cancelled
+├─ exchange_captured   # 旧迁移记录为 false
+├─ request_headers
+├─ request_body / request_body_bytes / request_body_complete / request_body_truncated
+├─ response_headers
+└─ response_body / response_body_complete / response_body_truncated  # 总字节数使用 response_bytes
 ```
 
 `HttpAccessLog` 与模型 `RequestLog` 相互独立。前者用于异常与访问审计：公开 `/v1` 请求无论结果都保留；客户端地址未知或不是 loopback 的访问无论结果都保留；任意 HTTP 4xx/5xx、Body 错误或取消也保留。本机 loopback 发起、非 `/v1`、状态低于 400 且 Body 正常完成的管理 API、健康检查、Web 资源和 deep link 属于正常内部流量，不写入。管理查询必须应用同一规则，立即隐藏规则发布前已经写入的内部噪音。RequestLog 只表达进入模型执行链后的调度与上游结果。两者共用全局 Request ID，以便在需要时关联，但不建立数据库外键或相互替代。
 
-`path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板。URI query 始终丢弃，避免 OAuth code、token、密钥或其他查询参数进入 SQLite。系统日志同样不保存 Header、Cookie、User-Agent、Referer、请求体或响应体。
+`path` 必须直接保存 Server 收到的 `request.uri().path()`：保留客户端访问的实际路径，不替换为 Axum `MatchedPath`，不按 `/api/*`、`/v1/*` 等形式归一化，也不保存重写后的路由模板；它只服务列表摘要和保留谓词。`uri` 保存 Axum 解析后收到的完整 URI，包括 query。请求 Header 在任何鉴权剥离前捕获，响应 Header 在本地 Request ID 注入后捕获；同名多值 Header 必须逐值保留，值按原始字节保存。该记录描述 any2api 的客户端侧 HTTP 交换，不包含 Runtime 发送给 Provider 的上游请求或 Provider 的原始上游响应。
+
+请求与响应 Body 使用不改变背压的旁路流包装器捕获，每个方向最多保留前 1 MiB，同时保存实际观察到的总字节数、`complete` 与 `truncated`。未被 Handler 读取完的请求体、Body error、客户端取消和无限流不能被伪装成完整正文。正文和 Header 不做字段过滤、关键字替换或 Secret 脱敏；UTF-8 值通过管理 DTO 原样返回，非 UTF-8 值使用 Base64 并携带编码标记。这个明确例外只适用于已认证系统日志详情，普通 tracing/file log、模型 RequestLog、错误正文和 SSE 事件仍不得携带这些原始值。列表查询只读取摘要列；`GET /api/admin/system-logs/{request_id}` 才读取单条交换详情，避免分页把多条大正文同时载入内存和浏览器。
 
 `method` 保存任意非空、去除首尾空白后的 HTTP method token，不设置人为 32 字符上限；当前约束由不可改写的完整 Migration 链演进得到，不能通过重写既有 Migration 消除历史结构。
 
@@ -1293,11 +1302,15 @@ Responses → Chat Completions Bridge 合成的每个 Responses SSE JSON 事件�
 
 Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字段。桥接路径返回本地合成的 Response ID，并在 `AffinityRegistry` 的同一条原子记录中保存该 ID 对应的规范化历史、Credential、Route Target、模型和协议对；Protocol 不保留独立 ID 索引。桥状态使用强类型不透明 continuation 能力对象，Runtime 只保存并交还，不使用 `Any` 或具体 Bridge 分支。重启或过期后继续返回现有 `session_binding_lost`，禁止猜测 Credential 或仅凭客户端内容重建已经丢失的绑定。完整决策见 `docs/adr/0076-atomic-bridge-continuation-state.md`。
 
-ADR-0032 明确登记的 `reasoning.summary` 与 `include=["reasoning.encrypted_content"]` 属于该 Bridge
-能够可靠处理的输出投影：前者由 Chat 返回的 reasoning 内容构造 Responses summary，后者由本地
-continuation 承担续接且不伪造上游不透明内容。这些规则只按协议对实现，适用于所有配置为
-Responses → Chat Completions 的 Provider Endpoint；Provider Driver、Runtime 和管理面禁止按
-`provider_kind` 增加专用转换分支。其他 reasoning 子字段、include 值和未知字段仍 fail-closed。
+ADR-0032 明确登记该 Bridge 的等价请求投影与窄降级边界：Responses 与 Chat Completions 共有的
+`prompt_cache_key` 必须原值转发；`input_image.detail` 只接受并原值转发 `auto`、`low`、`high`、
+`original`。连续 Responses `function_call` 必须合并为同一条 Chat assistant `tool_calls` 消息，已有
+对应输出的调用还必须保持 `assistant(tool_calls) -> tool` 邻接，不能让插入的普通消息破坏上游
+历史约束。`reasoning.summary` 与 `include=["reasoning.encrypted_content"]` 属于能够可靠处理的输出
+投影降级：前者由 Chat 返回的 reasoning 内容构造 Responses summary，后者由本地 continuation
+承担续接且不伪造上游不透明内容。这些规则只按协议对实现，适用于所有配置为 Responses → Chat
+Completions 的 Provider Endpoint；Provider Driver、Runtime 和管理面禁止按 `provider_kind` 增加
+专用转换分支。其他 reasoning 子字段、include 值和未知字段仍 fail-closed。
 
 ### 11.4 公开模型命名
 
@@ -1395,7 +1408,7 @@ trait ProtocolBridgeSession: Send {
 
 首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。Responses、Responses Compact、Chat Completions、Images Generations、Images Edits、Messages 和 Count Tokens 均已接入；只有显式配置的 Responses → Chat Completions 组合进入协议桥。
 
-客户端 Header 不能全量透传。鉴权成功后，Server 先删除 `Authorization`、`x-api-key`、Provider 专属认证/账号字段、Cookie、`Proxy-Authorization`；Runtime 还必须删除或重建 `Host`、`Forwarded`、`X-Forwarded-*`、`Proxy-Authenticate`、所有 hop-by-hop Header、`Connection` 动态点名字段、`Content-Length`、客户端 `Accept-Encoding`、`baggage`，以及正文重编码后失效的 `Content-Encoding`、`ETag`、`Digest`、`Content-MD5`。Header 个数、单值长度和允许投影的总字节数均有固定上限，Header 不进入 RequestLog、HttpAccessLog 或普通错误正文。
+客户端 Header 不能全量透传。鉴权成功后，Server 先删除 `Authorization`、`x-api-key`、Provider 专属认证/账号字段、Cookie、`Proxy-Authorization`；Runtime 还必须删除或重建 `Host`、`Forwarded`、`X-Forwarded-*`、`Proxy-Authenticate`、所有 hop-by-hop Header、`Connection` 动态点名字段、`Content-Length`、客户端 `Accept-Encoding`、`baggage`，以及正文重编码后失效的 `Content-Encoding`、`ETag`、`Digest`、`Content-MD5`。Header 个数、单值长度和允许投影的总字节数均有固定上限。原始入口 Header 不进入模型 RequestLog、普通 tracing/file log 或普通错误正文；它只在最外层 Axum 边界进入已认证的 HttpAccessLog 详情，且不得因此重新透传给 Provider。
 
 请求 Header 合并顺序固定为：Provider 官方缺省身份 < 同 Provider 且同入口/上游方言时的客户端白名单值 < ProtocolAdapter 根据最终 Body 重建的协议一致性字段 < 选中凭据的认证和账号字段。Provider 身份策略对 API Key 与 OAuthAccount 使用同一 Driver 接口，但允许按凭据类型补充不同的官方固定字段；认证字段本身只能来自当前选中凭据。跨协议桥默认不发送源协议身份、会话或实验 Header。
 
@@ -2294,9 +2307,9 @@ Web 的“刷新全部额度”针对当前完整 Codex、Claude 或 Grok OAuthA
 
 Web 的“删除失效账号”只清理当前 Provider 完整集合中经过实时认证诊断、明确返回 `oauth_account_authentication_failed` 的账号。该错误只允许表示以下可验证情形：Token 已成功刷新但再次被上游 401 拒绝；前一 access token 已被 401 拒绝且账号没有 refresh token；或 refresh Endpoint 通过 Provider 声明的结构化 envelope 返回永久失效码（至少 `invalid_grant`）。刷新网络错误、超时、5xx 和未知拒绝必须返回独立的 `oauth_account_authentication_unverified`。检测复用相同逐账号额度 GET 和最多 6 个并发；认证无法确认、代理/网络错误、Provider 出口拒绝、明确账号访问受限、额度耗尽、机器人标记或其他额度读取失败都不得进入删除集合。检测完成后必须重新读取安全账号元数据，展示精确删除数量并二次确认；删除按最新配置 revision 复用现有逐账号 DELETE 串行执行。若账号在检测后消失，或 `token_version` 在确认/删除前发生变化，则跳过而不是删除；配置冲突只允许在重新读取并再次核对同一 Token 版本后重试。该操作不得读取、返回或在浏览器解析原始 OAuth JSON，也不新增后端批量删除协议。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`、`docs/adr/0070-oauth-authentication-and-quota-routing-health.md` 与 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md`。
 
-原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入日志、管理响应、React Query、浏览器存储或页面长期 DOM。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供读取、下载或导出端点。
+原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入普通 tracing/file log、模型 RequestLog、普通管理响应、React Query、浏览器存储或页面长期 DOM。最外层 HttpAccessLog 是唯一例外：客户端放入 URI、Header 或 Body 的原始值会进入 SQLite，并可由已认证系统日志详情读取。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供通用读取、下载或导出端点。
 
-Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`POST /api/admin/oauth/import` 接收多个 multipart JSON 文件，每个文件可以是单账号、账号数组或 Sub2API `accounts` envelope。Provider Driver 把 CLIProxyAPI/Sub2API 字段规范化为 `OAuthTokenMaterial`，Runtime 为全部账号生成 canonical Provider JSON 和默认模型，并在一个 SQLite 事务中创建整批账号、增加一次 revision、执行一次 reconcile 和一次快照切换。任一文件或账号无效时整批回滚。响应只返回安全账号元数据；文件、Token、原始 JSON 和外部 wrapper 不进入日志、DTO、查询缓存或浏览器持久化。完整决策见 `docs/adr/0044-provider-oauth-json-import.md`。
+Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`POST /api/admin/oauth/import` 接收多个 multipart JSON 文件，每个文件可以是单账号、账号数组或 Sub2API `accounts` envelope。Provider Driver 把 CLIProxyAPI/Sub2API 字段规范化为 `OAuthTokenMaterial`，Runtime 为全部账号生成 canonical Provider JSON 和默认模型，并在一个 SQLite 事务中创建整批账号、增加一次 revision、执行一次 reconcile 和一次快照切换。任一文件或账号无效时整批回滚。响应只返回安全账号元数据；文件、Token、原始 JSON 和外部 wrapper 不进入普通日志、DTO、查询缓存或浏览器持久化。它们若出现在该 HTTP 导入请求中，仍适用 HttpAccessLog 原始交换例外。完整决策见 `docs/adr/0044-provider-oauth-json-import.md`。
 
 ## 17. 存储与密钥安全
 
@@ -2359,8 +2372,8 @@ Provider API Key、代理密码、Gateway API Key 与 OAuthAccount Provider JSON
 约束：
 
 - Unix 数据目录使用 `0700`，SQLite、WAL、SHM、实例锁和日志使用 `0600`；既有路径权限迁移不得跟随符号链接或修改不属于当前用户的文件；
-- Provider API Key、代理密码和 OAuth Token 不得进入普通读取 DTO、URL、日志、Debug、React Query Cache、浏览器持久化或导出端点；
-- Gateway API Key 继续在已认证管理列表中完整展示，但禁止进入日志；
+- Provider API Key、代理密码和 OAuth Token 不得进入普通读取 DTO、URL、tracing/file log、模型 RequestLog、Debug、浏览器持久化或导出端点；最外层 HttpAccessLog 原始交换详情是唯一明确的日志例外：若客户端把这些值放进 URI、Header 或 Body，它们会原样进入 SQLite 和已认证详情响应；
+- Gateway API Key 继续在已认证管理列表中完整展示；若它出现在客户端 HTTP Header 中，也会按同一 HttpAccessLog 原始交换例外被记录；
 - Gateway Token 使用带稳定域前缀的 SHA-256 摘要进行索引和常量时间验证，不依赖秘密摘要键；
 - Provider Secret 指纹使用带 Provider/Kind 稳定域前缀的 SHA-256，只用于管理展示和变更识别，不作为认证或唯一约束；
 - API Key 长度至少 8 个可见 ASCII 字符时可以额外保存并显示末 4 位；短 Key 只显示指纹；
@@ -2450,7 +2463,7 @@ DNS 信任边界：
 - CAS 成功后立即撤销当前进程中的全部轮换前会话、清理登录失败窗口，并只为发起本次请求的浏览器签发一组新的 Session Cookie 与 CSRF Token；其他浏览器必须重新登录；
 - 登录在验证摘要到签发会话之间持有摘要读锁，轮换持有写锁，因此使用轮换前密码的登录不会跨越轮换提交点创建新会话；
 - 当前密码错误返回独立的 `403 admin_current_password_invalid`，不使用受保护请求的 `401 admin_session_required`，前端不得因此清除当前会话；新密码边界错误返回 `400 admin_invalid_password`；
-- 密码明文只存在于当前请求和 Argon2 blocking 任务的短生命周期内，不进入日志、响应、查询缓存、URL 或浏览器存储；
+- 密码明文只存在于当前请求和 Argon2 blocking 任务的短生命周期内，不进入普通日志、响应、查询缓存、URL 或浏览器存储；登录请求 Body 同样适用 HttpAccessLog 原始交换例外；
 - `ANY2API_ADMIN_PASSWORD` 仍只在数据库没有摘要时执行首次初始化，不能覆盖在线轮换结果。
 
 数据目录必须由单个 any2api 进程持有实例锁。锁在打开 SQLite 之前取得，在进程退出或优雅停机时释放；获取失败直接启动失败。这样 SQLite CAS 与进程内密码摘要、会话撤销始终属于同一个单节点运行时，不引入跨进程同步协议。
@@ -2503,7 +2516,7 @@ config_revision_swapped
 runtime_binding_released
 ```
 
-日志中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。
+普通 tracing/file log 与模型 RequestLog 中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。HttpAccessLog 详情按第 9.9 节记录客户端实际发送和服务端实际返回的原始 HTTP 值，不做上述脱敏；它不会额外读取或记录仅存在于上游传输层的 Provider Secret。
 
 运行指标至少暴露当前配置 revision、总/分 Credential `in_flight`、RPM 窗口已用/上限、等待者数量、Transport Client 代数、各熔断状态、日志丢弃数和 shutdown phase。
 
@@ -2521,7 +2534,7 @@ runtime_binding_released
 
 总 Token 固定为每条 RequestLog 的 `input_tokens + output_tokens`；`cache_read_tokens` 是输入明细，不再重复相加。缓存创建 Token 不纳入 RequestLog、SQLite 或管理 API，因为当前上游响应未提供稳定可用的数据。缺少上游 usage 的请求按零 Token 参与求和，但响应必须另外返回实际包含输入或输出 Token 的请求数，让 Web 显示统计覆盖度而不是把缺失值伪装成精确零。Token 累计在管理 HTTP 契约中使用十进制字符串，避免超过 JavaScript 安全整数后失真；请求数仍使用受日志行数上限约束的整数。总览统计只用于本地观测，不参与路由、RPM、额度、计费或账号状态。
 
-完整 HTTP 生命周期观测与模型 RequestLog 再次分开：最外层 Server 中间件先覆盖所有到达 Axum 的公开 API、管理 API、健康检查、内嵌或外部 Web 资源、deep link、鉴权失败、404 与 405，再在 Body 结算时应用系统日志保留规则。公开 `/v1`、非 loopback/未知客户端、4xx/5xx、Body 错误与取消保留；成功完成的本机非公开内部流量丢弃。每条保留记录保存全局 Request ID、开始时间、捕获的配置 revision、规范客户端 IP、method、客户端实际请求的原始 URI path、HTTP version、可用的最终状态码、Body 生命周期总耗时、响应字节数和完成结果。请求在 Handler 返回 Response 前被取消时没有可伪造的 HTTP 状态码，因此该字段为空。path 不使用 `MatchedPath` 或通配归一化；query、Header、Cookie、User-Agent、Referer 与 Body 不落库。
+完整 HTTP 生命周期观测与模型 RequestLog 再次分开：最外层 Server 中间件先覆盖所有到达 Axum 的公开 API、管理 API、健康检查、内嵌或外部 Web 资源、deep link、鉴权失败、404 与 405，再在 Body 结算时应用系统日志保留规则。公开 `/v1`、非 loopback/未知客户端、4xx/5xx、Body 错误与取消保留；成功完成的本机非公开内部流量丢弃。每条保留记录保存全局 Request ID、开始时间、捕获的配置 revision、规范客户端 IP、method、客户端实际请求的原始 URI path 与含 query 的完整 URI、HTTP version、两侧原始 Header、两侧有界 Body 捕获、可用的最终状态码、Body 生命周期总耗时、响应字节数和完成结果。请求在 Handler 返回 Response 前被取消时没有可伪造的 HTTP 状态码，因此该字段为空。path 不使用 `MatchedPath` 或通配归一化；原始 HTTP 字段按系统日志详情例外不做脱敏。
 
 两类日志管理读取只对已认证管理面开放，统一固定为最近 3 天并采用服务端分页；响应返回当前页、页大小与该窗口精确总数，不能再用一次最多 100/200/500 条的列表伪装分页。普通 HTTP 日志继续使用非阻塞 `try_send`；系统日志手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除全部保留历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求若来自 loopback 且成功完成，会按正常内部流量规则过滤；外部清理或失败清理仍保留。系统日志 Web 使用单一自动刷新开关，开启后订阅日志变更 SSE 并在 `system_logs_changed` 后读取当前页，关闭后断开订阅；请求日志页面始终响应 `request_logs_changed`。自动刷新偏好只适用于系统日志，是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不进入 SettingRegistry；未保存、值无效或浏览器存储不可用时默认开启。
 
@@ -2683,12 +2696,13 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 ### 19.7 系统日志
 
 - 使用独立 `/system-logs` deep link，展示所有到达 Axum 的 HTTP 请求，不与模型请求日志混在一起；
-- 展示开始时间、规范客户端 IP、method、客户端实际请求 path、HTTP version、最终状态、Body 生命周期耗时、响应字节和 completed/body_error/cancelled 结果；
+- 摘要展示开始时间、规范客户端 IP、method、客户端实际完整 URI、HTTP version、最终状态、Body 生命周期耗时、响应字节和 completed/body_error/cancelled 结果；
+- 选择一条记录后按 Request ID 懒加载详情，分别展示请求与响应的全部 Header 值和 Body 捕获；文本保持原值，二进制明确标为 Base64，并显示总字节数、完整/未完整与截断状态；迁移前记录明确显示“未捕获”而不是伪造空 Header/Body；
 - 桌面表格使用虚拟滚动，只渲染可视行和少量 overscan；固定表头与虚拟行滚动区分层，禁止数据穿透或覆盖表头；移动端使用自然滚动卡片；
 - 支持手动刷新和自动刷新开关；开关开启后订阅已认证日志变更 SSE 并在 `system_logs_changed` 后刷新当前页，关闭后断开订阅。开关状态使用带版本的 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启；
 - 成功建立的日志通知流由服务端排除系统日志；系统日志列表 `GET` 仍按统一规则审计，但不推进 `system_logs_changed`，避免自动刷新读取自身形成通知闭环；客户端不发送日志排除或通知抑制标记；
 - 支持带二次确认的“清理历史日志”；清理成功后重新读取，清理请求本身及清理边界后完成的并发请求可以形成新记录；
-- path 不显示路由模板或归一化通配路径；query、Header、Cookie、User-Agent、Referer、请求体和响应体不可通过此页面读取。
+- path/URI 不显示路由模板或归一化通配路径；query、Cookie、User-Agent、Referer 和其他 Header 以及请求体、响应体均可通过已认证详情读取，不做脱敏。
 
 ### 19.8 设置与远程管理
 
@@ -2917,17 +2931,17 @@ No Runtime Recovery / Queue Recovery / Session Recovery
 Effective Setting = Web Override If Present, Otherwise Versioned Default
 Generic Config/Secret Import/Export = Disabled
 Provider OAuth JSON Import = OAuthAccount-only + Canonicalize + Atomic Batch Publish
-OAuth2 JSON = OAuthAccount-only SQLite persistence, no read/download/export
+OAuth2 JSON = OAuthAccount-only SQLite persistence, no generic read/download/export; raw HttpAccessLog exception applies
 OAuth Quota 403 = Driver Evidence; Account Restriction != Provider Egress Rejection
 Codex Egress Probe = Same Global Proxy + No Account Authentication + Revision-Scoped Memory Cache
 
 Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Domain-Separated SHA-256 Digest
-Gateway Token Plaintext = Visible In Authenticated Management Responses, Never In Logs
+Gateway Token Plaintext = Visible In Authenticated Management Responses, Never In Ordinary Logs; Raw HttpAccessLog Exception Applies
 Public Ingress Auth = Same PublishedSnapshot Revision + Header Strip Before Driver
 Global Public Model Access = Explicit All Mode Or Exact Name Array + Empty Array Denies All + Same PublishedSnapshot Revision
 Disallowed Model = Reject Before Affinity / RPM / Upstream + Filter From /v1/models
 
-HttpAccessLog = Every Axum Request + Original URI Path Without Query
+HttpAccessLog = Retained Axum Request + Full Client-Side URI / Headers / Bounded Bodies
 HttpAccessLog Completion = Body EOF / Error / Drop Exactly Once
 System Log Clear = Ordered Telemetry Command + Clear Before Ack
 
