@@ -38,6 +38,7 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
   // used 37.5% → remaining 62.5% rendered as 63%
   expect(await within(panel).findByText("63%")).toBeInTheDocument();
+  expect(await screen.findByText("已刷新「Primary Codex」的额度")).toBeInTheDocument();
   expect(within(panel).getByText("1")).toBeInTheDocument();
   expect(resetButton).toBeEnabled();
 
@@ -46,9 +47,8 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   expect(dialog).toHaveTextContent("当前剩余 1 次");
   fireEvent.click(within(dialog).getByRole("button", { name: "重置额度" }));
 
-  const notification = await screen.findByRole("status");
-  expect(notification).toHaveTextContent("已重置 2 个额度窗口。");
-  expect(notification.className).toContain("notification-card");
+  const notification = await screen.findByText("已重置 2 个额度窗口。");
+  expect(notification.closest(".notification-card")).not.toBeNull();
   expect(within(panel).queryByText("已重置 2 个额度窗口。")).not.toBeInTheDocument();
   await waitFor(() => expect(within(panel).getByText("0")).toBeInTheDocument());
   expect(within(panel).getByRole("button", { name: "重置额度" })).toBeDisabled();

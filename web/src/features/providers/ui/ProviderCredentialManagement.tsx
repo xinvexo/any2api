@@ -57,6 +57,16 @@ export function ProviderCredentialManagement({
     (credentials.isPending && !credentials.data) || (proxies.isPending && !proxies.data);
   const revealListContent = useAccordionReveal(showList, !initialListPending);
 
+  async function refreshConfiguration() {
+    const [credentialResult, proxyResult] = await Promise.all([
+      credentials.refetch(),
+      proxies.refetch(),
+    ]);
+    if (credentialResult.isSuccess && proxyResult.isSuccess) {
+      notify.success(`「${endpoint.name}」的 API Key 配置已刷新`);
+    }
+  }
+
   function openEditor(id: string) {
     mutations.update.reset();
     secretActions.reset();
@@ -134,7 +144,7 @@ export function ProviderCredentialManagement({
           </p>
           <Button
             variant="ghost"
-            onClick={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
+            onClick={() => void refreshConfiguration()}
           >
             <RefreshCw size={14} />
             重试
@@ -150,7 +160,7 @@ export function ProviderCredentialManagement({
         </p>
         <Button
           className="mt-5"
-          onClick={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
+          onClick={() => void refreshConfiguration()}
         >
           <RefreshCw size={14} />
           重试
@@ -181,6 +191,7 @@ export function ProviderCredentialManagement({
         if (!created) {
           throw new Error("credential missing after create");
         }
+        notify.success(`已创建「${submission.input.label}」`);
         onRevealList?.();
         openModels(created.id);
       } else {
@@ -199,9 +210,11 @@ export function ProviderCredentialManagement({
             expectedSecretVersion: credential.secretVersion,
             apiKey: submission.apiKey,
           });
+          notify.success(`已更新「${submission.input.label}」的 API Key`);
           onRevealList?.();
           openModels(submission.id);
         } else {
+          notify.success(`已保存「${submission.input.label}」`);
           onRevealList?.();
           closeEditor(submission.id);
         }
@@ -223,8 +236,19 @@ export function ProviderCredentialManagement({
         models,
       },
     });
+    notify.success(`已保存「${selected.label}」的模型选择`);
     onRevealList?.();
     closeEditor(selected.id);
+  }
+
+  async function discoverModels(manual = false) {
+    if (!selected) {
+      return;
+    }
+    const result = await credentialTest.test(selected.id);
+    if (manual && result?.accepted && result.catalogValid) {
+      notify.success(`已读取「${selected.label}」的上游模型`);
+    }
   }
 
   function toggleCredential(credential: ProviderCredential) {
@@ -294,7 +318,7 @@ export function ProviderCredentialManagement({
             {getProviderErrorMessage(credentials.error ?? proxies.error)}
           </p>
           <Button
-            onClick={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
+            onClick={() => void refreshConfiguration()}
             disabled={credentials.isFetching || proxies.isFetching}
           >
             重新加载
@@ -311,7 +335,7 @@ export function ProviderCredentialManagement({
             refreshing={credentials.isFetching || proxies.isFetching}
             embedded={embedded}
             onCreate={() => openEditor("new")}
-            onRefresh={() => void Promise.all([credentials.refetch(), proxies.refetch()])}
+            onRefresh={() => void refreshConfiguration()}
             onEdit={(id) => openEditor(id)}
             onModels={openModels}
             onToggleEnabled={toggleCredential}
@@ -336,7 +360,7 @@ export function ProviderCredentialManagement({
             discovering={modelTesting}
             saving={mutations.models.isPending}
             error={editorError}
-            onDiscover={() => void credentialTest.test(selected.id)}
+            onDiscover={(manual) => void discoverModels(manual)}
             onSave={saveModels}
             onClose={() => closeEditor(editorId)}
           />

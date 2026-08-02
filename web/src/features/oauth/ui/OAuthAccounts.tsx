@@ -12,6 +12,7 @@ import { oauthQuotaQueryOptions } from "../model/oauth-quota-query";
 import { OAuthAccountCard } from "./OAuthAccountCard";
 import { OAuthAccountEditor } from "./OAuthAccountEditor";
 import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
+import { notify } from "@/shared/notifications";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 import { RequestUsageStats } from "@/shared/ui/RequestUsageStats";
@@ -67,6 +68,27 @@ export function OAuthAccounts({
     );
   }
 
+  function toggleAccount(account: OAuthAccount, enabled: boolean) {
+    mutations.update.mutate(
+      {
+        id: account.id,
+        input: {
+          expectedRevision: configRevision,
+          expectedConfigVersion: account.configVersion,
+          label: account.label,
+          requestsPerMinute: account.requestsPerMinute,
+          enabled,
+        },
+      },
+      {
+        onSuccess: () => {
+          notify.success(enabled ? `已启用「${account.label}」` : `已停用「${account.label}」`);
+        },
+        onError: (error) => notify.danger(getOAuthErrorMessage(error)),
+      },
+    );
+  }
+
   return (
     <div className="h-full min-h-0 flex-1" aria-busy={pending}>
       {accounts.length === 0 ? (
@@ -88,18 +110,7 @@ export function OAuthAccounts({
             <OAuthAccountItem
               account={account}
               pending={pending}
-              onToggleEnabled={(enabled) => {
-                mutations.update.mutate({
-                  id: account.id,
-                  input: {
-                    expectedRevision: configRevision,
-                    expectedConfigVersion: account.configVersion,
-                    label: account.label,
-                    requestsPerMinute: account.requestsPerMinute,
-                    enabled,
-                  },
-                });
-              }}
+              onToggleEnabled={(enabled) => toggleAccount(account, enabled)}
               onViewModels={() => open(account, "models")}
               onEdit={() => open(account, "metadata")}
               onDelete={() => setDeleteTarget(account)}
@@ -144,6 +155,7 @@ export function OAuthAccounts({
                   ...value,
                 },
               });
+              notify.success(`已保存「${value.label}」`);
             }}
             onSaveModels={async (models) => {
               await mutations.models.mutateAsync({
@@ -154,6 +166,7 @@ export function OAuthAccounts({
                   models,
                 },
               });
+              notify.success(`已保存「${selected.label}」的模型选择`);
             }}
           />
         ) : null}
@@ -171,13 +184,18 @@ export function OAuthAccounts({
         onClose={() => !mutations.remove.isPending && setDeleteTarget(null)}
         onConfirm={() => {
           if (!deleteTarget) return;
+          const target = deleteTarget;
           mutations.remove.mutate(
             {
-              id: deleteTarget.id,
+              id: target.id,
               expectedRevision: configRevision,
-              expectedConfigVersion: deleteTarget.configVersion,
+              expectedConfigVersion: target.configVersion,
             },
-            { onSettled: () => setDeleteTarget(null) },
+            {
+              onSuccess: () => notify.success(`已删除「${target.label}」`),
+              onError: (error) => notify.danger(getOAuthErrorMessage(error)),
+              onSettled: () => setDeleteTarget(null),
+            },
           );
         }}
       />

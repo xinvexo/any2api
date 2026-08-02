@@ -10,6 +10,7 @@ import {
 } from "./RequestLogTableRow";
 import { cn } from "@/shared/lib/cn";
 import { logPageCount, type LogPageSize } from "@/shared/lib/log-pagination";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { LogPagination } from "@/shared/ui/LogPagination";
 import { Surface } from "@/shared/ui/Surface";
@@ -27,6 +28,13 @@ export function RequestLogManagement() {
   const visibleExpandedId = items.some((item) => item.requestId === expandedId)
     ? expandedId
     : null;
+
+  async function refreshLogs() {
+    const result = await query.refetch();
+    if (result.isSuccess) {
+      notify.success("请求日志已刷新");
+    }
+  }
 
   const handlePageChange = (nextPage: number) => {
     setExpandedId(null);
@@ -55,7 +63,7 @@ export function RequestLogManagement() {
       <Surface className="p-6" role="alert">
         <p className="font-semibold">无法读取请求日志</p>
         <p className="mt-2 text-sm text-secondary">{getRequestLogErrorMessage(query.error)}</p>
-        <Button className="mt-5" onClick={() => void query.refetch()} disabled={query.isFetching}>
+        <Button className="mt-5" onClick={() => void refreshLogs()} disabled={query.isFetching}>
           <RefreshCw size={15} />
           重试
         </Button>
@@ -83,7 +91,7 @@ export function RequestLogManagement() {
             {query.data.telemetry.droppedRecords}
           </span>
         </p>
-        <Button variant="ghost" onClick={() => void query.refetch()} disabled={query.isFetching}>
+        <Button variant="ghost" onClick={() => void refreshLogs()} disabled={query.isFetching}>
           <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
           刷新
         </Button>

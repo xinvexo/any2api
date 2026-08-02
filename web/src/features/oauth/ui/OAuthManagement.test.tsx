@@ -4,7 +4,11 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { OAuthManagement } from "./OAuthManagement";
-import { clearNotifications, NotificationHost } from "@/shared/notifications";
+import {
+  clearNotifications,
+  getNotifications,
+  NotificationHost,
+} from "@/shared/notifications";
 
 afterEach(() => {
   clearNotifications();
@@ -33,6 +37,10 @@ test("uses provider grid layout without a main-column session panel", async () =
   expect(screen.getByRole("button", { name: "导入 JSON" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "刷新全部额度" })).toBeDisabled();
+  expect(getNotifications()).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  expect(await screen.findByText("OAuth 账号已刷新")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "删除失效账号" })).toBeDisabled();
   expect(screen.queryByLabelText("每页条数")).not.toBeInTheDocument();
   expect(screen.getByLabelText("账号数量")).toHaveTextContent("共 0 个账号");
@@ -180,6 +188,7 @@ test("automatically activates a completed Grok device login", async () => {
     expect(screen.queryByRole("dialog", { name: "Grok OAuth 认证" })).not.toBeInTheDocument(),
   );
   expect(await screen.findByText("grok@example.com")).toBeInTheDocument();
+  expect(await screen.findByText("已激活 OAuth 账号「grok@example.com」")).toBeInTheDocument();
 });
 
 test("switches provider kind and keeps accounts in the content column", async () => {

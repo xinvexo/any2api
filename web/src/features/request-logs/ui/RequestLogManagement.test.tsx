@@ -4,9 +4,11 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { RequestLogManagement } from "./RequestLogManagement";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 import { FakeEventSource } from "@/test/fake-event-source";
 
 afterEach(() => {
+  clearNotifications();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -181,6 +183,9 @@ test("renders an initial error and allows retry", async () => {
   fireEvent.click(screen.getByRole("button", { name: "重试" }));
   expect(await screen.findByText("还没有请求日志")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "请求日志已刷新", tone: "success" }),
+  ]);
 });
 
 test("keeps the latest data visible when a refresh fails", async () => {
@@ -195,6 +200,7 @@ test("keeps the latest data visible when a refresh fails", async () => {
   expect(await screen.findByText(/刷新失败/)).toBeInTheDocument();
   expect(screen.getAllByText("codex-local").length).toBeGreaterThanOrEqual(1);
   expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(getNotifications()).toHaveLength(0);
 });
 
 test("paginates request logs from the toolbar", async () => {
@@ -256,6 +262,7 @@ test("refreshes the current request-log page after a committed SSE change", asyn
   expect((await screen.findAllByText("model-live")).length).toBeGreaterThanOrEqual(1);
   expect(calls).toBe(2);
   expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/admin/request-logs?page=1&page_size=20");
+  expect(getNotifications()).toHaveLength(0);
 });
 
 function renderManagement() {

@@ -10,8 +10,12 @@ import {
   mockAdminApis,
   renderManagement,
 } from "./ProviderManagement.test-support";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+});
 
 test("creates a Claude private HTTP endpoint directly from the Base URL", async () => {
   let current = configuration(1, []);
@@ -47,6 +51,9 @@ test("creates a Claude private HTTP endpoint directly from the Base URL", async 
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   expect(await screen.findByText("http://127.0.0.1:8080")).toBeInTheDocument();
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已创建「本地 Claude」", tone: "success" }),
+  ]);
   const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
   expect(JSON.parse(String(post?.[1]?.body))).toEqual({
     expected_revision: 1,
@@ -192,6 +199,9 @@ test("edits the accepted protocol when the endpoint already has an API Key", asy
     enabled: true,
   });
   expect(await screen.findByText("OpenAI Chat Completions")).toBeInTheDocument();
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已保存「Codex Primary」", tone: "success" }),
+  ]);
 });
 
 test("refetches after a revision conflict without discarding the endpoint draft", async () => {
@@ -221,6 +231,7 @@ test("refetches after a revision conflict without discarding the endpoint draft"
   expect(screen.getByDisplayValue("保留的 Endpoint 草稿")).toBeInTheDocument();
   expect(await screen.findByText(/配置已发生变化/)).toBeInTheDocument();
   expect(getCount).toBeGreaterThan(1);
+  expect(getNotifications()).toHaveLength(0);
 });
 
 test("preserves the draft but blocks overwrite when the endpoint version changed", async () => {

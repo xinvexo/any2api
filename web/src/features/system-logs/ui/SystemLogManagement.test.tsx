@@ -4,9 +4,11 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY } from "../model/system-log-auto-refresh-preference";
 import { SystemLogManagement } from "./SystemLogManagement";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 import { FakeEventSource } from "@/test/fake-event-source";
 
 afterEach(() => {
+  clearNotifications();
   window.localStorage.removeItem(SYSTEM_LOG_AUTO_REFRESH_STORAGE_KEY);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -66,6 +68,13 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
       ),
     ).toHaveLength(2);
   });
+  expect(getNotifications()).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await waitFor(() => {
+    expect(getNotifications().map((item) => item.message)).toEqual(["系统日志已刷新"]);
+  });
+  clearNotifications();
 
   const autoRefresh = screen.getByRole("switch", { name: "自动刷新" });
   expect(autoRefresh).toHaveAttribute("aria-checked", "true");
@@ -86,6 +95,9 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
       ),
     ).toBe(true);
   });
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已清理 1 条历史系统日志", tone: "success" }),
+  ]);
 });
 
 test("persists the automatic refresh choice across remounts", async () => {

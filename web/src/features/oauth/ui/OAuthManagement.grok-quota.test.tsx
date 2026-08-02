@@ -70,9 +70,7 @@ test("shows and refreshes Grok quota without a reset action", async () => {
   expect(within(panel).queryByText("按量使用")).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "刷新全部额度" }));
-  expect(await screen.findByRole("status")).toHaveTextContent(
-    "已刷新全部 1 个 Grok 账号额度。",
-  );
+  expect(await screen.findByText("已刷新全部 1 个 Grok 账号额度。")).toBeInTheDocument();
   await waitFor(() => expect(quotaReads).toBe(2));
 });
 

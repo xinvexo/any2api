@@ -5,8 +5,12 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import type { OAuthAccount } from "../api/oauth-contracts";
 import { OAuthAccounts } from "./OAuthAccounts";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+});
 
 test("lists and edits OAuth accounts without receiving token material", async () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -39,6 +43,9 @@ test("lists and edits OAuth accounts without receiving token material", async ()
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已保存「Renamed Codex」", tone: "success" }),
+  ]);
 });
 
 test("selects and saves OAuth routing models through the account-specific endpoint", async () => {
@@ -72,6 +79,9 @@ test("selects and saves OAuth routing models through the account-specific endpoi
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已保存「Primary Codex」的模型选择", tone: "success" }),
+  ]);
 });
 
 test("shows kind-scoped empty state without a session panel", () => {

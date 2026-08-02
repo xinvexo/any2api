@@ -3,10 +3,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { ADMIN_SESSION_EXPIRED_EVENT, setAdminCsrfToken } from "@/shared/api/http-client";
+import { clearNotifications, NotificationHost } from "@/shared/notifications";
 
 import { AdminPasswordRotation } from "./AdminPasswordRotation";
 
 afterEach(() => {
+  clearNotifications();
   vi.unstubAllGlobals();
   setAdminCsrfToken(null);
 });
@@ -42,7 +44,8 @@ test("rotates the password with the in-memory CSRF token and refreshes the sessi
   });
   fireEvent.click(screen.getByRole("button", { name: "更新密码" }));
 
-  expect(await screen.findByText("密码已更新，当前会话已刷新。")).toBeInTheDocument();
+  const notification = await screen.findByText("密码已更新，当前会话已刷新。");
+  expect(notification.closest(".notification-card")).not.toBeNull();
   expect(rotationInit?.headers).toMatchObject({ "X-CSRF-Token": "old-csrf" });
   expect(JSON.parse(String(rotationInit?.body))).toEqual({
     current_password: "correct horse battery staple",
@@ -124,6 +127,7 @@ function renderRotation() {
   render(
     <QueryClientProvider client={client}>
       <AdminPasswordRotation />
+      <NotificationHost />
     </QueryClientProvider>,
   );
   return client;

@@ -25,6 +25,13 @@ export function SystemLogManagement() {
   const totalPages = logPageCount(total, pageSize);
   const safePage = Math.min(Math.max(1, page), totalPages);
 
+  async function refreshLogs() {
+    const result = await query.refetch();
+    if (result.isSuccess) {
+      notify.success("系统日志已刷新");
+    }
+  }
+
   const handleAutoRefreshChange = (enabled: boolean) => {
     setAutoRefresh(enabled);
     saveSystemLogAutoRefreshPreference(enabled);
@@ -53,7 +60,7 @@ export function SystemLogManagement() {
     return (
       <div className="flex min-h-56 flex-col items-center justify-center text-center" role="alert">
         <p className="text-sm font-semibold">无法读取系统日志</p>
-        <Button className="mt-4" onClick={() => void query.refetch()} disabled={query.isFetching}>
+        <Button className="mt-4" onClick={() => void refreshLogs()} disabled={query.isFetching}>
           <RefreshCw size={15} />
           重试
         </Button>
@@ -83,7 +90,7 @@ export function SystemLogManagement() {
             size="sm"
             variant="ghost"
             className="h-9 min-h-9 w-9 rounded-full px-0 md:h-7 md:min-h-7 md:w-auto md:rounded-[6px] md:px-2.5"
-            onClick={() => void query.refetch()}
+            onClick={() => void refreshLogs()}
             disabled={query.isFetching}
             title="刷新"
           >

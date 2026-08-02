@@ -27,6 +27,13 @@ export function ProxyManagement() {
   const confirmPending = mutations.remove.isPending;
   const proxyTest = useProxyTest(String(proxies.data?.configRevision ?? 0));
 
+  async function refreshData() {
+    const result = await proxies.refetch();
+    if (result.isSuccess) {
+      notify.success("出口代理已刷新");
+    }
+  }
+
   function openEditor(id: string) {
     setDeleteTarget(null);
     mutations.create.reset();
@@ -71,7 +78,7 @@ export function ProxyManagement() {
       <Surface className="p-6" role="alert">
         <p className="font-semibold">无法读取出口代理配置</p>
         <p className="mt-2 text-sm text-secondary">{getProxyErrorMessage(proxies.error)}</p>
-        <Button className="mt-5" onClick={() => void proxies.refetch()} disabled={proxies.isFetching}>
+        <Button className="mt-5" onClick={() => void refreshData()} disabled={proxies.isFetching}>
           <RefreshCw size={14} className={proxies.isFetching ? "animate-spin" : undefined} />
           重试
         </Button>
@@ -126,17 +133,16 @@ export function ProxyManagement() {
       if (current?.passwordConfigured) {
         await authentication.clear(proxyId, nextConfiguration.configRevision);
       }
-      closeEditor(editorId);
-      return;
-    }
-
-    if (submit.auth.kind === "set") {
+    } else if (submit.auth.kind === "set") {
       await authentication.set(proxyId, nextConfiguration.configRevision, {
         username: submit.auth.username,
         password: submit.auth.password,
       });
     }
 
+    notify.success(
+      editorId === "new" ? `已创建「${submit.input.name}」` : `已保存「${submit.input.name}」`,
+    );
     closeEditor(editorId);
   }
 
@@ -149,23 +155,26 @@ export function ProxyManagement() {
     if (!deleteTarget) {
       return;
     }
+    const target = deleteTarget;
     try {
       await mutations.remove.mutateAsync({
-        id: deleteTarget.id,
+        id: target.id,
         expectedRevision: configuration.configRevision,
       });
+      notify.success(`已删除「${target.name}」`);
       setDeleteTarget(null);
-    } catch {
+    } catch (error) {
+      notify.danger(getProxyErrorMessage(error));
       // Keep confirmation visible when the version is stale.
     }
   }
 
-  function refreshData() {
-    void proxies.refetch();
-  }
-
-  function test(proxyId: string) {
-    void proxyTest.test(proxyId);
+  async function test(proxyId: string) {
+    const proxy = configuration.items.find((item) => item.id === proxyId);
+    const result = await proxyTest.test(proxyId);
+    if (proxy && result?.reachable) {
+      notify.success(`「${proxy.name}」连通性测试成功`);
+    }
   }
 
   function setGlobalRoute(proxy: ProxyProfile) {
@@ -218,7 +227,7 @@ export function ProxyManagement() {
             配置刷新失败，当前仍显示最近一次有效数据：{getProxyErrorMessage(proxies.error)}
           </p>
           <Button
-            onClick={refreshData}
+            onClick={() => void refreshData()}
             disabled={proxies.isFetching}
           >
             重新加载
@@ -236,8 +245,8 @@ export function ProxyManagement() {
         testError={proxyTest.error}
         testErrorProxyId={proxyTest.errorProxyId}
         onCreate={() => openEditor("new")}
-        onRefresh={refreshData}
-        onTest={test}
+        onRefresh={() => void refreshData()}
+        onTest={(proxyId) => void test(proxyId)}
         onEdit={openEditor}
         onSetGlobal={setGlobalRoute}
         onDelete={requestDelete}

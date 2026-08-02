@@ -10,6 +10,7 @@ import {
   type SettingsEditor,
   useSettingsEditor,
 } from "@/features/settings";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { PageTabs } from "@/shared/ui/PageTabs";
@@ -53,6 +54,18 @@ function SettingsSectionPage({
   const navigationBlocked = blocker.state === "blocked";
   const dialogOpen = navigationBlocked || refreshRequested;
 
+  async function save() {
+    if (await editor.save()) {
+      notify.success("设置已保存");
+    }
+  }
+
+  async function refreshSettings(message = "设置已刷新") {
+    if (await editor.refresh()) {
+      notify.success(message);
+    }
+  }
+
   async function saveAndContinue() {
     const saved = await editor.save();
     if (!saved) {
@@ -64,19 +77,20 @@ function SettingsSectionPage({
     }
     if (refreshRequested) {
       setRefreshRequested(false);
-      await editor.refresh();
+      await refreshSettings("设置已保存并刷新");
       return;
     }
+    notify.success("设置已保存");
     if (blocker.state === "blocked") {
       blocker.proceed();
     }
   }
 
-  function discardAndContinue() {
+  async function discardAndContinue() {
     editor.discard();
     if (refreshRequested) {
       setRefreshRequested(false);
-      void editor.refresh();
+      await refreshSettings();
       return;
     }
     if (blocker.state === "blocked") {
@@ -91,20 +105,27 @@ function SettingsSectionPage({
     }
   }
 
-  function refresh() {
+  function requestRefresh() {
     if (editor.isDirty) {
       setRefreshRequested(true);
       return;
     }
-    void editor.refresh();
+    void refreshSettings();
   }
 
   return (
     <>
       {actionsHost
-        ? createPortal(<SettingsPageActions editor={editor} onRefresh={refresh} />, actionsHost)
+        ? createPortal(
+            <SettingsPageActions
+              editor={editor}
+              onRefresh={requestRefresh}
+              onSave={() => void save()}
+            />,
+            actionsHost,
+          )
         : null}
-      <SettingsSectionBody section={section} editor={editor} />
+      <SettingsSectionBody section={section} editor={editor} onRefresh={requestRefresh} />
       <ConfirmDialog
         open={dialogOpen}
         title={refreshRequested ? "刷新前保存修改？" : "离开前保存修改？"}
@@ -118,7 +139,7 @@ function SettingsSectionPage({
         pending={editor.isSaving}
         confirmDisabled={editor.hasValidationErrors}
         onConfirm={() => void saveAndContinue()}
-        onAlternate={discardAndContinue}
+        onAlternate={() => void discardAndContinue()}
         onClose={cancelPendingAction}
       />
     </>
@@ -150,7 +171,15 @@ function SettingsPageLayout({
   );
 }
 
-function SettingsPageActions({ editor, onRefresh }: { editor: SettingsEditor; onRefresh: () => void }) {
+function SettingsPageActions({
+  editor,
+  onRefresh,
+  onSave,
+}: {
+  editor: SettingsEditor;
+  onRefresh: () => void;
+  onSave: () => void;
+}) {
   return (
     <>
       <Button
@@ -167,7 +196,7 @@ function SettingsPageActions({ editor, onRefresh }: { editor: SettingsEditor; on
         <Button
           variant="primary"
           size="sm"
-          onClick={() => void editor.save()}
+          onClick={onSave}
           disabled={editor.pending || editor.hasValidationErrors}
         >
           {editor.isSaving ? <LoaderCircle size={14} className="animate-spin" /> : <Save size={14} />}
@@ -181,15 +210,18 @@ function SettingsPageActions({ editor, onRefresh }: { editor: SettingsEditor; on
 function SettingsSectionBody({
   section,
   editor,
+  onRefresh,
 }: {
   section: (typeof SETTING_SECTIONS)[number];
   editor: SettingsEditor;
+  onRefresh: () => void;
 }) {
   return (
     <SettingsManagement
       editor={editor}
       featuredKeys={section.featuredKeys}
       showSectionHeading={false}
+      onRefresh={onRefresh}
     />
   );
 }

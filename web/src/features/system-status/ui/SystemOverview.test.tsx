@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { SystemOverview } from "./SystemOverview";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 
 function Wrapper({ children }: PropsWithChildren) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -15,7 +16,10 @@ function Wrapper({ children }: PropsWithChildren) {
   );
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+});
 
 test("renders session and live task metrics at the top", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -54,6 +58,12 @@ test("renders session and live task metrics at the top", async () => {
   expect(screen.queryByText(/运行态、调用量与调度快照/)).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "调整策略" })).not.toBeInTheDocument();
   expect(rendered.container.querySelector(".rounded-\\[14px\\]")).toBeNull();
+  expect(getNotifications()).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await waitFor(() => {
+    expect(getNotifications().map((item) => item.message)).toEqual(["系统状态已刷新"]);
+  });
 });
 
 test("shows the explicit affinity policy state instead of two misleading zeroes", async () => {

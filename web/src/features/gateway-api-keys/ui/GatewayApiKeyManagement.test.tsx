@@ -4,8 +4,12 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { GatewayApiKeyManagement } from "./GatewayApiKeyManagement";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+});
 
 const tokenA = `a2k_v1_${"b".repeat(43)}`;
 const tokenB = `a2k_v1_${"c".repeat(43)}`;
@@ -59,6 +63,9 @@ test("creates a gateway key with a server-generated token and exposes copy in ro
   expect(await screen.findByText("Desktop")).toBeInTheDocument();
   expect(screen.queryByText(tokenA)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "复制 Desktop 的密钥" })).toBeInTheDocument();
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已创建「Desktop」", tone: "success" }),
+  ]);
 
   const createCall = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
   expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
@@ -70,7 +77,7 @@ test("creates a gateway key with a server-generated token and exposes copy in ro
 });
 
 test("lists keys with a real time window and hover or focus details", async () => {
-  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+  vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
     jsonResponse({
       config_revision: 2,
       items: [
@@ -127,6 +134,18 @@ test("lists keys with a real time window and hover or focus details", async () =
   expect(screen.queryByRole("columnheader", { name: "密钥" })).not.toBeInTheDocument();
   expect(screen.queryByRole("columnheader", { name: "状态" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "复制 Desktop 的密钥" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await waitFor(() => expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "网关密钥已刷新", tone: "success" }),
+  ]));
+  clearNotifications();
+
+  fireEvent.click(screen.getByRole("button", { name: "编辑 Desktop" }));
+  await screen.findByLabelText("名称");
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "「Desktop」没有需要保存的更改", tone: "info" }),
+  ]));
   expect(screen.getByRole("switch", { name: "禁用 Desktop" })).toHaveAttribute(
     "aria-checked",
     "true",
@@ -350,6 +369,9 @@ test("deletes a key with DELETE and CAS query parameters", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "删除 Desktop" }));
   fireEvent.click(await screen.findByRole("button", { name: "确认删除" }));
   await waitFor(() => expect(screen.queryByText("Desktop")).not.toBeInTheDocument());
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已删除「Desktop」", tone: "success" }),
+  ]);
 
   const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
   expect(String(deleteCall?.[0])).toContain(

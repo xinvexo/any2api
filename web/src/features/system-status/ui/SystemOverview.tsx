@@ -7,6 +7,7 @@ import {
   useAffinity,
 } from "@/features/affinity";
 import { cn } from "@/shared/lib/cn";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 
 export function SystemOverview() {
@@ -16,9 +17,14 @@ export function SystemOverview() {
   const status = health.isPending ? "pending" : health.isError ? "error" : "ok";
   const busy = health.isFetching || affinity.isFetching;
 
-  function refresh() {
-    void health.refetch();
-    void affinity.refetch();
+  async function refresh() {
+    const [healthResult, affinityResult] = await Promise.all([
+      health.refetch(),
+      affinity.refetch(),
+    ]);
+    if (healthResult.isSuccess && affinityResult.isSuccess) {
+      notify.success("系统状态已刷新");
+    }
   }
 
   return (
@@ -28,7 +34,7 @@ export function SystemOverview() {
           <h1 className="text-2xl font-semibold tracking-tight">系统总览</h1>
           <StatusBadge status={status} />
         </div>
-        <Button variant="secondary" size="sm" onClick={refresh} disabled={busy}>
+        <Button variant="secondary" size="sm" onClick={() => void refresh()} disabled={busy}>
           <RefreshCw size={14} className={busy ? "animate-spin" : undefined} />
           刷新
         </Button>

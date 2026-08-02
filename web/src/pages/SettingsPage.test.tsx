@@ -4,8 +4,12 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { SettingsPage } from "./SettingsPage";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+});
 
 test("puts refresh and conditional batch save in the fixed page toolbar", async () => {
   let current = configuration(1, true);
@@ -22,11 +26,21 @@ test("puts refresh and conditional batch save in the fixed page toolbar", async 
     .not.toBeNull();
   expect(screen.getAllByRole("button", { name: "刷新当前设置页" })).toHaveLength(1);
   expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
+  expect(getNotifications()).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "刷新当前设置页" }));
+  await waitFor(() => {
+    expect(getNotifications().map((item) => item.message)).toEqual(["设置已刷新"]);
+  });
+  clearNotifications();
 
   fireEvent.click(affinity);
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument());
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "设置已保存", tone: "success" }),
+  ]);
   const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
   expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
     expected_revision: 1,
@@ -66,6 +80,7 @@ test("offers save, discard, and cancel before refresh or navigation", async () =
   fireEvent.click(screen.getByRole("button", { name: "放弃并刷新" }));
   await waitFor(() => expect(getCount).toBeGreaterThan(requestsBeforeRefresh));
   expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument();
+  expect(getNotifications().map((item) => item.message)).toEqual(["设置已刷新"]);
 
   fireEvent.click(screen.getByRole("switch", { name: "启用会话粘性" }));
   fireEvent.click(screen.getByRole("link", { name: "运行保护" }));
@@ -73,6 +88,10 @@ test("offers save, discard, and cancel before refresh or navigation", async () =
   await waitFor(() => {
     expect(screen.getByRole("link", { name: "运行保护" })).toHaveAttribute("aria-current", "page");
   });
+  expect(getNotifications().map((item) => item.message)).toEqual([
+    "设置已保存",
+    "设置已刷新",
+  ]);
 });
 
 function renderSettingsPage() {

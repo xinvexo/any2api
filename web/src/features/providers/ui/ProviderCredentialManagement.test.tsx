@@ -5,8 +5,12 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import type { ProviderEndpoint } from "../api/provider-contracts";
 import { ProviderCredentialManagement } from "./ProviderCredentialManagement";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+});
 
 test("creates a credential without retaining its secret in application caches", async () => {
   const secret = "sk-browser-secret-value";
@@ -43,6 +47,9 @@ test("creates a credential without retaining its secret in application caches", 
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   const model = await screen.findByRole("checkbox", { name: "gpt-5.1-codex" });
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已创建「Primary Key」", tone: "success" }),
+  ]);
   const post = fetchMock.mock.calls.find(([, init]) => init?.method === "POST");
   expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({
     api_key: secret,
@@ -58,6 +65,10 @@ test("creates a credential without retaining its secret in application caches", 
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
 
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/providers"));
+  expect(getNotifications().map((item) => item.message)).toEqual([
+    "已保存「Primary Key」的模型选择",
+    "已创建「Primary Key」",
+  ]);
   const modelPut = fetchMock.mock.calls.find(
     ([input, init]) => String(input).endsWith(`/provider-credentials/${credentialId}/models`) && init?.method === "PUT",
   );
@@ -101,6 +112,9 @@ test("edits credential metadata without sending the secret", async () => {
     requests_per_minute: 12,
   });
   expect(body).not.toHaveProperty("api_key");
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已保存「Edited」", tone: "success" }),
+  ]);
 });
 
 test("uses icon-only credential actions and toggles a credential inline", async () => {
@@ -184,6 +198,16 @@ test("opens a credential model picker and loads the current upstream catalog", a
 
   expect(await screen.findByRole("checkbox", { name: "gpt-5.1-codex" })).toBeInTheDocument();
   expect(screen.getByText(/已读取 1 个模型/)).toBeInTheDocument();
+  expect(getNotifications()).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "重新拉取" }));
+  await waitFor(() => {
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/test")),
+    ).toHaveLength(2);
+  });
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已读取「Primary Key」的上游模型", tone: "success" }),
+  ]);
   const request = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/test"));
   expect(request?.[1]?.method).toBe("POST");
   expect(request?.[1]?.body).toBeUndefined();

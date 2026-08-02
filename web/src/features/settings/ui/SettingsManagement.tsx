@@ -15,12 +15,15 @@ export interface SettingsManagementProps {
   featuredKeys?: readonly string[];
   /** When false, section titles are omitted (page tabs already label the section). */
   showSectionHeading?: boolean;
+  /** Manual retry supplied by the page so feedback follows the same refresh workflow. */
+  onRefresh?: () => void;
 }
 
 export function SettingsManagement({
   editor,
   featuredKeys,
   showSectionHeading = true,
+  onRefresh,
 }: SettingsManagementProps) {
   const query = editor.query;
 
@@ -47,7 +50,11 @@ export function SettingsManagement({
       <Surface className="p-6" role="alert">
         <p className="font-semibold">无法读取系统设置</p>
         <p className="mt-2 text-sm text-secondary">{getSettingsErrorMessage(query.error)}</p>
-        <Button className="mt-5" onClick={() => void editor.refresh()} disabled={query.isFetching}>
+        <Button
+          className="mt-5"
+          onClick={onRefresh ?? (() => void editor.refresh())}
+          disabled={query.isFetching}
+        >
           <RefreshCw size={14} />
           重试
         </Button>

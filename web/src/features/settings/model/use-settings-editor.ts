@@ -59,7 +59,8 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
 
   async function refresh() {
     discard();
-    await query.refetch();
+    const result = await query.refetch();
+    return result.isSuccess;
   }
 
   async function save() {

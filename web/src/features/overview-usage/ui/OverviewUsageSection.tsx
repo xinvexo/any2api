@@ -16,6 +16,7 @@ import { useOverviewUsage } from "../model/use-overview-usage";
 import { OverviewModelChart } from "./OverviewModelChart";
 import { OverviewTimeChart } from "./OverviewTimeChart";
 import { cn } from "@/shared/lib/cn";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { SlidingSelectionIndicator } from "@/shared/ui/SlidingSelectionIndicator";
 
@@ -24,6 +25,13 @@ export function OverviewUsageSection() {
   const rangeParam = searchParams.get("range");
   const range: OverviewUsageRange = isOverviewUsageRange(rangeParam) ? rangeParam : "24h";
   const query = useOverviewUsage(range);
+
+  async function refreshUsage() {
+    const result = await query.refetch();
+    if (result.isSuccess) {
+      notify.success("用量概览已刷新");
+    }
+  }
 
   function setRange(value: OverviewUsageRange) {
     setSearchParams(
@@ -51,7 +59,7 @@ export function OverviewUsageSection() {
         <p className="mt-2 text-sm leading-6 text-secondary">
           {getOverviewUsageErrorMessage(query.error)}
         </p>
-        <Button className="mt-4" onClick={() => void query.refetch()} disabled={query.isFetching}>
+        <Button className="mt-4" onClick={() => void refreshUsage()} disabled={query.isFetching}>
           <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />
           重试
         </Button>
@@ -83,7 +91,7 @@ export function OverviewUsageSection() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => void query.refetch()}
+            onClick={() => void refreshUsage()}
             disabled={query.isFetching}
           >
             <RefreshCw size={14} className={query.isFetching ? "animate-spin" : undefined} />

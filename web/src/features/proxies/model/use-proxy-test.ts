@@ -30,6 +30,7 @@ export function useProxyTest(configurationScope: string) {
           ...current,
           results: { ...current.results, [proxyId]: result },
         }));
+        return result;
       }
     } catch (error) {
       if (isActive(scope, sequence, startedScope, requestId)) {
@@ -40,6 +41,7 @@ export function useProxyTest(configurationScope: string) {
         setState((current) => ({ ...current, testingProxyId: null }));
       }
     }
+    return undefined;
   }
 
   return {

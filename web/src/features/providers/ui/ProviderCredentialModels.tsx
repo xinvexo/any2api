@@ -28,7 +28,7 @@ export function ProviderCredentialModels({
   discovering: boolean;
   saving: boolean;
   error: unknown;
-  onDiscover: () => void;
+  onDiscover: (manual?: boolean) => void;
   onSave: (models: string[]) => Promise<void>;
   onClose: () => void;
 }) {
@@ -39,7 +39,7 @@ export function ProviderCredentialModels({
   useEffect(() => {
     if (!requested.current) {
       requested.current = true;
-      onDiscover();
+      onDiscover(false);
     }
   }, [onDiscover]);
 
@@ -66,7 +66,7 @@ export function ProviderCredentialModels({
           <Button
             variant="ghost"
             size="sm"
-            onClick={onDiscover}
+            onClick={() => onDiscover(true)}
             disabled={discovering || saving}
           >
             <RefreshCw size={14} className={discovering ? "animate-spin" : undefined} />

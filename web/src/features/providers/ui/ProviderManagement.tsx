@@ -39,6 +39,13 @@ export function ProviderManagement() {
     [],
   );
 
+  async function refreshEndpoints() {
+    const result = await endpoints.refetch();
+    if (result.isSuccess) {
+      notify.success("Provider Endpoint 已刷新");
+    }
+  }
+
   function openEditor(id: string, kind?: ProviderKind) {
     mutations.create.reset();
     mutations.update.reset();
@@ -116,7 +123,7 @@ export function ProviderManagement() {
         selectedKind={selectedKind}
         counts={emptyCounts}
         onSelectKind={selectKind}
-        onRefresh={() => void endpoints.refetch()}
+        onRefresh={() => void refreshEndpoints()}
         refreshing={endpoints.isFetching}
         canCreate={false}
         onCreate={() => undefined}
@@ -124,7 +131,7 @@ export function ProviderManagement() {
         <Surface className="p-6" role="alert">
           <p className="font-semibold">无法读取 Provider 配置</p>
           <p className="mt-2 text-sm text-secondary">{getProviderErrorMessage(endpoints.error)}</p>
-          <Button className="mt-5" onClick={() => void endpoints.refetch()} disabled={endpoints.isFetching}>
+          <Button className="mt-5" onClick={() => void refreshEndpoints()} disabled={endpoints.isFetching}>
             <RefreshCw size={14} className={endpoints.isFetching ? "animate-spin" : undefined} />
             重试
           </Button>
@@ -146,8 +153,10 @@ export function ProviderManagement() {
   async function submitEditor(input: ProviderEndpointWriteInput) {
     if (editorId === "new") {
       await mutations.create.mutateAsync(input);
+      notify.success(`已创建「${input.name}」`);
     } else if (selected) {
       await mutations.update.mutateAsync({ id: selected.id, input });
+      notify.success(`已保存「${input.name}」`);
     } else {
       return;
     }
@@ -216,7 +225,7 @@ export function ProviderManagement() {
           <p className="text-sm text-secondary">
             配置刷新失败，当前仍显示最近一次有效数据：{getProviderErrorMessage(endpoints.error)}
           </p>
-          <Button onClick={() => void endpoints.refetch()} disabled={endpoints.isFetching}>
+          <Button onClick={() => void refreshEndpoints()} disabled={endpoints.isFetching}>
             重新加载
           </Button>
         </Surface>
@@ -227,7 +236,7 @@ export function ProviderManagement() {
         pending={mutations.isPending}
         refreshing={endpoints.isFetching}
         onCreate={(kind) => openEditor("new", kind)}
-        onRefresh={() => void endpoints.refetch()}
+        onRefresh={() => void refreshEndpoints()}
         onEdit={openEditor}
         onToggleEnabled={toggleEndpoint}
         onDelete={setDeleteTarget}

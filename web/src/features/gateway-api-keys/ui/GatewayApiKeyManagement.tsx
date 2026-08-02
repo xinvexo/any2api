@@ -32,6 +32,13 @@ export function GatewayApiKeyManagement() {
   const editorPending = mutations.create.isPending || mutations.update.isPending;
   const deletePending = mutations.remove.isPending;
 
+  async function refreshKeys() {
+    const result = await query.refetch();
+    if (result.isSuccess) {
+      notify.success("网关密钥已刷新");
+    }
+  }
+
   function openEditor(id: string) {
     setRotateTarget(null);
     setDeleteTarget(null);
@@ -70,6 +77,7 @@ export function GatewayApiKeyManagement() {
         name: input.name,
         enabled: input.enabled,
       });
+      notify.success(`已创建「${input.name}」`);
       closeEditor(editorId);
       return;
     }
@@ -91,6 +99,9 @@ export function GatewayApiKeyManagement() {
           enabled: input.enabled,
         },
       });
+      notify.success(`已保存「${input.name}」`);
+    } else {
+      notify.info(`「${input.name}」没有需要保存的更改`);
     }
 
     closeEditor(editorId);
@@ -152,16 +163,19 @@ export function GatewayApiKeyManagement() {
     if (!deleteTarget || !query.data) {
       return;
     }
+    const target = deleteTarget;
     try {
       await mutations.remove.mutateAsync({
-        id: deleteTarget.id,
+        id: target.id,
         input: {
           expectedRevision: query.data.configRevision,
-          expectedConfigVersion: deleteTarget.configVersion,
+          expectedConfigVersion: target.configVersion,
         },
       });
+      notify.success(`已删除「${target.name}」`);
       setDeleteTarget(null);
-    } catch {
+    } catch (error) {
+      notify.danger(getGatewayApiKeyErrorMessage(error));
       // Keep confirmation visible when the version is stale.
     }
   }
@@ -180,7 +194,7 @@ export function GatewayApiKeyManagement() {
         <p className="text-sm text-danger" role="alert">
           {getGatewayApiKeyErrorMessage(query.error)}
         </p>
-        <Button onClick={() => void query.refetch()}>
+        <Button onClick={() => void refreshKeys()}>
           <RefreshCw size={15} />
           重试
         </Button>
@@ -217,7 +231,7 @@ export function GatewayApiKeyManagement() {
         refreshing={query.isFetching}
         actionError={mutations.remove.error ?? mutations.rotate.error}
         onCreate={() => openEditor("new")}
-        onRefresh={() => void query.refetch()}
+        onRefresh={() => void refreshKeys()}
         onEdit={openEditor}
         onToggleEnabled={(key) => void toggleEnabled(key)}
         onRotate={requestRotate}

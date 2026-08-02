@@ -5,6 +5,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import { proxyQueryKeys } from "../model/proxy-query-keys";
 import { ProxyManagement } from "./ProxyManagement";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 
 const direct = {
   id: "00000000-0000-0000-0000-000000000000",
@@ -20,7 +21,10 @@ const direct = {
   config_version: 1,
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+});
 
 test("renders DIRECT in a table-style proxy list", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
@@ -127,6 +131,47 @@ test("creates a SOCKS5 proxy with the visible configuration revision", async () 
     host: "hk.example.com",
     port: 1080,
     enabled: true,
+  });
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已创建「香港出口」", tone: "success" }),
+  ]);
+});
+
+test("notifies after manual refresh and a successful connectivity test", async () => {
+  const proxy = customProxy();
+  let configurationReads = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = requestPath(input);
+    if (path.endsWith(`/proxies/${proxy.id}/test`) && init?.method === "POST") {
+      return jsonResponse({
+        config_revision: 1,
+        proxy_config_version: 1,
+        proxy_id: proxy.id,
+        reachable: true,
+        status_code: 204,
+        latency_ms: 12,
+        error_stage: null,
+        failure_scope: null,
+      });
+    }
+    configurationReads += 1;
+    return jsonResponse(configuration(1, [direct, proxy]));
+  });
+
+  renderManagement();
+  await screen.findByText("proxy.example.com:8080");
+  expect(getNotifications()).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await waitFor(() => expect(configurationReads).toBe(2));
+  expect(getNotifications().map((item) => item.message)).toEqual(["出口代理已刷新"]);
+
+  fireEvent.click(screen.getByRole("button", { name: `测试 ${proxy.name}` }));
+  await waitFor(() => {
+    expect(getNotifications().map((item) => item.message)).toEqual([
+      `「${proxy.name}」连通性测试成功`,
+      "出口代理已刷新",
+    ]);
   });
 });
 
@@ -239,6 +284,9 @@ test("saves authentication together with the proxy profile", async () => {
     password: "proxy-password",
   });
   expect(JSON.stringify(client.getQueryData(proxyQueryKeys.list()))).not.toContain("proxy-password");
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: "已保存「Authenticated Proxy」", tone: "success" }),
+  ]);
 });
 
 test("rejects an HTTP Basic separator before writing authentication", async () => {
@@ -286,6 +334,9 @@ test("deletes a custom proxy through the confirmation dialog", async () => {
   const del = fetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
   expect(String(del?.[0])).toContain(`/api/admin/proxies/${proxy.id}?expected_revision=1`);
   expect(screen.queryByText(proxy.name)).not.toBeInTheDocument();
+  expect(getNotifications()).toEqual([
+    expect.objectContaining({ message: `已删除「${proxy.name}」`, tone: "success" }),
+  ]);
 });
 
 async function enableAuthentication() {

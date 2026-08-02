@@ -89,6 +89,7 @@ export function OAuthQuotaPanel({
     resetMutation.reset();
     try {
       await refreshOAuthAccountQuota(queryClient, accountId);
+      notify.success(`已刷新「${accountLabel}」的额度`);
     } catch {
       // The query cache owns the account-scoped error rendered below.
     }

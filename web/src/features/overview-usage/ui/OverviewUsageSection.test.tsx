@@ -10,8 +10,12 @@ import type {
 import { overviewUsageWire } from "../api/overview-usage-test-support";
 import { OverviewModelChart } from "./OverviewModelChart";
 import { OverviewUsageSection } from "./OverviewUsageSection";
+import { clearNotifications, getNotifications } from "@/shared/notifications";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  clearNotifications();
+  vi.restoreAllMocks();
+});
 
 test("shows range metrics with simultaneous time and model charts", async () => {
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -61,6 +65,12 @@ test("shows range metrics with simultaneous time and model charts", async () => 
   );
   expect(await screen.findByText("0.0002")).toBeInTheDocument();
   expect(await screen.findByRole("group", { name: "按时间展示的 28 个调用桶" })).toBeInTheDocument();
+  expect(getNotifications()).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  await waitFor(() => {
+    expect(getNotifications().map((item) => item.message)).toEqual(["用量概览已刷新"]);
+  });
 });
 
 test("limits the compact model pie to eight slices", () => {

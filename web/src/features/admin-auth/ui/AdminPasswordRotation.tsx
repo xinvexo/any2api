@@ -1,8 +1,9 @@
-import { CheckCircle2, KeyRound, LoaderCircle } from "lucide-react";
+import { KeyRound, LoaderCircle } from "lucide-react";
 import { useState, type FormEvent } from "react";
 
 import { getAdminAuthErrorMessage } from "../model/admin-auth-error";
 import { useAdminAuth } from "../model/use-admin-auth";
+import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 
 export function AdminPasswordRotation({
@@ -17,7 +18,6 @@ export function AdminPasswordRotation({
   const [newPassword, setNewPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [completed, setCompleted] = useState(false);
   const mismatch = confirmation.length > 0 && newPassword !== confirmation;
   const incomplete =
     currentPassword.length === 0 || newPassword.length === 0 || confirmation.length === 0;
@@ -28,10 +28,9 @@ export function AdminPasswordRotation({
       return;
     }
     setError(null);
-    setCompleted(false);
     try {
       await auth.rotatePassword(currentPassword, newPassword);
-      setCompleted(true);
+      notify.success("密码已更新，当前会话已刷新。");
       onCompleted?.();
     } catch (nextError) {
       setError(nextError);
@@ -73,13 +72,6 @@ export function AdminPasswordRotation({
           {getAdminAuthErrorMessage(error)}
         </p>
       ) : null}
-      {completed ? (
-        <p className="flex items-center gap-2 text-[12px] text-success" role="status">
-          <CheckCircle2 size={14} aria-hidden="true" />
-          密码已更新，当前会话已刷新。
-        </p>
-      ) : null}
-
       <div className="mt-2 flex items-center justify-end gap-2 border-t border-subtle/70 pt-4">
         {onCancel ? (
           <Button

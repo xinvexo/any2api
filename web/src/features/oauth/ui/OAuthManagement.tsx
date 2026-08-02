@@ -1,8 +1,8 @@
 import { LogIn, RefreshCw, Upload } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import type { OAuthProvider } from "../api/oauth-contracts";
+import type { OAuthActivationResult, OAuthProvider } from "../api/oauth-contracts";
 import { getOAuthErrorMessage } from "../model/oauth-error";
 import {
   isOAuthProvider,
@@ -32,6 +32,21 @@ export function OAuthManagement() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [invalidCleanupBusy, setInvalidCleanupBusy] = useState(false);
+  const notifiedActivation = useRef<OAuthActivationResult | null>(null);
+
+  useEffect(() => {
+    const activation = login.completedAccount;
+    if (!activation) {
+      notifiedActivation.current = null;
+      return;
+    }
+    if (notifiedActivation.current === activation) {
+      return;
+    }
+    notifiedActivation.current = activation;
+    setLoginOpen(false);
+    notify.success(`已激活 OAuth 账号「${activation.label}」`);
+  }, [login.completedAccount]);
 
   const counts = useMemo(() => {
     const next = Object.fromEntries(
@@ -108,6 +123,13 @@ export function OAuthManagement() {
     }
   }
 
+  async function refreshAccounts() {
+    const result = await accounts.refetch();
+    if (result.isSuccess) {
+      notify.success("OAuth 账号已刷新");
+    }
+  }
+
   const toolbarStart = (
     <p aria-label="账号数量" className="text-[12px] text-secondary">
       共 <span className="tabular-nums">{kindAccounts.length}</span> 个账号
@@ -142,7 +164,7 @@ export function OAuthManagement() {
       <Button
         variant="ghost"
         disabled={invalidCleanupBusy || accounts.isFetching || !accounts.data}
-        onClick={() => void accounts.refetch()}
+        onClick={() => void refreshAccounts()}
       >
         <RefreshCw size={14} className={accounts.isFetching ? "animate-spin" : undefined} />
         刷新
@@ -205,7 +227,7 @@ export function OAuthManagement() {
         <Surface className="p-6" role="alert">
           <p className="font-semibold">无法读取 OAuth 账号</p>
           <p className="mt-2 text-sm text-secondary">{getOAuthErrorMessage(accounts.error)}</p>
-          <Button className="mt-5" onClick={() => void accounts.refetch()} disabled={accounts.isFetching}>
+          <Button className="mt-5" onClick={() => void refreshAccounts()} disabled={accounts.isFetching}>
             <RefreshCw size={14} className={accounts.isFetching ? "animate-spin" : undefined} />
             重试
           </Button>
@@ -240,7 +262,7 @@ export function OAuthManagement() {
               <p className="text-sm text-secondary">
                 配置刷新失败，当前仍显示最近一次有效数据：{getOAuthErrorMessage(accounts.error)}
               </p>
-              <Button onClick={() => void accounts.refetch()} disabled={accounts.isFetching}>
+              <Button onClick={() => void refreshAccounts()} disabled={accounts.isFetching}>
                 重新加载
               </Button>
             </Surface>

@@ -26,6 +26,7 @@ export function useProviderCredentialTest(configurationScope: string) {
           ...current,
           results: { ...current.results, [credentialId]: result },
         }));
+        return result;
       }
     } catch (nextError) {
       if (scope.current === startedScope) {
@@ -36,6 +37,7 @@ export function useProviderCredentialTest(configurationScope: string) {
         setState((current) => ({ ...current, testingCredentialId: null }));
       }
     }
+    return undefined;
   }
 
   return {
