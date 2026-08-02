@@ -56,8 +56,6 @@ pub enum StorageError {
     ProviderEndpointNameConflict,
     #[error("provider endpoint is referenced by a provider credential")]
     ProviderEndpointInUse,
-    #[error("provider endpoint identity cannot change while credentials exist")]
-    ProviderEndpointIdentityInUse,
     #[error("provider endpoint configuration is invalid: {0}")]
     ProviderEndpointValidation(#[from] ProviderEndpointValidationError),
     #[error("model route configuration is invalid: {0}")]

@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-18
+- 更新：2026-08-02
 - 决策者：maintainer
 
 ## 背景
@@ -13,10 +14,11 @@
 - `ProviderCredential` 是独立实体，包含 Endpoint、标签、`api_key` 类型、代理绑定、可空的 `requests_per_minute`、启用状态及 `config_version`、`secret_version`、`credential_generation`。
 - `requests_per_minute` 非空时限制为 `1..=100_000`；`NULL` 表示不做本地限速，禁用必须使用 `enabled=false`。
 - 创建时四类版本均为 `1`。元数据修改只增加 `config_version`；重新启用额外增加 `credential_generation`；轮换增加 `config_version`、`secret_version` 和 `credential_generation`；无变化 PATCH 不增加任何版本。
-- Credential 创建后不能改绑 Endpoint 或改变 CredentialKind。Endpoint 有 Credential 时禁止修改 ProviderKind/ProtocolDialect；Base URL 变化增加所有子 Credential 的 generation。
+- Credential 创建后不能改绑 Endpoint 或改变 CredentialKind。Endpoint 的 ProviderKind 创建后不可修改；接受协议和内部转换协议即使已有 Credential 也允许修改。Base URL 或协议变化增加所有子 Credential 的 generation，协议变化还在同一事务中重建物化 Route/Target 并裁剪失效的公开模型允许列表项。
 - API Key 按 ADR-0074 明文保存在独立 SQLite Secret 字段中；`secret_version` 只承担轮换 CAS 和运行时代际语义。
 - 指纹使用带稳定 Provider/Kind 域前缀的 SHA-256。SQLite 保存完整摘要，管理面只显示版本前缀加 64 位截断十六进制；长度至少 8 的可见 ASCII Key 可显示末 4 位。
 - 服务端永不回显 Provider API Key。Web 创建或轮换成功后仅使用本次提交值显示组件内一次性回执；该值不进入 URL、React Query Cache、Mutation Cache、localStorage 或 sessionStorage。
+- Credential 与 Endpoint 的 `enabled` 只控制数据面路由资格；管理面的 API Key 模型探测不要求两者启用，仍使用当前 Endpoint、Secret 和实际代理读取 `/models`。
 - 元数据更新和 Secret 轮换是两个独立管理端点。创建检查全局 revision；更新检查 revision/config version；轮换检查 revision/config/secret version；删除检查 revision/config version。
 - 删除 Endpoint 或 Proxy 时，如果仍有 Credential 引用则返回稳定冲突；禁止依赖原始 SQLite 外键错误作为管理契约。
 

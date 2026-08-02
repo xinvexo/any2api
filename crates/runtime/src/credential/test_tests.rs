@@ -50,7 +50,7 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
     let endpoint_id = ProviderEndpointId::new();
     let credential_id = CredentialId::new();
     let endpoint = publisher
-        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft())
+        .create_provider_endpoint(ConfigRevision::INITIAL, endpoint_id, endpoint_draft(true))
         .await
         .expect("endpoint");
     let snapshot = publisher
@@ -58,7 +58,7 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
             endpoint.revision(),
             credential_id,
             endpoint_id,
-            credential_draft(),
+            credential_draft(true),
             ProviderApiKeySecret::new("sk-probe-current".into()),
         )
         .await
@@ -111,6 +111,89 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
     assert_eq!(request.headers[AUTHORIZATION], "Bearer sk-probe-current");
 }
 
+#[tokio::test]
+async fn probe_ignores_credential_and_endpoint_routing_enabled_state() {
+    for (endpoint_enabled, credential_enabled) in [(false, true), (true, false), (false, false)] {
+        assert_probe_available(endpoint_enabled, credential_enabled).await;
+    }
+}
+
+async fn assert_probe_available(endpoint_enabled: bool, credential_enabled: bool) {
+    use any2api_provider::WorkBuddyDriver;
+
+    let directory = tempdir().expect("temporary directory");
+    let storage = Arc::new(
+        SqliteStore::connect(&directory.path().join("config.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let configuration = storage.load_configuration().await.expect("configuration");
+    let runtime = Arc::new(RuntimeRegistry::new());
+    let snapshots = Arc::new(SnapshotStore::new(
+        PublishedSnapshot::new(
+            configuration,
+            runtime.as_ref(),
+            crate::test_support::configuration_capabilities().provider_registry(),
+        )
+        .expect("initial snapshot"),
+    ));
+    let publisher = ConfigPublisher::new(
+        Arc::clone(&storage),
+        Arc::clone(&snapshots),
+        runtime,
+        crate::test_support::configuration_capabilities(),
+    )
+    .expect("configuration publisher");
+    let endpoint_id = ProviderEndpointId::new();
+    let credential_id = CredentialId::new();
+    let endpoint = publisher
+        .create_provider_endpoint(
+            ConfigRevision::INITIAL,
+            endpoint_id,
+            endpoint_draft(endpoint_enabled),
+        )
+        .await
+        .expect("endpoint");
+    let snapshot = publisher
+        .create_provider_credential(
+            endpoint.revision(),
+            credential_id,
+            endpoint_id,
+            credential_draft(credential_enabled),
+            ProviderApiKeySecret::new("sk-disabled-probe".into()),
+        )
+        .await
+        .expect("credential");
+    let mut providers = ProviderRegistry::new();
+    providers
+        .register(Arc::new(CodexDriver::new()))
+        .expect("WorkBuddy driver");
+    let transport = Arc::new(CapturingTransport::default());
+    let service = ProviderCredentialTestService::new(
+        Arc::new(providers),
+        Arc::clone(&transport) as Arc<dyn TransportManager>,
+    );
+
+    let result = service
+        .test(snapshot, credential_id)
+        .await
+        .expect("credential test");
+
+    assert_eq!(
+        result.outcome,
+        ProviderCredentialTestOutcome::Accepted {
+            status_code: 200,
+            auth_error_cleared: false,
+            models: vec!["gpt-probe".into()],
+        },
+        "endpoint_enabled={endpoint_enabled}, credential_enabled={credential_enabled}",
+    );
+    let captured = transport.request.lock().expect("captured request");
+    let request = captured.as_ref().expect("probe request");
+    assert_eq!(request.uri.path(), "/v1/models");
+    assert_eq!(request.headers[AUTHORIZATION], "Bearer sk-disabled-probe");
+}
+
 #[derive(Default)]
 struct CapturingTransport {
     request: Mutex<Option<TransportRequest>>,
@@ -137,24 +220,24 @@ impl TransportManager for CapturingTransport {
     }
 }
 
-fn endpoint_draft() -> ProviderEndpointDraft {
+fn endpoint_draft(enabled: bool) -> ProviderEndpointDraft {
     ProviderEndpointDraft::new(
         "Codex",
         ProviderKind::Codex,
         "https://api.example.com/v1",
         ProtocolDialect::OpenAiResponses,
-        true,
+        enabled,
     )
     .expect("endpoint draft")
 }
 
-fn credential_draft() -> ProviderCredentialDraft {
+fn credential_draft(enabled: bool) -> ProviderCredentialDraft {
     ProviderCredentialDraft::new(
         "Primary",
         CredentialKind::ApiKey,
         ProxyProfileId::DIRECT,
         Some(RequestsPerMinute::new(1).expect("valid RPM")),
-        true,
+        enabled,
     )
     .expect("credential draft")
 }

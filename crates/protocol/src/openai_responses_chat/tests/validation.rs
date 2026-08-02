@@ -1,5 +1,5 @@
 use any2api_domain::{ProtocolDialect, ProtocolOperation};
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::{ProtocolError, api::MAX_BRIDGE_CONTINUATION_STATE_BYTES};
 
@@ -13,6 +13,9 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         json!({"model":"public","input":"hello","unknown":true}),
         json!({"model":"public","input":"hello","n":2}),
         json!({"model":"public","input":"hello","tool_choice":"random"}),
+        json!({"model":"public","input":"hello","include":["message.output_text.logprobs"]}),
+        json!({"model":"public","input":"hello","reasoning":{"summary":"verbose"}}),
+        json!({"model":"public","input":"hello","reasoning":{"effort":"high","future":true}}),
     ] {
         let request = decoded(&registry, ProtocolOperation::Responses, body).await;
         let error = bridged_exchange(&registry, ProtocolOperation::Responses)
@@ -96,4 +99,30 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         })))
         .expect_err("multiple streamed choices must fail");
     assert!(matches!(error, ProtocolError::InvalidPayload(_)));
+}
+
+#[tokio::test]
+async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
+    let registry = registry();
+    let request = decoded(
+        &registry,
+        ProtocolOperation::Responses,
+        json!({
+            "model":"public",
+            "input":"title this session",
+            "reasoning":{"summary":"concise"},
+            "include":["reasoning.encrypted_content"]
+        }),
+    )
+    .await;
+    let prepared = bridged_exchange(&registry, ProtocolOperation::Responses)
+        .prepare_request(request, "upstream", None)
+        .expect("projection hints are supported by the protocol bridge");
+    let upstream: Value =
+        serde_json::from_slice(&prepared.request.body).expect("upstream request JSON");
+
+    assert_eq!(upstream["messages"][0]["content"], "title this session");
+    assert!(upstream.get("reasoning_effort").is_none());
+    assert!(upstream.get("reasoning").is_none());
+    assert!(upstream.get("include").is_none());
 }

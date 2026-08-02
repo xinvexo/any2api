@@ -9,19 +9,9 @@ impl From<ProviderCredentialTestError> for AdminApiError {
             ProviderCredentialTestError::CredentialNotFound => {
                 Self::provider_credential_not_found()
             }
-            ProviderCredentialTestError::CredentialDisabled => Self::new(
-                StatusCode::CONFLICT,
-                "provider_credential_disabled",
-                "a disabled provider credential cannot be tested",
-            ),
             ProviderCredentialTestError::ProviderEndpointNotFound => {
                 Self::provider_endpoint_not_found()
             }
-            ProviderCredentialTestError::ProviderEndpointDisabled => Self::new(
-                StatusCode::CONFLICT,
-                "provider_endpoint_disabled",
-                "a provider credential with a disabled endpoint cannot be tested",
-            ),
             ProviderCredentialTestError::ProxyNotFound
             | ProviderCredentialTestError::ProxyDisabled => Self::new(
                 StatusCode::CONFLICT,

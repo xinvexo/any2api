@@ -30,6 +30,7 @@ pub(crate) enum ProviderEndpointDatabaseChange {
 pub(crate) struct PreparedProviderEndpointMutation {
     provider_endpoints: ProviderEndpointConfiguration,
     provider_credentials: ProviderCredentialConfiguration,
+    model_routes: Option<ModelRouteConfiguration>,
     change: ProviderEndpointDatabaseChange,
     bump_credential_generations: bool,
 }
@@ -49,6 +50,10 @@ impl PreparedProviderEndpointMutation {
 
     pub(crate) const fn bump_credential_generations(&self) -> bool {
         self.bump_credential_generations
+    }
+
+    pub(crate) const fn model_routes(&self) -> Option<&ModelRouteConfiguration> {
+        self.model_routes.as_ref()
     }
 
     pub(crate) fn into_configurations(
@@ -79,7 +84,6 @@ pub(crate) fn prepare_provider_endpoint_mutation(
         } => update(
             current,
             credentials,
-            routes,
             proxies,
             id,
             expected_config_version,
@@ -104,6 +108,7 @@ fn create(
     Ok(PreparedProviderEndpointMutation {
         provider_endpoints: configuration,
         provider_credentials: credentials.clone(),
+        model_routes: None,
         change: ProviderEndpointDatabaseChange::Create(endpoint),
         bump_credential_generations: false,
     })
@@ -112,7 +117,6 @@ fn create(
 fn update(
     current: &ProviderEndpointConfiguration,
     credentials: &ProviderCredentialConfiguration,
-    routes: &ModelRouteConfiguration,
     proxies: &ProxyConfiguration,
     id: ProviderEndpointId,
     expected_config_version: u64,
@@ -132,15 +136,10 @@ fn update(
         return Ok(None);
     }
     let has_credentials = credentials.references_endpoint(id);
-    let identity_in_use = has_credentials || routes.references_endpoint(id);
-    if identity_in_use
-        && (existing.provider_kind() != updated.provider_kind()
-            || existing.protocol_dialect() != updated.protocol_dialect()
-            || existing.upstream_protocol_dialect() != updated.upstream_protocol_dialect())
-    {
-        return Err(StorageError::ProviderEndpointIdentityInUse);
-    }
     let base_url_changed = existing.base_url() != updated.base_url();
+    let protocol_changed = existing.protocol_dialect() != updated.protocol_dialect()
+        || existing.upstream_protocol_dialect() != updated.upstream_protocol_dialect();
+    let execution_identity_changed = base_url_changed || protocol_changed;
     let endpoints = current
         .endpoints()
         .iter()
@@ -153,18 +152,22 @@ fn update(
         })
         .collect();
     let configuration = ProviderEndpointConfiguration::new(endpoints).map_err(map_validation)?;
-    let provider_credentials = if has_credentials && base_url_changed {
+    let provider_credentials = if has_credentials && execution_identity_changed {
         credentials
             .with_endpoint_generation_incremented(id, &configuration, proxies)
             .map_err(|_| StorageError::CorruptConfiguration)?
     } else {
         credentials.clone()
     };
+    let model_routes = protocol_changed
+        .then(|| ModelRouteConfiguration::from_credentials(&provider_credentials, &configuration))
+        .transpose()?;
     Ok(Some(PreparedProviderEndpointMutation {
         provider_endpoints: configuration,
         provider_credentials,
+        model_routes,
         change: ProviderEndpointDatabaseChange::Update(updated),
-        bump_credential_generations: has_credentials && base_url_changed,
+        bump_credential_generations: has_credentials && execution_identity_changed,
     }))
 }
 
@@ -190,6 +193,7 @@ fn delete(
     Ok(PreparedProviderEndpointMutation {
         provider_endpoints: configuration,
         provider_credentials: credentials.clone(),
+        model_routes: None,
         change: ProviderEndpointDatabaseChange::Delete(id),
         bump_credential_generations: false,
     })

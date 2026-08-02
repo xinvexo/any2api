@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 
 import {
   configuration,
+  credential,
   credentialConfiguration,
   endpoint,
   jsonResponse,
@@ -145,6 +146,52 @@ test("creates a Codex endpoint for the OpenAI Images protocol", async () => {
     protocol_dialect: "openai_images",
     upstream_protocol_dialect: null,
   });
+});
+
+test("edits the accepted protocol when the endpoint already has an API Key", async () => {
+  let current = configuration(1, [endpoint()]);
+  const fetchMock = mockAdminApis(
+    () => current,
+    () => credentialConfiguration(1, [credential()]),
+    (input, init) => {
+      if (String(input).includes("/provider-endpoints/") && init?.method === "PATCH") {
+        current = configuration(2, [
+          endpoint({
+            protocol_dialect: "openai_chat_completions",
+            config_version: 2,
+          }),
+        ]);
+        return jsonResponse(current);
+      }
+      return null;
+    },
+  );
+
+  renderManagement([
+    "/providers?kind=codex&editor=1e96eff2-7b3f-4974-b013-8fd2f44c8c1f",
+  ]);
+
+  expect(await screen.findByText("编辑 Endpoint")).toBeInTheDocument();
+  expect(within(screen.getByRole("dialog")).queryByText("类型")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("combobox", { name: "接受协议" }));
+  fireEvent.click(screen.getByRole("option", { name: "OpenAI Chat Completions" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true);
+  });
+  const patch = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+  expect(JSON.parse(String(patch?.[1]?.body))).toEqual({
+    expected_revision: 1,
+    expected_config_version: 1,
+    name: "Codex Primary",
+    provider_kind: "codex",
+    base_url: "https://api.example.com/v1",
+    protocol_dialect: "openai_chat_completions",
+    upstream_protocol_dialect: null,
+    enabled: true,
+  });
+  expect(await screen.findByText("OpenAI Chat Completions")).toBeInTheDocument();
 });
 
 test("refetches after a revision conflict without discarding the endpoint draft", async () => {

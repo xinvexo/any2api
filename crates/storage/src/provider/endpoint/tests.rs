@@ -1,10 +1,11 @@
 use any2api_domain::{
-    ConfigRevision, ProtocolDialect, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, PublicModelName,
 };
 use tempfile::tempdir;
 
 use crate::{
-    api::{ConfigurationMutation, ConfigurationRepository, SqliteStore},
+    api::{ConfigurationMutation, ConfigurationRepository, SecretBytes, SqliteStore},
     configuration::commit_configuration,
     error::StorageError,
 };
@@ -170,6 +171,91 @@ async fn accepted_and_optional_upstream_protocols_round_trip_without_storage_pai
 }
 
 #[tokio::test]
+async fn protocol_change_with_credentials_rebuilds_routes_and_bumps_generation() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
+        .await
+        .expect("store");
+    let endpoint_id = ProviderEndpointId::new();
+    let credential_id = CredentialId::new();
+
+    let endpoint = commit_configuration(
+        &store,
+        ConfigRevision::INITIAL,
+        ConfigurationMutation::CreateProviderEndpoint {
+            id: endpoint_id,
+            draft: codex_draft("https://api.example.com"),
+        },
+    )
+    .await
+    .expect("create endpoint");
+    let credential = commit_configuration(
+        &store,
+        endpoint.revision(),
+        ConfigurationMutation::CreateProviderCredential {
+            id: credential_id,
+            endpoint_id,
+            draft: ProviderCredentialDraft::new(
+                "Primary",
+                CredentialKind::ApiKey,
+                ProxyProfileId::DIRECT,
+                None,
+                true,
+            )
+            .expect("credential draft"),
+            api_key: SecretBytes::from(b"sk-protocol-change".to_vec()),
+        },
+    )
+    .await
+    .expect("create credential");
+    let modeled = commit_configuration(
+        &store,
+        credential.revision(),
+        ConfigurationMutation::SetProviderCredentialModels {
+            id: credential_id,
+            expected_config_version: 1,
+            models: vec!["gpt-protocol-change".to_owned()],
+        },
+    )
+    .await
+    .expect("set credential models");
+
+    let changed = commit_configuration(
+        &store,
+        modeled.revision(),
+        ConfigurationMutation::UpdateProviderEndpoint {
+            id: endpoint_id,
+            expected_config_version: 1,
+            draft: chat_draft("https://api.example.com"),
+        },
+    )
+    .await
+    .expect("change accepted protocol with an existing credential");
+    let public_model = PublicModelName::new("gpt-protocol-change").expect("public model");
+
+    assert_eq!(
+        changed
+            .provider_credentials()
+            .get(credential_id)
+            .expect("credential")
+            .credential_generation(),
+        2
+    );
+    assert!(
+        changed
+            .model_routes()
+            .resolve(ProtocolDialect::OpenAiResponses, &public_model)
+            .is_none()
+    );
+    assert!(
+        changed
+            .model_routes()
+            .resolve(ProtocolDialect::OpenAiChatCompletions, &public_model)
+            .is_some()
+    );
+}
+
+#[tokio::test]
 async fn grok_endpoint_round_trips_as_an_api_key_provider() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
@@ -264,6 +350,17 @@ async fn unsafe_database_rows_fail_configuration_loading() {
         .await
         .expect_err("unsafe stored URL must fail startup loading");
     assert!(matches!(error, StorageError::CorruptConfiguration));
+}
+
+fn chat_draft(base_url: &str) -> ProviderEndpointDraft {
+    ProviderEndpointDraft::new(
+        "Codex Primary",
+        ProviderKind::Codex,
+        base_url,
+        ProtocolDialect::OpenAiChatCompletions,
+        true,
+    )
+    .expect("Chat Completions endpoint draft")
 }
 
 fn codex_draft(base_url: &str) -> ProviderEndpointDraft {

@@ -1,7 +1,7 @@
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress, ProxyDraft, ProxyKind,
-    ProxyProfileId, RequestsPerMinute,
+    ProviderEndpointDraft, ProviderEndpointId, ProviderEndpointValidationError, ProviderKind,
+    ProxyAddress, ProxyDraft, ProxyKind, ProxyProfileId, RequestsPerMinute,
 };
 use tempfile::tempdir;
 
@@ -239,7 +239,9 @@ async fn credential_references_protect_proxy_and_endpoint() {
         )
         .await
         .expect_err("provider identity must stay stable"),
-        StorageError::ProviderEndpointIdentityInUse
+        StorageError::ProviderEndpointValidation(
+            ProviderEndpointValidationError::ProviderKindChanged
+        )
     ));
 
     let moved = commit_configuration(

@@ -352,6 +352,77 @@ async fn manually_configured_model_materializes_without_discovery() {
 }
 
 #[tokio::test]
+async fn disabled_endpoint_and_credential_still_allow_model_discovery() {
+    let (upstream_address, mut upstream_requests) = model_catalog_upstream().await;
+    let (_directory, app, _storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let endpoint = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Disabled WorkBuddy",
+            "provider_kind": "codex",
+            "base_url": format!("http://{upstream_address}/v1"),
+            "protocol_dialect": "openai_responses",
+            "enabled": false
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(endpoint.status, StatusCode::OK);
+    let endpoint_id = endpoint.body["items"][0]["id"]
+        .as_str()
+        .expect("endpoint id");
+
+    let credential = request_json(
+        app.clone(),
+        Method::POST,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
+        Some(json!({
+            "expected_revision": 2,
+            "label": "Disabled Key",
+            "credential_kind": "api_key",
+            "api_key": "sk-disabled-discovery",
+            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
+            "requests_per_minute": null,
+            "enabled": false
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(credential.status, StatusCode::OK);
+    let credential_id = credential.body["items"][0]["id"]
+        .as_str()
+        .expect("credential id");
+
+    let tested = request_json(
+        app,
+        Method::POST,
+        &format!("/api/admin/provider-credentials/{credential_id}/test"),
+        None,
+        loopback,
+    )
+    .await;
+
+    assert_eq!(tested.status, StatusCode::OK);
+    assert_eq!(tested.body["accepted"], true);
+    assert_eq!(tested.body["catalog_valid"], true);
+    assert_eq!(tested.body["models"], json!(["gpt-disabled"]));
+    let probe = upstream_requests
+        .recv()
+        .await
+        .expect("model catalog request");
+    assert_eq!(probe.method, Method::GET);
+    assert_eq!(probe.path, "/v1/models");
+    assert_eq!(
+        probe.headers["authorization"],
+        "Bearer sk-disabled-discovery"
+    );
+}
+
+#[tokio::test]
 async fn successful_credential_test_clears_generation_auth_error() {
     let (upstream_address, mut upstream_requests) = credential_test_upstream().await;
     let (_directory, app, _storage) = test_app().await;
@@ -654,23 +725,37 @@ struct UpstreamRequest {
 }
 
 async fn credential_test_upstream() -> (SocketAddr, mpsc::UnboundedReceiver<UpstreamRequest>) {
+    upstream_with_responses(vec![
+        (
+            "401 Unauthorized",
+            r#"{"error":{"type":"authentication_error","code":"invalid_api_key"}}"#,
+        ),
+        ("200 OK", r#"{"object":"list","data":[]}"#),
+        (
+            "200 OK",
+            r#"{"id":"resp_recovered","model":"upstream-model"}"#,
+        ),
+    ])
+    .await
+}
+
+async fn model_catalog_upstream() -> (SocketAddr, mpsc::UnboundedReceiver<UpstreamRequest>) {
+    upstream_with_responses(vec![(
+        "200 OK",
+        r#"{"object":"list","data":[{"id":"gpt-disabled"}]}"#,
+    )])
+    .await
+}
+
+async fn upstream_with_responses(
+    responses: Vec<(&'static str, &'static str)>,
+) -> (SocketAddr, mpsc::UnboundedReceiver<UpstreamRequest>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("upstream listener");
     let address = listener.local_addr().expect("upstream address");
     let (sender, receiver) = mpsc::unbounded_channel();
     tokio::spawn(async move {
-        let responses = [
-            (
-                "401 Unauthorized",
-                r#"{"error":{"type":"authentication_error","code":"invalid_api_key"}}"#,
-            ),
-            ("200 OK", r#"{"object":"list","data":[]}"#),
-            (
-                "200 OK",
-                r#"{"id":"resp_recovered","model":"upstream-model"}"#,
-            ),
-        ];
         for (status, body) in responses {
             let (mut stream, _) = listener.accept().await.expect("upstream accept");
             sender.send(read_upstream_request(&mut stream).await).ok();

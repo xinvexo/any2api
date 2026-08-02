@@ -15,7 +15,8 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
             "model":"public-model",
             "instructions":"Be concise",
             "input":"What is the weather?",
-            "reasoning":{"effort":"medium"},
+            "reasoning":{"effort":"medium","summary":"concise"},
+            "include":["reasoning.encrypted_content"],
             "text":{"format":{
                 "type":"json_schema",
                 "name":"weather_result",
@@ -50,6 +51,8 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
         "What is the weather?"
     );
     assert_eq!(upstream_request["reasoning_effort"], "medium");
+    assert!(upstream_request.get("reasoning").is_none());
+    assert!(upstream_request.get("include").is_none());
     assert_eq!(upstream_request["response_format"]["type"], "json_schema");
     assert_eq!(upstream_request["tools"][0]["function"]["name"], "weather");
     assert_eq!(

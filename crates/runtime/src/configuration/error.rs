@@ -50,8 +50,6 @@ pub enum ConfigPublishError {
     ProviderEndpointNameConflict,
     #[error("provider endpoint is referenced by a provider credential")]
     ProviderEndpointInUse,
-    #[error("provider endpoint identity cannot change while credentials exist")]
-    ProviderEndpointIdentityInUse,
     #[error("invalid provider endpoint: {0}")]
     InvalidProviderEndpoint(ProviderEndpointValidationError),
     #[error("provider protocol capability is invalid: {0}")]
@@ -123,7 +121,6 @@ impl From<StorageError> for ConfigPublishError {
             }
             StorageError::ProviderEndpointNameConflict => Self::ProviderEndpointNameConflict,
             StorageError::ProviderEndpointInUse => Self::ProviderEndpointInUse,
-            StorageError::ProviderEndpointIdentityInUse => Self::ProviderEndpointIdentityInUse,
             StorageError::ProviderEndpointValidation(error) => Self::InvalidProviderEndpoint(error),
             StorageError::ProviderCredentialNotFound(_) => Self::ProviderCredentialNotFound,
             StorageError::ProviderCredentialVersionConflict { .. } => {

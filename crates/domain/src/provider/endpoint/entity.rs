@@ -130,6 +130,9 @@ impl ProviderEndpoint {
         &self,
         draft: ProviderEndpointDraft,
     ) -> Result<Self, ProviderEndpointValidationError> {
+        if self.provider_kind != draft.provider_kind {
+            return Err(ProviderEndpointValidationError::ProviderKindChanged);
+        }
         if self.matches_draft(&draft) {
             return Ok(self.clone());
         }
@@ -233,6 +236,8 @@ pub enum ProviderEndpointValidationError {
     InvalidBaseUrl(#[from] ProviderUrlValidationError),
     #[error("provider endpoint configuration version is invalid")]
     InvalidConfigVersion,
+    #[error("provider endpoint kind cannot change after creation")]
+    ProviderKindChanged,
     #[error("provider endpoint id is duplicated")]
     DuplicateId,
     #[error("provider endpoint name is duplicated")]
@@ -254,8 +259,8 @@ fn validate_name(name: String) -> Result<String, ProviderEndpointValidationError
 
 #[cfg(test)]
 mod tests {
-    use super::ProviderEndpointDraft;
-    use crate::{ProtocolDialect, ProviderKind};
+    use super::{ProviderEndpoint, ProviderEndpointDraft, ProviderEndpointValidationError};
+    use crate::{ProtocolDialect, ProviderEndpointId, ProviderKind};
 
     #[test]
     fn upstream_protocol_is_optional_and_same_protocol_normalizes_to_none() {
@@ -283,5 +288,34 @@ mod tests {
         )
         .expect("same dialect normalizes to direct");
         assert_eq!(direct.upstream_protocol_dialect(), None);
+    }
+
+    #[test]
+    fn provider_kind_cannot_change_after_creation() {
+        let endpoint = ProviderEndpoint::create(
+            ProviderEndpointId::new(),
+            ProviderEndpointDraft::new(
+                "WorkBuddy Primary",
+                ProviderKind::Codex,
+                "https://api.example.com",
+                ProtocolDialect::OpenAiResponses,
+                true,
+            )
+            .expect("endpoint draft"),
+        )
+        .expect("endpoint");
+        let changed_kind = ProviderEndpointDraft::new(
+            "WorkBuddy Primary",
+            ProviderKind::Claude,
+            "https://api.anthropic.com",
+            ProtocolDialect::AnthropicMessages,
+            true,
+        )
+        .expect("changed kind draft");
+
+        assert_eq!(
+            endpoint.updated(changed_kind),
+            Err(ProviderEndpointValidationError::ProviderKindChanged)
+        );
     }
 }

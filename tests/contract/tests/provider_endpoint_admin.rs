@@ -1,6 +1,7 @@
 use std::{fs, net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::build_public_request_components;
+use any2api_domain::{ProtocolDialect, PublicModelName};
 use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -166,6 +167,135 @@ async fn provider_protocol_options_and_optional_bridge_are_registry_driven() {
             .as_array()
             .is_some_and(|items| items.iter().any(|item| item["provider_kind"] == "grok"))
     );
+}
+
+#[tokio::test]
+async fn provider_endpoint_protocol_can_change_with_existing_credential() {
+    let (_directory, app, storage) = test_app().await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, endpoint) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/provider-endpoints",
+        Some(json!({
+            "expected_revision": 1,
+            "name": "Protocol Editable",
+            "provider_kind": "codex",
+            "base_url": "https://api.example.com/v1",
+            "protocol_dialect": "openai_responses",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let endpoint_id = endpoint["items"][0]["id"]
+        .as_str()
+        .expect("endpoint id")
+        .to_owned();
+
+    let (status, credential) = request_json(
+        app.clone(),
+        Method::POST,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
+        Some(json!({
+            "expected_revision": 2,
+            "label": "Primary Key",
+            "credential_kind": "api_key",
+            "api_key": "sk-protocol-change",
+            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
+            "requests_per_minute": null,
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let credential_id = credential["items"][0]["id"]
+        .as_str()
+        .expect("credential id")
+        .to_owned();
+
+    let (status, _) = request_json(
+        app.clone(),
+        Method::PUT,
+        &format!("/api/admin/provider-credentials/{credential_id}/models"),
+        Some(json!({
+            "expected_revision": 3,
+            "expected_config_version": 1,
+            "models": ["gpt-protocol-change"]
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, updated) = request_json(
+        app.clone(),
+        Method::PATCH,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}"),
+        Some(json!({
+            "expected_revision": 4,
+            "expected_config_version": 1,
+            "name": "Protocol Editable",
+            "provider_kind": "codex",
+            "base_url": "https://api.example.com/v1",
+            "protocol_dialect": "openai_chat_completions",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated["config_revision"], 5);
+    assert_eq!(
+        updated["items"][0]["protocol_dialect"],
+        "openai_chat_completions"
+    );
+
+    let stored = storage.load_configuration().await.expect("configuration");
+    let credential_id = credential_id.parse().expect("credential id type");
+    assert_eq!(
+        stored
+            .provider_credentials()
+            .get(credential_id)
+            .expect("credential")
+            .credential_generation(),
+        2
+    );
+    let public_model = PublicModelName::new("gpt-protocol-change").expect("public model");
+    assert!(
+        stored
+            .model_routes()
+            .resolve(ProtocolDialect::OpenAiResponses, &public_model)
+            .is_none()
+    );
+    assert!(
+        stored
+            .model_routes()
+            .resolve(ProtocolDialect::OpenAiChatCompletions, &public_model)
+            .is_some()
+    );
+
+    let (status, invalid_kind) = request_json(
+        app,
+        Method::PATCH,
+        &format!("/api/admin/provider-endpoints/{endpoint_id}"),
+        Some(json!({
+            "expected_revision": 5,
+            "expected_config_version": 2,
+            "name": "Protocol Editable",
+            "provider_kind": "claude",
+            "base_url": "https://api.example.com/v1",
+            "protocol_dialect": "anthropic_messages",
+            "enabled": true
+        })),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(invalid_kind["error"]["code"], "invalid_provider_endpoint");
 }
 
 #[tokio::test]

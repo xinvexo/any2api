@@ -4,18 +4,54 @@ use crate::ProtocolError;
 
 use super::{invalid, required_string};
 
-pub(super) fn convert_reasoning(value: &Value) -> Result<Value, ProtocolError> {
+pub(super) fn validate_include(value: Option<&Value>) -> Result<(), ProtocolError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let include = value
+        .as_array()
+        .ok_or_else(|| invalid("include must be an array"))?;
+    if include
+        .iter()
+        .any(|item| item.as_str() != Some("reasoning.encrypted_content"))
+    {
+        return Err(invalid(
+            "only reasoning.encrypted_content can be included by this bridge",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn convert_reasoning(value: &Value) -> Result<Option<Value>, ProtocolError> {
     let reasoning = value
         .as_object()
         .ok_or_else(|| invalid("reasoning must be an object"))?;
-    if reasoning.keys().any(|field| field != "effort") {
-        return Err(invalid("only reasoning.effort is supported by this bridge"));
+    if reasoning
+        .keys()
+        .any(|field| !matches!(field.as_str(), "effort" | "summary"))
+    {
+        return Err(invalid(
+            "only reasoning.effort and reasoning.summary are supported by this bridge",
+        ));
     }
-    reasoning
-        .get("effort")
-        .filter(|effort| effort.is_string())
-        .cloned()
-        .ok_or_else(|| invalid("reasoning.effort must be a string"))
+    if let Some(summary) = reasoning.get("summary") {
+        match summary.as_str() {
+            Some("auto" | "concise" | "detailed") => {}
+            _ => {
+                return Err(invalid(
+                    "reasoning.summary must be auto, concise, or detailed",
+                ));
+            }
+        }
+    }
+    match reasoning.get("effort") {
+        Some(effort) if effort.is_string() => Ok(Some(effort.clone())),
+        Some(_) => Err(invalid("reasoning.effort must be a string")),
+        None if reasoning.contains_key("summary") => Ok(None),
+        None => Err(invalid(
+            "reasoning must contain effort or summary for this bridge",
+        )),
+    }
 }
 
 pub(super) fn convert_text_config(value: &Value) -> Result<Value, ProtocolError> {

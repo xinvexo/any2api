@@ -74,11 +74,6 @@ impl From<ConfigPublishError> for AdminApiError {
                 "provider_endpoint_in_use",
                 "provider endpoint is referenced by a provider credential or model route",
             ),
-            ConfigPublishError::ProviderEndpointIdentityInUse => AdminApiError::new(
-                StatusCode::CONFLICT,
-                "provider_endpoint_identity_in_use",
-                "provider and protocol cannot change while credentials or model routes exist",
-            ),
             ConfigPublishError::InvalidProviderEndpoint(error) => AdminApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalid_provider_endpoint",

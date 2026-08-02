@@ -38,6 +38,7 @@ pub(super) fn convert(
         .ok_or_else(|| invalid("request must be an object"))?;
     validate_top_level_fields(source)?;
     reject_multiple_choices(source)?;
+    options::validate_include(source.get("include"))?;
     let mut messages = previous;
     input::append_instructions(source.get("instructions"), &mut messages)?;
     input::append_input(source.get("input"), &mut messages)?;
@@ -59,11 +60,10 @@ pub(super) fn convert(
             target.insert("stream_options".into(), json!({"include_usage": true}));
         }
     }
-    if let Some(reasoning) = source.get("reasoning") {
-        target.insert(
-            "reasoning_effort".into(),
-            options::convert_reasoning(reasoning)?,
-        );
+    if let Some(reasoning) = source.get("reasoning")
+        && let Some(effort) = options::convert_reasoning(reasoning)?
+    {
+        target.insert("reasoning_effort".into(), effort);
     }
     if let Some(text) = source.get("text") {
         target.insert(
@@ -92,6 +92,7 @@ fn validate_top_level_fields(source: &Map<String, Value>) -> Result<(), Protocol
                 | "input"
                 | "instructions"
                 | "previous_response_id"
+                | "include"
                 | "stream"
                 | "max_output_tokens"
                 | "reasoning"

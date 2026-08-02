@@ -41,16 +41,10 @@ impl ProviderCredentialTestService {
             .provider_credentials()
             .get(credential_id)
             .ok_or(ProviderCredentialTestError::CredentialNotFound)?;
-        if !credential.enabled() {
-            return Err(ProviderCredentialTestError::CredentialDisabled);
-        }
         let endpoint = snapshot
             .provider_endpoints()
             .get(credential.provider_endpoint_id())
             .ok_or(ProviderCredentialTestError::ProviderEndpointNotFound)?;
-        if !endpoint.enabled() {
-            return Err(ProviderCredentialTestError::ProviderEndpointDisabled);
-        }
         let binding = snapshot
             .credential_runtime(credential_id.into())
             .ok_or(ProviderCredentialTestError::CredentialRuntimeUnavailable)?;
@@ -281,12 +275,8 @@ impl From<TransportFailureScope> for ProviderCredentialTestFailureScope {
 pub enum ProviderCredentialTestError {
     #[error("provider credential was not found")]
     CredentialNotFound,
-    #[error("provider credential is disabled")]
-    CredentialDisabled,
     #[error("provider endpoint was not found")]
     ProviderEndpointNotFound,
-    #[error("provider endpoint is disabled")]
-    ProviderEndpointDisabled,
     #[error("credential runtime is unavailable")]
     CredentialRuntimeUnavailable,
     #[error("resolved proxy was not found")]

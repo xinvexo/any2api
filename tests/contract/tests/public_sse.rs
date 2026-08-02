@@ -242,7 +242,14 @@ async fn responses_stream_is_bridged_from_chat_completions_sse() {
     let response = request(
         app,
         "/v1/responses",
-        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
+        json!({
+            "model":"gpt-upstream",
+            "stream":true,
+            "store":false,
+            "input":"hello",
+            "reasoning":{"effort":"high","summary":"concise"},
+            "include":["reasoning.encrypted_content"]
+        }),
         remote,
         &[("authorization", format!("Bearer {token}"))],
     )
@@ -264,7 +271,11 @@ async fn responses_stream_is_bridged_from_chat_completions_sse() {
     assert_eq!(upstream.body["model"], "gpt-upstream");
     assert_eq!(upstream.body["messages"][0]["content"], "hello");
     assert_eq!(upstream.body["stream"], true);
+    assert_eq!(upstream.body["store"], false);
+    assert_eq!(upstream.body["reasoning_effort"], "high");
     assert_eq!(upstream.body["stream_options"]["include_usage"], true);
+    assert!(upstream.body.get("reasoning").is_none());
+    assert!(upstream.body.get("include").is_none());
 }
 
 #[tokio::test]

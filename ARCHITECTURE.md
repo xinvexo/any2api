@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.0<br>
-> 最后更新：2026-07-31<br>
+> 最后更新：2026-08-02<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 1. 项目定位
@@ -730,7 +730,7 @@ CredentialRuntimeBinding (per PublishedSnapshot)
   `/models` 作为候选目录，也必须允许管理员手工输入其已确认的上游模型名。
   模型发现超时、失败、无法解析或返回空列表均不得禁用手工输入与保存；
 - 同一 Endpoint 下的多把 Credential 可以拥有不同模型集合，调度器必须按 `Credential + upstream_model` 过滤，禁止因为 URL 相同就假定权限相同；
-- Endpoint 已有 Credential 时禁止修改 `provider_kind`、`protocol_dialect` 和 `upstream_protocol_dialect`；修改 Base URL 时所有子 Credential 增加 `credential_generation`；
+- Endpoint 的 `provider_kind` 创建后不可修改；`protocol_dialect` 和 `upstream_protocol_dialect` 即使已有 Credential 也允许修改。修改 Base URL 或任一协议字段时，所有子 Credential 增加 `credential_generation`；协议变化还必须在同一配置事务中重建 Route/Target，并裁剪已经没有公开 Route 的模型允许列表项；
 - Provider 列表和 Credential DTO 不展示 OAuth 类型或 OAuth 入口；OAuth 独立页面和 API 管理 `OAuthAccount`；
 - OAuth session、state、PKCE verifier 和 Device Code 只保存在内存；Token 只存在于兑换栈、OAuthAccount SQLite JSON 和当前 routing generation，管理 HTTP 响应不返回 Token；
 - 普通 Provider API Key 管理端点不接受 OAuth JSON；Provider 专用导入只通过 OAuth 管理 API 创建 `OAuthAccount`，不提供 OAuth JSON 读取或导出。
@@ -739,7 +739,9 @@ CredentialRuntimeBinding (per PublishedSnapshot)
 `PublishedSnapshot` 中该 Credential 的认证材料、Provider Endpoint 与解析后的实际代理，
 由 Provider Driver 构造无生成副作用的凭据探测请求；首版 Codex、Claude 与 Grok 都使用各自
 Base URL 下的 `GET /models`。测试不经过模型路由、不切换 Credential、不回退代理，也不更新
-Endpoint/Proxy 冷却或熔断状态。只有收到 2xx 响应时，才清除本次捕获
+Endpoint/Proxy 冷却或熔断状态。`ProviderCredential.enabled` 与 `ProviderEndpoint.enabled` 只控制
+数据面路由资格，测试不要求两者启用；停用的 Endpoint 或 Credential 仍使用当前明确配置的 URL、
+认证材料和实际代理读取模型目录。只有收到 2xx 响应时，才清除本次捕获
 `CredentialGenerationRuntime` 的 `auth_error` 并推进统一 scheduler epoch；配置在测试期间发生
 轮换时，退役 generation 的测试结果不得修改当前 generation。2xx 响应体在严格大小与读取超时内交给 Provider
 Driver 解析，只向管理面返回排序去重后的模型 ID，不返回原始响应正文、URL、地址或 Secret。
@@ -1284,6 +1286,12 @@ anthropic_messages       -> anthropic_messages
 当前只注册 Responses → Chat Completions 转换桥。Runtime 只按协议对查询注册表，不对这个组合写专用 `match`；新增桥只能通过独立实现与 Composition Root 注册扩展。每座桥都必须覆盖 JSON 请求/响应、SSE、工具调用、usage 和多轮状态；最终上游非 2xx 仍透明返回，无法无损表达的输入在请求提交上游前明确报错，禁止静默删除字段。Chat Completions → Responses、Codex/OpenAI ↔ Claude 和 `/v1/responses/compact` → Chat Completions 不注册。
 
 Responses 的 `previous_response_id` 在 Chat Completions 上游没有等价字段。桥接路径返回本地合成的 Response ID，并在 `AffinityRegistry` 的同一条原子记录中保存该 ID 对应的规范化历史、Credential、Route Target、模型和协议对；Protocol 不保留独立 ID 索引。桥状态使用强类型不透明 continuation 能力对象，Runtime 只保存并交还，不使用 `Any` 或具体 Bridge 分支。重启或过期后继续返回现有 `session_binding_lost`，禁止猜测 Credential 或仅凭客户端内容重建已经丢失的绑定。完整决策见 `docs/adr/0076-atomic-bridge-continuation-state.md`。
+
+ADR-0032 明确登记的 `reasoning.summary` 与 `include=["reasoning.encrypted_content"]` 属于该 Bridge
+能够可靠处理的输出投影：前者由 Chat 返回的 reasoning 内容构造 Responses summary，后者由本地
+continuation 承担续接且不伪造上游不透明内容。这些规则只按协议对实现，适用于所有配置为
+Responses → Chat Completions 的 Provider Endpoint；Provider Driver、Runtime 和管理面禁止按
+`provider_kind` 增加专用转换分支。其他 reasoning 子字段、include 值和未知字段仍 fail-closed。
 
 ### 11.4 公开模型命名
 
@@ -2583,6 +2591,11 @@ Provider 类型由左侧 Codex、Claude、Grok 分组决定。新增 Endpoint �
 `provider_kind`；编辑时沿用 Endpoint 已有类型。Endpoint 抽屉不得重复展示或提供 Provider 类型字段，
 避免页面分组与提交类型产生两套可编辑来源。抽屉说明必须从当前 Provider 注册目录的展示名称生成
 `配置 {Provider} 上游地址`，新增 Provider 适配时沿用同一规则，不维护按 Provider 分支的文案。
+
+Endpoint 抽屉中的“接受协议”和“内部转换协议”属于 Endpoint 的可编辑路由配置，不因已经存在 API Key
+而锁定。协议修改通过同一次串行配置发布递增全部子 Credential 的运行代际、重建物化 Route/Target 并
+原子切换 PublishedSnapshot；旧协议下已经建立的 Continuation 不迁移，后续按现有
+`session_binding_lost` 边界失败。
 
 Provider 详情页包含 Credential 表格：
 
