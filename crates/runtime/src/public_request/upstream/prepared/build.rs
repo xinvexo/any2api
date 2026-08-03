@@ -34,10 +34,10 @@ pub(super) struct AttemptHeaderPolicy {
     pub(super) allow_turn_state: bool,
 }
 
-pub(super) struct AttemptPreparation<'a, 'p> {
+pub(super) struct AttemptPreparation<'a, 'p, 'd> {
     pub(super) snapshot: &'a PublishedSnapshot,
     pub(super) protocols: &'p ProtocolRegistry,
-    pub(super) decoded: DecodedRequest,
+    pub(super) decoded: &'d DecodedRequest,
     pub(super) selected: SelectedCandidate,
     pub(super) continuation_state: Option<ProtocolContinuationState>,
     pub(super) providers: &'a ProviderRegistry,
@@ -45,8 +45,8 @@ pub(super) struct AttemptPreparation<'a, 'p> {
     pub(super) header_policy: AttemptHeaderPolicy,
 }
 
-pub(super) fn prepare_attempt<'a, 'p>(
-    input: AttemptPreparation<'a, 'p>,
+pub(super) fn prepare_attempt<'a, 'p, 'd>(
+    input: AttemptPreparation<'a, 'p, 'd>,
 ) -> Result<PreparedAttempt<'a>, AttemptFailure> {
     let AttemptPreparation {
         snapshot,
@@ -105,7 +105,7 @@ pub(super) fn prepare_attempt<'a, 'p>(
 fn build_request<'a>(
     snapshot: &'a PublishedSnapshot,
     protocols: &ProtocolRegistry,
-    decoded: DecodedRequest,
+    decoded: &DecodedRequest,
     selected: &SelectedCandidate,
     continuation_state: Option<ProtocolContinuationState>,
     providers: &'a ProviderRegistry,
@@ -128,7 +128,6 @@ fn build_request<'a>(
     let ingress_operation = decoded.operation;
     let execution_profile = decoded.execution_profile;
     let ingress_dialect = decoded.dialect;
-    let client_headers = decoded.client_headers.clone();
     let body_encoding = decoded.body_encoding;
     let mut exchange = protocols
         .exchange(
@@ -154,7 +153,7 @@ fn build_request<'a>(
         ingress_dialect,
         upstream_operation,
         upstream_model: &candidate.upstream_model,
-        client_headers: &client_headers,
+        client_headers: &decoded.client_headers,
         oauth: selected.permit.credential_id().oauth_account_id().is_some(),
         allow_credential_bound: header_policy.allow_credential_bound,
         allow_turn_state: header_policy.allow_turn_state,

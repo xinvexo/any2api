@@ -1,8 +1,5 @@
 use std::{
-    sync::{
-        Arc, Mutex, RwLock,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex, RwLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -15,23 +12,20 @@ use any2api_storage::api::{
     RequestLogOverview, RequestLogOverviewRange, RequestLogRepository, StorageError,
     UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
 };
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{
+    sync::{Notify, mpsc},
+    task::JoinHandle,
+};
 
 use super::{
     changes::LogChangeNotifier,
     event::{HttpAccessLogChangeNotification, TelemetryEvent},
     gateway_usage::{GatewayUsageTracker, utc_timestamp},
+    metrics::{RequestTelemetryMetrics, TelemetryCounters},
     policy::RequestLogPolicy,
     worker,
 };
 use crate::{configuration::LoggingSettingsReconciler, lifecycle::ProcessLifecycle};
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct RequestTelemetryMetrics {
-    pub queued_records: usize,
-    pub dropped_records: u64,
-    pub persisted_records: u64,
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum RequestTelemetryControlError {
@@ -48,10 +42,9 @@ pub struct RequestTelemetry {
     upstream_usage_repository: Option<Arc<dyn UpstreamCredentialUsageRepository>>,
     sender: RwLock<Option<mpsc::Sender<TelemetryEvent>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
-    queued: Arc<AtomicUsize>,
-    dropped: Arc<AtomicU64>,
-    persisted: Arc<AtomicU64>,
+    counters: TelemetryCounters,
     policy: Arc<RwLock<RequestLogPolicy>>,
+    prune_wakeup: Arc<Notify>,
     gateway_usage: Mutex<GatewayUsageTracker>,
     changes: LogChangeNotifier,
 }
@@ -73,10 +66,9 @@ impl RequestTelemetry {
             upstream_usage_repository: None,
             sender: RwLock::new(None),
             worker: Mutex::new(None),
-            queued: Arc::new(AtomicUsize::new(0)),
-            dropped: Arc::new(AtomicU64::new(0)),
-            persisted: Arc::new(AtomicU64::new(0)),
+            counters: TelemetryCounters::default(),
             policy: Arc::new(RwLock::new(policy)),
+            prune_wakeup: Arc::new(Notify::new()),
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
             changes: LogChangeNotifier::new(),
         }
@@ -102,24 +94,24 @@ impl RequestTelemetry {
         let capacity = usize::try_from(MAX_TELEMETRY_QUEUE_CAPACITY)
             .expect("telemetry queue maximum fits usize");
         let (sender, receiver) = mpsc::channel(capacity);
-        let queued = Arc::new(AtomicUsize::new(0));
-        let dropped = Arc::new(AtomicU64::new(0));
-        let persisted = Arc::new(AtomicU64::new(0));
+        let counters = TelemetryCounters::default();
         let policy = Arc::new(RwLock::new(RequestLogPolicy::from_settings(
             revision, settings,
         )));
         let changes = LogChangeNotifier::new();
+        let prune_wakeup = Arc::new(Notify::new());
+        let request_prune_wakeup = Arc::new(Notify::new());
         let worker = lifecycle.spawn_tracked(worker::run(
             receiver,
             Arc::clone(&request_logs),
             Arc::clone(&http_access_logs),
             Arc::clone(&gateway_usage),
             worker::WorkerState {
-                queued: Arc::clone(&queued),
-                dropped: Arc::clone(&dropped),
-                persisted: Arc::clone(&persisted),
+                counters: counters.clone(),
                 policy: Arc::clone(&policy),
                 changes: changes.clone(),
+                prune_wakeup: Arc::clone(&prune_wakeup),
+                request_prune_wakeup,
             },
         ));
         Self {
@@ -129,10 +121,9 @@ impl RequestTelemetry {
             upstream_usage_repository: Some(upstream_usage),
             sender: RwLock::new(Some(sender)),
             worker: Mutex::new(Some(worker)),
-            queued,
-            dropped,
-            persisted,
+            counters,
             policy,
+            prune_wakeup,
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
             changes,
         }
@@ -143,34 +134,37 @@ impl RequestTelemetry {
         revision: ConfigRevision,
         settings: &LoggingSettings,
     ) -> RequestLogPolicy {
-        let mut next = RequestLogPolicy::from_settings(revision, settings);
+        let mut policy = RequestLogPolicy::from_settings(revision, settings);
         if self.request_logs.is_none() {
-            next.enabled = false;
-            return next;
+            policy.enabled = false;
         }
-        self.update_policy(revision, settings);
-        next
+        policy
     }
 
-    pub(crate) fn update_policy(&self, revision: ConfigRevision, settings: &LoggingSettings) {
+    fn update_policy(&self, revision: ConfigRevision, settings: &LoggingSettings) {
         if self.request_logs.is_none() {
             return;
         }
         let next = RequestLogPolicy::from_settings(revision, settings);
         let mut current = self.policy.write().expect("request telemetry policy");
         if next.revision > current.revision {
+            let cleanup_changed = next.cleanup_limits_differ(*current);
             *current = next;
+            drop(current);
+            if cleanup_changed {
+                self.prune_wakeup.notify_one();
+            }
         }
     }
 
     pub(crate) fn try_record(&self, record: CompletedRequestLog, policy: RequestLogPolicy) {
-        if !policy.enabled || !self.reserve_queue_slot(policy.queue_capacity) {
-            if policy.enabled {
-                self.dropped.fetch_add(1, Ordering::Relaxed);
-            }
+        if !policy.enabled {
             return;
         }
-        self.send_event(TelemetryEvent::RequestLog(Box::new(record)));
+        self.try_send_event(
+            TelemetryEvent::RequestLog(Box::new(record)),
+            policy.queue_capacity,
+        );
     }
 
     pub fn try_record_http_access(
@@ -180,16 +174,16 @@ impl RequestTelemetry {
         notification: HttpAccessLogChangeNotification,
     ) {
         let policy = self.policy(record.config_revision, settings);
-        if !policy.enabled || !self.reserve_queue_slot(policy.queue_capacity) {
-            if policy.enabled {
-                self.dropped.fetch_add(1, Ordering::Relaxed);
-            }
+        if !policy.enabled {
             return;
         }
-        self.send_event(TelemetryEvent::HttpAccessLog {
-            record: Box::new(record),
-            notification,
-        });
+        self.try_send_event(
+            TelemetryEvent::HttpAccessLog {
+                record: Box::new(record),
+                notification,
+            },
+            policy.queue_capacity,
+        );
     }
 
     pub fn record_gateway_key_use(&self, id: GatewayApiKeyId) {
@@ -211,14 +205,13 @@ impl RequestTelemetry {
             .read()
             .expect("request telemetry policy")
             .queue_capacity;
-        if !self.reserve_queue_slot(capacity) {
-            self.dropped.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        self.send_event(TelemetryEvent::GatewayKeyLastUsed {
-            id,
-            last_used_at: used_at,
-        });
+        self.try_send_event(
+            TelemetryEvent::GatewayKeyLastUsed {
+                id,
+                last_used_at: used_at,
+            },
+            capacity,
+        );
     }
 
     #[must_use]
@@ -230,11 +223,7 @@ impl RequestTelemetry {
     }
 
     pub fn metrics(&self) -> RequestTelemetryMetrics {
-        RequestTelemetryMetrics {
-            queued_records: self.queued.load(Ordering::Acquire),
-            dropped_records: self.dropped.load(Ordering::Relaxed),
-            persisted_records: self.persisted.load(Ordering::Relaxed),
-        }
+        self.counters.snapshot()
     }
 
     #[must_use]
@@ -315,7 +304,7 @@ impl RequestTelemetry {
             .await
             .map_err(|_| RequestTelemetryControlError::WriterUnavailable)?;
         let (reply, result) = tokio::sync::oneshot::channel();
-        self.queued.fetch_add(1, Ordering::AcqRel);
+        self.counters.reserve_control_slot();
         permit.send(TelemetryEvent::ClearHttpAccessLogs { reply });
         result
             .await
@@ -369,40 +358,26 @@ impl RequestTelemetry {
                     {
                         tracing::warn!(?error, "request telemetry writer abort failed");
                     }
-                    self.queued.store(0, Ordering::Release);
                 }
             }
+            self.counters.writer_stopped();
         }
     }
 
-    fn send_event(&self, event: TelemetryEvent) {
-        let sender = self
-            .sender
-            .read()
-            .expect("request telemetry sender")
-            .clone();
-        let sent = sender.is_some_and(|sender| sender.try_send(event).is_ok());
-        if !sent {
-            self.queued.fetch_sub(1, Ordering::AcqRel);
-            self.dropped.fetch_add(1, Ordering::Relaxed);
+    fn try_send_event(&self, event: TelemetryEvent, capacity: usize) {
+        let records = event.record_count();
+        let sender = self.sender.read().expect("request telemetry sender");
+        let Some(sender) = sender.as_ref() else {
+            self.counters.rejected(records);
+            return;
+        };
+        if !self.counters.try_reserve_slot(capacity) {
+            self.counters.rejected(records);
+            return;
         }
-    }
-
-    fn reserve_queue_slot(&self, capacity: usize) -> bool {
-        let mut current = self.queued.load(Ordering::Acquire);
-        loop {
-            if current >= capacity {
-                return false;
-            }
-            match self.queued.compare_exchange_weak(
-                current,
-                current + 1,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => return true,
-                Err(actual) => current = actual,
-            }
+        self.counters.enqueued(records);
+        if sender.try_send(event).is_err() {
+            self.counters.send_failed(records);
         }
     }
 }

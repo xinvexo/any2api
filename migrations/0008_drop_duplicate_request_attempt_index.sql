@@ -1,0 +1,1 @@
+DROP INDEX request_attempts_request_idx;

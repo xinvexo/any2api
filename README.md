@@ -11,6 +11,7 @@ The repository pins Rust 1.90.0. The management Web application is embedded in t
 ```sh
 cargo build --locked --release -p any2api
 ANY2API_DATA_DIR=/var/lib/any2api ./target/release/any2api
+./target/release/any2api --version
 ```
 
 The default listener is `127.0.0.1:3210`. Open `http://127.0.0.1:3210` after startup. On a new data directory, the process prints a one-time administrator setup token. Enter that token in the local Web UI, or set `ANY2API_ADMIN_PASSWORD` only for first-run password initialization.
@@ -39,10 +40,14 @@ publishes the archive and checksum.
 
 An authenticated administrator can open **Settings → About** to view the running version and repository, explicitly
 check the latest official release, and install it on a supported Linux AMD64 GNU release build. The installer downloads
-the fixed archive and checksum, verifies SHA-256, atomically replaces the executable, completes the existing bounded
-graceful shutdown, and restarts the same executable with its original arguments. Development builds, other platforms,
-and `ANY2API_WEB_DIR` mode can check releases but cannot install them in place. Docker deployments should update the
-image instead; an in-container replacement only affects that container's writable layer.
+the fixed archive and checksum, verifies SHA-256, executes a bounded `--version` smoke check, retains the current binary
+as a sibling `.previous` file, atomically replaces the executable, completes the existing bounded graceful shutdown,
+and restarts the same executable with its original arguments. The new process removes `.previous` only after storage,
+configuration, listener, required workers, and shutdown signal handling are ready; an earlier observable startup failure
+restores the old executable. This is binary recovery only: it does not reverse SQLite migrations or replace a systemd/
+Docker supervisor. Development builds, other platforms, and `ANY2API_WEB_DIR` mode can check releases but cannot install
+them in place. Docker deployments should update the image instead; an in-container replacement only affects that
+container's writable layer.
 
 Before upgrading, take an offline copy of the data directory.
 

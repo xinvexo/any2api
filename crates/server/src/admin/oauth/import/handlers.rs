@@ -1,16 +1,12 @@
 use axum::{
-    Router,
+    Json, Router,
     body::Bytes,
     extract::{DefaultBodyLimit, Multipart, State, multipart::MultipartRejection},
     http::StatusCode,
-    response::Response,
     routing::post,
 };
 
-use crate::{
-    admin::{error::AdminApiError, no_store},
-    state::AppState,
-};
+use crate::{admin::error::AdminApiError, state::AppState};
 
 use super::{dto::OAuthImportResponse, error};
 
@@ -29,7 +25,7 @@ pub(in crate::admin::oauth) fn routes() -> Router<AppState> {
 async fn import(
     State(state): State<AppState>,
     multipart: Result<Multipart, MultipartRejection>,
-) -> Result<Response, AdminApiError> {
+) -> Result<Json<OAuthImportResponse>, AdminApiError> {
     let mut multipart = multipart.map_err(|_| invalid_multipart(StatusCode::BAD_REQUEST))?;
     let mut files = Vec::new();
     let mut total_bytes = 0_usize;
@@ -86,7 +82,7 @@ async fn import(
     }
     let service = state.oauth().ok_or_else(oauth_unavailable)?;
     let result = service.import_files(files).await.map_err(error::map)?;
-    Ok(no_store::json(OAuthImportResponse::from(result)))
+    Ok(Json(OAuthImportResponse::from(result)))
 }
 
 fn oauth_unavailable() -> AdminApiError {

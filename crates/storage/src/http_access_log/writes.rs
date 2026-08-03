@@ -1,4 +1,4 @@
-use any2api_domain::{HttpAccessLog, HttpBodyCapture, HttpHeader};
+use any2api_domain::{HttpAccessLog, HttpBodyCapture, HttpHeader, canonical_ip};
 use sqlx::SqliteConnection;
 
 use crate::error::StorageError;
@@ -23,18 +23,37 @@ pub(super) async fn insert(
     )?;
     let request_body = exchange.map_or(&empty_body, |value| &value.request_body);
     let response_body = exchange.map_or(&empty_body, |value| &value.response_body);
+    let exchange_bytes = if exchange.is_some() {
+        [
+            request_headers.len(),
+            request_body.content.len(),
+            response_headers.len(),
+            response_body.content.len(),
+        ]
+        .into_iter()
+        .try_fold(0_u64, |total, bytes| {
+            total.checked_add(u64::try_from(bytes).ok()?)
+        })
+        .ok_or(StorageError::CorruptTelemetry)?
+    } else {
+        0
+    };
     sqlx::query(
         "INSERT INTO http_access_logs (request_id, started_at_ms, config_revision, client_ip, \
          method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
          exchange_captured, request_headers, request_body, request_body_bytes, \
          request_body_complete, request_body_truncated, response_headers, response_body, \
-         response_body_complete, response_body_truncated) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         response_body_complete, response_body_truncated, exchange_bytes) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
     .bind(to_i64(log.config_revision.get())?)
-    .bind(log.client_ip.map(|address| address.to_string()))
+    .bind(
+        log.client_ip
+            .map(canonical_ip)
+            .map(|address| address.to_string()),
+    )
     .bind(&log.method)
     .bind(&log.path)
     .bind(&log.uri)
@@ -53,6 +72,7 @@ pub(super) async fn insert(
     .bind(&response_body.content)
     .bind(bool_value(response_body.complete))
     .bind(bool_value(response_body.truncated))
+    .bind(to_i64(exchange_bytes)?)
     .execute(connection)
     .await?;
     Ok(())
@@ -73,7 +93,7 @@ pub(super) async fn delete_oldest_before(
 ) -> Result<u64, StorageError> {
     let result = sqlx::query(
         "DELETE FROM http_access_logs WHERE request_id IN (SELECT request_id \
-         FROM http_access_logs WHERE started_at_ms < ? \
+         FROM http_access_logs INDEXED BY http_access_logs_retention_idx WHERE started_at_ms < ? \
          ORDER BY started_at_ms ASC, request_id ASC LIMIT ?)",
     )
     .bind(to_i64(cutoff_ms)?)
@@ -89,7 +109,8 @@ pub(super) async fn delete_oldest(
 ) -> Result<u64, StorageError> {
     let result = sqlx::query(
         "DELETE FROM http_access_logs WHERE request_id IN (SELECT request_id \
-         FROM http_access_logs ORDER BY started_at_ms ASC, request_id ASC LIMIT ?)",
+         FROM http_access_logs INDEXED BY http_access_logs_retention_idx \
+         ORDER BY started_at_ms ASC, request_id ASC LIMIT ?)",
     )
     .bind(to_i64(limit)?)
     .execute(connection)

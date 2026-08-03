@@ -2,8 +2,11 @@ pub mod api;
 
 mod github;
 mod install;
+mod recovery;
 mod service;
+mod smoke;
 mod state;
+mod temporary;
 
 pub(crate) const BUILD_VERSION: &str = match option_env!("ANY2API_BUILD_VERSION") {
     Some(version) => version,

@@ -1,4 +1,3 @@
-use any2api_domain::ConfigRevision;
 use sqlx::SqliteConnection;
 
 use crate::{
@@ -12,17 +11,12 @@ use crate::{
     settings::load_settings_from,
 };
 
-use super::StoredConfiguration;
+use super::{StoredConfiguration, load_revision_from};
 
 pub(crate) async fn load_configuration_from(
     connection: &mut SqliteConnection,
 ) -> Result<StoredConfiguration, StorageError> {
-    let revision: i64 =
-        sqlx::query_scalar("SELECT revision FROM config_state WHERE singleton_id = 1")
-            .fetch_one(&mut *connection)
-            .await?;
-
-    let revision = parse_revision(revision)?;
+    let revision = load_revision_from(connection).await?;
     let (proxies, proxy_passwords) = load_proxies_from(connection).await?;
     let provider_endpoints = load_provider_endpoints_from(connection).await?;
     let model_routes = load_model_routes_from(connection, &provider_endpoints).await?;
@@ -49,9 +43,4 @@ pub(crate) async fn load_configuration_from(
         oauth_account_materials,
         proxy_passwords,
     ))
-}
-
-fn parse_revision(value: i64) -> Result<ConfigRevision, StorageError> {
-    let revision = u64::try_from(value).map_err(|_| StorageError::InvalidRevision(value))?;
-    ConfigRevision::new(revision).map_err(|_| StorageError::InvalidRevision(value))
 }

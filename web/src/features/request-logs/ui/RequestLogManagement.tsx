@@ -1,5 +1,5 @@
 import { RefreshCw, ScrollText } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { getRequestLogErrorMessage } from "../model/request-log-error";
 import { useRequestLogs } from "../model/use-request-logs";
@@ -28,6 +28,19 @@ export function RequestLogManagement() {
   const visibleExpandedId = items.some((item) => item.requestId === expandedId)
     ? expandedId
     : null;
+
+  useEffect(() => {
+    if (!query.data || query.data.page !== page || safePage === page) {
+      return;
+    }
+
+    const correction = window.setTimeout(() => {
+      setExpandedId(null);
+      setPage(safePage);
+    }, 0);
+
+    return () => window.clearTimeout(correction);
+  }, [page, query.data, safePage]);
 
   async function refreshLogs() {
     const result = await query.refetch();
@@ -84,6 +97,11 @@ export function RequestLogManagement() {
           队列{" "}
           <span className="tabular-nums text-primary">
             {query.data.telemetry.queuedRecords}
+          </span>
+          <span className="mx-1.5 text-tertiary">·</span>
+          写入中{" "}
+          <span className="tabular-nums text-primary">
+            {query.data.telemetry.inFlightRecords}
           </span>
           <span className="mx-1.5 text-tertiary">·</span>
           丢弃{" "}

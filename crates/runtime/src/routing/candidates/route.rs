@@ -12,7 +12,10 @@ use super::{OAuthRoute, oauth};
 use crate::credential::CredentialFilterKind;
 use crate::health::{AttemptHealth, HealthAcquireError};
 use crate::health::{EndpointHealthRuntime, ProxyHealthRuntime, ReliabilityPolicy};
-use crate::{configuration::PublishedSnapshot, credential::CredentialRuntimeBinding};
+use crate::{
+    configuration::PublishedSnapshot,
+    credential::{CredentialRuntimeBinding, RoutingPermit},
+};
 
 #[derive(Clone, Debug)]
 pub(crate) struct RouteCandidate {
@@ -126,12 +129,22 @@ impl RouteCandidate {
         ))
     }
 
-    pub(crate) fn record_health_filter(&self, error: CandidateHealthError) {
-        self.binding.record_filter(error.kind());
+    pub(crate) fn acquire_health_with_rpm_reservation(
+        &self,
+        policy: ReliabilityPolicy,
+        permit: RoutingPermit,
+    ) -> Result<(RoutingPermit, AttemptHealth), CandidateHealthError> {
+        match self.acquire_health(policy) {
+            Ok(health) => Ok((permit, health)),
+            Err(error) => {
+                permit.rollback_before_attempt();
+                Err(error)
+            }
+        }
     }
 
-    pub(crate) fn record_rate_limit_filter(&self) {
-        self.binding.record_filter(CredentialFilterKind::RateLimit);
+    pub(crate) fn record_filter(&self, kind: CredentialFilterKind) {
+        self.binding.record_filter(kind);
     }
 
     pub(crate) fn record_selection(&self) {

@@ -3,8 +3,7 @@ use std::str::FromStr;
 use any2api_domain::GatewayApiKeyId;
 use axum::{
     Json,
-    extract::{Path, Query, State, rejection::JsonRejection, rejection::QueryRejection},
-    response::Response,
+    extract::{Path, State},
 };
 
 use crate::state::AppState;
@@ -15,18 +14,19 @@ use super::{
         GatewayApiKeyRotateRequest, GatewayApiKeyUpdateRequest,
     },
     error::AdminApiError,
-    no_store,
+    request_json::AdminJson,
+    revision::RequiredVersionedQuery,
 };
 
-pub(crate) async fn list(State(state): State<AppState>) -> Response {
-    response(&state, &state.snapshots().load()).await
+pub(crate) async fn list(State(state): State<AppState>) -> Json<GatewayApiKeyCollectionResponse> {
+    response_for_snapshot(&state, &state.snapshots().load()).await
 }
 
 pub(crate) async fn create(
     State(state): State<AppState>,
-    payload: Result<Json<GatewayApiKeyCreateRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
-    let (expected, draft) = parse_json(payload)?.into_domain()?;
+    AdminJson(payload): AdminJson<GatewayApiKeyCreateRequest>,
+) -> Result<Json<GatewayApiKeyCollectionResponse>, AdminApiError> {
+    let (expected, draft) = payload.into_domain()?;
     let snapshot = state
         .publisher()
         .create_gateway_api_key(expected, GatewayApiKeyId::new(), draft)
@@ -37,10 +37,10 @@ pub(crate) async fn create(
 pub(crate) async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<GatewayApiKeyUpdateRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
+    AdminJson(payload): AdminJson<GatewayApiKeyUpdateRequest>,
+) -> Result<Json<GatewayApiKeyCollectionResponse>, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version, draft) = parse_json(payload)?.into_domain()?;
+    let (expected, expected_config_version, draft) = payload.into_domain()?;
     let snapshot = state
         .publisher()
         .update_gateway_api_key(expected, id, expected_config_version, draft)
@@ -51,11 +51,10 @@ pub(crate) async fn update(
 pub(crate) async fn rotate(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<GatewayApiKeyRotateRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
+    AdminJson(payload): AdminJson<GatewayApiKeyRotateRequest>,
+) -> Result<Json<GatewayApiKeyCollectionResponse>, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version, expected_token_version) =
-        parse_json(payload)?.into_domain()?;
+    let (expected, expected_config_version, expected_token_version) = payload.into_domain()?;
     let snapshot = state
         .publisher()
         .rotate_gateway_api_key(
@@ -71,17 +70,10 @@ pub(crate) async fn rotate(
 pub(crate) async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    query: Result<Query<GatewayApiKeyDeleteRequest>, QueryRejection>,
-) -> Result<Response, AdminApiError> {
+    RequiredVersionedQuery(query): RequiredVersionedQuery<GatewayApiKeyDeleteRequest>,
+) -> Result<Json<GatewayApiKeyCollectionResponse>, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version) = query
-        .map_err(|_| {
-            AdminApiError::invalid_request(
-                "expected_revision and expected_config_version queries are required",
-            )
-        })?
-        .0
-        .into_domain()?;
+    let (expected, expected_config_version) = query.into_domain()?;
     let snapshot = state
         .publisher()
         .delete_gateway_api_key(expected, id, expected_config_version)
@@ -89,19 +81,12 @@ pub(crate) async fn delete(
     Ok(response_for_snapshot(&state, &snapshot).await)
 }
 
-async fn response(
-    state: &AppState,
-    snapshot: &any2api_runtime::api::PublishedSnapshot,
-) -> Response {
-    response_for_snapshot(state, snapshot).await
-}
-
 async fn response_for_snapshot(
     state: &AppState,
     snapshot: &any2api_runtime::api::PublishedSnapshot,
-) -> Response {
+) -> Json<GatewayApiKeyCollectionResponse> {
     let usage = usage(state).await;
-    no_store::json(GatewayApiKeyCollectionResponse::from_snapshot(
+    Json(GatewayApiKeyCollectionResponse::from_snapshot(
         snapshot,
         state.request_telemetry(),
         &usage,
@@ -116,12 +101,6 @@ async fn usage(state: &AppState) -> Vec<any2api_runtime::api::GatewayApiKeyUsage
             Vec::new()
         }
     }
-}
-
-fn parse_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, AdminApiError> {
-    payload
-        .map(|Json(value)| value)
-        .map_err(|_| AdminApiError::invalid_request("request body must be valid JSON"))
 }
 
 fn parse_id(value: &str) -> Result<GatewayApiKeyId, AdminApiError> {

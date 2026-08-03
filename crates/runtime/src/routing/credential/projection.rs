@@ -151,7 +151,6 @@ fn unix_now() -> i64 {
 pub(crate) struct RoutingCredentials {
     ordered: Vec<RoutingCredential>,
     by_id: HashMap<RoutingCredentialId, usize>,
-    bindings: Vec<CredentialRuntimeBinding>,
 }
 
 impl RoutingCredentials {
@@ -161,12 +160,7 @@ impl RoutingCredentials {
             .enumerate()
             .map(|(i, item)| (item.id(), i))
             .collect();
-        let bindings = ordered.iter().map(|item| item.binding().clone()).collect();
-        Self {
-            ordered,
-            by_id,
-            bindings,
-        }
+        Self { ordered, by_id }
     }
     pub(crate) fn get(&self, id: RoutingCredentialId) -> Option<&RoutingCredential> {
         self.by_id.get(&id).map(|index| &self.ordered[*index])
@@ -174,7 +168,7 @@ impl RoutingCredentials {
     pub(crate) fn as_slice(&self) -> &[RoutingCredential] {
         &self.ordered
     }
-    pub(crate) fn bindings(&self) -> &[CredentialRuntimeBinding] {
-        &self.bindings
+    pub(crate) fn bindings(&self) -> impl ExactSizeIterator<Item = &CredentialRuntimeBinding> + '_ {
+        self.ordered.iter().map(RoutingCredential::binding)
     }
 }

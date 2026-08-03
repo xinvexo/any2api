@@ -1,35 +1,49 @@
-pub(crate) async fn signal() {
-    #[cfg(unix)]
-    {
-        tokio::select! {
-            () = ctrl_c() => {}
-            () = sigterm() => {}
-        }
-    }
-    #[cfg(not(unix))]
-    ctrl_c().await;
+#[cfg(unix)]
+pub(crate) struct ShutdownSignal {
+    interrupt: tokio::signal::unix::Signal,
+    terminate: tokio::signal::unix::Signal,
 }
 
-async fn ctrl_c() {
-    if let Err(error) = tokio::signal::ctrl_c().await {
-        tracing::error!(%error, "failed to listen for Ctrl-C; signal shutdown is unavailable");
-        std::future::pending::<()>().await;
+#[cfg(unix)]
+impl ShutdownSignal {
+    pub(crate) fn install() -> std::io::Result<Self> {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        Ok(Self {
+            interrupt: signal(SignalKind::interrupt())?,
+            terminate: signal(SignalKind::terminate())?,
+        })
+    }
+
+    pub(crate) async fn wait(mut self) {
+        tokio::select! {
+            signal = self.interrupt.recv() => wait_if_closed(signal, "SIGINT").await,
+            signal = self.terminate.recv() => wait_if_closed(signal, "SIGTERM").await,
+        }
     }
 }
 
 #[cfg(unix)]
-async fn sigterm() {
-    let mut stream = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-    {
-        Ok(stream) => stream,
-        Err(error) => {
-            tracing::error!(%error, "failed to listen for SIGTERM; signal shutdown is unavailable");
-            std::future::pending::<()>().await;
-            unreachable!("pending signal fallback does not complete")
-        }
-    };
-    if stream.recv().await.is_none() {
-        tracing::error!("SIGTERM signal stream closed; signal shutdown is unavailable");
+async fn wait_if_closed(signal: Option<()>, name: &str) {
+    if signal.is_none() {
+        tracing::error!(%name, "shutdown signal stream closed; signal shutdown is unavailable");
         std::future::pending::<()>().await;
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) struct ShutdownSignal;
+
+#[cfg(not(unix))]
+impl ShutdownSignal {
+    pub(crate) fn install() -> std::io::Result<Self> {
+        Ok(Self)
+    }
+
+    pub(crate) async fn wait(self) {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            tracing::error!(%error, "failed to listen for Ctrl-C; signal shutdown is unavailable");
+            std::future::pending::<()>().await;
+        }
     }
 }

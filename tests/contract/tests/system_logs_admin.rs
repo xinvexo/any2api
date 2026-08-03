@@ -1,12 +1,9 @@
-use std::{fs, net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::RequestId;
-use any2api_runtime::api::{
-    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
-};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, HttpAccessLogRepository, SqliteStore};
+use any2api_runtime::api::RequestTelemetry;
+use any2api_storage::api::{HttpAccessLogRepository, SqliteStore};
 use axum::{
     Router,
     body::Body,
@@ -14,23 +11,13 @@ use axum::{
     http::{Method, Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("SQLite store"),
-    );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::create_dir(web_root.join("assets")).expect("asset directory");
-    fs::write(web_root.join("index.html"), "<main>any2api</main>").expect("web index");
-
-    let (app, telemetry) = build_test_app(Arc::clone(&storage), web_root).await;
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let (_directory, app, telemetry) = build_test_app(fixture).await;
     for (uri, status) in [
         ("/api/health?token=must-not-be-stored", StatusCode::OK),
         ("/client/actual%20value?code=secret", StatusCode::OK),
@@ -83,6 +70,10 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     assert_eq!(first_page.json["total"], 5);
     assert_eq!(first_page.json["page"], 1);
     assert_eq!(first_page.json["page_size"], 3);
+    assert!(first_page.json["telemetry"]["queued_records"].is_u64());
+    assert!(first_page.json["telemetry"]["in_flight_records"].is_u64());
+    assert!(first_page.json["telemetry"]["dropped_records"].is_u64());
+    assert!(first_page.json["telemetry"]["persisted_records"].is_u64());
     let second_page = send(
         &app,
         Method::GET,
@@ -144,8 +135,8 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
         SocketAddr::from(([203, 0, 113, 9], 41_001)),
     )
     .await;
-    assert_eq!(denied.status, StatusCode::FORBIDDEN);
-    assert_eq!(denied.json["error"]["code"], "admin_loopback_only");
+    assert_eq!(denied.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(denied.json["error"]["code"], "admin_session_required");
     wait_for_log_count(storage.as_ref(), 1).await;
     tokio::time::timeout(Duration::from_secs(1), system_log_changes.changed())
         .await
@@ -167,18 +158,38 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
 }
 
 #[tokio::test]
-async fn system_log_detail_preserves_raw_client_http_exchange() {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("raw-system-log.sqlite3"))
-            .await
-            .expect("SQLite store"),
+async fn ipv4_mapped_loopback_uses_canonical_system_log_retention_semantics() {
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let (_directory, app, telemetry) = build_test_app(fixture).await;
+    let mapped_loopback = "[::ffff:127.0.0.1]:41000"
+        .parse::<SocketAddr>()
+        .expect("mapped loopback peer");
+
+    let health = send_from_peer(&app, Method::GET, "/api/health", mapped_loopback).await;
+    assert_eq!(health.status, StatusCode::OK);
+    let public = send_from_peer(&app, Method::GET, "/v1/models", mapped_loopback).await;
+    assert_eq!(public.status, StatusCode::UNAUTHORIZED);
+    wait_for_log_count(storage.as_ref(), 1).await;
+
+    let logs = storage
+        .list_http_access_logs(0, 0, 10)
+        .await
+        .expect("mapped loopback system logs");
+    assert_eq!(logs.total, 1);
+    assert_eq!(logs.items[0].path, "/v1/models");
+    assert_eq!(
+        logs.items[0].client_ip,
+        Some("127.0.0.1".parse().expect("canonical loopback"))
     );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::create_dir(web_root.join("assets")).expect("asset directory");
-    fs::write(web_root.join("index.html"), "<main>any2api</main>").expect("web index");
-    let (app, telemetry) = build_test_app(Arc::clone(&storage), web_root).await;
+    telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn system_log_detail_preserves_raw_client_http_exchange() {
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let (_directory, app, telemetry) = build_test_app(fixture).await;
     let raw_body = r#"{"password":"raw-password","keyword":"do-not-redact"}"#;
     let request = Request::builder()
         .method(Method::POST)
@@ -192,7 +203,7 @@ async fn system_log_detail_preserves_raw_client_http_exchange() {
         .expect("raw request");
     let response = app.clone().oneshot(request).await.expect("raw response");
     let response = collect_response(response).await;
-    assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
     let request_id = response
         .request_id
         .parse::<RequestId>()
@@ -246,7 +257,7 @@ async fn system_log_detail_preserves_raw_client_http_exchange() {
         detail.json["exchange"]["response"]["body"]["content"]
             .as_str()
             .expect("response body")
-            .contains("admin_auth_unavailable")
+            .contains("admin_invalid_credentials")
     );
     assert_eq!(
         detail.json["exchange"]["response"]["body"]["complete"],
@@ -257,41 +268,22 @@ async fn system_log_detail_preserves_raw_client_http_exchange() {
 }
 
 async fn build_test_app(
-    storage: Arc<SqliteStore>,
-    web_root: std::path::PathBuf,
-) -> (Router, Arc<RequestTelemetry>) {
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
+    fixture: TestApplication,
+) -> (tempfile::TempDir, Router, Arc<RequestTelemetry>) {
+    let storage = fixture.storage();
+    let runtime = fixture.runtime();
+    let snapshots = fixture.snapshots();
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
-        configuration.revision(),
-        configuration.settings().logging(),
+        snapshots.load().revision(),
+        snapshots.load().settings().logging(),
         &runtime.lifecycle(),
     ));
-    let components = build_public_request_components().expect("public request components");
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            components.provider_registry(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            components.configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, components.service())
-            .with_request_telemetry(Arc::clone(&telemetry)),
-        web_root,
-    );
-    (app, telemetry)
+    let state = fixture
+        .state()
+        .with_request_telemetry(Arc::clone(&telemetry));
+    let (directory, app, _storage) = fixture.into_router_with_state(state);
+    (directory, app, telemetry)
 }
 
 struct TestResponse {

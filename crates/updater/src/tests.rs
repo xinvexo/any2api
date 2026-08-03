@@ -1,11 +1,4 @@
-use std::{
-    fs,
-    io::Write,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
-};
+use std::{fs, io::Write, time::Duration};
 
 use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
@@ -13,71 +6,21 @@ use tar::{Builder, Header};
 use tempfile::tempdir;
 
 use crate::{
-    api::{
-        ApplicationUpdateService, RestartRequester, UpdateErrorKind, UpdateStatus, UpdateTask,
-        UpdateTaskExecutor,
-    },
+    api::UpdateErrorKind,
     github::{MAX_ARCHIVE_BYTES, parse_release_for_test},
     install::{extract_and_replace_for_test, verify_checksum_for_test},
-    service::GitHubReleaseUpdater,
+    smoke::verify_staged_version_for_test,
 };
 
-struct CapturingTaskExecutor {
-    accepting: AtomicBool,
-    spawn_accepting: AtomicBool,
-    tasks: Mutex<Vec<UpdateTask>>,
-}
+mod task_lifecycle;
 
-impl CapturingTaskExecutor {
-    fn new(accepting: bool, spawn_accepting: bool) -> Self {
-        Self {
-            accepting: AtomicBool::new(accepting),
-            spawn_accepting: AtomicBool::new(spawn_accepting),
-            tasks: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn take_task(&self) -> UpdateTask {
-        self.tasks
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .pop()
-            .expect("captured update task")
-    }
-
-    fn task_count(&self) -> usize {
-        self.tasks
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .len()
-    }
-}
-
-impl UpdateTaskExecutor for CapturingTaskExecutor {
-    fn accepts_new_tasks(&self) -> bool {
-        self.accepting.load(Ordering::Acquire)
-    }
-
-    fn try_spawn(&self, task: UpdateTask) -> bool {
-        if !self.spawn_accepting.load(Ordering::Acquire) {
-            return false;
-        }
-        self.tasks
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .push(task);
-        true
-    }
-}
-
-#[derive(Default)]
-struct CountingRestartRequester(AtomicUsize);
-
-impl RestartRequester for CountingRestartRequester {
-    fn request_restart(&self) {
-        self.0.fetch_add(1, Ordering::AcqRel);
-    }
-}
+const TARGET_VERSION: &str = "1.2.3";
+const RELEASE_BINARY: &[u8] = b"#!/bin/sh\n\
+if [ \"$1\" = \"--version\" ]; then\n\
+  printf 'any2api 1.2.3\\n'\n\
+else\n\
+  exit 2\n\
+fi\n";
 
 #[test]
 fn compiled_build_version_uses_the_release_override_or_dev_default() {
@@ -89,73 +32,6 @@ fn compiled_build_version_uses_the_release_override_or_dev_default() {
     } else {
         assert_eq!(crate::BUILD_VERSION, "0.0.0-dev");
     }
-}
-
-#[tokio::test]
-async fn accepted_install_task_continues_after_the_start_call_returns() {
-    let tasks = Arc::new(CapturingTaskExecutor::new(true, true));
-    let completed = Arc::new(AtomicBool::new(false));
-    let task_completed = Arc::clone(&completed);
-    let updater = test_updater(tasks.clone(), Arc::new(CountingRestartRequester::default()));
-
-    assert_eq!(
-        updater
-            .start_task_for_test(async move {
-                task_completed.store(true, Ordering::Release);
-            })
-            .expect("accepted update task"),
-        UpdateStatus::Checking
-    );
-    assert!(!completed.load(Ordering::Acquire));
-
-    tasks.take_task().await;
-
-    assert!(completed.load(Ordering::Acquire));
-}
-
-#[test]
-fn lifecycle_rejection_rolls_back_task_admission() {
-    let tasks = Arc::new(CapturingTaskExecutor::new(true, false));
-    let updater = test_updater(tasks.clone(), Arc::new(CountingRestartRequester::default()));
-
-    let error = updater
-        .start_task_for_test(std::future::ready(()))
-        .expect_err("task registration must fail");
-
-    assert_eq!(error.kind(), UpdateErrorKind::ShuttingDown);
-    assert_eq!(updater.install_status(), UpdateStatus::Idle);
-    assert_eq!(tasks.task_count(), 0);
-}
-
-#[test]
-fn non_running_lifecycle_rejects_before_task_admission() {
-    let tasks = Arc::new(CapturingTaskExecutor::new(false, false));
-    let updater = test_updater(tasks.clone(), Arc::new(CountingRestartRequester::default()));
-
-    let error = updater
-        .start_install()
-        .expect_err("shutting down lifecycle must reject");
-
-    assert_eq!(error.kind(), UpdateErrorKind::ShuttingDown);
-    assert_eq!(updater.install_status(), UpdateStatus::Idle);
-    assert_eq!(tasks.task_count(), 0);
-}
-
-#[test]
-fn completed_install_requests_restart_exactly_once() {
-    let tasks = Arc::new(CapturingTaskExecutor::new(true, true));
-    let restart = Arc::new(CountingRestartRequester::default());
-    let updater = test_updater(tasks, restart.clone());
-
-    updater.complete_install_for_test("1.2.3");
-
-    assert_eq!(restart.0.load(Ordering::Acquire), 1);
-    assert_eq!(
-        updater.install_status(),
-        UpdateStatus::Restarting {
-            target_version: "1.2.3".to_owned(),
-        }
-    );
 }
 
 #[test]
@@ -209,13 +85,79 @@ fn checksum_must_name_and_match_the_archive() {
 fn verified_archive_atomically_replaces_the_binary() {
     let directory = tempdir().expect("temporary directory");
     let executable = directory.path().join("any2api");
-    fs::write(&executable, b"old binary").expect("old binary");
+    write_executable(&executable, b"old binary", 0o755);
     let archive = directory.path().join("release.tar.gz");
-    write_archive(&archive, &[("any2api", b"new binary")]);
+    write_archive(&archive, &[("any2api", RELEASE_BINARY)]);
 
-    extract_and_replace_for_test(&archive, &directory.path().join("staged"), &executable)
-        .expect("replace binary");
-    assert_eq!(fs::read(executable).expect("new binary"), b"new binary");
+    extract_and_replace_for_test(
+        &archive,
+        &directory.path().join("staged"),
+        &executable,
+        &target_version(),
+    )
+    .expect("replace binary");
+    assert_eq!(fs::read(&executable).expect("new binary"), RELEASE_BINARY);
+    assert_eq!(
+        fs::read(directory.path().join("any2api.previous")).expect("previous binary"),
+        b"old binary"
+    );
+    assert!(directory.path().join("any2api.update-pending").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn archive_with_wrong_embedded_version_never_changes_the_current_binary() {
+    let directory = tempdir().expect("temporary directory");
+    let executable = directory.path().join("any2api");
+    write_executable(&executable, b"old binary", 0o755);
+    let archive = directory.path().join("release.tar.gz");
+    write_archive(
+        &archive,
+        &[("any2api", b"#!/bin/sh\nprintf 'any2api 9.9.9\\n'\n")],
+    );
+
+    let error = extract_and_replace_for_test(
+        &archive,
+        &directory.path().join("staged"),
+        &executable,
+        &target_version(),
+    )
+    .expect_err("wrong candidate version must fail");
+
+    assert_eq!(error.kind(), UpdateErrorKind::VerificationFailed);
+    assert_eq!(fs::read(&executable).expect("old binary"), b"old binary");
+    assert!(!directory.path().join("any2api.previous").exists());
+    assert!(!directory.path().join("any2api.update-pending").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn replacement_rejects_a_symlink_current_executable() {
+    use std::os::unix::fs::symlink;
+
+    let directory = tempdir().expect("temporary directory");
+    let actual = directory.path().join("actual");
+    write_executable(&actual, b"old binary", 0o755);
+    let executable = directory.path().join("any2api");
+    symlink(&actual, &executable).expect("current executable symlink");
+    let archive = directory.path().join("release.tar.gz");
+    write_archive(&archive, &[("any2api", RELEASE_BINARY)]);
+
+    let error = extract_and_replace_for_test(
+        &archive,
+        &directory.path().join("staged"),
+        &executable,
+        &target_version(),
+    )
+    .expect_err("symlink current executable must fail");
+
+    assert_eq!(error.kind(), UpdateErrorKind::InstallFailed);
+    assert_eq!(
+        fs::read_link(&executable).expect("symlink preserved"),
+        actual
+    );
+    assert!(!directory.path().join("any2api.previous").exists());
+    assert!(!directory.path().join("any2api.update-pending").exists());
 }
 
 #[cfg(unix)]
@@ -226,14 +168,17 @@ fn replacement_preserves_restrictive_executable_permissions() {
     for mode in [0o700, 0o555] {
         let directory = tempdir().expect("temporary directory");
         let executable = directory.path().join("any2api");
-        fs::write(&executable, b"old binary").expect("old binary");
-        fs::set_permissions(&executable, fs::Permissions::from_mode(mode))
-            .expect("old permissions");
+        write_executable(&executable, b"old binary", mode);
         let archive = directory.path().join("release.tar.gz");
-        write_archive(&archive, &[("any2api", b"new binary")]);
+        write_archive(&archive, &[("any2api", RELEASE_BINARY)]);
 
-        extract_and_replace_for_test(&archive, &directory.path().join("staged"), &executable)
-            .expect("replace binary");
+        extract_and_replace_for_test(
+            &archive,
+            &directory.path().join("staged"),
+            &executable,
+            &target_version(),
+        )
+        .expect("replace binary");
         let actual = fs::metadata(executable)
             .expect("new binary")
             .permissions()
@@ -251,11 +196,48 @@ fn archive_with_extra_entries_is_rejected_before_replacement() {
     let archive = directory.path().join("release.tar.gz");
     write_archive(&archive, &[("any2api", b"new binary"), ("extra", b"bad")]);
 
-    let error =
-        extract_and_replace_for_test(&archive, &directory.path().join("staged"), &executable)
-            .expect_err("extra archive member must fail");
+    let error = extract_and_replace_for_test(
+        &archive,
+        &directory.path().join("staged"),
+        &executable,
+        &target_version(),
+    )
+    .expect_err("extra archive member must fail");
     assert_eq!(error.kind(), UpdateErrorKind::VerificationFailed);
     assert_eq!(fs::read(executable).expect("old binary"), b"old binary");
+}
+
+#[cfg(unix)]
+#[test]
+fn staged_version_must_match_and_finish_before_the_deadline() {
+    let directory = tempdir().expect("temporary directory");
+    let wrong = directory.path().join("wrong");
+    write_executable(&wrong, b"#!/bin/sh\nprintf 'any2api 9.9.9\\n'\n", 0o755);
+    let error = verify_staged_version_for_test(&wrong, &target_version(), Duration::from_secs(1))
+        .expect_err("wrong version must fail");
+    assert_eq!(error.kind(), UpdateErrorKind::VerificationFailed);
+
+    let noisy = directory.path().join("noisy");
+    let noisy_script = format!("#!/bin/sh\nprintf '{}\\n'\n", "x".repeat(300));
+    write_executable(&noisy, noisy_script.as_bytes(), 0o755);
+    let error = verify_staged_version_for_test(&noisy, &target_version(), Duration::from_secs(1))
+        .expect_err("oversized version output must fail");
+    assert_eq!(error.kind(), UpdateErrorKind::VerificationFailed);
+
+    let failing = directory.path().join("failing");
+    write_executable(&failing, b"#!/bin/sh\nexit 7\n", 0o755);
+    let error = verify_staged_version_for_test(&failing, &target_version(), Duration::from_secs(1))
+        .expect_err("non-zero version command must fail");
+    assert_eq!(error.kind(), UpdateErrorKind::VerificationFailed);
+
+    let hanging = directory.path().join("hanging");
+    write_executable(&hanging, b"#!/bin/sh\nwhile :; do :; done\n", 0o755);
+    let started = std::time::Instant::now();
+    let error =
+        verify_staged_version_for_test(&hanging, &target_version(), Duration::from_millis(50))
+            .expect_err("hanging version command must fail");
+    assert_eq!(error.kind(), UpdateErrorKind::VerificationFailed);
+    assert!(started.elapsed() < Duration::from_secs(2));
 }
 
 fn write_archive(path: &std::path::Path, entries: &[(&str, &[u8])]) {
@@ -279,10 +261,18 @@ fn write_archive(path: &std::path::Path, entries: &[(&str, &[u8])]) {
         .expect("flush");
 }
 
-fn test_updater(
-    tasks: Arc<dyn UpdateTaskExecutor>,
-    restart: Arc<dyn RestartRequester>,
-) -> GitHubReleaseUpdater {
-    GitHubReleaseUpdater::new(std::path::PathBuf::new(), true, restart, tasks)
-        .expect("test updater")
+fn target_version() -> semver::Version {
+    semver::Version::parse(TARGET_VERSION).expect("target version")
+}
+
+fn write_executable(path: &std::path::Path, contents: &[u8], mode: u32) {
+    fs::write(path, contents).expect("write executable");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("set executable mode");
+    }
+    #[cfg(not(unix))]
+    let _ = mode;
 }

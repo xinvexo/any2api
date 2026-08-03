@@ -34,6 +34,9 @@ item 类型要求 `rs_*`、`msg_*`、`fc_*` 等前缀。
    `AdapterPayload`，Provider Driver 不新增正文转换 API，候选和调度器不增加 Provider/OAuth 分支。
 5. 该规则只保证携带完整 item 内容的手工历史能够跨同方言目标重放。显式服务器状态引用仍遵守
    既有固定绑定和 `session_binding_lost` 语义，不能借归一化变成可跨 Credential 状态。
+6. Responses → Chat Completions Bridge 是本地 Responses 输出的生产者，必须直接为 message、reasoning、
+   function call 生成 `msg_*`、`rs_*`、`fc_*` 类型化 ID，并在流式生命周期中保持一致。归一化原值
+   保留这些 ID；不得把“错误 ID 会被删除”当作 Bridge 可以生成错误前缀的兼容机制。
 
 本决策部分修订 ADR-0032 的“同协议原始 JSON 直通”和 ADR-0059 的“远程压缩请求 JSON 不透明”
 表述：未知字段和内容仍保持不透明，只有顶层 `input` 中已知具体 item 的可省略 `id` 允许按上述规则
@@ -63,6 +66,8 @@ item 类型要求 `rs_*`、`msg_*`、`fc_*` 等前缀。
 
 - Protocol 单元测试枚举全部已知类型，覆盖错误前缀删除、允许前缀保留、空后缀、未知类型、
   `item_reference.id`、`call_id`、加密内容和嵌套 `id`。
+- Bridge 测试覆盖 buffered output 的类型化 ID、完整 output 回传后 ID 原值保留，以及流式 added/delta/
+  done 与最终 item 的 ID 一致性。
 - HTTP 契约测试覆盖 `affinity.enabled=false` 时同一 Session 在两个 Credential 间轮询，两次出站
   请求都使用相同的归一化历史。
 - OAuth 路由契约确认固定 ChatGPT Codex 数据面收到归一化历史，同时认证、模型和其他正文不变。

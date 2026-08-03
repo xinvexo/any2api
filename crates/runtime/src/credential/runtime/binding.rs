@@ -9,7 +9,7 @@ use super::{
     generation::CredentialGenerationRuntime,
     handle::{CredentialRuntimeHandle, FixedCredentialWaiter},
     metrics::{CredentialBalancingCounters, CredentialFilterKind},
-    rate_window::{CredentialRateSnapshot, RateLimited},
+    rate_window::{CredentialRateSnapshot, RateLimited, RateReservation},
 };
 
 #[derive(Clone, Debug)]
@@ -81,6 +81,8 @@ impl CredentialRuntimeBinding {
 pub struct RoutingPermit {
     pub(crate) handle: Arc<CredentialRuntimeHandle>,
     pub(crate) generation: Arc<CredentialGenerationRuntime>,
+    pub(super) rate_reservation: Option<RateReservation>,
+    pub(super) in_flight_released: bool,
 }
 
 impl RoutingPermit {
@@ -103,6 +105,12 @@ impl RoutingPermit {
         self.generation
             .credential_headers(driver, base_url, forwarded)
     }
+
+    pub(crate) fn rollback_before_attempt(mut self) {
+        self.in_flight_released = true;
+        self.handle
+            .rollback_before_attempt(self.rate_reservation.take());
+    }
 }
 
 impl fmt::Debug for RoutingPermit {
@@ -117,7 +125,9 @@ impl fmt::Debug for RoutingPermit {
 
 impl Drop for RoutingPermit {
     fn drop(&mut self) {
-        self.handle.release_in_flight();
+        if !self.in_flight_released {
+            self.handle.release_in_flight();
+        }
     }
 }
 

@@ -112,13 +112,26 @@ async fn commit_configuration(
     expected: ConfigRevision,
     mutation: ConfigurationMutation,
 ) -> StoredConfiguration {
-    let prepared = store
-        .prepare_configuration(expected, mutation)
-        .await
-        .expect("prepare configuration");
-    let (configuration, commit) = prepared.into_parts();
-    commit.finish().await.expect("commit configuration");
-    configuration
+    use std::convert::Infallible;
+
+    use any2api_storage::api::{
+        ConfigurationTransactionOutcome, ConfigurationTransactionRepository,
+    };
+
+    let outcome = <SqliteStore as ConfigurationTransactionRepository<
+        StoredConfiguration,
+        Infallible,
+    >>::transact_configuration(store, expected, mutation, Box::new(Ok))
+    .await
+    .expect("commit configuration");
+    match outcome {
+        ConfigurationTransactionOutcome::NoChange => store
+            .load_configuration()
+            .await
+            .expect("load unchanged configuration"),
+        ConfigurationTransactionOutcome::Committed(configuration) => configuration,
+        ConfigurationTransactionOutcome::Rejected(never) => match never {},
+    }
 }
 
 #[cfg(unix)]

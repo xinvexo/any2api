@@ -140,9 +140,7 @@ fn token_plan(body: String) -> Result<OAuthRequestPlan, ProviderError> {
 pub(crate) fn parse_token(body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
     let response = serde_json::from_slice::<GrokOAuthResponse>(body)
         .map_err(|_| ProviderError::InvalidResponse("Grok OAuth response is invalid".into()))?;
-    let claims = decode_claims(response.id_token.as_deref())
-        .or_else(|| decode_claims(Some(&response.access_token)))
-        .unwrap_or_default();
+    let claims = identity_claims(response.id_token.as_deref(), &response.access_token);
     OAuthTokenMaterial::new(
         ProviderKind::Grok,
         response.access_token,
@@ -226,6 +224,14 @@ struct Claims {
 
 fn decode_claims(token: Option<&str>) -> Option<Claims> {
     serde_json::from_value(decode_json_claims(token?)?).ok()
+}
+
+fn identity_claims(id_token: Option<&str>, access_token: &str) -> Claims {
+    let mut claims = decode_claims(id_token).unwrap_or_default();
+    let fallback = decode_claims(Some(access_token)).unwrap_or_default();
+    claims.subject = claims.subject.or(fallback.subject);
+    claims.email = claims.email.or(fallback.email);
+    claims
 }
 
 fn decode_json_claims(token: &str) -> Option<serde_json::Value> {

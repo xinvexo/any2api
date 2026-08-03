@@ -14,7 +14,7 @@ use super::{
     binding::CredentialRuntimeBinding,
     generation::{CredentialGenerationDefinition, CredentialGenerationRuntime},
     metrics::{CredentialBalancingCounters, CredentialBalancingMetrics, CredentialFilterKind},
-    rate_window::{CredentialRateSnapshot, CredentialRateWindow, RateLimited},
+    rate_window::{CredentialRateSnapshot, CredentialRateWindow, RateLimited, RateReservation},
 };
 use crate::routing::SchedulerEpoch;
 
@@ -88,10 +88,12 @@ impl CredentialRuntimeHandle {
         let generation = if current.matches(&generation) {
             current
         } else {
-            let next = Arc::new(CredentialGenerationRuntime::new(
-                generation,
-                Arc::clone(&self.scheduler_epoch),
-            ));
+            let next = if current.matches_routing_generation(&generation) {
+                CredentialGenerationRuntime::with_reused_routing_health(generation, &current)
+            } else {
+                CredentialGenerationRuntime::new(generation, Arc::clone(&self.scheduler_epoch))
+            };
+            let next = Arc::new(next);
             self.current_generation.store(Arc::clone(&next));
             next
         };
@@ -178,7 +180,7 @@ impl CredentialRuntimeHandle {
         now: Instant,
         fixed: bool,
     ) -> Result<super::binding::RoutingPermit, RateLimited> {
-        {
+        let rate_reservation = {
             let mut state = self
                 .mutable
                 .lock()
@@ -186,8 +188,8 @@ impl CredentialRuntimeHandle {
             let fixed_waiters = state.fixed_waiters;
             state
                 .rate_window
-                .try_reserve(now, requests_per_minute, fixed_waiters, fixed)?;
-        }
+                .try_reserve(now, requests_per_minute, fixed_waiters, fixed)?
+        };
         self.in_flight
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current.checked_add(1)
@@ -196,7 +198,23 @@ impl CredentialRuntimeHandle {
         Ok(super::binding::RoutingPermit {
             handle: Arc::clone(self),
             generation,
+            rate_reservation,
+            in_flight_released: false,
         })
+    }
+
+    pub(super) fn rollback_before_attempt(&self, reservation: Option<RateReservation>) {
+        let removed = reservation.is_some_and(|reservation| {
+            self.mutable
+                .lock()
+                .expect("credential runtime lock poisoned")
+                .rate_window
+                .rollback(reservation)
+        });
+        self.release_in_flight();
+        if removed {
+            self.scheduler_epoch.advance();
+        }
     }
 
     pub(crate) fn release_in_flight(&self) {

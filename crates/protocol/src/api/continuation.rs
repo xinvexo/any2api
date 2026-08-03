@@ -17,7 +17,7 @@ pub(crate) trait ResumableProtocolContinuation: Send + Sync {
 
     fn resume(
         &self,
-        request: DecodedRequest,
+        request: &DecodedRequest,
         upstream_model: &str,
     ) -> Result<StartedProtocolBridge, ProtocolError>;
 }
@@ -56,7 +56,7 @@ impl ProtocolContinuationState {
         ingress: ProtocolDialect,
         upstream: ProtocolDialect,
         operation: ProtocolOperation,
-        request: DecodedRequest,
+        request: &DecodedRequest,
         upstream_model: &str,
     ) -> Result<StartedProtocolBridge, ProtocolError> {
         if self.inner.ingress_dialect() != ingress

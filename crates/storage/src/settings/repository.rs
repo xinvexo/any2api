@@ -4,8 +4,11 @@ use any2api_domain::{
 use sqlx::SqliteConnection;
 
 use crate::{
-    configuration::{StoredConfiguration, bump_revision, load_configuration_from},
-    error::StorageError,
+    configuration::{
+        StoredConfiguration, bump_revision, ensure_write_matches, load_configuration_from,
+        readback_setting_mutation,
+    },
+    error::{ConfigurationWriteComponent, StorageError},
 };
 
 use super::{
@@ -36,9 +39,17 @@ pub(crate) async fn mutate_connection(
     };
     persist_changes(connection, current.settings(), &expected_settings).await?;
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection).await?;
-    assert_eq!(configuration.revision(), revision);
-    assert_eq!(configuration.settings(), &expected_settings);
+    let configuration = readback_setting_mutation(connection, current).await?;
+    ensure_write_matches(
+        configuration.revision(),
+        revision,
+        ConfigurationWriteComponent::Revision,
+    )?;
+    ensure_write_matches(
+        configuration.settings(),
+        &expected_settings,
+        ConfigurationWriteComponent::Settings,
+    )?;
     Ok((configuration, true))
 }
 

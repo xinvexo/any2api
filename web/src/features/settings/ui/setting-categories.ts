@@ -52,7 +52,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
   {
     id: "logging",
     label: "日志",
-    webGroups: ["请求日志", "本地文件日志"],
+    webGroups: ["请求日志", "HTTP 系统日志", "本地文件日志"],
     featuredKeys: ["logs.request.enabled", "logs.file.level"],
   },
 ] as const;

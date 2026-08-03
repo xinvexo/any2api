@@ -121,6 +121,64 @@ fn log_directory_and_segments_are_private() {
 }
 
 #[cfg(unix)]
+#[test]
+fn deleted_active_log_directory_is_recreated_with_a_visible_new_segment() {
+    let root = tempdir().expect("temporary directory");
+    let directory = root.path().join("logs");
+    let policy = Arc::new(RwLock::new(test_policy(86_400, MIB)));
+    let mut writer = RotatingFileWriter::new(directory.clone(), policy).expect("writer");
+    let now = OffsetDateTime::now_utc();
+    writer
+        .write_at(now, b"before deletion\n")
+        .expect("first write");
+
+    fs::remove_dir_all(&directory).expect("remove active log directory");
+    writer.directory.force_next_check();
+    writer
+        .write_at(now, b"after recreation\n")
+        .expect("self-healed write");
+
+    let files = managed_files(&directory, None).expect("recreated log files");
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        fs::read_to_string(&files[0].path).expect("recreated log contents"),
+        "after recreation\n"
+    );
+    assert_eq!(mode(&directory), 0o700);
+    assert_eq!(mode(&files[0].path), 0o600);
+}
+
+#[cfg(unix)]
+#[test]
+fn writer_resumes_after_an_unsafe_directory_blocker_is_removed() {
+    let root = tempdir().expect("temporary directory");
+    let directory = root.path().join("logs");
+    let policy = Arc::new(RwLock::new(test_policy(86_400, MIB)));
+    let mut writer = RotatingFileWriter::new(directory.clone(), policy).expect("writer");
+    let now = OffsetDateTime::now_utc();
+    writer
+        .write_at(now, b"before blocker\n")
+        .expect("first write");
+
+    fs::remove_dir_all(&directory).expect("remove log directory");
+    fs::write(&directory, b"unsafe blocker").expect("directory blocker");
+    writer.directory.force_next_check();
+    assert!(writer.write_at(now, b"while blocked\n").is_err());
+
+    fs::remove_file(&directory).expect("remove directory blocker");
+    writer
+        .write_at(now, b"after recovery\n")
+        .expect("write after external recovery");
+
+    let files = managed_files(&directory, None).expect("recovered log files");
+    assert_eq!(files.len(), 1);
+    assert_eq!(
+        fs::read_to_string(&files[0].path).expect("recovered log contents"),
+        "after recovery\n"
+    );
+}
+
+#[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
 

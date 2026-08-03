@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-24
+- 修订：2026-08-03
 - 决策者：maintainer
 
 ## 背景
@@ -17,6 +18,7 @@ Gateway Key 与上游凭据回答不同问题。新增上游维度不能删除 G
 - 统计直接读取最终 RequestLog：每个公开请求只归入最终上游目标一次，最终状态码为 2xx 计成功，其余计失败；每个对象返回总请求数、成功数、失败数，以及固定长度的 2 分钟时间窗条带（默认最近 30 格 / 1 小时，无请求的格子仍返回且计数为 0）。
 - RequestAttempt 继续完整记录重试和切换，但中间 Attempt 不重复计入最终请求统计。需要诊断某次切换时使用现有 Attempt 时间线。
 - 统计只覆盖当前 `logs.request.retention` / `logs.request.max_rows` 保留窗口。日志关闭、没有记录或查询失败时，Provider/OAuth 配置读取仍成功，并为当前对象返回零值与完整空条带。
+- 累计汇总不缩窄为趋势的一小时时间范围，也不建立永久计数器。ProviderCredential 与 OAuthAccount 分别在以自身 ID 起始、包含 `status_code` 的覆盖索引上完成 `GROUP BY`，只把两份已聚合结果 `UNION ALL`；禁止先合并两份原始 RequestLog 再执行外层分组。
 - Provider API Key 列表和 OAuthAccount 列表分别显示自身统计；管理 DTO 只返回来源 ID、计数和时间窗聚合，不返回 API Key、Token、OAuth JSON、请求体或响应体。
 - 统计只用于单机本地观测，不参与路由选择、Gateway Key 权限、RPM、健康、额度、计费或启动恢复。
 
@@ -29,10 +31,11 @@ Gateway Key 与上游凭据回答不同问题。新增上游维度不能删除 G
 
 ## 后果
 
-管理读请求会增加一次有索引的 SQLite 聚合读取，公开数据面只通过有界遥测队列异步写 RequestLog。日志会随保留策略删除，因此统计不是永久账单。删除上游对象后外键置空的记录不再归入该对象，与 Gateway Key 删除语义一致。
+管理读请求会增加一次覆盖索引聚合读取；索引为每条 RequestLog 多维护一个已有 `status_code` 列，换取管理刷新不再重复扫描主表或构造临时分组 B 树。公开数据面仍只通过有界遥测队列异步写 RequestLog。日志会随保留策略删除，因此统计不是永久账单。删除上游对象后外键置空的记录不再归入该对象，与 Gateway Key 删除语义一致。
 
 ## 验证
 
 - Storage 测试覆盖 API Key/OAuth 来源隔离、相同 UUID 不碰撞、2xx 分类、2 分钟窗（近 1 小时）填充与窗外总量、无来源日志。
+- Migration/EQP 测试以代表性 RequestLog 验证 Provider、OAuth 与 Gateway 累计汇总只使用对应覆盖索引，且计划不含主表全扫或临时 B 树；20 万行、8 个 ID 的本地基准记录优化前后耗时。
 - 管理契约测试覆盖 Provider API Key 与 OAuthAccount 列表统计、固定 30 格条带、查询降级和响应不含 Secret/Token。
 - React 契约与组件测试覆盖两类上游统计、零值灰条、有请求时的绿/红条及 Gateway Key 统计继续存在。

@@ -53,6 +53,7 @@ async fn definitely_not_sent_failure_switches_to_another_credential() {
     assert_eq!(calls.len(), 2);
     assert_ne!(calls[0].uri, calls[1].uri);
     assert_ne!(calls[0].authorization, calls[1].authorization);
+    assert_eq!(calls[0].body, calls[1].body);
     let record = wait_for_log(&harness, response.request_id).await;
     assert_eq!(record.request.status_code, 200);
     assert_eq!(record.request.error_class, None);
@@ -86,6 +87,130 @@ async fn definitely_not_sent_failure_switches_to_another_credential() {
         record.request.credential_id,
         record.attempts[1].credential_id
     );
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn credential_switch_does_not_wait_for_same_credential_backoff() {
+    let transport = Arc::new(ScriptedTransport::new([
+        failure_step(),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"immediate-switch","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(
+        transport.clone(),
+        2,
+        &["immediate-switch-model"],
+        &[
+            (SettingKey::RetryMaxDelay, SettingValue::DurationSecs(2)),
+            (SettingKey::RetryBaseDelay, SettingValue::DurationSecs(2)),
+        ],
+    )
+    .await;
+
+    let response = execute_json(&harness, "immediate-switch-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let calls = transport.calls();
+    assert_eq!(calls.len(), 2);
+    assert_ne!(calls[0].authorization, calls[1].authorization);
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn explicit_pre_execution_rejection_switches_before_stream_commit() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::json(
+            StatusCode::TOO_EARLY,
+            r#"{"error":{"message":"retry without early data"}}"#,
+        ),
+        ScriptStep::stream(
+            "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"safe-retry\",\"model\":\"upstream\"}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"safe-retry\",\"model\":\"upstream\",\"output\":[]}}\n\n",
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["safe-stream-retry-model"], &[]).await;
+    let request_id = RequestId::new();
+
+    let response = execute_stream_operation(
+        &harness,
+        request_id,
+        ProtocolOperation::Responses,
+        "safe-stream-retry-model",
+        json!({"input":"hello"}),
+    )
+    .await;
+    let mut body = streaming_body(response);
+    while let Some(frame) = body.next().await {
+        frame.expect("valid retried SSE frame");
+    }
+
+    let calls = transport.calls();
+    assert_eq!(calls.len(), 2);
+    assert_ne!(calls[0].uri, calls[1].uri);
+    assert_ne!(calls[0].authorization, calls[1].authorization);
+    let record = wait_for_log(&harness, request_id).await;
+    assert_eq!(record.request.status_code, 200);
+    assert_eq!(record.request.attempt_count, 2);
+    assert_eq!(record.attempts.len(), 2);
+    assert_eq!(
+        record.attempts[0].outcome,
+        RequestAttemptOutcome::UpstreamError
+    );
+    assert_eq!(
+        record.attempts[0].retry_safety,
+        Some(RetrySafety::RejectedBeforeExecution)
+    );
+    assert_eq!(record.attempts[0].status_code, Some(425));
+    assert_eq!(record.attempts[1].outcome, RequestAttemptOutcome::Success);
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn structured_bad_request_quota_switches_and_cools_the_credential() {
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::json(
+            StatusCode::BAD_REQUEST,
+            r#"{"error":{"code":"billing_hard_limit_reached","message":"billing rejected"}}"#,
+        ),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"quota-switch-ok","model":"upstream","output":[]}"#,
+        ),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"quota-cooldown-ok","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["quota-switch-model"], &[]).await;
+
+    let switched = execute_json(&harness, "quota-switch-model", json!({"input":"first"})).await;
+
+    assert_eq!(switched.status(), StatusCode::OK);
+    let calls = transport.calls();
+    assert_eq!(calls.len(), 2);
+    assert_ne!(calls[0].authorization, calls[1].authorization);
+    let record = wait_for_log(&harness, switched.request_id).await;
+    assert_eq!(record.attempts.len(), 2);
+    assert_eq!(
+        record.attempts[0].error_class,
+        Some(ErrorClass::QuotaExhausted)
+    );
+    assert_eq!(
+        record.attempts[0].retry_safety,
+        Some(RetrySafety::RejectedBeforeExecution)
+    );
+    assert_eq!(record.attempts[1].outcome, RequestAttemptOutcome::Success);
+
+    let after_cooldown =
+        execute_json(&harness, "quota-switch-model", json!({"input":"second"})).await;
+
+    assert_eq!(after_cooldown.status(), StatusCode::OK);
+    let calls = transport.calls();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[2].authorization, calls[1].authorization);
+    assert_ne!(calls[2].authorization, calls[0].authorization);
     harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
@@ -412,6 +537,82 @@ async fn ambiguous_transport_failure_is_not_retried() {
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(response.json_body()["error"]["code"], "upstream_error");
     assert_eq!(transport.calls().len(), 1);
+}
+
+#[tokio::test]
+async fn server_error_on_generation_post_is_ambiguous_and_not_retried() {
+    const UPSTREAM_BODY: &str =
+        r#"{"error":{"type":"server_error","message":"execution outcome unknown"}}"#;
+    let transport = Arc::new(ScriptedTransport::new([
+        ScriptStep::json(StatusCode::SERVICE_UNAVAILABLE, UPSTREAM_BODY),
+        ScriptStep::json(
+            StatusCode::OK,
+            r#"{"id":"must-not-run","model":"upstream","output":[]}"#,
+        ),
+    ]));
+    let harness = harness(transport.clone(), 2, &["ambiguous-5xx-model"], &[]).await;
+
+    let response = execute_json(&harness, "ambiguous-5xx-model", json!({"input":"hello"})).await;
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.body_bytes(), UPSTREAM_BODY.as_bytes());
+    assert_eq!(transport.calls().len(), 1);
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.attempt_count, 1);
+    assert_eq!(record.attempts.len(), 1);
+    assert_eq!(
+        record.attempts[0].outcome,
+        RequestAttemptOutcome::UpstreamError
+    );
+    assert_eq!(
+        record.attempts[0].retry_safety,
+        Some(RetrySafety::Ambiguous)
+    );
+    assert_eq!(record.attempts[0].status_code, Some(503));
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn client_rejection_statuses_are_transparent_and_not_retried() {
+    for (status, upstream_body) in [
+        (
+            StatusCode::CONFLICT,
+            r#"{"error":{"type":"conflict_error","message":"resource changed"}}"#,
+        ),
+        (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            r#"{"error":{"type":"request_too_large","message":"request too large"}}"#,
+        ),
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            r#"{"error":{"type":"invalid_request_error","message":"unprocessable"}}"#,
+        ),
+    ] {
+        let transport = Arc::new(ScriptedTransport::new([
+            ScriptStep::json(status, upstream_body),
+            ScriptStep::json(
+                StatusCode::OK,
+                r#"{"id":"must-not-run","model":"upstream","output":[]}"#,
+            ),
+        ]));
+        let model = format!("client-rejection-{}-model", status.as_u16());
+        let harness = harness(transport.clone(), 2, &[model.as_str()], &[]).await;
+
+        let response = execute_json(&harness, &model, json!({"input":"hello"})).await;
+
+        assert_eq!(response.status(), status);
+        assert_eq!(response.body_bytes(), upstream_body.as_bytes());
+        assert_eq!(transport.calls().len(), 1);
+        let record = wait_for_log(&harness, response.request_id).await;
+        assert_eq!(record.request.attempt_count, 1);
+        assert_eq!(record.request.error_class, Some(ErrorClass::InvalidRequest));
+        assert_eq!(record.attempts.len(), 1);
+        assert_eq!(
+            record.attempts[0].retry_safety,
+            Some(RetrySafety::Ambiguous)
+        );
+        harness.telemetry.shutdown(Duration::from_secs(1)).await;
+    }
 }
 
 #[tokio::test]
@@ -1117,6 +1318,19 @@ async fn sse_first_frame_failure_does_not_start_a_second_stream() {
 
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     assert_eq!(transport.calls().len(), 1);
+    let record = wait_for_log(&harness, response.request_id).await;
+    assert_eq!(record.request.attempt_count, 1);
+    assert_eq!(record.attempts.len(), 1);
+    assert_eq!(
+        record.attempts[0].outcome,
+        RequestAttemptOutcome::TransportError
+    );
+    assert_eq!(
+        record.attempts[0].retry_safety,
+        Some(RetrySafety::Ambiguous)
+    );
+    assert_eq!(record.attempts[0].status_code, None);
+    harness.telemetry.shutdown(Duration::from_secs(1)).await;
 }
 
 #[tokio::test]

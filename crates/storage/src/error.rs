@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fmt, path::PathBuf};
 
 use any2api_domain::{
     ConfigRevision, CredentialId, GatewayApiKeyId, GatewayApiKeyValidationError,
@@ -11,6 +11,48 @@ use thiserror::Error;
 use crate::oauth_account::OAuthAccountDocumentValidationError;
 use crate::provider::ProviderApiKeyValidationError;
 use crate::proxy::ProxyPasswordValidationError;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConfigurationWriteComponent {
+    Revision,
+    GatewayApiKeys,
+    ProxyProfiles,
+    OAuthAccounts,
+    ProviderCredentials,
+    ProviderEndpoints,
+    ModelRoutes,
+    Settings,
+}
+
+impl ConfigurationWriteComponent {
+    #[cfg(test)]
+    pub(crate) const ALL: [Self; 8] = [
+        Self::Revision,
+        Self::GatewayApiKeys,
+        Self::ProxyProfiles,
+        Self::OAuthAccounts,
+        Self::ProviderCredentials,
+        Self::ProviderEndpoints,
+        Self::ModelRoutes,
+        Self::Settings,
+    ];
+}
+
+impl fmt::Display for ConfigurationWriteComponent {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Revision => "revision",
+            Self::GatewayApiKeys => "gateway API Keys",
+            Self::ProxyProfiles => "proxy profiles",
+            Self::OAuthAccounts => "OAuth accounts",
+            Self::ProviderCredentials => "provider credentials",
+            Self::ProviderEndpoints => "provider endpoints",
+            Self::ModelRoutes => "model routes",
+            Self::Settings => "settings",
+        })
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum StorageError {
     #[error("failed to protect local data path {path}: {source}")]
@@ -32,6 +74,8 @@ pub enum StorageError {
     },
     #[error("configuration revision cannot be incremented")]
     RevisionOverflow,
+    #[error("persisted configuration does not match prepared {0} after write")]
+    ConfigurationWriteMismatch(ConfigurationWriteComponent),
     #[error("proxy profile was not found")]
     ProxyNotFound(ProxyProfileId),
     #[error("the built-in DIRECT proxy cannot be changed")]

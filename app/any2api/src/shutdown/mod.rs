@@ -10,5 +10,5 @@ mod tests;
 pub(crate) use finalization::finalize;
 pub(crate) use outcome::ShutdownOutcome;
 pub(crate) use server::serve;
-pub(crate) use signal::signal;
+pub(crate) use signal::ShutdownSignal;
 pub(crate) use timeouts::ShutdownTimeouts;

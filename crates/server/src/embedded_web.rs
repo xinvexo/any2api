@@ -1,8 +1,8 @@
 use axum::{
     body::{Body, Bytes},
     http::{
-        Method, StatusCode, Uri,
-        header::{ALLOW, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE},
+        HeaderMap, Method, StatusCode, Uri,
+        header::{ALLOW, CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH},
     },
     response::{IntoResponse, Response},
 };
@@ -15,9 +15,10 @@ const CACHE_IMMUTABLE: &str = "public, max-age=31536000, immutable";
 pub(crate) fn response(
     method: &Method,
     uri: &Uri,
+    request_headers: &HeaderMap,
     assets: &'static [EmbeddedWebAsset],
 ) -> Response {
-    let mut response = response_without_security_headers(method, uri, assets);
+    let mut response = response_without_security_headers(method, uri, request_headers, assets);
     web_security_headers::insert(response.headers_mut());
     response
 }
@@ -25,6 +26,7 @@ pub(crate) fn response(
 fn response_without_security_headers(
     method: &Method,
     uri: &Uri,
+    request_headers: &HeaderMap,
     assets: &'static [EmbeddedWebAsset],
 ) -> Response {
     if method != Method::GET && method != Method::HEAD {
@@ -47,11 +49,21 @@ fn response_without_security_headers(
         return StatusCode::NOT_FOUND.into_response();
     };
 
+    if matches_etag(request_headers, asset.etag()) {
+        return Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header(ETAG, asset.etag())
+            .header(CACHE_CONTROL, cache_control(asset.path()))
+            .body(Body::empty())
+            .expect("embedded web response headers are valid");
+    }
+
     let bytes = asset.bytes();
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, content_type(asset.path()))
         .header(CACHE_CONTROL, cache_control(asset.path()))
+        .header(ETAG, asset.etag())
         .header(CONTENT_LENGTH, bytes.len())
         .body(if method == Method::HEAD {
             Body::empty()
@@ -62,7 +74,24 @@ fn response_without_security_headers(
 }
 
 fn find(assets: &'static [EmbeddedWebAsset], path: &str) -> Option<EmbeddedWebAsset> {
-    assets.iter().copied().find(|asset| asset.path() == path)
+    assets
+        .binary_search_by(|asset| asset.path().cmp(path))
+        .ok()
+        .map(|index| assets[index])
+}
+
+fn matches_etag(headers: &HeaderMap, expected: &str) -> bool {
+    headers
+        .get_all(IF_NONE_MATCH)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .any(|candidate| {
+            candidate == "*"
+                || candidate == expected
+                || candidate.strip_prefix("W/") == Some(expected)
+        })
 }
 
 fn cache_control(path: &str) -> &'static str {
@@ -96,28 +125,27 @@ mod tests {
     use axum::{
         body::{Body, Bytes},
         http::{
-            Method, StatusCode, Uri,
-            header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE},
+            HeaderMap, HeaderValue, Method, StatusCode, Uri,
+            header::{CACHE_CONTROL, CONTENT_LENGTH, CONTENT_TYPE, ETAG, IF_NONE_MATCH},
         },
     };
     use http_body_util::BodyExt;
 
-    use super::response;
+    use super::{CACHE_IMMUTABLE, CACHE_NO_CACHE, find, response};
     use crate::web_assets::EmbeddedWebAsset;
 
     const ASSETS: &[EmbeddedWebAsset] = &[
-        EmbeddedWebAsset::new("assets/app-123.js", b"console.log('ok')"),
-        EmbeddedWebAsset::new("assets/app-123.css", b"body{}"),
-        EmbeddedWebAsset::new("index.html", b"<main>embedded</main>"),
+        EmbeddedWebAsset::new("assets/app-123.css", b"body{}", "\"css-etag\""),
+        EmbeddedWebAsset::new("assets/app-123.js", b"console.log('ok')", "\"script-etag\""),
+        EmbeddedWebAsset::new("index.html", b"<main>embedded</main>", "\"index-etag\""),
     ];
 
     #[tokio::test]
     async fn serves_index_deep_links_and_exact_assets() {
-        let index = response(&Method::GET, &Uri::from_static("/"), ASSETS);
+        let index = serve(&Method::GET, &Uri::from_static("/"));
         assert_eq!(index.status(), StatusCode::OK);
         assert_eq!(index.headers()[CONTENT_TYPE], "text/html; charset=utf-8");
         assert_eq!(index.headers()[CACHE_CONTROL], "no-cache");
-        assert_eq!(index.headers()["x-content-type-options"], "nosniff");
         assert_eq!(index.headers()["referrer-policy"], "no-referrer");
         let policy = index.headers()["content-security-policy"]
             .to_str()
@@ -125,16 +153,14 @@ mod tests {
         assert!(policy.contains("frame-ancestors 'none'"));
         assert!(!policy.contains("upgrade-insecure-requests"));
         assert!(!index.headers().contains_key("strict-transport-security"));
+        assert_eq!(index.headers()[ETAG], "\"index-etag\"");
         assert_eq!(body(index).await.as_ref(), b"<main>embedded</main>");
 
-        let deep_link = response(&Method::GET, &Uri::from_static("/settings"), ASSETS);
+        let deep_link = serve(&Method::GET, &Uri::from_static("/settings"));
+        assert_eq!(deep_link.headers()[ETAG], "\"index-etag\"");
         assert_eq!(body(deep_link).await.as_ref(), b"<main>embedded</main>");
 
-        let script = response(
-            &Method::GET,
-            &Uri::from_static("/assets/app-123.js"),
-            ASSETS,
-        );
+        let script = serve(&Method::GET, &Uri::from_static("/assets/app-123.js"));
         assert_eq!(
             script.headers()[CONTENT_TYPE],
             "text/javascript; charset=utf-8"
@@ -148,24 +174,83 @@ mod tests {
 
     #[tokio::test]
     async fn head_missing_assets_and_writes_have_explicit_semantics() {
-        let head = response(
-            &Method::HEAD,
-            &Uri::from_static("/assets/app-123.css"),
-            ASSETS,
-        );
+        let head = serve(&Method::HEAD, &Uri::from_static("/assets/app-123.css"));
         assert_eq!(head.status(), StatusCode::OK);
         assert_eq!(head.headers()[CONTENT_LENGTH], "6");
         assert!(body(head).await.is_empty());
 
-        let missing = response(
-            &Method::GET,
-            &Uri::from_static("/assets/missing.js"),
-            ASSETS,
-        );
+        let missing = serve(&Method::GET, &Uri::from_static("/assets/missing.js"));
         assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 
-        let write = response(&Method::POST, &Uri::from_static("/settings"), ASSETS);
+        let write = serve(&Method::POST, &Uri::from_static("/settings"));
         assert_eq!(write.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn conditional_requests_preserve_cache_policy_and_spa_validator() {
+        for value in [
+            "\"script-etag\"",
+            "W/\"script-etag\"",
+            "\"other\", W/\"script-etag\"",
+            "*",
+        ] {
+            let response = serve_with_if_none_match(
+                &Method::GET,
+                &Uri::from_static("/assets/app-123.js"),
+                value,
+            );
+            assert_eq!(response.status(), StatusCode::NOT_MODIFIED, "{value}");
+            assert_eq!(response.headers()[ETAG], "\"script-etag\"");
+            assert_eq!(response.headers()[CACHE_CONTROL], CACHE_IMMUTABLE);
+            assert!(!response.headers().contains_key(CONTENT_LENGTH));
+            assert!(body(response).await.is_empty());
+        }
+
+        let deep_link = serve_with_if_none_match(
+            &Method::HEAD,
+            &Uri::from_static("/settings/providers"),
+            "\"index-etag\"",
+        );
+        assert_eq!(deep_link.status(), StatusCode::NOT_MODIFIED);
+        assert_eq!(deep_link.headers()[ETAG], "\"index-etag\"");
+        assert_eq!(deep_link.headers()[CACHE_CONTROL], CACHE_NO_CACHE);
+        assert!(body(deep_link).await.is_empty());
+
+        let changed =
+            serve_with_if_none_match(&Method::GET, &Uri::from_static("/"), "\"stale-index\"");
+        assert_eq!(changed.status(), StatusCode::OK);
+        assert_eq!(body(changed).await.as_ref(), b"<main>embedded</main>");
+    }
+
+    #[test]
+    fn sorted_manifest_is_queried_by_path() {
+        assert_eq!(
+            find(ASSETS, "assets/app-123.css").map(EmbeddedWebAsset::path),
+            Some("assets/app-123.css")
+        );
+        assert_eq!(
+            find(ASSETS, "assets/app-123.js").map(EmbeddedWebAsset::path),
+            Some("assets/app-123.js")
+        );
+        assert_eq!(
+            find(ASSETS, "index.html").map(EmbeddedWebAsset::path),
+            Some("index.html")
+        );
+        assert!(find(ASSETS, "missing.txt").is_none());
+    }
+
+    fn serve(method: &Method, uri: &Uri) -> axum::response::Response<Body> {
+        response(method, uri, &HeaderMap::new(), ASSETS)
+    }
+
+    fn serve_with_if_none_match(
+        method: &Method,
+        uri: &Uri,
+        value: &'static str,
+    ) -> axum::response::Response<Body> {
+        let mut headers = HeaderMap::new();
+        headers.insert(IF_NONE_MATCH, HeaderValue::from_static(value));
+        response(method, uri, &headers, ASSETS)
     }
 
     async fn body(response: axum::response::Response<Body>) -> Bytes {

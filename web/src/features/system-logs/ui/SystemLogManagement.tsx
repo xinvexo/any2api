@@ -1,5 +1,5 @@
 import { RefreshCw, ScrollText, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   loadSystemLogAutoRefreshPreference,
@@ -26,6 +26,19 @@ export function SystemLogManagement() {
   const total = query.data?.total ?? 0;
   const totalPages = logPageCount(total, pageSize);
   const safePage = Math.min(Math.max(1, page), totalPages);
+
+  useEffect(() => {
+    if (!query.data || query.data.page !== page || safePage === page) {
+      return;
+    }
+
+    const correction = window.setTimeout(() => {
+      setSelectedRequestId(null);
+      setPage(safePage);
+    }, 0);
+
+    return () => window.clearTimeout(correction);
+  }, [page, query.data, safePage]);
 
   async function refreshLogs() {
     const result = await query.refetch();

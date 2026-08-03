@@ -1,7 +1,5 @@
 mod collector;
 
-use std::io::{Cursor, Read};
-
 use any2api_domain::ProtocolOperation;
 use axum::{
     body::Bytes,
@@ -9,14 +7,10 @@ use axum::{
     response::Response,
 };
 
-use crate::state::AppState;
+use crate::{state::AppState, zstd_decode::ZstdDecodeError};
 
 use super::error::PublicApiError;
 use collector::{BodyCollectionError, collect_body};
-
-const MAX_DECOMPRESSED_PUBLIC_BODY_BYTES: usize =
-    any2api_runtime::api::STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES;
-const ZSTD_DECODE_CHUNK_BYTES: usize = 16 * 1024;
 
 /// Buffered public request body whose rejection uses the dialect-aware
 /// protocol error envelope instead of axum's plain-text response.
@@ -37,6 +31,8 @@ impl FromRequest<AppState> for PublicBody {
         }
         let operation = operation_for_path(uri.path())
             .ok_or_else(|| PublicApiError::unreadable_body().into_response_for(state, &uri))?;
+        // This collector is the public routes' sole body-size enforcement point.
+        // PublicBody consumes the raw Body, so Axum's DefaultBodyLimit is not consulted.
         let bytes = collect_body(
             request.into_body(),
             any2api_runtime::api::request_body_limit(operation),
@@ -44,24 +40,15 @@ impl FromRequest<AppState> for PublicBody {
         .await
         .map_err(|error| body_collection_rejection(error, state, &uri))?;
         match encoding {
-            ContentEncoding::Zstd => {
-                // A blocking task cannot be cancelled, so its closure owns the compressed
-                // bytes until decoding actually finishes even if the HTTP future is dropped.
-                let decoded = tokio::task::spawn_blocking(move || decode_zstd(bytes))
-                    .await
-                    .map_err(|_| {
-                        PublicApiError::unreadable_body().into_response_for(state, &uri)
-                    })?;
-                match decoded {
-                    Ok(bytes) => Ok(Self(bytes)),
-                    Err(ZstdBodyError::TooLarge) => {
-                        Err(PublicApiError::payload_too_large().into_response_for(state, &uri))
-                    }
-                    Err(ZstdBodyError::Invalid) => {
-                        Err(PublicApiError::unreadable_body().into_response_for(state, &uri))
-                    }
+            ContentEncoding::Zstd => match state.zstd_decoder().decode(bytes).await {
+                Ok(bytes) => Ok(Self(bytes)),
+                Err(ZstdDecodeError::TooLarge) => {
+                    Err(PublicApiError::payload_too_large().into_response_for(state, &uri))
                 }
-            }
+                Err(ZstdDecodeError::Invalid | ZstdDecodeError::TaskFailed) => {
+                    Err(PublicApiError::unreadable_body().into_response_for(state, &uri))
+                }
+            },
             ContentEncoding::Identity => Ok(Self(bytes)),
             ContentEncoding::Invalid => unreachable!("content encoding was validated"),
         }
@@ -130,56 +117,11 @@ fn path_supports_zstd(path: &str) -> bool {
         || path.ends_with("/chat/completions")
 }
 
-fn decode_zstd(bytes: Bytes) -> Result<Bytes, ZstdBodyError> {
-    let limit = u64::try_from(MAX_DECOMPRESSED_PUBLIC_BODY_BYTES)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
-    let mut decoded = Vec::with_capacity(bytes.len());
-    {
-        let decoder = zstd::stream::read::Decoder::new(Cursor::new(bytes))
-            .map_err(|_| ZstdBodyError::Invalid)?;
-        let mut limited = decoder.take(limit);
-        let mut chunk = [0_u8; ZSTD_DECODE_CHUNK_BYTES];
-        loop {
-            let remaining = MAX_DECOMPRESSED_PUBLIC_BODY_BYTES
-                .saturating_add(1)
-                .saturating_sub(decoded.len());
-            if remaining == 0 {
-                return Err(ZstdBodyError::TooLarge);
-            }
-            let read_capacity = remaining.min(chunk.len());
-            let read = limited
-                .read(&mut chunk[..read_capacity])
-                .map_err(|_| ZstdBodyError::Invalid)?;
-            if read == 0 {
-                break;
-            }
-            if decoded.len().saturating_add(read) > MAX_DECOMPRESSED_PUBLIC_BODY_BYTES {
-                return Err(ZstdBodyError::TooLarge);
-            }
-            decoded.extend_from_slice(&chunk[..read]);
-        }
-    }
-    Ok(Bytes::from(decoded))
-}
-
-#[derive(Debug)]
-enum ZstdBodyError {
-    Invalid,
-    TooLarge,
-}
-
 #[cfg(test)]
 mod tests {
-    use axum::{
-        body::Bytes,
-        http::{HeaderMap, HeaderValue, header},
-    };
+    use axum::http::{HeaderMap, HeaderValue, header};
 
-    use super::{
-        ContentEncoding, MAX_DECOMPRESSED_PUBLIC_BODY_BYTES, ZstdBodyError, content_encoding,
-        decode_zstd, operation_for_path, path_supports_zstd,
-    };
+    use super::{ContentEncoding, content_encoding, operation_for_path, path_supports_zstd};
 
     #[test]
     fn content_encoding_is_single_and_zstd_is_limited_to_json_openai_routes() {
@@ -226,26 +168,5 @@ mod tests {
             Some(any2api_domain::ProtocolOperation::MessagesCountTokens)
         );
         assert_eq!(operation_for_path("/v1/images/unknown"), None);
-    }
-
-    #[test]
-    fn valid_zstd_body_is_decoded_and_damaged_body_is_rejected() {
-        let encoded =
-            zstd::stream::encode_all(&b"{\"model\":\"gpt\"}"[..], 3).expect("encode zstd");
-        assert_eq!(
-            decode_zstd(Bytes::from(encoded)).expect("decode zstd"),
-            Bytes::from_static(b"{\"model\":\"gpt\"}")
-        );
-        assert!(decode_zstd(Bytes::from_static(b"not-zstd")).is_err());
-    }
-
-    #[test]
-    fn zstd_body_is_rejected_when_decompressed_output_exceeds_the_public_limit() {
-        let oversized = vec![b'a'; MAX_DECOMPRESSED_PUBLIC_BODY_BYTES + 1];
-        let encoded = zstd::stream::encode_all(oversized.as_slice(), 1).expect("encode zstd");
-        assert!(matches!(
-            decode_zstd(Bytes::from(encoded)),
-            Err(ZstdBodyError::TooLarge)
-        ));
     }
 }

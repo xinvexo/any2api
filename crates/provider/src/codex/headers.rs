@@ -8,6 +8,9 @@ use crate::{
 };
 
 const REQUEST_HEADERS: &[&str] = &[
+    "openai-beta",
+    "x-codex-turn-state",
+    "x-oai-attestation",
     "user-agent",
     "originator",
     "x-client-request-id",
@@ -18,14 +21,11 @@ const REQUEST_HEADERS: &[&str] = &[
     "x-codex-turn-metadata",
     "x-codex-parent-thread-id",
     "x-codex-beta-features",
-    "x-codex-turn-state",
     "x-openai-subagent",
     "x-openai-memgen-request",
     "x-responsesapi-include-timing-metrics",
     "x-openai-internal-codex-responses-lite",
     "x-openai-internal-codex-residency",
-    "x-oai-attestation",
-    "openai-beta",
     "traceparent",
     "tracestate",
 ];
@@ -36,11 +36,11 @@ const RESPONSE_HEADERS: &[&str] = &[
     "x-request-id",
     "x-oai-request-id",
     "request-id",
-    "x-models-etag",
-    "openai-model",
-    "x-reasoning-included",
     "retry-after",
     "x-should-retry",
+    "openai-model",
+    "x-reasoning-included",
+    "x-models-etag",
     "cf-ray",
 ];
 
@@ -51,13 +51,13 @@ pub(crate) fn request(
     insert_default(&mut headers, "originator", "codex_cli_rs");
     insert_default(&mut headers, "user-agent", "codex_cli_rs/0.145.0");
     if context.ingress_dialect == context.upstream_operation.dialect() {
-        headers.extend(project(context.client_headers, REQUEST_HEADERS, &[]));
-    }
-    if !context.allow_credential_bound {
-        headers.remove("x-oai-attestation");
-    }
-    if !context.allow_turn_state {
-        headers.remove("x-codex-turn-state");
+        let allowed = REQUEST_HEADERS
+            .iter()
+            .copied()
+            .filter(|name| context.allow_credential_bound || *name != "x-oai-attestation")
+            .filter(|name| context.allow_turn_state || *name != "x-codex-turn-state")
+            .collect::<Vec<_>>();
+        headers.extend(project(context.client_headers, &allowed, &[]));
     }
     Ok(headers)
 }
@@ -95,8 +95,11 @@ mod tests {
     #[test]
     fn credential_bound_codex_headers_are_not_replayed_after_a_switch() {
         let mut client = HeaderMap::new();
-        client.insert("x-oai-attestation", HeaderValue::from_static("opaque"));
-        client.insert("x-codex-turn-state", HeaderValue::from_static("sticky"));
+        for _ in 0..64 {
+            client.append("x-oai-attestation", HeaderValue::from_static("opaque"));
+            client.append("x-codex-turn-state", HeaderValue::from_static("sticky"));
+        }
+        client.insert("openai-beta", HeaderValue::from_static("responses=v1"));
         let context = ProviderRequestHeaderContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
             upstream_operation: ProtocolOperation::Responses,
@@ -109,6 +112,7 @@ mod tests {
         let projected = request(context).expect("headers");
         assert!(!projected.contains_key("x-oai-attestation"));
         assert!(!projected.contains_key("x-codex-turn-state"));
+        assert_eq!(projected["openai-beta"], "responses=v1");
     }
 
     #[test]

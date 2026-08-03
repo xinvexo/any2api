@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 
 import type {
   ProviderCredentialConfiguration,
@@ -10,21 +9,18 @@ import {
   createProviderCredential,
   rotateProviderCredential,
 } from "../api/provider-credential-api";
-import { selectNewestCredentialConfiguration } from "./provider-credential-cache";
 import { providerQueryKeys } from "./provider-query-keys";
+import { useConfigurationMutationLifecycle } from "@/shared/api/use-configuration-mutation-lifecycle";
 
 export function useProviderSecretActions(endpointId: string) {
-  const queryClient = useQueryClient();
+  const { publish, refreshAfterFailure } =
+    useConfigurationMutationLifecycle<ProviderCredentialConfiguration>({
+      cacheKey: providerQueryKeys.credentials(endpointId),
+      invalidateKey: providerQueryKeys.list(),
+      refreshKey: providerQueryKeys.credentials(endpointId),
+    });
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
-
-  const publish = (configuration: ProviderCredentialConfiguration) => {
-    queryClient.setQueryData<ProviderCredentialConfiguration>(
-      providerQueryKeys.credentials(endpointId),
-      (current) => selectNewestCredentialConfiguration(current, configuration),
-    );
-    void queryClient.invalidateQueries({ queryKey: providerQueryKeys.list() });
-  };
 
   async function run(action: () => Promise<ProviderCredentialConfiguration>) {
     setPending(true);
@@ -35,10 +31,7 @@ export function useProviderSecretActions(endpointId: string) {
       return configuration;
     } catch (nextError) {
       setError(nextError);
-      await queryClient.refetchQueries({
-        queryKey: providerQueryKeys.credentials(endpointId),
-        type: "active",
-      });
+      await refreshAfterFailure();
       throw nextError;
     } finally {
       setPending(false);

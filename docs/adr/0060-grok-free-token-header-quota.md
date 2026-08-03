@@ -24,7 +24,7 @@ xAI 调整额度时立即失真。
 4. 响应头缺失、不完整或无效时余额保持未知；不从 billing 金额、本地 usage、请求数或其他头猜测。
 5. 探测若返回 `subscription:free-usage-exhausted` 且正文带有经验证的
    `tokens (actual/limit)`，该值作为同次上游 Token 余额。
-6. 额度快照不持久化，不参与 RPM、持久化账号启停或 GatewayApiKey 准入。ADR-0070 允许权威 `remaining=0` 临时阻止当前 OAuth 认证 generation 进入路由候选。
+6. 额度快照不持久化，不参与 RPM、持久化账号启停或 GatewayApiKey 准入。ADR-0070 与 ADR-0095 允许权威 `remaining=0` 临时阻止当前 OAuth 账号 `routing_generation` 进入路由候选。
 
 ## 后果
 

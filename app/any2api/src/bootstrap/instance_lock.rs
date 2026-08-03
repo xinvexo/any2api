@@ -45,17 +45,29 @@ impl Drop for InstanceLock {
     }
 }
 
+pub(super) fn is_contention(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|error| error.kind() == std::io::ErrorKind::WouldBlock)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
 
-    use super::InstanceLock;
+    use super::{InstanceLock, is_contention};
 
     #[test]
     fn data_directory_lock_is_exclusive_until_drop() {
         let directory = tempdir().expect("temporary directory");
         let first = InstanceLock::acquire(directory.path()).expect("first lock");
-        assert!(InstanceLock::acquire(directory.path()).is_err());
+        let contention = match InstanceLock::acquire(directory.path()) {
+            Ok(_) => panic!("second lock must fail"),
+            Err(error) => error,
+        };
+        assert!(is_contention(&contention));
         drop(first);
         InstanceLock::acquire(directory.path()).expect("lock after release");
     }

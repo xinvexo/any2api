@@ -2,8 +2,11 @@ use any2api_domain::ConfigRevision;
 use sqlx::SqliteConnection;
 
 use crate::{
-    configuration::{StoredConfiguration, bump_revision, load_configuration_from},
-    error::StorageError,
+    configuration::{
+        StoredConfiguration, bump_revision, ensure_write_matches, load_configuration_from,
+        readback_oauth_account_mutation,
+    },
+    error::{ConfigurationWriteComponent, StorageError},
     settings::prune_model_allowlist,
 };
 
@@ -41,9 +44,8 @@ pub(crate) async fn mutate_connection(
     )
     .await?;
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection).await?;
-    assert_eq!(configuration.revision(), revision);
-    assert_eq!(configuration.oauth_accounts(), &expected_accounts);
+    let configuration = readback_oauth_account_mutation(connection, current, true).await?;
+    ensure_oauth_write_matches(&configuration, revision, &expected_accounts)?;
     Ok((configuration, true))
 }
 
@@ -89,9 +91,8 @@ pub(crate) async fn mutate_create_batch(
         execute_oauth_account_change(connection, change).await?;
     }
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection).await?;
-    assert_eq!(configuration.revision(), revision);
-    assert_eq!(configuration.oauth_accounts(), &expected_accounts);
+    let configuration = readback_oauth_account_mutation(connection, current, false).await?;
+    ensure_oauth_write_matches(&configuration, revision, &expected_accounts)?;
     Ok((configuration, true))
 }
 
@@ -152,8 +153,24 @@ pub(crate) async fn mutate_refresh_batch(
     )
     .await?;
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection).await?;
-    assert_eq!(configuration.revision(), revision);
-    assert_eq!(configuration.oauth_accounts(), &expected_accounts);
+    let configuration = readback_oauth_account_mutation(connection, current, true).await?;
+    ensure_oauth_write_matches(&configuration, revision, &expected_accounts)?;
     Ok((configuration, true))
+}
+
+fn ensure_oauth_write_matches(
+    configuration: &StoredConfiguration,
+    revision: ConfigRevision,
+    expected_accounts: &any2api_domain::OAuthAccountConfiguration,
+) -> Result<(), StorageError> {
+    ensure_write_matches(
+        configuration.revision(),
+        revision,
+        ConfigurationWriteComponent::Revision,
+    )?;
+    ensure_write_matches(
+        configuration.oauth_accounts(),
+        expected_accounts,
+        ConfigurationWriteComponent::OAuthAccounts,
+    )
 }

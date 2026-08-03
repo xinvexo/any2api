@@ -9,7 +9,12 @@ use tempfile::tempdir;
 
 use super::{MIGRATOR, run};
 
+mod duplicate_attempt_index;
+mod http_access_log_capacity;
+mod http_access_log_loopback_ips;
 mod plaintext_schema;
+mod query_indexes;
+mod request_usage_aggregate_indexes;
 
 const DIRECT_PROXY_ID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -44,8 +49,22 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (3, "plaintext local secrets".to_owned()),
             (4, "raw http access log exchange".to_owned()),
             (5, "normalize claude base urls".to_owned()),
+            (6, "add telemetry query indexes".to_owned()),
+            (7, "bound http access log capacity".to_owned()),
+            (8, "drop duplicate request attempt index".to_owned()),
+            (9, "normalize http access log loopback ips".to_owned()),
+            (10, "optimize request usage aggregates".to_owned()),
         ]
     );
+
+    let duplicate_attempt_index: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM sqlite_schema \
+         WHERE type = 'index' AND name = 'request_attempts_request_idx'",
+    )
+    .fetch_optional(&pool)
+    .await
+    .expect("final attempt index schema");
+    assert_eq!(duplicate_attempt_index, None);
 
     let revision =
         sqlx::query_scalar::<_, i64>("SELECT revision FROM config_state WHERE singleton_id = 1")
@@ -101,6 +120,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(access_log_schema.contains("exchange_captured INTEGER NOT NULL"));
     assert!(access_log_schema.contains("request_headers BLOB NOT NULL"));
     assert!(access_log_schema.contains("response_body BLOB NOT NULL"));
+    assert!(access_log_schema.contains("exchange_bytes INTEGER NOT NULL"));
 
     let obsolete_tables = sqlx::query_scalar::<_, String>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND (\

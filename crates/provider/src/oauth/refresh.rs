@@ -27,12 +27,17 @@ impl OAuthRefreshRejection {
 struct RefreshErrorEnvelope {
     #[serde(default)]
     code: Option<String>,
-    error: RefreshError,
+    #[serde(default)]
+    error: Option<RefreshError>,
 }
 
 impl RefreshErrorEnvelope {
     fn has_code(&self, expected: &str) -> bool {
-        self.code.as_deref() == Some(expected) || self.error.has_code(expected)
+        self.code.as_deref() == Some(expected)
+            || self
+                .error
+                .as_ref()
+                .is_some_and(|error| error.has_code(expected))
     }
 }
 
@@ -70,6 +75,7 @@ mod tests {
             br#"{"error":"invalid_grant"}"#.as_slice(),
             br#"{"error":{"type":"invalid_grant"}}"#.as_slice(),
             br#"{"code":"invalid_grant","error":{"message":"expired"}}"#.as_slice(),
+            br#"{"code":"invalid_grant"}"#.as_slice(),
         ] {
             assert_eq!(
                 OAuthRefreshRejection::classify(StatusCode::BAD_REQUEST, body),
@@ -93,6 +99,9 @@ mod tests {
                 StatusCode::SERVICE_UNAVAILABLE,
                 br#"{"error":"invalid_grant"}"#.as_slice(),
             ),
+            (StatusCode::BAD_REQUEST, br#"{"code":"unknown"}"#.as_slice()),
+            (StatusCode::BAD_REQUEST, br#"{"code":42}"#.as_slice()),
+            (StatusCode::BAD_REQUEST, br#"{}"#.as_slice()),
         ] {
             assert_eq!(
                 OAuthRefreshRejection::classify(status, body),

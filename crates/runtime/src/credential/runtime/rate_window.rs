@@ -42,15 +42,23 @@ pub(crate) struct RateLimited {
     pub(crate) retry_at: Option<Instant>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct RateReservation {
+    id: u64,
+    started_at: Instant,
+}
+
 #[derive(Debug)]
 pub(super) struct CredentialRateWindow {
-    attempts: VecDeque<Instant>,
+    attempts: VecDeque<RateReservation>,
+    next_reservation_id: u64,
 }
 
 impl CredentialRateWindow {
     pub(super) const fn new() -> Self {
         Self {
             attempts: VecDeque::new(),
+            next_reservation_id: 0,
         }
     }
 
@@ -60,10 +68,10 @@ impl CredentialRateWindow {
         limit: Option<RequestsPerMinute>,
         fixed_waiters: u32,
         fixed: bool,
-    ) -> Result<(), RateLimited> {
+    ) -> Result<Option<RateReservation>, RateLimited> {
         self.prune(now);
         let Some(limit) = limit else {
-            return Ok(());
+            return Ok(None);
         };
         if !fixed && fixed_waiters > 0 {
             return Err(RateLimited { retry_at: None });
@@ -73,8 +81,28 @@ impl CredentialRateWindow {
                 retry_at: self.next_available_at(limit),
             });
         }
-        self.attempts.push_back(now);
-        Ok(())
+        let reservation = RateReservation {
+            id: self.next_reservation_id,
+            started_at: now,
+        };
+        self.next_reservation_id = self
+            .next_reservation_id
+            .checked_add(1)
+            .expect("RPM reservation identifier overflowed u64");
+        self.attempts.push_back(reservation);
+        Ok(Some(reservation))
+    }
+
+    pub(super) fn rollback(&mut self, reservation: RateReservation) -> bool {
+        let Some(index) = self
+            .attempts
+            .iter()
+            .position(|current| current.id == reservation.id)
+        else {
+            return false;
+        };
+        self.attempts.remove(index);
+        true
     }
 
     pub(super) fn snapshot(
@@ -99,11 +127,9 @@ impl CredentialRateWindow {
 
     fn prune(&mut self, now: Instant) {
         let cutoff = now.checked_sub(RATE_WINDOW);
-        while self
-            .attempts
-            .front()
-            .is_some_and(|started_at| cutoff.is_some_and(|cutoff| *started_at <= cutoff))
-        {
+        while self.attempts.front().is_some_and(|reservation| {
+            cutoff.is_some_and(|cutoff| reservation.started_at <= cutoff)
+        }) {
             self.attempts.pop_front();
         }
     }
@@ -111,7 +137,7 @@ impl CredentialRateWindow {
     fn next_available_at(&self, limit: RequestsPerMinute) -> Option<Instant> {
         let limit = limit.get() as usize;
         (self.attempts.len() >= limit)
-            .then(|| self.attempts[self.attempts.len() - limit] + RATE_WINDOW)
+            .then(|| self.attempts[self.attempts.len() - limit].started_at + RATE_WINDOW)
     }
 }
 
@@ -142,6 +168,37 @@ mod tests {
             .try_reserve(start + Duration::from_secs(3), Some(rpm(1)), 0, false)
             .expect_err("lowered window is full");
         assert_eq!(limited.retry_at, Some(start + Duration::from_secs(62)));
+    }
+
+    #[test]
+    fn rollback_removes_only_the_matching_reservation() {
+        let start = Instant::now();
+        let mut window = CredentialRateWindow::new();
+        let first = window
+            .try_reserve(start, Some(rpm(2)), 0, false)
+            .expect("first")
+            .expect("finite reservation");
+        let _second = window
+            .try_reserve(start + Duration::from_secs(1), Some(rpm(2)), 0, false)
+            .expect("second")
+            .expect("finite reservation");
+
+        assert!(window.rollback(first));
+        assert!(!window.rollback(first));
+        assert_eq!(
+            window
+                .snapshot(start + Duration::from_secs(1), Some(rpm(2)))
+                .requests_in_window(),
+            1
+        );
+
+        window
+            .try_reserve(start + Duration::from_secs(2), Some(rpm(2)), 0, false)
+            .expect("released capacity")
+            .expect("finite reservation");
+        let full = window.snapshot(start + Duration::from_secs(2), Some(rpm(2)));
+        assert_eq!(full.requests_in_window(), 2);
+        assert_eq!(full.retry_at(), Some(start + Duration::from_secs(61)));
     }
 
     fn rpm(value: u32) -> RequestsPerMinute {

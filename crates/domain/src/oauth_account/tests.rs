@@ -27,7 +27,7 @@ fn proxies() -> ProxyConfiguration {
 }
 
 #[test]
-fn refresh_changes_only_auth_generation_and_safe_metadata() {
+fn refresh_changes_only_authentication_version_and_safe_metadata() {
     let account = account(ProviderKind::Codex, "Primary");
 
     let refreshed = account
@@ -35,10 +35,51 @@ fn refresh_changes_only_auth_generation_and_safe_metadata() {
         .expect("refresh");
 
     assert_eq!(refreshed.token_version(), 2);
-    assert_eq!(refreshed.account_generation(), 2);
+    assert_eq!(refreshed.account_generation(), 1);
     assert_eq!(refreshed.config_version(), 1);
     assert_eq!(refreshed.models(), account.models());
     assert_eq!(refreshed.safe_account_email(), Some("new@example.com"));
+}
+
+#[test]
+fn reauthorization_preserves_local_settings_and_versions_model_changes() {
+    let account = account(ProviderKind::Codex, "Primary");
+    let reauthorized = account
+        .reauthorized(
+            Some("new@example.com".into()),
+            Some(200),
+            vec!["other-model".into()],
+        )
+        .expect("reauthorize");
+
+    assert_eq!(reauthorized.id(), account.id());
+    assert_eq!(reauthorized.label(), account.label());
+    assert_eq!(
+        reauthorized.requests_per_minute(),
+        account.requests_per_minute()
+    );
+    assert_eq!(reauthorized.enabled(), account.enabled());
+    assert_eq!(reauthorized.token_version(), 2);
+    assert_eq!(reauthorized.account_generation(), 1);
+    assert_eq!(reauthorized.config_version(), 2);
+    assert_eq!(reauthorized.models()[0].as_str(), "other-model");
+}
+
+#[test]
+fn reenable_changes_account_generation_and_refresh_preserves_it() {
+    let account = account(ProviderKind::Codex, "Primary");
+    let disabled = account
+        .updated(OAuthAccountDraft::new("Primary", None, false).expect("disabled draft"))
+        .expect("disable account");
+    let enabled = disabled
+        .updated(OAuthAccountDraft::new("Primary", None, true).expect("enabled draft"))
+        .expect("reenable account");
+    let refreshed = enabled.refreshed(None, Some(200)).expect("refresh account");
+
+    assert_eq!(disabled.account_generation(), 1);
+    assert_eq!(enabled.account_generation(), 2);
+    assert_eq!(refreshed.account_generation(), 2);
+    assert_eq!(refreshed.token_version(), 2);
 }
 
 #[test]

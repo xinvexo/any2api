@@ -1,4 +1,5 @@
 import { RefreshCw } from "lucide-react";
+import { Suspense, lazy } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import {
@@ -13,12 +14,15 @@ import {
   OVERVIEW_RANGE_OPTIONS,
 } from "../model/overview-usage-presentation";
 import { useOverviewUsage } from "../model/use-overview-usage";
-import { OverviewModelChart } from "./OverviewModelChart";
-import { OverviewTimeChart } from "./OverviewTimeChart";
 import { cn } from "@/shared/lib/cn";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
+import { Skeleton } from "@/shared/ui/Skeleton";
 import { SlidingSelectionIndicator } from "@/shared/ui/SlidingSelectionIndicator";
+
+const OverviewCharts = lazy(() =>
+  import("./OverviewCharts").then((module) => ({ default: module.OverviewCharts })),
+);
 
 export function OverviewUsageSection() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -124,34 +128,41 @@ export function OverviewUsageSection() {
         />
       </dl>
 
-      <div className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-stretch lg:gap-8">
-        <section className="flex min-w-0 flex-col">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h3 className="text-sm font-semibold tracking-tight">调用趋势</h3>
-            <p className="text-xs tabular-nums text-secondary">
-              {formatOverviewInteger(overview.selected.requestCount)} 次 · 成功{" "}
-              {formatOverviewInteger(overview.selected.successfulRequestCount)} · 失败{" "}
-              {formatOverviewInteger(overview.selected.failedRequestCount)}
-            </p>
-          </div>
-          <div className="flex-1 rounded-[12px] bg-surface-muted/70 px-3 py-3 sm:px-4 sm:py-4">
-            <OverviewTimeChart buckets={overview.timeBuckets} range={range} />
-          </div>
-        </section>
-
-        <section className="flex min-w-0 flex-col">
-          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <h3 className="text-sm font-semibold tracking-tight">模型分布</h3>
-            <p className="text-xs tabular-nums text-secondary">
-              {formatOverviewInteger(overview.models.length)} 个模型
-            </p>
-          </div>
-          <div className="flex-1 rounded-[12px] bg-surface-muted/70 px-3 py-3 sm:px-4 sm:py-4">
-            <OverviewModelChart models={overview.models} />
-          </div>
-        </section>
-      </div>
+      <Suspense fallback={<OverviewChartsLoading />}>
+        <OverviewCharts
+          failedRequestCount={overview.selected.failedRequestCount}
+          models={overview.models}
+          range={range}
+          requestCount={overview.selected.requestCount}
+          successfulRequestCount={overview.selected.successfulRequestCount}
+          timeBuckets={overview.timeBuckets}
+        />
+      </Suspense>
     </section>
+  );
+}
+
+export function OverviewChartsLoading() {
+  return (
+    <div
+      className="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-stretch lg:gap-8"
+      role="status"
+      aria-label="正在加载调用图表"
+      aria-live="polite"
+    >
+      <section className="flex min-w-0 flex-col">
+        <Skeleton className="mb-3 h-4 w-48" />
+        <div className="h-80 rounded-[12px] bg-surface-muted/70 p-4">
+          <Skeleton className="h-full w-full rounded-[10px]" />
+        </div>
+      </section>
+      <section className="flex min-w-0 flex-col">
+        <Skeleton className="mb-3 h-4 w-28" />
+        <div className="h-80 rounded-[12px] bg-surface-muted/70 p-4">
+          <Skeleton className="h-full w-full rounded-[10px]" />
+        </div>
+      </section>
+    </div>
   );
 }
 

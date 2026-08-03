@@ -1,5 +1,6 @@
 mod config_publisher;
 mod oauth_accounts;
+mod oauth_login;
 mod providers;
 mod proxies;
 mod settings;

@@ -2,16 +2,15 @@ use std::str::FromStr;
 
 use axum::{
     Json, Router,
-    extract::{
-        Path, Query, State,
-        rejection::{JsonRejection, QueryRejection},
-    },
-    response::Response,
+    extract::{Path, State},
     routing::get,
 };
 
 use crate::{
-    admin::{error::AdminApiError, no_store, upstream_usage},
+    admin::{
+        error::AdminApiError, request_json::AdminJson, revision::RequiredVersionedQuery,
+        upstream_usage,
+    },
     state::AppState,
 };
 
@@ -33,17 +32,17 @@ pub(in crate::admin::oauth) fn routes() -> Router<AppState> {
         )
 }
 
-async fn list(State(state): State<AppState>) -> Result<Response, AdminApiError> {
-    Ok(accounts_response(&state, &state.snapshots().load()).await)
+async fn list(State(state): State<AppState>) -> Json<OAuthAccountCollectionResponse> {
+    accounts_response(&state, &state.snapshots().load()).await
 }
 
 async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<OAuthAccountUpdateRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
+    AdminJson(payload): AdminJson<OAuthAccountUpdateRequest>,
+) -> Result<Json<OAuthAccountCollectionResponse>, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version, draft) = parse_json(payload)?.into_domain()?;
+    let (expected, expected_config_version, draft) = payload.into_domain()?;
     let snapshot = state
         .publisher()
         .update_oauth_account(expected, id, expected_config_version, draft)
@@ -54,10 +53,10 @@ async fn update(
 async fn set_models(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<OAuthAccountModelsRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
+    AdminJson(payload): AdminJson<OAuthAccountModelsRequest>,
+) -> Result<Json<OAuthAccountCollectionResponse>, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version, models) = parse_json(payload)?.into_domain()?;
+    let (expected, expected_config_version, models) = payload.into_domain()?;
     let snapshot = state
         .publisher()
         .set_oauth_account_models(expected, id, expected_config_version, models)
@@ -68,17 +67,10 @@ async fn set_models(
 async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    query: Result<Query<OAuthAccountDeleteQuery>, QueryRejection>,
-) -> Result<Response, AdminApiError> {
+    RequiredVersionedQuery(query): RequiredVersionedQuery<OAuthAccountDeleteQuery>,
+) -> Result<Json<OAuthAccountCollectionResponse>, AdminApiError> {
     let id = parse_id(&id)?;
-    let (expected, expected_config_version) = query
-        .map_err(|_| {
-            AdminApiError::invalid_request(
-                "expected_revision and expected_config_version queries are required",
-            )
-        })?
-        .0
-        .into_domain()?;
+    let (expected, expected_config_version) = query.into_domain()?;
     let snapshot = state
         .publisher()
         .delete_oauth_account(expected, id, expected_config_version)
@@ -89,17 +81,11 @@ async fn delete(
 async fn accounts_response(
     state: &AppState,
     snapshot: &any2api_runtime::api::PublishedSnapshot,
-) -> Response {
+) -> Json<OAuthAccountCollectionResponse> {
     let usage = upstream_usage::load(state).await;
-    no_store::json(OAuthAccountCollectionResponse::from_snapshot(
+    Json(OAuthAccountCollectionResponse::from_snapshot(
         snapshot, &usage,
     ))
-}
-
-fn parse_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, AdminApiError> {
-    payload
-        .map(|Json(value)| value)
-        .map_err(|_| AdminApiError::invalid_request("request body must be valid JSON"))
 }
 
 pub(in crate::admin::oauth) fn parse_id(

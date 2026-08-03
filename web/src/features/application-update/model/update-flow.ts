@@ -9,4 +9,5 @@ export type ApplicationUpdateFlow =
       status: UpdateStatus;
     }
   | { kind: "complete"; targetVersion: string }
-  | { kind: "failed"; targetVersion: string; message: string };
+  | { kind: "failed"; targetVersion: string; message: string }
+  | { kind: "unconfirmed"; targetVersion: string; message: string };

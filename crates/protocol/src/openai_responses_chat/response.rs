@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use any2api_domain::TokenUsage;
 use serde_json::{Map, Value, json};
 
@@ -25,7 +27,8 @@ pub(super) fn convert(body: Value, response_id: &str) -> Result<ConvertedRespons
         .ok_or_else(|| invalid("Chat Completions choice has no message"))?;
     validate_message(message)?;
     let finish_reason = choice.get("finish_reason").and_then(Value::as_str);
-    let status = if finish_reason == Some("length") {
+    let incomplete_reason = incomplete_reason(finish_reason);
+    let status = if incomplete_reason.is_some() {
         "incomplete"
     } else {
         "completed"
@@ -55,8 +58,8 @@ pub(super) fn convert(body: Value, response_id: &str) -> Result<ConvertedRespons
         "error":Value::Null,
         "incomplete_details":Value::Null
     });
-    if status == "incomplete" {
-        response["incomplete_details"] = json!({"reason":"max_output_tokens"});
+    if let Some(reason) = incomplete_reason {
+        response["incomplete_details"] = json!({"reason":reason});
     }
 
     Ok(ConvertedResponse {
@@ -65,32 +68,24 @@ pub(super) fn convert(body: Value, response_id: &str) -> Result<ConvertedRespons
     })
 }
 
-fn validate_message(message: &Map<String, Value>) -> Result<(), ProtocolError> {
-    if message.keys().any(|field| {
-        !matches!(
-            field.as_str(),
-            "role"
-                | "content"
-                | "reasoning"
-                | "reasoning_content"
-                | "tool_calls"
-                | "refusal"
-                | "audio"
-        )
-    }) {
-        return Err(invalid(
-            "Chat Completions response message contains unsupported fields",
-        ));
+pub(super) fn incomplete_reason(finish_reason: Option<&str>) -> Option<&'static str> {
+    match finish_reason {
+        Some("length") => Some("max_output_tokens"),
+        Some("content_filter") => Some("content_filter"),
+        _ => None,
     }
+}
+
+fn validate_message(message: &Map<String, Value>) -> Result<(), ProtocolError> {
     if message.get("role").and_then(Value::as_str) != Some("assistant") {
         return Err(invalid(
             "Chat Completions response message role must be assistant",
         ));
     }
-    for field in ["refusal", "audio"] {
+    for field in ["function_call", "refusal", "audio"] {
         if message.get(field).is_some_and(|value| !value.is_null()) {
             return Err(invalid(
-                "Chat Completions refusal or audio output is not supported by this bridge",
+                "Chat Completions response contains an unsupported output",
             ));
         }
     }
@@ -121,7 +116,7 @@ pub(super) fn token_usage(value: Option<&Value>) -> TokenUsage {
 
 pub(super) fn message_item(response_id: &str, text: &str) -> Value {
     json!({
-        "id":format!("{response_id}_msg"),
+        "id":message_item_id(response_id),
         "type":"message",
         "status":"completed",
         "role":"assistant",
@@ -135,7 +130,7 @@ pub(super) fn message_item(response_id: &str, text: &str) -> Value {
 
 pub(super) fn reasoning_item(response_id: &str, text: &str) -> Value {
     json!({
-        "id":format!("rs_{response_id}"),
+        "id":reasoning_item_id(response_id),
         "type":"reasoning",
         "status":"completed",
         "summary":[{"type":"summary_text","text":text}]
@@ -144,19 +139,31 @@ pub(super) fn reasoning_item(response_id: &str, text: &str) -> Value {
 
 pub(super) fn function_call_item(
     response_id: &str,
-    index: usize,
+    index: impl Display,
     call_id: &str,
     name: &str,
     arguments: &str,
 ) -> Value {
     json!({
-        "id":format!("{response_id}_fc_{index}"),
+        "id":function_call_item_id(response_id, index),
         "type":"function_call",
         "status":"completed",
         "call_id":call_id,
         "name":name,
         "arguments":arguments
     })
+}
+
+pub(super) fn message_item_id(response_id: &str) -> String {
+    format!("msg_{response_id}")
+}
+
+pub(super) fn reasoning_item_id(response_id: &str) -> String {
+    format!("rs_{response_id}")
+}
+
+pub(super) fn function_call_item_id(response_id: &str, index: impl Display) -> String {
+    format!("fc_{response_id}_{index}")
 }
 
 fn append_tool_calls(

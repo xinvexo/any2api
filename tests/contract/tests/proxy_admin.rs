@@ -1,15 +1,11 @@
 use std::{
-    fs,
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::RetrySafety;
-use any2api_runtime::api::{
-    ConfigPublisher, ProxyTestService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
-};
-use any2api_server::api::{AppState, build_router};
+use any2api_runtime::api::ProxyTestService;
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
     ReqwestTransportManager, TransportError, TransportErrorStage, TransportFailureScope,
@@ -24,13 +20,12 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tower::ServiceExt;
 
 const DIRECT_ID: &str = "00000000-0000-0000-0000-000000000000";
 
 #[tokio::test]
-async fn proxy_admin_is_loopback_only_until_admin_authentication_exists() {
+async fn proxy_admin_requires_a_session_for_remote_requests() {
     let (_directory, app, _storage) = test_app().await;
 
     let (status, body) = request_json(
@@ -42,8 +37,8 @@ async fn proxy_admin_is_loopback_only_until_admin_authentication_exists() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(body["error"]["code"], "admin_loopback_only");
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "admin_session_required");
 }
 
 #[tokio::test]
@@ -391,44 +386,10 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
 async fn test_app_with_transport(
     transport: Arc<dyn TransportManager>,
 ) -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
+    let fixture = TestApplication::new().await;
     let proxy_tests = Arc::new(ProxyTestService::new(transport));
-    let public_requests = build_public_request_components()
-        .expect("public request components")
-        .service();
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, public_requests).with_proxy_tests(proxy_tests),
-        web_root,
-    );
-
-    (directory, app, storage)
+    let state = fixture.state().with_proxy_tests(proxy_tests);
+    fixture.into_router_with_state(state)
 }
 
 fn custom_proxy_id(configuration: &Value) -> String {

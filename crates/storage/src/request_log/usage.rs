@@ -11,6 +11,18 @@ use super::usage_window::{
     request_usage_window_range_start, unix_now_ms,
 };
 
+pub(crate) const UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL: &str = "SELECT 'provider_credential' AS source, credential_id AS upstream_id, \
+     COUNT(*) AS total_requests, \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     AS successful_requests \
+     FROM request_logs WHERE credential_id IS NOT NULL GROUP BY credential_id \
+     UNION ALL \
+     SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
+     COUNT(*) AS total_requests, \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     AS successful_requests \
+     FROM request_logs WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UpstreamCredentialUsageSummary {
     pub id: RoutingCredentialId,
@@ -41,14 +53,10 @@ impl UpstreamCredentialUsageRepository for SqliteStore {
         let now_ms = unix_now_ms()?;
         let range_start_ms = request_usage_window_range_start(now_ms);
         let mut transaction = self.pool().begin().await?;
-        let summary_rows = sqlx::query_as::<_, UpstreamUsageRow>(&format!(
-            "{} SELECT source, upstream_id, COUNT(*) AS total_requests, \
-             SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
-             AS successful_requests FROM upstream_requests GROUP BY source, upstream_id",
-            upstream_requests_cte()
-        ))
-        .fetch_all(&mut *transaction)
-        .await?;
+        let summary_rows =
+            sqlx::query_as::<_, UpstreamUsageRow>(UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL)
+                .fetch_all(&mut *transaction)
+                .await?;
         let slot_rows = sqlx::query_as::<_, UpstreamWindowSlotRow>(&format!(
             "{} SELECT source, upstream_id, \
              (started_at_ms / ?) * ? AS bucket_start_ms, \

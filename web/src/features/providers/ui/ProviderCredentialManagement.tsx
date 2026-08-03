@@ -8,7 +8,10 @@ import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderCredentialMutations } from "../model/use-provider-credential-mutations";
 import { useProviderCredentials } from "../model/use-provider-credentials";
 import { useProviderSecretActions } from "../model/use-provider-secret-actions";
-import { useProviderCredentialTest } from "../model/use-provider-credential-test";
+import {
+  providerCredentialTestScope,
+  useProviderCredentialTest,
+} from "../model/use-provider-credential-test";
 import type { CredentialEditorSubmission } from "./ProviderCredentialEditor";
 import { CredentialEditorSlot } from "./CredentialEditorSlot";
 import { ProviderCredentialList } from "./ProviderCredentialList";
@@ -39,9 +42,6 @@ export function ProviderCredentialManagement({
   const proxies = useCredentialProxyOptions();
   const mutations = useProviderCredentialMutations(endpoint.id);
   const secretActions = useProviderSecretActions(endpoint.id);
-  const credentialTest = useProviderCredentialTest(
-    `${endpoint.id}:${credentials.data?.configRevision ?? 0}`,
-  );
   const [searchParams, setSearchParams] = useSearchParams();
   const [deleteTarget, setDeleteTarget] = useState<ProviderCredential | null>(null);
   const activeEndpointId = searchParams.get("keys");
@@ -53,6 +53,9 @@ export function ProviderCredentialManagement({
     isActiveEndpoint && editorId && editorId !== "new"
       ? credentials.data?.items.find((credential) => credential.id === editorId)
       : undefined;
+  const credentialTest = useProviderCredentialTest(
+    providerCredentialTestScope(endpoint, selected, proxies.data),
+  );
   const initialListPending =
     (credentials.isPending && !credentials.data) || (proxies.isPending && !proxies.data);
   const revealListContent = useAccordionReveal(showList, !initialListPending);
@@ -228,17 +231,21 @@ export function ProviderCredentialManagement({
     if (!selected) {
       return;
     }
-    await mutations.models.mutateAsync({
-      id: selected.id,
-      input: {
-        expectedRevision: configuration.configRevision,
-        expectedConfigVersion: selected.configVersion,
-        models,
-      },
-    });
-    notify.success(`已保存「${selected.label}」的模型选择`);
-    onRevealList?.();
-    closeEditor(selected.id);
+    try {
+      await mutations.models.mutateAsync({
+        id: selected.id,
+        input: {
+          expectedRevision: configuration.configRevision,
+          expectedConfigVersion: selected.configVersion,
+          models,
+        },
+      });
+      notify.success(`已保存「${selected.label}」的模型选择`);
+      onRevealList?.();
+      closeEditor(selected.id);
+    } catch {
+      // The mutation exposes the inline error while the local selection stays mounted.
+    }
   }
 
   async function discoverModels(manual = false) {

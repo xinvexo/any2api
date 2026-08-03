@@ -6,6 +6,7 @@ import { getSettingsErrorMessage } from "../model/settings-error";
 import type { SettingsEditor } from "../model/use-settings-editor";
 import { sectionsForWebGroups, type SettingSection } from "./setting-categories";
 import { SettingRow } from "./SettingRow";
+import { ShutdownBudgetSummary } from "./ShutdownBudgetSummary";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
 
@@ -203,6 +204,7 @@ function SettingGroups({
                 onChange={editor.setDraft}
               />
             ))}
+            <ShutdownBudgetSummary items={items} draftFor={editor.draftFor} />
           </div>
         </div>
       ))}

@@ -1,9 +1,6 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
-use any2api_contract_tests::build_public_request_components;
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_contract_tests::TestApplication;
 use axum::{
     Router,
     body::Body,
@@ -12,7 +9,6 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -145,41 +141,7 @@ async fn count_tokens_rejects_a_disallowed_model_before_upstream_io() {
 }
 
 async fn configured_app(upstream_address: SocketAddr) -> (tempfile::TempDir, Router, String) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let service = build_public_request_components()
-        .expect("public request components")
-        .service();
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, service),
-        web_root,
-    );
+    let (directory, app, _storage) = TestApplication::new().await.into_router();
     let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
 
     let gateway = request_json_with_remote(

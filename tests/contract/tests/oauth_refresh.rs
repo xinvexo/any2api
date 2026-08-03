@@ -100,7 +100,7 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
         .get(account_id)
         .expect("refreshed account");
     assert_eq!(account.token_version(), 2);
-    assert_eq!(account.account_generation(), 2);
+    assert_eq!(account.account_generation(), 1);
     assert_eq!(account.config_version(), 1);
     assert!(!account.enabled());
     assert_eq!(account.safe_account_email(), Some("person@example.com"));

@@ -1,10 +1,17 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { useLocation } from "react-router-dom";
 import { afterEach, expect, test, vi } from "vitest";
 
-import type { ProviderEndpoint } from "../api/provider-contracts";
-import { ProviderCredentialManagement } from "./ProviderCredentialManagement";
+import {
+  credential,
+  credentialConfiguration,
+  credentialId,
+  credentialTestResult,
+  endpoint,
+  jsonResponse,
+  proxyConfiguration,
+  renderCredentialManagement,
+} from "./ProviderCredentialManagement.test-support";
 import { clearNotifications, getNotifications } from "@/shared/notifications";
 
 afterEach(() => {
@@ -213,6 +220,44 @@ test("opens a credential model picker and loads the current upstream catalog", a
   expect(request?.[1]?.body).toBeUndefined();
 });
 
+test("keeps in-flight model discovery across an unrelated config revision", async () => {
+  let credentials = credentialConfiguration(3, [credential()]);
+  const discovery = deferred<Response>();
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
+    if (path.endsWith(`/provider-credentials/${credentialId}/test`)) {
+      return discovery.promise;
+    }
+    return jsonResponse(credentials);
+  });
+  const { client } = renderManagement([`/providers/codex?keys=${endpoint.id}`]);
+
+  fireEvent.click(await screen.findByRole("button", { name: "配置 Primary Key 的模型" }));
+  await waitFor(() => {
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).endsWith("/test"))).toHaveLength(1);
+  });
+
+  credentials = credentialConfiguration(4, [credential()]);
+  await act(async () => {
+    await client.refetchQueries({
+      queryKey: ["provider-endpoints", "credentials", endpoint.id],
+      type: "active",
+    });
+  });
+
+  expect(screen.getByText("正在读取上游模型")).toBeInTheDocument();
+  await act(async () => {
+    discovery.resolve(jsonResponse(credentialTestResult()));
+    await discovery.promise;
+  });
+
+  expect(await screen.findByRole("checkbox", { name: "gpt-5.1-codex" })).toBeInTheDocument();
+  expect(screen.getByText(/已读取 2 个模型/)).toBeInTheDocument();
+});
+
 test("saves a manually entered model when discovery returns an empty catalog", async () => {
   let credentials = credentialConfiguration(3, [credential()]);
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -256,19 +301,39 @@ test("saves a manually entered model when discovery returns an empty catalog", a
   });
 });
 
-function renderManagement(initialEntries: string[]) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+test("keeps model save failures inside the editor without an unhandled rejection", async () => {
+  const credentials = credentialConfiguration(3, [credential()]);
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path === "/api/admin/proxies") {
+      return jsonResponse(proxyConfiguration());
+    }
+    if (path.endsWith(`/provider-credentials/${credentialId}/test`)) {
+      return jsonResponse(credentialTestResult());
+    }
+    if (path.endsWith(`/provider-credentials/${credentialId}/models`) && init?.method === "PUT") {
+      return new Response(
+        JSON.stringify({ code: "revision_conflict", message: "configuration changed" }),
+        {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+    }
+    return jsonResponse(credentials);
   });
-  const result = render(
-    <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={initialEntries}>
-        <ProviderCredentialManagement endpoint={endpoint} embedded />
-        <LocationProbe />
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
-  return { ...result, client };
+  renderManagement([`/providers/codex?keys=${endpoint.id}`]);
+
+  fireEvent.click(await screen.findByRole("button", { name: "配置 Primary Key 的模型" }));
+  fireEvent.click(await screen.findByRole("button", { name: "保存" }));
+
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.getByTestId("location")).toHaveTextContent("action=models");
+  expect(getNotifications()).toHaveLength(0);
+});
+
+function renderManagement(initialEntries: string[]) {
+  return renderCredentialManagement(initialEntries, <LocationProbe />);
 }
 
 function LocationProbe() {
@@ -276,121 +341,12 @@ function LocationProbe() {
   return <span data-testid="location" hidden>{`${location.pathname}${location.search}`}</span>;
 }
 
-const endpoint: ProviderEndpoint = {
-  id: "1e96eff2-7b3f-4974-b013-8fd2f44c8c1f",
-  name: "Codex Primary",
-  providerKind: "codex",
-  baseUrl: "https://api.example.com",
-  protocolDialect: "openai_responses",
-  upstreamProtocolDialect: null,
-  enabled: true,
-  configVersion: 1,
-};
-
-const credentialId = "75072ca7-d922-428d-a4f8-86401567da32";
-
-function credential(overrides: Record<string, unknown> = {}) {
-  return {
-    id: credentialId,
-    provider_endpoint_id: endpoint.id,
-    label: "Primary Key",
-    credential_kind: "api_key",
-    fingerprint: "v2:0123456789abcdef",
-    secret_tail: "test",
-    proxy_profile_id: "00000000-0000-0000-0000-000000000000",
-    requests_per_minute: 4,
-    enabled: true,
-    secret_version: 1,
-    credential_generation: 1,
-    config_version: 1,
-    models: [],
-    usage: usage(),
-    ...overrides,
-  };
-}
-
-function credentialTestResult() {
-  return {
-    config_revision: 3,
-    provider_endpoint_config_version: 1,
-    credential_config_version: 1,
-    credential_generation: 1,
-    secret_version: 1,
-    proxy_config_version: 1,
-    credential_id: credentialId,
-    provider_endpoint_id: endpoint.id,
-    proxy_id: "00000000-0000-0000-0000-000000000000",
-    reachable: true,
-    accepted: true,
-    catalog_valid: true,
-    status_code: 200,
-    latency_ms: 18,
-    auth_error_cleared: true,
-    error_stage: null,
-    failure_scope: null,
-    models: ["gpt-5.1-codex", "gpt-5.1-codex-mini"],
-  };
-}
-
-function credentialConfiguration(revision: number, items: unknown[]) {
-  return { config_revision: revision, provider_endpoint_id: endpoint.id, items };
-}
-
-function proxyConfiguration() {
-  return {
-    config_revision: 2,
-    global_proxy_id: "f0335fed-e5a9-4081-966b-37efe4a109a8",
-    items: [
-      {
-        id: "00000000-0000-0000-0000-000000000000",
-        name: "DIRECT",
-        kind: "direct",
-        host: null,
-        port: null,
-        username: null,
-        password_configured: false,
-        authentication_version: 0,
-        enabled: true,
-        built_in: true,
-        config_version: 1,
-      },
-      {
-        id: "f0335fed-e5a9-4081-966b-37efe4a109a8",
-        name: "香港代理",
-        kind: "http",
-        host: "proxy.example.com",
-        port: 8080,
-        username: null,
-        password_configured: false,
-        authentication_version: 0,
-        enabled: true,
-        built_in: false,
-        config_version: 1,
-      },
-    ],
-  };
-}
-
-function jsonResponse(value: unknown) {
-  return new Response(JSON.stringify(value), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
   });
-}
-
-function usage() {
-  const windowMs = 2 * 60 * 1000;
-  const newest = Math.floor(Date.now() / windowMs) * windowMs;
-  return {
-    total_requests: 3,
-    successful_requests: 2,
-    failed_requests: 1,
-    window_minutes: 2,
-    window_slots: Array.from({ length: 30 }, (_, index) => ({
-      started_at_ms: newest - (29 - index) * windowMs,
-      total_requests: index >= 27 ? 1 : 0,
-      successful_requests: index === 27 || index === 29 ? 1 : 0,
-      failed_requests: index === 28 ? 1 : 0,
-    })),
-  };
+  return { promise, resolve, reject };
 }

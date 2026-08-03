@@ -4,12 +4,13 @@ use std::path::PathBuf;
 pub struct EmbeddedWebAsset {
     path: &'static str,
     bytes: &'static [u8],
+    etag: &'static str,
 }
 
 impl EmbeddedWebAsset {
     #[must_use]
-    pub const fn new(path: &'static str, bytes: &'static [u8]) -> Self {
-        Self { path, bytes }
+    pub const fn new(path: &'static str, bytes: &'static [u8], etag: &'static str) -> Self {
+        Self { path, bytes, etag }
     }
 
     pub(crate) const fn path(self) -> &'static str {
@@ -18,6 +19,10 @@ impl EmbeddedWebAsset {
 
     pub(crate) const fn bytes(self) -> &'static [u8] {
         self.bytes
+    }
+
+    pub(crate) const fn etag(self) -> &'static str {
+        self.etag
     }
 }
 

@@ -3,15 +3,26 @@ use async_trait::async_trait;
 
 use crate::error::StorageError;
 
-use super::{ConfigurationMutation, PreparedConfiguration, StoredConfiguration};
+use super::{
+    ConfigurationCandidateCompiler, ConfigurationMutation, ConfigurationTransactionOutcome,
+    StoredConfiguration,
+};
 
 #[async_trait]
 pub trait ConfigurationRepository: Send + Sync {
     async fn load_configuration(&self) -> Result<StoredConfiguration, StorageError>;
+}
 
-    async fn prepare_configuration(
+#[async_trait]
+pub trait ConfigurationTransactionRepository<Accepted, Rejected>: ConfigurationRepository
+where
+    Accepted: Send + 'static,
+    Rejected: Send + 'static,
+{
+    async fn transact_configuration(
         &self,
         expected: ConfigRevision,
         mutation: ConfigurationMutation,
-    ) -> Result<PreparedConfiguration, StorageError>;
+        compiler: ConfigurationCandidateCompiler<Accepted, Rejected>,
+    ) -> Result<ConfigurationTransactionOutcome<Accepted, Rejected>, StorageError>;
 }

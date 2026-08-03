@@ -1,7 +1,9 @@
 import { Suspense, lazy } from "react";
 import type { ComponentType } from "react";
-import { Navigate, createBrowserRouter } from "react-router-dom";
+import { Navigate, createBrowserRouter, type RouteObject } from "react-router-dom";
 
+import { PageLoadingFallback } from "@/app/error-recovery/PageLoadingFallback";
+import { RouteErrorPage } from "@/app/error-recovery/RouteErrorPage";
 import { AppShell } from "@/app/shell/AppShell";
 
 // Each page ships as its own chunk so the initial bundle stays small.
@@ -10,16 +12,17 @@ const page = (load: () => Promise<Record<string, ComponentType>>, name: string) 
     load().then((module) => ({ default: module[name] as ComponentType })),
   );
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<PageLoadingFallback />}>
       <Component />
     </Suspense>
   );
 };
 
-export const router = createBrowserRouter([
+export const appRoutes = [
   {
     path: "/",
     element: <AppShell />,
+    errorElement: <RouteErrorPage />,
     children: [
       { index: true, element: page(() => import("@/pages/OverviewPage"), "OverviewPage") },
       { path: "proxies", element: page(() => import("@/pages/ProxiesPage"), "ProxiesPage") },
@@ -46,4 +49,6 @@ export const router = createBrowserRouter([
       { path: "*", element: page(() => import("@/pages/NotFoundPage"), "NotFoundPage") },
     ],
   },
-]);
+] satisfies RouteObject[];
+
+export const router = createBrowserRouter(appRoutes);

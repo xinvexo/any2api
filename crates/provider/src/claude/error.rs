@@ -1,7 +1,7 @@
 //! Claude-specific upstream error classification.
 
 use any2api_domain::{
-    ProtocolOperation, RetrySafety, UpstreamError, UpstreamErrorClassification, UpstreamErrorKind,
+    ProtocolOperation, UpstreamError, UpstreamErrorClassification, UpstreamErrorKind,
 };
 use http::StatusCode;
 use serde::Deserialize;
@@ -9,8 +9,8 @@ use serde::Deserialize;
 use crate::{
     api::UpstreamResponseMeta,
     upstream_error::{
-        http::{classify_status, refine_kind},
-        retry_after::retry_after_hint,
+        http::{classify_status, refine_kind, retry_safety_after_refinement},
+        retry_after::retry_after_hint_with_millis,
     },
 };
 
@@ -43,8 +43,8 @@ pub(crate) fn classify(
         return UpstreamError::new(
             UpstreamErrorClassification::new(
                 UpstreamErrorKind::OperationUnavailable,
-                RetrySafety::RejectedBeforeExecution,
-                retry_after_hint(&meta.headers),
+                UpstreamErrorKind::OperationUnavailable.default_retry_safety(),
+                retry_after_hint_with_millis(&meta.headers),
             ),
             message,
         );
@@ -60,17 +60,9 @@ pub(crate) fn classify(
     };
     let fallback = classify_status(meta, not_found);
     let kind = refine_kind(fallback.kind(), body_kind);
-    let safety = match kind {
-        UpstreamErrorKind::Authentication
-        | UpstreamErrorKind::PermissionDenied
-        | UpstreamErrorKind::QuotaExhausted
-        | UpstreamErrorKind::RateLimited
-        | UpstreamErrorKind::ModelUnavailable
-        | UpstreamErrorKind::OperationUnavailable => RetrySafety::RejectedBeforeExecution,
-        _ => fallback.retry_safety(),
-    };
+    let safety = retry_safety_after_refinement(fallback, kind);
     UpstreamError::new(
-        UpstreamErrorClassification::new(kind, safety, retry_after_hint(&meta.headers)),
+        UpstreamErrorClassification::new(kind, safety, retry_after_hint_with_millis(&meta.headers)),
         message,
     )
 }
@@ -90,8 +82,10 @@ fn classify_type(value: &str) -> Option<UpstreamErrorKind> {
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ProtocolOperation, UpstreamErrorKind};
-    use http::{HeaderMap, StatusCode};
+    use std::time::Duration;
+
+    use any2api_domain::{ProtocolOperation, RetryAfterHint, RetrySafety, UpstreamErrorKind};
+    use http::{HeaderMap, HeaderValue, StatusCode, header};
 
     use super::classify;
     use crate::api::UpstreamResponseMeta;
@@ -135,5 +129,97 @@ mod tests {
                 UpstreamErrorKind::InvalidRequest
             );
         }
+    }
+
+    #[test]
+    fn exact_billing_type_refines_bad_request_but_message_does_not() {
+        let billing = classify(
+            ProtocolOperation::Messages,
+            &UpstreamResponseMeta {
+                status: StatusCode::BAD_REQUEST,
+                headers: HeaderMap::new(),
+            },
+            br#"{"type":"error","error":{"type":"billing_error","message":"billing rejected"}}"#,
+        );
+        assert_eq!(
+            billing.classification().kind(),
+            UpstreamErrorKind::QuotaExhausted
+        );
+        assert_eq!(
+            billing.classification().retry_safety(),
+            RetrySafety::RejectedBeforeExecution
+        );
+
+        let message_only = classify(
+            ProtocolOperation::Messages,
+            &UpstreamResponseMeta {
+                status: StatusCode::BAD_REQUEST,
+                headers: HeaderMap::new(),
+            },
+            br#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low"}}"#,
+        );
+        assert_eq!(
+            message_only.classification().kind(),
+            UpstreamErrorKind::InvalidRequest
+        );
+    }
+
+    #[test]
+    fn request_too_large_status_is_invalid_without_removing_billing_compatibility() {
+        let too_large = classify(
+            ProtocolOperation::Messages,
+            &UpstreamResponseMeta {
+                status: StatusCode::PAYLOAD_TOO_LARGE,
+                headers: HeaderMap::new(),
+            },
+            br#"{"type":"error","error":{"type":"request_too_large","message":"prompt exceeds the maximum size"}}"#,
+        );
+
+        assert_eq!(
+            too_large.classification().kind(),
+            UpstreamErrorKind::InvalidRequest
+        );
+        assert_eq!(
+            too_large.classification().retry_safety(),
+            RetrySafety::Ambiguous
+        );
+        assert_eq!(
+            too_large.official_message(),
+            Some("prompt exceeds the maximum size")
+        );
+
+        let billing = classify(
+            ProtocolOperation::Messages,
+            &UpstreamResponseMeta {
+                status: StatusCode::BAD_REQUEST,
+                headers: HeaderMap::new(),
+            },
+            br#"{"type":"error","error":{"type":"billing_error"}}"#,
+        );
+        assert_eq!(
+            billing.classification().kind(),
+            UpstreamErrorKind::QuotaExhausted
+        );
+    }
+
+    #[test]
+    fn claude_retry_after_milliseconds_take_precedence() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::RETRY_AFTER, HeaderValue::from_static("9"));
+        headers.insert("retry-after-ms", HeaderValue::from_static("1250"));
+
+        let error = classify(
+            ProtocolOperation::Messages,
+            &UpstreamResponseMeta {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                headers,
+            },
+            br#"{"type":"error","error":{"type":"rate_limit_error"}}"#,
+        );
+
+        assert_eq!(
+            error.classification().retry_after(),
+            Some(RetryAfterHint::Delay(Duration::from_millis(1_250)))
+        );
     }
 }

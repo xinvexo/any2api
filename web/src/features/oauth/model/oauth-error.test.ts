@@ -5,6 +5,14 @@ import { ApiError } from "@/shared/api/http-client";
 import { getOAuthErrorMessage } from "./oauth-error";
 
 describe("OAuth error messages", () => {
+  it("explains how to resolve an ambiguous login identity", () => {
+    expect(
+      getOAuthErrorMessage(
+        new ApiError(409, "oauth_account_identity_conflict", "conflict"),
+      ),
+    ).toBe("多个 OAuth 账号对应同一上游身份，请删除重复账号后重试。");
+  });
+
   it("keeps account restrictions separate from provider egress rejection", () => {
     expect(
       getOAuthErrorMessage(

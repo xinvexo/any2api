@@ -24,7 +24,7 @@ async fn fresh_runtime_snapshot_reports_compiled_queue_and_no_credentials() {
     assert_eq!(snapshot.scheduler_epoch(), 0);
     assert_eq!(snapshot.queue().waiting(), 0);
     assert_eq!(snapshot.queue().max_waiting(), 128);
-    assert_eq!(snapshot.queue().timeout_secs(), 30);
+    assert_eq!(snapshot.queue().timeout_secs(), 180);
     assert!(!snapshot.queue().rejects_when_rate_limited());
     assert!(!snapshot.queue().fallback_on_rate_limit());
     assert_eq!(snapshot.totals().credential_count(), 0);

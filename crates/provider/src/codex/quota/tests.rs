@@ -5,9 +5,9 @@ use http::{HeaderMap, Method, StatusCode, header};
 use serde_json::Value;
 
 use super::*;
-use crate::{
+use crate::api::{
     OAuthProviderEgressStatus, OAuthQuotaRejection, OAuthTokenMaterial, ProviderError,
-    api::UpstreamResponseMeta,
+    UpstreamResponseMeta,
 };
 
 fn token() -> OAuthTokenMaterial {

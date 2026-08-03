@@ -1,8 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
-import { ApplicationUpdateProvider } from "../model/ApplicationUpdateProvider";
+import {
+  APPLICATION_UPDATE_CONFIRMATION_TIMEOUT_MS,
+  APPLICATION_UPDATE_PENDING_TARGET_KEY,
+  ApplicationUpdateProvider,
+} from "../model/ApplicationUpdateProvider";
 import { AboutSettings } from "./AboutSettings";
 
 const { reloadApplicationMock } = vi.hoisted(() => ({
@@ -14,6 +18,7 @@ vi.mock("../model/reload-application", () => ({
 }));
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   reloadApplicationMock.mockReset();
   window.sessionStorage.clear();
@@ -152,6 +157,125 @@ test("only unlocks the full-screen flow after the update itself fails", async ()
   fireEvent.click(screen.getByRole("button", { name: "返回" }));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(document.getElementById("root")).not.toHaveAttribute("inert");
+});
+
+test("offers bounded recovery when the target version cannot be confirmed", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-03T00:00:00Z"));
+  window.sessionStorage.setItem(APPLICATION_UPDATE_PENDING_TARGET_KEY, "1.1.0");
+  let installRequests = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const path = String(input);
+    if (path.endsWith("/update/install") && init?.method === "POST") {
+      installRequests += 1;
+    }
+    if (path.endsWith("/update/status") || path.endsWith("/api/health")) {
+      throw new TypeError("service unavailable");
+    }
+    return jsonResponse(about());
+  });
+  renderAbout();
+
+  expect(screen.getByRole("dialog", { name: "正在准备更新" })).toBeInTheDocument();
+  const lockedUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(lockedUnload);
+  expect(lockedUnload.defaultPrevented).toBe(true);
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(APPLICATION_UPDATE_CONFIRMATION_TIMEOUT_MS - 1);
+  });
+  expect(screen.queryByRole("button", { name: "返回" })).not.toBeInTheDocument();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(screen.getByRole("dialog", { name: "无法确认更新结果" })).toBeInTheDocument();
+  expect(screen.getByText(/连续 90 秒未能确认 v1\.1\.0/)).toBeInTheDocument();
+  expect(window.sessionStorage.getItem(APPLICATION_UPDATE_PENDING_TARGET_KEY)).toBeNull();
+  const unlockedUnload = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(unlockedUnload);
+  expect(unlockedUnload.defaultPrevented).toBe(false);
+
+  fireEvent.click(screen.getByRole("button", { name: "继续等待" }));
+  expect(screen.getByRole("dialog", { name: "正在重新启动" })).toBeInTheDocument();
+  expect(window.sessionStorage.getItem(APPLICATION_UPDATE_PENDING_TARGET_KEY)).toBe("1.1.0");
+  expect(installRequests).toBe(0);
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(APPLICATION_UPDATE_CONFIRMATION_TIMEOUT_MS);
+  });
+  expect(screen.getByRole("dialog", { name: "无法确认更新结果" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "返回" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(document.getElementById("root")).not.toHaveAttribute("inert");
+  expect(window.sessionStorage.getItem(APPLICATION_UPDATE_PENDING_TARGET_KEY)).toBeNull();
+  expect(installRequests).toBe(0);
+});
+
+test("restarts the unavailable deadline after an authoritative active status", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-03T00:00:00Z"));
+  window.sessionStorage.setItem(APPLICATION_UPDATE_PENDING_TARGET_KEY, "1.1.0");
+  let returnActiveStatus = false;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path.endsWith("/update/status")) {
+      if (returnActiveStatus) {
+        returnActiveStatus = false;
+        return jsonResponse(updateStatus({ phase: "restarting", target_version: "1.1.0" }));
+      }
+      throw new TypeError("status unavailable");
+    }
+    if (path.endsWith("/api/health")) {
+      throw new TypeError("health unavailable");
+    }
+    return jsonResponse(about());
+  });
+  renderAbout();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60_000);
+  });
+  returnActiveStatus = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(500);
+  });
+  expect(screen.getByRole("dialog", { name: "正在重新启动" })).toBeInTheDocument();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(40_000);
+  });
+  expect(screen.queryByRole("dialog", { name: "无法确认更新结果" })).not.toBeInTheDocument();
+  expect(screen.getByRole("dialog", { name: "正在重新启动" })).toBeInTheDocument();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(51_000);
+  });
+  expect(screen.getByRole("dialog", { name: "无法确认更新结果" })).toBeInTheDocument();
+});
+
+test("treats three idle observations as a definitive stopped update", async () => {
+  vi.useFakeTimers();
+  window.sessionStorage.setItem(APPLICATION_UPDATE_PENDING_TARGET_KEY, "1.1.0");
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path.endsWith("/update/status")) {
+      return jsonResponse(updateStatus({ phase: "idle" }));
+    }
+    if (path.endsWith("/api/health")) {
+      return jsonResponse({ application_version: "1.0.0" });
+    }
+    return jsonResponse(about());
+  });
+  renderAbout();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1_000);
+  });
+  expect(screen.getByRole("dialog", { name: "更新未完成" })).toBeInTheDocument();
+  expect(screen.getByText("更新任务已中止，当前版本未发生变化。")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "重新尝试" })).toBeInTheDocument();
+  expect(window.sessionStorage.getItem(APPLICATION_UPDATE_PENDING_TARGET_KEY)).toBeNull();
 });
 
 function renderAbout() {

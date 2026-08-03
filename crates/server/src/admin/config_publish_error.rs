@@ -132,6 +132,11 @@ impl From<ConfigPublishError> for AdminApiError {
                 "oauth_account_label_conflict",
                 "OAuth account label is already in use for this provider",
             ),
+            ConfigPublishError::OAuthAccountIdentityConflict => AdminApiError::new(
+                StatusCode::CONFLICT,
+                "oauth_account_identity_conflict",
+                "multiple OAuth accounts have the same provider identity",
+            ),
             ConfigPublishError::InvalidOAuthAccount(error) => AdminApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalid_oauth_account",

@@ -9,7 +9,7 @@ import type {
 } from "../api/overview-usage-contracts";
 import { overviewUsageWire } from "../api/overview-usage-test-support";
 import { OverviewModelChart } from "./OverviewModelChart";
-import { OverviewUsageSection } from "./OverviewUsageSection";
+import { OverviewChartsLoading, OverviewUsageSection } from "./OverviewUsageSection";
 import { clearNotifications, getNotifications } from "@/shared/notifications";
 
 afterEach(() => {
@@ -43,8 +43,8 @@ test("shows range metrics with simultaneous time and model charts", async () => 
   expect(screen.getByText("0.033")).toBeInTheDocument();
   expect(screen.queryByText("输入 Token")).not.toBeInTheDocument();
   expect(screen.queryByText("输出 Token")).not.toBeInTheDocument();
-  const timeChart = screen.getByTestId("overview-time-chart");
-  const modelChart = screen.getByTestId("overview-model-chart");
+  const timeChart = await screen.findByTestId("overview-time-chart");
+  const modelChart = await screen.findByTestId("overview-model-chart");
   expect(timeChart.parentElement).toHaveClass("flex-1");
   expect(modelChart.parentElement).toHaveClass("flex-1");
   expect(timeChart.parentElement).not.toHaveClass("h-80");
@@ -71,6 +71,16 @@ test("shows range metrics with simultaneous time and model charts", async () => 
   await waitFor(() => {
     expect(getNotifications().map((item) => item.message)).toEqual(["用量概览已刷新"]);
   });
+});
+
+test("reserves the final two-chart layout while the chart bundle loads", () => {
+  render(<OverviewChartsLoading />);
+
+  const loading = screen.getByRole("status", { name: "正在加载调用图表" });
+  expect(loading).toHaveClass("lg:grid-cols-[minmax(0,1fr)_20rem]");
+  expect(loading.querySelectorAll(":scope > section")).toHaveLength(2);
+  expect(loading.querySelectorAll(".h-80")).toHaveLength(2);
+  expect(loading.querySelectorAll("[data-skeleton]")).toHaveLength(4);
 });
 
 test("limits the compact model pie to eight slices", () => {

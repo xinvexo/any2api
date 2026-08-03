@@ -11,18 +11,15 @@ import {
   updateOAuthAccount,
 } from "../api/oauth-api";
 import { oauthQueryKeys } from "./oauth-query-keys";
+import { useConfigurationMutationLifecycle } from "@/shared/api/use-configuration-mutation-lifecycle";
 
 export function useOAuthAccountMutations() {
   const queryClient = useQueryClient();
-  const publish = (next: OAuthAccountConfiguration) => {
-    queryClient.setQueryData<OAuthAccountConfiguration>(
-      oauthQueryKeys.accounts,
-      (current) =>
-        !current || next.configRevision >= current.configRevision ? next : current,
-    );
-  };
-  const refreshAfterFailure = () =>
-    queryClient.refetchQueries({ queryKey: oauthQueryKeys.accounts, type: "active" });
+  const { publish, refreshAfterFailure } =
+    useConfigurationMutationLifecycle<OAuthAccountConfiguration>({
+      cacheKey: oauthQueryKeys.accounts,
+      refreshKey: oauthQueryKeys.accounts,
+    });
   const update = useMutation({
     mutationFn: ({ id, input }: { id: string; input: OAuthAccountUpdateInput }) =>
       updateOAuthAccount(id, input),

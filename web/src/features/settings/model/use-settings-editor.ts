@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
 import type {
@@ -13,15 +13,20 @@ import {
   type SettingDraft,
   validateSettingDraft,
 } from "./setting-draft";
-import { selectNewestSettingsConfiguration } from "./settings-cache";
 import { settingsQueryKeys } from "./settings-query-keys";
 import { useSettings } from "./use-settings";
+import { useConfigurationMutationLifecycle } from "@/shared/api/use-configuration-mutation-lifecycle";
 
 type PendingDrafts = Record<string, SettingDraft>;
 
 export function useSettingsEditor(webGroups?: readonly string[]) {
   const query = useSettings();
-  const queryClient = useQueryClient();
+  const { publish, refreshAfterFailure } =
+    useConfigurationMutationLifecycle<SettingsConfiguration>({
+      cacheKey: settingsQueryKeys.list(),
+      invalidateKey: settingsQueryKeys.all,
+      refreshKey: settingsQueryKeys.all,
+    });
   const [drafts, setDrafts] = useState<PendingDrafts>({});
   const items = useMemo(() => {
     const allowed = webGroups ? new Set(webGroups) : null;
@@ -29,15 +34,8 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
   }, [query.data, webGroups]);
   const mutation = useMutation({
     mutationFn: applySettingChanges,
-    onSuccess: (configuration) => {
-      queryClient.setQueryData<SettingsConfiguration>(settingsQueryKeys.list(), (current) =>
-        selectNewestSettingsConfiguration(current, configuration));
-      void queryClient.invalidateQueries({ queryKey: settingsQueryKeys.all });
-    },
-    onError: () => queryClient.refetchQueries({
-      queryKey: settingsQueryKeys.all,
-      type: "active",
-    }),
+    onSuccess: publish,
+    onError: refreshAfterFailure,
     retry: false,
   });
 

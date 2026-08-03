@@ -4,7 +4,7 @@ use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
     OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
-use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, ProviderRegistry};
+use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, api::ProviderRegistry};
 use any2api_runtime::api::{
     ConfigurationCapabilities, ProviderCredentialTestService, ProxyTestService,
     PublicRequestService, RequestTelemetry,

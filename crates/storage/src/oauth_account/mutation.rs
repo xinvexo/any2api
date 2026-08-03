@@ -17,6 +17,14 @@ pub(crate) enum OAuthAccountMutation {
         models: Vec<String>,
         document: OAuthAccountDocument,
     },
+    Reauthorize {
+        id: OAuthAccountId,
+        expected_token_version: u64,
+        safe_account_email: Option<String>,
+        expires_at: Option<i64>,
+        models: Vec<String>,
+        document: OAuthAccountDocument,
+    },
     Update {
         id: OAuthAccountId,
         expected_config_version: u64,
@@ -43,6 +51,12 @@ pub(crate) enum OAuthAccountMutation {
 pub(crate) enum OAuthAccountDatabaseChange {
     Create {
         account: OAuthAccount,
+        document: OAuthAccountDocument,
+    },
+    Reauthorize {
+        account: OAuthAccount,
+        expected_token_version: u64,
+        models_changed: bool,
         document: OAuthAccountDocument,
     },
     Update(OAuthAccount),
@@ -94,6 +108,24 @@ pub(crate) fn prepare_oauth_account_mutation(
             id,
             provider_kind,
             draft,
+            safe_account_email,
+            expires_at,
+            models,
+            document,
+        )
+        .map(Some),
+        OAuthAccountMutation::Reauthorize {
+            id,
+            expected_token_version,
+            safe_account_email,
+            expires_at,
+            models,
+            document,
+        } => reauthorize(
+            current,
+            proxies,
+            id,
+            expected_token_version,
             safe_account_email,
             expires_at,
             models,
@@ -180,6 +212,36 @@ fn update(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
+fn reauthorize(
+    current: &OAuthAccountConfiguration,
+    proxies: &ProxyConfiguration,
+    id: OAuthAccountId,
+    expected_token_version: u64,
+    safe_account_email: Option<String>,
+    expires_at: Option<i64>,
+    models: Vec<String>,
+    document: OAuthAccountDocument,
+) -> Result<PreparedOAuthAccountMutation, StorageError> {
+    let existing = current
+        .get(id)
+        .ok_or(StorageError::OAuthAccountNotFound(id))?;
+    require_token_version(existing, expected_token_version)?;
+    require_document_provider(&document, existing.provider_kind())?;
+    let updated = existing.reauthorized(safe_account_email, expires_at, models)?;
+    let models_changed = updated.models() != existing.models();
+    let configuration = replace_account(current, proxies, Some(id), Some(updated.clone()))?;
+    Ok(PreparedOAuthAccountMutation {
+        configuration,
+        change: OAuthAccountDatabaseChange::Reauthorize {
+            account: updated,
+            expected_token_version,
+            models_changed,
+            document,
+        },
+    })
+}
+
 fn set_models(
     current: &OAuthAccountConfiguration,
     proxies: &ProxyConfiguration,
@@ -212,12 +274,7 @@ fn refresh(
     let existing = current
         .get(id)
         .ok_or(StorageError::OAuthAccountNotFound(id))?;
-    if existing.token_version() != expected_token_version {
-        return Err(StorageError::OAuthAccountTokenVersionConflict {
-            expected: expected_token_version,
-            actual: existing.token_version(),
-        });
-    }
+    require_token_version(existing, expected_token_version)?;
     require_document_provider(&document, existing.provider_kind())?;
     let updated = existing.refreshed(safe_account_email, expires_at)?;
     let configuration = replace_account(current, proxies, Some(id), Some(updated.clone()))?;
@@ -229,6 +286,20 @@ fn refresh(
             document,
         },
     })
+}
+
+fn require_token_version(
+    account: &OAuthAccount,
+    expected_token_version: u64,
+) -> Result<(), StorageError> {
+    if account.token_version() == expected_token_version {
+        Ok(())
+    } else {
+        Err(StorageError::OAuthAccountTokenVersionConflict {
+            expected: expected_token_version,
+            actual: account.token_version(),
+        })
+    }
 }
 
 fn delete(

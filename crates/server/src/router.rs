@@ -1,6 +1,6 @@
 use axum::{
     Router,
-    http::{Method, StatusCode, Uri},
+    http::{HeaderMap, Method, StatusCode, Uri},
     middleware,
     routing::{any, get},
 };
@@ -8,7 +8,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::{
     admin, embedded_web, health::health, http_access_log, public, request_lifecycle,
-    state::AppState, web_assets::WebAssets, web_security_headers,
+    response_security_headers, state::AppState, web_assets::WebAssets, web_security_headers,
 };
 
 pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router {
@@ -26,11 +26,11 @@ pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router
                 ServeDir::new(&web_root).fallback(ServeFile::new(web_root.join("index.html"))),
             )
             .layer(middleware::from_fn(web_security_headers::add)),
-        WebAssets::Embedded(assets) => {
-            Router::new().fallback(move |method: Method, uri: Uri| async move {
-                embedded_web::response(&method, &uri, assets)
-            })
-        }
+        WebAssets::Embedded(assets) => Router::new().fallback(
+            move |method: Method, uri: Uri, headers: HeaderMap| async move {
+                embedded_web::response(&method, &uri, &headers, assets)
+            },
+        ),
     };
     router
         .merge(web_router)
@@ -38,6 +38,7 @@ pub fn build_router(state: AppState, web_assets: impl Into<WebAssets>) -> Router
             lifecycle,
             request_lifecycle::track,
         ))
+        .layer(middleware::from_fn(response_security_headers::add_nosniff))
         .layer(middleware::from_fn_with_state(
             state,
             http_access_log::record,

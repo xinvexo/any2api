@@ -1,6 +1,6 @@
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, CredentialId, CredentialKind, OAuthAccountDraft,
-    OAuthAccountId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
+    CompletedRequestLog, ConfigRevision, CredentialId, CredentialKind, MAX_REQUEST_LOG_ROWS,
+    OAuthAccountDraft, OAuthAccountId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
     ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestAttempt,
     RequestAttemptOutcome, RequestId, RequestLog, RoutingCredentialId,
 };
@@ -148,7 +148,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
     records.push(retried);
     records.push(usage_record_without_upstream(now_bucket + 300));
     store
-        .append_request_logs(&records)
+        .append_request_logs(&records, MAX_REQUEST_LOG_ROWS)
         .await
         .expect("append request logs");
 

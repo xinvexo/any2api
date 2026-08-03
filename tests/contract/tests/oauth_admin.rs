@@ -1,20 +1,18 @@
 use std::{
-    fs,
     net::SocketAddr,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 
-use any2api_contract_tests::build_public_request_components;
-use any2api_domain::{ProxyProfileId, RetrySafety};
-use any2api_provider::{CodexDriver, GrokDriver, ProviderRegistry};
-use any2api_runtime::api::{
-    ConfigPublisher, OAuthService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
+use any2api_contract_tests::TestApplication;
+use any2api_domain::{
+    OAuthAccountDraft, OAuthAccountId, ProviderKind, ProxyProfileId, RequestsPerMinute, RetrySafety,
 };
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_provider::{CodexDriver, GrokDriver, api::ProviderRegistry};
+use any2api_runtime::api::{ConfigPublisher, OAuthService};
+use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use any2api_transport::api::{
     TransportError, TransportErrorStage, TransportFailureScope, TransportManager, TransportProxy,
     TransportRequest, TransportResponse,
@@ -32,11 +30,10 @@ use axum::{
 use http_body_util::BodyExt;
 use secrecy::ExposeSecret;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn oauth_start_is_loopback_protected_and_does_not_publish_configuration() {
+async fn oauth_start_requires_an_admin_session_and_does_not_publish_configuration() {
     let (directory, app, storage) = test_app().await;
     let remote = SocketAddr::from(([203, 0, 113, 10], 41000));
     let (status, body) = request_json(
@@ -47,8 +44,8 @@ async fn oauth_start_is_loopback_protected_and_does_not_publish_configuration() 
         remote,
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(body["error"]["code"], "admin_loopback_only");
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "admin_session_required");
 
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let (status, start) = request_json(
@@ -340,6 +337,158 @@ async fn oauth_exchange_activates_persisted_account_once_over_direct_transport()
     assert_eq!(replay["error"]["code"], "oauth_session_invalid");
 }
 
+#[tokio::test]
+async fn repeated_login_reauthorizes_the_same_account_and_preserves_local_configuration() {
+    let transport = Arc::new(RelLoginTokenTransport::default());
+    let (_directory, app, storage, publisher) =
+        test_app_with_transport_and_publisher(transport).await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, first) = complete_codex_login(app.clone(), loopback).await;
+    assert_eq!(status, StatusCode::OK);
+    let stored = storage.load_configuration().await.expect("configuration");
+    let account = stored
+        .oauth_accounts()
+        .accounts()
+        .first()
+        .expect("first OAuth account");
+    let account_id = account.id();
+    assert_eq!(first["account_id"], account_id.to_string());
+
+    let updated = publisher
+        .update_oauth_account(
+            stored.revision(),
+            account_id,
+            account.config_version(),
+            OAuthAccountDraft::new(
+                "Preserved account",
+                Some(RequestsPerMinute::new(17).expect("RPM")),
+                false,
+            )
+            .expect("account draft"),
+        )
+        .await
+        .expect("update local account settings");
+    let account = updated
+        .oauth_accounts()
+        .get(account_id)
+        .expect("updated OAuth account");
+    publisher
+        .set_oauth_account_models(
+            updated.revision(),
+            account_id,
+            account.config_version(),
+            vec!["gpt-5.3-codex-spark".into()],
+        )
+        .await
+        .expect("narrow selected models");
+
+    let (status, second) = complete_codex_login(app, loopback).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(second["account_id"], account_id.to_string());
+    assert_eq!(second["label"], "Preserved account");
+    assert_eq!(second["requests_per_minute"], 17);
+    assert_eq!(second["enabled"], false);
+    assert_eq!(second["selected_model_count"], 1);
+    assert_eq!(second["config_version"], 3);
+
+    let stored = storage.load_configuration().await.expect("configuration");
+    assert_eq!(stored.oauth_accounts().accounts().len(), 1);
+    let account = stored
+        .oauth_accounts()
+        .get(account_id)
+        .expect("reauthorized OAuth account");
+    assert_eq!(account.label(), "Preserved account");
+    assert_eq!(
+        account.requests_per_minute().map(|value| value.get()),
+        Some(17)
+    );
+    assert!(!account.enabled());
+    assert_eq!(account.config_version(), 3);
+    assert_eq!(account.models().len(), 1);
+    assert_eq!(account.models()[0].as_str(), "gpt-5.3-codex-spark");
+    assert_eq!(account.token_version(), 2);
+
+    let document = stored
+        .into_parts()
+        .oauth_account_materials
+        .into_entries()
+        .into_iter()
+        .find(|material| material.account_id() == account_id)
+        .expect("reauthorized material")
+        .into_document()
+        .into_bytes();
+    let document: Value =
+        serde_json::from_slice(document.expose_secret()).expect("stored OAuth document");
+    assert_eq!(document["access_token"], "access-token-2");
+}
+
+#[tokio::test]
+async fn same_email_with_different_stable_account_ids_creates_separate_accounts() {
+    let transport = Arc::new(DifferentIdentityLoginTokenTransport::default());
+    let (_directory, app, storage, _publisher) =
+        test_app_with_transport_and_publisher(transport).await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let (status, first) = complete_codex_login(app.clone(), loopback).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, second) = complete_codex_login(app, loopback).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_ne!(first["account_id"], second["account_id"]);
+    assert_eq!(first["label"], "person@example.com");
+    assert_eq!(second["label"], "person@example.com (2)");
+
+    let stored = storage.load_configuration().await.expect("configuration");
+    assert_eq!(stored.oauth_accounts().accounts().len(), 2);
+    assert!(
+        stored
+            .oauth_accounts()
+            .accounts()
+            .iter()
+            .all(|account| account.token_version() == 1)
+    );
+}
+
+#[tokio::test]
+async fn login_rejects_ambiguous_existing_provider_identity() {
+    let transport = Arc::new(RelLoginTokenTransport::default());
+    let (_directory, app, storage, publisher) =
+        test_app_with_transport_and_publisher(transport).await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    for (label, access_token) in [
+        ("Imported duplicate A", "imported-access-a"),
+        ("Imported duplicate B", "imported-access-b"),
+    ] {
+        publisher
+            .activate_oauth_account(
+                OAuthAccountId::new(),
+                ProviderKind::Codex,
+                OAuthAccountDraft::new(label, None, true).expect("OAuth account draft"),
+                Some("person@example.com".into()),
+                None,
+                vec!["gpt-5.5".into()],
+                codex_account_document(access_token, "account-123"),
+            )
+            .await
+            .expect("create duplicate identity fixture");
+    }
+
+    let (status, body) = complete_codex_login(app, loopback).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"]["code"], "oauth_account_identity_conflict");
+
+    let stored = storage.load_configuration().await.expect("configuration");
+    assert_eq!(stored.oauth_accounts().accounts().len(), 2);
+    assert!(
+        stored
+            .oauth_accounts()
+            .accounts()
+            .iter()
+            .all(|account| account.token_version() == 1)
+    );
+}
+
 async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
     test_app_with_transport(Arc::new(TokenTransport::default())).await
 }
@@ -347,35 +496,22 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
 async fn test_app_with_transport(
     token_transport: Arc<dyn TransportManager>,
 ) -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let components = build_public_request_components().expect("public request components");
+    let (directory, app, storage, _publisher) =
+        test_app_with_transport_and_publisher(token_transport).await;
+    (directory, app, storage)
+}
+
+async fn test_app_with_transport_and_publisher(
+    token_transport: Arc<dyn TransportManager>,
+) -> (
+    tempfile::TempDir,
+    Router,
+    Arc<SqliteStore>,
+    Arc<ConfigPublisher>,
+) {
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let publisher = fixture.publisher();
     let mut providers = ProviderRegistry::new();
     providers
         .register(Arc::new(CodexDriver::new()))
@@ -388,11 +524,43 @@ async fn test_app_with_transport(
         token_transport,
         Arc::clone(&publisher),
     ));
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, components.service()).with_oauth(oauth),
-        web_root,
-    );
-    (directory, app, storage)
+    let state = fixture.state().with_oauth(oauth);
+    let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);
+    (directory, app, storage, publisher)
+}
+
+async fn complete_codex_login(app: Router, loopback: SocketAddr) -> (StatusCode, Value) {
+    let (status, start) = request_json(
+        app.clone(),
+        Method::POST,
+        "/api/admin/oauth/start",
+        Some(json!({"provider": "codex"})),
+        loopback,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let session_id = start["session_id"].as_str().expect("session id");
+    let authorization_url = start["authorization_url"]
+        .as_str()
+        .expect("authorization URL");
+    let state = url::Url::parse(authorization_url)
+        .expect("authorization URL")
+        .query_pairs()
+        .find_map(|(key, value)| (key == "state").then(|| value.into_owned()))
+        .expect("OAuth state");
+    request_json(
+        app,
+        Method::POST,
+        "/api/admin/oauth/exchange",
+        Some(json!({
+            "session_id": session_id,
+            "callback_url": format!(
+                "http://localhost:1455/auth/callback?code=authorization-code&state={state}"
+            )
+        })),
+        loopback,
+    )
+    .await
 }
 
 async fn request_json(
@@ -454,6 +622,62 @@ struct TokenTransport {
     codex_exchanged: AtomicBool,
     grok_polled: AtomicBool,
     fail_next_grok_poll: AtomicBool,
+}
+
+#[derive(Default)]
+struct RelLoginTokenTransport {
+    exchanges: AtomicUsize,
+}
+
+#[derive(Default)]
+struct DifferentIdentityLoginTokenTransport {
+    exchanges: AtomicUsize,
+}
+
+#[async_trait]
+impl TransportManager for RelLoginTokenTransport {
+    async fn execute(
+        &self,
+        proxy: TransportProxy<'_>,
+        request: TransportRequest,
+    ) -> Result<TransportResponse, any2api_transport::api::TransportError> {
+        assert_eq!(proxy.profile().id(), ProxyProfileId::DIRECT);
+        assert_eq!(request.uri.host(), Some("auth.openai.com"));
+        assert_eq!(request.uri.path(), "/oauth/token");
+        let sequence = self.exchanges.fetch_add(1, Ordering::SeqCst) + 1;
+        let body = bytes::Bytes::from(format!(
+            r#"{{"access_token":"access-token-{sequence}","refresh_token":"refresh-token-{sequence}","id_token":"header.eyJlbWFpbCI6InBlcnNvbkBleGFtcGxlLmNvbSIsImh0dHBzOi8vYXBpLm9wZW5haS5jb20vYXV0aCI6eyJjaGF0Z3B0X2FjY291bnRfaWQiOiJhY2NvdW50LTEyMyIsImNoYXRncHRfcGxhbl90eXBlIjoicGx1cyJ9fQ.signature","expires_in":3600}}"#
+        ));
+        Ok(TransportResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: Box::pin(futures_util::stream::once(async { Ok(body) })),
+            read_failure_scope: TransportFailureScope::Endpoint,
+        })
+    }
+}
+
+#[async_trait]
+impl TransportManager for DifferentIdentityLoginTokenTransport {
+    async fn execute(
+        &self,
+        proxy: TransportProxy<'_>,
+        request: TransportRequest,
+    ) -> Result<TransportResponse, any2api_transport::api::TransportError> {
+        assert_eq!(proxy.profile().id(), ProxyProfileId::DIRECT);
+        assert_eq!(request.uri.host(), Some("auth.openai.com"));
+        assert_eq!(request.uri.path(), "/oauth/token");
+        let sequence = self.exchanges.fetch_add(1, Ordering::SeqCst) + 1;
+        let body = bytes::Bytes::from(format!(
+            r#"{{"access_token":"access-token-{sequence}","refresh_token":"refresh-token-{sequence}","account_id":"account-{sequence}","email":"person@example.com","expires_in":3600}}"#
+        ));
+        Ok(TransportResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: Box::pin(futures_util::stream::once(async { Ok(body) })),
+            read_failure_scope: TransportFailureScope::Endpoint,
+        })
+    }
 }
 
 #[async_trait]
@@ -523,4 +747,12 @@ impl TransportManager for TokenTransport {
             read_failure_scope: TransportFailureScope::Endpoint,
         })
     }
+}
+
+fn codex_account_document(access_token: &str, account_id: &str) -> OAuthAccountDocument {
+    let bytes = format!(
+        r#"{{"type":"codex","access_token":"{access_token}","refresh_token":"refresh-token","account_id":"{account_id}","email":"person@example.com"}}"#
+    )
+    .into_bytes();
+    OAuthAccountDocument::new(ProviderKind::Codex, bytes.into()).expect("OAuth document")
 }

@@ -76,6 +76,8 @@ pub enum ConfigPublishError {
     OAuthAccountTokenVersionConflict,
     #[error("OAuth account label is already in use for this provider")]
     OAuthAccountLabelConflict,
+    #[error("multiple OAuth accounts have the same provider identity")]
+    OAuthAccountIdentityConflict,
     #[error("invalid OAuth account: {0}")]
     InvalidOAuthAccount(OAuthAccountValidationError),
     #[error("OAuth account model is not available for this Provider account")]

@@ -4,6 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use sha2::{Digest, Sha256};
+
 fn main() {
     let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").expect("manifest directory"));
     let root = manifest.join("web-assets");
@@ -71,10 +73,17 @@ fn render(assets: &BTreeMap<String, PathBuf>) -> String {
     let mut generated =
         String::from("pub(super) static EMBEDDED_WEB_ASSETS: &[EmbeddedWebAsset] = &[\n");
     for (path, source) in assets {
+        let bytes = fs::read(source).unwrap_or_else(|error| {
+            panic!(
+                "failed to read embedded web asset {}: {error}",
+                source.display()
+            )
+        });
+        let etag = format!("\"sha256-{:x}\"", Sha256::digest(bytes));
         generated.push_str("    EmbeddedWebAsset::new(");
         generated.push_str(&format!(
-            "{path:?}, include_bytes!({:?})",
-            source.to_string_lossy()
+            "{path:?}, include_bytes!({:?}), {etag:?}",
+            source.to_string_lossy(),
         ));
         generated.push_str("),\n");
     }

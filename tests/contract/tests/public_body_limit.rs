@@ -1,12 +1,9 @@
-use std::{convert::Infallible, fs, future::Future, net::SocketAddr, sync::Arc};
+use std::{convert::Infallible, future::Future, net::SocketAddr};
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_runtime::api::{
-    ConfigPublisher, IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, PublishedSnapshot, RuntimeRegistry,
-    STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES, SnapshotStore,
+    IMAGES_EDIT_REQUEST_BODY_LIMIT_BYTES, STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
 };
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
     Router,
     body::{Body, Bytes},
@@ -16,7 +13,6 @@ use axum::{
 use futures_util::{StreamExt, stream};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -231,42 +227,9 @@ fn pending_image_edit(
 }
 
 async fn test_app_with_gateway_key() -> (tempfile::TempDir, Router, String) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let service = build_public_request_components()
-        .expect("public request components")
-        .service();
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let revision = snapshots.load().revision().get();
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, service),
-        web_root,
-    );
+    let fixture = TestApplication::new().await;
+    let revision = fixture.snapshots().load().revision().get();
+    let (directory, app, _storage) = fixture.into_router();
 
     let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
     let request = Request::builder()

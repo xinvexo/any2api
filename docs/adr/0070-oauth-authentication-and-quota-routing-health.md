@@ -16,10 +16,11 @@
 1. Provider Driver 对刷新端点的有界结构化错误 envelope 分类。前一 access token 已经被 401 拒绝后，下列情形返回 `oauth_account_authentication_failed`：刷新成功后再次 401；账号没有 refresh token；刷新端点返回明确永久失效码，首批至少识别标准 `invalid_grant`。禁止递归扫描任意 JSON 值或依赖自然语言消息。
 2. 刷新网络错误、超时、5xx、响应超限、畸形或未知错误码仍返回 `oauth_account_authentication_unverified`。这些账号不得进入批量删除候选。
 3. “删除失效账号”继续由前端复用逐账号实时诊断、重新读取安全元数据、核对 `token_version` 并串行调用现有 DELETE；不新增批量删除端点，不下发 OAuth JSON。
-4. 额度查询只在明确、账号级的权威信号出现时更新当前 OAuthAccount 认证 generation 的内存健康：`allowed=false`、`limit_reached=true`、Provider 声明的额度耗尽诊断或权威 Token `remaining=0`。未知值、单个模型/时间窗口达到 100% 和本地估算均不得排除账号。
+4. 额度查询只在明确、账号级的权威信号出现时更新当前 OAuthAccount `account_generation` 的路由健康：`allowed=false`、`limit_reached=true`、Provider 声明的额度耗尽诊断或权威 Token `remaining=0`。未知值、单个模型/时间窗口达到 100% 和本地估算均不得排除账号。
 5. 明确耗尽的账号在上游 reset 时刻前不进入普通路由候选；没有可靠 reset 时刻时使用 `cooldown.permission_denied` 作为有界兜底探测间隔。到期只恢复一次正常候选资格，不恢复或持久化额度状态；下一次明确失败可重新建立状态。
-6. 明确可用的后续额度查询、成功数据面请求或成功 Codex reset 清除当前 generation 的耗尽状态。建立、清除和到期复用统一 scheduler epoch 与 QueueTicket，不新增额度队列。
-7. 额度健康、认证健康、等待和 reset 时刻都只存在于进程内并按认证 generation 隔离。它们不写 SQLite、OAuth JSON、RequestLog、PublishedSnapshot 或浏览器存储，也不影响 GatewayApiKey。
+6. 明确可用的后续额度查询、成功数据面请求或成功 Codex reset 清除当前账号路由 generation 的耗尽状态。建立、清除和到期复用统一 scheduler epoch 与 QueueTicket，不新增额度队列。
+7. 额度健康按 `account_generation` 隔离并跨同账号 Token refresh 复用；`auth_error` 按 `token_version` 严格隔离。两者、等待和 reset 时刻都只存在于进程内，不写 SQLite、OAuth JSON、RequestLog、PublishedSnapshot 或浏览器存储，也不影响 GatewayApiKey。完整代际边界见 ADR-0095。
+8. 数据面非 2xx 也可以通过 Provider 已声明 envelope 中的精确额度 code/type 建立同一 generation 的额度健康；HTTP 400 不再机械压回普通请求错误。该路径禁止按错误 message 推断，且不得改写客户端看到的原始上游响应。完整边界见 ADR-0086。
 
 ## 后果
 

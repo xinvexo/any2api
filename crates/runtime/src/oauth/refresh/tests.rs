@@ -4,7 +4,7 @@ use std::sync::{
 };
 
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
-use any2api_provider::{CodexDriver, ProviderRegistry};
+use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_storage::api::{
     ConfigurationMutation, ConfigurationRepository, OAuthAccountDocument, SqliteStore,
 };
@@ -25,6 +25,7 @@ use crate::{
     registry::RuntimeRegistry,
 };
 
+mod health_generation;
 mod scheduled;
 
 #[tokio::test]
@@ -76,7 +77,7 @@ async fn concurrent_refreshes_share_one_request_and_publish_one_generation() {
         .get(id)
         .expect("refreshed account");
     assert_eq!(account.token_version(), 2);
-    assert_eq!(account.account_generation(), 2);
+    assert_eq!(account.account_generation(), 1);
     assert_eq!(account.safe_account_email(), Some("person@example.com"));
     assert_eq!(account.models()[0].as_str(), "gpt-5.5");
     let token = published

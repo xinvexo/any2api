@@ -1,10 +1,9 @@
-import { Plus, RefreshCw, Search, SearchX, Server } from "lucide-react";
+import { SearchX, Server } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import type {
   ProviderEndpoint,
-  ProviderEndpointConfiguration,
   ProviderKind,
 } from "../api/provider-contracts";
 import {
@@ -13,17 +12,20 @@ import {
   PROVIDER_KIND_OPTIONS,
 } from "../model/provider-kind-catalog";
 import { ProviderCredentialManagement } from "./ProviderCredentialManagement";
+import { ProviderEndpointChrome } from "./ProviderEndpointChrome";
+import {
+  ProviderEndpointLoadStateView,
+  type ProviderEndpointLoadState,
+} from "./ProviderEndpointLoadState";
 import {
   ENDPOINT_CONTENT_GRID_CLASS,
   ProviderEndpointTableRow,
 } from "./ProviderEndpointTableRow";
-import { ProviderKindNav } from "./ProviderKindNav";
-import { Button } from "@/shared/ui/Button";
-import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
 import { cn } from "@/shared/lib/cn";
 
 interface ProviderEndpointListProps {
-  configuration: ProviderEndpointConfiguration;
+  items: readonly ProviderEndpoint[];
+  loadState?: ProviderEndpointLoadState;
   pending: boolean;
   refreshing: boolean;
   onCreate: (kind: ProviderKind) => void;
@@ -34,7 +36,8 @@ interface ProviderEndpointListProps {
 }
 
 export function ProviderEndpointList({
-  configuration,
+  items,
+  loadState,
   pending,
   refreshing,
   onCreate,
@@ -53,15 +56,15 @@ export function ProviderEndpointList({
     const next = Object.fromEntries(
       PROVIDER_KIND_OPTIONS.map((option) => [option.kind, 0]),
     ) as Record<ProviderKind, number>;
-    for (const endpoint of configuration.items) {
+    for (const endpoint of items) {
       next[endpoint.providerKind] = (next[endpoint.providerKind] ?? 0) + 1;
     }
     return next;
-  }, [configuration.items]);
+  }, [items]);
 
   const kindItems = useMemo(
-    () => configuration.items.filter((endpoint) => endpoint.providerKind === selectedKind),
-    [configuration.items, selectedKind],
+    () => items.filter((endpoint) => endpoint.providerKind === selectedKind),
+    [items, selectedKind],
   );
 
   const filtered = useMemo(() => {
@@ -170,38 +173,21 @@ export function ProviderEndpointList({
   const EmptyIcon = kindIsEmpty ? Server : SearchX;
 
   return (
-    <KindSplitLayout
-      toolbarStart={
-        <>
-          <Search
-            size={14}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
-            aria-hidden="true"
-          />
-          <input
-            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
-            value={query}
-            placeholder={`搜索 ${kindName} Endpoint`}
-            aria-label={`搜索 ${kindName}`}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </>
-      }
-      toolbarEnd={
-        <>
-          <Button variant="ghost" disabled={refreshing} onClick={onRefresh}>
-            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
-            刷新
-          </Button>
-          <Button variant="primary" disabled={pending} onClick={() => onCreate(selectedKind)}>
-            <Plus size={14} />
-            新增
-          </Button>
-        </>
-      }
-      kindNav={<ProviderKindNav selected={selectedKind} counts={counts} onSelect={selectKind} />}
+    <ProviderEndpointChrome
+      selectedKind={selectedKind}
+      counts={counts}
+      onSelectKind={selectKind}
+      search={loadState ? undefined : { value: query, onChange: setQuery }}
+      busy={loadState?.kind === "loading"}
+      refreshing={refreshing}
+      onRefresh={onRefresh}
+      createDisabled={pending || loadState !== undefined}
+      onCreate={() => onCreate(selectedKind)}
     >
-      <div className="flex h-full min-h-0 flex-col">
+      {loadState ? (
+        <ProviderEndpointLoadStateView state={loadState} />
+      ) : (
+        <div className="flex h-full min-h-0 flex-col">
         {filtered.length === 0 ? (
           <div
             className="flex min-h-40 flex-1 flex-col items-center justify-center px-6 py-9 text-center"
@@ -287,8 +273,9 @@ export function ProviderEndpointList({
             {kindName} · 共 <span className="tabular-nums">{filtered.length}</span> 条
           </p>
         </div>
-      </div>
-    </KindSplitLayout>
+        </div>
+      )}
+    </ProviderEndpointChrome>
   );
 }
 

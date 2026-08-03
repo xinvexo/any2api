@@ -9,6 +9,11 @@ pub enum ProviderError {
     InvalidCredential(String),
     #[error("invalid provider endpoint: {0}")]
     InvalidEndpoint(String),
+    #[error("provider {provider:?} does not support OAuth upstream model {model:?}")]
+    UnsupportedOAuthModel {
+        provider: ProviderKind,
+        model: String,
+    },
     #[error("invalid provider response: {0}")]
     InvalidResponse(String),
 }

@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-19
+- 修订：2026-08-03
 - 决策者：maintainer
 
 ## 背景
@@ -22,7 +23,7 @@
 - RPM 窗口、`in_flight`、QueueCoordinator 与 scheduler epoch 属于 Runtime scope。连续快照按稳定路由凭据身份复用这些句柄，配置发布只更新其可选 RPM 值，不重置现有窗口或等待计数。
 - 有效配置发布使用全局串行锁。在事务中读取并校验完整候选配置、编译候选快照并提交 SQLite 后，Runtime 执行无 I/O、无 `Result` 的 reconcile，随后单次替换 Snapshot，最后推进统一 scheduler epoch。失败或 no-op 不推进 epoch。
 - 管理 API 提供列表、写入覆盖和删除覆盖；响应同时包含默认值、覆盖值、生效值、范围、枚举值和应用模式。Web 按分组渲染合适控件并保留 revision 冲突后的草稿，但不提供删除覆盖或“恢复默认”入口。
-- `ConfigurationRepository` 只负责加载配置与准备事务内候选配置；全部设置和其他管理员配置写入统一由 `ConfigPublisher` 接收类型化 `ConfigurationMutation`，执行串行预编译、提交、Runtime reconcile 与单次 Snapshot 切换，不保留按配置类别拆分的写 Repository。
+- `ConfigurationRepository` 只负责加载已提交配置；`ConfigurationTransactionRepository` 在 Storage 内独占活 SQLite 事务，并只接受同步候选编译回调。全部设置和其他管理员配置写入统一由 `ConfigPublisher` 接收类型化 `ConfigurationMutation`，通过该回调执行串行预编译；Storage 根据回调结果提交或回滚，Runtime 只在已提交后执行 reconcile 与单次 Snapshot 切换。不保留按配置类别拆分的写 Repository，也不向 Runtime 暴露可跨 `await` 持有的事务句柄。
 
 ## 边界
 

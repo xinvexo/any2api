@@ -159,8 +159,8 @@ mod tests {
         fn encode_upstream_request(
             &self,
             _operation: ProtocolOperation,
-            _headers: HeaderMap,
-            _payload: AdapterPayload,
+            _headers: &HeaderMap,
+            _payload: &AdapterPayload,
             _upstream_model: &str,
         ) -> Result<EncodedUpstreamRequest, ProtocolError> {
             Err(ProtocolError::Unsupported("test".into()))

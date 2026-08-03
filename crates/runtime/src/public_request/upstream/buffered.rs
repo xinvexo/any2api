@@ -23,7 +23,7 @@ use crate::request_telemetry::AttemptRecorder;
 
 pub(in crate::public_request) async fn execute_buffered_attempt(
     services: UpstreamServices<'_>,
-    decoded: DecodedRequest,
+    decoded: &DecodedRequest,
     public_model: &str,
     affinity: AffinitySelection,
     attempt_recorder: AttemptRecorder,

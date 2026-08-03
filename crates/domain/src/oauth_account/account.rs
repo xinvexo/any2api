@@ -174,9 +174,18 @@ impl OAuthAccount {
             safe_account_email: validate_safe_email(safe_account_email)?,
             expires_at,
             token_version: next_version(self.token_version)?,
-            account_generation: next_version(self.account_generation)?,
             ..self.clone()
         })
+    }
+
+    pub fn reauthorized(
+        &self,
+        safe_account_email: Option<String>,
+        expires_at: Option<i64>,
+        models: Vec<String>,
+    ) -> Result<Self, OAuthAccountValidationError> {
+        self.refreshed(safe_account_email, expires_at)?
+            .with_models(models)
     }
 
     #[must_use]

@@ -8,9 +8,40 @@ const ADAPTER_CRATES: [&str; 4] = [
     "any2api_storage",
     "any2api_transport",
 ];
+const PROVIDER_ROOT_EXPORTS: [&str; 3] = [
+    "pub use claude::ClaudeDriver;",
+    "pub use codex::CodexDriver;",
+    "pub use grok::GrokDriver;",
+];
 
 pub(crate) fn check(workspace: &Path) -> Result<()> {
-    check_directory(&workspace.join("crates/runtime/src"))
+    check_directory(&workspace.join("crates/runtime/src"))?;
+    check_provider_root_exports(&workspace.join("crates/provider/src/lib.rs"))
+}
+
+fn check_provider_root_exports(path: &Path) -> Result<()> {
+    let source =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    let actual = provider_root_exports(&source);
+    let mut expected = PROVIDER_ROOT_EXPORTS.to_vec();
+    expected.sort_unstable();
+    if actual != expected {
+        bail!(
+            "Provider root must expose only Composition Root drivers; expected {expected:?}, found {actual:?}: {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn provider_root_exports(source: &str) -> Vec<&str> {
+    let mut exports = source
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("pub use "))
+        .collect::<Vec<_>>();
+    exports.sort_unstable();
+    exports
 }
 
 fn check_directory(directory: &Path) -> Result<()> {
@@ -92,6 +123,22 @@ mod tests {
         assert_eq!(
             forbidden_import("let error = any2api_provider::ProviderError::InvalidResponse(x);"),
             Some((1, "any2api_provider"))
+        );
+    }
+
+    #[test]
+    fn provider_root_exposes_only_composition_root_drivers() {
+        assert_eq!(
+            provider_root_exports(
+                "pub use grok::GrokDriver;\npub use claude::ClaudeDriver;\npub use codex::CodexDriver;\n"
+            ),
+            PROVIDER_ROOT_EXPORTS
+        );
+        assert_ne!(
+            provider_root_exports(
+                "pub use claude::ClaudeDriver;\npub use codex::CodexDriver;\npub use grok::GrokDriver;\npub use registry::ProviderRegistry;\n"
+            ),
+            PROVIDER_ROOT_EXPORTS
         );
     }
 }

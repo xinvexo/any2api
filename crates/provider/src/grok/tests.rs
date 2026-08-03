@@ -7,9 +7,9 @@ use base64::Engine as _;
 use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::{GrokDriver, oauth_bot_flag};
-use crate::{
-    OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthTokenMaterial, ProviderSecret,
-    api::{ProviderDriver, ProviderRequestHeaderContext},
+use crate::api::{
+    OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthTokenMaterial, ProviderDriver,
+    ProviderError, ProviderRequestHeaderContext, ProviderSecret,
 };
 
 #[test]
@@ -269,6 +269,99 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
         "grok-shell/0.2.112 (macos; aarch64)"
     );
     assert!(!format!("{headers:?}").contains("access-secret"));
+}
+
+#[test]
+fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
+    let driver = GrokDriver::new();
+    let client_headers = http::HeaderMap::new();
+
+    let oauth_headers = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "本地/Grok",
+            client_headers: &client_headers,
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("UTF-8 Grok OAuth model header");
+    assert_eq!(
+        oauth_headers["x-grok-model-override"].as_bytes(),
+        "本地/Grok".as_bytes()
+    );
+
+    let error = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "invalid\nmodel",
+            client_headers: &client_headers,
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect_err("control bytes are not legal in an HTTP header");
+    assert_eq!(
+        error,
+        ProviderError::UnsupportedOAuthModel {
+            provider: ProviderKind::Grok,
+            model: "invalid\nmodel".to_owned(),
+        }
+    );
+
+    let api_key_headers = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "本地/Grok",
+            client_headers: &client_headers,
+            oauth: false,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("API Key model stays in the JSON request body");
+    assert!(!api_key_headers.contains_key("x-grok-model-override"));
+}
+
+#[test]
+fn grok_jwt_identity_falls_back_per_claim_field() {
+    let driver = GrokDriver::new();
+    for (id_payload, access_payload, expected_subject, expected_email) in [
+        (
+            br#"{"email":"id@example.com"}"#.as_slice(),
+            br#"{"sub":"access-subject"}"#.as_slice(),
+            "access-subject",
+            "id@example.com",
+        ),
+        (
+            br#"{"sub":"id-subject"}"#.as_slice(),
+            br#"{"email":"access@example.com"}"#.as_slice(),
+            "id-subject",
+            "access@example.com",
+        ),
+    ] {
+        let id_claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(id_payload);
+        let access_claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(access_payload);
+        let id_token = format!("header.{id_claims}.id-secret");
+        let access_token = format!("header.{access_claims}.access-secret");
+        let body = serde_json::to_vec(&serde_json::json!({
+            "access_token": access_token,
+            "id_token": id_token,
+            "sub": "response-subject",
+            "email": "response@example.com"
+        }))
+        .expect("token response");
+
+        let token = driver.parse_oauth_token(&body).expect("Grok token");
+
+        assert_eq!(token.account_id(), Some(expected_subject));
+        assert_eq!(token.email(), Some(expected_email));
+        let debug = format!("{token:?}");
+        assert!(!debug.contains("access-secret"));
+        assert!(!debug.contains("id-secret"));
+    }
 }
 
 #[test]

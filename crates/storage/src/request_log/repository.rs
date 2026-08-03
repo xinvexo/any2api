@@ -4,9 +4,10 @@ use async_trait::async_trait;
 use crate::{error::StorageError, sqlite::SqliteStore};
 
 use super::{
+    capacity::{REQUEST_LOG_CLEANUP_BATCH_ROWS, RequestLogCleanupOutcome, trim_to_capacity},
     overview::{RequestLogOverview, RequestLogOverviewRange, load_request_log_overview},
     rows::{RequestAttemptRow, RequestLogRow, parse_request_attempt, parse_request_log},
-    writes::{delete_oldest, delete_oldest_before, insert_request_attempt, insert_request_log},
+    writes::{delete_oldest_before, insert_request_attempt, insert_request_log},
 };
 
 #[async_trait]
@@ -14,14 +15,15 @@ pub trait RequestLogRepository: Send + Sync {
     async fn append_request_logs(
         &self,
         records: &[CompletedRequestLog],
-    ) -> Result<(), StorageError>;
+        max_rows: u64,
+    ) -> Result<RequestLogCleanupOutcome, StorageError>;
 
     async fn prune_request_logs(
         &self,
         retention_before_ms: u64,
         max_rows: u64,
         batch_size: u32,
-    ) -> Result<u64, StorageError>;
+    ) -> Result<RequestLogCleanupOutcome, StorageError>;
 
     async fn list_request_logs(
         &self,
@@ -46,9 +48,10 @@ impl RequestLogRepository for SqliteStore {
     async fn append_request_logs(
         &self,
         records: &[CompletedRequestLog],
-    ) -> Result<(), StorageError> {
+        max_rows: u64,
+    ) -> Result<RequestLogCleanupOutcome, StorageError> {
         if records.is_empty() {
-            return Ok(());
+            return Ok(RequestLogCleanupOutcome::default());
         }
         let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
         for record in records {
@@ -57,8 +60,14 @@ impl RequestLogRepository for SqliteStore {
                 insert_request_attempt(&mut transaction, attempt).await?;
             }
         }
+        let cleanup = trim_to_capacity(
+            &mut transaction,
+            max_rows,
+            u64::from(REQUEST_LOG_CLEANUP_BATCH_ROWS),
+        )
+        .await?;
         transaction.commit().await?;
-        Ok(())
+        Ok(cleanup)
     }
 
     async fn prune_request_logs(
@@ -66,29 +75,22 @@ impl RequestLogRepository for SqliteStore {
         retention_before_ms: u64,
         max_rows: u64,
         batch_size: u32,
-    ) -> Result<u64, StorageError> {
+    ) -> Result<RequestLogCleanupOutcome, StorageError> {
+        let delete_budget = u64::from(batch_size);
         let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
         let expired =
-            delete_oldest_before(&mut transaction, retention_before_ms, u64::from(batch_size))
-                .await?;
+            delete_oldest_before(&mut transaction, retention_before_ms, delete_budget).await?;
+        let capacity = trim_to_capacity(
+            &mut transaction,
+            max_rows,
+            delete_budget.saturating_sub(expired),
+        )
+        .await?;
         transaction.commit().await?;
-        // The row-cap count runs outside the write transaction so the periodic
-        // full-table scan never blocks concurrent telemetry writers; a stale
-        // count only shifts overflow trimming to the next prune cycle.
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM request_logs")
-            .fetch_one(self.pool())
-            .await?;
-        let count = u64::try_from(count).map_err(|_| StorageError::CorruptTelemetry)?;
-        let overflow = count.saturating_sub(max_rows).min(u64::from(batch_size));
-        let trimmed = if overflow == 0 {
-            0
-        } else {
-            let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
-            let trimmed = delete_oldest(&mut transaction, overflow).await?;
-            transaction.commit().await?;
-            trimmed
-        };
-        Ok(expired.saturating_add(trimmed))
+        Ok(RequestLogCleanupOutcome::new(
+            expired.saturating_add(capacity.deleted_rows()),
+            capacity.has_more() || (delete_budget > 0 && expired == delete_budget),
+        ))
     }
 
     async fn list_request_logs(
@@ -120,10 +122,10 @@ impl RequestLogRepository for SqliteStore {
         .fetch_all(&mut *transaction)
         .await?;
         transaction.commit().await?;
-        let items = rows
-            .into_iter()
-            .map(parse_request_log)
-            .collect::<Result<Vec<_>, _>>()?;
+        let (items, corrupt_rows) = parse_page_rows(rows)?;
+        if corrupt_rows > 0 {
+            tracing::warn!(corrupt_rows, "corrupt request telemetry rows were skipped");
+        }
         Ok(LogPage::new(
             items,
             u64::try_from(total).map_err(|_| StorageError::CorruptTelemetry)?,
@@ -174,6 +176,19 @@ impl RequestLogRepository for SqliteStore {
     ) -> Result<RequestLogOverview, StorageError> {
         load_request_log_overview(self.pool(), range).await
     }
+}
+
+fn parse_page_rows(rows: Vec<RequestLogRow>) -> Result<(Vec<RequestLog>, usize), StorageError> {
+    let mut items = Vec::with_capacity(rows.len());
+    let mut corrupt_rows = 0;
+    for row in rows {
+        match parse_request_log(row) {
+            Ok(log) => items.push(log),
+            Err(StorageError::CorruptTelemetry) => corrupt_rows += 1,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok((items, corrupt_rows))
 }
 
 fn to_i64(value: u64) -> Result<i64, StorageError> {

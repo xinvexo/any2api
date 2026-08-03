@@ -2,7 +2,10 @@ use std::path::Path;
 
 use sqlx::{
     Connection, SqliteConnection, SqlitePool,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+    sqlite::{
+        SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions,
+        SqliteSynchronous,
+    },
 };
 
 use crate::{
@@ -38,7 +41,8 @@ impl SqliteStore {
             .foreign_keys(false)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Full);
-        let mut migration_connection = SqliteConnection::connect_with(&options).await?;
+        let migration_options = options.clone().auto_vacuum(SqliteAutoVacuum::Incremental);
+        let mut migration_connection = SqliteConnection::connect_with(&migration_options).await?;
         migration::run(&mut migration_connection).await?;
         migration_connection.close().await?;
         protect_sqlite_files(path)?;
@@ -96,6 +100,11 @@ mod tests {
             .await
             .expect("synchronous mode");
         assert_eq!(synchronous, 2);
+        let auto_vacuum: i64 = sqlx::query_scalar("PRAGMA auto_vacuum")
+            .fetch_one(store.pool())
+            .await
+            .expect("auto vacuum mode");
+        assert_eq!(auto_vacuum, 2);
 
         #[cfg(unix)]
         for path in [
@@ -106,6 +115,39 @@ mod tests {
             assert!(path.exists(), "{}", path.display());
             assert_eq!(mode(&path), 0o600, "{}", path.display());
         }
+    }
+
+    #[tokio::test]
+    async fn does_not_rewrite_an_existing_none_mode_database() {
+        use sqlx::{Connection, SqliteConnection, sqlite::SqliteConnectOptions};
+
+        let directory = tempdir().expect("temporary directory");
+        let database = directory.path().join("legacy.db");
+        let options = SqliteConnectOptions::new()
+            .filename(&database)
+            .create_if_missing(true);
+        let mut connection = SqliteConnection::connect_with(&options)
+            .await
+            .expect("legacy connection");
+        sqlx::query("CREATE TABLE legacy_marker (id INTEGER PRIMARY KEY)")
+            .execute(&mut connection)
+            .await
+            .expect("legacy schema");
+        connection.close().await.expect("close legacy connection");
+
+        let store = SqliteStore::connect(&database)
+            .await
+            .expect("upgraded store");
+        let auto_vacuum: i64 = sqlx::query_scalar("PRAGMA auto_vacuum")
+            .fetch_one(store.pool())
+            .await
+            .expect("legacy auto vacuum mode");
+        assert_eq!(auto_vacuum, 0);
+        let marker: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM legacy_marker")
+            .fetch_one(store.pool())
+            .await
+            .expect("legacy table remains");
+        assert_eq!(marker, 0);
     }
 
     #[cfg(unix)]

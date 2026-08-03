@@ -1,9 +1,6 @@
 use axum::{
     Json,
-    http::{
-        HeaderValue, StatusCode,
-        header::{CACHE_CONTROL, RETRY_AFTER},
-    },
+    http::{HeaderValue, StatusCode, header::RETRY_AFTER},
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
@@ -129,14 +126,6 @@ impl AdminApiError {
         )
     }
 
-    pub(crate) fn loopback_only() -> Self {
-        Self::new(
-            StatusCode::FORBIDDEN,
-            "admin_loopback_only",
-            "administrator authentication is not configured; use a loopback connection",
-        )
-    }
-
     pub(crate) fn remote_disabled() -> Self {
         Self::new(
             StatusCode::FORBIDDEN,
@@ -150,14 +139,6 @@ impl AdminApiError {
             StatusCode::BAD_REQUEST,
             "admin_invalid_forwarded_headers",
             "trusted proxy headers are invalid",
-        )
-    }
-
-    pub(crate) fn auth_unavailable() -> Self {
-        Self::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "admin_auth_unavailable",
-            "administrator authentication is unavailable",
         )
     }
 
@@ -287,9 +268,6 @@ impl IntoResponse for AdminApiError {
         };
 
         let mut response = (self.status, Json(body)).into_response();
-        response
-            .headers_mut()
-            .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
         if let Some(retry_after) = self.retry_after
             && let Ok(value) = HeaderValue::from_str(&retry_after.to_string())
         {

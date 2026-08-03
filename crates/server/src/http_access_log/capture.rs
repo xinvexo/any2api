@@ -42,12 +42,13 @@ impl BodyCapture {
         self.complete = complete;
     }
 
-    pub(super) fn snapshot(&self) -> HttpBodyCapture {
+    pub(super) fn take_snapshot(&mut self) -> HttpBodyCapture {
+        let content = std::mem::take(&mut self.content);
         HttpBodyCapture {
-            content: self.content.clone(),
+            truncated: self.total_bytes > u64::try_from(content.len()).unwrap_or(u64::MAX),
+            content,
             total_bytes: self.total_bytes,
             complete: self.complete,
-            truncated: self.total_bytes > u64::try_from(self.content.len()).unwrap_or(u64::MAX),
         }
     }
 }
@@ -68,8 +69,8 @@ impl SharedBodyCapture {
         self.0.lock().expect("HTTP body capture").finish(complete);
     }
 
-    pub(super) fn snapshot(&self) -> HttpBodyCapture {
-        self.0.lock().expect("HTTP body capture").snapshot()
+    pub(super) fn take_snapshot(&self) -> HttpBodyCapture {
+        self.0.lock().expect("HTTP body capture").take_snapshot()
     }
 }
 
@@ -154,7 +155,10 @@ mod tests {
         capture.observe(b"tail");
         capture.finish(true);
 
-        let snapshot = capture.snapshot();
+        let captured_pointer = capture.content.as_ptr();
+        let snapshot = capture.take_snapshot();
+        assert_eq!(snapshot.content.as_ptr(), captured_pointer);
+        assert!(capture.content.is_empty());
         assert_eq!(
             snapshot.content.len(),
             MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES
@@ -177,7 +181,7 @@ mod tests {
             .to_bytes();
 
         assert_eq!(forwarded, "raw request");
-        let snapshot = capture.snapshot();
+        let snapshot = capture.take_snapshot();
         assert_eq!(snapshot.content, b"raw request");
         assert_eq!(snapshot.total_bytes, 11);
         assert!(snapshot.complete);
@@ -192,7 +196,7 @@ mod tests {
             capture.clone(),
         ));
 
-        let snapshot = capture.snapshot();
+        let snapshot = capture.take_snapshot();
         assert!(snapshot.content.is_empty());
         assert!(!snapshot.complete);
         assert!(!snapshot.truncated);

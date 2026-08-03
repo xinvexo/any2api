@@ -1,4 +1,4 @@
-use any2api_provider::OAuthQuotaWindowKind;
+use any2api_provider::api::OAuthQuotaWindowKind;
 
 use super::test_support::{AuthenticationMode, QuotaTestContext};
 

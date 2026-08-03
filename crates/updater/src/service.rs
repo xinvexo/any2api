@@ -15,6 +15,7 @@ use crate::{
     github::{self, REPOSITORY_URL},
     install,
     state::UpdateTaskState,
+    temporary,
 };
 
 pub struct GitHubReleaseUpdater {
@@ -44,6 +45,25 @@ impl GitHubReleaseUpdater {
                 format!("current application version is invalid: {error}"),
             )
         })?;
+        match temporary::cleanup_stale_for_executable(&executable_path) {
+            Ok(cleanup) => {
+                if cleanup.removed > 0 {
+                    tracing::info!(
+                        removed = cleanup.removed,
+                        "removed stale update directories during updater initialization"
+                    );
+                }
+                if cleanup.skipped > 0 {
+                    tracing::warn!(
+                        skipped = cleanup.skipped,
+                        "left unsafe update-like paths untouched during updater initialization"
+                    );
+                }
+            }
+            Err(error) => {
+                tracing::warn!(%error, "failed to clean stale update directories during startup");
+            }
+        }
         Ok(Self {
             inner: Arc::new(UpdaterInner {
                 client: github::client()?,
@@ -75,13 +95,14 @@ impl UpdaterInner {
         let mut target_version = None;
         let result = self.install_latest(&mut target_version).await;
         if let Err(error) = result {
-            let kind = error.kind();
-            tracing::warn!(?kind, %error, "application update task failed");
-            self.task.failed(target_version, kind);
+            self.fail_install(target_version, error);
         }
     }
 
-    async fn install_latest(&self, target_version: &mut Option<String>) -> Result<(), UpdateError> {
+    async fn install_latest(
+        self: &Arc<Self>,
+        target_version: &mut Option<String>,
+    ) -> Result<(), UpdateError> {
         let (release, check) = self.latest_check().await?;
         let version = release.version.to_string();
         *target_version = Some(version.clone());
@@ -94,17 +115,39 @@ impl UpdaterInner {
 
         self.task.downloading(&version, release.archive_size);
         let progress_task = &self.task;
-        let installing_task = &self.task;
-        install::replace_from_release(
+        let prepared = install::prepare_from_release(
             &self.client,
             &release,
             &self.executable_path,
             |downloaded_bytes| progress_task.downloaded(&version, downloaded_bytes),
-            || installing_task.installing(&version),
         )
         .await?;
-        self.complete_install(&version);
+        self.task.installing(&version);
+        self.schedule_commit(version, move || prepared.commit());
         Ok(())
+    }
+
+    fn schedule_commit<Commit>(self: &Arc<Self>, target_version: String, commit: Commit)
+    where
+        Commit: FnOnce() -> Result<(), UpdateError> + Send + 'static,
+    {
+        let inner = Arc::clone(self);
+        self.tasks.spawn_blocking_commit(Box::new(move || {
+            inner.finish_commit(target_version, commit());
+        }));
+    }
+
+    fn finish_commit(&self, target_version: String, result: Result<(), UpdateError>) {
+        match result {
+            Ok(()) => self.complete_install(&target_version),
+            Err(error) => self.fail_install(Some(target_version), error),
+        }
+    }
+
+    fn fail_install(&self, target_version: Option<String>, error: UpdateError) {
+        let kind = error.kind();
+        tracing::warn!(?kind, %error, "application update task failed");
+        self.task.failed(target_version, kind);
     }
 
     fn complete_install(&self, version: &str) {
@@ -138,6 +181,14 @@ impl GitHubReleaseUpdater {
     #[cfg(test)]
     pub(crate) fn complete_install_for_test(&self, version: &str) {
         self.inner.complete_install(version);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn schedule_commit_for_test<Commit>(&self, version: &str, commit: Commit)
+    where
+        Commit: FnOnce() -> Result<(), UpdateError> + Send + 'static,
+    {
+        self.inner.schedule_commit(version.to_owned(), commit);
     }
 }
 

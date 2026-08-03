@@ -29,8 +29,10 @@ IP 信誉或边缘访问策略产生；当 OAuthAccount 固定继承全局代理
 4. Codex 探测的 `2xx` 或 `401` 表示出口已经到达 Provider 认证边界；`403` 表示无账号请求仍被拒绝，因此
    归类为当前 Provider 出口拒绝。其他 HTTP 状态、网络错误、超时、响应超限和无法识别的结果保持未知，
    不覆盖原始中性上游错误。
-5. 出口探测按 Provider 与配置 revision 使用进程内单飞和 30 秒缓存。配置发布自然使用新键；缓存不持久化，
-   不进入 PublishedSnapshot。探测作为当前额度诊断的附属请求，不另占一个 RPM 名额。
+5. 出口探测按 `(Provider, 配置 revision)` 使用独立的进程内单飞槽和 30 秒缓存。共享槽表的锁只覆盖
+   查找、插入与已完成过期项清理；网络探测在释放表锁后由该键自己的单飞槽执行。同键并发只执行一次，
+   不同 Provider 或不同 revision 不互相等待。配置发布自然使用新键；缓存不持久化、不进入
+   PublishedSnapshot。探测作为当前额度诊断的附属请求，不另占一个 RPM 名额。
 6. 探测结果不更新 Proxy、Endpoint 或 Credential 健康。HTTP 策略拒绝不是代理握手故障；通用
    `example.com` 代理测试继续只表示公网连通性。
 7. 管理 API 分别返回 `oauth_account_restricted`、`oauth_provider_egress_restricted` 和
@@ -44,10 +46,12 @@ IP 信誉或边缘访问策略产生；当 OAuthAccount 固定继承全局代理
 - 全局代理出口被 OpenAI 拒绝时，管理员会得到可操作的代理诊断，不再看到账号封禁误报。
 - 明确账号限制仍保留独立诊断，但必须有 Provider 声明的结构化证据。
 - 多账号批量额度刷新不会为同一 Provider 和配置代际重复制造出口探测洪峰。
+- 一个 Provider 的慢探测不会串行阻塞其他 Provider 或新配置 revision 的额度诊断。
 - Provider 新增或调整拒绝码时只修改自身 Driver 与契约测试，Runtime 不增加 Provider 分支。
 
 ## 验证
 
 - Provider 测试覆盖账号码、区域码、未知 `403`、畸形正文和禁止递归扫描。
-- Runtime 测试覆盖同一全局代理、无账号认证 Header、`401` 可达、`403` 出口拒绝、未知结果以及缓存复用。
+- Runtime 测试覆盖同一全局代理、无账号认证 Header、`401` 可达、`403` 出口拒绝、未知结果、同键缓存/
+  单飞，以及不同 Provider/revision 在慢探测下仍可并行。
 - HTTP/Web 测试覆盖三个稳定错误码和文案，并确认账号限制与出口拒绝都不会进入删除集合。

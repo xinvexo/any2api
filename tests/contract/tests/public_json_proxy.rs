@@ -1,12 +1,8 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components_with_telemetry;
+use any2api_contract_tests::{TestApplication, build_public_request_components_with_telemetry};
 use any2api_domain::{MAX_TOKEN_COUNT, RequestId};
-use any2api_runtime::api::{
-    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
-};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_runtime::api::RequestTelemetry;
 use axum::{
     Router,
     body::{Body, Bytes},
@@ -18,7 +14,6 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -548,8 +543,8 @@ async fn openai_images_requests_ignore_session_identifiers_and_continue_round_ro
 }
 
 #[tokio::test]
-async fn openai_images_edit_accepts_and_reencodes_multipart_uploads() {
-    let (listener, upstream) = multipart_upstream_server("/v1/images/edits").await;
+async fn openai_images_edit_normalizes_model_and_reencodes_multipart_uploads() {
+    let (listener, mut upstream) = multipart_upstream_server("/v1/images/edits").await;
     let (_directory, app, revision) = test_app().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let token = create_gateway_key(&app, loopback, revision).await;
@@ -573,12 +568,40 @@ async fn openai_images_edit_accepts_and_reencodes_multipart_uploads() {
     .await;
     select_models(&app, loopback, revision + 3, &endpoint_id, "gpt-image-2").await;
 
+    let duplicate_boundary = "duplicate_model_boundary";
+    let duplicate = format!(
+        "--{duplicate_boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2\r\n--{duplicate_boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2\r\n--{duplicate_boundary}--\r\n"
+    );
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri("/v1/images/edits")
+        .extension(ConnectInfo(loopback))
+        .header(
+            CONTENT_TYPE,
+            format!("multipart/form-data; boundary={duplicate_boundary}"),
+        )
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(duplicate))
+        .expect("duplicate model request");
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("duplicate model response");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), &mut upstream)
+            .await
+            .is_err(),
+        "duplicate model must not contact the upstream"
+    );
+
     let boundary = "client_boundary_123";
     let image_bytes = b"\x89PNG\r\n\x1a\nclient-image-bytes";
     let mut multipart = Vec::new();
     multipart.extend_from_slice(
         format!(
-            "--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\ngpt-image-2\r\n"
+            "--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n\u{2003}gpt-image-2\u{3000}\r\n"
         )
         .as_bytes(),
     );
@@ -734,7 +757,9 @@ async fn trusted_proxy_chain_persists_the_first_untrusted_client_address() {
     .await;
     let (_directory, app, revision) = test_app().await;
     let admin = SocketAddr::from(([127, 0, 0, 1], 41_000));
-    let proxy = SocketAddr::from(([10, 0, 0, 1], 41_000));
+    let proxy = "[::ffff:10.0.0.1]:41000"
+        .parse::<SocketAddr>()
+        .expect("IPv4-mapped proxy");
     let updated = request_json(
         app.clone(),
         Method::PATCH,
@@ -770,6 +795,7 @@ async fn trusted_proxy_chain_persists_the_first_untrusted_client_address() {
         &[
             ("authorization", format!("Bearer {token}")),
             ("x-forwarded-for", "198.51.100.9".into()),
+            ("x-forwarded-proto", "https,http".into()),
         ],
     )
     .await;
@@ -784,11 +810,8 @@ async fn trusted_proxy_chain_persists_the_first_untrusted_client_address() {
         proxy,
         &[
             ("authorization", format!("Bearer {token}")),
-            (
-                "x-forwarded-for",
-                "127.0.0.1, 198.51.100.9, 10.0.0.2".into(),
-            ),
-            ("x-forwarded-proto", "https".into()),
+            ("x-forwarded-for", "127.0.0.1, ::ffff:198.51.100.9".into()),
+            ("x-forwarded-for", "10.0.0.2".into()),
         ],
     )
     .await;
@@ -870,7 +893,8 @@ async fn responses_bridge_converts_json_tools_usage_and_follow_up_history() {
         "/v1/chat/completions",
         &[
             r#"{"id":"chatcmpl_bridge_1","created":123,"model":"gpt-upstream","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Paris\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":8,"completion_tokens":4,"prompt_tokens_details":{"cached_tokens":2}}}"#,
-            r#"{"id":"chatcmpl_bridge_2","created":124,"model":"gpt-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"Sunny"},"finish_reason":"stop"}],"usage":{"prompt_tokens":15,"completion_tokens":2}}"#,
+            r#"{"id":"chatcmpl_bridge_2","created":124,"model":"gpt-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"Sunny","annotations":[],"future_response_metadata":{"kept":true}},"finish_reason":"stop"}],"usage":{"prompt_tokens":15,"completion_tokens":2}}"#,
+            r#"{"id":"chatcmpl_bridge_3","created":125,"model":"gpt-upstream","choices":[{"index":0,"message":{"role":"assistant","content":"It is sunny."},"finish_reason":"content_filter"}],"usage":{"prompt_tokens":18,"completion_tokens":3}}"#,
         ],
     )
     .await;
@@ -889,6 +913,32 @@ async fn responses_bridge_converts_json_tools_usage_and_follow_up_history() {
     .await;
     create_credential(&app, remote, revision + 2, &endpoint_id, "sk-chat-bridge").await;
     select_models(&app, remote, revision + 3, &endpoint_id, "gpt-upstream").await;
+
+    let interrupted = request_json(
+        app.clone(),
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model":"gpt-upstream",
+            "input":[
+                {"type":"function_call","call_id":"call_a","name":"alpha","arguments":"{}"},
+                {"type":"function_call","call_id":"call_b","name":"beta","arguments":"{}"},
+                {"type":"function_call_output","call_id":"call_b","output":"B"},
+                {"type":"message","role":"user","content":"continue"}
+            ]
+        })),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(interrupted.status, StatusCode::BAD_REQUEST);
+    assert_eq!(interrupted.body["error"]["code"], "invalid_request");
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), upstream.recv())
+            .await
+            .is_err(),
+        "unrepresentable history must not contact the upstream"
+    );
 
     let compact = request_json(
         app.clone(),
@@ -936,6 +986,7 @@ async fn responses_bridge_converts_json_tools_usage_and_follow_up_history() {
     let first_request = upstream.recv().await.expect("first upstream request");
     assert_eq!(first_request.path, "/v1/chat/completions");
     assert_eq!(first_request.body["messages"][0]["role"], "system");
+    assert_eq!(first_request.body["messages"][0]["content"], "Be concise");
     assert_eq!(first_request.body["messages"][1]["content"], "Weather?");
     assert_eq!(
         first_request.body["tools"][0]["function"]["name"],
@@ -943,12 +994,13 @@ async fn responses_bridge_converts_json_tools_usage_and_follow_up_history() {
     );
 
     let second = request_json(
-        app,
+        app.clone(),
         Method::POST,
         "/v1/responses",
         Some(json!({
             "model":"gpt-upstream",
             "previous_response_id":first.body["id"],
+            "instructions":"Be concise",
             "input":[{
                 "type":"function_call_output",
                 "call_id":"call_1",
@@ -966,11 +1018,52 @@ async fn responses_bridge_converts_json_tools_usage_and_follow_up_history() {
         .as_array()
         .expect("upstream messages");
     assert_eq!(messages.len(), 4);
+    assert_eq!(messages[0]["role"], "system");
+    assert_eq!(messages[0]["content"], "Be concise");
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message["role"] == "system")
+            .count(),
+        1
+    );
     assert_eq!(messages[2]["role"], "assistant");
     assert_eq!(messages[2]["tool_calls"][0]["id"], "call_1");
     assert_eq!(messages[3]["role"], "tool");
     assert_eq!(messages[3]["tool_call_id"], "call_1");
     assert_eq!(messages[3]["content"], "Sunny");
+
+    let third = request_json(
+        app,
+        Method::POST,
+        "/v1/responses",
+        Some(json!({
+            "model":"gpt-upstream",
+            "previous_response_id":second.body["id"],
+            "input":"Summarize"
+        })),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(third.status, StatusCode::OK);
+    assert_eq!(
+        third.body["output"][0]["content"][0]["text"],
+        "It is sunny."
+    );
+    assert_eq!(third.body["status"], "incomplete");
+    assert_eq!(third.body["incomplete_details"]["reason"], "content_filter");
+    let third_request = upstream.recv().await.expect("third upstream request");
+    let messages = third_request.body["messages"]
+        .as_array()
+        .expect("upstream messages");
+    assert_eq!(messages.len(), 5);
+    assert!(messages.iter().all(|message| message["role"] != "system"));
+    assert_eq!(messages[0]["content"], "Weather?");
+    assert_eq!(messages[1]["tool_calls"][0]["id"], "call_1");
+    assert_eq!(messages[2]["tool_call_id"], "call_1");
+    assert_eq!(messages[3]["content"], "Sunny");
+    assert_eq!(messages[4]["content"], "Summarize");
 }
 
 #[tokio::test]
@@ -1949,48 +2042,24 @@ async fn public_ingress_errors_require_authentication_and_use_protocol_envelopes
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, u64) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let runtime = fixture.runtime();
+    let snapshots = fixture.snapshots();
     let telemetry = Arc::new(RequestTelemetry::start(
-        Arc::clone(&storage),
-        configuration.revision(),
-        configuration.settings().logging(),
+        storage,
+        snapshots.load().revision(),
+        snapshots.load().settings().logging(),
         &runtime.lifecycle(),
     ));
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
     let service = build_public_request_components_with_telemetry(Arc::clone(&telemetry))
         .expect("public request components")
         .service();
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     let revision = snapshots.load().revision().get();
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, service).with_request_telemetry(telemetry),
-        web_root,
-    );
+    let state = fixture
+        .state_with_public_requests(service)
+        .with_request_telemetry(telemetry);
+    let (directory, app, _storage) = fixture.into_router_with_state(state);
     (directory, app, revision)
 }
 

@@ -1,12 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{
-    CredentialId, CredentialKind, CredentialSecretFingerprint, ModelRouteId, ProtocolDialect,
-    ProtocolOperation, ProviderCredential, ProviderCredentialDraft, ProviderEndpointId,
-    ProxyProfileId, PublicErrorCode, RequestsPerMinute, RetrySafety, RouteTargetId,
-    SettingsConfiguration,
+    CredentialId, CredentialKind, CredentialSecretFingerprint, ModelRouteId, ProtocolOperation,
+    ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId,
+    PublicErrorCode, RequestsPerMinute, RetrySafety, RouteTargetId, SettingsConfiguration,
 };
-use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
+use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry, api::ProtocolAdapter};
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };
@@ -291,31 +290,83 @@ pub(super) fn guarded_body_with_budget_health_and_idle(
     health: Option<AttemptHealth>,
     postcommit_idle_timeout: Duration,
 ) -> GuardedBody {
+    guarded_body_with_adapter(
+        upstream,
+        permit,
+        precommit_budget,
+        health,
+        postcommit_idle_timeout,
+        Arc::new(OpenAiResponsesAdapter::new()),
+        ProtocolOperation::Responses,
+    )
+}
+
+pub(super) fn guarded_body_for_adapter(
+    upstream: BoxByteStream,
+    permit: RoutingPermit,
+    adapter: Arc<dyn ProtocolAdapter>,
+    operation: ProtocolOperation,
+) -> GuardedBody {
+    guarded_body_with_adapter(
+        upstream,
+        permit,
+        PrecommitBudget::new(256 * 1024, Duration::from_secs(5)),
+        None,
+        Duration::from_secs(60),
+        adapter,
+        operation,
+    )
+}
+
+pub(super) fn guarded_body_for_adapter_with_health(
+    upstream: BoxByteStream,
+    permit: RoutingPermit,
+    adapter: Arc<dyn ProtocolAdapter>,
+    operation: ProtocolOperation,
+    health: AttemptHealth,
+) -> GuardedBody {
+    guarded_body_with_adapter(
+        upstream,
+        permit,
+        PrecommitBudget::new(256 * 1024, Duration::from_secs(5)),
+        Some(health),
+        Duration::from_secs(60),
+        adapter,
+        operation,
+    )
+}
+
+fn guarded_body_with_adapter(
+    upstream: BoxByteStream,
+    permit: RoutingPermit,
+    precommit_budget: PrecommitBudget,
+    health: Option<AttemptHealth>,
+    postcommit_idle_timeout: Duration,
+    adapter: Arc<dyn ProtocolAdapter>,
+    operation: ProtocolOperation,
+) -> GuardedBody {
+    let dialect = adapter.dialect();
     let target = AffinityTarget::new(
         ModelRouteId::new(),
         RouteTargetId::new(),
         permit.credential_id(),
         "upstream",
-        ProtocolDialect::OpenAiResponses,
-        ProtocolDialect::OpenAiResponses,
+        dialect,
+        dialect,
     );
     let continuation_binding = ContinuationBindingCommitter::new(
-        ProtocolOperation::Responses,
+        operation,
         AffinityRegistry::new(),
         target,
         Duration::from_secs(60),
     );
     let mut protocols = ProtocolRegistry::new();
     protocols
-        .register(Arc::new(OpenAiResponsesAdapter::new()))
-        .expect("Responses adapter");
+        .register(adapter)
+        .expect("streaming protocol adapter");
     let exchange = protocols
-        .exchange(
-            ProtocolDialect::OpenAiResponses,
-            ProtocolDialect::OpenAiResponses,
-            ProtocolOperation::Responses,
-        )
-        .expect("direct Responses exchange");
+        .exchange(dialect, dialect, operation)
+        .expect("direct protocol exchange");
     GuardedBody::new(
         upstream,
         exchange,

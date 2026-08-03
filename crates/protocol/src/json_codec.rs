@@ -13,6 +13,8 @@ use crate::{
     },
 };
 
+mod request_encoding;
+
 pub(crate) fn decode_request(
     request: IngressRequest,
     dialect: ProtocolDialect,
@@ -137,31 +139,33 @@ fn extract_thinking_level(dialect: ProtocolDialect, object: &Map<String, Value>)
 
 pub(crate) fn encode_request(
     operation: ProtocolOperation,
-    forwarded: HeaderMap,
-    payload: AdapterPayload,
+    forwarded: &HeaderMap,
+    payload: &AdapterPayload,
     upstream_model: &str,
 ) -> Result<EncodedUpstreamRequest, ProtocolError> {
-    let AdapterPayload::Json(mut value) = payload else {
+    let AdapterPayload::Json(value) = payload else {
         return Err(ProtocolError::InvalidPayload(
             "request body must be JSON".into(),
         ));
     };
-    let object = value.as_object_mut().ok_or_else(|| {
+    encode_json_request(operation, forwarded, value, upstream_model)
+}
+
+pub(crate) fn encode_json_request(
+    operation: ProtocolOperation,
+    forwarded: &HeaderMap,
+    value: &Value,
+    upstream_model: &str,
+) -> Result<EncodedUpstreamRequest, ProtocolError> {
+    let object = value.as_object().ok_or_else(|| {
         ProtocolError::InvalidPayload("request body must be a JSON object".into())
     })?;
     let stream = object
         .get("stream")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    object.insert("model".into(), Value::String(upstream_model.to_owned()));
-    if !operation.allows_stream() {
-        object.remove("stream");
-    }
-
-    let body = serde_json::to_vec(&value)
-        .map(Bytes::from)
-        .map_err(|_| ProtocolError::InvalidPayload("request JSON could not be encoded".into()))?;
-    let mut headers = forwarded;
+    let body = request_encoding::encode(operation, value, upstream_model)?;
+    let mut headers = forwarded.clone();
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),

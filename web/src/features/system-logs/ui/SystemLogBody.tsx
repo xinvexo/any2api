@@ -6,6 +6,8 @@ import { formatBytes } from "../model/system-log-presentation";
 import { Button } from "@/shared/ui/Button";
 
 const MAX_FORMATTED_JSON_CHARS = 4 * 1024 * 1024;
+const MAX_HIGHLIGHTED_JSON_CHARS = 256 * 1024;
+const MAX_HIGHLIGHTED_JSON_TOKENS = 4_096;
 const MAX_JSON_DEPTH = 256;
 const JSON_TOKEN_PATTERN =
   /("(?:\\.|[^"\\])*")(?=\s*:)|("(?:\\.|[^"\\])*")|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)|\b(true|false)\b|\b(null)\b/g;
@@ -69,10 +71,25 @@ export function SystemLogBody({
 }
 
 function HighlightedJson({ source }: { source: string }) {
+  const nodes = useMemo(
+    () => source.length <= MAX_HIGHLIGHTED_JSON_CHARS ? highlightJsonNodes(source) : null,
+    [source],
+  );
+  return (
+    <code data-json-highlight={nodes === null ? "plain" : "syntax"}>
+      {nodes ?? source}
+    </code>
+  );
+}
+
+function highlightJsonNodes(source: string): ReactNode[] | null {
   const nodes: ReactNode[] = [];
   let cursor = 0;
   let tokenIndex = 0;
   for (const match of source.matchAll(JSON_TOKEN_PATTERN)) {
+    if (tokenIndex >= MAX_HIGHLIGHTED_JSON_TOKENS) {
+      return null;
+    }
     const index = match.index;
     if (index > cursor) {
       nodes.push(source.slice(cursor, index));
@@ -89,7 +106,7 @@ function HighlightedJson({ source }: { source: string }) {
   if (cursor < source.length) {
     nodes.push(source.slice(cursor));
   }
-  return <code>{nodes}</code>;
+  return nodes;
 }
 
 function jsonToken(match: RegExpMatchArray) {

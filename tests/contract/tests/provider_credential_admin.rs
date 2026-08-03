@@ -1,14 +1,11 @@
-use std::{collections::HashMap, fs, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, CredentialId, ProtocolDialect, ProtocolOperation,
-    ProviderEndpointId, ProxyProfileId, RequestId, RequestLog,
+    CompletedRequestLog, ConfigRevision, CredentialId, MAX_REQUEST_LOG_ROWS, ProtocolDialect,
+    ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestId, RequestLog,
 };
-use any2api_runtime::api::{
-    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
-};
-use any2api_server::api::{AppState, build_router};
+use any2api_runtime::api::RequestTelemetry;
 use any2api_storage::api::{ConfigurationRepository, RequestLogRepository, SqliteStore};
 use axum::{
     Router,
@@ -18,7 +15,6 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -98,15 +94,13 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
         .expect("clock")
         .as_millis() as u64;
     storage
-        .append_request_logs(&[
-            provider_request_log(
-                parsed_endpoint_id,
-                parsed_credential_id,
-                now_ms.saturating_sub(1_000),
-                200,
-            ),
-            provider_request_log(parsed_endpoint_id, parsed_credential_id, now_ms, 429),
-        ])
+        .append_request_logs(
+            &[
+                provider_request_log(parsed_endpoint_id, parsed_credential_id, now_ms, 200),
+                provider_request_log(parsed_endpoint_id, parsed_credential_id, now_ms, 429),
+            ],
+            MAX_REQUEST_LOG_ROWS,
+        )
         .await
         .expect("append provider usage");
 
@@ -129,10 +123,12 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
         .as_array()
         .expect("window slots");
     assert_eq!(slots.len(), 30);
-    let newest = slots.last().expect("newest slot");
-    assert_eq!(newest["total_requests"], 2);
-    assert_eq!(newest["successful_requests"], 1);
-    assert_eq!(newest["failed_requests"], 1);
+    let populated = slots
+        .iter()
+        .find(|slot| slot["total_requests"] == 2)
+        .expect("populated usage slot");
+    assert_eq!(populated["successful_requests"], 1);
+    assert_eq!(populated["failed_requests"], 1);
 
     let updated = request_json(
         app.clone(),
@@ -645,48 +641,22 @@ async fn successful_credential_test_clears_generation_auth_error() {
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let components = build_public_request_components().expect("public request components");
-    let public_requests = components.service();
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let runtime = fixture.runtime();
+    let snapshots = fixture.snapshots();
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         snapshots.load().revision(),
         snapshots.load().settings().logging(),
         &runtime.lifecycle(),
     ));
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, public_requests)
-            .with_provider_credential_tests(components.provider_credential_test_service())
-            .with_request_telemetry(telemetry),
-        web_root,
-    );
+    let credential_tests = fixture.components().provider_credential_test_service();
+    let state = fixture
+        .state()
+        .with_provider_credential_tests(credential_tests)
+        .with_request_telemetry(telemetry);
+    let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);
     (directory, app, storage)
 }
 

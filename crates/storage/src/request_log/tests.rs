@@ -1,8 +1,8 @@
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, CredentialId, GatewayApiKeyDraft, GatewayApiKeyId,
-    MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, MAX_TOKEN_COUNT, ProtocolDialect, ProtocolOperation,
-    ProviderEndpointId, ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId,
-    RequestLog, RetrySafety, RouteTargetId,
+    MAX_REQUEST_LOG_ROWS, MAX_TOKEN_COUNT, ProtocolDialect, ProtocolOperation, ProviderEndpointId,
+    ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog, RetrySafety,
+    RouteTargetId,
 };
 use tempfile::tempdir;
 
@@ -13,6 +13,9 @@ use crate::{
     secret::SecretBytes,
     sqlite::SqliteStore,
 };
+
+mod capacity;
+mod corruption;
 
 const USAGE_WINDOW_MS: u64 = REQUEST_USAGE_WINDOW_MINUTES * 60 * 1_000;
 
@@ -33,7 +36,7 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     record.attempts[0].outcome = RequestAttemptOutcome::UpstreamError;
 
     store
-        .append_request_logs(std::slice::from_ref(&record))
+        .append_request_logs(std::slice::from_ref(&record), MAX_REQUEST_LOG_ROWS)
         .await
         .expect("append request log");
 
@@ -97,7 +100,7 @@ async fn request_log_round_trip_preserves_optional_zero_and_max_safe_telemetry()
     record.request.cache_read_tokens = None;
 
     store
-        .append_request_logs(std::slice::from_ref(&record))
+        .append_request_logs(std::slice::from_ref(&record), MAX_REQUEST_LOG_ROWS)
         .await
         .expect("append request log");
 
@@ -120,42 +123,6 @@ async fn request_log_round_trip_preserves_optional_zero_and_max_safe_telemetry()
 }
 
 #[tokio::test]
-async fn request_log_rejects_a_malformed_persisted_client_ip() {
-    let directory = tempdir().expect("temporary directory");
-    let store = SqliteStore::connect(&directory.path().join("corrupt-client-ip.sqlite3"))
-        .await
-        .expect("storage");
-    let request_id = RequestId::new();
-    store
-        .append_request_logs(&[record(request_id, 1_000, false)])
-        .await
-        .expect("append request log");
-    sqlx::query("UPDATE request_logs SET client_ip = 'not-an-ip' WHERE request_id = ?")
-        .bind(request_id.to_string())
-        .execute(store.pool())
-        .await
-        .expect("inject corrupt address");
-
-    assert!(store.get_request_log(request_id).await.is_err());
-}
-
-#[tokio::test]
-async fn request_log_rejects_unbounded_or_control_character_diagnostics() {
-    let directory = tempdir().expect("temporary directory");
-    let store = SqliteStore::connect(&directory.path().join("invalid-diagnostics.sqlite3"))
-        .await
-        .expect("storage");
-
-    let mut oversized = record(RequestId::new(), 1_000, false);
-    oversized.request.error_message = Some("a".repeat(MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS + 1));
-    assert!(store.append_request_logs(&[oversized]).await.is_err());
-
-    let mut control = record(RequestId::new(), 2_000, false);
-    control.request.error_message = Some("unsafe\nmessage".into());
-    assert!(store.append_request_logs(&[control]).await.is_err());
-}
-
-#[tokio::test]
 async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("retention.sqlite3"))
@@ -165,7 +132,10 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
     let second = record(RequestId::new(), 200, false);
     let third = record(RequestId::new(), 300, false);
     store
-        .append_request_logs(&[first.clone(), second.clone(), third.clone()])
+        .append_request_logs(
+            &[first.clone(), second.clone(), third.clone()],
+            MAX_REQUEST_LOG_ROWS,
+        )
         .await
         .expect("append logs");
 
@@ -173,7 +143,8 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
         store
             .prune_request_logs(250, 10, 100)
             .await
-            .expect("retention prune"),
+            .expect("retention prune")
+            .deleted_rows(),
         2
     );
     assert_eq!(
@@ -195,14 +166,15 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
 
     let fourth = record(RequestId::new(), 400, false);
     store
-        .append_request_logs(std::slice::from_ref(&fourth))
+        .append_request_logs(std::slice::from_ref(&fourth), MAX_REQUEST_LOG_ROWS)
         .await
         .expect("append fourth");
     assert_eq!(
         store
             .prune_request_logs(0, 1, 100)
             .await
-            .expect("row prune"),
+            .expect("row prune")
+            .deleted_rows(),
         1
     );
     let remaining = store.list_request_logs(0, 0, 10).await.expect("remaining");
@@ -220,7 +192,7 @@ async fn request_log_pages_apply_the_time_window_before_counting() {
     let second = record(RequestId::new(), 200, false);
     let third = record(RequestId::new(), 300, false);
     store
-        .append_request_logs(&[first, second.clone(), third])
+        .append_request_logs(&[first, second.clone(), third], MAX_REQUEST_LOG_ROWS)
         .await
         .expect("append logs");
 
@@ -285,7 +257,7 @@ async fn gateway_key_usage_aggregates_final_requests_and_fills_time_windows() {
     anonymous.request.gateway_api_key_id = None;
     records.push(anonymous);
     store
-        .append_request_logs(&records)
+        .append_request_logs(&records, MAX_REQUEST_LOG_ROWS)
         .await
         .expect("append usage logs");
 

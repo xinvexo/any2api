@@ -1,13 +1,12 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::SettingKey;
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
 use any2api_server::api::{
     AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AppState,
-    StoredAdminPasswordHash, build_router,
+    StoredAdminPasswordHash,
 };
-use any2api_storage::api::{AdminCredentialRepository, ConfigurationRepository, SqliteStore};
+use any2api_storage::api::{AdminCredentialRepository, SqliteStore};
 use async_trait::async_trait;
 use axum::{
     Router,
@@ -20,7 +19,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
+use tempfile::TempDir;
 use tower::ServiceExt;
 
 const PASSWORD: &str = "correct horse battery staple";
@@ -28,18 +27,13 @@ const NEW_PASSWORD: &str = "new correct horse battery staple";
 
 #[tokio::test]
 async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contract() {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let (app, setup_token) = build_test_app(Arc::clone(&storage), web_root.clone()).await;
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let (directory, app, setup_token) = build_test_app(fixture).await;
     let setup_token = setup_token.expect("setup token");
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let loopback = "[::ffff:127.0.0.1]:41000"
+        .parse::<SocketAddr>()
+        .expect("IPv4-mapped loopback");
     let remote = SocketAddr::from(([203, 0, 113, 10], 41000));
 
     let response = request(
@@ -118,7 +112,7 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
             .and_then(|value| value.to_str().ok()),
         Some("no-store")
     );
-    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(48));
+    assert_eq!(response.json()["items"].as_array().map(Vec::len), Some(50));
 
     let response = request(
         &app,
@@ -334,7 +328,8 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
     .await;
     assert_eq!(new_password.status, StatusCode::OK);
 
-    let (restarted, _) = build_test_app(Arc::clone(&storage), web_root).await;
+    let fixture = TestApplication::from_storage(directory, Arc::clone(&storage)).await;
+    let (_directory, restarted, _) = build_test_app(fixture).await;
     let response = request(
         &restarted,
         Method::GET,
@@ -384,16 +379,8 @@ async fn setup_login_csrf_remote_http_logout_and_restart_follow_the_admin_contra
 
 #[tokio::test]
 async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let (app, setup_token) = build_test_app(storage, web_root).await;
+    let fixture = TestApplication::new().await;
+    let (_directory, app, setup_token) = build_test_app(fixture).await;
     let setup_token = setup_token.expect("setup token");
     let proxy = SocketAddr::from(([127, 0, 0, 1], 41000));
     let setup = request(
@@ -431,9 +418,27 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
         &[],
     )
     .await;
-    assert_eq!(missing_forwarded.status, StatusCode::BAD_REQUEST);
+    assert_eq!(missing_forwarded.status, StatusCode::OK);
+    assert_eq!(missing_forwarded.json()["client_loopback"], false);
+    assert_eq!(missing_forwarded.json()["through_trusted_proxy"], true);
+    assert_eq!(missing_forwarded.json()["plaintext_http_warning"], true);
+
+    let ambiguous_proto = request(
+        &app,
+        Method::GET,
+        "/api/admin/auth/session",
+        None,
+        proxy,
+        &[
+            ("x-forwarded-for", "203.0.113.8"),
+            ("x-forwarded-proto", "https"),
+            ("x-forwarded-proto", "http"),
+        ],
+    )
+    .await;
+    assert_eq!(ambiguous_proto.status, StatusCode::BAD_REQUEST);
     assert_eq!(
-        missing_forwarded.json()["error"]["code"],
+        ambiguous_proto.json()["error"]["code"],
         "admin_invalid_forwarded_headers"
     );
     let spoofed_loopback = request(
@@ -453,6 +458,46 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
         spoofed_loopback.json()["error"]["code"],
         "admin_setup_loopback_only"
     );
+    let forwarded_loopback = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/setup",
+        Some(json!({ "setup_token": "already-used", "password": PASSWORD })),
+        proxy,
+        &[
+            ("x-forwarded-for", "127.0.0.1"),
+            ("x-forwarded-proto", "http"),
+        ],
+    )
+    .await;
+    assert_eq!(forwarded_loopback.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        forwarded_loopback.json()["error"]["code"],
+        "admin_setup_loopback_only"
+    );
+    let forwarded_loopback_login = request(
+        &app,
+        Method::POST,
+        "/api/admin/auth/login",
+        Some(json!({ "password": PASSWORD })),
+        proxy,
+        &[
+            ("x-forwarded-for", "127.0.0.1"),
+            ("x-forwarded-proto", "http"),
+        ],
+    )
+    .await;
+    assert_eq!(forwarded_loopback_login.status, StatusCode::OK);
+    assert_eq!(forwarded_loopback_login.json()["client_loopback"], false);
+    assert_eq!(
+        forwarded_loopback_login.json()["through_trusted_proxy"],
+        true
+    );
+    assert_eq!(
+        forwarded_loopback_login.json()["plaintext_http_warning"],
+        true
+    );
+    assert!(!forwarded_loopback_login.cookie().contains("Secure"));
 
     let login = request(
         &app,
@@ -462,6 +507,7 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
         proxy,
         &[
             ("x-forwarded-for", "203.0.113.8"),
+            ("x-forwarded-for", "127.0.0.2"),
             ("x-forwarded-proto", "https"),
         ],
     )
@@ -471,47 +517,64 @@ async fn trusted_proxy_cidr_controls_forwarded_https_and_secure_cookie() {
     assert_eq!(login.json()["through_trusted_proxy"], true);
     assert_eq!(login.json()["plaintext_http_warning"], false);
     assert!(login.cookie().contains("Secure"));
+    let cookie_pair = login.cookie().split(';').next().expect("cookie").to_owned();
+    let csrf = login.json()["csrf_token"]
+        .as_str()
+        .expect("csrf")
+        .to_owned();
+    let disabled = request(
+        &app,
+        Method::PATCH,
+        "/api/admin/settings/admin.remote_enabled",
+        Some(json!({ "expected_revision": 2, "value": false })),
+        proxy,
+        &[
+            ("cookie", &cookie_pair),
+            ("x-csrf-token", &csrf),
+            ("x-forwarded-for", "203.0.113.8"),
+            ("x-forwarded-proto", "https"),
+        ],
+    )
+    .await;
+    assert_eq!(disabled.status, StatusCode::OK);
+
+    let spoofed_remote = request(
+        &app,
+        Method::GET,
+        "/api/admin/auth/session",
+        None,
+        proxy,
+        &[
+            ("x-forwarded-for", "127.0.0.1"),
+            ("x-forwarded-proto", "https"),
+        ],
+    )
+    .await;
+    assert_eq!(spoofed_remote.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        spoofed_remote.json()["error"]["code"],
+        "admin_remote_disabled"
+    );
 }
 
-async fn build_test_app(
-    storage: Arc<SqliteStore>,
-    web_root: std::path::PathBuf,
-) -> (Router, Option<String>) {
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
+async fn build_test_app(fixture: TestApplication) -> (TempDir, Router, Option<String>) {
+    let storage = fixture.storage();
+    let runtime = fixture.runtime();
     let auth = Arc::new(
         AdminAuthService::load(Arc::new(TestAdminStore { storage }), runtime.lifecycle())
             .await
             .expect("admin auth"),
     );
     let setup_token = auth.setup_token().await;
-    let public_requests = build_public_request_components()
-        .expect("public request components")
-        .service();
-    (
-        build_router(
-            AppState::new(snapshots, runtime, publisher, public_requests).with_admin_auth(auth),
-            web_root,
-        ),
-        setup_token,
-    )
+    let state = AppState::new(
+        fixture.snapshots(),
+        runtime,
+        fixture.publisher(),
+        fixture.components().service(),
+        auth,
+    );
+    let (directory, app, _storage) = fixture.into_raw_router_with_state(state);
+    (directory, app, setup_token)
 }
 
 struct TestAdminStore {

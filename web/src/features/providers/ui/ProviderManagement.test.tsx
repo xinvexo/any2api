@@ -13,6 +13,31 @@ import {
 
 afterEach(() => vi.restoreAllMocks());
 
+test("keeps one Provider chrome while loading and only mounts a real search input", async () => {
+  let resolveEndpoints!: (response: Response) => void;
+  const pendingEndpoints = new Promise<Response>((resolve) => {
+    resolveEndpoints = resolve;
+  });
+  mockAdminApis(
+    () => configuration(1, []),
+    undefined,
+    (input) => String(input) === "/api/admin/provider-endpoints" ? pendingEndpoints : null,
+  );
+
+  renderManagement();
+  expect(screen.getByText("正在读取 Provider 配置")).toBeInTheDocument();
+  const navigation = screen.getByRole("navigation", { name: "Provider 类型" });
+  expect(screen.queryByRole("textbox", { name: "搜索 Codex" })).not.toBeInTheDocument();
+
+  await act(async () => {
+    resolveEndpoints(jsonResponse(configuration(1, [])));
+  });
+
+  expect(await screen.findByRole("textbox", { name: "搜索 Codex" })).toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "Provider 类型" })).toBe(navigation);
+  expect(screen.getAllByRole("navigation", { name: "Provider 类型" })).toHaveLength(1);
+});
+
 test("shows the empty Provider state", async () => {
   mockAdminApis(() => configuration(1, []));
 

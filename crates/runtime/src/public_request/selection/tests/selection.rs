@@ -10,6 +10,7 @@ use super::super::{
     GenerationSelection, RouteCandidate, SelectedCandidate, try_select_fixed_candidate_for_test,
     try_select_generation_candidate_for_test,
 };
+use super::super::{filter_recorder::RequestFilterRecorder, fixed};
 
 use crate::{
     credential::{CredentialAuthMaterial, CredentialRuntimeHandle},
@@ -49,7 +50,7 @@ fn fallback_only_skips_a_rate_limited_tier_when_enabled() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn selection_retries_the_tier_when_a_half_open_probe_is_raced() {
+async fn selection_retries_a_raced_half_open_probe_without_consuming_rpm() {
     let epoch = SchedulerEpoch::new();
     let policy = default_reliability_policy();
     let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
@@ -62,6 +63,7 @@ async fn selection_retries_the_tier_when_a_half_open_probe_is_raced() {
     let raced_for_probe = raced.clone();
     let tiers = BTreeMap::from([(0, vec![raced.clone(), healthy.clone()])]);
     let mut occupied_probe = None;
+    let epoch_before_selection = epoch.current();
 
     let selected = match try_select_generation_candidate_for_test(false, &tiers, |_| {
         if occupied_probe.is_none() {
@@ -85,7 +87,8 @@ async fn selection_retries_the_tier_when_a_half_open_probe_is_raced() {
 
     assert_eq!(selected.candidate.credential_id, healthy.credential_id);
     assert_eq!(raced.binding.in_flight(), 0);
-    assert_eq!(raced.binding.rate_snapshot().requests_in_window(), 1);
+    assert_eq!(raced.binding.rate_snapshot().requests_in_window(), 0);
+    assert!(epoch.current() > epoch_before_selection);
     assert_eq!(
         raced
             .binding
@@ -112,12 +115,77 @@ fn selection_reports_no_candidates_for_empty_tiers() {
 fn fixed_selection_records_the_successful_selection() {
     let epoch = SchedulerEpoch::new();
     let candidate = candidate("fixed", 5, Arc::clone(&epoch), 0);
-    let selected = try_select_fixed_candidate_for_test(default_reliability_policy(), &candidate)
-        .expect("fixed selection")
-        .expect("fixed RPM reservation");
+    let selected =
+        try_select_fixed_candidate_for_test(default_reliability_policy(), &candidate, || {})
+            .expect("fixed selection")
+            .expect("fixed RPM reservation");
 
     assert_eq!(candidate.binding.balancing_counters().selected(), 1);
+    assert_eq!(candidate.binding.in_flight(), 1);
+    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 1);
     drop(selected);
+    assert_eq!(candidate.binding.in_flight(), 0);
+    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 1);
+}
+
+#[test]
+fn fixed_rechecks_record_one_rate_filter_per_request() {
+    let epoch = SchedulerEpoch::new();
+    let candidate = candidate("fixed-filter", 7, Arc::clone(&epoch), 0);
+    drop(candidate.binding.try_reserve().expect("exhaust RPM"));
+    let mut filters = RequestFilterRecorder::default();
+
+    for _ in 0..5 {
+        assert!(
+            fixed::try_selected_with_recorder_for_test(
+                default_reliability_policy(),
+                &candidate,
+                &mut filters,
+            )
+            .expect("fixed selection")
+            .is_none()
+        );
+    }
+
+    assert_eq!(
+        candidate.binding.balancing_counters().filtered_rate_limit(),
+        1
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn fixed_selection_rolls_back_rpm_when_the_half_open_probe_is_raced() {
+    let epoch = SchedulerEpoch::new();
+    let policy = default_reliability_policy();
+    let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
+    open_endpoint(&endpoint, &policy);
+    tokio::time::advance(policy.endpoint_open_duration).await;
+
+    let mut candidate = candidate("fixed-raced", 6, Arc::clone(&epoch), 0);
+    candidate.endpoint_health = Some(endpoint);
+    let candidate_for_probe = candidate.clone();
+    let mut occupied_probe = None;
+
+    let selected = try_select_fixed_candidate_for_test(policy, &candidate, || {
+        occupied_probe = Some(
+            candidate_for_probe
+                .acquire_health(policy)
+                .expect("half-open probe"),
+        );
+    })
+    .expect("fixed selection result");
+
+    assert!(selected.is_none());
+    assert_eq!(candidate.binding.in_flight(), 0);
+    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 0);
+    assert_eq!(
+        candidate
+            .binding
+            .balancing_counters()
+            .filtered_endpoint_health(),
+        1
+    );
+    drop(occupied_probe);
 }
 
 pub(super) fn try_reserve_candidate(

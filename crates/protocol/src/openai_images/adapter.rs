@@ -7,13 +7,13 @@ use crate::{
     api::{
         AdapterEvent, AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
         EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, RequestExecutionProfile, SseFrame,
-        UpstreamResponse,
+        StreamCompletionPolicy, UpstreamResponse,
     },
     json_codec,
     sse::{parse_event_payload, rewrite_known_model},
 };
 
-use super::{multipart, telemetry};
+use super::{multipart, telemetry, termination};
 
 #[derive(Debug, Default)]
 pub struct OpenAiImagesAdapter;
@@ -29,6 +29,17 @@ impl OpenAiImagesAdapter {
 impl ProtocolAdapter for OpenAiImagesAdapter {
     fn dialect(&self) -> ProtocolDialect {
         ProtocolDialect::OpenAiImages
+    }
+
+    fn stream_completion_policy(&self, operation: ProtocolOperation) -> StreamCompletionPolicy {
+        if matches!(
+            operation,
+            ProtocolOperation::ImagesGenerations | ProtocolOperation::ImagesEdits
+        ) {
+            StreamCompletionPolicy::TerminalEventRequired
+        } else {
+            StreamCompletionPolicy::EofAllowed
+        }
     }
 
     async fn decode_ingress_request(
@@ -57,9 +68,7 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
                 ProtocolError::InvalidPayload("multipart content type is invalid".into())
             })?;
         let payload = multipart::parse(request.body, content_type).await?;
-        let model = std::str::from_utf8(&payload.parts[payload.model_part_index].body)
-            .map_err(|_| ProtocolError::InvalidPayload("multipart model must be UTF-8".into()))?
-            .to_owned();
+        let model = payload.model.clone();
         let affinity =
             affinity::extract(request.operation, &request.headers, &serde_json::Map::new())?;
         Ok(DecodedRequest {
@@ -80,8 +89,8 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
     fn encode_upstream_request(
         &self,
         operation: ProtocolOperation,
-        headers: HeaderMap,
-        payload: AdapterPayload,
+        headers: &HeaderMap,
+        payload: &AdapterPayload,
         upstream_model: &str,
     ) -> Result<EncodedUpstreamRequest, ProtocolError> {
         if !matches!(
@@ -91,13 +100,8 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
             return Err(ProtocolError::Unsupported(format!("{operation:?}")));
         }
         let payload = match payload {
-            AdapterPayload::Json(value) => {
-                return json_codec::encode_request(
-                    operation,
-                    headers,
-                    AdapterPayload::Json(value),
-                    upstream_model,
-                );
+            AdapterPayload::Json(_) => {
+                return json_codec::encode_request(operation, headers, payload, upstream_model);
             }
             AdapterPayload::Multipart(payload) => payload,
         };
@@ -108,7 +112,7 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
         }
         let stream = payload.stream;
         let (body, content_type) = multipart::encode(payload, upstream_model)?;
-        let mut headers = headers;
+        let mut headers = headers.clone();
         headers.insert(header::CONTENT_TYPE, content_type);
         headers.insert(
             header::ACCEPT,
@@ -143,7 +147,8 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
         let payload = parse_event_payload(&frame.0)?;
         let telemetry = telemetry::event(&payload);
-        Ok(AdapterEvent::new(frame.0, telemetry, payload))
+        let termination = termination::classify(&payload);
+        Ok(AdapterEvent::new(frame.0, telemetry, payload).with_termination(termination))
     }
 
     fn encode_egress_response(

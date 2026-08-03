@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn defaults_match_architecture() {
         let settings = SettingsConfiguration::defaults();
-        assert_eq!(SettingKey::ALL.len(), 48);
+        assert_eq!(SettingKey::ALL.len(), 50);
         assert_eq!(settings.scheduler().on_rate_limited(), RateLimitMode::Wait);
         assert_eq!(settings.scheduler().queue_timeout_secs(), 180);
         assert_eq!(settings.scheduler().max_waiting_requests(), 128);
@@ -190,6 +190,11 @@ mod tests {
         assert!(settings.logging().request_enabled());
         assert_eq!(settings.logging().request_retention_secs(), 2_592_000);
         assert_eq!(settings.logging().request_max_rows(), 200_000);
+        assert_eq!(settings.logging().http_access_max_rows(), 200_000);
+        assert_eq!(
+            settings.logging().http_access_max_exchange_bytes(),
+            256 * 1024 * 1024
+        );
         assert_eq!(settings.logging().file_level(), FileLogLevel::Info);
         assert_eq!(settings.logging().file_retention_secs(), 604_800);
         assert_eq!(settings.logging().file_max_total_size(), 256 * 1024 * 1024);
@@ -315,7 +320,7 @@ mod tests {
             Some(SettingValue::DurationSecs(2_592_000))
         );
         let affinity_wait = SettingKey::AffinityWaitTimeout.definition();
-        assert_eq!(affinity_wait.default(), SettingValue::DurationSecs(30));
+        assert_eq!(affinity_wait.default(), SettingValue::DurationSecs(180));
         assert_eq!(affinity_wait.min(), Some(SettingValue::DurationSecs(1)));
         assert_eq!(
             affinity_wait.max(),

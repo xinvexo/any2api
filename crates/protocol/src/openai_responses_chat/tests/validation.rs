@@ -26,7 +26,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
     ] {
         let request = decoded(&registry, ProtocolOperation::Responses, body).await;
         let error = bridged_exchange(&registry, ProtocolOperation::Responses)
-            .prepare_request(request, "upstream", None)
+            .prepare_request(&request, "upstream", None)
             .err()
             .expect("unsupported request must fail");
         assert!(matches!(error, ProtocolError::InvalidPayload(_)));
@@ -40,7 +40,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
     .await;
     assert_eq!(
         bridged_exchange(&registry, ProtocolOperation::Responses)
-            .prepare_request(lost, "upstream", None)
+            .prepare_request(&lost, "upstream", None)
             .err()
             .expect("missing history must fail"),
         ProtocolError::SessionBindingLost
@@ -57,7 +57,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
     .await;
     assert!(matches!(
         bridged_exchange(&registry, ProtocolOperation::Responses)
-            .prepare_request(oversized, "upstream", None),
+            .prepare_request(&oversized, "upstream", None),
         Err(ProtocolError::ContinuationTooLarge { .. })
     ));
 
@@ -78,7 +78,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
     .await;
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     exchange
-        .prepare_request(request, "upstream", None)
+        .prepare_request(&request, "upstream", None)
         .expect("prepared request");
     let error = exchange
         .decode_upstream_response(upstream_response(json!({
@@ -98,7 +98,7 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
     .await;
     let mut stream_exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     stream_exchange
-        .prepare_request(stream_request, "upstream", None)
+        .prepare_request(&stream_request, "upstream", None)
         .expect("prepared stream");
     let error = stream_exchange
         .decode_upstream_event(chat_frame(json!({
@@ -124,7 +124,7 @@ async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
     )
     .await;
     let prepared = bridged_exchange(&registry, ProtocolOperation::Responses)
-        .prepare_request(request, "upstream", None)
+        .prepare_request(&request, "upstream", None)
         .expect("projection hints are supported by the protocol bridge");
     let upstream: Value =
         serde_json::from_slice(&prepared.request.body).expect("upstream request JSON");
@@ -134,4 +134,35 @@ async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
     assert!(upstream.get("reasoning_effort").is_none());
     assert!(upstream.get("reasoning").is_none());
     assert!(upstream.get("include").is_none());
+}
+
+#[tokio::test]
+async fn bridge_rejects_function_calls_without_matching_outputs() {
+    for input in [
+        json!([
+            {"type":"function_call","call_id":"call_interrupted","name":"work","arguments":"{}"},
+            {"type":"message","role":"user","content":"continue without the tool"}
+        ]),
+        json!([
+            {"type":"function_call","call_id":"call_a","name":"alpha","arguments":"{}"},
+            {"type":"function_call","call_id":"call_b","name":"beta","arguments":"{}"},
+            {"type":"function_call_output","call_id":"call_b","output":"B"},
+            {"type":"message","role":"user","content":"continue"}
+        ]),
+    ] {
+        let registry = registry();
+        let request = decoded(
+            &registry,
+            ProtocolOperation::Responses,
+            json!({"model":"public","input":input}),
+        )
+        .await;
+        let error = bridged_exchange(&registry, ProtocolOperation::Responses)
+            .prepare_request(&request, "upstream", None)
+            .err()
+            .expect("orphan function call must fail before encoding");
+        assert!(
+            matches!(error, ProtocolError::InvalidPayload(message) if message.contains("matching function_call_output"))
+        );
+    }
 }

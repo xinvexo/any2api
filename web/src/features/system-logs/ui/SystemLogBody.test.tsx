@@ -14,6 +14,7 @@ test("formats and highlights JSON without rewriting exact value lexemes", () => 
   const view = render(<SystemLogBody body={body(source)} headers={JSON_HEADERS} />);
 
   const formatted = view.container.querySelector('[data-body-view="formatted-json"]');
+  expect(formatted?.querySelector("code")).toHaveAttribute("data-json-highlight", "syntax");
   expect(formatted?.textContent).toBe(
     '{\n  "id": 9007199254740993,\n  "escaped": "\\u4e2d",\n  "enabled": true,\n  "missing": null\n}',
   );
@@ -53,6 +54,27 @@ test("leaves incomplete, binary, untyped, and malformed bodies unchanged", () =>
     expect(view.queryByRole("button", { name: "查看 JSON 原文" })).not.toBeInTheDocument();
     view.unmount();
   }
+});
+
+test.each([
+  {
+    name: "formatted character budget",
+    source: JSON.stringify({ payload: "x".repeat(256 * 1024) }),
+  },
+  {
+    name: "syntax token budget",
+    source: `[${Array(2_050).fill('{"k":1}').join(",")}]`,
+  },
+])("renders formatted JSON as plain text beyond the $name", ({ source }) => {
+  const view = render(<SystemLogBody body={body(source)} headers={JSON_HEADERS} />);
+
+  const formatted = view.container.querySelector('[data-body-view="formatted-json"]');
+  expect(formatted?.textContent).toContain("\n");
+  expect(formatted?.querySelector("code")).toHaveAttribute("data-json-highlight", "plain");
+  expect(formatted?.querySelectorAll("[data-json-token]")).toHaveLength(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "查看 JSON 原文" }));
+  expect(view.container.querySelector('[data-body-view="raw"]')?.textContent).toBe(source);
 });
 
 function body(

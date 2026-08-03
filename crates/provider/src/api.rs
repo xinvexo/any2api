@@ -8,6 +8,8 @@ use http::{HeaderMap, StatusCode};
 use url::Url;
 
 pub use crate::codex::oauth_plan_label as codex_oauth_plan_label;
+pub use crate::credential::ProviderSecret;
+pub use crate::error::ProviderError;
 pub use crate::grok::oauth_bot_flag as grok_oauth_bot_flag;
 pub use crate::oauth::OAuthRoutingProfile;
 pub use crate::oauth::{
@@ -25,7 +27,7 @@ pub use crate::oauth::{
     OAuthQuotaSupplement, OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage,
     OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
-pub use crate::{ProviderError, ProviderRegistry, ProviderSecret};
+pub use crate::registry::ProviderRegistry;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CapabilitySet {

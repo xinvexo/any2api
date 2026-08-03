@@ -6,7 +6,7 @@ use any2api_runtime::api::{
 };
 use any2api_server::api::{AdminAuthService, AppState, WebAssets, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
-use any2api_updater::api::GitHubReleaseUpdater;
+use any2api_updater::api::{GitHubReleaseUpdater, StartupUpdateRecovery};
 use anyhow::Context;
 use secrecy::ExposeSecret;
 use tokio::net::TcpListener;
@@ -16,7 +16,7 @@ use super::{
     public_request_components::build_public_request_components_with_telemetry, web_assets,
 };
 use crate::{
-    logging::{AppLoggingReconciler, FileLogging},
+    logging::{AppLoggingReconciler, BootstrapTracing, FileLogging},
     self_update::{LifecycleUpdateTaskExecutor, RestartSignal},
     shutdown,
 };
@@ -24,6 +24,8 @@ use crate::{
 pub(super) async fn run(
     settings: StartupSettings,
     executable_path: PathBuf,
+    startup_recovery: Option<&mut StartupUpdateRecovery>,
+    bootstrap_tracing: BootstrapTracing,
 ) -> anyhow::Result<shutdown::ShutdownOutcome> {
     let storage = Arc::new(
         SqliteStore::connect(&settings.database_path)
@@ -35,6 +37,7 @@ pub(super) async fn run(
         .await
         .context("failed to load configuration")?;
     let file_logging = FileLogging::initialize(
+        bootstrap_tracing,
         settings.log_directory.clone(),
         configuration.revision(),
         configuration.settings().logging(),
@@ -83,7 +86,7 @@ pub(super) async fn run(
     ));
     let logging_reconciler = Arc::new(AppLoggingReconciler::new(
         Arc::clone(&telemetry),
-        Arc::clone(&file_logging),
+        file_logging.control(),
     ));
     let publisher = Arc::new(
         ConfigPublisher::new(
@@ -129,13 +132,13 @@ pub(super) async fn run(
             Arc::clone(&runtime),
             Arc::clone(&publisher),
             public_requests,
+            admin_auth,
         )
         .with_oauth(Arc::clone(&oauth))
         .with_proxy_tests(proxy_tests)
         .with_provider_credential_tests(provider_credential_tests)
         .with_request_telemetry(Arc::clone(&telemetry))
-        .with_application_updates(application_updates)
-        .with_admin_auth(admin_auth),
+        .with_application_updates(application_updates),
         web_assets,
     );
     let listener = TcpListener::bind(settings.bind)
@@ -150,6 +153,11 @@ pub(super) async fn run(
         runtime.start_affinity_sweeper(publisher),
         "affinity sweeper was already started"
     );
+    let shutdown_signal = shutdown::ShutdownSignal::install()
+        .context("failed to install process shutdown signal handlers")?;
+    if let Some(recovery) = startup_recovery {
+        recovery.confirm_startup();
+    }
     tracing::info!(address = %settings.bind, "any2api is listening");
     let served = shutdown::serve(
         listener,
@@ -158,7 +166,7 @@ pub(super) async fn run(
         snapshots.as_ref(),
         async {
             tokio::select! {
-                () = shutdown::signal() => {}
+                () = shutdown_signal.wait() => {}
                 () = restart.wait() => {}
             }
         },
@@ -177,13 +185,13 @@ pub(super) async fn run(
     // Release service roots that retain the configuration publisher and logging reconciler.
     drop(request_components);
     drop(oauth);
-    let finalized = finalized.and_then(|()| FileLogging::finish(file_logging));
-    let outcome = match finalized {
-        Ok(()) => shutdown::ShutdownOutcome::complete(result, served.timeouts),
+    match &finalized {
+        Ok(()) => tracing::info!("any2api shutdown complete"),
         Err(error) => {
             tracing::error!(?error, "any2api shutdown incomplete; terminating process");
-            shutdown::ShutdownOutcome::fatal(error, served.timeouts)
         }
-    };
+    }
+    let outcome = shutdown::ShutdownOutcome::after_finalization(result, finalized, served.timeouts);
+    FileLogging::finish(file_logging);
     Ok(outcome.with_restart_requested(restart.requested()))
 }

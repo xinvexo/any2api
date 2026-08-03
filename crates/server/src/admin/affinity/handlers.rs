@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use any2api_domain::{CredentialId, OAuthAccountId, RoutingCredentialId};
 use axum::{
+    Json,
     extract::{Path, State},
-    response::Response,
 };
 
 use crate::state::AppState;
@@ -11,19 +11,18 @@ use crate::state::AppState;
 use super::{
     dto::{AffinityClearResponse, AffinityRuntimeResponse},
     error::AdminApiError,
-    no_store,
 };
 
-pub(crate) async fn get(State(state): State<AppState>) -> Response {
+pub(crate) async fn get(State(state): State<AppState>) -> Json<AffinityRuntimeResponse> {
     let published = state.snapshots().load();
     let runtime = state
         .runtime()
         .affinity_snapshot(published.affinity_policy());
-    no_store::json(AffinityRuntimeResponse::new(&published, &runtime))
+    Json(AffinityRuntimeResponse::new(&published, &runtime))
 }
 
-pub(crate) async fn clear_all(State(state): State<AppState>) -> Response {
-    no_store::json(AffinityClearResponse::new(
+pub(crate) async fn clear_all(State(state): State<AppState>) -> Json<AffinityClearResponse> {
+    Json(AffinityClearResponse::new(
         state.runtime().clear_all_affinity(),
     ))
 }
@@ -31,7 +30,7 @@ pub(crate) async fn clear_all(State(state): State<AppState>) -> Response {
 pub(crate) async fn clear_credential(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Response, AdminApiError> {
+) -> Result<Json<AffinityClearResponse>, AdminApiError> {
     let published = state.snapshots().load();
     let id = if let Some(id) = id.strip_prefix("oauth_account:") {
         let id = OAuthAccountId::from_str(id)
@@ -48,7 +47,7 @@ pub(crate) async fn clear_credential(
         }
         RoutingCredentialId::provider_credential(id)
     };
-    Ok(no_store::json(AffinityClearResponse::new(
+    Ok(Json(AffinityClearResponse::new(
         state.runtime().clear_routing_credential_affinity(id),
     )))
 }

@@ -10,6 +10,7 @@ const messages: Record<string, string> = {
   oauth_token_timeout: "The token endpoint timed out.",
   oauth_token_exchange_failed: "The token exchange failed.",
   oauth_activation_failed: "The login completed, but the account could not be activated.",
+  oauth_account_identity_conflict: "多个 OAuth 账号对应同一上游身份，请删除重复账号后重试。",
   oauth_unavailable: "OAuth2 login is unavailable.",
   oauth_import_no_files: "请选择至少一个 OAuth JSON 文件。",
   oauth_import_too_many_files: "一次最多导入 32 个 JSON 文件。",

@@ -3,8 +3,7 @@ use std::str::FromStr;
 use any2api_domain::{CredentialId, ProviderEndpointId};
 use axum::{
     Json,
-    extract::{Path, Query, State, rejection::JsonRejection, rejection::QueryRejection},
-    response::Response,
+    extract::{Path, State},
 };
 
 use crate::state::AppState;
@@ -17,13 +16,14 @@ use super::{
         ProviderCredentialUpdateRequest,
     },
     error::AdminApiError,
-    no_store,
+    request_json::AdminJson,
+    revision::RequiredVersionedQuery,
 };
 
 pub(crate) async fn list(
     State(state): State<AppState>,
     Path(endpoint_id): Path<String>,
-) -> Result<Response, AdminApiError> {
+) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
     let endpoint_id = parse_endpoint_id(&endpoint_id)?;
     let snapshot = state.snapshots().load();
     require_endpoint(&snapshot, endpoint_id)?;
@@ -33,10 +33,10 @@ pub(crate) async fn list(
 pub(crate) async fn create(
     State(state): State<AppState>,
     Path(endpoint_id): Path<String>,
-    payload: Result<Json<ProviderCredentialCreateRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
+    AdminJson(payload): AdminJson<ProviderCredentialCreateRequest>,
+) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
     let endpoint_id = parse_endpoint_id(&endpoint_id)?;
-    let (expected, draft, api_key) = parse_json(payload)?.into_domain()?;
+    let (expected, draft, api_key) = payload.into_domain()?;
     let snapshot = state
         .publisher()
         .create_provider_credential(expected, CredentialId::new(), endpoint_id, draft, api_key)
@@ -47,10 +47,10 @@ pub(crate) async fn create(
 pub(crate) async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<ProviderCredentialUpdateRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
+    AdminJson(payload): AdminJson<ProviderCredentialUpdateRequest>,
+) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
-    let (expected, expected_config_version, draft) = parse_json(payload)?.into_domain()?;
+    let (expected, expected_config_version, draft) = payload.into_domain()?;
     let endpoint_id = credential_endpoint(&state, id)?;
     let snapshot = state
         .publisher()
@@ -62,11 +62,11 @@ pub(crate) async fn update(
 pub(crate) async fn rotate_secret(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<ProviderCredentialRotateRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
+    AdminJson(payload): AdminJson<ProviderCredentialRotateRequest>,
+) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
     let (expected, expected_config_version, expected_secret_version, api_key) =
-        parse_json(payload)?.into_domain()?;
+        payload.into_domain()?;
     let endpoint_id = credential_endpoint(&state, id)?;
     let snapshot = state
         .publisher()
@@ -84,18 +84,11 @@ pub(crate) async fn rotate_secret(
 pub(crate) async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    query: Result<Query<ProviderCredentialDeleteQuery>, QueryRejection>,
-) -> Result<Response, AdminApiError> {
+    RequiredVersionedQuery(query): RequiredVersionedQuery<ProviderCredentialDeleteQuery>,
+) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
     let endpoint_id = credential_endpoint(&state, id)?;
-    let (expected, expected_config_version) = query
-        .map_err(|_| {
-            AdminApiError::invalid_request(
-                "expected_revision and expected_config_version queries are required",
-            )
-        })?
-        .0
-        .into_domain()?;
+    let (expected, expected_config_version) = query.into_domain()?;
     let snapshot = state
         .publisher()
         .delete_provider_credential(expected, id, expected_config_version)
@@ -106,22 +99,22 @@ pub(crate) async fn delete(
 pub(crate) async fn test(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> Result<Response, AdminApiError> {
+) -> Result<Json<ProviderCredentialTestResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
     let service = state
         .provider_credential_tests()
         .ok_or_else(AdminApiError::provider_credential_test_unavailable)?;
     let result = service.test(state.snapshots().load(), id).await?;
-    Ok(no_store::json(ProviderCredentialTestResponse::from(result)))
+    Ok(Json(ProviderCredentialTestResponse::from(result)))
 }
 
 pub(crate) async fn set_models(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    payload: Result<Json<ProviderCredentialModelsRequest>, JsonRejection>,
-) -> Result<Response, AdminApiError> {
+    AdminJson(payload): AdminJson<ProviderCredentialModelsRequest>,
+) -> Result<Json<ProviderCredentialCollectionResponse>, AdminApiError> {
     let id = parse_credential_id(&id)?;
-    let (expected, expected_config_version, models) = parse_json(payload)?.into_domain()?;
+    let (expected, expected_config_version, models) = payload.into_domain()?;
     let endpoint_id = credential_endpoint(&state, id)?;
     let snapshot = state
         .publisher()
@@ -134,9 +127,9 @@ async fn response(
     state: &AppState,
     snapshot: &any2api_runtime::api::PublishedSnapshot,
     endpoint_id: ProviderEndpointId,
-) -> Response {
+) -> Json<ProviderCredentialCollectionResponse> {
     let usage = super::upstream_usage::load(state).await;
-    no_store::json(ProviderCredentialCollectionResponse::from_snapshot(
+    Json(ProviderCredentialCollectionResponse::from_snapshot(
         snapshot,
         endpoint_id,
         &usage,
@@ -165,12 +158,6 @@ fn require_endpoint(
         .get(id)
         .map(|_| ())
         .ok_or_else(AdminApiError::provider_endpoint_not_found)
-}
-
-fn parse_json<T>(payload: Result<Json<T>, JsonRejection>) -> Result<T, AdminApiError> {
-    payload
-        .map(|Json(value)| value)
-        .map_err(|_| AdminApiError::invalid_request("request body must be valid JSON"))
 }
 
 fn parse_endpoint_id(value: &str) -> Result<ProviderEndpointId, AdminApiError> {

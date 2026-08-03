@@ -2,6 +2,8 @@
 
 use std::{
     collections::HashMap,
+    future::Future,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -12,7 +14,7 @@ use any2api_provider::api::{
 };
 use any2api_transport::api::{TransportManager, TransportProxy};
 use http::StatusCode;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 
 use super::{
     request::{self, OAuthQuotaResponse},
@@ -23,12 +25,17 @@ const EGRESS_PROBE_CACHE_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Default)]
 pub(super) struct EgressProbeCache {
-    entries: Mutex<HashMap<ProviderKind, CachedProbe>>,
+    entries: Mutex<HashMap<ProbeKey, Arc<OnceCell<CachedProbe>>>>,
+}
+
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct ProbeKey {
+    provider: ProviderKind,
+    revision: u64,
 }
 
 #[derive(Clone, Copy)]
 struct CachedProbe {
-    revision: ConfigRevision,
     observed_at: Instant,
     status: OAuthProviderEgressStatus,
 }
@@ -138,23 +145,42 @@ impl EgressProbeCache {
         resolver: &RequestContext<'_>,
         plan: OAuthRequestPlan,
     ) -> OAuthProviderEgressStatus {
-        let provider = resolver.driver.kind();
-        let mut entries = self.entries.lock().await;
-        if let Some(cached) = entries.get(&provider)
-            && cached.revision == resolver.revision
-            && cached.observed_at.elapsed() < EGRESS_PROBE_CACHE_TTL
-        {
-            return cached.status;
-        }
-        let status = resolver.execute_probe(plan).await;
-        entries.insert(
-            provider,
+        let key = ProbeKey {
+            provider: resolver.driver.kind(),
+            revision: resolver.revision.get(),
+        };
+        self.resolve(key, || resolver.execute_probe(plan)).await
+    }
+
+    async fn resolve<F, Fut>(&self, key: ProbeKey, probe: F) -> OAuthProviderEgressStatus
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = OAuthProviderEgressStatus>,
+    {
+        let slot = {
+            let mut entries = self.entries.lock().await;
+            entries.retain(|_, slot| {
+                slot.get()
+                    .is_none_or(|cached| cached.observed_at.elapsed() < EGRESS_PROBE_CACHE_TTL)
+            });
+            Arc::clone(
+                entries
+                    .entry(key)
+                    .or_insert_with(|| Arc::new(OnceCell::new())),
+            )
+        };
+        slot.get_or_init(|| async move {
+            let status = probe().await;
             CachedProbe {
-                revision: resolver.revision,
                 observed_at: Instant::now(),
                 status,
-            },
-        );
-        status
+            }
+        })
+        .await
+        .status
     }
 }
+
+#[cfg(test)]
+#[path = "rejection_tests.rs"]
+mod tests;

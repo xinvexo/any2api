@@ -1,35 +1,25 @@
-use std::net::SocketAddr;
-
-use any2api_runtime::api::PublishedSnapshot;
 use axum::{
-    extract::{ConnectInfo, Request, State},
+    extract::{Request, State},
     http::Method,
     middleware::Next,
     response::{IntoResponse, Response},
 };
 
-use crate::state::AppState;
+use crate::{client_address::ClientAddressContext, state::AppState};
 
-use super::{access, cookie as auth_cookie, error::AdminApiError, loopback};
+use super::{access, cookie as auth_cookie, error::AdminApiError};
 
 pub(in crate::admin) async fn require_admin_session(
     State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Response {
-    let Some(auth) = state.admin_auth() else {
-        return loopback::require_loopback(request, next).await;
+    let auth = state.admin_auth();
+    let Some(context) = request.extensions().get::<ClientAddressContext>().cloned() else {
+        tracing::error!("admin request client-address context is missing");
+        return AdminApiError::internal().into_response();
     };
-    let peer = request
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(address)| *address);
-    let snapshot = request
-        .extensions()
-        .get::<std::sync::Arc<PublishedSnapshot>>()
-        .cloned()
-        .unwrap_or_else(|| state.snapshots().load());
-    let (connection, snapshot) = match access::resolve(snapshot, peer, request.headers()) {
+    let (connection, snapshot) = match access::resolve(context) {
         Ok(value) => value,
         Err(error) => return error.into_response(),
     };

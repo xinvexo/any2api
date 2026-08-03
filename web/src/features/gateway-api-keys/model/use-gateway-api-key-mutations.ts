@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 import type {
   GatewayApiKeyConfiguration,
@@ -13,45 +13,41 @@ import {
   rotateGatewayApiKey,
   updateGatewayApiKey,
 } from "../api/gateway-api-key-api";
-import { selectNewestGatewayApiKeyConfiguration } from "./gateway-api-key-cache";
 import { gatewayApiKeyQueryKeys } from "./gateway-api-key-query-keys";
+import { useConfigurationMutationLifecycle } from "@/shared/api/use-configuration-mutation-lifecycle";
 
 export function useGatewayApiKeyMutations() {
-  const queryClient = useQueryClient();
-  const publish = (configuration: GatewayApiKeyConfiguration) => {
-    queryClient.setQueryData<GatewayApiKeyConfiguration>(
-      gatewayApiKeyQueryKeys.list(),
-      (current) => selectNewestGatewayApiKeyConfiguration(current, configuration),
-    );
-    void queryClient.invalidateQueries({ queryKey: gatewayApiKeyQueryKeys.all });
-  };
-  const refreshAfterFailure = () => {
-    void queryClient.refetchQueries({ queryKey: gatewayApiKeyQueryKeys.all, type: "active" });
-  };
+  const { publish, refreshAfterFailure } =
+    useConfigurationMutationLifecycle<GatewayApiKeyConfiguration>({
+      cacheKey: gatewayApiKeyQueryKeys.list(),
+      invalidateKey: gatewayApiKeyQueryKeys.all,
+      refreshKey: gatewayApiKeyQueryKeys.all,
+    });
+  const refreshInBackground = () => void refreshAfterFailure();
   const create = useMutation({
     mutationFn: (input: GatewayApiKeyCreateInput) => createGatewayApiKey(input),
-    onError: refreshAfterFailure,
+    onError: refreshInBackground,
     onSuccess: publish,
     retry: false,
   });
   const update = useMutation({
     mutationFn: ({ id, input }: { id: string; input: GatewayApiKeyUpdateInput }) =>
       updateGatewayApiKey(id, input),
-    onError: refreshAfterFailure,
+    onError: refreshInBackground,
     onSuccess: publish,
     retry: false,
   });
   const remove = useMutation({
     mutationFn: ({ id, input }: { id: string; input: GatewayApiKeyDeleteInput }) =>
       deleteGatewayApiKey(id, input),
-    onError: refreshAfterFailure,
+    onError: refreshInBackground,
     onSuccess: publish,
     retry: false,
   });
   const rotate = useMutation({
     mutationFn: ({ id, input }: { id: string; input: GatewayApiKeyRotateInput }) =>
       rotateGatewayApiKey(id, input),
-    onError: refreshAfterFailure,
+    onError: refreshInBackground,
     onSuccess: publish,
     retry: false,
   });

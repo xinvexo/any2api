@@ -10,26 +10,35 @@ use std::{
 use any2api_domain::{ConfigRevision, LoggingSettings};
 use any2api_runtime::api::LoggingSettingsReconciler;
 use anyhow::Context;
-use level_filter::FileLevelFilter;
+pub(in crate::logging) use level_filter::FileLevelFilter;
 use policy::{FileLogPolicy, update_policy};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, prelude::*, util::SubscriberInitExt};
 use writer::RotatingFileWriter;
+
+use super::subscriber::{BootstrapTracing, FileLayerAttachment};
 
 const FILE_LOG_QUEUE_CAPACITY: usize = 4_096;
 
 pub(crate) struct FileLogging {
+    control: FileLoggingControl,
+    // Rust drops fields in declaration order: detach before the worker guard flushes.
+    _attachment: Option<FileLayerAttachment>,
+    _guard: WorkerGuard,
+}
+
+#[derive(Clone)]
+pub(crate) struct FileLoggingControl {
     policy: Arc<RwLock<FileLogPolicy>>,
     level_filter: FileLevelFilter,
-    _guard: WorkerGuard,
 }
 
 impl FileLogging {
     pub(crate) fn initialize(
+        bootstrap: BootstrapTracing,
         directory: PathBuf,
         revision: ConfigRevision,
         settings: &LoggingSettings,
-    ) -> anyhow::Result<Arc<Self>> {
+    ) -> anyhow::Result<Self> {
         let policy = Arc::new(RwLock::new(FileLogPolicy::from_settings(
             revision, settings,
         )));
@@ -40,42 +49,28 @@ impl FileLogging {
             .lossy(true)
             .thread_name("any2api-file-logging")
             .finish(writer);
-        let level_filter = FileLevelFilter::new(settings.file_level());
+        let (attachment, level_filter) = bootstrap.attach(non_blocking, settings.file_level());
 
-        let console_filter =
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-        let console = tracing_subscriber::fmt::layer().with_filter(console_filter);
-        let file = tracing_subscriber::fmt::layer()
-            .json()
-            .flatten_event(true)
-            .with_current_span(false)
-            .with_span_list(false)
-            .with_ansi(false)
-            .with_writer(non_blocking)
-            .with_filter(level_filter.clone());
-        tracing_subscriber::registry()
-            .with(console)
-            .with(file)
-            .try_init()
-            .context("failed to install tracing subscriber")?;
-
-        Ok(Arc::new(Self {
-            policy,
-            level_filter,
+        Ok(Self {
+            control: FileLoggingControl {
+                policy,
+                level_filter,
+            },
+            _attachment: Some(attachment),
             _guard: guard,
-        }))
+        })
     }
 
-    pub(crate) fn finish(root: Arc<Self>) -> anyhow::Result<()> {
-        let logging = Arc::try_unwrap(root)
-            .map_err(|_| anyhow::anyhow!("file logging still has active runtime owners"))?;
-        tracing::info!("any2api shutdown complete");
-        drop(logging);
-        Ok(())
+    pub(crate) fn control(&self) -> FileLoggingControl {
+        self.control.clone()
+    }
+
+    pub(crate) fn finish(self) {
+        drop(self);
     }
 }
 
-impl LoggingSettingsReconciler for FileLogging {
+impl LoggingSettingsReconciler for FileLoggingControl {
     fn reconcile(&self, revision: ConfigRevision, settings: &LoggingSettings) {
         let next = FileLogPolicy::from_settings(revision, settings);
         if update_policy(&self.policy, next) {

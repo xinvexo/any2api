@@ -126,7 +126,9 @@ impl PublishedSnapshot {
     }
 
     #[must_use]
-    pub fn credential_runtimes(&self) -> &[CredentialRuntimeBinding] {
+    pub fn credential_runtimes(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &CredentialRuntimeBinding> + '_ {
         self.routing_credentials.bindings()
     }
 

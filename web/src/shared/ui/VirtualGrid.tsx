@@ -4,6 +4,7 @@ import {
 } from "@tanstack/react-virtual";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -12,6 +13,8 @@ import {
 } from "react";
 
 import { cn } from "@/shared/lib/cn";
+
+const useBrowserLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 export interface VirtualGridProps<T> {
   items: readonly T[];
@@ -154,7 +157,7 @@ export function VirtualGrid<T>({
 function useElementWidth(ref: React.RefObject<HTMLElement | null>) {
   const [width, setWidth] = useState(0);
 
-  useEffect(() => {
+  useBrowserLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
     const update = () => setWidth(element.clientWidth);

@@ -56,6 +56,7 @@ dependencies = [
  "fs2",
  "secrecy",
  "serde_json",
+ "sha2",
  "tempfile",
  "time",
  "tokio",
@@ -119,6 +120,7 @@ dependencies = [
  "http",
  "multer",
  "proptest",
+ "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
@@ -216,6 +218,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -253,6 +256,7 @@ dependencies = [
  "async-trait",
  "flate2",
  "reqwest",
+ "rustix",
  "semver",
  "serde",
  "serde_json",

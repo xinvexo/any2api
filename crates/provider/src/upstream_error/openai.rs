@@ -1,8 +1,8 @@
-use any2api_domain::{RetrySafety, UpstreamError, UpstreamErrorClassification, UpstreamErrorKind};
+use any2api_domain::{UpstreamError, UpstreamErrorClassification, UpstreamErrorKind};
 use serde::Deserialize;
 
 use super::{
-    http::{classify_status, refine_kind},
+    http::{classify_status, refine_kind, retry_safety_after_refinement},
     retry_after::retry_after_hint,
 };
 use crate::api::UpstreamResponseMeta;
@@ -30,15 +30,7 @@ pub(crate) fn classify(meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> Upst
     });
     let baseline = classify_status(meta, UpstreamErrorKind::Unknown);
     let kind = refine_kind(baseline.kind(), provider_kind);
-    let safety = match kind {
-        UpstreamErrorKind::Authentication
-        | UpstreamErrorKind::PermissionDenied
-        | UpstreamErrorKind::QuotaExhausted
-        | UpstreamErrorKind::RateLimited
-        | UpstreamErrorKind::ModelUnavailable
-        | UpstreamErrorKind::OperationUnavailable => RetrySafety::RejectedBeforeExecution,
-        _ => baseline.retry_safety(),
-    };
+    let safety = retry_safety_after_refinement(baseline, kind);
     let classification =
         UpstreamErrorClassification::new(kind, safety, retry_after_hint(&meta.headers));
     let message = parsed.and_then(|envelope| envelope.error.message);
@@ -50,9 +42,13 @@ fn classify_code(code: Option<&str>, kind: Option<&str>) -> Option<UpstreamError
         let normalized = value.to_ascii_lowercase();
         match normalized.as_str() {
             "invalid_api_key" | "authentication_error" => Some(UpstreamErrorKind::Authentication),
-            "insufficient_quota" | "quota_exceeded" | "billing_hard_limit_reached" => {
-                Some(UpstreamErrorKind::QuotaExhausted)
-            }
+            "credit_balance_exhausted"
+            | "organization_spend_limit_exceeded"
+            | "project_spend_limit_exceeded"
+            | "organization_usage_limit_exceeded"
+            | "insufficient_quota"
+            | "quota_exceeded"
+            | "billing_hard_limit_reached" => Some(UpstreamErrorKind::QuotaExhausted),
             "rate_limit_error" | "rate_limit_exceeded" => Some(UpstreamErrorKind::RateLimited),
             "model_not_found" | "model_not_available" | "unsupported_model" => {
                 Some(UpstreamErrorKind::ModelUnavailable)
@@ -116,6 +112,60 @@ mod tests {
         assert_eq!(
             transient.classification().retry_safety(),
             RetrySafety::Ambiguous
+        );
+    }
+
+    #[test]
+    fn recognizes_structured_quota_codes_on_compatible_statuses() {
+        for code in [
+            "credit_balance_exhausted",
+            "organization_spend_limit_exceeded",
+            "project_spend_limit_exceeded",
+            "organization_usage_limit_exceeded",
+            "insufficient_quota",
+            "quota_exceeded",
+            "billing_hard_limit_reached",
+        ] {
+            let body = format!(r#"{{"error":{{"code":"{code}"}}}}"#);
+            let status = if code == "billing_hard_limit_reached" {
+                StatusCode::BAD_REQUEST
+            } else {
+                StatusCode::TOO_MANY_REQUESTS
+            };
+            let classified = classify(
+                &UpstreamResponseMeta {
+                    status,
+                    headers: HeaderMap::new(),
+                },
+                body.as_bytes(),
+            );
+
+            assert_eq!(
+                classified.classification().kind(),
+                UpstreamErrorKind::QuotaExhausted,
+                "structured quota code {code}"
+            );
+            assert_eq!(
+                classified.classification().retry_safety(),
+                RetrySafety::RejectedBeforeExecution,
+                "structured quota code {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn low_credit_message_without_a_quota_code_stays_invalid_request() {
+        let classified = classify(
+            &UpstreamResponseMeta {
+                status: StatusCode::BAD_REQUEST,
+                headers: HeaderMap::new(),
+            },
+            br#"{"error":{"type":"invalid_request_error","message":"Your credit balance is too low"}}"#,
+        );
+
+        assert_eq!(
+            classified.classification().kind(),
+            UpstreamErrorKind::InvalidRequest
         );
     }
 

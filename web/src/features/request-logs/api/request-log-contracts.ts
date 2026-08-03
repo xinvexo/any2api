@@ -58,6 +58,7 @@ export interface RequestAttempt {
 
 interface RequestTelemetryMetrics {
   queuedRecords: number;
+  inFlightRecords: number;
   droppedRecords: number;
   persistedRecords: number;
 }
@@ -157,6 +158,7 @@ function parseTelemetry(value: unknown): RequestTelemetryMetrics {
   const record = readRecord(value);
   return {
     queuedRecords: readNonNegativeInteger(record.queued_records),
+    inFlightRecords: readNonNegativeInteger(record.in_flight_records),
     droppedRecords: readNonNegativeInteger(record.dropped_records),
     persistedRecords: readNonNegativeInteger(record.persisted_records),
   };

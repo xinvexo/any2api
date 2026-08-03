@@ -129,12 +129,34 @@ pub(crate) async fn insert_model_route(
     .execute(&mut *connection)
     .await?;
     for target in route.targets() {
-        upsert_target(connection, target).await?;
+        upsert_route_target(connection, target).await?;
     }
     Ok(())
 }
 
-async fn upsert_target(
+pub(crate) async fn update_model_route(
+    connection: &mut SqliteConnection,
+    route: &ModelRoute,
+) -> Result<(), StorageError> {
+    let result = sqlx::query(
+        "UPDATE model_routes SET fallback_on_rate_limit = ?, enabled = ?, config_version = ?, \
+         updated_at = CURRENT_TIMESTAMP WHERE id = ? AND public_model = ? AND ingress_protocol = ?",
+    )
+    .bind(route.fallback_on_rate_limit())
+    .bind(route.enabled())
+    .bind(i64::try_from(route.config_version()).map_err(|_| StorageError::RevisionOverflow)?)
+    .bind(route.id().to_string())
+    .bind(route.public_model().as_str())
+    .bind(protocol_text(route.ingress_protocol()))
+    .execute(connection)
+    .await?;
+    if result.rows_affected() != 1 {
+        return Err(StorageError::CorruptConfiguration);
+    }
+    Ok(())
+}
+
+pub(crate) async fn upsert_route_target(
     connection: &mut SqliteConnection,
     target: &any2api_domain::RouteTarget,
 ) -> Result<(), StorageError> {

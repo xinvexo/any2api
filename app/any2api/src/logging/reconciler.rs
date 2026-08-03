@@ -3,15 +3,15 @@ use std::sync::Arc;
 use any2api_domain::{ConfigRevision, LoggingSettings};
 use any2api_runtime::api::{LoggingSettingsReconciler, RequestTelemetry};
 
-use super::file::FileLogging;
+use super::file::FileLoggingControl;
 
 pub(crate) struct AppLoggingReconciler {
     telemetry: Arc<RequestTelemetry>,
-    file_logging: Arc<FileLogging>,
+    file_logging: FileLoggingControl,
 }
 
 impl AppLoggingReconciler {
-    pub(crate) fn new(telemetry: Arc<RequestTelemetry>, file_logging: Arc<FileLogging>) -> Self {
+    pub(crate) fn new(telemetry: Arc<RequestTelemetry>, file_logging: FileLoggingControl) -> Self {
         Self {
             telemetry,
             file_logging,

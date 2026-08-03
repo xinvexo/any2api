@@ -108,7 +108,7 @@ function unitLabel(item: SettingItem) {
   if (item.valueType === "duration_secs") {
     return "秒";
   }
-  if (item.key === "logs.file.max_total_size") {
+  if (item.key === "logs.file.max_total_size" || item.key === "logs.http_access.max_exchange_bytes") {
     return "字节";
   }
   if (item.key === "retry.jitter_ratio") {

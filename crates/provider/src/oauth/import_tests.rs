@@ -5,8 +5,8 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::json;
 
 use crate::{
-    ClaudeDriver, CodexDriver, GrokDriver, OAuthImportParseError, ProviderRegistry,
-    parse_oauth_import_document,
+    ClaudeDriver, CodexDriver, GrokDriver,
+    api::{OAuthImportParseError, ProviderRegistry, parse_oauth_import_document},
 };
 
 #[test]

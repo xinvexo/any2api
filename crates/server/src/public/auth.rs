@@ -1,9 +1,9 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use any2api_domain::GatewayApiKeyId;
 use any2api_runtime::api::PublishedSnapshot;
 use axum::{
-    extract::{ConnectInfo, Request, State},
+    extract::{Request, State},
     http::{
         HeaderMap,
         header::{AUTHORIZATION, COOKIE, PROXY_AUTHORIZATION},
@@ -12,7 +12,7 @@ use axum::{
     response::Response,
 };
 
-use crate::{client_address, state::AppState};
+use crate::{client_address::ClientAddressContext, state::AppState};
 
 use super::error::PublicApiError;
 
@@ -46,20 +46,13 @@ pub(crate) async fn require_gateway_api_key(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let peer = request
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ConnectInfo(address)| *address);
-    let snapshot = request
-        .extensions()
-        .get::<Arc<PublishedSnapshot>>()
-        .cloned()
-        .unwrap_or_else(|| state.snapshots().load());
-    let connection = match client_address::resolve(
-        snapshot.settings().network().trusted_proxy_cidrs(),
-        peer,
-        request.headers(),
-    ) {
+    let Some(client_context) = request.extensions().get::<ClientAddressContext>().cloned() else {
+        tracing::error!("public request client-address context is missing");
+        return PublicApiError::invalid_forwarded_headers()
+            .into_response_for(&state, request.uri());
+    };
+    let snapshot = client_context.snapshot_arc();
+    let connection = match client_context.connection() {
         Ok(connection) => connection,
         Err(_) => {
             return PublicApiError::invalid_forwarded_headers()

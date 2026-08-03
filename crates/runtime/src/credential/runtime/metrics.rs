@@ -31,7 +31,7 @@ impl CredentialBalancingCounters {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum CredentialFilterKind {
     RateLimit,
     CredentialHealth,

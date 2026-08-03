@@ -3,7 +3,10 @@
 use std::sync::Arc;
 
 use any2api_domain::ConfigRevision;
-use any2api_storage::api::{ConfigurationMutation, ConfigurationRepository, StoredConfiguration};
+use any2api_storage::api::{
+    ConfigurationMutation, ConfigurationTransactionOutcome, ConfigurationTransactionRepository,
+    StoredConfiguration,
+};
 use tokio::sync::watch;
 
 use crate::{
@@ -17,7 +20,8 @@ use crate::{
 
 #[derive(Clone)]
 pub struct ConfigPublisher {
-    pub(crate) repository: Arc<dyn ConfigurationRepository>,
+    pub(crate) repository:
+        Arc<dyn ConfigurationTransactionRepository<PreparedPublishedSnapshot, ConfigPublishError>>,
     pub(crate) snapshots: Arc<SnapshotStore>,
     pub(crate) runtime: Arc<RuntimeRegistry>,
     pub(super) capabilities: Arc<ConfigurationCapabilities>,
@@ -32,7 +36,8 @@ impl ConfigPublisher {
         capabilities: Arc<ConfigurationCapabilities>,
     ) -> Result<Self, ConfigPublishError>
     where
-        R: ConfigurationRepository + 'static,
+        R: ConfigurationTransactionRepository<PreparedPublishedSnapshot, ConfigPublishError>
+            + 'static,
     {
         let current = snapshots.load();
         capabilities.validate_configuration(
@@ -136,25 +141,22 @@ impl ConfigPublisher {
         expected: ConfigRevision,
         mutation: ConfigurationMutation,
     ) -> Result<(Arc<PublishedSnapshot>, bool), ConfigPublishError> {
-        let prepared = self
+        let capabilities = Arc::clone(&self.capabilities);
+        let outcome = self
             .repository
-            .prepare_configuration(expected, mutation)
+            .transact_configuration(
+                expected,
+                mutation,
+                Box::new(move |candidate| {
+                    Self::compile_candidate(capabilities.as_ref(), expected, candidate)
+                }),
+            )
             .await?;
-        let changed = prepared.changed();
-        let (candidate, commit) = prepared.into_parts();
-        if !changed {
-            commit.finish().await?;
-            return Ok((current, false));
-        }
-
-        let prepared_snapshot = match self.compile_candidate(expected, candidate) {
-            Ok(prepared_snapshot) => prepared_snapshot,
-            Err(error) => {
-                commit.rollback().await?;
-                return Err(error);
-            }
+        let prepared_snapshot = match outcome {
+            ConfigurationTransactionOutcome::NoChange => return Ok((current, false)),
+            ConfigurationTransactionOutcome::Committed(prepared_snapshot) => prepared_snapshot,
+            ConfigurationTransactionOutcome::Rejected(error) => return Err(error),
         };
-        commit.finish().await?;
 
         let published = self
             .snapshots
@@ -167,7 +169,7 @@ impl ConfigPublisher {
     }
 
     fn compile_candidate(
-        &self,
+        capabilities: &ConfigurationCapabilities,
         expected: ConfigRevision,
         candidate: StoredConfiguration,
     ) -> Result<PreparedPublishedSnapshot, ConfigPublishError> {
@@ -180,12 +182,12 @@ impl ConfigPublisher {
                 actual: candidate.revision(),
             });
         }
-        self.capabilities.validate_configuration(
+        capabilities.validate_configuration(
             candidate.provider_endpoints(),
             candidate.provider_credentials(),
             candidate.model_routes(),
         )?;
-        PreparedPublishedSnapshot::compile(candidate, self.capabilities.provider_registry())
+        PreparedPublishedSnapshot::compile(candidate, capabilities.provider_registry())
             .map_err(Into::into)
     }
 }

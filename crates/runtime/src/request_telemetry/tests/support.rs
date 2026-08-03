@@ -1,6 +1,6 @@
 use std::sync::{
     Mutex,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
 };
 
 use any2api_domain::{
@@ -10,8 +10,8 @@ use any2api_domain::{
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
-    HttpAccessLogRepository, RequestLogRepository, StorageError, UpstreamCredentialUsageRepository,
-    UpstreamCredentialUsageSummary,
+    HttpAccessLogCapacity, HttpAccessLogRepository, RequestLogCleanupOutcome, RequestLogRepository,
+    StorageError, UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
 };
 use async_trait::async_trait;
 use tokio::sync::Notify;
@@ -22,7 +22,12 @@ pub(super) struct BlockingRepository {
     pub(super) prune_calls: AtomicUsize,
     pub(super) access_prune_calls: AtomicUsize,
     pub(super) request_prune_deletions: AtomicUsize,
+    pub(super) request_append_max_rows: AtomicU64,
+    pub(super) request_prune_max_rows: AtomicU64,
+    pub(super) request_append_has_more: AtomicBool,
+    pub(super) request_prune_has_more: AtomicBool,
     pub(super) access_prune_deletions: AtomicUsize,
+    pub(super) access_append_deletions: AtomicUsize,
     pub(super) fail_request_writes: AtomicBool,
     pub(super) release_first: Notify,
     pub(super) usage_updates: Mutex<Vec<Vec<GatewayApiKeyLastUsedUpdate>>>,
@@ -31,22 +36,30 @@ pub(super) struct BlockingRepository {
 
 #[async_trait]
 impl HttpAccessLogRepository for BlockingRepository {
-    async fn append_http_access_logs(&self, records: &[HttpAccessLog]) -> Result<(), StorageError> {
+    async fn append_http_access_logs(
+        &self,
+        records: &[HttpAccessLog],
+        _capacity: HttpAccessLogCapacity,
+    ) -> Result<u64, StorageError> {
         self.access_logs
             .lock()
             .expect("HTTP access logs")
             .extend_from_slice(records);
-        Ok(())
+        Ok(self.access_append_deletions.swap(0, Ordering::AcqRel) as u64)
     }
 
     async fn prune_http_access_logs(
         &self,
         _retention_before_ms: u64,
-        _max_rows: u64,
+        _capacity: HttpAccessLogCapacity,
         _batch_size: u32,
     ) -> Result<u64, StorageError> {
         self.access_prune_calls.fetch_add(1, Ordering::AcqRel);
         Ok(self.access_prune_deletions.swap(0, Ordering::AcqRel) as u64)
+    }
+
+    async fn reclaim_http_access_log_storage(&self, _max_bytes: u64) -> Result<u64, StorageError> {
+        Ok(0)
     }
 
     async fn list_http_access_logs(
@@ -121,7 +134,10 @@ impl RequestLogRepository for BlockingRepository {
     async fn append_request_logs(
         &self,
         _records: &[CompletedRequestLog],
-    ) -> Result<(), StorageError> {
+        max_rows: u64,
+    ) -> Result<RequestLogCleanupOutcome, StorageError> {
+        self.request_append_max_rows
+            .store(max_rows, Ordering::Release);
         let batch = self.write_batches.fetch_add(1, Ordering::AcqRel);
         if self.fail_request_writes.load(Ordering::Acquire) {
             return Err(StorageError::CorruptTelemetry);
@@ -129,17 +145,25 @@ impl RequestLogRepository for BlockingRepository {
         if batch == 0 {
             self.release_first.notified().await;
         }
-        Ok(())
+        Ok(RequestLogCleanupOutcome::new(
+            0,
+            self.request_append_has_more.swap(false, Ordering::AcqRel),
+        ))
     }
 
     async fn prune_request_logs(
         &self,
         _retention_before_ms: u64,
-        _max_rows: u64,
+        max_rows: u64,
         _batch_size: u32,
-    ) -> Result<u64, StorageError> {
+    ) -> Result<RequestLogCleanupOutcome, StorageError> {
+        self.request_prune_max_rows
+            .store(max_rows, Ordering::Release);
         self.prune_calls.fetch_add(1, Ordering::AcqRel);
-        Ok(self.request_prune_deletions.swap(0, Ordering::AcqRel) as u64)
+        Ok(RequestLogCleanupOutcome::new(
+            self.request_prune_deletions.swap(0, Ordering::AcqRel) as u64,
+            self.request_prune_has_more.swap(false, Ordering::AcqRel),
+        ))
     }
 
     async fn list_request_logs(
@@ -167,11 +191,24 @@ impl RequestLogRepository for BlockingRepository {
 }
 
 pub(super) fn logging_settings(queue_capacity: u64) -> SettingsConfiguration {
-    let overrides = SettingOverrides::from_entries([(
+    logging_settings_with_request_max_rows(queue_capacity, None)
+}
+
+pub(super) fn logging_settings_with_request_max_rows(
+    queue_capacity: u64,
+    request_max_rows: Option<u64>,
+) -> SettingsConfiguration {
+    let mut entries = vec![(
         SettingKey::LogsTelemetryQueueCapacity,
         SettingValue::Integer(queue_capacity),
-    )])
-    .expect("logging override");
+    )];
+    if let Some(max_rows) = request_max_rows {
+        entries.push((
+            SettingKey::LogsRequestMaxRows,
+            SettingValue::Integer(max_rows),
+        ));
+    }
+    let overrides = SettingOverrides::from_entries(entries).expect("logging override");
     SettingsConfiguration::from_overrides(overrides).expect("logging settings")
 }
 

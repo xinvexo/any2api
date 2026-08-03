@@ -1,4 +1,4 @@
-use std::{fs, sync::RwLock};
+use std::{fs, io::Write, sync::RwLock};
 
 use any2api_domain::{ConfigRevision, FileLogLevel};
 use tempfile::tempdir;
@@ -7,14 +7,52 @@ use tracing_appender::non_blocking::NonBlockingBuilder;
 use tracing_subscriber::{layer::SubscriberExt, prelude::*};
 
 use super::{
-    FileLevelFilter,
+    FileLevelFilter, FileLogging, FileLoggingControl,
     policy::FileLogPolicy,
     writer::{RotatingFileWriter, managed_files},
 };
 
 #[test]
+fn control_clone_does_not_retain_the_worker_guard() {
+    let directory = tempdir().expect("temporary directory");
+    let path = directory.path().join("queued.log");
+    let file = fs::File::create(&path).expect("log file");
+    let (mut non_blocking, guard) = NonBlockingBuilder::default()
+        .buffered_lines_limit(16)
+        .lossy(true)
+        .finish(file);
+    let level_filter = FileLevelFilter::disabled();
+    level_filter.set(FileLogLevel::Info);
+    let control = FileLoggingControl {
+        policy: std::sync::Arc::new(RwLock::new(FileLogPolicy {
+            revision: ConfigRevision::INITIAL,
+            retention_secs: 86_400,
+            max_total_size: 1024 * 1024,
+        })),
+        level_filter,
+    };
+    let retained_control = control.clone();
+    let logging = FileLogging {
+        control,
+        _attachment: None,
+        _guard: guard,
+    };
+    writeln!(non_blocking, "queued before shutdown").expect("queue log line");
+
+    FileLogging::finish(logging);
+
+    assert_eq!(
+        fs::read_to_string(path).expect("flushed log"),
+        "queued before shutdown\n"
+    );
+    drop(retained_control);
+}
+
+#[test]
 fn level_filter_updates_immediately() {
-    let filter = FileLevelFilter::new(FileLogLevel::Info);
+    let filter = FileLevelFilter::disabled();
+    assert!(!filter.enabled_level(&Level::ERROR));
+    filter.set(FileLogLevel::Info);
     assert!(filter.enabled_level(&Level::ERROR));
     assert!(filter.enabled_level(&Level::INFO));
     assert!(!filter.enabled_level(&Level::DEBUG));
@@ -38,6 +76,8 @@ fn tracing_events_are_written_as_json_lines() {
         .buffered_lines_limit(16)
         .lossy(true)
         .finish(writer);
+    let level_filter = FileLevelFilter::disabled();
+    level_filter.set(FileLogLevel::Info);
     let layer = tracing_subscriber::fmt::layer()
         .json()
         .flatten_event(true)
@@ -45,7 +85,7 @@ fn tracing_events_are_written_as_json_lines() {
         .with_span_list(false)
         .with_ansi(false)
         .with_writer(non_blocking)
-        .with_filter(FileLevelFilter::new(FileLogLevel::Info));
+        .with_filter(level_filter);
     let subscriber = tracing_subscriber::registry().with(layer);
 
     tracing::subscriber::with_default(subscriber, || {

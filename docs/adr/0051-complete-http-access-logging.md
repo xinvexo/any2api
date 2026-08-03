@@ -1,8 +1,8 @@
 # ADR-0051：完整 HTTP 访问系统日志
 
-- 状态：Accepted（原始交换字段由 ADR-0081 修订）
+- 状态：Accepted（原始交换字段由 ADR-0081 修订；独立容量由 ADR-0092 修订）
 - 日期：2026-07-26
-- 修订：2026-07-31
+- 修订：2026-08-03
 
 ## 背景
 
@@ -22,6 +22,8 @@
 - loopback 发起、非 `/v1`、状态低于 400 且 Body 正常完成的管理 API、健康检查、Web 资源和 deep link 属于内部正常流量，不写入。
 
 列表 SQL 复用相同谓词，立即隐藏规则发布前已写入的内部噪音；不能只在写入端生效而让旧噪音继续展示 3 天。
+
+客户端 IP 的规范化和 loopback 判定由 Domain 提供唯一实现：IPv4-mapped IPv6 先通过 `to_canonical()` 转为 IPv4，再调用 loopback 判定。Server 的可信代理解析与 Storage 写入均复用这套语义；追加的 Migration `0009` 把旧版已经持久化的 `::ffff:127.*` 规范为 `127.*`。COUNT 与分页查询引用同一个保留谓词常量，在规范持久化不变量下只识别 `127.*` 与 `::1`，避免两条 SQL 漂移；该降噪规则不授予任何直接 loopback 管理权限。
 
 Schema 对 `method` 只要求非空且去除首尾空白，不设置人为 32 字符上限。
 
@@ -48,7 +50,7 @@ Schema 对 `method` 只要求非空且去除首尾空白，不设置人为 32 �
 
 ### 有界写入、保留与清理
 
-系统日志复用现有 `RequestTelemetry` 有界非阻塞写入通道和独立 SQLite writer，不在请求路径等待普通日志落库。队列满时允许丢弃并计入既有遥测丢弃指标。`logs.request.enabled` 同时控制 RequestLog 与 HttpAccessLog；retention 和 max_rows 对两个顶层日志表分别应用。
+系统日志复用现有 `RequestTelemetry` 有界非阻塞写入通道和独立 SQLite writer，不在请求路径等待普通日志落库。队列满时允许丢弃并计入既有遥测丢弃指标。`logs.request.enabled` 与 retention 同时控制 RequestLog 和 HttpAccessLog；`logs.request.max_rows` 只约束 RequestLog，系统日志使用独立的 `logs.http_access.max_rows` 与 `logs.http_access.max_exchange_bytes`。批次提交后按两项容量删除完整最旧记录，新库删除后执行有界增量页面回收；完整边界见 ADR-0092。
 
 管理面新增：
 
@@ -58,6 +60,10 @@ DELETE /api/admin/system-logs
 ```
 
 列表固定为最近 3 天的服务端分页，并返回窗口内精确 `total`、当前 `page` 与 `page_size`。SQLite 的实际保留期限仍由 `logs.request.retention` 控制；DELETE 清理全部保留历史，不只清理可见窗口或当前页。
+
+清理、保留或时间窗口推进使当前页越界时，Web 在收到该页响应的精确 `total` 后回写最后一个合法页并重新查询。分页控件不得只显示夹取后的页码而让查询 state 继续停留在空白旧页。
+
+列表保留谓词和精确 `COUNT(*)` 使用包含 `started_at_ms`、`request_id`、`path`、`client_ip`、`status_code` 与 `outcome` 的覆盖索引。这样 SQLite 可以在索引内完成时间窗口、内部噪音过滤和计数，只对当前页最终返回的少量摘要行回表；查询计划不得扫描每行最高 2 MiB 的交换详情列。
 
 清理不能绕过 writer 直接删除。DELETE Handler 把带完成回执的 `ClearHttpAccessLogs` 命令发送到同一有序队列：writer 先落盘命令之前的事件，再清空表，最后确认完成。清理请求自己的访问日志在 Response Body 完成后才经过统一规则；本机成功清理会被过滤，外部清理或失败清理形成清理后的审计记录。并发请求在清理边界之后完成时也可以产生新记录。清理命令属于管理操作，可以等待有界队列容量和 writer 回执，普通请求日志仍只使用 `try_send`。
 
@@ -79,3 +85,6 @@ RequestTelemetry Writer 在 RequestLog 批次成功提交后推进对应的进�
 - 有序清理不会被清理命令之前仍在 writer 队列中的记录回填。
 - 事件驱动刷新不会用固定轮询淹没 SQLite 与访问历史，手动读取与异常访问仍可审计。
 - 自动刷新选择在页面重载和浏览器重启后保持，同时不会把一台设备的界面偏好扩散为实例级配置。
+- 系统日志规模和 Body 捕获增大时，分页 `COUNT` 与过滤仍只扫描覆盖索引，不按详情 BLOB 大小退化。
+- 系统日志的原始交换总量和元数据行数具有独立预算，不会再借用 RequestLog 行数上限增长；容量淘汰仍保持单条记录完整。
+- Server、Storage 与历史 Migration 对 IPv4、IPv6 和 IPv4-mapped loopback 使用同一规范语义，COUNT 与分页不会再因谓词漂移返回不同集合。

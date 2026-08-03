@@ -11,11 +11,19 @@ use super::{
     parse_release,
 };
 
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const READ_PROGRESS_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub(crate) fn client() -> Result<Client, UpdateError> {
+    build_client(true, READ_PROGRESS_TIMEOUT)
+}
+
+fn build_client(https_only: bool, read_timeout: Duration) -> Result<Client, UpdateError> {
     Client::builder()
         .user_agent(format!("any2api/{}", crate::BUILD_VERSION))
-        .https_only(true)
-        .connect_timeout(Duration::from_secs(10))
+        .https_only(https_only)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(read_timeout)
         .redirect(redirect::Policy::custom(|attempt| {
             let allowed = attempt.url().scheme() == "https"
                 && attempt.url().host_str().is_some_and(is_allowed_github_host);
@@ -74,14 +82,27 @@ pub(crate) async fn download_archive<Progress>(
     client: &Client,
     release: &Release,
     path: &Path,
+    progress: Progress,
+) -> Result<String, UpdateError>
+where
+    Progress: FnMut(u64) + Send,
+{
+    let url = release.archive_url();
+    download_archive_from(client, &url, release.archive_size, path, progress).await
+}
+
+async fn download_archive_from<Progress>(
+    client: &Client,
+    url: &str,
+    expected_size: u64,
+    path: &Path,
     mut progress: Progress,
 ) -> Result<String, UpdateError>
 where
     Progress: FnMut(u64) + Send,
 {
     let mut response = client
-        .get(release.archive_url())
-        .timeout(Duration::from_secs(300))
+        .get(url)
         .send()
         .await
         .map_err(|error| download_failed(format!("release download failed: {error}")))?;
@@ -114,7 +135,7 @@ where
             .map_err(|error| download_failed(format!("failed to write update archive: {error}")))?;
         progress(size);
     }
-    ensure_exact_size_u64(size, release.archive_size, "release archive")?;
+    ensure_exact_size_u64(size, expected_size, "release archive")?;
     file.sync_all()
         .await
         .map_err(|error| download_failed(format!("failed to sync update archive: {error}")))?;
@@ -196,3 +217,6 @@ fn check_failed(message: impl Into<String>) -> UpdateError {
 fn download_failed(message: impl Into<String>) -> UpdateError {
     UpdateError::new(UpdateErrorKind::DownloadFailed, message)
 }
+
+#[cfg(test)]
+mod tests;

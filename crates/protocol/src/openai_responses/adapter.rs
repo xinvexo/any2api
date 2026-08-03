@@ -53,8 +53,8 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
     fn encode_upstream_request(
         &self,
         operation: ProtocolOperation,
-        headers: HeaderMap,
-        payload: AdapterPayload,
+        headers: &HeaderMap,
+        payload: &AdapterPayload,
         upstream_model: &str,
     ) -> Result<EncodedUpstreamRequest, ProtocolError> {
         if !matches!(
@@ -298,8 +298,8 @@ mod tests {
         let encoded = adapter
             .encode_upstream_request(
                 decoded.operation,
-                decoded.headers,
-                decoded.payload,
+                &decoded.headers,
+                &decoded.payload,
                 "upstream",
             )
             .expect("encoded request");

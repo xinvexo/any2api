@@ -3,9 +3,10 @@ use std::time::Duration;
 use tokio::time::{Instant, sleep_until, timeout_at};
 
 use super::super::SelectedCandidate;
-use super::FixedSelectionError;
+use super::{FixedSelectionError, filter_recorder::RequestFilterRecorder};
 use crate::{
     configuration::PublishedSnapshot,
+    credential::CredentialFilterKind,
     health::{HealthAcquireError, ReliabilityPolicy},
     routing::RouteCandidate,
 };
@@ -15,7 +16,8 @@ pub(super) async fn select(
     candidate: &RouteCandidate,
     wait_timeout: Duration,
 ) -> Result<SelectedCandidate, FixedSelectionError> {
-    match try_selected(snapshot.reliability_policy(), candidate)? {
+    let mut filters = RequestFilterRecorder::default();
+    match try_selected(snapshot.reliability_policy(), candidate, &mut filters)? {
         FixedAttempt::Acquired(selected) => return Ok(*selected),
         FixedAttempt::Waiting(_) => {}
     }
@@ -31,12 +33,12 @@ pub(super) async fn select(
 
     loop {
         let _observed_epoch = *changes.borrow_and_update();
-        let retry_at = match try_selected(snapshot.reliability_policy(), candidate)? {
+        let retry_at = match try_selected(snapshot.reliability_policy(), candidate, &mut filters)? {
             FixedAttempt::Acquired(selected) => return Ok(*selected),
             FixedAttempt::Waiting(retry_at) => retry_at,
         };
         if Instant::now() >= deadline {
-            return final_selection(snapshot.reliability_policy(), candidate);
+            return final_selection(snapshot.reliability_policy(), candidate, &mut filters);
         }
         if let Some(retry_at) = retry_at {
             let wake_at = retry_at.min(deadline);
@@ -52,7 +54,9 @@ pub(super) async fn select(
             match timeout_at(deadline, changes.changed()).await {
                 Ok(Ok(())) => {}
                 Ok(Err(_)) => return Err(FixedSelectionError::Internal),
-                Err(_) => return final_selection(snapshot.reliability_policy(), candidate),
+                Err(_) => {
+                    return final_selection(snapshot.reliability_policy(), candidate, &mut filters);
+                }
             }
         }
     }
@@ -66,11 +70,21 @@ enum FixedAttempt {
 fn try_selected(
     policy: ReliabilityPolicy,
     candidate: &RouteCandidate,
+    filters: &mut RequestFilterRecorder,
+) -> Result<FixedAttempt, FixedSelectionError> {
+    try_selected_with(policy, candidate, filters, || {})
+}
+
+fn try_selected_with(
+    policy: ReliabilityPolicy,
+    candidate: &RouteCandidate,
+    filters: &mut RequestFilterRecorder,
+    after_reservation: impl FnOnce(),
 ) -> Result<FixedAttempt, FixedSelectionError> {
     match candidate.health_availability(&policy) {
         Ok(()) => {}
         Err(error) => {
-            candidate.record_health_filter(error);
+            filters.record(candidate, error.kind());
             return match error.source() {
                 HealthAcquireError::Temporary(retry_at) => {
                     Ok(FixedAttempt::Waiting(Some(retry_at)))
@@ -82,15 +96,15 @@ fn try_selected(
     let permit = match candidate.binding.try_reserve_fixed() {
         Ok(permit) => permit,
         Err(rate_limited) => {
-            candidate.record_rate_limit_filter();
+            filters.record(candidate, CredentialFilterKind::RateLimit);
             return Ok(FixedAttempt::Waiting(rate_limited.retry_at));
         }
     };
-    let health = match candidate.acquire_health(policy) {
-        Ok(health) => health,
+    after_reservation();
+    let (permit, health) = match candidate.acquire_health_with_rpm_reservation(policy, permit) {
+        Ok(acquired) => acquired,
         Err(error) => {
-            candidate.record_health_filter(error);
-            drop(permit);
+            filters.record(candidate, error.kind());
             return match error.source() {
                 HealthAcquireError::Temporary(retry_at) => {
                     Ok(FixedAttempt::Waiting(Some(retry_at)))
@@ -110,8 +124,9 @@ fn try_selected(
 fn final_selection(
     policy: ReliabilityPolicy,
     candidate: &RouteCandidate,
+    filters: &mut RequestFilterRecorder,
 ) -> Result<SelectedCandidate, FixedSelectionError> {
-    match try_selected(policy, candidate)? {
+    match try_selected(policy, candidate, filters)? {
         FixedAttempt::Acquired(selected) => Ok(*selected),
         FixedAttempt::Waiting(_) => Err(FixedSelectionError::Timeout),
     }
@@ -121,8 +136,22 @@ fn final_selection(
 pub(super) fn try_selected_for_test(
     policy: ReliabilityPolicy,
     candidate: &RouteCandidate,
+    after_reservation: impl FnOnce(),
 ) -> Result<Option<SelectedCandidate>, FixedSelectionError> {
-    match try_selected(policy, candidate)? {
+    let mut filters = RequestFilterRecorder::default();
+    match try_selected_with(policy, candidate, &mut filters, after_reservation)? {
+        FixedAttempt::Acquired(selected) => Ok(Some(*selected)),
+        FixedAttempt::Waiting(_) => Ok(None),
+    }
+}
+
+#[cfg(test)]
+pub(super) fn try_selected_with_recorder_for_test(
+    policy: ReliabilityPolicy,
+    candidate: &RouteCandidate,
+    filters: &mut RequestFilterRecorder,
+) -> Result<Option<SelectedCandidate>, FixedSelectionError> {
+    match try_selected(policy, candidate, filters)? {
         FixedAttempt::Acquired(selected) => Ok(Some(*selected)),
         FixedAttempt::Waiting(_) => Ok(None),
     }

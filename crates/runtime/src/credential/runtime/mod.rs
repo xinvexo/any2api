@@ -1,6 +1,8 @@
 mod binding;
 mod generation;
 mod handle;
+#[cfg(test)]
+mod health_generation_tests;
 mod metrics;
 mod rate_window;
 #[cfg(test)]

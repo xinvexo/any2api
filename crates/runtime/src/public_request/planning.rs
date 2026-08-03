@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use any2api_domain::{
     ModelRouteId, ProtocolDialect, PublicError, PublicErrorCode, PublicModelName, TransportMode,
 };
@@ -15,7 +17,7 @@ use crate::{
 };
 
 pub(super) struct PlannedRequest {
-    pub(super) decoded: DecodedRequest,
+    pub(super) decoded: Arc<DecodedRequest>,
     pub(super) public_model: String,
     pub(super) route_id: ModelRouteId,
     pub(super) dialect: ProtocolDialect,
@@ -63,7 +65,7 @@ pub(super) fn plan(
 ) -> Result<PlannedRequest, PublicError> {
     plan_decoded(
         snapshot,
-        request.decoded,
+        Arc::new(request.decoded),
         request.public_model,
         protocols,
         providers,
@@ -80,7 +82,7 @@ pub(super) fn replan(
         .expect("planned public model was already validated");
     plan_decoded(
         snapshot,
-        planned.decoded.clone(),
+        Arc::clone(&planned.decoded),
         public_model,
         protocols,
         providers,
@@ -89,7 +91,7 @@ pub(super) fn replan(
 
 fn plan_decoded(
     snapshot: &PublishedSnapshot,
-    decoded: DecodedRequest,
+    decoded: Arc<DecodedRequest>,
     public_model: PublicModelName,
     protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,

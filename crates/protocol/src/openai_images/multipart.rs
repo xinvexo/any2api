@@ -24,6 +24,7 @@ pub(crate) async fn parse(
     let mut multipart = Multipart::new(stream, boundary);
     let mut parts = Vec::new();
     let mut model_part_index = None;
+    let mut model_value = None;
     let mut stream_value = false;
     let mut stream_seen = false;
 
@@ -48,12 +49,14 @@ pub(crate) async fn parse(
             let model = std::str::from_utf8(&body).map_err(|_| {
                 ProtocolError::InvalidPayload("multipart model must be valid UTF-8".into())
             })?;
-            if model.trim().is_empty() {
+            let model = model.trim();
+            if model.is_empty() {
                 return Err(ProtocolError::InvalidPayload(
                     "multipart model must be non-empty".into(),
                 ));
             }
             model_part_index = Some(parts.len());
+            model_value = Some(model.to_owned());
         } else if name == "stream" {
             if stream_seen {
                 return Err(ProtocolError::InvalidPayload(
@@ -85,9 +88,13 @@ pub(crate) async fn parse(
     let model_part_index = model_part_index.ok_or_else(|| {
         ProtocolError::InvalidPayload("multipart model must appear exactly once".into())
     })?;
+    let model = model_value.ok_or_else(|| {
+        ProtocolError::InvalidPayload("multipart model must appear exactly once".into())
+    })?;
     Ok(MultipartPayload {
         parts,
         model_part_index,
+        model,
         stream: stream_value,
     })
 }
@@ -95,21 +102,23 @@ pub(crate) async fn parse(
 /// Encode a parsed body with a fresh boundary and a replacement model value.
 /// Part order, duplicate names, bytes, and validated headers are retained.
 pub(crate) fn encode(
-    mut payload: MultipartPayload,
+    payload: &MultipartPayload,
     upstream_model: &str,
 ) -> Result<(Bytes, HeaderValue), ProtocolError> {
     let boundary = format!("any2api_{}", Uuid::new_v4().simple());
-    let replacement = Bytes::from(upstream_model.to_owned());
-    if let Some(part) = payload.parts.get_mut(payload.model_part_index) {
-        part.body = replacement;
-    } else {
+    if payload.parts.get(payload.model_part_index).is_none() {
         return Err(ProtocolError::InvalidPayload(
             "multipart model part is missing".into(),
         ));
     }
 
-    let mut output = BytesMut::with_capacity(encoded_capacity(&payload.parts, &boundary)?);
-    for part in payload.parts {
+    let mut output = BytesMut::with_capacity(encoded_capacity(
+        &payload.parts,
+        &boundary,
+        payload.model_part_index,
+        upstream_model.len(),
+    )?);
+    for (index, part) in payload.parts.iter().enumerate() {
         if part.name.is_empty() {
             return Err(ProtocolError::InvalidPayload(
                 "multipart field name is missing".into(),
@@ -125,7 +134,11 @@ pub(crate) fn encode(
             output.extend_from_slice(b"\r\n");
         }
         output.extend_from_slice(b"\r\n");
-        output.extend_from_slice(&part.body);
+        if index == payload.model_part_index {
+            output.extend_from_slice(upstream_model.as_bytes());
+        } else {
+            output.extend_from_slice(&part.body);
+        }
         output.extend_from_slice(b"\r\n");
     }
     output.extend_from_slice(b"--");
@@ -172,12 +185,22 @@ async fn read_field_body(mut field: Field<'_>) -> Result<Bytes, ProtocolError> {
     Ok(output.freeze())
 }
 
-fn encoded_capacity(parts: &[MultipartPart], boundary: &str) -> Result<usize, ProtocolError> {
+fn encoded_capacity(
+    parts: &[MultipartPart],
+    boundary: &str,
+    model_part_index: usize,
+    replacement_len: usize,
+) -> Result<usize, ProtocolError> {
     let mut total = boundary.len().checked_add(6).ok_or_else(size_error)?;
-    for part in parts {
+    for (index, part) in parts.iter().enumerate() {
+        let body_len = if index == model_part_index {
+            replacement_len
+        } else {
+            part.body.len()
+        };
         total = total
             .checked_add(boundary.len().saturating_add(4))
-            .and_then(|total| total.checked_add(part.body.len().saturating_add(4)))
+            .and_then(|total| total.checked_add(body_len.saturating_add(4)))
             .ok_or_else(size_error)?;
         for (name, value) in &part.headers {
             total = total

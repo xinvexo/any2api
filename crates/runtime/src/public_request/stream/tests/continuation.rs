@@ -84,7 +84,7 @@ async fn bridged_stream_commits_pending_then_ready_and_restores_history() {
         )
         .expect("bridge exchange");
     let prepared = exchange
-        .prepare_request(follow_up, "upstream", Some(continuation))
+        .prepare_request(&follow_up, "upstream", Some(continuation))
         .expect("restore bridge history");
     let body: Value = serde_json::from_slice(&prepared.request.body).expect("upstream JSON");
     assert_eq!(body["messages"][0]["content"], "start");
@@ -162,7 +162,7 @@ async fn bridged_body(
         )
         .expect("bridge exchange");
     exchange
-        .prepare_request(request, "upstream", None)
+        .prepare_request(&request, "upstream", None)
         .expect("bridge request");
     GuardedBody::new(
         upstream,

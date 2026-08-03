@@ -129,7 +129,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
         .get(account_id)
         .expect("refreshed account");
     assert_eq!(refreshed_account.token_version(), 2);
-    assert_eq!(refreshed_account.account_generation(), 3);
+    assert_eq!(refreshed_account.account_generation(), 2);
     assert_eq!(refreshed_account.config_version(), 4);
     assert_eq!(
         refreshed_account.safe_account_email(),

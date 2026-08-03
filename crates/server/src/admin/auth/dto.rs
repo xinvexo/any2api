@@ -96,9 +96,9 @@ impl AdminSessionResponse {
             csrf_token,
             remote_access_enabled,
             secure_transport: connection.is_secure(),
-            client_loopback: connection.is_loopback(),
+            client_loopback: connection.is_direct_loopback(),
             through_trusted_proxy: connection.through_trusted_proxy(),
-            plaintext_http_warning: !connection.is_loopback() && !connection.is_secure(),
+            plaintext_http_warning: !connection.is_direct_loopback() && !connection.is_secure(),
         }
     }
 }

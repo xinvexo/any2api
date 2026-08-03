@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
+import { useBodyScrollLock } from "@/shared/ui/useBodyScrollLock";
 
 const EXIT_DURATION_MS = 160;
 
@@ -24,7 +25,7 @@ interface ConfirmDialogProps {
 
 interface DialogView {
   title: string;
-  description?: ReactNode;
+  description?: string;
   confirmLabel: string;
   cancelLabel: string;
   alternateLabel?: string;
@@ -53,10 +54,11 @@ export function ConfirmDialog({
   const onCloseRef = useRef(onClose);
   const onConfirmRef = useRef(onConfirm);
   const onAlternateRef = useRef(onAlternate);
+  const closingDescription = typeof description === "string" ? description : undefined;
 
   const [view, setView] = useState<DialogView>({
     title,
-    description,
+    description: closingDescription,
     confirmLabel,
     cancelLabel,
     alternateLabel,
@@ -85,7 +87,7 @@ export function ConfirmDialog({
     const frame = window.requestAnimationFrame(() => {
       setView({
         title,
-        description,
+        description: closingDescription,
         confirmLabel,
         cancelLabel,
         alternateLabel,
@@ -97,7 +99,7 @@ export function ConfirmDialog({
   }, [
     open,
     title,
-    description,
+    closingDescription,
     confirmLabel,
     cancelLabel,
     alternateLabel,
@@ -133,15 +135,6 @@ export function ConfirmDialog({
       return;
     }
 
-    const { body } = document;
-    const previousOverflow = body.style.overflow;
-    const previousPaddingRight = body.style.paddingRight;
-    const scrollbarGap = window.innerWidth - document.documentElement.clientWidth;
-    body.style.overflow = "hidden";
-    if (scrollbarGap > 0) {
-      body.style.paddingRight = `${scrollbarGap}px`;
-    }
-
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !pending) {
         event.preventDefault();
@@ -149,12 +142,10 @@ export function ConfirmDialog({
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => {
-      body.style.overflow = previousOverflow;
-      body.style.paddingRight = previousPaddingRight;
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [mounted, pending]);
+
+  useBodyScrollLock(mounted);
 
   if (!mounted || typeof document === "undefined") {
     return null;
@@ -163,7 +154,6 @@ export function ConfirmDialog({
   const activeView = open
     ? {
         title,
-        description,
         confirmLabel,
         cancelLabel,
         alternateLabel,
@@ -171,6 +161,7 @@ export function ConfirmDialog({
         tone,
       }
     : view;
+  const activeDescription = open ? description : view.description;
   const isVisible = open && visible;
 
   return createPortal(
@@ -195,7 +186,7 @@ export function ConfirmDialog({
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        aria-describedby={activeView.description ? descriptionId : undefined}
+        aria-describedby={activeDescription ? descriptionId : undefined}
         tabIndex={-1}
         className={cn("confirm-dialog-panel", isVisible ? "is-open" : "is-closed")}
       >
@@ -203,9 +194,9 @@ export function ConfirmDialog({
           <h2 id={titleId} className="text-[15px] font-semibold tracking-tight text-primary">
             {activeView.title}
           </h2>
-          {activeView.description ? (
+          {activeDescription ? (
             <div id={descriptionId} className="mt-2 text-[13px] leading-5 text-secondary">
-              {activeView.description}
+              {activeDescription}
             </div>
           ) : null}
         </div>

@@ -1,9 +1,14 @@
 //! Cross-crate contract test package.
 
+mod admin_session;
+mod test_application;
+
+pub use admin_session::TestAdminSession;
 pub use any2api::{
     PublicRequestComponents, build_public_request_components,
     build_public_request_components_with_telemetry,
 };
+pub use test_application::TestApplication;
 
 pub fn build_configuration_capabilities()
 -> std::sync::Arc<any2api_runtime::api::ConfigurationCapabilities> {
@@ -12,7 +17,7 @@ pub fn build_configuration_capabilities()
         .configuration_capabilities()
 }
 
-pub fn build_provider_registry() -> std::sync::Arc<any2api_provider::ProviderRegistry> {
+pub fn build_provider_registry() -> std::sync::Arc<any2api_provider::api::ProviderRegistry> {
     build_public_request_components()
         .expect("public request components")
         .provider_registry_handle()

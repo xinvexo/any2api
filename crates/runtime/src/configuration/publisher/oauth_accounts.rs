@@ -229,7 +229,7 @@ impl ConfigPublisher {
     }
 }
 
-fn unique_label(
+pub(super) fn unique_label(
     used: &mut HashSet<(ProviderKind, String)>,
     provider: ProviderKind,
     preferred: Option<&str>,
@@ -241,7 +241,13 @@ fn unique_label(
         .chars()
         .filter(|character| !character.is_control())
         .collect::<String>();
-    base = base.trim().chars().take(MAX_LABEL_CHARS).collect();
+    base = base
+        .trim()
+        .chars()
+        .take(MAX_LABEL_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_owned();
     if base.is_empty() {
         base = id.to_string();
     }
@@ -263,3 +269,7 @@ fn unique_label(
     }
     unreachable!("OAuth label sequence is unbounded")
 }
+
+#[cfg(test)]
+#[path = "oauth_accounts_tests.rs"]
+mod tests;

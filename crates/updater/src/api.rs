@@ -3,11 +3,13 @@ use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 use async_trait::async_trait;
 use thiserror::Error;
 
+pub use crate::recovery::{StartupUpdateRecovery, UpdateRecoveryError, recover_pending_update};
 pub use crate::service::GitHubReleaseUpdater;
 
 pub const APPLICATION_VERSION: &str = crate::BUILD_VERSION;
 
 pub type UpdateTask = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+pub type UpdateCommitTask = Box<dyn FnOnce() + Send + 'static>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationAbout {
@@ -102,6 +104,12 @@ pub trait UpdateTaskExecutor: Send + Sync {
 
     /// A `false` result guarantees that `task` was never polled.
     fn try_spawn(&self, task: UpdateTask) -> bool;
+
+    /// Registers an accepted update's commit on a tracked blocking executor.
+    ///
+    /// Once this method returns, `task` must run to completion even if the
+    /// asynchronous update task is cancelled.
+    fn spawn_blocking_commit(&self, task: UpdateCommitTask);
 }
 
 #[async_trait]

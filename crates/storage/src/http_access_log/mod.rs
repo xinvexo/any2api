@@ -1,3 +1,4 @@
+mod capacity;
 mod repository;
 mod rows;
 mod writes;
@@ -5,4 +6,6 @@ mod writes;
 #[cfg(test)]
 mod tests;
 
-pub use repository::HttpAccessLogRepository;
+#[cfg(test)]
+pub(crate) use repository::SYSTEM_LOG_RETENTION_PREDICATE;
+pub use repository::{HttpAccessLogCapacity, HttpAccessLogRepository};

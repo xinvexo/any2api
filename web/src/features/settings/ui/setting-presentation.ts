@@ -14,6 +14,8 @@ const labels: Record<string, string> = {
   "logs.request.enabled": "启用请求日志",
   "logs.request.retention": "请求日志保留时间",
   "logs.request.max_rows": "请求日志最大行数",
+  "logs.http_access.max_rows": "系统日志最大行数",
+  "logs.http_access.max_exchange_bytes": "系统日志原始交换容量",
   "logs.file.level": "文件日志级别",
   "logs.file.retention": "文件日志保留时间",
   "logs.file.max_total_size": "文件日志最大容量",

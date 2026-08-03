@@ -11,6 +11,7 @@ mod oauth;
 mod overview;
 mod provider;
 mod proxy;
+mod request_json;
 mod request_log;
 mod request_usage;
 mod revision;

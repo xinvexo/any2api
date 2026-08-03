@@ -8,7 +8,7 @@ use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
     OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
-use any2api_provider::{ClaudeDriver, CodexDriver, ProviderRegistry};
+use any2api_provider::{ClaudeDriver, CodexDriver, api::ProviderRegistry};
 use any2api_runtime::api::{
     PublicRequest, PublicRequestService, PublicResponseBody, PublishedSnapshot, RequestTelemetry,
     RuntimeRegistry,
@@ -149,13 +149,26 @@ async fn commit_configuration(
     expected: ConfigRevision,
     mutation: ConfigurationMutation,
 ) -> StoredConfiguration {
-    let prepared = storage
-        .prepare_configuration(expected, mutation)
-        .await
-        .expect("prepare configuration");
-    let (configuration, commit) = prepared.into_parts();
-    commit.finish().await.expect("commit configuration");
-    configuration
+    use std::convert::Infallible;
+
+    use any2api_storage::api::{
+        ConfigurationTransactionOutcome, ConfigurationTransactionRepository,
+    };
+
+    let outcome = <SqliteStore as ConfigurationTransactionRepository<
+        StoredConfiguration,
+        Infallible,
+    >>::transact_configuration(storage, expected, mutation, Box::new(Ok))
+    .await
+    .expect("commit configuration");
+    match outcome {
+        ConfigurationTransactionOutcome::NoChange => storage
+            .load_configuration()
+            .await
+            .expect("load unchanged configuration"),
+        ConfigurationTransactionOutcome::Committed(configuration) => configuration,
+        ConfigurationTransactionOutcome::Rejected(never) => match never {},
+    }
 }
 
 fn providers() -> Arc<ProviderRegistry> {

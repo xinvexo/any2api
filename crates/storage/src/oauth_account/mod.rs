@@ -10,6 +10,8 @@ mod writes;
 #[cfg(test)]
 mod model_allowlist_tests;
 #[cfg(test)]
+mod reauthorization_tests;
+#[cfg(test)]
 mod tests;
 
 pub use create::OAuthAccountCreate;

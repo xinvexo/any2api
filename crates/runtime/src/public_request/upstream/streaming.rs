@@ -19,7 +19,7 @@ use crate::request_telemetry::{AttemptRecorder, public_error_class};
 
 pub(in crate::public_request) async fn execute_stream_attempt(
     services: UpstreamServices<'_>,
-    decoded: DecodedRequest,
+    decoded: &DecodedRequest,
     public_model: String,
     affinity: AffinitySelection,
     attempt_recorder: AttemptRecorder,

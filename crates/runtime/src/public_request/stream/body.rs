@@ -162,9 +162,6 @@ impl GuardedBody {
         if self.pending.is_empty() {
             return Err(self.finish_precommit_failure());
         }
-        if let Some(health) = self.health.take() {
-            health.success();
-        }
         Ok(self)
     }
 
@@ -201,6 +198,13 @@ impl GuardedBody {
     #[cfg(test)]
     pub(super) fn pending_frame_count(&self) -> usize {
         self.pending.len()
+    }
+
+    #[cfg(test)]
+    pub(super) fn idle_timer_address(&self) -> Option<*const Sleep> {
+        self.idle_timer
+            .as_ref()
+            .map(|timer| std::ptr::from_ref(timer.as_ref().get_ref()))
     }
 }
 
@@ -290,7 +294,12 @@ impl GuardedBody {
     }
 
     fn reset_idle_timer(&mut self) {
-        self.idle_timer = Some(Box::pin(tokio::time::sleep(self.postcommit_idle_timeout)));
+        let deadline = tokio::time::Instant::now() + self.postcommit_idle_timeout;
+        if let Some(timer) = self.idle_timer.as_mut() {
+            timer.as_mut().reset(deadline);
+        } else {
+            self.idle_timer = Some(Box::pin(tokio::time::sleep_until(deadline)));
+        }
     }
 
     fn idle_timer_elapsed(&mut self, context: &mut Context<'_>) -> bool {

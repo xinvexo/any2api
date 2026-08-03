@@ -1,12 +1,10 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components;
-use any2api_runtime::api::{
-    ConfigPublisher, OAuthService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
-};
+use any2api_contract_tests::TestApplication;
+use any2api_runtime::api::OAuthService;
 use any2api_server::api::{
     AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AppState,
-    StoredAdminPasswordHash, build_router,
+    StoredAdminPasswordHash,
 };
 use any2api_storage::api::{AdminCredentialRepository, ConfigurationRepository, SqliteStore};
 use axum::{
@@ -18,7 +16,7 @@ use axum::{
 use http_body_util::BodyExt;
 use secrecy::ExposeSecret;
 use serde_json::{Value, json};
-use tempfile::{TempDir, tempdir};
+use tempfile::TempDir;
 use tower::ServiceExt;
 
 const PASSWORD: &str = "correct horse battery staple";
@@ -227,42 +225,15 @@ struct TestContext {
 
 impl TestContext {
     async fn new(with_auth: bool) -> Self {
-        let directory = tempdir().expect("temporary directory");
-        let storage = Arc::new(
-            SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-                .await
-                .expect("sqlite bootstrap"),
-        );
-        let configuration = storage.load_configuration().await.expect("configuration");
-        let providers = any2api_contract_tests::build_provider_registry();
-        let runtime = Arc::new(RuntimeRegistry::new());
-        let snapshots = Arc::new(SnapshotStore::new(
-            PublishedSnapshot::new(configuration, runtime.as_ref(), providers.as_ref())
-                .expect("initial snapshot"),
-        ));
-        let publisher = Arc::new(
-            ConfigPublisher::new(
-                Arc::clone(&storage),
-                Arc::clone(&snapshots),
-                Arc::clone(&runtime),
-                any2api_contract_tests::build_configuration_capabilities(),
-            )
-            .expect("publisher"),
-        );
-        let components = build_public_request_components().expect("components");
+        let fixture = TestApplication::new().await;
+        let storage = fixture.storage();
+        let runtime = fixture.runtime();
         let oauth = Arc::new(OAuthService::new(
-            providers,
-            components.transport_manager(),
-            Arc::clone(&publisher),
+            fixture.components().provider_registry_handle(),
+            fixture.components().transport_manager(),
+            fixture.publisher(),
         ));
-        let mut state = AppState::new(
-            snapshots,
-            Arc::clone(&runtime),
-            publisher,
-            components.service(),
-        )
-        .with_oauth(oauth);
-        let setup_token = if with_auth {
+        let (directory, app, _fixture_storage, setup_token) = if with_auth {
             let auth = Arc::new(
                 AdminAuthService::load(
                     Arc::new(TestAdminStore {
@@ -274,15 +245,21 @@ impl TestContext {
                 .expect("admin auth"),
             );
             let setup_token = auth.setup_token().await;
-            state = state.with_admin_auth(auth);
-            setup_token
+            let state = AppState::new(
+                fixture.snapshots(),
+                Arc::clone(&runtime),
+                fixture.publisher(),
+                fixture.components().service(),
+                auth,
+            )
+            .with_oauth(oauth);
+            let (directory, app, storage) = fixture.into_raw_router_with_state(state);
+            (directory, app, storage, setup_token)
         } else {
-            None
+            let state = fixture.state().with_oauth(oauth);
+            let (directory, app, storage) = fixture.into_router_with_state(state);
+            (directory, app, storage, None)
         };
-        let web_root = directory.path().join("web");
-        fs::create_dir(&web_root).expect("web directory");
-        fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-        let app = build_router(state, web_root);
         Self {
             _directory: directory,
             app,

@@ -82,6 +82,22 @@ impl CredentialGenerationRuntime {
         }
     }
 
+    pub(crate) fn with_reused_routing_health(
+        definition: CredentialGenerationDefinition,
+        previous: &Self,
+    ) -> Self {
+        debug_assert_eq!(
+            definition.routing_generation, previous.routing_generation,
+            "routing health can only be reused within one routing generation"
+        );
+        Self {
+            routing_generation: definition.routing_generation,
+            authentication_version: definition.authentication_version,
+            authentication: definition.authentication,
+            health: previous.health.with_fresh_authentication(),
+        }
+    }
+
     #[must_use]
     pub const fn routing_generation(&self) -> u64 {
         self.routing_generation
@@ -112,6 +128,13 @@ impl CredentialGenerationRuntime {
     pub(crate) fn matches(&self, definition: &CredentialGenerationDefinition) -> bool {
         self.routing_generation == definition.routing_generation
             && self.authentication_version == definition.authentication_version
+    }
+
+    pub(crate) fn matches_routing_generation(
+        &self,
+        definition: &CredentialGenerationDefinition,
+    ) -> bool {
+        self.routing_generation == definition.routing_generation
     }
 
     #[cfg(test)]

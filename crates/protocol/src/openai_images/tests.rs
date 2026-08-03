@@ -1,14 +1,14 @@
-use std::convert::Infallible;
-
 use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode, TokenUsage};
 use bytes::Bytes;
-use futures_util::stream;
 use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
-use multer::Multipart;
 use serde_json::{Value, json};
 
 use super::OpenAiImagesAdapter;
 use crate::api::{IngressAffinity, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
+
+mod multipart_support;
+
+use multipart_support::{Part, multipart_body, multipart_request, read_fields};
 
 #[tokio::test]
 async fn generation_and_json_edit_preserve_unknown_fields_and_rewrite_model() {
@@ -44,8 +44,8 @@ async fn generation_and_json_edit_preserve_unknown_fields_and_rewrite_model() {
         let encoded = adapter
             .encode_upstream_request(
                 decoded.operation,
-                decoded.headers,
-                decoded.payload,
+                &decoded.headers,
+                &decoded.payload,
                 "upstream-image-model",
             )
             .expect("Images JSON request encodes");
@@ -93,8 +93,8 @@ async fn multipart_edit_reencodes_ordered_files_headers_and_replacement_model() 
     let encoded = adapter
         .encode_upstream_request(
             decoded.operation,
-            decoded.headers,
-            decoded.payload,
+            &decoded.headers,
+            &decoded.payload,
             "upstream-image-model",
         )
         .expect("multipart edit encodes");
@@ -116,6 +116,25 @@ async fn multipart_edit_reencodes_ordered_files_headers_and_replacement_model() 
     assert_eq!(fields[3].body, Bytes::from_static(image_two));
     assert_eq!(fields[1].headers["x-part-meta"], "first");
     assert!(!fields[1].headers.contains_key(header::AUTHORIZATION));
+}
+
+#[tokio::test]
+async fn multipart_edit_uses_the_trimmed_model_for_routing() {
+    let adapter = OpenAiImagesAdapter::new();
+    for (boundary, model) in [
+        ("ascii-model-whitespace", b" \t gpt-image-2 \n".as_slice()),
+        (
+            "unicode-model-whitespace",
+            "\u{2003}gpt-image-2\u{3000}".as_bytes(),
+        ),
+    ] {
+        let body = multipart_body(boundary, &[Part::text("model", model)]);
+        let decoded = adapter
+            .decode_ingress_request(multipart_request(boundary, body))
+            .await
+            .expect("trimmed multipart model decodes");
+        assert_eq!(decoded.model.as_deref(), Some("gpt-image-2"));
+    }
 }
 
 #[tokio::test]
@@ -154,6 +173,7 @@ async fn multipart_edit_rejects_invalid_boundary_model_and_stream() {
             Part::text("stream", b"false"),
         ],
         vec![Part::text("model", b"   ")],
+        vec![Part::text("model", "\u{2003}\u{3000}".as_bytes())],
     ] {
         let request =
             multipart_request("invalid-payload", multipart_body("invalid-payload", &parts));
@@ -320,105 +340,4 @@ fn json_request(operation: ProtocolOperation, uri: &'static str, body: Value) ->
         body: Bytes::from(serde_json::to_vec(&body).expect("request JSON")),
         operation,
     }
-}
-
-fn multipart_request(boundary: &str, body: Bytes) -> IngressRequest {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&format!("multipart/form-data; boundary={boundary}"))
-            .expect("multipart content type"),
-    );
-    IngressRequest {
-        method: Method::POST,
-        uri: Uri::from_static("/v1/images/edits"),
-        headers,
-        body,
-        operation: ProtocolOperation::ImagesEdits,
-    }
-}
-
-#[derive(Clone)]
-struct Part<'a> {
-    name: &'a str,
-    file_name: Option<&'a str>,
-    content_type: Option<&'a str>,
-    headers: Vec<(&'a str, &'a str)>,
-    body: &'a [u8],
-}
-
-impl<'a> Part<'a> {
-    fn text(name: &'a str, body: &'a [u8]) -> Self {
-        Self {
-            name,
-            file_name: None,
-            content_type: None,
-            headers: Vec::new(),
-            body,
-        }
-    }
-
-    fn file(name: &'a str, file_name: &'a str, content_type: &'a str, body: &'a [u8]) -> Self {
-        Self {
-            name,
-            file_name: Some(file_name),
-            content_type: Some(content_type),
-            headers: Vec::new(),
-            body,
-        }
-    }
-
-    fn with_header(mut self, name: &'a str, value: &'a str) -> Self {
-        self.headers.push((name, value));
-        self
-    }
-}
-
-fn multipart_body(boundary: &str, parts: &[Part<'_>]) -> Bytes {
-    let mut body = Vec::new();
-    for part in parts {
-        body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
-        body.extend_from_slice(
-            format!("Content-Disposition: form-data; name=\"{}\"", part.name).as_bytes(),
-        );
-        if let Some(file_name) = part.file_name {
-            body.extend_from_slice(format!("; filename=\"{file_name}\"").as_bytes());
-        }
-        body.extend_from_slice(b"\r\n");
-        if let Some(content_type) = part.content_type {
-            body.extend_from_slice(format!("Content-Type: {content_type}\r\n").as_bytes());
-        }
-        for (name, value) in &part.headers {
-            body.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
-        }
-        body.extend_from_slice(b"\r\n");
-        body.extend_from_slice(part.body);
-        body.extend_from_slice(b"\r\n");
-    }
-    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
-    Bytes::from(body)
-}
-
-struct ReadField {
-    name: String,
-    headers: HeaderMap,
-    body: Bytes,
-}
-
-async fn read_fields(body: Bytes, content_type: &str) -> Vec<ReadField> {
-    let boundary = multer::parse_boundary(content_type).expect("encoded boundary");
-    let input = stream::once(async move { Ok::<Bytes, Infallible>(body) });
-    let mut multipart = Multipart::new(input, boundary);
-    let mut fields = Vec::new();
-    while let Some(field) = multipart.next_field().await.expect("encoded field") {
-        let name = field.name().expect("field name").to_owned();
-        let headers = field.headers().clone();
-        let body = field.bytes().await.expect("field body");
-        fields.push(ReadField {
-            name,
-            headers,
-            body,
-        });
-    }
-    fields
 }

@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import { cn } from "@/shared/lib/cn";
 import { IconButton } from "@/shared/ui/IconButton";
+import { useBodyScrollLock } from "@/shared/ui/useBodyScrollLock";
 
 /** Keep in sync with `.side-drawer-panel` / `.side-drawer-scrim` transition duration. */
 const EXIT_DURATION_MS = 200;
@@ -20,7 +21,6 @@ interface SideDrawerProps {
 interface DrawerView {
   title: string;
   description?: string;
-  children: ReactNode;
   wide: boolean;
 }
 
@@ -37,7 +37,7 @@ export function SideDrawer({
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
 
-  const [view, setView] = useState<DrawerView>({ title, description, children, wide });
+  const [view, setView] = useState<DrawerView>({ title, description, wide });
   const [mounted, setMounted] = useState(open);
   const [visible, setVisible] = useState(false);
 
@@ -50,10 +50,10 @@ export function SideDrawer({
       return;
     }
     const frame = window.requestAnimationFrame(() => {
-      setView({ title, description, children, wide });
+      setView({ title, description, wide });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [open, title, description, children, wide]);
+  }, [open, title, description, wide]);
 
   useEffect(() => {
     if (open && !mounted) {
@@ -83,16 +83,6 @@ export function SideDrawer({
       return;
     }
 
-    const { body } = document;
-    const previousOverflow = body.style.overflow;
-    const previousPaddingRight = body.style.paddingRight;
-    const scrollbarGap = window.innerWidth - document.documentElement.clientWidth;
-
-    body.style.overflow = "hidden";
-    if (scrollbarGap > 0) {
-      body.style.paddingRight = `${scrollbarGap}px`;
-    }
-
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -101,20 +91,16 @@ export function SideDrawer({
     };
 
     window.addEventListener("keydown", onKeyDown);
-    return () => {
-      body.style.overflow = previousOverflow;
-      body.style.paddingRight = previousPaddingRight;
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [mounted]);
+
+  useBodyScrollLock(mounted);
 
   if (!mounted || typeof document === "undefined") {
     return null;
   }
 
-  const activeView = open
-    ? { title, description, children, wide }
-    : { ...view, children: null };
+  const activeView = open ? { title, description, wide } : view;
   const isVisible = open && visible;
 
   return createPortal(
@@ -163,7 +149,7 @@ export function SideDrawer({
           </IconButton>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 [scrollbar-gutter:stable]">
-          {activeView.children}
+          {open ? children : null}
         </div>
       </div>
     </div>,

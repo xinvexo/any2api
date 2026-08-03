@@ -1,19 +1,17 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::sync::Arc;
 
 use any2api_runtime::api::PublishedSnapshot;
 use axum::{
     Json,
-    extract::{ConnectInfo, Extension, State, rejection::JsonRejection},
-    http::{
-        HeaderMap, StatusCode,
-        header::{CACHE_CONTROL, SET_COOKIE},
-    },
+    extract::{Extension, State},
+    http::{HeaderMap, StatusCode, header::SET_COOKIE},
     response::{IntoResponse, Response},
 };
 
 use crate::{
+    admin::request_json::AdminJson,
     admin_auth::{AdminAuthError, AuthenticatedAdminSession},
-    client_address::ClientConnection,
+    client_address::{ClientAddressContext, ClientConnection},
     state::AppState,
 };
 
@@ -21,19 +19,15 @@ use super::{
     access, cookie as auth_cookie,
     dto::{AdminSessionResponse, PasswordRequest, PasswordRotationRequest, SetupRequest},
     error::AdminApiError,
-    no_store,
 };
 
 pub(super) async fn session(
     State(state): State<AppState>,
-    Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Extension(context): Extension<ClientAddressContext>,
     headers: HeaderMap,
-) -> Result<Response, AdminApiError> {
-    let (connection, snapshot) = access::resolve(snapshot, Some(peer), &headers)?;
-    let auth = state
-        .admin_auth()
-        .ok_or_else(AdminApiError::auth_unavailable)?;
+) -> Result<Json<AdminSessionResponse>, AdminApiError> {
+    let (connection, snapshot) = access::resolve(context)?;
+    let auth = state.admin_auth();
     let initialized = auth.is_initialized().await;
     let authenticated = if initialized {
         match auth_cookie::read(&headers)? {
@@ -43,7 +37,7 @@ pub(super) async fn session(
     } else {
         None
     };
-    Ok(no_store::json(AdminSessionResponse::new(
+    Ok(Json(AdminSessionResponse::new(
         initialized,
         authenticated.map(AuthenticatedAdminSession::csrf_token),
         snapshot.settings().admin().remote_enabled(),
@@ -53,21 +47,14 @@ pub(super) async fn session(
 
 pub(super) async fn setup(
     State(state): State<AppState>,
-    Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    payload: Result<Json<SetupRequest>, JsonRejection>,
+    Extension(context): Extension<ClientAddressContext>,
+    AdminJson(request): AdminJson<SetupRequest>,
 ) -> Result<Response, AdminApiError> {
-    let (connection, snapshot) = access::resolve(snapshot, Some(peer), &headers)?;
-    if !connection.is_loopback() {
+    let (connection, snapshot) = access::resolve(context)?;
+    if !connection.is_direct_loopback() {
         return Err(AdminApiError::setup_loopback_only());
     }
-    let request = payload
-        .map(|Json(value)| value)
-        .map_err(|_| AdminApiError::invalid_request("request body must be valid JSON"))?;
-    let auth = state
-        .admin_auth()
-        .ok_or_else(AdminApiError::auth_unavailable)?;
+    let auth = state.admin_auth();
     if !auth
         .initialize_with_setup_token(request.password.clone(), &request.setup_token)
         .await
@@ -88,18 +75,11 @@ pub(super) async fn setup(
 
 pub(super) async fn login(
     State(state): State<AppState>,
-    Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    payload: Result<Json<PasswordRequest>, JsonRejection>,
+    Extension(context): Extension<ClientAddressContext>,
+    AdminJson(request): AdminJson<PasswordRequest>,
 ) -> Result<Response, AdminApiError> {
-    let (connection, snapshot) = access::resolve(snapshot, Some(peer), &headers)?;
-    let request = payload
-        .map(|Json(value)| value)
-        .map_err(|_| AdminApiError::invalid_request("request body must be valid JSON"))?;
-    let auth = state
-        .admin_auth()
-        .ok_or_else(AdminApiError::auth_unavailable)?;
+    let (connection, snapshot) = access::resolve(context)?;
+    let auth = state.admin_auth();
     let issue = auth
         .login(
             request.password,
@@ -115,14 +95,9 @@ pub(super) async fn rotate_password(
     State(state): State<AppState>,
     Extension(connection): Extension<ClientConnection>,
     Extension(snapshot): Extension<Arc<PublishedSnapshot>>,
-    payload: Result<Json<PasswordRotationRequest>, JsonRejection>,
+    AdminJson(request): AdminJson<PasswordRotationRequest>,
 ) -> Result<Response, AdminApiError> {
-    let request = payload
-        .map(|Json(value)| value)
-        .map_err(|_| AdminApiError::invalid_request("request body must be valid JSON"))?;
-    let auth = state
-        .admin_auth_handle()
-        .ok_or_else(AdminApiError::auth_unavailable)?;
+    let auth = state.admin_auth_handle();
     let issue = state
         .runtime()
         .lifecycle()
@@ -145,19 +120,11 @@ pub(super) async fn logout(
     Extension(session): Extension<AuthenticatedAdminSession>,
     Extension(connection): Extension<ClientConnection>,
 ) -> Result<Response, AdminApiError> {
-    state
-        .admin_auth()
-        .ok_or_else(AdminApiError::auth_unavailable)?
-        .logout(session)
-        .await;
+    state.admin_auth().logout(session).await;
     let mut response = StatusCode::NO_CONTENT.into_response();
     response
         .headers_mut()
         .insert(SET_COOKIE, auth_cookie::clear(connection.is_secure()));
-    response.headers_mut().insert(
-        CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("no-store"),
-    );
     Ok(response)
 }
 
@@ -167,12 +134,13 @@ fn session_response(
     snapshot: &any2api_runtime::api::PublishedSnapshot,
 ) -> Result<Response, AdminApiError> {
     let settings = snapshot.settings().admin();
-    let mut response = no_store::json(AdminSessionResponse::new(
+    let mut response = Json(AdminSessionResponse::new(
         true,
         Some(issue.csrf_token().to_owned()),
         settings.remote_enabled(),
         connection,
-    ));
+    ))
+    .into_response();
     response.headers_mut().insert(
         SET_COOKIE,
         auth_cookie::issue(

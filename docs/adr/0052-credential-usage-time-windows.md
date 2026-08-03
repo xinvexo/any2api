@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-26
+- 修订：2026-08-03
 - 决策者：maintainer
 
 ## 背景
@@ -13,6 +14,9 @@ Gateway API Key、Provider API Key 与 OAuthAccount 的调用趋势都来自最�
 
 - Gateway API Key、Provider API Key 与 OAuthAccount 的累计总请求、成功和失败数覆盖当前
   RequestLog 保留窗口，不建立永久计数器。
+- 三类累计汇总分别使用以凭据 ID 起始并包含 `status_code` 的覆盖索引。上游 ProviderCredential
+  与 OAuthAccount 在各自分支完成聚合后只合并聚合行，避免对 RequestLog 主表重复扫描及外层临时
+  分组 B 树；不得把累计值偷换成最近一小时合计。
 - 三类趋势统一为最近 1 小时的固定时间条带：30 个 2 分钟桶，按 Unix 时间对齐并按时间升序返回；
   当前桶位于最右侧，没有请求的桶仍返回零值。
 - 每个桶返回开始时间、总请求、成功和失败数。最终状态码为 2xx 计成功，其余计失败；只读取最终
@@ -28,10 +32,14 @@ Gateway API Key、Provider API Key 与 OAuthAccount 的调用趋势都来自最�
 ## 后果
 
 所有凭据趋势表达真实时间；请求稀疏时空闲区间可见。该统计只读取现有 RequestLog，不增加
-SQLite Schema 或写入格式。
+累计表或写入格式，但现有三份凭据时间索引追加 `status_code` 作为覆盖列，会增加有限索引空间与
+写放大，以换取频繁管理刷新不再逐行回表。
 
 ## 验证
 
 - Storage 测试覆盖跨桶聚合、空桶、窗外记录只进入累计总数，以及按时间升序的固定 30 格顺序。
+- Migration/EQP 测试锁定三份累计查询对 RequestLog 的每次访问都使用对应覆盖索引，且不出现
+  `USE TEMP B-TREE`；20 万行、8 个凭据的本地 SQLite 3.50.6 基准中，上游累计从约
+  `90–100ms` 降至约 `10ms`，Gateway 累计从约 `80ms` 降至约 `10ms`。
 - Admin 契约测试覆盖 Gateway 列表、创建和轮换响应的统一时间窗口字段。
 - React 契约与组件测试覆盖固定时间轴、共享悬浮详情、键盘焦点和空桶显示。

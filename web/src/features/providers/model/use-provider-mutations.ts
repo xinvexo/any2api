@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 import type {
   ProviderEndpointConfiguration,
@@ -9,20 +9,16 @@ import {
   deleteProviderEndpoint,
   updateProviderEndpoint,
 } from "../api/provider-api";
-import { selectNewestProviderConfiguration } from "./provider-cache";
 import { providerQueryKeys } from "./provider-query-keys";
+import { useConfigurationMutationLifecycle } from "@/shared/api/use-configuration-mutation-lifecycle";
 
 export function useProviderEndpointMutations() {
-  const queryClient = useQueryClient();
-  const publish = (configuration: ProviderEndpointConfiguration) => {
-    queryClient.setQueryData<ProviderEndpointConfiguration>(providerQueryKeys.list(), (current) =>
-      selectNewestProviderConfiguration(current, configuration),
-    );
-    void queryClient.invalidateQueries({ queryKey: providerQueryKeys.all });
-  };
-  const refreshAfterFailure = async () => {
-    await queryClient.refetchQueries({ queryKey: providerQueryKeys.all, type: "active" });
-  };
+  const { publish, refreshAfterFailure } =
+    useConfigurationMutationLifecycle<ProviderEndpointConfiguration>({
+      cacheKey: providerQueryKeys.list(),
+      invalidateKey: providerQueryKeys.all,
+      refreshKey: providerQueryKeys.all,
+    });
 
   const create = useMutation({
     mutationFn: createProviderEndpoint,

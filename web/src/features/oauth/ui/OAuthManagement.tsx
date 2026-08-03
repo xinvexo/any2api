@@ -189,60 +189,10 @@ export function OAuthManagement() {
     </>
   );
 
-  if (accounts.isPending && !accounts.data) {
-    return (
-      <KindSplitLayout
-        aria-busy="true"
-        toolbarStart={toolbarStart}
-        toolbarEnd={toolbarEnd}
-        kindNav={
-          <OAuthProviderNav
-            selected={selectedProvider}
-            counts={counts}
-            disabled={invalidCleanupBusy || quotaRefresh.pending}
-            onSelect={selectProvider}
-          />
-        }
-      >
-        <div className="flex h-full min-h-48 items-center justify-center text-sm text-secondary">
-          正在读取 OAuth 账号
-        </div>
-      </KindSplitLayout>
-    );
-  }
-
-  if (!accounts.data) {
-    return (
-      <KindSplitLayout
-        toolbarStart={toolbarStart}
-        toolbarEnd={toolbarEnd}
-        kindNav={
-          <OAuthProviderNav
-            selected={selectedProvider}
-            counts={counts}
-            disabled={invalidCleanupBusy || quotaRefresh.pending}
-            onSelect={selectProvider}
-          />
-        }
-      >
-        <Surface className="p-6" role="alert">
-          <p className="font-semibold">无法读取 OAuth 账号</p>
-          <p className="mt-2 text-sm text-secondary">{getOAuthErrorMessage(accounts.error)}</p>
-          <Button className="mt-5" onClick={() => void refreshAccounts()} disabled={accounts.isFetching}>
-            <RefreshCw size={14} className={accounts.isFetching ? "animate-spin" : undefined} />
-            重试
-          </Button>
-        </Surface>
-      </KindSplitLayout>
-    );
-  }
-
-  const configuration = accounts.data;
-
   return (
     <>
       <KindSplitLayout
-        aria-busy={accounts.isFetching}
+        aria-busy={accounts.isFetching || undefined}
         toolbarStart={toolbarStart}
         toolbarEnd={toolbarEnd}
         kindNav={
@@ -254,55 +204,78 @@ export function OAuthManagement() {
           />
         }
       >
-        <div className="flex h-full min-h-0 flex-col">
-          {accounts.isError ? (
-            <Surface
-              className="mb-3 flex shrink-0 flex-col gap-3 border-warning/40 p-4 sm:flex-row sm:items-center sm:justify-between"
-              role="status"
+        {accounts.isPending && !accounts.data ? (
+          <div className="flex h-full min-h-48 items-center justify-center text-sm text-secondary">
+            正在读取 OAuth 账号
+          </div>
+        ) : !accounts.data ? (
+          <Surface className="p-6" role="alert">
+            <p className="font-semibold">无法读取 OAuth 账号</p>
+            <p className="mt-2 text-sm text-secondary">{getOAuthErrorMessage(accounts.error)}</p>
+            <Button
+              className="mt-5"
+              onClick={() => void refreshAccounts()}
+              disabled={accounts.isFetching}
             >
-              <p className="text-sm text-secondary">
-                配置刷新失败，当前仍显示最近一次有效数据：{getOAuthErrorMessage(accounts.error)}
-              </p>
-              <Button onClick={() => void refreshAccounts()} disabled={accounts.isFetching}>
-                重新加载
-              </Button>
-            </Surface>
-          ) : null}
+              <RefreshCw size={14} className={accounts.isFetching ? "animate-spin" : undefined} />
+              重试
+            </Button>
+          </Surface>
+        ) : (
+          <div className="flex h-full min-h-0 flex-col">
+            {accounts.isError ? (
+              <Surface
+                className="mb-3 flex shrink-0 flex-col gap-3 border-warning/40 p-4 sm:flex-row sm:items-center sm:justify-between"
+                role="status"
+              >
+                <p className="text-sm text-secondary">
+                  配置刷新失败，当前仍显示最近一次有效数据：{getOAuthErrorMessage(accounts.error)}
+                </p>
+                <Button onClick={() => void refreshAccounts()} disabled={accounts.isFetching}>
+                  重新加载
+                </Button>
+              </Surface>
+            ) : null}
 
-          <OAuthAccounts
-            provider={selectedProvider}
-            accounts={kindAccounts}
-            configRevision={configuration.configRevision}
-            quotaRefreshPending={quotaRefresh.pending || invalidCleanupBusy}
-          />
-        </div>
+            <OAuthAccounts
+              provider={selectedProvider}
+              accounts={kindAccounts}
+              configRevision={accounts.data.configRevision}
+              quotaRefreshPending={quotaRefresh.pending || invalidCleanupBusy}
+            />
+          </div>
+        )}
       </KindSplitLayout>
 
-      <OAuthLoginDrawer
-        open={loginOpen && !login.completedAccount}
-        provider={selectedProvider}
-        session={login.session}
-        pending={login.pending}
-        error={login.error}
-        onClose={closeLogin}
-        onRestart={() => {
-          void login.start(selectedProvider).catch(() => {
-            // Drawer keeps the safe user-facing error.
-          });
-        }}
-        onExchange={async (callbackUrl) => {
-          await login.exchange(callbackUrl);
-          setLoginOpen(false);
-        }}
-      />
-      {importOpen ? (
-        <OAuthImportDrawer
-          onClose={() => setImportOpen(false)}
-          onImported={async (result) => {
-            await accounts.refetch();
-            notify.success(`已导入并启用 ${result.importedCount} 个 OAuth 账号。`);
-          }}
-        />
+      {accounts.data ? (
+        <>
+          <OAuthLoginDrawer
+            open={loginOpen && !login.completedAccount}
+            provider={selectedProvider}
+            session={login.session}
+            pending={login.pending}
+            error={login.error}
+            onClose={closeLogin}
+            onRestart={() => {
+              void login.start(selectedProvider).catch(() => {
+                // Drawer keeps the safe user-facing error.
+              });
+            }}
+            onExchange={async (callbackUrl) => {
+              await login.exchange(callbackUrl);
+              setLoginOpen(false);
+            }}
+          />
+          {importOpen ? (
+            <OAuthImportDrawer
+              onClose={() => setImportOpen(false)}
+              onImported={async (result) => {
+                await accounts.refetch();
+                notify.success(`已导入并启用 ${result.importedCount} 个 OAuth 账号。`);
+              }}
+            />
+          ) : null}
+        </>
       ) : null}
     </>
   );
@@ -315,10 +288,7 @@ function resolveSelectedProvider(value: string | null): OAuthProvider {
   return OAUTH_PROVIDER_OPTIONS[0]?.provider ?? "codex";
 }
 
-function formatQuotaRefreshResult(
-  result: { total: number; failed: number },
-  providerName: string,
-) {
+function formatQuotaRefreshResult(result: { total: number; failed: number }, providerName: string) {
   if (result.failed === 0) {
     return `已刷新全部 ${result.total} 个 ${providerName} 账号额度。`;
   }

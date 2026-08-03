@@ -8,6 +8,7 @@ describe("request log contracts", () => {
     expect(list.items[0]?.publicModel).toBe("codex-local");
     expect(list.items[0]?.clientIp).toBe("203.0.113.8");
     expect(list.items[0]?.providerEndpointName).toBe("frapi");
+    expect(list.telemetry.inFlightRecords).toBe(4);
     expect(list.telemetry.droppedRecords).toBe(2);
 
     const detail = parseRequestLogDetail({
@@ -180,6 +181,7 @@ function request() {
 function telemetry() {
   return {
     queued_records: 1,
+    in_flight_records: 4,
     dropped_records: 2,
     persisted_records: 3,
   };

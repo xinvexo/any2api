@@ -1,10 +1,7 @@
-use std::{collections::HashMap, fs, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::{ANY2API_UPSTREAM_TIMEOUT_MESSAGE, RequestId};
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
     Router,
     body::Body,
@@ -14,7 +11,6 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -28,11 +24,10 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
     let (codex_address, codex_request, release_codex) = paused_sse_server(
         "/v1/responses",
         &[
-            b"event: response.cre",
-            b"ated\r\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\r\n",
-            b"\r\n",
+            b"event: response.created\rdata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\r",
+            b"\re",
         ],
-        &[b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\n\n"],
+        &[b"vent: response.completed\rdata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\r\r"],
     )
     .await;
     let (claude_address, claude_request, release_claude) = paused_sse_server(
@@ -143,6 +138,70 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
 }
 
 #[tokio::test]
+async fn messages_stream_rejects_eof_without_message_stop() {
+    let (upstream_address, _upstream_request, release) = paused_sse_server(
+        "/v1/messages",
+        &[b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n"],
+        &[],
+    )
+    .await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Claude truncated SSE",
+        "claude",
+        &format!("http://{upstream_address}"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "claude-truncated-stream",
+        "sk-claude-truncated-stream",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "claude-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/messages",
+        json!({
+            "model":"claude-upstream",
+            "stream":true,
+            "max_tokens":32,
+            "messages":[{"role":"user","content":"hello"}]
+        }),
+        remote,
+        &[("x-api-key", token)],
+    )
+    .await;
+    assert_stream_headers(&response);
+    let mut body = response.into_body();
+    let first = body
+        .frame()
+        .await
+        .expect("partial downstream frame")
+        .expect("partial downstream result")
+        .into_data()
+        .expect("partial downstream data");
+    assert!(String::from_utf8_lossy(&first).contains("content_block_delta"));
+    release.send(()).expect("release truncated upstream stream");
+    assert!(
+        body.collect().await.is_err(),
+        "EOF before message_stop must be a downstream Body error"
+    );
+}
+
+#[tokio::test]
 async fn images_stream_uses_its_dedicated_precommit_budget() {
     let (upstream_address, upstream_request, release) = paused_sse_server(
         "/v1/images/generations",
@@ -214,7 +273,7 @@ async fn responses_stream_is_bridged_from_chat_completions_sse() {
         &[
             b"data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"weather\",\"arguments\":\"{\\\"city\\\":\\\"\"}}]}}]}\n\n",
             b"data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"world\",\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"Paris\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
-            b"data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-upstream\",\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":3,\"prompt_tokens_details\":{\"cached_tokens\":1}}}\n\n",
+            b"data: {\"id\":\"chatcmpl_stream\",\"model\":\"gpt-upstream\",\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":3,\"prompt_tokens_details\":{\"cached_tokens\":1}}}\n\n",
             b"data: [DONE]\n\n",
         ],
     )
@@ -281,6 +340,284 @@ async fn responses_stream_is_bridged_from_chat_completions_sse() {
     assert_eq!(upstream.body["stream_options"]["include_usage"], true);
     assert!(upstream.body.get("reasoning").is_none());
     assert!(upstream.body.get("include").is_none());
+}
+
+#[tokio::test]
+async fn responses_bridge_rejects_missing_streamed_tool_call_indices_before_commit() {
+    let (upstream_address, upstream_request, release) = paused_sse_server(
+        "/v1/chat/completions",
+        &[b"data: {\"id\":\"chatcmpl_invalid_tools\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"id\":\"call_a\",\"type\":\"function\",\"function\":{\"name\":\"alpha\",\"arguments\":\"{}\"}},{\"id\":\"call_b\",\"type\":\"function\",\"function\":{\"name\":\"beta\",\"arguments\":\"{}\"}}]}}]}\n\n"],
+        &[],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Invalid Responses over Chat SSE",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_credential(
+        &app,
+        remote,
+        revision + 2,
+        &endpoint,
+        "invalid-chat-bridge-stream",
+        "sk-invalid-chat-bridge-stream",
+    )
+    .await;
+    select_models(&app, remote, revision + 3, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"use two tools"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bridge error body")
+        .to_bytes();
+    let error: Value = serde_json::from_slice(&body).expect("Responses error JSON");
+    assert_eq!(error["error"]["code"], "upstream_error");
+    release.send(()).expect("release invalid upstream stream");
+    let upstream = upstream_request.await.expect("upstream request");
+    assert_eq!(upstream.body["model"], "gpt-upstream");
+}
+
+#[tokio::test]
+async fn responses_bridge_rejects_terminal_incomplete_tool_identity_before_commit() {
+    let (upstream_address, upstream_request, release) = paused_sse_server(
+        "/v1/chat/completions",
+        &[b"data: {\"id\":\"chatcmpl_incomplete_tool\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"name\":\"weather\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"],
+        &[],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Incomplete Responses over Chat SSE",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_credential(
+        &app,
+        remote,
+        revision + 2,
+        &endpoint,
+        "incomplete-chat-bridge-stream",
+        "sk-incomplete-chat-bridge-stream",
+    )
+    .await;
+    select_models(&app, remote, revision + 3, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"use a tool"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.headers()[CONTENT_TYPE], "application/json");
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("bridge error body")
+        .to_bytes();
+    let error: Value = serde_json::from_slice(&body).expect("Responses error JSON");
+    assert_eq!(error["error"]["code"], "upstream_error");
+    release
+        .send(())
+        .expect("release incomplete upstream stream");
+    let upstream = upstream_request.await.expect("upstream request");
+    assert_eq!(upstream.body["model"], "gpt-upstream");
+}
+
+#[tokio::test]
+async fn responses_bridge_preserves_choice_less_upstream_error_events() {
+    let (upstream_address, _upstream_request, release) = paused_sse_server(
+        "/v1/chat/completions",
+        &[b"data: {\"id\":\"chatcmpl_before_error\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n"],
+        &[b"data: {\"error\":{\"message\":\"provider is overloaded\",\"type\":\"server_error\",\"param\":null,\"code\":\"overloaded\"}}\n\n"],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Failed Responses over Chat SSE",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_credential(
+        &app,
+        remote,
+        revision + 2,
+        &endpoint,
+        "failed-chat-bridge-stream",
+        "sk-failed-chat-bridge-stream",
+    )
+    .await;
+    select_models(&app, remote, revision + 3, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_stream_headers(&response);
+    let mut body = response.into_body();
+    let first = body
+        .frame()
+        .await
+        .expect("first bridge frame")
+        .expect("first bridge result")
+        .into_data()
+        .expect("first bridge data");
+    let response_id = response_id_from_sse(&first);
+    release.send(()).expect("release failed upstream event");
+    let body = body
+        .collect()
+        .await
+        .expect("Responses error stream")
+        .to_bytes();
+    let body = String::from_utf8(body.to_vec()).expect("Responses error UTF-8");
+    assert!(body.contains("event: error"));
+    assert!(body.contains(r#""type":"error""#));
+    assert!(body.contains(r#""code":"overloaded""#));
+    assert!(body.contains(r#""message":"provider is overloaded""#));
+    assert!(body.contains(r#""param":null"#));
+    assert!(!body.contains("response.completed"));
+
+    let follow_up = request(
+        app,
+        "/v1/responses",
+        json!({
+            "model":"gpt-upstream",
+            "previous_response_id":response_id,
+            "input":"continue"
+        }),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(follow_up.status(), StatusCode::CONFLICT);
+    let body = follow_up
+        .into_body()
+        .collect()
+        .await
+        .expect("follow-up error body")
+        .to_bytes();
+    let error: Value = serde_json::from_slice(&body).expect("follow-up error JSON");
+    assert_eq!(error["error"]["code"], "session_binding_lost");
+}
+
+#[tokio::test]
+async fn incomplete_streamed_tool_call_aborts_pending_bridge_continuation() {
+    let (upstream_address, _upstream_request, release) = paused_sse_server(
+        "/v1/chat/completions",
+        &[b"data: {\"id\":\"chatcmpl_partial_tools\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n"],
+        &[b"data: {\"id\":\"chatcmpl_partial_tools\",\"model\":\"gpt-upstream\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"name\":\"broken\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n"],
+    )
+    .await;
+    let (_directory, app, revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision + 1,
+        "Aborted Responses over Chat SSE",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    create_credential(
+        &app,
+        remote,
+        revision + 2,
+        &endpoint,
+        "aborted-chat-bridge-stream",
+        "sk-aborted-chat-bridge-stream",
+    )
+    .await;
+    select_models(&app, remote, revision + 3, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"use a tool"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_stream_headers(&response);
+    let mut body = response.into_body();
+    let first = body
+        .frame()
+        .await
+        .expect("first bridge frame")
+        .expect("first bridge result")
+        .into_data()
+        .expect("first bridge data");
+    let response_id = response_id_from_sse(&first);
+    release.send(()).expect("release incomplete tool event");
+    assert!(
+        body.collect().await.is_err(),
+        "invalid post-commit tool event must fail the Body"
+    );
+
+    let follow_up = request(
+        app,
+        "/v1/responses",
+        json!({
+            "model":"gpt-upstream",
+            "previous_response_id":response_id,
+            "input":"continue"
+        }),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(follow_up.status(), StatusCode::CONFLICT);
+    let body = follow_up
+        .into_body()
+        .collect()
+        .await
+        .expect("follow-up error body")
+        .to_bytes();
+    let error: Value = serde_json::from_slice(&body).expect("follow-up error JSON");
+    assert_eq!(error["error"]["code"], "session_binding_lost");
 }
 
 #[tokio::test]
@@ -1027,42 +1364,9 @@ async fn read_paused_stream(response: Response, release: oneshot::Sender<()>) ->
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, u64) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let service = build_public_request_components()
-        .expect("public request components")
-        .service();
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let revision = snapshots.load().revision().get();
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, service),
-        web_root,
-    );
+    let fixture = TestApplication::new().await;
+    let revision = fixture.snapshots().load().revision().get();
+    let (directory, app, _storage) = fixture.into_router();
     (directory, app, revision)
 }
 

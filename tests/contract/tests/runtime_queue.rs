@@ -12,7 +12,7 @@ use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
     OpenAiResponsesAdapter, ProtocolRegistry,
 };
-use any2api_provider::{CodexDriver, ProviderRegistry};
+use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_runtime::api::{
     ConfigPublisher, ProviderApiKeySecret, PublicRequest, PublicRequestService, PublishedSnapshot,
     RuntimeRegistry, SnapshotStore,

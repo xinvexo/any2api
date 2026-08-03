@@ -12,7 +12,9 @@ use crate::{
 };
 
 mod buffered;
+mod continuation;
 mod streaming;
+mod streaming_tools;
 mod validation;
 
 pub(super) fn registry() -> ProtocolRegistry {

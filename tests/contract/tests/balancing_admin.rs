@@ -1,55 +1,29 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
     ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyAddress, ProxyDraft, ProxyKind,
     ProxyProfileId, RequestsPerMinute,
 };
-use any2api_runtime::api::{
-    ConfigPublisher, ProviderApiKeySecret, PublishedSnapshot, RuntimeRegistry,
-    SelectAndReserveResult, SnapshotStore, select_and_try_reserve,
-};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_runtime::api::{ProviderApiKeySecret, SelectAndReserveResult, select_and_try_reserve};
 use axum::{
     Router,
     body::Body,
     extract::ConnectInfo,
-    http::{Request, StatusCode, header::CACHE_CONTROL},
+    http::{
+        Method, Request, StatusCode,
+        header::{CACHE_CONTROL, CONTENT_TYPE, VARY},
+    },
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
-use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
 async fn balancing_admin_exposes_only_aggregate_runtime_and_queue_policy() {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("storage"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
+    let fixture = TestApplication::new().await;
+    let publisher = fixture.publisher();
     let proxy_id = ProxyProfileId::new();
     let proxy = publisher
         .create_proxy(
@@ -106,20 +80,15 @@ async fn balancing_admin_exposes_only_aggregate_runtime_and_queue_policy() {
         SelectAndReserveResult::Reserved(permit) => permit,
         result => panic!("expected RPM reservation, got {result:?}"),
     };
-    let app = test_router(
-        &directory,
-        Arc::clone(&snapshots),
-        Arc::clone(&runtime),
-        publisher,
-    );
+    let app = fixture.router();
 
-    let (status, headers, body) = request(app, "/api/admin/balancing").await;
+    let (status, headers, body) = request(app.clone(), "/api/admin/balancing").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(headers.get(CACHE_CONTROL).expect("no-store"), "no-store");
+    assert_admin_cache_headers(&headers);
     assert_eq!(body["config_revision"], 4);
     assert_eq!(body["queue"]["waiting"], 0);
     assert_eq!(body["queue"]["max_waiting"], 128);
-    assert_eq!(body["queue"]["timeout_secs"], 30);
+    assert_eq!(body["queue"]["timeout_secs"], 180);
     assert_eq!(body["queue"]["on_rate_limited"], "wait");
     assert_eq!(body["queue"]["fallback_on_rate_limit"], false);
     assert!(body.get("auxiliary").is_none());
@@ -146,34 +115,72 @@ async fn balancing_admin_exposes_only_aggregate_runtime_and_queue_policy() {
     assert!(!serialized.contains("Primary Key"));
     assert!(!serialized.contains("Disabled Proxy"));
     assert!(!serialized.contains(&credential_id.to_string()));
+
+    let (status, headers, body) = send(
+        app.clone(),
+        Method::PATCH,
+        "/api/admin/settings",
+        Body::from("{"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"]["code"], "invalid_request");
+    assert_eq!(body["error"]["message"], "request body must be valid JSON");
+    assert_admin_cache_headers(&headers);
+
+    let (status, headers, body) = send(
+        app.clone(),
+        Method::DELETE,
+        "/api/admin/settings/logs.request.enabled",
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body["error"]["message"],
+        "expected_revision query is required"
+    );
+    assert_admin_cache_headers(&headers);
+
+    let (status, headers, body) = send(
+        app.clone(),
+        Method::DELETE,
+        "/api/admin/gateway-api-keys/00000000-0000-0000-0000-000000000001",
+        Body::empty(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body["error"]["message"],
+        "expected_revision and expected_config_version queries are required"
+    );
+    assert_admin_cache_headers(&headers);
+
+    let (status, headers, body) = request(app, "/api/admin/not-a-route").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"]["code"], "admin_api_not_found");
+    assert_admin_cache_headers(&headers);
     drop(permit);
 }
 
-fn test_router(
-    directory: &tempfile::TempDir,
-    snapshots: Arc<SnapshotStore>,
-    runtime: Arc<RuntimeRegistry>,
-    publisher: Arc<ConfigPublisher>,
-) -> Router {
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let public_requests = build_public_request_components()
-        .expect("public request components")
-        .service();
-    build_router(
-        AppState::new(snapshots, runtime, publisher, public_requests),
-        web_root,
-    )
+async fn request(app: Router, uri: &str) -> (StatusCode, axum::http::HeaderMap, Value) {
+    send(app, Method::GET, uri, Body::empty()).await
 }
 
-async fn request(app: Router, uri: &str) -> (StatusCode, axum::http::HeaderMap, Value) {
+async fn send(
+    app: Router,
+    method: Method,
+    uri: &str,
+    body: Body,
+) -> (StatusCode, axum::http::HeaderMap, Value) {
     let response = app
         .oneshot(
             Request::builder()
+                .method(method)
                 .uri(uri)
                 .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41000))))
-                .body(Body::empty())
+                .header(CONTENT_TYPE, "application/json")
+                .body(body)
                 .expect("request"),
         )
         .await
@@ -191,4 +198,13 @@ async fn request(app: Router, uri: &str) -> (StatusCode, axum::http::HeaderMap, 
         headers,
         serde_json::from_slice(&bytes).expect("json"),
     )
+}
+
+fn assert_admin_cache_headers(headers: &axum::http::HeaderMap) {
+    assert_eq!(headers.get(CACHE_CONTROL).expect("no-store"), "no-store");
+    assert_eq!(headers["x-content-type-options"], "nosniff");
+    assert!(
+        headers.get_all(VARY).iter().any(|value| value == "Cookie"),
+        "Vary: Cookie is missing"
+    );
 }

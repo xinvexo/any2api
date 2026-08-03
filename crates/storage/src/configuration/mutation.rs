@@ -82,6 +82,14 @@ pub enum ConfigurationMutation {
     CreateOAuthAccounts {
         accounts: Vec<OAuthAccountCreate>,
     },
+    ReauthorizeOAuthAccount {
+        id: OAuthAccountId,
+        expected_token_version: u64,
+        safe_account_email: Option<String>,
+        expires_at: Option<i64>,
+        models: Vec<String>,
+        document: OAuthAccountDocument,
+    },
     UpdateOAuthAccount {
         id: OAuthAccountId,
         expected_config_version: u64,

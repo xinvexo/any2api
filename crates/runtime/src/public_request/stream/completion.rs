@@ -16,7 +16,11 @@ impl GuardedBody {
         self.cancellation.cancel();
         self.upstream = Box::pin(futures_util::stream::empty());
         self.continuation_lease.take();
-        self.health.take();
+        if let Some(health) = self.health.take()
+            && matches!(&outcome, StreamOutcome::Success)
+        {
+            health.success();
+        }
         if let Some(mut recorder) = self.attempt_recorder.take() {
             match &outcome {
                 StreamOutcome::Success => recorder.success(self.status_code),

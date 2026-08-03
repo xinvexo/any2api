@@ -7,9 +7,8 @@ use http::{
 };
 
 use super::ClaudeDriver;
-use crate::{
-    OAuthGrant, ProviderSecret,
-    api::{ProviderDriver, ProviderRequestHeaderContext, UpstreamResponseMeta},
+use crate::api::{
+    OAuthGrant, ProviderDriver, ProviderRequestHeaderContext, ProviderSecret, UpstreamResponseMeta,
 };
 
 #[test]

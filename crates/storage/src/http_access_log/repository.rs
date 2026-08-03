@@ -4,20 +4,56 @@ use async_trait::async_trait;
 use crate::{error::StorageError, sqlite::SqliteStore};
 
 use super::{
+    capacity::trim_to_capacity,
     rows::{HttpAccessLogDetailRow, HttpAccessLogSummaryRow, parse_detail, parse_summary},
-    writes::{delete_oldest, delete_oldest_before, insert},
+    writes::{delete_oldest_before, insert},
 };
+
+pub(crate) const SYSTEM_LOG_RETENTION_PREDICATE: &str = "\
+    path = '/v1' OR path GLOB '/v1/*' OR client_ip IS NULL OR \
+    (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
+    status_code IS NULL OR status_code >= 400 OR outcome <> 'completed'";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct HttpAccessLogCapacity {
+    max_rows: u64,
+    max_exchange_bytes: u64,
+}
+
+impl HttpAccessLogCapacity {
+    #[must_use]
+    pub const fn new(max_rows: u64, max_exchange_bytes: u64) -> Self {
+        Self {
+            max_rows,
+            max_exchange_bytes,
+        }
+    }
+
+    pub const fn max_rows(self) -> u64 {
+        self.max_rows
+    }
+
+    pub const fn max_exchange_bytes(self) -> u64 {
+        self.max_exchange_bytes
+    }
+}
 
 #[async_trait]
 pub trait HttpAccessLogRepository: Send + Sync {
-    async fn append_http_access_logs(&self, records: &[HttpAccessLog]) -> Result<(), StorageError>;
+    async fn append_http_access_logs(
+        &self,
+        records: &[HttpAccessLog],
+        capacity: HttpAccessLogCapacity,
+    ) -> Result<u64, StorageError>;
 
     async fn prune_http_access_logs(
         &self,
         retention_before_ms: u64,
-        max_rows: u64,
+        capacity: HttpAccessLogCapacity,
         batch_size: u32,
     ) -> Result<u64, StorageError>;
+
+    async fn reclaim_http_access_log_storage(&self, max_bytes: u64) -> Result<u64, StorageError>;
 
     async fn list_http_access_logs(
         &self,
@@ -36,46 +72,70 @@ pub trait HttpAccessLogRepository: Send + Sync {
 
 #[async_trait]
 impl HttpAccessLogRepository for SqliteStore {
-    async fn append_http_access_logs(&self, records: &[HttpAccessLog]) -> Result<(), StorageError> {
+    async fn append_http_access_logs(
+        &self,
+        records: &[HttpAccessLog],
+        capacity: HttpAccessLogCapacity,
+    ) -> Result<u64, StorageError> {
         if records.is_empty() {
-            return Ok(());
+            return Ok(0);
         }
         let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
         for record in records {
             insert(&mut transaction, record).await?;
         }
+        let deleted = trim_to_capacity(&mut transaction, capacity).await?;
         transaction.commit().await?;
-        Ok(())
+        Ok(deleted)
     }
 
     async fn prune_http_access_logs(
         &self,
         retention_before_ms: u64,
-        max_rows: u64,
+        capacity: HttpAccessLogCapacity,
         batch_size: u32,
     ) -> Result<u64, StorageError> {
         let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
         let expired =
             delete_oldest_before(&mut transaction, retention_before_ms, u64::from(batch_size))
                 .await?;
+        let trimmed = trim_to_capacity(&mut transaction, capacity).await?;
         transaction.commit().await?;
-        // The row-cap count runs outside the write transaction so the periodic
-        // full-table scan never blocks concurrent telemetry writers; a stale
-        // count only shifts overflow trimming to the next prune cycle.
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM http_access_logs")
-            .fetch_one(self.pool())
-            .await?;
-        let count = u64::try_from(count).map_err(|_| StorageError::CorruptTelemetry)?;
-        let overflow = count.saturating_sub(max_rows).min(u64::from(batch_size));
-        let trimmed = if overflow == 0 {
-            0
-        } else {
-            let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
-            let trimmed = delete_oldest(&mut transaction, overflow).await?;
-            transaction.commit().await?;
-            trimmed
-        };
         Ok(expired.saturating_add(trimmed))
+    }
+
+    async fn reclaim_http_access_log_storage(&self, max_bytes: u64) -> Result<u64, StorageError> {
+        let mut connection = self.pool().acquire().await?;
+        let mode: i64 = sqlx::query_scalar("PRAGMA auto_vacuum")
+            .fetch_one(&mut *connection)
+            .await?;
+        if mode != 2 {
+            return Ok(0);
+        }
+        let freelist: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+            .fetch_one(&mut *connection)
+            .await?;
+        let freelist = u64::try_from(freelist).map_err(|_| StorageError::CorruptTelemetry)?;
+        if freelist == 0 {
+            return Ok(0);
+        }
+        let page_size: i64 = sqlx::query_scalar("PRAGMA page_size")
+            .fetch_one(&mut *connection)
+            .await?;
+        let page_size = u64::try_from(page_size).map_err(|_| StorageError::CorruptTelemetry)?;
+        if page_size == 0 {
+            return Err(StorageError::CorruptTelemetry);
+        }
+        let pages = (max_bytes / page_size).max(1).min(freelist);
+        let page_count_before: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(&mut *connection)
+            .await?;
+        let statement = format!("PRAGMA incremental_vacuum({pages})");
+        sqlx::query(&statement).fetch_all(&mut *connection).await?;
+        let page_count_after: i64 = sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(&mut *connection)
+            .await?;
+        Ok(to_u64(page_count_before)?.saturating_sub(to_u64(page_count_after)?))
     }
 
     async fn list_http_access_logs(
@@ -87,29 +147,28 @@ impl HttpAccessLogRepository for SqliteStore {
         let since_ms = to_i64(since_ms)?;
         let offset = to_i64(offset)?;
         let mut transaction = self.pool().begin().await?;
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM http_access_logs WHERE started_at_ms >= ? AND (\
-             path = '/v1' OR path GLOB '/v1/*' OR client_ip IS NULL OR \
-             (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
-             status_code IS NULL OR status_code >= 400 OR outcome <> 'completed')",
-        )
-        .bind(since_ms)
-        .fetch_one(&mut *transaction)
-        .await?;
-        let rows = sqlx::query_as::<_, HttpAccessLogSummaryRow>(
+        let count_statement = format!(
+            "SELECT COUNT(*) FROM http_access_logs \
+             INDEXED BY http_access_logs_summary_filter_idx \
+             WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE})"
+        );
+        let total: i64 = sqlx::query_scalar(&count_statement)
+            .bind(since_ms)
+            .fetch_one(&mut *transaction)
+            .await?;
+        let page_statement = format!(
             "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, uri, \
              http_version, status_code, duration_ms, response_bytes, outcome, exchange_captured \
-             FROM http_access_logs WHERE started_at_ms >= ? AND (\
-             path = '/v1' OR path GLOB '/v1/*' OR client_ip IS NULL OR \
-             (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
-             status_code IS NULL OR status_code >= 400 OR outcome <> 'completed') \
-             ORDER BY started_at_ms DESC, request_id DESC LIMIT ? OFFSET ?",
-        )
-        .bind(since_ms)
-        .bind(i64::from(limit))
-        .bind(offset)
-        .fetch_all(&mut *transaction)
-        .await?;
+             FROM http_access_logs INDEXED BY http_access_logs_summary_filter_idx \
+             WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+             ORDER BY started_at_ms DESC, request_id DESC LIMIT ? OFFSET ?"
+        );
+        let rows = sqlx::query_as::<_, HttpAccessLogSummaryRow>(&page_statement)
+            .bind(since_ms)
+            .bind(i64::from(limit))
+            .bind(offset)
+            .fetch_all(&mut *transaction)
+            .await?;
         transaction.commit().await?;
         let items = rows
             .into_iter()
@@ -139,13 +198,19 @@ impl HttpAccessLogRepository for SqliteStore {
     }
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {
+        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
         let result = sqlx::query("DELETE FROM http_access_logs")
-            .execute(self.pool())
+            .execute(&mut *transaction)
             .await?;
+        transaction.commit().await?;
         Ok(result.rows_affected())
     }
 }
 
 fn to_i64(value: u64) -> Result<i64, StorageError> {
     i64::try_from(value).map_err(|_| StorageError::CorruptTelemetry)
+}
+
+fn to_u64(value: i64) -> Result<u64, StorageError> {
+    u64::try_from(value).map_err(|_| StorageError::CorruptTelemetry)
 }

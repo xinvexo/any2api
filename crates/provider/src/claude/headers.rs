@@ -7,16 +7,16 @@ use crate::{
 };
 
 const REQUEST_HEADERS: &[&str] = &[
+    "anthropic-version",
+    "anthropic-beta",
+    "anthropic-mcp-client-capabilities",
     "user-agent",
     "x-app",
     "x-client-request-id",
     "x-claude-code-session-id",
-    "anthropic-version",
-    "anthropic-beta",
     "anthropic-usage-limit",
     "anthropic-dangerous-direct-browser-access",
     "anthropic-client-platform",
-    "anthropic-mcp-client-capabilities",
     "x-anthropic-additional-protection",
     "x-claude-remote-container-id",
     "x-claude-remote-session-id",

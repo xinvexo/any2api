@@ -10,6 +10,7 @@ use super::super::{
     SelectedCandidate,
     response::{internal_error, public_error},
 };
+use super::filter_recorder::RequestFilterRecorder;
 use super::{fixed, generation};
 #[cfg(test)]
 use crate::routing::{QueueCoordinator, QueuePolicy};
@@ -55,6 +56,7 @@ pub(in crate::public_request) async fn select_candidate(
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     exclusions: &CandidateExclusions,
 ) -> Result<SelectedCandidate, PublicError> {
+    let mut filters = RequestFilterRecorder::default();
     let try_select = || {
         generation::try_select(
             snapshot,
@@ -62,6 +64,7 @@ pub(in crate::public_request) async fn select_candidate(
             fallback_on_rate_limit,
             tiers,
             exclusions,
+            &mut filters,
         )
     };
     generation::select_with_queue(
@@ -111,8 +114,9 @@ pub(super) fn try_select_generation_candidate_for_test(
 pub(super) fn try_select_fixed_candidate_for_test(
     policy: crate::health::ReliabilityPolicy,
     candidate: &RouteCandidate,
+    after_reservation: impl FnOnce(),
 ) -> Result<Option<SelectedCandidate>, FixedSelectionError> {
-    fixed::try_selected_for_test(policy, candidate)
+    fixed::try_selected_for_test(policy, candidate, after_reservation)
 }
 
 pub(super) fn rate_limit_error(message: &'static str) -> PublicError {

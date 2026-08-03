@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 
 import type {
   ProviderCredentialConfiguration,
@@ -10,24 +10,16 @@ import {
   updateProviderCredential,
   setProviderCredentialModels,
 } from "../api/provider-credential-api";
-import { selectNewestCredentialConfiguration } from "./provider-credential-cache";
 import { providerQueryKeys } from "./provider-query-keys";
+import { useConfigurationMutationLifecycle } from "@/shared/api/use-configuration-mutation-lifecycle";
 
 export function useProviderCredentialMutations(endpointId: string) {
-  const queryClient = useQueryClient();
-  const publish = (configuration: ProviderCredentialConfiguration) => {
-    queryClient.setQueryData<ProviderCredentialConfiguration>(
-      providerQueryKeys.credentials(endpointId),
-      (current) => selectNewestCredentialConfiguration(current, configuration),
-    );
-    void queryClient.invalidateQueries({ queryKey: providerQueryKeys.list() });
-  };
-  const refreshAfterFailure = async () => {
-    await queryClient.refetchQueries({
-      queryKey: providerQueryKeys.credentials(endpointId),
-      type: "active",
+  const { publish, refreshAfterFailure } =
+    useConfigurationMutationLifecycle<ProviderCredentialConfiguration>({
+      cacheKey: providerQueryKeys.credentials(endpointId),
+      invalidateKey: providerQueryKeys.list(),
+      refreshKey: providerQueryKeys.credentials(endpointId),
     });
-  };
 
   const update = useMutation({
     mutationFn: ({ id, input }: { id: string; input: ProviderCredentialUpdateInput }) =>

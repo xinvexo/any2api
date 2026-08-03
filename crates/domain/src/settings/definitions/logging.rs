@@ -2,8 +2,9 @@ use crate::settings::{
     SettingDefinition, SettingKey, SettingValue, SettingValueType,
     definition::{definition as setting_definition, duration_definition},
     logging_settings::{
-        MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_SECS,
-        MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
+        MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE, MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES,
+        MAX_HTTP_ACCESS_LOG_ROWS, MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS,
+        MAX_TELEMETRY_QUEUE_CAPACITY,
     },
 };
 
@@ -19,7 +20,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
             &[],
             (
                 "请求日志",
-                "把已认证的模型请求与上游 Attempt 写入本地 SQLite 历史。",
+                "把模型请求、上游 Attempt 与有审计价值的 HTTP 系统日志写入本地 SQLite。",
             ),
         ),
         SettingKey::LogsRequestRetention => duration_definition(
@@ -28,7 +29,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
             60,
             MAX_REQUEST_LOG_RETENTION_SECS,
             "请求日志",
-            "RequestLog 与 Attempt 的最长本地保留时间。",
+            "RequestLog、Attempt 与 HTTP 系统日志的最长本地保留时间。",
         ),
         SettingKey::LogsRequestMaxRows => integer(
             key,
@@ -37,6 +38,22 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
             MAX_REQUEST_LOG_ROWS,
             "请求日志",
             "SQLite 中最多保留的 RequestLog 行数；对应 Attempt 随父记录清理。",
+        ),
+        SettingKey::LogsHttpAccessMaxRows => integer(
+            key,
+            200_000,
+            1,
+            MAX_HTTP_ACCESS_LOG_ROWS,
+            "HTTP 系统日志",
+            "SQLite 中最多保留的 HTTP 系统日志行数；与 RequestLog 行数上限相互独立。",
+        ),
+        SettingKey::LogsHttpAccessMaxExchangeBytes => integer(
+            key,
+            256 * 1024 * 1024,
+            1024 * 1024,
+            MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES,
+            "HTTP 系统日志",
+            "原始请求/响应 Header 与 Body 捕获的总字节预算；超出后删除完整的最旧记录。",
         ),
         SettingKey::LogsFileLevel => setting_definition(
             key,

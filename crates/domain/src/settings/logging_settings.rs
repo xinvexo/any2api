@@ -5,6 +5,8 @@ use super::{
 
 pub const MAX_REQUEST_LOG_RETENTION_SECS: u64 = 365 * 24 * 60 * 60;
 pub const MAX_REQUEST_LOG_ROWS: u64 = 10_000_000;
+pub const MAX_HTTP_ACCESS_LOG_ROWS: u64 = 10_000_000;
+pub const MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
 pub const MAX_FILE_LOG_RETENTION_SECS: u64 = 365 * 24 * 60 * 60;
 pub const MAX_FILE_LOG_TOTAL_SIZE: u64 = 64 * 1024 * 1024 * 1024;
 pub const MAX_TELEMETRY_QUEUE_CAPACITY: u64 = 100_000;
@@ -14,6 +16,8 @@ pub struct LoggingSettings {
     request_enabled: bool,
     request_retention_secs: u64,
     request_max_rows: u64,
+    http_access_max_rows: u64,
+    http_access_max_exchange_bytes: u64,
     file_level: FileLogLevel,
     file_retention_secs: u64,
     file_max_total_size: u64,
@@ -29,6 +33,10 @@ impl LoggingSettings {
             request_enabled: boolean(value(SettingKey::LogsRequestEnabled))?,
             request_retention_secs: integer(value(SettingKey::LogsRequestRetention))?,
             request_max_rows: integer(value(SettingKey::LogsRequestMaxRows))?,
+            http_access_max_rows: integer(value(SettingKey::LogsHttpAccessMaxRows))?,
+            http_access_max_exchange_bytes: integer(value(
+                SettingKey::LogsHttpAccessMaxExchangeBytes,
+            ))?,
             file_level: file_log_level(value(SettingKey::LogsFileLevel))?,
             file_retention_secs: integer(value(SettingKey::LogsFileRetention))?,
             file_max_total_size: integer(value(SettingKey::LogsFileMaxTotalSize))?,
@@ -46,6 +54,14 @@ impl LoggingSettings {
 
     pub const fn request_max_rows(&self) -> u64 {
         self.request_max_rows
+    }
+
+    pub const fn http_access_max_rows(&self) -> u64 {
+        self.http_access_max_rows
+    }
+
+    pub const fn http_access_max_exchange_bytes(&self) -> u64 {
+        self.http_access_max_exchange_bytes
     }
 
     pub const fn file_level(&self) -> FileLogLevel {

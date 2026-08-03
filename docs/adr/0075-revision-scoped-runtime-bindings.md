@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-31
+- 修订：2026-08-03
 - 决策者：maintainer
 
 ## 背景
@@ -12,6 +13,7 @@
 
 - `CredentialRuntimeHandle` 只持有必须跨配置 revision 复用的滚动请求时间戳、`in_flight`、固定等待者和观测计数。
 - `CredentialRuntimeBinding` 按 PublishedSnapshot 固化 `requests_per_minute` 与 `CredentialGenerationRuntime`。RPM 预留在同一个 Handle 锁内使用调用 Binding 的限额判断，因此旧、新 revision 共享时间戳但不会互相改写限额。
+- PublishedSnapshot 仅由有序 `RoutingCredential` 投影持有每个 `CredentialRuntimeBinding`。全量 Runtime 视图从该投影按同一顺序提供借用迭代器，不克隆 `Arc` 建立第二个 Binding 向量。
 - 新快照准备阶段可以复用或创建内部 Handle、Generation、Endpoint/Proxy Health 和 tier cursor，但不得修改任何已发布 Binding 的准入策略、认证材料或健康代际。
 - Credential 是否可路由由当前 PublishedSnapshot 中是否存在候选决定，不在共享 Handle 上维护全局 `retired` 开关。
 - 配置发布不全局裁剪 Affinity，也不阻止已经持有旧快照的请求提交绑定。新 revision 解析绑定时必须用自己的 Route/Credential 候选验证固定目标；目标已不存在则返回 `session_binding_lost`，禁止重新选择。TTL、管理员显式清理和进程重启仍可物理删除绑定。
@@ -26,5 +28,6 @@
 ## 验证
 
 - Snapshot 测试必须持有旧 Binding，在新 revision 发布后验证旧 RPM 限额和 Generation 未变化，新 Binding 复用窗口但采用新限额。
+- Snapshot 的 Runtime Binding 迭代视图必须与有序 Credential 投影数量、顺序和引用身份一致，不得引入第二份所有集合。
 - Affinity 测试必须覆盖配置变化期间的旧请求仍可完成 Session 与 Continuation 绑定提交。
 - 现有并发 RPM 测试继续证明同一 Handle 上的原子选择与预留不会超过调用 Binding 的限额。

@@ -50,6 +50,19 @@ impl UpstreamErrorKind {
                 | Self::Transient
         )
     }
+
+    #[must_use]
+    pub const fn default_retry_safety(self) -> RetrySafety {
+        match self {
+            Self::Authentication
+            | Self::PermissionDenied
+            | Self::QuotaExhausted
+            | Self::RateLimited
+            | Self::ModelUnavailable
+            | Self::OperationUnavailable => RetrySafety::RejectedBeforeExecution,
+            Self::InvalidRequest | Self::Transient | Self::Unknown => RetrySafety::Ambiguous,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -196,6 +209,40 @@ fn normalize_message(message: String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_upstream_error_kind_has_one_default_retry_safety() {
+        for kind in [
+            UpstreamErrorKind::InvalidRequest,
+            UpstreamErrorKind::Authentication,
+            UpstreamErrorKind::PermissionDenied,
+            UpstreamErrorKind::QuotaExhausted,
+            UpstreamErrorKind::RateLimited,
+            UpstreamErrorKind::ModelUnavailable,
+            UpstreamErrorKind::OperationUnavailable,
+            UpstreamErrorKind::Transient,
+            UpstreamErrorKind::Unknown,
+        ] {
+            let expected = match kind {
+                UpstreamErrorKind::Authentication
+                | UpstreamErrorKind::PermissionDenied
+                | UpstreamErrorKind::QuotaExhausted
+                | UpstreamErrorKind::RateLimited
+                | UpstreamErrorKind::ModelUnavailable
+                | UpstreamErrorKind::OperationUnavailable => RetrySafety::RejectedBeforeExecution,
+                UpstreamErrorKind::InvalidRequest
+                | UpstreamErrorKind::Transient
+                | UpstreamErrorKind::Unknown => RetrySafety::Ambiguous,
+            };
+
+            assert_eq!(kind.default_retry_safety(), expected, "kind {kind:?}");
+            assert_eq!(
+                kind.default_retry_safety().allows_automatic_retry(),
+                !matches!(expected, RetrySafety::Ambiguous),
+                "kind {kind:?}"
+            );
+        }
+    }
 
     fn classification() -> UpstreamErrorClassification {
         UpstreamErrorClassification::new(UpstreamErrorKind::Unknown, RetrySafety::Ambiguous, None)

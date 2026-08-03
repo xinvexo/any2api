@@ -134,6 +134,23 @@ impl StoredConfiguration {
             proxy_passwords: self.proxy_passwords,
         }
     }
+
+    pub(crate) fn from_parts(parts: StoredConfigurationParts) -> Self {
+        Self {
+            revision: parts.revision,
+            proxies: parts.proxies,
+            provider_endpoints: parts.provider_endpoints,
+            provider_credentials: parts.provider_credentials,
+            oauth_accounts: parts.oauth_accounts,
+            model_routes: parts.model_routes,
+            gateway_api_keys: parts.gateway_api_keys,
+            gateway_api_key_verifier: parts.gateway_api_key_verifier,
+            settings: parts.settings,
+            provider_credential_secrets: parts.provider_credential_secrets,
+            oauth_account_materials: parts.oauth_account_materials,
+            proxy_passwords: parts.proxy_passwords,
+        }
+    }
 }
 
 pub struct StoredConfigurationParts {

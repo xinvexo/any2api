@@ -14,6 +14,9 @@ pub fn select_and_try_reserve(
     candidates: &[CredentialRuntimeBinding],
     tie_breaker: u64,
 ) -> SelectAndReserveResult {
+    if candidates.is_empty() {
+        return SelectAndReserveResult::NoCandidates;
+    }
     match select_index_and_try_reserve(candidates, tie_breaker) {
         IndexedSelectAndReserveResult::Reserved { permit, .. } => {
             SelectAndReserveResult::Reserved(permit)
@@ -21,23 +24,19 @@ pub fn select_and_try_reserve(
         IndexedSelectAndReserveResult::RateLimited { retry_at } => {
             SelectAndReserveResult::RateLimited { retry_at }
         }
-        IndexedSelectAndReserveResult::NoCandidates => SelectAndReserveResult::NoCandidates,
     }
 }
 
 pub(crate) enum IndexedSelectAndReserveResult {
     Reserved { index: usize, permit: RoutingPermit },
     RateLimited { retry_at: Option<Instant> },
-    NoCandidates,
 }
 
 pub(crate) fn select_index_and_try_reserve(
     candidates: &[CredentialRuntimeBinding],
     tie_breaker: u64,
 ) -> IndexedSelectAndReserveResult {
-    if candidates.is_empty() {
-        return IndexedSelectAndReserveResult::NoCandidates;
-    }
+    debug_assert!(!candidates.is_empty());
 
     let start = usize::try_from(tie_breaker % candidates.len() as u64)
         .expect("tie breaker is bounded by candidate count");
@@ -57,4 +56,17 @@ pub(crate) fn select_index_and_try_reserve(
         }
     }
     IndexedSelectAndReserveResult::RateLimited { retry_at }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SelectAndReserveResult, select_and_try_reserve};
+
+    #[test]
+    fn public_selection_reports_an_empty_candidate_set() {
+        assert!(matches!(
+            select_and_try_reserve(&[], 0),
+            SelectAndReserveResult::NoCandidates
+        ));
+    }
 }

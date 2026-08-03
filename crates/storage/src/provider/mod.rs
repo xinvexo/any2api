@@ -13,4 +13,4 @@ pub(crate) use credential::{
 pub(crate) use endpoint::{
     ProviderEndpointMutation, load_provider_endpoints_from, mutate_provider_endpoint_configuration,
 };
-pub(crate) use route::{load_model_routes_from, replace_model_routes};
+pub(crate) use route::{load_model_routes_from, reconcile_model_routes};

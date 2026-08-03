@@ -125,6 +125,11 @@ impl<'a> InputAssembler<'a> {
         }
         let name = required_string(object.get("name"), "function_call.name")?;
         let arguments = required_string(object.get("arguments"), "function_call.arguments")?;
+        if !self.output_call_ids.contains(call_id) {
+            return Err(invalid(
+                "function_call has no matching function_call_output",
+            ));
+        }
         self.pending_calls.push(json!({
             "id":call_id,
             "type":"function",

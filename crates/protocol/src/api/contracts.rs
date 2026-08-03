@@ -24,7 +24,6 @@ pub struct IngressRequest {
     pub operation: ProtocolOperation,
 }
 
-#[derive(Clone)]
 pub struct DecodedRequest {
     pub dialect: ProtocolDialect,
     pub operation: ProtocolOperation,
@@ -65,6 +64,7 @@ pub enum AdapterPayload {
 pub struct MultipartPayload {
     pub(crate) parts: Vec<MultipartPart>,
     pub(crate) model_part_index: usize,
+    pub(crate) model: String,
     pub(crate) stream: bool,
 }
 
@@ -124,8 +124,10 @@ pub struct AdapterEvent {
 /// shared by telemetry, continuation-ID extraction, and egress model rewriting.
 #[derive(Clone, PartialEq)]
 pub enum SseEventPayload {
-    /// The frame carries no data lines or only the `[DONE]` sentinel.
+    /// The frame carries no data lines, such as an SSE comment or heartbeat.
     Empty,
+    /// The frame carries the exact `[DONE]` sentinel.
+    Done,
     /// The frame carries data lines that are not valid JSON.
     NonJson,
     /// The `event:` name (if present) and the JSON value of the data lines.
@@ -240,6 +242,7 @@ impl fmt::Debug for SseEventPayload {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::Empty => "Empty",
+            Self::Done => "Done",
             Self::NonJson => "NonJson",
             Self::Json { .. } => "Json([REDACTED])",
         })
@@ -262,8 +265,8 @@ pub trait ProtocolAdapter: Send + Sync {
     fn encode_upstream_request(
         &self,
         operation: ProtocolOperation,
-        headers: HeaderMap,
-        payload: AdapterPayload,
+        headers: &HeaderMap,
+        payload: &AdapterPayload,
         upstream_model: &str,
     ) -> Result<EncodedUpstreamRequest, ProtocolError>;
 
@@ -314,7 +317,7 @@ pub trait ProtocolBridge: Send + Sync {
 
     fn start(
         &self,
-        request: DecodedRequest,
+        request: &DecodedRequest,
         upstream_model: &str,
     ) -> Result<StartedProtocolBridge, ProtocolError>;
 }

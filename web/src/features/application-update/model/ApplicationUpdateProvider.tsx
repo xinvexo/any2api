@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { ApiError } from "@/shared/api/http-client";
+import { useBodyScrollLock } from "@/shared/ui/useBodyScrollLock";
 
 import {
   getApplicationHealthVersion,
@@ -20,7 +21,8 @@ import type { ApplicationUpdateFlow } from "./update-flow";
 import { reloadApplication } from "./reload-application";
 import { ApplicationUpdateContext } from "./application-update-context";
 
-const PENDING_TARGET_KEY = "any2api.application-update-target.v1";
+export const APPLICATION_UPDATE_PENDING_TARGET_KEY = "any2api.application-update-target.v1";
+export const APPLICATION_UPDATE_CONFIRMATION_TIMEOUT_MS = 90_000;
 const POLL_INTERVAL_MS = 450;
 const COMPLETE_DELAY_MS = 800;
 
@@ -57,14 +59,26 @@ export function ApplicationUpdateProvider({ children }: PropsWithChildren) {
     );
   }, []);
 
-  const dismissFailure = useCallback(() => {
+  const dismissOutcome = useCallback(() => {
     setPendingTarget(null);
-    setFlow((current) => current.kind === "failed" ? { kind: "idle" } : current);
+    setFlow((current) => current.kind === "failed" || current.kind === "unconfirmed"
+      ? { kind: "idle" }
+      : current);
   }, []);
 
   const retry = useCallback(() => {
     if (flow.kind === "failed") {
       beginInstall(flow.targetVersion);
+      return;
+    }
+    if (flow.kind === "unconfirmed") {
+      setPendingTarget(flow.targetVersion);
+      setFlow({
+        kind: "running",
+        targetVersion: flow.targetVersion,
+        accepted: true,
+        status: { phase: "restarting", targetVersion: flow.targetVersion },
+      });
     }
   }, [beginInstall, flow]);
 
@@ -74,14 +88,14 @@ export function ApplicationUpdateProvider({ children }: PropsWithChildren) {
 
   const value = useMemo(() => ({
     beginInstall,
-    active: flow.kind !== "idle" && flow.kind !== "failed",
+    active: flow.kind === "running" || flow.kind === "complete",
   }), [beginInstall, flow.kind]);
 
   return (
     <ApplicationUpdateContext.Provider value={value}>
       {children}
       {flow.kind !== "idle" ? (
-        <ApplicationUpdateOverlay flow={flow} onRetry={retry} onDismiss={dismissFailure} />
+        <ApplicationUpdateOverlay flow={flow} onRetry={retry} onDismiss={dismissOutcome} />
       ) : null}
     </ApplicationUpdateContext.Provider>
   );
@@ -98,6 +112,8 @@ function useUpdatePolling(
     let cancelled = false;
     let timer = 0;
     let idleObservations = 0;
+    let lastAuthoritativeObservation = Date.now();
+    let observedVersion: string | null = null;
 
     const poll = async () => {
       const [statusResult, healthResult] = await Promise.allSettled([
@@ -107,16 +123,34 @@ function useUpdatePolling(
       if (cancelled) {
         return;
       }
-      if (healthResult.status === "fulfilled" && healthResult.value === targetVersion) {
-        setPendingTarget(null);
-        setFlow({ kind: "complete", targetVersion });
-        return;
+      if (healthResult.status === "fulfilled") {
+        observedVersion = healthResult.value;
+        if (observedVersion === targetVersion) {
+          setPendingTarget(null);
+          setFlow({ kind: "complete", targetVersion });
+          return;
+        }
       }
       if (statusResult.status === "fulfilled") {
         const status = statusResult.value;
         idleObservations = status.phase === "idle" ? idleObservations + 1 : 0;
         if ((status.phase !== "idle" || idleObservations >= 3)
           && applyStatus(status, targetVersion, setFlow)) {
+          return;
+        }
+        if (status.phase !== "idle") {
+          lastAuthoritativeObservation = Date.now();
+        }
+      } else {
+        idleObservations = 0;
+        if (Date.now() - lastAuthoritativeObservation
+          >= APPLICATION_UPDATE_CONFIRMATION_TIMEOUT_MS) {
+          setPendingTarget(null);
+          setFlow({
+            kind: "unconfirmed",
+            targetVersion,
+            message: unconfirmedMessage(targetVersion, observedVersion),
+          });
           return;
         }
       }
@@ -135,6 +169,14 @@ function isDefinitiveStartFailure(error: unknown) {
   return error instanceof ApiError
     && error.code !== "update_in_progress"
     && error.status < 500;
+}
+
+function unconfirmedMessage(targetVersion: string, observedVersion: string | null) {
+  const observed = observedVersion
+    ? `当前可访问服务仍为 v${observedVersion}，`
+    : "当前无法连接服务，";
+  const timeoutSeconds = APPLICATION_UPDATE_CONFIRMATION_TIMEOUT_MS / 1_000;
+  return `${observed}连续 ${timeoutSeconds} 秒未能确认 v${targetVersion} 的更新状态。更新可能仍在进行，你可以继续等待，或返回管理页面后稍后刷新。`;
 }
 
 function applyStatus(
@@ -169,17 +211,16 @@ function applyStatus(
 }
 
 function useLockedPage(overlayVisible: boolean, warnBeforeUnload: boolean) {
+  useBodyScrollLock(overlayVisible);
+
   useEffect(() => {
     if (!overlayVisible) {
       return;
     }
-    const previousOverflow = document.body.style.overflow;
     const applicationRoot = document.getElementById("root");
     const rootWasInert = applicationRoot?.hasAttribute("inert") ?? false;
-    document.body.style.overflow = "hidden";
     applicationRoot?.setAttribute("inert", "");
     return () => {
-      document.body.style.overflow = previousOverflow;
       if (!rootWasInert) {
         applicationRoot?.removeAttribute("inert");
       }
@@ -218,7 +259,7 @@ function initialFlow(): ApplicationUpdateFlow {
 
 function getPendingTarget() {
   try {
-    return window.sessionStorage.getItem(PENDING_TARGET_KEY);
+    return window.sessionStorage.getItem(APPLICATION_UPDATE_PENDING_TARGET_KEY);
   } catch {
     return null;
   }
@@ -227,9 +268,9 @@ function getPendingTarget() {
 function setPendingTarget(targetVersion: string | null) {
   try {
     if (targetVersion) {
-      window.sessionStorage.setItem(PENDING_TARGET_KEY, targetVersion);
+      window.sessionStorage.setItem(APPLICATION_UPDATE_PENDING_TARGET_KEY, targetVersion);
     } else {
-      window.sessionStorage.removeItem(PENDING_TARGET_KEY);
+      window.sessionStorage.removeItem(APPLICATION_UPDATE_PENDING_TARGET_KEY);
     }
   } catch {
     // The server-side task remains authoritative when browser storage is unavailable.

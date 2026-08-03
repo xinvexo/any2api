@@ -6,7 +6,7 @@ use any2api_runtime::api::{
 };
 use any2api_updater::api::ApplicationUpdateService;
 
-use crate::admin_auth::AdminAuthService;
+use crate::{admin_auth::AdminAuthService, zstd_decode::ZstdDecoder};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -17,9 +17,10 @@ pub struct AppState {
     oauth: Option<Arc<OAuthService>>,
     proxy_tests: Option<Arc<ProxyTestService>>,
     provider_credential_tests: Option<Arc<ProviderCredentialTestService>>,
-    admin_auth: Option<Arc<AdminAuthService>>,
+    admin_auth: Arc<AdminAuthService>,
     request_telemetry: Arc<RequestTelemetry>,
     application_updates: Option<Arc<dyn ApplicationUpdateService>>,
+    zstd_decoder: ZstdDecoder,
 }
 
 impl AppState {
@@ -29,7 +30,9 @@ impl AppState {
         runtime: Arc<RuntimeRegistry>,
         publisher: Arc<ConfigPublisher>,
         public_requests: Arc<PublicRequestService>,
+        admin_auth: Arc<AdminAuthService>,
     ) -> Self {
+        let zstd_decoder = ZstdDecoder::new(runtime.lifecycle());
         Self {
             snapshots,
             runtime,
@@ -38,9 +41,10 @@ impl AppState {
             oauth: None,
             proxy_tests: None,
             provider_credential_tests: None,
-            admin_auth: None,
+            admin_auth,
             request_telemetry: Arc::new(RequestTelemetry::disabled()),
             application_updates: None,
+            zstd_decoder,
         }
     }
 
@@ -62,12 +66,6 @@ impl AppState {
         tests: Arc<ProviderCredentialTestService>,
     ) -> Self {
         self.provider_credential_tests = Some(tests);
-        self
-    }
-
-    #[must_use]
-    pub fn with_admin_auth(mut self, admin_auth: Arc<AdminAuthService>) -> Self {
-        self.admin_auth = Some(admin_auth);
         self
     }
 
@@ -119,13 +117,13 @@ impl AppState {
     }
 
     #[must_use]
-    pub fn admin_auth(&self) -> Option<&AdminAuthService> {
-        self.admin_auth.as_deref()
+    pub fn admin_auth(&self) -> &AdminAuthService {
+        self.admin_auth.as_ref()
     }
 
     #[must_use]
-    pub fn admin_auth_handle(&self) -> Option<Arc<AdminAuthService>> {
-        self.admin_auth.clone()
+    pub fn admin_auth_handle(&self) -> Arc<AdminAuthService> {
+        Arc::clone(&self.admin_auth)
     }
 
     #[must_use]
@@ -141,5 +139,10 @@ impl AppState {
     #[must_use]
     pub fn application_updates(&self) -> Option<&dyn ApplicationUpdateService> {
         self.application_updates.as_deref()
+    }
+
+    #[must_use]
+    pub(crate) fn zstd_decoder(&self) -> &ZstdDecoder {
+        &self.zstd_decoder
     }
 }

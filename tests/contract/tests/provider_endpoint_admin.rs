@@ -1,9 +1,7 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::{ProtocolDialect, PublicModelName};
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
-use any2api_server::api::{AppState, build_router};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use axum::{
     Router,
@@ -13,11 +11,10 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn provider_endpoint_admin_is_loopback_only() {
+async fn provider_endpoint_admin_requires_a_session_for_remote_requests() {
     let (_directory, app, _storage) = test_app().await;
     let (status, body) = request_json(
         app,
@@ -28,8 +25,8 @@ async fn provider_endpoint_admin_is_loopback_only() {
     )
     .await;
 
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(body["error"]["code"], "admin_loopback_only");
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "admin_session_required");
 }
 
 #[tokio::test]
@@ -505,42 +502,7 @@ async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let public_requests = build_public_request_components()
-        .expect("public request components")
-        .service();
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, public_requests),
-        web_root,
-    );
-    (directory, app, storage)
+    TestApplication::new().await.into_router()
 }
 
 async fn request_json(

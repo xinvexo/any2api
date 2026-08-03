@@ -15,7 +15,7 @@ test("parses exact HTTP paths and nullable pre-response status", () => {
     total: 2,
     page: 1,
     page_size: 20,
-    telemetry: { queued_records: 1, dropped_records: 2, persisted_records: 3 },
+    telemetry: { queued_records: 1, in_flight_records: 4, dropped_records: 2, persisted_records: 3 },
   });
 
   expect(value.items.map((item) => item.path)).toEqual([
@@ -23,6 +23,7 @@ test("parses exact HTTP paths and nullable pre-response status", () => {
     "/assets/app%20name.js",
   ]);
   expect(value.items[1]?.statusCode).toBeNull();
+  expect(value.telemetry.inFlightRecords).toBe(4);
   expect(value.telemetry.droppedRecords).toBe(2);
   expect(parseClearSystemLogsResult({ deleted: 42 }).deleted).toBe(42);
 });
@@ -70,7 +71,7 @@ test("rejects unknown outcomes and invalid response counts", () => {
       total: 1,
       page: 1,
       page_size: 20,
-      telemetry: { queued_records: 0, dropped_records: 0, persisted_records: 0 },
+      telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 0 },
     }),
   ).toThrow("invalid system log response");
   expect(() => parseClearSystemLogsResult({ deleted: -1 })).toThrow(
@@ -82,7 +83,7 @@ test("rejects unknown outcomes and invalid response counts", () => {
       total: 0,
       page: 1,
       page_size: 20,
-      telemetry: { queued_records: 0, dropped_records: 0, persisted_records: 0 },
+      telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 0 },
     }),
   ).toThrow("invalid system log response");
 });

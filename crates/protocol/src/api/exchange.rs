@@ -84,7 +84,7 @@ impl ProtocolExchange {
 
     pub fn prepare_request(
         &mut self,
-        request: DecodedRequest,
+        request: &DecodedRequest,
         upstream_model: &str,
         continuation: Option<ProtocolContinuationState>,
     ) -> Result<PreparedProtocolRequest, ProtocolError> {
@@ -102,8 +102,8 @@ impl ProtocolExchange {
             let operation = request.operation;
             let encoded = self.ingress.encode_upstream_request(
                 operation,
-                request.headers,
-                request.payload,
+                &request.headers,
+                &request.payload,
                 upstream_model,
             )?;
             return Ok(PreparedProtocolRequest {

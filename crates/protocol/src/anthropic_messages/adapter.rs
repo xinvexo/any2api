@@ -8,13 +8,14 @@ use crate::{
     ProtocolError,
     api::{
         AdapterEvent, AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse,
+        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, StreamCompletionPolicy,
+        UpstreamResponse,
     },
     json_codec,
     sse::{parse_event_payload, rewrite_known_model},
 };
 
-use super::telemetry;
+use super::{telemetry, termination};
 
 #[derive(Debug, Default)]
 pub struct AnthropicMessagesAdapter;
@@ -32,6 +33,14 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         ProtocolDialect::AnthropicMessages
     }
 
+    fn stream_completion_policy(&self, operation: ProtocolOperation) -> StreamCompletionPolicy {
+        if operation == ProtocolOperation::Messages {
+            StreamCompletionPolicy::TerminalEventRequired
+        } else {
+            StreamCompletionPolicy::EofAllowed
+        }
+    }
+
     async fn decode_ingress_request(
         &self,
         request: IngressRequest,
@@ -42,8 +51,8 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
     fn encode_upstream_request(
         &self,
         operation: ProtocolOperation,
-        headers: HeaderMap,
-        payload: AdapterPayload,
+        headers: &HeaderMap,
+        payload: &AdapterPayload,
         upstream_model: &str,
     ) -> Result<EncodedUpstreamRequest, ProtocolError> {
         if !matches!(
@@ -72,7 +81,8 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
         let payload = parse_event_payload(&frame.0)?;
         let telemetry = telemetry::event(&payload);
-        Ok(AdapterEvent::new(frame.0, telemetry, payload))
+        let termination = termination::classify(&payload);
+        Ok(AdapterEvent::new(frame.0, telemetry, payload).with_termination(termination))
     }
 
     fn encode_egress_response(
@@ -173,7 +183,9 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::AnthropicMessagesAdapter;
-    use crate::api::{IngressRequest, ProtocolAdapter, SseFrame};
+    use crate::api::{
+        IngressRequest, ProtocolAdapter, SseFrame, StreamCompletionPolicy, StreamTermination,
+    };
 
     #[tokio::test]
     async fn messages_rewrites_model_and_uses_anthropic_error_shape() {
@@ -207,8 +219,8 @@ mod tests {
         let encoded = adapter
             .encode_upstream_request(
                 decoded.operation,
-                decoded.headers,
-                decoded.payload,
+                &decoded.headers,
+                &decoded.payload,
                 "claude-upstream",
             )
             .expect("encoded request");
@@ -250,8 +262,8 @@ mod tests {
         let encoded = adapter
             .encode_upstream_request(
                 decoded.operation,
-                decoded.headers,
-                decoded.payload,
+                &decoded.headers,
+                &decoded.payload,
                 "claude-upstream",
             )
             .expect("encoded count tokens request");
@@ -295,5 +307,41 @@ mod tests {
             .encode_egress_event(event, "public")
             .expect("encoded event");
         assert!(String::from_utf8_lossy(&frame.0).contains(r#""model":"public""#));
+    }
+
+    #[test]
+    fn messages_stream_requires_and_classifies_terminal_events() {
+        let adapter = AnthropicMessagesAdapter::new();
+        assert_eq!(
+            adapter.stream_completion_policy(ProtocolOperation::Messages),
+            StreamCompletionPolicy::TerminalEventRequired
+        );
+        assert_eq!(
+            adapter
+                .decode_upstream_event(SseFrame(Bytes::from_static(
+                    b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+                )))
+                .expect("message_stop")
+                .termination(),
+            StreamTermination::Completed
+        );
+        assert_eq!(
+            adapter
+                .decode_upstream_event(SseFrame(Bytes::from_static(
+                    b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
+                )))
+                .expect("error event")
+                .termination(),
+            StreamTermination::Failed
+        );
+        assert_eq!(
+            adapter
+                .decode_upstream_event(SseFrame(Bytes::from_static(
+                    b"event: ping\ndata: {\"type\":\"ping\"}\n\n",
+                )))
+                .expect("ping")
+                .termination(),
+            StreamTermination::None
+        );
     }
 }

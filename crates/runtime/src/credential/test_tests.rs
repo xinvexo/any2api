@@ -5,7 +5,7 @@ use any2api_domain::{
     ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestsPerMinute,
     RetrySafety, UpstreamErrorClassification, UpstreamErrorKind,
 };
-use any2api_provider::{CodexDriver, ProviderRegistry};
+use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
     TransportFailureScope, TransportManager, TransportProxy, TransportRequest, TransportResponse,

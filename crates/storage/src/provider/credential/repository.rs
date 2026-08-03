@@ -2,9 +2,12 @@ use any2api_domain::ConfigRevision;
 use sqlx::SqliteConnection;
 
 use crate::{
-    configuration::{StoredConfiguration, bump_revision, load_configuration_from},
-    error::StorageError,
-    provider::replace_model_routes,
+    configuration::{
+        StoredConfiguration, bump_revision, ensure_write_matches, load_configuration_from,
+        readback_provider_credential_mutation,
+    },
+    error::{ConfigurationWriteComponent, StorageError},
+    provider::reconcile_model_routes,
     settings::prune_model_allowlist,
 };
 
@@ -36,8 +39,9 @@ pub(crate) async fn mutate_connection(
     };
     execute_provider_credential_change(connection, prepared.change()).await?;
     let expected_model_routes = prepared.model_routes().cloned();
+    let model_routes_changed = expected_model_routes.is_some();
     if let Some(model_routes) = expected_model_routes.as_ref() {
-        replace_model_routes(connection, model_routes).await?;
+        reconcile_model_routes(connection, current.model_routes(), model_routes).await?;
         prune_model_allowlist(
             connection,
             current.settings(),
@@ -48,11 +52,24 @@ pub(crate) async fn mutate_connection(
     }
     let expected_credentials = prepared.into_configuration();
     let revision = bump_revision(connection, expected).await?;
-    let configuration = load_configuration_from(connection).await?;
-    assert_eq!(configuration.revision(), revision);
-    assert_eq!(configuration.provider_credentials(), &expected_credentials);
+    let configuration =
+        readback_provider_credential_mutation(connection, current, model_routes_changed).await?;
+    ensure_write_matches(
+        configuration.revision(),
+        revision,
+        ConfigurationWriteComponent::Revision,
+    )?;
+    ensure_write_matches(
+        configuration.provider_credentials(),
+        &expected_credentials,
+        ConfigurationWriteComponent::ProviderCredentials,
+    )?;
     if let Some(expected_model_routes) = expected_model_routes {
-        assert_eq!(configuration.model_routes(), &expected_model_routes);
+        ensure_write_matches(
+            configuration.model_routes(),
+            &expected_model_routes,
+            ConfigurationWriteComponent::ModelRoutes,
+        )?;
     }
     Ok((configuration, true))
 }

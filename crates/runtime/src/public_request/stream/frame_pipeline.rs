@@ -1,6 +1,8 @@
 use std::time::Instant;
 
-use any2api_protocol::api::{BridgeContinuationState, SseFrame, StreamCompletionPolicy};
+use any2api_protocol::api::{
+    BridgeContinuationState, SseFrame, StreamCompletionPolicy, StreamTermination,
+};
 use bytes::Bytes;
 
 use super::{GuardedBody, PendingFrame, pending_failure::PendingStreamError};
@@ -139,7 +141,7 @@ impl GuardedBody {
                 PendingStreamError::invalid_response("upstream SSE identity was invalid")
             })?;
         let continuation_state = self.exchange.bridge_continuation_state();
-        if termination.is_terminal()
+        if termination == StreamTermination::Completed
             && matches!(continuation_state, BridgeContinuationState::Pending)
         {
             return Err(PendingStreamError::invalid_response(

@@ -1,5 +1,4 @@
 use std::{
-    fs,
     net::SocketAddr,
     sync::{
         Arc, Mutex,
@@ -7,13 +6,10 @@ use std::{
     },
 };
 
-use any2api_contract_tests::{build_provider_registry, build_public_request_components};
+use any2api_contract_tests::TestApplication;
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
-use any2api_runtime::api::{
-    ConfigPublisher, OAuthService, PublishedSnapshot, RuntimeRegistry, SnapshotStore,
-};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
+use any2api_runtime::api::OAuthService;
+use any2api_storage::api::{OAuthAccountDocument, SqliteStore};
 use any2api_transport::api::{
     BoxByteStream, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
     TransportResponse,
@@ -45,8 +41,8 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
         remote,
     )
     .await;
-    assert_eq!(response.status, StatusCode::FORBIDDEN);
-    assert_eq!(response.json["error"]["code"], "admin_loopback_only");
+    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(response.json["error"]["code"], "admin_session_required");
     assert_eq!(context.transport.calls(), 0);
 
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
@@ -291,7 +287,7 @@ async fn token_refresh_failure_does_not_report_a_definitively_invalid_account() 
 }
 
 #[tokio::test]
-async fn invalid_grant_is_reported_as_a_definitively_invalid_account() {
+async fn top_level_invalid_grant_is_reported_as_a_definitively_invalid_account() {
     let context = TestContext::new().await;
     context.transport.use_invalid_grant_refresh_rejection();
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
@@ -378,28 +374,9 @@ struct TestContext {
 
 impl TestContext {
     async fn new() -> Self {
-        let directory = tempfile::tempdir().expect("temporary directory");
-        let storage = Arc::new(
-            SqliteStore::connect(&directory.path().join("oauth-quota.sqlite3"))
-                .await
-                .expect("storage"),
-        );
-        let configuration = storage.load_configuration().await.expect("configuration");
-        let providers = build_provider_registry();
-        let runtime = Arc::new(RuntimeRegistry::new());
-        let snapshots = Arc::new(SnapshotStore::new(
-            PublishedSnapshot::new(configuration, runtime.as_ref(), providers.as_ref())
-                .expect("initial snapshot"),
-        ));
-        let publisher = Arc::new(
-            ConfigPublisher::new(
-                Arc::clone(&storage),
-                Arc::clone(&snapshots),
-                Arc::clone(&runtime),
-                any2api_contract_tests::build_configuration_capabilities(),
-            )
-            .expect("publisher"),
-        );
+        let fixture = TestApplication::new().await;
+        let storage = fixture.storage();
+        let publisher = fixture.publisher();
         let codex_account_id = OAuthAccountId::new();
         publisher
             .activate_oauth_account(
@@ -450,18 +427,12 @@ impl TestContext {
             .expect("Claude account");
         let transport = Arc::new(QuotaTransport::new());
         let oauth = Arc::new(OAuthService::new(
-            providers,
+            fixture.components().provider_registry_handle(),
             Arc::clone(&transport) as Arc<dyn TransportManager>,
-            Arc::clone(&publisher),
+            publisher,
         ));
-        let web_root = directory.path().join("web");
-        fs::create_dir(&web_root).expect("web directory");
-        fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-        let components = build_public_request_components().expect("public request components");
-        let app = build_router(
-            AppState::new(snapshots, runtime, publisher, components.service()).with_oauth(oauth),
-            web_root,
-        );
+        let state = fixture.state().with_oauth(oauth);
+        let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);
         Self {
             _directory: directory,
             _storage: storage,
@@ -782,7 +753,7 @@ impl TransportManager for QuotaTransport {
                 }
                 "/oauth/token" => Some((
                     StatusCode::BAD_REQUEST,
-                    Bytes::from_static(br#"{"error":"invalid_grant"}"#),
+                    Bytes::from_static(br#"{"code":"invalid_grant"}"#),
                 )),
                 _ => None,
             };

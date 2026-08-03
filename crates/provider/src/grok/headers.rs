@@ -1,3 +1,4 @@
+use any2api_domain::ProviderKind;
 use http::{HeaderMap, HeaderValue};
 
 use crate::{
@@ -7,16 +8,16 @@ use crate::{
 };
 
 const REQUEST_HEADERS: &[&str] = &[
-    "user-agent",
-    "x-grok-client-mode",
-    "x-grok-client-version",
-    "x-grok-client-identifier",
-    "x-grok-client-surface",
     "x-grok-conv-id",
     "x-grok-req-id",
     "x-grok-session-id",
     "x-grok-agent-id",
     "x-grok-turn-id",
+    "user-agent",
+    "x-grok-client-mode",
+    "x-grok-client-version",
+    "x-grok-client-identifier",
+    "x-grok-client-surface",
     "traceparent",
     "tracestate",
 ];
@@ -26,12 +27,12 @@ const RESPONSE_HEADERS: &[&str] = &[
     "content-type",
     "x-request-id",
     "request-id",
+    "retry-after",
+    "x-should-retry",
     "x-grok-context-window",
     "x-grok-max-completion-tokens",
     "x-grok-doom-loop-check",
     "x-models-etag",
-    "x-should-retry",
-    "retry-after",
 ];
 
 pub(crate) fn request(
@@ -57,11 +58,17 @@ pub(crate) fn request(
         headers.extend(project(context.client_headers, REQUEST_HEADERS, &[]));
     }
     if context.oauth {
-        let model = HeaderValue::from_str(context.upstream_model)
-            .map_err(|_| ProviderError::InvalidResponse("invalid upstream model header".into()))?;
+        let model = oauth_model_header(context.upstream_model)?;
         headers.insert("x-grok-model-override", model);
     }
     Ok(headers)
+}
+
+fn oauth_model_header(model: &str) -> Result<HeaderValue, ProviderError> {
+    HeaderValue::from_bytes(model.as_bytes()).map_err(|_| ProviderError::UnsupportedOAuthModel {
+        provider: ProviderKind::Grok,
+        model: model.to_owned(),
+    })
 }
 
 pub(crate) fn response(upstream: &HeaderMap) -> HeaderMap {

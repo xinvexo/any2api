@@ -67,6 +67,13 @@ pub(super) fn map(error: OAuthError) -> AdminApiError {
             "server_shutting_down",
             "service is shutting down",
         ),
+        OAuthError::Activation(ConfigPublishError::OAuthAccountIdentityConflict) => {
+            AdminApiError::new(
+                StatusCode::CONFLICT,
+                "oauth_account_identity_conflict",
+                "multiple OAuth accounts have the same provider identity; remove the duplicate before logging in again",
+            )
+        }
         OAuthError::Activation(error) => {
             tracing::error!(error = ?error, "OAuth2 account activation failed");
             AdminApiError::new(

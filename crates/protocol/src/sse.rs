@@ -69,30 +69,33 @@ fn frame_limit_error() -> ProtocolError {
 
 fn find_event_end(bytes: &[u8], start: usize) -> Option<usize> {
     for index in start.min(bytes.len())..bytes.len() {
-        match bytes[index] {
-            b'\n' if bytes.get(index + 1) == Some(&b'\n') => return Some(index + 2),
-            b'\n'
-                if bytes.get(index + 1) == Some(&b'\r') && bytes.get(index + 2) == Some(&b'\n') =>
-            {
-                return Some(index + 3);
-            }
-            b'\r'
-                if bytes.get(index + 1) == Some(&b'\n')
-                    && bytes.get(index + 2) == Some(&b'\r')
-                    && bytes.get(index + 3) == Some(&b'\n') =>
-            {
-                return Some(index + 4);
-            }
-            _ => {}
+        let Some(first) = line_ending_len(bytes, index) else {
+            continue;
+        };
+        let second_at = index + first;
+        if let Some(second) = line_ending_len(bytes, second_at) {
+            return Some(second_at + second);
         }
     }
     None
 }
 
+fn line_ending_len(bytes: &[u8], index: usize) -> Option<usize> {
+    match *bytes.get(index)? {
+        b'\n' => Some(1),
+        b'\r' => match bytes.get(index + 1) {
+            Some(b'\n') => Some(2),
+            Some(_) => Some(1),
+            None => None,
+        },
+        _ => None,
+    }
+}
+
 pub(crate) fn parse_event_payload(bytes: &[u8]) -> Result<SseEventPayload, ProtocolError> {
     let text = std::str::from_utf8(bytes)
         .map_err(|_| ProtocolError::InvalidPayload("SSE frame is not valid UTF-8".into()))?;
-    let normalized = text.replace("\r\n", "\n");
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let event_name = normalized
         .lines()
         .find_map(|line| line.strip_prefix("event:"))
@@ -104,8 +107,11 @@ pub(crate) fn parse_event_payload(bytes: &[u8]) -> Result<SseEventPayload, Proto
         .map(str::trim_start)
         .collect::<Vec<_>>()
         .join("\n");
-    if data.is_empty() || data.trim() == "[DONE]" {
+    if data.is_empty() {
         return Ok(SseEventPayload::Empty);
+    }
+    if data.trim() == "[DONE]" {
+        return Ok(SseEventPayload::Done);
     }
     match serde_json::from_str(&data) {
         Ok(data) => Ok(SseEventPayload::Json { event_name, data }),
@@ -131,7 +137,7 @@ pub(crate) fn rewrite_known_model(
         .map_err(|_| ProtocolError::InvalidPayload("SSE event could not be encoded".into()))?;
     let text = std::str::from_utf8(&bytes)
         .map_err(|_| ProtocolError::InvalidPayload("SSE frame is not valid UTF-8".into()))?;
-    let normalized = text.replace("\r\n", "\n");
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let mut output = String::new();
     let mut replaced = false;
     for line in normalized.trim_end_matches('\n').split('\n') {
@@ -192,14 +198,15 @@ mod tests {
     }
 
     #[test]
-    fn decoder_handles_arbitrary_chunks_crlf_and_multiline_data() {
+    fn decoder_handles_arbitrary_chunks_all_line_endings_and_multiline_data() {
         let mut decoder = SseDecoder::new(1024);
         let mut frames = Vec::new();
         for chunk in [
             b"event: test\r".as_slice(),
-            b"\ndata: first\r\n".as_slice(),
-            b"data: second\r\n\r".as_slice(),
-            b"\nevent: done\ndata: [DONE]\n\n".as_slice(),
+            b"data: [1,\rdata: 2]\r\r".as_slice(),
+            b"event: done\r".as_slice(),
+            b"\ndata: [DONE]\r\n\r".as_slice(),
+            b"\n".as_slice(),
         ] {
             decoder.push(chunk);
             while let Some(frame) = decoder.next_frame().expect("SSE frame") {
@@ -209,12 +216,17 @@ mod tests {
         assert_eq!(frames.len(), 2);
         assert_eq!(
             frames[0].0,
-            Bytes::from_static(b"event: test\r\ndata: first\r\ndata: second\r\n\r\n")
+            Bytes::from_static(b"event: test\rdata: [1,\rdata: 2]\r\r")
         );
         assert_eq!(
             frames[1].0,
-            Bytes::from_static(b"event: done\ndata: [DONE]\n\n")
+            Bytes::from_static(b"event: done\r\ndata: [DONE]\r\n\r\n")
         );
+        assert!(matches!(
+            parse_event_payload(&frames[0].0),
+            Ok(crate::api::SseEventPayload::Json { event_name: Some(name), data })
+                if name == "test" && data == serde_json::json!([1, 2])
+        ));
     }
 
     #[test]
@@ -292,6 +304,18 @@ mod tests {
         assert_eq!(rewrite(text.clone(), "public"), text);
     }
 
+    #[test]
+    fn payload_parser_distinguishes_done_from_empty_heartbeats() {
+        assert_eq!(
+            parse_event_payload(b"data: [DONE]\n\n").expect("done payload"),
+            crate::api::SseEventPayload::Done
+        );
+        assert_eq!(
+            parse_event_payload(b": keep-alive\n\n").expect("heartbeat payload"),
+            crate::api::SseEventPayload::Empty
+        );
+    }
+
     mod properties {
         use proptest::prelude::*;
 
@@ -342,13 +366,17 @@ mod tests {
             }
 
             /// The payload parser must never panic and must classify every
-            /// frame into exactly one of the three payload shapes.
+            /// frame into exactly one of the four payload shapes.
             #[test]
             fn payload_parse_is_total_over_arbitrary_frames(
                 input in proptest::collection::vec(any::<u8>(), 0..300),
             ) {
                 match parse_event_payload(&input) {
-                    Ok(SseEventPayload::Empty | SseEventPayload::NonJson) => {}
+                    Ok(
+                        SseEventPayload::Empty
+                        | SseEventPayload::Done
+                        | SseEventPayload::NonJson,
+                    ) => {}
                     Ok(SseEventPayload::Json { .. }) => {}
                     Err(_) => prop_assert!(
                         std::str::from_utf8(&input).is_err(),

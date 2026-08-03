@@ -46,6 +46,7 @@ impl ClearSystemLogsResponse {
 #[derive(Serialize)]
 struct TelemetryResponse {
     queued_records: usize,
+    in_flight_records: usize,
     dropped_records: u64,
     persisted_records: u64,
 }
@@ -54,6 +55,7 @@ impl From<RequestTelemetryMetrics> for TelemetryResponse {
     fn from(value: RequestTelemetryMetrics) -> Self {
         Self {
             queued_records: value.queued_records,
+            in_flight_records: value.in_flight_records,
             dropped_records: value.dropped_records,
             persisted_records: value.persisted_records,
         }

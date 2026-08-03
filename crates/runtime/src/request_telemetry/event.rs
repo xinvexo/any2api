@@ -28,3 +28,12 @@ pub(super) enum TelemetryEvent {
         reply: oneshot::Sender<Result<u64, StorageError>>,
     },
 }
+
+impl TelemetryEvent {
+    pub(super) const fn record_count(&self) -> usize {
+        match self {
+            Self::RequestLog(_) | Self::HttpAccessLog { .. } | Self::GatewayKeyLastUsed { .. } => 1,
+            Self::ClearHttpAccessLogs { .. } => 0,
+        }
+    }
+}

@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use any2api_contract_tests::build_public_request_components;
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, PublicError,
-    PublicErrorCode, TokenUsage, TransportMode, UpstreamErrorKind,
+    PublicErrorCode, RetrySafety, TokenUsage, TransportMode, UpstreamErrorKind,
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
 use any2api_provider::api::{
@@ -108,6 +108,9 @@ fn composition_root_provider_registry_runs_every_contract() {
         assert_eq!(*kind, driver.kind());
         provider_header_policy_contract(*kind, driver.as_ref());
         provider_error_message_contract(*kind, driver.as_ref());
+        provider_structured_quota_contract(*kind, driver.as_ref());
+        provider_client_rejection_status_contract(*kind, driver.as_ref());
+        provider_retry_safety_contract(*kind, driver.as_ref());
         match kind {
             ProviderKind::Codex => codex_contract(driver.as_ref()),
             ProviderKind::Claude => claude_contract(driver.as_ref()),
@@ -133,8 +136,8 @@ async fn responses_contract(adapter: &dyn ProtocolAdapter) {
     let encoded = adapter
         .encode_upstream_request(
             decoded.operation,
-            decoded.headers,
-            decoded.payload,
+            &decoded.headers,
+            &decoded.payload,
             "upstream-model",
         )
         .expect("Responses request encodes");
@@ -154,8 +157,8 @@ async fn responses_contract(adapter: &dyn ProtocolAdapter) {
     let streaming = adapter
         .encode_upstream_request(
             streaming.operation,
-            streaming.headers,
-            streaming.payload,
+            &streaming.headers,
+            &streaming.payload,
             "upstream-model",
         )
         .expect("streaming Responses request encodes");
@@ -212,8 +215,8 @@ async fn chat_completions_contract(adapter: &dyn ProtocolAdapter) {
     let encoded = adapter
         .encode_upstream_request(
             decoded.operation,
-            decoded.headers,
-            decoded.payload,
+            &decoded.headers,
+            &decoded.payload,
             "upstream-model",
         )
         .expect("Chat Completions request encodes");
@@ -259,8 +262,8 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
     let encoded = adapter
         .encode_upstream_request(
             decoded.operation,
-            decoded.headers,
-            decoded.payload,
+            &decoded.headers,
+            &decoded.payload,
             "upstream-model",
         )
         .expect("Messages request encodes");
@@ -280,8 +283,8 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
     let streaming = adapter
         .encode_upstream_request(
             streaming.operation,
-            streaming.headers,
-            streaming.payload,
+            &streaming.headers,
+            &streaming.payload,
             "upstream-model",
         )
         .expect("streaming Messages request encodes");
@@ -302,8 +305,8 @@ async fn messages_contract(adapter: &dyn ProtocolAdapter) {
     let count_tokens = adapter
         .encode_upstream_request(
             count_tokens.operation,
-            count_tokens.headers,
-            count_tokens.payload,
+            &count_tokens.headers,
+            &count_tokens.payload,
             "upstream-model",
         )
         .expect("Count Tokens request encodes");
@@ -367,8 +370,8 @@ async fn images_contract(adapter: &dyn ProtocolAdapter) {
     let encoded = adapter
         .encode_upstream_request(
             generated.operation,
-            generated.headers,
-            generated.payload,
+            &generated.headers,
+            &generated.payload,
             "upstream-image-model",
         )
         .expect("Images generation request encodes");
@@ -392,8 +395,8 @@ async fn images_contract(adapter: &dyn ProtocolAdapter) {
     let encoded = adapter
         .encode_upstream_request(
             edited.operation,
-            edited.headers,
-            edited.payload,
+            &edited.headers,
+            &edited.payload,
             "upstream-image-model",
         )
         .expect("Images edit request encodes");
@@ -668,6 +671,135 @@ fn provider_error_message_contract(kind: ProviderKind, driver: &dyn ProviderDriv
     assert_eq!(invalid.official_message(), None);
 }
 
+fn provider_structured_quota_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
+    let (operation, quota_body, message_only_body) = match kind {
+        ProviderKind::Codex | ProviderKind::Grok => (
+            ProtocolOperation::Responses,
+            br#"{"error":{"code":"billing_hard_limit_reached","message":"billing rejected"}}"#.as_slice(),
+            br#"{"error":{"type":"invalid_request_error","message":"Your credit balance is too low"}}"#.as_slice(),
+        ),
+        ProviderKind::Claude => (
+            ProtocolOperation::Messages,
+            br#"{"type":"error","error":{"type":"billing_error","message":"billing rejected"}}"#.as_slice(),
+            br#"{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low"}}"#.as_slice(),
+        ),
+    };
+    let meta = UpstreamResponseMeta {
+        status: StatusCode::BAD_REQUEST,
+        headers: HeaderMap::new(),
+    };
+
+    let quota = driver.classify_error(operation, &meta, quota_body);
+    assert_eq!(
+        quota.classification().kind(),
+        UpstreamErrorKind::QuotaExhausted,
+        "{kind:?} exact quota field"
+    );
+    assert_eq!(
+        quota.classification().retry_safety(),
+        any2api_domain::RetrySafety::RejectedBeforeExecution,
+        "{kind:?} exact quota field"
+    );
+
+    let message_only = driver.classify_error(operation, &meta, message_only_body);
+    assert_eq!(
+        message_only.classification().kind(),
+        UpstreamErrorKind::InvalidRequest,
+        "{kind:?} natural-language message"
+    );
+}
+
+fn provider_client_rejection_status_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
+    let operation = match kind {
+        ProviderKind::Claude => ProtocolOperation::Messages,
+        ProviderKind::Codex | ProviderKind::Grok => ProtocolOperation::Responses,
+    };
+    for (status, body) in [
+        (
+            StatusCode::CONFLICT,
+            br#"{"type":"error","error":{"type":"rate_limit_error"}}"#.as_slice(),
+        ),
+        (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            br#"{"type":"error","error":{"type":"request_too_large","message":"request too large"}}"#
+                .as_slice(),
+        ),
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            br#"{"type":"error","error":{"type":"invalid_request_error"}}"#.as_slice(),
+        ),
+    ] {
+        let error = driver.classify_error(
+            operation,
+            &UpstreamResponseMeta {
+                status,
+                headers: HeaderMap::new(),
+            },
+            body,
+        );
+
+        assert_eq!(
+            error.classification().kind(),
+            UpstreamErrorKind::InvalidRequest,
+            "{kind:?} status {status}"
+        );
+        assert_eq!(
+            error.classification().retry_safety(),
+            any2api_domain::RetrySafety::Ambiguous,
+            "{kind:?} status {status}"
+        );
+    }
+}
+
+fn provider_retry_safety_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
+    let operation = match kind {
+        ProviderKind::Claude => ProtocolOperation::Messages,
+        ProviderKind::Codex | ProviderKind::Grok => ProtocolOperation::Responses,
+    };
+    for status in [StatusCode::REQUEST_TIMEOUT, StatusCode::TOO_EARLY] {
+        let classification = driver
+            .classify_error(
+                operation,
+                &UpstreamResponseMeta {
+                    status,
+                    headers: HeaderMap::new(),
+                },
+                b"{}",
+            )
+            .classification();
+
+        assert_eq!(classification.kind(), UpstreamErrorKind::Transient);
+        assert_eq!(
+            classification.retry_safety(),
+            RetrySafety::RejectedBeforeExecution,
+            "{kind:?} status {status}"
+        );
+        assert!(classification.retry_safety().allows_automatic_retry());
+    }
+
+    for status in [500, 503, 599] {
+        let status = StatusCode::from_u16(status).expect("valid server error status");
+        let classification = driver
+            .classify_error(
+                operation,
+                &UpstreamResponseMeta {
+                    status,
+                    headers: HeaderMap::new(),
+                },
+                b"{}",
+            )
+            .classification();
+
+        assert_eq!(classification.kind(), UpstreamErrorKind::Transient);
+        assert_eq!(
+            classification.retry_safety(),
+            RetrySafety::Ambiguous,
+            "{kind:?} status {status}"
+        );
+        assert!(!classification.retry_safety().allows_automatic_retry());
+    }
+}
+
 fn grok_contract(driver: &dyn ProviderDriver) {
     assert!(
         driver
@@ -809,6 +941,21 @@ fn grok_contract(driver: &dyn ProviderDriver) {
         .expect("Grok Build identity headers");
     assert_eq!(identity["x-xai-token-auth"], "xai-grok-cli");
     assert_eq!(identity["x-grok-model-override"], "grok-4.5");
+    let unicode_identity = driver
+        .prepare_request_headers(ProviderRequestHeaderContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "本地/Grok",
+            client_headers: &HeaderMap::new(),
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        })
+        .expect("Grok OAuth model uses exact UTF-8 header bytes");
+    assert_eq!(
+        unicode_identity["x-grok-model-override"].as_bytes(),
+        "本地/Grok".as_bytes()
+    );
 }
 
 fn provider_header_policy_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {

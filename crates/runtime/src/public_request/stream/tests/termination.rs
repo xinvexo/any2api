@@ -8,7 +8,11 @@ use std::{
     time::Duration,
 };
 
-use any2api_domain::RetrySafety;
+use any2api_domain::{ProtocolOperation, RetrySafety, SettingsConfiguration};
+use any2api_protocol::{
+    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
+    api::ProtocolAdapter,
+};
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };
@@ -16,10 +20,19 @@ use bytes::Bytes;
 use futures_util::{StreamExt, stream};
 use tokio::time::timeout;
 
-use super::core::{generation_permit, guarded_body};
+use super::core::{
+    generation_permit, guarded_body, guarded_body_for_adapter, guarded_body_for_adapter_with_health,
+};
+use crate::health::{AttemptHealth, ReliabilityPolicy};
 
 const COMPACTION_ITEM: &[u8] = b"event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"compaction_summary\",\"encrypted_content\":\"opaque\",\"future_extension\":{\"kept\":true}}}\n\n";
 const COMPLETED: &[u8] = b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_compact\"},\"future_terminal_field\":true}\n\n";
+type ProtocolStreamCase = (
+    &'static str,
+    Arc<dyn ProtocolAdapter>,
+    ProtocolOperation,
+    &'static [u8],
+);
 
 #[tokio::test]
 async fn terminal_frame_ends_a_held_upstream_after_preserving_compaction_events() {
@@ -194,4 +207,165 @@ async fn terminal_frame_without_a_trailing_blank_line_finishes_on_eof() {
     assert_eq!(binding.in_flight(), 1);
     assert!(body.next().await.is_none());
     assert_eq!(binding.in_flight(), 0);
+}
+
+#[tokio::test]
+async fn every_streaming_protocol_rejects_eof_before_its_terminal_event() {
+    let cases: Vec<ProtocolStreamCase> = vec![
+        (
+            "Messages",
+            Arc::new(AnthropicMessagesAdapter::new()),
+            ProtocolOperation::Messages,
+            b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n",
+        ),
+        (
+            "Chat Completions",
+            Arc::new(OpenAiChatCompletionsAdapter::new()),
+            ProtocolOperation::ChatCompletions,
+            b"data: {\"model\":\"upstream\",\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\n",
+        ),
+        (
+            "Images",
+            Arc::new(OpenAiImagesAdapter::new()),
+            ProtocolOperation::ImagesGenerations,
+            b"event: image_generation.partial_image\ndata: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"abc\"}\n\n",
+        ),
+    ];
+
+    for (name, adapter, operation, partial) in cases {
+        let (binding, permit) = generation_permit();
+        let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(partial))]));
+        let mut body = guarded_body_for_adapter(upstream, permit, adapter, operation)
+            .prime()
+            .await
+            .unwrap_or_else(|error| panic!("{name} first event must commit: {error:?}"))
+            .into_stream();
+
+        assert!(
+            body.next()
+                .await
+                .unwrap_or_else(|| panic!("{name} partial frame"))
+                .is_ok()
+        );
+        let error = body
+            .next()
+            .await
+            .unwrap_or_else(|| panic!("{name} missing terminal Body error"))
+            .expect_err("EOF before terminal must fail");
+        assert!(error.to_string().contains("terminal event"), "{name}");
+        assert!(body.next().await.is_none(), "{name}");
+        assert_eq!(binding.in_flight(), 0, "{name}");
+    }
+}
+
+#[tokio::test]
+async fn protocol_failure_events_are_forwarded_before_error_settlement() {
+    let cases: Vec<ProtocolStreamCase> = vec![
+        (
+            "Messages",
+            Arc::new(AnthropicMessagesAdapter::new()),
+            ProtocolOperation::Messages,
+            b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
+        ),
+        (
+            "Chat Completions",
+            Arc::new(OpenAiChatCompletionsAdapter::new()),
+            ProtocolOperation::ChatCompletions,
+            b"event: error\ndata: {\"error\":{\"message\":\"busy\"}}\n\n",
+        ),
+        (
+            "Images",
+            Arc::new(OpenAiImagesAdapter::new()),
+            ProtocolOperation::ImagesGenerations,
+            b"event: error\ndata: {\"error\":{\"message\":\"generation failed\"}}\n\n",
+        ),
+    ];
+
+    for (name, adapter, operation, failure) in cases {
+        let (binding, permit) = generation_permit();
+        let upstream: BoxByteStream =
+            Box::pin(stream::iter([Ok(Bytes::from_static(failure))]).chain(stream::pending()));
+        let mut body = guarded_body_for_adapter(upstream, permit, adapter, operation)
+            .prime()
+            .await
+            .unwrap_or_else(|error| panic!("{name} failure event must be forwarded: {error:?}"))
+            .into_stream();
+
+        assert_eq!(
+            body.next()
+                .await
+                .unwrap_or_else(|| panic!("{name} failure frame"))
+                .expect("failure event bytes"),
+            failure,
+            "{name}"
+        );
+        assert!(body.next().await.is_none(), "{name}");
+        assert_eq!(binding.in_flight(), 0, "{name}");
+    }
+}
+
+#[tokio::test]
+async fn stream_health_succeeds_only_after_a_successful_terminal_event() {
+    const DELTA: &[u8] = b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\n";
+    const FAILED: &[u8] =
+        b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n";
+    const COMPLETED: &[u8] = b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
+
+    for (name, terminal, should_clear_health) in
+        [("failed", FAILED, false), ("completed", COMPLETED, true)]
+    {
+        let (binding, permit) = generation_permit();
+        binding
+            .generation()
+            .health()
+            .record_quota_exhaustion(Duration::from_secs(60), None, None);
+        let health = AttemptHealth::new(
+            Arc::clone(binding.generation()),
+            "upstream".into(),
+            None,
+            None,
+            ReliabilityPolicy::from_settings(SettingsConfiguration::defaults().reliability()),
+        );
+        let mut bytes = Vec::from(DELTA);
+        bytes.extend_from_slice(terminal);
+        let upstream: BoxByteStream =
+            Box::pin(stream::iter([Ok(Bytes::from(bytes))]).chain(stream::pending()));
+        let mut body = guarded_body_for_adapter_with_health(
+            upstream,
+            permit,
+            Arc::new(AnthropicMessagesAdapter::new()),
+            ProtocolOperation::Messages,
+            health,
+        )
+        .prime()
+        .await
+        .unwrap_or_else(|error| panic!("{name} stream must prime: {error:?}"))
+        .into_stream();
+
+        assert!(
+            binding.generation().health().quota_exhaustion().is_some(),
+            "the first ordinary event must not settle health"
+        );
+        assert_eq!(
+            body.next()
+                .await
+                .expect("content event")
+                .expect("content bytes"),
+            DELTA
+        );
+        assert_eq!(
+            body.next()
+                .await
+                .expect("terminal event")
+                .expect("terminal bytes"),
+            terminal
+        );
+        assert!(body.next().await.is_none());
+        assert_eq!(
+            binding.generation().health().quota_exhaustion().is_none(),
+            should_clear_health,
+            "{name} stream health settlement"
+        );
+        assert_eq!(binding.in_flight(), 0);
+    }
 }

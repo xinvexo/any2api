@@ -209,6 +209,21 @@ test("shows friendly remote access copy and saves trusted proxy addresses", asyn
   });
 });
 
+test("shows independent HTTP system log row and exchange-byte budgets", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(httpLogConfiguration()));
+
+  renderSettings(
+    ["HTTP 系统日志"],
+    ["logs.http_access.max_rows", "logs.http_access.max_exchange_bytes"],
+  );
+
+  expect(await screen.findByRole("textbox", { name: "系统日志最大行数" })).toHaveValue("200000");
+  const bytes = screen.getByRole("textbox", { name: "系统日志原始交换容量" });
+  expect(bytes).toHaveValue(String(256 * 1024 * 1024));
+  expect(bytes.parentElement).toHaveTextContent("字节");
+  expect(screen.getByText(/删除完整的最旧记录/)).toBeInTheDocument();
+});
+
 function renderRoutingSettings() {
   const section = SETTING_SECTIONS.find((item) => item.id === "routing");
   if (!section) throw new Error("missing routing setting section");
@@ -335,6 +350,38 @@ function basicConfiguration(revision: number, trustedProxies: string[] | null) {
         null,
         null,
         "使用反向代理时填写代理服务器地址；没有反向代理请留空。",
+      ),
+    ],
+  };
+}
+
+function httpLogConfiguration() {
+  return {
+    config_revision: 1,
+    items: [
+      setting(
+        "logs.http_access.max_rows",
+        "integer",
+        200_000,
+        null,
+        null,
+        "HTTP 系统日志",
+        1,
+        10_000_000,
+        null,
+        "SQLite 中最多保留的 HTTP 系统日志行数。",
+      ),
+      setting(
+        "logs.http_access.max_exchange_bytes",
+        "integer",
+        256 * 1024 * 1024,
+        null,
+        null,
+        "HTTP 系统日志",
+        1024 * 1024,
+        64 * 1024 * 1024 * 1024,
+        null,
+        "原始 Header 与 Body 总字节预算；超出后删除完整的最旧记录。",
       ),
     ],
   };

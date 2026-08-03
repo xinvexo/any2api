@@ -3,6 +3,7 @@ mod error;
 mod gateway_api_key;
 mod id;
 mod kind;
+mod network;
 mod oauth_account;
 mod provider;
 mod proxy;
@@ -31,6 +32,7 @@ pub use kind::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding,
     TransportMode,
 };
+pub use network::{canonical_ip, is_loopback_ip};
 pub use oauth_account::{
     OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountValidationError,
 };
@@ -52,12 +54,12 @@ pub use routing::{
 };
 pub use settings::{
     AdminSettings, AffinitySettings, FileLogLevel, LoggingSettings, MAX_FILE_LOG_RETENTION_SECS,
-    MAX_FILE_LOG_TOTAL_SIZE, MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS,
-    MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY, ModelAccess, ModelSettings,
-    OAuthSettings, RateLimitMode, ReliabilitySettings, SchedulerSettings, SettingApplyMode,
-    SettingDefinition, SettingKey, SettingOverrideChange, SettingOverrides, SettingValue,
-    SettingValueType, SettingsConfiguration, SettingsValidationError, ShutdownSettings,
-    StreamSettings, UpstreamSettings,
+    MAX_FILE_LOG_TOTAL_SIZE, MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS,
+    MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES,
+    MAX_TELEMETRY_QUEUE_CAPACITY, ModelAccess, ModelSettings, OAuthSettings, RateLimitMode,
+    ReliabilitySettings, SchedulerSettings, SettingApplyMode, SettingDefinition, SettingKey,
+    SettingOverrideChange, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
+    SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
 };
 pub use telemetry::{
     CompletedRequestLog, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome,

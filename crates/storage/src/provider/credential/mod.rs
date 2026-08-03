@@ -9,6 +9,8 @@ mod writes;
 #[cfg(test)]
 mod model_tests;
 #[cfg(test)]
+mod route_reconciliation_tests;
+#[cfg(test)]
 mod tests;
 
 pub use api_key::ProviderApiKeyValidationError;

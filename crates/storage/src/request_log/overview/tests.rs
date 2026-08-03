@@ -1,5 +1,6 @@
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+    CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, ProtocolDialect, ProtocolOperation,
+    RequestId, RequestLog,
 };
 use tempfile::tempdir;
 
@@ -21,7 +22,7 @@ async fn overview_keeps_retained_and_selected_totals_separate() {
         record(now_ms - 100_000, Some("gpt-b"), 201, None, Some(7)),
     ];
     store
-        .append_request_logs(&records)
+        .append_request_logs(&records, MAX_REQUEST_LOG_ROWS)
         .await
         .expect("append logs");
 
@@ -78,7 +79,7 @@ async fn overview_bounds_model_groups_and_distinguishes_unknown_from_other() {
         )
     }));
     store
-        .append_request_logs(&records)
+        .append_request_logs(&records, MAX_REQUEST_LOG_ROWS)
         .await
         .expect("append logs");
 

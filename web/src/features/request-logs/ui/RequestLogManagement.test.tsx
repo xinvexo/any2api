@@ -56,6 +56,7 @@ test("renders request logs in a table without leaving the page for details", asy
   expect(screen.getAllByText("30").length).toBeGreaterThanOrEqual(1);
   // generation window = 42-18 = 24ms → 45/0.024 = 1875 t/s
   expect(screen.getAllByText("1875 t/s").length).toBeGreaterThanOrEqual(1);
+  expect(screen.getByText(/写入中/)).toBeInTheDocument();
   expect(screen.getByText(/丢弃/)).toBeInTheDocument();
   expect(screen.queryByRole("link")).not.toBeInTheDocument();
   expect(screen.queryByText("private prompt")).not.toBeInTheDocument();
@@ -240,6 +241,39 @@ test("paginates request logs from the toolbar", async () => {
   expect(screen.queryByText("model-1")).not.toBeInTheDocument();
 });
 
+test("returns to the last valid request-log page after the total shrinks", async () => {
+  let firstPageLoads = 0;
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path === "/api/admin/request-logs?page=1&page_size=20") {
+      firstPageLoads += 1;
+      return listResponse(
+        [{ ...request(), public_model: firstPageLoads === 1 ? "model-first" : "model-recovered" }],
+        firstPageLoads === 1 ? 41 : 1,
+        1,
+        20,
+      );
+    }
+    if (path === "/api/admin/request-logs?page=2&page_size=20") {
+      return listResponse([{ ...request(), public_model: "model-second" }], 41, 2, 20);
+    }
+    if (path === "/api/admin/request-logs?page=3&page_size=20") {
+      return listResponse([], 1, 3, 20);
+    }
+    throw new Error(`unexpected ${path}`);
+  });
+
+  renderManagement();
+  expect((await screen.findAllByText("model-first")).length).toBeGreaterThanOrEqual(1);
+  fireEvent.click(screen.getAllByRole("button", { name: "下一页" })[0]!);
+  expect((await screen.findAllByText("model-second")).length).toBeGreaterThanOrEqual(1);
+  fireEvent.click(screen.getAllByRole("button", { name: "下一页" })[0]!);
+
+  expect((await screen.findAllByText("model-recovered")).length).toBeGreaterThanOrEqual(1);
+  expect(firstPageLoads).toBe(2);
+  expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/admin/request-logs?page=1&page_size=20");
+});
+
 test("refreshes the current request-log page after a committed SSE change", async () => {
   vi.stubGlobal("EventSource", FakeEventSource);
   let calls = 0;
@@ -283,7 +317,12 @@ function listResponse(items: unknown[], total = items.length, page = 1, pageSize
       total,
       page,
       page_size: pageSize,
-      telemetry: { queued_records: 0, dropped_records: 2, persisted_records: items.length },
+      telemetry: {
+        queued_records: 0,
+        in_flight_records: 1,
+        dropped_records: 2,
+        persisted_records: items.length,
+      },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
@@ -306,7 +345,7 @@ function detailResponse() {
           status_code: 200,
         },
       ],
-      telemetry: { queued_records: 0, dropped_records: 2, persisted_records: 1 },
+      telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 2, persisted_records: 1 },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );

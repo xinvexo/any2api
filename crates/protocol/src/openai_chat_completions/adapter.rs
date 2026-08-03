@@ -6,13 +6,14 @@ use crate::{
     OpenAiResponsesAdapter, ProtocolError,
     api::{
         AdapterEvent, AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse,
+        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, SseFrame, StreamCompletionPolicy,
+        UpstreamResponse,
     },
     json_codec,
     sse::{parse_event_payload, rewrite_known_model},
 };
 
-use super::telemetry;
+use super::{telemetry, termination};
 
 #[derive(Debug, Default)]
 pub struct OpenAiChatCompletionsAdapter;
@@ -30,6 +31,14 @@ impl ProtocolAdapter for OpenAiChatCompletionsAdapter {
         ProtocolDialect::OpenAiChatCompletions
     }
 
+    fn stream_completion_policy(&self, operation: ProtocolOperation) -> StreamCompletionPolicy {
+        if operation == ProtocolOperation::ChatCompletions {
+            StreamCompletionPolicy::TerminalEventRequired
+        } else {
+            StreamCompletionPolicy::EofAllowed
+        }
+    }
+
     async fn decode_ingress_request(
         &self,
         request: IngressRequest,
@@ -40,8 +49,8 @@ impl ProtocolAdapter for OpenAiChatCompletionsAdapter {
     fn encode_upstream_request(
         &self,
         operation: ProtocolOperation,
-        headers: HeaderMap,
-        payload: AdapterPayload,
+        headers: &HeaderMap,
+        payload: &AdapterPayload,
         upstream_model: &str,
     ) -> Result<EncodedUpstreamRequest, ProtocolError> {
         if operation != ProtocolOperation::ChatCompletions {
@@ -67,7 +76,8 @@ impl ProtocolAdapter for OpenAiChatCompletionsAdapter {
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
         let payload = parse_event_payload(&frame.0)?;
         let telemetry = telemetry::event(&payload);
-        Ok(AdapterEvent::new(frame.0, telemetry, payload))
+        let termination = termination::classify(&payload);
+        Ok(AdapterEvent::new(frame.0, telemetry, payload).with_termination(termination))
     }
 
     fn encode_egress_response(
@@ -100,7 +110,9 @@ mod tests {
     use serde_json::Value;
 
     use super::OpenAiChatCompletionsAdapter;
-    use crate::api::{IngressRequest, ProtocolAdapter, SseFrame};
+    use crate::api::{
+        IngressRequest, ProtocolAdapter, SseFrame, StreamCompletionPolicy, StreamTermination,
+    };
 
     #[tokio::test]
     async fn decodes_and_rewrites_chat_completions() {
@@ -118,8 +130,8 @@ mod tests {
         let encoded = adapter
             .encode_upstream_request(
                 decoded.operation,
-                decoded.headers,
-                decoded.payload,
+                &decoded.headers,
+                &decoded.payload,
                 "upstream",
             )
             .expect("upstream request");
@@ -137,5 +149,37 @@ mod tests {
             .expect("event");
         let frame = adapter.encode_egress_event(event, "public").expect("frame");
         assert!(String::from_utf8_lossy(&frame.0).contains("\"model\":\"public\""));
+    }
+
+    #[test]
+    fn chat_stream_distinguishes_done_from_empty_heartbeats_and_errors() {
+        let adapter = OpenAiChatCompletionsAdapter::new();
+        assert_eq!(
+            adapter.stream_completion_policy(ProtocolOperation::ChatCompletions),
+            StreamCompletionPolicy::TerminalEventRequired
+        );
+        assert_eq!(
+            adapter
+                .decode_upstream_event(SseFrame(Bytes::from_static(b"data: [DONE]\n\n")))
+                .expect("done sentinel")
+                .termination(),
+            StreamTermination::Completed
+        );
+        assert_eq!(
+            adapter
+                .decode_upstream_event(SseFrame(Bytes::from_static(b": keep-alive\n\n")))
+                .expect("empty heartbeat")
+                .termination(),
+            StreamTermination::None
+        );
+        assert_eq!(
+            adapter
+                .decode_upstream_event(SseFrame(Bytes::from_static(
+                    b"event: error\ndata: {\"error\":{\"message\":\"busy\"}}\n\n",
+                )))
+                .expect("error event")
+                .termination(),
+            StreamTermination::Failed
+        );
     }
 }

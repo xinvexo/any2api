@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -9,6 +10,7 @@ use std::{
 use any2api_domain::PublicErrorCode;
 use tokio::time::Instant;
 
+use super::super::{filter_recorder::RequestFilterRecorder, generation};
 use super::{candidate, try_reserve_candidate};
 use crate::{
     public_request::selection::{
@@ -78,6 +80,49 @@ async fn generation_wait_reselects_when_the_oldest_rpm_reservation_expires() {
     let selected = task.await.expect("queue task").expect("selected candidate");
     assert_eq!(selected.candidate.credential_id, candidate.credential_id);
     drop(selected);
+    assert_eq!(coordinator.waiting_count(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn repeated_epoch_wakes_record_one_rate_filter_per_request() {
+    let epoch = SchedulerEpoch::new();
+    let coordinator = QueueCoordinator::new(Arc::clone(&epoch));
+    let candidate = candidate("filter-count", 1, Arc::clone(&epoch), 0);
+    drop(candidate.binding.try_reserve().expect("exhaust RPM"));
+    let tiers = BTreeMap::from([(0, vec![candidate.clone()])]);
+    let policy = policy(RateLimitAction::Wait, Duration::from_secs(300), 1);
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let attempts_for_task = Arc::clone(&attempts);
+    let coordinator_for_task = Arc::clone(&coordinator);
+    let task = tokio::spawn(async move {
+        let mut filters = RequestFilterRecorder::default();
+        generation::select_with_queue(&coordinator_for_task, policy, || {
+            attempts_for_task.fetch_add(1, Ordering::AcqRel);
+            generation::try_select_for_test_with_recorder(false, &tiers, &mut filters, |_| Some(0))
+        })
+        .await
+    });
+
+    wait_until_waiting(&coordinator, 1).await;
+    wait_until_attempts(&attempts, 2).await;
+    assert_eq!(
+        candidate.binding.balancing_counters().filtered_rate_limit(),
+        1
+    );
+
+    let mut observed_attempts = attempts.load(Ordering::Acquire);
+    for _ in 0..4 {
+        epoch.advance();
+        wait_until_attempts(&attempts, observed_attempts + 1).await;
+        observed_attempts = attempts.load(Ordering::Acquire);
+        assert_eq!(
+            candidate.binding.balancing_counters().filtered_rate_limit(),
+            1
+        );
+    }
+
+    task.abort();
+    assert!(task.await.is_err());
     assert_eq!(coordinator.waiting_count(), 0);
 }
 
@@ -236,6 +281,16 @@ async fn wait_until_waiting(coordinator: &QueueCoordinator, expected: u32) {
         tokio::task::yield_now().await;
     }
     panic!("queue task did not start");
+}
+
+async fn wait_until_attempts(attempts: &AtomicUsize, expected: usize) {
+    for _ in 0..10_000 {
+        if attempts.load(Ordering::Acquire) >= expected {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("selection was not retried");
 }
 
 fn policy(action: RateLimitAction, timeout: Duration, max_waiting: u32) -> QueuePolicy {

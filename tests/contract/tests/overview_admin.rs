@@ -1,19 +1,16 @@
 use std::{
-    fs,
     net::SocketAddr,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+    CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, ProtocolDialect, ProtocolOperation,
+    RequestId, RequestLog,
 };
-use any2api_runtime::api::{
-    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
-};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, RequestLogRepository, SqliteStore};
+use any2api_runtime::api::RequestTelemetry;
+use any2api_storage::api::{RequestLogRepository, SqliteStore};
 use axum::{
     Router,
     body::Body,
@@ -22,6 +19,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
+use sqlx::Connection;
 use tempfile::tempdir;
 use tower::ServiceExt;
 
@@ -35,26 +33,29 @@ async fn overview_usage_exposes_real_tokens_and_bounded_time_and_model_views() {
     );
     let now_ms = unix_now_ms();
     storage
-        .append_request_logs(&[
-            record(
-                now_ms - 2 * 60 * 60 * 1_000,
-                Some("old-model"),
-                200,
-                Some(100),
-                Some(20),
-            ),
-            record(
-                now_ms - 20 * 60 * 1_000,
-                Some("gpt-a"),
-                200,
-                Some(30),
-                Some(5),
-            ),
-            record(now_ms - 10 * 60 * 1_000, None, 503, None, None),
-        ])
+        .append_request_logs(
+            &[
+                record(
+                    now_ms - 2 * 60 * 60 * 1_000,
+                    Some("old-model"),
+                    200,
+                    Some(100),
+                    Some(20),
+                ),
+                record(
+                    now_ms - 20 * 60 * 1_000,
+                    Some("gpt-a"),
+                    200,
+                    Some(30),
+                    Some(5),
+                ),
+                record(now_ms - 10 * 60 * 1_000, None, 503, None, None),
+            ],
+            MAX_REQUEST_LOG_ROWS,
+        )
         .await
         .expect("append logs");
-    let app = test_router(&directory, Arc::clone(&storage)).await;
+    let (_directory, app) = test_router(directory, Arc::clone(&storage)).await;
 
     let (status, headers, body) = request(app.clone(), "/api/admin/overview/usage?range=1h").await;
     assert_eq!(status, StatusCode::OK);
@@ -95,47 +96,94 @@ async fn overview_usage_exposes_real_tokens_and_bounded_time_and_model_views() {
     assert_eq!(body["error"]["code"], "invalid_request");
 }
 
-async fn test_router(directory: &tempfile::TempDir, storage: Arc<SqliteStore>) -> Router {
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
+#[tokio::test]
+async fn request_log_list_isolates_corrupt_rows_but_detail_remains_unavailable() {
+    let directory = tempdir().expect("temporary directory");
+    let database_path = directory.path().join("any2api.sqlite3");
+    let storage = Arc::new(SqliteStore::connect(&database_path).await.expect("storage"));
+    let now_ms = unix_now_ms();
+    let oldest = record(
+        now_ms.saturating_sub(3_000),
+        Some("old-model"),
+        200,
+        None,
+        None,
     );
+    let corrupt = record(
+        now_ms.saturating_sub(2_000),
+        Some("bad-model"),
+        200,
+        None,
+        None,
+    );
+    let newest = record(
+        now_ms.saturating_sub(1_000),
+        Some("new-model"),
+        200,
+        None,
+        None,
+    );
+    storage
+        .append_request_logs(
+            &[oldest.clone(), corrupt.clone(), newest.clone()],
+            MAX_REQUEST_LOG_ROWS,
+        )
+        .await
+        .expect("append request logs");
+    let mut connection = sqlx::SqliteConnection::connect_with(
+        &sqlx::sqlite::SqliteConnectOptions::new().filename(database_path),
+    )
+    .await
+    .expect("secondary SQLite connection");
+    sqlx::query(
+        "UPDATE request_logs SET error_message = ' invalid diagnostic' WHERE request_id = ?",
+    )
+    .bind(corrupt.request.request_id.to_string())
+    .execute(&mut connection)
+    .await
+    .expect("inject corrupt telemetry");
+
+    let (_directory, app) = test_router(directory, Arc::clone(&storage)).await;
+    let (status, _, body) =
+        request(app.clone(), "/api/admin/request-logs?page=1&page_size=10").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["total"], 3);
+    let items = body["items"].as_array().expect("request log items");
+    assert_eq!(items.len(), 2);
+    assert_eq!(
+        items[0]["request_id"],
+        newest.request.request_id.to_string()
+    );
+    assert_eq!(
+        items[1]["request_id"],
+        oldest.request.request_id.to_string()
+    );
+
+    let (status, _, body) = request(
+        app,
+        &format!("/api/admin/request-logs/{}", corrupt.request.request_id),
+    )
+    .await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(body["error"]["code"], "request_log_unavailable");
+}
+
+async fn test_router(
+    directory: tempfile::TempDir,
+    storage: Arc<SqliteStore>,
+) -> (tempfile::TempDir, Router) {
+    let fixture = TestApplication::from_storage(directory, storage).await;
+    let runtime = fixture.runtime();
+    let snapshots = fixture.snapshots();
     let telemetry = Arc::new(RequestTelemetry::start(
-        storage,
+        fixture.storage(),
         snapshots.load().revision(),
         snapshots.load().settings().logging(),
         &runtime.lifecycle(),
     ));
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    build_router(
-        AppState::new(
-            snapshots,
-            runtime,
-            publisher,
-            build_public_request_components()
-                .expect("components")
-                .service(),
-        )
-        .with_request_telemetry(telemetry),
-        web_root,
-    )
+    let state = fixture.state().with_request_telemetry(telemetry);
+    let (directory, app, _storage) = fixture.into_router_with_state(state);
+    (directory, app)
 }
 
 async fn request(app: Router, uri: &str) -> (StatusCode, axum::http::HeaderMap, Value) {

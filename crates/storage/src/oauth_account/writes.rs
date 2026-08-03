@@ -14,6 +14,17 @@ pub(crate) async fn execute_oauth_account_change(
             insert(connection, account, document).await?;
             replace_models(connection, account).await?;
         }
+        OAuthAccountDatabaseChange::Reauthorize {
+            account,
+            expected_token_version,
+            models_changed,
+            document,
+        } => {
+            refresh(connection, account, *expected_token_version, document).await?;
+            if *models_changed {
+                replace_models(connection, account).await?;
+            }
+        }
         OAuthAccountDatabaseChange::Update(account) => update_metadata(connection, account).await?,
         OAuthAccountDatabaseChange::SetModels(account) => {
             update_metadata(connection, account).await?;
@@ -96,12 +107,13 @@ async fn refresh(
     let bytes = document_bytes(document);
     let result = sqlx::query(concat!(
         "UPDATE oauth_accounts SET oauth_json = ?, token_version = ?, account_generation = ?, ",
-        "safe_account_email = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP ",
+        "config_version = ?, safe_account_email = ?, expires_at = ?, updated_at = CURRENT_TIMESTAMP ",
         "WHERE id = ? AND token_version = ?"
     ))
     .bind(bytes)
     .bind(to_i64(account.token_version())?)
     .bind(to_i64(account.account_generation())?)
+    .bind(to_i64(account.config_version())?)
     .bind(account.safe_account_email())
     .bind(account.expires_at())
     .bind(account.id().to_string())

@@ -62,10 +62,12 @@ export function ApplicationUpdateOverlay({
 
         {view.phase !== "failed" ? <StageTrack phase={view.phase} /> : null}
 
-        {flow.kind === "failed" ? (
+        {flow.kind === "failed" || flow.kind === "unconfirmed" ? (
           <div className="application-update-actions">
             <Button variant="secondary" size="lg" onClick={onDismiss}>返回</Button>
-            <Button variant="primary" size="lg" onClick={onRetry}>重新尝试</Button>
+            <Button variant="primary" size="lg" onClick={onRetry}>
+              {flow.kind === "unconfirmed" ? "继续等待" : "重新尝试"}
+            </Button>
           </div>
         ) : (
           <p className="application-update-lock-note">
@@ -167,6 +169,9 @@ function getUpdateView(flow: Exclude<ApplicationUpdateFlow, { kind: "idle" }>): 
   }
   if (flow.kind === "failed") {
     return view("failed", "更新未完成", flow.message);
+  }
+  if (flow.kind === "unconfirmed") {
+    return view("failed", "无法确认更新结果", flow.message);
   }
   const { status, targetVersion } = flow;
   if (status.phase === "downloading") {

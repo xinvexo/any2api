@@ -1,57 +1,42 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{fs, net::SocketAddr};
 
-use any2api_contract_tests::build_public_request_components;
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_contract_tests::TestApplication;
+use any2api_server::api::{EmbeddedWebAsset, WebAssets, build_router};
 use axum::{
     body::Body,
     extract::ConnectInfo,
-    http::{Request, header::CACHE_CONTROL},
+    http::{
+        Request,
+        header::{CACHE_CONTROL, ETAG, IF_NONE_MATCH},
+    },
 };
 use http_body_util::BodyExt;
-use tempfile::tempdir;
 use tower::ServiceExt;
+
+const EMBEDDED_WEB_ASSETS: &[EmbeddedWebAsset] = &[
+    EmbeddedWebAsset::new(
+        "assets/app.js",
+        b"console.log('embedded')",
+        "\"embedded-script\"",
+    ),
+    EmbeddedWebAsset::new(
+        "index.html",
+        b"<main>embedded shell</main>",
+        "\"embedded-index\"",
+    ),
+];
 
 #[tokio::test]
 async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let web_root = directory.path().join("web");
+    let fixture = TestApplication::new().await;
+    let web_root = fixture.directory().join("custom-web");
     fs::create_dir(&web_root).expect("web directory");
     fs::create_dir(web_root.join("assets")).expect("asset directory");
     fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
     fs::write(web_root.join("assets/app.js"), "console.log('asset')").expect("web asset");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            storage,
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
-    let public_requests = build_public_request_components()
-        .expect("public request components")
-        .service();
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, public_requests),
-        web_root,
-    );
+    let state = fixture.state();
+    let app = build_router(state.clone(), web_root);
+    let embedded_app = build_router(state, WebAssets::embedded(EMBEDDED_WEB_ASSETS));
     let response = app
         .clone()
         .oneshot(
@@ -65,6 +50,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
 
     assert_eq!(response.status(), 200);
     assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
     assert!(!response.headers().contains_key("content-security-policy"));
     let body = response
         .into_body()
@@ -141,6 +127,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         .await
         .expect("asset response");
     assert_eq!(asset.status(), 200);
+    assert_eq!(asset.headers()["x-content-type-options"], "nosniff");
 
     let missing_asset = app
         .clone()
@@ -153,6 +140,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         .await
         .expect("missing asset response");
     assert_eq!(missing_asset.status(), 404);
+    assert_eq!(missing_asset.headers()["x-content-type-options"], "nosniff");
 
     let rejected_write = app
         .clone()
@@ -166,6 +154,55 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         .await
         .expect("static write response");
     assert_eq!(rejected_write.status(), 405);
+    assert_eq!(
+        rejected_write.headers()["x-content-type-options"],
+        "nosniff"
+    );
+
+    let embedded_deep_link = embedded_app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/settings/providers")
+                .body(Body::empty())
+                .expect("embedded deep link request"),
+        )
+        .await
+        .expect("embedded deep link response");
+    assert_eq!(embedded_deep_link.status(), 200);
+    assert_eq!(
+        embedded_deep_link.headers()["x-content-type-options"],
+        "nosniff"
+    );
+    assert_eq!(embedded_deep_link.headers()[ETAG], "\"embedded-index\"");
+    assert_eq!(embedded_deep_link.headers()[CACHE_CONTROL], "no-cache");
+
+    let embedded_unchanged = embedded_app
+        .oneshot(
+            Request::builder()
+                .uri("/settings/providers")
+                .header(IF_NONE_MATCH, "W/\"embedded-index\"")
+                .body(Body::empty())
+                .expect("conditional embedded deep link request"),
+        )
+        .await
+        .expect("conditional embedded deep link response");
+    assert_eq!(embedded_unchanged.status(), 304);
+    assert_eq!(
+        embedded_unchanged.headers()["x-content-type-options"],
+        "nosniff"
+    );
+    assert_eq!(embedded_unchanged.headers()[ETAG], "\"embedded-index\"");
+    assert_eq!(embedded_unchanged.headers()[CACHE_CONTROL], "no-cache");
+    assert!(
+        embedded_unchanged
+            .into_body()
+            .collect()
+            .await
+            .expect("conditional embedded body")
+            .to_bytes()
+            .is_empty()
+    );
 
     for uri in ["/api", "/api/", "/api/missing"] {
         let response = app
@@ -179,6 +216,7 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
             .await
             .expect("missing api response");
         assert_eq!(response.status(), 404, "unexpected status for {uri}");
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
     }
 
     for uri in ["/v1", "/v1/"] {
@@ -194,5 +232,6 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
             .await
             .expect("public api root response");
         assert_eq!(response.status(), 401, "unexpected status for {uri}");
+        assert_eq!(response.headers()["x-content-type-options"], "nosniff");
     }
 }

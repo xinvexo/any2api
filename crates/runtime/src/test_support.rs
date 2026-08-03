@@ -1,13 +1,14 @@
-use std::sync::Arc;
+use std::{convert::Infallible, sync::Arc};
 
 use any2api_domain::ConfigRevision;
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
     OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
 };
-use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, ProviderRegistry};
+use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, api::ProviderRegistry};
 use any2api_storage::api::{
-    ConfigurationMutation, ConfigurationRepository, SqliteStore, StorageError, StoredConfiguration,
+    ConfigurationMutation, ConfigurationRepository, ConfigurationTransactionOutcome,
+    ConfigurationTransactionRepository, SqliteStore, StorageError, StoredConfiguration,
 };
 
 use crate::configuration::ConfigurationCapabilities;
@@ -52,8 +53,14 @@ pub(crate) async fn commit_configuration(
     expected: ConfigRevision,
     mutation: ConfigurationMutation,
 ) -> Result<StoredConfiguration, StorageError> {
-    let prepared = store.prepare_configuration(expected, mutation).await?;
-    let (candidate, commit) = prepared.into_parts();
-    commit.finish().await?;
-    Ok(candidate)
+    let outcome = <SqliteStore as ConfigurationTransactionRepository<
+        StoredConfiguration,
+        Infallible,
+    >>::transact_configuration(store, expected, mutation, Box::new(Ok))
+    .await?;
+    match outcome {
+        ConfigurationTransactionOutcome::NoChange => store.load_configuration().await,
+        ConfigurationTransactionOutcome::Committed(configuration) => Ok(configuration),
+        ConfigurationTransactionOutcome::Rejected(never) => match never {},
+    }
 }

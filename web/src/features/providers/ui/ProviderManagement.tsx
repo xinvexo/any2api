@@ -1,11 +1,9 @@
-import { Plus, RefreshCw, Search } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import type { ProviderEndpoint, ProviderEndpointWriteInput, ProviderKind } from "../api/provider-contracts";
 import {
   isProviderKind,
-  PROVIDER_KIND_OPTIONS,
   providerKindLabel,
 } from "../model/provider-kind-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
@@ -13,11 +11,9 @@ import { useProviderEndpointMutations } from "../model/use-provider-mutations";
 import { useProviderEndpoints } from "../model/use-providers";
 import { ProviderEditorSlot } from "./ProviderEditorSlot";
 import { ProviderEndpointList } from "./ProviderEndpointList";
-import { ProviderKindNav } from "./ProviderKindNav";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
-import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
 import { Surface } from "@/shared/ui/Surface";
 
@@ -29,15 +25,6 @@ export function ProviderManagement() {
   const editorId = searchParams.get("editor");
   const kindParam = searchParams.get("kind");
   const selectedKind: ProviderKind = isProviderKind(kindParam) ? kindParam : "codex";
-  const kindName = providerKindLabel(selectedKind);
-  const emptyCounts = useMemo(
-    () =>
-      Object.fromEntries(PROVIDER_KIND_OPTIONS.map((option) => [option.kind, 0])) as Record<
-        ProviderKind,
-        number
-      >,
-    [],
-  );
 
   async function refreshEndpoints() {
     const result = await endpoints.refetch();
@@ -81,76 +68,20 @@ export function ProviderManagement() {
     );
   }
 
-  function selectKind(kind: ProviderKind) {
-    setSearchParams(
-      (current) => {
-        const next = new URLSearchParams(current);
-        next.set("kind", kind);
-        next.delete("keys");
-        next.delete("credential");
-        next.delete("action");
-        next.delete("editor");
-        return next;
-      },
-      { replace: true },
-    );
-  }
-
-  if (endpoints.isPending && !endpoints.data) {
-    return (
-      <ProviderChrome
-        kindName={kindName}
-        selectedKind={selectedKind}
-        counts={emptyCounts}
-        onSelectKind={selectKind}
-        busy
-        onRefresh={() => undefined}
-        refreshing={false}
-        canCreate={false}
-        onCreate={() => undefined}
-      >
-        <div className="flex h-full min-h-48 items-center justify-center text-sm text-secondary">
-          正在读取 Provider 配置
-        </div>
-      </ProviderChrome>
-    );
-  }
-
-  if (!endpoints.data) {
-    return (
-      <ProviderChrome
-        kindName={kindName}
-        selectedKind={selectedKind}
-        counts={emptyCounts}
-        onSelectKind={selectKind}
-        onRefresh={() => void refreshEndpoints()}
-        refreshing={endpoints.isFetching}
-        canCreate={false}
-        onCreate={() => undefined}
-      >
-        <Surface className="p-6" role="alert">
-          <p className="font-semibold">无法读取 Provider 配置</p>
-          <p className="mt-2 text-sm text-secondary">{getProviderErrorMessage(endpoints.error)}</p>
-          <Button className="mt-5" onClick={() => void refreshEndpoints()} disabled={endpoints.isFetching}>
-            <RefreshCw size={14} className={endpoints.isFetching ? "animate-spin" : undefined} />
-            重试
-          </Button>
-        </Surface>
-      </ProviderChrome>
-    );
-  }
-
   const configuration = endpoints.data;
   const selected =
-    editorId && editorId !== "new"
+    configuration && editorId && editorId !== "new"
       ? configuration.items.find((endpoint) => endpoint.id === editorId)
       : undefined;
-  const editorOpen = editorId !== null;
+  const editorOpen = configuration !== undefined && editorId !== null;
   const editorError = editorId === "new" ? mutations.create.error : mutations.update.error;
   const editorPending = mutations.create.isPending || mutations.update.isPending;
   const editorKindName = providerKindLabel(selected?.providerKind ?? selectedKind);
 
   async function submitEditor(input: ProviderEndpointWriteInput) {
+    if (!configuration) {
+      return;
+    }
     if (editorId === "new") {
       await mutations.create.mutateAsync(input);
       notify.success(`已创建「${input.name}」`);
@@ -164,6 +95,9 @@ export function ProviderManagement() {
   }
 
   function toggleEndpoint(endpoint: ProviderEndpoint) {
+    if (!configuration) {
+      return;
+    }
     const nextEnabled = !endpoint.enabled;
     mutations.update.reset();
     mutations.update.mutate(
@@ -192,7 +126,7 @@ export function ProviderManagement() {
   }
 
   function confirmDelete() {
-    if (!deleteTarget) {
+    if (!configuration || !deleteTarget) {
       return;
     }
     const target = deleteTarget;
@@ -217,7 +151,7 @@ export function ProviderManagement() {
       className="flex h-full min-h-0 flex-col"
       aria-busy={editorPending || mutations.isPending || endpoints.isFetching}
     >
-      {endpoints.isError ? (
+      {configuration && endpoints.isError ? (
         <Surface
           className="mb-5 flex flex-col gap-3 border-warning/40 p-4 sm:flex-row sm:items-center sm:justify-between"
           role="status"
@@ -232,7 +166,19 @@ export function ProviderManagement() {
       ) : null}
 
       <ProviderEndpointList
-        configuration={configuration}
+        items={configuration?.items ?? []}
+        loadState={
+          endpoints.isPending && !configuration
+            ? { kind: "loading" }
+            : !configuration
+              ? {
+                  kind: "error",
+                  message: getProviderErrorMessage(endpoints.error),
+                  refreshing: endpoints.isFetching,
+                  onRetry: () => void refreshEndpoints(),
+                }
+              : undefined
+        }
         pending={mutations.isPending}
         refreshing={endpoints.isFetching}
         onCreate={(kind) => openEditor("new", kind)}
@@ -248,7 +194,7 @@ export function ProviderManagement() {
         description={`配置 ${editorKindName} 上游地址`}
         onClose={() => closeEditor(editorId)}
       >
-        {editorId ? (
+        {editorId && configuration ? (
           <ProviderEditorSlot
             key={`${editorId}:${selectedKind}`}
             editorId={editorId}
@@ -283,67 +229,5 @@ export function ProviderManagement() {
         }}
       />
     </div>
-  );
-}
-
-function ProviderChrome({
-  kindName,
-  selectedKind,
-  counts,
-  onSelectKind,
-  busy,
-  onRefresh,
-  refreshing,
-  canCreate,
-  onCreate,
-  children,
-}: {
-  kindName: string;
-  selectedKind: ProviderKind;
-  counts: Record<ProviderKind, number>;
-  onSelectKind: (kind: ProviderKind) => void;
-  busy?: boolean;
-  onRefresh: () => void;
-  refreshing: boolean;
-  canCreate: boolean;
-  onCreate: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <KindSplitLayout
-      aria-busy={busy || undefined}
-      toolbarStart={
-        <>
-          <Search
-            size={14}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tertiary"
-            aria-hidden="true"
-          />
-          <input
-            className="focus-ring h-8 w-full rounded-[8px] border-0 bg-surface-muted py-0 pl-8 pr-3 text-[12px] text-primary placeholder:text-tertiary"
-            disabled
-            placeholder={`搜索 ${kindName} Endpoint`}
-            aria-label={`搜索 ${kindName}`}
-            value=""
-            readOnly
-          />
-        </>
-      }
-      toolbarEnd={
-        <>
-          <Button variant="ghost" disabled={refreshing || busy} onClick={onRefresh}>
-            <RefreshCw size={14} className={refreshing ? "animate-spin" : undefined} />
-            刷新
-          </Button>
-          <Button variant="primary" disabled={!canCreate || busy} onClick={onCreate}>
-            <Plus size={14} />
-            新增
-          </Button>
-        </>
-      }
-      kindNav={<ProviderKindNav selected={selectedKind} counts={counts} onSelect={onSelectKind} />}
-    >
-      {children}
-    </KindSplitLayout>
   );
 }

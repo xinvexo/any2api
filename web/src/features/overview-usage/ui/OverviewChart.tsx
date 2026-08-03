@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent, useRef } from "react";
 import {
   ArcElement,
   CategoryScale,
@@ -65,16 +65,17 @@ export function OverviewChart<TType extends ChartType>({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const chartRef = useRef<ChartJs<TType, number[], string> | null>(null);
+  const createLatestConfiguration = useEffectEvent(() => createConfiguration(readPalette()));
 
   useEffect(() => {
     const host = hostRef.current;
     const canvas = canvasRef.current;
     if (!host || !canvas) return;
-    let chart: ChartJs<TType, number[], string> | null = null;
 
     const renderChart = () => {
-      chart?.destroy();
-      chart = null;
+      chartRef.current?.destroy();
+      chartRef.current = null;
       if (
         host.getBoundingClientRect().width <= 0 ||
         typeof CanvasRenderingContext2D === "undefined" ||
@@ -82,7 +83,7 @@ export function OverviewChart<TType extends ChartType>({
       ) {
         return;
       }
-      chart = new ChartJs(canvas, createConfiguration(readPalette()));
+      chartRef.current = new ChartJs(canvas, createLatestConfiguration());
     };
 
     const frame = requestAnimationFrame(renderChart);
@@ -94,8 +95,20 @@ export function OverviewChart<TType extends ChartType>({
     return () => {
       cancelAnimationFrame(frame);
       themeObserver.disconnect();
-      chart?.destroy();
+      chartRef.current?.destroy();
+      chartRef.current = null;
     };
+  }, []);
+
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const configuration = createConfiguration(readPalette());
+    chart.data = configuration.data;
+    if (configuration.options !== undefined) {
+      chart.options = configuration.options;
+    }
+    chart.update("none");
   }, [createConfiguration]);
 
   return (

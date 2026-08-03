@@ -51,6 +51,16 @@ async fn batch_import_publishes_one_revision_and_compiles_routing_credentials() 
     assert_eq!(result.accounts().len(), 3);
     assert_eq!(snapshot.oauth_accounts().accounts().len(), 3);
     assert_eq!(snapshot.credential_runtimes().len(), 3);
+    let projected_ids = snapshot
+        .routing_credentials()
+        .iter()
+        .map(|credential| credential.id())
+        .collect::<Vec<_>>();
+    let runtime_ids = snapshot
+        .credential_runtimes()
+        .map(|binding| binding.credential_id())
+        .collect::<Vec<_>>();
+    assert_eq!(runtime_ids, projected_ids);
     let codex_labels = snapshot
         .oauth_accounts()
         .for_provider(ProviderKind::Codex)
@@ -65,6 +75,45 @@ async fn batch_import_publishes_one_revision_and_compiles_routing_credentials() 
             .all(|account| account.enabled() && account.requests_per_minute().is_none())
     );
     assert_eq!(context.runtime.scheduler_epoch(), 1);
+}
+
+#[tokio::test]
+async fn batch_import_trims_at_the_label_limit_before_deduplicating() {
+    let context = ImportContext::new().await;
+    let preferred = format!("{} tail", "a".repeat(99));
+    let document = json!({
+        "accounts": [
+            {
+                "name": preferred,
+                "platform": "openai",
+                "type": "oauth",
+                "credentials": {"access_token": "codex-one"}
+            },
+            {
+                "name": preferred,
+                "platform": "openai",
+                "type": "oauth",
+                "credentials": {"access_token": "codex-two"}
+            }
+        ]
+    });
+
+    let result = publish(
+        context.capabilities.provider_registry(),
+        &context.publisher,
+        vec![json_bytes(document)],
+    )
+    .await
+    .expect("batch import");
+    let labels = result
+        .accounts()
+        .iter()
+        .map(|account| account.label())
+        .collect::<Vec<_>>();
+
+    assert_eq!(labels, ["a".repeat(99), format!("{} (2)", "a".repeat(96))]);
+    assert!(labels.iter().all(|label| label.trim_end() == *label));
+    assert!(labels.iter().all(|label| label.chars().count() <= 100));
 }
 
 #[tokio::test]

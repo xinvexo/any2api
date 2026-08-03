@@ -4,3 +4,8 @@
 "0003_plaintext_local_secrets.sql" = "9e4dfb87412e9d1dbc2ab85f14cc323fd6db56f5b8dad35d7bc51993e872a3a6"
 "0004_raw_http_access_log_exchange.sql" = "a9ac42f3cd6bed5e227a04f695868c9b342db97dc1fe3dce316adfb1f04c3aa0"
 "0005_normalize_claude_base_urls.sql" = "2c5f5658394ea4b5ee98f348915c47a3a8527850e2279830bba483fe2df821d7"
+"0006_add_telemetry_query_indexes.sql" = "3dba7fca16822cb3d6fb190b3cf5aa7a461d25b141a5d7b1c55346cb65fd97eb"
+"0007_bound_http_access_log_capacity.sql" = "a72969271816551b618c5b754eb71c0fcc63582b7be386875e20f6e48be5dd0e"
+"0008_drop_duplicate_request_attempt_index.sql" = "5c8b1e5af8f4deeb0ba83be53a08357ce00c26044838931ec7e7dce3123feac5"
+"0009_normalize_http_access_log_loopback_ips.sql" = "d7c69aeae5afccce4ec33441b441127d1869fe0a50f1758aca3b01156437cba8"
+"0010_optimize_request_usage_aggregates.sql" = "e08e8ab1984fb9ef4b3638698b0201347e04a5cb6103571608dcfb24a4440b2f"

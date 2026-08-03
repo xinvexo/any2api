@@ -186,6 +186,31 @@ async fn successful_upstream_chunk_resets_the_postcommit_idle_timer() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn successful_upstream_chunks_reuse_the_postcommit_idle_timer() {
+    let (_binding, permit) = generation_permit();
+    let upstream: BoxByteStream = Box::pin(
+        stream::iter([
+            Ok(Bytes::from_static(
+                b"data: {\"model\":\"upstream\",\"index\":1}\n\n",
+            )),
+            Ok(Bytes::from_static(
+                b"data: {\"model\":\"upstream\",\"index\":2}\n\n",
+            )),
+        ])
+        .chain(stream::pending()),
+    );
+    let mut body = guarded_body_with_idle_timeout(upstream, permit, Duration::from_millis(50))
+        .prime()
+        .await
+        .expect("primed stream");
+
+    assert!(body.next().await.expect("first frame").is_ok());
+    let timer_address = body.idle_timer_address().expect("idle timer started");
+    assert!(body.next().await.expect("second frame").is_ok());
+    assert_eq!(body.idle_timer_address(), Some(timer_address));
+}
+
+#[tokio::test(start_paused = true)]
 async fn postcommit_idle_timeout_does_not_penalize_endpoint_health() {
     let (binding, permit) = generation_permit();
     let epoch = SchedulerEpoch::new();

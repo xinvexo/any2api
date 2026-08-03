@@ -2,7 +2,7 @@ mod dto;
 mod error;
 mod handlers;
 
-use super::revision;
+use super::{request_json, revision};
 use crate::state::AppState;
 use axum::{
     Router,

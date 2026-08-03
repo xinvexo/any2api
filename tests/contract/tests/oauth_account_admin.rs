@@ -1,14 +1,11 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components;
+use any2api_contract_tests::TestApplication;
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProtocolDialect,
-    ProtocolOperation, ProviderKind, ProxyProfileId, RequestId, RequestLog,
+    CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId,
+    ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId, RequestId, RequestLog,
 };
-use any2api_runtime::api::{
-    ConfigPublisher, PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
-};
-use any2api_server::api::{AppState, build_router};
+use any2api_runtime::api::RequestTelemetry;
 use any2api_storage::api::{
     ConfigurationRepository, OAuthAccountDocument, RequestLogRepository, SqliteStore,
 };
@@ -20,7 +17,6 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tempfile::tempdir;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -31,10 +27,13 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
         .expect("clock")
         .as_millis() as u64;
     storage
-        .append_request_logs(&[
-            oauth_request_log(account_id, now_ms.saturating_sub(1_000), 200),
-            oauth_request_log(account_id, now_ms, 503),
-        ])
+        .append_request_logs(
+            &[
+                oauth_request_log(account_id, now_ms.saturating_sub(1_000), 200),
+                oauth_request_log(account_id, now_ms, 503),
+            ],
+            MAX_REQUEST_LOG_ROWS,
+        )
         .await
         .expect("append OAuth usage");
     let remote = SocketAddr::from(([203, 0, 113, 10], 41000));
@@ -46,8 +45,8 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
         remote,
     )
     .await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(forbidden["error"]["code"], "admin_loopback_only");
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(forbidden["error"]["code"], "admin_session_required");
 
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
 
@@ -225,31 +224,11 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
 }
 
 async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccountId) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("sqlite bootstrap"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("configuration publisher"),
-    );
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let runtime = fixture.runtime();
+    let snapshots = fixture.snapshots();
+    let publisher = fixture.publisher();
     let account_id = OAuthAccountId::new();
     publisher
         .activate_oauth_account(
@@ -270,21 +249,14 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
         )
         .await
         .expect("activate OAuth account");
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api shell</main>").expect("web index");
-    let components = build_public_request_components().expect("public request components");
     let telemetry = Arc::new(RequestTelemetry::start(
         Arc::clone(&storage),
         snapshots.load().revision(),
         snapshots.load().settings().logging(),
         &runtime.lifecycle(),
     ));
-    let app = build_router(
-        AppState::new(snapshots, runtime, publisher, components.service())
-            .with_request_telemetry(telemetry),
-        web_root,
-    );
+    let state = fixture.state().with_request_telemetry(telemetry);
+    let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);
     (directory, app, storage, account_id)
 }
 

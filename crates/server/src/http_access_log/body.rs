@@ -102,34 +102,40 @@ impl AccessLogCompletion {
             return;
         }
         self.pending = false;
+        if !should_record(
+            &self.metadata.path,
+            self.metadata.client_ip,
+            self.status_code,
+            outcome,
+        ) {
+            return;
+        }
         response_body.finish(outcome == HttpAccessLogOutcome::Completed);
-        let response_body = response_body.snapshot();
+        let response_body = response_body.take_snapshot();
         let duration_ms = u64::try_from(self.started.elapsed().as_millis()).unwrap_or(u64::MAX);
         let log = HttpAccessLog {
             request_id: self.metadata.request_id,
             started_at_ms: self.metadata.started_at_ms,
             config_revision: self.metadata.config_revision,
             client_ip: self.metadata.client_ip,
-            method: self.metadata.method.clone(),
-            path: self.metadata.path.clone(),
-            uri: self.metadata.uri.clone(),
+            method: std::mem::take(&mut self.metadata.method),
+            path: std::mem::take(&mut self.metadata.path),
+            uri: std::mem::take(&mut self.metadata.uri),
             http_version: self.metadata.http_version,
             status_code: self.status_code,
             duration_ms,
             response_bytes: response_body.total_bytes,
             outcome,
             exchange: Some(HttpAccessLogExchange {
-                request_headers: self.metadata.request_headers.clone(),
-                request_body: self.metadata.request_body.snapshot(),
-                response_headers: self.response_headers.clone(),
+                request_headers: std::mem::take(&mut self.metadata.request_headers),
+                request_body: self.metadata.request_body.take_snapshot(),
+                response_headers: std::mem::take(&mut self.response_headers),
                 response_body,
             }),
         };
-        if should_record(&log) {
-            let notification = change_notification(&log);
-            self.telemetry
-                .try_record_http_access(log, &self.settings, notification);
-        }
+        let notification = change_notification(&log);
+        self.telemetry
+            .try_record_http_access(log, &self.settings, notification);
     }
 }
 

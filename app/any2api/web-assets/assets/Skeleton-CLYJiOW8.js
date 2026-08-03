@@ -1,0 +1,1 @@
+import{t as e}from"./jsx-runtime-bzQ4Vb5N.js";import{t}from"./cn-BtRqtsxU.js";var n=e();function r({className:e}){return(0,n.jsx)(`span`,{"aria-hidden":`true`,"data-skeleton":!0,className:t(`block animate-pulse rounded-[5px] bg-strong`,e)})}export{r as t};

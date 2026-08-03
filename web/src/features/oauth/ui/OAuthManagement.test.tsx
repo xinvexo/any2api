@@ -16,6 +16,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test("keeps one OAuth chrome while the account query leaves its loading state", async () => {
+  const accounts = deferred<Response>();
+  vi.stubGlobal("fetch", vi.fn(() => accounts.promise));
+
+  renderManagement();
+  expect(screen.getByText("正在读取 OAuth 账号")).toBeInTheDocument();
+  const navigation = screen.getByRole("navigation", { name: "OAuth2 类型" });
+
+  accounts.resolve(jsonResponse({ config_revision: 1, items: [] }));
+  expect(await screen.findByText("还没有 Codex OAuth 账号")).toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "OAuth2 类型" })).toBe(navigation);
+  expect(screen.getAllByRole("navigation", { name: "OAuth2 类型" })).toHaveLength(1);
+});
+
 test("uses provider grid layout without a main-column session panel", async () => {
   mockAccounts([]);
 

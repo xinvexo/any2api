@@ -23,7 +23,8 @@ pub use definition::{SettingApplyMode, SettingDefinition, SettingValueType};
 pub use key::SettingKey;
 pub use logging_settings::{
     LoggingSettings, MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE,
-    MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
+    MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS, MAX_REQUEST_LOG_RETENTION_SECS,
+    MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
 };
 pub use model_settings::ModelSettings;
 pub use network_settings::NetworkSettings;

@@ -5,11 +5,12 @@ use tokio::time::{Instant, sleep_until, timeout_at};
 
 use super::super::SelectedCandidate;
 use super::{
-    GenerationSelection, no_available_credentials, rate_limit_error, rate_limited,
-    temporarily_unavailable,
+    GenerationSelection, filter_recorder::RequestFilterRecorder, no_available_credentials,
+    rate_limit_error, rate_limited, temporarily_unavailable,
 };
 use crate::{
     configuration::PublishedSnapshot,
+    credential::CredentialFilterKind,
     health::{HealthAcquireError, ReliabilityPolicy},
     routing::{
         CandidateExclusions, IndexedSelectAndReserveResult, QueueCoordinator, QueuePolicy,
@@ -23,12 +24,14 @@ pub(super) fn try_select(
     fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     exclusions: &CandidateExclusions,
+    filters: &mut RequestFilterRecorder,
 ) -> Result<GenerationSelection, PublicError> {
     try_select_with(
         snapshot.reliability_policy(),
         fallback_on_rate_limit,
         tiers,
         exclusions,
+        filters,
         |tier| {
             snapshot
                 .route_tier_cursor(route_id, FallbackTier::new(tier))
@@ -42,6 +45,7 @@ fn try_select_with(
     fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     exclusions: &CandidateExclusions,
+    filters: &mut RequestFilterRecorder,
     mut tie_breaker: impl FnMut(u16) -> Option<u64>,
 ) -> Result<GenerationSelection, PublicError> {
     let mut saw_rate_limit = false;
@@ -58,7 +62,7 @@ fn try_select_with(
                 match candidate.health_availability(&policy) {
                     Ok(()) => true,
                     Err(error) => {
-                        candidate.record_health_filter(error);
+                        filters.record(candidate, error.kind());
                         if let HealthAcquireError::Temporary(until) = error.source() {
                             health_retry_at = earliest(health_retry_at, until);
                         }
@@ -84,18 +88,18 @@ fn try_select_with(
             match select_index_and_try_reserve(&bindings, tie_breaker) {
                 IndexedSelectAndReserveResult::Reserved { index, permit } => {
                     let candidate = eligible[index].1;
-                    let health = match candidate.acquire_health(policy) {
-                        Ok(health) => health,
-                        Err(error) => {
-                            candidate.record_health_filter(error);
-                            drop(permit);
-                            if let HealthAcquireError::Temporary(until) = error.source() {
-                                health_retry_at = earliest(health_retry_at, until);
+                    let (permit, health) =
+                        match candidate.acquire_health_with_rpm_reservation(policy, permit) {
+                            Ok(acquired) => acquired,
+                            Err(error) => {
+                                filters.record(candidate, error.kind());
+                                if let HealthAcquireError::Temporary(until) = error.source() {
+                                    health_retry_at = earliest(health_retry_at, until);
+                                }
+                                eligible.swap_remove(index);
+                                continue;
                             }
-                            eligible.swap_remove(index);
-                            continue;
-                        }
-                    };
+                        };
                     candidate.record_selection();
                     return Ok(GenerationSelection::Acquired(Box::new(SelectedCandidate {
                         candidate: candidate.clone(),
@@ -105,7 +109,7 @@ fn try_select_with(
                 }
                 IndexedSelectAndReserveResult::RateLimited { retry_at } => {
                     for (_, candidate) in &eligible {
-                        candidate.record_rate_limit_filter();
+                        filters.record(candidate, CredentialFilterKind::RateLimit);
                     }
                     saw_rate_limit = true;
                     if let Some(retry_at) = retry_at {
@@ -116,7 +120,6 @@ fn try_select_with(
                     }
                     break;
                 }
-                IndexedSelectAndReserveResult::NoCandidates => break,
             }
         }
         if eligible.is_empty()
@@ -227,6 +230,17 @@ pub(super) fn try_select_for_test(
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     tie_breaker: impl FnMut(u16) -> Option<u64>,
 ) -> Result<GenerationSelection, PublicError> {
+    let mut filters = RequestFilterRecorder::default();
+    try_select_for_test_with_recorder(fallback_on_rate_limit, tiers, &mut filters, tie_breaker)
+}
+
+#[cfg(test)]
+pub(super) fn try_select_for_test_with_recorder(
+    fallback_on_rate_limit: bool,
+    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
+    filters: &mut RequestFilterRecorder,
+    tie_breaker: impl FnMut(u16) -> Option<u64>,
+) -> Result<GenerationSelection, PublicError> {
     try_select_with(
         ReliabilityPolicy::from_settings(
             any2api_domain::SettingsConfiguration::defaults().reliability(),
@@ -234,6 +248,7 @@ pub(super) fn try_select_for_test(
         fallback_on_rate_limit,
         tiers,
         &CandidateExclusions::default(),
+        filters,
         tie_breaker,
     )
 }

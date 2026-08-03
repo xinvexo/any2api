@@ -4,32 +4,72 @@ use serde_json::Value;
 
 use crate::api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, StreamTermination};
 
-pub(super) fn sse_default(kind: &str, value: Value) -> AdapterEvent {
-    sse(kind, value, ProtocolEventTelemetry::default())
+pub(super) struct SynthesizedEvent {
+    kind: &'static str,
+    data: Value,
+    telemetry: ProtocolEventTelemetry,
+    termination: StreamTermination,
 }
 
-pub(super) fn sse(kind: &str, value: Value, telemetry: ProtocolEventTelemetry) -> AdapterEvent {
+impl SynthesizedEvent {
+    pub(super) fn data_mut(&mut self) -> &mut Value {
+        &mut self.data
+    }
+}
+
+pub(super) fn event_default(kind: &'static str, data: Value) -> SynthesizedEvent {
+    event(kind, data, ProtocolEventTelemetry::default())
+}
+
+pub(super) fn event(
+    kind: &'static str,
+    data: Value,
+    telemetry: ProtocolEventTelemetry,
+) -> SynthesizedEvent {
+    SynthesizedEvent {
+        kind,
+        data,
+        telemetry,
+        termination: StreamTermination::None,
+    }
+}
+
+pub(super) fn terminal_event(
+    kind: &'static str,
+    data: Value,
+    telemetry: ProtocolEventTelemetry,
+    termination: StreamTermination,
+) -> SynthesizedEvent {
+    SynthesizedEvent {
+        kind,
+        data,
+        telemetry,
+        termination,
+    }
+}
+
+pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
+    #[cfg(test)]
+    record_encoding();
+    let SynthesizedEvent {
+        kind,
+        data,
+        telemetry,
+        termination,
+    } = event;
     let bytes = Bytes::from(format!(
         "event: {kind}\ndata: {}\n\n",
-        serde_json::to_string(&value).expect("JSON value encodes")
+        serde_json::to_string(&data).expect("JSON value encodes")
     ));
     AdapterEvent::new(
         bytes,
         telemetry,
         SseEventPayload::Json {
             event_name: Some(kind.to_owned()),
-            data: value,
+            data,
         },
     )
-}
-
-pub(super) fn sse_terminal(
-    kind: &str,
-    value: Value,
-    telemetry: ProtocolEventTelemetry,
-    termination: StreamTermination,
-) -> AdapterEvent {
-    sse(kind, value, telemetry).with_termination(termination)
+    .with_termination(termination)
 }
 
 pub(super) fn content_telemetry() -> ProtocolEventTelemetry {
@@ -37,4 +77,24 @@ pub(super) fn content_telemetry() -> ProtocolEventTelemetry {
         token_usage: TokenUsage::default(),
         has_content_delta: true,
     }
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static ENCODING_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn record_encoding() {
+    ENCODING_COUNT.set(ENCODING_COUNT.get() + 1);
+}
+
+#[cfg(test)]
+pub(super) fn reset_encoding_count() {
+    ENCODING_COUNT.set(0);
+}
+
+#[cfg(test)]
+pub(super) fn encoding_count() -> usize {
+    ENCODING_COUNT.get()
 }

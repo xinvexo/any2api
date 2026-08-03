@@ -9,6 +9,8 @@ mod writes;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+pub(crate) use usage::GATEWAY_API_KEY_USAGE_SUMMARY_SQL;
 pub use usage::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
 };

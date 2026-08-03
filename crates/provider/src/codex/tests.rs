@@ -5,9 +5,8 @@ use base64::Engine as _;
 use http::{header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::CodexDriver;
-use crate::{
-    OAuthGrant, ProviderSecret,
-    api::{ProviderDriver, ProviderRequestHeaderContext},
+use crate::api::{
+    OAuthGrant, OAuthTokenMaterial, ProviderDriver, ProviderRequestHeaderContext, ProviderSecret,
 };
 
 #[test]
@@ -129,7 +128,7 @@ fn builds_pkce_authorization_and_token_requests() {
 #[test]
 fn refresh_preserves_omitted_codex_account_fields() {
     let driver = CodexDriver::new();
-    let previous = crate::OAuthTokenMaterial::new(
+    let previous = OAuthTokenMaterial::new(
         ProviderKind::Codex,
         "old-access".into(),
         Some("old-refresh".into()),

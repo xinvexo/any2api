@@ -194,6 +194,40 @@ test("paginates system logs on the server", async () => {
   expect(screen.queryByText("/v1/responses")).not.toBeInTheDocument();
 });
 
+test("returns to the last valid system-log page after the total shrinks", async () => {
+  let firstPageLoads = 0;
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path === "/api/admin/system-logs?page=1&page_size=20") {
+      firstPageLoads += 1;
+      return listResponse(firstPageLoads === 1 ? "/v1/first" : "/v1/recovered", 41, 1, 20);
+    }
+    if (path === "/api/admin/system-logs?page=2&page_size=20") {
+      return listResponse("/v1/second", 41, 2, 20);
+    }
+    if (path === "/api/admin/system-logs?page=3&page_size=20") {
+      return jsonResponse({
+        items: [],
+        total: 1,
+        page: 3,
+        page_size: 20,
+        telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 0 },
+      });
+    }
+    throw new Error(`unexpected ${path}`);
+  });
+
+  renderManagement();
+  expect((await screen.findAllByText("/v1/first")).length).toBeGreaterThan(1);
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect((await screen.findAllByText("/v1/second")).length).toBeGreaterThan(1);
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+
+  expect((await screen.findAllByText("/v1/recovered")).length).toBeGreaterThan(1);
+  expect(firstPageLoads).toBe(2);
+  expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/admin/system-logs?page=1&page_size=20");
+});
+
 function renderManagement() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -230,7 +264,7 @@ function listResponse(
     total,
     page,
     page_size: pageSize,
-    telemetry: { queued_records: 0, dropped_records: 0, persisted_records: 1 },
+    telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 1 },
   });
 }
 

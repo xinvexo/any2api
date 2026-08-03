@@ -38,7 +38,7 @@ pub(in crate::public_request::upstream) struct AttemptInput<'a> {
 pub(in crate::public_request::upstream) fn prepare_input<'a>(
     snapshot: &'a PublishedSnapshot,
     protocols: &ProtocolRegistry,
-    decoded: DecodedRequest,
+    decoded: &DecodedRequest,
     affinity: AffinitySelection,
     providers: &'a ProviderRegistry,
     attempt_recorder: AttemptRecorder,

@@ -1,9 +1,6 @@
-use std::{fs, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 
-use any2api_contract_tests::build_public_request_components;
-use any2api_runtime::api::{ConfigPublisher, PublishedSnapshot, RuntimeRegistry, SnapshotStore};
-use any2api_server::api::{AppState, build_router};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_contract_tests::TestApplication;
 use any2api_updater::api::{
     ApplicationAbout, ApplicationUpdateService, UpdateCheck, UpdateError, UpdateErrorKind,
     UpdateStatus,
@@ -17,7 +14,6 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::Value;
-use tempfile::tempdir;
 use tower::ServiceExt;
 
 struct SuccessfulUpdates;
@@ -134,8 +130,8 @@ async fn update_admin_remains_protected_and_reports_missing_service() {
     let remote = SocketAddr::from(([203, 0, 113, 5], 41000));
     let (_directory, app) = test_app(Some(Arc::new(SuccessfulUpdates))).await;
     let (status, _, body) = request(app, Method::GET, "/api/admin/about", remote).await;
-    assert_eq!(status, StatusCode::FORBIDDEN);
-    assert_eq!(body["error"]["code"], "admin_loopback_only");
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "admin_session_required");
 
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
     let (_directory, app) = test_app(None).await;
@@ -216,46 +212,13 @@ async fn update_errors_map_to_stable_admin_codes() {
 async fn test_app(
     updates: Option<Arc<dyn ApplicationUpdateService>>,
 ) -> (tempfile::TempDir, Router) {
-    let directory = tempdir().expect("temporary directory");
-    let storage = Arc::new(
-        SqliteStore::connect(&directory.path().join("any2api.sqlite3"))
-            .await
-            .expect("storage"),
-    );
-    let configuration = storage.load_configuration().await.expect("configuration");
-    let runtime = Arc::new(RuntimeRegistry::new());
-    let snapshots = Arc::new(SnapshotStore::new(
-        PublishedSnapshot::new(
-            configuration,
-            runtime.as_ref(),
-            any2api_contract_tests::build_provider_registry().as_ref(),
-        )
-        .expect("initial snapshot"),
-    ));
-    let publisher = Arc::new(
-        ConfigPublisher::new(
-            Arc::clone(&storage),
-            Arc::clone(&snapshots),
-            Arc::clone(&runtime),
-            any2api_contract_tests::build_configuration_capabilities(),
-        )
-        .expect("publisher"),
-    );
-    let web_root = directory.path().join("web");
-    fs::create_dir(&web_root).expect("web directory");
-    fs::write(web_root.join("index.html"), "<main>any2api</main>").expect("web index");
-    let mut state = AppState::new(
-        snapshots,
-        runtime,
-        publisher,
-        build_public_request_components()
-            .expect("components")
-            .service(),
-    );
+    let fixture = TestApplication::new().await;
+    let mut state = fixture.state();
     if let Some(updates) = updates {
         state = state.with_application_updates(updates);
     }
-    (directory, build_router(state, web_root))
+    let (directory, app, _storage) = fixture.into_router_with_state(state);
+    (directory, app)
 }
 
 async fn request(

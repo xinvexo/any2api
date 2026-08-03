@@ -17,7 +17,7 @@ SQLite is already the configuration truth, so storing OAuth material in addition
 
 SQLite stores the complete Provider OAuth JSON as plaintext together with stable ID, Provider, label, enabled state, fixed DIRECT proxy binding, optional `requests_per_minute`, selected models, token version, account generation, configuration version, safe account metadata, and timestamps. ADR-0074 applies the same plaintext persistence boundary to API Keys and proxy passwords.
 
-SQLite is the only OAuth account truth source. Login and Provider-specific import create an account directly; the service does not return attachments, create server-local auth files, maintain a download cache, or expose a read/export endpoint. Generic Secret import/export remains prohibited.
+SQLite is the only OAuth account truth source. A first interactive login and Provider-specific import create an account directly; an interactive login that uniquely matches the same stable Provider identity reauthorizes the existing account according to ADR-0087. The service does not return attachments, create server-local auth files, maintain a download cache, or expose a read/export endpoint. Generic Secret import/export remains prohibited.
 
 Raw OAuth JSON and access/refresh/ID tokens never enter logs, management responses, React Query, browser storage, or Debug output. Account list responses expose only safe metadata such as ID, Provider, label, enabled state, model count, expiry, status, and redacted account identity.
 
@@ -39,7 +39,7 @@ These fixed profiles are internal routing projections only. They are never retur
 
 ### Atomic activation and refresh
 
-OAuth exchange consumes its one-time session before network I/O. After token exchange, Runtime constructs and validates a complete OAuthAccount candidate and executes the serialized publication flow:
+OAuth exchange consumes its one-time session before network I/O. After token exchange, Runtime constructs and validates a complete OAuthAccount candidate or same-identity reauthorization and executes the serialized publication flow:
 
 ```text
 SQLite transaction writes OAuthAccount metadata + Provider JSON
@@ -52,9 +52,13 @@ SQLite transaction writes OAuthAccount metadata + Provider JSON
 
 Success responses use `Cache-Control: no-store` and contain only safe account metadata plus the new PublishedSnapshot revision. They never return token fields or trigger a browser download.
 
+Same-identity interactive reauthorization preserves the stable local account ID and administrator-owned label, RPM, enabled state and still-valid model selection. It replaces Token material through the current token-version CAS and never expands selected models implicitly. Stable Provider account ID takes precedence over email; email is only a fallback when both compared Token documents lack an account ID. Ambiguous duplicate identities fail closed. Detailed matching and conflict semantics are defined by ADR-0087.
+
 A single process worker scans all accounts approaching expiry, including `enabled=false` accounts. `oauth.refresh.scan_interval` and `oauth.refresh.lead_time` are hot-reload SettingRegistry values, and the lead time cannot be shorter than the scan interval. Startup and PublishedSnapshot revision changes wake the worker so it always rescans current accounts and settings.
 
 Refresh uses the account's DIRECT/global-proxy path and a per-account singleflight gate. The gate reloads and compares token version after acquisition, so stale results cannot overwrite newer material. Scheduled network refreshes use a fixed code-level concurrency limit. Successful results from one scan are token-version-CAS applied in one SQLite transaction and complete one serialized snapshot publication; stale or deleted accounts are skipped without blocking fresh results. Authentication-failure refresh remains an immediate single-account publication so a pending request does not wait for the next scan batch.
+
+A refresh or verified same-identity reauthorization increments `token_version` without incrementing `account_generation`. Runtime creates fresh authentication health for the new Token while reusing account-level quota, permission, and model cooldown state. Re-enabling an account still increments `account_generation` and resets both health scopes. ADR-0095 defines the isolation proof for late failures from retired Token generations.
 
 Refresh failure never falls back to another network path. A still-valid access token may remain eligible until expiry; an expired or authentication-rejected account is fail-closed. A 401-triggered refresh/retry is allowed at most once and only while the attempt is `Pending`, `RetrySafety` permits it, and no downstream headers or bytes have been committed.
 

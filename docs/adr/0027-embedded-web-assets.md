@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-22
+- 修订：2026-08-03
 - 决策者：maintainer
 
 ## 背景
@@ -15,9 +16,9 @@
 - `web/src` 与前端配置是源码真相；`app/any2api/web-assets` 是机器生成、需要提交的正式构建输入，禁止手工编辑。
 - 固定 Node 脚本负责比较或同步 `web/dist` 与 `web-assets`。同步模式只在开发者明确执行时修改目标目录；校验模式只读比较，CI 不自动修复差异。
 - 普通 `pnpm build` 只生成 `web/dist`，不得修改已提交资源；`pnpm build:embedded` 才执行构建与显式同步。CI 与 Release 都先执行普通构建，再只读比较 checkout 中的 `web-assets`，避免“先覆盖再检查”的自证式门禁。
-- Rust `build.rs` 递归扫描已提交资源，要求存在 `index.html`，拒绝符号链接及其他特殊文件，按规范化相对路径排序，并在 `OUT_DIR` 生成 `include_bytes!` 清单。Rust 构建不启动 Node、pnpm 或 Vite。
-- Server 定义 `WebAssets` 与 `EmbeddedWebAsset` 入口类型。外部目录继续由 `tower-http` 服务，但 `/assets` 使用独立文件服务，缺失 asset 不进入 SPA fallback；内嵌实现只读取静态字节表，并提供 Content-Type、HEAD 与缓存策略。两种来源共享 API 命名空间隔离、SPA deep link、缺失 `/assets/*` 的 404 和非读取方法 405 语义。
-- 两种资源来源共享管理 Web 安全响应头：最小权限 CSP、`X-Content-Type-Options: nosniff` 与 `Referrer-Policy: no-referrer`。CSP 禁止 frame 嵌入且不依赖 nonce 或运行时 HTML 改写；不设置 HSTS，以保留受支持的内网 HTTP 部署。
+- Rust `build.rs` 递归扫描已提交资源，要求存在 `index.html`，拒绝符号链接及其他特殊文件，按规范化相对路径排序，并在 `OUT_DIR` 生成包含 `include_bytes!` 与最终字节强 `ETag` 的清单。Rust 构建不启动 Node、pnpm 或 Vite。
+- Server 定义 `WebAssets` 与 `EmbeddedWebAsset` 入口类型。外部目录继续由 `tower-http` 服务，但 `/assets` 使用独立文件服务，缺失 asset 不进入 SPA fallback；内嵌实现对构建期排序清单二分查找，并提供 Content-Type、HEAD、缓存策略及 `If-None-Match` 条件请求。匹配时返回无 Body 的 `304 Not Modified`，同时保留 `ETag` 与该资源原有的 `Cache-Control`；deep link 使用 `index.html` 自身的验证器。两种来源共享 API 命名空间隔离、SPA deep link、缺失 `/assets/*` 的 404 和非读取方法 405 语义。
+- 两种资源来源共享管理 Web 专属安全响应头：最小权限 CSP 与 `Referrer-Policy: no-referrer`。CSP 禁止 frame 嵌入且不依赖 nonce 或运行时 HTML 改写；合并后的 Server 全局响应边界为 Web 与全部 API 统一添加 `X-Content-Type-Options: nosniff`。不设置 HSTS，以保留受支持的内网 HTTP 部署。
 - App 默认装配内嵌资源。只有显式非空 `ANY2API_WEB_DIR` 才选择外部目录；不再以 `web/dist` 作为隐式默认值。
 - Playwright E2E 先构建并校验前端产物，再通过 Cargo JSON 构建消息取得本轮真实二进制路径；启动服务时按大小写不敏感规则移除宿主继承的全部 `ANY2API_*` 配置，只注入测试数据目录、监听地址和管理员密码，从独立临时工作目录验证正式内嵌路径。
 - `app/any2api/web-assets/**` 在 Git 中按原始字节追踪，不执行文本换行转换；同步脚本的源和目标都只接受普通目录与普通文件。
@@ -36,7 +37,7 @@
 
 ## 验证
 
-- Server 单元测试覆盖内嵌首页、精确 JS/CSS、HEAD、deep link、缺失 asset 404 与非读取方法 405；外部目录契约覆盖精确 asset、缺失 asset、API 根路径隔离和 deep link。
+- Server 单元测试覆盖内嵌首页、精确 JS/CSS、HEAD、deep link、二分路径查找、强/弱/通配 `If-None-Match`、`304`、缺失 asset 404 与非读取方法 405；外部目录契约覆盖精确 asset、缺失 asset、API 根路径隔离和 deep link。
 - 前端同步脚本在内容或文件清单不一致时失败，并提示明确的同步命令；CI 和 Release 在不修改 checkout 产物的普通构建后执行该检查。
 - Playwright 在未设置 `ANY2API_WEB_DIR` 时完成登录、刷新 deep link、桌面与移动页面契约。
 - Release 二进制复制到不含 `web/dist` 的临时目录后仍能返回首页和哈希资源。

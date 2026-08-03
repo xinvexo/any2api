@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-24
+- 修订：2026-08-03
 - 决策者：maintainer
 - 部分修订：ADR-0070
 
@@ -14,7 +15,7 @@ OAuth 管理页一次读取当前实例的完整账号集合。原有客户端�
 ## 决策
 
 - 移除 OAuth 账号集合的客户端分页。管理模型始终保留当前 Provider 的完整账号集合，虚拟化只改变渲染范围，不改变数据范围。
-- 新增共享 `VirtualGrid` 组件，使用轻量 `@tanstack/react-virtual` 按网格行虚拟化。组件根据滚动区宽度使用 1–3 列，测量真实动态行高，提供有限高度滚动区、稳定 item key、Provider/collection 切换回顶，以及可聚焦 region 与 list/listitem 语义。
+- 新增共享 `VirtualGrid` 组件，使用轻量 `@tanstack/react-virtual` 按网格行虚拟化。组件根据滚动区宽度使用 1–3 列，测量真实动态行高，提供有限高度滚动区、稳定 item key、Provider/collection 切换回顶，以及可聚焦 region 与 list/listitem 语义。首次宽度读取在浏览器 layout effect 中完成，使列数更新在首次 paint 前同步提交；模块在无浏览器环境改用普通 effect，服务端渲染和 Node 测试不得访问 DOM 或产生 layout-effect 警告。
 - Codex 页面提供“刷新全部额度”；ADR-0046 将同一能力扩展到 Claude，Grok 由 ADR-0045 扩展。操作输入是当前完整 Provider 集合，包含禁用账号和虚拟窗口之外未挂载的账号。
 - 批量刷新复用现有逐账号 `GET /api/admin/oauth/accounts/{id}/quota`，前端最多并发 6 个请求并采用 all-settled 语义。部分失败不阻断其他账号，完成后显示成功/失败汇总；不新增后端批量端点。
 - 单账号刷新、批量刷新和 reset 后刷新共用账号级 React Query cache。缓存只存在于当前浏览器内存会话，不进入 OAuth JSON、SQLite、localStorage 或 sessionStorage。
@@ -43,7 +44,7 @@ OAuth 页面不再显示页码和每页条数，滚动区成为账号集合的�
 
 ## 验证
 
-- `VirtualGrid` 单元测试覆盖初始窗口、滚动卸载/挂载和 collection 切换回顶。
+- `VirtualGrid` 单元测试覆盖首次同步宽度对应的列数、初始窗口、滚动卸载/挂载和 collection 切换回顶；Node 环境渲染测试覆盖无 DOM 的安全回退。
 - OAuth 管理测试覆盖完整 Provider 集合、禁用和未挂载账号、Codex/Claude/Grok 有界并发、部分失败汇总及离屏账号缓存。
 - 失效清理模块测试覆盖错误码白名单、Token 版本变化跳过、revision 冲突复核和部分删除失败；管理页集成测试覆盖检测后确认、精确删除目标、无明确失效账号与操作互锁。
 - 额度面板测试覆盖单账号刷新、reset 的 GET → POST → GET 顺序、reset 后读取失败清空此前快照、虚拟卸载/重挂 pending，以及后续批量成功清除此前查询错误。

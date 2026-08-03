@@ -6,14 +6,15 @@ use std::{
 use any2api_domain::TokenUsage;
 use serde_json::{Value, json};
 
-use super::super::super::response::{responses_usage, token_usage};
+use super::super::super::response::{incomplete_reason, responses_usage, token_usage};
 use super::items::{TextState, ToolState};
 use crate::{
     ProtocolError,
     api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, StreamTermination},
 };
 
-use super::super::wire::{sse, sse_terminal};
+use super::super::wire::{SynthesizedEvent, encode_event, event, terminal_event};
+use super::failure;
 
 pub(crate) struct StreamUpdate {
     pub(crate) events: Vec<AdapterEvent>,
@@ -61,16 +62,15 @@ impl ChatToResponsesStream {
 
     pub(crate) fn push(&mut self, event: AdapterEvent) -> Result<StreamUpdate, ProtocolError> {
         self.usage.merge(event.telemetry().token_usage);
-        let (raw, payload) = event.into_parts();
+        let termination = event.termination();
+        let (_, payload) = event.into_parts();
         let value = match payload {
             SseEventPayload::Json { data, .. } => data,
             SseEventPayload::NonJson => {
                 return Err(invalid("Chat Completions stream data is not valid JSON"));
             }
+            SseEventPayload::Done => return self.finish(),
             SseEventPayload::Empty => {
-                if String::from_utf8_lossy(&raw).contains("[DONE]") {
-                    return self.finish();
-                }
                 return Ok(StreamUpdate {
                     events: Vec::new(),
                     assistant_message: None,
@@ -84,11 +84,29 @@ impl ChatToResponsesStream {
         if let Some(model) = value.get("model").and_then(Value::as_str) {
             self.model = model.to_owned();
         }
+        if termination == StreamTermination::Failed {
+            let events = self.sequence_events(vec![failure::convert(&value)?])?;
+            self.completed = true;
+            return Ok(StreamUpdate {
+                events,
+                assistant_message: None,
+            });
+        }
         let mut events = self.ensure_started();
-        let choices = value
-            .get("choices")
-            .and_then(Value::as_array)
-            .ok_or_else(|| invalid("Chat Completions stream event has no choices array"))?;
+        let choices = match value.get("choices") {
+            Some(Value::Array(choices)) => choices,
+            None if value.get("usage").is_some_and(Value::is_object) => {
+                return Ok(StreamUpdate {
+                    events: self.sequence_events(events)?,
+                    assistant_message: None,
+                });
+            }
+            _ => {
+                return Err(invalid(
+                    "Chat Completions stream event has no choices array",
+                ));
+            }
+        };
         if choices.len() > 1 {
             return Err(invalid(
                 "Chat Completions stream event must contain at most one choice",
@@ -114,6 +132,7 @@ impl ChatToResponsesStream {
             }
             if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
                 self.finish_reason = Some(reason.to_owned());
+                self.validate_tool_identities()?;
             }
         }
         Ok(StreamUpdate {
@@ -129,6 +148,7 @@ impl ChatToResponsesStream {
                 assistant_message: None,
             });
         }
+        self.validate_tool_identities()?;
         let mut events = self.ensure_started();
         events.extend(self.finish_reasoning());
         events.extend(self.finish_message());
@@ -139,7 +159,8 @@ impl ChatToResponsesStream {
             .iter()
             .map(|(_, item)| item.clone())
             .collect::<Vec<_>>();
-        let status = if self.finish_reason.as_deref() == Some("length") {
+        let incomplete_reason = incomplete_reason(self.finish_reason.as_deref());
+        let status = if incomplete_reason.is_some() {
             "incomplete"
         } else {
             "completed"
@@ -151,15 +172,15 @@ impl ChatToResponsesStream {
             .unwrap_or_else(|| usage_from_tokens(self.usage));
         let mut response = self.base_response(status, output);
         response["usage"] = usage;
-        if status == "incomplete" {
-            response["incomplete_details"] = json!({"reason":"max_output_tokens"});
+        if let Some(reason) = incomplete_reason {
+            response["incomplete_details"] = json!({"reason":reason});
         }
         let terminal_kind = if status == "incomplete" {
             "response.incomplete"
         } else {
             "response.completed"
         };
-        events.push(sse_terminal(
+        events.push(terminal_event(
             terminal_kind,
             json!({"type":terminal_kind,"response":response}),
             ProtocolEventTelemetry {
@@ -178,22 +199,13 @@ impl ChatToResponsesStream {
 
     fn sequence_events(
         &mut self,
-        events: Vec<AdapterEvent>,
+        events: Vec<SynthesizedEvent>,
     ) -> Result<Vec<AdapterEvent>, ProtocolError> {
         events
             .into_iter()
-            .map(|event| {
-                let telemetry = event.telemetry();
-                let termination = event.termination();
-                let (_, payload) = event.into_parts();
-                let SseEventPayload::Json {
-                    event_name: Some(kind),
-                    mut data,
-                } = payload
-                else {
-                    return Err(invalid("bridged Responses event must contain JSON data"));
-                };
-                let object = data
+            .map(|mut event| {
+                let object = event
+                    .data_mut()
                     .as_object_mut()
                     .ok_or_else(|| invalid("bridged Responses event data must be an object"))?;
                 object.insert(
@@ -204,24 +216,24 @@ impl ChatToResponsesStream {
                     .next_sequence_number
                     .checked_add(1)
                     .ok_or_else(|| invalid("bridged Responses sequence number overflowed"))?;
-                Ok(sse(&kind, data, telemetry).with_termination(termination))
+                Ok(encode_event(event))
             })
             .collect()
     }
 
-    fn ensure_started(&mut self) -> Vec<AdapterEvent> {
+    fn ensure_started(&mut self) -> Vec<SynthesizedEvent> {
         if self.started {
             return Vec::new();
         }
         self.started = true;
         let response = self.base_response("in_progress", Vec::new());
         vec![
-            sse(
+            event(
                 "response.created",
                 json!({"type":"response.created","response":response}),
                 ProtocolEventTelemetry::default(),
             ),
-            sse(
+            event(
                 "response.in_progress",
                 json!({"type":"response.in_progress","response":response}),
                 ProtocolEventTelemetry::default(),

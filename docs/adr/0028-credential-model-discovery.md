@@ -2,6 +2,7 @@
 
 > 状态：Accepted
 > 日期：2026-07-23
+> 修订：2026-08-03
 > 决策者：maintainer
 
 ## 背景
@@ -24,8 +25,12 @@
 - `ModelRoute` 与 `RouteTarget` 保留为数据面内部结构。公开模型名首版固定等于上游模型名；同一协议与模型聚合为一条 Route，同一 Endpoint 聚合为一个 tier-0 Target。
 - 候选生成必须再次检查 Credential 是否选择了当前 `upstream_model`。相同 Endpoint 下未选择该模型的 Key 不得参与调度。
 - 自动 Route/Target 使用由协议、模型和 Endpoint 派生的稳定 ID，避免无关配置发布改变会话目标身份。
+- Route/Target 物化使用同一配置事务内的差异同步：未变化的行保持原位，只插入新增项、更新同一稳定身份的可变字段，并删除候选配置中真正消失的项。不得先清空整张物化表再按相同 ID 插回，因为 `request_attempts.route_target_id ON DELETE SET NULL` 会不可逆地擦除仍有效的历史关联。
+- API Key 轮换继续清空该 Credential 的模型集合；差异同步只保留仍由其他 Credential 提供的 Target。不能把“路由 ID 不含 Secret”误解为模型集合不受轮换影响。
 - 普通 Web 导航移除独立“模型路由”页面；Provider API Key 编辑流程负责模型发现、手工添加、选择和后续刷新。
   发现正在进行或失败只影响目录状态与“重新拉取”，不禁用手工添加、已选列表编辑或保存。
+- Web 只把未保存的发现结果绑定到当前 Endpoint、当前 Credential 和按 DIRECT 继承规则解析出的实际代理版本。全局配置 revision 及无关资源发布不属于该 scope；相关资源版本变化时隐藏旧结果。
+- 同一编辑器的探测请求使用单调序号。只有 scope 和序号均仍匹配的最新请求可以结算结果、错误与 loading 状态，迟到请求不得覆盖较新的目录。
 
 ## 后果
 
@@ -34,3 +39,10 @@
 - 公开模型名固定等于上游模型名，不提供别名编辑或手工主备 tier。
 - 手工添加是管理员对上游能力的显式声明，不证明模型实际可用；后续真实上游错误仍按数据面规则处理。
 - `/models` 目录解析成为 Provider 契约的一部分，必须覆盖畸形 JSON、重复 ID、超大正文、读取超时和 Secret 脱敏测试。
+- 模型增删、Endpoint 协议变化与 Secret 轮换不再重写无关 Route/Target；历史 Attempt 只在其实际 Target 失效时失去外键关联。
+- 无关配置发布不会清空正在使用的模型发现结果；相关 Endpoint、Credential 或实际代理发生变化时不会继续展示旧目录。
+
+## 验证
+
+- Storage 回归必须同时证明：新增模型不改变已有 Target 的 SQLite 行或历史 Attempt 外键；删除模型只清理对应失效 Target；Secret 轮换仍清空该 Credential 的旧模型权限。
+- Web 回归必须覆盖全局 revision 变化但相关资源版本不变时结果仍可见，以及同一 scope 的后发请求先完成时迟到旧请求不能覆盖。

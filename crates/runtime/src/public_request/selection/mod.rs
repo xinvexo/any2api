@@ -1,3 +1,4 @@
+mod filter_recorder;
 mod fixed;
 mod generation;
 mod selector;

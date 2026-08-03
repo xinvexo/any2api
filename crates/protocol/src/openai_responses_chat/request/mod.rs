@@ -27,11 +27,34 @@ const PASSTHROUGH_FIELDS: &[&str] = &[
 
 pub(super) struct ConvertedRequest {
     pub(super) body: Value,
-    pub(super) conversation: Vec<Value>,
+    conversation_start: usize,
+}
+
+impl ConvertedRequest {
+    pub(super) fn conversation(&self) -> &[Value] {
+        self.body["messages"]
+            .as_array()
+            .expect("converted request messages are an array")
+            .get(self.conversation_start..)
+            .expect("conversation start is within converted messages")
+    }
+
+    pub(super) fn into_conversation(mut self) -> Vec<Value> {
+        let messages = self
+            .body
+            .as_object_mut()
+            .expect("converted request body is an object")
+            .remove("messages")
+            .expect("converted request messages are an array");
+        let Value::Array(mut messages) = messages else {
+            unreachable!("converted request messages are an array");
+        };
+        messages.split_off(self.conversation_start)
+    }
 }
 
 pub(super) fn convert(
-    body: Value,
+    body: &Value,
     upstream_model: &str,
     previous: Vec<Value>,
 ) -> Result<ConvertedRequest, ProtocolError> {
@@ -42,13 +65,16 @@ pub(super) fn convert(
     reject_multiple_choices(source)?;
     validate_prompt_cache_key(source.get("prompt_cache_key"))?;
     options::validate_include(source.get("include"))?;
-    let mut messages = previous;
+    let mut conversation = previous;
+    input::append_input(source.get("input"), &mut conversation)?;
+    let mut messages = Vec::with_capacity(conversation.len().saturating_add(1));
     input::append_instructions(source.get("instructions"), &mut messages)?;
-    input::append_input(source.get("input"), &mut messages)?;
+    let conversation_start = messages.len();
+    messages.extend(conversation);
 
     let mut target = Map::new();
     target.insert("model".into(), Value::String(upstream_model.to_owned()));
-    target.insert("messages".into(), Value::Array(messages.clone()));
+    target.insert("messages".into(), Value::Array(messages));
     for field in PASSTHROUGH_FIELDS {
         if let Some(value) = source.get(*field) {
             target.insert((*field).into(), value.clone());
@@ -83,7 +109,7 @@ pub(super) fn convert(
 
     Ok(ConvertedRequest {
         body: Value::Object(target),
-        conversation: messages,
+        conversation_start,
     })
 }
 

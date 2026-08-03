@@ -1,7 +1,7 @@
 use any2api_domain::ProtocolOperation;
 use serde_json::{Value, json};
 
-use crate::api::BridgeContinuationState;
+use crate::api::{AdapterPayload, BridgeContinuationState};
 
 use super::{bridged_exchange, decoded, registry, upstream_response};
 
@@ -33,7 +33,7 @@ async fn request_bridge_preserves_cache_image_detail_and_tool_history_order() {
     )
     .await;
     let prepared = bridged_exchange(&registry, ProtocolOperation::Responses)
-        .prepare_request(request, "upstream-model", None)
+        .prepare_request(&request, "upstream-model", None)
         .expect("representable long history");
     let upstream: Value =
         serde_json::from_slice(&prepared.request.body).expect("upstream request JSON");
@@ -85,7 +85,7 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     .await;
     let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     let prepared = exchange
-        .prepare_request(first, "upstream-model", None)
+        .prepare_request(&first, "upstream-model", None)
         .expect("bridged request");
     assert_eq!(
         prepared.upstream_operation,
@@ -120,6 +120,8 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
                     "role":"assistant",
                     "content":"I will check.",
                     "reasoning_content":"Need the tool.",
+                    "annotations":[{"type":"url_citation","url":"https://example.com"}],
+                    "future_response_metadata":{"kept":true},
                     "tool_calls":[{
                         "id":"call_1",
                         "type":"function",
@@ -163,7 +165,7 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     assert_eq!(
         direct_exchange
             .prepare_request(
-                wrong_operation,
+                &wrong_operation,
                 "upstream-model",
                 Some(continuation.clone())
             )
@@ -183,11 +185,49 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     assert_eq!(response["output"][1]["type"], "message");
     assert_eq!(response["output"][2]["type"], "function_call");
     assert_eq!(response["output"][2]["call_id"], "call_1");
+    assert!(
+        response["output"][0]["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("rs_"))
+    );
+    assert!(
+        response["output"][1]["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("msg_"))
+    );
+    assert!(
+        response["output"][2]["id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with("fc_"))
+    );
     assert_eq!(response["usage"]["input_tokens"], 11);
     assert_eq!(
         response["usage"]["output_tokens_details"]["reasoning_tokens"],
         2
     );
+
+    let expected_ids = response["output"]
+        .as_array()
+        .expect("output array")
+        .iter()
+        .map(|item| item["id"].clone())
+        .collect::<Vec<_>>();
+    let replay = decoded(
+        &registry,
+        ProtocolOperation::Responses,
+        json!({"model":"public-model","input":response["output"]}),
+    )
+    .await;
+    let AdapterPayload::Json(replay) = replay.payload else {
+        panic!("Responses replay must be JSON");
+    };
+    let replayed_ids = replay["input"]
+        .as_array()
+        .expect("replayed input array")
+        .iter()
+        .map(|item| item["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(replayed_ids, expected_ids);
 
     let follow_up = decoded(
         &registry,
@@ -205,15 +245,88 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     .await;
     let mut follow_up_exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
     let prepared = follow_up_exchange
-        .prepare_request(follow_up, "upstream-model", Some(continuation))
+        .prepare_request(&follow_up, "upstream-model", Some(continuation))
         .expect("follow-up request");
     let follow_up_body: Value =
         serde_json::from_slice(&prepared.request.body).expect("follow-up JSON");
     let messages = follow_up_body["messages"].as_array().expect("messages");
-    assert_eq!(messages.len(), 4);
-    assert_eq!(messages[2]["role"], "assistant");
-    assert_eq!(messages[2]["tool_calls"][0]["id"], "call_1");
-    assert_eq!(messages[3]["role"], "tool");
-    assert_eq!(messages[3]["tool_call_id"], "call_1");
-    assert_eq!(messages[3]["content"], "Sunny");
+    assert_eq!(messages.len(), 3);
+    assert_eq!(messages[1]["role"], "assistant");
+    assert_eq!(messages[1]["tool_calls"][0]["id"], "call_1");
+    assert_eq!(messages[2]["role"], "tool");
+    assert_eq!(messages[2]["tool_call_id"], "call_1");
+    assert_eq!(messages[2]["content"], "Sunny");
+}
+
+#[tokio::test]
+async fn buffered_bridge_maps_incomplete_finish_reasons() {
+    for (finish_reason, incomplete_reason) in [
+        ("length", "max_output_tokens"),
+        ("content_filter", "content_filter"),
+    ] {
+        let registry = registry();
+        let request = decoded(
+            &registry,
+            ProtocolOperation::Responses,
+            json!({"model":"public-model","input":"hello"}),
+        )
+        .await;
+        let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
+        exchange
+            .prepare_request(&request, "upstream-model", None)
+            .expect("bridged request");
+        let decoded = exchange
+            .decode_upstream_response(upstream_response(json!({
+                "id":"chatcmpl_incomplete",
+                "model":"upstream-model",
+                "choices":[{
+                    "index":0,
+                    "message":{"role":"assistant","content":"partial"},
+                    "finish_reason":finish_reason
+                }]
+            })))
+            .expect("incomplete upstream response");
+        let egress = exchange
+            .encode_egress_response(decoded, "public-model")
+            .expect("incomplete Responses response");
+        let response: Value = serde_json::from_slice(&egress.body).expect("Responses JSON");
+
+        assert_eq!(response["status"], "incomplete");
+        assert_eq!(response["incomplete_details"]["reason"], incomplete_reason);
+    }
+}
+
+#[tokio::test]
+async fn buffered_bridge_still_rejects_known_unrepresentable_outputs() {
+    for (field, value) in [
+        (
+            "function_call",
+            json!({"name":"legacy_tool","arguments":"{}"}),
+        ),
+        ("refusal", json!("cannot comply")),
+        ("audio", json!({"id":"audio_1"})),
+    ] {
+        let registry = registry();
+        let request = decoded(
+            &registry,
+            ProtocolOperation::Responses,
+            json!({"model":"public-model","input":"hello"}),
+        )
+        .await;
+        let mut exchange = bridged_exchange(&registry, ProtocolOperation::Responses);
+        exchange
+            .prepare_request(&request, "upstream-model", None)
+            .expect("bridged request");
+        let mut message = json!({"role":"assistant","content":"hello"});
+        message[field] = value;
+
+        assert!(matches!(
+            exchange.decode_upstream_response(upstream_response(json!({
+                "id":"chatcmpl_unsupported",
+                "model":"upstream-model",
+                "choices":[{"index":0,"message":message,"finish_reason":"stop"}]
+            }))),
+            Err(crate::ProtocolError::InvalidPayload(_))
+        ));
+    }
 }

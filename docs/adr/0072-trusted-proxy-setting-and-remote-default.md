@@ -30,10 +30,12 @@
 - 管理鉴权、Gateway Key 鉴权、RequestLog 与 HttpAccessLog 在每个请求开始时捕获一次
   PublishedSnapshot，并使用同一 revision 的可信代理列表和其他访问策略。管理设置提交只有在 SQLite
   Commit 与快照切换完成后才返回成功，新请求随后立即采用新列表。
-- 只有 TCP 对端命中可信列表时才解析唯一且合法的 `X-Forwarded-For` 和 `X-Forwarded-Proto`；从 TCP
-  对端开始按 XFF 右到左剥离连续可信代理。可信代理请求的转发头缺失、重复或非法时继续 Fail-Closed。
-- 远程访问默认开启不改变首次密码初始化：Setup API 仍只接受解析后的 loopback 来源并要求一次性
-  Setup Token；远程首次部署使用 `ANY2API_ADMIN_PASSWORD` 初始化管理员密码。
+- 只有 TCP 对端命中可信列表时才解析 `X-Forwarded-For` 和 `X-Forwarded-Proto`；从 TCP 对端开始按 XFF
+  右到左剥离连续可信代理。XFF 的多行值按完整逻辑列表合并；XFF 缺失时回退 TCP 对端，XFP 缺失时
+  按不安全 HTTP 处理。空值/非法 XFF 和重复/非法 XFP 继续 Fail-Closed，完整边界由 ADR-0096 修订。
+- 远程访问默认开启不改变首次密码初始化：按照 ADR-0088，Setup API 只接受未进入 trusted-proxy
+  解析的直接 loopback TCP 连接并要求一次性 Setup Token；解析后的 XFF loopback 不授予本机权限。
+  远程首次部署使用 `ANY2API_ADMIN_PASSWORD` 初始化管理员密码。
 - 本决策部分取代 ADR-0014 与 ADR-0050 中关于远程管理默认关闭以及可信代理只能由启动环境变量配置的
   内容，不改变其余认证、CSRF、Cookie、明文 HTTP 警告和日志地址语义。
 
@@ -43,15 +45,15 @@
   不再为该设置重启服务。
 - 直接暴露非 loopback 监听地址仍是部署者的显式选择。远程管理端点受管理员密码、登录失败窗口、
   会话与 CSRF 保护；通过明文 HTTP 使用时继续显示持续风险警告。
-- 可信代理配置错误可能使当前代理连接因缺失或非法转发头被拒绝。Web 必须说明仅填写实际反向代理的
-  地址或网段，不能把客户端网络误配为可信代理。
+- 可信代理配置错误会降低来源精度、共享登录限流桶，非法转发头仍会使当前代理连接被拒绝。Web 必须
+  说明仅填写实际反向代理的地址或网段，不能把客户端网络误配为可信代理。
 - 没有反向代理的部署无需配置该项，也不应为了“读取真实 IP”而信任任意公网网段。
 
 ## 验证
 
 - Domain 测试覆盖远程管理默认开启，以及可信代理 IP/CIDR 的解析、规范化、排序、去重和非法值拒绝。
 - 管理设置契约覆盖默认值、覆盖值、热更新 revision 与 `options=null` 的自由字符串列表响应。
-- Server 单元测试继续覆盖直连忽略伪造头、可信多跳链和非法转发头 Fail-Closed。
+- Server 单元测试继续覆盖直连忽略伪造头、可信多跳/多行链、缺失头的保守降级和非法转发头 Fail-Closed。
 - 管理与公开 HTTP 契约通过 SettingRegistry 写入可信代理列表，验证保存后无需重启即可影响来源解析、
   HTTPS 判断和 RequestLog 客户端地址。
 - Web 契约、草稿与组件测试覆盖自由字符串列表解析、基础页展示、友好说明和批量保存。

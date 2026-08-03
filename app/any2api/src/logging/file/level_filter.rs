@@ -11,22 +11,26 @@ use tracing_subscriber::{
 };
 
 #[derive(Clone, Debug)]
-pub(super) struct FileLevelFilter {
+pub(in crate::logging) struct FileLevelFilter {
     level: Arc<AtomicU8>,
 }
 
 impl FileLevelFilter {
-    pub(super) fn new(level: FileLogLevel) -> Self {
+    pub(in crate::logging) fn disabled() -> Self {
         Self {
-            level: Arc::new(AtomicU8::new(encode(level))),
+            level: Arc::new(AtomicU8::new(0)),
         }
     }
 
-    pub(super) fn set(&self, level: FileLogLevel) {
+    pub(in crate::logging) fn set(&self, level: FileLogLevel) {
         self.level.store(encode(level), Ordering::Release);
     }
 
-    pub(super) fn enabled_level(&self, level: &Level) -> bool {
+    pub(in crate::logging) fn disable(&self) {
+        self.level.store(0, Ordering::Release);
+    }
+
+    pub(in crate::logging) fn enabled_level(&self, level: &Level) -> bool {
         verbosity(level) <= self.level.load(Ordering::Acquire)
     }
 }

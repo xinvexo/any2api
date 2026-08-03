@@ -18,6 +18,7 @@ impl StartupSettings {
             .parse()
             .context("ANY2API_BIND must be a valid socket address")?;
         let data_dir = env::var_os("ANY2API_DATA_DIR")
+            .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("data"));
         let web_root = env::var_os("ANY2API_WEB_DIR")

@@ -42,7 +42,7 @@ impl ProtocolBridge for ResponsesToChatCompletionsBridge {
 
     fn start(
         &self,
-        decoded: DecodedRequest,
+        decoded: &DecodedRequest,
         upstream_model: &str,
     ) -> Result<StartedProtocolBridge, ProtocolError> {
         if decoded.operation != ProtocolOperation::Responses {
@@ -69,7 +69,7 @@ impl ResponsesToChatSession {
             return Ok(());
         }
         self.conversation.push(assistant_message);
-        let continuation = ResponsesChatContinuation::new(self.conversation.clone())?;
+        let continuation = ResponsesChatContinuation::new(std::mem::take(&mut self.conversation))?;
         self.continuation = Some(ProtocolContinuationState::new(Arc::new(continuation))?);
         Ok(())
     }
@@ -170,7 +170,7 @@ impl ResumableProtocolContinuation for ResponsesChatContinuation {
 
     fn resume(
         &self,
-        request: DecodedRequest,
+        request: &DecodedRequest,
         upstream_model: &str,
     ) -> Result<StartedProtocolBridge, ProtocolError> {
         start_session(request, upstream_model, Some(self.conversation.as_ref()))
@@ -178,40 +178,41 @@ impl ResumableProtocolContinuation for ResponsesChatContinuation {
 }
 
 fn start_session(
-    decoded: DecodedRequest,
+    decoded: &DecodedRequest,
     upstream_model: &str,
     previous: Option<&[Value]>,
 ) -> Result<StartedProtocolBridge, ProtocolError> {
-    let AdapterPayload::Json(value) = decoded.payload else {
+    let AdapterPayload::Json(value) = &decoded.payload else {
         return Err(ProtocolError::InvalidPayload(
             "Responses bridge requires a JSON request body".into(),
         ));
     };
-    validate_continuation_reference(&value, previous.is_some())?;
+    validate_continuation_reference(value, previous.is_some())?;
     let converted = request::convert(
         value,
         upstream_model,
         previous.map_or_else(Vec::new, <[Value]>::to_vec),
     )?;
-    let accumulated_stream_bytes = serialized_json_bytes(&converted.conversation)?;
+    let accumulated_stream_bytes = serialized_json_bytes(converted.conversation())?;
     if accumulated_stream_bytes > MAX_BRIDGE_CONTINUATION_STATE_BYTES {
         return Err(ProtocolError::ContinuationTooLarge {
             bytes: accumulated_stream_bytes,
             max_bytes: MAX_BRIDGE_CONTINUATION_STATE_BYTES,
         });
     }
-    let request = json_codec::encode_request(
+    let request = json_codec::encode_json_request(
         ProtocolOperation::ChatCompletions,
-        decoded.headers,
-        AdapterPayload::Json(converted.body),
+        &decoded.headers,
+        &converted.body,
         upstream_model,
     )?;
+    let conversation = converted.into_conversation();
     let response_id = format!("resp_{}", Uuid::new_v4().simple());
     Ok(StartedProtocolBridge::new(
         ProtocolOperation::ChatCompletions,
         request,
         Box::new(ResponsesToChatSession {
-            conversation: converted.conversation,
+            conversation,
             stream: ChatToResponsesStream::new(response_id.clone(), upstream_model.into()),
             response_id,
             continuation: None,

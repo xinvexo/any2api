@@ -13,7 +13,7 @@ use axum::{
     response::Response,
 };
 
-use crate::{client_address, state::AppState};
+use crate::{client_address::ClientAddressContext, state::AppState};
 
 use super::{
     body::{AccessLogBody, AccessLogCompletion, AccessLogMetadata},
@@ -44,28 +44,22 @@ pub(crate) async fn record(
     let started = Instant::now();
     let started_at_ms = unix_time_ms();
     let snapshot = state.snapshots().load();
-    request.extensions_mut().insert(Arc::clone(&snapshot));
     let peer = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(address)| *address);
-    let client_ip = client_address::resolve(
-        snapshot.settings().network().trusted_proxy_cidrs(),
-        peer,
-        request.headers(),
-    )
-    .map(|connection| connection.client_ip())
-    .ok()
-    .or_else(|| peer.map(|address| address.ip()));
+    let client_context =
+        ClientAddressContext::capture(Arc::clone(&snapshot), peer, request.headers());
+    let client_ip = client_context.audit_client_ip();
     let request_headers = capture_headers(request.headers());
     let request_body_capture = SharedBodyCapture::new(request.body().is_end_stream());
     let mut completion = AccessLogCompletion::new(
         state.request_telemetry_handle(),
-        snapshot.settings().logging().clone(),
+        client_context.snapshot().settings().logging().clone(),
         AccessLogMetadata::new(
             request_id,
             started_at_ms,
-            snapshot.revision(),
+            client_context.snapshot().revision(),
             client_ip,
             request.method().as_str().to_owned(),
             request.uri().path().to_owned(),
@@ -76,6 +70,7 @@ pub(crate) async fn record(
         ),
         started,
     );
+    request.extensions_mut().insert(client_context);
     request.extensions_mut().insert(HttpRequestId(request_id));
     let request =
         request.map(|body| Body::new(RequestCaptureBody::new(body, request_body_capture)));
@@ -123,7 +118,10 @@ fn protocol_version(version: Version) -> HttpProtocolVersion {
         Version::HTTP_11 => HttpProtocolVersion::Http11,
         Version::HTTP_2 => HttpProtocolVersion::Http2,
         Version::HTTP_3 => HttpProtocolVersion::Http3,
-        _ => unreachable!("http crate returned an unknown HTTP version"),
+        // `http::Version` is non-exhaustive. Keep access logging available if a
+        // future dependency version adds a protocol before the persisted
+        // telemetry model learns its exact spelling.
+        _ => HttpProtocolVersion::Http11,
     }
 }
 
@@ -133,4 +131,33 @@ fn unix_time_ms() -> u64 {
         .unwrap_or_default()
         .as_millis();
     u64::try_from(millis).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn protocol_versions_map_to_the_persisted_telemetry_values() {
+        assert_eq!(
+            protocol_version(Version::HTTP_09),
+            HttpProtocolVersion::Http09
+        );
+        assert_eq!(
+            protocol_version(Version::HTTP_10),
+            HttpProtocolVersion::Http10
+        );
+        assert_eq!(
+            protocol_version(Version::HTTP_11),
+            HttpProtocolVersion::Http11
+        );
+        assert_eq!(
+            protocol_version(Version::HTTP_2),
+            HttpProtocolVersion::Http2
+        );
+        assert_eq!(
+            protocol_version(Version::HTTP_3),
+            HttpProtocolVersion::Http3
+        );
+    }
 }

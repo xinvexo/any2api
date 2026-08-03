@@ -129,7 +129,7 @@ function detailResponse(
     JSON.stringify({
       request: request(requestOverrides),
       attempts,
-      telemetry: { queued_records: 0, dropped_records: 0, persisted_records: 1 },
+      telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 1 },
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
   );
