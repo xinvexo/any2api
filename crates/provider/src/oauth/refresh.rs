@@ -3,20 +3,28 @@ use serde::Deserialize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthRefreshRejection {
-    InvalidGrant,
+    Permanent,
     Unverified,
 }
 
 impl OAuthRefreshRejection {
     pub fn classify(status: StatusCode, bounded_body: &[u8]) -> Self {
+        Self::classify_with_codes(status, bounded_body, &["invalid_grant"])
+    }
+
+    pub(crate) fn classify_with_codes(
+        status: StatusCode,
+        bounded_body: &[u8],
+        permanent_codes: &[&str],
+    ) -> Self {
         if status != StatusCode::BAD_REQUEST && status != StatusCode::UNAUTHORIZED {
             return Self::Unverified;
         }
         let Ok(envelope) = serde_json::from_slice::<RefreshErrorEnvelope>(bounded_body) else {
             return Self::Unverified;
         };
-        if envelope.has_code("invalid_grant") {
-            Self::InvalidGrant
+        if permanent_codes.iter().any(|code| envelope.has_code(code)) {
+            Self::Permanent
         } else {
             Self::Unverified
         }
@@ -79,7 +87,7 @@ mod tests {
         ] {
             assert_eq!(
                 OAuthRefreshRejection::classify(StatusCode::BAD_REQUEST, body),
-                OAuthRefreshRejection::InvalidGrant
+                OAuthRefreshRejection::Permanent
             );
         }
     }

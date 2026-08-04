@@ -25,7 +25,10 @@ use any2api_transport::api::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
-use http::{HeaderMap, StatusCode, header::AUTHORIZATION};
+use http::{
+    HeaderMap, StatusCode,
+    header::{AUTHORIZATION, CONTENT_TYPE},
+};
 use tempfile::tempdir;
 
 #[tokio::test]
@@ -110,17 +113,10 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
     let captured = transport.take();
     assert_eq!(captured.proxy_id, any2api_domain::ProxyProfileId::DIRECT);
     assert_eq!(captured.host.as_deref(), Some("auth.openai.com"));
-    let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&captured.body)
-        .into_owned()
-        .collect();
-    assert_eq!(
-        form.get("grant_type").map(String::as_str),
-        Some("refresh_token")
-    );
-    assert_eq!(
-        form.get("refresh_token").map(String::as_str),
-        Some("old-refresh")
-    );
+    assert_eq!(captured.content_type.as_deref(), Some("application/json"));
+    let body = serde_json::from_slice::<serde_json::Value>(&captured.body).expect("refresh JSON");
+    assert_eq!(body["grant_type"], "refresh_token");
+    assert_eq!(body["refresh_token"], "old-refresh");
 
     assert!(lifecycle.begin_draining());
     lifecycle.close_background_tasks();
@@ -374,6 +370,7 @@ fn protocols() -> Arc<ProtocolRegistry> {
 struct CapturedRefreshRequest {
     proxy_id: any2api_domain::ProxyProfileId,
     host: Option<String>,
+    content_type: Option<String>,
     body: Bytes,
 }
 
@@ -408,6 +405,11 @@ impl TransportManager for RefreshTransport {
         *self.captured.lock().expect("captured request lock") = Some(CapturedRefreshRequest {
             proxy_id: proxy.profile().id(),
             host: request.uri.host().map(str::to_owned),
+            content_type: request
+                .headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned),
             body: request.body,
         });
         let body: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
@@ -484,13 +486,10 @@ impl TransportManager for AuthenticationRetryTransport {
         }
         let (status, body) = if host == "auth.openai.com" {
             self.refresh_calls.fetch_add(1, Ordering::AcqRel);
-            let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&request.body)
-                .into_owned()
-                .collect();
-            assert_eq!(
-                form.get("refresh_token").map(String::as_str),
-                Some("old-refresh")
-            );
+            assert_eq!(request.headers[CONTENT_TYPE], "application/json");
+            let body =
+                serde_json::from_slice::<serde_json::Value>(&request.body).expect("refresh JSON");
+            assert_eq!(body["refresh_token"], "old-refresh");
             (
                 StatusCode::OK,
                 Bytes::from_static(

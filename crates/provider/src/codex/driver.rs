@@ -5,7 +5,7 @@ use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding,
     TransportMode,
 };
-use http::HeaderMap;
+use http::{HeaderMap, StatusCode};
 use url::Url;
 
 use crate::{
@@ -13,8 +13,8 @@ use crate::{
     api::{
         CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
         OAuthImportedAccount, OAuthLoginFlow, OAuthQuotaRejection, OAuthQuotaUsage,
-        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
-        ProviderRequestHeaderContext, UpstreamResponseMeta,
+        OAuthRefreshRejection, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial,
+        ProviderDriver, ProviderRequestHeaderContext, UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
@@ -156,6 +156,14 @@ impl ProviderDriver for CodexDriver {
 
     fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         codex_oauth::parse_token(body)
+    }
+
+    fn classify_oauth_refresh_rejection(
+        &self,
+        status: StatusCode,
+        bounded_body: &[u8],
+    ) -> OAuthRefreshRejection {
+        codex_oauth::classify_refresh_rejection(status, bounded_body)
     }
 
     fn parse_oauth_import(

@@ -25,6 +25,7 @@ pub(super) enum AuthenticationMode {
     CodexUnknownForbidden,
     RefreshRejected,
     RefreshInvalidGrant,
+    RefreshTokenReused,
 }
 
 pub(super) struct CapturedQuotaRequest {
@@ -210,6 +211,9 @@ impl QuotaTransport {
         if self.authentication == AuthenticationMode::RefreshInvalidGrant {
             return invalid_grant();
         }
+        if self.authentication == AuthenticationMode::RefreshTokenReused {
+            return refresh_token_reused();
+        }
         ok(Bytes::from_static(
             br#"{"access_token":"new-access","expires_in":3600}"#,
         ))
@@ -318,9 +322,9 @@ impl QuotaTransport {
             AuthenticationMode::RejectOnce => None,
             AuthenticationMode::AlwaysReject => Some(unauthorized()),
             AuthenticationMode::AlwaysForbidden => Some(forbidden()),
-            AuthenticationMode::RefreshRejected | AuthenticationMode::RefreshInvalidGrant => {
-                Some(unauthorized())
-            }
+            AuthenticationMode::RefreshRejected
+            | AuthenticationMode::RefreshInvalidGrant
+            | AuthenticationMode::RefreshTokenReused => Some(unauthorized()),
             AuthenticationMode::CodexCloudflareBlocked
             | AuthenticationMode::CodexUnknownForbidden => None,
         }
@@ -386,5 +390,13 @@ fn invalid_grant() -> MockResponse {
         StatusCode::BAD_REQUEST,
         HeaderMap::new(),
         Bytes::from_static(br#"{"error":"invalid_grant"}"#),
+    )
+}
+
+fn refresh_token_reused() -> MockResponse {
+    (
+        StatusCode::UNAUTHORIZED,
+        HeaderMap::new(),
+        Bytes::from_static(br#"{"error":{"code":"refresh_token_reused"}}"#),
     )
 }

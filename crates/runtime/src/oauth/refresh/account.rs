@@ -30,6 +30,7 @@ impl OAuthRefresher {
                 .map(|account| account.token_version()),
             RefreshResult::AlreadyUpdated(_)
             | RefreshResult::MissingRefreshToken
+            | RefreshResult::PermanentlyRejected
             | RefreshResult::Unavailable => None,
         })
     }
@@ -47,6 +48,7 @@ impl OAuthRefresher {
                 RefreshPreparation::Ready(prepared) => Some(prepared),
                 RefreshPreparation::AlreadyUpdated(_)
                 | RefreshPreparation::MissingRefreshToken
+                | RefreshPreparation::PermanentlyRejected
                 | RefreshPreparation::Unavailable => None,
             },
         )
@@ -75,7 +77,10 @@ impl OAuthRefresher {
             Ok(RefreshResult::MissingRefreshToken) => {
                 OAuthAuthenticationRefreshResult::AuthenticationFailed
             }
-            Err(OAuthRefreshError::RefreshRejected(OAuthRefreshRejection::InvalidGrant)) => {
+            Ok(RefreshResult::PermanentlyRejected) => {
+                OAuthAuthenticationRefreshResult::AuthenticationFailed
+            }
+            Err(OAuthRefreshError::RefreshRejected(OAuthRefreshRejection::Permanent)) => {
                 OAuthAuthenticationRefreshResult::AuthenticationFailed
             }
             Ok(RefreshResult::Unavailable) => OAuthAuthenticationRefreshResult::Unverified,
@@ -106,6 +111,9 @@ impl OAuthRefresher {
             }
             RefreshPreparation::MissingRefreshToken => {
                 return Ok(RefreshResult::MissingRefreshToken);
+            }
+            RefreshPreparation::PermanentlyRejected => {
+                return Ok(RefreshResult::PermanentlyRejected);
             }
             RefreshPreparation::Unavailable => return Ok(RefreshResult::Unavailable),
         };
@@ -168,6 +176,9 @@ impl OAuthRefresher {
                 RefreshPreparation::Unavailable
             });
         }
+        if self.is_permanently_rejected(id, observed_token_version) {
+            return Ok(RefreshPreparation::PermanentlyRejected);
+        }
         if waited_for_flight {
             return Ok(RefreshPreparation::Unavailable);
         }
@@ -196,9 +207,12 @@ impl OAuthRefresher {
             token_request::execute_response(self.transport.as_ref(), proxy, strict_ssrf, plan)
                 .await?;
         if !response.status.is_success() {
-            return Err(OAuthRefreshError::RefreshRejected(
-                driver.classify_oauth_refresh_rejection(response.status, &response.body),
-            ));
+            let rejection =
+                driver.classify_oauth_refresh_rejection(response.status, &response.body);
+            if rejection == OAuthRefreshRejection::Permanent {
+                self.record_permanent_rejection(id, observed_token_version);
+            }
+            return Err(OAuthRefreshError::RefreshRejected(rejection));
         }
         let refreshed = driver
             .parse_oauth_refresh_token(&response.body, token.as_ref())
@@ -275,6 +289,7 @@ enum RefreshResult {
     Refreshed(Arc<PublishedSnapshot>),
     AlreadyUpdated(Arc<PublishedSnapshot>),
     MissingRefreshToken,
+    PermanentlyRejected,
     Unavailable,
 }
 
@@ -282,6 +297,7 @@ enum RefreshPreparation {
     Ready(PreparedOAuthRefresh),
     AlreadyUpdated(Arc<PublishedSnapshot>),
     MissingRefreshToken,
+    PermanentlyRejected,
     Unavailable,
 }
 

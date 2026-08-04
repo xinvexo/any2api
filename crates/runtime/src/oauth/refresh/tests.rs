@@ -59,17 +59,9 @@ async fn concurrent_refreshes_share_one_request_and_publish_one_generation() {
     let captured = transport.take_request();
     assert_eq!(captured.proxy_id, any2api_domain::ProxyProfileId::DIRECT);
     assert_eq!(captured.host.as_deref(), Some("auth.openai.com"));
-    let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&captured.body)
-        .into_owned()
-        .collect();
-    assert_eq!(
-        form.get("grant_type").map(String::as_str),
-        Some("refresh_token")
-    );
-    assert_eq!(
-        form.get("refresh_token").map(String::as_str),
-        Some("old-refresh")
-    );
+    let body = serde_json::from_slice::<serde_json::Value>(&captured.body).expect("refresh JSON");
+    assert_eq!(body["grant_type"], "refresh_token");
+    assert_eq!(body["refresh_token"], "old-refresh");
 
     let published = context.snapshots.load();
     let account = published
@@ -187,11 +179,58 @@ async fn concurrent_waiter_shares_a_failed_refresh_without_a_second_request() {
     assert_eq!(transport.calls(), 1);
 }
 
+#[tokio::test]
+async fn permanent_rejection_is_not_retried_for_the_same_token_version() {
+    let transport = Arc::new(BlockingRefreshTransport::with_rejection(
+        StatusCode::UNAUTHORIZED,
+        Bytes::from_static(br#"{"error":{"code":"refresh_token_reused"}}"#),
+    ));
+    let context = RefreshTestContext::with_account(Arc::clone(&transport)).await;
+    let id = context.account_id.expect("OAuth account");
+    transport.release();
+
+    assert!(context.refresher.refresh_if_due(id, 1).await.is_err());
+    assert_eq!(
+        context
+            .refresher
+            .refresh_if_due(id, 1)
+            .await
+            .expect("cached permanent rejection"),
+        None
+    );
+    assert_eq!(transport.calls(), 1);
+
+    context
+        .publisher
+        .refresh_oauth_account(
+            id,
+            1,
+            Some("person@example.com".into()),
+            Some(0),
+            OAuthAccountDocument::new(
+                ProviderKind::Codex,
+                br#"{"type":"codex","access_token":"replacement-access","refresh_token":"replacement-refresh","account_id":"account-123"}"#
+                    .to_vec()
+                    .into(),
+            )
+            .expect("replacement OAuth document"),
+        )
+        .await
+        .expect("replace token version");
+    transport.release();
+    assert!(context.refresher.refresh_if_due(id, 2).await.is_err());
+    assert_eq!(transport.calls(), 2);
+    let request = transport.take_request();
+    let body = serde_json::from_slice::<serde_json::Value>(&request.body).expect("refresh JSON");
+    assert_eq!(body["refresh_token"], "replacement-refresh");
+}
+
 struct RefreshTestContext {
     _directory: TempDir,
     _storage: Arc<SqliteStore>,
     snapshots: Arc<SnapshotStore>,
     _runtime: Arc<RuntimeRegistry>,
+    publisher: Arc<ConfigPublisher>,
     refresher: Arc<OAuthRefresher>,
     account_id: Option<OAuthAccountId>,
     account_ids: Vec<OAuthAccountId>,
@@ -263,12 +302,13 @@ impl RefreshTestContext {
             .expect("publisher"),
         );
         let providers = providers();
-        let refresher = OAuthRefresher::new(providers, transport, publisher);
+        let refresher = OAuthRefresher::new(providers, transport, Arc::clone(&publisher));
         Self {
             _directory: directory,
             _storage: storage,
             snapshots,
             _runtime: runtime,
+            publisher,
             refresher,
             account_id: account_ids.first().copied(),
             account_ids,
@@ -329,6 +369,12 @@ impl BlockingRefreshTransport {
 
     fn with_status(status: StatusCode) -> Self {
         let mut transport = Self::new();
+        transport.status = status;
+        transport
+    }
+
+    fn with_rejection(status: StatusCode, response: Bytes) -> Self {
+        let mut transport = Self::with_response(response);
         transport.status = status;
         transport
     }

@@ -2,14 +2,17 @@
 
 use any2api_domain::{ProtocolDialect, ProviderKind};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use http::{HeaderMap, HeaderValue, Method, header};
+use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use serde::Deserialize;
 use url::Url;
 
 use crate::{
     ProviderError,
-    api::{OAuthGrant, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial},
-    oauth::form_headers,
+    api::{
+        OAuthGrant, OAuthRefreshRejection, OAuthRequestPlan, OAuthRoutingProfile,
+        OAuthTokenMaterial,
+    },
+    oauth::{form_headers, json_headers},
 };
 
 const AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
@@ -90,19 +93,38 @@ pub(crate) fn token_request(
             })
         }
         OAuthGrant::RefreshToken => {
-            let mut form = url::form_urlencoded::Serializer::new(String::new());
-            form.append_pair("client_id", CLIENT_ID)
-                .append_pair("grant_type", "refresh_token")
-                .append_pair("refresh_token", code);
+            let body = serde_json::json!({
+                "client_id": CLIENT_ID,
+                "grant_type": "refresh_token",
+                "refresh_token": code,
+            });
             Ok(OAuthRequestPlan {
                 method: Method::POST,
                 url: Url::parse(TOKEN_URL)
                     .map_err(|error| ProviderError::InvalidEndpoint(error.to_string()))?,
-                headers: form_headers(),
-                body: form.finish().into_bytes(),
+                headers: json_headers(),
+                body: serde_json::to_vec(&body).map_err(|_| {
+                    ProviderError::InvalidResponse("OAuth request serialization failed".into())
+                })?,
             })
         }
     }
+}
+
+pub(crate) fn classify_refresh_rejection(
+    status: StatusCode,
+    bounded_body: &[u8],
+) -> OAuthRefreshRejection {
+    OAuthRefreshRejection::classify_with_codes(
+        status,
+        bounded_body,
+        &[
+            "invalid_grant",
+            "refresh_token_expired",
+            "refresh_token_reused",
+            "refresh_token_invalidated",
+        ],
+    )
 }
 
 pub(crate) fn parse_token(body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {

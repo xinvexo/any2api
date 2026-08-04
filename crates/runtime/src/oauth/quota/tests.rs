@@ -238,6 +238,21 @@ async fn invalid_grant_marks_the_account_authentication_as_failed() {
 }
 
 #[tokio::test]
+async fn reused_refresh_token_is_permanent_and_is_submitted_only_once() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::RefreshTokenReused).await;
+
+    for _ in 0..2 {
+        assert!(matches!(
+            context.service.refresh_quota(context.account_id).await,
+            Err(OAuthQuotaError::AuthenticationFailed)
+        ));
+    }
+
+    assert_eq!(context.transport.refresh_calls(), 1);
+    assert_eq!(context.transport.usage_calls(), 2);
+}
+
+#[tokio::test]
 async fn rejected_access_token_without_refresh_token_is_authentication_failed() {
     let context = QuotaTestContext::new_without_refresh_token().await;
 

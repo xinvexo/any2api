@@ -2,7 +2,7 @@ use any2api_domain::{
     ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, TransportMode,
 };
 use base64::Engine as _;
-use http::{header::AUTHORIZATION, header::CONTENT_TYPE};
+use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::CodexDriver;
 use crate::api::{
@@ -111,18 +111,40 @@ fn builds_pkce_authorization_and_token_requests() {
     let refresh = driver
         .oauth_token_request(OAuthGrant::RefreshToken, "refresh-secret", None, None)
         .expect("refresh request");
-    let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&refresh.body)
-        .into_owned()
-        .collect();
-    assert_eq!(
-        form.get("grant_type").map(String::as_str),
-        Some("refresh_token")
-    );
-    assert_eq!(
-        form.get("refresh_token").map(String::as_str),
-        Some("refresh-secret")
-    );
+    assert_eq!(refresh.headers[CONTENT_TYPE], "application/json");
+    let body = serde_json::from_slice::<serde_json::Value>(&refresh.body).expect("refresh JSON");
+    assert_eq!(body["client_id"], "app_EMoamEEZ73f0CkXaXp7hrann");
+    assert_eq!(body["grant_type"], "refresh_token");
+    assert_eq!(body["refresh_token"], "refresh-secret");
     assert!(!format!("{refresh:?}").contains("refresh-secret"));
+}
+
+#[test]
+fn classifies_declared_codex_refresh_token_failures_as_permanent() {
+    let driver = CodexDriver::new();
+    for code in [
+        "invalid_grant",
+        "refresh_token_expired",
+        "refresh_token_reused",
+        "refresh_token_invalidated",
+    ] {
+        let body = serde_json::json!({ "error": { "code": code } });
+        assert_eq!(
+            driver.classify_oauth_refresh_rejection(
+                StatusCode::UNAUTHORIZED,
+                body.to_string().as_bytes(),
+            ),
+            crate::api::OAuthRefreshRejection::Permanent
+        );
+    }
+
+    assert_eq!(
+        driver.classify_oauth_refresh_rejection(
+            StatusCode::UNAUTHORIZED,
+            br#"{"error":{"code":"unknown"}}"#,
+        ),
+        crate::api::OAuthRefreshRejection::Unverified
+    );
 }
 
 #[test]

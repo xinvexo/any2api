@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{
         Arc, Mutex as StdMutex, Weak,
         atomic::{AtomicBool, Ordering},
@@ -25,6 +25,7 @@ pub(crate) struct OAuthRefresher {
     pub(super) transport: Arc<dyn TransportManager>,
     pub(super) publisher: Arc<ConfigPublisher>,
     pub(super) gates: StdMutex<HashMap<OAuthAccountId, Weak<Mutex<()>>>>,
+    permanent_rejections: StdMutex<HashMap<OAuthAccountId, u64>>,
     worker_started: AtomicBool,
 }
 
@@ -39,6 +40,7 @@ impl OAuthRefresher {
             transport,
             publisher,
             gates: StdMutex::new(HashMap::new()),
+            permanent_rejections: StdMutex::new(HashMap::new()),
             worker_started: AtomicBool::new(false),
         })
     }
@@ -95,14 +97,13 @@ impl OAuthRefresher {
             .filter(|account| is_due(account.expires_at(), lead_time))
             .map(|account| (account.id(), account.token_version()))
             .collect::<Vec<_>>();
-        self.retain_active_gates(
-            snapshot
-                .oauth_accounts()
-                .accounts()
-                .iter()
-                .map(|account| account.id())
-                .collect(),
-        );
+        let active_versions = snapshot
+            .oauth_accounts()
+            .accounts()
+            .iter()
+            .map(|account| (account.id(), account.token_version()))
+            .collect();
+        self.retain_active_refresh_state(&active_versions);
         drop(snapshot);
 
         let mut prepared_segments = stream::iter(due)
@@ -199,11 +200,37 @@ impl OAuthRefresher {
         }
     }
 
-    fn retain_active_gates(&self, active: HashSet<OAuthAccountId>) {
+    pub(super) fn is_permanently_rejected(&self, id: OAuthAccountId, token_version: u64) -> bool {
+        let mut rejected = self
+            .permanent_rejections
+            .lock()
+            .expect("OAuth refresh rejection lock poisoned");
+        match rejected.get(&id).copied() {
+            Some(version) if version == token_version => true,
+            Some(_) => {
+                rejected.remove(&id);
+                false
+            }
+            None => false,
+        }
+    }
+
+    pub(super) fn record_permanent_rejection(&self, id: OAuthAccountId, token_version: u64) {
+        self.permanent_rejections
+            .lock()
+            .expect("OAuth refresh rejection lock poisoned")
+            .insert(id, token_version);
+    }
+
+    fn retain_active_refresh_state(&self, active: &HashMap<OAuthAccountId, u64>) {
         self.gates
             .lock()
             .expect("OAuth refresh gate lock poisoned")
-            .retain(|id, gate| active.contains(id) || gate.strong_count() > 0);
+            .retain(|id, gate| active.contains_key(id) || gate.strong_count() > 0);
+        self.permanent_rejections
+            .lock()
+            .expect("OAuth refresh rejection lock poisoned")
+            .retain(|id, version| active.get(id) == Some(version));
     }
 }
 
