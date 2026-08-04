@@ -27,6 +27,7 @@ struct OAuthAccountRow {
     enabled: i64,
     safe_account_email: Option<String>,
     expires_at: Option<i64>,
+    created_at: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -42,7 +43,7 @@ pub(crate) async fn load_oauth_accounts_from(
     let rows = sqlx::query_as::<_, OAuthAccountRow>(concat!(
         "SELECT id, provider_kind, label, oauth_json, token_version, account_generation, ",
         "config_version, proxy_profile_id, requests_per_minute, enabled, safe_account_email, ",
-        "expires_at FROM oauth_accounts ORDER BY provider_kind, label"
+        "expires_at, created_at FROM oauth_accounts ORDER BY provider_kind, label"
     ))
     .fetch_all(&mut *connection)
     .await?;
@@ -99,6 +100,7 @@ fn parse_row(
         proxy_profile_id,
         row.safe_account_email,
         row.expires_at,
+        row.created_at,
         token_version,
         account_generation,
         config_version,

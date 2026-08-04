@@ -35,8 +35,10 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
     .await
     .expect("create account");
     let account = created.oauth_accounts().get(account_id).expect("account");
+    let created_at = account.created_at().to_owned();
 
     assert_eq!(created.revision().get(), 2);
+    assert!(!created_at.is_empty());
     assert_eq!(account.token_version(), 1);
     assert_eq!(account.account_generation(), 1);
     assert_eq!(account.config_version(), 1);
@@ -135,6 +137,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
         refreshed_account.safe_account_email(),
         Some("new@example.com")
     );
+    assert_eq!(refreshed_account.created_at(), created_at);
     assert_eq!(refreshed_account.models()[0].as_str(), "gpt-c");
     assert_eq!(
         refreshed
@@ -173,6 +176,14 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
         .await
         .expect("restored configuration");
     assert_eq!(restored.revision(), refreshed.revision());
+    assert_eq!(
+        restored
+            .oauth_accounts()
+            .get(account_id)
+            .expect("restored account")
+            .created_at(),
+        created_at
+    );
     assert_eq!(
         restored
             .oauth_account_materials()

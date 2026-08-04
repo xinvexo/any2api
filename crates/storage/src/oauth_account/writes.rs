@@ -49,8 +49,8 @@ async fn insert(
     sqlx::query(concat!(
         "INSERT INTO oauth_accounts ",
         "(id, provider_kind, label, label_key, oauth_json, token_version, account_generation, ",
-        "config_version, proxy_profile_id, requests_per_minute, enabled, safe_account_email, expires_at) ",
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "config_version, proxy_profile_id, requests_per_minute, enabled, safe_account_email, ",
+        "expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ))
     .bind(account.id().to_string())
     .bind(provider_kind_text(account.provider_kind())?)
@@ -69,6 +69,7 @@ async fn insert(
     .bind(account.enabled())
     .bind(account.safe_account_email())
     .bind(account.expires_at())
+    .bind(account.created_at())
     .execute(&mut *connection)
     .await?;
     Ok(())

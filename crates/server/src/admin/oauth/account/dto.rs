@@ -21,16 +21,26 @@ impl OAuthAccountCollectionResponse {
         snapshot: &PublishedSnapshot,
         usage: &[UpstreamCredentialUsageSummary],
     ) -> Self {
+        let accounts = accounts_for_management(snapshot.oauth_accounts().accounts());
         Self {
             config_revision: snapshot.revision().get(),
-            items: snapshot
-                .oauth_accounts()
-                .accounts()
-                .iter()
+            items: accounts
+                .into_iter()
                 .map(|account| OAuthAccountResponse::from_snapshot(account, snapshot, usage))
                 .collect(),
         }
     }
+}
+
+fn accounts_for_management(accounts: &[OAuthAccount]) -> Vec<&OAuthAccount> {
+    let mut accounts = accounts.iter().collect::<Vec<_>>();
+    accounts.sort_by(|left, right| {
+        left.provider_kind()
+            .cmp(&right.provider_kind())
+            .then_with(|| left.created_at().cmp(right.created_at()))
+            .then_with(|| left.id().cmp(&right.id()))
+    });
+    accounts
 }
 
 #[derive(Debug, Serialize)]
@@ -165,4 +175,55 @@ fn parse_version(value: u64) -> Result<u64, AdminApiError> {
     (value > 0)
         .then_some(value)
         .ok_or_else(|| AdminApiError::invalid_request("expected_config_version is invalid"))
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::{
+        OAuthAccount, OAuthAccountConfiguration, OAuthAccountDraft, OAuthAccountId, ProviderKind,
+        ProxyConfiguration, ProxyProfile, ProxyProfileId,
+    };
+    use uuid::Uuid;
+
+    use super::accounts_for_management;
+
+    #[test]
+    fn management_order_is_oldest_first_without_changing_routing_order() {
+        let accounts = vec![
+            account(4, "A New", "2026-08-05 00:00:03"),
+            account(3, "D Same Time", "2026-08-05 00:00:02"),
+            account(2, "C Same Time", "2026-08-05 00:00:02"),
+            account(1, "Z Old", "2026-08-05 00:00:01"),
+        ];
+        let proxies = ProxyConfiguration::new(vec![ProxyProfile::direct()], ProxyProfileId::DIRECT)
+            .expect("proxy configuration");
+        let configuration =
+            OAuthAccountConfiguration::new(accounts, &proxies).expect("OAuth configuration");
+
+        assert_eq!(
+            labels(configuration.accounts().iter()),
+            ["A New", "C Same Time", "D Same Time", "Z Old"]
+        );
+        assert_eq!(
+            labels(accounts_for_management(configuration.accounts()).into_iter()),
+            ["Z Old", "C Same Time", "D Same Time", "A New"]
+        );
+    }
+
+    fn account(id: u128, label: &str, created_at: &str) -> OAuthAccount {
+        OAuthAccount::create(
+            OAuthAccountId::from_uuid(Uuid::from_u128(id)),
+            ProviderKind::Codex,
+            OAuthAccountDraft::new(label, None, true).expect("OAuth account draft"),
+            None,
+            None,
+            created_at,
+            vec!["gpt-test".to_owned()],
+        )
+        .expect("OAuth account")
+    }
+
+    fn labels<'a>(accounts: impl Iterator<Item = &'a OAuthAccount>) -> Vec<&'a str> {
+        accounts.map(OAuthAccount::label).collect()
+    }
 }

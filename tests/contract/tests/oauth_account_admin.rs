@@ -17,6 +17,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use sqlx::Connection;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -223,6 +224,69 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
     );
 }
 
+#[tokio::test]
+async fn oauth_account_admin_lists_oldest_accounts_first() {
+    let fixture = TestApplication::new().await;
+    let publisher = fixture.publisher();
+    let newer_id = OAuthAccountId::new();
+    let older_id = OAuthAccountId::new();
+    for (id, label, access_token, email) in [
+        (newer_id, "A New", "newer-access", "newer@example.com"),
+        (older_id, "Z Old", "older-access", "older@example.com"),
+    ] {
+        publisher
+            .activate_oauth_account(
+                id,
+                ProviderKind::Codex,
+                OAuthAccountDraft::new(label, None, true).expect("OAuth account draft"),
+                Some(email.to_owned()),
+                Some(1_800_000_000),
+                vec!["gpt-5.5".to_owned()],
+                oauth_document(access_token, email),
+            )
+            .await
+            .expect("activate OAuth account");
+    }
+    let (directory, old_router, storage) = fixture.into_router();
+    drop(old_router);
+    let mut connection = sqlx::SqliteConnection::connect_with(
+        &sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(directory.path().join("any2api.sqlite3")),
+    )
+    .await
+    .expect("secondary SQLite connection");
+    for (id, created_at) in [
+        (newer_id, "2026-08-05 00:00:02"),
+        (older_id, "2026-08-05 00:00:01"),
+    ] {
+        sqlx::query("UPDATE oauth_accounts SET created_at = ? WHERE id = ?")
+            .bind(created_at)
+            .bind(id.to_string())
+            .execute(&mut connection)
+            .await
+            .expect("set account creation time");
+    }
+    drop(connection);
+
+    let fixture = TestApplication::from_storage(directory, storage).await;
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let (status, listed) = request_json(
+        fixture.router(),
+        Method::GET,
+        "/api/admin/oauth/accounts",
+        None,
+        loopback,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(listed["config_revision"], 3);
+    let items = listed["items"].as_array().expect("OAuth account items");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["id"], older_id.to_string());
+    assert_eq!(items[1]["id"], newer_id.to_string());
+}
+
 async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccountId) {
     let fixture = TestApplication::new().await;
     let storage = fixture.storage();
@@ -258,6 +322,22 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
     let state = fixture.state().with_request_telemetry(telemetry);
     let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);
     (directory, app, storage, account_id)
+}
+
+fn oauth_document(access_token: &str, email: &str) -> OAuthAccountDocument {
+    OAuthAccountDocument::new(
+        ProviderKind::Codex,
+        serde_json::to_vec(&json!({
+            "access_token": access_token,
+            "refresh_token": null,
+            "id_token": null,
+            "account_id": null,
+            "email": email,
+        }))
+        .expect("OAuth document JSON")
+        .into(),
+    )
+    .expect("OAuth account document")
 }
 
 fn oauth_request_log(

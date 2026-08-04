@@ -55,6 +55,7 @@ pub struct OAuthAccount {
     enabled: bool,
     safe_account_email: Option<String>,
     expires_at: Option<i64>,
+    created_at: String,
     token_version: u64,
     account_generation: u64,
     config_version: u64,
@@ -68,6 +69,7 @@ impl OAuthAccount {
         draft: OAuthAccountDraft,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
+        created_at: impl Into<String>,
         models: Vec<String>,
     ) -> Result<Self, OAuthAccountValidationError> {
         Self::restore(
@@ -77,6 +79,7 @@ impl OAuthAccount {
             ProxyProfileId::DIRECT,
             safe_account_email,
             expires_at,
+            created_at.into(),
             1,
             1,
             1,
@@ -92,6 +95,7 @@ impl OAuthAccount {
         proxy_profile_id: ProxyProfileId,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
+        created_at: String,
         token_version: u64,
         account_generation: u64,
         config_version: u64,
@@ -121,6 +125,7 @@ impl OAuthAccount {
             enabled: draft.enabled,
             safe_account_email: validate_safe_email(safe_account_email)?,
             expires_at,
+            created_at: validate_created_at(created_at)?,
             token_version,
             account_generation,
             config_version,
@@ -234,6 +239,11 @@ impl OAuthAccount {
     }
 
     #[must_use]
+    pub fn created_at(&self) -> &str {
+        &self.created_at
+    }
+
+    #[must_use]
     pub const fn token_version(&self) -> u64 {
         self.token_version
     }
@@ -273,6 +283,8 @@ pub enum OAuthAccountValidationError {
     InvalidVersion,
     #[error("OAuth account expiry is invalid")]
     InvalidExpiry,
+    #[error("OAuth account creation timestamp is invalid")]
+    InvalidCreatedAt,
     #[error("OAuth account email is invalid")]
     InvalidEmail,
     #[error("OAuth account must bind to DIRECT")]
@@ -316,6 +328,13 @@ fn validate_safe_email(
         return Err(OAuthAccountValidationError::InvalidEmail);
     }
     Ok(Some(email))
+}
+
+fn validate_created_at(value: String) -> Result<String, OAuthAccountValidationError> {
+    if value.trim().is_empty() || value.trim() != value || value.chars().any(char::is_control) {
+        return Err(OAuthAccountValidationError::InvalidCreatedAt);
+    }
+    Ok(value)
 }
 
 fn validate_models(

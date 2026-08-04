@@ -14,6 +14,7 @@ pub(crate) enum OAuthAccountMutation {
         draft: OAuthAccountDraft,
         safe_account_email: Option<String>,
         expires_at: Option<i64>,
+        created_at: String,
         models: Vec<String>,
         document: OAuthAccountDocument,
     },
@@ -100,6 +101,7 @@ pub(crate) fn prepare_oauth_account_mutation(
             draft,
             safe_account_email,
             expires_at,
+            created_at,
             models,
             document,
         } => create(
@@ -110,6 +112,7 @@ pub(crate) fn prepare_oauth_account_mutation(
             draft,
             safe_account_email,
             expires_at,
+            created_at,
             models,
             document,
         )
@@ -174,6 +177,7 @@ fn create(
     draft: OAuthAccountDraft,
     safe_account_email: Option<String>,
     expires_at: Option<i64>,
+    created_at: String,
     models: Vec<String>,
     document: OAuthAccountDocument,
 ) -> Result<PreparedOAuthAccountMutation, StorageError> {
@@ -184,6 +188,7 @@ fn create(
         draft,
         safe_account_email,
         expires_at,
+        created_at,
         models,
     )?;
     let configuration = replace_account(current, proxies, None, Some(account.clone()))?;

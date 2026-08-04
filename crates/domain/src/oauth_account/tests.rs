@@ -16,6 +16,7 @@ fn account(provider: ProviderKind, label: &str) -> OAuthAccount {
         .expect("valid draft"),
         Some("owner@example.com".into()),
         Some(100),
+        "2026-08-05 00:00:00",
         vec!["model".into()],
     )
     .expect("valid account")
@@ -37,6 +38,7 @@ fn refresh_changes_only_authentication_version_and_safe_metadata() {
     assert_eq!(refreshed.token_version(), 2);
     assert_eq!(refreshed.account_generation(), 1);
     assert_eq!(refreshed.config_version(), 1);
+    assert_eq!(refreshed.created_at(), account.created_at());
     assert_eq!(refreshed.models(), account.models());
     assert_eq!(refreshed.safe_account_email(), Some("new@example.com"));
 }

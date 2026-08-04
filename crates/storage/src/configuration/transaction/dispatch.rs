@@ -153,18 +153,22 @@ pub(super) async fn execute_mutation(
             expires_at,
             models,
             document,
-        } => execute!(
-            mutate_oauth_account_configuration,
-            OAuthAccountMutation::Create {
-                id,
-                provider_kind,
-                draft,
-                safe_account_email,
-                expires_at,
-                models,
-                document,
-            },
-        ),
+        } => {
+            let created_at = current_timestamp(connection).await?;
+            execute!(
+                mutate_oauth_account_configuration,
+                OAuthAccountMutation::Create {
+                    id,
+                    provider_kind,
+                    draft,
+                    safe_account_email,
+                    expires_at,
+                    created_at,
+                    models,
+                    document,
+                },
+            )
+        }
         ConfigurationMutation::CreateOAuthAccounts { accounts } => {
             mutate_oauth_account_create_batch(connection, expected, accounts).await
         }

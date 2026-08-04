@@ -65,6 +65,7 @@ pub(crate) async fn mutate_create_batch(
         return Ok((current, false));
     }
 
+    let created_at = current_timestamp(connection).await?;
     let mut expected_accounts = current.oauth_accounts().clone();
     let mut changes = Vec::with_capacity(accounts.len());
     for account in accounts {
@@ -77,6 +78,7 @@ pub(crate) async fn mutate_create_batch(
                 draft: account.draft,
                 safe_account_email: account.safe_account_email,
                 expires_at: account.expires_at,
+                created_at: created_at.clone(),
                 models: account.models,
                 document: account.document,
             },
@@ -173,4 +175,11 @@ fn ensure_oauth_write_matches(
         expected_accounts,
         ConfigurationWriteComponent::OAuthAccounts,
     )
+}
+
+async fn current_timestamp(connection: &mut SqliteConnection) -> Result<String, StorageError> {
+    sqlx::query_scalar("SELECT CURRENT_TIMESTAMP")
+        .fetch_one(connection)
+        .await
+        .map_err(Into::into)
 }
