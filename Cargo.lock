@@ -133,6 +133,7 @@ version = "0.1.0"
 dependencies = [
  "any2api-domain",
  "base64",
+ "bytes",
  "http",
  "secrecy",
  "serde",

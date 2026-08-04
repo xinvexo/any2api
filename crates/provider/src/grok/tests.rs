@@ -9,7 +9,7 @@ use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 use super::{GrokDriver, oauth_bot_flag};
 use crate::api::{
     OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthTokenMaterial, ProviderDriver,
-    ProviderError, ProviderRequestHeaderContext, ProviderSecret,
+    ProviderError, ProviderRequestContext, ProviderSecret,
 };
 
 #[test]
@@ -252,7 +252,7 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
     assert_eq!(headers.headers["x-userid"], "subject-1");
     assert!(!headers.headers.contains_key("x-xai-token-auth"));
     let identity = driver
-        .prepare_request_headers(ProviderRequestHeaderContext {
+        .prepare_request_headers(ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
             upstream_operation: ProtocolOperation::Responses,
             upstream_model: "grok-4.5",
@@ -277,7 +277,7 @@ fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
     let client_headers = http::HeaderMap::new();
 
     let oauth_headers = driver
-        .prepare_request_headers(ProviderRequestHeaderContext {
+        .prepare_request_headers(ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
             upstream_operation: ProtocolOperation::Responses,
             upstream_model: "本地/Grok",
@@ -293,7 +293,7 @@ fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
     );
 
     let error = driver
-        .prepare_request_headers(ProviderRequestHeaderContext {
+        .prepare_request_headers(ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
             upstream_operation: ProtocolOperation::Responses,
             upstream_model: "invalid\nmodel",
@@ -312,7 +312,7 @@ fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
     );
 
     let api_key_headers = driver
-        .prepare_request_headers(ProviderRequestHeaderContext {
+        .prepare_request_headers(ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
             upstream_operation: ProtocolOperation::Responses,
             upstream_model: "本地/Grok",

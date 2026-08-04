@@ -5,7 +5,7 @@ use http::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::{
     ProviderError,
-    api::ProviderRequestHeaderContext,
+    api::ProviderRequestContext,
     header_policy::{insert_default, ordered_names, project},
 };
 
@@ -41,9 +41,7 @@ static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
     ])
 });
 
-pub(crate) fn request(
-    context: ProviderRequestHeaderContext<'_>,
-) -> Result<HeaderMap, ProviderError> {
+pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, ProviderError> {
     let mut headers = HeaderMap::new();
     insert_default(
         &mut headers,

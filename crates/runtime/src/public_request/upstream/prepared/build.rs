@@ -4,7 +4,7 @@ use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode};
 use any2api_protocol::api::{
     DecodedRequest, ProtocolContinuationState, ProtocolError, ProtocolExchange, ProtocolRegistry,
 };
-use any2api_provider::api::{ProviderDriver, ProviderRegistry, ProviderRequestHeaderContext};
+use any2api_provider::api::{ProviderDriver, ProviderRegistry, ProviderRequestContext};
 use any2api_transport::api::{EndpointNetworkPolicy, TransportProxy, TransportRequest};
 use bytes::Bytes;
 use http::{HeaderValue, header};
@@ -152,7 +152,7 @@ fn build_request<'a>(
         .as_str()
         .parse()
         .map_err(|_| internal_error())?;
-    let header_context = ProviderRequestHeaderContext {
+    let request_context = ProviderRequestContext {
         ingress_dialect,
         upstream_operation,
         upstream_model: &candidate.upstream_model,
@@ -161,11 +161,16 @@ fn build_request<'a>(
         allow_credential_bound: header_policy.allow_credential_bound,
         allow_turn_state: header_policy.allow_turn_state,
     };
+    encoded.body = driver
+        .prepare_request_body(request_context, encoded.body)
+        .map_err(|_| {
+            invalid_request("request cannot be represented by the selected upstream provider")
+        })?;
     let mut headers = driver
-        .prepare_request_headers(header_context)
+        .prepare_request_headers(request_context)
         .map_err(|_| internal_error())?;
     headers.extend(encoded.headers);
-    if driver.supports_request_body_encoding(header_context, body_encoding) {
+    if driver.supports_request_body_encoding(request_context, body_encoding) {
         encoded.body = encode_zstd(encoded.body)?;
         headers.insert(header::CONTENT_ENCODING, HeaderValue::from_static("zstd"));
     } else {

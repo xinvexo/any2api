@@ -5,7 +5,7 @@ use http::{HeaderMap, HeaderName};
 
 use crate::{
     ProviderError,
-    api::ProviderRequestHeaderContext,
+    api::ProviderRequestContext,
     header_policy::{insert_default, ordered_names, project},
 };
 
@@ -50,9 +50,7 @@ static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
     ])
 });
 
-pub(crate) fn request(
-    context: ProviderRequestHeaderContext<'_>,
-) -> Result<HeaderMap, ProviderError> {
+pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, ProviderError> {
     let mut headers = HeaderMap::new();
     insert_default(&mut headers, "originator", "codex_cli_rs");
     insert_default(&mut headers, "user-agent", "codex_cli_rs/0.145.0");
@@ -83,7 +81,7 @@ pub(crate) fn response(upstream: &HeaderMap) -> HeaderMap {
 }
 
 pub(crate) fn supports_encoding(
-    context: ProviderRequestHeaderContext<'_>,
+    context: ProviderRequestContext<'_>,
     encoding: RequestBodyEncoding,
 ) -> bool {
     encoding == RequestBodyEncoding::Zstd
@@ -100,7 +98,7 @@ mod tests {
     use http::{HeaderMap, HeaderValue};
 
     use super::{request, response};
-    use crate::api::ProviderRequestHeaderContext;
+    use crate::api::ProviderRequestContext;
 
     #[test]
     fn credential_bound_codex_headers_are_not_replayed_after_a_switch() {
@@ -110,7 +108,7 @@ mod tests {
             client.append("x-codex-turn-state", HeaderValue::from_static("sticky"));
         }
         client.insert("openai-beta", HeaderValue::from_static("responses=v1"));
-        let context = ProviderRequestHeaderContext {
+        let context = ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
             upstream_operation: ProtocolOperation::Responses,
             upstream_model: "gpt",

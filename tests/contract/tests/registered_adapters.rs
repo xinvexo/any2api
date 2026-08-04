@@ -7,7 +7,7 @@ use any2api_domain::{
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter};
 use any2api_provider::api::{
-    ProviderDriver, ProviderRequestHeaderContext, ProviderSecret, UpstreamResponseMeta,
+    ProviderDriver, ProviderRequestContext, ProviderSecret, UpstreamResponseMeta,
 };
 use axum::http::{
     HeaderMap, HeaderValue, Method, StatusCode, Uri,
@@ -171,16 +171,23 @@ fn provider_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
     );
 
     let client_headers = client_headers(fixture.safe_header);
+    let request_context = ProviderRequestContext {
+        ingress_dialect: fixture.ingress_dialect,
+        upstream_operation: fixture.operation,
+        upstream_model: "contract-model",
+        client_headers: &client_headers,
+        oauth: false,
+        allow_credential_bound: true,
+        allow_turn_state: true,
+    };
+    let request_body = Bytes::from_static(br#"{"future_field":42}"#);
+    let prepared_body = driver
+        .prepare_request_body(request_context, request_body.clone())
+        .expect("registered provider prepares API key request bodies");
+    assert_eq!(prepared_body.as_ptr(), request_body.as_ptr());
+    assert_eq!(prepared_body, request_body);
     let request_headers = driver
-        .prepare_request_headers(ProviderRequestHeaderContext {
-            ingress_dialect: fixture.ingress_dialect,
-            upstream_operation: fixture.operation,
-            upstream_model: "contract-model",
-            client_headers: &client_headers,
-            oauth: false,
-            allow_credential_bound: true,
-            allow_turn_state: true,
-        })
+        .prepare_request_headers(request_context)
         .expect("registered provider projects request headers");
     assert_eq!(request_headers["user-agent"], "official-client/contract");
     assert_eq!(request_headers["traceparent"], "00-contract-trace");

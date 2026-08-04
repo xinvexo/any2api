@@ -1,10 +1,12 @@
 use super::{
     headers as codex_headers, import as codex_import, oauth as codex_oauth, quota as codex_quota,
+    request as codex_request,
 };
 use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding,
     TransportMode,
 };
+use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 use url::Url;
 
@@ -14,7 +16,7 @@ use crate::{
         CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
         OAuthImportedAccount, OAuthLoginFlow, OAuthQuotaRejection, OAuthQuotaUsage,
         OAuthRefreshRejection, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial,
-        ProviderDriver, ProviderRequestHeaderContext, UpstreamResponseMeta,
+        ProviderDriver, ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
@@ -95,9 +97,17 @@ impl ProviderDriver for CodexDriver {
         api_key::bearer_credential_headers(secret)
     }
 
+    fn prepare_request_body(
+        &self,
+        context: ProviderRequestContext<'_>,
+        body: Bytes,
+    ) -> Result<Bytes, ProviderError> {
+        codex_request::prepare(context, body)
+    }
+
     fn prepare_request_headers(
         &self,
-        context: ProviderRequestHeaderContext<'_>,
+        context: ProviderRequestContext<'_>,
     ) -> Result<HeaderMap, ProviderError> {
         codex_headers::request(context)
     }
@@ -108,7 +118,7 @@ impl ProviderDriver for CodexDriver {
 
     fn supports_request_body_encoding(
         &self,
-        context: ProviderRequestHeaderContext<'_>,
+        context: ProviderRequestContext<'_>,
         encoding: RequestBodyEncoding,
     ) -> bool {
         codex_headers::supports_encoding(context, encoding)

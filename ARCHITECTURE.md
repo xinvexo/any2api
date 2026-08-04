@@ -582,6 +582,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 
 7. Attempt
    - 解析实际代理
+   - Provider Driver 只按最终选中的上游凭据与操作准备 attempt-owned 请求体；当前仅 Codex OAuth 普通 Responses 应用已登记的后端兼容 Profile
    - Provider Driver 按 Provider + 协议 + 端点投影真实客户端 Header，缺失时补官方默认身份
    - ProtocolAdapter 覆盖与最终 Body 一致的 Content-Type、Accept 等协议 Header
    - 最后只注入选中 ProviderCredential 或 OAuthAccount 的认证与账号 Header
@@ -811,7 +812,7 @@ Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profil
 
 `token_version` 是 OAuth 认证材料 CAS 与认证健康代际；`account_generation` 是账号级路由健康身份代际。定时刷新和已确认同一 Provider 身份的重新授权只增加 `token_version`，创建全新的 `auth_error` 状态，同时复用同一 `account_generation` 的额度、权限和模型冷却；从 disabled 重新 enabled 时增加 `account_generation` 并整体重置健康。完整决策见 `docs/adr/0095-split-authentication-and-routing-health-generations.md`。
 
-Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。Claude 固定路由基址为 `https://api.anthropic.com`，由 Driver 统一追加 `/v1` API 路径，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选，并使用 Driver 注册的文本模型目录。固定基址、方言和目录只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。
+Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。选中 Codex OAuthAccount 的普通 Responses Attempt 在协议编码后、zstd 与上游 I/O 前应用固定出站 Profile：强制 `store=false`，删除 ChatGPT Codex 后端不支持的已登记字段，把字符串 input 与 `system` role 规范成该后端接受的等价形状，并补齐 reasoning include；该 Profile 不按 User-Agent 识别客户端、不修改 `stream`，也绝不应用于 Codex API Key 或 Responses Compact。Claude 固定路由基址为 `https://api.anthropic.com`，由 Driver 统一追加 `/v1` API 路径，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选，并使用 Driver 注册的文本模型目录。固定基址、方言、目录和 Provider Endpoint Profile 只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。完整决策见 `docs/adr/0115-codex-oauth-responses-request-profile.md`。
 
 ### 9.5 内部 ModelRoute
 
@@ -1424,7 +1425,8 @@ trait ProviderDriver: Send + Sync {
     fn credential_test_plan(&self, base_url: &ProviderBaseUrl) -> Result<CredentialTestPlan>;
     fn parse_model_catalog(&self, bounded_body: &[u8]) -> Result<Vec<String>>;
     fn credential_headers(&self, base_url: &ProviderBaseUrl, secret: &ProviderSecret) -> Result<CredentialHeaders>;
-    fn prepare_request_headers(&self, context: ProviderRequestHeaderContext<'_>) -> Result<HeaderMap>;
+    fn prepare_request_body(&self, context: ProviderRequestContext<'_>, body: Bytes) -> Result<Bytes>;
+    fn prepare_request_headers(&self, context: ProviderRequestContext<'_>) -> Result<HeaderMap>;
     fn response_headers(&self, operation: ProtocolOperation, upstream: &HeaderMap) -> HeaderMap;
     fn oauth_redirect_uri(&self) -> Option<&'static str>;
     fn oauth_authorization_url(&self, state: &str, code_challenge: &str) -> Result<Url>;
@@ -1469,7 +1471,9 @@ trait ProtocolBridgeSession: Send {
 会话、思考级别、远程压缩标记和 Responses item 身份，不为未知嵌套内容构造完整 `serde_json::Value`。
 最终上游模型和字段集合不变且顶层字段名唯一时，Transport Body 直接克隆同一 `Bytes` 句柄；确需模型
 替换、非流式字段裁剪、顶层重复字段消歧或 Responses item ID 归一化时才从原始字段片段生成一份新 wire
-Body。只有显式选择不同内部协议时，
+Body。Protocol 编码完成后，最终选中的 Provider Driver 可以按独立 ADR 登记的 Endpoint Profile 借用扫描
+attempt-owned Body；合规正文继续复用原分配，确需兼容改写才生成本 Attempt 的新 Body，禁止修改共享
+`DecodedRequest`。当前唯一实现是 ADR-0115 的 Codex OAuth 普通 Responses Profile。只有显式选择不同内部协议时，
 `ProtocolBridge` 才按需物化结构化 JSON 并进入桥专用转换状态。入口完成规范化后，`DecodedRequest` 作为
 `Arc` 持有的不可变请求计划在重试与 OAuth replan 间共享；Attempt、ProtocolAdapter 和 ProtocolBridge
 只借用它。multipart 重编码同样必须在序列化边界从借用 payload 生成新的 wire bytes，不得为每个 Attempt
@@ -1479,7 +1483,7 @@ Body。只有显式选择不同内部协议时，
 
 Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态注册，配置发布前完整解析；有状态 Bridge 通过 `ProtocolContinuationState` 封装可恢复下一次 Session 的强类型能力，Runtime 不解释其内部消息。错误正文只能在严格大小上限内交给 Driver。Driver 返回的 `UpstreamError` 必须同时携带机器可用的 `UpstreamErrorClassification`，以及从该 Provider 已声明错误 envelope 中提取的可选原始 `message`。分类只决定内部重试与健康行为，原始 `message` 只供管理日志显示；最终客户端响应直接使用上游正文，二者都不得由分类结果反向生成。
 
-具体方法可以在实现阶段调整，但职责边界不可合并为一个万能 Driver。Provider 只处理供应商、Endpoint、认证、OAuth 额度协议、Header 契约和错误差异，ProtocolAdapter 负责线协议双向编解码以及与重编码 Body 一致的协议 Header，Runtime 负责网络、合并优先级与编排。OAuth 方法同时服务登录、刷新、Provider 专属额度管理和选中 OAuthAccount 后的认证注入；它们不把 OAuthAccount 变成 ProviderCredential。`ProviderRegistry` 和 `ProtocolRegistry` 由 `app` 在编译期静态注册，Runtime 只依赖接口和 CapabilitySet。
+具体方法可以在实现阶段调整，但职责边界不可合并为一个万能 Driver。Provider 只处理供应商、Endpoint、认证、OAuth 额度协议、已登记的 Endpoint 请求 Profile、Header 契约和错误差异；Profile 只能改写当前 Attempt 已编码的 Body，不能取代通用协议解析或跨协议 Bridge。ProtocolAdapter 负责线协议双向编解码以及与重编码 Body 一致的协议 Header，Runtime 负责网络、合并优先级与编排。OAuth 方法同时服务登录、刷新、Provider 专属额度管理和选中 OAuthAccount 后的认证注入；它们不把 OAuthAccount 变成 ProviderCredential。`ProviderRegistry` 和 `ProtocolRegistry` 由 `app` 在编译期静态注册，Runtime 只依赖接口和 CapabilitySet。
 
 ### 11.6 Gateway 鉴权与上游认证隔离
 

@@ -6,7 +6,7 @@ use http::{StatusCode, header::AUTHORIZATION, header::CONTENT_TYPE};
 
 use super::CodexDriver;
 use crate::api::{
-    OAuthGrant, OAuthTokenMaterial, ProviderDriver, ProviderRequestHeaderContext, ProviderSecret,
+    OAuthGrant, OAuthTokenMaterial, ProviderDriver, ProviderRequestContext, ProviderSecret,
 };
 
 #[test]
@@ -257,7 +257,7 @@ fn builds_codex_oauth_headers_from_token_response() {
     assert_eq!(headers.headers["chatgpt-account-id"], "account-123");
     assert!(!headers.headers.contains_key("originator"));
     let identity = driver
-        .prepare_request_headers(ProviderRequestHeaderContext {
+        .prepare_request_headers(ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
             upstream_operation: ProtocolOperation::Responses,
             upstream_model: "gpt",

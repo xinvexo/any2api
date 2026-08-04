@@ -94,12 +94,21 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
                 body: Bytes::from(
                     serde_json::to_vec(&serde_json::json!({
                         "model": "gpt-5.5",
-                        "input": [{
-                            "type": "reasoning",
-                            "id": "item_oauth_incompatible",
-                            "summary": [],
-                            "encrypted_content": "opaque-reasoning"
-                        }]
+                        "store": true,
+                        "max_output_tokens": 64_000,
+                        "input": [
+                            {
+                                "type": "message",
+                                "role": "system",
+                                "content": "rules"
+                            },
+                            {
+                                "type": "reasoning",
+                                "id": "item_oauth_incompatible",
+                                "summary": [],
+                                "encrypted_content": "opaque-reasoning"
+                            }
+                        ]
                     }))
                     .expect("request JSON"),
                 ),
@@ -129,9 +138,17 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
     let outbound: serde_json::Value =
         serde_json::from_slice(&captured.request.body).expect("outbound JSON");
     assert_eq!(outbound["model"], "gpt-5.5");
-    assert!(outbound["input"][0].get("id").is_none());
+    assert_eq!(outbound["store"], false);
+    assert!(outbound.get("max_output_tokens").is_none());
+    assert_eq!(outbound["parallel_tool_calls"], true);
     assert_eq!(
-        outbound["input"][0]["encrypted_content"],
+        outbound["include"],
+        serde_json::json!(["reasoning.encrypted_content"])
+    );
+    assert_eq!(outbound["input"][0]["role"], "developer");
+    assert!(outbound["input"][1].get("id").is_none());
+    assert_eq!(
+        outbound["input"][1]["encrypted_content"],
         "opaque-reasoning"
     );
 

@@ -13,7 +13,7 @@ use crate::{
         OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthImportedAccount,
         OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaRejection, OAuthQuotaUsage,
         OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
-        ProviderRequestHeaderContext, UpstreamResponseMeta,
+        ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
 };
@@ -107,7 +107,7 @@ impl ProviderDriver for GrokDriver {
 
     fn prepare_request_headers(
         &self,
-        context: ProviderRequestHeaderContext<'_>,
+        context: ProviderRequestContext<'_>,
     ) -> Result<HeaderMap, ProviderError> {
         grok_headers::request(context)
     }

@@ -15,7 +15,7 @@ use crate::{
         CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
         OAuthImportedAccount, OAuthLoginFlow, OAuthQuotaQueryPlan, OAuthQuotaUsage,
         OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
-        ProviderRequestHeaderContext, UpstreamResponseMeta,
+        ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
 };
@@ -97,7 +97,7 @@ impl ProviderDriver for ClaudeDriver {
 
     fn prepare_request_headers(
         &self,
-        context: ProviderRequestHeaderContext<'_>,
+        context: ProviderRequestContext<'_>,
     ) -> Result<HeaderMap, ProviderError> {
         claude_headers::request(context)
     }

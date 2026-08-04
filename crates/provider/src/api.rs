@@ -4,6 +4,7 @@ use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind,
     RequestBodyEncoding, TransportMode, UpstreamError,
 };
+use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 use url::Url;
 
@@ -60,7 +61,7 @@ pub struct UpstreamResponseMeta {
 }
 
 #[derive(Clone, Copy)]
-pub struct ProviderRequestHeaderContext<'a> {
+pub struct ProviderRequestContext<'a> {
     pub ingress_dialect: ProtocolDialect,
     pub upstream_operation: ProtocolOperation,
     pub upstream_model: &'a str,
@@ -96,9 +97,17 @@ pub trait ProviderDriver: Send + Sync {
         secret: &ProviderSecret,
     ) -> Result<CredentialHeaders, ProviderError>;
 
+    fn prepare_request_body(
+        &self,
+        _context: ProviderRequestContext<'_>,
+        body: Bytes,
+    ) -> Result<Bytes, ProviderError> {
+        Ok(body)
+    }
+
     fn prepare_request_headers(
         &self,
-        _context: ProviderRequestHeaderContext<'_>,
+        _context: ProviderRequestContext<'_>,
     ) -> Result<HeaderMap, ProviderError> {
         Ok(HeaderMap::new())
     }
@@ -109,7 +118,7 @@ pub trait ProviderDriver: Send + Sync {
 
     fn supports_request_body_encoding(
         &self,
-        _context: ProviderRequestHeaderContext<'_>,
+        _context: ProviderRequestContext<'_>,
         _encoding: RequestBodyEncoding,
     ) -> bool {
         false
@@ -322,10 +331,10 @@ impl fmt::Debug for UpstreamResponseMeta {
     }
 }
 
-impl fmt::Debug for ProviderRequestHeaderContext<'_> {
+impl fmt::Debug for ProviderRequestContext<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("ProviderRequestHeaderContext")
+            .debug_struct("ProviderRequestContext")
             .field("ingress_dialect", &self.ingress_dialect)
             .field("upstream_operation", &self.upstream_operation)
             .field("upstream_model", &self.upstream_model)

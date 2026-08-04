@@ -8,7 +8,7 @@ use http::{
 
 use super::ClaudeDriver;
 use crate::api::{
-    OAuthGrant, ProviderDriver, ProviderRequestHeaderContext, ProviderSecret, UpstreamResponseMeta,
+    OAuthGrant, ProviderDriver, ProviderRequestContext, ProviderSecret, UpstreamResponseMeta,
 };
 
 #[test]
@@ -51,7 +51,7 @@ fn builds_messages_paths_and_anthropic_headers() {
     assert_eq!(official_headers.headers["x-api-key"], "sk-ant-official");
     assert!(!official_headers.headers.contains_key(AUTHORIZATION));
     let identity = driver
-        .prepare_request_headers(ProviderRequestHeaderContext {
+        .prepare_request_headers(ProviderRequestContext {
             ingress_dialect: ProtocolDialect::AnthropicMessages,
             upstream_operation: ProtocolOperation::Messages,
             upstream_model: "claude",
@@ -228,7 +228,7 @@ fn builds_claude_oauth_headers_and_preserves_client_betas() {
         ["first-beta", "second-beta,oauth-2025-04-20"]
     );
     let identity = driver
-        .prepare_request_headers(ProviderRequestHeaderContext {
+        .prepare_request_headers(ProviderRequestContext {
             ingress_dialect: ProtocolDialect::AnthropicMessages,
             upstream_operation: ProtocolOperation::Messages,
             upstream_model: "claude",
