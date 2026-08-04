@@ -31,6 +31,11 @@ impl EndpointNetworkPolicy {
         self
     }
 
+    /// Strict SSRF is address *pinning*: the transport resolves the upstream
+    /// host locally and connects to exactly those addresses (also through
+    /// proxies), defeating DNS-rebinding between check and use. It never
+    /// filters loopback or private ranges because upstream endpoints may
+    /// legitimately live there (for example local LLM servers).
     #[must_use]
     pub const fn strict_ssrf(self) -> bool {
         self.strict_ssrf
@@ -49,7 +54,9 @@ impl Default for TransportManagerConfig {
     fn default() -> Self {
         Self {
             connect_timeout: Duration::from_secs(10),
-            pool_idle_timeout: Duration::from_secs(90),
+            // Below the common 60s NAT silent-drop window so pooled
+            // connections are reaped before a middlebox kills them.
+            pool_idle_timeout: Duration::from_secs(50),
             pool_max_idle_per_host: 8,
             max_cached_clients: 64,
         }

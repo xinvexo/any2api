@@ -1,17 +1,24 @@
-use serde_json::Value;
+use serde_json::value::RawValue;
 
-use crate::api::{SseEventPayload, StreamTermination};
+use crate::{
+    api::{SseEventPayload, StreamTermination},
+    raw_json::{json_string, top_fields},
+};
 
 pub(super) fn classify(payload: &SseEventPayload) -> StreamTermination {
-    let SseEventPayload::Json { event_name, data } = payload else {
+    let SseEventPayload::Json(data) = payload else {
         return StreamTermination::None;
     };
-    if is_error(event_name.as_deref(), data) {
+    let [kind, error] = top_fields(data.data(), ["type", "error"]);
+    let kind = kind.and_then(json_string);
+    let matches =
+        |expected: &str| data.event_name() == Some(expected) || kind.as_deref() == Some(expected);
+    if matches("error") || is_error_object(error) {
         return StreamTermination::Failed;
     }
     if ["image_generation.completed", "image_edit.completed"]
         .into_iter()
-        .any(|expected| matches_kind(event_name.as_deref(), data, expected))
+        .any(matches)
     {
         StreamTermination::Completed
     } else {
@@ -19,23 +26,23 @@ pub(super) fn classify(payload: &SseEventPayload) -> StreamTermination {
     }
 }
 
-fn is_error(event_name: Option<&str>, data: &Value) -> bool {
-    matches_kind(event_name, data, "error") || data.get("error").is_some_and(Value::is_object)
-}
-
-fn matches_kind(event_name: Option<&str>, data: &Value, expected: &str) -> bool {
-    event_name == Some(expected) || data.get("type").and_then(Value::as_str) == Some(expected)
+fn is_error_object(error: Option<&RawValue>) -> bool {
+    error.is_some_and(|error| error.get().starts_with('{'))
 }
 
 #[cfg(test)]
 mod tests {
     use any2api_domain::ProtocolOperation;
+    use bytes::Bytes;
     use serde_json::{Value, json};
 
     use super::classify;
     use crate::{
         OpenAiImagesAdapter,
-        api::{ProtocolAdapter, SseEventPayload, StreamCompletionPolicy, StreamTermination},
+        api::{
+            ProtocolAdapter, SseEventPayload, SseJsonData, StreamCompletionPolicy,
+            StreamTermination,
+        },
     };
 
     #[test]
@@ -74,9 +81,9 @@ mod tests {
     }
 
     fn json_payload(event_name: Option<&str>, data: Value) -> SseEventPayload {
-        SseEventPayload::Json {
-            event_name: event_name.map(ToOwned::to_owned),
-            data,
-        }
+        SseEventPayload::Json(SseJsonData::new(
+            event_name.map(|name| Bytes::from(name.to_owned())),
+            Bytes::from(serde_json::to_vec(&data).expect("event JSON")),
+        ))
     }
 }

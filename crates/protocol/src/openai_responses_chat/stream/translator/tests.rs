@@ -3,7 +3,7 @@ use serde_json::json;
 
 use super::super::wire::{encoding_count, reset_encoding_count};
 use super::ChatToResponsesStream;
-use crate::api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload};
+use crate::api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData};
 
 #[test]
 fn synthesized_events_are_encoded_once_after_sequence_injection() {
@@ -12,13 +12,16 @@ fn synthesized_events_are_encoded_once_after_sequence_injection() {
     let upstream = AdapterEvent::new(
         Bytes::from_static(b"upstream frame"),
         ProtocolEventTelemetry::default(),
-        SseEventPayload::Json {
-            event_name: None,
-            data: json!({
-                "model":"model",
-                "choices":[{"index":0,"delta":{"content":"hello"}}]
-            }),
-        },
+        SseEventPayload::Json(SseJsonData::new(
+            None,
+            Bytes::from(
+                serde_json::to_vec(&json!({
+                    "model":"model",
+                    "choices":[{"index":0,"delta":{"content":"hello"}}]
+                }))
+                .expect("event JSON"),
+            ),
+        )),
     );
 
     let update = stream.push(upstream).expect("translated stream update");

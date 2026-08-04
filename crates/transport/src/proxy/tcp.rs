@@ -16,7 +16,10 @@ use hyper_util::{
 use tokio::{net::TcpStream, time::timeout};
 use tower_service::Service;
 
-use crate::error::TransportError;
+use crate::{
+    client::TCP_KEEP_ALIVE_INTERVAL,
+    error::{TransportError, TransportErrorStage, TransportFailureScope},
+};
 
 #[derive(Clone)]
 pub(crate) struct ProxyTcpConnector {
@@ -57,6 +60,12 @@ impl Service<Uri> for ProxyTcpConnector {
                 .map_err(|_| ProxyConnectError)?
                 .map_err(|_| ProxyConnectError)?;
             let _ = stream.set_nodelay(true);
+            // Same probing cadence as the reqwest path's tcp_keepalive so h1
+            // connections through proxies also detect NAT silent drops.
+            let keepalive = socket2::TcpKeepalive::new()
+                .with_time(TCP_KEEP_ALIVE_INTERVAL)
+                .with_interval(TCP_KEEP_ALIVE_INTERVAL);
+            let _ = socket2::SockRef::from(&stream).set_tcp_keepalive(&keepalive);
             Ok(ProxyTcpStream {
                 inner: TokioIo::new(stream),
                 proxied,
@@ -134,5 +143,40 @@ pub(crate) fn proxy_uri(host: &str, port: u16) -> Result<Uri, TransportError> {
         .authority(authority)
         .path_and_query("/")
         .build()
-        .map_err(|_| TransportError::configuration("configured proxy address is invalid"))
+        .map_err(|_| {
+            TransportError::configuration(
+                TransportErrorStage::ProxyHandshake,
+                TransportFailureScope::Proxy,
+                "configured proxy address is invalid",
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use http::Uri;
+    use tokio::net::TcpListener;
+    use tower_service::Service;
+
+    use super::ProxyTcpConnector;
+
+    #[tokio::test]
+    async fn connected_streams_enable_tcp_keepalive() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("listener");
+        let address = listener.local_addr().expect("listener address");
+        let mut connector =
+            ProxyTcpConnector::new("127.0.0.1", address.port(), Duration::from_secs(1), false);
+
+        let stream = connector
+            .call(Uri::from_static("http://ignored.invalid/"))
+            .await
+            .expect("TCP connection");
+
+        let keepalive = socket2::SockRef::from(stream.inner.inner())
+            .keepalive()
+            .expect("keepalive query");
+        assert!(keepalive);
+    }
 }

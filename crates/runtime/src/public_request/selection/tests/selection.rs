@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, ProtocolDialect, ProviderBaseUrl,
     ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProviderKind, ProxyProfileId,
-    RequestsPerMinute, RouteTargetId,
+    RequestsPerMinute, RetrySafety, RouteTargetId, UpstreamErrorClassification, UpstreamErrorKind,
 };
 
 use super::super::{
@@ -108,6 +108,106 @@ fn selection_reports_no_candidates_for_empty_tiers() {
     assert!(matches!(
         try_select_generation_candidate_for_test(false, &tiers, |_| Some(0)),
         Ok(GenerationSelection::NoCandidates)
+    ));
+}
+
+#[tokio::test(start_paused = true)]
+async fn open_circuit_tier_fails_over_to_the_next_tier() {
+    let epoch = SchedulerEpoch::new();
+    let policy = default_reliability_policy();
+    let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
+    open_endpoint(&endpoint, &policy);
+
+    let mut primary = candidate("primary", 1, Arc::clone(&epoch), 0);
+    primary.endpoint_health = Some(endpoint);
+    let fallback = candidate("fallback", 2, Arc::clone(&epoch), 1);
+    let tiers = BTreeMap::from([(0, vec![primary.clone()]), (1, vec![fallback.clone()])]);
+
+    let selected = match try_select_generation_candidate_for_test(false, &tiers, |_| Some(0))
+        .expect("generation selection")
+    {
+        GenerationSelection::Acquired(selected) => selected,
+        GenerationSelection::RateLimited(_) => panic!("fallback RPM is available"),
+        GenerationSelection::NoCandidates => panic!("fallback candidate exists"),
+        GenerationSelection::TemporarilyUnavailable(_) => {
+            panic!("the open primary tier must fail over to the healthy tier")
+        }
+    };
+    assert_eq!(selected.candidate.credential_id, fallback.credential_id);
+    drop(selected);
+}
+
+#[tokio::test(start_paused = true)]
+async fn fully_open_tiers_report_temporary_unavailability() {
+    let epoch = SchedulerEpoch::new();
+    let policy = default_reliability_policy();
+
+    let mut primary = candidate("primary", 1, Arc::clone(&epoch), 0);
+    let primary_endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
+    open_endpoint(&primary_endpoint, &policy);
+    primary.endpoint_health = Some(primary_endpoint);
+    let mut fallback = candidate("fallback", 2, Arc::clone(&epoch), 1);
+    let fallback_endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
+    open_endpoint(&fallback_endpoint, &policy);
+    fallback.endpoint_health = Some(fallback_endpoint);
+    let tiers = BTreeMap::from([(0, vec![primary]), (1, vec![fallback])]);
+
+    assert!(matches!(
+        try_select_generation_candidate_for_test(false, &tiers, |_| Some(0)),
+        Ok(GenerationSelection::TemporarilyUnavailable(_))
+    ));
+}
+
+#[tokio::test(start_paused = true)]
+async fn rate_limit_cooldown_waits_unless_fallback_is_enabled() {
+    let epoch = SchedulerEpoch::new();
+    let policy = default_reliability_policy();
+    let primary = candidate("cooldown", 1, Arc::clone(&epoch), 0);
+    primary.binding.generation().health().record(
+        &primary.upstream_model,
+        UpstreamErrorClassification::new(
+            UpstreamErrorKind::RateLimited,
+            RetrySafety::RejectedBeforeExecution,
+            None,
+        ),
+        &policy,
+    );
+    let fallback = candidate("fallback", 2, Arc::clone(&epoch), 1);
+    let tiers = BTreeMap::from([(0, vec![primary.clone()]), (1, vec![fallback.clone()])]);
+
+    assert!(matches!(
+        try_select_generation_candidate_for_test(false, &tiers, |_| Some(0)),
+        Ok(GenerationSelection::TemporarilyUnavailable(_))
+    ));
+    let selected = match try_select_generation_candidate_for_test(true, &tiers, |_| Some(0))
+        .expect("generation selection")
+    {
+        GenerationSelection::Acquired(selected) => selected,
+        GenerationSelection::RateLimited(_) => panic!("fallback RPM is available"),
+        GenerationSelection::NoCandidates => panic!("fallback candidate exists"),
+        GenerationSelection::TemporarilyUnavailable(_) => {
+            panic!("fallback-on-rate-limit must spill the cooldown to the next tier")
+        }
+    };
+    assert_eq!(selected.candidate.credential_id, fallback.credential_id);
+    drop(selected);
+}
+
+#[tokio::test(start_paused = true)]
+async fn quota_exhaustion_cooldown_waits_instead_of_failing_over() {
+    let epoch = SchedulerEpoch::new();
+    let primary = candidate("quota", 1, Arc::clone(&epoch), 0);
+    primary
+        .binding
+        .generation()
+        .health()
+        .record_quota_exhaustion(std::time::Duration::from_secs(30), None, None);
+    let fallback = candidate("fallback", 2, Arc::clone(&epoch), 1);
+    let tiers = BTreeMap::from([(0, vec![primary]), (1, vec![fallback])]);
+
+    assert!(matches!(
+        try_select_generation_candidate_for_test(false, &tiers, |_| Some(0)),
+        Ok(GenerationSelection::TemporarilyUnavailable(_))
     ));
 }
 

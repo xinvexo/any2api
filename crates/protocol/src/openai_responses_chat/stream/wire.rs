@@ -2,7 +2,9 @@ use any2api_domain::TokenUsage;
 use bytes::Bytes;
 use serde_json::Value;
 
-use crate::api::{AdapterEvent, ProtocolEventTelemetry, SseEventPayload, StreamTermination};
+use crate::api::{
+    AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData, StreamTermination,
+};
 
 pub(super) struct SynthesizedEvent {
     kind: &'static str,
@@ -57,19 +59,14 @@ pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
         telemetry,
         termination,
     } = event;
-    let bytes = Bytes::from(format!(
-        "event: {kind}\ndata: {}\n\n",
-        serde_json::to_string(&data).expect("JSON value encodes")
+    let encoded = serde_json::to_string(&data).expect("JSON value encodes");
+    let prefix = "event: ".len() + kind.len() + "\ndata: ".len();
+    let bytes = Bytes::from(format!("event: {kind}\ndata: {encoded}\n\n"));
+    let payload = SseEventPayload::Json(SseJsonData::new(
+        Some(Bytes::from_static(kind.as_bytes())),
+        bytes.slice(prefix..prefix + encoded.len()),
     ));
-    AdapterEvent::new(
-        bytes,
-        telemetry,
-        SseEventPayload::Json {
-            event_name: Some(kind.to_owned()),
-            data,
-        },
-    )
-    .with_termination(termination)
+    AdapterEvent::new(bytes, telemetry, payload).with_termination(termination)
 }
 
 pub(super) fn content_telemetry() -> ProtocolEventTelemetry {

@@ -13,9 +13,15 @@ impl AdminAuthService {
         new_password: String,
     ) -> Result<AdminSessionIssue, AdminAuthError> {
         validate_new_password(&new_password)?;
+        // The credential lock serializes rotation with initialization; the
+        // password-hash lock is only taken briefly around the in-memory swaps
+        // so login and session checks are never blocked behind argon2 work or
+        // storage IO. `store.replace` keeps the compare-and-swap semantics.
         let _credential_guard = self.credential_lock.lock().await;
-        let mut password_hash_guard = self.password_hash.write().await;
-        let current_hash = password_hash_guard
+        let current_hash = self
+            .password_hash
+            .read()
+            .await
             .clone()
             .ok_or(AdminAuthError::NotInitialized)?;
         let password_check = Arc::clone(&self.password_checks)
@@ -49,13 +55,13 @@ impl AdminAuthService {
                 .await
                 .map_err(AdminAuthError::Store)?
                 .ok_or(AdminAuthError::PasswordHash)?;
-            *password_hash_guard = Some(stored.as_str().to_owned());
+            *self.password_hash.write().await = Some(stored.as_str().to_owned());
             self.failures.lock().await.clear();
             self.sessions.lock().await.clear();
             return Err(AdminAuthError::CredentialChanged);
         }
 
-        *password_hash_guard = Some(new_hash);
+        *self.password_hash.write().await = Some(new_hash);
         self.failures.lock().await.clear();
         self.sessions
             .lock()

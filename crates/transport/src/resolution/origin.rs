@@ -1,37 +1,20 @@
-use std::{
-    net::{IpAddr, SocketAddr},
-    sync::Arc,
-};
+use std::sync::Arc;
 
-use any2api_domain::{ProxyKind, RetrySafety};
+use any2api_domain::RetrySafety;
 use http::Uri;
-use tokio::{
-    net::lookup_host,
-    time::{Instant, timeout_at},
-};
 
-use crate::{
-    api::EndpointNetworkPolicy,
-    error::{TransportError, TransportErrorStage, TransportFailureScope},
-};
+use crate::error::{TransportError, TransportErrorStage, TransportFailureScope};
 
+/// Stable identity of an upstream origin parsed from the request URI without
+/// any DNS resolution, so cached clients survive DNS rotation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct ResolvedOrigin {
+pub(crate) struct OriginTarget {
     pub(crate) host: Arc<str>,
     pub(crate) port: u16,
     pub(crate) secure: bool,
-    pub(crate) addresses: Arc<[SocketAddr]>,
 }
 
-pub(crate) async fn resolve_origin(
-    uri: &Uri,
-    policy: EndpointNetworkPolicy,
-    proxy_kind: ProxyKind,
-    connect_deadline: Instant,
-) -> Result<Option<ResolvedOrigin>, TransportError> {
-    if proxy_kind != ProxyKind::Direct && !policy.strict_ssrf() {
-        return Ok(None);
-    }
+pub(crate) fn origin_target(uri: &Uri) -> Result<OriginTarget, TransportError> {
     let host = uri.host().ok_or_else(|| {
         TransportError::new(
             TransportErrorStage::Dns,
@@ -55,54 +38,9 @@ pub(crate) async fn resolve_origin(
                 "upstream URI has no port",
             )
         })?;
-
-    if let Ok(address) = host.parse::<IpAddr>() {
-        if proxy_kind == ProxyKind::Direct {
-            return Ok(None);
-        }
-        return Ok(Some(ResolvedOrigin {
-            host: Arc::from(host.to_owned()),
-            port,
-            secure: uri.scheme_str() == Some("https"),
-            addresses: Arc::from(vec![SocketAddr::new(address, port)].into_boxed_slice()),
-        }));
-    }
-
-    let mut addresses = timeout_at(connect_deadline, lookup_host((host, port)))
-        .await
-        .map_err(|_| dns_timeout())?
-        .map_err(|_| {
-            TransportError::new(
-                TransportErrorStage::Dns,
-                TransportFailureScope::Endpoint,
-                RetrySafety::DefinitelyNotSent,
-                "upstream DNS resolution failed",
-            )
-        })?
-        .collect::<Vec<_>>();
-    addresses.sort_unstable();
-    addresses.dedup();
-    if addresses.is_empty() {
-        return Err(TransportError::new(
-            TransportErrorStage::Dns,
-            TransportFailureScope::Endpoint,
-            RetrySafety::DefinitelyNotSent,
-            "upstream DNS resolution returned no addresses",
-        ));
-    }
-    Ok(Some(ResolvedOrigin {
+    Ok(OriginTarget {
         host: Arc::from(host.to_owned()),
         port,
         secure: uri.scheme_str() == Some("https"),
-        addresses: Arc::from(addresses.into_boxed_slice()),
-    }))
-}
-
-fn dns_timeout() -> TransportError {
-    TransportError::new(
-        TransportErrorStage::Dns,
-        TransportFailureScope::Endpoint,
-        RetrySafety::DefinitelyNotSent,
-        "upstream DNS resolution timed out",
-    )
+    })
 }

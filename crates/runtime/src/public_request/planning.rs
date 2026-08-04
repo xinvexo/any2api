@@ -10,10 +10,7 @@ use http::{Method, Uri};
 use super::{PublicRequest, response::invalid_request};
 use crate::{
     configuration::PublishedSnapshot,
-    routing::{
-        CandidateRequirements, OAuthRoute, build_oauth_route_candidates, build_route_candidates,
-        oauth_route_id,
-    },
+    routing::{CandidateRequirements, OAuthRoute, RouteCandidateTiers, oauth_route_id},
 };
 
 pub(super) struct PlannedRequest {
@@ -22,7 +19,7 @@ pub(super) struct PlannedRequest {
     pub(super) route_id: ModelRouteId,
     pub(super) dialect: ProtocolDialect,
     pub(super) fallback_on_rate_limit: bool,
-    pub(super) tiers: std::collections::BTreeMap<u16, Vec<crate::routing::RouteCandidate>>,
+    pub(super) tiers: Arc<RouteCandidateTiers>,
 }
 
 pub(super) struct DecodedPublicRequest {
@@ -117,12 +114,11 @@ fn plan_decoded(
             route
                 .fallback_on_rate_limit()
                 .unwrap_or_else(|| snapshot.queue_policy().fallback_on_rate_limit()),
-            build_route_candidates(snapshot, route, protocols, providers, requirements),
+            snapshot.route_candidates(route, protocols, providers, requirements),
         )
     } else {
         let route_id = oauth_route_id(decoded.dialect, &public_model);
-        let tiers = build_oauth_route_candidates(
-            snapshot,
+        let tiers = snapshot.oauth_route_candidates(
             OAuthRoute::new(route_id, decoded.dialect, &public_model),
             protocols,
             providers,

@@ -65,7 +65,9 @@ impl ChatToResponsesStream {
         let termination = event.termination();
         let (_, payload) = event.into_parts();
         let value = match payload {
-            SseEventPayload::Json { data, .. } => data,
+            SseEventPayload::Json(data) => data
+                .to_value()
+                .map_err(|_| invalid("Chat Completions stream data is not valid JSON"))?,
             SseEventPayload::NonJson => {
                 return Err(invalid("Chat Completions stream data is not valid JSON"));
             }

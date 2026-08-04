@@ -8,6 +8,7 @@ use std::{
 
 use any2api_domain::{RequestsPerMinute, RoutingCredentialId};
 use arc_swap::ArcSwap;
+use tokio::sync::watch;
 use tokio::time::Instant;
 
 use super::{
@@ -36,6 +37,7 @@ pub(crate) struct CredentialRuntimeHandle {
     current_generation: ArcSwap<CredentialGenerationRuntime>,
     balancing: CredentialBalancingMetrics,
     scheduler_epoch: Arc<SchedulerEpoch>,
+    changes: watch::Sender<u64>,
 }
 
 impl CredentialRuntimeHandle {
@@ -76,6 +78,7 @@ impl CredentialRuntimeHandle {
             )),
             balancing: CredentialBalancingMetrics::default(),
             scheduler_epoch,
+            changes: watch::channel(0).0,
         })
     }
 
@@ -213,6 +216,7 @@ impl CredentialRuntimeHandle {
         });
         self.release_in_flight();
         if removed {
+            self.notify_change();
             self.scheduler_epoch.advance();
         }
     }
@@ -225,6 +229,21 @@ impl CredentialRuntimeHandle {
             .expect("routing permit released without an in-flight request");
     }
 
+    /// Per-credential change channel: bumped when this credential's RPM
+    /// window or fixed-waiter state changes, so bound waiters wake without a
+    /// process-wide epoch broadcast.
+    pub(crate) fn subscribe_changes(&self) -> watch::Receiver<u64> {
+        self.changes.subscribe()
+    }
+
+    fn notify_change(&self) {
+        self.changes.send_modify(|generation| {
+            *generation = generation
+                .checked_add(1)
+                .expect("credential change generation exhausted u64");
+        });
+    }
+
     pub(crate) fn register_fixed_waiter(self: &Arc<Self>) -> FixedCredentialWaiter {
         let mut state = self
             .mutable
@@ -235,7 +254,9 @@ impl CredentialRuntimeHandle {
             .checked_add(1)
             .expect("fixed waiter counter overflowed u32");
         drop(state);
-        self.scheduler_epoch.advance();
+        // Registration only narrows normal reservations, so waiters on other
+        // credentials gain nothing from a process-wide wakeup.
+        self.notify_change();
         FixedCredentialWaiter {
             handle: Arc::clone(self),
         }
@@ -251,6 +272,9 @@ impl CredentialRuntimeHandle {
             .checked_sub(1)
             .expect("fixed waiter released without registration");
         drop(state);
+        self.notify_change();
+        // Releasing frees the capacity reserved for fixed waiters, which can
+        // unblock queued requests on any route, so broadcast globally.
         self.scheduler_epoch.advance();
     }
 }

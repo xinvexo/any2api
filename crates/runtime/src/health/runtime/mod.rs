@@ -8,5 +8,5 @@ mod time;
 pub(crate) use attempt::AttemptHealth;
 pub(crate) use credential::CredentialHealthRuntime;
 pub(crate) use endpoint::EndpointHealthRuntime;
-pub(crate) use error::HealthAcquireError;
+pub(crate) use error::{HealthAcquireError, TemporaryUnavailability, TemporaryUnavailabilityCause};
 pub(crate) use proxy::ProxyHealthRuntime;

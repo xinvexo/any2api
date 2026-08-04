@@ -58,4 +58,17 @@ impl TransportError {
             message,
         )
     }
+
+    pub(crate) fn configuration(
+        stage: TransportErrorStage,
+        failure_scope: TransportFailureScope,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            stage,
+            failure_scope,
+            RetrySafety::DefinitelyNotSent,
+            message,
+        )
+    }
 }

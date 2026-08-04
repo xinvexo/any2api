@@ -62,7 +62,7 @@ impl GatewayApiKeyUsageRepository for SqliteStore {
         if updates.is_empty() {
             return Ok(());
         }
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let mut transaction = self.begin_write().await?;
         for update in updates {
             touch_one(&mut transaction, update).await?;
         }

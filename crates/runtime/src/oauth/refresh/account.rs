@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use any2api_domain::OAuthAccountId;
-use any2api_provider::api::{OAuthGrant, OAuthRefreshRejection};
+use any2api_domain::{OAuthAccountId, ProviderKind};
+use any2api_provider::api::{OAuthGrant, OAuthRefreshRejection, OAuthTokenMaterial};
 use any2api_storage::api::OAuthAccountDocument;
 use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard};
@@ -160,9 +160,15 @@ impl OAuthRefresher {
         trigger: RefreshTrigger,
     ) -> Result<RefreshPreparation, OAuthRefreshError> {
         let gate = self.gate(id);
-        let (guard, waited_for_flight) = match Arc::clone(&gate).try_lock_owned() {
-            Ok(guard) => (guard, false),
-            Err(_) => (gate.lock_owned().await, true),
+        let (guard, waiter_observed_failures) = match Arc::clone(&gate).try_lock_owned() {
+            Ok(guard) => (guard, None),
+            Err(_) => {
+                // Snapshot the failure count before blocking so the waiter
+                // can tell afterwards whether the in-flight refresh it
+                // queued behind failed its attempt.
+                let observed = self.failed_refresh_attempts(id, observed_token_version);
+                (gate.lock_owned().await, Some(observed))
+            }
         };
         let snapshot = self.publisher.current_snapshot();
         let Some(account) = snapshot.oauth_accounts().get(id) else {
@@ -179,12 +185,21 @@ impl OAuthRefresher {
         if self.is_permanently_rejected(id, observed_token_version) {
             return Ok(RefreshPreparation::PermanentlyRejected);
         }
-        if waited_for_flight {
-            return Ok(RefreshPreparation::Unavailable);
+        if let Some(observed) = waiter_observed_failures {
+            // The refresh this waiter queued behind released the gate without
+            // advancing the token version. Exactly one waiter per failed
+            // attempt may retry as the new single-flight holder; the rest
+            // back off so an IdP outage cannot fan out into a refresh storm.
+            if self.failed_refresh_attempts(id, observed_token_version)
+                != observed.saturating_add(1)
+            {
+                return Ok(RefreshPreparation::Unavailable);
+            }
         }
         if trigger == RefreshTrigger::Scheduled && !is_due(account.expires_at(), lead_time) {
             return Ok(RefreshPreparation::Unavailable);
         }
+        let provider_kind = account.provider_kind();
         let token = snapshot
             .oauth_token_material(id)
             .ok_or(OAuthRefreshError::TokenMaterialUnavailable)?;
@@ -192,9 +207,51 @@ impl OAuthRefresher {
             tracing::debug!(oauth_account_id = %id, "OAuth account has no refresh token");
             return Ok(RefreshPreparation::MissingRefreshToken);
         };
+        match self
+            .attempt_refresh(
+                id,
+                observed_token_version,
+                &snapshot,
+                provider_kind,
+                token.as_ref(),
+                refresh_token,
+            )
+            .await
+        {
+            Ok((document, safe_account_email, expires_at)) => {
+                Ok(RefreshPreparation::Ready(PreparedOAuthRefresh {
+                    id,
+                    observed_token_version,
+                    safe_account_email,
+                    expires_at,
+                    document,
+                    gate: guard,
+                }))
+            }
+            Err(error) => {
+                // Record while the gate is still held so a queued waiter
+                // observes this failure the moment it wakes.
+                self.record_failed_refresh_attempt(id, observed_token_version);
+                Err(error)
+            }
+        }
+    }
+
+    /// Executes one refresh round-trip against the identity provider and
+    /// parses the result. Any error here counts as a failed attempt for
+    /// waiters queued on the account's single-flight gate.
+    async fn attempt_refresh(
+        &self,
+        id: OAuthAccountId,
+        observed_token_version: u64,
+        snapshot: &PublishedSnapshot,
+        provider_kind: ProviderKind,
+        token: &OAuthTokenMaterial,
+        refresh_token: &str,
+    ) -> Result<(OAuthAccountDocument, Option<String>, Option<i64>), OAuthRefreshError> {
         let driver = self
             .providers
-            .get(account.provider_kind())
+            .get(provider_kind)
             .ok_or(OAuthRefreshError::ProviderUnavailable)?;
         let plan = driver
             .oauth_token_request(OAuthGrant::RefreshToken, refresh_token, None, None)
@@ -215,9 +272,9 @@ impl OAuthRefresher {
             return Err(OAuthRefreshError::RefreshRejected(rejection));
         }
         let refreshed = driver
-            .parse_oauth_refresh_response(&response.body, token.as_ref())
+            .parse_oauth_refresh_response(&response.body, token)
             .map_err(OAuthError::from_token_response_error)?;
-        if refreshed.provider() != account.provider_kind() {
+        if refreshed.provider() != provider_kind {
             return Err(OAuthError::TokenResponseInvalid.into());
         }
         driver
@@ -226,15 +283,7 @@ impl OAuthRefresher {
         let document = document::build_account_document(&refreshed)?;
         let safe_account_email = refreshed.email().map(str::to_owned);
         let expires_at = refreshed.expires_at();
-        drop(snapshot);
-        Ok(RefreshPreparation::Ready(PreparedOAuthRefresh {
-            id,
-            observed_token_version,
-            safe_account_email,
-            expires_at,
-            document,
-            gate: guard,
-        }))
+        Ok((document, safe_account_email, expires_at))
     }
 
     fn gate(&self, id: OAuthAccountId) -> Arc<Mutex<()>> {

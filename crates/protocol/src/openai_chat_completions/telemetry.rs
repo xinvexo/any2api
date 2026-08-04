@@ -1,51 +1,52 @@
-use any2api_domain::TokenUsage;
-use serde_json::Value;
+use serde_json::{Value, value::RawValue};
 
 use crate::{
     api::{ProtocolEventTelemetry, ProtocolResponseTelemetry, SseEventPayload},
-    telemetry::{non_empty_string, token_usage},
+    raw_json::{raw_array, top_fields},
+    telemetry::{raw_non_empty_string, raw_token_usage, token_usage},
 };
 
 pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
     ProtocolResponseTelemetry {
-        token_usage: usage_from(value.get("usage")),
+        token_usage: token_usage(
+            value.get("usage"),
+            &["prompt_tokens"],
+            &["completion_tokens"],
+            &["prompt_tokens_details", "cached_tokens"],
+        ),
     }
 }
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
-    let SseEventPayload::Json { data: value, .. } = payload else {
+    let SseEventPayload::Json(data) = payload else {
         return ProtocolEventTelemetry::default();
     };
+    let [usage, choices] = top_fields(data.data(), ["usage", "choices"]);
     ProtocolEventTelemetry {
-        token_usage: usage_from(value.get("usage")),
-        has_content_delta: value
-            .get("choices")
-            .and_then(Value::as_array)
-            .is_some_and(|choices| {
-                choices.iter().any(|choice| {
-                    choice
-                        .get("delta")
-                        .and_then(|delta| delta.get("content"))
-                        .is_some_and(|content| non_empty_string(Some(content)))
-                        || choice
-                            .get("delta")
-                            .and_then(|delta| delta.get("reasoning_content"))
-                            .is_some_and(|content| non_empty_string(Some(content)))
-                        || choice
-                            .get("delta")
-                            .and_then(|delta| delta.get("tool_calls"))
-                            .and_then(Value::as_array)
-                            .is_some_and(|calls| !calls.is_empty())
-                })
-            }),
+        token_usage: raw_token_usage(
+            usage,
+            &["prompt_tokens"],
+            &["completion_tokens"],
+            &["prompt_tokens_details", "cached_tokens"],
+        ),
+        has_content_delta: choices
+            .and_then(|choices| raw_array(choices.get().as_bytes()))
+            .is_some_and(|choices| choices.iter().any(|choice| choice_has_content(choice))),
     }
 }
 
-fn usage_from(value: Option<&Value>) -> TokenUsage {
-    token_usage(
-        value,
-        &["prompt_tokens"],
-        &["completion_tokens"],
-        &["prompt_tokens_details", "cached_tokens"],
-    )
+fn choice_has_content(choice: &RawValue) -> bool {
+    let [delta] = top_fields(choice.get().as_bytes(), ["delta"]);
+    let Some(delta) = delta else {
+        return false;
+    };
+    let [content, reasoning_content, tool_calls] = top_fields(
+        delta.get().as_bytes(),
+        ["content", "reasoning_content", "tool_calls"],
+    );
+    raw_non_empty_string(content)
+        || raw_non_empty_string(reasoning_content)
+        || tool_calls
+            .and_then(|calls| raw_array(calls.get().as_bytes()))
+            .is_some_and(|calls| !calls.is_empty())
 }

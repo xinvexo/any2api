@@ -15,6 +15,7 @@ enum PublicErrorKind {
     PayloadTooLarge,
     UnreadableBody,
     UnsupportedContentEncoding,
+    Overloaded,
     NotFound,
     MethodNotAllowed,
 }
@@ -61,6 +62,12 @@ impl PublicApiError {
         }
     }
 
+    pub(crate) const fn overloaded() -> Self {
+        Self {
+            kind: PublicErrorKind::Overloaded,
+        }
+    }
+
     const fn not_found() -> Self {
         Self {
             kind: PublicErrorKind::NotFound,
@@ -102,6 +109,10 @@ impl PublicApiError {
             PublicErrorKind::UnsupportedContentEncoding => (
                 PublicErrorCode::InvalidRequest,
                 "content-encoding is not supported for this public API route",
+            ),
+            PublicErrorKind::Overloaded => (
+                PublicErrorCode::LocalRateLimit,
+                "the server is too busy to decompress this request; retry shortly",
             ),
             PublicErrorKind::NotFound => (
                 PublicErrorCode::PublicApiNotFound,

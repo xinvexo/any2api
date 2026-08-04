@@ -54,7 +54,7 @@ impl RequestLogRepository for SqliteStore {
         if records.is_empty() {
             return Ok(RequestLogCleanupOutcome::default());
         }
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let mut transaction = self.begin_write().await?;
         for record in records {
             insert_request_log(&mut transaction, &record.request).await?;
             for attempt in &record.attempts {
@@ -78,7 +78,7 @@ impl RequestLogRepository for SqliteStore {
         batch_size: u32,
     ) -> Result<RequestLogCleanupOutcome, StorageError> {
         let delete_budget = u64::from(batch_size);
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let mut transaction = self.begin_write().await?;
         let expired =
             delete_oldest_before(&mut transaction, retention_before_ms, delete_budget).await?;
         let capacity = trim_to_capacity(

@@ -15,6 +15,7 @@ any2api-storage = { path = "../../crates/storage" }
 any2api-transport = { path = "../../crates/transport" }
 any2api-updater = { path = "../../crates/updater" }
 anyhow.workspace = true
+arc-swap.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 fs2.workspace = true

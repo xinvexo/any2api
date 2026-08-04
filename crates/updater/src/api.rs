@@ -124,12 +124,22 @@ pub trait ApplicationUpdateService: Send + Sync {
 }
 
 impl GitHubReleaseUpdater {
-    pub fn official(
+    /// Builds the production updater; stale-workspace cleanup runs on a
+    /// blocking thread to keep synchronous directory IO off the async workers.
+    pub async fn official(
         executable_path: PathBuf,
         embedded_web: bool,
         restart: Arc<dyn RestartRequester>,
         tasks: Arc<dyn UpdateTaskExecutor>,
     ) -> Result<Self, UpdateError> {
+        let cleanup_target = executable_path.clone();
+        let cleanup = tokio::task::spawn_blocking(move || {
+            Self::cleanup_stale_workspaces(&cleanup_target);
+        })
+        .await;
+        if let Err(error) = cleanup {
+            tracing::warn!(%error, "stale update cleanup task failed during initialization");
+        }
         Self::new(executable_path, embedded_web, restart, tasks)
     }
 }

@@ -23,14 +23,24 @@ impl SqliteStore {
         mutation: ConfigurationMutation,
         compiler: ConfigurationCandidateCompiler<Accepted, Rejected>,
     ) -> Result<ConfigurationTransactionOutcome<Accepted, Rejected>, StorageError> {
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let mut transaction = self.begin_write().await?;
         let (candidate, changed) =
             dispatch::execute_mutation(&mut transaction, expected, mutation).await?;
         if !changed {
             transaction.rollback().await?;
             return Ok(ConfigurationTransactionOutcome::NoChange);
         }
-        match compiler(candidate) {
+        // Compilation is CPU-bound and runs while the write transaction is
+        // open; hand the worker thread back to the runtime so other async
+        // tasks (telemetry flushes in particular) keep making progress.
+        // block_in_place is unavailable on current-thread runtimes (tests).
+        let handle = tokio::runtime::Handle::current();
+        let compiled = if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
+            tokio::task::block_in_place(|| compiler(candidate))
+        } else {
+            compiler(candidate)
+        };
+        match compiled {
             Ok(accepted) => {
                 commit_configuration_transaction(transaction).await?;
                 Ok(ConfigurationTransactionOutcome::Committed(accepted))

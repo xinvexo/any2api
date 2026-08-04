@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use tokio::time::Instant;
 
 use super::{
-    error::HealthAcquireError,
+    error::{HealthAcquireError, TemporaryUnavailability},
     time::{deadline, max_deadline},
 };
 use crate::{
@@ -42,7 +42,7 @@ impl EndpointHealthRuntime {
                 runtime: Arc::clone(self),
                 permit: Some(permit),
             })
-            .map_err(HealthAcquireError::Temporary)
+            .map_err(|until| HealthAcquireError::Temporary(TemporaryUnavailability::outage(until)))
     }
 
     pub(crate) fn availability(
@@ -52,7 +52,7 @@ impl EndpointHealthRuntime {
         self.check_transient()?;
         self.circuit
             .availability(policy.half_open_max_probes)
-            .map_err(HealthAcquireError::Temporary)
+            .map_err(|until| HealthAcquireError::Temporary(TemporaryUnavailability::outage(until)))
     }
 
     fn check_transient(&self) -> Result<(), HealthAcquireError> {
@@ -62,7 +62,9 @@ impl EndpointHealthRuntime {
             .lock()
             .expect("endpoint health lock poisoned");
         match current {
-            Some(until) if now < until => Err(HealthAcquireError::Temporary(until)),
+            Some(until) if now < until => Err(HealthAcquireError::Temporary(
+                TemporaryUnavailability::outage(until),
+            )),
             _ => Ok(()),
         }
     }

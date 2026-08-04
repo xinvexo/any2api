@@ -63,6 +63,55 @@ fn level_filter_updates_immediately() {
 }
 
 #[test]
+fn level_filter_reports_the_current_max_level_hint() {
+    use tracing_subscriber::{Registry, filter::LevelFilter, layer::Filter};
+
+    let hint = Filter::<Registry>::max_level_hint;
+    let filter = FileLevelFilter::disabled();
+    assert_eq!(hint(&filter), Some(LevelFilter::OFF));
+    filter.set(FileLogLevel::Info);
+    assert_eq!(hint(&filter), Some(LevelFilter::INFO));
+    filter.set(FileLogLevel::Trace);
+    assert_eq!(hint(&filter), Some(LevelFilter::TRACE));
+    filter.disable();
+    assert_eq!(hint(&filter), Some(LevelFilter::OFF));
+}
+
+#[test]
+fn runtime_level_changes_apply_to_already_cached_callsites() {
+    let directory = tempdir().expect("temporary directory");
+    let path = directory.path().join("levels.jsonl");
+    let file = fs::File::create(&path).expect("log file");
+    let (non_blocking, guard) = NonBlockingBuilder::default().finish(file);
+    let level_filter = FileLevelFilter::disabled();
+    level_filter.set(FileLogLevel::Info);
+    let layer = tracing_subscriber::fmt::layer()
+        .json()
+        .flatten_event(true)
+        .with_ansi(false)
+        .with_writer(non_blocking)
+        .with_filter(level_filter.clone());
+    let subscriber = tracing_subscriber::registry().with(layer);
+
+    tracing::subscriber::with_default(subscriber, || {
+        // A single closure keeps one debug callsite, so passing it again after
+        // each level change proves the cached interest was rebuilt.
+        let debug_event = |marker: &str| tracing::debug!(marker, "debug event");
+        debug_event("first_filtered");
+        level_filter.set(FileLogLevel::Debug);
+        debug_event("second_written");
+        level_filter.disable();
+        debug_event("third_filtered");
+    });
+    drop(guard);
+
+    let output = fs::read_to_string(path).expect("log output");
+    assert!(!output.contains("first_filtered"), "{output}");
+    assert!(output.contains("second_written"), "{output}");
+    assert!(!output.contains("third_filtered"), "{output}");
+}
+
+#[test]
 fn tracing_events_are_written_as_json_lines() {
     let directory = tempdir().expect("temporary directory");
     let policy = std::sync::Arc::new(RwLock::new(FileLogPolicy {

@@ -1,13 +1,15 @@
 use crate::{
     api::{SseEventPayload, StreamTermination},
-    telemetry::event_type,
+    raw_json::top_fields,
+    telemetry::raw_event_type,
 };
 
 pub(super) fn classify(payload: &SseEventPayload) -> StreamTermination {
-    let SseEventPayload::Json { event_name, data } = payload else {
+    let SseEventPayload::Json(data) = payload else {
         return StreamTermination::None;
     };
-    match event_type(event_name.as_deref(), data) {
+    let [kind] = top_fields(data.data(), ["type"]);
+    match raw_event_type(data.event_name(), kind).as_deref() {
         Some("response.completed" | "response.incomplete") => StreamTermination::Completed,
         Some("response.failed" | "error") => StreamTermination::Failed,
         _ => StreamTermination::None,

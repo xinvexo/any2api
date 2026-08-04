@@ -4,13 +4,30 @@ const MAX_FORWARDED_HEADER_VALUES: usize = 64;
 const MAX_FORWARDED_HEADER_VALUE_BYTES: usize = 8 * 1024;
 const MAX_FORWARDED_HEADER_BYTES: usize = 32 * 1024;
 
-pub(crate) fn project(source: &HeaderMap, exact: &[&str], prefixes: &[&str]) -> HeaderMap {
+/// Parses an allowlist into ordered, deduplicated header names; providers
+/// evaluate this once in a `LazyLock` instead of re-parsing per request.
+pub(crate) fn ordered_names(values: &[&str]) -> Vec<HeaderName> {
+    let mut names = Vec::with_capacity(values.len());
+    for value in values {
+        let Ok(name) = HeaderName::from_bytes(value.as_bytes()) else {
+            continue;
+        };
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names
+}
+
+pub(crate) fn project<'a, I>(source: &HeaderMap, exact: I, prefixes: &[&str]) -> HeaderMap
+where
+    I: Iterator<Item = &'a HeaderName> + Clone,
+{
     let connection_nominated = connection_nominated(source);
-    let exact = ordered_exact_names(exact);
     let mut projected = HeaderMap::new();
     let mut values = 0_usize;
     let mut bytes = 0_usize;
-    for name in &exact {
+    for name in exact.clone() {
         if !append_name(
             source,
             name,
@@ -22,7 +39,7 @@ pub(crate) fn project(source: &HeaderMap, exact: &[&str], prefixes: &[&str]) -> 
             return projected;
         }
     }
-    for (_, name) in ordered_prefix_names(source, &exact, prefixes) {
+    for (_, name) in ordered_prefix_names(source, exact, prefixes) {
         if !append_name(
             source,
             &name,
@@ -37,27 +54,17 @@ pub(crate) fn project(source: &HeaderMap, exact: &[&str], prefixes: &[&str]) -> 
     projected
 }
 
-fn ordered_exact_names(exact: &[&str]) -> Vec<HeaderName> {
-    let mut names = Vec::with_capacity(exact.len());
-    for value in exact {
-        let Ok(name) = HeaderName::from_bytes(value.as_bytes()) else {
-            continue;
-        };
-        if !names.contains(&name) {
-            names.push(name);
-        }
-    }
-    names
-}
-
-fn ordered_prefix_names(
+fn ordered_prefix_names<'a, I>(
     source: &HeaderMap,
-    exact: &[HeaderName],
+    exact: I,
     prefixes: &[&str],
-) -> Vec<(usize, HeaderName)> {
+) -> Vec<(usize, HeaderName)>
+where
+    I: Iterator<Item = &'a HeaderName> + Clone,
+{
     let mut names = source
         .keys()
-        .filter(|name| !exact.contains(name))
+        .filter(|name| !exact.clone().any(|exact_name| exact_name == *name))
         .filter_map(|name| {
             prefixes
                 .iter()
@@ -174,7 +181,11 @@ fn trim_ows(mut value: &[u8]) -> &[u8] {
 mod tests {
     use http::{HeaderMap, HeaderValue, header};
 
-    use super::project;
+    use super::{ordered_names, project};
+
+    fn project_exact(source: &HeaderMap, exact: &[&str], prefixes: &[&str]) -> HeaderMap {
+        project(source, ordered_names(exact).iter(), prefixes)
+    }
 
     #[test]
     fn projection_never_forwards_secrets_or_connection_nominated_headers() {
@@ -187,7 +198,7 @@ mod tests {
             header::CONNECTION,
             HeaderValue::from_static("x-private-hop"),
         );
-        let projected = project(
+        let projected = project_exact(
             &source,
             &[
                 "content-encoding",
@@ -209,14 +220,14 @@ mod tests {
         for _ in 0..65 {
             too_many.append("x-safe", HeaderValue::from_static("v"));
         }
-        assert_eq!(project(&too_many, &["x-safe"], &[]).len(), 64);
+        assert_eq!(project_exact(&too_many, &["x-safe"], &[]).len(), 64);
 
         let mut oversized = HeaderMap::new();
         oversized.insert(
             "x-safe",
             HeaderValue::from_bytes(&vec![b'a'; 8 * 1024 + 1]).expect("valid header value"),
         );
-        assert!(project(&oversized, &["x-safe"], &[]).is_empty());
+        assert!(project_exact(&oversized, &["x-safe"], &[]).is_empty());
 
         let mut total = HeaderMap::new();
         for _ in 0..4 {
@@ -226,7 +237,7 @@ mod tests {
             );
         }
         total.insert("x-small", HeaderValue::from_static("fits"));
-        let projected = project(&total, &["x-safe", "x-small"], &[]);
+        let projected = project_exact(&total, &["x-safe", "x-small"], &[]);
         assert_eq!(projected.get_all("x-safe").iter().count(), 3);
         assert_eq!(projected["x-small"], "fits");
     }
@@ -244,7 +255,7 @@ mod tests {
             if bulk_first {
                 source.insert("x-important", HeaderValue::from_static("keep"));
             }
-            project(&source, &["x-important", "x-bulk"], &[])
+            project_exact(&source, &["x-important", "x-bulk"], &[])
         });
 
         for headers in projected {
@@ -262,7 +273,7 @@ mod tests {
         source.insert("x-a-first", HeaderValue::from_static("a"));
         source.insert("y-declared-first", HeaderValue::from_static("y"));
 
-        let projected = project(&source, &[], &["y-", "x-"]);
+        let projected = project_exact(&source, &[], &["y-", "x-"]);
 
         assert_eq!(projected["y-declared-first"], "y");
         assert_eq!(projected["x-a-first"], "a");

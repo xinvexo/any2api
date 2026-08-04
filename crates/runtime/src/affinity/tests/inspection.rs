@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use any2api_domain::{CredentialId, ModelRouteId, ProtocolDialect};
 
 use super::{TTL, resolved_continuation_target, target};
-use crate::affinity::{AffinityRegistry, BindingStart, ContinuationLookup, registry::BindingState};
+use crate::affinity::{AffinityRegistry, BindingStart, ContinuationLookup};
 
 #[test]
 fn expired_session_and_continuation_bindings_are_not_reused() {
@@ -106,15 +106,7 @@ fn session_and_continuation_access_refresh_the_same_ttl() {
         .expect("continuation binding");
 
     let stale_at = Instant::now() - Duration::from_secs(60);
-    {
-        let mut state = registry.state.lock().expect("affinity state");
-        for entry in state.entries.values_mut() {
-            let BindingState::Bound { binding } = entry else {
-                panic!("all test entries are bound");
-            };
-            binding.last_seen_at = stale_at;
-        }
-    }
+    registry.stale_bound_entries_for_test(stale_at);
 
     assert!(matches!(
         registry
@@ -132,11 +124,9 @@ fn session_and_continuation_access_refresh_the_same_ttl() {
         ContinuationLookup::Ready(_)
     ));
 
-    let state = registry.state.lock().expect("affinity state");
-    assert!(state.entries.values().all(|entry| match entry {
-        BindingState::Bound { binding } => binding.last_seen_at > stale_at,
-        BindingState::Creating { .. } => false,
-    }));
+    let last_seen = registry.bound_last_seen_for_test();
+    assert_eq!(last_seen.len(), 2);
+    assert!(last_seen.iter().all(|seen_at| *seen_at > stale_at));
 }
 
 #[test]
@@ -149,50 +139,25 @@ fn unavailable_continuation_target_does_not_refresh_ttl() {
         .expect("continuation binding");
 
     let stale_at = Instant::now() - Duration::from_secs(60);
-    {
-        let mut state = registry.state.lock().expect("affinity state");
-        let BindingState::Bound { binding } = state
-            .entries
-            .values_mut()
-            .next()
-            .expect("continuation entry")
-        else {
-            panic!("continuation must be bound");
-        };
-        binding.last_seen_at = stale_at;
-    }
+    registry.stale_bound_entries_for_test(stale_at);
 
     assert!(matches!(
         registry.resolve_continuation("resp-unavailable", TTL, |resolved| resolved != &target),
         ContinuationLookup::Missing
     ));
-    {
-        let state = registry.state.lock().expect("affinity state");
-        let BindingState::Bound { binding } = state
-            .entries
-            .values()
-            .next()
-            .expect("unavailable continuation remains until cleanup")
-        else {
-            panic!("continuation must remain bound");
-        };
-        assert_eq!(binding.last_seen_at, stale_at);
-    }
+    assert_eq!(
+        registry.bound_last_seen_for_test(),
+        vec![stale_at],
+        "unavailable continuation remains until cleanup without a TTL refresh"
+    );
 
     assert!(matches!(
         registry.resolve_continuation("resp-unavailable", TTL, |resolved| resolved == &target),
         ContinuationLookup::Ready(_)
     ));
-    let state = registry.state.lock().expect("affinity state");
-    let BindingState::Bound { binding } = state
-        .entries
-        .values()
-        .next()
-        .expect("available continuation entry")
-    else {
-        panic!("continuation must remain bound");
-    };
-    assert!(binding.last_seen_at > stale_at);
+    let last_seen = registry.bound_last_seen_for_test();
+    assert_eq!(last_seen.len(), 1);
+    assert!(last_seen[0] > stale_at);
 }
 
 #[test]

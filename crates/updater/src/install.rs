@@ -56,7 +56,13 @@ where
     let parent = executable_path
         .parent()
         .ok_or_else(|| install_failed("current executable has no parent directory"))?;
-    let cleanup = temporary::cleanup_stale_for_executable(executable_path).map_err(|error| {
+    let cleanup_target = executable_path.to_owned();
+    let cleanup = tokio::task::spawn_blocking(move || {
+        temporary::cleanup_stale_for_executable(&cleanup_target)
+    })
+    .await
+    .map_err(|error| install_failed(format!("stale update cleanup task failed: {error}")))?
+    .map_err(|error| {
         install_failed(format!("failed to clean stale update directories: {error}"))
     })?;
     log_cleanup(cleanup, "before installation");

@@ -1,60 +1,70 @@
-use any2api_domain::ProxyKind;
-use reqwest::{Certificate, Client, ClientBuilder, Proxy, redirect::Policy};
-use rustls::pki_types::CertificateDer;
+use std::{sync::Arc, time::Duration};
 
-use super::{pinned::PinnedClient, reqwest::TransportClient};
+use any2api_domain::ProxyKind;
+use reqwest::{Client, ClientBuilder, Proxy, redirect::Policy};
+use rustls::ClientConfig;
+
+use super::{dns::CachedDnsResolver, pinned::PinnedClient, reqwest::TransportClient};
 use crate::{
     api::{TransportManagerConfig, TransportProxy},
     error::{TransportError, TransportErrorStage, TransportFailureScope},
     proxy::url::proxy_url,
-    resolution::ResolvedOrigin,
+    resolution::OriginTarget,
 };
+
+/// Probes NAT and firewall state before typical 60s silent-drop windows so
+/// pooled connections and long-lived streams fail fast instead of hanging.
+pub(crate) const TCP_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
+pub(super) const HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
+pub(super) const HTTP2_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) fn build_transport_client(
     config: TransportManagerConfig,
-    extra_root_certificates: &[CertificateDer<'static>],
+    tls_config: &ClientConfig,
     proxy: TransportProxy<'_>,
-    resolved_origin: Option<&ResolvedOrigin>,
+    pinned_origin: Option<&OriginTarget>,
+    strict_direct_dns: bool,
 ) -> Result<TransportClient, TransportError> {
     validate_proxy_credentials(proxy)?;
-    if proxy.profile().kind() != ProxyKind::Direct
-        && let Some(origin) = resolved_origin
-    {
-        return PinnedClient::build(config, extra_root_certificates, proxy, origin)
+    if let Some(origin) = pinned_origin {
+        return PinnedClient::build(config, tls_config.clone(), proxy, origin)
             .map(Box::new)
             .map(TransportClient::Pinned);
     }
-    build_reqwest_client(config, extra_root_certificates, proxy, resolved_origin)
-        .map(TransportClient::Reqwest)
+    build_reqwest_client(config, tls_config, proxy, strict_direct_dns).map(TransportClient::Reqwest)
 }
 
 fn build_reqwest_client(
     config: TransportManagerConfig,
-    extra_root_certificates: &[CertificateDer<'static>],
+    tls_config: &ClientConfig,
     proxy: TransportProxy<'_>,
-    resolved_origin: Option<&ResolvedOrigin>,
+    strict_direct_dns: bool,
 ) -> Result<Client, TransportError> {
     let profile = proxy.profile();
+    let mut tls_config = tls_config.clone();
+    tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     let mut builder: ClientBuilder = Client::builder()
-        .use_rustls_tls()
+        .use_preconfigured_tls(tls_config)
         .connect_timeout(config.connect_timeout)
         .pool_idle_timeout(config.pool_idle_timeout)
         .pool_max_idle_per_host(config.pool_max_idle_per_host)
+        .tcp_keepalive(TCP_KEEP_ALIVE_INTERVAL)
+        .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
+        .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
         .redirect(Policy::none())
         .retry(reqwest::retry::never())
         .no_proxy();
-    if let Some(origin) = resolved_origin {
-        builder = builder.resolve_to_addrs(&origin.host, origin.addresses.as_ref());
-    }
-    for certificate in extra_root_certificates {
-        builder =
-            builder.add_root_certificate(Certificate::from_der(certificate.as_ref()).map_err(
-                |_| TransportError::configuration("configured TLS root certificate is invalid"),
-            )?);
+    if strict_direct_dns {
+        builder = builder.dns_resolver(Arc::new(CachedDnsResolver));
     }
     if let Some(url) = proxy_url(profile)? {
-        let mut reqwest_proxy = Proxy::all(url.as_str())
-            .map_err(|_| TransportError::configuration("configured proxy URL is invalid"))?;
+        let mut reqwest_proxy = Proxy::all(url.as_str()).map_err(|_| {
+            TransportError::configuration(
+                TransportErrorStage::ProxyHandshake,
+                TransportFailureScope::Proxy,
+                "configured proxy URL is invalid",
+            )
+        })?;
         if let Some(credentials) = proxy.credentials() {
             reqwest_proxy =
                 reqwest_proxy.basic_auth(credentials.username(), credentials.password());
@@ -83,6 +93,8 @@ fn validate_proxy_credentials(proxy: TransportProxy<'_>) -> Result<(), Transport
             Ok(())
         }
         _ => Err(TransportError::configuration(
+            TransportErrorStage::ProxyHandshake,
+            TransportFailureScope::Proxy,
             "configured proxy authentication material is inconsistent",
         )),
     }

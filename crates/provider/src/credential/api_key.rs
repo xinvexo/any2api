@@ -25,8 +25,9 @@ pub(crate) fn bearer_credential_headers(
 ) -> Result<CredentialHeaders, ProviderError> {
     validate_secret(secret)?;
     let value = format!("Bearer {}", secret.expose());
-    let authorization = HeaderValue::from_str(&value)
+    let mut authorization = HeaderValue::from_str(&value)
         .map_err(|_| ProviderError::InvalidCredential("invalid API Key header".into()))?;
+    authorization.set_sensitive(true);
     let mut headers = HeaderMap::new();
     headers.insert(header::AUTHORIZATION, authorization);
     Ok(CredentialHeaders { headers })

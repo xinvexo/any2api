@@ -2,8 +2,13 @@ use std::time::Duration;
 
 use any2api_domain::{ProxyKind, ProxyProfile, RetrySafety};
 use bytes::Bytes;
+use futures_util::StreamExt;
 use http::{HeaderMap, Method, Uri};
-use tokio::{io::AsyncReadExt, net::TcpListener, sync::oneshot};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+    sync::oneshot,
+};
 
 use crate::{
     ReqwestTransportManager,
@@ -152,7 +157,6 @@ async fn stalled_strict_socks5_handshake_uses_the_absolute_connect_deadline() {
     request.network_policy = EndpointNetworkPolicy::new().with_strict_ssrf(true);
     manager
         .warm_client_for_request(TransportProxy::new(&proxy, None), &request)
-        .await
         .expect("warm pinned proxy client");
     let started = tokio::time::Instant::now();
 
@@ -181,6 +185,38 @@ async fn stalled_strict_socks5_handshake_uses_the_absolute_connect_deadline() {
         .expect("captured SOCKS5 disconnect");
 }
 
+#[tokio::test]
+async fn stalled_response_body_times_out_between_chunks() {
+    let address = spawn_stalled_response_body().await;
+    let manager = ReqwestTransportManager::default();
+    let mut transport_request = request_to(&format!("http://{address}/stalled-body"));
+    transport_request.read_timeout = Duration::from_millis(50);
+
+    let mut response = manager
+        .execute(
+            TransportProxy::new(&ProxyProfile::direct(), None),
+            transport_request,
+        )
+        .await
+        .expect("response headers before the body stalls");
+
+    let first = response
+        .body
+        .next()
+        .await
+        .expect("first body chunk")
+        .expect("first body chunk bytes");
+    assert_eq!(first, Bytes::from_static(b"partial"));
+    let error = match tokio::time::timeout(Duration::from_secs(2), response.body.next()).await {
+        Ok(Some(Err(error))) => error,
+        other => panic!("stalled body must yield a timeout error, got {other:?}"),
+    };
+    assert_eq!(error.stage, TransportErrorStage::ReadBody);
+    assert_eq!(error.failure_scope, TransportFailureScope::Endpoint);
+    assert_eq!(error.retry_safety, RetrySafety::Ambiguous);
+    assert!(response.body.next().await.is_none());
+}
+
 fn manager_with_connect_timeout() -> ReqwestTransportManager {
     ReqwestTransportManager::new(TransportManagerConfig {
         connect_timeout: Duration::from_millis(250),
@@ -198,6 +234,24 @@ fn request_to(uri: &str) -> TransportRequest {
         network_policy: EndpointNetworkPolicy::new(),
         read_timeout: Duration::from_secs(15),
     }
+}
+
+async fn spawn_stalled_response_body() -> std::net::SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("HTTP listener");
+    let address = listener.local_addr().expect("HTTP address");
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("HTTP connection");
+        let _ = read_http_head(&mut stream).await;
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial")
+            .await
+            .expect("partial body write");
+        stream.flush().await.expect("partial body flush");
+        std::future::pending::<()>().await;
+    });
+    address
 }
 
 async fn spawn_stalled_response_headers() -> (std::net::SocketAddr, oneshot::Receiver<String>) {

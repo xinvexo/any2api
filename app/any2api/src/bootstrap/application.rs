@@ -12,7 +12,7 @@ use secrecy::ExposeSecret;
 use tokio::net::TcpListener;
 
 use super::{
-    admin_credentials::SqliteAdminCredentialStore, environment::StartupSettings,
+    admin_credentials::SqliteAdminCredentialStore, environment::StartupSettings, listener,
     public_request_components::build_public_request_components_with_telemetry, web_assets,
 };
 use crate::{
@@ -121,6 +121,7 @@ pub(super) async fn run(
             Arc::new(restart.clone()),
             update_tasks,
         )
+        .await
         .context("failed to initialize application updater")?,
     );
     let web_assets = settings
@@ -145,6 +146,7 @@ pub(super) async fn run(
     let listener = TcpListener::bind(settings.bind)
         .await
         .with_context(|| format!("failed to bind {}", settings.bind))?;
+    let listener = listener::inbound_listener(listener, settings.max_connections);
 
     anyhow::ensure!(
         oauth.start_refresh_worker(&lifecycle),

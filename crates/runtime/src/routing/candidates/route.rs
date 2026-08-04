@@ -65,6 +65,20 @@ impl CandidateRequirements {
     }
 }
 
+impl std::hash::Hash for CandidateRequirements {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.operation.hash(state);
+        self.transport_mode.hash(state);
+        // RequestExecutionProfile does not derive Hash; encode it exhaustively
+        // so a new variant fails to compile instead of colliding.
+        let execution_profile: u8 = match self.execution_profile {
+            RequestExecutionProfile::Standard => 0,
+            RequestExecutionProfile::RemoteCompaction => 1,
+        };
+        execution_profile.hash(state);
+    }
+}
+
 impl RouteCandidate {
     pub(crate) fn health_availability(
         &self,

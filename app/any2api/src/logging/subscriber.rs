@@ -1,10 +1,11 @@
 use std::{
     io::{self, Write},
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use any2api_domain::FileLogLevel;
 use anyhow::Context;
+use arc_swap::ArcSwapOption;
 use tracing_appender::non_blocking::NonBlocking;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -12,7 +13,7 @@ use super::file::FileLevelFilter;
 
 #[derive(Clone, Default)]
 struct DeferredFileWriter {
-    writer: Arc<RwLock<Option<NonBlocking>>>,
+    writer: Arc<ArcSwapOption<NonBlocking>>,
 }
 
 pub(crate) struct BootstrapTracing {
@@ -30,8 +31,11 @@ impl BootstrapTracing {
         let (bootstrap, file) = Self::file_layer();
         let console_filter =
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+        let ansi = std::io::IsTerminal::is_terminal(&std::io::stderr())
+            && std::env::var_os("NO_COLOR").is_none();
         let console = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
+            .with_ansi(ansi)
             .with_filter(console_filter);
         tracing_subscriber::registry()
             .with(file)
@@ -90,7 +94,7 @@ impl Drop for FileLayerAttachment {
 
 impl DeferredFileWriter {
     fn replace(&self, writer: Option<NonBlocking>) {
-        *self.writer.write().expect("deferred file writer") = writer;
+        self.writer.store(writer.map(Arc::new));
     }
 }
 
@@ -98,7 +102,7 @@ impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for DeferredFileWrite
     type Writer = OptionalFileWriter;
 
     fn make_writer(&'writer self) -> Self::Writer {
-        OptionalFileWriter(self.writer.read().expect("deferred file writer").clone())
+        OptionalFileWriter(self.writer.load().as_deref().cloned())
     }
 }
 

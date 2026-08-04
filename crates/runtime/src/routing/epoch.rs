@@ -67,8 +67,14 @@ impl SchedulerEpoch {
             }
         };
 
-        self.sender.send_modify(|published| {
-            *published = (*published).max(next);
+        // Coalesce racing advances: skip the wakeup when a concurrent advance
+        // has already published an equal or newer epoch.
+        self.sender.send_if_modified(|published| {
+            if *published >= next {
+                return false;
+            }
+            *published = next;
+            true
         });
         next
     }

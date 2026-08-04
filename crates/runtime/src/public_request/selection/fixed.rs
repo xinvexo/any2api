@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use tokio::time::{Instant, sleep_until, timeout_at};
+use tokio::time::{Instant, sleep_until};
 
 use super::super::SelectedCandidate;
 use super::{FixedSelectionError, filter_recorder::RequestFilterRecorder};
@@ -28,11 +28,13 @@ pub(super) async fn select(
         return Err(FixedSelectionError::QueueFull);
     };
     let mut changes = ticket.subscribe();
+    let mut credential_changes = candidate.binding.subscribe_changes();
     let _fixed_waiter = candidate.binding.register_fixed_waiter();
     let deadline = Instant::now() + wait_timeout;
 
     loop {
         let _observed_epoch = *changes.borrow_and_update();
+        let _observed_credential = *credential_changes.borrow_and_update();
         let retry_at = match try_selected(snapshot.reliability_policy(), candidate, &mut filters)? {
             FixedAttempt::Acquired(selected) => return Ok(*selected),
             FixedAttempt::Waiting(retry_at) => retry_at,
@@ -40,21 +42,20 @@ pub(super) async fn select(
         if Instant::now() >= deadline {
             return final_selection(snapshot.reliability_policy(), candidate, &mut filters);
         }
-        if let Some(retry_at) = retry_at {
-            let wake_at = retry_at.min(deadline);
-            tokio::select! {
-                changed = changes.changed() => {
-                    if changed.is_err() {
-                        return Err(FixedSelectionError::Internal);
-                    }
+        let wake_at = retry_at.map_or(deadline, |retry_at| retry_at.min(deadline));
+        tokio::select! {
+            changed = changes.changed() => {
+                if changed.is_err() {
+                    return Err(FixedSelectionError::Internal);
                 }
-                () = sleep_until(wake_at) => {}
             }
-        } else {
-            match timeout_at(deadline, changes.changed()).await {
-                Ok(Ok(())) => {}
-                Ok(Err(_)) => return Err(FixedSelectionError::Internal),
-                Err(_) => {
+            changed = credential_changes.changed() => {
+                if changed.is_err() {
+                    return Err(FixedSelectionError::Internal);
+                }
+            }
+            () = sleep_until(wake_at) => {
+                if retry_at.is_none() {
                     return final_selection(snapshot.reliability_policy(), candidate, &mut filters);
                 }
             }
@@ -86,8 +87,8 @@ fn try_selected_with(
         Err(error) => {
             filters.record(candidate, error.kind());
             return match error.source() {
-                HealthAcquireError::Temporary(retry_at) => {
-                    Ok(FixedAttempt::Waiting(Some(retry_at)))
+                HealthAcquireError::Temporary(unavailability) => {
+                    Ok(FixedAttempt::Waiting(Some(unavailability.until())))
                 }
                 HealthAcquireError::Permanent => Err(FixedSelectionError::Unavailable),
             };
@@ -106,8 +107,8 @@ fn try_selected_with(
         Err(error) => {
             filters.record(candidate, error.kind());
             return match error.source() {
-                HealthAcquireError::Temporary(retry_at) => {
-                    Ok(FixedAttempt::Waiting(Some(retry_at)))
+                HealthAcquireError::Temporary(unavailability) => {
+                    Ok(FixedAttempt::Waiting(Some(unavailability.until())))
                 }
                 HealthAcquireError::Permanent => Err(FixedSelectionError::Unavailable),
             };

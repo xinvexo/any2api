@@ -36,20 +36,15 @@ pub(crate) struct BindingLease {
 
 impl BindingLease {
     pub(crate) fn mark_attempting(&mut self) -> Result<(), AffinityError> {
-        let mut state = self
-            .registry
-            .state
-            .lock()
-            .expect("affinity state lock poisoned");
-        let Some(BindingState::Creating { version, phase }) = state.entries.get_mut(&self.key)
-        else {
+        let mut shard = self.registry.bindings.lock(self.key);
+        let Some(BindingState::Creating { version, phase }) = shard.get_mut(&self.key) else {
             return Err(AffinityError::LeaseLost);
         };
         if *version != self.version {
             return Err(AffinityError::LeaseLost);
         }
         *phase = BindingCreationPhase::Attempting;
-        drop(state);
+        drop(shard);
         self.registry.wake_waiters();
         Ok(())
     }
@@ -82,16 +77,12 @@ impl BindingLease {
         if deadline.is_some_and(|deadline| committed_at >= deadline) {
             return Err(AffinityError::DeadlineExceeded);
         }
-        let mut state = self
-            .registry
-            .state
-            .lock()
-            .expect("affinity state lock poisoned");
+        let mut shard = self.registry.bindings.lock(self.key);
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(AffinityError::DeadlineExceeded);
         }
         let matches = matches!(
-            state.entries.get(&self.key),
+            shard.get(&self.key),
             Some(BindingState::Creating {
                 version,
                 phase: BindingCreationPhase::Attempting,
@@ -103,7 +94,7 @@ impl BindingLease {
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(AffinityError::DeadlineExceeded);
         }
-        state.entries.insert(
+        shard.replace(
             self.key,
             BindingState::Bound {
                 binding: TimedBinding {
@@ -114,7 +105,7 @@ impl BindingLease {
             },
         );
         self.active = false;
-        drop(state);
+        drop(shard);
         self.registry.wake_waiters();
         Ok(())
     }
@@ -125,17 +116,13 @@ impl BindingLease {
         if !self.active {
             return false;
         }
-        let mut state = self
-            .registry
-            .state
-            .lock()
-            .expect("affinity state lock poisoned");
+        let mut shard = self.registry.bindings.lock(self.key);
         let matches = matches!(
-            state.entries.get(&self.key),
+            shard.get(&self.key),
             Some(BindingState::Creating { version, .. }) if *version == self.version
         );
         if matches {
-            state.entries.remove(&self.key);
+            shard.remove(&self.key);
         }
         self.active = false;
         matches

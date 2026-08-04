@@ -30,6 +30,10 @@ impl<'a> OAuthRoute<'a> {
             public_model,
         }
     }
+
+    pub(crate) const fn route_id(self) -> ModelRouteId {
+        self.route_id
+    }
 }
 
 pub(crate) fn build_oauth_route_candidates(

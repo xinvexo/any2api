@@ -1,7 +1,14 @@
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use sqlx::{
-    Connection, SqliteConnection, SqlitePool,
+    Connection, Sqlite, SqliteConnection, SqlitePool, Transaction,
     sqlite::{
         SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions,
         SqliteSynchronous,
@@ -14,9 +21,17 @@ use crate::{
     migration,
 };
 
+const READ_POOL_CONNECTIONS: u32 = 8;
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Truncate the WAL after this many write transactions so long uptimes with
+/// steady telemetry flushes cannot grow the log without bound.
+const WAL_CHECKPOINT_WRITE_INTERVAL: u64 = 256;
+
 #[derive(Clone, Debug)]
 pub struct SqliteStore {
-    pool: SqlitePool,
+    read_pool: SqlitePool,
+    write_pool: SqlitePool,
+    write_transactions: Arc<AtomicU64>,
 }
 
 impl SqliteStore {
@@ -40,7 +55,8 @@ impl SqliteStore {
             .create_if_missing(true)
             .foreign_keys(false)
             .journal_mode(SqliteJournalMode::Wal)
-            .synchronous(SqliteSynchronous::Full);
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(BUSY_TIMEOUT);
         let migration_options = options.clone().auto_vacuum(SqliteAutoVacuum::Incremental);
         let mut migration_connection = SqliteConnection::connect_with(&migration_options).await?;
         migration::run(&mut migration_connection).await?;
@@ -48,21 +64,60 @@ impl SqliteStore {
         protect_sqlite_files(path)?;
 
         let options = options.foreign_keys(true);
-        let pool = SqlitePoolOptions::new()
-            .max_connections(8)
+        // All writes funnel through a single connection so write transactions
+        // serialize on pool acquisition instead of contending for the SQLite
+        // write lock, and heavy read-side queries can no longer starve them.
+        let write_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await?;
+        let read_pool = SqlitePoolOptions::new()
+            .max_connections(READ_POOL_CONNECTIONS)
             .connect_with(options)
             .await?;
         protect_sqlite_files(path)?;
-        Ok(Self { pool })
+        Ok(Self {
+            read_pool,
+            write_pool,
+            write_transactions: Arc::new(AtomicU64::new(0)),
+        })
     }
 
+    /// Pool for read-only statements and transactions.
     #[must_use]
     pub(crate) fn pool(&self) -> &SqlitePool {
-        &self.pool
+        &self.read_pool
+    }
+
+    /// Pool holding the single connection reserved for writes.
+    #[must_use]
+    pub(crate) fn write_pool(&self) -> &SqlitePool {
+        &self.write_pool
+    }
+
+    pub(crate) async fn begin_write(&self) -> Result<Transaction<'static, Sqlite>, StorageError> {
+        self.checkpoint_wal_if_due().await;
+        Ok(self.write_pool.begin_with("BEGIN IMMEDIATE").await?)
+    }
+
+    async fn checkpoint_wal_if_due(&self) {
+        let writes = self.write_transactions.fetch_add(1, Ordering::Relaxed) + 1;
+        if !writes.is_multiple_of(WAL_CHECKPOINT_WRITE_INTERVAL) {
+            return;
+        }
+        // Best effort: a checkpoint blocked by concurrent readers simply runs
+        // again after the next interval.
+        if let Err(error) = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+            .fetch_all(&self.write_pool)
+            .await
+        {
+            tracing::debug!(%error, "WAL checkpoint failed; will retry on a later write");
+        }
     }
 
     pub async fn close(&self) {
-        self.pool.close().await;
+        self.write_pool.close().await;
+        self.read_pool.close().await;
     }
 }
 
@@ -91,15 +146,20 @@ mod tests {
     use super::{SqliteStore, sidecar_path};
 
     #[tokio::test]
-    async fn uses_full_synchronous_mode_and_private_sidecars() {
+    async fn uses_normal_synchronous_mode_and_private_sidecars() {
         let directory = tempdir().expect("temporary directory");
         let database = directory.path().join("config.db");
         let store = SqliteStore::connect(&database).await.expect("store");
-        let synchronous: i64 = sqlx::query_scalar("PRAGMA synchronous")
-            .fetch_one(store.pool())
-            .await
-            .expect("synchronous mode");
-        assert_eq!(synchronous, 2);
+        // WAL + NORMAL trades the per-transaction fsync of FULL for losing at
+        // most the latest transactions on power failure; WAL still rules out
+        // corruption, and telemetry flushes are no longer fsync-bound.
+        for pool in [store.pool(), store.write_pool()] {
+            let synchronous: i64 = sqlx::query_scalar("PRAGMA synchronous")
+                .fetch_one(pool)
+                .await
+                .expect("synchronous mode");
+            assert_eq!(synchronous, 1);
+        }
         let auto_vacuum: i64 = sqlx::query_scalar("PRAGMA auto_vacuum")
             .fetch_one(store.pool())
             .await
@@ -115,6 +175,22 @@ mod tests {
             assert!(path.exists(), "{}", path.display());
             assert_eq!(mode(&path), 0o600, "{}", path.display());
         }
+    }
+
+    #[tokio::test]
+    async fn write_pool_holds_a_single_connection() {
+        let directory = tempdir().expect("temporary directory");
+        let store = SqliteStore::connect(&directory.path().join("write-pool.db"))
+            .await
+            .expect("store");
+        assert_eq!(store.write_pool().options().get_max_connections(), 1);
+
+        let transaction = store.begin_write().await.expect("write transaction");
+        assert!(
+            store.write_pool().try_acquire().is_none(),
+            "write connection is exclusively held"
+        );
+        drop(transaction);
     }
 
     #[tokio::test]

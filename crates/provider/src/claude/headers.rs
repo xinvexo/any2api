@@ -1,42 +1,48 @@
-use http::HeaderMap;
+use std::sync::LazyLock;
+
+use http::{HeaderMap, HeaderName};
 
 use crate::{
     ProviderError,
     api::ProviderRequestHeaderContext,
-    header_policy::{insert_default, project},
+    header_policy::{insert_default, ordered_names, project},
 };
 
-const REQUEST_HEADERS: &[&str] = &[
-    "anthropic-version",
-    "anthropic-beta",
-    "anthropic-mcp-client-capabilities",
-    "user-agent",
-    "x-app",
-    "x-client-request-id",
-    "x-claude-code-session-id",
-    "anthropic-usage-limit",
-    "anthropic-dangerous-direct-browser-access",
-    "anthropic-client-platform",
-    "x-anthropic-additional-protection",
-    "x-claude-remote-container-id",
-    "x-claude-remote-session-id",
-    "x-claude-code-agent-id",
-    "x-claude-code-parent-agent-id",
-    "traceparent",
-    "tracestate",
-];
+static REQUEST_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
+    ordered_names(&[
+        "anthropic-version",
+        "anthropic-beta",
+        "anthropic-mcp-client-capabilities",
+        "user-agent",
+        "x-app",
+        "x-client-request-id",
+        "x-claude-code-session-id",
+        "anthropic-usage-limit",
+        "anthropic-dangerous-direct-browser-access",
+        "anthropic-client-platform",
+        "x-anthropic-additional-protection",
+        "x-claude-remote-container-id",
+        "x-claude-remote-session-id",
+        "x-claude-code-agent-id",
+        "x-claude-code-parent-agent-id",
+        "traceparent",
+        "tracestate",
+    ])
+});
 
-const RESPONSE_HEADERS: &[&str] = &[
-    "content-encoding",
-    "content-type",
-    "request-id",
-    "x-request-id",
-    "retry-after",
-    "retry-after-ms",
-    "x-should-retry",
-    "anthropic-usage-limit",
-    "cf-ray",
-];
+static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
+    ordered_names(&[
+        "content-encoding",
+        "content-type",
+        "request-id",
+        "x-request-id",
+        "retry-after",
+        "retry-after-ms",
+        "x-should-retry",
+        "anthropic-usage-limit",
+        "cf-ray",
+    ])
+});
 
 pub(crate) fn request(
     context: ProviderRequestHeaderContext<'_>,
@@ -48,7 +54,7 @@ pub(crate) fn request(
     if context.ingress_dialect == context.upstream_operation.dialect() {
         headers.extend(project(
             context.client_headers,
-            REQUEST_HEADERS,
+            REQUEST_HEADERS.iter(),
             &["x-stainless-"],
         ));
     }
@@ -56,5 +62,5 @@ pub(crate) fn request(
 }
 
 pub(crate) fn response(upstream: &HeaderMap) -> HeaderMap {
-    project(upstream, RESPONSE_HEADERS, &["anthropic-ratelimit-"])
+    project(upstream, RESPONSE_HEADERS.iter(), &["anthropic-ratelimit-"])
 }

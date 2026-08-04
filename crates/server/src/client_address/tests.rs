@@ -88,18 +88,48 @@ fn present_but_invalid_forwarded_headers_fail_closed() {
         );
     }
 
-    for protocol in ["", "ftp", "https,http"] {
+    for protocol in ["", "ftp", ",https", "wss, https"] {
         let headers = forwarded_headers("203.0.113.8", protocol);
         assert_eq!(
             resolve(&trusted, Some(loopback_peer()), &headers),
             Err(ClientAddressError::InvalidForwardedHeaders)
         );
     }
+}
+
+#[test]
+fn multi_hop_forwarded_proto_accepts_consistent_values_and_rejects_conflicts() {
+    let trusted = trusted_loopback_networks();
+    for (protocol, secure) in [
+        ("https,https", true),
+        ("http, http", false),
+        (" HTTPS ", true),
+        ("HTTP", false),
+    ] {
+        let headers = forwarded_headers("203.0.113.8", protocol);
+        let connection =
+            resolve(&trusted, Some(loopback_peer()), &headers).expect("multi-hop proto chain");
+        assert_eq!(connection.is_secure(), secure, "protocol: {protocol:?}");
+    }
 
     let mut repeated_proto = forwarded_headers("203.0.113.8", "https");
-    repeated_proto.append("x-forwarded-proto", HeaderValue::from_static("https"));
+    repeated_proto.append("x-forwarded-proto", HeaderValue::from_static("HTTPS"));
+    let connection = resolve(&trusted, Some(loopback_peer()), &repeated_proto)
+        .expect("consistent repeated proto headers are accepted");
+    assert!(connection.is_secure());
+
+    for conflicting in ["https,http", "http, https"] {
+        let headers = forwarded_headers("203.0.113.8", conflicting);
+        assert_eq!(
+            resolve(&trusted, Some(loopback_peer()), &headers),
+            Err(ClientAddressError::InvalidForwardedHeaders),
+            "protocol: {conflicting:?}"
+        );
+    }
+    let mut conflicting_repeat = forwarded_headers("203.0.113.8", "https");
+    conflicting_repeat.append("x-forwarded-proto", HeaderValue::from_static("http"));
     assert_eq!(
-        resolve(&trusted, Some(loopback_peer()), &repeated_proto),
+        resolve(&trusted, Some(loopback_peer()), &conflicting_repeat),
         Err(ClientAddressError::InvalidForwardedHeaders)
     );
 }

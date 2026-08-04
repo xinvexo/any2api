@@ -40,45 +40,31 @@ pub(super) async fn trim_to_capacity(
     if delete_budget == 0 {
         return Ok(RequestLogCleanupOutcome::default());
     }
-    if max_rows == 0 {
-        let deleted_rows = delete_oldest(connection, delete_budget).await?;
-        return Ok(RequestLogCleanupOutcome::new(
-            deleted_rows,
-            deleted_rows == delete_budget,
-        ));
-    }
-
-    let boundary = sqlx::query_as::<_, (i64, String)>(
-        "SELECT started_at_ms, request_id FROM request_logs \
-         INDEXED BY request_logs_started_idx \
-         ORDER BY started_at_ms DESC, request_id DESC LIMIT 1 OFFSET ?",
-    )
-    .bind(to_i64(max_rows - 1)?)
-    .fetch_optional(&mut *connection)
-    .await?;
-    let Some((started_at_ms, request_id)) = boundary else {
+    let excess = stored_rows(connection).await?.saturating_sub(max_rows);
+    if excess == 0 {
         return Ok(RequestLogCleanupOutcome::default());
-    };
-    let result = sqlx::query(
-        "DELETE FROM request_logs WHERE request_id IN (\
-             SELECT request_id FROM request_logs INDEXED BY request_logs_started_idx \
-             WHERE started_at_ms < ? OR (started_at_ms = ? AND request_id < ?) \
-             ORDER BY started_at_ms ASC, request_id ASC LIMIT ?\
-         )",
-    )
-    .bind(started_at_ms)
-    .bind(started_at_ms)
-    .bind(request_id)
-    .bind(to_i64(delete_budget)?)
-    .execute(connection)
-    .await?;
-    let deleted_rows = result.rows_affected();
+    }
+    let deleted_rows = delete_oldest(connection, excess.min(delete_budget)).await?;
     Ok(RequestLogCleanupOutcome::new(
         deleted_rows,
         deleted_rows == delete_budget,
     ))
 }
 
-fn to_i64(value: u64) -> Result<i64, StorageError> {
-    i64::try_from(value).map_err(|_| StorageError::CorruptTelemetry)
+async fn stored_rows(connection: &mut SqliteConnection) -> Result<u64, StorageError> {
+    // Maintained incrementally by the request_logs triggers from migration
+    // 0015 so the common under-capacity case never touches the log table.
+    let rows: Option<i64> = sqlx::query_scalar(
+        "SELECT request_log_rows FROM telemetry_capacity_stats \
+             WHERE singleton_id = 1",
+    )
+    .fetch_optional(connection)
+    .await?;
+    rows.map(to_u64)
+        .transpose()?
+        .ok_or(StorageError::CorruptTelemetry)
+}
+
+fn to_u64(value: i64) -> Result<u64, StorageError> {
+    u64::try_from(value).map_err(|_| StorageError::CorruptTelemetry)
 }

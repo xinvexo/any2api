@@ -81,7 +81,7 @@ async fn unbounded_retry_after_is_clamped_without_becoming_immediately_available
     );
 
     let until = match health.availability("model") {
-        Err(HealthAcquireError::Temporary(until)) => until,
+        Err(HealthAcquireError::Temporary(unavailability)) => unavailability.until(),
         other => panic!("expected bounded cooldown, got {other:?}"),
     };
     assert_eq!(

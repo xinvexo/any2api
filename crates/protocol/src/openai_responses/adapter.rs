@@ -12,6 +12,7 @@ use crate::{
         StreamCompletionPolicy, UpstreamResponse,
     },
     json_codec,
+    raw_json::{json_string, object_field_raw, top_fields},
     sse::{parse_event_payload, rewrite_known_model},
 };
 
@@ -81,7 +82,7 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
     }
 
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {
-        let payload = parse_event_payload(&frame.0)?;
+        let payload = parse_event_payload(&frame.0);
         let telemetry = telemetry::event(&payload);
         let termination = termination::classify(&payload);
         Ok(AdapterEvent::new(frame.0, telemetry, payload).with_termination(termination))
@@ -123,20 +124,17 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         if operation != ProtocolOperation::Responses {
             return Ok(None);
         }
-        let SseEventPayload::Json {
-            event_name,
-            data: value,
-        } = event.payload()
-        else {
+        let SseEventPayload::Json(data) = event.payload() else {
             return Ok(None);
         };
-        let is_created = event_name.as_deref() == Some("response.created")
-            || value.get("type").and_then(Value::as_str) == Some("response.created");
+        let [kind, response] = top_fields(data.data(), ["type", "response"]);
+        let is_created = data.event_name() == Some("response.created")
+            || kind.and_then(json_string).as_deref() == Some("response.created");
         if !is_created {
             return Ok(None);
         }
-        optional_non_empty_id(
-            value.get("response").and_then(|value| value.get("id")),
+        optional_non_empty_raw_id(
+            response.and_then(|response| object_field_raw(response.get().as_bytes(), "id")),
             "response id",
         )?
         .map(Some)
@@ -175,13 +173,29 @@ fn optional_non_empty_id(
     let value = value
         .as_str()
         .ok_or_else(|| ProtocolError::InvalidPayload(format!("{field} must be a string")))?;
+    validated_id(value, field).map(Some)
+}
+
+fn optional_non_empty_raw_id(
+    value: Option<&serde_json::value::RawValue>,
+    field: &'static str,
+) -> Result<Option<String>, ProtocolError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = json_string(value)
+        .ok_or_else(|| ProtocolError::InvalidPayload(format!("{field} must be a string")))?;
+    validated_id(&value, field).map(Some)
+}
+
+fn validated_id(value: &str, field: &'static str) -> Result<String, ProtocolError> {
     let value = value.trim();
     if value.is_empty() {
         return Err(ProtocolError::InvalidPayload(format!(
             "{field} must not be empty"
         )));
     }
-    Ok(Some(value.to_owned()))
+    Ok(value.to_owned())
 }
 
 fn error_type(code: PublicErrorCode) -> &'static str {

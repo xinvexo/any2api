@@ -95,6 +95,11 @@ fn previous_response_id(object: &Map<String, Value>) -> Result<Option<String>, P
 }
 
 fn claude_session_id_from_user_id(user_id: &str) -> Result<Option<String>, ProtocolError> {
+    if user_id.len() > MAX_SESSION_ID_BYTES {
+        return Err(ProtocolError::InvalidPayload(
+            "session identifier is too long".into(),
+        ));
+    }
     if let Ok(value) = serde_json::from_str::<Value>(user_id)
         && let Some(session_id) = value.get("session_id").and_then(Value::as_str)
     {
@@ -249,6 +254,22 @@ mod tests {
                 IngressAffinity::None
             );
         }
+    }
+
+    #[test]
+    fn oversized_user_ids_are_rejected_before_parsing() {
+        let user_id = format!(
+            "{{\"session_id\":\"tiny\",\"pad\":\"{}\"}}",
+            "x".repeat(5000)
+        );
+        let body = json!({"metadata": {"user_id": user_id}});
+        let error = extract(
+            ProtocolOperation::Messages,
+            &HeaderMap::new(),
+            body.as_object().expect("object"),
+        )
+        .expect_err("oversized user_id must be rejected");
+        assert!(error.to_string().contains("too long"));
     }
 
     #[test]

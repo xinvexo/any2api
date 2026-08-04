@@ -32,8 +32,8 @@ pub(crate) enum IndexedSelectAndReserveResult {
     RateLimited { retry_at: Option<Instant> },
 }
 
-pub(crate) fn select_index_and_try_reserve(
-    candidates: &[CredentialRuntimeBinding],
+pub(crate) fn select_index_and_try_reserve<C: std::borrow::Borrow<CredentialRuntimeBinding>>(
+    candidates: &[C],
     tie_breaker: u64,
 ) -> IndexedSelectAndReserveResult {
     debug_assert!(!candidates.is_empty());
@@ -43,7 +43,7 @@ pub(crate) fn select_index_and_try_reserve(
     let mut retry_at = None;
     for offset in 0..candidates.len() {
         let index = (start + offset) % candidates.len();
-        match candidates[index].try_reserve() {
+        match candidates[index].borrow().try_reserve() {
             Ok(permit) => return IndexedSelectAndReserveResult::Reserved { index, permit },
             Err(RateLimited {
                 retry_at: candidate,

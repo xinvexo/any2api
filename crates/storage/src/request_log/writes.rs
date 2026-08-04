@@ -105,6 +105,7 @@ pub(super) async fn delete_oldest(
 ) -> Result<u64, StorageError> {
     let result = sqlx::query(
         "DELETE FROM request_logs WHERE request_id IN (SELECT request_id FROM request_logs \
+         INDEXED BY request_logs_started_idx \
          ORDER BY started_at_ms ASC, request_id ASC LIMIT ?)",
     )
     .bind(to_i64(limit)?)

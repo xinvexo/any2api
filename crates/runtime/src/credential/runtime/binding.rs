@@ -76,6 +76,10 @@ impl CredentialRuntimeBinding {
     pub(crate) fn register_fixed_waiter(&self) -> FixedCredentialWaiter {
         self.handle.register_fixed_waiter()
     }
+
+    pub(crate) fn subscribe_changes(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.handle.subscribe_changes()
+    }
 }
 
 pub struct RoutingPermit {

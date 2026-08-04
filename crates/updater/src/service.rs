@@ -45,7 +45,21 @@ impl GitHubReleaseUpdater {
                 format!("current application version is invalid: {error}"),
             )
         })?;
-        match temporary::cleanup_stale_for_executable(&executable_path) {
+        Ok(Self {
+            inner: Arc::new(UpdaterInner {
+                client: github::client()?,
+                install_support_reason: install_support_reason(&executable_path, embedded_web),
+                current_version,
+                executable_path,
+                task: UpdateTaskState::new(),
+                restart,
+                tasks,
+            }),
+        })
+    }
+
+    pub(crate) fn cleanup_stale_workspaces(executable_path: &Path) {
+        match temporary::cleanup_stale_for_executable(executable_path) {
             Ok(cleanup) => {
                 if cleanup.removed > 0 {
                     tracing::info!(
@@ -64,17 +78,6 @@ impl GitHubReleaseUpdater {
                 tracing::warn!(%error, "failed to clean stale update directories during startup");
             }
         }
-        Ok(Self {
-            inner: Arc::new(UpdaterInner {
-                client: github::client()?,
-                install_support_reason: install_support_reason(&executable_path, embedded_web),
-                current_version,
-                executable_path,
-                task: UpdateTaskState::new(),
-                restart,
-                tasks,
-            }),
-        })
     }
 }
 

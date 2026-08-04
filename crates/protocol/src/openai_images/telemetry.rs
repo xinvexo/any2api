@@ -3,39 +3,37 @@ use serde_json::Value;
 
 use crate::{
     api::{ProtocolEventTelemetry, ProtocolResponseTelemetry, SseEventPayload},
-    telemetry::{event_type, token_usage},
+    raw_json::top_fields,
+    telemetry::{raw_event_type, raw_token_usage, token_usage},
 };
 
 pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
     ProtocolResponseTelemetry {
-        token_usage: usage(value.get("usage")),
+        token_usage: token_usage(
+            value.get("usage"),
+            &["input_tokens"],
+            &["output_tokens"],
+            &["cache_read_tokens"],
+        ),
     }
 }
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
-    let SseEventPayload::Json {
-        event_name,
-        data: value,
-    } = payload
-    else {
+    let SseEventPayload::Json(data) = payload else {
         return ProtocolEventTelemetry::default();
     };
-    let kind = event_type(event_name.as_deref(), value);
-    let token_usage = match kind {
-        Some("image_generation.completed" | "image_edit.completed") => usage(value.get("usage")),
+    let [kind, usage] = top_fields(data.data(), ["type", "usage"]);
+    let token_usage = match raw_event_type(data.event_name(), kind).as_deref() {
+        Some("image_generation.completed" | "image_edit.completed") => raw_token_usage(
+            usage,
+            &["input_tokens"],
+            &["output_tokens"],
+            &["cache_read_tokens"],
+        ),
         _ => TokenUsage::default(),
     };
     ProtocolEventTelemetry {
         token_usage,
         has_content_delta: false,
     }
-}
-
-fn usage(value: Option<&Value>) -> TokenUsage {
-    token_usage(
-        value,
-        &["input_tokens"],
-        &["output_tokens"],
-        &["cache_read_tokens"],
-    )
 }

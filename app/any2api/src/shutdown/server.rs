@@ -1,11 +1,16 @@
 use std::{
     future::{Future, IntoFuture},
     io,
+    net::SocketAddr,
 };
 
 use any2api_runtime::api::{ProcessLifecycle, SnapshotStore};
-use axum::Router;
-use tokio::{net::TcpListener, sync::oneshot};
+use axum::{
+    Router,
+    extract::connect_info::Connected,
+    serve::{IncomingStream, Listener},
+};
+use tokio::sync::oneshot;
 
 use super::ShutdownTimeouts;
 
@@ -14,13 +19,17 @@ pub(crate) struct ServeOutcome {
     pub(crate) timeouts: ShutdownTimeouts,
 }
 
-pub(crate) async fn serve(
-    listener: TcpListener,
+pub(crate) async fn serve<L>(
+    listener: L,
     app: Router,
     lifecycle: ProcessLifecycle,
     snapshots: &SnapshotStore,
     signal: impl Future<Output = ()> + Send,
-) -> ServeOutcome {
+) -> ServeOutcome
+where
+    L: Listener<Addr = SocketAddr>,
+    SocketAddr: for<'a> Connected<IncomingStream<'a, L>>,
+{
     serve_with_timeout_source(
         listener,
         app,
@@ -31,13 +40,17 @@ pub(crate) async fn serve(
     .await
 }
 
-pub(super) async fn serve_with_timeout_source(
-    listener: TcpListener,
+pub(super) async fn serve_with_timeout_source<L>(
+    listener: L,
     app: Router,
     lifecycle: ProcessLifecycle,
     timeout_source: impl FnOnce() -> ShutdownTimeouts,
     signal: impl Future<Output = ()> + Send,
-) -> ServeOutcome {
+) -> ServeOutcome
+where
+    L: Listener<Addr = SocketAddr>,
+    SocketAddr: for<'a> Connected<IncomingStream<'a, L>>,
+{
     let (drain_sender, drain_receiver) = oneshot::channel();
     let mut server = Box::pin(
         axum::serve(

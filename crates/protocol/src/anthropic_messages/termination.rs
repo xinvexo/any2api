@@ -1,20 +1,21 @@
-use serde_json::Value;
-
-use crate::api::{SseEventPayload, StreamTermination};
+use crate::{
+    api::{SseEventPayload, StreamTermination},
+    raw_json::{json_string, top_fields},
+};
 
 pub(super) fn classify(payload: &SseEventPayload) -> StreamTermination {
-    let SseEventPayload::Json { event_name, data } = payload else {
+    let SseEventPayload::Json(data) = payload else {
         return StreamTermination::None;
     };
-    if matches_kind(event_name.as_deref(), data, "error") {
+    let [kind] = top_fields(data.data(), ["type"]);
+    let kind = kind.and_then(json_string);
+    let matches =
+        |expected: &str| data.event_name() == Some(expected) || kind.as_deref() == Some(expected);
+    if matches("error") {
         StreamTermination::Failed
-    } else if matches_kind(event_name.as_deref(), data, "message_stop") {
+    } else if matches("message_stop") {
         StreamTermination::Completed
     } else {
         StreamTermination::None
     }
-}
-
-fn matches_kind(event_name: Option<&str>, data: &Value, expected: &str) -> bool {
-    event_name == Some(expected) || data.get("type").and_then(Value::as_str) == Some(expected)
 }

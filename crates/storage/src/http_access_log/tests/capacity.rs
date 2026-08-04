@@ -57,6 +57,7 @@ async fn append_enforces_independent_row_and_exchange_capacity() {
         2
     );
     assert!(stored_ids(&store).await.is_empty());
+    assert_capacity_stats_match_table(&store).await;
 }
 
 #[tokio::test]
@@ -126,6 +127,29 @@ async fn gateway_auth_rejected_exchange_budget_evicts_only_its_own_class() {
         1
     );
     assert_eq!(stored_ids(&store).await, vec![protected.request_id]);
+    assert_capacity_stats_match_table(&store).await;
+}
+
+async fn assert_capacity_stats_match_table(store: &SqliteStore) {
+    let recomputed = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+        "SELECT COUNT(*), COALESCE(SUM(exchange_bytes), 0), \
+                COALESCE(SUM(gateway_auth_rejected), 0), \
+                COALESCE(SUM(CASE gateway_auth_rejected \
+                    WHEN 1 THEN exchange_bytes ELSE 0 END), 0) \
+         FROM http_access_logs",
+    )
+    .fetch_one(store.pool())
+    .await
+    .expect("recomputed access log aggregates");
+    let maintained = sqlx::query_as::<_, (i64, i64, i64, i64)>(
+        "SELECT http_access_log_rows, http_access_log_exchange_bytes, \
+                gateway_auth_rejected_rows, gateway_auth_rejected_exchange_bytes \
+         FROM telemetry_capacity_stats WHERE singleton_id = 1",
+    )
+    .fetch_one(store.pool())
+    .await
+    .expect("maintained capacity stats");
+    assert_eq!(maintained, recomputed);
 }
 
 async fn stored_ids(store: &SqliteStore) -> Vec<RequestId> {

@@ -12,3 +12,5 @@
 "0011_isolate_gateway_auth_rejected_logs.sql" = "54a3e46d977171ae5d935016487dca993a6b4cb672b08bae60d2876a7ec46c5f"
 "0012_persist_oauth_quota_snapshots.sql" = "c408cf9daa87a6f0d85a5a178b2a867d1a3fcb2371d540cd0a80c90ee7a93a07"
 "0013_canonicalize_oauth_account_documents.sql" = "0acb7955a948cd57e202e3c2f0d0c34aa0d8e0548ed1d188a810e98c5e0bc5a9"
+"0014_add_http_access_log_response_body_bytes.sql" = "37364974d9c2f700ed9ec5cbcb9b4853dbe32b5507841f7f24553150ac80c544"
+"0015_add_telemetry_capacity_stats.sql" = "f9b37a19de4c4dffad14865e612df976feeb4854a38235b44ce7f6ad0d0f4094"

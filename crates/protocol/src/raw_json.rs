@@ -1,10 +1,10 @@
-use std::{collections::BTreeMap, fmt, ops::Range};
+use std::{borrow::Cow, collections::BTreeMap, fmt, ops::Range};
 
 use any2api_domain::ProtocolOperation;
 use bytes::Bytes;
 use serde::{
     Deserialize, Deserializer,
-    de::{DeserializeOwned, MapAccess, Visitor},
+    de::{DeserializeOwned, DeserializeSeed, IgnoredAny, MapAccess, Visitor},
 };
 use serde_json::{Value, value::RawValue};
 
@@ -107,16 +107,21 @@ impl RawJsonPayload {
         let mut encoded = Vec::with_capacity(self.body.len().max(replacement.len()));
         encoded.push(b'{');
         let mut first = true;
+        let mut fields = BTreeMap::new();
         for (name, range) in &self.fields {
             write_field_prefix(&mut encoded, &mut first, name)?;
+            let start = encoded.len();
             if name == field {
                 encoded.extend_from_slice(replacement);
             } else {
                 encoded.extend_from_slice(&self.body[range.clone()]);
             }
+            fields.insert(name.clone(), start..encoded.len());
         }
         encoded.push(b'}');
-        *self = Self::parse(Bytes::from(encoded))?;
+        self.body = Bytes::from(encoded);
+        self.fields = fields;
+        self.has_duplicate_fields = false;
         Ok(())
     }
 
@@ -185,10 +190,135 @@ pub(crate) fn raw_string(bytes: &[u8]) -> Option<String> {
 }
 
 pub(crate) fn object_field<'a>(bytes: &'a [u8], name: &str) -> Option<&'a [u8]> {
-    borrowed_object(bytes)
-        .ok()?
-        .remove(name)
-        .map(|value| value.get().as_bytes())
+    object_field_raw(bytes, name).map(|value| value.get().as_bytes())
+}
+
+/// Extract one top-level field of a JSON object without materializing any of
+/// its siblings; when the key repeats, the last occurrence wins.
+pub(crate) fn object_field_raw<'a>(bytes: &'a [u8], name: &str) -> Option<&'a RawValue> {
+    let [value] = top_fields(bytes, [name]);
+    value
+}
+
+/// Scan the top-level fields of a JSON object once, keeping the last
+/// occurrence of every requested name; all-`None` when the input is not a
+/// valid JSON object.
+pub(crate) fn top_fields<'de, const N: usize>(
+    json: &'de [u8],
+    names: [&str; N],
+) -> [Option<&'de RawValue>; N] {
+    let mut fields = [None; N];
+    scan_object_fields(json, &names, &mut |index, value| {
+        fields[index] = Some(value)
+    });
+    fields
+}
+
+/// Walk the top-level fields of a JSON object, invoking `on_match` with the
+/// index into `names` for every occurrence of a requested name. Unmatched
+/// values are skipped without allocating. Returns false for non-objects.
+pub(crate) fn scan_object_fields<'de>(
+    json: &'de [u8],
+    names: &[&str],
+    on_match: &mut dyn FnMut(usize, &'de RawValue),
+) -> bool {
+    let mut deserializer = serde_json::Deserializer::from_slice(json);
+    if deserializer
+        .deserialize_map(ObjectScanVisitor { names, on_match })
+        .is_err()
+    {
+        return false;
+    }
+    deserializer.end().is_ok()
+}
+
+struct ObjectScanVisitor<'s, 'de> {
+    names: &'s [&'s str],
+    on_match: &'s mut dyn FnMut(usize, &'de RawValue),
+}
+
+impl<'s, 'de> Visitor<'de> for ObjectScanVisitor<'s, 'de> {
+    type Value = ();
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON object")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: MapAccess<'de>,
+    {
+        while let Some(index) = map.next_key_seed(KeyIndex { names: self.names })? {
+            if let Some(index) = index {
+                (self.on_match)(index, map.next_value::<&'de RawValue>()?);
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(())
+    }
+}
+
+struct KeyIndex<'s> {
+    names: &'s [&'s str],
+}
+
+impl<'de> DeserializeSeed<'de> for KeyIndex<'_> {
+    type Value = Option<usize>;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(self)
+    }
+}
+
+impl Visitor<'_> for KeyIndex<'_> {
+    type Value = Option<usize>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON object key")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, key: &str) -> Result<Self::Value, E> {
+        Ok(self.names.iter().position(|name| *name == key))
+    }
+}
+
+/// Decode a raw JSON string, borrowing the input unless it contains escapes;
+/// `None` when the value is not a string.
+pub(crate) fn json_string(raw: &RawValue) -> Option<Cow<'_, str>> {
+    let text = raw.get();
+    if !text.starts_with('"') {
+        return None;
+    }
+    serde_json::from_str::<&str>(text)
+        .map(Cow::Borrowed)
+        .or_else(|_| serde_json::from_str::<String>(text).map(Cow::Owned))
+        .ok()
+}
+
+/// Offset range of `inner` within `outer` when `inner` borrows from the same
+/// allocation, established without any unsafe pointer dereference.
+pub(crate) fn subslice_range(outer: &[u8], inner: &[u8]) -> Option<Range<usize>> {
+    let offset = (inner.as_ptr() as usize).checked_sub(outer.as_ptr() as usize)?;
+    let end = offset.checked_add(inner.len())?;
+    (end <= outer.len()).then_some(offset..end)
+}
+
+/// Rebuild `source` with each non-overlapping, ascending span replaced by
+/// `replacement`; every other byte is forwarded verbatim.
+pub(crate) fn splice_ranges(source: &[u8], spans: &[Range<usize>], replacement: &[u8]) -> Bytes {
+    let mut output = Vec::with_capacity(source.len() + spans.len() * replacement.len());
+    let mut cursor = 0;
+    for span in spans {
+        output.extend_from_slice(&source[cursor..span.start]);
+        output.extend_from_slice(replacement);
+        cursor = span.end;
+    }
+    output.extend_from_slice(&source[cursor..]);
+    Bytes::from(output)
 }
 
 fn write_field_prefix(

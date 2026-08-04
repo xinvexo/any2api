@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use any2api_domain::{
-    ConfigRevision, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId,
+    ConfigRevision, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId, ModelRoute,
     ModelRouteConfiguration, OAuthAccountConfiguration, ProviderCredentialConfiguration,
     ProviderEndpointConfiguration, ProxyConfiguration, ProxyProfile, RoutingCredentialId,
     SettingsConfiguration,
 };
+use any2api_protocol::api::ProtocolRegistry;
+use any2api_provider::api::ProviderRegistry;
 use any2api_storage::api::GatewayApiKeyVerifier;
 use any2api_storage::api::StoredConfiguration;
 use any2api_transport::api::TransportProxy;
@@ -18,8 +21,9 @@ use crate::{
     proxy::ProxyAuthMaterials,
     registry::RuntimeRegistry,
     routing::{
-        QueueCoordinator, QueuePolicy, RouteTierCursorBinding, RouteTierCursorBindings,
-        RoutingCredential, RoutingCredentials,
+        CandidateRequirements, OAuthRoute, QueueCoordinator, QueuePolicy, RouteCandidateCache,
+        RouteCandidateTiers, RouteTierCursorBinding, RouteTierCursorBindings, RoutingCredential,
+        RoutingCredentials, build_oauth_route_candidates, build_route_candidates,
     },
 };
 
@@ -34,6 +38,7 @@ pub struct PublishedSnapshot {
     pub(super) model_routes: ModelRouteConfiguration,
     pub(super) gateway_api_keys: GatewayApiKeyConfiguration,
     pub(super) gateway_api_key_verifier: GatewayApiKeyVerifier,
+    pub(super) gateway_api_key_index: HashMap<[u8; 32], GatewayApiKeyId>,
     pub(super) settings: SettingsConfiguration,
     pub(super) affinity_registry: Arc<AffinityRegistry>,
     pub(super) affinity_policy: AffinityPolicy,
@@ -43,6 +48,7 @@ pub struct PublishedSnapshot {
     pub(super) queue_policy: QueuePolicy,
     pub(super) health: HealthBindings,
     pub(super) reliability_policy: ReliabilityPolicy,
+    pub(super) route_candidate_cache: RouteCandidateCache,
 }
 
 impl PublishedSnapshot {
@@ -106,16 +112,52 @@ impl PublishedSnapshot {
 
     #[must_use]
     pub fn authenticate_gateway_api_key(&self, token: &str) -> Option<GatewayApiKeyId> {
+        let digest = self.gateway_api_key_verifier.hash(token.as_bytes());
+        let id = *self.gateway_api_key_index.get(&digest)?;
+        // The index only shortcuts the scan; the final decision recomputes a
+        // constant-time comparison against the stored hash of the found key.
         self.gateway_api_keys
             .keys()
             .iter()
-            .find(|key| {
+            .find(|key| key.id() == id)
+            .filter(|key| {
                 key.is_active()
                     && self
                         .gateway_api_key_verifier
                         .verify(token.as_bytes(), key.token_hash())
             })
             .map(|key| key.id())
+    }
+
+    pub(crate) fn route_candidates(
+        &self,
+        route: &ModelRoute,
+        protocols: &ProtocolRegistry,
+        providers: &ProviderRegistry,
+        requirements: CandidateRequirements,
+    ) -> Arc<RouteCandidateTiers> {
+        self.route_candidate_cache
+            .get_or_build(route.id(), requirements, || {
+                build_route_candidates(self, route, protocols, providers, requirements)
+            })
+    }
+
+    pub(crate) fn oauth_route_candidates(
+        &self,
+        route: OAuthRoute<'_>,
+        protocols: &ProtocolRegistry,
+        providers: &ProviderRegistry,
+        requirements: CandidateRequirements,
+    ) -> Arc<RouteCandidateTiers> {
+        self.route_candidate_cache
+            .get_or_build(route.route_id(), requirements, || {
+                build_oauth_route_candidates(self, route, protocols, providers, requirements)
+            })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn route_candidate_cache_entry_count(&self) -> usize {
+        self.route_candidate_cache.entry_count()
     }
 
     #[must_use]

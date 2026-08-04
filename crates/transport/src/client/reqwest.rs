@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 #[cfg(test)]
 use any2api_domain::ProxyProfile;
@@ -6,10 +6,11 @@ use any2api_domain::{ProxyKind, ProxyProfileId};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::Client;
-use rustls::pki_types::CertificateDer;
+use rustls::{ClientConfig, pki_types::CertificateDer};
 use tokio::time::Instant;
 
 use super::{
+    body_timeout::timeout_body,
     cache::ClientCache,
     construction::build_transport_client,
     deadline::await_response_headers,
@@ -21,22 +22,26 @@ use super::{
 };
 use crate::{
     api::{
-        BoxByteStream, TransportManager, TransportManagerConfig, TransportProxy, TransportRequest,
-        TransportResponse,
+        BoxByteStream, EndpointNetworkPolicy, TransportManager, TransportManagerConfig,
+        TransportProxy, TransportRequest, TransportResponse,
     },
+    connection::build_tls_config,
     error::{
         TransportConfigurationError, TransportError, TransportErrorStage, TransportFailureScope,
     },
-    resolution::{ResolvedOrigin, resolve_origin},
+    resolution::{OriginTarget, origin_target},
 };
 
+/// Client identity never includes resolved addresses: DNS rotation must reuse
+/// the cached client and its warm connection pool instead of rebuilding both.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct TransportClientKey {
     proxy_id: ProxyProfileId,
     proxy_config_version: u64,
     proxy_kind: ProxyKind,
     policy: TransportClientPolicyKey,
-    resolved_origin: Option<ResolvedOrigin>,
+    strict_direct_dns: bool,
+    pinned_origin: Option<OriginTarget>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -51,7 +56,7 @@ struct TransportClientPolicyKey {
 
 const RUSTLS_NATIVE_ROOTS_POLICY_VERSION: u16 = 1;
 const HTTP_1_AND_2_POLICY_VERSION: u16 = 1;
-const REQWEST_POOL_POLICY_VERSION: u16 = 1;
+const REQWEST_POOL_POLICY_VERSION: u16 = 2;
 #[cfg(test)]
 const TEST_EXTRA_ROOT_POLICY_VERSION: u16 = 2;
 
@@ -59,6 +64,7 @@ pub struct ReqwestTransportManager {
     config: TransportManagerConfig,
     policy: TransportClientPolicyKey,
     extra_root_certificates: Vec<CertificateDer<'static>>,
+    tls_config: OnceLock<ClientConfig>,
     clients: Mutex<ClientCache<TransportClientKey, TransportClient>>,
 }
 
@@ -91,6 +97,7 @@ impl ReqwestTransportManager {
                 pool_policy_version: REQWEST_POOL_POLICY_VERSION,
             },
             extra_root_certificates,
+            tls_config: OnceLock::new(),
             clients: Mutex::new(ClientCache::new(config.max_cached_clients)),
         })
     }
@@ -125,7 +132,7 @@ impl ReqwestTransportManager {
         &self,
         profile: &ProxyProfile,
     ) -> Result<Arc<TransportClient>, TransportError> {
-        self.client_for_resolved(TransportProxy::new(profile, None), None)
+        self.client_for_policy(TransportProxy::new(profile, None), None, false)
     }
 
     #[cfg(test)]
@@ -133,67 +140,90 @@ impl ReqwestTransportManager {
         &self,
         proxy: TransportProxy<'_>,
     ) -> Result<Arc<TransportClient>, TransportError> {
-        self.client_for_resolved(proxy, None)
+        self.client_for_policy(proxy, None, false)
     }
 
     #[cfg(test)]
-    pub(crate) async fn warm_client_for_request(
+    pub(crate) fn warm_client_for_request(
         &self,
         proxy: TransportProxy<'_>,
         request: &TransportRequest,
     ) -> Result<(), TransportError> {
-        let resolved_origin = resolve_origin(
-            &request.uri,
-            request.network_policy,
-            proxy.profile().kind(),
-            Instant::now() + self.config.connect_timeout,
-        )
-        .await?;
-        self.client_for_resolved(proxy, resolved_origin.as_ref())?;
+        let (pinned_origin, strict_direct_dns) =
+            client_selector(proxy.profile().kind(), request.network_policy, &request.uri)?;
+        self.client_for_policy(proxy, pinned_origin.as_ref(), strict_direct_dns)?;
         Ok(())
     }
 
-    fn client_for_resolved(
+    fn client_for_policy(
         &self,
         proxy: TransportProxy<'_>,
-        resolved_origin: Option<&ResolvedOrigin>,
+        pinned_origin: Option<&OriginTarget>,
+        strict_direct_dns: bool,
     ) -> Result<Arc<TransportClient>, TransportError> {
         let profile = proxy.profile();
         if !profile.enabled() {
             return Err(TransportError::configuration(
+                TransportErrorStage::ProxyHandshake,
+                TransportFailureScope::Proxy,
                 "configured proxy is disabled",
             ));
         }
+        // Warm the shared TLS configuration before taking the cache lock so
+        // the one-time trust store load never blocks concurrent cache users.
+        let tls_config = self.tls_config()?;
         let key = TransportClientKey {
             proxy_id: profile.id(),
             proxy_config_version: profile.config_version(),
             proxy_kind: profile.kind(),
             policy: self.policy,
-            resolved_origin: resolved_origin.cloned(),
+            strict_direct_dns,
+            pinned_origin: pinned_origin.cloned(),
         };
-        if let Some(client) = self
+        let mut clients = self
             .clients
             .lock()
-            .expect("transport client cache lock poisoned")
-            .get(&key)
-        {
+            .expect("transport client cache lock poisoned");
+        if let Some(client) = clients.get(&key) {
             return Ok(client);
         }
-        // TLS root loading and client construction can take tens of
-        // milliseconds; build outside the cache lock so concurrent cache hits
-        // are never blocked, then let the first inserted client win.
+        // Construction is cheap once the TLS roots are cached, so building
+        // under the lock doubles as singleflight: concurrent callers of the
+        // same key never build duplicate clients or connection pools.
         let client = Arc::new(build_transport_client(
             self.config,
-            &self.extra_root_certificates,
+            tls_config,
             proxy,
-            key.resolved_origin.clone().as_ref(),
+            pinned_origin,
+            strict_direct_dns,
         )?);
-        Ok(self
-            .clients
-            .lock()
-            .expect("transport client cache lock poisoned")
-            .insert_if_absent(key, client))
+        Ok(clients.insert_if_absent(key, client))
     }
+
+    fn tls_config(&self) -> Result<&ClientConfig, TransportError> {
+        if let Some(config) = self.tls_config.get() {
+            return Ok(config);
+        }
+        let config = build_tls_config(&self.extra_root_certificates)?;
+        Ok(self.tls_config.get_or_init(|| config))
+    }
+}
+
+/// Picks the client flavor for a request: proxied strict-SSRF requests use a
+/// per-origin pinned client, strict direct requests pin through the caching
+/// DNS resolver, and everything else shares a plain client per proxy profile.
+fn client_selector(
+    proxy_kind: ProxyKind,
+    policy: EndpointNetworkPolicy,
+    uri: &http::Uri,
+) -> Result<(Option<OriginTarget>, bool), TransportError> {
+    if !policy.strict_ssrf() {
+        return Ok((None, false));
+    }
+    if proxy_kind == ProxyKind::Direct {
+        return Ok((None, true));
+    }
+    Ok((Some(origin_target(uri)?), false))
 }
 
 impl Default for ReqwestTransportManager {
@@ -217,14 +247,9 @@ impl TransportManager for ReqwestTransportManager {
         let connect_timeout_error = connect_timeout_error(profile, uses_http_forward_proxy);
         let body_failure_scope = failure_scope_for_unverified_path(profile);
         let read_timeout = request.read_timeout;
-        let resolved_origin = resolve_origin(
-            &request.uri,
-            request.network_policy,
-            profile.kind(),
-            connect_deadline,
-        )
-        .await?;
-        let client = self.client_for_resolved(proxy, resolved_origin.as_ref())?;
+        let (pinned_origin, strict_direct_dns) =
+            client_selector(profile.kind(), request.network_policy, &request.uri)?;
+        let client = self.client_for_policy(proxy, pinned_origin.as_ref(), strict_direct_dns)?;
         if Instant::now() >= connect_deadline {
             return Err(connect_timeout_error);
         }
@@ -280,7 +305,7 @@ impl TransportManager for ReqwestTransportManager {
         Ok(TransportResponse {
             status,
             headers,
-            body,
+            body: timeout_body(body, read_timeout, body_failure_scope),
             read_failure_scope: body_failure_scope,
         })
     }

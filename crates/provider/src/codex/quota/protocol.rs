@@ -102,12 +102,12 @@ fn quota_headers(token: &OAuthTokenMaterial) -> Result<HeaderMap, ProviderError>
         ProviderError::InvalidCredential("Codex OAuth account id is required for quota".into())
     })?;
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", token.access_token())).map_err(|_| {
+    let mut authorization = HeaderValue::from_str(&format!("Bearer {}", token.access_token()))
+        .map_err(|_| {
             ProviderError::InvalidCredential("invalid OAuth access token header".into())
-        })?,
-    );
+        })?;
+    authorization.set_sensitive(true);
+    headers.insert(header::AUTHORIZATION, authorization);
     headers.insert(
         "chatgpt-account-id",
         HeaderValue::from_str(account_id).map_err(|_| {

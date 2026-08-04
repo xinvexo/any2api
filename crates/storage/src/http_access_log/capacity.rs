@@ -54,16 +54,16 @@ pub(super) async fn trim_to_capacity(
 }
 
 async fn capacity_stats(connection: &mut SqliteConnection) -> Result<CapacityStats, StorageError> {
+    // Maintained incrementally by the http_access_logs triggers from migration
+    // 0015 so trim decisions never rescan the table under the write lock.
     let row = sqlx::query_as::<_, (i64, i64, i64, i64)>(
-        "SELECT COUNT(*), COALESCE(SUM(exchange_bytes), 0), \
-                COALESCE(SUM(gateway_auth_rejected), 0), \
-                COALESCE(SUM(CASE gateway_auth_rejected \
-                    WHEN 1 THEN exchange_bytes ELSE 0 END), 0) \
-         FROM http_access_logs \
-         INDEXED BY http_access_logs_gateway_auth_rejected_retention_idx",
+        "SELECT http_access_log_rows, http_access_log_exchange_bytes, \
+                gateway_auth_rejected_rows, gateway_auth_rejected_exchange_bytes \
+         FROM telemetry_capacity_stats WHERE singleton_id = 1",
     )
-    .fetch_one(connection)
-    .await?;
+    .fetch_optional(connection)
+    .await?
+    .ok_or(StorageError::CorruptTelemetry)?;
     Ok(CapacityStats {
         rows: to_u64(row.0)?,
         exchange_bytes: to_u64(row.1)?,

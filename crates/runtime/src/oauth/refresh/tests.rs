@@ -117,7 +117,7 @@ async fn disabled_account_refreshes_and_remains_unroutable() {
 }
 
 #[tokio::test]
-async fn concurrent_waiter_shares_a_failed_refresh_without_a_second_request() {
+async fn waiters_behind_a_failed_refresh_retry_exactly_once() {
     let transport = Arc::new(BlockingRefreshTransport::with_status(
         StatusCode::BAD_REQUEST,
     ));
@@ -127,22 +127,36 @@ async fn concurrent_waiter_shares_a_failed_refresh_without_a_second_request() {
     let first_refresher = Arc::clone(&context.refresher);
     let first = tokio::spawn(async move { first_refresher.refresh_if_due(id, 1).await });
     transport.wait_until_started().await;
-    let second_refresher = Arc::clone(&context.refresher);
-    let second = tokio::spawn(async move { second_refresher.refresh_if_due(id, 1).await });
+    let waiters = (0..4)
+        .map(|_| {
+            let refresher = Arc::clone(&context.refresher);
+            tokio::spawn(async move { refresher.refresh_if_due(id, 1).await })
+        })
+        .collect::<Vec<_>>();
     for _ in 0..10 {
         tokio::task::yield_now().await;
     }
     transport.release();
-
     assert!(first.await.expect("first refresh").is_err());
-    assert_eq!(
-        second
-            .await
-            .expect("second refresh")
-            .expect("shared result"),
-        None
-    );
-    assert_eq!(transport.calls(), 1);
+
+    // Exactly one waiter becomes the new single-flight holder and retries;
+    // the remaining waiters back off without touching the identity provider.
+    transport.wait_until_started().await;
+    assert_eq!(transport.calls(), 2);
+    transport.release();
+
+    let mut retried = 0;
+    let mut backed_off = 0;
+    for waiter in waiters {
+        match waiter.await.expect("waiter join") {
+            Err(_) => retried += 1,
+            Ok(None) => backed_off += 1,
+            Ok(refreshed) => panic!("waiter must not observe a refreshed token: {refreshed:?}"),
+        }
+    }
+    assert_eq!(retried, 1);
+    assert_eq!(backed_off, 3);
+    assert_eq!(transport.calls(), 2);
 }
 
 #[tokio::test]

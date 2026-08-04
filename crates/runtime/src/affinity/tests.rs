@@ -4,6 +4,7 @@ use any2api_domain::{CredentialId, ModelRouteId, ProtocolDialect, RouteTargetId}
 
 use super::{AffinityRegistry, AffinityTarget, ContinuationLookup};
 
+mod capacity;
 mod continuation;
 mod creation;
 mod credentials;

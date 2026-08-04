@@ -45,6 +45,7 @@ pub(super) struct HttpAccessLogDetailRow {
     request_body_truncated: i64,
     response_headers: Vec<u8>,
     response_body: Vec<u8>,
+    response_body_bytes: i64,
     response_body_complete: i64,
     response_body_truncated: i64,
 }
@@ -92,7 +93,7 @@ pub(super) fn parse_detail(row: HttpAccessLogDetailRow) -> Result<HttpAccessLog,
     };
     let response_body = HttpBodyCapture {
         content: row.response_body,
-        total_bytes: to_u64(row.summary.response_bytes)?,
+        total_bytes: to_u64(row.response_body_bytes)?,
         complete: parse_bool(row.response_body_complete)?,
         truncated: parse_bool(row.response_body_truncated)?,
     };

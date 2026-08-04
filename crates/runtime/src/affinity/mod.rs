@@ -6,6 +6,7 @@ mod inspection;
 mod lease;
 mod policy;
 mod registry;
+mod shard;
 mod snapshot;
 mod sweeper;
 mod target;

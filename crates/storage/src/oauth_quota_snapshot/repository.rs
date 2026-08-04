@@ -64,7 +64,7 @@ impl OAuthQuotaSnapshotRepository for SqliteStore {
         .bind(i64::from(snapshot.schema_version))
         .bind(snapshot.fetched_at)
         .bind(&snapshot.payload)
-        .execute(self.pool())
+        .execute(self.write_pool())
         .await?;
         Ok(())
     }
@@ -72,7 +72,7 @@ impl OAuthQuotaSnapshotRepository for SqliteStore {
     async fn delete_oauth_quota_snapshot(&self, id: OAuthAccountId) -> Result<bool, StorageError> {
         let result = sqlx::query("DELETE FROM oauth_quota_snapshots WHERE oauth_account_id = ?")
             .bind(id.to_string())
-            .execute(self.pool())
+            .execute(self.write_pool())
             .await?;
         Ok(result.rows_affected() > 0)
     }

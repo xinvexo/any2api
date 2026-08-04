@@ -92,6 +92,13 @@ impl PreparedPublishedSnapshot {
         let oauth_route_tiers = oauth::route_tiers(&self.model_routes, &routing_credentials);
         let route_tier_cursors =
             runtime.reconcile_route_tier_cursors(&self.model_routes, &oauth_route_tiers);
+        let gateway_api_key_index = self
+            .gateway_api_keys
+            .keys()
+            .iter()
+            .filter(|key| key.is_active())
+            .map(|key| (*key.token_hash(), key.id()))
+            .collect();
         let oauth_endpoints = routing_credentials
             .as_slice()
             .iter()
@@ -115,6 +122,7 @@ impl PreparedPublishedSnapshot {
             model_routes: self.model_routes,
             gateway_api_keys: self.gateway_api_keys,
             gateway_api_key_verifier: self.gateway_api_key_verifier,
+            gateway_api_key_index,
             settings: self.settings,
             affinity_registry: runtime.affinity_registry(),
             affinity_policy: self.affinity_policy,
@@ -124,6 +132,7 @@ impl PreparedPublishedSnapshot {
             queue_policy: self.queue_policy,
             health,
             reliability_policy: self.reliability_policy,
+            route_candidate_cache: crate::routing::RouteCandidateCache::default(),
         }
     }
 }

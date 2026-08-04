@@ -283,7 +283,9 @@ fn record(started_at_ms: u64, path: &str) -> HttpAccessLog {
             }],
             response_body: HttpBodyCapture {
                 content: b"response body prefix".to_vec(),
-                total_bytes: 42,
+                // Deliberately differs from the summary response_bytes so the
+                // detail round trip proves the dedicated column is used.
+                total_bytes: 77,
                 complete: true,
                 truncated: true,
             },

@@ -62,11 +62,7 @@ pub fn run() -> anyhow::Result<()> {
         return rollback_and_restart(pending, &executable_path, &arguments, instance_lock, error);
     }
 
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .context("failed to initialize Tokio runtime")
-    {
+    let runtime = match build_runtime() {
         Ok(runtime) => runtime,
         Err(error) => {
             report_startup_failure("tokio_runtime", &error);
@@ -122,6 +118,23 @@ pub fn run() -> anyhow::Result<()> {
         return restart_updated_process(&executable_path, &arguments);
     }
     result
+}
+
+fn build_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all();
+    if let Some(value) = std::env::var("ANY2API_WORKER_THREADS")
+        .ok()
+        .filter(|value| !value.is_empty())
+    {
+        let workers = value
+            .parse::<std::num::NonZeroUsize>()
+            .context("ANY2API_WORKER_THREADS must be a positive integer")?;
+        builder.worker_threads(workers.get());
+    }
+    builder
+        .build()
+        .context("failed to initialize Tokio runtime")
 }
 
 fn report_and_recover_early(error: anyhow::Error, arguments: &[OsString]) -> anyhow::Result<()> {

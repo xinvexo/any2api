@@ -1,48 +1,54 @@
+use std::sync::LazyLock;
+
 use any2api_domain::{ProtocolDialect, RequestBodyEncoding};
-use http::HeaderMap;
+use http::{HeaderMap, HeaderName};
 
 use crate::{
     ProviderError,
     api::ProviderRequestHeaderContext,
-    header_policy::{insert_default, project},
+    header_policy::{insert_default, ordered_names, project},
 };
 
-const REQUEST_HEADERS: &[&str] = &[
-    "openai-beta",
-    "x-codex-turn-state",
-    "x-oai-attestation",
-    "user-agent",
-    "originator",
-    "x-client-request-id",
-    "session-id",
-    "thread-id",
-    "x-codex-installation-id",
-    "x-codex-window-id",
-    "x-codex-turn-metadata",
-    "x-codex-parent-thread-id",
-    "x-codex-beta-features",
-    "x-openai-subagent",
-    "x-openai-memgen-request",
-    "x-responsesapi-include-timing-metrics",
-    "x-openai-internal-codex-responses-lite",
-    "x-openai-internal-codex-residency",
-    "traceparent",
-    "tracestate",
-];
+static REQUEST_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
+    ordered_names(&[
+        "openai-beta",
+        "x-codex-turn-state",
+        "x-oai-attestation",
+        "user-agent",
+        "originator",
+        "x-client-request-id",
+        "session-id",
+        "thread-id",
+        "x-codex-installation-id",
+        "x-codex-window-id",
+        "x-codex-turn-metadata",
+        "x-codex-parent-thread-id",
+        "x-codex-beta-features",
+        "x-openai-subagent",
+        "x-openai-memgen-request",
+        "x-responsesapi-include-timing-metrics",
+        "x-openai-internal-codex-responses-lite",
+        "x-openai-internal-codex-residency",
+        "traceparent",
+        "tracestate",
+    ])
+});
 
-const RESPONSE_HEADERS: &[&str] = &[
-    "content-encoding",
-    "content-type",
-    "x-request-id",
-    "x-oai-request-id",
-    "request-id",
-    "retry-after",
-    "x-should-retry",
-    "openai-model",
-    "x-reasoning-included",
-    "x-models-etag",
-    "cf-ray",
-];
+static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
+    ordered_names(&[
+        "content-encoding",
+        "content-type",
+        "x-request-id",
+        "x-oai-request-id",
+        "request-id",
+        "retry-after",
+        "x-should-retry",
+        "openai-model",
+        "x-reasoning-included",
+        "x-models-etag",
+        "cf-ray",
+    ])
+});
 
 pub(crate) fn request(
     context: ProviderRequestHeaderContext<'_>,
@@ -51,19 +57,23 @@ pub(crate) fn request(
     insert_default(&mut headers, "originator", "codex_cli_rs");
     insert_default(&mut headers, "user-agent", "codex_cli_rs/0.145.0");
     if context.ingress_dialect == context.upstream_operation.dialect() {
-        let allowed = REQUEST_HEADERS
-            .iter()
-            .copied()
-            .filter(|name| context.allow_credential_bound || *name != "x-oai-attestation")
-            .filter(|name| context.allow_turn_state || *name != "x-codex-turn-state")
-            .collect::<Vec<_>>();
-        headers.extend(project(context.client_headers, &allowed, &[]));
+        let allow_credential_bound = context.allow_credential_bound;
+        let allow_turn_state = context.allow_turn_state;
+        let allowed = REQUEST_HEADERS.iter().filter(move |name| {
+            (allow_credential_bound || name.as_str() != "x-oai-attestation")
+                && (allow_turn_state || name.as_str() != "x-codex-turn-state")
+        });
+        headers.extend(project(context.client_headers, allowed, &[]));
     }
     Ok(headers)
 }
 
 pub(crate) fn response(upstream: &HeaderMap) -> HeaderMap {
-    let mut headers = project(upstream, RESPONSE_HEADERS, &["x-codex-", "x-ratelimit-"]);
+    let mut headers = project(
+        upstream,
+        RESPONSE_HEADERS.iter(),
+        &["x-codex-", "x-ratelimit-"],
+    );
     if !headers.contains_key("x-request-id")
         && let Some(value) = headers.get("x-oai-request-id").cloned()
     {

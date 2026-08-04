@@ -14,6 +14,12 @@ impl SessionHash {
     pub(super) fn prefix(self) -> String {
         URL_SAFE_NO_PAD.encode(&self.0[..9])
     }
+
+    /// The HMAC output is uniformly distributed, so one byte suffices to
+    /// spread keys evenly across shards.
+    pub(super) fn shard_index(self, shard_count: usize) -> usize {
+        usize::from(self.0[0]) % shard_count
+    }
 }
 
 impl fmt::Debug for SessionHash {

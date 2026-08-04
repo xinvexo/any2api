@@ -273,6 +273,30 @@ async fn fixed_waiters_receive_the_next_expired_rpm_slot_first() {
     assert!(binding.try_reserve().is_err());
 }
 
+#[tokio::test]
+async fn fixed_waiter_registration_notifies_its_credential_without_a_global_epoch() {
+    let runtime = RuntimeRegistry::new();
+    let fixture = CredentialFixture::new();
+    let bindings = reconcile(
+        &runtime,
+        fixture.configuration(Some(1), 1, 1),
+        "sk-fixed-notify",
+    );
+    let binding = bindings.as_slice()[0].clone();
+    let mut changes = binding.subscribe_changes();
+    let epoch_before = runtime.scheduler_epoch();
+    let _observed = *changes.borrow_and_update();
+
+    let fixed_waiter = binding.register_fixed_waiter();
+    assert_eq!(runtime.scheduler_epoch(), epoch_before);
+    assert!(changes.has_changed().expect("change channel open"));
+    let _observed = *changes.borrow_and_update();
+
+    drop(fixed_waiter);
+    assert!(changes.has_changed().expect("change channel open"));
+    assert_eq!(runtime.scheduler_epoch(), epoch_before + 1);
+}
+
 #[test]
 fn selector_skips_rate_limited_credentials_and_rotates_available_ties() {
     let first_runtime = RuntimeRegistry::new();

@@ -1,16 +1,17 @@
+mod queries;
+
 use std::{
     sync::{Arc, Mutex, RwLock},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, HttpAccessLogSummary,
-    LogPage, LogPageCursor, LoggingSettings, MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
+    CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, LoggingSettings,
+    MAX_TELEMETRY_QUEUE_CAPACITY,
 };
 use any2api_storage::api::{
-    GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary, HttpAccessLogRepository,
-    RequestLogOverview, RequestLogOverviewRange, RequestLogRepository, StorageError,
-    UpstreamCredentialUsageRepository, UpstreamCredentialUsageSummary,
+    GatewayApiKeyUsageRepository, HttpAccessLogRepository, RequestLogRepository, StorageError,
+    UpstreamCredentialUsageRepository,
 };
 use tokio::{
     sync::{Notify, mpsc},
@@ -20,7 +21,9 @@ use tokio::{
 use super::{
     changes::LogChangeNotifier,
     event::{HttpAccessLogChangeNotification, TelemetryEnvelope, TelemetryEvent},
-    gateway_usage::{GatewayUsageTracker, utc_timestamp},
+    gateway_usage::{
+        GatewayUsageDebounce, GatewayUsageTracker, unix_time_secs, utc_timestamp_from_secs,
+    },
     metrics::{RequestTelemetryMetrics, TelemetryCounters},
     policy::RequestLogPolicy,
     worker,
@@ -49,6 +52,7 @@ pub struct RequestTelemetry {
     policy: Arc<RwLock<RequestLogPolicy>>,
     prune_wakeup: Arc<Notify>,
     gateway_usage: Mutex<GatewayUsageTracker>,
+    gateway_usage_debounce: GatewayUsageDebounce,
     changes: LogChangeNotifier,
 }
 
@@ -73,6 +77,7 @@ impl RequestTelemetry {
             policy: Arc::new(RwLock::new(policy)),
             prune_wakeup: Arc::new(Notify::new()),
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
+            gateway_usage_debounce: GatewayUsageDebounce::default(),
             changes: LogChangeNotifier::new(),
         }
     }
@@ -128,6 +133,7 @@ impl RequestTelemetry {
             policy,
             prune_wakeup,
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
+            gateway_usage_debounce: GatewayUsageDebounce::default(),
             changes,
         }
     }
@@ -142,6 +148,18 @@ impl RequestTelemetry {
             policy.enabled = false;
         }
         policy
+    }
+
+    /// Whether a request starting under `settings` could persist an HTTP
+    /// access log. Lets the ingress middleware skip header and body capture
+    /// entirely instead of discarding a fully captured exchange at the end.
+    #[must_use]
+    pub fn http_access_capture_enabled(
+        &self,
+        revision: ConfigRevision,
+        settings: &LoggingSettings,
+    ) -> bool {
+        self.policy(revision, settings).enabled
     }
 
     fn update_policy(&self, revision: ConfigRevision, settings: &LoggingSettings) {
@@ -195,7 +213,14 @@ impl RequestTelemetry {
         if self.gateway_usage_repository.is_none() {
             return;
         }
-        let used_at = utc_timestamp();
+        // Timestamps carry whole seconds, so repeat uses of a key within one
+        // second cannot change the recorded state; skip them before touching
+        // the tracker mutex or formatting anything.
+        let now_secs = unix_time_secs();
+        if !self.gateway_usage_debounce.first_observation(id, now_secs) {
+            return;
+        }
+        let used_at = utc_timestamp_from_secs(now_secs);
         let should_enqueue = {
             self.gateway_usage
                 .lock()
@@ -252,54 +277,6 @@ impl RequestTelemetry {
         self.update_policy(revision, settings);
     }
 
-    pub async fn list(
-        &self,
-        since_ms: u64,
-        cursor: Option<LogPageCursor>,
-        limit: u32,
-    ) -> Result<LogPage<RequestLog>, StorageError> {
-        match &self.request_logs {
-            Some(repository) => repository.list_request_logs(since_ms, cursor, limit).await,
-            None => Ok(LogPage::empty()),
-        }
-    }
-
-    pub async fn get(
-        &self,
-        request_id: RequestId,
-    ) -> Result<Option<CompletedRequestLog>, StorageError> {
-        match &self.request_logs {
-            Some(repository) => repository.get_request_log(request_id).await,
-            None => Ok(None),
-        }
-    }
-
-    pub async fn list_http_access_logs(
-        &self,
-        since_ms: u64,
-        cursor: Option<LogPageCursor>,
-        limit: u32,
-    ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
-        match &self.http_access_logs {
-            Some(repository) => {
-                repository
-                    .list_http_access_logs(since_ms, cursor, limit)
-                    .await
-            }
-            None => Ok(LogPage::empty()),
-        }
-    }
-
-    pub async fn get_http_access_log(
-        &self,
-        request_id: RequestId,
-    ) -> Result<Option<HttpAccessLog>, StorageError> {
-        match &self.http_access_logs {
-            Some(repository) => repository.get_http_access_log(request_id).await,
-            None => Ok(None),
-        }
-    }
-
     pub async fn clear_http_access_logs(&self) -> Result<u64, RequestTelemetryControlError> {
         if self.http_access_logs.is_none() {
             return Ok(0);
@@ -323,32 +300,6 @@ impl RequestTelemetry {
             .await
             .map_err(|_| RequestTelemetryControlError::WriterUnavailable)?
             .map_err(RequestTelemetryControlError::Storage)
-    }
-
-    pub async fn gateway_key_usage(&self) -> Result<Vec<GatewayApiKeyUsageSummary>, StorageError> {
-        match &self.gateway_usage_repository {
-            Some(repository) => repository.list_gateway_api_key_usage().await,
-            None => Ok(Vec::new()),
-        }
-    }
-
-    pub async fn upstream_credential_usage(
-        &self,
-    ) -> Result<Vec<UpstreamCredentialUsageSummary>, StorageError> {
-        match &self.upstream_usage_repository {
-            Some(repository) => repository.list_upstream_credential_usage().await,
-            None => Ok(Vec::new()),
-        }
-    }
-
-    pub async fn overview_usage(
-        &self,
-        range: RequestLogOverviewRange,
-    ) -> Result<RequestLogOverview, StorageError> {
-        match &self.request_logs {
-            Some(repository) => repository.request_log_overview(range).await,
-            None => Ok(RequestLogOverview::empty(range, unix_now_ms()?)),
-        }
     }
 
     pub async fn shutdown(&self, wait: Duration) {
@@ -401,13 +352,6 @@ impl RequestTelemetry {
     }
 }
 
-fn unix_now_ms() -> Result<u64, StorageError> {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| u64::try_from(duration.as_millis()).unwrap_or(u64::MAX))
-        .map_err(|_| StorageError::CorruptTelemetry)
-}
-
 impl PublishedSnapshotReconciler for RequestTelemetry {
     fn reconcile(&self, snapshot: &PublishedSnapshot) {
         self.update_policy(snapshot.revision(), snapshot.settings().logging());
@@ -415,7 +359,9 @@ impl PublishedSnapshotReconciler for RequestTelemetry {
             .gateway_api_keys()
             .keys()
             .iter()
-            .map(|key| key.id());
+            .map(|key| key.id())
+            .collect::<std::collections::HashSet<_>>();
+        self.gateway_usage_debounce.retain(&ids);
         self.gateway_usage
             .lock()
             .expect("gateway usage state")

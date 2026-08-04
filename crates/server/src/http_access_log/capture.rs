@@ -53,44 +53,56 @@ impl BodyCapture {
     }
 }
 
+/// Hand-off slot between the request body wrapper and the access-log
+/// completion. The wrapper owns its [`BodyCapture`] outright, so streaming
+/// chunks never take a lock; the finished snapshot is published here once and
+/// taken once when the response completes.
 #[derive(Clone)]
-pub(super) struct SharedBodyCapture(Arc<Mutex<BodyCapture>>);
+pub(super) struct RequestBodyCaptureSlot(Arc<Mutex<Option<HttpBodyCapture>>>);
 
-impl SharedBodyCapture {
-    pub(super) fn new(initially_complete: bool) -> Self {
-        Self(Arc::new(Mutex::new(BodyCapture::new(initially_complete))))
+impl RequestBodyCaptureSlot {
+    pub(super) fn new() -> Self {
+        Self(Arc::new(Mutex::new(None)))
     }
 
-    fn observe(&self, bytes: &[u8]) {
-        self.0.lock().expect("HTTP body capture").observe(bytes);
+    fn publish(&self, snapshot: HttpBodyCapture) {
+        *self.0.lock().expect("HTTP request body capture slot") = Some(snapshot);
     }
 
-    fn finish(&self, complete: bool) {
-        self.0.lock().expect("HTTP body capture").finish(complete);
-    }
-
-    pub(super) fn take_snapshot(&self) -> HttpBodyCapture {
-        self.0.lock().expect("HTTP body capture").take_snapshot()
+    pub(super) fn take(&self) -> HttpBodyCapture {
+        self.0
+            .lock()
+            .expect("HTTP request body capture slot")
+            .take()
+            .unwrap_or(HttpBodyCapture {
+                content: Vec::new(),
+                total_bytes: 0,
+                complete: false,
+                truncated: false,
+            })
     }
 }
 
 pub(super) struct RequestCaptureBody {
     inner: Body,
-    capture: SharedBodyCapture,
+    capture: BodyCapture,
+    slot: RequestBodyCaptureSlot,
     finished: bool,
 }
 
 impl RequestCaptureBody {
-    pub(super) fn new(inner: Body, capture: SharedBodyCapture) -> Self {
-        let finished = inner.is_end_stream();
-        if finished {
-            capture.finish(true);
-        }
-        Self {
+    pub(super) fn new(inner: Body, slot: RequestBodyCaptureSlot) -> Self {
+        let initially_complete = inner.is_end_stream();
+        let mut body = Self {
             inner,
-            capture,
-            finished,
+            capture: BodyCapture::new(initially_complete),
+            slot,
+            finished: false,
+        };
+        if initially_complete {
+            body.finish(true);
         }
+        body
     }
 
     fn finish(&mut self, complete: bool) {
@@ -99,6 +111,7 @@ impl RequestCaptureBody {
         }
         self.finished = true;
         self.capture.finish(complete);
+        self.slot.publish(self.capture.take_snapshot());
     }
 }
 
@@ -173,15 +186,15 @@ mod tests {
 
     #[tokio::test]
     async fn request_wrapper_forwards_and_captures_body() {
-        let capture = SharedBodyCapture::new(false);
-        let body = RequestCaptureBody::new(Body::from("raw request"), capture.clone());
+        let slot = RequestBodyCaptureSlot::new();
+        let body = RequestCaptureBody::new(Body::from("raw request"), slot.clone());
         let forwarded = BodyExt::collect(body)
             .await
             .expect("forwarded body")
             .to_bytes();
 
         assert_eq!(forwarded, "raw request");
-        let snapshot = capture.take_snapshot();
+        let snapshot = slot.take();
         assert_eq!(snapshot.content, b"raw request");
         assert_eq!(snapshot.total_bytes, 11);
         assert!(snapshot.complete);
@@ -190,15 +203,35 @@ mod tests {
 
     #[test]
     fn unread_request_body_is_marked_incomplete() {
-        let capture = SharedBodyCapture::new(false);
+        let slot = RequestBodyCaptureSlot::new();
         drop(RequestCaptureBody::new(
             Body::from("never consumed"),
-            capture.clone(),
+            slot.clone(),
         ));
 
-        let snapshot = capture.take_snapshot();
+        let snapshot = slot.take();
         assert!(snapshot.content.is_empty());
         assert!(!snapshot.complete);
+        assert!(!snapshot.truncated);
+    }
+
+    #[test]
+    fn unpublished_slot_yields_an_incomplete_empty_capture() {
+        let slot = RequestBodyCaptureSlot::new();
+        let snapshot = slot.take();
+        assert!(snapshot.content.is_empty());
+        assert_eq!(snapshot.total_bytes, 0);
+        assert!(!snapshot.complete);
+        assert!(!snapshot.truncated);
+    }
+
+    #[test]
+    fn empty_request_body_publishes_a_complete_capture_immediately() {
+        let slot = RequestBodyCaptureSlot::new();
+        let _body = RequestCaptureBody::new(Body::empty(), slot.clone());
+        let snapshot = slot.take();
+        assert!(snapshot.content.is_empty());
+        assert!(snapshot.complete);
         assert!(!snapshot.truncated);
     }
 }

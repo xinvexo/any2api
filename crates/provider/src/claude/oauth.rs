@@ -131,10 +131,11 @@ pub(crate) fn credential_headers(
             "OAuth token provider does not match Claude".into(),
         ));
     }
-    let authorization = HeaderValue::from_str(&format!("Bearer {}", token.access_token()))
+    let mut authorization = HeaderValue::from_str(&format!("Bearer {}", token.access_token()))
         .map_err(|_| {
             ProviderError::InvalidCredential("invalid OAuth access token header".into())
         })?;
+    authorization.set_sensitive(true);
     let mut headers = HeaderMap::new();
     headers.insert(header::AUTHORIZATION, authorization);
     append_oauth_betas(&mut headers, forwarded)?;

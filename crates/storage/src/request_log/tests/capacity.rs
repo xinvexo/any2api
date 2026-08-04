@@ -71,33 +71,17 @@ async fn a_lower_row_cap_converges_across_bounded_cleanup_transactions() {
 }
 
 #[tokio::test]
-async fn capacity_boundary_and_eviction_use_the_narrow_retention_index() {
+async fn capacity_eviction_uses_the_narrow_retention_index() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("capacity-plan.sqlite3"))
         .await
         .expect("storage");
-
-    let boundary_plan = explain(
-        &store,
-        "EXPLAIN QUERY PLAN \
-         SELECT started_at_ms, request_id FROM request_logs \
-         INDEXED BY request_logs_started_idx \
-         ORDER BY started_at_ms DESC, request_id DESC LIMIT 1 OFFSET 99",
-    )
-    .await;
-    assert!(
-        boundary_plan
-            .iter()
-            .any(|detail| detail.contains("COVERING INDEX request_logs_started_idx")),
-        "{boundary_plan:?}"
-    );
 
     let eviction_plan = explain(
         &store,
         "EXPLAIN QUERY PLAN \
          DELETE FROM request_logs WHERE request_id IN (\
              SELECT request_id FROM request_logs INDEXED BY request_logs_started_idx \
-             WHERE started_at_ms < 10 OR (started_at_ms = 10 AND request_id < 'boundary') \
              ORDER BY started_at_ms ASC, request_id ASC LIMIT 10000\
          )",
     )

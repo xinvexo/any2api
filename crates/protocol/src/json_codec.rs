@@ -12,7 +12,10 @@ use crate::{
         EncodedUpstreamRequest, IngressAffinity, IngressRequest, RawJsonPayload,
         RequestExecutionProfile,
     },
-    raw_json::{object_field, raw_array, raw_string},
+    raw_json::{
+        json_string, object_field, object_field_raw, raw_array, raw_string, splice_ranges,
+        subslice_range,
+    },
 };
 
 mod request_encoding;
@@ -37,8 +40,7 @@ pub(crate) fn decode_request(
         .transpose()
         .map_err(|_| ProtocolError::InvalidPayload("model must be a non-empty string".into()))?
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ProtocolError::InvalidPayload("model must be a non-empty string".into()))?
-        .to_owned();
+        .ok_or_else(|| ProtocolError::InvalidPayload("model must be a non-empty string".into()))?;
     let stream = match payload.parse_field::<bool>("stream") {
         Some(Ok(value)) => value,
         Some(Err(_)) => {
@@ -272,8 +274,10 @@ pub(crate) fn parse_response_body(body: &Bytes) -> Result<Value, ProtocolError> 
         .map_err(|_| ProtocolError::InvalidPayload("upstream response must be valid JSON".into()))
 }
 
-/// Restore the public model name and emit the egress body, reusing the
-/// original wire bytes whenever nothing had to change.
+/// Restore the public model name and emit the egress body. The original wire
+/// bytes are reused untouched when the model already matches, and only the
+/// model value's byte range is spliced otherwise — key order and number
+/// formatting pass through verbatim.
 pub(crate) fn encode_response(
     response: DecodedUpstreamResponse,
     public_model: &str,
@@ -285,22 +289,21 @@ pub(crate) fn encode_response(
         mut parsed,
         ..
     } = response;
-    let public = Value::String(public_model.to_owned());
-    let rewritten = match parsed
-        .as_object_mut()
-        .and_then(|object| object.get_mut("model"))
-    {
-        Some(model) if *model != public => {
-            *model = public;
-            true
+    let body = match body {
+        Some(body) => rewrite_body_model(body, public_model)?,
+        None => {
+            let public = Value::String(public_model.to_owned());
+            if let Some(model) = parsed
+                .as_object_mut()
+                .and_then(|object| object.get_mut("model"))
+                && *model != public
+            {
+                *model = public;
+            }
+            serde_json::to_vec(&parsed).map(Bytes::from).map_err(|_| {
+                ProtocolError::InvalidPayload("egress response could not be encoded".into())
+            })?
         }
-        _ => false,
-    };
-    let body = match body.filter(|_| !rewritten) {
-        Some(body) => body,
-        None => serde_json::to_vec(&parsed).map(Bytes::from).map_err(|_| {
-            ProtocolError::InvalidPayload("egress response could not be encoded".into())
-        })?,
     };
     Ok(EgressResponse {
         status,
@@ -309,14 +312,31 @@ pub(crate) fn encode_response(
     })
 }
 
+fn rewrite_body_model(body: Bytes, public_model: &str) -> Result<Bytes, ProtocolError> {
+    let Some(model) = object_field_raw(&body, "model") else {
+        return Ok(body);
+    };
+    if json_string(model).as_deref() == Some(public_model) {
+        return Ok(body);
+    }
+    let Some(range) = subslice_range(&body, model.get().as_bytes()) else {
+        return Ok(body);
+    };
+    let replacement = serde_json::to_string(public_model).map_err(|_| {
+        ProtocolError::InvalidPayload("egress response could not be encoded".into())
+    })?;
+    Ok(splice_ranges(&body, &[range], replacement.as_bytes()))
+}
+
 #[cfg(test)]
 mod tests {
     use any2api_domain::ProtocolOperation;
     use bytes::Bytes;
+    use http::HeaderMap;
     use serde_json::json;
 
-    use super::request_execution_profile_raw;
-    use crate::api::{RawJsonPayload, RequestExecutionProfile};
+    use super::{encode_response, request_execution_profile_raw};
+    use crate::api::{DecodedUpstreamResponse, RawJsonPayload, RequestExecutionProfile};
 
     fn raw(value: serde_json::Value) -> RawJsonPayload {
         RawJsonPayload::parse(Bytes::from(
@@ -357,5 +377,37 @@ mod tests {
             request_execution_profile_raw(ProtocolOperation::ResponsesCompact, &raw(request)),
             RequestExecutionProfile::RemoteCompaction
         );
+    }
+
+    fn decoded_response(body: Bytes) -> DecodedUpstreamResponse {
+        DecodedUpstreamResponse {
+            status: http::StatusCode::OK,
+            headers: HeaderMap::new(),
+            parsed: serde_json::from_slice(&body).expect("response JSON"),
+            body: Some(body),
+            telemetry: Default::default(),
+        }
+    }
+
+    #[test]
+    fn model_restore_splices_bytes_keeping_key_order_and_big_integers() {
+        let body = Bytes::from_static(
+            br#"{"z":9007199254740993,"model":"upstream","a":{"model":"nested"},"big":1.2300}"#,
+        );
+        let encoded = encode_response(decoded_response(body), "public").expect("egress response");
+        assert_eq!(
+            encoded.body,
+            Bytes::from_static(
+                br#"{"z":9007199254740993,"model":"public","a":{"model":"nested"},"big":1.2300}"#,
+            )
+        );
+    }
+
+    #[test]
+    fn matching_model_reuses_the_upstream_wire_bytes() {
+        let body = Bytes::from_static(br#"{"model":"public","big":9007199254740993}"#);
+        let encoded =
+            encode_response(decoded_response(body.clone()), "public").expect("egress response");
+        assert_eq!(encoded.body.as_ptr(), body.as_ptr());
     }
 }

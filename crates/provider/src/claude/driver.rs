@@ -87,8 +87,9 @@ impl ProviderDriver for ClaudeDriver {
             return api_key::bearer_credential_headers(secret);
         }
         self.validate_credential(secret)?;
-        let api_key = HeaderValue::from_str(secret.expose())
+        let mut api_key = HeaderValue::from_str(secret.expose())
             .map_err(|_| ProviderError::InvalidCredential("invalid API Key header".into()))?;
+        api_key.set_sensitive(true);
         let mut headers = HeaderMap::new();
         headers.insert("x-api-key", api_key);
         Ok(CredentialHeaders { headers })

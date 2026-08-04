@@ -26,7 +26,16 @@ pub(crate) struct OAuthRefresher {
     pub(super) publisher: Arc<ConfigPublisher>,
     pub(super) gates: StdMutex<HashMap<OAuthAccountId, Weak<Mutex<()>>>>,
     permanent_rejections: StdMutex<HashMap<OAuthAccountId, u64>>,
+    failed_attempts: StdMutex<HashMap<OAuthAccountId, FailedRefreshAttempts>>,
     worker_started: AtomicBool,
+}
+
+/// How many refresh attempts have failed for a token version, so gate
+/// waiters can tell whether the refresh they queued behind went through.
+#[derive(Clone, Copy, Debug)]
+struct FailedRefreshAttempts {
+    token_version: u64,
+    attempts: u64,
 }
 
 impl OAuthRefresher {
@@ -41,6 +50,7 @@ impl OAuthRefresher {
             publisher,
             gates: StdMutex::new(HashMap::new()),
             permanent_rejections: StdMutex::new(HashMap::new()),
+            failed_attempts: StdMutex::new(HashMap::new()),
             worker_started: AtomicBool::new(false),
         })
     }
@@ -222,6 +232,33 @@ impl OAuthRefresher {
             .insert(id, token_version);
     }
 
+    pub(super) fn failed_refresh_attempts(&self, id: OAuthAccountId, token_version: u64) -> u64 {
+        self.failed_attempts
+            .lock()
+            .expect("OAuth refresh attempt lock poisoned")
+            .get(&id)
+            .filter(|failed| failed.token_version == token_version)
+            .map_or(0, |failed| failed.attempts)
+    }
+
+    pub(super) fn record_failed_refresh_attempt(&self, id: OAuthAccountId, token_version: u64) {
+        let mut attempts = self
+            .failed_attempts
+            .lock()
+            .expect("OAuth refresh attempt lock poisoned");
+        let failed = attempts.entry(id).or_insert(FailedRefreshAttempts {
+            token_version,
+            attempts: 0,
+        });
+        if failed.token_version != token_version {
+            *failed = FailedRefreshAttempts {
+                token_version,
+                attempts: 0,
+            };
+        }
+        failed.attempts += 1;
+    }
+
     fn retain_active_refresh_state(&self, active: &HashMap<OAuthAccountId, u64>) {
         self.gates
             .lock()
@@ -231,6 +268,10 @@ impl OAuthRefresher {
             .lock()
             .expect("OAuth refresh rejection lock poisoned")
             .retain(|id, version| active.get(id) == Some(version));
+        self.failed_attempts
+            .lock()
+            .expect("OAuth refresh attempt lock poisoned")
+            .retain(|id, failed| active.get(id) == Some(&failed.token_version));
     }
 }
 

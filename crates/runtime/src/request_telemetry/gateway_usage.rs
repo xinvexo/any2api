@@ -1,11 +1,58 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
+    sync::{
+        RwLock,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use any2api_domain::{ConfigRevision, GatewayApiKeyId};
 
 const LAST_USED_THROTTLE: Duration = Duration::from_secs(60);
+
+/// Per-key second-resolution debounce ahead of [`GatewayUsageTracker`]. The
+/// persisted and live timestamps only carry whole seconds, so repeated
+/// observations of one key within the same second are pure overhead; skipping
+/// them keeps the hot request path off the tracker mutex and away from
+/// timestamp formatting.
+#[derive(Default)]
+pub(super) struct GatewayUsageDebounce {
+    observed_second: RwLock<HashMap<GatewayApiKeyId, AtomicU64>>,
+}
+
+impl GatewayUsageDebounce {
+    /// Records `second` for `id` and reports whether the key still needs the
+    /// full observation path this second.
+    pub(super) fn first_observation(&self, id: GatewayApiKeyId, second: u64) -> bool {
+        {
+            let observed = self.observed_second.read().expect("gateway usage debounce");
+            if let Some(last) = observed.get(&id) {
+                return last.swap(second, Ordering::Relaxed) != second;
+            }
+        }
+        let mut observed = self
+            .observed_second
+            .write()
+            .expect("gateway usage debounce");
+        match observed.entry(id) {
+            Entry::Occupied(entry) => entry.get().swap(second, Ordering::Relaxed) != second,
+            Entry::Vacant(entry) => {
+                entry.insert(AtomicU64::new(second));
+                true
+            }
+        }
+    }
+
+    pub(super) fn retain(&self, active_ids: &HashSet<GatewayApiKeyId>) {
+        let mut observed = self
+            .observed_second
+            .write()
+            .expect("gateway usage debounce");
+        observed.retain(|id, _| active_ids.contains(id));
+        observed.shrink_to_fit();
+    }
+}
 
 #[derive(Default)]
 pub(super) struct GatewayUsageTracker {
@@ -67,11 +114,14 @@ impl GatewayUsageTracker {
     }
 }
 
-pub(super) fn utc_timestamp() -> String {
-    let now = SystemTime::now()
+pub(super) fn unix_time_secs() -> u64 {
+    SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs();
+        .unwrap_or_default()
+        .as_secs()
+}
+
+pub(super) fn utc_timestamp_from_secs(secs: u64) -> String {
     let days = secs / 86_400;
     let time = secs % 86_400;
     let (year, month, day) = civil_from_days(i64::try_from(days).unwrap_or(i64::MAX));
@@ -102,11 +152,31 @@ fn civil_from_days(days: i64) -> (i32, u32, u32) {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
+    use std::{
+        collections::HashSet,
+        time::{Duration, Instant},
+    };
 
     use any2api_domain::{ConfigRevision, GatewayApiKeyId};
 
-    use super::{GatewayUsageTracker, LAST_USED_THROTTLE};
+    use super::{GatewayUsageDebounce, GatewayUsageTracker, LAST_USED_THROTTLE};
+
+    #[test]
+    fn debounce_skips_same_second_repeats_per_key_and_forgets_pruned_keys() {
+        let first = GatewayApiKeyId::new();
+        let second = GatewayApiKeyId::new();
+        let debounce = GatewayUsageDebounce::default();
+
+        assert!(debounce.first_observation(first, 100));
+        assert!(!debounce.first_observation(first, 100));
+        assert!(debounce.first_observation(second, 100));
+        assert!(debounce.first_observation(first, 101));
+        assert!(!debounce.first_observation(first, 101));
+
+        debounce.retain(&HashSet::from([second]));
+        assert!(debounce.first_observation(first, 101));
+        assert!(!debounce.first_observation(second, 100));
+    }
 
     #[test]
     fn usage_is_live_immediately_and_persisted_at_most_once_per_interval() {

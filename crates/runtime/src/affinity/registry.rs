@@ -1,16 +1,16 @@
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use any2api_domain::{ModelRouteId, ProtocolDialect, RoutingCredentialId};
-use any2api_protocol::api::{MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolContinuationState};
+use any2api_protocol::api::ProtocolContinuationState;
 use thiserror::Error;
 
 use super::{
-    hash::{SessionHash, SessionHasher},
+    hash::SessionHasher,
     lease::{Binding, BindingLease, BindingStart},
+    shard::{InsertRejection, ShardedBindings},
     target::AffinityTarget,
 };
 use crate::routing::SchedulerEpoch;
@@ -21,14 +21,7 @@ const MAX_BINDINGS: usize = 300_000;
 pub(crate) struct AffinityRegistry {
     pub(super) hasher: SessionHasher,
     scheduler_epoch: Arc<SchedulerEpoch>,
-    pub(super) state: Mutex<AffinityState>,
-}
-
-#[derive(Debug, Default)]
-pub(super) struct AffinityState {
-    next_version: u64,
-    pub(super) continuation_bytes: usize,
-    pub(super) entries: HashMap<SessionHash, BindingState>,
+    pub(super) bindings: ShardedBindings,
 }
 
 #[derive(Debug)]
@@ -78,11 +71,23 @@ impl AffinityRegistry {
     }
 
     pub(crate) fn with_scheduler_epoch(scheduler_epoch: Arc<SchedulerEpoch>) -> Arc<Self> {
+        Self::with_limits(scheduler_epoch, MAX_BINDINGS)
+    }
+
+    fn with_limits(scheduler_epoch: Arc<SchedulerEpoch>, max_bindings: usize) -> Arc<Self> {
         Arc::new(Self {
             hasher: SessionHasher::new(),
             scheduler_epoch,
-            state: Mutex::new(AffinityState::default()),
+            bindings: ShardedBindings::new(
+                max_bindings,
+                super::continuation::MAX_BRIDGE_CONTINUATION_TOTAL_BYTES,
+            ),
         })
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_max_bindings_for_test(max_bindings: usize) -> Arc<Self> {
+        Self::with_limits(SchedulerEpoch::new(), max_bindings)
     }
 
     #[cfg(test)]
@@ -92,10 +97,7 @@ impl AffinityRegistry {
 
     #[cfg(test)]
     pub(crate) fn continuation_bytes_for_test(&self) -> usize {
-        self.state
-            .lock()
-            .expect("affinity state lock poisoned")
-            .continuation_bytes
+        self.bindings.continuation_bytes()
     }
 
     pub(crate) fn begin_session(
@@ -107,51 +109,63 @@ impl AffinityRegistry {
     ) -> Result<BindingStart, AffinityError> {
         let key = self.hasher.session(dialect, route_id, raw);
         let now = Instant::now();
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        if let Some(existing) = state.entries.get_mut(&key) {
-            match existing {
-                BindingState::Bound { binding }
-                    if now.saturating_duration_since(binding.last_seen_at) < ttl =>
-                {
-                    binding.last_seen_at = now;
-                    return Ok(BindingStart::Bound(Binding {
-                        target: binding.target.clone(),
-                    }));
+        let mut reclaimed = false;
+        loop {
+            let mut shard = self.bindings.lock(key);
+            if let Some(existing) = shard.get_mut(&key) {
+                match existing {
+                    BindingState::Bound { binding }
+                        if now.saturating_duration_since(binding.last_seen_at) < ttl =>
+                    {
+                        binding.last_seen_at = now;
+                        return Ok(BindingStart::Bound(Binding {
+                            target: binding.target.clone(),
+                        }));
+                    }
+                    BindingState::Creating { phase, .. } => {
+                        return Ok(BindingStart::Wait(*phase));
+                    }
+                    _ => {}
                 }
-                BindingState::Creating { phase, .. } => {
-                    return Ok(BindingStart::Wait(*phase));
-                }
-                _ => {}
+                shard.remove(&key);
             }
-            state.remove(&key);
-        }
-        ensure_capacity(&mut state, now, ttl)?;
-        let version = state.next_version();
-        state.entries.insert(
-            key,
-            BindingState::Creating {
+            shard.reclaim_expired_sample(now, ttl);
+            let version = self.bindings.next_version();
+            let creating = BindingState::Creating {
                 version,
                 phase: BindingCreationPhase::Selecting,
-            },
-        );
-        Ok(BindingStart::Create(BindingLease {
-            registry: Arc::clone(self),
-            key,
-            version,
-            active: true,
-        }))
+            };
+            if shard.try_insert(key, creating).is_ok() {
+                return Ok(BindingStart::Create(BindingLease {
+                    registry: Arc::clone(self),
+                    key,
+                    version,
+                    active: true,
+                }));
+            }
+            // At capacity: release the shard lock before scanning the other
+            // shards for expired entries, then retry the insert exactly once.
+            drop(shard);
+            if reclaimed || !self.bindings.reclaim_for_capacity(now, ttl) {
+                return Err(AffinityError::Capacity);
+            }
+            reclaimed = true;
+        }
     }
 
     pub(crate) fn clear_all(&self) -> usize {
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        let cleared = state.entries.len();
-        let waiting_state_removed = state.entries.values().any(|entry| match entry {
-            BindingState::Creating { .. } => true,
-            BindingState::Bound { binding } => binding.is_pending_continuation(),
+        let mut cleared = 0;
+        let mut waiting_state_removed = false;
+        // Shards are cleared one at a time; entries inserted concurrently in
+        // an already-visited shard survive, matching the pre-shard behavior
+        // only approximately.
+        self.bindings.for_each_shard(|shard| {
+            waiting_state_removed |= shard.iter().any(|(_, entry)| match entry {
+                BindingState::Creating { .. } => true,
+                BindingState::Bound { binding } => binding.is_pending_continuation(),
+            });
+            cleared += shard.clear();
         });
-        state.entries.clear();
-        state.continuation_bytes = 0;
-        drop(state);
         if waiting_state_removed {
             self.wake_waiters();
         }
@@ -159,31 +173,26 @@ impl AffinityRegistry {
     }
 
     pub(crate) fn clear_credential(&self, credential_id: RoutingCredentialId) -> usize {
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        let before = state.entries.len();
-        let removed = state
-            .entries
-            .iter()
-            .filter_map(|(key, entry)| match entry {
-                BindingState::Bound { binding }
-                    if binding.target.credential_id() == credential_id =>
-                {
-                    Some(*key)
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let waiting_state_removed = removed.iter().any(|key| {
-            matches!(
-                state.entries.get(key),
-                Some(BindingState::Bound { binding }) if binding.is_pending_continuation()
-            )
+        let mut cleared = 0;
+        let mut waiting_state_removed = false;
+        // Same per-shard visitation caveat as `clear_all`.
+        self.bindings.for_each_shard(|shard| {
+            let removed = shard
+                .iter()
+                .filter_map(|(key, entry)| match entry {
+                    BindingState::Bound { binding }
+                        if binding.target.credential_id() == credential_id =>
+                    {
+                        Some((*key, binding.is_pending_continuation()))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            for (key, pending) in removed {
+                waiting_state_removed |= pending;
+                cleared += usize::from(shard.remove(&key).is_some());
+            }
         });
-        for key in removed {
-            state.remove(&key);
-        }
-        let cleared = before - state.entries.len();
-        drop(state);
         if waiting_state_removed {
             self.wake_waiters();
         }
@@ -192,60 +201,6 @@ impl AffinityRegistry {
 
     pub(super) fn wake_waiters(&self) -> u64 {
         self.scheduler_epoch.advance()
-    }
-}
-
-impl AffinityState {
-    pub(super) fn next_version(&mut self) -> u64 {
-        self.next_version = self.next_version.wrapping_add(1).max(1);
-        self.next_version
-    }
-
-    pub(super) fn remove(&mut self, key: &SessionHash) -> Option<BindingState> {
-        let removed = self.entries.remove(key)?;
-        self.continuation_bytes = self
-            .continuation_bytes
-            .saturating_sub(continuation_bytes(&removed));
-        Some(removed)
-    }
-
-    pub(super) fn remove_if_expired(
-        &mut self,
-        key: &SessionHash,
-        now: Instant,
-        ttl: Duration,
-    ) -> bool {
-        let expired = matches!(
-            self.entries.get(key),
-            Some(BindingState::Bound { binding })
-                if !binding.is_pending_continuation()
-                    && now.saturating_duration_since(binding.last_seen_at) >= ttl
-        );
-        if expired {
-            self.remove(key);
-        }
-        expired
-    }
-
-    pub(super) fn remove_expired(&mut self, now: Instant, ttl: Duration) -> usize {
-        let expired = self
-            .entries
-            .iter()
-            .filter_map(|(key, entry)| match entry {
-                BindingState::Bound { binding }
-                    if !binding.is_pending_continuation()
-                        && now.saturating_duration_since(binding.last_seen_at) >= ttl =>
-                {
-                    Some(*key)
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let removed = expired.len();
-        for key in expired {
-            self.remove(&key);
-        }
-        removed
     }
 }
 
@@ -274,31 +229,41 @@ pub(crate) enum AffinityError {
     ContinuationTooLarge,
 }
 
-pub(super) fn ensure_capacity(
-    state: &mut AffinityState,
-    now: Instant,
-    ttl: Duration,
-) -> Result<(), AffinityError> {
-    if state.entries.len() < MAX_BINDINGS {
-        return Ok(());
+impl From<InsertRejection> for AffinityError {
+    fn from(rejection: InsertRejection) -> Self {
+        match rejection {
+            InsertRejection::Entries => Self::Capacity,
+            InsertRejection::ContinuationBytes => Self::ContinuationCapacity,
+        }
     }
-    state.remove_expired(now, ttl);
-    (state.entries.len() < MAX_BINDINGS)
-        .then_some(())
-        .ok_or(AffinityError::Capacity)
 }
 
-fn continuation_bytes(entry: &BindingState) -> usize {
-    let BindingState::Bound { binding } = entry else {
-        return 0;
-    };
-    match &binding.source {
-        BindingSource::Session => 0,
-        BindingSource::Continuation(ContinuationLifecycle::Pending { .. }) => {
-            MAX_BRIDGE_CONTINUATION_STATE_BYTES
-        }
-        BindingSource::Continuation(ContinuationLifecycle::Ready { state }) => state
-            .as_ref()
-            .map_or(0, ProtocolContinuationState::serialized_bytes),
+#[cfg(test)]
+impl AffinityRegistry {
+    pub(super) fn full_reclaims_for_test(&self) -> usize {
+        self.bindings.full_reclaims()
+    }
+
+    /// Rewinds `last_seen_at` on every bound entry so tests can force expiry.
+    pub(super) fn stale_bound_entries_for_test(&self, at: Instant) {
+        self.bindings.for_each_shard(|shard| {
+            for (_, entry) in shard.iter_mut() {
+                if let BindingState::Bound { binding } = entry {
+                    binding.last_seen_at = at;
+                }
+            }
+        });
+    }
+
+    pub(super) fn bound_last_seen_for_test(&self) -> Vec<Instant> {
+        let mut seen = Vec::new();
+        self.bindings.for_each_shard(|shard| {
+            for (_, entry) in shard.iter() {
+                if let BindingState::Bound { binding } = entry {
+                    seen.push(binding.last_seen_at);
+                }
+            }
+        });
+        seen
     }
 }

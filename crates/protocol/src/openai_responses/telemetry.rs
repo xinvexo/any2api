@@ -1,9 +1,10 @@
 use any2api_domain::TokenUsage;
-use serde_json::Value;
+use serde_json::{Value, value::RawValue};
 
 use crate::{
     api::{ProtocolEventTelemetry, ProtocolResponseTelemetry, SseEventPayload},
-    telemetry::{event_type, non_empty_string, token_usage},
+    raw_json::{object_field_raw, top_fields},
+    telemetry::{raw_event_type, raw_non_empty_string, raw_token_usage, token_usage},
 };
 
 const CONTENT_DELTA_EVENTS: &[&str] = &[
@@ -20,37 +21,40 @@ const CONTENT_DELTA_EVENTS: &[&str] = &[
 
 pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
     ProtocolResponseTelemetry {
-        token_usage: usage(value.get("usage")),
+        token_usage: token_usage(
+            value.get("usage"),
+            &["input_tokens"],
+            &["output_tokens"],
+            &["input_tokens_details", "cached_tokens"],
+        ),
     }
 }
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
-    let SseEventPayload::Json {
-        event_name,
-        data: value,
-    } = payload
-    else {
+    let SseEventPayload::Json(data) = payload else {
         return ProtocolEventTelemetry::default();
     };
-    let kind = event_type(event_name.as_deref(), value);
-    let token_usage = if matches!(kind, Some("response.completed" | "response.incomplete")) {
-        usage(
-            value
-                .get("response")
-                .and_then(|response| response.get("usage")),
-        )
+    let [kind, response, delta] = top_fields(data.data(), ["type", "response", "delta"]);
+    let kind = raw_event_type(data.event_name(), kind);
+    let token_usage = if matches!(
+        kind.as_deref(),
+        Some("response.completed" | "response.incomplete")
+    ) {
+        usage(response.and_then(|response| object_field_raw(response.get().as_bytes(), "usage")))
     } else {
         TokenUsage::default()
     };
     ProtocolEventTelemetry {
         token_usage,
-        has_content_delta: kind.is_some_and(|kind| CONTENT_DELTA_EVENTS.contains(&kind))
-            && non_empty_string(value.get("delta")),
+        has_content_delta: kind
+            .as_deref()
+            .is_some_and(|kind| CONTENT_DELTA_EVENTS.contains(&kind))
+            && raw_non_empty_string(delta),
     }
 }
 
-fn usage(value: Option<&Value>) -> TokenUsage {
-    token_usage(
+fn usage(value: Option<&RawValue>) -> TokenUsage {
+    raw_token_usage(
         value,
         &["input_tokens"],
         &["output_tokens"],
@@ -66,7 +70,7 @@ mod tests {
     use crate::{api::ProtocolEventTelemetry, sse::parse_event_payload};
 
     fn event(bytes: &Bytes) -> ProtocolEventTelemetry {
-        super::event(&parse_event_payload(bytes).expect("payload"))
+        super::event(&parse_event_payload(bytes))
     }
 
     fn response(body: &[u8]) -> crate::api::ProtocolResponseTelemetry {

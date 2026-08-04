@@ -12,8 +12,8 @@ pub use balancing::{
     BalancingTotalsSnapshot,
 };
 pub(crate) use candidates::{
-    CandidateExclusions, CandidateRequirements, OAuthRoute, RouteCandidate,
-    build_oauth_route_candidates, build_route_candidates, oauth_route_id,
+    CandidateExclusions, CandidateRequirements, OAuthRoute, RouteCandidate, RouteCandidateCache,
+    RouteCandidateTiers, build_oauth_route_candidates, build_route_candidates, oauth_route_id,
 };
 pub(crate) use credential::{
     RoutingCredential, RoutingCredentialCompileError, RoutingCredentialSpec, RoutingCredentials,

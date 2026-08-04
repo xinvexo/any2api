@@ -93,8 +93,8 @@ impl RestartRequester for CountingRestartRequester {
 }
 
 #[cfg(unix)]
-#[test]
-fn updater_initialization_cleans_only_recognized_stale_workspaces() {
+#[tokio::test]
+async fn updater_initialization_cleans_only_recognized_stale_workspaces() {
     let directory = tempdir().expect("temporary directory");
     let executable = directory.path().join("any2api");
     write_executable(&executable, b"current binary", 0o755);
@@ -105,12 +105,13 @@ fn updater_initialization_cleans_only_recognized_stale_workspaces() {
     fs::create_dir(&lookalike).expect("lookalike directory");
     fs::write(lookalike.join("keep"), b"keep").expect("lookalike contents");
 
-    GitHubReleaseUpdater::new(
+    GitHubReleaseUpdater::official(
         executable,
         true,
         Arc::new(CountingRestartRequester::default()),
         Arc::new(CapturingTaskExecutor::new(true, true)),
     )
+    .await
     .expect("updater");
 
     assert!(!stale.exists());

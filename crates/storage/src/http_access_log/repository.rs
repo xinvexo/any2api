@@ -87,7 +87,7 @@ impl HttpAccessLogRepository for SqliteStore {
         if records.is_empty() {
             return Ok(0);
         }
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let mut transaction = self.begin_write().await?;
         for record in records {
             insert(&mut transaction, record).await?;
         }
@@ -102,7 +102,7 @@ impl HttpAccessLogRepository for SqliteStore {
         capacity: HttpAccessLogCapacity,
         batch_size: u32,
     ) -> Result<u64, StorageError> {
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let mut transaction = self.begin_write().await?;
         let expired =
             delete_oldest_before(&mut transaction, retention_before_ms, u64::from(batch_size))
                 .await?;
@@ -112,7 +112,7 @@ impl HttpAccessLogRepository for SqliteStore {
     }
 
     async fn reclaim_http_access_log_storage(&self, max_bytes: u64) -> Result<u64, StorageError> {
-        let mut connection = self.pool().acquire().await?;
+        let mut connection = self.write_pool().acquire().await?;
         let mode: i64 = sqlx::query_scalar("PRAGMA auto_vacuum")
             .fetch_one(&mut *connection)
             .await?;
@@ -162,8 +162,9 @@ impl HttpAccessLogRepository for SqliteStore {
             "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, uri, \
              http_version, status_code, duration_ms, response_bytes, outcome, exchange_captured, \
              gateway_auth_rejected, request_headers, request_body, request_body_bytes, request_body_complete, \
-             request_body_truncated, response_headers, response_body, response_body_complete, \
-             response_body_truncated FROM http_access_logs WHERE request_id = ?",
+             request_body_truncated, response_headers, response_body, response_body_bytes, \
+             response_body_complete, response_body_truncated \
+             FROM http_access_logs WHERE request_id = ?",
         )
         .bind(request_id.to_string())
         .fetch_optional(self.pool())
@@ -172,7 +173,7 @@ impl HttpAccessLogRepository for SqliteStore {
     }
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {
-        let mut transaction = self.pool().begin_with("BEGIN IMMEDIATE").await?;
+        let mut transaction = self.begin_write().await?;
         let result = sqlx::query("DELETE FROM http_access_logs")
             .execute(&mut *transaction)
             .await?;

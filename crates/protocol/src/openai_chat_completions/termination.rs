@@ -1,19 +1,27 @@
-use serde_json::Value;
+use serde_json::value::RawValue;
 
-use crate::api::{SseEventPayload, StreamTermination};
+use crate::{
+    api::{SseEventPayload, StreamTermination},
+    raw_json::{json_string, top_fields},
+};
 
 pub(super) fn classify(payload: &SseEventPayload) -> StreamTermination {
     match payload {
         SseEventPayload::Done => StreamTermination::Completed,
-        SseEventPayload::Json { event_name, data } if is_error(event_name.as_deref(), data) => {
-            StreamTermination::Failed
+        SseEventPayload::Json(data) => {
+            let [kind, error] = top_fields(data.data(), ["type", "error"]);
+            if is_error(data.event_name(), kind, error) {
+                StreamTermination::Failed
+            } else {
+                StreamTermination::None
+            }
         }
         _ => StreamTermination::None,
     }
 }
 
-fn is_error(event_name: Option<&str>, data: &Value) -> bool {
+fn is_error(event_name: Option<&str>, kind: Option<&RawValue>, error: Option<&RawValue>) -> bool {
     event_name == Some("error")
-        || data.get("type").and_then(Value::as_str) == Some("error")
-        || data.get("error").is_some_and(Value::is_object)
+        || kind.and_then(json_string).as_deref() == Some("error")
+        || error.is_some_and(|error| error.get().starts_with('{'))
 }

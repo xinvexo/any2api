@@ -1,6 +1,6 @@
 use std::{fmt, sync::Arc, time::Instant};
 
-use any2api_protocol::api::{MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolContinuationState};
+use any2api_protocol::api::ProtocolContinuationState;
 
 use super::{
     continuation::{check_deadline, checked_state_bytes},
@@ -27,15 +27,11 @@ impl ContinuationLease {
         deadline: Option<Instant>,
     ) -> Result<(), AffinityError> {
         check_deadline(deadline)?;
-        let continuation_bytes = checked_state_bytes(Some(&continuation))?;
-        let mut state = self
-            .registry
-            .state
-            .lock()
-            .expect("affinity state lock poisoned");
+        checked_state_bytes(Some(&continuation))?;
+        let mut shard = self.registry.bindings.lock(self.key);
         check_deadline(deadline)?;
         let current = matches!(
-            state.entries.get(&self.key),
+            shard.get(&self.key),
             Some(BindingState::Bound { binding })
                 if binding.target == self.target
                     && matches!(
@@ -47,11 +43,7 @@ impl ContinuationLease {
         if !current {
             return Err(AffinityError::LeaseLost);
         }
-        state.continuation_bytes = state
-            .continuation_bytes
-            .saturating_sub(MAX_BRIDGE_CONTINUATION_STATE_BYTES)
-            .saturating_add(continuation_bytes);
-        state.entries.insert(
+        shard.replace(
             self.key,
             BindingState::Bound {
                 binding: TimedBinding {
@@ -64,7 +56,7 @@ impl ContinuationLease {
             },
         );
         self.active = false;
-        drop(state);
+        drop(shard);
         self.registry.wake_waiters();
         Ok(())
     }
@@ -75,13 +67,9 @@ impl Drop for ContinuationLease {
         if !self.active {
             return;
         }
-        let mut state = self
-            .registry
-            .state
-            .lock()
-            .expect("affinity state lock poisoned");
+        let mut shard = self.registry.bindings.lock(self.key);
         let current = matches!(
-            state.entries.get(&self.key),
+            shard.get(&self.key),
             Some(BindingState::Bound { binding })
                 if matches!(
                     binding.source,
@@ -90,9 +78,9 @@ impl Drop for ContinuationLease {
                 )
         );
         if current {
-            state.remove(&self.key);
+            shard.remove(&self.key);
         }
-        drop(state);
+        drop(shard);
         if current {
             self.registry.wake_waiters();
         }

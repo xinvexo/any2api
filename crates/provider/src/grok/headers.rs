@@ -1,39 +1,45 @@
+use std::sync::LazyLock;
+
 use any2api_domain::ProviderKind;
-use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderName, HeaderValue};
 
 use crate::{
     ProviderError,
     api::ProviderRequestHeaderContext,
-    header_policy::{insert_default, project},
+    header_policy::{insert_default, ordered_names, project},
 };
 
-const REQUEST_HEADERS: &[&str] = &[
-    "x-grok-conv-id",
-    "x-grok-req-id",
-    "x-grok-session-id",
-    "x-grok-agent-id",
-    "x-grok-turn-id",
-    "user-agent",
-    "x-grok-client-mode",
-    "x-grok-client-version",
-    "x-grok-client-identifier",
-    "x-grok-client-surface",
-    "traceparent",
-    "tracestate",
-];
+static REQUEST_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
+    ordered_names(&[
+        "x-grok-conv-id",
+        "x-grok-req-id",
+        "x-grok-session-id",
+        "x-grok-agent-id",
+        "x-grok-turn-id",
+        "user-agent",
+        "x-grok-client-mode",
+        "x-grok-client-version",
+        "x-grok-client-identifier",
+        "x-grok-client-surface",
+        "traceparent",
+        "tracestate",
+    ])
+});
 
-const RESPONSE_HEADERS: &[&str] = &[
-    "content-encoding",
-    "content-type",
-    "x-request-id",
-    "request-id",
-    "retry-after",
-    "x-should-retry",
-    "x-grok-context-window",
-    "x-grok-max-completion-tokens",
-    "x-grok-doom-loop-check",
-    "x-models-etag",
-];
+static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
+    ordered_names(&[
+        "content-encoding",
+        "content-type",
+        "x-request-id",
+        "request-id",
+        "retry-after",
+        "x-should-retry",
+        "x-grok-context-window",
+        "x-grok-max-completion-tokens",
+        "x-grok-doom-loop-check",
+        "x-models-etag",
+    ])
+});
 
 pub(crate) fn request(
     context: ProviderRequestHeaderContext<'_>,
@@ -55,7 +61,7 @@ pub(crate) fn request(
         );
     }
     if context.ingress_dialect == context.upstream_operation.dialect() {
-        headers.extend(project(context.client_headers, REQUEST_HEADERS, &[]));
+        headers.extend(project(context.client_headers, REQUEST_HEADERS.iter(), &[]));
     }
     if context.oauth {
         let model = oauth_model_header(context.upstream_model)?;
@@ -72,5 +78,5 @@ fn oauth_model_header(model: &str) -> Result<HeaderValue, ProviderError> {
 }
 
 pub(crate) fn response(upstream: &HeaderMap) -> HeaderMap {
-    project(upstream, RESPONSE_HEADERS, &["x-ratelimit-"])
+    project(upstream, RESPONSE_HEADERS.iter(), &["x-ratelimit-"])
 }

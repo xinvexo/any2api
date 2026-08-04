@@ -9,7 +9,7 @@ use any2api_domain::{UpstreamErrorClassification, UpstreamErrorKind};
 use tokio::time::Instant;
 
 use super::super::{
-    error::HealthAcquireError,
+    error::{HealthAcquireError, TemporaryUnavailability, TemporaryUnavailabilityCause},
     time::{deadline, max_deadline, retry_delay},
 };
 use crate::{
@@ -35,7 +35,14 @@ struct RoutingCredentialHealthState {
 #[derive(Debug)]
 struct ModelCooldown {
     until: Instant,
+    cause: TemporaryUnavailabilityCause,
     wake: SchedulerWakeSlot,
+}
+
+impl ModelCooldown {
+    const fn unavailability(&self) -> TemporaryUnavailability {
+        TemporaryUnavailability::new(self.until, self.cause)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,19 +69,26 @@ impl RoutingCredentialHealthRuntime {
         let now = Instant::now();
         let mut state = self.state.lock().expect("routing health lock poisoned");
         let expired_cooldowns = prune_expired_model_cooldowns(&mut state, now);
-        let until = state
+        let blocked = state
             .credential_cooldown_until
+            .map(TemporaryUnavailability::outage)
             .into_iter()
             .chain(
                 state
                     .model_cooldowns
                     .get(model)
-                    .map(|cooldown| cooldown.until),
+                    .map(ModelCooldown::unavailability),
             )
-            .chain(state.quota_exhaustion.map(|value| value.retry_at))
-            .max();
-        let availability = match until {
-            Some(until) if now < until => Err(HealthAcquireError::Temporary(until)),
+            .chain(
+                state
+                    .quota_exhaustion
+                    .map(|value| TemporaryUnavailability::rate_limit_cooldown(value.retry_at)),
+            )
+            .max_by_key(|unavailability| unavailability.until());
+        let availability = match blocked {
+            Some(unavailability) if now < unavailability.until() => {
+                Err(HealthAcquireError::Temporary(unavailability))
+            }
             _ => Ok(()),
         };
         drop(state);
@@ -181,6 +195,7 @@ impl RoutingCredentialHealthRuntime {
                     &mut state,
                     model,
                     deadline(now, delay),
+                    TemporaryUnavailabilityCause::RateLimitCooldown,
                     &self.scheduler_epoch,
                 ))
             }
@@ -188,6 +203,7 @@ impl RoutingCredentialHealthRuntime {
                 &mut state,
                 model,
                 deadline(now, policy.model_unsupported),
+                TemporaryUnavailabilityCause::Outage,
                 &self.scheduler_epoch,
             )),
             _ => None,
@@ -227,6 +243,7 @@ fn record_model_cooldown(
     state: &mut RoutingCredentialHealthState,
     model: &str,
     until: Instant,
+    cause: TemporaryUnavailabilityCause,
     scheduler_epoch: &Arc<SchedulerEpoch>,
 ) -> PendingSchedulerWakeNotification {
     let entry = state
@@ -234,9 +251,13 @@ fn record_model_cooldown(
         .entry(model.to_owned())
         .or_insert_with(|| ModelCooldown {
             until,
+            cause,
             wake: scheduler_epoch.wake_slot(),
         });
-    entry.until = entry.until.max(until);
+    if until >= entry.until {
+        entry.until = until;
+        entry.cause = cause;
+    }
     entry.wake.prepare_schedule(entry.until)
 }
 

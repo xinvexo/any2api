@@ -24,12 +24,12 @@ pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPl
         ));
     }
     let mut headers = HeaderMap::new();
-    headers.insert(
-        header::AUTHORIZATION,
-        HeaderValue::from_str(&format!("Bearer {}", token.access_token())).map_err(|_| {
+    let mut authorization = HeaderValue::from_str(&format!("Bearer {}", token.access_token()))
+        .map_err(|_| {
             ProviderError::InvalidCredential("invalid OAuth access token header".into())
-        })?,
-    );
+        })?;
+    authorization.set_sensitive(true);
+    headers.insert(header::AUTHORIZATION, authorization);
     for (name, value) in [
         (header::ACCEPT, "application/json, text/plain, */*"),
         (header::CONTENT_TYPE, "application/json"),

@@ -1,24 +1,44 @@
+use std::sync::{Arc, LazyLock};
+
 use hyper_rustls::{FixedServerNameResolver, HttpsConnector, HttpsConnectorBuilder};
 use rustls::{
     ClientConfig, RootCertStore,
     pki_types::{CertificateDer, ServerName},
 };
 
-use crate::error::TransportError;
+use crate::error::{TransportError, TransportErrorStage, TransportFailureScope};
+
+/// Loading and parsing the platform trust store costs tens of milliseconds of
+/// blocking IO, so it happens once per process and the parsed store is shared.
+static NATIVE_ROOTS: LazyLock<Arc<RootCertStore>> = LazyLock::new(|| {
+    let native = rustls_native_certs::load_native_certs();
+    let mut roots = RootCertStore::empty();
+    roots.add_parsable_certificates(native.certs);
+    Arc::new(roots)
+});
 
 pub(crate) fn build_tls_config(
     extra_roots: &[CertificateDer<'static>],
 ) -> Result<ClientConfig, TransportError> {
-    let native = rustls_native_certs::load_native_certs();
-    let mut roots = RootCertStore::empty();
-    roots.add_parsable_certificates(native.certs);
-    for certificate in extra_roots {
-        roots.add(certificate.clone()).map_err(|_| {
-            TransportError::configuration("configured TLS root certificate is invalid")
-        })?;
-    }
+    let roots = if extra_roots.is_empty() {
+        Arc::clone(&NATIVE_ROOTS)
+    } else {
+        let mut roots = (**NATIVE_ROOTS).clone();
+        for certificate in extra_roots {
+            roots.add(certificate.clone()).map_err(|_| {
+                TransportError::configuration(
+                    TransportErrorStage::Tls,
+                    TransportFailureScope::Unattributed,
+                    "configured TLS root certificate is invalid",
+                )
+            })?;
+        }
+        Arc::new(roots)
+    };
     if roots.is_empty() {
         return Err(TransportError::configuration(
+            TransportErrorStage::Tls,
+            TransportFailureScope::Unattributed,
             "no trusted TLS root certificates are available",
         ));
     }

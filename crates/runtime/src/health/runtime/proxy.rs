@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::error::HealthAcquireError;
+use super::error::{HealthAcquireError, TemporaryUnavailability};
 use crate::{
     health::{
         ReliabilityPolicy,
@@ -31,7 +31,7 @@ impl ProxyHealthRuntime {
                 _runtime: Arc::clone(self),
                 permit: Some(permit),
             })
-            .map_err(HealthAcquireError::Temporary)
+            .map_err(|until| HealthAcquireError::Temporary(TemporaryUnavailability::outage(until)))
     }
 
     pub(crate) fn availability(
@@ -40,7 +40,7 @@ impl ProxyHealthRuntime {
     ) -> Result<(), HealthAcquireError> {
         self.circuit
             .availability(policy.half_open_max_probes)
-            .map_err(HealthAcquireError::Temporary)
+            .map_err(|until| HealthAcquireError::Temporary(TemporaryUnavailability::outage(until)))
     }
 }
 

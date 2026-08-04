@@ -15,6 +15,7 @@ use super::{
     execution_profile::RequestExecutionProfile,
 };
 pub use crate::raw_json::RawJsonPayload;
+pub use crate::sse::SseJsonData;
 
 #[derive(Clone)]
 pub struct IngressRequest {
@@ -134,8 +135,9 @@ pub struct AdapterEvent {
     termination: StreamTermination,
 }
 
-/// SSE `data:` payload parsed once when the upstream frame is decoded, then
-/// shared by telemetry, continuation-ID extraction, and egress model rewriting.
+/// SSE `data:` payload classified once when the upstream frame is decoded,
+/// then shared by telemetry, continuation-ID extraction, and egress model
+/// rewriting as validated raw bytes borrowed from the frame.
 #[derive(Clone, PartialEq)]
 pub enum SseEventPayload {
     /// The frame carries no data lines, such as an SSE comment or heartbeat.
@@ -144,11 +146,8 @@ pub enum SseEventPayload {
     Done,
     /// The frame carries data lines that are not valid JSON.
     NonJson,
-    /// The `event:` name (if present) and the JSON value of the data lines.
-    Json {
-        event_name: Option<String>,
-        data: Value,
-    },
+    /// The `event:` name (if present) and the validated JSON data bytes.
+    Json(SseJsonData),
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

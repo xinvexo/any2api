@@ -94,7 +94,8 @@ fn reject(error: PublicApiError, state: &AppState, uri: &Uri) -> Response {
 }
 
 fn extract_token(headers: &HeaderMap) -> Result<String, PublicApiError> {
-    let mut tokens = Vec::new();
+    let mut first: Option<&str> = None;
+    let mut conflicting = false;
     for value in headers.get_all(AUTHORIZATION).iter() {
         let text = value.to_str().map_err(|_| PublicApiError::unauthorized())?;
         let Some((scheme, token)) = text.split_once(' ') else {
@@ -103,22 +104,28 @@ fn extract_token(headers: &HeaderMap) -> Result<String, PublicApiError> {
         if !scheme.eq_ignore_ascii_case("bearer") || token.trim() != token || token.is_empty() {
             return Err(PublicApiError::unauthorized());
         }
-        tokens.push(token.to_owned());
+        match first {
+            None => first = Some(token),
+            Some(existing) => conflicting |= existing != token,
+        }
     }
     for value in headers.get_all("x-api-key").iter() {
         let token = value.to_str().map_err(|_| PublicApiError::unauthorized())?;
         if token.trim() != token || token.is_empty() {
             return Err(PublicApiError::unauthorized());
         }
-        tokens.push(token.to_owned());
+        match first {
+            None => first = Some(token),
+            Some(existing) => conflicting |= existing != token,
+        }
     }
-    let Some(first) = tokens.first() else {
+    let Some(first) = first else {
         return Err(PublicApiError::unauthorized());
     };
-    if tokens.iter().any(|token| token != first) {
+    if conflicting {
         return Err(PublicApiError::conflicting_credentials());
     }
-    Ok(first.clone())
+    Ok(first.to_owned())
 }
 
 fn strip_client_credentials(headers: &mut HeaderMap) {

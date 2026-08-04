@@ -4,6 +4,7 @@ use any2api_domain::ProtocolOperation;
 use axum::{
     body::Bytes,
     extract::{FromRequest, Request},
+    http::HeaderMap,
     response::Response,
 };
 
@@ -12,16 +13,23 @@ use crate::{state::AppState, zstd_decode::ZstdDecodeError};
 use super::error::PublicApiError;
 use collector::{BodyCollectionError, collect_body};
 
-/// Buffered public request body whose rejection uses the dialect-aware
-/// protocol error envelope instead of axum's plain-text response.
-pub(super) struct PublicBody(pub(super) Bytes);
+/// Buffered public request body plus the request headers taken by ownership,
+/// so handlers avoid axum's `HeaderMap` extractor clone. Rejections use the
+/// dialect-aware protocol error envelope instead of axum's plain-text
+/// response.
+pub(super) struct PublicBody {
+    pub(super) headers: HeaderMap,
+    pub(super) body: Bytes,
+}
 
 impl FromRequest<AppState> for PublicBody {
     type Rejection = Response;
 
     async fn from_request(request: Request, state: &AppState) -> Result<Self, Self::Rejection> {
-        let uri = request.uri().clone();
-        let encoding = content_encoding(request.headers());
+        let (parts, body) = request.into_parts();
+        let uri = parts.uri;
+        let headers = parts.headers;
+        let encoding = content_encoding(&headers);
         if encoding == ContentEncoding::Invalid
             || (encoding == ContentEncoding::Zstd && !path_supports_zstd(uri.path()))
         {
@@ -33,25 +41,26 @@ impl FromRequest<AppState> for PublicBody {
             .ok_or_else(|| PublicApiError::unreadable_body().into_response_for(state, &uri))?;
         // This collector is the public routes' sole body-size enforcement point.
         // PublicBody consumes the raw Body, so Axum's DefaultBodyLimit is not consulted.
-        let bytes = collect_body(
-            request.into_body(),
-            any2api_runtime::api::request_body_limit(operation),
-        )
-        .await
-        .map_err(|error| body_collection_rejection(error, state, &uri))?;
-        match encoding {
+        let bytes = collect_body(body, any2api_runtime::api::request_body_limit(operation))
+            .await
+            .map_err(|error| body_collection_rejection(error, state, &uri))?;
+        let body = match encoding {
             ContentEncoding::Zstd => match state.zstd_decoder().decode(bytes).await {
-                Ok(bytes) => Ok(Self(bytes)),
+                Ok(bytes) => bytes,
                 Err(ZstdDecodeError::TooLarge) => {
-                    Err(PublicApiError::payload_too_large().into_response_for(state, &uri))
+                    return Err(PublicApiError::payload_too_large().into_response_for(state, &uri));
+                }
+                Err(ZstdDecodeError::Overloaded) => {
+                    return Err(PublicApiError::overloaded().into_response_for(state, &uri));
                 }
                 Err(ZstdDecodeError::Invalid | ZstdDecodeError::TaskFailed) => {
-                    Err(PublicApiError::unreadable_body().into_response_for(state, &uri))
+                    return Err(PublicApiError::unreadable_body().into_response_for(state, &uri));
                 }
             },
-            ContentEncoding::Identity => Ok(Self(bytes)),
+            ContentEncoding::Identity => bytes,
             ContentEncoding::Invalid => unreachable!("content encoding was validated"),
-        }
+        };
+        Ok(Self { headers, body })
     }
 }
 

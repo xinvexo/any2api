@@ -8,11 +8,16 @@ use http::{
     header::{HOST, PROXY_AUTHORIZATION},
 };
 use http_body_util::BodyExt;
-use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use rustls::pki_types::CertificateDer;
-use tokio::time::Instant;
+use hyper_util::{
+    client::legacy::Client,
+    rt::{TokioExecutor, TokioTimer},
+};
+use rustls::ClientConfig;
+use tokio::time::{Instant, timeout_at};
 
 use super::{
+    body_timeout::timeout_body,
+    construction::{HTTP2_KEEP_ALIVE_INTERVAL, HTTP2_KEEP_ALIVE_TIMEOUT},
     deadline::await_response_headers,
     request_body::{SignaledBody, signaled_body},
 };
@@ -22,12 +27,12 @@ use crate::{
     },
     connection::{PinnedConnectError, PinnedConnector},
     error::{TransportError, TransportErrorStage, TransportFailureScope},
-    resolution::ResolvedOrigin,
+    resolution::{OriginTarget, shared_dns_cache},
 };
 
 pub(crate) struct PinnedClient {
     client: Client<PinnedConnector, SignaledBody>,
-    target: SocketAddr,
+    origin: OriginTarget,
     forward_proxy: bool,
     proxy_authorization: Option<HeaderValue>,
 }
@@ -35,17 +40,14 @@ pub(crate) struct PinnedClient {
 impl PinnedClient {
     pub(crate) fn build(
         config: TransportManagerConfig,
-        extra_roots: &[CertificateDer<'static>],
+        tls_config: ClientConfig,
         proxy: TransportProxy<'_>,
-        origin: &ResolvedOrigin,
+        origin: &OriginTarget,
     ) -> Result<Self, TransportError> {
-        let target = *origin.addresses.first().ok_or_else(|| {
-            TransportError::configuration("resolved upstream address list is empty")
-        })?;
         let proxy_authorization = basic_proxy_authorization(proxy)?;
         let connector = PinnedConnector::build(
             config.connect_timeout,
-            extra_roots,
+            tls_config,
             proxy,
             origin,
             proxy_authorization.clone(),
@@ -54,10 +56,14 @@ impl PinnedClient {
         builder
             .pool_idle_timeout(config.pool_idle_timeout)
             .pool_max_idle_per_host(config.pool_max_idle_per_host)
+            .pool_timer(TokioTimer::new())
+            .timer(TokioTimer::new())
+            .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
+            .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
             .retry_canceled_requests(false);
         Ok(Self {
             client: builder.build(connector),
-            target,
+            origin: origin.clone(),
             forward_proxy: proxy.profile().kind() == ProxyKind::Http && !origin.secure,
             proxy_authorization,
         })
@@ -99,7 +105,10 @@ impl PinnedClient {
 
         let (body, body_sent) = signaled_body(request.body);
         let uri = if self.forward_proxy {
-            rewrite_uri(&request.uri, self.target)
+            let target = self
+                .forward_target(connect_deadline, &connect_timeout_error)
+                .await?;
+            rewrite_uri(&request.uri, target)
         } else {
             request.uri.clone()
         };
@@ -150,9 +159,37 @@ impl PinnedClient {
         Ok(TransportResponse {
             status,
             headers,
-            body,
+            body: timeout_body(body, read_timeout, TransportFailureScope::Unattributed),
             read_failure_scope: TransportFailureScope::Unattributed,
         })
+    }
+
+    /// Resolves the pinned target for HTTP forward-proxy URI rewriting on
+    /// every request, so a rotated or revived DNS record is picked up as soon
+    /// as the shared cache entry expires.
+    async fn forward_target(
+        &self,
+        connect_deadline: Instant,
+        connect_timeout_error: &TransportError,
+    ) -> Result<SocketAddr, TransportError> {
+        let addresses = timeout_at(
+            connect_deadline,
+            shared_dns_cache().resolve(&self.origin.host),
+        )
+        .await
+        .map_err(|_| connect_timeout_error.clone())?
+        .map_err(|error| {
+            TransportError::new(
+                TransportErrorStage::Dns,
+                TransportFailureScope::Endpoint,
+                RetrySafety::DefinitelyNotSent,
+                error.to_string(),
+            )
+        })?;
+        let address = *addresses
+            .first()
+            .expect("resolved address list is never empty");
+        Ok(SocketAddr::new(address, self.origin.port))
     }
 }
 
@@ -167,8 +204,13 @@ fn basic_proxy_authorization(
         credentials.username(),
         credentials.password()
     ));
-    let mut value = HeaderValue::from_str(&format!("Basic {encoded}"))
-        .map_err(|_| TransportError::configuration("proxy authentication is invalid"))?;
+    let mut value = HeaderValue::from_str(&format!("Basic {encoded}")).map_err(|_| {
+        TransportError::configuration(
+            TransportErrorStage::ProxyHandshake,
+            TransportFailureScope::Proxy,
+            "proxy authentication is invalid",
+        )
+    })?;
     value.set_sensitive(true);
     Ok(Some(value))
 }

@@ -18,6 +18,8 @@ mod oauth_quota_snapshots;
 mod plaintext_schema;
 mod query_indexes;
 mod request_usage_aggregate_indexes;
+mod response_body_bytes;
+mod telemetry_capacity_stats;
 
 const DIRECT_PROXY_ID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -60,6 +62,8 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (11, "isolate gateway auth rejected logs".to_owned()),
             (12, "persist oauth quota snapshots".to_owned()),
             (13, "canonicalize oauth account documents".to_owned()),
+            (14, "add http access log response body bytes".to_owned()),
+            (15, "add telemetry capacity stats".to_owned()),
         ]
     );
 
@@ -131,6 +135,16 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(access_log_schema.contains("response_body BLOB NOT NULL"));
     assert!(access_log_schema.contains("exchange_bytes INTEGER NOT NULL"));
     assert!(access_log_schema.contains("gateway_auth_rejected INTEGER NOT NULL"));
+    assert!(access_log_schema.contains("response_body_bytes INTEGER NOT NULL"));
+    let capacity_stats = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(
+        "SELECT request_log_rows, http_access_log_rows, http_access_log_exchange_bytes, \
+         gateway_auth_rejected_rows, gateway_auth_rejected_exchange_bytes \
+         FROM telemetry_capacity_stats WHERE singleton_id = 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("telemetry capacity stats singleton");
+    assert_eq!(capacity_stats, (0, 0, 0, 0, 0));
 
     let obsolete_tables = sqlx::query_scalar::<_, String>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND (\

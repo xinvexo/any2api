@@ -9,7 +9,7 @@ use any2api_protocol::api::MAX_BRIDGE_CONTINUATION_STATE_BYTES;
 use super::{TTL, resolved_continuation_target, target};
 use crate::affinity::{
     AffinityError, AffinityRegistry, BindingStart, ContinuationLookup,
-    continuation::TEST_TOTAL_BYTES, hash::SessionHasher, registry::BindingState,
+    continuation::TEST_TOTAL_BYTES, hash::SessionHasher, shard::RECLAIM_SAMPLE,
 };
 
 #[test]
@@ -57,41 +57,33 @@ fn expired_continuation_identity_can_bind_to_a_new_target() {
 }
 
 #[test]
-fn continuation_commit_defers_unrelated_expiration_to_the_sweeper() {
+fn continuation_commit_reclaims_a_bounded_sample_and_defers_the_rest_to_the_sweeper() {
     let registry = AffinityRegistry::new();
     let route_id = ModelRouteId::new();
     let target = target(route_id, CredentialId::new());
-    let stale_identity = "resp-unrelated-stale";
-    registry
-        .bind_ready_continuation(stale_identity, target.clone(), None, TTL)
-        .expect("stale continuation seed");
-    let stale_key = registry.hasher.continuation(stale_identity);
-    {
-        let mut state = registry.state.lock().expect("affinity state");
-        let BindingState::Bound { binding } = state
-            .entries
-            .get_mut(&stale_key)
-            .expect("stale continuation entry")
-        else {
-            panic!("continuation must be bound");
-        };
-        binding.last_seen_at = Instant::now() - TTL - Duration::from_secs(1);
+    let stale_count = 32;
+    for index in 0..stale_count {
+        registry
+            .bind_ready_continuation(&format!("resp-stale-{index}"), target.clone(), None, TTL)
+            .expect("stale continuation seed");
     }
+    registry.stale_bound_entries_for_test(Instant::now() - TTL - Duration::from_secs(1));
 
     registry
         .bind_ready_continuation("resp-current", target, None, TTL)
         .expect("unrelated continuation commit");
 
+    let swept = registry.sweep_expired(TTL);
     assert!(
-        registry
-            .state
-            .lock()
-            .expect("affinity state")
-            .entries
-            .contains_key(&stale_key),
-        "ordinary commits must not scan the complete binding table"
+        swept >= stale_count - RECLAIM_SAMPLE,
+        "one commit must reclaim at most {RECLAIM_SAMPLE} expired entries, \
+         but the sweeper only found {swept} of {stale_count} left"
     );
-    assert_eq!(registry.sweep_expired(TTL), 1);
+    assert!(swept <= stale_count);
+    assert!(matches!(
+        registry.resolve_continuation("resp-current", TTL, |_| true),
+        ContinuationLookup::Ready(_)
+    ));
 }
 
 #[test]
@@ -155,14 +147,7 @@ fn pending_continuations_reserve_total_capacity_and_drop_releases_it() {
         .expect("dropped reservation returns capacity");
     drop(replacement);
     drop(leases);
-    assert_eq!(
-        registry
-            .state
-            .lock()
-            .expect("affinity state")
-            .continuation_bytes,
-        0
-    );
+    assert_eq!(registry.continuation_bytes_for_test(), 0);
 }
 
 #[tokio::test]

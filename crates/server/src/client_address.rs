@@ -163,21 +163,29 @@ fn forwarded_client_ip(
 }
 
 fn forwarded_is_secure(headers: &HeaderMap) -> Result<bool, ClientAddressError> {
-    let mut values = headers.get_all("x-forwarded-proto").iter();
-    let Some(value) = values.next() else {
-        return Ok(false);
-    };
-    if values.next().is_some() {
-        return Err(ClientAddressError::InvalidForwardedHeaders);
+    // Multi-hop trusted proxies commonly repeat the header or join values with
+    // commas. Consistent repeats are accepted; conflicting schemes are rejected
+    // so a spoofed extra header cannot up- or downgrade the original scheme.
+    let mut secure: Option<bool> = None;
+    for value in headers.get_all("x-forwarded-proto") {
+        let value = value
+            .to_str()
+            .map_err(|_| ClientAddressError::InvalidForwardedHeaders)?;
+        for entry in value.split(',') {
+            let entry = entry.trim();
+            let is_https = if entry.eq_ignore_ascii_case("http") {
+                false
+            } else if entry.eq_ignore_ascii_case("https") {
+                true
+            } else {
+                return Err(ClientAddressError::InvalidForwardedHeaders);
+            };
+            if secure.get_or_insert(is_https) != &is_https {
+                return Err(ClientAddressError::InvalidForwardedHeaders);
+            }
+        }
     }
-    match value
-        .to_str()
-        .map_err(|_| ClientAddressError::InvalidForwardedHeaders)?
-    {
-        "http" => Ok(false),
-        "https" => Ok(true),
-        _ => Err(ClientAddressError::InvalidForwardedHeaders),
-    }
+    Ok(secure.unwrap_or(false))
 }
 
 #[cfg(test)]

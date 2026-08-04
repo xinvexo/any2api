@@ -9,12 +9,12 @@ use super::{
     continuation_lease::ContinuationLease,
     registry::{
         AffinityError, AffinityRegistry, BindingSource, BindingState, ContinuationLifecycle,
-        TimedBinding, ensure_capacity,
+        TimedBinding,
     },
     target::AffinityTarget,
 };
 
-const MAX_BRIDGE_CONTINUATION_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_BRIDGE_CONTINUATION_TOTAL_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResolvedContinuation {
@@ -44,8 +44,8 @@ impl AffinityRegistry {
     ) -> ContinuationLookup {
         let key = self.hasher.continuation(raw);
         let now = Instant::now();
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        let Some(BindingState::Bound { binding }) = state.entries.get_mut(&key) else {
+        let mut shard = self.bindings.lock(key);
+        let Some(BindingState::Bound { binding }) = shard.get_mut(&key) else {
             return ContinuationLookup::Missing;
         };
         match &binding.source {
@@ -56,7 +56,7 @@ impl AffinityRegistry {
                 state: continuation,
             }) => {
                 if now.saturating_duration_since(binding.last_seen_at) >= ttl {
-                    state.remove(&key);
+                    shard.remove(&key);
                     return ContinuationLookup::Missing;
                 }
                 if !target_is_available(&binding.target) {
@@ -121,47 +121,56 @@ impl AffinityRegistry {
         deadline: Option<Instant>,
     ) -> Result<(), AffinityError> {
         check_deadline(deadline)?;
-        let continuation_bytes = checked_state_bytes(continuation.as_ref())?;
+        checked_state_bytes(continuation.as_ref())?;
         let key = self.hasher.continuation(raw);
         let now = Instant::now();
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        check_deadline(deadline)?;
-        state.remove_if_expired(&key, now, ttl);
-        if let Some(existing) = state.entries.get_mut(&key) {
-            let BindingState::Bound { binding } = existing else {
-                return Err(AffinityError::IdentityConflict);
-            };
-            let idempotent_stateless = binding.target == target
-                && continuation.is_none()
-                && matches!(
-                    binding.source,
-                    BindingSource::Continuation(ContinuationLifecycle::Ready { state: None })
-                );
-            if !idempotent_stateless {
-                return Err(AffinityError::IdentityConflict);
-            }
+        let mut reclaimed = false;
+        loop {
+            let mut shard = self.bindings.lock(key);
             check_deadline(deadline)?;
-            binding.last_seen_at = Instant::now();
-            return Ok(());
-        }
-        ensure_capacity(&mut state, now, ttl)?;
-        ensure_continuation_capacity(&mut state, now, ttl, continuation_bytes)?;
-        check_deadline(deadline)?;
-        let committed_at = Instant::now();
-        state.continuation_bytes += continuation_bytes;
-        state.entries.insert(
-            key,
-            BindingState::Bound {
+            shard.remove_if_expired(&key, now, ttl);
+            if let Some(existing) = shard.get_mut(&key) {
+                let BindingState::Bound { binding } = existing else {
+                    return Err(AffinityError::IdentityConflict);
+                };
+                let idempotent_stateless = binding.target == target
+                    && continuation.is_none()
+                    && matches!(
+                        binding.source,
+                        BindingSource::Continuation(ContinuationLifecycle::Ready { state: None })
+                    );
+                if !idempotent_stateless {
+                    return Err(AffinityError::IdentityConflict);
+                }
+                check_deadline(deadline)?;
+                binding.last_seen_at = Instant::now();
+                return Ok(());
+            }
+            shard.reclaim_expired_sample(now, ttl);
+            check_deadline(deadline)?;
+            let bound = BindingState::Bound {
                 binding: TimedBinding {
-                    target,
-                    last_seen_at: committed_at,
+                    target: target.clone(),
+                    last_seen_at: Instant::now(),
                     source: BindingSource::Continuation(ContinuationLifecycle::Ready {
-                        state: continuation,
+                        // Continuation state is Arc-backed, so the retry
+                        // clone is cheap.
+                        state: continuation.clone(),
                     }),
                 },
-            },
-        );
-        Ok(())
+            };
+            match shard.try_insert(key, bound) {
+                Ok(()) => return Ok(()),
+                Err(rejection) if reclaimed => return Err(rejection.into()),
+                Err(rejection) => {
+                    drop(shard);
+                    if !self.bindings.reclaim_for_capacity(now, ttl) {
+                        return Err(rejection.into());
+                    }
+                    reclaimed = true;
+                }
+            }
+        }
     }
 
     fn begin_pending_continuation_with_deadline(
@@ -174,53 +183,45 @@ impl AffinityRegistry {
         check_deadline(deadline)?;
         let key = self.hasher.continuation(raw);
         let now = Instant::now();
-        let mut state = self.state.lock().expect("affinity state lock poisoned");
-        check_deadline(deadline)?;
-        state.remove_if_expired(&key, now, ttl);
-        if state.entries.contains_key(&key) {
-            return Err(AffinityError::IdentityConflict);
-        }
-        ensure_capacity(&mut state, now, ttl)?;
-        ensure_continuation_capacity(&mut state, now, ttl, MAX_BRIDGE_CONTINUATION_STATE_BYTES)?;
-        check_deadline(deadline)?;
-        let version = state.next_version();
-        state.continuation_bytes += MAX_BRIDGE_CONTINUATION_STATE_BYTES;
-        state.entries.insert(
-            key,
-            BindingState::Bound {
+        let mut reclaimed = false;
+        loop {
+            let mut shard = self.bindings.lock(key);
+            check_deadline(deadline)?;
+            shard.remove_if_expired(&key, now, ttl);
+            if shard.contains_key(&key) {
+                return Err(AffinityError::IdentityConflict);
+            }
+            shard.reclaim_expired_sample(now, ttl);
+            check_deadline(deadline)?;
+            let version = self.bindings.next_version();
+            let bound = BindingState::Bound {
                 binding: TimedBinding {
                     target: target.clone(),
                     last_seen_at: Instant::now(),
                     source: BindingSource::Continuation(ContinuationLifecycle::Pending { version }),
                 },
-            },
-        );
-        Ok(ContinuationLease {
-            registry: Arc::clone(self),
-            key,
-            version,
-            target,
-            active: true,
-        })
+            };
+            match shard.try_insert(key, bound) {
+                Ok(()) => {
+                    return Ok(ContinuationLease {
+                        registry: Arc::clone(self),
+                        key,
+                        version,
+                        target,
+                        active: true,
+                    });
+                }
+                Err(rejection) if reclaimed => return Err(rejection.into()),
+                Err(rejection) => {
+                    drop(shard);
+                    if !self.bindings.reclaim_for_capacity(now, ttl) {
+                        return Err(rejection.into());
+                    }
+                    reclaimed = true;
+                }
+            }
+        }
     }
-}
-
-fn ensure_continuation_capacity(
-    state: &mut super::registry::AffinityState,
-    now: Instant,
-    ttl: Duration,
-    additional_bytes: usize,
-) -> Result<(), AffinityError> {
-    if state.continuation_bytes.saturating_add(additional_bytes)
-        <= MAX_BRIDGE_CONTINUATION_TOTAL_BYTES
-    {
-        return Ok(());
-    }
-    state.remove_expired(now, ttl);
-    (state.continuation_bytes.saturating_add(additional_bytes)
-        <= MAX_BRIDGE_CONTINUATION_TOTAL_BYTES)
-        .then_some(())
-        .ok_or(AffinityError::ContinuationCapacity)
 }
 
 pub(super) fn checked_state_bytes(

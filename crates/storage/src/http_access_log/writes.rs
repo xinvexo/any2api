@@ -43,8 +43,8 @@ pub(super) async fn insert(
          method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
          gateway_auth_rejected, exchange_captured, request_headers, request_body, request_body_bytes, \
          request_body_complete, request_body_truncated, response_headers, response_body, \
-         response_body_complete, response_body_truncated, exchange_bytes) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         response_body_bytes, response_body_complete, response_body_truncated, exchange_bytes) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -71,6 +71,7 @@ pub(super) async fn insert(
     .bind(bool_value(request_body.truncated))
     .bind(response_headers)
     .bind(&response_body.content)
+    .bind(to_i64(response_body.total_bytes)?)
     .bind(bool_value(response_body.complete))
     .bind(bool_value(response_body.truncated))
     .bind(to_i64(exchange_bytes)?)

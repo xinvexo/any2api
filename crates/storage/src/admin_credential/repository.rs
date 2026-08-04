@@ -61,7 +61,7 @@ impl AdminCredentialRepository for SqliteStore {
         let result =
             sqlx::query("INSERT INTO admin_credentials (singleton, password_hash) VALUES (1, ?)")
                 .bind(password_hash)
-                .execute(self.pool())
+                .execute(self.write_pool())
                 .await;
         match result {
             Ok(result) => Ok(result.rows_affected() == 1),
@@ -82,7 +82,7 @@ impl AdminCredentialRepository for SqliteStore {
         )
         .bind(new_password_hash)
         .bind(expected_password_hash)
-        .execute(self.pool())
+        .execute(self.write_pool())
         .await?;
         Ok(result.rows_affected() == 1)
     }

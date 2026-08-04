@@ -14,7 +14,7 @@ use axum::body::{Body, Bytes, HttpBody};
 use http_body::{Frame, SizeHint};
 
 use super::{
-    capture::{BodyCapture, SharedBodyCapture},
+    capture::{BodyCapture, RequestBodyCaptureSlot},
     policy::{change_notification, should_record},
 };
 
@@ -39,7 +39,7 @@ pub(super) struct AccessLogMetadata {
     uri: String,
     http_version: HttpProtocolVersion,
     request_headers: Vec<HttpHeader>,
-    request_body: SharedBodyCapture,
+    request_body: RequestBodyCaptureSlot,
 }
 
 impl AccessLogMetadata {
@@ -54,7 +54,7 @@ impl AccessLogMetadata {
         uri: String,
         http_version: HttpProtocolVersion,
         request_headers: Vec<HttpHeader>,
-        request_body: SharedBodyCapture,
+        request_body: RequestBodyCaptureSlot,
     ) -> Self {
         Self {
             request_id,
@@ -135,7 +135,7 @@ impl AccessLogCompletion {
             gateway_auth_rejected: self.gateway_auth_rejected,
             exchange: Some(HttpAccessLogExchange {
                 request_headers: std::mem::take(&mut self.metadata.request_headers),
-                request_body: self.metadata.request_body.take_snapshot(),
+                request_body: self.metadata.request_body.take(),
                 response_headers: std::mem::take(&mut self.response_headers),
                 response_body,
             }),
