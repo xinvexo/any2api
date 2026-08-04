@@ -13,6 +13,7 @@ use any2api_transport::api::TransportManager;
 use tokio::time::Instant;
 
 use crate::configuration::PublishedSnapshot;
+use crate::oauth::OAuthQuotaActivity;
 
 #[derive(Clone, Copy)]
 pub(super) struct UpstreamServices<'a> {
@@ -20,5 +21,6 @@ pub(super) struct UpstreamServices<'a> {
     pub(super) protocols: &'a ProtocolRegistry,
     pub(super) providers: &'a ProviderRegistry,
     pub(super) transport: &'a dyn TransportManager,
+    pub(super) oauth_quota_activity: Option<&'a OAuthQuotaActivity>,
     pub(super) attempt_deadline: Instant,
 }

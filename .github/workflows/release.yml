@@ -64,6 +64,17 @@ jobs:
 
       - run: cargo build --locked --release -p any2api --target x86_64-unknown-linux-gnu
 
+      - name: Verify release binary version
+        run: |
+          set -euo pipefail
+          executable="target/x86_64-unknown-linux-gnu/release/any2api"
+          expected="any2api ${ANY2API_BUILD_VERSION}"
+          actual="$($executable --version)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "release binary version '$actual' does not match '$expected'" >&2
+            exit 1
+          fi
+
       - name: Package
         run: |
           set -euo pipefail

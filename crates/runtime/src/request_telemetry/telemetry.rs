@@ -5,7 +5,7 @@ use std::{
 
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, GatewayApiKeyId, HttpAccessLog, HttpAccessLogSummary,
-    LogPage, LoggingSettings, MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
+    LogPage, LogPageCursor, LoggingSettings, MAX_TELEMETRY_QUEUE_CAPACITY, RequestId, RequestLog,
 };
 use any2api_storage::api::{
     GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary, HttpAccessLogRepository,
@@ -25,7 +25,10 @@ use super::{
     policy::RequestLogPolicy,
     worker,
 };
-use crate::{configuration::LoggingSettingsReconciler, lifecycle::ProcessLifecycle};
+use crate::{
+    configuration::{PublishedSnapshot, PublishedSnapshotReconciler},
+    lifecycle::ProcessLifecycle,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum RequestTelemetryControlError {
@@ -186,7 +189,7 @@ impl RequestTelemetry {
         );
     }
 
-    pub fn record_gateway_key_use(&self, id: GatewayApiKeyId) {
+    pub fn record_gateway_key_use(&self, id: GatewayApiKeyId, revision: ConfigRevision) {
         if self.gateway_usage_repository.is_none() {
             return;
         }
@@ -195,7 +198,7 @@ impl RequestTelemetry {
             self.gateway_usage
                 .lock()
                 .expect("gateway usage state")
-                .observe(id, used_at.clone(), Instant::now())
+                .observe(id, revision, used_at.clone(), Instant::now())
         };
         if !should_enqueue {
             return;
@@ -241,14 +244,23 @@ impl RequestTelemetry {
         *self.policy.read().expect("request telemetry policy")
     }
 
+    #[cfg(test)]
+    pub(crate) fn reconcile_policy_for_test(
+        &self,
+        revision: ConfigRevision,
+        settings: &LoggingSettings,
+    ) {
+        self.update_policy(revision, settings);
+    }
+
     pub async fn list(
         &self,
         since_ms: u64,
-        offset: u64,
+        cursor: Option<LogPageCursor>,
         limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError> {
         match &self.request_logs {
-            Some(repository) => repository.list_request_logs(since_ms, offset, limit).await,
+            Some(repository) => repository.list_request_logs(since_ms, cursor, limit).await,
             None => Ok(LogPage::empty()),
         }
     }
@@ -266,13 +278,13 @@ impl RequestTelemetry {
     pub async fn list_http_access_logs(
         &self,
         since_ms: u64,
-        offset: u64,
+        cursor: Option<LogPageCursor>,
         limit: u32,
     ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
         match &self.http_access_logs {
             Some(repository) => {
                 repository
-                    .list_http_access_logs(since_ms, offset, limit)
+                    .list_http_access_logs(since_ms, cursor, limit)
                     .await
             }
             None => Ok(LogPage::empty()),
@@ -366,18 +378,19 @@ impl RequestTelemetry {
 
     fn try_send_event(&self, event: TelemetryEvent, capacity: usize) {
         let records = event.record_count();
+        let queue_class = event.queue_class();
         let sender = self.sender.read().expect("request telemetry sender");
         let Some(sender) = sender.as_ref() else {
             self.counters.rejected(records);
             return;
         };
-        if !self.counters.try_reserve_slot(capacity) {
+        if !self.counters.try_reserve_slot(capacity, queue_class) {
             self.counters.rejected(records);
             return;
         }
         self.counters.enqueued(records);
         if sender.try_send(event).is_err() {
-            self.counters.send_failed(records);
+            self.counters.send_failed(records, queue_class);
         }
     }
 }
@@ -389,8 +402,17 @@ fn unix_now_ms() -> Result<u64, StorageError> {
         .map_err(|_| StorageError::CorruptTelemetry)
 }
 
-impl LoggingSettingsReconciler for RequestTelemetry {
-    fn reconcile(&self, revision: ConfigRevision, settings: &LoggingSettings) {
-        self.update_policy(revision, settings);
+impl PublishedSnapshotReconciler for RequestTelemetry {
+    fn reconcile(&self, snapshot: &PublishedSnapshot) {
+        self.update_policy(snapshot.revision(), snapshot.settings().logging());
+        let ids = snapshot
+            .gateway_api_keys()
+            .keys()
+            .iter()
+            .map(|key| key.id());
+        self.gateway_usage
+            .lock()
+            .expect("gateway usage state")
+            .reconcile(snapshot.revision(), ids);
     }
 }

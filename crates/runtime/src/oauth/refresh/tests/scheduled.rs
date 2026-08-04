@@ -1,7 +1,30 @@
 use super::*;
 
+mod slow_batch;
+
 #[tokio::test]
-async fn scheduled_refreshes_use_bounded_network_concurrency_and_one_revision() {
+async fn simultaneously_ready_refreshes_share_one_segment_publication() {
+    const ACCOUNT_COUNT: usize = 6;
+    let transport = Arc::new(ConcurrentRefreshTransport::success());
+    let context = RefreshTestContext::with_accounts(transport.clone(), ACCOUNT_COUNT).await;
+    let before = context.snapshots.load().revision();
+    transport.release(ACCOUNT_COUNT);
+
+    context.refresher.scan_due_accounts().await;
+
+    assert_eq!(transport.calls(), ACCOUNT_COUNT);
+    let published = context.snapshots.load();
+    assert_eq!(published.revision().get(), before.get() + 1);
+    assert!(context.account_ids.iter().all(|id| {
+        published
+            .oauth_accounts()
+            .get(*id)
+            .is_some_and(|account| account.token_version() == 2)
+    }));
+}
+
+#[tokio::test]
+async fn scheduled_refreshes_use_bounded_network_concurrency_and_ready_segments() {
     const ACCOUNT_COUNT: usize = 7;
     let transport = Arc::new(ConcurrentRefreshTransport::success());
     let context = RefreshTestContext::with_accounts(transport.clone(), ACCOUNT_COUNT).await;
@@ -24,7 +47,7 @@ async fn scheduled_refreshes_use_bounded_network_concurrency_and_one_revision() 
     assert_eq!(transport.calls(), ACCOUNT_COUNT);
     assert_eq!(transport.max_in_flight(), 6);
     let published = context.snapshots.load();
-    assert_eq!(published.revision().get(), before.get() + 1);
+    assert_eq!(published.revision().get(), before.get() + 2);
     for id in context.account_ids {
         assert_eq!(
             published

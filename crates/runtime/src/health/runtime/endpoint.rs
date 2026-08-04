@@ -74,9 +74,11 @@ impl EndpointHealthRuntime {
             .lock()
             .expect("endpoint health lock poisoned");
         *current = max_deadline(*current, Some(until));
-        self.transient_wake
-            .schedule(current.expect("transient deadline was just recorded"));
+        let wake_notification = self
+            .transient_wake
+            .prepare_schedule(current.expect("transient deadline was just recorded"));
         drop(current);
+        wake_notification.publish();
         if let Some(permit) = permit {
             let _ = permit.failure(
                 policy.endpoint_failure_threshold,
@@ -94,9 +96,15 @@ impl EndpointHealthRuntime {
             .transient_until
             .lock()
             .expect("endpoint health lock poisoned");
-        if current.is_some_and(|until| until <= started_at) {
+        let wake_notification = if current.is_some_and(|until| until <= started_at) {
             *current = None;
-            self.transient_wake.cancel();
+            Some(self.transient_wake.prepare_cancellation())
+        } else {
+            None
+        };
+        drop(current);
+        if let Some(wake_notification) = wake_notification {
+            wake_notification.publish();
         }
     }
 }

@@ -14,9 +14,10 @@ use crate::health::{HealthAcquireError, ReliabilityPolicy};
 #[tokio::test]
 async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
     let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+    let mut changes = context.service.subscribe_quota_changes();
     let quota = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("quota query");
     assert_eq!(
@@ -36,6 +37,17 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
             .map(|credits| credits.available_count),
         Some(1)
     );
+    changes.changed().await.expect("persisted quota change");
+    assert_eq!(*changes.borrow_and_update(), 1);
+    assert_eq!(
+        context
+            .service
+            .cached_quota(context.account_id)
+            .await
+            .expect("cached quota"),
+        Some(quota.clone())
+    );
+    assert_eq!(context.transport.usage_calls(), 1);
 
     let snapshot = context.snapshots.load();
     let generation = Arc::clone(
@@ -66,6 +78,16 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         .await
         .expect("quota reset");
     assert_eq!(reset.windows_reset, 2);
+    changes.changed().await.expect("quota deletion change");
+    assert_eq!(*changes.borrow_and_update(), 2);
+    assert_eq!(
+        context
+            .service
+            .cached_quota(context.account_id)
+            .await
+            .expect("cleared cached quota"),
+        None
+    );
     assert_eq!(generation.health().availability("gpt-5.5"), Ok(()));
     assert!(context.runtime.scheduler_epoch() > epoch_before);
 
@@ -115,7 +137,7 @@ async fn quota_query_refreshes_once_after_authentication_rejection() {
 
     context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("quota query after refresh");
 
@@ -141,7 +163,7 @@ async fn a_second_quota_401_does_not_refresh_or_query_a_third_time() {
     let context = QuotaTestContext::new(1, AuthenticationMode::AlwaysReject).await;
 
     assert!(matches!(
-        context.service.query_quota(context.account_id).await,
+        context.service.refresh_quota(context.account_id).await,
         Err(OAuthQuotaError::AuthenticationFailed)
     ));
     assert_eq!(context.transport.refresh_calls(), 1);
@@ -153,7 +175,7 @@ async fn a_failed_token_refresh_does_not_claim_the_account_is_invalid() {
     let context = QuotaTestContext::new(1, AuthenticationMode::RefreshRejected).await;
 
     assert!(matches!(
-        context.service.query_quota(context.account_id).await,
+        context.service.refresh_quota(context.account_id).await,
         Err(OAuthQuotaError::AuthenticationRefreshFailed)
     ));
     assert_eq!(context.transport.refresh_calls(), 1);
@@ -161,59 +183,36 @@ async fn a_failed_token_refresh_does_not_claim_the_account_is_invalid() {
 }
 
 #[tokio::test]
-async fn ambiguous_codex_403_uses_an_account_free_probe_and_caches_egress_rejection() {
-    let context = QuotaTestContext::new(1, AuthenticationMode::CodexEgressRejected).await;
+async fn cloudflare_codex_403_is_classified_from_the_original_response() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::CodexCloudflareBlocked).await;
 
-    let (first, second) = tokio::join!(
-        context.service.query_quota(context.account_id),
-        context.service.query_quota(context.account_id),
-    );
-    for result in [first, second] {
-        assert!(matches!(
-            result,
-            Err(OAuthQuotaError::ProviderEgressRestricted)
-        ));
-    }
     assert!(matches!(
-        context.service.query_quota(context.account_id).await,
+        context.service.refresh_quota(context.account_id).await,
         Err(OAuthQuotaError::ProviderEgressRestricted)
     ));
 
     let captured = context.transport.captured();
-    assert_eq!(captured.len(), 4);
+    assert_eq!(captured.len(), 1);
+    assert_eq!(captured[0].path, "/backend-api/wham/usage");
     assert_eq!(
-        captured
-            .iter()
-            .filter(|request| request.authorization.is_none())
-            .count(),
-        1
+        captured[0].authorization.as_deref(),
+        Some("Bearer old-access")
     );
-    let probe = captured
-        .iter()
-        .find(|request| request.authorization.is_none())
-        .expect("account-free egress probe");
-    assert_eq!(probe.path, "/backend-api/wham/usage");
-    assert!(probe.account_id.is_none());
-    assert_eq!(probe.proxy_id, any2api_domain::ProxyProfileId::DIRECT);
-    assert_eq!(
-        probe.strict_ssrf,
-        context.snapshots.load().settings().upstream().strict_ssrf()
-    );
+    assert_eq!(captured[0].account_id.as_deref(), Some("account-123"));
 }
 
 #[tokio::test]
-async fn reachable_codex_egress_keeps_an_unknown_403_neutral() {
-    let context = QuotaTestContext::new(1, AuthenticationMode::CodexEgressReachable).await;
+async fn unknown_codex_403_stays_neutral_without_a_secondary_request() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::CodexUnknownForbidden).await;
 
     assert!(matches!(
-        context.service.query_quota(context.account_id).await,
+        context.service.refresh_quota(context.account_id).await,
         Err(OAuthQuotaError::UpstreamRejected(403))
     ));
     let captured = context.transport.captured();
-    assert_eq!(captured.len(), 2);
+    assert_eq!(captured.len(), 1);
     assert!(captured[0].authorization.is_some());
-    assert!(captured[1].authorization.is_none());
-    assert!(captured[1].account_id.is_none());
+    assert!(captured[0].account_id.is_some());
 }
 
 #[tokio::test]
@@ -221,7 +220,7 @@ async fn invalid_grant_marks_the_account_authentication_as_failed() {
     let context = QuotaTestContext::new(1, AuthenticationMode::RefreshInvalidGrant).await;
 
     assert!(matches!(
-        context.service.query_quota(context.account_id).await,
+        context.service.refresh_quota(context.account_id).await,
         Err(OAuthQuotaError::AuthenticationFailed)
     ));
     let snapshot = context.snapshots.load();
@@ -243,7 +242,7 @@ async fn rejected_access_token_without_refresh_token_is_authentication_failed() 
     let context = QuotaTestContext::new_without_refresh_token().await;
 
     assert!(matches!(
-        context.service.query_quota(context.account_id).await,
+        context.service.refresh_quota(context.account_id).await,
         Err(OAuthQuotaError::AuthenticationFailed)
     ));
     let snapshot = context.snapshots.load();
@@ -266,7 +265,7 @@ async fn explicit_quota_exhaustion_blocks_routing_until_a_fresh_available_snapsh
 
     let exhausted = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("exhausted quota snapshot");
     assert!(
@@ -288,12 +287,22 @@ async fn explicit_quota_exhaustion_blocks_routing_until_a_fresh_available_snapsh
         generation.health().availability("gpt-5.5"),
         Err(HealthAcquireError::Temporary(_))
     ));
+    generation.health().clear_temporary_cooldowns();
+    assert_eq!(generation.health().availability("gpt-5.5"), Ok(()));
+    let cached = context
+        .service
+        .cached_quota(context.account_id)
+        .await
+        .expect("cached exhausted snapshot")
+        .expect("persisted exhausted snapshot");
+    assert_eq!(cached, exhausted);
+    assert_eq!(generation.health().availability("gpt-5.5"), Ok(()));
     drop(snapshot);
 
     context.transport.set_codex_exhausted(false);
     let available = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("available quota snapshot");
     assert!(available.usage.account_status.is_none());

@@ -6,7 +6,11 @@ use axum::{
     extract::{Path, Query, State, rejection::QueryRejection},
 };
 
-use crate::{admin::AdminApiError, log_pagination::LogListQuery, state::AppState};
+use crate::{
+    admin::AdminApiError,
+    log_pagination::{LogCursorKind, LogListQuery},
+    state::AppState,
+};
 
 use super::{
     detail_dto::SystemLogDetailResponse,
@@ -20,11 +24,11 @@ pub(super) async fn list(
     let query = query
         .map_err(|_| AdminApiError::invalid_request("system log query is invalid"))?
         .0
-        .validate()
+        .validate(LogCursorKind::System)
         .ok_or_else(|| AdminApiError::invalid_request("system log page is invalid"))?;
     let telemetry = state.request_telemetry();
     let logs = telemetry
-        .list_http_access_logs(query.since_ms, query.offset, query.page_size)
+        .list_http_access_logs(query.since_ms, query.cursor, query.page_size)
         .await
         .map_err(|error| {
             tracing::error!(%error, "system log list failed");
@@ -32,7 +36,6 @@ pub(super) async fn list(
         })?;
     Ok(Json(SystemLogListResponse::new(
         logs,
-        query.page,
         query.page_size,
         telemetry.metrics(),
     )))

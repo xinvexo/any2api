@@ -138,6 +138,24 @@ describe("request log contracts", () => {
     expect(() =>
       parseRequestLogList({ ...requestLogPage([]), page_size: 101 }),
     ).toThrow("invalid request log response");
+    expect(() =>
+      parseRequestLogList({ ...requestLogPage([request()]), cursor: null }),
+    ).toThrow("invalid request log response");
+    expect(() =>
+      parseRequestLogList({ ...requestLogPage([]), cursor: null, next_cursor: "r1.next" }),
+    ).toThrow("invalid request log response");
+  });
+
+  it("allows a cursor to advance across a page containing only corrupt persisted rows", () => {
+    const page = parseRequestLogList({
+      ...requestLogPage([]),
+      total: 2,
+      cursor: "r1.current",
+      next_cursor: "r1.next",
+    });
+
+    expect(page.items).toEqual([]);
+    expect(page.nextCursor).toBe("r1.next");
   });
 });
 
@@ -145,8 +163,9 @@ function requestLogPage(items: unknown[]) {
   return {
     items,
     total: items.length,
-    page: 1,
     page_size: 20,
+    cursor: items.length > 0 ? "r1.current" : null,
+    next_cursor: null,
     telemetry: telemetry(),
   };
 }

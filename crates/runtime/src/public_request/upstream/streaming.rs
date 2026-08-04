@@ -33,11 +33,9 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         binding_lease,
         bound,
     } = prepare_input(
-        services.snapshot,
-        services.protocols,
+        services,
         decoded,
         affinity,
-        services.providers,
         attempt_recorder,
         allow_credential_bound_headers,
     )?;
@@ -88,7 +86,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         execution_profile,
         services.snapshot.settings().stream(),
     );
-    let (exchange, permit, health, attempt_recorder) = prepared.take_guards();
+    let (exchange, permit, health, attempt_recorder, quota_activity) = prepared.take_guards();
     let mut body = GuardedBody::new(
         response.body,
         exchange,
@@ -98,6 +96,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             health,
             continuation_binding,
             attempt_recorder,
+            quota_activity,
             status_code: status.as_u16(),
             precommit_budget,
             postcommit_idle_timeout: execution_limits::stream_timeout(

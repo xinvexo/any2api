@@ -10,11 +10,15 @@ import {
 } from "./system-log-contracts";
 
 export function getSystemLogs(
-  page = 1,
+  cursor: string | null = null,
   pageSize = 20,
   signal?: AbortSignal,
 ): Promise<SystemLogList> {
-  return requestJson<unknown>(`/api/admin/system-logs?page=${page}&page_size=${pageSize}`, {
+  const query = new URLSearchParams({ page_size: String(pageSize) });
+  if (cursor !== null) {
+    query.set("cursor", cursor);
+  }
+  return requestJson<unknown>(`/api/admin/system-logs?${query}`, {
     signal,
   }).then(parseSystemLogList);
 }

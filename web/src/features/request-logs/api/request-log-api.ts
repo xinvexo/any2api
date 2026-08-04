@@ -8,12 +8,16 @@ import {
 } from "./request-log-contracts";
 
 export function getRequestLogs(
-  page = 1,
+  cursor: string | null = null,
   pageSize = 20,
   signal?: AbortSignal,
 ): Promise<RequestLogList> {
+  const query = new URLSearchParams({ page_size: String(pageSize) });
+  if (cursor !== null) {
+    query.set("cursor", cursor);
+  }
   return requestJson<unknown>(
-    `/api/admin/request-logs?page=${page}&page_size=${pageSize}`,
+    `/api/admin/request-logs?${query}`,
     { signal },
   ).then(parseRequestLogList);
 }

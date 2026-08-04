@@ -1,9 +1,11 @@
 # ADR-0060：Grok Free Token 额度从响应头同步
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0106
 - 日期：2026-07-28
 - 决策人：项目维护者
 - 部分修订：ADR-0070
+
+> 2026-08-04 复核官方 Grok Build 后，本 ADR 的主动 Chat Completions 探测被 ADR-0106 废止。以下内容仅保留历史决策，不再作为实现基线。
 
 ## 背景
 

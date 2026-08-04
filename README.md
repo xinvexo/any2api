@@ -34,9 +34,10 @@ ANY2API_DATA_DIR=/var/lib/any2api ./any2api
 ```
 
 Run the `Release` workflow manually from GitHub Actions and enter the release version without the `v` prefix (for
-example, `0.0.2`). The workflow uses that stable SemVer for the binary's reported version, the matching `v<version>`
-tag, and the release asset names; it does not require the Cargo package version to match. It builds Linux AMD64 and
-publishes the archive and checksum.
+example, `0.0.2`). That workflow input is the release's sole product-version source: it determines the binary's reported
+version, the matching `v<version>` tag, and the release asset names. The Cargo package version is Rust package metadata
+and does not need to match. Before packaging, the workflow runs the built binary and requires its exact `--version`
+output to match the input. It then publishes the Linux AMD64 archive and checksum.
 
 An authenticated administrator can open **Settings → About** to view the running version and repository, explicitly
 check the latest official release, and install it on a supported Linux AMD64 GNU release build. The installer downloads

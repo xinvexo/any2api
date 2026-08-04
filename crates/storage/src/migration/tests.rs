@@ -10,8 +10,10 @@ use tempfile::tempdir;
 use super::{MIGRATOR, run};
 
 mod duplicate_attempt_index;
+mod gateway_auth_rejected_logs;
 mod http_access_log_capacity;
 mod http_access_log_loopback_ips;
+mod oauth_quota_snapshots;
 mod plaintext_schema;
 mod query_indexes;
 mod request_usage_aggregate_indexes;
@@ -54,6 +56,8 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (8, "drop duplicate request attempt index".to_owned()),
             (9, "normalize http access log loopback ips".to_owned()),
             (10, "optimize request usage aggregates".to_owned()),
+            (11, "isolate gateway auth rejected logs".to_owned()),
+            (12, "persist oauth quota snapshots".to_owned()),
         ]
     );
 
@@ -112,6 +116,9 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("requests_per_minute"));
     assert!(!oauth_schema.contains("max_concurrency"));
+    let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;
+    assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));
+    assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 262144"));
     let provider_credential_schema = table_schema(&pool, "provider_credentials").await;
     assert!(provider_credential_schema.contains("api_key BLOB NOT NULL"));
     let proxy_password_schema = table_schema(&pool, "proxy_passwords").await;
@@ -121,6 +128,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(access_log_schema.contains("request_headers BLOB NOT NULL"));
     assert!(access_log_schema.contains("response_body BLOB NOT NULL"));
     assert!(access_log_schema.contains("exchange_bytes INTEGER NOT NULL"));
+    assert!(access_log_schema.contains("gateway_auth_rejected INTEGER NOT NULL"));
 
     let obsolete_tables = sqlx::query_scalar::<_, String>(
         "SELECT name FROM sqlite_schema WHERE type = 'table' AND (\

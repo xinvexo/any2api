@@ -122,6 +122,7 @@ mod tests {
             duration_ms: 1,
             response_bytes: 2,
             outcome: HttpAccessLogOutcome::Completed,
+            gateway_auth_rejected: false,
             exchange: Some(HttpAccessLogExchange {
                 request_headers: vec![
                     HttpHeader {

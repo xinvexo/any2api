@@ -1,6 +1,7 @@
 //! Provider-neutral OAuth quota results exposed by Runtime.
 
 use any2api_provider::api::{OAuthQuotaUsage, ProviderError};
+use any2api_storage::api::StorageError;
 use any2api_transport::api::TransportError;
 use thiserror::Error;
 
@@ -25,8 +26,6 @@ pub enum OAuthQuotaError {
     UnsupportedProvider,
     #[error("OAuth account runtime is unavailable")]
     RuntimeUnavailable,
-    #[error("OAuth account has exhausted its local RPM limit")]
-    CredentialRateLimited,
     #[error("OAuth token material is unavailable")]
     TokenMaterialUnavailable,
     #[error("OAuth proxy path is unavailable")]
@@ -53,4 +52,8 @@ pub enum OAuthQuotaError {
     AuthenticationFailed,
     #[error("OAuth account has no available quota reset credits")]
     NoResetCredits,
+    #[error("OAuth quota persistence failed")]
+    Persistence(#[source] StorageError),
+    #[error("persisted OAuth quota snapshot is invalid")]
+    InvalidPersistedSnapshot,
 }

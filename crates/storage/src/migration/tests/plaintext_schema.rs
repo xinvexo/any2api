@@ -20,7 +20,7 @@ async fn empty_secret_tables_upgrade_and_preserve_other_configuration() {
 
     assert_eq!(
         migration_versions(&mut connection).await,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     );
     let value: String = sqlx::query_scalar(
         "SELECT value_json FROM setting_overrides WHERE key = 'admin.remote_enabled'",

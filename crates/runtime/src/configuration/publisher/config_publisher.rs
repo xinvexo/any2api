@@ -5,14 +5,14 @@ use std::sync::Arc;
 use any2api_domain::ConfigRevision;
 use any2api_storage::api::{
     ConfigurationMutation, ConfigurationTransactionOutcome, ConfigurationTransactionRepository,
-    StoredConfiguration,
+    StorageError, StoredConfiguration,
 };
 use tokio::sync::watch;
 
 use crate::{
     configuration::{
-        ConfigPublishError, ConfigurationCapabilities, LoggingSettingsReconciler,
-        PreparedPublishedSnapshot, PublishedSnapshot, SnapshotStore, command::ConfigCommand,
+        ConfigPublishError, ConfigurationCapabilities, PreparedPublishedSnapshot,
+        PublishedSnapshot, PublishedSnapshotReconciler, SnapshotStore, command::ConfigCommand,
         publish_task,
     },
     registry::RuntimeRegistry,
@@ -25,7 +25,7 @@ pub struct ConfigPublisher {
     pub(crate) snapshots: Arc<SnapshotStore>,
     pub(crate) runtime: Arc<RuntimeRegistry>,
     pub(super) capabilities: Arc<ConfigurationCapabilities>,
-    logging_reconciler: Option<Arc<dyn LoggingSettingsReconciler>>,
+    snapshot_reconciler: Option<Arc<dyn PublishedSnapshotReconciler>>,
 }
 
 impl ConfigPublisher {
@@ -50,16 +50,16 @@ impl ConfigPublisher {
             snapshots,
             runtime,
             capabilities,
-            logging_reconciler: None,
+            snapshot_reconciler: None,
         })
     }
 
     #[must_use]
-    pub fn with_logging_reconciler(
+    pub fn with_snapshot_reconciler(
         mut self,
-        reconciler: Arc<dyn LoggingSettingsReconciler>,
+        reconciler: Arc<dyn PublishedSnapshotReconciler>,
     ) -> Self {
-        self.logging_reconciler = Some(reconciler);
+        self.snapshot_reconciler = Some(reconciler);
         self
     }
 
@@ -142,7 +142,7 @@ impl ConfigPublisher {
         mutation: ConfigurationMutation,
     ) -> Result<(Arc<PublishedSnapshot>, bool), ConfigPublishError> {
         let capabilities = Arc::clone(&self.capabilities);
-        let outcome = self
+        let outcome = match self
             .repository
             .transact_configuration(
                 expected,
@@ -151,7 +151,14 @@ impl ConfigPublisher {
                     Self::compile_candidate(capabilities.as_ref(), expected, candidate)
                 }),
             )
-            .await?;
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(StorageError::IndeterminateConfigurationCommit { .. }) => {
+                panic!("configuration commit outcome is indeterminate; process cannot continue")
+            }
+            Err(error) => return Err(error.into()),
+        };
         let prepared_snapshot = match outcome {
             ConfigurationTransactionOutcome::NoChange => return Ok((current, false)),
             ConfigurationTransactionOutcome::Committed(prepared_snapshot) => prepared_snapshot,
@@ -161,8 +168,8 @@ impl ConfigPublisher {
         let published = self
             .snapshots
             .replace(prepared_snapshot.bind(&self.runtime));
-        if let Some(reconciler) = &self.logging_reconciler {
-            reconciler.reconcile(published.revision(), published.settings().logging());
+        if let Some(reconciler) = &self.snapshot_reconciler {
+            reconciler.reconcile(published.as_ref());
         }
         self.runtime.advance_scheduler_epoch();
         Ok((published, true))

@@ -5,14 +5,16 @@ use any2api_runtime::api::PublishedSnapshot;
 use axum::{
     extract::{Request, State},
     http::{
-        HeaderMap,
+        HeaderMap, Uri,
         header::{AUTHORIZATION, COOKIE, PROXY_AUTHORIZATION},
     },
     middleware::Next,
     response::Response,
 };
 
-use crate::{client_address::ClientAddressContext, state::AppState};
+use crate::{
+    client_address::ClientAddressContext, http_access_log::GatewayAuthRejected, state::AppState,
+};
 
 use super::error::PublicApiError;
 
@@ -48,25 +50,33 @@ pub(crate) async fn require_gateway_api_key(
 ) -> Response {
     let Some(client_context) = request.extensions().get::<ClientAddressContext>().cloned() else {
         tracing::error!("public request client-address context is missing");
-        return PublicApiError::invalid_forwarded_headers()
-            .into_response_for(&state, request.uri());
+        return reject(
+            PublicApiError::invalid_forwarded_headers(),
+            &state,
+            request.uri(),
+        );
     };
     let snapshot = client_context.snapshot_arc();
     let connection = match client_context.connection() {
         Ok(connection) => connection,
         Err(_) => {
-            return PublicApiError::invalid_forwarded_headers()
-                .into_response_for(&state, request.uri());
+            return reject(
+                PublicApiError::invalid_forwarded_headers(),
+                &state,
+                request.uri(),
+            );
         }
     };
     let token = match extract_token(request.headers()) {
         Ok(token) => token,
-        Err(error) => return error.into_response_for(&state, request.uri()),
+        Err(error) => return reject(error, &state, request.uri()),
     };
     let Some(id) = snapshot.authenticate_gateway_api_key(&token) else {
-        return PublicApiError::unauthorized().into_response_for(&state, request.uri());
+        return reject(PublicApiError::unauthorized(), &state, request.uri());
     };
-    state.request_telemetry().record_gateway_key_use(id);
+    state
+        .request_telemetry()
+        .record_gateway_key_use(id, snapshot.revision());
 
     strip_client_credentials(request.headers_mut());
     request.extensions_mut().insert(AuthenticatedGatewayApiKey {
@@ -75,6 +85,12 @@ pub(crate) async fn require_gateway_api_key(
         snapshot,
     });
     next.run(request).await
+}
+
+fn reject(error: PublicApiError, state: &AppState, uri: &Uri) -> Response {
+    let mut response = error.into_response_for(state, uri);
+    response.extensions_mut().insert(GatewayAuthRejected);
+    response
 }
 
 fn extract_token(headers: &HeaderMap) -> Result<String, PublicApiError> {

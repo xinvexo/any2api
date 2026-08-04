@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-25
-- 修订：2026-08-03
+- 修订：2026-08-04
 - 决策者：maintainer
 ## 背景
 
@@ -18,6 +18,9 @@ Provider API Key 与 OAuthAccount 已分别拥有专用管理页面，账号配�
   位于“设置 -> 路由策略”。
 - `GET /api/admin/balancing` 只返回聚合数据，不返回逐账号 ID、标签、Endpoint、Proxy、RPM 窗口、
   过滤计数、模型集合或分层健康状态。
+- ADR-0108 将系统总览实际使用的活动 HTTP 请求数与受管后台任务数作为固定大小的 `process` 汇总迁入
+  该受认证响应；总览状态区与调度区复用同一个 Query cache，不再每 15 秒轮询公共 `/api/health`。
+  停机阶段不迁入：进入 Draining 后 listener 停止接受新连接，HTTP 读取不能成为可靠停机诊断协议。
 - Runtime 在当前 PublishedSnapshot 上单次遍历路由凭据，直接累加全局和 Provider 汇总；不为该
   管理请求构造 Credential×Model 健康快照。
 - 账号级配置与请求统计分别由 Provider 和 OAuth2 登录页面负责。系统总览不增加账号分页、虚拟列表、

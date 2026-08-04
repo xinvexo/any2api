@@ -69,16 +69,17 @@
 ## 后果
 
 发布链重构会修改 Storage 与 Runtime 的内部稳定 API，不保留错误的旧 Repository 兼容层、活事务句柄或双轨发布路径；
-这条源码重构规则不授权改写数据库 Migration 历史。迁移完成后，数据库真相、PublishedSnapshot revision 和运行时注册表不会出现已提交但未发布的
-中间状态；更新任务也不会越过实例锁和 Tokio runtime 生命周期。
+这条源码重构规则不授权改写数据库 Migration 历史。迁移完成后，正常发布不会把已提交但未发布的中间状态暴露给
+继续运行的服务；SQLite phase-two I/O 或确认丢失导致提交结果不确定时进程 fail-fast，下次启动从数据库真相重建，
+不会带旧 PublishedSnapshot 继续服务。更新任务也不会越过实例锁和 Tokio runtime 生命周期。
 
 ## 验证
 
 - 架构检查拒绝 Runtime 生产代码从 Adapter crate 根导入，并拒绝 Provider crate 根公开三种具体 Driver 之外的
   任何平行 Adapter 出口；契约测试和测试夹具使用与生产代码相同的 `provider::api` 类型路径。
 - 更新器测试证明 HTTP 请求返回后任务继续、Draining 拒绝、Forced 收敛和成功后仅请求一次重启。
-- 配置发布故障注入测试证明候选验证/预编译失败时 SQLite revision 不变，Commit 失败时快照不变，成功时
-  数据库、快照和 Gateway 鉴权/路由 revision 一次切换。
+- 配置发布故障注入测试证明候选验证/预编译失败和明确的 Commit 约束拒绝使 SQLite revision/快照不变；成功时
+  数据库、快照和 Gateway 鉴权/路由 revision 一次切换；phase-two I/O 的不确定提交则进入进程 fail-fast。
 - Domain 与 Web 契约测试证明远程管理默认开启，读取 DTO 不接受本地密文兼容形态。
 - Storage 单元测试枚举 revision、Gateway Key、Proxy、OAuthAccount、Provider Endpoint/Credential、Model Route
   与 Setting 组件，证明一致时继续、失配时返回精确类型化错误；生产写路径不再包含配置回读断言。

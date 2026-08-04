@@ -29,6 +29,9 @@ pub(crate) struct HttpRequestId(RequestId);
 #[derive(Clone, Copy)]
 pub(crate) struct ExcludeFromHttpAccessLog;
 
+#[derive(Clone, Copy)]
+pub(crate) struct GatewayAuthRejected;
+
 impl HttpRequestId {
     pub(crate) const fn get(self) -> RequestId {
         self.0
@@ -90,6 +93,13 @@ pub(crate) async fn record(
         response.status().as_u16(),
         capture_headers(response.headers()),
     );
+    if response
+        .extensions_mut()
+        .remove::<GatewayAuthRejected>()
+        .is_some()
+    {
+        completion.mark_gateway_auth_rejected();
+    }
     if response
         .extensions_mut()
         .remove::<ExcludeFromHttpAccessLog>()

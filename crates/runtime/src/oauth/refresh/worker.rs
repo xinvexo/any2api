@@ -105,7 +105,7 @@ impl OAuthRefresher {
         );
         drop(snapshot);
 
-        let prepared = stream::iter(due)
+        let mut prepared_segments = stream::iter(due)
             .map(|(id, token_version)| async move {
                 (
                     id,
@@ -114,12 +114,17 @@ impl OAuthRefresher {
                 )
             })
             .buffer_unordered(SCHEDULED_REFRESH_CONCURRENCY)
-            .collect::<Vec<_>>()
-            .await;
-        let published = self.publish_prepared_refreshes(prepared).await;
+            .ready_chunks(SCHEDULED_REFRESH_CONCURRENCY);
+        let mut publications = ScanPublications::new(started_at);
+        while let Some(prepared) = prepared_segments.next().await {
+            if let Some(revision) = self.publish_prepared_refreshes(prepared).await {
+                publications.record(revision);
+            }
+        }
         ScanOutcome {
             started_at,
-            published,
+            published: publications.latest,
+            external_revision_interleaved: publications.external_revision_interleaved,
         }
     }
 
@@ -206,19 +211,77 @@ impl OAuthRefresher {
 pub(super) struct ScanOutcome {
     started_at: ConfigRevision,
     published: Option<ConfigRevision>,
+    external_revision_interleaved: bool,
 }
 
 impl ScanOutcome {
     fn requires_immediate_rescan(self, latest: ConfigRevision) -> bool {
-        match self.published {
-            Some(published) => {
-                let own_next = self
-                    .started_at
-                    .checked_next()
-                    .expect("a successful publication proves the revision can advance");
-                published > own_next || latest > published
-            }
-            None => latest > self.started_at,
+        self.external_revision_interleaved || latest > self.published.unwrap_or(self.started_at)
+    }
+}
+
+struct ScanPublications {
+    started_at: ConfigRevision,
+    latest: Option<ConfigRevision>,
+    external_revision_interleaved: bool,
+}
+
+impl ScanPublications {
+    fn new(started_at: ConfigRevision) -> Self {
+        Self {
+            started_at,
+            latest: None,
+            external_revision_interleaved: false,
         }
+    }
+
+    fn record(&mut self, revision: ConfigRevision) {
+        let previous = self.latest.unwrap_or(self.started_at);
+        let expected = previous
+            .checked_next()
+            .expect("a successful publication proves the revision can advance");
+        self.external_revision_interleaved |= revision != expected;
+        self.latest = Some(revision);
+    }
+}
+
+#[cfg(test)]
+mod scan_outcome_tests {
+    use super::{ScanOutcome, ScanPublications};
+    use any2api_domain::ConfigRevision;
+
+    #[test]
+    fn contiguous_segment_revisions_are_all_recognized_as_this_scan() {
+        let started_at = revision(10);
+        let mut publications = ScanPublications::new(started_at);
+        publications.record(revision(11));
+        publications.record(revision(12));
+        let outcome = ScanOutcome {
+            started_at,
+            published: publications.latest,
+            external_revision_interleaved: publications.external_revision_interleaved,
+        };
+
+        assert!(!outcome.requires_immediate_rescan(revision(12)));
+        assert!(outcome.requires_immediate_rescan(revision(13)));
+    }
+
+    #[test]
+    fn a_revision_gap_between_segments_requires_a_rescan() {
+        let started_at = revision(20);
+        let mut publications = ScanPublications::new(started_at);
+        publications.record(revision(21));
+        publications.record(revision(23));
+        let outcome = ScanOutcome {
+            started_at,
+            published: publications.latest,
+            external_revision_interleaved: publications.external_revision_interleaved,
+        };
+
+        assert!(outcome.requires_immediate_rescan(revision(23)));
+    }
+
+    fn revision(value: u64) -> ConfigRevision {
+        ConfigRevision::new(value).expect("test revision")
     }
 }

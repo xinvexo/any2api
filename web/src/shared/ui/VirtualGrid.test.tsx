@@ -37,6 +37,23 @@ test("commits the measured responsive columns before the first paint", () => {
   }
 });
 
+test("fills its bounded workspace without imposing a viewport-relative height cap", () => {
+  render(
+    <VirtualGrid
+      items={[1]}
+      getItemKey={(item) => item}
+      renderItem={(item) => <div>项目 {item}</div>}
+      ariaLabel="全高虚拟网格"
+      collectionKey="full-height"
+      estimateRowHeight={80}
+    />,
+  );
+
+  const viewport = screen.getByRole("region", { name: "全高虚拟网格滚动区域" });
+  expect(viewport).toHaveClass("h-full", "min-h-0", "overflow-y-auto");
+  expect(viewport.className).not.toContain("max-h-");
+});
+
 test("renders a virtual window and resets scroll for a new collection", async () => {
   const items = Array.from({ length: 40 }, (_, index) => ({
     id: `item-${index + 1}`,

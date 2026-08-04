@@ -5,7 +5,9 @@ use any2api_provider::api::{
     OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan, ProviderDriver,
     ProviderRegistry,
 };
+use any2api_storage::api::OAuthQuotaSnapshotRepository;
 use any2api_transport::api::TransportManager;
+use tokio::sync::watch;
 
 use crate::{configuration::ConfigPublisher, lifecycle::ProcessLifecycle};
 
@@ -30,27 +32,32 @@ pub struct OAuthService {
     publisher: Arc<ConfigPublisher>,
     sessions: OAuthSessionRegistry,
     refresher: Arc<OAuthRefresher>,
-    quota: OAuthQuotaService,
+    quota: Arc<OAuthQuotaService>,
 }
 
 impl OAuthService {
     #[must_use]
-    pub fn new(
+    pub fn new<R>(
         providers: Arc<ProviderRegistry>,
         transport: Arc<dyn TransportManager>,
         publisher: Arc<ConfigPublisher>,
-    ) -> Self {
+        quota_repository: Arc<R>,
+    ) -> Self
+    where
+        R: OAuthQuotaSnapshotRepository + 'static,
+    {
         let refresher = OAuthRefresher::new(
             Arc::clone(&providers),
             Arc::clone(&transport),
             Arc::clone(&publisher),
         );
-        let quota = OAuthQuotaService::new(
+        let quota = Arc::new(OAuthQuotaService::new(
             Arc::clone(&providers),
             Arc::clone(&transport),
             Arc::clone(&publisher),
             Arc::clone(&refresher),
-        );
+            quota_repository,
+        ));
         Self {
             providers,
             transport,
@@ -65,15 +72,34 @@ impl OAuthService {
         self.refresher.start(lifecycle)
     }
 
+    pub fn start_quota_worker(&self, lifecycle: &ProcessLifecycle) -> bool {
+        self.quota.start_activity_worker(lifecycle)
+    }
+
     pub(crate) fn refresher(&self) -> Arc<OAuthRefresher> {
         Arc::clone(&self.refresher)
     }
 
-    pub async fn query_quota(
+    pub(crate) fn quota_activity(&self) -> super::quota::OAuthQuotaActivity {
+        self.quota.activity()
+    }
+
+    pub async fn cached_quota(
+        &self,
+        id: OAuthAccountId,
+    ) -> Result<Option<OAuthQuotaSnapshot>, OAuthQuotaError> {
+        self.quota.cached(id).await
+    }
+
+    pub async fn refresh_quota(
         &self,
         id: OAuthAccountId,
     ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
-        self.quota.query(id).await
+        self.quota.refresh(id).await
+    }
+
+    pub fn subscribe_quota_changes(&self) -> watch::Receiver<u64> {
+        self.quota.subscribe_changes()
     }
 
     pub async fn reset_quota(

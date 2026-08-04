@@ -99,6 +99,9 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
         permit: Some(permit),
         health: Some(health),
         attempt_recorder: Some(attempt_recorder),
+        quota_activity: None,
+        oauth_account_id: None,
+        quota_activity_guard: None,
     })
 }
 

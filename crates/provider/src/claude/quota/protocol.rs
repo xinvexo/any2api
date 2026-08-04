@@ -116,7 +116,7 @@ fn push_window(
         .map(OffsetDateTime::unix_timestamp)
         .map_err(|_| invalid_response("Claude quota reset timestamp is invalid"))?;
     windows.push(OAuthQuotaWindow {
-        id,
+        id: id.to_owned(),
         kind: OAuthQuotaWindowKind::Time,
         used_percent: payload.utilization,
         limit_window_seconds: Some(duration),

@@ -86,31 +86,29 @@ impl SchedulerEpoch {
         }
     }
 
-    fn schedule_wake(self: &Arc<Self>, slot: u64, at: Instant) {
+    fn prepare_wake_schedule(
+        self: &Arc<Self>,
+        slot: u64,
+        at: Instant,
+    ) -> PendingSchedulerWakeNotification {
         if self.lifecycle.phase() != ShutdownPhase::Running {
-            return;
+            return PendingSchedulerWakeNotification::unchanged();
         }
         let changed = self
             .wake_schedule
             .lock()
             .expect("scheduler wake schedule lock poisoned")
             .schedule(slot, at);
-        if !changed {
-            return;
-        }
-        self.notify_wake_worker();
-        self.ensure_wake_worker();
+        PendingSchedulerWakeNotification::new(Arc::clone(self), changed, true)
     }
 
-    fn cancel_wake(&self, slot: u64) {
+    fn prepare_wake_cancellation(self: &Arc<Self>, slot: u64) -> PendingSchedulerWakeNotification {
         let changed = self
             .wake_schedule
             .lock()
             .expect("scheduler wake schedule lock poisoned")
             .cancel(slot);
-        if changed {
-            self.notify_wake_worker();
-        }
+        PendingSchedulerWakeNotification::new(Arc::clone(self), changed, false)
     }
 
     fn notify_wake_worker(&self) {
@@ -185,18 +183,60 @@ impl SchedulerEpoch {
 }
 
 #[derive(Debug)]
+#[must_use = "publish scheduler wake notifications after releasing outer state locks"]
+pub(crate) struct PendingSchedulerWakeNotification {
+    scheduler: Option<Arc<SchedulerEpoch>>,
+    ensure_worker: bool,
+}
+
+impl PendingSchedulerWakeNotification {
+    fn new(scheduler: Arc<SchedulerEpoch>, changed: bool, ensure_worker: bool) -> Self {
+        Self {
+            scheduler: changed.then_some(scheduler),
+            ensure_worker,
+        }
+    }
+
+    fn unchanged() -> Self {
+        Self {
+            scheduler: None,
+            ensure_worker: false,
+        }
+    }
+
+    pub(crate) fn publish(self) {
+        let Some(scheduler) = self.scheduler else {
+            return;
+        };
+        scheduler.notify_wake_worker();
+        if self.ensure_worker {
+            scheduler.ensure_wake_worker();
+        }
+    }
+}
+
+#[derive(Debug)]
 pub(crate) struct SchedulerWakeSlot {
     id: u64,
     scheduler: Arc<SchedulerEpoch>,
 }
 
 impl SchedulerWakeSlot {
+    #[cfg(test)]
     pub(crate) fn schedule(&self, at: Instant) {
-        self.scheduler.schedule_wake(self.id, at);
+        self.prepare_schedule(at).publish();
+    }
+
+    pub(crate) fn prepare_schedule(&self, at: Instant) -> PendingSchedulerWakeNotification {
+        self.scheduler.prepare_wake_schedule(self.id, at)
     }
 
     pub(crate) fn cancel(&self) {
-        self.scheduler.cancel_wake(self.id);
+        self.prepare_cancellation().publish();
+    }
+
+    pub(crate) fn prepare_cancellation(&self) -> PendingSchedulerWakeNotification {
+        self.scheduler.prepare_wake_cancellation(self.id)
     }
 }
 

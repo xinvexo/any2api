@@ -102,6 +102,63 @@ test("OAuth JSON accounts remain server-side and support editing, model selectio
   expect(browserErrors).toEqual([]);
 });
 
+test("OAuth virtual grid fills a tall management workspace and reveals the complete last row", async ({
+  page,
+}) => {
+  const browserErrors = watchBrowserErrors(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await loginAt(page, "/oauth", "还没有 Codex OAuth 账号");
+
+  await page.getByRole("button", { name: "导入 JSON" }).click();
+  const importDrawer = page.getByRole("dialog", { name: "导入 OAuth JSON" });
+  await importDrawer.getByLabel("OAuth JSON 文件").setInputFiles({
+    name: "oauth-layout-fixture.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(oauthLayoutFixture())),
+  });
+  await importDrawer.getByRole("button", { name: "导入并启用" }).click();
+  await expect(page.getByText("已导入并启用 8 个 OAuth 账号。")).toBeVisible();
+
+  const viewport = page.getByRole("region", { name: "Codex OAuth 账号列表滚动区域" });
+  await expect(viewport).toBeVisible();
+  const workspaceGap = await viewport.evaluate((element) => {
+    const workspace = element.parentElement;
+    if (!workspace) throw new Error("missing OAuth grid workspace");
+    return Math.round(
+      workspace.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom,
+    );
+  });
+  expect(workspaceGap).toBeLessThanOrEqual(1);
+
+  const scrollMetrics = await viewport.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    scrollHeight: element.scrollHeight,
+  }));
+  expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight);
+  await viewport.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+    element.dispatchEvent(new Event("scroll"));
+  });
+
+  const lastAccount = viewport
+    .getByRole("listitem")
+    .filter({ hasText: "E2E Layout Codex 8" });
+  await expect(lastAccount).toBeVisible();
+  const lastRowGap = await Promise.all([viewport.boundingBox(), lastAccount.boundingBox()]).then(
+    ([viewportBox, accountBox]) => {
+      if (!viewportBox || !accountBox) throw new Error("missing OAuth grid bounds");
+      return Math.round(viewportBox.y + viewportBox.height - (accountBox.y + accountBox.height));
+    },
+  );
+  expect(lastRowGap).toBeGreaterThanOrEqual(0);
+
+  for (let index = 1; index <= 8; index += 1) {
+    await deleteAccount(page, `E2E Layout Codex ${index}`);
+  }
+  await expect(page.getByText("还没有 Codex OAuth 账号")).toBeVisible();
+  expect(browserErrors).toEqual([]);
+});
+
 function oauthFixture() {
   return [
     {
@@ -123,6 +180,15 @@ function oauthFixture() {
       email: "grok-e2e@example.invalid",
     },
   ];
+}
+
+function oauthLayoutFixture() {
+  return Array.from({ length: 8 }, (_, index) => ({
+    type: "codex",
+    name: `E2E Layout Codex ${index + 1}`,
+    access_token: `e2e-layout-access-token-${index + 1}`,
+    email: `codex-layout-${index + 1}@example.invalid`,
+  }));
 }
 
 async function selectProvider(page: Page, label: "Codex" | "Claude" | "Grok") {

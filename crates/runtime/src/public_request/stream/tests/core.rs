@@ -376,6 +376,7 @@ fn guarded_body_with_adapter(
             health,
             continuation_binding,
             attempt_recorder: AttemptRecorder::disabled(),
+            quota_activity: None,
             status_code: 200,
             precommit_budget,
             postcommit_idle_timeout,

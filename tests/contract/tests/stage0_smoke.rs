@@ -11,6 +11,7 @@ use axum::{
     },
 };
 use http_body_util::BodyExt;
+use serde_json::json;
 use tower::ServiceExt;
 
 const EMBEDDED_WEB_ASSETS: &[EmbeddedWebAsset] = &[
@@ -27,7 +28,7 @@ const EMBEDDED_WEB_ASSETS: &[EmbeddedWebAsset] = &[
 ];
 
 #[tokio::test]
-async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
+async fn sqlite_bootstrap_serves_minimal_health_and_web_routes() {
     let fixture = TestApplication::new().await;
     let web_root = fixture.directory().join("custom-web");
     fs::create_dir(&web_root).expect("web directory");
@@ -60,13 +61,13 @@ async fn sqlite_bootstrap_and_health_route_share_the_loaded_revision() {
         .to_bytes();
     let value: serde_json::Value = serde_json::from_slice(&body).expect("health json");
 
-    assert_eq!(value["status"], "ok");
-    assert_eq!(value["application_version"], "0.0.0-dev");
-    assert_eq!(value["config_revision"], 1);
-    assert_eq!(value["scheduler_epoch"], 0);
-    assert_eq!(value["shutdown_phase"], "running");
-    assert_eq!(value["active_requests"], 0);
-    assert_eq!(value["background_tasks"], 0);
+    assert_eq!(
+        value,
+        json!({
+            "status": "ok",
+            "application_version": "0.0.0-dev",
+        })
+    );
 
     let deep_link = app
         .clone()

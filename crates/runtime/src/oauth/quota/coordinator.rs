@@ -9,9 +9,10 @@ use any2api_provider::api::{
     OAuthQuotaExhaustion, OAuthQuotaResetResult, OAuthQuotaTokenBalance,
     OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, ProviderRegistry,
 };
+use any2api_storage::api::OAuthQuotaSnapshotRepository;
 use any2api_transport::api::TransportManager;
 use http::StatusCode;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use uuid::Uuid;
 
 use crate::{
@@ -23,8 +24,10 @@ use crate::{
 };
 
 use super::{
+    activity::OAuthQuotaActivity,
     health, observation,
-    rejection::{EgressProbeCache, RequestContext},
+    persistence::OAuthQuotaPersistence,
+    rejection::RequestContext,
     types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
 };
 
@@ -33,8 +36,9 @@ pub(in crate::oauth) struct OAuthQuotaService {
     transport: Arc<dyn TransportManager>,
     publisher: Arc<ConfigPublisher>,
     refresher: Arc<OAuthRefresher>,
+    persistence: OAuthQuotaPersistence,
+    activity: OAuthQuotaActivity,
     reset_gates: StdMutex<HashMap<OAuthAccountId, Weak<Mutex<()>>>>,
-    egress_probes: EgressProbeCache,
 }
 
 impl OAuthQuotaService {
@@ -43,26 +47,61 @@ impl OAuthQuotaService {
         transport: Arc<dyn TransportManager>,
         publisher: Arc<ConfigPublisher>,
         refresher: Arc<OAuthRefresher>,
+        quota_repository: Arc<dyn OAuthQuotaSnapshotRepository>,
     ) -> Self {
         Self {
             providers,
             transport,
             publisher,
             refresher,
+            persistence: OAuthQuotaPersistence::new(quota_repository),
+            activity: OAuthQuotaActivity::new(),
             reset_gates: StdMutex::new(HashMap::new()),
-            egress_probes: EgressProbeCache::default(),
         }
     }
 
-    pub(in crate::oauth) async fn query(
+    pub(in crate::oauth) async fn cached(
+        &self,
+        id: OAuthAccountId,
+    ) -> Result<Option<OAuthQuotaSnapshot>, OAuthQuotaError> {
+        if self
+            .publisher
+            .current_snapshot()
+            .oauth_accounts()
+            .get(id)
+            .is_none()
+        {
+            return Err(OAuthQuotaError::AccountNotFound);
+        }
+        self.persistence.load(id).await
+    }
+
+    pub(in crate::oauth) async fn refresh(
         &self,
         id: OAuthAccountId,
     ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
         let usage = self.query_with_authentication_retry(id).await?;
-        Ok(OAuthQuotaSnapshot {
+        let snapshot = OAuthQuotaSnapshot {
             usage,
             fetched_at: document::unix_now(),
-        })
+        };
+        self.persistence.store(id, &snapshot).await?;
+        Ok(snapshot)
+    }
+
+    pub(in crate::oauth) fn subscribe_changes(&self) -> watch::Receiver<u64> {
+        self.persistence.subscribe()
+    }
+
+    pub(in crate::oauth) fn activity(&self) -> OAuthQuotaActivity {
+        self.activity.clone()
+    }
+
+    pub(in crate::oauth) fn start_activity_worker(
+        self: &Arc<Self>,
+        lifecycle: &crate::lifecycle::ProcessLifecycle,
+    ) -> bool {
+        self.activity.start(Arc::clone(self), lifecycle)
     }
 
     pub(in crate::oauth) async fn reset(
@@ -81,6 +120,7 @@ impl OAuthQuotaService {
         }
         let result = self.reset_with_authentication_retry(id).await?;
         self.clear_temporary_cooldowns(id);
+        self.persistence.delete(id).await?;
         Ok(OAuthQuotaResetOutcome {
             windows_reset: result.windows_reset,
         })
@@ -131,11 +171,8 @@ impl OAuthQuotaService {
         let binding = snapshot
             .credential_runtime(RoutingCredentialId::oauth_account(id))
             .ok_or(OAuthQuotaError::RuntimeUnavailable)?;
-        let permit = binding
-            .try_reserve_fixed()
-            .map_err(|_| OAuthQuotaError::CredentialRateLimited)?;
-        let token = permit
-            .generation()
+        let generation = binding.generation();
+        let token = generation
             .oauth_token()
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
         let plan = driver
@@ -154,20 +191,15 @@ impl OAuthQuotaService {
             proxy,
             strict_ssrf,
             read_timeout,
-            snapshot.revision(),
-            &self.egress_probes,
         );
         let usage_response = request.execute(usage_plan).await?;
         if !usage_response.status.is_success() {
-            return Err(request.rejection(&usage_response).await);
+            return Err(request.rejection(&usage_response));
         }
         let mut usage =
             observation::resolve_usage(&request, usage_response, supplement_plan).await?;
-        let queried_balance =
-            observation::resolve_token_balance(&request, token.as_ref(), &usage).await?;
-        usage.replace_token_balance(queried_balance);
         health::synchronize(
-            permit.generation().health().as_ref(),
+            generation.health().as_ref(),
             &usage,
             snapshot.reliability_policy().permission_denied,
         );
@@ -191,7 +223,6 @@ impl OAuthQuotaService {
         {
             usage.replace_reset_credits(credits);
         }
-        drop(permit);
         Ok(usage)
     }
 
@@ -240,10 +271,7 @@ impl OAuthQuotaService {
         let binding = snapshot
             .credential_runtime(RoutingCredentialId::oauth_account(id))
             .ok_or(OAuthQuotaError::RuntimeUnavailable)?;
-        let permit = binding
-            .try_reserve_fixed()
-            .map_err(|_| OAuthQuotaError::CredentialRateLimited)?;
-        let token = permit
+        let token = binding
             .generation()
             .oauth_token()
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
@@ -262,17 +290,14 @@ impl OAuthQuotaService {
             proxy,
             strict_ssrf,
             read_timeout,
-            snapshot.revision(),
-            &self.egress_probes,
         );
         let response = request.execute(plan).await?;
         if !response.status.is_success() {
-            return Err(request.rejection(&response).await);
+            return Err(request.rejection(&response));
         }
         let result = driver
             .parse_oauth_quota_reset(&response.body)
             .map_err(OAuthQuotaError::Provider)?;
-        drop(permit);
         Ok(result)
     }
 

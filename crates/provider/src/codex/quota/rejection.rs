@@ -1,9 +1,9 @@
-//! Codex quota rejection evidence and account-free egress probe results.
+//! Codex quota rejection evidence from the original bounded response.
 
 use http::StatusCode;
 use serde_json::Value;
 
-use crate::api::{OAuthProviderEgressStatus, OAuthQuotaRejection, UpstreamResponseMeta};
+use crate::api::{OAuthQuotaRejection, UpstreamResponseMeta};
 
 const PROVIDER_EGRESS_CODE: &str = "unsupported_country_region_territory";
 const ACCOUNT_RESTRICTION_CODES: [&str; 3] = [
@@ -19,20 +19,16 @@ pub(crate) fn classify_quota_rejection(
     if meta.status != StatusCode::FORBIDDEN {
         return OAuthQuotaRejection::Unclassified;
     }
-    classify_declared_code(bounded_body).unwrap_or(OAuthQuotaRejection::Unclassified)
+    classify_declared_code(bounded_body)
+        .or_else(|| cloudflare_blocked(bounded_body))
+        .unwrap_or(OAuthQuotaRejection::Unclassified)
 }
 
-pub(crate) fn classify_egress(
-    meta: &UpstreamResponseMeta,
-    _bounded_body: &[u8],
-) -> OAuthProviderEgressStatus {
-    if meta.status.is_success() || meta.status == StatusCode::UNAUTHORIZED {
-        OAuthProviderEgressStatus::Reachable
-    } else if meta.status == StatusCode::FORBIDDEN {
-        OAuthProviderEgressStatus::Restricted
-    } else {
-        OAuthProviderEgressStatus::Unverified
-    }
+fn cloudflare_blocked(body: &[u8]) -> Option<OAuthQuotaRejection> {
+    std::str::from_utf8(body).ok().and_then(|body| {
+        (body.contains("Cloudflare") && body.contains("blocked"))
+            .then_some(OAuthQuotaRejection::ProviderEgressRestricted)
+    })
 }
 
 fn classify_declared_code(body: &[u8]) -> Option<OAuthQuotaRejection> {

@@ -34,61 +34,63 @@ export function OAuthQuotaPanel({
 }) {
   const queryClient = useQueryClient();
   const quotaOptions = oauthQuotaQueryOptions(accountId);
-  const quotaQuery = useQuery({ ...quotaOptions, enabled: false });
+  const quotaQuery = useQuery(quotaOptions);
   const resetRequested = useRef(false);
-  const [resetRefreshErrorAt, setResetRefreshErrorAt] = useState<number | null>(null);
+  const [resetRefreshFailed, setResetRefreshFailed] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const refreshMutationKey = oauthQueryKeys.quotaRefresh(accountId);
+  const refreshMutation = useMutation({
+    mutationKey: refreshMutationKey,
+    retry: false,
+    mutationFn: () => refreshOAuthAccountQuota(queryClient, accountId),
+  });
+  const refreshPending =
+    useIsMutating({ mutationKey: refreshMutationKey, exact: true }) > 0;
   const resetMutationKey = oauthQueryKeys.quotaReset(accountId);
   const resetMutation = useMutation({
     mutationKey: resetMutationKey,
     retry: false,
     mutationFn: async () => {
       const result = await resetOAuthAccountQuota(accountId);
-      await queryClient.resetQueries({ queryKey: quotaOptions.queryKey, exact: true });
+      queryClient.setQueryData(quotaOptions.queryKey, null);
       try {
         await refreshOAuthAccountQuota(queryClient, accountId);
-        return { ...result, quotaRefreshed: true, quotaErrorUpdatedAt: null };
+        return { ...result, quotaRefreshed: true };
       } catch {
-        return {
-          ...result,
-          quotaRefreshed: false,
-          quotaErrorUpdatedAt:
-            queryClient.getQueryState(quotaOptions.queryKey)?.errorUpdatedAt
-            ?? Date.now(),
-        };
+        return { ...result, quotaRefreshed: false };
       }
     },
     onSuccess: (result) => {
       notify.success(`已重置 ${result.windowsReset} 个额度窗口。`);
-      setResetRefreshErrorAt(result.quotaErrorUpdatedAt);
+      setResetRefreshFailed(!result.quotaRefreshed);
     },
-    onError: () => setResetRefreshErrorAt(null),
+    onError: () => setResetRefreshFailed(false),
   });
   const resetPending =
     useIsMutating({ mutationKey: resetMutationKey, exact: true }) > 0;
-  const quota = quotaQuery.isError && !quotaQuery.isFetching ? null : (quotaQuery.data ?? null);
+  const quota = quotaQuery.data ?? null;
   const providerName = oauthProviderLabel(provider);
   const canReset = provider === "codex";
-  const pending = resetPending ? "reset" : quotaQuery.isFetching ? "query" : null;
-  const resetRefreshError =
-    resetRefreshErrorAt !== null
-    && quotaQuery.isError
-    && quotaQuery.errorUpdatedAt === resetRefreshErrorAt
-      ? "额度已重置，但最新额度读取失败。"
+  const pending = resetPending
+    ? "reset"
+    : refreshPending || quotaQuery.isFetching
+      ? "query"
       : null;
   const visibleError =
     (resetMutation.isError ? getOAuthErrorMessage(resetMutation.error) : null)
-    ?? resetRefreshError
+    ?? (resetRefreshFailed ? "额度已重置，但最新额度读取失败。" : null)
+    ?? (refreshMutation.isError ? getOAuthErrorMessage(refreshMutation.error) : null)
     ?? (!quotaQuery.isFetching && quotaQuery.isError
         ? getOAuthErrorMessage(quotaQuery.error)
         : null);
   const availableCount = quota?.resetCredits?.availableCount ?? 0;
 
   async function refreshQuota() {
-    setResetRefreshErrorAt(null);
+    setResetRefreshFailed(false);
     resetMutation.reset();
+    refreshMutation.reset();
     try {
-      await refreshOAuthAccountQuota(queryClient, accountId);
+      await refreshMutation.mutateAsync();
       notify.success(`已刷新「${accountLabel}」的额度`);
     } catch {
       // The query cache owns the account-scoped error rendered below.
@@ -100,7 +102,8 @@ export function OAuthQuotaPanel({
       return;
     }
     setConfirmOpen(false);
-    setResetRefreshErrorAt(null);
+    setResetRefreshFailed(false);
+    refreshMutation.reset();
     resetMutation.reset();
     resetRequested.current = true;
     resetMutation.mutate(undefined, {

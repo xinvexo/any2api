@@ -1,17 +1,11 @@
 use crate::OAuthRequestPlan;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthQuotaRejection {
     AccountRestricted,
     ProviderEgressRestricted,
     Unclassified,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum OAuthProviderEgressStatus {
-    Reachable,
-    Restricted,
-    Unverified,
 }
 
 #[derive(Clone, Debug)]
@@ -61,15 +55,16 @@ impl OAuthQuotaQueryPlan {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OAuthQuotaWindowKind {
     Time,
     Credits,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OAuthQuotaWindow {
-    pub id: &'static str,
+    pub id: String,
     pub kind: OAuthQuotaWindowKind,
     pub used_percent: f64,
     pub limit_window_seconds: Option<u64>,
@@ -77,39 +72,40 @@ pub struct OAuthQuotaWindow {
     pub reset_at: Option<i64>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OAuthQuotaRateLimit {
     pub allowed: Option<bool>,
     pub limit_reached: Option<bool>,
     pub windows: Vec<OAuthQuotaWindow>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OAuthQuotaResetCredit {
     pub expires_at: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OAuthQuotaResetCredits {
     pub available_count: u32,
     pub credits: Vec<OAuthQuotaResetCredit>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OAuthQuotaBilling {
-    pub currency: &'static str,
+    pub currency: String,
     pub prepaid_balance_minor: Option<i64>,
     pub on_demand_used_minor: Option<i64>,
     pub on_demand_cap_minor: Option<i64>,
     pub is_unified_billing_user: Option<bool>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OAuthQuotaTokenBalanceSource {
     Upstream,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OAuthQuotaTokenBalance {
     pub source: OAuthQuotaTokenBalanceSource,
     pub used: u64,
@@ -118,19 +114,20 @@ pub struct OAuthQuotaTokenBalance {
     pub window_seconds: Option<u64>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OAuthQuotaAuthenticationStatus {
     Valid,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OAuthQuotaExhaustion {
     pub observed_at: i64,
     pub used: Option<u64>,
     pub limit: Option<u64>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OAuthQuotaAccountStatus {
     pub authentication: OAuthQuotaAuthenticationStatus,
     pub user_blocked_reason: Option<String>,
@@ -145,7 +142,7 @@ pub struct OAuthQuotaSupplement {
     pub team_blocked_reasons: Vec<String>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OAuthQuotaUsage {
     pub rate_limit: Option<OAuthQuotaRateLimit>,
     pub reset_credits: Option<OAuthQuotaResetCredits>,

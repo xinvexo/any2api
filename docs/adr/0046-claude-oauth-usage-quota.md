@@ -4,7 +4,7 @@
 - 日期：2026-07-26
 - 决策人：项目维护者
 - 补充：ADR-0034、ADR-0036
-- 部分修订：ADR-0070
+- 部分修订：ADR-0070、ADR-0111
 
 ## 背景
 
@@ -18,19 +18,19 @@ Anthropic 为 Claude Code OAuth 提供 `GET https://api.anthropic.com/api/oauth/
 2. Provider 只构造请求并解析响应，不执行网络。Runtime 复用现有 OAuth quota 编排、账号固定 DIRECT/全局代理、严格 SSRF、禁重定向、有界响应体和读取超时；401 最多触发一次 Token refresh，并用新版本 Token 完整重建计划后重试一次。
 3. 只解析 `five_hour`、`seven_day`、`seven_day_sonnet` 和 `seven_day_overage_included`。使用率必须是有限非负数，重置时间必须是有效 RFC 3339；缺失或 `null` 的可选窗口保持缺失，出现但畸形的窗口使整次查询失败。原始响应、未知字段和 Token 不进入 DTO、日志或持久化。
 4. 通用 `OAuthQuotaRateLimit` 改为带稳定 `id` 的窗口列表，并把 `allowed`、`limit_reached` 改为可空观测。Codex 与 Grok 同步投影到该模型；Claude 不推断上游未提供的全局可用状态。该项目尚无需要兼容的正式内部/API 契约，不保留固定主/次槽位的双轨结构。
-5. Claude 额度是只读瞬时快照，不写 SQLite、OAuth Provider JSON、PublishedSnapshot、RequestLog、浏览器存储或文件，也不参与 RPM 或粘性。Claude 当前窗口没有全局可用状态，因此单个窗口 100% 不得影响路由；若未来 Provider 契约明确返回全局耗尽信号，则按 ADR-0070 与 ADR-0095 只更新当前账号 `routing_generation` 的临时路由健康。Claude 不实现 quota reset。
-6. Web 为 Claude 显示单账号“刷新额度”和 Provider 级“刷新全部额度”，复用既有账号级内存 Query cache、最多 6 个并发与 all-settled 汇总。所有返回窗口均展示；只有 Codex 显示 reset credit 与重置按钮。
+5. Claude 额度是只读安全快照，最后一次成功结果按 ADR-0111 写入独立 SQLite 表，但不写 OAuth Provider JSON、PublishedSnapshot、RequestLog、浏览器存储或文件日志，也不恢复 RPM、健康或粘性。Claude 当前窗口没有全局可用状态，因此单个窗口 100% 不得影响路由；若未来 Provider 契约明确返回全局耗尽信号，则按 ADR-0070 与 ADR-0095 只更新当前账号 `routing_generation` 的临时路由健康。Claude 不实现 quota reset。
+6. Web 为 Claude 显示持久化的最后成功快照、单账号“刷新额度”和 Provider 级“刷新全部额度”，复用既有账号级内存 Query cache、最多 6 个并发与 all-settled 汇总。所有返回窗口均展示；只有 Codex 显示 reset credit 与重置按钮。
 
 ## 备选方案
 
 - 只展示 5 小时与普通 7 天窗口：拒绝。它会丢弃 Anthropic 已明确返回的 Sonnet/Fable 窗口，且会把错误的固定双槽模型继续扩散。
 - 把 Claude 字段追加成 `additional_windows`：拒绝。新项目没有兼容负担，双轨模型会让 Provider、DTO 和 Web 长期维护两套窗口语义。
 - 从本地请求日志估算使用率：拒绝。多客户端、上游侧消耗和窗口规则不可见，结果不是权威额度。
-- 定时后台刷新并持久化快照：拒绝。当前需求是管理员显式读取，持久化会引入过期与恢复语义。
+- 固定周期扫描全部账号：拒绝。ADR-0111 只在真实账号使用后合并刷新，并持久化带抓取时间的安全快照；它不恢复路由状态。
 
 ## 后果
 
-每次 Claude 刷新产生一个只读 Anthropic 请求；批量刷新最多按账号各产生一个请求且同时在途不超过 6。通用管理响应从固定主/次字段切换为窗口数组，Codex、Grok 与 Claude 使用同一展示和缓存路径。Provider 新增更多额度窗口时不再受两个槽位限制。
+每次 Claude 手动或活动刷新产生一个只读 Anthropic 请求；批量和活动刷新同时在途均受固定上限约束，闲置账号不会周期读取。通用管理响应使用窗口数组，Codex、Grok 与 Claude 使用同一持久化、展示和缓存路径。Provider 新增更多额度窗口时不再受两个槽位限制。
 
 ## 验证
 

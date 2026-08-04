@@ -62,11 +62,13 @@ pub use settings::{
     SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
 };
 pub use telemetry::{
-    CompletedRequestLog, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome,
-    HttpAccessLogSummary, HttpBodyCapture, HttpHeader, HttpProtocolVersion, LogPage,
+    CompletedRequestLog, GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR, HttpAccessLog,
+    HttpAccessLogExchange, HttpAccessLogOutcome, HttpAccessLogSummary, HttpBodyCapture, HttpHeader,
+    HttpProtocolVersion, LogPage, LogPageCursor, LogPagePosition,
     MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
     MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TOKEN_COUNT, RequestAttempt, RequestAttemptOutcome,
     RequestLog, TokenUsage, bound_error_message, bound_thinking_level,
+    gateway_auth_rejected_capacity,
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, MAX_UPSTREAM_ERROR_MESSAGE_BYTES, RetryAfterHint, UpstreamError,

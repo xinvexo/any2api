@@ -15,11 +15,6 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
             "oauth_quota_unsupported",
             "quota management is not supported for this OAuth provider",
         ),
-        OAuthQuotaError::CredentialRateLimited => AdminApiError::new(
-            StatusCode::TOO_MANY_REQUESTS,
-            "oauth_account_rate_limited",
-            "OAuth account has exhausted its local RPM limit",
-        ),
         OAuthQuotaError::NoResetCredits => AdminApiError::new(
             StatusCode::CONFLICT,
             "oauth_quota_reset_unavailable",
@@ -69,7 +64,9 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
             "oauth_quota_unavailable",
             "OAuth quota management is unavailable",
         ),
-        OAuthQuotaError::InvalidEndpointUri => {
+        OAuthQuotaError::InvalidEndpointUri
+        | OAuthQuotaError::Persistence(_)
+        | OAuthQuotaError::InvalidPersistedSnapshot => {
             tracing::error!(error = ?error, "OAuth quota request could not be constructed");
             AdminApiError::new(
                 StatusCode::INTERNAL_SERVER_ERROR,

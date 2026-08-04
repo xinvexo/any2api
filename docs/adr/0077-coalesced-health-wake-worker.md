@@ -24,6 +24,10 @@ timer 的职责是把共享状态变化广播给其他等待者，而不是建�
 - worker 保存 `slot -> deadline` 与按 deadline 排序的反向索引。新 schedule 比当前最早值更早时立即重排
   sleep；改到更晚时旧 deadline 被删除，禁止提前推进；不同 slot 的较晚 deadline 必须保留，不能因为只
   记住全局最早值而丢失后续边界。
+- 健康状态 Mutex 内必须按状态更新顺序同步修改对应 keyed slot，避免并发延长、清除与重新记录发生乱序；
+  该修改只返回待发布通知。释放健康状态 Mutex 后才允许广播 `wake_changes` 并按需启动唯一 worker。
+  `scheduler_epoch.advance()` 同样禁止在 Credential、Endpoint、Proxy 或 Circuit 健康锁内执行。这样保留
+  状态与 deadline 的原子顺序，同时不让 watch 唤醒和 TaskTracker 登记扩大健康热锁临界区。
 - deadline 到期时，worker 在短锁内批量移除所有已经到期的 slot，锁外只推进一次 scheduler epoch，然后
   继续等待剩余最早值。重复 schedule 和同一时刻的多个状态只产生一次广播。
 - QueueTicket 继续在每一轮直接等待其选择结果中的最早 `retry_at`，并在 deadline 或 epoch 任一先到时重新
@@ -54,4 +58,8 @@ timer 的职责是把共享状态变化广播给其他等待者，而不是建�
   deadline 保留、同一时刻批量唤醒和 slot Drop 撤销。
 - 生命周期测试在所有上述场景断言 `background_task_count <= 1`，并验证 Draining 使 worker 退出、后续
   schedule 不再启动任务。
+- 四线程 Release contention 手动基准固定 20,000 次确定性读锁竞争：锁内立即发布时读锁等待中位数/
+  p99 为 `5.334/13.667 µs`，锁内更新索引、锁外发布后为 `4.000/8.459 µs`，分别下降约 25%/38%；
+  单次通知自身中位数/p99 为 `1.667/3.959 µs`。健康回归覆盖 deferred schedule、cancel、惰性过期
+  清理和运行态 Drop 均不会丢失或复活 keyed deadline。
 - Runtime 定向测试、严格 Clippy、fmt 与架构检查作为提交门禁。

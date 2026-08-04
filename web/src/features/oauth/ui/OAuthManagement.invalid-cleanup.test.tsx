@@ -25,13 +25,16 @@ test("inspects, confirms, and deletes only explicitly invalid OAuth accounts", a
       if (path === "/api/admin/oauth/accounts") {
         return jsonResponse(configuration(deleted ? 2 : 1, deleted ? items.slice(1) : items));
       }
-      if (path.endsWith("/invalid/quota")) {
+      if (path.endsWith("/quota") && init?.method === "GET") {
+        return jsonResponse(null);
+      }
+      if (path.endsWith("/invalid/quota/refresh") && init?.method === "POST") {
         return errorResponse("oauth_account_authentication_failed", 502);
       }
-      if (path.endsWith("/restricted/quota")) {
+      if (path.endsWith("/restricted/quota/refresh") && init?.method === "POST") {
         return errorResponse("oauth_account_restricted", 502);
       }
-      if (path.endsWith("/valid/quota")) {
+      if (path.endsWith("/valid/quota/refresh") && init?.method === "POST") {
         return jsonResponse(quota());
       }
       if (
@@ -84,7 +87,10 @@ test("keeps accounts when authentication failure is not conclusive", async () =>
     if (path === "/api/admin/oauth/accounts") {
       return jsonResponse(configuration(1, items));
     }
-    if (path.endsWith("/unverified/quota")) {
+    if (path.endsWith("/quota") && init?.method === "GET") {
+      return jsonResponse(null);
+    }
+    if (path.endsWith("/unverified/quota/refresh") && init?.method === "POST") {
       return errorResponse("oauth_account_authentication_unverified", 502);
     }
     if (init?.method === "DELETE") {

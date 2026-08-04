@@ -20,20 +20,23 @@ export function SystemLogManagement() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<LogPageSize>(20);
+  const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
-  const query = useSystemLogs(autoRefresh, page, pageSize);
+  const cursor = pageCursors[page - 1] ?? null;
+  const query = useSystemLogs(autoRefresh, cursor, pageSize);
   const clearMutation = useClearSystemLogs();
   const total = query.data?.total ?? 0;
   const totalPages = logPageCount(total, pageSize);
   const safePage = Math.min(Math.max(1, page), totalPages);
 
   useEffect(() => {
-    if (!query.data || query.data.page !== page || safePage === page) {
+    if (!query.data || safePage === page) {
       return;
     }
 
     const correction = window.setTimeout(() => {
       setSelectedRequestId(null);
+      setPageCursors((current) => current.slice(0, safePage));
       setPage(safePage);
     }, 0);
 
@@ -41,6 +44,12 @@ export function SystemLogManagement() {
   }, [page, query.data, safePage]);
 
   async function refreshLogs() {
+    if (cursor !== null || page !== 1) {
+      setSelectedRequestId(null);
+      setPageCursors([null]);
+      setPage(1);
+      return;
+    }
     const result = await query.refetch();
     if (result.isSuccess) {
       notify.success("系统日志已刷新");
@@ -52,11 +61,32 @@ export function SystemLogManagement() {
     saveSystemLogAutoRefreshPreference(enabled);
   };
 
+  const handlePageChange = (nextPage: number) => {
+    if (nextPage === page + 1) {
+      const currentCursor = query.data?.cursor;
+      const nextCursor = query.data?.nextCursor;
+      if (!currentCursor || !nextCursor) {
+        return;
+      }
+      setPageCursors((current) => {
+        const updated = current.slice(0, page);
+        updated[page - 1] = currentCursor;
+        updated[page] = nextCursor;
+        return updated;
+      });
+    } else if (nextPage !== page - 1) {
+      return;
+    }
+    setSelectedRequestId(null);
+    setPage(nextPage);
+  };
+
   const handleClear = () => {
     clearMutation.mutate(undefined, {
       onSuccess: (result) => {
         setConfirmClear(false);
         setSelectedRequestId(null);
+        setPageCursors([null]);
         setPage(1);
         notify.success(`已清理 ${result.deleted} 条历史系统日志`);
       },
@@ -152,9 +182,11 @@ export function SystemLogManagement() {
           page={safePage}
           pageSize={pageSize}
           total={total}
-          onPageChange={setPage}
+          hasNextPage={query.data.nextCursor !== null}
+          onPageChange={handlePageChange}
           onPageSizeChange={(size) => {
             setPageSize(size);
+            setPageCursors([null]);
             setPage(1);
           }}
         />

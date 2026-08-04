@@ -204,76 +204,6 @@ test("keeps the latest data visible when a refresh fails", async () => {
   expect(getNotifications()).toHaveLength(0);
 });
 
-test("paginates request logs from the toolbar", async () => {
-  const items = Array.from({ length: 12 }, (_, index) => ({
-    ...request(),
-    request_id: `11111111-1111-4111-8111-1111111111${String(index).padStart(2, "0")}`,
-    public_model: `model-${index + 1}`,
-  }));
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const path = String(input);
-    if (path === "/api/admin/request-logs?page=1&page_size=20") {
-      return listResponse(items, 12, 1, 20);
-    }
-    if (path === "/api/admin/request-logs?page=1&page_size=10") {
-      return listResponse(items.slice(0, 10), 12, 1, 10);
-    }
-    if (path === "/api/admin/request-logs?page=2&page_size=10") {
-      return listResponse(items.slice(10), 12, 2, 10);
-    }
-    throw new Error(`unexpected ${path}`);
-  });
-
-  renderManagement();
-  expect((await screen.findAllByText("model-1")).length).toBeGreaterThanOrEqual(1);
-  // default page size 20 shows all 12
-  expect(screen.getAllByText("model-12").length).toBeGreaterThanOrEqual(1);
-
-  fireEvent.click(screen.getAllByRole("combobox", { name: "每页条数" })[0]!);
-  fireEvent.click(screen.getByRole("option", { name: "10 条/页" }));
-  expect((await screen.findAllByText("model-1")).length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByText("model-10").length).toBeGreaterThanOrEqual(1);
-  expect(screen.queryByText("model-11")).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getAllByRole("button", { name: "下一页" })[0]!);
-  expect((await screen.findAllByText("model-11")).length).toBeGreaterThanOrEqual(1);
-  expect(screen.getAllByText("model-12").length).toBeGreaterThanOrEqual(1);
-  expect(screen.queryByText("model-1")).not.toBeInTheDocument();
-});
-
-test("returns to the last valid request-log page after the total shrinks", async () => {
-  let firstPageLoads = 0;
-  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    const path = String(input);
-    if (path === "/api/admin/request-logs?page=1&page_size=20") {
-      firstPageLoads += 1;
-      return listResponse(
-        [{ ...request(), public_model: firstPageLoads === 1 ? "model-first" : "model-recovered" }],
-        firstPageLoads === 1 ? 41 : 1,
-        1,
-        20,
-      );
-    }
-    if (path === "/api/admin/request-logs?page=2&page_size=20") {
-      return listResponse([{ ...request(), public_model: "model-second" }], 41, 2, 20);
-    }
-    if (path === "/api/admin/request-logs?page=3&page_size=20") {
-      return listResponse([], 1, 3, 20);
-    }
-    throw new Error(`unexpected ${path}`);
-  });
-
-  renderManagement();
-  expect((await screen.findAllByText("model-first")).length).toBeGreaterThanOrEqual(1);
-  fireEvent.click(screen.getAllByRole("button", { name: "下一页" })[0]!);
-  expect((await screen.findAllByText("model-second")).length).toBeGreaterThanOrEqual(1);
-  fireEvent.click(screen.getAllByRole("button", { name: "下一页" })[0]!);
-
-  expect((await screen.findAllByText("model-recovered")).length).toBeGreaterThanOrEqual(1);
-  expect(firstPageLoads).toBe(2);
-  expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/admin/request-logs?page=1&page_size=20");
-});
-
 test("refreshes the current request-log page after a committed SSE change", async () => {
   vi.stubGlobal("EventSource", FakeEventSource);
   let calls = 0;
@@ -295,7 +225,7 @@ test("refreshes the current request-log page after a committed SSE change", asyn
 
   expect((await screen.findAllByText("model-live")).length).toBeGreaterThanOrEqual(1);
   expect(calls).toBe(2);
-  expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/admin/request-logs?page=1&page_size=20");
+  expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/admin/request-logs?page_size=20");
   expect(getNotifications()).toHaveLength(0);
 });
 
@@ -310,13 +240,20 @@ function renderManagement() {
   );
 }
 
-function listResponse(items: unknown[], total = items.length, page = 1, pageSize = 20) {
+function listResponse(
+  items: unknown[],
+  total = items.length,
+  pageSize = 20,
+  cursor: string | null = items.length > 0 ? "r1.current" : null,
+  nextCursor: string | null = null,
+) {
   return new Response(
     JSON.stringify({
       items,
       total,
-      page,
       page_size: pageSize,
+      cursor,
+      next_cursor: nextCursor,
       telemetry: {
         queued_records: 0,
         in_flight_records: 1,

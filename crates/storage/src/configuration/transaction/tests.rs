@@ -22,6 +22,8 @@ use crate::{
     sqlite::SqliteStore,
 };
 
+mod commit_ack;
+
 #[tokio::test]
 async fn accepted_candidate_is_committed_before_it_is_returned() {
     let directory = tempdir().expect("temporary directory");

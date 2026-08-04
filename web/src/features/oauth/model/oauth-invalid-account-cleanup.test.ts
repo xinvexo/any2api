@@ -52,15 +52,15 @@ describe("invalid OAuth account cleanup", () => {
     const client = queryClient();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
-        if (path.endsWith("invalid/quota")) {
+        if (path.endsWith("invalid/quota/refresh") && init?.method === "POST") {
           return errorResponse("oauth_account_authentication_failed", 502);
         }
-        if (path.endsWith("restricted/quota")) {
+        if (path.endsWith("restricted/quota/refresh") && init?.method === "POST") {
           return errorResponse("oauth_account_restricted", 502);
         }
-        if (path.endsWith("valid/quota")) {
+        if (path.endsWith("valid/quota/refresh") && init?.method === "POST") {
           return jsonResponse(quota());
         }
         if (path === "/api/admin/oauth/accounts") {

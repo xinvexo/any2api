@@ -162,6 +162,7 @@ impl QuotaTestContext {
             providers,
             Arc::clone(&transport) as Arc<dyn TransportManager>,
             publisher,
+            Arc::clone(&storage),
         ));
         Self {
             _directory: directory,

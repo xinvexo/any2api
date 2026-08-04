@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use any2api_domain::{
-    ConfigRevision, ErrorClass, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
+    ConfigRevision, ErrorClass, LogPagePosition, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
     MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, ProtocolDialect, ProtocolOperation, RequestAttempt,
     RequestAttemptOutcome, RequestLog, RetrySafety,
 };
@@ -34,6 +34,15 @@ pub(super) struct RequestLogRow {
     output_tokens: Option<i64>,
     cache_read_tokens: Option<i64>,
     is_stream: i64,
+}
+
+impl RequestLogRow {
+    pub(super) fn page_position(&self) -> Result<LogPagePosition, StorageError> {
+        Ok(LogPagePosition::new(
+            from_i64(self.started_at_ms)?,
+            self.request_id.clone(),
+        ))
+    }
 }
 
 #[derive(FromRow)]

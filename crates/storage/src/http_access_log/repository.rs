@@ -1,18 +1,17 @@
-use any2api_domain::{HttpAccessLog, HttpAccessLogSummary, LogPage, RequestId};
+use any2api_domain::{
+    HttpAccessLog, HttpAccessLogSummary, LogPage, LogPageCursor, RequestId,
+    gateway_auth_rejected_capacity,
+};
 use async_trait::async_trait;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
 use super::{
     capacity::trim_to_capacity,
-    rows::{HttpAccessLogDetailRow, HttpAccessLogSummaryRow, parse_detail, parse_summary},
+    pagination,
+    rows::{HttpAccessLogDetailRow, parse_detail},
     writes::{delete_oldest_before, insert},
 };
-
-pub(crate) const SYSTEM_LOG_RETENTION_PREDICATE: &str = "\
-    path = '/v1' OR path GLOB '/v1/*' OR client_ip IS NULL OR \
-    (client_ip NOT LIKE '127.%' AND client_ip <> '::1') OR \
-    status_code IS NULL OR status_code >= 400 OR outcome <> 'completed'";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HttpAccessLogCapacity {
@@ -36,6 +35,14 @@ impl HttpAccessLogCapacity {
     pub const fn max_exchange_bytes(self) -> u64 {
         self.max_exchange_bytes
     }
+
+    pub const fn gateway_auth_rejected_max_rows(self) -> u64 {
+        gateway_auth_rejected_capacity(self.max_rows)
+    }
+
+    pub const fn gateway_auth_rejected_max_exchange_bytes(self) -> u64 {
+        gateway_auth_rejected_capacity(self.max_exchange_bytes)
+    }
 }
 
 #[async_trait]
@@ -58,7 +65,7 @@ pub trait HttpAccessLogRepository: Send + Sync {
     async fn list_http_access_logs(
         &self,
         since_ms: u64,
-        offset: u64,
+        cursor: Option<LogPageCursor>,
         limit: u32,
     ) -> Result<LogPage<HttpAccessLogSummary>, StorageError>;
 
@@ -141,43 +148,10 @@ impl HttpAccessLogRepository for SqliteStore {
     async fn list_http_access_logs(
         &self,
         since_ms: u64,
-        offset: u64,
+        cursor: Option<LogPageCursor>,
         limit: u32,
     ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
-        let since_ms = to_i64(since_ms)?;
-        let offset = to_i64(offset)?;
-        let mut transaction = self.pool().begin().await?;
-        let count_statement = format!(
-            "SELECT COUNT(*) FROM http_access_logs \
-             INDEXED BY http_access_logs_summary_filter_idx \
-             WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE})"
-        );
-        let total: i64 = sqlx::query_scalar(&count_statement)
-            .bind(since_ms)
-            .fetch_one(&mut *transaction)
-            .await?;
-        let page_statement = format!(
-            "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, uri, \
-             http_version, status_code, duration_ms, response_bytes, outcome, exchange_captured \
-             FROM http_access_logs INDEXED BY http_access_logs_summary_filter_idx \
-             WHERE started_at_ms >= ? AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
-             ORDER BY started_at_ms DESC, request_id DESC LIMIT ? OFFSET ?"
-        );
-        let rows = sqlx::query_as::<_, HttpAccessLogSummaryRow>(&page_statement)
-            .bind(since_ms)
-            .bind(i64::from(limit))
-            .bind(offset)
-            .fetch_all(&mut *transaction)
-            .await?;
-        transaction.commit().await?;
-        let items = rows
-            .into_iter()
-            .map(parse_summary)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(LogPage::new(
-            items,
-            u64::try_from(total).map_err(|_| StorageError::CorruptTelemetry)?,
-        ))
+        pagination::list(self, since_ms, cursor, limit).await
     }
 
     async fn get_http_access_log(
@@ -187,7 +161,7 @@ impl HttpAccessLogRepository for SqliteStore {
         let row = sqlx::query_as::<_, HttpAccessLogDetailRow>(
             "SELECT request_id, started_at_ms, config_revision, client_ip, method, path, uri, \
              http_version, status_code, duration_ms, response_bytes, outcome, exchange_captured, \
-             request_headers, request_body, request_body_bytes, request_body_complete, \
+             gateway_auth_rejected, request_headers, request_body, request_body_bytes, request_body_complete, \
              request_body_truncated, response_headers, response_body, response_body_complete, \
              response_body_truncated FROM http_access_logs WHERE request_id = ?",
         )
@@ -205,10 +179,6 @@ impl HttpAccessLogRepository for SqliteStore {
         transaction.commit().await?;
         Ok(result.rows_affected())
     }
-}
-
-fn to_i64(value: u64) -> Result<i64, StorageError> {
-    i64::try_from(value).map_err(|_| StorageError::CorruptTelemetry)
 }
 
 fn to_u64(value: i64) -> Result<u64, StorageError> {

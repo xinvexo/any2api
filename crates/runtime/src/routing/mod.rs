@@ -18,8 +18,8 @@ pub(crate) use candidates::{
 pub(crate) use credential::{
     RoutingCredential, RoutingCredentialCompileError, RoutingCredentialSpec, RoutingCredentials,
 };
-pub(crate) use epoch::{SchedulerEpoch, SchedulerWakeSlot};
-pub(crate) use queue::QueueCoordinator;
+pub(crate) use epoch::{PendingSchedulerWakeNotification, SchedulerEpoch, SchedulerWakeSlot};
+pub(crate) use queue::{QueueCoordinator, QueueTicket};
 pub use queue::{QueuePolicy, QueuePolicyError, RateLimitAction};
 pub(crate) use scheduler::{IndexedSelectAndReserveResult, select_index_and_try_reserve};
 pub use scheduler::{SelectAndReserveResult, select_and_try_reserve};

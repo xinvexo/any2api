@@ -5,19 +5,20 @@ import { useLogChangeEvent } from "@/shared/lib/use-log-change-event";
 
 const systemLogQueryKeys = {
   all: ["system-logs"] as const,
-  list: (page: number, pageSize: number) => ["system-logs", "list", page, pageSize] as const,
+  list: (cursor: string | null, pageSize: number) =>
+    ["system-logs", "list", cursor ?? "latest", pageSize] as const,
   detail: (requestId: string) => ["system-logs", "detail", requestId] as const,
 };
 
-export function useSystemLogs(autoRefresh: boolean, page: number, pageSize: number) {
+export function useSystemLogs(autoRefresh: boolean, cursor: string | null, pageSize: number) {
   const queryClient = useQueryClient();
-  const queryKey = systemLogQueryKeys.list(page, pageSize);
+  const queryKey = systemLogQueryKeys.list(cursor, pageSize);
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => getSystemLogs(page, pageSize, signal),
+    queryFn: ({ signal }) => getSystemLogs(cursor, pageSize, signal),
   });
 
-  useLogChangeEvent("system_logs_changed", autoRefresh, () => {
+  useLogChangeEvent("system_logs_changed", autoRefresh && cursor === null, () => {
     void queryClient.invalidateQueries({ queryKey, exact: true });
   });
 

@@ -19,11 +19,52 @@ use crate::{
     routing::{CandidateExclusions, RouteCandidate},
 };
 
-pub(super) enum GenerationSelection {
+pub(in crate::public_request) enum GenerationSelection {
     Acquired(Box<SelectedCandidate>),
     RateLimited(Option<Instant>),
     TemporarilyUnavailable(Instant),
     NoCandidates,
+}
+
+pub(in crate::public_request) struct CandidateSelector<'a> {
+    snapshot: &'a PublishedSnapshot,
+    route_id: ModelRouteId,
+    fallback_on_rate_limit: bool,
+    tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
+    exclusions: &'a CandidateExclusions,
+    filters: RequestFilterRecorder,
+}
+
+impl<'a> CandidateSelector<'a> {
+    pub(in crate::public_request) fn new(
+        snapshot: &'a PublishedSnapshot,
+        route_id: ModelRouteId,
+        fallback_on_rate_limit: bool,
+        tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
+        exclusions: &'a CandidateExclusions,
+    ) -> Self {
+        Self {
+            snapshot,
+            route_id,
+            fallback_on_rate_limit,
+            tiers,
+            exclusions,
+            filters: RequestFilterRecorder::default(),
+        }
+    }
+
+    pub(in crate::public_request) fn try_select(
+        &mut self,
+    ) -> Result<GenerationSelection, PublicError> {
+        generation::try_select(
+            self.snapshot,
+            self.route_id,
+            self.fallback_on_rate_limit,
+            self.tiers,
+            self.exclusions,
+            &mut self.filters,
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -56,21 +97,17 @@ pub(in crate::public_request) async fn select_candidate(
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     exclusions: &CandidateExclusions,
 ) -> Result<SelectedCandidate, PublicError> {
-    let mut filters = RequestFilterRecorder::default();
-    let try_select = || {
-        generation::try_select(
-            snapshot,
-            route_id,
-            fallback_on_rate_limit,
-            tiers,
-            exclusions,
-            &mut filters,
-        )
-    };
+    let mut selector = CandidateSelector::new(
+        snapshot,
+        route_id,
+        fallback_on_rate_limit,
+        tiers,
+        exclusions,
+    );
     generation::select_with_queue(
         snapshot.queue_coordinator(),
         snapshot.queue_policy(),
-        try_select,
+        || selector.try_select(),
     )
     .await
 }
@@ -119,11 +156,14 @@ pub(super) fn try_select_fixed_candidate_for_test(
     fixed::try_selected_for_test(policy, candidate, after_reservation)
 }
 
-pub(super) fn rate_limit_error(message: &'static str) -> PublicError {
+pub(in crate::public_request) fn rate_limit_error(message: &'static str) -> PublicError {
     public_error(PublicErrorCode::LocalRateLimit, message)
 }
 
-pub(super) fn rate_limited(message: &'static str, retry_at: Option<Instant>) -> PublicError {
+pub(in crate::public_request) fn rate_limited(
+    message: &'static str,
+    retry_at: Option<Instant>,
+) -> PublicError {
     let error = rate_limit_error(message);
     retry_at.map_or(error.clone(), |retry_at| {
         let delay = retry_at.saturating_duration_since(Instant::now());
@@ -134,14 +174,14 @@ pub(super) fn rate_limited(message: &'static str, retry_at: Option<Instant>) -> 
     })
 }
 
-pub(super) fn no_available_credentials() -> PublicError {
+pub(in crate::public_request) fn no_available_credentials() -> PublicError {
     public_error(
         PublicErrorCode::NoAvailableCredential,
         "no eligible provider credential is available",
     )
 }
 
-pub(super) fn temporarily_unavailable(retry_at: Instant) -> PublicError {
+pub(in crate::public_request) fn temporarily_unavailable(retry_at: Instant) -> PublicError {
     let delay = retry_at.saturating_duration_since(Instant::now());
     let seconds = delay
         .as_secs()

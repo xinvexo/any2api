@@ -12,7 +12,7 @@ use any2api_transport::api::{
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures_util::stream;
-use http::{HeaderMap, HeaderValue, Method, StatusCode, header::AUTHORIZATION};
+use http::{HeaderMap, Method, StatusCode, header::AUTHORIZATION};
 use tokio::sync::Semaphore;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -21,8 +21,8 @@ pub(super) enum AuthenticationMode {
     RejectOnce,
     AlwaysReject,
     AlwaysForbidden,
-    CodexEgressRejected,
-    CodexEgressReachable,
+    CodexCloudflareBlocked,
+    CodexUnknownForbidden,
     RefreshRejected,
     RefreshInvalidGrant,
 }
@@ -36,8 +36,6 @@ pub(super) struct CapturedQuotaRequest {
     pub(super) grok_client_version: Option<String>,
     pub(super) grok_user_id: Option<String>,
     pub(super) grok_client_mode: Option<String>,
-    pub(super) grok_model_override: Option<String>,
-    pub(super) content_type: Option<String>,
     pub(super) anthropic_beta: Option<String>,
     pub(super) user_agent: Option<String>,
     pub(super) proxy_id: any2api_domain::ProxyProfileId,
@@ -100,8 +98,6 @@ impl QuotaTransport {
                 grok_client_version: request.grok_client_version.clone(),
                 grok_user_id: request.grok_user_id.clone(),
                 grok_client_mode: request.grok_client_mode.clone(),
-                grok_model_override: request.grok_model_override.clone(),
-                content_type: request.content_type.clone(),
                 anthropic_beta: request.anthropic_beta.clone(),
                 user_agent: request.user_agent.clone(),
                 proxy_id: request.proxy_id,
@@ -165,7 +161,6 @@ impl TransportManager for QuotaTransport {
             .get(AUTHORIZATION)
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
-        let authenticated = authorization.is_some();
         self.captured
             .lock()
             .expect("captured request lock")
@@ -178,30 +173,23 @@ impl TransportManager for QuotaTransport {
                 grok_client_version: header(&request, "x-grok-client-version"),
                 grok_user_id: header(&request, "x-userid"),
                 grok_client_mode: header(&request, "x-grok-client-mode"),
-                grok_model_override: header(&request, "x-grok-model-override"),
-                content_type: header(&request, "content-type"),
                 anthropic_beta: header(&request, "anthropic-beta"),
                 user_agent: header(&request, "user-agent"),
                 proxy_id: proxy.profile().id(),
                 strict_ssrf: request.network_policy.strict_ssrf(),
                 body: request.body,
             });
-        let (status, headers, body, body_must_not_be_polled) = match path.as_str() {
+        let (status, headers, body) = match path.as_str() {
             "/oauth/token" | "/oauth2/token" | "/v1/oauth/token" => self.refresh_response(),
-            "/backend-api/wham/usage" => self.codex_usage_response(authenticated),
+            "/backend-api/wham/usage" => self.codex_usage_response(),
             "/api/oauth/usage" => self.claude_usage_response(),
             "/v1/billing" => self.grok_billing_response(),
             "/v1/user" => self.grok_subscription_response(),
-            "/v1/chat/completions" => self.grok_token_balance_response(),
             "/backend-api/wham/rate-limit-reset-credits" => self.reset_credits_response(),
             "/backend-api/wham/rate-limit-reset-credits/consume" => self.consume_response().await,
             other => panic!("unexpected quota request path: {other}"),
         };
-        let body: BoxByteStream = if body_must_not_be_polled {
-            Box::pin(stream::poll_fn(|_| panic!("quota probe body was polled")))
-        } else {
-            Box::pin(stream::iter([Ok(body)]))
-        };
+        let body: BoxByteStream = Box::pin(stream::iter([Ok(body)]));
         Ok(TransportResponse {
             status,
             headers,
@@ -211,7 +199,7 @@ impl TransportManager for QuotaTransport {
     }
 }
 
-type MockResponse = (StatusCode, HeaderMap, Bytes, bool);
+type MockResponse = (StatusCode, HeaderMap, Bytes);
 
 impl QuotaTransport {
     fn refresh_response(&self) -> MockResponse {
@@ -227,19 +215,15 @@ impl QuotaTransport {
         ))
     }
 
-    fn codex_usage_response(&self, authenticated: bool) -> MockResponse {
+    fn codex_usage_response(&self) -> MockResponse {
         match self.authentication {
-            AuthenticationMode::CodexEgressRejected => {
+            AuthenticationMode::CodexCloudflareBlocked => {
+                self.usage_calls.fetch_add(1, Ordering::AcqRel);
+                return cloudflare_blocked();
+            }
+            AuthenticationMode::CodexUnknownForbidden => {
                 self.usage_calls.fetch_add(1, Ordering::AcqRel);
                 return forbidden_unknown();
-            }
-            AuthenticationMode::CodexEgressReachable => {
-                self.usage_calls.fetch_add(1, Ordering::AcqRel);
-                return if authenticated {
-                    forbidden_unknown()
-                } else {
-                    unauthorized()
-                };
             }
             _ => {}
         }
@@ -294,24 +278,6 @@ impl QuotaTransport {
         }
     }
 
-    fn grok_token_balance_response(&self) -> MockResponse {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-ratelimit-limit-tokens",
-            HeaderValue::from_static("2000000"),
-        );
-        headers.insert(
-            "x-ratelimit-remaining-tokens",
-            HeaderValue::from_static("1750000"),
-        );
-        (
-            StatusCode::OK,
-            headers,
-            Bytes::from_static(br#"{"choices":[]}"#),
-            false,
-        )
-    }
-
     fn reset_credits_response(&self) -> MockResponse {
         ok(Bytes::from(
             serde_json::json!({
@@ -355,9 +321,8 @@ impl QuotaTransport {
             AuthenticationMode::RefreshRejected | AuthenticationMode::RefreshInvalidGrant => {
                 Some(unauthorized())
             }
-            AuthenticationMode::CodexEgressRejected | AuthenticationMode::CodexEgressReachable => {
-                None
-            }
+            AuthenticationMode::CodexCloudflareBlocked
+            | AuthenticationMode::CodexUnknownForbidden => None,
         }
     }
 }
@@ -371,7 +336,7 @@ fn header(request: &TransportRequest, name: &str) -> Option<String> {
 }
 
 fn ok(body: Bytes) -> MockResponse {
-    (StatusCode::OK, HeaderMap::new(), body, false)
+    (StatusCode::OK, HeaderMap::new(), body)
 }
 
 fn unauthorized() -> MockResponse {
@@ -379,7 +344,6 @@ fn unauthorized() -> MockResponse {
         StatusCode::UNAUTHORIZED,
         HeaderMap::new(),
         Bytes::from_static(b"{}"),
-        false,
     )
 }
 
@@ -388,7 +352,6 @@ fn forbidden() -> MockResponse {
         StatusCode::FORBIDDEN,
         HeaderMap::new(),
         Bytes::from_static(br#"{"code":"unauthorized:blocked-user"}"#),
-        false,
     )
 }
 
@@ -397,7 +360,16 @@ fn forbidden_unknown() -> MockResponse {
         StatusCode::FORBIDDEN,
         HeaderMap::new(),
         Bytes::from_static(br#"{"error":{"code":"unknown_forbidden"}}"#),
-        false,
+    )
+}
+
+fn cloudflare_blocked() -> MockResponse {
+    (
+        StatusCode::FORBIDDEN,
+        HeaderMap::new(),
+        Bytes::from_static(
+            b"<html><body>Cloudflare error: Sorry, you have been blocked</body></html>",
+        ),
     )
 }
 
@@ -406,7 +378,6 @@ fn service_unavailable() -> MockResponse {
         StatusCode::SERVICE_UNAVAILABLE,
         HeaderMap::new(),
         Bytes::from_static(b"{}"),
-        false,
     )
 }
 
@@ -415,6 +386,5 @@ fn invalid_grant() -> MockResponse {
         StatusCode::BAD_REQUEST,
         HeaderMap::new(),
         Bytes::from_static(br#"{"error":"invalid_grant"}"#),
-        false,
     )
 }

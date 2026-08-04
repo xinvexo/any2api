@@ -51,11 +51,7 @@ async fn request_policy_lookup_is_pure_until_configuration_reconcile() {
     assert_eq!(telemetry.current_policy().revision, ConfigRevision::INITIAL);
     assert_eq!(telemetry.current_policy().queue_capacity, 8);
 
-    crate::configuration::LoggingSettingsReconciler::reconcile(
-        &telemetry,
-        next_revision,
-        next.logging(),
-    );
+    telemetry.reconcile_policy_for_test(next_revision, next.logging());
     assert_eq!(telemetry.current_policy(), request_policy);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }
@@ -205,8 +201,7 @@ async fn published_row_cap_wakes_cleanup_without_waiting_for_the_interval() {
         .store(1, Ordering::Release);
     let lowered = logging_settings_with_request_max_rows(8, Some(10));
 
-    crate::configuration::LoggingSettingsReconciler::reconcile(
-        &telemetry,
+    telemetry.reconcile_policy_for_test(
         ConfigRevision::new(2).expect("next revision"),
         lowered.logging(),
     );
@@ -247,7 +242,7 @@ async fn burst_writes_above_the_old_cleanup_rate_stay_within_the_row_cap() {
     wait_for(|| telemetry.metrics().persisted_records == 1_200).await;
 
     let page = repository
-        .list_request_logs(0, 0, 200)
+        .list_request_logs(0, None, 200)
         .await
         .expect("capped request log page");
     assert_eq!(page.total, 100);

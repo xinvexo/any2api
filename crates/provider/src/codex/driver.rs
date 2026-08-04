@@ -12,8 +12,8 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
-        OAuthImportedAccount, OAuthLoginFlow, OAuthProviderEgressStatus, OAuthQuotaRejection,
-        OAuthQuotaUsage, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
+        OAuthImportedAccount, OAuthLoginFlow, OAuthQuotaRejection, OAuthQuotaUsage,
+        OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial, ProviderDriver,
         ProviderRequestHeaderContext, UpstreamResponseMeta,
     },
     credential::api_key,
@@ -200,18 +200,6 @@ impl ProviderDriver for CodexDriver {
         bounded_body: &[u8],
     ) -> OAuthQuotaRejection {
         codex_quota::classify_quota_rejection(meta, bounded_body)
-    }
-
-    fn oauth_provider_egress_probe_plan(&self) -> Result<Option<OAuthRequestPlan>, ProviderError> {
-        codex_quota::egress_probe_plan().map(Some)
-    }
-
-    fn classify_oauth_provider_egress(
-        &self,
-        meta: &UpstreamResponseMeta,
-        bounded_body: &[u8],
-    ) -> OAuthProviderEgressStatus {
-        codex_quota::classify_egress(meta, bounded_body)
     }
 
     fn parse_oauth_quota_usage(

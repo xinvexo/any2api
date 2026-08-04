@@ -1,9 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use any2api_domain::{ConfigRevision, LoggingSettings, ProxyProfileId};
+use any2api_domain::{ConfigRevision, ProxyProfileId};
 
 use super::{TestContext, proxy_draft};
-use crate::configuration::{ConfigPublisher, LoggingSettingsReconciler};
+use crate::configuration::{ConfigPublisher, PublishedSnapshot, PublishedSnapshotReconciler};
 
 #[tokio::test]
 async fn logging_reconcile_observes_the_already_published_revision() {
@@ -20,7 +20,7 @@ async fn logging_reconcile_observes_the_already_published_revision() {
         crate::test_support::configuration_capabilities(),
     )
     .expect("configuration publisher")
-    .with_logging_reconciler(reconciler);
+    .with_snapshot_reconciler(reconciler);
 
     let published = publisher
         .create_proxy(
@@ -42,11 +42,11 @@ struct RevisionObserver {
     observations: Arc<Mutex<Vec<(ConfigRevision, ConfigRevision)>>>,
 }
 
-impl LoggingSettingsReconciler for RevisionObserver {
-    fn reconcile(&self, revision: ConfigRevision, _settings: &LoggingSettings) {
+impl PublishedSnapshotReconciler for RevisionObserver {
+    fn reconcile(&self, published: &PublishedSnapshot) {
         self.observations
             .lock()
             .expect("observation lock poisoned")
-            .push((revision, self.snapshots.load().revision()));
+            .push((published.revision(), self.snapshots.load().revision()));
     }
 }

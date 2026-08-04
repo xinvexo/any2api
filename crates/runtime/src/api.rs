@@ -1,7 +1,7 @@
 pub use crate::affinity::{AffinityPolicy, AffinityRuntimeSnapshot};
 pub use crate::configuration::{
-    ConfigPublishError, ConfigPublisher, LoggingSettingsReconciler, PreparedPublishedSnapshot,
-    PublishedSnapshot, SnapshotCompileError, SnapshotStore,
+    ConfigPublishError, ConfigPublisher, PreparedPublishedSnapshot, PublishedSnapshot,
+    PublishedSnapshotReconciler, SnapshotCompileError, SnapshotStore,
 };
 pub use crate::configuration::{
     ConfigurationCapabilities, ConfigurationCapabilityError, ProviderProtocolOptions,

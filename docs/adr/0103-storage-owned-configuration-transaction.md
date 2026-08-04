@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-03
+- 修订：2026-08-04（Commit 确认丢失与 phase-two I/O fail-fast）
 - 决策者：maintainer
 
 ## 背景
@@ -35,6 +36,23 @@
    它不能 Commit、Rollback、延长或泄漏 SQLite 写锁。
 5. `ConfigPublisher` 是该事务端口唯一生产调用者。测试若需直接提交候选，必须使用显式测试夹具并提供同步
    identity 编译器；`xtask architecture-check` 检查新的调用名并拒绝其他生产调用点。
+6. 配置发布的取消边界覆盖整个“Storage 事务调用 → Runtime Binding → ArcSwap”阶段，而不只覆盖
+   `commit().await`。当前固定的 sqlx 0.8.6 SQLite Driver 在专用 Worker 上执行 `COMMIT`，并通过只有接收方
+   确认后发送方才完成的 rendezvous oneshot 返回结果；如果调用 Future 在命令发出后被 Drop，Worker 仍可能
+   完成 SQLite 提交，然后识别确认接收方已经消失。这不是一个返回给 Repository 的 `sqlx::Error`，而是调用栈
+   已被取消。因此 ConfigPublisher 必须继续用进程级 critical task 脱离 HTTP waiter；客户端取消只能丢弃等待
+   结果，不能取消发布任务。只有生命周期已经单调进入 `Forced`、HTTP 不再接收请求且进程正在退出时才允许取消
+   critical task；该状态不能恢复为旧快照继续服务。
+7. SQLite 3.46.0 WAL 在 commit frame 已写入后仍调用 VFS `SQLITE_FCNTL_COMMIT_PHASETWO`。SQLite 对该 opcode
+   的定义明确说明此时事务已经提交；把主数据库文件的 VFS `xFileControl` 故障注入为 `SQLITE_IOERR`，能够稳定
+   复现“新 revision 对其他连接可见，但 `transaction.commit().await` 返回错误”。因此 Storage 在 Commit 阶段
+   单独分类结果：SQLite extended code 的 primary code 为 `SQLITE_IOERR`，或 sqlx Worker 无法返回数据库错误的
+   其他通信失败，统一转为 `IndeterminateConfigurationCommit`。其中可能包含实际在 phase one 发生、尚未提交的
+   I/O 失败；为保证一致性允许保守误杀，不尝试在故障连接上判定或修复。
+8. ConfigPublisher 不得把 `IndeterminateConfigurationCommit` 转为可返回的管理 API 错误。它必须使受管 critical
+   task 失败，由 `publish_task` 立即终止进程；下次启动从 SQLite 重建快照。延迟外键或 commit hook 拒绝产生的
+   `SQLITE_CONSTRAINT` 已由故障注入证明回滚，仍按普通 `StorageError::Database` 返回。禁止在错误后查询 revision
+   再猜测是否切换：查询本身可能失败，而且无法证明所有配置表与预编译候选对应同一个已提交结果。
 
 ## 备选方案
 
@@ -48,13 +66,31 @@
 ## 后果
 
 - SQLite 写事务的完整生命周期只能在 Storage 的一个 async 调用栈内观察；Runtime API 不再具备事务能力。
-- Runtime 的候选编译仍发生在 Commit 前，原有失败回滚与 Commit 失败不切快照语义不变。
+- Runtime 的候选编译仍发生在 Commit 前；明确约束拒绝继续回滚且不切快照，提交结果不确定则进程退出。
 - 事务 Repository 需要两个固定泛型参数，但 ConfigPublisher 内部将其固定为
   `PreparedPublishedSnapshot` 与 `ConfigPublishError`，不会扩散到管理 API。
+- HTTP waiter 取消不会缩短 SQLite 写锁持有期；这是保证提交确认与快照切换连续完成的必要所有权边界。Forced
+  停机仍有界取消尚未完成的异步事务，可能留下只能由进程重启重新加载的已提交 revision，但不会继续对外服务。
+- Commit I/O 错误不再总是普通可恢复错误；即使故障实际发生在提交点之前，进程也会为避免旧快照继续服务而
+  保守退出。约束、冲突等具有确定未提交语义的错误不受影响。
 
 ## 验证
 
-- Storage 模块测试覆盖 no-op 不调用编译器、同步接受后提交、同步拒绝后回滚和 Commit 失败不返回接受值。
-- Runtime 原子性测试继续覆盖候选编译失败、Commit 失败、成功发布、revision watch 与 scheduler epoch。
+- Storage 模块测试覆盖 no-op 不调用编译器、同步接受后提交、同步拒绝后回滚、Commit 失败不返回接受值，以及
+  真实 sqlx SQLite `COMMIT` waiter 被取消后仍可能落盘的确认丢失窗口。
+- Runtime 原子性测试继续覆盖候选编译失败、Commit 失败、成功发布、revision watch 与 scheduler epoch，并在
+  真实 SQLite 已提交、Repository 暂停返回的窗口取消 HTTP waiter，确认 detached critical task 最终仍切换
+  同一 revision 的快照。
+- 外部 VFS fault fixture 在 `SQLITE_FCNTL_COMMIT_PHASETWO` 返回 `SQLITE_IOERR`，同时断言观察连接读到新值；
+  Storage 分类回归固定 primary IOERR/Worker 确认丢失映射为 `IndeterminateConfigurationCommit`，Runtime 直接
+  发布阶段回归断言该类型不会降级为普通错误，而是触发 critical task 的 fatal panic。
 - 架构检查拒绝 ConfigPublisher 之外的生产 `transact_configuration` 调用，并确认公开 API 不再导出
   `PreparedConfiguration`、`ConfigurationCommit` 或 `sqlx::Transaction`。
+
+## 依据
+
+- [SQLite File Control Opcodes](https://www.sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlcommitphasetwo)
+  定义 `SQLITE_FCNTL_COMMIT_PHASETWO` 在事务提交后、数据库解锁前发出。
+- [SQLite Commit Hook](https://www.sqlite.org/c3ref/commit_hook.html) 定义非零 hook 结果把 Commit 转成 Rollback。
+- [sqlx 0.8.6 SQLite Worker](https://github.com/launchbadge/sqlx/blob/v0.8.6/sqlx-sqlite/src/connection/worker.rs)
+  明确处理 “COMMIT was processed but not acknowledged”，并用接收方确认的 rendezvous oneshot 交付结果。

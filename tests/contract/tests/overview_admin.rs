@@ -144,8 +144,7 @@ async fn request_log_list_isolates_corrupt_rows_but_detail_remains_unavailable()
     .expect("inject corrupt telemetry");
 
     let (_directory, app) = test_router(directory, Arc::clone(&storage)).await;
-    let (status, _, body) =
-        request(app.clone(), "/api/admin/request-logs?page=1&page_size=10").await;
+    let (status, _, body) = request(app.clone(), "/api/admin/request-logs?page_size=10").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["total"], 3);
     let items = body["items"].as_array().expect("request log items");

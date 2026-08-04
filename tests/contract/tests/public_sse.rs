@@ -827,6 +827,111 @@ async fn dropping_a_pending_bridged_stream_aborts_without_reserving_follow_up_rp
 }
 
 #[tokio::test]
+async fn cancelling_a_pending_follow_up_releases_its_queue_ticket() {
+    let (upstream_address, mut upstream_requests, release) = held_chat_bridge_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision,
+        "Cancelled Responses continuation waiter",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_responses", Some("openai_chat_completions")),
+    )
+    .await;
+    revision += 1;
+    create_rate_limited_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "cancelled-continuation-waiter",
+        "sk-cancelled-continuation-waiter",
+        10,
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+    revision += 1;
+    update_setting(
+        &app,
+        remote,
+        revision,
+        "scheduler.max_waiting_requests",
+        json!(1),
+    )
+    .await;
+
+    let first = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"start"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    upstream_requests
+        .recv()
+        .await
+        .expect("first upstream request");
+    let mut first_body = first.into_body();
+    let first_frame = timeout(Duration::from_secs(1), first_body.frame())
+        .await
+        .expect("first downstream frame timeout")
+        .expect("first downstream frame")
+        .expect("first downstream frame body");
+    let response_id = response_id_from_sse(
+        &first_frame
+            .into_data()
+            .expect("first downstream frame is data"),
+    );
+
+    let cancelled = spawn_follow_up(app.clone(), token.clone(), response_id.clone(), remote);
+    wait_for_queue_waiting(&app, remote, 1).await;
+    cancelled.abort();
+    assert!(
+        cancelled
+            .await
+            .expect_err("follow-up waiter is cancelled")
+            .is_cancelled()
+    );
+    wait_for_queue_waiting(&app, remote, 0).await;
+    assert_eq!(requests_in_window(&app, remote).await, 1);
+
+    let replacement = spawn_follow_up(app.clone(), token, response_id, remote);
+    wait_for_queue_waiting(&app, remote, 1).await;
+    assert!(
+        timeout(Duration::from_millis(50), upstream_requests.recv())
+            .await
+            .is_err(),
+        "replacement waiter must not contact upstream before Ready"
+    );
+
+    release.send(()).expect("release bridge terminal event");
+    first_body
+        .collect()
+        .await
+        .expect("finish first downstream stream");
+    let replacement = replacement.await.expect("replacement follow-up task");
+    assert_eq!(replacement.status(), StatusCode::OK);
+    replacement
+        .into_body()
+        .collect()
+        .await
+        .expect("replacement response body");
+    upstream_requests
+        .recv()
+        .await
+        .expect("replacement upstream request");
+    assert_eq!(requests_in_window(&app, remote).await, 2);
+    wait_for_queue_waiting(&app, remote, 0).await;
+}
+
+#[tokio::test]
 async fn stream_precommit_byte_budget_is_applied_from_published_settings() {
     let (upstream_address, _upstream_request, release) = paused_sse_server(
         "/v1/responses",
@@ -1594,6 +1699,48 @@ async fn requests_in_window(app: &Router, remote: SocketAddr) -> u64 {
     .await["totals"]["requests_in_window"]
         .as_u64()
         .expect("requests in window")
+}
+
+fn spawn_follow_up(
+    app: Router,
+    token: String,
+    response_id: String,
+    remote: SocketAddr,
+) -> tokio::task::JoinHandle<Response> {
+    tokio::spawn(async move {
+        request(
+            app,
+            "/v1/responses",
+            json!({
+                "model":"gpt-upstream",
+                "previous_response_id":response_id,
+                "input":"continue"
+            }),
+            remote,
+            &[("authorization", format!("Bearer {token}"))],
+        )
+        .await
+    })
+}
+
+async fn wait_for_queue_waiting(app: &Router, remote: SocketAddr, expected: u64) {
+    for _ in 0..1_000 {
+        let waiting = request_admin_method(
+            app.clone(),
+            Method::GET,
+            "/api/admin/balancing",
+            None,
+            remote,
+        )
+        .await["queue"]["waiting"]
+            .as_u64()
+            .expect("queue waiting count");
+        if waiting == expected {
+            return;
+        }
+        tokio::task::yield_now().await;
+    }
+    panic!("queue waiting count did not become {expected}");
 }
 
 async fn update_setting(app: &Router, remote: SocketAddr, revision: u64, key: &str, value: Value) {

@@ -62,7 +62,13 @@ fn parses_all_supported_usage_windows() {
         limit
             .windows
             .iter()
-            .map(|window| (window.id, window.used_percent, window.limit_window_seconds))
+            .map(|window| {
+                (
+                    window.id.as_str(),
+                    window.used_percent,
+                    window.limit_window_seconds,
+                )
+            })
             .collect::<Vec<_>>(),
         [
             ("five_hour", 12.5, Some(18_000)),

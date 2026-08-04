@@ -160,6 +160,7 @@ dependencies = [
  "hmac",
  "http",
  "secrecy",
+ "serde",
  "serde_json",
  "sha2",
  "sqlx",

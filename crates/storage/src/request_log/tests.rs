@@ -16,6 +16,7 @@ use crate::{
 
 mod capacity;
 mod corruption;
+mod pagination;
 
 const USAGE_WINDOW_MS: u64 = REQUEST_USAGE_WINDOW_MINUTES * 60 * 1_000;
 
@@ -40,7 +41,10 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
         .await
         .expect("append request log");
 
-    let listed = store.list_request_logs(0, 0, 10).await.expect("list logs");
+    let listed = store
+        .list_request_logs(0, None, 10)
+        .await
+        .expect("list logs");
     assert_eq!(listed.total, 1);
     assert_eq!(listed.items[0].request_id, request_id);
     assert_eq!(
@@ -149,7 +153,7 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
     );
     assert_eq!(
         store
-            .list_request_logs(0, 0, 10)
+            .list_request_logs(0, None, 10)
             .await
             .expect("list")
             .items
@@ -177,32 +181,12 @@ async fn retention_and_row_limits_delete_parent_and_child_rows_in_batches() {
             .deleted_rows(),
         1
     );
-    let remaining = store.list_request_logs(0, 0, 10).await.expect("remaining");
+    let remaining = store
+        .list_request_logs(0, None, 10)
+        .await
+        .expect("remaining");
     assert_eq!(remaining.total, 1);
     assert_eq!(remaining.items[0].request_id, fourth.request.request_id);
-}
-
-#[tokio::test]
-async fn request_log_pages_apply_the_time_window_before_counting() {
-    let directory = tempdir().expect("temporary directory");
-    let store = SqliteStore::connect(&directory.path().join("request-log-pages.sqlite3"))
-        .await
-        .expect("storage");
-    let first = record(RequestId::new(), 100, false);
-    let second = record(RequestId::new(), 200, false);
-    let third = record(RequestId::new(), 300, false);
-    store
-        .append_request_logs(&[first, second.clone(), third], MAX_REQUEST_LOG_ROWS)
-        .await
-        .expect("append logs");
-
-    let page = store
-        .list_request_logs(150, 1, 1)
-        .await
-        .expect("second visible row");
-    assert_eq!(page.total, 2);
-    assert_eq!(page.items.len(), 1);
-    assert_eq!(page.items[0].request_id, second.request.request_id);
 }
 
 #[tokio::test]

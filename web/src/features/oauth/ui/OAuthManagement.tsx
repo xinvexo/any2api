@@ -12,6 +12,7 @@ import {
 import { useOAuthAccounts } from "../model/use-oauth-accounts";
 import { useOAuthLogin } from "../model/use-oauth-login";
 import { useOAuthQuotaRefreshAll } from "../model/use-oauth-quota-refresh-all";
+import { useOAuthQuotaChangeEvent } from "../model/use-oauth-quota-change-event";
 import { OAuthAccounts } from "./OAuthAccounts";
 import { OAuthLoginDrawer } from "./OAuthLogin";
 import { OAuthImportDrawer } from "./OAuthImport";
@@ -27,6 +28,7 @@ export function OAuthManagement() {
   const accounts = useOAuthAccounts();
   const login = useOAuthLogin();
   const quotaRefresh = useOAuthQuotaRefreshAll();
+  useOAuthQuotaChangeEvent();
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedProvider = resolveSelectedProvider(searchParams.get("kind"));
   const [loginOpen, setLoginOpen] = useState(false);

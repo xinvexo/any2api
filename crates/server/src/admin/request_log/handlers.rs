@@ -6,7 +6,10 @@ use axum::{
     extract::{Path, Query, State, rejection::QueryRejection},
 };
 
-use crate::{log_pagination::LogListQuery, state::AppState};
+use crate::{
+    log_pagination::{LogCursorKind, LogListQuery},
+    state::AppState,
+};
 
 use super::{
     dto::{RequestLogDetailResponse, RequestLogListResponse},
@@ -20,11 +23,11 @@ pub(crate) async fn list(
     let query = query
         .map_err(|_| AdminApiError::invalid_request("request log query is invalid"))?
         .0
-        .validate()
+        .validate(LogCursorKind::Request)
         .ok_or_else(|| AdminApiError::invalid_request("request log page is invalid"))?;
     let telemetry = state.request_telemetry();
     let logs = telemetry
-        .list(query.since_ms, query.offset, query.page_size)
+        .list(query.since_ms, query.cursor, query.page_size)
         .await
         .map_err(|error| {
             tracing::error!(%error, "request log list failed");
@@ -33,7 +36,6 @@ pub(crate) async fn list(
     let snapshot = state.snapshots().load();
     Ok(Json(RequestLogListResponse::new(
         logs,
-        query.page,
         query.page_size,
         telemetry.metrics(),
         snapshot.as_ref(),

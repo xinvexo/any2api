@@ -66,8 +66,9 @@ interface RequestTelemetryMetrics {
 export interface RequestLogList {
   items: RequestLog[];
   total: number;
-  page: number;
   pageSize: number;
+  cursor: string | null;
+  nextCursor: string | null;
   telemetry: RequestTelemetryMetrics;
 }
 
@@ -81,16 +82,24 @@ export function parseRequestLogList(value: unknown): RequestLogList {
   const record = readRecord(value);
   const items = readArray(record.items).map(parseRequestLog);
   const total = readNonNegativeInteger(record.total);
-  const page = readPositiveInteger(record.page);
   const pageSize = readPositiveInteger(record.page_size);
-  if (pageSize > 100 || items.length > pageSize || items.length > total) {
+  const cursor = readCursor(record.cursor);
+  const nextCursor = readCursor(record.next_cursor);
+  if (
+    pageSize > 100 ||
+    items.length > pageSize ||
+    items.length > total ||
+    (items.length > 0 && cursor === null) ||
+    (nextCursor !== null && (cursor === null || nextCursor === cursor))
+  ) {
     throw invalidResponse();
   }
   return {
     items,
     total,
-    page,
     pageSize,
+    cursor,
+    nextCursor,
     telemetry: parseTelemetry(record.telemetry),
   };
 }
@@ -214,6 +223,14 @@ function readString(value: unknown): string {
 
 function readNullableString(value: unknown): string | null {
   return value === null ? null : readString(value);
+}
+
+function readCursor(value: unknown): string | null {
+  const cursor = readNullableString(value);
+  if (cursor !== null && cursor.length > 1_024) {
+    throw invalidResponse();
+  }
+  return cursor;
 }
 
 /** Optional diagnostic text: null, omitted, or non-empty string. Empty string becomes null. */

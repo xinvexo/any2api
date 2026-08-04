@@ -10,7 +10,7 @@ use tempfile::{TempDir, tempdir};
 
 use crate::{
     configuration::{
-        ConfigPublishError, ConfigPublisher, LoggingSettingsReconciler, PublishedSnapshot,
+        ConfigPublishError, ConfigPublisher, PublishedSnapshot, PublishedSnapshotReconciler,
         SnapshotStore,
     },
     credential::ProviderApiKeySecret,
@@ -19,6 +19,8 @@ use crate::{
 };
 
 mod atomicity;
+mod commit_ack;
+mod gateway_usage;
 mod ordering;
 
 #[tokio::test]
@@ -38,7 +40,7 @@ async fn settings_publish_updates_request_telemetry_policy() {
         crate::test_support::configuration_capabilities(),
     )
     .expect("configuration publisher")
-    .with_logging_reconciler(Arc::clone(&telemetry) as Arc<dyn LoggingSettingsReconciler>);
+    .with_snapshot_reconciler(Arc::clone(&telemetry) as Arc<dyn PublishedSnapshotReconciler>);
 
     let published = publisher
         .set_setting_override(

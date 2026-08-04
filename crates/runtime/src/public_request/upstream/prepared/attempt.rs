@@ -1,11 +1,13 @@
 use std::sync::Arc;
 
-use any2api_domain::{ErrorClass, ProtocolOperation, PublicError, TokenUsage, UpstreamError};
+use any2api_domain::{
+    ErrorClass, OAuthAccountId, ProtocolOperation, PublicError, TokenUsage, UpstreamError,
+};
 use any2api_protocol::api::{
     BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-    ProtocolError, ProtocolExchange, ProtocolRegistry, UpstreamResponse,
+    ProtocolError, ProtocolExchange, UpstreamResponse,
 };
-use any2api_provider::api::{ProviderDriver, ProviderRegistry, UpstreamResponseMeta};
+use any2api_provider::api::{ProviderDriver, UpstreamResponseMeta};
 use any2api_transport::api::{
     TransportError, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
     TransportResponse,
@@ -16,11 +18,13 @@ use super::super::super::{
     affinity::AffinitySelection,
     response::{MAX_UPSTREAM_ERROR_BODY_BYTES, transport_error_diagnostic},
 };
+use super::super::UpstreamServices;
 use super::super::failure::AttemptFailure;
 use crate::{
     affinity::{AffinityTarget, BindingLease, ContinuationBindingCommitter},
     configuration::PublishedSnapshot,
     health::AttemptHealth,
+    oauth::{OAuthQuotaActivity, OAuthQuotaActivityGuard},
     request_telemetry::{AttemptRecorder, public_error_class},
     routing::RouteCandidate,
 };
@@ -36,11 +40,9 @@ pub(in crate::public_request::upstream) struct AttemptInput<'a> {
 }
 
 pub(in crate::public_request::upstream) fn prepare_input<'a>(
-    snapshot: &'a PublishedSnapshot,
-    protocols: &ProtocolRegistry,
+    services: UpstreamServices<'a>,
     decoded: &DecodedRequest,
     affinity: AffinitySelection,
-    providers: &'a ProviderRegistry,
     attempt_recorder: AttemptRecorder,
     allow_credential_bound_headers: bool,
 ) -> Result<AttemptInput<'a>, AttemptFailure> {
@@ -52,19 +54,21 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
         continuation_state,
     } = affinity;
     let candidate = selected.candidate.clone();
-    let prepared = prepare_attempt(AttemptPreparation {
-        snapshot,
-        protocols,
+    let mut prepared = prepare_attempt(AttemptPreparation {
+        snapshot: services.snapshot,
+        protocols: services.protocols,
         decoded,
         selected,
         continuation_state,
-        providers,
+        providers: services.providers,
         attempt_recorder,
         header_policy: AttemptHeaderPolicy {
             allow_credential_bound: allow_credential_bound_headers,
             allow_turn_state: bound && allow_credential_bound_headers,
         },
     })?;
+    prepared.quota_activity = services.oauth_quota_activity;
+    prepared.oauth_account_id = candidate.credential_id.oauth_account_id();
     Ok(AttemptInput {
         prepared,
         candidate,
@@ -84,6 +88,9 @@ pub(in crate::public_request::upstream) struct PreparedAttempt<'a> {
     pub(super) permit: Option<RequestPermit>,
     pub(super) health: Option<AttemptHealth>,
     pub(super) attempt_recorder: Option<AttemptRecorder>,
+    pub(super) quota_activity: Option<&'a OAuthQuotaActivity>,
+    pub(super) oauth_account_id: Option<OAuthAccountId>,
+    pub(super) quota_activity_guard: Option<OAuthQuotaActivityGuard>,
 }
 
 impl PreparedAttempt<'_> {
@@ -92,6 +99,12 @@ impl PreparedAttempt<'_> {
         transport: &dyn TransportManager,
     ) -> Result<TransportResponse, TransportError> {
         let request = self.request.take().expect("prepared request is present");
+        if self.quota_activity_guard.is_none()
+            && let Some(activity) = self.quota_activity
+            && let Some(id) = self.oauth_account_id
+        {
+            self.quota_activity_guard = Some(activity.guard(id));
+        }
         transport.execute(self.proxy, request).await
     }
 
@@ -258,6 +271,7 @@ impl PreparedAttempt<'_> {
         RequestPermit,
         Option<AttemptHealth>,
         AttemptRecorder,
+        Option<OAuthQuotaActivityGuard>,
     ) {
         (
             self.exchange
@@ -268,6 +282,7 @@ impl PreparedAttempt<'_> {
             self.attempt_recorder
                 .take()
                 .expect("prepared attempt recorder is present"),
+            self.quota_activity_guard.take(),
         )
     }
 }

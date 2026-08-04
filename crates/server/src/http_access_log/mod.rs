@@ -10,7 +10,7 @@ use axum::{Router, routing::get};
 
 use crate::state::AppState;
 
-pub(crate) use middleware::{ExcludeFromHttpAccessLog, HttpRequestId, record};
+pub(crate) use middleware::{ExcludeFromHttpAccessLog, GatewayAuthRejected, HttpRequestId, record};
 
 pub(crate) fn routes() -> Router<AppState> {
     Router::new()

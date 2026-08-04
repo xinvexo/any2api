@@ -43,7 +43,7 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     assert!(initial_events.contains("event: system_logs_changed\n"));
     assert_eq!(
         storage
-            .list_http_access_logs(0, 0, 100)
+            .list_http_access_logs(0, None, 100)
             .await
             .expect("HTTP access logs after SSE connect")
             .total,
@@ -55,21 +55,43 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     let changed_event = next_sse_data(&mut log_events).await;
     assert!(changed_event.contains("event: system_logs_changed\n"));
     wait_for_log_count(storage.as_ref(), 4).await;
-    let invalid_list = send(&app, Method::GET, "/api/admin/system-logs?page=0").await;
+    let invalid_list = send(
+        &app,
+        Method::GET,
+        "/api/admin/system-logs?cursor=not-a-cursor",
+    )
+    .await;
     assert_eq!(invalid_list.status, StatusCode::BAD_REQUEST);
     wait_for_log_count(storage.as_ref(), 5).await;
     drop(log_events);
 
-    let first_page = send(
-        &app,
-        Method::GET,
-        "/api/admin/system-logs?page=1&page_size=3",
-    )
-    .await;
+    let first_page = send(&app, Method::GET, "/api/admin/system-logs?page_size=3").await;
     assert_eq!(first_page.status, StatusCode::OK);
     assert_eq!(first_page.json["total"], 5);
-    assert_eq!(first_page.json["page"], 1);
     assert_eq!(first_page.json["page_size"], 3);
+    let first_cursor = first_page.json["cursor"]
+        .as_str()
+        .expect("first system log cursor");
+    let next_cursor = first_page.json["next_cursor"]
+        .as_str()
+        .expect("next system log cursor");
+    assert_ne!(first_cursor, next_cursor);
+    let request_cursor = first_cursor.replacen("s1.", "r1.", 1);
+    let wrong_system_cursor = send(
+        &app,
+        Method::GET,
+        &format!("/api/admin/system-logs?cursor={request_cursor}"),
+    )
+    .await;
+    assert_eq!(wrong_system_cursor.status, StatusCode::BAD_REQUEST);
+    let wrong_request_cursor = send(
+        &app,
+        Method::GET,
+        &format!("/api/admin/request-logs?cursor={first_cursor}"),
+    )
+    .await;
+    assert_eq!(wrong_request_cursor.status, StatusCode::BAD_REQUEST);
+    wait_for_log_count(storage.as_ref(), 7).await;
     assert!(first_page.json["telemetry"]["queued_records"].is_u64());
     assert!(first_page.json["telemetry"]["in_flight_records"].is_u64());
     assert!(first_page.json["telemetry"]["dropped_records"].is_u64());
@@ -77,10 +99,12 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     let second_page = send(
         &app,
         Method::GET,
-        "/api/admin/system-logs?page=2&page_size=3",
+        &format!("/api/admin/system-logs?page_size=3&cursor={next_cursor}"),
     )
     .await;
     assert_eq!(second_page.status, StatusCode::OK);
+    assert_eq!(second_page.json["cursor"], next_cursor);
+    assert!(second_page.json["next_cursor"].is_null());
     let items = first_page.json["items"]
         .as_array()
         .expect("first system log page")
@@ -113,14 +137,27 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
         .find(|item| item["path"] == "/v1/models")
         .expect("public authentication failure access log");
     assert_eq!(unauthorized["status_code"], 401);
+    let unauthorized_id = unauthorized["request_id"]
+        .as_str()
+        .expect("public authentication failure request ID")
+        .parse::<RequestId>()
+        .expect("valid request ID");
+    assert!(
+        storage
+            .get_http_access_log(unauthorized_id)
+            .await
+            .expect("public authentication failure detail")
+            .expect("public authentication failure access log")
+            .gateway_auth_rejected
+    );
 
     let cleared = send(&app, Method::DELETE, "/api/admin/system-logs").await;
     assert_eq!(cleared.status, StatusCode::OK);
-    assert_eq!(cleared.json["deleted"], 5);
+    assert_eq!(cleared.json["deleted"], 7);
 
     tokio::time::sleep(Duration::from_millis(20)).await;
     let remaining = storage
-        .list_http_access_logs(0, 0, 100)
+        .list_http_access_logs(0, None, 100)
         .await
         .expect("remaining HTTP access logs");
     assert_eq!(remaining.total, 0);
@@ -145,12 +182,17 @@ async fn system_logs_page_auditable_traffic_and_clear_in_writer_order() {
     let epoch_after_denied = *system_log_changes.borrow_and_update();
     assert!(epoch_after_denied > epoch_before_denied);
     let denied_logs = storage
-        .list_http_access_logs(0, 0, 100)
+        .list_http_access_logs(0, None, 100)
         .await
         .expect("denied SSE access log");
     assert_eq!(denied_logs.items[0].path, "/api/admin/log-events");
 
-    let self_read = send(&app, Method::GET, "/api/admin/system-logs?page=0").await;
+    let self_read = send(
+        &app,
+        Method::GET,
+        "/api/admin/system-logs?cursor=still-not-a-cursor",
+    )
+    .await;
     assert_eq!(self_read.status, StatusCode::BAD_REQUEST);
     wait_for_log_count(storage.as_ref(), 2).await;
     telemetry.shutdown(Duration::from_secs(1)).await;
@@ -173,7 +215,7 @@ async fn ipv4_mapped_loopback_uses_canonical_system_log_retention_semantics() {
     wait_for_log_count(storage.as_ref(), 1).await;
 
     let logs = storage
-        .list_http_access_logs(0, 0, 10)
+        .list_http_access_logs(0, None, 10)
         .await
         .expect("mapped loopback system logs");
     assert_eq!(logs.total, 1);
@@ -386,7 +428,7 @@ async fn collect_response(response: axum::response::Response) -> TestResponse {
 async fn wait_for_log_count(storage: &SqliteStore, minimum: usize) {
     for _ in 0..200 {
         if storage
-            .list_http_access_logs(0, 0, 100)
+            .list_http_access_logs(0, None, 100)
             .await
             .expect("HTTP access logs")
             .items

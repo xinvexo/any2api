@@ -126,7 +126,7 @@ impl AffinityRegistry {
         let now = Instant::now();
         let mut state = self.state.lock().expect("affinity state lock poisoned");
         check_deadline(deadline)?;
-        state.remove_expired(now, ttl);
+        state.remove_if_expired(&key, now, ttl);
         if let Some(existing) = state.entries.get_mut(&key) {
             let BindingState::Bound { binding } = existing else {
                 return Err(AffinityError::IdentityConflict);
@@ -145,11 +145,7 @@ impl AffinityRegistry {
             return Ok(());
         }
         ensure_capacity(&mut state, now, ttl)?;
-        if state.continuation_bytes.saturating_add(continuation_bytes)
-            > MAX_BRIDGE_CONTINUATION_TOTAL_BYTES
-        {
-            return Err(AffinityError::ContinuationCapacity);
-        }
+        ensure_continuation_capacity(&mut state, now, ttl, continuation_bytes)?;
         check_deadline(deadline)?;
         let committed_at = Instant::now();
         state.continuation_bytes += continuation_bytes;
@@ -180,18 +176,12 @@ impl AffinityRegistry {
         let now = Instant::now();
         let mut state = self.state.lock().expect("affinity state lock poisoned");
         check_deadline(deadline)?;
-        state.remove_expired(now, ttl);
+        state.remove_if_expired(&key, now, ttl);
         if state.entries.contains_key(&key) {
             return Err(AffinityError::IdentityConflict);
         }
         ensure_capacity(&mut state, now, ttl)?;
-        if state
-            .continuation_bytes
-            .saturating_add(MAX_BRIDGE_CONTINUATION_STATE_BYTES)
-            > MAX_BRIDGE_CONTINUATION_TOTAL_BYTES
-        {
-            return Err(AffinityError::ContinuationCapacity);
-        }
+        ensure_continuation_capacity(&mut state, now, ttl, MAX_BRIDGE_CONTINUATION_STATE_BYTES)?;
         check_deadline(deadline)?;
         let version = state.next_version();
         state.continuation_bytes += MAX_BRIDGE_CONTINUATION_STATE_BYTES;
@@ -213,6 +203,24 @@ impl AffinityRegistry {
             active: true,
         })
     }
+}
+
+fn ensure_continuation_capacity(
+    state: &mut super::registry::AffinityState,
+    now: Instant,
+    ttl: Duration,
+    additional_bytes: usize,
+) -> Result<(), AffinityError> {
+    if state.continuation_bytes.saturating_add(additional_bytes)
+        <= MAX_BRIDGE_CONTINUATION_TOTAL_BYTES
+    {
+        return Ok(());
+    }
+    state.remove_expired(now, ttl);
+    (state.continuation_bytes.saturating_add(additional_bytes)
+        <= MAX_BRIDGE_CONTINUATION_TOTAL_BYTES)
+        .then_some(())
+        .ok_or(AffinityError::ContinuationCapacity)
 }
 
 pub(super) fn checked_state_bytes(

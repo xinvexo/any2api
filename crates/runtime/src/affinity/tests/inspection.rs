@@ -10,7 +10,7 @@ fn expired_session_and_continuation_bindings_are_not_reused() {
     let registry = AffinityRegistry::new();
     let route_id = ModelRouteId::new();
     let target = target(route_id, CredentialId::new());
-    let lease = match registry
+    let mut lease = match registry
         .begin_session(
             ProtocolDialect::OpenAiResponses,
             route_id,
@@ -22,6 +22,7 @@ fn expired_session_and_continuation_bindings_are_not_reused() {
         BindingStart::Create(lease) => lease,
         other => panic!("first caller must create the binding: {other:?}"),
     };
+    lease.mark_attempting().expect("promote session binding");
     lease
         .commit(target.clone())
         .expect("commit session binding");
@@ -51,7 +52,7 @@ fn sweep_uses_one_ttl_for_session_and_continuation_bindings() {
     let registry = AffinityRegistry::new();
     let route_id = ModelRouteId::new();
     let target = target(route_id, CredentialId::new());
-    let lease = match registry
+    let mut lease = match registry
         .begin_session(
             ProtocolDialect::OpenAiResponses,
             route_id,
@@ -63,6 +64,7 @@ fn sweep_uses_one_ttl_for_session_and_continuation_bindings() {
         BindingStart::Create(lease) => lease,
         other => panic!("first caller must create the binding: {other:?}"),
     };
+    lease.mark_attempting().expect("promote session binding");
     lease
         .commit(target.clone())
         .expect("commit session binding");
@@ -83,7 +85,7 @@ fn session_and_continuation_access_refresh_the_same_ttl() {
     let registry = AffinityRegistry::new();
     let route_id = ModelRouteId::new();
     let target = target(route_id, CredentialId::new());
-    let lease = match registry
+    let mut lease = match registry
         .begin_session(
             ProtocolDialect::OpenAiResponses,
             route_id,
@@ -95,6 +97,7 @@ fn session_and_continuation_access_refresh_the_same_ttl() {
         BindingStart::Create(lease) => lease,
         other => panic!("first caller must create the binding: {other:?}"),
     };
+    lease.mark_attempting().expect("promote session binding");
     lease
         .commit(target.clone())
         .expect("commit session binding");
@@ -198,7 +201,7 @@ fn snapshots_only_count_explicit_sessions_honored_by_the_current_policy() {
     let route_id = ModelRouteId::new();
     let credential_id = CredentialId::new();
     let target = target(route_id, credential_id);
-    let lease = match registry
+    let mut lease = match registry
         .begin_session(
             ProtocolDialect::OpenAiResponses,
             route_id,
@@ -210,6 +213,7 @@ fn snapshots_only_count_explicit_sessions_honored_by_the_current_policy() {
         BindingStart::Create(lease) => lease,
         other => panic!("first caller must create the binding: {other:?}"),
     };
+    lease.mark_attempting().expect("promote session binding");
     lease
         .commit(target.clone())
         .expect("commit session binding");

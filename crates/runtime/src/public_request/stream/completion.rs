@@ -48,6 +48,7 @@ impl GuardedBody {
             }
         }
         self.permit.take();
+        self.quota_activity.take();
     }
 
     pub(super) fn release_guards(&mut self) {
@@ -57,6 +58,7 @@ impl GuardedBody {
         self.continuation_lease.take();
         self.health.take();
         self.permit.take();
+        self.quota_activity.take();
     }
 
     pub(super) fn finish_precommit_failure(&mut self) -> PublicError {

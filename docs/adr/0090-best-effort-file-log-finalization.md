@@ -8,7 +8,7 @@
 ## 背景
 
 旧实现把文件日志策略、动态级别和 `tracing_appender::WorkerGuard` 放在同一个 `Arc<FileLogging>` 中。
-ConfigPublisher 通过日志 reconciler 间接持有该 Arc；停机时 `Arc::try_unwrap` 失败就把
+ConfigPublisher 通过整快照 reconciler 间接持有该 Arc；停机时 `Arc::try_unwrap` 失败就把
 `"file logging still has active runtime owners"` 转成 fatal `ShutdownOutcome`。自更新已经替换磁盘二进制并
 请求重启后，这个结构性所有权检查可以使旧进程直接退出而不执行新程序。
 
@@ -20,7 +20,7 @@ I/O error 并继续工作；`WorkerGuard::drop` 只在内部以固定超时发�
 ## 决策
 
 1. 文件日志拆成两个所有权对象：可克隆 `FileLoggingControl` 只包含热更新所需的策略锁和级别原子值；不可克隆
-   `FileLogging` 由 Composition Root 独占，并持有唯一 `WorkerGuard`。ConfigPublisher/AppLoggingReconciler
+   `FileLogging` 由 Composition Root 独占，并持有唯一 `WorkerGuard`。ConfigPublisher/AppSnapshotReconciler
    只能持有前者，不能延长 Guard 生命周期。
 2. 停机先按既有顺序停止 HTTP、受管后台任务和 RequestTelemetry，并关闭 SQLite。结果确定后写入最终事件：
    关键收尾成功记录 `shutdown complete`；失败记录结构化 error。随后两条路径都消费 `FileLogging`，直接

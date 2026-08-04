@@ -3,7 +3,8 @@
 - 状态：Accepted
 - 日期：2026-07-29
 - 决策者：maintainer
-- 修订：ADR-0084 将 `affinity.wait_timeout` 的当前默认值调整为 `180s`
+- 修订：ADR-0084 将 `affinity.wait_timeout` 的当前默认值调整为 `180s`；ADR-0110 将首次候选的
+  RPM/健康等待移出长寿命 `Creating`，并明确 `Selecting` / `Attempting` 两阶段
 
 ## 背景
 
@@ -54,15 +55,18 @@ ProtocolAdapter 只随会话标识传递以下创建意图，不产生绑定分�
 - Codex `previous_response_id` 必须续接已有绑定。未命中时返回 `session_binding_lost`，禁止猜测原
   Credential 或在另一个目标上重建。
 
-可创建 Session 的首个请求继续使用版本化 `Creating` 租约串行确定目标。只有在绑定尚未提交、
-下游仍为 `Pending` 且 RetrySafety 允许时，首次创建流程才可安全改用另一个候选；一旦提交为
-`Bound`，目标永久固定到绑定被显式清理、TTL 到期或进程退出。
+可创建 Session 的首个请求继续使用版本化 `Creating` 租约串行确定目标，但按 ADR-0110 分成两个内部
+阶段：`Selecting` 只覆盖一次不含 `await` 的同步候选检查与 RPM 原子预留；确认 RPM/健康暂不可用后，
+必须先 Drop Lease 再进入统一 QueueTicket，且每次唤醒后重新原子取得 `Selecting` 才可再次预留。
+取得候选后以相同 version 提升为 `Attempting`，该 Lease 才跨上游执行保留。只有在绑定尚未提交、下游
+仍为 `Pending` 且 RetrySafety 允许时，首次创建流程才可安全改用另一个候选；一旦提交为 `Bound`，目标
+永久固定到绑定被显式清理、TTL 到期或进程退出。
 
-活跃 `Creating` Lease 不按 `affinity.wait_timeout` 或 TTL 回收。其他请求的等待超时只结束该 waiter；
-创建者提交或 RAII Drop 才结束 Lease 并唤醒等待者，防止长请求执行期间出现第二个创建者。
-每个 `Creating` waiter 必须先取得全局有界 `QueueTicket`，并与普通候选等待、固定 Credential 等待
-共享同一个 scheduler epoch；提交、Drop 或清理 `Creating` 时推进该 epoch，不建立会绕过队列上限的
-私有等待链。
+活跃 `Attempting` Lease 不按 `affinity.wait_timeout` 或 TTL 回收。其他请求对真实 Attempting 创建者的
+等待超时只结束该 waiter；创建者提交或 RAII Drop 才结束 Lease 并唤醒等待者，防止长请求执行期间出现
+第二个创建者。`Selecting` 竞争、候选等待与 `Attempting` 等待必须复用同一张全局有界 `QueueTicket`
+和 scheduler epoch；提交、阶段提升、Drop 或清理等待态时推进该 epoch，不建立会绕过队列上限的私有
+等待链。RPM/健康超时返回实际调度错误，只有等待 `Attempting` 才返回会话创建超时。
 
 TTL 到期后，可创建 Session 再次出现时按全新首次请求处理；必须续接的 Response ID 则返回
 `session_binding_lost`。这不是对现存绑定的自动重绑。
@@ -123,9 +127,9 @@ SettingRegistry 不提供其他粘性设置键、别名、双读或模式分支�
 
 - Protocol 测试覆盖显式 Session 与 Continuation 两种创建意图、代表性标识来源和
   `previous_response_id` 未命中，并确认 Images 与 Count Tokens 忽略全部会话标识。
-- Runtime 测试覆盖并发 `Creating`、单一 TTL、有效访问刷新、固定目标等待、超时不切换、目标不可用不
-  切换且失败访问不刷新 TTL、显式清理、Credential 删除后旧 snapshot 可提交而新 revision 解析失败，
-  以及重启空状态。
+- Runtime 测试覆盖并发 `Creating` 的 `Selecting`/`Attempting` 交接、RPM 等待前释放、无双创建与准确
+  超时归因，以及单一 TTL、有效访问刷新、固定目标等待、超时不切换、目标不可用不切换且失败访问不
+  刷新 TTL、显式清理、Credential 删除后旧 snapshot 可提交而新 revision 解析失败和重启空状态。
 - JSON/SSE 契约覆盖 Response ID 在可见前绑定、普通 Session 首次创建、后续固定完整目标、
   `session_binding_lost` 和提交后禁止切换。
 - Settings 与管理 API 测试覆盖三个键、删除覆盖、开关热更新、Continuation 不受开关影响和统一聚合；

@@ -13,7 +13,7 @@ use crate::{
         RequestTelemetry,
         changes::LogChangeNotifier,
         event::TelemetryEvent,
-        metrics::TelemetryCounters,
+        metrics::{TelemetryCounters, TelemetryQueueClass},
         policy::RequestLogPolicy,
         worker::{self, WorkerState},
     },
@@ -32,11 +32,11 @@ async fn gateway_key_usage_is_live_immediately_and_duplicate_writes_are_throttle
     );
     let id = GatewayApiKeyId::new();
 
-    telemetry.record_gateway_key_use(id);
+    telemetry.record_gateway_key_use(id, ConfigRevision::INITIAL);
     let first = telemetry
         .gateway_key_last_used_at(id)
         .expect("live usage timestamp");
-    telemetry.record_gateway_key_use(id);
+    telemetry.record_gateway_key_use(id, ConfigRevision::INITIAL);
     wait_for(|| {
         repository
             .usage_updates
@@ -87,7 +87,7 @@ async fn collapsed_gateway_updates_preserve_record_metrics() {
             id,
             last_used_at: last_used_at.to_owned(),
         };
-        assert!(counters.try_reserve_slot(8));
+        assert!(counters.try_reserve_slot(8, TelemetryQueueClass::Regular));
         counters.enqueued(event.record_count());
         sender.try_send(event).expect("gateway usage event");
     }

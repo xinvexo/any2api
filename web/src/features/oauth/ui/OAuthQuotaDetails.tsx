@@ -68,6 +68,9 @@ export function OAuthQuotaDetails({
           {creditExpiry}
         </p>
       ) : null}
+      <p className="text-[10px] tabular-nums text-tertiary">
+        上次抓取于 {formatFetchedAt(quota.fetchedAt)}
+      </p>
     </div>
   );
 }
@@ -212,6 +215,11 @@ function formatCompactTime(value: number) {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+function formatFetchedAt(value: number) {
+  const date = new Date(value * 1_000);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
 
 function formatCreditExpiries(quota: OAuthQuotaSnapshot): string | null {

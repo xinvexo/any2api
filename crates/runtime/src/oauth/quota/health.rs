@@ -104,7 +104,7 @@ mod tests {
                 allowed: None,
                 limit_reached: None,
                 windows: vec![OAuthQuotaWindow {
-                    id: "model_window",
+                    id: "model_window".to_owned(),
                     kind: OAuthQuotaWindowKind::Time,
                     used_percent: 100.0,
                     limit_window_seconds: Some(3_600),

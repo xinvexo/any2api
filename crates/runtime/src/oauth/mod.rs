@@ -12,4 +12,5 @@ pub use import::{
     MAX_OAUTH_IMPORT_ACCOUNTS, OAuthImportError, OAuthImportFailureKind, OAuthImportResult,
 };
 pub use login::{OAuthActivationResult, OAuthDevicePollResult, OAuthStartFlow, OAuthStartResult};
+pub(crate) use quota::{OAuthQuotaActivity, OAuthQuotaActivityGuard};
 pub use quota::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot};

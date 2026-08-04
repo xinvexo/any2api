@@ -121,6 +121,7 @@ mod tests {
             duration_ms: 1,
             response_bytes: 1,
             outcome: HttpAccessLogOutcome::Completed,
+            gateway_auth_rejected: false,
             exchange: None,
         }
     }

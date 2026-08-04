@@ -2,23 +2,33 @@ use any2api_domain::{CompletedRequestLog, LogPage, RequestAttempt, RequestLog};
 use any2api_runtime::api::{PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
 
+use crate::log_pagination::LogCursorKind;
+
 #[derive(Serialize)]
 pub(crate) struct RequestLogListResponse {
     items: Vec<RequestLogResponse>,
     total: u64,
-    page: u32,
     page_size: u32,
+    cursor: Option<String>,
+    next_cursor: Option<String>,
     telemetry: RequestTelemetryResponse,
 }
 
 impl RequestLogListResponse {
     pub(crate) fn new(
         logs: LogPage<RequestLog>,
-        page: u32,
         page_size: u32,
         metrics: RequestTelemetryMetrics,
         snapshot: &PublishedSnapshot,
     ) -> Self {
+        let cursor = logs
+            .cursor
+            .as_ref()
+            .map(|cursor| LogCursorKind::Request.encode(cursor));
+        let next_cursor = logs
+            .next_cursor
+            .as_ref()
+            .map(|cursor| LogCursorKind::Request.encode(cursor));
         Self {
             items: logs
                 .items
@@ -26,8 +36,9 @@ impl RequestLogListResponse {
                 .map(|log| RequestLogResponse::from_log(log, snapshot))
                 .collect(),
             total: logs.total,
-            page,
             page_size,
+            cursor,
+            next_cursor,
             telemetry: metrics.into(),
         }
     }

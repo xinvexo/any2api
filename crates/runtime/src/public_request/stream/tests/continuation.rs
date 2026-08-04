@@ -8,7 +8,7 @@ use any2api_protocol::{
 };
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
-use futures_util::{StreamExt, stream};
+use futures_util::{StreamExt, future, stream};
 use http::{HeaderMap, Method, Uri};
 use serde_json::{Value, json};
 
@@ -129,10 +129,102 @@ async fn dropping_pending_bridged_body_removes_binding_and_full_reservation() {
     assert_eq!(registry.continuation_bytes_for_test(), 0);
 }
 
+#[tokio::test]
+async fn aborting_a_task_that_owns_a_primed_body_drops_the_pending_lease() {
+    let registry = AffinityRegistry::new();
+    let task_registry = Arc::clone(&registry);
+    let (identity_sender, identity_receiver) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        let protocols = protocols();
+        let upstream: BoxByteStream = Box::pin(
+            stream::iter([Ok(Bytes::from_static(
+                b"data: {\"id\":\"chatcmpl_cancel\",\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n",
+            ))])
+            .chain(stream::pending()),
+        );
+        let guarded = bridged_body(&protocols, task_registry, upstream)
+            .await
+            .prime()
+            .await
+            .expect("bridge first event");
+        identity_sender
+            .send(pending_response_id(&guarded))
+            .expect("test receives pending identity");
+        future::pending::<()>().await;
+        drop(guarded);
+    });
+    let response_id = identity_receiver.await.expect("pending identity");
+
+    assert!(matches!(
+        registry.resolve_continuation(&response_id, CONTINUATION_TTL, |_| true),
+        ContinuationLookup::Pending
+    ));
+    task.abort();
+    assert!(
+        task.await
+            .expect_err("owner task is cancelled")
+            .is_cancelled()
+    );
+
+    assert!(matches!(
+        registry.resolve_continuation(&response_id, CONTINUATION_TTL, |_| true),
+        ContinuationLookup::Missing
+    ));
+    assert_eq!(registry.continuation_bytes_for_test(), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn pending_bridge_idle_timeout_drops_the_lease_and_full_reservation() {
+    let registry = AffinityRegistry::new();
+    let protocols = protocols();
+    let upstream: BoxByteStream = Box::pin(
+        stream::iter([Ok(Bytes::from_static(
+            b"data: {\"id\":\"chatcmpl_idle\",\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n",
+        ))])
+        .chain(stream::pending()),
+    );
+    let guarded = bridged_body_with_idle_timeout(
+        &protocols,
+        Arc::clone(&registry),
+        upstream,
+        Duration::from_millis(25),
+    )
+    .await
+    .prime()
+    .await
+    .expect("bridge first event");
+    let response_id = pending_response_id(&guarded);
+    let mut body = guarded.into_stream();
+
+    let mut delivered = 0;
+    let error = loop {
+        match body.next().await.expect("idle timeout body item") {
+            Ok(_) => delivered += 1,
+            Err(error) => break error,
+        }
+    };
+    assert!(delivered > 0);
+    assert!(error.to_string().contains("idle after commit"));
+    assert!(matches!(
+        registry.resolve_continuation(&response_id, CONTINUATION_TTL, |_| true),
+        ContinuationLookup::Missing
+    ));
+    assert_eq!(registry.continuation_bytes_for_test(), 0);
+}
+
 async fn bridged_body(
     protocols: &ProtocolRegistry,
     registry: Arc<AffinityRegistry>,
     upstream: BoxByteStream,
+) -> GuardedBody {
+    bridged_body_with_idle_timeout(protocols, registry, upstream, Duration::from_secs(60)).await
+}
+
+async fn bridged_body_with_idle_timeout(
+    protocols: &ProtocolRegistry,
+    registry: Arc<AffinityRegistry>,
+    upstream: BoxByteStream,
+    postcommit_idle_timeout: Duration,
 ) -> GuardedBody {
     let (_, permit) = generation_permit();
     let target = AffinityTarget::new(
@@ -173,9 +265,10 @@ async fn bridged_body(
             health: None,
             continuation_binding,
             attempt_recorder: AttemptRecorder::disabled(),
+            quota_activity: None,
             status_code: 200,
             precommit_budget: PrecommitBudget::new(256 * 1024, Duration::from_secs(5)),
-            postcommit_idle_timeout: Duration::from_secs(60),
+            postcommit_idle_timeout,
         },
     )
 }

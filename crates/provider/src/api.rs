@@ -21,11 +21,11 @@ pub use crate::oauth::{
     OAuthRefreshRejection, OAuthRequestPlan, OAuthTokenMaterial, serialize_document,
 };
 pub use crate::oauth::{
-    OAuthProviderEgressStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
-    OAuthQuotaBilling, OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit,
-    OAuthQuotaRejection, OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult,
-    OAuthQuotaSupplement, OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage,
-    OAuthQuotaWindow, OAuthQuotaWindowKind,
+    OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
+    OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaRejection,
+    OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement,
+    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
+    OAuthQuotaWindowKind,
 };
 pub use crate::registry::ProviderRegistry;
 
@@ -246,18 +246,6 @@ pub trait ProviderDriver: Send + Sync {
         OAuthQuotaRejection::Unclassified
     }
 
-    fn oauth_provider_egress_probe_plan(&self) -> Result<Option<OAuthRequestPlan>, ProviderError> {
-        Ok(None)
-    }
-
-    fn classify_oauth_provider_egress(
-        &self,
-        _meta: &UpstreamResponseMeta,
-        _bounded_body: &[u8],
-    ) -> OAuthProviderEgressStatus {
-        OAuthProviderEgressStatus::Unverified
-    }
-
     fn parse_oauth_quota_usage(
         &self,
         _meta: &UpstreamResponseMeta,
@@ -275,23 +263,6 @@ pub trait ProviderDriver: Send + Sync {
         Err(ProviderError::InvalidResponse(
             "OAuth quota supplement is not supported by this provider".into(),
         ))
-    }
-
-    fn oauth_quota_token_balance_plan(
-        &self,
-        _token: &OAuthTokenMaterial,
-        _usage: &OAuthQuotaUsage,
-    ) -> Result<Option<OAuthRequestPlan>, ProviderError> {
-        Ok(None)
-    }
-
-    fn parse_oauth_quota_token_balance(
-        &self,
-        _usage: &OAuthQuotaUsage,
-        _meta: &UpstreamResponseMeta,
-        _body: &[u8],
-    ) -> Result<Option<OAuthQuotaTokenBalance>, ProviderError> {
-        Ok(None)
     }
 
     fn parse_oauth_quota_reset_credits(

@@ -41,10 +41,10 @@ pub(super) async fn insert(
     sqlx::query(
         "INSERT INTO http_access_logs (request_id, started_at_ms, config_revision, client_ip, \
          method, path, uri, http_version, status_code, duration_ms, response_bytes, outcome, \
-         exchange_captured, request_headers, request_body, request_body_bytes, \
+         gateway_auth_rejected, exchange_captured, request_headers, request_body, request_body_bytes, \
          request_body_complete, request_body_truncated, response_headers, response_body, \
          response_body_complete, response_body_truncated, exchange_bytes) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -62,6 +62,7 @@ pub(super) async fn insert(
     .bind(to_i64(log.duration_ms)?)
     .bind(to_i64(log.response_bytes)?)
     .bind(log.outcome.as_str())
+    .bind(bool_value(log.gateway_auth_rejected))
     .bind(bool_value(exchange.is_some()))
     .bind(request_headers)
     .bind(&request_body.content)
@@ -110,6 +111,22 @@ pub(super) async fn delete_oldest(
     let result = sqlx::query(
         "DELETE FROM http_access_logs WHERE request_id IN (SELECT request_id \
          FROM http_access_logs INDEXED BY http_access_logs_retention_idx \
+         ORDER BY started_at_ms ASC, request_id ASC LIMIT ?)",
+    )
+    .bind(to_i64(limit)?)
+    .execute(connection)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+pub(super) async fn delete_oldest_gateway_auth_rejected(
+    connection: &mut SqliteConnection,
+    limit: u64,
+) -> Result<u64, StorageError> {
+    let result = sqlx::query(
+        "DELETE FROM http_access_logs WHERE request_id IN (SELECT request_id \
+         FROM http_access_logs INDEXED BY http_access_logs_gateway_auth_rejected_retention_idx \
+         WHERE gateway_auth_rejected = 1 \
          ORDER BY started_at_ms ASC, request_id ASC LIMIT ?)",
     )
     .bind(to_i64(limit)?)

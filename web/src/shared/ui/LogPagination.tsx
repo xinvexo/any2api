@@ -12,12 +12,14 @@ export function LogPagination({
   page,
   pageSize,
   total,
+  hasNextPage,
   onPageChange,
   onPageSizeChange,
 }: {
   page: number;
   pageSize: LogPageSize;
   total: number;
+  hasNextPage: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: LogPageSize) => void;
 }) {
@@ -52,7 +54,7 @@ export function LogPagination({
         </span>
         <IconButton
           label="下一页"
-          disabled={safePage >= totalPages}
+          disabled={!hasNextPage}
           onClick={() => onPageChange(safePage + 1)}
         >
           <ChevronRight size={16} strokeWidth={1.75} />

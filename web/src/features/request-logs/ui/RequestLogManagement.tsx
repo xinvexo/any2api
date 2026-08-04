@@ -18,8 +18,10 @@ import { Surface } from "@/shared/ui/Surface";
 export function RequestLogManagement() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<LogPageSize>(20);
+  const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const query = useRequestLogs(page, pageSize);
+  const cursor = pageCursors[page - 1] ?? null;
+  const query = useRequestLogs(cursor, pageSize);
 
   const items = query.data?.items ?? [];
   const total = query.data?.total ?? 0;
@@ -30,12 +32,13 @@ export function RequestLogManagement() {
     : null;
 
   useEffect(() => {
-    if (!query.data || query.data.page !== page || safePage === page) {
+    if (!query.data || safePage === page) {
       return;
     }
 
     const correction = window.setTimeout(() => {
       setExpandedId(null);
+      setPageCursors((current) => current.slice(0, safePage));
       setPage(safePage);
     }, 0);
 
@@ -43,6 +46,12 @@ export function RequestLogManagement() {
   }, [page, query.data, safePage]);
 
   async function refreshLogs() {
+    if (cursor !== null || page !== 1) {
+      setExpandedId(null);
+      setPageCursors([null]);
+      setPage(1);
+      return;
+    }
     const result = await query.refetch();
     if (result.isSuccess) {
       notify.success("请求日志已刷新");
@@ -50,6 +59,21 @@ export function RequestLogManagement() {
   }
 
   const handlePageChange = (nextPage: number) => {
+    if (nextPage === page + 1) {
+      const currentCursor = query.data?.cursor;
+      const nextCursor = query.data?.nextCursor;
+      if (!currentCursor || !nextCursor) {
+        return;
+      }
+      setPageCursors((current) => {
+        const updated = current.slice(0, page);
+        updated[page - 1] = currentCursor;
+        updated[page] = nextCursor;
+        return updated;
+      });
+    } else if (nextPage !== page - 1) {
+      return;
+    }
     setExpandedId(null);
     setPage(nextPage);
   };
@@ -57,6 +81,7 @@ export function RequestLogManagement() {
   const handlePageSizeChange = (size: LogPageSize) => {
     setExpandedId(null);
     setPageSize(size);
+    setPageCursors([null]);
     setPage(1);
   };
 
@@ -227,6 +252,7 @@ export function RequestLogManagement() {
           page={safePage}
           pageSize={pageSize}
           total={total}
+          hasNextPage={query.data.nextCursor !== null}
           onPageChange={handlePageChange}
           onPageSizeChange={handlePageSizeChange}
         />

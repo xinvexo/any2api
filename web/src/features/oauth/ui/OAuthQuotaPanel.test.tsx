@@ -14,11 +14,30 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test("restores a persisted quota snapshot without an upstream refresh", async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    expect(String(input)).toBe("/api/admin/oauth/accounts/account-1/quota");
+    expect(init?.method).toBe("GET");
+    return response(quota(1));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+
+  renderPanel();
+  const panel = screen.getByRole("region", { name: "Codex 额度" });
+  expect(await within(panel).findByText("63%")).toBeInTheDocument();
+  expect(within(panel).getByText(/上次抓取于/)).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 test("refreshes Codex quota and consumes one available reset credit", async () => {
   let resetCompleted = false;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path.endsWith("/quota") && init?.method === "GET") {
+      return response(null);
+    }
+    if (path.endsWith("/quota/refresh") && init?.method === "POST") {
+      expect(init.body).toBeUndefined();
       return response(quota(resetCompleted ? 0 : 1));
     }
     if (path.endsWith("/quota/reset") && init?.method === "POST") {
@@ -35,7 +54,9 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
   const resetButton = within(panel).getByRole("button", { name: "重置额度" });
   expect(resetButton).toBeDisabled();
 
-  fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
+  const refreshButton = within(panel).getByRole("button", { name: "刷新额度" });
+  await waitFor(() => expect(refreshButton).toBeEnabled());
+  fireEvent.click(refreshButton);
   // used 37.5% → remaining 62.5% rendered as 63%
   expect(await within(panel).findByText("63%")).toBeInTheDocument();
   expect(await screen.findByText("已刷新「Primary Codex」的额度")).toBeInTheDocument();
@@ -60,11 +81,12 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
     expect(within(panel).getByText("可重置")).toHaveTextContent("可重置 0"),
   );
   expect(within(panel).getByRole("button", { name: "重置额度" })).toBeDisabled();
-  expect(fetchMock).toHaveBeenCalledTimes(3);
-  expect(fetchMock.mock.calls.map(([path]) => String(path))).toEqual([
-    "/api/admin/oauth/accounts/account-1/quota",
-    "/api/admin/oauth/accounts/account-1/quota/reset",
-    "/api/admin/oauth/accounts/account-1/quota",
+  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(fetchMock.mock.calls.map(([path, init]) => [String(path), init?.method])).toEqual([
+    ["/api/admin/oauth/accounts/account-1/quota", "GET"],
+    ["/api/admin/oauth/accounts/account-1/quota/refresh", "POST"],
+    ["/api/admin/oauth/accounts/account-1/quota/reset", "POST"],
+    ["/api/admin/oauth/accounts/account-1/quota/refresh", "POST"],
   ]);
 });
 
@@ -80,7 +102,7 @@ test("keeps reset pending when a virtualized account panel remounts", async () =
     if (path.endsWith("/quota/reset") && init?.method === "POST") {
       return resetResponse.promise;
     }
-    if (path.endsWith("/quota") && init?.method === "GET") {
+    if (path.endsWith("/quota/refresh") && init?.method === "POST") {
       return response(quota(0));
     }
     throw new Error(`unexpected request: ${path}`);
@@ -111,6 +133,7 @@ test("keeps reset pending when a virtualized account panel remounts", async () =
 
 test("keeps a command refresh alive when the virtualized panel unmounts", async () => {
   const client = createClient();
+  client.setQueryData(oauthQueryKeys.quota("account-1"), null);
   const quotaResponse = deferred<Response>();
   let aborted = false;
   const fetchMock = vi.fn(
@@ -136,14 +159,17 @@ test("keeps a command refresh alive when the virtualized panel unmounts", async 
 
 test("clears stale quota after reset refresh failure and recovers on refresh", async () => {
   const client = createClient();
-  let quotaReads = 0;
+  let quotaRefreshes = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path.endsWith("/quota") && init?.method === "GET") {
-      quotaReads += 1;
-      return quotaReads === 2
+      return response(null);
+    }
+    if (path.endsWith("/quota/refresh") && init?.method === "POST") {
+      quotaRefreshes += 1;
+      return quotaRefreshes === 2
         ? errorResponse("oauth_quota_upstream_failed", 502)
-        : response(quota(quotaReads === 1 ? 1 : 0));
+        : response(quota(quotaRefreshes === 1 ? 1 : 0));
     }
     if (path.endsWith("/quota/reset") && init?.method === "POST") {
       return response({ windows_reset: 1 });
@@ -154,7 +180,9 @@ test("clears stale quota after reset refresh failure and recovers on refresh", a
 
   renderPanel(client);
   let panel = screen.getByRole("region", { name: "Codex 额度" });
-  fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
+  const refreshButton = within(panel).getByRole("button", { name: "刷新额度" });
+  await waitFor(() => expect(refreshButton).toBeEnabled());
+  fireEvent.click(refreshButton);
   expect(await within(panel).findByText("63%")).toBeInTheDocument();
 
   fireEvent.click(within(panel).getByRole("button", { name: "重置额度" }));
@@ -169,7 +197,7 @@ test("clears stale quota after reset refresh failure and recovers on refresh", a
   ).toBeInTheDocument();
   expect(within(panel).getByText("额度尚未刷新")).toBeInTheDocument();
   expect(within(panel).queryByText("63%")).not.toBeInTheDocument();
-  expect(client.getQueryData(oauthQueryKeys.quota("account-1"))).toBeUndefined();
+  expect(client.getQueryData(oauthQueryKeys.quota("account-1"))).toBeNull();
 
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
   await waitFor(() =>
@@ -184,7 +212,8 @@ test("clears stale quota after reset refresh failure and recovers on refresh", a
 test("shows only a real Grok exhaustion observation with its actual limit", async () => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => response({
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => response(
+      init?.method === "GET" ? null : {
       fetched_at: 1_900_000_000,
       rate_limit: null,
       reset_credits: null,
@@ -212,7 +241,9 @@ test("shows only a real Grok exhaustion observation with its actual limit", asyn
 
   renderGrokPanel();
   const panel = screen.getByRole("region", { name: "Grok 额度" });
-  fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
+  const refreshButton = within(panel).getByRole("button", { name: "刷新额度" });
+  await waitFor(() => expect(refreshButton).toBeEnabled());
+  fireEvent.click(refreshButton);
 
   expect(await within(panel).findByText("0 / 1,000,000")).toBeInTheDocument();
   expect(within(panel).getByText("Token 余额 · 上游真实观测")).toBeInTheDocument();
@@ -226,12 +257,17 @@ test("shows only a real Grok exhaustion observation with its actual limit", asyn
 test("reports a Grok OAuth token rejected after refresh as invalid", async () => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => errorResponse("oauth_account_authentication_failed", 502)),
+    vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      init?.method === "GET"
+        ? response(null)
+        : errorResponse("oauth_account_authentication_failed", 502)),
   );
 
   renderGrokPanel();
   const panel = screen.getByRole("region", { name: "Grok 额度" });
-  fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
+  const refreshButton = within(panel).getByRole("button", { name: "刷新额度" });
+  await waitFor(() => expect(refreshButton).toBeEnabled());
+  fireEvent.click(refreshButton);
 
   expect(
     await within(panel).findByText("账号认证已失效：上游已明确拒绝当前认证。"),

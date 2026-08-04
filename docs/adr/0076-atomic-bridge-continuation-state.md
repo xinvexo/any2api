@@ -3,6 +3,8 @@
 - 状态：Accepted
 - 日期：2026-07-31
 - 决策者：maintainer
+- 修订：2026-08-04 将常规 Continuation 身份提交从全表过期扫描改为单键检查；全表回收只由周期 sweeper 与容量压力触发
+- 修订：2026-08-04 以取消、排队、断连、idle timeout 与 panic 故障注入复核 Pending Lease，不新增独立绝对超时
 
 ## 背景
 
@@ -32,6 +34,15 @@ Runtime 的 `AffinityRegistry` 另行保存 Credential、Route Target、模型�
   Response ID 前一次性提交 `Ready(Some(state))`。桥接 SSE 在 `response.created` 可见前提交 `Pending`，
   在成功终止事件可见前提交 `Ready(Some(state))`；EOF、错误、取消或 Body Drop 通过 Lease `Abort` 删除
   Pending 记录并归还预留。
+- Pending Lease 始终由创建它的 `GuardedBody` 唯一拥有，不进入后台任务、Registry 自循环或后续请求。
+  预提交 Future 取消、交付前失败、成功/失败终止、EOF、网络/协议错误、postcommit idle timeout、客户端
+  Body Drop 与 panic 展开都会 Drop 同一 Lease；Drop 只删除匹配 version 的当前 Pending，归还完整预留并
+  唤醒 waiter。后续请求只持有 QueueTicket；取消 waiter 只释放票据，不得 Abort 创建者。
+- 不为活跃 Pending 增加基于 `affinity.ttl`、`affinity.wait_timeout` 或另一项设置的绝对 deadline。一个持续
+  产生合法上游事件的长流可以超过这些会话/等待窗口；独立超时会在已公开 Response ID 后与正常 Ready
+  提交竞态并制造 `LeaseLost`。四条 Pending 硬上限已经限制最坏状态预留。若以后证实 HTTP Body 在不 Drop
+  且不继续 poll 时能长期滞留，应统一约束 HTTP 写出和所有 Body Guard 生命周期，不能只提前删除
+  continuation 身份。
 - 命中 Pending 的后续请求先取得统一有界 `QueueTicket`，订阅同一个 scheduler epoch，并在
   `affinity.wait_timeout` 内取消安全地等待 Ready 或 Abort。该等待发生在固定候选选择和 RPM 预留之前；
   Abort、超时或记录丢失返回 `session_binding_lost`，不得猜测目标或启动上游 Attempt。
@@ -42,6 +53,9 @@ Runtime 的 `AffinityRegistry` 另行保存 Credential、Route Target、模型�
 - Pending 在 ID 可见前预留完整 `16 MiB` 并计入 `64 MiB` 总预算，Ready 后按实际序列化字节缩减；因此
   完成提交不会因其他请求抢占总预算失败。活跃记录不按 LRU 提前驱逐，只有 TTL、显式清理、Credential
   清理、Abort 或进程退出释放容量。
+- Continuation 身份创建和提交只对当前 HMAC 键执行 TTL 检查，不在每次响应身份事件上扫描最多
+  300,000 条的完整绑定表。无关过期记录由 60 秒周期 sweeper 回收；条目上限或 `64 MiB` 状态预算受压时，
+  插入路径在返回容量错误前再执行一次全表过期回收。命中、过期与容量语义不变，且不驱逐 TTL 内记录。
 - `64 MiB` 是 Registry 中 Ready/Pending 状态的存量预算，不能代替在途请求的工作集准入。任何
   `IngressAffinity::Continuation` 请求都必须在 Route、RPM 预留和上游 I/O 前，从现有进程级
   PublicRequest 内存 Permit 额外预留一条最大状态的 `16 MiB`。该额度覆盖不透明状态引用、恢复桥会话
@@ -77,5 +91,8 @@ Runtime 的 `AffinityRegistry` 另行保存 Credential、Route Target、模型�
 - 公开请求内存测试覆盖续接工作集在路由前预留、并发容量拒绝，以及 buffered/SSE Drop 释放同一 Permit。
 - JSON/SSE 契约覆盖 buffered 原子提交、`response.created` 前 Pending、终止前 Ready、客户端 Drop 后
   `session_binding_lost`，并确认原 `ChatHistoryStore` 不再存在。
+- 故障回归覆盖 primed Body 所在任务被 abort、panic 展开、postcommit idle timeout，以及 Pending follow-up
+  取消后 QueueTicket 归零并可被替代 waiter 复用；所有路径均确认 Pending 消失、完整预留归还且未提前消耗
+  第二次 RPM。
 
 其中“Continuation 在途工作集向 PublicRequest Permit 额外预留 `16 MiB`”的决策已由 ADR-0082 取代；Registry 自身单条 `16 MiB`、合计 `64 MiB` 的状态存量边界及 Pending/Ready 原子语义不变。

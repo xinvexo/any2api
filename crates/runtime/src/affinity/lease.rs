@@ -2,7 +2,10 @@ use std::{fmt, sync::Arc, time::Instant};
 
 use super::{
     hash::SessionHash,
-    registry::{AffinityError, AffinityRegistry, BindingSource, BindingState, TimedBinding},
+    registry::{
+        AffinityError, AffinityRegistry, BindingCreationPhase, BindingSource, BindingState,
+        TimedBinding,
+    },
     target::AffinityTarget,
 };
 
@@ -20,7 +23,7 @@ impl Binding {
 #[derive(Debug)]
 pub(crate) enum BindingStart {
     Create(BindingLease),
-    Wait,
+    Wait(BindingCreationPhase),
     Bound(Binding),
 }
 
@@ -32,6 +35,32 @@ pub(crate) struct BindingLease {
 }
 
 impl BindingLease {
+    pub(crate) fn mark_attempting(&mut self) -> Result<(), AffinityError> {
+        let mut state = self
+            .registry
+            .state
+            .lock()
+            .expect("affinity state lock poisoned");
+        let Some(BindingState::Creating { version, phase }) = state.entries.get_mut(&self.key)
+        else {
+            return Err(AffinityError::LeaseLost);
+        };
+        if *version != self.version {
+            return Err(AffinityError::LeaseLost);
+        }
+        *phase = BindingCreationPhase::Attempting;
+        drop(state);
+        self.registry.wake_waiters();
+        Ok(())
+    }
+
+    pub(crate) fn release_for_wait(mut self) -> Result<u64, AffinityError> {
+        if !self.remove_current() {
+            return Err(AffinityError::LeaseLost);
+        }
+        Ok(self.registry.wake_waiters())
+    }
+
     pub(crate) fn commit(mut self, target: AffinityTarget) -> Result<(), AffinityError> {
         self.commit_with_deadline(target, None)
     }
@@ -63,7 +92,10 @@ impl BindingLease {
         }
         let matches = matches!(
             state.entries.get(&self.key),
-            Some(BindingState::Creating { version, .. }) if *version == self.version
+            Some(BindingState::Creating {
+                version,
+                phase: BindingCreationPhase::Attempting,
+            }) if *version == self.version
         );
         if !matches {
             return Err(AffinityError::LeaseLost);
@@ -88,10 +120,10 @@ impl BindingLease {
     }
 }
 
-impl Drop for BindingLease {
-    fn drop(&mut self) {
+impl BindingLease {
+    fn remove_current(&mut self) -> bool {
         if !self.active {
-            return;
+            return false;
         }
         let mut state = self
             .registry
@@ -102,14 +134,17 @@ impl Drop for BindingLease {
             state.entries.get(&self.key),
             Some(BindingState::Creating { version, .. }) if *version == self.version
         );
-        let removed = if matches {
+        if matches {
             state.entries.remove(&self.key);
-            true
-        } else {
-            false
-        };
-        drop(state);
-        if removed {
+        }
+        self.active = false;
+        matches
+    }
+}
+
+impl Drop for BindingLease {
+    fn drop(&mut self) {
+        if self.remove_current() {
             self.registry.wake_waiters();
         }
     }

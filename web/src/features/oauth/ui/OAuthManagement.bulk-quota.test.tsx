@@ -20,15 +20,21 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
     ),
     oauthAccountJson("claude-1", "Claude One", "claude"),
   ];
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path === "/api/admin/oauth/accounts") {
       return jsonResponse({ config_revision: 1, items });
     }
     const quotaPrefix = "/api/admin/oauth/accounts/";
+    if (path.startsWith(quotaPrefix) && path.endsWith("/quota") && init?.method === "GET") {
+      return jsonResponse(null);
+    }
+    const refreshSuffix = "/quota/refresh";
     const accountId =
-      path.startsWith(quotaPrefix) && path.endsWith("/quota")
-        ? path.slice(quotaPrefix.length, -"/quota".length)
+      path.startsWith(quotaPrefix) &&
+      path.endsWith(refreshSuffix) &&
+      init?.method === "POST"
+        ? path.slice(quotaPrefix.length, -refreshSuffix.length)
         : null;
     if (accountId === "a12") {
       return errorResponse("oauth_quota_upstream_failed", 502);
@@ -54,20 +60,21 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
   expect(notification.className).toContain("notification-card");
   await waitFor(() => expect(refreshAll).toBeEnabled());
 
-  const quotaPaths = fetchMock.mock.calls
+  const refreshPaths = fetchMock.mock.calls
+    .filter(([, init]) => init?.method === "POST")
     .map(([input]) => String(input))
-    .filter((path) => path.endsWith("/quota"));
-  expect(new Set(quotaPaths)).toEqual(
+    .filter((path) => path.endsWith("/quota/refresh"));
+  expect(new Set(refreshPaths)).toEqual(
     new Set(
       Array.from(
         { length: 12 },
-        (_, index) => `/api/admin/oauth/accounts/a${index + 1}/quota`,
+        (_, index) => `/api/admin/oauth/accounts/a${index + 1}/quota/refresh`,
       ),
     ),
   );
-  expect(quotaPaths.some((path) => path.includes("claude-1"))).toBe(false);
+  expect(refreshPaths.some((path) => path.includes("claude-1"))).toBe(false);
   expect(client.getQueryData(oauthQueryKeys.quota("a11"))).toBeDefined();
-  expect(client.getQueryState(oauthQueryKeys.quota("a12"))?.status).toBe("error");
+  expect(client.getQueryData(oauthQueryKeys.quota("a12"))).toBeUndefined();
   expect(screen.getByText("额度耗尽")).toBeInTheDocument();
 });
 
@@ -78,12 +85,15 @@ test("limits refresh-all concurrency and locks account actions", async () => {
   const quotaGates: Array<ReturnType<typeof deferred<void>>> = [];
   let active = 0;
   let maxActive = 0;
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = String(input);
     if (path === "/api/admin/oauth/accounts") {
       return jsonResponse({ config_revision: 1, items });
     }
-    if (path.endsWith("/quota")) {
+    if (path.endsWith("/quota") && init?.method === "GET") {
+      return jsonResponse(null);
+    }
+    if (path.endsWith("/quota/refresh") && init?.method === "POST") {
       const gate = deferred<void>();
       quotaGates.push(gate);
       active += 1;

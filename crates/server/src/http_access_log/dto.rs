@@ -2,22 +2,32 @@ use any2api_domain::{HttpAccessLogSummary, LogPage};
 use any2api_runtime::api::RequestTelemetryMetrics;
 use serde::Serialize;
 
+use crate::log_pagination::LogCursorKind;
+
 #[derive(Serialize)]
 pub(super) struct SystemLogListResponse {
     items: Vec<SystemLogResponse>,
     total: u64,
-    page: u32,
     page_size: u32,
+    cursor: Option<String>,
+    next_cursor: Option<String>,
     telemetry: TelemetryResponse,
 }
 
 impl SystemLogListResponse {
     pub(super) fn new(
         logs: LogPage<HttpAccessLogSummary>,
-        page: u32,
         page_size: u32,
         metrics: RequestTelemetryMetrics,
     ) -> Self {
+        let cursor = logs
+            .cursor
+            .as_ref()
+            .map(|cursor| LogCursorKind::System.encode(cursor));
+        let next_cursor = logs
+            .next_cursor
+            .as_ref()
+            .map(|cursor| LogCursorKind::System.encode(cursor));
         Self {
             items: logs
                 .items
@@ -25,8 +35,9 @@ impl SystemLogListResponse {
                 .map(SystemLogResponse::from)
                 .collect(),
             total: logs.total,
-            page,
             page_size,
+            cursor,
+            next_cursor,
             telemetry: metrics.into(),
         }
     }

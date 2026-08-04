@@ -33,6 +33,42 @@ async fn duplicate_and_concurrent_schedules_use_one_worker() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn deferred_schedule_updates_the_index_before_publishing_the_worker_notification() {
+    let lifecycle = ProcessLifecycle::new();
+    let epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());
+    let slot = epoch.wake_slot();
+    let deadline = Instant::now() + Duration::from_secs(10);
+
+    let notification = slot.prepare_schedule(deadline);
+    assert_eq!(epoch.scheduled_wake_count(), 1);
+    assert_eq!(lifecycle.background_task_count(), 0);
+
+    notification.publish();
+    assert_eq!(lifecycle.background_task_count(), 1);
+    tokio::time::advance(Duration::from_secs(10)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(epoch.current(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn deferred_cancellation_updates_the_index_before_notifying_the_worker() {
+    let lifecycle = ProcessLifecycle::new();
+    let epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());
+    let slot = epoch.wake_slot();
+    slot.schedule(Instant::now() + Duration::from_secs(10));
+    tokio::task::yield_now().await;
+
+    let notification = slot.prepare_cancellation();
+    assert_eq!(epoch.scheduled_wake_count(), 0);
+    notification.publish();
+
+    tokio::time::advance(Duration::from_secs(10)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(epoch.current(), 0);
+    assert_eq!(lifecycle.background_task_count(), 1);
+}
+
+#[tokio::test(start_paused = true)]
 async fn an_earlier_replacement_reorders_the_worker_sleep() {
     let lifecycle = ProcessLifecycle::new();
     let epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());

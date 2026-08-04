@@ -17,7 +17,7 @@ pub(crate) use commit::ContinuationBindingCommitter;
 pub(crate) use continuation::{ContinuationLookup, ResolvedContinuation};
 pub(crate) use continuation_lease::ContinuationLease;
 pub(crate) use lease::{BindingLease, BindingStart};
-pub(crate) use registry::{AffinityError, AffinityRegistry};
+pub(crate) use registry::{AffinityError, AffinityRegistry, BindingCreationPhase};
 pub(crate) use sweeper::start as start_sweeper;
 pub(crate) use target::AffinityTarget;
 

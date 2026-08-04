@@ -96,7 +96,7 @@ impl From<OAuthQuotaExhaustion> for OAuthQuotaExhaustionResponse {
 
 #[derive(Debug, Serialize)]
 struct OAuthQuotaBillingResponse {
-    currency: &'static str,
+    currency: String,
     prepaid_balance_minor: Option<i64>,
     on_demand_used_minor: Option<i64>,
     on_demand_cap_minor: Option<i64>,
@@ -134,7 +134,7 @@ impl From<OAuthQuotaRateLimit> for OAuthQuotaRateLimitResponse {
 
 #[derive(Debug, Serialize)]
 struct OAuthQuotaWindowResponse {
-    id: &'static str,
+    id: String,
     kind: &'static str,
     used_percent: f64,
     limit_window_seconds: Option<u64>,
@@ -203,7 +203,7 @@ mod tests {
                 rate_limit: None,
                 reset_credits: None,
                 billing: Some(OAuthQuotaBilling {
-                    currency: "USD",
+                    currency: "USD".to_owned(),
                     prepaid_balance_minor: Some(-2500),
                     on_demand_used_minor: Some(125),
                     on_demand_cap_minor: Some(5000),

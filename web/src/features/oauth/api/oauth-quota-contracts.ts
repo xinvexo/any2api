@@ -74,6 +74,12 @@ export function parseOAuthQuotaSnapshot(value: unknown): OAuthQuotaSnapshot {
   };
 }
 
+export function parseNullableOAuthQuotaSnapshot(
+  value: unknown,
+): OAuthQuotaSnapshot | null {
+  return value === null ? null : parseOAuthQuotaSnapshot(value);
+}
+
 function parseTokenBalance(value: unknown): OAuthQuotaTokenBalance | null {
   if (value === null || value === undefined) return null;
   if (!isRecord(value)) throw invalidResponse();

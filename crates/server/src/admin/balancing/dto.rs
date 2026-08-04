@@ -8,16 +8,26 @@ use serde::Serialize;
 pub(crate) struct BalancingRuntimeResponse {
     config_revision: u64,
     scheduler_epoch: u64,
+    process: ProcessResponse,
     queue: QueueResponse,
     totals: TotalsResponse,
     providers: Vec<ProviderResponse>,
 }
 
 impl BalancingRuntimeResponse {
-    pub(crate) fn new(published: &PublishedSnapshot, runtime: &BalancingRuntimeSnapshot) -> Self {
+    pub(crate) fn new(
+        published: &PublishedSnapshot,
+        runtime: &BalancingRuntimeSnapshot,
+        active_requests: usize,
+        background_tasks: usize,
+    ) -> Self {
         Self {
             config_revision: published.revision().get(),
             scheduler_epoch: runtime.scheduler_epoch(),
+            process: ProcessResponse {
+                active_requests,
+                background_tasks,
+            },
             queue: QueueResponse::from(runtime),
             totals: TotalsResponse::from(runtime.totals()),
             providers: runtime
@@ -28,6 +38,12 @@ impl BalancingRuntimeResponse {
                 .collect(),
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+struct ProcessResponse {
+    active_requests: usize,
+    background_tasks: usize,
 }
 
 #[derive(Debug, Serialize)]

@@ -16,12 +16,21 @@ test("shows every Claude usage window and refreshes the full provider set", asyn
   let quotaReads = 0;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/admin/oauth/accounts") {
         return jsonResponse({ config_revision: 1, items: [claudeAccount()] });
       }
-      if (path === "/api/admin/oauth/accounts/claude-1/quota") {
+      if (
+        path === "/api/admin/oauth/accounts/claude-1/quota" &&
+        init?.method === "GET"
+      ) {
+        return jsonResponse(null);
+      }
+      if (
+        path === "/api/admin/oauth/accounts/claude-1/quota/refresh" &&
+        init?.method === "POST"
+      ) {
         quotaReads += 1;
         return jsonResponse(claudeQuota());
       }
@@ -44,7 +53,9 @@ test("shows every Claude usage window and refreshes the full provider set", asyn
   expect(within(panel).queryByRole("button", { name: "重置额度" })).not.toBeInTheDocument();
   expect(within(panel).queryByText("重置次数")).not.toBeInTheDocument();
 
-  fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
+  const refreshButton = within(panel).getByRole("button", { name: "刷新额度" });
+  await waitFor(() => expect(refreshButton).toBeEnabled());
+  fireEvent.click(refreshButton);
   expect(
     await within(panel).findByRole("progressbar", { name: "5 小时限额 剩余 87.5%" }),
   ).toBeInTheDocument();

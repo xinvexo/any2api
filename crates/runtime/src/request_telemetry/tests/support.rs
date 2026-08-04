@@ -5,8 +5,8 @@ use std::sync::{
 
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpAccessLogSummary,
-    HttpProtocolVersion, LogPage, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
-    SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
+    HttpProtocolVersion, LogPage, LogPageCursor, ProtocolDialect, ProtocolOperation, RequestId,
+    RequestLog, SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
@@ -65,18 +65,17 @@ impl HttpAccessLogRepository for BlockingRepository {
     async fn list_http_access_logs(
         &self,
         _since_ms: u64,
-        offset: u64,
+        _cursor: Option<LogPageCursor>,
         limit: u32,
     ) -> Result<LogPage<HttpAccessLogSummary>, StorageError> {
         let logs = self.access_logs.lock().expect("HTTP access logs");
         let total = logs.len() as u64;
         let items = logs
             .iter()
-            .skip(offset as usize)
             .take(limit as usize)
             .map(HttpAccessLog::summary)
             .collect();
-        Ok(LogPage::new(items, total))
+        Ok(LogPage::new(items, total, None, None))
     }
 
     async fn get_http_access_log(
@@ -169,7 +168,7 @@ impl RequestLogRepository for BlockingRepository {
     async fn list_request_logs(
         &self,
         _since_ms: u64,
-        _offset: u64,
+        _cursor: Option<LogPageCursor>,
         _limit: u32,
     ) -> Result<LogPage<RequestLog>, StorageError> {
         Ok(LogPage::empty())
@@ -257,6 +256,7 @@ pub(super) fn access_log(path: &str) -> HttpAccessLog {
         duration_ms: 1,
         response_bytes: 0,
         outcome: HttpAccessLogOutcome::Completed,
+        gateway_auth_rejected: false,
         exchange: None,
     }
 }

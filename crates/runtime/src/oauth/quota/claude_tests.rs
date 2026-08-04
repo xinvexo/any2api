@@ -8,7 +8,7 @@ async fn claude_query_uses_one_direct_usage_request_and_keeps_all_windows() {
 
     let quota = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("Claude quota query");
 
@@ -19,7 +19,7 @@ async fn claude_query_uses_one_direct_usage_request_and_keeps_all_windows() {
         rate_limit
             .windows
             .iter()
-            .map(|window| (window.id, window.kind, window.used_percent))
+            .map(|window| (window.id.as_str(), window.kind, window.used_percent))
             .collect::<Vec<_>>(),
         [
             ("five_hour", OAuthQuotaWindowKind::Time, 12.5),
@@ -54,7 +54,7 @@ async fn claude_quota_refreshes_token_once_after_a_401() {
 
     context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("Claude quota after refresh");
 

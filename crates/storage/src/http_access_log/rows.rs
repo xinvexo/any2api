@@ -1,6 +1,7 @@
 use any2api_domain::{
     ConfigRevision, HttpAccessLog, HttpAccessLogExchange, HttpAccessLogOutcome,
-    HttpAccessLogSummary, HttpBodyCapture, HttpHeader, HttpProtocolVersion, RequestId,
+    HttpAccessLogSummary, HttpBodyCapture, HttpHeader, HttpProtocolVersion, LogPagePosition,
+    RequestId,
 };
 use sqlx::FromRow;
 
@@ -23,10 +24,20 @@ pub(super) struct HttpAccessLogSummaryRow {
     exchange_captured: i64,
 }
 
+impl HttpAccessLogSummaryRow {
+    pub(super) fn page_position(&self) -> Result<LogPagePosition, StorageError> {
+        Ok(LogPagePosition::new(
+            to_u64(self.started_at_ms)?,
+            self.request_id.clone(),
+        ))
+    }
+}
+
 #[derive(FromRow)]
 pub(super) struct HttpAccessLogDetailRow {
     #[sqlx(flatten)]
     summary: HttpAccessLogSummaryRow,
+    gateway_auth_rejected: i64,
     request_headers: Vec<u8>,
     request_body: Vec<u8>,
     request_body_bytes: i64,
@@ -105,6 +116,7 @@ pub(super) fn parse_detail(row: HttpAccessLogDetailRow) -> Result<HttpAccessLog,
         duration_ms: summary.duration_ms,
         response_bytes: summary.response_bytes,
         outcome: summary.outcome,
+        gateway_auth_rejected: parse_bool(row.gateway_auth_rejected)?,
         exchange,
     })
 }

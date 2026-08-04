@@ -11,6 +11,7 @@ import {
   type OAuthProvider,
 } from "./oauth-contracts";
 import {
+  parseNullableOAuthQuotaSnapshot,
   parseOAuthQuotaResetResult,
   parseOAuthQuotaSnapshot,
 } from "./oauth-quota-contracts";
@@ -107,6 +108,13 @@ export function deleteOAuthAccount(
 export function getOAuthAccountQuota(id: string) {
   return requestJson<unknown>(
     `${accountCollection}/${encodeURIComponent(id)}/quota`,
+  ).then(parseNullableOAuthQuotaSnapshot);
+}
+
+export function refreshOAuthAccountQuotaRequest(id: string) {
+  return requestJson<unknown>(
+    `${accountCollection}/${encodeURIComponent(id)}/quota/refresh`,
+    { method: "POST" },
   ).then(parseOAuthQuotaSnapshot);
 }
 

@@ -19,7 +19,7 @@ use axum::{
     Router,
     body::Body,
     extract::ConnectInfo,
-    http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header::CACHE_CONTROL},
+    http::{HeaderMap, Method, Request, StatusCode, header::CACHE_CONTROL},
 };
 use bytes::Bytes;
 use futures_util::stream;
@@ -33,9 +33,9 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
     let remote = SocketAddr::from(([203, 0, 113, 10], 41000));
     let response = request(
         context.app.clone(),
-        Method::GET,
+        Method::POST,
         &format!(
-            "/api/admin/oauth/accounts/{}/quota",
+            "/api/admin/oauth/accounts/{}/quota/refresh",
             context.codex_account_id
         ),
         remote,
@@ -57,6 +57,20 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
     )
     .await;
     assert_eq!(response.status, StatusCode::OK);
+    assert!(response.json.is_null());
+    assert_eq!(context.transport.calls(), 0);
+
+    let response = request(
+        context.app.clone(),
+        Method::POST,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota/refresh",
+            context.codex_account_id
+        ),
+        loopback,
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.cache_control.as_deref(), Some("no-store"));
     assert_eq!(response.json["rate_limit"]["allowed"], true);
     assert_eq!(
@@ -68,7 +82,9 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
         response.json["reset_credits"]["expires_at"],
         json!(["2026-07-30T00:00:00Z"])
     );
-    assert!(response.json["fetched_at"].as_i64().is_some());
+    let fetched_at = response.json["fetched_at"]
+        .as_i64()
+        .expect("quota fetch timestamp");
     let encoded = serde_json::to_string(&response.json).expect("quota JSON");
     for secret in [
         "access-secret",
@@ -79,6 +95,25 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
     ] {
         assert!(!encoded.contains(secret));
     }
+    assert_eq!(context.transport.calls(), 2);
+
+    let cached = request(
+        context.app.clone(),
+        Method::GET,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota",
+            context.codex_account_id
+        ),
+        loopback,
+    )
+    .await;
+    assert_eq!(cached.status, StatusCode::OK);
+    assert_eq!(cached.json["fetched_at"], fetched_at);
+    assert_eq!(
+        cached.json["rate_limit"]["windows"][0]["used_percent"],
+        37.5
+    );
+    assert_eq!(context.transport.calls(), 2);
 
     let reset = request(
         context.app.clone(),
@@ -97,6 +132,19 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
     assert!(uuid::Uuid::parse_str(&redeem_request_id).is_ok());
     assert!(context.transport.all_requests_use_direct());
     assert!(context.transport.all_quota_headers_are_current());
+
+    let cleared = request(
+        context.app.clone(),
+        Method::GET,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota",
+            context.codex_account_id
+        ),
+        loopback,
+    )
+    .await;
+    assert_eq!(cleared.status, StatusCode::OK);
+    assert!(cleared.json.is_null());
 
     let exhausted = request(
         context.app.clone(),
@@ -117,15 +165,67 @@ async fn codex_quota_query_and_credit_reset_are_protected_and_redacted() {
 }
 
 #[tokio::test]
+async fn quota_change_stream_emits_initial_and_persisted_refresh_epochs() {
+    let context = TestContext::new().await;
+    let remote = SocketAddr::from(([203, 0, 113, 10], 41000));
+    let unauthorized = request(
+        context.app.clone(),
+        Method::GET,
+        "/api/admin/oauth/quota-events",
+        remote,
+    )
+    .await;
+    assert_eq!(unauthorized.status, StatusCode::UNAUTHORIZED);
+    assert_eq!(unauthorized.json["error"]["code"], "admin_session_required");
+
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let response = context
+        .app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/api/admin/oauth/quota-events")
+                .extension(ConnectInfo(loopback))
+                .body(Body::empty())
+                .expect("quota event request"),
+        )
+        .await
+        .expect("quota event response");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-accel-buffering"], "no");
+    assert_eq!(response.headers()[CACHE_CONTROL], "no-store");
+    let mut body = response.into_body();
+    let initial = next_sse_event(&mut body).await;
+    assert!(initial.contains("event: oauth_quota_changed"), "{initial}");
+    assert!(initial.contains("data: 0"), "{initial}");
+
+    let refreshed = request(
+        context.app,
+        Method::POST,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota/refresh",
+            context.claude_account_id
+        ),
+        loopback,
+    )
+    .await;
+    assert_eq!(refreshed.status, StatusCode::OK);
+    let changed = next_sse_event(&mut body).await;
+    assert!(changed.contains("event: oauth_quota_changed"), "{changed}");
+    assert!(changed.contains("data: 1"), "{changed}");
+}
+
+#[tokio::test]
 async fn grok_billing_and_subscription_return_redacted_credits_and_tier() {
     let context = TestContext::new().await;
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
 
     let response = request(
         context.app.clone(),
-        Method::GET,
+        Method::POST,
         &format!(
-            "/api/admin/oauth/accounts/{}/quota",
+            "/api/admin/oauth/accounts/{}/quota/refresh",
             context.grok_account_id
         ),
         loopback,
@@ -195,16 +295,16 @@ async fn grok_billing_and_subscription_return_redacted_credits_and_tier() {
 }
 
 #[tokio::test]
-async fn grok_free_quota_returns_the_live_upstream_token_headers() {
+async fn grok_free_quota_uses_only_the_two_read_only_endpoints() {
     let context = TestContext::new().await;
     context.transport.use_grok_free_subscription();
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
 
     let response = request(
         context.app,
-        Method::GET,
+        Method::POST,
         &format!(
-            "/api/admin/oauth/accounts/{}/quota",
+            "/api/admin/oauth/accounts/{}/quota/refresh",
             context.grok_account_id
         ),
         loopback,
@@ -214,13 +314,41 @@ async fn grok_free_quota_returns_the_live_upstream_token_headers() {
     assert_eq!(response.status, StatusCode::OK);
     assert_eq!(response.json["subscription_tier"], "Free");
     assert!(response.json["rate_limit"].is_null());
-    assert_eq!(response.json["token_balance"]["source"], "upstream");
-    assert_eq!(response.json["token_balance"]["used"], 250_000);
-    assert_eq!(response.json["token_balance"]["limit"], 2_000_000);
-    assert_eq!(response.json["token_balance"]["remaining"], 1_750_000);
-    assert!(response.json["token_balance"]["window_seconds"].is_null());
-    assert_eq!(context.transport.calls(), 3);
-    assert!(context.transport.grok_free_probe_is_minimal());
+    assert!(response.json["token_balance"].is_null());
+    assert_eq!(context.transport.calls(), 2);
+    assert!(
+        context
+            .transport
+            .last_requests_are_grok_billing_and_subscription()
+    );
+}
+
+#[tokio::test]
+async fn grok_missing_subscription_tier_stays_unknown_and_read_only() {
+    let context = TestContext::new().await;
+    context.transport.use_grok_missing_subscription();
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let response = request(
+        context.app,
+        Method::POST,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota/refresh",
+            context.grok_account_id
+        ),
+        loopback,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK);
+    assert!(response.json["subscription_tier"].is_null());
+    assert!(response.json["token_balance"].is_null());
+    assert_eq!(context.transport.calls(), 2);
+    assert!(
+        context
+            .transport
+            .last_requests_are_grok_billing_and_subscription()
+    );
 }
 
 #[tokio::test]
@@ -230,9 +358,9 @@ async fn claude_quota_returns_all_redacted_usage_windows() {
 
     let response = request(
         context.app,
-        Method::GET,
+        Method::POST,
         &format!(
-            "/api/admin/oauth/accounts/{}/quota",
+            "/api/admin/oauth/accounts/{}/quota/refresh",
             context.claude_account_id
         ),
         loopback,
@@ -269,9 +397,9 @@ async fn token_refresh_failure_does_not_report_a_definitively_invalid_account() 
 
     let response = request(
         context.app,
-        Method::GET,
+        Method::POST,
         &format!(
-            "/api/admin/oauth/accounts/{}/quota",
+            "/api/admin/oauth/accounts/{}/quota/refresh",
             context.codex_account_id
         ),
         loopback,
@@ -294,9 +422,9 @@ async fn top_level_invalid_grant_is_reported_as_a_definitively_invalid_account()
 
     let response = request(
         context.app,
-        Method::GET,
+        Method::POST,
         &format!(
-            "/api/admin/oauth/accounts/{}/quota",
+            "/api/admin/oauth/accounts/{}/quota/refresh",
             context.codex_account_id
         ),
         loopback,
@@ -319,9 +447,9 @@ async fn a_second_unauthorized_response_after_refresh_is_definitively_invalid() 
 
     let response = request(
         context.app,
-        Method::GET,
+        Method::POST,
         &format!(
-            "/api/admin/oauth/accounts/{}/quota",
+            "/api/admin/oauth/accounts/{}/quota/refresh",
             context.codex_account_id
         ),
         loopback,
@@ -344,9 +472,9 @@ async fn provider_egress_rejection_is_not_reported_as_an_account_restriction() {
 
     let response = request(
         context.app,
-        Method::GET,
+        Method::POST,
         &format!(
-            "/api/admin/oauth/accounts/{}/quota",
+            "/api/admin/oauth/accounts/{}/quota/refresh",
             context.codex_account_id
         ),
         loopback,
@@ -358,8 +486,34 @@ async fn provider_egress_rejection_is_not_reported_as_an_account_restriction() {
         response.json["error"]["code"],
         "oauth_provider_egress_restricted"
     );
-    assert_eq!(context.transport.calls(), 2);
-    assert!(context.transport.codex_egress_probe_is_account_free());
+    assert_eq!(context.transport.calls(), 1);
+    assert!(context.transport.codex_rejection_is_authenticated());
+}
+
+#[tokio::test]
+async fn unknown_codex_forbidden_stays_neutral_without_a_secondary_request() {
+    let context = TestContext::new().await;
+    context.transport.use_unknown_forbidden_rejection();
+    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
+    let response = request(
+        context.app.clone(),
+        Method::POST,
+        &format!(
+            "/api/admin/oauth/accounts/{}/quota/refresh",
+            context.codex_account_id
+        ),
+        loopback,
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        response.json["error"]["code"],
+        "oauth_quota_upstream_failed"
+    );
+    assert_eq!(context.transport.calls(), 1);
+    assert!(context.transport.codex_rejection_is_authenticated());
 }
 
 struct TestContext {
@@ -430,6 +584,7 @@ impl TestContext {
             fixture.components().provider_registry_handle(),
             Arc::clone(&transport) as Arc<dyn TransportManager>,
             publisher,
+            Arc::clone(&storage),
         ));
         let state = fixture.state().with_oauth(oauth);
         let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);
@@ -464,8 +619,6 @@ struct CapturedRequest {
     grok_client_version: Option<String>,
     grok_user_id: Option<String>,
     grok_client_mode: Option<String>,
-    grok_model_override: Option<String>,
-    content_type: Option<String>,
     anthropic_beta: Option<String>,
     user_agent: Option<String>,
     proxy_id: any2api_domain::ProxyProfileId,
@@ -476,10 +629,12 @@ struct QuotaTransport {
     available_count: AtomicU32,
     consume_calls: AtomicUsize,
     grok_free_subscription: AtomicBool,
+    grok_missing_subscription: AtomicBool,
     authentication_refresh_failure: AtomicBool,
     invalid_grant_refresh_rejection: AtomicBool,
     persistent_authentication_rejection: AtomicBool,
     provider_egress_rejection: AtomicBool,
+    unknown_forbidden_rejection: AtomicBool,
     captured: Mutex<Vec<CapturedRequest>>,
     redeem_request_id: Mutex<Option<String>>,
 }
@@ -490,10 +645,12 @@ impl QuotaTransport {
             available_count: AtomicU32::new(1),
             consume_calls: AtomicUsize::new(0),
             grok_free_subscription: AtomicBool::new(false),
+            grok_missing_subscription: AtomicBool::new(false),
             authentication_refresh_failure: AtomicBool::new(false),
             invalid_grant_refresh_rejection: AtomicBool::new(false),
             persistent_authentication_rejection: AtomicBool::new(false),
             provider_egress_rejection: AtomicBool::new(false),
+            unknown_forbidden_rejection: AtomicBool::new(false),
             captured: Mutex::new(Vec::new()),
             redeem_request_id: Mutex::new(None),
         }
@@ -509,6 +666,11 @@ impl QuotaTransport {
 
     fn use_grok_free_subscription(&self) {
         self.grok_free_subscription.store(true, Ordering::Release);
+    }
+
+    fn use_grok_missing_subscription(&self) {
+        self.grok_missing_subscription
+            .store(true, Ordering::Release);
     }
 
     fn use_authentication_refresh_failure(&self) {
@@ -528,6 +690,11 @@ impl QuotaTransport {
 
     fn use_provider_egress_rejection(&self) {
         self.provider_egress_rejection
+            .store(true, Ordering::Release);
+    }
+
+    fn use_unknown_forbidden_rejection(&self) {
+        self.unknown_forbidden_rejection
             .store(true, Ordering::Release);
     }
 
@@ -584,32 +751,6 @@ impl QuotaTransport {
             })
     }
 
-    fn grok_free_probe_is_minimal(&self) -> bool {
-        let captured = self.captured.lock().expect("captured lock");
-        let [billing, subscription, probe] = captured.as_slice() else {
-            return false;
-        };
-        billing.path_and_query == "/v1/billing?format=credits"
-            && subscription.path_and_query == "/v1/user?include=subscription"
-            && probe.method == Method::POST
-            && probe.path == "/v1/chat/completions"
-            && probe.grok_model_override.as_deref() == Some("grok-4.5")
-            && probe.content_type.as_deref() == Some("application/json")
-            && serde_json::from_slice::<Value>(&probe.body)
-                .ok()
-                .is_some_and(|body| {
-                    body["model"] == "grok-4.5"
-                        && body["max_tokens"] == 1
-                        && body["stream"] == false
-                })
-            && [billing, subscription, probe].iter().all(|request| {
-                request.authorization.as_deref()
-                    == Some("Bearer header.eyJib3RfZmxhZ19zb3VyY2UiOjF9.grok-access-secret")
-                    && request.grok_user_id.as_deref() == Some("grok-subject")
-                    && request.proxy_id == any2api_domain::ProxyProfileId::DIRECT
-            })
-    }
-
     fn last_request_is_claude_usage(&self) -> bool {
         self.captured
             .lock()
@@ -626,19 +767,15 @@ impl QuotaTransport {
             })
     }
 
-    fn codex_egress_probe_is_account_free(&self) -> bool {
+    fn codex_rejection_is_authenticated(&self) -> bool {
         let captured = self.captured.lock().expect("captured lock");
-        let [quota, probe] = captured.as_slice() else {
+        let [quota] = captured.as_slice() else {
             return false;
         };
         quota.path == "/backend-api/wham/usage"
             && quota.authorization.as_deref() == Some("Bearer access-secret")
             && quota.account_id.as_deref() == Some("account-123")
-            && probe.path == "/backend-api/wham/usage"
-            && probe.authorization.is_none()
-            && probe.account_id.is_none()
             && quota.proxy_id == any2api_domain::ProxyProfileId::DIRECT
-            && probe.proxy_id == any2api_domain::ProxyProfileId::DIRECT
     }
 }
 
@@ -696,16 +833,6 @@ impl TransportManager for QuotaTransport {
                     .get("x-grok-client-mode")
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_owned),
-                grok_model_override: request
-                    .headers
-                    .get("x-grok-model-override")
-                    .and_then(|value| value.to_str().ok())
-                    .map(str::to_owned),
-                content_type: request
-                    .headers
-                    .get("content-type")
-                    .and_then(|value| value.to_str().ok())
-                    .map(str::to_owned),
                 anthropic_beta: request
                     .headers
                     .get("anthropic-beta")
@@ -720,6 +847,18 @@ impl TransportManager for QuotaTransport {
                 body: request.body.clone(),
             });
         if self.provider_egress_rejection.load(Ordering::Acquire)
+            && path == "/backend-api/wham/usage"
+        {
+            return Ok(TransportResponse {
+                status: StatusCode::FORBIDDEN,
+                headers: HeaderMap::new(),
+                body: Box::pin(stream::iter([Ok(Bytes::from_static(
+                    b"<html><body>Cloudflare error: Sorry, you have been blocked</body></html>",
+                ))])),
+                read_failure_scope: TransportFailureScope::Endpoint,
+            });
+        }
+        if self.unknown_forbidden_rejection.load(Ordering::Acquire)
             && path == "/backend-api/wham/usage"
         {
             return Ok(TransportResponse {
@@ -834,24 +973,14 @@ impl TransportManager for QuotaTransport {
             "/v1/user" => {
                 let body = if self.grok_free_subscription.load(Ordering::Acquire) {
                     Bytes::from_static(br#"{"subscriptionTier":null,"teamBlockedReasons":[]}"#)
+                } else if self.grok_missing_subscription.load(Ordering::Acquire) {
+                    Bytes::from_static(br#"{"teamBlockedReasons":[]}"#)
                 } else {
                     Bytes::from_static(
                         br#"{"subscriptionTier":"SuperGrokPro","userBlockedReason":"BLOCKED_REASON_BILLING","teamBlockedReasons":["BLOCKED_REASON_NO_LOGS"],"email":"grok-upstream-secret"}"#,
                     )
                 };
                 (body, HeaderMap::new())
-            }
-            "/v1/chat/completions" => {
-                let mut headers = HeaderMap::new();
-                headers.insert(
-                    "x-ratelimit-limit-tokens",
-                    HeaderValue::from_static("2000000"),
-                );
-                headers.insert(
-                    "x-ratelimit-remaining-tokens",
-                    HeaderValue::from_static("1750000"),
-                );
-                (Bytes::from_static(br#"{"choices":[]}"#), headers)
             }
             "/api/oauth/usage" => (Bytes::from_static(
                 br#"{"five_hour":{"utilization":12.5,"resets_at":"2030-01-01T01:00:00Z"},"seven_day":{"utilization":34.0,"resets_at":"2030-01-08T00:00:00Z"},"seven_day_sonnet":{"utilization":56.0,"resets_at":"2030-01-08T00:00:00Z"},"seven_day_overage_included":{"utilization":78.0,"resets_at":"2030-01-08T00:00:00Z"},"unknown":{"token":"upstream-secret"}}"#,
@@ -906,4 +1035,14 @@ async fn request(app: Router, method: Method, uri: &str, remote: SocketAddr) -> 
         cache_control,
         json,
     }
+}
+
+async fn next_sse_event(body: &mut Body) -> String {
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(1), body.frame())
+        .await
+        .expect("SSE frame timeout")
+        .expect("SSE frame")
+        .expect("valid SSE frame");
+    let data = frame.into_data().expect("SSE data frame");
+    String::from_utf8(data.to_vec()).expect("UTF-8 SSE event")
 }

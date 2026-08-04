@@ -9,6 +9,8 @@ use crate::{
     sqlite::SqliteStore,
 };
 
+mod capacity;
+
 const GENEROUS_CAPACITY: HttpAccessLogCapacity =
     HttpAccessLogCapacity::new(10_000, 64 * 1024 * 1024);
 
@@ -25,13 +27,14 @@ async fn stores_exact_paths_prunes_and_clears_history() {
         .append_http_access_logs(&[first.clone(), second.clone()], GENEROUS_CAPACITY)
         .await
         .expect("append access logs");
-    assert_eq!(
-        store
-            .list_http_access_logs(0, 0, 10)
-            .await
-            .expect("list access logs"),
-        any2api_domain::LogPage::new(vec![second.summary(), first.summary()], 2)
-    );
+    let page = store
+        .list_http_access_logs(0, None, 10)
+        .await
+        .expect("list access logs");
+    assert_eq!(page.items, vec![second.summary(), first.summary()]);
+    assert_eq!(page.total, 2);
+    assert!(page.cursor.is_some());
+    assert!(page.next_cursor.is_none());
     assert_eq!(
         store
             .get_http_access_log(second.request_id)
@@ -56,7 +59,7 @@ async fn stores_exact_paths_prunes_and_clears_history() {
     );
     assert!(
         store
-            .list_http_access_logs(0, 0, 10)
+            .list_http_access_logs(0, None, 10)
             .await
             .expect("empty access logs")
             .items
@@ -105,7 +108,7 @@ async fn access_log_pages_hide_local_success_noise_and_keep_auditable_traffic() 
     assert_eq!(stored_mapped_ip, "127.0.0.1");
 
     let first_page = store
-        .list_http_access_logs(250, 0, 2)
+        .list_http_access_logs(250, None, 2)
         .await
         .expect("first page");
     assert_eq!(first_page.total, 3);
@@ -113,7 +116,7 @@ async fn access_log_pages_hide_local_success_noise_and_keep_auditable_traffic() 
     assert_eq!(first_page.items[1], local_error.summary());
 
     let second_page = store
-        .list_http_access_logs(250, 2, 2)
+        .list_http_access_logs(250, first_page.next_cursor, 2)
         .await
         .expect("second page");
     assert_eq!(second_page.total, 3);
@@ -122,55 +125,81 @@ async fn access_log_pages_hide_local_success_noise_and_keep_auditable_traffic() 
 }
 
 #[tokio::test]
-async fn append_enforces_independent_row_and_exchange_capacity() {
+async fn access_log_cursor_is_stable_across_inserts_and_tail_deletion() {
     let directory = tempdir().expect("temporary directory");
-    let store = SqliteStore::connect(&directory.path().join("access-log-capacity.sqlite3"))
+    let store = SqliteStore::connect(&directory.path().join("access-log-cursor.sqlite3"))
         .await
         .expect("SQLite store");
-    let first = sized_record(100, 6);
-    let second = sized_record(200, 6);
-    let third = sized_record(300, 6);
+    let oldest = record(100, "/v1/oldest");
+    let older = record(200, "/v1/older");
+    let middle = record(300, "/v1/middle");
+    let fourth = record(400, "/v1/fourth");
+    let newest = record(500, "/v1/newest");
+    store
+        .append_http_access_logs(
+            &[
+                oldest.clone(),
+                older.clone(),
+                middle.clone(),
+                fourth.clone(),
+                newest.clone(),
+            ],
+            GENEROUS_CAPACITY,
+        )
+        .await
+        .expect("append initial logs");
 
+    let first_page = store
+        .list_http_access_logs(0, None, 2)
+        .await
+        .expect("first page");
     assert_eq!(
-        store
-            .append_http_access_logs(
-                &[first, second.clone(), third.clone()],
-                HttpAccessLogCapacity::new(2, 100),
-            )
-            .await
-            .expect("row capacity"),
-        1
-    );
-    assert_eq!(
-        stored_ids(&store).await,
-        vec![second.request_id, third.request_id]
+        first_page
+            .items
+            .iter()
+            .map(|item| item.request_id)
+            .collect::<Vec<_>>(),
+        [newest.request_id, fourth.request_id]
     );
 
-    let fourth = sized_record(400, 16);
-    assert_eq!(
-        store
-            .append_http_access_logs(
-                std::slice::from_ref(&fourth),
-                HttpAccessLogCapacity::new(10, 25),
-            )
-            .await
-            .expect("exchange capacity"),
-        2
-    );
-    assert_eq!(stored_ids(&store).await, vec![fourth.request_id]);
+    let head = record(600, "/v1/head");
+    let late = record(350, "/v1/late");
+    store
+        .append_http_access_logs(&[head.clone(), late.clone()], GENEROUS_CAPACITY)
+        .await
+        .expect("append concurrent logs");
 
-    let oversized = sized_record(500, 26);
+    let second_page = store
+        .list_http_access_logs(0, first_page.next_cursor.clone(), 2)
+        .await
+        .expect("second page");
+    assert_eq!(second_page.total, 6);
     assert_eq!(
-        store
-            .append_http_access_logs(
-                std::slice::from_ref(&oversized),
-                HttpAccessLogCapacity::new(10, 25),
-            )
-            .await
-            .expect("oversized exchange"),
-        2
+        second_page
+            .items
+            .iter()
+            .map(|item| item.request_id)
+            .collect::<Vec<_>>(),
+        [late.request_id, middle.request_id]
     );
-    assert!(stored_ids(&store).await.is_empty());
+    sqlx::query("DELETE FROM http_access_logs WHERE request_id = ?")
+        .bind(oldest.request_id.to_string())
+        .execute(store.pool())
+        .await
+        .expect("delete oldest row between pages");
+    let third_page = store
+        .list_http_access_logs(0, second_page.next_cursor, 2)
+        .await
+        .expect("third page");
+    assert_eq!(third_page.items[0].request_id, older.request_id);
+    assert_eq!(third_page.total, 5);
+    assert!(third_page.next_cursor.is_none());
+    assert!(
+        [first_page.items, second_page.items, third_page.items]
+            .into_iter()
+            .flatten()
+            .all(|item| item.request_id != head.request_id)
+    );
 }
 
 #[tokio::test]
@@ -179,7 +208,7 @@ async fn incremental_vacuum_reclaims_pages_after_clear_on_new_databases() {
     let store = SqliteStore::connect(&directory.path().join("access-log-vacuum.sqlite3"))
         .await
         .expect("SQLite store");
-    let large = sized_record(100, 512 * 1024);
+    let large = capacity::sized_record(100, 512 * 1024);
     store
         .append_http_access_logs(std::slice::from_ref(&large), GENEROUS_CAPACITY)
         .await
@@ -222,31 +251,6 @@ async fn incremental_vacuum_reclaims_pages_after_clear_on_new_databases() {
     assert!(pages_after < pages_before);
 }
 
-async fn stored_ids(store: &SqliteStore) -> Vec<RequestId> {
-    sqlx::query_scalar::<_, String>(
-        "SELECT request_id FROM http_access_logs ORDER BY started_at_ms, request_id",
-    )
-    .fetch_all(store.pool())
-    .await
-    .expect("stored access log ids")
-    .into_iter()
-    .map(|value| value.parse().expect("request id"))
-    .collect()
-}
-
-fn sized_record(started_at_ms: u64, request_body_bytes: usize) -> HttpAccessLog {
-    let mut value = record(started_at_ms, "/v1/responses");
-    let exchange = value.exchange.as_mut().expect("captured exchange");
-    exchange.request_headers.clear();
-    exchange.response_headers.clear();
-    exchange.request_body.content = vec![b'r'; request_body_bytes];
-    exchange.request_body.total_bytes =
-        u64::try_from(request_body_bytes).expect("request body length fits u64");
-    exchange.response_body.content.clear();
-    exchange.response_body.total_bytes = 0;
-    value
-}
-
 fn record(started_at_ms: u64, path: &str) -> HttpAccessLog {
     HttpAccessLog {
         request_id: RequestId::new(),
@@ -261,6 +265,7 @@ fn record(started_at_ms: u64, path: &str) -> HttpAccessLog {
         duration_ms: 12,
         response_bytes: 42,
         outcome: HttpAccessLogOutcome::Completed,
+        gateway_auth_rejected: false,
         exchange: Some(HttpAccessLogExchange {
             request_headers: vec![HttpHeader {
                 name: "x-raw".to_owned(),

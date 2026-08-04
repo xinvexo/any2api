@@ -33,8 +33,19 @@ pub(super) struct AffinityState {
 
 #[derive(Debug)]
 pub(super) enum BindingState {
-    Creating { version: u64 },
-    Bound { binding: TimedBinding },
+    Creating {
+        version: u64,
+        phase: BindingCreationPhase,
+    },
+    Bound {
+        binding: TimedBinding,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BindingCreationPhase {
+    Selecting,
+    Attempting,
 }
 
 #[derive(Clone, Debug)]
@@ -107,16 +118,22 @@ impl AffinityRegistry {
                         target: binding.target.clone(),
                     }));
                 }
-                BindingState::Creating { .. } => return Ok(BindingStart::Wait),
+                BindingState::Creating { phase, .. } => {
+                    return Ok(BindingStart::Wait(*phase));
+                }
                 _ => {}
             }
             state.remove(&key);
         }
         ensure_capacity(&mut state, now, ttl)?;
         let version = state.next_version();
-        state
-            .entries
-            .insert(key, BindingState::Creating { version });
+        state.entries.insert(
+            key,
+            BindingState::Creating {
+                version,
+                phase: BindingCreationPhase::Selecting,
+            },
+        );
         Ok(BindingStart::Create(BindingLease {
             registry: Arc::clone(self),
             key,
@@ -173,8 +190,8 @@ impl AffinityRegistry {
         cleared
     }
 
-    pub(super) fn wake_waiters(&self) {
-        self.scheduler_epoch.advance();
+    pub(super) fn wake_waiters(&self) -> u64 {
+        self.scheduler_epoch.advance()
     }
 }
 
@@ -190,6 +207,24 @@ impl AffinityState {
             .continuation_bytes
             .saturating_sub(continuation_bytes(&removed));
         Some(removed)
+    }
+
+    pub(super) fn remove_if_expired(
+        &mut self,
+        key: &SessionHash,
+        now: Instant,
+        ttl: Duration,
+    ) -> bool {
+        let expired = matches!(
+            self.entries.get(key),
+            Some(BindingState::Bound { binding })
+                if !binding.is_pending_continuation()
+                    && now.saturating_duration_since(binding.last_seen_at) >= ttl
+        );
+        if expired {
+            self.remove(key);
+        }
+        expired
     }
 
     pub(super) fn remove_expired(&mut self, now: Instant, ttl: Duration) -> usize {

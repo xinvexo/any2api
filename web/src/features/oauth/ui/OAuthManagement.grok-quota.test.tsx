@@ -16,12 +16,21 @@ test("shows and refreshes Grok quota without a reset action", async () => {
   let quotaReads = 0;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       if (path === "/api/admin/oauth/accounts") {
         return jsonResponse({ config_revision: 1, items: [grokAccount()] });
       }
-      if (path === "/api/admin/oauth/accounts/grok-1/quota") {
+      if (
+        path === "/api/admin/oauth/accounts/grok-1/quota" &&
+        init?.method === "GET"
+      ) {
+        return jsonResponse(null);
+      }
+      if (
+        path === "/api/admin/oauth/accounts/grok-1/quota/refresh" &&
+        init?.method === "POST"
+      ) {
         quotaReads += 1;
         return jsonResponse(grokQuota());
       }
@@ -53,7 +62,9 @@ test("shows and refreshes Grok quota without a reset action", async () => {
   );
   expect(screen.getByRole("button", { name: "刷新全部额度" })).not.toHaveAttribute("title");
 
-  fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
+  const refreshButton = within(panel).getByRole("button", { name: "刷新额度" });
+  await waitFor(() => expect(refreshButton).toBeEnabled());
+  fireEvent.click(refreshButton);
   expect(await screen.findByText("Free")).toBeInTheDocument();
   expect(within(panel).queryByText("Free")).not.toBeInTheDocument();
   expect(within(panel).queryByText("当前套餐")).not.toBeInTheDocument();

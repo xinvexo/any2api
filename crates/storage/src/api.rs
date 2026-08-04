@@ -16,6 +16,10 @@ pub use crate::oauth_account::{
     OAuthAccountDocumentValidationError, OAuthAccountRefresh, StoredOAuthAccountMaterial,
     StoredOAuthAccountMaterials,
 };
+pub use crate::oauth_quota_snapshot::{
+    MAX_OAUTH_QUOTA_SNAPSHOT_BYTES, OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION,
+    OAuthQuotaSnapshotRepository, StoredOAuthQuotaSnapshot,
+};
 pub use crate::provider::{
     ProviderApiKeyValidationError, StoredProviderCredentialSecret, StoredProviderCredentialSecrets,
 };

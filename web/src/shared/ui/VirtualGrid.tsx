@@ -107,7 +107,7 @@ export function VirtualGrid<T>({
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={0}
       className={cn(
-        "max-h-[min(72vh,52rem)] overflow-y-auto overflow-x-hidden pr-1 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-accent/45",
+        "h-full min-h-0 overflow-y-auto overflow-x-hidden pr-1 outline-none [scrollbar-gutter:stable] focus-visible:ring-2 focus-visible:ring-accent/45",
         className,
       )}
     >

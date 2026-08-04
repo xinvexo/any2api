@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use any2api_domain::ConfigRevision;
+use any2api_domain::{ConfigRevision, RequestId};
 
-use super::support::{BlockingRepository, access_log, logging_settings, wait_for};
+use super::support::{BlockingRepository, access_log, logging_settings, record, wait_for};
 use crate::{
     lifecycle::ProcessLifecycle,
     request_telemetry::{HttpAccessLogChangeNotification, RequestTelemetry},
@@ -137,4 +137,52 @@ async fn capacity_eviction_advances_epoch_for_a_suppressed_batch() {
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 
     assert_eq!(*changes.borrow(), 1);
+}
+
+#[tokio::test]
+async fn gateway_auth_rejections_cannot_fill_the_shared_logical_queue() {
+    let repository = Arc::new(BlockingRepository::default());
+    let settings = logging_settings(4);
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    let request_policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
+    telemetry.try_record(record(RequestId::new()), request_policy);
+    wait_for(|| repository.write_batches.load(Ordering::Acquire) == 1).await;
+
+    for index in 0..2 {
+        let mut rejected = access_log(&format!("/v1/rejected-{index}"));
+        rejected.gateway_auth_rejected = true;
+        telemetry.try_record_http_access(
+            rejected,
+            settings.logging(),
+            HttpAccessLogChangeNotification::Notify,
+        );
+    }
+    for index in 0..3 {
+        telemetry.try_record_http_access(
+            access_log(&format!("/protected-{index}")),
+            settings.logging(),
+            HttpAccessLogChangeNotification::Notify,
+        );
+    }
+
+    let metrics = telemetry.metrics();
+    assert_eq!(metrics.queued_records, 4);
+    assert_eq!(metrics.in_flight_records, 1);
+    assert_eq!(metrics.dropped_records, 1);
+
+    repository.release_first.notify_waiters();
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+    let logs = repository.access_logs.lock().expect("HTTP access logs");
+    assert_eq!(logs.len(), 4);
+    assert_eq!(
+        logs.iter().filter(|log| log.gateway_auth_rejected).count(),
+        1
+    );
+    assert_eq!(telemetry.metrics().persisted_records, 5);
 }

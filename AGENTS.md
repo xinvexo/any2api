@@ -45,7 +45,7 @@
 - 两者没有绑定、映射、所有权、配额或派生关系。
 - `GatewayApiKey` 不得选择、过滤、固定或影响 `ProviderCredential` 或 `OAuthAccount`。
 - 客户端认证头在进入 Provider Driver 前必须剥离；只有调度器选中的 Provider API Key 或 OAuth 账号可以注入上游认证。
-- 禁止把 Gateway Key、Provider API Key、OAuth Token、代理密码或原始 Session ID 写入日志。
+- 禁止把 Gateway Key、Provider API Key、OAuth Token、代理密码或原始 Session ID 写入普通 tracing/file log、模型 `RequestLog`、错误正文、`Debug`、日志变更 SSE 或浏览器持久化状态。ADR-0081 定义的 `HttpAccessLog` 客户端侧原始 HTTP 交换是唯一日志例外：它按操作员选择原样捕获这些字段，且只允许通过已认证的系统日志详情读取。
 
 ## 5. 代理不变量
 
@@ -127,7 +127,7 @@
 - 默认保留已有数据；若用户明确拒绝兼容某个旧格式，必须由 ADR 记录，并在 Migration 修改任何结构或数据前拒绝非空旧记录，禁止静默删除和兼容代码回流。
 - SQLite 只持久化配置、必要凭据、Gateway Key 明文与校验摘要、OAuthAccount 原始 JSON 和可选历史日志。
 - RPM 滚动窗口、`in_flight`、等待队列、健康、冷却、熔断、会话和请求进度不得持久化。
-- Provider API Key、代理密码、Gateway Key 和 OAuth JSON 都按产品决策明文存入 SQLite。数据目录与其中的数据库、WAL、锁和日志文件是唯一的本地持久化保护边界；Secret 仍禁止进入日志、非必要 DTO、Debug 或浏览器持久化状态。
+- Provider API Key、代理密码、Gateway Key 和 OAuth JSON 都按产品决策明文存入 SQLite。数据目录与其中的数据库、WAL、锁和日志文件是唯一的本地持久化保护边界；除 ADR-0081 的已认证 `HttpAccessLog` 原始交换例外外，Secret 仍禁止进入日志、非必要 DTO、`Debug` 或浏览器持久化状态。
 - 管理 DTO 对 Provider Secret 默认只返回指纹或尾号，创建时仅展示一次；`GatewayApiKey` 例外：明文持久化，管理列表始终可查看。
 - 远程管理默认开启，但不改变默认 loopback 监听地址；管理面必须使用独立单管理员认证，允许 HTTP 或 HTTPS，公网部署应由 Nginx/Caddy 等反向代理终止 TLS。
 - 明文 HTTP 是受支持配置，不能在实现中强制跳转 HTTPS 或拒绝管理请求；Web 必须明确提示密码、Cookie 和 OAuth callback/code 的明文传输风险。

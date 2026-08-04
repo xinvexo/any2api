@@ -17,7 +17,7 @@ async fn grok_query_reads_billing_and_current_subscription_over_direct_proxy() {
 
     let quota = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("Grok quota query");
 
@@ -68,12 +68,12 @@ async fn grok_query_reads_billing_and_current_subscription_over_direct_proxy() {
 }
 
 #[tokio::test]
-async fn grok_free_billing_reads_the_current_upstream_token_headers() {
+async fn grok_free_billing_remains_read_only_and_leaves_token_balance_unknown() {
     let context = QuotaTestContext::new_grok_unified().await;
 
     let quota = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("Grok unified quota query");
 
@@ -83,30 +83,19 @@ async fn grok_free_billing_reads_the_current_upstream_token_headers() {
     assert_eq!(billing.on_demand_used_minor, Some(0));
     assert_eq!(billing.on_demand_cap_minor, Some(0));
     assert_eq!(quota.usage.subscription_tier.as_deref(), Some("Free"));
-    let balance = quota.usage.token_balance.expect("upstream token balance");
-    assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Upstream);
-    assert_eq!(balance.used, 250_000);
-    assert_eq!(balance.limit, 2_000_000);
-    assert_eq!(balance.remaining, 1_750_000);
-    assert_eq!(balance.window_seconds, None);
+    assert!(quota.usage.token_balance.is_none());
     let status = quota.usage.account_status.expect("account status");
     assert!(status.user_blocked_reason.is_none());
     assert!(status.team_blocked_reasons.is_empty());
     let captured = context.transport.captured();
-    assert_eq!(captured.len(), 3);
-    let probe = &captured[2];
-    assert_eq!(probe.method, Method::POST);
-    assert_eq!(probe.path, "/v1/chat/completions");
-    assert_eq!(probe.content_type.as_deref(), Some("application/json"));
-    assert_eq!(probe.grok_model_override.as_deref(), Some("grok-4.5"));
-    assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&probe.body).expect("probe JSON")["max_tokens"],
-        1
-    );
+    assert_eq!(captured.len(), 2);
+    assert!(captured.iter().all(|request| request.method == Method::GET));
+    assert_eq!(captured[0].path, "/v1/billing?format=credits");
+    assert_eq!(captured[1].path, "/v1/user?include=subscription");
 }
 
 #[tokio::test]
-async fn grok_fresh_authoritative_balance_clears_numeric_exhaustion_observation() {
+async fn grok_read_only_quota_preserves_numeric_data_plane_exhaustion() {
     let context = QuotaTestContext::new_grok_unified().await;
     let snapshot = context.snapshots.load();
     let binding = snapshot
@@ -126,27 +115,24 @@ async fn grok_fresh_authoritative_balance_clears_numeric_exhaustion_observation(
 
     let quota = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("Grok quota query");
-    assert!(
-        quota
-            .usage
-            .account_status
-            .expect("account status")
-            .quota_exhaustion
-            .is_none()
+    let status = quota.usage.account_status.expect("account status");
+    assert_eq!(
+        status.quota_exhaustion.expect("exhaustion").used,
+        Some(1_065_387)
     );
-    let balance = quota.usage.token_balance.expect("upstream token balance");
+    let balance = quota.usage.token_balance.expect("observed token balance");
     assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Upstream);
-    assert_eq!(balance.used, 250_000);
-    assert_eq!(balance.limit, 2_000_000);
-    assert_eq!(balance.remaining, 1_750_000);
+    assert_eq!(balance.used, 1_065_387);
+    assert_eq!(balance.limit, 1_000_000);
+    assert_eq!(balance.remaining, 0);
     assert_eq!(balance.window_seconds, None);
 }
 
 #[tokio::test]
-async fn grok_fresh_authoritative_balance_clears_non_numeric_exhaustion_observation() {
+async fn grok_read_only_quota_preserves_non_numeric_data_plane_exhaustion() {
     let context = QuotaTestContext::new_grok_unified().await;
     let snapshot = context.snapshots.load();
     let binding = snapshot
@@ -165,21 +151,18 @@ async fn grok_fresh_authoritative_balance_clears_non_numeric_exhaustion_observat
 
     let quota = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("Grok quota query");
 
-    let balance = quota.usage.token_balance.expect("fresh header balance");
-    assert_eq!(balance.source, OAuthQuotaTokenBalanceSource::Upstream);
-    assert_eq!(balance.limit, 2_000_000);
-    assert_eq!(balance.remaining, 1_750_000);
+    assert!(quota.usage.token_balance.is_none());
     assert!(
         quota
             .usage
             .account_status
             .expect("account status")
             .quota_exhaustion
-            .is_none()
+            .is_some()
     );
 }
 
@@ -190,7 +173,7 @@ async fn grok_quota_retries_one_unauthorized_response_then_verifies_authenticati
 
     let quota = context
         .service
-        .query_quota(context.account_id)
+        .refresh_quota(context.account_id)
         .await
         .expect("Grok quota after refresh");
 
@@ -204,7 +187,7 @@ async fn grok_quota_distinguishes_invalid_and_restricted_accounts() {
     let invalid =
         QuotaTestContext::new_grok_with_authentication(AuthenticationMode::AlwaysReject).await;
     assert!(matches!(
-        invalid.service.query_quota(invalid.account_id).await,
+        invalid.service.refresh_quota(invalid.account_id).await,
         Err(OAuthQuotaError::AuthenticationFailed)
     ));
     assert_eq!(invalid.transport.refresh_calls(), 1);
@@ -212,7 +195,10 @@ async fn grok_quota_distinguishes_invalid_and_restricted_accounts() {
     let restricted =
         QuotaTestContext::new_grok_with_authentication(AuthenticationMode::AlwaysForbidden).await;
     assert!(matches!(
-        restricted.service.query_quota(restricted.account_id).await,
+        restricted
+            .service
+            .refresh_quota(restricted.account_id)
+            .await,
         Err(OAuthQuotaError::AccountRestricted)
     ));
     assert_eq!(restricted.transport.refresh_calls(), 0);

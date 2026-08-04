@@ -1,8 +1,7 @@
-use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use any2api_domain::{
-    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, PublicError, PublicErrorCode, RoutingCredentialId,
-    UpstreamErrorKind,
+    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, PublicError, PublicErrorCode, UpstreamErrorKind,
 };
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
@@ -10,18 +9,42 @@ use any2api_transport::api::{TransportFailureScope, TransportManager};
 use tokio::time::{Instant, timeout};
 
 use super::{
-    PublicResponse, affinity, execution_limits,
+    PublicResponse, affinity,
     planning::PlannedRequest,
     response::{FinalFailure, public_error},
     upstream::{self, AttemptFailure},
 };
 use crate::{
     configuration::PublishedSnapshot,
-    health::ReliabilityPolicy,
-    oauth::refresh::{OAuthAuthenticationRefreshResult, OAuthRefresher},
+    oauth::{
+        OAuthQuotaActivity,
+        refresh::{OAuthAuthenticationRefreshResult, OAuthRefresher},
+    },
     request_telemetry::{AttemptTimeoutMarker, RequestRecorder},
     routing::CandidateExclusions,
 };
+
+use self::budget::RetryBudget;
+
+mod budget;
+
+#[derive(Clone, Copy)]
+pub(super) struct OAuthRetryServices<'a> {
+    refresher: &'a OAuthRefresher,
+    quota_activity: &'a OAuthQuotaActivity,
+}
+
+impl<'a> OAuthRetryServices<'a> {
+    pub(super) const fn new(
+        refresher: &'a OAuthRefresher,
+        quota_activity: &'a OAuthQuotaActivity,
+    ) -> Self {
+        Self {
+            refresher,
+            quota_activity,
+        }
+    }
+}
 
 pub(super) async fn execute(
     mut snapshot: Arc<PublishedSnapshot>,
@@ -29,7 +52,7 @@ pub(super) async fn execute(
     mut plan: PlannedRequest,
     providers: &ProviderRegistry,
     transport: &dyn TransportManager,
-    oauth_refresher: Option<&OAuthRefresher>,
+    oauth: Option<OAuthRetryServices<'_>>,
     recorder: RequestRecorder,
 ) -> Result<PublicResponse, FinalFailure> {
     let policy = snapshot.reliability_policy();
@@ -88,6 +111,7 @@ pub(super) async fn execute(
             protocols: protocols.as_ref(),
             providers,
             transport,
+            oauth_quota_activity: oauth.map(|services| services.quota_activity),
             attempt_deadline,
         };
         let attempt = if plan.decoded.stream {
@@ -125,7 +149,7 @@ pub(super) async fn execute(
             Err(failure) => {
                 let public = failure.final_failure();
                 if !oauth_refresh_attempted
-                    && let Some(refresher) = oauth_refresher
+                    && let Some(refresher) = oauth.map(|services| services.refresher)
                     && let Some((account_id, token_version)) = failure.oauth_authentication_target()
                     && let Some(candidate) = failure.candidate()
                     && budget.can_register_attempt(candidate.credential_id)
@@ -238,125 +262,14 @@ async fn within_attempt_budget<T>(
     }
 }
 
-struct RetryBudget {
-    policy: ReliabilityPolicy,
-    deadline: Instant,
-    attempts: u32,
-    switches: u32,
-    last_credential: Option<RoutingCredentialId>,
-    attempts_by_credential: HashMap<RoutingCredentialId, u32>,
-}
-
-impl RetryBudget {
-    fn new(
-        policy: ReliabilityPolicy,
-        operation: any2api_domain::ProtocolOperation,
-        profile: any2api_protocol::api::RequestExecutionProfile,
-    ) -> Self {
-        Self {
-            policy,
-            deadline: Instant::now()
-                + execution_limits::retry_budget(operation, profile, policy.precommit_total_budget),
-            attempts: 0,
-            switches: 0,
-            last_credential: None,
-            attempts_by_credential: HashMap::new(),
-        }
-    }
-
-    fn remaining(&self) -> Duration {
-        self.deadline.saturating_duration_since(Instant::now())
-    }
-
-    fn deadline(&self) -> Instant {
-        self.deadline
-    }
-
-    fn register_attempt(&mut self, credential_id: RoutingCredentialId) -> Option<u32> {
-        if !self.can_register_attempt(credential_id) {
-            return None;
-        }
-        if self
-            .last_credential
-            .is_some_and(|previous| previous != credential_id)
-        {
-            self.switches += 1;
-        }
-        let prior = self
-            .attempts_by_credential
-            .get(&credential_id)
-            .copied()
-            .unwrap_or(0);
-        self.attempts_by_credential.insert(credential_id, prior + 1);
-        self.last_credential = Some(credential_id);
-        self.attempts += 1;
-        Some(self.attempts)
-    }
-
-    fn can_register_attempt(&self, credential_id: RoutingCredentialId) -> bool {
-        if self.attempts >= self.policy.max_total_attempts || self.remaining().is_zero() {
-            return false;
-        }
-        if self
-            .last_credential
-            .is_some_and(|previous| previous != credential_id)
-            && self.switches >= self.policy.max_credential_switches
-        {
-            return false;
-        }
-        self.attempts_by_credential
-            .get(&credential_id)
-            .copied()
-            .unwrap_or(0)
-            <= self.policy.max_same_credential_retries
-    }
-
-    fn can_retry(&self) -> bool {
-        self.attempts < self.policy.max_total_attempts && !self.remaining().is_zero()
-    }
-
-    fn next_delay(&self, credential_id: RoutingCredentialId) -> Duration {
-        let credential_attempts = self
-            .attempts_by_credential
-            .get(&credential_id)
-            .copied()
-            .expect("retry delay follows a registered credential attempt");
-        let exponent = credential_attempts.saturating_sub(1).min(31);
-        let multiplier = 1_u32 << exponent;
-        let base = self
-            .policy
-            .base_delay
-            .saturating_mul(multiplier)
-            .min(self.policy.max_delay);
-        jitter(base, self.policy.jitter_ratio)
-    }
-}
-
-/// Retry jitter only needs de-synchronization, not unpredictability, so the
-/// wall-clock sub-second nanos stand in for a real RNG dependency.
-fn jitter(delay: Duration, ratio: u32) -> Duration {
-    if ratio == 0 || delay.is_zero() {
-        return delay;
-    }
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |value| value.subsec_nanos());
-    let width = ratio.saturating_mul(2).saturating_add(1);
-    let offset = (nanos % width) as i64 - i64::from(ratio);
-    let percent = (100_i64 + offset).max(0) as u32;
-    delay.saturating_mul(percent) / 100
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use any2api_domain::{CredentialId, ProtocolOperation, SettingsConfiguration};
-    use any2api_protocol::api::RequestExecutionProfile;
     use tokio::time::Instant;
 
-    use super::{RetryBudget, within_attempt_budget};
-    use crate::{health::ReliabilityPolicy, request_telemetry::AttemptRecorder};
+    use super::within_attempt_budget;
+    use crate::request_telemetry::AttemptRecorder;
 
     #[tokio::test(start_paused = true)]
     async fn attempt_result_at_the_deadline_wins_over_the_outer_timeout() {
@@ -371,54 +284,5 @@ mod tests {
             Ok(value) => assert_eq!(value, 7),
             Err(_) => panic!("the completed attempt must win at the shared deadline"),
         }
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn retry_delay_is_isolated_by_credential() {
-        let mut policy =
-            ReliabilityPolicy::from_settings(SettingsConfiguration::defaults().reliability());
-        policy.max_total_attempts = 10;
-        policy.max_credential_switches = 10;
-        policy.max_same_credential_retries = 3;
-        policy.precommit_total_budget = Duration::from_secs(60);
-        policy.base_delay = Duration::from_secs(1);
-        policy.max_delay = Duration::from_secs(8);
-        policy.jitter_ratio = 0;
-        let mut budget = RetryBudget::new(
-            policy,
-            ProtocolOperation::Responses,
-            RequestExecutionProfile::Standard,
-        );
-        let first = CredentialId::new().into();
-        let second = CredentialId::new().into();
-
-        assert_eq!(budget.register_attempt(first), Some(1));
-        assert_eq!(budget.next_delay(first), Duration::from_secs(1));
-        assert_eq!(budget.register_attempt(first), Some(2));
-        assert_eq!(budget.next_delay(first), Duration::from_secs(2));
-        assert_eq!(budget.register_attempt(second), Some(3));
-        assert_eq!(budget.next_delay(second), Duration::from_secs(1));
-    }
-
-    #[test]
-    fn same_credential_retry_limit_is_checked_before_attempt_mutation() {
-        let mut policy =
-            ReliabilityPolicy::from_settings(SettingsConfiguration::defaults().reliability());
-        policy.max_total_attempts = 10;
-        policy.max_same_credential_retries = 1;
-        policy.precommit_total_budget = Duration::from_secs(60);
-        let mut budget = RetryBudget::new(
-            policy,
-            ProtocolOperation::Responses,
-            RequestExecutionProfile::Standard,
-        );
-        let credential = CredentialId::new().into();
-
-        assert_eq!(budget.register_attempt(credential), Some(1));
-        assert_eq!(budget.register_attempt(credential), Some(2));
-        assert!(!budget.can_register_attempt(credential));
-        assert_eq!(budget.register_attempt(credential), None);
-        assert_eq!(budget.attempts, 2);
-        assert_eq!(budget.attempts_by_credential[&credential], 2);
     }
 }

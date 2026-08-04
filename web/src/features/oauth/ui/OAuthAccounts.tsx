@@ -218,7 +218,7 @@ function OAuthAccountItem({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const quotaQuery = useQuery({ ...oauthQuotaQueryOptions(account.id), enabled: false });
+  const quotaQuery = useQuery(oauthQuotaQueryOptions(account.id));
   const quota = quotaQuery.isError ? null : (quotaQuery.data ?? null);
   return (
     <OAuthAccountCard

@@ -63,6 +63,11 @@ pub enum StorageError {
     },
     #[error("sqlite operation failed: {0}")]
     Database(#[from] sqlx::Error),
+    #[error("configuration commit outcome is indeterminate")]
+    IndeterminateConfigurationCommit {
+        #[source]
+        source: sqlx::Error,
+    },
     #[error("sqlite migration failed: {0}")]
     Migration(#[from] sqlx::migrate::MigrateError),
     #[error("stored configuration revision is invalid: {0}")]
@@ -144,6 +149,8 @@ pub enum StorageError {
     CorruptConfiguration,
     #[error("stored request telemetry is invalid")]
     CorruptTelemetry,
+    #[error("stored OAuth quota snapshot is invalid")]
+    CorruptOAuthQuotaSnapshot,
     #[error("setting value is invalid: {0}")]
     SettingsValidation(#[from] SettingsValidationError),
 }

@@ -21,7 +21,7 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
     if (String(input) === "/api/admin/system-logs" && init?.method === "DELETE") {
       return jsonResponse({ deleted: 1 });
     }
-    if (String(input).startsWith("/api/admin/system-logs?page=")) {
+    if (String(input).startsWith("/api/admin/system-logs?page_size=")) {
       return listResponse();
     }
     throw new Error(`unexpected request: ${String(input)}`);
@@ -64,7 +64,7 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
   await waitFor(() => {
     expect(
       fetchMock.mock.calls.filter(([input]) =>
-        String(input).startsWith("/api/admin/system-logs?page="),
+        String(input).startsWith("/api/admin/system-logs?page_size="),
       ),
     ).toHaveLength(2);
   });
@@ -102,7 +102,7 @@ test("shows exact paths, automatic refresh choices, and clears with confirmation
 
 test("persists the automatic refresh choice across remounts", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-    if (String(input).startsWith("/api/admin/system-logs?page=")) {
+    if (String(input).startsWith("/api/admin/system-logs?page_size=")) {
       return listResponse();
     }
     throw new Error(`unexpected request: ${String(input)}`);
@@ -130,7 +130,7 @@ test("persists the automatic refresh choice across remounts", async () => {
 test("loads and shows the complete raw HTTP exchange on demand", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const path = String(input);
-    if (path.startsWith("/api/admin/system-logs?page=")) {
+    if (path.startsWith("/api/admin/system-logs?page_size=")) {
       return listResponse("/v1/responses?search=raw-query");
     }
     if (path === "/api/admin/system-logs/11111111-1111-4111-8111-111111111111") {
@@ -176,11 +176,11 @@ test("defaults automatic refresh to enabled for an invalid saved value", async (
 test("paginates system logs on the server", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const path = String(input);
-    if (path === "/api/admin/system-logs?page=1&page_size=20") {
-      return listResponse("/v1/responses", 21, 1, 20);
+    if (path === "/api/admin/system-logs?page_size=20") {
+      return listResponse("/v1/responses", 21, 20, "s1.page-1", "s1.page-2");
     }
-    if (path === "/api/admin/system-logs?page=2&page_size=20") {
-      return listResponse("/v1/models", 21, 2, 20);
+    if (path === "/api/admin/system-logs?page_size=20&cursor=s1.page-2") {
+      return listResponse("/v1/models", 21, 20, "s1.page-2");
     }
     throw new Error(`unexpected request: ${path}`);
   });
@@ -195,22 +195,26 @@ test("paginates system logs on the server", async () => {
 });
 
 test("returns to the last valid system-log page after the total shrinks", async () => {
-  let firstPageLoads = 0;
+  let pinnedFirstPageLoads = 0;
   const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const path = String(input);
-    if (path === "/api/admin/system-logs?page=1&page_size=20") {
-      firstPageLoads += 1;
-      return listResponse(firstPageLoads === 1 ? "/v1/first" : "/v1/recovered", 41, 1, 20);
+    if (path === "/api/admin/system-logs?page_size=20") {
+      return listResponse("/v1/first", 41, 20, "s1.page-1", "s1.page-2");
     }
-    if (path === "/api/admin/system-logs?page=2&page_size=20") {
-      return listResponse("/v1/second", 41, 2, 20);
+    if (path === "/api/admin/system-logs?page_size=20&cursor=s1.page-1") {
+      pinnedFirstPageLoads += 1;
+      return listResponse("/v1/recovered", 1, 20, "s1.page-1");
     }
-    if (path === "/api/admin/system-logs?page=3&page_size=20") {
+    if (path === "/api/admin/system-logs?page_size=20&cursor=s1.page-2") {
+      return listResponse("/v1/second", 41, 20, "s1.page-2", "s1.page-3");
+    }
+    if (path === "/api/admin/system-logs?page_size=20&cursor=s1.page-3") {
       return jsonResponse({
         items: [],
         total: 1,
-        page: 3,
         page_size: 20,
+        cursor: "s1.page-3",
+        next_cursor: null,
         telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 0 },
       });
     }
@@ -224,8 +228,43 @@ test("returns to the last valid system-log page after the total shrinks", async 
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
 
   expect((await screen.findAllByText("/v1/recovered")).length).toBeGreaterThan(1);
-  expect(firstPageLoads).toBe(2);
-  expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/admin/system-logs?page=1&page_size=20");
+  expect(pinnedFirstPageLoads).toBe(1);
+  expect(fetchMock.mock.calls.at(-1)?.[0]).toBe(
+    "/api/admin/system-logs?page_size=20&cursor=s1.page-1",
+  );
+});
+
+test("pauses automatic refresh on pinned history and refreshes back to latest", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const path = String(input);
+    if (path === "/api/admin/system-logs?page_size=20") {
+      return listResponse("/v1/latest", 21, 20, "s1.page-1", "s1.page-2");
+    }
+    if (path === "/api/admin/system-logs?page_size=20&cursor=s1.page-2") {
+      return listResponse("/v1/history", 21, 20, "s1.page-2");
+    }
+    throw new Error(`unexpected ${path}`);
+  });
+
+  renderManagement();
+  expect((await screen.findAllByText("/v1/latest")).length).toBeGreaterThan(1);
+  const liveSource = FakeEventSource.instances[0];
+  expect(liveSource).toBeDefined();
+
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect((await screen.findAllByText("/v1/history")).length).toBeGreaterThan(1);
+  expect(liveSource?.closed).toBe(true);
+
+  await act(async () => {
+    liveSource?.emit("system_logs_changed");
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+
+  fireEvent.click(screen.getByRole("button", { name: "刷新" }));
+  expect((await screen.findAllByText("/v1/latest")).length).toBeGreaterThan(1);
+  expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/admin/system-logs?page_size=20");
+  expect(FakeEventSource.instances).toHaveLength(2);
 });
 
 function renderManagement() {
@@ -240,8 +279,9 @@ function renderManagement() {
 function listResponse(
   path = "/api/admin/provider-credentials/actual-id",
   total = 1,
-  page = 1,
   pageSize = 20,
+  cursor: string | null = "s1.current",
+  nextCursor: string | null = null,
 ) {
   return jsonResponse({
     items: [
@@ -262,8 +302,9 @@ function listResponse(
       },
     ],
     total,
-    page,
     page_size: pageSize,
+    cursor,
+    next_cursor: nextCursor,
     telemetry: { queued_records: 0, in_flight_records: 0, dropped_records: 0, persisted_records: 1 },
   });
 }

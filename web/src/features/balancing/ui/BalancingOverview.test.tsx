@@ -75,6 +75,7 @@ function runtimeResponse() {
   return {
     config_revision: 3,
     scheduler_epoch: 8,
+    process: { active_requests: 4, background_tasks: 6 },
     queue: { waiting: 1, max_waiting: 128, timeout_secs: 30, on_rate_limited: "wait", fallback_on_rate_limit: false },
     totals: { credential_count: 1_000, enabled_credential_count: 940, limited_credential_count: 800, rate_limited_credential_count: 12, in_flight: 27, requests_in_window: 1_845, fixed_waiters: 2, selected: 42_000 },
     providers: [

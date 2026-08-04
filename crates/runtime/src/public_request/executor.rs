@@ -22,7 +22,7 @@ use super::{planning, retry};
 use crate::{
     configuration::PublishedSnapshot,
     credential::RoutingPermit,
-    oauth::{OAuthService, refresh::OAuthRefresher},
+    oauth::{OAuthQuotaActivity, OAuthService, refresh::OAuthRefresher},
     request_telemetry::{RequestRecorder, RequestTelemetry, public_error_class},
     routing::RouteCandidate,
 };
@@ -56,7 +56,12 @@ pub struct PublicRequestService {
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
     telemetry: Arc<RequestTelemetry>,
-    oauth_refresher: OnceLock<Arc<OAuthRefresher>>,
+    oauth: OnceLock<OAuthRequestServices>,
+}
+
+struct OAuthRequestServices {
+    refresher: Arc<OAuthRefresher>,
+    quota_activity: OAuthQuotaActivity,
 }
 
 impl PublicRequestService {
@@ -75,7 +80,7 @@ impl PublicRequestService {
             providers,
             transport,
             telemetry: Arc::new(RequestTelemetry::disabled()),
-            oauth_refresher: OnceLock::new(),
+            oauth: OnceLock::new(),
         })
     }
 
@@ -85,8 +90,13 @@ impl PublicRequestService {
         self
     }
 
-    pub fn install_oauth_refresh(&self, oauth: &OAuthService) -> bool {
-        self.oauth_refresher.set(oauth.refresher()).is_ok()
+    pub fn install_oauth(&self, oauth: &OAuthService) -> bool {
+        self.oauth
+            .set(OAuthRequestServices {
+                refresher: oauth.refresher(),
+                quota_activity: oauth.quota_activity(),
+            })
+            .is_ok()
     }
 
     pub async fn execute(
@@ -183,7 +193,9 @@ impl PublicRequestService {
             planned,
             self.providers.as_ref(),
             self.transport.as_ref(),
-            self.oauth_refresher.get().map(Arc::as_ref),
+            self.oauth.get().map(|oauth| {
+                retry::OAuthRetryServices::new(oauth.refresher.as_ref(), &oauth.quota_activity)
+            }),
             recorder,
         )
         .await
@@ -194,6 +206,14 @@ pub(super) struct SelectedCandidate {
     pub(super) candidate: RouteCandidate,
     pub(super) permit: RoutingPermit,
     pub(super) health: crate::health::AttemptHealth,
+}
+
+impl SelectedCandidate {
+    pub(super) fn rollback_before_attempt(self) {
+        let Self { permit, health, .. } = self;
+        drop(health);
+        permit.rollback_before_attempt();
+    }
 }
 
 pub(super) type RequestPermit = RoutingPermit;

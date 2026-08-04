@@ -18,6 +18,8 @@ use crate::{
     routing::SchedulerEpoch,
 };
 
+mod benchmark;
+
 #[tokio::test(start_paused = true)]
 async fn rate_limit_cools_only_the_model_and_wakes_at_expiry() {
     let epoch = SchedulerEpoch::new();

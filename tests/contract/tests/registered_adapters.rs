@@ -7,8 +7,8 @@ use any2api_domain::{
 };
 use any2api_protocol::api::{IngressRequest, ProtocolAdapter, SseFrame, UpstreamResponse};
 use any2api_provider::api::{
-    OAuthDeviceTokenPoll, OAuthLoginFlow, OAuthProviderEgressStatus, OAuthQuotaRejection,
-    ProviderDriver, ProviderRequestHeaderContext, ProviderSecret, UpstreamResponseMeta,
+    OAuthDeviceTokenPoll, OAuthLoginFlow, OAuthQuotaRejection, ProviderDriver,
+    ProviderRequestHeaderContext, ProviderSecret, UpstreamResponseMeta,
 };
 use axum::http::{
     HeaderMap, HeaderValue, Method, StatusCode, Uri,
@@ -506,17 +506,6 @@ fn codex_contract(driver: &dyn ProviderDriver) {
         )
         .expect("Codex credential headers");
     assert_eq!(headers.headers[AUTHORIZATION], "Bearer sk-codex-contract");
-    let egress = driver
-        .oauth_provider_egress_probe_plan()
-        .expect("Codex egress probe plan")
-        .expect("Codex egress probe");
-    assert_eq!(egress.method, Method::GET);
-    assert_eq!(
-        egress.url.as_str(),
-        "https://chatgpt.com/backend-api/wham/usage"
-    );
-    assert!(!egress.headers.contains_key(AUTHORIZATION));
-    assert!(!egress.headers.contains_key("chatgpt-account-id"));
     let forbidden = UpstreamResponseMeta {
         status: StatusCode::FORBIDDEN,
         headers: HeaderMap::new(),
@@ -529,8 +518,15 @@ fn codex_contract(driver: &dyn ProviderDriver) {
         OAuthQuotaRejection::ProviderEgressRestricted
     );
     assert_eq!(
-        driver.classify_oauth_provider_egress(&forbidden, b"{}"),
-        OAuthProviderEgressStatus::Restricted
+        driver.classify_oauth_quota_rejection(
+            &forbidden,
+            b"<html><body>Cloudflare error: Sorry, you have been blocked</body></html>",
+        ),
+        OAuthQuotaRejection::ProviderEgressRestricted
+    );
+    assert_eq!(
+        driver.classify_oauth_quota_rejection(&forbidden, b"{}"),
+        OAuthQuotaRejection::Unclassified
     );
 }
 

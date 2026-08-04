@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
-- 修订：2026-08-03
+- 修订：2026-08-04
 - 决策者：maintainer
 
 ## 背景
@@ -21,6 +21,10 @@ any2api 以单个内嵌管理 Web 的 Rust 二进制发布，官方 Release 首�
   字节进度或稳定失败码。
 - 仓库固定为 `https://github.com/xinvexo/any2api`。检查操作读取最新正式 Release，要求 `v<SemVer>` Tag
   和 `any2api-v<SemVer>-linux-amd64.tar.gz`、同名 `.sha256` 同时存在，不接受客户端版本、仓库或 URL。
+- `workflow_dispatch.inputs.version` 是每次官方 Release 唯一的产品版本真相来源，同时生成 Tag、资产名与
+  `ANY2API_BUILD_VERSION`。Cargo package version 只作为 Rust 包元数据，不参与产品版本，也不要求与输入
+  相等；未提供构建覆盖值的本地开发二进制固定报告 `0.0.0-dev`。发布工作流在打包前必须运行已构建二进制，
+  并要求其 `--version` 输出与输入精确相等。
 - 安装端重新检查最新 Release，不复用浏览器提交的结果。归档下载受字节上限约束，checksum 必须匹配；
   tar.gz 只允许唯一的根目录普通文件 `any2api`，拒绝额外成员、链接和路径穿越。
 - GitHub Client 使用 10 秒连接超时和 30 秒无进展读取超时，后者在每次成功读取后重置。Release 元数据与
@@ -58,7 +62,7 @@ any2api 以单个内嵌管理 Web 的 Rust 二进制发布，官方 Release 首�
 - `--version` 在任何环境读取、SQLite、实例锁或 Tokio runtime 副作用前返回当前编译版本；未知参数和参数
   组合在同一边界 Fail-Fast。应用内回滚只覆盖启动确认前的二进制：不逆向执行 SQLite Migration，不承诺
   修复 `SIGKILL`、介质故障或确认后的崩溃，也不取代部署层 supervisor。完整边界由 ADR-0089 收紧。
-- 公共 `/api/health` 增加当前运行中二进制的 `application_version` 并返回 `Cache-Control: no-store`。版本本身不是 Secret；这一窄字段允许
+- 公共 `/api/health` 返回常量 `status=ok` 与当前运行中二进制的 `application_version`，并返回 `Cache-Control: no-store`；ADR-0108 明确禁止该公共端点继续携带内部运行计数。版本本身不是 Secret；这一窄字段允许
   浏览器在管理员会话随进程重启丢失后，确认响应者确实是目标版本，而不是把旧进程恢复或一次网络成功误判
   为安装成功。
 - Web 不自动检查或静默安装。管理员显式检查后看到最新版本和 Release 链接，有更新时再显式触发安装；
@@ -97,6 +101,7 @@ any2api 以单个内嵌管理 Web 的 Rust 二进制发布，官方 Release 首�
 - Web 契约与组件测试覆盖响应校验、有更新、不可关闭的全屏阶段、真实字节进度、失败出口、目标版本健康
   确认与自动刷新，以及连续不可达后“继续等待/返回”恢复且不重复安装。
 - 发布工作流验证输入是稳定 SemVer，并用它生成 Tag、固定资产名、checksum 以及编译进二进制的正式版本；
-  Cargo package version 不限制也不参与产品版本，本地开发构建固定使用 `0.0.0-dev`。
+  打包前执行构建产物的 `--version` 并与输入精确比对。Cargo package version 不限制也不参与产品版本，本地
+  开发构建固定使用 `0.0.0-dev`。
 - App 进程集成测试验证 `--version` 不启动服务且非法参数 Fail-Fast；启动装配在 listener、必要 Worker
   与停机信号 handler 成功后显式确认更新，确认前错误路径触发 previous 恢复。

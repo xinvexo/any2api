@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 test("renders session and live task metrics at the top", async () => {
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     if (url.includes("/api/admin/affinity")) {
       return jsonResponse({
@@ -32,14 +32,7 @@ test("renders session and live task metrics at the top", async () => {
         creating_session_count: 1,
       });
     }
-    return jsonResponse({
-      status: "ok",
-      config_revision: 7,
-      scheduler_epoch: 2,
-      shutdown_phase: "running",
-      active_requests: 1,
-      background_tasks: 2,
-    });
+    return jsonResponse(runtimeResponse());
   });
 
   const rendered = render(<SystemOverview />, { wrapper: Wrapper });
@@ -59,6 +52,10 @@ test("renders session and live task metrics at the top", async () => {
   expect(screen.queryByRole("link", { name: "调整策略" })).not.toBeInTheDocument();
   expect(rendered.container.querySelector(".rounded-\\[14px\\]")).toBeNull();
   expect(getNotifications()).toHaveLength(0);
+  expect(
+    fetchMock.mock.calls.some(([input]) => String(input) === "/api/admin/balancing"),
+  ).toBe(true);
+  expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/health")).toBe(false);
 
   fireEvent.click(screen.getByRole("button", { name: "刷新" }));
   await waitFor(() => {
@@ -76,14 +73,7 @@ test("shows the explicit affinity policy state instead of two misleading zeroes"
         creating_session_count: 0,
       });
     }
-    return jsonResponse({
-      status: "ok",
-      config_revision: 7,
-      scheduler_epoch: 2,
-      shutdown_phase: "running",
-      active_requests: 1,
-      background_tasks: 2,
-    });
+    return jsonResponse(runtimeResponse());
   });
 
   render(<SystemOverview />, { wrapper: Wrapper });
@@ -94,7 +84,7 @@ test("shows the explicit affinity policy state instead of two misleading zeroes"
   expect(screen.queryByText("正在建立")).not.toBeInTheDocument();
 });
 
-test("rejects an incompatible health payload", async () => {
+test("rejects an incompatible authenticated runtime payload", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const url = String(input);
     if (url.includes("/api/admin/affinity")) {
@@ -105,13 +95,39 @@ test("rejects an incompatible health payload", async () => {
         creating_session_count: 0,
       });
     }
-    return jsonResponse({ status: "ok" });
+    return jsonResponse({ process: { active_requests: 1, background_tasks: 2 } });
   });
 
   render(<SystemOverview />, { wrapper: Wrapper });
 
   expect(await screen.findByText("连接失败")).toBeInTheDocument();
 });
+
+function runtimeResponse() {
+  return {
+    config_revision: 7,
+    scheduler_epoch: 2,
+    process: { active_requests: 1, background_tasks: 2 },
+    queue: {
+      waiting: 0,
+      max_waiting: 128,
+      timeout_secs: 180,
+      on_rate_limited: "wait",
+      fallback_on_rate_limit: false,
+    },
+    totals: {
+      credential_count: 0,
+      enabled_credential_count: 0,
+      limited_credential_count: 0,
+      rate_limited_credential_count: 0,
+      in_flight: 0,
+      requests_in_window: 0,
+      fixed_waiters: 0,
+      selected: 0,
+    },
+    providers: [],
+  };
+}
 
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {

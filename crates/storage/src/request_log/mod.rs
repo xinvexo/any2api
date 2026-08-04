@@ -1,5 +1,6 @@
 mod capacity;
 mod overview;
+mod pagination;
 mod repository;
 mod rows;
 mod usage;

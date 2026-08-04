@@ -2,6 +2,8 @@ use any2api_domain::{CompletedRequestLog, GatewayApiKeyId, HttpAccessLog};
 use any2api_storage::api::StorageError;
 use tokio::sync::oneshot;
 
+use super::metrics::TelemetryQueueClass;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HttpAccessLogChangeNotification {
     Notify,
@@ -34,6 +36,15 @@ impl TelemetryEvent {
         match self {
             Self::RequestLog(_) | Self::HttpAccessLog { .. } | Self::GatewayKeyLastUsed { .. } => 1,
             Self::ClearHttpAccessLogs { .. } => 0,
+        }
+    }
+
+    pub(super) fn queue_class(&self) -> TelemetryQueueClass {
+        match self {
+            Self::HttpAccessLog { record, .. } if record.gateway_auth_rejected => {
+                TelemetryQueueClass::GatewayAuthRejected
+            }
+            _ => TelemetryQueueClass::Regular,
         }
     }
 }

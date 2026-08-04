@@ -24,6 +24,7 @@ use crate::request_telemetry::{AttemptRecorder, RequestRecorder};
 use crate::{
     affinity::{ContinuationBindingCommitter, ContinuationLease},
     health::AttemptHealth,
+    oauth::OAuthQuotaActivityGuard,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -53,6 +54,7 @@ pub(in crate::public_request) struct GuardedBodyParts {
     pub(in crate::public_request) health: Option<AttemptHealth>,
     pub(in crate::public_request) continuation_binding: ContinuationBindingCommitter,
     pub(in crate::public_request) attempt_recorder: AttemptRecorder,
+    pub(in crate::public_request) quota_activity: Option<OAuthQuotaActivityGuard>,
     pub(in crate::public_request) status_code: u16,
     pub(in crate::public_request) precommit_budget: PrecommitBudget,
     pub(in crate::public_request) postcommit_idle_timeout: Duration,
@@ -78,6 +80,7 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) terminal_seen: bool,
     pub(super) pending_termination: StreamTermination,
     pub(super) attempt_recorder: Option<AttemptRecorder>,
+    pub(super) quota_activity: Option<OAuthQuotaActivityGuard>,
     pub(super) request_recorder: RequestRecorder,
     pub(super) status_code: u16,
     pub(super) owns_request_completion: bool,
@@ -105,6 +108,7 @@ impl GuardedBody {
             health,
             continuation_binding,
             attempt_recorder,
+            quota_activity,
             status_code,
             precommit_budget,
             postcommit_idle_timeout,
@@ -131,6 +135,7 @@ impl GuardedBody {
             terminal_seen: false,
             pending_termination: StreamTermination::None,
             attempt_recorder: Some(attempt_recorder),
+            quota_activity,
             request_recorder,
             status_code,
             owns_request_completion: false,

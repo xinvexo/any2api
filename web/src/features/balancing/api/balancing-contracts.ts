@@ -18,6 +18,10 @@ interface BalancingProvider extends BalancingTotals {
 export interface BalancingRuntime {
   configRevision: number;
   schedulerEpoch: number;
+  process: {
+    activeRequests: number;
+    backgroundTasks: number;
+  };
   queue: {
     waiting: number;
     maxWaiting: number;
@@ -31,10 +35,15 @@ export interface BalancingRuntime {
 
 export function parseBalancingRuntime(value: unknown): BalancingRuntime {
   const root = record(value);
+  const process = record(root.process);
   const queue = record(root.queue);
   return {
     configRevision: positive(root.config_revision),
     schedulerEpoch: integer(root.scheduler_epoch),
+    process: {
+      activeRequests: integer(process.active_requests),
+      backgroundTasks: integer(process.background_tasks),
+    },
     queue: {
       waiting: integer(queue.waiting),
       maxWaiting: positive(queue.max_waiting),

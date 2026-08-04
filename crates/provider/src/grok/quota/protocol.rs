@@ -54,7 +54,7 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
                 allowed: Some(!limit_reached),
                 limit_reached: Some(limit_reached),
                 windows: vec![OAuthQuotaWindow {
-                    id: period.id,
+                    id: period.id.to_owned(),
                     kind: OAuthQuotaWindowKind::Credits,
                     used_percent,
                     limit_window_seconds: Some(period.duration),
@@ -72,7 +72,7 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
         || on_demand_cap_minor.is_some()
         || config.is_unified_billing_user.is_some();
     let billing = has_billing.then_some(OAuthQuotaBilling {
-        currency: "USD",
+        currency: "USD".to_owned(),
         prepaid_balance_minor,
         on_demand_used_minor,
         on_demand_cap_minor,

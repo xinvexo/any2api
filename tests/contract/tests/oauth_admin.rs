@@ -523,6 +523,7 @@ async fn test_app_with_transport_and_publisher(
         Arc::new(providers),
         token_transport,
         Arc::clone(&publisher),
+        Arc::clone(&storage),
     ));
     let state = fixture.state().with_oauth(oauth);
     let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);

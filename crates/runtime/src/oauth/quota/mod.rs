@@ -1,6 +1,8 @@
+mod activity;
 mod coordinator;
 mod health;
 mod observation;
+mod persistence;
 mod rejection;
 mod request;
 mod types;
@@ -16,5 +18,6 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use activity::{OAuthQuotaActivity, OAuthQuotaActivityGuard};
 pub(in crate::oauth) use coordinator::OAuthQuotaService;
 pub use types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot};

@@ -232,6 +232,7 @@ impl TestContext {
             fixture.components().provider_registry_handle(),
             fixture.components().transport_manager(),
             fixture.publisher(),
+            Arc::clone(&storage),
         ));
         let (directory, app, _fixture_storage, setup_token) = if with_auth {
             let auth = Arc::new(

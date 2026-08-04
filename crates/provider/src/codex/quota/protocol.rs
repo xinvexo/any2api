@@ -26,12 +26,6 @@ pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPl
     ))
 }
 
-pub(crate) fn egress_probe_plan() -> Result<OAuthRequestPlan, ProviderError> {
-    let mut headers = HeaderMap::new();
-    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
-    request(Method::GET, USAGE_URL, headers, Vec::new())
-}
-
 pub(crate) fn reset_plan(
     token: &OAuthTokenMaterial,
     redeem_request_id: &str,
@@ -194,7 +188,7 @@ fn parse_window(id: &'static str, value: WindowPayload) -> Result<OAuthQuotaWind
         return Err(invalid_response("Codex quota percentage is invalid"));
     }
     Ok(OAuthQuotaWindow {
-        id,
+        id: id.to_owned(),
         kind: OAuthQuotaWindowKind::Time,
         used_percent: value.used_percent,
         limit_window_seconds: Some(value.limit_window_seconds),

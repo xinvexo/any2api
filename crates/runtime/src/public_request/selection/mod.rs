@@ -5,10 +5,9 @@ mod selector;
 #[cfg(test)]
 mod tests;
 
-pub(super) use selector::{FixedSelectionError, select_candidate, select_fixed_candidate};
-
-use selector::{
-    GenerationSelection, no_available_credentials, rate_limit_error, rate_limited,
+pub(super) use selector::{
+    CandidateSelector, FixedSelectionError, GenerationSelection, no_available_credentials,
+    rate_limit_error, rate_limited, select_candidate, select_fixed_candidate,
     temporarily_unavailable,
 };
 

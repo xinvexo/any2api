@@ -5,10 +5,7 @@ use http::{HeaderMap, Method, StatusCode, header};
 use serde_json::Value;
 
 use super::*;
-use crate::api::{
-    OAuthProviderEgressStatus, OAuthQuotaRejection, OAuthTokenMaterial, ProviderError,
-    UpstreamResponseMeta,
-};
+use crate::api::{OAuthQuotaRejection, OAuthTokenMaterial, ProviderError, UpstreamResponseMeta};
 
 fn token() -> OAuthTokenMaterial {
     OAuthTokenMaterial::new(
@@ -25,9 +22,9 @@ fn token() -> OAuthTokenMaterial {
 
 #[test]
 fn builds_fixed_query_and_reset_plans_without_debugging_secrets() {
-    let (usage, probe, credits) = query_plan(&token()).expect("query plan").into_parts();
+    let (usage, supplement, credits) = query_plan(&token()).expect("query plan").into_parts();
     let credits = credits.expect("Codex reset credit plan");
-    assert!(probe.is_none());
+    assert!(supplement.is_none());
     assert_eq!(usage.method, Method::GET);
     assert_eq!(
         usage.url.as_str(),
@@ -59,21 +56,6 @@ fn builds_fixed_query_and_reset_plans_without_debugging_secrets() {
 }
 
 #[test]
-fn builds_account_free_egress_probe() {
-    let probe = egress_probe_plan().expect("egress probe");
-
-    assert_eq!(probe.method, Method::GET);
-    assert_eq!(
-        probe.url.as_str(),
-        "https://chatgpt.com/backend-api/wham/usage"
-    );
-    assert_eq!(probe.headers[header::ACCEPT], "application/json");
-    assert!(!probe.headers.contains_key(header::AUTHORIZATION));
-    assert!(!probe.headers.contains_key("chatgpt-account-id"));
-    assert!(probe.body.is_empty());
-}
-
-#[test]
 fn quota_rejection_requires_declared_account_or_egress_codes() {
     let forbidden = UpstreamResponseMeta {
         status: StatusCode::FORBIDDEN,
@@ -94,12 +76,21 @@ fn quota_rejection_requires_declared_account_or_egress_codes() {
         ),
         OAuthQuotaRejection::AccountRestricted
     );
+    assert_eq!(
+        classify_quota_rejection(
+            &forbidden,
+            b"<html><body>Cloudflare error: Sorry, you have been blocked</body></html>",
+        ),
+        OAuthQuotaRejection::ProviderEgressRestricted
+    );
     for body in [
         br#"{"error":{"message":"account_deactivated"}}"#.as_slice(),
         br#"{"metadata":{"code":"account_suspended"}}"#.as_slice(),
         br#"{"error":{"code":"unknown_forbidden"}}"#.as_slice(),
         br#"{"code":"account_disabled","error":{"code":"unsupported_country_region_territory"}}"#
             .as_slice(),
+        b"<html>Cloudflare edge response without the second marker</html>".as_slice(),
+        b"<html>request blocked without the provider marker</html>".as_slice(),
         b"not-json".as_slice(),
     ] {
         assert_eq!(
@@ -107,27 +98,6 @@ fn quota_rejection_requires_declared_account_or_egress_codes() {
             OAuthQuotaRejection::Unclassified
         );
     }
-}
-
-#[test]
-fn account_free_probe_distinguishes_reachable_and_rejected_egress() {
-    let status = |status| UpstreamResponseMeta {
-        status,
-        headers: HeaderMap::new(),
-    };
-
-    assert_eq!(
-        classify_egress(&status(StatusCode::UNAUTHORIZED), b"{}"),
-        OAuthProviderEgressStatus::Reachable
-    );
-    assert_eq!(
-        classify_egress(&status(StatusCode::FORBIDDEN), b"{}"),
-        OAuthProviderEgressStatus::Restricted
-    );
-    assert_eq!(
-        classify_egress(&status(StatusCode::SERVICE_UNAVAILABLE), b"{}"),
-        OAuthProviderEgressStatus::Unverified
-    );
 }
 
 #[test]

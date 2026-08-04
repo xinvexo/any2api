@@ -1,8 +1,8 @@
 # ADR-0051：完整 HTTP 访问系统日志
 
-- 状态：Accepted（原始交换字段由 ADR-0081 修订；独立容量由 ADR-0092 修订）
+- 状态：Accepted（原始交换字段由 ADR-0081 修订；独立容量由 ADR-0092 修订；分页由 ADR-0107 修订；鉴权拒绝隔离由 ADR-0109 修订）
 - 日期：2026-07-26
-- 修订：2026-08-03
+- 修订：2026-08-04
 
 ## 背景
 
@@ -50,18 +50,18 @@ Schema 对 `method` 只要求非空且去除首尾空白，不设置人为 32 �
 
 ### 有界写入、保留与清理
 
-系统日志复用现有 `RequestTelemetry` 有界非阻塞写入通道和独立 SQLite writer，不在请求路径等待普通日志落库。队列满时允许丢弃并计入既有遥测丢弃指标。`logs.request.enabled` 与 retention 同时控制 RequestLog 和 HttpAccessLog；`logs.request.max_rows` 只约束 RequestLog，系统日志使用独立的 `logs.http_access.max_rows` 与 `logs.http_access.max_exchange_bytes`。批次提交后按两项容量删除完整最旧记录，新库删除后执行有界增量页面回收；完整边界见 ADR-0092。
+系统日志复用现有 `RequestTelemetry` 有界非阻塞写入通道和独立 SQLite writer，不在请求路径等待普通日志落库。队列满时允许丢弃并计入既有遥测丢弃指标。`logs.request.enabled` 与 retention 同时控制 RequestLog 和 HttpAccessLog；`logs.request.max_rows` 只约束 RequestLog，系统日志使用独立的 `logs.http_access.max_rows` 与 `logs.http_access.max_exchange_bytes`。批次提交后按两项容量删除完整记录，新库删除后执行有界增量页面回收；完整边界见 ADR-0092。Gateway 鉴权前拒绝仍逐条进入这条审计链，但使用四分之一队列与持久化子容量，并在全局容量压力下优先淘汰自身；其显式控制流分类和不采用 IP 限流/采样的理由见 ADR-0109。
 
 管理面新增：
 
 ```text
-GET    /api/admin/system-logs?page=1&page_size=20
+GET    /api/admin/system-logs?page_size=20[&cursor=<opaque>]
 DELETE /api/admin/system-logs
 ```
 
-列表固定为最近 3 天的服务端分页，并返回窗口内精确 `total`、当前 `page` 与 `page_size`。SQLite 的实际保留期限仍由 `logs.request.retention` 控制；DELETE 清理全部保留历史，不只清理可见窗口或当前页。
+列表固定为最近 3 天的服务端 Keyset 分页，并返回头部锚点范围内精确 `total`、`page_size`、当前 `cursor` 与可选 `next_cursor`。SQLite 的实际保留期限仍由 `logs.request.retention` 控制；DELETE 清理全部保留历史，不只清理可见窗口或当前 Cursor 页。完整 Cursor 语义由 ADR-0107 定义。
 
-清理、保留或时间窗口推进使当前页越界时，Web 在收到该页响应的精确 `total` 后回写最后一个合法页并重新查询。分页控件不得只显示夹取后的页码而让查询 state 继续停留在空白旧页。
+清理、保留或时间窗口推进使本地页码越界时，Web 在收到响应的精确 `total` 后同时收敛页码与 Cursor 栈；下一页只在服务端返回 `next_cursor` 时可用。分页控件不得只显示夹取后的页码而让查询 state 继续停留在空白旧 Cursor。
 
 列表保留谓词和精确 `COUNT(*)` 使用包含 `started_at_ms`、`request_id`、`path`、`client_ip`、`status_code` 与 `outcome` 的覆盖索引。这样 SQLite 可以在索引内完成时间窗口、内部噪音过滤和计数，只对当前页最终返回的少量摘要行回表；查询计划不得扫描每行最高 2 MiB 的交换详情列。
 
@@ -69,7 +69,7 @@ DELETE /api/admin/system-logs
 
 ### Web 行为
 
-新增一级菜单“系统日志”和 `/system-logs` deep link。页面展示时间、客户端 IP、method、实际 path、状态、HTTP version、耗时、响应字节与结果，并提供与请求日志一致的分页、手动刷新、自动刷新 Switch 和带确认的历史清理。Switch 开启后订阅已认证的 `/api/admin/log-events`，收到 `system_logs_changed` 后重新读取当前页；关闭后断开订阅。自动刷新状态是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不写入服务端 SettingRegistry；没有保存值、值无效或浏览器拒绝存储时默认开启。桌面表格继续使用 `@tanstack/react-virtual`，并保持固定表头与独立滚动区；移动端保留自然滚动卡片。
+新增一级菜单“系统日志”和 `/system-logs` deep link。页面展示时间、客户端 IP、method、实际 path、状态、HTTP version、耗时、响应字节与结果，并提供与请求日志一致的 Cursor 分页、手动刷新、自动刷新 Switch 和带确认的历史清理。Switch 开启且页面位于未固定 Cursor 的最新页时订阅已认证的 `/api/admin/log-events`，收到 `system_logs_changed` 后重新读取；进入历史页或关闭开关后断开订阅。手动刷新、页大小变化和清理成功都清空内存 Cursor 栈并回到最新页。自动刷新状态是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不写入服务端 SettingRegistry；Cursor 与页码不持久化。桌面表格继续使用 `@tanstack/react-virtual`，并保持固定表头与独立滚动区；移动端保留自然滚动卡片。
 
 RequestTelemetry Writer 在 RequestLog 批次成功提交后推进对应的进程内 epoch；HttpAccessLog 批次只有包含至少一条非 `GET /api/admin/system-logs` 记录时才推进系统日志 epoch。系统日志列表读取仍按统一规则决定是否持久化，但不能通过记录自身再次触发列表读取。有序清理和保留删除只在确实删除记录后推进。SSE 只发送 `request_logs_changed`、`system_logs_changed` 与 epoch，不发送日志正文；同一批次允许合并通知。epoch 不持久化、不恢复、不提供事件回放，新连接先发送当前值以覆盖断线窗口，keepalive 不触发页面读取。
 

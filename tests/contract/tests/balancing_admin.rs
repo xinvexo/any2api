@@ -86,6 +86,8 @@ async fn balancing_admin_exposes_only_aggregate_runtime_and_queue_policy() {
     assert_eq!(status, StatusCode::OK);
     assert_admin_cache_headers(&headers);
     assert_eq!(body["config_revision"], 4);
+    assert_eq!(body["process"]["active_requests"], 0);
+    assert_eq!(body["process"]["background_tasks"], 0);
     assert_eq!(body["queue"]["waiting"], 0);
     assert_eq!(body["queue"]["max_waiting"], 128);
     assert_eq!(body["queue"]["timeout_secs"], 180);

@@ -93,8 +93,9 @@ impl CircuitRuntime {
         state.failure_times.clear();
         state.open_until = None;
         state.last_failure_at = None;
-        self.wake.cancel();
+        let wake_notification = self.wake.prepare_cancellation();
         drop(state);
+        wake_notification.publish();
         if changed {
             self.scheduler_epoch.advance();
         }
@@ -126,9 +127,12 @@ impl CircuitRuntime {
         if let Some(open_until) = open_until {
             state.open_until = Some(open_until);
             state.failure_times.clear();
-            self.wake.schedule(open_until);
         }
+        let wake_notification = open_until.map(|open_until| self.wake.prepare_schedule(open_until));
         drop(state);
+        if let Some(wake_notification) = wake_notification {
+            wake_notification.publish();
+        }
         open_until
     }
 

@@ -8,6 +8,16 @@ use crate::{ConfigRevision, RequestId};
 /// logging retains a prefix without changing downstream backpressure.
 pub const MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES: usize = 1024 * 1024;
 
+/// Gateway authentication rejections may use at most this share of bounded
+/// telemetry capacity, leaving normal request history at higher priority.
+pub const GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR: u64 = 4;
+
+#[must_use]
+pub const fn gateway_auth_rejected_capacity(total: u64) -> u64 {
+    let capacity = total / GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR;
+    if capacity == 0 { 1 } else { capacity }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HttpAccessLogOutcome {
     Completed,
@@ -128,6 +138,9 @@ pub struct HttpAccessLog {
     pub duration_ms: u64,
     pub response_bytes: u64,
     pub outcome: HttpAccessLogOutcome,
+    /// True only when the public Gateway authentication layer rejected the
+    /// request before establishing an authenticated Gateway API key.
+    pub gateway_auth_rejected: bool,
     /// `None` identifies a row created before raw exchange capture existed.
     pub exchange: Option<HttpAccessLogExchange>,
 }
@@ -163,6 +176,7 @@ impl fmt::Debug for HttpAccessLog {
             .field("path", &self.path)
             .field("status_code", &self.status_code)
             .field("outcome", &self.outcome)
+            .field("gateway_auth_rejected", &self.gateway_auth_rejected)
             .field("exchange_captured", &self.exchange.is_some())
             .finish_non_exhaustive()
     }
@@ -219,6 +233,7 @@ mod tests {
             duration_ms: 2,
             response_bytes: 2,
             outcome: HttpAccessLogOutcome::Completed,
+            gateway_auth_rejected: false,
             exchange: Some(HttpAccessLogExchange {
                 request_headers: vec![HttpHeader {
                     name: "authorization".to_owned(),
@@ -244,5 +259,12 @@ mod tests {
         assert_eq!(summary.uri, "/v1/responses?trace=raw");
         assert!(summary.exchange_captured);
         assert!(!format!("{log:?}").contains("secret"));
+    }
+
+    #[test]
+    fn gateway_auth_rejection_capacity_is_one_quarter_with_a_small_floor() {
+        assert_eq!(gateway_auth_rejected_capacity(1), 1);
+        assert_eq!(gateway_auth_rejected_capacity(4), 1);
+        assert_eq!(gateway_auth_rejected_capacity(20), 5);
     }
 }

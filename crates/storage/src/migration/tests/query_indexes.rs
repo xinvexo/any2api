@@ -170,7 +170,8 @@ async fn assert_covering_query_plans(connection: &mut SqliteConnection) {
     let count_statement = format!(
         "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM http_access_logs \
          INDEXED BY http_access_logs_summary_filter_idx \
-         WHERE started_at_ms >= 0 AND ({SYSTEM_LOG_RETENTION_PREDICATE})"
+         WHERE started_at_ms >= 0 AND ({SYSTEM_LOG_RETENTION_PREDICATE}) \
+         AND (started_at_ms, request_id) <= (1000, 'ffffffff-ffff-ffff-ffff-ffffffffffff')"
     );
     let count_plan = query_plan(connection, &count_statement).await;
     assert!(count_plan.contains("USING COVERING INDEX http_access_logs_summary_filter_idx"));
@@ -181,7 +182,9 @@ async fn assert_covering_query_plans(connection: &mut SqliteConnection) {
          exchange_captured FROM http_access_logs \
          INDEXED BY http_access_logs_summary_filter_idx WHERE started_at_ms >= 0 AND (\
          {SYSTEM_LOG_RETENTION_PREDICATE}) \
-         ORDER BY started_at_ms DESC, request_id DESC LIMIT 20 OFFSET 0"
+         AND (started_at_ms, request_id) <= (1000, 'ffffffff-ffff-ffff-ffff-ffffffffffff') \
+         AND (started_at_ms, request_id) < (500, 'ffffffff-ffff-ffff-ffff-ffffffffffff') \
+         ORDER BY started_at_ms DESC, request_id DESC LIMIT 21"
     );
     let page_plan = query_plan(connection, &page_statement).await;
     assert!(

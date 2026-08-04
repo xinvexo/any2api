@@ -11,7 +11,7 @@
 ## 决策
 
 - RuntimeRegistry 持有跨配置 revision 复用的统一 `SchedulerEpoch` 与 `QueueCoordinator`；等待计数只在内存中存在，进程重启后清空。
-- `QueuePolicy` 默认值固定为等待、30 秒超时、最多 128 个等待请求、主 tier RPM 用尽时默认不进入 fallback tier。
+- `QueuePolicy` 默认值固定为等待、180 秒超时、最多 128 个等待请求、主 tier RPM 用尽时默认不进入 fallback tier。
 - `PublishedSnapshot` 按值捕获当前 `QueuePolicy`，同一请求的等待、超时、队列上限和默认 fallback 策略全部来自其持有的同一 revision。
 - RuntimeRegistry 不保存可变 QueuePolicy；ConfigPublisher 从已校验的 SettingsConfiguration 编译策略，在提交后放入新快照再原子切换。
 - RPM 用尽且策略为 `wait` 时取得 RAII `QueueTicket`。Ticket 在创建时订阅统一 epoch，并计入 `max_waiting_requests`；成功、超时、取消或错误均通过 Drop 归还名额。
@@ -41,6 +41,7 @@
 - 并发测试覆盖 epoch 在复查与等待之间推进时不会丢失唤醒。
 - 虚拟时间测试覆盖健康 worker 合并多个 deadline 时，QueueTicket 仍按自身 `retry_at` 完成最终重选。
 - 快照测试覆盖 QueueCoordinator/waiting count 跨快照复用、QueuePolicy 按 revision 捕获。
+- 2026-08-04 的四线程 Release 手动基准以三次中位数测量一次 epoch 后所有等待者完成重选：`128 × 32` 为 `0.883 ms`、`128 × 1,024` 为 `11.85 ms`、`128 × 10,000` 为 `126.8 ms`、`4,096 × 1,024` 为 `458.3 ms`、`100,000 × 1` 为 `182.0 ms`。结果确认完整重选具有 `O(waiters × candidates)` 成本，但默认 128 个等待者即使面对 1,024 个候选仍只需约 12 ms；百毫秒级只出现在受信任管理员同时配置极端候选数或大幅提高队列上限时。按 Route 合并负结果必须同时区分快照、候选排除集、固定会话、fallback 和各自 `retry_at`，而只加并发门闩不会减少总扫描量。当前不引入高复杂度缓存、定向队列或伪优化，保留 ignored 基准供候选规模或负载模型变化后复测。
 - Runtime、Workspace、Clippy、架构检查和 HTTP 契约测试作为提交门禁。
 
-其中对 ADR-0054 固定 payload 字节预算的引用已由 ADR-0082 取代；调度仍不增加任何内存或请求数量 Semaphore。
+其中对 ADR-0054 固定 payload 字节预算的引用已由 ADR-0082 取代，队列超时默认值已由 ADR-0084 调整为 180 秒；调度仍不增加任何内存或请求数量 Semaphore。

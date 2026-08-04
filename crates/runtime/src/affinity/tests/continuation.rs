@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    panic::{AssertUnwindSafe, catch_unwind},
+    time::{Duration, Instant},
+};
 
 use any2api_domain::{CredentialId, ModelRouteId, ProtocolDialect};
 use any2api_protocol::api::MAX_BRIDGE_CONTINUATION_STATE_BYTES;
@@ -6,7 +9,7 @@ use any2api_protocol::api::MAX_BRIDGE_CONTINUATION_STATE_BYTES;
 use super::{TTL, resolved_continuation_target, target};
 use crate::affinity::{
     AffinityError, AffinityRegistry, BindingStart, ContinuationLookup,
-    continuation::TEST_TOTAL_BYTES, hash::SessionHasher,
+    continuation::TEST_TOTAL_BYTES, hash::SessionHasher, registry::BindingState,
 };
 
 #[test]
@@ -51,6 +54,44 @@ fn expired_continuation_identity_can_bind_to_a_new_target() {
         resolved_continuation_target(&registry, "resp-reused", TTL),
         Some(second)
     );
+}
+
+#[test]
+fn continuation_commit_defers_unrelated_expiration_to_the_sweeper() {
+    let registry = AffinityRegistry::new();
+    let route_id = ModelRouteId::new();
+    let target = target(route_id, CredentialId::new());
+    let stale_identity = "resp-unrelated-stale";
+    registry
+        .bind_ready_continuation(stale_identity, target.clone(), None, TTL)
+        .expect("stale continuation seed");
+    let stale_key = registry.hasher.continuation(stale_identity);
+    {
+        let mut state = registry.state.lock().expect("affinity state");
+        let BindingState::Bound { binding } = state
+            .entries
+            .get_mut(&stale_key)
+            .expect("stale continuation entry")
+        else {
+            panic!("continuation must be bound");
+        };
+        binding.last_seen_at = Instant::now() - TTL - Duration::from_secs(1);
+    }
+
+    registry
+        .bind_ready_continuation("resp-current", target, None, TTL)
+        .expect("unrelated continuation commit");
+
+    assert!(
+        registry
+            .state
+            .lock()
+            .expect("affinity state")
+            .entries
+            .contains_key(&stale_key),
+        "ordinary commits must not scan the complete binding table"
+    );
+    assert_eq!(registry.sweep_expired(TTL), 1);
 }
 
 #[test]
@@ -145,6 +186,26 @@ async fn dropping_pending_continuation_aborts_and_wakes_waiters() {
 }
 
 #[test]
+fn panic_unwind_drops_pending_continuation_and_returns_capacity() {
+    let registry = AffinityRegistry::new();
+    let route_id = ModelRouteId::new();
+    let unwind_registry = registry.clone();
+    let result = catch_unwind(AssertUnwindSafe(move || {
+        let _lease = unwind_registry
+            .begin_pending_continuation("resp-unwind", target(route_id, CredentialId::new()), TTL)
+            .expect("pending continuation");
+        panic!("fault injection after pending reservation");
+    }));
+
+    assert!(result.is_err());
+    assert!(matches!(
+        registry.resolve_continuation("resp-unwind", TTL, |_| true),
+        ContinuationLookup::Missing
+    ));
+    assert_eq!(registry.continuation_bytes_for_test(), 0);
+}
+
+#[test]
 fn session_and_continuation_hashes_use_separate_domains() {
     let hasher = SessionHasher::new();
     let route_id = ModelRouteId::new();
@@ -169,7 +230,7 @@ fn a_new_registry_starts_without_session_or_continuation_bindings() {
     let route_id = ModelRouteId::new();
     let target = target(route_id, CredentialId::new());
     let registry = AffinityRegistry::new();
-    let lease = match registry
+    let mut lease = match registry
         .begin_session(
             ProtocolDialect::OpenAiResponses,
             route_id,
@@ -181,6 +242,7 @@ fn a_new_registry_starts_without_session_or_continuation_bindings() {
         BindingStart::Create(lease) => lease,
         other => panic!("first caller must create the binding: {other:?}"),
     };
+    lease.mark_attempting().expect("promote session binding");
     lease
         .commit(target.clone())
         .expect("commit session binding");

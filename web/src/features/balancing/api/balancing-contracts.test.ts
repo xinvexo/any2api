@@ -5,6 +5,7 @@ import { parseBalancingRuntime } from "./balancing-contracts";
 test("parses aggregate-only balancing runtime", () => {
   const parsed = parseBalancingRuntime(runtimeResponse());
 
+  expect(parsed.process).toEqual({ activeRequests: 4, backgroundTasks: 6 });
   expect(parsed.queue).toEqual({
     waiting: 1,
     maxWaiting: 128,
@@ -41,6 +42,7 @@ function runtimeResponse() {
   return {
     config_revision: 3,
     scheduler_epoch: 8,
+    process: { active_requests: 4, background_tasks: 6 },
     queue: {
       waiting: 1,
       max_waiting: 128,

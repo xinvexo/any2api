@@ -37,11 +37,9 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         binding_lease,
         bound,
     } = prepare_input(
-        services.snapshot,
-        services.protocols,
+        services,
         decoded,
         affinity,
-        services.providers,
         attempt_recorder,
         allow_credential_bound_headers,
     )?;

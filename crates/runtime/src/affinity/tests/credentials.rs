@@ -9,7 +9,7 @@ fn credential_cleanup_does_not_invalidate_an_in_progress_binding_commit() {
     let route_id = ModelRouteId::new();
     let credential_id = CredentialId::new();
     let target = target(route_id, credential_id);
-    let lease = match registry
+    let mut lease = match registry
         .begin_session(
             ProtocolDialect::OpenAiResponses,
             route_id,
@@ -22,6 +22,7 @@ fn credential_cleanup_does_not_invalidate_an_in_progress_binding_commit() {
         other => panic!("first caller must create the binding: {other:?}"),
     };
 
+    lease.mark_attempting().expect("promote session binding");
     assert_eq!(registry.clear_credential(credential_id.into()), 0);
     lease
         .commit(target.clone())

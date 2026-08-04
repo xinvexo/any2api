@@ -110,7 +110,9 @@ async fn receive_event(
     gateway_usage: &dyn GatewayApiKeyUsageRepository,
     state: &WorkerState,
 ) {
-    state.counters.received(event.record_count());
+    state
+        .counters
+        .received(event.record_count(), event.queue_class());
     match event {
         TelemetryEvent::RequestLog(record) => batch.request_logs.push(*record),
         TelemetryEvent::HttpAccessLog {

@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeMap, time::Instant};
 
 use any2api_domain::{
     ModelRouteId, ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode,
@@ -16,13 +12,14 @@ use super::{
     selection::{FixedSelectionError, select_candidate, select_fixed_candidate},
 };
 use crate::{
-    affinity::{
-        AffinityError, AffinityRegistry, AffinityTarget, BindingLease, BindingStart,
-        ContinuationLookup,
-    },
+    affinity::{AffinityError, AffinityTarget, BindingLease, ContinuationLookup},
     configuration::PublishedSnapshot,
-    routing::{CandidateExclusions, QueueCoordinator, RouteCandidate},
+    routing::{CandidateExclusions, RouteCandidate},
 };
+
+mod session;
+
+use session::select_session;
 
 pub(super) struct AffinitySelection {
     pub(super) selected: SelectedCandidate,
@@ -112,94 +109,6 @@ async fn acquire_continuation_binding(
     }
 }
 
-async fn select_session(
-    input: &AffinitySelectionInput<'_>,
-    raw: &str,
-) -> Result<AffinitySelection, PublicError> {
-    let policy = input.snapshot.affinity_policy();
-    match acquire_session_binding(
-        input.snapshot.affinity_registry(),
-        input.snapshot.queue_coordinator(),
-        input.dialect,
-        input.route_id,
-        raw,
-        policy.ttl(),
-        policy.wait_timeout(),
-        input.snapshot.queue_policy().max_waiting_requests(),
-    )
-    .await?
-    {
-        SessionBindingStart::Create(lease) => select_unbound(input, Some(lease)).await,
-        SessionBindingStart::Bound(target) => select_bound(input, target, None).await,
-    }
-}
-
-#[derive(Debug)]
-enum SessionBindingStart {
-    Create(BindingLease),
-    Bound(AffinityTarget),
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn acquire_session_binding(
-    registry: &Arc<AffinityRegistry>,
-    queue: &Arc<QueueCoordinator>,
-    dialect: ProtocolDialect,
-    route_id: ModelRouteId,
-    raw: &str,
-    ttl: Duration,
-    wait_timeout: Duration,
-    max_waiting_requests: u32,
-) -> Result<SessionBindingStart, PublicError> {
-    let wait_deadline = TokioInstant::now() + wait_timeout;
-    let mut queue_ticket = None;
-    let mut scheduler_changes: Option<tokio::sync::watch::Receiver<u64>> = None;
-    loop {
-        if queue_ticket.is_some() && TokioInstant::now() >= wait_deadline {
-            return Err(binding_wait_timeout());
-        }
-        if let Some(changes) = scheduler_changes.as_mut() {
-            let _observed_epoch = *changes.borrow_and_update();
-        }
-        let start = registry
-            .begin_session(dialect, route_id, raw, ttl)
-            .map_err(affinity_error)?;
-        match start {
-            BindingStart::Create(lease) => {
-                return Ok(SessionBindingStart::Create(lease));
-            }
-            BindingStart::Wait => {
-                if queue_ticket.is_none() {
-                    let ticket = queue.try_ticket(max_waiting_requests).ok_or_else(|| {
-                        public_error(PublicErrorCode::LocalRateLimit, "request queue is full")
-                    })?;
-                    scheduler_changes = Some(ticket.subscribe());
-                    queue_ticket = Some(ticket);
-                    continue;
-                }
-                let changes = scheduler_changes
-                    .as_mut()
-                    .expect("queue ticket always carries an epoch subscription");
-                match timeout_at(wait_deadline, changes.changed()).await {
-                    Ok(Ok(())) => continue,
-                    Ok(Err(_)) => return Err(internal_error()),
-                    Err(_) => return Err(binding_wait_timeout()),
-                }
-            }
-            BindingStart::Bound(binding) => {
-                return Ok(SessionBindingStart::Bound(binding.target().clone()));
-            }
-        }
-    }
-}
-
-fn binding_wait_timeout() -> PublicError {
-    public_error(
-        PublicErrorCode::LocalRateLimit,
-        "session binding creation timed out",
-    )
-}
-
 async fn select_bound(
     input: &AffinitySelectionInput<'_>,
     target: AffinityTarget,
@@ -236,14 +145,22 @@ async fn select_unbound(
         input.exclusions,
     )
     .await?;
+    Ok(finish_unbound(input, selected, binding_lease))
+}
+
+fn finish_unbound(
+    input: &AffinitySelectionInput<'_>,
+    selected: SelectedCandidate,
+    binding_lease: Option<BindingLease>,
+) -> AffinitySelection {
     let target = AffinityTarget::from_candidate(input.route_id, input.dialect, &selected.candidate);
-    Ok(AffinitySelection {
+    AffinitySelection {
         selected,
         target,
         binding_lease,
         bound: false,
         continuation_state: None,
-    })
+    }
 }
 
 fn find_candidate<'a>(
@@ -313,6 +230,3 @@ pub(super) fn commit_binding_before(
         None => Ok(()),
     }
 }
-
-#[cfg(test)]
-mod tests;

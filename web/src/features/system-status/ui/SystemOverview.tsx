@@ -1,28 +1,28 @@
 import { CheckCircle2, LoaderCircle, RefreshCw, ServerCrash } from "lucide-react";
 
-import { useHealth } from "../model/use-health";
 import {
   describeAffinityMetrics,
   type AffinityMetricPresentation,
   useAffinity,
 } from "@/features/affinity";
+import { useBalancingRuntime } from "@/features/balancing";
 import { cn } from "@/shared/lib/cn";
 import { notify } from "@/shared/notifications";
 import { Button } from "@/shared/ui/Button";
 
 export function SystemOverview() {
-  const health = useHealth();
+  const runtime = useBalancingRuntime();
   const affinity = useAffinity();
   const affinityMetrics = describeAffinityMetrics(affinity.data);
-  const status = health.isPending ? "pending" : health.isError ? "error" : "ok";
-  const busy = health.isFetching || affinity.isFetching;
+  const status = runtime.isPending ? "pending" : runtime.isError ? "error" : "ok";
+  const busy = runtime.isFetching || affinity.isFetching;
 
   async function refresh() {
-    const [healthResult, affinityResult] = await Promise.all([
-      health.refetch(),
+    const [runtimeResult, affinityResult] = await Promise.all([
+      runtime.refetch(),
       affinity.refetch(),
     ]);
-    if (healthResult.isSuccess && affinityResult.isSuccess) {
+    if (runtimeResult.isSuccess && affinityResult.isSuccess) {
       notify.success("系统状态已刷新");
     }
   }
@@ -54,8 +54,8 @@ export function SystemOverview() {
         <MetricCard
           label="活动请求 / 后台任务"
           value={
-            health.data
-              ? `${health.data.active_requests} / ${health.data.background_tasks}`
+            runtime.data
+              ? `${runtime.data.process.activeRequests} / ${runtime.data.process.backgroundTasks}`
               : "—"
           }
         />

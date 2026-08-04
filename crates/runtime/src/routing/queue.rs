@@ -128,6 +128,10 @@ impl QueueCoordinator {
             .expect("queue state lock poisoned")
             .waiting
     }
+
+    pub(crate) fn current_epoch(&self) -> u64 {
+        self.scheduler_epoch.current()
+    }
 }
 
 pub(crate) struct QueueTicket {

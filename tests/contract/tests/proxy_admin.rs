@@ -175,10 +175,11 @@ async fn proxy_crud_publishes_the_same_revision_to_storage_and_runtime() {
     assert_eq!(stored.revision().get(), 6);
     assert_eq!(stored.proxies().profiles().len(), 1);
 
-    let (status, health) = request_json(app, Method::GET, "/api/health", None, loopback).await;
+    let (status, runtime) =
+        request_json(app, Method::GET, "/api/admin/balancing", None, loopback).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(health["config_revision"], 6);
-    assert_eq!(health["scheduler_epoch"], 5);
+    assert_eq!(runtime["config_revision"], 6);
+    assert_eq!(runtime["scheduler_epoch"], 5);
 }
 
 #[tokio::test]

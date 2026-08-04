@@ -57,6 +57,7 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
         Arc::clone(&providers),
         Arc::clone(&transport) as Arc<dyn TransportManager>,
         Arc::clone(&publisher),
+        Arc::clone(&storage),
     );
     let lifecycle = runtime.lifecycle();
     assert!(oauth.start_refresh_worker(&lifecycle));
@@ -203,6 +204,51 @@ async fn a_second_oauth_401_never_refreshes_or_sends_a_third_attempt() {
     );
 }
 
+#[tokio::test]
+async fn completed_oauth_use_triggers_one_coalesced_persistent_quota_refresh() {
+    let context = AuthenticationRetryContext::new(false).await;
+    let lifecycle = context.runtime.lifecycle();
+    assert!(context.oauth.start_quota_worker(&lifecycle));
+
+    let response = context
+        .service
+        .execute(context.snapshots.load(), oauth_request())
+        .await;
+    assert_eq!(response.status, StatusCode::OK);
+    assert_eq!(context.transport.quota_calls(), 0);
+
+    let cached = tokio::time::timeout(Duration::from_secs(8), async {
+        loop {
+            if let Some(cached) = context
+                .oauth
+                .cached_quota(context.account_id)
+                .await
+                .expect("cached quota")
+            {
+                break cached;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("activity quota refresh");
+    assert_eq!(context.transport.quota_calls(), 2);
+    assert_eq!(
+        cached
+            .usage
+            .rate_limit
+            .and_then(|limit| limit.windows.into_iter().next())
+            .map(|window| window.used_percent),
+        Some(42.0)
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(context.transport.quota_calls(), 2);
+
+    assert!(lifecycle.begin_draining());
+    lifecycle.close_background_tasks();
+    lifecycle.wait_for_background_tasks().await;
+}
+
 fn oauth_document() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Codex,
@@ -228,7 +274,8 @@ struct AuthenticationRetryContext {
     _directory: tempfile::TempDir,
     _storage: Arc<SqliteStore>,
     snapshots: Arc<SnapshotStore>,
-    _runtime: Arc<RuntimeRegistry>,
+    runtime: Arc<RuntimeRegistry>,
+    oauth: Arc<OAuthService>,
     service: PublicRequestService,
     transport: Arc<AuthenticationRetryTransport>,
     account_id: OAuthAccountId,
@@ -266,12 +313,13 @@ impl AuthenticationRetryContext {
             Arc::clone(&transport) as Arc<dyn TransportManager>,
         )
         .expect("public request service");
-        let oauth = OAuthService::new(
+        let oauth = Arc::new(OAuthService::new(
             providers,
             Arc::clone(&transport) as Arc<dyn TransportManager>,
             Arc::clone(&publisher),
-        );
-        assert!(service.install_oauth_refresh(&oauth));
+            Arc::clone(&storage),
+        ));
+        assert!(service.install_oauth(oauth.as_ref()));
         let account_id = OAuthAccountId::new();
         publisher
             .activate_oauth_account(
@@ -294,7 +342,8 @@ impl AuthenticationRetryContext {
             _directory: directory,
             _storage: storage,
             snapshots,
-            _runtime: runtime,
+            runtime,
+            oauth,
             service,
             transport,
             account_id,
@@ -376,6 +425,7 @@ impl TransportManager for RefreshTransport {
 struct AuthenticationRetryTransport {
     always_unauthorized: bool,
     refresh_calls: AtomicUsize,
+    quota_calls: AtomicUsize,
     data_authorizations: Mutex<Vec<String>>,
 }
 
@@ -384,12 +434,17 @@ impl AuthenticationRetryTransport {
         Self {
             always_unauthorized,
             refresh_calls: AtomicUsize::new(0),
+            quota_calls: AtomicUsize::new(0),
             data_authorizations: Mutex::new(Vec::new()),
         }
     }
 
     fn refresh_calls(&self) -> usize {
         self.refresh_calls.load(Ordering::Acquire)
+    }
+
+    fn quota_calls(&self) -> usize {
+        self.quota_calls.load(Ordering::Acquire)
     }
 
     fn data_authorizations(&self) -> Vec<String> {
@@ -409,6 +464,24 @@ impl TransportManager for AuthenticationRetryTransport {
     ) -> Result<TransportResponse, any2api_transport::api::TransportError> {
         assert_eq!(proxy.profile().id(), any2api_domain::ProxyProfileId::DIRECT);
         let host = request.uri.host().expect("request host");
+        let path = request.uri.path();
+        if path == "/backend-api/wham/usage" || path == "/backend-api/wham/rate-limit-reset-credits"
+        {
+            self.quota_calls.fetch_add(1, Ordering::AcqRel);
+            let body = if path == "/backend-api/wham/usage" {
+                Bytes::from_static(
+                    br#"{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":42.0,"limit_window_seconds":18000,"reset_after_seconds":300,"reset_at":1900000000},"secondary_window":null}}"#,
+                )
+            } else {
+                Bytes::from_static(br#"{"available_count":0,"credits":[]}"#)
+            };
+            return Ok(TransportResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body: Box::pin(stream::iter([Ok(body)])),
+                read_failure_scope: TransportFailureScope::Endpoint,
+            });
+        }
         let (status, body) = if host == "auth.openai.com" {
             self.refresh_calls.fetch_add(1, Ordering::AcqRel);
             let form: std::collections::HashMap<_, _> = url::form_urlencoded::parse(&request.body)

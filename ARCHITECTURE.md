@@ -51,11 +51,11 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
-23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志保存客户端实际请求 URI 的原始 path，不使用路由模板、通配归一化或重写后的路径，也不保存 query；请求日志与系统日志管理列表均使用服务端分页且只展示最近 3 天。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 收到后重新读取当前页；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
+23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均使用带头部锚点的服务端 Keyset Cursor，只展示最近 3 天；禁止以会在持续写入时移动边界的 OFFSET 翻页。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 只在未固定历史 Cursor 的最新页重新读取；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
 25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude 与 Grok 不声明该方言能力。
-27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；该输入同时决定 Tag、资产名和编译进二进制的正式版本，不依赖 Cargo package version，首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
+27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
 
 ### 2.1 两类凭据的术语边界
@@ -95,7 +95,7 @@ Client ── GatewayApiKey ──> any2api ── ProviderCredential ──> Pr
 
 支持多个 `GatewayApiKey` 不改变上述定位。它们只是同一个个人实例下的多个本地访问凭据，不代表多个用户或租户，也不分别计算额度、余额和账单。
 
-管理面可以为上游 OAuthAccount 展示 Provider 官方额度。这只是上游账号的瞬时观测，不是 GatewayApiKey 余额、客户端套餐、收费账单或持久化准入配置，因此不改变上述永久非目标。只有 Provider 明确返回全局不可用、额度已耗尽或权威 Token 剩余量为零时，该观测才临时影响同一 OAuthAccount 当前认证代际的路由资格；未知状态、单个模型窗口百分比和本地估算不得据此排除账号。
+管理面可以为上游 OAuthAccount 展示 Provider 官方额度，并在独立 SQLite 表中保存最后一次成功的安全快照，使页面刷新、切换浏览器或进程重启后仍可读取带抓取时间的观测。这不是 GatewayApiKey 余额、客户端套餐、收费账单或持久化准入配置，因此不改变上述永久非目标。持久化快照不得恢复路由健康；只有当前进程内的权威刷新或真实数据面证据明确返回全局不可用、额度已耗尽或权威 Token 剩余量为零时，才临时影响同一 OAuthAccount 当前路由代际的资格。未知状态、单个模型窗口百分比、本地估算和启动时读取的快照不得据此排除账号。
 
 ### 3.2 当前首批范围外
 
@@ -234,7 +234,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 - 主题至少支持 light/dark/system，并在 React 启动前完成轻量主题初始化，避免闪烁。
 - 用户主动触发的刷新、创建、保存、删除、启停、轮换和连通性测试等短操作，只在完整成功后通过根级通知宿主给出一次上下文明确的瞬时反馈；多阶段操作不得在中间步骤提前报告成功。初始读取、查询失效、SSE、轮询和自动刷新禁止弹出成功通知；已经使用持续结果区或锁定流程展示结果的操作不得重复通知。失败继续保留可操作的就地错误状态，不能用成功通知掩盖部分失败。
 
-配置 revision/config version 只用于服务端快照一致性，以及前端数据层的缓存排序、乐观锁和冲突处理。管理 Web 不得在页面、卡片、表格、悬浮提示或可访问名称中向用户展示该内部字段；健康检查、管理 DTO 和系统日志仍可携带它，前端仅按内部协议消费。
+配置 revision/config version 只用于服务端快照一致性，以及前端数据层的缓存排序、乐观锁和冲突处理。管理 Web 不得在页面、卡片、表格、悬浮提示或可访问名称中向用户展示该内部字段；受认证管理 DTO 和系统日志仍可携带它，前端仅按内部协议消费。公共健康检查不得暴露配置 revision、调度 epoch、活动请求、后台任务或停机阶段。
 
 首版明确不引入或不复制：
 
@@ -243,7 +243,9 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 
 OAuthAccount 管理页的长集合是首个已确认的虚拟化场景。前端使用共享虚拟网格组件按“响应式网格行”渲染完整 Provider 账号集合，支持动态行高、1–3 列布局、键盘可聚焦滚动区和语义化 list/listitem；页面不得再为该集合维护客户端分页。浏览器首次提交必须在 paint 前同步读取滚动区宽度并确定列数，禁止先显示默认单列再闪变；无浏览器环境回退普通 effect，不在 SSR/测试导入时访问 DOM。虚拟行允许随滚动卸载，因此额度缓存、批量操作进度和不可逆 reset 的 pending 状态不能只保存在行组件本地生命周期中。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
 
-负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总与当前策略下的活动显式会话数进入总览；`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布、Continuation 索引数或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md` 与 `docs/adr/0066-active-session-overview.md`。
+OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占满该内容行并作为账号集合的唯一实际滚动区；不得再叠加相对 viewport 或根字体的 `max-height`，否则高视口下会在列表外留下不可用空白并把末行裁切在内部滚动边界。虚拟化仍只渲染可见行和少量 overscan，不因占满工作区而改为全量挂载。
+
+负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总、进程活动请求/后台任务计数与当前策略下的活动显式会话数进入总览；前两者共用受认证的 `/api/admin/balancing` 查询与前端 Query cache，不再轮询公共健康端点。`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布、Continuation 索引数或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md`、`docs/adr/0066-active-session-overview.md` 与 `docs/adr/0108-minimal-public-health-response.md`。
 
 设置页只保留“基础、路由策略、运行保护、日志、关于”五个一级页签。每个配置页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义。Web 只提供覆盖值编辑，不提供恢复默认入口。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。
 
@@ -369,7 +371,7 @@ any2api/
 │  └─ any2api/                   # 二进制入口与唯一 Composition Root
 │     └─ src/
 │        ├─ bootstrap/           # 环境配置、实例锁、Adapter 注册与应用装配
-│        ├─ logging/             # 启动期 console、可挂载文件层与配置发布后的日志 reconcile
+│        ├─ logging/             # 启动期 console、可挂载文件层与配置发布后的整快照 reconcile
 │        ├─ shutdown/            # HTTP drain、信号、收尾与退出结果
 │        ├─ lib.rs               # 最小公开装配/契约测试出口
 │        └─ main.rs              # 同步二进制入口
@@ -975,7 +977,7 @@ request_logs
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
-请求日志管理列表固定查询最近 3 天，使用 1-based `page` 与有界 `page_size` 做服务端分页并返回该窗口的精确 `total`；分页不得把总历史截断为固定 100/200 条。Web 首次读取和手动刷新使用普通管理请求；页面同时订阅已认证的日志变更 SSE，在收到 `request_logs_changed` 后重新读取当前页。服务端返回的 `total` 使当前页越界时，Web 必须把查询 state 回写到最后一个合法页并重新读取，禁止只夹取分页控件的显示值而继续请求空白旧页。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。
+请求日志管理列表固定查询最近 3 天，使用有界 `page_size` 与版本化不透明 `cursor` 做服务端 Keyset 分页，并返回头部锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条，也不得使用会在持续写入时位移的 OFFSET。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点和后续页的排他末行边界；Storage 只查询不大于锚点且小于末行边界的行。Web 页码只属于当前标签页内存中的 Cursor 栈，首次页保持实时，进入历史页后固定锚点，上一页复用已有 Cursor；手动刷新或改变页大小清空 Cursor 并回到最新页。页面只在未固定 Cursor 时响应 `request_logs_changed`，历史页不因事件漂移或重复查询。`total` 因 retention 收缩使本地页码越界时，Web 必须回写最后一个合法页和对应 Cursor，下一页资格只由 `next_cursor` 决定。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。
 
 ### 9.9 HttpAccessLog
 
@@ -1010,9 +1012,9 @@ http_access_logs
 
 客户端地址使用与 RequestLog 相同的可信代理解析器和规范 IPv4/IPv6 表达。系统日志中间件位于全部应用路由之外，从本次捕获的 PublishedSnapshot 只解析一次客户端连接，并把“同一快照 + 成功或失败的完整解析结果 + 可选规范 TCP peer”作为不可变请求扩展交给公开鉴权、管理鉴权与登录/Setup；内层禁止重新读取转发头或加载另一 revision。解析成功时 HttpAccessLog 与鉴权使用同一逻辑客户端，解析失败时 HttpAccessLog 仅以规范 TCP peer（若存在）审计本地拒绝，而公开/管理鉴权复用同一错误 Fail-Closed；peer 也缺失时 `HttpAccessLog.client_ip` 可以为 `NULL`。无论后续认证、路由或 Handler 是否成功，响应 Body 都负责在 EOF、错误或 Drop 时只结算一次。
 
-系统日志管理列表与请求日志使用相同的最近 3 天、服务端分页、精确窗口总数和越界页回写语义。清理仍删除 SQLite 中全部保留的 HttpAccessLog，不只删除当前页或 3 天窗口；因此确认文案不得把当前页条数伪装为清理总数。
+系统日志管理列表与请求日志使用相同的最近 3 天、带头部锚点的 Keyset Cursor、精确锚定窗口总数和本地页码/Cursor 栈收敛语义。清理仍删除 SQLite 中全部保留的 HttpAccessLog，不只删除当前 Cursor 页或 3 天窗口；因此确认文案不得把当前页条数伪装为清理总数。
 
-两类日志共用已认证管理端点 `GET /api/admin/log-events`。该 SSE 仅发送 `request_logs_changed` 与 `system_logs_changed` 两种失效事件及对应的进程内递增 epoch：RequestLog 批次必须在 SQLite 成功提交后才推进对应 epoch；HttpAccessLog 批次只有包含至少一条非系统日志列表自读记录时才在提交后推进 epoch，精确的 `GET /api/admin/system-logs` 在命中统一审计规则时仍写入 SQLite，但不能由自身触发下一次列表读取。系统日志有序清理和两类保留删除仅在确实删除记录后推进。epoch 不持久化、不用于恢复，也不提供事件历史回放；新连接先收到当前 epoch，断线由浏览器原生重连并重新读取当前页。SSE keepalive 不代表数据变化；进程进入 draining 时主动结束通知流，避免空闲管理连接延长更新或停机。成功建立的通知流由服务端响应扩展排除 HttpAccessLog，并明确禁用反向代理响应缓冲；认证失败、未知路径和普通列表请求仍按统一审计规则处理，客户端 Header 无权跳过日志或改变通知语义。
+两类日志共用已认证管理端点 `GET /api/admin/log-events`。该 SSE 仅发送 `request_logs_changed` 与 `system_logs_changed` 两种失效事件及对应的进程内递增 epoch：RequestLog 批次必须在 SQLite 成功提交后才推进对应 epoch；HttpAccessLog 批次只有包含至少一条非系统日志列表自读记录时才推进系统日志 epoch，精确的 `GET /api/admin/system-logs` 在命中统一审计规则时仍写入 SQLite，但不能由自身触发下一次列表读取。系统日志有序清理和两类保留删除仅在确实删除记录后推进。epoch 不持久化、不用于恢复，也不提供事件历史回放；新连接先收到当前 epoch，断线由浏览器原生重连，只有未固定历史 Cursor 的最新页重新查询。SSE keepalive 不代表数据变化；进程进入 draining 时主动结束通知流，避免空闲管理连接延长更新或停机。成功建立的通知流由服务端响应扩展排除 HttpAccessLog，并明确禁用反向代理响应缓冲；认证失败、未知路径和普通列表请求仍按统一审计规则处理，客户端 Header 无权跳过日志或改变通知语义。
 
 ### 9.10 持久化实体关系
 
@@ -1105,7 +1107,7 @@ ProxyProfile 可见元数据
 - HTTP 与 SOCKS5 统一使用 reqwest 的逐 Client 代理认证配置，禁止把凭据拼进代理 URL；
 - 认证失败继续遵守 Fail-Closed，不得回退全局代理或 DIRECT。
 
-管理面提供 `POST /api/admin/proxies/{id}/test`。该端点不接受 Provider Endpoint 或 URL，Runtime 统一对代码内集中定义的中立 HTTPS 目标 `https://example.com/` 发送空 GET，并以有界响应头等待时间验证 DNS、代理连接/认证、TLS 与响应头可达性。这是通用公网连通性探测，不表示任何 Provider 可用，也不得被额度或账号诊断复用为“支持 OpenAI/Claude/Grok”的证据；Provider 出口兼容性只能由对应 Driver 声明的专用无认证探测确认。通用探测不携带 ProviderCredential，也不依赖 Provider Endpoint 是否存在、启用或可达。普通目标 HTTP 响应头（包括非 2xx）表示网络链路可达，但 HTTP forward proxy 返回 `407 Proxy Authentication Required` 属于代理认证握手拒绝，必须作为失败归因 `ProxyHandshake + Proxy`。响应只关联 Proxy ID、捕获的配置 revision 与 Proxy config version，并返回延迟、HTTP 状态或脱敏失败阶段/归因；不返回目标 IP、代理地址、响应正文或 Secret。Web 只展示与当前 Proxy 配置代际完全匹配的结果。管理探测不更新熔断或冷却状态，也不占用 Credential RPM 名额。
+管理面提供 `POST /api/admin/proxies/{id}/test`。该端点不接受 Provider Endpoint 或 URL，Runtime 统一对代码内集中定义的中立 HTTPS 目标 `https://example.com/` 发送空 GET，并以有界响应头等待时间验证 DNS、代理连接/认证、TLS 与响应头可达性。这是通用公网连通性探测，不表示任何 Provider 可用，也不得被额度或账号诊断复用为“支持 OpenAI/Claude/Grok”的证据；Provider 出口兼容性只能由真实 Provider 响应中的结构化声明或经过审计的明确边缘阻断证据确认，禁止为此重放去除认证的受保护端点。通用探测不携带 ProviderCredential，也不依赖 Provider Endpoint 是否存在、启用或可达。普通目标 HTTP 响应头（包括非 2xx）表示网络链路可达，但 HTTP forward proxy 返回 `407 Proxy Authentication Required` 属于代理认证握手拒绝，必须作为失败归因 `ProxyHandshake + Proxy`。响应只关联 Proxy ID、捕获的配置 revision 与 Proxy config version，并返回延迟、HTTP 状态或脱敏失败阶段/归因；不返回目标 IP、代理地址、响应正文或 Secret。Web 只展示与当前 Proxy 配置代际完全匹配的结果。管理探测不更新熔断或冷却状态，也不占用 Credential RPM 名额。
 
 ### 10.5 TransportManager
 
@@ -1699,6 +1701,9 @@ QueueTicket 使用跨快照复用的 `QueueCoordinator`。等待者先订阅统�
 slot，始终等待最早 deadline，到期后批量删除并推进一次 epoch，再继续等待其余 slot；因此任务数在
 `Running` 期间固定为 `0..=1`，与错误次数、Credential 数量和冷却时长无关。QueueTicket 同时直接等待本轮
 选择返回的最早 `retry_at`，所以 epoch 广播发生合并、重排或某个 slot 被撤销都不会造成丢失唤醒。
+健康状态 Mutex 内按状态更新的线性化顺序同步修改 keyed slot，但只生成待发布通知；必须先释放
+Credential、Endpoint、Proxy 或 Circuit 健康锁，再广播 worker watch、登记按需 worker 或推进统一 epoch。
+禁止为了缩短临界区而把 slot 修改本身移出健康锁，否则并发延长、清除与重新记录可能乱序覆盖 deadline。
 完整决策见 `docs/adr/0077-coalesced-health-wake-worker.md`。
 
 ### 12.5 稳定 RuntimeRegistry
@@ -1870,6 +1875,20 @@ Lease 删除 Pending。写入或预留失败时不得暴露该标识。
 恢复工作副本，不再按最大状态向进程级公开请求内存预算预留容量。完整决策见
 `docs/adr/0076-atomic-bridge-continuation-state.md`。
 
+Pending continuation 的 Lease 只能由创建它的 `GuardedBody` 独占，禁止分离到后台任务或 waiter。预提交
+Future 被取消、交付前失败、成功/失败终止、EOF、网络/协议错误、postcommit idle timeout、客户端断连、
+Body Drop 与 panic 展开都通过同一个 RAII Drop 同步删除仍为当前 version 的 Pending、归还完整预留并推进
+scheduler epoch；等待续接的 QueueTicket 只等待 Ready/Abort，取消 waiter 不得取消创建者。活跃且持续推进
+的流不另设基于 `affinity.ttl`、`affinity.wait_timeout` 或新的绝对 Lease deadline：这类 deadline 会与合法长
+流竞态，在 Response ID 已交付后抢先删除仍可完成的状态。Pending 总量已经由 64 MiB 预算限制为最多四条；
+若未来复现 HTTP Body 在既不 Drop、也不继续 poll 的情况下长期滞留，应在统一 HTTP 写出/请求生命周期处
+治理全部 Guard，而不是只让 continuation 身份提前失效。
+
+Continuation 身份创建和提交的常规热路径只检查当前 HMAC 键，不扫描完整统一绑定表。命中键仍按精确
+TTL 立即拒绝或回收；无关过期记录由 60 秒周期 sweeper 清理。只有 300,000 条索引上限或 64 MiB
+Continuation 状态预算确实受压时，插入路径才在拒绝前执行一次全表过期回收。该分工不能延长过期绑定的
+可命中时间，也不能通过驱逐 TTL 内记录绕过容量边界。
+
 ### 13.3 统一绑定创建
 
 第一次请求正常按轮询与 RPM 可用性选择 Credential。上游成功接受请求后建立：
@@ -1898,7 +1917,8 @@ scope_id + session_hash
   → 等待并预留指定 Credential RPM 名额
 
 未命中
-  → 普通轮询调度并预留 RPM 名额
+  → 用短 `Creating(Selecting)` 串行执行一次普通轮询检查与 RPM 预留
+  → 若需等待，先释放 Selecting，再进入统一有界队列；唤醒后重新抢占
   → 上游成功后提交绑定
 ```
 
@@ -1910,20 +1930,22 @@ scope_id + session_hash
 缓存未命中
 → 获取 Session Lock
 → 再次检查绑定
-→ 写入 Creating { version }
+→ 写入 Creating { version, phase: Selecting }
 → 释放 Session Lock
 
-→ select_and_try_reserve
+→ 同步 select_and_try_reserve
+  → RPM/健康暂不可用：Drop Selecting 后才 await QueueTicket；每次唤醒重新抢占 Selecting
+  → 取得候选：用 version CAS 提升为 Attempting，并推进统一 scheduler epoch
 → 执行上游 Attempt
 
-→ 使用 version CAS 将 Creating 提交为 Bound
+→ 使用 version CAS 将 Creating(Attempting) 提交为 Bound
   或在失败时由 Lease Drop 删除 Creating
 → 推进统一 scheduler epoch，等待者重新检查自身 Session
 ```
 
-其他同 Session 请求命中 `Creating` 时先取得全局有界 QueueTicket，并通过统一 scheduler epoch 等待其结果，不再启动第二个创建者。绑定只在协议定义的接受/身份提交点后变为 `Bound`；如果首次选择失败且允许安全切换，当前 Lease 随 Attempt 释放并推进同一 epoch，下一次选择用新 version 建立 Creating，较低 version 的请求不能覆盖当前绑定。
+其他同 Session 请求先取得全局有界 QueueTicket，并通过统一 scheduler epoch 重查状态。`Selecting` 不得跨任何 `await`；看到它的请求只等待当前同步选择段结束。只有原子取得 RPM 的请求才能把自己的 version 提升为 `Attempting` 并跨入上游 I/O；看到 `Attempting` 的请求才等待真实创建者提交或 Drop，因此不会启动第二个上游创建。绑定只在协议定义的接受/身份提交点后变为 `Bound`；如果首次 Attempt 失败且允许安全切换，当前 Lease 随 Attempt 释放并推进同一 epoch，下一次选择用新 version 建立 `Selecting`，较低 version 的请求不能覆盖当前绑定。
 
-Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定表。活跃 Lease 不按等待超时回收；等待超时只终止当前 waiter，Lease 由提交或 Drop 结束，避免长请求尚在执行时出现第二个创建者。显式 Session 创建通过 version CAS 避免较低 version 的请求覆盖当前绑定；续接标识绑定、Credential 删除和管理员清理在同一张表的短锁事务内原子完成。
+Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定表。活跃 `Attempting` Lease 不按等待超时回收；等待超时只终止当前 waiter，Lease 由提交或 Drop 结束，避免长请求尚在执行时出现第二个创建者。RPM/健康等待必须发生在 Lease 外并使用 `scheduler.queue_timeout`，期限边界返回实际 RPM/健康错误；只有等待 `Attempting` 才使用 `affinity.wait_timeout` 并返回 `session binding creation timed out`。同一请求跨 `Selecting`、普通候选等待和 `Attempting` 等待复用一张 QueueTicket，各自绝对 deadline 不因 epoch 唤醒或阶段往返延长。显式 Session 创建通过 version CAS 避免较低 version 的请求覆盖当前绑定；续接标识绑定、Credential 删除和管理员清理在同一张表的短锁事务内原子完成。完整交接决策见 `docs/adr/0110-session-creating-wait-handoff.md`。
 
 ### 13.6 粘性绑定的是 Credential
 
@@ -1940,7 +1962,7 @@ Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定�
 - Credential 删除时清理对应绑定；之后普通显式 Session 可重新创建，Continuation 返回 `session_binding_lost`；
 - 进程重启会清空全部绑定，无法命中的 Response ID 返回 `session_binding_lost`。
 
-会话粘性采用稳定的进程内 `AffinityRegistry` 和快照级 `AffinityPolicy`。ProtocolAdapter 只提取显式会话标识及其“可创建/必须续接”意图；原始值进入 Runtime 后立即使用进程级随机 HMAC-SHA256 密钥和用途域分离转换为不可逆键。可创建会话通过短锁内版本化 `Creating` 租约避免并发首请求分裂，任何网络 I/O 都不持有 Session Lock。固定 Credential 等待继续使用全局 QueueTicket，并在对应 Credential 的 RPM 预留线性化点获得高于普通未绑定请求的优先级，不建立第二套全局队列。
+会话粘性采用稳定的进程内 `AffinityRegistry` 和快照级 `AffinityPolicy`。ProtocolAdapter 只提取显式会话标识及其“可创建/必须续接”意图；原始值进入 Runtime 后立即使用进程级随机 HMAC-SHA256 密钥和用途域分离转换为不可逆键。可创建会话通过短锁内版本化 `Creating(Selecting|Attempting)` 租约避免并发首请求分裂，任何网络 I/O 都不持有 Session Lock，任何调度等待都不持有 `Selecting`。固定 Credential 等待继续使用全局 QueueTicket，并在对应 Credential 的 RPM 预留线性化点获得高于普通未绑定请求的优先级，不建立第二套全局队列。
 
 关闭 `affinity.enabled` 不清空进程内已有绑定，只让新快照中的普通显式 Session 忽略它们；重新开启后，
 尚未过期的绑定可以继续命中。Response ID 的续接绑定仍照常创建、刷新和清理。
@@ -2140,12 +2162,13 @@ React 提交配置
 → Commit
 → 构造不修改已发布 Binding 行为的 RuntimeRegistry bindings
 → 单次 ArcSwap 原子替换 PublishedSnapshot
+→ 执行无 I/O、无失败的 PublishedSnapshot reconcile
 → 新请求使用新快照
 → 已开始请求继续持有其捕获 Arc
 → 返回管理 API 成功
 ```
 
-任何校验或编译失败都在 Commit 前终止。Commit 后只执行无 I/O、无 `Result` 的 Runtime Binding 构造与一次 ArcSwap；RPM 时间戳和 `in_flight` 是 Runtime 作用域，RPM 限额和认证代际属于具体 PublishedSnapshot Binding，epoch 只在新快照可见后推进。任何可能失败的本地资源都必须在 Commit 前准备，不能把失败点放入 Commit 后路径。
+任何校验或编译失败都在 Commit 前终止。Commit 后只执行无 I/O、无 `Result` 的 Runtime Binding 构造、一次 ArcSwap 与整快照 reconcile；RPM 时间戳和 `in_flight` 是 Runtime 作用域，RPM 限额和认证代际属于具体 PublishedSnapshot Binding，epoch 只在新快照可见后推进。任何可能失败的本地资源都必须在 Commit 前准备，不能把失败点放入 Commit 后路径。
 
 ```text
 PublishedSnapshot
@@ -2161,14 +2184,27 @@ PublishedSnapshot
 - Storage 必须在 `BEGIN IMMEDIATE` 的同一事务视图中先完整加载当前配置一次，验证全部持久化 Secret 摘要、领域值和现有交叉引用；写入后不得再无条件完整加载所有表，而应回读本次 mutation 的完整影响面，包括它直接修改的聚合、外键级联、物化 Model Route、模型 allowlist 裁剪以及 revision。未被该写入触及的聚合只能复用本事务起点已经验证的不可变值；Proxy 或 Endpoint 等被其他聚合引用的配置发生变化时，必须用新值重建并重新校验相关领域配置，即使不需要再次读取其 Secret 行。新增 mutation 或 Schema 级联时必须同时声明并测试其回读影响面，禁止用遗漏回读换取性能；
 - Storage 在影响面回读后必须核对 revision 以及本次写入涉及的 Gateway Key、Proxy、OAuthAccount、Provider Endpoint/Credential、Model Route 或 Setting 聚合。失配表示持久化写入与领域候选不一致，必须返回标明组件的 `ConfigurationWriteMismatch` 并让事务回滚，禁止用 `assert!`/`expect` 触发进程 panic；错误不得格式化 expected/actual 配置或其中的明文 Secret。Storage 组装出的仍是完整 `StoredConfiguration`，Runtime 必须对整份候选执行能力校验和 `PublishedSnapshot` 预编译，不能把影响面回读误用为局部快照发布；
 - 全局 revision 的条件递增没有更新行时，Storage 必须在同一写事务视图回读实际 revision：与 expected 不同返回携带两者的 `RevisionConflict`；只有 actual 与 expected 都已达到 SQLite INTEGER 上限时返回 `RevisionOverflow`；actual 仍等于可递增的 expected 却未更新则返回 revision 组件的 `ConfigurationWriteMismatch`。禁止把所有 0 行结果统一误报为溢出；
-- 发布流程脱离管理 HTTP 请求的取消令牌，客户端断开不能中断已经开始的提交；
+- 发布流程脱离管理 HTTP 请求的取消令牌，客户端断开不能中断已经开始的提交。当前 `sqlx` SQLite
+  Driver 在后台线程执行 `COMMIT`，并以接收方确认的 rendezvous channel 返回结果；调用 Future 若在命令发出后
+  被 Drop，SQLite 仍可能完成提交而调用方永远得不到结果。因此从取得发布锁到快照切换的整个 Future 必须由
+  进程级 critical task 独立持有，不能只保护 `commit().await` 或依赖 HTTP Handler 存活。正常 `Running`/
+  `Draining` 阶段必须等待该任务完成；只有进程已经进入单调 `Forced` 停机、拒绝新请求并正在退出时才允许取消。
+  当前 SQLite WAL 还会在事务已经提交后调用 VFS `SQLITE_FCNTL_COMMIT_PHASETWO`；故障 VFS 返回 `SQLITE_IOERR`
+  时，已提交 revision 与 `COMMIT` 错误可以同时成立。Storage 必须把 Commit 阶段的 SQLite IOERR 和无法取得
+  Worker 确认的非数据库错误分类为 `IndeterminateConfigurationCommit`；ConfigPublisher 收到后必须让 critical
+  task 失败并终止进程，禁止把普通管理错误返回后留在旧快照继续服务。延迟约束或 commit hook 明确拒绝等
+  `SQLITE_CONSTRAINT` 仍是确定未提交，继续返回普通存储错误且不切换快照；
 - 管理 API 只有在数据库提交和快照切换都完成后才返回成功；
+- `PublishedSnapshotReconciler` 是 ArcSwap 后唯一的共享派生状态更新入口，接收刚发布的完整不可变快照，不得执行
+  I/O、阻塞等待或返回错误。RequestTelemetry 在此推进 Writer/清理策略并按当前 Gateway API Key 集合淘汰
+  `last_used_at`/节流状态；文件日志只更新内存策略与级别。禁止继续用只接收 `LoggingSettings` 的窄接口承载
+  非日志配置生命周期，也禁止各模块自行订阅 revision 复制第二套发布顺序；
 - 请求在 Access 前只 `load_full()` 一次 `PublishedSnapshot`，鉴权和路由必须来自同一 revision，并在整个请求期间持有同一 Arc；
 - 实时 RPM 时间戳、`in_flight` 和观测计数从稳定 RuntimeRegistry 读取；RPM 限额、认证 Generation 和策略从请求捕获的 Binding 读取；
 - `GatewayApiKey` 删除进入 PublishedSnapshot：删除 API 成功返回后，新请求不得再通过被删除 Key；
 - 进程重启时直接从 SQLite 当前配置编译新快照，不恢复此前 revision 对应的运行状态。
 
-如果 Commit 后的无失败发布段发生非预期 panic，进程直接终止；下次启动读取 SQLite 当前配置重新构建 PublishedSnapshot，不设计内存回滚或运行态恢复。
+如果 Commit 后的无失败发布段发生非预期 panic，或提交结果变成无法判定，进程直接终止；下次启动读取 SQLite 当前配置重新构建 PublishedSnapshot，不设计内存回滚或运行态恢复。Forced 停机在提交确认前取消 critical task 时也只能继续退出，生命周期不得恢复为 Running。
 
 配置 mutation 的事务内影响面回读及其性能取舍见 `docs/adr/0102-mutation-footprint-configuration-readback.md`；
 候选同步验收与 Storage 独占事务能力见 `docs/adr/0103-storage-owned-configuration-transaction.md`。
@@ -2323,9 +2359,9 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 
 RequestLog 与 Attempt 共用保留策略；达到期限或容量任一上限就按最旧父记录分批清理。RequestLog Writer 每个最多 64 条的写批次必须使用写入时最新 PublishedSnapshot 的 `logs.request.max_rows`，在同一写事务内插入后最多删除 10,000 条最旧父记录；稳定状态下该预算大于单批新增量，因此持续流量不能突破行数上限。配置下调或历史积压超过单次删除预算时，Storage 返回 `has_more`，Writer 立即重新唤醒并在事件处理之间继续下一笔有界事务；配置发布也必须唤醒清理，不能等待固定的每分钟周期。60 秒周期只作为保留期与容量的兜底扫描。上述参数均可在 Web“设置”页面修改并写入覆盖值，但不能从 Web 清除覆盖。
 
-RequestLog/Attempt 与 HttpAccessLog 共用 `logs.request.enabled`、`logs.request.retention` 和同一条 `logs.telemetry_queue_capacity` 有界队列；`logs.request.max_rows` 只约束 RequestLog，HttpAccessLog 独立使用 `logs.http_access.max_rows` 与 `logs.http_access.max_exchange_bytes`。后者精确统计每行已序列化的两侧 Header 与 Body BLOB，不伪装成包含配置、RequestLog、索引、页面碎片和 WAL 的 SQLite 文件硬配额；元数据及索引开销由独立行数上限约束。关闭日志时两类 SQLite 历史日志都停止接收新记录。每个请求的记录准入和队列容量从该请求已捕获的 PublishedSnapshot 纯计算，不写入共享策略锁；Writer 和周期清理使用的最新共享策略只能在启动时初始化，以及成功配置发布后由 reconcile 更新并触发必要清理；请求热路径禁止顺便推进全局策略 revision。本地文件日志切片把 `logs.file.*` 接入同一 SettingRegistry 和发布链，没有建立独立配置文件或第二套默认值来源。遥测指标按记录而不是按 SQLite 语句计数：`queued_records` 只表示仍留在 channel 中的记录，Writer 取走后转入 `in_flight_records`，直到存储成功或失败才分别转入累计的 `persisted_records` 或 `dropped_records`；管理清理等控制消息可以占用队列槽，但不计入记录指标。同一 Gateway Key 的多个 `last_used_at` 更新即使在批次内合并为一次写入，仍按原始记录数结算。Writer 在停机超时、任务失败或 abort 后不再运行时，尚存的 queued 与 in-flight 记录统一计入 dropped 后归零，禁止静默抹去。
+RequestLog/Attempt 与 HttpAccessLog 共用 `logs.request.enabled`、`logs.request.retention` 和同一条 `logs.telemetry_queue_capacity` 有界队列；`logs.request.max_rows` 只约束 RequestLog，HttpAccessLog 独立使用 `logs.http_access.max_rows` 与 `logs.http_access.max_exchange_bytes`。后者精确统计每行已序列化的两侧 Header 与 Body BLOB，不伪装成包含配置、RequestLog、索引、页面碎片和 WAL 的 SQLite 文件硬配额；元数据及索引开销由独立行数上限约束。关闭日志时两类 SQLite 历史日志都停止接收新记录。公开 Gateway 鉴权在建立已认证 Key 之前拒绝的响应由仅服务端可设置的 Extension 显式分类，不能按最终 `401` 猜测；该类别仍逐条进入同一非阻塞审计链，但逻辑队列槽、HttpAccessLog 行数与交换字节均使用四分之一向下取整且极小容量下限为一的子容量。容量裁剪优先删除最旧鉴权拒绝记录以同时满足类别和全局压力，只有正常历史自身仍超出总预算时才进入全局最旧裁剪，因此鉴权拒绝洪泛不能从已满足容量的状态挤掉正常历史；不增加源 IP 限流、采样、第二 Writer 或第二数据库。每个请求的记录准入和队列容量从该请求已捕获的 PublishedSnapshot 纯计算，不写入共享策略锁；Writer 和周期清理使用的最新共享策略只能在启动时初始化，以及成功配置发布后由 `PublishedSnapshotReconciler` 更新并触发必要清理；请求热路径禁止顺便推进全局策略 revision。本地文件日志切片把 `logs.file.*` 接入同一 SettingRegistry 和发布链，没有建立独立配置文件或第二套默认值来源。遥测指标按记录而不是按 SQLite 语句计数：`queued_records` 只表示仍留在 channel 中的记录，Writer 取走后转入 `in_flight_records`，直到存储成功或失败才分别转入累计的 `persisted_records` 或 `dropped_records`；管理清理等控制消息可以占用队列槽，但不计入记录指标。同一 Gateway Key 的多个 `last_used_at` 更新即使在批次内合并为一次写入，仍按原始记录数结算。Gateway 使用观测必须携带认证请求捕获的配置 revision；整快照 reconcile 后，迟到的旧 revision 只有在 Key ID 仍属于当前快照时才可更新实时覆盖和节流表，已经删除的 Key 不得重新插入。reconcile 以当前 Key ID 集合线性淘汰两张表并收缩空闲容量，使内存只随当前 Key 集合和切换前的有界竞态增长；已经入队但随后删除的 SQLite 更新允许按不存在行自然 no-op。Writer 在停机超时、任务失败或 abort 后不再运行时，尚存的 queued 与 in-flight 记录统一计入 dropped 后归零，禁止静默抹去。
 
-HttpAccessLog 每批写入在同一事务提交前按时间与 Request ID 删除最少数量的完整最旧记录，使行数和交换字节同时回到预算内；禁止只截短已捕获 Body 或丢弃 Header。周期保留任务也应用两项容量，使无新流量时的热更新下调能够收敛。新建 SQLite 在建表前启用 `auto_vacuum=INCREMENTAL`，Writer 每分钟以及手动清理后只回收约 16 MiB 的 freelist 页面，剩余页面由后续周期继续处理。既有 `auto_vacuum=NONE` 数据库不在启动时隐式执行可能需要约两倍原库临时空间的完整 `VACUUM`；容量删除页可以继续复用，需要缩小旧峰值文件时由管理员停服并显式完成一次模式转换。完整决策见 `docs/adr/0092-bounded-http-access-log-capacity.md`。
+HttpAccessLog 每批写入在同一事务提交前删除满足行数和交换字节压力所需的最少完整记录；鉴权拒绝类别优先在自身有序索引内裁剪，剩余全局超额再按时间与 Request ID 裁剪，禁止只截短已捕获 Body 或丢弃 Header。周期保留任务也应用两项容量，使无新流量时的热更新下调能够收敛。新建 SQLite 在建表前启用 `auto_vacuum=INCREMENTAL`，Writer 每分钟以及手动清理后只回收约 16 MiB 的 freelist 页面，剩余页面由后续周期继续处理。既有 `auto_vacuum=NONE` 数据库不在启动时隐式执行可能需要约两倍原库临时空间的完整 `VACUUM`；容量删除页可以继续复用，需要缩小旧峰值文件时由管理员停服并显式完成一次模式转换。完整决策见 `docs/adr/0092-bounded-http-access-log-capacity.md` 与 `docs/adr/0109-gateway-auth-rejected-log-isolation.md`。
 
 Serve 模式在解析完命令行后、读取启动环境和打开 Tokio/SQLite 之前一次性安装全局 tracing subscriber：console 层立即按 `RUST_LOG` 生效并明确写 stderr；固定文件层也在此时完成注册，但其独立过滤器处于禁用状态且 Writer 槽为空。SQLite 连接、Migration 和配置加载成功后，Composition Root 才使用已发布的有效日志设置创建有界文件 Writer，先放入 Writer 槽再启用文件过滤器；禁止用第二次 `try_init` 重装 subscriber、运行中替换 layer 拓扑，也不使用一套默认文件设置提前创建日志目录。激活前的启动事件只写 console；任一启动失败都在回滚或返回前记录带明确阶段和完整错误链的结构化 console 事件。文件日志对象释放时先禁用过滤器并清空 Writer 槽，再 Drop 唯一 WorkerGuard 做 best-effort flush。完整决策见 `docs/adr/0097-bootstrap-console-before-sqlite.md`。
 
@@ -2414,27 +2450,27 @@ Claude: id_token, access_token, refresh_token,
 
 单进程刷新 Worker 定期扫描所有临近过期且具备 refresh token 的账号，包括 `enabled=false` 的停用账号。`enabled` 只控制账号是否进入路由候选池，不控制认证保活；停用账号刷新后必须继续保持停用，不能产生数据面 Attempt、占用路由 RPM 或恢复会话绑定，只有删除账号才终止定时保活。定时扫描的上游刷新请求使用代码级固定并发上限，禁止按到期账号数量无界并发。每个账号使用 singleflight gate，锁内重新读取 `token_version`，Provider Driver 构造 refresh 请求并保留未返回的 refresh token、ID token、账号 ID、邮箱和安全过期边界。
 
-同一扫描批次的网络成功结果进入一次串行发布：发布锁内按账号 `token_version` CAS，已经删除或 Token 已变化的结果只跳过该账号，不得阻断同批其他新鲜结果；至少一个结果仍新鲜时，整批使用一个 SQLite 事务、一个配置 revision、一次 Runtime reconcile 和一次 `PublishedSnapshot` 切换。刷新只增加 `token_version`，不增加 `account_generation`；Runtime 为新 Token 建立新的认证健康并复用账号路由健康。网络失败或过期结果不写半成品。认证失败触发的按需刷新不等待定时批次，继续通过账号 singleflight 立即执行单账号 CAS 发布，使当前 Pending 请求可以按 RetrySafety 继续。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。完整决策见 `docs/adr/0048-disabled-oauth-token-keepalive.md`、`docs/adr/0078-bounded-batched-oauth-refresh.md` 与 `docs/adr/0095-split-authentication-and-routing-health-generations.md`。
+同一扫描的网络完成项按“当前 ready、最多 6 项”形成机会式分段串行发布，不得为了等待慢账号或凑满分段而扣留已经成功账号及其 singleflight gate。每个分段在发布锁内按账号 `token_version` CAS，已经删除或 Token 已变化的结果只跳过该账号，不得阻断同段其他新鲜结果；至少一个结果仍新鲜时，该段使用一个 SQLite 事务、一个配置 revision、一次 Runtime reconcile 和一次 `PublishedSnapshot` 切换。数据面可以先观察快账号、后观察慢账号，但单个分段必须原子；账号之间不存在整次扫描原子切换的不变量。Worker 必须识别连续的自有分段 revision，只有分段之间夹入外部提交或扫描结束后出现更高 revision 才立即重扫。刷新只增加 `token_version`，不增加 `account_generation`；Runtime 为新 Token 建立新的认证健康并复用账号路由健康。网络失败或过期结果不写半成品。认证失败触发的按需刷新不等待定时分段，继续通过账号 singleflight 立即执行单账号 CAS 发布，使当前 Pending 请求可以按 RetrySafety 继续。Token 已过期或 Provider 明确认证失败时账号 fail-closed，其他 API Key/OAuthAccount 仍按统一调度规则可用。完整决策见 `docs/adr/0048-disabled-oauth-token-keepalive.md`、`docs/adr/0078-bounded-batched-oauth-refresh.md` 与 `docs/adr/0095-split-authentication-and-routing-health-generations.md`。
 
-Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Claude 和 Grok OAuthAccount 支持只读额度查询。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。Claude Driver 固定注册 `GET https://api.anthropic.com/api/oauth/usage`，使用当前 OAuth access token、`anthropic-beta: oauth-2025-04-20` 和固定 Claude Code 身份头，只解析 5 小时、7 天、Sonnet 7 天与 `seven_day_overage_included` 可选窗口。Grok Driver 固定注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` 和 `GET https://cli-chat-proxy.grok.com/v1/user?include=subscription`，除 Bearer 与 CLI 身份头外还必须发送 OAuth subject 对应的 `x-userid` 和官方 `x-grok-client-mode`。Driver 优先把 billing 的 `creditUsagePercent` 投影为当前 included allowance 使用率，并使用 `used / monthlyLimit` 作为备用字段；只有实际上游字段能够产生使用率窗口，`currentPeriod` 只决定周/月周期和重置时间，不能把缺失的使用率解释成 `0%` 已用。`prepaidBalance`、`onDemandUsed` 和 `onDemandCap` 按 xAI 定义的美元分分别投影为预付余额和按量使用信息，不与 included allowance 百分比互相换算。`/user?include=subscription` 按官方 camelCase 契约解析；非空 `subscriptionTier` 是当前套餐层级的权威来源，空值表示 Free，禁止用可能过期的 JWT tier 覆盖它。同次 `/user` 返回的非空 `userBlockedReason` 与 `teamBlockedReasons` 作为原始上游限制/团队策略展示；缺失时 Web 不渲染占位行，后者可能包含 ZDR/数据保留策略，禁止把它们等同于机器人标记或笼统宣称账号失效。Grok Build access token 中只有数值型 `bot_flag_source == 1` 才表示该 Token 被 Build 标记；管理响应只允许暴露由当前 Token 派生的非敏感布尔/未知状态，禁止返回 JWT claim 集合或 Token 本身。Web 只在该值为 `true` 时于账号卡片顶部状态标记之后显示机器人图标，不显示 Build 标记文字，`false` 或未知时不占展示位置。Free 套餐的 Token 余额由 Driver 在套餐层级确认后构造最小 `POST https://cli-chat-proxy.grok.com/v1/chat/completions` 查询，只接受响应头 `x-ratelimit-limit-tokens` 与 `x-ratelimit-remaining-tokens` 的安全整数；总额、已用和剩余值全部来自同次上游响应，禁止再硬编码 `1_000_000` 或任何其他默认额度。两个响应头任一缺失或无效时 Token 余额保持未知，不从 billing 金额、本地用量或其他限流头猜测。Runtime 只执行 Provider 返回的通用查询计划，不增加 Provider 专用 `match`。
+Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费；Claude 和 Grok OAuthAccount 支持只读额度查询。Codex Driver 固定注册 `GET https://chatgpt.com/backend-api/wham/usage`、`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 和 `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume`。Claude Driver 固定注册 `GET https://api.anthropic.com/api/oauth/usage`，使用当前 OAuth access token、`anthropic-beta: oauth-2025-04-20` 和固定 Claude Code 身份头，只解析 5 小时、7 天、Sonnet 7 天与 `seven_day_overage_included` 可选窗口。Grok Driver 固定注册 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits` 和 `GET https://cli-chat-proxy.grok.com/v1/user?include=subscription`，除 Bearer 与 CLI 身份头外还必须发送 OAuth subject 对应的 `x-userid` 和官方 `x-grok-client-mode`。Driver 优先把 billing 的 `creditUsagePercent` 投影为当前 included allowance 使用率，并使用 `used / monthlyLimit` 作为备用字段；只有实际上游字段能够产生使用率窗口，`currentPeriod` 只决定周/月周期和重置时间，不能把缺失的使用率解释成 `0%` 已用。`prepaidBalance`、`onDemandUsed` 和 `onDemandCap` 按 xAI 定义的美元分分别投影为预付余额和按量使用信息，不与 included allowance 百分比互相换算。`/user?include=subscription` 按官方 camelCase 契约解析；非空 `subscriptionTier` 是当前套餐层级的权威来源，显式 JSON `null` 表示当前没有活动订阅并投影为 Free，字段缺失或空白字符串表示上游没有提供可用层级并保持未知，禁止用可能过期的 JWT tier 覆盖它。同次 `/user` 返回的非空 `userBlockedReason` 与 `teamBlockedReasons` 作为原始上游限制/团队策略展示；缺失时 Web 不渲染占位行，后者可能包含 ZDR/数据保留策略，禁止把它们等同于机器人标记或笼统宣称账号失效。Grok Build access token 中只有数值型 `bot_flag_source == 1` 才表示该 Token 被 Build 标记；管理响应只允许暴露由当前 Token 派生的非敏感布尔/未知状态，禁止返回 JWT claim 集合或 Token 本身。Web 只在该值为 `true` 时于账号卡片顶部状态标记之后显示机器人图标，不显示 Build 标记文字，`false` 或未知时不占展示位置。额度刷新链必须保持只读：Grok 管理额度刷新只执行上述两个 GET，禁止为了获取限流 Header 调用 Responses、Chat Completions 或其他生成端点，也不从 billing 金额、本地用量或普通限流头猜测 Free Token 余额。Runtime 只执行 Provider 返回的通用只读查询计划，不增加 Provider 专用 `match`。
 
 额度请求与登录、刷新、数据面共用 OAuthAccount 的 DIRECT/全局代理和严格 SSRF 设置，禁用重定向且失败不回退本机直连；401 最多触发一次 token refresh 和一次重试。billing 与 user 查询均成功只证明该 Token 在抓取时通过认证，Web 不为成功结果重复显示“认证状态”；Token 成功刷新后仍被 401 拒绝、前一 access token 已被 401 拒绝且账号没有 refresh token，或 refresh Endpoint 返回经过 Provider 声明 envelope 验证的永久失效码（至少 `invalid_grant`）时，必须返回明确的认证失效错误。刷新网络错误、5xx、超时或无法识别的拒绝仍返回“认证无法确认”。
 
-额度端点的 `403` 禁止按状态码直接宣称账号受限或封禁。Provider Driver 只能在有界响应的声明字段中把拒绝分类为“明确账号限制”“明确 Provider 出口拒绝”或“未分类”；首批 Codex 只读取顶层 `code` 以及 `error.code/type` 的固定码表，Grok 只在声明字段中识别 `unauthorized:blocked-user`。Codex 未分类 `403` 会触发 Driver 声明的无认证 `GET /backend-api/wham/usage` 出口探测：Runtime 使用同一 PublishedSnapshot 中 OAuthAccount 实际继承的全局代理与严格 SSRF 设置，不携带 Authorization、账号 ID 或其他账号材料。探测返回 `2xx/401` 表示出口已到达 Provider 认证边界，`403` 表示当前出口被 Provider 拒绝，其他状态、网络错误和无法解析的结果保持未知；探测失败不得覆盖原始中性错误。
-
-Provider 出口探测按 `(Provider, 配置 revision)` 在内存中使用独立单飞槽并缓存 30 秒，配置发布会自然形成新键。共享槽表的锁只允许用于查找、插入和清理已经完成且过期的槽，任何 DNS、连接、TLS、响应等待或 Provider 解析都必须在释放表锁后执行；同键并发只运行一次探测，不同 Provider 或不同 revision 的探测可以并行。它不写 SQLite，不更新 Proxy/Endpoint/Credential 健康，不另占一个 RPM 名额，也不得回退其他代理。管理 API 分别使用 `oauth_account_restricted`、`oauth_provider_egress_restricted` 与 `oauth_quota_upstream_failed`，Web 必须明确区分“账号被上游限制”“当前网络/全局代理出口被 Provider 拒绝”和“无法确认的上游失败”。完整决策见 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md`。
+额度端点的 `403` 禁止按状态码直接宣称账号受限或封禁。Provider Driver 只能从同一次有界原始响应的声明字段或经过审计的 Provider 明确证据中把拒绝分类为“明确账号限制”“明确 Provider 出口拒绝”或“未分类”；首批 Codex 读取顶层 `code` 以及 `error.code/type` 的固定码表，并把正文同时包含官方客户端使用的 `Cloudflare` 与 `blocked` 标记视为边缘出口拒绝；Grok 只在声明字段中识别 `unauthorized:blocked-user`。未知码、普通 HTML/自然语言、畸形正文和没有上述组合证据的 `403` 保持未分类。禁止通过去掉 Authorization 或账号 ID 后重放受保护额度端点来推断出口状态：未认证请求本身可能被端点策略返回 `403`，二次请求既不能消除歧义，又增加延迟和边缘风控面。管理 API 分别使用 `oauth_account_restricted`、`oauth_provider_egress_restricted` 与 `oauth_quota_upstream_failed`，Web 必须明确区分“账号被上游限制”“当前网络/全局代理出口被 Provider 拒绝”和“无法确认的上游失败”。完整决策见 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md` 与 `docs/adr/0106-side-effect-free-oauth-quota-evidence.md`。
 
 额度查询只返回经过校验的使用率窗口、稳定窗口标识、窗口维度、Codex 可用重置次数、安全到期时间、Grok billing 金额、账号诊断证据、可选上游 Token 余额与抓取时间。通用额度模型使用窗口列表而不是固定主/次槽位，并允许 Provider 没有返回总可用状态时保持未知；不得为迁就 Codex 的上游响应形状丢弃 Claude 的额外模型窗口或伪造全局可用状态。Claude 使用率必须是有限非负数，重置时间必须是有效 RFC 3339；缺失的可选窗口保持缺失。Grok 金额必须是可安全表示的整数美元分；预付余额和按量上限/使用量独立展示，缺失字段保持未知，禁止从金额或有效周期猜测 included allowance 百分比。
 
-Grok Free Token 余额是按需抓取的上游快照。Provider 只在同次 `/user?include=subscription` 确认为 Free 时返回最小 Chat Completions 探测计划；Runtime 使用当前 OAuthAccount 的同一代 Token、代理与 SSRF 策略执行。只有 `x-ratelimit-limit-tokens` 与 `x-ratelimit-remaining-tokens` 同时存在、均为安全非负整数、上限大于零且剩余不超过上限时，才生成 `source=upstream` 的 Token 余额。管理面每次刷新都重新读取，xAI 修改上限时无需修改 any2api。
+Grok Free Token 余额不主动抓取。管理额度刷新不得发送生成请求，因此 billing 与 subscription 没有提供可验证 Token 数字时保持未知。只有真实数据面响应包含 `subscription:free-usage-exhausted`，且正文同时包含通过安全整数校验的 `tokens (actual/limit)` 时，当前运行代际的内存耗尽观测才可以投影为 `source=upstream` 的 Token 已用、上限与零剩余；没有数字的明确耗尽仍只展示耗尽状态。查询到 Free、金额或账单周期都不能清除既有耗尽观测，只有后续成功数据面请求或其他明确可用证据可以清除。内存耗尽观测不进入 SQLite；最后一次成功的安全额度快照可以按版本化、有界的 Provider-neutral payload 写入独立 SQLite 表，但不进入 OAuth JSON、日志、PublishedSnapshot 或浏览器持久化，也不得用于启动时恢复耗尽健康。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，并删除重置前的持久化快照；不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Claude 与 Grok 没有对应 reset credit，管理面不显示或调用重置操作。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`、`docs/adr/0045-grok-oauth-billing-quota.md`、`docs/adr/0046-claude-oauth-usage-quota.md`、`docs/adr/0106-side-effect-free-oauth-quota-evidence.md` 与 `docs/adr/0111-activity-driven-persistent-oauth-quota.md`。
 
-真实数据面或本次额度探测响应包含 `subscription:free-usage-exhausted` 且正文同时包含 `tokens (actual/limit)` 时，可以投影经过安全整数校验的 actual/limit，其优先级高于响应头快照。数据面的耗尽观测必须携带时间，成功数据面请求可将其清除；它与额度快照都不进入 SQLite、OAuth JSON、日志、PublishedSnapshot 或浏览器持久化。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，使用随机 `redeem_request_id` 消耗一次 credit；成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Claude 与 Grok 没有对应 reset credit，管理面不显示或调用重置操作。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`、`docs/adr/0045-grok-oauth-billing-quota.md`、`docs/adr/0046-claude-oauth-usage-quota.md` 与 `docs/adr/0060-grok-free-token-header-quota.md`。
+额度管理 API 把缓存读取与权威刷新分开：`GET /api/admin/oauth/accounts/{id}/quota` 只读取 SQLite，未曾成功刷新时返回 `null`；`POST /api/admin/oauth/accounts/{id}/quota/refresh` 才执行 Provider 只读查询。手动刷新必须在快照成功持久化后才返回成功，失败保留上一份成功快照。读取持久化快照不得同步路由健康；权威刷新仍按当前进程的配置代际应用 ADR-0070 的健康证据。额度查询与 reset 不进入数据面 Route 选择或预留本地数据面 RPM，但继续受全局代理、严格 SSRF、禁重定向、有界 Body、读取超时、reset singleflight 以及自动 Worker 的固定并发和最小间隔约束。
+
+真实公共请求只有在选中 OAuthAccount 且 Attempt 已进入 Transport 后才记录额度活动；buffered 请求在 Attempt 结算时记录，streaming 请求在 EOF、错误、断连或 Drop 时由同一资源 Guard 只记录一次。活动由单个进程生命周期 Worker 按账号短 debounce 合并，并施加最小自动刷新间隔和最多 6 个并发；刷新中出现的新活动最多保留一个后续刷新。失败保留旧快照且不固定周期重试，只有后续真实活动再次调度。没有待处理活动时 Worker 不扫描账号或 SQLite，进程启动也不为闲置账号建立 quota 定时任务。成功 upsert 或 reset 删除快照后推进 quota change epoch；受认证 `/api/admin/oauth/quota-events` SSE 只发送无业务 payload 的失效事件，Web 随后只重读 SQLite GET，不由事件访问 Provider。
 
 明确的 `allowed=false`、`limit_reached=true`、权威 Token `remaining=0` 或 Provider 声明的耗尽诊断会同步到同一 OAuthAccount 当前 `account_generation` 的路由健康，在已知 reset 时刻或有界兜底探测前从路由候选排除，并跨仅替换认证材料的 Token refresh 保留；明确可用的后续额度查询可以提前清除。未知字段、单个窗口达到 100% 和本地推算均不得建立该状态。完整决策见 `docs/adr/0070-oauth-authentication-and-quota-routing-health.md` 与 `docs/adr/0095-split-authentication-and-routing-health-generations.md`。
 
-Web 的“刷新全部额度”针对当前完整 Codex、Claude 或 Grok OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号。前端以最多 6 个并发复用现有逐账号额度 GET，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 Codex reset 后刷新共用账号级内存 Query cache；批量生命周期不得绑定虚拟行 observer 的挂载状态，额度快照仍不得进入 localStorage、sessionStorage 或其他持久存储。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`。
+Web 的“刷新全部额度”针对当前完整 Codex、Claude 或 Grok OAuthAccount 集合，包含禁用账号和当前虚拟窗口之外的账号。前端以最多 6 个并发复用逐账号额度 refresh POST，并采用 all-settled 汇总，单个失败不能阻断其他账号。单账号刷新、批量刷新和 Codex reset 后刷新共用账号级内存 Query cache；卡片初始挂载与 quota SSE 只执行 SQLite GET，批量生命周期不得绑定虚拟行 observer 的挂载状态。额度快照不得进入 localStorage、sessionStorage 或其他浏览器持久存储；Web 必须展示抓取时间以区分最后成功观测和实时值。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md` 与 `docs/adr/0111-activity-driven-persistent-oauth-quota.md`。
 
-Web 的“删除失效账号”只清理当前 Provider 完整集合中经过实时认证诊断、明确返回 `oauth_account_authentication_failed` 的账号。该错误只允许表示以下可验证情形：Token 已成功刷新但再次被上游 401 拒绝；前一 access token 已被 401 拒绝且账号没有 refresh token；或 refresh Endpoint 通过 Provider 声明的结构化 envelope 返回永久失效码（至少 `invalid_grant`）。刷新网络错误、超时、5xx 和未知拒绝必须返回独立的 `oauth_account_authentication_unverified`。检测复用相同逐账号额度 GET 和最多 6 个并发；认证无法确认、代理/网络错误、Provider 出口拒绝、明确账号访问受限、额度耗尽、机器人标记或其他额度读取失败都不得进入删除集合。检测完成后必须重新读取安全账号元数据，展示精确删除数量并二次确认；删除按最新配置 revision 复用现有逐账号 DELETE 串行执行。若账号在检测后消失，或 `token_version` 在确认/删除前发生变化，则跳过而不是删除；配置冲突只允许在重新读取并再次核对同一 Token 版本后重试。该操作不得读取、返回或在浏览器解析原始 OAuth JSON，也不新增后端批量删除协议。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`、`docs/adr/0070-oauth-authentication-and-quota-routing-health.md` 与 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md`。
+Web 的“删除失效账号”只清理当前 Provider 完整集合中经过实时认证诊断、明确返回 `oauth_account_authentication_failed` 的账号。该错误只允许表示以下可验证情形：Token 已成功刷新但再次被上游 401 拒绝；前一 access token 已被 401 拒绝且账号没有 refresh token；或 refresh Endpoint 通过 Provider 声明的结构化 envelope 返回永久失效码（至少 `invalid_grant`）。刷新网络错误、超时、5xx 和未知拒绝必须返回独立的 `oauth_account_authentication_unverified`。检测复用逐账号额度 refresh POST 和最多 6 个并发；缓存 GET 不能作为认证诊断。认证无法确认、代理/网络错误、Provider 出口拒绝、明确账号访问受限、额度耗尽、机器人标记或其他额度读取失败都不得进入删除集合。检测完成后必须重新读取安全账号元数据，展示精确删除数量并二次确认；删除按最新配置 revision 复用现有逐账号 DELETE 串行执行。若账号在检测后消失，或 `token_version` 在确认/删除前发生变化，则跳过而不是删除；配置冲突只允许在重新读取并再次核对同一 Token 版本后重试。该操作不得读取、返回或在浏览器解析原始 OAuth JSON，也不新增后端批量删除协议。完整决策见 `docs/adr/0036-virtualized-oauth-quota-management.md`、`docs/adr/0070-oauth-authentication-and-quota-routing-health.md` 与 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md`。
 
 原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入普通 tracing/file log、模型 RequestLog、普通管理响应、React Query、浏览器存储或页面长期 DOM。最外层 HttpAccessLog 是唯一例外：客户端放入 URI、Header 或 Body 的原始值会进入 SQLite，并可由已认证系统日志详情读取。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供通用读取、下载或导出端点。
 
@@ -2481,6 +2517,7 @@ SQLite 只持久化：
 
 - Proxy、Provider、Credential、Credential 模型选择、内部物化模型路由和系统设置；
 - OAuthAccount 元数据、模型集合和明文 Provider JSON；
+- OAuthAccount 最后一次成功、版本化且不参与路由恢复的安全额度快照；
 - `GatewayApiKey` 明文 token 与用于常量时间认证的校验摘要；
 - 必须跨重启保留的上游 API Key Secret；
 - 可选的请求日志与管理审计日志。
@@ -2491,10 +2528,10 @@ SQLite 不持久化：
 - Credential/Model/Endpoint/Proxy 健康与冷却状态；
 - 熔断器状态；
 - 会话粘性和 Codex Response ID 映射；
-- OAuth 上游额度查询快照与 reset credit 次数；
+- OAuth 额度健康、自动刷新活动队列和 reset 操作进度；
 - 正在执行的请求、重试进度和后台任务状态。
 
-RequestLog、Attempt、审计日志和 `last_used_at` 属于历史遥测，不属于需要恢复的运行状态。启动时不会读取它们来重建路由、粘性、RPM 窗口、`in_flight` 或健康状态；可以单独关闭、清理或设置容量上限。同一请求日志中记录 GatewayApiKey ID 与 Credential ID 只表示该次请求的观测结果，不构成两类凭据之间的配置绑定或路由关系。
+RequestLog、Attempt、审计日志、`last_used_at` 和 OAuth 额度安全快照属于历史观测，不属于需要恢复的运行状态。启动时不会读取它们来重建路由、粘性、RPM 窗口、`in_flight` 或健康状态；额度快照只在管理 GET 时读取。同一请求日志中记录 GatewayApiKey ID 与 Credential ID 只表示该次请求的观测结果，不构成两类凭据之间的配置绑定或路由关系。
 
 ### 17.2 本地 Secret 持久化
 
@@ -2670,7 +2707,7 @@ runtime_binding_released
 
 系统日志的客户端 IP 使用领域层唯一规范语义：先把 IPv4-mapped IPv6 转为规范 IPv4，再判断 loopback。Server 在可信代理解析后执行该规范化，Storage 写入时再次保证持久化文本规范；前向 Migration `0009` 把旧版可能留下的 `::ffff:127.*` loopback 文本转换为 `127.*`。列表的精确 COUNT 与分页必须引用同一个 SQL 保留谓词常量，并只依赖规范持久化形式 `127.*`/`::1`；禁止在两条查询里各自维护近似 IP 规则。该日志降噪语义只看规范逻辑客户端地址，不改变管理员 Setup 与远程访问所要求的“直接 TCP loopback、且未经过 trusted proxy”权限边界。
 
-两类日志管理读取只对已认证管理面开放，统一固定为最近 3 天并采用服务端分页；响应返回当前页、页大小与该窗口精确总数，不能再用一次最多 100/200/500 条的列表伪装分页。普通 HTTP 日志继续使用非阻塞 `try_send`；系统日志手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除全部保留历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求若来自 loopback 且成功完成，会按正常内部流量规则过滤；外部清理或失败清理仍保留。HttpAccessLog 批次写入、周期保留或容量裁剪只要删除旧行就推进 `system_logs_changed`；即使当前批次的新记录本身抑制通知，也不能隐藏容量驱逐。系统日志 Web 使用单一自动刷新开关，开启后订阅日志变更 SSE 并在 `system_logs_changed` 后读取当前页，关闭后断开订阅；请求日志页面始终响应 `request_logs_changed`。自动刷新偏好只适用于系统日志，是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不进入 SettingRegistry；未保存、值无效或浏览器存储不可用时默认开启。
+两类日志管理读取只对已认证管理面开放，统一固定为最近 3 天并采用带头部锚点的 Keyset Cursor；响应返回页大小、当前/下一 Cursor 与锚定窗口精确总数，不能再用一次最多 100/200/500 条的列表伪装分页，也不能恢复 OFFSET。普通 HTTP 日志继续使用非阻塞 `try_send`；系统日志手动清理通过同一 writer 队列中的有序控制命令执行，先处理清理命令之前的事件、再删除全部保留历史并返回确认，不能让清理前已入队记录在清理成功后重新出现。清理请求若来自 loopback 且成功完成，会按正常内部流量规则过滤；外部清理或失败清理仍保留。HttpAccessLog 批次写入、周期保留或容量裁剪只要删除旧行就推进 `system_logs_changed`；即使当前批次的新记录本身抑制通知，也不能隐藏容量驱逐。系统日志 Web 使用单一自动刷新开关，开启且位于未固定 Cursor 的最新页时订阅日志变更 SSE；历史页暂停订阅，手动刷新会清空 Cursor 栈并回到最新。请求日志页面采用相同的最新页事件刷新/历史页暂停语义。自动刷新偏好只适用于系统日志，是每个浏览器独立的非敏感界面偏好，使用带版本的 `localStorage` key 持久化，不进入 SettingRegistry；Cursor 与页码只在当前挂载内存中保存。
 
 日志变更 SSE 是提交后的失效通知，不是第二套数据面：事件不携带日志正文，不持久化、不回放，并允许同一 SQLite 批次内的多条记录合并为一次通知。新连接先发送当前 epoch 以覆盖断线窗口，浏览器原生重连后重新查询；keepalive 不触发查询。只有成功通过管理员认证并建立的 `/api/admin/log-events` 响应由服务端排除 HttpAccessLog；系统日志列表 `GET` 仍按统一规则决定是否写入 HttpAccessLog，但由 Server 标记为不推进 `system_logs_changed`。首次加载、自动刷新、手动刷新、认证失败、无效查询、404/405 和其他请求的审计资格仍由统一系统日志保留规则决定，客户端不发送任何自动刷新或通知抑制标记。
 
@@ -2781,7 +2818,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 授权成功后新建独立 `OAuthAccount`，或在稳定账号身份唯一匹配时重新授权原账号；响应显示安全账号元数据、启用状态、可选 RPM 和已选模型，可在当前页面编辑这些账号属性或删除账号；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
 - Codex 账号可显式刷新上游额度窗口和 reset credit 次数；只有同次查询确认剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
-- Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的当前套餐层级、included allowance 使用率、预付余额和按量使用信息；Free 的 Token 上限与剩余量只显示同次探测响应头返回的真实值，缺失时保持未知；两者都不显示重置操作；
+- Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的当前套餐层级、included allowance 使用率、预付余额和按量使用信息；Free 的 Token 上限与剩余量只显示真实数据面耗尽响应中经过校验的 `actual/limit`，没有该证据时保持未知；两者都不显示重置操作；
 - Codex、Claude 与 Grok 页面均提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - Codex、Claude 与 Grok 页面均提供“删除失效账号”；先对当前完整 Provider 集合执行实时认证检测，只把刷新后仍被 401 拒绝、已被 401 拒绝且没有 refresh token，或刷新端点明确返回永久失效码的账号列入候选，展示精确数量并二次确认后串行删除；其他失败保持账号不变，检测后 Token 已变化的账号也必须跳过；
 - 每个 OAuthAccount 显示当前 RequestLog 保留窗口内的最终请求总数、成功数、失败数，以及最近 1 小时的固定 2 分钟时间条带；鼠标悬浮或键盘聚焦时显示该桶的起止时间和成功/失败数，统计按 OAuthAccount 来源独立聚合，不并入 Provider API Key；
@@ -2835,7 +2872,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 选择一条记录后按 Request ID 懒加载详情，分别展示请求与响应的全部 Header 值和 Body 捕获；文本保持原值，二进制明确标为 Base64，并显示总字节数、完整/未完整与截断状态；迁移前记录明确显示“未捕获”而不是伪造空 Header/Body；
 - 完整且声明为 JSON 的 UTF-8 Body 可以格式化并切换查看原文，但语法高亮必须同时受格式化文本 `256 * 1024` 字符和 4,096 个 token 的固定预算约束；任一预算超出时仍显示完整格式化纯文本，只用单一文本节点，禁止为大 Body 同步创建数万 span；
 - 桌面表格使用虚拟滚动，只渲染可视行和少量 overscan；固定表头与虚拟行滚动区分层，禁止数据穿透或覆盖表头；移动端使用自然滚动卡片；
-- 支持手动刷新和自动刷新开关；开关开启后订阅已认证日志变更 SSE 并在 `system_logs_changed` 后刷新当前页，关闭后断开订阅。开关状态使用带版本的 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启；
+- 支持手动刷新和自动刷新开关；开关开启且列表位于未固定 Cursor 的最新页时订阅已认证日志变更 SSE，并在 `system_logs_changed` 后刷新；进入历史 Cursor 页后暂停订阅，手动刷新清空 Cursor 栈并回到最新。开关状态使用带版本的 `localStorage` key 按浏览器持久化，未保存、值无效或存储不可用时默认开启，Cursor 与页码不持久化；
 - 成功建立的日志通知流由服务端排除系统日志；系统日志列表 `GET` 仍按统一规则审计，但不推进 `system_logs_changed`，避免自动刷新读取自身形成通知闭环；客户端不发送日志排除或通知抑制标记；
 - 支持带二次确认的“清理历史日志”；清理成功后重新读取，清理请求本身及清理边界后完成的并发请求可以形成新记录；
 - 系统设置分别提供系统日志最大行数和原始交换容量；容量淘汰删除完整最旧记录，不能把单条详情静默改成部分 Header/Body；
@@ -2856,7 +2893,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 
 ### 19.9 关于与版本更新
 
-- “关于”页签只显示运行中二进制的编译版本和固定 GitHub 仓库地址；官方 Release 使用 Actions 输入的版本，本地开发构建固定为 `0.0.0-dev`，两者都不读取 Cargo package version；仓库链接使用普通外链，不接受服务端或浏览器输入改写；
+- “关于”页签只显示运行中二进制的编译版本和固定 GitHub 仓库地址；官方 Release 以 `workflow_dispatch.inputs.version` 作为唯一产品版本真相来源，工作流在打包前精确校验二进制 `--version` 输出，本地开发构建固定为 `0.0.0-dev`。两者都不读取仅作为 Rust 包元数据的 Cargo package version，也不要求该元数据与 Release 输入相等；仓库链接使用普通外链，不接受服务端或浏览器输入改写；
 - “检查更新”只在管理员显式点击后调用 GitHub 最新正式 Release API，不在页面加载、定时器或后台 Worker 中自动轮询；
 - 检查结果显示最新版本、是否有更新和对应 Release 页面。草稿、预发布、非法 SemVer、Tag 与资产版本不一致或缺少固定资产时均视为不可用 Release；
 - “更新版本”不接受客户端指定版本或下载 URL；服务端重新读取最新 Release，下载固定 Linux AMD64 GNU 归档与同名 `.sha256`，完成大小限制、SHA-256 和归档结构校验后才替换二进制。GitHub Client 固定使用 10 秒连接超时与每次成功读取后重置的 30 秒无进展超时；元数据/checksum 仍有 15/30 秒总时限，大归档没有固定总时限，持续前进的慢速下载不得在 300 秒被截断；
@@ -2870,7 +2907,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 从任务被接受开始，管理请求取消、页面刷新或连接断开都不能取消任务。异步任务完成归档下载与 checksum 校验后，必须在没有可取消等待点的同一次调用中，把临时目录、候选路径、目标版本和终态回调交给进程级 TaskTracker 跟踪的 blocking closure；该 closure 连续完成最终解包、权限与文件同步、候选冒烟、previous 提交、替换，以及成功后的 `restarting` 状态和重启请求，失败状态也在 closure 内结算。Forced 可以取消外层下载 future，但已经登记的提交 closure 不可取消且仍占用后台任务计数，不能阻塞 Tokio worker，也不能在磁盘提交完成与重启请求之间脱钩；活动请求、受管任务、遥测或 SQLite 的关键收尾失败时保持既有致命退出语义，不绕过停机边界强制重启；文件日志 best-effort 收尾按 ADR-0090 不属于该阻断集合；
 - Web 在管理员确认安装后立即进入覆盖整个管理面的模态更新状态，不提供关闭、取消、导航或其他操作；下载阶段显示确定进度，安装和重启阶段显示明确状态。服务端明确 `failed` 或连续三次返回 `idle` 才显示“更新失败”并允许重新提交安装；连续 90 秒既拿不到活动更新状态、也没有目标版本健康响应时进入“无法确认更新结果”，清除 tab 内 pending 标记、停止 `beforeunload` 并提供“继续等待”或“返回”，但不得把不确定状态描述为安装失败。“继续等待”只恢复轮询，不再次提交安装；短暂网络抖动或仍能读取活动状态会重置不可达窗口；
 - 更新进行中使用 `beforeunload` 防止误刷新，并仅在 `sessionStorage` 保存预期目标版本以便误刷新后恢复锁定界面，不保存下载状态、服务端任务状态或任何凭据；进入明确失败或无法确认状态时清除该标记，使刷新也能解除遮罩。即使浏览器被关闭、返回管理页或停止等待也不影响服务端任务；
-- 公共 `GET /api/health` 返回当前运行中二进制的 `application_version` 并明确使用 `Cache-Control: no-store`。Web 只把精确目标版本的新进程健康响应视为更新成功，短暂展示完成状态后自动刷新；旧版本或其他版本健康响应、管理会话因重启失效、缓存响应或单次网络错误都不能伪装成成功。回滚后的旧进程若返回连续 `idle`，按明确未完成处理；只有旧版健康而管理状态因会话失效不可读时，最终只能进入“无法确认”而不能猜测；
+- 公共 `GET /api/health` 的 JSON 只返回常量 `status=ok` 和当前运行中二进制的 `application_version`，并明确使用 `Cache-Control: no-store`；配置 revision、调度 epoch、活动请求与后台任务由受认证的 `/api/admin/balancing` 固定规模响应提供，系统总览与调度区复用同一个 Query，停机阶段只保留为进程内生命周期与停机日志信息。Web 更新流程只把精确目标版本的新进程健康响应视为更新成功，短暂展示完成状态后自动刷新；旧版本或其他版本健康响应、管理会话因重启失效、缓存响应或单次网络错误都不能伪装成成功。回滚后的旧进程若返回连续 `idle`，按明确未完成处理；只有旧版健康而管理状态因会话失效不可读时，最终只能进入“无法确认”而不能猜测；
 - Docker 部署应优先更新镜像；容器内原地安装只会改变当前可写层，容器重建仍以镜像版本为准。系统不访问 Docker socket，也不替用户拉取或重建容器。
 
 完整决策见 `docs/adr/0065-verified-github-release-self-update.md`、
@@ -2897,7 +2934,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 前置 Nginx/Caddy 提供 TLS；
 - 数据目录挂载。
 
-前置反向代理必须保留数据面和管理日志通知的长请求语义：对 `/v1` SSE 与 `/api/admin/log-events` 关闭响应缓冲，并把 `/v1` 的 upstream read/write timeout
+前置反向代理必须保留数据面和管理通知的长请求语义：对 `/v1` SSE、`/api/admin/log-events` 与 `/api/admin/oauth/quota-events` 关闭响应缓冲，并把 `/v1` 的 upstream read/write timeout
 配置为至少 `1200s`，从而覆盖 unary Responses Compact；Codex v2 流式远程压缩至少需要 `300s`，Images 请求至少需要 `180s`。
 如果还有 CDN 或外层负载均衡，每一层都必须提供相同或更长的窗口；固定时长后出现的代理 HTML
 `502/504` 属于外层部署 timeout，应用内预算无法覆盖。
@@ -3051,7 +3088,9 @@ Rate Window = Attempts in Rolling 60 Seconds
 Select Credential + Reserve RPM = One Atomic Operation
 in_flight = Observation and Resource Lifetime Only
 RuntimeRegistry = Stable Across Config Generations
-Grok Free Tokens = Upstream Limit/Remaining Headers + No Local Default
+Grok Free Tokens = Actual Data-Plane Exhaustion Evidence Only + Otherwise Unknown
+OAuth Quota Snapshot = SQLite Last Successful Safe Observation + Never Restores Routing Health
+OAuth Quota Auto Refresh = Actual OAuth Transport Activity + Per-Account Coalescing + No Idle Scan
 
 Session Binding ──> Fixed Credential + Route Target + Model + Dialect
 Bridge Continuation ──> Same Binding Record + Pending/Ready/Abort + Opaque Typed State
@@ -3082,7 +3121,7 @@ Generic Config/Secret Import/Export = Disabled
 Provider OAuth JSON Import = OAuthAccount-only + Canonicalize + Atomic Batch Publish
 OAuth2 JSON = OAuthAccount-only SQLite persistence, no generic read/download/export; raw HttpAccessLog exception applies
 OAuth Quota 403 = Driver Evidence; Account Restriction != Provider Egress Rejection
-Codex Egress Probe = Same Global Proxy + No Account Authentication + Revision-Scoped Memory Cache
+Codex Quota 403 = Structured Code Or Original Cloudflare Block Body + No Secondary Probe
 
 Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Domain-Separated SHA-256 Digest
 Gateway Token Plaintext = Visible In Authenticated Management Responses, Never In Ordinary Logs; Raw HttpAccessLog Exception Applies

@@ -16,7 +16,7 @@ use super::{
     public_request_components::build_public_request_components_with_telemetry, web_assets,
 };
 use crate::{
-    logging::{AppLoggingReconciler, BootstrapTracing, FileLogging},
+    logging::{AppSnapshotReconciler, BootstrapTracing, FileLogging},
     self_update::{LifecycleUpdateTaskExecutor, RestartSignal},
     shutdown,
 };
@@ -84,7 +84,7 @@ pub(super) async fn run(
         )
         .context("failed to compile the stored configuration")?,
     ));
-    let logging_reconciler = Arc::new(AppLoggingReconciler::new(
+    let snapshot_reconciler = Arc::new(AppSnapshotReconciler::new(
         Arc::clone(&telemetry),
         file_logging.control(),
     ));
@@ -96,17 +96,18 @@ pub(super) async fn run(
             configuration_capabilities,
         )
         .context("loaded configuration is incompatible with registered providers or protocols")?
-        .with_logging_reconciler(logging_reconciler),
+        .with_snapshot_reconciler(snapshot_reconciler),
     );
     let public_requests = request_components.service();
     let oauth = Arc::new(OAuthService::new(
         request_components.provider_registry_handle(),
         request_components.transport_manager(),
         Arc::clone(&publisher),
+        Arc::clone(&storage),
     ));
     anyhow::ensure!(
-        public_requests.install_oauth_refresh(oauth.as_ref()),
-        "OAuth request refresh was already installed"
+        public_requests.install_oauth(oauth.as_ref()),
+        "OAuth request services were already installed"
     );
     let proxy_tests = request_components.proxy_test_service();
     let provider_credential_tests = request_components.provider_credential_test_service();
@@ -150,6 +151,10 @@ pub(super) async fn run(
         "OAuth refresh worker was already started"
     );
     anyhow::ensure!(
+        oauth.start_quota_worker(&lifecycle),
+        "OAuth quota activity worker was already started"
+    );
+    anyhow::ensure!(
         runtime.start_affinity_sweeper(publisher),
         "affinity sweeper was already started"
     );
@@ -182,7 +187,7 @@ pub(super) async fn run(
     .await
     .context("shutdown finalization failed");
 
-    // Release service roots that retain the configuration publisher and logging reconciler.
+    // Release service roots that retain the configuration publisher and snapshot reconciler.
     drop(request_components);
     drop(oauth);
     match &finalized {

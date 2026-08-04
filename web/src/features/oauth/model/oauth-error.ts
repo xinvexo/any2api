@@ -27,7 +27,6 @@ const messages: Record<string, string> = {
   oauth_account_not_found: "OAuth 账号不存在或已被删除。",
   oauth_account_version_conflict: "OAuth 账号已被其他操作更新，请确认最新内容后重试。",
   oauth_model_unavailable: "所选模型不在该 OAuth 账号的可用目录中。",
-  oauth_account_rate_limited: "OAuth 账号的本地 RPM 已用尽。",
   oauth_quota_unsupported: "该 OAuth Provider 不支持额度管理。",
   oauth_quota_reset_unavailable: "当前没有可用的额度重置次数。",
   oauth_quota_timeout: "额度查询超时。",

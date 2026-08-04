@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    mem,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -13,7 +14,7 @@ use super::super::{
 };
 use crate::{
     health::ReliabilityPolicy,
-    routing::{SchedulerEpoch, SchedulerWakeSlot},
+    routing::{PendingSchedulerWakeNotification, SchedulerEpoch, SchedulerWakeSlot},
 };
 
 #[derive(Debug)]
@@ -60,7 +61,7 @@ impl RoutingCredentialHealthRuntime {
     pub(super) fn availability(&self, model: &str) -> Result<(), HealthAcquireError> {
         let now = Instant::now();
         let mut state = self.state.lock().expect("routing health lock poisoned");
-        prune_expired_model_cooldowns(&mut state, now);
+        let expired_cooldowns = prune_expired_model_cooldowns(&mut state, now);
         let until = state
             .credential_cooldown_until
             .into_iter()
@@ -72,10 +73,13 @@ impl RoutingCredentialHealthRuntime {
             )
             .chain(state.quota_exhaustion.map(|value| value.retry_at))
             .max();
-        match until {
+        let availability = match until {
             Some(until) if now < until => Err(HealthAcquireError::Temporary(until)),
             _ => Ok(()),
-        }
+        };
+        drop(state);
+        drop(expired_cooldowns);
+        availability
     }
 
     pub(super) fn clear_temporary_cooldowns(&self) -> bool {
@@ -83,11 +87,14 @@ impl RoutingCredentialHealthRuntime {
         let had_credential_cooldown = state.credential_cooldown_until.take().is_some();
         let had_model_cooldown = !state.model_cooldowns.is_empty();
         let had_quota_exhaustion = state.quota_exhaustion.take().is_some();
-        state.model_cooldowns.clear();
-        self.credential_cooldown_wake.cancel();
-        self.quota_exhaustion_wake.cancel();
+        let model_cooldowns = mem::take(&mut state.model_cooldowns);
+        let credential_wake_notification = self.credential_cooldown_wake.prepare_cancellation();
+        let quota_wake_notification = self.quota_exhaustion_wake.prepare_cancellation();
         let changed = had_credential_cooldown || had_model_cooldown || had_quota_exhaustion;
         drop(state);
+        credential_wake_notification.publish();
+        quota_wake_notification.publish();
+        drop(model_cooldowns);
         if changed {
             self.scheduler_epoch.advance();
         }
@@ -106,8 +113,9 @@ impl RoutingCredentialHealthRuntime {
         if state.quota_exhaustion.take().is_none() {
             return false;
         }
-        self.quota_exhaustion_wake.cancel();
+        let wake_notification = self.quota_exhaustion_wake.prepare_cancellation();
         drop(state);
+        wake_notification.publish();
         self.scheduler_epoch.advance();
         true
     }
@@ -126,8 +134,9 @@ impl RoutingCredentialHealthRuntime {
             limit,
             retry_at,
         });
-        self.quota_exhaustion_wake.schedule(retry_at);
+        let wake_notification = self.quota_exhaustion_wake.prepare_schedule(retry_at);
         drop(state);
+        wake_notification.publish();
         self.scheduler_epoch.advance();
     }
 
@@ -153,39 +162,47 @@ impl RoutingCredentialHealthRuntime {
             return;
         }
         let mut state = self.state.lock().expect("routing health lock poisoned");
-        match classification.kind() {
+        let wake_notification = match classification.kind() {
             UpstreamErrorKind::PermissionDenied => {
                 let until = deadline(now, policy.permission_denied);
                 state.credential_cooldown_until =
                     max_deadline(state.credential_cooldown_until, Some(until));
-                self.credential_cooldown_wake.schedule(
-                    state
-                        .credential_cooldown_until
-                        .expect("permission cooldown was just recorded"),
-                );
+                Some(
+                    self.credential_cooldown_wake.prepare_schedule(
+                        state
+                            .credential_cooldown_until
+                            .expect("permission cooldown was just recorded"),
+                    ),
+                )
             }
             UpstreamErrorKind::RateLimited => {
                 let delay = retry_delay(classification.retry_after(), policy.rate_limit_fallback);
-                record_model_cooldown(
+                Some(record_model_cooldown(
                     &mut state,
                     model,
                     deadline(now, delay),
                     &self.scheduler_epoch,
-                );
+                ))
             }
-            UpstreamErrorKind::ModelUnavailable => record_model_cooldown(
+            UpstreamErrorKind::ModelUnavailable => Some(record_model_cooldown(
                 &mut state,
                 model,
                 deadline(now, policy.model_unsupported),
                 &self.scheduler_epoch,
-            ),
-            _ => {}
+            )),
+            _ => None,
+        };
+        drop(state);
+        if let Some(wake_notification) = wake_notification {
+            wake_notification.publish();
         }
     }
 
     fn prune_expired_model_cooldowns(&self, now: Instant) {
         let mut state = self.state.lock().expect("routing health lock poisoned");
-        prune_expired_model_cooldowns(&mut state, now);
+        let expired_cooldowns = prune_expired_model_cooldowns(&mut state, now);
+        drop(state);
+        drop(expired_cooldowns);
     }
 
     #[cfg(test)]
@@ -211,7 +228,7 @@ fn record_model_cooldown(
     model: &str,
     until: Instant,
     scheduler_epoch: &Arc<SchedulerEpoch>,
-) {
+) -> PendingSchedulerWakeNotification {
     let entry = state
         .model_cooldowns
         .entry(model.to_owned())
@@ -220,11 +237,21 @@ fn record_model_cooldown(
             wake: scheduler_epoch.wake_slot(),
         });
     entry.until = entry.until.max(until);
-    entry.wake.schedule(entry.until);
+    entry.wake.prepare_schedule(entry.until)
 }
 
-fn prune_expired_model_cooldowns(state: &mut RoutingCredentialHealthState, now: Instant) {
-    state
+fn prune_expired_model_cooldowns(
+    state: &mut RoutingCredentialHealthState,
+    now: Instant,
+) -> Vec<ModelCooldown> {
+    let expired_models = state
         .model_cooldowns
-        .retain(|_, cooldown| cooldown.until > now);
+        .iter()
+        .filter(|(_, cooldown)| cooldown.until <= now)
+        .map(|(model, _)| model.clone())
+        .collect::<Vec<_>>();
+    expired_models
+        .into_iter()
+        .filter_map(|model| state.model_cooldowns.remove(&model))
+        .collect()
 }

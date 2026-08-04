@@ -25,6 +25,7 @@ pub(super) struct AccessLogCompletion {
     started: Instant,
     status_code: Option<u16>,
     response_headers: Vec<HttpHeader>,
+    gateway_auth_rejected: bool,
     pending: bool,
 }
 
@@ -84,6 +85,7 @@ impl AccessLogCompletion {
             started,
             status_code: None,
             response_headers: Vec::new(),
+            gateway_auth_rejected: false,
             pending: true,
         }
     }
@@ -91,6 +93,10 @@ impl AccessLogCompletion {
     pub(super) fn set_response(&mut self, status_code: u16, headers: Vec<HttpHeader>) {
         self.status_code = Some(status_code);
         self.response_headers = headers;
+    }
+
+    pub(super) fn mark_gateway_auth_rejected(&mut self) {
+        self.gateway_auth_rejected = true;
     }
 
     pub(super) fn exclude(&mut self) {
@@ -126,6 +132,7 @@ impl AccessLogCompletion {
             duration_ms,
             response_bytes: response_body.total_bytes,
             outcome,
+            gateway_auth_rejected: self.gateway_auth_rejected,
             exchange: Some(HttpAccessLogExchange {
                 request_headers: std::mem::take(&mut self.metadata.request_headers),
                 request_body: self.metadata.request_body.take_snapshot(),

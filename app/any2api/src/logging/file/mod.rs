@@ -8,7 +8,7 @@ use std::{
 };
 
 use any2api_domain::{ConfigRevision, LoggingSettings};
-use any2api_runtime::api::LoggingSettingsReconciler;
+use any2api_runtime::api::{PublishedSnapshot, PublishedSnapshotReconciler};
 use anyhow::Context;
 pub(in crate::logging) use level_filter::FileLevelFilter;
 use policy::{FileLogPolicy, update_policy};
@@ -70,9 +70,10 @@ impl FileLogging {
     }
 }
 
-impl LoggingSettingsReconciler for FileLoggingControl {
-    fn reconcile(&self, revision: ConfigRevision, settings: &LoggingSettings) {
-        let next = FileLogPolicy::from_settings(revision, settings);
+impl PublishedSnapshotReconciler for FileLoggingControl {
+    fn reconcile(&self, snapshot: &PublishedSnapshot) {
+        let settings = snapshot.settings().logging();
+        let next = FileLogPolicy::from_settings(snapshot.revision(), settings);
         if update_policy(&self.policy, next) {
             self.level_filter.set(settings.file_level());
         }

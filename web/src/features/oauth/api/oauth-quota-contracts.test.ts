@@ -1,11 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parseNullableOAuthQuotaSnapshot,
   parseOAuthQuotaResetResult,
   parseOAuthQuotaSnapshot,
 } from "./oauth-quota-contracts";
 
 describe("OAuth quota contracts", () => {
+  it("accepts an account without a persisted quota snapshot", () => {
+    expect(parseNullableOAuthQuotaSnapshot(null)).toBeNull();
+    expect(() => parseNullableOAuthQuotaSnapshot(undefined)).toThrow(
+      "invalid OAuth quota response",
+    );
+  });
+
   it("parses safe rate-limit windows and reset credits", () => {
     expect(
       parseOAuthQuotaSnapshot({
