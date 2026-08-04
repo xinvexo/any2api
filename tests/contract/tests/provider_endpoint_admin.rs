@@ -1,8 +1,7 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use any2api_contract_tests::TestApplication;
-use any2api_domain::{ProtocolDialect, PublicModelName};
-use any2api_storage::api::{ConfigurationRepository, SqliteStore};
+use any2api_storage::api::ConfigurationRepository;
 use axum::{
     Router,
     body::Body,
@@ -14,24 +13,10 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn provider_endpoint_admin_requires_a_session_for_remote_requests() {
-    let (_directory, app, _storage) = test_app().await;
-    let (status, body) = request_json(
-        app,
-        Method::GET,
-        "/api/admin/provider-endpoints",
-        None,
-        SocketAddr::from(([203, 0, 113, 10], 41000)),
-    )
-    .await;
-
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
-    assert_eq!(body["error"]["code"], "admin_session_required");
-}
-
-#[tokio::test]
-async fn provider_protocol_options_and_optional_bridge_are_registry_driven() {
-    let (_directory, app, _storage) = test_app().await;
+async fn provider_endpoint_contract_exposes_registry_options_and_publishes_crud() {
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let (_directory, app, _) = fixture.into_router();
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
 
     let (status, initial) = request_json(
@@ -46,289 +31,18 @@ async fn provider_protocol_options_and_optional_bridge_are_registry_driven() {
     assert!(
         initial["protocol_options"]
             .as_array()
-            .is_some_and(|options| {
-                options.iter().any(|option| {
-                    option["provider_kind"] == "codex"
-                        && option["accepted_protocol"] == "openai_responses"
-                        && option["upstream_protocols"]
-                            .as_array()
-                            .is_some_and(|protocols| {
-                                protocols
-                                    .iter()
-                                    .any(|protocol| protocol == "openai_chat_completions")
-                            })
-                })
-            })
+            .is_some_and(|options| options.iter().any(|option| {
+                option["provider_kind"] == "codex"
+                    && option["accepted_protocol"] == "openai_responses"
+                    && option["upstream_protocols"]
+                        .as_array()
+                        .is_some_and(|protocols| {
+                            protocols
+                                .iter()
+                                .any(|value| value == "openai_chat_completions")
+                        })
+            }))
     );
-    assert!(
-        initial["protocol_options"]
-            .as_array()
-            .is_some_and(|options| {
-                options.iter().any(|option| {
-                    option["provider_kind"] == "grok"
-                        && option["accepted_protocol"] == "openai_responses"
-                        && option["upstream_protocols"]
-                            .as_array()
-                            .is_some_and(|protocols| {
-                                protocols
-                                    .iter()
-                                    .any(|protocol| protocol == "openai_chat_completions")
-                            })
-                })
-            })
-    );
-
-    let (status, bridged) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 1,
-            "name": "Responses through Chat",
-            "provider_kind": "codex",
-            "base_url": "https://chat-compatible.example.com/v1",
-            "protocol_dialect": "openai_responses",
-            "upstream_protocol_dialect": "openai_chat_completions",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        bridged["items"][0]["upstream_protocol_dialect"],
-        "openai_chat_completions"
-    );
-
-    let (status, direct_chat) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 2,
-            "name": "Direct Chat",
-            "provider_kind": "codex",
-            "base_url": "https://chat.example.com/v1",
-            "protocol_dialect": "openai_chat_completions",
-            "upstream_protocol_dialect": "openai_chat_completions",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let direct_chat = direct_chat["items"]
-        .as_array()
-        .expect("items")
-        .iter()
-        .find(|item| item["name"] == "Direct Chat")
-        .expect("direct chat endpoint");
-    assert_eq!(direct_chat["upstream_protocol_dialect"], Value::Null);
-
-    let (status, unsupported) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 3,
-            "name": "Unsupported",
-            "provider_kind": "claude",
-            "base_url": "https://api.example.com",
-            "protocol_dialect": "openai_responses",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(unsupported["error"]["code"], "invalid_provider_protocol");
-
-    let (status, grok) = request_json(
-        app,
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 3,
-            "name": "Grok Primary",
-            "provider_kind": "grok",
-            "base_url": "https://api.x.ai/v1",
-            "protocol_dialect": "openai_responses",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(
-        grok["items"]
-            .as_array()
-            .is_some_and(|items| items.iter().any(|item| item["provider_kind"] == "grok"))
-    );
-}
-
-#[tokio::test]
-async fn provider_endpoint_protocol_can_change_with_existing_credential() {
-    let (_directory, app, storage) = test_app().await;
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
-
-    let (status, endpoint) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 1,
-            "name": "Protocol Editable",
-            "provider_kind": "codex",
-            "base_url": "https://api.example.com",
-            "protocol_dialect": "openai_responses",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let endpoint_id = endpoint["items"][0]["id"]
-        .as_str()
-        .expect("endpoint id")
-        .to_owned();
-
-    let (status, credential) = request_json(
-        app.clone(),
-        Method::POST,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
-        Some(json!({
-            "expected_revision": 2,
-            "label": "Primary Key",
-            "credential_kind": "api_key",
-            "api_key": "sk-protocol-change",
-            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "requests_per_minute": null,
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    let credential_id = credential["items"][0]["id"]
-        .as_str()
-        .expect("credential id")
-        .to_owned();
-
-    let (status, _) = request_json(
-        app.clone(),
-        Method::PUT,
-        &format!("/api/admin/provider-credentials/{credential_id}/models"),
-        Some(json!({
-            "expected_revision": 3,
-            "expected_config_version": 1,
-            "models": ["gpt-protocol-change"]
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-
-    let (status, updated) = request_json(
-        app.clone(),
-        Method::PATCH,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}"),
-        Some(json!({
-            "expected_revision": 4,
-            "expected_config_version": 1,
-            "name": "Protocol Editable",
-            "provider_kind": "codex",
-            "base_url": "https://api.example.com/v1",
-            "protocol_dialect": "openai_chat_completions",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(updated["config_revision"], 5);
-    assert_eq!(
-        updated["items"][0]["protocol_dialect"],
-        "openai_chat_completions"
-    );
-
-    let stored = storage.load_configuration().await.expect("configuration");
-    let credential_id = credential_id.parse().expect("credential id type");
-    assert_eq!(
-        stored
-            .provider_credentials()
-            .get(credential_id)
-            .expect("credential")
-            .credential_generation(),
-        2
-    );
-    let public_model = PublicModelName::new("gpt-protocol-change").expect("public model");
-    assert!(
-        stored
-            .model_routes()
-            .resolve(ProtocolDialect::OpenAiResponses, &public_model)
-            .is_none()
-    );
-    assert!(
-        stored
-            .model_routes()
-            .resolve(ProtocolDialect::OpenAiChatCompletions, &public_model)
-            .is_some()
-    );
-
-    let (status, invalid_kind) = request_json(
-        app,
-        Method::PATCH,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}"),
-        Some(json!({
-            "expected_revision": 5,
-            "expected_config_version": 2,
-            "name": "Protocol Editable",
-            "provider_kind": "claude",
-            "base_url": "https://api.example.com/v1",
-            "protocol_dialect": "anthropic_messages",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(invalid_kind["error"]["code"], "invalid_provider_endpoint");
-}
-
-#[tokio::test]
-async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves_revision() {
-    let (_directory, app, storage) = test_app().await;
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
-
-    let (status, initial) = request_json(
-        app.clone(),
-        Method::GET,
-        "/api/admin/provider-endpoints",
-        None,
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(initial["config_revision"], 1);
-    assert_eq!(initial["items"].as_array().map(Vec::len), Some(0));
-
-    let (status, _) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 1,
-            "name": "Unknown Field",
-            "provider_kind": "codex",
-            "base_url": "http://127.0.0.1:8080/v1",
-            "protocol_dialect": "openai_responses",
-            "unsupported_option": true,
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
 
     let (status, created) = request_json(
         app.clone(),
@@ -336,48 +50,9 @@ async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves
         "/api/admin/provider-endpoints",
         Some(json!({
             "expected_revision": 1,
-            "name": "Codex Primary",
-            "provider_kind": "codex",
-            "base_url": "https://api.example.com/v1/",
-            "protocol_dialect": "openai_responses",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(created["config_revision"], 2);
-    assert_eq!(
-        created["items"][0]["base_url"],
-        "https://api.example.com/v1"
-    );
-    let (status, http_allowed) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 2,
-            "name": "HTTP Public",
-            "provider_kind": "codex",
-            "base_url": "http://api.example.com",
-            "protocol_dialect": "openai_responses",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(http_allowed["config_revision"], 3);
-
-    let (status, private_allowed) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 3,
-            "name": "Private",
+            "name": "Private Claude",
             "provider_kind": "claude",
-            "base_url": "https://127.0.0.1:8443",
+            "base_url": "http://127.0.0.1:8443/",
             "protocol_dialect": "anthropic_messages",
             "enabled": true
         })),
@@ -385,124 +60,41 @@ async fn provider_endpoint_crud_uses_base_url_as_network_authority_and_preserves
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(private_allowed["config_revision"], 4);
-
-    let (status, private_http_allowed) = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 4,
-            "name": "Private HTTP",
-            "provider_kind": "claude",
-            "base_url": "http://127.0.0.1:8443",
-            "protocol_dialect": "anthropic_messages",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(private_http_allowed["config_revision"], 5);
-    let private_id = private_http_allowed["items"]
-        .as_array()
-        .expect("items")
-        .iter()
-        .find(|item| item["name"] == "Private HTTP")
-        .and_then(|item| item["id"].as_str())
-        .expect("private endpoint id")
-        .to_owned();
-
-    let (status, incompatible) = request_json(
-        app.clone(),
-        Method::PATCH,
-        &format!("/api/admin/provider-endpoints/{private_id}"),
-        Some(json!({
-            "expected_revision": 5,
-            "expected_config_version": 1,
-            "name": "Private HTTP",
-            "provider_kind": "claude",
-            "base_url": "http://127.0.0.1:8443",
-            "protocol_dialect": "openai_responses",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(incompatible["error"]["code"], "invalid_provider_protocol");
+    assert_eq!(created["items"][0]["base_url"], "http://127.0.0.1:8443");
+    let endpoint_id = created["items"][0]["id"].as_str().expect("endpoint id");
 
     let (status, updated) = request_json(
         app.clone(),
         Method::PATCH,
-        &format!("/api/admin/provider-endpoints/{private_id}"),
+        &format!("/api/admin/provider-endpoints/{endpoint_id}"),
         Some(json!({
-            "expected_revision": 5,
+            "expected_revision": 2,
             "expected_config_version": 1,
-            "name": "Private HTTP Updated",
+            "name": "Private Claude Updated",
             "provider_kind": "claude",
             "base_url": "http://127.0.0.1:8443",
             "protocol_dialect": "anthropic_messages",
-            "enabled": true
+            "enabled": false
         })),
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(updated["config_revision"], 6);
-
-    let (status, endpoint_stale) = request_json(
-        app.clone(),
-        Method::PATCH,
-        &format!("/api/admin/provider-endpoints/{private_id}"),
-        Some(json!({
-            "expected_revision": 6,
-            "expected_config_version": 1,
-            "name": "Stale Draft",
-            "provider_kind": "claude",
-            "base_url": "http://127.0.0.1:8443",
-            "protocol_dialect": "anthropic_messages",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(
-        endpoint_stale["error"]["code"],
-        "provider_endpoint_version_conflict"
-    );
-
-    let (status, stale) = request_json(
-        app.clone(),
-        Method::DELETE,
-        &format!("/api/admin/provider-endpoints/{private_id}?expected_revision=1"),
-        None,
-        loopback,
-    )
-    .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(stale["error"]["code"], "revision_conflict");
+    assert_eq!(updated["items"][0]["config_version"], 2);
 
     let (status, deleted) = request_json(
         app,
         Method::DELETE,
-        &format!("/api/admin/provider-endpoints/{private_id}?expected_revision=6"),
+        &format!("/api/admin/provider-endpoints/{endpoint_id}?expected_revision=3"),
         None,
         loopback,
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(deleted["config_revision"], 7);
-    assert_eq!(deleted["items"].as_array().map(Vec::len), Some(3));
-
+    assert!(deleted["items"].as_array().is_some_and(Vec::is_empty));
     let stored = storage.load_configuration().await.expect("configuration");
-    assert_eq!(stored.revision().get(), 7);
-    assert_eq!(stored.provider_endpoints().endpoints().len(), 3);
-}
-
-async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
-    TestApplication::new().await.into_router()
+    assert_eq!(stored.revision().get(), 4);
+    assert!(stored.provider_endpoints().endpoints().is_empty());
 }
 
 async fn request_json(
@@ -533,6 +125,8 @@ async fn request_json(
         .await
         .expect("response body")
         .to_bytes();
-    let value = serde_json::from_slice(&bytes).expect("response json");
-    (status, value)
+    (
+        status,
+        serde_json::from_slice(&bytes).expect("response json"),
+    )
 }

@@ -19,7 +19,7 @@ impl OAuthAccountDocument {
         provider: ProviderKind,
         bytes: SecretBytes,
     ) -> Result<Self, OAuthAccountDocumentValidationError> {
-        validate(provider, bytes.expose_secret())?;
+        validate(bytes.expose_secret())?;
         Ok(Self {
             provider_kind: provider,
             bytes,
@@ -58,8 +58,6 @@ impl fmt::Debug for OAuthAccountDocument {
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum OAuthAccountDocumentValidationError {
-    #[error("provider does not support OAuth accounts")]
-    UnsupportedProvider,
     #[error("OAuth account JSON is empty")]
     Empty,
     #[error("OAuth account JSON is too large")]
@@ -72,10 +70,7 @@ pub enum OAuthAccountDocumentValidationError {
     MissingAccessToken,
 }
 
-fn validate(
-    provider: ProviderKind,
-    bytes: &[u8],
-) -> Result<(), OAuthAccountDocumentValidationError> {
+fn validate(bytes: &[u8]) -> Result<(), OAuthAccountDocumentValidationError> {
     if bytes.is_empty() {
         return Err(OAuthAccountDocumentValidationError::Empty);
     }
@@ -87,14 +82,6 @@ fn validate(
     let object = value
         .as_object()
         .ok_or(OAuthAccountDocumentValidationError::InvalidJson)?;
-    let expected_provider = match provider {
-        ProviderKind::Codex => "codex",
-        ProviderKind::Claude => "claude",
-        ProviderKind::Grok => "grok",
-    };
-    if object.get("type").and_then(Value::as_str) != Some(expected_provider) {
-        return Err(OAuthAccountDocumentValidationError::ProviderMismatch);
-    }
     let access_token = object
         .get("access_token")
         .and_then(Value::as_str)
@@ -112,10 +99,10 @@ mod tests {
     use super::OAuthAccountDocument;
 
     #[test]
-    fn grok_oauth_documents_are_accepted_as_their_own_schema() {
+    fn current_oauth_document_schema_is_accepted() {
         let document = OAuthAccountDocument::new(
             ProviderKind::Grok,
-            br#"{"type":"grok","access_token":"secret"}"#.to_vec().into(),
+            br#"{"access_token":"secret"}"#.to_vec().into(),
         )
         .expect("Grok OAuth document");
 

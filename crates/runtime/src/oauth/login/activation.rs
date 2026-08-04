@@ -26,7 +26,7 @@ pub(in crate::oauth) async fn publish(
         .map(|model| model.as_str().to_owned())
         .collect();
     let identity = OAuthAccountIdentity::from_token(&token);
-    let document = document::serialize(&token)?;
+    let document = document::build_account_document(&token)?;
     let activation = OAuthAccountActivation {
         id: OAuthAccountId::new(),
         provider_kind: provider,

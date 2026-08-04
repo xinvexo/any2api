@@ -62,7 +62,7 @@ reconcile 后迟到，再把已删除 ID 插回 map。
   reconcile 忽略。
 - ConfigPublisher/RequestTelemetry 集成测试创建 Key、记录实时使用并删除，确认发布返回时两张状态均已淘汰，
   旧快照迟到观测不能恢复它。
-- Release 手动基准保留 100,000 Key churn 场景：修复后插入阶段约 97.418 ms，reconcile 到空集合约
-  3.124 ms，两张 map 的 len/capacity 都从 100,000/114,688 回到 0/0。
-- Runtime 248 项中 244 项通过、4 项手动基准忽略，Server 64 项与 App 33 项通过；受影响 crate 的严格
+- 一次性 Release 手动基准使用 100,000 Key churn 场景：修复后插入阶段约 97.418 ms，reconcile 到空集合约
+  3.124 ms，两张 map 的 len/capacity 都从 100,000/114,688 回到 0/0；结果保留于本 ADR，benchmark 源码不长期保留。
+- 当次 Runtime、Server 与 App 回归通过；受影响 crate 的严格
   Clippy、workspace fmt、架构与 diff 门禁通过。

@@ -79,7 +79,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
             models: vec!["gpt-test".into()],
             document: OAuthAccountDocument::new(
                 ProviderKind::Codex,
-                br#"{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret"}"#
+                br#"{"access_token":"access-secret","refresh_token":"refresh-secret","id_token":null,"account_id":null,"email":null}"#
                     .to_vec()
                     .into(),
             )

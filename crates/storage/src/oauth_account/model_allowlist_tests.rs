@@ -120,7 +120,7 @@ fn draft(enabled: bool) -> OAuthAccountDraft {
 fn document() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Codex,
-        br#"{"access_token":"access","refresh_token":"refresh","type":"codex"}"#
+        br#"{"access_token":"access","refresh_token":"refresh","id_token":null,"account_id":null,"email":null}"#
             .to_vec()
             .into(),
     )

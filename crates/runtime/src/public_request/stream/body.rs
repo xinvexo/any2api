@@ -204,13 +204,6 @@ impl GuardedBody {
     pub(super) fn pending_frame_count(&self) -> usize {
         self.pending.len()
     }
-
-    #[cfg(test)]
-    pub(super) fn idle_timer_address(&self) -> Option<*const Sleep> {
-        self.idle_timer
-            .as_ref()
-            .map(|timer| std::ptr::from_ref(timer.as_ref().get_ref()))
-    }
 }
 
 impl Stream for GuardedBody {

@@ -13,6 +13,7 @@ mod duplicate_attempt_index;
 mod gateway_auth_rejected_logs;
 mod http_access_log_capacity;
 mod http_access_log_loopback_ips;
+mod oauth_account_documents;
 mod oauth_quota_snapshots;
 mod plaintext_schema;
 mod query_indexes;
@@ -58,6 +59,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (10, "optimize request usage aggregates".to_owned()),
             (11, "isolate gateway auth rejected logs".to_owned()),
             (12, "persist oauth quota snapshots".to_owned()),
+            (13, "canonicalize oauth account documents".to_owned()),
         ]
     );
 

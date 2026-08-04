@@ -51,10 +51,8 @@ multipart 的 model part；这些变化都只服务本次 wire body，不需要�
 ## 基准结果
 
 2026-08-03 在 Darwin arm64 26.6、Rust 1.90.0 debug test profile 上，使用 200,000 个
-不同字符串节点组成的 14,000,045-byte 出站 JSON。测试二进制只运行被忽略的
-`json_codec::request_encoding::tests::large_request_encoding_benchmark`，分别设置
-`ANY2API_REQUEST_ENCODING_BENCH_MODE=deep-clone|shared`，外层用 `/usr/bin/time -l`
-记录 `maximum resident set size`。每种模式独立运行 5 次并取中位数：
+不同字符串节点组成的 14,000,045-byte 出站 JSON，一次性比较 deep-clone 与 shared-borrow，外层用
+`/usr/bin/time -l` 记录 `maximum resident set size`。每种模式独立运行 5 次并取中位数：
 
 | 模式 | 编码耗时中位数 | 峰值 RSS 中位数 |
 |---|---:|---:|
@@ -63,4 +61,4 @@ multipart 的 model part；这些变化都只服务本次 wire body，不需要�
 
 shared-borrow 在该样本中减少 22,593,536 bytes 峰值 RSS（约 30.5%），编码耗时没有回退。
 该数字包含测试进程与原始 payload，不外推为所有请求的固定节省；结构越密集、Attempt 越多，
-移除深拷贝所避免的分配越明显。常规测试不会运行这项基准。
+移除深拷贝所避免的分配越明显。结果保留于本 ADR；一次性 benchmark 源码在决策后删除。

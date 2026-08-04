@@ -70,10 +70,8 @@ impl Serialize for BorrowedRequest<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::{hint::black_box, time::Instant};
-
     use any2api_domain::ProtocolOperation;
-    use serde_json::{Map, Value, json};
+    use serde_json::json;
 
     use super::encode;
 
@@ -97,41 +95,5 @@ mod tests {
             first.as_ref(),
             br#"{"extra":{"nested":[1,2,3]},"model":"upstream"}"#
         );
-    }
-
-    #[test]
-    #[ignore = "manual peak-RSS benchmark; run in an isolated test process"]
-    fn large_request_encoding_benchmark() {
-        let mode = std::env::var("ANY2API_REQUEST_ENCODING_BENCH_MODE")
-            .unwrap_or_else(|_| "shared".into());
-        let items = (0..200_000)
-            .map(|index| {
-                Value::String(format!(
-                    "item-{index:08}-abcdefghijklmnopqrstuvwxyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                ))
-            })
-            .collect();
-        let mut object = Map::new();
-        object.insert("input".into(), Value::Array(items));
-        object.insert("model".into(), Value::String("public".into()));
-        object.insert("stream".into(), Value::Bool(false));
-        let payload = Value::Object(object);
-        let started = Instant::now();
-        let encoded = match mode.as_str() {
-            "shared" => encode(ProtocolOperation::Responses, &payload, "upstream"),
-            "deep-clone" => {
-                let cloned: Value = payload.clone();
-                encode(ProtocolOperation::Responses, &cloned, "upstream")
-            }
-            other => panic!("unknown benchmark mode {other}"),
-        }
-        .expect("large request encoding");
-        eprintln!(
-            "mode={mode} items={} output_bytes={} elapsed_ms={}",
-            payload["input"].as_array().expect("input array").len(),
-            encoded.len(),
-            started.elapsed().as_millis(),
-        );
-        black_box(encoded);
     }
 }

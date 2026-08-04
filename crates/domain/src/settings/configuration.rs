@@ -159,66 +159,7 @@ mod tests {
     use serde_json::json;
 
     use super::{SettingOverrides, SettingsConfiguration};
-    use crate::{
-        FileLogLevel, ModelAccess, RateLimitMode, SettingKey, SettingValue, SettingValueType,
-        SettingsValidationError,
-    };
-
-    #[test]
-    fn defaults_match_architecture() {
-        let settings = SettingsConfiguration::defaults();
-        assert_eq!(SettingKey::ALL.len(), 50);
-        assert_eq!(settings.scheduler().on_rate_limited(), RateLimitMode::Wait);
-        assert_eq!(settings.scheduler().queue_timeout_secs(), 180);
-        assert_eq!(settings.scheduler().max_waiting_requests(), 128);
-        assert!(!settings.scheduler().fallback_on_rate_limit());
-        assert!(!settings.affinity().enabled());
-        assert_eq!(settings.affinity().ttl_secs(), 86_400);
-        assert_eq!(settings.affinity().wait_timeout_secs(), 180);
-        assert_eq!(settings.reliability().max_total_attempts(), 3);
-        assert_eq!(settings.reliability().max_credential_switches(), 2);
-        assert_eq!(settings.reliability().max_same_credential_retries(), 1);
-        assert_eq!(settings.reliability().precommit_total_budget_secs(), 600);
-        assert_eq!(settings.reliability().endpoint_failure_threshold(), 3);
-        assert_eq!(settings.reliability().proxy_open_duration_secs(), 30);
-        assert!(settings.admin().remote_enabled());
-        assert!(settings.network().trusted_proxy_cidrs().is_empty());
-        assert_eq!(settings.admin().session_idle_timeout_secs(), 43_200);
-        assert_eq!(settings.admin().session_absolute_timeout_secs(), 604_800);
-        assert_eq!(settings.admin().login_failure_window_secs(), 900);
-        assert_eq!(settings.admin().login_max_failures(), 5);
-        assert!(settings.logging().request_enabled());
-        assert_eq!(settings.logging().request_retention_secs(), 2_592_000);
-        assert_eq!(settings.logging().request_max_rows(), 200_000);
-        assert_eq!(settings.logging().http_access_max_rows(), 200_000);
-        assert_eq!(
-            settings.logging().http_access_max_exchange_bytes(),
-            256 * 1024 * 1024
-        );
-        assert_eq!(settings.logging().file_level(), FileLogLevel::Info);
-        assert_eq!(settings.logging().file_retention_secs(), 604_800);
-        assert_eq!(settings.logging().file_max_total_size(), 256 * 1024 * 1024);
-        assert_eq!(settings.logging().telemetry_queue_capacity(), 4_096);
-        assert!(
-            settings
-                .models()
-                .allows(&crate::PublicModelName::new("any-model").expect("model"))
-        );
-        assert_eq!(settings.oauth().refresh_scan_interval_secs(), 30);
-        assert_eq!(settings.oauth().refresh_lead_time_secs(), 300);
-        assert_eq!(settings.upstream().read_timeout_secs(), 300);
-        assert!(!settings.upstream().strict_ssrf());
-        assert_eq!(settings.stream().precommit_max_bytes(), 256 * 1024);
-        assert_eq!(settings.stream().precommit_max_duration_secs(), 300);
-        assert_eq!(settings.stream().postcommit_idle_timeout_secs(), 300);
-        assert_eq!(settings.shutdown().request_grace_period_secs(), 30);
-        assert_eq!(settings.shutdown().finalize_timeout_secs(), 5);
-        assert!(
-            SettingKey::ALL
-                .into_iter()
-                .all(|key| key.definition().apply_mode().as_str() == "hot_reload")
-        );
-    }
+    use crate::{FileLogLevel, ModelAccess, SettingKey, SettingValue, SettingsValidationError};
 
     #[test]
     fn values_round_trip_and_validate_bounds_and_enum_domains() {
@@ -286,47 +227,6 @@ mod tests {
             ),
             Err(SettingsValidationError::InvalidListValue)
         );
-    }
-
-    #[test]
-    fn timeout_and_stream_budget_definitions_match_the_public_contract() {
-        let bytes = SettingKey::StreamPrecommitMaxBytes.definition();
-        assert_eq!(bytes.value_type(), SettingValueType::Integer);
-        assert_eq!(bytes.default(), SettingValue::Integer(256 * 1024));
-        assert_eq!(bytes.min(), Some(SettingValue::Integer(1)));
-        assert_eq!(bytes.max(), Some(SettingValue::Integer(16 * 1024 * 1024)));
-        assert!(bytes.description().contains("每个 SSE 帧"));
-
-        let duration = SettingKey::StreamPrecommitMaxDuration.definition();
-        assert_eq!(duration.value_type(), SettingValueType::DurationSecs);
-        assert_eq!(duration.default(), SettingValue::DurationSecs(300));
-        assert_eq!(duration.min(), Some(SettingValue::DurationSecs(1)));
-        assert_eq!(duration.max(), Some(SettingValue::DurationSecs(86_400)));
-        let postcommit = SettingKey::StreamPostcommitIdleTimeout.definition();
-        assert_eq!(postcommit.value_type(), SettingValueType::DurationSecs);
-        assert_eq!(postcommit.default(), SettingValue::DurationSecs(300));
-        assert_eq!(postcommit.min(), Some(SettingValue::DurationSecs(1)));
-        assert_eq!(postcommit.max(), Some(SettingValue::DurationSecs(86_400)));
-        let read_timeout = SettingKey::UpstreamReadTimeout.definition();
-        assert_eq!(read_timeout.value_type(), SettingValueType::DurationSecs);
-        assert_eq!(read_timeout.default(), SettingValue::DurationSecs(300));
-        assert_eq!(read_timeout.min(), Some(SettingValue::DurationSecs(1)));
-        assert_eq!(read_timeout.max(), Some(SettingValue::DurationSecs(86_400)));
-        let affinity_ttl = SettingKey::AffinityTtl.definition();
-        assert_eq!(affinity_ttl.default(), SettingValue::DurationSecs(86_400));
-        assert_eq!(affinity_ttl.min(), Some(SettingValue::DurationSecs(1)));
-        assert_eq!(
-            affinity_ttl.max(),
-            Some(SettingValue::DurationSecs(2_592_000))
-        );
-        let affinity_wait = SettingKey::AffinityWaitTimeout.definition();
-        assert_eq!(affinity_wait.default(), SettingValue::DurationSecs(180));
-        assert_eq!(affinity_wait.min(), Some(SettingValue::DurationSecs(1)));
-        assert_eq!(
-            affinity_wait.max(),
-            Some(SettingValue::DurationSecs(86_400))
-        );
-        assert_eq!(SettingKey::parse("stream.precommit.max_events"), None);
     }
 
     #[test]

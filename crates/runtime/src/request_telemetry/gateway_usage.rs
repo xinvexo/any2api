@@ -109,44 +109,6 @@ mod tests {
     use super::{GatewayUsageTracker, LAST_USED_THROTTLE};
 
     #[test]
-    #[ignore = "manual Gateway API Key churn benchmark"]
-    fn deleted_gateway_key_churn_benchmark() {
-        const CHURNED_KEYS: usize = 100_000;
-
-        let started = Instant::now();
-        let mut tracker = GatewayUsageTracker::default();
-        for offset in 0..CHURNED_KEYS {
-            tracker.observe(
-                GatewayApiKeyId::new(),
-                ConfigRevision::INITIAL,
-                format!("2026-08-04 00:00:{:02}", offset % 60),
-                started,
-            );
-        }
-        let insert_elapsed = started.elapsed();
-        let live_capacity_before = tracker.live_last_used_at.capacity();
-        let throttle_capacity_before = tracker.last_enqueued_at.capacity();
-        let reconcile_started = Instant::now();
-        tracker.reconcile(
-            ConfigRevision::new(2).expect("next revision"),
-            std::iter::empty(),
-        );
-        let reconcile_elapsed = reconcile_started.elapsed();
-
-        eprintln!(
-            "gateway usage churn: keys={CHURNED_KEYS}, live_capacity_before={live_capacity_before}, throttle_capacity_before={throttle_capacity_before}, live_len_after={}, live_capacity_after={}, throttle_len_after={}, throttle_capacity_after={}, insert_elapsed={insert_elapsed:?}, reconcile_elapsed={reconcile_elapsed:?}",
-            tracker.live_last_used_at.len(),
-            tracker.live_last_used_at.capacity(),
-            tracker.last_enqueued_at.len(),
-            tracker.last_enqueued_at.capacity(),
-        );
-        assert_eq!(tracker.live_last_used_at.len(), 0);
-        assert_eq!(tracker.live_last_used_at.capacity(), 0);
-        assert_eq!(tracker.last_enqueued_at.len(), 0);
-        assert_eq!(tracker.last_enqueued_at.capacity(), 0);
-    }
-
-    #[test]
     fn usage_is_live_immediately_and_persisted_at_most_once_per_interval() {
         let id = GatewayApiKeyId::new();
         let started = Instant::now();

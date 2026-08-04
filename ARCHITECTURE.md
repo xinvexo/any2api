@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.0<br>
-> 最后更新：2026-08-03<br>
+> 最后更新：2026-08-04<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 1. 项目定位
@@ -47,7 +47,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 16. Codex WebSocket 不进入首个正式版本，首版 TransportMode 只有 JSON 和 SSE。
 17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。
-19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；导入兼容已审计的 CLIProxyAPI 与 Sub2API OAuth 结构，先规范化为 any2api Provider JSON，再整批原子发布。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
+19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；导入器把已审计的 CLIProxyAPI 与 Sub2API OAuth 结构当作当前外部输入协议，在边界规范化为唯一的 any2api OAuthAccount JSON 后整批原子发布。外部 wrapper 和字段变体不得进入 SQLite 或运行时读取路径。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
@@ -174,7 +174,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 
 - 核心模块之间使用领域类型和显式枚举，不使用无约束的 `HashMap<String, Value>` 传递关键状态；
 - Provider API Key 使用专用强类型 Secret 载荷，不把认证字段塞入通用字符串 Map；
-- OAuth2 登录产生的 Provider JSON 只允许明文持久化在独立 `OAuthAccount` SQLite 记录中；HTTP 响应、浏览器状态、日志和 Debug 输出都不得包含 Token，也不提供读取或导出端点；
+- OAuth2 登录与外部导入产生的 Token 只允许按当前唯一 any2api OAuthAccount JSON Schema 明文持久化在独立 SQLite 记录中；HTTP 响应、浏览器状态、日志和 Debug 输出都不得包含 Token，也不提供读取或导出端点；
 - ID、时间、RPM、配置版本和错误类型使用 newtype，避免互相误传；
 - 所有跨模块接口必须明确取消、超时、错误分类和所有权语义。
 
@@ -231,7 +231,7 @@ Nginx 可以作为部署时可选的 TLS 或反向代理入口，但 any2api 的
 - Drawer 与 Dialog 的退出动画只缓存标题、按钮文案、宽度和可保留的纯文本说明等必要标量；表单 children 与结构化 ReactNode 说明在关闭时立即卸载，不得为每次父组件渲染排入新的动画帧或把已关闭的组件树长期保存在状态中；
 - 保留文本选择、复制、浏览器缩放、键盘焦点、语义标题、链接行为和可访问名称；
 - 默认控件尺寸兼顾远程浏览器与触控，不复制桌面端 22–32px 的极小密度；
-- 主题至少支持 light/dark/system，并在 React 启动前完成轻量主题初始化，避免闪烁。
+- 主题只支持当前 `light` / `dark` 两种持久化值，并在 React 启动前完成轻量主题初始化，避免闪烁；未知或旧值直接使用当前默认值，不在浏览器代码中迁移或重写历史格式。
 - 用户主动触发的刷新、创建、保存、删除、启停、轮换和连通性测试等短操作，只在完整成功后通过根级通知宿主给出一次上下文明确的瞬时反馈；多阶段操作不得在中间步骤提前报告成功。初始读取、查询失效、SSE、轮询和自动刷新禁止弹出成功通知；已经使用持续结果区或锁定流程展示结果的操作不得重复通知。失败继续保留可操作的就地错误状态，不能用成功通知掩盖部分失败。
 
 配置 revision/config version 只用于服务端快照一致性，以及前端数据层的缓存排序、乐观锁和冲突处理。管理 Web 不得在页面、卡片、表格、悬浮提示或可访问名称中向用户展示该内部字段；受认证管理 DTO 和系统日志仍可携带它，前端仅按内部协议消费。公共健康检查不得暴露配置 revision、调度 epoch、活动请求、后台任务或停机阶段。
@@ -450,7 +450,7 @@ Provider/Protocol 组件、测试管理员会话和最小 Web 根，并允许从
 具体测试仍显式拥有配置发布顺序、Telemetry 生命周期、OAuth/Transport mock、`AppState` 扩展、自定义
 管理员认证与断言；禁止把 feature 行为、期望 revision 或请求步骤塞进参数不断增长的万能 fixture。
 
-必须具备的测试层级：
+测试采用“最低充分层级”原则：纯函数、解析器和状态转换优先在模块层验证；只有行为跨越 crate、公开 HTTP 协议或真实 I/O 时才上升到契约/集成层。禁止仅为满足清单在多个层级机械复制同一输入分支，也不把一次性审查取证 benchmark 长期保留为默认忽略的测试代码。以下高风险边界仍必须具备对应覆盖：
 
 - Domain 单元测试：代理解析、错误分类、路由和状态转换；
 - Provider/Protocol 契约测试：请求头、Secret 注入、未知字段、错误 envelope 和 SSE 事件；
@@ -460,7 +460,7 @@ Provider/Protocol 组件、测试管理员会话和最小 Web 根，并允许从
 - Transport 集成测试：DIRECT、HTTP CONNECT、SOCKS5h、代理认证和 Client 代际；
 - 流式切分测试：任意字节切分、LF/CRLF/裸 CR（含 `\r\r` 与混合行尾）、多行 `data:`、无尾空行和畸形帧；另有 proptest 属性测试验证任意字节流下切分不变性、重组无损性与 payload 解析全域性；
 - 热更新测试：编译失败不提交、revision 不倒退、Runtime 句柄跨快照复用；
-- 端到端测试：Codex/Claude/Grok JSON、SSE、GatewayApiKey 隔离、粘性和重试。
+- 端到端测试：跨模块公开行为（GatewayApiKey 隔离、模型策略、粘性、重试、JSON/SSE 生命周期）；Provider/Protocol 的每实现请求与错误矩阵由 `registered_adapters` 和各模块契约枚举覆盖，禁止再为每个 Provider 复制整套 HTTP JSON 矩阵。
 
 浏览器 E2E 使用独立临时数据目录、固定测试管理员密码和真实 Rust HTTP 服务；不得复用开发者本地数据库或登录 Cookie。首个浏览器套件只覆盖跨页面共享且单元测试无法证明的契约：登录后保留目标 deep link、服务端 SPA fallback、核心管理页面刷新、移动导航、桌面/390px 视口无水平溢出和控制台无未处理错误。业务 CRUD、字段校验和错误分支继续由更快的 Domain、HTTP 契约与 React 单元测试覆盖，禁止在浏览器层重复堆叠全量矩阵。
 
@@ -805,7 +805,7 @@ oauth_account_models
 └─ created_at
 ```
 
-OAuthAccount is deliberately separate from `provider_credentials`: it has no configurable Provider Endpoint and no API Key field. The JSON uses the Provider-specific schema; the repository validates Provider, access token, required account metadata, expiry representation, and bounded size before it can be published. OAuth JSON is plaintext in SQLite by explicit product decision, but must never appear in logs, DTOs, Debug, browser storage, or an export API.
+OAuthAccount is deliberately separate from `provider_credentials`: it has no configurable Provider Endpoint and no API Key field. SQLite JSON uses one any2api token-document schema shared by all Providers; `provider_kind` and `expires_at` remain in their existing typed columns instead of being duplicated inside JSON. Storage enforces bounded object JSON and a non-empty access token; the Provider current-document decoder owns the exact field schema and rejects unknown external fields before publication. OAuth JSON is plaintext in SQLite by explicit product decision, but must never appear in logs, DTOs, Debug, browser storage, or an export API. External import formats are normalized before this boundary and are never accepted by the runtime document decoder.
 
 Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profile。它们的已选模型、DIRECT/全局代理解析、可选 `requests_per_minute`、启用状态、代际和健康状态与 API Key Credential 一起进入同一个 `RoutingCredential` 投影。调度器不根据投影来自 `ProviderCredential` 还是 `OAuthAccount` 增加分支。
 
@@ -1429,7 +1429,8 @@ trait ProviderDriver: Send + Sync {
     fn oauth_redirect_uri(&self) -> Option<&'static str>;
     fn oauth_authorization_url(&self, state: &str, code_challenge: &str) -> Result<Url>;
     fn oauth_token_request(&self, grant: OAuthGrant, code_or_refresh_token: &str, state: Option<&str>, code_verifier: Option<&str>) -> Result<OAuthRequestPlan>;
-    fn parse_oauth_token(&self, body: &[u8], previous: Option<&OAuthTokenMaterial>) -> Result<OAuthTokenMaterial>;
+    fn parse_oauth_token_response(&self, body: &[u8]) -> Result<OAuthTokenMaterial>;
+    fn parse_oauth_refresh_response(&self, body: &[u8], previous: &OAuthTokenMaterial) -> Result<OAuthTokenMaterial>;
     fn classify_oauth_refresh_rejection(&self, status: StatusCode, bounded_body: &[u8]) -> OAuthRefreshRejection;
     fn oauth_routing_profile(&self, token: &OAuthTokenMaterial) -> Result<OAuthRoutingProfile>;
     fn oauth_credential_headers(&self, token: &OAuthTokenMaterial) -> Result<CredentialHeaders>;
@@ -2396,7 +2397,7 @@ Codex 与 Claude 使用 Authorization Code + PKCE：
 → 校验 session、state、Provider 和单次使用
 → Provider Driver 构建 TokenRequestPlan
 → Runtime 使用当前 DIRECT/全局代理执行 Token exchange
-→ Provider Driver 解析并规范化 OAuth Provider JSON
+→ Provider Driver 解析 Token Endpoint 响应为 OAuthTokenMaterial
 → SQLite 事务创建 OAuthAccount 与默认模型集合
 → 完整编译 ProviderCredential + OAuthAccount 的 RoutingCredential 投影
 → Commit、Runtime reconcile、单次 PublishedSnapshot 切换
@@ -2436,17 +2437,19 @@ OAuth 刷新使用统一 SettingRegistry 中的热更新参数：
 
 `oauth.refresh.lead_time` 必须大于或等于 `oauth.refresh.scan_interval`，避免正常扫描节奏跨过刷新窗口。Worker 启动时立即扫描；后续等待扫描间隔或 PublishedSnapshot revision 变化，醒来后总是重新读取当前生效值和账号版本，不持有先前配置继续刷新。扫描自身产生的批量发布通知只消费到该次已知 revision，随后恢复正常扫描间隔；扫描期间或发布之后出现的其他 revision 必须立即重扫。这样 Provider 未返回新过期时间、系统保留已过期安全边界时，也不会由自身发布通知形成无等待刷新循环。
 
-数据库 JSON Schema 以 CLIProxyAPI 的 Provider token storage 为基线，并兼容 new-api 与 Sub2API 实际使用字段：
+SQLite 中的 OAuthAccount JSON 只使用当前 any2api Schema：
 
-```text
-Codex: id_token, access_token, refresh_token, account_id,
-       last_refresh, email, type="codex", expired
-
-Claude: id_token, access_token, refresh_token,
-        last_refresh, email, type="claude", expired
+```json
+{
+  "access_token": "required non-empty string",
+  "refresh_token": "optional nullable string",
+  "id_token": "optional nullable string",
+  "account_id": "optional nullable string",
+  "email": "optional nullable string"
+}
 ```
 
-时间字段规范化为 UTC RFC 3339，同时接受已审计实现使用的 `expires_at` 数值/字符串别名。Provider 没有返回的可选字段不伪造。成功兑换会在开始网络请求前消费 session；同一 session 不能再次提交。
+不允许未知字段、旧别名或外部 wrapper；Provider 没有返回的可选字段可省略或写为 JSON `null`。Provider 和绝对过期时间只取 `oauth_accounts.provider_kind` / `oauth_accounts.expires_at`，避免重复状态和一致性分支。既有 CLIProxyAPI 风格持久化 JSON 只由前向 SQL Migration 一次性转换；生产代码不保留旧文档解析、字段回落或启动期重写。成功兑换会在开始网络请求前消费 session；同一 session 不能再次提交。
 
 OAuth Token Endpoint 的请求编码属于 Provider 协议契约：Codex authorization-code 交换使用 `application/x-www-form-urlencoded`，refresh-token 交换使用 `application/json`；Claude 两种交换均使用 JSON；Grok device-code 与 refresh-token 交换均使用 form。不得用一套通用编码覆盖 Provider Driver 的声明。
 
@@ -2476,7 +2479,7 @@ Web 的“删除失效账号”只清理当前 Provider 完整集合中经过实
 
 原始 callback URL、authorization code、device code、access token、refresh token、ID token 和 OAuth JSON 不进入普通 tracing/file log、模型 RequestLog、普通管理响应、React Query、浏览器存储或页面长期 DOM。最外层 HttpAccessLog 是唯一例外：客户端放入 URI、Header 或 Body 的原始值会进入 SQLite，并可由已认证系统日志详情读取。Grok user code 和验证地址只存在于当前登录抽屉的短期组件状态；OAuth JSON 是 SQLite 明文持久化的明确例外，服务端不提供通用读取、下载或导出端点。
 
-Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`POST /api/admin/oauth/import` 接收多个 multipart JSON 文件，每个文件可以是单账号、账号数组或 Sub2API `accounts` envelope。Provider Driver 把 CLIProxyAPI/Sub2API 字段规范化为 `OAuthTokenMaterial`，Runtime 为全部账号生成 canonical Provider JSON 和默认模型，并在一个 SQLite 事务中创建整批账号、增加一次 revision、执行一次 reconcile 和一次快照切换。任一文件或账号无效时整批回滚。响应只返回安全账号元数据；文件、Token、原始 JSON 和外部 wrapper 不进入普通日志、DTO、查询缓存或浏览器持久化。它们若出现在该 HTTP 导入请求中，仍适用 HttpAccessLog 原始交换例外。完整决策见 `docs/adr/0044-provider-oauth-json-import.md`。
+Provider 专用 OAuth JSON 导入复用同一个账号激活与发布边界：`POST /api/admin/oauth/import` 接收多个 multipart JSON 文件，每个文件可以是单账号、账号数组或 Sub2API `accounts` envelope。Provider Driver 把 CLIProxyAPI/Sub2API 当前受支持的外部字段规范化为 `OAuthTokenMaterial`，Runtime 随即生成唯一的 any2api OAuthAccount JSON 和默认模型，并在一个 SQLite 事务中创建整批账号、增加一次 revision、执行一次 reconcile 和一次快照切换。导入解析器只属于 HTTP 输入边界，运行时配置编译和 Repository 不得调用它或接受外部格式。任一文件或账号无效时整批回滚。响应只返回安全账号元数据；文件、Token、原始 JSON 和外部 wrapper 不进入普通日志、DTO、查询缓存或浏览器持久化。它们若出现在该 HTTP 导入请求中，仍适用 HttpAccessLog 原始交换例外。完整决策见 `docs/adr/0044-provider-oauth-json-import.md` 与 `docs/adr/0112-current-schema-only-runtime.md`。
 
 ## 17. 存储与密钥安全
 
@@ -2491,6 +2494,7 @@ SQLite Schema 始终使用不可改写、只追加的顺序迁移历史，不以
 - 每个改变既有 Schema 的 Migration 必须提供带代表性数据的升级测试，验证数据保留、最终结构和 Migration 记录；
 - 不兼容数据清理只能由独立 ADR 明确批准；对应 Migration 必须在任何结构或数据修改前拒绝非空旧记录，禁止静默删除，也禁止把旧格式兼容带入 Repository；
 - 生产代码只面向当前规范 Schema，不保留双轨领域模型、兼容读取或运行时 Schema 分支；
+- any2api 历史字段、旧 JSON、旧 HTTP 契约和旧浏览器状态的转换只允许由编号 SQL Migration 完成；Rust/TypeScript 不实现启动期数据迁移、旧字段别名、废弃构造器或浏览器存储迁移。当前明确支持的外部 Provider OAuth 导入协议只在导入边界解析并立即规范化，不属于持久化兼容路径；
 - 请求日志设置保留期限和最大容量；
 - 配置写操作使用事务；
 - 运行时快照不直接引用数据库连接。
@@ -3121,7 +3125,8 @@ No Runtime Recovery / Queue Recovery / Session Recovery
 Effective Setting = Web Override If Present, Otherwise Versioned Default
 Generic Config/Secret Import/Export = Disabled
 Provider OAuth JSON Import = OAuthAccount-only + Canonicalize + Atomic Batch Publish
-OAuth2 JSON = OAuthAccount-only SQLite persistence, no generic read/download/export; raw HttpAccessLog exception applies
+OAuth2 JSON = One Current any2api Schema + OAuthAccount-only SQLite persistence + SQL-only historical migration
+Runtime/Web Compatibility = Current Contract Only; No Legacy Field/Schema/Browser-State Branches
 OAuth Quota 403 = Driver Evidence; Account Restriction != Provider Egress Rejection
 Codex Quota 403 = Structured Code Or Original Cloudflare Block Body + No Secondary Probe
 

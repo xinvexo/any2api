@@ -21,5 +21,8 @@ pub use quota::{
 };
 pub use refresh::OAuthRefreshRejection;
 pub use routing::OAuthRoutingProfile;
-pub use token::{OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, serialize_document};
+pub use token::{
+    OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, decode_oauth_account_document,
+    encode_oauth_account_document,
+};
 pub(crate) use token::{form_headers, json_headers};

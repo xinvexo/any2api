@@ -209,7 +209,7 @@ async fn permanent_rejection_is_not_retried_for_the_same_token_version() {
             Some(0),
             OAuthAccountDocument::new(
                 ProviderKind::Codex,
-                br#"{"type":"codex","access_token":"replacement-access","refresh_token":"replacement-refresh","account_id":"account-123"}"#
+                br#"{"access_token":"replacement-access","refresh_token":"replacement-refresh","id_token":null,"account_id":"account-123","email":"person@example.com"}"#
                     .to_vec()
                     .into(),
             )
@@ -327,7 +327,7 @@ fn providers() -> Arc<ProviderRegistry> {
 fn oauth_document() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Codex,
-        br#"{"type":"codex","access_token":"old-access","refresh_token":"old-refresh","id_token":"old-id-token","account_id":"account-123","email":"person@example.com"}"#
+        br#"{"access_token":"old-access","refresh_token":"old-refresh","id_token":"old-id-token","account_id":"account-123","email":"person@example.com"}"#
             .to_vec()
             .into(),
     )

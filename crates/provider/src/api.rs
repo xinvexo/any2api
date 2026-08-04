@@ -18,7 +18,8 @@ pub use crate::oauth::{
 };
 pub use crate::oauth::{
     OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow,
-    OAuthRefreshRejection, OAuthRequestPlan, OAuthTokenMaterial, serialize_document,
+    OAuthRefreshRejection, OAuthRequestPlan, OAuthTokenMaterial, decode_oauth_account_document,
+    encode_oauth_account_document,
 };
 pub use crate::oauth::{
     OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
@@ -178,7 +179,10 @@ pub trait ProviderDriver: Send + Sync {
         ))
     }
 
-    fn parse_oauth_token(&self, _body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
+    fn parse_oauth_token_response(
+        &self,
+        _body: &[u8],
+    ) -> Result<OAuthTokenMaterial, ProviderError> {
         Err(ProviderError::InvalidResponse(
             "OAuth2 is not supported by this provider".into(),
         ))
@@ -191,13 +195,13 @@ pub trait ProviderDriver: Send + Sync {
         Ok(None)
     }
 
-    fn parse_oauth_refresh_token(
+    fn parse_oauth_refresh_response(
         &self,
         body: &[u8],
         previous: &OAuthTokenMaterial,
     ) -> Result<OAuthTokenMaterial, ProviderError> {
-        self.parse_oauth_token(body)?
-            .with_refresh_fallbacks(previous)
+        self.parse_oauth_token_response(body)?
+            .merge_refresh_response(previous)
     }
 
     fn classify_oauth_refresh_rejection(

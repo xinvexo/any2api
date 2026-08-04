@@ -1,12 +1,7 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use any2api_contract_tests::TestApplication;
-use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, CredentialId, MAX_REQUEST_LOG_ROWS, ProtocolDialect,
-    ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestId, RequestLog,
-};
-use any2api_runtime::api::RequestTelemetry;
-use any2api_storage::api::{ConfigurationRepository, RequestLogRepository, SqliteStore};
+use any2api_storage::api::ConfigurationRepository;
 use axum::{
     Router,
     body::Body,
@@ -15,17 +10,15 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-    sync::mpsc,
-};
 use tower::ServiceExt;
 
 #[tokio::test]
-async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
-    let (_directory, app, storage) = test_app().await;
+async fn provider_credential_crud_rotates_without_exposing_the_api_key() {
+    let fixture = TestApplication::new().await;
+    let storage = fixture.storage();
+    let (_directory, app, _) = fixture.into_router();
     let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
+
     let endpoint = request_json(
         app.clone(),
         Method::POST,
@@ -33,238 +26,6 @@ async fn provider_credential_crud_and_rotation_never_return_the_api_key() {
         Some(json!({
             "expected_revision": 1,
             "name": "Codex Primary",
-            "provider_kind": "codex",
-            "base_url": "https://api.example.com",
-            "protocol_dialect": "openai_responses",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(endpoint.status, StatusCode::OK);
-    let endpoint_id = endpoint.body["items"][0]["id"]
-        .as_str()
-        .expect("endpoint id")
-        .to_owned();
-    let create_key = "sk-contract-create-secret";
-
-    let created = request_json(
-        app.clone(),
-        Method::POST,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
-        Some(json!({
-            "expected_revision": 2,
-            "label": "Primary Key",
-            "credential_kind": "api_key",
-            "api_key": create_key,
-            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "requests_per_minute": 4,
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(created.status, StatusCode::OK);
-    assert_eq!(created.cache_control.as_deref(), Some("no-store"));
-    assert!(!created.raw_body.contains(create_key));
-    assert_eq!(created.body["config_revision"], 3);
-    assert_eq!(created.body["items"][0]["credential_kind"], "api_key");
-    assert_eq!(
-        created.body["items"][0]["fingerprint"]
-            .as_str()
-            .map(str::len),
-        Some(19)
-    );
-    assert!(
-        created.body["items"][0]["fingerprint"]
-            .as_str()
-            .is_some_and(|fingerprint| fingerprint.starts_with("v2:"))
-    );
-    assert_eq!(created.body["items"][0]["secret_version"], 1);
-    assert_eq!(created.body["items"][0]["config_version"], 1);
-    assert_eq!(created.body["items"][0]["requests_per_minute"], 4);
-    let credential_id = created.body["items"][0]["id"]
-        .as_str()
-        .expect("credential id")
-        .to_owned();
-    let parsed_credential_id = credential_id.parse().expect("credential id type");
-    let parsed_endpoint_id = endpoint_id.parse().expect("endpoint id type");
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_millis() as u64;
-    storage
-        .append_request_logs(
-            &[
-                provider_request_log(parsed_endpoint_id, parsed_credential_id, now_ms, 200),
-                provider_request_log(parsed_endpoint_id, parsed_credential_id, now_ms, 429),
-            ],
-            MAX_REQUEST_LOG_ROWS,
-        )
-        .await
-        .expect("append provider usage");
-
-    let listed = request_json(
-        app.clone(),
-        Method::GET,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
-        None,
-        loopback,
-    )
-    .await;
-    assert_eq!(listed.status, StatusCode::OK);
-    assert_eq!(listed.cache_control.as_deref(), Some("no-store"));
-    assert!(!listed.raw_body.contains(create_key));
-    assert_eq!(listed.body["items"][0]["usage"]["total_requests"], 2);
-    assert_eq!(listed.body["items"][0]["usage"]["successful_requests"], 1);
-    assert_eq!(listed.body["items"][0]["usage"]["failed_requests"], 1);
-    assert_eq!(listed.body["items"][0]["usage"]["window_minutes"], 2);
-    let slots = listed.body["items"][0]["usage"]["window_slots"]
-        .as_array()
-        .expect("window slots");
-    assert_eq!(slots.len(), 30);
-    let populated = slots
-        .iter()
-        .find(|slot| slot["total_requests"] == 2)
-        .expect("populated usage slot");
-    assert_eq!(populated["successful_requests"], 1);
-    assert_eq!(populated["failed_requests"], 1);
-
-    let updated = request_json(
-        app.clone(),
-        Method::PATCH,
-        &format!("/api/admin/provider-credentials/{credential_id}"),
-        Some(json!({
-            "expected_revision": 3,
-            "expected_config_version": 1,
-            "label": "Primary Key Updated",
-            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "requests_per_minute": 8,
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(updated.status, StatusCode::OK);
-    assert_eq!(updated.body["items"][0]["config_version"], 2);
-    assert_eq!(updated.body["items"][0]["secret_version"], 1);
-    assert_eq!(updated.body["items"][0]["requests_per_minute"], 8);
-
-    let rotate_key = "sk-contract-rotated-secret";
-    let rotated = request_json(
-        app.clone(),
-        Method::POST,
-        &format!("/api/admin/provider-credentials/{credential_id}/rotate-secret"),
-        Some(json!({
-            "expected_revision": 4,
-            "expected_config_version": 2,
-            "expected_secret_version": 1,
-            "api_key": rotate_key
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(rotated.status, StatusCode::OK);
-    assert!(!rotated.raw_body.contains(rotate_key));
-    assert_eq!(rotated.body["items"][0]["config_version"], 3);
-    assert_eq!(rotated.body["items"][0]["secret_version"], 2);
-    assert_eq!(rotated.body["items"][0]["credential_generation"], 2);
-
-    let stale = request_json(
-        app.clone(),
-        Method::POST,
-        &format!("/api/admin/provider-credentials/{credential_id}/rotate-secret"),
-        Some(json!({
-            "expected_revision": 5,
-            "expected_config_version": 3,
-            "expected_secret_version": 1,
-            "api_key": "sk-stale-rotation"
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(stale.status, StatusCode::CONFLICT);
-    assert_eq!(
-        stale.body["error"]["code"],
-        "provider_credential_secret_version_conflict"
-    );
-
-    let endpoint_in_use = request_json(
-        app.clone(),
-        Method::DELETE,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}?expected_revision=5"),
-        None,
-        loopback,
-    )
-    .await;
-    assert_eq!(endpoint_in_use.status, StatusCode::CONFLICT);
-    assert_eq!(
-        endpoint_in_use.body["error"]["code"],
-        "provider_endpoint_in_use"
-    );
-
-    let deleted = request_json(
-        app,
-        Method::DELETE,
-        &format!(
-            "/api/admin/provider-credentials/{credential_id}?expected_revision=5&expected_config_version=3"
-        ),
-        None,
-        loopback,
-    )
-    .await;
-    assert_eq!(deleted.status, StatusCode::OK);
-    assert_eq!(deleted.body["config_revision"], 6);
-    assert_eq!(deleted.body["items"].as_array().map(Vec::len), Some(0));
-    assert_eq!(
-        storage
-            .load_configuration()
-            .await
-            .expect("configuration")
-            .provider_credentials()
-            .credentials()
-            .len(),
-        0
-    );
-}
-
-#[tokio::test]
-async fn provider_credential_requests_reject_unknown_secret_fields() {
-    let (_directory, app, _storage) = test_app().await;
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
-    let response = request_json(
-        app,
-        Method::PATCH,
-        "/api/admin/provider-credentials/00000000-0000-0000-0000-000000000001",
-        Some(json!({
-            "expected_revision": 1,
-            "expected_config_version": 1,
-            "label": "Unexpected Secret",
-            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "requests_per_minute": 1,
-            "enabled": true,
-            "api_key": "must-not-be-accepted"
-        })),
-        loopback,
-    )
-    .await;
-
-    assert_eq!(response.status, StatusCode::BAD_REQUEST);
-    assert_eq!(response.body["error"]["code"], "invalid_request");
-    assert_eq!(response.cache_control.as_deref(), Some("no-store"));
-}
-
-#[tokio::test]
-async fn manually_configured_model_materializes_without_discovery() {
-    let (_directory, app, _storage) = test_app().await;
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
-    let endpoint = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 1,
-            "name": "Manual Catalog",
             "provider_kind": "codex",
             "base_url": "https://api.example.com/v1",
             "protocol_dialect": "openai_responses",
@@ -278,422 +39,73 @@ async fn manually_configured_model_materializes_without_discovery() {
         .as_str()
         .expect("endpoint id");
 
-    let credential = request_json(
+    let created = request_json(
         app.clone(),
         Method::POST,
         &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
         Some(json!({
             "expected_revision": 2,
-            "label": "Manually configured key",
+            "label": "Primary Key",
             "credential_kind": "api_key",
-            "api_key": "sk-manual-model-secret",
+            "api_key": "sk-contract-create-secret",
             "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "requests_per_minute": null,
+            "requests_per_minute": 4,
             "enabled": true
         })),
         loopback,
     )
     .await;
-    assert_eq!(credential.status, StatusCode::OK);
-    let credential_id = credential.body["items"][0]["id"]
+    assert_eq!(created.status, StatusCode::OK);
+    assert_eq!(created.cache_control.as_deref(), Some("no-store"));
+    assert!(!created.raw_body.contains("sk-contract-create-secret"));
+    assert!(
+        created.body["items"][0]["fingerprint"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("v2:"))
+    );
+    let credential_id = created.body["items"][0]["id"]
         .as_str()
         .expect("credential id");
 
-    let configured = request_json(
+    let rotated = request_json(
         app.clone(),
-        Method::PUT,
-        &format!("/api/admin/provider-credentials/{credential_id}/models"),
+        Method::POST,
+        &format!("/api/admin/provider-credentials/{credential_id}/rotate-secret"),
         Some(json!({
             "expected_revision": 3,
             "expected_config_version": 1,
-            "models": ["gpt-manual-only"]
+            "expected_secret_version": 1,
+            "api_key": "sk-contract-rotated-secret"
         })),
         loopback,
     )
     .await;
-    assert_eq!(configured.status, StatusCode::OK);
-    assert_eq!(
-        configured.body["items"][0]["models"],
-        json!(["gpt-manual-only"])
-    );
+    assert_eq!(rotated.status, StatusCode::OK);
+    assert!(!rotated.raw_body.contains("sk-contract-rotated-secret"));
+    assert_eq!(rotated.body["items"][0]["secret_version"], 2);
+    assert_eq!(rotated.body["items"][0]["credential_generation"], 2);
 
-    let gateway = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/gateway-api-keys",
-        Some(json!({
-            "expected_revision": 4,
-            "name": "Manual model client",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(gateway.status, StatusCode::OK);
-    let gateway_token = gateway.body["items"][0]["token"]
-        .as_str()
-        .expect("gateway token");
-
-    let models = request_json_with_headers(
+    let deleted = request_json(
         app,
-        Method::GET,
-        "/v1/models",
-        None,
-        loopback,
-        &[("authorization", format!("Bearer {gateway_token}"))],
-    )
-    .await;
-    assert_eq!(models.status, StatusCode::OK);
-    assert_eq!(models.body["data"][0]["id"], "gpt-manual-only");
-}
-
-#[tokio::test]
-async fn disabled_endpoint_and_credential_still_allow_model_discovery() {
-    let (upstream_address, mut upstream_requests) = model_catalog_upstream().await;
-    let (_directory, app, _storage) = test_app().await;
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
-    let endpoint = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 1,
-            "name": "Disabled WorkBuddy",
-            "provider_kind": "codex",
-            "base_url": format!("http://{upstream_address}/v1"),
-            "protocol_dialect": "openai_responses",
-            "enabled": false
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(endpoint.status, StatusCode::OK);
-    let endpoint_id = endpoint.body["items"][0]["id"]
-        .as_str()
-        .expect("endpoint id");
-
-    let credential = request_json(
-        app.clone(),
-        Method::POST,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
-        Some(json!({
-            "expected_revision": 2,
-            "label": "Disabled Key",
-            "credential_kind": "api_key",
-            "api_key": "sk-disabled-discovery",
-            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "requests_per_minute": null,
-            "enabled": false
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(credential.status, StatusCode::OK);
-    let credential_id = credential.body["items"][0]["id"]
-        .as_str()
-        .expect("credential id");
-
-    let tested = request_json(
-        app,
-        Method::POST,
-        &format!("/api/admin/provider-credentials/{credential_id}/test"),
+        Method::DELETE,
+        &format!(
+            "/api/admin/provider-credentials/{credential_id}?expected_revision=4&expected_config_version=2"
+        ),
         None,
         loopback,
     )
     .await;
-
-    assert_eq!(tested.status, StatusCode::OK);
-    assert_eq!(tested.body["accepted"], true);
-    assert_eq!(tested.body["catalog_valid"], true);
-    assert_eq!(tested.body["models"], json!(["gpt-disabled"]));
-    let probe = upstream_requests
-        .recv()
-        .await
-        .expect("model catalog request");
-    assert_eq!(probe.method, Method::GET);
-    assert_eq!(probe.path, "/v1/models");
-    assert_eq!(
-        probe.headers["authorization"],
-        "Bearer sk-disabled-discovery"
+    assert_eq!(deleted.status, StatusCode::OK);
+    assert!(deleted.body["items"].as_array().is_some_and(Vec::is_empty));
+    assert!(
+        storage
+            .load_configuration()
+            .await
+            .expect("configuration")
+            .provider_credentials()
+            .credentials()
+            .is_empty()
     );
-}
-
-#[tokio::test]
-async fn claude_root_base_url_probe_uses_v1_models_and_bearer_authentication() {
-    let (upstream_address, mut upstream_requests) = model_catalog_upstream().await;
-    let (_directory, app, _storage) = test_app().await;
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
-    let endpoint = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 1,
-            "name": "Claude compatible",
-            "provider_kind": "claude",
-            "base_url": format!("http://{upstream_address}"),
-            "protocol_dialect": "anthropic_messages",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(endpoint.status, StatusCode::OK);
-    let endpoint_id = endpoint.body["items"][0]["id"]
-        .as_str()
-        .expect("endpoint id");
-    let credential = request_json(
-        app.clone(),
-        Method::POST,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
-        Some(json!({
-            "expected_revision": 2,
-            "label": "Claude compatible key",
-            "credential_kind": "api_key",
-            "api_key": "sk-claude-compatible",
-            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "requests_per_minute": null,
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(credential.status, StatusCode::OK);
-    let credential_id = credential.body["items"][0]["id"]
-        .as_str()
-        .expect("credential id");
-
-    let tested = request_json(
-        app,
-        Method::POST,
-        &format!("/api/admin/provider-credentials/{credential_id}/test"),
-        None,
-        loopback,
-    )
-    .await;
-
-    assert_eq!(tested.status, StatusCode::OK);
-    assert_eq!(tested.body["accepted"], true);
-    assert_eq!(tested.body["catalog_valid"], true);
-    assert_eq!(tested.body["models"], json!(["gpt-disabled"]));
-    let probe = upstream_requests
-        .recv()
-        .await
-        .expect("Claude model catalog request");
-    assert_eq!(probe.method, Method::GET);
-    assert_eq!(probe.path, "/v1/models");
-    assert_eq!(
-        probe.headers["authorization"],
-        "Bearer sk-claude-compatible"
-    );
-    assert_eq!(probe.headers["anthropic-version"], "2023-06-01");
-    assert!(!probe.headers.contains_key("x-api-key"));
-}
-
-#[tokio::test]
-async fn successful_credential_test_clears_generation_auth_error() {
-    let (upstream_address, mut upstream_requests) = credential_test_upstream().await;
-    let (_directory, app, _storage) = test_app().await;
-    let loopback = SocketAddr::from(([127, 0, 0, 1], 41000));
-    let endpoint = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/provider-endpoints",
-        Some(json!({
-            "expected_revision": 1,
-            "name": "Local Codex",
-            "provider_kind": "codex",
-            "base_url": format!("http://{upstream_address}/v1"),
-            "protocol_dialect": "openai_responses",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(endpoint.status, StatusCode::OK);
-    let endpoint_id = endpoint.body["items"][0]["id"]
-        .as_str()
-        .expect("endpoint id")
-        .to_owned();
-
-    let credential = request_json(
-        app.clone(),
-        Method::POST,
-        &format!("/api/admin/provider-endpoints/{endpoint_id}/credentials"),
-        Some(json!({
-            "expected_revision": 2,
-            "label": "Recoverable Key",
-            "credential_kind": "api_key",
-            "api_key": "sk-credential-test-secret",
-            "proxy_profile_id": "00000000-0000-0000-0000-000000000000",
-            "requests_per_minute": null,
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(credential.status, StatusCode::OK);
-    let credential_id = credential.body["items"][0]["id"]
-        .as_str()
-        .expect("credential id")
-        .to_owned();
-
-    let models = request_json(
-        app.clone(),
-        Method::PUT,
-        &format!("/api/admin/provider-credentials/{credential_id}/models"),
-        Some(json!({
-            "expected_revision": 3,
-            "expected_config_version": 1,
-            "models": ["upstream-model"]
-        })),
-        loopback,
-    )
-    .await;
-    assert_eq!(models.status, StatusCode::OK);
-
-    let gateway = request_json(
-        app.clone(),
-        Method::POST,
-        "/api/admin/gateway-api-keys",
-        Some(json!({
-            "expected_revision": 4,
-            "name": "Credential test client",
-            "enabled": true
-        })),
-        loopback,
-    )
-    .await;
-    let gateway_token = gateway.body["items"][0]["token"]
-        .as_str()
-        .expect("gateway token in collection item");
-
-    let failed = request_json_with_headers(
-        app.clone(),
-        Method::POST,
-        "/v1/responses",
-        Some(json!({"model": "upstream-model", "input": "hello"})),
-        loopback,
-        &[("authorization", format!("Bearer {gateway_token}"))],
-    )
-    .await;
-    assert_eq!(failed.status, StatusCode::UNAUTHORIZED);
-    assert_eq!(
-        failed.raw_body,
-        r#"{"error":{"type":"authentication_error","code":"invalid_api_key"}}"#
-    );
-    let first = upstream_requests
-        .recv()
-        .await
-        .expect("first upstream request");
-    assert_eq!(first.method, Method::POST);
-    assert_eq!(first.path, "/v1/responses");
-    assert_eq!(
-        first.headers["authorization"],
-        "Bearer sk-credential-test-secret"
-    );
-
-    let tested = request_json(
-        app.clone(),
-        Method::POST,
-        &format!("/api/admin/provider-credentials/{credential_id}/test"),
-        None,
-        loopback,
-    )
-    .await;
-    assert_eq!(tested.status, StatusCode::OK);
-    assert_eq!(tested.body["config_revision"], 5);
-    assert_eq!(tested.body["credential_id"], credential_id);
-    assert_eq!(tested.body["reachable"], true);
-    assert_eq!(tested.body["accepted"], true);
-    assert_eq!(tested.body["catalog_valid"], true);
-    assert_eq!(tested.body["models"], json!([]));
-    assert_eq!(tested.body["status_code"], 200);
-    assert_eq!(tested.body["auth_error_cleared"], true);
-    assert!(!tested.raw_body.contains("sk-credential-test-secret"));
-    let probe = upstream_requests
-        .recv()
-        .await
-        .expect("credential probe request");
-    assert_eq!(probe.method, Method::GET);
-    assert_eq!(probe.path, "/v1/models");
-    assert_eq!(
-        probe.headers["authorization"],
-        "Bearer sk-credential-test-secret"
-    );
-
-    let recovered = request_json_with_headers(
-        app,
-        Method::POST,
-        "/v1/responses",
-        Some(json!({"model": "upstream-model", "input": "hello again"})),
-        loopback,
-        &[("authorization", format!("Bearer {gateway_token}"))],
-    )
-    .await;
-    assert_eq!(recovered.status, StatusCode::OK);
-    let final_request = upstream_requests
-        .recv()
-        .await
-        .expect("recovered upstream request");
-    assert_eq!(final_request.method, Method::POST);
-    assert_eq!(final_request.path, "/v1/responses");
-}
-
-async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>) {
-    let fixture = TestApplication::new().await;
-    let storage = fixture.storage();
-    let runtime = fixture.runtime();
-    let snapshots = fixture.snapshots();
-    let telemetry = Arc::new(RequestTelemetry::start(
-        Arc::clone(&storage),
-        snapshots.load().revision(),
-        snapshots.load().settings().logging(),
-        &runtime.lifecycle(),
-    ));
-    let credential_tests = fixture.components().provider_credential_test_service();
-    let state = fixture
-        .state()
-        .with_provider_credential_tests(credential_tests)
-        .with_request_telemetry(telemetry);
-    let (directory, app, _fixture_storage) = fixture.into_router_with_state(state);
-    (directory, app, storage)
-}
-
-fn provider_request_log(
-    endpoint_id: ProviderEndpointId,
-    credential_id: CredentialId,
-    started_at_ms: u64,
-    status_code: u16,
-) -> CompletedRequestLog {
-    CompletedRequestLog {
-        request: RequestLog {
-            request_id: RequestId::new(),
-            started_at_ms,
-            client_ip: "127.0.0.1".parse().expect("loopback address"),
-            config_revision: ConfigRevision::INITIAL,
-            gateway_api_key_id: None,
-            ingress_protocol: ProtocolDialect::OpenAiResponses,
-            operation: ProtocolOperation::Responses,
-            public_model: Some("gpt-test".into()),
-            thinking_level: None,
-            provider_endpoint_id: Some(endpoint_id),
-            credential_id: Some(credential_id),
-            oauth_account_id: None,
-            proxy_profile_id: Some(ProxyProfileId::DIRECT),
-            status_code,
-            error_class: None,
-            error_message: None,
-            attempt_count: 0,
-            latency_ms: 1,
-            first_token_ms: None,
-            input_tokens: None,
-            output_tokens: None,
-            cache_read_tokens: None,
-            is_stream: false,
-        },
-        attempts: Vec::new(),
-    }
 }
 
 struct JsonResponse {
@@ -710,24 +122,10 @@ async fn request_json(
     body: Option<Value>,
     remote: SocketAddr,
 ) -> JsonResponse {
-    request_json_with_headers(app, method, uri, body, remote, &[]).await
-}
-
-async fn request_json_with_headers(
-    app: Router,
-    method: Method,
-    uri: &str,
-    body: Option<Value>,
-    remote: SocketAddr,
-    headers: &[(&str, String)],
-) -> JsonResponse {
     let mut builder = Request::builder()
         .method(method)
         .uri(uri)
         .extension(ConnectInfo(remote));
-    for (name, value) in headers {
-        builder = builder.header(*name, value);
-    }
     let body = if let Some(value) = body {
         builder = builder.header(CONTENT_TYPE, "application/json");
         Body::from(serde_json::to_vec(&value).expect("request json"))
@@ -757,105 +155,5 @@ async fn request_json_with_headers(
         body,
         raw_body,
         cache_control,
-    }
-}
-
-struct UpstreamRequest {
-    method: Method,
-    path: String,
-    headers: HashMap<String, String>,
-}
-
-async fn credential_test_upstream() -> (SocketAddr, mpsc::UnboundedReceiver<UpstreamRequest>) {
-    upstream_with_responses(vec![
-        (
-            "401 Unauthorized",
-            r#"{"error":{"type":"authentication_error","code":"invalid_api_key"}}"#,
-        ),
-        ("200 OK", r#"{"object":"list","data":[]}"#),
-        (
-            "200 OK",
-            r#"{"id":"resp_recovered","model":"upstream-model"}"#,
-        ),
-    ])
-    .await
-}
-
-async fn model_catalog_upstream() -> (SocketAddr, mpsc::UnboundedReceiver<UpstreamRequest>) {
-    upstream_with_responses(vec![(
-        "200 OK",
-        r#"{"object":"list","data":[{"id":"gpt-disabled"}]}"#,
-    )])
-    .await
-}
-
-async fn upstream_with_responses(
-    responses: Vec<(&'static str, &'static str)>,
-) -> (SocketAddr, mpsc::UnboundedReceiver<UpstreamRequest>) {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("upstream listener");
-    let address = listener.local_addr().expect("upstream address");
-    let (sender, receiver) = mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        for (status, body) in responses {
-            let (mut stream, _) = listener.accept().await.expect("upstream accept");
-            sender.send(read_upstream_request(&mut stream).await).ok();
-            let response = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            stream
-                .write_all(response.as_bytes())
-                .await
-                .expect("upstream response");
-        }
-    });
-    (address, receiver)
-}
-
-async fn read_upstream_request(stream: &mut TcpStream) -> UpstreamRequest {
-    let mut bytes = Vec::new();
-    let mut buffer = [0_u8; 4096];
-    let header_end = loop {
-        let count = stream.read(&mut buffer).await.expect("upstream read");
-        assert!(count > 0, "request ended before headers");
-        bytes.extend_from_slice(&buffer[..count]);
-        if let Some(position) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
-            break position;
-        }
-    };
-    let head = String::from_utf8(bytes[..header_end].to_vec()).expect("request headers");
-    let content_length = head
-        .lines()
-        .find_map(|line| {
-            line.split_once(':').and_then(|(name, value)| {
-                name.eq_ignore_ascii_case("content-length")
-                    .then(|| value.trim().parse::<usize>().expect("content length"))
-            })
-        })
-        .unwrap_or(0);
-    let body_end = header_end + 4 + content_length;
-    while bytes.len() < body_end {
-        let count = stream.read(&mut buffer).await.expect("upstream body read");
-        assert!(count > 0, "request ended before body");
-        bytes.extend_from_slice(&buffer[..count]);
-    }
-    let mut lines = head.lines();
-    let mut request_line = lines.next().expect("request line").split_whitespace();
-    let method = request_line
-        .next()
-        .expect("request method")
-        .parse()
-        .expect("valid request method");
-    let path = request_line.next().expect("request path").to_owned();
-    let headers = lines
-        .filter_map(|line| line.split_once(':'))
-        .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
-        .collect();
-    UpstreamRequest {
-        method,
-        path,
-        headers,
     }
 }

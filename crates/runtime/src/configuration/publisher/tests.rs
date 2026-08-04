@@ -248,7 +248,7 @@ async fn concurrent_oauth_activations_each_publish_the_latest_revision() {
             None,
             None,
             Vec::new(),
-            oauth_document(ProviderKind::Codex, "first-token"),
+            oauth_document(ProviderKind::Codex, "first-token", None),
         ),
         context.publisher.activate_oauth_account(
             second_id,
@@ -257,7 +257,11 @@ async fn concurrent_oauth_activations_each_publish_the_latest_revision() {
             Some("person@example.com".to_owned()),
             Some(1_800_000_000),
             Vec::new(),
-            oauth_document(ProviderKind::Claude, "second-token"),
+            oauth_document(
+                ProviderKind::Claude,
+                "second-token",
+                Some("person@example.com"),
+            ),
         ),
     );
     let mut revisions = [
@@ -353,14 +357,19 @@ fn oauth_account_draft(label: &str) -> OAuthAccountDraft {
     OAuthAccountDraft::new(label, None, true).expect("OAuth account draft")
 }
 
-fn oauth_document(provider: ProviderKind, access_token: &str) -> OAuthAccountDocument {
-    let provider_name = match provider {
-        ProviderKind::Codex => "codex",
-        ProviderKind::Claude => "claude",
-        ProviderKind::Grok => "grok",
-    };
-    let bytes = format!(r#"{{"type":"{provider_name}","access_token":"{access_token}"}}"#)
-        .into_bytes()
-        .into();
+fn oauth_document(
+    provider: ProviderKind,
+    access_token: &str,
+    email: Option<&str>,
+) -> OAuthAccountDocument {
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "access_token": access_token,
+        "refresh_token": null,
+        "id_token": null,
+        "account_id": null,
+        "email": email,
+    }))
+    .expect("OAuth document JSON")
+    .into();
     OAuthAccountDocument::new(provider, bytes).expect("OAuth account document")
 }

@@ -50,7 +50,7 @@ async fn codex_oauth_account_uses_fixed_route_shared_permit_and_distinct_log_sou
             models: vec!["gpt-5.5".into()],
             document: OAuthAccountDocument::new(
                 ProviderKind::Codex,
-                br#"{"type":"codex","access_token":"oauth-access-secret","account_id":"account-123"}"#
+                br#"{"access_token":"oauth-access-secret","refresh_token":null,"id_token":null,"account_id":"account-123","email":"person@example.com"}"#
                     .to_vec()
                     .into(),
             )

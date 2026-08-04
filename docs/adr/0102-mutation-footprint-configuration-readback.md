@@ -73,13 +73,6 @@ revision 与 Setting。Runtime 的完整能力校验、快照编译和 Commit �
 | 全量加载 + 全量写后回读 | 5.498 s | 1.00× |
 | 全量加载 + Setting 影响面回读 | 2.748 s | 2.00× faster |
 
-可复现命令：
-
-```bash
-cargo test -p any2api-storage --release \
-  configuration::readback_benchmark_tests::large_setting_publish_compares_full_and_impact_readback \
-  -- --ignored --nocapture
-```
-
 该结果不意味着所有 mutation 都固定加速两倍：修改 Gateway Key 或 Provider Credential 时仍必须回读并验证
-对应 Secret 聚合，影响面越大，节省比例越低。它证明小聚合修改不再支付第二次无关全量摘要校验。
+对应 Secret 聚合，影响面越大，节省比例越低。它证明小聚合修改不再支付第二次无关全量摘要校验。测量结果
+保留于本 ADR；一次性 benchmark 源码在完成优化验证后删除。

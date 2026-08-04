@@ -154,7 +154,7 @@ impl ProviderDriver for CodexDriver {
         codex_oauth::token_request(grant, code, code_verifier)
     }
 
-    fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
+    fn parse_oauth_token_response(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         codex_oauth::parse_token(body)
     }
 

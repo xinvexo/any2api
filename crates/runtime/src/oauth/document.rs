@@ -1,19 +1,13 @@
-use any2api_provider::api::{OAuthTokenMaterial, serialize_document};
+use any2api_provider::api::{OAuthTokenMaterial, encode_oauth_account_document};
 use any2api_storage::api::OAuthAccountDocument;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
 use super::error::OAuthError;
 
-pub(super) fn serialize(token: &OAuthTokenMaterial) -> Result<OAuthAccountDocument, OAuthError> {
-    let now = unix_now();
-    let last_refresh = format_timestamp(now)?;
-    let expired = token
-        .expires_at()
-        .map(format_timestamp)
-        .transpose()?
-        .unwrap_or_default();
-    let bytes = serialize_document(token, &last_refresh, &expired)
-        .map_err(|_| OAuthError::DocumentSerialization)?;
+pub(super) fn build_account_document(
+    token: &OAuthTokenMaterial,
+) -> Result<OAuthAccountDocument, OAuthError> {
+    let bytes =
+        encode_oauth_account_document(token).map_err(|_| OAuthError::DocumentSerialization)?;
     OAuthAccountDocument::new(token.provider(), bytes.into())
         .map_err(|_| OAuthError::DocumentSerialization)
 }
@@ -24,12 +18,4 @@ pub(super) fn unix_now() -> i64 {
         .ok()
         .and_then(|duration| i64::try_from(duration.as_secs()).ok())
         .unwrap_or_default()
-}
-
-fn format_timestamp(timestamp: i64) -> Result<String, OAuthError> {
-    let value = OffsetDateTime::from_unix_timestamp(timestamp)
-        .map_err(|_| OAuthError::DocumentSerialization)?;
-    value
-        .format(&Rfc3339)
-        .map_err(|_| OAuthError::DocumentSerialization)
 }

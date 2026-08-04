@@ -3,7 +3,7 @@ use std::fmt;
 use any2api_domain::ProviderKind;
 use http::{HeaderMap, HeaderValue, Method, header};
 use secrecy::{ExposeSecret, SecretString};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::ProviderError;
@@ -111,7 +111,7 @@ impl OAuthTokenMaterial {
         self.email.as_deref()
     }
 
-    pub fn with_refresh_fallbacks(mut self, previous: &Self) -> Result<Self, ProviderError> {
+    pub fn merge_refresh_response(mut self, previous: &Self) -> Result<Self, ProviderError> {
         if self.provider != previous.provider {
             return Err(ProviderError::InvalidResponse(
                 "OAuth refresh response provider does not match the account".into(),
@@ -133,14 +133,6 @@ impl OAuthTokenMaterial {
             self.email.clone_from(&previous.email);
         }
         Ok(self)
-    }
-
-    #[must_use]
-    pub fn with_expires_at_fallback(mut self, expires_at: Option<i64>) -> Self {
-        if self.expires_at.is_none() {
-            self.expires_at = expires_at;
-        }
-        self
     }
 }
 
@@ -179,88 +171,61 @@ pub(crate) fn json_headers() -> HeaderMap {
     headers
 }
 
-pub fn serialize_document(
-    token: &OAuthTokenMaterial,
-    last_refresh: &str,
-    expired: &str,
-) -> Result<Vec<u8>, ProviderError> {
-    let empty = "";
-    let encoded = match token.provider() {
-        ProviderKind::Codex => serde_json::to_vec_pretty(&CodexOAuthFile {
-            id_token: token.id_token().unwrap_or(empty),
-            access_token: token.access_token(),
-            refresh_token: token.refresh_token().unwrap_or(empty),
-            account_id: token.account_id().unwrap_or(empty),
-            last_refresh,
-            email: token.email().unwrap_or(empty),
-            provider_type: "codex",
-            expired,
-        }),
-        ProviderKind::Claude => serde_json::to_vec_pretty(&ClaudeOAuthFile {
-            id_token: token.id_token().unwrap_or(empty),
-            access_token: token.access_token(),
-            refresh_token: token.refresh_token().unwrap_or(empty),
-            last_refresh,
-            email: token.email().unwrap_or(empty),
-            provider_type: "claude",
-            expired,
-        }),
-        ProviderKind::Grok => serde_json::to_vec_pretty(&GrokOAuthFile {
-            id_token: token.id_token().unwrap_or(empty),
-            access_token: token.access_token(),
-            refresh_token: token.refresh_token().unwrap_or(empty),
-            last_refresh,
-            email: token.email().unwrap_or(empty),
-            subject: token.account_id().unwrap_or(empty),
-            provider_type: "grok",
-            expired,
-        }),
-    };
-    encoded
-        .map(|mut bytes| {
-            bytes.push(b'\n');
-            bytes
-        })
-        .map_err(|_| ProviderError::InvalidResponse("OAuth document serialization failed".into()))
+pub fn encode_oauth_account_document(token: &OAuthTokenMaterial) -> Result<Vec<u8>, ProviderError> {
+    serde_json::to_vec_pretty(&OAuthAccountDocumentRef {
+        access_token: token.access_token(),
+        refresh_token: token.refresh_token(),
+        id_token: token.id_token(),
+        account_id: token.account_id(),
+        email: token.email(),
+    })
+    .map(|mut bytes| {
+        bytes.push(b'\n');
+        bytes
+    })
+    .map_err(|_| ProviderError::InvalidResponse("OAuth document serialization failed".into()))
+}
+
+pub fn decode_oauth_account_document(
+    provider: ProviderKind,
+    expires_at: Option<i64>,
+    bytes: &[u8],
+) -> Result<OAuthTokenMaterial, ProviderError> {
+    let document = serde_json::from_slice::<OAuthAccountDocumentFields>(bytes)
+        .map_err(|_| invalid_document())?;
+    OAuthTokenMaterial::new(
+        provider,
+        document.access_token,
+        document.refresh_token,
+        document.id_token,
+        expires_at,
+        document.account_id,
+        document.email,
+    )
+    .map_err(|_| invalid_document())
 }
 
 #[derive(Serialize)]
-struct CodexOAuthFile<'a> {
-    id_token: &'a str,
+struct OAuthAccountDocumentRef<'a> {
     access_token: &'a str,
-    refresh_token: &'a str,
-    account_id: &'a str,
-    last_refresh: &'a str,
-    email: &'a str,
-    #[serde(rename = "type")]
-    provider_type: &'a str,
-    expired: &'a str,
+    refresh_token: Option<&'a str>,
+    id_token: Option<&'a str>,
+    account_id: Option<&'a str>,
+    email: Option<&'a str>,
 }
 
-#[derive(Serialize)]
-struct ClaudeOAuthFile<'a> {
-    id_token: &'a str,
-    access_token: &'a str,
-    refresh_token: &'a str,
-    last_refresh: &'a str,
-    email: &'a str,
-    #[serde(rename = "type")]
-    provider_type: &'a str,
-    expired: &'a str,
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OAuthAccountDocumentFields {
+    access_token: String,
+    refresh_token: Option<String>,
+    id_token: Option<String>,
+    account_id: Option<String>,
+    email: Option<String>,
 }
 
-#[derive(Serialize)]
-struct GrokOAuthFile<'a> {
-    id_token: &'a str,
-    access_token: &'a str,
-    refresh_token: &'a str,
-    last_refresh: &'a str,
-    email: &'a str,
-    #[serde(rename = "sub")]
-    subject: &'a str,
-    #[serde(rename = "type")]
-    provider_type: &'a str,
-    expired: &'a str,
+fn invalid_document() -> ProviderError {
+    ProviderError::InvalidResponse("OAuth account document is invalid".into())
 }
 
 fn optional_secret(value: Option<String>) -> Option<SecretString> {

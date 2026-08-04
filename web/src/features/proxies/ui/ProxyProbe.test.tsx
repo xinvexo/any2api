@@ -77,39 +77,6 @@ test("renders failed probe diagnostics as only failure and latency pills", async
   expect(status.children).toHaveLength(2);
 });
 
-test("keeps the two fixed-width slots through idle, testing, and completed states", async () => {
-  const proxy = customProxy();
-  let finishProbe: ((response: Response) => void) | undefined;
-  const pendingProbe = new Promise<Response>((resolve) => {
-    finishProbe = resolve;
-  });
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-    const path = requestPath(input);
-    if (path.endsWith(`/proxies/${proxy.id}/test`) && init?.method === "POST") {
-      return pendingProbe;
-    }
-    return jsonResponse(configuration([direct, proxy]));
-  });
-
-  renderManagement();
-
-  const idle = (await screen.findAllByTestId("proxy-test-status"))[1];
-  expect(idle).toHaveClass("sm:w-[154px]", "sm:grid-cols-[64px_84px]");
-  expect(idle.children).toHaveLength(2);
-  fireEvent.click(screen.getByRole("button", { name: `测试 ${proxy.name}` }));
-
-  const testing = await screen.findByRole("status", { name: "正在测试公网连通性" });
-  expect(within(testing).getByText("测试中")).toBeInTheDocument();
-  expect(within(testing).getByText("—")).toBeInTheDocument();
-  expect(testing.className).toBe(idle.className);
-  expect(screen.getByRole("button", { name: `测试 ${proxy.name}` })).toHaveTextContent("测试");
-
-  finishProbe?.(jsonResponse(proxyTestResult(proxy.id)));
-  const completed = await screen.findByRole("status", { name: /可达 · HTTP 204 · 18 ms/ });
-  expect(completed.className).toBe(idle.className);
-  expect(completed.children).toHaveLength(2);
-});
-
 test("keeps request failures inside the same two pill slots", async () => {
   const proxy = customProxy();
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {

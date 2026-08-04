@@ -3,6 +3,7 @@
 - 状态：Accepted
 - 日期：2026-07-25
 - 决策人：项目维护者
+- 修订：ADR-0112 将 SQLite 持久化格式收敛为唯一 any2api OAuthAccount Schema；本 ADR 只定义仍受支持的外部导入协议。
 
 ## 背景
 
@@ -15,7 +16,7 @@ any2api 已能通过交互式登录创建 Codex、Claude 和 Grok `OAuthAccount`
 1. 新增受管理员会话与 CSRF 保护的 `POST /api/admin/oauth/import`。请求使用 `multipart/form-data`，通过重复的 `files` part 接收多个 JSON 文件；不接受路径、服务器目录或浏览器下载回路。
 2. 每个文件只接受一个账号对象、账号对象数组，或已审计的 Sub2API `accounts` envelope。CLIProxyAPI 的 `type=codex|claude|xai`、Sub2API 的 `platform=openai|anthropic|grok` + `type=oauth`、Codex `tokens`/camelCase session 字段会在对应 Provider 模块中解析。`xai` 规范化为 any2api 的 `grok`。
 3. Provider Driver 负责识别和解析自己的外部账号结构。跨 Provider 基础设施只展开文件 envelope、枚举已注册 Driver 并拒绝无法识别或多重识别的条目；中央调度器和 Server Handler 不按 Provider 增长 `match`。
-4. 外部对象只提取 Token、账号身份、安全邮箱、绝对过期时间和可见标签。Sub2API 的代理、并发、优先级、分组、费率、运营扩展和非 OAuth 账号不进入 any2api。解析结果重新序列化为 any2api 的 canonical Provider JSON，未知字段和外部 wrapper 不原样持久化。
+4. 外部对象只提取 Token、账号身份、安全邮箱、绝对过期时间和可见标签。Sub2API 的代理、并发、优先级、分组、费率、运营扩展和非 OAuth 账号不进入 any2api。解析结果立即序列化为 ADR-0112 定义的唯一 any2api OAuthAccount JSON；未知字段、字段别名和外部 wrapper 不进入 SQLite 或运行时读取路径。
 5. 整次 HTTP 请求是 all-or-nothing：所有文件和账号先完成大小、数量、JSON、Provider、Token、路由目录与领域校验；随后在一个 `BEGIN IMMEDIATE` 事务中创建全部 `OAuthAccount` 和默认模型集合，只增加一次 config revision。Commit 后执行一次 Runtime reconcile 和一次 `ArcSwap<PublishedSnapshot>`。
 6. 导入账号默认启用、RPM 不限、固定绑定 DIRECT 并选择 Provider OAuth 默认模型。标签优先使用来源名称或安全邮箱，并在发布锁内针对当前 Provider 生成唯一后缀；导入不覆盖、合并或更新既有账号。
 7. 响应只返回导入数量、新 revision 和新账号的安全元数据。错误只包含文件/账号序号和稳定错误分类，不回显文件名、JSON、Token 或 Provider 原始错误正文。
@@ -33,7 +34,7 @@ any2api 已能通过交互式登录创建 Codex、Claude 和 Grok `OAuthAccount`
 
 - CLIProxyAPI/Sub2API 中已有的受支持 OAuth 账号可以直接迁入 SQLite 并立即参与统一 RPM、轮询、粘性、健康、重试和遥测路径。
 - 大批量导入只触发一次完整配置编译和快照切换；任一坏条目不会留下半成品。
-- 兼容范围是显式、可测试的 Provider 输入协议，不演变为通用备份恢复或 Secret 导入框架。
+- CLIProxyAPI/Sub2API 格式是显式、可测试的当前外部输入协议，不是 any2api 历史 Schema 的运行时兼容层，也不演变为通用备份恢复或 Secret 导入框架。
 
 ## 验证
 

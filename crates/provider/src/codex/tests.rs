@@ -161,7 +161,7 @@ fn refresh_preserves_omitted_codex_account_fields() {
     )
     .expect("previous token");
     let refreshed = driver
-        .parse_oauth_refresh_token(br#"{"access_token":"new-access"}"#, &previous)
+        .parse_oauth_refresh_response(br#"{"access_token":"new-access"}"#, &previous)
         .expect("refreshed token");
 
     assert_eq!(refreshed.access_token(), "new-access");
@@ -180,7 +180,7 @@ fn parses_codex_token_claims_without_logging_token_values() {
     let id_token = format!("header.{payload}.signature");
     let driver = CodexDriver::new();
     let token = driver
-        .parse_oauth_token(
+        .parse_oauth_token_response(
             serde_json::json!({
                 "access_token": "access-secret",
                 "refresh_token": "refresh-secret",
@@ -223,7 +223,7 @@ fn parses_codex_token_claims_without_logging_token_values() {
 fn missing_codex_plan_uses_the_minimal_free_catalog() {
     let driver = CodexDriver::new();
     let token = driver
-        .parse_oauth_token(br#"{"access_token":"access-secret"}"#)
+        .parse_oauth_token_response(br#"{"access_token":"access-secret"}"#)
         .expect("token response");
     let profile = driver
         .oauth_routing_profile(&token)
@@ -239,13 +239,13 @@ fn missing_codex_plan_uses_the_minimal_free_catalog() {
 }
 
 #[test]
-fn builds_codex_oauth_headers_from_stored_account_document() {
+fn builds_codex_oauth_headers_from_token_response() {
     let driver = CodexDriver::new();
     let token = driver
-        .parse_oauth_token(
-            br#"{"type":"codex","access_token":"oauth-secret","account_id":"account-123"}"#,
+        .parse_oauth_token_response(
+            br#"{"access_token":"oauth-secret","account_id":"account-123"}"#,
         )
-        .expect("stored OAuth document");
+        .expect("OAuth token response");
     let headers = driver
         .oauth_credential_headers(&token, &http::HeaderMap::new())
         .expect("OAuth headers");

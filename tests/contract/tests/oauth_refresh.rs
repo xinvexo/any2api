@@ -248,9 +248,15 @@ async fn completed_oauth_use_triggers_one_coalesced_persistent_quota_refresh() {
 fn oauth_document() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Codex,
-        br#"{"type":"codex","access_token":"old-access","refresh_token":"old-refresh","id_token":"old-id-token","account_id":"account-123","email":"person@example.com"}"#
-            .to_vec()
-            .into(),
+        serde_json::to_vec(&serde_json::json!({
+            "access_token": "old-access",
+            "refresh_token": "old-refresh",
+            "id_token": "old-id-token",
+            "account_id": "account-123",
+            "email": "person@example.com",
+        }))
+        .expect("current OAuth document")
+        .into(),
     )
     .expect("OAuth document")
 }

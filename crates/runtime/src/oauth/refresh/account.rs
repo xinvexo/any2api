@@ -215,7 +215,7 @@ impl OAuthRefresher {
             return Err(OAuthRefreshError::RefreshRejected(rejection));
         }
         let refreshed = driver
-            .parse_oauth_refresh_token(&response.body, token.as_ref())
+            .parse_oauth_refresh_response(&response.body, token.as_ref())
             .map_err(OAuthError::from_token_response_error)?;
         if refreshed.provider() != account.provider_kind() {
             return Err(OAuthError::TokenResponseInvalid.into());
@@ -223,7 +223,7 @@ impl OAuthRefresher {
         driver
             .oauth_routing_profile(&refreshed)
             .map_err(OAuthError::Provider)?;
-        let document = document::serialize(&refreshed)?;
+        let document = document::build_account_document(&refreshed)?;
         let safe_account_email = refreshed.email().map(str::to_owned);
         let expires_at = refreshed.expires_at();
         drop(snapshot);

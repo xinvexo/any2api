@@ -152,7 +152,7 @@ fn builds_pkce_json_token_request() {
 fn parses_claude_account_email() {
     let driver = ClaudeDriver::new();
     let token = driver
-        .parse_oauth_token(
+        .parse_oauth_token_response(
             br#"{"access_token":"access-secret","refresh_token":"refresh-secret","account":{"email_address":"claude@example.com"}}"#,
         )
         .expect("token response");
@@ -181,8 +181,8 @@ fn parses_claude_account_email() {
 fn builds_claude_oauth_headers_and_preserves_client_betas() {
     let driver = ClaudeDriver::new();
     let token = driver
-        .parse_oauth_token(br#"{"type":"claude","access_token":"oauth-secret"}"#)
-        .expect("stored OAuth document");
+        .parse_oauth_token_response(br#"{"access_token":"oauth-secret"}"#)
+        .expect("OAuth token response");
     let mut forwarded = HeaderMap::new();
     forwarded.append(
         "anthropic-beta",

@@ -193,7 +193,7 @@ fn providers() -> Arc<ProviderRegistry> {
 fn codex_oauth_document() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Codex,
-        br#"{"type":"codex","access_token":"old-access","refresh_token":"old-refresh","account_id":"account-123"}"#
+        br#"{"access_token":"old-access","refresh_token":"old-refresh","id_token":null,"account_id":"account-123","email":null}"#
             .to_vec()
             .into(),
     )
@@ -203,7 +203,7 @@ fn codex_oauth_document() -> OAuthAccountDocument {
 fn codex_oauth_document_without_refresh_token() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Codex,
-        br#"{"type":"codex","access_token":"old-access","account_id":"account-123"}"#
+        br#"{"access_token":"old-access","refresh_token":null,"id_token":null,"account_id":"account-123","email":null}"#
             .to_vec()
             .into(),
     )
@@ -213,7 +213,7 @@ fn codex_oauth_document_without_refresh_token() -> OAuthAccountDocument {
 fn grok_oauth_document() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Grok,
-        br#"{"type":"grok","access_token":"grok-access","refresh_token":"grok-refresh","sub":"grok-subject"}"#
+        br#"{"access_token":"grok-access","refresh_token":"grok-refresh","id_token":null,"account_id":"grok-subject","email":null}"#
             .to_vec()
             .into(),
     )
@@ -223,7 +223,7 @@ fn grok_oauth_document() -> OAuthAccountDocument {
 fn claude_oauth_document() -> OAuthAccountDocument {
     OAuthAccountDocument::new(
         ProviderKind::Claude,
-        br#"{"type":"claude","access_token":"old-access","refresh_token":"old-refresh"}"#
+        br#"{"access_token":"old-access","refresh_token":"old-refresh","id_token":null,"account_id":null,"email":"claude@example.com"}"#
             .to_vec()
             .into(),
     )

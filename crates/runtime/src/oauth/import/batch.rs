@@ -109,8 +109,8 @@ pub(in crate::oauth) async fn publish(
             .iter()
             .map(|model| model.as_str().to_owned())
             .collect();
-        let oauth_document =
-            document::serialize(&token).map_err(|_| invalid_account(file_index, account_index))?;
+        let oauth_document = document::build_account_document(&token)
+            .map_err(|_| invalid_account(file_index, account_index))?;
         let id = OAuthAccountId::new();
         ids.push(id);
         activations.push(OAuthAccountActivation {

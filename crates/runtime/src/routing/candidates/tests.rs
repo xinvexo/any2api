@@ -236,7 +236,9 @@ async fn grok_oauth_routes_responses_but_not_compact() {
             vec!["grok-4.5".into()],
             OAuthAccountDocument::new(
                 ProviderKind::Grok,
-                br#"{"type":"grok","access_token":"access-secret"}"#.to_vec().into(),
+                br#"{"access_token":"access-secret","refresh_token":null,"id_token":null,"account_id":null,"email":"grok@example.com"}"#
+                    .to_vec()
+                    .into(),
             )
             .expect("Grok OAuth document"),
         )

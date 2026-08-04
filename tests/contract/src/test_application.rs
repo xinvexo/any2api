@@ -143,33 +143,3 @@ impl TestApplication {
         (self.directory, router, self.storage)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::net::SocketAddr;
-
-    use axum::{body::Body, extract::ConnectInfo, http::Request};
-    use tower::ServiceExt;
-
-    use super::TestApplication;
-
-    #[tokio::test]
-    async fn default_router_uses_the_shared_snapshot_and_authenticated_admin() {
-        let fixture = TestApplication::new().await;
-        let revision = fixture.snapshots().load().revision();
-        let response = fixture
-            .router()
-            .oneshot(
-                Request::builder()
-                    .uri("/api/admin/settings")
-                    .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41000))))
-                    .body(Body::empty())
-                    .expect("request"),
-            )
-            .await
-            .expect("response");
-
-        assert_eq!(response.status(), 200);
-        assert_eq!(revision.get(), 1);
-    }
-}

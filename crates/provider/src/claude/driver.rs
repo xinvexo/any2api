@@ -147,7 +147,7 @@ impl ProviderDriver for ClaudeDriver {
         claude_oauth::token_request(grant, code, state, code_verifier)
     }
 
-    fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
+    fn parse_oauth_token_response(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         claude_oauth::parse_token(body)
     }
 

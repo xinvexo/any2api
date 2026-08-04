@@ -161,7 +161,7 @@ impl ProviderDriver for GrokDriver {
         grok_oauth::refresh_request(code)
     }
 
-    fn parse_oauth_token(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
+    fn parse_oauth_token_response(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         grok_oauth::parse_token(body)
     }
 

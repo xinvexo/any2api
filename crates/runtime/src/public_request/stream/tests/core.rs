@@ -269,20 +269,6 @@ fn guarded_body_with_budget_and_health(
     )
 }
 
-pub(super) fn guarded_body_with_idle_timeout(
-    upstream: BoxByteStream,
-    permit: RoutingPermit,
-    postcommit_idle_timeout: Duration,
-) -> GuardedBody {
-    guarded_body_with_budget_health_and_idle(
-        upstream,
-        permit,
-        PrecommitBudget::new(256 * 1024, Duration::from_secs(5)),
-        None,
-        postcommit_idle_timeout,
-    )
-}
-
 pub(super) fn guarded_body_with_budget_health_and_idle(
     upstream: BoxByteStream,
     permit: RoutingPermit,

@@ -56,7 +56,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             .expect("material")
             .document()
             .expose_for_test(),
-        document_bytes(ProviderKind::Codex, "first-access").as_slice()
+        document_bytes("first-access").as_slice()
     );
     assert!(!format!("{created:?}").contains("first-access"));
 
@@ -143,7 +143,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             .expect("refreshed material")
             .document()
             .expose_for_test(),
-        document_bytes(ProviderKind::Codex, "second-access").as_slice()
+        document_bytes("second-access").as_slice()
     );
     let stale = commit_configuration(
         &store,
@@ -180,7 +180,7 @@ async fn oauth_account_lifecycle_persists_plaintext_json_and_versions() {
             .expect("restored material")
             .document()
             .expose_for_test(),
-        document_bytes(ProviderKind::Codex, "second-access").as_slice()
+        document_bytes("second-access").as_slice()
     );
 
     let deleted = commit_configuration(
@@ -294,7 +294,7 @@ async fn grok_oauth_account_round_trips_as_plaintext_sqlite_json() {
             .expect("Grok material")
             .document()
             .expose_for_test(),
-        document_bytes(ProviderKind::Grok, "grok-access")
+        document_bytes("grok-access")
     );
     assert!(!format!("{restored:?}").contains("grok-access"));
 }
@@ -346,7 +346,7 @@ fn draft(label: &str, requests_per_minute: Option<u32>, enabled: bool) -> OAuthA
 }
 
 fn document(provider: ProviderKind, access_token: &str) -> OAuthAccountDocument {
-    OAuthAccountDocument::new(provider, document_bytes(provider, access_token).into())
+    OAuthAccountDocument::new(provider, document_bytes(access_token).into())
         .expect("OAuth document")
 }
 
@@ -362,14 +362,9 @@ fn create(id: OAuthAccountId, provider: ProviderKind, label: &str) -> OAuthAccou
     )
 }
 
-fn document_bytes(provider: ProviderKind, access_token: &str) -> Vec<u8> {
-    let provider = match provider {
-        ProviderKind::Codex => "codex",
-        ProviderKind::Claude => "claude",
-        ProviderKind::Grok => "grok",
-    };
+fn document_bytes(access_token: &str) -> Vec<u8> {
     format!(
-        r#"{{"access_token":"{access_token}","refresh_token":"refresh-secret","type":"{provider}"}}"#
+        r#"{{"access_token":"{access_token}","refresh_token":"refresh-secret","id_token":null,"account_id":null,"email":null}}"#,
     )
     .into_bytes()
 }

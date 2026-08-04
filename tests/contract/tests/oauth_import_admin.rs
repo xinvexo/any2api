@@ -99,8 +99,9 @@ async fn multipart_import_accepts_multiple_files_and_multi_account_documents() {
         let document = material.into_document().into_bytes();
         let document: Value =
             serde_json::from_slice(document.expose_secret()).expect("canonical document");
-        assert!(document.get("type").is_some());
+        assert_eq!(document.as_object().expect("document object").len(), 5);
         assert!(document.get("access_token").is_some());
+        assert!(document.get("type").is_none());
         assert!(document.get("credentials").is_none());
         assert!(document.get("concurrency").is_none());
     }

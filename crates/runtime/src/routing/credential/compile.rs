@@ -5,7 +5,7 @@ use any2api_domain::{
     ProviderEndpointConfiguration, ProviderEndpointId, ProviderKind, ProxyConfiguration,
     ProxyProfileId, UpstreamModelName,
 };
-use any2api_provider::api::ProviderRegistry;
+use any2api_provider::api::{ProviderRegistry, decode_oauth_account_document};
 use any2api_storage::api::{SecretBytes, StoredOAuthAccountMaterial, StoredOAuthAccountMaterials};
 use secrecy::ExposeSecret;
 use thiserror::Error;
@@ -145,15 +145,12 @@ fn compile_oauth_accounts(
             RoutingCredentialCompileError::MissingProviderDriver(account.provider_kind()),
         )?;
         let material = materials.take_for(account)?;
-        let token = driver
-            .parse_oauth_token(material.expose_secret())
-            .map_err(|_| RoutingCredentialCompileError::InvalidOAuthDocument(account.id()))?
-            .with_expires_at_fallback(account.expires_at());
-        if token.provider() != account.provider_kind() {
-            return Err(RoutingCredentialCompileError::OAuthProviderMismatch(
-                account.id(),
-            ));
-        }
+        let token = decode_oauth_account_document(
+            account.provider_kind(),
+            account.expires_at(),
+            material.expose_secret(),
+        )
+        .map_err(|_| RoutingCredentialCompileError::InvalidOAuthDocument(account.id()))?;
         let profile = driver
             .oauth_routing_profile(&token)
             .map_err(|_| RoutingCredentialCompileError::InvalidOAuthRoutingProfile(account.id()))?;

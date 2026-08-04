@@ -11,10 +11,6 @@ export function readThemeMode(): ThemeMode {
     if (value === "light" || value === "dark") {
       return value;
     }
-    // Migrate legacy "system" (and anything else) to the current OS preference once.
-    if (value === "system") {
-      return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-    }
   } catch {
     // fall through
   }

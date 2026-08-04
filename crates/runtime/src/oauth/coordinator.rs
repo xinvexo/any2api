@@ -212,7 +212,7 @@ impl OAuthService {
         )?;
         let body = self.execute_request(plan).await?;
         let token = driver
-            .parse_oauth_token(&body)
+            .parse_oauth_token_response(&body)
             .map_err(OAuthError::from_token_response_error)?;
         activation::publish(
             self.providers.as_ref(),

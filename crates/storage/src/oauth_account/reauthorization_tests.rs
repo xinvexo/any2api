@@ -128,7 +128,7 @@ fn document(access_token: &str) -> OAuthAccountDocument {
 
 fn document_bytes(access_token: &str) -> Vec<u8> {
     format!(
-        r#"{{"access_token":"{access_token}","refresh_token":"refresh-secret","type":"codex"}}"#
+        r#"{{"access_token":"{access_token}","refresh_token":"refresh-secret","id_token":null,"account_id":null,"email":null}}"#
     )
     .into_bytes()
 }

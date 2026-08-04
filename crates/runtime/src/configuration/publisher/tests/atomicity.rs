@@ -93,7 +93,7 @@ async fn no_op_publish_keeps_revision_and_scheduler_epoch() {
 }
 
 #[tokio::test]
-async fn invalid_oauth_candidate_rolls_back_before_commit_and_snapshot_switch() {
+async fn legacy_oauth_candidate_rolls_back_before_commit_and_snapshot_switch() {
     const ACCESS_TOKEN: &str = "publisher-atomic-secret";
 
     let context = TestContext::new().await;
@@ -106,14 +106,13 @@ async fn invalid_oauth_candidate_rolls_back_before_commit_and_snapshot_switch() 
     let document = OAuthAccountDocument::new(
         ProviderKind::Codex,
         serde_json::to_vec(&serde_json::json!({
-            "type": "codex",
             "access_token": ACCESS_TOKEN,
-            "expires_in": "not-an-integer",
+            "type": "codex",
         }))
-        .expect("invalid Provider document JSON")
+        .expect("legacy OAuth document JSON")
         .into(),
     )
-    .expect("storage accepts the basic OAuth document shape");
+    .expect("storage accepts bounded OAuth JSON");
     let error = context
         .publisher
         .activate_oauth_account(
@@ -126,7 +125,7 @@ async fn invalid_oauth_candidate_rolls_back_before_commit_and_snapshot_switch() 
             document,
         )
         .await
-        .expect_err("Provider compilation must reject the candidate");
+        .expect_err("runtime must reject the legacy document");
     let display = error.to_string();
     let debug = format!("{error:?}");
     let stored = context

@@ -224,7 +224,7 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
     );
     let driver = GrokDriver::new();
     let token = driver
-        .parse_oauth_token(body.as_bytes())
+        .parse_oauth_token_response(body.as_bytes())
         .expect("Grok token response");
     assert_eq!(token.provider(), ProviderKind::Grok);
     assert_eq!(token.email(), Some("grok@example.com"));
@@ -354,7 +354,9 @@ fn grok_jwt_identity_falls_back_per_claim_field() {
         }))
         .expect("token response");
 
-        let token = driver.parse_oauth_token(&body).expect("Grok token");
+        let token = driver
+            .parse_oauth_token_response(&body)
+            .expect("Grok token");
 
         assert_eq!(token.account_id(), Some(expected_subject));
         assert_eq!(token.email(), Some(expected_email));

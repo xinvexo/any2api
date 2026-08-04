@@ -241,7 +241,7 @@ async fn test_app() -> (tempfile::TempDir, Router, Arc<SqliteStore>, OAuthAccoun
             vec!["gpt-5.5".to_owned()],
             OAuthAccountDocument::new(
                 ProviderKind::Codex,
-                br#"{"type":"codex","access_token":"access-secret","refresh_token":"refresh-secret"}"#
+                br#"{"access_token":"access-secret","refresh_token":"refresh-secret","id_token":null,"account_id":null,"email":"person@example.com"}"#
                     .to_vec()
                     .into(),
             )

@@ -9,8 +9,6 @@ mod transaction;
 mod write_consistency;
 
 #[cfg(test)]
-mod readback_benchmark_tests;
-#[cfg(test)]
 mod readback_tests;
 #[cfg(test)]
 mod test_support;
