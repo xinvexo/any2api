@@ -68,7 +68,9 @@ export function ProviderEndpointChrome({
         <ProviderKindNav selected={selectedKind} counts={counts} onSelect={onSelectKind} />
       }
     >
-      {children}
+      <div className="management-scroll-viewport h-full min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
+        {children}
+      </div>
     </KindSplitLayout>
   );
 }

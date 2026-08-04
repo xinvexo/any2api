@@ -3,14 +3,16 @@ use any2api_domain::{
 };
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, Method, Uri, header};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::{
     ProtocolError, affinity,
     api::{
         AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-        EncodedUpstreamRequest, IngressRequest, RequestExecutionProfile,
+        EncodedUpstreamRequest, IngressAffinity, IngressRequest, RawJsonPayload,
+        RequestExecutionProfile,
     },
+    raw_json::{object_field, raw_array, raw_string},
 };
 
 mod request_encoding;
@@ -19,74 +21,140 @@ pub(crate) fn decode_request(
     request: IngressRequest,
     dialect: ProtocolDialect,
 ) -> Result<DecodedRequest, ProtocolError> {
-    if request.method != Method::POST || request.operation.dialect() != dialect {
-        return Err(ProtocolError::Unsupported(format!(
-            "{:?}",
-            request.operation
-        )));
+    let IngressRequest {
+        method,
+        headers,
+        body,
+        operation,
+        ..
+    } = request;
+    if method != Method::POST || operation.dialect() != dialect {
+        return Err(ProtocolError::Unsupported(format!("{:?}", operation)));
     }
-
-    let value: Value = serde_json::from_slice(&request.body)
-        .map_err(|_| ProtocolError::InvalidPayload("request body must be valid JSON".into()))?;
-    let object = value.as_object().ok_or_else(|| {
-        ProtocolError::InvalidPayload("request body must be a JSON object".into())
-    })?;
-    let model = object
-        .get("model")
-        .and_then(Value::as_str)
+    let payload = RawJsonPayload::parse(body)?;
+    let model = payload
+        .parse_field::<String>("model")
+        .transpose()
+        .map_err(|_| ProtocolError::InvalidPayload("model must be a non-empty string".into()))?
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ProtocolError::InvalidPayload("model must be a non-empty string".into()))?
         .to_owned();
-    let stream = match object.get("stream") {
-        Some(value) => value
-            .as_bool()
-            .ok_or_else(|| ProtocolError::InvalidPayload("stream must be a boolean".into()))?,
+    let stream = match payload.parse_field::<bool>("stream") {
+        Some(Ok(value)) => value,
+        Some(Err(_)) => {
+            return Err(ProtocolError::InvalidPayload(
+                "stream must be a boolean".into(),
+            ));
+        }
         None => false,
     };
-    if stream && !request.operation.allows_stream() {
+    if stream && !operation.allows_stream() {
         return Err(ProtocolError::InvalidPayload(
             "this operation does not support streaming".into(),
         ));
     }
-    let affinity = affinity::extract(request.operation, &request.headers, object)?;
-    let thinking_level = extract_thinking_level(dialect, object);
-    let body_encoding = request_body_encoding(&request.headers)?;
-    let execution_profile = request_execution_profile(request.operation, object);
+    let affinity = extract_affinity(operation, &headers, &payload)?;
+    let thinking_level = extract_raw_thinking_level(dialect, &payload);
+    let body_encoding = request_body_encoding(&headers)?;
+    let execution_profile = request_execution_profile_raw(operation, &payload);
 
     Ok(DecodedRequest {
         dialect,
-        operation: request.operation,
+        operation,
         execution_profile,
-        client_headers: request.headers.clone(),
+        client_headers: headers,
         headers: HeaderMap::new(),
         body_encoding,
         model: Some(model),
         stream,
         thinking_level,
         affinity,
-        payload: AdapterPayload::Json(value),
+        payload: AdapterPayload::RawJson(payload),
     })
 }
 
-fn request_execution_profile(
+fn extract_affinity(
     operation: ProtocolOperation,
-    object: &Map<String, Value>,
+    headers: &HeaderMap,
+    payload: &RawJsonPayload,
+) -> Result<IngressAffinity, ProtocolError> {
+    if matches!(
+        operation,
+        ProtocolOperation::ImagesGenerations
+            | ProtocolOperation::ImagesEdits
+            | ProtocolOperation::MessagesCountTokens
+    ) {
+        return Ok(IngressAffinity::None);
+    }
+    let previous = if operation == ProtocolOperation::Responses {
+        payload
+            .parse_field::<Option<String>>("previous_response_id")
+            .transpose()
+            .map_err(|_| {
+                ProtocolError::InvalidPayload(
+                    "previous_response_id must be a string or null".into(),
+                )
+            })?
+            .flatten()
+    } else {
+        None
+    };
+    let claude_user_id = payload
+        .field("metadata")
+        .and_then(|metadata| object_field(metadata, "user_id"))
+        .and_then(raw_string);
+    let conversation_id = payload.field("conversation_id").and_then(raw_string);
+    affinity::extract_parts(
+        operation,
+        headers,
+        previous.as_deref(),
+        claude_user_id.as_deref(),
+        conversation_id.as_deref(),
+    )
+}
+
+fn request_execution_profile_raw(
+    operation: ProtocolOperation,
+    payload: &RawJsonPayload,
 ) -> RequestExecutionProfile {
-    if operation == ProtocolOperation::ResponsesCompact
-        || operation == ProtocolOperation::Responses
-            && object
-                .get("input")
-                .and_then(Value::as_array)
-                .and_then(|input| input.last())
-                .and_then(Value::as_object)
-                .and_then(|item| item.get("type"))
-                .and_then(Value::as_str)
-                == Some("compaction_trigger")
-    {
+    if operation == ProtocolOperation::ResponsesCompact {
+        return RequestExecutionProfile::RemoteCompaction;
+    }
+    let remote = operation == ProtocolOperation::Responses
+        && payload
+            .field("input")
+            .and_then(raw_array)
+            .and_then(|items| items.last().copied())
+            .and_then(|item| object_field(item.get().as_bytes(), "type"))
+            .and_then(raw_string)
+            .as_deref()
+            == Some("compaction_trigger");
+    if remote {
         RequestExecutionProfile::RemoteCompaction
     } else {
         RequestExecutionProfile::Standard
     }
+}
+
+fn extract_raw_thinking_level(
+    dialect: ProtocolDialect,
+    payload: &RawJsonPayload,
+) -> Option<String> {
+    let effort = match dialect {
+        ProtocolDialect::OpenAiResponses => payload
+            .field("reasoning")
+            .and_then(|value| object_field(value, "effort"))
+            .and_then(raw_string),
+        ProtocolDialect::OpenAiChatCompletions => {
+            payload.field("reasoning_effort").and_then(raw_string)
+        }
+        ProtocolDialect::AnthropicMessages => payload
+            .field("output_config")
+            .and_then(|value| object_field(value, "effort"))
+            .and_then(raw_string),
+        ProtocolDialect::OpenAiImages => None,
+    };
+    effort.and_then(bound_thinking_level)
 }
 
 fn request_body_encoding(headers: &HeaderMap) -> Result<RequestBodyEncoding, ProtocolError> {
@@ -111,44 +179,56 @@ fn request_body_encoding(headers: &HeaderMap) -> Result<RequestBodyEncoding, Pro
     }
 }
 
-/// Explicit thinking/reasoning effort level for request logs.
-///
-/// Reads only the field defined by the ingress protocol:
-/// - `reasoning.effort` (Responses)
-/// - `reasoning_effort` (Chat Completions)
-/// - `output_config.effort` (Claude adaptive thinking)
-fn extract_thinking_level(dialect: ProtocolDialect, object: &Map<String, Value>) -> Option<String> {
-    let effort = match dialect {
-        ProtocolDialect::OpenAiResponses => object
-            .get("reasoning")
-            .and_then(Value::as_object)
-            .and_then(|reasoning| reasoning.get("effort"))
-            .and_then(Value::as_str),
-        ProtocolDialect::OpenAiChatCompletions => {
-            object.get("reasoning_effort").and_then(Value::as_str)
-        }
-        ProtocolDialect::AnthropicMessages => object
-            .get("output_config")
-            .and_then(Value::as_object)
-            .and_then(|config| config.get("effort"))
-            .and_then(Value::as_str),
-        ProtocolDialect::OpenAiImages => None,
-    };
-    effort.and_then(bound_thinking_level)
-}
-
 pub(crate) fn encode_request(
     operation: ProtocolOperation,
     forwarded: &HeaderMap,
     payload: &AdapterPayload,
     upstream_model: &str,
 ) -> Result<EncodedUpstreamRequest, ProtocolError> {
-    let AdapterPayload::Json(value) = payload else {
-        return Err(ProtocolError::InvalidPayload(
+    match payload {
+        AdapterPayload::Json(value) => {
+            encode_json_request(operation, forwarded, value, upstream_model)
+        }
+        AdapterPayload::RawJson(value) => {
+            encode_raw_json_request(operation, forwarded, value, upstream_model)
+        }
+        AdapterPayload::Multipart(_) => Err(ProtocolError::InvalidPayload(
             "request body must be JSON".into(),
-        ));
-    };
-    encode_json_request(operation, forwarded, value, upstream_model)
+        )),
+    }
+}
+
+fn encode_raw_json_request(
+    operation: ProtocolOperation,
+    forwarded: &HeaderMap,
+    value: &RawJsonPayload,
+    upstream_model: &str,
+) -> Result<EncodedUpstreamRequest, ProtocolError> {
+    let stream = value
+        .parse_field::<bool>("stream")
+        .transpose()
+        .map_err(|_| ProtocolError::InvalidPayload("stream must be a boolean".into()))?
+        .unwrap_or(false);
+    let body = value.encode(operation, upstream_model)?;
+    let mut headers = forwarded.clone();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        header::ACCEPT,
+        HeaderValue::from_static(if stream {
+            "text/event-stream"
+        } else {
+            "application/json"
+        }),
+    );
+    Ok(EncodedUpstreamRequest {
+        method: Method::POST,
+        uri: Uri::from_static("/"),
+        headers,
+        body,
+    })
 }
 
 pub(crate) fn encode_json_request(
@@ -232,10 +312,18 @@ pub(crate) fn encode_response(
 #[cfg(test)]
 mod tests {
     use any2api_domain::ProtocolOperation;
+    use bytes::Bytes;
     use serde_json::json;
 
-    use super::request_execution_profile;
-    use crate::api::RequestExecutionProfile;
+    use super::request_execution_profile_raw;
+    use crate::api::{RawJsonPayload, RequestExecutionProfile};
+
+    fn raw(value: serde_json::Value) -> RawJsonPayload {
+        RawJsonPayload::parse(Bytes::from(
+            serde_json::to_vec(&value).expect("encode request"),
+        ))
+        .expect("raw request")
+    }
 
     #[test]
     fn only_a_final_responses_compaction_trigger_selects_the_remote_profile() {
@@ -246,10 +334,7 @@ mod tests {
             ]
         });
         assert_eq!(
-            request_execution_profile(
-                ProtocolOperation::Responses,
-                remote.as_object().expect("request object"),
-            ),
+            request_execution_profile_raw(ProtocolOperation::Responses, &raw(remote)),
             RequestExecutionProfile::RemoteCompaction
         );
 
@@ -259,10 +344,7 @@ mod tests {
             json!({"input":"compaction_trigger"}),
         ] {
             assert_eq!(
-                request_execution_profile(
-                    ProtocolOperation::Responses,
-                    ordinary.as_object().expect("request object"),
-                ),
+                request_execution_profile_raw(ProtocolOperation::Responses, &raw(ordinary)),
                 RequestExecutionProfile::Standard
             );
         }
@@ -272,10 +354,7 @@ mod tests {
     fn responses_compact_always_uses_the_remote_profile() {
         let request = json!({"input":[]});
         assert_eq!(
-            request_execution_profile(
-                ProtocolOperation::ResponsesCompact,
-                request.as_object().expect("request object"),
-            ),
+            request_execution_profile_raw(ProtocolOperation::ResponsesCompact, &raw(request)),
             RequestExecutionProfile::RemoteCompaction
         );
     }

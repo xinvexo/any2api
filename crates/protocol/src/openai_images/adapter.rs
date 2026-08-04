@@ -100,7 +100,7 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
             return Err(ProtocolError::Unsupported(format!("{operation:?}")));
         }
         let payload = match payload {
-            AdapterPayload::Json(_) => {
+            AdapterPayload::Json(_) | AdapterPayload::RawJson(_) => {
                 return json_codec::encode_request(operation, headers, payload, upstream_model);
             }
             AdapterPayload::Multipart(payload) => payload,

@@ -19,10 +19,42 @@ pub(crate) fn extract(
     ) {
         return Ok(IngressAffinity::None);
     }
+    let previous = previous_response_id(object)?;
+    let claude = object
+        .get("metadata")
+        .and_then(Value::as_object)
+        .and_then(|metadata| metadata.get("user_id"))
+        .and_then(Value::as_str);
+    let conversation = string_field(object, "conversation_id")?;
+    extract_parts(
+        operation,
+        headers,
+        previous.as_deref(),
+        claude,
+        conversation,
+    )
+}
+
+pub(crate) fn extract_parts(
+    operation: ProtocolOperation,
+    headers: &HeaderMap,
+    previous_response_id: Option<&str>,
+    claude_user_id: Option<&str>,
+    conversation_id: Option<&str>,
+) -> Result<IngressAffinity, ProtocolError> {
+    if matches!(
+        operation,
+        ProtocolOperation::ImagesGenerations
+            | ProtocolOperation::ImagesEdits
+            | ProtocolOperation::MessagesCountTokens
+    ) {
+        return Ok(IngressAffinity::None);
+    }
     if operation == ProtocolOperation::Responses
-        && let Some(previous) = previous_response_id(object)?
+        && let Some(previous) = previous_response_id
+        && let Some(previous) = normalized(previous)?
     {
-        return Ok(IngressAffinity::Continuation(previous));
+        return Ok(IngressAffinity::Continuation(previous.to_owned()));
     }
 
     for (header, source) in [
@@ -36,10 +68,14 @@ pub(crate) fn extract(
         }
     }
 
-    if let Some(value) = claude_session_id(object)? {
+    if let Some(value) = claude_user_id
+        && let Some(value) = claude_session_id_from_user_id(value)?
+    {
         return Ok(IngressAffinity::Session(namespaced("claude", &value)?));
     }
-    if let Some(value) = string_field(object, "conversation_id")? {
+    if let Some(value) = conversation_id
+        && let Some(value) = normalized(value)?
+    {
         return Ok(IngressAffinity::Session(namespaced("conversation", value)?));
     }
     Ok(IngressAffinity::None)
@@ -58,16 +94,7 @@ fn previous_response_id(object: &Map<String, Value>) -> Result<Option<String>, P
     Ok(normalized(value)?.map(str::to_owned))
 }
 
-fn claude_session_id(object: &Map<String, Value>) -> Result<Option<String>, ProtocolError> {
-    let Some(user_id) = object
-        .get("metadata")
-        .and_then(Value::as_object)
-        .and_then(|metadata| metadata.get("user_id"))
-        .and_then(Value::as_str)
-    else {
-        return Ok(None);
-    };
-
+fn claude_session_id_from_user_id(user_id: &str) -> Result<Option<String>, ProtocolError> {
     if let Ok(value) = serde_json::from_str::<Value>(user_id)
         && let Some(session_id) = value.get("session_id").and_then(Value::as_str)
     {

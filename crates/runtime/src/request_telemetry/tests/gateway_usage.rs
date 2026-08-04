@@ -12,7 +12,7 @@ use crate::{
     request_telemetry::{
         RequestTelemetry,
         changes::LogChangeNotifier,
-        event::TelemetryEvent,
+        event::{TelemetryEnvelope, TelemetryEvent},
         metrics::{TelemetryCounters, TelemetryQueueClass},
         policy::RequestLogPolicy,
         worker::{self, WorkerState},
@@ -81,15 +81,21 @@ async fn collapsed_gateway_updates_preserve_record_metrics() {
     };
     let (sender, receiver) = mpsc::channel(8);
     let id = GatewayApiKeyId::new();
+    let queue_max_bytes = settings.logging().telemetry_queue_max_bytes() as usize;
 
     for last_used_at in ["2026-08-03 10:00:00", "2026-08-03 10:01:00"] {
-        let event = TelemetryEvent::GatewayKeyLastUsed {
+        let envelope = TelemetryEnvelope::new(TelemetryEvent::GatewayKeyLastUsed {
             id,
             last_used_at: last_used_at.to_owned(),
-        };
-        assert!(counters.try_reserve_slot(8, TelemetryQueueClass::Regular));
-        counters.enqueued(event.record_count());
-        sender.try_send(event).expect("gateway usage event");
+        });
+        assert!(counters.try_reserve(
+            8,
+            queue_max_bytes,
+            envelope.owned_bytes,
+            TelemetryQueueClass::Regular,
+        ));
+        counters.enqueued(envelope.record_count, envelope.owned_bytes);
+        sender.try_send(envelope).expect("gateway usage event");
     }
     drop(sender);
 

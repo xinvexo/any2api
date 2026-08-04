@@ -12,7 +12,10 @@ use any2api_storage::api::{
 use tokio::sync::{Notify, mpsc};
 
 use super::{
-    RequestLogPolicy, changes::LogChangeNotifier, event::TelemetryEvent, metrics::TelemetryCounters,
+    RequestLogPolicy,
+    changes::LogChangeNotifier,
+    event::{TelemetryEnvelope, TelemetryEvent},
+    metrics::{TelemetryCounters, TelemetryQueueClass},
 };
 
 const WRITE_BATCH_SIZE: usize = 64;
@@ -29,19 +32,33 @@ pub(super) struct WorkerState {
 
 #[derive(Default)]
 struct WriteBatch {
-    request_logs: Vec<CompletedRequestLog>,
+    request_logs: RequestLogBatch,
     http_access_logs: HttpAccessLogBatch,
-    gateway_usage: Vec<GatewayApiKeyLastUsedUpdate>,
+    gateway_usage: GatewayUsageBatch,
+}
+
+#[derive(Default)]
+struct RequestLogBatch {
+    records: Vec<CompletedRequestLog>,
+    owned_bytes: usize,
 }
 
 #[derive(Default)]
 struct HttpAccessLogBatch {
     records: Vec<HttpAccessLog>,
     notify_changes: bool,
+    owned_bytes: usize,
+    rejected_owned_bytes: usize,
+}
+
+#[derive(Default)]
+struct GatewayUsageBatch {
+    records: Vec<GatewayApiKeyLastUsedUpdate>,
+    owned_bytes: usize,
 }
 
 pub(super) async fn run(
-    mut receiver: mpsc::Receiver<TelemetryEvent>,
+    mut receiver: mpsc::Receiver<TelemetryEnvelope>,
     request_logs: Arc<dyn RequestLogRepository>,
     http_access_logs: Arc<dyn HttpAccessLogRepository>,
     gateway_usage: Arc<dyn GatewayApiKeyUsageRepository>,
@@ -103,29 +120,52 @@ pub(super) async fn run(
 }
 
 async fn receive_event(
-    event: TelemetryEvent,
+    envelope: TelemetryEnvelope,
     batch: &mut WriteBatch,
     request_logs: &dyn RequestLogRepository,
     http_access_logs: &dyn HttpAccessLogRepository,
     gateway_usage: &dyn GatewayApiKeyUsageRepository,
     state: &WorkerState,
 ) {
+    let TelemetryEnvelope {
+        event,
+        record_count,
+        queue_class,
+        owned_bytes,
+    } = envelope;
     state
         .counters
-        .received(event.record_count(), event.queue_class());
+        .received(record_count, owned_bytes, queue_class);
     match event {
-        TelemetryEvent::RequestLog(record) => batch.request_logs.push(*record),
+        TelemetryEvent::RequestLog(record) => {
+            batch.request_logs.records.push(*record);
+            batch.request_logs.owned_bytes =
+                batch.request_logs.owned_bytes.saturating_add(owned_bytes);
+        }
         TelemetryEvent::HttpAccessLog {
             record,
             notification,
         } => {
             batch.http_access_logs.records.push(*record);
             batch.http_access_logs.notify_changes |= notification.should_notify();
+            batch.http_access_logs.owned_bytes = batch
+                .http_access_logs
+                .owned_bytes
+                .saturating_add(owned_bytes);
+            if queue_class == TelemetryQueueClass::GatewayAuthRejected {
+                batch.http_access_logs.rejected_owned_bytes = batch
+                    .http_access_logs
+                    .rejected_owned_bytes
+                    .saturating_add(owned_bytes);
+            }
         }
         TelemetryEvent::GatewayKeyLastUsed { id, last_used_at } => {
             batch
                 .gateway_usage
+                .records
                 .push(GatewayApiKeyLastUsedUpdate { id, last_used_at });
+            batch.gateway_usage.owned_bytes =
+                batch.gateway_usage.owned_bytes.saturating_add(owned_bytes);
         }
         TelemetryEvent::ClearHttpAccessLogs { reply } => {
             flush(batch, request_logs, http_access_logs, gateway_usage, state).await;
@@ -165,9 +205,9 @@ async fn flush(
 async fn flush_request_logs(
     repository: &dyn RequestLogRepository,
     state: &WorkerState,
-    batch: Vec<CompletedRequestLog>,
+    batch: RequestLogBatch,
 ) {
-    if batch.is_empty() {
+    if batch.records.is_empty() {
         return;
     }
     let max_rows = state
@@ -175,17 +215,24 @@ async fn flush_request_logs(
         .read()
         .expect("request telemetry policy")
         .request_max_rows;
-    match repository.append_request_logs(&batch, max_rows).await {
+    match repository
+        .append_request_logs(&batch.records, max_rows)
+        .await
+    {
         Ok(cleanup) => {
-            state.counters.persisted(batch.len());
+            state
+                .counters
+                .persisted(batch.records.len(), batch.owned_bytes, 0);
             state.changes.request_logs_changed();
             if cleanup.has_more() {
                 state.request_prune_wakeup.notify_one();
             }
         }
         Err(error) => {
-            state.counters.storage_failed(batch.len());
-            tracing::warn!(%error, records = batch.len(), "request telemetry batch was dropped");
+            state
+                .counters
+                .storage_failed(batch.records.len(), batch.owned_bytes, 0);
+            tracing::warn!(%error, records = batch.records.len(), "request telemetry batch was dropped");
         }
     }
 }
@@ -208,13 +255,21 @@ async fn flush_http_access_logs(
         .await
     {
         Ok(deleted) => {
-            state.counters.persisted(batch.records.len());
+            state.counters.persisted(
+                batch.records.len(),
+                batch.owned_bytes,
+                batch.rejected_owned_bytes,
+            );
             if batch.notify_changes || deleted > 0 {
                 state.changes.http_access_logs_changed();
             }
         }
         Err(error) => {
-            state.counters.storage_failed(batch.records.len());
+            state.counters.storage_failed(
+                batch.records.len(),
+                batch.owned_bytes,
+                batch.rejected_owned_bytes,
+            );
             tracing::warn!(%error, records = batch.records.len(), "HTTP access log batch was dropped");
         }
     }
@@ -223,14 +278,14 @@ async fn flush_http_access_logs(
 async fn flush_gateway_usage(
     repository: &dyn GatewayApiKeyUsageRepository,
     state: &WorkerState,
-    batch: Vec<GatewayApiKeyLastUsedUpdate>,
+    batch: GatewayUsageBatch,
 ) {
-    if batch.is_empty() {
+    if batch.records.is_empty() {
         return;
     }
-    let count = batch.len();
+    let count = batch.records.len();
     let mut collapsed = std::collections::HashMap::new();
-    for update in batch {
+    for update in batch.records {
         collapsed
             .entry(update.id)
             .and_modify(|existing: &mut String| {
@@ -246,10 +301,10 @@ async fn flush_gateway_usage(
         .collect::<Vec<_>>();
     match repository.touch_gateway_api_key_last_used(&updates).await {
         Ok(()) => {
-            state.counters.persisted(count);
+            state.counters.persisted(count, batch.owned_bytes, 0);
         }
         Err(error) => {
-            state.counters.storage_failed(count);
+            state.counters.storage_failed(count, batch.owned_bytes, 0);
             tracing::warn!(%error, records = count, "gateway key last_used_at batch was dropped");
         }
     }

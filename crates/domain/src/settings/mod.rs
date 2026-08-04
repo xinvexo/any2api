@@ -22,9 +22,10 @@ pub use configuration::{SettingOverrides, SettingsConfiguration};
 pub use definition::{SettingApplyMode, SettingDefinition, SettingValueType};
 pub use key::SettingKey;
 pub use logging_settings::{
-    LoggingSettings, MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE,
-    MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS, MAX_REQUEST_LOG_RETENTION_SECS,
-    MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
+    DEFAULT_TELEMETRY_QUEUE_MAX_BYTES, LoggingSettings, MAX_FILE_LOG_RETENTION_SECS,
+    MAX_FILE_LOG_TOTAL_SIZE, MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS,
+    MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
+    MAX_TELEMETRY_QUEUE_MAX_BYTES, MIN_TELEMETRY_QUEUE_MAX_BYTES,
 };
 pub use model_settings::ModelSettings;
 pub use network_settings::NetworkSettings;

@@ -46,7 +46,7 @@ impl ProtocolAdapter for OpenAiResponsesAdapter {
         request: IngressRequest,
     ) -> Result<DecodedRequest, ProtocolError> {
         let mut decoded = json_codec::decode_request(request, self.dialect())?;
-        replay_identity::normalize(&mut decoded.payload);
+        replay_identity::normalize(&mut decoded.payload)?;
         Ok(decoded)
     }
 

@@ -165,6 +165,31 @@ pub struct CompletedRequestLog {
     pub attempts: Vec<RequestAttempt>,
 }
 
+impl CompletedRequestLog {
+    /// Bytes exclusively owned by this record, based on current container
+    /// capacities rather than request-body limits.
+    #[must_use]
+    pub fn estimated_owned_bytes(&self) -> usize {
+        let request_strings = option_string_capacity(&self.request.public_model)
+            .saturating_add(option_string_capacity(&self.request.thinking_level))
+            .saturating_add(option_string_capacity(&self.request.error_message));
+        self.attempts.iter().fold(
+            std::mem::size_of::<Self>()
+                .saturating_add(request_strings)
+                .saturating_add(
+                    self.attempts
+                        .capacity()
+                        .saturating_mul(std::mem::size_of::<RequestAttempt>()),
+                ),
+            |bytes, attempt| bytes.saturating_add(option_string_capacity(&attempt.error_message)),
+        )
+    }
+}
+
+fn option_string_capacity(value: &Option<String>) -> usize {
+    value.as_ref().map_or(0, String::capacity)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS, bound_error_message};

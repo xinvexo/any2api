@@ -1465,7 +1465,17 @@ trait ProtocolBridgeSession: Send {
 }
 ```
 
-同协议路径的 `AdapterPayload` 可以保留受限原始 JSON；只有显式选择不同内部协议时才进入 `ProtocolBridge` 和桥专用转换状态。入口完成规范化后，`DecodedRequest` 作为 `Arc` 持有的不可变请求计划在重试与 OAuth replan 间共享；Attempt、ProtocolAdapter 和 ProtocolBridge 只借用它。模型替换、非流式字段裁剪和 multipart 重编码必须在序列化边界从借用 payload 生成新的 wire bytes，不得为每个 Attempt 深拷贝整棵 JSON 或完整 multipart 结构。Bridge 可以构造本次转换专用结构，但不得修改共享入口 payload；转换后不再需要的会话 Vec 应移动到 continuation，而不是为保留临时副本再次深拷贝。完整决策见 `docs/adr/0101-shared-immutable-decoded-request.md`。
+同协议路径的 `AdapterPayload` 使用共享 Raw JSON Body 与顶层字段范围索引；入口只按需解析模型、stream、
+会话、思考级别、远程压缩标记和 Responses item 身份，不为未知嵌套内容构造完整 `serde_json::Value`。
+最终上游模型和字段集合不变且顶层字段名唯一时，Transport Body 直接克隆同一 `Bytes` 句柄；确需模型
+替换、非流式字段裁剪、顶层重复字段消歧或 Responses item ID 归一化时才从原始字段片段生成一份新 wire
+Body。只有显式选择不同内部协议时，
+`ProtocolBridge` 才按需物化结构化 JSON 并进入桥专用转换状态。入口完成规范化后，`DecodedRequest` 作为
+`Arc` 持有的不可变请求计划在重试与 OAuth replan 间共享；Attempt、ProtocolAdapter 和 ProtocolBridge
+只借用它。multipart 重编码同样必须在序列化边界从借用 payload 生成新的 wire bytes，不得为每个 Attempt
+深拷贝整棵 JSON 或完整 multipart 结构。Bridge 可以构造本次转换专用结构，但不得修改共享入口 payload；
+转换后不再需要的会话 Vec 应移动到 continuation，而不是为保留临时副本再次深拷贝。完整决策见
+`docs/adr/0101-shared-immutable-decoded-request.md` 与 `docs/adr/0113-shared-raw-json-ingress.md`。
 
 Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态注册，配置发布前完整解析；有状态 Bridge 通过 `ProtocolContinuationState` 封装可恢复下一次 Session 的强类型能力，Runtime 不解释其内部消息。错误正文只能在严格大小上限内交给 Driver。Driver 返回的 `UpstreamError` 必须同时携带机器可用的 `UpstreamErrorClassification`，以及从该 Provider 已声明错误 envelope 中提取的可选原始 `message`。分类只决定内部重试与健康行为，原始 `message` 只供管理日志显示；最终客户端响应直接使用上游正文，二者都不得由分类结果反向生成。
 
@@ -2357,10 +2367,36 @@ API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到
 | `logs.file.retention` | `7d` |
 | `logs.file.max_total_size` | `256 MiB` |
 | `logs.telemetry_queue_capacity` | `4096` |
+| `logs.telemetry_queue_max_bytes` | `64 MiB` |
 
 RequestLog 与 Attempt 共用保留策略；达到期限或容量任一上限就按最旧父记录分批清理。RequestLog Writer 每个最多 64 条的写批次必须使用写入时最新 PublishedSnapshot 的 `logs.request.max_rows`，在同一写事务内插入后最多删除 10,000 条最旧父记录；稳定状态下该预算大于单批新增量，因此持续流量不能突破行数上限。配置下调或历史积压超过单次删除预算时，Storage 返回 `has_more`，Writer 立即重新唤醒并在事件处理之间继续下一笔有界事务；配置发布也必须唤醒清理，不能等待固定的每分钟周期。60 秒周期只作为保留期与容量的兜底扫描。上述参数均可在 Web“设置”页面修改并写入覆盖值，但不能从 Web 清除覆盖。
 
-RequestLog/Attempt 与 HttpAccessLog 共用 `logs.request.enabled`、`logs.request.retention` 和同一条 `logs.telemetry_queue_capacity` 有界队列；`logs.request.max_rows` 只约束 RequestLog，HttpAccessLog 独立使用 `logs.http_access.max_rows` 与 `logs.http_access.max_exchange_bytes`。后者精确统计每行已序列化的两侧 Header 与 Body BLOB，不伪装成包含配置、RequestLog、索引、页面碎片和 WAL 的 SQLite 文件硬配额；元数据及索引开销由独立行数上限约束。关闭日志时两类 SQLite 历史日志都停止接收新记录。公开 Gateway 鉴权在建立已认证 Key 之前拒绝的响应由仅服务端可设置的 Extension 显式分类，不能按最终 `401` 猜测；该类别仍逐条进入同一非阻塞审计链，但逻辑队列槽、HttpAccessLog 行数与交换字节均使用四分之一向下取整且极小容量下限为一的子容量。容量裁剪优先删除最旧鉴权拒绝记录以同时满足类别和全局压力，只有正常历史自身仍超出总预算时才进入全局最旧裁剪，因此鉴权拒绝洪泛不能从已满足容量的状态挤掉正常历史；不增加源 IP 限流、采样、第二 Writer 或第二数据库。每个请求的记录准入和队列容量从该请求已捕获的 PublishedSnapshot 纯计算，不写入共享策略锁；Writer 和周期清理使用的最新共享策略只能在启动时初始化，以及成功配置发布后由 `PublishedSnapshotReconciler` 更新并触发必要清理；请求热路径禁止顺便推进全局策略 revision。本地文件日志切片把 `logs.file.*` 接入同一 SettingRegistry 和发布链，没有建立独立配置文件或第二套默认值来源。遥测指标按记录而不是按 SQLite 语句计数：`queued_records` 只表示仍留在 channel 中的记录，Writer 取走后转入 `in_flight_records`，直到存储成功或失败才分别转入累计的 `persisted_records` 或 `dropped_records`；管理清理等控制消息可以占用队列槽，但不计入记录指标。同一 Gateway Key 的多个 `last_used_at` 更新即使在批次内合并为一次写入，仍按原始记录数结算。Gateway 使用观测必须携带认证请求捕获的配置 revision；整快照 reconcile 后，迟到的旧 revision 只有在 Key ID 仍属于当前快照时才可更新实时覆盖和节流表，已经删除的 Key 不得重新插入。reconcile 以当前 Key ID 集合线性淘汰两张表并收缩空闲容量，使内存只随当前 Key 集合和切换前的有界竞态增长；已经入队但随后删除的 SQLite 更新允许按不存在行自然 no-op。Writer 在停机超时、任务失败或 abort 后不再运行时，尚存的 queued 与 in-flight 记录统一计入 dropped 后归零，禁止静默抹去。
+RequestLog/Attempt 与 HttpAccessLog 共用 `logs.request.enabled`、`logs.request.retention`、
+`logs.telemetry_queue_capacity` 条数边界和 `logs.telemetry_queue_max_bytes` 在途所有权字节边界；两项必须
+同时满足才接受数据事件。owned bytes 按事件实际 String/Vec capacity 与记录容器计算，从 channel 入队起
+一直保留到 Writer 的 SQLite 成功或失败终态；Writer 接收和最多 64 条的批次不释放总字节预留。任一边界
+不足只丢弃可降级遥测并计数，禁止等待、拒绝或限速公开数据面。`logs.request.max_rows` 只约束 RequestLog，
+HttpAccessLog 独立使用 `logs.http_access.max_rows` 与 `logs.http_access.max_exchange_bytes`。后者精确统计每行
+已序列化的两侧 Header 与 Body BLOB，不伪装成包含配置、RequestLog、索引、页面碎片和 WAL 的 SQLite 文件
+硬配额；元数据及索引开销由独立行数上限约束。关闭日志时两类 SQLite 历史日志都停止接收新记录。公开
+Gateway 鉴权在建立已认证 Key 之前拒绝的响应由仅服务端可设置的 Extension 显式分类，不能按最终 `401`
+猜测；该类别仍逐条进入同一非阻塞审计链，但逻辑队列槽、在途所有权字节、HttpAccessLog 行数与交换字节
+均使用四分之一向下取整且极小容量下限为一的子容量。容量裁剪优先删除最旧鉴权拒绝记录以同时满足类别和
+全局压力，只有正常历史自身仍超出总预算时才进入全局最旧裁剪，因此鉴权拒绝洪泛不能从已满足容量的状态
+挤掉正常历史；不增加源 IP 限流、采样、第二 Writer 或第二数据库。每个请求的记录准入和队列策略从该请求
+已捕获的 PublishedSnapshot 纯计算，不写入共享策略锁；Writer 和周期清理使用的最新共享策略只能在启动时
+初始化，以及成功配置发布后由 `PublishedSnapshotReconciler` 更新并触发必要清理；请求热路径禁止顺便推进
+全局策略 revision。本地文件日志切片把 `logs.file.*` 接入同一 SettingRegistry 和发布链，没有建立独立
+配置文件或第二套默认值来源。遥测指标按记录而不是按 SQLite 语句计数：`queued_records` 只表示仍留在
+channel 中的记录，Writer 取走后转入 `in_flight_records`，直到存储成功或失败才分别转入累计的
+`persisted_records` 或 `dropped_records`；管理清理等控制消息可以占用队列槽，但不计入记录或 owned bytes。
+同一 Gateway Key 的多个 `last_used_at` 更新即使在批次内合并为一次写入，仍按原始记录数结算。Gateway
+使用观测必须携带认证请求捕获的配置 revision；整快照 reconcile 后，迟到的旧 revision 只有在 Key ID 仍
+属于当前快照时才可更新实时覆盖和节流表，已经删除的 Key 不得重新插入。reconcile 以当前 Key ID 集合线性
+淘汰两张表并收缩空闲容量，使内存只随当前 Key 集合和切换前的有界竞态增长；已经入队但随后删除的 SQLite
+更新允许按不存在行自然 no-op。Writer 在停机超时、任务失败或 abort 后不再运行时，尚存的 queued 与
+in-flight 记录统一计入 dropped，记录和字节计数归零，禁止静默抹去。完整决策见
+`docs/adr/0114-byte-bounded-telemetry-ownership.md`。
 
 HttpAccessLog 每批写入在同一事务提交前删除满足行数和交换字节压力所需的最少完整记录；鉴权拒绝类别优先在自身有序索引内裁剪，剩余全局超额再按时间与 Request ID 裁剪，禁止只截短已捕获 Body 或丢弃 Header。周期保留任务也应用两项容量，使无新流量时的热更新下调能够收敛。新建 SQLite 在建表前启用 `auto_vacuum=INCREMENTAL`，Writer 每分钟以及手动清理后只回收约 16 MiB 的 freelist 页面，剩余页面由后续周期继续处理。既有 `auto_vacuum=NONE` 数据库不在启动时隐式执行可能需要约两倍原库临时空间的完整 `VACUUM`；容量删除页可以继续复用，需要缩小旧峰值文件时由管理员停服并显式完成一次模式转换。完整决策见 `docs/adr/0092-bounded-http-access-log-capacity.md` 与 `docs/adr/0109-gateway-auth-rejected-log-isolation.md`。
 
@@ -2786,6 +2822,8 @@ runtime_binding_released
 代理测试固定使用 Runtime 内的中立公网 HTTPS 目标，页面不加载或选择 Provider Endpoint。测试列为状态和延迟预留固定尺寸的两个胶囊：完成后只显示“成功/失败”与“延迟”，未测试、测试中和请求错误也使用同一布局槽位，禁止通过变长行内文字导致列宽或表格抖动。脱敏失败阶段可作为非布局诊断信息，不增加可见胶囊。密码输入只保存在认证表单的局部组件状态，提交完成、关闭或卸载后立即清空。
 
 ### 19.2 Provider
+
+Provider Endpoint 页面中的搜索框、Provider 类型导航以及刷新/新增操作区固定在管理面板顶部；纵向滚动只发生在 Endpoint 列表内容槽中，不能让这组页面操作随列表滚走。窄屏与宽屏遵守同一不变量，只改变工具区的响应式排列。
 
 Provider 类型由左侧 Codex、Claude、Grok 分组决定。新增 Endpoint 时，当前分组直接写入
 `provider_kind`；编辑时沿用 Endpoint 已有类型。Endpoint 抽屉不得重复展示或提供 Provider 类型字段，

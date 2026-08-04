@@ -31,6 +31,24 @@ pub(super) enum TelemetryEvent {
     },
 }
 
+pub(super) struct TelemetryEnvelope {
+    pub(super) event: TelemetryEvent,
+    pub(super) record_count: usize,
+    pub(super) queue_class: TelemetryQueueClass,
+    pub(super) owned_bytes: usize,
+}
+
+impl TelemetryEnvelope {
+    pub(super) fn new(event: TelemetryEvent) -> Self {
+        Self {
+            record_count: event.record_count(),
+            queue_class: event.queue_class(),
+            owned_bytes: event.estimated_owned_bytes(),
+            event,
+        }
+    }
+}
+
 impl TelemetryEvent {
     pub(super) const fn record_count(&self) -> usize {
         match self {
@@ -45,6 +63,20 @@ impl TelemetryEvent {
                 TelemetryQueueClass::GatewayAuthRejected
             }
             _ => TelemetryQueueClass::Regular,
+        }
+    }
+
+    fn estimated_owned_bytes(&self) -> usize {
+        let envelope = std::mem::size_of::<TelemetryEnvelope>();
+        match self {
+            Self::RequestLog(record) => envelope.saturating_add(record.estimated_owned_bytes()),
+            Self::HttpAccessLog { record, .. } => {
+                envelope.saturating_add(record.estimated_owned_bytes())
+            }
+            Self::GatewayKeyLastUsed { last_used_at, .. } => {
+                envelope.saturating_add(last_used_at.capacity())
+            }
+            Self::ClearHttpAccessLogs { .. } => 0,
         }
     }
 }

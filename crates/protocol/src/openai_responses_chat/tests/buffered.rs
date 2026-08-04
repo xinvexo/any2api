@@ -1,7 +1,7 @@
 use any2api_domain::ProtocolOperation;
 use serde_json::{Value, json};
 
-use crate::api::{AdapterPayload, BridgeContinuationState};
+use crate::api::BridgeContinuationState;
 
 use super::{bridged_exchange, decoded, registry, upstream_response};
 
@@ -218,9 +218,10 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
         json!({"model":"public-model","input":response["output"]}),
     )
     .await;
-    let AdapterPayload::Json(replay) = replay.payload else {
-        panic!("Responses replay must be JSON");
-    };
+    let replay = replay
+        .payload
+        .materialize_json()
+        .expect("Responses replay must be JSON");
     let replayed_ids = replay["input"]
         .as_array()
         .expect("replayed input array")

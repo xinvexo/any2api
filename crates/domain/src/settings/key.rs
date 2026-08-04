@@ -21,6 +21,7 @@ pub enum SettingKey {
     LogsFileRetention,
     LogsFileMaxTotalSize,
     LogsTelemetryQueueCapacity,
+    LogsTelemetryQueueMaxBytes,
     OAuthRefreshScanInterval,
     OAuthRefreshLeadTime,
     UpstreamReadTimeout,
@@ -55,7 +56,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 50] = [
+    pub const ALL: [Self; 51] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -75,6 +76,7 @@ impl SettingKey {
         Self::LogsFileRetention,
         Self::LogsFileMaxTotalSize,
         Self::LogsTelemetryQueueCapacity,
+        Self::LogsTelemetryQueueMaxBytes,
         Self::OAuthRefreshScanInterval,
         Self::OAuthRefreshLeadTime,
         Self::UpstreamReadTimeout,
@@ -129,6 +131,7 @@ impl SettingKey {
             Self::LogsFileRetention => "logs.file.retention",
             Self::LogsFileMaxTotalSize => "logs.file.max_total_size",
             Self::LogsTelemetryQueueCapacity => "logs.telemetry_queue_capacity",
+            Self::LogsTelemetryQueueMaxBytes => "logs.telemetry_queue_max_bytes",
             Self::OAuthRefreshScanInterval => "oauth.refresh.scan_interval",
             Self::OAuthRefreshLeadTime => "oauth.refresh.lead_time",
             Self::UpstreamReadTimeout => "upstream.read_timeout",

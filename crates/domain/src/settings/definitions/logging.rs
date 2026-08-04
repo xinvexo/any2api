@@ -2,9 +2,10 @@ use crate::settings::{
     SettingDefinition, SettingKey, SettingValue, SettingValueType,
     definition::{definition as setting_definition, duration_definition},
     logging_settings::{
-        MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE, MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES,
-        MAX_HTTP_ACCESS_LOG_ROWS, MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS,
-        MAX_TELEMETRY_QUEUE_CAPACITY,
+        DEFAULT_TELEMETRY_QUEUE_MAX_BYTES, MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE,
+        MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS,
+        MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_TELEMETRY_QUEUE_CAPACITY,
+        MAX_TELEMETRY_QUEUE_MAX_BYTES, MIN_TELEMETRY_QUEUE_MAX_BYTES,
     },
 };
 
@@ -86,6 +87,14 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
             MAX_TELEMETRY_QUEUE_CAPACITY,
             "请求日志",
             "等待 SQLite Writer 消费的有界请求遥测数量；满载时直接丢弃并计数。",
+        ),
+        SettingKey::LogsTelemetryQueueMaxBytes => integer(
+            key,
+            DEFAULT_TELEMETRY_QUEUE_MAX_BYTES,
+            MIN_TELEMETRY_QUEUE_MAX_BYTES,
+            MAX_TELEMETRY_QUEUE_MAX_BYTES,
+            "请求日志",
+            "channel 与 SQLite Writer 批次合计可持有的请求遥测字节；满载时直接丢弃并计数。",
         ),
         _ => unreachable!(),
     }

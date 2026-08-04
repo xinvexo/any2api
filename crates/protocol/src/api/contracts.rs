@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{borrow::Cow, fmt};
 
 use any2api_domain::{
     ProtocolDialect, ProtocolOperation, PublicError, RequestBodyEncoding, TokenUsage,
@@ -14,6 +14,7 @@ use super::{
     continuation::BridgeContinuationState, exchange::StartedProtocolBridge,
     execution_profile::RequestExecutionProfile,
 };
+pub use crate::raw_json::RawJsonPayload;
 
 #[derive(Clone)]
 pub struct IngressRequest {
@@ -50,12 +51,25 @@ pub enum IngressAffinity {
     Session(String),
 }
 
-/// Request body parsed once at ingress decode; adapters and bridges mutate
-/// and re-serialize this value instead of re-parsing the wire bytes.
+/// Validated request payload. Same-protocol JSON keeps shared wire bytes;
+/// bridges materialize a structured value only when conversion needs it.
 #[derive(Clone)]
 pub enum AdapterPayload {
     Json(Value),
+    RawJson(RawJsonPayload),
     Multipart(MultipartPayload),
+}
+
+impl AdapterPayload {
+    pub(crate) fn materialize_json(&self) -> Result<Cow<'_, Value>, crate::ProtocolError> {
+        match self {
+            Self::Json(value) => Ok(Cow::Borrowed(value)),
+            Self::RawJson(value) => value.to_value().map(Cow::Owned),
+            Self::Multipart(_) => Err(crate::ProtocolError::InvalidPayload(
+                "request body must be JSON".into(),
+            )),
+        }
+    }
 }
 
 /// A parsed multipart body whose ordered fields can be safely re-encoded
@@ -384,6 +398,7 @@ impl fmt::Debug for AdapterPayload {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Json(_) => formatter.write_str("Json([REDACTED])"),
+            Self::RawJson(payload) => fmt::Debug::fmt(payload, formatter),
             Self::Multipart(payload) => formatter
                 .debug_struct("Multipart")
                 .field("part_count", &payload.parts.len())

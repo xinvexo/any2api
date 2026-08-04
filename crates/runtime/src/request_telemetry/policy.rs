@@ -9,6 +9,7 @@ pub(crate) struct RequestLogPolicy {
     pub(crate) http_access_max_rows: u64,
     pub(crate) http_access_max_exchange_bytes: u64,
     pub(crate) queue_capacity: usize,
+    pub(crate) queue_max_bytes: usize,
 }
 
 impl RequestLogPolicy {
@@ -22,6 +23,8 @@ impl RequestLogPolicy {
             http_access_max_exchange_bytes: settings.http_access_max_exchange_bytes(),
             queue_capacity: usize::try_from(settings.telemetry_queue_capacity())
                 .expect("validated telemetry queue capacity fits usize"),
+            queue_max_bytes: usize::try_from(settings.telemetry_queue_max_bytes())
+                .unwrap_or(usize::MAX),
         }
     }
 

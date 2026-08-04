@@ -7,10 +7,9 @@ use uuid::Uuid;
 use crate::{
     ProtocolError,
     api::{
-        AdapterEvent, AdapterPayload, BridgeContinuationState, DecodedRequest,
-        DecodedUpstreamResponse, MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolBridge,
-        ProtocolBridgeSession, ProtocolContinuationState, ResumableProtocolContinuation,
-        StartedProtocolBridge,
+        AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse,
+        MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolBridge, ProtocolBridgeSession,
+        ProtocolContinuationState, ResumableProtocolContinuation, StartedProtocolBridge,
     },
     json_codec,
 };
@@ -182,14 +181,12 @@ fn start_session(
     upstream_model: &str,
     previous: Option<&[Value]>,
 ) -> Result<StartedProtocolBridge, ProtocolError> {
-    let AdapterPayload::Json(value) = &decoded.payload else {
-        return Err(ProtocolError::InvalidPayload(
-            "Responses bridge requires a JSON request body".into(),
-        ));
-    };
-    validate_continuation_reference(value, previous.is_some())?;
+    let value = decoded.payload.materialize_json().map_err(|_| {
+        ProtocolError::InvalidPayload("Responses bridge requires a JSON request body".into())
+    })?;
+    validate_continuation_reference(value.as_ref(), previous.is_some())?;
     let converted = request::convert(
-        value,
+        value.as_ref(),
         upstream_model,
         previous.map_or_else(Vec::new, <[Value]>::to_vec),
     )?;

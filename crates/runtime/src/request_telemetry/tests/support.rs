@@ -193,6 +193,24 @@ pub(super) fn logging_settings(queue_capacity: u64) -> SettingsConfiguration {
     logging_settings_with_request_max_rows(queue_capacity, None)
 }
 
+pub(super) fn logging_settings_with_queue_limits(
+    queue_capacity: u64,
+    queue_max_bytes: u64,
+) -> SettingsConfiguration {
+    let overrides = SettingOverrides::from_entries([
+        (
+            SettingKey::LogsTelemetryQueueCapacity,
+            SettingValue::Integer(queue_capacity),
+        ),
+        (
+            SettingKey::LogsTelemetryQueueMaxBytes,
+            SettingValue::Integer(queue_max_bytes),
+        ),
+    ])
+    .expect("logging overrides");
+    SettingsConfiguration::from_overrides(overrides).expect("logging settings")
+}
+
 pub(super) fn logging_settings_with_request_max_rows(
     queue_capacity: u64,
     request_max_rows: Option<u64>,

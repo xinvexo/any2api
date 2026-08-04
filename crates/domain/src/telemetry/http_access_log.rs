@@ -146,6 +146,30 @@ pub struct HttpAccessLog {
 }
 
 impl HttpAccessLog {
+    /// Bytes exclusively owned by this record, based on current container
+    /// capacities rather than protocol maximums.
+    #[must_use]
+    pub fn estimated_owned_bytes(&self) -> usize {
+        let mut bytes = std::mem::size_of::<Self>()
+            .saturating_add(self.method.capacity())
+            .saturating_add(self.path.capacity())
+            .saturating_add(self.uri.capacity());
+        if let Some(exchange) = &self.exchange {
+            bytes = bytes
+                .saturating_add(headers_owned_bytes(
+                    &exchange.request_headers,
+                    exchange.request_headers.capacity(),
+                ))
+                .saturating_add(exchange.request_body.content.capacity())
+                .saturating_add(headers_owned_bytes(
+                    &exchange.response_headers,
+                    exchange.response_headers.capacity(),
+                ))
+                .saturating_add(exchange.response_body.content.capacity());
+        }
+        bytes
+    }
+
     #[must_use]
     pub fn summary(&self) -> HttpAccessLogSummary {
         HttpAccessLogSummary {
@@ -164,6 +188,17 @@ impl HttpAccessLog {
             exchange_captured: self.exchange.is_some(),
         }
     }
+}
+
+fn headers_owned_bytes(headers: &[HttpHeader], capacity: usize) -> usize {
+    headers.iter().fold(
+        capacity.saturating_mul(std::mem::size_of::<HttpHeader>()),
+        |bytes, header| {
+            bytes
+                .saturating_add(header.name.capacity())
+                .saturating_add(header.value.capacity())
+        },
+    )
 }
 
 impl fmt::Debug for HttpAccessLog {
@@ -266,5 +301,60 @@ mod tests {
         assert_eq!(gateway_auth_rejected_capacity(1), 1);
         assert_eq!(gateway_auth_rejected_capacity(4), 1);
         assert_eq!(gateway_auth_rejected_capacity(20), 5);
+    }
+
+    #[test]
+    fn owned_byte_estimate_uses_allocated_container_capacities() {
+        let mut request_headers = Vec::with_capacity(8);
+        request_headers.push(HttpHeader {
+            name: String::with_capacity(64),
+            value: Vec::with_capacity(128),
+        });
+        let mut log = HttpAccessLog {
+            request_id: RequestId::new(),
+            started_at_ms: 1,
+            config_revision: ConfigRevision::INITIAL,
+            client_ip: None,
+            method: String::with_capacity(32),
+            path: String::with_capacity(64),
+            uri: String::with_capacity(128),
+            http_version: HttpProtocolVersion::Http11,
+            status_code: Some(200),
+            duration_ms: 1,
+            response_bytes: 0,
+            outcome: HttpAccessLogOutcome::Completed,
+            gateway_auth_rejected: false,
+            exchange: Some(HttpAccessLogExchange {
+                request_headers,
+                request_body: HttpBodyCapture {
+                    content: Vec::with_capacity(1_024),
+                    total_bytes: 0,
+                    complete: true,
+                    truncated: false,
+                },
+                response_headers: Vec::with_capacity(4),
+                response_body: HttpBodyCapture {
+                    content: Vec::with_capacity(2_048),
+                    total_bytes: 0,
+                    complete: true,
+                    truncated: false,
+                },
+            }),
+        };
+        log.method.push_str("POST");
+        log.path.push_str("/v1/responses");
+        log.uri.push_str("/v1/responses?trace=raw");
+
+        let vector_allocations = (8 + 4) * std::mem::size_of::<HttpHeader>();
+        let expected = std::mem::size_of::<HttpAccessLog>()
+            + 32
+            + 64
+            + 128
+            + vector_allocations
+            + 64
+            + 128
+            + 1_024
+            + 2_048;
+        assert_eq!(log.estimated_owned_bytes(), expected);
     }
 }

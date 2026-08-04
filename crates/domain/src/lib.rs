@@ -53,13 +53,15 @@ pub use routing::{
     RetrySafety, RouteTarget, RouteTargetDraft, RoutingCredentialId, UpstreamModelName,
 };
 pub use settings::{
-    AdminSettings, AffinitySettings, FileLogLevel, LoggingSettings, MAX_FILE_LOG_RETENTION_SECS,
-    MAX_FILE_LOG_TOTAL_SIZE, MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS,
-    MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES,
-    MAX_TELEMETRY_QUEUE_CAPACITY, ModelAccess, ModelSettings, OAuthSettings, RateLimitMode,
-    ReliabilitySettings, SchedulerSettings, SettingApplyMode, SettingDefinition, SettingKey,
-    SettingOverrideChange, SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
-    SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
+    AdminSettings, AffinitySettings, DEFAULT_TELEMETRY_QUEUE_MAX_BYTES, FileLogLevel,
+    LoggingSettings, MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE,
+    MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS, MAX_REQUEST_LOG_RETENTION_SECS,
+    MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY,
+    MAX_TELEMETRY_QUEUE_MAX_BYTES, MIN_TELEMETRY_QUEUE_MAX_BYTES, ModelAccess, ModelSettings,
+    OAuthSettings, RateLimitMode, ReliabilitySettings, SchedulerSettings, SettingApplyMode,
+    SettingDefinition, SettingKey, SettingOverrideChange, SettingOverrides, SettingValue,
+    SettingValueType, SettingsConfiguration, SettingsValidationError, ShutdownSettings,
+    StreamSettings, UpstreamSettings,
 };
 pub use telemetry::{
     CompletedRequestLog, GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR, HttpAccessLog,

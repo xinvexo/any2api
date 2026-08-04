@@ -19,7 +19,7 @@ use tokio::{
 
 use super::{
     changes::LogChangeNotifier,
-    event::{HttpAccessLogChangeNotification, TelemetryEvent},
+    event::{HttpAccessLogChangeNotification, TelemetryEnvelope, TelemetryEvent},
     gateway_usage::{GatewayUsageTracker, utc_timestamp},
     metrics::{RequestTelemetryMetrics, TelemetryCounters},
     policy::RequestLogPolicy,
@@ -43,7 +43,7 @@ pub struct RequestTelemetry {
     http_access_logs: Option<Arc<dyn HttpAccessLogRepository>>,
     gateway_usage_repository: Option<Arc<dyn GatewayApiKeyUsageRepository>>,
     upstream_usage_repository: Option<Arc<dyn UpstreamCredentialUsageRepository>>,
-    sender: RwLock<Option<mpsc::Sender<TelemetryEvent>>>,
+    sender: RwLock<Option<mpsc::Sender<TelemetryEnvelope>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
     counters: TelemetryCounters,
     policy: Arc<RwLock<RequestLogPolicy>>,
@@ -167,6 +167,7 @@ impl RequestTelemetry {
         self.try_send_event(
             TelemetryEvent::RequestLog(Box::new(record)),
             policy.queue_capacity,
+            policy.queue_max_bytes,
         );
     }
 
@@ -186,6 +187,7 @@ impl RequestTelemetry {
                 notification,
             },
             policy.queue_capacity,
+            policy.queue_max_bytes,
         );
     }
 
@@ -203,17 +205,14 @@ impl RequestTelemetry {
         if !should_enqueue {
             return;
         }
-        let capacity = self
-            .policy
-            .read()
-            .expect("request telemetry policy")
-            .queue_capacity;
+        let policy = *self.policy.read().expect("request telemetry policy");
         self.try_send_event(
             TelemetryEvent::GatewayKeyLastUsed {
                 id,
                 last_used_at: used_at,
             },
-            capacity,
+            policy.queue_capacity,
+            policy.queue_max_bytes,
         );
     }
 
@@ -317,7 +316,9 @@ impl RequestTelemetry {
             .map_err(|_| RequestTelemetryControlError::WriterUnavailable)?;
         let (reply, result) = tokio::sync::oneshot::channel();
         self.counters.reserve_control_slot();
-        permit.send(TelemetryEvent::ClearHttpAccessLogs { reply });
+        permit.send(TelemetryEnvelope::new(
+            TelemetryEvent::ClearHttpAccessLogs { reply },
+        ));
         result
             .await
             .map_err(|_| RequestTelemetryControlError::WriterUnavailable)?
@@ -376,21 +377,26 @@ impl RequestTelemetry {
         }
     }
 
-    fn try_send_event(&self, event: TelemetryEvent, capacity: usize) {
-        let records = event.record_count();
-        let queue_class = event.queue_class();
+    fn try_send_event(&self, event: TelemetryEvent, capacity: usize, max_bytes: usize) {
+        let envelope = TelemetryEnvelope::new(event);
+        let records = envelope.record_count;
+        let queue_class = envelope.queue_class;
+        let owned_bytes = envelope.owned_bytes;
         let sender = self.sender.read().expect("request telemetry sender");
         let Some(sender) = sender.as_ref() else {
             self.counters.rejected(records);
             return;
         };
-        if !self.counters.try_reserve_slot(capacity, queue_class) {
+        if !self
+            .counters
+            .try_reserve(capacity, max_bytes, owned_bytes, queue_class)
+        {
             self.counters.rejected(records);
             return;
         }
-        self.counters.enqueued(records);
-        if sender.try_send(event).is_err() {
-            self.counters.send_failed(records, queue_class);
+        self.counters.enqueued(records, owned_bytes);
+        if sender.try_send(envelope).is_err() {
+            self.counters.send_failed(records, owned_bytes, queue_class);
         }
     }
 }

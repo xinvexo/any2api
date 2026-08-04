@@ -24,7 +24,8 @@ pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::LogsFileLevel
         | SettingKey::LogsFileRetention
         | SettingKey::LogsFileMaxTotalSize
-        | SettingKey::LogsTelemetryQueueCapacity => logging::definition(key),
+        | SettingKey::LogsTelemetryQueueCapacity
+        | SettingKey::LogsTelemetryQueueMaxBytes => logging::definition(key),
         SettingKey::OAuthRefreshScanInterval | SettingKey::OAuthRefreshLeadTime => {
             oauth::definition(key)
         }

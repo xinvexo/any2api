@@ -1,9 +1,15 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use any2api_domain::{ConfigRevision, RequestId};
+use any2api_domain::{
+    ConfigRevision, HttpAccessLogExchange, HttpBodyCapture, MIN_TELEMETRY_QUEUE_MAX_BYTES,
+    RequestId,
+};
 
-use super::support::{BlockingRepository, access_log, logging_settings, record, wait_for};
+use super::support::{
+    BlockingRepository, access_log, logging_settings, logging_settings_with_queue_limits, record,
+    wait_for,
+};
 use crate::{
     lifecycle::ProcessLifecycle,
     request_telemetry::{HttpAccessLogChangeNotification, RequestTelemetry},
@@ -185,4 +191,64 @@ async fn gateway_auth_rejections_cannot_fill_the_shared_logical_queue() {
         1
     );
     assert_eq!(telemetry.metrics().persisted_records, 5);
+}
+
+#[tokio::test]
+async fn telemetry_owned_bytes_remain_bounded_while_storage_is_blocked() {
+    let repository = Arc::new(BlockingRepository::default());
+    let settings = logging_settings_with_queue_limits(8, MIN_TELEMETRY_QUEUE_MAX_BYTES);
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    telemetry.try_record(
+        record(RequestId::new()),
+        telemetry.policy(ConfigRevision::INITIAL, settings.logging()),
+    );
+    wait_for(|| repository.write_batches.load(Ordering::Acquire) == 1).await;
+
+    for path in ["/large-accepted", "/large-dropped"] {
+        let mut log = access_log(path);
+        log.exchange = Some(HttpAccessLogExchange {
+            request_headers: Vec::new(),
+            request_body: body_capture(1024 * 1024),
+            response_headers: Vec::new(),
+            response_body: body_capture(1024 * 1024),
+        });
+        telemetry.try_record_http_access(
+            log,
+            settings.logging(),
+            HttpAccessLogChangeNotification::Notify,
+        );
+    }
+    telemetry.try_record_http_access(
+        access_log("/small-accepted"),
+        settings.logging(),
+        HttpAccessLogChangeNotification::Notify,
+    );
+
+    let metrics = telemetry.metrics();
+    assert_eq!(metrics.queued_records, 2);
+    assert_eq!(metrics.in_flight_records, 1);
+    assert_eq!(metrics.dropped_records, 1);
+
+    repository.release_first.notify_waiters();
+    telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+    let logs = repository.access_logs.lock().expect("HTTP access logs");
+    assert_eq!(logs.len(), 2);
+    assert_eq!(logs[0].path, "/large-accepted");
+    assert_eq!(logs[1].path, "/small-accepted");
+    assert_eq!(telemetry.metrics().persisted_records, 3);
+}
+
+fn body_capture(bytes: usize) -> HttpBodyCapture {
+    HttpBodyCapture {
+        content: vec![0; bytes],
+        total_bytes: u64::try_from(bytes).expect("body size fits u64"),
+        complete: true,
+        truncated: false,
+    }
 }
