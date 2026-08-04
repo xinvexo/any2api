@@ -18,10 +18,10 @@ Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_
 - Codex Driver 固定构造 `/backend-api/wham/usage`、`/backend-api/wham/rate-limit-reset-credits` 与 `/consume` 请求，注入 Bearer、`chatgpt-account-id` 和 Codex quota 所需固定头，并把受限响应解析成安全类型。Provider 不执行网络请求。
 - Runtime 使用 OAuthAccount 固定 DIRECT 绑定解析出的全局代理和当前严格 SSRF 设置；不允许专属代理、重定向或隐式直连回退。响应正文按固定上限读取，错误正文不进入日志或管理响应。
 - 查询遇到 401 时沿用 OAuth per-account refresh singleflight，最多刷新并重试一次。额度详情查询失败只允许回退到同次 usage 响应中明确给出的 reset credit 数据；缺失时保持未知，禁止猜测为可用。
-- 重置按 OAuthAccount 串行。每次 POST 在持锁后重新执行额度查询，仅当最新 `available_count > 0` 才生成 UUID v4 `redeem_request_id` 并调用 consume；不相信客户端提交的次数。
+- 重置与额度 refresh 共用 OAuthAccount 级操作门闩。每次 POST 在持锁后重新执行额度查询，仅当最新 `available_count > 0` 才调用 consume；不相信客户端提交的次数。Web 在用户确认时生成 UUID v4 `redeem_request_id`，失败后的同次重试继续复用且不写浏览器持久存储；Server 只接受合法 UUID，Runtime 在额度复核、401 后重试和 consume 中始终透传同一个值，使上游可以幂等识别浏览器超时后的重复提交。
 - consume 成功且响应确认至少重置一个窗口后，清除该账号当前运行代际的 credential/model 临时冷却并推进 scheduler epoch。认证错误、Endpoint/Proxy 状态和其他账号不受影响。
 - 管理 DTO 使用通用窗口列表，只返回安全窗口、可用次数、credit 到期时间、抓取时间和已重置窗口数。最后一次成功快照按 ADR-0111 写入独立 SQLite 表，但不写 OAuth Provider JSON、PublishedSnapshot、RequestLog、文件日志或浏览器持久存储，也不用于恢复路由健康。
-- Web 先读取持久化快照并允许显式刷新；只有最新成功查询确认可用次数大于 0 时启用重置，确认框明确提示会消耗一次，成功后删除重置前快照并立即重新查询。
+- Web 先读取持久化快照并允许显式刷新；只有最新成功查询确认可用次数大于 0 时启用重置，确认框明确提示会消耗一次，成功后删除重置前快照、清除本次幂等键并立即重新查询。额度 refresh/reset 由服务端分阶段读取超时约束，浏览器不得用通用 10 秒 deadline 提前制造结果不确定状态。
 
 ## 备选方案
 
@@ -37,6 +37,6 @@ Codex OAuth 账号的 ChatGPT 后端提供 5 小时/周限流窗口以及 `rate_
 ## 验证
 
 - Provider 单元测试覆盖固定 URL/认证头、usage 主次窗口、reset credit 多种响应形状、非 Codex credit 过滤和 consume 响应校验。
-- Runtime 测试覆盖 DIRECT/全局代理、严格 SSRF、正文上限、401 单次刷新、无次数拒绝、并发重置串行和成功后的临时冷却清理。
+- Runtime 测试覆盖 DIRECT/全局代理、严格 SSRF、正文上限、401 单次刷新、无次数拒绝、refresh/reset 串行、同一 `redeem_request_id` 透传和成功后的临时冷却清理。
 - 管理契约测试覆盖鉴权、Codex 查询/重置、Claude/Grok 无重置能力、DTO 脱敏和 Token 不出现在响应。
 - Web 测试覆盖额度展示、零次数禁用、确认消费、成功后重新查询和错误状态。

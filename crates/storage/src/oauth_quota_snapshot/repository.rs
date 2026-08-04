@@ -58,8 +58,7 @@ impl OAuthQuotaSnapshotRepository for SqliteStore {
                  schema_version = excluded.schema_version, \
                  fetched_at = excluded.fetched_at, \
                  payload = excluded.payload, \
-                 updated_at = CURRENT_TIMESTAMP \
-             WHERE excluded.fetched_at >= oauth_quota_snapshots.fetched_at",
+                 updated_at = CURRENT_TIMESTAMP",
         )
         .bind(snapshot.oauth_account_id.to_string())
         .bind(i64::from(snapshot.schema_version))

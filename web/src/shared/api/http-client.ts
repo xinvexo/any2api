@@ -1,6 +1,6 @@
 export interface JsonRequestOptions {
   signal?: AbortSignal;
-  timeoutMs?: number;
+  timeoutMs?: number | null;
   method?: string;
   body?: unknown;
   headers?: Readonly<Record<string, string>>;
@@ -37,10 +37,12 @@ export async function requestJson<T>(
 ): Promise<T> {
   const controller = new AbortController();
   let timedOut = false;
-  const timeout = window.setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
+  const timeout = timeoutMs === null
+    ? null
+    : window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
   const forwardAbort = () => controller.abort(signal?.reason);
   if (signal?.aborted) {
     forwardAbort();
@@ -88,7 +90,9 @@ export async function requestJson<T>(
     }
     throw error;
   } finally {
-    window.clearTimeout(timeout);
+    if (timeout !== null) {
+      window.clearTimeout(timeout);
+    }
     signal?.removeEventListener("abort", forwardAbort);
   }
 }

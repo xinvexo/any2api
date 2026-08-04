@@ -154,13 +154,13 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
     await page.request.get(`/api/e2e-virtual-row/${index}`);
   }
   await expect.poll(async () => {
-    const response = await page.request.get("/api/admin/system-logs?page=1&page_size=50");
+    const response = await page.request.get("/api/admin/system-logs?page_size=50");
     const payload = await response.json() as { items: Array<{ path: string }> };
     return payload.items.filter((item) => item.path.startsWith("/api/e2e-virtual-row/")).length;
   }).toBe(40);
 
   const pageSizeChanged = page.waitForResponse((response) =>
-    response.url().includes("/api/admin/system-logs?page=1&page_size=50"),
+    response.url().includes("/api/admin/system-logs?page_size=50"),
   );
   await page.getByRole("combobox", { name: "每页条数" }).click();
   await page.getByRole("option", { name: "50 条/页" }).click();
@@ -169,7 +169,7 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
 
   const refreshed = page.waitForResponse(
     (response) =>
-      response.url().includes("/api/admin/system-logs?page=1&page_size=50") &&
+      response.url().includes("/api/admin/system-logs?page_size=50") &&
       response.request().method() === "GET",
   );
   await page.getByRole("button", { name: "刷新", exact: true }).click();

@@ -31,6 +31,7 @@ export function exchangeOAuthCallback(sessionId: string, callbackUrl: string) {
       session_id: sessionId,
       callback_url: callbackUrl,
     },
+    timeoutMs: null,
   }).then(parseOAuthActivationResult);
 }
 
@@ -114,13 +115,25 @@ export function getOAuthAccountQuota(id: string) {
 export function refreshOAuthAccountQuotaRequest(id: string) {
   return requestJson<unknown>(
     `${accountCollection}/${encodeURIComponent(id)}/quota/refresh`,
-    { method: "POST" },
+    { method: "POST", timeoutMs: null },
   ).then(parseOAuthQuotaSnapshot);
 }
 
+const quotaResetRequestIds = new Map<string, string>();
+
 export function resetOAuthAccountQuota(id: string) {
+  const redeemRequestId = quotaResetRequestIds.get(id) ?? crypto.randomUUID();
+  quotaResetRequestIds.set(id, redeemRequestId);
   return requestJson<unknown>(
     `${accountCollection}/${encodeURIComponent(id)}/quota/reset`,
-    { method: "POST" },
-  ).then(parseOAuthQuotaResetResult);
+    {
+      method: "POST",
+      body: { redeem_request_id: redeemRequestId },
+      timeoutMs: null,
+    },
+  ).then((value) => {
+    const result = parseOAuthQuotaResetResult(value);
+    quotaResetRequestIds.delete(id);
+    return result;
+  });
 }

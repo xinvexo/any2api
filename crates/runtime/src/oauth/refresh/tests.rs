@@ -25,6 +25,7 @@ use crate::{
     registry::RuntimeRegistry,
 };
 
+mod expiry;
 mod health_generation;
 mod scheduled;
 
@@ -80,41 +81,6 @@ async fn concurrent_refreshes_share_one_request_and_publish_one_generation() {
     assert_eq!(token.id_token(), Some("old-id-token"));
     assert_eq!(token.account_id(), Some("account-123"));
     assert_eq!(token.email(), Some("person@example.com"));
-}
-
-#[tokio::test]
-async fn refresh_without_expiry_preserves_the_persisted_fail_closed_boundary() {
-    let transport = Arc::new(BlockingRefreshTransport::with_response(Bytes::from_static(
-        br#"{"access_token":"new-access"}"#,
-    )));
-    let context = RefreshTestContext::with_account(Arc::clone(&transport)).await;
-    let id = context.account_id.expect("OAuth account");
-    transport.release();
-
-    assert_eq!(
-        context
-            .refresher
-            .refresh_if_due(id, 1)
-            .await
-            .expect("refresh result"),
-        Some(2)
-    );
-    let published = context.snapshots.load();
-    assert_eq!(
-        published
-            .oauth_accounts()
-            .get(id)
-            .expect("refreshed account")
-            .expires_at(),
-        Some(0)
-    );
-    assert_eq!(
-        published
-            .oauth_token_material(id)
-            .expect("published OAuth token")
-            .expires_at(),
-        Some(0)
-    );
 }
 
 #[tokio::test]

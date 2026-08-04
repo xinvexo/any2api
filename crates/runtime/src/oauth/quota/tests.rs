@@ -10,6 +10,7 @@ use super::{
     test_support::{AuthenticationMode, QuotaTestContext},
 };
 use crate::health::{HealthAcquireError, ReliabilityPolicy};
+use uuid::Uuid;
 
 #[tokio::test]
 async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
@@ -72,9 +73,11 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
     let epoch_before = context.runtime.scheduler_epoch();
     drop(snapshot);
 
+    let redeem_request_id =
+        Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("reset request UUID");
     let reset = context
         .service
-        .reset_quota(context.account_id)
+        .reset_quota(context.account_id, redeem_request_id)
         .await
         .expect("quota reset");
     assert_eq!(reset.windows_reset, 2);
@@ -117,7 +120,7 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         .as_str()
         .expect("redeem request id")
         .to_owned();
-    assert!(uuid::Uuid::parse_str(&redeem_id).is_ok());
+    assert_eq!(redeem_id, redeem_request_id.to_string());
 }
 
 #[tokio::test]
@@ -125,7 +128,10 @@ async fn reset_without_available_credit_never_calls_consume() {
     let context = QuotaTestContext::new(0, AuthenticationMode::Accepted).await;
 
     assert!(matches!(
-        context.service.reset_quota(context.account_id).await,
+        context
+            .service
+            .reset_quota(context.account_id, Uuid::new_v4())
+            .await,
         Err(OAuthQuotaError::NoResetCredits)
     ));
     assert_eq!(context.transport.consume_calls(), 0);
@@ -325,15 +331,76 @@ async fn explicit_quota_exhaustion_blocks_routing_until_a_fresh_available_snapsh
 }
 
 #[tokio::test]
+async fn concurrent_quota_refreshes_share_one_provider_query_and_result() {
+    let context = QuotaTestContext::new_blocking_refresh(1).await;
+    let first_service = Arc::clone(&context.service);
+    let id = context.account_id;
+    let first = tokio::spawn(async move { first_service.refresh_quota(id).await });
+    context.transport.wait_for_usage().await;
+
+    let second_service = Arc::clone(&context.service);
+    let second = tokio::spawn(async move { second_service.refresh_quota(id).await });
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        context
+            .transport
+            .captured()
+            .iter()
+            .filter(|request| request.path == "/backend-api/wham/usage")
+            .count(),
+        1
+    );
+    context.transport.release_usage();
+
+    let first = first.await.expect("first refresh").expect("quota result");
+    let second = second.await.expect("second refresh").expect("quota result");
+    assert_eq!(first, second);
+    assert_eq!(context.transport.usage_calls(), 1);
+}
+
+#[tokio::test]
+async fn reset_orders_older_and_waiting_refreshes_without_returning_a_stale_snapshot() {
+    let context = QuotaTestContext::new_blocking_refresh(1).await;
+    let refresh_service = Arc::clone(&context.service);
+    let id = context.account_id;
+    let refresh = tokio::spawn(async move { refresh_service.refresh_quota(id).await });
+    context.transport.wait_for_usage().await;
+
+    let reset_service = Arc::clone(&context.service);
+    let mut reset = Box::pin(reset_service.reset_quota(id, Uuid::new_v4()));
+    assert!(futures_util::poll!(reset.as_mut()).is_pending());
+    let waiting_refresh_service = Arc::clone(&context.service);
+    let mut waiting_refresh = Box::pin(waiting_refresh_service.refresh_quota(id));
+    assert!(futures_util::poll!(waiting_refresh.as_mut()).is_pending());
+    context.transport.release_usage();
+
+    refresh.await.expect("refresh task").expect("quota refresh");
+    reset.await.expect("quota reset");
+    let refreshed = waiting_refresh.await.expect("post-reset quota refresh");
+    assert_eq!(
+        context
+            .service
+            .cached_quota(context.account_id)
+            .await
+            .expect("cached quota after reset"),
+        Some(refreshed)
+    );
+    assert_eq!(context.transport.usage_calls(), 3);
+    assert_eq!(context.transport.consume_calls(), 1);
+}
+
+#[tokio::test]
 async fn concurrent_resets_serialize_and_only_consume_the_last_credit_once() {
     let context = QuotaTestContext::new_blocking_reset(1).await;
     let first_service = Arc::clone(&context.service);
     let id = context.account_id;
-    let first = tokio::spawn(async move { first_service.reset_quota(id).await });
+    let first = tokio::spawn(async move { first_service.reset_quota(id, Uuid::new_v4()).await });
     context.transport.wait_for_consume().await;
 
     let second_service = Arc::clone(&context.service);
-    let second = tokio::spawn(async move { second_service.reset_quota(id).await });
+    let second = tokio::spawn(async move { second_service.reset_quota(id, Uuid::new_v4()).await });
     for _ in 0..10 {
         tokio::task::yield_now().await;
     }

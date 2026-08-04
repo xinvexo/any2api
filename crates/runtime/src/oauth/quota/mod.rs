@@ -2,6 +2,7 @@ mod activity;
 mod coordinator;
 mod health;
 mod observation;
+mod operation_gate;
 mod persistence;
 mod rejection;
 mod request;

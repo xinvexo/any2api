@@ -1,6 +1,5 @@
 use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex as StdMutex, Weak},
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
 
@@ -12,7 +11,7 @@ use any2api_provider::api::{
 use any2api_storage::api::OAuthQuotaSnapshotRepository;
 use any2api_transport::api::TransportManager;
 use http::StatusCode;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::{
@@ -26,6 +25,7 @@ use crate::{
 use super::{
     activity::OAuthQuotaActivity,
     health, observation,
+    operation_gate::{OAuthQuotaCompletedOperation, OAuthQuotaOperationGates},
     persistence::OAuthQuotaPersistence,
     rejection::RequestContext,
     types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
@@ -38,7 +38,7 @@ pub(in crate::oauth) struct OAuthQuotaService {
     refresher: Arc<OAuthRefresher>,
     persistence: OAuthQuotaPersistence,
     activity: OAuthQuotaActivity,
-    reset_gates: StdMutex<HashMap<OAuthAccountId, Weak<Mutex<()>>>>,
+    operation_gates: OAuthQuotaOperationGates,
 }
 
 impl OAuthQuotaService {
@@ -56,7 +56,7 @@ impl OAuthQuotaService {
             refresher,
             persistence: OAuthQuotaPersistence::new(quota_repository),
             activity: OAuthQuotaActivity::new(),
-            reset_gates: StdMutex::new(HashMap::new()),
+            operation_gates: OAuthQuotaOperationGates::default(),
         }
     }
 
@@ -77,6 +77,26 @@ impl OAuthQuotaService {
     }
 
     pub(in crate::oauth) async fn refresh(
+        &self,
+        id: OAuthAccountId,
+    ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
+        let gate = self.operation_gates.get(id);
+        let observed = gate.operation_completed.load(Ordering::Acquire);
+        let mut state = gate.state.lock().await;
+        if gate.operation_completed.load(Ordering::Acquire) != observed
+            && let Some(OAuthQuotaCompletedOperation::Refresh(result)) = &state.last_completed
+        {
+            return result.as_ref().clone();
+        }
+        let result = self.refresh_once(id).await;
+        state.last_completed = Some(OAuthQuotaCompletedOperation::Refresh(Arc::new(
+            result.clone(),
+        )));
+        gate.operation_completed.fetch_add(1, Ordering::Release);
+        result
+    }
+
+    async fn refresh_once(
         &self,
         id: OAuthAccountId,
     ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
@@ -107,9 +127,21 @@ impl OAuthQuotaService {
     pub(in crate::oauth) async fn reset(
         &self,
         id: OAuthAccountId,
+        redeem_request_id: Uuid,
     ) -> Result<OAuthQuotaResetOutcome, OAuthQuotaError> {
-        let gate = self.reset_gate(id);
-        let _guard = gate.lock().await;
+        let gate = self.operation_gates.get(id);
+        let mut state = gate.state.lock().await;
+        let result = self.reset_once(id, redeem_request_id).await;
+        state.last_completed = Some(OAuthQuotaCompletedOperation::Reset);
+        gate.operation_completed.fetch_add(1, Ordering::Release);
+        result
+    }
+
+    async fn reset_once(
+        &self,
+        id: OAuthAccountId,
+        redeem_request_id: Uuid,
+    ) -> Result<OAuthQuotaResetOutcome, OAuthQuotaError> {
         let quota = self.query_with_authentication_retry(id).await?;
         if quota
             .reset_credits
@@ -118,7 +150,9 @@ impl OAuthQuotaService {
         {
             return Err(OAuthQuotaError::NoResetCredits);
         }
-        let result = self.reset_with_authentication_retry(id).await?;
+        let result = self
+            .reset_with_authentication_retry(id, &redeem_request_id)
+            .await?;
         self.clear_temporary_cooldowns(id);
         self.persistence.delete(id).await?;
         Ok(OAuthQuotaResetOutcome {
@@ -229,6 +263,7 @@ impl OAuthQuotaService {
     async fn reset_with_authentication_retry(
         &self,
         id: OAuthAccountId,
+        redeem_request_id: &Uuid,
     ) -> Result<OAuthQuotaResetResult, OAuthQuotaError> {
         let snapshot = self.publisher.current_snapshot();
         let observed_token_version = snapshot
@@ -236,7 +271,10 @@ impl OAuthQuotaService {
             .get(id)
             .ok_or(OAuthQuotaError::AccountNotFound)?
             .token_version();
-        match self.reset_attempt(Arc::clone(&snapshot), id).await {
+        match self
+            .reset_attempt(Arc::clone(&snapshot), id, redeem_request_id)
+            .await
+        {
             Err(OAuthQuotaError::UpstreamRejected(status))
                 if status == StatusCode::UNAUTHORIZED.as_u16() =>
             {
@@ -247,9 +285,15 @@ impl OAuthQuotaService {
                 let refreshed =
                     self.resolve_authentication_refresh(&snapshot, id, refresh_result)?;
                 let refreshed_for_health = Arc::clone(&refreshed);
-                self.reset_attempt(refreshed, id).await.map_err(|error| {
-                    self.map_second_authentication_failure(refreshed_for_health.as_ref(), id, error)
-                })
+                self.reset_attempt(refreshed, id, redeem_request_id)
+                    .await
+                    .map_err(|error| {
+                        self.map_second_authentication_failure(
+                            refreshed_for_health.as_ref(),
+                            id,
+                            error,
+                        )
+                    })
             }
             result => result,
         }
@@ -259,6 +303,7 @@ impl OAuthQuotaService {
         &self,
         snapshot: Arc<PublishedSnapshot>,
         id: OAuthAccountId,
+        redeem_request_id: &Uuid,
     ) -> Result<OAuthQuotaResetResult, OAuthQuotaError> {
         let account = snapshot
             .oauth_accounts()
@@ -276,7 +321,7 @@ impl OAuthQuotaService {
             .oauth_token()
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
         let plan = driver
-            .oauth_quota_reset_plan(token.as_ref(), &Uuid::new_v4().to_string())
+            .oauth_quota_reset_plan(token.as_ref(), &redeem_request_id.to_string())
             .map_err(OAuthQuotaError::Provider)?
             .ok_or(OAuthQuotaError::UnsupportedProvider)?;
         let proxy = snapshot
@@ -353,20 +398,6 @@ impl OAuthQuotaService {
                 .health()
                 .record_authentication_failure();
         }
-    }
-
-    fn reset_gate(&self, id: OAuthAccountId) -> Arc<Mutex<()>> {
-        let mut gates = self
-            .reset_gates
-            .lock()
-            .expect("OAuth quota reset gate lock poisoned");
-        gates.retain(|_, gate| gate.strong_count() > 0);
-        if let Some(gate) = gates.get(&id).and_then(Weak::upgrade) {
-            return gate;
-        }
-        let gate = Arc::new(Mutex::new(()));
-        gates.insert(id, Arc::downgrade(&gate));
-        gate
     }
 }
 

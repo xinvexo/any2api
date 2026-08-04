@@ -149,7 +149,20 @@ impl GuardedBody {
     pub(in crate::public_request) async fn prime(mut self) -> Result<Self, PublicError> {
         let deadline = Instant::now() + self.precommit_budget.max_duration();
         self.precommit_deadline = Some(deadline);
-        while self.pending.is_empty() && self.pending_error.is_none() && !self.upstream_done {
+        loop {
+            if !self.pending.is_empty() || self.pending_error.is_some() {
+                break;
+            }
+            if self.process_buffered_frame(Some(deadline)) {
+                continue;
+            }
+            if self.upstream_done {
+                self.finish_decoder(Some(deadline));
+                if !self.pending.is_empty() || self.pending_error.is_some() {
+                    continue;
+                }
+                break;
+            }
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 self.set_timeout_error();

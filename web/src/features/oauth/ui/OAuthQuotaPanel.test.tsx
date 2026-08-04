@@ -41,7 +41,9 @@ test("refreshes Codex quota and consumes one available reset credit", async () =
       return response(quota(resetCompleted ? 0 : 1));
     }
     if (path.endsWith("/quota/reset") && init?.method === "POST") {
-      expect(init.body).toBeUndefined();
+      expect(
+        JSON.parse(String(init.body)).redeem_request_id,
+      ).toMatch(/^[0-9a-f-]{36}$/);
       resetCompleted = true;
       return response({ windows_reset: 2 });
     }

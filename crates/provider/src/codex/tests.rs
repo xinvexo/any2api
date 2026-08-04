@@ -148,7 +148,7 @@ fn classifies_declared_codex_refresh_token_failures_as_permanent() {
 }
 
 #[test]
-fn refresh_preserves_omitted_codex_account_fields() {
+fn refresh_preserves_omitted_codex_identity_fields() {
     let driver = CodexDriver::new();
     let previous = OAuthTokenMaterial::new(
         ProviderKind::Codex,
@@ -161,13 +161,16 @@ fn refresh_preserves_omitted_codex_account_fields() {
     )
     .expect("previous token");
     let refreshed = driver
-        .parse_oauth_refresh_response(br#"{"access_token":"new-access"}"#, &previous)
+        .parse_oauth_refresh_response(
+            br#"{"access_token":"new-access","expires_in":3600}"#,
+            &previous,
+        )
         .expect("refreshed token");
 
     assert_eq!(refreshed.access_token(), "new-access");
     assert_eq!(refreshed.refresh_token(), Some("old-refresh"));
     assert_eq!(refreshed.id_token(), Some("old-id-token"));
-    assert_eq!(refreshed.expires_at(), Some(42));
+    assert!(refreshed.expires_at().is_some_and(|expiry| expiry > 42));
     assert_eq!(refreshed.account_id(), Some("account-123"));
     assert_eq!(refreshed.email(), Some("person@example.com"));
 }
@@ -223,7 +226,7 @@ fn parses_codex_token_claims_without_logging_token_values() {
 fn missing_codex_plan_uses_the_minimal_free_catalog() {
     let driver = CodexDriver::new();
     let token = driver
-        .parse_oauth_token_response(br#"{"access_token":"access-secret"}"#)
+        .parse_oauth_token_response(br#"{"access_token":"access-secret","expires_in":3600}"#)
         .expect("token response");
     let profile = driver
         .oauth_routing_profile(&token)
@@ -243,7 +246,7 @@ fn builds_codex_oauth_headers_from_token_response() {
     let driver = CodexDriver::new();
     let token = driver
         .parse_oauth_token_response(
-            br#"{"access_token":"oauth-secret","account_id":"account-123"}"#,
+            br#"{"access_token":"oauth-secret","account_id":"account-123","expires_in":3600}"#,
         )
         .expect("OAuth token response");
     let headers = driver

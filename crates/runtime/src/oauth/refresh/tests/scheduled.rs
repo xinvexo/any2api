@@ -135,7 +135,7 @@ async fn cancelling_scan_waiter_keeps_singleflight_until_detached_publish_finish
 }
 
 #[tokio::test]
-async fn own_revision_does_not_hot_loop_when_expiry_stays_due() {
+async fn invalid_expiry_response_waits_for_the_next_scheduled_scan() {
     let transport = Arc::new(ConcurrentRefreshTransport::with_response(
         Bytes::from_static(br#"{"access_token":"new-access"}"#),
     ));
@@ -148,20 +148,22 @@ async fn own_revision_does_not_hot_loop_when_expiry_stays_due() {
     assert!(context.refresher.start(&lifecycle));
     transport.wait_until_started(1).await;
     for _ in 0..100 {
-        if context
-            .snapshots
-            .load()
-            .oauth_accounts()
-            .get(account_id)
-            .expect("OAuth account")
-            .token_version()
-            == 2
-        {
+        if transport.calls() == 1 {
             break;
         }
         tokio::task::yield_now().await;
     }
     assert_eq!(transport.calls(), 1);
+    assert_eq!(
+        context
+            .snapshots
+            .load()
+            .oauth_accounts()
+            .get(account_id)
+            .expect("OAuth account")
+            .token_version(),
+        1
+    );
 
     tokio::time::advance(std::time::Duration::from_secs(29)).await;
     tokio::task::yield_now().await;

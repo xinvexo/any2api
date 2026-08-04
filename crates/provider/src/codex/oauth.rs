@@ -12,7 +12,7 @@ use crate::{
         OAuthGrant, OAuthRefreshRejection, OAuthRequestPlan, OAuthRoutingProfile,
         OAuthTokenMaterial,
     },
-    oauth::{form_headers, json_headers},
+    oauth::{expires_at_from_duration, form_headers, json_headers},
 };
 
 const AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
@@ -136,9 +136,7 @@ pub(crate) fn parse_token(body: &[u8]) -> Result<OAuthTokenMaterial, ProviderErr
         response.access_token,
         response.refresh_token,
         response.id_token,
-        response
-            .expires_in
-            .map(|seconds| unix_now().saturating_add(seconds)),
+        Some(expires_at_from_duration(response.expires_in)?),
         claims.account_id.or(response.account_id),
         claims.email.or(response.email),
     )
@@ -195,7 +193,7 @@ struct CodexOAuthResponse {
     access_token: String,
     refresh_token: Option<String>,
     id_token: Option<String>,
-    expires_in: Option<i64>,
+    expires_in: i64,
     account_id: Option<String>,
     email: Option<String>,
 }
@@ -253,12 +251,4 @@ fn models_for_plan(plan: Option<&str>) -> &'static [&'static str] {
     } else {
         FREE_MODELS
     }
-}
-
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .unwrap_or(i64::MAX)
 }

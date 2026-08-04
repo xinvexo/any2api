@@ -6,7 +6,20 @@ use any2api_runtime::api::{
     OAuthQuotaSnapshot, OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaWindow,
     OAuthQuotaWindowKind,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct OAuthQuotaResetRequest {
+    redeem_request_id: Uuid,
+}
+
+impl OAuthQuotaResetRequest {
+    pub(super) const fn into_redeem_request_id(self) -> Uuid {
+        self.redeem_request_id
+    }
+}
 
 #[derive(Debug, Serialize)]
 pub(super) struct OAuthQuotaResponse {

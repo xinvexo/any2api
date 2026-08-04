@@ -96,6 +96,28 @@ async fn bridged_stream_commits_pending_then_ready_and_restores_history() {
 }
 
 #[tokio::test]
+async fn bridge_prime_drains_suppressed_frames_before_waiting_for_more_network() {
+    let registry = AffinityRegistry::new();
+    let protocols = protocols();
+    let upstream: BoxByteStream = Box::pin(
+        stream::iter([Ok(Bytes::from_static(
+            b": keep-alive\n\n: still-alive\n\ndata: {\"id\":\"chatcmpl_buffered\",\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"Hello\"}}]}\n\n",
+        ))])
+        .chain(stream::pending()),
+    );
+
+    let guarded = tokio::time::timeout(
+        Duration::from_millis(100),
+        bridged_body(&protocols, registry, upstream).await.prime(),
+    )
+    .await
+    .expect("buffered valid frame must not wait for another upstream chunk")
+    .expect("bridge first event");
+
+    assert!(!pending_response_id(&guarded).is_empty());
+}
+
+#[tokio::test]
 async fn dropping_pending_bridged_body_removes_binding_and_full_reservation() {
     let registry = AffinityRegistry::new();
     let protocols = protocols();

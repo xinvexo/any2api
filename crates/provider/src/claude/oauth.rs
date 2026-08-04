@@ -8,7 +8,7 @@ use url::Url;
 use crate::{
     ProviderError,
     api::{OAuthGrant, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial},
-    oauth::json_headers,
+    oauth::{expires_at_from_duration, json_headers},
 };
 
 const AUTHORIZE_URL: &str = "https://claude.ai/oauth/authorize";
@@ -108,9 +108,7 @@ pub(crate) fn parse_token(body: &[u8]) -> Result<OAuthTokenMaterial, ProviderErr
         response.access_token,
         response.refresh_token,
         None,
-        response
-            .expires_in
-            .map(|seconds| unix_now().saturating_add(seconds)),
+        Some(expires_at_from_duration(response.expires_in)?),
         None,
         response
             .account
@@ -168,7 +166,7 @@ fn append_oauth_betas(headers: &mut HeaderMap, forwarded: &HeaderMap) -> Result<
 struct ClaudeOAuthResponse {
     access_token: String,
     refresh_token: Option<String>,
-    expires_in: Option<i64>,
+    expires_in: i64,
     account: Option<ClaudeAccount>,
     email: Option<String>,
 }
@@ -176,12 +174,4 @@ struct ClaudeOAuthResponse {
 #[derive(Deserialize)]
 struct ClaudeAccount {
     email_address: Option<String>,
-}
-
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .unwrap_or(i64::MAX)
 }

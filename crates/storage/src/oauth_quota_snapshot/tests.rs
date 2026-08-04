@@ -8,7 +8,7 @@ use super::{
 use crate::{error::StorageError, sqlite::SqliteStore};
 
 #[tokio::test]
-async fn snapshot_round_trip_survives_reconnect_is_monotonic_and_cascades() {
+async fn snapshot_round_trip_uses_commit_order_survives_reconnect_and_cascades() {
     let (directory, store, id) = store_with_account().await;
     let current = snapshot(id, 200, br#"{"value":2}"#.to_vec());
     store
@@ -18,7 +18,7 @@ async fn snapshot_round_trip_survives_reconnect_is_monotonic_and_cascades() {
     store
         .upsert_oauth_quota_snapshot(&snapshot(id, 100, br#"{"value":1}"#.to_vec()))
         .await
-        .expect("older snapshot is ignored");
+        .expect("later observation with a regressed clock");
     drop(store);
     let store = SqliteStore::connect(&directory.path().join("quota.sqlite3"))
         .await
@@ -28,7 +28,7 @@ async fn snapshot_round_trip_survives_reconnect_is_monotonic_and_cascades() {
             .load_oauth_quota_snapshot(id)
             .await
             .expect("load snapshot"),
-        Some(current)
+        Some(snapshot(id, 100, br#"{"value":1}"#.to_vec()))
     );
 
     sqlx::query("DELETE FROM oauth_accounts WHERE id = ?")

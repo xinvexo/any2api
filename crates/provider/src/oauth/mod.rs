@@ -6,6 +6,8 @@ pub(crate) mod quota;
 mod refresh;
 mod routing;
 mod token;
+#[cfg(test)]
+mod token_tests;
 
 pub use device::{OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthLoginFlow};
 pub use import::{
@@ -25,4 +27,4 @@ pub use token::{
     OAuthGrant, OAuthRequestPlan, OAuthTokenMaterial, decode_oauth_account_document,
     encode_oauth_account_document,
 };
-pub(crate) use token::{form_headers, json_headers};
+pub(crate) use token::{expires_at_from_duration, form_headers, json_headers};

@@ -205,7 +205,7 @@ fn classifies_grok_device_poll_responses() {
     let authorized = driver
         .parse_oauth_device_token(
             StatusCode::OK,
-            br#"{"access_token":"access-secret","refresh_token":"refresh-secret"}"#,
+            br#"{"access_token":"access-secret","refresh_token":"refresh-secret","expires_in":3600}"#,
         )
         .expect("authorized response");
     let OAuthDeviceTokenPoll::Authorized(token) = authorized else {
@@ -350,7 +350,8 @@ fn grok_jwt_identity_falls_back_per_claim_field() {
             "access_token": access_token,
             "id_token": id_token,
             "sub": "response-subject",
-            "email": "response@example.com"
+            "email": "response@example.com",
+            "expires_in": 3600
         }))
         .expect("token response");
 

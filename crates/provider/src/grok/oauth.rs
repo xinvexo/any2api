@@ -12,7 +12,7 @@ use crate::{
         CredentialHeaders, OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthRequestPlan,
         OAuthRoutingProfile, OAuthTokenMaterial,
     },
-    oauth::form_headers,
+    oauth::{expires_at_from_duration, form_headers},
 };
 
 const DEVICE_AUTHORIZATION_URL: &str = "https://auth.x.ai/oauth2/device/code";
@@ -146,9 +146,7 @@ pub(crate) fn parse_token(body: &[u8]) -> Result<OAuthTokenMaterial, ProviderErr
         response.access_token,
         response.refresh_token,
         response.id_token,
-        response
-            .expires_in
-            .map(|seconds| unix_now().saturating_add(seconds)),
+        Some(expires_at_from_duration(response.expires_in)?),
         claims.subject.or(response.subject),
         claims.email.or(response.email),
     )
@@ -198,7 +196,7 @@ struct GrokOAuthResponse {
     access_token: String,
     refresh_token: Option<String>,
     id_token: Option<String>,
-    expires_in: Option<i64>,
+    expires_in: i64,
     email: Option<String>,
     #[serde(rename = "sub")]
     subject: Option<String>,
@@ -251,12 +249,4 @@ fn parse_verification_uri(value: &str) -> Result<Url, ProviderError> {
         ));
     }
     Ok(url)
-}
-
-fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
-        .unwrap_or(i64::MAX)
 }

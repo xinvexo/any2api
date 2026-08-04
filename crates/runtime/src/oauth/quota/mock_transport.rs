@@ -53,6 +53,9 @@ pub(super) struct QuotaTransport {
     block_consume: bool,
     grok_unified: bool,
     codex_exhausted: AtomicBool,
+    block_next_usage: AtomicBool,
+    usage_started: Semaphore,
+    usage_release: Semaphore,
     consume_started: Semaphore,
     consume_release: Semaphore,
     captured: Mutex<Vec<CapturedQuotaRequest>>,
@@ -73,6 +76,9 @@ impl QuotaTransport {
             block_consume,
             grok_unified: false,
             codex_exhausted: AtomicBool::new(false),
+            block_next_usage: AtomicBool::new(false),
+            usage_started: Semaphore::new(0),
+            usage_release: Semaphore::new(0),
             consume_started: Semaphore::new(0),
             consume_release: Semaphore::new(0),
             captured: Mutex::new(Vec::new()),
@@ -82,6 +88,12 @@ impl QuotaTransport {
     pub(super) fn new_grok_unified() -> Self {
         let mut transport = Self::new(0, AuthenticationMode::Accepted, false);
         transport.grok_unified = true;
+        transport
+    }
+
+    pub(super) fn new_blocking_usage(available_count: u32) -> Self {
+        let transport = Self::new(available_count, AuthenticationMode::Accepted, false);
+        transport.block_next_usage.store(true, Ordering::Release);
         transport
     }
 
@@ -126,6 +138,18 @@ impl QuotaTransport {
             .await
             .expect("consume start signal")
             .forget();
+    }
+
+    pub(super) async fn wait_for_usage(&self) {
+        self.usage_started
+            .acquire()
+            .await
+            .expect("usage start signal")
+            .forget();
+    }
+
+    pub(super) fn release_usage(&self) {
+        self.usage_release.add_permits(1);
     }
 
     pub(super) fn release_consume(&self) {
@@ -180,6 +204,15 @@ impl TransportManager for QuotaTransport {
                 strict_ssrf: request.network_policy.strict_ssrf(),
                 body: request.body,
             });
+        if path == "/backend-api/wham/usage" && self.block_next_usage.swap(false, Ordering::AcqRel)
+        {
+            self.usage_started.add_permits(1);
+            self.usage_release
+                .acquire()
+                .await
+                .expect("usage release signal")
+                .forget();
+        }
         let (status, headers, body) = match path.as_str() {
             "/oauth/token" | "/oauth2/token" | "/v1/oauth/token" => self.refresh_response(),
             "/backend-api/wham/usage" => self.codex_usage_response(),

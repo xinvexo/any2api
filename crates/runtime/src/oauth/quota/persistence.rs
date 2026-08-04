@@ -37,7 +37,7 @@ impl OAuthQuotaPersistence {
             .repository
             .load_oauth_quota_snapshot(id)
             .await
-            .map_err(OAuthQuotaError::Persistence)?
+            .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?
         else {
             return Ok(None);
         };
@@ -69,7 +69,7 @@ impl OAuthQuotaPersistence {
                 payload,
             })
             .await
-            .map_err(OAuthQuotaError::Persistence)?;
+            .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?;
         self.notify_changed();
         Ok(())
     }
@@ -79,7 +79,7 @@ impl OAuthQuotaPersistence {
             .repository
             .delete_oauth_quota_snapshot(id)
             .await
-            .map_err(OAuthQuotaError::Persistence)?
+            .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?
         {
             self.notify_changed();
         }

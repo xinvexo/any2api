@@ -123,9 +123,6 @@ impl OAuthTokenMaterial {
         if self.id_token.is_none() {
             self.id_token = previous.id_token.clone();
         }
-        if self.expires_at.is_none() {
-            self.expires_at = previous.expires_at;
-        }
         if self.account_id.is_none() {
             self.account_id.clone_from(&previous.account_id);
         }
@@ -169,6 +166,18 @@ pub(crate) fn json_headers() -> HeaderMap {
         HeaderValue::from_static("application/json"),
     );
     headers
+}
+
+pub(crate) fn expires_at_from_duration(expires_in: i64) -> Result<i64, ProviderError> {
+    if expires_in <= 0 {
+        return Err(invalid_expiry());
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+        .ok_or_else(invalid_expiry)?;
+    now.checked_add(expires_in).ok_or_else(invalid_expiry)
 }
 
 pub fn encode_oauth_account_document(token: &OAuthTokenMaterial) -> Result<Vec<u8>, ProviderError> {
@@ -226,6 +235,10 @@ struct OAuthAccountDocumentFields {
 
 fn invalid_document() -> ProviderError {
     ProviderError::InvalidResponse("OAuth account document is invalid".into())
+}
+
+fn invalid_expiry() -> ProviderError {
+    ProviderError::InvalidResponse("OAuth response expires_in is invalid".into())
 }
 
 fn optional_secret(value: Option<String>) -> Option<SecretString> {

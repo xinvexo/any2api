@@ -1,5 +1,7 @@
 //! Provider-neutral OAuth quota results exposed by Runtime.
 
+use std::sync::Arc;
+
 use any2api_provider::api::{OAuthQuotaUsage, ProviderError};
 use any2api_storage::api::StorageError;
 use any2api_transport::api::TransportError;
@@ -16,7 +18,7 @@ pub struct OAuthQuotaResetOutcome {
     pub windows_reset: u32,
 }
 
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum OAuthQuotaError {
     #[error("OAuth account was not found")]
     AccountNotFound,
@@ -53,7 +55,7 @@ pub enum OAuthQuotaError {
     #[error("OAuth account has no available quota reset credits")]
     NoResetCredits,
     #[error("OAuth quota persistence failed")]
-    Persistence(#[source] StorageError),
+    Persistence(#[source] Arc<StorageError>),
     #[error("persisted OAuth quota snapshot is invalid")]
     InvalidPersistedSnapshot,
 }

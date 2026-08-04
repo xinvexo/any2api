@@ -153,7 +153,7 @@ fn parses_claude_account_email() {
     let driver = ClaudeDriver::new();
     let token = driver
         .parse_oauth_token_response(
-            br#"{"access_token":"access-secret","refresh_token":"refresh-secret","account":{"email_address":"claude@example.com"}}"#,
+            br#"{"access_token":"access-secret","refresh_token":"refresh-secret","expires_in":3600,"account":{"email_address":"claude@example.com"}}"#,
         )
         .expect("token response");
     assert_eq!(token.email(), Some("claude@example.com"));
@@ -181,7 +181,7 @@ fn parses_claude_account_email() {
 fn builds_claude_oauth_headers_and_preserves_client_betas() {
     let driver = ClaudeDriver::new();
     let token = driver
-        .parse_oauth_token_response(br#"{"access_token":"oauth-secret"}"#)
+        .parse_oauth_token_response(br#"{"access_token":"oauth-secret","expires_in":3600}"#)
         .expect("OAuth token response");
     let mut forwarded = HeaderMap::new();
     forwarded.append(

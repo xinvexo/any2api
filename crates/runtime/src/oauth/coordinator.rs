@@ -105,8 +105,9 @@ impl OAuthService {
     pub async fn reset_quota(
         &self,
         id: OAuthAccountId,
+        redeem_request_id: uuid::Uuid,
     ) -> Result<OAuthQuotaResetOutcome, OAuthQuotaError> {
-        self.quota.reset(id).await
+        self.quota.reset(id, redeem_request_id).await
     }
 
     pub async fn import_files(

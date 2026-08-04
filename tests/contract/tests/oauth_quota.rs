@@ -27,6 +27,8 @@ use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
+const REDEEM_REQUEST_ID: &str = "11111111-1111-4111-8111-111111111111";
+
 #[tokio::test]
 async fn codex_quota_is_persisted_redacted_reset_and_announced() {
     let fixture = TestApplication::new().await;
@@ -116,11 +118,12 @@ async fn codex_quota_is_persisted_redacted_reset_and_announced() {
     assert_eq!(persisted.json["fetched_at"], refreshed.json["fetched_at"]);
     assert_eq!(transport.calls.load(Ordering::Acquire), 2);
 
-    let reset = request(
+    let reset = request_json(
         app.clone(),
         Method::POST,
         &format!("{quota_uri}/reset"),
         loopback,
+        json!({"redeem_request_id": REDEEM_REQUEST_ID}),
     )
     .await;
     assert_eq!(reset.status, StatusCode::OK);
@@ -169,6 +172,8 @@ impl TransportManager for QuotaTransport {
                 .to_string(),
             ),
             "/backend-api/wham/rate-limit-reset-credits/consume" => {
+                let body: Value = serde_json::from_slice(&request.body).expect("reset JSON");
+                assert_eq!(body["redeem_request_id"], REDEEM_REQUEST_ID);
                 self.available.store(0, Ordering::Release);
                 self.consumed.fetch_add(1, Ordering::AcqRel);
                 Bytes::from_static(br#"{"code":"ok","windows_reset":2}"#)
@@ -192,13 +197,34 @@ struct ResponseBody {
 }
 
 async fn request(app: Router, method: Method, uri: &str, remote: SocketAddr) -> ResponseBody {
+    request_body(app, method, uri, remote, Body::empty()).await
+}
+
+async fn request_json(
+    app: Router,
+    method: Method,
+    uri: &str,
+    remote: SocketAddr,
+    body: Value,
+) -> ResponseBody {
+    request_body(app, method, uri, remote, Body::from(body.to_string())).await
+}
+
+async fn request_body(
+    app: Router,
+    method: Method,
+    uri: &str,
+    remote: SocketAddr,
+    body: Body,
+) -> ResponseBody {
     let response = app
         .oneshot(
             Request::builder()
                 .method(method)
                 .uri(uri)
+                .header("content-type", "application/json")
                 .extension(ConnectInfo(remote))
-                .body(Body::empty())
+                .body(body)
                 .expect("request"),
         )
         .await

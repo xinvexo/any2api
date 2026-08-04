@@ -44,6 +44,13 @@ impl QuotaTestContext {
         .await
     }
 
+    pub(super) async fn new_blocking_refresh(available_count: u32) -> Self {
+        Self::with_transport(Arc::new(QuotaTransport::new_blocking_usage(
+            available_count,
+        )))
+        .await
+    }
+
     pub(super) async fn new_without_refresh_token() -> Self {
         Self::with_account(
             Arc::new(QuotaTransport::new(

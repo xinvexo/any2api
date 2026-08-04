@@ -5,11 +5,14 @@ use axum::{
     routing::{get, post},
 };
 
-use crate::{admin::error::AdminApiError, state::AppState};
+use crate::{
+    admin::{error::AdminApiError, request_json::AdminJson},
+    state::AppState,
+};
 
 use super::{
     super::account,
-    dto::{OAuthQuotaResetResponse, OAuthQuotaResponse},
+    dto::{OAuthQuotaResetRequest, OAuthQuotaResetResponse, OAuthQuotaResponse},
     error,
 };
 
@@ -43,10 +46,14 @@ async fn refresh_quota(
 async fn reset_quota(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    AdminJson(request): AdminJson<OAuthQuotaResetRequest>,
 ) -> Result<Json<OAuthQuotaResetResponse>, AdminApiError> {
     let id = account::parse_id(&id)?;
     let service = state.oauth().ok_or_else(oauth_unavailable)?;
-    let result = service.reset_quota(id).await.map_err(error::map)?;
+    let result = service
+        .reset_quota(id, request.into_redeem_request_id())
+        .await
+        .map_err(error::map)?;
     Ok(Json(OAuthQuotaResetResponse::from(result)))
 }
 
