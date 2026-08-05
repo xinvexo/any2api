@@ -94,6 +94,8 @@ Completions 中都是同名缓存路由提示；真实兼容上游探测也确�
 - Runtime Attempt 必须同时持有入口 Adapter、有效上游 Adapter 和可选 Bridge，流式提交状态机与运行态 Guard 生命周期保持不变。
 - Chat Completions 没有服务端 Response 状态，桥接多轮会增加有界内存占用；该状态遵守现有“进程重启全部清空”边界。
 
+本 ADR 中“Images 只直通、唯一跨协议桥”的范围已由 ADR-0117 扩展；Responses → Chat 的全部既有决策保持不变。
+
 ## 验证
 
 - Domain/Storage 测试覆盖空值回退、相同值归一化和无 Bridge 组合拒绝。

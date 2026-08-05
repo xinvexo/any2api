@@ -118,7 +118,7 @@ function protocolOptions() {
     {
       provider_kind: "codex",
       accepted_protocol: "openai_images",
-      upstream_protocols: ["openai_images"],
+      upstream_protocols: ["openai_chat_completions", "openai_images"],
     },
     {
       provider_kind: "grok",
@@ -131,6 +131,11 @@ function protocolOptions() {
     {
       provider_kind: "grok",
       accepted_protocol: "openai_chat_completions",
+      upstream_protocols: ["openai_chat_completions"],
+    },
+    {
+      provider_kind: "grok",
+      accepted_protocol: "openai_images",
       upstream_protocols: ["openai_chat_completions"],
     },
   ];

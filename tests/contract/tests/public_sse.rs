@@ -266,6 +266,86 @@ async fn images_stream_uses_its_dedicated_precommit_budget() {
 }
 
 #[tokio::test]
+async fn images_generation_is_bridged_to_buffered_chat_completions() {
+    let (upstream_address, upstream_request) = buffered_image_chat_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint_with_protocol(
+        &app,
+        remote,
+        revision,
+        "Images over Chat",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+        ("openai_images", Some("openai_chat_completions")),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "images-chat-bridge",
+        "sk-images-chat-bridge",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-image-2").await;
+
+    let response = request(
+        app,
+        "/v1/images/generations",
+        json!({
+            "model":"gpt-image-2",
+            "prompt":"draw a red circle",
+            "size":"1024x1024",
+            "response_format":"url"
+        }),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("Images response body")
+            .to_bytes(),
+    )
+    .expect("Images response JSON");
+    assert_eq!(
+        body,
+        json!({
+            "created":1785916638_u64,
+            "data":[{"url":"https://images.example/generated.png?token=signed"}],
+            "usage":{"input_tokens":7,"output_tokens":11,"total_tokens":18}
+        })
+    );
+
+    let upstream = upstream_request.await.expect("Chat image upstream request");
+    assert_eq!(upstream.headers["accept"], "application/json");
+    assert_eq!(
+        upstream.headers["authorization"],
+        "Bearer sk-images-chat-bridge"
+    );
+    assert!(!upstream.headers.contains_key("x-api-key"));
+    assert_eq!(upstream.body["model"], "gpt-image-2");
+    assert_eq!(upstream.body["stream"], false);
+    assert_eq!(
+        upstream.body["messages"],
+        json!([{"role":"user","content":"draw a red circle"}])
+    );
+    assert_eq!(upstream.body["size"], "1024x1024");
+    assert!(upstream.body.get("prompt").is_none());
+    assert!(upstream.body.get("response_format").is_none());
+}
+
+#[tokio::test]
 async fn responses_stream_is_bridged_from_chat_completions_sse() {
     let (upstream_address, upstream_request, release) = paused_sse_server(
         "/v1/chat/completions",
@@ -1800,6 +1880,36 @@ async fn request(
 struct UpstreamRequest {
     headers: HashMap<String, String>,
     body: Value,
+}
+
+async fn buffered_image_chat_server() -> (SocketAddr, oneshot::Receiver<UpstreamRequest>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (request_sender, request_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("upstream accept");
+        let (path, request) = read_upstream_request(&mut stream).await;
+        assert_eq!(path, "/v1/chat/completions");
+        request_sender.send(request).expect("send upstream request");
+        let body = br#"{"id":"chatcmpl_image","object":"chat.completion","created":1785916638,"model":"gpt-image-2","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"![generated](https://images.example/generated.png?token=signed)"}}],"usage":{"prompt_tokens":7,"completion_tokens":11,"total_tokens":18}}"#;
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .expect("upstream response headers");
+        stream
+            .write_all(body)
+            .await
+            .expect("upstream response body");
+    });
+    (address, request_receiver)
 }
 
 async fn paused_sse_server(

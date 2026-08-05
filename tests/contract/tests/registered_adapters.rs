@@ -43,10 +43,16 @@ async fn composition_root_protocol_registry_runs_every_contract() {
             .iter_bridges()
             .map(|(dialects, _)| *dialects)
             .collect::<BTreeSet<_>>(),
-        BTreeSet::from([(
-            ProtocolDialect::OpenAiResponses,
-            ProtocolDialect::OpenAiChatCompletions,
-        )])
+        BTreeSet::from([
+            (
+                ProtocolDialect::OpenAiResponses,
+                ProtocolDialect::OpenAiChatCompletions,
+            ),
+            (
+                ProtocolDialect::OpenAiImages,
+                ProtocolDialect::OpenAiChatCompletions,
+            ),
+        ])
     );
     assert!(registry.supports_operation(
         ProtocolDialect::OpenAiResponses,
@@ -57,6 +63,16 @@ async fn composition_root_protocol_registry_runs_every_contract() {
         ProtocolDialect::OpenAiResponses,
         ProtocolDialect::OpenAiChatCompletions,
         ProtocolOperation::ResponsesCompact,
+    ));
+    assert!(registry.supports_operation(
+        ProtocolDialect::OpenAiImages,
+        ProtocolDialect::OpenAiChatCompletions,
+        ProtocolOperation::ImagesGenerations,
+    ));
+    assert!(!registry.supports_operation(
+        ProtocolDialect::OpenAiImages,
+        ProtocolDialect::OpenAiChatCompletions,
+        ProtocolOperation::ImagesEdits,
     ));
 }
 

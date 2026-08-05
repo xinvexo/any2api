@@ -2,8 +2,9 @@ use std::{convert::Infallible, sync::Arc};
 
 use any2api_domain::ConfigRevision;
 use any2api_protocol::{
-    AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
+    AnthropicMessagesAdapter, ImagesToChatCompletionsBridge, OpenAiChatCompletionsAdapter,
+    OpenAiImagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry,
+    ResponsesToChatCompletionsBridge,
 };
 use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, api::ProviderRegistry};
 use any2api_storage::api::{
@@ -30,6 +31,9 @@ pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
     protocols
         .register_bridge(Arc::new(ResponsesToChatCompletionsBridge::new()))
         .expect("Responses to Chat Completions bridge");
+    protocols
+        .register_bridge(Arc::new(ImagesToChatCompletionsBridge::new()))
+        .expect("Images to Chat Completions bridge");
 
     let mut providers = ProviderRegistry::new();
     providers

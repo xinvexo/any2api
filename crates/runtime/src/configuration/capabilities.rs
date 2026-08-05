@@ -239,10 +239,16 @@ mod tests {
             [ProtocolDialect::OpenAiChatCompletions]
         );
         assert_eq!(codex[2].accepted_protocol, ProtocolDialect::OpenAiImages);
-        assert_eq!(codex[2].upstream_protocols, [ProtocolDialect::OpenAiImages]);
+        assert_eq!(
+            codex[2].upstream_protocols,
+            [
+                ProtocolDialect::OpenAiChatCompletions,
+                ProtocolDialect::OpenAiImages,
+            ]
+        );
 
         let grok = capabilities.provider_protocol_options(ProviderKind::Grok);
-        assert_eq!(grok.len(), 2);
+        assert_eq!(grok.len(), 3);
         assert_eq!(grok[0].accepted_protocol, ProtocolDialect::OpenAiResponses);
         assert_eq!(
             grok[0].upstream_protocols,
@@ -251,9 +257,10 @@ mod tests {
                 ProtocolDialect::OpenAiChatCompletions,
             ]
         );
-        assert!(
-            grok.iter()
-                .all(|option| option.accepted_protocol != ProtocolDialect::OpenAiImages)
+        assert_eq!(grok[2].accepted_protocol, ProtocolDialect::OpenAiImages);
+        assert_eq!(
+            grok[2].upstream_protocols,
+            [ProtocolDialect::OpenAiChatCompletions]
         );
     }
 
@@ -274,6 +281,20 @@ mod tests {
                 ProtocolDialect::OpenAiImages,
             )
             .expect("registered Images adapter and Codex capability");
+        capabilities
+            .validate_endpoint(
+                ProviderKind::Codex,
+                ProtocolDialect::OpenAiImages,
+                ProtocolDialect::OpenAiChatCompletions,
+            )
+            .expect("registered Images to Chat Completions bridge");
+        capabilities
+            .validate_endpoint(
+                ProviderKind::Grok,
+                ProtocolDialect::OpenAiImages,
+                ProtocolDialect::OpenAiChatCompletions,
+            )
+            .expect("bridge options are derived without a Provider-specific branch");
 
         assert!(matches!(
             capabilities.validate_endpoint(

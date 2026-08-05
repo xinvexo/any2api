@@ -1239,7 +1239,7 @@ ProviderKind
 | `POST /v1/responses` | Codex/Grok/OpenAI Responses 推理与 Codex v2 远程压缩 | openai_responses 或 openai_chat_completions | JSON + SSE |
 | `POST /v1/responses/compact` | 长上下文压缩 | openai_responses compact | JSON |
 | `POST /v1/chat/completions` | OpenAI Chat Completions 推理 | openai_chat_completions | JSON + SSE |
-| `POST /v1/images/generations` | OpenAI 图片生成 | openai_images | JSON + SSE |
+| `POST /v1/images/generations` | OpenAI 图片生成 | openai_images，或经显式 Bridge 转为 openai_chat_completions | JSON + SSE；Chat Bridge 首版仅 JSON |
 | `POST /v1/images/edits` | OpenAI 图片编辑 | openai_images | JSON/multipart + SSE |
 | `POST /v1/messages` | Claude Messages 推理 | anthropic_messages | JSON + SSE |
 | `POST /v1/messages/count_tokens` | Claude 输入 Token 预计算 | anthropic count_tokens | JSON |
@@ -1254,9 +1254,10 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 
 #### `/v1/images/generations` 与 `/v1/images/edits`
 
-- Images 使用独立 `openai_images` 方言和 `images_generations`、`images_edits` 操作，不借用 Responses 或 Chat Completions 方言；两个入口继续复用 Gateway Key 鉴权、公开模型允许列表、Route、RPM、代理、健康、重试、流式 Guard 和请求遥测。Images 协议没有会话或续接语义，显式 Session Header、`conversation_id` 和其他未知字段都不得为 Images 建立粘性绑定，每次请求都按普通候选调度。
+- Images 使用独立 `openai_images` 入口方言和 `images_generations`、`images_edits` 操作；原生上游继续使用 Images 方言，只有管理员显式选择 `openai_chat_completions` 内部转换时，生成操作才进入独立 Bridge。两个入口继续复用 Gateway Key 鉴权、公开模型允许列表、Route、RPM、代理、健康、重试、流式 Guard 和请求遥测。Images 协议没有会话或续接语义，显式 Session Header、`conversation_id` 和其他未知字段都不得为 Images 建立粘性绑定，每次请求都按普通候选调度。
 - `images/generations` 接受 OpenAI JSON；`images/edits` 同时接受 JSON 的 `images`/`mask` 引用和 `multipart/form-data` 的 `image`/`image[]`、可选 `mask` 及其他字段。ProtocolAdapter 只提取并校验路由必需的 `model`、`stream`，保留未知 JSON 字段、multipart 字段顺序、文件字节和安全 Part Header；替换上游模型时重新编码结构化 multipart，禁止用字符串搜索修改二进制 Body。multipart `model` 必须恰好出现一次并是 UTF-8；结构化解析时使用 Unicode whitespace `trim` 一次，空值拒绝，得到的精确规范名称同时用于 `DecodedRequest.model`、允许列表/Route 查找和请求日志，禁止校验 trim 值却使用原始带空白值。重复字段即使规范值相同也拒绝。
 - OpenAI API Key 的 Codex Driver 声明 `openai_images` JSON/SSE 能力并追加固定 `images/generations`、`images/edits` 路径。Codex OAuth 固定 ChatGPT 数据面不支持 Images；Claude 与 Grok 不声明该方言能力。
+- Images → Chat Completions Bridge 只声明 `images_generations`，把标准 `prompt` 投影为单条 user message，并把经过登记的图片生成选项作为 Chat 图片上游扩展字段原值携带；`images_edits` 不进入该 Bridge。首版只接受非流式请求和 URL 结果：要求 partial image、`b64_json` 或 `stream=true` 的请求在 RPM 预留和上游 I/O 前失败。Chat 成功响应必须为每个 choice 提供唯一的 HTTP(S) Markdown 图片或裸 URL，Bridge 将其转换为标准 Images `data[].url`，并把 Chat prompt/completion usage 投影为 Images input/output usage。Bridge 不下载 URL、不伪造 base64，也不把文本内容冒充图片。
 - Provider Endpoint 只有一组接受/上游方言；同一 API Key 同时承接文本和图片时，管理员为相同 Base URL 建立独立 Images Endpoint 与 Credential。公开模型名仍固定等于上游模型名，不增加图片模型别名编辑。
 - 首版不公开 `/v1/images/variations`，不代理 Files API，也不在管理 Web 中制作图片生成器；客户端直接使用标准 OpenAI SDK 或 HTTP API。
 - Images 普通成功响应保留上游 JSON 原始字段，只在已知 `model` 字段恢复公开模型名，并把 usage 投影到通用 TokenUsage；SSE 保留已知事件与图片数据，只改写已知模型字段，并从 `image_generation.completed`、`image_edit.completed` 的 usage 提取遥测。图片事件没有文本 content delta，不伪造首 Token。
@@ -1265,7 +1266,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 - HTTP Body 必须由公共 `PublicBody` 提取器按操作取得 Runtime 的 `request_body_limit`，并交给 `collect_body` 逐块读取；这是公共路由请求体大小的唯一执行点，不再叠加不会被该自定义提取器读取的 Axum `DefaultBodyLimit` 扩展。每个数据块写入聚合缓冲区前以 checked arithmetic 检查对应操作的 `32 MiB`/`64 MiB` 单请求硬上限，不按理论最大值预分配，也不信任 `Content-Length` 代替实际累计。zstd 在 blocking 任务中以固定小块增量解压，通过 `max + 1` 哨兵检测解压上限；Server 只允许同时执行 2 个 zstd 解压作业，等待许可不产生本地拒绝、不预留 Body 字节，也不参与 Route、RPM 或 Credential 准入。取得许可后，压缩输入和许可必须一起移入进程级 TaskTracker 管理的 blocking closure，客户端取消只能丢弃等待结果，不能让仍在运行的不可取消 closure 丢失输入、提前归还许可或越过停机收尾。协议和 Transport 继续复用共享 `Bytes`、按实际输出构造缓冲并执行既有 buffered/SSE 单响应硬上限；EOF、错误、断连、取消和 Drop 按所有权自然释放真实分配，不附加估算容量 Guard。
 - Images 的等待响应头、buffered body 空闲、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `180s` 的较大值。最终上游非 2xx 仍按第 11.8 节原样返回状态、允许 Header 和有界正文，不由 Images Adapter 重建错误。
 
-完整决策见 `docs/adr/0054-openai-images-api.md`。
+完整决策见 `docs/adr/0054-openai-images-api.md` 与 `docs/adr/0117-openai-images-chat-completions-bridge.md`。
 
 #### Codex `/v1/responses` 远程压缩 v2
 
@@ -1322,10 +1323,13 @@ openai_responses         -> openai_responses
 openai_responses         -> openai_chat_completions
 openai_chat_completions  -> openai_chat_completions
 openai_images            -> openai_images
+openai_images            -> openai_chat_completions
 anthropic_messages       -> anthropic_messages
 ```
 
-当前只注册 Responses → Chat Completions 转换桥。Runtime 只按协议对查询注册表，不对这个组合写专用 `match`；新增桥只能通过独立实现与 Composition Root 注册扩展。每座桥都必须覆盖 JSON 请求/响应、SSE、工具调用、usage 和多轮状态；最终上游非 2xx 仍透明返回，无法无损表达的输入在请求提交上游前明确报错，禁止静默删除字段。Chat Completions → Responses、Codex/OpenAI ↔ Claude 和 `/v1/responses/compact` → Chat Completions 不注册。
+当前注册 Responses → Chat Completions 与 Images → Chat Completions 两座转换桥。Runtime 只按协议对查询注册表，不对这些组合写专用 `match`；新增桥只能通过独立实现与 Composition Root 注册扩展。每座桥必须按 `supports_operation` 精确声明可表达的操作，并在自身已声明的请求模式内覆盖请求、响应、usage 和适用的流式/多轮状态；未声明的操作、模式或无法无损表达的输入必须在请求提交上游前明确报错，禁止静默删除字段。最终上游非 2xx 仍透明返回。Chat Completions → Responses、Codex/OpenAI ↔ Claude 和 `/v1/responses/compact` → Chat Completions 不注册。
+
+Images → Chat Completions Bridge 首版只支持非流式 `images_generations`。它面向把图片模型挂在 `/chat/completions` 的兼容上游，不把 Chat Completions 本身误当作 OpenAI 官方图片协议：请求投影、允许的图片扩展字段、唯一 URL 结果和 usage 映射由 ADR-0117 固定；`images_edits`、Images SSE、partial image 与 URL 下载/base64 重编码均不属于该桥。该能力按协议对生效，任何声明 Chat Completions 能力的 Provider Driver 都可由静态注册表导出管理选项，Provider、Runtime 和 Web 不增加按 Provider 类型的图片转换分支。
 
 Responses → Chat Completions Bridge 合成的每个 Responses SSE JSON 事件都必须包含
 `sequence_number`。序号由单个 Bridge 流状态统一持有，`response.created` 从 `0` 开始，随后按实际
@@ -1496,7 +1500,7 @@ Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态�
 - 只有统一调度器选中的 ProviderCredential 或 OAuthAccount 可以重新注入上游认证字段；
 - Gateway Key 永远不会被转发给 Provider，也不能影响任何上游路由凭据的选择。
 
-首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。Responses、Responses Compact、Chat Completions、Images Generations、Images Edits、Messages 和 Count Tokens 均已接入；只有显式配置的 Responses → Chat Completions 组合进入协议桥。
+首版公开入口在进入协议 Adapter 前通过 `PublishedSnapshot` 验证 `Authorization: Bearer` 或 `x-api-key`，两者同时存在且值不一致时拒绝。认证成功后将 `Authorization`、`x-api-key`、`Proxy-Authorization` 和 Cookie 从请求头移除，并在扩展中携带脱敏的 `GatewayApiKeyId` 与配置 revision；公开执行 Handler 只能使用该扩展，不能重新读取客户端认证头。Responses、Responses Compact、Chat Completions、Images Generations、Images Edits、Messages 和 Count Tokens 均已接入；显式配置的 Responses → Chat Completions 或 Images → Chat Completions 组合进入对应协议桥。
 
 客户端 Header 不能全量透传。鉴权成功后，Server 先删除 `Authorization`、`x-api-key`、Provider 专属认证/账号字段、Cookie、`Proxy-Authorization`；Runtime 还必须删除或重建 `Host`、`Forwarded`、`X-Forwarded-*`、`Proxy-Authenticate`、所有 hop-by-hop Header、`Connection` 动态点名字段、`Content-Length`、客户端 `Accept-Encoding`、`baggage`，以及正文重编码后失效的 `Content-Encoding`、`ETag`、`Digest`、`Content-MD5`。Header 个数、单值长度和允许投影的总字节数均有固定上限。投影不得依赖 `HeaderMap` 的任意迭代顺序：每个 Provider 的精确名称白名单数组同时是高到低的优先级，精确名称先于前缀规则；前缀按规则声明顺序分组、组内按规范化 Header 名排序，同名多值保持原插入顺序。单值超限直接丢弃；某个候选使总字节超限时只丢该候选并继续尝试后续较小字段；值数量耗尽后才停止。认证、账号、最终模型和正文一致性 Header 在投影之外重建，不能因白名单预算被丢弃。原始入口 Header 不进入模型 RequestLog、普通 tracing/file log 或普通错误正文；它只在最外层 Axum 边界进入已认证的 HttpAccessLog 详情，且不得因此重新透传给 Provider。
 
@@ -3159,7 +3163,7 @@ Any Downstream Header/Byte ──> Must Not Switch Upstream
 Provider Accepted Protocol = Required
 Provider Internal Conversion Protocol = Optional
 Effective Upstream Protocol = Internal Conversion ?? Accepted Protocol
-Registered Bridge = Responses -> Chat Completions
+Registered Bridge = Responses -> Chat Completions + Images -> Chat Completions (Generations JSON Only)
 Codex WebSocket = Disabled
 /v1/responses = JSON + SSE enabled; /v1/responses/compact = JSON only
 /v1/chat/completions = JSON + SSE enabled

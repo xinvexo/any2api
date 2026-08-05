@@ -43,6 +43,21 @@ async fn provider_endpoint_contract_exposes_registry_options_and_publishes_crud(
                         })
             }))
     );
+    assert!(
+        initial["protocol_options"]
+            .as_array()
+            .is_some_and(|options| options.iter().any(|option| {
+                option["provider_kind"] == "codex"
+                    && option["accepted_protocol"] == "openai_images"
+                    && option["upstream_protocols"]
+                        .as_array()
+                        .is_some_and(|protocols| {
+                            protocols
+                                .iter()
+                                .any(|value| value == "openai_chat_completions")
+                        })
+            }))
+    );
 
     let (status, created) = request_json(
         app.clone(),
