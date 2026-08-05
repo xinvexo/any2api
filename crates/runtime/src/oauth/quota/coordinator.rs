@@ -16,10 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     configuration::{ConfigPublisher, PublishedSnapshot},
-    oauth::{
-        document,
-        refresh::{OAuthAuthenticationRefreshResult, OAuthRefresher},
-    },
+    oauth::{document, refresh::OAuthRefresher},
 };
 
 use super::{
@@ -35,7 +32,7 @@ pub(in crate::oauth) struct OAuthQuotaService {
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
     publisher: Arc<ConfigPublisher>,
-    refresher: Arc<OAuthRefresher>,
+    pub(super) refresher: Arc<OAuthRefresher>,
     persistence: OAuthQuotaPersistence,
     activity: OAuthQuotaActivity,
     operation_gates: OAuthQuotaOperationGates,
@@ -353,50 +350,6 @@ impl OAuthQuotaService {
             .credential_runtime(RoutingCredentialId::oauth_account(id))
         {
             binding.generation().health().clear_temporary_cooldowns();
-        }
-    }
-
-    fn resolve_authentication_refresh(
-        &self,
-        initial_snapshot: &PublishedSnapshot,
-        id: OAuthAccountId,
-        result: OAuthAuthenticationRefreshResult,
-    ) -> Result<Arc<PublishedSnapshot>, OAuthQuotaError> {
-        match result {
-            OAuthAuthenticationRefreshResult::Refreshed(snapshot) => Ok(snapshot),
-            OAuthAuthenticationRefreshResult::AuthenticationFailed => {
-                self.mark_authentication_failed(initial_snapshot, id);
-                Err(OAuthQuotaError::AuthenticationFailed)
-            }
-            OAuthAuthenticationRefreshResult::Unverified => {
-                Err(OAuthQuotaError::AuthenticationRefreshFailed)
-            }
-        }
-    }
-
-    fn map_second_authentication_failure(
-        &self,
-        snapshot: &PublishedSnapshot,
-        id: OAuthAccountId,
-        error: OAuthQuotaError,
-    ) -> OAuthQuotaError {
-        match error {
-            OAuthQuotaError::UpstreamRejected(status)
-                if status == StatusCode::UNAUTHORIZED.as_u16() =>
-            {
-                self.mark_authentication_failed(snapshot, id);
-                OAuthQuotaError::AuthenticationFailed
-            }
-            error => error,
-        }
-    }
-
-    fn mark_authentication_failed(&self, snapshot: &PublishedSnapshot, id: OAuthAccountId) {
-        if let Some(binding) = snapshot.credential_runtime(RoutingCredentialId::oauth_account(id)) {
-            binding
-                .generation()
-                .health()
-                .record_authentication_failure();
         }
     }
 }

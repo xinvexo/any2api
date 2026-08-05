@@ -7,6 +7,8 @@ use any2api_storage::api::StorageError;
 use any2api_transport::api::TransportError;
 use thiserror::Error;
 
+use crate::oauth::refresh::OAuthRefreshFailure;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct OAuthQuotaSnapshot {
     pub usage: OAuthQuotaUsage,
@@ -48,10 +50,14 @@ pub enum OAuthQuotaError {
     AccountRestricted,
     #[error("the OAuth provider rejected the current network egress")]
     ProviderEgressRestricted,
-    #[error("OAuth account authentication could not be verified because token refresh failed")]
-    AuthenticationRefreshFailed,
-    #[error("OAuth account was rejected after token refresh")]
-    AuthenticationFailed,
+    #[error("OAuth account has no refresh token after its access token was rejected")]
+    RefreshTokenMissing(OAuthRefreshFailure),
+    #[error("OAuth refresh endpoint permanently rejected the refresh token")]
+    RefreshPermanentlyRejected(OAuthRefreshFailure),
+    #[error("OAuth token refresh failed")]
+    TokenRefreshFailed(OAuthRefreshFailure),
+    #[error("OAuth account was rejected after a successful token refresh")]
+    RefreshedAccessTokenRejected(OAuthRefreshFailure),
     #[error("OAuth account has no available quota reset credits")]
     NoResetCredits,
     #[error("OAuth quota persistence failed")]

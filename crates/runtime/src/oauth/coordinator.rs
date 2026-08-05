@@ -23,7 +23,7 @@ use super::{
         token_request,
     },
     quota::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaService, OAuthQuotaSnapshot},
-    refresh::OAuthRefresher,
+    refresh::{OAuthRefreshFailure, OAuthRefresher},
 };
 
 pub struct OAuthService {
@@ -100,6 +100,19 @@ impl OAuthService {
 
     pub fn subscribe_quota_changes(&self) -> watch::Receiver<u64> {
         self.quota.subscribe_changes()
+    }
+
+    #[must_use]
+    pub fn refresh_failure(
+        &self,
+        id: OAuthAccountId,
+        token_version: u64,
+    ) -> Option<OAuthRefreshFailure> {
+        self.refresher.refresh_failure(id, token_version)
+    }
+
+    pub fn subscribe_refresh_failure_changes(&self) -> watch::Receiver<u64> {
+        self.refresher.subscribe_refresh_failure_changes()
     }
 
     pub async fn reset_quota(

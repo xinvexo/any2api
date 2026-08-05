@@ -10,6 +10,18 @@
     linear-gradient(165deg, #eef2f8 0%, #f5f6f8 42%, #ebf0f7 100%);
 }
 
+.app-shell-header {
+  padding-block-start: env(safe-area-inset-top, 0px);
+}
+
+.app-shell-content {
+  padding-block-end: max(0.5rem, env(safe-area-inset-bottom, 0px));
+}
+
+.app-shell-mobile-overlay {
+  top: calc(3.5rem + env(safe-area-inset-top, 0px));
+}
+
 html[data-theme="dark"] .app-shell {
   background:
     radial-gradient(ellipse 70% 55% at 12% 8%, rgb(10 132 255 / 16%), transparent 58%),
@@ -124,6 +136,9 @@ html[data-theme="dark"] .app-glass-chip {
 }
 
 .mobile-navigation-panel {
+  max-height: calc(
+    100dvh - 4.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+  );
   border-color: rgb(255 255 255 / 76%);
   background: rgb(250 251 253 / 88%);
   box-shadow:
@@ -132,6 +147,22 @@ html[data-theme="dark"] .app-glass-chip {
     0 1px 0 rgb(255 255 255 / 80%) inset;
   animation: mobile-navigation-enter 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
   transform-origin: top left;
+}
+
+@media (min-width: 40rem) {
+  .app-shell-content {
+    padding-block-end: max(0.625rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-shell-mobile-overlay {
+    top: calc(4rem + env(safe-area-inset-top, 0px));
+  }
+
+  .mobile-navigation-panel {
+    max-height: calc(
+      100dvh - 5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+    );
+  }
 }
 
 html[data-theme="dark"] .mobile-navigation-scrim {

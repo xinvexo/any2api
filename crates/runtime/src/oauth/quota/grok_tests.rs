@@ -188,7 +188,7 @@ async fn grok_quota_distinguishes_invalid_and_restricted_accounts() {
         QuotaTestContext::new_grok_with_authentication(AuthenticationMode::AlwaysReject).await;
     assert!(matches!(
         invalid.service.refresh_quota(invalid.account_id).await,
-        Err(OAuthQuotaError::AuthenticationFailed)
+        Err(OAuthQuotaError::RefreshedAccessTokenRejected(_))
     ));
     assert_eq!(invalid.transport.refresh_calls(), 1);
 

@@ -16,10 +16,15 @@ afterEach(() => {
 });
 
 describe("invalid OAuth account cleanup", () => {
-  it("accepts only the explicit post-refresh authentication failure", () => {
+  it("accepts only definitive refresh failures that require reauthorization", () => {
     expect(
       isInvalidOAuthAuthenticationError(
-        new ApiError(502, "oauth_account_authentication_failed", "invalid"),
+        new ApiError(
+          502,
+          "oauth_refreshed_access_token_rejected",
+          "invalid",
+          apiRefreshDiagnostic("refreshed_access_token_rejected", true),
+        ),
       ),
     ).toBe(true);
     expect(
@@ -41,8 +46,19 @@ describe("invalid OAuth account cleanup", () => {
       isInvalidOAuthAuthenticationError(
         new ApiError(
           502,
-          "oauth_account_authentication_unverified",
+          "oauth_token_refresh_failed",
           "refresh failed",
+          apiRefreshDiagnostic("transport_failure", false),
+        ),
+      ),
+    ).toBe(false);
+    expect(
+      isInvalidOAuthAuthenticationError(
+        new ApiError(
+          502,
+          "oauth_refresh_permanently_rejected",
+          "mismatched",
+          apiRefreshDiagnostic("transport_failure", true),
         ),
       ),
     ).toBe(false);
@@ -55,7 +71,11 @@ describe("invalid OAuth account cleanup", () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input);
         if (path.endsWith("invalid/quota/refresh") && init?.method === "POST") {
-          return errorResponse("oauth_account_authentication_failed", 502);
+          return refreshErrorResponse(
+            "oauth_refreshed_access_token_rejected",
+            "refreshed_access_token_rejected",
+            3,
+          );
         }
         if (path.endsWith("restricted/quota/refresh") && init?.method === "POST") {
           return errorResponse("oauth_account_restricted", 502);
@@ -88,6 +108,31 @@ describe("invalid OAuth account cleanup", () => {
     expect(client.getQueryData(oauthQueryKeys.accounts)).toEqual(
       expect.objectContaining({ configRevision: 4 }),
     );
+  });
+
+  it("does not carry an invalid verdict onto a newer token version", async () => {
+    const client = queryClient();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path.endsWith("changed/quota/refresh") && init?.method === "POST") {
+          return refreshErrorResponse(
+            "oauth_refresh_permanently_rejected",
+            "refresh_token_reused",
+            1,
+          );
+        }
+        if (path === "/api/admin/oauth/accounts") {
+          return jsonResponse(configuration(5, [account("changed", "Changed", 2)]));
+        }
+        throw new Error(`unexpected request: ${path}`);
+      }),
+    );
+
+    const result = await inspectInvalidOAuthAccounts(client, ["changed"]);
+
+    expect(result).toEqual({ total: 1, inconclusive: 0, candidates: [] });
   });
 
   it("skips changed tokens and rechecks a revision conflict before deleting", async () => {
@@ -193,6 +238,7 @@ function account(id: string, label: string, tokenVersion: number) {
     available_models: ["gpt-5.5"],
     plan_type: "free",
     bot_flagged: null,
+    token_refresh_failure: null,
     usage: usage(),
   };
 }
@@ -206,6 +252,49 @@ function errorResponse(code: string, status: number) {
     JSON.stringify({ error: { code, message: "request failed" } }),
     { status, headers: { "Content-Type": "application/json" } },
   );
+}
+
+function refreshErrorResponse(code: string, reason: string, tokenVersion = 1) {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code,
+        message: "request failed",
+        diagnostic: wireRefreshDiagnostic(reason, true, tokenVersion),
+      },
+    }),
+    { status: 502, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function apiRefreshDiagnostic(reason: string, reauthorizationRequired: boolean) {
+  return {
+    tokenVersion: 1,
+    trigger: "authentication_failure",
+    stage: "verify_authentication",
+    reason,
+    upstreamStatus: 401,
+    failureScope: null,
+    occurredAt: 1_900_000_000,
+    reauthorizationRequired,
+  };
+}
+
+function wireRefreshDiagnostic(
+  reason: string,
+  reauthorizationRequired: boolean,
+  tokenVersion = 1,
+) {
+  return {
+    token_version: tokenVersion,
+    trigger: "authentication_failure",
+    stage: "verify_authentication",
+    reason,
+    upstream_status: 401,
+    failure_scope: null,
+    occurred_at: 1_900_000_000,
+    reauthorization_required: reauthorizationRequired,
+  };
 }
 
 function jsonResponse(body: unknown) {

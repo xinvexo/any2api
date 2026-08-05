@@ -43,6 +43,12 @@ export function OAuthQuotaPanel({
     mutationKey: refreshMutationKey,
     retry: false,
     mutationFn: () => refreshOAuthAccountQuota(queryClient, accountId),
+    onError: () => {
+      void queryClient.invalidateQueries({
+        queryKey: oauthQueryKeys.accounts,
+        refetchType: "active",
+      });
+    },
   });
   const refreshPending =
     useIsMutating({ mutationKey: refreshMutationKey, exact: true }) > 0;
@@ -57,6 +63,10 @@ export function OAuthQuotaPanel({
         await refreshOAuthAccountQuota(queryClient, accountId);
         return { ...result, quotaRefreshed: true };
       } catch {
+        await queryClient.invalidateQueries({
+          queryKey: oauthQueryKeys.accounts,
+          refetchType: "active",
+        });
         return { ...result, quotaRefreshed: false };
       }
     },

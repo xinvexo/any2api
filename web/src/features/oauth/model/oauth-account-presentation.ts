@@ -58,6 +58,15 @@ export function presentOAuthAccount(
   if (quota?.accountStatus?.userBlockedReason) {
     badges.push({ key: "upstream-restricted", label: "xAI 受限", tone: "warning" });
   }
+  if (account.tokenRefreshFailure) {
+    badges.push({
+      key: "token-refresh-failed",
+      label: account.tokenRefreshFailure.reauthorizationRequired
+        ? "需重新授权"
+        : "Token 刷新异常",
+      tone: "warning",
+    });
+  }
 
   const metrics: OAuthAccountMetric[] = [
     {

@@ -16,7 +16,11 @@ use tokio::sync::Mutex;
 
 use crate::{configuration::ConfigPublisher, lifecycle::ProcessLifecycle};
 
-use super::account::{PreparedOAuthRefresh, is_due};
+use super::{
+    account::{PreparedOAuthRefresh, is_due},
+    failure::{OAuthRefreshError, OAuthRefreshFailure, OAuthRefreshTrigger},
+    state::OAuthRefreshState,
+};
 
 const SCHEDULED_REFRESH_CONCURRENCY: usize = 6;
 
@@ -25,17 +29,8 @@ pub(crate) struct OAuthRefresher {
     pub(super) transport: Arc<dyn TransportManager>,
     pub(super) publisher: Arc<ConfigPublisher>,
     pub(super) gates: StdMutex<HashMap<OAuthAccountId, Weak<Mutex<()>>>>,
-    permanent_rejections: StdMutex<HashMap<OAuthAccountId, u64>>,
-    failed_attempts: StdMutex<HashMap<OAuthAccountId, FailedRefreshAttempts>>,
+    pub(super) refresh_state: OAuthRefreshState,
     worker_started: AtomicBool,
-}
-
-/// How many refresh attempts have failed for a token version, so gate
-/// waiters can tell whether the refresh they queued behind went through.
-#[derive(Clone, Copy, Debug)]
-struct FailedRefreshAttempts {
-    token_version: u64,
-    attempts: u64,
 }
 
 impl OAuthRefresher {
@@ -49,8 +44,7 @@ impl OAuthRefresher {
             transport,
             publisher,
             gates: StdMutex::new(HashMap::new()),
-            permanent_rejections: StdMutex::new(HashMap::new()),
-            failed_attempts: StdMutex::new(HashMap::new()),
+            refresh_state: OAuthRefreshState::new(),
             worker_started: AtomicBool::new(false),
         })
     }
@@ -144,13 +138,13 @@ impl OAuthRefresher {
         prepared: Vec<(
             OAuthAccountId,
             u64,
-            Result<Option<PreparedOAuthRefresh>, super::account::OAuthRefreshError>,
+            Result<Option<PreparedOAuthRefresh>, OAuthRefreshError>,
         )>,
     ) -> Option<ConfigRevision> {
         let mut refreshes = Vec::new();
         let mut pending = Vec::new();
         let mut gates = Vec::new();
-        for (id, _token_version, result) in prepared {
+        for (id, token_version, result) in prepared {
             match result {
                 Ok(Some(prepared)) => {
                     let (id, token_version, email, expires_at, document, gate) =
@@ -166,11 +160,14 @@ impl OAuthRefresher {
                     gates.push(gate);
                 }
                 Ok(None) => {}
-                Err(error) => tracing::warn!(
-                    oauth_account_id = %id,
-                    error = %error,
-                    "OAuth account token refresh failed"
-                ),
+                Err(error) => {
+                    if self.refresh_failure(id, token_version).is_none() {
+                        self.record_refresh_failure(
+                            id,
+                            error.failure(token_version, OAuthRefreshTrigger::Scheduled),
+                        );
+                    }
+                }
             }
         }
         if refreshes.is_empty() {
@@ -190,6 +187,7 @@ impl OAuthRefresher {
                         .map(|account| account.token_version())
                         .filter(|version| *version > observed_token_version)
                     {
+                        self.record_refresh_success(id, observed_token_version);
                         tracing::info!(
                             oauth_account_id = %id,
                             token_version = next_version,
@@ -200,78 +198,22 @@ impl OAuthRefresher {
                 changed.then(|| snapshot.revision())
             }
             Err(error) => {
+                let error = OAuthRefreshError::Publish(error);
+                let mut first_failure = None;
+                for (id, token_version) in pending.iter().copied() {
+                    let failure = error.failure(token_version, OAuthRefreshTrigger::Scheduled);
+                    first_failure.get_or_insert(failure);
+                    self.record_refresh_failure(id, failure);
+                }
                 tracing::warn!(
                     prepared_account_count = pending.len(),
-                    error = %error,
+                    refresh_stage = ?first_failure.map(OAuthRefreshFailure::stage),
+                    refresh_reason = ?first_failure.map(OAuthRefreshFailure::reason),
                     "OAuth account refresh batch publication failed"
                 );
                 None
             }
         }
-    }
-
-    pub(super) fn is_permanently_rejected(&self, id: OAuthAccountId, token_version: u64) -> bool {
-        let mut rejected = self
-            .permanent_rejections
-            .lock()
-            .expect("OAuth refresh rejection lock poisoned");
-        match rejected.get(&id).copied() {
-            Some(version) if version == token_version => true,
-            Some(_) => {
-                rejected.remove(&id);
-                false
-            }
-            None => false,
-        }
-    }
-
-    pub(super) fn record_permanent_rejection(&self, id: OAuthAccountId, token_version: u64) {
-        self.permanent_rejections
-            .lock()
-            .expect("OAuth refresh rejection lock poisoned")
-            .insert(id, token_version);
-    }
-
-    pub(super) fn failed_refresh_attempts(&self, id: OAuthAccountId, token_version: u64) -> u64 {
-        self.failed_attempts
-            .lock()
-            .expect("OAuth refresh attempt lock poisoned")
-            .get(&id)
-            .filter(|failed| failed.token_version == token_version)
-            .map_or(0, |failed| failed.attempts)
-    }
-
-    pub(super) fn record_failed_refresh_attempt(&self, id: OAuthAccountId, token_version: u64) {
-        let mut attempts = self
-            .failed_attempts
-            .lock()
-            .expect("OAuth refresh attempt lock poisoned");
-        let failed = attempts.entry(id).or_insert(FailedRefreshAttempts {
-            token_version,
-            attempts: 0,
-        });
-        if failed.token_version != token_version {
-            *failed = FailedRefreshAttempts {
-                token_version,
-                attempts: 0,
-            };
-        }
-        failed.attempts += 1;
-    }
-
-    fn retain_active_refresh_state(&self, active: &HashMap<OAuthAccountId, u64>) {
-        self.gates
-            .lock()
-            .expect("OAuth refresh gate lock poisoned")
-            .retain(|id, gate| active.contains_key(id) || gate.strong_count() > 0);
-        self.permanent_rejections
-            .lock()
-            .expect("OAuth refresh rejection lock poisoned")
-            .retain(|id, version| active.get(id) == Some(version));
-        self.failed_attempts
-            .lock()
-            .expect("OAuth refresh attempt lock poisoned")
-            .retain(|id, failed| active.get(id) == Some(&failed.token_version));
     }
 }
 

@@ -3,6 +3,19 @@ import {
   type RequestUsage,
 } from "@/shared/api/request-usage";
 
+import {
+  parseOAuthRefreshFailure,
+  type OAuthRefreshFailure,
+} from "./oauth-refresh-contracts";
+
+export type {
+  OAuthRefreshFailure,
+  OAuthRefreshFailureReason,
+  OAuthRefreshFailureScope,
+  OAuthRefreshFailureStage,
+  OAuthRefreshTrigger,
+} from "./oauth-refresh-contracts";
+
 export type OAuthProvider = "codex" | "claude" | "grok";
 
 interface OAuthStartCommon {
@@ -62,6 +75,7 @@ export interface OAuthAccount {
   planType: string | null;
   /** Safe Grok Build `bot_flag_source` derivation. */
   botFlagged: boolean | null;
+  tokenRefreshFailure: OAuthRefreshFailure | null;
   usage: RequestUsage;
 }
 
@@ -252,6 +266,7 @@ function parseOAuthAccount(value: unknown): OAuthAccount {
     availableModels,
     planType: readOptionalString(value.plan_type),
     botFlagged: readOptionalBoolean(value.bot_flagged),
+    tokenRefreshFailure: parseOAuthRefreshFailure(value.token_refresh_failure),
     usage: parseRequestUsage(value.usage),
   };
 }

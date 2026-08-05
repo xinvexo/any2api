@@ -117,7 +117,10 @@ export function SystemLogManagement() {
   const items = query.data.items;
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy={query.isFetching}>
+    <div
+      className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden"
+      aria-busy={query.isFetching}
+    >
       <div
         data-system-log-fixed="toolbar"
         className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-subtle pb-3"
@@ -163,7 +166,7 @@ export function SystemLogManagement() {
         </p>
       ) : null}
 
-      <div className="min-h-0 flex-1 pt-3">
+      <div className="pt-3 md:min-h-0 md:flex-1">
         {items.length === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
             <ScrollText size={22} className="text-tertiary" aria-hidden="true" />

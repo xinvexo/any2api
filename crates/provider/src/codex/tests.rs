@@ -122,11 +122,23 @@ fn builds_pkce_authorization_and_token_requests() {
 #[test]
 fn classifies_declared_codex_refresh_token_failures_as_permanent() {
     let driver = CodexDriver::new();
-    for code in [
-        "invalid_grant",
-        "refresh_token_expired",
-        "refresh_token_reused",
-        "refresh_token_invalidated",
+    for (code, expected) in [
+        (
+            "invalid_grant",
+            crate::api::OAuthRefreshRejection::InvalidGrant,
+        ),
+        (
+            "refresh_token_expired",
+            crate::api::OAuthRefreshRejection::RefreshTokenExpired,
+        ),
+        (
+            "refresh_token_reused",
+            crate::api::OAuthRefreshRejection::RefreshTokenReused,
+        ),
+        (
+            "refresh_token_invalidated",
+            crate::api::OAuthRefreshRejection::RefreshTokenInvalidated,
+        ),
     ] {
         let body = serde_json::json!({ "error": { "code": code } });
         assert_eq!(
@@ -134,7 +146,7 @@ fn classifies_declared_codex_refresh_token_failures_as_permanent() {
                 StatusCode::UNAUTHORIZED,
                 body.to_string().as_bytes(),
             ),
-            crate::api::OAuthRefreshRejection::Permanent
+            expected
         );
     }
 

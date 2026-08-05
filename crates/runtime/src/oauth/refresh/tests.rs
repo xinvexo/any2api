@@ -25,6 +25,7 @@ use crate::{
     registry::RuntimeRegistry,
 };
 
+mod authentication_waiters;
 mod expiry;
 mod health_generation;
 mod scheduled;

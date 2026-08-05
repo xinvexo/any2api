@@ -170,6 +170,7 @@ function oauthAccountJson(
       providerKind === "codex" ? ["gpt-5.5"] : ["claude-sonnet-4-5"],
     plan_type: "free",
     bot_flagged: null,
+    token_refresh_failure: null,
     usage: usage(),
   };
 }

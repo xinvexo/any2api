@@ -1,5 +1,7 @@
 import { ApiError } from "@/shared/api/http-client";
 
+import { formatOAuthRefreshFailure } from "./oauth-refresh-failure";
+
 const messages: Record<string, string> = {
   oauth_session_capacity: "Too many OAuth2 login sessions are active.",
   oauth_session_invalid: "This OAuth2 login session is invalid or was already used.",
@@ -30,8 +32,10 @@ const messages: Record<string, string> = {
   oauth_quota_unsupported: "该 OAuth Provider 不支持额度管理。",
   oauth_quota_reset_unavailable: "当前没有可用的额度重置次数。",
   oauth_quota_timeout: "额度查询超时。",
-  oauth_account_authentication_unverified: "账号认证无法确认：上游返回 401，但 Token 刷新未完成。",
-  oauth_account_authentication_failed: "账号认证已失效：上游已明确拒绝当前认证。",
+  oauth_refresh_token_missing: "Access Token 已被拒绝，但账号没有 Refresh Token。",
+  oauth_refresh_permanently_rejected: "Refresh Endpoint 已明确拒绝当前 Refresh Token。",
+  oauth_refreshed_access_token_rejected: "Token 已成功刷新，但新 Access Token 仍被上游拒绝。",
+  oauth_token_refresh_failed: "Token 刷新链未完成。",
   oauth_account_restricted: "上游已明确限制此账号访问。",
   oauth_provider_egress_restricted: "当前网络出口被上游拒绝，请检查或更换全局代理。",
   oauth_quota_upstream_failed: "上游额度请求失败。",
@@ -40,7 +44,10 @@ const messages: Record<string, string> = {
 
 export function getOAuthErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    return messages[error.code] ?? error.message;
+    const message = messages[error.code] ?? error.message;
+    return error.diagnostic
+      ? `${message} ${formatOAuthRefreshFailure(error.diagnostic)}`
+      : message;
   }
   if (error instanceof Error && error.message === "request timed out") {
     return "The OAuth2 request timed out.";

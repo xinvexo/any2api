@@ -262,7 +262,11 @@ test("reports a Grok OAuth token rejected after refresh as invalid", async () =>
     vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
       init?.method === "GET"
         ? response(null)
-        : errorResponse("oauth_account_authentication_failed", 502)),
+        : errorResponse(
+            "oauth_refreshed_access_token_rejected",
+            502,
+            refreshDiagnostic(),
+          )),
   );
 
   renderGrokPanel();
@@ -272,7 +276,9 @@ test("reports a Grok OAuth token rejected after refresh as invalid", async () =>
   fireEvent.click(refreshButton);
 
   expect(
-    await within(panel).findByText("账号认证已失效：上游已明确拒绝当前认证。"),
+    await within(panel).findByText(
+      /Token 已成功刷新.*阶段：刷新后认证复核.*错误：新 Access Token 仍被上游 401 拒绝/,
+    ),
   ).toBeInTheDocument();
   expect(within(panel).getByText("额度尚未刷新")).toBeInTheDocument();
 });
@@ -346,9 +352,22 @@ function response(body: unknown) {
   });
 }
 
-function errorResponse(code: string, status: number) {
+function errorResponse(code: string, status: number, diagnostic?: unknown) {
   return new Response(
-    JSON.stringify({ error: { code, message: "quota request failed" } }),
+    JSON.stringify({ error: { code, message: "quota request failed", diagnostic } }),
     { status, headers: { "Content-Type": "application/json" } },
   );
+}
+
+function refreshDiagnostic() {
+  return {
+    token_version: 2,
+    trigger: "authentication_failure",
+    stage: "verify_authentication",
+    reason: "refreshed_access_token_rejected",
+    upstream_status: 401,
+    failure_scope: null,
+    occurred_at: 1_900_000_000,
+    reauthorization_required: true,
+  };
 }

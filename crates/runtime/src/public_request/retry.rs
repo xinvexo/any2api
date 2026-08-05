@@ -64,6 +64,7 @@ pub(super) async fn execute(
     let mut exclusions = CandidateExclusions::default();
     let mut previous_error = None;
     let mut oauth_refresh_attempted = false;
+    let mut refreshed_oauth_target = None;
     let mut credential_bound_header_owner = None;
 
     loop {
@@ -147,6 +148,13 @@ pub(super) async fn execute(
         match attempt {
             Ok(response) => return Ok(response),
             Err(failure) => {
+                if let Some((account_id, token_version)) = refreshed_oauth_target
+                    && failure.oauth_authentication_target() == Some((account_id, token_version))
+                    && let Some(refresher) = oauth.map(|services| services.refresher)
+                {
+                    refresher.record_refreshed_access_token_rejected(account_id, token_version);
+                    refreshed_oauth_target = None;
+                }
                 let public = failure.final_failure();
                 if !oauth_refresh_attempted
                     && let Some(refresher) = oauth.map(|services| services.refresher)
@@ -163,10 +171,15 @@ pub(super) async fn execute(
                     .ok()
                     .and_then(|result| match result {
                         OAuthAuthenticationRefreshResult::Refreshed(snapshot) => Some(snapshot),
-                        OAuthAuthenticationRefreshResult::AuthenticationFailed
-                        | OAuthAuthenticationRefreshResult::Unverified => None,
+                        OAuthAuthenticationRefreshResult::MissingRefreshToken(_)
+                        | OAuthAuthenticationRefreshResult::PermanentlyRejected(_)
+                        | OAuthAuthenticationRefreshResult::Failed(_) => None,
                     });
                     if let Some(next_snapshot) = refreshed {
+                        refreshed_oauth_target = next_snapshot
+                            .oauth_accounts()
+                            .get(account_id)
+                            .map(|account| (account_id, account.token_version()));
                         let next_plan = super::planning::replan(
                             next_snapshot.as_ref(),
                             &plan,

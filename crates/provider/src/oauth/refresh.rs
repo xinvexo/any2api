@@ -3,19 +3,26 @@ use serde::Deserialize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthRefreshRejection {
-    Permanent,
+    InvalidGrant,
+    RefreshTokenExpired,
+    RefreshTokenReused,
+    RefreshTokenInvalidated,
     Unverified,
 }
 
 impl OAuthRefreshRejection {
     pub fn classify(status: StatusCode, bounded_body: &[u8]) -> Self {
-        Self::classify_with_codes(status, bounded_body, &["invalid_grant"])
+        Self::classify_with_codes(
+            status,
+            bounded_body,
+            &[("invalid_grant", Self::InvalidGrant)],
+        )
     }
 
     pub(crate) fn classify_with_codes(
         status: StatusCode,
         bounded_body: &[u8],
-        permanent_codes: &[&str],
+        permanent_codes: &[(&str, Self)],
     ) -> Self {
         if status != StatusCode::BAD_REQUEST && status != StatusCode::UNAUTHORIZED {
             return Self::Unverified;
@@ -23,11 +30,15 @@ impl OAuthRefreshRejection {
         let Ok(envelope) = serde_json::from_slice::<RefreshErrorEnvelope>(bounded_body) else {
             return Self::Unverified;
         };
-        if permanent_codes.iter().any(|code| envelope.has_code(code)) {
-            Self::Permanent
-        } else {
-            Self::Unverified
-        }
+        permanent_codes
+            .iter()
+            .find_map(|(code, rejection)| envelope.has_code(code).then_some(*rejection))
+            .unwrap_or(Self::Unverified)
+    }
+
+    #[must_use]
+    pub const fn is_permanent(self) -> bool {
+        !matches!(self, Self::Unverified)
     }
 }
 
@@ -87,7 +98,7 @@ mod tests {
         ] {
             assert_eq!(
                 OAuthRefreshRejection::classify(StatusCode::BAD_REQUEST, body),
-                OAuthRefreshRejection::Permanent
+                OAuthRefreshRejection::InvalidGrant
             );
         }
     }

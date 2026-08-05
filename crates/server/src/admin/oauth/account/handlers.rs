@@ -84,7 +84,9 @@ async fn accounts_response(
 ) -> Json<OAuthAccountCollectionResponse> {
     let usage = upstream_usage::load(state).await;
     Json(OAuthAccountCollectionResponse::from_snapshot(
-        snapshot, &usage,
+        snapshot,
+        &usage,
+        state.oauth(),
     ))
 }
 

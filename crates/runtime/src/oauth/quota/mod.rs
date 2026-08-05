@@ -1,4 +1,5 @@
 mod activity;
+mod authentication;
 mod coordinator;
 mod health;
 mod observation;
@@ -8,6 +9,8 @@ mod rejection;
 mod request;
 mod types;
 
+#[cfg(test)]
+mod authentication_tests;
 #[cfg(test)]
 mod claude_tests;
 #[cfg(test)]

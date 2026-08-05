@@ -1,8 +1,8 @@
 export type ThemeMode = "light" | "dark";
 
 const THEME_COLOR = {
-  light: "#f0f4f9",
-  dark: "#0f1115",
+  light: "#ffffff",
+  dark: "#0a0c10",
 } as const;
 
 export function readThemeMode(): ThemeMode {

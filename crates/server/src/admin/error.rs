@@ -11,6 +11,44 @@ pub(crate) struct AdminApiError {
     code: &'static str,
     message: String,
     retry_after: Option<u64>,
+    diagnostic: Option<Box<AdminErrorDiagnostic>>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct AdminErrorDiagnostic {
+    token_version: u64,
+    trigger: &'static str,
+    stage: &'static str,
+    reason: &'static str,
+    upstream_status: Option<u16>,
+    failure_scope: Option<&'static str>,
+    occurred_at: i64,
+    reauthorization_required: bool,
+}
+
+impl AdminErrorDiagnostic {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn new(
+        token_version: u64,
+        trigger: &'static str,
+        stage: &'static str,
+        reason: &'static str,
+        upstream_status: Option<u16>,
+        failure_scope: Option<&'static str>,
+        occurred_at: i64,
+        reauthorization_required: bool,
+    ) -> Self {
+        Self {
+            token_version,
+            trigger,
+            stage,
+            reason,
+            upstream_status,
+            failure_scope,
+            occurred_at,
+            reauthorization_required,
+        }
+    }
 }
 
 impl AdminApiError {
@@ -254,7 +292,13 @@ impl AdminApiError {
             code,
             message: message.into(),
             retry_after: None,
+            diagnostic: None,
         }
+    }
+
+    pub(crate) fn with_diagnostic(mut self, diagnostic: AdminErrorDiagnostic) -> Self {
+        self.diagnostic = Some(Box::new(diagnostic));
+        self
     }
 }
 
@@ -264,6 +308,7 @@ impl IntoResponse for AdminApiError {
             error: ErrorBody {
                 code: self.code,
                 message: self.message,
+                diagnostic: self.diagnostic,
             },
         };
 
@@ -286,6 +331,8 @@ struct ErrorEnvelope {
 struct ErrorBody {
     code: &'static str,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic: Option<Box<AdminErrorDiagnostic>>,
 }
 
 pub(crate) async fn not_found() -> AdminApiError {

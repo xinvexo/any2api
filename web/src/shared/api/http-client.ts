@@ -8,6 +8,17 @@ export interface JsonRequestOptions {
 
 export const ADMIN_SESSION_EXPIRED_EVENT = "any2api:admin-session-expired";
 
+export interface ApiErrorDiagnostic {
+  tokenVersion: number;
+  trigger: string;
+  stage: string;
+  reason: string;
+  upstreamStatus: number | null;
+  failureScope: string | null;
+  occurredAt: number;
+  reauthorizationRequired: boolean;
+}
+
 let adminCsrfToken: string | null = null;
 
 export function setAdminCsrfToken(value: string | null) {
@@ -19,6 +30,7 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    public readonly diagnostic: ApiErrorDiagnostic | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -154,7 +166,14 @@ async function readApiError(response: Response, signal: AbortSignal): Promise<Ap
     "message" in value.error &&
     typeof value.error.message === "string"
   ) {
-    return new ApiError(response.status, value.error.code, value.error.message);
+    return new ApiError(
+      response.status,
+      value.error.code,
+      value.error.message,
+      parseApiErrorDiagnostic(
+        "diagnostic" in value.error ? value.error.diagnostic : undefined,
+      ),
+    );
   }
 
   return new ApiError(
@@ -162,6 +181,55 @@ async function readApiError(response: Response, signal: AbortSignal): Promise<Ap
     "http_error",
     `request failed with status ${response.status}`,
   );
+}
+
+function parseApiErrorDiagnostic(value: unknown): ApiErrorDiagnostic | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (
+    typeof value !== "object"
+    || !("token_version" in value)
+    || !("trigger" in value)
+    || !("stage" in value)
+    || !("reason" in value)
+    || !("upstream_status" in value)
+    || !("failure_scope" in value)
+    || !("occurred_at" in value)
+    || !("reauthorization_required" in value)
+    || !isIntegerAtLeast(value.token_version, 1)
+    || typeof value.trigger !== "string"
+    || typeof value.stage !== "string"
+    || typeof value.reason !== "string"
+    || !isOptionalInteger(value.upstream_status, 100)
+    || !isOptionalString(value.failure_scope)
+    || !isIntegerAtLeast(value.occurred_at, 0)
+    || typeof value.reauthorization_required !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    tokenVersion: value.token_version,
+    trigger: value.trigger,
+    stage: value.stage,
+    reason: value.reason,
+    upstreamStatus: value.upstream_status,
+    failureScope: value.failure_scope,
+    occurredAt: value.occurred_at,
+    reauthorizationRequired: value.reauthorization_required,
+  };
+}
+
+function isIntegerAtLeast(value: unknown, minimum: number): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= minimum;
+}
+
+function isOptionalInteger(value: unknown, minimum: number): value is number | null {
+  return value === null || isIntegerAtLeast(value, minimum);
+}
+
+function isOptionalString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
 }
 
 function isAbortError(error: unknown) {

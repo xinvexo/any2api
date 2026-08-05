@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 
 import { runOAuthQuotaBatch } from "./oauth-quota-batch";
 import { refreshOAuthAccountQuota } from "./oauth-quota-query";
+import { oauthQueryKeys } from "./oauth-query-keys";
 
 export interface OAuthQuotaRefreshResult {
   total: number;
@@ -26,6 +27,12 @@ export function useOAuthQuotaRefreshAll() {
       const outcomes = await runOAuthQuotaBatch(accountIds, (accountId) =>
         refreshOAuthAccountQuota(queryClient, accountId),
       );
+      if (outcomes.some((outcome) => outcome.status === "rejected")) {
+        await queryClient.invalidateQueries({
+          queryKey: oauthQueryKeys.accounts,
+          refetchType: "active",
+        });
+      }
       return {
         total: accountIds.length,
         failed: outcomes.filter((outcome) => outcome.status === "rejected").length,

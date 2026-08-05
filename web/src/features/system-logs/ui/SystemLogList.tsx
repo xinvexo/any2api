@@ -23,7 +23,7 @@ export function SystemLogList({
   return (
     <>
       <div
-        className="management-scroll-viewport h-full space-y-2 overflow-y-auto md:hidden [scrollbar-gutter:stable]"
+        className="management-scroll-viewport space-y-2 md:hidden"
         role="list"
         aria-label="系统日志列表"
       >

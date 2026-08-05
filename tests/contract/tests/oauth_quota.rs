@@ -86,7 +86,14 @@ async fn codex_quota_is_persisted_redacted_reset_and_announced() {
         .expect("quota event response");
     assert_eq!(response.status(), StatusCode::OK);
     let mut events = response.into_body();
-    assert!(next_sse_event(&mut events).await.contains("data: 0"));
+    let initial_events = format!(
+        "{}{}",
+        next_sse_event(&mut events).await,
+        next_sse_event(&mut events).await
+    );
+    assert!(initial_events.contains("event: oauth_quota_changed"));
+    assert!(initial_events.contains("event: oauth_refresh_diagnostic_changed"));
+    assert_eq!(initial_events.matches("data: 0").count(), 2);
 
     let refreshed = request(
         app.clone(),
@@ -112,7 +119,9 @@ async fn codex_quota_is_persisted_redacted_reset_and_announced() {
         assert!(!encoded.contains(secret));
     }
     assert_eq!(transport.calls.load(Ordering::Acquire), 2);
-    assert!(next_sse_event(&mut events).await.contains("data: 1"));
+    let quota_event = next_sse_event(&mut events).await;
+    assert!(quota_event.contains("event: oauth_quota_changed"));
+    assert!(quota_event.contains("data: 1"));
 
     let persisted = request(app.clone(), Method::GET, &quota_uri, loopback).await;
     assert_eq!(persisted.json["fetched_at"], refreshed.json["fetched_at"]);

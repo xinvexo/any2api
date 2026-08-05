@@ -197,6 +197,11 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
   await expect(autoRefresh).toHaveAttribute("aria-checked", "false");
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#ffffff");
+  await expect(page.locator('meta[name="viewport"]')).toHaveAttribute(
+    "content",
+    /viewport-fit=cover.*interactive-widget=resizes-content/,
+  );
   const mobileList = page.getByRole("list", { name: "系统日志列表" });
   await expect(mobileList).toBeVisible();
   await expect(mobileList).toHaveCSS("padding-right", "8px");
@@ -216,26 +221,22 @@ test("system logs refresh and clear on desktop and mobile", async ({ page }) => 
   });
   expect(contentGap).toBe(8);
 
-  const toolbar = page.locator('[data-system-log-fixed="toolbar"]');
-  const pagination = page.locator('[data-system-log-fixed="pagination"]');
-  const toolbarBefore = await toolbar.boundingBox();
-  const paginationBefore = await pagination.boundingBox();
   const main = page.locator("#main-content");
-  const mainMetrics = await main.evaluate((element) => ({
-    clientHeight: element.clientHeight,
-    scrollHeight: element.scrollHeight,
-    scrollTop: element.scrollTop,
+  const scrollMetrics = await page.evaluate(() => ({
+    documentClientHeight: document.scrollingElement?.clientHeight ?? 0,
+    documentScrollHeight: document.scrollingElement?.scrollHeight ?? 0,
+    scrollingElement: document.scrollingElement?.tagName ?? "",
+    shellOverflowY: getComputedStyle(document.querySelector(".app-shell")!).overflowY,
+    mainOverflowY: getComputedStyle(document.querySelector("#main-content")!).overflowY,
   }));
-  expect(mainMetrics.scrollHeight).toBe(mainMetrics.clientHeight);
-  expect(mainMetrics.scrollTop).toBe(0);
-  await mobileList.evaluate((element) => {
-    element.scrollTop = Math.min(400, element.scrollHeight - element.clientHeight);
-    element.dispatchEvent(new Event("scroll"));
-  });
-  await expect.poll(() => mobileList.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  expect(scrollMetrics.scrollingElement).toBe("HTML");
+  expect(scrollMetrics.documentScrollHeight).toBeGreaterThan(scrollMetrics.documentClientHeight);
+  expect(scrollMetrics.shellOverflowY).toBe("visible");
+  expect(scrollMetrics.mainOverflowY).toBe("visible");
+  await expect(mobileList).toHaveCSS("overflow-y", "visible");
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await expect.poll(() => main.evaluate((element) => element.scrollTop)).toBe(0);
-  expect((await toolbar.boundingBox())?.y).toBe(toolbarBefore?.y);
-  expect((await pagination.boundingBox())?.y).toBe(paginationBefore?.y);
 
   await page.getByRole("button", { name: "清理历史日志" }).click();
   const dialog = page.getByRole("alertdialog", { name: "清理历史系统日志？" });

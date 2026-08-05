@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use any2api_domain::{OAuthAccountId, ProviderKind};
-use any2api_provider::api::{OAuthGrant, OAuthRefreshRejection, OAuthTokenMaterial};
+use any2api_provider::api::{OAuthGrant, OAuthRefreshRejection, OAuthTokenMaterial, ProviderError};
 use any2api_storage::api::OAuthAccountDocument;
-use thiserror::Error;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{
@@ -11,7 +10,10 @@ use crate::{
     oauth::{document, error::OAuthError, login::token_request},
 };
 
-use super::worker::OAuthRefresher;
+use super::{
+    failure::{OAuthRefreshError, OAuthRefreshFailure, OAuthRefreshTrigger},
+    worker::OAuthRefresher,
+};
 
 impl OAuthRefresher {
     #[cfg(test)]
@@ -21,7 +23,7 @@ impl OAuthRefresher {
         observed_token_version: u64,
     ) -> Result<Option<u64>, OAuthRefreshError> {
         let result = self
-            .refresh(id, observed_token_version, RefreshTrigger::Scheduled)
+            .refresh(id, observed_token_version, OAuthRefreshTrigger::Scheduled)
             .await?;
         Ok(match result {
             RefreshResult::Refreshed(snapshot) => snapshot
@@ -30,7 +32,7 @@ impl OAuthRefresher {
                 .map(|account| account.token_version()),
             RefreshResult::AlreadyUpdated(_)
             | RefreshResult::MissingRefreshToken
-            | RefreshResult::PermanentlyRejected
+            | RefreshResult::PermanentlyRejected(_)
             | RefreshResult::Unavailable => None,
         })
     }
@@ -40,18 +42,34 @@ impl OAuthRefresher {
         id: OAuthAccountId,
         observed_token_version: u64,
     ) -> Result<Option<PreparedOAuthRefresh>, OAuthRefreshError> {
-        Ok(
-            match self
-                .prepare_refresh(id, observed_token_version, RefreshTrigger::Scheduled)
-                .await?
-            {
-                RefreshPreparation::Ready(prepared) => Some(prepared),
+        let preparation = self
+            .prepare_refresh(id, observed_token_version, OAuthRefreshTrigger::Scheduled)
+            .await;
+        match preparation {
+            Ok(RefreshPreparation::Ready(prepared)) => Ok(Some(prepared)),
+            Ok(RefreshPreparation::MissingRefreshToken) => {
+                self.record_refresh_failure(
+                    id,
+                    OAuthRefreshFailure::missing_refresh_token(
+                        observed_token_version,
+                        OAuthRefreshTrigger::Scheduled,
+                    ),
+                );
+                Ok(None)
+            }
+            Ok(
                 RefreshPreparation::AlreadyUpdated(_)
-                | RefreshPreparation::MissingRefreshToken
-                | RefreshPreparation::PermanentlyRejected
-                | RefreshPreparation::Unavailable => None,
-            },
-        )
+                | RefreshPreparation::PermanentlyRejected(_)
+                | RefreshPreparation::Unavailable,
+            ) => Ok(None),
+            Err(error) => {
+                self.record_refresh_failure(
+                    id,
+                    error.failure(observed_token_version, OAuthRefreshTrigger::Scheduled),
+                );
+                Err(error)
+            }
+        }
     }
 
     pub(crate) async fn refresh_after_authentication_failure(
@@ -63,7 +81,7 @@ impl OAuthRefresher {
             .refresh(
                 id,
                 observed_token_version,
-                RefreshTrigger::AuthenticationFailure,
+                OAuthRefreshTrigger::AuthenticationFailure,
             )
             .await
         {
@@ -75,22 +93,50 @@ impl OAuthRefresher {
                 OAuthAuthenticationRefreshResult::Refreshed(snapshot)
             }
             Ok(RefreshResult::MissingRefreshToken) => {
-                OAuthAuthenticationRefreshResult::AuthenticationFailed
-            }
-            Ok(RefreshResult::PermanentlyRejected) => {
-                OAuthAuthenticationRefreshResult::AuthenticationFailed
-            }
-            Err(OAuthRefreshError::RefreshRejected(OAuthRefreshRejection::Permanent)) => {
-                OAuthAuthenticationRefreshResult::AuthenticationFailed
-            }
-            Ok(RefreshResult::Unavailable) => OAuthAuthenticationRefreshResult::Unverified,
-            Err(error) => {
-                tracing::warn!(
-                    oauth_account_id = %id,
-                    error = %error,
-                    "OAuth account refresh after authentication failure failed"
+                let failure = OAuthRefreshFailure::missing_refresh_token(
+                    observed_token_version,
+                    OAuthRefreshTrigger::AuthenticationFailure,
                 );
-                OAuthAuthenticationRefreshResult::Unverified
+                self.record_refresh_failure(id, failure);
+                OAuthAuthenticationRefreshResult::MissingRefreshToken(failure)
+            }
+            Ok(RefreshResult::PermanentlyRejected(rejection)) => {
+                let failure = self
+                    .refresh_failure(id, observed_token_version)
+                    .unwrap_or_else(|| {
+                        OAuthRefreshFailure::permanent_rejection(
+                            observed_token_version,
+                            OAuthRefreshTrigger::AuthenticationFailure,
+                            rejection,
+                            None,
+                        )
+                    });
+                self.record_refresh_failure(id, failure);
+                OAuthAuthenticationRefreshResult::PermanentlyRejected(failure)
+            }
+            Ok(RefreshResult::Unavailable) => {
+                let failure = self
+                    .refresh_failure(id, observed_token_version)
+                    .unwrap_or_else(|| {
+                        OAuthRefreshFailure::refresh_unavailable(
+                            observed_token_version,
+                            OAuthRefreshTrigger::AuthenticationFailure,
+                        )
+                    });
+                self.record_refresh_failure(id, failure);
+                OAuthAuthenticationRefreshResult::Failed(failure)
+            }
+            Err(error) => {
+                let failure = error.failure(
+                    observed_token_version,
+                    OAuthRefreshTrigger::AuthenticationFailure,
+                );
+                self.record_refresh_failure(id, failure);
+                if failure.reauthorization_required() {
+                    OAuthAuthenticationRefreshResult::PermanentlyRejected(failure)
+                } else {
+                    OAuthAuthenticationRefreshResult::Failed(failure)
+                }
             }
         }
     }
@@ -99,7 +145,7 @@ impl OAuthRefresher {
         &self,
         id: OAuthAccountId,
         observed_token_version: u64,
-        trigger: RefreshTrigger,
+        trigger: OAuthRefreshTrigger,
     ) -> Result<RefreshResult, OAuthRefreshError> {
         let prepared = match self
             .prepare_refresh(id, observed_token_version, trigger)
@@ -112,8 +158,8 @@ impl OAuthRefresher {
             RefreshPreparation::MissingRefreshToken => {
                 return Ok(RefreshResult::MissingRefreshToken);
             }
-            RefreshPreparation::PermanentlyRejected => {
-                return Ok(RefreshResult::PermanentlyRejected);
+            RefreshPreparation::PermanentlyRejected(rejection) => {
+                return Ok(RefreshResult::PermanentlyRejected(rejection));
             }
             RefreshPreparation::Unavailable => return Ok(RefreshResult::Unavailable),
         };
@@ -132,16 +178,19 @@ impl OAuthRefresher {
         {
             Ok(published) => published,
             Err(
-                ConfigPublishError::OAuthAccountNotFound
-                | ConfigPublishError::OAuthAccountTokenVersionConflict,
+                error @ (ConfigPublishError::OAuthAccountNotFound
+                | ConfigPublishError::OAuthAccountTokenVersionConflict),
             ) => {
                 let current = self.publisher.current_snapshot();
-                return Ok(match current.oauth_accounts().get(id) {
-                    Some(account) if account.token_version() > observed_token_version => {
-                        RefreshResult::AlreadyUpdated(current)
-                    }
-                    _ => RefreshResult::Unavailable,
-                });
+                if current
+                    .oauth_accounts()
+                    .get(id)
+                    .is_some_and(|account| account.token_version() > observed_token_version)
+                {
+                    self.record_refresh_success(id, observed_token_version);
+                    return Ok(RefreshResult::AlreadyUpdated(current));
+                }
+                return Err(OAuthRefreshError::Publish(error));
             }
             Err(error) => return Err(OAuthRefreshError::Publish(error)),
         };
@@ -150,6 +199,7 @@ impl OAuthRefresher {
             .get(id)
             .filter(|account| account.token_version() > observed_token_version)
             .ok_or(OAuthRefreshError::AccountUnavailable)?;
+        self.record_refresh_success(id, observed_token_version);
         Ok(RefreshResult::Refreshed(published))
     }
 
@@ -157,7 +207,7 @@ impl OAuthRefresher {
         &self,
         id: OAuthAccountId,
         observed_token_version: u64,
-        trigger: RefreshTrigger,
+        trigger: OAuthRefreshTrigger,
     ) -> Result<RefreshPreparation, OAuthRefreshError> {
         let gate = self.gate(id);
         let (guard, waiter_observed_failures) = match Arc::clone(&gate).try_lock_owned() {
@@ -182,8 +232,8 @@ impl OAuthRefresher {
                 RefreshPreparation::Unavailable
             });
         }
-        if self.is_permanently_rejected(id, observed_token_version) {
-            return Ok(RefreshPreparation::PermanentlyRejected);
+        if let Some(rejection) = self.permanent_rejection(id, observed_token_version) {
+            return Ok(RefreshPreparation::PermanentlyRejected(rejection));
         }
         if let Some(observed) = waiter_observed_failures {
             // The refresh this waiter queued behind released the gate without
@@ -196,7 +246,7 @@ impl OAuthRefresher {
                 return Ok(RefreshPreparation::Unavailable);
             }
         }
-        if trigger == RefreshTrigger::Scheduled && !is_due(account.expires_at(), lead_time) {
+        if trigger == OAuthRefreshTrigger::Scheduled && !is_due(account.expires_at(), lead_time) {
             return Ok(RefreshPreparation::Unavailable);
         }
         let provider_kind = account.provider_kind();
@@ -255,7 +305,7 @@ impl OAuthRefresher {
             .ok_or(OAuthRefreshError::ProviderUnavailable)?;
         let plan = driver
             .oauth_token_request(OAuthGrant::RefreshToken, refresh_token, None, None)
-            .map_err(OAuthError::Provider)?;
+            .map_err(OAuthRefreshError::RequestBuild)?;
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_account()
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
@@ -266,21 +316,28 @@ impl OAuthRefresher {
         if !response.status.is_success() {
             let rejection =
                 driver.classify_oauth_refresh_rejection(response.status, &response.body);
-            if rejection == OAuthRefreshRejection::Permanent {
-                self.record_permanent_rejection(id, observed_token_version);
+            if rejection.is_permanent() {
+                self.record_permanent_rejection(id, observed_token_version, rejection);
             }
-            return Err(OAuthRefreshError::RefreshRejected(rejection));
+            return Err(OAuthRefreshError::RefreshRejected {
+                status: response.status.as_u16(),
+                rejection,
+            });
         }
         let refreshed = driver
             .parse_oauth_refresh_response(&response.body, token)
-            .map_err(OAuthError::from_token_response_error)?;
+            .map_err(|error| match error {
+                ProviderError::InvalidResponse(_) => OAuthRefreshError::TokenResponseInvalid,
+                error => OAuthRefreshError::TokenValidation(error),
+            })?;
         if refreshed.provider() != provider_kind {
-            return Err(OAuthError::TokenResponseInvalid.into());
+            return Err(OAuthRefreshError::ProviderMismatch);
         }
         driver
             .oauth_routing_profile(&refreshed)
-            .map_err(OAuthError::Provider)?;
-        let document = document::build_account_document(&refreshed)?;
+            .map_err(OAuthRefreshError::RoutingProfile)?;
+        let document = document::build_account_document(&refreshed)
+            .map_err(|_| OAuthRefreshError::DocumentSerialization)?;
         let safe_account_email = refreshed.email().map(str::to_owned);
         let expires_at = refreshed.expires_at();
         Ok((document, safe_account_email, expires_at))
@@ -328,17 +385,11 @@ impl PreparedOAuthRefresh {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RefreshTrigger {
-    Scheduled,
-    AuthenticationFailure,
-}
-
 enum RefreshResult {
     Refreshed(Arc<PublishedSnapshot>),
     AlreadyUpdated(Arc<PublishedSnapshot>),
     MissingRefreshToken,
-    PermanentlyRejected,
+    PermanentlyRejected(OAuthRefreshRejection),
     Unavailable,
 }
 
@@ -346,14 +397,15 @@ enum RefreshPreparation {
     Ready(PreparedOAuthRefresh),
     AlreadyUpdated(Arc<PublishedSnapshot>),
     MissingRefreshToken,
-    PermanentlyRejected,
+    PermanentlyRejected(OAuthRefreshRejection),
     Unavailable,
 }
 
 pub(crate) enum OAuthAuthenticationRefreshResult {
     Refreshed(Arc<PublishedSnapshot>),
-    AuthenticationFailed,
-    Unverified,
+    MissingRefreshToken(OAuthRefreshFailure),
+    PermanentlyRejected(OAuthRefreshFailure),
+    Failed(OAuthRefreshFailure),
 }
 
 pub(super) fn is_due(expires_at: Option<i64>, lead_time_secs: u64) -> bool {
@@ -362,20 +414,4 @@ pub(super) fn is_due(expires_at: Option<i64>, lead_time_secs: u64) -> bool {
     };
     let lead_time = i64::try_from(lead_time_secs).expect("validated OAuth lead time fits i64");
     document::unix_now() >= expires_at.saturating_sub(lead_time)
-}
-
-#[derive(Debug, Error)]
-pub(super) enum OAuthRefreshError {
-    #[error("OAuth account disappeared after refresh publication")]
-    AccountUnavailable,
-    #[error("OAuth provider driver is unavailable")]
-    ProviderUnavailable,
-    #[error("OAuth token material is unavailable")]
-    TokenMaterialUnavailable,
-    #[error("OAuth refresh endpoint rejected the token")]
-    RefreshRejected(OAuthRefreshRejection),
-    #[error(transparent)]
-    OAuth(#[from] OAuthError),
-    #[error("OAuth refresh publication failed")]
-    Publish(#[source] ConfigPublishError),
 }

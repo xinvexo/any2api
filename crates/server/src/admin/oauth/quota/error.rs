@@ -3,6 +3,8 @@ use axum::http::StatusCode;
 
 use crate::admin::error::AdminApiError;
 
+use super::super::refresh_diagnostic::error_diagnostic;
+
 pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
     match error {
         OAuthQuotaError::AccountNotFound => AdminApiError::new(
@@ -25,16 +27,30 @@ pub(super) fn map(error: OAuthQuotaError) -> AdminApiError {
             "oauth_quota_timeout",
             "the OAuth quota request timed out",
         ),
-        OAuthQuotaError::AuthenticationRefreshFailed => AdminApiError::new(
+        OAuthQuotaError::RefreshTokenMissing(failure) => AdminApiError::new(
             StatusCode::BAD_GATEWAY,
-            "oauth_account_authentication_unverified",
-            "the upstream rejected this OAuth account, but token refresh could not be completed",
-        ),
-        OAuthQuotaError::AuthenticationFailed => AdminApiError::new(
+            "oauth_refresh_token_missing",
+            "the access token was rejected and this account has no refresh token",
+        )
+        .with_diagnostic(error_diagnostic(failure)),
+        OAuthQuotaError::RefreshPermanentlyRejected(failure) => AdminApiError::new(
             StatusCode::BAD_GATEWAY,
-            "oauth_account_authentication_failed",
-            "the upstream definitively rejected this OAuth account authentication",
-        ),
+            "oauth_refresh_permanently_rejected",
+            "the OAuth provider permanently rejected this account's refresh token",
+        )
+        .with_diagnostic(error_diagnostic(failure)),
+        OAuthQuotaError::TokenRefreshFailed(failure) => AdminApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "oauth_token_refresh_failed",
+            "the OAuth token refresh failed before authentication could be verified",
+        )
+        .with_diagnostic(error_diagnostic(failure)),
+        OAuthQuotaError::RefreshedAccessTokenRejected(failure) => AdminApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "oauth_refreshed_access_token_rejected",
+            "the OAuth provider rejected the newly refreshed access token",
+        )
+        .with_diagnostic(error_diagnostic(failure)),
         OAuthQuotaError::AccountRestricted => AdminApiError::new(
             StatusCode::BAD_GATEWAY,
             "oauth_account_restricted",

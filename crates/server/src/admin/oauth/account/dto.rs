@@ -2,13 +2,15 @@ use any2api_domain::{
     ConfigRevision, OAuthAccount, OAuthAccountDraft, OAuthAccountId, ProviderKind,
     RequestsPerMinute, RoutingCredentialId,
 };
-use any2api_runtime::api::{PublishedSnapshot, UpstreamCredentialUsageSummary};
+use any2api_runtime::api::{OAuthService, PublishedSnapshot, UpstreamCredentialUsageSummary};
 use serde::{Deserialize, Serialize};
 
 use crate::admin::{
     error::AdminApiError, request_usage::RequestUsageResponse, revision::parse_revision,
     upstream_usage,
 };
+
+use super::super::refresh_diagnostic::OAuthRefreshFailureResponse;
 
 #[derive(Debug, Serialize)]
 pub(super) struct OAuthAccountCollectionResponse {
@@ -20,13 +22,14 @@ impl OAuthAccountCollectionResponse {
     pub(super) fn from_snapshot(
         snapshot: &PublishedSnapshot,
         usage: &[UpstreamCredentialUsageSummary],
+        oauth: Option<&OAuthService>,
     ) -> Self {
         let accounts = accounts_for_management(snapshot.oauth_accounts().accounts());
         Self {
             config_revision: snapshot.revision().get(),
             items: accounts
                 .into_iter()
-                .map(|account| OAuthAccountResponse::from_snapshot(account, snapshot, usage))
+                .map(|account| OAuthAccountResponse::from_snapshot(account, snapshot, usage, oauth))
                 .collect(),
         }
     }
@@ -64,6 +67,7 @@ struct OAuthAccountResponse {
     plan_type: Option<String>,
     /// Safe Grok Build `bot_flag_source` derivation; never exposes JWT claims.
     bot_flagged: Option<bool>,
+    token_refresh_failure: Option<OAuthRefreshFailureResponse>,
     usage: RequestUsageResponse,
 }
 
@@ -72,6 +76,7 @@ impl OAuthAccountResponse {
         account: &OAuthAccount,
         snapshot: &PublishedSnapshot,
         usage: &[UpstreamCredentialUsageSummary],
+        oauth: Option<&OAuthService>,
     ) -> Self {
         let selected = account
             .models()
@@ -103,6 +108,9 @@ impl OAuthAccountResponse {
             available_models,
             plan_type: snapshot.oauth_plan_label(account.id()),
             bot_flagged: snapshot.oauth_grok_bot_flag(account.id()),
+            token_refresh_failure: oauth
+                .and_then(|oauth| oauth.refresh_failure(account.id(), account.token_version()))
+                .map(Into::into),
             usage: upstream_usage::for_id(RoutingCredentialId::oauth_account(account.id()), usage),
         }
     }

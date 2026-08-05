@@ -1,6 +1,7 @@
 html {
   min-width: 320px;
-  background: var(--canvas);
+  /* Safari paints toolbar/overscroll regions from the root canvas. */
+  background: var(--browser-chrome);
   font-family:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue",
     "Segoe UI", ui-sans-serif, system-ui, sans-serif;
@@ -109,8 +110,8 @@ body {
   background: transparent;
 }
 
-/* Fixed management chrome uses an inner scroller. Keep its content clear of
- * the native scrollbar without changing the desktop table geometry. */
+/* Mobile management cards follow document scrolling. Keep their content clear
+ * of the viewport edge; desktop data workspaces own their inner scrollbar. */
 .management-scroll-viewport {
   padding-inline-end: 0.5rem;
 }

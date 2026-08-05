@@ -12,6 +12,7 @@ import { oauthQuotaQueryOptions } from "../model/oauth-quota-query";
 import { OAuthAccountCard } from "./OAuthAccountCard";
 import { OAuthAccountEditor } from "./OAuthAccountEditor";
 import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
+import { OAuthRefreshFailureNotice } from "./OAuthRefreshFailureNotice";
 import { notify } from "@/shared/notifications";
 import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 import { SideDrawer } from "@/shared/ui/SideDrawer";
@@ -230,6 +231,9 @@ function OAuthAccountItem({
       onDelete={onDelete}
       details={
         <>
+          {account.tokenRefreshFailure ? (
+            <OAuthRefreshFailureNotice failure={account.tokenRefreshFailure} />
+          ) : null}
           <RequestUsageStats label={account.label} usage={account.usage} />
           <OAuthQuotaPanel
             accountId={account.id}

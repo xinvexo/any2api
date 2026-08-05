@@ -110,10 +110,10 @@ export function RequestLogManagement() {
   }
 
   return (
-    // Cap height to the main panel so accordion expand only grows the middle scroller,
-    // never stretches the page and leaves empty space under the list.
+    // Mobile cards participate in document flow; desktop caps the workspace so
+    // accordion expansion only grows the middle scroller.
     <div
-      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
+      className="flex flex-1 flex-col md:h-full md:min-h-0 md:overflow-hidden"
       aria-busy={query.isFetching}
     >
       {/* Fixed top chrome: stats left, actions right */}
@@ -146,8 +146,8 @@ export function RequestLogManagement() {
         </Surface>
       ) : null}
 
-      {/* List area fills remaining height; mobile/desktop each own their scroller (like system logs). */}
-      <div className="min-h-0 flex-1 pt-3">
+      {/* Mobile follows document scrolling; desktop fills the remaining workspace height. */}
+      <div className="pt-3 md:min-h-0 md:flex-1">
         {total === 0 ? (
           <div className="flex min-h-48 flex-col items-center justify-center px-6 py-10 text-center">
             <ScrollText size={22} className="text-tertiary" aria-hidden="true" />
@@ -158,9 +158,9 @@ export function RequestLogManagement() {
           </div>
         ) : (
           <>
-            {/* Mobile: adaptive borderless cards */}
+            {/* Mobile: adaptive borderless cards in natural document flow. */}
             <div
-              className="management-scroll-viewport h-full space-y-2 overflow-y-auto md:hidden [scrollbar-gutter:stable]"
+              className="management-scroll-viewport space-y-2 md:hidden"
               role="list"
               aria-label="请求日志列表"
             >

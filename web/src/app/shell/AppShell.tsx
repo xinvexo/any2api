@@ -66,7 +66,7 @@ export function AppShell() {
   useBodyScrollLock(mobileOpen);
 
   return (
-    <div className="app-shell flex h-dvh flex-col overflow-hidden text-primary">
+    <div className="app-shell flex min-h-dvh flex-col text-primary md:h-dvh md:overflow-hidden">
       <div className="app-shell-fx" aria-hidden="true">
         <div className="app-shell-fx-bloom absolute inset-0" />
         <div className="app-shell-fx-grid absolute inset-0" />
@@ -80,7 +80,7 @@ export function AppShell() {
       </a>
 
       {/* Chrome: header + sidebar share the ambient glass canvas */}
-      <header className="app-shell-layer z-30 shrink-0">
+      <header className="app-shell-header app-shell-layer z-30 shrink-0">
         <div className="flex h-14 items-center gap-2 px-3 sm:h-16 sm:gap-3 sm:px-4">
           <button
             type="button"
@@ -129,7 +129,10 @@ export function AppShell() {
       <AdminPasswordDrawer open={passwordOpen} onClose={() => setPasswordOpen(false)} />
 
       {mobileOpen ? (
-        <div className="fixed inset-0 top-14 z-40 sm:top-16 lg:hidden" role="presentation">
+        <div
+          className="app-shell-mobile-overlay fixed inset-x-0 bottom-0 z-40 lg:hidden"
+          role="presentation"
+        >
           <button
             type="button"
             className="mobile-navigation-scrim absolute inset-0"
@@ -138,7 +141,7 @@ export function AppShell() {
           />
           <aside
             id="responsive-navigation"
-            className="app-glass-panel mobile-navigation-panel absolute left-2 top-2 flex max-h-[calc(100dvh-4.5rem)] w-[272px] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-[12px] sm:max-h-[calc(100dvh-5rem)]"
+            className="app-glass-panel mobile-navigation-panel absolute left-2 top-2 flex w-[272px] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-[12px]"
             aria-labelledby={titleId}
           >
             <span id={titleId} className="sr-only">
@@ -151,7 +154,7 @@ export function AppShell() {
         </div>
       ) : null}
 
-      <div className="app-shell-layer flex min-h-0 flex-1">
+      <div className="app-shell-layer flex flex-1 md:min-h-0">
         <aside
           id="desktop-navigation"
           className={cn(
@@ -165,7 +168,7 @@ export function AppShell() {
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2 p-2 sm:p-2.5">
+        <div className="app-shell-content flex min-w-0 flex-1 flex-col gap-2 p-2 sm:p-2.5 md:min-h-0">
           <AdminSecurityBanner />
           <p className="sr-only" aria-live="polite">
             当前页面：{pageTitle}
@@ -174,12 +177,11 @@ export function AppShell() {
             id="main-content"
             ref={mainRef}
             tabIndex={-1}
-            className="app-glass-panel min-h-0 flex-1 overflow-y-scroll rounded-panel outline-none [scrollbar-gutter:stable_both-edges]"
+            className="app-glass-panel flex-1 overflow-visible rounded-panel outline-none md:min-h-0 md:overflow-y-scroll md:[scrollbar-gutter:stable_both-edges]"
           >
-            {/* h-full + min-h-0: pages can pin chrome to the panel height (request logs).
-                Taller pages still overflow and scroll inside main.
-                both-edges keeps left/right inset equal when the gutter is reserved. */}
-            <div className="flex h-full min-h-0 w-full flex-col p-4">
+            {/* Mobile lets the document own vertical scrolling so iOS Safari can collapse its
+                browser chrome. Desktop keeps the bounded management workspace. */}
+            <div className="flex min-h-0 w-full flex-col p-4 md:h-full">
               <Outlet />
             </div>
           </main>

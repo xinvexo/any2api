@@ -27,6 +27,7 @@ test("reloads active persisted snapshots after one page-level change event", asy
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  const invalidate = vi.spyOn(client, "invalidateQueries");
   const view = render(
     <QueryClientProvider client={client}>
       <QuotaConsumer />
@@ -43,6 +44,15 @@ test("reloads active persisted snapshots after one page-level change event", asy
   expect(await screen.findByText("snapshot 2")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(fetchMock.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+
+  invalidate.mockClear();
+  act(() => {
+    FakeEventSource.instances[0]?.emit("oauth_refresh_diagnostic_changed");
+  });
+  expect(invalidate).toHaveBeenCalledWith({
+    queryKey: ["oauth", "accounts"],
+    refetchType: "active",
+  });
 
   const source = FakeEventSource.instances[0];
   view.unmount();

@@ -18,6 +18,7 @@ use crate::{
 };
 
 const QUOTA_CHANGED: &str = "oauth_quota_changed";
+const REFRESH_DIAGNOSTIC_CHANGED: &str = "oauth_refresh_diagnostic_changed";
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(15);
 
 pub(super) fn routes() -> Router<AppState> {
@@ -27,14 +28,14 @@ pub(super) fn routes() -> Router<AppState> {
 async fn subscribe(State(state): State<AppState>) -> Result<Response, AdminApiError> {
     let oauth = state.oauth().ok_or_else(oauth_unavailable)?;
     let lifecycle = state.runtime().lifecycle().clone();
-    let stream = change_notifications(oauth.subscribe_quota_changes())
+    let quota =
+        change_notifications(oauth.subscribe_quota_changes()).map(|epoch| (QUOTA_CHANGED, epoch));
+    let refresh = change_notifications(oauth.subscribe_refresh_failure_changes())
+        .map(|epoch| (REFRESH_DIAGNOSTIC_CHANGED, epoch));
+    let stream = stream::select(quota, refresh)
         .take_until(async move { lifecycle.draining().await })
-        .map(|epoch| {
-            Ok::<_, Infallible>(
-                Event::default()
-                    .event(QUOTA_CHANGED)
-                    .data(epoch.to_string()),
-            )
+        .map(|(event, epoch)| {
+            Ok::<_, Infallible>(Event::default().event(event).data(epoch.to_string()))
         });
     let mut response = Sse::new(stream)
         .keep_alive(

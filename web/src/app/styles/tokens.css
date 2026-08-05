@@ -1,5 +1,6 @@
 :root {
   color-scheme: light;
+  --browser-chrome: #ffffff;
   --canvas: #eef2f8;
   --canvas-accent: #eef2f8;
   --sidebar: transparent;
@@ -47,6 +48,7 @@
 
 html[data-theme="dark"] {
   color-scheme: dark;
+  --browser-chrome: #0a0c10;
   --canvas: #0a0c10;
   --canvas-accent: #0a0c10;
   --sidebar: transparent;

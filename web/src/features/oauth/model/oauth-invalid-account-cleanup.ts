@@ -37,14 +37,14 @@ export async function inspectInvalidOAuthAccounts(
   const outcomes = await runOAuthQuotaBatch(accountIds, (accountId) =>
     refreshOAuthAccountQuota(queryClient, accountId),
   );
-  const invalidIds = new Set(
-    outcomes
-      .filter(
-        (outcome) =>
-          outcome.status === "rejected" &&
-          isInvalidOAuthAuthenticationError(outcome.reason),
-      )
-      .map((outcome) => outcome.accountId),
+  const invalidTokenVersions = new Map(
+    outcomes.flatMap((outcome) => {
+      if (outcome.status !== "rejected") {
+        return [];
+      }
+      const tokenVersion = invalidOAuthAuthenticationTokenVersion(outcome.reason);
+      return tokenVersion === null ? [] : [[outcome.accountId, tokenVersion] as const];
+    }),
   );
   const inconclusive = outcomes.filter(
     (outcome) =>
@@ -56,7 +56,9 @@ export async function inspectInvalidOAuthAccounts(
     total: accountIds.length,
     inconclusive,
     candidates: current.items
-      .filter((account) => invalidIds.has(account.id))
+      .filter(
+        (account) => invalidTokenVersions.get(account.id) === account.tokenVersion,
+      )
       .map(candidateFromAccount),
   };
 }
@@ -143,10 +145,33 @@ export async function deleteInspectedOAuthAccounts(
 }
 
 export function isInvalidOAuthAuthenticationError(error: unknown): boolean {
-  return (
-    error instanceof ApiError &&
-    error.code === "oauth_account_authentication_failed"
-  );
+  return invalidOAuthAuthenticationTokenVersion(error) !== null;
+}
+
+function invalidOAuthAuthenticationTokenVersion(error: unknown): number | null {
+  if (!(error instanceof ApiError) || error.diagnostic?.reauthorizationRequired !== true) {
+    return null;
+  }
+  const reason = error.diagnostic.reason;
+  switch (error.code) {
+    case "oauth_refresh_token_missing":
+      return reason === "refresh_token_missing" ? error.diagnostic.tokenVersion : null;
+    case "oauth_refresh_permanently_rejected":
+      return [
+        "invalid_grant",
+        "refresh_token_expired",
+        "refresh_token_reused",
+        "refresh_token_invalidated",
+      ].includes(reason)
+        ? error.diagnostic.tokenVersion
+        : null;
+    case "oauth_refreshed_access_token_rejected":
+      return reason === "refreshed_access_token_rejected"
+        ? error.diagnostic.tokenVersion
+        : null;
+    default:
+      return null;
+  }
 }
 
 function candidateFromAccount(account: OAuthAccount): InvalidOAuthAccountCandidate {

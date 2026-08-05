@@ -119,10 +119,19 @@ pub(crate) fn classify_refresh_rejection(
         status,
         bounded_body,
         &[
-            "invalid_grant",
-            "refresh_token_expired",
-            "refresh_token_reused",
-            "refresh_token_invalidated",
+            ("invalid_grant", OAuthRefreshRejection::InvalidGrant),
+            (
+                "refresh_token_expired",
+                OAuthRefreshRejection::RefreshTokenExpired,
+            ),
+            (
+                "refresh_token_reused",
+                OAuthRefreshRejection::RefreshTokenReused,
+            ),
+            (
+                "refresh_token_invalidated",
+                OAuthRefreshRejection::RefreshTokenInvalidated,
+            ),
         ],
     )
 }
