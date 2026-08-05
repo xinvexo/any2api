@@ -980,6 +980,8 @@ request_logs
 
 管理读取必须从最终 RequestLog 派生不暴露内部分类细节的粗粒度 `outcome`：2xx 且 `error_class IS NULL` 为 `success`，`error_class = cancelled` 为 `cancelled`，其余为 `failed`。HTTP 状态仍作为独立事实展示；流式响应已经返回 200 后收到协议失败事件、Body 错误或被取消时，不能再仅凭 200 显示“成功”。内部 `error_class`、Attempt 原始 `outcome` 与 `retry_safety` 仍不进入管理 DTO。
 
+管理 Web 的请求日志展开区按“是否存在需要解释的 Attempt 流转”决定是否展示时间线，而不是只看最终结果。最终失败或取消必须展示 Attempt；最终成功但 `attempt_count > 1` 时也必须按 `attempt_no` 升序展示全部失败、中间与最终成功 Attempt，使换账号或同账号重试过程可见。只有最终成功且没有发生重试流转的单次 Attempt 请求才省略时间线，只保留请求汇总字段。
+
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
 请求日志管理列表固定查询最近 3 天，使用有界 `page_size` 与版本化不透明 `cursor` 做服务端 Keyset 分页，并返回头部锚点范围内的精确 `total`、当前 `cursor` 和可选 `next_cursor`；分页不得把总历史截断为固定 100/200 条，也不得使用会在持续写入时位移的 OFFSET。Cursor 同时携带首次读取的头部 `(started_at_ms, request_id)` 锚点和后续页的排他末行边界；Storage 只查询不大于锚点且小于末行边界的行。Web 页码只属于当前标签页内存中的 Cursor 栈，首次页保持实时，进入历史页后固定锚点，上一页复用已有 Cursor；手动刷新或改变页大小清空 Cursor 并回到最新页。页面只在未固定 Cursor 时响应 `request_logs_changed`，历史页不因事件漂移或重复查询。`total` 因 retention 收缩使本地页码越界时，Web 必须回写最后一个合法页和对应 Cursor，下一页资格只由 `next_cursor` 决定。SSE 只发送提交后递增的内存 epoch，不发送 RequestLog、Attempt 或其他日志正文。RequestLog 的 SQLite 保留期限仍由 `logs.request.retention` 决定，3 天只是管理列表窗口，不改变总览和凭据历史统计的保留窗口。完整决策见 `docs/adr/0107-anchored-keyset-log-pagination.md`。

@@ -5,6 +5,7 @@ import {
   protocolLabel,
   resultBadgeLabel,
   resultTone,
+  shouldShowAttemptTimeline,
   upstreamSource,
 } from "./request-log-presentation";
 
@@ -55,4 +56,11 @@ test("renders a failed 200 stream from its final outcome", () => {
   expect(resultBadgeLabel("failed", 200)).toBe("失败 200");
   expect(resultTone("failed", 200)).toContain("text-danger");
   expect(resultBadgeLabel("success", 200)).toBe("成功");
+});
+
+test("shows attempt flow for retries even when the final request succeeds", () => {
+  expect(shouldShowAttemptTimeline("success", 2)).toBe(true);
+  expect(shouldShowAttemptTimeline("success", 1)).toBe(false);
+  expect(shouldShowAttemptTimeline("failed", 1)).toBe(true);
+  expect(shouldShowAttemptTimeline("cancelled", 1)).toBe(true);
 });

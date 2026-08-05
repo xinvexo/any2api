@@ -1,10 +1,14 @@
-import type { RequestAttempt } from "../api/request-log-contracts";
+import type {
+  RequestAttempt,
+  RequestLogOutcome,
+} from "../api/request-log-contracts";
 import {
   formatDurationMs,
   isSuccessOutcome,
   operationLabel,
   protocolLabel,
   proxyDisplayName,
+  shouldShowAttemptTimeline,
   upstreamKindTone,
   upstreamSource,
 } from "../model/request-log-presentation";
@@ -24,17 +28,26 @@ import { useAccordionReveal } from "@/shared/ui/use-accordion-reveal";
  */
 export function RequestLogExpandedPanel({
   requestId,
-  failed,
+  outcome,
+  attemptCount,
 }: {
   requestId: string;
-  failed: boolean;
+  outcome: RequestLogOutcome;
+  attemptCount: number;
 }) {
   const query = useRequestLog(requestId);
   const initialPending = query.isPending && !query.data;
   const revealContent = useAccordionReveal(true, !initialPending);
+  const expectedFailure = !isSuccessOutcome(outcome);
+  const expectedTimeline = shouldShowAttemptTimeline(outcome, attemptCount);
 
   if (initialPending || !revealContent) {
-    return <RequestLogExpandedSkeleton failed={failed} />;
+    return (
+      <RequestLogExpandedSkeleton
+        failed={expectedFailure}
+        showAttemptTimeline={expectedTimeline}
+      />
+    );
   }
 
   if (!query.data) {
@@ -57,6 +70,10 @@ export function RequestLogExpandedPanel({
 
   const { request, attempts } = query.data;
   const success = isSuccessOutcome(request.outcome);
+  const showAttemptTimeline = shouldShowAttemptTimeline(
+    request.outcome,
+    request.attemptCount,
+  );
 
   return (
     <div className="min-w-0 max-w-full space-y-3 overflow-x-clip">
@@ -77,8 +94,7 @@ export function RequestLogExpandedPanel({
         ) : null}
       </dl>
 
-      {/* Success already shows enough on the list row; timeline only helps diagnose failures. */}
-      {!success ? (
+      {showAttemptTimeline ? (
         <div>
           <p className="text-[11px] font-medium text-secondary">Attempt 时间线</p>
           {attempts.length === 0 ? (

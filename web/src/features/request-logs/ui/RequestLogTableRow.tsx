@@ -115,7 +115,8 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
         <div id={panelId} className="border-t border-subtle/40 pb-3 pl-8 pr-3 pt-2.5">
           <RequestLogExpandedPanel
             requestId={log.requestId}
-            failed={!success}
+            outcome={log.outcome}
+            attemptCount={log.attemptCount}
           />
         </div>
       ) : null}
@@ -232,7 +233,8 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
           <div role="cell" className="pb-3 pl-[1.875rem] pr-3 pt-2.5">
             <RequestLogExpandedPanel
               requestId={log.requestId}
-              failed={!success}
+              outcome={log.outcome}
+              attemptCount={log.attemptCount}
             />
           </div>
         </div>

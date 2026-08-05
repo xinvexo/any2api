@@ -108,6 +108,14 @@ export function isSuccessOutcome(outcome: RequestLogOutcome) {
   return outcome === "success";
 }
 
+/** Hide the timeline only for a direct, single-attempt success. */
+export function shouldShowAttemptTimeline(
+  outcome: RequestLogOutcome,
+  attemptCount: number,
+) {
+  return !isSuccessOutcome(outcome) || attemptCount > 1;
+}
+
 /** Final stream result is independent from the initially committed HTTP status. */
 export function resultBadgeLabel(outcome: RequestLogOutcome, status: number) {
   if (outcome === "success") {

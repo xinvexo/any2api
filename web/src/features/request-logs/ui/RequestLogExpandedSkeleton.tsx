@@ -2,7 +2,13 @@ import { Skeleton } from "@/shared/ui/Skeleton";
 
 const DETAIL_WIDTHS = ["w-24", "w-20", "w-16", "w-20", "w-14", "w-12", "w-24", "w-32"];
 
-export function RequestLogExpandedSkeleton({ failed }: { failed: boolean }) {
+export function RequestLogExpandedSkeleton({
+  failed,
+  showAttemptTimeline,
+}: {
+  failed: boolean;
+  showAttemptTimeline: boolean;
+}) {
   const detailCount = failed ? 8 : 7;
 
   return (
@@ -24,7 +30,7 @@ export function RequestLogExpandedSkeleton({ failed }: { failed: boolean }) {
         ))}
       </div>
 
-      {failed ? (
+      {showAttemptTimeline ? (
         <div className="space-y-1.5">
           <Skeleton className="h-2.5 w-20" />
           <div className="flex min-h-8 items-center gap-2 rounded-[10px] bg-surface/80 px-2.5 py-1.5">
