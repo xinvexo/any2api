@@ -69,7 +69,7 @@ export function OAuthQuotaDetails({
         </p>
       ) : null}
       <p className="text-[10px] tabular-nums text-tertiary">
-        上次抓取于 {formatFetchedAt(quota.fetchedAt)}
+        最后更新：{formatFetchedAt(quota.fetchedAt)}
       </p>
     </div>
   );
