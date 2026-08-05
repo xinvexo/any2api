@@ -1,4 +1,6 @@
-use any2api_domain::{CompletedRequestLog, LogPage, RequestAttempt, RequestLog};
+use any2api_domain::{
+    CompletedRequestLog, ErrorClass, LogPage, RequestAttempt, RequestAttemptOutcome, RequestLog,
+};
 use any2api_runtime::api::{PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
 
@@ -108,6 +110,7 @@ struct RequestLogResponse {
     proxy_profile_id: Option<String>,
     proxy_profile_label: Option<String>,
     status_code: u16,
+    outcome: RequestLogOutcome,
     error_message: Option<String>,
     attempt_count: u32,
     latency_ms: u64,
@@ -160,6 +163,7 @@ impl RequestLogResponse {
         oauth_account_label: Option<String>,
         proxy_profile_label: Option<String>,
     ) -> Self {
+        let outcome = RequestLogOutcome::from_request(&value);
         Self {
             request_id: value.request_id.to_string(),
             started_at_ms: value.started_at_ms,
@@ -179,6 +183,7 @@ impl RequestLogResponse {
             proxy_profile_id: value.proxy_profile_id.map(|id| id.to_string()),
             proxy_profile_label,
             status_code: value.status_code,
+            outcome,
             error_message: value.error_message,
             attempt_count: value.attempt_count,
             latency_ms: value.latency_ms,
@@ -205,10 +210,12 @@ struct RequestAttemptResponse {
     duration_ms: u64,
     error_message: Option<String>,
     status_code: Option<u16>,
+    outcome: RequestLogOutcome,
 }
 
 impl RequestAttemptResponse {
     fn from_attempt(value: RequestAttempt, snapshot: &PublishedSnapshot) -> Self {
+        let outcome = RequestLogOutcome::from_attempt(&value);
         let credential_label = value.credential_id.and_then(|id| {
             snapshot
                 .provider_credentials()
@@ -240,6 +247,46 @@ impl RequestAttemptResponse {
             duration_ms: value.duration_ms,
             error_message: value.error_message,
             status_code: value.status_code,
+            outcome,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RequestLogOutcome {
+    Success,
+    Failed,
+    Cancelled,
+}
+
+impl RequestLogOutcome {
+    fn from_request(value: &RequestLog) -> Self {
+        if value.error_class == Some(ErrorClass::Cancelled) {
+            Self::Cancelled
+        } else if value.error_class.is_none() && (200..300).contains(&value.status_code) {
+            Self::Success
+        } else {
+            Self::Failed
+        }
+    }
+
+    fn from_attempt(value: &RequestAttempt) -> Self {
+        match value.outcome {
+            RequestAttemptOutcome::Cancelled => Self::Cancelled,
+            RequestAttemptOutcome::Success
+                if value
+                    .status_code
+                    .is_some_and(|status| (200..300).contains(&status)) =>
+            {
+                Self::Success
+            }
+            RequestAttemptOutcome::Success
+            | RequestAttemptOutcome::TransportError
+            | RequestAttemptOutcome::UpstreamError
+            | RequestAttemptOutcome::InvalidResponse
+            | RequestAttemptOutcome::LocalError
+            | RequestAttemptOutcome::StreamError => Self::Failed,
         }
     }
 }
@@ -299,6 +346,7 @@ mod tests {
         assert_eq!(json["oauth_account_label"], "work-oauth");
         assert_eq!(json["proxy_profile_label"], "DIRECT");
         assert_eq!(json["error_message"], "The upstream model was not found");
+        assert_eq!(json["outcome"], "failed");
         assert!(json.get("error_class").is_none());
     }
 }

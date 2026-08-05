@@ -20,7 +20,10 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     let SseEventPayload::Json(data) = payload else {
-        return ProtocolEventTelemetry::default();
+        return ProtocolEventTelemetry {
+            retry_transparent: matches!(payload, SseEventPayload::Empty),
+            ..ProtocolEventTelemetry::default()
+        };
     };
     let [kind, usage] = top_fields(data.data(), ["type", "usage"]);
     let token_usage = match raw_event_type(data.event_name(), kind).as_deref() {
@@ -35,5 +38,6 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     ProtocolEventTelemetry {
         token_usage,
         has_content_delta: false,
+        retry_transparent: false,
     }
 }

@@ -1,8 +1,8 @@
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, CredentialId, GatewayApiKeyDraft, GatewayApiKeyId,
-    MAX_REQUEST_LOG_ROWS, MAX_TOKEN_COUNT, ProtocolDialect, ProtocolOperation, ProviderEndpointId,
-    ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog, RetrySafety,
-    RouteTargetId,
+    CompletedRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyDraft,
+    GatewayApiKeyId, MAX_REQUEST_LOG_ROWS, MAX_TOKEN_COUNT, ProtocolDialect, ProtocolOperation,
+    ProviderEndpointId, ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId,
+    RequestLog, RetrySafety, RouteTargetId,
 };
 use tempfile::tempdir;
 
@@ -237,6 +237,9 @@ async fn gateway_key_usage_aggregates_final_requests_and_fills_time_windows() {
         ),
         usage_record(second_id, now_bucket + 3_000, 503),
     ];
+    let mut failed_stream = usage_record(first_id, now_bucket + 2_500, 200);
+    failed_stream.request.error_class = Some(ErrorClass::Upstream);
+    records.push(failed_stream);
     let mut anonymous = record(RequestId::new(), now_bucket + 4_000, false);
     anonymous.request.gateway_api_key_id = None;
     records.push(anonymous);
@@ -253,18 +256,18 @@ async fn gateway_key_usage_aggregates_final_requests_and_fills_time_windows() {
         .iter()
         .find(|summary| summary.id == first_id)
         .expect("first usage");
-    assert_eq!(first.total_requests, 4);
+    assert_eq!(first.total_requests, 5);
     assert_eq!(first.successful_requests, 2);
-    assert_eq!(first.failed_requests(), 2);
+    assert_eq!(first.failed_requests(), 3);
     assert_eq!(first.window_slots.len(), REQUEST_USAGE_WINDOW_COUNT);
     assert_eq!(
         first.window_slots.last().map(|slot| slot.started_at_ms),
         Some(now_bucket)
     );
     let newest = first.window_slots.last().expect("newest slot");
-    assert_eq!(newest.total_requests, 2);
+    assert_eq!(newest.total_requests, 3);
     assert_eq!(newest.successful_requests, 1);
-    assert_eq!(newest.failed_requests(), 1);
+    assert_eq!(newest.failed_requests(), 2);
     let previous = &first.window_slots[REQUEST_USAGE_WINDOW_COUNT - 2];
     assert_eq!(previous.started_at_ms, now_bucket - USAGE_WINDOW_MS);
     assert_eq!(previous.total_requests, 1);

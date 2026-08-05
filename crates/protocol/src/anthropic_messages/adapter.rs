@@ -82,7 +82,10 @@ impl ProtocolAdapter for AnthropicMessagesAdapter {
         let payload = parse_event_payload(&frame.0);
         let telemetry = telemetry::event(&payload);
         let termination = termination::classify(&payload);
-        Ok(AdapterEvent::new(frame.0, telemetry, payload).with_termination(termination))
+        let retry_reason = crate::stream_rejection::anthropic(&payload);
+        Ok(AdapterEvent::new(frame.0, telemetry, payload)
+            .with_termination(termination)
+            .with_retry_reason(retry_reason))
     }
 
     fn encode_egress_response(

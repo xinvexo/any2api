@@ -24,6 +24,10 @@ pub(in crate::public_request) enum AttemptFailure {
         candidate: Box<RouteCandidate>,
         bound: bool,
     },
+    StreamRejected {
+        candidate: Box<RouteCandidate>,
+        bound: bool,
+    },
     Public(PublicError),
 }
 
@@ -54,6 +58,13 @@ impl AttemptFailure {
         }
     }
 
+    pub(super) fn stream_rejected(candidate: RouteCandidate, bound: bool) -> Self {
+        Self::StreamRejected {
+            candidate: Box::new(candidate),
+            bound,
+        }
+    }
+
     pub(in crate::public_request) fn final_failure(&self) -> FinalFailure {
         match self {
             Self::Transport { .. } => public_error(
@@ -68,6 +79,11 @@ impl AttemptFailure {
                 error,
                 ..
             } => FinalFailure::upstream(headers.as_ref().clone(), *status, body.clone(), error),
+            Self::StreamRejected { .. } => public_error(
+                any2api_domain::PublicErrorCode::UpstreamError,
+                "upstream stream was rejected before content",
+            )
+            .into(),
             Self::Public(error) => error.clone().into(),
         }
     }
@@ -76,13 +92,14 @@ impl AttemptFailure {
         match self {
             Self::Transport { error, .. } => error.retry_safety,
             Self::Upstream { error, .. } => error.classification().retry_safety(),
+            Self::StreamRejected { .. } => RetrySafety::RejectedBeforeExecution,
             Self::Public(_) => RetrySafety::Ambiguous,
         }
     }
 
     pub(in crate::public_request) fn is_retry_candidate(&self) -> bool {
         match self {
-            Self::Transport { .. } => true,
+            Self::Transport { .. } | Self::StreamRejected { .. } => true,
             Self::Upstream { error, .. } => error.classification().kind().is_retry_candidate(),
             Self::Public(_) => false,
         }
@@ -90,16 +107,18 @@ impl AttemptFailure {
 
     pub(in crate::public_request) fn candidate(&self) -> Option<&RouteCandidate> {
         match self {
-            Self::Transport { candidate, .. } | Self::Upstream { candidate, .. } => {
-                Some(candidate.as_ref())
-            }
+            Self::Transport { candidate, .. }
+            | Self::Upstream { candidate, .. }
+            | Self::StreamRejected { candidate, .. } => Some(candidate.as_ref()),
             Self::Public(_) => None,
         }
     }
 
     pub(in crate::public_request) fn bound(&self) -> bool {
         match self {
-            Self::Transport { bound, .. } | Self::Upstream { bound, .. } => *bound,
+            Self::Transport { bound, .. }
+            | Self::Upstream { bound, .. }
+            | Self::StreamRejected { bound, .. } => *bound,
             Self::Public(_) => true,
         }
     }
@@ -109,7 +128,7 @@ impl AttemptFailure {
     ) -> Option<TransportFailureScope> {
         match self {
             Self::Transport { error, .. } => Some(error.failure_scope),
-            Self::Upstream { .. } | Self::Public(_) => None,
+            Self::Upstream { .. } | Self::StreamRejected { .. } | Self::Public(_) => None,
         }
     }
 

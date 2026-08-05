@@ -1,8 +1,9 @@
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, CredentialId, CredentialKind, MAX_REQUEST_LOG_ROWS,
-    OAuthAccountDraft, OAuthAccountId, ProtocolDialect, ProtocolOperation, ProviderCredentialDraft,
-    ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestAttempt,
-    RequestAttemptOutcome, RequestId, RequestLog, RoutingCredentialId,
+    CompletedRequestLog, ConfigRevision, CredentialId, CredentialKind, ErrorClass,
+    MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId, ProtocolDialect, ProtocolOperation,
+    ProviderCredentialDraft, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId, RequestLog,
+    RoutingCredentialId,
 };
 use tempfile::tempdir;
 
@@ -117,6 +118,14 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
             429,
         ),
     ];
+    let mut failed_stream = usage_record(
+        RoutingCredentialId::provider_credential(credential_id),
+        endpoint_id,
+        now_bucket + 2_500,
+        200,
+    );
+    failed_stream.request.error_class = Some(ErrorClass::Upstream);
+    records.push(failed_stream);
     records.push(usage_record(
         RoutingCredentialId::oauth_account(oauth_account_id),
         endpoint_id,
@@ -161,16 +170,16 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         .iter()
         .find(|summary| summary.id == RoutingCredentialId::provider_credential(credential_id))
         .expect("provider usage");
-    assert_eq!(provider.total_requests, 4);
+    assert_eq!(provider.total_requests, 5);
     assert_eq!(provider.successful_requests, 2);
-    assert_eq!(provider.failed_requests(), 2);
+    assert_eq!(provider.failed_requests(), 3);
     assert_eq!(provider.window_slots.len(), REQUEST_USAGE_WINDOW_COUNT);
     assert_eq!(
         provider.window_slots.last().map(|slot| slot.started_at_ms),
         Some(now_bucket)
     );
     let newest = provider.window_slots.last().expect("newest slot");
-    assert_eq!(newest.total_requests, 2);
+    assert_eq!(newest.total_requests, 3);
     assert_eq!(newest.successful_requests, 1);
     let previous = &provider.window_slots[REQUEST_USAGE_WINDOW_COUNT - 2];
     assert_eq!(previous.started_at_ms, now_bucket.saturating_sub(WINDOW_MS));

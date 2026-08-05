@@ -11,6 +11,7 @@ export type RequestLogOperation =
   | "images_edits"
   | "messages"
   | "messages_count_tokens";
+export type RequestLogOutcome = "success" | "failed" | "cancelled";
 
 export interface RequestLog {
   requestId: string;
@@ -31,6 +32,7 @@ export interface RequestLog {
   proxyProfileId: string | null;
   proxyProfileLabel: string | null;
   statusCode: number;
+  outcome: RequestLogOutcome;
   errorMessage: string | null;
   attemptCount: number;
   latencyMs: number;
@@ -54,6 +56,7 @@ export interface RequestAttempt {
   durationMs: number;
   errorMessage: string | null;
   statusCode: number | null;
+  outcome: RequestLogOutcome;
 }
 
 interface RequestTelemetryMetrics {
@@ -115,6 +118,11 @@ export function parseRequestLogDetail(value: unknown): RequestLogDetail {
 
 function parseRequestLog(value: unknown): RequestLog {
   const record = readRecord(value);
+  const statusCode = readStatusCode(record.status_code);
+  const outcome = readOutcome(record.outcome);
+  if (outcome === "success" && (statusCode < 200 || statusCode >= 300)) {
+    throw invalidResponse();
+  }
   return {
     requestId: readString(record.request_id),
     startedAtMs: readNonNegativeInteger(record.started_at_ms),
@@ -133,7 +141,8 @@ function parseRequestLog(value: unknown): RequestLog {
     oauthAccountLabel: readOptionalNullableString(record.oauth_account_label),
     proxyProfileId: readNullableString(record.proxy_profile_id),
     proxyProfileLabel: readOptionalNullableString(record.proxy_profile_label),
-    statusCode: readStatusCode(record.status_code),
+    statusCode,
+    outcome,
     errorMessage: readOptionalNullableString(record.error_message),
     attemptCount: readNonNegativeInteger(record.attempt_count),
     latencyMs: readNonNegativeInteger(record.latency_ms),
@@ -147,6 +156,14 @@ function parseRequestLog(value: unknown): RequestLog {
 
 function parseAttempt(value: unknown): RequestAttempt {
   const record = readRecord(value);
+  const statusCode = readNullableStatusCode(record.status_code);
+  const outcome = readOutcome(record.outcome);
+  if (
+    outcome === "success" &&
+    (statusCode === null || statusCode < 200 || statusCode >= 300)
+  ) {
+    throw invalidResponse();
+  }
   return {
     attemptNo: readPositiveInteger(record.attempt_no),
     routeTargetId: readNullableString(record.route_target_id),
@@ -159,8 +176,16 @@ function parseAttempt(value: unknown): RequestAttempt {
     startedAtMs: readNonNegativeInteger(record.started_at_ms),
     durationMs: readNonNegativeInteger(record.duration_ms),
     errorMessage: readOptionalNullableString(record.error_message),
-    statusCode: readNullableStatusCode(record.status_code),
+    statusCode,
+    outcome,
   };
+}
+
+function readOutcome(value: unknown): RequestLogOutcome {
+  if (value === "success" || value === "failed" || value === "cancelled") {
+    return value;
+  }
+  throw invalidResponse();
 }
 
 function parseTelemetry(value: unknown): RequestTelemetryMetrics {

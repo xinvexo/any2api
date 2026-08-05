@@ -8,10 +8,10 @@ use std::{
     time::Duration,
 };
 
-use any2api_domain::{ProtocolOperation, RetrySafety, SettingsConfiguration};
+use any2api_domain::{ProtocolOperation, PublicErrorCode, RetrySafety, SettingsConfiguration};
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    api::ProtocolAdapter,
+    api::{ProtocolAdapter, StreamRetryReason},
 };
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
@@ -20,6 +20,7 @@ use bytes::Bytes;
 use futures_util::{StreamExt, stream};
 use tokio::time::timeout;
 
+use super::super::StreamPrimeFailure;
 use super::core::{
     generation_permit, guarded_body, guarded_body_for_adapter, guarded_body_for_adapter_with_health,
 };
@@ -135,25 +136,20 @@ async fn transport_error_after_a_terminal_frame_is_ignored() {
 }
 
 #[tokio::test]
-async fn eof_before_a_responses_terminal_event_is_an_incomplete_stream() {
+async fn lifecycle_only_eof_fails_before_committing_a_responses_stream() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
         b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_incomplete\"}}\n\n",
     ))]));
-    let mut body = guarded_body(upstream, permit)
-        .prime()
-        .await
-        .expect("primed stream")
-        .into_stream();
-
-    assert!(body.next().await.expect("created frame").is_ok());
-    let error = body
-        .next()
-        .await
-        .expect("missing terminal event must produce a body error")
-        .expect_err("EOF before terminal must not succeed");
-    assert!(error.to_string().contains("terminal event"));
-    assert!(body.next().await.is_none());
+    match guarded_body(upstream, permit).prime_attempt().await {
+        Err(StreamPrimeFailure::Public(error)) => {
+            assert_eq!(error.code(), PublicErrorCode::UpstreamError);
+        }
+        Err(StreamPrimeFailure::Retryable(reason)) => {
+            panic!("truncated lifecycle stream must not be retryable: {reason:?}")
+        }
+        Ok(_) => panic!("truncated lifecycle stream must fail before commit"),
+    }
     assert_eq!(binding.in_flight(), 0);
 }
 
@@ -265,7 +261,7 @@ async fn protocol_failure_events_are_forwarded_before_error_settlement() {
             "Messages",
             Arc::new(AnthropicMessagesAdapter::new()),
             ProtocolOperation::Messages,
-            b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
+            b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\"}}\n\n",
         ),
         (
             "Chat Completions",
@@ -302,6 +298,49 @@ async fn protocol_failure_events_are_forwarded_before_error_settlement() {
         assert!(body.next().await.is_none(), "{name}");
         assert_eq!(binding.in_flight(), 0, "{name}");
     }
+}
+
+#[tokio::test]
+async fn lifecycle_frames_then_exact_overload_remain_uncommitted_for_retry() {
+    let (binding, permit) = generation_permit();
+    let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from_static(
+        b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_rejected\"}}\n\nevent: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_rejected\"}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n",
+    ))]));
+
+    match guarded_body(upstream, permit).prime_attempt().await {
+        Err(StreamPrimeFailure::Retryable(StreamRetryReason::Overloaded)) => {}
+        Ok(_) => panic!("pre-content overload must not commit the stream"),
+        Err(StreamPrimeFailure::Public(error)) => {
+            panic!("pre-content overload must remain retryable: {error:?}")
+        }
+    }
+    assert_eq!(binding.in_flight(), 0);
+}
+
+#[tokio::test]
+async fn exact_overload_after_semantic_output_is_forwarded_without_retry() {
+    let (binding, permit) = generation_permit();
+    let content = b"event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n";
+    let failure = b"event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n";
+    let mut bytes = Vec::from(content);
+    bytes.extend_from_slice(failure);
+    let upstream: BoxByteStream = Box::pin(stream::iter([Ok(Bytes::from(bytes))]));
+    let mut body = guarded_body(upstream, permit)
+        .prime_attempt()
+        .await
+        .expect("semantic output commits the attempt")
+        .into_stream();
+
+    assert_eq!(
+        body.next().await.expect("content").expect("bytes"),
+        content.as_slice()
+    );
+    assert_eq!(
+        body.next().await.expect("failure").expect("bytes"),
+        failure.as_slice()
+    );
+    assert!(body.next().await.is_none());
+    assert_eq!(binding.in_flight(), 0);
 }
 
 #[tokio::test]

@@ -24,8 +24,8 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
     let (codex_address, codex_request, release_codex) = paused_sse_server(
         "/v1/responses",
         &[
-            b"event: response.created\rdata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\r",
-            b"\re",
+            b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\n",
+            b"\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\ne",
         ],
         &[b"vent: response.completed\rdata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"model\":\"gpt-upstream\"}}\r\r"],
     )
@@ -35,6 +35,7 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
         &[
             b"event: message_start\n",
             b"data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"claude-upstream\",\"content\":[]}}\n\n",
+            b"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
         ],
         &[b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"],
     )
@@ -135,6 +136,101 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
     assert_eq!(claude_request.headers["anthropic-version"], "2023-06-01");
     assert_eq!(claude_request.body["model"], "claude-upstream");
     assert_eq!(claude_request.body["stream"], true);
+}
+
+#[tokio::test]
+async fn precontent_overload_switches_credentials_without_leaking_the_failed_stream() {
+    let (upstream_address, upstream_requests) = overload_then_success_sse_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex overload retry",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "first-overloaded",
+        "sk-first-overloaded",
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "second-success",
+        "sk-second-success",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app.clone(),
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_stream_headers(&response);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("successful replacement stream")
+        .to_bytes();
+    let body = String::from_utf8(body.to_vec()).expect("Responses SSE UTF-8");
+    assert!(body.contains("resp_success"));
+    assert!(body.contains("response.output_text.delta"));
+    assert!(body.contains("response.completed"));
+    assert!(!body.contains("resp_rejected"));
+    assert!(!body.contains("server_is_overloaded"));
+
+    let rejected_follow_up = request(
+        app,
+        "/v1/responses",
+        json!({
+            "model":"gpt-upstream",
+            "previous_response_id":"resp_rejected",
+            "input":"continue"
+        }),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(rejected_follow_up.status(), StatusCode::CONFLICT);
+    let rejected_error: Value = serde_json::from_slice(
+        &rejected_follow_up
+            .into_body()
+            .collect()
+            .await
+            .expect("rejected follow-up body")
+            .to_bytes(),
+    )
+    .expect("rejected follow-up JSON");
+    assert_eq!(rejected_error["error"]["code"], "session_binding_lost");
+
+    let requests = upstream_requests.await.expect("two upstream attempts");
+    assert_eq!(requests.len(), 2);
+    assert_ne!(
+        requests[0].headers["authorization"],
+        requests[1].headers["authorization"]
+    );
+    assert_eq!(requests[0].body["model"], "gpt-upstream");
+    assert_eq!(requests[1].body["model"], "gpt-upstream");
 }
 
 #[tokio::test]
@@ -1956,6 +2052,51 @@ async fn paused_sse_server(
     (address, request_receiver, release_sender)
 }
 
+async fn overload_then_success_sse_server() -> (SocketAddr, oneshot::Receiver<Vec<UpstreamRequest>>)
+{
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (request_sender, request_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let mut requests = Vec::with_capacity(2);
+        for attempt in 0..2 {
+            let (mut stream, _) = listener.accept().await.expect("upstream accept");
+            let (path, request) = read_upstream_request(&mut stream).await;
+            assert_eq!(path, "/v1/responses");
+            requests.push(request);
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("upstream response headers");
+            if attempt == 0 {
+                write_chunk(
+                    &mut stream,
+                    b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_rejected\",\"model\":\"gpt-upstream\"}}\n\nevent: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_rejected\",\"model\":\"gpt-upstream\"}}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n",
+                )
+                .await;
+            } else {
+                write_chunk(
+                    &mut stream,
+                    b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_success\",\"model\":\"gpt-upstream\"}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_success\",\"model\":\"gpt-upstream\"}}\n\n",
+                )
+                .await;
+            }
+            stream
+                .write_all(b"0\r\n\r\n")
+                .await
+                .expect("finish upstream stream");
+        }
+        request_sender
+            .send(requests)
+            .expect("send upstream attempts");
+    });
+    (address, request_receiver)
+}
+
 async fn held_chat_bridge_server() -> (
     SocketAddr,
     mpsc::UnboundedReceiver<UpstreamRequest>,
@@ -2130,7 +2271,7 @@ async fn held_stream_server() -> (
             .expect("held response headers");
         write_chunk(
             &mut first_stream,
-            b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_held\",\"model\":\"gpt-upstream\"}}\n\n",
+            b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_held\",\"model\":\"gpt-upstream\"}}\n\nevent: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"held\"}\n\n",
         )
         .await;
         first_stream.flush().await.expect("flush held event");

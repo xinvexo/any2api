@@ -197,6 +197,16 @@ impl AttemptRecorder {
         );
     }
 
+    pub(crate) fn stream_rejected(&mut self, status_code: u16) {
+        self.complete(
+            RequestAttemptOutcome::UpstreamError,
+            Some(RetrySafety::RejectedBeforeExecution),
+            Some(ErrorClass::Upstream),
+            bound_optional_error_message("upstream stream was rejected before content"),
+            Some(status_code),
+        );
+    }
+
     pub(crate) fn cancelled(&mut self, status_code: Option<u16>) {
         if self.timeout.timed_out() {
             self.complete(

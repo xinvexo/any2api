@@ -8,10 +8,10 @@ import {
   formatTokenCount,
   formatTokenSummary,
   formatTps,
-  isSuccessStatus,
+  isSuccessOutcome,
   outputTps,
   resultBadgeLabel,
-  statusTone,
+  resultTone,
   upstreamKindTone,
   upstreamSource,
 } from "../model/request-log-presentation";
@@ -40,6 +40,7 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
   const panelId = `request-log-card-${log.requestId}`;
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || null;
+  const success = isSuccessOutcome(log.outcome);
 
   return (
     <article
@@ -81,23 +82,23 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
             <span
               className={cn(
                 "inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium",
-                statusTone(log.statusCode),
+                resultTone(log.outcome, log.statusCode),
               )}
               title={`HTTP ${log.statusCode}`}
             >
-              {resultBadgeLabel(log.statusCode)}
+              {resultBadgeLabel(log.outcome, log.statusCode)}
             </span>
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-tertiary">
             <span>
               耗时{" "}
               <span className="font-medium text-secondary">
-                {isSuccessStatus(log.statusCode)
+                {success
                   ? formatLatencyPair(log.firstTokenMs, log.latencyMs)
                   : formatDurationMs(log.latencyMs)}
               </span>
             </span>
-            {isSuccessStatus(log.statusCode) ? (
+            {success ? (
               <span>
                 Tokens{" "}
                 <span className="font-medium text-secondary">{formatTokenSummary(log)}</span>
@@ -114,7 +115,7 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
         <div id={panelId} className="border-t border-subtle/40 pb-3 pl-8 pr-3 pt-2.5">
           <RequestLogExpandedPanel
             requestId={log.requestId}
-            failed={!isSuccessStatus(log.statusCode)}
+            failed={!success}
           />
         </div>
       ) : null}
@@ -127,6 +128,7 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
   const panelId = `request-log-table-${log.requestId}`;
   const source = upstreamSource(log);
   const model = log.publicModel?.trim() || null;
+  const success = isSuccessOutcome(log.outcome);
 
   return (
     <div role="rowgroup">
@@ -185,16 +187,16 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
           <span
             className={cn(
               "inline-flex max-w-full truncate rounded-full px-2 py-0.5 text-[11px] font-medium",
-              statusTone(log.statusCode),
+              resultTone(log.outcome, log.statusCode),
             )}
             title={`HTTP ${log.statusCode}`}
           >
-            {resultBadgeLabel(log.statusCode)}
+            {resultBadgeLabel(log.outcome, log.statusCode)}
           </span>
         </div>
         <div role="cell" className={numCell}>
           <span className="block truncate">
-            {isSuccessStatus(log.statusCode) ? formatDurationMs(log.firstTokenMs) : "—"}
+            {success ? formatDurationMs(log.firstTokenMs) : "—"}
           </span>
         </div>
         <div role="cell" className={numCell}>
@@ -202,22 +204,22 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
         </div>
         <div role="cell" className={numCell}>
           <span className="block truncate">
-            {isSuccessStatus(log.statusCode) ? formatTokenCount(log.inputTokens) : "—"}
+            {success ? formatTokenCount(log.inputTokens) : "—"}
           </span>
         </div>
         <div role="cell" className={numCell}>
           <span className="block truncate">
-            {isSuccessStatus(log.statusCode) ? formatTokenCount(log.outputTokens) : "—"}
+            {success ? formatTokenCount(log.outputTokens) : "—"}
           </span>
         </div>
         <div role="cell" className={numCell}>
           <span className="block truncate">
-            {isSuccessStatus(log.statusCode) ? formatTokenCount(log.cacheReadTokens) : "—"}
+            {success ? formatTokenCount(log.cacheReadTokens) : "—"}
           </span>
         </div>
         <div role="cell" className={numCell}>
           <span className="block truncate">
-            {isSuccessStatus(log.statusCode) ? formatTps(outputTps(log)) : "—"}
+            {success ? formatTps(outputTps(log)) : "—"}
           </span>
         </div>
       </div>
@@ -230,7 +232,7 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
           <div role="cell" className="pb-3 pl-[1.875rem] pr-3 pt-2.5">
             <RequestLogExpandedPanel
               requestId={log.requestId}
-              failed={!isSuccessStatus(log.statusCode)}
+              failed={!success}
             />
           </div>
         </div>

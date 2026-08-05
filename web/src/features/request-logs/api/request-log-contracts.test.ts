@@ -24,6 +24,7 @@ describe("request log contracts", () => {
           duration_ms: 25,
           error_message: null,
           status_code: 200,
+          outcome: "success",
         },
       ],
       telemetry: telemetry(),
@@ -57,6 +58,7 @@ describe("request log contracts", () => {
             duration_ms: 1,
             error_message: null,
             status_code: 600,
+            outcome: "failed",
           },
         ],
         telemetry: telemetry(),
@@ -106,10 +108,11 @@ describe("request log contracts", () => {
 
   it("parses request and attempt error messages", () => {
     const detail = parseRequestLogDetail({
-      request: {
-        ...request(),
-        status_code: 401,
-        error_message: "Incorrect API key provided",
+        request: {
+          ...request(),
+          status_code: 401,
+          outcome: "failed",
+          error_message: "Incorrect API key provided",
       },
       attempts: [
         {
@@ -122,6 +125,7 @@ describe("request log contracts", () => {
           duration_ms: 12,
           error_message: "Incorrect API key provided",
           status_code: 401,
+          outcome: "failed",
         },
       ],
       telemetry: telemetry(),
@@ -129,6 +133,35 @@ describe("request log contracts", () => {
 
     expect(detail.request.errorMessage).toBe("Incorrect API key provided");
     expect(detail.attempts[0]?.errorMessage).toBe("Incorrect API key provided");
+  });
+
+  it("keeps a 200 stream failure distinct from HTTP success", () => {
+    const detail = parseRequestLogDetail({
+      request: {
+        ...request(),
+        outcome: "failed",
+        error_message: "upstream response stream reported a failure event",
+      },
+      attempts: [
+        {
+          attempt_no: 1,
+          route_target_id: null,
+          credential_id: "credential-1",
+          oauth_account_id: null,
+          proxy_profile_id: "proxy-1",
+          started_at_ms: 1,
+          duration_ms: 12,
+          error_message: "upstream response stream reported a failure event",
+          status_code: 200,
+          outcome: "failed",
+        },
+      ],
+      telemetry: telemetry(),
+    });
+
+    expect(detail.request.statusCode).toBe(200);
+    expect(detail.request.outcome).toBe("failed");
+    expect(detail.attempts[0]?.outcome).toBe("failed");
   });
 
   it("rejects inconsistent page metadata", () => {
@@ -186,6 +219,7 @@ function request() {
     oauth_account_id: null,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
     status_code: 200,
+    outcome: "success",
     error_message: null,
     attempt_count: 1,
     latency_ms: 30,

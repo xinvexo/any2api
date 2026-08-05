@@ -14,7 +14,7 @@ use crate::{
 };
 
 pub(crate) const GATEWAY_API_KEY_USAGE_SUMMARY_SQL: &str = "SELECT gateway_api_key_id, COUNT(*) AS total_requests, \
-     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
      AS successful_requests \
      FROM request_logs \
      WHERE gateway_api_key_id IS NOT NULL \
@@ -84,7 +84,7 @@ impl GatewayApiKeyUsageRepository for SqliteStore {
             "SELECT gateway_api_key_id, \
              (started_at_ms / ?) * ? AS bucket_start_ms, \
              COUNT(*) AS total_requests, \
-             SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+             SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
              AS successful_requests \
              FROM request_logs \
              WHERE gateway_api_key_id IS NOT NULL AND started_at_ms >= ? \

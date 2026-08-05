@@ -8,5 +8,5 @@ mod precommit_budget;
 mod tests;
 
 use body::{CommitState, PendingFrame, StreamOutcome};
-pub(super) use body::{GuardedBody, GuardedBodyParts};
+pub(super) use body::{GuardedBody, GuardedBodyParts, StreamPrimeFailure};
 pub(super) use precommit_budget::PrecommitBudget;

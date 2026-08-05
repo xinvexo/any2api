@@ -3,6 +3,8 @@ import { expect, test } from "vitest";
 import {
   operationLabel,
   protocolLabel,
+  resultBadgeLabel,
+  resultTone,
   upstreamSource,
 } from "./request-log-presentation";
 
@@ -47,4 +49,10 @@ test("keeps the credential fallback when an endpoint name is unavailable", () =>
   });
 
   expect(source.displayName).toBe("key");
+});
+
+test("renders a failed 200 stream from its final outcome", () => {
+  expect(resultBadgeLabel("failed", 200)).toBe("失败 200");
+  expect(resultTone("failed", 200)).toContain("text-danger");
+  expect(resultBadgeLabel("success", 200)).toBe("成功");
 });

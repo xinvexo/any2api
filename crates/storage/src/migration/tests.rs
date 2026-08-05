@@ -64,6 +64,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (13, "canonicalize oauth account documents".to_owned()),
             (14, "add http access log response body bytes".to_owned()),
             (15, "add telemetry capacity stats".to_owned()),
+            (16, "classify request usage by final outcome".to_owned()),
         ]
     );
 

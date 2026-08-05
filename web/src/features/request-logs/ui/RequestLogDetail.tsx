@@ -5,9 +5,12 @@ import type { RequestAttempt, RequestLogProtocol } from "../api/request-log-cont
 import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
 import {
   formatTps,
+  isSuccessOutcome,
   operationLabel,
   outputTps,
   proxyDisplayName,
+  resultBadgeLabel,
+  resultTone,
 } from "../model/request-log-presentation";
 import { useRequestLog } from "../model/use-request-logs";
 import { Button } from "@/shared/ui/Button";
@@ -88,10 +91,11 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <span
             className={
               "self-start rounded-full px-3 py-1 text-sm font-semibold " +
-              statusTone(request.statusCode)
+              resultTone(request.outcome, request.statusCode)
             }
+            title={`HTTP ${request.statusCode}`}
           >
-            {request.statusCode}
+            {resultBadgeLabel(request.outcome, request.statusCode)}
           </span>
         </div>
 
@@ -100,6 +104,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           <Detail label="接口" value={operationLabel(request.operation)} />
           <Detail label="客户端 IP" value={request.clientIp} />
           <Detail label="延迟" value={request.latencyMs + " ms"} />
+          <Detail label="HTTP 状态" value={String(request.statusCode)} />
           <Detail label="Attempt" value={String(request.attemptCount)} />
           <Detail label="错误消息" value={request.errorMessage ?? "无"} />
           <Detail label={request.oauthAccountId ? "OAuth Account" : "Credential"} value={shortId(request.oauthAccountId ?? request.credentialId)} />
@@ -109,7 +114,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
           />
         </dl>
 
-        {request.errorMessage ? (
+        {!isSuccessOutcome(request.outcome) && request.errorMessage ? (
           <div className="mt-5 rounded-[12px] border border-danger/20 bg-danger/5 px-4 py-3">
             <p className="text-xs font-semibold text-danger">返回错误消息</p>
             <p className="mt-1 break-all text-sm font-medium text-primary [overflow-wrap:anywhere]">
@@ -156,14 +161,23 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
 }
 
 function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
+  const success = isSuccessOutcome(attempt.outcome);
+  const result =
+    attempt.outcome === "cancelled"
+      ? "已取消"
+      : attempt.statusCode === null
+        ? "失败 · 未收到上游状态"
+        : success
+          ? `HTTP ${attempt.statusCode}`
+          : `失败 · HTTP ${attempt.statusCode}`;
   return (
     <article className="grid gap-3 px-5 py-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center">
       <span className="flex h-8 w-8 items-center justify-center rounded-full bg-surface-muted text-sm font-semibold tabular-nums">
         {attempt.attemptNo}
       </span>
       <div className="min-w-0">
-        <p className="font-semibold">
-          {attempt.statusCode === null ? "未收到上游状态" : `HTTP ${attempt.statusCode}`}
+        <p className={success ? "font-semibold" : "font-semibold text-danger"}>
+          {result}
         </p>
         <p className="mt-1 break-all text-xs text-tertiary">
           {attempt.oauthAccountId ? "OAuth Account" : "Credential"} {shortId(attempt.oauthAccountId ?? attempt.credentialId)} · {proxyDisplayName(attempt.proxyProfileId, attempt.proxyProfileLabel)}
@@ -210,14 +224,4 @@ function shortId(value: string | null) {
 
 function formatMetric(value: number | null, suffix = "") {
   return value === null ? "未记录" : value.toLocaleString() + suffix;
-}
-
-function statusTone(status: number) {
-  if (status >= 200 && status < 300) {
-    return "bg-success/15 text-success-copy";
-  }
-  if (status < 500) {
-    return "bg-warning/15 text-warning-copy";
-  }
-  return "bg-danger/15 text-danger-copy";
 }

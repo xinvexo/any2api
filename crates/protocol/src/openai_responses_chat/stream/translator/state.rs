@@ -63,6 +63,7 @@ impl ChatToResponsesStream {
     pub(crate) fn push(&mut self, event: AdapterEvent) -> Result<StreamUpdate, ProtocolError> {
         self.usage.merge(event.telemetry().token_usage);
         let termination = event.termination();
+        let retry_reason = event.retry_reason();
         let (_, payload) = event.into_parts();
         let value = match payload {
             SseEventPayload::Json(data) => data
@@ -87,7 +88,7 @@ impl ChatToResponsesStream {
             self.model = model.to_owned();
         }
         if termination == StreamTermination::Failed {
-            let events = self.sequence_events(vec![failure::convert(&value)?])?;
+            let events = self.sequence_events(vec![failure::convert(&value, retry_reason)?])?;
             self.completed = true;
             return Ok(StreamUpdate {
                 events,
@@ -188,6 +189,7 @@ impl ChatToResponsesStream {
             ProtocolEventTelemetry {
                 token_usage: self.usage,
                 has_content_delta: false,
+                retry_transparent: false,
             },
             StreamTermination::Completed,
         ));
@@ -233,12 +235,18 @@ impl ChatToResponsesStream {
             event(
                 "response.created",
                 json!({"type":"response.created","response":response}),
-                ProtocolEventTelemetry::default(),
+                ProtocolEventTelemetry {
+                    retry_transparent: true,
+                    ..ProtocolEventTelemetry::default()
+                },
             ),
             event(
                 "response.in_progress",
                 json!({"type":"response.in_progress","response":response}),
-                ProtocolEventTelemetry::default(),
+                ProtocolEventTelemetry {
+                    retry_transparent: true,
+                    ..ProtocolEventTelemetry::default()
+                },
             ),
         ]
     }

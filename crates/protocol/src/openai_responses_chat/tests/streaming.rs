@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 use crate::{
     ProtocolError,
     api::{
-        BridgeContinuationState, MAX_BRIDGE_CONTINUATION_STATE_BYTES, SseFrame, StreamTermination,
+        BridgeContinuationState, MAX_BRIDGE_CONTINUATION_STATE_BYTES, SseFrame, StreamRetryReason,
+        StreamTermination,
     },
 };
 
@@ -242,16 +243,17 @@ async fn streaming_bridge_maps_choice_less_error_chunks_to_responses_errors() {
                 "message":"upstream overloaded",
                 "type":"server_error",
                 "param":"tools",
-                "code":"overloaded"
+                "code":"server_is_overloaded"
             }
         })))
         .expect("error chunk maps to Responses");
     assert_eq!(events.len(), 1);
     let event = &events[0];
     assert_eq!(event.termination(), StreamTermination::Failed);
+    assert_eq!(event.retry_reason(), Some(StreamRetryReason::Overloaded));
     let text = std::str::from_utf8(event.bytes()).expect("Responses error UTF-8");
     assert!(text.contains(r#""type":"error""#));
-    assert!(text.contains(r#""code":"overloaded""#));
+    assert!(text.contains(r#""code":"server_is_overloaded""#));
     assert!(text.contains(r#""message":"upstream overloaded""#));
     assert!(text.contains(r#""param":"tools""#));
     assert!(text.contains(r#""sequence_number":0"#));

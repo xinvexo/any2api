@@ -134,6 +134,7 @@ impl GuardedBody {
         }
         let telemetry = event.telemetry();
         let termination = event.termination();
+        let retry_reason = event.retry_reason();
         let continuation_id = self
             .exchange
             .continuation_id_from_event(self.continuation_binding.operation(), &event)
@@ -158,26 +159,87 @@ impl GuardedBody {
         self.precommit_budget
             .observe_frame(frame.0.len())
             .map_err(|_| PendingStreamError::budget_exceeded())?;
-        self.commit_continuation_state(
-            continuation_id.as_deref(),
-            continuation_state,
-            deadline.filter(|_| check_deadline),
-        )?;
-        if continuation_id.is_none()
-            && check_deadline
-            && deadline.is_some_and(|deadline| Instant::now() >= deadline)
-        {
-            return Err(PendingStreamError::timeout());
+        if check_deadline {
+            self.validate_deferred_continuation_id(continuation_id.as_deref())?;
+        } else {
+            self.commit_continuation_state(
+                continuation_id.as_deref(),
+                continuation_state.clone(),
+                None,
+            )?;
+            self.request_recorder
+                .observe_token_usage(telemetry.token_usage);
         }
-        self.request_recorder
-            .observe_token_usage(telemetry.token_usage);
         self.pending.push_back(PendingFrame {
             bytes: frame.0,
             has_content_delta: telemetry.has_content_delta,
             termination,
+            token_usage: telemetry.token_usage,
+            continuation_id,
+            continuation_state,
         });
         self.terminal_seen |= termination.is_terminal();
+        if check_deadline {
+            if termination == StreamTermination::Failed
+                && retry_reason.is_some()
+                && !self.precommit_commit_ready
+            {
+                self.precommit_retry = retry_reason;
+            } else if telemetry.has_content_delta
+                || !telemetry.retry_transparent
+                || termination.is_terminal()
+            {
+                self.precommit_commit_ready = true;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn commit_precommit_frames(
+        &mut self,
+        deadline: Option<Instant>,
+    ) -> Result<(), PendingStreamError> {
+        debug_assert!(!self.precommit_budget.is_committed());
+        let mut frames = std::mem::take(&mut self.pending);
+        while let Some(mut frame) = frames.pop_front() {
+            let continuation_id = frame.continuation_id.take();
+            let continuation_state = std::mem::replace(
+                &mut frame.continuation_state,
+                BridgeContinuationState::Stateless,
+            );
+            self.commit_continuation_state(
+                continuation_id.as_deref(),
+                continuation_state,
+                deadline,
+            )?;
+            self.request_recorder.observe_token_usage(frame.token_usage);
+            self.pending.push_back(frame);
+        }
         self.precommit_budget.commit();
+        Ok(())
+    }
+
+    fn validate_deferred_continuation_id(
+        &self,
+        continuation_id: Option<&str>,
+    ) -> Result<(), PendingStreamError> {
+        let Some(id) = continuation_id else {
+            return Ok(());
+        };
+        let conflicts_with_committed = self
+            .continuation_id
+            .as_deref()
+            .is_some_and(|existing| existing != id);
+        let conflicts_with_pending = self
+            .pending
+            .iter()
+            .filter_map(|frame| frame.continuation_id.as_deref())
+            .any(|existing| existing != id);
+        if conflicts_with_committed || conflicts_with_pending {
+            return Err(PendingStreamError::local(
+                "upstream SSE emitted conflicting response identities",
+            ));
+        }
         Ok(())
     }
 

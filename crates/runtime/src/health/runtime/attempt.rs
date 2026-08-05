@@ -64,6 +64,19 @@ impl AttemptHealth {
         self.completed = true;
     }
 
+    /// A protocol-level pre-content rejection proves the network path worked,
+    /// but does not justify poisoning a shared endpoint or clearing existing
+    /// credential health evidence.
+    pub(crate) fn stream_rejected(mut self) {
+        if let Some(endpoint) = self.endpoint.take() {
+            endpoint.neutral();
+        }
+        if let Some(proxy) = self.proxy.take() {
+            proxy.success();
+        }
+        self.completed = true;
+    }
+
     pub(crate) fn transport_failure(mut self, failure_scope: TransportFailureScope) {
         match failure_scope {
             TransportFailureScope::Endpoint => {

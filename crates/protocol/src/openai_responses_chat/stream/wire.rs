@@ -3,7 +3,8 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::api::{
-    AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData, StreamTermination,
+    AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData, StreamRetryReason,
+    StreamTermination,
 };
 
 pub(super) struct SynthesizedEvent {
@@ -11,11 +12,17 @@ pub(super) struct SynthesizedEvent {
     data: Value,
     telemetry: ProtocolEventTelemetry,
     termination: StreamTermination,
+    retry_reason: Option<StreamRetryReason>,
 }
 
 impl SynthesizedEvent {
     pub(super) fn data_mut(&mut self) -> &mut Value {
         &mut self.data
+    }
+
+    pub(super) fn with_retry_reason(mut self, reason: Option<StreamRetryReason>) -> Self {
+        self.retry_reason = reason;
+        self
     }
 }
 
@@ -33,6 +40,7 @@ pub(super) fn event(
         data,
         telemetry,
         termination: StreamTermination::None,
+        retry_reason: None,
     }
 }
 
@@ -47,6 +55,7 @@ pub(super) fn terminal_event(
         data,
         telemetry,
         termination,
+        retry_reason: None,
     }
 }
 
@@ -58,6 +67,7 @@ pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
         data,
         telemetry,
         termination,
+        retry_reason,
     } = event;
     let encoded = serde_json::to_string(&data).expect("JSON value encodes");
     let prefix = "event: ".len() + kind.len() + "\ndata: ".len();
@@ -66,13 +76,16 @@ pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
         Some(Bytes::from_static(kind.as_bytes())),
         bytes.slice(prefix..prefix + encoded.len()),
     ));
-    AdapterEvent::new(bytes, telemetry, payload).with_termination(termination)
+    AdapterEvent::new(bytes, telemetry, payload)
+        .with_termination(termination)
+        .with_retry_reason(retry_reason)
 }
 
 pub(super) fn content_telemetry() -> ProtocolEventTelemetry {
     ProtocolEventTelemetry {
         token_usage: TokenUsage::default(),
         has_content_delta: true,
+        retry_transparent: false,
     }
 }
 

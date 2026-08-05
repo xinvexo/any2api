@@ -19,7 +19,10 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     let SseEventPayload::Json(data) = payload else {
-        return ProtocolEventTelemetry::default();
+        return ProtocolEventTelemetry {
+            retry_transparent: matches!(payload, SseEventPayload::Empty),
+            ..ProtocolEventTelemetry::default()
+        };
     };
     let [usage, choices] = top_fields(data.data(), ["usage", "choices"]);
     ProtocolEventTelemetry {
@@ -32,6 +35,7 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
         has_content_delta: choices
             .and_then(|choices| raw_array(choices.get().as_bytes()))
             .is_some_and(|choices| choices.iter().any(|choice| choice_has_content(choice))),
+        retry_transparent: false,
     }
 }
 

@@ -87,7 +87,7 @@ pub(in crate::public_request) async fn execute_stream_attempt(
         services.snapshot.settings().stream(),
     );
     let (exchange, permit, health, attempt_recorder, quota_activity) = prepared.take_guards();
-    let mut body = GuardedBody::new(
+    let body = GuardedBody::new(
         response.body,
         exchange,
         public_model,
@@ -111,10 +111,20 @@ pub(in crate::public_request) async fn execute_stream_attempt(
                 ),
             ),
         },
-    )
-    .prime()
-    .await
-    .map_err(AttemptFailure::Public)?;
+    );
+    let mut body = match body.prime_attempt().await {
+        Ok(body) => body,
+        Err(super::super::stream::StreamPrimeFailure::Retryable(reason)) => {
+            debug_assert!(matches!(
+                reason,
+                any2api_protocol::api::StreamRetryReason::Overloaded
+            ));
+            return Err(AttemptFailure::stream_rejected(candidate, bound));
+        }
+        Err(super::super::stream::StreamPrimeFailure::Public(error)) => {
+            return Err(AttemptFailure::Public(error));
+        }
+    };
     if let Err(error) = commit_binding_before(binding_lease, target, body.precommit_deadline()) {
         body.fail_before_handoff(public_error_class(error.code()), error.telemetry_message());
         return Err(AttemptFailure::Public(error));

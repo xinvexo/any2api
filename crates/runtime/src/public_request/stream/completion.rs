@@ -140,6 +140,16 @@ impl GuardedBody {
         }
     }
 
+    pub(super) fn finish_precommit_rejection(&mut self) {
+        if let Some(health) = self.health.take() {
+            health.stream_rejected();
+        }
+        if let Some(mut recorder) = self.attempt_recorder.take() {
+            recorder.stream_rejected(self.status_code);
+        }
+        self.release_guards();
+    }
+
     pub(super) fn set_pending_error(&mut self, error: PendingStreamError) {
         if self.pending_error.is_none() {
             self.pending_error = Some(error);

@@ -32,7 +32,10 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     let SseEventPayload::Json(data) = payload else {
-        return ProtocolEventTelemetry::default();
+        return ProtocolEventTelemetry {
+            retry_transparent: matches!(payload, SseEventPayload::Empty),
+            ..ProtocolEventTelemetry::default()
+        };
     };
     let [kind, response, delta] = top_fields(data.data(), ["type", "response", "delta"]);
     let kind = raw_event_type(data.event_name(), kind);
@@ -50,6 +53,10 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
             .as_deref()
             .is_some_and(|kind| CONTENT_DELTA_EVENTS.contains(&kind))
             && raw_non_empty_string(delta),
+        retry_transparent: matches!(
+            kind.as_deref(),
+            Some("response.created" | "response.in_progress" | "response.queued" | "ping")
+        ),
     }
 }
 
@@ -103,6 +110,7 @@ mod tests {
 
         assert!(event(&content).has_content_delta);
         assert!(!event(&control).has_content_delta);
+        assert!(event(&control).retry_transparent);
         assert!(!event(&empty).has_content_delta);
     }
 

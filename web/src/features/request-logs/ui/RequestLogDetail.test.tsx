@@ -21,10 +21,11 @@ test("loads a deep-linked request and renders attempts in order", async () => {
 
   renderDeepLink(`/logs/${requestId}`);
 
-  expect(await screen.findByText("HTTP 404")).toBeInTheDocument();
+  expect(await screen.findByText("失败 · HTTP 404")).toBeInTheDocument();
   expect(screen.getByText("HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("The model was not found")).toBeInTheDocument();
-  expect(screen.getAllByText("未收到上游状态")).toHaveLength(2);
+  expect(screen.getByText("失败 · 未收到上游状态")).toBeInTheDocument();
+  expect(screen.getByText("未收到上游状态")).toBeInTheDocument();
   expect(screen.getByText("18 ms")).toBeInTheDocument();
   expect(screen.getByText("203.0.113.8")).toBeInTheDocument();
   expect(screen.getByText("120")).toBeInTheDocument();
@@ -57,6 +58,25 @@ test("keeps unavailable token telemetry distinct from real zero values", async (
   expect(await screen.findByText("0 ms")).toBeInTheDocument();
   expect(screen.getByText("0")).toBeInTheDocument();
   expect(screen.getAllByText("未记录")).toHaveLength(2);
+});
+
+test("renders a failed stream separately from its HTTP 200 handshake", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    detailResponse(
+      [attempt(1, 200, "upstream response stream reported a failure event", "failed")],
+      {
+        outcome: "failed",
+        error_message: "upstream response stream reported a failure event",
+        first_token_ms: null,
+      },
+    ),
+  );
+
+  renderDetail();
+
+  expect(await screen.findByText("失败 200")).toBeInTheDocument();
+  expect(screen.getByText("失败 · HTTP 200")).toBeInTheDocument();
+  expect(screen.getByText("HTTP 状态").nextElementSibling).toHaveTextContent("200");
 });
 
 test("renders OpenAI Images protocol and operation labels", async () => {
@@ -157,6 +177,7 @@ function request(overrides: Record<string, unknown> = {}) {
     oauth_account_id: null,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
     status_code: 200,
+    outcome: "success",
     error_message: null,
     attempt_count: 2,
     latency_ms: 30,
@@ -173,6 +194,7 @@ function attempt(
   attemptNo: number,
   statusCode: number | null,
   errorMessage: string | null,
+  outcome = statusCode !== null && statusCode >= 200 && statusCode < 300 ? "success" : "failed",
 ) {
   return {
     attempt_no: attemptNo,
@@ -184,5 +206,6 @@ function attempt(
     duration_ms: 10,
     error_message: errorMessage,
     status_code: statusCode,
+    outcome,
   };
 }

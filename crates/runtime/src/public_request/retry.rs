@@ -246,6 +246,9 @@ fn exclude_failed_path(exclusions: &mut CandidateExclusions, failure: &AttemptFa
             }
             _ => {}
         },
+        AttemptFailure::StreamRejected { .. } => {
+            exclusions.exclude_credential(candidate.credential_id);
+        }
         AttemptFailure::Public(_) => {}
     }
 }

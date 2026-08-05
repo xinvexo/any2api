@@ -11,6 +11,23 @@ const GATEWAY_ID: &str = "10000000-0000-4000-8000-000000000001";
 const ENDPOINT_ID: &str = "20000000-0000-4000-8000-000000000001";
 const CREDENTIAL_ID: &str = "30000000-0000-4000-8000-000000000001";
 const OAUTH_ACCOUNT_ID: &str = "40000000-0000-4000-8000-000000000001";
+const LEGACY_GATEWAY_USAGE_SUMMARY_SQL: &str = "SELECT gateway_api_key_id, COUNT(*) AS total_requests, \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     AS successful_requests \
+     FROM request_logs \
+     WHERE gateway_api_key_id IS NOT NULL \
+     GROUP BY gateway_api_key_id";
+const LEGACY_UPSTREAM_USAGE_SUMMARY_SQL: &str = "SELECT 'provider_credential' AS source, credential_id AS upstream_id, \
+     COUNT(*) AS total_requests, \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     AS successful_requests \
+     FROM request_logs WHERE credential_id IS NOT NULL GROUP BY credential_id \
+     UNION ALL \
+     SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
+     COUNT(*) AS total_requests, \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     AS successful_requests \
+     FROM request_logs WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
 
 #[tokio::test]
 async fn request_usage_index_migration_preserves_rows_and_covers_aggregate_queries() {
@@ -46,7 +63,50 @@ async fn request_usage_index_migration_preserves_rows_and_covers_aggregate_queri
     assert!(foreign_key_violations(&mut connection).await.is_empty());
     assert_index_columns(&mut connection).await;
     assert_aggregate_results(&mut connection).await;
-    assert_covering_query_plans(&mut connection).await;
+    assert_covering_query_plans(
+        &mut connection,
+        LEGACY_UPSTREAM_USAGE_SUMMARY_SQL,
+        LEGACY_GATEWAY_USAGE_SUMMARY_SQL,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn final_outcome_index_migration_keeps_stream_failures_covering_and_failed() {
+    let mut connection = SqliteConnection::connect(":memory:")
+        .await
+        .expect("SQLite connection");
+    migrate_through(&mut connection, 15).await;
+    insert_representative_rows(&mut connection).await;
+    sqlx::query(
+        "INSERT INTO request_logs \
+         (request_id, started_at_ms, config_revision, gateway_api_key_id, ingress_protocol, \
+          operation, credential_id, status_code, error_class, attempt_count, latency_ms, \
+          is_stream, client_ip) VALUES \
+         ('50000000-0000-4000-8000-000000000006', 6000, 1, ?, 'openai_responses', \
+          'responses', ?, 200, 'upstream', 1, 1, 1, '127.0.0.1')",
+    )
+    .bind(GATEWAY_ID)
+    .bind(CREDENTIAL_ID)
+    .execute(&mut connection)
+    .await
+    .expect("representative HTTP 200 stream failure");
+
+    migrate_through(&mut connection, 16).await;
+
+    assert_eq!(
+        migration_versions(&mut connection).await,
+        (1..=16).collect::<Vec<_>>()
+    );
+    assert!(foreign_key_violations(&mut connection).await.is_empty());
+    assert_final_outcome_index_columns(&mut connection).await;
+    assert_final_outcome_aggregate_results(&mut connection).await;
+    assert_covering_query_plans(
+        &mut connection,
+        UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL,
+        GATEWAY_API_KEY_USAGE_SUMMARY_SQL,
+    )
+    .await;
 }
 
 async fn insert_representative_rows(connection: &mut SqliteConnection) {
@@ -149,6 +209,38 @@ async fn assert_index_columns(connection: &mut SqliteConnection) {
     );
 }
 
+async fn assert_final_outcome_index_columns(connection: &mut SqliteConnection) {
+    assert_eq!(
+        index_columns(connection, "request_logs_gateway_key_started_idx").await,
+        [
+            "gateway_api_key_id",
+            "started_at_ms",
+            "request_id",
+            "status_code",
+            "error_class",
+        ]
+    );
+    assert_eq!(
+        index_columns(connection, "request_logs_provider_credential_started_idx").await,
+        [
+            "credential_id",
+            "started_at_ms",
+            "request_id",
+            "status_code",
+            "error_class",
+        ]
+    );
+    assert_eq!(
+        index_columns(connection, "request_logs_oauth_account_idx").await,
+        [
+            "oauth_account_id",
+            "started_at_ms",
+            "status_code",
+            "error_class",
+        ]
+    );
+}
+
 async fn assert_aggregate_results(connection: &mut SqliteConnection) {
     let upstream =
         sqlx::query_as::<_, (String, String, i64, i64)>(UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL)
@@ -170,8 +262,33 @@ async fn assert_aggregate_results(connection: &mut SqliteConnection) {
     assert_eq!(gateway, [(GATEWAY_ID.into(), 4, 2)]);
 }
 
-async fn assert_covering_query_plans(connection: &mut SqliteConnection) {
-    let upstream = query_plan(connection, UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL).await;
+async fn assert_final_outcome_aggregate_results(connection: &mut SqliteConnection) {
+    let upstream =
+        sqlx::query_as::<_, (String, String, i64, i64)>(UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL)
+            .fetch_all(&mut *connection)
+            .await
+            .expect("upstream aggregate");
+    assert_eq!(
+        upstream,
+        [
+            ("provider_credential".into(), CREDENTIAL_ID.into(), 3, 1),
+            ("oauth_account".into(), OAUTH_ACCOUNT_ID.into(), 2, 1),
+        ]
+    );
+
+    let gateway = sqlx::query_as::<_, (String, i64, i64)>(GATEWAY_API_KEY_USAGE_SUMMARY_SQL)
+        .fetch_all(connection)
+        .await
+        .expect("gateway aggregate");
+    assert_eq!(gateway, [(GATEWAY_ID.into(), 5, 2)]);
+}
+
+async fn assert_covering_query_plans(
+    connection: &mut SqliteConnection,
+    upstream_sql: &str,
+    gateway_sql: &str,
+) {
+    let upstream = query_plan(connection, upstream_sql).await;
     assert!(
         upstream.contains("COVERING INDEX request_logs_provider_credential_started_idx"),
         "{upstream}"
@@ -182,7 +299,7 @@ async fn assert_covering_query_plans(connection: &mut SqliteConnection) {
     );
     assert_request_log_access_is_covering(&upstream);
 
-    let gateway = query_plan(connection, GATEWAY_API_KEY_USAGE_SUMMARY_SQL).await;
+    let gateway = query_plan(connection, gateway_sql).await;
     assert!(
         gateway.contains("COVERING INDEX request_logs_gateway_key_started_idx"),
         "{gateway}"

@@ -1,6 +1,6 @@
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, ProtocolDialect, ProtocolOperation,
-    RequestId, RequestLog,
+    CompletedRequestLog, ConfigRevision, ErrorClass, MAX_REQUEST_LOG_ROWS, ProtocolDialect,
+    ProtocolOperation, RequestId, RequestLog,
 };
 use tempfile::tempdir;
 
@@ -118,6 +118,32 @@ async fn overview_bounds_model_groups_and_distinguishes_unknown_from_other() {
             .sum::<u128>(),
         overview.range_totals.total_tokens()
     );
+}
+
+#[tokio::test]
+async fn overview_counts_a_200_stream_error_as_failed() {
+    let directory = tempdir().expect("temporary directory");
+    let store = SqliteStore::connect(&directory.path().join("stream-outcome.sqlite3"))
+        .await
+        .expect("storage");
+    let now_ms = 10_000_000;
+    let success = record(now_ms - 2, Some("gpt-a"), 200, None, None);
+    let mut failed = record(now_ms - 1, Some("gpt-a"), 200, None, None);
+    failed.request.error_class = Some(ErrorClass::Upstream);
+    store
+        .append_request_logs(&[success, failed], MAX_REQUEST_LOG_ROWS)
+        .await
+        .expect("append logs");
+
+    let overview =
+        load_request_log_overview_at(store.pool(), RequestLogOverviewRange::OneHour, now_ms)
+            .await
+            .expect("overview");
+
+    assert_eq!(overview.range_totals.request_count, 2);
+    assert_eq!(overview.range_totals.successful_request_count, 1);
+    assert_eq!(overview.range_totals.failed_request_count(), 1);
+    assert_eq!(overview.models[0].totals.successful_request_count, 1);
 }
 
 fn record(

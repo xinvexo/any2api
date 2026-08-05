@@ -58,6 +58,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
 29. OAuth Token 刷新失败不得折叠成单一“认证失败”。Runtime 必须按当前 `token_version` 保留最近一次安全诊断，明确刷新触发来源、失败阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间及是否必须重新授权；管理 API、Web 账号卡片和普通结构化日志使用同一分类，重新授权或成功 Token 换代后旧诊断自动失效。
+30. 流式上游在任何语义输出可见前以协议声明的精确过载代码拒绝请求时，Runtime 可以在既有预提交预算内丢弃尚未下发的生命周期控制帧并重新选择凭据；未知错误、自然语言匹配、已经出现内容/工具调用等语义事件以及任何下游提交后的失败均不得进入该路径。请求日志和历史统计必须按最终流结果而不是只按初始 HTTP 状态判断成功，避免把 `HTTP 200 + stream_error` 伪装为成功。
 
 ### 2.1 两类凭据的术语边界
 
@@ -931,7 +932,7 @@ gateway_api_keys
 - 不包含 `user_id`、`tenant_id`、套餐、额度、余额和计费字段；
 - 请求统计可以按 `GatewayApiKey` 记录，但只用于本地观测，不参与收费、配额限制或上游路由。
 
-网关 Key 管理列表可以展示保留 RequestLog 中按 Key 聚合的本地观测：最终状态码为 2xx 的请求计为成功，其余状态码计为失败。累计总数覆盖当前 RequestLog 保留窗口；趋势固定展示最近 1 小时、30 个按时间升序排列的 2 分钟时间桶，空桶也必须返回。统计查询失败不能阻塞 Key 配置读写，日志关闭或尚无记录时返回零值与完整空时间条带。
+网关 Key 管理列表可以展示保留 RequestLog 中按 Key 聚合的本地观测：只有最终状态码为 2xx 且 `error_class IS NULL` 的请求计为成功，流式 Body 后续失败、取消或其他带最终错误分类的记录均计为失败。累计总数覆盖当前 RequestLog 保留窗口；趋势固定展示最近 1 小时、30 个按时间升序排列的 2 分钟时间桶，空桶也必须返回。统计查询失败不能阻塞 Key 配置读写，日志关闭或尚无记录时返回零值与完整空时间条带。
 
 网关 Key 管理 API：
 
@@ -976,6 +977,8 @@ request_logs
 `RequestLog.client_ip` 是必填字段，保存 Server 在公开请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。TCP 对端和 XFF 中每个地址进入信任匹配、loopback 判断或持久化前都先使用 Rust `IpAddr::to_canonical()` 规范化，使 `::ffff:a.b.c.d` 与原生 IPv4 具有同一语义。直连请求使用规范化 TCP 对端地址；只有该地址命中当前 PublishedSnapshot 的 `network.trusted_proxy_cidrs` 时才使用受校验的转发链，并从右向左剥离连续可信代理。无法取得规范地址的请求不能进入模型执行链。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。
 
 一次请求的多次上游尝试保存在 `request_attempts` 子表，结构见第 14.2 节。RequestLog 只保存最终汇总，避免用单个 Credential 字段伪装整个重试过程。
+
+管理读取必须从最终 RequestLog 派生不暴露内部分类细节的粗粒度 `outcome`：2xx 且 `error_class IS NULL` 为 `success`，`error_class = cancelled` 为 `cancelled`，其余为 `failed`。HTTP 状态仍作为独立事实展示；流式响应已经返回 200 后收到协议失败事件、Body 错误或被取消时，不能再仅凭 200 显示“成功”。内部 `error_class`、Attempt 原始 `outcome` 与 `retry_safety` 仍不进入管理 DTO。
 
 最终上游来源使用互斥的 `credential_id` / `oauth_account_id`：Provider API Key 只填写前者，OAuthAccount 只填写后者；尚未开始任何上游 Attempt 的本地失败允许两者均为空。管理统计分别按这两列聚合，不能把相同 UUID 的两种来源合并。
 
@@ -2032,7 +2035,7 @@ HTTP 状态码本身不能证明账号级语义。尤其是 OAuth 管理请求�
 - 健康预检查与 HalfOpen Guard 获取之间发生竞态时，必须在任何上游 I/O 前按唯一令牌原子回滚本次 RPM 预留、精确释放 Credential `in_flight` Guard、移除当前候选并继续选择同 tier 其他候选，并在确实删除窗口记录后推进统一 epoch；回滚与预留使用同一个 Credential 窗口 Mutex，不能删除其他 Attempt 的名额或并发超发。只有该 tier 确实没有可执行候选时才等待或返回临时不可用；健康 Guard 一旦成功取得，后续失败不再归还 RPM；
 - 每个请求在第一次上游 Attempt 前固定当前 PublishedSnapshot 的重试、冷却与熔断策略；热更新只影响之后开始的请求和之后记录的失败；
 - 同一个失败路径在当前请求内会被排除，避免在全局熔断阈值尚未达到时立即重复选择同一坏 Endpoint 或 Proxy；
-- 5xx、409、成功响应头后的 Body/SSE 读取失败与“请求已写出但响应丢失”等不确定结果保持 `Ambiguous`；只有 408、425 等具备协议级未执行证据的响应才能使用 `RejectedBeforeExecution`。首版不会为了提高成功率而默认执行 at-least-once 重试；完整依据见 `docs/adr/0093-evidence-based-precommit-retry-safety.md` 与 `docs/adr/0098-http-409-413-422-error-matrix.md`；
+- 5xx、409、成功响应头后的 Body/SSE 读取失败与“请求已写出但响应丢失”等不确定结果保持 `Ambiguous`；只有 408、425 等具备协议级未执行证据的响应，以及 ADR-0118 定义的“任何语义事件前、精确协议代码声明的过载拒绝”才能使用 `RejectedBeforeExecution`。后者只排除当前请求中的失败凭据并对 Endpoint/Proxy 保持 neutral，不能扩张为自然语言匹配、一般 5xx 或内容出现后的 at-least-once 重试；完整依据见 `docs/adr/0093-evidence-based-precommit-retry-safety.md`、`docs/adr/0098-http-409-413-422-error-matrix.md` 与 `docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md`；
 - 外部 `Retry-After` 延迟按 30 天上限归一化；时间转换和 deadline 使用可失败加法，禁止溢出后退回当前时刻导致立即恢复；
 - 上游成功后的本地响应编码、模型恢复或粘性提交错误仍按上游健康成功结算；必须先解析 HalfOpen 探测，再释放 Credential 运行态 Guard，最后返回本地错误；
 - RequestLog 与 Attempt 持久化到 SQLite，并继续用它们驱动本地查询；它们只属于历史遥测，不参与启动时的 RPM 窗口、`in_flight`、队列、粘性或健康状态恢复。
@@ -2061,6 +2064,7 @@ Ambiguous                  # 可能已经执行，只是响应丢失
 | 上游返回 408/425 | RejectedBeforeExecution |
 | 上游返回 5xx | Ambiguous |
 | 上游返回其他可分类的拒绝响应 | 由 Driver 判断 |
+| 成功响应头后、语义事件前收到协议精确声明的过载拒绝 | RejectedBeforeExecution（仅 ADR-0118 窄化项） |
 | 成功响应头后的 buffered body 或首个 SSE 事件读取失败 | Ambiguous |
 | 已向下游发送响应头或任意字节 | 禁止重试或切换 |
 
@@ -2091,7 +2095,7 @@ RequestLog 保存请求最终结果，RequestAttempt 保存调度与切换过程
 
 管理面可从 RequestLog 按 `gateway_api_key_id` 聚合总请求数、成功数、失败数和最近 1 小时固定时间桶。聚合只读取最终 RequestLog，不把每次 Attempt 重复计入，也不恢复任何运行态状态。
 
-同一批最终 RequestLog 还按带来源标签的上游凭据聚合：Provider API Key 使用 `credential_id`，OAuthAccount 使用 `oauth_account_id`。每个公开请求只归入最终目标一次，2xx 计成功、其余状态计失败；Gateway API Key、Provider API Key 和 OAuthAccount 使用同一固定时间条带契约：最近 1 小时、30 个按时间升序排列的 2 分钟桶，空桶保留为零。重试中的中间目标只存在于 Attempt 时间线，不重复计入请求统计。三类统计同时保留、独立查询，累计总数均只覆盖当前日志保留窗口且不构成计费、额度或配置绑定。累计汇总必须直接扫描按凭据 ID 排序且包含 `status_code` 的覆盖索引；Provider API Key 与 OAuthAccount 在各自互斥分支内完成聚合后再 `UNION ALL`，禁止先把两份原始行合并后外层分组造成重复表扫描和临时 B 树。该优化不得以永久计数器或把累计值缩窄为一小时时间条带为代价。完整决策见 `docs/adr/0052-credential-usage-time-windows.md`。
+同一批最终 RequestLog 还按带来源标签的上游凭据聚合：Provider API Key 使用 `credential_id`，OAuthAccount 使用 `oauth_account_id`。每个公开请求只归入最终目标一次，只有 2xx 且 `error_class IS NULL` 计成功，其余状态、流式失败与取消计失败；Gateway API Key、Provider API Key 和 OAuthAccount 使用同一固定时间条带契约：最近 1 小时、30 个按时间升序排列的 2 分钟桶，空桶保留为零。重试中的中间目标只存在于 Attempt 时间线，不重复计入请求统计。三类统计同时保留、独立查询，累计总数均只覆盖当前日志保留窗口且不构成计费、额度或配置绑定。累计汇总必须直接扫描按凭据 ID 排序且包含 `status_code` 与 `error_class` 的覆盖索引；Provider API Key 与 OAuthAccount 在各自互斥分支内完成聚合后再 `UNION ALL`，禁止先把两份原始行合并后外层分组造成重复表扫描和临时 B 树。该优化不得以永久计数器或把累计值缩窄为一小时时间条带为代价。完整决策见 `docs/adr/0052-credential-usage-time-windows.md` 与 `docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md`。
 
 ## 15. 流式响应状态机
 
@@ -2113,7 +2117,7 @@ stateDiagram-v2
 
 - 只有 `Pending` 且 RetrySafety 允许时可以切换 Credential；
 - HTTP 响应头或任何下游字节一旦写出就进入 `TransportCommitted`；
-- Ping、注释和控制事件如果要在重试前接收，必须先缓冲；一旦转发给客户端同样视为提交；
+- Ping、注释和协议明确列出的生命周期控制事件如果要在重试前接收，必须先缓冲；未知事件默认不可暂缓，一旦转发给客户端同样视为提交；
 - `response.created`、`message_start` 等携带身份或上游状态的事件属于 `IdentityCommitted`；
 - 会话续接映射必须在身份事件写给客户端之前完成；需要等待完整桥历史的流先原子写入带容量预留的
   Pending，成功终止事件可见前转为 Ready，任何异常或 Drop 都 Abort；
@@ -2153,11 +2157,11 @@ Axum Handler 返回流式 Body 后，运行态 Guard 不能留在 Handler 局部
 
 正常 EOF、上游错误或客户端丢弃 Body 都通过 Drop/终止路径保证只结算一次 Guard，并取消仍在运行的上游任务。Drop 路径只执行同步释放、取消和有界日志入队；需要 await 的刷新由 TaskTracker best-effort 完成。RPM 名额只按时间到期，不在这些路径回滚。
 
-SSE 实现使用增量分帧器处理任意字节切分、LF/CRLF/裸 CR、多行 `data:` 与无尾空行；CRLF 必须作为一个行尾，裸 CR 作为一个行尾，chunk 末尾尚无法判断是否接 LF 的 CR 必须保留到下一字节或 EOF，禁止因网络切分改变帧边界。Runtime 在返回下游响应头前至少取得并验证一个完整事件，避免空流或首帧损坏时提前提交。首帧预读发生在上游成功响应头之后，因此读取失败、超时、EOF 或协议错误都属于上游执行结果不确定的 `Ambiguous`；即使下游仍为 `Pending` 也不自动启动第二条流。提交后 Transport 或协议错误直接终止连接，不发送臆造事件，也不切换上游。模型别名只改写协议已知的顶层 `model`、`response.model` 与 `message.model` 字段，禁止递归改写工具参数或用户内容中的同名字段。
+SSE 实现使用增量分帧器处理任意字节切分、LF/CRLF/裸 CR、多行 `data:` 与无尾空行；CRLF 必须作为一个行尾，裸 CR 作为一个行尾，chunk 末尾尚无法判断是否接 LF 的 CR 必须保留到下一字节或 EOF，禁止因网络切分改变帧边界。Runtime 在返回下游响应头前至少取得并验证一个完整事件，避免空流或首帧损坏时提前提交。首帧预读发生在上游成功响应头之后，因此读取失败、超时、EOF 或协议错误都属于上游执行结果不确定的 `Ambiguous`；即使下游仍为 `Pending` 也不自动启动第二条流。唯一例外是 ADR-0118：ProtocolAdapter 在任何语义事件前识别出精确的过载拒绝时，Runtime 丢弃预提交控制帧并把拒绝交回既有安全重试循环。内容、工具调用、未知事件或任何下游提交一旦出现，该例外永久关闭。提交后 Transport 或协议错误直接终止连接，不发送臆造事件，也不切换上游。模型别名只改写协议已知的顶层 `model`、`response.model` 与 `message.model` 字段，禁止递归改写工具参数或用户内容中的同名字段。
 
 SSE 的 PrecommitBudget 按 PublishedSnapshot 捕获 `max_bytes` 与 `max_duration`。解码器按当前帧剩余容量增量消费 transport chunk，Runtime 每次只编码并排队一个完整事件；未消费的 `Bytes` 以零拷贝切片保留，禁止在响应头返回前把同一 chunk 的全部事件复制进待发送队列。协议桥可能合法消费心跳、注释或其他不产生下游事件的完整帧；只要尚未得到首个可接受事件，Runtime 就必须先继续排空解码器和当前 transport chunk 中已经缓冲的完整帧，再等待新的上游字节或判断 EOF，不能让已缓冲的有效事件被网络等待或首事件 deadline 遮蔽。`max_duration` 是首事件提交 deadline，覆盖上游等待、分帧、协议解码、模型恢复以及必要的会话绑定提交边界；同步临界区不能被强制抢占，但临界区返回后必须重新检查 deadline，超时后禁止写入绑定或接受首事件。
 
-在首个可接受事件前耗尽预算则失败，一旦事件可提交就锁定当前 Attempt。同一上游 chunk 中后续帧损坏时，必须先交付已经锁定的合法事件，再以 Body 错误终止。编码后的公开事件超过字节预算时按入口协议返回 any2api 本地错误，并按本地策略失败结算上游健康，禁止污染 Endpoint 或 Proxy 熔断。
+在首个可接受事件前耗尽预算则失败；已经缓冲生命周期控制事件但尚无语义事件时，时间预算到期仍按预提交超时失败并丢弃这些控制帧，不能在 deadline 后写入续接绑定，也不能无限等待潜在的过载拒绝。语义事件一旦可提交就立即锁定当前 Attempt；被暂缓的续接 ID 与桥状态必须在锁定时一起提交，被安全重试丢弃的控制事件不得留下会话绑定。同一上游 chunk 中后续帧损坏时，必须先交付已经锁定的合法事件，再以 Body 错误终止。编码后的公开事件超过字节预算时按入口协议返回 any2api 本地错误，并按本地策略失败结算上游健康，禁止污染 Endpoint 或 Proxy 熔断。
 
 提交后的成功 SSE 使用 `stream.postcommit.idle_timeout`：计时器在首个下游帧实际交付时启用，每次成功读取任意上游 chunk 后重置；单个流在此阶段只分配一个 pinned `Sleep`，重置必须更新其绝对 deadline，禁止每个 chunk 重建计时器和重复堆分配。已经缓冲的完整事件必须优先交付，不能被 idle timer 抢占。超时后只向 Body 返回错误并终止当前流，禁止重试、切换 Credential 或发送臆造协议事件。Attempt 记录为 `StreamError + Network + Ambiguous`；普通首事件只锁定 Attempt，不提前把上游健康结算为成功，只有协议声明的成功终止事件或完整成功 EOF 才清除当前 Credential 健康，失败终止、提交后错误和取消继续保留各自结算语义。该 timer 不等同于下游写超时，慢客户端和下游背压仍依赖取消/Drop 路径释放资源。
 
@@ -2749,7 +2753,7 @@ oauth_token_refresh_failed
 
 稳定 Credential 句柄仍可在进程内维护选择和过滤计数，用于调度测试与内部诊断；过滤计数按请求、凭据与原因去重，不表示排队轮询次数。这些计数不持久化、不恢复，也不要求通过普通管理页面逐账号展示。Provider API Key 与 OAuthAccount 的账号级配置和 RequestLog 历史统计由各自管理页面负责，总览不复制第二份账号目录。
 
-历史请求统计与上述运行态调度计数分开：Gateway API Key、Provider API Key 与 OAuthAccount 都可以从 SQLite RequestLog 保留窗口读取最终请求总数、成功/失败数，并读取最近 1 小时固定 2 分钟桶的趋势；Gateway 维度不因新增上游维度而删除，上游两类来源也不得按 UUID 混合。统计查询失败不能阻塞配置读取，管理响应对当前对象降级为零值与完整空时间条带。
+历史请求统计与上述运行态调度计数分开：Gateway API Key、Provider API Key 与 OAuthAccount 都可以从 SQLite RequestLog 保留窗口读取最终请求总数、成功/失败数，并读取最近 1 小时固定 2 分钟桶的趋势；成功必须同时满足 2xx 与最终 `error_class IS NULL`，不能把已经建立 200 响应头的流内失败算成功。Gateway 维度不因新增上游维度而删除，上游两类来源也不得按 UUID 混合。统计查询失败不能阻塞配置读取，管理响应对当前对象降级为零值与完整空时间条带。
 
 请求日志管理响应把当前 PublishedSnapshot 中的 Provider Endpoint 名称与 ProviderCredential 标签作为两个独立、可空的展示字段投影，SQLite RequestLog 仍只保存稳定 ID。管理 Web 的“令牌”列对 Provider API Key 显示 `<Provider Endpoint 名称>-<Credential 标签>`；Endpoint 已删除或名称不可用时退回 Credential 标签/短 ID。OAuthAccount 继续只显示账号标签，不伪造 Provider Endpoint，也不在任何展示字段中暴露 Secret。
 

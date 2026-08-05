@@ -35,7 +35,7 @@ pub(super) async fn load_request_log_overview_at(
         .await?;
     let bucket_rows = sqlx::query_as::<_, BucketRow>(
         "SELECT ((started_at_ms - ?) / ?) AS bucket_index, COUNT(*) AS request_count, \
-         SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+         SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
          AS successful_request_count FROM request_logs \
          WHERE started_at_ms >= ? AND started_at_ms < ? \
          GROUP BY bucket_index ORDER BY bucket_index",
@@ -48,7 +48,7 @@ pub(super) async fn load_request_log_overview_at(
     .await?;
     let model_rows = sqlx::query_as::<_, ModelRow>(
         "SELECT public_model, COUNT(*) AS request_count, \
-         SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+         SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
          AS successful_request_count, \
          SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END) \
          AS token_usage_request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, \
@@ -76,7 +76,7 @@ pub(super) async fn load_request_log_overview_at(
 fn aggregate_query(bounded: bool) -> &'static str {
     if bounded {
         "SELECT MIN(started_at_ms) AS oldest_started_at_ms, COUNT(*) AS request_count, \
-         SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+         SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
          AS successful_request_count, \
          SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END) \
          AS token_usage_request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, \
@@ -84,7 +84,7 @@ fn aggregate_query(bounded: bool) -> &'static str {
          WHERE started_at_ms >= ? AND started_at_ms < ?"
     } else {
         "SELECT MIN(started_at_ms) AS oldest_started_at_ms, COUNT(*) AS request_count, \
-         SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+         SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
          AS successful_request_count, \
          SUM(CASE WHEN input_tokens IS NOT NULL OR output_tokens IS NOT NULL THEN 1 ELSE 0 END) \
          AS token_usage_request_count, COALESCE(SUM(input_tokens), 0) AS input_tokens, \

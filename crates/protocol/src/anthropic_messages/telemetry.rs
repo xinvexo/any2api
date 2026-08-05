@@ -20,7 +20,10 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
 
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     let SseEventPayload::Json(data) = payload else {
-        return ProtocolEventTelemetry::default();
+        return ProtocolEventTelemetry {
+            retry_transparent: matches!(payload, SseEventPayload::Empty),
+            ..ProtocolEventTelemetry::default()
+        };
     };
     let [kind, message, usage_field, delta] =
         top_fields(data.data(), ["type", "message", "usage", "delta"]);
@@ -35,6 +38,7 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     ProtocolEventTelemetry {
         token_usage,
         has_content_delta: kind.as_deref() == Some("content_block_delta") && content_delta(delta),
+        retry_transparent: matches!(kind.as_deref(), Some("message_start" | "ping")),
     }
 }
 
@@ -119,6 +123,7 @@ mod tests {
             b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\n",
         );
         assert!(!event(&control).has_content_delta);
+        assert!(event(&control).retry_transparent);
     }
 
     #[test]

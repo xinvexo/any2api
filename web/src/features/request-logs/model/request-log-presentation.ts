@@ -1,6 +1,7 @@
 import type {
   RequestLog,
   RequestLogOperation,
+  RequestLogOutcome,
   RequestLogProtocol,
 } from "../api/request-log-contracts";
 
@@ -103,18 +104,27 @@ export function proxyDisplayName(
   return shortId(id);
 }
 
-export function isSuccessStatus(status: number) {
-  return status >= 200 && status < 300;
+export function isSuccessOutcome(outcome: RequestLogOutcome) {
+  return outcome === "success";
 }
 
-/** List badge text: success plain, failure includes HTTP status. */
-export function resultBadgeLabel(status: number) {
-  return isSuccessStatus(status) ? "成功" : `失败 ${status}`;
+/** Final stream result is independent from the initially committed HTTP status. */
+export function resultBadgeLabel(outcome: RequestLogOutcome, status: number) {
+  if (outcome === "success") {
+    return "成功";
+  }
+  if (outcome === "cancelled") {
+    return "已取消";
+  }
+  return `失败 ${status}`;
 }
 
-export function statusTone(status: number) {
-  if (isSuccessStatus(status)) {
+export function resultTone(outcome: RequestLogOutcome, status: number) {
+  if (outcome === "success") {
     return "bg-success/10 text-success";
+  }
+  if (outcome === "cancelled") {
+    return "bg-warning/12 text-warning";
   }
   if (status >= 400 && status < 500) {
     return "bg-warning/12 text-warning";

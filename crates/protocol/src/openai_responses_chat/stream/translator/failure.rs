@@ -3,10 +3,13 @@ use serde_json::{Map, Value, json};
 use super::super::wire::{SynthesizedEvent, terminal_event};
 use crate::{
     ProtocolError,
-    api::{ProtocolEventTelemetry, StreamTermination},
+    api::{ProtocolEventTelemetry, StreamRetryReason, StreamTermination},
 };
 
-pub(super) fn convert(value: &Value) -> Result<SynthesizedEvent, ProtocolError> {
+pub(super) fn convert(
+    value: &Value,
+    retry_reason: Option<StreamRetryReason>,
+) -> Result<SynthesizedEvent, ProtocolError> {
     let source = value
         .get("error")
         .and_then(Value::as_object)
@@ -30,7 +33,8 @@ pub(super) fn convert(value: &Value) -> Result<SynthesizedEvent, ProtocolError> 
         json!({"type":"error","code":code,"message":message,"param":param}),
         ProtocolEventTelemetry::default(),
         StreamTermination::Failed,
-    ))
+    )
+    .with_retry_reason(retry_reason))
 }
 
 fn required_string<'a>(

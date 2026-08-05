@@ -1,7 +1,7 @@
 import type { RequestAttempt } from "../api/request-log-contracts";
 import {
   formatDurationMs,
-  isSuccessStatus,
+  isSuccessOutcome,
   operationLabel,
   protocolLabel,
   proxyDisplayName,
@@ -56,7 +56,7 @@ export function RequestLogExpandedPanel({
   }
 
   const { request, attempts } = query.data;
-  const success = isSuccessStatus(request.statusCode);
+  const success = isSuccessOutcome(request.outcome);
 
   return (
     <div className="min-w-0 max-w-full space-y-3 overflow-x-clip">
@@ -98,7 +98,7 @@ export function RequestLogExpandedPanel({
 
 function AttemptLine({ attempt }: { attempt: RequestAttempt }) {
   const source = upstreamSource(attempt);
-  const failed = attempt.statusCode === null || !isSuccessStatus(attempt.statusCode);
+  const failed = !isSuccessOutcome(attempt.outcome);
   const upstreamIdentity = source.displayName;
   const proxyIdentity = proxyDisplayName(
     attempt.proxyProfileId,
@@ -110,7 +110,13 @@ function AttemptLine({ attempt }: { attempt: RequestAttempt }) {
       <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className="shrink-0 font-semibold tabular-nums text-primary">#{attempt.attemptNo}</span>
         <span className={cn("shrink-0 font-medium", failed ? "text-danger" : "text-primary")}>
-          {attempt.statusCode === null ? "未收到上游状态" : `HTTP ${attempt.statusCode}`}
+          {attempt.outcome === "cancelled"
+            ? "已取消"
+            : attempt.statusCode === null
+              ? "未收到上游状态"
+              : failed
+                ? `失败 · HTTP ${attempt.statusCode}`
+                : `HTTP ${attempt.statusCode}`}
         </span>
         <span className="shrink-0 tabular-nums text-tertiary">
           {formatDurationMs(attempt.durationMs)}

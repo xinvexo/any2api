@@ -133,6 +133,7 @@ pub struct AdapterEvent {
     telemetry: ProtocolEventTelemetry,
     payload: SseEventPayload,
     termination: StreamTermination,
+    retry_reason: Option<StreamRetryReason>,
 }
 
 /// SSE `data:` payload classified once when the upstream frame is decoded,
@@ -159,6 +160,14 @@ pub struct ProtocolResponseTelemetry {
 pub struct ProtocolEventTelemetry {
     pub token_usage: TokenUsage,
     pub has_content_delta: bool,
+    /// Lifecycle-only events may remain buffered while Runtime waits for the
+    /// first semantic event or an explicit pre-content rejection.
+    pub retry_transparent: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StreamRetryReason {
+    Overloaded,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -191,12 +200,19 @@ impl AdapterEvent {
             telemetry,
             payload,
             termination: StreamTermination::None,
+            retry_reason: None,
         }
     }
 
     #[must_use]
     pub fn with_termination(mut self, termination: StreamTermination) -> Self {
         self.termination = termination;
+        self
+    }
+
+    #[must_use]
+    pub fn with_retry_reason(mut self, retry_reason: Option<StreamRetryReason>) -> Self {
+        self.retry_reason = retry_reason;
         self
     }
 
@@ -226,6 +242,11 @@ impl AdapterEvent {
     }
 
     #[must_use]
+    pub const fn retry_reason(&self) -> Option<StreamRetryReason> {
+        self.retry_reason
+    }
+
+    #[must_use]
     pub fn into_parts(self) -> (Bytes, SseEventPayload) {
         (self.bytes, self.payload)
     }
@@ -247,6 +268,7 @@ impl fmt::Debug for AdapterEvent {
             .field("bytes", &self.bytes.len())
             .field("payload", &self.payload)
             .field("termination", &self.termination)
+            .field("retry_reason", &self.retry_reason)
             .finish()
     }
 }

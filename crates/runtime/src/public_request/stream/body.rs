@@ -11,8 +11,10 @@ use std::{
     time::{Duration, Instant},
 };
 
-use any2api_domain::{ErrorClass, PublicError};
-use any2api_protocol::api::{ProtocolExchange, SseDecoder, StreamTermination};
+use any2api_domain::{ErrorClass, PublicError, TokenUsage};
+use any2api_protocol::api::{
+    BridgeContinuationState, ProtocolExchange, SseDecoder, StreamRetryReason, StreamTermination,
+};
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
@@ -68,6 +70,8 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) buffered_chunk: Option<Bytes>,
     pub(super) pending: VecDeque<PendingFrame>,
     pub(super) pending_error: Option<PendingStreamError>,
+    pub(super) precommit_retry: Option<StreamRetryReason>,
+    pub(super) precommit_commit_ready: bool,
     pub(super) permit: Option<RequestPermit>,
     pub(super) health: Option<AttemptHealth>,
     pub(super) continuation_binding: ContinuationBindingCommitter,
@@ -94,6 +98,15 @@ pub(super) struct PendingFrame {
     pub(super) bytes: Bytes,
     pub(super) has_content_delta: bool,
     pub(super) termination: StreamTermination,
+    pub(super) token_usage: TokenUsage,
+    pub(super) continuation_id: Option<String>,
+    pub(super) continuation_state: BridgeContinuationState,
+}
+
+#[derive(Debug)]
+pub(in crate::public_request) enum StreamPrimeFailure {
+    Retryable(StreamRetryReason),
+    Public(PublicError),
 }
 
 impl GuardedBody {
@@ -123,6 +136,8 @@ impl GuardedBody {
             buffered_chunk: None,
             pending: VecDeque::new(),
             pending_error: None,
+            precommit_retry: None,
+            precommit_commit_ready: false,
             permit: Some(permit),
             health,
             continuation_binding,
@@ -146,11 +161,23 @@ impl GuardedBody {
         }
     }
 
-    pub(in crate::public_request) async fn prime(mut self) -> Result<Self, PublicError> {
+    #[cfg(test)]
+    pub(super) async fn prime(self) -> Result<Self, PublicError> {
+        self.prime_attempt()
+            .await
+            .map_err(StreamPrimeFailure::into_public)
+    }
+
+    pub(in crate::public_request) async fn prime_attempt(
+        mut self,
+    ) -> Result<Self, StreamPrimeFailure> {
         let deadline = Instant::now() + self.precommit_budget.max_duration();
         self.precommit_deadline = Some(deadline);
         loop {
-            if !self.pending.is_empty() || self.pending_error.is_some() {
+            if self.precommit_commit_ready
+                || self.precommit_retry.is_some()
+                || self.pending_error.is_some()
+            {
                 break;
             }
             if self.process_buffered_frame(Some(deadline)) {
@@ -158,7 +185,10 @@ impl GuardedBody {
             }
             if self.upstream_done {
                 self.finish_decoder(Some(deadline));
-                if !self.pending.is_empty() || self.pending_error.is_some() {
+                if self.precommit_commit_ready
+                    || self.precommit_retry.is_some()
+                    || self.pending_error.is_some()
+                {
                     continue;
                 }
                 break;
@@ -177,8 +207,19 @@ impl GuardedBody {
                 Err(_) => self.set_timeout_error(),
             }
         }
+        if let Some(reason) = self.precommit_retry.take() {
+            self.finish_precommit_rejection();
+            return Err(StreamPrimeFailure::Retryable(reason));
+        }
+        if self.pending_error.is_some() && !self.precommit_commit_ready {
+            return Err(StreamPrimeFailure::Public(self.finish_precommit_failure()));
+        }
         if self.pending.is_empty() {
-            return Err(self.finish_precommit_failure());
+            return Err(StreamPrimeFailure::Public(self.finish_precommit_failure()));
+        }
+        if let Err(error) = self.commit_precommit_frames(Some(deadline)) {
+            self.set_pending_error(error);
+            return Err(StreamPrimeFailure::Public(self.finish_precommit_failure()));
         }
         Ok(self)
     }
@@ -330,4 +371,17 @@ pub(super) enum StreamOutcome {
     Success,
     Error { class: ErrorClass, message: String },
     Cancelled,
+}
+
+#[cfg(test)]
+impl StreamPrimeFailure {
+    fn into_public(self) -> PublicError {
+        match self {
+            Self::Public(error) => error,
+            Self::Retryable(StreamRetryReason::Overloaded) => super::super::response::public_error(
+                any2api_domain::PublicErrorCode::UpstreamError,
+                "upstream stream was rejected before content",
+            ),
+        }
+    }
 }

@@ -13,13 +13,13 @@ use super::usage_window::{
 
 pub(crate) const UPSTREAM_CREDENTIAL_USAGE_SUMMARY_SQL: &str = "SELECT 'provider_credential' AS source, credential_id AS upstream_id, \
      COUNT(*) AS total_requests, \
-     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
      AS successful_requests \
      FROM request_logs WHERE credential_id IS NOT NULL GROUP BY credential_id \
      UNION ALL \
      SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, \
      COUNT(*) AS total_requests, \
-     SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+     SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
      AS successful_requests \
      FROM request_logs WHERE oauth_account_id IS NOT NULL GROUP BY oauth_account_id";
 
@@ -61,7 +61,7 @@ impl UpstreamCredentialUsageRepository for SqliteStore {
             "{} SELECT source, upstream_id, \
              (started_at_ms / ?) * ? AS bucket_start_ms, \
              COUNT(*) AS total_requests, \
-             SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) \
+             SUM(CASE WHEN status_code >= 200 AND status_code < 300 AND error_class IS NULL THEN 1 ELSE 0 END) \
              AS successful_requests \
              FROM upstream_requests \
              WHERE started_at_ms >= ? \
@@ -114,10 +114,10 @@ impl UpstreamCredentialUsageRepository for SqliteStore {
 
 fn upstream_requests_cte() -> &'static str {
     "WITH upstream_requests AS ( \
-     SELECT 'provider_credential' AS source, credential_id AS upstream_id, status_code, \
+     SELECT 'provider_credential' AS source, credential_id AS upstream_id, status_code, error_class, \
             started_at_ms, request_id FROM request_logs WHERE credential_id IS NOT NULL \
      UNION ALL \
-     SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, status_code, \
+     SELECT 'oauth_account' AS source, oauth_account_id AS upstream_id, status_code, error_class, \
             started_at_ms, request_id FROM request_logs WHERE oauth_account_id IS NOT NULL)"
 }
 
