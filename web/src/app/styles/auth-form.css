@@ -35,18 +35,13 @@ html[data-theme="dark"] .auth-panel-glow {
 }
 
 .auth-mark {
-  display: grid;
+  display: block;
   width: 3.75rem;
   height: 3.75rem;
-  place-items: center;
-  border-radius: 1.1rem;
-  color: #fff;
-  background:
-    linear-gradient(145deg, #1a8cff 0%, #0071e3 48%, #0058b8 100%);
-  box-shadow:
-    0 0 0 1px rgb(255 255 255 / 22%) inset,
-    0 10px 28px rgb(0 113 227 / 36%),
-    0 0 0 6px rgb(0 113 227 / 10%);
+  border-radius: 0.95rem;
+  object-fit: cover;
+  user-select: none;
+  box-shadow: 0 10px 24px rgb(0 113 227 / 24%);
 }
 
 .auth-panel-brand {

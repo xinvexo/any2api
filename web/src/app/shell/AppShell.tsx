@@ -1,4 +1,4 @@
-import { KeyRound, LogOut, Menu, Network, X } from "lucide-react";
+import { KeyRound, LogOut, Menu, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
@@ -12,6 +12,7 @@ import {
   useAdminAuth,
 } from "@/features/admin-auth";
 import { cn } from "@/shared/lib/cn";
+import { AppBrandIcon } from "@/shared/ui/AppBrandIcon";
 import { useBodyScrollLock } from "@/shared/ui/useBodyScrollLock";
 
 const SIDEBAR_EXPANDED = "w-[256px]";
@@ -220,9 +221,7 @@ function Brand({ onNavigate }: { onNavigate: () => void }) {
       className="focus-ring flex min-w-0 items-center gap-2.5 rounded-full sm:gap-3"
       aria-label="any2api 系统总览"
     >
-      <span className="grid size-8 shrink-0 place-items-center rounded-[9px] bg-primary text-surface">
-        <Network size={17} strokeWidth={2.2} aria-hidden="true" />
-      </span>
+      <AppBrandIcon className="size-8 shrink-0 select-none rounded-[8px]" />
       <span className="truncate text-[18px] font-medium tracking-tight sm:text-[20px]">any2api</span>
     </NavLink>
   );

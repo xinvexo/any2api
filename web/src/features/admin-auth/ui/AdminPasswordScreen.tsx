@@ -1,10 +1,11 @@
-import { Eye, EyeOff, LoaderCircle, Network, Shield } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle, Shield } from "lucide-react";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { getAdminAuthErrorMessage } from "../model/admin-auth-error";
 import { useAdminAuth } from "../model/use-admin-auth";
 import { AuthMouseParticles } from "./AuthMouseParticles";
 import { cn } from "@/shared/lib/cn";
+import { AppBrandIcon } from "@/shared/ui/AppBrandIcon";
 import { Button } from "@/shared/ui/Button";
 
 export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
@@ -40,9 +41,7 @@ export function AdminPasswordScreen({ mode }: { mode: "setup" | "login" }) {
         <div className="auth-panel-glow" aria-hidden="true" />
 
         <header className="auth-panel-header">
-          <span className="auth-mark" aria-hidden="true">
-            <Network size={28} strokeWidth={1.7} />
-          </span>
+          <AppBrandIcon className="auth-mark" />
           <div className="auth-panel-brand">
             <h1 id="auth-brand-title" className="auth-title">
               any2api
