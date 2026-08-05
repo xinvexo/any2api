@@ -111,6 +111,7 @@ export function OAuthAccounts({
             <OAuthAccountItem
               account={account}
               pending={pending}
+              quotaRefreshPending={quotaRefreshPending}
               onToggleEnabled={(enabled) => toggleAccount(account, enabled)}
               onViewModels={() => open(account, "models")}
               onEdit={() => open(account, "metadata")}
@@ -207,6 +208,7 @@ export function OAuthAccounts({
 function OAuthAccountItem({
   account,
   pending,
+  quotaRefreshPending,
   onToggleEnabled,
   onViewModels,
   onEdit,
@@ -214,6 +216,7 @@ function OAuthAccountItem({
 }: {
   account: OAuthAccount;
   pending: boolean;
+  quotaRefreshPending: boolean;
   onToggleEnabled: (enabled: boolean) => void;
   onViewModels: () => void;
   onEdit: () => void;
@@ -240,6 +243,7 @@ function OAuthAccountItem({
             accountLabel={account.label}
             provider={account.providerKind}
             disabled={pending}
+            refreshAllPending={quotaRefreshPending}
           />
         </>
       }

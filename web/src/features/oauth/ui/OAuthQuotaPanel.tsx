@@ -26,11 +26,14 @@ export function OAuthQuotaPanel({
   accountLabel,
   provider,
   disabled = false,
+  refreshAllPending = false,
 }: {
   accountId: string;
   accountLabel: string;
   provider: OAuthProvider;
   disabled?: boolean;
+  /** Keeps the spinner continuous while batch SSE refetches toggle query fetching. */
+  refreshAllPending?: boolean;
 }) {
   const queryClient = useQueryClient();
   const quotaOptions = oauthQuotaQueryOptions(accountId);
@@ -83,7 +86,7 @@ export function OAuthQuotaPanel({
   const canReset = provider === "codex";
   const pending = resetPending
     ? "reset"
-    : refreshPending || quotaQuery.isFetching
+    : refreshAllPending || refreshPending || quotaQuery.isFetching
       ? "query"
       : null;
   const visibleError =

@@ -78,7 +78,7 @@ test("virtualizes the full collection and refreshes every Codex quota", async ()
   expect(screen.getByText("额度耗尽")).toBeInTheDocument();
 });
 
-test("limits refresh-all concurrency and locks account actions", async () => {
+test("limits refresh-all concurrency and keeps card spinners stable", async () => {
   const items = Array.from({ length: 8 }, (_, index) =>
     oauthAccountJson(`a${index + 1}`, `Codex ${index + 1}`, "codex"),
   );
@@ -113,14 +113,21 @@ test("limits refresh-all concurrency and locks account actions", async () => {
   await waitFor(() => expect(quotaGates).toHaveLength(6));
   expect(maxActive).toBe(6);
   expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeDisabled();
+  const quotaRefreshButtons = screen.getAllByRole("button", { name: "刷新额度" });
+  expect(quotaRefreshButtons.every((button) => button.hasAttribute("disabled"))).toBe(true);
   expect(
-    screen.getAllByRole("button", { name: "刷新额度" }).every((button) =>
-      button.hasAttribute("disabled"),
+    quotaRefreshButtons.every((button) =>
+      button.querySelector("svg")?.classList.contains("animate-spin"),
     ),
   ).toBe(true);
 
   quotaGates.slice(0, 6).forEach((gate) => gate.resolve(undefined));
   await waitFor(() => expect(quotaGates).toHaveLength(8));
+  expect(
+    quotaRefreshButtons.every((button) =>
+      button.querySelector("svg")?.classList.contains("animate-spin"),
+    ),
+  ).toBe(true);
   quotaGates.slice(6).forEach((gate) => gate.resolve(undefined));
 
   const notification = await screen.findByRole("status");
@@ -128,6 +135,11 @@ test("limits refresh-all concurrency and locks account actions", async () => {
   expect(notification.className).toContain("notification-card");
   expect(maxActive).toBe(6);
   expect(screen.getByRole("button", { name: "删除 Codex 1" })).toBeEnabled();
+  expect(
+    screen.getAllByRole("button", { name: "刷新额度" }).every((button) =>
+      !button.querySelector("svg")?.classList.contains("animate-spin"),
+    ),
+  ).toBe(true);
 });
 
 function renderManagement() {
