@@ -37,7 +37,11 @@ export type OAuthRefreshFailureReason =
   | "publication_failed"
   | "refresh_unavailable"
   | "refreshed_access_token_rejected";
-export type OAuthRefreshFailureScope = "endpoint" | "proxy" | "unattributed";
+export type OAuthRefreshFailureScope =
+  | "endpoint"
+  | "proxy"
+  | "egress_path"
+  | "unattributed";
 
 export interface OAuthRefreshFailure {
   tokenVersion: number;
@@ -140,7 +144,12 @@ function readRefreshFailureScope(value: unknown): OAuthRefreshFailureScope | nul
   if (value === null) {
     return null;
   }
-  if (value !== "endpoint" && value !== "proxy" && value !== "unattributed") {
+  if (
+    value !== "endpoint" &&
+    value !== "proxy" &&
+    value !== "egress_path" &&
+    value !== "unattributed"
+  ) {
     throw invalidResponse();
   }
   return value;

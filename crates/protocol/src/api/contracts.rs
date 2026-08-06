@@ -5,14 +5,16 @@ use any2api_domain::{
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use http::{HeaderMap, Method, StatusCode, Uri};
+use http::{HeaderMap, Method, Uri};
 use serde_json::Value;
 
 pub use crate::{ProtocolError, ProtocolRegistry};
 
 use super::{
-    continuation::BridgeContinuationState, exchange::StartedProtocolBridge,
+    continuation::BridgeContinuationState,
+    exchange::StartedProtocolBridge,
     execution_profile::RequestExecutionProfile,
+    response::{DecodedUpstreamResponse, EgressResponse, UpstreamResponse},
 };
 pub use crate::raw_json::RawJsonPayload;
 pub use crate::sse::SseJsonData;
@@ -98,32 +100,6 @@ pub struct EncodedUpstreamRequest {
     pub body: Bytes,
 }
 
-#[derive(Clone)]
-pub struct UpstreamResponse {
-    pub status: StatusCode,
-    pub headers: HeaderMap,
-    pub body: Bytes,
-}
-
-#[derive(Clone)]
-pub struct DecodedUpstreamResponse {
-    pub status: StatusCode,
-    pub headers: HeaderMap,
-    /// Original wire bytes; `None` once a bridge transform rewrote `parsed`.
-    pub body: Option<Bytes>,
-    /// JSON body parsed once at decode; telemetry, continuation-ID extraction,
-    /// and egress model rewriting all consume this shared parse.
-    pub parsed: Value,
-    pub telemetry: ProtocolResponseTelemetry,
-}
-
-#[derive(Clone)]
-pub struct EgressResponse {
-    pub status: StatusCode,
-    pub headers: HeaderMap,
-    pub body: Bytes,
-}
-
 #[derive(Clone, Eq, PartialEq)]
 pub struct SseFrame(pub Bytes);
 
@@ -149,11 +125,6 @@ pub enum SseEventPayload {
     NonJson,
     /// The `event:` name (if present) and the validated JSON data bytes.
     Json(SseJsonData),
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ProtocolResponseTelemetry {
-    pub token_usage: TokenUsage,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -310,6 +281,16 @@ pub trait ProtocolAdapter: Send + Sync {
         response: UpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError>;
 
+    /// Decode a same-dialect buffered response. Adapters may retain validated
+    /// wire bytes here; the default keeps custom adapters correct by falling
+    /// back to their structured decoder.
+    fn decode_direct_upstream_response(
+        &self,
+        response: UpstreamResponse,
+    ) -> Result<DecodedUpstreamResponse, ProtocolError> {
+        self.decode_upstream_response(response)
+    }
+
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError>;
 
     fn encode_egress_response(
@@ -436,21 +417,6 @@ impl fmt::Debug for AdapterPayload {
     }
 }
 
-macro_rules! impl_redacted_http_debug {
-    ($type:ty, $name:literal) => {
-        impl fmt::Debug for $type {
-            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter
-                    .debug_struct($name)
-                    .field("status", &self.status)
-                    .field("header_count", &self.headers.len())
-                    .field("body_bytes", &self.body.len())
-                    .finish()
-            }
-        }
-    };
-}
-
 impl fmt::Debug for EncodedUpstreamRequest {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -462,21 +428,3 @@ impl fmt::Debug for EncodedUpstreamRequest {
             .finish()
     }
 }
-
-impl_redacted_http_debug!(UpstreamResponse, "UpstreamResponse");
-
-impl fmt::Debug for DecodedUpstreamResponse {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("DecodedUpstreamResponse")
-            .field("status", &self.status)
-            .field("header_count", &self.headers.len())
-            .field(
-                "body_bytes",
-                &self.body.as_ref().map_or(0, bytes::Bytes::len),
-            )
-            .finish()
-    }
-}
-
-impl_redacted_http_debug!(EgressResponse, "EgressResponse");

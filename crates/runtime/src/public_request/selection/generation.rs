@@ -5,19 +5,16 @@ use tokio::time::{Instant, sleep_until, timeout_at};
 
 use super::super::SelectedCandidate;
 use super::{
-    GenerationSelection, filter_recorder::RequestFilterRecorder, no_available_credentials,
-    rate_limit_error, rate_limited, temporarily_unavailable,
+    GenerationSelection,
+    filter_recorder::RequestFilterRecorder,
+    no_available_credentials, rate_limit_error, rate_limited, temporarily_unavailable,
+    tier::{self, TierScan},
 };
 use crate::{
     configuration::PublishedSnapshot,
-    credential::CredentialFilterKind,
-    health::{
-        HealthAcquireError, ReliabilityPolicy, TemporaryUnavailability,
-        TemporaryUnavailabilityCause,
-    },
+    health::ReliabilityPolicy,
     routing::{
-        CandidateExclusions, IndexedSelectAndReserveResult, QueueCoordinator, QueuePolicy,
-        RateLimitAction, RouteCandidate, select_index_and_try_reserve,
+        CandidateExclusions, QueueCoordinator, QueuePolicy, RateLimitAction, RouteCandidate,
     },
 };
 
@@ -40,6 +37,14 @@ pub(super) fn try_select(
                 .route_tier_cursor(route_id, FallbackTier::new(tier))
                 .map(|cursor| cursor.reserve())
         },
+        |tier, skipped| {
+            snapshot
+                .route_tier_cursor(route_id, FallbackTier::new(tier))
+                .is_some_and(|cursor| {
+                    cursor.advance_by(skipped);
+                    true
+                })
+        },
     )
 }
 
@@ -50,100 +55,46 @@ fn try_select_with(
     exclusions: &CandidateExclusions,
     filters: &mut RequestFilterRecorder,
     mut tie_breaker: impl FnMut(u16) -> Option<u64>,
+    mut advance_cursor: impl FnMut(u16, u64) -> bool,
 ) -> Result<GenerationSelection, PublicError> {
     let mut saw_rate_limit = false;
     let mut rate_retry_at = None;
     let mut skipped_retry_at = None;
     for (tier, candidates) in tiers {
-        let mut outage_retry_at = None;
-        let mut cooldown_retry_at = None;
-        let mut eligible = candidates
-            .iter()
-            .filter(|candidate| {
-                if !exclusions.allows(candidate) {
-                    return false;
+        let tie_breaker =
+            tie_breaker(*tier).ok_or_else(crate::public_request::response::internal_error)?;
+        match tier::scan(policy, candidates, exclusions, filters, tie_breaker) {
+            TierScan::Acquired { selected, skipped } => {
+                if !advance_cursor(*tier, skipped) {
+                    return Err(crate::public_request::response::internal_error());
                 }
-                match candidate.health_availability(&policy) {
-                    Ok(()) => true,
-                    Err(error) => {
-                        filters.record(candidate, error.kind());
-                        if let HealthAcquireError::Temporary(unavailability) = error.source() {
-                            note_temporary(
-                                &mut outage_retry_at,
-                                &mut cooldown_retry_at,
-                                unavailability,
-                            );
-                        }
-                        false
-                    }
+                return Ok(GenerationSelection::Acquired(selected));
+            }
+            TierScan::RateLimited { retry_at } => {
+                saw_rate_limit = true;
+                if let Some(retry_at) = retry_at {
+                    rate_retry_at = earliest(rate_retry_at, retry_at);
                 }
-            })
-            .collect::<Vec<_>>();
-        let mut bindings = eligible
-            .iter()
-            .map(|candidate| &candidate.binding)
-            .collect::<Vec<_>>();
-        while !eligible.is_empty() {
-            let tie_breaker =
-                tie_breaker(*tier).ok_or_else(crate::public_request::response::internal_error)?;
-            match select_index_and_try_reserve(&bindings, tie_breaker) {
-                IndexedSelectAndReserveResult::Reserved { index, permit } => {
-                    let candidate = eligible[index];
-                    let (permit, health) = match candidate
-                        .acquire_health_with_rpm_reservation(policy, permit)
-                    {
-                        Ok(acquired) => acquired,
-                        Err(error) => {
-                            filters.record(candidate, error.kind());
-                            if let HealthAcquireError::Temporary(unavailability) = error.source() {
-                                note_temporary(
-                                    &mut outage_retry_at,
-                                    &mut cooldown_retry_at,
-                                    unavailability,
-                                );
-                            }
-                            eligible.swap_remove(index);
-                            bindings.swap_remove(index);
-                            continue;
-                        }
-                    };
-                    candidate.record_selection();
-                    return Ok(GenerationSelection::Acquired(Box::new(SelectedCandidate {
-                        candidate: candidate.clone(),
-                        permit,
-                        health,
-                    })));
-                }
-                IndexedSelectAndReserveResult::RateLimited { retry_at } => {
-                    for candidate in &eligible {
-                        filters.record(candidate, CredentialFilterKind::RateLimit);
-                    }
-                    saw_rate_limit = true;
-                    if let Some(retry_at) = retry_at {
-                        rate_retry_at = earliest(rate_retry_at, retry_at);
-                    }
-                    if !fallback_on_rate_limit {
-                        return Ok(GenerationSelection::RateLimited(rate_retry_at));
-                    }
-                    break;
+                if !fallback_on_rate_limit {
+                    return Ok(GenerationSelection::RateLimited(rate_retry_at));
                 }
             }
-        }
-        if eligible.is_empty() {
-            // The whole tier is temporarily blocked. Upstream rate-limit and
-            // quota cooldowns keep the wait-in-place semantics unless the
-            // fallback-on-rate-limit switch spills them to lower tiers, while
-            // outages (open circuits, transient endpoint or proxy failures,
-            // permission and model cooldowns) always fail over and only bound
-            // the final wait once every tier is exhausted.
-            if let Some(retry_at) = cooldown_retry_at
-                && !fallback_on_rate_limit
-            {
-                let retry_at = outage_retry_at.map_or(retry_at, |outage| outage.min(retry_at));
-                return Ok(GenerationSelection::TemporarilyUnavailable(retry_at));
-            }
-            for retry_at in [outage_retry_at, cooldown_retry_at].into_iter().flatten() {
-                skipped_retry_at = earliest(skipped_retry_at, retry_at);
+            TierScan::Exhausted {
+                outage_retry_at,
+                cooldown_retry_at,
+            } => {
+                // The whole tier is temporarily blocked. Upstream rate-limit
+                // and quota cooldowns keep wait-in-place semantics unless the
+                // route explicitly spills them to a lower tier.
+                if let Some(retry_at) = cooldown_retry_at
+                    && !fallback_on_rate_limit
+                {
+                    let retry_at = outage_retry_at.map_or(retry_at, |outage| outage.min(retry_at));
+                    return Ok(GenerationSelection::TemporarilyUnavailable(retry_at));
+                }
+                for retry_at in [outage_retry_at, cooldown_retry_at].into_iter().flatten() {
+                    skipped_retry_at = earliest(skipped_retry_at, retry_at);
+                }
             }
         }
     }
@@ -154,18 +105,6 @@ fn try_select_with(
     } else {
         GenerationSelection::NoCandidates
     })
-}
-
-fn note_temporary(
-    outage_retry_at: &mut Option<Instant>,
-    cooldown_retry_at: &mut Option<Instant>,
-    unavailability: TemporaryUnavailability,
-) {
-    let slot = match unavailability.cause() {
-        TemporaryUnavailabilityCause::Outage => outage_retry_at,
-        TemporaryUnavailabilityCause::RateLimitCooldown => cooldown_retry_at,
-    };
-    *slot = earliest(*slot, unavailability.until());
 }
 
 pub(super) async fn select_with_queue(
@@ -283,5 +222,27 @@ pub(super) fn try_select_for_test_with_recorder(
         &CandidateExclusions::default(),
         filters,
         tie_breaker,
+        |_, _| true,
+    )
+}
+
+#[cfg(test)]
+pub(super) fn try_select_for_test_with_cursor(
+    fallback_on_rate_limit: bool,
+    tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
+    tie_breaker: impl FnMut(u16) -> Option<u64>,
+    advance_cursor: impl FnMut(u16, u64) -> bool,
+) -> Result<GenerationSelection, PublicError> {
+    let mut filters = RequestFilterRecorder::default();
+    try_select_with(
+        ReliabilityPolicy::from_settings(
+            any2api_domain::SettingsConfiguration::defaults().reliability(),
+        ),
+        fallback_on_rate_limit,
+        tiers,
+        &CandidateExclusions::default(),
+        &mut filters,
+        tie_breaker,
+        advance_cursor,
     )
 }

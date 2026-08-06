@@ -163,6 +163,7 @@ fn secret(value: &str) -> SecretBytes {
     value.as_bytes().to_vec().into()
 }
 
+#[cfg(unix)]
 fn sidecar_path(path: &std::path::Path, suffix: &str) -> std::path::PathBuf {
     let mut value = path.as_os_str().to_owned();
     value.push(suffix);

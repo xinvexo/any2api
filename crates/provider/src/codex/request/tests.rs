@@ -142,3 +142,22 @@ fn leaves_api_keys_and_other_operations_byte_identical() {
         assert_eq!(output, body);
     }
 }
+
+#[test]
+fn normalizes_a_large_body_without_changing_its_payload() {
+    let content = "x".repeat(512 * 1024);
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "model": "gpt-5.6-sol",
+            "store": true,
+            "input": [{"role": "user", "content": content}]
+        }))
+        .expect("request JSON"),
+    );
+
+    let output = prepare(context(true, ProtocolOperation::Responses), body).expect("normalized");
+    assert!(output.len() >= 512 * 1024);
+    let output: Value = serde_json::from_slice(&output).expect("normalized JSON");
+    assert_eq!(output["input"][0]["content"], content);
+    assert_eq!(output["store"], false);
+}

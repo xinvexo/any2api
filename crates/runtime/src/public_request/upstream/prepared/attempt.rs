@@ -237,9 +237,9 @@ impl PreparedAttempt<'_> {
         if let Some(mut recorder) = self.attempt_recorder.take() {
             let error_class = match error.failure_scope {
                 TransportFailureScope::Proxy => ErrorClass::Proxy,
-                TransportFailureScope::Endpoint | TransportFailureScope::Unattributed => {
-                    ErrorClass::Network
-                }
+                TransportFailureScope::Endpoint
+                | TransportFailureScope::EgressPath
+                | TransportFailureScope::Unattributed => ErrorClass::Network,
             };
             recorder.transport_error(
                 error.retry_safety,

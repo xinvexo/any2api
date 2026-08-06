@@ -107,7 +107,7 @@ async fn https_connect_uses_http_proxy_basic_authentication() {
 }
 
 #[tokio::test]
-async fn endpoint_tls_failure_after_connect_is_not_attributed_to_the_proxy() {
+async fn endpoint_tls_failure_after_connect_is_attributed_to_the_egress_path() {
     let identity = TestTlsIdentity::generate();
     let origin_address = spawn_tls_handshake_endpoint(identity.server_config).await;
     let (proxy_address, connect_request) = spawn_connect_proxy(origin_address).await;
@@ -128,7 +128,7 @@ async fn endpoint_tls_failure_after_connect_is_not_attributed_to_the_proxy() {
         Err(error) => error,
     };
 
-    assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
+    assert_eq!(error.failure_scope, TransportFailureScope::EgressPath);
     assert!(
         connect_request
             .await

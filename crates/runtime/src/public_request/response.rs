@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use any2api_domain::{ErrorClass, PublicError, PublicErrorCode, UpstreamError};
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use any2api_protocol::api::EgressResponse;
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
@@ -58,9 +59,11 @@ pub(super) async fn collect_body(
     mut body: BoxByteStream,
     read_timeout: Duration,
     max_bytes: usize,
+    expected_bytes: Option<usize>,
     failure_scope: TransportFailureScope,
 ) -> Result<Bytes, CollectBodyError> {
-    let mut collected = BytesMut::new();
+    let mut collected = PayloadBuffer::with_capacity_hint(expected_bytes, max_bytes)
+        .map_err(payload_buffer_error)?;
     loop {
         let next = timeout(read_timeout, body.next()).await.map_err(|_| {
             CollectBodyError::Transport(TransportError::new(
@@ -74,15 +77,25 @@ pub(super) async fn collect_body(
             break;
         };
         let chunk = chunk.map_err(CollectBodyError::Transport)?;
-        if collected.len().saturating_add(chunk.len()) > max_bytes {
-            return Err(CollectBodyError::Public(public_error(
-                PublicErrorCode::UpstreamError,
-                "upstream response exceeded the configured limit",
-            )));
-        }
-        collected.extend_from_slice(&chunk);
+        collected
+            .extend_from_slice(&chunk)
+            .map_err(payload_buffer_error)?;
     }
-    Ok(collected.freeze())
+    Ok(collected.freeze().into_bytes())
+}
+
+fn payload_buffer_error(error: PayloadBufferError) -> CollectBodyError {
+    let error = match error {
+        PayloadBufferError::TooLarge => public_error(
+            PublicErrorCode::UpstreamError,
+            "upstream response exceeded the configured limit",
+        ),
+        PayloadBufferError::AllocationFailed => public_error(
+            PublicErrorCode::InternalError,
+            "upstream response buffering failed",
+        ),
+    };
+    CollectBodyError::Public(error)
 }
 
 pub(super) async fn collect_error_body(
@@ -199,7 +212,8 @@ pub(super) fn public_error(code: PublicErrorCode, message: &'static str) -> Publ
 mod tests {
     use std::time::Duration;
 
-    use any2api_domain::RetrySafety;
+    use any2api_domain::{PublicErrorCode, RetrySafety};
+    use any2api_payload_buffer::PayloadBufferError;
     use any2api_transport::api::{
         BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
     };
@@ -209,7 +223,7 @@ mod tests {
 
     use super::{
         CollectBodyError, MAX_UPSTREAM_ERROR_BODY_BYTES, collect_body, collect_error_body,
-        sanitize_response_headers, sanitize_upstream_error_response_headers,
+        payload_buffer_error, sanitize_response_headers, sanitize_upstream_error_response_headers,
     };
 
     #[tokio::test]
@@ -290,6 +304,7 @@ mod tests {
             body,
             Duration::from_secs(1),
             1024,
+            None,
             TransportFailureScope::Proxy,
         )
         .await
@@ -301,6 +316,16 @@ mod tests {
         }
     }
 
+    #[test]
+    fn response_allocation_failure_is_an_internal_error() {
+        let CollectBodyError::Public(error) =
+            payload_buffer_error(PayloadBufferError::AllocationFailed)
+        else {
+            panic!("allocation failure must remain a local error");
+        };
+        assert_eq!(error.code(), PublicErrorCode::InternalError);
+    }
+
     #[tokio::test(start_paused = true)]
     async fn collect_body_times_out_while_waiting_for_the_next_chunk() {
         let body: BoxByteStream =
@@ -310,6 +335,7 @@ mod tests {
             body,
             Duration::from_millis(25),
             1024,
+            None,
             TransportFailureScope::Endpoint,
         )
         .await

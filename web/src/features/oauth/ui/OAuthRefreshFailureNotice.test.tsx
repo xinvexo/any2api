@@ -12,7 +12,7 @@ test("shows the refresh trigger stage reason status and required action separate
         stage: "token_endpoint",
         reason: "refresh_token_reused",
         upstreamStatus: 400,
-        failureScope: null,
+        failureScope: "egress_path",
         occurredAt: 1_900_000_000,
         reauthorizationRequired: true,
       }}
@@ -22,6 +22,7 @@ test("shows the refresh trigger stage reason status and required action separate
   const notice = screen.getByRole("alert", { name: "Token 刷新失败" });
   expect(notice).toHaveTextContent("Access Token 401 后刷新");
   expect(notice).toHaveTextContent("Token Endpoint");
-  expect(notice).toHaveTextContent("Refresh Token 已被重复使用（HTTP 400）");
+  expect(notice).toHaveTextContent("Refresh Token 已被重复使用");
+  expect(notice).toHaveTextContent("上游端点 × 出口路径");
   expect(notice).toHaveTextContent("请重新授权账号");
 });

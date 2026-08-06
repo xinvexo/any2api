@@ -245,10 +245,10 @@ async fn telemetry_owned_bytes_remain_bounded_while_storage_is_blocked() {
 }
 
 fn body_capture(bytes: usize) -> HttpBodyCapture {
-    HttpBodyCapture {
-        content: vec![0; bytes],
-        total_bytes: u64::try_from(bytes).expect("body size fits u64"),
-        complete: true,
-        truncated: false,
-    }
+    HttpBodyCapture::from_vec(
+        vec![0; bytes],
+        u64::try_from(bytes).expect("body size fits u64"),
+        true,
+        false,
+    )
 }

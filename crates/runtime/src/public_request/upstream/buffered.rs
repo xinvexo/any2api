@@ -52,6 +52,10 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     };
     let status = response.status;
     let headers = response.headers;
+    let expected_body_bytes = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok());
     let read_timeout = execution_limits::read_timeout(
         prepared.ingress_operation,
         execution_profile,
@@ -77,6 +81,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         response.body,
         read_timeout,
         execution_limits::buffered_response_limit(prepared.ingress_operation, true),
+        expected_body_bytes,
         response.read_failure_scope,
     )
     .await

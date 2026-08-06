@@ -1,11 +1,11 @@
-use std::{
-    fs,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+#[cfg(unix)]
+use std::fs;
+#[cfg(unix)]
 use tempfile::tempdir;
 
 use crate::{
@@ -231,16 +231,12 @@ fn failed_blocking_commit_owns_the_failure_transition() {
     );
 }
 
+#[cfg(unix)]
 fn write_executable(path: &std::path::Path, contents: &[u8], mode: u32) {
-    fs::write(path, contents).expect("write executable");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::fs::PermissionsExt;
 
-        fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("set executable mode");
-    }
-    #[cfg(not(unix))]
-    let _ = mode;
+    fs::write(path, contents).expect("write executable");
+    fs::set_permissions(path, fs::Permissions::from_mode(mode)).expect("set executable mode");
 }
 
 fn test_updater(

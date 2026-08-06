@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 any2api-domain = { path = "../../crates/domain" }
+any2api-memory-reclaimer = { path = "../../crates/memory-reclaimer" }
 any2api-protocol = { path = "../../crates/protocol" }
 any2api-provider = { path = "../../crates/provider" }
 any2api-runtime = { path = "../../crates/runtime" }

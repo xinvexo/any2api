@@ -5,9 +5,10 @@ use http::{HeaderMap, HeaderValue, Method, Uri, header};
 use crate::{
     ProtocolError, affinity,
     api::{
-        AdapterEvent, AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-        EncodedUpstreamRequest, IngressRequest, ProtocolAdapter, RequestExecutionProfile, SseFrame,
-        StreamCompletionPolicy, UpstreamResponse,
+        AdapterEvent, AdapterPayload, DecodedRequest, DecodedResponsePayload,
+        DecodedUpstreamResponse, EgressResponse, EncodedUpstreamRequest, IngressRequest,
+        ProtocolAdapter, RequestExecutionProfile, SseFrame, StreamCompletionPolicy,
+        UpstreamResponse,
     },
     json_codec,
     sse::{parse_event_payload, rewrite_known_model},
@@ -139,9 +140,15 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
             status: response.status,
             headers: response.headers,
             telemetry: telemetry::response(&parsed),
-            body: Some(response.body),
-            parsed,
+            payload: DecodedResponsePayload::StructuredJson(parsed),
         })
+    }
+
+    fn decode_direct_upstream_response(
+        &self,
+        response: UpstreamResponse,
+    ) -> Result<DecodedUpstreamResponse, ProtocolError> {
+        json_codec::decode_direct_response(response, telemetry::raw_response)
     }
 
     fn decode_upstream_event(&self, frame: SseFrame) -> Result<AdapterEvent, ProtocolError> {

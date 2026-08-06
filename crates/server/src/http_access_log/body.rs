@@ -130,7 +130,7 @@ impl AccessLogCompletion {
             http_version: self.metadata.http_version,
             status_code: self.status_code,
             duration_ms,
-            response_bytes: response_body.total_bytes,
+            response_bytes: response_body.total_bytes(),
             outcome,
             gateway_auth_rejected: self.gateway_auth_rejected,
             exchange: Some(HttpAccessLogExchange {

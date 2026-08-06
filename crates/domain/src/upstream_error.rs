@@ -24,6 +24,50 @@ pub enum UpstreamErrorKind {
     Unknown,
 }
 
+/// The narrowest upstream-owned scope justified by structured evidence.
+/// Runtime maps `Unattributed` to the exact selected candidate instead of
+/// guessing a broader Credential, egress path, or Endpoint failure.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpstreamFailureAttribution {
+    Unattributed,
+    Authentication,
+    Credential,
+    CredentialModel,
+    RouteOperation,
+    EgressPath,
+    Endpoint,
+}
+
+impl UpstreamFailureAttribution {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unattributed => "unattributed",
+            Self::Authentication => "authentication",
+            Self::Credential => "credential",
+            Self::CredentialModel => "credential_model",
+            Self::RouteOperation => "route_operation",
+            Self::EgressPath => "egress_path",
+            Self::Endpoint => "endpoint",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "unattributed" => Some(Self::Unattributed),
+            "authentication" => Some(Self::Authentication),
+            "credential" => Some(Self::Credential),
+            "credential_model" => Some(Self::CredentialModel),
+            "route_operation" => Some(Self::RouteOperation),
+            "egress_path" => Some(Self::EgressPath),
+            "endpoint" => Some(Self::Endpoint),
+            _ => None,
+        }
+    }
+}
+
 impl UpstreamErrorKind {
     #[must_use]
     pub const fn error_class(self) -> ErrorClass {
@@ -43,10 +87,12 @@ impl UpstreamErrorKind {
     pub const fn is_retry_candidate(self) -> bool {
         matches!(
             self,
-            Self::PermissionDenied
+            Self::Authentication
+                | Self::PermissionDenied
                 | Self::QuotaExhausted
                 | Self::RateLimited
                 | Self::ModelUnavailable
+                | Self::OperationUnavailable
                 | Self::Transient
         )
     }
@@ -111,6 +157,7 @@ pub struct UpstreamErrorClassification {
     retry_safety: RetrySafety,
     retry_after: Option<RetryAfterHint>,
     quota_exhaustion: Option<UpstreamQuotaExhaustion>,
+    attribution: UpstreamFailureAttribution,
 }
 
 impl UpstreamErrorClassification {
@@ -125,7 +172,14 @@ impl UpstreamErrorClassification {
             retry_safety,
             retry_after,
             quota_exhaustion: None,
+            attribution: UpstreamFailureAttribution::Unattributed,
         }
+    }
+
+    #[must_use]
+    pub const fn with_attribution(mut self, attribution: UpstreamFailureAttribution) -> Self {
+        self.attribution = attribution;
+        self
     }
 
     #[must_use]
@@ -152,6 +206,11 @@ impl UpstreamErrorClassification {
     #[must_use]
     pub const fn quota_exhaustion(self) -> Option<UpstreamQuotaExhaustion> {
         self.quota_exhaustion
+    }
+
+    #[must_use]
+    pub const fn attribution(self) -> UpstreamFailureAttribution {
+        self.attribution
     }
 }
 
@@ -242,6 +301,32 @@ mod tests {
                 "kind {kind:?}"
             );
         }
+    }
+
+    #[test]
+    fn authentication_and_operation_rejections_are_retry_candidates() {
+        assert!(UpstreamErrorKind::Authentication.is_retry_candidate());
+        assert!(UpstreamErrorKind::OperationUnavailable.is_retry_candidate());
+        assert!(!UpstreamErrorKind::InvalidRequest.is_retry_candidate());
+    }
+
+    #[test]
+    fn failure_attribution_defaults_to_exact_candidate_safety() {
+        let classification = UpstreamErrorClassification::new(
+            UpstreamErrorKind::PermissionDenied,
+            RetrySafety::RejectedBeforeExecution,
+            None,
+        );
+        assert_eq!(
+            classification.attribution(),
+            UpstreamFailureAttribution::Unattributed
+        );
+        assert_eq!(
+            classification
+                .with_attribution(UpstreamFailureAttribution::Credential)
+                .attribution(),
+            UpstreamFailureAttribution::Credential
+        );
     }
 
     fn classification() -> UpstreamErrorClassification {

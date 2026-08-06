@@ -24,6 +24,9 @@ test("shows the full attempt flow when a retried request finally succeeds", () =
   expect(screen.getByText("server is overloaded")).toBeInTheDocument();
   expect(screen.getByText("first-account")).toBeInTheDocument();
   expect(screen.getByText("second-account")).toBeInTheDocument();
+  expect(
+    screen.getByText("负载均衡 · 失败范围：凭据 · 决策：重新选路"),
+  ).toBeInTheDocument();
 });
 
 test("omits the attempt timeline for a direct single-attempt success", () => {
@@ -113,6 +116,9 @@ function attempt(
     oauthAccountLabel: null,
     proxyProfileId: "00000000-0000-0000-0000-000000000000",
     proxyProfileLabel: "DIRECT",
+    routingMode: "balanced",
+    failureScope: outcome === "failed" ? "credential" : null,
+    retryDecision: outcome === "failed" ? "reselect" : null,
     startedAtMs: 1_700_000_000_000 + attemptNo,
     durationMs: 10,
     errorMessage,

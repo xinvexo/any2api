@@ -1,6 +1,6 @@
 use any2api_domain::{
     RetrySafety, RoutingCredentialId, UpstreamErrorClassification, UpstreamErrorKind,
-    UpstreamQuotaExhaustion,
+    UpstreamFailureAttribution, UpstreamQuotaExhaustion,
 };
 use any2api_provider::api::OAuthQuotaTokenBalanceSource;
 use http::Method;
@@ -108,6 +108,7 @@ async fn grok_read_only_quota_preserves_numeric_data_plane_exhaustion() {
             RetrySafety::RejectedBeforeExecution,
             None,
         )
+        .with_attribution(UpstreamFailureAttribution::Credential)
         .with_quota_exhaustion(UpstreamQuotaExhaustion::new(1_065_387, 1_000_000)),
         &ReliabilityPolicy::from_settings(snapshot.settings().reliability()),
     );
@@ -144,7 +145,8 @@ async fn grok_read_only_quota_preserves_non_numeric_data_plane_exhaustion() {
             UpstreamErrorKind::QuotaExhausted,
             RetrySafety::RejectedBeforeExecution,
             None,
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::Credential),
         &ReliabilityPolicy::from_settings(snapshot.settings().reliability()),
     );
     drop(snapshot);

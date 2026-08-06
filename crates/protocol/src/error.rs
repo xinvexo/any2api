@@ -13,6 +13,8 @@ pub enum ProtocolError {
     SessionBindingLost,
     #[error("protocol bridge continuation state is too large: {bytes} > {max_bytes} bytes")]
     ContinuationTooLarge { bytes: usize, max_bytes: usize },
+    #[error("protocol processing failed: {0}")]
+    Internal(String),
     #[error("invalid protocol payload: {0}")]
     InvalidPayload(String),
 }

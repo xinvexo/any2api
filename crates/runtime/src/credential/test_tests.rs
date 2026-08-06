@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use any2api_domain::{
     ConfigRevision, CredentialId, CredentialKind, ProtocolDialect, ProviderCredentialDraft,
     ProviderEndpointDraft, ProviderEndpointId, ProviderKind, ProxyProfileId, RequestsPerMinute,
-    RetrySafety, UpstreamErrorClassification, UpstreamErrorKind,
+    RetrySafety, UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
 };
 use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
@@ -72,7 +72,8 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
             UpstreamErrorKind::Authentication,
             RetrySafety::RejectedBeforeExecution,
             None,
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::Authentication),
         &crate::health::ReliabilityPolicy::from_settings(snapshot.settings().reliability()),
     );
     assert!(binding.generation().health().has_auth_error());

@@ -16,6 +16,7 @@ enum PublicErrorKind {
     UnreadableBody,
     UnsupportedContentEncoding,
     Overloaded,
+    Internal,
     NotFound,
     MethodNotAllowed,
 }
@@ -68,6 +69,12 @@ impl PublicApiError {
         }
     }
 
+    pub(crate) const fn internal() -> Self {
+        Self {
+            kind: PublicErrorKind::Internal,
+        }
+    }
+
     const fn not_found() -> Self {
         Self {
             kind: PublicErrorKind::NotFound,
@@ -113,6 +120,10 @@ impl PublicApiError {
             PublicErrorKind::Overloaded => (
                 PublicErrorCode::LocalRateLimit,
                 "the server is too busy to decompress this request; retry shortly",
+            ),
+            PublicErrorKind::Internal => (
+                PublicErrorCode::InternalError,
+                "internal request body processing failed",
             ),
             PublicErrorKind::NotFound => (
                 PublicErrorCode::PublicApiNotFound,

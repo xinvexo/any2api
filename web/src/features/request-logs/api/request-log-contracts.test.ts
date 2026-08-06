@@ -20,6 +20,9 @@ describe("request log contracts", () => {
           credential_id: "credential-1",
           oauth_account_id: null,
           proxy_profile_id: "proxy-1",
+          routing_mode: "balanced",
+          failure_scope: "authentication",
+          retry_decision: "reselect",
           started_at_ms: 1_700_000_000_001,
           duration_ms: 25,
           error_message: null,
@@ -30,6 +33,11 @@ describe("request log contracts", () => {
       telemetry: telemetry(),
     });
     expect(detail.attempts[0]?.statusCode).toBe(200);
+    expect(detail.attempts[0]).toMatchObject({
+      routingMode: "balanced",
+      failureScope: "authentication",
+      retryDecision: "reselect",
+    });
     expect(detail.request.firstTokenMs).toBe(18);
     expect(detail.request.inputTokens).toBe(120);
     expect(detail.request.outputTokens).toBe(45);
@@ -54,6 +62,9 @@ describe("request log contracts", () => {
             credential_id: null,
             oauth_account_id: "oauth-account-1",
             proxy_profile_id: null,
+            routing_mode: "bound",
+            failure_scope: null,
+            retry_decision: null,
             started_at_ms: 1,
             duration_ms: 1,
             error_message: null,
@@ -121,6 +132,9 @@ describe("request log contracts", () => {
           credential_id: "credential-1",
           oauth_account_id: null,
           proxy_profile_id: "proxy-1",
+          routing_mode: "balanced",
+          failure_scope: "authentication",
+          retry_decision: "terminal",
           started_at_ms: 1,
           duration_ms: 12,
           error_message: "Incorrect API key provided",
@@ -149,6 +163,9 @@ describe("request log contracts", () => {
           credential_id: "credential-1",
           oauth_account_id: null,
           proxy_profile_id: "proxy-1",
+          routing_mode: "bound",
+          failure_scope: "exact_candidate",
+          retry_decision: "terminal",
           started_at_ms: 1,
           duration_ms: 12,
           error_message: "upstream response stream reported a failure event",

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use any2api_domain::{
@@ -8,27 +8,35 @@ use any2api_domain::{
 use any2api_protocol::api::{ProtocolRegistry, RequestExecutionProfile};
 use any2api_provider::api::ProviderRegistry;
 
+use super::{CandidateIdentity, EgressPathIdentity};
 use super::{OAuthRoute, oauth};
 use crate::credential::CredentialFilterKind;
-use crate::health::{AttemptHealth, HealthAcquireError};
+use crate::health::{AttemptHealth, CandidatePathKey, EgressPathKey, HealthAcquireError};
 use crate::health::{EndpointHealthRuntime, ProxyHealthRuntime, ReliabilityPolicy};
 use crate::{
     configuration::PublishedSnapshot,
     credential::{CredentialRuntimeBinding, RoutingPermit},
+    routing::RoutingCredential,
 };
 
 #[derive(Clone, Debug)]
 pub(crate) struct RouteCandidate {
     pub(crate) target_id: RouteTargetId,
+    pub(crate) operation: ProtocolOperation,
     pub(crate) endpoint_id: ProviderEndpointId,
+    pub(crate) endpoint_config_version: u64,
     pub(crate) credential_id: RoutingCredentialId,
+    pub(crate) routing_generation: u64,
     pub(crate) provider_kind: ProviderKind,
     pub(crate) base_url: ProviderBaseUrl,
     pub(crate) upstream_model: String,
     pub(crate) upstream_protocol_dialect: ProtocolDialect,
     pub(crate) proxy_id: ProxyProfileId,
+    pub(crate) proxy_config_version: u64,
     pub(crate) endpoint_health: Option<Arc<EndpointHealthRuntime>>,
     pub(crate) proxy_health: Option<Arc<ProxyHealthRuntime>>,
+    pub(crate) egress_path_health: Arc<EndpointHealthRuntime>,
+    pub(crate) candidate_path_health: Arc<EndpointHealthRuntime>,
     pub(crate) binding: CredentialRuntimeBinding,
 }
 
@@ -80,6 +88,37 @@ impl std::hash::Hash for CandidateRequirements {
 }
 
 impl RouteCandidate {
+    pub(crate) const fn identity(&self) -> CandidateIdentity {
+        CandidateIdentity {
+            target_id: self.target_id,
+            operation: self.operation,
+            credential_id: self.credential_id,
+            routing_generation: self.routing_generation,
+            endpoint_id: self.endpoint_id,
+            endpoint_config_version: self.endpoint_config_version,
+            proxy_id: self.proxy_id,
+            proxy_config_version: self.proxy_config_version,
+        }
+    }
+
+    pub(crate) const fn egress_path_identity(&self) -> EgressPathIdentity {
+        EgressPathIdentity {
+            endpoint_id: self.endpoint_id,
+            endpoint_config_version: self.endpoint_config_version,
+            proxy_id: self.proxy_id,
+            proxy_config_version: self.proxy_config_version,
+        }
+    }
+
+    pub(super) const fn credential_generation_identity(
+        &self,
+    ) -> super::identity::CredentialGenerationIdentity {
+        super::identity::CredentialGenerationIdentity {
+            credential_id: self.credential_id,
+            routing_generation: self.routing_generation,
+        }
+    }
+
     pub(crate) fn health_availability(
         &self,
         policy: &ReliabilityPolicy,
@@ -101,6 +140,16 @@ impl RouteCandidate {
                 CandidateHealthError::new(CredentialFilterKind::ProxyHealth, error)
             })?;
         }
+        self.egress_path_health
+            .availability(policy)
+            .map_err(|error| {
+                CandidateHealthError::new(CredentialFilterKind::EgressPathHealth, error)
+            })?;
+        self.candidate_path_health
+            .availability(policy)
+            .map_err(|error| {
+                CandidateHealthError::new(CredentialFilterKind::CandidateHealth, error)
+            })?;
         Ok(())
     }
 
@@ -134,11 +183,36 @@ impl RouteCandidate {
             },
             None => None,
         };
-        Ok(AttemptHealth::new(
+        let egress_path = match self.egress_path_health.try_acquire(&policy) {
+            Ok(permit) => permit,
+            Err(error) => {
+                drop(endpoint);
+                drop(proxy);
+                return Err(CandidateHealthError::new(
+                    CredentialFilterKind::EgressPathHealth,
+                    error,
+                ));
+            }
+        };
+        let candidate_path = match self.candidate_path_health.try_acquire(&policy) {
+            Ok(permit) => permit,
+            Err(error) => {
+                drop(endpoint);
+                drop(proxy);
+                drop(egress_path);
+                return Err(CandidateHealthError::new(
+                    CredentialFilterKind::CandidateHealth,
+                    error,
+                ));
+            }
+        };
+        Ok(AttemptHealth::new_with_paths(
             Arc::clone(self.binding.generation()),
             self.upstream_model.clone(),
             endpoint,
             proxy,
+            Some(egress_path),
+            Some(candidate_path),
             policy,
         ))
     }
@@ -244,21 +318,29 @@ pub(crate) fn build_route_candidates(
             }
             let endpoint_health = snapshot.endpoint_health(endpoint.id()).cloned();
             let proxy_health = snapshot.proxy_health(proxy.id()).cloned();
+            let (egress_path_health, candidate_path_health) =
+                path_health(snapshot, target.id(), requirements.operation(), credential);
 
             tiers
                 .entry(target.fallback_tier().get())
                 .or_insert_with(Vec::new)
                 .push(RouteCandidate {
                     target_id: target.id(),
+                    operation: requirements.operation(),
                     endpoint_id: endpoint.id(),
+                    endpoint_config_version: credential.endpoint_config_version(),
                     credential_id: credential.id(),
+                    routing_generation: credential.binding().generation().routing_generation(),
                     provider_kind: credential.provider_kind(),
                     base_url: credential.base_url().clone(),
                     upstream_model: target.upstream_model().as_str().to_owned(),
                     upstream_protocol_dialect: target.upstream_protocol_dialect(),
                     proxy_id: proxy.id(),
+                    proxy_config_version: credential.proxy_config_version(),
                     endpoint_health,
                     proxy_health,
+                    egress_path_health,
+                    candidate_path_health,
                     binding: credential.binding().clone(),
                 });
         }
@@ -274,29 +356,31 @@ pub(crate) fn build_route_candidates(
     tiers
 }
 
-#[derive(Debug, Default)]
-pub(crate) struct CandidateExclusions {
-    credentials: HashSet<RoutingCredentialId>,
-    endpoints: HashSet<ProviderEndpointId>,
-    proxies: HashSet<ProxyProfileId>,
-}
-
-impl CandidateExclusions {
-    pub(crate) fn allows(&self, candidate: &RouteCandidate) -> bool {
-        !self.credentials.contains(&candidate.credential_id)
-            && !self.endpoints.contains(&candidate.endpoint_id)
-            && !self.proxies.contains(&candidate.proxy_id)
-    }
-
-    pub(crate) fn exclude_credential(&mut self, id: RoutingCredentialId) {
-        self.credentials.insert(id);
-    }
-
-    pub(crate) fn exclude_endpoint(&mut self, id: ProviderEndpointId) {
-        self.endpoints.insert(id);
-    }
-
-    pub(crate) fn exclude_proxy(&mut self, id: ProxyProfileId) {
-        self.proxies.insert(id);
-    }
+pub(super) fn path_health(
+    snapshot: &PublishedSnapshot,
+    target_id: RouteTargetId,
+    operation: ProtocolOperation,
+    credential: &RoutingCredential,
+) -> (Arc<EndpointHealthRuntime>, Arc<EndpointHealthRuntime>) {
+    let endpoint_id = credential.endpoint_id();
+    let endpoint_config_version = credential.endpoint_config_version();
+    let proxy_id = credential.proxy_id();
+    let proxy_config_version = credential.proxy_config_version();
+    let egress = snapshot.egress_path_health(EgressPathKey {
+        endpoint_id,
+        endpoint_config_version,
+        proxy_id,
+        proxy_config_version,
+    });
+    let candidate = snapshot.candidate_path_health(CandidatePathKey {
+        target_id,
+        operation,
+        credential_id: credential.id(),
+        routing_generation: credential.binding().generation().routing_generation(),
+        endpoint_id,
+        endpoint_config_version,
+        proxy_id,
+        proxy_config_version,
+    });
+    (egress, candidate)
 }

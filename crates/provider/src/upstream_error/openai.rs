@@ -2,7 +2,7 @@ use any2api_domain::{UpstreamError, UpstreamErrorClassification, UpstreamErrorKi
 use serde::Deserialize;
 
 use super::{
-    http::{classify_status, refine_kind, retry_safety_after_refinement},
+    http::{classify_status, declared_attribution, refine_kind, retry_safety_after_refinement},
     retry_after::retry_after_hint,
 };
 use crate::api::UpstreamResponseMeta;
@@ -28,11 +28,12 @@ pub(crate) fn classify(meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> Upst
             envelope.error.kind.as_deref(),
         )
     });
-    let baseline = classify_status(meta, UpstreamErrorKind::Unknown);
+    let baseline = classify_status(meta, UpstreamErrorKind::OperationUnavailable);
     let kind = refine_kind(baseline.kind(), provider_kind);
     let safety = retry_safety_after_refinement(baseline, kind);
     let classification =
-        UpstreamErrorClassification::new(kind, safety, retry_after_hint(&meta.headers));
+        UpstreamErrorClassification::new(kind, safety, retry_after_hint(&meta.headers))
+            .with_attribution(declared_attribution(provider_kind, kind));
     let message = parsed.and_then(|envelope| envelope.error.message);
     UpstreamError::new(classification, message)
 }
@@ -62,7 +63,7 @@ fn classify_code(code: Option<&str>, kind: Option<&str>) -> Option<UpstreamError
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{RetrySafety, UpstreamErrorKind};
+    use any2api_domain::{RetrySafety, UpstreamErrorKind, UpstreamFailureAttribution};
     use http::{HeaderMap, HeaderValue, StatusCode, header};
 
     use super::classify;
@@ -112,6 +113,30 @@ mod tests {
         assert_eq!(
             transient.classification().retry_safety(),
             RetrySafety::Ambiguous
+        );
+    }
+
+    #[test]
+    fn status_only_not_found_is_safe_but_remains_exact_candidate_scoped() {
+        let classified = classify(
+            &UpstreamResponseMeta {
+                status: StatusCode::NOT_FOUND,
+                headers: HeaderMap::new(),
+            },
+            b"{}",
+        );
+
+        assert_eq!(
+            classified.classification().kind(),
+            UpstreamErrorKind::OperationUnavailable
+        );
+        assert_eq!(
+            classified.classification().retry_safety(),
+            RetrySafety::RejectedBeforeExecution
+        );
+        assert_eq!(
+            classified.classification().attribution(),
+            UpstreamFailureAttribution::Unattributed
         );
     }
 

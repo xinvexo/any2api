@@ -3,7 +3,7 @@ use std::{
     future::Future,
     sync::{
         Arc,
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicU8, AtomicU64, Ordering},
     },
 };
 
@@ -42,6 +42,7 @@ pub struct ProcessLifecycle {
 
 struct LifecycleInner {
     phase: AtomicU8,
+    request_activity: AtomicU64,
     requests: TaskTracker,
     background: TaskTracker,
     draining: CancellationToken,
@@ -54,6 +55,7 @@ impl ProcessLifecycle {
         Self {
             inner: Arc::new(LifecycleInner {
                 phase: AtomicU8::new(RUNNING),
+                request_activity: AtomicU64::new(0),
                 requests: TaskTracker::new(),
                 background: TaskTracker::new(),
                 draining: CancellationToken::new(),
@@ -106,12 +108,18 @@ impl ProcessLifecycle {
         if self.phase() != ShutdownPhase::Running {
             return None;
         }
+        self.inner.request_activity.fetch_add(1, Ordering::Relaxed);
         Some(ActiveRequestGuard { _token: token })
     }
 
     #[must_use]
     pub fn active_requests(&self) -> usize {
         self.inner.requests.len()
+    }
+
+    #[must_use]
+    pub fn request_activity_epoch(&self) -> u64 {
+        self.inner.request_activity.load(Ordering::Relaxed)
     }
 
     pub async fn wait_for_requests(&self) {
@@ -245,6 +253,20 @@ mod tests {
         lifecycle.begin_draining();
 
         assert!(lifecycle.track_request().is_none());
+        assert_eq!(lifecycle.request_activity_epoch(), 0);
+    }
+
+    #[test]
+    fn accepted_requests_advance_the_shared_activity_epoch() {
+        let lifecycle = ProcessLifecycle::new();
+        let observer = lifecycle.clone();
+        assert_eq!(observer.request_activity_epoch(), 0);
+
+        let first = lifecycle.track_request().expect("first request");
+        let second = lifecycle.track_request().expect("second request");
+        assert_eq!(observer.request_activity_epoch(), 2);
+        drop((first, second));
+        assert_eq!(observer.request_activity_epoch(), 2);
     }
 
     #[tokio::test]

@@ -1,14 +1,14 @@
-use std::{
-    ffi::OsStr,
-    fs,
-    io::{self, ErrorKind},
-    path::{Path, PathBuf},
-};
+use std::{io, path::Path};
+
+#[cfg(unix)]
+use std::{ffi::OsStr, fs, io::ErrorKind, path::PathBuf};
 
 pub(crate) const DIRECTORY_PREFIX: &str = ".any2api-update-";
 pub(crate) const DIRECTORY_RANDOM_LEN: usize = 6;
 
+#[cfg(unix)]
 const ARCHIVE_NAME: &str = "release.tar.gz";
+#[cfg(unix)]
 const STAGED_BINARY_NAME: &str = "any2api.new";
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -103,6 +103,7 @@ fn removable_files(path: &Path, expected_uid: u32) -> io::Result<Option<Vec<Path
     Ok(Some(files))
 }
 
+#[cfg(unix)]
 fn is_update_directory_name(name: &OsStr) -> bool {
     name.to_str()
         .and_then(|name| name.strip_prefix(DIRECTORY_PREFIX))
@@ -112,10 +113,12 @@ fn is_update_directory_name(name: &OsStr) -> bool {
         })
 }
 
+#[cfg(unix)]
 fn is_known_file_name(name: &OsStr) -> bool {
     name == ARCHIVE_NAME || name == STAGED_BINARY_NAME
 }
 
+#[cfg(unix)]
 fn path_error(operation: &str, path: &Path, error: io::Error) -> io::Error {
     io::Error::new(
         error.kind(),

@@ -39,5 +39,6 @@ const stageLabels: Record<ProxyTestFailureStage, string> = {
 const scopeLabels: Record<ProxyTestFailureScope, string> = {
   probe_target: "探测站点",
   proxy: "代理",
+  egress_path: "探测站点 × 代理",
   unattributed: "未归因",
 };

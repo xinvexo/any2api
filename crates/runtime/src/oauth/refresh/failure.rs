@@ -61,6 +61,7 @@ pub enum OAuthRefreshFailureReason {
 pub enum OAuthRefreshFailureScope {
     Endpoint,
     Proxy,
+    EgressPath,
     Unattributed,
 }
 
@@ -405,6 +406,7 @@ fn transport_scope(scope: TransportScope) -> OAuthRefreshFailureScope {
     match scope {
         TransportScope::Endpoint => OAuthRefreshFailureScope::Endpoint,
         TransportScope::Proxy => OAuthRefreshFailureScope::Proxy,
+        TransportScope::EgressPath => OAuthRefreshFailureScope::EgressPath,
         TransportScope::Unattributed => OAuthRefreshFailureScope::Unattributed,
     }
 }

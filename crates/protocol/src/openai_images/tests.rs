@@ -119,6 +119,39 @@ async fn multipart_edit_reencodes_ordered_files_headers_and_replacement_model() 
 }
 
 #[tokio::test]
+async fn multipart_edit_reencodes_a_large_file_without_changing_its_bytes() {
+    let adapter = OpenAiImagesAdapter::new();
+    let boundary = "large-image";
+    let image = vec![b'x'; 512 * 1024];
+    let body = multipart_body(
+        boundary,
+        &[
+            Part::text("model", b"gpt-image-2"),
+            Part::file("image", "large.png", "image/png", &image),
+        ],
+    );
+    let decoded = adapter
+        .decode_ingress_request(multipart_request(boundary, body))
+        .await
+        .expect("large multipart edit decodes");
+
+    let encoded = adapter
+        .encode_upstream_request(
+            decoded.operation,
+            &decoded.headers,
+            &decoded.payload,
+            "upstream-image-model",
+        )
+        .expect("large multipart edit encodes");
+    assert!(encoded.body.len() >= 512 * 1024);
+    let content_type = encoded.headers[header::CONTENT_TYPE]
+        .to_str()
+        .expect("content type");
+    let fields = read_fields(encoded.body, content_type).await;
+    assert_eq!(fields[1].body.as_ref(), image.as_slice());
+}
+
+#[tokio::test]
 async fn multipart_edit_uses_the_trimmed_model_for_routing() {
     let adapter = OpenAiImagesAdapter::new();
     for (boundary, model) in [

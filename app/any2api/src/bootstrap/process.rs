@@ -1,4 +1,7 @@
-use std::{ffi::OsString, path::Path, process::Command};
+use std::{ffi::OsString, path::Path};
+
+#[cfg(unix)]
+use std::process::Command;
 
 use any2api_updater::api::{APPLICATION_VERSION, StartupUpdateRecovery, recover_pending_update};
 use anyhow::Context;

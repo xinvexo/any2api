@@ -138,7 +138,7 @@ async fn unavailable_explicit_proxy_fails_closed_without_reaching_origin() {
     };
 
     assert_eq!(error.stage, TransportErrorStage::ProxyHandshake);
-    assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
+    assert_eq!(error.failure_scope, TransportFailureScope::EgressPath);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
     assert!(
         connect_request

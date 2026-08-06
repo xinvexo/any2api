@@ -1,7 +1,8 @@
 //! Grok Build error codes that carry account-scoped meaning.
 
 use any2api_domain::{
-    UpstreamError, UpstreamErrorClassification, UpstreamErrorKind, UpstreamQuotaExhaustion,
+    UpstreamError, UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
+    UpstreamQuotaExhaustion,
 };
 use http::StatusCode;
 use serde::Deserialize;
@@ -50,7 +51,8 @@ pub(crate) fn classify(meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> Upst
             UpstreamErrorKind::QuotaExhausted,
             UpstreamErrorKind::QuotaExhausted.default_retry_safety(),
             upstream_error::retry_after::retry_after_hint(&meta.headers),
-        );
+        )
+        .with_attribution(UpstreamFailureAttribution::Credential);
         let classified = message
             .as_deref()
             .and_then(parse_actual_limit)
@@ -67,7 +69,8 @@ pub(crate) fn classify(meta: &UpstreamResponseMeta, bounded_body: &[u8]) -> Upst
                 UpstreamErrorKind::PermissionDenied,
                 UpstreamErrorKind::PermissionDenied.default_retry_safety(),
                 upstream_error::retry_after::retry_after_hint(&meta.headers),
-            ),
+            )
+            .with_attribution(UpstreamFailureAttribution::Credential),
             message,
         );
     }

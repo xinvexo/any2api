@@ -1,10 +1,13 @@
-use std::time::Duration;
+use std::{io::Write, time::Duration};
 
 use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode};
+use any2api_payload_buffer::PayloadBuffer;
 use any2api_protocol::api::{
     DecodedRequest, ProtocolContinuationState, ProtocolError, ProtocolExchange, ProtocolRegistry,
 };
-use any2api_provider::api::{ProviderDriver, ProviderRegistry, ProviderRequestContext};
+use any2api_provider::api::{
+    ProviderDriver, ProviderError, ProviderRegistry, ProviderRequestContext,
+};
 use any2api_transport::api::{EndpointNetworkPolicy, TransportProxy, TransportRequest};
 use bytes::Bytes;
 use http::{HeaderValue, header};
@@ -163,9 +166,7 @@ fn build_request<'a>(
     };
     encoded.body = driver
         .prepare_request_body(request_context, encoded.body)
-        .map_err(|_| {
-            invalid_request("request cannot be represented by the selected upstream provider")
-        })?;
+        .map_err(provider_request_error)?;
     let mut headers = driver
         .prepare_request_headers(request_context)
         .map_err(|_| internal_error())?;
@@ -204,9 +205,22 @@ fn build_request<'a>(
 }
 
 fn encode_zstd(body: Bytes) -> Result<Bytes, PublicError> {
-    zstd::stream::encode_all(body.as_ref(), 3)
-        .map(Bytes::from)
-        .map_err(|_| internal_error())
+    let max_len = zstd::zstd_safe::compress_bound(body.len());
+    let output = PayloadBuffer::with_capacity_hint(Some(body.len()), max_len)
+        .map_err(|_| internal_error())?;
+    let mut encoder = zstd::stream::write::Encoder::new(output, 3).map_err(|_| internal_error())?;
+    encoder
+        .write_all(body.as_ref())
+        .map_err(|_| internal_error())?;
+    let output = encoder.finish().map_err(|_| internal_error())?;
+    Ok(output.freeze().into_bytes())
+}
+
+fn provider_request_error(error: ProviderError) -> PublicError {
+    match error {
+        ProviderError::Internal(_) => internal_error(),
+        _ => invalid_request("request cannot be represented by the selected upstream provider"),
+    }
 }
 
 fn protocol_request_error(error: ProtocolError) -> PublicError {
@@ -221,8 +235,34 @@ fn protocol_request_error(error: ProtocolError) -> PublicError {
         ProtocolError::ContinuationTooLarge { .. } => {
             invalid_request("request continuation exceeds the configured protocol state limit")
         }
+        ProtocolError::Internal(_) => internal_error(),
         ProtocolError::DuplicateDialect(_)
         | ProtocolError::DuplicateBridge(_, _)
         | ProtocolError::Unsupported(_) => internal_error(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bytes::Bytes;
+
+    use super::encode_zstd;
+
+    #[test]
+    fn zstd_encoding_streams_large_output_into_the_payload_buffer() {
+        let mut state = 0x9e37_79b9_u32;
+        let input = (0..512 * 1024)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                state as u8
+            })
+            .collect::<Vec<_>>();
+
+        let encoded = encode_zstd(Bytes::copy_from_slice(&input)).expect("zstd encode");
+        assert!(encoded.len() >= 256 * 1024);
+        let decoded = zstd::stream::decode_all(encoded.as_ref()).expect("zstd decode");
+        assert_eq!(decoded, input);
     }
 }

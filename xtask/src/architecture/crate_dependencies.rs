@@ -47,22 +47,32 @@ fn is_any2api_workspace_dependency(name: &str) -> bool {
 
 fn allowed_dependencies(package: &str) -> BTreeSet<&'static str> {
     match package {
-        "any2api-domain" | "any2api-updater" | "xtask" => BTreeSet::new(),
-        "any2api-protocol" | "any2api-provider" | "any2api-transport" | "any2api-storage" => {
-            BTreeSet::from(["any2api-domain"])
+        "any2api-domain"
+        | "any2api-memory-reclaimer"
+        | "any2api-payload-buffer"
+        | "any2api-updater"
+        | "xtask" => BTreeSet::new(),
+        "any2api-protocol" | "any2api-provider" => {
+            BTreeSet::from(["any2api-domain", "any2api-payload-buffer"])
         }
+        "any2api-transport" | "any2api-storage" => BTreeSet::from(["any2api-domain"]),
         "any2api-runtime" => BTreeSet::from([
             "any2api-domain",
+            "any2api-payload-buffer",
             "any2api-protocol",
             "any2api-provider",
             "any2api-storage",
             "any2api-transport",
         ]),
-        "any2api-server" => {
-            BTreeSet::from(["any2api-domain", "any2api-runtime", "any2api-updater"])
-        }
+        "any2api-server" => BTreeSet::from([
+            "any2api-domain",
+            "any2api-payload-buffer",
+            "any2api-runtime",
+            "any2api-updater",
+        ]),
         "any2api" => BTreeSet::from([
             "any2api-domain",
+            "any2api-memory-reclaimer",
             "any2api-protocol",
             "any2api-provider",
             "any2api-runtime",

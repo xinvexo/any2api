@@ -43,6 +43,102 @@ impl RequestAttemptOutcome {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RequestRoutingMode {
+    Balanced,
+    Bound,
+}
+
+impl RequestRoutingMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Balanced => "balanced",
+            Self::Bound => "bound",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "balanced" => Some(Self::Balanced),
+            "bound" => Some(Self::Bound),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RequestAttemptFailureScope {
+    Unattributed,
+    Authentication,
+    Credential,
+    CredentialModel,
+    RouteOperation,
+    ExactCandidate,
+    EgressPath,
+    Proxy,
+    Endpoint,
+}
+
+impl RequestAttemptFailureScope {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unattributed => "unattributed",
+            Self::Authentication => "authentication",
+            Self::Credential => "credential",
+            Self::CredentialModel => "credential_model",
+            Self::RouteOperation => "route_operation",
+            Self::ExactCandidate => "exact_candidate",
+            Self::EgressPath => "egress_path",
+            Self::Proxy => "proxy",
+            Self::Endpoint => "endpoint",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "unattributed" => Some(Self::Unattributed),
+            "authentication" => Some(Self::Authentication),
+            "credential" => Some(Self::Credential),
+            "credential_model" => Some(Self::CredentialModel),
+            "route_operation" => Some(Self::RouteOperation),
+            "exact_candidate" => Some(Self::ExactCandidate),
+            "egress_path" => Some(Self::EgressPath),
+            "proxy" => Some(Self::Proxy),
+            "endpoint" => Some(Self::Endpoint),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RequestAttemptRetryDecision {
+    Terminal,
+    OAuthRefresh,
+    RetrySamePath,
+    Reselect,
+}
+
+impl RequestAttemptRetryDecision {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::OAuthRefresh => "oauth_refresh",
+            Self::RetrySamePath => "retry_same_path",
+            Self::Reselect => "reselect",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "terminal" => Some(Self::Terminal),
+            "oauth_refresh" => Some(Self::OAuthRefresh),
+            "retry_same_path" => Some(Self::RetrySamePath),
+            "reselect" => Some(Self::Reselect),
+            _ => None,
+        }
+    }
+}
+
 /// Bounded text for admin diagnostics. Not full request/response bodies.
 pub const MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS: usize = 1_024;
 
@@ -108,9 +204,13 @@ pub struct RequestAttempt {
     pub credential_id: Option<CredentialId>,
     pub oauth_account_id: Option<OAuthAccountId>,
     pub proxy_profile_id: Option<ProxyProfileId>,
+    /// `None` only for rows created before routing diagnostics were added.
+    pub routing_mode: Option<RequestRoutingMode>,
     pub started_at_ms: u64,
     pub duration_ms: u64,
     pub retry_safety: Option<RetrySafety>,
+    pub failure_scope: Option<RequestAttemptFailureScope>,
+    pub retry_decision: Option<RequestAttemptRetryDecision>,
     pub error_class: Option<ErrorClass>,
     /// Transport/upstream/local diagnostic text for this attempt.
     pub error_message: Option<String>,

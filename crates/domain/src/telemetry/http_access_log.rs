@@ -1,5 +1,6 @@
 use std::{fmt, net::IpAddr};
 
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::{ConfigRevision, RequestId};
@@ -92,21 +93,102 @@ impl fmt::Debug for HttpHeader {
     }
 }
 
-#[derive(Clone, Eq, PartialEq)]
 pub struct HttpBodyCapture {
-    pub content: Vec<u8>,
+    content: Bytes,
+    content_allocation_bytes: usize,
     /// Bytes observed from the body, including bytes beyond the captured prefix.
-    pub total_bytes: u64,
+    total_bytes: u64,
     /// True only when the body reached a normal EOF.
-    pub complete: bool,
-    pub truncated: bool,
+    complete: bool,
+    truncated: bool,
 }
+
+impl HttpBodyCapture {
+    #[must_use]
+    pub fn from_vec(content: Vec<u8>, total_bytes: u64, complete: bool, truncated: bool) -> Self {
+        let content_allocation_bytes = content.capacity();
+        Self::from_owned_bytes(
+            Bytes::from(content),
+            content_allocation_bytes,
+            total_bytes,
+            complete,
+            truncated,
+        )
+    }
+
+    #[must_use]
+    pub fn from_owned_bytes(
+        content: Bytes,
+        content_allocation_bytes: usize,
+        total_bytes: u64,
+        complete: bool,
+        truncated: bool,
+    ) -> Self {
+        Self {
+            content_allocation_bytes: content_allocation_bytes.max(content.len()),
+            content,
+            total_bytes,
+            complete,
+            truncated,
+        }
+    }
+
+    #[must_use]
+    pub fn empty(complete: bool) -> Self {
+        Self::from_vec(Vec::new(), 0, complete, false)
+    }
+
+    #[must_use]
+    pub fn content(&self) -> &[u8] {
+        self.content.as_ref()
+    }
+
+    #[must_use]
+    pub fn captured_bytes(&self) -> usize {
+        self.content.len()
+    }
+
+    #[must_use]
+    pub const fn total_bytes(&self) -> u64 {
+        self.total_bytes
+    }
+
+    #[must_use]
+    pub const fn is_complete(&self) -> bool {
+        self.complete
+    }
+
+    #[must_use]
+    pub const fn is_truncated(&self) -> bool {
+        self.truncated
+    }
+
+    #[must_use]
+    pub fn into_content(self) -> Bytes {
+        self.content
+    }
+
+    const fn owned_allocation_bytes(&self) -> usize {
+        self.content_allocation_bytes
+    }
+}
+
+impl PartialEq for HttpBodyCapture {
+    fn eq(&self, other: &Self) -> bool {
+        self.content == other.content
+            && self.total_bytes == other.total_bytes
+            && self.complete == other.complete
+            && self.truncated == other.truncated
+    }
+}
+
+impl Eq for HttpBodyCapture {}
 
 impl fmt::Debug for HttpBodyCapture {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("HttpBodyCapture")
-            .field("captured_bytes", &self.content.len())
+            .field("captured_bytes", &self.captured_bytes())
             .field("total_bytes", &self.total_bytes)
             .field("complete", &self.complete)
             .field("truncated", &self.truncated)
@@ -114,7 +196,7 @@ impl fmt::Debug for HttpBodyCapture {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct HttpAccessLogExchange {
     pub request_headers: Vec<HttpHeader>,
     pub request_body: HttpBodyCapture,
@@ -122,7 +204,7 @@ pub struct HttpAccessLogExchange {
     pub response_body: HttpBodyCapture,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Eq, PartialEq)]
 pub struct HttpAccessLog {
     pub request_id: RequestId,
     pub started_at_ms: u64,
@@ -160,12 +242,12 @@ impl HttpAccessLog {
                     &exchange.request_headers,
                     exchange.request_headers.capacity(),
                 ))
-                .saturating_add(exchange.request_body.content.capacity())
+                .saturating_add(exchange.request_body.owned_allocation_bytes())
                 .saturating_add(headers_owned_bytes(
                     &exchange.response_headers,
                     exchange.response_headers.capacity(),
                 ))
-                .saturating_add(exchange.response_body.content.capacity());
+                .saturating_add(exchange.response_body.owned_allocation_bytes());
         }
         bytes
     }
@@ -274,19 +356,9 @@ mod tests {
                     name: "authorization".to_owned(),
                     value: b"secret".to_vec(),
                 }],
-                request_body: HttpBodyCapture {
-                    content: b"{}".to_vec(),
-                    total_bytes: 2,
-                    complete: true,
-                    truncated: false,
-                },
+                request_body: HttpBodyCapture::from_vec(b"{}".to_vec(), 2, true, false),
                 response_headers: Vec::new(),
-                response_body: HttpBodyCapture {
-                    content: b"ok".to_vec(),
-                    total_bytes: 2,
-                    complete: true,
-                    truncated: false,
-                },
+                response_body: HttpBodyCapture::from_vec(b"ok".to_vec(), 2, true, false),
             }),
         };
 
@@ -326,19 +398,9 @@ mod tests {
             gateway_auth_rejected: false,
             exchange: Some(HttpAccessLogExchange {
                 request_headers,
-                request_body: HttpBodyCapture {
-                    content: Vec::with_capacity(1_024),
-                    total_bytes: 0,
-                    complete: true,
-                    truncated: false,
-                },
+                request_body: HttpBodyCapture::from_vec(Vec::with_capacity(1_024), 0, true, false),
                 response_headers: Vec::with_capacity(4),
-                response_body: HttpBodyCapture {
-                    content: Vec::with_capacity(2_048),
-                    total_bytes: 0,
-                    complete: true,
-                    truncated: false,
-                },
+                response_body: HttpBodyCapture::from_vec(Vec::with_capacity(2_048), 0, true, false),
             }),
         };
         log.method.push_str("POST");

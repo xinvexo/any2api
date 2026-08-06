@@ -139,6 +139,73 @@ async fn codex_and_claude_streams_forward_incrementally_with_selected_model_name
 }
 
 #[tokio::test]
+async fn buffered_invalid_key_switches_to_another_key_on_the_same_endpoint() {
+    let (upstream_address, upstream_requests) = invalid_key_then_success_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex key failover",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "first-key",
+        "sk-first-key",
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "second-key",
+        "sk-second-key",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"gpt-upstream","input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("successful replacement response")
+            .to_bytes(),
+    )
+    .expect("Responses JSON");
+    assert_eq!(body["id"], "resp_good_key");
+
+    let requests = upstream_requests.await.expect("two upstream attempts");
+    assert_eq!(requests.len(), 2);
+    assert_ne!(
+        requests[0].headers["authorization"],
+        requests[1].headers["authorization"]
+    );
+}
+
+#[tokio::test]
 async fn precontent_overload_switches_credentials_without_leaking_the_failed_stream() {
     let (upstream_address, upstream_requests) = overload_then_success_sse_server().await;
     let (_directory, app, mut revision) = test_app().await;
@@ -2089,6 +2156,49 @@ async fn overload_then_success_sse_server() -> (SocketAddr, oneshot::Receiver<Ve
                 .write_all(b"0\r\n\r\n")
                 .await
                 .expect("finish upstream stream");
+        }
+        request_sender
+            .send(requests)
+            .expect("send upstream attempts");
+    });
+    (address, request_receiver)
+}
+
+async fn invalid_key_then_success_server() -> (SocketAddr, oneshot::Receiver<Vec<UpstreamRequest>>)
+{
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (request_sender, request_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let mut requests = Vec::with_capacity(2);
+        for attempt in 0..2 {
+            let (mut stream, _) = listener.accept().await.expect("upstream accept");
+            let (path, request) = read_upstream_request(&mut stream).await;
+            assert_eq!(path, "/v1/responses");
+            requests.push(request);
+            let (status, body) = if attempt == 0 {
+                (
+                    "401 Unauthorized",
+                    r#"{"error":{"type":"authentication_error","code":"invalid_api_key","message":"bad key"}}"#,
+                )
+            } else {
+                (
+                    "200 OK",
+                    r#"{"id":"resp_good_key","model":"gpt-upstream","output":[]}"#,
+                )
+            };
+            stream
+                .write_all(
+                    format!(
+                        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .expect("upstream response");
         }
         request_sender
             .send(requests)

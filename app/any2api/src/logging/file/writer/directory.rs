@@ -68,7 +68,7 @@ impl LogDirectory {
         Ok(())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(super) fn force_next_check(&mut self) {
         self.next_check = Instant::now();
     }

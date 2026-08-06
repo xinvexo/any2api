@@ -134,7 +134,11 @@ impl ProtocolExchange {
         &mut self,
         response: UpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError> {
-        let decoded = self.upstream.decode_upstream_response(response)?;
+        let decoded = if self.bridge.is_none() {
+            self.upstream.decode_direct_upstream_response(response)?
+        } else {
+            self.upstream.decode_upstream_response(response)?
+        };
         match self.bridge_session.as_mut() {
             Some(session) => session.transform_response(decoded),
             None if self.bridge.is_none() => Ok(decoded),
@@ -211,5 +215,73 @@ impl ProtocolExchange {
         event: &AdapterEvent,
     ) -> Result<Option<String>, ProtocolError> {
         self.ingress.continuation_id_from_event(operation, event)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use any2api_domain::{ProtocolOperation, TokenUsage};
+    use bytes::Bytes;
+    use http::{HeaderMap, StatusCode};
+
+    use super::ProtocolExchange;
+    use crate::{
+        OpenAiResponsesAdapter,
+        api::{DecodedResponsePayload, ProtocolAdapter, UpstreamResponse},
+    };
+
+    #[test]
+    fn direct_exchange_keeps_validated_wire_json_without_a_structured_tree() {
+        let adapter: Arc<dyn ProtocolAdapter> = Arc::new(OpenAiResponsesAdapter::new());
+        let mut exchange = ProtocolExchange::direct(adapter, ProtocolOperation::Responses);
+        let body = Bytes::from_static(
+            br#"{"id":"resp_1","model":"public","output":[{"content":"large payload"}],"usage":{"input_tokens":12,"output_tokens":7,"input_tokens_details":{"cached_tokens":3}}}"#,
+        );
+        let body_pointer = body.as_ptr();
+        let decoded = exchange
+            .decode_upstream_response(UpstreamResponse {
+                status: StatusCode::OK,
+                headers: HeaderMap::new(),
+                body,
+            })
+            .expect("direct response");
+
+        assert_eq!(
+            decoded.telemetry.token_usage,
+            TokenUsage::new(Some(12), Some(7), Some(3))
+        );
+        let DecodedResponsePayload::RawJson(wire_body) = &decoded.payload else {
+            panic!("direct decode must not materialize a JSON tree");
+        };
+        assert_eq!(wire_body.as_ptr(), body_pointer);
+        assert_eq!(
+            exchange
+                .continuation_id_from_response(ProtocolOperation::Responses, &decoded)
+                .expect("continuation identity"),
+            Some("resp_1".into())
+        );
+
+        let encoded = exchange
+            .encode_egress_response(decoded, "public")
+            .expect("egress response");
+        assert_eq!(encoded.body.as_ptr(), body_pointer);
+    }
+
+    #[test]
+    fn direct_exchange_still_rejects_malformed_json() {
+        let adapter: Arc<dyn ProtocolAdapter> = Arc::new(OpenAiResponsesAdapter::new());
+        let mut exchange = ProtocolExchange::direct(adapter, ProtocolOperation::Responses);
+
+        assert!(
+            exchange
+                .decode_upstream_response(UpstreamResponse {
+                    status: StatusCode::OK,
+                    headers: HeaderMap::new(),
+                    body: Bytes::from_static(br#"{"output":"unterminated}"#),
+                })
+                .is_err()
+        );
     }
 }

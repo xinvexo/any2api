@@ -1,4 +1,7 @@
-use any2api_domain::{ErrorClass, RequestAttempt, RequestLog, RetrySafety};
+use any2api_domain::{
+    ErrorClass, RequestAttempt, RequestAttemptFailureScope, RequestAttemptRetryDecision,
+    RequestLog, RequestRoutingMode, RetrySafety,
+};
 use sqlx::SqliteConnection;
 
 use crate::error::StorageError;
@@ -58,12 +61,13 @@ pub(super) async fn insert_request_attempt(
     let error_message = validate_error_message(attempt.error_message.as_deref())?;
     sqlx::query(
         "INSERT INTO request_attempts (request_id, attempt_no, route_target_id, credential_id, \
-         oauth_account_id, proxy_profile_id, started_at_ms, duration_ms, retry_safety, \
-         error_class, error_message, status_code, outcome) VALUES (?, ?, \
+         oauth_account_id, proxy_profile_id, routing_mode, started_at_ms, duration_ms, \
+         retry_safety, failure_scope, retry_decision, error_class, error_message, status_code, \
+         outcome) VALUES (?, ?, \
          (SELECT id FROM route_targets WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
-         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?)",
+         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(attempt.request_id.to_string())
     .bind(i64::from(attempt.attempt_no))
@@ -71,9 +75,20 @@ pub(super) async fn insert_request_attempt(
     .bind(optional_id(attempt.credential_id))
     .bind(optional_id(attempt.oauth_account_id))
     .bind(optional_id(attempt.proxy_profile_id))
+    .bind(attempt.routing_mode.map(RequestRoutingMode::as_str))
     .bind(to_i64(attempt.started_at_ms)?)
     .bind(to_i64(attempt.duration_ms)?)
     .bind(attempt.retry_safety.map(RetrySafety::as_str))
+    .bind(
+        attempt
+            .failure_scope
+            .map(RequestAttemptFailureScope::as_str),
+    )
+    .bind(
+        attempt
+            .retry_decision
+            .map(RequestAttemptRetryDecision::as_str),
+    )
     .bind(attempt.error_class.map(ErrorClass::as_str))
     .bind(error_message)
     .bind(attempt.status_code.map(i64::from))

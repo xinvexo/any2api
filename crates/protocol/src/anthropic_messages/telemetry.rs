@@ -18,6 +18,13 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
     }
 }
 
+pub(super) fn raw_response(body: &[u8]) -> ProtocolResponseTelemetry {
+    let [usage_field] = top_fields(body, ["usage"]);
+    ProtocolResponseTelemetry {
+        token_usage: usage(usage_field),
+    }
+}
+
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     let SseEventPayload::Json(data) = payload else {
         return ProtocolEventTelemetry {
@@ -79,7 +86,9 @@ mod tests {
     }
 
     fn response(body: &[u8]) -> crate::api::ProtocolResponseTelemetry {
-        super::response(&serde_json::from_slice(body).expect("response JSON"))
+        let structured = super::response(&serde_json::from_slice(body).expect("response JSON"));
+        assert_eq!(super::raw_response(body), structured);
+        structured
     }
 
     #[test]

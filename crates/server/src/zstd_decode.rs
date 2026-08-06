@@ -4,6 +4,7 @@ use std::{
     time::Duration,
 };
 
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
 use any2api_runtime::api::{ProcessLifecycle, STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES};
 use axum::body::Bytes;
 use tokio::sync::Semaphore;
@@ -74,7 +75,11 @@ fn decode(bytes: Bytes) -> Result<Bytes, ZstdDecodeError> {
     let limit = u64::try_from(STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES)
         .unwrap_or(u64::MAX)
         .saturating_add(1);
-    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut decoded = PayloadBuffer::with_capacity_hint(
+        Some(bytes.len()),
+        STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES,
+    )
+    .map_err(map_buffer_error)?;
     {
         let decoder = zstd::stream::read::Decoder::new(Cursor::new(bytes))
             .map_err(|_| ZstdDecodeError::Invalid)?;
@@ -97,16 +102,26 @@ fn decode(bytes: Bytes) -> Result<Bytes, ZstdDecodeError> {
             if decoded.len().saturating_add(read) > STANDARD_PUBLIC_REQUEST_BODY_LIMIT_BYTES {
                 return Err(ZstdDecodeError::TooLarge);
             }
-            decoded.extend_from_slice(&chunk[..read]);
+            decoded
+                .extend_from_slice(&chunk[..read])
+                .map_err(map_buffer_error)?;
         }
     }
-    Ok(Bytes::from(decoded))
+    Ok(decoded.freeze().into_bytes())
+}
+
+fn map_buffer_error(error: PayloadBufferError) -> ZstdDecodeError {
+    match error {
+        PayloadBufferError::TooLarge => ZstdDecodeError::TooLarge,
+        PayloadBufferError::AllocationFailed => ZstdDecodeError::AllocationFailed,
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum ZstdDecodeError {
     Invalid,
     TooLarge,
+    AllocationFailed,
     Overloaded,
     TaskFailed,
 }

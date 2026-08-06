@@ -8,7 +8,8 @@ use std::{
 
 use any2api_domain::{
     ANY2API_UPSTREAM_TIMEOUT_MESSAGE, CredentialId, ErrorClass, OAuthAccountId, ProxyProfileId,
-    RequestAttempt, RequestAttemptOutcome, RequestId, RetrySafety, RouteTargetId, TokenUsage,
+    RequestAttempt, RequestAttemptOutcome, RequestId, RequestRoutingMode, RetrySafety,
+    RouteTargetId, TokenUsage,
 };
 
 use super::request::{RequestRecorder, bound_optional_error_message, duration_ms};
@@ -22,6 +23,7 @@ pub(crate) struct AttemptRecorder {
     credential_id: Option<CredentialId>,
     oauth_account_id: Option<OAuthAccountId>,
     proxy_profile_id: Option<ProxyProfileId>,
+    routing_mode: RequestRoutingMode,
     started_at_ms: u64,
     started_at: Instant,
     timeout: AttemptTimeoutMarker,
@@ -47,6 +49,7 @@ impl AttemptRecorder {
         request_id: RequestId,
         attempt_no: u32,
         candidate: &RouteCandidate,
+        bound: bool,
         started_at_ms: u64,
     ) -> Self {
         Self {
@@ -57,6 +60,11 @@ impl AttemptRecorder {
             credential_id: candidate.credential_id.provider_credential_id(),
             oauth_account_id: candidate.credential_id.oauth_account_id(),
             proxy_profile_id: Some(candidate.proxy_id),
+            routing_mode: if bound {
+                RequestRoutingMode::Bound
+            } else {
+                RequestRoutingMode::Balanced
+            },
             started_at_ms,
             started_at: Instant::now(),
             timeout: AttemptTimeoutMarker(Arc::new(AtomicBool::new(false))),
@@ -73,6 +81,7 @@ impl AttemptRecorder {
             credential_id: None,
             oauth_account_id: None,
             proxy_profile_id: None,
+            routing_mode: RequestRoutingMode::Balanced,
             started_at_ms: 0,
             started_at: Instant::now(),
             timeout: AttemptTimeoutMarker(Arc::new(AtomicBool::new(false))),
@@ -246,9 +255,12 @@ impl AttemptRecorder {
             credential_id: self.credential_id,
             oauth_account_id: self.oauth_account_id,
             proxy_profile_id: self.proxy_profile_id,
+            routing_mode: Some(self.routing_mode),
             started_at_ms: self.started_at_ms,
             duration_ms: duration_ms(self.started_at.elapsed()),
             retry_safety,
+            failure_scope: None,
+            retry_decision: None,
             error_class,
             error_message,
             status_code,

@@ -17,34 +17,13 @@ pub fn select_and_try_reserve(
     if candidates.is_empty() {
         return SelectAndReserveResult::NoCandidates;
     }
-    match select_index_and_try_reserve(candidates, tie_breaker) {
-        IndexedSelectAndReserveResult::Reserved { permit, .. } => {
-            SelectAndReserveResult::Reserved(permit)
-        }
-        IndexedSelectAndReserveResult::RateLimited { retry_at } => {
-            SelectAndReserveResult::RateLimited { retry_at }
-        }
-    }
-}
-
-pub(crate) enum IndexedSelectAndReserveResult {
-    Reserved { index: usize, permit: RoutingPermit },
-    RateLimited { retry_at: Option<Instant> },
-}
-
-pub(crate) fn select_index_and_try_reserve<C: std::borrow::Borrow<CredentialRuntimeBinding>>(
-    candidates: &[C],
-    tie_breaker: u64,
-) -> IndexedSelectAndReserveResult {
-    debug_assert!(!candidates.is_empty());
-
     let start = usize::try_from(tie_breaker % candidates.len() as u64)
         .expect("tie breaker is bounded by candidate count");
     let mut retry_at = None;
     for offset in 0..candidates.len() {
         let index = (start + offset) % candidates.len();
-        match candidates[index].borrow().try_reserve() {
-            Ok(permit) => return IndexedSelectAndReserveResult::Reserved { index, permit },
+        match candidates[index].try_reserve() {
+            Ok(permit) => return SelectAndReserveResult::Reserved(permit),
             Err(RateLimited {
                 retry_at: candidate,
             }) => {
@@ -55,7 +34,7 @@ pub(crate) fn select_index_and_try_reserve<C: std::borrow::Borrow<CredentialRunt
             }
         }
     }
-    IndexedSelectAndReserveResult::RateLimited { retry_at }
+    SelectAndReserveResult::RateLimited { retry_at }
 }
 
 #[cfg(test)]

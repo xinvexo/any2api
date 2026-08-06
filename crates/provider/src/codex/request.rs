@@ -1,6 +1,7 @@
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{borrow::Cow, collections::BTreeMap, io::Write};
 
 use any2api_domain::ProtocolOperation;
+use any2api_payload_buffer::PayloadBuffer;
 use bytes::Bytes;
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -57,8 +58,8 @@ fn normalize_responses(body: Bytes) -> Result<Bytes, ProviderError> {
         return Ok(body);
     }
 
-    let mut output = Vec::with_capacity(body.len().saturating_add(96));
-    output.push(b'{');
+    let mut output = output_buffer(body.len().saturating_add(96))?;
+    write_bytes(&mut output, b"{")?;
     let mut first = true;
     for (name, value) in &fields {
         if should_remove(name, value) {
@@ -87,8 +88,8 @@ fn normalize_responses(body: Bytes) -> Result<Bytes, ProviderError> {
     if !fields.contains_key("parallel_tool_calls") {
         write_field(&mut output, &mut first, "parallel_tool_calls", b"true")?;
     }
-    output.push(b'}');
-    Ok(Bytes::from(output))
+    write_bytes(&mut output, b"}")?;
+    Ok(output.freeze().into_bytes())
 }
 
 fn raw_object(body: &[u8]) -> Result<BTreeMap<String, &RawValue>, ProviderError> {
@@ -103,9 +104,9 @@ fn should_remove(name: &str, value: &RawValue) -> bool {
                 .unwrap_or(true))
 }
 
-fn rewrite_input(input: &RawValue) -> Result<Option<Vec<u8>>, ProviderError> {
+fn rewrite_input(input: &RawValue) -> Result<Option<Bytes>, ProviderError> {
     match input.get().as_bytes().first().copied() {
-        Some(b'"') => Ok(Some(wrap_string_input(input))),
+        Some(b'"') => Ok(Some(wrap_string_input(input)?)),
         Some(b'[') if contains_system_role_candidate(input.get().as_bytes()) => {
             rewrite_system_roles(input)
         }
@@ -113,14 +114,15 @@ fn rewrite_input(input: &RawValue) -> Result<Option<Vec<u8>>, ProviderError> {
     }
 }
 
-fn wrap_string_input(input: &RawValue) -> Vec<u8> {
-    let mut output = Vec::with_capacity(input.get().len().saturating_add(80));
-    output.extend_from_slice(
+fn wrap_string_input(input: &RawValue) -> Result<Bytes, ProviderError> {
+    let mut output = output_buffer(input.get().len().saturating_add(80))?;
+    write_bytes(
+        &mut output,
         br#"[{"type":"message","role":"user","content":[{"type":"input_text","text":"#,
-    );
-    output.extend_from_slice(input.get().as_bytes());
-    output.extend_from_slice(br#"}]}]"#);
-    output
+    )?;
+    write_bytes(&mut output, input.get().as_bytes())?;
+    write_bytes(&mut output, br#"}]}]"#)?;
+    Ok(output.freeze().into_bytes())
 }
 
 fn contains_system_role_candidate(input: &[u8]) -> bool {
@@ -147,7 +149,7 @@ fn trim_ascii_start(mut value: &[u8]) -> &[u8] {
     value
 }
 
-fn rewrite_system_roles(input: &RawValue) -> Result<Option<Vec<u8>>, ProviderError> {
+fn rewrite_system_roles(input: &RawValue) -> Result<Option<Bytes>, ProviderError> {
     let items =
         serde_json::from_str::<Vec<&RawValue>>(input.get()).map_err(|_| invalid_request())?;
     let system_roles = items
@@ -158,20 +160,20 @@ fn rewrite_system_roles(input: &RawValue) -> Result<Option<Vec<u8>>, ProviderErr
         return Ok(None);
     }
 
-    let mut output = Vec::with_capacity(input.get().len());
-    output.push(b'[');
+    let mut output = output_buffer(input.get().len())?;
+    write_bytes(&mut output, b"[")?;
     for (index, (item, is_system)) in items.iter().zip(system_roles).enumerate() {
         if index != 0 {
-            output.push(b',');
+            write_bytes(&mut output, b",")?;
         }
         if is_system {
             write_developer_item(&mut output, item)?;
         } else {
-            output.extend_from_slice(item.get().as_bytes());
+            write_bytes(&mut output, item.get().as_bytes())?;
         }
     }
-    output.push(b']');
-    Ok(Some(output))
+    write_bytes(&mut output, b"]")?;
+    Ok(Some(output.freeze().into_bytes()))
 }
 
 #[derive(Deserialize)]
@@ -187,9 +189,9 @@ fn is_system_role(item: &RawValue) -> bool {
         .is_some_and(|role| role == "system")
 }
 
-fn write_developer_item(output: &mut Vec<u8>, item: &RawValue) -> Result<(), ProviderError> {
+fn write_developer_item(output: &mut PayloadBuffer, item: &RawValue) -> Result<(), ProviderError> {
     let fields = raw_object(item.get().as_bytes())?;
-    output.push(b'{');
+    write_bytes(output, b"{")?;
     let mut first = true;
     for (name, value) in fields {
         let replacement = (name == "role").then_some(b"\"developer\"".as_slice());
@@ -200,28 +202,41 @@ fn write_developer_item(output: &mut Vec<u8>, item: &RawValue) -> Result<(), Pro
             replacement.unwrap_or_else(|| value.get().as_bytes()),
         )?;
     }
-    output.push(b'}');
+    write_bytes(output, b"}")?;
     Ok(())
 }
 
 fn write_field(
-    output: &mut Vec<u8>,
+    output: &mut PayloadBuffer,
     first: &mut bool,
     name: &str,
     value: &[u8],
 ) -> Result<(), ProviderError> {
     if !*first {
-        output.push(b',');
+        write_bytes(output, b",")?;
     }
     *first = false;
-    serde_json::to_writer(&mut *output, name).map_err(|_| invalid_request())?;
-    output.push(b':');
-    output.extend_from_slice(value);
+    serde_json::to_writer(&mut *output, name).map_err(|_| processing_failed())?;
+    write_bytes(output, b":")?;
+    write_bytes(output, value)?;
     Ok(())
+}
+
+fn output_buffer(expected_len: usize) -> Result<PayloadBuffer, ProviderError> {
+    PayloadBuffer::with_capacity_hint(Some(expected_len), usize::MAX)
+        .map_err(|_| processing_failed())
+}
+
+fn write_bytes(output: &mut PayloadBuffer, value: &[u8]) -> Result<(), ProviderError> {
+    output.write_all(value).map_err(|_| processing_failed())
 }
 
 fn invalid_request() -> ProviderError {
     ProviderError::InvalidRequest("Codex OAuth Responses request could not be normalized".into())
+}
+
+fn processing_failed() -> ProviderError {
+    ProviderError::Internal("Codex OAuth Responses request normalization failed".into())
 }
 
 #[cfg(test)]

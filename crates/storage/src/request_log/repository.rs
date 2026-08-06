@@ -126,8 +126,8 @@ impl RequestLogRepository for SqliteStore {
         let request = parse_request_log(row)?;
         let rows = sqlx::query_as::<_, RequestAttemptRow>(
             "SELECT request_id, attempt_no, route_target_id, credential_id, oauth_account_id, \
-             proxy_profile_id, started_at_ms, duration_ms, retry_safety, error_class, \
-             error_message, status_code, outcome \
+             proxy_profile_id, routing_mode, started_at_ms, duration_ms, retry_safety, \
+             failure_scope, retry_decision, error_class, error_message, status_code, outcome \
              FROM request_attempts WHERE request_id = ? ORDER BY attempt_no ASC",
         )
         .bind(request_id.to_string())

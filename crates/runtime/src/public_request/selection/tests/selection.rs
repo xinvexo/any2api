@@ -4,6 +4,7 @@ use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, ProtocolDialect, ProviderBaseUrl,
     ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProviderKind, ProxyProfileId,
     RequestsPerMinute, RetrySafety, RouteTargetId, UpstreamErrorClassification, UpstreamErrorKind,
+    UpstreamFailureAttribution,
 };
 
 use super::super::{
@@ -50,7 +51,7 @@ fn fallback_only_skips_a_rate_limited_tier_when_enabled() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn selection_retries_a_raced_half_open_probe_without_consuming_rpm() {
+async fn selection_skips_a_raced_half_open_probe_without_consuming_rpm_or_waking() {
     let epoch = SchedulerEpoch::new();
     let policy = default_reliability_policy();
     let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
@@ -88,7 +89,7 @@ async fn selection_retries_a_raced_half_open_probe_without_consuming_rpm() {
     assert_eq!(selected.candidate.credential_id, healthy.credential_id);
     assert_eq!(raced.binding.in_flight(), 0);
     assert_eq!(raced.binding.rate_snapshot().requests_in_window(), 0);
-    assert!(epoch.current() > epoch_before_selection);
+    assert_eq!(epoch.current(), epoch_before_selection);
     assert_eq!(
         raced
             .binding
@@ -169,7 +170,8 @@ async fn rate_limit_cooldown_waits_unless_fallback_is_enabled() {
             UpstreamErrorKind::RateLimited,
             RetrySafety::RejectedBeforeExecution,
             None,
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::CredentialModel),
         &policy,
     );
     let fallback = candidate("fallback", 2, Arc::clone(&epoch), 1);
@@ -329,6 +331,31 @@ pub(super) fn candidate(
     scheduler_epoch: Arc<SchedulerEpoch>,
     tier: u16,
 ) -> RouteCandidate {
+    candidate_with_limit(
+        label,
+        fingerprint_byte,
+        scheduler_epoch,
+        tier,
+        Some(RequestsPerMinute::new(1).expect("valid RPM")),
+    )
+}
+
+pub(super) fn unlimited_candidate(
+    label: &str,
+    fingerprint_byte: u8,
+    scheduler_epoch: Arc<SchedulerEpoch>,
+    tier: u16,
+) -> RouteCandidate {
+    candidate_with_limit(label, fingerprint_byte, scheduler_epoch, tier, None)
+}
+
+fn candidate_with_limit(
+    label: &str,
+    fingerprint_byte: u8,
+    scheduler_epoch: Arc<SchedulerEpoch>,
+    tier: u16,
+    requests_per_minute: Option<RequestsPerMinute>,
+) -> RouteCandidate {
     let credential = ProviderCredential::create(
         CredentialId::new(),
         ProviderEndpointId::new(),
@@ -336,7 +363,7 @@ pub(super) fn candidate(
             label,
             CredentialKind::ApiKey,
             ProxyProfileId::DIRECT,
-            Some(RequestsPerMinute::new(1).expect("valid RPM")),
+            requests_per_minute,
             true,
         )
         .expect("credential draft"),
@@ -345,19 +372,25 @@ pub(super) fn candidate(
     let binding = CredentialRuntimeHandle::new_for_provider_test(
         &credential,
         CredentialAuthMaterial::for_test(&credential, format!("sk-{label}-test")),
-        scheduler_epoch,
+        Arc::clone(&scheduler_epoch),
     );
     RouteCandidate {
         target_id: RouteTargetId::new(),
+        operation: any2api_domain::ProtocolOperation::Responses,
         endpoint_id: credential.provider_endpoint_id(),
+        endpoint_config_version: 1,
         credential_id: credential.id().into(),
+        routing_generation: binding.generation().routing_generation(),
         provider_kind: ProviderKind::Codex,
         base_url: ProviderBaseUrl::parse("https://api.example.com").expect("base URL"),
         upstream_model: format!("upstream-{tier}"),
         upstream_protocol_dialect: ProtocolDialect::OpenAiResponses,
         proxy_id: ProxyProfileId::DIRECT,
+        proxy_config_version: 1,
         endpoint_health: None,
         proxy_health: None,
+        egress_path_health: EndpointHealthRuntime::new(Arc::clone(&scheduler_epoch)),
+        candidate_path_health: EndpointHealthRuntime::new(scheduler_epoch),
         binding,
     }
 }

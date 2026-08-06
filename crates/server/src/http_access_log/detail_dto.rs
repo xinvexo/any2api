@@ -81,23 +81,26 @@ struct HttpBodyResponse {
 
 impl From<HttpBodyCapture> for HttpBodyResponse {
     fn from(value: HttpBodyCapture) -> Self {
-        let captured_bytes = value.content.len();
-        let (content, encoding) = encode_bytes(value.content);
+        let captured_bytes = value.captured_bytes();
+        let total_bytes = value.total_bytes();
+        let complete = value.is_complete();
+        let truncated = value.is_truncated();
+        let (content, encoding) = encode_bytes(value.into_content());
         Self {
             content,
             encoding,
             captured_bytes,
-            total_bytes: value.total_bytes,
-            complete: value.complete,
-            truncated: value.truncated,
+            total_bytes,
+            complete,
+            truncated,
         }
     }
 }
 
-fn encode_bytes(value: Vec<u8>) -> (String, &'static str) {
-    match String::from_utf8(value) {
-        Ok(value) => (value, "utf8"),
-        Err(error) => (STANDARD.encode(error.into_bytes()), "base64"),
+fn encode_bytes(value: impl AsRef<[u8]>) -> (String, &'static str) {
+    match std::str::from_utf8(value.as_ref()) {
+        Ok(value) => (value.to_owned(), "utf8"),
+        Err(_) => (STANDARD.encode(value.as_ref()), "base64"),
     }
 }
 
@@ -134,19 +137,14 @@ mod tests {
                         value: vec![0xff, 0x00],
                     },
                 ],
-                request_body: HttpBodyCapture {
-                    content: b"{\"prompt\":\"raw\"}".to_vec(),
-                    total_bytes: 16,
-                    complete: true,
-                    truncated: false,
-                },
+                request_body: HttpBodyCapture::from_vec(
+                    b"{\"prompt\":\"raw\"}".to_vec(),
+                    16,
+                    true,
+                    false,
+                ),
                 response_headers: Vec::new(),
-                response_body: HttpBodyCapture {
-                    content: b"ok".to_vec(),
-                    total_bytes: 2,
-                    complete: true,
-                    truncated: false,
-                },
+                response_body: HttpBodyCapture::from_vec(b"ok".to_vec(), 2, true, false),
             }),
         });
 

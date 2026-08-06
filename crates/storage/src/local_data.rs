@@ -57,6 +57,9 @@ enum PathKind {
 }
 
 fn protect(path: &Path, kind: PathKind, mode: u32) -> io::Result<()> {
+    #[cfg(not(unix))]
+    let _ = mode;
+
     let metadata = fs::symlink_metadata(path)?;
     let valid_kind = match kind {
         PathKind::Directory => metadata.file_type().is_dir(),

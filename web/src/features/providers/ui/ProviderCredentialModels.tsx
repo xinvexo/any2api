@@ -240,6 +240,8 @@ function describeFailureScope(scope: string | null) {
       return "上游地址";
     case "proxy":
       return "出口代理";
+    case "egress_path":
+      return "上游地址与出口代理组合";
     default:
       return "网络链路";
   }

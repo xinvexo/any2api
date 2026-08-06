@@ -3,7 +3,7 @@ mod routing;
 
 use std::sync::Arc;
 
-use any2api_domain::{UpstreamErrorClassification, UpstreamErrorKind};
+use any2api_domain::{UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution};
 
 use self::{
     authentication::AuthenticationHealthRuntime,
@@ -85,10 +85,21 @@ impl CredentialHealthRuntime {
         classification: UpstreamErrorClassification,
         policy: &ReliabilityPolicy,
     ) {
-        if classification.kind() == UpstreamErrorKind::Authentication {
-            self.authentication.record_authentication_failure();
-        } else {
-            self.routing.record(model, classification, policy);
+        match classification.attribution() {
+            UpstreamFailureAttribution::Authentication
+                if classification.kind() == UpstreamErrorKind::Authentication =>
+            {
+                self.authentication.record_authentication_failure();
+            }
+            UpstreamFailureAttribution::Credential
+            | UpstreamFailureAttribution::CredentialModel => {
+                self.routing.record(model, classification, policy);
+            }
+            UpstreamFailureAttribution::Unattributed
+            | UpstreamFailureAttribution::Authentication
+            | UpstreamFailureAttribution::RouteOperation
+            | UpstreamFailureAttribution::EgressPath
+            | UpstreamFailureAttribution::Endpoint => {}
         }
     }
 

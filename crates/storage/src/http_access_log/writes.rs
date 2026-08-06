@@ -7,12 +7,7 @@ pub(super) async fn insert(
     connection: &mut SqliteConnection,
     log: &HttpAccessLog,
 ) -> Result<(), StorageError> {
-    let empty_body = HttpBodyCapture {
-        content: Vec::new(),
-        total_bytes: 0,
-        complete: false,
-        truncated: false,
-    };
+    let empty_body = HttpBodyCapture::empty(false);
     let empty_headers: &[HttpHeader] = &[];
     let exchange = log.exchange.as_ref();
     let request_headers = serialize_headers(
@@ -26,9 +21,9 @@ pub(super) async fn insert(
     let exchange_bytes = if exchange.is_some() {
         [
             request_headers.len(),
-            request_body.content.len(),
+            request_body.captured_bytes(),
             response_headers.len(),
-            response_body.content.len(),
+            response_body.captured_bytes(),
         ]
         .into_iter()
         .try_fold(0_u64, |total, bytes| {
@@ -65,15 +60,15 @@ pub(super) async fn insert(
     .bind(bool_value(log.gateway_auth_rejected))
     .bind(bool_value(exchange.is_some()))
     .bind(request_headers)
-    .bind(&request_body.content)
-    .bind(to_i64(request_body.total_bytes)?)
-    .bind(bool_value(request_body.complete))
-    .bind(bool_value(request_body.truncated))
+    .bind(request_body.content())
+    .bind(to_i64(request_body.total_bytes())?)
+    .bind(bool_value(request_body.is_complete()))
+    .bind(bool_value(request_body.is_truncated()))
     .bind(response_headers)
-    .bind(&response_body.content)
-    .bind(to_i64(response_body.total_bytes)?)
-    .bind(bool_value(response_body.complete))
-    .bind(bool_value(response_body.truncated))
+    .bind(response_body.content())
+    .bind(to_i64(response_body.total_bytes())?)
+    .bind(bool_value(response_body.is_complete()))
+    .bind(bool_value(response_body.is_truncated()))
     .bind(to_i64(exchange_bytes)?)
     .execute(connection)
     .await?;

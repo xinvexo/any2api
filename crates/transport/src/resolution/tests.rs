@@ -121,7 +121,7 @@ async fn strict_https_connect_pins_ip_preserves_sni_host_and_proxy_auth() {
 }
 
 #[tokio::test]
-async fn strict_connect_attributes_endpoint_tls_failure_to_the_endpoint() {
+async fn strict_connect_attributes_endpoint_tls_failure_to_the_egress_path() {
     let identity = connect::TestTlsIdentity::generate();
     let origin_address = connect::spawn_tls_handshake_endpoint(identity.server_config).await;
     let (proxy_address, _connect_request) = connect::spawn_connect_proxy(origin_address).await;
@@ -143,7 +143,7 @@ async fn strict_connect_attributes_endpoint_tls_failure_to_the_endpoint() {
     };
 
     assert_eq!(error.stage, TransportErrorStage::Tls);
-    assert_eq!(error.failure_scope, TransportFailureScope::Endpoint);
+    assert_eq!(error.failure_scope, TransportFailureScope::EgressPath);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
 }
 

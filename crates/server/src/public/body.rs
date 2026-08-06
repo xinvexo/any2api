@@ -53,8 +53,11 @@ impl FromRequest<AppState> for PublicBody {
                 Err(ZstdDecodeError::Overloaded) => {
                     return Err(PublicApiError::overloaded().into_response_for(state, &uri));
                 }
-                Err(ZstdDecodeError::Invalid | ZstdDecodeError::TaskFailed) => {
+                Err(ZstdDecodeError::Invalid) => {
                     return Err(PublicApiError::unreadable_body().into_response_for(state, &uri));
+                }
+                Err(ZstdDecodeError::AllocationFailed | ZstdDecodeError::TaskFailed) => {
+                    return Err(PublicApiError::internal().into_response_for(state, &uri));
                 }
             },
             ContentEncoding::Identity => bytes,
@@ -75,6 +78,9 @@ fn body_collection_rejection(
         }
         BodyCollectionError::Unreadable => {
             PublicApiError::unreadable_body().into_response_for(state, uri)
+        }
+        BodyCollectionError::AllocationFailed => {
+            PublicApiError::internal().into_response_for(state, uri)
         }
     }
 }

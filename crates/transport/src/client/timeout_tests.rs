@@ -138,7 +138,7 @@ async fn stalled_http_connect_handshake_uses_the_absolute_connect_deadline() {
 
     assert!(started.elapsed() < Duration::from_secs(1));
     assert_eq!(error.stage, TransportErrorStage::ProxyHandshake);
-    assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
+    assert_eq!(error.failure_scope, TransportFailureScope::EgressPath);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
     assert!(
         connect_request
@@ -173,7 +173,7 @@ async fn stalled_strict_socks5_handshake_uses_the_absolute_connect_deadline() {
 
     assert!(started.elapsed() < Duration::from_secs(1));
     assert_eq!(error.stage, TransportErrorStage::ProxyHandshake);
-    assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
+    assert_eq!(error.failure_scope, TransportFailureScope::EgressPath);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
     tokio::time::timeout(Duration::from_secs(1), greeting)
         .await

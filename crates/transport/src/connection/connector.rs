@@ -63,7 +63,7 @@ impl PinnedConnector {
         let server_name = ServerName::try_from(origin.host.to_string()).map_err(|_| {
             TransportError::configuration(
                 TransportErrorStage::Tls,
-                TransportFailureScope::Endpoint,
+                TransportFailureScope::EgressPath,
                 "upstream TLS server name is invalid",
             )
         })?;
@@ -208,7 +208,7 @@ fn classify_connect_error(
     if error_chain_has_dns_failure(error) {
         return PinnedConnectError {
             stage: TransportErrorStage::Dns,
-            scope: TransportFailureScope::Endpoint,
+            scope: TransportFailureScope::EgressPath,
             rejected_before_execution: false,
         };
     }
@@ -220,13 +220,18 @@ fn classify_connect_error(
     if !proxy_failure {
         return PinnedConnectError {
             stage: TransportErrorStage::Tls,
-            scope: TransportFailureScope::Endpoint,
+            scope: TransportFailureScope::EgressPath,
             rejected_before_execution: false,
         };
     }
     PinnedConnectError {
         stage: TransportErrorStage::ProxyHandshake,
-        scope: TransportFailureScope::Proxy,
+        scope: match kind {
+            PinnedConnectorKind::HttpForward => TransportFailureScope::Proxy,
+            PinnedConnectorKind::HttpTunnel | PinnedConnectorKind::Socks => {
+                TransportFailureScope::EgressPath
+            }
+        },
         rejected_before_execution: false,
     }
 }
@@ -240,7 +245,7 @@ fn connect_timeout_error(kind: PinnedConnectorKind) -> PinnedConnectError {
         },
         PinnedConnectorKind::HttpTunnel | PinnedConnectorKind::Socks => PinnedConnectError {
             stage: TransportErrorStage::ProxyHandshake,
-            scope: TransportFailureScope::Unattributed,
+            scope: TransportFailureScope::EgressPath,
             rejected_before_execution: false,
         },
     }

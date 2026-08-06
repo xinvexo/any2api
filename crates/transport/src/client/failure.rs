@@ -25,7 +25,7 @@ pub(super) fn map_send_error(
         } else {
             TransportError::new(
                 TransportErrorStage::ProxyHandshake,
-                TransportFailureScope::Unattributed,
+                TransportFailureScope::EgressPath,
                 RetrySafety::DefinitelyNotSent,
                 "proxied connection failed",
             )
@@ -76,7 +76,7 @@ pub(super) fn failure_scope_for_unverified_path(profile: &ProxyProfile) -> Trans
     if profile.kind() == ProxyKind::Direct {
         TransportFailureScope::Endpoint
     } else {
-        TransportFailureScope::Unattributed
+        TransportFailureScope::EgressPath
     }
 }
 
@@ -101,7 +101,7 @@ pub(super) fn connect_timeout_error(
     } else {
         TransportError::new(
             TransportErrorStage::ProxyHandshake,
-            TransportFailureScope::Unattributed,
+            TransportFailureScope::EgressPath,
             RetrySafety::DefinitelyNotSent,
             "proxied connection timed out",
         )

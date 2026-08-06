@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 
-use bytes::{Bytes, BytesMut};
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
+use bytes::Bytes;
 use futures_util::{StreamExt, stream};
 use http::{HeaderMap, HeaderValue, header};
 use multer::{Field, Multipart};
@@ -20,6 +21,7 @@ pub(crate) async fn parse(
 ) -> Result<MultipartPayload, ProtocolError> {
     let boundary = multer::parse_boundary(content_type)
         .map_err(|_| ProtocolError::InvalidPayload("multipart boundary is invalid".into()))?;
+    let max_field_len = body.len();
     let stream = stream::once(async move { Ok::<Bytes, Infallible>(body) });
     let mut multipart = Multipart::new(stream, boundary);
     let mut parts = Vec::new();
@@ -38,7 +40,7 @@ pub(crate) async fn parse(
             .ok_or_else(|| ProtocolError::InvalidPayload("multipart field name is missing".into()))?
             .to_owned();
         let headers = safe_headers(field.headers())?;
-        let body = read_field_body(field).await?;
+        let body = read_field_body(field, max_field_len).await?;
 
         if name == "model" {
             if model_part_index.is_some() {
@@ -112,46 +114,51 @@ pub(crate) fn encode(
         ));
     }
 
-    let mut output = BytesMut::with_capacity(encoded_capacity(
+    let capacity = encoded_capacity(
         &payload.parts,
         &boundary,
         payload.model_part_index,
         upstream_model.len(),
-    )?);
+    )?;
+    let mut output =
+        PayloadBuffer::with_capacity_hint(Some(capacity), capacity).map_err(encode_buffer_error)?;
     for (index, part) in payload.parts.iter().enumerate() {
         if part.name.is_empty() {
             return Err(ProtocolError::InvalidPayload(
                 "multipart field name is missing".into(),
             ));
         }
-        output.extend_from_slice(b"--");
-        output.extend_from_slice(boundary.as_bytes());
-        output.extend_from_slice(b"\r\n");
+        write_output(&mut output, b"--")?;
+        write_output(&mut output, boundary.as_bytes())?;
+        write_output(&mut output, b"\r\n")?;
         for (name, value) in &part.headers {
-            output.extend_from_slice(name.as_str().as_bytes());
-            output.extend_from_slice(b": ");
-            output.extend_from_slice(value.as_bytes());
-            output.extend_from_slice(b"\r\n");
+            write_output(&mut output, name.as_str().as_bytes())?;
+            write_output(&mut output, b": ")?;
+            write_output(&mut output, value.as_bytes())?;
+            write_output(&mut output, b"\r\n")?;
         }
-        output.extend_from_slice(b"\r\n");
+        write_output(&mut output, b"\r\n")?;
         if index == payload.model_part_index {
-            output.extend_from_slice(upstream_model.as_bytes());
+            write_output(&mut output, upstream_model.as_bytes())?;
         } else {
-            output.extend_from_slice(&part.body);
+            write_output(&mut output, &part.body)?;
         }
-        output.extend_from_slice(b"\r\n");
+        write_output(&mut output, b"\r\n")?;
     }
-    output.extend_from_slice(b"--");
-    output.extend_from_slice(boundary.as_bytes());
-    output.extend_from_slice(b"--\r\n");
+    write_output(&mut output, b"--")?;
+    write_output(&mut output, boundary.as_bytes())?;
+    write_output(&mut output, b"--\r\n")?;
 
     let content_type = format!("multipart/form-data; boundary={boundary}");
     let content_type = HeaderValue::from_str(&content_type)
         .map_err(|_| ProtocolError::InvalidPayload("multipart boundary is invalid".into()))?;
-    Ok((output.freeze(), content_type))
+    Ok((output.freeze().into_bytes(), content_type))
 }
 
-async fn read_field_body(mut field: Field<'_>) -> Result<Bytes, ProtocolError> {
+async fn read_field_body(
+    mut field: Field<'_>,
+    max_field_len: usize,
+) -> Result<Bytes, ProtocolError> {
     // Ingress supplies one in-memory chunk, so retain Multer's field slice.
     // The coalescing path only handles a future multi-chunk caller.
     let Some(first) = field
@@ -171,18 +178,47 @@ async fn read_field_body(mut field: Field<'_>) -> Result<Bytes, ProtocolError> {
         return Ok(first);
     };
 
-    let mut output = BytesMut::with_capacity(first.len().saturating_add(second.len()));
-    output.extend_from_slice(&first);
-    output.extend_from_slice(&second);
+    let mut output = PayloadBuffer::with_capacity_hint(
+        Some(first.len().saturating_add(second.len())),
+        max_field_len,
+    )
+    .map_err(field_buffer_error)?;
+    output
+        .extend_from_slice(&first)
+        .map_err(field_buffer_error)?;
+    output
+        .extend_from_slice(&second)
+        .map_err(field_buffer_error)?;
     while let Some(chunk) = field
         .next()
         .await
         .transpose()
         .map_err(|_| ProtocolError::InvalidPayload("multipart field is malformed".into()))?
     {
-        output.extend_from_slice(&chunk);
+        output
+            .extend_from_slice(&chunk)
+            .map_err(field_buffer_error)?;
     }
-    Ok(output.freeze())
+    Ok(output.freeze().into_bytes())
+}
+
+fn write_output(output: &mut PayloadBuffer, bytes: &[u8]) -> Result<(), ProtocolError> {
+    output.extend_from_slice(bytes).map_err(encode_buffer_error)
+}
+
+fn encode_buffer_error(_error: PayloadBufferError) -> ProtocolError {
+    ProtocolError::Internal("multipart body buffering failed".into())
+}
+
+fn field_buffer_error(error: PayloadBufferError) -> ProtocolError {
+    match error {
+        PayloadBufferError::TooLarge => {
+            ProtocolError::InvalidPayload("multipart field exceeds request body size".into())
+        }
+        PayloadBufferError::AllocationFailed => {
+            ProtocolError::Internal("multipart field buffering failed".into())
+        }
+    }
 }
 
 fn encoded_capacity(

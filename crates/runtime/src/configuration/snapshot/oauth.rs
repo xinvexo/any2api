@@ -7,7 +7,7 @@ use any2api_domain::{
 use any2api_provider::api::OAuthTokenMaterial;
 
 use super::PublishedSnapshot;
-use crate::routing::{RoutingCredential, RoutingCredentials, oauth_route_id};
+use crate::routing::{RoutingCredential, RoutingCredentials, resolved_oauth_route_id};
 
 impl PublishedSnapshot {
     #[must_use]
@@ -103,12 +103,11 @@ pub(super) fn route_tiers(
         .flat_map(|credential| {
             credential.models().iter().filter_map(|model| {
                 let public_model = PublicModelName::new(model.as_str().to_owned()).ok()?;
-                let route_id = model_routes
-                    .resolve(credential.ingress_protocol(), &public_model)
-                    .map_or_else(
-                        || oauth_route_id(credential.ingress_protocol(), &public_model),
-                        any2api_domain::ModelRoute::id,
-                    );
+                let route_id = resolved_oauth_route_id(
+                    model_routes,
+                    credential.ingress_protocol(),
+                    &public_model,
+                );
                 Some((route_id, FallbackTier::default()))
             })
         })

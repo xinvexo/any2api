@@ -38,6 +38,7 @@ pub(crate) struct RoutingCredentialProjection {
     pub(super) ingress_protocol: ProtocolDialect,
     pub(super) upstream_protocol: ProtocolDialect,
     pub(super) proxy_id: ProxyProfileId,
+    pub(super) proxy_config_version: u64,
     pub(super) enabled: bool,
     pub(super) expires_at: Option<i64>,
     pub(super) endpoint_enabled: bool,
@@ -56,6 +57,7 @@ impl RoutingCredentialProjection {
             ingress_protocol: self.ingress_protocol,
             upstream_protocol: self.upstream_protocol,
             proxy_id: self.proxy_id,
+            proxy_config_version: self.proxy_config_version,
             enabled: self.enabled,
             expires_at: self.expires_at,
             endpoint_enabled: self.endpoint_enabled,
@@ -76,6 +78,7 @@ pub(crate) struct RoutingCredential {
     ingress_protocol: ProtocolDialect,
     upstream_protocol: ProtocolDialect,
     proxy_id: ProxyProfileId,
+    proxy_config_version: u64,
     enabled: bool,
     expires_at: Option<i64>,
     endpoint_enabled: bool,
@@ -108,6 +111,9 @@ impl RoutingCredential {
     }
     pub(crate) const fn proxy_id(&self) -> ProxyProfileId {
         self.proxy_id
+    }
+    pub(crate) const fn proxy_config_version(&self) -> u64 {
+        self.proxy_config_version
     }
     pub(crate) const fn enabled(&self) -> bool {
         self.enabled

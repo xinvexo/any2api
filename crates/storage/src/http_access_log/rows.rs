@@ -85,18 +85,18 @@ pub(super) fn parse_summary(
 pub(super) fn parse_detail(row: HttpAccessLogDetailRow) -> Result<HttpAccessLog, StorageError> {
     let request_headers = parse_headers(&row.request_headers)?;
     let response_headers = parse_headers(&row.response_headers)?;
-    let request_body = HttpBodyCapture {
-        content: row.request_body,
-        total_bytes: to_u64(row.request_body_bytes)?,
-        complete: parse_bool(row.request_body_complete)?,
-        truncated: parse_bool(row.request_body_truncated)?,
-    };
-    let response_body = HttpBodyCapture {
-        content: row.response_body,
-        total_bytes: to_u64(row.response_body_bytes)?,
-        complete: parse_bool(row.response_body_complete)?,
-        truncated: parse_bool(row.response_body_truncated)?,
-    };
+    let request_body = HttpBodyCapture::from_vec(
+        row.request_body,
+        to_u64(row.request_body_bytes)?,
+        parse_bool(row.request_body_complete)?,
+        parse_bool(row.request_body_truncated)?,
+    );
+    let response_body = HttpBodyCapture::from_vec(
+        row.response_body,
+        to_u64(row.response_body_bytes)?,
+        parse_bool(row.response_body_complete)?,
+        parse_bool(row.response_body_truncated)?,
+    );
     let summary = parse_summary(row.summary)?;
     let exchange = summary.exchange_captured.then_some(HttpAccessLogExchange {
         request_headers,

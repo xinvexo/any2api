@@ -110,8 +110,13 @@ impl PreparedPublishedSnapshot {
                 )
             })
             .collect::<Vec<_>>();
-        let health =
-            runtime.reconcile_health(&self.provider_endpoints, &oauth_endpoints, &self.proxies);
+        let health = runtime.reconcile_health(
+            &self.provider_endpoints,
+            &oauth_endpoints,
+            &self.proxies,
+            &self.model_routes,
+            &routing_credentials,
+        );
         PublishedSnapshot {
             revision: self.revision,
             proxies: self.proxies,

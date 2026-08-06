@@ -17,7 +17,7 @@ use crate::{
     routing::{
         BalancingRuntimeSnapshot, QueueCoordinator, RouteTierCursorBindings,
         RouteTierCursorRegistry, RoutingCredentialSpec, RoutingCredentials, SchedulerEpoch,
-        balancing_snapshot,
+        active_candidate_path_bases, balancing_snapshot,
     },
 };
 
@@ -29,7 +29,7 @@ pub struct RuntimeRegistry {
     credentials: RwLock<HashMap<RoutingCredentialId, Arc<CredentialRuntimeHandle>>>,
     route_tier_cursors: RouteTierCursorRegistry,
     queue_coordinator: Arc<QueueCoordinator>,
-    health: HealthRegistry,
+    health: Arc<HealthRegistry>,
     lifecycle: ProcessLifecycle,
 }
 
@@ -51,7 +51,7 @@ impl RuntimeRegistry {
             credentials: RwLock::new(HashMap::new()),
             route_tier_cursors: RouteTierCursorRegistry::default(),
             queue_coordinator: QueueCoordinator::new(Arc::clone(&scheduler_epoch)),
-            health: HealthRegistry::new(Arc::clone(&scheduler_epoch)),
+            health: Arc::new(HealthRegistry::new(Arc::clone(&scheduler_epoch))),
             lifecycle,
         }
     }
@@ -195,8 +195,17 @@ impl RuntimeRegistry {
         endpoints: &any2api_domain::ProviderEndpointConfiguration,
         runtime_endpoints: &[(any2api_domain::ProviderEndpointId, u64)],
         proxies: &any2api_domain::ProxyConfiguration,
+        model_routes: &any2api_domain::ModelRouteConfiguration,
+        credentials: &RoutingCredentials,
     ) -> HealthBindings {
-        self.health.reconcile(endpoints, runtime_endpoints, proxies)
+        let active_candidate_paths =
+            active_candidate_path_bases(model_routes, credentials, proxies);
+        self.health.reconcile(
+            endpoints,
+            runtime_endpoints,
+            proxies,
+            &active_candidate_paths,
+        )
     }
 
     pub(crate) fn queue_coordinator(&self) -> Arc<QueueCoordinator> {

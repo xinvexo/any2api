@@ -3,8 +3,8 @@ use any2api_domain::{ProtocolDialect, ProtocolOperation};
 use crate::{
     ProtocolError,
     api::{
-        AdapterEvent, DecodedRequest, DecodedUpstreamResponse, ProtocolBridge,
-        ProtocolBridgeSession, StartedProtocolBridge,
+        AdapterEvent, DecodedRequest, DecodedResponsePayload, DecodedUpstreamResponse,
+        ProtocolBridge, ProtocolBridgeSession, StartedProtocolBridge,
     },
     json_codec,
 };
@@ -74,8 +74,15 @@ impl ProtocolBridgeSession for ImagesToChatSession {
         &mut self,
         mut decoded: DecodedUpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError> {
-        decoded.parsed = response::convert(decoded.parsed, self.expected_choices)?;
-        decoded.body = None;
+        let DecodedResponsePayload::StructuredJson(parsed) = decoded.payload else {
+            return Err(ProtocolError::InvalidPayload(
+                "protocol bridge requires a structured response".into(),
+            ));
+        };
+        decoded.payload = DecodedResponsePayload::StructuredJson(response::convert(
+            parsed,
+            self.expected_choices,
+        )?);
         Ok(decoded)
     }
 

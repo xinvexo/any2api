@@ -21,6 +21,12 @@ impl RouteTierCursor {
     fn reserve(&self) -> u64 {
         self.next.fetch_add(1, Ordering::Relaxed)
     }
+
+    fn advance_by(&self, skipped: u64) {
+        if skipped > 0 {
+            self.next.fetch_add(skipped, Ordering::Relaxed);
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -31,6 +37,10 @@ pub(crate) struct RouteTierCursorBinding {
 impl RouteTierCursorBinding {
     pub(crate) fn reserve(&self) -> u64 {
         self.cursor.reserve()
+    }
+
+    pub(crate) fn advance_by(&self, skipped: u64) {
+        self.cursor.advance_by(skipped);
     }
 }
 

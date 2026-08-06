@@ -2,6 +2,7 @@ import type {
   RequestAttempt,
   RequestLogOutcome,
 } from "../api/request-log-contracts";
+import { attemptDiagnosticSummary } from "../model/attempt-diagnostics";
 import {
   formatDurationMs,
   isSuccessOutcome,
@@ -115,6 +116,7 @@ export function RequestLogExpandedPanel({
 function AttemptLine({ attempt }: { attempt: RequestAttempt }) {
   const source = upstreamSource(attempt);
   const failed = !isSuccessOutcome(attempt.outcome);
+  const diagnostic = attemptDiagnosticSummary(attempt);
   const upstreamIdentity = source.displayName;
   const proxyIdentity = proxyDisplayName(
     attempt.proxyProfileId,
@@ -159,6 +161,9 @@ function AttemptLine({ attempt }: { attempt: RequestAttempt }) {
           <span className="min-w-0 break-words text-danger [overflow-wrap:anywhere]">
             {attempt.errorMessage}
           </span>
+        ) : null}
+        {diagnostic ? (
+          <span className="min-w-0 break-words text-secondary">{diagnostic}</span>
         ) : null}
       </div>
     </li>

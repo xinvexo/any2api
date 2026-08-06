@@ -160,6 +160,7 @@ impl From<TransportErrorStage> for ProxyTestFailureStage {
 pub enum ProxyTestFailureScope {
     ProbeTarget,
     Proxy,
+    EgressPath,
     Unattributed,
 }
 
@@ -169,6 +170,7 @@ impl ProxyTestFailureScope {
         match self {
             Self::ProbeTarget => "probe_target",
             Self::Proxy => "proxy",
+            Self::EgressPath => "egress_path",
             Self::Unattributed => "unattributed",
         }
     }
@@ -179,6 +181,7 @@ impl From<TransportFailureScope> for ProxyTestFailureScope {
         match value {
             TransportFailureScope::Endpoint => Self::ProbeTarget,
             TransportFailureScope::Proxy => Self::Proxy,
+            TransportFailureScope::EgressPath => Self::EgressPath,
             TransportFailureScope::Unattributed => Self::Unattributed,
         }
     }

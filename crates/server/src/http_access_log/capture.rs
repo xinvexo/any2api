@@ -5,11 +5,13 @@ use std::{
 };
 
 use any2api_domain::{HttpBodyCapture, MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES};
+use any2api_payload_buffer::PayloadBuffer;
 use axum::body::{Body, Bytes, HttpBody};
 use http_body::{Frame, SizeHint};
 
 pub(super) struct BodyCapture {
-    content: Vec<u8>,
+    content: PayloadBuffer,
+    accepting_content: bool,
     total_bytes: u64,
     complete: bool,
     finished: bool,
@@ -18,7 +20,8 @@ pub(super) struct BodyCapture {
 impl BodyCapture {
     pub(super) const fn new(initially_complete: bool) -> Self {
         Self {
-            content: Vec::new(),
+            content: PayloadBuffer::new(MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES),
+            accepting_content: true,
             total_bytes: 0,
             complete: initially_complete,
             finished: initially_complete,
@@ -29,9 +32,17 @@ impl BodyCapture {
         self.total_bytes = self
             .total_bytes
             .saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+        if !self.accepting_content {
+            return;
+        }
         let remaining = MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES.saturating_sub(self.content.len());
-        self.content
-            .extend_from_slice(&bytes[..bytes.len().min(remaining)]);
+        if self
+            .content
+            .extend_from_slice(&bytes[..bytes.len().min(remaining)])
+            .is_err()
+        {
+            self.accepting_content = false;
+        }
     }
 
     pub(super) fn finish(&mut self, complete: bool) {
@@ -43,13 +54,20 @@ impl BodyCapture {
     }
 
     pub(super) fn take_snapshot(&mut self) -> HttpBodyCapture {
-        let content = std::mem::take(&mut self.content);
-        HttpBodyCapture {
-            truncated: self.total_bytes > u64::try_from(content.len()).unwrap_or(u64::MAX),
+        let content = std::mem::replace(
+            &mut self.content,
+            PayloadBuffer::new(MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES),
+        )
+        .freeze();
+        let captured_bytes = content.as_ref().len();
+        let (content, content_allocation_bytes) = content.into_parts();
+        HttpBodyCapture::from_owned_bytes(
             content,
-            total_bytes: self.total_bytes,
-            complete: self.complete,
-        }
+            content_allocation_bytes,
+            self.total_bytes,
+            self.complete,
+            self.total_bytes > u64::try_from(captured_bytes).unwrap_or(u64::MAX),
+        )
     }
 }
 
@@ -74,12 +92,7 @@ impl RequestBodyCaptureSlot {
             .lock()
             .expect("HTTP request body capture slot")
             .take()
-            .unwrap_or(HttpBodyCapture {
-                content: Vec::new(),
-                total_bytes: 0,
-                complete: false,
-                truncated: false,
-            })
+            .unwrap_or_else(|| HttpBodyCapture::empty(false))
     }
 }
 
@@ -168,20 +181,20 @@ mod tests {
         capture.observe(b"tail");
         capture.finish(true);
 
-        let captured_pointer = capture.content.as_ptr();
+        let captured_pointer = capture.content.as_slice().as_ptr();
         let snapshot = capture.take_snapshot();
-        assert_eq!(snapshot.content.as_ptr(), captured_pointer);
+        assert_eq!(snapshot.content().as_ptr(), captured_pointer);
         assert!(capture.content.is_empty());
         assert_eq!(
-            snapshot.content.len(),
+            snapshot.captured_bytes(),
             MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES
         );
         assert_eq!(
-            snapshot.total_bytes,
+            snapshot.total_bytes(),
             u64::try_from(MAX_HTTP_ACCESS_LOG_BODY_CAPTURE_BYTES + 4).expect("body size")
         );
-        assert!(snapshot.complete);
-        assert!(snapshot.truncated);
+        assert!(snapshot.is_complete());
+        assert!(snapshot.is_truncated());
     }
 
     #[tokio::test]
@@ -195,10 +208,10 @@ mod tests {
 
         assert_eq!(forwarded, "raw request");
         let snapshot = slot.take();
-        assert_eq!(snapshot.content, b"raw request");
-        assert_eq!(snapshot.total_bytes, 11);
-        assert!(snapshot.complete);
-        assert!(!snapshot.truncated);
+        assert_eq!(snapshot.content(), b"raw request");
+        assert_eq!(snapshot.total_bytes(), 11);
+        assert!(snapshot.is_complete());
+        assert!(!snapshot.is_truncated());
     }
 
     #[test]
@@ -210,19 +223,19 @@ mod tests {
         ));
 
         let snapshot = slot.take();
-        assert!(snapshot.content.is_empty());
-        assert!(!snapshot.complete);
-        assert!(!snapshot.truncated);
+        assert!(snapshot.content().is_empty());
+        assert!(!snapshot.is_complete());
+        assert!(!snapshot.is_truncated());
     }
 
     #[test]
     fn unpublished_slot_yields_an_incomplete_empty_capture() {
         let slot = RequestBodyCaptureSlot::new();
         let snapshot = slot.take();
-        assert!(snapshot.content.is_empty());
-        assert_eq!(snapshot.total_bytes, 0);
-        assert!(!snapshot.complete);
-        assert!(!snapshot.truncated);
+        assert!(snapshot.content().is_empty());
+        assert_eq!(snapshot.total_bytes(), 0);
+        assert!(!snapshot.is_complete());
+        assert!(!snapshot.is_truncated());
     }
 
     #[test]
@@ -230,8 +243,22 @@ mod tests {
         let slot = RequestBodyCaptureSlot::new();
         let _body = RequestCaptureBody::new(Body::empty(), slot.clone());
         let snapshot = slot.take();
-        assert!(snapshot.content.is_empty());
-        assert!(snapshot.complete);
-        assert!(!snapshot.truncated);
+        assert!(snapshot.content().is_empty());
+        assert!(snapshot.is_complete());
+        assert!(!snapshot.is_truncated());
+    }
+
+    #[test]
+    fn capture_allocation_failure_is_fail_open_and_marks_the_snapshot_truncated() {
+        let mut capture = BodyCapture::new(false);
+        capture.content = PayloadBuffer::new(0);
+        capture.observe(b"still forwarded");
+        capture.finish(true);
+
+        let snapshot = capture.take_snapshot();
+        assert!(snapshot.content().is_empty());
+        assert_eq!(snapshot.total_bytes(), 15);
+        assert!(snapshot.is_complete());
+        assert!(snapshot.is_truncated());
     }
 }

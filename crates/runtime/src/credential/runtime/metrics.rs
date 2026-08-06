@@ -7,6 +7,8 @@ pub struct CredentialBalancingCounters {
     filtered_credential_health: u64,
     filtered_endpoint_health: u64,
     filtered_proxy_health: u64,
+    filtered_egress_path_health: u64,
+    filtered_candidate_health: u64,
 }
 
 impl CredentialBalancingCounters {
@@ -29,6 +31,14 @@ impl CredentialBalancingCounters {
     pub const fn filtered_proxy_health(self) -> u64 {
         self.filtered_proxy_health
     }
+
+    pub const fn filtered_egress_path_health(self) -> u64 {
+        self.filtered_egress_path_health
+    }
+
+    pub const fn filtered_candidate_health(self) -> u64 {
+        self.filtered_candidate_health
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -37,6 +47,8 @@ pub(crate) enum CredentialFilterKind {
     CredentialHealth,
     EndpointHealth,
     ProxyHealth,
+    EgressPathHealth,
+    CandidateHealth,
 }
 
 #[derive(Debug, Default)]
@@ -46,6 +58,8 @@ pub(super) struct CredentialBalancingMetrics {
     filtered_credential_health: AtomicU64,
     filtered_endpoint_health: AtomicU64,
     filtered_proxy_health: AtomicU64,
+    filtered_egress_path_health: AtomicU64,
+    filtered_candidate_health: AtomicU64,
 }
 
 impl CredentialBalancingMetrics {
@@ -59,6 +73,8 @@ impl CredentialBalancingMetrics {
             CredentialFilterKind::CredentialHealth => &self.filtered_credential_health,
             CredentialFilterKind::EndpointHealth => &self.filtered_endpoint_health,
             CredentialFilterKind::ProxyHealth => &self.filtered_proxy_health,
+            CredentialFilterKind::EgressPathHealth => &self.filtered_egress_path_health,
+            CredentialFilterKind::CandidateHealth => &self.filtered_candidate_health,
         };
         counter.fetch_add(1, Ordering::Relaxed);
     }
@@ -70,6 +86,8 @@ impl CredentialBalancingMetrics {
             filtered_credential_health: self.filtered_credential_health.load(Ordering::Relaxed),
             filtered_endpoint_health: self.filtered_endpoint_health.load(Ordering::Relaxed),
             filtered_proxy_health: self.filtered_proxy_health.load(Ordering::Relaxed),
+            filtered_egress_path_health: self.filtered_egress_path_health.load(Ordering::Relaxed),
+            filtered_candidate_health: self.filtered_candidate_health.load(Ordering::Relaxed),
         }
     }
 }

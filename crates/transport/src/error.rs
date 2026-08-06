@@ -22,6 +22,7 @@ pub enum TransportErrorStage {
 pub enum TransportFailureScope {
     Endpoint,
     Proxy,
+    EgressPath,
     Unattributed,
 }
 

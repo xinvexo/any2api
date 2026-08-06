@@ -4,9 +4,10 @@ use std::sync::{
 };
 
 use any2api_domain::{
-    CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogOutcome, HttpAccessLogSummary,
-    HttpProtocolVersion, LogPage, LogPageCursor, ProtocolDialect, ProtocolOperation, RequestId,
-    RequestLog, SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
+    CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogExchange,
+    HttpAccessLogOutcome, HttpAccessLogSummary, HttpBodyCapture, HttpProtocolVersion, LogPage,
+    LogPageCursor, ProtocolDialect, ProtocolOperation, RequestId, RequestLog, SettingKey,
+    SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
@@ -38,13 +39,13 @@ pub(super) struct BlockingRepository {
 impl HttpAccessLogRepository for BlockingRepository {
     async fn append_http_access_logs(
         &self,
-        records: &[HttpAccessLog],
+        records: Vec<HttpAccessLog>,
         _capacity: HttpAccessLogCapacity,
     ) -> Result<u64, StorageError> {
         self.access_logs
             .lock()
             .expect("HTTP access logs")
-            .extend_from_slice(records);
+            .extend(records);
         Ok(self.access_append_deletions.swap(0, Ordering::AcqRel) as u64)
     }
 
@@ -88,7 +89,7 @@ impl HttpAccessLogRepository for BlockingRepository {
             .expect("HTTP access logs")
             .iter()
             .find(|log| log.request_id == request_id)
-            .cloned())
+            .map(duplicate_access_log))
     }
 
     async fn clear_http_access_logs(&self) -> Result<u64, StorageError> {
@@ -97,6 +98,39 @@ impl HttpAccessLogRepository for BlockingRepository {
         logs.clear();
         Ok(count)
     }
+}
+
+fn duplicate_access_log(log: &HttpAccessLog) -> HttpAccessLog {
+    HttpAccessLog {
+        request_id: log.request_id,
+        started_at_ms: log.started_at_ms,
+        config_revision: log.config_revision,
+        client_ip: log.client_ip,
+        method: log.method.clone(),
+        path: log.path.clone(),
+        uri: log.uri.clone(),
+        http_version: log.http_version,
+        status_code: log.status_code,
+        duration_ms: log.duration_ms,
+        response_bytes: log.response_bytes,
+        outcome: log.outcome,
+        gateway_auth_rejected: log.gateway_auth_rejected,
+        exchange: log.exchange.as_ref().map(|exchange| HttpAccessLogExchange {
+            request_headers: exchange.request_headers.clone(),
+            request_body: duplicate_body_capture(&exchange.request_body),
+            response_headers: exchange.response_headers.clone(),
+            response_body: duplicate_body_capture(&exchange.response_body),
+        }),
+    }
+}
+
+fn duplicate_body_capture(capture: &HttpBodyCapture) -> HttpBodyCapture {
+    HttpBodyCapture::from_vec(
+        capture.content().to_vec(),
+        capture.total_bytes(),
+        capture.is_complete(),
+        capture.is_truncated(),
+    )
 }
 
 #[async_trait]

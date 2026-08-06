@@ -17,7 +17,7 @@ use super::{PreparedPublishedSnapshot, SnapshotCompileError};
 use crate::{
     affinity::{AffinityPolicy, AffinityRegistry},
     credential::CredentialRuntimeBinding,
-    health::{HealthBindings, ReliabilityPolicy},
+    health::{CandidatePathKey, EgressPathKey, HealthBindings, ReliabilityPolicy},
     proxy::ProxyAuthMaterials,
     registry::RuntimeRegistry,
     routing::{
@@ -211,6 +211,20 @@ impl PublishedSnapshot {
         id: any2api_domain::ProxyProfileId,
     ) -> Option<&Arc<crate::health::ProxyHealthRuntime>> {
         self.health.proxy(id)
+    }
+
+    pub(crate) fn egress_path_health(
+        &self,
+        key: EgressPathKey,
+    ) -> Arc<crate::health::EndpointHealthRuntime> {
+        self.health.egress_path(key)
+    }
+
+    pub(crate) fn candidate_path_health(
+        &self,
+        key: CandidatePathKey,
+    ) -> Arc<crate::health::EndpointHealthRuntime> {
+        self.health.candidate_path(key)
     }
 
     #[must_use]

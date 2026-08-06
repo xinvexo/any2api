@@ -12,6 +12,22 @@ export type RequestLogOperation =
   | "messages"
   | "messages_count_tokens";
 export type RequestLogOutcome = "success" | "failed" | "cancelled";
+export type RequestRoutingMode = "balanced" | "bound";
+export type RequestAttemptFailureScope =
+  | "unattributed"
+  | "authentication"
+  | "credential"
+  | "credential_model"
+  | "route_operation"
+  | "exact_candidate"
+  | "egress_path"
+  | "proxy"
+  | "endpoint";
+export type RequestAttemptRetryDecision =
+  | "terminal"
+  | "oauth_refresh"
+  | "retry_same_path"
+  | "reselect";
 
 export interface RequestLog {
   requestId: string;
@@ -52,6 +68,9 @@ export interface RequestAttempt {
   oauthAccountLabel: string | null;
   proxyProfileId: string | null;
   proxyProfileLabel: string | null;
+  routingMode: RequestRoutingMode | null;
+  failureScope: RequestAttemptFailureScope | null;
+  retryDecision: RequestAttemptRetryDecision | null;
   startedAtMs: number;
   durationMs: number;
   errorMessage: string | null;
@@ -173,12 +192,60 @@ function parseAttempt(value: unknown): RequestAttempt {
     oauthAccountLabel: readOptionalNullableString(record.oauth_account_label),
     proxyProfileId: readNullableString(record.proxy_profile_id),
     proxyProfileLabel: readOptionalNullableString(record.proxy_profile_label),
+    routingMode: readNullableRoutingMode(record.routing_mode),
+    failureScope: readNullableFailureScope(record.failure_scope),
+    retryDecision: readNullableRetryDecision(record.retry_decision),
     startedAtMs: readNonNegativeInteger(record.started_at_ms),
     durationMs: readNonNegativeInteger(record.duration_ms),
     errorMessage: readOptionalNullableString(record.error_message),
     statusCode,
     outcome,
   };
+}
+
+function readNullableRoutingMode(value: unknown): RequestRoutingMode | null {
+  if (value === null) {
+    return null;
+  }
+  if (value === "balanced" || value === "bound") {
+    return value;
+  }
+  throw invalidResponse();
+}
+
+function readNullableFailureScope(value: unknown): RequestAttemptFailureScope | null {
+  if (
+    value === "unattributed" ||
+    value === "authentication" ||
+    value === "credential" ||
+    value === "credential_model" ||
+    value === "route_operation" ||
+    value === "exact_candidate" ||
+    value === "egress_path" ||
+    value === "proxy" ||
+    value === "endpoint"
+  ) {
+    return value;
+  }
+  if (value === null) {
+    return null;
+  }
+  throw invalidResponse();
+}
+
+function readNullableRetryDecision(value: unknown): RequestAttemptRetryDecision | null {
+  if (
+    value === "terminal" ||
+    value === "oauth_refresh" ||
+    value === "retry_same_path" ||
+    value === "reselect"
+  ) {
+    return value;
+  }
+  if (value === null) {
+    return null;
+  }
+  throw invalidResponse();
 }
 
 function readOutcome(value: unknown): RequestLogOutcome {

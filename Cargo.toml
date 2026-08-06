@@ -2,6 +2,8 @@
 resolver = "3"
 members = [
     "crates/domain",
+    "crates/payload-buffer",
+    "crates/memory-reclaimer",
     "crates/protocol",
     "crates/provider",
     "crates/transport",
@@ -43,6 +45,7 @@ hyper = { version = "1.10.1", features = ["client", "http1", "http2"] }
 hyper-rustls = { version = "0.27.9", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12"] }
 hyper-util = { version = "0.1.20", features = ["client-legacy", "client-proxy", "http1", "http2", "tokio"] }
 ipnet = "2.11.0"
+memmap2 = "0.9.11"
 multer = "3.1.0"
 proptest = { version = "1.8.0", default-features = false, features = ["std"] }
 rcgen = { version = "0.13.2", default-features = false, features = ["ring"] }
@@ -76,6 +79,7 @@ tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt", "json"] }
 url = "2.5.8"
 uuid = { version = "1.24.0", features = ["serde", "v4", "v5"] }
+windows-sys = "0.61.2"
 zstd = "0.13.3"
 
 [profile.release]

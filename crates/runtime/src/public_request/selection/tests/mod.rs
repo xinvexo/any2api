@@ -1,3 +1,4 @@
+mod fairness;
 mod queue;
 mod selection;
 

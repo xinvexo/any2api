@@ -2,6 +2,7 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import type { RequestAttempt, RequestLogProtocol } from "../api/request-log-contracts";
+import { attemptDiagnosticSummary } from "../model/attempt-diagnostics";
 import { getRequestLogErrorMessage, isRequestLogNotFound } from "../model/request-log-error";
 import {
   formatTps,
@@ -162,6 +163,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
 
 function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
   const success = isSuccessOutcome(attempt.outcome);
+  const diagnostic = attemptDiagnosticSummary(attempt);
   const result =
     attempt.outcome === "cancelled"
       ? "已取消"
@@ -182,6 +184,9 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
         <p className="mt-1 break-all text-xs text-tertiary">
           {attempt.oauthAccountId ? "OAuth Account" : "Credential"} {shortId(attempt.oauthAccountId ?? attempt.credentialId)} · {proxyDisplayName(attempt.proxyProfileId, attempt.proxyProfileLabel)}
         </p>
+        {diagnostic ? (
+          <p className="mt-1 break-words text-xs text-secondary">{diagnostic}</p>
+        ) : null}
         {attempt.errorMessage ? (
           <p className="mt-1 break-all text-xs text-danger [overflow-wrap:anywhere]">
             {attempt.errorMessage}

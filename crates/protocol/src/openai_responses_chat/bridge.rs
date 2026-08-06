@@ -7,9 +7,10 @@ use uuid::Uuid;
 use crate::{
     ProtocolError,
     api::{
-        AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse,
-        MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolBridge, ProtocolBridgeSession,
-        ProtocolContinuationState, ResumableProtocolContinuation, StartedProtocolBridge,
+        AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedResponsePayload,
+        DecodedUpstreamResponse, MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolBridge,
+        ProtocolBridgeSession, ProtocolContinuationState, ResumableProtocolContinuation,
+        StartedProtocolBridge,
     },
     json_codec,
 };
@@ -96,10 +97,14 @@ impl ProtocolBridgeSession for ResponsesToChatSession {
         &mut self,
         mut decoded: DecodedUpstreamResponse,
     ) -> Result<DecodedUpstreamResponse, ProtocolError> {
-        let converted = response::convert(decoded.parsed, &self.response_id)?;
+        let DecodedResponsePayload::StructuredJson(parsed) = decoded.payload else {
+            return Err(ProtocolError::InvalidPayload(
+                "protocol bridge requires a structured response".into(),
+            ));
+        };
+        let converted = response::convert(parsed, &self.response_id)?;
         self.complete(converted.assistant_message)?;
-        decoded.parsed = converted.body;
-        decoded.body = None;
+        decoded.payload = DecodedResponsePayload::StructuredJson(converted.body);
         Ok(decoded)
     }
 

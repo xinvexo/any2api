@@ -150,7 +150,7 @@ impl PinnedClient {
             result.map_err(|_| {
                 TransportError::new(
                     TransportErrorStage::ReadBody,
-                    TransportFailureScope::Unattributed,
+                    TransportFailureScope::EgressPath,
                     RetrySafety::Ambiguous,
                     "upstream response body read failed",
                 )
@@ -159,8 +159,8 @@ impl PinnedClient {
         Ok(TransportResponse {
             status,
             headers,
-            body: timeout_body(body, read_timeout, TransportFailureScope::Unattributed),
-            read_failure_scope: TransportFailureScope::Unattributed,
+            body: timeout_body(body, read_timeout, TransportFailureScope::EgressPath),
+            read_failure_scope: TransportFailureScope::EgressPath,
         })
     }
 
@@ -181,7 +181,7 @@ impl PinnedClient {
         .map_err(|error| {
             TransportError::new(
                 TransportErrorStage::Dns,
-                TransportFailureScope::Endpoint,
+                TransportFailureScope::EgressPath,
                 RetrySafety::DefinitelyNotSent,
                 error.to_string(),
             )
@@ -248,7 +248,8 @@ fn map_send_error(error: hyper_util::client::legacy::Error) -> TransportError {
             },
             match connect.scope {
                 TransportFailureScope::Endpoint => "pinned upstream connection failed",
-                TransportFailureScope::Proxy | TransportFailureScope::Unattributed => {
+                TransportFailureScope::Proxy => "configured proxy connection failed",
+                TransportFailureScope::EgressPath | TransportFailureScope::Unattributed => {
                     "configured proxy connection failed"
                 }
             },
@@ -257,14 +258,14 @@ fn map_send_error(error: hyper_util::client::legacy::Error) -> TransportError {
     if error.is_connect() {
         return TransportError::new(
             TransportErrorStage::ProxyHandshake,
-            TransportFailureScope::Unattributed,
+            TransportFailureScope::EgressPath,
             RetrySafety::DefinitelyNotSent,
             "pinned proxy connection failed",
         );
     }
     TransportError::new(
         TransportErrorStage::AwaitHeaders,
-        TransportFailureScope::Unattributed,
+        TransportFailureScope::EgressPath,
         RetrySafety::Ambiguous,
         "upstream request failed before response headers",
     )
@@ -273,7 +274,7 @@ fn map_send_error(error: hyper_util::client::legacy::Error) -> TransportError {
 fn await_headers_timeout() -> TransportError {
     TransportError::new(
         TransportErrorStage::AwaitHeaders,
-        TransportFailureScope::Unattributed,
+        TransportFailureScope::EgressPath,
         RetrySafety::Ambiguous,
         "upstream response headers timed out",
     )

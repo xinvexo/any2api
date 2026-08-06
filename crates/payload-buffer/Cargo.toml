@@ -1,0 +1,14 @@
+[package]
+name = "any2api-payload-buffer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytes.workspace = true
+memmap2.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

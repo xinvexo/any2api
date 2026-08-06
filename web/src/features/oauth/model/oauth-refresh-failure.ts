@@ -54,6 +54,7 @@ const reasonLabels: Record<string, string> = {
 const scopeLabels: Record<string, string> = {
   endpoint: "上游端点",
   proxy: "代理",
+  egress_path: "上游端点 × 出口路径",
   unattributed: "网络路径未归因",
 };
 

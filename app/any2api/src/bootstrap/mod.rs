@@ -3,6 +3,7 @@ mod application;
 mod environment;
 mod instance_lock;
 mod listener;
+mod memory_reclamation;
 mod process;
 mod public_request_components;
 mod web_assets;

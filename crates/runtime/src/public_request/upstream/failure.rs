@@ -2,7 +2,7 @@ use any2api_domain::{
     OAuthAccountId, PublicError, RetrySafety, UpstreamError, UpstreamErrorClassification,
     UpstreamErrorKind,
 };
-use any2api_transport::api::{TransportError, TransportFailureScope};
+use any2api_transport::api::TransportError;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 
@@ -120,15 +120,6 @@ impl AttemptFailure {
             | Self::Upstream { bound, .. }
             | Self::StreamRejected { bound, .. } => *bound,
             Self::Public(_) => true,
-        }
-    }
-
-    pub(in crate::public_request) fn transport_failure_scope(
-        &self,
-    ) -> Option<TransportFailureScope> {
-        match self {
-            Self::Transport { error, .. } => Some(error.failure_scope),
-            Self::Upstream { .. } | Self::StreamRejected { .. } | Self::Public(_) => None,
         }
     }
 

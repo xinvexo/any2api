@@ -22,25 +22,36 @@ async fn stores_exact_paths_prunes_and_clears_history() {
         .expect("SQLite store");
     let first = record(100, "/api/admin/provider-credentials/actual-id");
     let second = record(200, "/assets/app%20name.js");
+    let first_summary = first.summary();
+    let second_summary = second.summary();
+    let second_id = second.request_id;
 
     store
-        .append_http_access_logs(&[first.clone(), second.clone()], GENEROUS_CAPACITY)
+        .append_http_access_logs(vec![first, second], GENEROUS_CAPACITY)
         .await
         .expect("append access logs");
     let page = store
         .list_http_access_logs(0, None, 10)
         .await
         .expect("list access logs");
-    assert_eq!(page.items, vec![second.summary(), first.summary()]);
+    assert_eq!(page.items, vec![second_summary.clone(), first_summary]);
     assert_eq!(page.total, 2);
     assert!(page.cursor.is_some());
     assert!(page.next_cursor.is_none());
+    let detail = store
+        .get_http_access_log(second_id)
+        .await
+        .expect("access log detail")
+        .expect("stored detail");
+    assert_eq!(detail.summary(), second_summary);
     assert_eq!(
-        store
-            .get_http_access_log(second.request_id)
-            .await
-            .expect("access log detail"),
-        Some(second.clone())
+        detail
+            .exchange
+            .as_ref()
+            .expect("captured exchange")
+            .request_body
+            .content(),
+        b"request body"
     );
 
     assert_eq!(
@@ -85,14 +96,16 @@ async fn access_log_pages_hide_local_success_noise_and_keep_auditable_traffic() 
     local_error.client_ip = Some("::1".parse().expect("loopback"));
     local_error.status_code = Some(500);
     let external = record(500, "/api/admin/settings");
+    let mapped_local_id = mapped_local_noise.request_id;
+    let local_error_summary = local_error.summary();
     store
         .append_http_access_logs(
-            &[
+            vec![
                 local_noise,
                 local_proxy,
                 local_uppercase_noise,
-                mapped_local_noise.clone(),
-                local_error.clone(),
+                mapped_local_noise,
+                local_error,
                 external,
             ],
             GENEROUS_CAPACITY,
@@ -101,7 +114,7 @@ async fn access_log_pages_hide_local_success_noise_and_keep_auditable_traffic() 
         .expect("append access logs");
     let stored_mapped_ip: String =
         sqlx::query_scalar("SELECT client_ip FROM http_access_logs WHERE request_id = ?")
-            .bind(mapped_local_noise.request_id.to_string())
+            .bind(mapped_local_id.to_string())
             .fetch_one(store.pool())
             .await
             .expect("stored mapped client IP");
@@ -113,7 +126,7 @@ async fn access_log_pages_hide_local_success_noise_and_keep_auditable_traffic() 
         .expect("first page");
     assert_eq!(first_page.total, 3);
     assert_eq!(first_page.items.len(), 2);
-    assert_eq!(first_page.items[1], local_error.summary());
+    assert_eq!(first_page.items[1], local_error_summary);
 
     let second_page = store
         .list_http_access_logs(250, first_page.next_cursor, 2)
@@ -135,15 +148,14 @@ async fn access_log_cursor_is_stable_across_inserts_and_tail_deletion() {
     let middle = record(300, "/v1/middle");
     let fourth = record(400, "/v1/fourth");
     let newest = record(500, "/v1/newest");
+    let oldest_id = oldest.request_id;
+    let older_id = older.request_id;
+    let middle_id = middle.request_id;
+    let fourth_id = fourth.request_id;
+    let newest_id = newest.request_id;
     store
         .append_http_access_logs(
-            &[
-                oldest.clone(),
-                older.clone(),
-                middle.clone(),
-                fourth.clone(),
-                newest.clone(),
-            ],
+            vec![oldest, older, middle, fourth, newest],
             GENEROUS_CAPACITY,
         )
         .await
@@ -159,13 +171,15 @@ async fn access_log_cursor_is_stable_across_inserts_and_tail_deletion() {
             .iter()
             .map(|item| item.request_id)
             .collect::<Vec<_>>(),
-        [newest.request_id, fourth.request_id]
+        [newest_id, fourth_id]
     );
 
     let head = record(600, "/v1/head");
     let late = record(350, "/v1/late");
+    let head_id = head.request_id;
+    let late_id = late.request_id;
     store
-        .append_http_access_logs(&[head.clone(), late.clone()], GENEROUS_CAPACITY)
+        .append_http_access_logs(vec![head, late], GENEROUS_CAPACITY)
         .await
         .expect("append concurrent logs");
 
@@ -180,10 +194,10 @@ async fn access_log_cursor_is_stable_across_inserts_and_tail_deletion() {
             .iter()
             .map(|item| item.request_id)
             .collect::<Vec<_>>(),
-        [late.request_id, middle.request_id]
+        [late_id, middle_id]
     );
     sqlx::query("DELETE FROM http_access_logs WHERE request_id = ?")
-        .bind(oldest.request_id.to_string())
+        .bind(oldest_id.to_string())
         .execute(store.pool())
         .await
         .expect("delete oldest row between pages");
@@ -191,14 +205,14 @@ async fn access_log_cursor_is_stable_across_inserts_and_tail_deletion() {
         .list_http_access_logs(0, second_page.next_cursor, 2)
         .await
         .expect("third page");
-    assert_eq!(third_page.items[0].request_id, older.request_id);
+    assert_eq!(third_page.items[0].request_id, older_id);
     assert_eq!(third_page.total, 5);
     assert!(third_page.next_cursor.is_none());
     assert!(
         [first_page.items, second_page.items, third_page.items]
             .into_iter()
             .flatten()
-            .all(|item| item.request_id != head.request_id)
+            .all(|item| item.request_id != head_id)
     );
 }
 
@@ -210,7 +224,7 @@ async fn incremental_vacuum_reclaims_pages_after_clear_on_new_databases() {
         .expect("SQLite store");
     let large = capacity::sized_record(100, 512 * 1024);
     store
-        .append_http_access_logs(std::slice::from_ref(&large), GENEROUS_CAPACITY)
+        .append_http_access_logs(vec![large], GENEROUS_CAPACITY)
         .await
         .expect("large access log");
     store
@@ -271,24 +285,19 @@ fn record(started_at_ms: u64, path: &str) -> HttpAccessLog {
                 name: "x-raw".to_owned(),
                 value: vec![0xff, 0x00, b'a'],
             }],
-            request_body: HttpBodyCapture {
-                content: b"request body".to_vec(),
-                total_bytes: 12,
-                complete: true,
-                truncated: false,
-            },
+            request_body: HttpBodyCapture::from_vec(b"request body".to_vec(), 12, true, false),
             response_headers: vec![HttpHeader {
                 name: "set-cookie".to_owned(),
                 value: b"session=raw".to_vec(),
             }],
-            response_body: HttpBodyCapture {
-                content: b"response body prefix".to_vec(),
+            response_body: HttpBodyCapture::from_vec(
+                b"response body prefix".to_vec(),
                 // Deliberately differs from the summary response_bytes so the
                 // detail round trip proves the dedicated column is used.
-                total_bytes: 77,
-                complete: true,
-                truncated: true,
-            },
+                77,
+                true,
+                true,
+            ),
         }),
     }
 }

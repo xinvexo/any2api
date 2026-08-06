@@ -3,7 +3,8 @@ use std::str::FromStr;
 use any2api_domain::{
     ConfigRevision, ErrorClass, LogPagePosition, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
     MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, ProtocolDialect, ProtocolOperation, RequestAttempt,
-    RequestAttemptOutcome, RequestLog, RetrySafety,
+    RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision, RequestLog,
+    RequestRoutingMode, RetrySafety,
 };
 use sqlx::FromRow;
 
@@ -53,9 +54,12 @@ pub(super) struct RequestAttemptRow {
     credential_id: Option<String>,
     oauth_account_id: Option<String>,
     proxy_profile_id: Option<String>,
+    routing_mode: Option<String>,
     started_at_ms: i64,
     duration_ms: i64,
     retry_safety: Option<String>,
+    failure_scope: Option<String>,
+    retry_decision: Option<String>,
     error_class: Option<String>,
     error_message: Option<String>,
     status_code: Option<i64>,
@@ -107,9 +111,18 @@ pub(super) fn parse_request_attempt(
         credential_id: parse_optional_id(row.credential_id)?,
         oauth_account_id: parse_optional_id(row.oauth_account_id)?,
         proxy_profile_id: parse_optional_id(row.proxy_profile_id)?,
+        routing_mode: parse_optional_value(row.routing_mode.as_deref(), RequestRoutingMode::parse)?,
         started_at_ms: from_i64(row.started_at_ms)?,
         duration_ms: from_i64(row.duration_ms)?,
         retry_safety: parse_optional_value(row.retry_safety.as_deref(), RetrySafety::parse)?,
+        failure_scope: parse_optional_value(
+            row.failure_scope.as_deref(),
+            RequestAttemptFailureScope::parse,
+        )?,
+        retry_decision: parse_optional_value(
+            row.retry_decision.as_deref(),
+            RequestAttemptRetryDecision::parse,
+        )?,
         error_class: parse_optional_value(row.error_class.as_deref(), ErrorClass::parse)?,
         error_message: parse_error_message(row.error_message)?,
         status_code: row

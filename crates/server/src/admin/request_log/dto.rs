@@ -1,5 +1,6 @@
 use any2api_domain::{
-    CompletedRequestLog, ErrorClass, LogPage, RequestAttempt, RequestAttemptOutcome, RequestLog,
+    CompletedRequestLog, ErrorClass, LogPage, RequestAttempt, RequestAttemptFailureScope,
+    RequestAttemptOutcome, RequestAttemptRetryDecision, RequestLog, RequestRoutingMode,
 };
 use any2api_runtime::api::{PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
@@ -206,6 +207,9 @@ struct RequestAttemptResponse {
     oauth_account_label: Option<String>,
     proxy_profile_id: Option<String>,
     proxy_profile_label: Option<String>,
+    routing_mode: Option<&'static str>,
+    failure_scope: Option<&'static str>,
+    retry_decision: Option<&'static str>,
     started_at_ms: u64,
     duration_ms: u64,
     error_message: Option<String>,
@@ -243,6 +247,11 @@ impl RequestAttemptResponse {
             oauth_account_label,
             proxy_profile_id: value.proxy_profile_id.map(|id| id.to_string()),
             proxy_profile_label,
+            routing_mode: value.routing_mode.map(RequestRoutingMode::as_str),
+            failure_scope: value.failure_scope.map(RequestAttemptFailureScope::as_str),
+            retry_decision: value
+                .retry_decision
+                .map(RequestAttemptRetryDecision::as_str),
             started_at_ms: value.started_at_ms,
             duration_ms: value.duration_ms,
             error_message: value.error_message,

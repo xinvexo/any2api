@@ -43,6 +43,7 @@ name = "any2api"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "any2api-memory-reclaimer",
  "any2api-protocol",
  "any2api-provider",
  "any2api-runtime",
@@ -101,6 +102,7 @@ dependencies = [
 name = "any2api-domain"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "ipnet",
  "serde",
  "serde_json",
@@ -110,10 +112,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "any2api-memory-reclaimer"
+version = "0.1.0"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "any2api-payload-buffer"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "memmap2",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "any2api-protocol"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "any2api-payload-buffer",
  "async-trait",
  "bytes",
  "futures-util",
@@ -132,6 +151,7 @@ name = "any2api-provider"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "any2api-payload-buffer",
  "base64",
  "bytes",
  "http",
@@ -148,6 +168,7 @@ name = "any2api-runtime"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "any2api-payload-buffer",
  "any2api-protocol",
  "any2api-provider",
  "any2api-storage",
@@ -181,6 +202,7 @@ name = "any2api-server"
 version = "0.1.0"
 dependencies = [
  "any2api-domain",
+ "any2api-payload-buffer",
  "any2api-runtime",
  "any2api-updater",
  "argon2",

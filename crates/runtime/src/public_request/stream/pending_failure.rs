@@ -90,9 +90,9 @@ impl PendingStreamErrorKind {
 pub(super) fn transport_error_class(failure_scope: TransportFailureScope) -> ErrorClass {
     match failure_scope {
         TransportFailureScope::Proxy => ErrorClass::Proxy,
-        TransportFailureScope::Endpoint | TransportFailureScope::Unattributed => {
-            ErrorClass::Network
-        }
+        TransportFailureScope::Endpoint
+        | TransportFailureScope::EgressPath
+        | TransportFailureScope::Unattributed => ErrorClass::Network,
     }
 }
 

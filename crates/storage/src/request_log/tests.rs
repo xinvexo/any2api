@@ -1,8 +1,9 @@
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyDraft,
     GatewayApiKeyId, MAX_REQUEST_LOG_ROWS, MAX_TOKEN_COUNT, ProtocolDialect, ProtocolOperation,
-    ProviderEndpointId, ProxyProfileId, RequestAttempt, RequestAttemptOutcome, RequestId,
-    RequestLog, RetrySafety, RouteTargetId,
+    ProviderEndpointId, ProxyProfileId, RequestAttempt, RequestAttemptFailureScope,
+    RequestAttemptOutcome, RequestAttemptRetryDecision, RequestId, RequestLog, RequestRoutingMode,
+    RetrySafety, RouteTargetId,
 };
 use tempfile::tempdir;
 
@@ -35,6 +36,8 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     record.attempts[0].error_message = Some("upstream returned HTTP 401 (authentication)".into());
     record.attempts[0].status_code = Some(401);
     record.attempts[0].outcome = RequestAttemptOutcome::UpstreamError;
+    record.attempts[0].failure_scope = Some(RequestAttemptFailureScope::Authentication);
+    record.attempts[0].retry_decision = Some(RequestAttemptRetryDecision::Reselect);
 
     store
         .append_request_logs(std::slice::from_ref(&record), MAX_REQUEST_LOG_ROWS)
@@ -72,6 +75,18 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     assert_eq!(loaded.attempts.len(), 1);
     assert_eq!(loaded.attempts[0].attempt_no, 1);
     assert_eq!(loaded.attempts[0].route_target_id, None);
+    assert_eq!(
+        loaded.attempts[0].routing_mode,
+        Some(RequestRoutingMode::Balanced)
+    );
+    assert_eq!(
+        loaded.attempts[0].failure_scope,
+        Some(RequestAttemptFailureScope::Authentication)
+    );
+    assert_eq!(
+        loaded.attempts[0].retry_decision,
+        Some(RequestAttemptRetryDecision::Reselect)
+    );
     assert_eq!(
         loaded.attempts[0].outcome,
         RequestAttemptOutcome::UpstreamError
@@ -303,9 +318,12 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             credential_id: Some(CredentialId::new()),
             oauth_account_id: None,
             proxy_profile_id: Some(ProxyProfileId::new()),
+            routing_mode: Some(RequestRoutingMode::Balanced),
             started_at_ms: started_at_ms + 1,
             duration_ms: 25,
             retry_safety: Some(RetrySafety::Ambiguous),
+            failure_scope: None,
+            retry_decision: None,
             error_class: None,
             error_message: None,
             status_code: Some(200),

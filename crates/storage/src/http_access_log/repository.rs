@@ -49,7 +49,7 @@ impl HttpAccessLogCapacity {
 pub trait HttpAccessLogRepository: Send + Sync {
     async fn append_http_access_logs(
         &self,
-        records: &[HttpAccessLog],
+        records: Vec<HttpAccessLog>,
         capacity: HttpAccessLogCapacity,
     ) -> Result<u64, StorageError>;
 
@@ -81,14 +81,14 @@ pub trait HttpAccessLogRepository: Send + Sync {
 impl HttpAccessLogRepository for SqliteStore {
     async fn append_http_access_logs(
         &self,
-        records: &[HttpAccessLog],
+        records: Vec<HttpAccessLog>,
         capacity: HttpAccessLogCapacity,
     ) -> Result<u64, StorageError> {
         if records.is_empty() {
             return Ok(0);
         }
         let mut transaction = self.begin_write().await?;
-        for record in records {
+        for record in &records {
             insert(&mut transaction, record).await?;
         }
         let deleted = trim_to_capacity(&mut transaction, capacity).await?;

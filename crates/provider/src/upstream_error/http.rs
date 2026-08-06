@@ -1,4 +1,6 @@
-use any2api_domain::{RetrySafety, UpstreamErrorClassification, UpstreamErrorKind};
+use any2api_domain::{
+    RetrySafety, UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
+};
 use http::StatusCode;
 
 use super::retry_after::retry_after_hint;
@@ -57,7 +59,12 @@ pub(crate) const fn refine_kind(
             _ => baseline,
         },
         UpstreamErrorKind::ModelUnavailable => UpstreamErrorKind::ModelUnavailable,
-        UpstreamErrorKind::OperationUnavailable => UpstreamErrorKind::OperationUnavailable,
+        UpstreamErrorKind::OperationUnavailable => match provider {
+            UpstreamErrorKind::ModelUnavailable | UpstreamErrorKind::OperationUnavailable => {
+                provider
+            }
+            _ => baseline,
+        },
         UpstreamErrorKind::Transient => UpstreamErrorKind::Transient,
         UpstreamErrorKind::Unknown => provider,
     }
@@ -73,10 +80,32 @@ pub(crate) const fn retry_safety_after_refinement(
     }
 }
 
+pub(crate) fn declared_attribution(
+    declared: Option<UpstreamErrorKind>,
+    refined: UpstreamErrorKind,
+) -> UpstreamFailureAttribution {
+    if !matches!(declared, Some(kind) if kind == refined) {
+        return UpstreamFailureAttribution::Unattributed;
+    }
+    match refined {
+        UpstreamErrorKind::Authentication => UpstreamFailureAttribution::Authentication,
+        UpstreamErrorKind::PermissionDenied | UpstreamErrorKind::QuotaExhausted => {
+            UpstreamFailureAttribution::Credential
+        }
+        UpstreamErrorKind::RateLimited | UpstreamErrorKind::ModelUnavailable => {
+            UpstreamFailureAttribution::CredentialModel
+        }
+        UpstreamErrorKind::OperationUnavailable => UpstreamFailureAttribution::RouteOperation,
+        UpstreamErrorKind::InvalidRequest
+        | UpstreamErrorKind::Transient
+        | UpstreamErrorKind::Unknown => UpstreamFailureAttribution::Unattributed,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{classify_status, refine_kind};
-    use any2api_domain::{RetrySafety, UpstreamErrorKind};
+    use super::{classify_status, declared_attribution, refine_kind};
+    use any2api_domain::{RetrySafety, UpstreamErrorKind, UpstreamFailureAttribution};
     use http::{HeaderMap, StatusCode};
 
     use crate::api::UpstreamResponseMeta;
@@ -110,6 +139,28 @@ mod tests {
                 Some(UpstreamErrorKind::QuotaExhausted),
             ),
             UpstreamErrorKind::QuotaExhausted
+        );
+    }
+
+    #[test]
+    fn only_a_matching_declared_kind_expands_failure_attribution() {
+        assert_eq!(
+            declared_attribution(
+                Some(UpstreamErrorKind::Authentication),
+                UpstreamErrorKind::Authentication,
+            ),
+            UpstreamFailureAttribution::Authentication
+        );
+        assert_eq!(
+            declared_attribution(
+                Some(UpstreamErrorKind::RateLimited),
+                UpstreamErrorKind::Authentication,
+            ),
+            UpstreamFailureAttribution::Unattributed
+        );
+        assert_eq!(
+            declared_attribution(None, UpstreamErrorKind::PermissionDenied),
+            UpstreamFailureAttribution::Unattributed
         );
     }
 

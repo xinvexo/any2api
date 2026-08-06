@@ -5,7 +5,9 @@ use any2api_domain::{
     CredentialKind, ProtocolDialect, ProtocolOperation, ProviderBaseUrl, ProviderKind, PublicError,
     PublicErrorCode, TransportMode, UpstreamErrorKind,
 };
-use any2api_protocol::api::{IngressRequest, ProtocolAdapter};
+use any2api_protocol::api::{
+    DecodedResponsePayload, IngressRequest, ProtocolAdapter, UpstreamResponse,
+};
 use any2api_provider::api::{
     ProviderDriver, ProviderRequestContext, ProviderSecret, UpstreamResponseMeta,
 };
@@ -132,6 +134,60 @@ async fn protocol_contract(dialect: ProtocolDialect, adapter: &dyn ProtocolAdapt
     let body: Value = serde_json::from_slice(&response.body).expect("protocol error JSON");
     assert_eq!(response.status, StatusCode::BAD_GATEWAY);
     assert_eq!(body["error"]["message"], "local contract error");
+
+    let response_body = match dialect {
+        ProtocolDialect::OpenAiResponses => json!({
+            "id": "resp_contract",
+            "model": "public-model",
+            "status": "completed",
+            "output": [],
+            "usage": {"input_tokens": 1, "output_tokens": 2}
+        }),
+        ProtocolDialect::OpenAiChatCompletions => json!({
+            "id": "chatcmpl_contract",
+            "model": "public-model",
+            "choices": [],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 2}
+        }),
+        ProtocolDialect::OpenAiImages => json!({
+            "created": 1,
+            "model": "public-model",
+            "data": [],
+            "usage": {"input_tokens": 1, "output_tokens": 2}
+        }),
+        ProtocolDialect::AnthropicMessages => json!({
+            "id": "msg_contract",
+            "type": "message",
+            "role": "assistant",
+            "model": "public-model",
+            "content": [],
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 1, "output_tokens": 2}
+        }),
+    };
+    let wire = Bytes::from(serde_json::to_vec(&response_body).expect("response JSON"));
+    let wire_pointer = wire.as_ptr();
+    let decoded_response = adapter
+        .decode_direct_upstream_response(UpstreamResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: wire.clone(),
+        })
+        .expect("registered protocol directly decodes buffered JSON");
+    match &decoded_response.payload {
+        DecodedResponsePayload::RawJson(body) => {
+            assert_eq!(body.as_ptr(), wire_pointer);
+            assert_eq!(body, &wire);
+        }
+        DecodedResponsePayload::StructuredJson(_) => {
+            panic!("registered direct protocol path materialized a JSON value")
+        }
+    }
+    let egress = adapter
+        .encode_egress_response(decoded_response, "public-model")
+        .expect("registered protocol encodes its direct response");
+    assert_eq!(egress.body.as_ptr(), wire_pointer);
+    assert_eq!(egress.body, wire);
 }
 
 #[test]

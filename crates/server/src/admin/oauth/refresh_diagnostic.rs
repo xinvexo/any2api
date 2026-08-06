@@ -108,6 +108,7 @@ fn fields(failure: OAuthRefreshFailure) -> DiagnosticFields {
         failure_scope: failure.failure_scope().map(|scope| match scope {
             OAuthRefreshFailureScope::Endpoint => "endpoint",
             OAuthRefreshFailureScope::Proxy => "proxy",
+            OAuthRefreshFailureScope::EgressPath => "egress_path",
             OAuthRefreshFailureScope::Unattributed => "unattributed",
         }),
     }

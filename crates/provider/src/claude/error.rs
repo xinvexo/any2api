@@ -9,7 +9,7 @@ use serde::Deserialize;
 use crate::{
     api::UpstreamResponseMeta,
     upstream_error::{
-        http::{classify_status, refine_kind, retry_safety_after_refinement},
+        http::{classify_status, declared_attribution, refine_kind, retry_safety_after_refinement},
         retry_after::retry_after_hint_with_millis,
     },
 };
@@ -56,13 +56,14 @@ pub(crate) fn classify(
     let not_found = if operation == ProtocolOperation::Messages {
         UpstreamErrorKind::ModelUnavailable
     } else {
-        UpstreamErrorKind::Unknown
+        UpstreamErrorKind::OperationUnavailable
     };
     let fallback = classify_status(meta, not_found);
     let kind = refine_kind(fallback.kind(), body_kind);
     let safety = retry_safety_after_refinement(fallback, kind);
     UpstreamError::new(
-        UpstreamErrorClassification::new(kind, safety, retry_after_hint_with_millis(&meta.headers)),
+        UpstreamErrorClassification::new(kind, safety, retry_after_hint_with_millis(&meta.headers))
+            .with_attribution(declared_attribution(body_kind, kind)),
         message,
     )
 }

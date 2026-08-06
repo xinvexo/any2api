@@ -8,9 +8,9 @@ use serde_json::Value;
 use crate::{
     ProtocolError, affinity,
     api::{
-        AdapterPayload, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
-        EncodedUpstreamRequest, IngressAffinity, IngressRequest, RawJsonPayload,
-        RequestExecutionProfile,
+        AdapterPayload, DecodedRequest, DecodedResponsePayload, DecodedUpstreamResponse,
+        EgressResponse, EncodedUpstreamRequest, IngressAffinity, IngressRequest,
+        ProtocolResponseTelemetry, RawJsonPayload, RequestExecutionProfile, UpstreamResponse,
     },
     raw_json::{
         json_string, object_field, object_field_raw, raw_array, raw_string, splice_ranges,
@@ -274,6 +274,22 @@ pub(crate) fn parse_response_body(body: &Bytes) -> Result<Value, ProtocolError> 
         .map_err(|_| ProtocolError::InvalidPayload("upstream response must be valid JSON".into()))
 }
 
+pub(crate) fn decode_direct_response(
+    response: UpstreamResponse,
+    telemetry: impl FnOnce(&[u8]) -> ProtocolResponseTelemetry,
+) -> Result<DecodedUpstreamResponse, ProtocolError> {
+    serde_json::from_slice::<serde::de::IgnoredAny>(&response.body).map_err(|_| {
+        ProtocolError::InvalidPayload("upstream response must be valid JSON".into())
+    })?;
+    let telemetry = telemetry(&response.body);
+    Ok(DecodedUpstreamResponse {
+        status: response.status,
+        headers: response.headers,
+        payload: DecodedResponsePayload::RawJson(response.body),
+        telemetry,
+    })
+}
+
 /// Restore the public model name and emit the egress body. The original wire
 /// bytes are reused untouched when the model already matches, and only the
 /// model value's byte range is spliced otherwise — key order and number
@@ -285,13 +301,12 @@ pub(crate) fn encode_response(
     let DecodedUpstreamResponse {
         status,
         headers,
-        body,
-        mut parsed,
+        payload,
         ..
     } = response;
-    let body = match body {
-        Some(body) => rewrite_body_model(body, public_model)?,
-        None => {
+    let body = match payload {
+        DecodedResponsePayload::RawJson(body) => rewrite_body_model(body, public_model)?,
+        DecodedResponsePayload::StructuredJson(mut parsed) => {
             let public = Value::String(public_model.to_owned());
             if let Some(model) = parsed
                 .as_object_mut()
@@ -336,7 +351,9 @@ mod tests {
     use serde_json::json;
 
     use super::{encode_response, request_execution_profile_raw};
-    use crate::api::{DecodedUpstreamResponse, RawJsonPayload, RequestExecutionProfile};
+    use crate::api::{
+        DecodedResponsePayload, DecodedUpstreamResponse, RawJsonPayload, RequestExecutionProfile,
+    };
 
     fn raw(value: serde_json::Value) -> RawJsonPayload {
         RawJsonPayload::parse(Bytes::from(
@@ -383,8 +400,7 @@ mod tests {
         DecodedUpstreamResponse {
             status: http::StatusCode::OK,
             headers: HeaderMap::new(),
-            parsed: serde_json::from_slice(&body).expect("response JSON"),
-            body: Some(body),
+            payload: DecodedResponsePayload::RawJson(body),
             telemetry: Default::default(),
         }
     }

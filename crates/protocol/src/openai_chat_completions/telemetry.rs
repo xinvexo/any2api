@@ -17,6 +17,18 @@ pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
     }
 }
 
+pub(super) fn raw_response(body: &[u8]) -> ProtocolResponseTelemetry {
+    let [usage] = top_fields(body, ["usage"]);
+    ProtocolResponseTelemetry {
+        token_usage: raw_token_usage(
+            usage,
+            &["prompt_tokens"],
+            &["completion_tokens"],
+            &["prompt_tokens_details", "cached_tokens"],
+        ),
+    }
+}
+
 pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
     let SseEventPayload::Json(data) = payload else {
         return ProtocolEventTelemetry {
@@ -53,4 +65,21 @@ fn choice_has_content(choice: &RawValue) -> bool {
         || tool_calls
             .and_then(|calls| raw_array(calls.get().as_bytes()))
             .is_some_and(|calls| !calls.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::TokenUsage;
+
+    #[test]
+    fn raw_and_structured_response_usage_match() {
+        let body = br#"{"choices":[{"message":{"content":"large"}}],"usage":{"prompt_tokens":9,"completion_tokens":4,"prompt_tokens_details":{"cached_tokens":2}}}"#;
+        let structured = super::response(&serde_json::from_slice(body).expect("response JSON"));
+
+        assert_eq!(super::raw_response(body), structured);
+        assert_eq!(
+            structured.token_usage,
+            TokenUsage::new(Some(9), Some(4), Some(2))
+        );
+    }
 }

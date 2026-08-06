@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use any2api_domain::{
     RetrySafety, RoutingCredentialId, SettingsConfiguration, UpstreamErrorClassification,
-    UpstreamErrorKind,
+    UpstreamErrorKind, UpstreamFailureAttribution,
 };
 
 use super::{
@@ -63,7 +63,8 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
             UpstreamErrorKind::QuotaExhausted,
             RetrySafety::RejectedBeforeExecution,
             None,
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::Credential),
         &ReliabilityPolicy::from_settings(SettingsConfiguration::defaults().reliability()),
     );
     assert!(matches!(

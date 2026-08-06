@@ -140,7 +140,7 @@ fn verification_failed(message: impl Into<String>) -> UpdateError {
     UpdateError::new(UpdateErrorKind::VerificationFailed, message)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn verify_staged_version_for_test(
     executable: &Path,
     target: &Version,

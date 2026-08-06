@@ -1,18 +1,19 @@
 use std::{future::Future, sync::Arc, time::Duration};
 
 use any2api_domain::{
-    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, PublicError, PublicErrorCode, UpstreamErrorKind,
+    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, PublicError, PublicErrorCode, RequestAttemptFailureScope,
+    RequestAttemptRetryDecision,
 };
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
-use any2api_transport::api::{TransportFailureScope, TransportManager};
+use any2api_transport::api::TransportManager;
 use tokio::time::{Instant, timeout};
 
 use super::{
     PublicResponse, affinity,
     planning::PlannedRequest,
     response::{FinalFailure, public_error},
-    upstream::{self, AttemptFailure},
+    upstream,
 };
 use crate::{
     configuration::PublishedSnapshot,
@@ -24,9 +25,15 @@ use crate::{
     routing::CandidateExclusions,
 };
 
-use self::budget::RetryBudget;
+use self::{
+    budget::RetryBudget,
+    decision::{RetryDecision, exclude_failed_path, retry_decision, telemetry_failure_scope},
+};
 
 mod budget;
+mod decision;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy)]
 pub(super) struct OAuthRetryServices<'a> {
@@ -104,7 +111,8 @@ pub(super) async fn execute(
         let Some(attempt_no) = budget.register_attempt(credential_id) else {
             return Err(previous_error.unwrap_or_else(|| budget_exhausted().into()));
         };
-        let attempt_recorder = recorder.begin_attempt(attempt_no, &affinity.selected.candidate);
+        let attempt_recorder =
+            recorder.begin_attempt(attempt_no, &affinity.selected.candidate, affinity.bound);
         let timeout_marker = attempt_recorder.timeout_marker();
         let attempt_deadline = budget.deadline();
         let services = upstream::UpstreamServices {
@@ -128,7 +136,7 @@ pub(super) async fn execute(
                     allow_credential_bound_headers,
                 ),
             )
-            .await?
+            .await
         } else {
             within_attempt_budget(
                 attempt_deadline,
@@ -142,8 +150,19 @@ pub(super) async fn execute(
                     allow_credential_bound_headers,
                 ),
             )
-            .await?
-            .map(PublicResponse::from)
+            .await
+            .map(|attempt| attempt.map(PublicResponse::from))
+        };
+        let attempt = match attempt {
+            Ok(attempt) => attempt,
+            Err(error) => {
+                recorder.annotate_attempt(
+                    attempt_no,
+                    Some(RequestAttemptFailureScope::Unattributed),
+                    RequestAttemptRetryDecision::Terminal,
+                );
+                return Err(error);
+            }
         };
         match attempt {
             Ok(response) => return Ok(response),
@@ -156,13 +175,23 @@ pub(super) async fn execute(
                     refreshed_oauth_target = None;
                 }
                 let public = failure.final_failure();
-                if !oauth_refresh_attempted
-                    && let Some(refresher) = oauth.map(|services| services.refresher)
-                    && let Some((account_id, token_version)) = failure.oauth_authentication_target()
-                    && let Some(candidate) = failure.candidate()
-                    && budget.can_register_attempt(candidate.credential_id)
+                let can_refresh_oauth = !oauth_refresh_attempted
+                    && oauth.is_some()
+                    && failure.candidate().is_some_and(|candidate| {
+                        budget.can_register_attempt(candidate.credential_id)
+                    });
+                let failure_scope = telemetry_failure_scope(&failure);
+                let mut decision =
+                    retry_decision(&failure, &budget, credential_id, can_refresh_oauth);
+                if let RetryDecision::OAuthRefresh {
+                    account_id,
+                    token_version,
+                } = decision
                 {
                     oauth_refresh_attempted = true;
+                    let refresher = oauth
+                        .map(|services| services.refresher)
+                        .expect("OAuth refresh decision requires a refresher");
                     let refreshed = timeout(
                         budget.remaining(),
                         refresher.refresh_after_authentication_failure(account_id, token_version),
@@ -189,67 +218,40 @@ pub(super) async fn execute(
                         snapshot = next_snapshot;
                         plan = next_plan;
                         previous_error = Some(public);
+                        recorder.annotate_attempt(attempt_no, failure_scope, decision.telemetry());
                         continue;
                     }
+                    decision = retry_decision(&failure, &budget, credential_id, false);
                 }
-                if !should_retry(&failure) || !budget.can_retry() {
-                    return Err(public);
-                }
-                let delay = if failure.bound() {
-                    budget.next_delay(credential_id)
-                } else {
-                    exclude_failed_path(&mut exclusions, &failure);
-                    Duration::ZERO
+                let delay = match decision {
+                    RetryDecision::Terminal => {
+                        recorder.annotate_attempt(attempt_no, failure_scope, decision.telemetry());
+                        return Err(public);
+                    }
+                    RetryDecision::OAuthRefresh { .. } => {
+                        unreachable!("OAuth refresh is handled before retry execution")
+                    }
+                    RetryDecision::RetrySamePath(delay) => delay,
+                    RetryDecision::Reselect(scope) => {
+                        exclude_failed_path(&mut exclusions, &failure, scope);
+                        Duration::ZERO
+                    }
                 };
                 if delay >= budget.remaining() {
+                    recorder.annotate_attempt(
+                        attempt_no,
+                        failure_scope,
+                        RequestAttemptRetryDecision::Terminal,
+                    );
                     return Err(public);
                 }
+                recorder.annotate_attempt(attempt_no, failure_scope, decision.telemetry());
                 previous_error = Some(public);
                 if !delay.is_zero() {
                     tokio::time::sleep(delay).await;
                 }
             }
         }
-    }
-}
-
-fn should_retry(failure: &AttemptFailure) -> bool {
-    failure.is_retry_candidate() && failure.retry_safety().allows_automatic_retry()
-}
-
-fn exclude_failed_path(exclusions: &mut CandidateExclusions, failure: &AttemptFailure) {
-    let Some(candidate) = failure.candidate() else {
-        return;
-    };
-    match failure {
-        AttemptFailure::Transport { .. } => match failure.transport_failure_scope() {
-            Some(TransportFailureScope::Endpoint) => {
-                exclusions.exclude_endpoint(candidate.endpoint_id);
-            }
-            Some(TransportFailureScope::Proxy) => {
-                exclusions.exclude_proxy(candidate.proxy_id);
-            }
-            Some(TransportFailureScope::Unattributed) => {
-                exclusions.exclude_credential(candidate.credential_id);
-            }
-            None => {}
-        },
-        AttemptFailure::Upstream { error, .. } => match error.classification().kind() {
-            UpstreamErrorKind::PermissionDenied
-            | UpstreamErrorKind::QuotaExhausted
-            | UpstreamErrorKind::RateLimited
-            | UpstreamErrorKind::ModelUnavailable => {
-                exclusions.exclude_credential(candidate.credential_id);
-            }
-            UpstreamErrorKind::Transient => {
-                exclusions.exclude_endpoint(candidate.endpoint_id);
-            }
-            _ => {}
-        },
-        AttemptFailure::StreamRejected { .. } => {
-            exclusions.exclude_credential(candidate.credential_id);
-        }
-        AttemptFailure::Public(_) => {}
     }
 }
 
@@ -274,31 +276,6 @@ async fn within_attempt_budget<T>(
         _ = &mut deadline => {
             timeout_marker.mark_timed_out();
             Err(budget_exhausted().into())
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use tokio::time::Instant;
-
-    use super::within_attempt_budget;
-    use crate::request_telemetry::AttemptRecorder;
-
-    #[tokio::test(start_paused = true)]
-    async fn attempt_result_at_the_deadline_wins_over_the_outer_timeout() {
-        let deadline = Instant::now() + Duration::from_millis(25);
-        let marker = AttemptRecorder::disabled().timeout_marker();
-        let attempt = async {
-            tokio::time::sleep_until(deadline).await;
-            7
-        };
-
-        match within_attempt_budget(deadline, marker, attempt).await {
-            Ok(value) => assert_eq!(value, 7),
-            Err(_) => panic!("the completed attempt must win at the shared deadline"),
         }
     }
 }

@@ -1,10 +1,15 @@
-use axum::body::{Body, Bytes};
+use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
+use axum::body::{Body, Bytes, HttpBody};
 use futures_util::StreamExt;
 
 pub(super) async fn collect_body(
     body: Body,
     max_bytes: usize,
 ) -> Result<Bytes, BodyCollectionError> {
+    let expected_len = body
+        .size_hint()
+        .exact()
+        .and_then(|len| usize::try_from(len).ok());
     let mut stream = body.into_data_stream();
     let Some(first) = stream.next().await else {
         return Ok(Bytes::new());
@@ -15,18 +20,30 @@ pub(super) async fn collect_body(
         return Ok(first);
     };
     let second = second.map_err(|_| BodyCollectionError::Unreadable)?;
-    let initial_len = check_len(first.len(), second.len(), max_bytes)?;
-    let mut collected = Vec::with_capacity(initial_len);
-    collected.extend_from_slice(&first);
-    collected.extend_from_slice(&second);
+    let mut collected =
+        PayloadBuffer::with_capacity_hint(expected_len, max_bytes).map_err(map_buffer_error)?;
+    collected
+        .extend_from_slice(&first)
+        .map_err(map_buffer_error)?;
+    collected
+        .extend_from_slice(&second)
+        .map_err(map_buffer_error)?;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|_| BodyCollectionError::Unreadable)?;
-        check_len(collected.len(), chunk.len(), max_bytes)?;
-        collected.extend_from_slice(&chunk);
+        collected
+            .extend_from_slice(&chunk)
+            .map_err(map_buffer_error)?;
     }
 
-    Ok(Bytes::from(collected))
+    Ok(collected.freeze().into_bytes())
+}
+
+fn map_buffer_error(error: PayloadBufferError) -> BodyCollectionError {
+    match error {
+        PayloadBufferError::TooLarge => BodyCollectionError::TooLarge,
+        PayloadBufferError::AllocationFailed => BodyCollectionError::AllocationFailed,
+    }
 }
 
 fn check_len(current: usize, added: usize, max_bytes: usize) -> Result<usize, BodyCollectionError> {
@@ -44,6 +61,7 @@ fn check_len(current: usize, added: usize, max_bytes: usize) -> Result<usize, Bo
 pub(super) enum BodyCollectionError {
     TooLarge,
     Unreadable,
+    AllocationFailed,
 }
 
 #[cfg(test)]
@@ -53,7 +71,9 @@ mod tests {
     use axum::body::{Body, Bytes};
     use futures_util::stream;
 
-    use super::{BodyCollectionError, collect_body};
+    use any2api_payload_buffer::PayloadBufferError;
+
+    use super::{BodyCollectionError, collect_body, map_buffer_error};
 
     #[tokio::test]
     async fn single_chunk_reuses_the_original_bytes() {
@@ -85,6 +105,14 @@ mod tests {
         assert_eq!(
             collect_body(Body::from_stream(oversized), 5).await,
             Err(BodyCollectionError::TooLarge)
+        );
+    }
+
+    #[test]
+    fn allocation_failure_is_not_reported_as_client_input_failure() {
+        assert_eq!(
+            map_buffer_error(PayloadBufferError::AllocationFailed),
+            BodyCollectionError::AllocationFailed
         );
     }
 }

@@ -3,7 +3,8 @@ use std::{sync::Arc, time::Duration};
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, ProviderCredential,
     ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId, RetryAfterHint, RetrySafety,
-    SettingsConfiguration, UpstreamErrorClassification, UpstreamErrorKind, UpstreamQuotaExhaustion,
+    SettingsConfiguration, UpstreamErrorClassification, UpstreamErrorKind,
+    UpstreamFailureAttribution, UpstreamQuotaExhaustion,
 };
 use any2api_transport::api::TransportFailureScope;
 
@@ -29,7 +30,8 @@ async fn rate_limit_cools_only_the_model_and_wakes_at_expiry() {
             UpstreamErrorKind::RateLimited,
             RetrySafety::RejectedBeforeExecution,
             Some(RetryAfterHint::Delay(Duration::from_secs(2))),
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::CredentialModel),
         &policy,
     );
 
@@ -53,7 +55,8 @@ async fn expired_model_cooldowns_are_lazily_reclaimed_on_health_access() {
         UpstreamErrorKind::RateLimited,
         RetrySafety::RejectedBeforeExecution,
         Some(RetryAfterHint::Delay(Duration::from_secs(2))),
-    );
+    )
+    .with_attribution(UpstreamFailureAttribution::CredentialModel);
 
     health.record("model-a", rate_limit, &policy);
     health.record("model-b", rate_limit, &policy);
@@ -76,7 +79,8 @@ async fn unbounded_retry_after_is_clamped_without_becoming_immediately_available
             UpstreamErrorKind::RateLimited,
             RetrySafety::RejectedBeforeExecution,
             Some(RetryAfterHint::Delay(Duration::from_secs(u64::MAX))),
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::CredentialModel),
         &policy,
     );
 
@@ -105,7 +109,8 @@ fn authentication_error_is_generation_local_and_permanent() {
             UpstreamErrorKind::Authentication,
             RetrySafety::RejectedBeforeExecution,
             None,
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::Authentication),
         &policy(),
     );
     assert_eq!(
@@ -134,7 +139,8 @@ async fn quota_reset_clears_temporary_cooldowns_but_keeps_authentication_failure
             UpstreamErrorKind::QuotaExhausted,
             RetrySafety::RejectedBeforeExecution,
             None,
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::Credential),
         &policy,
     );
     health.record(
@@ -143,7 +149,8 @@ async fn quota_reset_clears_temporary_cooldowns_but_keeps_authentication_failure
             UpstreamErrorKind::RateLimited,
             RetrySafety::RejectedBeforeExecution,
             None,
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::CredentialModel),
         &policy,
     );
     health.record(
@@ -152,7 +159,8 @@ async fn quota_reset_clears_temporary_cooldowns_but_keeps_authentication_failure
             UpstreamErrorKind::Authentication,
             RetrySafety::RejectedBeforeExecution,
             None,
-        ),
+        )
+        .with_attribution(UpstreamFailureAttribution::Authentication),
         &policy,
     );
     let before_reset = epoch.current();
@@ -181,6 +189,7 @@ async fn real_quota_exhaustion_observation_is_generation_local_and_success_clear
             RetrySafety::RejectedBeforeExecution,
             None,
         )
+        .with_attribution(UpstreamFailureAttribution::Credential)
         .with_quota_exhaustion(UpstreamQuotaExhaustion::new(1_065_387, 1_000_000)),
         &policy(),
     );
@@ -231,7 +240,8 @@ async fn repeated_health_failures_share_one_background_wake_worker() {
         UpstreamErrorKind::RateLimited,
         RetrySafety::RejectedBeforeExecution,
         Some(RetryAfterHint::Delay(Duration::from_secs(60))),
-    );
+    )
+    .with_attribution(UpstreamFailureAttribution::CredentialModel);
 
     for model in 0..128 {
         let model = format!("model-{model}");

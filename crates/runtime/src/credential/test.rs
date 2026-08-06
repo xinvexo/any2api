@@ -249,6 +249,7 @@ impl From<TransportErrorStage> for ProviderCredentialTestFailureStage {
 pub enum ProviderCredentialTestFailureScope {
     Endpoint,
     Proxy,
+    EgressPath,
     Unattributed,
 }
 
@@ -258,6 +259,7 @@ impl ProviderCredentialTestFailureScope {
         match self {
             Self::Endpoint => "endpoint",
             Self::Proxy => "proxy",
+            Self::EgressPath => "egress_path",
             Self::Unattributed => "unattributed",
         }
     }
@@ -268,6 +270,7 @@ impl From<TransportFailureScope> for ProviderCredentialTestFailureScope {
         match value {
             TransportFailureScope::Endpoint => Self::Endpoint,
             TransportFailureScope::Proxy => Self::Proxy,
+            TransportFailureScope::EgressPath => Self::EgressPath,
             TransportFailureScope::Unattributed => Self::Unattributed,
         }
     }

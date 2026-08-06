@@ -4,6 +4,7 @@ mod generation;
 mod selector;
 #[cfg(test)]
 mod tests;
+mod tier;
 
 pub(super) use selector::{
     CandidateSelector, FixedSelectionError, GenerationSelection, no_available_credentials,

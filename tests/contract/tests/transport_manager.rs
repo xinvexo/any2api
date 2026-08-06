@@ -62,7 +62,7 @@ async fn explicit_proxy_failure_never_falls_back_to_direct() {
         error.stage,
         any2api_transport::api::TransportErrorStage::ProxyHandshake
     );
-    assert_eq!(error.failure_scope, TransportFailureScope::Unattributed);
+    assert_eq!(error.failure_scope, TransportFailureScope::EgressPath);
     assert_eq!(error.retry_safety, RetrySafety::DefinitelyNotSent);
     if let Ok(Ok(request)) = tokio::time::timeout(Duration::from_secs(1), connect_request).await {
         assert!(request.starts_with(&format!("CONNECT {origin_address} HTTP/1.1")));

@@ -6,7 +6,8 @@ use std::{
 
 use any2api_domain::{
     ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolOperation,
-    ProviderEndpointId, ProxyProfileId, PublicErrorCode, RequestAttempt, RequestId, TokenUsage,
+    ProviderEndpointId, ProxyProfileId, PublicErrorCode, RequestAttempt,
+    RequestAttemptFailureScope, RequestAttemptRetryDecision, RequestId, TokenUsage,
     bound_error_message,
 };
 
@@ -104,6 +105,7 @@ impl RequestRecorder {
         &self,
         attempt_no: u32,
         candidate: &RouteCandidate,
+        bound: bool,
     ) -> AttemptRecorder {
         let Some(inner) = &self.inner else {
             return AttemptRecorder::disabled();
@@ -127,6 +129,7 @@ impl RequestRecorder {
             inner.request_id,
             attempt_no,
             candidate,
+            bound,
             unix_time_ms(),
         )
     }
@@ -178,6 +181,29 @@ impl RequestRecorder {
         let mut state = inner.state.lock().expect("request recorder state");
         if !state.finished {
             state.attempts.push(attempt);
+        }
+    }
+
+    pub(crate) fn annotate_attempt(
+        &self,
+        attempt_no: u32,
+        failure_scope: Option<RequestAttemptFailureScope>,
+        retry_decision: RequestAttemptRetryDecision,
+    ) {
+        let Some(inner) = &self.inner else {
+            return;
+        };
+        let mut state = inner.state.lock().expect("request recorder state");
+        if state.finished {
+            return;
+        }
+        if let Some(attempt) = state
+            .attempts
+            .iter_mut()
+            .find(|attempt| attempt.attempt_no == attempt_no)
+        {
+            attempt.failure_scope = failure_scope;
+            attempt.retry_decision = Some(retry_decision);
         }
     }
 }

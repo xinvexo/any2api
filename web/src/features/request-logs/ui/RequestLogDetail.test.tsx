@@ -24,6 +24,9 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(await screen.findByText("失败 · HTTP 404")).toBeInTheDocument();
   expect(screen.getByText("HTTP 200")).toBeInTheDocument();
   expect(screen.getByText("The model was not found")).toBeInTheDocument();
+  expect(
+    screen.getAllByText("负载均衡 · 失败范围：当前候选 · 决策：重新选路"),
+  ).toHaveLength(2);
   expect(screen.getByText("失败 · 未收到上游状态")).toBeInTheDocument();
   expect(screen.getByText("未收到上游状态")).toBeInTheDocument();
   expect(screen.getByText("18 ms")).toBeInTheDocument();
@@ -202,6 +205,9 @@ function attempt(
     credential_id: `credential-${attemptNo}`,
     oauth_account_id: null,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
+    routing_mode: "balanced",
+    failure_scope: outcome === "failed" ? "exact_candidate" : null,
+    retry_decision: outcome === "failed" ? "reselect" : null,
     started_at_ms: 1_700_000_000_000 + attemptNo,
     duration_ms: 10,
     error_message: errorMessage,

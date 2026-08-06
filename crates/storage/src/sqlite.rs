@@ -22,6 +22,7 @@ use crate::{
 };
 
 const READ_POOL_CONNECTIONS: u32 = 8;
+const READ_POOL_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 /// Truncate the WAL after this many write transactions so long uptimes with
 /// steady telemetry flushes cannot grow the log without bound.
@@ -73,6 +74,7 @@ impl SqliteStore {
             .await?;
         let read_pool = SqlitePoolOptions::new()
             .max_connections(READ_POOL_CONNECTIONS)
+            .idle_timeout(READ_POOL_IDLE_TIMEOUT)
             .connect_with(options)
             .await?;
         protect_sqlite_files(path)?;
@@ -143,7 +145,9 @@ fn sidecar_path(path: &Path, suffix: &str) -> std::path::PathBuf {
 mod tests {
     use tempfile::tempdir;
 
-    use super::{SqliteStore, sidecar_path};
+    #[cfg(unix)]
+    use super::sidecar_path;
+    use super::{READ_POOL_IDLE_TIMEOUT, SqliteStore};
 
     #[tokio::test]
     async fn uses_normal_synchronous_mode_and_private_sidecars() {
@@ -191,6 +195,19 @@ mod tests {
             "write connection is exclusively held"
         );
         drop(transaction);
+    }
+
+    #[tokio::test]
+    async fn read_pool_retires_idle_connections() {
+        let directory = tempdir().expect("temporary directory");
+        let store = SqliteStore::connect(&directory.path().join("read-pool.db"))
+            .await
+            .expect("store");
+
+        assert_eq!(
+            store.pool().options().get_idle_timeout(),
+            Some(READ_POOL_IDLE_TIMEOUT)
+        );
     }
 
     #[tokio::test]

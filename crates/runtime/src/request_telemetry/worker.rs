@@ -245,32 +245,32 @@ async fn flush_http_access_logs(
     if batch.records.is_empty() {
         return;
     }
+    let HttpAccessLogBatch {
+        records,
+        notify_changes,
+        owned_bytes,
+        rejected_owned_bytes,
+    } = batch;
+    let record_count = records.len();
     let policy = *state.policy.read().expect("request telemetry policy");
     let capacity = HttpAccessLogCapacity::new(
         policy.http_access_max_rows,
         policy.http_access_max_exchange_bytes,
     );
-    match repository
-        .append_http_access_logs(&batch.records, capacity)
-        .await
-    {
+    match repository.append_http_access_logs(records, capacity).await {
         Ok(deleted) => {
-            state.counters.persisted(
-                batch.records.len(),
-                batch.owned_bytes,
-                batch.rejected_owned_bytes,
-            );
-            if batch.notify_changes || deleted > 0 {
+            state
+                .counters
+                .persisted(record_count, owned_bytes, rejected_owned_bytes);
+            if notify_changes || deleted > 0 {
                 state.changes.http_access_logs_changed();
             }
         }
         Err(error) => {
-            state.counters.storage_failed(
-                batch.records.len(),
-                batch.owned_bytes,
-                batch.rejected_owned_bytes,
-            );
-            tracing::warn!(%error, records = batch.records.len(), "HTTP access log batch was dropped");
+            state
+                .counters
+                .storage_failed(record_count, owned_bytes, rejected_owned_bytes);
+            tracing::warn!(%error, records = record_count, "HTTP access log batch was dropped");
         }
     }
 }

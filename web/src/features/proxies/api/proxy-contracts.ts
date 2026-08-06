@@ -10,7 +10,11 @@ export type ProxyTestFailureStage =
   | "await_headers"
   | "read_body";
 
-export type ProxyTestFailureScope = "probe_target" | "proxy" | "unattributed";
+export type ProxyTestFailureScope =
+  | "probe_target"
+  | "proxy"
+  | "egress_path"
+  | "unattributed";
 
 export interface ProxyProfile {
   id: string;
@@ -228,7 +232,12 @@ function readNullableFailureScope(value: unknown): ProxyTestFailureScope | null 
   if (value === null) {
     return null;
   }
-  if (value !== "probe_target" && value !== "proxy" && value !== "unattributed") {
+  if (
+    value !== "probe_target" &&
+    value !== "proxy" &&
+    value !== "egress_path" &&
+    value !== "unattributed"
+  ) {
     throw new Error("invalid proxy test response");
   }
   return value;

@@ -1,4 +1,7 @@
-use std::{fs, io::Write, time::Duration};
+use std::{fs, io::Write};
+
+#[cfg(unix)]
+use std::time::Duration;
 
 use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
@@ -9,8 +12,10 @@ use crate::{
     api::UpdateErrorKind,
     github::{MAX_ARCHIVE_BYTES, parse_release_for_test},
     install::{extract_and_replace_for_test, verify_checksum_for_test},
-    smoke::verify_staged_version_for_test,
 };
+
+#[cfg(unix)]
+use crate::smoke::verify_staged_version_for_test;
 
 mod task_lifecycle;
 

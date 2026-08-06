@@ -30,6 +30,19 @@ test("describes a fixed-target failure without calling it a Provider Endpoint", 
   ).toBe("失败 · TLS · 探测站点 · 31 ms");
 });
 
+test("describes a failure isolated to the probe-target and proxy pair", () => {
+  expect(
+    formatProxyTestDiagnostic({
+      ...result,
+      reachable: false,
+      statusCode: null,
+      latencyMs: 29,
+      errorStage: "await_headers",
+      failureScope: "egress_path",
+    }),
+  ).toBe("失败 · 等待响应头 · 探测站点 × 代理 · 29 ms");
+});
+
 const proxy: ProxyProfile = {
   id: "a81bf8f8-8fb4-45f0-926d-1cfda84884f5",
   name: "HTTP",

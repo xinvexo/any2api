@@ -253,6 +253,41 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 
 样式按 `tokens.css`、`globals.css` 和局部组件职责拆分。React 页面只组合 feature，业务请求、状态和 Schema 分别进入 feature 的 `api`、`model` 与私有 UI 模块。
 
+### 4.12 跨平台临时内存生命周期
+
+长期运行进程的 RSS 高水位不等于仍有同等数量的业务对象存活。公开请求、buffered 上游响应和 HTTP
+系统日志前缀会产生大块短命字节；这些对象即使已经 Drop，Linux glibc、macOS malloc zone 与 Windows
+进程堆仍可能因为 arena、size class 和碎片保留已释放页。数据面因此必须同时控制对象所有权和底层页的
+归还路径，不能只以 Rust 值已经 Drop 推断 RSS 会回到冷启动值。
+
+- 公共请求多块聚合、zstd 解压与重压缩、Provider Endpoint Profile 正文规范化、multipart 重编码、
+  buffered 成功响应和 HTTP Body 捕获等短命连续字节产物统一使用可增长的 `payload-buffer`；实际分配达到
+  `256 KiB` 前使用普通堆，达到阈值后迁移到匿名私有映射。映射由最终不可变 `Bytes` 直接拥有，最后一个
+  所有者 Drop 时由 Linux、macOS、Windows 的虚拟内存实现解除映射，不等待通用堆决定是否清理 arena。
+  已经由网络栈提供的单块共享 `Bytes` 仍直接复用，不为采用该原语而额外复制。
+- `Content-Length`/`size_hint` 只能作为不超过现有单对象硬上限的初始容量提示；实际累计长度仍逐块使用
+  checked arithmetic 验证。不得按端点理论最大值预留，不新增进程总量、并发 Semaphore、429 或机器规格
+  配置。
+- HTTP 系统日志捕获把同一份最终字节所有权移动进遥测队列，不再为 SQLite 写入复制完整 Body；队列字节
+  准入必须同时携带堆 capacity 或映射长度，继续满足 ADR-0114 的真实 owned bytes 计量。原始交换记录是
+  move-only；Writer 把整个批次按值交给 Storage，SQLite 参数绑定只借用批次中的字节，禁止为了跨异步边界
+  恢复通用 `Clone` 或深拷贝 Body。
+- 同协议 buffered JSON 响应必须保留原始 wire bytes，使用无完整对象树分配的 JSON 校验和借用字段扫描
+  提取 token usage、Continuation ID 与待改写的顶层 model；只有跨协议 Bridge 确实需要结构转换时才允许
+  materialize 完整 `serde_json::Value`。不得为直通转发复制大字符串、图片 base64 或未来未知字段。
+- Composition Root 在发生过请求活动且当前活动请求为零时，低频调用平台原生的进程堆压力释放：Linux
+  GNU 使用 `malloc_trim(0)`，macOS 使用 `malloc_zone_pressure_relief(NULL, 0)`，Windows 使用
+  `HeapSetInformation(NULL, HeapOptimizeResources, ...)` 并传入当前版本的初始化参数结构；不提供该能力的
+  平台保持安全 no-op。原生 FFI 只允许存在于独立、可审计的 `memory-reclaimer` crate，其他 Workspace
+  继续禁止 unsafe；macOS/Windows 原生 CI 必须实际运行映射与回收基础测试后再链接 release 二进制。
+- SQLite 写连接保持单连接串行语义并由周期遥测维护复用；最多 8 条读连接中的闲置连接统一在 60 秒后
+  回收。Tokio 与 HTTP Transport 继续使用各自已有的空闲线程/连接池生命周期，不按请求创建永久线程。
+
+该策略不替换系统分配器，也不承诺空闲 RSS 精确等于冷启动 RSS；连接池、运行时栈、代码页和仍被复用的
+小对象会形成稳定基线。目标是在 Linux、macOS、Windows 上让大块短命工作集具有确定的页归还路径，并在
+请求突发结束后回收通用堆能够安全释放的空页。完整决策见
+`docs/adr/0119-cross-platform-transient-memory-reclamation.md`。
+
 ## 5. 总体架构
 
 ```mermaid
@@ -304,6 +339,8 @@ any2api/
 │  └─ adr/                       # 架构决策记录
 ├─ crates/
 │  ├─ domain/                    # ID、路由、错误、状态和领域不变量
+│  ├─ payload-buffer/            # 小堆/大匿名映射聚合与精确所有权计量
+│  ├─ memory-reclaimer/          # Linux/macOS/Windows 进程堆压力释放 FFI 边界
 │  ├─ protocol/
 │  │  └─ src/
 │  │     ├─ api/                # ProtocolAdapter、中立载荷与 Exchange 契约
@@ -398,14 +435,16 @@ any2api/
 `A -> B` 表示 A 可以依赖 B。允许的主要方向：
 
 ```text
-protocol  -> domain
-provider  -> domain
+protocol  -> domain + payload-buffer
+provider  -> domain + payload-buffer
 transport -> domain
 storage   -> domain
-runtime   -> domain + protocol + provider + transport + storage 的公开接口
+payload-buffer -> 独立的跨平台临时字节所有权原语；不依赖业务 crate
+memory-reclaimer -> 独立的跨平台进程堆压力释放端口
+runtime   -> domain + payload-buffer + protocol + provider + transport + storage 的公开接口
 updater   -> 独立的 GitHub Release、文件替换与进程重启请求端口
-server    -> domain + runtime + updater 的公开接口
-app       -> server + runtime + updater + 所有具体 Adapter
+server    -> domain + payload-buffer + runtime + updater 的公开接口
+app       -> memory-reclaimer + server + runtime + updater + 所有具体 Adapter
 ```
 
 额外约束：
@@ -428,6 +467,7 @@ cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 cargo nextest run --locked --workspace --all-features
 cargo test --locked --doc --workspace
 cargo build --locked --release --workspace
+cargo build --locked --release（macOS 与 Windows 原生 runner）
 cargo deny check
 cargo xtask architecture-check
 web: typecheck + lint + unit test + production build
@@ -1268,7 +1308,7 @@ RPM 窗口、Credential 启停或代理可用性频繁增删模型。跨协议�
 - Images 普通成功响应保留上游 JSON 原始字段，只在已知 `model` 字段恢复公开模型名，并把 usage 投影到通用 TokenUsage；SSE 保留已知事件与图片数据，只改写已知模型字段，并从 `image_generation.completed`、`image_edit.completed` 的 usage 提取遥测。图片事件没有文本 content delta，不伪造首 Token。
 - Images 使用专用硬安全边界：编辑请求聚合 Body 最大 `64 MiB`，buffered 成功 JSON 最大 `64 MiB`，单个 SSE 帧与预提交编码后帧最大 `64 MiB`。普通公开请求继续使用 `32 MiB`，普通 buffered JSON 继续使用 `16 MiB`，普通 SSE 继续使用 SettingRegistry 的流式预算。
 - 公开请求不设置进程级总内存预算、加权内存 Semaphore、Permit 或基于预计工作集的本地 `429`。并发请求不得因端点理论最大 Body、buffered/SSE 硬上限或 Continuation 最大状态而预占尚未实际分配的内存；机器可承载的并发量由实际工作集、分配器与操作系统资源决定，不在应用层另设总量阈值。
-- HTTP Body 必须由公共 `PublicBody` 提取器按操作取得 Runtime 的 `request_body_limit`，并交给 `collect_body` 逐块读取；这是公共路由请求体大小的唯一执行点，不再叠加不会被该自定义提取器读取的 Axum `DefaultBodyLimit` 扩展。每个数据块写入聚合缓冲区前以 checked arithmetic 检查对应操作的 `32 MiB`/`64 MiB` 单请求硬上限，不按理论最大值预分配，也不信任 `Content-Length` 代替实际累计。zstd 在 blocking 任务中以固定小块增量解压，通过 `max + 1` 哨兵检测解压上限；Server 只允许同时执行 2 个 zstd 解压作业，等待许可不产生本地拒绝、不预留 Body 字节，也不参与 Route、RPM 或 Credential 准入。取得许可后，压缩输入和许可必须一起移入进程级 TaskTracker 管理的 blocking closure，客户端取消只能丢弃等待结果，不能让仍在运行的不可取消 closure 丢失输入、提前归还许可或越过停机收尾。协议和 Transport 继续复用共享 `Bytes`、按实际输出构造缓冲并执行既有 buffered/SSE 单响应硬上限；EOF、错误、断连、取消和 Drop 按所有权自然释放真实分配，不附加估算容量 Guard。
+- HTTP Body 必须由公共 `PublicBody` 提取器按操作取得 Runtime 的 `request_body_limit`，并交给 `collect_body` 逐块读取；这是公共路由请求体大小的唯一执行点，不再叠加不会被该自定义提取器读取的 Axum `DefaultBodyLimit` 扩展。每个数据块写入聚合缓冲区前以 checked arithmetic 检查对应操作的 `32 MiB`/`64 MiB` 单请求硬上限，不按理论最大值预分配，也不信任 `Content-Length` 代替实际累计；不超过当前单对象上限的 `Content-Length`/`size_hint` 只可作为初始容量提示。多块聚合跨过 `256 KiB` 后转入匿名映射，最终共享 `Bytes` 持有实际堆 capacity 或映射长度；最后一个所有者 Drop 直接解除大映射。zstd 在 blocking 任务中以固定小块增量解压，通过 `max + 1` 哨兵检测解压上限，并把实际解压产物写入同一映射缓冲；Server 只允许同时执行 2 个 zstd 解压作业，等待许可不产生本地拒绝、不预留 Body 字节，也不参与 Route、RPM 或 Credential 准入。取得许可后，压缩输入和许可必须一起移入进程级 TaskTracker 管理的 blocking closure，客户端取消只能丢弃等待结果，不能让仍在运行的不可取消 closure 丢失输入、提前归还许可或越过停机收尾。最终 Body 需要重新执行 zstd 压缩、Provider Profile 规范化或 multipart 重编码时，同样按实际写入增长并让大产物由映射所有；不得在映射输入之外再建立一个同量级普通 `Vec` 高水位。协议和 Transport 继续复用共享 `Bytes` 并执行既有 buffered/SSE 单响应硬上限；EOF、错误、断连、取消和 Drop 按所有权自然释放真实分配，不附加估算容量 Guard。匿名映射和空闲堆压力释放只是实际分配的存储/归还策略，不构成 ADR-0082 已删除的全局内存准入。
 - Images 的等待响应头、buffered body 空闲、首个 SSE 事件、提交后 SSE 空闲和提交前总预算使用当前设置与 `180s` 的较大值。最终上游非 2xx 仍按第 11.8 节原样返回状态、允许 Header 和有界正文，不由 Images Adapter 重建错误。
 
 完整决策见 `docs/adr/0054-openai-images-api.md` 与 `docs/adr/0117-openai-images-chat-completions-bridge.md`。
@@ -1636,8 +1676,13 @@ TPM（Tokens Per Minute）不实现：输出 Token 事前未知，Provider 的�
 7. 从 Route + fallback tier 的稳定轮询游标开始选择
 ```
 
-同一 tier 内按循环顺序尝试所有候选；一个账号 RPM 用尽时，未建立会话绑定的请求可以继续
-尝试其他账号，已绑定请求只等待原 Credential。首批不增加独立 `weight`，避免形成第二套吞吐配置。
+同一 tier 内的最小可执行单位是 `AttemptPath`：RouteTarget、ProtocolOperation、RoutingCredential
+generation、Endpoint config generation 与解析后的 EffectiveProxy config generation。按稳定完整候选环
+的游标位置循环扫描所有候选，禁止先压缩成会改变取模身份的 eligible 数组。成功选择若跨过 N 个被健康、
+排除或 RPM 过滤的槽位，稳定游标必须额外前进 N，使下一次从本次实际选中槽位之后开始；不得让失效槽位
+后方的健康 Credential 长期取得额外流量。全健康快路径仍只有原有的一次原子游标预留，只有实际跳过槽位
+时才增加一次无锁原子推进。一个账号 RPM 用尽时，未建立会话绑定的请求可以继续尝试其他账号，已绑定请求
+只等待原 Credential。首批不增加独立 `weight`，避免形成第二套吞吐配置。
 运行时 filtered 计数表示至少一次因该原因跳过某凭据的请求数：同一公开请求或固定会话请求内，同一 `RoutingCredentialId` 与同一过滤原因最多累加一次。全局 epoch 广播、健康/RPM 到期定时器或超时边界引起的重新选择不得重复累加；同一请求先后遇到不同原因时仍分别计数，最终成功选中仍独立累加 selected。
 
 ### 12.3 RPM 预留与 `in_flight` Guard
@@ -1740,6 +1785,8 @@ RuntimeRegistry
 ├─ credentials: CredentialId -> Arc<CredentialRuntimeHandle>
 ├─ proxies: (ProxyId, ConfigVersion) -> Arc<ProxyRuntime>
 ├─ endpoints: (EndpointId, ConfigVersion) -> Arc<EndpointRuntime>
+├─ egress_paths: (EndpointGeneration, EffectiveProxyGeneration) -> Arc<EgressPathRuntime>
+├─ candidate_paths: AttemptPathGeneration -> Arc<CandidatePathRuntime>
 ├─ scheduler_epoch
 └─ waiting_count
 ```
@@ -1751,6 +1798,11 @@ RuntimeRegistry
 - `CredentialRuntimeBinding` 按 PublishedSnapshot 固化 RPM 限额和认证代际；Handle 只共享滚动时间戳、`in_flight`、等待者和观测计数；
 - 每个 PublishedSnapshot 的有序 `RoutingCredential` 投影是 `CredentialRuntimeBinding` 引用的唯一持有集合；需要全量 Runtime 视图时直接借用迭代该投影，禁止再维护一份重复 `Arc` 向量；
 - Endpoint、Proxy 健康状态按配置版本隔离；
+- EgressPath 与 CandidatePath 只为当前配置实际访问过的组合按需创建；新的 PublishedSnapshot 只复用 target、
+  Credential routing generation、Endpoint generation 和 EffectiveProxy generation 均未变化的状态，旧状态
+  由退役快照与 Attempt 的最后一个 Arc 自然回收。Registry 的强引用集合必须按当前配置可生成的精确
+  候选组合裁剪；配置换代后，迟到的旧快照可以继续使用自己取得的 Arc，但不得把已退役路径重新插回
+  Registry；
 - 热更新不得把仍有限制的共享 RPM 窗口或 `in_flight` 重置为零。OAuth refresh 与同身份重新授权只创建新的认证健康；修改 URL、API Secret、ProviderKind、重新启用账号等身份边界必须创建新的路由健康代际；
 - `QueueCoordinator` 与 waiting count 跨 PublishedSnapshot 复用；`QueuePolicy` 按值进入具体快照，同一请求在整个等待期只使用其已持有 revision 的策略，禁止从共享可变对象读取新 revision 的队列参数；
 - 删除的对象立即从新快照候选中移除，但不得在共享 Handle 上设置会反向影响旧 Binding 的 `retired` 开关；
@@ -1796,7 +1848,9 @@ NoRoute
 | OAuth Token 认证失败 | OAuth authentication version |
 | Provider 明确报告 OAuth 账号额度耗尽 | OAuth account routing generation |
 | 模型不支持、模型级 429 | Credential + Model |
-| Provider 连接正常但上游整体 5xx/过载 | Provider Endpoint |
+| 状态码基线或其他证据不足的安全拒绝 | Exact AttemptPath |
+| Endpoint 拒绝某个代理出口 IP/区域，或代理到目标的 CONNECT/SOCKS/TLS 失败 | Endpoint generation + EffectiveProxy generation |
+| Provider 明确声明与账号、模型和出口无关的整体故障 | Provider Endpoint |
 | HTTP/SOCKS5 握手、认证或代理连接失败 | ProxyProfile + ConfigVersion |
 | DIRECT 网络错误 | Endpoint 或网络尝试，不开启 Proxy 熔断 |
 
@@ -2000,13 +2054,13 @@ Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必
 | 错误类型 | 是否重试 | 状态影响 |
 |---|---|---|
 | 请求格式错误、普通 400 | 否 | 不惩罚 Credential；仅 Provider 声明 envelope 中的精确额度 code/type 可细化为 Credential 级额度冷却 |
-| 401 | 当前 authentication version 进入 `auth_error`，不在已开始的请求内刷新重试 | API Key 等待管理员轮换或测试恢复；OAuth 刷新后使用全新认证健康 |
+| 401 | 未绑定请求可切换其他候选；OAuth 最多按需刷新一次，同身份刷新失败或二次 401 后仍可换账号 | 仅结构化认证证据进入 authentication version；状态码基线只影响 Exact AttemptPath |
 | 402/403 | 由 Provider Driver 分类 | Credential 级冷却或停用 |
-| 404 | 由 Driver 判断模型、路径或 Response ID | 仅确认模型不支持时冷却 Credential + Model |
+| 404 | 由 Driver 判断模型、操作、路径或 Response ID；安全且未绑定时可换候选 | 仅确认模型/操作不支持时扩大作用域，否则只影响 Exact AttemptPath |
 | 408/425 | `RejectedBeforeExecution`，Pending 且预算允许时重试 | 短暂错误计数 |
 | 409/413/422 | 否；作为 `InvalidRequest + Ambiguous` 透明返回 | 不惩罚 Credential、Endpoint 或 Proxy |
-| 429 | 未绑定请求可切换；已绑定请求不切换 | Credential + Model 冷却并尊重 Retry-After |
-| 500/502/503/504 | 仅在 RetrySafety 允许时重试 | Endpoint 短暂错误计数与退避 |
+| 429 | 未绑定请求可切换；已绑定请求不切换 | 状态码基线只冷却 Exact AttemptPath；明确模型/账号证据才扩大并尊重 Retry-After |
+| 500/502/503/504 | 仅在 RetrySafety 允许时重试 | 普通 5xx 为 Ambiguous 且只计 Exact AttemptPath；明确整体故障才影响 Endpoint |
 | 代理连接错误 | 未绑定请求可切换；已绑定请求不切换 | Proxy Runtime 短暂降级，不回退 DIRECT |
 | 客户端取消 | 否 | 不惩罚 Credential |
 | 流式响应提交后错误 | 否 | 以 Body 错误终止连接，不生成协议事件 |
@@ -2028,7 +2082,7 @@ HTTP 状态码本身不能证明账号级语义。尤其是 OAuth 管理请求�
 - `ProviderDriver::classify_error` 返回强类型 `UpstreamError`：其中的 `UpstreamErrorClassification` 包含上游错误种类、`RetrySafety` 与可选 `Retry-After`，可选管理日志消息只来自当前 Provider 已声明的结构化错误 envelope；禁止让 Provider Driver 返回代理、DNS、取消或 Runtime 内部错误，也禁止用分类结果生成客户端错误正文；
 - `UpstreamErrorKind` 在 Domain 中维护唯一默认重试安全性表：认证、权限、额度、限流、模型和操作拒绝默认为 `RejectedBeforeExecution`，请求错误、临时错误和未知错误默认为 `Ambiguous`。Provider 不得复制该表；共享 HTTP 状态分类器只有在状态本身提供更强执行证据时才能覆盖默认值，Provider 正文做相容 kind 细化时采用新 kind 的领域默认安全性，否则保留已有 HTTP 状态证据；
 - HTTP 状态先建立不可矛盾的分类基线，Provider 正文只能做相容细化：401 固定为认证错误；5xx、408、425 固定为临时上游错误，但只有标准明确表示请求未执行的 408/425 使用 `RejectedBeforeExecution`，5xx 保持 `Ambiguous`；409、413、422 固定为 `InvalidRequest + Ambiguous`，不因官方 SDK 的宽松重试策略自动重放非幂等生成请求，其中 409 需要调用方解决资源状态冲突，413/422 分别表示内容过大和语义不可处理；429 可以细分为限流或已确认额度耗尽；400 默认仍是普通请求错误，但 Provider 在已声明 envelope 字段中识别出的精确额度 code/type 可以细化为 `QuotaExhausted`，因为这仍表示上游在执行前拒绝当前 Credential。421 对非幂等方法的标准重试要求不同连接，当前池化 Transport 无法提供该证明，因此保持 `Unknown + Ambiguous`。禁止按自然语言消息、任意嵌套字段或模糊子串猜测额度，正文也不得把其他固定状态改写成不同健康作用域；
-- `TransportError` 的失败阶段与健康归因正交；`TransportFailureScope` 只允许 `Endpoint / Proxy / Unattributed`。只有可验证的 Endpoint 或 Proxy 故障才更新对应熔断器，reqwest 无法区分 CONNECT/SOCKS/目标 TLS 来源时使用 `Unattributed`，对两类健康状态均保持 neutral；
+- `TransportError` 的失败阶段与健康归因正交；`TransportFailureScope` 允许 `Endpoint / Proxy / EgressPath / Unattributed`。代理地址连接、认证和 407 归 Proxy；代理后的 CONNECT/SOCKS/目标 TLS 与无法进一步拆分的代理到目标故障归 EgressPath；DIRECT 目标故障归 Endpoint；只有完全无法证明组合路径时才使用 Unattributed；
 - 标准 `Retry-After` 同时支持 delta-seconds 与 HTTP-date；Claude 还按官方 SDK 语义优先读取毫秒级 `retry-after-ms`，该扩展缺失或非法时才回落标准 Header。两者都规范化为同一个有界 `RetryAfterHint`，异常大值最多产生 30 天冷却；最终 Attempt 仍可按 Provider 响应白名单透明返回 `Retry-After`、`retry-after-ms`、`x-should-retry` 和限流观测 Header。非 2xx 正文使用独立收集路径，在读取阶段即受 64 KiB 上限约束，完整取得时作为不透明字节返回客户端并把声明 envelope 中的原始 `message` 写入有界管理日志。正文超限、超时或中途断开时以空正文执行 HTTP 状态基线分类，但不得生成固定消息、覆盖已经收到的状态与 Header，或把该响应改写成本地错误；被重试掉的 Header、消息与正文全部丢弃；
 - 429 与确认的模型错误只更新当前 Credential `routing_generation` 下的 Credential + upstream model 冷却；401 只把当前 `authentication_version` 标记为 `auth_error`；402/权限类错误使用 routing-generation-scoped Credential 冷却；
 - 上游 5xx/过载只更新 Endpoint config generation；代理连接/握手错误只更新 Proxy config generation；DIRECT 的 DNS/TCP 错误归入 Endpoint，禁止把 Provider 429/5xx 误判为代理故障；
@@ -2036,7 +2090,10 @@ HTTP 状态码本身不能证明账号级语义。尤其是 OAuth 管理请求�
 - 冷却或熔断到期由 `SchedulerEpoch` 的单个 keyed-slot worker 合并并推进统一 `scheduler_epoch`；同一健康状态重排 deadline 不增加任务，等待请求仍直接监听本轮最早 `retry_at` 并使用同一个有界 QueueTicket，不创建健康模块私有队列；
 - 健康预检查与 HalfOpen Guard 获取之间发生竞态时，必须在任何上游 I/O 前按唯一令牌原子回滚本次 RPM 预留、精确释放 Credential `in_flight` Guard、移除当前候选并继续选择同 tier 其他候选，并在确实删除窗口记录后推进统一 epoch；回滚与预留使用同一个 Credential 窗口 Mutex，不能删除其他 Attempt 的名额或并发超发。只有该 tier 确实没有可执行候选时才等待或返回临时不可用；健康 Guard 一旦成功取得，后续失败不再归还 RPM；
 - 每个请求在第一次上游 Attempt 前固定当前 PublishedSnapshot 的重试、冷却与熔断策略；热更新只影响之后开始的请求和之后记录的失败；
-- 同一个失败路径在当前请求内会被排除，避免在全局熔断阈值尚未达到时立即重复选择同一坏 Endpoint 或 Proxy；
+- 同一个失败路径在当前请求内会被精确排除。已证明 Credential、Proxy、EgressPath 或 Endpoint 责任时排除
+  对应作用域；证据不足时只排除 Exact AttemptPath。安全重试在同一 tier 内优先选择 Credential 与
+  EgressPath 都未尝试的候选，再选择新 Credential、新 EgressPath 和其他未尝试候选，避免有限预算连续
+  撞击同一未知坏路径；
 - 5xx、409、成功响应头后的 Body/SSE 读取失败与“请求已写出但响应丢失”等不确定结果保持 `Ambiguous`；只有 408、425 等具备协议级未执行证据的响应，以及 ADR-0118 定义的“任何语义事件前、精确协议代码声明的过载拒绝”才能使用 `RejectedBeforeExecution`。后者只排除当前请求中的失败凭据并对 Endpoint/Proxy 保持 neutral，不能扩张为自然语言匹配、一般 5xx 或内容出现后的 at-least-once 重试；完整依据见 `docs/adr/0093-evidence-based-precommit-retry-safety.md`、`docs/adr/0098-http-409-413-422-error-matrix.md` 与 `docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md`；
 - 外部 `Retry-After` 延迟按 30 天上限归一化；时间转换和 deadline 使用可失败加法，禁止溢出后退回当前时刻导致立即恢复；
 - 上游成功后的本地响应编码、模型恢复或粘性提交错误仍按上游健康成功结算；必须先解析 HalfOpen 探测，再释放 Credential 运行态 Guard，最后返回本地错误；
@@ -2090,10 +2147,17 @@ request_attempts
 ├─ error_class
 ├─ error_message          # 本地失败消息，或最终 Provider 已声明 envelope 中的原始 message
 ├─ status_code
+├─ routing_mode
+├─ failure_scope
+├─ retry_decision
 └─ outcome
 ```
 
 RequestLog 保存请求最终结果，RequestAttempt 保存调度与切换过程。
+
+`routing_mode`、`failure_scope` 与 `retry_decision` 只保存稳定枚举和非敏感 ID 作用域，不保存 Key、Token、
+代理密码、URL 或原始响应正文。它们只用于已认证的请求详情与验证，不参与重启后的任何运行态恢复。
+完整候选路径与故障归因决策见 `docs/adr/0120-failure-attributed-candidate-path-balancing.md`。
 
 管理面可从 RequestLog 按 `gateway_api_key_id` 聚合总请求数、成功数、失败数和最近 1 小时固定时间桶。聚合只读取最终 RequestLog，不把每次 Attempt 重复计入，也不恢复任何运行态状态。
 

@@ -183,7 +183,7 @@ describe("parseOAuthAccountConfiguration", () => {
             stage: "token_endpoint",
             reason: "refresh_token_reused",
             upstream_status: 400,
-            failure_scope: null,
+            failure_scope: "egress_path",
             occurred_at: 1_800_000_100,
             reauthorization_required: true,
           },
@@ -212,6 +212,7 @@ describe("parseOAuthAccountConfiguration", () => {
         stage: "token_endpoint",
         reason: "refresh_token_reused",
         upstreamStatus: 400,
+        failureScope: "egress_path",
         reauthorizationRequired: true,
       },
       usage: {

@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
 use any2api_domain::{
-    ModelRouteId, ProtocolDialect, ProviderEndpointId, PublicModelName, RouteTargetId,
-    UpstreamModelName,
+    ModelRouteConfiguration, ModelRouteId, ProtocolDialect, ProviderEndpointId, PublicModelName,
+    RouteTargetId, UpstreamModelName,
 };
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
 use uuid::Uuid;
 
-use super::{CandidateRequirements, RouteCandidate};
+use super::{CandidateRequirements, RouteCandidate, route::path_health};
 use crate::configuration::PublishedSnapshot;
 
 #[derive(Clone, Copy)]
@@ -108,21 +108,30 @@ pub(super) fn add_oauth_candidates(
         if !proxy.enabled() {
             continue;
         }
+        let target_id = oauth_target_id(
+            route.route_id,
+            credential.endpoint_id(),
+            credential.upstream_protocol(),
+        );
+        let (egress_path_health, candidate_path_health) =
+            path_health(snapshot, target_id, requirements.operation(), credential);
         tiers.entry(0).or_default().push(RouteCandidate {
-            target_id: oauth_target_id(
-                route.route_id,
-                credential.endpoint_id(),
-                credential.upstream_protocol(),
-            ),
+            target_id,
+            operation: requirements.operation(),
             endpoint_id: credential.endpoint_id(),
+            endpoint_config_version: credential.endpoint_config_version(),
             credential_id: credential.id(),
+            routing_generation: credential.binding().generation().routing_generation(),
             provider_kind: credential.provider_kind(),
             base_url: credential.base_url().clone(),
             upstream_model: model.as_str().to_owned(),
             upstream_protocol_dialect: credential.upstream_protocol(),
             proxy_id: proxy.id(),
+            proxy_config_version: credential.proxy_config_version(),
             endpoint_health: snapshot.endpoint_health(credential.endpoint_id()).cloned(),
             proxy_health: snapshot.proxy_health(proxy.id()).cloned(),
+            egress_path_health,
+            candidate_path_health,
             binding: credential.binding().clone(),
         });
     }
@@ -130,7 +139,7 @@ pub(super) fn add_oauth_candidates(
 
 const OAUTH_TARGET_NAMESPACE: Uuid = Uuid::from_u128(0x61ad_9f3e_7da0_5cb5_95af_7fe5_9b67_97b2);
 
-fn oauth_target_id(
+pub(super) fn oauth_target_id(
     route_id: ModelRouteId,
     endpoint_id: ProviderEndpointId,
     dialect: ProtocolDialect,
@@ -147,4 +156,18 @@ pub(crate) fn oauth_route_id(
 ) -> ModelRouteId {
     let identity = format!("{}\0{}", dialect.as_str(), public_model.as_str());
     ModelRouteId::from_uuid(Uuid::new_v5(&OAUTH_ROUTE_NAMESPACE, identity.as_bytes()))
+}
+
+pub(crate) fn resolved_oauth_route_id(
+    routes: &ModelRouteConfiguration,
+    dialect: ProtocolDialect,
+    public_model: &PublicModelName,
+) -> ModelRouteId {
+    routes
+        .resolve(dialect, public_model)
+        .filter(|route| route.enabled())
+        .map_or_else(
+            || oauth_route_id(dialect, public_model),
+            any2api_domain::ModelRoute::id,
+        )
 }

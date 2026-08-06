@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
 use any2api_domain::{
-    OAuthAccountDraft, OAuthAccountId, ProtocolDialect, ProtocolOperation, ProviderKind,
-    PublicModelName, TransportMode,
+    FallbackTier, ModelRoute, ModelRouteConfiguration, ModelRouteDraft, ModelRouteId,
+    OAuthAccountDraft, OAuthAccountId, ProtocolDialect, ProtocolOperation, ProviderEndpoint,
+    ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
+    PublicModelName, RouteTargetDraft, RouteTargetId, TransportMode,
 };
 use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry, api::RequestExecutionProfile};
 use any2api_provider::{GrokDriver, api::ProviderRegistry};
@@ -11,7 +13,59 @@ use any2api_storage::api::OAuthAccountDocument;
 use super::{PublisherFixture, publisher_fixture};
 use crate::routing::{
     CandidateRequirements, OAuthRoute, build_oauth_route_candidates, oauth_route_id,
+    resolved_oauth_route_id,
 };
+
+#[test]
+fn disabled_explicit_route_uses_the_synthetic_oauth_identity() {
+    let model = PublicModelName::new("oauth-only-model").expect("public model");
+    let explicit_id = ModelRouteId::new();
+    let endpoint_id = ProviderEndpointId::new();
+    let endpoint = ProviderEndpoint::create(
+        endpoint_id,
+        ProviderEndpointDraft::new(
+            "disabled route endpoint",
+            ProviderKind::Codex,
+            "https://api.example.com",
+            ProtocolDialect::OpenAiResponses,
+            true,
+        )
+        .expect("endpoint draft"),
+    )
+    .expect("endpoint");
+    let disabled = ModelRoute::create(
+        explicit_id,
+        ModelRouteDraft::new(
+            model.as_str(),
+            ProtocolDialect::OpenAiResponses,
+            None,
+            false,
+            vec![
+                RouteTargetDraft::new(
+                    RouteTargetId::new(),
+                    endpoint_id,
+                    model.as_str(),
+                    ProtocolDialect::OpenAiResponses,
+                    FallbackTier::default(),
+                    true,
+                )
+                .expect("target draft"),
+            ],
+        )
+        .expect("disabled route draft"),
+    );
+    let endpoints =
+        ProviderEndpointConfiguration::new(vec![endpoint]).expect("endpoint configuration");
+    let routes =
+        ModelRouteConfiguration::new(vec![disabled], &endpoints).expect("route configuration");
+
+    let resolved = resolved_oauth_route_id(&routes, ProtocolDialect::OpenAiResponses, &model);
+    assert_ne!(resolved, explicit_id);
+    assert_eq!(
+        resolved,
+        oauth_route_id(ProtocolDialect::OpenAiResponses, &model)
+    );
+}
 
 #[tokio::test]
 async fn grok_oauth_routes_responses_but_not_compact() {
