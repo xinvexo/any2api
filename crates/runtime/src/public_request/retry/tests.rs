@@ -3,11 +3,12 @@ use std::{sync::Arc, time::Duration};
 use any2api_domain::{
     CredentialId, CredentialKind, CredentialSecretFingerprint, OAuthAccountId, ProtocolDialect,
     ProtocolOperation, ProviderBaseUrl, ProviderCredential, ProviderCredentialDraft,
-    ProviderEndpointId, ProviderKind, ProxyProfileId, RetrySafety, RouteTargetId,
-    RoutingCredentialId, SettingsConfiguration, UpstreamError, UpstreamErrorClassification,
-    UpstreamErrorKind, UpstreamFailureAttribution,
+    ProviderEndpointId, ProviderKind, ProxyProfileId, RequestAttemptFailureScope, RetrySafety,
+    RouteTargetId, RoutingCredentialId, SettingsConfiguration, UpstreamError,
+    UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
 };
 use any2api_protocol::api::RequestExecutionProfile;
+use any2api_protocol::api::StreamRetryReason;
 use any2api_transport::api::{TransportError, TransportErrorStage, TransportFailureScope};
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -15,7 +16,9 @@ use tokio::time::Instant;
 
 use super::{
     budget::RetryBudget,
-    decision::{RetryDecision, RetryExclusion, exclude_failed_path, retry_decision},
+    decision::{
+        RetryDecision, RetryExclusion, exclude_failed_path, retry_decision, telemetry_failure_scope,
+    },
     within_attempt_budget,
 };
 use crate::{
@@ -153,6 +156,16 @@ fn bound_requests_never_switch_credentials_or_targets() {
         retry_decision(&transient, &budget, candidate.credential_id, false),
         RetryDecision::RetrySamePath(_)
     ));
+
+    let stream_rate_limit = AttemptFailure::StreamRejected {
+        candidate: Box::new(candidate.clone()),
+        bound: true,
+        reason: StreamRetryReason::RateLimited,
+    };
+    assert!(matches!(
+        retry_decision(&stream_rate_limit, &budget, candidate.credential_id, false),
+        RetryDecision::RetrySamePath(_)
+    ));
 }
 
 #[test]
@@ -221,6 +234,26 @@ fn credential_model_exclusion_keeps_other_models_and_keys_available() {
     assert!(!exclusions.allows(&failed));
     assert!(exclusions.allows(&same_credential_other_model));
     assert!(exclusions.allows(&other_credential));
+}
+
+#[test]
+fn precontent_rate_limit_stream_reselects_by_credential_model() {
+    let candidate = candidate("rate-limited-stream");
+    let failure = AttemptFailure::StreamRejected {
+        candidate: Box::new(candidate.clone()),
+        bound: false,
+        reason: StreamRetryReason::RateLimited,
+    };
+    let budget = attempted_budget(candidate.credential_id);
+
+    assert_eq!(
+        retry_decision(&failure, &budget, candidate.credential_id, false),
+        RetryDecision::Reselect(RetryExclusion::CredentialModel)
+    );
+    assert_eq!(
+        telemetry_failure_scope(&failure),
+        Some(RequestAttemptFailureScope::CredentialModel)
+    );
 }
 
 #[test]

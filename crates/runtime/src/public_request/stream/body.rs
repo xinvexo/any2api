@@ -208,7 +208,7 @@ impl GuardedBody {
             }
         }
         if let Some(reason) = self.precommit_retry.take() {
-            self.finish_precommit_rejection();
+            self.finish_precommit_rejection(reason);
             return Err(StreamPrimeFailure::Retryable(reason));
         }
         if self.pending_error.is_some() && !self.precommit_commit_ready {
@@ -378,7 +378,7 @@ impl StreamPrimeFailure {
     fn into_public(self) -> PublicError {
         match self {
             Self::Public(error) => error,
-            Self::Retryable(StreamRetryReason::Overloaded) => super::super::response::public_error(
+            Self::Retryable(_) => super::super::response::public_error(
                 any2api_domain::PublicErrorCode::UpstreamError,
                 "upstream stream was rejected before content",
             ),

@@ -4,6 +4,7 @@ use any2api_domain::{
     OAuthAccountId, RequestAttemptFailureScope, RequestAttemptRetryDecision, RoutingCredentialId,
     UpstreamErrorKind, UpstreamFailureAttribution,
 };
+use any2api_protocol::api::StreamRetryReason;
 use any2api_transport::api::TransportFailureScope;
 
 use super::budget::RetryBudget;
@@ -105,9 +106,11 @@ fn retry_exclusion(failure: &AttemptFailure) -> RetryExclusion {
             UpstreamFailureAttribution::EgressPath => RetryExclusion::EgressPath,
             UpstreamFailureAttribution::Unattributed => RetryExclusion::ExactCandidate,
         },
-        AttemptFailure::StreamRejected { .. } | AttemptFailure::Public(_) => {
-            RetryExclusion::ExactCandidate
-        }
+        AttemptFailure::StreamRejected { reason, .. } => match reason {
+            StreamRetryReason::RateLimited => RetryExclusion::CredentialModel,
+            StreamRetryReason::Overloaded => RetryExclusion::ExactCandidate,
+        },
+        AttemptFailure::Public(_) => RetryExclusion::ExactCandidate,
     }
 }
 
@@ -136,7 +139,10 @@ pub(super) fn telemetry_failure_scope(
             UpstreamFailureAttribution::EgressPath => RequestAttemptFailureScope::EgressPath,
             UpstreamFailureAttribution::Endpoint => RequestAttemptFailureScope::Endpoint,
         },
-        AttemptFailure::StreamRejected { .. } => RequestAttemptFailureScope::ExactCandidate,
+        AttemptFailure::StreamRejected { reason, .. } => match reason {
+            StreamRetryReason::RateLimited => RequestAttemptFailureScope::CredentialModel,
+            StreamRetryReason::Overloaded => RequestAttemptFailureScope::ExactCandidate,
+        },
         AttemptFailure::Public(_) => return None,
     })
 }

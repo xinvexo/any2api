@@ -301,6 +301,83 @@ async fn precontent_overload_switches_credentials_without_leaking_the_failed_str
 }
 
 #[tokio::test]
+async fn anthropic_precontent_rate_limit_switches_credentials_without_leaking_the_failed_stream() {
+    let (upstream_address, upstream_requests) =
+        anthropic_rate_limit_then_success_sse_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Claude stream rate-limit retry",
+        "claude",
+        &format!("http://{upstream_address}"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "first-rate-limited",
+        "sk-first-rate-limited",
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "second-rate-success",
+        "sk-second-rate-success",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "claude-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/messages",
+        json!({
+            "model":"claude-upstream",
+            "stream":true,
+            "max_tokens":32,
+            "messages":[{"role":"user","content":"hello"}]
+        }),
+        remote,
+        &[("x-api-key", token)],
+    )
+    .await;
+    assert_stream_headers(&response);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("successful replacement stream")
+        .to_bytes();
+    let body = String::from_utf8(body.to_vec()).expect("Anthropic SSE UTF-8");
+    assert!(body.contains("msg_rate_success"));
+    assert!(body.contains("content_block_delta"));
+    assert!(body.contains("message_stop"));
+    assert!(!body.contains("rate_limit_error"));
+    assert!(!body.contains("msg_rate_rejected"));
+
+    let requests = upstream_requests.await.expect("two upstream attempts");
+    assert_eq!(requests.len(), 2);
+    assert_ne!(
+        requests[0].headers["authorization"],
+        requests[1].headers["authorization"]
+    );
+    assert_eq!(requests[0].body["model"], "claude-upstream");
+    assert_eq!(requests[1].body["model"], "claude-upstream");
+}
+
+#[tokio::test]
 async fn messages_stream_rejects_eof_without_message_stop() {
     let (upstream_address, _upstream_request, release) = paused_sse_server(
         "/v1/messages",
@@ -2152,6 +2229,44 @@ async fn overload_then_success_sse_server() -> (SocketAddr, oneshot::Receiver<Ve
                 )
                 .await;
             }
+            stream
+                .write_all(b"0\r\n\r\n")
+                .await
+                .expect("finish upstream stream");
+        }
+        request_sender
+            .send(requests)
+            .expect("send upstream attempts");
+    });
+    (address, request_receiver)
+}
+
+async fn anthropic_rate_limit_then_success_sse_server()
+-> (SocketAddr, oneshot::Receiver<Vec<UpstreamRequest>>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (request_sender, request_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let mut requests = Vec::with_capacity(2);
+        for attempt in 0..2 {
+            let (mut stream, _) = listener.accept().await.expect("upstream accept");
+            let (path, request) = read_upstream_request(&mut stream).await;
+            assert_eq!(path, "/v1/messages");
+            requests.push(request);
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .expect("upstream response headers");
+            let body = if attempt == 0 {
+                b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{}}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\nevent: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Concurrency limit exceeded for account\"}}\n\n".as_slice()
+            } else {
+                b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_rate_success\",\"model\":\"claude-upstream\",\"content\":[]}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n".as_slice()
+            };
+            write_chunk(&mut stream, body).await;
             stream
                 .write_all(b"0\r\n\r\n")
                 .await

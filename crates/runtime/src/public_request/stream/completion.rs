@@ -1,4 +1,8 @@
-use any2api_domain::{ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, PublicError, PublicErrorCode};
+use any2api_domain::{
+    ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, PublicError, PublicErrorCode, RetrySafety,
+    UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
+};
+use any2api_protocol::api::StreamRetryReason;
 use any2api_transport::api::{TransportError, TransportFailureScope};
 
 use super::{
@@ -140,12 +144,25 @@ impl GuardedBody {
         }
     }
 
-    pub(super) fn finish_precommit_rejection(&mut self) {
+    pub(super) fn finish_precommit_rejection(&mut self, reason: StreamRetryReason) {
         if let Some(health) = self.health.take() {
-            health.stream_rejected();
+            match reason {
+                StreamRetryReason::Overloaded => health.stream_rejected(),
+                StreamRetryReason::RateLimited => {
+                    health.upstream_failure(rate_limited_stream_classification());
+                }
+            }
         }
         if let Some(mut recorder) = self.attempt_recorder.take() {
-            recorder.stream_rejected(self.status_code);
+            match reason {
+                StreamRetryReason::Overloaded => recorder.stream_rejected(self.status_code),
+                StreamRetryReason::RateLimited => recorder.upstream_error(
+                    self.status_code,
+                    RetrySafety::RejectedBeforeExecution,
+                    ErrorClass::RateLimited,
+                    Some("upstream stream was rate limited before content"),
+                ),
+            }
         }
         self.release_guards();
     }
@@ -167,4 +184,13 @@ impl GuardedBody {
     pub(super) fn set_postcommit_idle_timeout_error(&mut self) {
         self.set_pending_error(PendingStreamError::postcommit_idle_timeout());
     }
+}
+
+fn rate_limited_stream_classification() -> UpstreamErrorClassification {
+    UpstreamErrorClassification::new(
+        UpstreamErrorKind::RateLimited,
+        RetrySafety::RejectedBeforeExecution,
+        None,
+    )
+    .with_attribution(UpstreamFailureAttribution::CredentialModel)
 }

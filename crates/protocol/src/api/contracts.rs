@@ -139,6 +139,7 @@ pub struct ProtocolEventTelemetry {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StreamRetryReason {
     Overloaded,
+    RateLimited,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

@@ -58,7 +58,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
 29. OAuth Token 刷新失败不得折叠成单一“认证失败”。Runtime 必须按当前 `token_version` 保留最近一次安全诊断，明确刷新触发来源、失败阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间及是否必须重新授权；管理 API、Web 账号卡片和普通结构化日志使用同一分类，重新授权或成功 Token 换代后旧诊断自动失效。
-30. 流式上游在任何语义输出可见前以协议声明的精确过载代码拒绝请求时，Runtime 可以在既有预提交预算内丢弃尚未下发的生命周期控制帧并重新选择凭据；未知错误、自然语言匹配、已经出现内容/工具调用等语义事件以及任何下游提交后的失败均不得进入该路径。请求日志和历史统计必须按最终流结果而不是只按初始 HTTP 状态判断成功，避免把 `HTTP 200 + stream_error` 伪装为成功。
+30. 流式上游在任何语义输出可见前以协议声明的精确准入拒绝（包括已审计的过载与 Anthropic `rate_limit_error`）拒绝请求时，Runtime 可以在既有预提交预算内丢弃尚未下发的生命周期控制帧并重新选择凭据；未知错误、自然语言匹配、已经出现内容/工具调用等语义事件以及任何下游提交后的失败均不得进入该路径。`rate_limit_error` 只有在完整的 Anthropic SSE `error` envelope 中出现且仍处于 Pending 时才具有该语义；它按 Credential + upstream model 归因，不能扩展为固定并发限制或跨会话绑定切换。请求日志和历史统计必须按最终流结果而不是只按初始 HTTP 状态判断成功，避免把 `HTTP 200 + stream_error` 伪装为成功。完整边界见 `docs/adr/0121-anthropic-precontent-rate-limit-retry.md`。
 
 ### 2.1 两类凭据的术语边界
 
@@ -2094,7 +2094,7 @@ HTTP 状态码本身不能证明账号级语义。尤其是 OAuth 管理请求�
   对应作用域；证据不足时只排除 Exact AttemptPath。安全重试在同一 tier 内优先选择 Credential 与
   EgressPath 都未尝试的候选，再选择新 Credential、新 EgressPath 和其他未尝试候选，避免有限预算连续
   撞击同一未知坏路径；
-- 5xx、409、成功响应头后的 Body/SSE 读取失败与“请求已写出但响应丢失”等不确定结果保持 `Ambiguous`；只有 408、425 等具备协议级未执行证据的响应，以及 ADR-0118 定义的“任何语义事件前、精确协议代码声明的过载拒绝”才能使用 `RejectedBeforeExecution`。后者只排除当前请求中的失败凭据并对 Endpoint/Proxy 保持 neutral，不能扩张为自然语言匹配、一般 5xx 或内容出现后的 at-least-once 重试；完整依据见 `docs/adr/0093-evidence-based-precommit-retry-safety.md`、`docs/adr/0098-http-409-413-422-error-matrix.md` 与 `docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md`；
+- 5xx、409、成功响应头后的 Body/SSE 读取失败与“请求已写出但响应丢失”等不确定结果保持 `Ambiguous`；只有 408、425 等具备协议级未执行证据的响应，以及 ADR-0118/ADR-0121 定义的“任何语义事件前、精确协议代码/错误类型声明的准入拒绝”才能使用 `RejectedBeforeExecution`。后者只排除当前请求中的失败凭据（Anthropic `rate_limit_error` 进一步按 Credential + upstream model 排除）并对 Endpoint/Proxy 保持 neutral，不能扩张为自然语言匹配、一般 5xx 或内容出现后的 at-least-once 重试；完整依据见 `docs/adr/0093-evidence-based-precommit-retry-safety.md`、`docs/adr/0098-http-409-413-422-error-matrix.md`、`docs/adr/0118-precontent-overload-rejection-and-final-stream-outcome.md` 与 `docs/adr/0121-anthropic-precontent-rate-limit-retry.md`；
 - 外部 `Retry-After` 延迟按 30 天上限归一化；时间转换和 deadline 使用可失败加法，禁止溢出后退回当前时刻导致立即恢复；
 - 上游成功后的本地响应编码、模型恢复或粘性提交错误仍按上游健康成功结算；必须先解析 HalfOpen 探测，再释放 Credential 运行态 Guard，最后返回本地错误；
 - RequestLog 与 Attempt 持久化到 SQLite，并继续用它们驱动本地查询；它们只属于历史遥测，不参与启动时的 RPM 窗口、`in_flight`、队列、粘性或健康状态恢复。
@@ -2123,7 +2123,7 @@ Ambiguous                  # 可能已经执行，只是响应丢失
 | 上游返回 408/425 | RejectedBeforeExecution |
 | 上游返回 5xx | Ambiguous |
 | 上游返回其他可分类的拒绝响应 | 由 Driver 判断 |
-| 成功响应头后、语义事件前收到协议精确声明的过载拒绝 | RejectedBeforeExecution（仅 ADR-0118 窄化项） |
+| 成功响应头后、语义事件前收到协议精确声明的过载/准入拒绝 | RejectedBeforeExecution（仅 ADR-0118/0121 窄化项） |
 | 成功响应头后的 buffered body 或首个 SSE 事件读取失败 | Ambiguous |
 | 已向下游发送响应头或任意字节 | 禁止重试或切换 |
 
@@ -2223,7 +2223,7 @@ Axum Handler 返回流式 Body 后，运行态 Guard 不能留在 Handler 局部
 
 正常 EOF、上游错误或客户端丢弃 Body 都通过 Drop/终止路径保证只结算一次 Guard，并取消仍在运行的上游任务。Drop 路径只执行同步释放、取消和有界日志入队；需要 await 的刷新由 TaskTracker best-effort 完成。RPM 名额只按时间到期，不在这些路径回滚。
 
-SSE 实现使用增量分帧器处理任意字节切分、LF/CRLF/裸 CR、多行 `data:` 与无尾空行；CRLF 必须作为一个行尾，裸 CR 作为一个行尾，chunk 末尾尚无法判断是否接 LF 的 CR 必须保留到下一字节或 EOF，禁止因网络切分改变帧边界。Runtime 在返回下游响应头前至少取得并验证一个完整事件，避免空流或首帧损坏时提前提交。首帧预读发生在上游成功响应头之后，因此读取失败、超时、EOF 或协议错误都属于上游执行结果不确定的 `Ambiguous`；即使下游仍为 `Pending` 也不自动启动第二条流。唯一例外是 ADR-0118：ProtocolAdapter 在任何语义事件前识别出精确的过载拒绝时，Runtime 丢弃预提交控制帧并把拒绝交回既有安全重试循环。内容、工具调用、未知事件或任何下游提交一旦出现，该例外永久关闭。提交后 Transport 或协议错误直接终止连接，不发送臆造事件，也不切换上游。模型别名只改写协议已知的顶层 `model`、`response.model` 与 `message.model` 字段，禁止递归改写工具参数或用户内容中的同名字段。
+SSE 实现使用增量分帧器处理任意字节切分、LF/CRLF/裸 CR、多行 `data:` 与无尾空行；CRLF 必须作为一个行尾，裸 CR 作为一个行尾，chunk 末尾尚无法判断是否接 LF 的 CR 必须保留到下一字节或 EOF，禁止因网络切分改变帧边界。Runtime 在返回下游响应头前至少取得并验证一个完整事件，避免空流或首帧损坏时提前提交。首帧预读发生在上游成功响应头之后，因此读取失败、超时、EOF 或协议错误都属于上游执行结果不确定的 `Ambiguous`；即使下游仍为 `Pending` 也不自动启动第二条流。唯一例外是 ADR-0118/0121：ProtocolAdapter 在任何语义事件前识别出精确的过载或 Anthropic `rate_limit_error` 准入拒绝时，Runtime 丢弃预提交控制帧并把拒绝交回既有安全重试循环；后者按 Credential + upstream model 归因。内容、工具调用、未知事件或任何下游提交一旦出现，该例外永久关闭。提交后 Transport 或协议错误直接终止连接，不发送臆造事件，也不切换上游。模型别名只改写协议已知的顶层 `model`、`response.model` 与 `message.model` 字段，禁止递归改写工具参数或用户内容中的同名字段。
 
 SSE 的 PrecommitBudget 按 PublishedSnapshot 捕获 `max_bytes` 与 `max_duration`。解码器按当前帧剩余容量增量消费 transport chunk，Runtime 每次只编码并排队一个完整事件；未消费的 `Bytes` 以零拷贝切片保留，禁止在响应头返回前把同一 chunk 的全部事件复制进待发送队列。协议桥可能合法消费心跳、注释或其他不产生下游事件的完整帧；只要尚未得到首个可接受事件，Runtime 就必须先继续排空解码器和当前 transport chunk 中已经缓冲的完整帧，再等待新的上游字节或判断 EOF，不能让已缓冲的有效事件被网络等待或首事件 deadline 遮蔽。`max_duration` 是首事件提交 deadline，覆盖上游等待、分帧、协议解码、模型恢复以及必要的会话绑定提交边界；同步临界区不能被强制抢占，但临界区返回后必须重新检查 deadline，超时后禁止写入绑定或接受首事件。
 

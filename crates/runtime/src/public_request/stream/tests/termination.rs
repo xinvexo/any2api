@@ -310,6 +310,9 @@ async fn lifecycle_frames_then_exact_overload_remain_uncommitted_for_retry() {
     match guarded_body(upstream, permit).prime_attempt().await {
         Err(StreamPrimeFailure::Retryable(StreamRetryReason::Overloaded)) => {}
         Ok(_) => panic!("pre-content overload must not commit the stream"),
+        Err(StreamPrimeFailure::Retryable(reason)) => {
+            panic!("unexpected retry reason: {reason:?}")
+        }
         Err(StreamPrimeFailure::Public(error)) => {
             panic!("pre-content overload must remain retryable: {error:?}")
         }

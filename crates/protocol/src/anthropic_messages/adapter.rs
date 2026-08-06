@@ -193,7 +193,8 @@ mod tests {
 
     use super::AnthropicMessagesAdapter;
     use crate::api::{
-        IngressRequest, ProtocolAdapter, SseFrame, StreamCompletionPolicy, StreamTermination,
+        IngressRequest, ProtocolAdapter, SseFrame, StreamCompletionPolicy, StreamRetryReason,
+        StreamTermination,
     };
 
     #[tokio::test]
@@ -342,6 +343,15 @@ mod tests {
                 .expect("error event")
                 .termination(),
             StreamTermination::Failed
+        );
+        assert_eq!(
+            adapter
+                .decode_upstream_event(SseFrame(Bytes::from_static(
+                    b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}\n\n",
+                )))
+                .expect("rate limit event")
+                .retry_reason(),
+            Some(StreamRetryReason::RateLimited)
         );
         assert_eq!(
             adapter

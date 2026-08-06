@@ -2,6 +2,7 @@ use any2api_domain::{
     OAuthAccountId, PublicError, RetrySafety, UpstreamError, UpstreamErrorClassification,
     UpstreamErrorKind,
 };
+use any2api_protocol::api::StreamRetryReason;
 use any2api_transport::api::TransportError;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -27,6 +28,7 @@ pub(in crate::public_request) enum AttemptFailure {
     StreamRejected {
         candidate: Box<RouteCandidate>,
         bound: bool,
+        reason: StreamRetryReason,
     },
     Public(PublicError),
 }
@@ -58,10 +60,15 @@ impl AttemptFailure {
         }
     }
 
-    pub(super) fn stream_rejected(candidate: RouteCandidate, bound: bool) -> Self {
+    pub(super) fn stream_rejected(
+        candidate: RouteCandidate,
+        bound: bool,
+        reason: StreamRetryReason,
+    ) -> Self {
         Self::StreamRejected {
             candidate: Box::new(candidate),
             bound,
+            reason,
         }
     }
 
