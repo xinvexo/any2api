@@ -10,8 +10,9 @@ use tempfile::tempdir;
 
 use crate::{
     api::{
-        ApplicationUpdateService, RestartRequester, UpdateCommitTask, UpdateError, UpdateErrorKind,
-        UpdateStatus, UpdateTask, UpdateTaskExecutor,
+        ApplicationUpdateService, RestartRequester, UpdateBlockingFuture, UpdateBlockingTask,
+        UpdateCommitTask, UpdateError, UpdateErrorKind, UpdateStatus, UpdateTask,
+        UpdateTaskExecutor,
     },
     service::GitHubReleaseUpdater,
 };
@@ -73,6 +74,10 @@ impl UpdateTaskExecutor for CapturingTaskExecutor {
             .unwrap_or_else(|error| error.into_inner())
             .push(task);
         true
+    }
+
+    fn run_blocking(&self, task: UpdateBlockingTask) -> UpdateBlockingFuture {
+        Box::pin(async move { task() })
     }
 
     fn spawn_blocking_commit(&self, task: UpdateCommitTask) {

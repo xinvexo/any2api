@@ -9,7 +9,7 @@ use semver::Version;
 use tar::Archive;
 
 use crate::{
-    api::{UpdateError, UpdateErrorKind},
+    api::{UpdateError, UpdateErrorKind, UpdateTaskExecutor},
     github::{self, MAX_ARCHIVE_BYTES, Release},
     recovery, smoke, temporary,
 };
@@ -48,6 +48,7 @@ pub(crate) async fn prepare_from_release<Progress>(
     client: &Client,
     release: &Release,
     executable_path: &Path,
+    tasks: &dyn UpdateTaskExecutor,
     progress: Progress,
 ) -> Result<PreparedInstall, UpdateError>
 where
@@ -57,15 +58,16 @@ where
         .parent()
         .ok_or_else(|| install_failed("current executable has no parent directory"))?;
     let cleanup_target = executable_path.to_owned();
-    let cleanup = tokio::task::spawn_blocking(move || {
-        temporary::cleanup_stale_for_executable(&cleanup_target)
-    })
-    .await
-    .map_err(|error| install_failed(format!("stale update cleanup task failed: {error}")))?
-    .map_err(|error| {
-        install_failed(format!("failed to clean stale update directories: {error}"))
-    })?;
-    log_cleanup(cleanup, "before installation");
+    tasks
+        .run_blocking(Box::new(move || {
+            let cleanup =
+                temporary::cleanup_stale_for_executable(&cleanup_target).map_err(|error| {
+                    install_failed(format!("failed to clean stale update directories: {error}"))
+                })?;
+            log_cleanup(cleanup, "before installation");
+            Ok(())
+        }))
+        .await?;
     let temporary = tempfile::Builder::new()
         .prefix(temporary::DIRECTORY_PREFIX)
         .rand_bytes(temporary::DIRECTORY_RANDOM_LEN)

@@ -8,10 +8,9 @@ use any2api_domain::{
 };
 
 use super::super::{
-    GenerationSelection, RouteCandidate, SelectedCandidate, try_select_fixed_candidate_for_test,
+    GenerationSelection, RouteCandidate, SelectedCandidate,
     try_select_generation_candidate_for_test,
 };
-use super::super::{filter_recorder::RequestFilterRecorder, fixed};
 
 use crate::{
     credential::{CredentialAuthMaterial, CredentialRuntimeHandle},
@@ -213,83 +212,6 @@ async fn quota_exhaustion_cooldown_waits_instead_of_failing_over() {
     ));
 }
 
-#[test]
-fn fixed_selection_records_the_successful_selection() {
-    let epoch = SchedulerEpoch::new();
-    let candidate = candidate("fixed", 5, Arc::clone(&epoch), 0);
-    let selected =
-        try_select_fixed_candidate_for_test(default_reliability_policy(), &candidate, || {})
-            .expect("fixed selection")
-            .expect("fixed RPM reservation");
-
-    assert_eq!(candidate.binding.balancing_counters().selected(), 1);
-    assert_eq!(candidate.binding.in_flight(), 1);
-    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 1);
-    drop(selected);
-    assert_eq!(candidate.binding.in_flight(), 0);
-    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 1);
-}
-
-#[test]
-fn fixed_rechecks_record_one_rate_filter_per_request() {
-    let epoch = SchedulerEpoch::new();
-    let candidate = candidate("fixed-filter", 7, Arc::clone(&epoch), 0);
-    drop(candidate.binding.try_reserve().expect("exhaust RPM"));
-    let mut filters = RequestFilterRecorder::default();
-
-    for _ in 0..5 {
-        assert!(
-            fixed::try_selected_with_recorder_for_test(
-                default_reliability_policy(),
-                &candidate,
-                &mut filters,
-            )
-            .expect("fixed selection")
-            .is_none()
-        );
-    }
-
-    assert_eq!(
-        candidate.binding.balancing_counters().filtered_rate_limit(),
-        1
-    );
-}
-
-#[tokio::test(start_paused = true)]
-async fn fixed_selection_rolls_back_rpm_when_the_half_open_probe_is_raced() {
-    let epoch = SchedulerEpoch::new();
-    let policy = default_reliability_policy();
-    let endpoint = EndpointHealthRuntime::new(Arc::clone(&epoch));
-    open_endpoint(&endpoint, &policy);
-    tokio::time::advance(policy.endpoint_open_duration).await;
-
-    let mut candidate = candidate("fixed-raced", 6, Arc::clone(&epoch), 0);
-    candidate.endpoint_health = Some(endpoint);
-    let candidate_for_probe = candidate.clone();
-    let mut occupied_probe = None;
-
-    let selected = try_select_fixed_candidate_for_test(policy, &candidate, || {
-        occupied_probe = Some(
-            candidate_for_probe
-                .acquire_health(policy)
-                .expect("half-open probe"),
-        );
-    })
-    .expect("fixed selection result");
-
-    assert!(selected.is_none());
-    assert_eq!(candidate.binding.in_flight(), 0);
-    assert_eq!(candidate.binding.rate_snapshot().requests_in_window(), 0);
-    assert_eq!(
-        candidate
-            .binding
-            .balancing_counters()
-            .filtered_endpoint_health(),
-        1
-    );
-    drop(occupied_probe);
-}
-
 pub(super) fn try_reserve_candidate(
     candidate: &RouteCandidate,
 ) -> Result<GenerationSelection, any2api_domain::PublicError> {
@@ -316,7 +238,7 @@ pub(super) fn default_reliability_policy() -> ReliabilityPolicy {
     )
 }
 
-fn open_endpoint(endpoint: &Arc<EndpointHealthRuntime>, policy: &ReliabilityPolicy) {
+pub(super) fn open_endpoint(endpoint: &Arc<EndpointHealthRuntime>, policy: &ReliabilityPolicy) {
     let permits = (0..policy.endpoint_failure_threshold)
         .map(|_| endpoint.try_acquire(policy).expect("closed endpoint"))
         .collect::<Vec<_>>();

@@ -6,6 +6,7 @@ const fixtureSecrets = [
   "e2e-claude-access-token",
   "e2e-grok-access-token",
 ] as const;
+const oauthLayoutAccountCount = 10;
 
 test("OAuth JSON accounts remain server-side and support editing, model selection, and deletion", async ({
   page,
@@ -117,7 +118,9 @@ test("OAuth virtual grid fills a tall management workspace and reveals the compl
     buffer: Buffer.from(JSON.stringify(oauthLayoutFixture())),
   });
   await importDrawer.getByRole("button", { name: "导入并启用" }).click();
-  await expect(page.getByText("已导入并启用 8 个 OAuth 账号。")).toBeVisible();
+  await expect(
+    page.getByText(`已导入并启用 ${oauthLayoutAccountCount} 个 OAuth 账号。`),
+  ).toBeVisible();
 
   const viewport = page.getByRole("region", { name: "Codex OAuth 账号列表滚动区域" });
   await expect(viewport).toBeVisible();
@@ -130,11 +133,9 @@ test("OAuth virtual grid fills a tall management workspace and reveals the compl
   });
   expect(workspaceGap).toBeLessThanOrEqual(1);
 
-  const scrollMetrics = await viewport.evaluate((element) => ({
-    clientHeight: element.clientHeight,
-    scrollHeight: element.scrollHeight,
-  }));
-  expect(scrollMetrics.scrollHeight).toBeGreaterThan(scrollMetrics.clientHeight);
+  await expect
+    .poll(() => viewport.evaluate((element) => element.scrollHeight > element.clientHeight))
+    .toBe(true);
   await viewport.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
     element.dispatchEvent(new Event("scroll"));
@@ -142,7 +143,7 @@ test("OAuth virtual grid fills a tall management workspace and reveals the compl
 
   const lastAccount = viewport
     .getByRole("listitem")
-    .filter({ hasText: "E2E Layout Codex 8" });
+    .filter({ hasText: `E2E Layout Codex ${oauthLayoutAccountCount}` });
   await expect(lastAccount).toBeVisible();
   const lastRowGap = await Promise.all([viewport.boundingBox(), lastAccount.boundingBox()]).then(
     ([viewportBox, accountBox]) => {
@@ -152,7 +153,7 @@ test("OAuth virtual grid fills a tall management workspace and reveals the compl
   );
   expect(lastRowGap).toBeGreaterThanOrEqual(0);
 
-  for (let index = 1; index <= 8; index += 1) {
+  for (let index = 1; index <= oauthLayoutAccountCount; index += 1) {
     await deleteAccount(page, `E2E Layout Codex ${index}`);
   }
   await expect(page.getByText("还没有 Codex OAuth 账号")).toBeVisible();
@@ -183,7 +184,7 @@ function oauthFixture() {
 }
 
 function oauthLayoutFixture() {
-  return Array.from({ length: 8 }, (_, index) => ({
+  return Array.from({ length: oauthLayoutAccountCount }, (_, index) => ({
     type: "codex",
     name: `E2E Layout Codex ${index + 1}`,
     access_token: `e2e-layout-access-token-${index + 1}`,
@@ -199,7 +200,7 @@ async function selectProvider(page: Page, label: "Codex" | "Claude" | "Grok") {
 }
 
 async function deleteAccount(page: Page, label: string) {
-  await page.getByRole("button", { name: `删除 ${label}` }).click();
+  await page.getByRole("button", { name: `删除 ${label}`, exact: true }).click();
   const dialog = page.getByRole("alertdialog", { name: "删除 OAuth 账号" });
   await expect(dialog).toContainText(label);
   await dialog.getByRole("button", { name: "删除", exact: true }).click();

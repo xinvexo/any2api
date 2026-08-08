@@ -10,6 +10,9 @@ pub const APPLICATION_VERSION: &str = crate::BUILD_VERSION;
 
 pub type UpdateTask = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 pub type UpdateCommitTask = Box<dyn FnOnce() + Send + 'static>;
+pub type UpdateBlockingTask = Box<dyn FnOnce() -> Result<(), UpdateError> + Send + 'static>;
+pub type UpdateBlockingFuture =
+    Pin<Box<dyn Future<Output = Result<(), UpdateError>> + Send + 'static>>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ApplicationAbout {
@@ -105,6 +108,13 @@ pub trait UpdateTaskExecutor: Send + Sync {
     /// A `false` result guarantees that `task` was never polled.
     fn try_spawn(&self, task: UpdateTask) -> bool;
 
+    /// Runs blocking preparation work under process-lifecycle tracking.
+    ///
+    /// Once the returned future has started the task, dropping that future may
+    /// stop observing its result but must not remove the task from lifecycle
+    /// tracking before the blocking work itself finishes.
+    fn run_blocking(&self, task: UpdateBlockingTask) -> UpdateBlockingFuture;
+
     /// Registers an accepted update's commit on a tracked blocking executor.
     ///
     /// Once this method returns, `task` must run to completion even if the
@@ -133,10 +143,12 @@ impl GitHubReleaseUpdater {
         tasks: Arc<dyn UpdateTaskExecutor>,
     ) -> Result<Self, UpdateError> {
         let cleanup_target = executable_path.clone();
-        let cleanup = tokio::task::spawn_blocking(move || {
-            Self::cleanup_stale_workspaces(&cleanup_target);
-        })
-        .await;
+        let cleanup = tasks
+            .run_blocking(Box::new(move || {
+                Self::cleanup_stale_workspaces(&cleanup_target);
+                Ok(())
+            }))
+            .await;
         if let Err(error) = cleanup {
             tracing::warn!(%error, "stale update cleanup task failed during initialization");
         }

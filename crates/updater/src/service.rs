@@ -122,6 +122,7 @@ impl UpdaterInner {
             &self.client,
             &release,
             &self.executable_path,
+            self.tasks.as_ref(),
             |downloaded_bytes| progress_task.downloaded(&version, downloaded_bytes),
         )
         .await?;

@@ -1,5 +1,8 @@
 use any2api_runtime::api::{ProcessLifecycle, ShutdownPhase};
-use any2api_updater::api::{RestartRequester, UpdateCommitTask, UpdateTask, UpdateTaskExecutor};
+use any2api_updater::api::{
+    RestartRequester, UpdateBlockingFuture, UpdateBlockingTask, UpdateCommitTask, UpdateError,
+    UpdateErrorKind, UpdateTask, UpdateTaskExecutor,
+};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
@@ -34,6 +37,18 @@ impl UpdateTaskExecutor for LifecycleUpdateTaskExecutor {
             return false;
         }
         start_sender.send(()).is_ok()
+    }
+
+    fn run_blocking(&self, task: UpdateBlockingTask) -> UpdateBlockingFuture {
+        let lifecycle = self.lifecycle.clone();
+        Box::pin(async move {
+            lifecycle.spawn_blocking(task).await.map_err(|error| {
+                UpdateError::new(
+                    UpdateErrorKind::InstallFailed,
+                    format!("update blocking task failed: {error}"),
+                )
+            })?
+        })
     }
 
     fn spawn_blocking_commit(&self, task: UpdateCommitTask) {

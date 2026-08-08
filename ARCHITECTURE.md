@@ -3164,10 +3164,11 @@ Server 提供稳定 `WebAssets` 入口适配边界，负责选择外部目录或
 ### 20.5 GitHub Release
 
 管理员从 GitHub Actions 页面手动运行 `Release` 工作流，并输入不带 `v` 前缀的 `version`。该输入是
-对所选提交版本的显式发布断言，不是在 CI 中临时改写源码版本：工作流使用 `cargo metadata --locked`
-读取 `any2api` 的 Cargo 版本，只有输入值与其完全一致时才继续，在所选提交创建对应的
-`v<version>` Tag。版本不一致或远端已经存在同名 Tag 时必须在构建和发布前失败，避免 Tag、源码清单和
-二进制版本分叉；构建阶段不得持有 checkout 持久化的仓库写凭据，发布 Token 只注入最终发布步骤。
+该次 Release 唯一的产品版本真相来源，不要求与只作为 Rust 包元数据的 Cargo package version 相等。
+工作流以该输入同时生成 `ANY2API_BUILD_VERSION`、`v<version>` Tag 和资产名；输入不是稳定 SemVer 或
+远端已经存在同名 Tag 时，必须在构建和发布前失败。打包前必须运行生成的二进制并精确核对其
+`--version` 输出，避免 Tag、资产名和运行时版本分叉；构建阶段不得持有 checkout 持久化的仓库写凭据，
+发布 Token 只注入最终发布步骤。
 
 构建使用 Rust 1.90.0 和锁定依赖，在 Ubuntu 22.04 上显式构建 `x86_64-unknown-linux-gnu`。首版只发布
 Linux AMD64，不构建其他系统、架构或 musl 变体。

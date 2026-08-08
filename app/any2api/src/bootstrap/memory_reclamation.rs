@@ -27,7 +27,7 @@ async fn run(lifecycle: ProcessLifecycle) {
                 ) {
                     continue;
                 }
-                if let Err(error) = tokio::task::spawn_blocking(reclaim_process_memory).await {
+                if let Err(error) = lifecycle.spawn_blocking(reclaim_process_memory).await {
                     tracing::debug!(%error, "process memory reclamation task did not complete");
                 }
             }

@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use tokio::time::{Instant, sleep_until};
 
@@ -8,7 +8,7 @@ use crate::{
     configuration::PublishedSnapshot,
     credential::CredentialFilterKind,
     health::{HealthAcquireError, ReliabilityPolicy},
-    routing::RouteCandidate,
+    routing::{QueueCoordinator, RouteCandidate},
 };
 
 pub(super) async fn select(
@@ -16,32 +16,54 @@ pub(super) async fn select(
     candidate: &RouteCandidate,
     wait_timeout: Duration,
 ) -> Result<SelectedCandidate, FixedSelectionError> {
+    select_with_queue(
+        snapshot.queue_coordinator(),
+        snapshot.queue_policy().max_waiting_requests(),
+        snapshot.reliability_policy(),
+        candidate,
+        wait_timeout,
+    )
+    .await
+}
+
+async fn select_with_queue(
+    queue: &Arc<QueueCoordinator>,
+    max_waiting_requests: u32,
+    policy: ReliabilityPolicy,
+    candidate: &RouteCandidate,
+    wait_timeout: Duration,
+) -> Result<SelectedCandidate, FixedSelectionError> {
     let mut filters = RequestFilterRecorder::default();
-    match try_selected(snapshot.reliability_policy(), candidate, &mut filters)? {
+    match try_selected(policy, candidate, &mut filters)? {
         FixedAttempt::Acquired(selected) => return Ok(*selected),
         FixedAttempt::Waiting(_) => {}
     }
-    let Some(ticket) = snapshot
-        .queue_coordinator()
-        .try_ticket(snapshot.queue_policy().max_waiting_requests())
-    else {
+    let Some(ticket) = queue.try_ticket(max_waiting_requests) else {
         return Err(FixedSelectionError::QueueFull);
     };
     let mut changes = ticket.subscribe();
     let mut credential_changes = candidate.binding.subscribe_changes();
-    let _fixed_waiter = candidate.binding.register_fixed_waiter();
+    let mut fixed_waiter = None;
     let deadline = Instant::now() + wait_timeout;
 
     loop {
         let _observed_epoch = *changes.borrow_and_update();
         let _observed_credential = *credential_changes.borrow_and_update();
-        let retry_at = match try_selected(snapshot.reliability_policy(), candidate, &mut filters)? {
+        let waiting = match try_selected(policy, candidate, &mut filters)? {
             FixedAttempt::Acquired(selected) => return Ok(*selected),
-            FixedAttempt::Waiting(retry_at) => retry_at,
+            FixedAttempt::Waiting(waiting) => waiting,
         };
-        if Instant::now() >= deadline {
-            return final_selection(snapshot.reliability_policy(), candidate, &mut filters);
+        if waiting.reserves_rpm_slot() {
+            if fixed_waiter.is_none() {
+                fixed_waiter = Some(candidate.binding.register_fixed_waiter());
+            }
+        } else {
+            fixed_waiter = None;
         }
+        if Instant::now() >= deadline {
+            return final_selection(policy, candidate, &mut filters);
+        }
+        let retry_at = waiting.retry_at();
         let wake_at = retry_at.map_or(deadline, |retry_at| retry_at.min(deadline));
         tokio::select! {
             changed = changes.changed() => {
@@ -56,7 +78,7 @@ pub(super) async fn select(
             }
             () = sleep_until(wake_at) => {
                 if retry_at.is_none() {
-                    return final_selection(snapshot.reliability_policy(), candidate, &mut filters);
+                    return final_selection(policy, candidate, &mut filters);
                 }
             }
         }
@@ -65,7 +87,26 @@ pub(super) async fn select(
 
 enum FixedAttempt {
     Acquired(Box<SelectedCandidate>),
-    Waiting(Option<Instant>),
+    Waiting(FixedWait),
+}
+
+#[derive(Clone, Copy)]
+enum FixedWait {
+    Health(Instant),
+    RateLimit(Option<Instant>),
+}
+
+impl FixedWait {
+    const fn retry_at(self) -> Option<Instant> {
+        match self {
+            Self::Health(retry_at) => Some(retry_at),
+            Self::RateLimit(retry_at) => retry_at,
+        }
+    }
+
+    const fn reserves_rpm_slot(self) -> bool {
+        matches!(self, Self::RateLimit(_))
+    }
 }
 
 fn try_selected(
@@ -87,9 +128,9 @@ fn try_selected_with(
         Err(error) => {
             filters.record(candidate, error.kind());
             return match error.source() {
-                HealthAcquireError::Temporary(unavailability) => {
-                    Ok(FixedAttempt::Waiting(Some(unavailability.until())))
-                }
+                HealthAcquireError::Temporary(unavailability) => Ok(FixedAttempt::Waiting(
+                    FixedWait::Health(unavailability.until()),
+                )),
                 HealthAcquireError::Permanent => Err(FixedSelectionError::Unavailable),
             };
         }
@@ -98,7 +139,9 @@ fn try_selected_with(
         Ok(permit) => permit,
         Err(rate_limited) => {
             filters.record(candidate, CredentialFilterKind::RateLimit);
-            return Ok(FixedAttempt::Waiting(rate_limited.retry_at));
+            return Ok(FixedAttempt::Waiting(FixedWait::RateLimit(
+                rate_limited.retry_at,
+            )));
         }
     };
     after_reservation();
@@ -107,9 +150,9 @@ fn try_selected_with(
         Err(error) => {
             filters.record(candidate, error.kind());
             return match error.source() {
-                HealthAcquireError::Temporary(unavailability) => {
-                    Ok(FixedAttempt::Waiting(Some(unavailability.until())))
-                }
+                HealthAcquireError::Temporary(unavailability) => Ok(FixedAttempt::Waiting(
+                    FixedWait::Health(unavailability.until()),
+                )),
                 HealthAcquireError::Permanent => Err(FixedSelectionError::Unavailable),
             };
         }
@@ -156,4 +199,15 @@ pub(super) fn try_selected_with_recorder_for_test(
         FixedAttempt::Acquired(selected) => Ok(Some(*selected)),
         FixedAttempt::Waiting(_) => Ok(None),
     }
+}
+
+#[cfg(test)]
+pub(super) async fn select_with_queue_for_test(
+    queue: &Arc<QueueCoordinator>,
+    max_waiting_requests: u32,
+    policy: ReliabilityPolicy,
+    candidate: &RouteCandidate,
+    wait_timeout: Duration,
+) -> Result<SelectedCandidate, FixedSelectionError> {
+    select_with_queue(queue, max_waiting_requests, policy, candidate, wait_timeout).await
 }

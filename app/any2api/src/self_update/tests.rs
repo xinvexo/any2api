@@ -130,3 +130,59 @@ async fn forced_shutdown_keeps_a_started_update_commit_tracked() {
     assert!(finished.load(Ordering::Acquire));
     assert_eq!(lifecycle.background_task_count(), 0);
 }
+
+#[tokio::test]
+async fn forced_shutdown_keeps_started_update_preparation_tracked() {
+    let lifecycle = ProcessLifecycle::new();
+    let executor = LifecycleUpdateTaskExecutor::new(lifecycle.clone());
+    let preparation_executor = executor.clone();
+    let finished = Arc::new(AtomicBool::new(false));
+    let preparation_finished = Arc::clone(&finished);
+    let (started_sender, started_receiver) = oneshot::channel();
+    let (release_sender, release_receiver) = std::sync::mpsc::channel();
+
+    assert!(executor.try_spawn(Box::pin(async move {
+        preparation_executor
+            .run_blocking(Box::new(move || {
+                started_sender.send(()).ok();
+                release_receiver
+                    .recv_timeout(Duration::from_secs(1))
+                    .expect("release update preparation");
+                preparation_finished.store(true, Ordering::Release);
+                Ok(())
+            }))
+            .await
+            .expect("update preparation");
+    })));
+    started_receiver.await.expect("update preparation started");
+
+    assert!(!finished.load(Ordering::Acquire));
+    assert_eq!(lifecycle.background_task_count(), 2);
+    lifecycle.close_background_tasks();
+    lifecycle.force();
+    tokio::time::timeout(Duration::from_millis(100), async {
+        while lifecycle.background_task_count() != 1 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("outer update future should converge");
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(20),
+            lifecycle.wait_for_background_tasks(),
+        )
+        .await
+        .is_err()
+    );
+
+    release_sender.send(()).expect("release update preparation");
+    tokio::time::timeout(
+        Duration::from_millis(100),
+        lifecycle.wait_for_background_tasks(),
+    )
+    .await
+    .expect("blocking update preparation should finish");
+    assert!(finished.load(Ordering::Acquire));
+    assert_eq!(lifecycle.background_task_count(), 0);
+}

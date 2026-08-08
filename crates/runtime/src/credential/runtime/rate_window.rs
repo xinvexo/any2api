@@ -73,13 +73,15 @@ impl CredentialRateWindow {
         let Some(limit) = limit else {
             return Ok(None);
         };
-        if !fixed && fixed_waiters > 0 {
-            return Err(RateLimited { retry_at: None });
-        }
-        if self.attempts.len() >= limit.get() as usize {
+        let limit = limit.get() as usize;
+        if self.attempts.len() >= limit {
             return Err(RateLimited {
                 retry_at: self.next_available_at(limit),
             });
+        }
+        let available = limit - self.attempts.len();
+        if !fixed && available <= fixed_waiters as usize {
+            return Err(RateLimited { retry_at: None });
         }
         let reservation = RateReservation {
             id: self.next_reservation_id,
@@ -112,7 +114,7 @@ impl CredentialRateWindow {
     ) -> CredentialRateSnapshot {
         self.prune(now);
         let requests_per_minute = limit.map(RequestsPerMinute::get);
-        let retry_at = limit.and_then(|limit| self.next_available_at(limit));
+        let retry_at = limit.and_then(|limit| self.next_available_at(limit.get() as usize));
         CredentialRateSnapshot {
             requests_per_minute,
             requests_in_window: if limit.is_some() {
@@ -134,8 +136,7 @@ impl CredentialRateWindow {
         }
     }
 
-    fn next_available_at(&self, limit: RequestsPerMinute) -> Option<Instant> {
-        let limit = limit.get() as usize;
+    fn next_available_at(&self, limit: usize) -> Option<Instant> {
         (self.attempts.len() >= limit)
             .then(|| self.attempts[self.attempts.len() - limit].started_at + RATE_WINDOW)
     }
