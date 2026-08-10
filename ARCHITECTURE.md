@@ -63,6 +63,8 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 32. 上游响应的 HTTP Content-Encoding 由 Transport 在 Protocol 解码和 Provider 错误分类前统一拥有：线路 profile 只声明实际可增量解码的编码，普通与 pinned Client 必须共用同一实现，解码后同步删除失效的表示元数据。未知、损坏或过深的编码链必须失败，禁止删除 Header 后把压缩字节交给 JSON/SSE decoder 或错误分类器。非成功响应继续透明返回解码后的原始内容字节与状态，不做 JSON 重序列化。
 33. 所有自动 reattempt 动作必须服从同一请求级语义退避：同路径、重新选择 Credential/Endpoint/Proxy 以及 OAuth 刷新后的数据面重试，都使用当前失败 Credential 的指数 fallback 与明确 Retry-After 的较大值。Retry-After 不得被 jitter 或 Credential switch 缩短；等待无法放入剩余 precommit budget 时必须终止并返回当前真实失败。随机抖动只用于既有的并发去同步，不能作为隐藏账号切换或 Transport 特征的手段。
 34. 每个可配置协议对必须公开 `Direct` 或 `Translated` fidelity。Direct 只表示没有创建 ProtocolBridge，不承诺请求逐字节不变；Translated 必须由 Bridge 的单一版本化 capability table 声明 operation、可接受请求字段、字段处理方式、工具类型和已知限制，Bridge 校验与管理 capability API 共用该表。Web 必须在保存前展示所选路径的 fidelity 与转换限制，禁止只给出方言名称而掩盖 canonical reconstruction、合成本地状态或字段降级。
+35. 通用 Transport wire profile 必须由本地 loopback conformance fixture 固定其可稳定比较的 TLS ClientHello、HTTP/2 初始控制帧和 HTTP/1.1 原始请求头；依赖升级造成 fixture 差异时必须人工审核并提升 wire profile policy version。fixture 只描述 any2api 实际行为，不得被表述为官方客户端基线，也不得通过随机化隐藏差异。
+36. 实际进入 Transport 的 RequestAttempt 必须保存不含 Secret 的结构化线路诊断；流式 Attempt 还必须以 Attempt 起点为单调时钟基准记录首个完整上游 SSE frame、预提交 commit、首个向下游 Body yield 和取消四个 first-write-wins 时间点。诊断只用于本地可观测与回归，不能改变 retry、flush、backpressure、连接复用或路由行为。
 
 ### 2.1 两类凭据的术语边界
 
@@ -1185,6 +1187,10 @@ TransportKey
 只有完整 TransportKey 相同的请求才共享连接池。不同 Credential、不同认证代际或不同 traffic class 必须得到不同 Client。每个 Client 从共享只读 trust roots 构造独立 Rustls `ClientConfig`，TLS session ticket/resumption store 不得跨 TransportKey clone 或复用；因此仅让 HTTP pool key 分离而继续共享 TLS resumption 不满足隔离要求。代理配置修改、Credential secret/token 轮换或账号重新启用后创建新一代 Client；Manager 首次观察到同一 Credential 的更高路由/认证代际时立即移除其较旧缓存引用，旧快照与已开始请求仍继续持有捕获的 Client，不强行中断。删除/禁用后没有新请求触发代际清理的 Client 仍由有界 LRU 与 idle timeout 排出，不允许旧代际 Client 被新代际请求重新命中。
 
 Transport 线路行为由单一 `generic-rustls-hyper-v2` profile 集中声明：宿主根证书、Rustls 默认 TLS 1.3/1.2 crypto policy、无 client certificate、ALPN `h2` 后 `http/1.1`、HTTP/1+2、TCP keepalive 30 秒、H2 keepalive 30 秒/超时 10 秒、禁重定向与禁请求级自动重试，以及所有响应的 `gzip, br, zstd` Content-Encoding 契约。该 profile 是诚实的通用 gateway transport 契约，不声称复制 Codex、Claude、Grok 或 Kimi 官方客户端的 ClientHello、HTTP/2 SETTINGS、HPACK、压缩偏好或 TCP 行为。任何字段或依赖升级都必须提升 profile policy version 并更新 capture 契约；不得为“降低特征”添加每请求随机化。身份与 v1 基线见 `docs/adr/0126-versioned-provider-and-transport-identity.md`，response coding 升级见 `docs/adr/0127-transport-response-content-coding.md`。
+
+仓库为该 profile 保存三类 loopback conformance fixture：TLS 只规范化记录稳定的 ClientHello cipher、extension 顺序、group、signature algorithm、ALPN 与 supported version，不保存随机数、key share 公钥或 session material；HTTP/2 记录明文 preface 与首个请求前的 SETTINGS/WINDOW_UPDATE；HTTP/1.1 记录实际 raw request head，并只规范化动态 authority。测试必须从真实 `ReqwestTransportManager` 发起请求并与提交的文本 fixture 精确比较，禁止经 `HeaderMap` 或 h2 高层对象重建后冒充 wire capture。fixture 变化是需要审核的线路契约变化，不证明也不追求与任何官方客户端相同。
+
+Transport 在网络 I/O 前可从最终 Request、Proxy 与 Manager 配置生成结构化 `TransportRequestDiagnostics`：wire profile ID/version、timeout policy version、最终 upstream resolver mode、proxy kind、connect/read/pool idle timeout，以及不含 owner ID 的 isolation routing/authentication generation 与 traffic class。RequestAttempt 只在真正构造出 TransportRequest 后记录该快照；请求在解码、规划或 Header/Body 构建阶段失败时保持为空。该诊断不把 Client cache 命中等同于物理 TCP/H2 reuse，也不在底层没有证据时声称 TLS resumed。
 
 `connect_timeout` 属于 Client/连接池代际，并在每次 `TransportManager::execute` 开始时捕获为绝对连接阶段 deadline；手工本地 DNS、Client 获取或构造、TCP、HTTP CONNECT/SOCKS5 握手与 TLS 都消耗同一个 deadline，任何子阶段都不得重置或延长它。同步 Client 构造不能被 Tokio timer 抢占，但其耗时仍计入该 deadline；构造返回后必须先检查 deadline，已经到期就返回连接前失败且禁止启动网络 I/O。连接池命中不会改变边界：直到固定请求 Body 首次被连接层消费前都受该 deadline 约束，超时返回连接前失败；Body 首次被消费后连接阶段结束并停止该 timer。
 
@@ -2900,10 +2906,12 @@ oauth_token_refresh_failed
 - Images JSON 只从顶层 `usage.input_tokens` 与 `usage.output_tokens` 读取；SSE 只从 `image_generation.completed` 与 `image_edit.completed` 的顶层 `usage` 读取相同字段，图片事件不标记为文本 content delta；
 - Token 字段只接受 `0..=9_007_199_254_740_991`（JavaScript `Number.MAX_SAFE_INTEGER`）的 JSON 整数，同时保证 SQLite INTEGER 与 Web 管理契约可无损表达；缺失、`null`、负数、浮点、字符串或超界值均保持未知，不得因遥测字段异常中断代理响应；
 - `first_token_ms` 从请求进入 Runtime 时开始计时，只在第一个非空模型内容 delta 真正从 GuardedBody 向下游 yield 时 first-write-wins；`response.created`、`message_start`、ping、done 与其他控制帧不计入；
+- 流式 Attempt 的 `first_upstream_frame_ms` 在 SSE decoder 产出首个完整 frame 时记录，`stream_commit_ms` 在预提交 frame 与 continuation 状态全部提交后记录，`first_downstream_byte_ms` 在 GuardedBody 首次向 Axum Body yield 非空编码 frame 时记录，`stream_cancel_ms` 只在已交接流被 Drop/取消时记录；四者都相对 Attempt 起点、first-write-wins，允许因提交前失败或从未 poll Body 保持 `NULL`，也不得为了补齐字段继续读取上游；
+- RequestAttempt 的 Transport 与 stream timing 诊断只通过已认证请求日志详情读取；SQLite 仅保存枚举、版本、代际和毫秒数，不保存 connection ID、TLS ticket、API Key、OAuth Token、代理密码、原始 Session ID、Header 或 Body。诊断字段不得参与路由、健康、重试、RPM、超时或流式 flush 决策；
 - 非流式 JSON 无法提供精确内容首 Token 时间，`first_token_ms` 保持 `NULL`；`/v1/messages/count_tokens` 是辅助操作，Runtime 必须按 `ProtocolOperation` 强制忽略根层 `input_tokens` 与兼容上游可能夹带的任何 `usage`，不写入生成请求 Token Usage；
 - 日志关闭、字段缺失或客户端在终止 usage 事件前断开时允许对应字段保持 `NULL`；不为补齐日志继续 drain 上游。
 
-有界写入决策见 `docs/adr/0015-bounded-request-telemetry.md` 与 `docs/adr/0092-bounded-http-access-log-capacity.md`，精确 Token 遥测契约见 `docs/adr/0025-protocol-token-telemetry.md`。
+有界写入决策见 `docs/adr/0015-bounded-request-telemetry.md` 与 `docs/adr/0092-bounded-http-access-log-capacity.md`，精确 Token 遥测契约见 `docs/adr/0025-protocol-token-telemetry.md`，Transport/stream conformance 诊断见 `docs/adr/0130-transport-and-stream-conformance-diagnostics.md`。
 
 ## 19. React 管理界面
 
