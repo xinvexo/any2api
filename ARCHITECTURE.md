@@ -53,7 +53,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
 23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均使用带头部锚点的服务端 Keyset Cursor，只展示最近 3 天；禁止以会在持续写入时移动边界的 OFFSET 翻页。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 只在未固定历史 Cursor 的最新页重新读取；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
-25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；客户端认证、连接级 Header 与上游认证始终重建，最终响应只归属于实际提交的最后一次 Attempt。
+25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建；客户端传入的设备、会话、请求关联和分布式追踪值不得在切换 Credential 后重放，最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
@@ -1577,7 +1577,15 @@ Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态�
 
 请求 Header 合并顺序固定为：Provider 官方缺省身份 < 同 Provider 且同入口/上游方言时的客户端白名单值 < ProtocolAdapter 根据最终 Body 重建的协议一致性字段 < 选中凭据的认证和账号字段。Provider 身份策略对 API Key 与 OAuthAccount 使用同一 Driver 接口，但允许按凭据类型补充不同的官方固定字段；认证字段本身只能来自当前选中凭据。跨协议桥默认不发送源协议身份、会话或实验 Header。
 
-Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央调度器不得新增按 Provider 扩张的 `match`。Kimi API Key 数据面只声明 Moonshot 官方 Chat Completions、`GET /models` 与 Bearer 认证，不发送 Codex/Grok persona Header，不声明 OAuth 或原生 Responses/Images 能力；Responses 接入只能通过已注册的通用 Responses → Chat Completions Bridge。`x-grok-model-override` 必须由最终上游模型重建，并把 Rust 模型字符串按 UTF-8 原始字节确定性写入 Header，禁止 percent/base64 等未定义的二次编码。xAI 官方 Grok Build 客户端使用相同的直接字符串 Header 路径；当前 `http`/Reqwest 栈允许 HTTP `obs-text` 字节，通用 `UpstreamModelName` 已排除控制字符，因此不得错误地把非 ASCII 模型限制为不可用。Driver 原始字符串边界仍须拒绝非法控制字节，并报告 `UnsupportedOAuthModel`，不能误报为上游 `InvalidResponse`。Claude OAuth 必须保留全部有界的客户端 `anthropic-beta` Header 行并去重追加 `oauth-2025-04-20`。`x-oai-attestation` 只允许作为当前请求的原始不透明值投影，禁止生成、缓存、记录或在切换 Provider/凭据后重放。
+同方言的客户端 Header 声明分为三类：
+
+- `Replayable`：不携带单次请求、会话、设备或账号关联值的协议能力与通用 persona 字段，可在预提交重试中重放；
+- `CredentialOwned`：客户端传入的 installation、session、conversation、thread、agent、request ID、`traceparent`/`tracestate`、attestation 以及可能携带同类关联值的 Provider 前缀 Header。Runtime 在逻辑请求首次选择成功后将其 owner 锁定为该 `RoutingCredentialId`；同 Credential 重试可继续投影，换号后必须删除，owner 不得跟随后续 Attempt 改写；
+- `BoundTurnState`：除了必须与上述 Credential owner 一致，还必须命中已有会话绑定。当前只有 `x-codex-turn-state`。
+
+Provider 默认值、ProtocolAdapter 重建字段和当前 Credential 认证不属于客户端值重放，不受该 owner 开关影响。所有分类声明位于各 Provider Driver 内；Runtime 只传递“当前 Attempt 是否仍属于原 Credential owner”与“是否命中现有绑定”事实，不按 Provider 分支。任何原始标识值都不记录、不持久化、不生成也不改写。完整决策见 `docs/adr/0125-credential-owned-request-headers.md`。
+
+Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央调度器不得新增按 Provider 扩张的 `match`。Kimi API Key 数据面只声明 Moonshot 官方 Chat Completions、`GET /models` 与 Bearer 认证，不发送 Codex/Grok persona Header，不声明 OAuth 或原生 Responses/Images 能力；Responses 接入只能通过已注册的通用 Responses → Chat Completions Bridge。`x-grok-model-override` 必须由最终上游模型重建，并把 Rust 模型字符串按 UTF-8 原始字节确定性写入 Header，禁止 percent/base64 等未定义的二次编码。xAI 官方 Grok Build 客户端使用相同的直接字符串 Header 路径；当前 `http`/Reqwest 栈允许 HTTP `obs-text` 字节，通用 `UpstreamModelName` 已排除控制字符，因此不得错误地把非 ASCII 模型限制为不可用。Driver 原始字符串边界仍须拒绝非法控制字节，并报告 `UnsupportedOAuthModel`，不能误报为上游 `InvalidResponse`。Claude OAuth 必须保留全部有界的客户端 `anthropic-beta` Header 行并去重追加 `oauth-2025-04-20`。`x-oai-attestation` 只允许作为当前 Credential owner 的原始不透明值投影，禁止生成、缓存、记录或在切换 Provider/凭据后重放。
 
 `x-codex-turn-state` 是上游服务端签发并与 Route Target/Credential 绑定的粘性状态。只有当前请求已经解析到同一 Credential 的现有会话绑定时才允许发送；没有绑定、绑定丢失或首次创建会话时必须删除，禁止把一个账号签发的状态令牌发送给另一个账号。响应中新的 `x-codex-turn-state` 只有在该 Attempt 最终提交时才能返回。
 

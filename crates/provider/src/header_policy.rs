@@ -23,11 +23,25 @@ pub(crate) fn project<'a, I>(source: &HeaderMap, exact: I, prefixes: &[&str]) ->
 where
     I: Iterator<Item = &'a HeaderName> + Clone,
 {
+    project_selected(source, exact.clone(), exact, prefixes.iter().copied())
+}
+
+pub(crate) fn project_selected<'a, 'k, 'p, I, K, P>(
+    source: &HeaderMap,
+    selected_exact: I,
+    known_exact: K,
+    selected_prefixes: P,
+) -> HeaderMap
+where
+    I: Iterator<Item = &'a HeaderName>,
+    K: Iterator<Item = &'k HeaderName> + Clone,
+    P: Iterator<Item = &'p str> + Clone,
+{
     let connection_nominated = connection_nominated(source);
     let mut projected = HeaderMap::new();
     let mut values = 0_usize;
     let mut bytes = 0_usize;
-    for name in exact.clone() {
+    for name in selected_exact {
         if !append_name(
             source,
             name,
@@ -39,7 +53,7 @@ where
             return projected;
         }
     }
-    for (_, name) in ordered_prefix_names(source, exact, prefixes) {
+    for (_, name) in ordered_prefix_names(source, known_exact, selected_prefixes) {
         if !append_name(
             source,
             &name,
@@ -54,20 +68,21 @@ where
     projected
 }
 
-fn ordered_prefix_names<'a, I>(
+fn ordered_prefix_names<'a, 'p, I, P>(
     source: &HeaderMap,
     exact: I,
-    prefixes: &[&str],
+    prefixes: P,
 ) -> Vec<(usize, HeaderName)>
 where
     I: Iterator<Item = &'a HeaderName> + Clone,
+    P: Iterator<Item = &'p str> + Clone,
 {
     let mut names = source
         .keys()
         .filter(|name| !exact.clone().any(|exact_name| exact_name == *name))
         .filter_map(|name| {
             prefixes
-                .iter()
+                .clone()
                 .position(|prefix| name.as_str().starts_with(prefix))
                 .map(|priority| (priority, name.clone()))
         })

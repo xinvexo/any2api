@@ -9,6 +9,7 @@ mod header_policy;
 mod kimi;
 mod oauth;
 mod registry;
+mod request_header_policy;
 mod upstream_error;
 
 pub use claude::ClaudeDriver;

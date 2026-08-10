@@ -7,22 +7,26 @@ use crate::{
     ProviderError,
     api::ProviderRequestContext,
     header_policy::{insert_default, ordered_names, project},
+    request_header_policy::{
+        RequestHeaderOwnership::{CredentialOwned, Replayable},
+        RequestHeaderRule, project_request, request_header_rules,
+    },
 };
 
-static REQUEST_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
-    ordered_names(&[
-        "x-grok-conv-id",
-        "x-grok-req-id",
-        "x-grok-session-id",
-        "x-grok-agent-id",
-        "x-grok-turn-id",
-        "user-agent",
-        "x-grok-client-mode",
-        "x-grok-client-version",
-        "x-grok-client-identifier",
-        "x-grok-client-surface",
-        "traceparent",
-        "tracestate",
+static REQUEST_HEADERS: LazyLock<Vec<RequestHeaderRule>> = LazyLock::new(|| {
+    request_header_rules(&[
+        ("x-grok-conv-id", CredentialOwned),
+        ("x-grok-req-id", CredentialOwned),
+        ("x-grok-session-id", CredentialOwned),
+        ("x-grok-agent-id", CredentialOwned),
+        ("x-grok-turn-id", CredentialOwned),
+        ("user-agent", Replayable),
+        ("x-grok-client-mode", Replayable),
+        ("x-grok-client-version", Replayable),
+        ("x-grok-client-identifier", Replayable),
+        ("x-grok-client-surface", Replayable),
+        ("traceparent", CredentialOwned),
+        ("tracestate", CredentialOwned),
     ])
 });
 
@@ -59,7 +63,13 @@ pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, 
         );
     }
     if context.ingress_dialect == context.upstream_operation.dialect() {
-        headers.extend(project(context.client_headers, REQUEST_HEADERS.iter(), &[]));
+        headers.extend(project_request(
+            context.client_headers,
+            &REQUEST_HEADERS,
+            &[],
+            context.allow_credential_bound,
+            context.allow_turn_state,
+        ));
     }
     if context.oauth {
         let model = oauth_model_header(context.upstream_model)?;
@@ -77,4 +87,60 @@ fn oauth_model_header(model: &str) -> Result<HeaderValue, ProviderError> {
 
 pub(crate) fn response(upstream: &HeaderMap) -> HeaderMap {
     project(upstream, RESPONSE_HEADERS.iter(), &["x-ratelimit-"])
+}
+
+#[cfg(test)]
+mod tests {
+    use any2api_domain::{ProtocolDialect, ProtocolOperation};
+    use http::{HeaderMap, HeaderValue};
+
+    use super::request;
+    use crate::api::ProviderRequestContext;
+
+    const OWNED_HEADERS: &[&str] = &[
+        "x-grok-conv-id",
+        "x-grok-req-id",
+        "x-grok-session-id",
+        "x-grok-agent-id",
+        "x-grok-turn-id",
+        "traceparent",
+        "tracestate",
+    ];
+
+    #[test]
+    fn credential_owned_grok_headers_are_not_replayed_after_a_switch() {
+        let mut client = HeaderMap::new();
+        for name in OWNED_HEADERS {
+            client.insert(*name, HeaderValue::from_static("owned"));
+        }
+        client.insert(
+            "x-grok-client-surface",
+            HeaderValue::from_static("terminal"),
+        );
+        let context = ProviderRequestContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "grok",
+            client_headers: &client,
+            oauth: false,
+            allow_credential_bound: false,
+            allow_turn_state: false,
+        };
+
+        let switched = request(context).expect("switched headers");
+        for name in OWNED_HEADERS {
+            assert!(!switched.contains_key(*name), "unexpected {name}");
+        }
+        assert_eq!(switched["x-grok-client-surface"], "terminal");
+        assert_eq!(switched["x-grok-client-identifier"], "grok-shell");
+
+        let owner = request(ProviderRequestContext {
+            allow_credential_bound: true,
+            ..context
+        })
+        .expect("owner headers");
+        for name in OWNED_HEADERS {
+            assert_eq!(owner[*name], "owned", "missing {name}");
+        }
+    }
 }

@@ -9,7 +9,7 @@
 
 本文讨论的是 correctness、account isolation、protocol fidelity、transport consistency、observability 和 architecture hygiene。本文不推断任何上游一定采用某种风控算法，也不提供绕过平台反滥用或检测的做法。
 
-> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；F-011 的“换 Credential 后继续使用同一 H2 connection”也被消除，但其 Retry-After/零退避语义仍需单独整改。新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0124 又增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。其余 Finding 保持待修状态。
+> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；F-011 的“换 Credential 后继续使用同一 H2 connection”也被消除，但其 Retry-After/零退避语义仍需单独整改。新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0124 又增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。其余 Finding 保持待修状态。
 
 ## 1. Executive Summary
 
@@ -291,6 +291,8 @@ Runtime 只对第一个 Credential 拥有者保护 `x-oai-attestation`，并且�
 **Architecture recommendation**
 
 把 Header allowlist 升级为带 ownership 的声明表，例如 `Request`, `Session(binding)`, `Credential`, `Device`, `NeverReplayAfterSwitch`。该分类放在 Provider driver 内，Runtime 只传递当前 owner/binding 事实，避免中央 Provider `match`。
+
+> 修复状态（2026-08-10）：**Fixed after baseline**。ADR-0125 引入 Provider-local `Replayable` / `CredentialOwned` / `BoundTurnState` 声明，复用 Runtime 已有的首 Credential owner 锁定。真实 401 双 Key failover 契约已证明第一 Attempt 保留 installation/request/trace 值，第二 Attempt 删除，同时可重放协议字段仍然保留。
 
 ### F-005 — Kimi 不是一等 Provider，必须借用错误的 Provider 身份与能力
 
@@ -1013,7 +1015,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 
 ### P1 — 收紧身份 Header 与 operation profile
 
-10. 为 Header 声明 ownership：request/session/device/credential/never-replay-after-switch；把 installation/session/trace ID 与 affinity owner 对齐。
+10. **已完成（ADR-0125）**：为 Header 声明 ownership，并把 installation/session/trace ID 与 Credential/affinity owner 对齐。
 11. 建立版本化 `ProviderIdentityProfile`，统一 data/quota/token 的 UA 和固定 Header；消除 Claude 2.1.220/2.1.7 与 Codex data/quota persona 的无解释差异。
 12. 在管理/API capability 中明确 `Direct` 与 `Translated` fidelity，展示 bridge 的字段支持交集和不支持原因。
 

@@ -7,30 +7,34 @@ use crate::{
     ProviderError,
     api::ProviderRequestContext,
     header_policy::{insert_default, ordered_names, project},
+    request_header_policy::{
+        RequestHeaderOwnership::{BoundTurnState, CredentialOwned, Replayable},
+        RequestHeaderRule, project_request, request_header_rules,
+    },
 };
 
-static REQUEST_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
-    ordered_names(&[
-        "openai-beta",
-        "x-codex-turn-state",
-        "x-oai-attestation",
-        "user-agent",
-        "originator",
-        "x-client-request-id",
-        "session-id",
-        "thread-id",
-        "x-codex-installation-id",
-        "x-codex-window-id",
-        "x-codex-turn-metadata",
-        "x-codex-parent-thread-id",
-        "x-codex-beta-features",
-        "x-openai-subagent",
-        "x-openai-memgen-request",
-        "x-responsesapi-include-timing-metrics",
-        "x-openai-internal-codex-responses-lite",
-        "x-openai-internal-codex-residency",
-        "traceparent",
-        "tracestate",
+static REQUEST_HEADERS: LazyLock<Vec<RequestHeaderRule>> = LazyLock::new(|| {
+    request_header_rules(&[
+        ("openai-beta", Replayable),
+        ("x-codex-turn-state", BoundTurnState),
+        ("x-oai-attestation", CredentialOwned),
+        ("user-agent", Replayable),
+        ("originator", Replayable),
+        ("x-client-request-id", CredentialOwned),
+        ("session-id", CredentialOwned),
+        ("thread-id", CredentialOwned),
+        ("x-codex-installation-id", CredentialOwned),
+        ("x-codex-window-id", CredentialOwned),
+        ("x-codex-turn-metadata", CredentialOwned),
+        ("x-codex-parent-thread-id", CredentialOwned),
+        ("x-codex-beta-features", Replayable),
+        ("x-openai-subagent", CredentialOwned),
+        ("x-openai-memgen-request", Replayable),
+        ("x-responsesapi-include-timing-metrics", Replayable),
+        ("x-openai-internal-codex-responses-lite", Replayable),
+        ("x-openai-internal-codex-residency", CredentialOwned),
+        ("traceparent", CredentialOwned),
+        ("tracestate", CredentialOwned),
     ])
 });
 
@@ -55,13 +59,13 @@ pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, 
     insert_default(&mut headers, "originator", "codex_cli_rs");
     insert_default(&mut headers, "user-agent", "codex_cli_rs/0.145.0");
     if context.ingress_dialect == context.upstream_operation.dialect() {
-        let allow_credential_bound = context.allow_credential_bound;
-        let allow_turn_state = context.allow_turn_state;
-        let allowed = REQUEST_HEADERS.iter().filter(move |name| {
-            (allow_credential_bound || name.as_str() != "x-oai-attestation")
-                && (allow_turn_state || name.as_str() != "x-codex-turn-state")
-        });
-        headers.extend(project(context.client_headers, allowed, &[]));
+        headers.extend(project_request(
+            context.client_headers,
+            &REQUEST_HEADERS,
+            &[],
+            context.allow_credential_bound,
+            context.allow_turn_state,
+        ));
     }
     Ok(headers)
 }
@@ -100,13 +104,28 @@ mod tests {
     use super::{request, response};
     use crate::api::ProviderRequestContext;
 
+    const OWNED_HEADERS: &[&str] = &[
+        "x-oai-attestation",
+        "x-client-request-id",
+        "session-id",
+        "thread-id",
+        "x-codex-installation-id",
+        "x-codex-window-id",
+        "x-codex-turn-metadata",
+        "x-codex-parent-thread-id",
+        "x-openai-subagent",
+        "x-openai-internal-codex-residency",
+        "traceparent",
+        "tracestate",
+    ];
+
     #[test]
-    fn credential_bound_codex_headers_are_not_replayed_after_a_switch() {
+    fn credential_owned_codex_headers_are_not_replayed_after_a_switch() {
         let mut client = HeaderMap::new();
-        for _ in 0..64 {
-            client.append("x-oai-attestation", HeaderValue::from_static("opaque"));
-            client.append("x-codex-turn-state", HeaderValue::from_static("sticky"));
+        for name in OWNED_HEADERS {
+            client.insert(*name, HeaderValue::from_static("owned"));
         }
+        client.insert("x-codex-turn-state", HeaderValue::from_static("turn-state"));
         client.insert("openai-beta", HeaderValue::from_static("responses=v1"));
         let context = ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
@@ -118,9 +137,50 @@ mod tests {
             allow_turn_state: false,
         };
         let projected = request(context).expect("headers");
-        assert!(!projected.contains_key("x-oai-attestation"));
+        for name in OWNED_HEADERS {
+            assert!(!projected.contains_key(*name), "unexpected {name}");
+        }
         assert!(!projected.contains_key("x-codex-turn-state"));
         assert_eq!(projected["openai-beta"], "responses=v1");
+        assert_eq!(projected["originator"], "codex_cli_rs");
+
+        let owner = request(ProviderRequestContext {
+            allow_credential_bound: true,
+            allow_turn_state: true,
+            ..context
+        })
+        .expect("owner headers");
+        for name in OWNED_HEADERS {
+            assert_eq!(owner[*name], "owned", "missing {name}");
+        }
+        assert_eq!(owner["x-codex-turn-state"], "turn-state");
+    }
+
+    #[test]
+    fn codex_turn_state_requires_binding_after_credential_owner_matches() {
+        let mut client = HeaderMap::new();
+        client.insert("session-id", HeaderValue::from_static("session"));
+        client.insert("x-codex-turn-state", HeaderValue::from_static("turn"));
+        let context = ProviderRequestContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "gpt",
+            client_headers: &client,
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        };
+
+        let unbound = request(context).expect("unbound headers");
+        assert_eq!(unbound["session-id"], "session");
+        assert!(!unbound.contains_key("x-codex-turn-state"));
+
+        let bound = request(ProviderRequestContext {
+            allow_turn_state: true,
+            ..context
+        })
+        .expect("bound headers");
+        assert_eq!(bound["x-codex-turn-state"], "turn");
     }
 
     #[test]

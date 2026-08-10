@@ -182,7 +182,16 @@ async fn buffered_invalid_key_switches_to_another_key_on_the_same_endpoint() {
         "/v1/responses",
         json!({"model":"gpt-upstream","input":"hello"}),
         remote,
-        &[("authorization", format!("Bearer {token}"))],
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("openai-beta", "responses=v1".to_owned()),
+            ("x-client-request-id", "client-request-1".to_owned()),
+            ("x-codex-installation-id", "installation-1".to_owned()),
+            (
+                "traceparent",
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01".to_owned(),
+            ),
+        ],
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -203,6 +212,30 @@ async fn buffered_invalid_key_switches_to_another_key_on_the_same_endpoint() {
         requests[0].headers["authorization"],
         requests[1].headers["authorization"]
     );
+    assert_eq!(requests[0].headers["openai-beta"], "responses=v1");
+    assert_eq!(requests[1].headers["openai-beta"], "responses=v1");
+    assert_eq!(
+        requests[0].headers["x-client-request-id"],
+        "client-request-1"
+    );
+    assert_eq!(
+        requests[0].headers["x-codex-installation-id"],
+        "installation-1"
+    );
+    assert_eq!(
+        requests[0].headers["traceparent"],
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    );
+    for name in [
+        "x-client-request-id",
+        "x-codex-installation-id",
+        "traceparent",
+    ] {
+        assert!(
+            !requests[1].headers.contains_key(name),
+            "Credential-owned {name} leaked to the replacement key"
+        );
+    }
 }
 
 #[tokio::test]
