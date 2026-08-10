@@ -1,6 +1,9 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime},
+};
 
-use any2api_domain::{ProtocolOperation, RoutingCredentialId};
+use any2api_domain::{ProtocolOperation, RetryAfterHint, RoutingCredentialId};
 use any2api_protocol::api::RequestExecutionProfile;
 use tokio::time::Instant;
 
@@ -83,7 +86,15 @@ impl RetryBudget {
         self.attempts < self.policy.max_total_attempts && !self.remaining().is_zero()
     }
 
-    pub(super) fn next_delay(&self, credential_id: RoutingCredentialId) -> Duration {
+    pub(super) fn can_wait(&self, delay: Duration) -> bool {
+        delay < self.remaining()
+    }
+
+    pub(super) fn next_delay(
+        &self,
+        credential_id: RoutingCredentialId,
+        retry_after: Option<RetryAfterHint>,
+    ) -> Duration {
         let credential_attempts = self
             .attempts_by_credential
             .get(&credential_id)
@@ -96,7 +107,11 @@ impl RetryBudget {
             .base_delay
             .saturating_mul(multiplier)
             .min(self.policy.max_delay);
-        jitter(base, self.policy.jitter_ratio)
+        let fallback = jitter(base, self.policy.jitter_ratio);
+        let retry_after = retry_after
+            .map(|hint| hint.delay_from(SystemTime::now()))
+            .unwrap_or_default();
+        fallback.max(retry_after)
     }
 }
 
@@ -141,11 +156,40 @@ mod tests {
         let second = CredentialId::new().into();
 
         assert_eq!(budget.register_attempt(first), Some(1));
-        assert_eq!(budget.next_delay(first), Duration::from_secs(1));
+        assert_eq!(budget.next_delay(first, None), Duration::from_secs(1));
         assert_eq!(budget.register_attempt(first), Some(2));
-        assert_eq!(budget.next_delay(first), Duration::from_secs(2));
+        assert_eq!(budget.next_delay(first, None), Duration::from_secs(2));
         assert_eq!(budget.register_attempt(second), Some(3));
-        assert_eq!(budget.next_delay(second), Duration::from_secs(1));
+        assert_eq!(budget.next_delay(second, None), Duration::from_secs(1));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn retry_after_is_a_non_jittered_minimum_and_must_fit_the_budget() {
+        let mut policy =
+            ReliabilityPolicy::from_settings(SettingsConfiguration::defaults().reliability());
+        policy.precommit_total_budget = Duration::from_secs(10);
+        policy.base_delay = Duration::from_secs(2);
+        policy.max_delay = Duration::from_secs(2);
+        policy.jitter_ratio = 100;
+        let mut budget = RetryBudget::new(
+            policy,
+            ProtocolOperation::Responses,
+            RequestExecutionProfile::Standard,
+        );
+        let credential = CredentialId::new().into();
+        assert_eq!(budget.register_attempt(credential), Some(1));
+
+        assert_eq!(
+            budget.next_delay(
+                credential,
+                Some(RetryAfterHint::Delay(Duration::from_secs(7)))
+            ),
+            Duration::from_secs(7)
+        );
+        assert!(budget.can_wait(Duration::from_secs(9)));
+        assert!(!budget.can_wait(Duration::from_secs(10)));
+        tokio::time::advance(Duration::from_secs(3)).await;
+        assert!(!budget.can_wait(Duration::from_secs(7)));
     }
 
     #[test]

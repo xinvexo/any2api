@@ -61,6 +61,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 30. 流式上游在任何语义输出可见前以协议声明的精确准入拒绝（包括已审计的过载与 Anthropic `rate_limit_error`）拒绝请求时，Runtime 可以在既有预提交预算内丢弃尚未下发的生命周期控制帧并重新选择凭据；未知错误、自然语言匹配、已经出现内容/工具调用等语义事件以及任何下游提交后的失败均不得进入该路径。`rate_limit_error` 只有在完整的 Anthropic SSE `error` envelope 中出现且仍处于 Pending 时才具有该语义；它按 Credential + upstream model 归因，不能扩展为固定并发限制或跨会话绑定切换。请求日志和历史统计必须按最终流结果而不是只按初始 HTTP 状态判断成功，避免把 `HTTP 200 + stream_error` 伪装为成功。完整边界见 `docs/adr/0121-anthropic-precontent-rate-limit-retry.md`。
 31. Provider 固定应用身份必须在各 Driver 的版本化 identity profile 中按 data/quota/token surface 集中定义，不得散落版本或伪造与实际构建目标不符的平台。Transport 默认只有一个显式版本的 generic gateway wire profile；没有经审计的 Provider 必需契约时，禁止按 Provider 随机化或模仿 TLS/HTTP2/TCP 特征。
 32. 上游响应的 HTTP Content-Encoding 由 Transport 在 Protocol 解码和 Provider 错误分类前统一拥有：线路 profile 只声明实际可增量解码的编码，普通与 pinned Client 必须共用同一实现，解码后同步删除失效的表示元数据。未知、损坏或过深的编码链必须失败，禁止删除 Header 后把压缩字节交给 JSON/SSE decoder 或错误分类器。非成功响应继续透明返回解码后的原始内容字节与状态，不做 JSON 重序列化。
+33. 所有自动 reattempt 动作必须服从同一请求级语义退避：同路径、重新选择 Credential/Endpoint/Proxy 以及 OAuth 刷新后的数据面重试，都使用当前失败 Credential 的指数 fallback 与明确 Retry-After 的较大值。Retry-After 不得被 jitter 或 Credential switch 缩短；等待无法放入剩余 precommit budget 时必须终止并返回当前真实失败。随机抖动只用于既有的并发去同步，不能作为隐藏账号切换或 Transport 特征的手段。
 
 ### 2.1 两类凭据的术语边界
 
@@ -2167,7 +2168,7 @@ Ambiguous                  # 可能已经执行，只是响应丢失
 | 成功响应头后的 buffered body 或首个 SSE 事件读取失败 | Ambiguous |
 | 已向下游发送响应头或任意字节 | 禁止重试或切换 |
 
-所有尝试共享同一个绝对 deadline。排队、Session Lock、退避和请求上游都消耗该 deadline；开始下一次尝试前必须结束上一 Credential 的 `in_flight` Guard，上一 Attempt 的 RPM 名额不会归还。未绑定请求的可重试失败会先排除当前 Credential/Endpoint/Proxy，然后立即重新选择，禁止让新 Credential 继承旧 Credential 的退避。只有已绑定、下一 Attempt 必须使用同一 `RoutingCredentialId` 时才退避；指数仅由该凭据在当前请求中已注册的 Attempt 数计算，第一次同凭据重试使用 `base_delay`，之后按二的幂增长并受 `max_delay` 限制。
+所有尝试共享同一个绝对 deadline。排队、Session Lock、退避和请求上游都消耗该 deadline；开始下一次尝试前必须结束上一 Credential 的 `in_flight` Guard，上一 Attempt 的 RPM 名额不会归还。任何可自动重试的失败都先计算一次 request-local retry-not-before：fallback 指数仅由当前失败 Credential 在本请求中已注册的 Attempt 数计算，第一次失败使用 `base_delay`，之后按二的幂增长并受 `max_delay` 限制，再应用既有 jitter；若上游分类携带 Retry-After，则最终等待取 jitter 后 fallback 与该 hint 从当前时刻换算出的延迟较大值，禁止对 hint 向下抖动。未绑定请求先排除已证明的失败 Credential/Endpoint/Proxy，再等待并重新选择；新 Credential 不继承旧 Credential 的健康冷却，但同一个逻辑请求必须遵守上述 retry-not-before。已绑定请求只允许同路径等待。OAuth 认证刷新可以在等待窗口内执行，刷新耗时抵扣等待，下一数据面 Attempt 仍不得早于同一 retry-not-before。所需等待大于等于剩余总预算时不再重试，直接返回当前真实上游/Transport 失败，不把它改写成预算超时。完整决策见 `docs/adr/0128-reselect-retry-after-backoff.md`。
 
 ### 14.2 Attempt 记录
 
@@ -2425,7 +2426,7 @@ Route 物化后，将数组策略与新的公开模型集合取交集并持久�
 | `retry.max_credential_switches` | integer | `2` |
 | `retry.max_same_credential_retries` | integer | `1` |
 | `retry.precommit_total_budget` | duration_secs | `600` |
-| `retry.base_delay` | duration_secs | `0` |
+| `retry.base_delay` | duration_secs | `1` |
 | `retry.max_delay` | duration_secs | `2` |
 | `retry.jitter_ratio` | integer percentage | `20` |
 | `cooldown.rate_limit_fallback` | duration_secs | `60`，优先服从 `Retry-After` |
@@ -2442,7 +2443,7 @@ Route 物化后，将数组策略与新的公开模型集合取交集并持久�
 
 API Key 返回 401 时不使用定时冷却，而是进入 `auth_error`，直到管理员修改 Key、重新启用或手动测试成功。
 
-`retry.jitter_ratio` 使用 `0..=100` 的整数百分比表达，不在 JSON 中使用浮点数。`retry.base_delay` 与 `retry.max_delay` 允许配置为 `0`；当 `max_delay < base_delay` 时配置编译失败。该退避只用于同一凭据的绑定重试，候选切换不使用它。上述十八项设置全部进入统一 SettingRegistry，在 Web 中显示默认值、覆盖值和生效值，并允许写入覆盖值；Web 不提供恢复默认入口。
+`retry.jitter_ratio` 使用 `0..=100` 的整数百分比表达，不在 JSON 中使用浮点数。`retry.base_delay` 与 `retry.max_delay` 允许配置为 `0`；当 `max_delay < base_delay` 时配置编译失败。显式 `base_delay=0` 只关闭没有上游 hint 时的 fallback，任何非零 Retry-After 仍必须由同路径重试与候选切换共同遵守。jitter 只作用于指数 fallback，不能缩短 Retry-After。上述十八项设置全部进入统一 SettingRegistry，在 Web 中显示默认值、覆盖值和生效值，并允许写入覆盖值；Web 不提供恢复默认入口。
 
 #### 流式响应默认值
 

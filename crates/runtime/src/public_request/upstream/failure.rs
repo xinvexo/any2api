@@ -1,6 +1,6 @@
 use any2api_domain::{
-    OAuthAccountId, PublicError, RetrySafety, UpstreamError, UpstreamErrorClassification,
-    UpstreamErrorKind,
+    OAuthAccountId, PublicError, RetryAfterHint, RetrySafety, UpstreamError,
+    UpstreamErrorClassification, UpstreamErrorKind,
 };
 use any2api_protocol::api::StreamRetryReason;
 use any2api_transport::api::TransportError;
@@ -101,6 +101,13 @@ impl AttemptFailure {
             Self::Upstream { error, .. } => error.classification().retry_safety(),
             Self::StreamRejected { .. } => RetrySafety::RejectedBeforeExecution,
             Self::Public(_) => RetrySafety::Ambiguous,
+        }
+    }
+
+    pub(in crate::public_request) fn retry_after(&self) -> Option<RetryAfterHint> {
+        match self {
+            Self::Upstream { error, .. } => error.classification().retry_after(),
+            Self::Transport { .. } | Self::StreamRejected { .. } | Self::Public(_) => None,
         }
     }
 

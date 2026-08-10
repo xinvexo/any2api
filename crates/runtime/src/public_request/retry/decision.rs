@@ -16,9 +16,13 @@ pub(super) enum RetryDecision {
     OAuthRefresh {
         account_id: OAuthAccountId,
         token_version: u64,
+        delay: Duration,
     },
     RetrySamePath(Duration),
-    Reselect(RetryExclusion),
+    Reselect {
+        exclusion: RetryExclusion,
+        delay: Duration,
+    },
 }
 
 impl RetryDecision {
@@ -27,7 +31,33 @@ impl RetryDecision {
             Self::Terminal => RequestAttemptRetryDecision::Terminal,
             Self::OAuthRefresh { .. } => RequestAttemptRetryDecision::OAuthRefresh,
             Self::RetrySamePath(_) => RequestAttemptRetryDecision::RetrySamePath,
-            Self::Reselect(_) => RequestAttemptRetryDecision::Reselect,
+            Self::Reselect { .. } => RequestAttemptRetryDecision::Reselect,
+        }
+    }
+
+    pub(super) const fn delay(self) -> Option<Duration> {
+        match self {
+            Self::Terminal => None,
+            Self::OAuthRefresh { delay, .. }
+            | Self::RetrySamePath(delay)
+            | Self::Reselect { delay, .. } => Some(delay),
+        }
+    }
+
+    pub(super) const fn with_delay(self, delay: Duration) -> Self {
+        match self {
+            Self::Terminal => Self::Terminal,
+            Self::OAuthRefresh {
+                account_id,
+                token_version,
+                ..
+            } => Self::OAuthRefresh {
+                account_id,
+                token_version,
+                delay,
+            },
+            Self::RetrySamePath(_) => Self::RetrySamePath(delay),
+            Self::Reselect { exclusion, .. } => Self::Reselect { exclusion, delay },
         }
     }
 }
@@ -55,16 +85,21 @@ pub(super) fn retry_decision(
     {
         return RetryDecision::Terminal;
     }
+    let delay = budget.next_delay(credential_id, failure.retry_after());
     if can_refresh_oauth
         && let Some((account_id, token_version)) = failure.oauth_authentication_target()
     {
         return RetryDecision::OAuthRefresh {
             account_id,
             token_version,
+            delay,
         };
     }
     if !failure.bound() {
-        return RetryDecision::Reselect(retry_exclusion(failure));
+        return RetryDecision::Reselect {
+            exclusion: retry_exclusion(failure),
+            delay,
+        };
     }
     match failure {
         AttemptFailure::Upstream { error, .. }
@@ -81,9 +116,7 @@ pub(super) fn retry_decision(
         }
         AttemptFailure::Transport { .. }
         | AttemptFailure::Upstream { .. }
-        | AttemptFailure::StreamRejected { .. } => {
-            RetryDecision::RetrySamePath(budget.next_delay(credential_id))
-        }
+        | AttemptFailure::StreamRejected { .. } => RetryDecision::RetrySamePath(delay),
         AttemptFailure::Public(_) => RetryDecision::Terminal,
     }
 }

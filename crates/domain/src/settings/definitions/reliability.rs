@@ -41,7 +41,7 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
         ),
         SettingKey::RetryBaseDelay => duration(
             key,
-            0,
+            1,
             0,
             MAX_SETTING_DURATION_SECS,
             "重试退避",

@@ -9,7 +9,7 @@
 
 本文讨论的是 correctness、account isolation、protocol fidelity、transport consistency、observability 和 architecture hygiene。本文不推断任何上游一定采用某种风控算法，也不提供绕过平台反滥用或检测的做法。
 
-> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；F-011 的“换 Credential 后继续使用同一 H2 connection”也被消除，但其 Retry-After/零退避语义仍需单独整改。新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0124 又增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。ADR-0126 进一步集中 data/quota/token 身份，消除了 Claude 内部版本漂移与 Grok 固定伪报 macOS/ARM 的问题，F-006 已修复；同一 ADR 将线路行为冻结为版本化 generic profile，F-007 的配置漂移得到控制，但该通用 Rust wire profile 仍是明确接受且可被上游观察的特征。ADR-0127 将 profile 升级为 `generic-rustls-hyper-v2`，固定协商并统一增量解码 `gzip, br, zstd`，普通/pinned、成功/错误响应不再出现 Header/Body 脱节，F-014 已修复。未单独标记状态的 Finding 仍保持待修。
+> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0128 又让同路径、Credential reselect 与 OAuth 修复后的数据面重试共同遵守指数 fallback/Retry-After，并把默认基础退避从 0 改为 1 秒，F-011 已完整修复。ADR-0124 增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。ADR-0126 进一步集中 data/quota/token 身份，消除了 Claude 内部版本漂移与 Grok 固定伪报 macOS/ARM 的问题，F-006 已修复；同一 ADR 将线路行为冻结为版本化 generic profile，F-007 的配置漂移得到控制，但该通用 Rust wire profile 仍是明确接受且可被上游观察的特征。ADR-0127 将 profile 升级为 `generic-rustls-hyper-v2`，固定协商并统一增量解码 `gzip, br, zstd`，普通/pinned、成功/错误响应不再出现 Header/Body 脱节，F-014 已修复。未单独标记状态的 Finding 仍保持待修。
 
 ## 1. Executive Summary
 
@@ -606,6 +606,8 @@ Outbound 合并顺序固定为：Provider default identity → protocol Content-
 - `crates/runtime/src/public_request/retry/attempt.rs`
 - `crates/transport/src/client/construction.rs`
 
+> 修复状态（2026-08-10）：**Fixed after baseline**。ADR-0123 已消除换 Credential 后的连接/TLS resumption 共用；ADR-0128 让 `RetrySamePath`、`Reselect` 和 `OAuthRefresh` 都携带同一 request-local delay。等待取失败 Credential 的 jittered exponential fallback 与明确 Retry-After 的较大值，hint 不会被 jitter 或换号缩短；OAuth 刷新耗时会抵扣等待。默认 `retry.base_delay` 为 1 秒，所需 delay 放不进剩余 budget 时直接保留当前真实失败并终止。
+
 **Observed behavior**
 
 默认最多 3 attempts、2 次 Credential switch、同 Credential 额外 retry 1 次、总预提交预算 600 秒。`retry.base_delay` 默认是 0，所以 bound same-path retry 的指数退避始终为 0；unbound `Reselect` 更是无条件使用 `Duration::ZERO`，与 base delay 设置无关。
@@ -1029,7 +1031,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 
 13. 保留 direct raw JSON fast path；给每个 materialization trigger 增加 raw-byte golden test。
 14. **已完成（ADR-0127）**：Transport 在 protocol decode/Provider error classify 前统一增量解压所有状态，并保持 Header/Body 一致；buffered 与错误正文上限作用于解压后字节。
-15. 让 reselect 遵守 Retry-After/语义退避；不使用人为随机延迟掩盖账号切换。
+15. **已完成（ADR-0128）**：reselect、same-path 与 OAuth 修复后的数据面重试共同遵守 Retry-After/语义退避；既有 jitter 只作用于 fallback，不缩短 hint，也不作为账号/Transport 隔离替代品。
 
 ### P2 — 建立持续可观测 contract
 
@@ -1044,7 +1046,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 1. **F-001：不同账号真实共享同一条 TCP/TLS/H2 连接。** 已实验，不是理论。
 2. **F-002：不同缓存 Client 仍共享 TLS session resumption。** 只改 cache key 会留下漏洞。
 3. **F-003：OAuth token/quota/data 共用全局 transport；Claude 三类请求甚至同 origin。**
-4. **F-011：安全重试可零延迟换 Credential，并落回同一 H2 connection。**
+4. **F-011：安全重试可零延迟换 Credential，并落回同一 H2 connection。** 已由 ADR-0123/0128 完整修复。
 5. **F-004：installation/session/trace 等稳定 ID 缺少 Credential ownership，可随 failover 换号上行。**
 6. **F-005：Kimi 没有一等 Provider 身份，只能继承 Codex/Grok 的错误画像和能力。**
 7. **F-008：Responses→Chat 是确定性的语义桥和 canonical request reconstruction。**
