@@ -31,26 +31,37 @@ pub(crate) async fn mutate_connection(
     let Some(prepared) = prepare_provider_endpoint_mutation(
         current.provider_endpoints(),
         current.provider_credentials(),
-        current.model_routes(),
         current.proxies(),
         mutation,
     )?
     else {
         return Ok((current, false));
     };
-    execute_provider_endpoint_change(connection, prepared.change()).await?;
-    let credential_rows_changed = prepared.bump_credential_generations();
-    if credential_rows_changed {
-        bump_endpoint_credential_generations(connection, prepared.endpoint_id()).await?;
-    }
     let expected_model_routes = prepared.model_routes().cloned();
     let model_routes_changed = expected_model_routes.is_some();
-    if let Some(model_routes) = expected_model_routes.as_ref() {
-        reconcile_model_routes(connection, current.model_routes(), model_routes).await?;
-        prune_model_allowlist(
+    if prepared.deletes_endpoint() {
+        reconcile_model_routes_and_allowlist(
             connection,
+            current.model_routes(),
+            expected_model_routes.as_ref(),
             current.settings(),
-            model_routes,
+            current.oauth_accounts(),
+        )
+        .await?;
+    }
+    execute_provider_endpoint_change(connection, prepared.change()).await?;
+    let credential_rows_changed = prepared.credential_rows_changed();
+    let credential_generation_changed = prepared.bump_credential_generations();
+    let credential_configuration_changed = credential_rows_changed || credential_generation_changed;
+    if credential_generation_changed {
+        bump_endpoint_credential_generations(connection, prepared.endpoint_id()).await?;
+    }
+    if !prepared.deletes_endpoint() {
+        reconcile_model_routes_and_allowlist(
+            connection,
+            current.model_routes(),
+            expected_model_routes.as_ref(),
+            current.settings(),
             current.oauth_accounts(),
         )
         .await?;
@@ -60,7 +71,7 @@ pub(crate) async fn mutate_connection(
     let configuration = readback_provider_endpoint_mutation(
         connection,
         current,
-        credential_rows_changed,
+        credential_configuration_changed,
         model_routes_changed,
     )
     .await?;
@@ -87,4 +98,19 @@ pub(crate) async fn mutate_connection(
         )?;
     }
     Ok((configuration, true))
+}
+
+async fn reconcile_model_routes_and_allowlist(
+    connection: &mut SqliteConnection,
+    current: &any2api_domain::ModelRouteConfiguration,
+    candidate: Option<&any2api_domain::ModelRouteConfiguration>,
+    settings: &any2api_domain::SettingsConfiguration,
+    oauth_accounts: &any2api_domain::OAuthAccountConfiguration,
+) -> Result<(), StorageError> {
+    let Some(candidate) = candidate else {
+        return Ok(());
+    };
+    reconcile_model_routes(connection, current, candidate).await?;
+    prune_model_allowlist(connection, settings, candidate, oauth_accounts).await?;
+    Ok(())
 }

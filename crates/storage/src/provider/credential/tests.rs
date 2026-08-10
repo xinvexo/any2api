@@ -165,7 +165,7 @@ async fn credential_lifecycle_persists_versions_and_secret_metadata() {
 }
 
 #[tokio::test]
-async fn credential_references_protect_proxy_and_endpoint() {
+async fn credential_references_protect_proxy_and_cascade_endpoint_delete() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
         .await
@@ -221,16 +221,6 @@ async fn credential_references_protect_proxy_and_endpoint() {
         commit_configuration(
             &store,
             created.revision(),
-            ConfigurationMutation::DeleteProviderEndpoint { id: endpoint_id },
-        )
-        .await
-        .expect_err("referenced endpoint must be protected"),
-        StorageError::ProviderEndpointInUse
-    ));
-    assert!(matches!(
-        commit_configuration(
-            &store,
-            created.revision(),
             ConfigurationMutation::UpdateProviderEndpoint {
                 id: endpoint_id,
                 expected_config_version: 1,
@@ -263,6 +253,15 @@ async fn credential_references_protect_proxy_and_endpoint() {
             .credential_generation(),
         2
     );
+    let deleted = commit_configuration(
+        &store,
+        moved.revision(),
+        ConfigurationMutation::DeleteProviderEndpoint { id: endpoint_id },
+    )
+    .await
+    .expect("referenced endpoint deletion cascades its credential");
+    assert!(deleted.provider_endpoints().get(endpoint_id).is_none());
+    assert!(deleted.provider_credentials().credentials().is_empty());
 }
 
 #[tokio::test]

@@ -95,6 +95,20 @@ async fn rejects_unrepresentable_image_requests_before_upstream_encoding() {
         ));
     }
 
+    let decoded = decoded_request(json!({
+        "model":"image",
+        "prompt":"draw",
+        "future_field":true
+    }))
+    .await;
+    assert_eq!(
+        bridge_exchange()
+            .prepare_request(&decoded, "upstream-image", None)
+            .err()
+            .expect("unknown field must fail before upstream encoding"),
+        ProtocolError::InvalidPayload("unsupported field `future_field`".into())
+    );
+
     let protocols = registry();
     assert!(!protocols.supports_operation(
         ProtocolDialect::OpenAiImages,

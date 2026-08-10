@@ -20,7 +20,7 @@
 - 服务端永不回显 Provider API Key。Web 创建或轮换成功后仅使用本次提交值显示组件内一次性回执；该值不进入 URL、React Query Cache、Mutation Cache、localStorage 或 sessionStorage。
 - Credential 与 Endpoint 的 `enabled` 只控制数据面路由资格；管理面的 API Key 模型探测不要求两者启用，仍使用当前 Endpoint、Secret 和实际代理读取 `/models`。
 - 元数据更新和 Secret 轮换是两个独立管理端点。创建检查全局 revision；更新检查 revision/config version；轮换检查 revision/config/secret version；删除检查 revision/config version。
-- 删除 Endpoint 或 Proxy 时，如果仍有 Credential 引用则返回稳定冲突；禁止依赖原始 SQLite 外键错误作为管理契约。
+- 删除 Proxy 时，如果仍有 Credential 引用则返回稳定冲突；Endpoint 删除的确认级联语义见 ADR-0122，禁止依赖原始 SQLite 外键错误作为管理契约。
 
 ## API 契约
 

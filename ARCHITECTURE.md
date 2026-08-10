@@ -896,7 +896,7 @@ route_targets
 - `provider_credential_models` 是控制面真相来源；`model_routes` 与 `route_targets` 是同一事务内差异同步的内部物化表，稳定 ID 由协议、模型和 Endpoint 确定；未变化的 Route/Target 行不得删除重建；
 - Target 的 `provider_endpoint_id` 与 `upstream_model` 是稳定身份字段；模型或 Endpoint 变化时，下一次物化删除被替换 Target 并按确定性规则生成新 ID；
 - 差异同步先插入或更新新状态，再只删除已经不在候选配置中的 Target/Route。`request_attempts.route_target_id` 因此保留对未变化 Target 的历史关联；真正失效的 Target 删除后仍通过 `ON DELETE SET NULL` 与历史遥测解耦；
-- API Key 轮换仍原子清空该 Credential 的旧模型集合，因为新 Key 的模型权限未知；这会触发同一差异同步，但其他 Credential 仍提供的 Route/Target 必须保留。Provider Endpoint 删除仍由其 Credential 引用约束保护。
+- API Key 轮换仍原子清空该 Credential 的旧模型集合，因为新 Key 的模型权限未知；这会触发同一差异同步，但其他 Credential 仍提供的 Route/Target 必须保留。管理员确认删除 Provider Endpoint 后，Endpoint、其全部 ProviderCredential/API Key、`provider_credential_models` 选择、失效的 Route/Target 以及不再可用的 `models.allowed` 项必须在同一配置事务中级联清理；仍由其他 Credential 提供的 Route/Target 保留，历史遥测通过既有 `ON DELETE SET NULL` 解耦。
 
 ### 9.5 CredentialModelRuntime
 
@@ -1374,6 +1374,11 @@ anthropic_messages       -> anthropic_messages
 
 当前注册 Responses → Chat Completions 与 Images → Chat Completions 两座转换桥。Runtime 只按协议对查询注册表，不对这些组合写专用 `match`；新增桥只能通过独立实现与 Composition Root 注册扩展。每座桥必须按 `supports_operation` 精确声明可表达的操作，并在自身已声明的请求模式内覆盖请求、响应、usage 和适用的流式/多轮状态；未声明的操作、模式或无法无损表达的输入必须在请求提交上游前明确报错，禁止静默删除字段。最终上游非 2xx 仍透明返回。Chat Completions → Responses、Codex/OpenAI ↔ Claude 和 `/v1/responses/compact` → Chat Completions 不注册。
 
+跨协议请求在上游 I/O 前因 `ProtocolError::InvalidPayload` 被拒绝时，公开
+`invalid_request` 必须保留协议对与 Bridge 返回的定位信息，格式固定为
+`cannot bridge <ingress> to <upstream>: <diagnostic>`。请求校验器在能安全定位时必须给出具体字段路径或
+tool type，不得只返回“无法表达”。动态结构判别值只能在长度有界且由安全 ASCII token 组成时回显，禁止回显字段内容、凭据或 Session ID。该规则仅用于请求侧 Bridge 拒绝；同协议解码错误、上游响应转换错误、内部错误与上游非 2xx 不使用该前缀。
+
 Images → Chat Completions Bridge 首版只支持非流式 `images_generations`。它面向把图片模型挂在 `/chat/completions` 的兼容上游，不把 Chat Completions 本身误当作 OpenAI 官方图片协议：请求投影、允许的图片扩展字段、唯一 URL 结果和 usage 映射由 ADR-0117 固定；`images_edits`、Images SSE、partial image 与 URL 下载/base64 重编码均不属于该桥。该能力按协议对生效，任何声明 Chat Completions 能力的 Provider Driver 都可由静态注册表导出管理选项，Provider、Runtime 和 Web 不增加按 Provider 类型的图片转换分支。
 
 Responses → Chat Completions Bridge 合成的每个 Responses SSE JSON 事件都必须包含
@@ -1408,8 +1413,12 @@ Completions 的消息首部注入一次；续接时不得继承上一轮指令�
 替换和省略 `instructions` 的三轮以上续接测试。
 
 ADR-0032 明确登记该 Bridge 的等价请求投影与窄降级边界：Responses 与 Chat Completions 共有的
-`prompt_cache_key` 必须原值转发；`input_image.detail` 只接受并原值转发 `auto`、`low`、`high`、
-`original`。连续 Responses `function_call` 必须合并为同一条 Chat assistant `tool_calls` 消息，已有
+`text.verbosity` 只接受 `low`、`medium`、`high` 并等价投影为 Chat 顶层 `verbosity`，且允许在没有
+`text.format` 时单独出现；`prompt_cache_key` 必须原值转发；`input_image.detail` 只接受并原值转发
+`auto`、`low`、`high`、`original`。Codex 发送的 `client_metadata` 只接受字符串值对象，并作为没有
+Chat Completions 线协议等价字段、且不参与模型输入/工具/采样/续接的客户端传输元数据，在验证后丢弃；
+该例外不得扩张成未知顶层字段过滤。连续 Responses `function_call` 必须合并为同一条 Chat assistant
+`tool_calls` 消息，已有
 对应输出的调用还必须保持 `assistant(tool_calls) -> tool` 邻接，不能让插入的普通消息破坏上游
 历史约束。当前 input 中出现的每个 `function_call` 都必须在同一 input 中具有唯一匹配
 `function_call_output.call_id`；中断历史中的孤立 call 无法无损投影为 Chat 消息序列，必须在编码上游

@@ -58,11 +58,13 @@ pub(super) fn convert_content(value: &Value, role: &str) -> Result<Value, Protoc
                 }
                 converted.push(image);
             }
-            _ => {
-                return Err(invalid(
-                    "message content part is not supported by this bridge",
+            Some(kind) => {
+                return Err(ProtocolError::unsupported_value(
+                    "message content part type",
+                    kind,
                 ));
             }
+            None => return Err(invalid("message content part type is required")),
         }
     }
     if role == "assistant" {

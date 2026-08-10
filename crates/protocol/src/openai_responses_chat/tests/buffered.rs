@@ -71,7 +71,7 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
                 "name":"weather_result",
                 "schema":{"type":"object","properties":{"city":{"type":"string"}}},
                 "strict":true
-            }},
+            },"verbosity":"low"},
             "tools":[{
                 "type":"function",
                 "name":"weather",
@@ -103,6 +103,7 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     assert!(upstream_request.get("reasoning").is_none());
     assert!(upstream_request.get("include").is_none());
     assert_eq!(upstream_request["response_format"]["type"], "json_schema");
+    assert_eq!(upstream_request["verbosity"], "low");
     assert_eq!(upstream_request["tools"][0]["function"]["name"], "weather");
     assert_eq!(
         upstream_request["tool_choice"]["function"]["name"],
@@ -257,6 +258,34 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     assert_eq!(messages[2]["role"], "tool");
     assert_eq!(messages[2]["tool_call_id"], "call_1");
     assert_eq!(messages[2]["content"], "Sunny");
+}
+
+#[tokio::test]
+async fn request_bridge_accepts_codex_verbosity_without_format_and_drops_client_metadata() {
+    let registry = registry();
+    let request = decoded(
+        &registry,
+        ProtocolOperation::Responses,
+        json!({
+            "model":"public-model",
+            "input":"reply briefly",
+            "reasoning":{"effort":"high"},
+            "text":{"verbosity":"low"},
+            "client_metadata":{
+                "x-codex-turn-metadata":"{\"turn_id\":\"turn_1\"}"
+            }
+        }),
+    )
+    .await;
+    let prepared = bridged_exchange(&registry, ProtocolOperation::Responses)
+        .prepare_request(&request, "upstream-model", None)
+        .expect("Codex Responses request is representable as Chat Completions");
+    let upstream: Value =
+        serde_json::from_slice(&prepared.request.body).expect("upstream request JSON");
+    assert_eq!(upstream["reasoning_effort"], "high");
+    assert_eq!(upstream["verbosity"], "low");
+    assert!(upstream.get("response_format").is_none());
+    assert!(upstream.get("client_metadata").is_none());
 }
 
 #[tokio::test]

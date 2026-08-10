@@ -14,16 +14,17 @@ pub(super) fn convert_tools(value: &Value) -> Result<Value, ProtocolError> {
             let object = tool
                 .as_object()
                 .ok_or_else(|| invalid("tool must be an object"))?;
-            if object.keys().any(|field| {
+            let kind = required_string(object.get("type"), "tool.type")?;
+            if kind != "function" {
+                return Err(ProtocolError::unsupported_value("tool type", kind));
+            }
+            if let Some(field) = object.keys().find(|field| {
                 !matches!(
                     field.as_str(),
                     "type" | "name" | "description" | "parameters" | "strict"
                 )
             }) {
-                return Err(invalid("function tool contains unsupported fields"));
-            }
-            if object.get("type").and_then(Value::as_str) != Some("function") {
-                return Err(invalid("only function tools are supported by this bridge"));
+                return Err(ProtocolError::unsupported_field(Some("tools[]"), field));
             }
             let name = required_string(object.get("name"), "tool.name")?;
             Ok(json!({
@@ -44,22 +45,21 @@ pub(super) fn convert_tool_choice(value: &Value) -> Result<Value, ProtocolError>
     if let Some(choice) = value.as_str() {
         return match choice {
             "none" | "auto" | "required" => Ok(value.clone()),
-            _ => Err(invalid(
-                "tool_choice string is not supported by this bridge",
-            )),
+            _ => Err(ProtocolError::unsupported_value("tool_choice", choice)),
         };
     }
     let choice = value
         .as_object()
         .ok_or_else(|| invalid("tool_choice must be a string or object"))?;
-    if choice
+    if let Some(field) = choice
         .keys()
-        .any(|field| !matches!(field.as_str(), "type" | "name"))
-        || choice.get("type").and_then(Value::as_str) != Some("function")
+        .find(|field| !matches!(field.as_str(), "type" | "name"))
     {
-        return Err(invalid(
-            "tool_choice object is not supported by this bridge",
-        ));
+        return Err(ProtocolError::unsupported_field(Some("tool_choice"), field));
+    }
+    let kind = required_string(choice.get("type"), "tool_choice.type")?;
+    if kind != "function" {
+        return Err(ProtocolError::unsupported_value("tool_choice type", kind));
     }
     let name = required_string(choice.get("name"), "tool_choice.name")?;
     Ok(json!({"type":"function","function":{"name":name}}))

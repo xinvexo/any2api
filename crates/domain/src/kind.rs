@@ -105,6 +105,16 @@ pub enum CredentialKind {
 }
 
 impl ProtocolDialect {
+    #[must_use]
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::OpenAiResponses => "OpenAI Responses",
+            Self::OpenAiChatCompletions => "Chat Completions",
+            Self::OpenAiImages => "OpenAI Images",
+            Self::AnthropicMessages => "Anthropic Messages",
+        }
+    }
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OpenAiResponses => "openai_responses",
@@ -155,6 +165,18 @@ impl ProtocolOperation {
 #[cfg(test)]
 mod tests {
     use super::{ProtocolDialect, ProtocolOperation};
+
+    #[test]
+    fn protocol_display_names_are_stable() {
+        assert_eq!(
+            ProtocolDialect::OpenAiResponses.display_name(),
+            "OpenAI Responses"
+        );
+        assert_eq!(
+            ProtocolDialect::OpenAiChatCompletions.display_name(),
+            "Chat Completions"
+        );
+    }
 
     #[test]
     fn image_protocol_values_are_stable() {

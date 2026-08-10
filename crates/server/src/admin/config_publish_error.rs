@@ -69,11 +69,6 @@ impl From<ConfigPublishError> for AdminApiError {
                 "provider_endpoint_name_conflict",
                 "provider endpoint name is already in use",
             ),
-            ConfigPublishError::ProviderEndpointInUse => AdminApiError::new(
-                StatusCode::CONFLICT,
-                "provider_endpoint_in_use",
-                "provider endpoint is referenced by a provider credential or model route",
-            ),
             ConfigPublishError::InvalidProviderEndpoint(error) => AdminApiError::new(
                 StatusCode::BAD_REQUEST,
                 "invalid_provider_endpoint",

@@ -71,13 +71,11 @@ pub(super) fn convert(
 }
 
 fn reject_unknown_fields(object: &Map<String, Value>) -> Result<(), ProtocolError> {
-    if object
+    if let Some(field) = object
         .keys()
-        .any(|field| !KNOWN_FIELDS.contains(&field.as_str()))
+        .find(|field| !KNOWN_FIELDS.contains(&field.as_str()))
     {
-        return Err(invalid(
-            "Images request contains a field that cannot be represented by Chat Completions",
-        ));
+        return Err(ProtocolError::unsupported_field(None, field));
     }
     Ok(())
 }

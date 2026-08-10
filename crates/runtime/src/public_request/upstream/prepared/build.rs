@@ -1,6 +1,6 @@
 use std::{io::Write, time::Duration};
 
-use any2api_domain::{ProtocolOperation, PublicError, PublicErrorCode};
+use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode};
 use any2api_payload_buffer::PayloadBuffer;
 use any2api_protocol::api::{
     DecodedRequest, ProtocolContinuationState, ProtocolError, ProtocolExchange, ProtocolRegistry,
@@ -144,7 +144,9 @@ fn build_request<'a>(
         .map_err(|_| internal_error())?;
     let prepared = exchange
         .prepare_request(decoded, &candidate.upstream_model, continuation_state)
-        .map_err(protocol_request_error)?;
+        .map_err(|error| {
+            protocol_request_error(decoded.dialect, candidate.upstream_protocol_dialect, error)
+        })?;
     let upstream_operation = prepared.upstream_operation;
     let endpoint_plan = driver
         .endpoint_plan(&candidate.base_url, upstream_operation)
@@ -223,11 +225,23 @@ fn provider_request_error(error: ProviderError) -> PublicError {
     }
 }
 
-fn protocol_request_error(error: ProtocolError) -> PublicError {
+fn protocol_request_error(
+    ingress: ProtocolDialect,
+    upstream: ProtocolDialect,
+    error: ProtocolError,
+) -> PublicError {
     match error {
         ProtocolError::SessionBindingLost => public_error(
             PublicErrorCode::SessionBindingLost,
             "previous response bridge history is unavailable",
+        ),
+        ProtocolError::InvalidPayload(detail) if ingress != upstream => PublicError::new(
+            PublicErrorCode::InvalidRequest,
+            format!(
+                "cannot bridge {} to {}: {detail}",
+                ingress.display_name(),
+                upstream.display_name()
+            ),
         ),
         ProtocolError::InvalidPayload(_) => {
             invalid_request("request cannot be represented by the configured upstream protocol")
@@ -243,26 +257,4 @@ fn protocol_request_error(error: ProtocolError) -> PublicError {
 }
 
 #[cfg(test)]
-mod tests {
-    use bytes::Bytes;
-
-    use super::encode_zstd;
-
-    #[test]
-    fn zstd_encoding_streams_large_output_into_the_payload_buffer() {
-        let mut state = 0x9e37_79b9_u32;
-        let input = (0..512 * 1024)
-            .map(|_| {
-                state ^= state << 13;
-                state ^= state >> 17;
-                state ^= state << 5;
-                state as u8
-            })
-            .collect::<Vec<_>>();
-
-        let encoded = encode_zstd(Bytes::copy_from_slice(&input)).expect("zstd encode");
-        assert!(encoded.len() >= 256 * 1024);
-        let decoded = zstd::stream::decode_all(encoded.as_ref()).expect("zstd decode");
-        assert_eq!(decoded, input);
-    }
-}
+mod tests;

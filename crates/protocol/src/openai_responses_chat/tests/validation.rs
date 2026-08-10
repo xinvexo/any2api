@@ -16,6 +16,9 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         json!({"model":"public","input":"hello","include":["message.output_text.logprobs"]}),
         json!({"model":"public","input":"hello","reasoning":{"summary":"verbose"}}),
         json!({"model":"public","input":"hello","reasoning":{"effort":"high","future":true}}),
+        json!({"model":"public","input":"hello","text":{"verbosity":"maximum"}}),
+        json!({"model":"public","input":"hello","client_metadata":"opaque"}),
+        json!({"model":"public","input":"hello","client_metadata":{"turn":42}}),
         json!({"model":"public","input":"hello","prompt_cache_key":42}),
         json!({"model":"public","input":"hello","prompt_cache_key":null}),
         json!({"model":"public","input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://example.com/image.png","detail":"maximum"}]}]}),
@@ -109,6 +112,41 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
 }
 
 #[tokio::test]
+async fn bridge_diagnostics_identify_the_unsupported_field_or_type() {
+    for (body, expected) in [
+        (
+            json!({"model":"public","input":"hello","future":true}),
+            "unsupported field `future`",
+        ),
+        (
+            json!({"model":"public","input":"hello","text":{"future":true}}),
+            "unsupported field `text.future`",
+        ),
+        (
+            json!({"model":"public","input":"hello","tools":[{
+                "type":"computer",
+                "display_width":1024,
+                "display_height":768
+            }]}),
+            "tool type `computer` is unsupported",
+        ),
+        (
+            json!({"model":"public","input":[{"type":"computer_call"}]}),
+            "input item type `computer_call` is unsupported",
+        ),
+    ] {
+        let registry = registry();
+        let request = decoded(&registry, ProtocolOperation::Responses, body).await;
+        let error = bridged_exchange(&registry, ProtocolOperation::Responses)
+            .prepare_request(&request, "upstream", None)
+            .err()
+            .expect("unsupported request must fail before upstream I/O");
+
+        assert_eq!(error, ProtocolError::InvalidPayload(expected.into()));
+    }
+}
+
+#[tokio::test]
 async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
     let registry = registry();
     let request = decoded(
@@ -119,7 +157,8 @@ async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
             "input":"title this session",
             "prompt_cache_key":"shared-session-prefix",
             "reasoning":{"summary":"concise"},
-            "include":["reasoning.encrypted_content"]
+            "include":["reasoning.encrypted_content"],
+            "client_metadata":{"x-codex-turn-metadata":"opaque"}
         }),
     )
     .await;
@@ -134,6 +173,7 @@ async fn bridge_accepts_audited_response_projection_hints_for_any_provider() {
     assert!(upstream.get("reasoning_effort").is_none());
     assert!(upstream.get("reasoning").is_none());
     assert!(upstream.get("include").is_none());
+    assert!(upstream.get("client_metadata").is_none());
 }
 
 #[tokio::test]

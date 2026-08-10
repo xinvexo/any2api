@@ -18,3 +18,51 @@ pub enum ProtocolError {
     #[error("invalid protocol payload: {0}")]
     InvalidPayload(String),
 }
+
+impl ProtocolError {
+    pub(crate) fn unsupported_field(scope: Option<&str>, field: &str) -> Self {
+        let message = match (scope, diagnostic_token(field)) {
+            (Some(scope), Some(field)) => format!("unsupported field `{scope}.{field}`"),
+            (Some(scope), None) => format!("unsupported field under `{scope}`"),
+            (None, Some(field)) => format!("unsupported field `{field}`"),
+            (None, None) => "request contains an unsupported field".into(),
+        };
+        Self::InvalidPayload(message)
+    }
+
+    pub(crate) fn unsupported_value(label: &str, value: &str) -> Self {
+        let message = diagnostic_token(value).map_or_else(
+            || format!("{label} is unsupported"),
+            |value| format!("{label} `{value}` is unsupported"),
+        );
+        Self::InvalidPayload(message)
+    }
+}
+
+fn diagnostic_token(value: &str) -> Option<&str> {
+    const MAX_BYTES: usize = 64;
+
+    (!value.is_empty()
+        && value.len() <= MAX_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-')))
+    .then_some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProtocolError;
+
+    #[test]
+    fn unsupported_diagnostics_only_echo_safe_bounded_tokens() {
+        assert_eq!(
+            ProtocolError::unsupported_field(Some("text"), "future"),
+            ProtocolError::InvalidPayload("unsupported field `text.future`".into())
+        );
+        assert_eq!(
+            ProtocolError::unsupported_value("tool type", "computer\nsecret"),
+            ProtocolError::InvalidPayload("tool type is unsupported".into())
+        );
+    }
+}

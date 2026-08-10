@@ -4,6 +4,11 @@ use crate::ProtocolError;
 
 use super::{invalid, required_string};
 
+pub(super) struct ConvertedTextConfig {
+    pub(super) response_format: Option<Value>,
+    pub(super) verbosity: Option<Value>,
+}
+
 pub(super) fn validate_include(value: Option<&Value>) -> Result<(), ProtocolError> {
     let Some(value) = value else {
         return Ok(());
@@ -22,17 +27,28 @@ pub(super) fn validate_include(value: Option<&Value>) -> Result<(), ProtocolErro
     Ok(())
 }
 
+pub(super) fn validate_client_metadata(value: Option<&Value>) -> Result<(), ProtocolError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let metadata = value
+        .as_object()
+        .ok_or_else(|| invalid("client_metadata must be an object"))?;
+    if metadata.values().any(|value| !value.is_string()) {
+        return Err(invalid("client_metadata values must be strings"));
+    }
+    Ok(())
+}
+
 pub(super) fn convert_reasoning(value: &Value) -> Result<Option<Value>, ProtocolError> {
     let reasoning = value
         .as_object()
         .ok_or_else(|| invalid("reasoning must be an object"))?;
-    if reasoning
+    if let Some(field) = reasoning
         .keys()
-        .any(|field| !matches!(field.as_str(), "effort" | "summary"))
+        .find(|field| !matches!(field.as_str(), "effort" | "summary"))
     {
-        return Err(invalid(
-            "only reasoning.effort and reasoning.summary are supported by this bridge",
-        ));
+        return Err(ProtocolError::unsupported_field(Some("reasoning"), field));
     }
     if let Some(summary) = reasoning.get("summary") {
         match summary.as_str() {
@@ -54,16 +70,32 @@ pub(super) fn convert_reasoning(value: &Value) -> Result<Option<Value>, Protocol
     }
 }
 
-pub(super) fn convert_text_config(value: &Value) -> Result<Value, ProtocolError> {
+pub(super) fn convert_text_config(value: &Value) -> Result<ConvertedTextConfig, ProtocolError> {
     let text = value
         .as_object()
         .ok_or_else(|| invalid("text must be an object"))?;
-    if text.keys().any(|field| field != "format") {
-        return Err(invalid("only text.format is supported by this bridge"));
+    if let Some(field) = text
+        .keys()
+        .find(|field| !matches!(field.as_str(), "format" | "verbosity"))
+    {
+        return Err(ProtocolError::unsupported_field(Some("text"), field));
     }
-    let format = text
-        .get("format")
-        .and_then(Value::as_object)
+    if text.is_empty() {
+        return Err(invalid(
+            "text must contain format or verbosity for this bridge",
+        ));
+    }
+    let response_format = text.get("format").map(convert_text_format).transpose()?;
+    let verbosity = text.get("verbosity").map(convert_verbosity).transpose()?;
+    Ok(ConvertedTextConfig {
+        response_format,
+        verbosity,
+    })
+}
+
+fn convert_text_format(value: &Value) -> Result<Value, ProtocolError> {
+    let format = value
+        .as_object()
         .ok_or_else(|| invalid("text.format must be an object"))?;
     let kind = required_string(format.get("type"), "text.format.type")?;
     match kind {
@@ -73,16 +105,21 @@ pub(super) fn convert_text_config(value: &Value) -> Result<Value, ProtocolError>
     }
 }
 
+fn convert_verbosity(value: &Value) -> Result<Value, ProtocolError> {
+    match value.as_str() {
+        Some("low" | "medium" | "high") => Ok(value.clone()),
+        _ => Err(invalid("text.verbosity must be low, medium, or high")),
+    }
+}
+
 fn convert_json_schema(format: &Map<String, Value>) -> Result<Value, ProtocolError> {
-    if format.keys().any(|field| {
+    if let Some(field) = format.keys().find(|field| {
         !matches!(
             field.as_str(),
             "type" | "name" | "description" | "schema" | "strict"
         )
     }) {
-        return Err(invalid(
-            "text.format json_schema contains unsupported fields",
-        ));
+        return Err(ProtocolError::unsupported_field(Some("text.format"), field));
     }
     let name = required_string(format.get("name"), "text.format.name")?;
     let schema = format

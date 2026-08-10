@@ -103,8 +103,6 @@ pub enum StorageError {
     ProviderEndpointVersionConflict { expected: u64, actual: u64 },
     #[error("provider endpoint name is already in use")]
     ProviderEndpointNameConflict,
-    #[error("provider endpoint is referenced by a provider credential")]
-    ProviderEndpointInUse,
     #[error("provider endpoint configuration is invalid: {0}")]
     ProviderEndpointValidation(#[from] ProviderEndpointValidationError),
     #[error("model route configuration is invalid: {0}")]

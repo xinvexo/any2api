@@ -4,6 +4,8 @@ use any2api_domain::{
 };
 use tempfile::tempdir;
 
+mod cascade;
+
 use crate::{
     api::{ConfigurationMutation, ConfigurationRepository, SecretBytes, SqliteStore},
     configuration::commit_configuration,

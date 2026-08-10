@@ -65,6 +65,7 @@ pub(super) fn convert(
     reject_multiple_choices(source)?;
     validate_prompt_cache_key(source.get("prompt_cache_key"))?;
     options::validate_include(source.get("include"))?;
+    options::validate_client_metadata(source.get("client_metadata"))?;
     let mut conversation = previous;
     input::append_input(source.get("input"), &mut conversation)?;
     let mut messages = Vec::with_capacity(conversation.len().saturating_add(1));
@@ -95,10 +96,13 @@ pub(super) fn convert(
         target.insert("reasoning_effort".into(), effort);
     }
     if let Some(text) = source.get("text") {
-        target.insert(
-            "response_format".into(),
-            options::convert_text_config(text)?,
-        );
+        let converted = options::convert_text_config(text)?;
+        if let Some(response_format) = converted.response_format {
+            target.insert("response_format".into(), response_format);
+        }
+        if let Some(verbosity) = converted.verbosity {
+            target.insert("verbosity".into(), verbosity);
+        }
     }
     if let Some(value) = source.get("tools") {
         target.insert("tools".into(), tools::convert_tools(value)?);
@@ -114,8 +118,8 @@ pub(super) fn convert(
 }
 
 fn validate_top_level_fields(source: &Map<String, Value>) -> Result<(), ProtocolError> {
-    for field in source.keys() {
-        let supported = matches!(
+    if let Some(field) = source.keys().find(|field| {
+        !(matches!(
             field.as_str(),
             "model"
                 | "input"
@@ -128,13 +132,11 @@ fn validate_top_level_fields(source: &Map<String, Value>) -> Result<(), Protocol
                 | "text"
                 | "tools"
                 | "tool_choice"
+                | "client_metadata"
                 | "n"
-        ) || PASSTHROUGH_FIELDS.contains(&field.as_str());
-        if !supported {
-            return Err(ProtocolError::InvalidPayload(format!(
-                "Responses field {field:?} is not supported by the Chat Completions bridge"
-            )));
-        }
+        ) || PASSTHROUGH_FIELDS.contains(&field.as_str()))
+    }) {
+        return Err(ProtocolError::unsupported_field(None, field));
     }
     Ok(())
 }

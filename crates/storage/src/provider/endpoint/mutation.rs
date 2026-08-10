@@ -32,6 +32,7 @@ pub(crate) struct PreparedProviderEndpointMutation {
     provider_credentials: ProviderCredentialConfiguration,
     model_routes: Option<ModelRouteConfiguration>,
     change: ProviderEndpointDatabaseChange,
+    credential_rows_changed: bool,
     bump_credential_generations: bool,
 }
 
@@ -52,6 +53,14 @@ impl PreparedProviderEndpointMutation {
         self.bump_credential_generations
     }
 
+    pub(crate) const fn credential_rows_changed(&self) -> bool {
+        self.credential_rows_changed
+    }
+
+    pub(crate) const fn deletes_endpoint(&self) -> bool {
+        matches!(&self.change, ProviderEndpointDatabaseChange::Delete(_))
+    }
+
     pub(crate) const fn model_routes(&self) -> Option<&ModelRouteConfiguration> {
         self.model_routes.as_ref()
     }
@@ -69,7 +78,6 @@ impl PreparedProviderEndpointMutation {
 pub(crate) fn prepare_provider_endpoint_mutation(
     current: &ProviderEndpointConfiguration,
     credentials: &ProviderCredentialConfiguration,
-    routes: &ModelRouteConfiguration,
     proxies: &ProxyConfiguration,
     mutation: ProviderEndpointMutation,
 ) -> Result<Option<PreparedProviderEndpointMutation>, StorageError> {
@@ -90,7 +98,7 @@ pub(crate) fn prepare_provider_endpoint_mutation(
             draft,
         ),
         ProviderEndpointMutation::Delete { id } => {
-            delete(current, credentials, routes, id).map(Some)
+            delete(current, credentials, proxies, id).map(Some)
         }
     }
 }
@@ -110,6 +118,7 @@ fn create(
         provider_credentials: credentials.clone(),
         model_routes: None,
         change: ProviderEndpointDatabaseChange::Create(endpoint),
+        credential_rows_changed: false,
         bump_credential_generations: false,
     })
 }
@@ -167,6 +176,7 @@ fn update(
         provider_credentials,
         model_routes,
         change: ProviderEndpointDatabaseChange::Update(updated),
+        credential_rows_changed: false,
         bump_credential_generations: has_credentials && execution_identity_changed,
     }))
 }
@@ -174,14 +184,11 @@ fn update(
 fn delete(
     current: &ProviderEndpointConfiguration,
     credentials: &ProviderCredentialConfiguration,
-    routes: &ModelRouteConfiguration,
+    proxies: &ProxyConfiguration,
     id: ProviderEndpointId,
 ) -> Result<PreparedProviderEndpointMutation, StorageError> {
     if current.get(id).is_none() {
         return Err(StorageError::ProviderEndpointNotFound(id));
-    }
-    if credentials.references_endpoint(id) || routes.references_endpoint(id) {
-        return Err(StorageError::ProviderEndpointInUse);
     }
     let endpoints = current
         .endpoints()
@@ -190,11 +197,25 @@ fn delete(
         .cloned()
         .collect();
     let configuration = ProviderEndpointConfiguration::new(endpoints).map_err(map_validation)?;
+    let provider_credentials = ProviderCredentialConfiguration::new(
+        credentials
+            .credentials()
+            .iter()
+            .filter(|credential| credential.provider_endpoint_id() != id)
+            .cloned()
+            .collect(),
+        &configuration,
+        proxies,
+    )
+    .map_err(|_| StorageError::CorruptConfiguration)?;
+    let model_routes =
+        ModelRouteConfiguration::from_credentials(&provider_credentials, &configuration)?;
     Ok(PreparedProviderEndpointMutation {
         provider_endpoints: configuration,
-        provider_credentials: credentials.clone(),
-        model_routes: None,
+        provider_credentials,
+        model_routes: Some(model_routes),
         change: ProviderEndpointDatabaseChange::Delete(id),
+        credential_rows_changed: credentials.references_endpoint(id),
         bump_credential_generations: false,
     })
 }

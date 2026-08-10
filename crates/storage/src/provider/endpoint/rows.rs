@@ -114,6 +114,10 @@ async fn delete(
     connection: &mut SqliteConnection,
     id: ProviderEndpointId,
 ) -> Result<(), StorageError> {
+    sqlx::query("DELETE FROM provider_credentials WHERE provider_endpoint_id = ?")
+        .bind(id.to_string())
+        .execute(&mut *connection)
+        .await?;
     let result = sqlx::query("DELETE FROM provider_endpoints WHERE id = ?")
         .bind(id.to_string())
         .execute(connection)

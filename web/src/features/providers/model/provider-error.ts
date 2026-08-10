@@ -19,5 +19,4 @@ const messages: Record<string, string> = {
   provider_credential_rate_limited: "此 API Key 的本地 RPM 已用尽，请稍后重试。",
   provider_credential_test_unavailable: "API Key 测试服务当前不可用。",
   proxy_referenced: "该出口代理仍被 API Key 使用，无法删除。",
-  provider_endpoint_in_use: "该 Endpoint 仍有 API Key，无法删除。",
 };

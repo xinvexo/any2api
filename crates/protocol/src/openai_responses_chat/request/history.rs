@@ -86,9 +86,7 @@ impl<'a> InputAssembler<'a> {
                 self.pending_reasoning.push_str(&reasoning_text(item));
                 Ok(())
             }
-            Some(_) => Err(invalid(
-                "Responses input item is not supported by this bridge",
-            )),
+            Some(kind) => Err(ProtocolError::unsupported_value("input item type", kind)),
             None => Err(invalid("Responses input item type is required")),
         }
     }
@@ -98,7 +96,10 @@ impl<'a> InputAssembler<'a> {
             Some("developer" | "system") => "system",
             Some("user") => "user",
             Some("assistant") => "assistant",
-            _ => return Err(invalid("message role is not supported by Chat Completions")),
+            Some(role) => {
+                return Err(ProtocolError::unsupported_value("message role", role));
+            }
+            None => return Err(invalid("message role is required")),
         };
         if role != "assistant" {
             self.flush_reasoning();

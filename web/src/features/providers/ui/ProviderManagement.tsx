@@ -215,7 +215,7 @@ export function ProviderManagement() {
         title="删除 Endpoint"
         description={
           deleteTarget
-            ? `确定删除「${deleteTarget.name}」？绑定的 API Key 也会一并移除。`
+            ? `确定删除「${deleteTarget.name}」？绑定的 API Key、模型权限及对应路由目标也会一并移除。`
             : undefined
         }
         confirmLabel="删除"

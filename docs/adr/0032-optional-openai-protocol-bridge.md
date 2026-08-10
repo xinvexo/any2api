@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-23
-- 修订：2026-08-03
+- 修订：2026-08-10
 - 决策者：maintainer
 
 ## 背景
@@ -25,6 +25,12 @@ Completions 中都是同名缓存路由提示；真实兼容上游探测也确�
 同轮全部 tool calls，并让对应 tool output 紧随其后。CLIProxyAPI 对连续调用合并和邻接处理可作为
 行为参考，但其无条件忽略未知字段的宽松策略不进入 any2api。
 
+Codex 的真实 Responses 请求还会发送 `text.verbosity` 与 `client_metadata`。当前 OpenAI Chat
+Completions 已有与 Responses `text.verbosity` 同义的顶层 `verbosity`，因此该字段按协议对做等价投影；
+`client_metadata` 则是客户端附加的字符串元数据，没有 Chat Completions 线协议的等价字段，也不参与模型
+输入、工具调用、采样或续接，因此只允许经过验证的字符串 map，并作为已审计的客户端传输元数据丢弃。
+该兼容规则同样属于 Responses -> Chat Completions 协议对，不按 Codex、Kimi 或其他 Provider/模型分支。
+
 ## 决策
 
 - `ProviderEndpoint.protocol_dialect` 保留为必填的客户端接受协议。
@@ -39,6 +45,8 @@ Completions 中都是同名缓存路由提示；真实兼容上游探测也确�
 - 有效组合固定为 Responses -> Responses、Responses -> Chat Completions、Chat Completions -> Chat Completions、Images -> Images、Messages -> Messages。Images -> Images 是同协议直通，不注册新的跨协议 Bridge。
 - 在 `ProtocolRegistry` 中按 `(ingress_dialect, upstream_dialect)` 静态注册 `ProtocolBridge`。协议相同走 Adapter 快速路径，不查找 Bridge；协议不同时必须在配置发布前找到 Bridge，否则拒绝发布。Domain、Runtime、Storage 和 Server 都不得为 Responses → Chat 写专用协议对分支；新增转换只增加 Bridge 实现、能力声明和 Composition Root 注册。
 - 唯一注册的跨协议桥是 Responses -> Chat Completions。它负责请求、非流式响应、SSE、工具调用和 usage 转换；影响模型执行、工具语义、输出格式或续接语义且无法可靠表达的字段，在上游提交前 fail-closed，禁止静默丢弃。最终上游非 2xx 仍透明返回，不经 Bridge 重编码错误正文。
+- 请求侧 Bridge 在上游 I/O 前返回 `InvalidPayload` 时，Runtime 保留详细诊断并生成
+  `cannot bridge <ingress> to <upstream>: <diagnostic>` 公开错误。Bridge 校验器对未支持字段应报出完整字段路径，对未支持工具应报出 tool type；不得用统一的“request cannot be represented”覆盖原因。该公开诊断仅包含字段路径和长度有界的安全 ASCII 结构判别值，不得包含字段内容、凭据、Session ID 或其他 Secret。同协议 Adapter 错误、响应侧转换错误与上游非 2xx 不使用该 Bridge 前缀。
 - Bridge 合成的每个 Responses SSE JSON 事件必须包含 `sequence_number`。单个流从 `response.created=0` 开始，按实际发送顺序连续递增直到 `response.completed` 或 `response.incomplete`；编号由流转换器统一完成，不能散落到 reasoning、文本或工具调用分支。各分支只生成结构化事件；统一注入序号后才执行唯一一次 JSON/SSE 序列化，不先生成随后会被丢弃的字节。原生 Responses 直通流保持上游事件不变。
 - 合成 reasoning summary 时，单个 `summary_index=0` part 的生命周期固定为
   `response.reasoning_summary_part.added` → 零或多个 `response.reasoning_summary_text.delta` →
@@ -54,11 +62,13 @@ Completions 中都是同名缓存路由提示；真实兼容上游探测也确�
   `incomplete_details.reason=content_filter`；两者的 Response status 都是 `incomplete`，SSE 终止事件
   都是 `response.incomplete`，但 `StreamTermination` 仍按成功协议终止结算。`content_filter` 不是
   `completed`，也不是 Bridge 伪造的 `error` / `response.failed`。
-- Bridge 只允许两项经过审计的输出投影降级：
+- Bridge 只允许以下经过审计的投影或客户端元数据降级：
   - `reasoning.summary` 仅接受 `auto`、`concise`、`detailed`。`reasoning.effort` 仍映射为 Chat `reasoning_effort`；summary 不伪造成上游控制字段，Chat 返回的 `reasoning_content` 或 `reasoning` 继续转换为 Responses reasoning summary。summary 可以在没有 effort 时单独出现。
   - `include` 仅接受空数组或 `reasoning.encrypted_content`。跨协议续接由 any2api 的本地 continuation 状态承担，Bridge 不伪造 Chat 上游不存在的不透明 reasoning 内容，也不把该 include 值发送上游。
+  - `client_metadata` 仅接受对象，且每个值都必须是字符串；该字段只携带客户端侧不透明元数据，Chat Completions 没有等价字段，因此 Bridge 验证后不发送上游。禁止借此放宽其他未知顶层字段。
   - 其他 `reasoning` 子字段、其他 `include` 值和任何未登记字段仍 fail-closed。该例外必须保持集中、可测试，不能扩张成通用未知字段过滤器。
 - Responses 与 Chat Completions 具有可靠同义字段时优先等价投影，不把它们误归为未知字段：
+  - `text.verbosity` 仅接受 `low`、`medium`、`high`，并等价写入 Chat 顶层 `verbosity`；`text.format` 仍独立映射为 `response_format`，两者可以单独或同时出现。其他 `text` 子字段继续 fail-closed。
   - `prompt_cache_key` 必须是字符串并原值写入 Chat 请求；它只影响上游缓存路由，不进入 Provider、Runtime 或会话分支，也不由 Bridge 生成或改写。
   - 用户消息 `input_image.detail` 缺省时保持缺省；非空时只接受 `auto`、`low`、`high`、`original` 并写入 Chat `image_url.detail`。其他值在上游提交前 fail-closed，禁止静默退回默认清晰度。
 - Responses 历史中的连续 `function_call` 必须合并为同一条 Chat assistant `tool_calls` 消息；前置 reasoning summary 若存在则附着到该 assistant 消息。只要同一输入中存在对应 `function_call_output`，任何夹在调用与输出之间的普通消息都必须暂存到相关 tool output 之后，保持严格的 `assistant(tool_calls) -> tool` 邻接。当前 input 中每个 `function_call.call_id` 都必须在同一 input 的唯一 `function_call_output.call_id` 集合中存在；缺失 output 的中断 call 在构造上游请求前 fail-closed。只有 output 的当前 input 可以响应 continuation 已保存的上一轮 assistant call，因此不反向要求每个 output 在当前 input 重复 call。该规则按 `call_id` 工作且不依赖 Provider 类型；缺失、重复或无法表示的调用身份继续 fail-closed。
