@@ -29,6 +29,7 @@ tower-service.workspace = true
 url.workspace = true
 
 [dev-dependencies]
+h2.workspace = true
 rcgen.workspace = true
 rustls.workspace = true
 tokio.workspace = true

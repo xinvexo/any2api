@@ -254,6 +254,7 @@ async fn json_bridge_converts_tools_usage_and_previous_response_history() {
     let messages = follow_up_body["messages"].as_array().expect("messages");
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[1]["role"], "assistant");
+    assert_eq!(messages[1]["reasoning_content"], "Need the tool.");
     assert_eq!(messages[1]["tool_calls"][0]["id"], "call_1");
     assert_eq!(messages[2]["role"], "tool");
     assert_eq!(messages[2]["tool_call_id"], "call_1");

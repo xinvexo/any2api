@@ -11,6 +11,8 @@ mod reqwest;
 #[cfg(test)]
 mod cache_tests;
 #[cfg(test)]
+mod fingerprint_tests;
+#[cfg(test)]
 pub(crate) mod tests;
 #[cfg(test)]
 mod timeout_tests;
