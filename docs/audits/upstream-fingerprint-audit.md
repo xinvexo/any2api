@@ -13,7 +13,7 @@
 >
 > ADR-0124～0126 已落实独立 Kimi 身份、Credential-owned Header 与版本化 Provider data/quota/token persona，F-004～F-007 已修复或转为显式接受边界。ADR-0127 统一响应 content coding，ADR-0129 公开 Direct/Translated fidelity 与 Bridge 限制，ADR-0130 则冻结 H1/H2/TLS 稳定线路并增加 Transport/stream 诊断，F-008～F-010 与 F-012～F-016 均已修复或成为可回归边界。
 >
-> 2026-08-11 又由真实 Composition Root Registry 生成 35 个 loopback raw HTTP/1 surface，覆盖 API Key/OAuth direct、所有有效 Bridge/Provider 组合、OAuth token 与 quota plan，精确比较 target、path/query、认证类别、Header 集合/顺序和原始 Body，E-07 已完成。当前仍待独立完成的是带版本/平台/日期的官方客户端基线，以及 H2 复用/并发/GOAWAY 扩展场景；在此之前仍不得声称与官方客户端完全一致或不可被识别。
+> 2026-08-11 又由真实 Composition Root Registry 生成 35 个 loopback raw HTTP/1 surface，覆盖 API Key/OAuth direct、所有有效 Bridge/Provider 组合、OAuth token 与 quota plan，精确比较 target、path/query、认证类别、Header 集合/顺序和原始 Body，E-07 已完成。随后扩展的双向 raw H2 recorder 证明同隔离域顺序复用 stream 1/3、首响应前并发 stream 1/3，以及 graceful GOAWAY/PING 后新连接从 stream 1 重启，E-05 也已完成。当前仍待独立完成的只有带版本/平台/日期的官方客户端基线；在此之前仍不得声称与官方客户端完全一致或不可被识别。
 
 ## 1. Executive Summary
 
@@ -84,7 +84,7 @@ flowchart TD
 | 两个 Authorization 真实共享一条 H2 连接 | **本地实验确认** |
 | 不同 Client 共享 TLS resumption store | rustls 类型语义静态确认 + **本地实验确认** |
 | any2api ClientHello cipher/extension 集合/group/ALPN 与 Rustls 随机扩展顺序策略 | **本地 raw capture 确认并冻结稳定字段** |
-| any2api 首连 H2 preface/SETTINGS/WINDOW_UPDATE/首个 HEADERS | **本地解密后 raw frame capture 确认** |
+| any2api H2 preface/SETTINGS/WINDOW_UPDATE、HPACK 长度演进、顺序/并发 stream 与 GOAWAY 重连 | **本地解密后双向 raw frame capture 确认** |
 | any2api HTTP/1.1 request line/Header casing/order/Host/Length | **本地 raw TCP capture 确认** |
 | 精确 JA3/JA4、H2 HPACK 动态行为与官方客户端差异 | 必须建立官方客户端抓包基线后确认 |
 | 与每个官方客户端的实际差异 | 必须建立同版本官方客户端基线后确认 |
@@ -876,16 +876,16 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 ### S-002 — 精确 H2 SETTINGS 顺序、WINDOW_UPDATE 顺序、HPACK 与 pseudo-header order
 
 - Confidence：MEDIUM。
-- 已确认：TLS ALPN=h2 后的真实 client preface、首次 SETTINGS 顺序/值、connection WINDOW_UPDATE 与首个 HEADERS 的 flags/stream/length 已由解密后 raw frame fixture 固定。
-- 未确认：HPACK/pseudo-header 动态表演进，以及复用、并发、GOAWAY、长期 PING 场景和官方客户端基线。
-- 后续实验：扩展 recorder 覆盖复用连接、并发 streams、GOAWAY 与 keepalive 周期；不要用高层 h2 对象重建结果。
+- 已确认：TLS ALPN=h2 后的真实 client preface、首次 SETTINGS 顺序/值、connection WINDOW_UPDATE 与首个 HEADERS 的 flags/stream/length 已由解密后 raw frame fixture 固定。扩展 fixture 还直接记录同连接顺序与首响应前并发的 stream 1/3、HEADERS block 从 100 字节到 40 字节的连接内 HPACK 结果，以及 graceful GOAWAY→PING→最终 GOAWAY、客户端 ACK/关闭和新连接 stream 1。
+- 未确认：解码后的 pseudo-header/动态表逐字段顺序、30 秒以上活动流的 keepalive 长时分布，以及任何官方客户端同版本基线。短时 lifecycle fixture 不冒充长期负载实验。
+- 后续实验：只需在确有长活动流问题时增加有界 keepalive 场景；与官方客户端比较必须使用独立、带版本元数据的同机 capture，不能从 any2api 自身 fixture 推导。
 
 ### S-003 — HTTP/1.1 精确 Header order 与自动 Header 插入位置
 
 - Confidence：MEDIUM。
-- 已确认：通用 fixture 请求的 request line、lowercase casing、最终 Header 顺序、Host 与 Content-Length 已由纯 TCP raw capture 固定。
-- 未确认：Provider defaults、same-dialect override、cross-dialect bridge、OAuth 各 surface 的完整 raw order 与官方客户端基线。
-- 后续实验：在现有纯 TCP recorder 上增加 Provider/operation echo matrix，不经 `HeaderMap` 重建。
+- 已确认：通用 fixture 请求的 request line、lowercase casing、最终 Header 顺序、Host 与 Content-Length 已由纯 TCP raw capture 固定；Composition Root 的 35 个 direct/bridge/token/quota surface 也已不经 `HeaderMap` 重建地冻结完整 target、Header 顺序与 raw Body。
+- 未确认：这些 any2api surface 与各官方客户端同版本 wire 的差异。
+- 后续实验：仅剩带 Provider、版本、平台、操作和日期的独立官方客户端对照，不再新增一份平行的本地 surface 清单。
 
 ### S-004 — 固定 UA/version 相对当前官方客户端已经漂移
 
@@ -1018,14 +1018,14 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 | E-02 两 Client + TLS resumption | 证明原 ticket store 超出 pool key并回归修复 | **原证据保留；修复测试通过** | 原 Full→Resumed；当前 Full→Full |
 | E-03 Kimi reasoning continuation | 证明多轮 reasoning/tool replay | **已补断言并通过** | 下一轮 assistant reasoning/tool call |
 | E-04 Raw ClientHello | 获取 extension/cipher/group/ALPN wire | **稳定字段 fixture 已完成** | raw ClientHello；确认 Rustls 随机扩展顺序策略，官方对比仍待做 |
-| E-05 Raw H2 recorder | 获取 SETTINGS/WINDOW/HPACK/PING | **首连控制帧已完成；扩展场景待做** | preface/SETTINGS/WINDOW_UPDATE/首 HEADERS 已冻结；复用、并发、GOAWAY 待补 |
+| E-05 Raw H2 recorder | 获取 SETTINGS/WINDOW/HPACK/PING | **双向 lifecycle fixture 已完成** | 首连控制帧；顺序/并发 stream 1/3；HEADERS 100→40；GOAWAY/PING/ACK；新连接 stream 1 |
 | E-06 Raw H1 recorder | 获取 casing/order/Host/Length | **通用与 surface fixture 已完成** | 通用 request head 与 35 个 Registry surface 均已冻结 |
 | E-07 Provider echo matrix | 比较 direct/bridge/data/quota/token | **35 个真实 Registry surface 已完成** | 16 direct、6 bridge、7 token、6 quota；target/path、Header set/order、raw body、auth class |
 | E-08 Rotate/disable/delete lifecycle | 测 pool/ticket 退役 | **按 ADR 生命周期语义完成** | 新代际移除旧缓存引用；闲置 Client 受 LRU 硬上限约束；物理 keep-alive 按 idle timeout 关闭；跨域 TLS 为 Full→Full |
 | E-09 Retry switch sequence | 证明 429 换号后的退避与连接隔离 | **真实 Runtime 实验完成** | 两 Authorization、不同 TCP peer、第二次到达 ≥ Retry-After |
 | E-10 SSE timing | 量化 precommit burst/backpressure | **四点埋点与受控顺序测试已完成** | RequestAttempt 持久化 frame、commit、Body yield、cancel；负载分布待测 |
 
-所有实验都可以在 loopback、自签 TLS 和假 Credential 上完成，不需要访问真实 Provider 或账号。
+上述 E-01～E-10 本地实验都已在 loopback、自签 TLS 和假 Credential 范围内完成，不需要访问真实 Provider 或账号。更长时间的 keepalive/负载分布可以按真实故障需要追加，但不属于本轮修复完成条件。
 
 ## 10. 建议修改顺序
 
@@ -1058,7 +1058,7 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 
 ### P2 — 建立持续可观测 contract
 
-16. **大部分完成（ADR-0123/0128/0130）**：E-04、E-06～E-10 已落地；E-05 已覆盖首连控制帧。继续完成 H2 复用/并发/GOAWAY 扩展场景，reqwest/hyper/rustls 升级时必须审核 fixture 差异。
+16. **已完成（ADR-0123/0128/0130）**：E-04～E-10 的本地契约均已落地；H2 fixture 覆盖首连控制帧、顺序复用、首响应前并发和 GOAWAY 后重连。reqwest/hyper/rustls 升级时必须审核 fixture 差异。
 17. **安全可观测部分完成（ADR-0130）**：RequestAttempt 已记录不含 owner ID 的 routing/authentication generation、traffic class、wire/timeout profile、resolver 与 proxy。当前没有可靠 hook 证明物理 connection reused 或 TLS resumed，因此明确保持未知，禁止从 Client cache 命中推断；attempt switch 继续由既有 Attempt/failure/retry 字段表达。不得记录 token、API key、proxy password 或原始 session id。
 18. 官方客户端基线必须带 Provider、版本、平台、操作和采集日期；无法确认的只保留为 Suspected，不把“看起来像”升级为事实。
 
@@ -1086,4 +1086,4 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 3. **Direct/Translated fidelity 已由 Bridge 单一 capability contract 公开。** 跨协议 canonical reconstruction 仍客观存在，但不再被产品能力隐藏。
 4. **generic Rust transport 的可观测性没有“消失”。** ADR-0130 选择诚实地冻结 H1/H2/TLS 稳定行为、记录真实 Rustls 扩展顺序策略，并为 resolver/timeout 与 stream timing 提供本地诊断；没有随机 UA、TLS 参数或 flush 时序。
 
-剩余工作主要是 H2 长连接扩展场景和带版本/平台/日期的官方客户端独立基线。在这些证据完成前，项目只能声称“隔离正确、行为受控且可回归”，不能声称“与官方客户端完全一致”或“不可被识别”。
+本地可闭环的审计修复与 E-01～E-10 契约已经完成；剩余工作是带版本/平台/日期的官方客户端独立基线。在这些外部证据完成前，项目只能声称“隔离正确、行为受控且可回归”，不能声称“与官方客户端完全一致”或“不可被识别”。

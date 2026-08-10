@@ -1,0 +1,49 @@
+scenario=sequential-reuse
+connection_count=1
+connection=1
+client.preface=1
+client.frame=HEADERS flags=0x04 stream=1 length=100
+client.frame=DATA flags=0x01 stream=1 length=0
+client.frame=HEADERS flags=0x04 stream=3 length=40
+client.frame=DATA flags=0x01 stream=3 length=0
+server.frame=none
+event=connection=1 server.accept stream=1
+event=connection=1 server.respond stream=1
+event=connection=1 server.accept stream=3
+event=connection=1 server.respond stream=3
+
+scenario=concurrent-streams
+connection_count=1
+connection=1
+client.preface=1
+client.frame=HEADERS flags=0x04 stream=1 length=100
+client.frame=DATA flags=0x01 stream=1 length=0
+client.frame=HEADERS flags=0x04 stream=3 length=40
+client.frame=DATA flags=0x01 stream=3 length=0
+server.frame=none
+event=connection=1 server.accept stream=1
+event=connection=1 server.accept stream=3
+event=connection=1 server.respond stream=1
+event=connection=1 server.respond stream=3
+
+scenario=goaway-reconnect
+connection_count=2
+connection=1
+client.preface=1
+client.frame=HEADERS flags=0x04 stream=1 length=100
+client.frame=DATA flags=0x01 stream=1 length=0
+client.frame=PING flags=0x01 stream=0 length=8
+client.frame=GOAWAY flags=0x00 stream=0 length=8 last_stream=0 error=0
+server.frame=GOAWAY flags=0x00 stream=0 length=8 last_stream=2147483647 error=0
+server.frame=PING flags=0x00 stream=0 length=8
+server.frame=GOAWAY flags=0x00 stream=0 length=8 last_stream=1 error=0
+connection=2
+client.preface=1
+client.frame=HEADERS flags=0x04 stream=1 length=100
+client.frame=DATA flags=0x01 stream=1 length=0
+server.frame=none
+event=connection=1 server.accept stream=1
+event=connection=1 server.respond stream=1
+event=connection=1 server.graceful_goaway
+event=connection=2 server.accept stream=1
+event=connection=2 server.respond stream=1
