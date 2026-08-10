@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-10
+- 修订：2026-08-10（补充闲置 Credential 生命周期实验）
 - 决策者：maintainer
 - 取代：ADR-0004 中“相同代理策略的多个 Credential 共享连接池”的部分
 
@@ -64,6 +65,8 @@ RoutingCredentialId
 - loopback TLS/H2 测试用两个 RoutingCredentialId 请求同一 origin/proxy，断言 Client `Arc` 不同且 TCP accept 为 2；
 - 相同 RoutingCredentialId、routing/auth generation 和 traffic class 的两个请求仍断言 Client `Arc` 相同且 TCP accept 为 1；
 - 更高 routing/auth generation 第一次取得 Client 后，旧代际缓存引用被移除，但旧请求持有的 `Arc` 仍有效；
+- 没有更高代际请求触发清理的闲置 Credential Client 仍受 `max_cached_clients` 硬上限约束，LRU 淘汰后 Manager 不再持有其 `Arc`；
+- HTTP/1.1 loopback keep-alive 实验在 Client 仍位于缓存时观察到物理连接按 `pool_idle_timeout` 关闭，证明“缓存 Client”不等于“连接无限存活”；
 - 相同账号但 `DataPlane`/`OAuthQuota` 不同，断言 Client 与物理连接分离；
 - 两个不同 isolation key 强制建立两条 TLS 连接，断言两次握手均为 full，而不是 `Full -> Resumed`；
 - Runtime 测试断言 data、token、quota 与 diagnostic 调用点选择正确 traffic class，Token version 变化会改变 isolation key；

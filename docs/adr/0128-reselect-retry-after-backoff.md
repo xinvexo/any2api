@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-10
+- 修订：2026-08-10（补充真实 Runtime 换号连接实验）
 - 决策者：maintainer
 
 ## 背景
@@ -32,4 +33,5 @@
 
 - 纯决策测试覆盖 unbound reselect、bound same-path 与 OAuth refresh 都携带 delay，且 Retry-After 大于 fallback 时精确胜出。
 - Tokio 虚拟时间测试覆盖 OAuth refresh 耗时抵扣、delay 未到不开始下一 Attempt、delay 放不进预算时立即 Terminal。
+- 完整 Runtime loopback 实验让首个 Credential 返回 `429 + Retry-After: 1`、第二个 Credential 返回成功；上游捕获证明 Authorization 已切换、两次请求来自不同物理 TCP peer，且第二次到达不早于一秒。
 - 既有 RetrySafety、最大 Attempt/switch、会话绑定和 transport isolation 测试保持通过。

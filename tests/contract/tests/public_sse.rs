@@ -1,13 +1,21 @@
-use std::{collections::HashMap, net::SocketAddr, time::Duration};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
+};
 
 use any2api_contract_tests::TestApplication;
 use any2api_domain::{ANY2API_UPSTREAM_TIMEOUT_MESSAGE, RequestId};
 use axum::{
-    Router,
+    Json, Router,
     body::Body,
-    extract::ConnectInfo,
-    http::{Method, Request, StatusCode, header::CONTENT_TYPE},
-    response::Response,
+    extract::{ConnectInfo, State},
+    http::{HeaderMap, Method, Request, StatusCode, header::CONTENT_TYPE},
+    response::{IntoResponse, Response},
 };
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
@@ -236,6 +244,79 @@ async fn buffered_invalid_key_switches_to_another_key_on_the_same_endpoint() {
             "Credential-owned {name} leaked to the replacement key"
         );
     }
+}
+
+#[tokio::test]
+async fn buffered_retry_after_switches_credentials_and_physical_connections() {
+    let (upstream_address, mut attempts, upstream_task) = retry_after_probe_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex Retry-After isolation",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "first-rate-limited",
+        "sk-first-rate-limited",
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "second-after-delay",
+        "sk-second-after-delay",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"gpt-upstream","input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = serde_json::from_slice(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("replacement response body")
+            .to_bytes(),
+    )
+    .expect("replacement response JSON");
+    assert_eq!(body["id"], "resp_retry_after_success");
+
+    let first = attempts.recv().await.expect("first upstream attempt");
+    let second = attempts.recv().await.expect("second upstream attempt");
+    assert_ne!(first.authorization, second.authorization);
+    assert_ne!(
+        first.peer, second.peer,
+        "Credential switch reused one physical upstream connection"
+    );
+    assert!(
+        second.received_after.saturating_sub(first.received_after) >= Duration::from_secs(1),
+        "Retry-After was shortened during Credential switch"
+    );
+    upstream_task.abort();
 }
 
 #[tokio::test]
@@ -2153,6 +2234,92 @@ async fn request(
 struct UpstreamRequest {
     headers: HashMap<String, String>,
     body: Value,
+}
+
+#[derive(Clone)]
+struct RetryAfterProbeState {
+    started_at: Instant,
+    attempt_no: Arc<AtomicUsize>,
+    attempts: mpsc::UnboundedSender<RetryAfterAttempt>,
+}
+
+#[derive(Debug)]
+struct RetryAfterAttempt {
+    peer: SocketAddr,
+    authorization: String,
+    received_after: Duration,
+}
+
+async fn retry_after_probe_server() -> (
+    SocketAddr,
+    mpsc::UnboundedReceiver<RetryAfterAttempt>,
+    tokio::task::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Retry-After probe listener");
+    let address = listener.local_addr().expect("Retry-After probe address");
+    let (attempt_tx, attempt_rx) = mpsc::unbounded_channel();
+    let state = RetryAfterProbeState {
+        started_at: Instant::now(),
+        attempt_no: Arc::new(AtomicUsize::new(0)),
+        attempts: attempt_tx,
+    };
+    let router = Router::new()
+        .route("/v1/responses", axum::routing::post(retry_after_probe))
+        .with_state(state);
+    let task = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .expect("Retry-After probe server");
+    });
+    (address, attempt_rx, task)
+}
+
+async fn retry_after_probe(
+    State(state): State<RetryAfterProbeState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    assert_eq!(body["model"], "gpt-upstream");
+    let attempt_no = state.attempt_no.fetch_add(1, Ordering::SeqCst);
+    state
+        .attempts
+        .send(RetryAfterAttempt {
+            peer,
+            authorization: headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_owned(),
+            received_after: state.started_at.elapsed(),
+        })
+        .expect("Retry-After attempt receiver");
+    if attempt_no == 0 {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "1")],
+            Json(json!({
+                "error": {
+                    "type": "rate_limit_error",
+                    "code": "rate_limit_exceeded",
+                    "message": "slow down"
+                }
+            })),
+        )
+            .into_response()
+    } else {
+        Json(json!({
+            "id": "resp_retry_after_success",
+            "model": "gpt-upstream",
+            "output": []
+        }))
+        .into_response()
+    }
 }
 
 async fn buffered_image_chat_server() -> (SocketAddr, oneshot::Receiver<UpstreamRequest>) {
