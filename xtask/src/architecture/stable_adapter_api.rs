@@ -8,10 +8,11 @@ const ADAPTER_CRATES: [&str; 4] = [
     "any2api_storage",
     "any2api_transport",
 ];
-const PROVIDER_ROOT_EXPORTS: [&str; 3] = [
+const PROVIDER_ROOT_EXPORTS: [&str; 4] = [
     "pub use claude::ClaudeDriver;",
     "pub use codex::CodexDriver;",
     "pub use grok::GrokDriver;",
+    "pub use kimi::KimiDriver;",
 ];
 
 pub(crate) fn check(workspace: &Path) -> Result<()> {
@@ -130,7 +131,7 @@ mod tests {
     fn provider_root_exposes_only_composition_root_drivers() {
         assert_eq!(
             provider_root_exports(
-                "pub use grok::GrokDriver;\npub use claude::ClaudeDriver;\npub use codex::CodexDriver;\n"
+                "pub use kimi::KimiDriver;\npub use grok::GrokDriver;\npub use claude::ClaudeDriver;\npub use codex::CodexDriver;\n"
             ),
             PROVIDER_ROOT_EXPORTS
         );

@@ -29,6 +29,7 @@ test("parses aggregate-only balancing runtime", () => {
     selected: 28_000,
   });
   expect(parsed.providers[2]?.providerKind).toBe("grok");
+  expect(parsed.providers[3]?.providerKind).toBe("kimi");
   expect("credentials" in parsed).toBe(false);
 });
 
@@ -85,14 +86,25 @@ function runtimeResponse() {
       },
       {
         provider_kind: "grok",
-        credential_count: 150,
-        enabled_credential_count: 145,
-        limited_credential_count: 120,
+        credential_count: 100,
+        enabled_credential_count: 95,
+        limited_credential_count: 80,
         rate_limited_credential_count: 1,
         in_flight: 3,
-        requests_in_window: 245,
+        requests_in_window: 200,
         fixed_waiters: 0,
-        selected: 4_000,
+        selected: 3_000,
+      },
+      {
+        provider_kind: "kimi",
+        credential_count: 50,
+        enabled_credential_count: 50,
+        limited_credential_count: 40,
+        rate_limited_credential_count: 0,
+        in_flight: 0,
+        requests_in_window: 45,
+        fixed_waiters: 0,
+        selected: 1_000,
       },
     ],
   };

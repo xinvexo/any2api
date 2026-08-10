@@ -16,3 +16,4 @@
 "0015_add_telemetry_capacity_stats.sql" = "f9b37a19de4c4dffad14865e612df976feeb4854a38235b44ce7f6ad0d0f4094"
 "0016_classify_request_usage_by_final_outcome.sql" = "273329f54ba6a91be232f87d6fca53e3522fcf8780de1bdae5f0c89002881b80"
 "0017_add_request_attempt_routing_diagnostics.sql" = "157c04b56c7dcf1760e20b95cb8818a599cd59eeca99a782fff285c5e7b9cf5a"
+"0018_add_kimi_provider_kind.sql" = "4e622fc172a1c31257a2fe98cb069c77cc540c5bb1d97c7275215e2c78d4051a"

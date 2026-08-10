@@ -22,8 +22,8 @@
 ## 3. 首个正式版本范围
 
 - 后端：Rust；HTTP 框架：Axum/Tokio；前端：React + TypeScript。
-- Provider 实现 Codex、Claude 和 Grok。
-- 上游 `ProviderCredential` 只支持 API Key；OAuth2 账号独立管理，但在运行时与 Provider API Key 编译到同一个路由候选池。
+- Provider 实现 Codex、Claude、Grok 和 Kimi；Kimi 是独立服务身份，不得借用 Codex/Grok Driver。
+- 上游 `ProviderCredential` 只支持 API Key；Codex、Claude 和 Grok 的 OAuth2 账号独立管理，但在运行时与 Provider API Key 编译到同一个路由候选池。Kimi 首版不支持 OAuthAccount。
 - 实现：
   - `GET /v1/models`
   - `POST /v1/responses`

@@ -71,6 +71,8 @@ function formatCount(value: number) {
   return value.toLocaleString("zh-CN");
 }
 
-function providerLabel(provider: "codex" | "claude" | "grok") {
-  return { codex: "Codex", claude: "Claude", grok: "Grok" }[provider];
+function providerLabel(provider: "codex" | "claude" | "grok" | "kimi") {
+  return { codex: "Codex", claude: "Claude", grok: "Grok", kimi: "Kimi" }[
+    provider
+  ];
 }

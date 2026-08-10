@@ -203,6 +203,7 @@ fn composition_root_provider_registry_runs_every_contract() {
             ProviderKind::Codex,
             ProviderKind::Claude,
             ProviderKind::Grok,
+            ProviderKind::Kimi,
         ])
     );
 
@@ -261,9 +262,13 @@ fn provider_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
     let request_headers = driver
         .prepare_request_headers(request_context)
         .expect("registered provider projects request headers");
-    assert_eq!(request_headers["user-agent"], "official-client/contract");
-    assert_eq!(request_headers["traceparent"], "00-contract-trace");
-    assert_eq!(request_headers[fixture.safe_header], "safe-provider-value");
+    if kind == ProviderKind::Kimi {
+        assert!(request_headers.is_empty());
+    } else {
+        assert_eq!(request_headers["user-agent"], "official-client/contract");
+        assert_eq!(request_headers["traceparent"], "00-contract-trace");
+        assert_eq!(request_headers[fixture.safe_header], "safe-provider-value");
+    }
     for forbidden in [
         "authorization",
         "x-api-key",
@@ -362,6 +367,19 @@ impl ProviderFixture {
                 error_body: br#"{"error":{"code":"subscription:free-usage-exhausted","message":"Grok detail"}}"#,
                 error_kind: UpstreamErrorKind::QuotaExhausted,
                 error_message: "Grok detail",
+            },
+            ProviderKind::Kimi => Self {
+                protocols: BTreeSet::from([ProtocolDialect::OpenAiChatCompletions]),
+                base_url: base_url("https://api.moonshot.cn/v1"),
+                ingress_dialect: ProtocolDialect::OpenAiResponses,
+                operation: ProtocolOperation::ChatCompletions,
+                expected_url: "https://api.moonshot.cn/v1/chat/completions",
+                secret: "kimi-contract-key",
+                safe_header: "x-grok-client-version",
+                error_status: StatusCode::TOO_MANY_REQUESTS,
+                error_body: br#"{"error":{"type":"exceeded_current_quota_error","message":"Kimi detail"}}"#,
+                error_kind: UpstreamErrorKind::QuotaExhausted,
+                error_message: "Kimi detail",
             },
         }
     }

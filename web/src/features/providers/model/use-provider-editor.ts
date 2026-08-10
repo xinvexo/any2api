@@ -43,7 +43,11 @@ export function useProviderEditor(
     setDraft((current) => ({
       ...current,
       protocolDialect,
-      upstreamProtocolDialect: null,
+      upstreamProtocolDialect: defaultUpstreamProtocol(
+        current.providerKind,
+        protocolDialect,
+        protocolOptions,
+      ),
     }));
     setErrors((current) => ({
       ...current,
@@ -85,13 +89,16 @@ function initialDraft(
   protocolOptions: ProviderProtocolOptions[],
 ): ProviderEditorDraft {
   const kind = endpoint?.providerKind ?? defaultKind;
+  const protocolDialect =
+    endpoint?.protocolDialect ?? defaultProtocol(kind, protocolOptions);
   return {
     name: endpoint?.name ?? "",
     providerKind: kind,
     baseUrl: endpoint?.baseUrl ?? defaultBaseUrl(kind),
-    protocolDialect:
-      endpoint?.protocolDialect ?? defaultProtocol(kind, protocolOptions),
-    upstreamProtocolDialect: endpoint?.upstreamProtocolDialect ?? null,
+    protocolDialect,
+    upstreamProtocolDialect: endpoint
+      ? endpoint.upstreamProtocolDialect
+      : defaultUpstreamProtocol(kind, protocolDialect, protocolOptions),
     enabled: endpoint?.enabled ?? true,
   };
 }
@@ -101,6 +108,7 @@ function defaultBaseUrl(kind: ProviderKind) {
     codex: "https://api.openai.com/v1",
     claude: "https://api.anthropic.com",
     grok: "https://api.x.ai/v1",
+    kimi: "https://api.moonshot.cn/v1",
   };
   return defaults[kind];
 }
@@ -146,6 +154,21 @@ function defaultProtocol(
     options.find((option) => option.providerKind === kind)?.acceptedProtocol ??
     (kind === "claude" ? "anthropic_messages" : "openai_responses")
   );
+}
+
+function defaultUpstreamProtocol(
+  kind: ProviderKind,
+  accepted: ProtocolDialect,
+  options: ProviderProtocolOptions[],
+): ProtocolDialect | null {
+  const upstreams = options.find(
+    (option) =>
+      option.providerKind === kind && option.acceptedProtocol === accepted,
+  )?.upstreamProtocols;
+  if (!upstreams || upstreams.includes(accepted)) {
+    return null;
+  }
+  return upstreams[0] ?? null;
 }
 
 function validateUrl(value: string): string | undefined {

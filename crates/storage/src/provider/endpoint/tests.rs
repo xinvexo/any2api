@@ -258,37 +258,46 @@ async fn protocol_change_with_credentials_rebuilds_routes_and_bumps_generation()
 }
 
 #[tokio::test]
-async fn grok_endpoint_round_trips_as_an_api_key_provider() {
+async fn openai_compatible_provider_kinds_round_trip_as_api_key_providers() {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("config.sqlite3"))
         .await
         .expect("store");
-    let id = ProviderEndpointId::new();
-
-    let published = commit_configuration(
-        &store,
-        ConfigRevision::INITIAL,
-        ConfigurationMutation::CreateProviderEndpoint {
-            id,
-            draft: ProviderEndpointDraft::new(
-                "Grok Primary",
-                ProviderKind::Grok,
-                "https://api.x.ai/v1",
-                ProtocolDialect::OpenAiResponses,
-                true,
-            )
-            .expect("Grok draft"),
-        },
-    )
-    .await
-    .expect("create Grok endpoint");
-    let endpoint = published
-        .provider_endpoints()
-        .get(id)
-        .expect("stored Grok endpoint");
-
-    assert_eq!(endpoint.provider_kind(), ProviderKind::Grok);
-    assert_eq!(endpoint.base_url().as_str(), "https://api.x.ai/v1");
+    let mut revision = ConfigRevision::INITIAL;
+    for (kind, name, url, dialect) in [
+        (
+            ProviderKind::Grok,
+            "Grok Primary",
+            "https://api.x.ai/v1",
+            ProtocolDialect::OpenAiResponses,
+        ),
+        (
+            ProviderKind::Kimi,
+            "Kimi Primary",
+            "https://api.moonshot.cn/v1",
+            ProtocolDialect::OpenAiChatCompletions,
+        ),
+    ] {
+        let id = ProviderEndpointId::new();
+        let published = commit_configuration(
+            &store,
+            revision,
+            ConfigurationMutation::CreateProviderEndpoint {
+                id,
+                draft: ProviderEndpointDraft::new(name, kind, url, dialect, true)
+                    .expect("provider draft"),
+            },
+        )
+        .await
+        .expect("create provider endpoint");
+        let endpoint = published
+            .provider_endpoints()
+            .get(id)
+            .expect("stored provider endpoint");
+        assert_eq!(endpoint.provider_kind(), kind);
+        assert_eq!(endpoint.base_url().as_str(), url);
+        revision = published.revision();
+    }
 }
 
 #[tokio::test]

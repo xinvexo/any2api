@@ -6,10 +6,11 @@ pub enum ProviderKind {
     Codex,
     Claude,
     Grok,
+    Kimi,
 }
 
 impl ProviderKind {
-    pub const ALL: [Self; 3] = [Self::Codex, Self::Claude, Self::Grok];
+    pub const ALL: [Self; 4] = [Self::Codex, Self::Claude, Self::Grok, Self::Kimi];
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -17,6 +18,7 @@ impl ProviderKind {
             Self::Codex => "codex",
             Self::Claude => "claude",
             Self::Grok => "grok",
+            Self::Kimi => "kimi",
         }
     }
 
@@ -164,7 +166,22 @@ impl ProtocolOperation {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProtocolDialect, ProtocolOperation};
+    use super::{ProtocolDialect, ProtocolOperation, ProviderKind};
+
+    #[test]
+    fn provider_values_and_oauth_support_are_stable() {
+        assert_eq!(ProviderKind::ALL.len(), 4);
+        assert_eq!(ProviderKind::Kimi.as_str(), "kimi");
+        assert!(!ProviderKind::Kimi.supports_oauth());
+        assert_eq!(
+            serde_json::to_string(&ProviderKind::Kimi).expect("serialize provider"),
+            r#""kimi""#
+        );
+        assert_eq!(
+            serde_json::from_str::<ProviderKind>(r#""kimi""#).expect("deserialize provider"),
+            ProviderKind::Kimi
+        );
+    }
 
     #[test]
     fn protocol_display_names_are_stable() {

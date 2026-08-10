@@ -33,6 +33,7 @@ const fn provider_kind_code(kind: ProviderKind) -> u8 {
         ProviderKind::Codex => 1,
         ProviderKind::Claude => 2,
         ProviderKind::Grok => 3,
+        ProviderKind::Kimi => 4,
     }
 }
 
@@ -97,5 +98,13 @@ mod tests {
                 0x81, 0x7e, 0xe8, 0x90,
             ]
         );
+
+        let kimi = build_fingerprint(
+            ProviderKind::Kimi,
+            CredentialKind::ApiKey,
+            &b"sk-valid_123".to_vec().into(),
+        )
+        .expect("Kimi fingerprint");
+        assert_ne!(kimi.digest(), fingerprint.digest());
     }
 }

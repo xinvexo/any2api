@@ -157,6 +157,7 @@ fn parse_provider_kind(value: &str) -> Result<ProviderKind, StorageError> {
         "codex" => Ok(ProviderKind::Codex),
         "claude" => Ok(ProviderKind::Claude),
         "grok" => Ok(ProviderKind::Grok),
+        "kimi" => Ok(ProviderKind::Kimi),
         _ => Err(StorageError::CorruptConfiguration),
     }
 }
@@ -170,6 +171,7 @@ const fn provider_kind_text(kind: ProviderKind) -> &'static str {
         ProviderKind::Codex => "codex",
         ProviderKind::Claude => "claude",
         ProviderKind::Grok => "grok",
+        ProviderKind::Kimi => "kimi",
     }
 }
 

@@ -67,6 +67,27 @@ test("parses Grok as an OpenAI-compatible provider", () => {
   });
 });
 
+test("parses Kimi with an explicit Responses to Chat bridge", () => {
+  const parsed = parseProviderEndpointConfiguration({
+    config_revision: 3,
+    items: [
+      endpoint({
+        name: "Kimi Primary",
+        provider_kind: "kimi",
+        base_url: "https://api.moonshot.cn/v1",
+        upstream_protocol_dialect: "openai_chat_completions",
+      }),
+    ],
+    protocol_options: protocolOptions(),
+  });
+
+  expect(parsed.items[0]).toMatchObject({
+    providerKind: "kimi",
+    protocolDialect: "openai_responses",
+    upstreamProtocolDialect: "openai_chat_completions",
+  });
+});
+
 test("parses a Codex OpenAI Images endpoint", () => {
   const parsed = parseProviderEndpointConfiguration({
     config_revision: 5,
@@ -135,6 +156,21 @@ function protocolOptions() {
     },
     {
       provider_kind: "grok",
+      accepted_protocol: "openai_images",
+      upstream_protocols: ["openai_chat_completions"],
+    },
+    {
+      provider_kind: "kimi",
+      accepted_protocol: "openai_responses",
+      upstream_protocols: ["openai_chat_completions"],
+    },
+    {
+      provider_kind: "kimi",
+      accepted_protocol: "openai_chat_completions",
+      upstream_protocols: ["openai_chat_completions"],
+    },
+    {
+      provider_kind: "kimi",
       accepted_protocol: "openai_images",
       upstream_protocols: ["openai_chat_completions"],
     },

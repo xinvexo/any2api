@@ -16,6 +16,7 @@ mod http_access_log_loopback_ips;
 mod oauth_account_documents;
 mod oauth_quota_snapshots;
 mod plaintext_schema;
+mod provider_kind_kimi;
 mod query_indexes;
 mod request_attempt_routing_diagnostics;
 mod request_log_cache_write_tokens;
@@ -68,6 +69,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (15, "add telemetry capacity stats".to_owned()),
             (16, "classify request usage by final outcome".to_owned()),
             (17, "add request attempt routing diagnostics".to_owned()),
+            (18, "add kimi provider kind".to_owned()),
         ]
     );
 
@@ -110,6 +112,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
 
     let endpoint_schema = table_schema(&pool, "provider_endpoints").await;
     assert!(endpoint_schema.contains("'grok'"));
+    assert!(endpoint_schema.contains("'kimi'"));
     assert!(endpoint_schema.contains("'openai_images'"));
     assert!(!endpoint_schema.contains("'codex_backend'"));
     let model_route_schema = table_schema(&pool, "model_routes").await;
@@ -125,6 +128,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     let oauth_schema = table_schema(&pool, "oauth_accounts").await;
     assert!(oauth_schema.contains("oauth_json BLOB NOT NULL"));
     assert!(oauth_schema.contains("requests_per_minute"));
+    assert!(!oauth_schema.contains("'kimi'"));
     assert!(!oauth_schema.contains("max_concurrency"));
     let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;
     assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));

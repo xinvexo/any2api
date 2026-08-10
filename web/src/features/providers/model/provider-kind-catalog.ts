@@ -1,6 +1,7 @@
 import {
   ClaudeIcon,
   GrokIcon,
+  KimiIcon,
   OpenAiIcon,
   type BrandIcon,
 } from "@/shared/icons/brand-icons";
@@ -18,6 +19,7 @@ export const PROVIDER_KIND_OPTIONS: readonly ProviderKindOption[] = [
   { kind: "codex", label: "Codex", icon: OpenAiIcon },
   { kind: "claude", label: "Claude", icon: ClaudeIcon },
   { kind: "grok", label: "Grok", icon: GrokIcon },
+  { kind: "kimi", label: "Kimi", icon: KimiIcon },
 ] as const;
 
 export function isProviderKind(value: string | null | undefined): value is ProviderKind {

@@ -1,4 +1,4 @@
-type ProviderKind = "codex" | "claude" | "grok";
+type ProviderKind = "codex" | "claude" | "grok" | "kimi";
 
 interface BalancingTotals {
   credentialCount: number;
@@ -59,7 +59,7 @@ export function parseBalancingRuntime(value: unknown): BalancingRuntime {
 function parseProvider(value: unknown): BalancingProvider {
   const item = record(value);
   return {
-    providerKind: oneOf(item.provider_kind, ["codex", "claude", "grok"]),
+    providerKind: oneOf(item.provider_kind, ["codex", "claude", "grok", "kimi"]),
     ...parseTotals(item),
   };
 }

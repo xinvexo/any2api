@@ -61,4 +61,22 @@ export function GrokIcon({ size = 16, className, ...props }: BrandIconProps) {
   );
 }
 
+/** Neutral crescent mark used for Kimi navigation. */
+export function KimiIcon({ size = 16, className, ...props }: BrandIconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="currentColor"
+      aria-hidden="true"
+      className={cn("shrink-0", className)}
+      {...props}
+    >
+      <path d="M19.2 15.25A8.1 8.1 0 0 1 8.75 4.8 8.35 8.35 0 1 0 19.2 15.25Z" />
+      <circle cx="17.65" cy="6.35" r="1.45" />
+    </svg>
+  );
+}
+
 export type BrandIcon = typeof OpenAiIcon;

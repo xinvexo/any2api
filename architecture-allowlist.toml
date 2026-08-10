@@ -1,1 +1,6 @@
-exceptions = []
+[[exceptions]]
+path = "crates/transport/src/client/tests.rs"
+reason = "Loopback HTTP/SOCKS5 fixtures and cache-generation lifecycle tests still share one test support module"
+adr = "docs/adr/0123-credential-scoped-transport-isolation.md"
+owner = "maintainer"
+expires_at = "2026-11-10"

@@ -1,4 +1,4 @@
-export type ProviderKind = "codex" | "claude" | "grok";
+export type ProviderKind = "codex" | "claude" | "grok" | "kimi";
 export type ProtocolDialect =
   | "openai_responses"
   | "openai_chat_completions"
@@ -155,7 +155,12 @@ function readBoolean(value: unknown): boolean {
 }
 
 function readProviderKind(value: unknown): ProviderKind {
-  if (value !== "codex" && value !== "claude" && value !== "grok") {
+  if (
+    value !== "codex" &&
+    value !== "claude" &&
+    value !== "grok" &&
+    value !== "kimi"
+  ) {
     throw new Error("invalid provider endpoint response");
   }
   return value;

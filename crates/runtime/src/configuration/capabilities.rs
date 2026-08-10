@@ -262,6 +262,18 @@ mod tests {
             grok[2].upstream_protocols,
             [ProtocolDialect::OpenAiChatCompletions]
         );
+
+        let kimi = capabilities.provider_protocol_options(ProviderKind::Kimi);
+        assert_eq!(kimi.len(), 3);
+        assert_eq!(kimi[0].accepted_protocol, ProtocolDialect::OpenAiResponses);
+        assert_eq!(
+            kimi[0].upstream_protocols,
+            [ProtocolDialect::OpenAiChatCompletions]
+        );
+        assert_eq!(
+            kimi[1].upstream_protocols,
+            [ProtocolDialect::OpenAiChatCompletions]
+        );
     }
 
     #[test]
@@ -295,6 +307,13 @@ mod tests {
                 ProtocolDialect::OpenAiChatCompletions,
             )
             .expect("bridge options are derived without a Provider-specific branch");
+        capabilities
+            .validate_endpoint(
+                ProviderKind::Kimi,
+                ProtocolDialect::OpenAiResponses,
+                ProtocolDialect::OpenAiChatCompletions,
+            )
+            .expect("Kimi uses the registered Responses to Chat bridge");
 
         assert!(matches!(
             capabilities.validate_endpoint(
@@ -317,6 +336,14 @@ mod tests {
                 ProviderKind::Grok,
                 ProtocolDialect::OpenAiImages,
                 ProtocolDialect::OpenAiImages,
+            ),
+            Err(ConfigurationCapabilityError::UnsupportedProviderProtocol { .. })
+        ));
+        assert!(matches!(
+            capabilities.validate_endpoint(
+                ProviderKind::Kimi,
+                ProtocolDialect::OpenAiResponses,
+                ProtocolDialect::OpenAiResponses,
             ),
             Err(ConfigurationCapabilityError::UnsupportedProviderProtocol { .. })
         ));

@@ -50,6 +50,8 @@ export function ProviderEndpointEditor({
   const currentProtocol = acceptedOptions.find(
     (option) => option.acceptedProtocol === editor.draft.protocolDialect,
   );
+  const directSupported =
+    currentProtocol?.upstreamProtocols.includes(editor.draft.protocolDialect) ?? false;
   const conversionOptions =
     currentProtocol?.upstreamProtocols.filter(
       (protocol) => protocol !== editor.draft.protocolDialect,
@@ -143,7 +145,9 @@ export function ProviderEndpointEditor({
           id="provider-upstream-protocol"
           value={editor.draft.upstreamProtocolDialect ?? ""}
           options={[
-            { value: "", label: "不转换（使用接受协议）" },
+            ...(directSupported
+              ? [{ value: "" as const, label: "不转换（使用接受协议）" }]
+              : []),
             ...conversionOptions.map((protocol) => ({
               value: protocol,
               label: protocolLabel(protocol),

@@ -6,7 +6,7 @@ use any2api_protocol::{
     OpenAiImagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry,
     ResponsesToChatCompletionsBridge,
 };
-use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, api::ProviderRegistry};
+use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, api::ProviderRegistry};
 use any2api_storage::api::{
     ConfigurationMutation, ConfigurationRepository, ConfigurationTransactionOutcome,
     ConfigurationTransactionRepository, SqliteStore, StorageError, StoredConfiguration,
@@ -45,6 +45,9 @@ pub(crate) fn configuration_capabilities() -> Arc<ConfigurationCapabilities> {
     providers
         .register(Arc::new(GrokDriver::new()))
         .expect("Grok driver");
+    providers
+        .register(Arc::new(KimiDriver::new()))
+        .expect("Kimi driver");
 
     Arc::new(ConfigurationCapabilities::new(
         Arc::new(protocols),
