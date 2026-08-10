@@ -18,5 +18,7 @@ mod fingerprint_tests;
 pub(crate) mod tests;
 #[cfg(test)]
 mod timeout_tests;
+#[cfg(test)]
+mod wire_conformance;
 
 pub use reqwest::ReqwestTransportManager;

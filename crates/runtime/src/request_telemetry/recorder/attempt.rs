@@ -12,6 +12,7 @@ use any2api_domain::{
     RouteTargetId, TokenUsage,
 };
 
+use super::attempt_diagnostics::AttemptDiagnostics;
 use super::request::{RequestRecorder, bound_optional_error_message, duration_ms};
 use crate::routing::RouteCandidate;
 
@@ -27,6 +28,7 @@ pub(crate) struct AttemptRecorder {
     started_at_ms: u64,
     started_at: Instant,
     timeout: AttemptTimeoutMarker,
+    diagnostics: AttemptDiagnostics,
     finished: bool,
 }
 
@@ -68,6 +70,7 @@ impl AttemptRecorder {
             started_at_ms,
             started_at: Instant::now(),
             timeout: AttemptTimeoutMarker(Arc::new(AtomicBool::new(false))),
+            diagnostics: AttemptDiagnostics::default(),
             finished: false,
         }
     }
@@ -85,6 +88,7 @@ impl AttemptRecorder {
             started_at_ms: 0,
             started_at: Instant::now(),
             timeout: AttemptTimeoutMarker(Arc::new(AtomicBool::new(false))),
+            diagnostics: AttemptDiagnostics::default(),
             finished: true,
         }
     }
@@ -99,6 +103,36 @@ impl AttemptRecorder {
 
     pub(crate) fn observe_token_usage(&self, usage: TokenUsage) {
         self.request.observe_token_usage(usage);
+    }
+
+    pub(crate) fn observe_transport(
+        &mut self,
+        diagnostics: any2api_transport::api::TransportRequestDiagnostics,
+    ) {
+        self.diagnostics.observe_transport(diagnostics);
+    }
+
+    pub(crate) fn observe_first_upstream_frame(&mut self) {
+        self.diagnostics
+            .observe_first_upstream_frame(self.started_at);
+    }
+
+    pub(crate) fn observe_stream_commit(&mut self) {
+        self.diagnostics.observe_stream_commit(self.started_at);
+    }
+
+    pub(crate) fn observe_first_downstream_byte(&mut self) {
+        self.diagnostics
+            .observe_first_downstream_byte(self.started_at);
+    }
+
+    pub(crate) fn observe_stream_cancel(&mut self) {
+        self.diagnostics.observe_stream_cancel(self.started_at);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stream_timing(&self) -> any2api_domain::RequestAttemptStreamTiming {
+        self.diagnostics.stream_timing()
     }
 
     pub(crate) fn success(&mut self, status_code: u16) {
@@ -248,6 +282,7 @@ impl AttemptRecorder {
             return;
         }
         self.finished = true;
+        let (transport, stream_timing) = self.diagnostics.take();
         self.request.push_attempt(RequestAttempt {
             request_id: self.request_id,
             attempt_no: self.attempt_no,
@@ -265,6 +300,8 @@ impl AttemptRecorder {
             error_message,
             status_code,
             outcome,
+            transport,
+            stream_timing,
         });
     }
 }

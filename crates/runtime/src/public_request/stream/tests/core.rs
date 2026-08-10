@@ -53,6 +53,34 @@ async fn guarded_body_primes_rewrites_and_releases_on_terminal_event() {
 }
 
 #[tokio::test]
+async fn stream_timing_marks_frame_commit_and_first_downstream_yield_in_order() {
+    let (_binding, permit) = generation_permit();
+    let upstream: BoxByteStream = Box::pin(stream::iter([
+        Ok(Bytes::from_static(
+            b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_timing\"}}\n\n",
+        )),
+        Ok(Bytes::from_static(
+            b"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{}}\n\n",
+        )),
+    ]));
+    let mut body = guarded_body(upstream, permit)
+        .prime()
+        .await
+        .expect("primed stream");
+
+    let primed = body.stream_timing();
+    assert!(primed.first_upstream_frame_ms.is_some());
+    assert!(primed.stream_commit_ms.is_some());
+    assert!(primed.first_downstream_byte_ms.is_none());
+    assert!(primed.stream_cancel_ms.is_none());
+
+    assert!(body.next().await.expect("first frame").is_ok());
+    let yielded = body.stream_timing();
+    assert!(yielded.first_downstream_byte_ms.is_some());
+    assert!(yielded.stream_cancel_ms.is_none());
+}
+
+#[tokio::test]
 async fn dropping_body_releases_once_and_marks_cancellation() {
     let (binding, permit) = generation_permit();
     let upstream: BoxByteStream = Box::pin(stream::pending());

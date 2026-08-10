@@ -29,6 +29,9 @@ impl GuardedBody {
         loop {
             match self.decoder.next_frame() {
                 Ok(Some(frame)) => {
+                    if let Some(recorder) = self.attempt_recorder.as_mut() {
+                        recorder.observe_first_upstream_frame();
+                    }
                     if let Err(error) = self.push_frame(frame, deadline) {
                         self.set_pending_error(error);
                     }
@@ -216,6 +219,9 @@ impl GuardedBody {
             self.pending.push_back(frame);
         }
         self.precommit_budget.commit();
+        if let Some(recorder) = self.attempt_recorder.as_mut() {
+            recorder.observe_stream_commit();
+        }
         Ok(())
     }
 

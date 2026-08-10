@@ -19,6 +19,7 @@ import {
 } from "../model/request-log-error";
 import { useRequestLog } from "../model/use-request-logs";
 import { RequestLogExpandedSkeleton } from "./RequestLogExpandedSkeleton";
+import { RequestAttemptDiagnostics } from "./RequestAttemptDiagnostics";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/Button";
 import { useAccordionReveal } from "@/shared/ui/use-accordion-reveal";
@@ -166,6 +167,7 @@ function AttemptLine({ attempt }: { attempt: RequestAttempt }) {
           <span className="min-w-0 break-words text-secondary">{diagnostic}</span>
         ) : null}
       </div>
+      <RequestAttemptDiagnostics attempt={attempt} compact />
     </li>
   );
 }

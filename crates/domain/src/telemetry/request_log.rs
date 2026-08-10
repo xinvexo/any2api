@@ -216,6 +216,8 @@ pub struct RequestAttempt {
     pub error_message: Option<String>,
     pub status_code: Option<u16>,
     pub outcome: RequestAttemptOutcome,
+    pub transport: Option<crate::RequestAttemptTransport>,
+    pub stream_timing: Option<crate::RequestAttemptStreamTiming>,
 }
 
 /// Normalize and truncate trusted diagnostic text for SQLite/admin display.
@@ -281,7 +283,16 @@ impl CompletedRequestLog {
                         .capacity()
                         .saturating_mul(std::mem::size_of::<RequestAttempt>()),
                 ),
-            |bytes, attempt| bytes.saturating_add(option_string_capacity(&attempt.error_message)),
+            |bytes, attempt| {
+                bytes
+                    .saturating_add(option_string_capacity(&attempt.error_message))
+                    .saturating_add(
+                        attempt
+                            .transport
+                            .as_ref()
+                            .map_or(0, |transport| transport.wire_profile_id.capacity()),
+                    )
+            },
         )
     }
 }

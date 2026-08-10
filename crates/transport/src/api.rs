@@ -9,6 +9,7 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 pub use crate::{
     ReqwestTransportManager, TransportConfigurationError, TransportError, TransportErrorStage,
     TransportFailureScope,
+    diagnostics::{TransportRequestDiagnostics, TransportResolverMode},
     isolation::{TransportIsolationKey, TransportTrafficClass},
     profile::{GENERIC_GATEWAY_TRANSPORT_PROFILE, TransportWireProfile},
     proxy::ProxyCredentials,
@@ -136,6 +137,17 @@ impl fmt::Debug for TransportProxy<'_> {
 
 #[async_trait]
 pub trait TransportManager: Send + Sync {
+    /// Returns a secret-free snapshot of the policy that would be used for
+    /// this request. Custom adapters may opt out; the production manager does
+    /// not. The snapshot is observational and must not mutate client caches.
+    fn request_diagnostics(
+        &self,
+        _proxy: TransportProxy<'_>,
+        _request: &TransportRequest,
+    ) -> Option<TransportRequestDiagnostics> {
+        None
+    }
+
     async fn execute(
         &self,
         proxy: TransportProxy<'_>,

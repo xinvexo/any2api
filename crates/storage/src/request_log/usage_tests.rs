@@ -155,6 +155,8 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
         error_message: None,
         status_code: Some(500),
         outcome: RequestAttemptOutcome::UpstreamError,
+        transport: None,
+        stream_timing: None,
     });
     retried.request.attempt_count = 1;
     records.push(retried);

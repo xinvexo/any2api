@@ -258,6 +258,14 @@ impl GuardedBody {
     pub(super) fn pending_frame_count(&self) -> usize {
         self.pending.len()
     }
+
+    #[cfg(test)]
+    pub(super) fn stream_timing(&self) -> any2api_domain::RequestAttemptStreamTiming {
+        self.attempt_recorder
+            .as_ref()
+            .expect("attempt recorder remains active")
+            .stream_timing()
+    }
 }
 
 impl Stream for GuardedBody {
@@ -282,6 +290,11 @@ impl Stream for GuardedBody {
             }
             if let Some(frame) = this.pending.pop_front() {
                 this.state = CommitState::TransportCommitted;
+                if !frame.bytes.is_empty()
+                    && let Some(recorder) = this.attempt_recorder.as_mut()
+                {
+                    recorder.observe_first_downstream_byte();
+                }
                 if frame.has_content_delta {
                     this.request_recorder.observe_first_token();
                 }

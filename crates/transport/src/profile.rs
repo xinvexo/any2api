@@ -10,6 +10,7 @@ pub struct TransportWireProfile {
     tls_policy_version: u16,
     http_version_policy_version: u16,
     pool_policy_version: u16,
+    timeout_policy_version: u16,
     alpn_protocols: &'static [&'static [u8]],
     http1_enabled: bool,
     http2_enabled: bool,
@@ -31,6 +32,7 @@ pub const GENERIC_GATEWAY_TRANSPORT_PROFILE: TransportWireProfile = TransportWir
     tls_policy_version: 1,
     http_version_policy_version: 1,
     pool_policy_version: 2,
+    timeout_policy_version: 1,
     alpn_protocols: HTTP_2_AND_1_ALPN,
     http1_enabled: true,
     http2_enabled: true,
@@ -70,6 +72,11 @@ impl TransportWireProfile {
     #[must_use]
     pub const fn pool_policy_version(self) -> u16 {
         self.pool_policy_version
+    }
+
+    #[must_use]
+    pub const fn timeout_policy_version(self) -> u16 {
+        self.timeout_policy_version
     }
 
     #[must_use]
@@ -158,6 +165,7 @@ mod tests {
         assert_eq!(PROFILE.tls_policy_version(), 1);
         assert_eq!(PROFILE.http_version_policy_version(), 1);
         assert_eq!(PROFILE.pool_policy_version(), 2);
+        assert_eq!(PROFILE.timeout_policy_version(), 1);
         assert_eq!(PROFILE.alpn_protocols(), [b"h2".as_slice(), b"http/1.1"]);
         assert!(PROFILE.http1_enabled());
         assert!(PROFILE.http2_enabled());

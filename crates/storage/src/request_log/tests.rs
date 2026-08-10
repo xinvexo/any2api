@@ -2,8 +2,9 @@ use any2api_domain::{
     CompletedRequestLog, ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyDraft,
     GatewayApiKeyId, MAX_REQUEST_LOG_ROWS, MAX_TOKEN_COUNT, ProtocolDialect, ProtocolOperation,
     ProviderEndpointId, ProxyProfileId, RequestAttempt, RequestAttemptFailureScope,
-    RequestAttemptOutcome, RequestAttemptRetryDecision, RequestId, RequestLog, RequestRoutingMode,
-    RetrySafety, RouteTargetId,
+    RequestAttemptOutcome, RequestAttemptRetryDecision, RequestAttemptStreamTiming,
+    RequestAttemptTransport, RequestId, RequestLog, RequestRoutingMode,
+    RequestTransportResolverMode, RequestTransportTrafficClass, RetrySafety, RouteTargetId,
 };
 use tempfile::tempdir;
 
@@ -38,6 +39,27 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
     record.attempts[0].outcome = RequestAttemptOutcome::UpstreamError;
     record.attempts[0].failure_scope = Some(RequestAttemptFailureScope::Authentication);
     record.attempts[0].retry_decision = Some(RequestAttemptRetryDecision::Reselect);
+    let transport = RequestAttemptTransport {
+        wire_profile_id: "generic-rustls-hyper-v2".into(),
+        wire_profile_version: 2,
+        timeout_policy_version: 1,
+        resolver_mode: RequestTransportResolverMode::System,
+        proxy_kind: any2api_domain::ProxyKind::Direct,
+        connect_timeout_ms: 10_000,
+        read_timeout_ms: 300_000,
+        pool_idle_timeout_ms: 50_000,
+        routing_generation: 4,
+        authentication_version: 7,
+        traffic_class: RequestTransportTrafficClass::DataPlane,
+    };
+    let stream_timing = RequestAttemptStreamTiming {
+        first_upstream_frame_ms: Some(8),
+        stream_commit_ms: Some(9),
+        first_downstream_byte_ms: Some(11),
+        stream_cancel_ms: None,
+    };
+    record.attempts[0].transport = Some(transport.clone());
+    record.attempts[0].stream_timing = Some(stream_timing);
 
     store
         .append_request_logs(std::slice::from_ref(&record), MAX_REQUEST_LOG_ROWS)
@@ -99,6 +121,8 @@ async fn request_log_and_attempt_round_trip_without_requiring_live_config_refere
         loaded.attempts[0].error_message.as_deref(),
         Some("upstream returned HTTP 401 (authentication)")
     );
+    assert_eq!(loaded.attempts[0].transport.as_ref(), Some(&transport));
+    assert_eq!(loaded.attempts[0].stream_timing, Some(stream_timing));
     assert_eq!(loaded.request.first_token_ms, Some(12));
     assert_eq!(loaded.request.input_tokens, Some(120));
     assert_eq!(loaded.request.output_tokens, Some(45));
@@ -328,6 +352,8 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             error_message: None,
             status_code: Some(200),
             outcome: RequestAttemptOutcome::Success,
+            transport: None,
+            stream_timing: None,
         })
         .into_iter()
         .collect();

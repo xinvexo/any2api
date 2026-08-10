@@ -65,6 +65,14 @@ impl TransportIsolationKey {
         self.traffic_class
     }
 
+    pub(crate) const fn routing_generation(self) -> u64 {
+        self.routing_generation
+    }
+
+    pub(crate) const fn authentication_version(self) -> u64 {
+        self.authentication_version
+    }
+
     pub(crate) fn retires(self, cached: Self) -> bool {
         match (self.owner, cached.owner) {
             (

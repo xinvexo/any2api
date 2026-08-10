@@ -1,6 +1,6 @@
 use any2api_domain::{
-    ErrorClass, RequestAttempt, RequestAttemptFailureScope, RequestAttemptRetryDecision,
-    RequestLog, RequestRoutingMode, RetrySafety,
+    ErrorClass, MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS, RequestAttempt, RequestAttemptFailureScope,
+    RequestAttemptRetryDecision, RequestLog, RequestRoutingMode, RetrySafety,
 };
 use sqlx::SqliteConnection;
 
@@ -59,15 +59,27 @@ pub(super) async fn insert_request_attempt(
     attempt: &RequestAttempt,
 ) -> Result<(), StorageError> {
     let error_message = validate_error_message(attempt.error_message.as_deref())?;
+    let transport_profile_id = attempt
+        .transport
+        .as_ref()
+        .map(|transport| validate_transport_profile_id(&transport.wire_profile_id))
+        .transpose()?;
     sqlx::query(
         "INSERT INTO request_attempts (request_id, attempt_no, route_target_id, credential_id, \
          oauth_account_id, proxy_profile_id, routing_mode, started_at_ms, duration_ms, \
          retry_safety, failure_scope, retry_decision, error_class, error_message, status_code, \
-         outcome) VALUES (?, ?, \
+         outcome, transport_wire_profile_id, transport_wire_profile_version, \
+         transport_timeout_policy_version, transport_resolver_mode, transport_proxy_kind, \
+         transport_connect_timeout_ms, transport_read_timeout_ms, \
+         transport_pool_idle_timeout_ms, transport_routing_generation, \
+         transport_authentication_version, transport_traffic_class, first_upstream_frame_ms, \
+         stream_commit_ms, first_downstream_byte_ms, stream_cancel_ms) VALUES (?, ?, \
          (SELECT id FROM route_targets WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
-         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (SELECT id FROM proxy_profiles WHERE id = ?), \
+         ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, \
+         ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?)",
     )
     .bind(attempt.request_id.to_string())
     .bind(i64::from(attempt.attempt_no))
@@ -93,6 +105,64 @@ pub(super) async fn insert_request_attempt(
     .bind(error_message)
     .bind(attempt.status_code.map(i64::from))
     .bind(attempt.outcome.as_str())
+    .bind(transport_profile_id)
+    .bind(
+        attempt
+            .transport
+            .as_ref()
+            .map(|value| i64::from(value.wire_profile_version)),
+    )
+    .bind(
+        attempt
+            .transport
+            .as_ref()
+            .map(|value| i64::from(value.timeout_policy_version)),
+    )
+    .bind(
+        attempt
+            .transport
+            .as_ref()
+            .map(|value| value.resolver_mode.as_str()),
+    )
+    .bind(
+        attempt
+            .transport
+            .as_ref()
+            .map(|value| value.proxy_kind.as_str()),
+    )
+    .bind(optional_transport_i64(attempt, |value| {
+        value.connect_timeout_ms
+    })?)
+    .bind(optional_transport_i64(attempt, |value| {
+        value.read_timeout_ms
+    })?)
+    .bind(optional_transport_i64(attempt, |value| {
+        value.pool_idle_timeout_ms
+    })?)
+    .bind(optional_transport_i64(attempt, |value| {
+        value.routing_generation
+    })?)
+    .bind(optional_transport_i64(attempt, |value| {
+        value.authentication_version
+    })?)
+    .bind(
+        attempt
+            .transport
+            .as_ref()
+            .map(|value| value.traffic_class.as_str()),
+    )
+    .bind(optional_stream_i64(attempt, |value| {
+        value.first_upstream_frame_ms
+    })?)
+    .bind(optional_stream_i64(attempt, |value| {
+        value.stream_commit_ms
+    })?)
+    .bind(optional_stream_i64(attempt, |value| {
+        value.first_downstream_byte_ms
+    })?)
+    .bind(optional_stream_i64(attempt, |value| {
+        value.stream_cancel_ms
+    })?)
     .execute(connection)
     .await?;
     Ok(())
@@ -139,4 +209,28 @@ fn to_i64(value: u64) -> Result<i64, StorageError> {
 
 fn optional_i64(value: Option<u64>) -> Result<Option<i64>, StorageError> {
     value.map(to_i64).transpose()
+}
+
+fn optional_transport_i64(
+    attempt: &RequestAttempt,
+    get: impl FnOnce(&any2api_domain::RequestAttemptTransport) -> u64,
+) -> Result<Option<i64>, StorageError> {
+    attempt.transport.as_ref().map(get).map(to_i64).transpose()
+}
+
+fn optional_stream_i64(
+    attempt: &RequestAttempt,
+    get: impl FnOnce(any2api_domain::RequestAttemptStreamTiming) -> Option<u64>,
+) -> Result<Option<i64>, StorageError> {
+    attempt.stream_timing.and_then(get).map(to_i64).transpose()
+}
+
+fn validate_transport_profile_id(value: &str) -> Result<&str, StorageError> {
+    if value.is_empty()
+        || value.chars().count() > MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS
+        || value.chars().any(char::is_control)
+    {
+        return Err(StorageError::CorruptTelemetry);
+    }
+    Ok(value)
 }

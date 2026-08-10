@@ -34,6 +34,8 @@ test("loads a deep-linked request and renders attempts in order", async () => {
   expect(screen.getByText("120")).toBeInTheDocument();
   expect(screen.getByText("45")).toBeInTheDocument();
   expect(screen.getByText("30")).toBeInTheDocument();
+  expect(screen.getAllByText("generic-rustls-hyper-v2 · wire v2").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("上游首帧")[0]?.nextElementSibling).toHaveTextContent("4 ms");
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`/api/admin/request-logs/${requestId}`);
 });
@@ -213,5 +215,24 @@ function attempt(
     error_message: errorMessage,
     status_code: statusCode,
     outcome,
+    transport: {
+      wire_profile_id: "generic-rustls-hyper-v2",
+      wire_profile_version: 2,
+      timeout_policy_version: 1,
+      resolver_mode: "system",
+      proxy_kind: "direct",
+      connect_timeout_ms: 10_000,
+      read_timeout_ms: 300_000,
+      pool_idle_timeout_ms: 50_000,
+      routing_generation: 3,
+      authentication_version: 5,
+      traffic_class: "data_plane",
+    },
+    stream_timing: {
+      first_upstream_frame_ms: 4,
+      stream_commit_ms: 5,
+      first_downstream_byte_ms: 7,
+      stream_cancel_ms: outcome === "cancelled" ? 10 : null,
+    },
   };
 }

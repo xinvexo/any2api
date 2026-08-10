@@ -1,0 +1,9 @@
+POST /v1/responses?fixture=h1 HTTP/1.1\r\n
+authorization: Bearer fixture-token\r\n
+content-type: application/json\r\n
+x-wire-fixture: generic-v2\r\n
+accept-encoding: gzip, br, zstd\r\n
+accept: */*\r\n
+host: <authority>\r\n
+content-length: 2\r\n
+\r\n

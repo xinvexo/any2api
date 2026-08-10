@@ -124,5 +124,7 @@ function attempt(
     errorMessage,
     statusCode: 200,
     outcome,
+    transport: null,
+    streamTiming: null,
   };
 }

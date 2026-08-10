@@ -99,6 +99,11 @@ impl PreparedAttempt<'_> {
         transport: &dyn TransportManager,
     ) -> Result<TransportResponse, TransportError> {
         let request = self.request.take().expect("prepared request is present");
+        if let Some(diagnostics) = transport.request_diagnostics(self.proxy, &request)
+            && let Some(recorder) = self.attempt_recorder.as_mut()
+        {
+            recorder.observe_transport(diagnostics);
+        }
         if self.quota_activity_guard.is_none()
             && let Some(activity) = self.quota_activity
             && let Some(id) = self.oauth_account_id

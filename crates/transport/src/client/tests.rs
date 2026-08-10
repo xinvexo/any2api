@@ -18,7 +18,7 @@ use crate::{
     api::EndpointNetworkPolicy,
     api::{
         TransportIsolationKey, TransportManager, TransportManagerConfig, TransportProxy,
-        TransportRequest, TransportTrafficClass,
+        TransportRequest, TransportResolverMode, TransportTrafficClass,
     },
     error::{TransportErrorStage, TransportFailureScope},
 };
@@ -280,6 +280,50 @@ fn request_debug_never_contains_authorization_values() {
     );
 
     assert!(!format!("{request:?}").contains("must-not-leak"));
+}
+
+#[test]
+fn request_diagnostics_report_final_resolver_proxy_and_timeout_policy() {
+    let config = TransportManagerConfig {
+        connect_timeout: Duration::from_secs(7),
+        pool_idle_timeout: Duration::from_secs(41),
+        ..TransportManagerConfig::default()
+    };
+    let manager = ReqwestTransportManager::new(config).expect("transport manager");
+    let direct = ProxyProfile::direct();
+    let mut request = request_to("https://upstream.invalid/v1/responses");
+    request.read_timeout = Duration::from_secs(123);
+
+    let system = manager
+        .request_diagnostics(TransportProxy::new(&direct, None), &request)
+        .expect("production diagnostics");
+    assert_eq!(system.wire_profile_id(), "generic-rustls-hyper-v2");
+    assert_eq!(system.wire_profile_version(), 2);
+    assert_eq!(system.timeout_policy_version(), 1);
+    assert_eq!(system.resolver_mode(), TransportResolverMode::System);
+    assert_eq!(system.proxy_kind(), ProxyKind::Direct);
+    assert_eq!(system.connect_timeout(), Duration::from_secs(7));
+    assert_eq!(system.read_timeout(), Duration::from_secs(123));
+    assert_eq!(system.pool_idle_timeout(), Duration::from_secs(41));
+
+    request.network_policy = EndpointNetworkPolicy::new().with_strict_ssrf(true);
+    let local = manager
+        .request_diagnostics(TransportProxy::new(&direct, None), &request)
+        .expect("strict diagnostics");
+    assert_eq!(local.resolver_mode(), TransportResolverMode::LocalCached);
+
+    request.network_policy = EndpointNetworkPolicy::new();
+    let http = network_proxy(
+        "HTTP",
+        ProxyKind::Http,
+        "127.0.0.1:8080".parse().expect("proxy address"),
+        true,
+    );
+    let remote = manager
+        .request_diagnostics(TransportProxy::new(&http, None), &request)
+        .expect("proxy diagnostics");
+    assert_eq!(remote.resolver_mode(), TransportResolverMode::ProxyRemote);
+    assert_eq!(remote.proxy_kind(), ProxyKind::Http);
 }
 
 fn request_to(uri: &str) -> TransportRequest {

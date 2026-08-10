@@ -1,3 +1,4 @@
+mod attempt_dto;
 mod dto;
 mod handlers;
 

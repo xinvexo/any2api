@@ -1,11 +1,10 @@
-use any2api_domain::{
-    CompletedRequestLog, ErrorClass, LogPage, RequestAttempt, RequestAttemptFailureScope,
-    RequestAttemptOutcome, RequestAttemptRetryDecision, RequestLog, RequestRoutingMode,
-};
+use any2api_domain::{CompletedRequestLog, ErrorClass, LogPage, RequestAttemptOutcome, RequestLog};
 use any2api_runtime::api::{PublishedSnapshot, RequestTelemetryMetrics};
 use serde::Serialize;
 
 use crate::log_pagination::LogCursorKind;
+
+use super::attempt_dto::RequestAttemptResponse;
 
 #[derive(Serialize)]
 pub(crate) struct RequestLogListResponse {
@@ -197,73 +196,9 @@ impl RequestLogResponse {
     }
 }
 
-#[derive(Serialize)]
-struct RequestAttemptResponse {
-    attempt_no: u32,
-    route_target_id: Option<String>,
-    credential_id: Option<String>,
-    credential_label: Option<String>,
-    oauth_account_id: Option<String>,
-    oauth_account_label: Option<String>,
-    proxy_profile_id: Option<String>,
-    proxy_profile_label: Option<String>,
-    routing_mode: Option<&'static str>,
-    failure_scope: Option<&'static str>,
-    retry_decision: Option<&'static str>,
-    started_at_ms: u64,
-    duration_ms: u64,
-    error_message: Option<String>,
-    status_code: Option<u16>,
-    outcome: RequestLogOutcome,
-}
-
-impl RequestAttemptResponse {
-    fn from_attempt(value: RequestAttempt, snapshot: &PublishedSnapshot) -> Self {
-        let outcome = RequestLogOutcome::from_attempt(&value);
-        let credential_label = value.credential_id.and_then(|id| {
-            snapshot
-                .provider_credentials()
-                .get(id)
-                .map(|credential| credential.label().to_owned())
-        });
-        let oauth_account_label = value.oauth_account_id.and_then(|id| {
-            snapshot
-                .oauth_accounts()
-                .get(id)
-                .map(|account| account.label().to_owned())
-        });
-        let proxy_profile_label = value.proxy_profile_id.and_then(|id| {
-            snapshot
-                .proxies()
-                .get(id)
-                .map(|profile| profile.name().to_owned())
-        });
-        Self {
-            attempt_no: value.attempt_no,
-            route_target_id: value.route_target_id.map(|id| id.to_string()),
-            credential_id: value.credential_id.map(|id| id.to_string()),
-            credential_label,
-            oauth_account_id: value.oauth_account_id.map(|id| id.to_string()),
-            oauth_account_label,
-            proxy_profile_id: value.proxy_profile_id.map(|id| id.to_string()),
-            proxy_profile_label,
-            routing_mode: value.routing_mode.map(RequestRoutingMode::as_str),
-            failure_scope: value.failure_scope.map(RequestAttemptFailureScope::as_str),
-            retry_decision: value
-                .retry_decision
-                .map(RequestAttemptRetryDecision::as_str),
-            started_at_ms: value.started_at_ms,
-            duration_ms: value.duration_ms,
-            error_message: value.error_message,
-            status_code: value.status_code,
-            outcome,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
-enum RequestLogOutcome {
+pub(super) enum RequestLogOutcome {
     Success,
     Failed,
     Cancelled,
@@ -280,7 +215,7 @@ impl RequestLogOutcome {
         }
     }
 
-    fn from_attempt(value: &RequestAttempt) -> Self {
+    pub(super) fn from_attempt(value: &any2api_domain::RequestAttempt) -> Self {
         match value.outcome {
             RequestAttemptOutcome::Cancelled => Self::Cancelled,
             RequestAttemptOutcome::Success

@@ -2,6 +2,7 @@ pub mod api;
 
 mod client;
 mod connection;
+mod diagnostics;
 mod error;
 mod isolation;
 mod profile;

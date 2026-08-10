@@ -1,3 +1,22 @@
+import {
+  parseRequestAttempt,
+  parseRequestLogOutcome,
+  type RequestAttempt,
+  type RequestLogOutcome,
+} from "./request-attempt-contracts";
+
+export type {
+  RequestAttempt,
+  RequestAttemptFailureScope,
+  RequestAttemptRetryDecision,
+  RequestAttemptStreamTiming,
+  RequestAttemptTransport,
+  RequestLogOutcome,
+  RequestRoutingMode,
+  RequestTransportResolverMode,
+  RequestTransportTrafficClass,
+} from "./request-attempt-contracts";
+
 export type RequestLogProtocol =
   | "openai_responses"
   | "openai_chat_completions"
@@ -11,23 +30,6 @@ export type RequestLogOperation =
   | "images_edits"
   | "messages"
   | "messages_count_tokens";
-export type RequestLogOutcome = "success" | "failed" | "cancelled";
-export type RequestRoutingMode = "balanced" | "bound";
-export type RequestAttemptFailureScope =
-  | "unattributed"
-  | "authentication"
-  | "credential"
-  | "credential_model"
-  | "route_operation"
-  | "exact_candidate"
-  | "egress_path"
-  | "proxy"
-  | "endpoint";
-export type RequestAttemptRetryDecision =
-  | "terminal"
-  | "oauth_refresh"
-  | "retry_same_path"
-  | "reselect";
 
 export interface RequestLog {
   requestId: string;
@@ -57,25 +59,6 @@ export interface RequestLog {
   outputTokens: number | null;
   cacheReadTokens: number | null;
   isStream: boolean;
-}
-
-export interface RequestAttempt {
-  attemptNo: number;
-  routeTargetId: string | null;
-  credentialId: string | null;
-  credentialLabel: string | null;
-  oauthAccountId: string | null;
-  oauthAccountLabel: string | null;
-  proxyProfileId: string | null;
-  proxyProfileLabel: string | null;
-  routingMode: RequestRoutingMode | null;
-  failureScope: RequestAttemptFailureScope | null;
-  retryDecision: RequestAttemptRetryDecision | null;
-  startedAtMs: number;
-  durationMs: number;
-  errorMessage: string | null;
-  statusCode: number | null;
-  outcome: RequestLogOutcome;
 }
 
 interface RequestTelemetryMetrics {
@@ -130,7 +113,7 @@ export function parseRequestLogDetail(value: unknown): RequestLogDetail {
   const record = readRecord(value);
   return {
     request: parseRequestLog(record.request),
-    attempts: readArray(record.attempts).map(parseAttempt),
+    attempts: readArray(record.attempts).map(parseRequestAttempt),
     telemetry: parseTelemetry(record.telemetry),
   };
 }
@@ -138,7 +121,7 @@ export function parseRequestLogDetail(value: unknown): RequestLogDetail {
 function parseRequestLog(value: unknown): RequestLog {
   const record = readRecord(value);
   const statusCode = readStatusCode(record.status_code);
-  const outcome = readOutcome(record.outcome);
+  const outcome = parseRequestLogOutcome(record.outcome);
   if (outcome === "success" && (statusCode < 200 || statusCode >= 300)) {
     throw invalidResponse();
   }
@@ -171,88 +154,6 @@ function parseRequestLog(value: unknown): RequestLog {
     cacheReadTokens: readNullableInteger(record.cache_read_tokens),
     isStream: readBoolean(record.is_stream),
   };
-}
-
-function parseAttempt(value: unknown): RequestAttempt {
-  const record = readRecord(value);
-  const statusCode = readNullableStatusCode(record.status_code);
-  const outcome = readOutcome(record.outcome);
-  if (
-    outcome === "success" &&
-    (statusCode === null || statusCode < 200 || statusCode >= 300)
-  ) {
-    throw invalidResponse();
-  }
-  return {
-    attemptNo: readPositiveInteger(record.attempt_no),
-    routeTargetId: readNullableString(record.route_target_id),
-    credentialId: readNullableString(record.credential_id),
-    credentialLabel: readOptionalNullableString(record.credential_label),
-    oauthAccountId: readNullableString(record.oauth_account_id),
-    oauthAccountLabel: readOptionalNullableString(record.oauth_account_label),
-    proxyProfileId: readNullableString(record.proxy_profile_id),
-    proxyProfileLabel: readOptionalNullableString(record.proxy_profile_label),
-    routingMode: readNullableRoutingMode(record.routing_mode),
-    failureScope: readNullableFailureScope(record.failure_scope),
-    retryDecision: readNullableRetryDecision(record.retry_decision),
-    startedAtMs: readNonNegativeInteger(record.started_at_ms),
-    durationMs: readNonNegativeInteger(record.duration_ms),
-    errorMessage: readOptionalNullableString(record.error_message),
-    statusCode,
-    outcome,
-  };
-}
-
-function readNullableRoutingMode(value: unknown): RequestRoutingMode | null {
-  if (value === null) {
-    return null;
-  }
-  if (value === "balanced" || value === "bound") {
-    return value;
-  }
-  throw invalidResponse();
-}
-
-function readNullableFailureScope(value: unknown): RequestAttemptFailureScope | null {
-  if (
-    value === "unattributed" ||
-    value === "authentication" ||
-    value === "credential" ||
-    value === "credential_model" ||
-    value === "route_operation" ||
-    value === "exact_candidate" ||
-    value === "egress_path" ||
-    value === "proxy" ||
-    value === "endpoint"
-  ) {
-    return value;
-  }
-  if (value === null) {
-    return null;
-  }
-  throw invalidResponse();
-}
-
-function readNullableRetryDecision(value: unknown): RequestAttemptRetryDecision | null {
-  if (
-    value === "terminal" ||
-    value === "oauth_refresh" ||
-    value === "retry_same_path" ||
-    value === "reselect"
-  ) {
-    return value;
-  }
-  if (value === null) {
-    return null;
-  }
-  throw invalidResponse();
-}
-
-function readOutcome(value: unknown): RequestLogOutcome {
-  if (value === "success" || value === "failed" || value === "cancelled") {
-    return value;
-  }
-  throw invalidResponse();
 }
 
 function parseTelemetry(value: unknown): RequestTelemetryMetrics {
@@ -369,10 +270,6 @@ function readStatusCode(value: unknown): number {
     throw invalidResponse();
   }
   return status;
-}
-
-function readNullableStatusCode(value: unknown): number | null {
-  return value === null ? null : readStatusCode(value);
 }
 
 function invalidResponse() {

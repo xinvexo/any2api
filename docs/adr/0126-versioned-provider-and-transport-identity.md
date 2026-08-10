@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-10
+- 修订：2026-08-10（TLS extension 顺序事实由 ADR-0130 澄清）
 - 决策者：maintainer
 
 ## 背景
@@ -19,7 +20,7 @@ Provider 数据面与 OAuth 额度面的固定 Header 散落在多个文件。Cl
 5. OAuth token surface 继续使用各 Provider 的 client ID、grant 与 content type 契约，默认不借用 data-plane persona UA。如果某 Token Endpoint 必需固定 Header，必须以 Provider 证据追加到对应 identity profile，不能修改通用 form/json helper 污染其他 Provider。Kimi 仍无 persona Header。
 6. Transport 引入单一 `generic-rustls-hyper-v1` wire profile，集中定义 policy version、ALPN、HTTP 版本、TCP/H2 keepalive、redirect 和 retry 选择。Client cache key 必须包含该 profile 版本；依赖或 wire 策略改变必须提升版本并更新契约。
 7. 该 Transport profile 是 any2api 通用 gateway 实现，不是任何 Provider 原生客户端模仿层。Provider Driver 不能选择 TLS/H2/TCP profile；除非未来有真实、公开且必需的 wire contract 并另立 ADR，Runtime/Transport 不新增 Provider `match`。
-8. 禁止每请求随机 UA、cipher/extension 顺序、HTTP/2 SETTINGS 或时序。无官方 capture 时不声称“隐身”或“不可识别”；审计报告继续把 generic profile 标为上游可观测。
+8. 禁止 any2api 为隐藏差异而另行随机 UA、cipher/extension 顺序、HTTP/2 SETTINGS 或时序。Rustls 0.23 自身按 `order_seed` 随机排列无顺序要求的 ClientHello extension，这是所选 TLS 栈的真实版本化行为，由 ADR-0130 的 capture contract 如实记录，不扩展为 Provider 模仿层。无官方 capture 时不声称“隐身”或“不可识别”；审计报告继续把 generic profile 标为上游可观测。
 
 ## 后果
 

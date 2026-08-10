@@ -19,6 +19,7 @@ mod plaintext_schema;
 mod provider_kind_kimi;
 mod query_indexes;
 mod request_attempt_routing_diagnostics;
+mod request_attempt_transport_stream_diagnostics;
 mod request_log_cache_write_tokens;
 mod request_usage_aggregate_indexes;
 mod response_body_bytes;
@@ -70,6 +71,10 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (16, "classify request usage by final outcome".to_owned()),
             (17, "add request attempt routing diagnostics".to_owned()),
             (18, "add kimi provider kind".to_owned()),
+            (
+                19,
+                "add request attempt transport stream diagnostics".to_owned()
+            ),
         ]
     );
 

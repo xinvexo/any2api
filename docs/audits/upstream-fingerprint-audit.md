@@ -5,15 +5,15 @@
 - 审计日期：2026-08-10
 - 审计范围：应用层、协议桥、Header、JSON、流式、重试、OAuth 控制面、Transport、TLS、HTTP/1.1、HTTP/2、DNS 与代理连接器
 - 明确排除：出口 IP、ASN、地理位置、IP reputation、数据中心/住宅网络属性和代理 IP 本身
-- 本轮变更边界：只增加审计报告、最小化诊断测试和一条兼容性回归断言；未修改生产行为
+- 原始审计变更边界：只增加审计报告、最小化诊断测试和一条兼容性回归断言；未修改生产行为
 
 本文讨论的是 correctness、account isolation、protocol fidelity、transport consistency、observability 和 architecture hygiene。本文不推断任何上游一定采用某种风控算法，也不提供绕过平台反滥用或检测的做法。
 
-> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0128 又让同路径、Credential reselect 与 OAuth 修复后的数据面重试共同遵守指数 fallback/Retry-After，并把默认基础退避从 0 改为 1 秒，F-011 已完整修复。ADR-0124 增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。ADR-0126 进一步集中 data/quota/token 身份，消除了 Claude 内部版本漂移与 Grok 固定伪报 macOS/ARM 的问题，F-006 已修复；同一 ADR 将线路行为冻结为版本化 generic profile，F-007 的配置漂移得到控制，但该通用 Rust wire profile 仍是明确接受且可被上游观察的特征。ADR-0127 将 profile 升级为 `generic-rustls-hyper-v2`，固定协商并统一增量解码 `gzip, br, zstd`，普通/pinned、成功/错误响应不再出现 Header/Body 脱节，F-014 已修复。ADR-0129 又把 Direct/Translated fidelity、Bridge 字段/工具/限制变为可查询的单一 contract，F-008 已从隐式高风险行为收敛为显式受控边界；真实 Registry Header golden、Codex OAuth wire golden 与 Direct materialization golden 分别控制 F-009、F-010、F-015 的实现漂移。未单独标记状态的 Finding 仍保持待修。
+> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0128 又让同路径、Credential reselect 与 OAuth 修复后的数据面重试共同遵守指数 fallback/Retry-After，并把默认基础退避从 0 改为 1 秒，F-011 已完整修复。ADR-0124 增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。ADR-0126 进一步集中 data/quota/token 身份，消除了 Claude 内部版本漂移与 Grok 固定伪报 macOS/ARM 的问题，F-006 已修复；同一 ADR 将线路行为冻结为版本化 generic profile，F-007 的配置漂移得到控制，但该通用 Rust wire profile 仍是明确接受且可被上游观察的特征。ADR-0127 将 profile 升级为 `generic-rustls-hyper-v2`，固定协商并统一增量解码 `gzip, br, zstd`，普通/pinned、成功/错误响应不再出现 Header/Body 脱节，F-014 已修复。ADR-0129 又把 Direct/Translated fidelity、Bridge 字段/工具/限制变为可查询的单一 contract，F-008 已从隐式高风险行为收敛为显式受控边界；真实 Registry Header golden、Codex OAuth wire golden 与 Direct materialization golden 分别控制 F-009、F-010、F-015 的实现漂移。ADR-0130 进一步用真实 loopback raw capture 固定 HTTP/1、HTTP/2 与 TLS 稳定线路契约，并把最终 resolver/proxy/timeout/isolation 策略和四个流式时间点写入 RequestAttempt，F-012、F-013、F-016 已转为可回归、可观测的受控边界。官方客户端基线与 E-07～E-09 的完整实验仍待完成。
 
 ## 1. Executive Summary
 
-### 1.1 总体评级
+### 1.1 基线总体评级
 
 | 维度 | 评级 | 结论 |
 |---|---:|---|
@@ -25,7 +25,7 @@
 
 这里的 HIGH 表示架构影响和隔离风险高，不表示“上游一定据此执行识别或处置”。
 
-### 1.2 最重要的直接答案
+### 1.2 基线最重要的直接答案
 
 **Account A 与 Account B 会在以下条件同时成立时共享同一个物理上游连接：**
 
@@ -79,8 +79,10 @@ flowchart TD
 | 相同 origin 的 pool 可复用连接 | 依赖实现静态确认 |
 | 两个 Authorization 真实共享一条 H2 连接 | **本地实验确认** |
 | 不同 Client 共享 TLS resumption store | rustls 类型语义静态确认 + **本地实验确认** |
-| 精确 ClientHello extension 顺序、JA3/JA4 值 | 必须抓包确认 |
-| 精确 H2 SETTINGS/frame 顺序、HPACK 动态行为 | 必须抓包确认 |
+| any2api ClientHello cipher/extension 集合/group/ALPN 与 Rustls 随机扩展顺序策略 | **本地 raw capture 确认并冻结稳定字段** |
+| any2api 首连 H2 preface/SETTINGS/WINDOW_UPDATE/首个 HEADERS | **本地解密后 raw frame capture 确认** |
+| any2api HTTP/1.1 request line/Header casing/order/Host/Length | **本地 raw TCP capture 确认** |
+| 精确 JA3/JA4、H2 HPACK 动态行为与官方客户端差异 | 必须建立官方客户端抓包基线后确认 |
 | 与每个官方客户端的实际差异 | 必须建立同版本官方客户端基线后确认 |
 | 上游是否把这些信号用于识别 | 本仓库无法确认，也不作推断 |
 
@@ -653,6 +655,8 @@ P0 先隔离 connection/TLS state。随后让 unbound reselect 也尊重明确�
 - `crates/transport/src/client/pinned.rs`
 - locked hyper/h2 implementation in `Cargo.lock`
 
+> 修复状态（2026-08-10）：**Controlled / verified after baseline**。ADR-0130 新增由真实 `ReqwestTransportManager` 发起的 loopback capture：HTTP/1.1 精确冻结 request line、Header casing/order、Host 与 Content-Length；HTTP/2 在 TLS 解密后精确冻结 preface、首个 SETTINGS、WINDOW_UPDATE 与首个 HEADERS 元数据。fixture 变化必须与 wire profile 版本一起审核；它们描述 any2api，不冒充官方客户端。
+
 **Observed behavior**
 
 当前 hyper 1.10.1 client 默认并由 any2api 继承：
@@ -667,7 +671,7 @@ P0 先隔离 connection/TLS state。随后让 unbound reselect 也尊重明确�
 - 未显式设置 header table size 和 max concurrent streams；
 - any2api 额外设置 active H2 keepalive interval 30 秒、timeout 10 秒，while-idle false。
 
-HTTP/1.1 fallback 使用 hyper 默认的 lowercase header encoding，不保留客户端原始 casing，也不启用 title-case。`SignaledBody` 提供 exact size hint，所以正常 JSON request 可生成 Content-Length；Host 由 client/strict pinned path重建。精确 Header wire order 仍需 raw server 观察。
+HTTP/1.1 fallback 使用 hyper 默认的 lowercase header encoding，不保留客户端原始 casing，也不启用 title-case。`SignaledBody` 提供 exact size hint，所以正常 JSON request 可生成 Content-Length；Host 由 client/strict pinned path重建。当前 raw fixture 已确认真实顺序为显式请求 Header、Transport `accept-encoding`、reqwest `accept`、`host`、`content-length`；依赖升级可能改变该顺序，因此由测试而不是文字假设约束。
 
 **Expected/native behavior**
 
@@ -679,11 +683,11 @@ H2 SETTINGS/window/PING 和 H1 casing/order 比 UA 更接近 implementation iden
 
 **How to reproduce locally**
 
-增加本地 raw H2 preface/SETTINGS recorder 与 H1 `TcpListener`，分别打印 frame 参数和原始 Header bytes。不要通过 `http::HeaderMap` 重新解析后再比较，否则会丢失 wire order/casing。
+运行 `cargo test -p any2api-transport wire_conformance`。实现位于 `crates/transport/src/client/wire_conformance/`，fixture 位于 `crates/transport/testdata/generic-rustls-hyper-v2/`；capture 不通过 `http::HeaderMap` 重建，因此保留真实 wire order/casing。
 
 **Architecture recommendation**
 
-把 transport dependency upgrade 视为可观测 contract 变更：保存本地 capture fixture，对 H1/H2/TLS profile 做差分审核。默认值可以使用，但不能在升级依赖时无记录漂移。
+已由 ADR-0130 落实：transport dependency upgrade 是可观测 contract 变更，必须对 H1/H2/TLS fixture 做差分审核并提升 profile policy version。默认值可以继续使用，但不能无记录漂移。
 
 ### F-013 — 流式响应被按 SSE frame 解析、重编码和预提交缓冲
 
@@ -703,6 +707,8 @@ H2 SETTINGS/window/PING 和 H1 casing/order 比 UA 更接近 implementation iden
 - `crates/domain/src/settings/definitions/stream.rs`
 - Responses→Chat stream translator files
 
+> 修复状态（2026-08-10）：**Controlled / observable after baseline**。ADR-0130 在每个流式 RequestAttempt 中以 Attempt 起点为单调时钟，first-write-wins 记录首个完整上游 frame、预提交 commit、首次非空下游 Body yield 与已交接流取消。记录值持久化并显示在已认证管理详情中，不参与 flush、重试、等待或 backpressure，因此没有用随机时序掩盖既有行为。
+
 **Observed behavior**
 
 Transport 任意 chunk 被增量 SSE decoder 重新分帧。直接同方言事件通常保留 frame bytes（只改已知 model），但原网络 chunk boundary 和 flush cadence 不保留；下游按完整 frame 输出。
@@ -721,11 +727,11 @@ Responses→Chat path 进一步完全合成事件种类、sequence、ID、create
 
 **How to reproduce locally**
 
-让 mock upstream 把同一 SSE frame 按每字节、CRLF 边界和多 frame 单 chunk 三种方式发送，并记录下游 chunk/timestamp。仓库既有 SSE 测试已覆盖任意字节切分；还应增加 timing fixture。
+让 mock upstream 把同一 SSE frame 按每字节、CRLF 边界和多 frame 单 chunk 三种方式发送，并查看 RequestAttempt 的四个相对毫秒值。仓库既有 SSE 测试覆盖任意字节切分；Runtime 测试另证明 prime 后已有 frame/commit、Body 首次 poll 后才出现 downstream yield，正常路径不写 cancel。
 
 **Architecture recommendation**
 
-保留语义分帧和 precommit safety。新增 frame arrival、commit、first downstream byte、cancel 四个匿名内部时间点；通过 latency budget 管理，不做伪随机 flush。
+已保留语义分帧和 precommit safety，并增加 frame arrival、commit、first downstream Body yield、cancel 四个匿名内部时间点。后续延迟调整必须由明确 latency budget 驱动，继续禁止伪随机 flush。
 
 ### F-014 — Compression ownership 不完整，形成固定缺失项并有压缩响应正确性风险
 
@@ -827,6 +833,8 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 - `crates/transport/src/proxy/url.rs` — `proxy_url`
 - `crates/transport/src/proxy/tcp.rs` — `ProxyTcpConnector::call`
 
+> 修复状态（2026-08-10）：**Controlled / observable after baseline**。ADR-0130 为正式 Transport 增加 secret-free 只读诊断，并在网络 I/O 前把 wire/timeout profile version、最终 resolver mode、proxy kind、connect/read/pool idle timeout、routing/authentication generation 与 traffic class 保存到 RequestAttempt。它不会把 Client cache 命中推断为物理 connection reuse，也不会猜测 TLS resumption。
+
 **Observed behavior**
 
 - connect timeout 10 秒；普通 upstream read timeout 300 秒；stream pre/post-commit 默认均 300 秒；
@@ -845,33 +853,35 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 
 **How to reproduce locally**
 
-使用停滞 TLS/response/SSE mock、轮换 DNS fixture 和本地 SOCKS/HTTP proxy，记录连接终止时间与 resolver 请求次数。仓库已有 timeout、resolution、proxy 测试可作为基础。
+使用停滞 TLS/response/SSE mock、轮换 DNS fixture 和本地 SOCKS/HTTP proxy，记录连接终止时间与 resolver 请求次数；管理请求日志可直接核对每次 Attempt 的最终 resolver/proxy/timeout policy。Transport 单测覆盖 system、strict local cache 与 proxy-remote 三种 resolver 结果。
 
 **Architecture recommendation**
 
-保留集中式 setting registry。只有存在真实 Provider contract 时才增加 per-profile timeout；DNS cache 可以共享解析结果，但不应被误认为账号隔离边界。Transport diagnostics 应报告最终 resolver mode、proxy kind 和 timeout policy version。
+已保留集中式 setting registry，并实现最终 resolver mode、proxy kind 和 timeout policy version 诊断。只有存在真实 Provider contract 时才增加 per-profile timeout；DNS cache 可以共享解析结果，但不应被误认为账号隔离边界。
 
 ## 4. Suspected Findings / 需要实验确认
 
 ### S-001 — 精确 TLS ClientHello/JA3/JA4 与原生客户端不一致
 
 - Confidence：MEDIUM。
-- 已确认：rustls 0.23.42 + ring、cipher/group 列表、TLS 1.2/1.3、ALPN 与 shared resumption。
-- 未确认：ClientHello extension 实际 wire 顺序、GREASE、signature algorithms 编码、最终 JA3/JA4，以及各官方客户端同版本基线。
-- 本地实验：raw TLS ClientHello recorder 保存完整 bytes；同机运行 any2api 与明确版本的官方客户端，逐字段比较，不只比较 hash。
+- 已确认：rustls 0.23.42 + ring、cipher/group/signature algorithm 列表、TLS 1.2/1.3、ALPN、extension 集合与 key-share group；raw capture 还确认 Rustls 以 `order_seed` 随机排列无顺序要求的 extension，而不是固定一种 extension order。跨隔离域 shared resumption 已由 ADR-0123 修复。
+- 未确认：最终 JA3/JA4，以及各官方客户端同版本基线；因此标题中的“与原生客户端不一致”仍只能是 Suspected，不能由 any2api 自身 fixture 推导。
+- 本地实验：仓库已保存去除 random/key material 后的稳定 ClientHello fixture，并重复真实握手验证顺序策略；下一步是在同机运行明确版本的官方客户端，逐字段比较，不只比较 hash。
 - 注意：技术可观测不等于上游现实中使用该信号。
 
 ### S-002 — 精确 H2 SETTINGS 顺序、WINDOW_UPDATE 顺序、HPACK 与 pseudo-header order
 
 - Confidence：MEDIUM。
-- 已确认 hyper/h2 参数默认值；未确认 packet-level frame ordering 和动态表演进。
-- 本地实验：在 TLS ALPN=h2 后使用 raw frame recorder，保存 client preface、SETTINGS、ACK、WINDOW_UPDATE、HEADERS 与 PING；至少覆盖首次连接、复用连接和并发 streams。
+- 已确认：TLS ALPN=h2 后的真实 client preface、首次 SETTINGS 顺序/值、connection WINDOW_UPDATE 与首个 HEADERS 的 flags/stream/length 已由解密后 raw frame fixture 固定。
+- 未确认：HPACK/pseudo-header 动态表演进，以及复用、并发、GOAWAY、长期 PING 场景和官方客户端基线。
+- 后续实验：扩展 recorder 覆盖复用连接、并发 streams、GOAWAY 与 keepalive 周期；不要用高层 h2 对象重建结果。
 
 ### S-003 — HTTP/1.1 精确 Header order 与自动 Header 插入位置
 
 - Confidence：MEDIUM。
-- 已确认 lowercase、Host/Content-Length 重建；`HeaderMap` 与 hyper 的最终遍历顺序必须在 raw bytes 上确认。
-- 本地实验：纯 TCP HTTP/1.1 server 原样保存 request head，比较 Provider defaults、same-dialect override、cross-dialect bridge 和 OAuth requests。
+- 已确认：通用 fixture 请求的 request line、lowercase casing、最终 Header 顺序、Host 与 Content-Length 已由纯 TCP raw capture 固定。
+- 未确认：Provider defaults、same-dialect override、cross-dialect bridge、OAuth 各 surface 的完整 raw order 与官方客户端基线。
+- 后续实验：在现有纯 TCP recorder 上增加 Provider/operation echo matrix，不经 `HeaderMap` 重建。
 
 ### S-004 — 固定 UA/version 相对当前官方客户端已经漂移
 
@@ -894,8 +904,9 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 ### S-007 — 真实负载下 precommit buffering/backpressure 的 timing signature
 
 - Confidence：MEDIUM。
-- 代码表明 frame buffering 与 commit gate 存在，但 scheduler、socket buffer 和下游消费速度决定实际时间曲线。
-- 本地实验应控制 upstream event cadence、frame size、下游 read speed 和并发数，记录四个内部时间点。
+- 四个内部时间点现已由每个流式 RequestAttempt 持久化；受控测试确认 frame、commit 与首次下游 Body yield 的相对阶段，取消也有独立 first-write-wins 标记。
+- 真实负载下的 scheduler、socket buffer、下游消费速度和并发仍决定具体时间曲线，现有诊断不等同于 socket 实际写出时间。
+- 后续实验应控制 upstream event cadence、frame size、下游 read speed 和并发数，按这四个时间点量化分布。
 
 ### S-008 — TLS resumption 跨不同 ProxyProfile 类型/出口实际成功
 
@@ -928,9 +939,9 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 15. **Public model alias 不是当前实际特征。** 架构规定首版 public model 等于 upstream model；代码仍有 model rewrite 能力，但通常不触发。
 16. **IP/ASN/地理位置/reputation 全部排除。** 本报告没有用这些因素支撑任何评级。
 
-## 6. Account Isolation Matrix
+## 6. Account Isolation Matrix（修复后）
 
-以下比较 Account A 与 Account B，假设它们使用同一进程、同一 Provider/Origin/Proxy；“条件共享”表示由请求/绑定或连接状态决定，而不是天然隔离。
+以下比较 Account A 与 Account B，假设它们使用同一进程、同一 Provider/Origin/Proxy。该表反映 ADR-0123、ADR-0125 和 ADR-0130 后的当前边界；原始共享证据仍保留在审计提交 `2813f4f`。
 
 | 维度 | Same / Isolated? | 当前边界与说明 |
 |---|---|---|
@@ -940,45 +951,45 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 | Health / cooldown | **Isolated** | credential/generation 或 credential+model 维度。 |
 | RPM window | **Isolated** | 每个 runtime routing credential 独立。 |
 | Affinity binding | **Isolated once committed** | 绑定后固定原 Credential/target/model/dialect；首次 precommit failover 仍可能换号。 |
-| TransportClient | **Shared** | 相同 `TransportClientKey` 返回同一 Arc；无 account identity。 |
-| TCP connection | **Conditionally shared** | 相同 origin 且连接可复用；H1 顺序、H2 并发/顺序。 |
-| TLS connection | **Conditionally shared** | 与 TCP/H2 同边界。 |
-| TLS session tickets/resumption | **Shared more broadly** | 不同缓存 Client clone 同一个 rustls session store；相同 SNI/策略可恢复。 |
-| HTTP/2 connection | **Conditionally shared** | 本地实验已证明两个 Authorization 共用。 |
-| HTTP/2 stream namespace | **Shared** | 同 connection 的 stream id、flow control、GOAWAY/PING state 共用。 |
-| HTTP/1.1 keep-alive | **Conditionally shared** | 同 pool/origin 的顺序请求可复用。 |
+| TransportClient | **Isolated across accounts** | key 包含 RoutingCredential owner、routing/authentication generation 与 traffic class；同隔离域仍复用。 |
+| TCP connection | **Isolated across accounts** | loopback H2 实验确认不同 Credential accept=2；同隔离域、同 origin 可正常复用。 |
+| TLS connection | **Isolated across accounts** | 与 Transport isolation key 同边界。 |
+| TLS session tickets/resumption | **Isolated across accounts** | 每个 isolation domain 独立 Rustls resumption store；跨域实验为 Full→Full。 |
+| HTTP/2 connection | **Isolated across accounts** | 不同 Credential 不进入同一 H2 connection；同 Credential/代际/class 可复用。 |
+| HTTP/2 stream namespace | **Isolated across accounts** | flow control、GOAWAY/PING state 只在同一 isolation domain 内共享。 |
+| HTTP/1.1 keep-alive | **Isolated across accounts** | keep-alive 只在同一 isolation domain/pool/origin 内复用。 |
 | Proxy | **Configuration-dependent** | 专属代理可隔离；绑定 DIRECT 继承 global；OAuth 固定 DIRECT，因此多个 OAuth 账号通常同代理。 |
 | DNS cache | **Shared in strict/local paths** | 进程级 30 秒 cache；这是解析复用，不是 auth 泄漏。 |
 | Cookie jar | **None** | 不存在可共享 cookie store。 |
-| Installation ID | **Not owned / may be same** | 同方言 Codex Header 可透传；除 attestation/turn state 外不会因 Credential switch 自动剥离。 |
-| Session / conversation ID | **Not owned / may be same** | Codex/Claude/Grok 多种 session header 可跨首次 failover 继续透传。 |
-| traceparent / client request ID | **Not owned / may be same** | 同方言 allowlist 可跨 Credential 关联 attempts。 |
+| Installation ID | **Credential-owned** | 同方言首 Attempt 可透传；Credential switch 后删除。 |
+| Session / conversation ID | **Credential-owned** | Codex/Claude/Grok 的稳定会话/对话/agent 值不会跨 owner 重放。 |
+| traceparent / client request ID | **Credential-owned** | 同一 Attempt 可投影；Credential switch 后删除。 |
 | User-Agent identity | **Shared by Provider profile** | 默认值按 Provider 固定、跨账号相同；同方言可被 client Header 覆盖，跨方言使用固定默认。 |
-| Provider driver | **Shared/stateless** | Driver 实例按 Provider 共享，业务上合理；但 Kimi 借用错误 driver。 |
-| Control-plane traffic class | **Not isolated** | token/quota/data/test 共用全局 TransportManager，key 无用途字段。 |
+| Provider driver | **Shared/stateless** | Driver 实例按 Provider 共享，业务上合理；Kimi 已有独立 driver。 |
+| Control-plane traffic class | **Isolated** | data、OAuth token、quota、diagnostic 进入不同 transport isolation class。 |
 
 ## 7. Provider Matrix
 
 | 维度 | Codex | Claude | Grok | Kimi |
 |---|---|---|---|---|
-| 一等 Provider kind | 是 | 是 | 是 | **否** |
-| 默认 UA | `codex_cli_rs/0.145.0` | `claude-code/2.1.220` | `grok-shell/0.2.112 (macos; aarch64)` | 继承所借 Codex/Grok |
-| 其他固定身份 | `originator: codex_cli_rs` | `x-app:cli`, anthropic-version | client version/identifier；OAuth interactive/auth headers | 继承错误身份 |
-| Quota 身份一致性 | `Codex Desktop` 与 data persona 不同 | **data 2.1.220 / quota 2.1.7** | data/quota 大体同一组固定值 | 无独立 quota |
+| 一等 Provider kind | 是 | 是 | 是 | **是** |
+| 默认 UA | `codex_cli_rs/0.145.0` | `claude-code/2.1.220` | `grok-shell/0.2.112` + 实际构建 OS/arch | 无借用 persona |
+| 其他固定身份 | `originator: codex_cli_rs` | `x-app:cli`, anthropic-version | client version/identifier；OAuth interactive/auth headers | Kimi-local 最小 Header 契约 |
+| Quota 身份一致性 | data/quota 子 persona 显式版本化 | data/quota 同一 identity profile | data/quota 同一 identity profile | 无独立 quota |
 | TLS stack | rustls/ring/native roots | 同左 | 同左 | 同左 |
 | HTTP/2 stack | hyper/h2 固定 profile | 同左 | 同左 | 同左 |
-| Connection pool | 按 proxy/policy + origin；跨账号共享 | 同左 | 同左 | 继承所借 Provider，同样共享 |
-| TLS resumption | Manager 全局 store | 同左 | 同左 | 同左 |
-| Retry | Runtime 最多 3 attempts；reselect 立即 | 同左 | 同左 | 同左 |
+| Connection pool | 按 Credential/代际/class + proxy/policy + origin 隔离 | 同左 | 同左 | 同左 |
+| TLS resumption | 按同一 isolation domain 隔离 | 同左 | 同左 | 同左 |
+| Retry | Runtime 有界 attempts；reselect/same-path/OAuth 后重试统一遵守 Retry-After/退避 | 同左 | 同左 | 同左 |
 | Redirect | none | none | none | none |
 | Request compression | 同方言 Responses/Chat 可重压 zstd | 不声明支持 | 不声明支持 | 取决于借用 driver |
-| Response compression | 不发 Accept-Encoding；无自动解压 | 同左 | 同左 | 同左 |
+| Response compression | profile 声明 `gzip, br, zstd` 并统一增量解码 | 同左 | 同左 | 同左 |
 | Streaming direct | Responses/Chat/Images SSE | Messages SSE | Responses/Chat SSE | 直接 Chat 或 Responses→Chat |
 | Cross-protocol bridge | Responses→Chat、Images→Chat（按 route） | 无已注册跨协议 | Responses→Chat | 实际依赖 Responses→Chat |
-| Identity Header ownership | attestation/turn-state 部分保护；其他 session/device id 未绑定 | session/agent/trace id 未绑定 | conv/session/agent/trace id 未绑定 | 无 Kimi-specific policy |
+| Identity Header ownership | Credential-owned + bound turn state | Credential-owned | Credential-owned | Kimi-local 最小策略 |
 | Provider body mutation | OAuth Responses 广泛 normalize | 无同类 body mutation | OAuth model override Header | 继承错误 policy |
-| Error classifier | OpenAI-style | Anthropic-specific | Grok/OpenAI-style | 继承所借 classifier |
-| Overall upstream-fidelity risk | HIGH（OAuth/body + shared transport） | HIGH（身份版本 + control/data same origin） | HIGH（固定 OS/arch + shared transport） | **HIGH（无一等身份 + bridge）** |
+| Error classifier | OpenAI-style | Anthropic-specific | Grok/OpenAI-style | Kimi/OpenAI-style local classifier |
+| 当前上游 fidelity 边界 | OAuth body normalization；generic wire 可见 | 固定 Provider identity；generic wire 可见 | 固定 Provider identity；generic wire 可见 | Direct Chat 或显式 Responses→Chat translation；generic wire 可见 |
 
 ## 8. Kimi 3 多轮工具调用专项结论
 
@@ -993,7 +1004,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 
 本轮在 `json_bridge_converts_tools_usage_and_previous_response_history` 中增加了下一轮 assistant `reasoning_content == "Need the tool."` 的直接断言，测试通过。
 
-剩余边界不是 Kimi tool-call correctness，而是：Kimi 没有 Provider 身份、Responses→Chat 必然重建 payload、以及连接/TLS 状态跨账号共享。单独再给 Kimi bridge 加特例无法解决这些系统问题。
+Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享已由 ADR-0123 修复。当前剩余边界是 Responses→Chat 必然重建 payload，以及所有 Provider 都使用明确可见的 generic Rust transport；单独继续给 Kimi bridge 加特例仍无法消除这些系统事实。
 
 ## 9. 本地实验计划
 
@@ -1002,13 +1013,13 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 | E-01 两 Authorization + 同 H2 | 证明原始物理复用并回归修复 | **原证据保留；修复测试通过** | 原 TCP=1；当前不同 Credential TCP=2 |
 | E-02 两 Client + TLS resumption | 证明原 ticket store 超出 pool key并回归修复 | **原证据保留；修复测试通过** | 原 Full→Resumed；当前 Full→Full |
 | E-03 Kimi reasoning continuation | 证明多轮 reasoning/tool replay | **已补断言并通过** | 下一轮 assistant reasoning/tool call |
-| E-04 Raw ClientHello | 获取 extension/cipher/group/ALPN wire | 待实现 | 原始 ClientHello bytes，不只 hash |
-| E-05 Raw H2 recorder | 获取 SETTINGS/WINDOW/HPACK/PING | 待实现 | 首连、复用、并发、GOAWAY 四场景 |
-| E-06 Raw H1 recorder | 获取 casing/order/Host/Length | 待实现 | 原始 request head bytes |
+| E-04 Raw ClientHello | 获取 extension/cipher/group/ALPN wire | **稳定字段 fixture 已完成** | raw ClientHello；确认 Rustls 随机扩展顺序策略，官方对比仍待做 |
+| E-05 Raw H2 recorder | 获取 SETTINGS/WINDOW/HPACK/PING | **首连控制帧已完成；扩展场景待做** | preface/SETTINGS/WINDOW_UPDATE/首 HEADERS 已冻结；复用、并发、GOAWAY 待补 |
+| E-06 Raw H1 recorder | 获取 casing/order/Host/Length | **通用 fixture 已完成** | raw request head 已冻结；Provider/operation matrix 待 E-07 |
 | E-07 Provider echo matrix | 比较 direct/bridge/data/quota/token | 待实现 | Header set/order、raw body、path、auth class |
 | E-08 Rotate/disable/delete lifecycle | 测 pool/ticket 退役 | 待实现 | client count、connection close、resumption |
 | E-09 Retry switch sequence | 证明 429 后同连接立即换 auth | 待实现 | connection/stream/auth/timestamp/attempt |
-| E-10 SSE timing | 量化 precommit burst/backpressure | 待实现 | upstream frame、commit、downstream byte、cancel |
+| E-10 SSE timing | 量化 precommit burst/backpressure | **四点埋点与受控顺序测试已完成** | RequestAttempt 持久化 frame、commit、Body yield、cancel；负载分布待测 |
 
 所有实验都可以在 loopback、自签 TLS 和假 Credential 上完成，不需要访问真实 Provider 或账号。
 
@@ -1043,8 +1054,8 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 
 ### P2 — 建立持续可观测 contract
 
-16. 把 E-04～E-10 做成 loopback conformance harness；锁定 capture fixture，并在 reqwest/hyper/rustls 升级时审核差异。
-17. 内部遥测增加匿名 connection/isolation generation、是否 reused/resumed、traffic class、attempt switch；不得记录 token、API key、proxy password 或原始 session id。
+16. **部分完成（ADR-0130）**：E-04、E-06 和 E-10 的稳定契约已落地；E-05 已覆盖首连控制帧。继续完成 E-07～E-09 以及 H2 复用/并发/GOAWAY 场景，reqwest/hyper/rustls 升级时必须审核 fixture 差异。
+17. **安全可观测部分完成（ADR-0130）**：RequestAttempt 已记录不含 owner ID 的 routing/authentication generation、traffic class、wire/timeout profile、resolver 与 proxy。当前没有可靠 hook 证明物理 connection reused 或 TLS resumed，因此明确保持未知，禁止从 Client cache 命中推断；attempt switch 继续由既有 Attempt/failure/retry 字段表达。不得记录 token、API key、proxy password 或原始 session id。
 18. 官方客户端基线必须带 Provider、版本、平台、操作和采集日期；无法确认的只保留为 Suspected，不把“看起来像”升级为事实。
 
 ## 11. Top 10 Findings
@@ -1062,12 +1073,13 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 9. **F-010：Header set/覆盖/排序由 allowlist 重建，跨协议尤其稳定。** 安全重建保留；真实 Provider/operation/ownership golden 已锁定契约。
 10. **F-014：Compression ownership 不完整，既有统一缺失特征，也有压缩响应解码风险。** 已由 ADR-0127 修复。
 
-## 12. 最终判断
+## 12. 最终判断与当前状态
 
-当前项目不是因为某一个 Kimi Header 或某一个 UA 才“反代特征明显”。真正的系统性问题有三层：
+基线问题从来不是某一个 Kimi Header 或某一个 UA，而是账号隔离、Provider 身份/方言建模和跨协议 fidelity 三层系统边界。当前修复状态是：
 
-1. **账号身份没有延伸到物理 transport/TLS 状态。** 这是最高优先级架构问题。
-2. **Provider 服务身份、wire dialect 和客户端画像耦合。** Kimi 只是最先暴露这一问题的兼容上游。
-3. **跨协议桥必然生成确定性的重建语义，而项目尚未把 direct/translated fidelity 明确暴露为产品能力。**
+1. **账号身份已经延伸到 TransportClient、物理连接与 TLS resumption domain。** RoutingCredential owner、routing/authentication generation 和 traffic class 共同隔离；loopback 测试同时证明跨域分离与域内复用。
+2. **Provider 服务身份与 wire dialect 已解耦到一等 Kimi driver、Provider-local identity/header contract 和静态 Registry。** Credential-owned 稳定 Header 不再随换号重放。
+3. **Direct/Translated fidelity 已由 Bridge 单一 capability contract 公开。** 跨协议 canonical reconstruction 仍客观存在，但不再被产品能力隐藏。
+4. **generic Rust transport 的可观测性没有“消失”。** ADR-0130 选择诚实地冻结 H1/H2/TLS 稳定行为、记录真实 Rustls 扩展顺序策略，并为 resolver/timeout 与 stream timing 提供本地诊断；没有随机 UA、TLS 参数或 flush 时序。
 
-因此，正确顺序不是先继续补 Kimi 特例，也不是随机化 UA/TLS 参数；而是先建立 Credential/Account/TrafficClass 的连接与 TLS 隔离，再把所有 Provider 的身份、方言、Header ownership 和版本 contract 显式化，最后用本地 capture harness 持续验证协议和 transport 一致性。
+剩余工作主要是 E-07～E-09、H2 长连接扩展场景和带版本/平台/日期的官方客户端独立基线。在这些证据完成前，项目只能声称“隔离正确、行为受控且可回归”，不能声称“与官方客户端完全一致”或“不可被识别”。

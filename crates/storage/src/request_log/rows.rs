@@ -2,9 +2,11 @@ use std::str::FromStr;
 
 use any2api_domain::{
     ConfigRevision, ErrorClass, LogPagePosition, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
-    MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, ProtocolDialect, ProtocolOperation, RequestAttempt,
-    RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision, RequestLog,
-    RequestRoutingMode, RetrySafety,
+    MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS, ProtocolDialect,
+    ProtocolOperation, ProxyKind, RequestAttempt, RequestAttemptFailureScope,
+    RequestAttemptOutcome, RequestAttemptRetryDecision, RequestAttemptStreamTiming,
+    RequestAttemptTransport, RequestLog, RequestRoutingMode, RequestTransportResolverMode,
+    RequestTransportTrafficClass, RetrySafety,
 };
 use sqlx::FromRow;
 
@@ -64,6 +66,21 @@ pub(super) struct RequestAttemptRow {
     error_message: Option<String>,
     status_code: Option<i64>,
     outcome: String,
+    transport_wire_profile_id: Option<String>,
+    transport_wire_profile_version: Option<i64>,
+    transport_timeout_policy_version: Option<i64>,
+    transport_resolver_mode: Option<String>,
+    transport_proxy_kind: Option<String>,
+    transport_connect_timeout_ms: Option<i64>,
+    transport_read_timeout_ms: Option<i64>,
+    transport_pool_idle_timeout_ms: Option<i64>,
+    transport_routing_generation: Option<i64>,
+    transport_authentication_version: Option<i64>,
+    transport_traffic_class: Option<String>,
+    first_upstream_frame_ms: Option<i64>,
+    stream_commit_ms: Option<i64>,
+    first_downstream_byte_ms: Option<i64>,
+    stream_cancel_ms: Option<i64>,
 }
 
 pub(super) fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, StorageError> {
@@ -104,6 +121,8 @@ pub(super) fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, Storag
 pub(super) fn parse_request_attempt(
     row: RequestAttemptRow,
 ) -> Result<RequestAttempt, StorageError> {
+    let transport = parse_transport(&row)?;
+    let stream_timing = parse_stream_timing(&row)?;
     Ok(RequestAttempt {
         request_id: parse_id(&row.request_id)?,
         attempt_no: u32::try_from(row.attempt_no).map_err(|_| StorageError::CorruptTelemetry)?,
@@ -132,6 +151,102 @@ pub(super) fn parse_request_attempt(
             .map_err(|_| StorageError::CorruptTelemetry)?,
         outcome: RequestAttemptOutcome::parse(&row.outcome)
             .ok_or(StorageError::CorruptTelemetry)?,
+        transport,
+        stream_timing,
+    })
+}
+
+fn parse_transport(
+    row: &RequestAttemptRow,
+) -> Result<Option<RequestAttemptTransport>, StorageError> {
+    let fields_present = [
+        row.transport_wire_profile_id.is_some(),
+        row.transport_wire_profile_version.is_some(),
+        row.transport_timeout_policy_version.is_some(),
+        row.transport_resolver_mode.is_some(),
+        row.transport_proxy_kind.is_some(),
+        row.transport_connect_timeout_ms.is_some(),
+        row.transport_read_timeout_ms.is_some(),
+        row.transport_pool_idle_timeout_ms.is_some(),
+        row.transport_routing_generation.is_some(),
+        row.transport_authentication_version.is_some(),
+        row.transport_traffic_class.is_some(),
+    ];
+    if fields_present.iter().all(|present| !present) {
+        return Ok(None);
+    }
+    if !fields_present.iter().all(|present| *present) {
+        return Err(StorageError::CorruptTelemetry);
+    }
+    let wire_profile_id = row
+        .transport_wire_profile_id
+        .as_deref()
+        .filter(|value| {
+            !value.is_empty()
+                && value.chars().count() <= MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS
+                && !value.chars().any(char::is_control)
+        })
+        .ok_or(StorageError::CorruptTelemetry)?
+        .to_owned();
+    Ok(Some(RequestAttemptTransport {
+        wire_profile_id,
+        wire_profile_version: parse_u16(row.transport_wire_profile_version)?,
+        timeout_policy_version: parse_u16(row.transport_timeout_policy_version)?,
+        resolver_mode: parse_required_value(
+            row.transport_resolver_mode.as_deref(),
+            RequestTransportResolverMode::parse,
+        )?,
+        proxy_kind: parse_required_value(row.transport_proxy_kind.as_deref(), ProxyKind::parse)?,
+        connect_timeout_ms: from_required_i64(row.transport_connect_timeout_ms)?,
+        read_timeout_ms: from_required_i64(row.transport_read_timeout_ms)?,
+        pool_idle_timeout_ms: from_required_i64(row.transport_pool_idle_timeout_ms)?,
+        routing_generation: positive_i64(row.transport_routing_generation)?,
+        authentication_version: positive_i64(row.transport_authentication_version)?,
+        traffic_class: parse_required_value(
+            row.transport_traffic_class.as_deref(),
+            RequestTransportTrafficClass::parse,
+        )?,
+    }))
+}
+
+fn parse_stream_timing(
+    row: &RequestAttemptRow,
+) -> Result<Option<RequestAttemptStreamTiming>, StorageError> {
+    let timing = RequestAttemptStreamTiming {
+        first_upstream_frame_ms: from_optional_i64(row.first_upstream_frame_ms)?,
+        stream_commit_ms: from_optional_i64(row.stream_commit_ms)?,
+        first_downstream_byte_ms: from_optional_i64(row.first_downstream_byte_ms)?,
+        stream_cancel_ms: from_optional_i64(row.stream_cancel_ms)?,
+    };
+    Ok((!timing.is_empty()).then_some(timing))
+}
+
+fn parse_required_value<T>(
+    value: Option<&str>,
+    parse: impl FnOnce(&str) -> Option<T>,
+) -> Result<T, StorageError> {
+    value.and_then(parse).ok_or(StorageError::CorruptTelemetry)
+}
+
+fn parse_u16(value: Option<i64>) -> Result<u16, StorageError> {
+    value
+        .and_then(|value| u16::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .ok_or(StorageError::CorruptTelemetry)
+}
+
+fn from_required_i64(value: Option<i64>) -> Result<u64, StorageError> {
+    value
+        .map(from_i64)
+        .transpose()?
+        .ok_or(StorageError::CorruptTelemetry)
+}
+
+fn positive_i64(value: Option<i64>) -> Result<u64, StorageError> {
+    from_required_i64(value).and_then(|value| {
+        (value > 0)
+            .then_some(value)
+            .ok_or(StorageError::CorruptTelemetry)
     })
 }
 

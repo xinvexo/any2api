@@ -14,6 +14,7 @@ import {
   resultTone,
 } from "../model/request-log-presentation";
 import { useRequestLog } from "../model/use-request-logs";
+import { RequestAttemptDiagnostics } from "./RequestAttemptDiagnostics";
 import { Button } from "@/shared/ui/Button";
 import { Surface } from "@/shared/ui/Surface";
 
@@ -192,6 +193,7 @@ function AttemptRow({ attempt }: { attempt: RequestAttempt }) {
             {attempt.errorMessage}
           </p>
         ) : null}
+        <RequestAttemptDiagnostics attempt={attempt} />
       </div>
       <div className="text-left text-xs text-secondary md:text-right">
         <p>{attempt.statusCode ?? "未收到上游状态"}</p>

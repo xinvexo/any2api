@@ -16,6 +16,25 @@ pub enum ProxyKind {
     Socks5,
 }
 
+impl ProxyKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Http => "http",
+            Self::Socks5 => "socks5",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "direct" => Some(Self::Direct),
+            "http" => Some(Self::Http),
+            "socks5" => Some(Self::Socks5),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProxyDraft {
     name: String,

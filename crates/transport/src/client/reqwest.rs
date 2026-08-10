@@ -23,7 +23,8 @@ use super::{
 use crate::{
     api::{
         BoxByteStream, EndpointNetworkPolicy, TransportIsolationKey, TransportManager,
-        TransportManagerConfig, TransportProxy, TransportRequest, TransportResponse,
+        TransportManagerConfig, TransportProxy, TransportRequest, TransportRequestDiagnostics,
+        TransportResponse,
     },
     connection::TlsConfigFactory,
     error::{
@@ -257,6 +258,14 @@ impl Default for ReqwestTransportManager {
 
 #[async_trait]
 impl TransportManager for ReqwestTransportManager {
+    fn request_diagnostics(
+        &self,
+        proxy: TransportProxy<'_>,
+        request: &TransportRequest,
+    ) -> Option<TransportRequestDiagnostics> {
+        Some(crate::diagnostics::for_request(self.config, proxy, request))
+    }
+
     async fn execute(
         &self,
         proxy: TransportProxy<'_>,

@@ -48,5 +48,7 @@ fn attempt(error_class: ErrorClass, outcome: RequestAttemptOutcome) -> RequestAt
         error_message: None,
         status_code: None,
         outcome,
+        transport: None,
+        stream_timing: None,
     }
 }

@@ -28,6 +28,25 @@ describe("request log contracts", () => {
           error_message: null,
           status_code: 200,
           outcome: "success",
+          transport: {
+            wire_profile_id: "generic-rustls-hyper-v2",
+            wire_profile_version: 2,
+            timeout_policy_version: 1,
+            resolver_mode: "system",
+            proxy_kind: "direct",
+            connect_timeout_ms: 10_000,
+            read_timeout_ms: 300_000,
+            pool_idle_timeout_ms: 50_000,
+            routing_generation: 4,
+            authentication_version: 7,
+            traffic_class: "data_plane",
+          },
+          stream_timing: {
+            first_upstream_frame_ms: 8,
+            stream_commit_ms: 9,
+            first_downstream_byte_ms: 11,
+            stream_cancel_ms: null,
+          },
         },
       ],
       telemetry: telemetry(),
@@ -38,6 +57,12 @@ describe("request log contracts", () => {
       failureScope: "authentication",
       retryDecision: "reselect",
     });
+    expect(detail.attempts[0]?.transport).toMatchObject({
+      wireProfileId: "generic-rustls-hyper-v2",
+      resolverMode: "system",
+      routingGeneration: 4,
+    });
+    expect(detail.attempts[0]?.streamTiming?.firstDownstreamByteMs).toBe(11);
     expect(detail.request.firstTokenMs).toBe(18);
     expect(detail.request.inputTokens).toBe(120);
     expect(detail.request.outputTokens).toBe(45);
@@ -70,6 +95,8 @@ describe("request log contracts", () => {
             error_message: null,
             status_code: 600,
             outcome: "failed",
+            transport: null,
+            stream_timing: null,
           },
         ],
         telemetry: telemetry(),
@@ -119,11 +146,11 @@ describe("request log contracts", () => {
 
   it("parses request and attempt error messages", () => {
     const detail = parseRequestLogDetail({
-        request: {
-          ...request(),
-          status_code: 401,
-          outcome: "failed",
-          error_message: "Incorrect API key provided",
+      request: {
+        ...request(),
+        status_code: 401,
+        outcome: "failed",
+        error_message: "Incorrect API key provided",
       },
       attempts: [
         {
@@ -140,6 +167,8 @@ describe("request log contracts", () => {
           error_message: "Incorrect API key provided",
           status_code: 401,
           outcome: "failed",
+          transport: null,
+          stream_timing: null,
         },
       ],
       telemetry: telemetry(),
@@ -171,6 +200,8 @@ describe("request log contracts", () => {
           error_message: "upstream response stream reported a failure event",
           status_code: 200,
           outcome: "failed",
+          transport: null,
+          stream_timing: null,
         },
       ],
       telemetry: telemetry(),

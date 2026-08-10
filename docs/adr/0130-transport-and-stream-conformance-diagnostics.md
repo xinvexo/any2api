@@ -13,7 +13,7 @@
 ## 决策
 
 1. `generic-rustls-hyper-v2` 增加 loopback conformance harness，并提交三份规范化文本 fixture：
-   - TLS ClientHello：记录 cipher suite、extension type 顺序、supported groups、signature algorithms、ALPN 与 supported versions；删除 random、session bytes、key share 公钥等每次变化的材料。
+   - TLS ClientHello：记录 cipher suite、extension type 集合、supported groups、signature algorithms、ALPN 与 supported versions；删除 random、session bytes、key share 公钥等每次变化的材料。Rustls 0.23 会按 `order_seed` 随机排列无顺序要求的 extension，因此 fixture 记录 `rustls_order_seed_randomized` 策略和规范排序后的集合，另由多次 raw capture 证明顺序不是固定常量，不把某次排列冻结成虚假契约。
    - HTTP/2：在自签 TLS 后直接记录解密的 client preface 与首个请求 HEADERS 前的 SETTINGS/WINDOW_UPDATE，不用高层 h2 配置对象反推 wire。
    - HTTP/1.1：由 raw `TcpListener` 记录 request head，保留 header casing/order、Host 与 Content-Length，只把动态 loopback authority 规范化。
 2. fixture 从真实 `ReqwestTransportManager` 发起，使用假 Credential 与 loopback server，不访问真实 Provider。依赖或配置变更造成 fixture 差异时，提交者必须审核差异、更新 fixture 并提升 `TransportWireProfile.policy_version`；仅重写测试以接受任意输出不算审核。
@@ -38,7 +38,7 @@
 
 ## 验证
 
-- Transport 测试从真实 Manager 生成 TLS/H2/H1 capture，并与提交 fixture 精确比较；另验证 strict/direct/proxy resolver mode 和 timeout/profile 版本。
+- Transport 测试从真实 Manager 生成 TLS/H2/H1 capture，并与提交 fixture 精确比较；TLS 另验证同一稳定集合存在多个实际 extension 顺序；同时验证 strict/direct/proxy resolver mode 和 timeout/profile 版本。
 - Runtime stream 测试控制 upstream frame、prime、Body poll 与 Drop，验证时间点存在性、顺序和取消分支，且正常完成不写 cancel。
 - Migration 使用代表性既有 RequestAttempt 验证新增列保持 `NULL`，新记录往返验证全部诊断字段。
 - Server/Web contract 测试验证嵌套 Transport/stream timing 结构、空值和详情展示。

@@ -127,7 +127,13 @@ impl RequestLogRepository for SqliteStore {
         let rows = sqlx::query_as::<_, RequestAttemptRow>(
             "SELECT request_id, attempt_no, route_target_id, credential_id, oauth_account_id, \
              proxy_profile_id, routing_mode, started_at_ms, duration_ms, retry_safety, \
-             failure_scope, retry_decision, error_class, error_message, status_code, outcome \
+             failure_scope, retry_decision, error_class, error_message, status_code, outcome, \
+             transport_wire_profile_id, transport_wire_profile_version, \
+             transport_timeout_policy_version, transport_resolver_mode, transport_proxy_kind, \
+             transport_connect_timeout_ms, transport_read_timeout_ms, \
+             transport_pool_idle_timeout_ms, transport_routing_generation, \
+             transport_authentication_version, transport_traffic_class, \
+             first_upstream_frame_ms, stream_commit_ms, first_downstream_byte_ms, stream_cancel_ms \
              FROM request_attempts WHERE request_id = ? ORDER BY attempt_no ASC",
         )
         .bind(request_id.to_string())

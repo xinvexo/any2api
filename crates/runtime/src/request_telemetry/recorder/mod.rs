@@ -1,4 +1,5 @@
 mod attempt;
+mod attempt_diagnostics;
 mod completion;
 mod request;
 
