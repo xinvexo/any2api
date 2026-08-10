@@ -114,21 +114,7 @@ fn quota_headers(token: &OAuthTokenMaterial) -> Result<HeaderMap, ProviderError>
             ProviderError::InvalidCredential("invalid Codex OAuth account id header".into())
         })?,
     );
-    for (name, value) in [
-        ("openai-beta", "codex-1"),
-        ("oai-language", "zh-CN"),
-        ("originator", "Codex Desktop"),
-        ("sec-fetch-site", "none"),
-        ("sec-fetch-mode", "no-cors"),
-        ("sec-fetch-dest", "empty"),
-        ("priority", "u=4, i"),
-    ] {
-        headers.insert(
-            http::header::HeaderName::from_static(name),
-            HeaderValue::from_static(value),
-        );
-    }
-    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    super::super::identity::apply_quota_defaults(&mut headers);
     Ok(headers)
 }
 

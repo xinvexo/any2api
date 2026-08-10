@@ -5,7 +5,7 @@ use http::{HeaderMap, HeaderName};
 use crate::{
     ProviderError,
     api::ProviderRequestContext,
-    header_policy::{insert_default, ordered_names, project},
+    header_policy::{ordered_names, project},
     request_header_policy::{
         RequestHeaderOwnership::{CredentialOwned, Replayable},
         RequestHeaderPrefixRule, RequestHeaderRule, project_request, request_header_rules,
@@ -55,9 +55,7 @@ static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
 
 pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, ProviderError> {
     let mut headers = HeaderMap::new();
-    insert_default(&mut headers, "user-agent", "claude-code/2.1.220");
-    insert_default(&mut headers, "x-app", "cli");
-    insert_default(&mut headers, "anthropic-version", "2023-06-01");
+    super::identity::apply_data_defaults(&mut headers);
     if context.ingress_dialect == context.upstream_operation.dialect() {
         headers.extend(project_request(
             context.client_headers,

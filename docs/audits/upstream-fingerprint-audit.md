@@ -9,7 +9,7 @@
 
 本文讨论的是 correctness、account isolation、protocol fidelity、transport consistency、observability 和 architecture hygiene。本文不推断任何上游一定采用某种风控算法，也不提供绕过平台反滥用或检测的做法。
 
-> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；F-011 的“换 Credential 后继续使用同一 H2 connection”也被消除，但其 Retry-After/零退避语义仍需单独整改。新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0124 又增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。其余 Finding 保持待修状态。
+> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；F-011 的“换 Credential 后继续使用同一 H2 connection”也被消除，但其 Retry-After/零退避语义仍需单独整改。新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0124 又增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。ADR-0126 进一步集中 data/quota/token 身份，消除了 Claude 内部版本漂移与 Grok 固定伪报 macOS/ARM 的问题，F-006 已修复；同一 ADR 将线路行为冻结为版本化 `generic-rustls-hyper-v1`，F-007 的配置漂移得到控制，但该通用 Rust wire profile 仍是明确接受且可被上游观察的特征。未单独标记状态的 Finding 仍保持待修。
 
 ## 1. Executive Summary
 
@@ -364,6 +364,8 @@ Runtime 只对第一个 Credential 拥有者保护 `x-oai-attestation`，并且�
 - `crates/provider/src/grok/quota/protocol.rs` — `request_headers`
 - `crates/provider/src/oauth/mod.rs` — `form_headers`, `json_headers`
 
+> 修复状态（2026-08-10）：**Fixed after baseline**。ADR-0126 增加 Provider-local identity profile：Claude data/quota 共用 `claude-code/2.1.220`，Grok data/quota 共用实际构建目标的 OS/arch，Codex data 与 `wham` quota 的 persona 差异成为同一模块内的显式子 profile。OAuth token surface 在没有 Provider 必需证据时继续不借用 data-plane UA；这属于明确契约，不再是散落默认值。
+
 **Observed behavior**
 
 | Surface | 固定身份 |
@@ -411,6 +413,8 @@ Runtime 只对第一个 Credential 拥有者保护 `x-oai-attestation`，并且�
 - `crates/transport/src/client/construction.rs` — `build_reqwest_client`
 - `crates/transport/src/client/pinned.rs` — `PinnedClient::build`
 - `crates/transport/src/proxy/tcp.rs` — `ProxyTcpConnector::call`
+
+> 修复状态（2026-08-10）：**Controlled / accepted after baseline**。ADR-0126 将 ALPN、HTTP 能力、TCP/H2 keepalive、redirect、request retry 与内部 policy version 集中为 `generic-rustls-hyper-v1`；profile version 已进入 `TransportClientKey`，snapshot 与现有 loopback 测试共同约束升级。所有 Provider 继续共享该 profile，因此其可观测性没有被虚假宣称为“消失”；在没有真实 Provider wire contract 前，这是有意接受的通用 gateway 特征。
 
 **Observed behavior**
 
@@ -1016,7 +1020,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 ### P1 — 收紧身份 Header 与 operation profile
 
 10. **已完成（ADR-0125）**：为 Header 声明 ownership，并把 installation/session/trace ID 与 Credential/affinity owner 对齐。
-11. 建立版本化 `ProviderIdentityProfile`，统一 data/quota/token 的 UA 和固定 Header；消除 Claude 2.1.220/2.1.7 与 Codex data/quota persona 的无解释差异。
+11. **已完成（ADR-0126）**：建立版本化 Provider identity profile，统一 data/quota/token 的固定 Header；消除 Claude 2.1.220/2.1.7 漂移，并把 Codex data/quota persona 差异变为显式子 profile。同时将通用 Transport 行为冻结为版本化 `generic-rustls-hyper-v1`；其上游可观测性作为已接受风险保留。
 12. 在管理/API capability 中明确 `Direct` 与 `Translated` fidelity，展示 bridge 的字段支持交集和不支持原因。
 
 ### P1 — 修协议与压缩所有权
@@ -1042,7 +1046,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 5. **F-004：installation/session/trace 等稳定 ID 缺少 Credential ownership，可随 failover 换号上行。**
 6. **F-005：Kimi 没有一等 Provider 身份，只能继承 Codex/Grok 的错误画像和能力。**
 7. **F-008：Responses→Chat 是确定性的语义桥和 canonical request reconstruction。**
-8. **F-006/F-007：固定客户端身份与统一 Rust TLS/H2 profile 形成跨层不一致。**
+8. **F-006/F-007：固定客户端身份与统一 Rust TLS/H2 profile 形成跨层不一致。** F-006 已修复；F-007 已版本化并作为通用 gateway wire profile 明确接受，仍可被上游观察。
 9. **F-010：Header set/覆盖/排序由 allowlist 重建，跨协议尤其稳定。**
 10. **F-014：Compression ownership 不完整，既有统一缺失特征，也有压缩成功响应解码风险。**
 

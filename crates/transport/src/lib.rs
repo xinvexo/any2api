@@ -4,6 +4,7 @@ mod client;
 mod connection;
 mod error;
 mod isolation;
+mod profile;
 mod proxy;
 mod resolution;
 

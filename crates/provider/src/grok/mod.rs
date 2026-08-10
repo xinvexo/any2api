@@ -1,5 +1,6 @@
 mod driver;
 mod headers;
+mod identity;
 mod import;
 mod oauth;
 mod quota;

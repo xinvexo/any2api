@@ -18,5 +18,3 @@ pub(crate) mod tests;
 mod timeout_tests;
 
 pub use reqwest::ReqwestTransportManager;
-
-pub(crate) use construction::TCP_KEEP_ALIVE_INTERVAL;

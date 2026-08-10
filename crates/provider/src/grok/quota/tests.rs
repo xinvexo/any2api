@@ -43,7 +43,12 @@ fn builds_billing_and_subscription_queries_with_official_identity() {
         assert_eq!(request.headers["x-xai-token-auth"], "xai-grok-cli");
         assert_eq!(request.headers["x-userid"], "subject-1");
         assert_eq!(request.headers["x-grok-client-version"], "0.2.112");
+        assert_eq!(request.headers["x-grok-client-identifier"], "grok-shell");
         assert_eq!(request.headers["x-grok-client-mode"], "interactive");
+        assert_eq!(
+            request.headers[header::USER_AGENT],
+            super::super::identity::user_agent_text()
+        );
         assert_eq!(request.headers[header::ACCEPT], "application/json");
         assert!(request.body.is_empty());
         assert!(!format!("{request:?}").contains("access-secret"));

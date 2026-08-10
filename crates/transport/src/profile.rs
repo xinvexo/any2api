@@ -1,0 +1,150 @@
+use std::time::Duration;
+
+const HTTP_2_AND_1_ALPN: &[&[u8]] = &[b"h2", b"http/1.1"];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TransportWireProfile {
+    id: &'static str,
+    policy_version: u16,
+    tls_policy_version: u16,
+    http_version_policy_version: u16,
+    pool_policy_version: u16,
+    alpn_protocols: &'static [&'static [u8]],
+    http1_enabled: bool,
+    http2_enabled: bool,
+    tcp_keep_alive_interval: Duration,
+    pinned_tcp_nodelay: bool,
+    http2_keep_alive_interval: Duration,
+    http2_keep_alive_timeout: Duration,
+    http2_keep_alive_while_idle: bool,
+    redirects_enabled: bool,
+    automatic_request_retries: bool,
+}
+
+pub const GENERIC_GATEWAY_TRANSPORT_PROFILE: TransportWireProfile = TransportWireProfile {
+    id: "generic-rustls-hyper-v1",
+    policy_version: 1,
+    tls_policy_version: 1,
+    http_version_policy_version: 1,
+    pool_policy_version: 2,
+    alpn_protocols: HTTP_2_AND_1_ALPN,
+    http1_enabled: true,
+    http2_enabled: true,
+    tcp_keep_alive_interval: Duration::from_secs(30),
+    pinned_tcp_nodelay: true,
+    http2_keep_alive_interval: Duration::from_secs(30),
+    http2_keep_alive_timeout: Duration::from_secs(10),
+    http2_keep_alive_while_idle: false,
+    redirects_enabled: false,
+    automatic_request_retries: false,
+};
+
+impl TransportWireProfile {
+    #[must_use]
+    pub const fn id(self) -> &'static str {
+        self.id
+    }
+
+    #[must_use]
+    pub const fn policy_version(self) -> u16 {
+        self.policy_version
+    }
+
+    #[must_use]
+    pub const fn tls_policy_version(self) -> u16 {
+        self.tls_policy_version
+    }
+
+    #[must_use]
+    pub const fn http_version_policy_version(self) -> u16 {
+        self.http_version_policy_version
+    }
+
+    #[must_use]
+    pub const fn pool_policy_version(self) -> u16 {
+        self.pool_policy_version
+    }
+
+    #[must_use]
+    pub const fn alpn_protocols(self) -> &'static [&'static [u8]] {
+        self.alpn_protocols
+    }
+
+    #[must_use]
+    pub const fn http1_enabled(self) -> bool {
+        self.http1_enabled
+    }
+
+    #[must_use]
+    pub const fn http2_enabled(self) -> bool {
+        self.http2_enabled
+    }
+
+    #[must_use]
+    pub const fn tcp_keep_alive_interval(self) -> Duration {
+        self.tcp_keep_alive_interval
+    }
+
+    #[must_use]
+    pub const fn pinned_tcp_nodelay(self) -> bool {
+        self.pinned_tcp_nodelay
+    }
+
+    #[must_use]
+    pub const fn http2_keep_alive_interval(self) -> Duration {
+        self.http2_keep_alive_interval
+    }
+
+    #[must_use]
+    pub const fn http2_keep_alive_timeout(self) -> Duration {
+        self.http2_keep_alive_timeout
+    }
+
+    #[must_use]
+    pub const fn http2_keep_alive_while_idle(self) -> bool {
+        self.http2_keep_alive_while_idle
+    }
+
+    #[must_use]
+    pub const fn redirects_enabled(self) -> bool {
+        self.redirects_enabled
+    }
+
+    #[must_use]
+    pub const fn automatic_request_retries(self) -> bool {
+        self.automatic_request_retries
+    }
+
+    pub(crate) fn owned_alpn_protocols(self) -> Vec<Vec<u8>> {
+        self.alpn_protocols
+            .iter()
+            .map(|value| value.to_vec())
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::GENERIC_GATEWAY_TRANSPORT_PROFILE as PROFILE;
+
+    #[test]
+    fn generic_gateway_v1_wire_contract_is_explicit() {
+        assert_eq!(PROFILE.id(), "generic-rustls-hyper-v1");
+        assert_eq!(PROFILE.policy_version(), 1);
+        assert_eq!(PROFILE.tls_policy_version(), 1);
+        assert_eq!(PROFILE.http_version_policy_version(), 1);
+        assert_eq!(PROFILE.pool_policy_version(), 2);
+        assert_eq!(PROFILE.alpn_protocols(), [b"h2".as_slice(), b"http/1.1"]);
+        assert!(PROFILE.http1_enabled());
+        assert!(PROFILE.http2_enabled());
+        assert_eq!(PROFILE.tcp_keep_alive_interval(), Duration::from_secs(30));
+        assert!(PROFILE.pinned_tcp_nodelay());
+        assert_eq!(PROFILE.http2_keep_alive_interval(), Duration::from_secs(30));
+        assert_eq!(PROFILE.http2_keep_alive_timeout(), Duration::from_secs(10));
+        assert!(!PROFILE.http2_keep_alive_while_idle());
+        assert!(!PROFILE.redirects_enabled());
+        assert!(!PROFILE.automatic_request_retries());
+    }
+}

@@ -17,7 +17,6 @@ use tokio::time::{Instant, timeout_at};
 
 use super::{
     body_timeout::timeout_body,
-    construction::{HTTP2_KEEP_ALIVE_INTERVAL, HTTP2_KEEP_ALIVE_TIMEOUT},
     deadline::await_response_headers,
     request_body::{SignaledBody, signaled_body},
 };
@@ -27,6 +26,7 @@ use crate::{
     },
     connection::{PinnedConnectError, PinnedConnector},
     error::{TransportError, TransportErrorStage, TransportFailureScope},
+    profile::GENERIC_GATEWAY_TRANSPORT_PROFILE as WIRE_PROFILE,
     resolution::{OriginTarget, shared_dns_cache},
 };
 
@@ -58,8 +58,9 @@ impl PinnedClient {
             .pool_max_idle_per_host(config.pool_max_idle_per_host)
             .pool_timer(TokioTimer::new())
             .timer(TokioTimer::new())
-            .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
-            .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
+            .http2_keep_alive_interval(WIRE_PROFILE.http2_keep_alive_interval())
+            .http2_keep_alive_timeout(WIRE_PROFILE.http2_keep_alive_timeout())
+            .http2_keep_alive_while_idle(WIRE_PROFILE.http2_keep_alive_while_idle())
             .retry_canceled_requests(false);
         Ok(Self {
             client: builder.build(connector),

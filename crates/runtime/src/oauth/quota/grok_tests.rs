@@ -53,12 +53,21 @@ async fn grok_query_reads_billing_and_current_subscription_over_direct_proxy() {
             "/v1/user?include=subscription"
         ]
     );
+    let expected_user_agent = format!(
+        "grok-shell/0.2.112 ({}; {})",
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     for request in captured {
         assert_eq!(request.authorization.as_deref(), Some("Bearer grok-access"));
         assert_eq!(request.grok_token_auth.as_deref(), Some("xai-grok-cli"));
         assert_eq!(request.grok_client_version.as_deref(), Some("0.2.112"));
         assert_eq!(request.grok_user_id.as_deref(), Some("grok-subject"));
         assert_eq!(request.grok_client_mode.as_deref(), Some("interactive"));
+        assert_eq!(
+            request.user_agent.as_deref(),
+            Some(expected_user_agent.as_str())
+        );
         assert_eq!(request.proxy_id, any2api_domain::ProxyProfileId::DIRECT);
         assert_eq!(
             request.strict_ssrf,

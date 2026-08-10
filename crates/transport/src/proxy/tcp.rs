@@ -17,8 +17,8 @@ use tokio::{net::TcpStream, time::timeout};
 use tower_service::Service;
 
 use crate::{
-    client::TCP_KEEP_ALIVE_INTERVAL,
     error::{TransportError, TransportErrorStage, TransportFailureScope},
+    profile::GENERIC_GATEWAY_TRANSPORT_PROFILE as WIRE_PROFILE,
 };
 
 #[derive(Clone)]
@@ -59,12 +59,14 @@ impl Service<Uri> for ProxyTcpConnector {
                 .await
                 .map_err(|_| ProxyConnectError)?
                 .map_err(|_| ProxyConnectError)?;
-            let _ = stream.set_nodelay(true);
+            if WIRE_PROFILE.pinned_tcp_nodelay() {
+                let _ = stream.set_nodelay(true);
+            }
             // Same probing cadence as the reqwest path's tcp_keepalive so h1
             // connections through proxies also detect NAT silent drops.
             let keepalive = socket2::TcpKeepalive::new()
-                .with_time(TCP_KEEP_ALIVE_INTERVAL)
-                .with_interval(TCP_KEEP_ALIVE_INTERVAL);
+                .with_time(WIRE_PROFILE.tcp_keep_alive_interval())
+                .with_interval(WIRE_PROFILE.tcp_keep_alive_interval());
             let _ = socket2::SockRef::from(&stream).set_tcp_keepalive(&keepalive);
             Ok(ProxyTcpStream {
                 inner: TokioIo::new(stream),

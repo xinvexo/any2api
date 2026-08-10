@@ -35,7 +35,7 @@ fn builds_fixed_usage_query_with_claude_code_identity() {
     );
     assert_eq!(usage.headers[header::CONTENT_TYPE], "application/json");
     assert_eq!(usage.headers["anthropic-beta"], "oauth-2025-04-20");
-    assert_eq!(usage.headers[header::USER_AGENT], "claude-code/2.1.7");
+    assert_eq!(usage.headers[header::USER_AGENT], "claude-code/2.1.220");
     assert!(usage.body.is_empty());
     assert!(probe.is_none());
     assert!(credits.is_none());

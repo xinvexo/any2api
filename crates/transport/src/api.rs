@@ -10,6 +10,7 @@ pub use crate::{
     ReqwestTransportManager, TransportConfigurationError, TransportError, TransportErrorStage,
     TransportFailureScope,
     isolation::{TransportIsolationKey, TransportTrafficClass},
+    profile::{GENERIC_GATEWAY_TRANSPORT_PROFILE, TransportWireProfile},
     proxy::ProxyCredentials,
 };
 

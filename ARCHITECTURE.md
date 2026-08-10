@@ -59,6 +59,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
 29. OAuth Token 刷新失败不得折叠成单一“认证失败”。Runtime 必须按当前 `token_version` 保留最近一次安全诊断，明确刷新触发来源、失败阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间及是否必须重新授权；管理 API、Web 账号卡片和普通结构化日志使用同一分类，重新授权或成功 Token 换代后旧诊断自动失效。
 30. 流式上游在任何语义输出可见前以协议声明的精确准入拒绝（包括已审计的过载与 Anthropic `rate_limit_error`）拒绝请求时，Runtime 可以在既有预提交预算内丢弃尚未下发的生命周期控制帧并重新选择凭据；未知错误、自然语言匹配、已经出现内容/工具调用等语义事件以及任何下游提交后的失败均不得进入该路径。`rate_limit_error` 只有在完整的 Anthropic SSE `error` envelope 中出现且仍处于 Pending 时才具有该语义；它按 Credential + upstream model 归因，不能扩展为固定并发限制或跨会话绑定切换。请求日志和历史统计必须按最终流结果而不是只按初始 HTTP 状态判断成功，避免把 `HTTP 200 + stream_error` 伪装为成功。完整边界见 `docs/adr/0121-anthropic-precontent-rate-limit-retry.md`。
+31. Provider 固定应用身份必须在各 Driver 的版本化 identity profile 中按 data/quota/token surface 集中定义，不得散落版本或伪造与实际构建目标不符的平台。Transport 默认只有一个显式版本的 generic gateway wire profile；没有经审计的 Provider 必需契约时，禁止按 Provider 随机化或模仿 TLS/HTTP2/TCP 特征。
 
 ### 2.1 两类凭据的术语边界
 
@@ -1179,6 +1180,8 @@ TransportKey
 `transport_isolation` 是 Runtime 生成、Transport 只做相等性比较的强类型隔离身份。`traffic_class` 固定分为 `DataPlane`、`OAuthToken`、`OAuthQuota` 和 `Diagnostic`：公开推理请求、OAuth Token 交换、额度请求与管理诊断不得因为 Proxy 和 origin 相同而共享 Client、TCP/TLS 连接或 HTTP/2 stream namespace。持久化 Credential 使用 `RoutingCredentialId + routing_generation + authentication_version` 形成代际；尚未产生 OAuthAccount 的登录交换与不绑定 Credential 的代理测试使用单次临时隔离身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。
 
 只有完整 TransportKey 相同的请求才共享连接池。不同 Credential、不同认证代际或不同 traffic class 必须得到不同 Client。每个 Client 从共享只读 trust roots 构造独立 Rustls `ClientConfig`，TLS session ticket/resumption store 不得跨 TransportKey clone 或复用；因此仅让 HTTP pool key 分离而继续共享 TLS resumption 不满足隔离要求。代理配置修改、Credential secret/token 轮换或账号重新启用后创建新一代 Client；Manager 首次观察到同一 Credential 的更高路由/认证代际时立即移除其较旧缓存引用，旧快照与已开始请求仍继续持有捕获的 Client，不强行中断。删除/禁用后没有新请求触发代际清理的 Client 仍由有界 LRU 与 idle timeout 排出，不允许旧代际 Client 被新代际请求重新命中。
+
+Transport 线路行为由单一 `generic-rustls-hyper-v1` profile 集中声明：宿主根证书、Rustls 默认 TLS 1.3/1.2 crypto policy、无 client certificate、ALPN `h2` 后 `http/1.1`、HTTP/1+2、TCP keepalive 30 秒、H2 keepalive 30 秒/超时 10 秒、禁重定向与禁请求级自动重试。该 profile 是诚实的通用 gateway transport 契约，不声称复制 Codex、Claude、Grok 或 Kimi 官方客户端的 ClientHello、HTTP/2 SETTINGS、HPACK 或 TCP 行为。任何字段或依赖升级都必须提升 profile policy version 并更新 capture 契约；不得为“降低特征”添加每请求随机化。完整决策见 `docs/adr/0126-versioned-provider-and-transport-identity.md`。
 
 `connect_timeout` 属于 Client/连接池代际，并在每次 `TransportManager::execute` 开始时捕获为绝对连接阶段 deadline；手工本地 DNS、Client 获取或构造、TCP、HTTP CONNECT/SOCKS5 握手与 TLS 都消耗同一个 deadline，任何子阶段都不得重置或延长它。同步 Client 构造不能被 Tokio timer 抢占，但其耗时仍计入该 deadline；构造返回后必须先检查 deadline，已经到期就返回连接前失败且禁止启动网络 I/O。连接池命中不会改变边界：直到固定请求 Body 首次被连接层消费前都受该 deadline 约束，超时返回连接前失败；Body 首次被消费后连接阶段结束并停止该 timer。
 
@@ -2601,6 +2604,8 @@ SQLite 中的 OAuthAccount JSON 只使用当前 any2api Schema：
 不允许未知字段、旧别名或外部 wrapper；Provider 没有返回的可选字段可省略或写为 JSON `null`。Provider 和绝对过期时间只取 `oauth_accounts.provider_kind` / `oauth_accounts.expires_at`，避免重复状态和一致性分支。既有 CLIProxyAPI 风格持久化 JSON 只由前向 SQL Migration 一次性转换；生产代码不保留旧文档解析、字段回落或启动期重写。成功兑换会在开始网络请求前消费 session；同一 session 不能再次提交。
 
 OAuth Token Endpoint 的请求编码属于 Provider 协议契约：Codex authorization-code 交换使用 `application/x-www-form-urlencoded`，refresh-token 交换使用 `application/json`；Claude 两种交换均使用 JSON；Grok device-code 与 refresh-token 交换均使用 form。不得用一套通用编码覆盖 Provider Driver 的声明。
+
+Provider 固定应用身份按 surface 处理：data plane 与 OAuth quota 使用各 Provider 模块内的同一 identity profile 真相源；OAuth token 交换以 client ID、grant 和编码契约表达 OAuth 客户端身份，在没有 Provider 必需证据时不借用 data-plane UA。Claude data/quota 必须使用同一冻结的 Claude Code UA；该字符串是已审计 profile 值，不声称始终等于外部最新版本。Grok UA 保持已验证的 `grok-shell/<version> (os; arch)` 结构，其 `os/arch` 必须来自当前 Rust 构建目标，禁止在 Linux/x86_64 等部署上仍声称 `macos; aarch64`。Codex data 与 `/backend-api/wham` quota 保留两个显式子 profile；后者的 Desktop/beta/fetch 字段是已有内部 Endpoint 契约，在有新 capture 之前不猜测删除，但不得再散落于 quota 解析代码。Kimi API Key 仍不构造借来的 persona。更新 identity 必须同时更新 data/quota/token 契约测试与审计依据，禁止随机 UA。完整决策见 `docs/adr/0126-versioned-provider-and-transport-identity.md`。
 
 Codex、Claude 与 Grok 当前 Token Endpoint 的成功响应都必须包含正数 `expires_in`。Provider Driver 使用 checked arithmetic 把它转换为绝对过期时间；缺失、零、负数或溢出都属于无效上游响应。Refresh 响应仍可沿用上次未返回的 refresh token、ID token 和稳定账号身份字段，但禁止沿用旧过期时间或用饱和运算伪造边界。
 

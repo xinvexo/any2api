@@ -1,7 +1,7 @@
 //! xAI CLI subscription billing and tier contracts.
 
 use any2api_domain::ProviderKind;
-use http::{HeaderValue, Method, header};
+use http::{HeaderValue, Method};
 use serde::Deserialize;
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use url::Url;
@@ -105,26 +105,12 @@ pub(super) fn request_headers(
         ProviderError::InvalidCredential("Grok OAuth subject is required for quota".into())
     })?;
     let mut headers = oauth::credential_headers(token)?.headers;
-    headers.insert("x-xai-token-auth", HeaderValue::from_static("xai-grok-cli"));
-    headers.insert(
-        "x-authenticateresponse",
-        HeaderValue::from_static("authenticate-response"),
-    );
-    headers.insert("x-grok-client-version", HeaderValue::from_static("0.2.112"));
-    headers.insert(
-        header::USER_AGENT,
-        HeaderValue::from_static("grok-shell/0.2.112 (macos; aarch64)"),
-    );
-    headers.insert(header::ACCEPT, HeaderValue::from_static("application/json"));
+    super::super::identity::apply_quota_defaults(&mut headers);
     headers.insert(
         "x-userid",
         HeaderValue::from_str(account_id).map_err(|_| {
             ProviderError::InvalidCredential("Grok OAuth subject is invalid".into())
         })?,
-    );
-    headers.insert(
-        "x-grok-client-mode",
-        HeaderValue::from_static("interactive"),
     );
     Ok(headers)
 }

@@ -29,6 +29,7 @@ use crate::{
     error::{
         TransportConfigurationError, TransportError, TransportErrorStage, TransportFailureScope,
     },
+    profile::{GENERIC_GATEWAY_TRANSPORT_PROFILE, TransportWireProfile},
     resolution::{OriginTarget, origin_target},
 };
 
@@ -47,6 +48,7 @@ struct TransportClientKey {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct TransportClientPolicyKey {
+    wire_profile_version: u16,
     connect_timeout: std::time::Duration,
     tls_policy_version: u16,
     http_version_policy_version: u16,
@@ -55,9 +57,6 @@ struct TransportClientPolicyKey {
     pool_policy_version: u16,
 }
 
-const RUSTLS_NATIVE_ROOTS_POLICY_VERSION: u16 = 1;
-const HTTP_1_AND_2_POLICY_VERSION: u16 = 1;
-const REQWEST_POOL_POLICY_VERSION: u16 = 2;
 #[cfg(test)]
 const TEST_EXTRA_ROOT_POLICY_VERSION: u16 = 2;
 
@@ -76,7 +75,11 @@ pub(crate) enum TransportClient {
 
 impl ReqwestTransportManager {
     pub fn new(config: TransportManagerConfig) -> Result<Self, TransportConfigurationError> {
-        Self::new_inner(config, RUSTLS_NATIVE_ROOTS_POLICY_VERSION, Vec::new())
+        Self::new_inner(
+            config,
+            GENERIC_GATEWAY_TRANSPORT_PROFILE.tls_policy_version(),
+            Vec::new(),
+        )
     }
 
     fn new_inner(
@@ -90,12 +93,14 @@ impl ReqwestTransportManager {
         Ok(Self {
             config,
             policy: TransportClientPolicyKey {
+                wire_profile_version: GENERIC_GATEWAY_TRANSPORT_PROFILE.policy_version(),
                 connect_timeout: config.connect_timeout,
                 tls_policy_version,
-                http_version_policy_version: HTTP_1_AND_2_POLICY_VERSION,
+                http_version_policy_version: GENERIC_GATEWAY_TRANSPORT_PROFILE
+                    .http_version_policy_version(),
                 pool_idle_timeout: config.pool_idle_timeout,
                 pool_max_idle_per_host: config.pool_max_idle_per_host,
-                pool_policy_version: REQWEST_POOL_POLICY_VERSION,
+                pool_policy_version: GENERIC_GATEWAY_TRANSPORT_PROFILE.pool_policy_version(),
             },
             extra_root_certificates,
             tls_factory: OnceLock::new(),
@@ -118,6 +123,11 @@ impl ReqwestTransportManager {
     #[must_use]
     pub fn config(&self) -> TransportManagerConfig {
         self.config
+    }
+
+    #[must_use]
+    pub const fn wire_profile(&self) -> &'static TransportWireProfile {
+        &GENERIC_GATEWAY_TRANSPORT_PROFILE
     }
 
     #[must_use]

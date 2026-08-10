@@ -15,7 +15,6 @@ use crate::{
 };
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
-const USER_AGENT: &str = "claude-code/2.1.7";
 
 pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPlan, ProviderError> {
     if token.provider() != ProviderKind::Claude {
@@ -30,17 +29,7 @@ pub(crate) fn query_plan(token: &OAuthTokenMaterial) -> Result<OAuthQuotaQueryPl
         })?;
     authorization.set_sensitive(true);
     headers.insert(header::AUTHORIZATION, authorization);
-    for (name, value) in [
-        (header::ACCEPT, "application/json, text/plain, */*"),
-        (header::CONTENT_TYPE, "application/json"),
-        (header::USER_AGENT, USER_AGENT),
-    ] {
-        headers.insert(name, HeaderValue::from_static(value));
-    }
-    headers.insert(
-        "anthropic-beta",
-        HeaderValue::from_static("oauth-2025-04-20"),
-    );
+    super::super::identity::apply_quota_defaults(&mut headers);
     let usage = OAuthRequestPlan {
         method: Method::GET,
         url: Url::parse(USAGE_URL)

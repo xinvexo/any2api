@@ -41,7 +41,7 @@ async fn claude_query_uses_one_direct_usage_request_and_keeps_all_windows() {
     assert_eq!(request.path, "/api/oauth/usage");
     assert_eq!(request.authorization.as_deref(), Some("Bearer old-access"));
     assert_eq!(request.anthropic_beta.as_deref(), Some("oauth-2025-04-20"));
-    assert_eq!(request.user_agent.as_deref(), Some("claude-code/2.1.7"));
+    assert_eq!(request.user_agent.as_deref(), Some("claude-code/2.1.220"));
     assert_eq!(request.proxy_id, any2api_domain::ProxyProfileId::DIRECT);
     assert_eq!(
         request.strict_ssrf,

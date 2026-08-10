@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use any2api_domain::ProxyKind;
 use reqwest::{Client, ClientBuilder, Proxy, redirect::Policy};
@@ -8,15 +8,10 @@ use super::{dns::CachedDnsResolver, pinned::PinnedClient, reqwest::TransportClie
 use crate::{
     api::{TransportManagerConfig, TransportProxy},
     error::{TransportError, TransportErrorStage, TransportFailureScope},
+    profile::GENERIC_GATEWAY_TRANSPORT_PROFILE as WIRE_PROFILE,
     proxy::url::proxy_url,
     resolution::OriginTarget,
 };
-
-/// Probes NAT and firewall state before typical 60s silent-drop windows so
-/// pooled connections and long-lived streams fail fast instead of hanging.
-pub(crate) const TCP_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
-pub(super) const HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(30);
-pub(super) const HTTP2_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) fn build_transport_client(
     config: TransportManagerConfig,
@@ -42,18 +37,23 @@ fn build_reqwest_client(
 ) -> Result<Client, TransportError> {
     let profile = proxy.profile();
     let mut tls_config = tls_config.clone();
-    tls_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    tls_config.alpn_protocols = WIRE_PROFILE.owned_alpn_protocols();
     let mut builder: ClientBuilder = Client::builder()
         .use_preconfigured_tls(tls_config)
         .connect_timeout(config.connect_timeout)
         .pool_idle_timeout(config.pool_idle_timeout)
         .pool_max_idle_per_host(config.pool_max_idle_per_host)
-        .tcp_keepalive(TCP_KEEP_ALIVE_INTERVAL)
-        .http2_keep_alive_interval(HTTP2_KEEP_ALIVE_INTERVAL)
-        .http2_keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
-        .redirect(Policy::none())
-        .retry(reqwest::retry::never())
+        .tcp_keepalive(WIRE_PROFILE.tcp_keep_alive_interval())
+        .http2_keep_alive_interval(WIRE_PROFILE.http2_keep_alive_interval())
+        .http2_keep_alive_timeout(WIRE_PROFILE.http2_keep_alive_timeout())
+        .http2_keep_alive_while_idle(WIRE_PROFILE.http2_keep_alive_while_idle())
         .no_proxy();
+    if !WIRE_PROFILE.redirects_enabled() {
+        builder = builder.redirect(Policy::none());
+    }
+    if !WIRE_PROFILE.automatic_request_retries() {
+        builder = builder.retry(reqwest::retry::never());
+    }
     if strict_direct_dns {
         builder = builder.dns_resolver(Arc::new(CachedDnsResolver));
     }

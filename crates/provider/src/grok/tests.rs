@@ -264,10 +264,7 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
         .expect("identity headers");
     assert_eq!(identity["x-xai-token-auth"], "xai-grok-cli");
     assert_eq!(identity["x-grok-client-version"], "0.2.112");
-    assert_eq!(
-        identity["user-agent"],
-        "grok-shell/0.2.112 (macos; aarch64)"
-    );
+    assert_eq!(identity["user-agent"], super::identity::user_agent_text());
     assert!(!format!("{headers:?}").contains("access-secret"));
 }
 
