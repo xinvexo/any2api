@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.0<br>
-> 最后更新：2026-08-10<br>
+> 最后更新：2026-08-11<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 1. 项目定位
@@ -65,6 +65,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 34. 每个可配置协议对必须公开 `Direct` 或 `Translated` fidelity。Direct 只表示没有创建 ProtocolBridge，不承诺请求逐字节不变；Translated 必须由 Bridge 的单一版本化 capability table 声明 operation、可接受请求字段、字段处理方式、工具类型和已知限制，Bridge 校验与管理 capability API 共用该表。Web 必须在保存前展示所选路径的 fidelity 与转换限制，禁止只给出方言名称而掩盖 canonical reconstruction、合成本地状态或字段降级。
 35. 通用 Transport wire profile 必须由本地 loopback conformance fixture 固定 TLS ClientHello 的稳定字段集合与真实顺序策略、HTTP/2 初始控制帧和 HTTP/1.1 原始请求头；依赖升级造成 fixture 差异时必须人工审核并提升 wire profile policy version。fixture 只描述 any2api 实际行为，不得被表述为官方客户端基线，也不得由 any2api 另加随机化来隐藏差异。
 36. 实际进入 Transport 的 RequestAttempt 必须保存不含 Secret 的结构化线路诊断；流式 Attempt 还必须以 Attempt 起点为单调时钟基准记录首个完整上游 SSE frame、预提交 commit、首个向下游 Body yield 和取消四个 first-write-wins 时间点。诊断只用于本地可观测与回归，不能改变 retry、flush、backpressure、连接复用或路由行为。
+37. 官方客户端基线只能使用明确版本和哈希的发布物、合成凭据、临时客户端目录、清空后的进程环境与 loopback recorder 离线采集；每份基线必须记录 Provider、客户端入口、版本、平台、操作、日期、HTTP 条件和局限。仓库只保存脱敏后的 Header 顺序、Body 结构与 capture hash，不保存原始认证值、动态设备/会话/请求标识或完整提示正文。单一入口或平台的观测不能自动改写通用 Provider persona，更不能据此增加 TLS/HTTP2 随机化或伪装层。
 
 ### 2.1 两类凭据的术语边界
 
@@ -1189,6 +1190,8 @@ TransportKey
 Transport 线路行为由单一 `generic-rustls-hyper-v2` profile 集中声明：宿主根证书、Rustls 默认 TLS 1.3/1.2 crypto policy、无 client certificate、ALPN `h2` 后 `http/1.1`、HTTP/1+2、TCP keepalive 30 秒、H2 keepalive 30 秒/超时 10 秒、禁重定向与禁请求级自动重试，以及所有响应的 `gzip, br, zstd` Content-Encoding 契约。该 profile 是诚实的通用 gateway transport 契约，不声称复制 Codex、Claude、Grok 或 Kimi 官方客户端的 ClientHello、HTTP/2 SETTINGS、HPACK、压缩偏好或 TCP 行为。任何字段或依赖升级都必须提升 profile policy version 并更新 capture 契约；不得为“降低特征”添加每请求随机化。身份与 v1 基线见 `docs/adr/0126-versioned-provider-and-transport-identity.md`，response coding 升级见 `docs/adr/0127-transport-response-content-coding.md`。
 
 仓库为该 profile 保存三类 loopback conformance fixture：TLS 规范化记录稳定的 ClientHello cipher、extension 集合、group、signature algorithm、ALPN 与 supported version，不保存随机数、key share 公钥或 session material；Rustls 0.23 使用 `order_seed` 随机排列无顺序要求的 extension，因此 fixture 明确记录该顺序策略并另以多次真实握手验证顺序不是固定常量，禁止冻结某一次随机排列。HTTP/2 记录明文 preface 与首个请求前的 SETTINGS/WINDOW_UPDATE，并在同一隔离域验证顺序请求复用一条连接且 stream ID 递增、首个响应返回前的并发请求形成独立活跃 stream、收到 GOAWAY 后只在新连接从 stream 1 重新开始；HTTP/1.1 记录实际 raw request head，并只规范化动态 authority。测试必须从真实 `ReqwestTransportManager` 发起请求并与提交的文本 fixture 精确比较，禁止经 `HeaderMap` 或 h2 高层对象重建后冒充 wire capture。fixture 变化是需要审核的线路契约变化，不证明也不追求与任何官方客户端相同。
+
+官方客户端基线与上述 any2api fixture 分目录保存并使用独立证据语义。采集进程必须清空宿主的认证、代理和 originator override 环境，只显式恢复运行所需的 `PATH`、临时 client home、合成 Token 与有记录的终端变量；目标 Base URL 固定为本机 loopback HTTP recorder，不访问真实 Provider。提交物保存发布物 SHA-256、capture-specific request/body SHA-256、原始 Header 顺序的脱敏投影和 JSON Body 的顶层字段顺序/关键语义/输入形状，不提交可能包含内置系统提示、动态 ID 或本机路径的 raw Body。当前 Codex 0.147.0 基线只证明 macOS arm64 上 `codex exec` 与交互 TUI 的 HTTP/1 Responses surface；它不证明 ChatGPT OAuth Endpoint、TLS、HTTP/2、其他平台或其他 Provider。完整决策见 `docs/adr/0131-official-client-baseline-evidence.md`。
 
 Transport 在网络 I/O 前可从最终 Request、Proxy 与 Manager 配置生成结构化 `TransportRequestDiagnostics`：wire profile ID/version、timeout policy version、最终 upstream resolver mode、proxy kind、connect/read/pool idle timeout，以及不含 owner ID 的 isolation routing/authentication generation 与 traffic class。RequestAttempt 只在真正构造出 TransportRequest 后记录该快照；请求在解码、规划或 Header/Body 构建阶段失败时保持为空。该诊断不把 Client cache 命中等同于物理 TCP/H2 reuse，也不在底层没有证据时声称 TLS resumed。
 
@@ -2618,7 +2621,7 @@ SQLite 中的 OAuthAccount JSON 只使用当前 any2api Schema：
 
 OAuth Token Endpoint 的请求编码属于 Provider 协议契约：Codex authorization-code 交换使用 `application/x-www-form-urlencoded`，refresh-token 交换使用 `application/json`；Claude 两种交换均使用 JSON；Grok device-code 与 refresh-token 交换均使用 form。不得用一套通用编码覆盖 Provider Driver 的声明。
 
-Provider 固定应用身份按 surface 处理：data plane 与 OAuth quota 使用各 Provider 模块内的同一 identity profile 真相源；OAuth token 交换以 client ID、grant 和编码契约表达 OAuth 客户端身份，在没有 Provider 必需证据时不借用 data-plane UA。Claude data/quota 必须使用同一冻结的 Claude Code UA；该字符串是已审计 profile 值，不声称始终等于外部最新版本。Grok UA 保持已验证的 `grok-shell/<version> (os; arch)` 结构，其 `os/arch` 必须来自当前 Rust 构建目标，禁止在 Linux/x86_64 等部署上仍声称 `macos; aarch64`。Codex data 与 `/backend-api/wham` quota 保留两个显式子 profile；后者的 Desktop/beta/fetch 字段是已有内部 Endpoint 契约，在有新 capture 之前不猜测删除，但不得再散落于 quota 解析代码。Kimi API Key 仍不构造借来的 persona。更新 identity 必须同时更新 data/quota/token 契约测试与审计依据，禁止随机 UA。完整决策见 `docs/adr/0126-versioned-provider-and-transport-identity.md`。
+Provider 固定应用身份按 surface 处理：data plane 与 OAuth quota 使用各 Provider 模块内的同一 identity profile 真相源；OAuth token 交换以 client ID、grant 和编码契约表达 OAuth 客户端身份，在没有 Provider 必需证据时不借用 data-plane UA。Claude data/quota 必须使用同一冻结的 Claude Code UA；该字符串是已审计 profile 值，不声称始终等于外部最新版本。Grok UA 保持已验证的 `grok-shell/<version> (os; arch)` 结构，其 `os/arch` 必须来自当前 Rust 构建目标，禁止在 Linux/x86_64 等部署上仍声称 `macos; aarch64`。Codex data 与 `/backend-api/wham` quota 保留两个显式子 profile；后者的 Desktop/beta/fetch 字段是已有内部 Endpoint 契约，尚无同 Endpoint 官方 capture 时不猜测删改。Codex 0.147.0 的独立 data capture 已确认 `codex exec`、交互 TUI 与 Desktop override 使用不同 originator/UA，因此单一入口观测不能替换通用 fallback persona；同方言客户端身份继续按 ownership 原样投影，fallback 的后续变更必须有匹配 surface 的证据或新的明确 gateway 身份决策。Kimi API Key 仍不构造借来的 persona。更新 identity 必须同时更新 data/quota/token 契约测试与审计依据，禁止随机 UA。完整决策见 `docs/adr/0126-versioned-provider-and-transport-identity.md` 与 `docs/adr/0131-official-client-baseline-evidence.md`。
 
 Codex、Claude 与 Grok 当前 Token Endpoint 的成功响应都必须包含正数 `expires_in`。Provider Driver 使用 checked arithmetic 把它转换为绝对过期时间；缺失、零、负数或溢出都属于无效上游响应。Refresh 响应仍可沿用上次未返回的 refresh token、ID token 和稳定账号身份字段，但禁止沿用旧过期时间或用饱和运算伪造边界。
 

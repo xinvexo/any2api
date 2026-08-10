@@ -117,6 +117,19 @@ fn preserves_priority_and_non_system_content_without_copying() {
 }
 
 #[test]
+fn preserves_the_observed_codex_0_147_responses_shape_without_copying() {
+    let body = Bytes::from_static(
+        br#"{"model":"gpt-5.6-sol","input":[{"type":"additional_tools","role":"developer","tools":[]},{"type":"message","role":"developer","content":[{"type":"input_text","text":"rules"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}],"tool_choice":"auto","parallel_tool_calls":false,"reasoning":{"effort":"low","context":"all_turns"},"store":false,"stream":true,"include":["reasoning.encrypted_content"],"prompt_cache_key":"opaque","text":{"verbosity":"low"},"client_metadata":{"session_id":"opaque","x-codex-turn-metadata":"opaque"}}"#,
+    );
+
+    let output = prepare(context(true, ProtocolOperation::Responses), body.clone())
+        .expect("observed Codex request shape");
+
+    assert_eq!(output.as_ptr(), body.as_ptr());
+    assert_eq!(output, body);
+}
+
+#[test]
 fn rewrites_system_role_when_json_contains_whitespace() {
     let body = Bytes::from_static(
         br#"{"model":"gpt-5.6-sol","store":false,"parallel_tool_calls":false,"include":["reasoning.encrypted_content"],"input":[{"role" : "system","content":"rules"}]}"#,

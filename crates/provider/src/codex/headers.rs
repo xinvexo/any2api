@@ -117,6 +117,11 @@ mod tests {
         "traceparent",
         "tracestate",
     ];
+    const REPLAYABLE_HEADERS: &[(&str, &str)] = &[
+        ("openai-beta", "responses=v1"),
+        ("x-codex-beta-features", "remote_compaction_v2"),
+        ("x-openai-internal-codex-responses-lite", "true"),
+    ];
 
     #[test]
     fn credential_owned_codex_headers_are_not_replayed_after_a_switch() {
@@ -125,7 +130,9 @@ mod tests {
             client.insert(*name, HeaderValue::from_static("owned"));
         }
         client.insert("x-codex-turn-state", HeaderValue::from_static("turn-state"));
-        client.insert("openai-beta", HeaderValue::from_static("responses=v1"));
+        for (name, value) in REPLAYABLE_HEADERS {
+            client.insert(*name, HeaderValue::from_static(value));
+        }
         let context = ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
             upstream_operation: ProtocolOperation::Responses,
@@ -140,7 +147,9 @@ mod tests {
             assert!(!projected.contains_key(*name), "unexpected {name}");
         }
         assert!(!projected.contains_key("x-codex-turn-state"));
-        assert_eq!(projected["openai-beta"], "responses=v1");
+        for (name, value) in REPLAYABLE_HEADERS {
+            assert_eq!(projected[*name], *value, "missing {name}");
+        }
         assert_eq!(projected["originator"], "codex_cli_rs");
 
         let owner = request(ProviderRequestContext {
@@ -151,6 +160,9 @@ mod tests {
         .expect("owner headers");
         for name in OWNED_HEADERS {
             assert_eq!(owner[*name], "owned", "missing {name}");
+        }
+        for (name, value) in REPLAYABLE_HEADERS {
+            assert_eq!(owner[*name], *value, "missing {name}");
         }
         assert_eq!(owner["x-codex-turn-state"], "turn-state");
     }

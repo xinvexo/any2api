@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "provider": "codex",
+  "client": {
+    "product": "OpenAI Codex CLI",
+    "entrypoint": "codex exec",
+    "version": "0.147.0",
+    "distribution": "Homebrew Cask codex 0.147.0",
+    "executable_sha256": "19c4f144c5226a9f17c58e6f0fa854843b0f77a6eb420f40e2745a12f10f5d37"
+  },
+  "platform": {
+    "os": "macOS",
+    "version": "26.6.1",
+    "build": "25G76",
+    "architecture": "arm64"
+  },
+  "capture": {
+    "date": "2026-08-11",
+    "operation": "openai_responses",
+    "transport": "loopback_http_1_1",
+    "network_scope": "loopback_only",
+    "credential_policy": "synthetic",
+    "environment_policy": "cleared",
+    "client_home_environment": "CODEX_HOME",
+    "explicitly_set_environment": {
+      "BASELINE_API_KEY": "<synthetic>",
+      "CODEX_HOME": "<temporary-directory>",
+      "PATH": "<sanitized>"
+    }
+  },
+  "request": {
+    "request_line": "POST /v1/responses HTTP/1.1",
+    "raw_bytes": 44061,
+    "raw_sha256": "dc48d59ff567eac6315b3a755d6958b3e1bc4d2b62c6bbd55eb94ca7bcd8a047",
+    "headers": [
+      {
+        "name": "x-codex-beta-features",
+        "value": "remote_compaction_v2",
+        "classification": "replayable"
+      },
+      {
+        "name": "x-codex-window-id",
+        "value": "<dynamic:credential-owned>",
+        "classification": "credential_owned"
+      },
+      {
+        "name": "x-codex-turn-metadata",
+        "value": "<dynamic:credential-owned-json>",
+        "classification": "credential_owned",
+        "metadata_fields": [
+          "installation_id",
+          "session_id",
+          "thread_id",
+          "turn_id",
+          "window_id",
+          "request_kind",
+          "thread_source",
+          "sandbox",
+          "turn_started_at_unix_ms"
+        ]
+      },
+      {
+        "name": "x-openai-internal-codex-responses-lite",
+        "value": "true",
+        "classification": "replayable"
+      },
+      {
+        "name": "x-client-request-id",
+        "value": "<dynamic:credential-owned>",
+        "classification": "credential_owned"
+      },
+      {
+        "name": "session-id",
+        "value": "<dynamic:credential-owned>",
+        "classification": "credential_owned"
+      },
+      {
+        "name": "thread-id",
+        "value": "<dynamic:credential-owned>",
+        "classification": "credential_owned"
+      },
+      {
+        "name": "accept",
+        "value": "text/event-stream",
+        "classification": "protocol"
+      },
+      {
+        "name": "content-type",
+        "value": "application/json",
+        "classification": "protocol"
+      },
+      {
+        "name": "authorization",
+        "value": "<redacted:bearer>",
+        "classification": "authentication"
+      },
+      {
+        "name": "originator",
+        "value": "codex_exec",
+        "classification": "replayable"
+      },
+      {
+        "name": "user-agent",
+        "value": "codex_exec/0.147.0 (Mac OS 26.6.1; arm64) unknown (codex_exec; 0.147.0)",
+        "classification": "replayable"
+      },
+      {
+        "name": "host",
+        "value": "<loopback-authority>",
+        "classification": "transport"
+      },
+      {
+        "name": "content-length",
+        "value": "<body-bytes>",
+        "classification": "transport"
+      }
+    ],
+    "body": {
+      "bytes": 43068,
+      "sha256": "86d3bab0d669618d188e29c85917cb8e15f36f5a1dd04777ba0dfaca4b44fc4a",
+      "top_level_fields_in_wire_order": [
+        "model",
+        "input",
+        "tool_choice",
+        "parallel_tool_calls",
+        "reasoning",
+        "store",
+        "stream",
+        "include",
+        "prompt_cache_key",
+        "text",
+        "client_metadata"
+      ],
+      "semantics": {
+        "model": "gpt-5.6-sol",
+        "tool_choice": "auto",
+        "parallel_tool_calls": false,
+        "reasoning": {
+          "effort": "low",
+          "context": "all_turns"
+        },
+        "store": false,
+        "stream": true,
+        "include": [
+          "reasoning.encrypted_content"
+        ],
+        "prompt_cache_key": "<dynamic:present>",
+        "text": {
+          "verbosity": "low"
+        }
+      },
+      "input_items": [
+        {
+          "type": "additional_tools",
+          "role": "developer",
+          "tools_count": 2,
+          "content_types": []
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "tools_count": 0,
+          "content_types": ["input_text"]
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "tools_count": 0,
+          "content_types": ["input_text", "input_text"]
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "tools_count": 0,
+          "content_types": ["input_text"]
+        },
+        {
+          "type": "message",
+          "role": "developer",
+          "tools_count": 0,
+          "content_types": ["input_text"]
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "tools_count": 0,
+          "content_types": ["input_text"]
+        },
+        {
+          "type": "message",
+          "role": "user",
+          "tools_count": 0,
+          "content_types": ["input_text"]
+        }
+      ],
+      "client_metadata_fields_in_wire_order": [
+        "x-codex-turn-metadata",
+        "x-codex-installation-id",
+        "session_id",
+        "x-codex-window-id",
+        "thread_id",
+        "turn_id"
+      ],
+      "turn_metadata_fields_in_wire_order": [
+        "installation_id",
+        "session_id",
+        "thread_id",
+        "turn_id",
+        "window_id",
+        "request_kind",
+        "thread_source",
+        "sandbox",
+        "code_mode_tool_names",
+        "turn_started_at_unix_ms"
+      ]
+    }
+  },
+  "limitations": [
+    "Loopback HTTP/1.1 does not observe TLS or HTTP/2 behavior.",
+    "A custom Responses provider with a synthetic API key does not cover the ChatGPT OAuth authority.",
+    "This capture covers only macOS 26.6.1 arm64 and the codex exec entrypoint.",
+    "Raw hashes are capture-specific because the request contains dynamic identifiers and timestamps."
+  ]
+}

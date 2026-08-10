@@ -13,7 +13,7 @@
 >
 > ADR-0124～0126 已落实独立 Kimi 身份、Credential-owned Header 与版本化 Provider data/quota/token persona，F-004～F-007 已修复或转为显式接受边界。ADR-0127 统一响应 content coding，ADR-0129 公开 Direct/Translated fidelity 与 Bridge 限制，ADR-0130 则冻结 H1/H2/TLS 稳定线路并增加 Transport/stream 诊断，F-008～F-010 与 F-012～F-016 均已修复或成为可回归边界。
 >
-> 2026-08-11 又由真实 Composition Root Registry 生成 35 个 loopback raw HTTP/1 surface，覆盖 API Key/OAuth direct、所有有效 Bridge/Provider 组合、OAuth token 与 quota plan，精确比较 target、path/query、认证类别、Header 集合/顺序和原始 Body，E-07 已完成。随后扩展的双向 raw H2 recorder 证明同隔离域顺序复用 stream 1/3、首响应前并发 stream 1/3，以及 graceful GOAWAY/PING 后新连接从 stream 1 重启，E-05 也已完成。当前仍待独立完成的只有带版本/平台/日期的官方客户端基线；在此之前仍不得声称与官方客户端完全一致或不可被识别。
+> 2026-08-11 又由真实 Composition Root Registry 生成 35 个 loopback raw HTTP/1 surface，覆盖 API Key/OAuth direct、所有有效 Bridge/Provider 组合、OAuth token 与 quota plan，精确比较 target、path/query、认证类别、Header 集合/顺序和原始 Body，E-07 已完成。随后扩展的双向 raw H2 recorder 证明同隔离域顺序复用 stream 1/3、首响应前并发 stream 1/3，以及 graceful GOAWAY/PING 后新连接从 stream 1 重启，E-05 也已完成。ADR-0131 进一步提交 Codex 0.147.0 macOS arm64 的 `codex exec` 与交互 TUI 两份独立 loopback HTTP/1 Responses 基线；清空环境后两者分别使用 `codex_exec` 与 `codex-tui` persona，继承 Desktop originator override 的试采已明确作废。当前仍缺 Claude/Grok/Kimi、Codex ChatGPT OAuth/TLS/H2、其他平台和长期流官方基线；仍不得声称与官方客户端完全一致或不可被识别。
 
 ## 1. Executive Summary
 
@@ -86,8 +86,9 @@ flowchart TD
 | any2api ClientHello cipher/extension 集合/group/ALPN 与 Rustls 随机扩展顺序策略 | **本地 raw capture 确认并冻结稳定字段** |
 | any2api H2 preface/SETTINGS/WINDOW_UPDATE、HPACK 长度演进、顺序/并发 stream 与 GOAWAY 重连 | **本地解密后双向 raw frame capture 确认** |
 | any2api HTTP/1.1 request line/Header casing/order/Host/Length | **本地 raw TCP capture 确认** |
+| Codex 0.147.0 `exec`/TUI 的 HTTP/1 Header 顺序与 Responses Body 结构 | **独立官方发布物 loopback capture 确认** |
 | 精确 JA3/JA4、H2 HPACK 动态行为与官方客户端差异 | 必须建立官方客户端抓包基线后确认 |
-| 与每个官方客户端的实际差异 | 必须建立同版本官方客户端基线后确认 |
+| 与 Claude/Grok/Kimi、Codex OAuth/TLS/H2/其他平台的实际差异 | 必须继续建立同版本官方客户端基线后确认 |
 | 上游是否把这些信号用于识别 | 本仓库无法确认，也不作推断 |
 
 ## 2. 端到端可见性边界
@@ -371,6 +372,8 @@ Runtime 只对第一个 Credential 拥有者保护 `x-oai-attestation`，并且�
 - `crates/provider/src/oauth/mod.rs` — `form_headers`, `json_headers`
 
 > 修复状态（2026-08-10）：**Fixed after baseline**。ADR-0126 增加 Provider-local identity profile：Claude data/quota 共用 `claude-code/2.1.220`，Grok data/quota 共用实际构建目标的 OS/arch，Codex data 与 `wham` quota 的 persona 差异成为同一模块内的显式子 profile。OAuth token surface 在没有 Provider 必需证据时继续不借用 data-plane UA；这属于明确契约，不再是散落默认值。
+>
+> 证据更新（2026-08-11）：ADR-0131 的干净环境 capture 证明同一个 Codex 0.147.0 发布物会按入口分别发送 `codex_exec` 与 `codex-tui` identity；Desktop 宿主还会通过 originator override 产生第三种 persona。当前 fallback 与这两个入口存在已确认差异，但不能把其中任意一个改成所有缺省/跨方言请求的通用身份。此次只加强同方言 replay/ownership 与合规 Body 回归，保留 fallback 作为显式边界。
 
 **Observed behavior**
 
@@ -884,20 +887,22 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 
 - Confidence：MEDIUM。
 - 已确认：通用 fixture 请求的 request line、lowercase casing、最终 Header 顺序、Host 与 Content-Length 已由纯 TCP raw capture 固定；Composition Root 的 35 个 direct/bridge/token/quota surface 也已不经 `HeaderMap` 重建地冻结完整 target、Header 顺序与 raw Body。
-- 未确认：这些 any2api surface 与各官方客户端同版本 wire 的差异。
-- 后续实验：仅剩带 Provider、版本、平台、操作和日期的独立官方客户端对照，不再新增一份平行的本地 surface 清单。
+- 官方对照：Codex 0.147.0 macOS arm64 的 `codex exec` 与交互 TUI 已保存独立 Responses H1 Header 顺序、动态字段分类和 Body 结构。两者都会发送 beta/responses-lite、window/turn/request/session/thread 字段，但 originator/UA 随入口变化。
+- 未确认：Claude/Grok/Kimi、Codex OAuth authority、其他操作和平台的同版本 wire 差异。
+- 后续实验：继续按 Provider/入口保存独立基线，不再新增一份平行的 any2api surface 清单。
 
 ### S-004 — 固定 UA/version 相对当前官方客户端已经漂移
 
-- Confidence：LOW / MEDIUM。
-- 本仓库能确认内部版本不一致，不能确认 2026-08-10 每个官方发行渠道的最新版本或实际 Header contract。
-- 实验/维护：只用官方发布物与官方文档建立带日期、平台、版本、hash 的 capture；不要依赖搜索摘要或第三方博客。
+- Confidence：Codex 0.147.0 macOS 两个入口为 HIGH；其他 Provider/平台仍为 LOW / MEDIUM。
+- 已确认：当前 Codex fallback `codex_cli_rs/0.145.0` 不等于同一台机器上 0.147.0 的 `codex exec` 或 TUI identity；后两者分别使用 `codex_exec` 与 `codex-tui`，UA 还包含 OS/version、arch、terminal 与入口。继承 Desktop 环境会再次改写 identity，因此 persona 不能只按 Provider 选一个“最新版”字符串。
+- 处置：同方言客户端 originator/UA 继续原样投影；在没有匹配 fallback surface 的证据或明确 gateway identity 决策前，不把某个入口 persona 硬编码为全局默认。Claude/Grok/Kimi 仍需官方发布物基线。
 
 ### S-005 — Codex OAuth normalization 与当前官方 Codex wire contract 有差异
 
 - Confidence：MEDIUM。
-- 代码行为确定，但官方当前版本是否执行完全相同的字段删除、插入与排序需要同 fixture 抓包。
-- 应比较语义和 raw bytes，尤其 string input、system→developer、include、service_tier 与 parallel tools。
+- 已确认部分：两个 Codex 0.147.0 Responses 请求都发送 `store:false`、`include:["reasoning.encrypted_content"]`、显式 boolean `parallel_tool_calls:false`、developer/user input，并保留 `reasoning.context`、`text.verbosity`、`prompt_cache_key` 与 `client_metadata`。当前 OAuth Profile 对这一合规形状逐字节复用且不删除这些扩展字段。
+- 未确认：本次是 custom provider + 合成 API Key 的 H1 capture，不是 ChatGPT OAuth authority；string input、system→developer、被拒字段、`service_tier` 和需要重写时的 raw 排序仍没有同 Endpoint 官方对照。
+- 后续比较应继续覆盖上述触发重写的分支，不能由一次已经合规的请求把整个 normalization 标为官方等价。
 
 ### S-006 — 上游采用 connection-scoped rate limit、bot state 或账号关联
 
@@ -986,12 +991,12 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 | TLS resumption | 按同一 isolation domain 隔离 | 同左 | 同左 | 同左 |
 | Retry | Runtime 有界 attempts；reselect/same-path/OAuth 后重试统一遵守 Retry-After/退避 | 同左 | 同左 | 同左 |
 | Redirect | none | none | none | none |
-| Request compression | 同方言 Responses/Chat 可重压 zstd | 不声明支持 | 不声明支持 | 取决于借用 driver |
+| Request compression | 同方言 Responses/Chat 可重压 zstd | 不声明支持 | 不声明支持 | 不声明支持 |
 | Response compression | profile 声明 `gzip, br, zstd` 并统一增量解码 | 同左 | 同左 | 同左 |
 | Streaming direct | Responses/Chat/Images SSE | Messages SSE | Responses/Chat SSE | 直接 Chat 或 Responses→Chat |
 | Cross-protocol bridge | Responses→Chat、Images→Chat（按 route） | 无已注册跨协议 | Responses→Chat、Images→Chat（按 route） | Responses→Chat、Images→Chat（按 route） |
 | Identity Header ownership | Credential-owned + bound turn state | Credential-owned | Credential-owned | Kimi-local 最小策略 |
-| Provider body mutation | OAuth Responses 广泛 normalize | 无同类 body mutation | OAuth model override Header | 继承错误 policy |
+| Provider body mutation | OAuth Responses 广泛 normalize | 无同类 body mutation | OAuth model override Header | 无同类 body mutation |
 | Error classifier | OpenAI-style | Anthropic-specific | Grok/OpenAI-style | Kimi/OpenAI-style local classifier |
 | 当前上游 fidelity 边界 | OAuth body normalization；generic wire 可见 | 固定 Provider identity；generic wire 可见 | 固定 Provider identity；generic wire 可见 | Direct Chat 或显式 Responses/Images→Chat translation；generic wire 可见 |
 
@@ -1024,8 +1029,9 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 | E-08 Rotate/disable/delete lifecycle | 测 pool/ticket 退役 | **按 ADR 生命周期语义完成** | 新代际移除旧缓存引用；闲置 Client 受 LRU 硬上限约束；物理 keep-alive 按 idle timeout 关闭；跨域 TLS 为 Full→Full |
 | E-09 Retry switch sequence | 证明 429 换号后的退避与连接隔离 | **真实 Runtime 实验完成** | 两 Authorization、不同 TCP peer、第二次到达 ≥ Retry-After |
 | E-10 SSE timing | 量化 precommit burst/backpressure | **四点埋点与受控顺序测试已完成** | RequestAttempt 持久化 frame、commit、Body yield、cancel；负载分布待测 |
+| E-11 官方 Codex H1 | 对照明确版本的应用层 surface | **exec/TUI 两份基线已完成** | 0.147.0 macOS arm64；入口专属 persona、Header 顺序、Responses Body 结构；Desktop override 污染已隔离 |
 
-上述 E-01～E-10 本地实验都已在 loopback、自签 TLS 和假 Credential 范围内完成，不需要访问真实 Provider 或账号。更长时间的 keepalive/负载分布可以按真实故障需要追加，但不属于本轮修复完成条件。
+上述 E-01～E-11 都已在 loopback、自签 TLS或明文 H1 和假 Credential 范围内完成，不需要访问真实 Provider 或账号。更长时间的 keepalive/负载分布可以按真实故障需要追加；其他官方客户端基线仍是独立证据缺口。
 
 ## 10. 建议修改顺序
 
@@ -1060,7 +1066,7 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 
 16. **已完成（ADR-0123/0128/0130）**：E-04～E-10 的本地契约均已落地；H2 fixture 覆盖首连控制帧、顺序复用、首响应前并发和 GOAWAY 后重连。reqwest/hyper/rustls 升级时必须审核 fixture 差异。
 17. **安全可观测部分完成（ADR-0130）**：RequestAttempt 已记录不含 owner ID 的 routing/authentication generation、traffic class、wire/timeout profile、resolver 与 proxy。当前没有可靠 hook 证明物理 connection reused 或 TLS resumed，因此明确保持未知，禁止从 Client cache 命中推断；attempt switch 继续由既有 Attempt/failure/retry 字段表达。不得记录 token、API key、proxy password 或原始 session id。
-18. 官方客户端基线必须带 Provider、版本、平台、操作和采集日期；无法确认的只保留为 Suspected，不把“看起来像”升级为事实。
+18. **部分完成（ADR-0131）**：Codex 0.147.0 macOS arm64 的 `codex exec` 与 TUI 已有带发布物 hash、操作、日期、脱敏和局限的独立 H1 Responses 基线，且由 architecture-check 校验。Claude/Grok/Kimi、Codex OAuth/TLS/H2 和其他平台仍保持 Suspected，不把“看起来像”升级为事实。
 
 ## 11. Top 10 Findings
 
@@ -1085,5 +1091,6 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 2. **Provider 服务身份与 wire dialect 已解耦到一等 Kimi driver、Provider-local identity/header contract 和静态 Registry。** Credential-owned 稳定 Header 不再随换号重放。
 3. **Direct/Translated fidelity 已由 Bridge 单一 capability contract 公开。** 跨协议 canonical reconstruction 仍客观存在，但不再被产品能力隐藏。
 4. **generic Rust transport 的可观测性没有“消失”。** ADR-0130 选择诚实地冻结 H1/H2/TLS 稳定行为、记录真实 Rustls 扩展顺序策略，并为 resolver/timeout 与 stream timing 提供本地诊断；没有随机 UA、TLS 参数或 flush 时序。
+5. **官方基线开始形成独立证据层。** ADR-0131 已覆盖 Codex 0.147.0 的 exec/TUI H1 Responses，并证明 persona 受入口和宿主 override 影响；该结果没有被误用成通用身份伪装。
 
-本地可闭环的审计修复与 E-01～E-10 契约已经完成；剩余工作是带版本/平台/日期的官方客户端独立基线。在这些外部证据完成前，项目只能声称“隔离正确、行为受控且可回归”，不能声称“与官方客户端完全一致”或“不可被识别”。
+本地可闭环的审计修复与 E-01～E-11 契约已经完成；剩余证据工作是 Claude/Grok/Kimi、Codex ChatGPT OAuth/TLS/H2、其他平台和按真实故障触发的长期负载基线。在这些证据完成前，项目只能声称“隔离正确、行为受控且可回归，并已对照两个 Codex H1 入口”，不能声称“与官方客户端完全一致”或“不可被识别”。
