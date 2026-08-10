@@ -31,6 +31,7 @@ use crate::{
     },
     profile::{GENERIC_GATEWAY_TRANSPORT_PROFILE, TransportWireProfile},
     resolution::{OriginTarget, origin_target},
+    response_coding::{apply_request_accept_encoding, decode_response_content},
 };
 
 /// Client identity never includes resolved addresses: DNS rotation must reuse
@@ -259,7 +260,7 @@ impl TransportManager for ReqwestTransportManager {
     async fn execute(
         &self,
         proxy: TransportProxy<'_>,
-        request: TransportRequest,
+        mut request: TransportRequest,
     ) -> Result<TransportResponse, TransportError> {
         let connect_deadline = Instant::now() + self.config.connect_timeout;
         let profile = proxy.profile();
@@ -288,6 +289,7 @@ impl TransportManager for ReqwestTransportManager {
         let TransportClient::Reqwest(client) = client.as_ref() else {
             unreachable!("transport client variant was checked")
         };
+        apply_request_accept_encoding(&mut request.headers);
         let (body, body_sent) = signaled_request_body(request.body);
         let send = client
             .request(request.method, request.uri.to_string())
@@ -329,7 +331,7 @@ impl TransportManager for ReqwestTransportManager {
                 )
             })
         }));
-        Ok(TransportResponse {
+        decode_response_content(TransportResponse {
             status,
             headers,
             body: timeout_body(body, read_timeout, body_failure_scope),
