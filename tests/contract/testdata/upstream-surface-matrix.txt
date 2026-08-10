@@ -1,0 +1,688 @@
+=== data.claude.api_key.direct.messages ===
+provider: claude
+surface: data_direct
+auth-class: api_key
+target: https://api.anthropic.com/v1/messages
+POST /v1/messages HTTP/1.1\r\n
+user-agent: fixture-claude-client/9\r\n
+x-app: fixture-app\r\n
+anthropic-version: 2099-01-01\r\n
+anthropic-beta: fixture-beta\r\n
+x-client-request-id: fixture-claude-request\r\n
+x-claude-code-session-id: fixture-claude-session\r\n
+x-stainless-retry-count: 7\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+x-api-key: fixture-claude-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 112\r\n
+\r\n
+{"max_tokens":16,"messages":[{"role":"user","content":"hello"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.claude.api_key.direct.messages_count_tokens ===
+provider: claude
+surface: data_direct
+auth-class: api_key
+target: https://api.anthropic.com/v1/messages/count_tokens
+POST /v1/messages/count_tokens HTTP/1.1\r\n
+user-agent: fixture-claude-client/9\r\n
+x-app: fixture-app\r\n
+anthropic-version: 2099-01-01\r\n
+anthropic-beta: fixture-beta\r\n
+x-client-request-id: fixture-claude-request\r\n
+x-claude-code-session-id: fixture-claude-session\r\n
+x-stainless-retry-count: 7\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+x-api-key: fixture-claude-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 84\r\n
+\r\n
+{"messages":[{"role":"user","content":"count me"}],"model":"fixture-upstream-model"}
+
+=== data.claude.oauth_access_token.direct.messages ===
+provider: claude
+surface: data_direct
+auth-class: oauth_access_token
+target: https://api.anthropic.com/v1/messages
+POST /v1/messages HTTP/1.1\r\n
+user-agent: fixture-claude-client/9\r\n
+x-app: fixture-app\r\n
+anthropic-version: 2099-01-01\r\n
+anthropic-beta: fixture-beta\r\n
+anthropic-beta: oauth-2025-04-20\r\n
+x-client-request-id: fixture-claude-request\r\n
+x-claude-code-session-id: fixture-claude-session\r\n
+x-stainless-retry-count: 7\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-claude-oauth-access\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 112\r\n
+\r\n
+{"max_tokens":16,"messages":[{"role":"user","content":"hello"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.claude.oauth_access_token.direct.messages_count_tokens ===
+provider: claude
+surface: data_direct
+auth-class: oauth_access_token
+target: https://api.anthropic.com/v1/messages/count_tokens
+POST /v1/messages/count_tokens HTTP/1.1\r\n
+user-agent: fixture-claude-client/9\r\n
+x-app: fixture-app\r\n
+anthropic-version: 2099-01-01\r\n
+anthropic-beta: fixture-beta\r\n
+anthropic-beta: oauth-2025-04-20\r\n
+x-client-request-id: fixture-claude-request\r\n
+x-claude-code-session-id: fixture-claude-session\r\n
+x-stainless-retry-count: 7\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-claude-oauth-access\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 84\r\n
+\r\n
+{"messages":[{"role":"user","content":"count me"}],"model":"fixture-upstream-model"}
+
+=== data.codex.api_key.bridge.openai_images_to_openai_chat_completions.images_generations ===
+provider: codex
+surface: data_bridge
+auth-class: api_key
+target: https://api.openai.com/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+originator: codex_cli_rs\r\n
+user-agent: codex_cli_rs/0.145.0\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 102\r\n
+\r\n
+{"messages":[{"content":"draw a moon","role":"user"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.codex.api_key.bridge.openai_responses_to_openai_chat_completions.responses ===
+provider: codex
+surface: data_bridge
+auth-class: api_key
+target: https://api.openai.com/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+originator: codex_cli_rs\r\n
+user-agent: codex_cli_rs/0.145.0\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"messages":[{"content":"hello","role":"user"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.codex.api_key.direct.chat_completions ===
+provider: codex
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"messages":[{"role":"user","content":"hello"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.codex.api_key.direct.images_edits ===
+provider: codex
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/images/edits
+POST /v1/images/edits HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: multipart/form-data; boundary=<multipart-boundary>\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 421\r\n
+\r\n
+--<multipart-boundary>\r\n
+content-disposition: form-data; name="model"\r\n
+\r\n
+fixture-upstream-model\r\n
+--<multipart-boundary>\r\n
+content-disposition: form-data; name="prompt"\r\n
+\r\n
+edit the moon\r\n
+--<multipart-boundary>\r\n
+content-disposition: form-data; name="image"; filename="moon.png"\r\n
+content-type: image/png\r\n
+\r\n
+PNG-FIXTURE\r\n
+--<multipart-boundary>--\r\n
+
+=== data.codex.api_key.direct.images_generations ===
+provider: codex
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/images/generations
+POST /v1/images/generations HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"model":"fixture-upstream-model","prompt":"draw a moon","response_format":"url","stream":false}
+
+=== data.codex.api_key.direct.responses ===
+provider: codex
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/responses
+POST /v1/responses HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 65\r\n
+\r\n
+{"input":"hello","model":"fixture-upstream-model","stream":false}
+
+=== data.codex.api_key.direct.responses_compact ===
+provider: codex
+surface: data_direct
+auth-class: api_key
+target: https://api.openai.com/v1/responses/compact
+POST /v1/responses/compact HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 83\r\n
+\r\n
+{"input":[{"role":"user","content":"compact me"}],"model":"fixture-upstream-model"}
+
+=== data.codex.oauth_access_token.direct.responses ===
+provider: codex
+surface: data_direct
+auth-class: oauth_access_token
+target: https://chatgpt.com/backend-api/codex/responses
+POST /backend-api/codex/responses HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-oauth-access\r\n
+chatgpt-account-id: fixture-codex-account\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 224\r\n
+\r\n
+{"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}],"model":"fixture-upstream-model","stream":false,"store":false,"include":["reasoning.encrypted_content"],"parallel_tool_calls":true}
+
+=== data.codex.oauth_access_token.direct.responses_compact ===
+provider: codex
+surface: data_direct
+auth-class: oauth_access_token
+target: https://chatgpt.com/backend-api/codex/responses/compact
+POST /backend-api/codex/responses/compact HTTP/1.1\r\n
+originator: fixture-origin\r\n
+user-agent: fixture-codex-client/9\r\n
+openai-beta: fixture-beta\r\n
+x-codex-turn-state: fixture-turn\r\n
+x-client-request-id: fixture-codex-request\r\n
+session-id: fixture-session\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-codex-oauth-access\r\n
+chatgpt-account-id: fixture-codex-account\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 83\r\n
+\r\n
+{"input":[{"role":"user","content":"compact me"}],"model":"fixture-upstream-model"}
+
+=== data.grok.api_key.bridge.openai_images_to_openai_chat_completions.images_generations ===
+provider: grok
+surface: data_bridge
+auth-class: api_key
+target: https://api.x.ai/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+user-agent: grok-shell/0.2.112 (<os>; <arch>)\r\n
+x-grok-client-version: 0.2.112\r\n
+x-grok-client-identifier: grok-shell\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-grok-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 102\r\n
+\r\n
+{"messages":[{"content":"draw a moon","role":"user"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.grok.api_key.bridge.openai_responses_to_openai_chat_completions.responses ===
+provider: grok
+surface: data_bridge
+auth-class: api_key
+target: https://api.x.ai/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+user-agent: grok-shell/0.2.112 (<os>; <arch>)\r\n
+x-grok-client-version: 0.2.112\r\n
+x-grok-client-identifier: grok-shell\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-grok-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"messages":[{"content":"hello","role":"user"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.grok.api_key.direct.chat_completions ===
+provider: grok
+surface: data_direct
+auth-class: api_key
+target: https://api.x.ai/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+user-agent: fixture-grok-client/9\r\n
+x-grok-client-version: 9.9\r\n
+x-grok-client-identifier: fixture-grok\r\n
+x-grok-conv-id: fixture-conversation\r\n
+x-grok-req-id: fixture-grok-request\r\n
+x-grok-client-mode: fixture-mode\r\n
+x-grok-client-surface: fixture-surface\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-grok-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"messages":[{"role":"user","content":"hello"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.grok.api_key.direct.responses ===
+provider: grok
+surface: data_direct
+auth-class: api_key
+target: https://api.x.ai/v1/responses
+POST /v1/responses HTTP/1.1\r\n
+user-agent: fixture-grok-client/9\r\n
+x-grok-client-version: 9.9\r\n
+x-grok-client-identifier: fixture-grok\r\n
+x-grok-conv-id: fixture-conversation\r\n
+x-grok-req-id: fixture-grok-request\r\n
+x-grok-client-mode: fixture-mode\r\n
+x-grok-client-surface: fixture-surface\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-grok-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 65\r\n
+\r\n
+{"input":"hello","model":"fixture-upstream-model","stream":false}
+
+=== data.grok.api_key.direct.responses_compact ===
+provider: grok
+surface: data_direct
+auth-class: api_key
+target: https://api.x.ai/v1/responses/compact
+POST /v1/responses/compact HTTP/1.1\r\n
+user-agent: fixture-grok-client/9\r\n
+x-grok-client-version: 9.9\r\n
+x-grok-client-identifier: fixture-grok\r\n
+x-grok-conv-id: fixture-conversation\r\n
+x-grok-req-id: fixture-grok-request\r\n
+x-grok-client-mode: fixture-mode\r\n
+x-grok-client-surface: fixture-surface\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-grok-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 83\r\n
+\r\n
+{"input":[{"role":"user","content":"compact me"}],"model":"fixture-upstream-model"}
+
+=== data.grok.oauth_access_token.direct.responses ===
+provider: grok
+surface: data_direct
+auth-class: oauth_access_token
+target: https://cli-chat-proxy.grok.com/v1/responses
+POST /v1/responses HTTP/1.1\r\n
+user-agent: fixture-grok-client/9\r\n
+x-grok-client-version: 9.9\r\n
+x-grok-client-identifier: fixture-grok\r\n
+x-grok-client-mode: fixture-mode\r\n
+x-xai-token-auth: xai-grok-cli\r\n
+x-authenticateresponse: authenticate-response\r\n
+x-grok-conv-id: fixture-conversation\r\n
+x-grok-req-id: fixture-grok-request\r\n
+x-grok-client-surface: fixture-surface\r\n
+traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
+x-grok-model-override: fixture-upstream-model\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-grok-oauth-access\r\n
+x-userid: fixture-grok-account\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 65\r\n
+\r\n
+{"input":"hello","model":"fixture-upstream-model","stream":false}
+
+=== data.kimi.api_key.bridge.openai_images_to_openai_chat_completions.images_generations ===
+provider: kimi
+surface: data_bridge
+auth-class: api_key
+target: https://api.moonshot.cn/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-kimi-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 102\r\n
+\r\n
+{"messages":[{"content":"draw a moon","role":"user"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.kimi.api_key.bridge.openai_responses_to_openai_chat_completions.responses ===
+provider: kimi
+surface: data_bridge
+auth-class: api_key
+target: https://api.moonshot.cn/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-kimi-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"messages":[{"content":"hello","role":"user"}],"model":"fixture-upstream-model","stream":false}
+
+=== data.kimi.api_key.direct.chat_completions ===
+provider: kimi
+surface: data_direct
+auth-class: api_key
+target: https://api.moonshot.cn/v1/chat/completions
+POST /v1/chat/completions HTTP/1.1\r\n
+content-type: application/json\r\n
+accept: application/json\r\n
+authorization: Bearer fixture-kimi-api-key\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 96\r\n
+\r\n
+{"messages":[{"role":"user","content":"hello"}],"model":"fixture-upstream-model","stream":false}
+
+=== quota.claude.usage ===
+provider: claude
+surface: oauth_quota
+auth-class: oauth_access_token
+target: https://api.anthropic.com/api/oauth/usage
+GET /api/oauth/usage HTTP/1.1\r\n
+authorization: Bearer fixture-claude-oauth-access\r\n
+accept: application/json, text/plain, */*\r\n
+content-type: application/json\r\n
+user-agent: claude-code/2.1.220\r\n
+anthropic-beta: oauth-2025-04-20\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 0\r\n
+\r\n
+
+=== quota.codex.reset ===
+provider: codex
+surface: oauth_quota
+auth-class: oauth_access_token
+target: https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume
+POST /backend-api/wham/rate-limit-reset-credits/consume HTTP/1.1\r\n
+authorization: Bearer fixture-codex-oauth-access\r\n
+chatgpt-account-id: fixture-codex-account\r\n
+openai-beta: codex-1\r\n
+oai-language: zh-CN\r\n
+originator: Codex Desktop\r\n
+sec-fetch-site: none\r\n
+sec-fetch-mode: no-cors\r\n
+sec-fetch-dest: empty\r\n
+priority: u=4, i\r\n
+accept: application/json\r\n
+content-type: application/json\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 49\r\n
+\r\n
+{"redeem_request_id":"fixture-redeem-request-id"}
+
+=== quota.codex.reset_credits ===
+provider: codex
+surface: oauth_quota
+auth-class: oauth_access_token
+target: https://chatgpt.com/backend-api/wham/rate-limit-reset-credits
+GET /backend-api/wham/rate-limit-reset-credits HTTP/1.1\r\n
+authorization: Bearer fixture-codex-oauth-access\r\n
+chatgpt-account-id: fixture-codex-account\r\n
+openai-beta: codex-1\r\n
+oai-language: zh-CN\r\n
+originator: Codex Desktop\r\n
+sec-fetch-site: none\r\n
+sec-fetch-mode: no-cors\r\n
+sec-fetch-dest: empty\r\n
+priority: u=4, i\r\n
+accept: application/json\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 0\r\n
+\r\n
+
+=== quota.codex.usage ===
+provider: codex
+surface: oauth_quota
+auth-class: oauth_access_token
+target: https://chatgpt.com/backend-api/wham/usage
+GET /backend-api/wham/usage HTTP/1.1\r\n
+authorization: Bearer fixture-codex-oauth-access\r\n
+chatgpt-account-id: fixture-codex-account\r\n
+openai-beta: codex-1\r\n
+oai-language: zh-CN\r\n
+originator: Codex Desktop\r\n
+sec-fetch-site: none\r\n
+sec-fetch-mode: no-cors\r\n
+sec-fetch-dest: empty\r\n
+priority: u=4, i\r\n
+accept: application/json\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 0\r\n
+\r\n
+
+=== quota.grok.supplement ===
+provider: grok
+surface: oauth_quota
+auth-class: oauth_access_token
+target: https://cli-chat-proxy.grok.com/v1/user?include=subscription
+GET /v1/user?include=subscription HTTP/1.1\r\n
+authorization: Bearer fixture-grok-oauth-access\r\n
+x-userid: fixture-grok-account\r\n
+user-agent: grok-shell/0.2.112 (<os>; <arch>)\r\n
+x-grok-client-version: 0.2.112\r\n
+x-grok-client-identifier: grok-shell\r\n
+x-grok-client-mode: interactive\r\n
+x-xai-token-auth: xai-grok-cli\r\n
+x-authenticateresponse: authenticate-response\r\n
+accept: application/json\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 0\r\n
+\r\n
+
+=== quota.grok.usage ===
+provider: grok
+surface: oauth_quota
+auth-class: oauth_access_token
+target: https://cli-chat-proxy.grok.com/v1/billing?format=credits
+GET /v1/billing?format=credits HTTP/1.1\r\n
+authorization: Bearer fixture-grok-oauth-access\r\n
+x-userid: fixture-grok-account\r\n
+user-agent: grok-shell/0.2.112 (<os>; <arch>)\r\n
+x-grok-client-version: 0.2.112\r\n
+x-grok-client-identifier: grok-shell\r\n
+x-grok-client-mode: interactive\r\n
+x-xai-token-auth: xai-grok-cli\r\n
+x-authenticateresponse: authenticate-response\r\n
+accept: application/json\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 0\r\n
+\r\n
+
+=== token.claude.authorization_code ===
+provider: claude
+surface: oauth_token
+auth-class: oauth_client_grant
+target: https://api.anthropic.com/v1/oauth/token
+POST /v1/oauth/token HTTP/1.1\r\n
+accept: application/json\r\n
+content-type: application/json\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 235\r\n
+\r\n
+{"client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e","code":"fixture-authorization-code","code_verifier":"fixture-code-verifier","grant_type":"authorization_code","redirect_uri":"http://localhost:54545/callback","state":"fixture-state"}
+
+=== token.claude.refresh ===
+provider: claude
+surface: oauth_token
+auth-class: oauth_client_grant
+target: https://api.anthropic.com/v1/oauth/token
+POST /v1/oauth/token HTTP/1.1\r\n
+accept: application/json\r\n
+content-type: application/json\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 121\r\n
+\r\n
+{"client_id":"9d1c250a-e61b-44d9-88ed-5944d1962f5e","grant_type":"refresh_token","refresh_token":"fixture-refresh-token"}
+
+=== token.codex.authorization_code ===
+provider: codex
+surface: oauth_token
+auth-class: oauth_client_grant
+target: https://auth.openai.com/oauth/token
+POST /oauth/token HTTP/1.1\r\n
+accept: application/json\r\n
+content-type: application/x-www-form-urlencoded\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 197\r\n
+\r\n
+client_id=app_EMoamEEZ73f0CkXaXp7hrann&grant_type=authorization_code&code=fixture-authorization-code&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&code_verifier=fixture-code-verifier
+
+=== token.codex.refresh ===
+provider: codex
+surface: oauth_token
+auth-class: oauth_client_grant
+target: https://auth.openai.com/oauth/token
+POST /oauth/token HTTP/1.1\r\n
+accept: application/json\r\n
+content-type: application/json\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 113\r\n
+\r\n
+{"client_id":"app_EMoamEEZ73f0CkXaXp7hrann","grant_type":"refresh_token","refresh_token":"fixture-refresh-token"}
+
+=== token.grok.device_authorization ===
+provider: grok
+surface: oauth_token
+auth-class: oauth_client_grant
+target: https://auth.x.ai/oauth2/device/code
+POST /oauth2/device/code HTTP/1.1\r\n
+accept: application/json\r\n
+content-type: application/x-www-form-urlencoded\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 119\r\n
+\r\n
+client_id=b1a00492-073a-47ea-816f-4c329264a828&scope=openid+profile+email+offline_access+grok-cli%3Aaccess+api%3Aaccess
+
+=== token.grok.device_token ===
+provider: grok
+surface: oauth_token
+auth-class: oauth_client_grant
+target: https://auth.x.ai/oauth2/token
+POST /oauth2/token HTTP/1.1\r\n
+accept: application/json\r\n
+content-type: application/x-www-form-urlencoded\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 144\r\n
+\r\n
+grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code&client_id=b1a00492-073a-47ea-816f-4c329264a828&device_code=fixture-device-code
+
+=== token.grok.refresh ===
+provider: grok
+surface: oauth_token
+auth-class: oauth_client_grant
+target: https://auth.x.ai/oauth2/token
+POST /oauth2/token HTTP/1.1\r\n
+accept: application/json\r\n
+content-type: application/x-www-form-urlencoded\r\n
+accept-encoding: gzip, br, zstd\r\n
+host: <authority>\r\n
+content-length: 107\r\n
+\r\n
+client_id=b1a00492-073a-47ea-816f-4c329264a828&grant_type=refresh_token&refresh_token=fixture-refresh-token

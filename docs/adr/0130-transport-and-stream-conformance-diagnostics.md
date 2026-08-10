@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-10
+- 修订：2026-08-11（补充真实 Registry 全 surface raw matrix）
 - 决策者：maintainer
 
 ## 背景
@@ -28,6 +29,7 @@
    - `stream_cancel_ms`：已交接的流在完成前因 Drop/取消结算。
 8. 四个时间点均 first-write-wins，只读取已有 `Instant`，不得驱动等待、flush、重试或 backpressure。提交前失败、没有完整 frame、客户端从未 poll Body、正常完成等场景允许相应字段为空；不得为补齐遥测继续 drain 上游。
 9. RequestAttempt 通过连续前向 Migration 增加结构化 Transport 与 stream timing 字段。管理 API 只在已认证详情响应中返回嵌套诊断，Web 以毫秒时间线展示；旧行和非流 Attempt 的不可用字段为 `NULL`。这些字段仍走既有有界 RequestTelemetry 队列和保留策略，不建立新日志、恢复状态或路由输入。
+10. Composition Root 注册的真实 Protocol/Provider Registry 必须经过全 surface HTTP/1 raw matrix。当前矩阵自动枚举 11 个 API Key 直连 operation、5 个 OAuth 数据面 operation 和 6 个有效 Bridge/Provider 组合，并覆盖 7 个 OAuth token plan 与 6 个 quota plan，共 35 个 surface。每个 case 使用假凭据和 loopback recorder，精确冻结最终 target、path/query、认证类别、Header 集合/顺序、Content-Length 与原始 Body；只归一化动态 loopback authority、multipart boundary 和构建目标 OS/arch，不归一化会隐藏线路变化的字段。
 
 ## 后果
 
@@ -35,10 +37,12 @@
 - 操作员可以区分“上游未给完整 frame”“precommit 等待”“已经交给下游”和“客户端取消”，也能看到请求实际采用的 resolver/proxy/timeout profile。
 - 诊断增加少量 Attempt 列和详情 JSON，但不复制请求内容、不改变流式延迟，也不声称消除了通用 Rust transport 的可观测性。
 - 物理 connection reuse/resumption 仍只由专用 loopback probe 验证；在生产缺少可靠 hook 时明确保持未知。
+- Provider、协议、Bridge、OAuth token/quota 或 Transport Header 顺序变化会产生一份集中可审阅的 raw fixture diff；该 fixture 仍只描述 any2api，不是官方客户端基线。
 
 ## 验证
 
 - Transport 测试从真实 Manager 生成 TLS/H2/H1 capture，并与提交 fixture 精确比较；TLS 另验证同一稳定集合存在多个实际 extension 顺序；同时验证 strict/direct/proxy resolver mode 和 timeout/profile 版本。
+- Contract 测试从 Composition Root 的真实 Registry 构造全部 35 个已声明 surface，经正式 `ReqwestTransportManager` 发往 raw HTTP/1 recorder，并与 `tests/contract/testdata/upstream-surface-matrix.txt` 精确比较；两次独立运行必须稳定一致。
 - Runtime stream 测试控制 upstream frame、prime、Body poll 与 Drop，验证时间点存在性、顺序和取消分支，且正常完成不写 cancel。
 - Migration 使用代表性既有 RequestAttempt 验证新增列保持 `NULL`，新记录往返验证全部诊断字段。
 - Server/Web contract 测试验证嵌套 Transport/stream timing 结构、空值和详情展示。

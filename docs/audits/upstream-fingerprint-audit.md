@@ -9,7 +9,11 @@
 
 本文讨论的是 correctness、account isolation、protocol fidelity、transport consistency、observability 和 architecture hygiene。本文不推断任何上游一定采用某种风控算法，也不提供绕过平台反滥用或检测的做法。
 
-> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。同一测试组又证明旧代际立即退出缓存、无后续请求的闲置 Credential Client 受 LRU 硬上限约束、物理 keep-alive 按 idle timeout 关闭，E-08 已按 ADR 声明的非强杀语义闭环。ADR-0128 又让同路径、Credential reselect 与 OAuth 修复后的数据面重试共同遵守指数 fallback/Retry-After，并把默认基础退避从 0 改为 1 秒，F-011 已完整修复；真实 Runtime 的 `429 + Retry-After` 实验同时捕获换号 Authorization、不同 TCP peer 和到达时间，E-09 已完成。ADR-0124 增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。ADR-0126 进一步集中 data/quota/token 身份，消除了 Claude 内部版本漂移与 Grok 固定伪报 macOS/ARM 的问题，F-006 已修复；同一 ADR 将线路行为冻结为版本化 generic profile，F-007 的配置漂移得到控制，但该通用 Rust wire profile 仍是明确接受且可被上游观察的特征。ADR-0127 将 profile 升级为 `generic-rustls-hyper-v2`，固定协商并统一增量解码 `gzip, br, zstd`，普通/pinned、成功/错误响应不再出现 Header/Body 脱节，F-014 已修复。ADR-0129 又把 Direct/Translated fidelity、Bridge 字段/工具/限制变为可查询的单一 contract，F-008 已从隐式高风险行为收敛为显式受控边界；真实 Registry Header golden、Codex OAuth wire golden 与 Direct materialization golden 分别控制 F-009、F-010、F-015 的实现漂移。ADR-0130 进一步用真实 loopback raw capture 固定 HTTP/1、HTTP/2 与 TLS 稳定线路契约，并把最终 resolver/proxy/timeout/isolation 策略和四个流式时间点写入 RequestAttempt，F-012、F-013、F-016 已转为可回归、可观测的受控边界。官方客户端基线、E-07 全 surface raw matrix 与 H2 扩展场景仍待完成。
+> 修复进度（2026-08-11）：ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001～F-003 的跨账号共池部分已经修复；生命周期实验同时证明旧代际退出缓存、闲置 Client 受 LRU 硬上限约束、物理 keep-alive 按 idle timeout 关闭，E-08 已闭环。ADR-0128 让同路径、Credential reselect 与 OAuth 修复后的数据面重试共同遵守指数 fallback/Retry-After，真实 Runtime 实验捕获了换号 Authorization、不同 TCP peer 和到达时间，F-011 与 E-09 已完成。
+>
+> ADR-0124～0126 已落实独立 Kimi 身份、Credential-owned Header 与版本化 Provider data/quota/token persona，F-004～F-007 已修复或转为显式接受边界。ADR-0127 统一响应 content coding，ADR-0129 公开 Direct/Translated fidelity 与 Bridge 限制，ADR-0130 则冻结 H1/H2/TLS 稳定线路并增加 Transport/stream 诊断，F-008～F-010 与 F-012～F-016 均已修复或成为可回归边界。
+>
+> 2026-08-11 又由真实 Composition Root Registry 生成 35 个 loopback raw HTTP/1 surface，覆盖 API Key/OAuth direct、所有有效 Bridge/Provider 组合、OAuth token 与 quota plan，精确比较 target、path/query、认证类别、Header 集合/顺序和原始 Body，E-07 已完成。当前仍待独立完成的是带版本/平台/日期的官方客户端基线，以及 H2 复用/并发/GOAWAY 扩展场景；在此之前仍不得声称与官方客户端完全一致或不可被识别。
 
 ## 1. Executive Summary
 
@@ -985,11 +989,11 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 | Request compression | 同方言 Responses/Chat 可重压 zstd | 不声明支持 | 不声明支持 | 取决于借用 driver |
 | Response compression | profile 声明 `gzip, br, zstd` 并统一增量解码 | 同左 | 同左 | 同左 |
 | Streaming direct | Responses/Chat/Images SSE | Messages SSE | Responses/Chat SSE | 直接 Chat 或 Responses→Chat |
-| Cross-protocol bridge | Responses→Chat、Images→Chat（按 route） | 无已注册跨协议 | Responses→Chat | 实际依赖 Responses→Chat |
+| Cross-protocol bridge | Responses→Chat、Images→Chat（按 route） | 无已注册跨协议 | Responses→Chat、Images→Chat（按 route） | Responses→Chat、Images→Chat（按 route） |
 | Identity Header ownership | Credential-owned + bound turn state | Credential-owned | Credential-owned | Kimi-local 最小策略 |
 | Provider body mutation | OAuth Responses 广泛 normalize | 无同类 body mutation | OAuth model override Header | 继承错误 policy |
 | Error classifier | OpenAI-style | Anthropic-specific | Grok/OpenAI-style | Kimi/OpenAI-style local classifier |
-| 当前上游 fidelity 边界 | OAuth body normalization；generic wire 可见 | 固定 Provider identity；generic wire 可见 | 固定 Provider identity；generic wire 可见 | Direct Chat 或显式 Responses→Chat translation；generic wire 可见 |
+| 当前上游 fidelity 边界 | OAuth body normalization；generic wire 可见 | 固定 Provider identity；generic wire 可见 | 固定 Provider identity；generic wire 可见 | Direct Chat 或显式 Responses/Images→Chat translation；generic wire 可见 |
 
 ## 8. Kimi 3 多轮工具调用专项结论
 
@@ -1015,8 +1019,8 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 | E-03 Kimi reasoning continuation | 证明多轮 reasoning/tool replay | **已补断言并通过** | 下一轮 assistant reasoning/tool call |
 | E-04 Raw ClientHello | 获取 extension/cipher/group/ALPN wire | **稳定字段 fixture 已完成** | raw ClientHello；确认 Rustls 随机扩展顺序策略，官方对比仍待做 |
 | E-05 Raw H2 recorder | 获取 SETTINGS/WINDOW/HPACK/PING | **首连控制帧已完成；扩展场景待做** | preface/SETTINGS/WINDOW_UPDATE/首 HEADERS 已冻结；复用、并发、GOAWAY 待补 |
-| E-06 Raw H1 recorder | 获取 casing/order/Host/Length | **通用 fixture 已完成** | raw request head 已冻结；Provider/operation matrix 待 E-07 |
-| E-07 Provider echo matrix | 比较 direct/bridge/data/quota/token | 待实现 | Header set/order、raw body、path、auth class |
+| E-06 Raw H1 recorder | 获取 casing/order/Host/Length | **通用与 surface fixture 已完成** | 通用 request head 与 35 个 Registry surface 均已冻结 |
+| E-07 Provider echo matrix | 比较 direct/bridge/data/quota/token | **35 个真实 Registry surface 已完成** | 16 direct、6 bridge、7 token、6 quota；target/path、Header set/order、raw body、auth class |
 | E-08 Rotate/disable/delete lifecycle | 测 pool/ticket 退役 | **按 ADR 生命周期语义完成** | 新代际移除旧缓存引用；闲置 Client 受 LRU 硬上限约束；物理 keep-alive 按 idle timeout 关闭；跨域 TLS 为 Full→Full |
 | E-09 Retry switch sequence | 证明 429 换号后的退避与连接隔离 | **真实 Runtime 实验完成** | 两 Authorization、不同 TCP peer、第二次到达 ≥ Retry-After |
 | E-10 SSE timing | 量化 precommit burst/backpressure | **四点埋点与受控顺序测试已完成** | RequestAttempt 持久化 frame、commit、Body yield、cancel；负载分布待测 |
@@ -1054,7 +1058,7 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 
 ### P2 — 建立持续可观测 contract
 
-16. **大部分完成（ADR-0123/0128/0130）**：E-04、E-06、E-08、E-09 和 E-10 已落地；E-05 已覆盖首连控制帧。继续完成 E-07 全 surface raw matrix 以及 H2 复用/并发/GOAWAY 场景，reqwest/hyper/rustls 升级时必须审核 fixture 差异。
+16. **大部分完成（ADR-0123/0128/0130）**：E-04、E-06～E-10 已落地；E-05 已覆盖首连控制帧。继续完成 H2 复用/并发/GOAWAY 扩展场景，reqwest/hyper/rustls 升级时必须审核 fixture 差异。
 17. **安全可观测部分完成（ADR-0130）**：RequestAttempt 已记录不含 owner ID 的 routing/authentication generation、traffic class、wire/timeout profile、resolver 与 proxy。当前没有可靠 hook 证明物理 connection reused 或 TLS resumed，因此明确保持未知，禁止从 Client cache 命中推断；attempt switch 继续由既有 Attempt/failure/retry 字段表达。不得记录 token、API key、proxy password 或原始 session id。
 18. 官方客户端基线必须带 Provider、版本、平台、操作和采集日期；无法确认的只保留为 Suspected，不把“看起来像”升级为事实。
 
@@ -1082,4 +1086,4 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 3. **Direct/Translated fidelity 已由 Bridge 单一 capability contract 公开。** 跨协议 canonical reconstruction 仍客观存在，但不再被产品能力隐藏。
 4. **generic Rust transport 的可观测性没有“消失”。** ADR-0130 选择诚实地冻结 H1/H2/TLS 稳定行为、记录真实 Rustls 扩展顺序策略，并为 resolver/timeout 与 stream timing 提供本地诊断；没有随机 UA、TLS 参数或 flush 时序。
 
-剩余工作主要是 E-07 全 surface raw matrix、H2 长连接扩展场景和带版本/平台/日期的官方客户端独立基线。在这些证据完成前，项目只能声称“隔离正确、行为受控且可回归”，不能声称“与官方客户端完全一致”或“不可被识别”。
+剩余工作主要是 H2 长连接扩展场景和带版本/平台/日期的官方客户端独立基线。在这些证据完成前，项目只能声称“隔离正确、行为受控且可回归”，不能声称“与官方客户端完全一致”或“不可被识别”。
