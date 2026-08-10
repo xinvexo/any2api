@@ -28,35 +28,41 @@ async fn provider_endpoint_contract_exposes_registry_options_and_publishes_crud(
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        initial["protocol_options"]
-            .as_array()
-            .is_some_and(|options| options.iter().any(|option| {
-                option["provider_kind"] == "codex"
-                    && option["accepted_protocol"] == "openai_responses"
-                    && option["upstream_protocols"]
-                        .as_array()
-                        .is_some_and(|protocols| {
-                            protocols
-                                .iter()
-                                .any(|value| value == "openai_chat_completions")
-                        })
-            }))
+    let protocol_options = initial["protocol_options"]
+        .as_array()
+        .expect("protocol options");
+    let responses = protocol_option(protocol_options, "codex", "openai_responses");
+    let direct = upstream_option(responses, "openai_responses");
+    assert_eq!(direct["fidelity"], "direct");
+    assert!(direct["bridge"].is_null());
+    assert_eq!(
+        direct["operations"],
+        json!(["responses", "responses_compact"])
+    );
+
+    let translated = upstream_option(responses, "openai_chat_completions");
+    assert_eq!(translated["fidelity"], "translated");
+    assert_eq!(translated["operations"], json!(["responses"]));
+    assert_eq!(
+        translated["bridge"]["contract_id"],
+        "openai-responses-to-chat-completions/v1"
     );
     assert!(
-        initial["protocol_options"]
+        translated["bridge"]["request_fields"]
             .as_array()
-            .is_some_and(|options| options.iter().any(|option| {
-                option["provider_kind"] == "codex"
-                    && option["accepted_protocol"] == "openai_images"
-                    && option["upstream_protocols"]
-                        .as_array()
-                        .is_some_and(|protocols| {
-                            protocols
-                                .iter()
-                                .any(|value| value == "openai_chat_completions")
-                        })
+            .is_some_and(|fields| fields.iter().any(|field| {
+                field["path"] == "client_metadata" && field["behavior"] == "validated_only"
             }))
+    );
+    assert_eq!(translated["bridge"]["tool_types"], json!(["function"]));
+
+    let images = protocol_option(protocol_options, "codex", "openai_images");
+    let images_bridge = upstream_option(images, "openai_chat_completions");
+    assert_eq!(images_bridge["fidelity"], "translated");
+    assert_eq!(images_bridge["operations"], json!(["images_generations"]));
+    assert_eq!(
+        images_bridge["bridge"]["contract_id"],
+        "openai-images-to-chat-completions/v1"
     );
 
     let (status, created) = request_json(
@@ -110,6 +116,26 @@ async fn provider_endpoint_contract_exposes_registry_options_and_publishes_crud(
     let stored = storage.load_configuration().await.expect("configuration");
     assert_eq!(stored.revision().get(), 4);
     assert!(stored.provider_endpoints().endpoints().is_empty());
+}
+
+fn protocol_option<'a>(options: &'a [Value], provider: &str, accepted: &str) -> &'a Value {
+    options
+        .iter()
+        .find(|option| {
+            option["provider_kind"] == provider && option["accepted_protocol"] == accepted
+        })
+        .expect("registered provider protocol option")
+}
+
+fn upstream_option<'a>(option: &'a Value, protocol: &str) -> &'a Value {
+    option["upstream_options"]
+        .as_array()
+        .and_then(|options| {
+            options
+                .iter()
+                .find(|candidate| candidate["protocol"] == protocol)
+        })
+        .expect("registered upstream protocol option")
 }
 
 async fn request_json(

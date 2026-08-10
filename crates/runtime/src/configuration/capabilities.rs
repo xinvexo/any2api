@@ -5,7 +5,7 @@ use any2api_domain::{
     ProviderCredentialConfiguration, ProviderEndpointConfiguration, ProviderEndpointId,
     ProviderKind,
 };
-use any2api_protocol::api::ProtocolRegistry;
+use any2api_protocol::api::{ProtocolBridgeCapabilities, ProtocolFidelity, ProtocolRegistry};
 use any2api_provider::api::ProviderRegistry;
 use thiserror::Error;
 
@@ -19,7 +19,15 @@ pub struct ConfigurationCapabilities {
 pub struct ProviderProtocolOptions {
     pub provider_kind: ProviderKind,
     pub accepted_protocol: ProtocolDialect,
-    pub upstream_protocols: Vec<ProtocolDialect>,
+    pub upstream_options: Vec<ProviderUpstreamProtocolOption>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderUpstreamProtocolOption {
+    pub protocol: ProtocolDialect,
+    pub fidelity: ProtocolFidelity,
+    pub operations: Vec<ProtocolOperation>,
+    pub bridge: Option<&'static ProtocolBridgeCapabilities>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
@@ -158,18 +166,30 @@ impl ConfigurationCapabilities {
         accepted
             .into_iter()
             .filter_map(|accepted_protocol| {
-                let mut upstream_protocols = driver
+                let mut upstream_options = driver
                     .capabilities()
                     .protocols
                     .iter()
                     .copied()
-                    .filter(|upstream| self.protocols.supports_pair(accepted_protocol, *upstream))
+                    .filter_map(|upstream| {
+                        let capabilities = self
+                            .protocols
+                            .pair_capabilities(accepted_protocol, upstream)?;
+                        (!capabilities.operations.is_empty()).then_some(
+                            ProviderUpstreamProtocolOption {
+                                protocol: upstream,
+                                fidelity: capabilities.fidelity,
+                                operations: capabilities.operations,
+                                bridge: capabilities.bridge,
+                            },
+                        )
+                    })
                     .collect::<Vec<_>>();
-                upstream_protocols.sort_unstable();
-                (!upstream_protocols.is_empty()).then_some(ProviderProtocolOptions {
+                upstream_options.sort_unstable_by_key(|option| option.protocol);
+                (!upstream_options.is_empty()).then_some(ProviderProtocolOptions {
                     provider_kind: provider,
                     accepted_protocol,
-                    upstream_protocols,
+                    upstream_options,
                 })
             })
             .collect()
@@ -215,137 +235,4 @@ fn has_operation(dialect: ProtocolDialect) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use any2api_domain::{ProtocolDialect, ProviderKind};
-
-    use super::ConfigurationCapabilityError;
-
-    #[test]
-    fn options_are_derived_from_registered_bridges_and_provider_capabilities() {
-        let capabilities = crate::test_support::configuration_capabilities();
-        let codex = capabilities.provider_protocol_options(ProviderKind::Codex);
-
-        assert_eq!(codex.len(), 3);
-        assert_eq!(codex[0].accepted_protocol, ProtocolDialect::OpenAiResponses);
-        assert_eq!(
-            codex[0].upstream_protocols,
-            [
-                ProtocolDialect::OpenAiResponses,
-                ProtocolDialect::OpenAiChatCompletions,
-            ]
-        );
-        assert_eq!(
-            codex[1].upstream_protocols,
-            [ProtocolDialect::OpenAiChatCompletions]
-        );
-        assert_eq!(codex[2].accepted_protocol, ProtocolDialect::OpenAiImages);
-        assert_eq!(
-            codex[2].upstream_protocols,
-            [
-                ProtocolDialect::OpenAiChatCompletions,
-                ProtocolDialect::OpenAiImages,
-            ]
-        );
-
-        let grok = capabilities.provider_protocol_options(ProviderKind::Grok);
-        assert_eq!(grok.len(), 3);
-        assert_eq!(grok[0].accepted_protocol, ProtocolDialect::OpenAiResponses);
-        assert_eq!(
-            grok[0].upstream_protocols,
-            [
-                ProtocolDialect::OpenAiResponses,
-                ProtocolDialect::OpenAiChatCompletions,
-            ]
-        );
-        assert_eq!(grok[2].accepted_protocol, ProtocolDialect::OpenAiImages);
-        assert_eq!(
-            grok[2].upstream_protocols,
-            [ProtocolDialect::OpenAiChatCompletions]
-        );
-
-        let kimi = capabilities.provider_protocol_options(ProviderKind::Kimi);
-        assert_eq!(kimi.len(), 3);
-        assert_eq!(kimi[0].accepted_protocol, ProtocolDialect::OpenAiResponses);
-        assert_eq!(
-            kimi[0].upstream_protocols,
-            [ProtocolDialect::OpenAiChatCompletions]
-        );
-        assert_eq!(
-            kimi[1].upstream_protocols,
-            [ProtocolDialect::OpenAiChatCompletions]
-        );
-    }
-
-    #[test]
-    fn endpoint_validation_uses_the_registered_pair_and_provider_driver() {
-        let capabilities = crate::test_support::configuration_capabilities();
-        capabilities
-            .validate_endpoint(
-                ProviderKind::Codex,
-                ProtocolDialect::OpenAiResponses,
-                ProtocolDialect::OpenAiChatCompletions,
-            )
-            .expect("registered bridge");
-        capabilities
-            .validate_endpoint(
-                ProviderKind::Codex,
-                ProtocolDialect::OpenAiImages,
-                ProtocolDialect::OpenAiImages,
-            )
-            .expect("registered Images adapter and Codex capability");
-        capabilities
-            .validate_endpoint(
-                ProviderKind::Codex,
-                ProtocolDialect::OpenAiImages,
-                ProtocolDialect::OpenAiChatCompletions,
-            )
-            .expect("registered Images to Chat Completions bridge");
-        capabilities
-            .validate_endpoint(
-                ProviderKind::Grok,
-                ProtocolDialect::OpenAiImages,
-                ProtocolDialect::OpenAiChatCompletions,
-            )
-            .expect("bridge options are derived without a Provider-specific branch");
-        capabilities
-            .validate_endpoint(
-                ProviderKind::Kimi,
-                ProtocolDialect::OpenAiResponses,
-                ProtocolDialect::OpenAiChatCompletions,
-            )
-            .expect("Kimi uses the registered Responses to Chat bridge");
-
-        assert!(matches!(
-            capabilities.validate_endpoint(
-                ProviderKind::Codex,
-                ProtocolDialect::AnthropicMessages,
-                ProtocolDialect::OpenAiResponses,
-            ),
-            Err(ConfigurationCapabilityError::MissingProtocolBridge { .. })
-        ));
-        assert!(matches!(
-            capabilities.validate_endpoint(
-                ProviderKind::Claude,
-                ProtocolDialect::OpenAiResponses,
-                ProtocolDialect::OpenAiResponses,
-            ),
-            Err(ConfigurationCapabilityError::UnsupportedProviderProtocol { .. })
-        ));
-        assert!(matches!(
-            capabilities.validate_endpoint(
-                ProviderKind::Grok,
-                ProtocolDialect::OpenAiImages,
-                ProtocolDialect::OpenAiImages,
-            ),
-            Err(ConfigurationCapabilityError::UnsupportedProviderProtocol { .. })
-        ));
-        assert!(matches!(
-            capabilities.validate_endpoint(
-                ProviderKind::Kimi,
-                ProtocolDialect::OpenAiResponses,
-                ProtocolDialect::OpenAiResponses,
-            ),
-            Err(ConfigurationCapabilityError::UnsupportedProviderProtocol { .. })
-        ));
-    }
-}
+mod tests;

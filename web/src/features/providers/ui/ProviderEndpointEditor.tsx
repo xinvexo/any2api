@@ -10,6 +10,7 @@ import type {
 import { protocolLabel } from "../model/protocol-catalog";
 import { getProviderErrorMessage } from "../model/provider-error";
 import { useProviderEditor } from "../model/use-provider-editor";
+import { ProtocolFidelityNotice } from "./ProtocolFidelityNotice";
 import { Button } from "@/shared/ui/Button";
 import { Select } from "@/shared/ui/Select";
 import { controlClass } from "@/shared/ui/form-control";
@@ -51,11 +52,18 @@ export function ProviderEndpointEditor({
     (option) => option.acceptedProtocol === editor.draft.protocolDialect,
   );
   const directSupported =
-    currentProtocol?.upstreamProtocols.includes(editor.draft.protocolDialect) ?? false;
+    currentProtocol?.upstreamOptions.some(
+      (option) => option.protocol === editor.draft.protocolDialect,
+    ) ?? false;
   const conversionOptions =
-    currentProtocol?.upstreamProtocols.filter(
-      (protocol) => protocol !== editor.draft.protocolDialect,
+    currentProtocol?.upstreamOptions.filter(
+      (option) => option.protocol !== editor.draft.protocolDialect,
     ) ?? [];
+  const selectedUpstream =
+    editor.draft.upstreamProtocolDialect ?? editor.draft.protocolDialect;
+  const selectedUpstreamOption = currentProtocol?.upstreamOptions.find(
+    (option) => option.protocol === selectedUpstream,
+  );
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -148,9 +156,9 @@ export function ProviderEndpointEditor({
             ...(directSupported
               ? [{ value: "" as const, label: "不转换（使用接受协议）" }]
               : []),
-            ...conversionOptions.map((protocol) => ({
-              value: protocol,
-              label: protocolLabel(protocol),
+            ...conversionOptions.map((option) => ({
+              value: option.protocol,
+              label: `${protocolLabel(option.protocol)}（Translated）`,
             })),
           ]}
           aria-label="内部转换协议（可选）"
@@ -166,6 +174,8 @@ export function ProviderEndpointEditor({
           }
         />
       </Field>
+
+      <ProtocolFidelityNotice option={selectedUpstreamOption} />
 
       <Field label="Base URL" error={editor.errors.baseUrl} htmlFor="provider-base-url">
         <input

@@ -330,7 +330,7 @@ pub trait ProtocolBridge: Send + Sync {
 
     fn upstream_dialect(&self) -> ProtocolDialect;
 
-    fn supports_operation(&self, operation: ProtocolOperation) -> bool;
+    fn capabilities(&self) -> &'static super::ProtocolBridgeCapabilities;
 
     fn start(
         &self,

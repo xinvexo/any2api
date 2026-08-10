@@ -161,3 +161,20 @@ fn normalizes_a_large_body_without_changing_its_payload() {
     assert_eq!(output["input"][0]["content"], content);
     assert_eq!(output["store"], false);
 }
+
+#[test]
+fn oauth_responses_request_contract_has_an_explicit_wire_golden() {
+    let body = Bytes::from_static(
+        br#" {"z":{"opaque" : true},"user":"removed","model":"gpt-5.6-sol","input":[{"content":"rules","role" : "system","type":"message"}],"temperature":0.7} "#,
+    );
+
+    let output = prepare(context(true, ProtocolOperation::Responses), body)
+        .expect("Codex OAuth Responses contract");
+
+    assert_eq!(
+        output,
+        Bytes::from_static(
+            br#"{"input":[{"content":"rules","role":"developer","type":"message"}],"model":"gpt-5.6-sol","z":{"opaque" : true},"store":false,"include":["reasoning.encrypted_content"],"parallel_tool_calls":true}"#
+        )
+    );
+}

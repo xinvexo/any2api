@@ -1,15 +1,24 @@
-export type ProviderKind = "codex" | "claude" | "grok" | "kimi";
-export type ProtocolDialect =
-  | "openai_responses"
-  | "openai_chat_completions"
-  | "openai_images"
-  | "anthropic_messages";
+import {
+  parseProviderProtocolOptions,
+  readProtocolDialect,
+  readProviderKind,
+  type ProtocolDialect,
+  type ProviderKind,
+  type ProviderProtocolOptions,
+} from "./provider-protocol-capabilities";
 
-export interface ProviderProtocolOptions {
-  providerKind: ProviderKind;
-  acceptedProtocol: ProtocolDialect;
-  upstreamProtocols: ProtocolDialect[];
-}
+export type {
+  BridgeLimitation,
+  BridgeRequestFieldBehavior,
+  BridgeRequestFieldCapability,
+  ProtocolBridgeCapability,
+  ProtocolDialect,
+  ProtocolFidelity,
+  ProtocolOperation,
+  ProviderKind,
+  ProviderProtocolOptions,
+  ProviderUpstreamProtocolOption,
+} from "./provider-protocol-capabilities";
 
 export interface ProviderEndpoint {
   id: string;
@@ -49,7 +58,7 @@ export function parseProviderEndpointConfiguration(
   ) {
     throw new Error("invalid provider endpoint response");
   }
-  const protocolOptions = value.protocol_options.map(parseProtocolOptions);
+  const protocolOptions = value.protocol_options.map(parseProviderProtocolOptions);
   const items = value.items.map(parseProviderEndpoint);
   for (const endpoint of items) {
     const option = protocolOptions.find(
@@ -58,7 +67,7 @@ export function parseProviderEndpointConfiguration(
         candidate.acceptedProtocol === endpoint.protocolDialect,
     );
     const upstream = endpoint.upstreamProtocolDialect ?? endpoint.protocolDialect;
-    if (!option?.upstreamProtocols.includes(upstream)) {
+    if (!option?.upstreamOptions.some((candidate) => candidate.protocol === upstream)) {
       throw new Error("invalid provider endpoint response");
     }
   }
@@ -93,21 +102,6 @@ function parseProviderEndpoint(value: unknown): ProviderEndpoint {
     upstreamProtocolDialect,
     enabled: readBoolean(value.enabled),
     configVersion: readPositiveInteger(value.config_version),
-  };
-}
-
-function parseProtocolOptions(value: unknown): ProviderProtocolOptions {
-  if (!isRecord(value) || !Array.isArray(value.upstream_protocols)) {
-    throw new Error("invalid provider endpoint response");
-  }
-  const upstreamProtocols = value.upstream_protocols.map(readProtocolDialect);
-  if (new Set(upstreamProtocols).size !== upstreamProtocols.length) {
-    throw new Error("invalid provider endpoint response");
-  }
-  return {
-    providerKind: readProviderKind(value.provider_kind),
-    acceptedProtocol: readProtocolDialect(value.accepted_protocol),
-    upstreamProtocols,
   };
 }
 
@@ -149,30 +143,6 @@ function readPositiveInteger(value: unknown): number {
 
 function readBoolean(value: unknown): boolean {
   if (typeof value !== "boolean") {
-    throw new Error("invalid provider endpoint response");
-  }
-  return value;
-}
-
-function readProviderKind(value: unknown): ProviderKind {
-  if (
-    value !== "codex" &&
-    value !== "claude" &&
-    value !== "grok" &&
-    value !== "kimi"
-  ) {
-    throw new Error("invalid provider endpoint response");
-  }
-  return value;
-}
-
-function readProtocolDialect(value: unknown): ProtocolDialect {
-  if (
-    value !== "openai_responses" &&
-    value !== "openai_chat_completions" &&
-    value !== "openai_images" &&
-    value !== "anthropic_messages"
-  ) {
     throw new Error("invalid provider endpoint response");
   }
   return value;

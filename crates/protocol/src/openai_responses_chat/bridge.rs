@@ -9,13 +9,13 @@ use crate::{
     api::{
         AdapterEvent, BridgeContinuationState, DecodedRequest, DecodedResponsePayload,
         DecodedUpstreamResponse, MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolBridge,
-        ProtocolBridgeSession, ProtocolContinuationState, ResumableProtocolContinuation,
-        StartedProtocolBridge,
+        ProtocolBridgeCapabilities, ProtocolBridgeSession, ProtocolContinuationState,
+        ResumableProtocolContinuation, StartedProtocolBridge,
     },
     json_codec,
 };
 
-use super::{request, response, stream::ChatToResponsesStream};
+use super::{capabilities::CAPABILITIES, request, response, stream::ChatToResponsesStream};
 
 #[derive(Default)]
 pub struct ResponsesToChatCompletionsBridge;
@@ -36,8 +36,8 @@ impl ProtocolBridge for ResponsesToChatCompletionsBridge {
         ProtocolDialect::OpenAiChatCompletions
     }
 
-    fn supports_operation(&self, operation: ProtocolOperation) -> bool {
-        operation == ProtocolOperation::Responses
+    fn capabilities(&self) -> &'static ProtocolBridgeCapabilities {
+        &CAPABILITIES
     }
 
     fn start(

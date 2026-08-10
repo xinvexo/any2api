@@ -9,7 +9,7 @@
 
 本文讨论的是 correctness、account isolation、protocol fidelity、transport consistency、observability 和 architecture hygiene。本文不推断任何上游一定采用某种风控算法，也不提供绕过平台反滥用或检测的做法。
 
-> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0128 又让同路径、Credential reselect 与 OAuth 修复后的数据面重试共同遵守指数 fallback/Retry-After，并把默认基础退避从 0 改为 1 秒，F-011 已完整修复。ADR-0124 增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。ADR-0126 进一步集中 data/quota/token 身份，消除了 Claude 内部版本漂移与 Grok 固定伪报 macOS/ARM 的问题，F-006 已修复；同一 ADR 将线路行为冻结为版本化 generic profile，F-007 的配置漂移得到控制，但该通用 Rust wire profile 仍是明确接受且可被上游观察的特征。ADR-0127 将 profile 升级为 `generic-rustls-hyper-v2`，固定协商并统一增量解码 `gzip, br, zstd`，普通/pinned、成功/错误响应不再出现 Header/Body 脱节，F-014 已修复。未单独标记状态的 Finding 仍保持待修。
+> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。ADR-0128 又让同路径、Credential reselect 与 OAuth 修复后的数据面重试共同遵守指数 fallback/Retry-After，并把默认基础退避从 0 改为 1 秒，F-011 已完整修复。ADR-0124 增加了独立 Kimi 服务身份、Moonshot 契约与前向 Schema，F-005 已修复；Responses 接入继续复用显式的通用 Responses → Chat Completions Bridge。ADR-0125 已把 Codex、Claude 和 Grok 的 installation/session/conversation/agent/request/trace 值声明为 Credential-owned，换号 Attempt 会删除它们，F-004 已修复。ADR-0126 进一步集中 data/quota/token 身份，消除了 Claude 内部版本漂移与 Grok 固定伪报 macOS/ARM 的问题，F-006 已修复；同一 ADR 将线路行为冻结为版本化 generic profile，F-007 的配置漂移得到控制，但该通用 Rust wire profile 仍是明确接受且可被上游观察的特征。ADR-0127 将 profile 升级为 `generic-rustls-hyper-v2`，固定协商并统一增量解码 `gzip, br, zstd`，普通/pinned、成功/错误响应不再出现 Header/Body 脱节，F-014 已修复。ADR-0129 又把 Direct/Translated fidelity、Bridge 字段/工具/限制变为可查询的单一 contract，F-008 已从隐式高风险行为收敛为显式受控边界；真实 Registry Header golden、Codex OAuth wire golden 与 Direct materialization golden 分别控制 F-009、F-010、F-015 的实现漂移。未单独标记状态的 Finding 仍保持待修。
 
 ## 1. Executive Summary
 
@@ -467,6 +467,8 @@ rustls key logging 保持默认关闭，SNI 来自请求 origin；证书验证�
 - `crates/protocol/src/openai_responses_chat/stream/translator/state.rs`
 - `crates/protocol/src/openai_responses_chat/stream/wire.rs`
 
+> 修复状态（2026-08-10）：**Controlled / explicit after baseline**。ADR-0129 为每个可配置协议对导出 `Direct` / `Translated` fidelity；Translated option 携带版本化 Bridge contract、operation、顶层字段处理方式、工具类型与 limitation。`supports_operation`、未知顶层字段和工具类型校验读取同一静态表，管理 API/Web 不再只显示方言名称。canonical reconstruction 与合成响应身份仍客观存在，因此不标记为“特征消失”。
+
 **Observed behavior**
 
 Bridge 会完整 materialize JSON，并执行严格 top-level whitelist：
@@ -517,6 +519,8 @@ Bridge 会完整 materialize JSON，并执行严格 top-level whitelist：
 - `crates/provider/src/codex/request.rs` — `prepare`, `normalize_responses`, `rewrite_input`
 - `crates/provider/src/codex/request/tests.rs`
 
+> 修复状态（2026-08-10）：**Controlled / verified after baseline**。该 Profile 继续作为 Codex OAuth 必需的最小 Provider contract；新增精确 wire golden 同时锁定字段删除、默认注入、system → developer、未知字段原字节保留和稳定序列化结果。已经合规的 Body 仍复用原 allocation。它没有被虚报为官方客户端等价；相对官方当前版本的比较继续保留为 S-005。
+
 **Observed behavior**
 
 仅对 Codex OAuth + Responses：
@@ -563,6 +567,8 @@ Bridge 会完整 materialize JSON，并执行严格 top-level whitelist：
 - `crates/runtime/src/public_request/upstream/prepared/build.rs` — `build_request`
 - 三个 Provider 的 `headers.rs`
 - `crates/server/src/public/auth.rs` — `strip_client_credentials`
+
+> 修复状态（2026-08-10）：**Controlled / accepted after baseline**。认证替换、hop-by-hop 删除和有界 allowlist 仍是安全不变量。ADR-0125 已集中 ownership；新增 Registry contract test 枚举 Codex、Claude、Grok、Kimi 的全部实际 operation，并对 Credential owner、Credential switch、cross-dialect 以及 OAuth 子 profile 的最终 Provider Header set 做 golden。Kimi 明确为空 persona，跨协议只保留 Provider default。Header 重建仍可观察，但不再靠散落测试猜测其契约。
 
 **Observed behavior**
 
@@ -776,6 +782,8 @@ mock upstream 无视 Accept-Encoding，返回 `Content-Encoding:gzip` 的成功 
 - `crates/protocol/src/raw_json.rs` — `RawJsonPayload::parse`, `encode`, `replace_raw_field`
 - `crates/protocol/src/openai_responses/adapter.rs` — `decode_ingress_request`
 - `crates/protocol/src/openai_responses/replay_identity.rs` — `normalize_raw`, `write_item_without_id`
+
+> 修复状态（2026-08-10）：**Controlled / verified after baseline**。raw fast path 保持不变；新增精确 byte golden 覆盖完全复用、模型替换、非流 operation 删除 stream、重复顶层 key last-wins 以及非法 replay item ID 删除。合法 ID 继续证明复用同一 `Bytes` allocation；只有真实 materialization trigger 才进入 canonical form。
 
 **Observed behavior**
 
@@ -1025,11 +1033,11 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 
 10. **已完成（ADR-0125）**：为 Header 声明 ownership，并把 installation/session/trace ID 与 Credential/affinity owner 对齐。
 11. **已完成（ADR-0126/0127）**：建立版本化 Provider identity profile，统一 data/quota/token 的固定 Header；消除 Claude 2.1.220/2.1.7 漂移，并把 Codex data/quota persona 差异变为显式子 profile。同时将通用 Transport 行为冻结并升级为版本化 `generic-rustls-hyper-v2`；其上游可观测性作为已接受风险保留。
-12. 在管理/API capability 中明确 `Direct` 与 `Translated` fidelity，展示 bridge 的字段支持交集和不支持原因。
+12. **已完成（ADR-0129）**：管理/API capability 明确 `Direct` 与 `Translated` fidelity；Bridge 单一 contract 同时驱动执行校验与 Web 字段/工具/限制展示。
 
 ### P1 — 修协议与压缩所有权
 
-13. 保留 direct raw JSON fast path；给每个 materialization trigger 增加 raw-byte golden test。
+13. **已完成**：保留 direct raw JSON fast path；模型替换、stream 裁剪、重复 key 与 Responses replay identity 都有精确 raw-byte golden test，Codex OAuth Profile 另有 Provider wire golden。
 14. **已完成（ADR-0127）**：Transport 在 protocol decode/Provider error classify 前统一增量解压所有状态，并保持 Header/Body 一致；buffered 与错误正文上限作用于解压后字节。
 15. **已完成（ADR-0128）**：reselect、same-path 与 OAuth 修复后的数据面重试共同遵守 Retry-After/语义退避；既有 jitter 只作用于 fallback，不缩短 hint，也不作为账号/Transport 隔离替代品。
 
@@ -1049,9 +1057,9 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 4. **F-011：安全重试可零延迟换 Credential，并落回同一 H2 connection。** 已由 ADR-0123/0128 完整修复。
 5. **F-004：installation/session/trace 等稳定 ID 缺少 Credential ownership，可随 failover 换号上行。**
 6. **F-005：Kimi 没有一等 Provider 身份，只能继承 Codex/Grok 的错误画像和能力。**
-7. **F-008：Responses→Chat 是确定性的语义桥和 canonical request reconstruction。**
+7. **F-008：Responses→Chat 是确定性的语义桥和 canonical request reconstruction。** ADR-0129 已将其收敛为可查询、单一来源的 Translated contract；重建本身仍存在。
 8. **F-006/F-007：固定客户端身份与统一 Rust TLS/H2 profile 形成跨层不一致。** F-006 已修复；F-007 已版本化并作为通用 gateway wire profile 明确接受，仍可被上游观察。
-9. **F-010：Header set/覆盖/排序由 allowlist 重建，跨协议尤其稳定。**
+9. **F-010：Header set/覆盖/排序由 allowlist 重建，跨协议尤其稳定。** 安全重建保留；真实 Provider/operation/ownership golden 已锁定契约。
 10. **F-014：Compression ownership 不完整，既有统一缺失特征，也有压缩响应解码风险。** 已由 ADR-0127 修复。
 
 ## 12. 最终判断

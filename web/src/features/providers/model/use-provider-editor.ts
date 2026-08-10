@@ -139,7 +139,7 @@ function validate(
     errors.protocolDialect = "请选择当前 Provider 支持的接受协议";
   } else {
     const upstream = draft.upstreamProtocolDialect ?? draft.protocolDialect;
-    if (!option.upstreamProtocols.includes(upstream)) {
+    if (!option.upstreamOptions.some((candidate) => candidate.protocol === upstream)) {
       errors.upstreamProtocolDialect = "请选择已注册且上游支持的转换协议";
     }
   }
@@ -164,11 +164,11 @@ function defaultUpstreamProtocol(
   const upstreams = options.find(
     (option) =>
       option.providerKind === kind && option.acceptedProtocol === accepted,
-  )?.upstreamProtocols;
-  if (!upstreams || upstreams.includes(accepted)) {
+  )?.upstreamOptions;
+  if (!upstreams || upstreams.some((option) => option.protocol === accepted)) {
     return null;
   }
-  return upstreams[0] ?? null;
+  return upstreams[0]?.protocol ?? null;
 }
 
 function validateUrl(value: string): string | undefined {

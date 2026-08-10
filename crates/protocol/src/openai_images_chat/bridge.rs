@@ -4,12 +4,12 @@ use crate::{
     ProtocolError,
     api::{
         AdapterEvent, DecodedRequest, DecodedResponsePayload, DecodedUpstreamResponse,
-        ProtocolBridge, ProtocolBridgeSession, StartedProtocolBridge,
+        ProtocolBridge, ProtocolBridgeCapabilities, ProtocolBridgeSession, StartedProtocolBridge,
     },
     json_codec,
 };
 
-use super::{request, response};
+use super::{capabilities::CAPABILITIES, request, response};
 
 #[derive(Default)]
 pub struct ImagesToChatCompletionsBridge;
@@ -30,8 +30,8 @@ impl ProtocolBridge for ImagesToChatCompletionsBridge {
         ProtocolDialect::OpenAiChatCompletions
     }
 
-    fn supports_operation(&self, operation: ProtocolOperation) -> bool {
-        operation == ProtocolOperation::ImagesGenerations
+    fn capabilities(&self) -> &'static ProtocolBridgeCapabilities {
+        &CAPABILITIES
     }
 
     fn start(

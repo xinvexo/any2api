@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 
 use crate::ProtocolError;
 
+use super::super::capabilities::CAPABILITIES;
 use super::{invalid, required_string};
 
 pub(super) fn convert_tools(value: &Value) -> Result<Value, ProtocolError> {
@@ -15,7 +16,7 @@ pub(super) fn convert_tools(value: &Value) -> Result<Value, ProtocolError> {
                 .as_object()
                 .ok_or_else(|| invalid("tool must be an object"))?;
             let kind = required_string(object.get("type"), "tool.type")?;
-            if kind != "function" {
+            if !CAPABILITIES.supports_tool_type(kind) {
                 return Err(ProtocolError::unsupported_value("tool type", kind));
             }
             if let Some(field) = object.keys().find(|field| {
@@ -58,7 +59,7 @@ pub(super) fn convert_tool_choice(value: &Value) -> Result<Value, ProtocolError>
         return Err(ProtocolError::unsupported_field(Some("tool_choice"), field));
     }
     let kind = required_string(choice.get("type"), "tool_choice.type")?;
-    if kind != "function" {
+    if !CAPABILITIES.supports_tool_type(kind) {
         return Err(ProtocolError::unsupported_value("tool_choice type", kind));
     }
     let name = required_string(choice.get("name"), "tool_choice.name")?;

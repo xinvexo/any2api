@@ -1,4 +1,5 @@
 mod bridge;
+mod capabilities;
 mod request;
 mod response;
 mod stream;

@@ -1,35 +1,8 @@
 use serde_json::{Map, Value, json};
 
-use crate::ProtocolError;
+use crate::{ProtocolError, api::BridgeRequestFieldBehavior};
 
-const FORWARDED_FIELDS: [&str; 9] = [
-    "background",
-    "moderation",
-    "n",
-    "output_compression",
-    "output_format",
-    "quality",
-    "size",
-    "style",
-    "user",
-];
-
-const KNOWN_FIELDS: [&str; 14] = [
-    "background",
-    "model",
-    "moderation",
-    "n",
-    "output_compression",
-    "output_format",
-    "partial_images",
-    "prompt",
-    "quality",
-    "response_format",
-    "size",
-    "stream",
-    "style",
-    "user",
-];
+use super::capabilities::CAPABILITIES;
 
 pub(super) struct ConvertedRequest {
     pub(super) body: Value,
@@ -58,9 +31,13 @@ pub(super) fn convert(
     chat.insert("model".into(), Value::String(upstream_model.to_owned()));
     chat.insert("messages".into(), json!([{"role":"user","content":prompt}]));
     chat.insert("stream".into(), Value::Bool(false));
-    for field in FORWARDED_FIELDS {
-        if let Some(value) = object.get(field) {
-            chat.insert(field.into(), value.clone());
+    for field in CAPABILITIES
+        .request_fields
+        .iter()
+        .filter(|field| field.behavior == BridgeRequestFieldBehavior::Forwarded)
+    {
+        if let Some(value) = object.get(field.path) {
+            chat.insert(field.path.into(), value.clone());
         }
     }
 
@@ -73,7 +50,7 @@ pub(super) fn convert(
 fn reject_unknown_fields(object: &Map<String, Value>) -> Result<(), ProtocolError> {
     if let Some(field) = object
         .keys()
-        .find(|field| !KNOWN_FIELDS.contains(&field.as_str()))
+        .find(|field| CAPABILITIES.request_field(field).is_none())
     {
         return Err(ProtocolError::unsupported_field(None, field));
     }

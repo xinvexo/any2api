@@ -1,8 +1,11 @@
 use any2api_domain::{
-    ConfigRevision, ProtocolDialect, ProviderEndpoint, ProviderEndpointDraft, ProviderEndpointId,
-    ProviderKind,
+    ConfigRevision, ProtocolDialect, ProtocolOperation, ProviderEndpoint, ProviderEndpointDraft,
+    ProviderEndpointId, ProviderKind,
 };
-use any2api_runtime::api::{ConfigurationCapabilities, PublishedSnapshot};
+use any2api_runtime::api::{
+    ConfigurationCapabilities, ProtocolBridgeCapabilities, ProviderProtocolOptions,
+    ProviderUpstreamProtocolOption, PublishedSnapshot,
+};
 use serde::{Deserialize, Serialize};
 
 use super::{error::AdminApiError, revision::parse_revision};
@@ -22,11 +25,7 @@ impl ProviderEndpointCollectionResponse {
         let protocol_options = ProviderKind::ALL
             .into_iter()
             .flat_map(|provider| capabilities.provider_protocol_options(provider))
-            .map(|option| ProviderProtocolOptionsResponse {
-                provider_kind: option.provider_kind,
-                accepted_protocol: option.accepted_protocol,
-                upstream_protocols: option.upstream_protocols,
-            })
+            .map(ProviderProtocolOptionsResponse::from)
             .collect();
         Self {
             config_revision: snapshot.revision().get(),
@@ -45,7 +44,85 @@ impl ProviderEndpointCollectionResponse {
 struct ProviderProtocolOptionsResponse {
     provider_kind: ProviderKind,
     accepted_protocol: ProtocolDialect,
-    upstream_protocols: Vec<ProtocolDialect>,
+    upstream_options: Vec<ProviderUpstreamProtocolOptionResponse>,
+}
+
+impl From<ProviderProtocolOptions> for ProviderProtocolOptionsResponse {
+    fn from(options: ProviderProtocolOptions) -> Self {
+        Self {
+            provider_kind: options.provider_kind,
+            accepted_protocol: options.accepted_protocol,
+            upstream_options: options
+                .upstream_options
+                .into_iter()
+                .map(ProviderUpstreamProtocolOptionResponse::from)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ProviderUpstreamProtocolOptionResponse {
+    protocol: ProtocolDialect,
+    fidelity: &'static str,
+    operations: Vec<ProtocolOperation>,
+    bridge: Option<ProtocolBridgeCapabilitiesResponse>,
+}
+
+impl From<ProviderUpstreamProtocolOption> for ProviderUpstreamProtocolOptionResponse {
+    fn from(option: ProviderUpstreamProtocolOption) -> Self {
+        Self {
+            protocol: option.protocol,
+            fidelity: option.fidelity.as_str(),
+            operations: option.operations,
+            bridge: option.bridge.map(ProtocolBridgeCapabilitiesResponse::from),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ProtocolBridgeCapabilitiesResponse {
+    contract_id: &'static str,
+    request_fields: Vec<BridgeRequestFieldCapabilityResponse>,
+    tool_types: &'static [&'static str],
+    limitations: Vec<BridgeLimitationResponse>,
+}
+
+impl From<&'static ProtocolBridgeCapabilities> for ProtocolBridgeCapabilitiesResponse {
+    fn from(capabilities: &'static ProtocolBridgeCapabilities) -> Self {
+        Self {
+            contract_id: capabilities.contract_id,
+            request_fields: capabilities
+                .request_fields
+                .iter()
+                .map(|field| BridgeRequestFieldCapabilityResponse {
+                    path: field.path,
+                    behavior: field.behavior.as_str(),
+                })
+                .collect(),
+            tool_types: capabilities.tool_types,
+            limitations: capabilities
+                .limitations
+                .iter()
+                .map(|limitation| BridgeLimitationResponse {
+                    code: limitation.code,
+                    description: limitation.description,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct BridgeRequestFieldCapabilityResponse {
+    path: &'static str,
+    behavior: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct BridgeLimitationResponse {
+    code: &'static str,
+    description: &'static str,
 }
 
 #[derive(Debug, Serialize)]

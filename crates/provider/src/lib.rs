@@ -5,6 +5,8 @@ mod codex;
 mod credential;
 mod error;
 mod grok;
+#[cfg(test)]
+mod header_contract_tests;
 mod header_policy;
 mod kimi;
 mod oauth;

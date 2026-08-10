@@ -390,4 +390,29 @@ mod tests {
             Bytes::from_static(br#"{"input":[],"model":"gpt"}"#)
         );
     }
+
+    #[test]
+    fn model_and_stream_materialization_have_explicit_wire_goldens() {
+        let model = RawJsonPayload::parse(Bytes::from_static(
+            br#" { "z" : {"opaque":true}, "model" : "public", "a": [1, 2] } "#,
+        ))
+        .expect("raw JSON");
+        assert_eq!(
+            model
+                .encode(ProtocolOperation::Responses, "upstream")
+                .expect("model rewrite"),
+            Bytes::from_static(br#"{"a":[1, 2],"model":"upstream","z":{"opaque":true}}"#)
+        );
+
+        let stream = RawJsonPayload::parse(Bytes::from_static(
+            br#"{"z":0,"stream" : true,"model":"gpt","input":"hello"}"#,
+        ))
+        .expect("raw JSON");
+        assert_eq!(
+            stream
+                .encode(ProtocolOperation::ResponsesCompact, "gpt")
+                .expect("stream removal"),
+            Bytes::from_static(br#"{"input":"hello","model":"gpt","z":0}"#)
+        );
+    }
 }

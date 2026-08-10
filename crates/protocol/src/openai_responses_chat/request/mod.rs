@@ -5,25 +5,9 @@ mod tools;
 
 use serde_json::{Map, Value, json};
 
-use crate::ProtocolError;
+use crate::{ProtocolError, api::BridgeRequestFieldBehavior};
 
-const PASSTHROUGH_FIELDS: &[&str] = &[
-    "frequency_penalty",
-    "logit_bias",
-    "logprobs",
-    "metadata",
-    "parallel_tool_calls",
-    "presence_penalty",
-    "prompt_cache_key",
-    "seed",
-    "service_tier",
-    "stop",
-    "store",
-    "temperature",
-    "top_logprobs",
-    "top_p",
-    "user",
-];
+use super::capabilities::CAPABILITIES;
 
 pub(super) struct ConvertedRequest {
     pub(super) body: Value,
@@ -76,9 +60,13 @@ pub(super) fn convert(
     let mut target = Map::new();
     target.insert("model".into(), Value::String(upstream_model.to_owned()));
     target.insert("messages".into(), Value::Array(messages));
-    for field in PASSTHROUGH_FIELDS {
-        if let Some(value) = source.get(*field) {
-            target.insert((*field).into(), value.clone());
+    for field in CAPABILITIES
+        .request_fields
+        .iter()
+        .filter(|field| field.behavior == BridgeRequestFieldBehavior::Forwarded)
+    {
+        if let Some(value) = source.get(field.path) {
+            target.insert(field.path.into(), value.clone());
         }
     }
     if let Some(value) = source.get("max_output_tokens") {
@@ -118,24 +106,10 @@ pub(super) fn convert(
 }
 
 fn validate_top_level_fields(source: &Map<String, Value>) -> Result<(), ProtocolError> {
-    if let Some(field) = source.keys().find(|field| {
-        !(matches!(
-            field.as_str(),
-            "model"
-                | "input"
-                | "instructions"
-                | "previous_response_id"
-                | "include"
-                | "stream"
-                | "max_output_tokens"
-                | "reasoning"
-                | "text"
-                | "tools"
-                | "tool_choice"
-                | "client_metadata"
-                | "n"
-        ) || PASSTHROUGH_FIELDS.contains(&field.as_str()))
-    }) {
+    if let Some(field) = source
+        .keys()
+        .find(|field| CAPABILITIES.request_field(field).is_none())
+    {
         return Err(ProtocolError::unsupported_field(None, field));
     }
     Ok(())

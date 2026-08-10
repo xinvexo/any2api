@@ -4,7 +4,10 @@ use any2api_domain::{ProtocolDialect, ProtocolOperation};
 
 use crate::{
     ProtocolError,
-    api::{ProtocolAdapter, ProtocolBridge, ProtocolExchange},
+    api::{
+        ProtocolAdapter, ProtocolBridge, ProtocolExchange, ProtocolFidelity,
+        ProtocolPairCapabilities,
+    },
 };
 
 #[derive(Default)]
@@ -71,7 +74,36 @@ impl ProtocolRegistry {
             || self
                 .bridges
                 .get(&(ingress, upstream))
-                .is_some_and(|bridge| bridge.supports_operation(operation))
+                .is_some_and(|bridge| bridge.capabilities().supports_operation(operation))
+    }
+
+    #[must_use]
+    pub fn pair_capabilities(
+        &self,
+        ingress: ProtocolDialect,
+        upstream: ProtocolDialect,
+    ) -> Option<ProtocolPairCapabilities> {
+        if !self.adapters.contains_key(&ingress) || !self.adapters.contains_key(&upstream) {
+            return None;
+        }
+        if ingress == upstream {
+            let operations = ProtocolOperation::ALL
+                .into_iter()
+                .filter(|operation| operation.dialect() == ingress)
+                .collect();
+            return Some(ProtocolPairCapabilities {
+                fidelity: ProtocolFidelity::Direct,
+                operations,
+                bridge: None,
+            });
+        }
+        let bridge = self.bridges.get(&(ingress, upstream))?;
+        let capabilities = bridge.capabilities();
+        Some(ProtocolPairCapabilities {
+            fidelity: ProtocolFidelity::Translated,
+            operations: capabilities.operations.to_vec(),
+            bridge: Some(capabilities),
+        })
     }
 
     pub fn exchange(

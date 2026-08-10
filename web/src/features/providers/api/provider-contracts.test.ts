@@ -126,53 +126,89 @@ function protocolOptions() {
     {
       provider_kind: "codex",
       accepted_protocol: "openai_responses",
-      upstream_protocols: [
-        "openai_responses",
-        "openai_chat_completions",
+      upstream_options: [
+        directOption("openai_responses", ["responses", "responses_compact"]),
+        translatedOption("openai_chat_completions", ["responses"]),
       ],
     },
     {
       provider_kind: "codex",
       accepted_protocol: "openai_chat_completions",
-      upstream_protocols: ["openai_chat_completions"],
+      upstream_options: [
+        directOption("openai_chat_completions", ["chat_completions"]),
+      ],
     },
     {
       provider_kind: "codex",
       accepted_protocol: "openai_images",
-      upstream_protocols: ["openai_chat_completions", "openai_images"],
+      upstream_options: [
+        translatedOption("openai_chat_completions", ["images_generations"]),
+        directOption("openai_images", ["images_generations", "images_edits"]),
+      ],
     },
     {
       provider_kind: "grok",
       accepted_protocol: "openai_responses",
-      upstream_protocols: [
-        "openai_responses",
-        "openai_chat_completions",
+      upstream_options: [
+        directOption("openai_responses", ["responses", "responses_compact"]),
+        translatedOption("openai_chat_completions", ["responses"]),
       ],
     },
     {
       provider_kind: "grok",
       accepted_protocol: "openai_chat_completions",
-      upstream_protocols: ["openai_chat_completions"],
+      upstream_options: [
+        directOption("openai_chat_completions", ["chat_completions"]),
+      ],
     },
     {
       provider_kind: "grok",
       accepted_protocol: "openai_images",
-      upstream_protocols: ["openai_chat_completions"],
+      upstream_options: [
+        translatedOption("openai_chat_completions", ["images_generations"]),
+      ],
     },
     {
       provider_kind: "kimi",
       accepted_protocol: "openai_responses",
-      upstream_protocols: ["openai_chat_completions"],
+      upstream_options: [translatedOption("openai_chat_completions", ["responses"])],
     },
     {
       provider_kind: "kimi",
       accepted_protocol: "openai_chat_completions",
-      upstream_protocols: ["openai_chat_completions"],
+      upstream_options: [
+        directOption("openai_chat_completions", ["chat_completions"]),
+      ],
     },
     {
       provider_kind: "kimi",
       accepted_protocol: "openai_images",
-      upstream_protocols: ["openai_chat_completions"],
+      upstream_options: [
+        translatedOption("openai_chat_completions", ["images_generations"]),
+      ],
     },
   ];
+}
+
+function directOption(protocol: string, operations: string[]) {
+  return { protocol, fidelity: "direct", operations, bridge: null };
+}
+
+function translatedOption(protocol: string, operations: string[]) {
+  return {
+    protocol,
+    fidelity: "translated",
+    operations,
+    bridge: {
+      contract_id: "test-bridge/v1",
+      request_fields: [{ path: "input", behavior: "translated" }],
+      tool_types: ["function"],
+      limitations: [
+        {
+          code: "canonical_request_reconstruction",
+          description: "The request is reconstructed.",
+        },
+      ],
+    },
+  };
 }

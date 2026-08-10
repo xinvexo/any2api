@@ -8,12 +8,12 @@ const KIMI_OPTIONS = [
   {
     providerKind: "kimi",
     acceptedProtocol: "openai_responses",
-    upstreamProtocols: ["openai_chat_completions"],
+    upstreamOptions: [translatedOption("openai_chat_completions", ["responses"])],
   },
   {
     providerKind: "kimi",
     acceptedProtocol: "openai_chat_completions",
-    upstreamProtocols: ["openai_chat_completions"],
+    upstreamOptions: [directOption("openai_chat_completions", ["chat_completions"])],
   },
 ] satisfies ProviderProtocolOptions[];
 
@@ -37,3 +37,32 @@ test("defaults Kimi Responses endpoints to the required Chat bridge", () => {
     "openai_chat_completions",
   );
 });
+
+function directOption(
+  protocol: "openai_chat_completions",
+  operations: ["chat_completions"],
+) {
+  return { protocol, fidelity: "direct" as const, operations, bridge: null };
+}
+
+function translatedOption(
+  protocol: "openai_chat_completions",
+  operations: ["responses"],
+) {
+  return {
+    protocol,
+    fidelity: "translated" as const,
+    operations,
+    bridge: {
+      contractId: "openai-responses-to-chat-completions/v1",
+      requestFields: [{ path: "input", behavior: "translated" as const }],
+      toolTypes: ["function"],
+      limitations: [
+        {
+          code: "canonical_request_reconstruction",
+          description: "The request is reconstructed.",
+        },
+      ],
+    },
+  };
+}

@@ -280,4 +280,56 @@ mod tests {
         assert_eq!(value["input"][2]["id"], "item_future");
         assert_eq!(value["future_top_level"]["preserve"], true);
     }
+
+    #[test]
+    fn replay_identity_materialization_has_an_explicit_wire_golden() {
+        let body = Bytes::from_static(
+            br#"{
+                "z":{"keep" : true},
+                "model":"gpt",
+                "input":[
+                    {"z":1,"type":"message","id":"item_wrong","content":[],"a":2},
+                    {"type" : "reasoning", "id":"rs_valid", "summary":[]}
+                ],
+                "a":0
+            }"#,
+        );
+        let mut payload =
+            AdapterPayload::RawJson(RawJsonPayload::parse(body).expect("raw Responses request"));
+
+        normalize(&mut payload).expect("normalize replay identity");
+
+        let AdapterPayload::RawJson(payload) = payload else {
+            panic!("raw JSON payload");
+        };
+        assert_eq!(
+            payload
+                .encode(ProtocolOperation::Responses, "gpt")
+                .expect("encode normalized request"),
+            Bytes::from_static(
+                br#"{"a":0,"input":[{"a":2,"content":[],"type":"message","z":1},{"type" : "reasoning", "id":"rs_valid", "summary":[]}],"model":"gpt","z":{"keep" : true}}"#
+            )
+        );
+    }
+
+    #[test]
+    fn valid_replay_identity_preserves_the_original_wire_allocation() {
+        let body = Bytes::from_static(
+            br#" { "model" : "gpt", "input" : [{"type":"message","id":"msg_valid","content":[]}], "future": true } "#,
+        );
+        let mut payload = AdapterPayload::RawJson(
+            RawJsonPayload::parse(body.clone()).expect("raw Responses request"),
+        );
+
+        normalize(&mut payload).expect("valid identity needs no rewrite");
+
+        let AdapterPayload::RawJson(payload) = payload else {
+            panic!("raw JSON payload");
+        };
+        let encoded = payload
+            .encode(ProtocolOperation::Responses, "gpt")
+            .expect("direct request");
+        assert_eq!(encoded, body);
+        assert_eq!(encoded.as_ptr(), body.as_ptr());
+    }
 }

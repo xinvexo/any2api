@@ -9,6 +9,7 @@ mod snapshot;
 
 pub use capabilities::{
     ConfigurationCapabilities, ConfigurationCapabilityError, ProviderProtocolOptions,
+    ProviderUpstreamProtocolOption,
 };
 pub use error::ConfigPublishError;
 pub(crate) use oauth_identity::OAuthAccountIdentity;

@@ -62,6 +62,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 31. Provider 固定应用身份必须在各 Driver 的版本化 identity profile 中按 data/quota/token surface 集中定义，不得散落版本或伪造与实际构建目标不符的平台。Transport 默认只有一个显式版本的 generic gateway wire profile；没有经审计的 Provider 必需契约时，禁止按 Provider 随机化或模仿 TLS/HTTP2/TCP 特征。
 32. 上游响应的 HTTP Content-Encoding 由 Transport 在 Protocol 解码和 Provider 错误分类前统一拥有：线路 profile 只声明实际可增量解码的编码，普通与 pinned Client 必须共用同一实现，解码后同步删除失效的表示元数据。未知、损坏或过深的编码链必须失败，禁止删除 Header 后把压缩字节交给 JSON/SSE decoder 或错误分类器。非成功响应继续透明返回解码后的原始内容字节与状态，不做 JSON 重序列化。
 33. 所有自动 reattempt 动作必须服从同一请求级语义退避：同路径、重新选择 Credential/Endpoint/Proxy 以及 OAuth 刷新后的数据面重试，都使用当前失败 Credential 的指数 fallback 与明确 Retry-After 的较大值。Retry-After 不得被 jitter 或 Credential switch 缩短；等待无法放入剩余 precommit budget 时必须终止并返回当前真实失败。随机抖动只用于既有的并发去同步，不能作为隐藏账号切换或 Transport 特征的手段。
+34. 每个可配置协议对必须公开 `Direct` 或 `Translated` fidelity。Direct 只表示没有创建 ProtocolBridge，不承诺请求逐字节不变；Translated 必须由 Bridge 的单一版本化 capability table 声明 operation、可接受请求字段、字段处理方式、工具类型和已知限制，Bridge 校验与管理 capability API 共用该表。Web 必须在保存前展示所选路径的 fidelity 与转换限制，禁止只给出方言名称而掩盖 canonical reconstruction、合成本地状态或字段降级。
 
 ### 2.1 两类凭据的术语边界
 
@@ -1396,6 +1397,8 @@ anthropic_messages       -> anthropic_messages
 
 当前注册 Responses → Chat Completions 与 Images → Chat Completions 两座转换桥。Runtime 只按协议对查询注册表，不对这些组合写专用 `match`；新增桥只能通过独立实现与 Composition Root 注册扩展。每座桥必须按 `supports_operation` 精确声明可表达的操作，并在自身已声明的请求模式内覆盖请求、响应、usage 和适用的流式/多轮状态；未声明的操作、模式或无法无损表达的输入必须在请求提交上游前明确报错，禁止静默删除字段。最终上游非 2xx 仍透明返回。Chat Completions → Responses、Codex/OpenAI ↔ Claude 和 `/v1/responses/compact` → Chat Completions 不注册。
 
+`ProtocolRegistry` 还必须为每个实际可选协议对导出可查询的 fidelity capability。Direct 路径的 operation 从入口方言静态派生，且没有 Bridge contract；Translated 路径必须引用 Bridge 自身的版本化 contract ID，并从同一静态表导出 operation、顶层请求字段及其 `Forwarded` / `Translated` / `ValidatedOnly` / `LocalState` 处理方式、允许的工具类型和静态 limitation code/说明。`supports_operation`、未知顶层字段校验和工具类型校验都读取该表，禁止维护一份用于执行、另一份用于管理展示的平行清单。管理 Endpoint API 只返回实际注册且 Provider Driver 支持的 upstream option，每项都携带上述 fidelity；静态 contract 不得包含配置值、客户端字段内容或 Secret。Direct 只说明不经过 Bridge：模型替换、stream 裁剪、重复 key 消歧、Responses replay ID 归一化和 Provider profile 仍可能触发局部 materialization，不能在 UI 或 API 中宣称 byte-transparent。
+
 跨协议请求在上游 I/O 前因 `ProtocolError::InvalidPayload` 被拒绝时，公开
 `invalid_request` 必须保留协议对与 Bridge 返回的定位信息，格式固定为
 `cannot bridge <ingress> to <upstream>: <diagnostic>`。请求校验器在能安全定位时必须给出具体字段路径或
@@ -1534,7 +1537,7 @@ trait ProtocolAdapter: Send + Sync {
 trait ProtocolBridge: Send + Sync {
     fn ingress_dialect(&self) -> ProtocolDialect;
     fn upstream_dialect(&self) -> ProtocolDialect;
-    fn supports_operation(&self, operation: ProtocolOperation) -> bool;
+    fn capabilities(&self) -> &'static ProtocolBridgeCapabilities;
     fn start(&self, request: &DecodedRequest, upstream_model: &str)
         -> Result<StartedProtocolBridge>;
 }
@@ -2959,6 +2962,12 @@ Endpoint 抽屉中的“接受协议”和“内部转换协议”属于 Endpoin
 而锁定。协议修改通过同一次串行配置发布递增全部子 Credential 的运行代际、重建物化 Route/Target 并
 原子切换 PublishedSnapshot；旧协议下已经建立的 Continuation 不迁移，后续按现有
 `session_binding_lost` 边界失败。
+
+内部转换选择器必须使用管理 capability API 返回的 upstream option，而不是只比较方言字符串。当前选项
+必须紧邻展示 `Direct` 或 `Translated`：Direct 说明不会创建 Bridge、但不承诺逐字节透传；Translated
+展示版本化 Bridge contract、支持的 operation/请求字段/工具类型和已知限制，并明确未登记字段会在上游
+I/O 前拒绝。页面不得按 ProviderKind 硬编码 Kimi 或其他 Provider 的转换说明，也不得把静态限制文案
+误写成某个账号的动态能力探测结果。
 
 Provider 详情页包含 Credential 表格：
 

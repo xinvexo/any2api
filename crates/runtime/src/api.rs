@@ -5,6 +5,7 @@ pub use crate::configuration::{
 };
 pub use crate::configuration::{
     ConfigurationCapabilities, ConfigurationCapabilityError, ProviderProtocolOptions,
+    ProviderUpstreamProtocolOption,
 };
 pub use crate::credential::ProviderApiKeySecret;
 pub use crate::credential::{
@@ -45,6 +46,10 @@ pub use crate::routing::{
 };
 pub use crate::routing::{QueuePolicy, QueuePolicyError, RateLimitAction};
 pub use crate::routing::{SelectAndReserveResult, select_and_try_reserve};
+pub use any2api_protocol::api::{
+    BridgeLimitation, BridgeRequestFieldBehavior, BridgeRequestFieldCapability,
+    ProtocolBridgeCapabilities, ProtocolFidelity,
+};
 pub use any2api_provider::api::{
     OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
     OAuthQuotaExhaustion, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
