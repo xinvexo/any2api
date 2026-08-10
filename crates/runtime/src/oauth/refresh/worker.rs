@@ -21,6 +21,7 @@ use super::{
     failure::{OAuthRefreshError, OAuthRefreshFailure, OAuthRefreshTrigger},
     state::OAuthRefreshState,
 };
+use crate::oauth::control_plane::OAuthControlPlanePacer;
 
 const SCHEDULED_REFRESH_CONCURRENCY: usize = 6;
 
@@ -28,6 +29,7 @@ pub(crate) struct OAuthRefresher {
     pub(super) providers: Arc<ProviderRegistry>,
     pub(super) transport: Arc<dyn TransportManager>,
     pub(super) publisher: Arc<ConfigPublisher>,
+    pub(super) control_plane: Arc<OAuthControlPlanePacer>,
     pub(super) gates: StdMutex<HashMap<OAuthAccountId, Weak<Mutex<()>>>>,
     pub(super) refresh_state: OAuthRefreshState,
     worker_started: AtomicBool,
@@ -38,11 +40,13 @@ impl OAuthRefresher {
         providers: Arc<ProviderRegistry>,
         transport: Arc<dyn TransportManager>,
         publisher: Arc<ConfigPublisher>,
+        control_plane: Arc<OAuthControlPlanePacer>,
     ) -> Arc<Self> {
         Arc::new(Self {
             providers,
             transport,
             publisher,
+            control_plane,
             gates: StdMutex::new(HashMap::new()),
             refresh_state: OAuthRefreshState::new(),
             worker_started: AtomicBool::new(false),

@@ -158,6 +158,51 @@ async fn invalid_later_file_and_upload_limits_leave_the_batch_uncommitted() {
 }
 
 #[tokio::test]
+async fn duplicate_provider_identity_returns_conflict_without_committing() {
+    let context = TestContext::new(false).await;
+    let duplicate = serde_json::to_vec(&json!({
+        "accounts": [
+            {
+                "platform": "openai",
+                "type": "oauth",
+                "credentials": {
+                    "access_token": "first-secret",
+                    "email": "same@example.com"
+                }
+            },
+            {
+                "platform": "openai",
+                "type": "oauth",
+                "credentials": {
+                    "access_token": "second-secret",
+                    "email": "SAME@example.com"
+                }
+            }
+        ]
+    }))
+    .expect("JSON");
+    let (content_type, body) = multipart(&[("duplicates.json", duplicate.as_slice())]);
+
+    let response = request(
+        &context.app,
+        Method::POST,
+        "/api/admin/oauth/import",
+        Body::from(body),
+        &[("content-type", &content_type)],
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::CONFLICT);
+    let body = response.json();
+    assert_eq!(body["error"]["code"], "oauth_account_identity_conflict");
+    let response_text = String::from_utf8(response.body.to_vec()).expect("UTF-8 response");
+    for forbidden in ["same@example.com", "first-secret", "second-secret"] {
+        assert!(!response_text.contains(forbidden));
+    }
+    assert_initial(&context.storage).await;
+}
+
+#[tokio::test]
 async fn multipart_import_requires_the_admin_csrf_token() {
     let context = TestContext::new(true).await;
     let setup = request_json(

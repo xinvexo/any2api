@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use any2api_domain::ProviderKind;
 use any2api_provider::api::{OAuthRequestPlan, ProviderError};
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportIsolationKey, TransportManager, TransportProxy,
@@ -9,7 +10,7 @@ use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use tokio::time::timeout;
 
-use crate::oauth::error::OAuthError;
+use crate::oauth::{control_plane::OAuthControlPlanePacer, error::OAuthError};
 
 const MAX_TOKEN_RESPONSE_BYTES: usize = 64 * 1024;
 const TOKEN_READ_TIMEOUT: Duration = Duration::from_secs(30);
@@ -21,12 +22,23 @@ pub(in crate::oauth) struct OAuthHttpResponse {
 
 pub(in crate::oauth) async fn execute(
     transport: &dyn TransportManager,
+    control_plane: &OAuthControlPlanePacer,
+    provider: ProviderKind,
     proxy: TransportProxy<'_>,
     strict_ssrf: bool,
     isolation: TransportIsolationKey,
     plan: OAuthRequestPlan,
 ) -> Result<Bytes, OAuthError> {
-    let response = execute_response(transport, proxy, strict_ssrf, isolation, plan).await?;
+    let response = execute_response(
+        transport,
+        control_plane,
+        provider,
+        proxy,
+        strict_ssrf,
+        isolation,
+        plan,
+    )
+    .await?;
     if !response.status.is_success() {
         return Err(OAuthError::TokenRejected(response.status.as_u16()));
     }
@@ -35,6 +47,8 @@ pub(in crate::oauth) async fn execute(
 
 pub(in crate::oauth) async fn execute_response(
     transport: &dyn TransportManager,
+    control_plane: &OAuthControlPlanePacer,
+    provider: ProviderKind,
     proxy: TransportProxy<'_>,
     strict_ssrf: bool,
     isolation: TransportIsolationKey,
@@ -53,6 +67,7 @@ pub(in crate::oauth) async fn execute_response(
         network_policy: EndpointNetworkPolicy::new().with_strict_ssrf(strict_ssrf),
         read_timeout: TOKEN_READ_TIMEOUT,
     };
+    control_plane.wait(provider).await;
     let response = transport.execute(proxy, request).await?;
     Ok(OAuthHttpResponse {
         status: response.status,

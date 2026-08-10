@@ -7,7 +7,8 @@ use any2api_storage::api::{
 
 use super::ConfigPublisher;
 use crate::configuration::{
-    ConfigPublishError, PublishedSnapshot, command::ConfigCommand, publish_task,
+    ConfigPublishError, OAuthImportIdentity, OAuthImportIdentityIndex, PublishedSnapshot,
+    command::ConfigCommand, publish_task,
 };
 
 pub(crate) struct OAuthAccountActivation {
@@ -18,6 +19,7 @@ pub(crate) struct OAuthAccountActivation {
     pub(crate) expires_at: Option<i64>,
     pub(crate) models: Vec<String>,
     pub(crate) document: OAuthAccountDocument,
+    pub(crate) import_identity: Option<OAuthImportIdentity>,
 }
 
 impl ConfigPublisher {
@@ -89,6 +91,7 @@ impl ConfigPublisher {
         let _guard = self.snapshots.acquire_publish().await;
         let current = self.snapshots.load();
         let expected = current.revision();
+        validate_import_identities(current.as_ref(), &activations)?;
         let mut labels = current
             .oauth_accounts()
             .accounts()
@@ -227,6 +230,27 @@ impl ConfigPublisher {
         )
         .await
     }
+}
+
+fn validate_import_identities(
+    current: &PublishedSnapshot,
+    activations: &[OAuthAccountActivation],
+) -> Result<(), ConfigPublishError> {
+    let mut identities = OAuthImportIdentityIndex::default();
+    for account in current.oauth_accounts().accounts() {
+        if let Some(token) = current.oauth_token_material(account.id()) {
+            identities.include_existing(&OAuthImportIdentity::from_token(token.as_ref()));
+        }
+    }
+    for identity in activations
+        .iter()
+        .filter_map(|activation| activation.import_identity.as_ref())
+    {
+        if !identities.insert_new(identity) {
+            return Err(ConfigPublishError::OAuthAccountIdentityConflict);
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn unique_label(

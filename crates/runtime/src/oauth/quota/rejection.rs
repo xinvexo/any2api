@@ -12,10 +12,12 @@ use super::{
     request::{self, OAuthQuotaResponse},
     types::OAuthQuotaError,
 };
+use crate::oauth::control_plane::OAuthControlPlanePacer;
 
 pub(super) struct RequestContext<'a> {
     driver: &'a dyn ProviderDriver,
     transport: &'a dyn TransportManager,
+    control_plane: &'a OAuthControlPlanePacer,
     proxy: TransportProxy<'a>,
     strict_ssrf: bool,
     read_timeout: Duration,
@@ -26,6 +28,7 @@ impl<'a> RequestContext<'a> {
     pub(super) const fn new(
         driver: &'a dyn ProviderDriver,
         transport: &'a dyn TransportManager,
+        control_plane: &'a OAuthControlPlanePacer,
         proxy: TransportProxy<'a>,
         strict_ssrf: bool,
         read_timeout: Duration,
@@ -34,6 +37,7 @@ impl<'a> RequestContext<'a> {
         Self {
             driver,
             transport,
+            control_plane,
             proxy,
             strict_ssrf,
             read_timeout,
@@ -49,6 +53,7 @@ impl<'a> RequestContext<'a> {
         &self,
         plan: OAuthRequestPlan,
     ) -> Result<OAuthQuotaResponse, OAuthQuotaError> {
+        self.control_plane.wait(self.driver.kind()).await;
         request::execute(
             self.transport,
             self.proxy,

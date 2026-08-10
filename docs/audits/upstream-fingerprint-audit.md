@@ -14,6 +14,8 @@
 > ADR-0124～0126 已落实独立 Kimi 身份、Credential-owned Header 与版本化 Provider data/quota/token persona，F-004～F-007 已修复或转为显式接受边界。ADR-0127 统一响应 content coding，ADR-0129 公开 Direct/Translated fidelity 与 Bridge 限制，ADR-0130 则冻结 H1/H2/TLS 稳定线路并增加 Transport/stream 诊断，F-008～F-010 与 F-012～F-016 均已修复或成为可回归边界。
 >
 > 2026-08-11 又由真实 Composition Root Registry 生成 35 个 loopback raw HTTP/1 surface，覆盖 API Key/OAuth direct、所有有效 Bridge/Provider 组合、OAuth token 与 quota plan，精确比较 target、path/query、认证类别、Header 集合/顺序和原始 Body，E-07 已完成。随后扩展的双向 raw H2 recorder 证明同隔离域顺序复用 stream 1/3、首响应前并发 stream 1/3，以及 graceful GOAWAY/PING 后新连接从 stream 1 重启，E-05 也已完成。ADR-0131 进一步提交 Codex 0.147.0 macOS arm64 的 `codex exec` 与交互 TUI 两份独立 loopback HTTP/1 Responses 基线；清空环境后两者分别使用 `codex_exec` 与 `codex-tui` persona，继承 Desktop originator override 的试采已明确作废。当前仍缺 Claude/Grok/Kimi、Codex ChatGPT OAuth/TLS/H2、其他平台和长期流官方基线；仍不得声称与官方客户端完全一致或不可被识别。
+>
+> OAuth 专项复核进一步确认：连接隔离并不会改变多个官方账号继承同一全局出口这一事实，但原定时刷新和 activity quota Worker 会让同一 Provider 最多 6 条控制面请求在同一 tick 起跑。ADR-0132 现在让登录、Device Code、Token 刷新、quota 查询与 reset 共用 Provider 级 500 ms 最小起始间隔，只错开 Transport 开始时刻，不串行响应、不限制数据面并发。ADR-0133 同时在发布锁内原子拒绝稳定身份或任一完全相同 Token 可证明重复的导入，避免一个官方账号被复制成多条路由凭据；E-12 已闭环。共享出口 IP 仍可见，项目没有加入随机化、身份伪造或风控规避层。
 
 ## 1. Executive Summary
 
@@ -255,6 +257,8 @@ Token endpoint、quota endpoint 和 inference data plane 应有显式的 traffic
 **Architecture recommendation**
 
 在 transport API 中加入与 Provider 业务解耦的 `TrafficClass::{DataPlane, OAuthToken, OAuthQuota, Diagnostic}` 和 `TransportIsolationKey`。默认按 `account + traffic class + auth generation` 隔离；如某 Provider 确实允许合并，应通过显式 profile 声明并由契约测试证明，而不是依赖相同 origin。
+
+> 修复状态（2026-08-11）：**Fixed after baseline**。ADR-0123 已按账号、认证代际和 traffic class 隔离 Client、连接与 TLS resumption。OAuth 专项复核又确认登录、刷新和 quota 的所有实际网络调用都进入同一个 Provider 级起始门闩；ADR-0132 以固定 500 ms 间隔消除了同 Provider 的同步控制面起跑，但响应仍可并发。ADR-0133 则阻止重复导入把同一官方身份或完全相同 Token 扩成多个本地候选。多个 OAuthAccount 固定继承全局出口的架构没有改变，因此公网 IP 层面的关联能力仍然存在。
 
 ### F-004 — 多种客户端/设备/会话标识没有 Credential ownership，可随换号继续上行
 
@@ -976,6 +980,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 | User-Agent identity | **Shared by Provider profile** | 默认值按 Provider 固定、跨账号相同；同方言可被 client Header 覆盖，跨方言使用固定默认。 |
 | Provider driver | **Shared/stateless** | Driver 实例按 Provider 共享，业务上合理；Kimi 已有独立 driver。 |
 | Control-plane traffic class | **Isolated** | data、OAuth token、quota、diagnostic 进入不同 transport isolation class。 |
+| OAuth control-plane start cadence | **Provider-scoped pacing** | 同 Provider 的登录、Token 与 quota Transport 起始至少相隔 500 ms；不同 Provider 独立，响应可并发；不改变共享出口。 |
 
 ## 7. Provider Matrix
 
@@ -990,6 +995,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 | Connection pool | 按 Credential/代际/class + proxy/policy + origin 隔离 | 同左 | 同左 | 同左 |
 | TLS resumption | 按同一 isolation domain 隔离 | 同左 | 同左 | 同左 |
 | Retry | Runtime 有界 attempts；reselect/same-path/OAuth 后重试统一遵守 Retry-After/退避 | 同左 | 同左 | 同左 |
+| OAuth control-plane start | 同 Provider 至少间隔 500 ms | 同左 | 同左 | 不支持 OAuth |
 | Redirect | none | none | none | none |
 | Request compression | 同方言 Responses/Chat 可重压 zstd | 不声明支持 | 不声明支持 | 不声明支持 |
 | Response compression | profile 声明 `gzip, br, zstd` 并统一增量解码 | 同左 | 同左 | 同左 |
@@ -1030,8 +1036,9 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 | E-09 Retry switch sequence | 证明 429 换号后的退避与连接隔离 | **真实 Runtime 实验完成** | 两 Authorization、不同 TCP peer、第二次到达 ≥ Retry-After |
 | E-10 SSE timing | 量化 precommit burst/backpressure | **四点埋点与受控顺序测试已完成** | RequestAttempt 持久化 frame、commit、Body yield、cancel；负载分布待测 |
 | E-11 官方 Codex H1 | 对照明确版本的应用层 surface | **exec/TUI 两份基线已完成** | 0.147.0 macOS arm64；入口专属 persona、Header 顺序、Responses Body 结构；Desktop override 污染已隔离 |
+| E-12 OAuth 多账号控制面 | 验证同出口下控制面错峰与重复导入拒绝 | **受控时间与原子发布测试完成** | 同 Provider 起始间隔 500 ms、响应仍可并发；重复身份/Token 返回 409 且 revision/Runtime 不变化 |
 
-上述 E-01～E-11 都已在 loopback、自签 TLS或明文 H1 和假 Credential 范围内完成，不需要访问真实 Provider 或账号。更长时间的 keepalive/负载分布可以按真实故障需要追加；其他官方客户端基线仍是独立证据缺口。
+上述 E-01～E-12 都已在 loopback、自签 TLS或明文 H1 和假 Credential 范围内完成，不需要访问真实 Provider 或账号。更长时间的 keepalive/负载分布可以按真实故障需要追加；其他官方客户端基线仍是独立证据缺口。
 
 ## 10. 建议修改顺序
 
@@ -1067,6 +1074,7 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 16. **已完成（ADR-0123/0128/0130）**：E-04～E-10 的本地契约均已落地；H2 fixture 覆盖首连控制帧、顺序复用、首响应前并发和 GOAWAY 后重连。reqwest/hyper/rustls 升级时必须审核 fixture 差异。
 17. **安全可观测部分完成（ADR-0130）**：RequestAttempt 已记录不含 owner ID 的 routing/authentication generation、traffic class、wire/timeout profile、resolver 与 proxy。当前没有可靠 hook 证明物理 connection reused 或 TLS resumed，因此明确保持未知，禁止从 Client cache 命中推断；attempt switch 继续由既有 Attempt/failure/retry 字段表达。不得记录 token、API key、proxy password 或原始 session id。
 18. **部分完成（ADR-0131）**：Codex 0.147.0 macOS arm64 的 `codex exec` 与 TUI 已有带发布物 hash、操作、日期、脱敏和局限的独立 H1 Responses 基线，且由 architecture-check 校验。Claude/Grok/Kimi、Codex OAuth/TLS/H2 和其他平台仍保持 Suspected，不把“看起来像”升级为事实。
+19. **已完成（ADR-0132/0133）**：同 Provider 的 OAuth 登录、刷新和 quota 网络起始统一错峰；重复官方身份或完全相同 Token 的导入在串行发布锁内整批拒绝。该保护不改变共享出口，也不限制数据面并发。
 
 ## 11. Top 10 Findings
 
@@ -1074,7 +1082,7 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 
 1. **F-001：不同账号真实共享同一条 TCP/TLS/H2 连接。** 已实验，不是理论。
 2. **F-002：不同缓存 Client 仍共享 TLS session resumption。** 只改 cache key 会留下漏洞。
-3. **F-003：OAuth token/quota/data 共用全局 transport；Claude 三类请求甚至同 origin。**
+3. **F-003：OAuth token/quota/data 原先共用全局 transport，控制面还会同 tick 批量起跑。** 连接与 resumption 已按账号/class 隔离，控制面已按 Provider 错峰；OAuth 共享全局出口仍是明确边界。
 4. **F-011：安全重试可零延迟换 Credential，并落回同一 H2 connection。** 已由 ADR-0123/0128 完整修复。
 5. **F-004：installation/session/trace 等稳定 ID 缺少 Credential ownership，可随 failover 换号上行。**
 6. **F-005：Kimi 没有一等 Provider 身份，只能继承 Codex/Grok 的错误画像和能力。**
@@ -1092,5 +1100,6 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 3. **Direct/Translated fidelity 已由 Bridge 单一 capability contract 公开。** 跨协议 canonical reconstruction 仍客观存在，但不再被产品能力隐藏。
 4. **generic Rust transport 的可观测性没有“消失”。** ADR-0130 选择诚实地冻结 H1/H2/TLS 稳定行为、记录真实 Rustls 扩展顺序策略，并为 resolver/timeout 与 stream timing 提供本地诊断；没有随机 UA、TLS 参数或 flush 时序。
 5. **官方基线开始形成独立证据层。** ADR-0131 已覆盖 Codex 0.147.0 的 exec/TUI H1 Responses，并证明 persona 受入口和宿主 override 影响；该结果没有被误用成通用身份伪装。
+6. **OAuth 多账号控制面不再同步起跑或重复建号。** ADR-0132 只排列同 Provider 的 Transport 起始时刻，ADR-0133 在发布锁内拒绝可证明重复的身份/Token；它们不掩盖仍然共享的公网出口。
 
-本地可闭环的审计修复与 E-01～E-11 契约已经完成；剩余证据工作是 Claude/Grok/Kimi、Codex ChatGPT OAuth/TLS/H2、其他平台和按真实故障触发的长期负载基线。在这些证据完成前，项目只能声称“隔离正确、行为受控且可回归，并已对照两个 Codex H1 入口”，不能声称“与官方客户端完全一致”或“不可被识别”。
+本地可闭环的审计修复与 E-01～E-12 契约已经完成；剩余证据工作是 Claude/Grok/Kimi、Codex ChatGPT OAuth/TLS/H2、其他平台和按真实故障触发的长期负载基线。在这些证据完成前，项目只能声称“隔离正确、行为受控且可回归，并已对照两个 Codex H1 入口”，不能声称“与官方客户端完全一致”或“不可被识别”。

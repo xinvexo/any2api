@@ -317,6 +317,8 @@ impl OAuthRefresher {
             .transport_isolation(TransportTrafficClass::OAuthToken);
         let response = token_request::execute_response(
             self.transport.as_ref(),
+            self.control_plane.as_ref(),
+            provider_kind,
             proxy,
             strict_ssrf,
             isolation,

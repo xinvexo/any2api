@@ -227,13 +227,23 @@ impl RefreshTestContext {
     }
 
     async fn with_accounts(transport: Arc<dyn TransportManager>, account_count: usize) -> Self {
-        Self::with_accounts_enabled(transport, account_count, true).await
+        Self::with_accounts_paced(transport, account_count, true, std::time::Duration::ZERO).await
     }
 
     async fn with_accounts_enabled(
         transport: Arc<dyn TransportManager>,
         account_count: usize,
         enabled: bool,
+    ) -> Self {
+        Self::with_accounts_paced(transport, account_count, enabled, std::time::Duration::ZERO)
+            .await
+    }
+
+    async fn with_accounts_paced(
+        transport: Arc<dyn TransportManager>,
+        account_count: usize,
+        enabled: bool,
+        control_plane_interval: std::time::Duration,
     ) -> Self {
         let directory = tempfile::tempdir().expect("temporary directory");
         let storage = Arc::new(
@@ -283,7 +293,14 @@ impl RefreshTestContext {
             .expect("publisher"),
         );
         let providers = providers();
-        let refresher = OAuthRefresher::new(providers, transport, Arc::clone(&publisher));
+        let refresher = OAuthRefresher::new(
+            providers,
+            transport,
+            Arc::clone(&publisher),
+            Arc::new(crate::oauth::control_plane::OAuthControlPlanePacer::new(
+                control_plane_interval,
+            )),
+        );
         Self {
             _directory: directory,
             _storage: storage,

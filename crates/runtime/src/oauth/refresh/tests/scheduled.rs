@@ -61,6 +61,32 @@ async fn scheduled_refreshes_use_bounded_network_concurrency_and_ready_segments(
 }
 
 #[tokio::test]
+async fn scheduled_refresh_starts_are_paced_without_serializing_in_flight_requests() {
+    let interval = std::time::Duration::from_secs(1);
+    let transport = Arc::new(ConcurrentRefreshTransport::success());
+    let context =
+        RefreshTestContext::with_accounts_paced(transport.clone(), 2, true, interval).await;
+    tokio::time::pause();
+
+    let refresher = Arc::clone(&context.refresher);
+    let scan = tokio::spawn(async move { refresher.scan_due_accounts().await });
+    transport.wait_until_started(1).await;
+    assert_eq!(transport.calls(), 1);
+
+    tokio::time::advance(interval - std::time::Duration::from_millis(1)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(transport.calls(), 1);
+
+    tokio::time::advance(std::time::Duration::from_millis(1)).await;
+    transport.wait_until_started(1).await;
+    assert_eq!(transport.calls(), 2);
+    assert_eq!(transport.max_in_flight(), 2);
+
+    transport.release(2);
+    scan.await.expect("scheduled refresh scan");
+}
+
+#[tokio::test]
 async fn scheduled_refresh_batch_keeps_successes_when_one_network_request_fails() {
     let transport = Arc::new(ConcurrentRefreshTransport::failing_call(0));
     let context = RefreshTestContext::with_accounts(transport.clone(), 2).await;

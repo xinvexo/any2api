@@ -23,6 +23,13 @@ pub(super) fn map(error: OAuthImportError) -> AdminApiError {
         OAuthImportError::Activation(ConfigPublishError::ShuttingDown) => {
             AdminApiError::shutting_down()
         }
+        OAuthImportError::Activation(ConfigPublishError::OAuthAccountIdentityConflict) => {
+            AdminApiError::new(
+                StatusCode::CONFLICT,
+                "oauth_account_identity_conflict",
+                "OAuth import contains an account that is already present",
+            )
+        }
         OAuthImportError::Activation(error) => {
             tracing::error!(error = ?error, "OAuth JSON import activation failed");
             AdminApiError::new(

@@ -1,7 +1,14 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use any2api_contract_tests::TestApplication;
-use any2api_domain::ProxyProfileId;
+use any2api_domain::{ProviderKind, ProxyProfileId};
 use any2api_provider::{CodexDriver, GrokDriver, api::ProviderRegistry};
 use any2api_runtime::api::OAuthService;
 use any2api_storage::api::ConfigurationRepository;
@@ -18,6 +25,7 @@ use axum::{
 use bytes::Bytes;
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
+use tokio::sync::Semaphore;
 use tower::ServiceExt;
 
 #[tokio::test]
@@ -102,6 +110,48 @@ async fn oauth_http_flows_activate_redacted_codex_and_grok_accounts() {
     assert_eq!(configuration.oauth_accounts().accounts().len(), 2);
 }
 
+#[tokio::test]
+async fn oauth_service_paces_concurrent_network_starts_for_one_provider() {
+    let fixture = TestApplication::new().await;
+    let transport = Arc::new(PacingTransport::new());
+    let mut providers = ProviderRegistry::new();
+    providers
+        .register(Arc::new(GrokDriver::new()))
+        .expect("Grok driver");
+    let oauth = Arc::new(OAuthService::new(
+        Arc::new(providers),
+        transport.clone(),
+        fixture.publisher(),
+        fixture.storage(),
+    ));
+    tokio::time::pause();
+
+    let first = {
+        let oauth = Arc::clone(&oauth);
+        tokio::spawn(async move { oauth.start(ProviderKind::Grok).await })
+    };
+    let second = {
+        let oauth = Arc::clone(&oauth);
+        tokio::spawn(async move { oauth.start(ProviderKind::Grok).await })
+    };
+    transport.wait_for_start().await;
+    tokio::task::yield_now().await;
+    assert_eq!(transport.calls(), 1);
+
+    tokio::time::advance(Duration::from_millis(499)).await;
+    tokio::task::yield_now().await;
+    assert_eq!(transport.calls(), 1);
+
+    tokio::time::advance(Duration::from_millis(1)).await;
+    transport.wait_for_start().await;
+    assert_eq!(transport.calls(), 2);
+    first.await.expect("first task").expect("first OAuth start");
+    second
+        .await
+        .expect("second task")
+        .expect("second OAuth start");
+}
+
 fn assert_redacted(value: &Value) {
     let encoded = value.to_string();
     for secret in [
@@ -172,6 +222,54 @@ impl TransportManager for TokenTransport {
             status: StatusCode::OK,
             headers: HeaderMap::new(),
             body: Box::pin(futures_util::stream::once(async { Ok(body) })),
+            read_failure_scope: TransportFailureScope::Endpoint,
+        })
+    }
+}
+
+struct PacingTransport {
+    calls: AtomicUsize,
+    started: Semaphore,
+}
+
+impl PacingTransport {
+    fn new() -> Self {
+        Self {
+            calls: AtomicUsize::new(0),
+            started: Semaphore::new(0),
+        }
+    }
+
+    async fn wait_for_start(&self) {
+        self.started
+            .acquire()
+            .await
+            .expect("OAuth start signal")
+            .forget();
+    }
+
+    fn calls(&self) -> usize {
+        self.calls.load(Ordering::Acquire)
+    }
+}
+
+#[async_trait]
+impl TransportManager for PacingTransport {
+    async fn execute(
+        &self,
+        _proxy: TransportProxy<'_>,
+        _request: TransportRequest,
+    ) -> Result<TransportResponse, any2api_transport::api::TransportError> {
+        self.calls.fetch_add(1, Ordering::AcqRel);
+        self.started.add_permits(1);
+        Ok(TransportResponse {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
+            body: Box::pin(futures_util::stream::once(async {
+                Ok(Bytes::from_static(
+                    br#"{"device_code":"device-secret","user_code":"ABCD-1234","verification_uri":"https://accounts.x.ai/oauth2/device","expires_in":1800,"interval":5}"#,
+                ))
+            })),
             read_failure_scope: TransportFailureScope::Endpoint,
         })
     }

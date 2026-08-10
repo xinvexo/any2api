@@ -12,6 +12,7 @@ use tokio::sync::watch;
 use crate::{configuration::ConfigPublisher, lifecycle::ProcessLifecycle};
 
 use super::{
+    control_plane::{OAUTH_CONTROL_PLANE_MIN_START_INTERVAL, OAuthControlPlanePacer},
     error::OAuthError,
     import::{self, OAuthImportError, OAuthImportResult},
     login::{
@@ -30,6 +31,7 @@ pub struct OAuthService {
     providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
     publisher: Arc<ConfigPublisher>,
+    control_plane: Arc<OAuthControlPlanePacer>,
     sessions: OAuthSessionRegistry,
     refresher: Arc<OAuthRefresher>,
     quota: Arc<OAuthQuotaService>,
@@ -46,26 +48,68 @@ impl OAuthService {
     where
         R: OAuthQuotaSnapshotRepository + 'static,
     {
+        Self::new_with_control_plane_interval(
+            providers,
+            transport,
+            publisher,
+            quota_repository,
+            OAUTH_CONTROL_PLANE_MIN_START_INTERVAL,
+        )
+    }
+
+    fn new_with_control_plane_interval<R>(
+        providers: Arc<ProviderRegistry>,
+        transport: Arc<dyn TransportManager>,
+        publisher: Arc<ConfigPublisher>,
+        quota_repository: Arc<R>,
+        control_plane_interval: std::time::Duration,
+    ) -> Self
+    where
+        R: OAuthQuotaSnapshotRepository + 'static,
+    {
+        let control_plane = Arc::new(OAuthControlPlanePacer::new(control_plane_interval));
         let refresher = OAuthRefresher::new(
             Arc::clone(&providers),
             Arc::clone(&transport),
             Arc::clone(&publisher),
+            Arc::clone(&control_plane),
         );
         let quota = Arc::new(OAuthQuotaService::new(
             Arc::clone(&providers),
             Arc::clone(&transport),
             Arc::clone(&publisher),
             Arc::clone(&refresher),
+            Arc::clone(&control_plane),
             quota_repository,
         ));
         Self {
             providers,
             transport,
             publisher,
+            control_plane,
             sessions: OAuthSessionRegistry::default(),
             refresher,
             quota,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test<R>(
+        providers: Arc<ProviderRegistry>,
+        transport: Arc<dyn TransportManager>,
+        publisher: Arc<ConfigPublisher>,
+        quota_repository: Arc<R>,
+    ) -> Self
+    where
+        R: OAuthQuotaSnapshotRepository + 'static,
+    {
+        Self::new_with_control_plane_interval(
+            providers,
+            transport,
+            publisher,
+            quota_repository,
+            std::time::Duration::ZERO,
+        )
     }
 
     pub fn start_refresh_worker(&self, lifecycle: &ProcessLifecycle) -> bool {
@@ -177,7 +221,7 @@ impl OAuthService {
         driver: &dyn ProviderDriver,
     ) -> Result<OAuthStartResult, OAuthError> {
         let plan = driver.oauth_device_authorization_request()?;
-        let body = self.execute_request(plan).await?;
+        let body = self.execute_request(provider, plan).await?;
         let authorization = driver
             .parse_oauth_device_authorization(&body)
             .map_err(OAuthError::from_token_response_error)?;
@@ -224,7 +268,7 @@ impl OAuthService {
             Some(session.state()),
             Some(session.code_verifier()),
         )?;
-        let body = self.execute_request(plan).await?;
+        let body = self.execute_request(session.provider, plan).await?;
         let token = driver
             .parse_oauth_token_response(&body)
             .map_err(OAuthError::from_token_response_error)?;
@@ -256,7 +300,9 @@ impl OAuthService {
             .get(lease.provider())
             .ok_or(OAuthError::ProviderUnavailable)?;
         let plan = driver.oauth_device_token_request(lease.device_code())?;
-        let response = self.execute_request_with_status(plan).await?;
+        let response = self
+            .execute_request_with_status(lease.provider(), plan)
+            .await?;
         let poll = driver
             .parse_oauth_device_token(response.status, &response.body)
             .map_err(OAuthError::from_token_response_error)?;
@@ -296,7 +342,11 @@ impl OAuthService {
         }
     }
 
-    async fn execute_request(&self, plan: OAuthRequestPlan) -> Result<bytes::Bytes, OAuthError> {
+    async fn execute_request(
+        &self,
+        provider: ProviderKind,
+        plan: OAuthRequestPlan,
+    ) -> Result<bytes::Bytes, OAuthError> {
         let snapshot = self.publisher.current_snapshot();
         let proxy = snapshot
             .resolved_transport_proxy_for_oauth_account()
@@ -304,6 +354,8 @@ impl OAuthService {
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         token_request::execute(
             self.transport.as_ref(),
+            self.control_plane.as_ref(),
+            provider,
             proxy,
             strict_ssrf,
             TransportIsolationKey::ephemeral(TransportTrafficClass::OAuthToken),
@@ -314,6 +366,7 @@ impl OAuthService {
 
     async fn execute_request_with_status(
         &self,
+        provider: ProviderKind,
         plan: OAuthRequestPlan,
     ) -> Result<token_request::OAuthHttpResponse, OAuthError> {
         let snapshot = self.publisher.current_snapshot();
@@ -323,6 +376,8 @@ impl OAuthService {
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
         token_request::execute_response(
             self.transport.as_ref(),
+            self.control_plane.as_ref(),
+            provider,
             proxy,
             strict_ssrf,
             TransportIsolationKey::ephemeral(TransportTrafficClass::OAuthToken),

@@ -149,6 +149,86 @@ async fn invalid_later_file_leaves_sqlite_and_snapshot_unchanged() {
     assert_eq!(context.runtime.scheduler_epoch(), 0);
 }
 
+#[tokio::test]
+async fn duplicate_import_identities_fail_the_whole_batch() {
+    let context = ImportContext::new().await;
+    let error = publish(
+        context.capabilities.provider_registry(),
+        &context.publisher,
+        vec![json_bytes(json!({
+            "accounts": [
+                {
+                    "platform": "openai",
+                    "type": "oauth",
+                    "credentials": {
+                        "access_token": "first-access",
+                        "email": "same@example.com"
+                    }
+                },
+                {
+                    "platform": "openai",
+                    "type": "oauth",
+                    "credentials": {
+                        "access_token": "second-access",
+                        "email": "SAME@example.com"
+                    }
+                }
+            ]
+        }))],
+    )
+    .await
+    .expect_err("duplicate stable identity");
+
+    assert!(matches!(
+        error,
+        OAuthImportError::Activation(
+            crate::configuration::ConfigPublishError::OAuthAccountIdentityConflict
+        )
+    ));
+    assert_initial(&context).await;
+}
+
+#[tokio::test]
+async fn duplicate_token_against_an_existing_account_is_rejected() {
+    let context = ImportContext::new().await;
+    publish(
+        context.capabilities.provider_registry(),
+        &context.publisher,
+        vec![Bytes::from_static(
+            br#"{"type":"claude","access_token":"same-access"}"#,
+        )],
+    )
+    .await
+    .expect("first import");
+    let before = context.snapshots.load().revision();
+
+    let error = publish(
+        context.capabilities.provider_registry(),
+        &context.publisher,
+        vec![Bytes::from_static(
+            br#"{"type":"claude","access_token":"same-access"}"#,
+        )],
+    )
+    .await
+    .expect_err("duplicate exact token");
+
+    assert!(matches!(
+        error,
+        OAuthImportError::Activation(
+            crate::configuration::ConfigPublishError::OAuthAccountIdentityConflict
+        )
+    ));
+    let stored = context
+        .repository
+        .load_configuration()
+        .await
+        .expect("stored configuration");
+    assert_eq!(stored.revision(), before);
+    assert_eq!(stored.oauth_accounts().accounts().len(), 1);
+    assert_eq!(context.snapshots.load().revision(), before);
+    assert_eq!(context.runtime.scheduler_epoch(), 1);
+}
+
 struct ImportContext {
     _directory: TempDir,
     repository: Arc<SqliteStore>,
@@ -196,4 +276,16 @@ impl ImportContext {
 
 fn json_bytes(value: serde_json::Value) -> Bytes {
     Bytes::from(serde_json::to_vec(&value).expect("JSON"))
+}
+
+async fn assert_initial(context: &ImportContext) {
+    let stored = context
+        .repository
+        .load_configuration()
+        .await
+        .expect("stored configuration");
+    assert_eq!(stored.revision(), ConfigRevision::INITIAL);
+    assert!(stored.oauth_accounts().accounts().is_empty());
+    assert_eq!(context.snapshots.load().revision(), ConfigRevision::INITIAL);
+    assert_eq!(context.runtime.scheduler_epoch(), 0);
 }

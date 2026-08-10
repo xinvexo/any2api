@@ -1,3 +1,4 @@
+mod control_plane;
 mod coordinator;
 mod document;
 mod error;

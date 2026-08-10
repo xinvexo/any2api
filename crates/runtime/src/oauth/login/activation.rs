@@ -35,6 +35,7 @@ pub(in crate::oauth) async fn publish(
         expires_at: token.expires_at(),
         models,
         document,
+        import_identity: None,
     };
     let (published, account_id) = publisher
         .activate_oauth_login(activation, identity)

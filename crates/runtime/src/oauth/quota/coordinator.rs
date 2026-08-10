@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     configuration::{ConfigPublisher, PublishedSnapshot},
-    oauth::{document, refresh::OAuthRefresher},
+    oauth::{control_plane::OAuthControlPlanePacer, document, refresh::OAuthRefresher},
 };
 
 use super::{
@@ -33,6 +33,7 @@ pub(in crate::oauth) struct OAuthQuotaService {
     transport: Arc<dyn TransportManager>,
     publisher: Arc<ConfigPublisher>,
     pub(super) refresher: Arc<OAuthRefresher>,
+    control_plane: Arc<OAuthControlPlanePacer>,
     persistence: OAuthQuotaPersistence,
     activity: OAuthQuotaActivity,
     operation_gates: OAuthQuotaOperationGates,
@@ -44,6 +45,7 @@ impl OAuthQuotaService {
         transport: Arc<dyn TransportManager>,
         publisher: Arc<ConfigPublisher>,
         refresher: Arc<OAuthRefresher>,
+        control_plane: Arc<OAuthControlPlanePacer>,
         quota_repository: Arc<dyn OAuthQuotaSnapshotRepository>,
     ) -> Self {
         Self {
@@ -51,6 +53,7 @@ impl OAuthQuotaService {
             transport,
             publisher,
             refresher,
+            control_plane,
             persistence: OAuthQuotaPersistence::new(quota_repository),
             activity: OAuthQuotaActivity::new(),
             operation_gates: OAuthQuotaOperationGates::default(),
@@ -219,6 +222,7 @@ impl OAuthQuotaService {
         let request = RequestContext::new(
             driver.as_ref(),
             self.transport.as_ref(),
+            self.control_plane.as_ref(),
             proxy,
             strict_ssrf,
             read_timeout,
@@ -330,6 +334,7 @@ impl OAuthQuotaService {
         let request = RequestContext::new(
             driver.as_ref(),
             self.transport.as_ref(),
+            self.control_plane.as_ref(),
             proxy,
             strict_ssrf,
             read_timeout,

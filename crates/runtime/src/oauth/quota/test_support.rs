@@ -165,7 +165,7 @@ impl QuotaTestContext {
             )
             .expect("publisher"),
         );
-        let service = Arc::new(OAuthService::new(
+        let service = Arc::new(OAuthService::new_for_test(
             providers,
             Arc::clone(&transport) as Arc<dyn TransportManager>,
             publisher,
