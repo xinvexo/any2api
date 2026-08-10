@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use any2api_domain::{ProxyKind, ProxyProfile, ProxyProfileId};
+use any2api_domain::{CredentialId, ProxyProfile, RoutingCredentialId};
 use bytes::Bytes;
 use http::{HeaderMap, Method, Response, StatusCode, Uri, header::AUTHORIZATION};
 use tokio::{net::TcpListener, sync::mpsc};
@@ -16,8 +16,8 @@ use tokio_rustls::TlsAcceptor;
 use crate::{
     ReqwestTransportManager,
     api::{
-        EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportProxy,
-        TransportRequest,
+        EndpointNetworkPolicy, TransportIsolationKey, TransportManager, TransportManagerConfig,
+        TransportProxy, TransportRequest, TransportTrafficClass,
     },
     connection::tests::TestTlsIdentity,
 };
@@ -25,7 +25,7 @@ use crate::{
 use super::tests::collect_body;
 
 #[tokio::test]
-async fn distinct_authorization_contexts_share_one_http2_connection() {
+async fn distinct_credentials_use_distinct_http2_connections() {
     let identity = TestTlsIdentity::generate();
     let mut probe = spawn_http2_probe(identity.server_config).await;
     let manager = ReqwestTransportManager::new_with_test_root_certificate(
@@ -35,39 +35,47 @@ async fn distinct_authorization_contexts_share_one_http2_connection() {
     .expect("transport manager");
     let proxy = ProxyProfile::direct();
     let uri = format!("https://localhost:{}/v1/responses", probe.address.port());
+    let first_isolation =
+        credential_isolation(CredentialId::new(), TransportTrafficClass::DataPlane);
+    let second_isolation =
+        credential_isolation(CredentialId::new(), TransportTrafficClass::DataPlane);
 
-    let first_client = manager.client_for(&proxy).expect("first cached client");
+    let first_client = manager
+        .client_for(&proxy, first_isolation)
+        .expect("first cached client");
     let first = manager
         .execute(
             TransportProxy::new(&proxy, None),
-            request_with_authorization(&uri, "Bearer credential-a"),
+            request_with_authorization(&uri, "Bearer credential-a", first_isolation),
         )
         .await
         .expect("first HTTP/2 response");
     assert_eq!(first.status, StatusCode::OK);
     assert_eq!(collect_body(first).await, Bytes::from_static(b"ok"));
 
-    let second_client = manager.client_for(&proxy).expect("second cached client");
+    let second_client = manager
+        .client_for(&proxy, second_isolation)
+        .expect("second cached client");
     let second = manager
         .execute(
             TransportProxy::new(&proxy, None),
-            request_with_authorization(&uri, "Bearer credential-b"),
+            request_with_authorization(&uri, "Bearer credential-b", second_isolation),
         )
         .await
         .expect("second HTTP/2 response");
     assert_eq!(second.status, StatusCode::OK);
     assert_eq!(collect_body(second).await, Bytes::from_static(b"ok"));
 
-    assert!(Arc::ptr_eq(&first_client, &second_client));
+    assert!(!Arc::ptr_eq(&first_client, &second_client));
     let first_authorization = receive_observation(&mut probe.authorizations).await;
     let second_authorization = receive_observation(&mut probe.authorizations).await;
     assert_eq!(first_authorization, "Bearer credential-a");
     assert_eq!(second_authorization, "Bearer credential-b");
-    assert_eq!(probe.accepted_connections.load(Ordering::SeqCst), 1);
+    assert_eq!(probe.accepted_connections.load(Ordering::SeqCst), 2);
 }
 
 #[tokio::test]
-async fn tls_resumption_state_is_shared_across_distinct_cached_clients() {
+async fn same_credential_generation_and_class_reuses_one_http2_connection() {
     let identity = TestTlsIdentity::generate();
     let mut probe = spawn_http2_probe(identity.server_config).await;
     let manager = ReqwestTransportManager::new_with_test_root_certificate(
@@ -75,53 +83,117 @@ async fn tls_resumption_state_is_shared_across_distinct_cached_clients() {
         identity.client_certificate,
     )
     .expect("transport manager");
-    let proxy_v1 = ProxyProfile::direct();
-    let proxy_v2 = ProxyProfile::restore(
-        ProxyProfileId::DIRECT,
-        "DIRECT",
-        ProxyKind::Direct,
-        None,
-        true,
-        None,
-        0,
-        2,
-    )
-    .expect("second DIRECT configuration version");
+    let proxy = ProxyProfile::direct();
     let uri = format!("https://localhost:{}/v1/responses", probe.address.port());
+    let isolation = credential_isolation(CredentialId::new(), TransportTrafficClass::DataPlane);
 
-    let first_client = manager.client_for(&proxy_v1).expect("first cached client");
+    let first_client = manager
+        .client_for(&proxy, isolation)
+        .expect("first cached client");
     let first = manager
         .execute(
-            TransportProxy::new(&proxy_v1, None),
-            request_with_authorization(&uri, "Bearer credential-a"),
+            TransportProxy::new(&proxy, None),
+            request_with_authorization(&uri, "Bearer credential-a", isolation),
         )
         .await
         .expect("first HTTP/2 response");
     assert_eq!(collect_body(first).await, Bytes::from_static(b"ok"));
-    assert_eq!(
-        receive_observation(&mut probe.handshakes).await,
-        rustls::HandshakeKind::Full
-    );
-
-    let second_client = manager.client_for(&proxy_v2).expect("second cached client");
-    assert!(!Arc::ptr_eq(&first_client, &second_client));
+    let second_client = manager
+        .client_for(&proxy, isolation)
+        .expect("second cached client");
     let second = manager
         .execute(
-            TransportProxy::new(&proxy_v2, None),
-            request_with_authorization(&uri, "Bearer credential-b"),
+            TransportProxy::new(&proxy, None),
+            request_with_authorization(&uri, "Bearer credential-a", isolation),
         )
         .await
         .expect("second HTTP/2 response");
     assert_eq!(collect_body(second).await, Bytes::from_static(b"ok"));
 
-    assert_eq!(probe.accepted_connections.load(Ordering::SeqCst), 2);
+    assert!(Arc::ptr_eq(&first_client, &second_client));
+    assert_eq!(probe.accepted_connections.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        receive_observation(&mut probe.authorizations).await,
+        "Bearer credential-a"
+    );
+    assert_eq!(
+        receive_observation(&mut probe.authorizations).await,
+        "Bearer credential-a"
+    );
     assert_eq!(
         receive_observation(&mut probe.handshakes).await,
-        rustls::HandshakeKind::Resumed
+        rustls::HandshakeKind::Full
     );
 }
 
-fn request_with_authorization(uri: &str, authorization: &str) -> TransportRequest {
+#[tokio::test]
+async fn distinct_traffic_classes_do_not_share_tls_resumption_state() {
+    let identity = TestTlsIdentity::generate();
+    let mut probe = spawn_http2_probe(identity.server_config).await;
+    let manager = ReqwestTransportManager::new_with_test_root_certificate(
+        TransportManagerConfig::default(),
+        identity.client_certificate,
+    )
+    .expect("transport manager");
+    let proxy = ProxyProfile::direct();
+    let uri = format!("https://localhost:{}/v1/responses", probe.address.port());
+    let credential_id = CredentialId::new();
+    let data_isolation = credential_isolation(credential_id, TransportTrafficClass::DataPlane);
+    let quota_isolation = credential_isolation(credential_id, TransportTrafficClass::OAuthQuota);
+
+    let data_client = manager
+        .client_for(&proxy, data_isolation)
+        .expect("data-plane client");
+    let data = manager
+        .execute(
+            TransportProxy::new(&proxy, None),
+            request_with_authorization(&uri, "Bearer credential-a", data_isolation),
+        )
+        .await
+        .expect("data-plane response");
+    assert_eq!(collect_body(data).await, Bytes::from_static(b"ok"));
+    assert_eq!(
+        receive_observation(&mut probe.handshakes).await,
+        rustls::HandshakeKind::Full
+    );
+
+    let quota_client = manager
+        .client_for(&proxy, quota_isolation)
+        .expect("quota client");
+    let quota = manager
+        .execute(
+            TransportProxy::new(&proxy, None),
+            request_with_authorization(&uri, "Bearer credential-a", quota_isolation),
+        )
+        .await
+        .expect("quota response");
+    assert_eq!(collect_body(quota).await, Bytes::from_static(b"ok"));
+
+    assert!(!Arc::ptr_eq(&data_client, &quota_client));
+    assert_eq!(probe.accepted_connections.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        receive_observation(&mut probe.handshakes).await,
+        rustls::HandshakeKind::Full
+    );
+}
+
+fn credential_isolation(
+    id: CredentialId,
+    traffic_class: TransportTrafficClass,
+) -> TransportIsolationKey {
+    TransportIsolationKey::routing_credential(
+        RoutingCredentialId::provider_credential(id),
+        1,
+        1,
+        traffic_class,
+    )
+}
+
+fn request_with_authorization(
+    uri: &str,
+    authorization: &str,
+    isolation: TransportIsolationKey,
+) -> TransportRequest {
     let mut headers = HeaderMap::new();
     headers.insert(
         AUTHORIZATION,
@@ -132,6 +204,7 @@ fn request_with_authorization(uri: &str, authorization: &str) -> TransportReques
         uri: Uri::from_str(uri).expect("request URI"),
         headers,
         body: Bytes::from_static(b"{}"),
+        isolation,
         network_policy: EndpointNetworkPolicy::new(),
         read_timeout: Duration::from_secs(15),
     }

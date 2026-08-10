@@ -335,6 +335,7 @@ fn request_to(uri: &str) -> TransportRequest {
         uri: Uri::from_str(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::new(),
+        isolation: crate::client::tests::test_isolation(),
         network_policy: EndpointNetworkPolicy::new(),
         read_timeout: std::time::Duration::from_secs(15),
     }

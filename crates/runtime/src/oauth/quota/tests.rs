@@ -4,6 +4,7 @@ use any2api_domain::{
     RetrySafety, RoutingCredentialId, SettingsConfiguration, UpstreamErrorClassification,
     UpstreamErrorKind, UpstreamFailureAttribution,
 };
+use any2api_transport::api::TransportTrafficClass;
 
 use super::{
     OAuthQuotaError,
@@ -113,6 +114,7 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         request.proxy_id == any2api_domain::ProxyProfileId::DIRECT
             && request.account_id.as_deref() == Some("account-123")
             && request.strict_ssrf == context.snapshots.load().settings().upstream().strict_ssrf()
+            && request.traffic_class == TransportTrafficClass::OAuthQuota
     }));
     let redeem_id = serde_json::from_slice::<serde_json::Value>(
         &captured.last().expect("consume request").body,

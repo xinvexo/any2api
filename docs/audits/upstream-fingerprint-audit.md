@@ -9,6 +9,8 @@
 
 本文讨论的是 correctness、account isolation、protocol fidelity、transport consistency、observability 和 architecture hygiene。本文不推断任何上游一定采用某种风控算法，也不提供绕过平台反滥用或检测的做法。
 
+> 修复进度（2026-08-10）：本文记录的是上述基线的审计事实。后续 ADR-0123 已落实 Credential/认证代际/traffic class 的 TransportClient 与 TLS resumption 隔离，F-001、F-002 和 F-003 的跨账号共池部分已经修复；F-011 的“换 Credential 后继续使用同一 H2 connection”也被消除，但其 Retry-After/零退避语义仍需单独整改。新的 loopback 测试同时证明“不同隔离域物理分离”和“同一隔离域继续复用”，详见 `crates/transport/src/client/fingerprint_tests.rs`。其余 Finding 保持待修状态。
+
 ## 1. Executive Summary
 
 ### 1.1 总体评级
@@ -41,14 +43,14 @@
 
 `CredentialId`、`OAuthAccountId`、API Key 指纹、Token version、Provider kind、认证上下文和 data/control-plane 用途均不在 `TransportClientKey` 或 `TransportRequest` 中。
 
-本次新增测试 `client::fingerprint_tests::distinct_authorization_contexts_share_one_http2_connection` 已实际观测到：
+审计提交 `2813f4f` 中的测试 `client::fingerprint_tests::distinct_authorization_contexts_share_one_http2_connection` 曾实际观测到：
 
 - `Bearer credential-a` 与 `Bearer credential-b` 被同一个本地 H2 服务端接收；
 - 两次请求取得的是同一 `Arc<TransportClient>`；
 - 服务端 TCP accept 次数为 `1`；
 - 因而不是“可能共用缓存对象”，而是**确实复用同一条物理 TCP/TLS/H2 连接**。
 
-还有一个比连接池更宽的边界：`ClientConfig` 的 clone 会共享 rustls `Resumption` 内部的 `Arc<ClientSessionStore>`。新增测试 `tls_resumption_state_is_shared_across_distinct_cached_clients` 使用两个不同代理配置代际强制得到两个不同 `Arc<TransportClient>` 和两条 TCP 连接，第二条 TLS 握手仍被服务端观测为 `HandshakeKind::Resumed`。所以仅给 `TransportClientKey` 增加 Credential ID 仍不足以完成账号隔离。
+还有一个比连接池更宽的边界：`ClientConfig` 的 clone 会共享 rustls `Resumption` 内部的 `Arc<ClientSessionStore>`。审计提交中的测试 `tls_resumption_state_is_shared_across_distinct_cached_clients` 使用两个不同代理配置代际强制得到两个不同 `Arc<TransportClient>` 和两条 TCP 连接，第二条 TLS 握手仍被服务端观测为 `HandshakeKind::Resumed`。所以仅给 `TransportClientKey` 增加 Credential ID 仍不足以完成账号隔离。ADR-0123 实现后，这两条测试已经替换为隔离期望。
 
 ### 1.3 真实调用链
 
@@ -142,10 +144,10 @@ Credential rotate 不会改变 key；disable/delete 也没有 transport cache in
 
 ```text
 cargo test -p any2api-transport \
-  distinct_authorization_contexts_share_one_http2_connection -- --nocapture
+  distinct_credentials_use_distinct_http2_connections -- --nocapture
 ```
 
-测试位置：`crates/transport/src/client/fingerprint_tests.rs`。
+测试位置：`crates/transport/src/client/fingerprint_tests.rs`。当前修复后的期望为 Client 不同且 TCP accept 数为 2；原始漏洞证据保存在审计提交 `2813f4f`。
 
 **Architecture recommendation**
 
@@ -189,8 +191,10 @@ Manager 的 `OnceLock<ClientConfig>` 只构造一次。每个 reqwest/pinned Cli
 
 ```text
 cargo test -p any2api-transport \
-  tls_resumption_state_is_shared_across_distinct_cached_clients -- --nocapture
+  distinct_traffic_classes_do_not_share_tls_resumption_state -- --nocapture
 ```
+
+当前修复后的期望为两次 TLS 握手均为 `Full`；原始 `Full -> Resumed` 证据保存在审计提交 `2813f4f`。
 
 **Architecture recommendation**
 
@@ -977,8 +981,8 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 
 | 实验 | 目的 | 当前状态 | 关键观测 |
 |---|---|---|---|
-| E-01 两 Authorization + 同 H2 | 证明真实物理复用 | **已实现并通过** | Arc ptr、TCP accept count、auth、H2 requests |
-| E-02 两 Client + TLS resumption | 证明 ticket store 超出 pool key | **已实现并通过** | Arc 不同、TCP=2、Full→Resumed |
+| E-01 两 Authorization + 同 H2 | 证明原始物理复用并回归修复 | **原证据保留；修复测试通过** | 原 TCP=1；当前不同 Credential TCP=2 |
+| E-02 两 Client + TLS resumption | 证明原 ticket store 超出 pool key并回归修复 | **原证据保留；修复测试通过** | 原 Full→Resumed；当前 Full→Full |
 | E-03 Kimi reasoning continuation | 证明多轮 reasoning/tool replay | **已补断言并通过** | 下一轮 assistant reasoning/tool call |
 | E-04 Raw ClientHello | 获取 extension/cipher/group/ALPN wire | 待实现 | 原始 ClientHello bytes，不只 hash |
 | E-05 Raw H2 recorder | 获取 SETTINGS/WINDOW/HPACK/PING | 待实现 | 首连、复用、并发、GOAWAY 四场景 |

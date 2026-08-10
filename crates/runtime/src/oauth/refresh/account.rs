@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use any2api_domain::{OAuthAccountId, ProviderKind};
+use any2api_domain::{OAuthAccountId, ProviderKind, RoutingCredentialId};
 use any2api_provider::api::{OAuthGrant, OAuthRefreshRejection, OAuthTokenMaterial, ProviderError};
 use any2api_storage::api::OAuthAccountDocument;
+use any2api_transport::api::TransportTrafficClass;
 use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::{
@@ -310,9 +311,18 @@ impl OAuthRefresher {
             .resolved_transport_proxy_for_oauth_account()
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
-        let response =
-            token_request::execute_response(self.transport.as_ref(), proxy, strict_ssrf, plan)
-                .await?;
+        let isolation = snapshot
+            .credential_runtime(RoutingCredentialId::oauth_account(id))
+            .ok_or(OAuthRefreshError::AccountUnavailable)?
+            .transport_isolation(TransportTrafficClass::OAuthToken);
+        let response = token_request::execute_response(
+            self.transport.as_ref(),
+            proxy,
+            strict_ssrf,
+            isolation,
+            plan,
+        )
+        .await?;
         if !response.status.is_success() {
             let rejection =
                 driver.classify_oauth_refresh_rejection(response.status, &response.body);

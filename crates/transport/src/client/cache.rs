@@ -64,6 +64,10 @@ where
         self.entries.len()
     }
 
+    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(&K) -> bool) {
+        self.entries.retain(|key, _| predicate(key));
+    }
+
     fn advance_tick(&mut self) {
         self.tick = self
             .tick

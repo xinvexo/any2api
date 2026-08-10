@@ -7,7 +7,7 @@ use std::sync::{
 
 use any2api_transport::api::{
     BoxByteStream, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
-    TransportResponse,
+    TransportResponse, TransportTrafficClass,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -41,6 +41,7 @@ pub(super) struct CapturedQuotaRequest {
     pub(super) user_agent: Option<String>,
     pub(super) proxy_id: any2api_domain::ProxyProfileId,
     pub(super) strict_ssrf: bool,
+    pub(super) traffic_class: TransportTrafficClass,
     pub(super) body: Bytes,
 }
 
@@ -115,6 +116,7 @@ impl QuotaTransport {
                 user_agent: request.user_agent.clone(),
                 proxy_id: request.proxy_id,
                 strict_ssrf: request.strict_ssrf,
+                traffic_class: request.traffic_class,
                 body: request.body.clone(),
             })
             .collect()
@@ -202,6 +204,7 @@ impl TransportManager for QuotaTransport {
                 user_agent: header(&request, "user-agent"),
                 proxy_id: proxy.profile().id(),
                 strict_ssrf: request.network_policy.strict_ssrf(),
+                traffic_class: request.isolation.traffic_class(),
                 body: request.body,
             });
         if path == "/backend-api/wham/usage" && self.block_next_usage.swap(false, Ordering::AcqRel)

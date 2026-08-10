@@ -4,6 +4,7 @@ use any2api_domain::ProxyProfileId;
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
     TransportFailureScope, TransportManager, TransportProxy, TransportRequest, TransportResponse,
+    TransportTrafficClass,
 };
 use async_trait::async_trait;
 use http::{HeaderMap, Method, StatusCode};
@@ -49,6 +50,10 @@ async fn connectivity_probe_uses_the_fixed_public_target_without_provider_config
     assert_eq!(request.uri, "https://example.com/");
     assert!(request.headers.is_empty());
     assert!(request.body.is_empty());
+    assert_eq!(
+        request.isolation.traffic_class(),
+        TransportTrafficClass::Diagnostic
+    );
     assert_eq!(request.read_timeout, std::time::Duration::from_secs(10));
     assert_eq!(
         *transport.proxy_id.lock().expect("captured proxy"),

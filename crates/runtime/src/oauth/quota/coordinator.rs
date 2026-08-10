@@ -9,7 +9,7 @@ use any2api_provider::api::{
     OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, ProviderRegistry,
 };
 use any2api_storage::api::OAuthQuotaSnapshotRepository;
-use any2api_transport::api::TransportManager;
+use any2api_transport::api::{TransportManager, TransportTrafficClass};
 use http::StatusCode;
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -222,6 +222,7 @@ impl OAuthQuotaService {
             proxy,
             strict_ssrf,
             read_timeout,
+            binding.transport_isolation(TransportTrafficClass::OAuthQuota),
         );
         let usage_response = request.execute(usage_plan).await?;
         if !usage_response.status.is_success() {
@@ -332,6 +333,7 @@ impl OAuthQuotaService {
             proxy,
             strict_ssrf,
             read_timeout,
+            binding.transport_isolation(TransportTrafficClass::OAuthQuota),
         );
         let response = request.execute(plan).await?;
         if !response.status.is_success() {

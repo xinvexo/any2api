@@ -2,6 +2,7 @@ use std::{fmt, sync::Arc};
 
 use any2api_domain::{ProviderBaseUrl, RequestsPerMinute, RoutingCredentialId};
 use any2api_provider::api::{CredentialHeaders, ProviderDriver, ProviderError};
+use any2api_transport::api::{TransportIsolationKey, TransportTrafficClass};
 use http::HeaderMap;
 use tokio::time::Instant;
 
@@ -39,6 +40,17 @@ impl CredentialRuntimeBinding {
     #[must_use]
     pub fn generation(&self) -> &Arc<CredentialGenerationRuntime> {
         &self.generation
+    }
+
+    pub(crate) fn transport_isolation(
+        &self,
+        traffic_class: TransportTrafficClass,
+    ) -> TransportIsolationKey {
+        transport_isolation(
+            self.credential_id(),
+            self.generation.as_ref(),
+            traffic_class,
+        )
     }
 
     pub(crate) fn fixed_waiter_count(&self) -> u32 {
@@ -110,6 +122,17 @@ impl RoutingPermit {
             .credential_headers(driver, base_url, forwarded)
     }
 
+    pub(crate) fn transport_isolation(
+        &self,
+        traffic_class: TransportTrafficClass,
+    ) -> TransportIsolationKey {
+        transport_isolation(
+            self.credential_id(),
+            self.generation.as_ref(),
+            traffic_class,
+        )
+    }
+
     pub(crate) fn rollback_before_attempt(mut self) {
         self.in_flight_released = true;
         self.handle
@@ -133,6 +156,19 @@ impl Drop for RoutingPermit {
             self.handle.release_in_flight();
         }
     }
+}
+
+fn transport_isolation(
+    credential_id: RoutingCredentialId,
+    generation: &CredentialGenerationRuntime,
+    traffic_class: TransportTrafficClass,
+) -> TransportIsolationKey {
+    TransportIsolationKey::routing_credential(
+        credential_id,
+        generation.routing_generation(),
+        generation.authentication_version(),
+        traffic_class,
+    )
 }
 
 #[derive(Clone, Debug, Default)]

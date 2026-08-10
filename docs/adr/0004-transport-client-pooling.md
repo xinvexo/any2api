@@ -1,8 +1,10 @@
 # ADR-0004: 单节点代理 Transport 与连接池代际
 
-- 状态：Accepted
+- 状态：Superseded by ADR-0123
 - 日期：2026-07-18
 - 决策者：maintainer
+
+> 2026-08-10：ADR-0123 取代了本文“多个 Credential 可按相同代理策略共享连接池”的身份边界。本文其余 fail-closed、超时、代理和错误归因决策继续有效。
 
 ## 背景
 

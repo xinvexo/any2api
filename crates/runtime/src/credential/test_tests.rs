@@ -9,6 +9,7 @@ use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_storage::api::{ConfigurationRepository, SqliteStore};
 use any2api_transport::api::{
     TransportFailureScope, TransportManager, TransportProxy, TransportRequest, TransportResponse,
+    TransportTrafficClass,
 };
 use async_trait::async_trait;
 use http::{HeaderMap, StatusCode, header::AUTHORIZATION};
@@ -110,6 +111,10 @@ async fn accepted_probe_uses_current_secret_and_clears_only_its_generation_auth_
     let request = captured.as_ref().expect("probe request");
     assert_eq!(request.uri.path(), "/v1/models");
     assert_eq!(request.headers[AUTHORIZATION], "Bearer sk-probe-current");
+    assert_eq!(
+        request.isolation.traffic_class(),
+        TransportTrafficClass::Diagnostic
+    );
 }
 
 #[tokio::test]

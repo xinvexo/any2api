@@ -1,4 +1,5 @@
 use any2api_provider::api::OAuthQuotaWindowKind;
+use any2api_transport::api::TransportTrafficClass;
 
 use super::test_support::{AuthenticationMode, QuotaTestContext};
 
@@ -66,6 +67,19 @@ async fn claude_quota_refreshes_token_once_after_a_401() {
             .map(|request| request.path.as_str())
             .collect::<Vec<_>>(),
         ["/api/oauth/usage", "/v1/oauth/token", "/api/oauth/usage"]
+    );
+    assert_eq!(
+        context
+            .transport
+            .captured()
+            .iter()
+            .map(|request| request.traffic_class)
+            .collect::<Vec<_>>(),
+        [
+            TransportTrafficClass::OAuthQuota,
+            TransportTrafficClass::OAuthToken,
+            TransportTrafficClass::OAuthQuota,
+        ]
     );
     assert_eq!(
         context.transport.usage_authorizations(),

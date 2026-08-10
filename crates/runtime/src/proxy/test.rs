@@ -5,8 +5,8 @@ use std::{
 
 use any2api_domain::{ConfigRevision, ProxyProfileId};
 use any2api_transport::api::{
-    EndpointNetworkPolicy, TransportErrorStage, TransportFailureScope, TransportManager,
-    TransportRequest,
+    EndpointNetworkPolicy, TransportErrorStage, TransportFailureScope, TransportIsolationKey,
+    TransportManager, TransportRequest, TransportTrafficClass,
 };
 use bytes::Bytes;
 use http::{HeaderMap, Method, Uri};
@@ -45,6 +45,7 @@ impl ProxyTestService {
             uri: Uri::from_static(CONNECTIVITY_PROBE_URI),
             headers: HeaderMap::new(),
             body: Bytes::new(),
+            isolation: TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic),
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
             read_timeout: CONNECTIVITY_PROBE_READ_TIMEOUT,

@@ -17,34 +17,45 @@ static NATIVE_ROOTS: LazyLock<Arc<RootCertStore>> = LazyLock::new(|| {
     Arc::new(roots)
 });
 
-pub(crate) fn build_tls_config(
-    extra_roots: &[CertificateDer<'static>],
-) -> Result<ClientConfig, TransportError> {
-    let roots = if extra_roots.is_empty() {
-        Arc::clone(&NATIVE_ROOTS)
-    } else {
-        let mut roots = (**NATIVE_ROOTS).clone();
-        for certificate in extra_roots {
-            roots.add(certificate.clone()).map_err(|_| {
-                TransportError::configuration(
-                    TransportErrorStage::Tls,
-                    TransportFailureScope::Unattributed,
-                    "configured TLS root certificate is invalid",
-                )
-            })?;
+pub(crate) struct TlsConfigFactory {
+    roots: Arc<RootCertStore>,
+}
+
+impl TlsConfigFactory {
+    pub(crate) fn new(extra_roots: &[CertificateDer<'static>]) -> Result<Self, TransportError> {
+        let roots = if extra_roots.is_empty() {
+            Arc::clone(&NATIVE_ROOTS)
+        } else {
+            let mut roots = (**NATIVE_ROOTS).clone();
+            for certificate in extra_roots {
+                roots.add(certificate.clone()).map_err(|_| {
+                    TransportError::configuration(
+                        TransportErrorStage::Tls,
+                        TransportFailureScope::Unattributed,
+                        "configured TLS root certificate is invalid",
+                    )
+                })?;
+            }
+            Arc::new(roots)
+        };
+        if roots.is_empty() {
+            return Err(TransportError::configuration(
+                TransportErrorStage::Tls,
+                TransportFailureScope::Unattributed,
+                "no trusted TLS root certificates are available",
+            ));
         }
-        Arc::new(roots)
-    };
-    if roots.is_empty() {
-        return Err(TransportError::configuration(
-            TransportErrorStage::Tls,
-            TransportFailureScope::Unattributed,
-            "no trusted TLS root certificates are available",
-        ));
+        Ok(Self { roots })
     }
-    Ok(ClientConfig::builder()
-        .with_root_certificates(roots)
-        .with_no_client_auth())
+
+    /// Every cached transport client receives a fresh rustls configuration.
+    /// Trust roots are immutable and shared, while the default session store
+    /// belongs only to this newly constructed client.
+    pub(crate) fn build(&self) -> ClientConfig {
+        ClientConfig::builder()
+            .with_root_certificates(Arc::clone(&self.roots))
+            .with_no_client_auth()
+    }
 }
 
 pub(crate) fn wrap_tls<C>(

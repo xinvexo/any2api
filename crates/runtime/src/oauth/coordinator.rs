@@ -6,7 +6,7 @@ use any2api_provider::api::{
     ProviderRegistry,
 };
 use any2api_storage::api::OAuthQuotaSnapshotRepository;
-use any2api_transport::api::TransportManager;
+use any2api_transport::api::{TransportIsolationKey, TransportManager, TransportTrafficClass};
 use tokio::sync::watch;
 
 use crate::{configuration::ConfigPublisher, lifecycle::ProcessLifecycle};
@@ -302,7 +302,14 @@ impl OAuthService {
             .resolved_transport_proxy_for_oauth_account()
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
-        token_request::execute(self.transport.as_ref(), proxy, strict_ssrf, plan).await
+        token_request::execute(
+            self.transport.as_ref(),
+            proxy,
+            strict_ssrf,
+            TransportIsolationKey::ephemeral(TransportTrafficClass::OAuthToken),
+            plan,
+        )
+        .await
     }
 
     async fn execute_request_with_status(
@@ -314,6 +321,13 @@ impl OAuthService {
             .resolved_transport_proxy_for_oauth_account()
             .ok_or(OAuthError::PublishedProxyUnavailable)?;
         let strict_ssrf = snapshot.settings().upstream().strict_ssrf();
-        token_request::execute_response(self.transport.as_ref(), proxy, strict_ssrf, plan).await
+        token_request::execute_response(
+            self.transport.as_ref(),
+            proxy,
+            strict_ssrf,
+            TransportIsolationKey::ephemeral(TransportTrafficClass::OAuthToken),
+            plan,
+        )
+        .await
     }
 }

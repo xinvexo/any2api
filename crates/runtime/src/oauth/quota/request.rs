@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use any2api_provider::api::OAuthRequestPlan;
 use any2api_transport::api::{
-    EndpointNetworkPolicy, TransportManager, TransportProxy, TransportRequest, TransportResponse,
+    EndpointNetworkPolicy, TransportIsolationKey, TransportManager, TransportProxy,
+    TransportRequest, TransportResponse,
 };
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
@@ -24,6 +25,7 @@ pub(super) async fn execute(
     proxy: TransportProxy<'_>,
     strict_ssrf: bool,
     read_timeout: Duration,
+    isolation: TransportIsolationKey,
     plan: OAuthRequestPlan,
 ) -> Result<OAuthQuotaResponse, OAuthQuotaError> {
     let TransportResponse {
@@ -31,7 +33,7 @@ pub(super) async fn execute(
         headers,
         body,
         ..
-    } = start(transport, proxy, strict_ssrf, read_timeout, plan).await?;
+    } = start(transport, proxy, strict_ssrf, read_timeout, isolation, plan).await?;
     let body = collect(body, read_timeout).await?;
     Ok(OAuthQuotaResponse {
         status,
@@ -45,6 +47,7 @@ async fn start(
     proxy: TransportProxy<'_>,
     strict_ssrf: bool,
     read_timeout: Duration,
+    isolation: TransportIsolationKey,
     plan: OAuthRequestPlan,
 ) -> Result<TransportResponse, OAuthQuotaError> {
     let request = TransportRequest {
@@ -56,6 +59,7 @@ async fn start(
             .map_err(|_| OAuthQuotaError::InvalidEndpointUri)?,
         headers: plan.headers,
         body: Bytes::from(plan.body),
+        isolation,
         network_policy: EndpointNetworkPolicy::new().with_strict_ssrf(strict_ssrf),
         read_timeout,
     };

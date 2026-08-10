@@ -8,7 +8,9 @@ use any2api_protocol::api::{
 use any2api_provider::api::{
     ProviderDriver, ProviderError, ProviderRegistry, ProviderRequestContext,
 };
-use any2api_transport::api::{EndpointNetworkPolicy, TransportProxy, TransportRequest};
+use any2api_transport::api::{
+    EndpointNetworkPolicy, TransportProxy, TransportRequest, TransportTrafficClass,
+};
 use bytes::Bytes;
 use http::{HeaderValue, header};
 
@@ -195,6 +197,9 @@ fn build_request<'a>(
             uri: encoded.uri,
             headers,
             body: encoded.body,
+            isolation: selected
+                .permit
+                .transport_isolation(TransportTrafficClass::DataPlane),
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
             read_timeout: execution_limits::read_timeout(

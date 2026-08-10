@@ -7,7 +7,7 @@ use any2api_domain::{ConfigRevision, CredentialId, ProviderEndpointId, ProxyProf
 use any2api_provider::api::{ProviderError, ProviderRegistry};
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportErrorStage, TransportFailureScope, TransportManager,
-    TransportRequest,
+    TransportRequest, TransportTrafficClass,
 };
 use bytes::Bytes;
 use http::Method;
@@ -78,6 +78,7 @@ impl ProviderCredentialTestService {
                 .map_err(|_| ProviderCredentialTestError::InvalidEndpointUri)?,
             headers,
             body: Bytes::new(),
+            isolation: permit.transport_isolation(TransportTrafficClass::Diagnostic),
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
             read_timeout: Duration::from_secs(snapshot.settings().upstream().read_timeout_secs()),

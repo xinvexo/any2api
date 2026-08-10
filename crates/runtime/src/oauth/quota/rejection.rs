@@ -5,7 +5,7 @@ use std::time::Duration;
 use any2api_provider::api::{
     OAuthQuotaRejection, OAuthRequestPlan, ProviderDriver, UpstreamResponseMeta,
 };
-use any2api_transport::api::{TransportManager, TransportProxy};
+use any2api_transport::api::{TransportIsolationKey, TransportManager, TransportProxy};
 use http::StatusCode;
 
 use super::{
@@ -19,6 +19,7 @@ pub(super) struct RequestContext<'a> {
     proxy: TransportProxy<'a>,
     strict_ssrf: bool,
     read_timeout: Duration,
+    isolation: TransportIsolationKey,
 }
 
 impl<'a> RequestContext<'a> {
@@ -28,6 +29,7 @@ impl<'a> RequestContext<'a> {
         proxy: TransportProxy<'a>,
         strict_ssrf: bool,
         read_timeout: Duration,
+        isolation: TransportIsolationKey,
     ) -> Self {
         Self {
             driver,
@@ -35,6 +37,7 @@ impl<'a> RequestContext<'a> {
             proxy,
             strict_ssrf,
             read_timeout,
+            isolation,
         }
     }
 
@@ -51,6 +54,7 @@ impl<'a> RequestContext<'a> {
             self.proxy,
             self.strict_ssrf,
             self.read_timeout,
+            self.isolation,
             plan,
         )
         .await

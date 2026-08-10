@@ -4,8 +4,9 @@ use any2api_domain::{
     ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId, RetrySafety,
 };
 use any2api_transport::api::{
-    EndpointNetworkPolicy, ReqwestTransportManager, TransportFailureScope, TransportManager,
-    TransportManagerConfig, TransportProxy, TransportRequest,
+    EndpointNetworkPolicy, ReqwestTransportManager, TransportFailureScope, TransportIsolationKey,
+    TransportManager, TransportManagerConfig, TransportProxy, TransportRequest,
+    TransportTrafficClass,
 };
 use axum::http::{HeaderMap, Method, Uri};
 use bytes::Bytes;
@@ -44,6 +45,7 @@ async fn explicit_proxy_failure_never_falls_back_to_direct() {
         uri: Uri::try_from(format!("https://{origin_address}/responses")).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::from_static(b"{}"),
+        isolation: TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic),
         network_policy: EndpointNetworkPolicy::default(),
         read_timeout: Duration::from_secs(15),
     };

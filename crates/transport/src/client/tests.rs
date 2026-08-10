@@ -1,7 +1,8 @@
 use std::{str::FromStr, sync::Arc, time::Duration};
 
 use any2api_domain::{
-    ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId, RetrySafety,
+    CredentialId, ProxyAddress, ProxyDraft, ProxyKind, ProxyProfile, ProxyProfileId, RetrySafety,
+    RoutingCredentialId,
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -15,7 +16,10 @@ use tokio::{
 use crate::{
     ReqwestTransportManager,
     api::EndpointNetworkPolicy,
-    api::{TransportManager, TransportManagerConfig, TransportProxy, TransportRequest},
+    api::{
+        TransportIsolationKey, TransportManager, TransportManagerConfig, TransportProxy,
+        TransportRequest, TransportTrafficClass,
+    },
     error::{TransportErrorStage, TransportFailureScope},
 };
 
@@ -124,13 +128,13 @@ async fn unavailable_explicit_proxy_fails_closed_without_reaching_origin() {
     })
     .expect("transport manager");
     let proxy = network_proxy("Unavailable", ProxyKind::Http, unavailable_address, true);
-    manager.client_for(&proxy).expect("warm proxy client");
+    let request = request_to(&format!("https://{origin_address}/must-not-connect"));
+    manager
+        .client_for(&proxy, request.isolation)
+        .expect("warm proxy client");
 
     let error = match manager
-        .execute(
-            TransportProxy::new(&proxy, None),
-            request_to(&format!("https://{origin_address}/must-not-connect")),
-        )
+        .execute(TransportProxy::new(&proxy, None), request)
         .await
     {
         Ok(_) => panic!("explicit proxy failure must not use DIRECT"),
@@ -199,8 +203,13 @@ fn client_cache_is_bounded_and_separates_updated_proxy_versions() {
         "127.0.0.1:8080".parse().expect("proxy address"),
         true,
     );
-    let first = manager.client_for(&original).expect("first client");
-    let reused = manager.client_for(&original).expect("reused client");
+    let isolation = test_isolation();
+    let first = manager
+        .client_for(&original, isolation)
+        .expect("first client");
+    let reused = manager
+        .client_for(&original, isolation)
+        .expect("reused client");
     assert!(Arc::ptr_eq(&first, &reused));
 
     let updated = original
@@ -215,14 +224,51 @@ fn client_cache_is_bounded_and_separates_updated_proxy_versions() {
         )
         .expect("updated proxy");
     let next = manager
-        .client_for(&updated)
+        .client_for(&updated, isolation)
         .expect("next generation client");
     assert!(!Arc::ptr_eq(&first, &next));
     assert_eq!(manager.cached_client_count(), 1);
 
-    let rebuilt = manager.client_for(&original).expect("rebuilt old client");
+    let rebuilt = manager
+        .client_for(&original, isolation)
+        .expect("rebuilt old client");
     assert!(!Arc::ptr_eq(&first, &rebuilt));
     assert_eq!(manager.cached_client_count(), 1);
+}
+
+#[test]
+fn newer_credential_generation_retires_older_cached_clients() {
+    let manager = ReqwestTransportManager::default();
+    let proxy = ProxyProfile::direct();
+    let credential_id = RoutingCredentialId::provider_credential(CredentialId::new());
+    let old = TransportIsolationKey::routing_credential(
+        credential_id,
+        1,
+        1,
+        TransportTrafficClass::DataPlane,
+    );
+    let next = TransportIsolationKey::routing_credential(
+        credential_id,
+        1,
+        2,
+        TransportTrafficClass::DataPlane,
+    );
+    let old_client = manager.client_for(&proxy, old).expect("old client");
+    assert_eq!(manager.cached_client_count(), 1);
+
+    let next_client = manager.client_for(&proxy, next).expect("next client");
+
+    assert!(!Arc::ptr_eq(&old_client, &next_client));
+    assert_eq!(Arc::strong_count(&old_client), 1);
+    assert_eq!(manager.cached_client_count(), 1);
+    let quota = TransportIsolationKey::routing_credential(
+        credential_id,
+        1,
+        2,
+        TransportTrafficClass::OAuthQuota,
+    );
+    manager.client_for(&proxy, quota).expect("quota client");
+    assert_eq!(manager.cached_client_count(), 2);
 }
 
 #[test]
@@ -242,9 +288,14 @@ fn request_to(uri: &str) -> TransportRequest {
         uri: Uri::from_str(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::new(),
+        isolation: test_isolation(),
         network_policy: EndpointNetworkPolicy::new(),
         read_timeout: Duration::from_secs(15),
     }
+}
+
+pub(crate) fn test_isolation() -> TransportIsolationKey {
+    TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic)
 }
 
 pub(crate) fn network_proxy(

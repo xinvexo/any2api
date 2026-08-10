@@ -6,7 +6,7 @@ use any2api_domain::{ProxyKind, ProxyProfileId};
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use reqwest::Client;
-use rustls::{ClientConfig, pki_types::CertificateDer};
+use rustls::pki_types::CertificateDer;
 use tokio::time::Instant;
 
 use super::{
@@ -22,10 +22,10 @@ use super::{
 };
 use crate::{
     api::{
-        BoxByteStream, EndpointNetworkPolicy, TransportManager, TransportManagerConfig,
-        TransportProxy, TransportRequest, TransportResponse,
+        BoxByteStream, EndpointNetworkPolicy, TransportIsolationKey, TransportManager,
+        TransportManagerConfig, TransportProxy, TransportRequest, TransportResponse,
     },
-    connection::build_tls_config,
+    connection::TlsConfigFactory,
     error::{
         TransportConfigurationError, TransportError, TransportErrorStage, TransportFailureScope,
     },
@@ -36,6 +36,7 @@ use crate::{
 /// the cached client and its warm connection pool instead of rebuilding both.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct TransportClientKey {
+    isolation: TransportIsolationKey,
     proxy_id: ProxyProfileId,
     proxy_config_version: u64,
     proxy_kind: ProxyKind,
@@ -64,7 +65,7 @@ pub struct ReqwestTransportManager {
     config: TransportManagerConfig,
     policy: TransportClientPolicyKey,
     extra_root_certificates: Vec<CertificateDer<'static>>,
-    tls_config: OnceLock<ClientConfig>,
+    tls_factory: OnceLock<TlsConfigFactory>,
     clients: Mutex<ClientCache<TransportClientKey, TransportClient>>,
 }
 
@@ -97,7 +98,7 @@ impl ReqwestTransportManager {
                 pool_policy_version: REQWEST_POOL_POLICY_VERSION,
             },
             extra_root_certificates,
-            tls_config: OnceLock::new(),
+            tls_factory: OnceLock::new(),
             clients: Mutex::new(ClientCache::new(config.max_cached_clients)),
         })
     }
@@ -131,16 +132,18 @@ impl ReqwestTransportManager {
     pub(crate) fn client_for(
         &self,
         profile: &ProxyProfile,
+        isolation: TransportIsolationKey,
     ) -> Result<Arc<TransportClient>, TransportError> {
-        self.client_for_policy(TransportProxy::new(profile, None), None, false)
+        self.client_for_policy(TransportProxy::new(profile, None), isolation, None, false)
     }
 
     #[cfg(test)]
     pub(crate) fn client_for_proxy(
         &self,
         proxy: TransportProxy<'_>,
+        isolation: TransportIsolationKey,
     ) -> Result<Arc<TransportClient>, TransportError> {
-        self.client_for_policy(proxy, None, false)
+        self.client_for_policy(proxy, isolation, None, false)
     }
 
     #[cfg(test)]
@@ -151,13 +154,19 @@ impl ReqwestTransportManager {
     ) -> Result<(), TransportError> {
         let (pinned_origin, strict_direct_dns) =
             client_selector(proxy.profile().kind(), request.network_policy, &request.uri)?;
-        self.client_for_policy(proxy, pinned_origin.as_ref(), strict_direct_dns)?;
+        self.client_for_policy(
+            proxy,
+            request.isolation,
+            pinned_origin.as_ref(),
+            strict_direct_dns,
+        )?;
         Ok(())
     }
 
     fn client_for_policy(
         &self,
         proxy: TransportProxy<'_>,
+        isolation: TransportIsolationKey,
         pinned_origin: Option<&OriginTarget>,
         strict_direct_dns: bool,
     ) -> Result<Arc<TransportClient>, TransportError> {
@@ -169,10 +178,11 @@ impl ReqwestTransportManager {
                 "configured proxy is disabled",
             ));
         }
-        // Warm the shared TLS configuration before taking the cache lock so
+        // Warm the shared trust roots before taking the cache lock so
         // the one-time trust store load never blocks concurrent cache users.
-        let tls_config = self.tls_config()?;
+        let tls_factory = self.tls_factory()?;
         let key = TransportClientKey {
+            isolation,
             proxy_id: profile.id(),
             proxy_config_version: profile.config_version(),
             proxy_kind: profile.kind(),
@@ -184,15 +194,17 @@ impl ReqwestTransportManager {
             .clients
             .lock()
             .expect("transport client cache lock poisoned");
+        clients.retain(|cached| !isolation.retires(cached.isolation));
         if let Some(client) = clients.get(&key) {
             return Ok(client);
         }
         // Construction is cheap once the TLS roots are cached, so building
         // under the lock doubles as singleflight: concurrent callers of the
         // same key never build duplicate clients or connection pools.
+        let tls_config = tls_factory.build();
         let client = Arc::new(build_transport_client(
             self.config,
-            tls_config,
+            &tls_config,
             proxy,
             pinned_origin,
             strict_direct_dns,
@@ -200,12 +212,12 @@ impl ReqwestTransportManager {
         Ok(clients.insert_if_absent(key, client))
     }
 
-    fn tls_config(&self) -> Result<&ClientConfig, TransportError> {
-        if let Some(config) = self.tls_config.get() {
-            return Ok(config);
+    fn tls_factory(&self) -> Result<&TlsConfigFactory, TransportError> {
+        if let Some(factory) = self.tls_factory.get() {
+            return Ok(factory);
         }
-        let config = build_tls_config(&self.extra_root_certificates)?;
-        Ok(self.tls_config.get_or_init(|| config))
+        let factory = TlsConfigFactory::new(&self.extra_root_certificates)?;
+        Ok(self.tls_factory.get_or_init(|| factory))
     }
 }
 
@@ -249,7 +261,12 @@ impl TransportManager for ReqwestTransportManager {
         let read_timeout = request.read_timeout;
         let (pinned_origin, strict_direct_dns) =
             client_selector(profile.kind(), request.network_policy, &request.uri)?;
-        let client = self.client_for_policy(proxy, pinned_origin.as_ref(), strict_direct_dns)?;
+        let client = self.client_for_policy(
+            proxy,
+            request.isolation,
+            pinned_origin.as_ref(),
+            strict_direct_dns,
+        )?;
         if Instant::now() >= connect_deadline {
             return Err(connect_timeout_error);
         }

@@ -19,7 +19,7 @@ use crate::{
     error::{TransportErrorStage, TransportFailureScope},
 };
 
-use super::tests::network_proxy;
+use super::tests::{network_proxy, test_isolation};
 
 #[tokio::test]
 async fn stalled_response_headers_use_the_request_read_timeout() {
@@ -119,15 +119,15 @@ async fn stalled_http_connect_handshake_uses_the_absolute_connect_deadline() {
     let (proxy_address, connect_request) = spawn_stalled_http_connect().await;
     let manager = manager_with_connect_timeout();
     let proxy = network_proxy("stalled CONNECT", ProxyKind::Http, proxy_address, true);
-    manager.client_for(&proxy).expect("warm proxy client");
+    let request = request_to("https://upstream.invalid/stalled-connect");
+    manager
+        .client_for(&proxy, request.isolation)
+        .expect("warm proxy client");
     let started = tokio::time::Instant::now();
 
     let result = tokio::time::timeout(
         Duration::from_secs(2),
-        manager.execute(
-            TransportProxy::new(&proxy, None),
-            request_to("https://upstream.invalid/stalled-connect"),
-        ),
+        manager.execute(TransportProxy::new(&proxy, None), request),
     )
     .await
     .expect("connect deadline must finish");
@@ -231,6 +231,7 @@ fn request_to(uri: &str) -> TransportRequest {
         uri: Uri::try_from(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::from_static(b"{}"),
+        isolation: test_isolation(),
         network_policy: EndpointNetworkPolicy::new(),
         read_timeout: Duration::from_secs(15),
     }

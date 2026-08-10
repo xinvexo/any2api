@@ -138,15 +138,22 @@ fn proxy_authentication_version_creates_a_new_client_generation() {
     .set_authentication("proxy-user")
     .expect("proxy authentication metadata");
     let credentials = ProxyCredentials::new("proxy-user".to_owned(), "first".to_owned());
+    let isolation = crate::client::tests::test_isolation();
     let first = manager
-        .client_for_proxy(TransportProxy::new(&original, Some(&credentials)))
+        .client_for_proxy(
+            TransportProxy::new(&original, Some(&credentials)),
+            isolation,
+        )
         .expect("first client");
     let rotated = original
         .set_authentication("proxy-user")
         .expect("rotated authentication metadata");
     let rotated_credentials = ProxyCredentials::new("proxy-user".to_owned(), "second".to_owned());
     let second = manager
-        .client_for_proxy(TransportProxy::new(&rotated, Some(&rotated_credentials)))
+        .client_for_proxy(
+            TransportProxy::new(&rotated, Some(&rotated_credentials)),
+            isolation,
+        )
         .expect("rotated client");
     assert!(!Arc::ptr_eq(&first, &second));
 }
@@ -157,6 +164,7 @@ fn request_to(uri: &str) -> TransportRequest {
         uri: Uri::from_str(uri).expect("request URI"),
         headers: HeaderMap::new(),
         body: Bytes::new(),
+        isolation: crate::client::tests::test_isolation(),
         network_policy: EndpointNetworkPolicy::new(),
         read_timeout: Duration::from_secs(15),
     }

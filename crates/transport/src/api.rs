@@ -8,7 +8,9 @@ use http::{HeaderMap, Method, StatusCode, Uri};
 
 pub use crate::{
     ReqwestTransportManager, TransportConfigurationError, TransportError, TransportErrorStage,
-    TransportFailureScope, proxy::ProxyCredentials,
+    TransportFailureScope,
+    isolation::{TransportIsolationKey, TransportTrafficClass},
+    proxy::ProxyCredentials,
 };
 
 pub type BoxByteStream =
@@ -69,6 +71,7 @@ pub struct TransportRequest {
     pub uri: Uri,
     pub headers: HeaderMap,
     pub body: Bytes,
+    pub isolation: TransportIsolationKey,
     pub network_policy: EndpointNetworkPolicy,
     pub read_timeout: Duration,
 }
@@ -81,6 +84,7 @@ impl fmt::Debug for TransportRequest {
             .field("uri", &self.uri)
             .field("header_count", &self.headers.len())
             .field("body_bytes", &self.body.len())
+            .field("isolation", &self.isolation)
             .field("read_timeout", &self.read_timeout)
             .finish()
     }

@@ -2,7 +2,8 @@ use std::time::Duration;
 
 use any2api_provider::api::{OAuthRequestPlan, ProviderError};
 use any2api_transport::api::{
-    EndpointNetworkPolicy, TransportManager, TransportProxy, TransportRequest,
+    EndpointNetworkPolicy, TransportIsolationKey, TransportManager, TransportProxy,
+    TransportRequest,
 };
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
@@ -22,9 +23,10 @@ pub(in crate::oauth) async fn execute(
     transport: &dyn TransportManager,
     proxy: TransportProxy<'_>,
     strict_ssrf: bool,
+    isolation: TransportIsolationKey,
     plan: OAuthRequestPlan,
 ) -> Result<Bytes, OAuthError> {
-    let response = execute_response(transport, proxy, strict_ssrf, plan).await?;
+    let response = execute_response(transport, proxy, strict_ssrf, isolation, plan).await?;
     if !response.status.is_success() {
         return Err(OAuthError::TokenRejected(response.status.as_u16()));
     }
@@ -35,6 +37,7 @@ pub(in crate::oauth) async fn execute_response(
     transport: &dyn TransportManager,
     proxy: TransportProxy<'_>,
     strict_ssrf: bool,
+    isolation: TransportIsolationKey,
     plan: OAuthRequestPlan,
 ) -> Result<OAuthHttpResponse, OAuthError> {
     let request = TransportRequest {
@@ -46,6 +49,7 @@ pub(in crate::oauth) async fn execute_response(
         })?,
         headers: plan.headers,
         body: Bytes::from(plan.body),
+        isolation,
         network_policy: EndpointNetworkPolicy::new().with_strict_ssrf(strict_ssrf),
         read_timeout: TOKEN_READ_TIMEOUT,
     };

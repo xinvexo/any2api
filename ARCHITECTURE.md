@@ -1162,6 +1162,11 @@ Provider Driver 不直接创建、获取或持有 HTTP Client。Runtime 根据 D
 
 ```text
 TransportKey
+├─ transport_isolation
+│  ├─ routing_credential_id
+│  ├─ routing_generation
+│  ├─ authentication_version
+│  └─ traffic_class
 ├─ proxy_profile_id
 ├─ proxy_config_version
 ├─ connect_timeout
@@ -1171,7 +1176,9 @@ TransportKey
 └─ transport_kind
 ```
 
-相同 TransportKey 的 Credential 共享连接池。代理配置修改后创建新一代 Client，已开始请求继续持有其捕获 Client，直到请求结束后自动释放。
+`transport_isolation` 是 Runtime 生成、Transport 只做相等性比较的强类型隔离身份。`traffic_class` 固定分为 `DataPlane`、`OAuthToken`、`OAuthQuota` 和 `Diagnostic`：公开推理请求、OAuth Token 交换、额度请求与管理诊断不得因为 Proxy 和 origin 相同而共享 Client、TCP/TLS 连接或 HTTP/2 stream namespace。持久化 Credential 使用 `RoutingCredentialId + routing_generation + authentication_version` 形成代际；尚未产生 OAuthAccount 的登录交换与不绑定 Credential 的代理测试使用单次临时隔离身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。
+
+只有完整 TransportKey 相同的请求才共享连接池。不同 Credential、不同认证代际或不同 traffic class 必须得到不同 Client。每个 Client 从共享只读 trust roots 构造独立 Rustls `ClientConfig`，TLS session ticket/resumption store 不得跨 TransportKey clone 或复用；因此仅让 HTTP pool key 分离而继续共享 TLS resumption 不满足隔离要求。代理配置修改、Credential secret/token 轮换或账号重新启用后创建新一代 Client；Manager 首次观察到同一 Credential 的更高路由/认证代际时立即移除其较旧缓存引用，旧快照与已开始请求仍继续持有捕获的 Client，不强行中断。删除/禁用后没有新请求触发代际清理的 Client 仍由有界 LRU 与 idle timeout 排出，不允许旧代际 Client 被新代际请求重新命中。
 
 `connect_timeout` 属于 Client/连接池代际，并在每次 `TransportManager::execute` 开始时捕获为绝对连接阶段 deadline；手工本地 DNS、Client 获取或构造、TCP、HTTP CONNECT/SOCKS5 握手与 TLS 都消耗同一个 deadline，任何子阶段都不得重置或延长它。同步 Client 构造不能被 Tokio timer 抢占，但其耗时仍计入该 deadline；构造返回后必须先检查 deadline，已经到期就返回连接前失败且禁止启动网络 I/O。连接池命中不会改变边界：直到固定请求 Body 首次被连接层消费前都受该 deadline 约束，超时返回连接前失败；Body 首次被消费后连接阶段结束并停止该 timer。
 
@@ -1183,6 +1190,8 @@ TransportKey
 - DIRECT 与严格 SSRF 的本地 DNS 解析，以及严格 HTTP CONNECT/SOCKS5 固定目标连接器，都必须受本次 `execute` 捕获的同一个绝对 `connect_timeout` deadline 约束，禁止代理握手或 TLS 在 TCP 成功后无限等待；
 - HTTP/SOCKS5 认证材料作为脱敏 sidecar 传入 Transport；`DIRECT` 必须没有代理认证；
 - Provider Authorization 逐请求注入，禁止放进 HTTP Client 默认 Header；
+- `TransportRequest` 必须显式携带 `transport_isolation`，不得提供会把不同调用者落入进程级共享池的默认值；
+- 同一个 `RoutingCredentialId + routing_generation + authentication_version` 在同一 traffic class 内允许复用；Credential、认证代际或 traffic class 任一不同都必须隔离 Client、连接池与 TLS resumption；
 - Client 禁用 Cookie Store；
 - Client 缓存使用 Weak 引用、代际清理或有界 LRU，禁止永久保存所有历史配置版本；
 - 等响应头超时归入 `AwaitHeaders`，完整收集响应体时的空闲超时归入 `ReadBody`；两者默认 `Ambiguous`。DIRECT 归因 Endpoint，无法证明代理或目标责任的代理路径使用 `Unattributed`；
@@ -3231,6 +3240,9 @@ RuntimeRegistry = Stable Across Config Generations
 Grok Free Tokens = Actual Data-Plane Exhaustion Evidence Only + Otherwise Unknown
 OAuth Quota Snapshot = SQLite Last Successful Safe Observation + Never Restores Routing Health
 OAuth Quota Auto Refresh = Actual OAuth Transport Activity + Per-Account Coalescing + No Idle Scan
+Transport Isolation = RoutingCredentialId + Routing Generation + Authentication Version + Traffic Class
+Transport Traffic Class = DataPlane / OAuthToken / OAuthQuota / Diagnostic
+TLS Resumption Store = Per Transport Client / Never Cross Transport Isolation
 
 Session Binding ──> Fixed Credential + Route Target + Model + Dialect
 Bridge Continuation ──> Same Binding Record + Pending/Ready/Abort + Opaque Typed State

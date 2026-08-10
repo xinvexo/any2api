@@ -6,6 +6,7 @@ use any2api_domain::{
     ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
     ProxyConfiguration, ProxyProfileId, RequestsPerMinute,
 };
+use any2api_transport::api::TransportTrafficClass;
 use tokio::sync::{mpsc, watch};
 
 use crate::{
@@ -207,6 +208,11 @@ fn generation_changes_are_pinned_without_resetting_the_rate_window() {
     );
     let old_binding = initial.as_slice()[0].clone();
     let old_permit = old_binding.try_reserve().expect("old generation permit");
+    let old_data_isolation = old_permit.transport_isolation(TransportTrafficClass::DataPlane);
+    assert_ne!(
+        old_data_isolation,
+        old_permit.transport_isolation(TransportTrafficClass::Diagnostic)
+    );
 
     let rotated = reconcile(
         &runtime,
@@ -214,6 +220,8 @@ fn generation_changes_are_pinned_without_resetting_the_rate_window() {
         "sk-new-generation",
     );
     let new_binding = rotated.as_slice()[0].clone();
+    let new_data_isolation = new_binding.transport_isolation(TransportTrafficClass::DataPlane);
+    assert_ne!(old_data_isolation, new_data_isolation);
     assert_eq!(old_permit.generation().routing_generation(), 1);
     assert_eq!(new_binding.generation().routing_generation(), 2);
     assert_eq!(new_binding.generation().authentication_version(), 2);
@@ -244,6 +252,10 @@ fn generation_changes_are_pinned_without_resetting_the_rate_window() {
 
     let new_permit = new_binding.try_reserve().expect("new generation permit");
     assert_eq!(new_permit.generation().routing_generation(), 2);
+    assert_eq!(
+        new_permit.transport_isolation(TransportTrafficClass::DataPlane),
+        new_data_isolation
+    );
     assert!(new_binding.try_reserve().is_err());
     drop((old_permit, new_permit));
 }

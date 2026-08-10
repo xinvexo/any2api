@@ -3,6 +3,7 @@ pub mod api;
 mod client;
 mod connection;
 mod error;
+mod isolation;
 mod proxy;
 mod resolution;
 
