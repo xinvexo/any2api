@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test } from "vitest";
 
 import type { OAuthQuotaEstimate } from "../api/oauth-quota-contracts";
@@ -17,10 +17,10 @@ test("cold start stays visibly unknown until an interval sample exists", () => {
     },
   })} />);
 
-  expect(screen.getByText("学习中")).toHaveAttribute(
-    "title",
-    expect.stringContaining("需要两个可靠官方快照"),
-  );
+  const trigger = screen.getByText("学习中");
+  fireEvent.focus(trigger);
+  expect(screen.getByRole("tooltip")).toHaveTextContent("需要两个可靠官方快照");
+  expect(trigger).toHaveAttribute("aria-describedby");
 });
 
 test("degraded estimates remain available but are marked approximate", () => {
@@ -33,8 +33,13 @@ test("degraded estimates remain available but are marked approximate", () => {
   })} />);
 
   const value = screen.getByText("≈$0.40/$1.00");
-  expect(value).toHaveAttribute("title", expect.stringContaining("疑似外部消费"));
-  expect(value).toHaveAttribute("title", expect.stringContaining("置信度 已降级"));
+  fireEvent.mouseEnter(value);
+  const tooltip = screen.getByRole("tooltip");
+  expect(tooltip).toHaveTextContent("疑似外部消费");
+  expect(tooltip).toHaveTextContent("置信度 已降级");
+  expect(tooltip).not.toHaveTextContent("样本相对 MAD");
+  expect(tooltip).not.toHaveTextContent("Epoch");
+  expect(tooltip).not.toHaveTextContent("非上游余额");
 });
 
 const base: OAuthQuotaEstimate = {

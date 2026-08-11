@@ -7,6 +7,7 @@ use crate::{
 };
 
 const RESET_JITTER_PERCENT: f64 = 0.5;
+const RESET_AT_JITTER_SECONDS: u64 = 60;
 
 pub(super) fn must_reset(
     state: &QuotaWindowState,
@@ -14,7 +15,7 @@ pub(super) fn must_reset(
     checkpoint: &RequestTelemetryCheckpoint,
     fetched_at_ms: u64,
 ) -> bool {
-    state.baseline.reset_at != window.reset_at
+    reset_identity_changed(state.baseline.reset_at, window.reset_at)
         || state.baseline.used_percent - window.used_percent > RESET_JITTER_PERCENT
         || (state.baseline.checkpoint.process_id != checkpoint.process_id
             && window.reset_at.is_none())
@@ -23,6 +24,14 @@ pub(super) fn must_reset(
                 fetched_at_ms.saturating_sub(state.epoch_started_at_ms)
                     >= seconds.saturating_mul(1_000)
             }))
+}
+
+fn reset_identity_changed(previous: Option<i64>, current: Option<i64>) -> bool {
+    match (previous, current) {
+        (Some(previous), Some(current)) => previous.abs_diff(current) > RESET_AT_JITTER_SECONDS,
+        (None, None) => false,
+        _ => true,
+    }
 }
 
 pub(super) fn new_window(

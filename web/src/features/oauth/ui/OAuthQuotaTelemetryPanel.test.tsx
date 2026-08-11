@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { OAuthQuotaPanel } from "./OAuthQuotaPanel";
@@ -34,12 +34,16 @@ test("shows real Credits as dollars and inline epoch capacity", async () => {
   );
   const estimate = within(panel).getByText("$0.38/$1.00");
   expect(estimate.parentElement).toContainElement(within(panel).getByText("63%"));
-  expect(estimate.getAttribute("title")).toContain("剩余 $0.63");
-  expect(estimate.getAttribute("title")).toContain(
+  fireEvent.mouseEnter(estimate);
+  const tooltip = screen.getByRole("tooltip");
+  expect(tooltip).toHaveTextContent("剩余 $0.63");
+  expect(tooltip).toHaveTextContent(
     "区间本地消费 0.25 Credits · 官方使用率变化 1%",
   );
-  expect(estimate.getAttribute("title")).toContain("置信度 稳定 · 3 个样本 · Epoch 7");
-  expect(estimate.getAttribute("title")).toContain("费率卡 openai_codex_credits_2026_08_11");
+  expect(tooltip).toHaveTextContent("置信度 稳定");
+  expect(tooltip).not.toHaveTextContent("样本相对 MAD");
+  expect(tooltip).not.toHaveTextContent("Epoch");
+  expect(tooltip).toHaveTextContent("费率卡 openai_codex_credits_2026_08_11");
   expect(within(panel).queryByText(/区间本地消费/)).not.toBeInTheDocument();
 });
 

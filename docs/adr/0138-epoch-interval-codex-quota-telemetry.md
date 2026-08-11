@@ -103,7 +103,8 @@ capacity_sample_credits = local_cost_credits * 100 / delta_used_percent
 每个 `(OAuthAccount, window_id, window_kind, window_duration)` 保存一个当前 epoch。以下情况结束旧 epoch、
 清空样本并以当前快照建立新 baseline：
 
-1. 官方 `reset_at` 发生变化；
+1. 官方 `reset_at` 在两个连续快照之间变化超过 60 秒，或从有值变为无值/从无值变为有值；两个有值
+   `reset_at` 相差不超过 60 秒视为同一窗口的秒级漂移，只更新 baseline，不结束 epoch；
 2. 没有可靠 `reset_at` 且相邻快照间隔达到或超过完整窗口时长；
 3. 当前 `used_percent` 比上一快照低超过 `0.5` 个百分点；`50.0 → 49.8` 属于容差内 jitter，
    `70 → 3`、`70 → 0` 必须进入新 epoch；
@@ -116,6 +117,9 @@ Epoch 之间不共享样本、prior estimate 或 baseline。进程重启本身�
 `reset_at` 能证明仍是同一 generation，保留当前 epoch，但跨进程 observation interval 标为遥测不完整；
 下一对同进程快照可以继续学习。没有可靠 reset identity 时，重启后不能证明同一 generation，保守开启
 新 epoch。
+
+`reset_at` 的秒级漂移容差及其生产故障依据由
+`docs/adr/0140-codex-quota-reset-at-jitter-tolerance.md` 补充定义。
 
 ### 5. 鲁棒容量估计与外部消费
 

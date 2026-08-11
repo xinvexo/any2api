@@ -763,13 +763,13 @@ Responses→Chat path 进一步完全合成事件种类、sequence、ID、create
 - `crates/runtime/src/public_request/response.rs` — `sanitize_response_headers_inner`
 - `crates/protocol/src/json_codec.rs` — request Content-Encoding parsing
 
-> 修复状态（2026-08-10）：**Fixed after baseline**。ADR-0127 让 Transport 覆盖发送版本化 `Accept-Encoding: gzip, br, zstd`，并在普通 Reqwest 与 pinned Hyper 的共同边界对所有状态按逆序增量解码；解码后同步删除表示 Header，未知/损坏/过深编码链以 `ReadBody + Endpoint + Ambiguous` 失败。非成功响应保留状态与解码后的原始内容字节，不做 JSON 重序列化，因此 Provider 分类和下游客户端都不会再读到只删 Header 的压缩字节。
+> 修复状态（2026-08-10；请求侧于 2026-08-12 修订）：**Fixed after baseline**。ADR-0127 让 Transport 在普通 Reqwest 与 pinned Hyper 的共同边界对所有状态按逆序增量解码；ADR-0135 随后取消固定生成 `Accept-Encoding`，改为同方言受控透传。ADR-0139 又把请求 Body 重压缩能力收窄到固定官方 Codex OAuth 数据面，Codex API Key 与自定义兼容 Endpoint 一律发送 identity JSON。解码后同步删除表示 Header，未知/损坏/过深编码链以 `ReadBody + Endpoint + Ambiguous` 失败。非成功响应保留状态与解码后的原始内容字节，不做 JSON 重序列化，因此 Provider 分类和下游客户端都不会再读到只删 Header 的压缩字节。
 
 **Observed behavior**
 
-reqwest 没有启用 gzip/brotli/deflate/zstd response-decompression feature，Header policy 又禁止客户端 `Accept-Encoding`，因此上游请求通常不声明 response compression。若下游请求 Body 是 zstd，server 先解压；仅在 Provider 支持、且 ingress/upstream 同方言时，Runtime 用 zstd level 3 重新压缩，原压缩 bytes 不透传。跨协议移除 Content-Encoding。
+基线中的 reqwest 没有启用 gzip/brotli/deflate/zstd response-decompression feature，成功响应却会删除 `content-encoding`，导致协议 decoder 读取压缩 bytes。当前响应 coding 已由 Transport 的统一增量 decoder 拥有。若下游请求 Body 是 zstd，server 先解压；只有选中固定官方 Codex OAuth 数据面、且 ingress/upstream 同为 Responses 方言时，Runtime 才用 zstd level 3 重新压缩，原压缩 bytes 不透传。Codex API Key、自定义兼容 Endpoint 与跨协议请求都移除 `Content-Encoding` 并发送 identity JSON。
 
-成功响应的 `content-encoding` 会在下游 Header sanitize 时删除，但 transport 没有解压 Body。如果上游在未请求的情况下仍返回压缩 JSON/SSE，协议 decoder 会读到压缩 bytes 并失败。错误响应则可能保留 encoding 和原 body。
+当前 Transport 即使没有协商压缩，也会在上游意外返回受支持编码时先解码成功或错误响应，再同步删除失效的表示 Header；未知、损坏或过深编码链 Fail-Closed。
 
 **Expected/native behavior**
 
@@ -781,11 +781,11 @@ reqwest 没有启用 gzip/brotli/deflate/zstd response-decompression feature，H
 
 **How to reproduce locally**
 
-mock upstream 无视 Accept-Encoding，返回 `Content-Encoding:gzip` 的成功 JSON/SSE；当前路径应在 JSON/SSE decode 失败。另用 zstd ingress 比较 inbound 与 outbound compressed bytes，证明发生 level-3 重压缩。
+mock upstream 无视 Accept-Encoding，返回 `Content-Encoding:gzip` 的成功 JSON/SSE；当前路径必须在 JSON/SSE decoder 前还原正文。另用 zstd ingress 分别选择 Codex OAuth 与 API Key Endpoint：OAuth 同方言 Responses 应发生 level-3 重压缩，API Key Endpoint 必须收到 identity JSON。
 
 **Architecture recommendation**
 
-定义统一 response-decompression boundary，先解压再交给 protocol，并同步移除/重算 Content-Length/Encoding。每个 Provider profile 声明 request/response compression contract，禁止 Header 与实际 codec 各自决定。
+定义统一 response-decompression boundary，先解压再交给 protocol，并同步移除/重算 Content-Length/Encoding。请求压缩能力由当前选中的具体认证面声明，不能从 Provider kind 或同方言关系推导；入口 coding 不能跨 hop 自动继承。禁止 Header 与实际 codec 各自决定。
 
 ### F-015 — 直接同方言通常保留原 JSON，但 Responses replay identity 会条件性改写
 
@@ -999,7 +999,7 @@ Direct path 应只做为满足上游 contract 必需的最小改写，并为每�
 | Retry | Runtime 有界 attempts；reselect/same-path/OAuth 后重试统一遵守 Retry-After/退避 | 同左 | 同左 | 同左 |
 | OAuth control-plane start | 同 Provider 至少间隔 500 ms | 同左 | 同左 | 不支持 OAuth |
 | Redirect | none | none | none | none |
-| Request compression | 同方言 Responses/Chat 可重压 zstd | 不声明支持 | 不声明支持 | 不声明支持 |
+| Request compression | 仅固定官方 OAuth 的同方言 Responses 可重压 zstd；API Key Endpoint 使用 identity | 不声明支持 | 不声明支持 | 不声明支持 |
 | Response compression | profile 声明 `gzip, br, zstd` 并统一增量解码 | 同左 | 同左 | 同左 |
 | Streaming direct | Responses/Chat/Images SSE | Messages SSE | Responses/Chat SSE | 直接 Chat 或 Responses→Chat |
 | Cross-protocol bridge | Responses→Chat、Images→Chat（按 route） | 无已注册跨协议 | Responses→Chat、Images→Chat（按 route） | Responses→Chat、Images→Chat（按 route） |

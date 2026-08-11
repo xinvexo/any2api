@@ -88,19 +88,17 @@ pub(crate) fn supports_encoding(
     encoding: RequestBodyEncoding,
 ) -> bool {
     encoding == RequestBodyEncoding::Zstd
+        && context.oauth
         && context.ingress_dialect == context.upstream_operation.dialect()
-        && matches!(
-            context.upstream_operation.dialect(),
-            ProtocolDialect::OpenAiResponses | ProtocolDialect::OpenAiChatCompletions
-        )
+        && context.upstream_operation.dialect() == ProtocolDialect::OpenAiResponses
 }
 
 #[cfg(test)]
 mod tests {
-    use any2api_domain::{ProtocolDialect, ProtocolOperation};
+    use any2api_domain::{ProtocolDialect, ProtocolOperation, RequestBodyEncoding};
     use http::{HeaderMap, HeaderValue};
 
-    use super::{request, response};
+    use super::{request, response, supports_encoding};
     use crate::api::ProviderRequestContext;
 
     const OWNED_HEADERS: &[&str] = &[
@@ -206,5 +204,50 @@ mod tests {
 
         assert_eq!(projected["x-oai-request-id"], "upstream-oai-request");
         assert_eq!(projected["x-request-id"], "upstream-oai-request");
+    }
+
+    #[test]
+    fn request_zstd_is_limited_to_the_codex_oauth_responses_surface() {
+        let client = HeaderMap::new();
+        let oauth_responses = ProviderRequestContext {
+            ingress_dialect: ProtocolDialect::OpenAiResponses,
+            upstream_operation: ProtocolOperation::Responses,
+            upstream_model: "gpt",
+            client_headers: &client,
+            oauth: true,
+            allow_credential_bound: true,
+            allow_turn_state: false,
+        };
+
+        assert!(supports_encoding(
+            oauth_responses,
+            RequestBodyEncoding::Zstd
+        ));
+        assert!(!supports_encoding(
+            ProviderRequestContext {
+                oauth: false,
+                ..oauth_responses
+            },
+            RequestBodyEncoding::Zstd
+        ));
+        assert!(!supports_encoding(
+            oauth_responses,
+            RequestBodyEncoding::Identity
+        ));
+        assert!(!supports_encoding(
+            ProviderRequestContext {
+                ingress_dialect: ProtocolDialect::OpenAiChatCompletions,
+                ..oauth_responses
+            },
+            RequestBodyEncoding::Zstd
+        ));
+        assert!(!supports_encoding(
+            ProviderRequestContext {
+                ingress_dialect: ProtocolDialect::OpenAiChatCompletions,
+                upstream_operation: ProtocolOperation::ChatCompletions,
+                ..oauth_responses
+            },
+            RequestBodyEncoding::Zstd
+        ));
     }
 }

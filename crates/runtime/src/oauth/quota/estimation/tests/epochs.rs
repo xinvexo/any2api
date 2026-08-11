@@ -170,6 +170,43 @@ async fn stable_reset_timestamp_is_stronger_than_elapsed_window_duration() {
 }
 
 #[tokio::test]
+async fn one_second_reset_timestamp_drift_keeps_epoch_and_learns_interval() {
+    let repository = Arc::new(UsageRepository::default());
+    repository.push(priced(2.514804));
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let first = observe(&estimator, None, 1.0, Some(1_789_041_126), checkpoint(0), 0).await;
+    let epoch = first.estimates[0].epoch;
+    let learned = observe(
+        &estimator,
+        Some(first.state),
+        11.0,
+        Some(1_789_041_127),
+        checkpoint(0),
+        1,
+    )
+    .await;
+
+    assert_eq!(learned.estimates[0].epoch, epoch);
+    assert_eq!(learned.estimates[0].sample_count, 1);
+    assert_eq!(
+        learned.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::ValidSample
+    );
+    assert!(
+        (learned.estimates[0]
+            .estimated_capacity_credits
+            .expect("capacity")
+            - 25.14804)
+            .abs()
+            < 0.000_001
+    );
+    assert_eq!(
+        learned.state.windows[0].baseline.reset_at,
+        Some(1_789_041_127)
+    );
+}
+
+#[tokio::test]
 async fn changed_window_identity_starts_a_reset_boundary() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(repository);

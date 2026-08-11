@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.0<br>
-> 最后更新：2026-08-11<br>
+> 最后更新：2026-08-12<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 1. 项目定位
@@ -67,6 +67,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 36. 实际进入 Transport 的 RequestAttempt 必须保存不含 Secret 的结构化线路诊断；流式 Attempt 还必须以 Attempt 起点为单调时钟基准记录首个完整上游 SSE frame、预提交 commit、首个向下游 Body yield 和取消四个 first-write-wins 时间点。诊断只用于本地可观测与回归，不能改变 retry、flush、backpressure、连接复用或路由行为。
 37. 官方客户端基线只能使用明确版本和哈希的发布物、合成凭据、临时客户端目录、清空后的进程环境与 loopback recorder 离线采集；每份基线必须记录 Provider、客户端入口、版本、平台、操作、日期、HTTP 条件和局限。仓库只保存脱敏后的 Header 顺序、Body 结构与 capture hash，不保存原始认证值、动态设备/会话/请求标识或完整提示正文。单一入口或平台的观测不能自动改写通用 Provider persona，更不能据此增加 TLS/HTTP2 随机化或伪装层。
 38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新和额度操作必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在同一全局出口同步起跑。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider account ID、无 account ID 时的规范化邮箱，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。交互式登录也必须在同一发布锁内检查精确 Token 重复：稳定身份与 Token 证据指向不同历史记录时返回冲突，缺少稳定身份但只命中一条精确 Token 记录时复用该记录，不能创建新候选。完整决策见 `docs/adr/0132-provider-scoped-oauth-control-plane-pacing.md`、`docs/adr/0133-reject-duplicate-oauth-import-identities.md` 与 `docs/adr/0134-interactive-oauth-token-duplicate-guard.md`。
+39. 公开请求的 `Content-Encoding` 只描述客户端到 any2api 的入口 hop，不能仅凭 Provider 类型或同方言推断选中的上游也支持同一请求压缩。当前只有固定官方 Codex OAuth 数据面明确允许把已解码、规范化后的同方言 Responses JSON 重新压缩为 zstd；Codex `ProviderCredential` 指向的官方或自定义 API Key Endpoint 都必须发送 identity JSON 并删除入口压缩元数据。跨协议请求同样发送 identity JSON。完整决策见 `docs/adr/0139-credential-surface-request-content-coding.md`。
 
 ### 2.1 两类凭据的术语边界
 
@@ -1615,7 +1616,7 @@ Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央
 
 `x-codex-turn-state` 是上游服务端签发并与 Route Target/Credential 绑定的粘性状态。只有当前请求已经解析到同一 Credential 的现有会话绑定时才允许发送；没有绑定、绑定丢失或首次创建会话时必须删除，禁止把一个账号签发的状态令牌发送给另一个账号。响应中新的 `x-codex-turn-state` 只有在该 Attempt 最终提交时才能返回。
 
-公开请求 Body 若声明 `Content-Encoding: zstd`，只在 JSON 型 Codex/OpenAI 入口接受。Server 同时限制压缩前字节数和流式解压后的字节数；未知/重复编码、损坏帧或解压后超限使用当前协议错误 envelope 拒绝。ProtocolAdapter 解析解压后的 JSON；同方言 Codex 上游若客户端原本使用 zstd，则对最终重编码 Body 重新压缩并重建 `Content-Encoding`/`Content-Length` 语义，绝不转发与重编码正文失配的压缩元数据。
+公开请求 Body 若声明 `Content-Encoding: zstd`，只在 JSON 型 Codex/OpenAI 入口接受。Server 同时限制压缩前字节数和流式解压后的字节数；未知/重复编码、损坏帧或解压后超限使用当前协议错误 envelope 拒绝。ProtocolAdapter 解析解压后的 JSON。入口 `Content-Encoding` 是客户端到 any2api 的 hop 属性，不是对选中上游能力的声明；是否重新编码只能由 Provider Driver 根据当前实际认证面明确决定。当前只有固定官方 Codex OAuth 数据面在入口与上游同为 Responses 方言且客户端原本使用 zstd 时，才对最终规范化 Body 重新压缩并重建 `Content-Encoding`/`Content-Length` 语义。Codex API Key `ProviderCredential` 的 Base URL 是管理员可配置的兼容 Endpoint，不能假定支持 zstd，因此无论是否同方言都发送 identity JSON 并删除入口 `Content-Encoding`；跨协议请求同样发送 identity JSON。绝不转发与重编码正文失配的压缩元数据。完整决策见 `docs/adr/0139-credential-surface-request-content-coding.md`。
 
 响应 Header 也不能使用宽泛 denylist。Driver 只投影最终 Attempt 的显式精确名称或受控 Provider 前缀；认证、Cookie、hop-by-hop 和正文校验 Header 始终删除。上游 `x-request-id`/`request-id`/`x-oai-request-id` 存在时原样保留；Codex 只有 `x-oai-request-id` 时还必须把同一上游值镜像为 `x-request-id`。any2api 为每个 HTTP 请求生成的本地追踪值始终写入 `x-any2api-request-id`。仅当响应没有可归一化的上游 `x-request-id` 时，Server 才用本地值补 `x-request-id`，因此本地错误仍同时具有两个关联字段。任意状态的上游响应若带 `gzip`、`br` 或 `zstd`，Transport 必须在 Protocol JSON/SSE 解码或 Provider 错误分类前按 Content-Encoding 逆序增量解码，并立即删除 `Content-Encoding`、`Content-Length`、`Content-Range`、`ETag`、`Digest` 与 `Content-MD5`；解压后的字节才计入 buffered/error response 上限并进入 stream frame parser。编码链最多四层，未知 token、空 token、损坏流或超过层数都作为 `ReadBody` 阶段的 Endpoint 响应失败，RetrySafety 为 `Ambiguous`。最终非成功响应仍透明返回上游状态、允许 Header 和解压后的原始内容字节，不做协议转换或 JSON 重序列化；ADR-0061 中保留压缩表示及 Content-Encoding 的旧决定由 ADR-0127 取代。正文被丢弃为空时仍不得生成替代 envelope。本地错误与成功响应重编码不得携带失配的 Content-Encoding。聚合 `/v1/models` 不透传某个账号的 `X-Models-Etag`，而应由当前 PublishedSnapshot 的公开目录生成本地 ETag。
 
@@ -2654,7 +2655,7 @@ Grok Free Token 余额不主动抓取。管理额度刷新不得发送生成请�
 
 容量估算以相邻权威快照区间为单位，而不是要求从官方窗口起点拥有完整日志。首次快照只建立 baseline；后续在同一 quota epoch 中计算 `delta_used_percent = current - previous`，读取完成时刻 `started_at_ms + latency_ms` 落在 `[previous.fetched_at_ms, current.fetched_at_ms)` 内该账号已提交 RequestLog 的冻结 Credits，并在 `delta >= 0.5`、遥测 coverage 完整、没有未计价记录且成本为正时生成 `capacity_sample = local_credits × 100 / delta_used_percent`。用完成时刻归档可使快照时尚未完成的请求自然进入下一段，禁止因请求开始于旧区间而永久漏算。RequestTelemetry barrier 在额度控制面等待此前已入队日志完成批量提交，并返回 process ID、enabled、coverage generation 及 request-log queue dropped/storage failed/pruned 累计；区间查询前后的两个 checkpoint 还必须互相覆盖，查询期间发生清理、写失败或其他已知缺口时直接作废结果。barrier 不可用或超时同样返回不完整 checkpoint。公开请求路径仍只做有界 `try_send`，绝不等待 DB。跨进程、日志启停、丢弃、写失败或清理导致的区间直接标记不完整，不用低可信数值污染 estimator。
 
-每个账号窗口显式维护 quota epoch。官方 `reset_at` 变化、没有 reset identity 时跨过完整窗口、使用率下降超过 `0.5` 个百分点、OAuth 稳定身份/`account_generation` 变化、无法证明同一 generation 或显式 reset credit 成功都会结束旧 epoch；`50.0 → 49.8` 只作为 jitter 更新 baseline，`70 → 3` 即使没抓到 0 也必须隔离旧样本。每个 epoch 最多保留最近 9 个有效容量样本并使用 median；至少 3 个一致样本且相对 MAD 不超过 20% 才是 `stable`，1–2 个是 `learning`，已知 telemetry gap/外部消费/异常值后是 `degraded`。稳定分布形成后，低于 median 50% 的候选标记外部消费并拒绝，其他远离 `max(3×MAD, 25%×median)` 或两倍中心范围的候选也拒绝。当前已用/剩余只用 median capacity 与官方当前百分比投影。Estimator state、baseline/checkpoint、当前 epoch 和有界样本随 v5 quota snapshot 持久化；进程重启保留可证明同 epoch 的学习结果，但跨重启区间不产生样本。显式 reset 删除旧 snapshot，下一次刷新冷启动。所有估算与置信诊断只用于管理展示，不参与健康、路由、RPM、计费或任何运行态恢复。完整边界见 `docs/adr/0138-epoch-interval-codex-quota-telemetry.md`。
+每个账号窗口显式维护 quota epoch。官方 `reset_at` 在两个连续快照之间发生超过 60 秒的实质变化、`reset_at` 的有无状态变化、没有 reset identity 时跨过完整窗口、使用率下降超过 `0.5` 个百分点、OAuth 稳定身份/`account_generation` 变化、无法证明同一 generation 或显式 reset credit 成功都会结束旧 epoch；同一窗口不超过 60 秒的 `reset_at` 秒级漂移只更新 baseline，不得丢弃样本，`50.0 → 49.8` 同样只作为 jitter 更新 baseline，`70 → 3` 即使没抓到 0 也必须隔离旧样本。每个 epoch 最多保留最近 9 个有效容量样本并使用 median；至少 3 个一致样本且相对 MAD 不超过 20% 才是 `stable`，1–2 个是 `learning`，已知 telemetry gap/外部消费/异常值后是 `degraded`。稳定分布形成后，低于 median 50% 的候选标记外部消费并拒绝，其他远离 `max(3×MAD, 25%×median)` 或两倍中心范围的候选也拒绝。当前已用/剩余只用 median capacity 与官方当前百分比投影。Estimator state、baseline/checkpoint、当前 epoch 和有界样本随 v5 quota snapshot 持久化；进程重启保留可证明同 epoch 的学习结果，但跨重启区间不产生样本。显式 reset 删除旧 snapshot，下一次刷新冷启动。所有估算与置信诊断只用于管理展示，不参与健康、路由、RPM、计费或任何运行态恢复。完整边界见 `docs/adr/0138-epoch-interval-codex-quota-telemetry.md` 与 `docs/adr/0140-codex-quota-reset-at-jitter-tolerance.md`。
 
 活动由单个进程生命周期 Worker 按账号短 debounce 合并，并施加最小自动刷新间隔和最多 6 个并发；刷新中出现的新活动最多保留一个后续刷新。失败保留旧快照且不固定周期重试，只有后续真实活动再次调度。没有待处理活动时 Worker 不扫描账号或 SQLite，进程启动也不为闲置账号建立 quota 定时任务。成功 upsert 或 reset 删除快照后推进 quota change epoch；Token 刷新诊断写入、更新或失效后推进独立 refresh diagnostic epoch。受认证 `/api/admin/oauth/quota-events` SSE 只发送 `oauth_quota_changed` 或 `oauth_refresh_diagnostic_changed` 无业务 payload 失效事件，Web 随后分别重读 SQLite quota GET 或安全账号元数据，不由事件访问 Provider，也不在事件中携带诊断或 Secret。
 
@@ -3335,6 +3336,7 @@ OAuth2 JSON = One Current any2api Schema + OAuthAccount-only SQLite persistence 
 Runtime/Web Compatibility = Current Contract Only; No Legacy Field/Schema/Browser-State Branches
 OAuth Quota 403 = Driver Evidence; Account Restriction != Provider Egress Rejection
 Codex Quota 403 = Structured Code Or Original Cloudflare Block Body + No Secondary Probe
+Request Content-Encoding = Ingress Hop Only + Codex OAuth May Recompress Zstd + API Key Endpoints Use Identity JSON
 
 Gateway API Key = Server-Generated CSPRNG Token + SQLite Plaintext + Domain-Separated SHA-256 Digest
 Gateway Token Plaintext = Visible In Authenticated Management Responses, Never In Ordinary Logs; Raw HttpAccessLog Exception Applies
