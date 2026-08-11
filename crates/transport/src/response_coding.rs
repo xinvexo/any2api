@@ -5,7 +5,7 @@ use std::{io, pin::Pin};
 use any2api_domain::RetrySafety;
 use async_compression::tokio::bufread::{BrotliDecoder, GzipDecoder, ZstdDecoder};
 use futures_util::{StreamExt, TryStreamExt};
-use http::{HeaderMap, HeaderValue, header};
+use http::{HeaderMap, header};
 use tokio::io::{AsyncRead, BufReader};
 use tokio_util::io::{ReaderStream, StreamReader};
 
@@ -24,11 +24,25 @@ enum ContentCoding {
     Zstandard,
 }
 
-pub(crate) fn apply_request_accept_encoding(headers: &mut HeaderMap) {
-    headers.insert(
-        header::ACCEPT_ENCODING,
-        HeaderValue::from_static(WIRE_PROFILE.accept_encoding()),
-    );
+pub(crate) fn sanitize_request_accept_encoding(headers: &mut HeaderMap) {
+    let supported = headers
+        .get_all(header::ACCEPT_ENCODING)
+        .iter()
+        .all(|value| accept_encoding_value_is_supported(value.as_bytes()));
+    if !supported {
+        headers.remove(header::ACCEPT_ENCODING);
+    }
+}
+
+fn accept_encoding_value_is_supported(value: &[u8]) -> bool {
+    value.split(|byte| *byte == b',').all(|item| {
+        let item = trim_ows(item);
+        let coding = trim_ows(item.split(|byte| *byte == b';').next().unwrap_or_default());
+        !coding.is_empty()
+            && [b"gzip".as_slice(), b"br", b"zstd", b"identity"]
+                .iter()
+                .any(|supported| coding.eq_ignore_ascii_case(supported))
+    })
 }
 
 pub(crate) fn decode_response_content(

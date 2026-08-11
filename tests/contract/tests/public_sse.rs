@@ -27,6 +27,8 @@ use tokio::{
 };
 use tower::ServiceExt;
 
+const OPENAI_OVERLOAD_FRAME: &[u8] = b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n";
+
 #[tokio::test]
 async fn codex_and_claude_streams_forward_incrementally_with_selected_model_names() {
     let (codex_address, codex_request, release_codex) = paused_sse_server(
@@ -363,7 +365,10 @@ async fn precontent_overload_switches_credentials_without_leaking_the_failed_str
         "/v1/responses",
         json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
         remote,
-        &[("authorization", format!("Bearer {token}"))],
+        &[
+            ("authorization", format!("Bearer {token}")),
+            ("accept-encoding", "identity".to_owned()),
+        ],
     )
     .await;
     assert_stream_headers(&response);
@@ -412,6 +417,61 @@ async fn precontent_overload_switches_credentials_without_leaking_the_failed_str
     );
     assert_eq!(requests[0].body["model"], "gpt-upstream");
     assert_eq!(requests[1].body["model"], "gpt-upstream");
+    assert_eq!(requests[0].headers["accept-encoding"], "identity");
+    assert_eq!(requests[1].headers["accept-encoding"], "identity");
+}
+
+#[tokio::test]
+async fn terminal_precontent_overload_returns_the_real_upstream_rejection_frame() {
+    let (upstream_address, upstream_request) = overload_only_sse_server().await;
+    let (_directory, app, mut revision) = test_app().await;
+    let remote = SocketAddr::from(([127, 0, 0, 1], 41000));
+    let token = create_gateway_key(&app, remote, revision).await;
+    revision += 1;
+    let endpoint = create_endpoint(
+        &app,
+        remote,
+        revision,
+        "Codex terminal overload",
+        "codex",
+        &format!("http://{upstream_address}/v1"),
+    )
+    .await;
+    revision += 1;
+    create_credential(
+        &app,
+        remote,
+        revision,
+        &endpoint,
+        "only-overloaded",
+        "sk-only-overloaded",
+    )
+    .await;
+    revision += 1;
+    select_models(&app, remote, revision, &endpoint, "gpt-upstream").await;
+
+    let response = request(
+        app,
+        "/v1/responses",
+        json!({"model":"gpt-upstream","stream":true,"input":"hello"}),
+        remote,
+        &[("authorization", format!("Bearer {token}"))],
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_stream_headers(&response);
+    let body = response
+        .into_body()
+        .collect()
+        .await
+        .expect("terminal overload response body")
+        .to_bytes();
+    assert_eq!(body.as_ref(), OPENAI_OVERLOAD_FRAME);
+    assert!(!String::from_utf8_lossy(&body).contains("resp_rejected"));
+
+    let request = upstream_request.await.expect("overloaded upstream request");
+    assert_eq!(request.body["model"], "gpt-upstream");
 }
 
 #[tokio::test]
@@ -2437,6 +2497,37 @@ async fn overload_then_success_sse_server() -> (SocketAddr, oneshot::Receiver<Ve
         request_sender
             .send(requests)
             .expect("send upstream attempts");
+    });
+    (address, request_receiver)
+}
+
+async fn overload_only_sse_server() -> (SocketAddr, oneshot::Receiver<UpstreamRequest>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("upstream listener");
+    let address = listener.local_addr().expect("upstream address");
+    let (request_sender, request_receiver) = oneshot::channel();
+    tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("upstream accept");
+        let (path, request) = read_upstream_request(&mut stream).await;
+        assert_eq!(path, "/v1/responses");
+        request_sender.send(request).expect("send upstream request");
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .expect("upstream response headers");
+        write_chunk(
+            &mut stream,
+            b"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_rejected\",\"model\":\"gpt-upstream\"}}\n\nevent: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_rejected\",\"model\":\"gpt-upstream\"}}\n\n",
+        )
+        .await;
+        write_chunk(&mut stream, OPENAI_OVERLOAD_FRAME).await;
+        stream
+            .write_all(b"0\r\n\r\n")
+            .await
+            .expect("finish upstream stream");
     });
     (address, request_receiver)
 }

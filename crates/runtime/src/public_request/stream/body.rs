@@ -13,7 +13,7 @@ use std::{
 
 use any2api_domain::{ErrorClass, PublicError, TokenUsage};
 use any2api_protocol::api::{
-    BridgeContinuationState, ProtocolExchange, SseDecoder, StreamRetryReason, StreamTermination,
+    BridgeContinuationState, ProtocolExchange, SseDecoder, StreamRejection, StreamTermination,
 };
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
@@ -70,7 +70,7 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) buffered_chunk: Option<Bytes>,
     pub(super) pending: VecDeque<PendingFrame>,
     pub(super) pending_error: Option<PendingStreamError>,
-    pub(super) precommit_retry: Option<StreamRetryReason>,
+    pub(super) precommit_retry: Option<StreamRejection>,
     pub(super) precommit_commit_ready: bool,
     pub(super) permit: Option<RequestPermit>,
     pub(super) health: Option<AttemptHealth>,
@@ -104,8 +104,14 @@ pub(super) struct PendingFrame {
 }
 
 #[derive(Debug)]
+pub(in crate::public_request) struct PrecommitStreamRejection {
+    pub(in crate::public_request) rejection: StreamRejection,
+    pub(in crate::public_request) frame: Bytes,
+}
+
+#[derive(Debug)]
 pub(in crate::public_request) enum StreamPrimeFailure {
-    Retryable(StreamRetryReason),
+    Retryable(PrecommitStreamRejection),
     Public(PublicError),
 }
 
@@ -207,9 +213,17 @@ impl GuardedBody {
                 Err(_) => self.set_timeout_error(),
             }
         }
-        if let Some(reason) = self.precommit_retry.take() {
-            self.finish_precommit_rejection(reason);
-            return Err(StreamPrimeFailure::Retryable(reason));
+        if let Some(rejection) = self.precommit_retry.take() {
+            let frame = self
+                .pending
+                .back()
+                .map(|frame| frame.bytes.clone())
+                .expect("precommit rejection has an encoded terminal frame");
+            self.finish_precommit_rejection(rejection);
+            return Err(StreamPrimeFailure::Retryable(PrecommitStreamRejection {
+                rejection,
+                frame,
+            }));
         }
         if self.pending_error.is_some() && !self.precommit_commit_ready {
             return Err(StreamPrimeFailure::Public(self.finish_precommit_failure()));
@@ -391,9 +405,9 @@ impl StreamPrimeFailure {
     fn into_public(self) -> PublicError {
         match self {
             Self::Public(error) => error,
-            Self::Retryable(_) => super::super::response::public_error(
+            Self::Retryable(rejected) => super::super::response::public_error(
                 any2api_domain::PublicErrorCode::UpstreamError,
-                "upstream stream was rejected before content",
+                rejected.rejection.code(),
             ),
         }
     }

@@ -114,8 +114,15 @@ pub(in crate::public_request) async fn execute_stream_attempt(
     );
     let mut body = match body.prime_attempt().await {
         Ok(body) => body,
-        Err(super::super::stream::StreamPrimeFailure::Retryable(reason)) => {
-            return Err(AttemptFailure::stream_rejected(candidate, bound, reason));
+        Err(super::super::stream::StreamPrimeFailure::Retryable(rejected)) => {
+            return Err(AttemptFailure::stream_rejected(
+                status,
+                headers,
+                rejected.frame,
+                candidate,
+                bound,
+                rejected.rejection,
+            ));
         }
         Err(super::super::stream::StreamPrimeFailure::Public(error)) => {
             return Err(AttemptFailure::Public(error));

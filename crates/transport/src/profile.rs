@@ -21,14 +21,14 @@ pub struct TransportWireProfile {
     http2_keep_alive_while_idle: bool,
     redirects_enabled: bool,
     automatic_request_retries: bool,
-    accept_encoding: &'static str,
+    client_accept_encoding_passthrough: bool,
     response_content_codings: &'static [&'static str],
     max_response_content_coding_depth: usize,
 }
 
 pub const GENERIC_GATEWAY_TRANSPORT_PROFILE: TransportWireProfile = TransportWireProfile {
-    id: "generic-rustls-hyper-v2",
-    policy_version: 2,
+    id: "generic-rustls-hyper-v3",
+    policy_version: 3,
     tls_policy_version: 1,
     http_version_policy_version: 1,
     pool_policy_version: 2,
@@ -43,7 +43,7 @@ pub const GENERIC_GATEWAY_TRANSPORT_PROFILE: TransportWireProfile = TransportWir
     http2_keep_alive_while_idle: false,
     redirects_enabled: false,
     automatic_request_retries: false,
-    accept_encoding: "gzip, br, zstd",
+    client_accept_encoding_passthrough: true,
     response_content_codings: RESPONSE_CONTENT_CODINGS,
     max_response_content_coding_depth: 4,
 };
@@ -130,8 +130,8 @@ impl TransportWireProfile {
     }
 
     #[must_use]
-    pub const fn accept_encoding(self) -> &'static str {
-        self.accept_encoding
+    pub const fn client_accept_encoding_passthrough(self) -> bool {
+        self.client_accept_encoding_passthrough
     }
 
     #[must_use]
@@ -159,9 +159,9 @@ mod tests {
     use super::GENERIC_GATEWAY_TRANSPORT_PROFILE as PROFILE;
 
     #[test]
-    fn generic_gateway_v2_wire_contract_is_explicit() {
-        assert_eq!(PROFILE.id(), "generic-rustls-hyper-v2");
-        assert_eq!(PROFILE.policy_version(), 2);
+    fn generic_gateway_v3_wire_contract_is_explicit() {
+        assert_eq!(PROFILE.id(), "generic-rustls-hyper-v3");
+        assert_eq!(PROFILE.policy_version(), 3);
         assert_eq!(PROFILE.tls_policy_version(), 1);
         assert_eq!(PROFILE.http_version_policy_version(), 1);
         assert_eq!(PROFILE.pool_policy_version(), 2);
@@ -176,7 +176,7 @@ mod tests {
         assert!(!PROFILE.http2_keep_alive_while_idle());
         assert!(!PROFILE.redirects_enabled());
         assert!(!PROFILE.automatic_request_retries());
-        assert_eq!(PROFILE.accept_encoding(), "gzip, br, zstd");
+        assert!(PROFILE.client_accept_encoding_passthrough());
         assert_eq!(PROFILE.response_content_codings(), ["gzip", "br", "zstd"]);
         assert_eq!(PROFILE.max_response_content_coding_depth(), 4);
     }

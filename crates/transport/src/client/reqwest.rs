@@ -32,7 +32,7 @@ use crate::{
     },
     profile::{GENERIC_GATEWAY_TRANSPORT_PROFILE, TransportWireProfile},
     resolution::{OriginTarget, origin_target},
-    response_coding::{apply_request_accept_encoding, decode_response_content},
+    response_coding::{decode_response_content, sanitize_request_accept_encoding},
 };
 
 /// Client identity never includes resolved addresses: DNS rotation must reuse
@@ -298,7 +298,7 @@ impl TransportManager for ReqwestTransportManager {
         let TransportClient::Reqwest(client) = client.as_ref() else {
             unreachable!("transport client variant was checked")
         };
-        apply_request_accept_encoding(&mut request.headers);
+        sanitize_request_accept_encoding(&mut request.headers);
         let (body, body_sent) = signaled_request_body(request.body);
         let send = client
             .request(request.method, request.uri.to_string())

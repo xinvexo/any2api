@@ -12,7 +12,7 @@ use any2api_transport::api::{
     EndpointNetworkPolicy, TransportProxy, TransportRequest, TransportTrafficClass,
 };
 use bytes::Bytes;
-use http::{HeaderValue, header};
+use http::{HeaderMap, HeaderValue, header};
 
 use super::PreparedAttempt;
 use crate::{
@@ -186,6 +186,12 @@ fn build_request<'a>(
         .credential_headers(driver, &candidate.base_url, &headers)
         .map_err(|_| internal_error())?;
     headers.extend(credential_headers.headers);
+    pass_through_accept_encoding(
+        &decoded.client_headers,
+        &mut headers,
+        ingress_dialect,
+        candidate.upstream_protocol_dialect,
+    );
     Ok(BuiltRequest {
         driver,
         proxy,
@@ -209,6 +215,21 @@ fn build_request<'a>(
             ),
         },
     })
+}
+
+fn pass_through_accept_encoding(
+    client_headers: &HeaderMap,
+    upstream_headers: &mut HeaderMap,
+    ingress_dialect: ProtocolDialect,
+    upstream_dialect: ProtocolDialect,
+) {
+    upstream_headers.remove(header::ACCEPT_ENCODING);
+    if ingress_dialect != upstream_dialect {
+        return;
+    }
+    for value in client_headers.get_all(header::ACCEPT_ENCODING) {
+        upstream_headers.append(header::ACCEPT_ENCODING, value.clone());
+    }
 }
 
 fn encode_zstd(body: Bytes) -> Result<Bytes, PublicError> {

@@ -1,0 +1,9 @@
+preface=PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n
+frame=SETTINGS flags=0x00 stream=0 length=24
+  enable_push=0
+  initial_window_size=2097152
+  max_frame_size=16384
+  max_header_list_size=16384
+frame=WINDOW_UPDATE flags=0x00 stream=0 length=4
+  increment=5177345
+next=HEADERS flags=0x04 stream=1 length=88

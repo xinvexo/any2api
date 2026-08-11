@@ -14,7 +14,7 @@ use crate::{
 use super::support::{assert_fixture, fixture_request};
 
 const FIXTURE: &str =
-    include_str!("../../../testdata/generic-rustls-hyper-v2/http1-request-head.txt");
+    include_str!("../../../testdata/generic-rustls-hyper-v3/http1-request-head.txt");
 
 #[tokio::test]
 async fn http1_raw_request_head_matches_the_versioned_wire_fixture() {

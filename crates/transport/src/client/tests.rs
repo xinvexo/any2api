@@ -297,8 +297,8 @@ fn request_diagnostics_report_final_resolver_proxy_and_timeout_policy() {
     let system = manager
         .request_diagnostics(TransportProxy::new(&direct, None), &request)
         .expect("production diagnostics");
-    assert_eq!(system.wire_profile_id(), "generic-rustls-hyper-v2");
-    assert_eq!(system.wire_profile_version(), 2);
+    assert_eq!(system.wire_profile_id(), "generic-rustls-hyper-v3");
+    assert_eq!(system.wire_profile_version(), 3);
     assert_eq!(system.timeout_policy_version(), 1);
     assert_eq!(system.resolver_mode(), TransportResolverMode::System);
     assert_eq!(system.proxy_kind(), ProxyKind::Direct);

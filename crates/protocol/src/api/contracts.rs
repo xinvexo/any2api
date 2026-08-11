@@ -109,7 +109,7 @@ pub struct AdapterEvent {
     telemetry: ProtocolEventTelemetry,
     payload: SseEventPayload,
     termination: StreamTermination,
-    retry_reason: Option<StreamRetryReason>,
+    rejection: Option<StreamRejection>,
 }
 
 /// SSE `data:` payload classified once when the upstream frame is decoded,
@@ -142,6 +142,29 @@ pub enum StreamRetryReason {
     RateLimited,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StreamRejection {
+    reason: StreamRetryReason,
+    code: &'static str,
+}
+
+impl StreamRejection {
+    #[must_use]
+    pub const fn new(reason: StreamRetryReason, code: &'static str) -> Self {
+        Self { reason, code }
+    }
+
+    #[must_use]
+    pub const fn reason(self) -> StreamRetryReason {
+        self.reason
+    }
+
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        self.code
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StreamCompletionPolicy {
     #[default]
@@ -172,7 +195,7 @@ impl AdapterEvent {
             telemetry,
             payload,
             termination: StreamTermination::None,
-            retry_reason: None,
+            rejection: None,
         }
     }
 
@@ -183,8 +206,8 @@ impl AdapterEvent {
     }
 
     #[must_use]
-    pub fn with_retry_reason(mut self, retry_reason: Option<StreamRetryReason>) -> Self {
-        self.retry_reason = retry_reason;
+    pub fn with_rejection(mut self, rejection: Option<StreamRejection>) -> Self {
+        self.rejection = rejection;
         self
     }
 
@@ -215,7 +238,15 @@ impl AdapterEvent {
 
     #[must_use]
     pub const fn retry_reason(&self) -> Option<StreamRetryReason> {
-        self.retry_reason
+        match self.rejection {
+            Some(rejection) => Some(rejection.reason()),
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn rejection(&self) -> Option<StreamRejection> {
+        self.rejection
     }
 
     #[must_use]
@@ -240,7 +271,7 @@ impl fmt::Debug for AdapterEvent {
             .field("bytes", &self.bytes.len())
             .field("payload", &self.payload)
             .field("termination", &self.termination)
-            .field("retry_reason", &self.retry_reason)
+            .field("rejection", &self.rejection)
             .finish()
     }
 }

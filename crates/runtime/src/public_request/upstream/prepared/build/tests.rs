@@ -1,8 +1,56 @@
 use any2api_domain::{ProtocolDialect, PublicErrorCode};
 use any2api_protocol::api::ProtocolError;
 use bytes::Bytes;
+use http::{HeaderMap, HeaderValue, header};
 
-use super::{encode_zstd, protocol_request_error};
+use super::{encode_zstd, pass_through_accept_encoding, protocol_request_error};
+
+#[test]
+fn accept_encoding_is_copied_only_for_same_dialect_requests() {
+    let mut client = HeaderMap::new();
+    client.append(
+        header::ACCEPT_ENCODING,
+        HeaderValue::from_static("gzip; q=0.8, br"),
+    );
+    client.append(header::ACCEPT_ENCODING, HeaderValue::from_static("zstd"));
+    let mut direct = HeaderMap::new();
+    direct.insert(
+        header::ACCEPT_ENCODING,
+        HeaderValue::from_static("gateway-default"),
+    );
+
+    pass_through_accept_encoding(
+        &client,
+        &mut direct,
+        ProtocolDialect::OpenAiResponses,
+        ProtocolDialect::OpenAiResponses,
+    );
+
+    assert_eq!(
+        direct
+            .get_all(header::ACCEPT_ENCODING)
+            .iter()
+            .map(HeaderValue::as_bytes)
+            .collect::<Vec<_>>(),
+        vec![b"gzip; q=0.8, br".as_slice(), b"zstd"]
+    );
+
+    pass_through_accept_encoding(
+        &client,
+        &mut direct,
+        ProtocolDialect::OpenAiResponses,
+        ProtocolDialect::OpenAiChatCompletions,
+    );
+    assert!(!direct.contains_key(header::ACCEPT_ENCODING));
+
+    pass_through_accept_encoding(
+        &HeaderMap::new(),
+        &mut direct,
+        ProtocolDialect::OpenAiResponses,
+        ProtocolDialect::OpenAiResponses,
+    );
+    assert!(!direct.contains_key(header::ACCEPT_ENCODING));
+}
 
 #[test]
 fn bridged_invalid_payload_keeps_the_protocol_pair_and_diagnostic() {

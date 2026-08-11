@@ -2,7 +2,7 @@ use any2api_domain::{
     OAuthAccountId, PublicError, RetryAfterHint, RetrySafety, UpstreamError,
     UpstreamErrorClassification, UpstreamErrorKind,
 };
-use any2api_protocol::api::StreamRetryReason;
+use any2api_protocol::api::StreamRejection;
 use any2api_transport::api::TransportError;
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -26,9 +26,12 @@ pub(in crate::public_request) enum AttemptFailure {
         bound: bool,
     },
     StreamRejected {
+        status: StatusCode,
+        headers: Box<HeaderMap>,
+        body: Bytes,
         candidate: Box<RouteCandidate>,
         bound: bool,
-        reason: StreamRetryReason,
+        rejection: StreamRejection,
     },
     Public(PublicError),
 }
@@ -61,14 +64,20 @@ impl AttemptFailure {
     }
 
     pub(super) fn stream_rejected(
+        status: StatusCode,
+        headers: HeaderMap,
+        body: Bytes,
         candidate: RouteCandidate,
         bound: bool,
-        reason: StreamRetryReason,
+        rejection: StreamRejection,
     ) -> Self {
         Self::StreamRejected {
+            status,
+            headers: Box::new(headers),
+            body,
             candidate: Box::new(candidate),
             bound,
-            reason,
+            rejection,
         }
     }
 
@@ -86,11 +95,18 @@ impl AttemptFailure {
                 error,
                 ..
             } => FinalFailure::upstream(headers.as_ref().clone(), *status, body.clone(), error),
-            Self::StreamRejected { .. } => public_error(
-                any2api_domain::PublicErrorCode::UpstreamError,
-                "upstream stream was rejected before content",
-            )
-            .into(),
+            Self::StreamRejected {
+                status,
+                headers,
+                body,
+                rejection,
+                ..
+            } => FinalFailure::stream_rejection(
+                headers.as_ref().clone(),
+                *status,
+                body.clone(),
+                *rejection,
+            ),
             Self::Public(error) => error.clone().into(),
         }
     }

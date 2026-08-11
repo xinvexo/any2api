@@ -10,7 +10,7 @@ use crate::{
 use super::support::{assert_fixture, fixture_request};
 
 const FIXTURE: &str =
-    include_str!("../../../testdata/generic-rustls-hyper-v2/tls-client-hello.txt");
+    include_str!("../../../testdata/generic-rustls-hyper-v3/tls-client-hello.txt");
 
 #[tokio::test]
 async fn tls_client_hello_matches_the_versioned_wire_fixture() {

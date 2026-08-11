@@ -25,9 +25,9 @@ mod probe;
 mod recording;
 
 const INITIAL_FIXTURE: &str =
-    include_str!("../../../testdata/generic-rustls-hyper-v2/http2-initial-frames.txt");
+    include_str!("../../../testdata/generic-rustls-hyper-v3/http2-initial-frames.txt");
 const LIFECYCLE_FIXTURE: &str =
-    include_str!("../../../testdata/generic-rustls-hyper-v2/http2-connection-lifecycle.txt");
+    include_str!("../../../testdata/generic-rustls-hyper-v3/http2-connection-lifecycle.txt");
 
 #[tokio::test]
 async fn http2_preface_and_initial_control_frames_match_the_versioned_wire_fixture() {

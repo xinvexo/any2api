@@ -308,11 +308,17 @@ async fn lifecycle_frames_then_exact_overload_remain_uncommitted_for_retry() {
     ))]));
 
     match guarded_body(upstream, permit).prime_attempt().await {
-        Err(StreamPrimeFailure::Retryable(StreamRetryReason::Overloaded)) => {}
-        Ok(_) => panic!("pre-content overload must not commit the stream"),
-        Err(StreamPrimeFailure::Retryable(reason)) => {
-            panic!("unexpected retry reason: {reason:?}")
+        Err(StreamPrimeFailure::Retryable(rejected)) => {
+            assert_eq!(rejected.rejection.reason(), StreamRetryReason::Overloaded);
+            assert_eq!(rejected.rejection.code(), "server_is_overloaded");
+            assert_eq!(
+                rejected.frame,
+                Bytes::from_static(
+                    b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"service_unavailable_error\",\"code\":\"server_is_overloaded\",\"message\":\"busy\"}}\n\n"
+                )
+            );
         }
+        Ok(_) => panic!("pre-content overload must not commit the stream"),
         Err(StreamPrimeFailure::Public(error)) => {
             panic!("pre-content overload must remain retryable: {error:?}")
         }

@@ -85,7 +85,14 @@ pub(super) fn retry_decision(
     {
         return RetryDecision::Terminal;
     }
-    let delay = budget.next_delay(credential_id, failure.retry_after());
+    let delay = match failure {
+        AttemptFailure::StreamRejected { rejection, .. }
+            if rejection.reason() == StreamRetryReason::Overloaded =>
+        {
+            budget.next_request_delay(failure.retry_after())
+        }
+        _ => budget.next_delay(credential_id, failure.retry_after()),
+    };
     if can_refresh_oauth
         && let Some((account_id, token_version)) = failure.oauth_authentication_target()
     {
@@ -139,7 +146,7 @@ fn retry_exclusion(failure: &AttemptFailure) -> RetryExclusion {
             UpstreamFailureAttribution::EgressPath => RetryExclusion::EgressPath,
             UpstreamFailureAttribution::Unattributed => RetryExclusion::ExactCandidate,
         },
-        AttemptFailure::StreamRejected { reason, .. } => match reason {
+        AttemptFailure::StreamRejected { rejection, .. } => match rejection.reason() {
             StreamRetryReason::RateLimited => RetryExclusion::CredentialModel,
             StreamRetryReason::Overloaded => RetryExclusion::ExactCandidate,
         },
@@ -172,7 +179,7 @@ pub(super) fn telemetry_failure_scope(
             UpstreamFailureAttribution::EgressPath => RequestAttemptFailureScope::EgressPath,
             UpstreamFailureAttribution::Endpoint => RequestAttemptFailureScope::Endpoint,
         },
-        AttemptFailure::StreamRejected { reason, .. } => match reason {
+        AttemptFailure::StreamRejected { rejection, .. } => match rejection.reason() {
             StreamRetryReason::RateLimited => RequestAttemptFailureScope::CredentialModel,
             StreamRetryReason::Overloaded => RequestAttemptFailureScope::ExactCandidate,
         },

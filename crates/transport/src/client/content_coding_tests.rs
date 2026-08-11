@@ -4,7 +4,7 @@ use any2api_domain::{ProxyKind, ProxyProfile};
 use async_compression::tokio::write::GzipEncoder;
 use bytes::Bytes;
 use futures_util::StreamExt;
-use http::{HeaderMap, Method, StatusCode, Uri, header};
+use http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -31,6 +31,7 @@ async fn direct_client_negotiates_and_decodes_gzip_success() {
         &format!("http://{address}/direct"),
         EndpointNetworkPolicy::new(),
         StatusCode::OK,
+        Some("gzip"),
         captured,
     )
     .await;
@@ -45,6 +46,7 @@ async fn direct_client_decodes_error_content_before_classification() {
         &format!("http://{address}/error"),
         EndpointNetworkPolicy::new(),
         StatusCode::BAD_REQUEST,
+        Some("gzip"),
         captured,
     )
     .await;
@@ -59,6 +61,22 @@ async fn pinned_proxy_client_uses_the_same_response_coding_boundary() {
         "http://127.0.0.1:9/pinned",
         EndpointNetworkPolicy::new().with_strict_ssrf(true),
         StatusCode::OK,
+        Some("gzip"),
+        captured,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn direct_client_without_accept_encoding_keeps_the_header_absent() {
+    let (address, captured) = spawn_gzip_server(StatusCode::OK).await;
+    let proxy = ProxyProfile::direct();
+    assert_gzip_exchange(
+        &proxy,
+        &format!("http://{address}/no-negotiation"),
+        EndpointNetworkPolicy::new(),
+        StatusCode::OK,
+        None,
         captured,
     )
     .await;
@@ -69,8 +87,16 @@ async fn assert_gzip_exchange(
     uri: &str,
     network_policy: EndpointNetworkPolicy,
     expected_status: StatusCode,
+    accept_encoding: Option<&str>,
     captured: oneshot::Receiver<String>,
 ) {
+    let mut headers = HeaderMap::new();
+    if let Some(value) = accept_encoding {
+        headers.insert(
+            header::ACCEPT_ENCODING,
+            HeaderValue::from_str(value).expect("request coding"),
+        );
+    }
     let manager = ReqwestTransportManager::default();
     let response = manager
         .execute(
@@ -78,7 +104,7 @@ async fn assert_gzip_exchange(
             TransportRequest {
                 method: Method::GET,
                 uri: Uri::from_str(uri).expect("request URI"),
-                headers: HeaderMap::new(),
+                headers,
                 body: Bytes::new(),
                 isolation: TransportIsolationKey::ephemeral(TransportTrafficClass::Diagnostic),
                 network_policy,
@@ -96,7 +122,10 @@ async fn assert_gzip_exchange(
         .await
         .expect("captured request")
         .to_ascii_lowercase();
-    assert!(request.contains("\r\naccept-encoding: gzip, br, zstd\r\n"));
+    match accept_encoding {
+        Some(value) => assert!(request.contains(&format!("\r\naccept-encoding: {value}\r\n"))),
+        None => assert!(!request.contains("\r\naccept-encoding:")),
+    }
 }
 
 async fn spawn_gzip_server(

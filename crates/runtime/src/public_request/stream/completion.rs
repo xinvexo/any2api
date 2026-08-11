@@ -2,7 +2,7 @@ use any2api_domain::{
     ANY2API_UPSTREAM_TIMEOUT_MESSAGE, ErrorClass, PublicError, PublicErrorCode, RetrySafety,
     UpstreamErrorClassification, UpstreamErrorKind, UpstreamFailureAttribution,
 };
-use any2api_protocol::api::StreamRetryReason;
+use any2api_protocol::api::{StreamRejection, StreamRetryReason};
 use any2api_transport::api::{TransportError, TransportFailureScope};
 
 use super::{
@@ -150,7 +150,8 @@ impl GuardedBody {
         }
     }
 
-    pub(super) fn finish_precommit_rejection(&mut self, reason: StreamRetryReason) {
+    pub(super) fn finish_precommit_rejection(&mut self, rejection: StreamRejection) {
+        let reason = rejection.reason();
         if let Some(health) = self.health.take() {
             match reason {
                 StreamRetryReason::Overloaded => health.stream_rejected(),
@@ -161,12 +162,17 @@ impl GuardedBody {
         }
         if let Some(mut recorder) = self.attempt_recorder.take() {
             match reason {
-                StreamRetryReason::Overloaded => recorder.stream_rejected(self.status_code),
+                StreamRetryReason::Overloaded => recorder.upstream_error(
+                    self.status_code,
+                    RetrySafety::RejectedBeforeExecution,
+                    ErrorClass::Upstream,
+                    Some(rejection.code()),
+                ),
                 StreamRetryReason::RateLimited => recorder.upstream_error(
                     self.status_code,
                     RetrySafety::RejectedBeforeExecution,
                     ErrorClass::RateLimited,
-                    Some("upstream stream was rate limited before content"),
+                    Some(rejection.code()),
                 ),
             }
         }

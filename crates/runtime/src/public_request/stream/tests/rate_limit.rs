@@ -36,11 +36,17 @@ async fn anthropic_rate_limit_before_content_reselects_the_credential_model() {
     .prime_attempt()
     .await
     {
-        Err(StreamPrimeFailure::Retryable(StreamRetryReason::RateLimited)) => {}
-        Ok(_) => panic!("pre-content Anthropic rate limit must not commit the stream"),
-        Err(StreamPrimeFailure::Retryable(reason)) => {
-            panic!("unexpected retry reason: {reason:?}")
+        Err(StreamPrimeFailure::Retryable(rejected)) => {
+            assert_eq!(rejected.rejection.reason(), StreamRetryReason::RateLimited);
+            assert_eq!(rejected.rejection.code(), "rate_limit_error");
+            assert_eq!(
+                rejected.frame,
+                Bytes::from_static(
+                    b"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"Concurrency limit exceeded for account\"}}\n\n"
+                )
+            );
         }
+        Ok(_) => panic!("pre-content Anthropic rate limit must not commit the stream"),
         Err(StreamPrimeFailure::Public(error)) => {
             panic!("pre-content Anthropic rate limit must be retryable: {error:?}")
         }

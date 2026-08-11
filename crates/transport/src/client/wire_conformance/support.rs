@@ -21,7 +21,7 @@ pub(super) fn fixture_request(uri: &str) -> TransportRequest {
     );
     headers.insert(
         "x-wire-fixture",
-        "generic-v2".parse().expect("fixture header"),
+        "generic-v3".parse().expect("fixture header"),
     );
     TransportRequest {
         method: Method::POST,

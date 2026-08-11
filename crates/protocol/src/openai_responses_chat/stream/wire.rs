@@ -3,7 +3,7 @@ use bytes::Bytes;
 use serde_json::Value;
 
 use crate::api::{
-    AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData, StreamRetryReason,
+    AdapterEvent, ProtocolEventTelemetry, SseEventPayload, SseJsonData, StreamRejection,
     StreamTermination,
 };
 
@@ -12,7 +12,7 @@ pub(super) struct SynthesizedEvent {
     data: Value,
     telemetry: ProtocolEventTelemetry,
     termination: StreamTermination,
-    retry_reason: Option<StreamRetryReason>,
+    rejection: Option<StreamRejection>,
 }
 
 impl SynthesizedEvent {
@@ -20,8 +20,8 @@ impl SynthesizedEvent {
         &mut self.data
     }
 
-    pub(super) fn with_retry_reason(mut self, reason: Option<StreamRetryReason>) -> Self {
-        self.retry_reason = reason;
+    pub(super) fn with_rejection(mut self, rejection: Option<StreamRejection>) -> Self {
+        self.rejection = rejection;
         self
     }
 }
@@ -40,7 +40,7 @@ pub(super) fn event(
         data,
         telemetry,
         termination: StreamTermination::None,
-        retry_reason: None,
+        rejection: None,
     }
 }
 
@@ -55,7 +55,7 @@ pub(super) fn terminal_event(
         data,
         telemetry,
         termination,
-        retry_reason: None,
+        rejection: None,
     }
 }
 
@@ -67,7 +67,7 @@ pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
         data,
         telemetry,
         termination,
-        retry_reason,
+        rejection,
     } = event;
     let encoded = serde_json::to_string(&data).expect("JSON value encodes");
     let prefix = "event: ".len() + kind.len() + "\ndata: ".len();
@@ -78,7 +78,7 @@ pub(super) fn encode_event(event: SynthesizedEvent) -> AdapterEvent {
     ));
     AdapterEvent::new(bytes, telemetry, payload)
         .with_termination(termination)
-        .with_retry_reason(retry_reason)
+        .with_rejection(rejection)
 }
 
 pub(super) fn content_telemetry() -> ProtocolEventTelemetry {

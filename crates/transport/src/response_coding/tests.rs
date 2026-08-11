@@ -5,7 +5,7 @@ use futures_util::{StreamExt, stream};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use tokio::io::AsyncWriteExt;
 
-use super::{apply_request_accept_encoding, decode_response_content};
+use super::{decode_response_content, sanitize_request_accept_encoding};
 use crate::api::{BoxByteStream, TransportResponse};
 use crate::error::{TransportError, TransportErrorStage, TransportFailureScope};
 
@@ -19,16 +19,46 @@ enum Encoder {
 }
 
 #[test]
-fn request_negotiation_overwrites_any_caller_value() {
+fn supported_request_negotiation_is_preserved_and_absence_stays_absent() {
     let mut headers = HeaderMap::new();
-    headers.insert(
+    headers.append(
         header::ACCEPT_ENCODING,
-        HeaderValue::from_static("identity"),
+        HeaderValue::from_static("GZip; q=0.8, br"),
+    );
+    headers.append(
+        header::ACCEPT_ENCODING,
+        HeaderValue::from_static("zstd, identity;q=0"),
     );
 
-    apply_request_accept_encoding(&mut headers);
+    sanitize_request_accept_encoding(&mut headers);
 
-    assert_eq!(headers[header::ACCEPT_ENCODING], "gzip, br, zstd");
+    assert_eq!(
+        headers
+            .get_all(header::ACCEPT_ENCODING)
+            .iter()
+            .map(HeaderValue::as_bytes)
+            .collect::<Vec<_>>(),
+        vec![b"GZip; q=0.8, br".as_slice(), b"zstd, identity;q=0"]
+    );
+
+    let mut absent = HeaderMap::new();
+    sanitize_request_accept_encoding(&mut absent);
+    assert!(!absent.contains_key(header::ACCEPT_ENCODING));
+}
+
+#[test]
+fn unsupported_or_ambiguous_request_negotiation_is_removed_as_a_whole() {
+    for value in ["gzip, deflate", "gzip,", "*", "gzip, *;q=0"] {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT_ENCODING,
+            HeaderValue::from_str(value).expect("request coding fixture"),
+        );
+
+        sanitize_request_accept_encoding(&mut headers);
+
+        assert!(!headers.contains_key(header::ACCEPT_ENCODING), "{value}");
+    }
 }
 
 #[tokio::test]

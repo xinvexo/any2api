@@ -1,10 +1,10 @@
 use crate::{
-    api::{SseEventPayload, StreamRetryReason},
+    api::{SseEventPayload, StreamRejection, StreamRetryReason},
     raw_json::{json_string, object_field_raw, top_fields},
     telemetry::raw_event_type,
 };
 
-pub(crate) fn openai(payload: &SseEventPayload) -> Option<StreamRetryReason> {
+pub(crate) fn openai(payload: &SseEventPayload) -> Option<StreamRejection> {
     let SseEventPayload::Json(data) = payload else {
         return None;
     };
@@ -25,10 +25,13 @@ pub(crate) fn openai(payload: &SseEventPayload) -> Option<StreamRetryReason> {
         .into_iter()
         .flatten()
         .any(|code| code == "server_is_overloaded")
-        .then_some(StreamRetryReason::Overloaded)
+        .then_some(StreamRejection::new(
+            StreamRetryReason::Overloaded,
+            "server_is_overloaded",
+        ))
 }
 
-pub(crate) fn anthropic(payload: &SseEventPayload) -> Option<StreamRetryReason> {
+pub(crate) fn anthropic(payload: &SseEventPayload) -> Option<StreamRejection> {
     let SseEventPayload::Json(data) = payload else {
         return None;
     };
@@ -43,12 +46,18 @@ pub(crate) fn anthropic(payload: &SseEventPayload) -> Option<StreamRetryReason> 
     // The new rate-limit signal requires the complete Anthropic envelope;
     // keep the existing overload event-name compatibility unchanged.
     match nested_kind.as_deref() {
-        Some("overloaded_error") => Some(StreamRetryReason::Overloaded),
+        Some("overloaded_error") => Some(StreamRejection::new(
+            StreamRetryReason::Overloaded,
+            "overloaded_error",
+        )),
         Some("rate_limit_error")
             if kind.and_then(json_string).as_deref() == Some("error")
                 && data.event_name().is_none_or(|name| name == "error") =>
         {
-            Some(StreamRetryReason::RateLimited)
+            Some(StreamRejection::new(
+                StreamRetryReason::RateLimited,
+                "rate_limit_error",
+            ))
         }
         _ => None,
     }
@@ -59,7 +68,10 @@ mod tests {
     use bytes::Bytes;
 
     use super::{anthropic, openai};
-    use crate::{api::StreamRetryReason, sse::parse_event_payload};
+    use crate::{
+        api::{StreamRejection, StreamRetryReason},
+        sse::parse_event_payload,
+    };
 
     #[test]
     fn recognizes_only_declared_openai_overload_codes() {
@@ -69,7 +81,13 @@ mod tests {
         let prose_only = parse_event_payload(&Bytes::from_static(
             b"event: error\ndata: {\"type\":\"error\",\"error\":{\"code\":\"server_error\",\"message\":\"server is overloaded\"}}\n\n",
         ));
-        assert_eq!(openai(&exact), Some(StreamRetryReason::Overloaded));
+        assert_eq!(
+            openai(&exact),
+            Some(StreamRejection::new(
+                StreamRetryReason::Overloaded,
+                "server_is_overloaded"
+            ))
+        );
         assert_eq!(openai(&prose_only), None);
     }
 
@@ -96,15 +114,27 @@ mod tests {
         let contradictory_event_name = parse_event_payload(&Bytes::from_static(
             b"event: ping\ndata: {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\"}}\n\n",
         ));
-        assert_eq!(anthropic(&exact), Some(StreamRetryReason::Overloaded));
+        assert_eq!(
+            anthropic(&exact),
+            Some(StreamRejection::new(
+                StreamRetryReason::Overloaded,
+                "overloaded_error"
+            ))
+        );
         assert_eq!(
             anthropic(&event_only_overload),
-            Some(StreamRetryReason::Overloaded)
+            Some(StreamRejection::new(
+                StreamRetryReason::Overloaded,
+                "overloaded_error"
+            ))
         );
         assert_eq!(anthropic(&unknown), None);
         assert_eq!(
             anthropic(&rate_limited),
-            Some(StreamRetryReason::RateLimited)
+            Some(StreamRejection::new(
+                StreamRetryReason::RateLimited,
+                "rate_limit_error"
+            ))
         );
         assert_eq!(anthropic(&prose_only), None);
         assert_eq!(anthropic(&missing_envelope_type), None);

@@ -14,7 +14,6 @@ x-stainless-retry-count: 7\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 x-api-key: fixture-claude-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 112\r\n
 \r\n
@@ -36,7 +35,6 @@ x-stainless-retry-count: 7\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 x-api-key: fixture-claude-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 84\r\n
 \r\n
@@ -59,7 +57,6 @@ x-stainless-retry-count: 7\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-claude-oauth-access\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 112\r\n
 \r\n
@@ -82,7 +79,6 @@ x-stainless-retry-count: 7\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-claude-oauth-access\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 84\r\n
 \r\n
@@ -99,7 +95,6 @@ user-agent: codex_cli_rs/0.145.0\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 102\r\n
 \r\n
@@ -116,7 +111,6 @@ user-agent: codex_cli_rs/0.145.0\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 96\r\n
 \r\n
@@ -138,7 +132,6 @@ traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 96\r\n
 \r\n
@@ -160,7 +153,6 @@ traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
 content-type: multipart/form-data; boundary=<multipart-boundary>\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 421\r\n
 \r\n
@@ -195,7 +187,6 @@ traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 96\r\n
 \r\n
@@ -217,7 +208,6 @@ traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 65\r\n
 \r\n
@@ -239,7 +229,6 @@ traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 83\r\n
 \r\n
@@ -262,7 +251,6 @@ content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-oauth-access\r\n
 chatgpt-account-id: fixture-codex-account\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 224\r\n
 \r\n
@@ -285,7 +273,6 @@ content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-codex-oauth-access\r\n
 chatgpt-account-id: fixture-codex-account\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 83\r\n
 \r\n
@@ -303,7 +290,6 @@ x-grok-client-identifier: grok-shell\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-grok-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 102\r\n
 \r\n
@@ -321,7 +307,6 @@ x-grok-client-identifier: grok-shell\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-grok-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 96\r\n
 \r\n
@@ -344,7 +329,6 @@ traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-grok-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 96\r\n
 \r\n
@@ -367,7 +351,6 @@ traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-grok-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 65\r\n
 \r\n
@@ -390,7 +373,6 @@ traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-grok-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 83\r\n
 \r\n
@@ -417,7 +399,6 @@ content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-grok-oauth-access\r\n
 x-userid: fixture-grok-account\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 65\r\n
 \r\n
@@ -432,7 +413,6 @@ POST /v1/chat/completions HTTP/1.1\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-kimi-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 102\r\n
 \r\n
@@ -447,7 +427,6 @@ POST /v1/chat/completions HTTP/1.1\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-kimi-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 96\r\n
 \r\n
@@ -462,7 +441,6 @@ POST /v1/chat/completions HTTP/1.1\r\n
 content-type: application/json\r\n
 accept: application/json\r\n
 authorization: Bearer fixture-kimi-api-key\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 96\r\n
 \r\n
@@ -479,7 +457,6 @@ accept: application/json, text/plain, */*\r\n
 content-type: application/json\r\n
 user-agent: claude-code/2.1.220\r\n
 anthropic-beta: oauth-2025-04-20\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 0\r\n
 \r\n
@@ -501,7 +478,6 @@ sec-fetch-dest: empty\r\n
 priority: u=4, i\r\n
 accept: application/json\r\n
 content-type: application/json\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 49\r\n
 \r\n
@@ -523,7 +499,6 @@ sec-fetch-mode: no-cors\r\n
 sec-fetch-dest: empty\r\n
 priority: u=4, i\r\n
 accept: application/json\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 0\r\n
 \r\n
@@ -544,7 +519,6 @@ sec-fetch-mode: no-cors\r\n
 sec-fetch-dest: empty\r\n
 priority: u=4, i\r\n
 accept: application/json\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 0\r\n
 \r\n
@@ -564,7 +538,6 @@ x-grok-client-mode: interactive\r\n
 x-xai-token-auth: xai-grok-cli\r\n
 x-authenticateresponse: authenticate-response\r\n
 accept: application/json\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 0\r\n
 \r\n
@@ -584,7 +557,6 @@ x-grok-client-mode: interactive\r\n
 x-xai-token-auth: xai-grok-cli\r\n
 x-authenticateresponse: authenticate-response\r\n
 accept: application/json\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 0\r\n
 \r\n
@@ -597,7 +569,6 @@ target: https://api.anthropic.com/v1/oauth/token
 POST /v1/oauth/token HTTP/1.1\r\n
 accept: application/json\r\n
 content-type: application/json\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 235\r\n
 \r\n
@@ -611,7 +582,6 @@ target: https://api.anthropic.com/v1/oauth/token
 POST /v1/oauth/token HTTP/1.1\r\n
 accept: application/json\r\n
 content-type: application/json\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 121\r\n
 \r\n
@@ -625,7 +595,6 @@ target: https://auth.openai.com/oauth/token
 POST /oauth/token HTTP/1.1\r\n
 accept: application/json\r\n
 content-type: application/x-www-form-urlencoded\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 197\r\n
 \r\n
@@ -639,7 +608,6 @@ target: https://auth.openai.com/oauth/token
 POST /oauth/token HTTP/1.1\r\n
 accept: application/json\r\n
 content-type: application/json\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 113\r\n
 \r\n
@@ -653,7 +621,6 @@ target: https://auth.x.ai/oauth2/device/code
 POST /oauth2/device/code HTTP/1.1\r\n
 accept: application/json\r\n
 content-type: application/x-www-form-urlencoded\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 119\r\n
 \r\n
@@ -667,7 +634,6 @@ target: https://auth.x.ai/oauth2/token
 POST /oauth2/token HTTP/1.1\r\n
 accept: application/json\r\n
 content-type: application/x-www-form-urlencoded\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 144\r\n
 \r\n
@@ -681,7 +647,6 @@ target: https://auth.x.ai/oauth2/token
 POST /oauth2/token HTTP/1.1\r\n
 accept: application/json\r\n
 content-type: application/x-www-form-urlencoded\r\n
-accept-encoding: gzip, br, zstd\r\n
 host: <authority>\r\n
 content-length: 107\r\n
 \r\n

@@ -137,7 +137,7 @@ impl GuardedBody {
         }
         let telemetry = event.telemetry();
         let termination = event.termination();
-        let retry_reason = event.retry_reason();
+        let rejection = event.rejection();
         let continuation_id = self
             .exchange
             .continuation_id_from_event(self.continuation_binding.operation(), &event)
@@ -184,10 +184,10 @@ impl GuardedBody {
         self.terminal_seen |= termination.is_terminal();
         if check_deadline {
             if termination == StreamTermination::Failed
-                && retry_reason.is_some()
+                && rejection.is_some()
                 && !self.precommit_commit_ready
             {
-                self.precommit_retry = retry_reason;
+                self.precommit_retry = rejection;
             } else if telemetry.has_content_delta
                 || !telemetry.retry_transparent
                 || termination.is_terminal()

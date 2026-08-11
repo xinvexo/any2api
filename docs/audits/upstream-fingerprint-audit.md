@@ -429,7 +429,7 @@ Runtime 只对第一个 Credential 拥有者保护 `x-oai-attestation`，并且�
 - `crates/transport/src/client/pinned.rs` — `PinnedClient::build`
 - `crates/transport/src/proxy/tcp.rs` — `ProxyTcpConnector::call`
 
-> 修复状态（2026-08-10）：**Controlled / accepted after baseline**。ADR-0126 将 ALPN、HTTP 能力、TCP/H2 keepalive、redirect、request retry 与内部 policy version 集中为 `generic-rustls-hyper-v1`，ADR-0127 因新增 response coding contract 将其提升为 `generic-rustls-hyper-v2`；profile version 已进入 `TransportClientKey`，snapshot 与现有 loopback 测试共同约束升级。所有 Provider 继续共享该 profile，因此其可观测性没有被虚假宣称为“消失”；在没有真实 Provider wire contract 前，这是有意接受的通用 gateway 特征。
+> 修复状态（2026-08-11）：**Controlled / accepted after baseline**。ADR-0126 将 ALPN、HTTP 能力、TCP/H2 keepalive、redirect、request retry 与内部 policy version 集中为 `generic-rustls-hyper-v1`，ADR-0127 因新增 response coding contract 将其提升为 v2；ADR-0135 将请求压缩协商改为同方言受控透传并提升为 `generic-rustls-hyper-v3`。profile version 已进入 `TransportClientKey`，snapshot 与现有 loopback 测试共同约束升级。所有 Provider 继续共享该 profile，因此其可观测性没有被虚假宣称为“消失”；在没有真实 Provider wire contract 前，这是有意接受的通用 gateway 特征。
 
 **Observed behavior**
 
@@ -684,7 +684,7 @@ P0 先隔离 connection/TLS state。随后让 unbound reselect 也尊重明确�
 - 未显式设置 header table size 和 max concurrent streams；
 - any2api 额外设置 active H2 keepalive interval 30 秒、timeout 10 秒，while-idle false。
 
-HTTP/1.1 fallback 使用 hyper 默认的 lowercase header encoding，不保留客户端原始 casing，也不启用 title-case。`SignaledBody` 提供 exact size hint，所以正常 JSON request 可生成 Content-Length；Host 由 client/strict pinned path重建。当前 raw fixture 已确认真实顺序为显式请求 Header、Transport `accept-encoding`、reqwest `accept`、`host`、`content-length`；依赖升级可能改变该顺序，因此由测试而不是文字假设约束。
+HTTP/1.1 fallback 使用 hyper 默认的 lowercase header encoding，不保留客户端原始 casing，也不启用 title-case。`SignaledBody` 提供 exact size hint，所以正常 JSON request 可生成 Content-Length；Host 由 client/strict pinned path 重建。当前 raw fixture 已确认缺省请求不会由 Transport 生成 `accept-encoding`；同方言客户端明确提供的受支持值由 Runtime 原样复制并在 Transport 边界校验。依赖升级可能改变其他 Header 的顺序，因此由测试而不是文字假设约束。
 
 **Expected/native behavior**
 
@@ -696,7 +696,7 @@ H2 SETTINGS/window/PING 和 H1 casing/order 比 UA 更接近 implementation iden
 
 **How to reproduce locally**
 
-运行 `cargo test -p any2api-transport wire_conformance`。实现位于 `crates/transport/src/client/wire_conformance/`，fixture 位于 `crates/transport/testdata/generic-rustls-hyper-v2/`；capture 不通过 `http::HeaderMap` 重建，因此保留真实 wire order/casing。
+运行 `cargo test -p any2api-transport wire_conformance`。实现位于 `crates/transport/src/client/wire_conformance/`，当前 fixture 位于 `crates/transport/testdata/generic-rustls-hyper-v3/`；capture 不通过 `http::HeaderMap` 重建，因此保留真实 wire order/casing。
 
 **Architecture recommendation**
 
@@ -1063,7 +1063,7 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 ### P1 — 收紧身份 Header 与 operation profile
 
 10. **已完成（ADR-0125）**：为 Header 声明 ownership，并把 installation/session/trace ID 与 Credential/affinity owner 对齐。
-11. **已完成（ADR-0126/0127）**：建立版本化 Provider identity profile，统一 data/quota/token 的固定 Header；消除 Claude 2.1.220/2.1.7 漂移，并把 Codex data/quota persona 差异变为显式子 profile。同时将通用 Transport 行为冻结并升级为版本化 `generic-rustls-hyper-v2`；其上游可观测性作为已接受风险保留。
+11. **已完成（ADR-0126/0127/0135）**：建立版本化 Provider identity profile，统一 data/quota/token 的固定 Header；消除 Claude 2.1.220/2.1.7 漂移，并把 Codex data/quota persona 差异变为显式子 profile。同时将通用 Transport 行为冻结，并在同方言 `Accept-Encoding` 受控透传后升级为版本化 `generic-rustls-hyper-v3`；其上游可观测性作为已接受风险保留。
 12. **已完成（ADR-0129）**：管理/API capability 明确 `Direct` 与 `Translated` fidelity；Bridge 单一 contract 同时驱动执行校验与 Web 字段/工具/限制展示。
 
 ### P1 — 修协议与压缩所有权

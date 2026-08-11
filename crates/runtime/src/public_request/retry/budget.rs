@@ -100,7 +100,19 @@ impl RetryBudget {
             .get(&credential_id)
             .copied()
             .expect("retry delay follows a registered credential attempt");
-        let exponent = credential_attempts.saturating_sub(1).min(31);
+        self.delay_for_attempt_count(credential_attempts, retry_after)
+    }
+
+    pub(super) fn next_request_delay(&self, retry_after: Option<RetryAfterHint>) -> Duration {
+        self.delay_for_attempt_count(self.attempts, retry_after)
+    }
+
+    fn delay_for_attempt_count(
+        &self,
+        attempt_count: u32,
+        retry_after: Option<RetryAfterHint>,
+    ) -> Duration {
+        let exponent = attempt_count.saturating_sub(1).min(31);
         let multiplier = 1_u32 << exponent;
         let base = self
             .policy
@@ -137,7 +149,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(start_paused = true)]
-    async fn retry_delay_is_isolated_by_credential() {
+    async fn ordinary_delay_is_credential_scoped_but_request_delay_crosses_switches() {
         let mut policy =
             ReliabilityPolicy::from_settings(SettingsConfiguration::defaults().reliability());
         policy.max_total_attempts = 10;
@@ -157,10 +169,13 @@ mod tests {
 
         assert_eq!(budget.register_attempt(first), Some(1));
         assert_eq!(budget.next_delay(first, None), Duration::from_secs(1));
+        assert_eq!(budget.next_request_delay(None), Duration::from_secs(1));
         assert_eq!(budget.register_attempt(first), Some(2));
         assert_eq!(budget.next_delay(first, None), Duration::from_secs(2));
+        assert_eq!(budget.next_request_delay(None), Duration::from_secs(2));
         assert_eq!(budget.register_attempt(second), Some(3));
         assert_eq!(budget.next_delay(second, None), Duration::from_secs(1));
+        assert_eq!(budget.next_request_delay(None), Duration::from_secs(4));
     }
 
     #[tokio::test(start_paused = true)]

@@ -28,7 +28,7 @@ use crate::{
     error::{TransportError, TransportErrorStage, TransportFailureScope},
     profile::GENERIC_GATEWAY_TRANSPORT_PROFILE as WIRE_PROFILE,
     resolution::{OriginTarget, shared_dns_cache},
-    response_coding::{apply_request_accept_encoding, decode_response_content},
+    response_coding::{decode_response_content, sanitize_request_accept_encoding},
 };
 
 pub(crate) struct PinnedClient {
@@ -80,7 +80,7 @@ impl PinnedClient {
         let read_timeout = request.read_timeout;
         let mut headers = request.headers;
         headers.remove(PROXY_AUTHORIZATION);
-        apply_request_accept_encoding(&mut headers);
+        sanitize_request_accept_encoding(&mut headers);
         let authority = request.uri.authority().ok_or_else(|| {
             TransportError::new(
                 TransportErrorStage::WriteRequest,

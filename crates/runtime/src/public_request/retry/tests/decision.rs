@@ -4,7 +4,7 @@ use any2api_domain::{
     RequestAttemptFailureScope, RetryAfterHint, RetrySafety, UpstreamErrorKind,
     UpstreamFailureAttribution,
 };
-use any2api_protocol::api::StreamRetryReason;
+use any2api_protocol::api::{StreamRejection, StreamRetryReason};
 use any2api_transport::api::{TransportError, TransportErrorStage, TransportFailureScope};
 
 use super::support::{
@@ -134,11 +134,12 @@ fn bound_requests_never_switch_credentials_or_targets() {
         RetryDecision::RetrySamePath(_)
     ));
 
-    let stream_rate_limit = AttemptFailure::StreamRejected {
-        candidate: Box::new(candidate.clone()),
-        bound: true,
-        reason: StreamRetryReason::RateLimited,
-    };
+    let stream_rate_limit = stream_rejection(
+        candidate.clone(),
+        true,
+        StreamRetryReason::RateLimited,
+        "rate_limit_error",
+    );
     assert!(matches!(
         retry_decision(&stream_rate_limit, &budget, candidate.credential_id, false),
         RetryDecision::RetrySamePath(_)
@@ -232,11 +233,12 @@ fn oauth_authentication_gets_one_refresh_decision_before_reselection() {
 #[test]
 fn precontent_rate_limit_stream_reselects_by_credential_model() {
     let candidate = candidate("rate-limited-stream");
-    let failure = AttemptFailure::StreamRejected {
-        candidate: Box::new(candidate.clone()),
-        bound: false,
-        reason: StreamRetryReason::RateLimited,
-    };
+    let failure = stream_rejection(
+        candidate.clone(),
+        false,
+        StreamRetryReason::RateLimited,
+        "rate_limit_error",
+    );
     let budget = attempted_budget(candidate.credential_id);
 
     assert_eq!(
@@ -250,4 +252,46 @@ fn precontent_rate_limit_stream_reselects_by_credential_model() {
         telemetry_failure_scope(&failure),
         Some(RequestAttemptFailureScope::CredentialModel)
     );
+}
+
+#[test]
+fn precontent_overload_backoff_keeps_growing_after_a_credential_switch() {
+    let first = candidate("first-overloaded");
+    let second = candidate("second-overloaded");
+    let mut budget = attempted_budget(first.credential_id);
+    assert_eq!(budget.register_attempt(second.credential_id), Some(2));
+    let failure = stream_rejection(
+        second.clone(),
+        false,
+        StreamRetryReason::Overloaded,
+        "server_is_overloaded",
+    );
+
+    assert_eq!(
+        retry_decision(&failure, &budget, second.credential_id, false),
+        RetryDecision::Reselect {
+            exclusion: RetryExclusion::ExactCandidate,
+            delay: Duration::from_secs(2),
+        }
+    );
+    assert_eq!(
+        telemetry_failure_scope(&failure),
+        Some(RequestAttemptFailureScope::ExactCandidate)
+    );
+}
+
+fn stream_rejection(
+    candidate: crate::routing::RouteCandidate,
+    bound: bool,
+    reason: StreamRetryReason,
+    code: &'static str,
+) -> AttemptFailure {
+    AttemptFailure::StreamRejected {
+        status: http::StatusCode::OK,
+        headers: Box::new(http::HeaderMap::new()),
+        body: bytes::Bytes::from_static(b"event: error\ndata: {}\n\n"),
+        candidate: Box::new(candidate),
+        bound,
+        rejection: StreamRejection::new(reason, code),
+    }
 }

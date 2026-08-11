@@ -1,53 +1,20 @@
 use std::time::Duration;
 
-use any2api_domain::{ErrorClass, PublicError, PublicErrorCode, UpstreamError};
+use any2api_domain::{PublicError, PublicErrorCode};
 use any2api_payload_buffer::{PayloadBuffer, PayloadBufferError};
-use any2api_protocol::api::EgressResponse;
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };
 use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
-use http::{HeaderMap, HeaderName, StatusCode, header};
+use http::{HeaderMap, HeaderName, header};
 use tokio::time::{Instant, timeout, timeout_at};
 
+pub(super) use final_failure::FinalFailure;
+
+mod final_failure;
+
 pub(super) const MAX_UPSTREAM_ERROR_BODY_BYTES: usize = 64 * 1024;
-
-pub(super) enum FinalFailure {
-    Local {
-        error: PublicError,
-    },
-    Upstream {
-        response: EgressResponse,
-        error_class: ErrorClass,
-        error_message: Option<String>,
-    },
-}
-
-impl FinalFailure {
-    pub(super) fn upstream(
-        headers: HeaderMap,
-        status: StatusCode,
-        body: Bytes,
-        upstream: &UpstreamError,
-    ) -> Self {
-        Self::Upstream {
-            response: EgressResponse {
-                status,
-                headers,
-                body,
-            },
-            error_class: upstream.classification().kind().error_class(),
-            error_message: upstream.official_message().map(ToOwned::to_owned),
-        }
-    }
-}
-
-impl From<PublicError> for FinalFailure {
-    fn from(error: PublicError) -> Self {
-        Self::Local { error }
-    }
-}
 
 #[derive(Debug)]
 pub(super) enum CollectBodyError {
