@@ -5,7 +5,10 @@ use http::{HeaderMap, Method, StatusCode, header};
 use serde_json::Value;
 
 use super::*;
-use crate::api::{OAuthQuotaRejection, OAuthTokenMaterial, ProviderError, UpstreamResponseMeta};
+use crate::api::{
+    OAuthQuotaReachedType, OAuthQuotaRejection, OAuthTokenMaterial, ProviderError,
+    UpstreamResponseMeta,
+};
 
 fn token() -> OAuthTokenMaterial {
     OAuthTokenMaterial::new(
@@ -139,6 +142,13 @@ fn parses_primary_secondary_windows_and_usage_credit_count() {
               "reset_at": 1900003600
             }
           },
+          "credits": {
+            "has_credits": true,
+            "unlimited": false,
+            "balance": " 17.50 "
+          },
+          "spend_control": {"reached": false},
+          "rate_limit_reached_type": {"type":"rate_limit_reached"},
           "rate_limit_reset_credits": {"available_count": 2}
         }"#,
     )
@@ -151,10 +161,108 @@ fn parses_primary_secondary_windows_and_usage_credit_count() {
     assert_eq!(limit.windows[0].id, "primary");
     assert_eq!(limit.windows[1].id, "secondary");
     assert_eq!(limit.windows[1].used_percent, 80.0);
+    let credits = usage.credits.expect("Credits");
+    assert!(credits.has_credits);
+    assert!(!credits.unlimited);
+    assert_eq!(credits.balance.as_deref(), Some("17.50"));
+    let access = usage.access.expect("access status");
+    assert_eq!(access.spend_control_reached, Some(false));
+    assert_eq!(
+        access.reached_type,
+        Some(OAuthQuotaReachedType::RateLimitReached)
+    );
     assert_eq!(
         usage.reset_credits.expect("reset credits").available_count,
         2
     );
+}
+
+#[test]
+fn parses_unlimited_credits_and_workspace_hard_stops() {
+    let usage = parse_usage(
+        br#"{
+          "rate_limit": {"allowed":false,"limit_reached":true},
+          "credits": {"has_credits":false,"unlimited":true,"balance":null},
+          "spend_control": {"reached":true},
+          "rate_limit_reached_type": {"type":"workspace_member_usage_limit_reached"}
+        }"#,
+    )
+    .expect("usage");
+
+    assert!(usage.credits.expect("Credits").usable());
+    let access = usage.access.expect("access status");
+    assert!(access.workspace_hard_stop());
+    assert_eq!(
+        access.reached_type,
+        Some(OAuthQuotaReachedType::WorkspaceMemberUsageLimitReached)
+    );
+}
+
+#[test]
+fn preserves_zero_and_hidden_real_credit_balances() {
+    let zero = parse_usage(br#"{"credits":{"has_credits":true,"unlimited":false,"balance":"0"}}"#)
+        .expect("zero Credits")
+        .credits
+        .expect("Credits");
+    let hidden =
+        parse_usage(br#"{"credits":{"has_credits":true,"unlimited":false,"balance":null}}"#)
+            .expect("hidden Credits")
+            .credits
+            .expect("Credits");
+
+    assert_eq!(zero.balance.as_deref(), Some("0"));
+    assert!(zero.usable());
+    assert_eq!(hidden.balance, None);
+    assert!(hidden.usable());
+}
+
+#[test]
+fn maps_every_declared_quota_reached_type() {
+    let cases = [
+        (
+            "rate_limit_reached",
+            OAuthQuotaReachedType::RateLimitReached,
+        ),
+        (
+            "workspace_owner_credits_depleted",
+            OAuthQuotaReachedType::WorkspaceOwnerCreditsDepleted,
+        ),
+        (
+            "workspace_member_credits_depleted",
+            OAuthQuotaReachedType::WorkspaceMemberCreditsDepleted,
+        ),
+        (
+            "workspace_owner_usage_limit_reached",
+            OAuthQuotaReachedType::WorkspaceOwnerUsageLimitReached,
+        ),
+        (
+            "workspace_member_usage_limit_reached",
+            OAuthQuotaReachedType::WorkspaceMemberUsageLimitReached,
+        ),
+    ];
+    for (wire, expected) in cases {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "rate_limit_reached_type": {"type": wire},
+        }))
+        .expect("quota fixture");
+        let access = parse_usage(&body)
+            .expect("declared reached type")
+            .access
+            .expect("access status");
+        assert_eq!(access.reached_type, Some(expected));
+    }
+}
+
+#[test]
+fn rejects_non_decimal_credit_balances_and_ignores_unknown_reached_types() {
+    assert!(matches!(
+        parse_usage(br#"{"credits":{"has_credits":true,"unlimited":false,"balance":"$17"}}"#,),
+        Err(ProviderError::InvalidResponse(_))
+    ));
+
+    let usage = parse_usage(br#"{"rate_limit_reached_type":{"type":"future_limit_type"}}"#)
+        .expect("unknown reached type remains neutral");
+    assert!(usage.access.is_none());
 }
 
 #[test]

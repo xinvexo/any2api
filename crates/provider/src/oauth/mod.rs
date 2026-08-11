@@ -15,8 +15,9 @@ pub use import::{
     parse_oauth_import_document,
 };
 pub use quota::{
-    OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
-    OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaRejection,
+    OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
+    OAuthQuotaBilling, OAuthQuotaCostRate, OAuthQuotaCredits, OAuthQuotaExhaustion,
+    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaRejection,
     OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement,
     OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
     OAuthQuotaWindowKind,

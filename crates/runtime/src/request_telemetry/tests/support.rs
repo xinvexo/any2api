@@ -314,11 +314,15 @@ pub(super) fn access_log(path: &str) -> HttpAccessLog {
 }
 
 pub(super) async fn wait_for(condition: impl Fn() -> bool) {
-    for _ in 0..10_000 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
         if condition() {
             return;
         }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "condition was not reached"
+        );
         tokio::task::yield_now().await;
     }
-    panic!("condition was not reached");
 }

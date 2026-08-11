@@ -1,9 +1,12 @@
 import type {
+  OAuthQuotaCredits,
   OAuthQuotaSnapshot,
   OAuthQuotaTokenBalance,
+  OAuthQuotaUsdEstimate,
   OAuthQuotaWindow,
 } from "../api/oauth-quota-contracts";
 import type { OAuthProvider } from "../api/oauth-contracts";
+import { QuotaUsdEstimate } from "./OAuthQuotaUsdEstimate";
 import { cn } from "@/shared/lib/cn";
 
 export function OAuthQuotaDetails({
@@ -18,9 +21,22 @@ export function OAuthQuotaDetails({
   const windows = quota.rateLimit?.windows ?? [];
   const creditExpiry = showResetCredits ? formatCreditExpiries(quota) : null;
   const isGrok = provider === "grok";
+  const hardStopMessage = codexHardStopMessage(quota);
 
   return (
     <div className="mt-2 space-y-2.5">
+      {quota.credits ? (
+        <QuotaValue
+          label="上游真实 Credits"
+          value={formatCredits(quota.credits)}
+        />
+      ) : null}
+      {hardStopMessage ? (
+        <QuotaValue
+          label="上游访问状态"
+          value={hardStopMessage}
+        />
+      ) : null}
       {isGrok && quota.accountStatus?.userBlockedReason ? (
         <QuotaValue
           label="xAI 用户限制"
@@ -40,6 +56,7 @@ export function OAuthQuotaDetails({
         <QuotaWindowBar
           key={window.id}
           window={window}
+          estimate={estimateForWindow(quota, window)}
         />
       ))}
       {windows.length === 0 && quota.tokenBalance === null ? (
@@ -142,11 +159,39 @@ function hasOnDemandBilling(quota: OAuthQuotaSnapshot) {
     || (cap !== null && cap !== undefined && cap !== 0);
 }
 
+function formatCredits(credits: OAuthQuotaCredits) {
+  if (credits.unlimited) return "无限";
+  if (credits.hasCredits && credits.balance !== null) {
+    return `${credits.balance} Credits`;
+  }
+  return credits.hasCredits ? "可用（上游未返回余额）" : "不可用";
+}
+
+function codexHardStopMessage(quota: OAuthQuotaSnapshot) {
+  if (quota.access?.spendControlReached === true) return "工作区消费上限已达到";
+  switch (quota.access?.reachedType) {
+    case "workspace_owner_credits_depleted":
+    case "workspace_member_credits_depleted":
+      return "工作区 Credits 已耗尽";
+    case "workspace_owner_usage_limit_reached":
+    case "workspace_member_usage_limit_reached":
+      return "工作区使用上限已达到";
+    default:
+      return null;
+  }
+}
+
 function formatUsdMinor(value: number) {
   return `$${(Math.abs(value) / 100).toFixed(2)}`;
 }
 
-function QuotaWindowBar({ window }: { window: OAuthQuotaWindow }) {
+function QuotaWindowBar({
+  window,
+  estimate,
+}: {
+  window: OAuthQuotaWindow;
+  estimate: OAuthQuotaUsdEstimate | null;
+}) {
   const used = Math.min(100, Math.max(0, window.usedPercent));
   const remaining = Math.max(0, 100 - used);
   const label = windowLabel(window);
@@ -179,8 +224,21 @@ function QuotaWindowBar({ window }: { window: OAuthQuotaWindow }) {
           title={`剩余 ${remaining.toFixed(1)}% · 已用 ${used.toFixed(1)}%`}
         />
       </div>
+      {estimate ? <QuotaUsdEstimate estimate={estimate} /> : null}
     </div>
   );
+}
+
+function estimateForWindow(
+  quota: OAuthQuotaSnapshot,
+  window: OAuthQuotaWindow,
+): OAuthQuotaUsdEstimate | null {
+  return quota.usdEstimates.find((estimate) =>
+    estimate.windowId === window.id
+    && estimate.windowKind === window.kind
+    && estimate.limitWindowSeconds === window.limitWindowSeconds
+    && estimate.windowResetAt === window.resetAt
+  ) ?? null;
 }
 
 function remainingTone(remaining: number) {

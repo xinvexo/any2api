@@ -244,7 +244,14 @@ function account(id: string, label: string, tokenVersion: number) {
 }
 
 function quota() {
-  return { fetched_at: 1_900_000_000, rate_limit: null, reset_credits: null };
+  return {
+    fetched_at: 1_900_000_000,
+    rate_limit: null,
+    credits: null,
+    access: null,
+    reset_credits: null,
+    usd_estimates: [],
+  };
 }
 
 function errorResponse(code: string, status: number) {

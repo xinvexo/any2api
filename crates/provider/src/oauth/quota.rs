@@ -1,3 +1,5 @@
+use any2api_domain::TokenUsage;
+
 use crate::OAuthRequestPlan;
 use serde::{Deserialize, Serialize};
 
@@ -80,6 +82,100 @@ pub struct OAuthQuotaRateLimit {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OAuthQuotaCredits {
+    pub has_credits: bool,
+    pub unlimited: bool,
+    pub balance: Option<String>,
+}
+
+impl OAuthQuotaCredits {
+    #[must_use]
+    pub const fn usable(&self) -> bool {
+        self.unlimited || self.has_credits
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthQuotaReachedType {
+    RateLimitReached,
+    WorkspaceOwnerCreditsDepleted,
+    WorkspaceMemberCreditsDepleted,
+    WorkspaceOwnerUsageLimitReached,
+    WorkspaceMemberUsageLimitReached,
+}
+
+impl OAuthQuotaReachedType {
+    #[must_use]
+    pub const fn is_workspace_hard_stop(self) -> bool {
+        !matches!(self, Self::RateLimitReached)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct OAuthQuotaAccessStatus {
+    pub spend_control_reached: Option<bool>,
+    pub reached_type: Option<OAuthQuotaReachedType>,
+}
+
+impl OAuthQuotaAccessStatus {
+    #[must_use]
+    pub fn workspace_hard_stop(self) -> bool {
+        self.spend_control_reached == Some(true)
+            || match self.reached_type {
+                Some(reached) => reached.is_workspace_hard_stop(),
+                None => false,
+            }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OAuthQuotaCostRate {
+    rate_card: &'static str,
+    input_usd_per_million: f64,
+    cached_input_usd_per_million: f64,
+    output_usd_per_million: f64,
+}
+
+impl OAuthQuotaCostRate {
+    #[must_use]
+    pub const fn new(
+        rate_card: &'static str,
+        input_usd_per_million: f64,
+        cached_input_usd_per_million: f64,
+        output_usd_per_million: f64,
+    ) -> Self {
+        Self {
+            rate_card,
+            input_usd_per_million,
+            cached_input_usd_per_million,
+            output_usd_per_million,
+        }
+    }
+
+    #[must_use]
+    pub const fn rate_card(self) -> &'static str {
+        self.rate_card
+    }
+
+    #[must_use]
+    pub fn estimate_usd(self, usage: TokenUsage) -> Option<f64> {
+        let input = usage.input_tokens()?;
+        let output = usage.output_tokens()?;
+        let cached = usage.cache_read_tokens().unwrap_or_default().min(input);
+        let uncached = input.saturating_sub(cached);
+        let cost = (uncached as f64).mul_add(
+            self.input_usd_per_million,
+            (cached as f64).mul_add(
+                self.cached_input_usd_per_million,
+                output as f64 * self.output_usd_per_million,
+            ),
+        ) / 1_000_000.0;
+        (cost.is_finite() && cost >= 0.0).then_some(cost)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct OAuthQuotaResetCredit {
     pub expires_at: String,
 }
@@ -145,6 +241,8 @@ pub struct OAuthQuotaSupplement {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct OAuthQuotaUsage {
     pub rate_limit: Option<OAuthQuotaRateLimit>,
+    pub credits: Option<OAuthQuotaCredits>,
+    pub access: Option<OAuthQuotaAccessStatus>,
     pub reset_credits: Option<OAuthQuotaResetCredits>,
     pub billing: Option<OAuthQuotaBilling>,
     pub token_balance: Option<OAuthQuotaTokenBalance>,

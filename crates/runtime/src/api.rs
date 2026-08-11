@@ -21,9 +21,9 @@ pub use crate::lifecycle::{ActiveRequestGuard, ProcessLifecycle, ShutdownPhase};
 pub use crate::oauth::{
     MAX_OAUTH_IMPORT_ACCOUNTS, OAuthActivationResult, OAuthDevicePollResult, OAuthError,
     OAuthImportError, OAuthImportFailureKind, OAuthImportResult, OAuthQuotaError,
-    OAuthQuotaResetOutcome, OAuthQuotaSnapshot, OAuthRefreshFailure, OAuthRefreshFailureReason,
-    OAuthRefreshFailureScope, OAuthRefreshFailureStage, OAuthRefreshTrigger, OAuthService,
-    OAuthStartFlow, OAuthStartResult,
+    OAuthQuotaResetOutcome, OAuthQuotaSnapshot, OAuthQuotaUsdEstimate, OAuthRefreshFailure,
+    OAuthRefreshFailureReason, OAuthRefreshFailureScope, OAuthRefreshFailureStage,
+    OAuthRefreshTrigger, OAuthService, OAuthStartFlow, OAuthStartResult,
 };
 pub use crate::proxy::ProxyPasswordSecret;
 pub use crate::proxy::{
@@ -51,10 +51,10 @@ pub use any2api_protocol::api::{
     ProtocolBridgeCapabilities, ProtocolFidelity,
 };
 pub use any2api_provider::api::{
-    OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
-    OAuthQuotaExhaustion, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
-    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
-    OAuthQuotaWindowKind,
+    OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
+    OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaRateLimit,
+    OAuthQuotaReachedType, OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaTokenBalance,
+    OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 pub use any2api_storage::api::GatewayApiKeyUsageSummary;
 pub use any2api_storage::api::{

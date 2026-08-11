@@ -69,7 +69,10 @@ function quota(fetchedAt: number) {
   return {
     fetched_at: fetchedAt,
     rate_limit: null,
+    credits: null,
+    access: null,
     reset_credits: null,
+    usd_estimates: [],
   };
 }
 

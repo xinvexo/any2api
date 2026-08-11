@@ -29,6 +29,26 @@ test("restores a persisted quota snapshot without an upstream refresh", async ()
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+test("shows real Codex Credits separately from the observed USD estimate", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => response(quotaWithCreditsAndEstimate())),
+  );
+
+  renderPanel();
+  const panel = screen.getByRole("region", { name: "Codex 额度" });
+  expect(await within(panel).findByText("17.50 Credits")).toBeInTheDocument();
+  expect(within(panel).getByText("上游真实 Credits")).toBeInTheDocument();
+  expect(
+    within(panel).getByText(
+      "本机观测估算：已用 $0.375 · 剩余 $0.625 · 总量 $1.00",
+    ),
+  ).toBeInTheDocument();
+  expect(
+    within(panel).getByText(/样本 \$0.01 \/ Δ1% · 5 分钟 · 官方标准 API 价 · 非上游余额/),
+  ).toBeInTheDocument();
+});
+
 test("refreshes Codex quota and consumes one available reset credit", async () => {
   let resetCompleted = false;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -218,6 +238,8 @@ test("shows only a real Grok exhaustion observation with its actual limit", asyn
       init?.method === "GET" ? null : {
       fetched_at: 1_900_000_000,
       rate_limit: null,
+      credits: null,
+      access: null,
       reset_credits: null,
       billing: null,
       token_balance: {
@@ -238,6 +260,7 @@ test("shows only a real Grok exhaustion observation with its actual limit", asyn
           limit: 1_000_000,
         },
       },
+      usd_estimates: [],
     })),
   );
 
@@ -338,10 +361,42 @@ function quota(availableCount: number) {
         reset_at: 1_900_000_300,
       }],
     },
+    credits: null,
+    access: null,
     reset_credits: {
       available_count: availableCount,
       expires_at: availableCount > 0 ? ["2026-07-30T00:00:00Z"] : [],
     },
+    usd_estimates: [],
+  };
+}
+
+function quotaWithCreditsAndEstimate() {
+  return {
+    ...quota(1),
+    credits: {
+      has_credits: true,
+      unlimited: false,
+      balance: "17.50",
+    },
+    access: {
+      spend_control_reached: false,
+      reached_type: "rate_limit_reached",
+    },
+    usd_estimates: [{
+      window_id: "primary",
+      window_kind: "time",
+      limit_window_seconds: 18_000,
+      window_reset_at: 1_900_000_300,
+      estimated_capacity_usd: 1,
+      estimated_used_usd: 0.375,
+      estimated_remaining_usd: 0.625,
+      sample_cost_usd: 0.01,
+      sample_used_percent_delta: 1,
+      sample_started_at: 1_899_999_700,
+      sample_ended_at: 1_900_000_000,
+      pricing_basis: "openai_api_standard_2026_08_11",
+    }],
   };
 }
 

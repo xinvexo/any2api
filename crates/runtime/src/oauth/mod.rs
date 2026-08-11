@@ -14,7 +14,9 @@ pub use import::{
 };
 pub use login::{OAuthActivationResult, OAuthDevicePollResult, OAuthStartFlow, OAuthStartResult};
 pub(crate) use quota::{OAuthQuotaActivity, OAuthQuotaActivityGuard};
-pub use quota::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot};
+pub use quota::{
+    OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot, OAuthQuotaUsdEstimate,
+};
 pub use refresh::{
     OAuthRefreshFailure, OAuthRefreshFailureReason, OAuthRefreshFailureScope,
     OAuthRefreshFailureStage, OAuthRefreshTrigger,

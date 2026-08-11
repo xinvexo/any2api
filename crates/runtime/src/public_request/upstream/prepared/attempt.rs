@@ -7,7 +7,7 @@ use any2api_protocol::api::{
     BridgeContinuationState, DecodedRequest, DecodedUpstreamResponse, EgressResponse,
     ProtocolError, ProtocolExchange, UpstreamResponse,
 };
-use any2api_provider::api::{ProviderDriver, UpstreamResponseMeta};
+use any2api_provider::api::{OAuthQuotaCostRate, ProviderDriver, UpstreamResponseMeta};
 use any2api_transport::api::{
     TransportError, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
     TransportResponse,
@@ -69,6 +69,9 @@ pub(in crate::public_request::upstream) fn prepare_input<'a>(
     })?;
     prepared.quota_activity = services.oauth_quota_activity;
     prepared.oauth_account_id = candidate.credential_id.oauth_account_id();
+    prepared.quota_cost_rate = prepared
+        .driver
+        .oauth_quota_cost_rate(&candidate.upstream_model);
     Ok(AttemptInput {
         prepared,
         candidate,
@@ -90,6 +93,7 @@ pub(in crate::public_request::upstream) struct PreparedAttempt<'a> {
     pub(super) attempt_recorder: Option<AttemptRecorder>,
     pub(super) quota_activity: Option<&'a OAuthQuotaActivity>,
     pub(super) oauth_account_id: Option<OAuthAccountId>,
+    pub(super) quota_cost_rate: Option<OAuthQuotaCostRate>,
     pub(super) quota_activity_guard: Option<OAuthQuotaActivityGuard>,
 }
 
@@ -108,7 +112,7 @@ impl PreparedAttempt<'_> {
             && let Some(activity) = self.quota_activity
             && let Some(id) = self.oauth_account_id
         {
-            self.quota_activity_guard = Some(activity.guard(id));
+            self.quota_activity_guard = Some(activity.guard(id, self.quota_cost_rate));
         }
         transport.execute(self.proxy, request).await
     }
@@ -147,9 +151,12 @@ impl PreparedAttempt<'_> {
         self.permit.take();
     }
 
-    pub(in crate::public_request::upstream) fn observe_token_usage(&self, usage: TokenUsage) {
+    pub(in crate::public_request::upstream) fn observe_token_usage(&mut self, usage: TokenUsage) {
         if let Some(recorder) = &self.attempt_recorder {
             recorder.observe_token_usage(usage);
+        }
+        if let Some(activity) = self.quota_activity_guard.as_mut() {
+            activity.observe_token_usage(usage);
         }
     }
 

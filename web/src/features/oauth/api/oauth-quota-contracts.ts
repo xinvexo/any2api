@@ -1,3 +1,21 @@
+import {
+  parseOAuthQuotaAccessStatus,
+  parseOAuthQuotaCredits,
+  type OAuthQuotaAccessStatus,
+  type OAuthQuotaCredits,
+} from "./oauth-quota-codex-contracts";
+import {
+  parseOAuthQuotaUsdEstimates,
+  type OAuthQuotaUsdEstimate,
+} from "./oauth-quota-usd-contracts";
+
+export type {
+  OAuthQuotaAccessStatus,
+  OAuthQuotaCredits,
+  OAuthQuotaReachedType,
+} from "./oauth-quota-codex-contracts";
+export type { OAuthQuotaUsdEstimate } from "./oauth-quota-usd-contracts";
+
 export interface OAuthQuotaWindow {
   id: string;
   kind: "time" | "credits";
@@ -50,11 +68,14 @@ export interface OAuthQuotaAccountStatus {
 export interface OAuthQuotaSnapshot {
   fetchedAt: number;
   rateLimit: OAuthQuotaRateLimit | null;
+  credits: OAuthQuotaCredits | null;
+  access: OAuthQuotaAccessStatus | null;
   resetCredits: OAuthQuotaResetCredits | null;
   billing: OAuthQuotaBilling | null;
   tokenBalance: OAuthQuotaTokenBalance | null;
   subscriptionTier: string | null;
   accountStatus: OAuthQuotaAccountStatus | null;
+  usdEstimates: OAuthQuotaUsdEstimate[];
 }
 
 export interface OAuthQuotaResetResult {
@@ -66,11 +87,14 @@ export function parseOAuthQuotaSnapshot(value: unknown): OAuthQuotaSnapshot {
   return {
     fetchedAt: readInteger(value.fetched_at, 0),
     rateLimit: parseRateLimit(value.rate_limit),
+    credits: parseOAuthQuotaCredits(value.credits),
+    access: parseOAuthQuotaAccessStatus(value.access),
     resetCredits: parseResetCredits(value.reset_credits),
     billing: parseBilling(value.billing),
     tokenBalance: parseTokenBalance(value.token_balance),
     subscriptionTier: readOptionalString(value.subscription_tier),
     accountStatus: parseAccountStatus(value.account_status),
+    usdEstimates: parseOAuthQuotaUsdEstimates(value.usd_estimates),
   };
 }
 

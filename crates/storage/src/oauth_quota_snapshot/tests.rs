@@ -50,7 +50,7 @@ async fn repository_rejects_invalid_version_time_and_payload_size() {
     let (_directory, store, id) = store_with_account().await;
     for invalid in [
         StoredOAuthQuotaSnapshot {
-            schema_version: 2,
+            schema_version: 1,
             ..snapshot(id, 1, b"{}".to_vec())
         },
         snapshot(id, -1, b"{}".to_vec()),

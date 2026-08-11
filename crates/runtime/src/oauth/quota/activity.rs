@@ -9,11 +9,16 @@ use std::{
     time::Duration,
 };
 
-use any2api_domain::OAuthAccountId;
+use any2api_domain::{OAuthAccountId, TokenUsage};
+use any2api_provider::api::{OAuthQuotaCostRate, OAuthQuotaUsage};
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use tokio::{sync::Notify, time::Instant};
 
-use super::{coordinator::OAuthQuotaService, types::OAuthQuotaError};
+use super::{
+    coordinator::OAuthQuotaService,
+    estimator::{CostObservation, OAuthQuotaEstimator},
+    types::{OAuthQuotaError, OAuthQuotaUsdEstimate},
+};
 use crate::lifecycle::ProcessLifecycle;
 
 const ACTIVITY_DEBOUNCE: Duration = Duration::from_secs(5);
@@ -28,6 +33,7 @@ pub(crate) struct OAuthQuotaActivity {
 
 struct ActivityShared {
     state: Mutex<ActivityState>,
+    estimator: Mutex<OAuthQuotaEstimator>,
     notify: Notify,
     started: AtomicBool,
 }
@@ -49,6 +55,7 @@ impl OAuthQuotaActivity {
         Self {
             shared: Arc::new(ActivityShared {
                 state: Mutex::new(ActivityState::default()),
+                estimator: Mutex::new(OAuthQuotaEstimator::default()),
                 notify: Notify::new(),
                 started: AtomicBool::new(false),
             }),
@@ -72,11 +79,38 @@ impl OAuthQuotaActivity {
         true
     }
 
-    pub(crate) fn guard(&self, id: OAuthAccountId) -> OAuthQuotaActivityGuard {
+    pub(crate) fn guard(
+        &self,
+        id: OAuthAccountId,
+        cost_rate: Option<OAuthQuotaCostRate>,
+    ) -> OAuthQuotaActivityGuard {
         OAuthQuotaActivityGuard {
             activity: Some(self.clone()),
             id,
+            cost_rate,
+            usage: TokenUsage::default(),
         }
+    }
+
+    pub(super) fn observe_snapshot(
+        &self,
+        id: OAuthAccountId,
+        usage: &OAuthQuotaUsage,
+        fetched_at: i64,
+    ) -> Vec<OAuthQuotaUsdEstimate> {
+        self.shared
+            .estimator
+            .lock()
+            .expect("OAuth quota estimator state")
+            .observe_snapshot(id, usage, fetched_at, Instant::now())
+    }
+
+    fn record_cost(&self, id: OAuthAccountId, observation: CostObservation, now: Instant) {
+        self.shared
+            .estimator
+            .lock()
+            .expect("OAuth quota estimator state")
+            .record(id, observation, now);
     }
 
     fn record(&self, id: OAuthAccountId, now: Instant) {
@@ -172,12 +206,32 @@ impl OAuthQuotaActivity {
 pub(crate) struct OAuthQuotaActivityGuard {
     activity: Option<OAuthQuotaActivity>,
     id: OAuthAccountId,
+    cost_rate: Option<OAuthQuotaCostRate>,
+    usage: TokenUsage,
+}
+
+impl OAuthQuotaActivityGuard {
+    pub(crate) fn observe_token_usage(&mut self, usage: TokenUsage) {
+        self.usage.merge(usage);
+    }
 }
 
 impl Drop for OAuthQuotaActivityGuard {
     fn drop(&mut self) {
         if let Some(activity) = self.activity.take() {
-            activity.record(self.id, Instant::now());
+            let now = Instant::now();
+            let observation = self
+                .cost_rate
+                .and_then(|rate| {
+                    rate.estimate_usd(self.usage)
+                        .map(|usd| CostObservation::Priced {
+                            usd,
+                            rate_card: rate.rate_card(),
+                        })
+                })
+                .unwrap_or(CostObservation::Unpriced);
+            activity.record_cost(self.id, observation, now);
+            activity.record(self.id, now);
         }
     }
 }

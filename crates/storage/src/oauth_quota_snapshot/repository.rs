@@ -4,8 +4,8 @@ use sqlx::FromRow;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
-pub const OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
-pub const MAX_OAUTH_QUOTA_SNAPSHOT_BYTES: usize = 256 * 1024;
+pub const OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION: u32 = 2;
+pub const MAX_OAUTH_QUOTA_SNAPSHOT_BYTES: usize = 512 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StoredOAuthQuotaSnapshot {

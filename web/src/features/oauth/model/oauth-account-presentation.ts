@@ -103,9 +103,19 @@ export function presentOAuthAccount(
 function quotaIsExhausted(quota: OAuthQuotaSnapshot | null) {
   if (quota === null) return false;
   const observedExhaustion = quota.accountStatus?.quotaExhaustion;
-  return (
-    quota.rateLimit?.allowed === false
+  const creditsUsable = quota.credits?.unlimited === true
+    || quota.credits?.hasCredits === true;
+  const workspaceHardStop = quota.access?.spendControlReached === true
+    || quota.access?.reachedType === "workspace_owner_credits_depleted"
+    || quota.access?.reachedType === "workspace_member_credits_depleted"
+    || quota.access?.reachedType === "workspace_owner_usage_limit_reached"
+    || quota.access?.reachedType === "workspace_member_usage_limit_reached";
+  const rollingLimitReached = quota.rateLimit?.allowed === false
     || quota.rateLimit?.limitReached === true
+    || quota.access?.reachedType === "rate_limit_reached";
+  return (
+    workspaceHardStop
+    || rollingLimitReached && !creditsUsable
     || quota.tokenBalance?.remaining === 0
     || observedExhaustion !== null && observedExhaustion !== undefined
   );

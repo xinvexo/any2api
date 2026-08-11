@@ -5,6 +5,7 @@ use std::sync::Arc;
 use any2api_provider::api::{OAuthQuotaUsage, ProviderError};
 use any2api_storage::api::StorageError;
 use any2api_transport::api::TransportError;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::oauth::refresh::OAuthRefreshFailure;
@@ -12,7 +13,24 @@ use crate::oauth::refresh::OAuthRefreshFailure;
 #[derive(Clone, Debug, PartialEq)]
 pub struct OAuthQuotaSnapshot {
     pub usage: OAuthQuotaUsage,
+    pub usd_estimates: Vec<OAuthQuotaUsdEstimate>,
     pub fetched_at: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct OAuthQuotaUsdEstimate {
+    pub window_id: String,
+    pub window_kind: any2api_provider::api::OAuthQuotaWindowKind,
+    pub limit_window_seconds: Option<u64>,
+    pub window_reset_at: Option<i64>,
+    pub estimated_capacity_usd: f64,
+    pub estimated_used_usd: f64,
+    pub estimated_remaining_usd: f64,
+    pub sample_cost_usd: f64,
+    pub sample_used_percent_delta: f64,
+    pub sample_started_at: i64,
+    pub sample_ended_at: i64,
+    pub pricing_basis: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

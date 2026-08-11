@@ -101,9 +101,12 @@ impl OAuthQuotaService {
         id: OAuthAccountId,
     ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
         let usage = self.query_with_authentication_retry(id).await?;
+        let fetched_at = document::unix_now();
+        let usd_estimates = self.activity.observe_snapshot(id, &usage, fetched_at);
         let snapshot = OAuthQuotaSnapshot {
             usage,
-            fetched_at: document::unix_now(),
+            usd_estimates,
+            fetched_at,
         };
         self.persistence.store(id, &snapshot).await?;
         Ok(snapshot)

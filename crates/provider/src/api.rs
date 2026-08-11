@@ -23,8 +23,9 @@ pub use crate::oauth::{
     encode_oauth_account_document,
 };
 pub use crate::oauth::{
-    OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus, OAuthQuotaBilling,
-    OAuthQuotaExhaustion, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaRejection,
+    OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
+    OAuthQuotaBilling, OAuthQuotaCostRate, OAuthQuotaCredits, OAuthQuotaExhaustion,
+    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaRejection,
     OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement,
     OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
     OAuthQuotaWindowKind,
@@ -249,6 +250,10 @@ pub trait ProviderDriver: Send + Sync {
         _token: &OAuthTokenMaterial,
     ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
         Ok(None)
+    }
+
+    fn oauth_quota_cost_rate(&self, _model: &str) -> Option<OAuthQuotaCostRate> {
+        None
     }
 
     fn classify_oauth_quota_rejection(

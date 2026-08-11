@@ -9,9 +9,14 @@ use url::Url;
 use crate::{
     OAuthRequestPlan, OAuthTokenMaterial, ProviderError,
     oauth::quota::{
-        OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit, OAuthQuotaResetCredits,
-        OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
+        OAuthQuotaAccessStatus, OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaResetCredit,
+        OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaUsage, OAuthQuotaWindow,
+        OAuthQuotaWindowKind,
     },
+};
+
+use super::credits::{
+    CreditsPayload, ReachedTypePayload, SpendControlPayload, parse_credits, parse_reached_type,
 };
 
 const USAGE_URL: &str = "https://chatgpt.com/backend-api/wham/usage";
@@ -51,6 +56,17 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
     let payload = serde_json::from_slice::<UsagePayload>(body)
         .map_err(|_| invalid_response("Codex quota usage response is invalid"))?;
     let rate_limit = payload.rate_limit.map(parse_rate_limit).transpose()?;
+    let credits = payload.credits.map(parse_credits).transpose()?;
+    let spend_control_reached = payload.spend_control.map(|value| value.reached);
+    let reached_type = payload
+        .rate_limit_reached_type
+        .and_then(|value| parse_reached_type(&value.kind));
+    let access = (spend_control_reached.is_some() || reached_type.is_some()).then_some(
+        OAuthQuotaAccessStatus {
+            spend_control_reached,
+            reached_type,
+        },
+    );
     let reset_credits = payload
         .rate_limit_reset_credits
         .as_ref()
@@ -59,6 +75,8 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
         .flatten();
     Ok(OAuthQuotaUsage {
         rate_limit,
+        credits,
+        access,
         reset_credits,
         billing: None,
         token_balance: None,
@@ -135,6 +153,9 @@ fn request(
 #[derive(Deserialize)]
 struct UsagePayload {
     rate_limit: Option<RateLimitPayload>,
+    credits: Option<CreditsPayload>,
+    spend_control: Option<SpendControlPayload>,
+    rate_limit_reached_type: Option<ReachedTypePayload>,
     rate_limit_reset_credits: Option<Value>,
 }
 

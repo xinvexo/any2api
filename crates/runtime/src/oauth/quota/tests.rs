@@ -192,6 +192,35 @@ async fn explicit_quota_exhaustion_blocks_routing_until_a_fresh_available_snapsh
 }
 
 #[tokio::test]
+async fn real_credits_keep_an_exhausted_rolling_window_routable() {
+    let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+    context.transport.set_codex_exhausted(true);
+    context.transport.set_codex_has_credits(true);
+
+    let quota = context
+        .service
+        .refresh_quota(context.account_id)
+        .await
+        .expect("quota with purchased Credits");
+
+    assert_eq!(
+        quota
+            .usage
+            .credits
+            .as_ref()
+            .and_then(|credits| credits.balance.as_deref()),
+        Some("17.50")
+    );
+    assert!(quota.usage.account_status.is_none());
+    let snapshot = context.snapshots.load();
+    let generation = snapshot
+        .credential_runtime(RoutingCredentialId::oauth_account(context.account_id))
+        .expect("OAuth runtime")
+        .generation();
+    assert_eq!(generation.health().availability("gpt-5.5"), Ok(()));
+}
+
+#[tokio::test]
 async fn concurrent_quota_refreshes_share_one_provider_query_and_result() {
     let context = QuotaTestContext::new_blocking_refresh(1).await;
     let first_service = Arc::clone(&context.service);

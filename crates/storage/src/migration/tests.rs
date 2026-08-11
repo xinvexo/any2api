@@ -77,6 +77,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
                 "add request attempt transport stream diagnostics".to_owned()
             ),
             (20, "standard sk gateway api key prefix".to_owned()),
+            (21, "version oauth quota snapshot payload".to_owned()),
         ]
     );
 
@@ -139,7 +140,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(!oauth_schema.contains("max_concurrency"));
     let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;
     assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));
-    assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 262144"));
+    assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 524288"));
     let provider_credential_schema = table_schema(&pool, "provider_credentials").await;
     assert!(provider_credential_schema.contains("api_key BLOB NOT NULL"));
     let proxy_password_schema = table_schema(&pool, "proxy_passwords").await;

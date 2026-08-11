@@ -67,6 +67,8 @@ pub(crate) fn parse_usage(body: &[u8]) -> Result<OAuthQuotaUsage, ProviderError>
             limit_reached: None,
             windows,
         }),
+        credits: None,
+        access: None,
         reset_credits: None,
         billing: None,
         token_balance: None,

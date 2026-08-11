@@ -19,3 +19,4 @@
 "0018_add_kimi_provider_kind.sql" = "4e622fc172a1c31257a2fe98cb069c77cc540c5bb1d97c7275215e2c78d4051a"
 "0019_add_request_attempt_transport_stream_diagnostics.sql" = "b7c09253a2a761312a63a39ac635a015e8ca6f5bf318dd370e8e77f5ff91eae3"
 "0020_standard_sk_gateway_api_key_prefix.sql" = "8030e127c284fcc87d848d6898b83f9c387e55f94c6f29b6d4cc9f838c899b77"
+"0021_version_oauth_quota_snapshot_payload.sql" = "c2e882e7fca794b67fa7d3d38a43c0cc7e339b21e81a7e3b853e642420dddb58"

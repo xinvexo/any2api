@@ -30,10 +30,33 @@ describe("OAuth quota contracts", () => {
             reset_at: 1_900_000_300,
           }],
         },
+        credits: {
+          has_credits: true,
+          unlimited: false,
+          balance: "17.50",
+        },
+        access: {
+          spend_control_reached: false,
+          reached_type: "rate_limit_reached",
+        },
         reset_credits: {
           available_count: 2,
           expires_at: ["2026-07-30T00:00:00Z"],
         },
+        usd_estimates: [{
+          window_id: "primary",
+          window_kind: "time",
+          limit_window_seconds: 18_000,
+          window_reset_at: 1_900_000_300,
+          estimated_capacity_usd: 1,
+          estimated_used_usd: 0.375,
+          estimated_remaining_usd: 0.625,
+          sample_cost_usd: 0.01,
+          sample_used_percent_delta: 1,
+          sample_started_at: 1_899_999_700,
+          sample_ended_at: 1_900_000_000,
+          pricing_basis: "openai_api_standard_2026_08_11",
+        }],
       }),
     ).toEqual({
       fetchedAt: 1_900_000_000,
@@ -49,6 +72,15 @@ describe("OAuth quota contracts", () => {
           resetAt: 1_900_000_300,
         }],
       },
+      credits: {
+        hasCredits: true,
+        unlimited: false,
+        balance: "17.50",
+      },
+      access: {
+        spendControlReached: false,
+        reachedType: "rate_limit_reached",
+      },
       resetCredits: {
         availableCount: 2,
         expiresAt: ["2026-07-30T00:00:00Z"],
@@ -57,6 +89,20 @@ describe("OAuth quota contracts", () => {
       tokenBalance: null,
       subscriptionTier: null,
       accountStatus: null,
+      usdEstimates: [{
+        windowId: "primary",
+        windowKind: "time",
+        limitWindowSeconds: 18_000,
+        windowResetAt: 1_900_000_300,
+        estimatedCapacityUsd: 1,
+        estimatedUsedUsd: 0.375,
+        estimatedRemainingUsd: 0.625,
+        sampleCostUsd: 0.01,
+        sampleUsedPercentDelta: 1,
+        sampleStartedAt: 1_899_999_700,
+        sampleEndedAt: 1_900_000_000,
+        pricingBasis: "openai_api_standard_2026_08_11",
+      }],
     });
   });
 
@@ -64,6 +110,8 @@ describe("OAuth quota contracts", () => {
     const parsed = parseOAuthQuotaSnapshot({
       fetched_at: 1_900_000_000,
       rate_limit: null,
+      credits: null,
+      access: null,
       reset_credits: null,
       billing: {
         currency: "USD",
@@ -90,6 +138,7 @@ describe("OAuth quota contracts", () => {
           limit: 1_000_000,
         },
       },
+      usd_estimates: [],
     });
 
     expect(parsed.billing).toEqual({
@@ -122,7 +171,7 @@ describe("OAuth quota contracts", () => {
   it("preserves a Grok credit window without inventing reset data", () => {
     const parsed = parseOAuthQuotaSnapshot({
       fetched_at: 1_900_000_000,
-        rate_limit: {
+      rate_limit: {
           allowed: true,
           limit_reached: false,
           windows: [{
@@ -134,7 +183,10 @@ describe("OAuth quota contracts", () => {
             reset_at: null,
           }],
       },
+      credits: null,
+      access: null,
       reset_credits: null,
+      usd_estimates: [],
     });
 
     expect(parsed.rateLimit?.windows[0]).toEqual({
@@ -160,7 +212,10 @@ describe("OAuth quota contracts", () => {
           claudeWindow("seven_day_overage_included", 78, 604_800),
         ],
       },
+      credits: null,
+      access: null,
       reset_credits: null,
+      usd_estimates: [],
     });
 
     expect(parsed.rateLimit?.allowed).toBeNull();
@@ -178,13 +233,18 @@ describe("OAuth quota contracts", () => {
       parseOAuthQuotaSnapshot({
         fetched_at: 1,
         rate_limit: null,
+        credits: null,
+        access: null,
         reset_credits: { available_count: -1, expires_at: [] },
+        usd_estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
     expect(() =>
       parseOAuthQuotaSnapshot({
         fetched_at: 1,
         rate_limit: null,
+        credits: null,
+        access: null,
         reset_credits: null,
         token_balance: {
           source: "local",
@@ -193,19 +253,25 @@ describe("OAuth quota contracts", () => {
           remaining: 1_000_000,
           window_seconds: 86_400,
         },
+        usd_estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
     expect(() =>
       parseOAuthQuotaSnapshot({
         fetched_at: 1,
         rate_limit: null,
+        credits: null,
+        access: null,
         reset_credits: { available_count: 1, expires_at: "secret" },
+        usd_estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
     expect(() =>
       parseOAuthQuotaSnapshot({
         fetched_at: 1,
         rate_limit: null,
+        credits: null,
+        access: null,
         reset_credits: null,
         billing: {
           currency: "USD",
@@ -214,6 +280,7 @@ describe("OAuth quota contracts", () => {
           on_demand_cap_minor: null,
           is_unified_billing_user: true,
         },
+        usd_estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
   });
