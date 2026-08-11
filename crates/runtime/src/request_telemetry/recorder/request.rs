@@ -10,6 +10,7 @@ use any2api_domain::{
     RequestAttemptFailureScope, RequestAttemptRetryDecision, RequestId, TokenUsage,
     bound_error_message,
 };
+use any2api_provider::api::OAuthQuotaCostRate;
 
 use super::super::{RequestLogPolicy, RequestObservation, RequestTelemetry};
 use super::attempt::AttemptRecorder;
@@ -43,6 +44,7 @@ pub(super) struct RequestRecorderState {
     pub(super) final_target: Option<FinalTarget>,
     pub(super) attempts: Vec<RequestAttempt>,
     pub(super) observation: RequestObservation,
+    pub(super) quota_cost_rate: Option<OAuthQuotaCostRate>,
     pub(super) finished: bool,
 }
 
@@ -119,11 +121,10 @@ impl RequestRecorder {
             oauth_account_id: candidate.credential_id.oauth_account_id(),
             proxy_id: candidate.proxy_id,
         };
-        inner
-            .state
-            .lock()
-            .expect("request recorder state")
-            .final_target = Some(target);
+        let mut state = inner.state.lock().expect("request recorder state");
+        state.final_target = Some(target);
+        state.quota_cost_rate = None;
+        drop(state);
         AttemptRecorder::new(
             self.clone(),
             inner.request_id,
@@ -181,6 +182,16 @@ impl RequestRecorder {
         let mut state = inner.state.lock().expect("request recorder state");
         if !state.finished {
             state.attempts.push(attempt);
+        }
+    }
+
+    pub(super) fn observe_quota_cost_rate(&self, rate: Option<OAuthQuotaCostRate>) {
+        let Some(inner) = &self.inner else {
+            return;
+        };
+        let mut state = inner.state.lock().expect("request recorder state");
+        if !state.finished {
+            state.quota_cost_rate = rate;
         }
     }
 

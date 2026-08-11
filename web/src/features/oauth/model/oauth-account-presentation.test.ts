@@ -67,6 +67,6 @@ function quota(
     tokenBalance: null,
     subscriptionTier: null,
     accountStatus: null,
-    usdEstimates: [],
+    estimates: [],
   };
 }

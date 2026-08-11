@@ -249,6 +249,7 @@ fn usage_record(
             input_tokens: None,
             output_tokens: None,
             cache_read_tokens: None,
+            quota_cost: None,
             is_stream: false,
         },
         attempts: Vec::new(),

@@ -1,8 +1,11 @@
 use super::*;
-use any2api_runtime::api::{OAuthQuotaUsage, OAuthQuotaWindowKind};
+use any2api_runtime::api::{
+    OAuthQuotaEstimate, OAuthQuotaEstimateConfidence, OAuthQuotaIntervalDiagnostic,
+    OAuthQuotaIntervalStatus, OAuthQuotaUsage, OAuthQuotaWindowKind,
+};
 
 #[test]
-fn serializes_real_codex_credits_access_and_usd_estimate() {
+fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
     let response = OAuthQuotaResponse::from(OAuthQuotaSnapshot {
         fetched_at: 1_900_000_000,
         usage: OAuthQuotaUsage {
@@ -22,31 +25,42 @@ fn serializes_real_codex_credits_access_and_usd_estimate() {
             subscription_tier: None,
             account_status: None,
         },
-        usd_estimates: vec![OAuthQuotaUsdEstimate {
+        estimates: vec![OAuthQuotaEstimate {
             window_id: "primary".to_owned(),
             window_kind: OAuthQuotaWindowKind::Time,
             limit_window_seconds: Some(18_000),
             window_reset_at: Some(1_900_003_600),
-            estimated_capacity_usd: 1.0,
-            estimated_used_usd: 0.11,
-            estimated_remaining_usd: 0.89,
-            sample_cost_usd: 0.01,
-            sample_used_percent: 1.0,
-            sample_started_at: 1_899_999_700,
-            sample_ended_at: 1_900_000_000,
-            unpriced_request_count: 3,
-            pricing_basis: "openai_api_standard_2026_08_11".to_owned(),
+            epoch: 7,
+            epoch_started_at: 1_899_999_000,
+            confidence: OAuthQuotaEstimateConfidence::Stable,
+            estimated_capacity_credits: Some(25.0),
+            estimated_used_credits: Some(2.75),
+            estimated_remaining_credits: Some(22.25),
+            sample_count: 3,
+            relative_mad: Some(0.01),
+            latest_interval: OAuthQuotaIntervalDiagnostic {
+                status: OAuthQuotaIntervalStatus::ValidSample,
+                started_at: Some(1_899_999_700),
+                ended_at: 1_900_000_000,
+                delta_used_percent: Some(1.0),
+                local_cost_credits: Some(0.25),
+                unpriced_request_count: 0,
+                queue_dropped_request_logs: 0,
+                storage_failed_request_logs: 0,
+                pruned_request_logs: 0,
+            },
+            rate_cards: vec!["openai_codex_credits_2026_08_11".to_owned()],
         }],
     });
     let value = serde_json::to_value(response).expect("quota response");
 
     assert_eq!(value["credits"]["balance"], "17.50");
     assert_eq!(value["access"]["reached_type"], "rate_limit_reached");
-    assert_eq!(value["usd_estimates"][0]["estimated_capacity_usd"], 1.0);
-    assert_eq!(value["usd_estimates"][0]["unpriced_request_count"], 3);
+    assert_eq!(value["estimates"][0]["estimated_capacity_credits"], 25.0);
+    assert_eq!(value["estimates"][0]["confidence"], "stable");
     assert_eq!(
-        value["usd_estimates"][0]["pricing_basis"],
-        "openai_api_standard_2026_08_11"
+        value["estimates"][0]["latest_interval"]["status"],
+        "valid_sample"
     );
 }
 
@@ -85,7 +99,7 @@ fn serializes_grok_billing_and_subscription_without_secrets() {
                 }),
             }),
         },
-        usd_estimates: Vec::new(),
+        estimates: Vec::new(),
     });
     let value = serde_json::to_value(response).expect("quota response");
 

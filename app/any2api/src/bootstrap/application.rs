@@ -105,6 +105,7 @@ pub(super) async fn run(
         request_components.transport_manager(),
         Arc::clone(&publisher),
         Arc::clone(&storage),
+        Arc::clone(&telemetry),
     ));
     anyhow::ensure!(
         public_requests.install_oauth(oauth.as_ref()),

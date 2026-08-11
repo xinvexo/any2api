@@ -11,6 +11,7 @@ use any2api_domain::{
     RequestAttempt, RequestAttemptOutcome, RequestId, RequestRoutingMode, RetrySafety,
     RouteTargetId, TokenUsage,
 };
+use any2api_provider::api::OAuthQuotaCostRate;
 
 use super::attempt_diagnostics::AttemptDiagnostics;
 use super::request::{RequestRecorder, bound_optional_error_message, duration_ms};
@@ -103,6 +104,10 @@ impl AttemptRecorder {
 
     pub(crate) fn observe_token_usage(&self, usage: TokenUsage) {
         self.request.observe_token_usage(usage);
+    }
+
+    pub(crate) fn observe_quota_cost_rate(&self, rate: Option<OAuthQuotaCostRate>) {
+        self.request.observe_quota_cost_rate(rate);
     }
 
     pub(crate) fn observe_transport(

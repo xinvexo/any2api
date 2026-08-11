@@ -4,6 +4,9 @@ use std::sync::{
 };
 
 use any2api_domain::gateway_auth_rejected_capacity;
+use uuid::Uuid;
+
+use super::RequestTelemetryCheckpoint;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TelemetryQueueClass {
@@ -36,6 +39,10 @@ struct Counters {
     in_flight_owned_bytes: AtomicUsize,
     dropped_records: AtomicU64,
     persisted_records: AtomicU64,
+    request_log_coverage_generation: AtomicU64,
+    queue_dropped_request_logs: AtomicU64,
+    storage_failed_request_logs: AtomicU64,
+    pruned_request_logs: AtomicU64,
 }
 
 impl TelemetryCounters {
@@ -105,8 +112,12 @@ impl TelemetryCounters {
         records: usize,
         owned_bytes: usize,
         class: TelemetryQueueClass,
+        quota_relevant: bool,
     ) {
         self.add_dropped(records);
+        if quota_relevant {
+            self.queue_dropped_request_logs(records);
+        }
         subtract(&self.inner.queued_records, records);
         subtract(&self.inner.queued_owned_bytes, owned_bytes);
         subtract(&self.inner.queue_slots, 1);
@@ -114,8 +125,11 @@ impl TelemetryCounters {
         self.release_owned_bytes(owned_bytes, class);
     }
 
-    pub(super) fn rejected(&self, records: usize) {
+    pub(super) fn rejected(&self, records: usize, quota_relevant: bool) {
         self.add_dropped(records);
+        if quota_relevant {
+            self.queue_dropped_request_logs(records);
+        }
     }
 
     pub(super) fn received(&self, records: usize, owned_bytes: usize, class: TelemetryQueueClass) {
@@ -155,6 +169,54 @@ impl TelemetryCounters {
         self.finish_owned_bytes(owned_bytes, rejected_owned_bytes);
     }
 
+    pub(super) fn request_logs_storage_failed(&self, records: usize, owned_bytes: usize) {
+        self.storage_failed(records, owned_bytes, 0);
+        self.inner
+            .storage_failed_request_logs
+            .fetch_add(records as u64, Ordering::Relaxed);
+        self.mark_request_log_gap();
+    }
+
+    pub(super) fn request_logs_pruned(&self, records: u64) {
+        if records == 0 {
+            return;
+        }
+        self.inner
+            .pruned_request_logs
+            .fetch_add(records, Ordering::Relaxed);
+        self.mark_request_log_gap();
+    }
+
+    pub(super) fn mark_request_log_gap(&self) {
+        self.inner
+            .request_log_coverage_generation
+            .fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(super) fn quota_checkpoint(
+        &self,
+        process_id: Uuid,
+        enabled: bool,
+    ) -> RequestTelemetryCheckpoint {
+        RequestTelemetryCheckpoint {
+            process_id,
+            enabled,
+            coverage_generation: self
+                .inner
+                .request_log_coverage_generation
+                .load(Ordering::Acquire),
+            queue_dropped_request_logs: self
+                .inner
+                .queue_dropped_request_logs
+                .load(Ordering::Relaxed),
+            storage_failed_request_logs: self
+                .inner
+                .storage_failed_request_logs
+                .load(Ordering::Relaxed),
+            pruned_request_logs: self.inner.pruned_request_logs.load(Ordering::Relaxed),
+        }
+    }
+
     pub(super) fn writer_stopped(&self) {
         let queued = self.inner.queued_records.swap(0, Ordering::AcqRel);
         let in_flight = self.inner.in_flight_records.swap(0, Ordering::AcqRel);
@@ -184,6 +246,13 @@ impl TelemetryCounters {
         self.inner
             .dropped_records
             .fetch_add(records as u64, Ordering::Relaxed);
+    }
+
+    fn queue_dropped_request_logs(&self, records: usize) {
+        self.inner
+            .queue_dropped_request_logs
+            .fetch_add(records as u64, Ordering::Relaxed);
+        self.mark_request_log_gap();
     }
 
     fn release_gateway_auth_rejected_slot(&self, class: TelemetryQueueClass) {
@@ -274,7 +343,7 @@ mod tests {
         assert!(!counters.try_reserve(4, 400, 100, class));
 
         counters.enqueued(1, 100);
-        counters.send_failed(1, 100, class);
+        counters.send_failed(1, 100, class, false);
         assert!(counters.try_reserve(4, 400, 100, class));
         counters.enqueued(1, 100);
         counters.received(1, 100, class);

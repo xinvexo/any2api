@@ -242,6 +242,7 @@ fn record(
             input_tokens,
             output_tokens,
             cache_read_tokens: Some(999),
+            quota_cost: None,
             is_stream: false,
         },
         attempts: Vec::new(),

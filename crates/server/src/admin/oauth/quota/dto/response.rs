@@ -4,9 +4,11 @@ use any2api_runtime::api::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
     OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaRateLimit,
     OAuthQuotaReachedType, OAuthQuotaResetCredits, OAuthQuotaSnapshot, OAuthQuotaTokenBalance,
-    OAuthQuotaTokenBalanceSource, OAuthQuotaUsdEstimate, OAuthQuotaWindow, OAuthQuotaWindowKind,
+    OAuthQuotaTokenBalanceSource, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 use serde::Serialize;
+
+use super::estimate::OAuthQuotaEstimateResponse;
 
 #[derive(Debug, Serialize)]
 pub(in crate::admin::oauth::quota) struct OAuthQuotaResponse {
@@ -19,7 +21,7 @@ pub(in crate::admin::oauth::quota) struct OAuthQuotaResponse {
     token_balance: Option<OAuthQuotaTokenBalanceResponse>,
     subscription_tier: Option<String>,
     account_status: Option<OAuthQuotaAccountStatusResponse>,
-    usd_estimates: Vec<OAuthQuotaUsdEstimateResponse>,
+    estimates: Vec<OAuthQuotaEstimateResponse>,
 }
 
 impl From<OAuthQuotaSnapshot> for OAuthQuotaResponse {
@@ -34,7 +36,7 @@ impl From<OAuthQuotaSnapshot> for OAuthQuotaResponse {
             token_balance: snapshot.usage.token_balance.map(Into::into),
             subscription_tier: snapshot.usage.subscription_tier,
             account_status: snapshot.usage.account_status.map(Into::into),
-            usd_estimates: snapshot.usd_estimates.into_iter().map(Into::into).collect(),
+            estimates: snapshot.estimates.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -83,43 +85,6 @@ fn reached_type(value: OAuthQuotaReachedType) -> &'static str {
         }
         OAuthQuotaReachedType::WorkspaceMemberUsageLimitReached => {
             "workspace_member_usage_limit_reached"
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct OAuthQuotaUsdEstimateResponse {
-    window_id: String,
-    window_kind: &'static str,
-    limit_window_seconds: Option<u64>,
-    window_reset_at: Option<i64>,
-    estimated_capacity_usd: f64,
-    estimated_used_usd: f64,
-    estimated_remaining_usd: f64,
-    sample_cost_usd: f64,
-    sample_used_percent: f64,
-    sample_started_at: i64,
-    sample_ended_at: i64,
-    unpriced_request_count: u64,
-    pricing_basis: String,
-}
-
-impl From<OAuthQuotaUsdEstimate> for OAuthQuotaUsdEstimateResponse {
-    fn from(value: OAuthQuotaUsdEstimate) -> Self {
-        Self {
-            window_id: value.window_id,
-            window_kind: window_kind(value.window_kind),
-            limit_window_seconds: value.limit_window_seconds,
-            window_reset_at: value.window_reset_at,
-            estimated_capacity_usd: value.estimated_capacity_usd,
-            estimated_used_usd: value.estimated_used_usd,
-            estimated_remaining_usd: value.estimated_remaining_usd,
-            sample_cost_usd: value.sample_cost_usd,
-            sample_used_percent: value.sample_used_percent,
-            sample_started_at: value.sample_started_at,
-            sample_ended_at: value.sample_ended_at,
-            unpriced_request_count: value.unpriced_request_count,
-            pricing_basis: value.pricing_basis,
         }
     }
 }

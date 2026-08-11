@@ -3,10 +3,10 @@ use std::str::FromStr;
 use any2api_domain::{
     ConfigRevision, ErrorClass, LogPagePosition, MAX_REQUEST_LOG_ERROR_MESSAGE_CHARS,
     MAX_REQUEST_LOG_THINKING_LEVEL_CHARS, MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS, ProtocolDialect,
-    ProtocolOperation, ProxyKind, RequestAttempt, RequestAttemptFailureScope,
-    RequestAttemptOutcome, RequestAttemptRetryDecision, RequestAttemptStreamTiming,
-    RequestAttemptTransport, RequestLog, RequestRoutingMode, RequestTransportResolverMode,
-    RequestTransportTrafficClass, RetrySafety,
+    ProtocolOperation, ProxyKind, QuotaCostUnit, QuotaServiceTier, RequestAttempt,
+    RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision,
+    RequestAttemptStreamTiming, RequestAttemptTransport, RequestLog, RequestQuotaCost,
+    RequestRoutingMode, RequestTransportResolverMode, RequestTransportTrafficClass, RetrySafety,
 };
 use sqlx::FromRow;
 
@@ -36,6 +36,10 @@ pub(super) struct RequestLogRow {
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
     cache_read_tokens: Option<i64>,
+    quota_cost_unit: Option<String>,
+    quota_cost_nanos: Option<i64>,
+    quota_cost_rate_card: Option<String>,
+    quota_service_tier: Option<String>,
     is_stream: i64,
 }
 
@@ -114,8 +118,36 @@ pub(super) fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, Storag
         input_tokens: from_optional_i64(row.input_tokens)?,
         output_tokens: from_optional_i64(row.output_tokens)?,
         cache_read_tokens: from_optional_i64(row.cache_read_tokens)?,
+        quota_cost: parse_quota_cost(
+            row.quota_cost_unit,
+            row.quota_cost_nanos,
+            row.quota_cost_rate_card,
+            row.quota_service_tier,
+        )?,
         is_stream: parse_bool(row.is_stream)?,
     })
+}
+
+fn parse_quota_cost(
+    unit: Option<String>,
+    amount_nanos: Option<i64>,
+    rate_card: Option<String>,
+    service_tier: Option<String>,
+) -> Result<Option<RequestQuotaCost>, StorageError> {
+    match (unit, amount_nanos, rate_card, service_tier) {
+        (None, None, None, None) => Ok(None),
+        (Some(unit), Some(amount_nanos), Some(rate_card), Some(service_tier)) => {
+            let unit = QuotaCostUnit::parse(&unit).ok_or(StorageError::CorruptTelemetry)?;
+            let service_tier =
+                QuotaServiceTier::parse(&service_tier).ok_or(StorageError::CorruptTelemetry)?;
+            let amount_nanos =
+                u64::try_from(amount_nanos).map_err(|_| StorageError::CorruptTelemetry)?;
+            RequestQuotaCost::new(unit, amount_nanos, rate_card, service_tier)
+                .map(Some)
+                .ok_or(StorageError::CorruptTelemetry)
+        }
+        _ => Err(StorageError::CorruptTelemetry),
+    }
 }
 
 pub(super) fn parse_request_attempt(

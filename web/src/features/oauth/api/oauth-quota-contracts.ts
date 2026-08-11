@@ -5,16 +5,21 @@ import {
   type OAuthQuotaCredits,
 } from "./oauth-quota-codex-contracts";
 import {
-  parseOAuthQuotaUsdEstimates,
-  type OAuthQuotaUsdEstimate,
-} from "./oauth-quota-usd-contracts";
+  parseOAuthQuotaEstimates,
+  type OAuthQuotaEstimate,
+} from "./oauth-quota-estimate-contracts";
 
 export type {
   OAuthQuotaAccessStatus,
   OAuthQuotaCredits,
   OAuthQuotaReachedType,
 } from "./oauth-quota-codex-contracts";
-export type { OAuthQuotaUsdEstimate } from "./oauth-quota-usd-contracts";
+export type {
+  OAuthQuotaEstimate,
+  OAuthQuotaEstimateConfidence,
+  OAuthQuotaIntervalDiagnostic,
+  OAuthQuotaIntervalStatus,
+} from "./oauth-quota-estimate-contracts";
 
 export interface OAuthQuotaWindow {
   id: string;
@@ -75,7 +80,7 @@ export interface OAuthQuotaSnapshot {
   tokenBalance: OAuthQuotaTokenBalance | null;
   subscriptionTier: string | null;
   accountStatus: OAuthQuotaAccountStatus | null;
-  usdEstimates: OAuthQuotaUsdEstimate[];
+  estimates: OAuthQuotaEstimate[];
 }
 
 export interface OAuthQuotaResetResult {
@@ -94,7 +99,7 @@ export function parseOAuthQuotaSnapshot(value: unknown): OAuthQuotaSnapshot {
     tokenBalance: parseTokenBalance(value.token_balance),
     subscriptionTier: readOptionalString(value.subscription_tier),
     accountStatus: parseAccountStatus(value.account_status),
-    usdEstimates: parseOAuthQuotaUsdEstimates(value.usd_estimates),
+    estimates: parseOAuthQuotaEstimates(value.estimates),
   };
 }
 

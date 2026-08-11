@@ -1,36 +1,31 @@
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId,
-    ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId, RequestId, RequestLog,
+    ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId, QuotaCostUnit,
+    QuotaServiceTier, RequestId, RequestLog, RequestQuotaCost,
 };
 use tempfile::tempdir;
 
 use crate::{
     api::{
-        OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION, OAuthAccountDocument, OAuthQuotaEstimationRepository,
-        OAuthQuotaSnapshotRepository, RequestLogRepository, SqliteStore, StoredOAuthQuotaSnapshot,
+        OAuthAccountDocument, OAuthQuotaEstimationRepository, RequestLogRepository, SqliteStore,
     },
     configuration::{ConfigurationMutation, commit_configuration},
 };
 
+const RATE_CARD: &str = "openai_codex_credits_2026_08_11";
+
 #[tokio::test]
-async fn quota_usage_filters_account_and_window_and_groups_priced_models() {
+async fn quota_usage_filters_account_and_interval_and_sums_frozen_costs() {
     let (_directory, store, id) = store_with_account().await;
     let other_id = OAuthAccountId::new();
-    let mut records = vec![
-        record(id, 999, "gpt-5.5", Some(900), Some(90), Some(9)),
-        record(id, 1_000, "gpt-5.5", Some(100), Some(10), Some(20)),
-        record(id, 1_500, "gpt-5.5", Some(50), Some(5), None),
-        record(id, 1_999, "gpt-5.4", Some(200), Some(20), Some(40)),
-        record(id, 2_000, "gpt-5.5", Some(800), Some(80), Some(8)),
+    let records = vec![
+        record(id, 900, 99, Some(900)),
+        record(id, 999, 1, Some(100)),
+        record(id, 1_500, 1, Some(50)),
+        record(id, 1_900, 99, Some(200)),
+        record(id, 1_990, 10, Some(800)),
+        record(other_id, 1_250, 1, Some(700)),
     ];
-    records.push(record(
-        other_id,
-        1_250,
-        "gpt-5.5",
-        Some(700),
-        Some(70),
-        None,
-    ));
     store
         .append_request_logs(&records, MAX_REQUEST_LOG_ROWS)
         .await
@@ -41,74 +36,36 @@ async fn quota_usage_filters_account_and_window_and_groups_priced_models() {
         .await
         .expect("quota log usage");
 
+    assert_eq!(usage.unit, Some(QuotaCostUnit::CodexCredits));
+    assert_eq!(usage.total_cost_nanos, 350);
+    assert_eq!(usage.priced_request_count, 3);
     assert_eq!(usage.unpriced_request_count, 0);
-    assert_eq!(usage.models.len(), 2);
-    assert_eq!(usage.models[0].public_model, "gpt-5.4");
-    assert_eq!(usage.models[0].input_tokens, 200);
-    assert_eq!(usage.models[0].output_tokens, 20);
-    assert_eq!(usage.models[0].cache_read_tokens, 40);
-    assert_eq!(usage.models[1].public_model, "gpt-5.5");
-    assert_eq!(usage.models[1].input_tokens, 150);
-    assert_eq!(usage.models[1].output_tokens, 15);
-    assert_eq!(usage.models[1].cache_read_tokens, 20);
+    assert_eq!(usage.rate_cards, vec![RATE_CARD]);
 }
 
 #[tokio::test]
-async fn unpriced_usage_is_counted_without_discarding_priced_failures() {
+async fn status_is_irrelevant_but_missing_frozen_cost_is_unpriced() {
     let (_directory, store, id) = store_with_account().await;
-    let mut priced_failure = record(id, 1_250, "gpt-5.5", Some(100), Some(10), None);
+    let mut priced_failure = record(id, 1_250, 1, Some(100));
     priced_failure.request.status_code = 502;
-    let incomplete = record(id, 1_500, "gpt-5.5", Some(50), None, None);
+    let mut priced_cancelled = record(id, 1_400, 1, Some(50));
+    priced_cancelled.request.error_class = Some(any2api_domain::ErrorClass::Cancelled);
+    let unpriced = record(id, 1_500, 1, None);
     store
-        .append_request_logs(&[priced_failure, incomplete], MAX_REQUEST_LOG_ROWS)
+        .append_request_logs(
+            &[priced_failure, priced_cancelled, unpriced],
+            MAX_REQUEST_LOG_ROWS,
+        )
         .await
         .expect("append mixed logs");
+
     let usage = store
         .oauth_quota_request_log_usage(id, 1_000, 2_000)
         .await
         .expect("quota log usage");
+    assert_eq!(usage.total_cost_nanos, 150);
+    assert_eq!(usage.priced_request_count, 2);
     assert_eq!(usage.unpriced_request_count, 1);
-    assert_eq!(usage.models.len(), 1);
-    assert_eq!(usage.models[0].input_tokens, 100);
-    assert_eq!(usage.models[0].output_tokens, 10);
-}
-
-#[tokio::test]
-async fn reset_boundary_deletes_snapshot_atomically() {
-    let (_directory, store, id) = store_with_account().await;
-
-    store
-        .upsert_oauth_quota_snapshot(&StoredOAuthQuotaSnapshot {
-            oauth_account_id: id,
-            schema_version: OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION,
-            fetched_at: 1,
-            payload: br#"{}"#.to_vec(),
-        })
-        .await
-        .expect("quota snapshot");
-    store
-        .record_oauth_quota_reset(id, 1_600)
-        .await
-        .expect("record reset");
-    store
-        .record_oauth_quota_reset(id, 1_550)
-        .await
-        .expect("older reset cannot move boundary backward");
-
-    assert_eq!(
-        store
-            .load_oauth_quota_reset_boundary(id)
-            .await
-            .expect("reset boundary"),
-        Some(1_600)
-    );
-    assert!(
-        store
-            .load_oauth_quota_snapshot(id)
-            .await
-            .expect("quota snapshot")
-            .is_none()
-    );
 }
 
 async fn store_with_account() -> (tempfile::TempDir, SqliteStore, OAuthAccountId) {
@@ -144,10 +101,8 @@ async fn store_with_account() -> (tempfile::TempDir, SqliteStore, OAuthAccountId
 fn record(
     id: OAuthAccountId,
     started_at_ms: u64,
-    model: &str,
-    input_tokens: Option<u64>,
-    output_tokens: Option<u64>,
-    cache_read_tokens: Option<u64>,
+    latency_ms: u64,
+    cost_nanos: Option<u64>,
 ) -> CompletedRequestLog {
     CompletedRequestLog {
         request: RequestLog {
@@ -158,7 +113,7 @@ fn record(
             gateway_api_key_id: None,
             ingress_protocol: ProtocolDialect::OpenAiResponses,
             operation: ProtocolOperation::Responses,
-            public_model: Some(model.into()),
+            public_model: Some("gpt-5.5".into()),
             thinking_level: None,
             provider_endpoint_id: None,
             credential_id: None,
@@ -168,11 +123,20 @@ fn record(
             error_class: None,
             error_message: None,
             attempt_count: 1,
-            latency_ms: 1,
+            latency_ms,
             first_token_ms: None,
-            input_tokens,
-            output_tokens,
-            cache_read_tokens,
+            input_tokens: Some(1),
+            output_tokens: Some(1),
+            cache_read_tokens: None,
+            quota_cost: cost_nanos.map(|amount| {
+                RequestQuotaCost::new(
+                    QuotaCostUnit::CodexCredits,
+                    amount,
+                    RATE_CARD,
+                    QuotaServiceTier::Standard,
+                )
+                .expect("quota cost")
+            }),
             is_stream: false,
         },
         attempts: Vec::new(),

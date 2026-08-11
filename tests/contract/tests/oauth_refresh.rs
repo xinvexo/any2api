@@ -15,7 +15,7 @@ use any2api_protocol::{
 };
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublicRequest, PublicRequestService, PublicResponseBody,
-    PublishedSnapshot, RuntimeRegistry, SnapshotStore,
+    PublishedSnapshot, RequestTelemetry, RuntimeRegistry, SnapshotStore,
 };
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument, SqliteStore};
 use any2api_transport::api::{
@@ -61,6 +61,7 @@ async fn oauth_refresh_worker_keeps_a_disabled_account_alive_and_stops_with_the_
         Arc::clone(&transport) as Arc<dyn TransportManager>,
         Arc::clone(&publisher),
         Arc::clone(&storage),
+        Arc::new(RequestTelemetry::disabled()),
     );
     let lifecycle = runtime.lifecycle();
     assert!(oauth.start_refresh_worker(&lifecycle));
@@ -320,6 +321,7 @@ impl AuthenticationRetryContext {
             Arc::clone(&transport) as Arc<dyn TransportManager>,
             Arc::clone(&publisher),
             Arc::clone(&storage),
+            Arc::new(RequestTelemetry::disabled()),
         ));
         assert!(service.install_oauth(oauth.as_ref()));
         let account_id = OAuthAccountId::new();

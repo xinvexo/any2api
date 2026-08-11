@@ -72,7 +72,7 @@ function quota(fetchedAt: number) {
     credits: null,
     access: null,
     reset_credits: null,
-    usd_estimates: [],
+    estimates: [],
   };
 }
 

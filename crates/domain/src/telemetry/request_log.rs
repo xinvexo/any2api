@@ -2,7 +2,8 @@ use std::net::IpAddr;
 
 use crate::{
     ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolDialect,
-    ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestId, RetrySafety, RouteTargetId,
+    ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestId, RequestQuotaCost,
+    RetrySafety, RouteTargetId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -169,6 +170,7 @@ pub struct RequestLog {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub cache_read_tokens: Option<u64>,
+    pub quota_cost: Option<RequestQuotaCost>,
     pub is_stream: bool,
 }
 
@@ -274,7 +276,13 @@ impl CompletedRequestLog {
     pub fn estimated_owned_bytes(&self) -> usize {
         let request_strings = option_string_capacity(&self.request.public_model)
             .saturating_add(option_string_capacity(&self.request.thinking_level))
-            .saturating_add(option_string_capacity(&self.request.error_message));
+            .saturating_add(option_string_capacity(&self.request.error_message))
+            .saturating_add(
+                self.request
+                    .quota_cost
+                    .as_ref()
+                    .map_or(0, |cost| cost.rate_card.capacity()),
+            );
         self.attempts.iter().fold(
             std::mem::size_of::<Self>()
                 .saturating_add(request_strings)

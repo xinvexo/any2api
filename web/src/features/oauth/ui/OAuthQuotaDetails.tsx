@@ -1,12 +1,12 @@
 import type {
   OAuthQuotaSnapshot,
   OAuthQuotaTokenBalance,
-  OAuthQuotaUsdEstimate,
+  OAuthQuotaEstimate,
   OAuthQuotaWindow,
 } from "../api/oauth-quota-contracts";
 import type { OAuthProvider } from "../api/oauth-contracts";
 import { presentCodexCredits } from "./codex-credit-display";
-import { QuotaUsdEstimate } from "./OAuthQuotaUsdEstimate";
+import { QuotaEstimate } from "./OAuthQuotaEstimate";
 import { cn } from "@/shared/lib/cn";
 
 export function OAuthQuotaDetails({
@@ -192,7 +192,7 @@ function QuotaWindowBar({
   estimate,
 }: {
   window: OAuthQuotaWindow;
-  estimate: OAuthQuotaUsdEstimate | null;
+  estimate: OAuthQuotaEstimate | null;
 }) {
   const used = Math.min(100, Math.max(0, window.usedPercent));
   const remaining = Math.max(0, 100 - used);
@@ -203,7 +203,7 @@ function QuotaWindowBar({
       <div className="flex items-baseline justify-between gap-2 text-[11px]">
         <span className="min-w-0 truncate text-secondary">{label}</span>
         <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums text-secondary">
-          {estimate ? <QuotaUsdEstimate estimate={estimate} /> : null}
+          {estimate ? <QuotaEstimate estimate={estimate} /> : null}
           <span className={cn("font-semibold", remainingTone(remaining))}>
             {remaining.toFixed(0)}%
           </span>
@@ -234,8 +234,8 @@ function QuotaWindowBar({
 function estimateForWindow(
   quota: OAuthQuotaSnapshot,
   window: OAuthQuotaWindow,
-): OAuthQuotaUsdEstimate | null {
-  return quota.usdEstimates.find((estimate) =>
+): OAuthQuotaEstimate | null {
+  return quota.estimates.find((estimate) =>
     estimate.windowId === window.id
     && estimate.windowKind === window.kind
     && estimate.limitWindowSeconds === window.limitWindowSeconds

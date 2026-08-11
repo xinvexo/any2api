@@ -1,4 +1,5 @@
 mod changes;
+mod checkpoint;
 mod event;
 mod gateway_usage;
 mod metrics;
@@ -10,6 +11,7 @@ mod telemetry;
 mod tests;
 mod worker;
 
+pub(crate) use checkpoint::RequestTelemetryCheckpoint;
 pub use event::HttpAccessLogChangeNotification;
 pub use metrics::RequestTelemetryMetrics;
 use observation::RequestObservation;

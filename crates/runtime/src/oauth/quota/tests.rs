@@ -4,7 +4,7 @@ use any2api_domain::{
     RetrySafety, RoutingCredentialId, SettingsConfiguration, UpstreamErrorClassification,
     UpstreamErrorKind, UpstreamFailureAttribution,
 };
-use any2api_storage::api::OAuthQuotaEstimationRepository;
+use any2api_storage::api::OAuthQuotaSnapshotRepository;
 use any2api_transport::api::TransportTrafficClass;
 
 use super::{
@@ -13,8 +13,6 @@ use super::{
 };
 use crate::health::{HealthAcquireError, ReliabilityPolicy};
 use uuid::Uuid;
-
-mod estimation;
 
 #[tokio::test]
 async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
@@ -53,6 +51,15 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         Some(quota.clone())
     );
     assert_eq!(context.transport.usage_calls(), 1);
+    let stored = context
+        .storage
+        .load_oauth_quota_snapshot(context.account_id)
+        .await
+        .expect("stored quota snapshot")
+        .expect("persisted quota snapshot");
+    let payload: serde_json::Value =
+        serde_json::from_slice(&stored.payload).expect("quota snapshot payload");
+    assert_eq!(payload["estimator_state"]["windows"][0]["epoch"], 1);
 
     let snapshot = context.snapshots.load();
     let generation = Arc::clone(
@@ -86,14 +93,6 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         .await
         .expect("quota reset");
     assert_eq!(reset.windows_reset, 2);
-    assert!(
-        context
-            .storage
-            .load_oauth_quota_reset_boundary(context.account_id)
-            .await
-            .expect("reset boundary")
-            .is_some()
-    );
     changes.changed().await.expect("quota deletion change");
     assert_eq!(*changes.borrow_and_update(), 2);
     assert_eq!(
@@ -103,6 +102,14 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
             .await
             .expect("cleared cached quota"),
         None
+    );
+    assert!(
+        context
+            .storage
+            .load_oauth_quota_snapshot(context.account_id)
+            .await
+            .expect("deleted quota snapshot lookup")
+            .is_none()
     );
     assert_eq!(generation.health().availability("gpt-5.5"), Ok(()));
     assert!(context.runtime.scheduler_epoch() > epoch_before);

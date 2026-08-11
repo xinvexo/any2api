@@ -269,6 +269,7 @@ mod tests {
                 input_tokens: Some(120),
                 output_tokens: Some(45),
                 cache_read_tokens: Some(30),
+                quota_cost: None,
                 is_stream: true,
             },
             Some("Codex upstream".into()),

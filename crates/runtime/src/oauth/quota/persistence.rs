@@ -9,19 +9,24 @@ use any2api_storage::api::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::watch;
 
-use super::types::{OAuthQuotaError, OAuthQuotaSnapshot, OAuthQuotaUsdEstimate};
+use super::{estimation::state::QuotaEstimatorState, types::OAuthQuotaError};
 
 const MAX_WINDOWS: usize = 64;
 const MAX_RESET_CREDITS: usize = 1_024;
 const MAX_TEAM_REASONS: usize = 256;
 const MAX_SAFE_TEXT_BYTES: usize = 4_096;
 const MAX_CREDIT_BALANCE_BYTES: usize = 128;
-const MAX_ESTIMATES: usize = MAX_WINDOWS;
 
 #[derive(Deserialize, Serialize)]
 struct PersistedSnapshotPayload {
     usage: OAuthQuotaUsage,
-    usd_estimates: Vec<OAuthQuotaUsdEstimate>,
+    estimator_state: Option<QuotaEstimatorState>,
+}
+
+pub(super) struct StoredQuotaTelemetry {
+    pub(super) usage: OAuthQuotaUsage,
+    pub(super) estimator_state: Option<QuotaEstimatorState>,
+    pub(super) fetched_at: i64,
 }
 
 pub(super) struct OAuthQuotaPersistence {
@@ -41,7 +46,7 @@ impl OAuthQuotaPersistence {
     pub(super) async fn load(
         &self,
         id: OAuthAccountId,
-    ) -> Result<Option<OAuthQuotaSnapshot>, OAuthQuotaError> {
+    ) -> Result<Option<StoredQuotaTelemetry>, OAuthQuotaError> {
         let Some(stored) = self
             .repository
             .load_oauth_quota_snapshot(id)
@@ -50,13 +55,19 @@ impl OAuthQuotaPersistence {
         else {
             return Ok(None);
         };
-        let payload = serde_json::from_slice::<PersistedSnapshotPayload>(&stored.payload)
+        let payload: PersistedSnapshotPayload = serde_json::from_slice(&stored.payload)
             .map_err(|_| OAuthQuotaError::InvalidPersistedSnapshot)?;
         validate_usage(&payload.usage)?;
-        validate_estimates(&payload.usd_estimates)?;
-        Ok(Some(OAuthQuotaSnapshot {
+        if payload
+            .estimator_state
+            .as_ref()
+            .is_some_and(|state| !state.valid())
+        {
+            return Err(OAuthQuotaError::InvalidPersistedSnapshot);
+        }
+        Ok(Some(StoredQuotaTelemetry {
             usage: payload.usage,
-            usd_estimates: payload.usd_estimates,
+            estimator_state: payload.estimator_state,
             fetched_at: stored.fetched_at,
         }))
     }
@@ -64,13 +75,20 @@ impl OAuthQuotaPersistence {
     pub(super) async fn store(
         &self,
         id: OAuthAccountId,
-        snapshot: &OAuthQuotaSnapshot,
+        telemetry: &StoredQuotaTelemetry,
     ) -> Result<(), OAuthQuotaError> {
-        validate_usage(&snapshot.usage)?;
-        validate_estimates(&snapshot.usd_estimates)?;
+        validate_usage(&telemetry.usage)?;
+        if telemetry
+            .estimator_state
+            .as_ref()
+            .is_some_and(|state| !state.valid())
+            || telemetry.fetched_at < 0
+        {
+            return Err(OAuthQuotaError::InvalidPersistedSnapshot);
+        }
         let payload = serde_json::to_vec(&PersistedSnapshotPayload {
-            usage: snapshot.usage.clone(),
-            usd_estimates: snapshot.usd_estimates.clone(),
+            usage: telemetry.usage.clone(),
+            estimator_state: telemetry.estimator_state.clone(),
         })
         .map_err(|_| OAuthQuotaError::InvalidPersistedSnapshot)?;
         if payload.len() > MAX_OAUTH_QUOTA_SNAPSHOT_BYTES {
@@ -80,9 +98,18 @@ impl OAuthQuotaPersistence {
             .upsert_oauth_quota_snapshot(&StoredOAuthQuotaSnapshot {
                 oauth_account_id: id,
                 schema_version: OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION,
-                fetched_at: snapshot.fetched_at,
+                fetched_at: telemetry.fetched_at,
                 payload,
             })
+            .await
+            .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?;
+        self.notify_changed();
+        Ok(())
+    }
+
+    pub(super) async fn delete(&self, id: OAuthAccountId) -> Result<(), OAuthQuotaError> {
+        self.repository
+            .delete_oauth_quota_snapshot(id)
             .await
             .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?;
         self.notify_changed();
@@ -114,7 +141,20 @@ fn validate_usage(usage: &OAuthQuotaUsage) -> Result<(), OAuthQuotaError> {
                 .credits
                 .iter()
                 .any(|credit| credit.expires_at.len() > MAX_SAFE_TEXT_BYTES)
-    }) || usage.account_status.as_ref().is_some_and(|status| {
+    }) || unsafe_account_status(usage)
+        || usage.credits.as_ref().is_some_and(|credits| {
+            credits.balance.as_ref().is_some_and(|value| {
+                value.len() > MAX_CREDIT_BALANCE_BYTES || !is_non_negative_decimal(value)
+            })
+        })
+    {
+        return Err(OAuthQuotaError::InvalidPersistedSnapshot);
+    }
+    Ok(())
+}
+
+fn unsafe_account_status(usage: &OAuthQuotaUsage) -> bool {
+    usage.account_status.as_ref().is_some_and(|status| {
         status.team_blocked_reasons.len() > MAX_TEAM_REASONS
             || status
                 .user_blocked_reason
@@ -124,44 +164,7 @@ fn validate_usage(usage: &OAuthQuotaUsage) -> Result<(), OAuthQuotaError> {
                 .team_blocked_reasons
                 .iter()
                 .any(|value| value.len() > MAX_SAFE_TEXT_BYTES)
-    }) || usage.credits.as_ref().is_some_and(|credits| {
-        credits.balance.as_ref().is_some_and(|value| {
-            value.len() > MAX_CREDIT_BALANCE_BYTES || !is_non_negative_decimal(value)
-        })
-    }) {
-        return Err(OAuthQuotaError::InvalidPersistedSnapshot);
-    }
-    Ok(())
-}
-
-fn validate_estimates(estimates: &[OAuthQuotaUsdEstimate]) -> Result<(), OAuthQuotaError> {
-    if estimates.len() > MAX_ESTIMATES
-        || estimates.iter().any(|estimate| {
-            estimate.window_id.trim().is_empty()
-                || estimate.window_id.len() > MAX_SAFE_TEXT_BYTES
-                || estimate.pricing_basis.trim().is_empty()
-                || estimate.pricing_basis.len() > MAX_SAFE_TEXT_BYTES
-                || estimate.window_reset_at.is_some_and(|value| value < 0)
-                || estimate.sample_started_at < 0
-                || estimate.sample_ended_at < estimate.sample_started_at
-                || !positive_finite(estimate.estimated_capacity_usd)
-                || !non_negative_finite(estimate.estimated_used_usd)
-                || !non_negative_finite(estimate.estimated_remaining_usd)
-                || !positive_finite(estimate.sample_cost_usd)
-                || !positive_finite(estimate.sample_used_percent)
-        })
-    {
-        return Err(OAuthQuotaError::InvalidPersistedSnapshot);
-    }
-    Ok(())
-}
-
-fn positive_finite(value: f64) -> bool {
-    value.is_finite() && value > 0.0
-}
-
-fn non_negative_finite(value: f64) -> bool {
-    value.is_finite() && value >= 0.0
+    })
 }
 
 fn is_non_negative_decimal(value: &str) -> bool {

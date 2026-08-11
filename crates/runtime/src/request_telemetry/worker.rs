@@ -9,7 +9,11 @@ use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, HttpAccessLogCapacity,
     HttpAccessLogRepository, REQUEST_LOG_CLEANUP_BATCH_ROWS, RequestLogRepository,
 };
-use tokio::sync::{Notify, mpsc};
+use tokio::{
+    sync::{Notify, mpsc},
+    time::Instant,
+};
+use uuid::Uuid;
 
 use super::{
     RequestLogPolicy,
@@ -19,6 +23,7 @@ use super::{
 };
 
 const WRITE_BATCH_SIZE: usize = 64;
+const WRITE_COALESCE_INTERVAL: Duration = Duration::from_millis(2);
 const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
 const INCREMENTAL_VACUUM_BYTES_PER_CYCLE: u64 = 16 * 1024 * 1024;
 
@@ -28,6 +33,7 @@ pub(super) struct WorkerState {
     pub(super) changes: LogChangeNotifier,
     pub(super) prune_wakeup: Arc<Notify>,
     pub(super) request_prune_wakeup: Arc<Notify>,
+    pub(super) process_id: Uuid,
 }
 
 #[derive(Default)]
@@ -91,11 +97,17 @@ pub(super) async fn run(
                     gateway_usage.as_ref(),
                     &state,
                 ).await;
+                let coalesce_deadline = Instant::now() + WRITE_COALESCE_INTERVAL;
                 for _ in 1..WRITE_BATCH_SIZE {
                     let event = match receiver.try_recv() {
                         Ok(event) => event,
-                        Err(mpsc::error::TryRecvError::Empty)
-                        | Err(mpsc::error::TryRecvError::Disconnected) => break,
+                        Err(mpsc::error::TryRecvError::Empty) => {
+                            match tokio::time::timeout_at(coalesce_deadline, receiver.recv()).await {
+                                Ok(Some(event)) => event,
+                                Ok(None) | Err(_) => break,
+                            }
+                        }
+                        Err(mpsc::error::TryRecvError::Disconnected) => break,
                     };
                     receive_event(
                         event,
@@ -182,6 +194,15 @@ async fn receive_event(
             }
             let _ = reply.send(result);
         }
+        TelemetryEvent::QuotaCheckpoint { reply } => {
+            flush(batch, request_logs, http_access_logs, gateway_usage, state).await;
+            let enabled = state
+                .policy
+                .read()
+                .expect("request telemetry policy")
+                .enabled;
+            let _ = reply.send(state.counters.quota_checkpoint(state.process_id, enabled));
+        }
     }
 }
 
@@ -223,6 +244,7 @@ async fn flush_request_logs(
             state
                 .counters
                 .persisted(batch.records.len(), batch.owned_bytes, 0);
+            state.counters.request_logs_pruned(cleanup.deleted_rows());
             state.changes.request_logs_changed();
             if cleanup.has_more() {
                 state.request_prune_wakeup.notify_one();
@@ -231,7 +253,7 @@ async fn flush_request_logs(
         Err(error) => {
             state
                 .counters
-                .storage_failed(batch.records.len(), batch.owned_bytes, 0);
+                .request_logs_storage_failed(batch.records.len(), batch.owned_bytes);
             tracing::warn!(%error, records = batch.records.len(), "request telemetry batch was dropped");
         }
     }
@@ -354,6 +376,7 @@ async fn prune_request_logs(request_logs: &dyn RequestLogRepository, state: &Wor
         .await
     {
         Ok(cleanup) => {
+            state.counters.request_logs_pruned(cleanup.deleted_rows());
             if cleanup.deleted_rows() > 0 {
                 state.changes.request_logs_changed();
             }

@@ -1,4 +1,4 @@
-use any2api_domain::TokenUsage;
+use any2api_domain::{QuotaCostUnit, QuotaServiceTier, RequestQuotaCost, TokenUsage};
 
 use crate::OAuthRequestPlan;
 use serde::{Deserialize, Serialize};
@@ -132,24 +132,30 @@ impl OAuthQuotaAccessStatus {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OAuthQuotaCostRate {
     rate_card: &'static str,
-    input_usd_per_million: f64,
-    cached_input_usd_per_million: f64,
-    output_usd_per_million: f64,
+    unit: QuotaCostUnit,
+    service_tier: QuotaServiceTier,
+    input_nanos_per_million: u64,
+    cached_input_nanos_per_million: u64,
+    output_nanos_per_million: u64,
 }
 
 impl OAuthQuotaCostRate {
     #[must_use]
     pub const fn new(
         rate_card: &'static str,
-        input_usd_per_million: f64,
-        cached_input_usd_per_million: f64,
-        output_usd_per_million: f64,
+        unit: QuotaCostUnit,
+        service_tier: QuotaServiceTier,
+        input_nanos_per_million: u64,
+        cached_input_nanos_per_million: u64,
+        output_nanos_per_million: u64,
     ) -> Self {
         Self {
             rate_card,
-            input_usd_per_million,
-            cached_input_usd_per_million,
-            output_usd_per_million,
+            unit,
+            service_tier,
+            input_nanos_per_million,
+            cached_input_nanos_per_million,
+            output_nanos_per_million,
         }
     }
 
@@ -159,19 +165,30 @@ impl OAuthQuotaCostRate {
     }
 
     #[must_use]
-    pub fn estimate_usd(self, usage: TokenUsage) -> Option<f64> {
+    pub const fn service_tier(self) -> QuotaServiceTier {
+        self.service_tier
+    }
+
+    #[must_use]
+    pub fn estimate(self, usage: TokenUsage) -> Option<RequestQuotaCost> {
         let input = usage.input_tokens()?;
         let output = usage.output_tokens()?;
         let cached = usage.cache_read_tokens().unwrap_or_default().min(input);
         let uncached = input.saturating_sub(cached);
-        let cost = (uncached as f64).mul_add(
-            self.input_usd_per_million,
-            (cached as f64).mul_add(
-                self.cached_input_usd_per_million,
-                output as f64 * self.output_usd_per_million,
-            ),
-        ) / 1_000_000.0;
-        (cost.is_finite() && cost >= 0.0).then_some(cost)
+        let numerator = u128::from(uncached)
+            .checked_mul(u128::from(self.input_nanos_per_million))?
+            .checked_add(
+                u128::from(cached).checked_mul(u128::from(self.cached_input_nanos_per_million))?,
+            )?
+            .checked_add(
+                u128::from(output).checked_mul(u128::from(self.output_nanos_per_million))?,
+            )?;
+        let rounded = numerator.checked_add(500_000)?.checked_div(1_000_000)?;
+        let amount_nanos = u64::try_from(rounded).ok()?;
+        if amount_nanos > i64::MAX as u64 {
+            return None;
+        }
+        RequestQuotaCost::new(self.unit, amount_nanos, self.rate_card, self.service_tier)
     }
 }
 

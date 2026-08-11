@@ -2,6 +2,7 @@ use any2api_domain::{CompletedRequestLog, GatewayApiKeyId, HttpAccessLog};
 use any2api_storage::api::StorageError;
 use tokio::sync::oneshot;
 
+use super::RequestTelemetryCheckpoint;
 use super::metrics::TelemetryQueueClass;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,6 +30,9 @@ pub(super) enum TelemetryEvent {
     ClearHttpAccessLogs {
         reply: oneshot::Sender<Result<u64, StorageError>>,
     },
+    QuotaCheckpoint {
+        reply: oneshot::Sender<RequestTelemetryCheckpoint>,
+    },
 }
 
 pub(super) struct TelemetryEnvelope {
@@ -53,7 +57,7 @@ impl TelemetryEvent {
     pub(super) const fn record_count(&self) -> usize {
         match self {
             Self::RequestLog(_) | Self::HttpAccessLog { .. } | Self::GatewayKeyLastUsed { .. } => 1,
-            Self::ClearHttpAccessLogs { .. } => 0,
+            Self::ClearHttpAccessLogs { .. } | Self::QuotaCheckpoint { .. } => 0,
         }
     }
 
@@ -76,7 +80,11 @@ impl TelemetryEvent {
             Self::GatewayKeyLastUsed { last_used_at, .. } => {
                 envelope.saturating_add(last_used_at.capacity())
             }
-            Self::ClearHttpAccessLogs { .. } => 0,
+            Self::ClearHttpAccessLogs { .. } | Self::QuotaCheckpoint { .. } => 0,
         }
+    }
+
+    pub(super) const fn quota_relevant(&self) -> bool {
+        matches!(self, Self::RequestLog(_))
     }
 }

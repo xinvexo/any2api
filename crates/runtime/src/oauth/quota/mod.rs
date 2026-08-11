@@ -1,8 +1,9 @@
 mod activity;
 mod authentication;
 mod coordinator;
-mod estimator;
+mod estimation;
 mod health;
+mod identity;
 mod observation;
 mod operation_gate;
 mod persistence;
@@ -16,8 +17,6 @@ mod authentication_tests;
 #[cfg(test)]
 mod claude_tests;
 #[cfg(test)]
-mod estimator_tests;
-#[cfg(test)]
 mod grok_tests;
 #[cfg(test)]
 mod mock_transport;
@@ -29,5 +28,7 @@ mod tests;
 pub(crate) use activity::{OAuthQuotaActivity, OAuthQuotaActivityGuard};
 pub(in crate::oauth) use coordinator::OAuthQuotaService;
 pub use types::{
-    OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot, OAuthQuotaUsdEstimate,
+    OAuthQuotaError, OAuthQuotaEstimate, OAuthQuotaEstimateConfidence,
+    OAuthQuotaIntervalDiagnostic, OAuthQuotaIntervalStatus, OAuthQuotaResetOutcome,
+    OAuthQuotaSnapshot,
 };

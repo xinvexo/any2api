@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use any2api_contract_tests::TestApplication;
-use any2api_runtime::api::OAuthService;
+use any2api_runtime::api::{OAuthService, RequestTelemetry};
 use any2api_server::api::{
     AdminAuthService, AdminCredentialStore, AdminCredentialStoreError, AppState,
     StoredAdminPasswordHash,
@@ -279,6 +279,7 @@ impl TestContext {
             fixture.components().transport_manager(),
             fixture.publisher(),
             Arc::clone(&storage),
+            Arc::new(RequestTelemetry::disabled()),
         ));
         let (directory, app, _fixture_storage, setup_token) = if with_auth {
             let auth = Arc::new(

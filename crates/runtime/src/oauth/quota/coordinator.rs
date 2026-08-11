@@ -16,18 +16,24 @@ use uuid::Uuid;
 
 use crate::{
     configuration::{ConfigPublisher, PublishedSnapshot},
-    oauth::{control_plane::OAuthControlPlanePacer, document, refresh::OAuthRefresher},
+    oauth::{control_plane::OAuthControlPlanePacer, refresh::OAuthRefresher},
+    request_telemetry::RequestTelemetry,
 };
 
 use super::{
     activity::OAuthQuotaActivity,
-    estimator::OAuthQuotaEstimator,
-    health, observation,
+    estimation::OAuthQuotaEstimator,
+    health, identity, observation,
     operation_gate::{OAuthQuotaCompletedOperation, OAuthQuotaOperationGates},
     persistence::OAuthQuotaPersistence,
     rejection::RequestContext,
     types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
 };
+
+pub(super) struct QueriedQuota {
+    pub(super) usage: OAuthQuotaUsage,
+    pub(super) credential_fingerprint: String,
+}
 
 pub(in crate::oauth) struct OAuthQuotaService {
     pub(super) providers: Arc<ProviderRegistry>,
@@ -37,28 +43,36 @@ pub(in crate::oauth) struct OAuthQuotaService {
     control_plane: Arc<OAuthControlPlanePacer>,
     pub(super) persistence: OAuthQuotaPersistence,
     pub(super) estimator: OAuthQuotaEstimator,
+    pub(super) telemetry: Arc<RequestTelemetry>,
     activity: OAuthQuotaActivity,
     operation_gates: OAuthQuotaOperationGates,
 }
 
 impl OAuthQuotaService {
-    pub(in crate::oauth) fn new(
+    pub(in crate::oauth) fn new<R>(
         providers: Arc<ProviderRegistry>,
         transport: Arc<dyn TransportManager>,
         publisher: Arc<ConfigPublisher>,
         refresher: Arc<OAuthRefresher>,
         control_plane: Arc<OAuthControlPlanePacer>,
-        quota_repository: Arc<dyn OAuthQuotaSnapshotRepository>,
-        estimation_repository: Arc<dyn OAuthQuotaEstimationRepository>,
-    ) -> Self {
+        quota_repository: Arc<R>,
+        telemetry: Arc<RequestTelemetry>,
+    ) -> Self
+    where
+        R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
+    {
+        let snapshot_repository: Arc<dyn OAuthQuotaSnapshotRepository> =
+            Arc::clone(&quota_repository) as _;
+        let estimation_repository: Arc<dyn OAuthQuotaEstimationRepository> = quota_repository;
         Self {
             providers,
             transport,
             publisher,
             refresher,
             control_plane,
-            persistence: OAuthQuotaPersistence::new(quota_repository),
+            persistence: OAuthQuotaPersistence::new(snapshot_repository),
             estimator: OAuthQuotaEstimator::new(estimation_repository),
+            telemetry,
             activity: OAuthQuotaActivity::new(),
             operation_gates: OAuthQuotaOperationGates::default(),
         }
@@ -77,7 +91,18 @@ impl OAuthQuotaService {
         {
             return Err(OAuthQuotaError::AccountNotFound);
         }
-        self.persistence.load(id).await
+        Ok(self
+            .persistence
+            .load(id)
+            .await?
+            .map(|stored| OAuthQuotaSnapshot {
+                estimates: super::estimation::project(
+                    &stored.usage,
+                    stored.estimator_state.as_ref(),
+                ),
+                usage: stored.usage,
+                fetched_at: stored.fetched_at,
+            }))
     }
 
     pub(in crate::oauth) async fn refresh(
@@ -104,8 +129,8 @@ impl OAuthQuotaService {
         &self,
         id: OAuthAccountId,
     ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
-        let usage = self.query_with_authentication_retry(id).await?;
-        super::snapshot::build(self, id, usage).await
+        let observation = self.query_with_authentication_retry(id).await?;
+        super::snapshot::build(self, id, observation).await
     }
 
     pub(in crate::oauth) fn subscribe_changes(&self) -> watch::Receiver<u64> {
@@ -143,6 +168,7 @@ impl OAuthQuotaService {
     ) -> Result<OAuthQuotaResetOutcome, OAuthQuotaError> {
         let quota = self.query_with_authentication_retry(id).await?;
         if quota
+            .usage
             .reset_credits
             .as_ref()
             .is_none_or(|credits| credits.available_count == 0)
@@ -153,12 +179,7 @@ impl OAuthQuotaService {
             .reset_with_authentication_retry(id, &redeem_request_id)
             .await?;
         self.clear_temporary_cooldowns(id);
-        let reset_at_ms = document::unix_now_millis();
-        self.estimator
-            .record_reset(id, reset_at_ms)
-            .await
-            .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?;
-        self.persistence.notify_changed();
+        self.persistence.delete(id).await?;
         Ok(OAuthQuotaResetOutcome {
             windows_reset: result.windows_reset,
         })
@@ -167,7 +188,7 @@ impl OAuthQuotaService {
     async fn query_with_authentication_retry(
         &self,
         id: OAuthAccountId,
-    ) -> Result<OAuthQuotaUsage, OAuthQuotaError> {
+    ) -> Result<QueriedQuota, OAuthQuotaError> {
         let snapshot = self.publisher.current_snapshot();
         let observed_token_version = snapshot
             .oauth_accounts()
@@ -197,7 +218,7 @@ impl OAuthQuotaService {
         &self,
         snapshot: Arc<PublishedSnapshot>,
         id: OAuthAccountId,
-    ) -> Result<OAuthQuotaUsage, OAuthQuotaError> {
+    ) -> Result<QueriedQuota, OAuthQuotaError> {
         let account = snapshot
             .oauth_accounts()
             .get(id)
@@ -213,6 +234,7 @@ impl OAuthQuotaService {
         let token = generation
             .oauth_token()
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
+        let credential_fingerprint = identity::fingerprint(account, token.as_ref());
         let plan = driver
             .oauth_quota_query_plan(token.as_ref())
             .map_err(OAuthQuotaError::Provider)?
@@ -263,7 +285,10 @@ impl OAuthQuotaService {
         {
             usage.replace_reset_credits(credits);
         }
-        Ok(usage)
+        Ok(QueriedQuota {
+            usage,
+            credential_fingerprint,
+        })
     }
 
     async fn reset_with_authentication_retry(

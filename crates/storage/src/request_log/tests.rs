@@ -381,6 +381,7 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             input_tokens: Some(120),
             output_tokens: Some(45),
             cache_read_tokens: Some(30),
+            quota_cost: None,
             is_stream: true,
         },
         attempts,

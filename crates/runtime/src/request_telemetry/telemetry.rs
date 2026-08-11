@@ -17,8 +17,10 @@ use tokio::{
     sync::{Notify, mpsc},
     task::JoinHandle,
 };
+use uuid::Uuid;
 
 use super::{
+    RequestTelemetryCheckpoint,
     changes::LogChangeNotifier,
     event::{HttpAccessLogChangeNotification, TelemetryEnvelope, TelemetryEvent},
     gateway_usage::{
@@ -32,6 +34,8 @@ use crate::{
     configuration::{PublishedSnapshot, PublishedSnapshotReconciler},
     lifecycle::ProcessLifecycle,
 };
+
+const QUOTA_CHECKPOINT_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error)]
 pub enum RequestTelemetryControlError {
@@ -54,6 +58,7 @@ pub struct RequestTelemetry {
     gateway_usage: Mutex<GatewayUsageTracker>,
     gateway_usage_debounce: GatewayUsageDebounce,
     changes: LogChangeNotifier,
+    process_id: Uuid,
 }
 
 impl RequestTelemetry {
@@ -79,6 +84,7 @@ impl RequestTelemetry {
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
             gateway_usage_debounce: GatewayUsageDebounce::default(),
             changes: LogChangeNotifier::new(),
+            process_id: Uuid::new_v4(),
         }
     }
 
@@ -103,6 +109,7 @@ impl RequestTelemetry {
             .expect("telemetry queue maximum fits usize");
         let (sender, receiver) = mpsc::channel(capacity);
         let counters = TelemetryCounters::default();
+        let process_id = Uuid::new_v4();
         let policy = Arc::new(RwLock::new(RequestLogPolicy::from_settings(
             revision, settings,
         )));
@@ -120,6 +127,7 @@ impl RequestTelemetry {
                 changes: changes.clone(),
                 prune_wakeup: Arc::clone(&prune_wakeup),
                 request_prune_wakeup,
+                process_id,
             },
         ));
         Self {
@@ -135,6 +143,7 @@ impl RequestTelemetry {
             gateway_usage: Mutex::new(GatewayUsageTracker::default()),
             gateway_usage_debounce: GatewayUsageDebounce::default(),
             changes,
+            process_id,
         }
     }
 
@@ -170,8 +179,12 @@ impl RequestTelemetry {
         let mut current = self.policy.write().expect("request telemetry policy");
         if next.revision > current.revision {
             let cleanup_changed = next.cleanup_limits_differ(*current);
+            let enabled_changed = next.enabled != current.enabled;
             *current = next;
             drop(current);
+            if enabled_changed {
+                self.counters.mark_request_log_gap();
+            }
             if cleanup_changed {
                 self.prune_wakeup.notify_one();
             }
@@ -328,26 +341,61 @@ impl RequestTelemetry {
         }
     }
 
+    pub(crate) async fn quota_checkpoint(&self) -> RequestTelemetryCheckpoint {
+        let enabled = self
+            .policy
+            .read()
+            .expect("request telemetry policy")
+            .enabled;
+        let fallback = || self.counters.quota_checkpoint(self.process_id, false);
+        if self.request_logs.is_none() || !enabled {
+            return fallback();
+        }
+        let Some(sender) = self
+            .sender
+            .read()
+            .expect("request telemetry sender")
+            .clone()
+        else {
+            return fallback();
+        };
+        let Ok(permit) = sender.try_reserve() else {
+            return fallback();
+        };
+        let (reply, result) = tokio::sync::oneshot::channel();
+        self.counters.reserve_control_slot();
+        permit.send(TelemetryEnvelope::new(TelemetryEvent::QuotaCheckpoint {
+            reply,
+        }));
+        tokio::time::timeout(QUOTA_CHECKPOINT_TIMEOUT, result)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_else(fallback)
+    }
+
     fn try_send_event(&self, event: TelemetryEvent, capacity: usize, max_bytes: usize) {
         let envelope = TelemetryEnvelope::new(event);
         let records = envelope.record_count;
         let queue_class = envelope.queue_class;
         let owned_bytes = envelope.owned_bytes;
+        let quota_relevant = envelope.event.quota_relevant();
         let sender = self.sender.read().expect("request telemetry sender");
         let Some(sender) = sender.as_ref() else {
-            self.counters.rejected(records);
+            self.counters.rejected(records, quota_relevant);
             return;
         };
         if !self
             .counters
             .try_reserve(capacity, max_bytes, owned_bytes, queue_class)
         {
-            self.counters.rejected(records);
+            self.counters.rejected(records, quota_relevant);
             return;
         }
         self.counters.enqueued(records, owned_bytes);
         if sender.try_send(envelope).is_err() {
-            self.counters.send_failed(records, owned_bytes, queue_class);
+            self.counters
+                .send_failed(records, owned_bytes, queue_class, quota_relevant);
         }
     }
 }

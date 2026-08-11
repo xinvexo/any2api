@@ -23,3 +23,4 @@
 "0022_persist_oauth_quota_estimation_boundaries.sql" = "65c2f8fd9ca73b8f5495dc8e3d246b9e4d7a27229a03b148607a1ec59a474d0d"
 "0023_rebase_oauth_quota_estimates_on_request_logs.sql" = "fed48b07071cd014e3102576acaf1eae4e16c3c510af2bad7b9db223d5953633"
 "0024_add_oauth_quota_unpriced_request_diagnostics.sql" = "03931cd41b982b8e6daf00fddda0e018c8adb2ba8c95d55837a8ee8e7811ca61"
+"0025_epoch_interval_oauth_quota_telemetry.sql" = "94ba312c156575c8a77f01165fd51b4da06b39a57dcc59253d4fa095136713d0"

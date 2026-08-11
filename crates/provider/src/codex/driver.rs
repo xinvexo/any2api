@@ -3,8 +3,8 @@ use super::{
     request as codex_request,
 };
 use any2api_domain::{
-    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, RequestBodyEncoding,
-    TransportMode,
+    CredentialKind, ProtocolDialect, ProtocolOperation, ProviderKind, QuotaServiceTier,
+    RequestBodyEncoding, TransportMode,
 };
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
@@ -212,8 +212,26 @@ impl ProviderDriver for CodexDriver {
         codex_quota::query_plan(token).map(Some)
     }
 
-    fn oauth_quota_cost_rate(&self, model: &str) -> Option<crate::api::OAuthQuotaCostRate> {
-        codex_quota::cost_rate(model)
+    fn oauth_quota_cost_rate(
+        &self,
+        model: &str,
+        service_tier: QuotaServiceTier,
+    ) -> Option<crate::api::OAuthQuotaCostRate> {
+        codex_quota::cost_rate(model, service_tier)
+    }
+
+    fn oauth_quota_cost_unit(&self) -> Option<any2api_domain::QuotaCostUnit> {
+        Some(any2api_domain::QuotaCostUnit::CodexCredits)
+    }
+
+    fn oauth_quota_service_tier(
+        &self,
+        context: ProviderRequestContext<'_>,
+        prepared_body: &[u8],
+    ) -> Option<QuotaServiceTier> {
+        (context.oauth && context.upstream_operation == ProtocolOperation::Responses)
+            .then(|| codex_request::quota_service_tier(prepared_body))
+            .flatten()
     }
 
     fn classify_oauth_quota_rejection(

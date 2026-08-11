@@ -31,32 +31,6 @@ test("restores a persisted quota snapshot without an upstream refresh", async ()
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test("shows compact Codex Credits and an inline USD estimate", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => response(quotaWithCreditsAndEstimate())),
-  );
-
-  renderPanel();
-  const panel = screen.getByRole("region", { name: "Codex 额度" });
-  const credits = await within(panel).findByText("$9.9371");
-  expect(within(panel).getByText("Credits")).toBeInTheDocument();
-  expect(within(panel).queryByText("248.4272780000 Credits")).not.toBeInTheDocument();
-  expect(credits).toHaveAttribute(
-    "title",
-    "248.4272780000 Credits · 25 Credits = $1",
-  );
-  const estimate = within(panel).getByText("$0.375/$1.00");
-  expect(estimate.parentElement).toContainElement(within(panel).getByText("63%"));
-  expect(estimate.getAttribute("title")).toContain("剩余 $0.625");
-  expect(estimate.getAttribute("title")).toContain(
-    "样本 $0.01 / 使用率 1% · 5 分钟",
-  );
-  expect(estimate.getAttribute("title")).toContain("未计入 10 条缺少计费信息的记录");
-  expect(estimate.getAttribute("title")).toContain("费率卡 openai_api_standard_2026_08_11");
-  expect(within(panel).queryByText(/样本 \$0.01/)).not.toBeInTheDocument();
-});
-
 test("refreshes Codex quota and consumes one available reset credit", async () => {
   let resetCompleted = false;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -268,7 +242,7 @@ test("shows only a real Grok exhaustion observation with its actual limit", asyn
           limit: 1_000_000,
         },
       },
-      usd_estimates: [],
+      estimates: [],
     })),
   );
 
@@ -375,37 +349,7 @@ function quota(availableCount: number) {
       available_count: availableCount,
       expires_at: availableCount > 0 ? ["2026-07-30T00:00:00Z"] : [],
     },
-    usd_estimates: [],
-  };
-}
-
-function quotaWithCreditsAndEstimate() {
-  return {
-    ...quota(1),
-    credits: {
-      has_credits: true,
-      unlimited: false,
-      balance: "248.4272780000",
-    },
-    access: {
-      spend_control_reached: false,
-      reached_type: "rate_limit_reached",
-    },
-    usd_estimates: [{
-      window_id: "primary",
-      window_kind: "time",
-      limit_window_seconds: 18_000,
-      window_reset_at: 1_900_000_300,
-      estimated_capacity_usd: 1,
-      estimated_used_usd: 0.375,
-      estimated_remaining_usd: 0.625,
-      sample_cost_usd: 0.01,
-      sample_used_percent: 1,
-      sample_started_at: 1_899_999_700,
-      sample_ended_at: 1_900_000_000,
-      unpriced_request_count: 10,
-      pricing_basis: "openai_api_standard_2026_08_11",
-    }],
+    estimates: [],
   };
 }
 

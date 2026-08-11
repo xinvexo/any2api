@@ -16,9 +16,7 @@ mod tests;
 mod usage_tests;
 
 pub use capacity::{REQUEST_LOG_CLEANUP_BATCH_ROWS, RequestLogCleanupOutcome};
-pub use oauth_quota_usage::{
-    OAuthQuotaEstimationRepository, OAuthQuotaRequestLogModelUsage, OAuthQuotaRequestLogUsage,
-};
+pub use oauth_quota_usage::{OAuthQuotaEstimationRepository, OAuthQuotaRequestLogUsage};
 pub use overview::{
     RequestLogOverview, RequestLogOverviewBucket, RequestLogOverviewModel, RequestLogOverviewRange,
     RequestLogOverviewTotals,

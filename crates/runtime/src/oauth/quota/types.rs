@@ -13,25 +13,62 @@ use crate::oauth::refresh::OAuthRefreshFailure;
 #[derive(Clone, Debug, PartialEq)]
 pub struct OAuthQuotaSnapshot {
     pub usage: OAuthQuotaUsage,
-    pub usd_estimates: Vec<OAuthQuotaUsdEstimate>,
+    pub estimates: Vec<OAuthQuotaEstimate>,
     pub fetched_at: i64,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthQuotaEstimateConfidence {
+    Unknown,
+    Learning,
+    Stable,
+    Degraded,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OAuthQuotaIntervalStatus {
+    AwaitingBaseline,
+    NoChange,
+    ValidSample,
+    ResetBoundary,
+    TelemetryIncomplete,
+    UnpricedUsage,
+    ExternalUsageSuspected,
+    OutlierRejected,
+    Invalid,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct OAuthQuotaUsdEstimate {
+pub struct OAuthQuotaIntervalDiagnostic {
+    pub status: OAuthQuotaIntervalStatus,
+    pub started_at: Option<i64>,
+    pub ended_at: i64,
+    pub delta_used_percent: Option<f64>,
+    pub local_cost_credits: Option<f64>,
+    pub unpriced_request_count: u64,
+    pub queue_dropped_request_logs: u64,
+    pub storage_failed_request_logs: u64,
+    pub pruned_request_logs: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OAuthQuotaEstimate {
     pub window_id: String,
     pub window_kind: any2api_provider::api::OAuthQuotaWindowKind,
     pub limit_window_seconds: Option<u64>,
     pub window_reset_at: Option<i64>,
-    pub estimated_capacity_usd: f64,
-    pub estimated_used_usd: f64,
-    pub estimated_remaining_usd: f64,
-    pub sample_cost_usd: f64,
-    pub sample_used_percent: f64,
-    pub sample_started_at: i64,
-    pub sample_ended_at: i64,
-    pub unpriced_request_count: u64,
-    pub pricing_basis: String,
+    pub epoch: u64,
+    pub epoch_started_at: i64,
+    pub confidence: OAuthQuotaEstimateConfidence,
+    pub estimated_capacity_credits: Option<f64>,
+    pub estimated_used_credits: Option<f64>,
+    pub estimated_remaining_credits: Option<f64>,
+    pub sample_count: u32,
+    pub relative_mad: Option<f64>,
+    pub latest_interval: OAuthQuotaIntervalDiagnostic,
+    pub rate_cards: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

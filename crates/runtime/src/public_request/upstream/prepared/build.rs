@@ -6,7 +6,7 @@ use any2api_protocol::api::{
     DecodedRequest, ProtocolContinuationState, ProtocolError, ProtocolExchange, ProtocolRegistry,
 };
 use any2api_provider::api::{
-    ProviderDriver, ProviderError, ProviderRegistry, ProviderRequestContext,
+    OAuthQuotaCostRate, ProviderDriver, ProviderError, ProviderRegistry, ProviderRequestContext,
 };
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportProxy, TransportRequest, TransportTrafficClass,
@@ -32,6 +32,7 @@ struct BuiltRequest<'a> {
     upstream_operation: ProtocolOperation,
     exchange: ProtocolExchange,
     request: TransportRequest,
+    quota_cost_rate: Option<OAuthQuotaCostRate>,
 }
 
 pub(super) struct AttemptHeaderPolicy {
@@ -79,6 +80,7 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
         upstream_operation,
         exchange,
         request,
+        quota_cost_rate,
     } = match result {
         Ok(prepared) => prepared,
         Err(error) => {
@@ -93,6 +95,7 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
             return Err(AttemptFailure::Public(error));
         }
     };
+    attempt_recorder.observe_quota_cost_rate(quota_cost_rate);
     let SelectedCandidate { permit, health, .. } = selected;
     Ok(PreparedAttempt {
         driver,
@@ -171,6 +174,9 @@ fn build_request<'a>(
     encoded.body = driver
         .prepare_request_body(request_context, encoded.body)
         .map_err(provider_request_error)?;
+    let quota_cost_rate = driver
+        .oauth_quota_service_tier(request_context, &encoded.body)
+        .and_then(|tier| driver.oauth_quota_cost_rate(&candidate.upstream_model, tier));
     let mut headers = driver
         .prepare_request_headers(request_context)
         .map_err(|_| internal_error())?;
@@ -198,6 +204,7 @@ fn build_request<'a>(
         ingress_operation,
         upstream_operation,
         exchange,
+        quota_cost_rate,
         request: TransportRequest {
             method: encoded.method,
             uri: encoded.uri,

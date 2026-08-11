@@ -80,6 +80,9 @@ async fn full_logical_queue_drops_without_waiting_for_the_writer() {
     assert_eq!(metrics.dropped_records, 1);
 
     repository.release_first.notify_waiters();
+    let checkpoint = telemetry.quota_checkpoint().await;
+    assert_eq!(checkpoint.queue_dropped_request_logs, 1);
+    assert_eq!(checkpoint.coverage_generation, 1);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
     let metrics = telemetry.metrics();
     assert_eq!(metrics.queued_records, 0);
@@ -155,6 +158,9 @@ async fn failed_request_log_batch_does_not_advance_change_epoch() {
             .has_changed()
             .expect("request log notifier remains open")
     );
+    let checkpoint = telemetry.quota_checkpoint().await;
+    assert_eq!(checkpoint.storage_failed_request_logs, 1);
+    assert_eq!(checkpoint.coverage_generation, 1);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }
 
@@ -276,7 +282,88 @@ async fn retention_deletions_advance_both_change_epochs() {
     assert_eq!(*request_changes.borrow(), 1);
     assert_eq!(*access_changes.borrow(), 1);
 
+    let checkpoint = telemetry.quota_checkpoint().await;
+    assert_eq!(checkpoint.pruned_request_logs, 2);
+    assert_eq!(checkpoint.coverage_generation, 1);
+
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
+}
+
+#[tokio::test]
+async fn graceful_shutdown_flushes_all_queued_request_logs() {
+    let directory = tempdir().expect("temporary directory");
+    let repository = Arc::new(
+        SqliteStore::connect(&directory.path().join("request-log-shutdown.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let settings = logging_settings_with_request_max_rows(1_024, Some(1_024));
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
+    let started_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Unix time")
+        .as_millis() as u64;
+    for _ in 0..500 {
+        let mut log = record(RequestId::new());
+        log.request.started_at_ms = started_at_ms;
+        telemetry.try_record(log, policy);
+    }
+
+    telemetry.shutdown(std::time::Duration::from_secs(10)).await;
+
+    assert_eq!(telemetry.metrics().persisted_records, 500);
+    assert_eq!(telemetry.metrics().dropped_records, 0);
+    let page = repository
+        .list_request_logs(0, None, 1)
+        .await
+        .expect("persisted request logs");
+    assert_eq!(page.total, 500);
+}
+
+#[tokio::test]
+#[ignore = "manual SQLite telemetry throughput benchmark"]
+async fn benchmark_batched_request_log_throughput() {
+    const RECORDS: u64 = 20_000;
+    let directory = tempdir().expect("temporary directory");
+    let repository = Arc::new(
+        SqliteStore::connect(&directory.path().join("request-log-benchmark.sqlite3"))
+            .await
+            .expect("storage"),
+    );
+    let settings = logging_settings_with_request_max_rows(25_000, Some(25_000));
+    let lifecycle = ProcessLifecycle::new();
+    let telemetry = RequestTelemetry::start(
+        Arc::clone(&repository),
+        ConfigRevision::INITIAL,
+        settings.logging(),
+        &lifecycle,
+    );
+    let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
+    let started_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("Unix time")
+        .as_millis() as u64;
+    let started = std::time::Instant::now();
+    for _ in 0..RECORDS {
+        let mut log = record(RequestId::new());
+        log.request.started_at_ms = started_at_ms;
+        telemetry.try_record(log, policy);
+    }
+    wait_for(|| telemetry.metrics().persisted_records == RECORDS).await;
+    let elapsed = started.elapsed();
+    let records_per_second = RECORDS as f64 / elapsed.as_secs_f64();
+    eprintln!(
+        "persisted {RECORDS} request logs in {elapsed:?} ({records_per_second:.0} records/s)"
+    );
+    assert_eq!(telemetry.metrics().dropped_records, 0);
+    telemetry.shutdown(std::time::Duration::from_secs(10)).await;
 }
 
 #[tokio::test]

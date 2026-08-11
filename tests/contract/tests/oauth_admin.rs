@@ -10,7 +10,7 @@ use std::{
 use any2api_contract_tests::TestApplication;
 use any2api_domain::{ProviderKind, ProxyProfileId};
 use any2api_provider::{CodexDriver, GrokDriver, api::ProviderRegistry};
-use any2api_runtime::api::OAuthService;
+use any2api_runtime::api::{OAuthService, RequestTelemetry};
 use any2api_storage::api::ConfigurationRepository;
 use any2api_transport::api::{
     TransportFailureScope, TransportManager, TransportProxy, TransportRequest, TransportResponse,
@@ -44,6 +44,7 @@ async fn oauth_http_flows_activate_redacted_codex_and_grok_accounts() {
         Arc::new(TokenTransport),
         fixture.publisher(),
         Arc::clone(&storage),
+        Arc::new(RequestTelemetry::disabled()),
     ));
     let state = fixture.state().with_oauth(oauth);
     let (_directory, app, _) = fixture.into_router_with_state(state);
@@ -123,6 +124,7 @@ async fn oauth_service_paces_concurrent_network_starts_for_one_provider() {
         transport.clone(),
         fixture.publisher(),
         fixture.storage(),
+        Arc::new(RequestTelemetry::disabled()),
     ));
     tokio::time::pause();
 

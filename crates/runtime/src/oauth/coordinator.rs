@@ -9,7 +9,10 @@ use any2api_storage::api::{OAuthQuotaEstimationRepository, OAuthQuotaSnapshotRep
 use any2api_transport::api::{TransportIsolationKey, TransportManager, TransportTrafficClass};
 use tokio::sync::watch;
 
-use crate::{configuration::ConfigPublisher, lifecycle::ProcessLifecycle};
+use crate::{
+    configuration::ConfigPublisher, lifecycle::ProcessLifecycle,
+    request_telemetry::RequestTelemetry,
+};
 
 use super::{
     control_plane::{OAUTH_CONTROL_PLANE_MIN_START_INTERVAL, OAuthControlPlanePacer},
@@ -44,6 +47,7 @@ impl OAuthService {
         transport: Arc<dyn TransportManager>,
         publisher: Arc<ConfigPublisher>,
         quota_repository: Arc<R>,
+        telemetry: Arc<RequestTelemetry>,
     ) -> Self
     where
         R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
@@ -53,6 +57,7 @@ impl OAuthService {
             transport,
             publisher,
             quota_repository,
+            telemetry,
             OAUTH_CONTROL_PLANE_MIN_START_INTERVAL,
         )
     }
@@ -62,6 +67,7 @@ impl OAuthService {
         transport: Arc<dyn TransportManager>,
         publisher: Arc<ConfigPublisher>,
         quota_repository: Arc<R>,
+        telemetry: Arc<RequestTelemetry>,
         control_plane_interval: std::time::Duration,
     ) -> Self
     where
@@ -74,17 +80,14 @@ impl OAuthService {
             Arc::clone(&publisher),
             Arc::clone(&control_plane),
         );
-        let snapshot_repository: Arc<dyn OAuthQuotaSnapshotRepository> =
-            Arc::clone(&quota_repository) as _;
-        let estimation_repository: Arc<dyn OAuthQuotaEstimationRepository> = quota_repository;
         let quota = Arc::new(OAuthQuotaService::new(
             Arc::clone(&providers),
             Arc::clone(&transport),
             Arc::clone(&publisher),
             Arc::clone(&refresher),
             Arc::clone(&control_plane),
-            snapshot_repository,
-            estimation_repository,
+            quota_repository,
+            telemetry,
         ));
         Self {
             providers,
@@ -112,6 +115,7 @@ impl OAuthService {
             transport,
             publisher,
             quota_repository,
+            Arc::new(RequestTelemetry::disabled()),
             std::time::Duration::ZERO,
         )
     }

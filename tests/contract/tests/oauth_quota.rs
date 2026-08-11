@@ -8,7 +8,7 @@ use std::{
 
 use any2api_contract_tests::TestApplication;
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind, ProxyProfileId};
-use any2api_runtime::api::OAuthService;
+use any2api_runtime::api::{OAuthService, RequestTelemetry};
 use any2api_storage::api::OAuthAccountDocument;
 use any2api_transport::api::{
     BoxByteStream, TransportFailureScope, TransportManager, TransportProxy, TransportRequest,
@@ -62,6 +62,7 @@ async fn codex_quota_is_persisted_redacted_reset_and_announced() {
         Arc::clone(&transport) as Arc<dyn TransportManager>,
         publisher,
         storage,
+        Arc::new(RequestTelemetry::disabled()),
     ));
     let state = fixture.state().with_oauth(oauth);
     let (_directory, app, _) = fixture.into_router_with_state(state);

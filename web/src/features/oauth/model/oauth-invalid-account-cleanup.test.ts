@@ -250,7 +250,7 @@ function quota() {
     credits: null,
     access: null,
     reset_credits: null,
-    usd_estimates: [],
+    estimates: [],
   };
 }
 

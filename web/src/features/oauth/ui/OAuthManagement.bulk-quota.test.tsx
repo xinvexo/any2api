@@ -205,7 +205,7 @@ function quota(accountNumber: number, exhausted = false) {
     credits: null,
     access: null,
     reset_credits: { available_count: 1, expires_at: [] },
-    usd_estimates: [],
+    estimates: [],
   };
 }
 
