@@ -22,7 +22,7 @@ pub(super) struct OAuthQuotaEstimator {
 
 struct AccountEstimateState {
     baseline: Vec<WindowBaseline>,
-    observed_cost_usd: f64,
+    cumulative_cost_usd: f64,
     unpriced_attempts: u32,
     rate_card: Option<&'static str>,
     last_estimates: Vec<OAuthQuotaUsdEstimate>,
@@ -37,6 +37,7 @@ struct WindowBaseline {
     reset_at: Option<i64>,
     used_percent: f64,
     fetched_at: i64,
+    cost_at_baseline_usd: f64,
 }
 
 impl OAuthQuotaEstimator {
@@ -55,8 +56,10 @@ impl OAuthQuotaEstimator {
                     state.unpriced_attempts = state.unpriced_attempts.saturating_add(1);
                 } else {
                     state.rate_card = Some(rate_card);
-                    state.observed_cost_usd += usd;
-                    if !state.observed_cost_usd.is_finite() {
+                    let cumulative = state.cumulative_cost_usd + usd;
+                    if cumulative.is_finite() {
+                        state.cumulative_cost_usd = cumulative;
+                    } else {
                         state.unpriced_attempts = state.unpriced_attempts.saturating_add(1);
                     }
                 }
@@ -81,11 +84,18 @@ impl OAuthQuotaEstimator {
             .rate_limit
             .as_ref()
             .map_or(&[][..], |rate| rate.windows.as_slice());
-        let complete_sample = state.unpriced_attempts == 0
-            && state.observed_cost_usd.is_finite()
-            && state.observed_cost_usd > 0.0
-            && state.rate_card.is_some();
+        if state.unpriced_attempts > 0 {
+            state.baseline = windows
+                .iter()
+                .map(|window| new_baseline(window, fetched_at, state.cumulative_cost_usd))
+                .collect();
+            state.unpriced_attempts = 0;
+            state.rate_card = None;
+            state.last_estimates.clear();
+            return Vec::new();
+        }
         let mut estimates = Vec::with_capacity(windows.len());
+        let mut next_baseline = Vec::with_capacity(windows.len());
         for window in windows {
             let baseline = state
                 .baseline
@@ -96,15 +106,10 @@ impl OAuthQuotaEstimator {
                 .iter()
                 .find(|estimate| estimate_matches(estimate, window));
             if let Some(estimate) = baseline
-                .filter(|baseline| complete_sample && window.used_percent > baseline.used_percent)
+                .filter(|baseline| window.used_percent > baseline.used_percent)
                 .and_then(|baseline| {
-                    new_estimate(
-                        baseline,
-                        window,
-                        state.observed_cost_usd,
-                        state.rate_card?,
-                        fetched_at,
-                    )
+                    let sample_cost = state.cumulative_cost_usd - baseline.cost_at_baseline_usd;
+                    new_estimate(baseline, window, sample_cost, state.rate_card?, fetched_at)
                 })
             {
                 estimates.push(estimate);
@@ -115,21 +120,15 @@ impl OAuthQuotaEstimator {
             {
                 estimates.push(estimate);
             }
+            if let Some(baseline) =
+                baseline.filter(|baseline| window.used_percent >= baseline.used_percent)
+            {
+                next_baseline.push(baseline.clone());
+            } else {
+                next_baseline.push(new_baseline(window, fetched_at, state.cumulative_cost_usd));
+            }
         }
-        state.baseline = windows
-            .iter()
-            .map(|window| WindowBaseline {
-                id: window.id.clone(),
-                kind: window.kind,
-                limit_window_seconds: window.limit_window_seconds,
-                reset_at: window.reset_at,
-                used_percent: window.used_percent,
-                fetched_at,
-            })
-            .collect();
-        state.observed_cost_usd = 0.0;
-        state.unpriced_attempts = 0;
-        state.rate_card = None;
+        state.baseline = next_baseline;
         state.last_estimates = estimates.clone();
         estimates
     }
@@ -143,11 +142,27 @@ impl OAuthQuotaEstimator {
 fn empty_state(now: Instant) -> AccountEstimateState {
     AccountEstimateState {
         baseline: Vec::new(),
-        observed_cost_usd: 0.0,
+        cumulative_cost_usd: 0.0,
         unpriced_attempts: 0,
         rate_card: None,
         last_estimates: Vec::new(),
         touched_at: now,
+    }
+}
+
+fn new_baseline(
+    window: &OAuthQuotaWindow,
+    fetched_at: i64,
+    cumulative_cost_usd: f64,
+) -> WindowBaseline {
+    WindowBaseline {
+        id: window.id.clone(),
+        kind: window.kind,
+        limit_window_seconds: window.limit_window_seconds,
+        reset_at: window.reset_at,
+        used_percent: window.used_percent,
+        fetched_at,
+        cost_at_baseline_usd: cumulative_cost_usd,
     }
 }
 
@@ -270,6 +285,73 @@ mod tests {
                 .observe_snapshot(id, &usage(1.0, 2), 300, now)
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn cumulative_samples_replace_noisy_single_interval_estimates() {
+        let id = OAuthAccountId::new();
+        let now = Instant::now();
+        let mut estimator = OAuthQuotaEstimator::default();
+        estimator.observe_snapshot(id, &usage(10.0, 2_000), 100, now);
+        estimator.record(
+            id,
+            CostObservation::Priced {
+                usd: 0.3321,
+                rate_card: "test_rate_card",
+            },
+            now,
+        );
+        let first = estimator.observe_snapshot(id, &usage(11.0, 2_000), 200, now);
+        assert!((first[0].estimated_capacity_usd - 33.21).abs() < 1e-12);
+
+        estimator.record(
+            id,
+            CostObservation::Priced {
+                usd: 0.1101,
+                rate_card: "test_rate_card",
+            },
+            now,
+        );
+        let combined = estimator.observe_snapshot(id, &usage(12.0, 2_000), 300, now);
+
+        assert!((combined[0].sample_cost_usd - 0.4422).abs() < 1e-12);
+        assert_eq!(combined[0].sample_used_percent_delta, 2.0);
+        assert!((combined[0].estimated_capacity_usd - 22.11).abs() < 1e-12);
+    }
+
+    #[test]
+    fn unchanged_percentage_does_not_discard_observed_cost() {
+        let id = OAuthAccountId::new();
+        let now = Instant::now();
+        let mut estimator = OAuthQuotaEstimator::default();
+        estimator.observe_snapshot(id, &usage(10.0, 2_000), 100, now);
+        estimator.record(
+            id,
+            CostObservation::Priced {
+                usd: 0.01,
+                rate_card: "test_rate_card",
+            },
+            now,
+        );
+        assert!(
+            estimator
+                .observe_snapshot(id, &usage(10.0, 2_000), 200, now)
+                .is_empty()
+        );
+        estimator.record(
+            id,
+            CostObservation::Priced {
+                usd: 0.02,
+                rate_card: "test_rate_card",
+            },
+            now,
+        );
+
+        let estimate = estimator.observe_snapshot(id, &usage(11.0, 2_000), 300, now);
+
+        assert!((estimate[0].sample_cost_usd - 0.03).abs() < f64::EPSILON);
+        assert!((estimate[0].estimated_capacity_usd - 3.0).abs() < f64::EPSILON);
+        assert_eq!(estimate[0].sample_started_at, 100);
     }
 
     fn usage(used_percent: f64, reset_at: i64) -> OAuthQuotaUsage {

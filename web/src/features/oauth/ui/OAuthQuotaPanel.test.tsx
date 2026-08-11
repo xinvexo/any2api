@@ -25,11 +25,13 @@ test("restores a persisted quota snapshot without an upstream refresh", async ()
   renderPanel();
   const panel = screen.getByRole("region", { name: "Codex 额度" });
   expect(await within(panel).findByText("63%")).toBeInTheDocument();
-  expect(within(panel).getByText(/最后更新：/)).toBeInTheDocument();
+  const lastUpdated = within(panel).getByText(/最后更新：/);
+  expect(lastUpdated).toHaveTextContent(/最后更新：\d{2}\/\d{2} \d{2}:\d{2}:\d{2}/);
+  expect(lastUpdated.textContent).not.toMatch(/\b20\d{2}\b/);
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-test("shows real Codex Credits separately from the observed USD estimate", async () => {
+test("shows compact Codex Credits and an inline USD estimate", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => response(quotaWithCreditsAndEstimate())),
@@ -37,16 +39,15 @@ test("shows real Codex Credits separately from the observed USD estimate", async
 
   renderPanel();
   const panel = screen.getByRole("region", { name: "Codex 额度" });
-  expect(await within(panel).findByText("17.50 Credits")).toBeInTheDocument();
-  expect(within(panel).getByText("上游真实 Credits")).toBeInTheDocument();
-  expect(
-    within(panel).getByText(
-      "本机观测估算：已用 $0.375 · 剩余 $0.625 · 总量 $1.00",
-    ),
-  ).toBeInTheDocument();
-  expect(
-    within(panel).getByText(/样本 \$0.01 \/ Δ1% · 5 分钟 · 官方标准 API 价 · 非上游余额/),
-  ).toBeInTheDocument();
+  expect(await within(panel).findByText("248")).toBeInTheDocument();
+  expect(within(panel).getByText("Credits")).toBeInTheDocument();
+  expect(within(panel).queryByText("248.4272780000 Credits")).not.toBeInTheDocument();
+  const estimate = within(panel).getByText("$0.375/$1.00");
+  expect(estimate.parentElement).toContainElement(within(panel).getByText("63%"));
+  expect(estimate.getAttribute("title")).toContain("剩余 $0.625");
+  expect(estimate.getAttribute("title")).toContain("样本 $0.01 / Δ1% · 5 分钟");
+  expect(estimate.getAttribute("title")).toContain("费率卡 openai_api_standard_2026_08_11");
+  expect(within(panel).queryByText(/样本 \$0.01/)).not.toBeInTheDocument();
 });
 
 test("refreshes Codex quota and consumes one available reset credit", async () => {
@@ -377,7 +378,7 @@ function quotaWithCreditsAndEstimate() {
     credits: {
       has_credits: true,
       unlimited: false,
-      balance: "17.50",
+      balance: "248.4272780000",
     },
     access: {
       spend_control_reached: false,

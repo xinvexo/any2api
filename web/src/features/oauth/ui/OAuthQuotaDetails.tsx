@@ -27,7 +27,7 @@ export function OAuthQuotaDetails({
     <div className="mt-2 space-y-2.5">
       {quota.credits ? (
         <QuotaValue
-          label="上游真实 Credits"
+          label="Credits"
           value={formatCredits(quota.credits)}
         />
       ) : null}
@@ -162,7 +162,11 @@ function hasOnDemandBilling(quota: OAuthQuotaSnapshot) {
 function formatCredits(credits: OAuthQuotaCredits) {
   if (credits.unlimited) return "无限";
   if (credits.hasCredits && credits.balance !== null) {
-    return `${credits.balance} Credits`;
+    const decimalPoint = credits.balance.indexOf(".");
+    const integer = decimalPoint === -1
+      ? credits.balance
+      : credits.balance.slice(0, decimalPoint);
+    return integer.replace(/^0+(?=\d)/, "");
   }
   return credits.hasCredits ? "可用（上游未返回余额）" : "不可用";
 }
@@ -200,11 +204,12 @@ function QuotaWindowBar({
     <div className="min-w-0">
       <div className="flex items-baseline justify-between gap-2 text-[11px]">
         <span className="min-w-0 truncate text-secondary">{label}</span>
-        <span className="shrink-0 tabular-nums text-secondary">
+        <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums text-secondary">
+          {estimate ? <QuotaUsdEstimate estimate={estimate} /> : null}
           <span className={cn("font-semibold", remainingTone(remaining))}>
             {remaining.toFixed(0)}%
           </span>
-          {reset ? <span className="ml-1.5 text-tertiary">{reset}</span> : null}
+          {reset ? <span className="text-tertiary">{reset}</span> : null}
         </span>
       </div>
       <div
@@ -224,7 +229,6 @@ function QuotaWindowBar({
           title={`剩余 ${remaining.toFixed(1)}% · 已用 ${used.toFixed(1)}%`}
         />
       </div>
-      {estimate ? <QuotaUsdEstimate estimate={estimate} /> : null}
     </div>
   );
 }
@@ -277,7 +281,9 @@ function formatCompactTime(value: number) {
 
 function formatFetchedAt(value: number) {
   const date = new Date(value * 1_000);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return String(value);
+  const part = (number: number) => String(number).padStart(2, "0");
+  return `${part(date.getMonth() + 1)}/${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}:${part(date.getSeconds())}`;
 }
 
 function formatCreditExpiries(quota: OAuthQuotaSnapshot): string | null {
