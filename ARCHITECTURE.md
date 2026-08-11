@@ -972,7 +972,9 @@ gateway_api_keys
 - 本项目为个人自托管，网关密钥以明文持久化，管理列表/详情始终可查看完整 token；创建与轮换成功后立即生效，无需“仅展示一次”回执；
 - 同时保存带 Gateway 专用域前缀的 SHA-256 `token_hash`，供公开面索引和常量时间认证；
 - Key 只能由服务端使用 CSPRNG 生成，使用 32 个随机字节的 URL-safe Base64 无填充编码和
-  `a2k_v1_` 版本化前缀；创建与轮换请求不得接收客户端自选 Secret；
+  `sk-` 前缀；创建与轮换请求不得接收客户端自选 Secret。Migration 0020 在任何 DDL
+  前拒绝包含旧 `a2k_v1_` token 的非空数据库，再重建当前 CHECK 约束；当前运行时不接受
+  旧前缀，完整决策见 `docs/adr/0135-standard-sk-gateway-key-prefix.md`；
 - `hash_version` 标识无密钥摘要格式；`token_version` 在轮换时递增，`config_version` 在元数据、启停或轮换变化时递增；
 - `token_prefix` 仅作展示辅助，不能用于认证；
 - 删除为物理删除（`DELETE FROM gateway_api_keys`），成功后立即从配置与 PublishedSnapshot 消失，被删除 token 不可再认证；RequestLog 外键 `ON DELETE SET NULL`；

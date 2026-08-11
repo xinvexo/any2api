@@ -10,6 +10,7 @@ use tempfile::tempdir;
 use super::{MIGRATOR, run};
 
 mod duplicate_attempt_index;
+mod gateway_api_key_prefix;
 mod gateway_auth_rejected_logs;
 mod http_access_log_capacity;
 mod http_access_log_loopback_ips;
@@ -75,6 +76,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
                 19,
                 "add request attempt transport stream diagnostics".to_owned()
             ),
+            (20, "standard sk gateway api key prefix".to_owned()),
         ]
     );
 
@@ -112,7 +114,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
 
     let gateway_schema = table_schema(&pool, "gateway_api_keys").await;
     assert!(gateway_schema.contains("token TEXT NOT NULL"));
-    assert!(gateway_schema.contains("a2k_v1_"));
+    assert!(gateway_schema.contains("substr(token, 1, 3) = 'sk-'"));
     assert!(!gateway_schema.contains("revoked_at"));
 
     let endpoint_schema = table_schema(&pool, "provider_endpoints").await;

@@ -5,7 +5,7 @@ use any2api_domain::{
     ConfigRevision, CredentialId, GatewayApiKeyConfiguration, GatewayApiKeyId, ModelRoute,
     ModelRouteConfiguration, OAuthAccountConfiguration, ProviderCredentialConfiguration,
     ProviderEndpointConfiguration, ProxyConfiguration, ProxyProfile, RoutingCredentialId,
-    SettingsConfiguration,
+    SettingsConfiguration, validate_gateway_token,
 };
 use any2api_protocol::api::ProtocolRegistry;
 use any2api_provider::api::ProviderRegistry;
@@ -112,6 +112,7 @@ impl PublishedSnapshot {
 
     #[must_use]
     pub fn authenticate_gateway_api_key(&self, token: &str) -> Option<GatewayApiKeyId> {
+        validate_gateway_token(token.to_owned()).ok()?;
         let digest = self.gateway_api_key_verifier.hash(token.as_bytes());
         let id = *self.gateway_api_key_index.get(&digest)?;
         // The index only shortcuts the scan; the final decision recomputes a

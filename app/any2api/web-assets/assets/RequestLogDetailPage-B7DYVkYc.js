@@ -1,0 +1,1 @@
+import{t as e}from"./jsx-runtime-bzQ4Vb5N.js";import{v as t}from"./index-CUEypG94.js";import{n}from"./request-logs-CLo6gJW-.js";var r=e();function i(){let{requestId:e=``}=t();return(0,r.jsx)(n,{requestId:e})}export{i as RequestLogDetailPage};

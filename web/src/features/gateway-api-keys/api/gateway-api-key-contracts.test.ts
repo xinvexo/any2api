@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { parseGatewayApiKeyConfiguration } from "./gateway-api-key-contracts";
 
-const token = `a2k_v1_${"a".repeat(43)}`;
+const token = `sk-${"a".repeat(43)}`;
 const windowSlots = Array.from({ length: 30 }, (_, index) => ({
   started_at_ms: 1_720_000_000_000 + index * 120_000,
   total_requests: index === 28 ? 1 : index === 29 ? 2 : 0,
@@ -75,7 +75,7 @@ describe("gateway API Key contracts", () => {
     expect(() =>
       parseGatewayApiKeyConfiguration({
         config_revision: 2,
-        items: [{ ...item, token: `sk-${"a".repeat(48)}` }],
+        items: [{ ...item, token: `a2k_v1_${"a".repeat(43)}` }],
       }),
     ).toThrow();
     expect(() =>

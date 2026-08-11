@@ -3,7 +3,7 @@ use thiserror::Error;
 pub const GATEWAY_TOKEN_HASH_VERSION: u32 = 2;
 pub const GATEWAY_TOKEN_VERSION: u64 = 1;
 /// Client-facing gateway tokens always start with this fixed prefix.
-pub const GATEWAY_TOKEN_PREFIX: &str = "a2k_v1_";
+pub const GATEWAY_TOKEN_PREFIX: &str = "sk-";
 /// URL-safe Base64 without padding for exactly 32 random bytes.
 pub const GATEWAY_TOKEN_BODY_LEN: usize = 43;
 
@@ -75,7 +75,7 @@ pub(crate) fn next_version(value: u64) -> Result<u64, GatewayApiKeyValidationErr
         .ok_or(GatewayApiKeyValidationError::InvalidVersion)
 }
 
-/// Versioned prefix plus a 32-byte URL-safe Base64 body without padding.
+/// Current prefix plus a 32-byte URL-safe Base64 body without padding.
 pub fn validate_token(token: String) -> Result<String, GatewayApiKeyValidationError> {
     let Some(body) = token.strip_prefix(GATEWAY_TOKEN_PREFIX) else {
         return Err(GatewayApiKeyValidationError::InvalidToken);
@@ -97,7 +97,7 @@ mod tests {
     use super::{GATEWAY_TOKEN_BODY_LEN, GATEWAY_TOKEN_PREFIX, validate_token};
 
     #[test]
-    fn accepts_versioned_urlsafe_base64_body() {
+    fn accepts_standard_urlsafe_base64_body() {
         let token = format!(
             "{GATEWAY_TOKEN_PREFIX}{}",
             "A".repeat(GATEWAY_TOKEN_BODY_LEN)
@@ -111,7 +111,7 @@ mod tests {
 
     #[test]
     fn rejects_unversioned_and_malformed_tokens() {
-        assert!(validate_token(format!("sk-{}", "a".repeat(48))).is_err());
+        assert!(validate_token(format!("a2k_v1_{}", "a".repeat(43))).is_err());
         assert!(validate_token(format!("{GATEWAY_TOKEN_PREFIX}{}", "a".repeat(10))).is_err());
         assert!(
             validate_token(format!(

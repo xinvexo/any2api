@@ -99,7 +99,7 @@ function parseGatewayApiKey(value: GatewayApiKeyResponse): GatewayApiKey {
 }
 
 function isGatewayToken(value: string) {
-  return /^a2k_v1_[A-Za-z0-9_-]{43}$/.test(value);
+  return /^sk-[A-Za-z0-9_-]{43}$/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

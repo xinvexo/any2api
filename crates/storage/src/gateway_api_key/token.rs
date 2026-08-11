@@ -23,7 +23,7 @@ mod tests {
     use any2api_domain::{GATEWAY_TOKEN_BODY_LEN, GATEWAY_TOKEN_PREFIX};
 
     #[test]
-    fn gateway_token_requires_versioned_urlsafe_base64_format() {
+    fn gateway_token_requires_standard_urlsafe_base64_format() {
         let valid = format!(
             "{GATEWAY_TOKEN_PREFIX}{}-_",
             "A".repeat(GATEWAY_TOKEN_BODY_LEN - 2)

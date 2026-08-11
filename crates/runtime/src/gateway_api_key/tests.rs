@@ -55,6 +55,16 @@ async fn gateway_auth_material_is_isolated_by_published_snapshot() {
         first_snapshot.authenticate_gateway_api_key(&first_token),
         Some(id)
     );
+    let legacy_token = format!(
+        "a2k_v1_{}",
+        first_token
+            .strip_prefix("sk-")
+            .expect("current token prefix")
+    );
+    assert_eq!(
+        first_snapshot.authenticate_gateway_api_key(&legacy_token),
+        None
+    );
 
     let first_key = first_snapshot.gateway_api_keys().get(id).expect("key");
     let rotated = publisher

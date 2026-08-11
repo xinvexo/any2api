@@ -51,7 +51,7 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
     #[test]
-    fn generate_uses_a_versioned_32_byte_urlsafe_body() {
+    fn generate_uses_a_32_byte_urlsafe_body_with_sk_prefix() {
         let token = GatewayApiKeyToken::generate().expect("generate");
         let value = token.as_str();
         assert!(value.starts_with(GATEWAY_TOKEN_PREFIX));
