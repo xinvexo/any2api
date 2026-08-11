@@ -55,6 +55,7 @@ describe("OAuth quota contracts", () => {
           sample_used_percent: 1,
           sample_started_at: 1_899_999_700,
           sample_ended_at: 1_900_000_000,
+          unpriced_request_count: 3,
           pricing_basis: "openai_api_standard_2026_08_11",
         }],
       }),
@@ -101,6 +102,7 @@ describe("OAuth quota contracts", () => {
         sampleUsedPercent: 1,
         sampleStartedAt: 1_899_999_700,
         sampleEndedAt: 1_900_000_000,
+        unpricedRequestCount: 3,
         pricingBasis: "openai_api_standard_2026_08_11",
       }],
     });

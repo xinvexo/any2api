@@ -13,7 +13,7 @@ use crate::{
 };
 
 #[tokio::test]
-async fn quota_usage_filters_account_and_window_and_groups_complete_models() {
+async fn quota_usage_filters_account_and_window_and_groups_priced_models() {
     let (_directory, store, id) = store_with_account().await;
     let other_id = OAuthAccountId::new();
     let mut records = vec![
@@ -41,7 +41,7 @@ async fn quota_usage_filters_account_and_window_and_groups_complete_models() {
         .await
         .expect("quota log usage");
 
-    assert!(usage.records_complete);
+    assert_eq!(usage.unpriced_request_count, 0);
     assert_eq!(usage.models.len(), 2);
     assert_eq!(usage.models[0].public_model, "gpt-5.4");
     assert_eq!(usage.models[0].input_tokens, 200);
@@ -54,18 +54,28 @@ async fn quota_usage_filters_account_and_window_and_groups_complete_models() {
 }
 
 #[tokio::test]
-async fn incomplete_usage_is_reported_and_reset_boundary_deletes_snapshot_atomically() {
+async fn unpriced_usage_is_counted_without_discarding_priced_failures() {
     let (_directory, store, id) = store_with_account().await;
+    let mut priced_failure = record(id, 1_250, "gpt-5.5", Some(100), Some(10), None);
+    priced_failure.request.status_code = 502;
     let incomplete = record(id, 1_500, "gpt-5.5", Some(50), None, None);
     store
-        .append_request_logs(&[incomplete], MAX_REQUEST_LOG_ROWS)
+        .append_request_logs(&[priced_failure, incomplete], MAX_REQUEST_LOG_ROWS)
         .await
-        .expect("append incomplete log");
+        .expect("append mixed logs");
     let usage = store
         .oauth_quota_request_log_usage(id, 1_000, 2_000)
         .await
         .expect("quota log usage");
-    assert!(!usage.records_complete);
+    assert_eq!(usage.unpriced_request_count, 1);
+    assert_eq!(usage.models.len(), 1);
+    assert_eq!(usage.models[0].input_tokens, 100);
+    assert_eq!(usage.models[0].output_tokens, 10);
+}
+
+#[tokio::test]
+async fn reset_boundary_deletes_snapshot_atomically() {
+    let (_directory, store, id) = store_with_account().await;
 
     store
         .upsert_oauth_quota_snapshot(&StoredOAuthQuotaSnapshot {

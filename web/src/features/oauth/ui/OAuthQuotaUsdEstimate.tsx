@@ -10,10 +10,14 @@ export function QuotaUsdEstimate({ estimate }: { estimate: Estimate }) {
   const sampleDuration = formatSampleDuration(
     estimate.sampleEndedAt - estimate.sampleStartedAt,
   );
+  const unpriced = estimate.unpricedRequestCount > 0
+    ? [`未计入 ${estimate.unpricedRequestCount} 条缺少计费信息的记录`]
+    : [];
   const details = [
     "本机观测估算（非上游余额）",
     `已用 ${used} · 剩余 ${remaining} · 总量 ${capacity}`,
     `样本 ${sampleCost} / 使用率 ${formatPercent(estimate.sampleUsedPercent)} · ${sampleDuration}`,
+    ...unpriced,
     `${formatSampleTime(estimate.sampleStartedAt)} → ${formatSampleTime(estimate.sampleEndedAt)}`,
     `费率卡 ${estimate.pricingBasis}`,
   ].join("\n");

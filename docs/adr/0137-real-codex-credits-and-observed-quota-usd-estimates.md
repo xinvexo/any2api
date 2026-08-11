@@ -17,7 +17,9 @@ any2api 使用，不与其他客户端或实例共享。因此可以从同一账
 实际模型、输入 Token、缓存命中 Token 与输出 Token，按官方标准 API 价计算窗口内本机已用美元等值，
 再用当前累计使用率反推窗口美元等值总量。例如窗口内已记录 `$0.02` 且当前使用率为 `1%`，则窗口总量
 约为 `$2.00`。这仍不是上游余额：百分比可能被取整，Fast/Priority、长上下文和未来价格变化也可能
-改变实际消耗，RequestLog 被关闭、降级丢弃或提前清理时也没有完整样本。
+改变实际消耗，RequestLog 被关闭、降级丢弃或提前清理时也可能没有完整样本。官方 Credits 费率卡与
+同日标准 API 美元费率对当前支持模型保持统一的 `25 Credits = $1` 比例，因此真实 Credits 余额还可以
+显示为标准费率卡美元等值，但该值不是可提现的法币余额。
 
 OpenAI Codex 当前协议把购买余额定义为 `CreditsSnapshot { hasCredits, unlimited, balance }`，并把
 `workspace_*_credits_depleted`、`workspace_*_usage_limit_reached` 与普通 rolling rate limit 分开。
@@ -29,9 +31,10 @@ OpenAI Codex 当前协议把购买余额定义为 `CreditsSnapshot { hasCredits,
    可选非负十进制 `credits.balance`、`spend_control.reached` 和声明的
    `rate_limit_reached_type`。真实 Credits 与 rate-limit reset credits 是两类不同资源，分别展示，
    禁止合并或互相换算。
-2. 管理 API 原样返回经过校验的 Credits 状态。Web 标签只显示 `Credits`：无限、实际余额、余额隐藏但
-   可用，或不可用。有限 `balance` 在卡片中只显示不大于原始值的整数部分且不重复 `Credits` 单位；
-   API 仍保留经过校验的原始十进制字符串。没有上游权威货币字段时，不用本地固定比例把它标成真实美元。
+2. 管理 API 原样返回经过校验的 Credits 状态与原始十进制余额。Web 标签只显示 `Credits`：无限、有限
+   余额、余额隐藏但可用，或不可用。有限余额按版本化官方费率卡固定的 `25 Credits = $1` 显示标准费率卡
+   美元等值，最多四位小数；悬浮文本保留原始 Credits 和换算率。该换算不标成现金余额，也不改变 API
+   原始 Credits 契约。
 3. OAuth 额度健康按官方语义组合证据：
    - `spend_control.reached=true`，以及 workspace owner/member credits depleted 或 usage limit reached，
      是工作区硬停止，始终可以建立临时额度耗尽健康；
@@ -47,9 +50,11 @@ OpenAI Codex 当前协议把购买余额定义为 `CreditsSnapshot { hasCredits,
    活动驱动额度刷新；美元估算不再在 Guard 内维护第二份 Token 成本状态。额度刷新按窗口时间边界读取
    该 OAuthAccount 已提交的最终 RequestLog，按公开模型汇总已有的输入、缓存输入和输出 Token；输入成本按
    `(input_tokens - cached_tokens) × input_rate + cached_tokens × cached_rate`，再加
-   `output_tokens × output_rate`。窗口内任一记录缺少公开模型、输入/输出 usage、费率未知或计算结果非法时，
-   不用部分成本生成估算。失败或取消仍触发原有额度活动刷新，但不伪造 Token 成本；异步日志尚未提交时，
-   当前刷新只使用已提交记录，后续刷新自然补齐。
+   `output_tokens × output_rate`。记录是否纳入只取决于是否具有公开模型与完整 input/output usage，不按
+   成功、失败、取消、HTTP 状态或错误分类过滤；cache usage 缺失按零处理。缺少计价字段的记录从成本中
+   排除并累计为 `unpriced_request_count`，不得阻断同窗其他完整记录。完整记录使用未知模型费率、没有任何
+   可计价记录或计算结果非法时不生成估算。失败或取消仍触发原有额度活动刷新，但不伪造 Token 成本；
+   异步日志尚未提交时，当前刷新只使用已提交记录，后续刷新自然补齐。
 6. 每次成功权威额度刷新都独立按窗口 identity 计算。窗口起点优先使用
    `reset_at - limit_window_seconds`，没有 reset identity 时才以 `fetched_at - limit_window_seconds`
    形成近似边界，再与该账号最近一次成功消费 reset credit 的本地时间取较晚者；终点为当前
@@ -66,17 +71,20 @@ OpenAI Codex 当前协议把购买余额定义为 `CreditsSnapshot { hasCredits,
    当购买 Credits 允许 included window 达到 `100%` 后继续调用时，后续日志成本已经无法区分 included 与
    Credits 消耗；此时只保留同一窗口 identity 且样本起点不早于本地 reset 下界的上一份估算，没有上一份
    则保持未知。没有可用 Credits 的 `100%` 窗口仍可按截至耗尽时的完整日志计算。`0%`、窗口边界无效或
-   证据不完整时保持未知。
-7. 美元等值结果必须携带窗口 ID、容量/已用/剩余、样本成本、百分比增量、样本起止时间和费率卡 ID；
+   没有任何可计价证据时保持未知。
+7. 美元等值结果必须携带窗口 ID、容量/已用/剩余、样本成本、当前累计百分比、样本起止时间、未计入记录
+   数和费率卡 ID；
    管理 API 和持久化快照保留这些诊断字段。Web 在对应窗口的百分比同一行只显示 `$已用/$总量` 数值对，
-   鼠标悬浮辅助文本再说明这是本机观测估算而非上游余额，并展开剩余、样本、增量、时段和费率卡；这些
+   鼠标悬浮辅助文本再说明这是本机观测估算而非上游余额，并展开剩余、样本、时段、未计入记录数和费率卡；这些
    诊断不另占卡片行。估算不能用于扣费、配额、Gateway Key 权限、调度、健康、RPM、会话或重试。
-8. 最后一次估算与安全 quota usage 一起写入 `oauth_quota_snapshots` 的 v2 有界 payload，允许跨页面、
+8. 最后一次估算与安全 quota usage 一起写入 `oauth_quota_snapshots` 的 v4 有界 payload，允许跨页面、
    浏览器和重启展示其原始样本时间。新的进程取得当前权威快照后，可以直接从保留的 RequestLog 重算；
    持久化估算只在同一窗口已经达到 `100%` 且购买 Credits 仍可用时作为冻结结果复用，不恢复任何路由状态。
 9. 前向 Migration 先把 v1 的裸 `OAuthQuotaUsage` payload 规范化为 v2；改用完整窗口 RequestLog 后，
    再把 snapshot 升为 v3，保留权威 `usage`、清空数学语义已经失效的 v2 相邻快照估算，并把诊断字段从
-   `sample_used_percent_delta` 更正为 `sample_used_percent`。生产 Rust 只读取 v3，不保留旧版本双轨解析。
+   `sample_used_percent_delta` 更正为 `sample_used_percent`。允许部分可计价窗口后再升为 v4，继续保留权威
+   `usage`，并为 v3 中必然来自完整窗口的既有估算补入 `unpriced_request_count = 0`；生产 Rust 只读取
+   v4，不保留旧版本双轨解析。
 
 ## 备选方案
 
@@ -88,29 +96,32 @@ OpenAI Codex 当前协议把购买余额定义为 `CreditsSnapshot { hasCredits,
 - 只要有 `has_credits=true` 就忽略所有限制：拒绝。工作区 spend control 和明确的 credits/usage hard stop
   仍是更强的上游证据。
 - 在内存中用相邻快照 `Δ%` 校准：拒绝。百分比取整会让相邻样本过小且波动，进程重启也会丢失基线；在
-  账号不外用的明确前提下，窗口内 RequestLog 是更直接且可恢复的本机已用证据。日志缺失只让展示估算
-  保持未知，不会成为路由依赖。
+  账号不外用的明确前提下，窗口内 RequestLog 是更直接且可恢复的本机已用证据。缺少计价字段的日志会
+  使结果偏低，因此必须显示未计入数量，但不会成为路由依赖。
 
 ## 后果
 
 - 有购买 Credits 的账号在 included rolling window 达到 100% 后仍能继续路由，除非上游同时报告工作区
   Credits 已耗尽或 spend/usage limit hard stop。
-- 管理面以简洁的 `Credits` 整数余额和滚动窗口行内美元等值估算展示两类数据，来源语义保持分离。
-- 美元估算只需要一个成功权威快照和该窗口内完整、已提交的 RequestLog；进程重启后仍可恢复。首次没有
-  日志、日志被关闭/清理/丢弃、未知模型或不完整 usage 时保持未知，仍不宣称为上游真实余额。
-- Snapshot payload 升级为 v3，并新增每账号一行的本地 reset 估算边界；不新增余额表、计费流水、用户/
+- 管理面以简洁的 `Credits` 标准费率卡美元等值和滚动窗口行内美元等值估算展示两类数据，来源语义保持分离。
+- 美元估算只需要一个成功权威快照和该窗口内至少一条可完整计价、已提交的 RequestLog；进程重启后仍可
+  恢复。日志被关闭/清理/丢弃或缺少 usage 时可能低估，悬浮诊断明确未计入数量；没有可计价日志或存在
+  未知模型费率时保持未知，仍不宣称为上游真实余额。
+- Snapshot payload 升级为 v4，并新增每账号一行的本地 reset 估算边界；不新增余额表、计费流水、用户/
   租户关系或恢复型运行状态。
 
 ## 验证
 
 - Provider 测试覆盖 Credits 无限/有限/零/隐藏余额、spend control、五种 reached type、畸形余额和官方费率卡。
-- Migration/Storage/Runtime 测试覆盖账号与窗口边界过滤、按模型汇总、reset 下界持久化与账号级联、
-  2,000 Token/1% 的公式、缓存输入计价、百分比不变时使用完整窗口日志、窗口 reset、未知模型、usage
-  缺失、Guard 单次结算，以及 Credits 下 `100%` 窗口冻结既有估算。
+- Migration/Storage/Runtime 测试覆盖账号与窗口边界过滤、按模型汇总、错误/取消但有 usage 的记录照常计价、
+  缺计价字段记录的排除与计数、reset 下界持久化与账号级联、2,000 Token/1% 的公式、缓存输入计价、
+  百分比不变时使用完整窗口日志、窗口 reset、未知模型、Guard 单次结算，以及 Credits 下 `100%` 窗口冻结
+  既有估算。
 - 健康测试覆盖 Credits 可用覆盖 rolling exhaustion、workspace hard stop 优先、百分比/估算中性和后续
   明确可用清除。
 - Migration/Storage 测试使用代表性 v1 usage 验证 v2 转换、账号级联、大小/版本约束和 v2 往返。
-- HTTP/Web 测试覆盖 Credits 原始响应、整数展示、美元估算与百分比同行、精简字段和无年份更新时间。
+- HTTP/Web 测试覆盖 Credits 原始响应、`25 Credits = $1` 的最多四位小数展示、窗口美元估算与百分比同行、
+  未计入记录悬浮诊断、精简字段和无年份更新时间。
 
 ## 证据
 

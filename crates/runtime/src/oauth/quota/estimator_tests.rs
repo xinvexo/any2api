@@ -24,25 +24,29 @@ fn complete_window_logs_infer_capacity_from_current_percent() {
     assert!((estimate.estimated_capacity_usd - 1.0).abs() < f64::EPSILON);
     assert!((estimate.estimated_remaining_usd - 0.99).abs() < f64::EPSILON);
     assert_eq!(estimate.sample_used_percent, 1.0);
+    assert_eq!(estimate.unpriced_request_count, 0);
 }
 
 #[test]
-fn cached_tokens_are_priced_and_incomplete_or_unknown_logs_are_rejected() {
+fn cached_tokens_and_priced_records_survive_unpriced_neighbors() {
     let driver = CodexDriver::new();
-    let estimate = estimate_from_logs(
-        &driver,
-        &window(10.0),
-        &log_usage("gpt-5.5", 2_000, 100, 500),
-        1_000_000,
-        2_000_000,
-    )
-    .expect("estimate");
+    let mut usage = log_usage("gpt-5.5", 2_000, 100, 500);
+    usage.unpriced_request_count = 3;
+    let estimate =
+        estimate_from_logs(&driver, &window(10.0), &usage, 1_000_000, 2_000_000).expect("estimate");
     assert!((estimate.sample_cost_usd - 0.010_75).abs() < f64::EPSILON);
+    assert_eq!(estimate.unpriced_request_count, 3);
+}
 
-    let mut incomplete = log_usage("gpt-5.5", 2_000, 100, 500);
-    incomplete.records_complete = false;
+#[test]
+fn empty_or_unknown_priced_logs_are_rejected() {
+    let driver = CodexDriver::new();
+    let only_unpriced = OAuthQuotaRequestLogUsage {
+        unpriced_request_count: 1,
+        models: Vec::new(),
+    };
     assert!(
-        estimate_from_logs(&driver, &window(10.0), &incomplete, 1_000_000, 2_000_000).is_none()
+        estimate_from_logs(&driver, &window(10.0), &only_unpriced, 1_000_000, 2_000_000).is_none()
     );
     assert!(
         estimate_from_logs(
@@ -86,6 +90,7 @@ fn saturated_credits_only_reuse_an_estimate_from_after_the_reset_boundary() {
             sample_used_percent: 100.0,
             sample_started_at: 2_000,
             sample_ended_at: 2_500,
+            unpriced_request_count: 0,
             pricing_basis: "test".into(),
         }],
         fetched_at: 2_500,
@@ -127,7 +132,7 @@ fn log_usage(
     cache_read_tokens: u64,
 ) -> OAuthQuotaRequestLogUsage {
     OAuthQuotaRequestLogUsage {
-        records_complete: true,
+        unpriced_request_count: 0,
         models: vec![OAuthQuotaRequestLogModelUsage {
             public_model: model.into(),
             input_tokens,

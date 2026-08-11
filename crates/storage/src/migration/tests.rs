@@ -84,6 +84,10 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
                 23,
                 "rebase oauth quota estimates on request logs".to_owned()
             ),
+            (
+                24,
+                "add oauth quota unpriced request diagnostics".to_owned()
+            ),
         ]
     );
 
@@ -145,7 +149,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(!oauth_schema.contains("'kimi'"));
     assert!(!oauth_schema.contains("max_concurrency"));
     let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;
-    assert!(oauth_quota_schema.contains("schema_version = 3"));
+    assert!(oauth_quota_schema.contains("schema_version = 4"));
     assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));
     assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 524288"));
     let quota_boundary_schema = table_schema(&pool, "oauth_quota_estimation_boundaries").await;

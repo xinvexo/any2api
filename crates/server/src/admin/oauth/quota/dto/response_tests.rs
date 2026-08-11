@@ -34,6 +34,7 @@ fn serializes_real_codex_credits_access_and_usd_estimate() {
             sample_used_percent: 1.0,
             sample_started_at: 1_899_999_700,
             sample_ended_at: 1_900_000_000,
+            unpriced_request_count: 3,
             pricing_basis: "openai_api_standard_2026_08_11".to_owned(),
         }],
     });
@@ -42,6 +43,7 @@ fn serializes_real_codex_credits_access_and_usd_estimate() {
     assert_eq!(value["credits"]["balance"], "17.50");
     assert_eq!(value["access"]["reached_type"], "rate_limit_reached");
     assert_eq!(value["usd_estimates"][0]["estimated_capacity_usd"], 1.0);
+    assert_eq!(value["usd_estimates"][0]["unpriced_request_count"], 3);
     assert_eq!(
         value["usd_estimates"][0]["pricing_basis"],
         "openai_api_standard_2026_08_11"

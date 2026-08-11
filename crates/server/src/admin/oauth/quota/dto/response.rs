@@ -100,6 +100,7 @@ struct OAuthQuotaUsdEstimateResponse {
     sample_used_percent: f64,
     sample_started_at: i64,
     sample_ended_at: i64,
+    unpriced_request_count: u64,
     pricing_basis: String,
 }
 
@@ -117,6 +118,7 @@ impl From<OAuthQuotaUsdEstimate> for OAuthQuotaUsdEstimateResponse {
             sample_used_percent: value.sample_used_percent,
             sample_started_at: value.sample_started_at,
             sample_ended_at: value.sample_ended_at,
+            unpriced_request_count: value.unpriced_request_count,
             pricing_basis: value.pricing_basis,
         }
     }

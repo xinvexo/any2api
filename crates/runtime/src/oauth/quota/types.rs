@@ -30,6 +30,7 @@ pub struct OAuthQuotaUsdEstimate {
     pub sample_used_percent: f64,
     pub sample_started_at: i64,
     pub sample_ended_at: i64,
+    pub unpriced_request_count: u64,
     pub pricing_basis: String,
 }
 

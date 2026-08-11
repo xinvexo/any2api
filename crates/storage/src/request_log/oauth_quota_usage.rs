@@ -13,7 +13,7 @@ pub struct OAuthQuotaRequestLogModelUsage {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct OAuthQuotaRequestLogUsage {
-    pub records_complete: bool,
+    pub unpriced_request_count: u64,
     pub models: Vec<OAuthQuotaRequestLogModelUsage>,
 }
 
@@ -41,7 +41,8 @@ pub trait OAuthQuotaEstimationRepository: Send + Sync {
 #[derive(sqlx::FromRow)]
 struct UsageRow {
     public_model: Option<String>,
-    incomplete_records: i64,
+    priced_records: i64,
+    unpriced_records: i64,
     input_tokens: i64,
     output_tokens: i64,
     cache_read_tokens: i64,
@@ -60,11 +61,21 @@ impl OAuthQuotaEstimationRepository for SqliteStore {
         }
         let rows = sqlx::query_as::<_, UsageRow>(
             "SELECT public_model, \
-             SUM(CASE WHEN public_model IS NULL OR input_tokens IS NULL OR output_tokens IS NULL \
-                 THEN 1 ELSE 0 END) AS incomplete_records, \
-             COALESCE(SUM(input_tokens), 0) AS input_tokens, \
-             COALESCE(SUM(output_tokens), 0) AS output_tokens, \
-             COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens \
+             SUM(CASE WHEN public_model IS NOT NULL \
+                          AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL \
+                 THEN 1 ELSE 0 END) AS priced_records, \
+             SUM(CASE WHEN public_model IS NULL \
+                          OR input_tokens IS NULL OR output_tokens IS NULL \
+                 THEN 1 ELSE 0 END) AS unpriced_records, \
+             COALESCE(SUM(CASE WHEN public_model IS NOT NULL \
+                                   AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL \
+                 THEN input_tokens ELSE 0 END), 0) AS input_tokens, \
+             COALESCE(SUM(CASE WHEN public_model IS NOT NULL \
+                                   AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL \
+                 THEN output_tokens ELSE 0 END), 0) AS output_tokens, \
+             COALESCE(SUM(CASE WHEN public_model IS NOT NULL \
+                                   AND input_tokens IS NOT NULL AND output_tokens IS NOT NULL \
+                 THEN COALESCE(cache_read_tokens, 0) ELSE 0 END), 0) AS cache_read_tokens \
              FROM request_logs \
              WHERE oauth_account_id = ? AND started_at_ms >= ? AND started_at_ms < ? \
              GROUP BY public_model ORDER BY public_model ASC",
@@ -75,9 +86,14 @@ impl OAuthQuotaEstimationRepository for SqliteStore {
         .fetch_all(self.pool())
         .await?;
 
-        let records_complete = rows.iter().all(|row| row.incomplete_records == 0);
+        let unpriced_request_count = rows.iter().try_fold(0_u64, |total, row| {
+            total
+                .checked_add(to_u64(row.unpriced_records)?)
+                .ok_or(StorageError::CorruptTelemetry)
+        })?;
         let models = rows
             .into_iter()
+            .filter(|row| row.priced_records > 0)
             .filter_map(|row| {
                 row.public_model.map(|public_model| {
                     Ok(OAuthQuotaRequestLogModelUsage {
@@ -90,7 +106,7 @@ impl OAuthQuotaEstimationRepository for SqliteStore {
             })
             .collect::<Result<Vec<_>, StorageError>>()?;
         Ok(OAuthQuotaRequestLogUsage {
-            records_complete,
+            unpriced_request_count,
             models,
         })
     }

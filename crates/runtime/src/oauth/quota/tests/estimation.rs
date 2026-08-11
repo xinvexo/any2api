@@ -10,17 +10,12 @@ use super::super::test_support::{AuthenticationMode, QuotaTestContext};
 #[tokio::test]
 async fn first_refresh_estimates_from_the_full_retained_request_log_window() {
     let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
+    let mut priced_failure = usage_record(context.account_id, unix_now_ms(), Some(2_000), Some(0));
+    priced_failure.request.status_code = 502;
+    let unpriced = usage_record(context.account_id, unix_now_ms(), None, None);
     context
         .storage
-        .append_request_logs(
-            &[usage_record(
-                context.account_id,
-                unix_now_ms(),
-                Some(2_000),
-                Some(0),
-            )],
-            MAX_REQUEST_LOG_ROWS,
-        )
+        .append_request_logs(&[priced_failure, unpriced], MAX_REQUEST_LOG_ROWS)
         .await
         .expect("request log");
 
@@ -35,6 +30,7 @@ async fn first_refresh_estimates_from_the_full_retained_request_log_window() {
     assert!((estimate.estimated_used_usd - 0.01).abs() < f64::EPSILON);
     assert!((estimate.estimated_capacity_usd - 0.04).abs() < f64::EPSILON);
     assert_eq!(estimate.sample_used_percent, 25.0);
+    assert_eq!(estimate.unpriced_request_count, 1);
 }
 
 #[tokio::test]

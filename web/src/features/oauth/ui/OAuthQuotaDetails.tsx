@@ -1,11 +1,11 @@
 import type {
-  OAuthQuotaCredits,
   OAuthQuotaSnapshot,
   OAuthQuotaTokenBalance,
   OAuthQuotaUsdEstimate,
   OAuthQuotaWindow,
 } from "../api/oauth-quota-contracts";
 import type { OAuthProvider } from "../api/oauth-contracts";
+import { presentCodexCredits } from "./codex-credit-display";
 import { QuotaUsdEstimate } from "./OAuthQuotaUsdEstimate";
 import { cn } from "@/shared/lib/cn";
 
@@ -22,13 +22,15 @@ export function OAuthQuotaDetails({
   const creditExpiry = showResetCredits ? formatCreditExpiries(quota) : null;
   const isGrok = provider === "grok";
   const hardStopMessage = codexHardStopMessage(quota);
+  const credits = quota.credits ? presentCodexCredits(quota.credits) : null;
 
   return (
     <div className="mt-2 space-y-2.5">
-      {quota.credits ? (
+      {credits ? (
         <QuotaValue
           label="Credits"
-          value={formatCredits(quota.credits)}
+          value={credits.value}
+          detail={credits.detail}
         />
       ) : null}
       {hardStopMessage ? (
@@ -141,11 +143,19 @@ function TokenBalanceBar({
   );
 }
 
-function QuotaValue({ label, value }: { label: string; value: string }) {
+function QuotaValue({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-2 text-[11px]">
       <span className="text-secondary">{label}</span>
-      <span className="min-w-0 truncate font-medium tabular-nums text-primary" title={value}>
+      <span className="min-w-0 truncate font-medium tabular-nums text-primary" title={detail ?? value}>
         {value}
       </span>
     </div>
@@ -157,18 +167,6 @@ function hasOnDemandBilling(quota: OAuthQuotaSnapshot) {
   const cap = quota.billing?.onDemandCapMinor;
   return (used !== null && used !== undefined && used !== 0)
     || (cap !== null && cap !== undefined && cap !== 0);
-}
-
-function formatCredits(credits: OAuthQuotaCredits) {
-  if (credits.unlimited) return "无限";
-  if (credits.hasCredits && credits.balance !== null) {
-    const decimalPoint = credits.balance.indexOf(".");
-    const integer = decimalPoint === -1
-      ? credits.balance
-      : credits.balance.slice(0, decimalPoint);
-    return integer.replace(/^0+(?=\d)/, "");
-  }
-  return credits.hasCredits ? "可用（上游未返回余额）" : "不可用";
 }
 
 function codexHardStopMessage(quota: OAuthQuotaSnapshot) {

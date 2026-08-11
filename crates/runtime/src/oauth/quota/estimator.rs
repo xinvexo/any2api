@@ -110,7 +110,7 @@ pub(super) fn estimate_from_logs(
     started_at_ms: u64,
     ended_at_ms: u64,
 ) -> Option<OAuthQuotaUsdEstimate> {
-    if !usage.records_complete || usage.models.is_empty() {
+    if usage.models.is_empty() {
         return None;
     }
     let mut pricing_basis = None;
@@ -145,6 +145,7 @@ pub(super) fn estimate_from_logs(
         sample_used_percent: used_percent,
         sample_started_at: i64::try_from(started_at_ms / 1_000).ok()?,
         sample_ended_at: i64::try_from(ended_at_ms / 1_000).ok()?,
+        unpriced_request_count: usage.unpriced_request_count,
         pricing_basis: pricing_basis?.to_owned(),
     })
 }
