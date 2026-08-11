@@ -4,6 +4,7 @@ use any2api_domain::{
     RetrySafety, RoutingCredentialId, SettingsConfiguration, UpstreamErrorClassification,
     UpstreamErrorKind, UpstreamFailureAttribution,
 };
+use any2api_storage::api::OAuthQuotaEstimationRepository;
 use any2api_transport::api::TransportTrafficClass;
 
 use super::{
@@ -12,6 +13,8 @@ use super::{
 };
 use crate::health::{HealthAcquireError, ReliabilityPolicy};
 use uuid::Uuid;
+
+mod estimation;
 
 #[tokio::test]
 async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
@@ -83,6 +86,14 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         .await
         .expect("quota reset");
     assert_eq!(reset.windows_reset, 2);
+    assert!(
+        context
+            .storage
+            .load_oauth_quota_reset_boundary(context.account_id)
+            .await
+            .expect("reset boundary")
+            .is_some()
+    );
     changes.changed().await.expect("quota deletion change");
     assert_eq!(*changes.borrow_and_update(), 2);
     assert_eq!(

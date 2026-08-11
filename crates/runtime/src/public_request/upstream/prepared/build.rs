@@ -106,7 +106,6 @@ pub(super) fn prepare_attempt<'a, 'p, 'd>(
         attempt_recorder: Some(attempt_recorder),
         quota_activity: None,
         oauth_account_id: None,
-        quota_cost_rate: None,
         quota_activity_guard: None,
     })
 }

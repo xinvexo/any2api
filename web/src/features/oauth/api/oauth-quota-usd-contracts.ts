@@ -9,7 +9,7 @@ export interface OAuthQuotaUsdEstimate {
   estimatedUsedUsd: number;
   estimatedRemainingUsd: number;
   sampleCostUsd: number;
-  sampleUsedPercentDelta: number;
+  sampleUsedPercent: number;
   sampleStartedAt: number;
   sampleEndedAt: number;
   pricingBasis: string;
@@ -31,7 +31,7 @@ function parseEstimate(value: unknown): OAuthQuotaUsdEstimate {
     estimatedUsedUsd: readNumber(value.estimated_used_usd),
     estimatedRemainingUsd: readNumber(value.estimated_remaining_usd),
     sampleCostUsd: readPositiveNumber(value.sample_cost_usd),
-    sampleUsedPercentDelta: readPositiveNumber(value.sample_used_percent_delta),
+    sampleUsedPercent: readPositiveNumber(value.sample_used_percent),
     sampleStartedAt: readInteger(value.sample_started_at),
     sampleEndedAt: readInteger(value.sample_ended_at),
     pricingBasis: readString(value.pricing_basis),

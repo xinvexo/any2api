@@ -15,6 +15,7 @@ mod gateway_auth_rejected_logs;
 mod http_access_log_capacity;
 mod http_access_log_loopback_ips;
 mod oauth_account_documents;
+mod oauth_quota_estimation_boundaries;
 mod oauth_quota_snapshots;
 mod plaintext_schema;
 mod provider_kind_kimi;
@@ -78,6 +79,11 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             ),
             (20, "standard sk gateway api key prefix".to_owned()),
             (21, "version oauth quota snapshot payload".to_owned()),
+            (22, "persist oauth quota estimation boundaries".to_owned()),
+            (
+                23,
+                "rebase oauth quota estimates on request logs".to_owned()
+            ),
         ]
     );
 
@@ -139,8 +145,12 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(!oauth_schema.contains("'kimi'"));
     assert!(!oauth_schema.contains("max_concurrency"));
     let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;
+    assert!(oauth_quota_schema.contains("schema_version = 3"));
     assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));
     assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 524288"));
+    let quota_boundary_schema = table_schema(&pool, "oauth_quota_estimation_boundaries").await;
+    assert!(quota_boundary_schema.contains("reset_at_ms INTEGER NOT NULL"));
+    assert!(quota_boundary_schema.contains("ON DELETE CASCADE"));
     let provider_credential_schema = table_schema(&pool, "provider_credentials").await;
     assert!(provider_credential_schema.contains("api_key BLOB NOT NULL"));
     let proxy_password_schema = table_schema(&pool, "proxy_passwords").await;

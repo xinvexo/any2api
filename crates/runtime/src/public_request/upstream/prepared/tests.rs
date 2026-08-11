@@ -84,7 +84,6 @@ async fn postprocess_failure_closes_half_open_health_before_releasing_capacity()
         attempt_recorder: Some(AttemptRecorder::disabled()),
         quota_activity: None,
         oauth_account_id: None,
-        quota_cost_rate: None,
         quota_activity_guard: None,
     };
 

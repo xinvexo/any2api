@@ -89,23 +89,11 @@ impl OAuthQuotaPersistence {
         Ok(())
     }
 
-    pub(super) async fn delete(&self, id: OAuthAccountId) -> Result<(), OAuthQuotaError> {
-        if self
-            .repository
-            .delete_oauth_quota_snapshot(id)
-            .await
-            .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?
-        {
-            self.notify_changed();
-        }
-        Ok(())
-    }
-
     pub(super) fn subscribe(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
     }
 
-    fn notify_changed(&self) {
+    pub(super) fn notify_changed(&self) {
         self.changes
             .send_modify(|epoch| *epoch = epoch.wrapping_add(1));
     }
@@ -160,7 +148,7 @@ fn validate_estimates(estimates: &[OAuthQuotaUsdEstimate]) -> Result<(), OAuthQu
                 || !non_negative_finite(estimate.estimated_used_usd)
                 || !non_negative_finite(estimate.estimated_remaining_usd)
                 || !positive_finite(estimate.sample_cost_usd)
-                || !positive_finite(estimate.sample_used_percent_delta)
+                || !positive_finite(estimate.sample_used_percent)
         })
     {
         return Err(OAuthQuotaError::InvalidPersistedSnapshot);

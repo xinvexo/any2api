@@ -8,7 +8,7 @@ use any2api_provider::api::{
     OAuthQuotaExhaustion, OAuthQuotaResetResult, OAuthQuotaTokenBalance,
     OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, ProviderRegistry,
 };
-use any2api_storage::api::OAuthQuotaSnapshotRepository;
+use any2api_storage::api::{OAuthQuotaEstimationRepository, OAuthQuotaSnapshotRepository};
 use any2api_transport::api::{TransportManager, TransportTrafficClass};
 use http::StatusCode;
 use tokio::sync::watch;
@@ -21,6 +21,7 @@ use crate::{
 
 use super::{
     activity::OAuthQuotaActivity,
+    estimator::OAuthQuotaEstimator,
     health, observation,
     operation_gate::{OAuthQuotaCompletedOperation, OAuthQuotaOperationGates},
     persistence::OAuthQuotaPersistence,
@@ -29,12 +30,13 @@ use super::{
 };
 
 pub(in crate::oauth) struct OAuthQuotaService {
-    providers: Arc<ProviderRegistry>,
+    pub(super) providers: Arc<ProviderRegistry>,
     transport: Arc<dyn TransportManager>,
-    publisher: Arc<ConfigPublisher>,
+    pub(super) publisher: Arc<ConfigPublisher>,
     pub(super) refresher: Arc<OAuthRefresher>,
     control_plane: Arc<OAuthControlPlanePacer>,
-    persistence: OAuthQuotaPersistence,
+    pub(super) persistence: OAuthQuotaPersistence,
+    pub(super) estimator: OAuthQuotaEstimator,
     activity: OAuthQuotaActivity,
     operation_gates: OAuthQuotaOperationGates,
 }
@@ -47,6 +49,7 @@ impl OAuthQuotaService {
         refresher: Arc<OAuthRefresher>,
         control_plane: Arc<OAuthControlPlanePacer>,
         quota_repository: Arc<dyn OAuthQuotaSnapshotRepository>,
+        estimation_repository: Arc<dyn OAuthQuotaEstimationRepository>,
     ) -> Self {
         Self {
             providers,
@@ -55,6 +58,7 @@ impl OAuthQuotaService {
             refresher,
             control_plane,
             persistence: OAuthQuotaPersistence::new(quota_repository),
+            estimator: OAuthQuotaEstimator::new(estimation_repository),
             activity: OAuthQuotaActivity::new(),
             operation_gates: OAuthQuotaOperationGates::default(),
         }
@@ -101,15 +105,7 @@ impl OAuthQuotaService {
         id: OAuthAccountId,
     ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
         let usage = self.query_with_authentication_retry(id).await?;
-        let fetched_at = document::unix_now();
-        let usd_estimates = self.activity.observe_snapshot(id, &usage, fetched_at);
-        let snapshot = OAuthQuotaSnapshot {
-            usage,
-            usd_estimates,
-            fetched_at,
-        };
-        self.persistence.store(id, &snapshot).await?;
-        Ok(snapshot)
+        super::snapshot::build(self, id, usage).await
     }
 
     pub(in crate::oauth) fn subscribe_changes(&self) -> watch::Receiver<u64> {
@@ -157,7 +153,12 @@ impl OAuthQuotaService {
             .reset_with_authentication_retry(id, &redeem_request_id)
             .await?;
         self.clear_temporary_cooldowns(id);
-        self.persistence.delete(id).await?;
+        let reset_at_ms = document::unix_now_millis();
+        self.estimator
+            .record_reset(id, reset_at_ms)
+            .await
+            .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?;
+        self.persistence.notify_changed();
         Ok(OAuthQuotaResetOutcome {
             windows_reset: result.windows_reset,
         })

@@ -5,7 +5,7 @@ use any2api_provider::api::{
     OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow, OAuthRequestPlan, ProviderDriver,
     ProviderRegistry,
 };
-use any2api_storage::api::OAuthQuotaSnapshotRepository;
+use any2api_storage::api::{OAuthQuotaEstimationRepository, OAuthQuotaSnapshotRepository};
 use any2api_transport::api::{TransportIsolationKey, TransportManager, TransportTrafficClass};
 use tokio::sync::watch;
 
@@ -46,7 +46,7 @@ impl OAuthService {
         quota_repository: Arc<R>,
     ) -> Self
     where
-        R: OAuthQuotaSnapshotRepository + 'static,
+        R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
     {
         Self::new_with_control_plane_interval(
             providers,
@@ -65,7 +65,7 @@ impl OAuthService {
         control_plane_interval: std::time::Duration,
     ) -> Self
     where
-        R: OAuthQuotaSnapshotRepository + 'static,
+        R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
     {
         let control_plane = Arc::new(OAuthControlPlanePacer::new(control_plane_interval));
         let refresher = OAuthRefresher::new(
@@ -74,13 +74,17 @@ impl OAuthService {
             Arc::clone(&publisher),
             Arc::clone(&control_plane),
         );
+        let snapshot_repository: Arc<dyn OAuthQuotaSnapshotRepository> =
+            Arc::clone(&quota_repository) as _;
+        let estimation_repository: Arc<dyn OAuthQuotaEstimationRepository> = quota_repository;
         let quota = Arc::new(OAuthQuotaService::new(
             Arc::clone(&providers),
             Arc::clone(&transport),
             Arc::clone(&publisher),
             Arc::clone(&refresher),
             Arc::clone(&control_plane),
-            quota_repository,
+            snapshot_repository,
+            estimation_repository,
         ));
         Self {
             providers,
@@ -101,7 +105,7 @@ impl OAuthService {
         quota_repository: Arc<R>,
     ) -> Self
     where
-        R: OAuthQuotaSnapshotRepository + 'static,
+        R: OAuthQuotaEstimationRepository + OAuthQuotaSnapshotRepository + 'static,
     {
         Self::new_with_control_plane_interval(
             providers,

@@ -17,7 +17,7 @@ use crate::{
 
 pub(super) struct QuotaTestContext {
     _directory: tempfile::TempDir,
-    _storage: Arc<SqliteStore>,
+    pub(super) storage: Arc<SqliteStore>,
     pub(super) snapshots: Arc<SnapshotStore>,
     pub(super) runtime: Arc<RuntimeRegistry>,
     pub(super) service: Arc<OAuthService>,
@@ -173,7 +173,7 @@ impl QuotaTestContext {
         ));
         Self {
             _directory: directory,
-            _storage: storage,
+            storage,
             snapshots,
             runtime,
             service,

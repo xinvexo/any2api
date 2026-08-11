@@ -172,9 +172,6 @@ impl GuardedBody {
             )?;
             self.request_recorder
                 .observe_token_usage(telemetry.token_usage);
-            if let Some(activity) = self.quota_activity.as_mut() {
-                activity.observe_token_usage(telemetry.token_usage);
-            }
         }
         self.pending.push_back(PendingFrame {
             bytes: frame.0,
@@ -219,9 +216,6 @@ impl GuardedBody {
                 deadline,
             )?;
             self.request_recorder.observe_token_usage(frame.token_usage);
-            if let Some(activity) = self.quota_activity.as_mut() {
-                activity.observe_token_usage(frame.token_usage);
-            }
             self.pending.push_back(frame);
         }
         self.precommit_budget.commit();

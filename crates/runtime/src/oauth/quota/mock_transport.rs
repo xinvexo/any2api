@@ -57,6 +57,7 @@ pub(super) struct QuotaTransport {
     grok_unified: bool,
     codex_exhausted: AtomicBool,
     codex_has_credits: AtomicBool,
+    codex_reset_at: i64,
     block_next_usage: AtomicBool,
     usage_started: Semaphore,
     usage_release: Semaphore,
@@ -81,6 +82,7 @@ impl QuotaTransport {
             grok_unified: false,
             codex_exhausted: AtomicBool::new(false),
             codex_has_credits: AtomicBool::new(false),
+            codex_reset_at: unix_now().saturating_add(60),
             block_next_usage: AtomicBool::new(false),
             usage_started: Semaphore::new(0),
             usage_release: Semaphore::new(0),
@@ -177,6 +179,14 @@ impl QuotaTransport {
     pub(super) fn set_codex_has_credits(&self, has_credits: bool) {
         self.codex_has_credits.store(has_credits, Ordering::Release);
     }
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+        .unwrap_or_default()
 }
 
 #[async_trait]

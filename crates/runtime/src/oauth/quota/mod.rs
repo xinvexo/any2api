@@ -8,12 +8,15 @@ mod operation_gate;
 mod persistence;
 mod rejection;
 mod request;
+mod snapshot;
 mod types;
 
 #[cfg(test)]
 mod authentication_tests;
 #[cfg(test)]
 mod claude_tests;
+#[cfg(test)]
+mod estimator_tests;
 #[cfg(test)]
 mod grok_tests;
 #[cfg(test)]

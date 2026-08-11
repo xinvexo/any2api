@@ -45,7 +45,9 @@ test("shows compact Codex Credits and an inline USD estimate", async () => {
   const estimate = within(panel).getByText("$0.375/$1.00");
   expect(estimate.parentElement).toContainElement(within(panel).getByText("63%"));
   expect(estimate.getAttribute("title")).toContain("剩余 $0.625");
-  expect(estimate.getAttribute("title")).toContain("样本 $0.01 / Δ1% · 5 分钟");
+  expect(estimate.getAttribute("title")).toContain(
+    "样本 $0.01 / 使用率 1% · 5 分钟",
+  );
   expect(estimate.getAttribute("title")).toContain("费率卡 openai_api_standard_2026_08_11");
   expect(within(panel).queryByText(/样本 \$0.01/)).not.toBeInTheDocument();
 });
@@ -393,7 +395,7 @@ function quotaWithCreditsAndEstimate() {
       estimated_used_usd: 0.375,
       estimated_remaining_usd: 0.625,
       sample_cost_usd: 0.01,
-      sample_used_percent_delta: 1,
+      sample_used_percent: 1,
       sample_started_at: 1_899_999_700,
       sample_ended_at: 1_900_000_000,
       pricing_basis: "openai_api_standard_2026_08_11",

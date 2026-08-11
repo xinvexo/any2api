@@ -27,7 +27,7 @@ pub struct OAuthQuotaUsdEstimate {
     pub estimated_used_usd: f64,
     pub estimated_remaining_usd: f64,
     pub sample_cost_usd: f64,
-    pub sample_used_percent_delta: f64,
+    pub sample_used_percent: f64,
     pub sample_started_at: i64,
     pub sample_ended_at: i64,
     pub pricing_basis: String,

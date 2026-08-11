@@ -31,7 +31,7 @@ fn serializes_real_codex_credits_access_and_usd_estimate() {
             estimated_used_usd: 0.11,
             estimated_remaining_usd: 0.89,
             sample_cost_usd: 0.01,
-            sample_used_percent_delta: 1.0,
+            sample_used_percent: 1.0,
             sample_started_at: 1_899_999_700,
             sample_ended_at: 1_900_000_000,
             pricing_basis: "openai_api_standard_2026_08_11".to_owned(),

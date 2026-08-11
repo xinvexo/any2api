@@ -26,6 +26,7 @@ pub use crate::provider::{
 pub use crate::proxy::{ProxyPasswordValidationError, StoredProxyPassword, StoredProxyPasswords};
 pub use crate::request_log::RequestLogRepository;
 pub use crate::request_log::{
+    OAuthQuotaEstimationRepository, OAuthQuotaRequestLogModelUsage, OAuthQuotaRequestLogUsage,
     REQUEST_LOG_CLEANUP_BATCH_ROWS, REQUEST_USAGE_WINDOW_COUNT, REQUEST_USAGE_WINDOW_MINUTES,
     RequestLogCleanupOutcome, RequestLogOverview, RequestLogOverviewBucket,
     RequestLogOverviewModel, RequestLogOverviewRange, RequestLogOverviewTotals,

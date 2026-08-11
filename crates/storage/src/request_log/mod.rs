@@ -1,4 +1,5 @@
 mod capacity;
+mod oauth_quota_usage;
 mod overview;
 mod pagination;
 mod repository;
@@ -8,11 +9,16 @@ pub(crate) mod usage_window;
 mod writes;
 
 #[cfg(test)]
+mod quota_estimation_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod usage_tests;
 
 pub use capacity::{REQUEST_LOG_CLEANUP_BATCH_ROWS, RequestLogCleanupOutcome};
+pub use oauth_quota_usage::{
+    OAuthQuotaEstimationRepository, OAuthQuotaRequestLogModelUsage, OAuthQuotaRequestLogUsage,
+};
 pub use overview::{
     RequestLogOverview, RequestLogOverviewBucket, RequestLogOverviewModel, RequestLogOverviewRange,
     RequestLogOverviewTotals,

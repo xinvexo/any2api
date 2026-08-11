@@ -42,10 +42,27 @@ impl QuotaTransport {
             return rejected;
         }
         if self.codex_exhausted.load(Ordering::Acquire) {
-            return codex_exhausted(self.codex_has_credits.load(Ordering::Acquire));
+            return codex_exhausted(
+                self.codex_has_credits.load(Ordering::Acquire),
+                self.codex_reset_at,
+            );
         }
-        ok(Bytes::from_static(
-            br#"{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":25.0,"limit_window_seconds":18000,"reset_after_seconds":60,"reset_at":1900000000},"secondary_window":null},"rate_limit_reset_credits":{"available_count":7}}"#,
+        ok(Bytes::from(
+            serde_json::json!({
+                "rate_limit": {
+                    "allowed": true,
+                    "limit_reached": false,
+                    "primary_window": {
+                        "used_percent": 25.0,
+                        "limit_window_seconds": 18_000,
+                        "reset_after_seconds": 60,
+                        "reset_at": self.codex_reset_at
+                    },
+                    "secondary_window": null
+                },
+                "rate_limit_reset_credits": {"available_count": 7}
+            })
+            .to_string(),
         ))
     }
 
@@ -135,14 +152,45 @@ impl QuotaTransport {
     }
 }
 
-fn codex_exhausted(has_credits: bool) -> MockResponse {
+fn codex_exhausted(has_credits: bool, reset_at: i64) -> MockResponse {
     if has_credits {
-        return ok(Bytes::from_static(
-            br#"{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100.0,"limit_window_seconds":18000,"reset_after_seconds":60,"reset_at":1900000000},"secondary_window":null},"credits":{"has_credits":true,"unlimited":false,"balance":"17.50"},"spend_control":{"reached":false},"rate_limit_reached_type":{"type":"rate_limit_reached"},"rate_limit_reset_credits":{"available_count":7}}"#,
+        return ok(Bytes::from(
+            serde_json::json!({
+                "rate_limit": {
+                    "allowed": false,
+                    "limit_reached": true,
+                    "primary_window": {
+                        "used_percent": 100.0,
+                        "limit_window_seconds": 18_000,
+                        "reset_after_seconds": 60,
+                        "reset_at": reset_at
+                    },
+                    "secondary_window": null
+                },
+                "credits": {"has_credits": true, "unlimited": false, "balance": "17.50"},
+                "spend_control": {"reached": false},
+                "rate_limit_reached_type": {"type": "rate_limit_reached"},
+                "rate_limit_reset_credits": {"available_count": 7}
+            })
+            .to_string(),
         ));
     }
-    ok(Bytes::from_static(
-        br#"{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100.0,"limit_window_seconds":18000,"reset_after_seconds":60,"reset_at":1900000000},"secondary_window":null},"rate_limit_reset_credits":{"available_count":7}}"#,
+    ok(Bytes::from(
+        serde_json::json!({
+            "rate_limit": {
+                "allowed": false,
+                "limit_reached": true,
+                "primary_window": {
+                    "used_percent": 100.0,
+                    "limit_window_seconds": 18_000,
+                    "reset_after_seconds": 60,
+                    "reset_at": reset_at
+                },
+                "secondary_window": null
+            },
+            "rate_limit_reset_credits": {"available_count": 7}
+        })
+        .to_string(),
     ))
 }
 

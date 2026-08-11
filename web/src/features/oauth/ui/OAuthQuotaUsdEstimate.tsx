@@ -13,7 +13,7 @@ export function QuotaUsdEstimate({ estimate }: { estimate: Estimate }) {
   const details = [
     "本机观测估算（非上游余额）",
     `已用 ${used} · 剩余 ${remaining} · 总量 ${capacity}`,
-    `样本 ${sampleCost} / Δ${formatPercentDelta(estimate.sampleUsedPercentDelta)} · ${sampleDuration}`,
+    `样本 ${sampleCost} / 使用率 ${formatPercent(estimate.sampleUsedPercent)} · ${sampleDuration}`,
     `${formatSampleTime(estimate.sampleStartedAt)} → ${formatSampleTime(estimate.sampleEndedAt)}`,
     `费率卡 ${estimate.pricingBasis}`,
   ].join("\n");
@@ -38,7 +38,7 @@ function formatEstimatedUsd(value: number) {
   }).format(value);
 }
 
-function formatPercentDelta(value: number) {
+function formatPercent(value: number) {
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value)}%`;
 }
 
