@@ -96,6 +96,21 @@ impl OAuthImportIdentity {
         }
         Self { keys }
     }
+
+    pub(crate) fn stable_matches(&self, token: &OAuthTokenMaterial) -> bool {
+        self.keys.iter().any(|key| match key {
+            OAuthImportIdentityKey::Stable(identity) => identity.matches(token),
+            OAuthImportIdentityKey::Secret(_) => false,
+        })
+    }
+
+    pub(crate) fn exact_token_matches(&self, token: &OAuthTokenMaterial) -> bool {
+        let candidate = Self::from_token(token);
+        self.keys.iter().any(|key| {
+            matches!(key, OAuthImportIdentityKey::Secret(_))
+                && candidate.keys.iter().any(|candidate| candidate == key)
+        })
+    }
 }
 
 impl OAuthImportIdentityIndex {
@@ -114,7 +129,7 @@ impl OAuthImportIdentityIndex {
 
 fn secret_digest(provider: ProviderKind, kind: &[u8], secret: &str) -> [u8; 32] {
     let mut digest = Sha256::new();
-    digest.update(b"any2api.oauth-import-identity.v1\0");
+    digest.update(b"any2api.oauth-credential-identity.v1\0");
     digest.update(provider.as_str().as_bytes());
     digest.update(b"\0");
     digest.update(kind);
@@ -286,5 +301,70 @@ mod tests {
         assert!(index.insert_new(&OAuthImportIdentity::from_token(&first)));
         assert!(index.insert_new(&OAuthImportIdentity::from_token(&second)));
         assert!(index.insert_new(&OAuthImportIdentity::from_token(&third)));
+    }
+
+    #[test]
+    fn login_identity_can_match_exact_token_without_stable_identity() {
+        let existing = OAuthTokenMaterial::new(
+            ProviderKind::Claude,
+            "access-a".into(),
+            Some("refresh-a".into()),
+            Some("id-a".into()),
+            None,
+            Some("account-a".into()),
+            Some("person@example.com".into()),
+        )
+        .expect("existing token");
+        let incoming = [
+            OAuthTokenMaterial::new(
+                ProviderKind::Claude,
+                "access-a".into(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("same access token"),
+            OAuthTokenMaterial::new(
+                ProviderKind::Claude,
+                "different-access".into(),
+                Some("refresh-a".into()),
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("same refresh token"),
+            OAuthTokenMaterial::new(
+                ProviderKind::Claude,
+                "different-access".into(),
+                Some("different-refresh".into()),
+                Some("id-a".into()),
+                None,
+                None,
+                None,
+            )
+            .expect("same ID token"),
+        ];
+
+        for incoming in incoming {
+            let identity = OAuthImportIdentity::from_token(&incoming);
+            assert!(!identity.stable_matches(&existing));
+            assert!(identity.exact_token_matches(&existing));
+        }
+        let different_provider = OAuthImportIdentity::from_token(
+            &OAuthTokenMaterial::new(
+                ProviderKind::Grok,
+                "access-a".into(),
+                Some("refresh-a".into()),
+                Some("id-a".into()),
+                None,
+                None,
+                None,
+            )
+            .expect("different provider token"),
+        );
+        assert!(!different_provider.exact_token_matches(&existing));
     }
 }

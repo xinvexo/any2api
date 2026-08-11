@@ -47,7 +47,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 16. Codex WebSocket 不进入首个正式版本，首版 TransportMode 只有 JSON 和 SSE。
 17. Provider API Key 保存后使用实际 Endpoint、Provider 定义的模型目录路径、认证材料与代理读取候选目录；Codex/Grok/Kimi 使用 Base URL 下的 `/models`，Claude 使用根 Base URL 下的 `/v1/models`。管理员最终确认的目录选择与手工模型名按 Credential 持久化，公开模型名首版固定等于上游模型名。`ModelRoute`/`RouteTarget` 只作为内部调度物化结果，不要求用户手工配置。
 18. TTL、排队、冷却、熔断、重试和日志保留参数提供内置默认值，并允许在 Web 中写入覆盖值；Web 不提供恢复默认入口。
-19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；导入器把已审计的 CLIProxyAPI 与 Sub2API OAuth 结构当作当前外部输入协议，在边界规范化为唯一的 any2api OAuthAccount JSON 后整批原子发布。外部 wrapper 和字段变体不得进入 SQLite 或运行时读取路径。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
+19. 不提供通用配置或 Secret 导入导出；交互式 OAuth2 登录和 Provider 专用 OAuth JSON 导入都只写入独立的 SQLite `OAuthAccount`。交互式重新登录唯一匹配同一 Provider 稳定账号身份时原子更新原账号，不创建重复路由凭据；若登录 Token 缺少稳定身份但与现有账号的同 Provider、同 Token 类型材料完全相同，也不得新建第二条凭据，无法安全唯一复用时在发布锁内 fail-closed。导入器把已审计的 CLIProxyAPI 与 Sub2API OAuth 结构当作当前外部输入协议，在边界规范化为唯一的 any2api OAuthAccount JSON 后整批原子发布。外部 wrapper 和字段变体不得进入 SQLite 或运行时读取路径。明文 JSON 只保存在账号记录中，不创建或修改 API-key-only `ProviderCredential`。
 20. 支持通过 HTTP 或 HTTPS 远程访问管理面；远程管理访问默认启用并使用独立管理员认证，监听范围仍由启动参数决定，TLS 推荐但不强制。
 21. `E:\clashx` 仅用于核对 React/Vite/Tailwind 等前端技术栈，不复制其 Tauri 桌面布局、窗口交互或视觉结构；any2api 管理面必须是现代、克制、响应式的浏览器 Web，整体偏 macOS 质感但不花哨。
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
@@ -66,7 +66,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 35. 通用 Transport wire profile 必须由本地 loopback conformance fixture 固定 TLS ClientHello 的稳定字段集合与真实顺序策略、HTTP/2 初始控制帧和 HTTP/1.1 原始请求头；依赖升级造成 fixture 差异时必须人工审核并提升 wire profile policy version。fixture 只描述 any2api 实际行为，不得被表述为官方客户端基线，也不得由 any2api 另加随机化来隐藏差异。
 36. 实际进入 Transport 的 RequestAttempt 必须保存不含 Secret 的结构化线路诊断；流式 Attempt 还必须以 Attempt 起点为单调时钟基准记录首个完整上游 SSE frame、预提交 commit、首个向下游 Body yield 和取消四个 first-write-wins 时间点。诊断只用于本地可观测与回归，不能改变 retry、flush、backpressure、连接复用或路由行为。
 37. 官方客户端基线只能使用明确版本和哈希的发布物、合成凭据、临时客户端目录、清空后的进程环境与 loopback recorder 离线采集；每份基线必须记录 Provider、客户端入口、版本、平台、操作、日期、HTTP 条件和局限。仓库只保存脱敏后的 Header 顺序、Body 结构与 capture hash，不保存原始认证值、动态设备/会话/请求标识或完整提示正文。单一入口或平台的观测不能自动改写通用 Provider persona，更不能据此增加 TLS/HTTP2 随机化或伪装层。
-38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新和额度操作必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在同一全局出口同步起跑。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider account ID、无 account ID 时的规范化邮箱，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。完整决策见 `docs/adr/0132-provider-scoped-oauth-control-plane-pacing.md` 与 `docs/adr/0133-reject-duplicate-oauth-import-identities.md`。
+38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新和额度操作必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在同一全局出口同步起跑。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider account ID、无 account ID 时的规范化邮箱，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。交互式登录也必须在同一发布锁内检查精确 Token 重复：稳定身份与 Token 证据指向不同历史记录时返回冲突，缺少稳定身份但只命中一条精确 Token 记录时复用该记录，不能创建新候选。完整决策见 `docs/adr/0132-provider-scoped-oauth-control-plane-pacing.md`、`docs/adr/0133-reject-duplicate-oauth-import-identities.md` 与 `docs/adr/0134-interactive-oauth-token-duplicate-guard.md`。
 
 ### 2.1 两类凭据的术语边界
 
@@ -2595,7 +2595,7 @@ authorize/token Endpoint、Client ID 和 localhost Redirect URI，以及 Grok �
 Client ID，都由各自 Driver 固定。登录、刷新和数据面都使用 OAuthAccount 的 DIRECT 绑定并继承全局代理，
 失败禁止回退本机直连。
 
-交互式登录在 Token 交换完成后、配置发布锁内核对当前快照中的 Provider 账号身份。稳定 Provider account ID 优先；只有新旧 Token 都没有 account ID 时，才使用规范化邮箱作为回落身份。唯一匹配时保留原 `OAuthAccountId`、管理员标签、RPM 与 enabled，使用 `token_version` CAS 替换 OAuth JSON 和安全元数据，并只保留仍存在于新 Provider 模型目录中的既有选择，禁止重新登录自动扩大模型集合。没有匹配时在同一发布锁内生成唯一标签并新建账号；出现多个相同身份记录时返回明确冲突，不覆盖任意一条，也不继续制造重复账号。重新授权与新建都必须在一个 SQLite 事务、一次 Runtime reconcile 和一次快照切换中完成；完整决策见 `docs/adr/0087-interactive-oauth-account-reauthorization.md`。
+交互式登录在 Token 交换完成后、配置发布锁内核对当前快照中的 Provider 账号身份。稳定 Provider account ID 优先；只有新旧 Token 都没有 account ID 时，才使用规范化邮箱作为回落身份。唯一匹配时保留原 `OAuthAccountId`、管理员标签、RPM 与 enabled，使用 `token_version` CAS 替换 OAuth JSON 和安全元数据，并只保留仍存在于新 Provider 模型目录中的既有选择，禁止重新登录自动扩大模型集合。若新 Token 没有稳定 account ID/邮箱，但与一条现有账号的同 Provider、同 Token 类型材料完全相同，也视为该凭据的重复登录并复用原账号；若稳定身份与精确 Token 分别命中不同记录，或精确 Token 命中多条记录，返回 `oauth_account_identity_conflict`，不猜测覆盖。没有匹配时才在同一发布锁内生成唯一标签并新建账号；出现多个相同身份记录时返回明确冲突，不覆盖任意一条，也不继续制造重复账号。重新授权与新建都必须在一个 SQLite 事务、一次 Runtime reconcile 和一次快照切换中完成；完整决策见 `docs/adr/0087-interactive-oauth-account-reauthorization.md` 与 `docs/adr/0134-interactive-oauth-token-duplicate-guard.md`。
 
 OAuth 刷新使用统一 SettingRegistry 中的热更新参数：
 

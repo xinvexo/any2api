@@ -16,6 +16,8 @@
 > 2026-08-11 又由真实 Composition Root Registry 生成 35 个 loopback raw HTTP/1 surface，覆盖 API Key/OAuth direct、所有有效 Bridge/Provider 组合、OAuth token 与 quota plan，精确比较 target、path/query、认证类别、Header 集合/顺序和原始 Body，E-07 已完成。随后扩展的双向 raw H2 recorder 证明同隔离域顺序复用 stream 1/3、首响应前并发 stream 1/3，以及 graceful GOAWAY/PING 后新连接从 stream 1 重启，E-05 也已完成。ADR-0131 进一步提交 Codex 0.147.0 macOS arm64 的 `codex exec` 与交互 TUI 两份独立 loopback HTTP/1 Responses 基线；清空环境后两者分别使用 `codex_exec` 与 `codex-tui` persona，继承 Desktop originator override 的试采已明确作废。当前仍缺 Claude/Grok/Kimi、Codex ChatGPT OAuth/TLS/H2、其他平台和长期流官方基线；仍不得声称与官方客户端完全一致或不可被识别。
 >
 > OAuth 专项复核进一步确认：连接隔离并不会改变多个官方账号继承同一全局出口这一事实，但原定时刷新和 activity quota Worker 会让同一 Provider 最多 6 条控制面请求在同一 tick 起跑。ADR-0132 现在让登录、Device Code、Token 刷新、quota 查询与 reset 共用 Provider 级 500 ms 最小起始间隔，只错开 Transport 开始时刻，不串行响应、不限制数据面并发。ADR-0133 同时在发布锁内原子拒绝稳定身份或任一完全相同 Token 可证明重复的导入，避免一个官方账号被复制成多条路由凭据；E-12 已闭环。共享出口 IP 仍可见，项目没有加入随机化、身份伪造或风控规避层。
+>
+> ADR-0134 又补齐交互式 OAuth 登录：当 Provider 未返回稳定 account ID/邮箱，但 access、refresh 或 ID Token 与一条现有记录完全相同时，登录复用原 `OAuthAccount`，不会创建第二个路由、刷新、额度和连接隔离对象；稳定身份与精确 Token 指向不同记录或 Token 命中多条历史记录时，在发布锁内返回冲突且不改变 SQLite、Runtime 或 PublishedSnapshot。E-13 已闭环。这项修复只消除本地账号重复和跨记录歧义，不试图隐藏共享出口或 generic Rust transport。
 
 ## 1. Executive Summary
 
@@ -1037,8 +1039,9 @@ Kimi 已由 ADR-0124 获得独立 Provider 身份，连接/TLS 跨账号共享�
 | E-10 SSE timing | 量化 precommit burst/backpressure | **四点埋点与受控顺序测试已完成** | RequestAttempt 持久化 frame、commit、Body yield、cancel；负载分布待测 |
 | E-11 官方 Codex H1 | 对照明确版本的应用层 surface | **exec/TUI 两份基线已完成** | 0.147.0 macOS arm64；入口专属 persona、Header 顺序、Responses Body 结构；Desktop override 污染已隔离 |
 | E-12 OAuth 多账号控制面 | 验证同出口下控制面错峰与重复导入拒绝 | **受控时间与原子发布测试完成** | 同 Provider 起始间隔 500 ms、响应仍可并发；重复身份/Token 返回 409 且 revision/Runtime 不变化 |
+| E-13 交互 OAuth 重复登录 | 验证无稳定身份的精确 Token 复用与歧义 fail-closed | **身份与真实发布测试完成** | 唯一命中复用原账号并保留身份；冲突时 SQLite/revision/Runtime 不变化 |
 
-上述 E-01～E-12 都已在 loopback、自签 TLS或明文 H1 和假 Credential 范围内完成，不需要访问真实 Provider 或账号。更长时间的 keepalive/负载分布可以按真实故障需要追加；其他官方客户端基线仍是独立证据缺口。
+上述 E-01～E-13 都已在 loopback、自签 TLS或明文 H1 和假 Credential 范围内完成，不需要访问真实 Provider 或账号。更长时间的 keepalive/负载分布可以按真实故障需要追加；其他官方客户端基线仍是独立证据缺口。
 
 ## 10. 建议修改顺序
 

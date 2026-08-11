@@ -131,6 +131,21 @@ impl OAuthTokenMaterial {
         }
         Ok(self)
     }
+
+    pub fn merge_missing_identity(mut self, previous: &Self) -> Result<Self, ProviderError> {
+        if self.provider != previous.provider {
+            return Err(ProviderError::InvalidResponse(
+                "OAuth token provider does not match the account".into(),
+            ));
+        }
+        if self.account_id.is_none() {
+            self.account_id.clone_from(&previous.account_id);
+        }
+        if self.email.is_none() {
+            self.email.clone_from(&previous.email);
+        }
+        Ok(self)
+    }
 }
 
 impl fmt::Debug for OAuthTokenMaterial {

@@ -1,7 +1,7 @@
 use any2api_domain::{OAuthAccountId, ProviderKind};
 use any2api_provider::api::{OAuthTokenMaterial, ProviderRegistry};
 
-use crate::configuration::{ConfigPublisher, OAuthAccountActivation, OAuthAccountIdentity};
+use crate::configuration::{ConfigPublisher, OAuthAccountActivation};
 
 use crate::oauth::{document, error::OAuthError};
 
@@ -25,7 +25,6 @@ pub(in crate::oauth) async fn publish(
         .iter()
         .map(|model| model.as_str().to_owned())
         .collect();
-    let identity = OAuthAccountIdentity::from_token(&token);
     let document = document::build_account_document(&token)?;
     let activation = OAuthAccountActivation {
         id: OAuthAccountId::new(),
@@ -35,10 +34,10 @@ pub(in crate::oauth) async fn publish(
         expires_at: token.expires_at(),
         models,
         document,
-        import_identity: None,
+        token,
     };
     let (published, account_id) = publisher
-        .activate_oauth_login(activation, identity)
+        .activate_oauth_login(activation)
         .await
         .map_err(OAuthError::Activation)?;
     let account = published

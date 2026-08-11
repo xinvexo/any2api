@@ -21,6 +21,7 @@ use crate::{
 mod atomicity;
 mod commit_ack;
 mod gateway_usage;
+mod oauth_login;
 mod ordering;
 
 #[tokio::test]

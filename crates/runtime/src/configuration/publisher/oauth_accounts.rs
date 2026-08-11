@@ -1,6 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use any2api_domain::{ConfigRevision, OAuthAccountDraft, OAuthAccountId, ProviderKind};
+use any2api_provider::api::OAuthTokenMaterial;
 use any2api_storage::api::{
     ConfigurationMutation, OAuthAccountCreate, OAuthAccountDocument, OAuthAccountRefresh,
 };
@@ -19,7 +20,7 @@ pub(crate) struct OAuthAccountActivation {
     pub(crate) expires_at: Option<i64>,
     pub(crate) models: Vec<String>,
     pub(crate) document: OAuthAccountDocument,
-    pub(crate) import_identity: Option<OAuthImportIdentity>,
+    pub(crate) token: OAuthTokenMaterial,
 }
 
 impl ConfigPublisher {
@@ -242,11 +243,9 @@ fn validate_import_identities(
             identities.include_existing(&OAuthImportIdentity::from_token(token.as_ref()));
         }
     }
-    for identity in activations
-        .iter()
-        .filter_map(|activation| activation.import_identity.as_ref())
-    {
-        if !identities.insert_new(identity) {
+    for activation in activations {
+        let identity = OAuthImportIdentity::from_token(&activation.token);
+        if !identities.insert_new(&identity) {
             return Err(ConfigPublishError::OAuthAccountIdentityConflict);
         }
     }

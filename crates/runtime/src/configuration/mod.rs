@@ -12,9 +12,7 @@ pub use capabilities::{
     ProviderUpstreamProtocolOption,
 };
 pub use error::ConfigPublishError;
-pub(crate) use oauth_identity::{
-    OAuthAccountIdentity, OAuthImportIdentity, OAuthImportIdentityIndex,
-};
+pub(crate) use oauth_identity::{OAuthImportIdentity, OAuthImportIdentityIndex};
 pub use publisher::ConfigPublisher;
 pub(crate) use publisher::OAuthAccountActivation;
 pub use reconciler::PublishedSnapshotReconciler;

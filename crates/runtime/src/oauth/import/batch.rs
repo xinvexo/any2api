@@ -6,9 +6,7 @@ use any2api_provider::api::{
 use bytes::Bytes;
 use thiserror::Error;
 
-use crate::configuration::{
-    ConfigPublishError, ConfigPublisher, OAuthAccountActivation, OAuthImportIdentity,
-};
+use crate::configuration::{ConfigPublishError, ConfigPublisher, OAuthAccountActivation};
 
 use crate::oauth::document;
 
@@ -96,7 +94,6 @@ pub(in crate::oauth) async fn publish(
             account,
         } = parsed;
         let (token, preferred_label) = account.into_parts();
-        let import_identity = OAuthImportIdentity::from_token(&token);
         let provider = token.provider();
         let driver = providers
             .get(provider)
@@ -124,7 +121,7 @@ pub(in crate::oauth) async fn publish(
             expires_at: token.expires_at(),
             models,
             document: oauth_document,
-            import_identity: Some(import_identity),
+            token,
         });
     }
 
