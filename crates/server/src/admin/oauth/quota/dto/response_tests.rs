@@ -37,6 +37,7 @@ fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
             estimated_used_credits: Some(2.75),
             estimated_remaining_credits: Some(22.25),
             sample_count: 3,
+            fresh_sample_count: 2,
             relative_mad: Some(0.01),
             latest_interval: OAuthQuotaIntervalDiagnostic {
                 status: OAuthQuotaIntervalStatus::ValidSample,
@@ -58,6 +59,7 @@ fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
     assert_eq!(value["access"]["reached_type"], "rate_limit_reached");
     assert_eq!(value["estimates"][0]["estimated_capacity_credits"], 25.0);
     assert_eq!(value["estimates"][0]["confidence"], "stable");
+    assert_eq!(value["estimates"][0]["fresh_sample_count"], 2);
     assert_eq!(
         value["estimates"][0]["latest_interval"]["status"],
         "valid_sample"

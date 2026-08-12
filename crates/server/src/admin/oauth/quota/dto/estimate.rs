@@ -17,6 +17,7 @@ pub(super) struct OAuthQuotaEstimateResponse {
     estimated_used_credits: Option<f64>,
     estimated_remaining_credits: Option<f64>,
     sample_count: u32,
+    fresh_sample_count: u32,
     relative_mad: Option<f64>,
     latest_interval: OAuthQuotaIntervalDiagnosticResponse,
     rate_cards: Vec<String>,
@@ -36,6 +37,7 @@ impl From<OAuthQuotaEstimate> for OAuthQuotaEstimateResponse {
             estimated_used_credits: value.estimated_used_credits,
             estimated_remaining_credits: value.estimated_remaining_credits,
             sample_count: value.sample_count,
+            fresh_sample_count: value.fresh_sample_count,
             relative_mad: value.relative_mad,
             latest_interval: value.latest_interval.into(),
             rate_cards: value.rate_cards,
@@ -77,6 +79,7 @@ fn confidence(value: OAuthQuotaEstimateConfidence) -> &'static str {
         OAuthQuotaEstimateConfidence::Unknown => "unknown",
         OAuthQuotaEstimateConfidence::Learning => "learning",
         OAuthQuotaEstimateConfidence::Stable => "stable",
+        OAuthQuotaEstimateConfidence::Inherited => "inherited",
         OAuthQuotaEstimateConfidence::Degraded => "degraded",
     }
 }
@@ -85,6 +88,7 @@ fn interval_status(value: OAuthQuotaIntervalStatus) -> &'static str {
     match value {
         OAuthQuotaIntervalStatus::AwaitingBaseline => "awaiting_baseline",
         OAuthQuotaIntervalStatus::NoChange => "no_change",
+        OAuthQuotaIntervalStatus::Accumulating => "accumulating",
         OAuthQuotaIntervalStatus::ValidSample => "valid_sample",
         OAuthQuotaIntervalStatus::ResetBoundary => "reset_boundary",
         OAuthQuotaIntervalStatus::TelemetryIncomplete => "telemetry_incomplete",

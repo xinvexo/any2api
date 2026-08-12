@@ -23,6 +23,7 @@ pub enum OAuthQuotaEstimateConfidence {
     Unknown,
     Learning,
     Stable,
+    Inherited,
     Degraded,
 }
 
@@ -31,6 +32,7 @@ pub enum OAuthQuotaEstimateConfidence {
 pub enum OAuthQuotaIntervalStatus {
     AwaitingBaseline,
     NoChange,
+    Accumulating,
     ValidSample,
     ResetBoundary,
     TelemetryIncomplete,
@@ -66,6 +68,7 @@ pub struct OAuthQuotaEstimate {
     pub estimated_used_credits: Option<f64>,
     pub estimated_remaining_credits: Option<f64>,
     pub sample_count: u32,
+    pub fresh_sample_count: u32,
     pub relative_mad: Option<f64>,
     pub latest_interval: OAuthQuotaIntervalDiagnostic,
     pub rate_cards: Vec<String>,

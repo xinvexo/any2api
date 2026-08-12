@@ -42,6 +42,24 @@ test("degraded estimates remain available but are marked approximate", () => {
   expect(tooltip).not.toHaveTextContent("非上游余额");
 });
 
+test("inherited priors stay approximate and show per-epoch sample counts", () => {
+  render(<QuotaEstimate estimate={estimate({
+    confidence: "inherited",
+    freshSampleCount: 0,
+    latestInterval: {
+      ...base.latestInterval,
+      status: "accumulating",
+    },
+  })} />);
+
+  const value = screen.getByText("≈$0.40/$1.00");
+  fireEvent.mouseEnter(value);
+  const tooltip = screen.getByRole("tooltip");
+  expect(tooltip).toHaveTextContent("置信度 沿用上期");
+  expect(tooltip).toHaveTextContent("累计观测中");
+  expect(tooltip).toHaveTextContent("容量样本 3 · 本窗口期 0");
+});
+
 const base: OAuthQuotaEstimate = {
   windowId: "primary",
   windowKind: "time",
@@ -54,6 +72,7 @@ const base: OAuthQuotaEstimate = {
   estimatedUsedCredits: 10,
   estimatedRemainingCredits: 15,
   sampleCount: 3,
+  freshSampleCount: 2,
   relativeMad: 0.01,
   latestInterval: {
     status: "valid_sample",

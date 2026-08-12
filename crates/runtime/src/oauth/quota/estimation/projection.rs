@@ -39,7 +39,8 @@ fn project_window(
         .zip(used)
         .map(|(capacity, used)| (capacity - used).max(0.0));
     let relative_mad = robust::relative_mad(&state.samples);
-    let confidence = confidence(state, relative_mad);
+    let fresh_sample_count = state.fresh_sample_count();
+    let confidence = confidence(state, relative_mad, fresh_sample_count);
     let mut rate_cards = state
         .samples
         .iter()
@@ -59,18 +60,26 @@ fn project_window(
         estimated_used_credits: used,
         estimated_remaining_credits: remaining,
         sample_count: u32::try_from(state.samples.len()).unwrap_or(u32::MAX),
+        fresh_sample_count: u32::try_from(fresh_sample_count).unwrap_or(u32::MAX),
         relative_mad,
         latest_interval: state.latest_interval.clone(),
         rate_cards,
     }
 }
 
-fn confidence(state: &QuotaWindowState, relative_mad: Option<f64>) -> OAuthQuotaEstimateConfidence {
+fn confidence(
+    state: &QuotaWindowState,
+    relative_mad: Option<f64>,
+    fresh_sample_count: usize,
+) -> OAuthQuotaEstimateConfidence {
     if state.samples.is_empty() {
         return OAuthQuotaEstimateConfidence::Unknown;
     }
     if degrades(state.latest_interval.status) {
         return OAuthQuotaEstimateConfidence::Degraded;
+    }
+    if fresh_sample_count == 0 {
+        return OAuthQuotaEstimateConfidence::Inherited;
     }
     if state.samples.len() >= 3 && relative_mad.is_some_and(|value| value <= 0.20) {
         OAuthQuotaEstimateConfidence::Stable

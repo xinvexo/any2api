@@ -32,7 +32,11 @@ pub(super) fn relative_mad(samples: &[QuotaCapacitySample]) -> Option<f64> {
 }
 
 pub(super) fn stable(samples: &[QuotaCapacitySample]) -> bool {
-    samples.len() >= STABLE_MIN_SAMPLES
+    samples.len() >= STABLE_MIN_SAMPLES && consistent(samples)
+}
+
+pub(super) fn consistent(samples: &[QuotaCapacitySample]) -> bool {
+    samples.len() >= 2
         && relative_mad(samples).is_some_and(|value| value <= MAX_STABLE_RELATIVE_MAD)
 }
 
@@ -79,6 +83,7 @@ mod tests {
             .map(|value| QuotaCapacitySample {
                 capacity_credits: *value,
                 observed_at_ms: 0,
+                epoch: 1,
                 rate_cards: Vec::new(),
             })
             .collect()

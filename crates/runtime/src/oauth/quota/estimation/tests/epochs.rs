@@ -1,85 +1,11 @@
 use std::sync::Arc;
 
-use crate::oauth::quota::types::OAuthQuotaIntervalStatus;
+use crate::oauth::quota::types::{OAuthQuotaEstimateConfidence, OAuthQuotaIntervalStatus};
 
 use super::*;
 
 #[tokio::test]
-async fn reset_rollover_and_identity_changes_start_clean_epochs() {
-    for current in [0.0, 3.0] {
-        let repository = Arc::new(UsageRepository::default());
-        let estimator = OAuthQuotaEstimator::new(repository);
-        let first = observe(&estimator, None, 60.0, Some(100), checkpoint(0), 0).await;
-        let learned = observe(
-            &estimator,
-            Some(first.state),
-            70.0,
-            Some(100),
-            checkpoint(0),
-            1,
-        )
-        .await;
-        let epoch = learned.estimates[0].epoch;
-        assert_eq!(learned.estimates[0].sample_count, 1);
-        let reset = observe(
-            &estimator,
-            Some(learned.state),
-            current,
-            Some(100),
-            checkpoint(0),
-            2,
-        )
-        .await;
-        assert!(reset.estimates[0].epoch > epoch);
-        assert_eq!(reset.estimates[0].sample_count, 0);
-        assert_eq!(
-            reset.estimates[0].latest_interval.status,
-            OAuthQuotaIntervalStatus::ResetBoundary
-        );
-    }
-
-    let repository = Arc::new(UsageRepository::default());
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 0.0, Some(100), checkpoint(0), 0).await;
-    let learned = observe(
-        &estimator,
-        Some(first.state),
-        10.0,
-        Some(100),
-        checkpoint(0),
-        1,
-    )
-    .await;
-    let rollover = observe(
-        &estimator,
-        Some(learned.state),
-        12.0,
-        Some(200),
-        checkpoint(0),
-        2,
-    )
-    .await;
-    assert_eq!(rollover.estimates[0].sample_count, 0);
-    let changed = estimator
-        .observe(
-            OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(20.0, Some(200)),
-            Some(rollover.state),
-            "identity-b".into(),
-            QuotaCostUnit::CodexCredits,
-            telemetry_observation(checkpoint(0), 4_000, 3),
-            None,
-        )
-        .await;
-    assert_eq!(changed.estimates[0].sample_count, 0);
-    assert_eq!(
-        changed.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::ResetBoundary
-    );
-}
-
-#[tokio::test]
-async fn restart_without_reset_identity_and_natural_rollover_start_new_epochs() {
+async fn restart_without_reset_identity_and_natural_rollover_keep_inherited_prior() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(repository);
     let first = observe(&estimator, None, 0.0, None, checkpoint(0), 0).await;
@@ -95,7 +21,12 @@ async fn restart_without_reset_identity_and_natural_rollover_start_new_epochs() 
     )
     .await;
     assert!(restarted.estimates[0].epoch > learned_epoch);
-    assert_eq!(restarted.estimates[0].sample_count, 0);
+    assert_eq!(restarted.estimates[0].sample_count, 1);
+    assert_eq!(restarted.estimates[0].fresh_sample_count, 0);
+    assert_eq!(
+        restarted.estimates[0].confidence,
+        OAuthQuotaEstimateConfidence::Inherited
+    );
     assert_eq!(
         restarted.estimates[0].latest_interval.status,
         OAuthQuotaIntervalStatus::ResetBoundary
@@ -136,7 +67,8 @@ async fn restart_without_reset_identity_and_natural_rollover_start_new_epochs() 
         )
         .await;
     assert!(rolled_over.estimates[0].epoch > learned_epoch);
-    assert_eq!(rolled_over.estimates[0].sample_count, 0);
+    assert_eq!(rolled_over.estimates[0].sample_count, 1);
+    assert_eq!(rolled_over.estimates[0].fresh_sample_count, 0);
 }
 
 #[tokio::test]
@@ -259,49 +191,6 @@ async fn small_negative_jitter_does_not_reset_or_discard_samples() {
         jitter.estimates[0].latest_interval.status,
         OAuthQuotaIntervalStatus::NoChange
     );
-}
-
-#[tokio::test]
-async fn reset_during_small_delta_accumulation_discards_the_old_anchor() {
-    let repository = Arc::new(UsageRepository::default());
-    repository.push(priced(6.0));
-    let estimator = OAuthQuotaEstimator::new(repository.clone());
-    let first = observe(&estimator, None, 10.0, Some(100), checkpoint(0), 0).await;
-    let partial = observe(
-        &estimator,
-        Some(first.state),
-        10.2,
-        Some(100),
-        checkpoint(0),
-        1,
-    )
-    .await;
-    let old_epoch = partial.estimates[0].epoch;
-    let reset = observe(
-        &estimator,
-        Some(partial.state),
-        0.0,
-        Some(200),
-        checkpoint(0),
-        2,
-    )
-    .await;
-    assert!(reset.estimates[0].epoch > old_epoch);
-    assert_eq!(reset.state.windows[0].sample_anchor.used_percent, 0.0);
-    let learned = observe(
-        &estimator,
-        Some(reset.state),
-        0.6,
-        Some(200),
-        checkpoint(0),
-        3,
-    )
-    .await;
-    assert_eq!(learned.estimates[0].sample_count, 1);
-    let queries = repository.queries();
-    assert_eq!(queries.len(), 1);
-    assert_eq!(queries[0].0.sequence, 2);
-    assert_eq!(queries[0].1.sequence, 3);
 }
 
 #[tokio::test]

@@ -93,6 +93,7 @@ function quotaWithCreditsAndEstimate() {
       estimated_used_credits: 9.375,
       estimated_remaining_credits: 15.625,
       sample_count: 3,
+      fresh_sample_count: 2,
       relative_mad: 0.01,
       latest_interval: {
         status: "valid_sample",

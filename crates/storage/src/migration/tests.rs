@@ -18,6 +18,7 @@ mod oauth_account_documents;
 mod oauth_quota_estimation_boundaries;
 mod oauth_quota_snapshot_v5;
 mod oauth_quota_snapshot_v6;
+mod oauth_quota_snapshot_v7;
 mod oauth_quota_snapshots;
 mod plaintext_schema;
 mod provider_kind_kimi;
@@ -92,6 +93,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             ),
             (25, "epoch interval oauth quota telemetry".to_owned()),
             (26, "monotonic oauth quota telemetry".to_owned()),
+            (27, "accumulated segment quota estimator state".to_owned()),
         ]
     );
 
@@ -159,7 +161,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
     assert!(!oauth_schema.contains("'kimi'"));
     assert!(!oauth_schema.contains("max_concurrency"));
     let oauth_quota_schema = table_schema(&pool, "oauth_quota_snapshots").await;
-    assert!(oauth_quota_schema.contains("schema_version = 6"));
+    assert!(oauth_quota_schema.contains("schema_version = 7"));
     assert!(oauth_quota_schema.contains("ON DELETE CASCADE"));
     assert!(oauth_quota_schema.contains("length(payload) BETWEEN 2 AND 524288"));
     let quota_boundary_exists: Option<i64> = sqlx::query_scalar(

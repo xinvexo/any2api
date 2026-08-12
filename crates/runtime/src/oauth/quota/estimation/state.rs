@@ -6,7 +6,7 @@ use crate::request_telemetry::RequestTelemetryObservation;
 use super::super::types::OAuthQuotaIntervalDiagnostic;
 
 const MAX_WINDOWS: usize = 64;
-pub(super) const MAX_SAMPLES_PER_EPOCH: usize = 9;
+pub(super) const MAX_ACCEPTED_SAMPLES: usize = 9;
 pub(super) const MAX_COMPETING_SAMPLES: usize = 4;
 const MAX_SAFE_TEXT_BYTES: usize = 4_096;
 const MAX_RATE_CARDS_PER_SAMPLE: usize = 16;
@@ -80,6 +80,19 @@ pub(super) struct QuotaObservationAnchor {
 pub(super) struct QuotaCapacitySample {
     pub(super) capacity_credits: f64,
     pub(super) observed_at_ms: u64,
+    pub(super) epoch: u64,
+    pub(super) rate_cards: Vec<String>,
+}
+
+/// Fence-verified clean prefix of the current sample interval: everything from
+/// the sample anchor up to the most recent clean probe. Salvaged as a capacity
+/// sample when the segment is cut short by a gap, contamination or reset.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(super) struct QuotaSegmentProgress {
+    pub(super) ended_used_percent: f64,
+    pub(super) ended_at_ms: u64,
+    pub(super) cost_nanos: u64,
+    pub(super) priced_request_count: u64,
     pub(super) rate_cards: Vec<String>,
 }
 
@@ -90,12 +103,20 @@ pub(super) struct QuotaWindowState {
     pub(super) epoch_started_at_ms: u64,
     pub(super) last_observation: QuotaObservationAnchor,
     pub(super) sample_anchor: QuotaObservationAnchor,
+    pub(super) segment: Option<QuotaSegmentProgress>,
     pub(super) samples: Vec<QuotaCapacitySample>,
     pub(super) competing_samples: Vec<QuotaCapacitySample>,
     pub(super) latest_interval: OAuthQuotaIntervalDiagnostic,
 }
 
 impl QuotaWindowState {
+    pub(super) fn fresh_sample_count(&self) -> usize {
+        self.samples
+            .iter()
+            .filter(|sample| sample.epoch == self.epoch)
+            .count()
+    }
+
     fn valid(&self) -> bool {
         !self.key.id.trim().is_empty()
             && self.key.id.len() <= MAX_SAFE_TEXT_BYTES
@@ -106,10 +127,20 @@ impl QuotaWindowState {
                 == self.sample_anchor.telemetry.position.process_id
             && self.sample_anchor.telemetry.position.sequence
                 <= self.last_observation.telemetry.position.sequence
-            && self.samples.len() <= MAX_SAMPLES_PER_EPOCH
-            && self.samples.iter().all(sample_valid)
+            && self
+                .segment
+                .as_ref()
+                .is_none_or(|segment| segment_valid(segment, &self.sample_anchor))
+            && self.samples.len() <= MAX_ACCEPTED_SAMPLES
+            && self
+                .samples
+                .iter()
+                .all(|sample| sample_valid(sample, self.epoch))
             && self.competing_samples.len() <= MAX_COMPETING_SAMPLES
-            && self.competing_samples.iter().all(sample_valid)
+            && self
+                .competing_samples
+                .iter()
+                .all(|sample| sample_valid(sample, self.epoch))
             && diagnostic_valid(&self.latest_interval)
     }
 }
@@ -121,12 +152,25 @@ fn anchor_valid(anchor: &QuotaObservationAnchor) -> bool {
         && anchor.telemetry.position.process_id == anchor.telemetry.checkpoint.process_id
 }
 
-fn sample_valid(sample: &QuotaCapacitySample) -> bool {
+fn segment_valid(segment: &QuotaSegmentProgress, anchor: &QuotaObservationAnchor) -> bool {
+    segment.ended_used_percent.is_finite()
+        && segment.ended_used_percent > anchor.used_percent
+        && segment.cost_nanos > 0
+        && segment.priced_request_count > 0
+        && rate_cards_valid(&segment.rate_cards)
+}
+
+fn sample_valid(sample: &QuotaCapacitySample, current_epoch: u64) -> bool {
     sample.capacity_credits.is_finite()
         && sample.capacity_credits > 0.0
-        && sample.rate_cards.len() <= MAX_RATE_CARDS_PER_SAMPLE
-        && sample
-            .rate_cards
+        && sample.epoch >= 1
+        && sample.epoch <= current_epoch
+        && rate_cards_valid(&sample.rate_cards)
+}
+
+fn rate_cards_valid(rate_cards: &[String]) -> bool {
+    rate_cards.len() <= MAX_RATE_CARDS_PER_SAMPLE
+        && rate_cards
             .iter()
             .all(|rate_card| !rate_card.trim().is_empty() && rate_card.len() <= MAX_RATE_CARD_BYTES)
 }

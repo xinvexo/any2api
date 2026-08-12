@@ -1,5 +1,7 @@
 mod epochs;
+mod inheritance;
 mod sampling;
+mod segments;
 
 use std::{collections::VecDeque, sync::Mutex};
 

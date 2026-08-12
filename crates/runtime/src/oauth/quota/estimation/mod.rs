@@ -73,13 +73,15 @@ impl OAuthQuotaEstimator {
                     )
                     .await
                 }
-                Some(_) => transition::new_window(
-                    key,
-                    state.allocate_epoch(),
-                    window,
-                    observation.clone(),
-                    OAuthQuotaIntervalStatus::ResetBoundary,
-                ),
+                Some(mut previous) => {
+                    learning::salvage_segment(&mut previous);
+                    transition::rollover_window(
+                        previous,
+                        state.allocate_epoch(),
+                        window,
+                        observation.clone(),
+                    )
+                }
                 None => transition::new_window(
                     key,
                     state.allocate_epoch(),

@@ -51,19 +51,34 @@ pub(super) fn new_window(
         epoch_started_at_ms: observed_at_ms,
         last_observation: anchor.clone(),
         sample_anchor: anchor,
+        segment: None,
         samples: Vec::new(),
         competing_samples: Vec::new(),
-        latest_interval: OAuthQuotaIntervalDiagnostic {
-            status,
-            started_at: None,
-            ended_at: seconds(observed_at_ms),
-            delta_used_percent: None,
-            local_cost_credits: None,
-            unpriced_request_count: 0,
-            queue_dropped_request_logs: 0,
-            storage_failed_request_logs: 0,
-            pruned_request_logs: 0,
-        },
+        latest_interval: reset_diagnostic(status, observed_at_ms),
+    }
+}
+
+/// A normal epoch boundary keeps the accepted samples as an inherited capacity
+/// prior; the competing cluster and segment progress belong to the finished
+/// epoch and are dropped.
+pub(super) fn rollover_window(
+    previous: QuotaWindowState,
+    epoch: u64,
+    window: &OAuthQuotaWindow,
+    observation: RequestTelemetryObservation,
+) -> QuotaWindowState {
+    let observed_at_ms = observation.observed_at_ms;
+    let anchor = anchor(window, observation);
+    QuotaWindowState {
+        key: previous.key,
+        epoch,
+        epoch_started_at_ms: observed_at_ms,
+        last_observation: anchor.clone(),
+        sample_anchor: anchor,
+        segment: None,
+        samples: previous.samples,
+        competing_samples: Vec::new(),
+        latest_interval: reset_diagnostic(OAuthQuotaIntervalStatus::ResetBoundary, observed_at_ms),
     }
 }
 
@@ -75,6 +90,23 @@ pub(super) fn anchor(
         used_percent: window.used_percent,
         reset_at: window.reset_at,
         telemetry,
+    }
+}
+
+fn reset_diagnostic(
+    status: OAuthQuotaIntervalStatus,
+    observed_at_ms: u64,
+) -> OAuthQuotaIntervalDiagnostic {
+    OAuthQuotaIntervalDiagnostic {
+        status,
+        started_at: None,
+        ended_at: seconds(observed_at_ms),
+        delta_used_percent: None,
+        local_cost_credits: None,
+        unpriced_request_count: 0,
+        queue_dropped_request_logs: 0,
+        storage_failed_request_logs: 0,
+        pruned_request_logs: 0,
     }
 }
 

@@ -25,3 +25,4 @@
 "0024_add_oauth_quota_unpriced_request_diagnostics.sql" = "03931cd41b982b8e6daf00fddda0e018c8adb2ba8c95d55837a8ee8e7811ca61"
 "0025_epoch_interval_oauth_quota_telemetry.sql" = "94ba312c156575c8a77f01165fd51b4da06b39a57dcc59253d4fa095136713d0"
 "0026_monotonic_oauth_quota_telemetry.sql" = "03d493ce91a10a0757e45511c702f40b17dfdd88524fd3d99939062ec7abdfd5"
+"0027_accumulated_segment_quota_estimator_state.sql" = "a676f3d964edee404fe47e6277064122c24b75c6bdc0d0f6e46fc9975c3ae82b"

@@ -3,7 +3,7 @@ use any2api_provider::api::OAuthQuotaWindow;
 
 use super::{
     OAuthQuotaEstimator, learning,
-    state::{QuotaObservationAnchor, QuotaWindowState},
+    state::{QuotaObservationAnchor, QuotaSegmentProgress, QuotaWindowState},
     transition,
 };
 use crate::{
@@ -13,7 +13,9 @@ use crate::{
     },
 };
 
-const MIN_SAMPLE_DELTA_PERCENT: f64 = 0.5;
+/// Minimum percent delta before the interval RequestLog query runs at all;
+/// below it the observation only advances the last observation.
+const PROBE_DELTA_PERCENT: f64 = 0.5;
 
 pub(super) async fn observe(
     estimator: &OAuthQuotaEstimator,
@@ -31,6 +33,7 @@ pub(super) async fn observe(
     let loss = checkpoint_loss(&sample_anchor.telemetry.checkpoint, &observation.checkpoint);
     let mut reanchor_sample = true;
     let diagnostic = if !delta.is_finite() {
+        learning::salvage_segment(&mut state);
         state.competing_samples.clear();
         diagnostic(
             OAuthQuotaIntervalStatus::Invalid,
@@ -42,6 +45,7 @@ pub(super) async fn observe(
             loss,
         )
     } else if !covers_interval(&sample_anchor, &observation) {
+        learning::salvage_segment(&mut state);
         state.competing_samples.clear();
         diagnostic(
             OAuthQuotaIntervalStatus::TelemetryIncomplete,
@@ -52,7 +56,7 @@ pub(super) async fn observe(
             0,
             loss,
         )
-    } else if delta < MIN_SAMPLE_DELTA_PERCENT {
+    } else if delta < PROBE_DELTA_PERCENT {
         reanchor_sample = false;
         diagnostic(
             OAuthQuotaIntervalStatus::NoChange,
@@ -64,7 +68,7 @@ pub(super) async fn observe(
             loss,
         )
     } else {
-        estimate(
+        let probed = probe(
             estimator,
             id,
             &mut state,
@@ -74,7 +78,9 @@ pub(super) async fn observe(
             &observation,
             telemetry,
         )
-        .await
+        .await;
+        reanchor_sample = probed.reanchor;
+        probed.diagnostic
     };
     let current_anchor = transition::anchor(window, observation);
     if reanchor_sample {
@@ -85,8 +91,16 @@ pub(super) async fn observe(
     state
 }
 
+struct ProbeOutcome {
+    diagnostic: OAuthQuotaIntervalDiagnostic,
+    reanchor: bool,
+}
+
+/// Runs the fence-checked interval query once the segment delta crossed the
+/// probe threshold, then either extends the clean segment, mints a capacity
+/// sample, or salvages the verified prefix before re-anchoring.
 #[allow(clippy::too_many_arguments)]
-async fn estimate(
+async fn probe(
     estimator: &OAuthQuotaEstimator,
     id: OAuthAccountId,
     state: &mut QuotaWindowState,
@@ -95,7 +109,9 @@ async fn estimate(
     sample_anchor: &QuotaObservationAnchor,
     observation: &RequestTelemetryObservation,
     telemetry: Option<&RequestTelemetry>,
-) -> OAuthQuotaIntervalDiagnostic {
+) -> ProbeOutcome {
+    let started_at_ms = sample_anchor.telemetry.observed_at_ms;
+    let ended_at_ms = observation.observed_at_ms;
     let usage_result = estimator
         .repository
         .oauth_quota_request_log_usage(id, sample_anchor.telemetry.position, observation.position)
@@ -109,49 +125,102 @@ async fn estimate(
         .checkpoint
         .preserves_persisted_interval_to(&ending_checkpoint)
     {
+        learning::salvage_segment(state);
         state.competing_samples.clear();
-        return diagnostic(
+        return reanchored(diagnostic(
             OAuthQuotaIntervalStatus::TelemetryIncomplete,
-            Some(sample_anchor.telemetry.observed_at_ms),
-            observation.observed_at_ms,
+            Some(started_at_ms),
+            ended_at_ms,
             Some(delta),
             None,
             0,
             checkpoint_loss(&sample_anchor.telemetry.checkpoint, &ending_checkpoint),
-        );
+        ));
     }
     let usage = match usage_result {
         Ok(usage) => usage,
         Err(error) => {
+            learning::salvage_segment(state);
             state.competing_samples.clear();
             tracing::warn!(%error, %id, "quota interval RequestLog query failed");
-            return diagnostic(
+            return reanchored(diagnostic(
                 OAuthQuotaIntervalStatus::Invalid,
-                Some(sample_anchor.telemetry.observed_at_ms),
-                observation.observed_at_ms,
+                Some(started_at_ms),
+                ended_at_ms,
                 Some(delta),
                 None,
                 0,
                 fence_loss,
-            );
+            ));
         }
     };
-    let learned = learning::apply_usage(
-        state,
-        delta,
-        expected_unit,
-        usage,
-        observation.observed_at_ms,
-    );
-    diagnostic(
+    let cost_credits = usage.total_cost_nanos as f64 / learning::NANOS_PER_CREDIT;
+    if usage.unpriced_request_count > 0 {
+        let unpriced = usage.unpriced_request_count;
+        learning::salvage_segment(state);
+        state.competing_samples.clear();
+        return reanchored(diagnostic(
+            OAuthQuotaIntervalStatus::UnpricedUsage,
+            Some(started_at_ms),
+            ended_at_ms,
+            Some(delta),
+            Some(cost_credits),
+            unpriced,
+            fence_loss,
+        ));
+    }
+    if usage.unit != Some(expected_unit) || usage.priced_request_count == 0 || cost_credits <= 0.0 {
+        learning::salvage_segment(state);
+        state.competing_samples.clear();
+        return reanchored(diagnostic(
+            OAuthQuotaIntervalStatus::ExternalUsageSuspected,
+            Some(started_at_ms),
+            ended_at_ms,
+            Some(delta),
+            Some(cost_credits),
+            0,
+            fence_loss,
+        ));
+    }
+    if delta < learning::mint_delta_percent(state) {
+        state.segment = Some(QuotaSegmentProgress {
+            ended_used_percent: sample_anchor.used_percent + delta,
+            ended_at_ms,
+            cost_nanos: usage.total_cost_nanos,
+            priced_request_count: usage.priced_request_count,
+            rate_cards: usage.rate_cards,
+        });
+        return ProbeOutcome {
+            diagnostic: diagnostic(
+                OAuthQuotaIntervalStatus::Accumulating,
+                Some(started_at_ms),
+                ended_at_ms,
+                Some(delta),
+                Some(cost_credits),
+                0,
+                fence_loss,
+            ),
+            reanchor: false,
+        };
+    }
+    let learned = learning::mint(state, delta, usage, ended_at_ms);
+    state.segment = None;
+    reanchored(diagnostic(
         learned.status,
-        Some(sample_anchor.telemetry.observed_at_ms),
-        observation.observed_at_ms,
+        Some(started_at_ms),
+        ended_at_ms,
         Some(delta),
         Some(learned.local_cost_credits),
-        learned.unpriced_request_count,
+        0,
         fence_loss,
-    )
+    ))
+}
+
+fn reanchored(diagnostic: OAuthQuotaIntervalDiagnostic) -> ProbeOutcome {
+    ProbeOutcome {
+        diagnostic,
+        reanchor: true,
+    }
 }
 
 fn covers_interval(start: &QuotaObservationAnchor, current: &RequestTelemetryObservation) -> bool {

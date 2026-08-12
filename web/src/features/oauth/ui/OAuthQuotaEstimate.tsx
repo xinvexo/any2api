@@ -70,7 +70,7 @@ export function QuotaEstimate({ estimate }: { estimate: Estimate }) {
 
   const usedUsd = formatEstimatedUsd(creditsToUsd(used));
   const capacityUsd = formatEstimatedUsd(creditsToUsd(capacity));
-  const prefix = estimate.confidence === "degraded" ? "≈" : "";
+  const prefix = isApproximate(estimate.confidence) ? "≈" : "";
   return (
     <>
       <span
@@ -130,7 +130,7 @@ function QuotaTooltip({ estimate }: { estimate: Estimate }) {
         <>
           <p className="mt-1 flex items-baseline justify-between gap-3 tabular-nums">
             <span className="text-[13px] font-semibold tracking-tight text-primary">
-              {estimate.confidence === "degraded" ? "≈" : ""}
+              {isApproximate(estimate.confidence) ? "≈" : ""}
               {formatEstimatedUsd(creditsToUsd(used))}/{formatEstimatedUsd(creditsToUsd(capacity))}
             </span>
             <span className="shrink-0 text-[10px] text-tertiary">USD 等值</span>
@@ -140,6 +140,9 @@ function QuotaTooltip({ estimate }: { estimate: Estimate }) {
           </p>
           <p className="text-[10px] tabular-nums text-tertiary">
             Credits {formatCredits(used)} / {formatCredits(capacity)} · 25 Credits = $1（仅展示换算）
+          </p>
+          <p className="text-[10px] tabular-nums text-tertiary">
+            容量样本 {estimate.sampleCount} · 本窗口期 {estimate.freshSampleCount}
           </p>
         </>
       )}
@@ -180,11 +183,16 @@ function telemetryLosses(estimate: Estimate) {
   return parts.length > 0 ? `遥测缺口：${parts.join(" · ")}` : null;
 }
 
+function isApproximate(value: Estimate["confidence"]) {
+  return value === "degraded" || value === "inherited";
+}
+
 function confidenceLabel(value: Estimate["confidence"]) {
   switch (value) {
     case "unknown": return "未知";
     case "learning": return "学习中";
     case "stable": return "稳定";
+    case "inherited": return "沿用上期";
     case "degraded": return "已降级";
   }
 }
@@ -197,6 +205,7 @@ function intervalStatusLabel(value: Estimate["latestInterval"]["status"]) {
   switch (value) {
     case "awaiting_baseline": return "等待基线";
     case "no_change": return "变化不足，未采样";
+    case "accumulating": return "累计观测中";
     case "valid_sample": return "有效样本";
     case "reset_boundary": return "检测到额度重置";
     case "telemetry_incomplete": return "本地遥测不完整";

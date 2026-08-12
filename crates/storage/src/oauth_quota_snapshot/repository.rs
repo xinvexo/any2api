@@ -4,7 +4,7 @@ use sqlx::FromRow;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
-pub const OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION: u32 = 6;
+pub const OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION: u32 = 7;
 pub const MAX_OAUTH_QUOTA_SNAPSHOT_BYTES: usize = 512 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -4,11 +4,13 @@ export type OAuthQuotaEstimateConfidence =
   | "unknown"
   | "learning"
   | "stable"
+  | "inherited"
   | "degraded";
 
 export type OAuthQuotaIntervalStatus =
   | "awaiting_baseline"
   | "no_change"
+  | "accumulating"
   | "valid_sample"
   | "reset_boundary"
   | "telemetry_incomplete"
@@ -41,6 +43,7 @@ export interface OAuthQuotaEstimate {
   estimatedUsedCredits: number | null;
   estimatedRemainingCredits: number | null;
   sampleCount: number;
+  freshSampleCount: number;
   relativeMad: number | null;
   latestInterval: OAuthQuotaIntervalDiagnostic;
   rateCards: string[];
@@ -65,6 +68,7 @@ function parseEstimate(value: unknown): OAuthQuotaEstimate {
     estimatedUsedCredits: readOptionalNumber(value.estimated_used_credits),
     estimatedRemainingCredits: readOptionalNumber(value.estimated_remaining_credits),
     sampleCount: readInteger(value.sample_count),
+    freshSampleCount: readInteger(value.fresh_sample_count),
     relativeMad: readOptionalNumber(value.relative_mad),
     latestInterval: parseInterval(value.latest_interval),
     rateCards: value.rate_cards.map(readString),
@@ -87,7 +91,13 @@ function parseInterval(value: unknown): OAuthQuotaIntervalDiagnostic {
 }
 
 function readConfidence(value: unknown): OAuthQuotaEstimateConfidence {
-  if (value === "unknown" || value === "learning" || value === "stable" || value === "degraded") {
+  if (
+    value === "unknown" ||
+    value === "learning" ||
+    value === "stable" ||
+    value === "inherited" ||
+    value === "degraded"
+  ) {
     return value;
   }
   throw invalidResponse();
@@ -97,6 +107,7 @@ function readIntervalStatus(value: unknown): OAuthQuotaIntervalStatus {
   const statuses: OAuthQuotaIntervalStatus[] = [
     "awaiting_baseline",
     "no_change",
+    "accumulating",
     "valid_sample",
     "reset_boundary",
     "telemetry_incomplete",
