@@ -51,17 +51,16 @@ pub(super) fn new_window(
         epoch_started_at_ms: observed_at_ms,
         last_observation: anchor.clone(),
         sample_anchor: anchor,
-        segment: None,
         samples: Vec::new(),
-        pending_high: None,
-        low_streak: 0,
         latest_interval: reset_diagnostic(status, observed_at_ms),
     }
 }
 
-/// A normal epoch boundary keeps the accepted samples as an inherited capacity
-/// prior; the pending high candidate, low streak and segment progress belong
-/// to the finished epoch and are dropped.
+/// A reset or natural rollover starts a new usage epoch: both observation
+/// anchors move to the current reading and the open interval is discarded.
+/// The accepted samples stay — capacity is a property of the subscription,
+/// not of one 5-hour window, so learned knowledge survives as the prior and
+/// keeps being refined by new samples.
 pub(super) fn rollover_window(
     previous: QuotaWindowState,
     epoch: u64,
@@ -76,10 +75,7 @@ pub(super) fn rollover_window(
         epoch_started_at_ms: observed_at_ms,
         last_observation: anchor.clone(),
         sample_anchor: anchor,
-        segment: None,
         samples: previous.samples,
-        pending_high: None,
-        low_streak: 0,
         latest_interval: reset_diagnostic(OAuthQuotaIntervalStatus::ResetBoundary, observed_at_ms),
     }
 }
@@ -108,7 +104,7 @@ fn reset_diagnostic(
         unpriced_request_count: 0,
         queue_dropped_request_logs: 0,
         storage_failed_request_logs: 0,
-        pruned_request_logs: 0,
+        interval_pruned: false,
     }
 }
 

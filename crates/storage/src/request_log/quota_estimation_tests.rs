@@ -90,6 +90,47 @@ async fn request_after_official_observation_is_excluded_regardless_of_wall_clock
     assert_eq!(usage.priced_request_count, 1);
 }
 
+#[tokio::test]
+async fn prune_reports_the_highest_deleted_sequence_per_process() {
+    let (_directory, store, id) = store_with_account().await;
+    let other_process = RequestTelemetryPosition {
+        process_id: "99999999-9999-4999-8999-999999999999"
+            .parse()
+            .expect("process UUID"),
+        sequence: 40,
+    };
+    store
+        .append_request_logs(
+            &[
+                record(id, 100, 1, Some(100), position(1)),
+                record(id, 200, 1, Some(100), position(2)),
+                record(id, 300, 1, Some(100), other_process),
+                record(id, 5_000, 1, Some(100), position(3)),
+            ],
+            MAX_REQUEST_LOG_ROWS,
+        )
+        .await
+        .expect("append request logs");
+
+    let outcome = store
+        .prune_request_logs(1_000, MAX_REQUEST_LOG_ROWS, 100)
+        .await
+        .expect("retention prune");
+
+    assert_eq!(outcome.deleted_rows(), 3);
+    let mut positions = outcome.pruned_positions().to_vec();
+    positions.sort_by_key(|position| position.sequence);
+    assert_eq!(positions, vec![position(2), other_process]);
+
+    // Only the surviving row remains and later prunes report nothing.
+    let outcome = store
+        .prune_request_logs(1_000, MAX_REQUEST_LOG_ROWS, 100)
+        .await
+        .expect("second prune");
+    assert_eq!(outcome.deleted_rows(), 0);
+    assert!(outcome.pruned_positions().is_empty());
+}
+
 async fn store_with_account() -> (tempfile::TempDir, SqliteStore, OAuthAccountId) {
     let directory = tempdir().expect("temporary directory");
     let store = SqliteStore::connect(&directory.path().join("quota-estimation.sqlite3"))

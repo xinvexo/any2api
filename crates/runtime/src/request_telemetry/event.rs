@@ -1,4 +1,4 @@
-use any2api_domain::{CompletedRequestLog, GatewayApiKeyId, HttpAccessLog};
+use any2api_domain::{CompletedRequestLog, GatewayApiKeyId, HttpAccessLog, OAuthAccountId};
 use any2api_storage::api::StorageError;
 use tokio::sync::oneshot;
 
@@ -31,6 +31,7 @@ pub(super) enum TelemetryEvent {
         reply: oneshot::Sender<Result<u64, StorageError>>,
     },
     QuotaCheckpoint {
+        account: OAuthAccountId,
         boundary: RequestTelemetryCheckpoint,
         reply: oneshot::Sender<RequestTelemetryCheckpoint>,
     },
@@ -85,7 +86,10 @@ impl TelemetryEvent {
         }
     }
 
-    pub(super) const fn quota_relevant(&self) -> bool {
-        matches!(self, Self::RequestLog(record) if record.request.oauth_account_id.is_some())
+    pub(super) fn quota_account(&self) -> Option<OAuthAccountId> {
+        match self {
+            Self::RequestLog(record) => record.request.oauth_account_id,
+            _ => None,
+        }
     }
 }

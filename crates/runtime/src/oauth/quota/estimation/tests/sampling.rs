@@ -1,352 +1,331 @@
 use std::sync::Arc;
 
-use crate::oauth::quota::types::{OAuthQuotaEstimateConfidence, OAuthQuotaIntervalStatus};
+use super::{
+    UsageRepository, checkpoint, costless, observe, priced, pruned_checkpoint,
+    telemetry_observation, unpriced,
+};
+use crate::oauth::quota::{
+    estimation::OAuthQuotaEstimator,
+    types::{OAuthQuotaEstimateConfidence, OAuthQuotaIntervalStatus},
+};
 
-use super::*;
-
+/// Scenario A: `used 10% → 20%` with 37.5 credits ($1.50) of local cost
+/// calibrates the account to 375 credits ($15) of absolute capacity.
 #[tokio::test]
-async fn stable_intervals_converge_with_median() {
+async fn one_clean_interval_calibrates_absolute_capacity() {
     let repository = Arc::new(UsageRepository::default());
-    for cost in [98.0, 100.0, 102.0] {
-        repository.push(priced(cost));
-    }
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let mut state = None;
-    for (index, percent) in [0.0, 10.0, 20.0, 30.0].into_iter().enumerate() {
-        let result = observe(
-            &estimator,
-            state,
-            percent,
-            Some(99_999),
-            checkpoint(0),
-            index,
-        )
-        .await;
-        state = Some(result.state);
-        if index == 3 {
-            let estimate = &result.estimates[0];
-            assert_eq!(estimate.confidence, OAuthQuotaEstimateConfidence::Stable);
-            assert_eq!(estimate.sample_count, 3);
-            assert!((estimate.estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001);
-        }
-    }
-}
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
 
-#[tokio::test]
-async fn cold_start_and_mid_window_start_wait_for_a_complete_interval() {
-    let repository = Arc::new(UsageRepository::default());
-    repository.push(priced(100.0));
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 60.0, Some(99_999), checkpoint(0), 0).await;
-    assert_eq!(first.estimates[0].sample_count, 0);
+    let baseline = observe(&estimator, None, 10.0, None, checkpoint(), 0).await;
     assert_eq!(
-        first.estimates[0].confidence,
-        OAuthQuotaEstimateConfidence::Unknown
-    );
-    assert_eq!(
-        first.estimates[0].latest_interval.status,
+        baseline.estimates[0].latest_interval.status,
         OAuthQuotaIntervalStatus::AwaitingBaseline
     );
-
-    let second = observe(
-        &estimator,
-        Some(first.state),
-        70.0,
-        Some(99_999),
-        checkpoint(0),
-        1,
-    )
-    .await;
-    assert_eq!(second.estimates[0].sample_count, 1);
     assert_eq!(
-        second.estimates[0].confidence,
-        OAuthQuotaEstimateConfidence::Learning
+        baseline.estimates[0].confidence,
+        OAuthQuotaEstimateConfidence::Unknown
     );
-}
 
-#[tokio::test]
-async fn telemetry_gaps_and_unpriced_usage_do_not_create_samples() {
-    let repository = Arc::new(UsageRepository::default());
-    repository.push(unpriced());
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 0.0, Some(100), checkpoint(0), 0).await;
-    let gap = observe(
+    repository.push(priced(37.5));
+    let result = observe(
         &estimator,
-        Some(first.state),
-        10.0,
-        Some(100),
-        checkpoint(1),
-        1,
-    )
-    .await;
-    assert_eq!(
-        gap.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::TelemetryIncomplete
-    );
-    let unpriced = observe(
-        &estimator,
-        Some(gap.state),
+        Some(baseline.state),
         20.0,
-        Some(100),
-        checkpoint(1),
-        2,
-    )
-    .await;
-    assert_eq!(unpriced.estimates[0].sample_count, 0);
-    assert_eq!(
-        unpriced.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::UnpricedUsage
-    );
-}
-
-#[tokio::test]
-async fn sqlite_write_failure_and_interval_query_failure_do_not_create_samples() {
-    let repository = Arc::new(UsageRepository::default());
-    repository.push_error();
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 0.0, Some(100), checkpoint(0), 0).await;
-    let write_failed = observe(
-        &estimator,
-        Some(first.state),
-        10.0,
-        Some(100),
-        storage_failed_checkpoint(1),
+        None,
+        checkpoint(),
         1,
     )
     .await;
-    assert_eq!(write_failed.estimates[0].sample_count, 0);
-    assert_eq!(
-        write_failed.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::TelemetryIncomplete
-    );
-    assert_eq!(
-        write_failed.estimates[0]
-            .latest_interval
-            .storage_failed_request_logs,
-        1
-    );
 
-    let query_failed = observe(
-        &estimator,
-        Some(write_failed.state),
-        20.0,
-        Some(100),
-        storage_failed_checkpoint(1),
-        2,
-    )
-    .await;
-    assert_eq!(query_failed.estimates[0].sample_count, 0);
-    assert_eq!(
-        query_failed.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::Invalid
-    );
-}
-
-#[tokio::test]
-async fn stable_distribution_rejects_external_and_outlier_intervals() {
-    for (cost, expected) in [
-        (10.0, OAuthQuotaIntervalStatus::ExternalUsageSuspected),
-        (900.0, OAuthQuotaIntervalStatus::OutlierRejected),
-    ] {
-        let repository = Arc::new(UsageRepository::default());
-        for value in [100.0, 100.0, 100.0, cost] {
-            repository.push(priced(value));
-        }
-        let estimator = OAuthQuotaEstimator::new(repository);
-        let mut state = None;
-        let mut latest = None;
-        for (index, percent) in [0.0, 10.0, 20.0, 30.0, 40.0].into_iter().enumerate() {
-            let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
-            latest = Some(result.estimates[0].clone());
-            state = Some(result.state);
-        }
-        let latest = latest.unwrap();
-        assert_eq!(latest.sample_count, 3);
-        assert_eq!(latest.latest_interval.status, expected);
-        assert_eq!(latest.confidence, OAuthQuotaEstimateConfidence::Degraded);
-        assert!((latest.estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001);
-        let window = &state.unwrap().windows[0];
-        if expected == OAuthQuotaIntervalStatus::ExternalUsageSuspected {
-            assert_eq!(window.low_streak, 1);
-            assert!(window.pending_high.is_none());
-        } else {
-            assert_eq!(window.low_streak, 0);
-            assert!(window.pending_high.is_some());
-        }
-    }
-}
-
-#[tokio::test]
-async fn two_consistent_high_candidates_revise_capacity_upward() {
-    let repository = Arc::new(UsageRepository::default());
-    for cost in [100.0, 100.0, 100.0, 300.0, 300.0] {
-        repository.push(priced(cost));
-    }
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let mut state = None;
-    for (index, percent) in (0..=5).map(|value| value as f64 * 10.0).enumerate() {
-        let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
-        if index == 4 {
-            assert_eq!(
-                result.estimates[0].latest_interval.status,
-                OAuthQuotaIntervalStatus::OutlierRejected
-            );
-            assert_eq!(result.estimates[0].sample_count, 3);
-            assert!(
-                (result.estimates[0].estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001
-            );
-            assert!(result.state.windows[0].pending_high.is_some());
-        }
-        if index == 5 {
-            assert_eq!(
-                result.estimates[0].latest_interval.status,
-                OAuthQuotaIntervalStatus::ValidSample
-            );
-            assert_eq!(result.estimates[0].sample_count, 2);
-            assert_eq!(result.estimates[0].fresh_sample_count, 2);
-            assert_eq!(
-                result.estimates[0].confidence,
-                OAuthQuotaEstimateConfidence::Learning
-            );
-            assert!(
-                (result.estimates[0].estimated_capacity_credits.unwrap() - 3_000.0).abs() < 0.001
-            );
-            assert!(result.state.windows[0].pending_high.is_none());
-        }
-        state = Some(result.state);
-    }
-}
-
-#[tokio::test]
-async fn persistent_low_candidates_degrade_confidence_without_lowering_capacity() {
-    let repository = Arc::new(UsageRepository::default());
-    for cost in [100.0, 100.0, 100.0, 10.0, 10.0, 100.0] {
-        repository.push(priced(cost));
-    }
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let mut state = None;
-    for (index, percent) in (0..=6).map(|value| value as f64 * 10.0).enumerate() {
-        let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
-        if index == 4 || index == 5 {
-            assert_eq!(
-                result.estimates[0].latest_interval.status,
-                OAuthQuotaIntervalStatus::ExternalUsageSuspected
-            );
-            assert_eq!(result.estimates[0].sample_count, 3);
-            assert_eq!(
-                result.estimates[0].confidence,
-                OAuthQuotaEstimateConfidence::Degraded
-            );
-            assert!(
-                (result.estimates[0].estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001
-            );
-            assert_eq!(result.state.windows[0].low_streak, (index - 3) as u32);
-        }
-        if index == 6 {
-            assert_eq!(
-                result.estimates[0].latest_interval.status,
-                OAuthQuotaIntervalStatus::ValidSample
-            );
-            assert_eq!(result.estimates[0].sample_count, 4);
-            assert_eq!(
-                result.estimates[0].confidence,
-                OAuthQuotaEstimateConfidence::Stable
-            );
-            assert!(
-                (result.estimates[0].estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001
-            );
-            assert_eq!(result.state.windows[0].low_streak, 0);
-        }
-        state = Some(result.state);
-    }
-}
-
-#[tokio::test]
-async fn cold_start_low_cluster_can_relearn_the_consistent_true_capacity() {
-    let repository = Arc::new(UsageRepository::default());
-    for cost in [9.8, 10.0, 10.2, 98.0, 100.0, 102.0, 99.5] {
-        repository.push(priced(cost));
-    }
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let mut state = None;
-    let mut final_estimate = None;
-    for (index, percent) in (0..=7).map(|value| value as f64 * 10.0).enumerate() {
-        let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
-        final_estimate = Some(result.estimates[0].clone());
-        state = Some(result.state);
-    }
-    let estimate = final_estimate.expect("final estimate");
-    assert_eq!(estimate.sample_count, 4);
-    assert_eq!(estimate.confidence, OAuthQuotaEstimateConfidence::Stable);
+    let estimate = &result.estimates[0];
     assert_eq!(
         estimate.latest_interval.status,
         OAuthQuotaIntervalStatus::ValidSample
     );
-    assert!((estimate.estimated_capacity_credits.unwrap() - 997.5).abs() < 0.001);
+    assert_eq!(estimate.estimated_capacity_credits, Some(375.0));
+    assert_eq!(estimate.estimated_used_credits, Some(75.0));
+    assert_eq!(estimate.estimated_remaining_credits, Some(300.0));
+    assert_eq!(estimate.confidence, OAuthQuotaEstimateConfidence::Learning);
+    assert_eq!(estimate.sample_count, 1);
+    assert_eq!(estimate.rate_cards, vec![super::RATE_CARD.to_owned()]);
+}
+
+/// Scenario B: repeated clean intervals converge on the true capacity.
+#[tokio::test]
+async fn repeated_clean_samples_converge_on_the_true_capacity() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+
+    let capacities = [1_520.0, 1_490.0, 1_500.0, 1_510.0, 1_480.0];
+    for (index, capacity) in capacities.iter().enumerate() {
+        let percent = 10.0 + 5.0 * (index as f64 + 1.0);
+        repository.push(priced(capacity * 5.0 / 100.0));
+        let result = observe(
+            &estimator,
+            Some(state),
+            percent,
+            None,
+            checkpoint(),
+            index + 1,
+        )
+        .await;
+        assert_eq!(
+            result.estimates[0].latest_interval.status,
+            OAuthQuotaIntervalStatus::ValidSample
+        );
+        state = result.state;
+    }
+
+    let result = observe(&estimator, Some(state), 35.2, None, checkpoint(), 7).await;
+    let estimate = &result.estimates[0];
+    assert_eq!(estimate.estimated_capacity_credits, Some(1_500.0));
+    assert_eq!(estimate.sample_count, 5);
+    assert_eq!(estimate.confidence, OAuthQuotaEstimateConfidence::Stable);
+}
+
+/// Scenario C: the estimate is a measurement, not a lower bound — later
+/// samples below the first one pull it down.
+#[tokio::test]
+async fn estimate_moves_down_when_later_samples_measure_lower() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+
+    let capacities = [1_550.0, 1_500.0, 1_490.0, 1_510.0];
+    for (index, capacity) in capacities.iter().enumerate() {
+        let percent = 10.0 + 5.0 * (index as f64 + 1.0);
+        repository.push(priced(capacity * 5.0 / 100.0));
+        state = observe(
+            &estimator,
+            Some(state),
+            percent,
+            None,
+            checkpoint(),
+            index + 1,
+        )
+        .await
+        .state;
+    }
+
+    let result = observe(&estimator, Some(state), 30.2, None, checkpoint(), 6).await;
+    let capacity = result.estimates[0]
+        .estimated_capacity_credits
+        .expect("capacity");
+    assert_eq!(capacity, 1_505.0);
+    assert!(capacity < 1_550.0);
+}
+
+/// Scenario L: samples with larger official deltas carry more weight, so a
+/// small-delta bootstrap outlier cannot hold the estimate away from the
+/// large-delta measurements.
+#[tokio::test]
+async fn larger_delta_samples_dominate_the_aggregate() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+
+    // Bootstrap sample: Δ3% at capacity 1600.
+    repository.push(priced(48.0));
+    state = observe(&estimator, Some(state), 13.0, None, checkpoint(), 1)
+        .await
+        .state;
+    // Δ10% at capacity 1500.
+    repository.push(priced(150.0));
+    state = observe(&estimator, Some(state), 23.0, None, checkpoint(), 2)
+        .await
+        .state;
+    // Δ5% at capacity 1620.
+    repository.push(priced(81.0));
+    let result = observe(&estimator, Some(state), 28.0, None, checkpoint(), 3).await;
+
+    // Plain median would report 1600; the Δ-weighted median follows the
+    // heavier 10-point sample.
+    assert_eq!(
+        result.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
+    );
+}
+
+/// An official delta whose local cost has not landed yet (requests still in
+/// flight, upstream accounting lag) keeps accumulating instead of splitting
+/// the cost from its percent: the interval telescopes to a correct sample.
+#[tokio::test]
+async fn costless_official_delta_waits_for_the_local_cost_to_land() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+
+    repository.push(costless());
+    let waiting = observe(&estimator, Some(state), 13.0, None, checkpoint(), 1).await;
+    assert_eq!(
+        waiting.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::Accumulating
+    );
+    assert!(waiting.estimates[0].estimated_capacity_credits.is_none());
+    state = waiting.state;
+
+    repository.push(priced(90.0));
+    let result = observe(&estimator, Some(state), 16.0, None, checkpoint(), 2).await;
+    assert_eq!(
+        result.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::ValidSample
+    );
+    // Δ = 16 − 10 over the held anchor, not 16 − 13.
+    assert_eq!(
+        result.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
+    );
+}
+
+/// Unpriced requests poison the whole interval: no sample, fresh anchor,
+/// degraded confidence until a clean interval closes.
+#[tokio::test]
+async fn unpriced_usage_discards_the_interval_without_learning() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+    repository.push(priced(150.0));
+    state = observe(&estimator, Some(state), 20.0, None, checkpoint(), 1)
+        .await
+        .state;
+
+    repository.push(unpriced());
+    let poisoned = observe(&estimator, Some(state), 30.0, None, checkpoint(), 2).await;
+    assert_eq!(
+        poisoned.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::UnpricedUsage
+    );
+    assert_eq!(
+        poisoned.estimates[0].confidence,
+        OAuthQuotaEstimateConfidence::Degraded
+    );
+    assert_eq!(poisoned.estimates[0].sample_count, 1);
+    state = poisoned.state;
+
+    // The next interval starts at the poisoned observation, not before it.
+    repository.push(priced(75.0));
+    let recovered = observe(&estimator, Some(state), 35.0, None, checkpoint(), 3).await;
+    assert_eq!(
+        recovered.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::ValidSample
+    );
+    assert_eq!(recovered.estimates[0].sample_count, 2);
+    let queries = repository.queries();
+    assert_eq!(queries.last().unwrap().0.sequence, 2);
 }
 
 #[tokio::test]
-async fn one_high_outlier_is_cleared_by_normal_candidates_without_relearning() {
+async fn interval_query_failure_discards_the_interval() {
     let repository = Arc::new(UsageRepository::default());
-    for cost in [100.0, 100.0, 100.0, 500.0, 99.0, 101.0] {
-        repository.push(priced(cost));
-    }
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let mut state = None;
-    let mut final_estimate = None;
-    for (index, percent) in (0..=6).map(|value| value as f64 * 10.0).enumerate() {
-        let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
-        if index == 4 {
-            assert_eq!(
-                result.estimates[0].latest_interval.status,
-                OAuthQuotaIntervalStatus::OutlierRejected
-            );
-            assert!(result.state.windows[0].pending_high.is_some());
-        }
-        if index >= 5 {
-            assert!(result.state.windows[0].pending_high.is_none());
-        }
-        final_estimate = Some(result.estimates[0].clone());
-        state = Some(result.state);
-    }
-    let estimate = final_estimate.expect("final estimate");
-    assert_eq!(estimate.sample_count, 5);
-    assert_eq!(estimate.confidence, OAuthQuotaEstimateConfidence::Stable);
-    assert!((estimate.estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001);
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+
+    repository.push_error();
+    let result = observe(&estimator, Some(state), 20.0, None, checkpoint(), 1).await;
+    assert_eq!(
+        result.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::Invalid
+    );
+    assert!(result.estimates[0].estimated_capacity_credits.is_none());
 }
 
+/// Interval membership is decided by the monotonic sequence fence, not the
+/// wall clock: a clock rollback between observations does not corrupt the
+/// sample.
 #[tokio::test]
 async fn wall_clock_rollback_does_not_change_sequence_interval_membership() {
     let repository = Arc::new(UsageRepository::default());
-    repository.push(priced(100.0));
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = estimator
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let account = any2api_domain::OAuthAccountId::from_uuid(uuid::Uuid::nil());
+
+    let baseline = estimator
         .observe(
-            OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(0.0, Some(100)),
+            account,
+            &super::usage(10.0, None),
             None,
             "identity-a".into(),
-            QuotaCostUnit::CodexCredits,
-            telemetry_observation(checkpoint(0), 5_000, 0),
+            any2api_domain::QuotaCostUnit::CodexCredits,
+            telemetry_observation(checkpoint(), 10_000, 4),
             None,
         )
         .await;
-    let learned = estimator
+    repository.push(priced(150.0));
+    let result = estimator
         .observe(
-            OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(10.0, Some(100)),
-            Some(first.state),
+            account,
+            &super::usage(20.0, None),
+            Some(baseline.state),
             "identity-a".into(),
-            QuotaCostUnit::CodexCredits,
-            telemetry_observation(checkpoint(0), 4_000, 1),
+            any2api_domain::QuotaCostUnit::CodexCredits,
+            telemetry_observation(checkpoint(), 5_000, 9),
             None,
         )
         .await;
 
     assert_eq!(
-        learned.estimates[0].latest_interval.status,
+        result.estimates[0].latest_interval.status,
         OAuthQuotaIntervalStatus::ValidSample
     );
-    assert_eq!(learned.estimates[0].sample_count, 1);
-    assert!(learned.state.valid());
+    assert_eq!(
+        result.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
+    );
+    let queries = repository.queries();
+    assert_eq!(queries[0].0.sequence, 4);
+    assert_eq!(queries[0].1.sequence, 9);
+}
+
+/// Scenario K companion: pruning that reaches into the open interval fails
+/// closed even when the interval query itself succeeded.
+#[tokio::test]
+async fn prune_reaching_into_the_interval_invalidates_it() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let state = observe(&estimator, None, 10.0, None, checkpoint(), 2)
+        .await
+        .state;
+
+    repository.push(priced(150.0));
+    let result = observe(&estimator, Some(state), 20.0, None, pruned_checkpoint(3), 4).await;
+    assert_eq!(
+        result.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::TelemetryIncomplete
+    );
+    assert!(result.estimates[0].latest_interval.interval_pruned);
+    assert!(result.estimates[0].estimated_capacity_credits.is_none());
+}
+
+/// Scenario J companion: pruning history at or before the anchor is harmless.
+#[tokio::test]
+async fn prune_of_history_before_the_anchor_keeps_the_interval() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let state = observe(&estimator, None, 10.0, None, checkpoint(), 2)
+        .await
+        .state;
+
+    repository.push(priced(150.0));
+    let result = observe(&estimator, Some(state), 20.0, None, pruned_checkpoint(2), 4).await;
+    assert_eq!(
+        result.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::ValidSample
+    );
+    assert!(!result.estimates[0].latest_interval.interval_pruned);
+    assert_eq!(
+        result.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
+    );
 }

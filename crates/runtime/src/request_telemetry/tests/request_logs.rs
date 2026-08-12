@@ -82,8 +82,8 @@ async fn full_logical_queue_drops_without_waiting_for_the_writer() {
     assert_eq!(metrics.dropped_records, 1);
 
     repository.release_first.notify_waiters();
-    let checkpoint = telemetry.quota_checkpoint().await;
-    assert_eq!(checkpoint.queue_dropped_request_logs, 1);
+    let checkpoint = telemetry.quota_checkpoint(oauth_account_id).await;
+    assert_eq!(checkpoint.account_queue_dropped_request_logs, 1);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
     let metrics = telemetry.metrics();
     assert_eq!(metrics.queued_records, 0);
@@ -146,10 +146,8 @@ async fn failed_request_log_batch_does_not_advance_change_epoch() {
     let changes = telemetry.subscribe_request_log_changes();
     let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
 
-    telemetry.try_record(
-        oauth_record(RequestId::new(), OAuthAccountId::new()),
-        policy,
-    );
+    let oauth_account_id = OAuthAccountId::new();
+    telemetry.try_record(oauth_record(RequestId::new(), oauth_account_id), policy);
     wait_for(|| telemetry.metrics().dropped_records == 1).await;
 
     let metrics = telemetry.metrics();
@@ -162,8 +160,8 @@ async fn failed_request_log_batch_does_not_advance_change_epoch() {
             .has_changed()
             .expect("request log notifier remains open")
     );
-    let checkpoint = telemetry.quota_checkpoint().await;
-    assert_eq!(checkpoint.storage_failed_request_logs, 1);
+    let checkpoint = telemetry.quota_checkpoint(oauth_account_id).await;
+    assert_eq!(checkpoint.account_storage_failed_request_logs, 1);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }
 
@@ -285,8 +283,9 @@ async fn retention_deletions_advance_both_change_epochs() {
     assert_eq!(*request_changes.borrow(), 1);
     assert_eq!(*access_changes.borrow(), 1);
 
-    let checkpoint = telemetry.quota_checkpoint().await;
-    assert_eq!(checkpoint.pruned_request_logs, 2);
+    // Deletions without positions for this process leave the prune fence alone.
+    let checkpoint = telemetry.quota_checkpoint(OAuthAccountId::new()).await;
+    assert_eq!(checkpoint.pruned_through_sequence, 0);
 
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }

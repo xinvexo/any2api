@@ -1,6 +1,6 @@
 # ADR-0141：单调 Codex Quota Observation 与可恢复容量模型
 
-- 状态：Accepted
+- 状态：Accepted（§3 竞争簇与 §1 的全局 prune 计数已被 ADR-0144 取代；observation fence 与双锚点保留）
 - 日期：2026-08-12
 - 决策者：maintainer
 - 影响范围：RequestTelemetry、RequestLog、OAuth quota snapshot、Codex quota estimator

@@ -55,7 +55,7 @@ struct OAuthQuotaIntervalDiagnosticResponse {
     unpriced_request_count: u64,
     queue_dropped_request_logs: u64,
     storage_failed_request_logs: u64,
-    pruned_request_logs: u64,
+    interval_pruned: bool,
 }
 
 impl From<OAuthQuotaIntervalDiagnostic> for OAuthQuotaIntervalDiagnosticResponse {
@@ -69,7 +69,7 @@ impl From<OAuthQuotaIntervalDiagnostic> for OAuthQuotaIntervalDiagnosticResponse
             unpriced_request_count: value.unpriced_request_count,
             queue_dropped_request_logs: value.queue_dropped_request_logs,
             storage_failed_request_logs: value.storage_failed_request_logs,
-            pruned_request_logs: value.pruned_request_logs,
+            interval_pruned: value.interval_pruned,
         }
     }
 }
@@ -79,7 +79,6 @@ fn confidence(value: OAuthQuotaEstimateConfidence) -> &'static str {
         OAuthQuotaEstimateConfidence::Unknown => "unknown",
         OAuthQuotaEstimateConfidence::Learning => "learning",
         OAuthQuotaEstimateConfidence::Stable => "stable",
-        OAuthQuotaEstimateConfidence::Inherited => "inherited",
         OAuthQuotaEstimateConfidence::Degraded => "degraded",
     }
 }
@@ -93,8 +92,6 @@ fn interval_status(value: OAuthQuotaIntervalStatus) -> &'static str {
         OAuthQuotaIntervalStatus::ResetBoundary => "reset_boundary",
         OAuthQuotaIntervalStatus::TelemetryIncomplete => "telemetry_incomplete",
         OAuthQuotaIntervalStatus::UnpricedUsage => "unpriced_usage",
-        OAuthQuotaIntervalStatus::ExternalUsageSuspected => "external_usage_suspected",
-        OAuthQuotaIntervalStatus::OutlierRejected => "outlier_rejected",
         OAuthQuotaIntervalStatus::Invalid => "invalid",
     }
 }

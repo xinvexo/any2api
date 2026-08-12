@@ -1,7 +1,6 @@
+mod accumulation;
 mod epochs;
-mod inheritance;
 mod sampling;
-mod segments;
 
 use std::{collections::VecDeque, sync::Mutex};
 
@@ -71,12 +70,40 @@ async fn observe(
     checkpoint: RequestTelemetryCheckpoint,
     index: usize,
 ) -> super::EstimationResult {
+    observe_usage(
+        estimator,
+        state,
+        usage(percent, reset_at),
+        checkpoint,
+        index,
+    )
+    .await
+}
+
+async fn observe_usage(
+    estimator: &OAuthQuotaEstimator,
+    state: Option<QuotaEstimatorState>,
+    usage: OAuthQuotaUsage,
+    checkpoint: RequestTelemetryCheckpoint,
+    index: usize,
+) -> super::EstimationResult {
+    observe_identified(estimator, state, usage, "identity-a", checkpoint, index).await
+}
+
+async fn observe_identified(
+    estimator: &OAuthQuotaEstimator,
+    state: Option<QuotaEstimatorState>,
+    usage: OAuthQuotaUsage,
+    credential_fingerprint: &str,
+    checkpoint: RequestTelemetryCheckpoint,
+    index: usize,
+) -> super::EstimationResult {
     estimator
         .observe(
             OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(percent, reset_at),
+            &usage,
             state,
-            "identity-a".into(),
+            credential_fingerprint.into(),
             QuotaCostUnit::CodexCredits,
             indexed_observation(checkpoint, index),
             None,
@@ -85,18 +112,26 @@ async fn observe(
 }
 
 fn usage(percent: f64, reset_at: Option<i64>) -> OAuthQuotaUsage {
+    usage_for_window(window(percent, reset_at))
+}
+
+fn window(percent: f64, reset_at: Option<i64>) -> OAuthQuotaWindow {
+    OAuthQuotaWindow {
+        id: "primary".into(),
+        kind: OAuthQuotaWindowKind::Time,
+        used_percent: percent,
+        limit_window_seconds: Some(18_000),
+        reset_after_seconds: None,
+        reset_at,
+    }
+}
+
+fn usage_for_window(window: OAuthQuotaWindow) -> OAuthQuotaUsage {
     OAuthQuotaUsage {
         rate_limit: Some(OAuthQuotaRateLimit {
             allowed: Some(true),
             limit_reached: Some(false),
-            windows: vec![OAuthQuotaWindow {
-                id: "primary".into(),
-                kind: OAuthQuotaWindowKind::Time,
-                used_percent: percent,
-                limit_window_seconds: Some(18_000),
-                reset_after_seconds: None,
-                reset_at,
-            }],
+            windows: vec![window],
         }),
         credits: None,
         access: None,
@@ -106,6 +141,12 @@ fn usage(percent: f64, reset_at: Option<i64>) -> OAuthQuotaUsage {
         subscription_tier: None,
         account_status: None,
     }
+}
+
+fn usage_with_tier(percent: f64, reset_at: Option<i64>, tier: &str) -> OAuthQuotaUsage {
+    let mut usage = usage(percent, reset_at);
+    usage.subscription_tier = Some(tier.into());
+    usage
 }
 
 fn priced(credits: f64) -> OAuthQuotaRequestLogUsage {
@@ -118,6 +159,10 @@ fn priced(credits: f64) -> OAuthQuotaRequestLogUsage {
     }
 }
 
+fn costless() -> OAuthQuotaRequestLogUsage {
+    OAuthQuotaRequestLogUsage::default()
+}
+
 fn unpriced() -> OAuthQuotaRequestLogUsage {
     OAuthQuotaRequestLogUsage {
         unpriced_request_count: 1,
@@ -125,29 +170,40 @@ fn unpriced() -> OAuthQuotaRequestLogUsage {
     }
 }
 
-fn checkpoint(generation: u64) -> RequestTelemetryCheckpoint {
-    checkpoint_for(Uuid::nil(), generation)
+fn checkpoint() -> RequestTelemetryCheckpoint {
+    checkpoint_for(Uuid::nil())
 }
 
-fn checkpoint_for(process_id: Uuid, generation: u64) -> RequestTelemetryCheckpoint {
+fn checkpoint_for(process_id: Uuid) -> RequestTelemetryCheckpoint {
     RequestTelemetryCheckpoint {
         process_id,
         enabled: true,
         policy_generation: 0,
-        queue_dropped_request_logs: generation,
-        storage_failed_request_logs: 0,
-        pruned_request_logs: 0,
+        account_queue_dropped_request_logs: 0,
+        account_storage_failed_request_logs: 0,
+        unattributed_lost_request_logs: 0,
+        pruned_through_sequence: 0,
     }
 }
 
-fn storage_failed_checkpoint(generation: u64) -> RequestTelemetryCheckpoint {
+fn queue_dropped_checkpoint(dropped: u64) -> RequestTelemetryCheckpoint {
     RequestTelemetryCheckpoint {
-        process_id: Uuid::nil(),
-        enabled: true,
-        policy_generation: 0,
-        queue_dropped_request_logs: 0,
-        storage_failed_request_logs: generation,
-        pruned_request_logs: 0,
+        account_queue_dropped_request_logs: dropped,
+        ..checkpoint()
+    }
+}
+
+fn storage_failed_checkpoint(failed: u64) -> RequestTelemetryCheckpoint {
+    RequestTelemetryCheckpoint {
+        account_storage_failed_request_logs: failed,
+        ..checkpoint()
+    }
+}
+
+fn pruned_checkpoint(pruned_through_sequence: u64) -> RequestTelemetryCheckpoint {
+    RequestTelemetryCheckpoint {
+        pruned_through_sequence,
+        ..checkpoint()
     }
 }
 

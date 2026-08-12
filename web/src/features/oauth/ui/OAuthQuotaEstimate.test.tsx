@@ -28,23 +28,42 @@ test("degraded estimates remain available but are marked approximate", () => {
     confidence: "degraded",
     latestInterval: {
       ...base.latestInterval,
-      status: "external_usage_suspected",
+      status: "telemetry_incomplete",
+      queueDroppedRequestLogs: 1,
     },
   })} />);
 
   const value = screen.getByText("≈$0.40/$1.00");
   fireEvent.mouseEnter(value);
   const tooltip = screen.getByRole("tooltip");
-  expect(tooltip).toHaveTextContent("疑似外部消费");
+  expect(tooltip).toHaveTextContent("本地遥测不完整");
   expect(tooltip).toHaveTextContent("置信度 已降级");
+  expect(tooltip).toHaveTextContent("遥测缺口：队列丢失 1");
   expect(tooltip).not.toHaveTextContent("样本相对 MAD");
   expect(tooltip).not.toHaveTextContent("Epoch");
   expect(tooltip).not.toHaveTextContent("非上游余额");
 });
 
-test("inherited priors stay approximate and show per-epoch sample counts", () => {
+test("interval-reaching prune is reported as a telemetry gap", () => {
   render(<QuotaEstimate estimate={estimate({
-    confidence: "inherited",
+    confidence: "degraded",
+    latestInterval: {
+      ...base.latestInterval,
+      status: "telemetry_incomplete",
+      intervalPruned: true,
+    },
+  })} />);
+
+  const value = screen.getByText("≈$0.40/$1.00");
+  fireEvent.mouseEnter(value);
+  expect(screen.getByRole("tooltip")).toHaveTextContent(
+    "遥测缺口：日志清理删除了区间数据",
+  );
+});
+
+test("a rollover prior keeps the estimate and shows per-epoch sample counts", () => {
+  render(<QuotaEstimate estimate={estimate({
+    confidence: "learning",
     freshSampleCount: 0,
     latestInterval: {
       ...base.latestInterval,
@@ -52,10 +71,10 @@ test("inherited priors stay approximate and show per-epoch sample counts", () =>
     },
   })} />);
 
-  const value = screen.getByText("≈$0.40/$1.00");
+  const value = screen.getByText("$0.40/$1.00");
   fireEvent.mouseEnter(value);
   const tooltip = screen.getByRole("tooltip");
-  expect(tooltip).toHaveTextContent("置信度 沿用上期");
+  expect(tooltip).toHaveTextContent("置信度 学习中");
   expect(tooltip).toHaveTextContent("累计观测中");
   expect(tooltip).toHaveTextContent("容量样本 3 · 本窗口期 0");
 });
@@ -83,7 +102,7 @@ const base: OAuthQuotaEstimate = {
     unpricedRequestCount: 0,
     queueDroppedRequestLogs: 0,
     storageFailedRequestLogs: 0,
-    prunedRequestLogs: 0,
+    intervalPruned: false,
   },
   rateCards: ["openai_codex_credits_2026_08_11"],
 };

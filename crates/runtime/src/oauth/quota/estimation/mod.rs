@@ -1,7 +1,16 @@
+//! Local capacity estimation for OAuth quota windows.
+//!
+//! Premise (ADR-0144): an OAuth account managed by any2api is consumed
+//! exclusively through any2api, so the local RequestLog stream is the
+//! complete consumption record. Between two official snapshots with a
+//! fence-complete local interval, `capacity = local_cost × 100 / Δused%`
+//! measures the account's absolute quota capacity directly; samples scatter
+//! around the true value with bounded endpoint noise and are aggregated with
+//! a Δ-weighted median.
+
+mod aggregate;
 mod interval;
-mod learning;
 mod projection;
-mod robust;
 pub(super) mod state;
 mod transition;
 
@@ -45,9 +54,21 @@ impl OAuthQuotaEstimator {
     ) -> EstimationResult {
         let mut state =
             previous.unwrap_or_else(|| QuotaEstimatorState::new(credential_fingerprint.clone()));
-        let identity_changed = state.credential_fingerprint != credential_fingerprint;
-        if identity_changed {
-            state.credential_fingerprint = credential_fingerprint;
+        let mut signature_changed = state.credential_fingerprint != credential_fingerprint;
+        state.credential_fingerprint = credential_fingerprint;
+        // A different subscription tier means a different capacity; missing
+        // tier data is not a change.
+        if let Some(tier) = usage.subscription_tier.as_deref() {
+            if state
+                .subscription_tier
+                .as_deref()
+                .is_some_and(|previous| previous != tier)
+            {
+                signature_changed = true;
+            }
+            state.subscription_tier = Some(tier.to_owned());
+        }
+        if signature_changed {
             state.windows.clear();
         }
         let current_windows = usage
@@ -73,21 +94,18 @@ impl OAuthQuotaEstimator {
                     )
                     .await
                 }
-                Some(mut previous) => {
-                    learning::salvage_segment(&mut previous);
-                    transition::rollover_window(
-                        previous,
-                        state.allocate_epoch(),
-                        window,
-                        observation.clone(),
-                    )
-                }
+                Some(previous) => transition::rollover_window(
+                    previous,
+                    state.allocate_epoch(),
+                    window,
+                    observation.clone(),
+                ),
                 None => transition::new_window(
                     key,
                     state.allocate_epoch(),
                     window,
                     observation.clone(),
-                    if identity_changed || key_changed {
+                    if signature_changed || key_changed {
                         OAuthQuotaIntervalStatus::ResetBoundary
                     } else {
                         OAuthQuotaIntervalStatus::AwaitingBaseline

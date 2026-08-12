@@ -48,7 +48,7 @@ fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
                 unpriced_request_count: 0,
                 queue_dropped_request_logs: 0,
                 storage_failed_request_logs: 0,
-                pruned_request_logs: 0,
+                interval_pruned: false,
             },
             rate_cards: vec!["openai_codex_credits_2026_08_11".to_owned()],
         }],

@@ -220,31 +220,79 @@ pub(super) async fn delete_oldest_before(
     connection: &mut SqliteConnection,
     cutoff_ms: u64,
     limit: u64,
-) -> Result<u64, StorageError> {
-    let result = sqlx::query(
-        "DELETE FROM request_logs WHERE request_id IN (SELECT request_id FROM request_logs \
-         WHERE started_at_ms < ? ORDER BY started_at_ms ASC, request_id ASC LIMIT ?)",
-    )
+) -> Result<(u64, Vec<RequestTelemetryPosition>), StorageError> {
+    let victims = "SELECT request_id FROM request_logs \
+         WHERE started_at_ms < ? ORDER BY started_at_ms ASC, request_id ASC LIMIT ?";
+    let pruned_positions = sqlx::query_as::<_, PrunedPositionRow>(&format!(
+        "SELECT telemetry_process_id, MAX(telemetry_sequence) AS max_sequence \
+         FROM request_logs WHERE request_id IN ({victims}) \
+         AND telemetry_process_id IS NOT NULL AND telemetry_sequence IS NOT NULL \
+         GROUP BY telemetry_process_id"
+    ))
+    .bind(to_i64(cutoff_ms)?)
+    .bind(to_i64(limit)?)
+    .fetch_all(&mut *connection)
+    .await?
+    .into_iter()
+    .map(PrunedPositionRow::into_position)
+    .collect::<Result<Vec<_>, _>>()?;
+    let result = sqlx::query(&format!(
+        "DELETE FROM request_logs WHERE request_id IN ({victims})"
+    ))
     .bind(to_i64(cutoff_ms)?)
     .bind(to_i64(limit)?)
     .execute(connection)
     .await?;
-    Ok(result.rows_affected())
+    Ok((result.rows_affected(), pruned_positions))
 }
 
 pub(super) async fn delete_oldest(
     connection: &mut SqliteConnection,
     limit: u64,
-) -> Result<u64, StorageError> {
-    let result = sqlx::query(
-        "DELETE FROM request_logs WHERE request_id IN (SELECT request_id FROM request_logs \
+) -> Result<(u64, Vec<RequestTelemetryPosition>), StorageError> {
+    let victims = "SELECT request_id FROM request_logs \
          INDEXED BY request_logs_started_idx \
-         ORDER BY started_at_ms ASC, request_id ASC LIMIT ?)",
-    )
+         ORDER BY started_at_ms ASC, request_id ASC LIMIT ?";
+    let pruned_positions = sqlx::query_as::<_, PrunedPositionRow>(&format!(
+        "SELECT telemetry_process_id, MAX(telemetry_sequence) AS max_sequence \
+         FROM request_logs WHERE request_id IN ({victims}) \
+         AND telemetry_process_id IS NOT NULL AND telemetry_sequence IS NOT NULL \
+         GROUP BY telemetry_process_id"
+    ))
+    .bind(to_i64(limit)?)
+    .fetch_all(&mut *connection)
+    .await?
+    .into_iter()
+    .map(PrunedPositionRow::into_position)
+    .collect::<Result<Vec<_>, _>>()?;
+    let result = sqlx::query(&format!(
+        "DELETE FROM request_logs WHERE request_id IN ({victims})"
+    ))
     .bind(to_i64(limit)?)
     .execute(connection)
     .await?;
-    Ok(result.rows_affected())
+    Ok((result.rows_affected(), pruned_positions))
+}
+
+#[derive(sqlx::FromRow)]
+struct PrunedPositionRow {
+    telemetry_process_id: Option<String>,
+    max_sequence: Option<i64>,
+}
+
+impl PrunedPositionRow {
+    fn into_position(self) -> Result<RequestTelemetryPosition, StorageError> {
+        let (Some(process_id), Some(sequence)) = (self.telemetry_process_id, self.max_sequence)
+        else {
+            return Err(StorageError::CorruptTelemetry);
+        };
+        Ok(RequestTelemetryPosition {
+            process_id: process_id
+                .parse()
+                .map_err(|_| StorageError::CorruptTelemetry)?,
+            sequence: u64::try_from(sequence).map_err(|_| StorageError::CorruptTelemetry)?,
+        })
+    }
 }
 
 fn optional_id<T: ToString>(value: Option<T>) -> Option<String> {

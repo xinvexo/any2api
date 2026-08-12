@@ -1,3 +1,4 @@
+use any2api_domain::RequestTelemetryPosition;
 use sqlx::SqliteConnection;
 
 use crate::error::StorageError;
@@ -6,30 +7,60 @@ use super::writes::delete_oldest;
 
 pub const REQUEST_LOG_CLEANUP_BATCH_ROWS: u32 = 10_000;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct RequestLogCleanupOutcome {
     deleted_rows: u64,
     has_more: bool,
+    /// Highest deleted telemetry sequence per process among the removed rows.
+    /// Lets quota estimators distinguish pruned history from pruned interval
+    /// data instead of failing every open observation interval.
+    pruned_positions: Vec<RequestTelemetryPosition>,
 }
 
 impl RequestLogCleanupOutcome {
     #[must_use]
-    pub const fn new(deleted_rows: u64, has_more: bool) -> Self {
+    pub const fn new(
+        deleted_rows: u64,
+        has_more: bool,
+        pruned_positions: Vec<RequestTelemetryPosition>,
+    ) -> Self {
         Self {
             deleted_rows,
             has_more,
+            pruned_positions,
         }
     }
 
     #[must_use]
-    pub const fn deleted_rows(self) -> u64 {
+    pub const fn deleted_rows(&self) -> u64 {
         self.deleted_rows
     }
 
     #[must_use]
-    pub const fn has_more(self) -> bool {
+    pub const fn has_more(&self) -> bool {
         self.has_more
     }
+
+    #[must_use]
+    pub fn pruned_positions(&self) -> &[RequestTelemetryPosition] {
+        &self.pruned_positions
+    }
+}
+
+pub(super) fn merge_pruned_positions(
+    mut left: Vec<RequestTelemetryPosition>,
+    right: Vec<RequestTelemetryPosition>,
+) -> Vec<RequestTelemetryPosition> {
+    for position in right {
+        match left
+            .iter_mut()
+            .find(|existing| existing.process_id == position.process_id)
+        {
+            Some(existing) => existing.sequence = existing.sequence.max(position.sequence),
+            None => left.push(position),
+        }
+    }
+    left
 }
 
 pub(super) async fn trim_to_capacity(
@@ -44,10 +75,12 @@ pub(super) async fn trim_to_capacity(
     if excess == 0 {
         return Ok(RequestLogCleanupOutcome::default());
     }
-    let deleted_rows = delete_oldest(connection, excess.min(delete_budget)).await?;
+    let (deleted_rows, pruned_positions) =
+        delete_oldest(connection, excess.min(delete_budget)).await?;
     Ok(RequestLogCleanupOutcome::new(
         deleted_rows,
         deleted_rows == delete_budget,
+        pruned_positions,
     ))
 }
 

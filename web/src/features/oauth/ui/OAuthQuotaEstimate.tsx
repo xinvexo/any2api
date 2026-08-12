@@ -178,13 +178,13 @@ function telemetryLosses(estimate: Estimate) {
   const parts = [
     interval.queueDroppedRequestLogs > 0 ? `队列丢失 ${interval.queueDroppedRequestLogs}` : null,
     interval.storageFailedRequestLogs > 0 ? `写入失败 ${interval.storageFailedRequestLogs}` : null,
-    interval.prunedRequestLogs > 0 ? `日志清理 ${interval.prunedRequestLogs}` : null,
+    interval.intervalPruned ? "日志清理删除了区间数据" : null,
   ].filter(Boolean);
   return parts.length > 0 ? `遥测缺口：${parts.join(" · ")}` : null;
 }
 
 function isApproximate(value: Estimate["confidence"]) {
-  return value === "degraded" || value === "inherited";
+  return value === "degraded";
 }
 
 function confidenceLabel(value: Estimate["confidence"]) {
@@ -192,7 +192,6 @@ function confidenceLabel(value: Estimate["confidence"]) {
     case "unknown": return "未知";
     case "learning": return "学习中";
     case "stable": return "稳定";
-    case "inherited": return "沿用上期";
     case "degraded": return "已降级";
   }
 }
@@ -210,8 +209,6 @@ function intervalStatusLabel(value: Estimate["latestInterval"]["status"]) {
     case "reset_boundary": return "检测到额度重置";
     case "telemetry_incomplete": return "本地遥测不完整";
     case "unpriced_usage": return "存在未计价请求";
-    case "external_usage_suspected": return "疑似外部消费";
-    case "outlier_rejected": return "偏高样本待确认";
     case "invalid": return "区间无效";
   }
 }
@@ -219,8 +216,6 @@ function intervalStatusLabel(value: Estimate["latestInterval"]["status"]) {
 function intervalStatusTone(value: Estimate["latestInterval"]["status"]) {
   switch (value) {
     case "valid_sample": return "text-success";
-    case "external_usage_suspected":
-    case "outlier_rejected":
     case "telemetry_incomplete":
     case "unpriced_usage":
     case "invalid":

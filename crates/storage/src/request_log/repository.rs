@@ -4,7 +4,10 @@ use async_trait::async_trait;
 use crate::{error::StorageError, sqlite::SqliteStore};
 
 use super::{
-    capacity::{REQUEST_LOG_CLEANUP_BATCH_ROWS, RequestLogCleanupOutcome, trim_to_capacity},
+    capacity::{
+        REQUEST_LOG_CLEANUP_BATCH_ROWS, RequestLogCleanupOutcome, merge_pruned_positions,
+        trim_to_capacity,
+    },
     overview::{RequestLogOverview, RequestLogOverviewRange, load_request_log_overview},
     pagination,
     rows::{RequestAttemptRow, RequestLogRow, parse_request_attempt, parse_request_log},
@@ -80,7 +83,7 @@ impl RequestLogRepository for SqliteStore {
     ) -> Result<RequestLogCleanupOutcome, StorageError> {
         let delete_budget = u64::from(batch_size);
         let mut transaction = self.begin_write().await?;
-        let expired =
+        let (expired, expired_positions) =
             delete_oldest_before(&mut transaction, retention_before_ms, delete_budget).await?;
         let capacity = trim_to_capacity(
             &mut transaction,
@@ -89,9 +92,14 @@ impl RequestLogRepository for SqliteStore {
         )
         .await?;
         transaction.commit().await?;
+        let has_more = capacity.has_more() || (delete_budget > 0 && expired == delete_budget);
+        let deleted_rows = expired.saturating_add(capacity.deleted_rows());
+        let pruned_positions =
+            merge_pruned_positions(expired_positions, capacity.pruned_positions().to_vec());
         Ok(RequestLogCleanupOutcome::new(
-            expired.saturating_add(capacity.deleted_rows()),
-            capacity.has_more() || (delete_budget > 0 && expired == delete_budget),
+            deleted_rows,
+            has_more,
+            pruned_positions,
         ))
     }
 

@@ -1,6 +1,6 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use any2api_domain::{CompletedRequestLog, RequestTelemetryPosition};
+use any2api_domain::{CompletedRequestLog, OAuthAccountId, RequestTelemetryPosition};
 
 use super::{
     RequestLogPolicy, RequestTelemetryCheckpoint, RequestTelemetryObservation,
@@ -11,7 +11,7 @@ use super::{
 const QUOTA_CHECKPOINT_TIMEOUT: Duration = Duration::from_secs(5);
 
 impl RequestTelemetry {
-    pub(super) fn omit_oauth_record(&self) {
+    pub(super) fn omit_oauth_record(&self, account: OAuthAccountId) {
         let mut sequence = self
             .quota_sequence
             .lock()
@@ -19,7 +19,7 @@ impl RequestTelemetry {
         *sequence = sequence
             .checked_add(1)
             .expect("quota telemetry sequence exhausted");
-        self.counters.queue_dropped_request_logs(1);
+        self.counters.queue_dropped_request_logs(account, 1);
     }
 
     pub(super) fn try_record_oauth(
@@ -45,18 +45,24 @@ impl RequestTelemetry {
         );
     }
 
-    pub(crate) async fn quota_checkpoint(&self) -> RequestTelemetryCheckpoint {
+    pub(crate) async fn quota_checkpoint(
+        &self,
+        account: OAuthAccountId,
+    ) -> RequestTelemetryCheckpoint {
         let receiver = {
             let _sequence = self
                 .quota_sequence
                 .lock()
                 .expect("quota telemetry sequence");
-            self.enqueue_quota_checkpoint()
+            self.enqueue_quota_checkpoint(account)
         };
-        self.resolve_quota_checkpoint(receiver).await
+        self.resolve_quota_checkpoint(account, receiver).await
     }
 
-    pub(crate) async fn quota_observation(&self) -> RequestTelemetryObservation {
+    pub(crate) async fn quota_observation(
+        &self,
+        account: OAuthAccountId,
+    ) -> RequestTelemetryObservation {
         let (observed_at_ms, position, receiver) = {
             let sequence = self
                 .quota_sequence
@@ -66,9 +72,13 @@ impl RequestTelemetry {
                 process_id: self.process_id,
                 sequence: *sequence,
             };
-            (unix_time_ms(), position, self.enqueue_quota_checkpoint())
+            (
+                unix_time_ms(),
+                position,
+                self.enqueue_quota_checkpoint(account),
+            )
         };
-        let checkpoint = self.resolve_quota_checkpoint(receiver).await;
+        let checkpoint = self.resolve_quota_checkpoint(account, receiver).await;
         RequestTelemetryObservation {
             observed_at_ms,
             position,
@@ -78,6 +88,7 @@ impl RequestTelemetry {
 
     fn enqueue_quota_checkpoint(
         &self,
+        account: OAuthAccountId,
     ) -> Option<tokio::sync::oneshot::Receiver<RequestTelemetryCheckpoint>> {
         let enabled = self
             .policy
@@ -94,9 +105,12 @@ impl RequestTelemetry {
             .clone()?;
         let permit = sender.try_reserve().ok()?;
         let (reply, result) = tokio::sync::oneshot::channel();
-        let boundary = self.counters.quota_checkpoint(self.process_id, enabled);
+        let boundary = self
+            .counters
+            .quota_checkpoint(self.process_id, enabled, account);
         self.counters.reserve_control_slot();
         permit.send(TelemetryEnvelope::new(TelemetryEvent::QuotaCheckpoint {
+            account,
             boundary,
             reply,
         }));
@@ -105,9 +119,13 @@ impl RequestTelemetry {
 
     async fn resolve_quota_checkpoint(
         &self,
+        account: OAuthAccountId,
         receiver: Option<tokio::sync::oneshot::Receiver<RequestTelemetryCheckpoint>>,
     ) -> RequestTelemetryCheckpoint {
-        let fallback = || self.counters.quota_checkpoint(self.process_id, false);
+        let fallback = || {
+            self.counters
+                .quota_checkpoint(self.process_id, false, account)
+        };
         let Some(receiver) = receiver else {
             return fallback();
         };

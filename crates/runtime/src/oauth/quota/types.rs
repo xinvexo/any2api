@@ -23,7 +23,6 @@ pub enum OAuthQuotaEstimateConfidence {
     Unknown,
     Learning,
     Stable,
-    Inherited,
     Degraded,
 }
 
@@ -37,8 +36,6 @@ pub enum OAuthQuotaIntervalStatus {
     ResetBoundary,
     TelemetryIncomplete,
     UnpricedUsage,
-    ExternalUsageSuspected,
-    OutlierRejected,
     Invalid,
 }
 
@@ -52,7 +49,10 @@ pub struct OAuthQuotaIntervalDiagnostic {
     pub unpriced_request_count: u64,
     pub queue_dropped_request_logs: u64,
     pub storage_failed_request_logs: u64,
-    pub pruned_request_logs: u64,
+    /// Whether request-log pruning reached into this observation interval.
+    /// Pruning history older than the interval anchor is harmless and not
+    /// reported.
+    pub interval_pruned: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]

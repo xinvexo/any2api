@@ -1,7 +1,7 @@
 use any2api_provider::api::OAuthQuotaUsage;
 
 use super::{
-    robust,
+    aggregate,
     state::{QuotaEstimatorState, QuotaWindowKey, QuotaWindowState},
 };
 use crate::oauth::quota::types::{
@@ -33,14 +33,14 @@ fn project_window(
     window_reset_at: Option<i64>,
     state: &QuotaWindowState,
 ) -> OAuthQuotaEstimate {
-    let capacity = robust::median(&state.samples);
+    let capacity = aggregate::weighted_median(&state.samples);
     let used = capacity.map(|value| value * used_percent.clamp(0.0, 100.0) / 100.0);
     let remaining = capacity
         .zip(used)
         .map(|(capacity, used)| (capacity - used).max(0.0));
-    let relative_mad = robust::relative_mad(&state.samples);
+    let relative_mad = aggregate::relative_mad(&state.samples);
     let fresh_sample_count = state.fresh_sample_count();
-    let confidence = confidence(state, relative_mad, fresh_sample_count);
+    let confidence = confidence(state, relative_mad);
     let mut rate_cards = state
         .samples
         .iter()
@@ -67,25 +67,22 @@ fn project_window(
     }
 }
 
-/// Consecutive rejected-low candidates that keep confidence degraded until an
-/// in-band sample arrives; the capacity itself never follows lows (ADR-0143).
-const DEGRADED_LOW_STREAK: u32 = 2;
+const STABLE_MINIMUM_SAMPLES: usize = 3;
+const STABLE_MAX_RELATIVE_MAD: f64 = 0.20;
 
-fn confidence(
-    state: &QuotaWindowState,
-    relative_mad: Option<f64>,
-    fresh_sample_count: usize,
-) -> OAuthQuotaEstimateConfidence {
+/// Confidence is derived, not a state machine: how many measurements exist,
+/// how tightly they agree, and whether the latest interval kept telemetry
+/// integrity.
+fn confidence(state: &QuotaWindowState, relative_mad: Option<f64>) -> OAuthQuotaEstimateConfidence {
     if state.samples.is_empty() {
         return OAuthQuotaEstimateConfidence::Unknown;
     }
-    if degrades(state.latest_interval.status) || state.low_streak >= DEGRADED_LOW_STREAK {
+    if degrades(state.latest_interval.status) {
         return OAuthQuotaEstimateConfidence::Degraded;
     }
-    if fresh_sample_count == 0 {
-        return OAuthQuotaEstimateConfidence::Inherited;
-    }
-    if state.samples.len() >= 3 && relative_mad.is_some_and(|value| value <= 0.20) {
+    if state.samples.len() >= STABLE_MINIMUM_SAMPLES
+        && relative_mad.is_some_and(|value| value <= STABLE_MAX_RELATIVE_MAD)
+    {
         OAuthQuotaEstimateConfidence::Stable
     } else {
         OAuthQuotaEstimateConfidence::Learning
@@ -97,8 +94,6 @@ fn degrades(status: OAuthQuotaIntervalStatus) -> bool {
         status,
         OAuthQuotaIntervalStatus::TelemetryIncomplete
             | OAuthQuotaIntervalStatus::UnpricedUsage
-            | OAuthQuotaIntervalStatus::ExternalUsageSuspected
-            | OAuthQuotaIntervalStatus::OutlierRejected
             | OAuthQuotaIntervalStatus::Invalid
     )
 }

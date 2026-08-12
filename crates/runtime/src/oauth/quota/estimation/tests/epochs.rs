@@ -1,247 +1,251 @@
 use std::sync::Arc;
 
-use crate::oauth::quota::types::{OAuthQuotaEstimateConfidence, OAuthQuotaIntervalStatus};
+use uuid::Uuid;
 
-use super::*;
+use super::{
+    UsageRepository, checkpoint, checkpoint_for, observe, observe_identified, observe_usage,
+    priced, usage, usage_with_tier,
+};
+use crate::oauth::quota::{
+    estimation::OAuthQuotaEstimator,
+    types::{OAuthQuotaEstimateConfidence, OAuthQuotaIntervalStatus},
+};
 
+/// Scenario F: a large percent drop is a quota reset. The open interval is
+/// discarded, but the learned capacity describes the subscription, not the
+/// window, and survives as the prior.
 #[tokio::test]
-async fn restart_without_reset_identity_and_natural_rollover_keep_inherited_prior() {
+async fn official_reset_discards_the_interval_but_keeps_learned_capacity() {
     let repository = Arc::new(UsageRepository::default());
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 0.0, None, checkpoint(0), 0).await;
-    let learned = observe(&estimator, Some(first.state), 10.0, None, checkpoint(0), 1).await;
-    let learned_epoch = learned.estimates[0].epoch;
-    let restarted = observe(
-        &estimator,
-        Some(learned.state),
-        20.0,
-        None,
-        checkpoint_for(Uuid::new_v4(), 0),
-        2,
-    )
-    .await;
-    assert!(restarted.estimates[0].epoch > learned_epoch);
-    assert_eq!(restarted.estimates[0].sample_count, 1);
-    assert_eq!(restarted.estimates[0].fresh_sample_count, 0);
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 60.0, None, checkpoint(), 0)
+        .await
+        .state;
+    repository.push(priced(150.0));
+    let learned = observe(&estimator, Some(state), 70.0, None, checkpoint(), 1).await;
     assert_eq!(
-        restarted.estimates[0].confidence,
-        OAuthQuotaEstimateConfidence::Inherited
+        learned.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
     );
+    let epoch = learned.estimates[0].epoch;
+    state = learned.state;
+
+    // Reset landed between polls; usage had already resumed: 70% → 3%.
+    let reset = observe(&estimator, Some(state), 3.0, None, checkpoint(), 2).await;
+    let estimate = &reset.estimates[0];
     assert_eq!(
-        restarted.estimates[0].latest_interval.status,
+        estimate.latest_interval.status,
         OAuthQuotaIntervalStatus::ResetBoundary
     );
+    assert_eq!(estimate.epoch, epoch + 1);
+    assert_eq!(estimate.estimated_capacity_credits, Some(1_500.0));
+    assert_eq!(estimate.sample_count, 1);
+    assert_eq!(estimate.fresh_sample_count, 0);
+    state = reset.state;
 
-    let first = estimator
-        .observe(
-            OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(0.0, None),
-            None,
-            "identity-a".into(),
-            QuotaCostUnit::CodexCredits,
-            telemetry_observation(checkpoint(0), 1_000, 0),
-            None,
-        )
-        .await;
-    let learned = estimator
-        .observe(
-            OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(10.0, None),
-            Some(first.state),
-            "identity-a".into(),
-            QuotaCostUnit::CodexCredits,
-            telemetry_observation(checkpoint(0), 2_000, 1),
-            None,
-        )
-        .await;
-    let learned_epoch = learned.estimates[0].epoch;
-    let rolled_over = estimator
-        .observe(
-            OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(12.0, None),
-            Some(learned.state),
-            "identity-a".into(),
-            QuotaCostUnit::CodexCredits,
-            telemetry_observation(checkpoint(0), 18_001_000, 2),
-            None,
-        )
-        .await;
-    assert!(rolled_over.estimates[0].epoch > learned_epoch);
-    assert_eq!(rolled_over.estimates[0].sample_count, 1);
-    assert_eq!(rolled_over.estimates[0].fresh_sample_count, 0);
+    // The pre-reset interval is gone: the next sample interval starts at 3%.
+    repository.push(priced(105.0));
+    let fresh = observe(&estimator, Some(state), 10.0, None, checkpoint(), 3).await;
+    assert_eq!(
+        fresh.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::ValidSample
+    );
+    assert_eq!(fresh.estimates[0].sample_count, 2);
+    assert_eq!(fresh.estimates[0].fresh_sample_count, 1);
+    assert_eq!(fresh.estimates[0].estimated_capacity_credits, Some(1_500.0));
+    let queries = repository.queries();
+    assert_eq!(queries.last().unwrap().0.sequence, 2);
 }
 
+/// Scenario G: a normal window rollover (new reset_at identity) re-anchors
+/// usage but inherits the capacity prior into the new epoch.
 #[tokio::test]
-async fn stable_reset_timestamp_is_stronger_than_elapsed_window_duration() {
+async fn window_rollover_inherits_the_capacity_prior() {
     let repository = Arc::new(UsageRepository::default());
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 0.0, Some(99_999), checkpoint(0), 0).await;
-    let learned = estimator
-        .observe(
-            OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage(10.0, Some(99_999)),
-            Some(first.state),
-            "identity-a".into(),
-            QuotaCostUnit::CodexCredits,
-            telemetry_observation(checkpoint(0), 18_001_000, 1),
-            None,
-        )
-        .await;
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 40.0, Some(1_000), checkpoint(), 0)
+        .await
+        .state;
+    repository.push(priced(150.0));
+    state = observe(&estimator, Some(state), 50.0, Some(1_000), checkpoint(), 1)
+        .await
+        .state;
 
-    assert_eq!(learned.estimates[0].epoch, 1);
-    assert_eq!(learned.estimates[0].sample_count, 1);
+    let rolled = observe(&estimator, Some(state), 5.0, Some(19_000), checkpoint(), 2).await;
+    let estimate = &rolled.estimates[0];
     assert_eq!(
-        learned.estimates[0].latest_interval.status,
+        estimate.latest_interval.status,
+        OAuthQuotaIntervalStatus::ResetBoundary
+    );
+    assert_eq!(estimate.estimated_capacity_credits, Some(1_500.0));
+    assert_eq!(estimate.fresh_sample_count, 0);
+    assert_eq!(estimate.confidence, OAuthQuotaEstimateConfidence::Learning);
+}
+
+/// A reset_at drift within the 60-second jitter tolerance is the same window:
+/// no rollover, the open interval keeps accumulating.
+#[tokio::test]
+async fn one_minute_reset_timestamp_drift_keeps_the_epoch() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let state = observe(&estimator, None, 10.0, Some(1_000), checkpoint(), 0)
+        .await
+        .state;
+    let epoch = state.windows[0].epoch;
+
+    repository.push(priced(150.0));
+    let result = observe(&estimator, Some(state), 20.0, Some(1_045), checkpoint(), 1).await;
+    assert_eq!(result.estimates[0].epoch, epoch);
+    assert_eq!(
+        result.estimates[0].latest_interval.status,
         OAuthQuotaIntervalStatus::ValidSample
     );
 }
 
+/// Scenario H: a credential identity change is a capacity-signature change —
+/// the learned samples describe a different account and are dropped.
 #[tokio::test]
-async fn one_second_reset_timestamp_drift_keeps_epoch_and_learns_interval() {
+async fn credential_identity_change_restarts_capacity_learning() {
     let repository = Arc::new(UsageRepository::default());
-    repository.push(priced(2.514804));
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 1.0, Some(1_789_041_126), checkpoint(0), 0).await;
-    let epoch = first.estimates[0].epoch;
-    let learned = observe(
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+    repository.push(priced(150.0));
+    state = observe(&estimator, Some(state), 20.0, None, checkpoint(), 1)
+        .await
+        .state;
+
+    let switched = observe_identified(
         &estimator,
-        Some(first.state),
-        11.0,
-        Some(1_789_041_127),
-        checkpoint(0),
-        1,
+        Some(state),
+        usage(25.0, None),
+        "identity-b",
+        checkpoint(),
+        2,
     )
     .await;
-
-    assert_eq!(learned.estimates[0].epoch, epoch);
-    assert_eq!(learned.estimates[0].sample_count, 1);
+    let estimate = &switched.estimates[0];
     assert_eq!(
-        learned.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::ValidSample
-    );
-    assert!(
-        (learned.estimates[0]
-            .estimated_capacity_credits
-            .expect("capacity")
-            - 25.14804)
-            .abs()
-            < 0.000_001
-    );
-    assert_eq!(
-        learned.state.windows[0].last_observation.reset_at,
-        Some(1_789_041_127)
-    );
-}
-
-#[tokio::test]
-async fn changed_window_identity_starts_a_reset_boundary() {
-    let repository = Arc::new(UsageRepository::default());
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 0.0, Some(99_999), checkpoint(0), 0).await;
-    let first_epoch = first.estimates[0].epoch;
-    let mut changed_usage = usage(10.0, Some(99_999));
-    changed_usage.rate_limit.as_mut().unwrap().windows[0].limit_window_seconds = Some(3_600);
-    let changed = estimator
-        .observe(
-            OAuthAccountId::from_uuid(Uuid::nil()),
-            &changed_usage,
-            Some(first.state),
-            "identity-a".into(),
-            QuotaCostUnit::CodexCredits,
-            telemetry_observation(checkpoint(0), 2_000, 1),
-            None,
-        )
-        .await;
-
-    assert!(changed.estimates[0].epoch > first_epoch);
-    assert_eq!(changed.estimates[0].sample_count, 0);
-    assert_eq!(
-        changed.estimates[0].latest_interval.status,
+        estimate.latest_interval.status,
         OAuthQuotaIntervalStatus::ResetBoundary
     );
+    assert!(estimate.estimated_capacity_credits.is_none());
+    assert_eq!(estimate.sample_count, 0);
+    assert_eq!(estimate.confidence, OAuthQuotaEstimateConfidence::Unknown);
 }
 
+/// Scenario H: a subscription tier change means a different absolute
+/// capacity; learning restarts. Gaining tier data for the first time is not a
+/// change.
 #[tokio::test]
-async fn small_negative_jitter_does_not_reset_or_discard_samples() {
+async fn subscription_tier_change_restarts_capacity_learning() {
     let repository = Arc::new(UsageRepository::default());
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 40.0, Some(100), checkpoint(0), 0).await;
-    let learned = observe(
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+
+    // Tier appears: keep the open interval and learn from it.
+    repository.push(priced(150.0));
+    let appeared = observe_usage(
         &estimator,
-        Some(first.state),
-        50.0,
-        Some(100),
-        checkpoint(0),
+        Some(state),
+        usage_with_tier(20.0, None, "plus"),
+        checkpoint(),
         1,
     )
     .await;
-    let epoch = learned.estimates[0].epoch;
-    let jitter = observe(
+    assert_eq!(
+        appeared.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
+    );
+    state = appeared.state;
+
+    // Tier changes: the learned capacity no longer applies.
+    let upgraded = observe_usage(
         &estimator,
-        Some(learned.state),
-        49.8,
-        Some(100),
-        checkpoint(0),
+        Some(state),
+        usage_with_tier(22.0, None, "pro"),
+        checkpoint(),
         2,
     )
     .await;
-    assert_eq!(jitter.estimates[0].epoch, epoch);
-    assert_eq!(jitter.estimates[0].sample_count, 1);
+    assert_eq!(upgraded.estimates[0].sample_count, 0);
+    assert!(upgraded.estimates[0].estimated_capacity_credits.is_none());
     assert_eq!(
-        jitter.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::NoChange
+        upgraded.estimates[0].confidence,
+        OAuthQuotaEstimateConfidence::Unknown
     );
 }
 
+/// Scenario H: a window structure change (different duration) is a different
+/// quota shape; its samples do not carry over.
 #[tokio::test]
-async fn restart_gap_preserves_proven_epoch_and_next_clean_interval_recovers() {
+async fn changed_window_duration_starts_clean() {
     let repository = Arc::new(UsageRepository::default());
-    let estimator = OAuthQuotaEstimator::new(repository);
-    let first = observe(&estimator, None, 0.0, Some(100), checkpoint(0), 0).await;
-    let learned = observe(
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
+        .await
+        .state;
+    repository.push(priced(150.0));
+    state = observe(&estimator, Some(state), 20.0, None, checkpoint(), 1)
+        .await
+        .state;
+
+    let mut reshaped_window = super::window(25.0, None);
+    reshaped_window.limit_window_seconds = Some(10_800);
+    let reshaped = observe_usage(
         &estimator,
-        Some(first.state),
-        10.0,
-        Some(100),
-        checkpoint(0),
-        1,
-    )
-    .await;
-    let epoch = learned.estimates[0].epoch;
-    let persisted = serde_json::to_vec(&learned.state).expect("persist estimator state");
-    let restored: QuotaEstimatorState =
-        serde_json::from_slice(&persisted).expect("restore estimator state");
-    assert!(restored.valid());
-    let restarted_process = Uuid::new_v4();
-    let restarted = observe(
-        &estimator,
-        Some(restored),
-        20.0,
-        Some(100),
-        checkpoint_for(restarted_process, 0),
+        Some(state),
+        super::usage_for_window(reshaped_window),
+        checkpoint(),
         2,
     )
     .await;
-    assert_eq!(restarted.estimates[0].epoch, epoch);
-    assert_eq!(restarted.estimates[0].sample_count, 1);
+    assert_eq!(reshaped.estimates[0].sample_count, 0);
+    assert!(reshaped.estimates[0].estimated_capacity_credits.is_none());
+}
+
+/// A process restart breaks the sequence fence: the running interval fails
+/// closed, the capacity prior survives, and the next same-process interval
+/// learns normally.
+#[tokio::test]
+async fn restart_keeps_the_prior_and_recovers_with_the_next_clean_interval() {
+    let repository = Arc::new(UsageRepository::default());
+    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+    let mut state = observe(&estimator, None, 10.0, Some(1_000), checkpoint(), 0)
+        .await
+        .state;
+    repository.push(priced(150.0));
+    state = observe(&estimator, Some(state), 20.0, Some(1_000), checkpoint(), 1)
+        .await
+        .state;
+
+    let successor = checkpoint_for(Uuid::from_u128(7));
+    let restarted = observe(
+        &estimator,
+        Some(state),
+        24.0,
+        Some(1_000),
+        successor.clone(),
+        0,
+    )
+    .await;
+    let estimate = &restarted.estimates[0];
     assert_eq!(
-        restarted.estimates[0].latest_interval.status,
+        estimate.latest_interval.status,
         OAuthQuotaIntervalStatus::TelemetryIncomplete
     );
+    assert_eq!(estimate.estimated_capacity_credits, Some(1_500.0));
+    assert_eq!(estimate.confidence, OAuthQuotaEstimateConfidence::Degraded);
+    state = restarted.state;
 
-    let recovered = observe(
-        &estimator,
-        Some(restarted.state),
-        30.0,
-        Some(100),
-        checkpoint_for(restarted_process, 0),
-        3,
-    )
-    .await;
-    assert_eq!(recovered.estimates[0].epoch, epoch);
-    assert_eq!(recovered.estimates[0].sample_count, 2);
+    repository.push(priced(90.0));
+    let recovered = observe(&estimator, Some(state), 30.0, Some(1_000), successor, 1).await;
     assert_eq!(
         recovered.estimates[0].latest_interval.status,
         OAuthQuotaIntervalStatus::ValidSample
     );
+    assert_eq!(recovered.estimates[0].sample_count, 2);
 }

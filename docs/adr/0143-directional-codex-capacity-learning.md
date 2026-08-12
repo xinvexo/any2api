@@ -1,6 +1,6 @@
 # ADR-0143:方向性 Codex 容量学习(下界候选与上簇模型)
 
-- 状态:Accepted
+- 状态:Superseded by ADR-0144(单消费者前提下外部消费误差源不存在,方向性模型整体作废)
 - 日期:2026-08-12
 - 决策者:maintainer
 - 影响范围:Codex quota estimator 的容量分类与置信度

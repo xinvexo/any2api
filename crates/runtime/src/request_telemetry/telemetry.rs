@@ -126,6 +126,7 @@ impl RequestTelemetry {
                 changes: changes.clone(),
                 prune_wakeup: Arc::clone(&prune_wakeup),
                 request_prune_wakeup,
+                process_id,
             },
         ));
         Self {
@@ -192,8 +193,8 @@ impl RequestTelemetry {
 
     pub(crate) fn try_record(&self, mut record: CompletedRequestLog, policy: RequestLogPolicy) {
         if !policy.enabled {
-            if record.request.oauth_account_id.is_some() {
-                self.omit_oauth_record();
+            if let Some(account) = record.request.oauth_account_id {
+                self.omit_oauth_record(account);
             }
             return;
         }
@@ -289,6 +290,11 @@ impl RequestTelemetry {
     }
 
     #[cfg(test)]
+    pub(crate) fn process_id_for_test(&self) -> Uuid {
+        self.process_id
+    }
+
+    #[cfg(test)]
     pub(crate) fn reconcile_policy_for_test(
         &self,
         revision: ConfigRevision,
@@ -353,23 +359,23 @@ impl RequestTelemetry {
         let records = envelope.record_count;
         let queue_class = envelope.queue_class;
         let owned_bytes = envelope.owned_bytes;
-        let quota_relevant = envelope.event.quota_relevant();
+        let quota_account = envelope.event.quota_account();
         let sender = self.sender.read().expect("request telemetry sender");
         let Some(sender) = sender.as_ref() else {
-            self.counters.rejected(records, quota_relevant);
+            self.counters.rejected(records, quota_account);
             return;
         };
         if !self
             .counters
             .try_reserve(capacity, max_bytes, owned_bytes, queue_class)
         {
-            self.counters.rejected(records, quota_relevant);
+            self.counters.rejected(records, quota_account);
             return;
         }
         self.counters.enqueued(records, owned_bytes);
         if sender.try_send(envelope).is_err() {
             self.counters
-                .send_failed(records, owned_bytes, queue_class, quota_relevant);
+                .send_failed(records, owned_bytes, queue_class, quota_account);
         }
     }
 }

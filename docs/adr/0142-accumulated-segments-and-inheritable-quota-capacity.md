@@ -1,6 +1,7 @@
 # ADR-0142:累计区段采样与可继承 Codex 容量先验
 
-- 状态:Accepted
+- 状态:Accepted(§2 打捞收割与 §3 `inherited` 置信度已被 ADR-0144 取代;累计区段与跨 rollover
+  先验保留)
 - 日期:2026-08-12
 - 决策者:maintainer
 - 影响范围:Codex quota estimator、OAuth quota snapshot payload、管理 DTO 与 Web 展示

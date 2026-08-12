@@ -259,7 +259,7 @@ impl OAuthQuotaService {
         if !usage_response.status.is_success() {
             return Err(request.rejection(&usage_response));
         }
-        let telemetry_observation = self.telemetry.quota_observation().await;
+        let telemetry_observation = self.telemetry.quota_observation(id).await;
         let mut usage =
             observation::resolve_usage(&request, usage_response, supplement_plan).await?;
         health::synchronize(

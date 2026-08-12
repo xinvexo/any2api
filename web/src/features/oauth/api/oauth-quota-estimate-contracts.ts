@@ -4,7 +4,6 @@ export type OAuthQuotaEstimateConfidence =
   | "unknown"
   | "learning"
   | "stable"
-  | "inherited"
   | "degraded";
 
 export type OAuthQuotaIntervalStatus =
@@ -15,8 +14,6 @@ export type OAuthQuotaIntervalStatus =
   | "reset_boundary"
   | "telemetry_incomplete"
   | "unpriced_usage"
-  | "external_usage_suspected"
-  | "outlier_rejected"
   | "invalid";
 
 export interface OAuthQuotaIntervalDiagnostic {
@@ -28,7 +25,7 @@ export interface OAuthQuotaIntervalDiagnostic {
   unpricedRequestCount: number;
   queueDroppedRequestLogs: number;
   storageFailedRequestLogs: number;
-  prunedRequestLogs: number;
+  intervalPruned: boolean;
 }
 
 export interface OAuthQuotaEstimate {
@@ -86,7 +83,7 @@ function parseInterval(value: unknown): OAuthQuotaIntervalDiagnostic {
     unpricedRequestCount: readInteger(value.unpriced_request_count),
     queueDroppedRequestLogs: readInteger(value.queue_dropped_request_logs),
     storageFailedRequestLogs: readInteger(value.storage_failed_request_logs),
-    prunedRequestLogs: readInteger(value.pruned_request_logs),
+    intervalPruned: readBoolean(value.interval_pruned),
   };
 }
 
@@ -95,7 +92,6 @@ function readConfidence(value: unknown): OAuthQuotaEstimateConfidence {
     value === "unknown" ||
     value === "learning" ||
     value === "stable" ||
-    value === "inherited" ||
     value === "degraded"
   ) {
     return value;
@@ -112,8 +108,6 @@ function readIntervalStatus(value: unknown): OAuthQuotaIntervalStatus {
     "reset_boundary",
     "telemetry_incomplete",
     "unpriced_usage",
-    "external_usage_suspected",
-    "outlier_rejected",
     "invalid",
   ];
   if (typeof value === "string" && statuses.includes(value as OAuthQuotaIntervalStatus)) {
@@ -157,6 +151,11 @@ function readInteger(value: unknown, minimum = 0) {
 
 function readOptionalInteger(value: unknown) {
   return value === null ? null : readInteger(value);
+}
+
+function readBoolean(value: unknown) {
+  if (typeof value !== "boolean") throw invalidResponse();
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
