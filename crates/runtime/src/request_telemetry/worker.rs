@@ -13,7 +13,6 @@ use tokio::{
     sync::{Notify, mpsc},
     time::Instant,
 };
-use uuid::Uuid;
 
 use super::{
     RequestLogPolicy,
@@ -33,7 +32,6 @@ pub(super) struct WorkerState {
     pub(super) changes: LogChangeNotifier,
     pub(super) prune_wakeup: Arc<Notify>,
     pub(super) request_prune_wakeup: Arc<Notify>,
-    pub(super) process_id: Uuid,
 }
 
 #[derive(Default)]
@@ -194,14 +192,9 @@ async fn receive_event(
             }
             let _ = reply.send(result);
         }
-        TelemetryEvent::QuotaCheckpoint { reply } => {
+        TelemetryEvent::QuotaCheckpoint { boundary, reply } => {
             flush(batch, request_logs, http_access_logs, gateway_usage, state).await;
-            let enabled = state
-                .policy
-                .read()
-                .expect("request telemetry policy")
-                .enabled;
-            let _ = reply.send(state.counters.quota_checkpoint(state.process_id, enabled));
+            let _ = reply.send(state.counters.complete_quota_checkpoint(boundary));
         }
     }
 }
@@ -236,6 +229,11 @@ async fn flush_request_logs(
         .read()
         .expect("request telemetry policy")
         .request_max_rows;
+    let quota_relevant_records = batch
+        .records
+        .iter()
+        .filter(|record| record.telemetry_position.is_some())
+        .count();
     match repository
         .append_request_logs(&batch.records, max_rows)
         .await
@@ -251,9 +249,11 @@ async fn flush_request_logs(
             }
         }
         Err(error) => {
-            state
-                .counters
-                .request_logs_storage_failed(batch.records.len(), batch.owned_bytes);
+            state.counters.request_logs_storage_failed(
+                batch.records.len(),
+                batch.owned_bytes,
+                quota_relevant_records,
+            );
             tracing::warn!(%error, records = batch.records.len(), "request telemetry batch was dropped");
         }
     }

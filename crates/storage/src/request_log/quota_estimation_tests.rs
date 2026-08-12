@@ -1,7 +1,7 @@
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, MAX_REQUEST_LOG_ROWS, OAuthAccountDraft, OAuthAccountId,
     ProtocolDialect, ProtocolOperation, ProviderKind, ProxyProfileId, QuotaCostUnit,
-    QuotaServiceTier, RequestId, RequestLog, RequestQuotaCost,
+    QuotaServiceTier, RequestId, RequestLog, RequestQuotaCost, RequestTelemetryPosition,
 };
 use tempfile::tempdir;
 
@@ -19,12 +19,12 @@ async fn quota_usage_filters_account_and_interval_and_sums_frozen_costs() {
     let (_directory, store, id) = store_with_account().await;
     let other_id = OAuthAccountId::new();
     let records = vec![
-        record(id, 900, 99, Some(900)),
-        record(id, 999, 1, Some(100)),
-        record(id, 1_500, 1, Some(50)),
-        record(id, 1_900, 99, Some(200)),
-        record(id, 1_990, 10, Some(800)),
-        record(other_id, 1_250, 1, Some(700)),
+        record(id, 900, 99, Some(900), position(1)),
+        record(id, 999, 1, Some(100), position(2)),
+        record(id, 1_500, 1, Some(50), position(3)),
+        record(id, 1_900, 99, Some(200), position(4)),
+        record(id, 1_990, 10, Some(800), position(5)),
+        record(other_id, 1_250, 1, Some(700), position(6)),
     ];
     store
         .append_request_logs(&records, MAX_REQUEST_LOG_ROWS)
@@ -32,7 +32,7 @@ async fn quota_usage_filters_account_and_interval_and_sums_frozen_costs() {
         .expect("append request logs");
 
     let usage = store
-        .oauth_quota_request_log_usage(id, 1_000, 2_000)
+        .oauth_quota_request_log_usage(id, position(1), position(4))
         .await
         .expect("quota log usage");
 
@@ -46,11 +46,11 @@ async fn quota_usage_filters_account_and_interval_and_sums_frozen_costs() {
 #[tokio::test]
 async fn status_is_irrelevant_but_missing_frozen_cost_is_unpriced() {
     let (_directory, store, id) = store_with_account().await;
-    let mut priced_failure = record(id, 1_250, 1, Some(100));
+    let mut priced_failure = record(id, 1_250, 1, Some(100), position(1));
     priced_failure.request.status_code = 502;
-    let mut priced_cancelled = record(id, 1_400, 1, Some(50));
+    let mut priced_cancelled = record(id, 1_400, 1, Some(50), position(2));
     priced_cancelled.request.error_class = Some(any2api_domain::ErrorClass::Cancelled);
-    let unpriced = record(id, 1_500, 1, None);
+    let unpriced = record(id, 1_500, 1, None, position(3));
     store
         .append_request_logs(
             &[priced_failure, priced_cancelled, unpriced],
@@ -60,12 +60,34 @@ async fn status_is_irrelevant_but_missing_frozen_cost_is_unpriced() {
         .expect("append mixed logs");
 
     let usage = store
-        .oauth_quota_request_log_usage(id, 1_000, 2_000)
+        .oauth_quota_request_log_usage(id, position(0), position(3))
         .await
         .expect("quota log usage");
     assert_eq!(usage.total_cost_nanos, 150);
     assert_eq!(usage.priced_request_count, 2);
     assert_eq!(usage.unpriced_request_count, 1);
+}
+
+#[tokio::test]
+async fn request_after_official_observation_is_excluded_regardless_of_wall_clock() {
+    let (_directory, store, id) = store_with_account().await;
+    let before_observation = record(id, 10_000, 500, Some(100), position(1));
+    let after_observation = record(id, 1, 1, Some(900), position(2));
+    store
+        .append_request_logs(
+            &[before_observation, after_observation],
+            MAX_REQUEST_LOG_ROWS,
+        )
+        .await
+        .expect("append boundary logs");
+
+    let usage = store
+        .oauth_quota_request_log_usage(id, position(0), position(1))
+        .await
+        .expect("usage at official observation fence");
+
+    assert_eq!(usage.total_cost_nanos, 100);
+    assert_eq!(usage.priced_request_count, 1);
 }
 
 async fn store_with_account() -> (tempfile::TempDir, SqliteStore, OAuthAccountId) {
@@ -103,6 +125,7 @@ fn record(
     started_at_ms: u64,
     latency_ms: u64,
     cost_nanos: Option<u64>,
+    telemetry_position: RequestTelemetryPosition,
 ) -> CompletedRequestLog {
     CompletedRequestLog {
         request: RequestLog {
@@ -140,5 +163,15 @@ fn record(
             is_stream: false,
         },
         attempts: Vec::new(),
+        telemetry_position: Some(telemetry_position),
+    }
+}
+
+fn position(sequence: u64) -> RequestTelemetryPosition {
+    RequestTelemetryPosition {
+        process_id: "44444444-4444-4444-8444-444444444444"
+            .parse()
+            .expect("process UUID"),
+        sequence,
     }
 }

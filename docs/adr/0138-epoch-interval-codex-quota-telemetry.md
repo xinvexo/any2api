@@ -54,36 +54,43 @@ RequestTelemetry 保持数据面非阻塞：有界 channel、短时间合批、�
 TelemetryCheckpoint {
     process_id,
     enabled,
-    coverage_generation,
+    policy_generation,
     queue_dropped_request_logs,
     storage_failed_request_logs,
     pruned_request_logs,
 }
 ```
 
-以下事件推进 `coverage_generation`：RequestLog 队列拒绝/发送失败、RequestLog SQLite 批次失败、
-RequestLog 清理实际删除记录、日志 enabled 状态变化。进程启动生成新的非敏感 `process_id`。两个 checkpoint
-只有在进程相同、前后均启用且 generation 相同时才证明区间没有已知本地遥测缺口。额度刷新先取得快照 B
-对应的 checkpoint，执行区间 SQL 后再取得结束 checkpoint；前者保证此前已经入队的日志先落库，后者检测
-查询期间的清理、写失败或 coverage 变化。B checkpoint 不能覆盖结束 checkpoint 时丢弃 SQL 结果。
-barrier 使用有界入队和超时；Writer 不可用、队列无法接受控制消息或超时都返回不完整 checkpoint，不得
-无限阻塞额度刷新。全局缺口保守地使所有账号跨过该点的区间失效；宁可少学习一个样本，也不能用已知
-残缺分子生成容量。
+进程启动生成新的非敏感 `process_id`。两个 checkpoint 只有在进程相同、前后均启用，且日志策略代际、
+OAuth RequestLog 入队前遗漏/队列丢失数、SQLite 写失败数和清理删除数分别相同时，才证明区间没有已知
+本地遥测缺口。请求若沿用启动时关闭日志的 policy，其完成时也必须推进 sequence 与遗漏计数，防止日志
+重新启用后的第一个 baseline 吸收仍在途的旧请求。
+quota barrier 与 OAuth RequestLog sequence/入队共用短临界区：入队时冻结同步发生的策略代际与遗漏/丢失
+计数；Worker 提交 barrier 前的 RequestLog 后，只补齐这些记录可能产生的写失败和清理结果。barrier 后
+才发生的队列丢失或策略变化不能被旧边界吸收，必须由下一 observation 看见。
+
+额度刷新取得快照 B 的 fence 后执行 sequence 区间 SQL，再取得结束 checkpoint。因为 B fence 已经保证
+此前日志写入终态，结束 checkpoint 只需检测 SQL 期间是否发生了可能删除该区间行的 prune；fence 后请求的
+队列/写入结果属于下一 interval，不能反向污染 B。barrier 使用有界入队和超时；Writer 不可用、队列无法
+接受控制消息或超时都返回 `enabled=false` 的不完整 checkpoint，不得无限阻塞额度刷新。全局 prune 仍
+保守地使所有账号跨过该点的区间失效；宁可少学习一个样本，也不能用已知残缺分子生成容量。
 
 ### 3. Observation interval
 
-每个官方窗口的首次成功快照只建立 baseline，不生成容量。之后相邻快照 A/B 在能够证明属于同一 epoch
-时形成区间：
+每个官方窗口的首次成功 observation 同时建立 last observation 与 sample anchor，不生成容量。ADR-0141
+把原本单一 baseline 修订为双锚点；之后 sample anchor A 与当前 observation B 在能够证明属于同一 epoch
+且 coverage 完整时形成区间：
 
 ```text
 delta_used_percent = B.used_percent - A.used_percent
-completed_at_ms = RequestLog.started_at_ms + RequestLog.latency_ms
-local_cost_credits = sum(RequestLog.frozen_cost where completed_at_ms in [A, B))
+local_cost_credits = sum(RequestLog.frozen_cost where process_id matches
+                         and telemetry_sequence in (A.sequence, B.sequence])
 capacity_sample_credits = local_cost_credits * 100 / delta_used_percent
 ```
 
-区间使用 RequestLog 的完成时刻而不是开始时刻。快照 B 返回时仍在执行、尚未形成最终 usage/冻结成本的
-请求因此不会被错误归到 A/B，也不会因开始时间早于 B 而永久掉出后续样本；它在完成后自然属于下一段。
+RequestLog 在完成并形成最终 usage/冻结成本后、入队前取得 sequence。primary usage Body 完整接收时建立
+observation fence；fence 后完成的请求因此不会被错误归到 A/B，并自然属于下一段。墙钟完成时间只保留为
+日志展示与诊断，不再决定样本成员。
 
 只有同时满足以下条件才产生样本：
 
@@ -94,9 +101,10 @@ capacity_sample_credits = local_cost_credits * 100 / delta_used_percent
 - 区间未跨 epoch/reset/credential identity 边界；
 - 样本未被已有稳定分布判定为外部消费或异常值。
 
-`delta` 为零或小于最小采样增量时更新 baseline 但不产生样本；这不是 telemetry degradation。小幅负向
-变化在 reset jitter 容差内也只更新 baseline。区间失效后仍把 B 作为下一条 baseline，避免一个缺口永久
-污染未来区间。
+`delta` 为零或小于最小采样增量且 coverage 完整时只更新 last observation，sample anchor 保持不变，
+使官方计量延迟、百分比量化与连续小增量能够累计；这不是 telemetry degradation。小幅负向变化在 reset
+jitter 容差内也只更新 last observation。区间出现 coverage gap、查询失败、未计价或候选已经被分类后，
+把 B 设为新的 sample anchor，避免一个缺口永久污染未来区间。
 
 ### 4. Quota epoch
 
@@ -136,6 +144,10 @@ Epoch 之间不共享样本、prior estimate 或 baseline。进程重启本身�
 超过 `max(3 × MAD, 25% × median)` 的候选标记 `outlier_rejected`。学习期无法可靠区分外部消费；样本
 可以进入集合，但 UI 必须明确显示 `learning`，不能宣称高置信度。
 
+ADR-0141 补充可恢复语义：高、低拒绝候选都进入最多 4 项的同侧竞争簇；只有连续 4 项自身一致时才整体
+替换旧 accepted samples。单个或离散异常不改变稳定模型，正常接受、方向反转、gap、reset 或非法区间会
+清空竞争簇。
+
 容量投影只使用官方当前百分比：
 
 ```text
@@ -148,9 +160,10 @@ Estimator 返回 Credits、样本数、相对离散度、epoch、最近区间状
 
 ### 6. 持久化与 Migration
 
-`oauth_quota_snapshots` v5 payload 只保存最后一次权威 `usage` 和当前 `estimator_state`：稳定 credential
-fingerprint、各窗口当前 epoch、上一 baseline/checkpoint、最近 9 个容量样本和最近区间诊断。公开 estimate
-是读取时派生值，不另存一份。状态受原有 payload 大小、窗口数、文本长度和数值有限性校验。
+ADR-0141 将 `oauth_quota_snapshots` 升为 v6。payload 只保存最后一次权威 `usage` 和当前
+`estimator_state`：稳定 credential fingerprint、各窗口当前 epoch、last observation、sample anchor、
+accepted/competing samples 和最近区间诊断。公开 estimate 是读取时派生值，不另存一份。状态受原有
+payload 大小、窗口数、文本长度和数值有限性校验。
 
 Migration 0025：
 
@@ -160,23 +173,24 @@ Migration 0025：
   estimate 数学语义与新模型不兼容，必须丢弃；
 - 删除只服务旧累计窗口公式的 `oauth_quota_estimation_boundaries` 表。
 
-生产 Rust 只接受当前 v5 payload 和当前 RequestLog schema，不保留 v4 estimator 兼容解析。
+ADR-0141 追加 Migration 0026，把 RequestLog 区间改为 process-local monotonic sequence，并将 snapshot
+升级为 v6；生产 Rust 随之只接受 v6，不保留 v5 estimator 双轨读取。
 
 ## 状态流
 
 ```text
 official response
-  -> telemetry pre-query barrier/checkpoint
+  -> primary usage observation fence
   -> validated QuotaObservation
   -> credential/window identity comparison
   -> QuotaEpoch transition
-  -> interval RequestLog completed-at frozen Credits query
+  -> interval RequestLog monotonic-sequence frozen Credits query
   -> telemetry post-query barrier/checkpoint
   -> health classification
   -> capacity candidate / rejected diagnostic
   -> bounded robust sample set
   -> confidence + current Credits projection
-  -> SQLite v5 snapshot
+  -> SQLite v6 snapshot
   -> admin DTO
   -> Web-only USD equivalent
 ```
@@ -192,8 +206,8 @@ official response
 - 官方 reset 即使没有抓到 0，只要出现超过容差的百分比下降也会隔离旧样本。
 - 外部消费在稳定分布形成后可以被拒绝；冷启动前两个样本仍无法证明外部消费，这是明确的不可观测边界。
 - RequestLog 每行增加少量固定字段；请求路径只做内存中的定点成本运算和原有 try-send，不等待 SQLite。
-- Quota refresh 使用查询前后两个 Worker barrier；它们位于控制面，不增加公开请求延迟，失败或超时只让
-  当前区间停止学习。
+- Quota refresh 使用 observation fence 与查询后 prune fence；它们位于控制面，不增加公开请求延迟，
+  失败或超时只让当前区间停止学习。
 
 ## 验证
 
@@ -205,12 +219,13 @@ official response
 
 ## 仍不可观测
 
-- 官方快照百分比的量化粒度、同步延迟和内部动态权重没有公开契约；小 `Δ%` 样本只能跳过。
+- 官方快照百分比的量化粒度、同步延迟和内部动态权重没有公开契约；小 `Δ%` 可以累计，但最终样本仍是
+  对一段量化区间的近似。
 - 首批学习样本形成稳定分布前，无法可靠区分外部消费与真实较小容量。
 - Provider 可能在流式请求完成前就把部分消费反映到官方百分比，而本地只有最终 usage 才能冻结成本；
   完成时刻归档和 barrier 能避免永久漏算，但无法从公开接口消除这种上游记账时序偏差。
-- 请求完成时刻以入口墙钟加单调 latency 近似；极端系统时钟跳变以及完成记录与 barrier 并发入队的
-  线性化先后仍不可从现有 RequestLog 契约完全观测。
+- Provider 何时把已开始、流式中或刚完成的请求计入官方百分比没有公开边界；本机 sequence 能严格划分
+  自己的完成日志，却不能强迫上游使用同一记账时刻。
 - `priority` 到 ChatGPT Fast mode 的 wire 映射依赖当前已审计 Codex OAuth 请求形状；未知 tier 保持
   未计价。
 - 官方文档没有声明 Codex quota 的 cache-write 独立倍率，因此不估算 cache write。

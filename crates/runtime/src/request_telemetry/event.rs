@@ -31,6 +31,7 @@ pub(super) enum TelemetryEvent {
         reply: oneshot::Sender<Result<u64, StorageError>>,
     },
     QuotaCheckpoint {
+        boundary: RequestTelemetryCheckpoint,
         reply: oneshot::Sender<RequestTelemetryCheckpoint>,
     },
 }
@@ -85,6 +86,6 @@ impl TelemetryEvent {
     }
 
     pub(super) const fn quota_relevant(&self) -> bool {
-        matches!(self, Self::RequestLog(_))
+        matches!(self, Self::RequestLog(record) if record.request.oauth_account_id.is_some())
     }
 }

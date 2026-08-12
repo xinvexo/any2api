@@ -39,7 +39,7 @@ struct Counters {
     in_flight_owned_bytes: AtomicUsize,
     dropped_records: AtomicU64,
     persisted_records: AtomicU64,
-    request_log_coverage_generation: AtomicU64,
+    request_log_policy_generation: AtomicU64,
     queue_dropped_request_logs: AtomicU64,
     storage_failed_request_logs: AtomicU64,
     pruned_request_logs: AtomicU64,
@@ -169,12 +169,16 @@ impl TelemetryCounters {
         self.finish_owned_bytes(owned_bytes, rejected_owned_bytes);
     }
 
-    pub(super) fn request_logs_storage_failed(&self, records: usize, owned_bytes: usize) {
+    pub(super) fn request_logs_storage_failed(
+        &self,
+        records: usize,
+        owned_bytes: usize,
+        quota_relevant_records: usize,
+    ) {
         self.storage_failed(records, owned_bytes, 0);
         self.inner
             .storage_failed_request_logs
-            .fetch_add(records as u64, Ordering::Relaxed);
-        self.mark_request_log_gap();
+            .fetch_add(quota_relevant_records as u64, Ordering::Relaxed);
     }
 
     pub(super) fn request_logs_pruned(&self, records: u64) {
@@ -184,12 +188,11 @@ impl TelemetryCounters {
         self.inner
             .pruned_request_logs
             .fetch_add(records, Ordering::Relaxed);
-        self.mark_request_log_gap();
     }
 
-    pub(super) fn mark_request_log_gap(&self) {
+    pub(super) fn request_log_policy_changed(&self) {
         self.inner
-            .request_log_coverage_generation
+            .request_log_policy_generation
             .fetch_add(1, Ordering::AcqRel);
     }
 
@@ -201,9 +204,9 @@ impl TelemetryCounters {
         RequestTelemetryCheckpoint {
             process_id,
             enabled,
-            coverage_generation: self
+            policy_generation: self
                 .inner
-                .request_log_coverage_generation
+                .request_log_policy_generation
                 .load(Ordering::Acquire),
             queue_dropped_request_logs: self
                 .inner
@@ -215,6 +218,16 @@ impl TelemetryCounters {
                 .load(Ordering::Relaxed),
             pruned_request_logs: self.inner.pruned_request_logs.load(Ordering::Relaxed),
         }
+    }
+
+    pub(super) fn complete_quota_checkpoint(
+        &self,
+        mut boundary: RequestTelemetryCheckpoint,
+    ) -> RequestTelemetryCheckpoint {
+        let current = self.quota_checkpoint(boundary.process_id, boundary.enabled);
+        boundary.storage_failed_request_logs = current.storage_failed_request_logs;
+        boundary.pruned_request_logs = current.pruned_request_logs;
+        boundary
     }
 
     pub(super) fn writer_stopped(&self) {
@@ -248,11 +261,10 @@ impl TelemetryCounters {
             .fetch_add(records as u64, Ordering::Relaxed);
     }
 
-    fn queue_dropped_request_logs(&self, records: usize) {
+    pub(super) fn queue_dropped_request_logs(&self, records: usize) {
         self.inner
             .queue_dropped_request_logs
             .fetch_add(records as u64, Ordering::Relaxed);
-        self.mark_request_log_gap();
     }
 
     fn release_gateway_auth_rejected_slot(&self, class: TelemetryQueueClass) {

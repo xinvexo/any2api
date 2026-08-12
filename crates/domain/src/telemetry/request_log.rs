@@ -1,5 +1,8 @@
 use std::net::IpAddr;
 
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
 use crate::{
     ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolDialect,
     ProtocolOperation, ProviderEndpointId, ProxyProfileId, RequestId, RequestQuotaCost,
@@ -267,6 +270,14 @@ pub fn bound_error_message(message: impl AsRef<str>) -> String {
 pub struct CompletedRequestLog {
     pub request: RequestLog,
     pub attempts: Vec<RequestAttempt>,
+    /// Internal process-local position used to fence OAuth quota telemetry.
+    pub telemetry_position: Option<RequestTelemetryPosition>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RequestTelemetryPosition {
+    pub process_id: Uuid,
+    pub sequence: u64,
 }
 
 impl CompletedRequestLog {

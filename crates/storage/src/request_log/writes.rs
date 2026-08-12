@@ -1,6 +1,7 @@
 use any2api_domain::{
     ErrorClass, MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS, RequestAttempt, RequestAttemptFailureScope,
-    RequestAttemptRetryDecision, RequestLog, RequestQuotaCost, RequestRoutingMode, RetrySafety,
+    RequestAttemptRetryDecision, RequestLog, RequestQuotaCost, RequestRoutingMode,
+    RequestTelemetryPosition, RetrySafety,
 };
 use sqlx::SqliteConnection;
 
@@ -11,22 +12,26 @@ use super::rows::{validate_error_message, validate_thinking_level};
 pub(super) async fn insert_request_log(
     connection: &mut SqliteConnection,
     log: &RequestLog,
+    telemetry_position: Option<RequestTelemetryPosition>,
 ) -> Result<(), StorageError> {
     let error_message = validate_error_message(log.error_message.as_deref())?;
     let thinking_level = validate_thinking_level(log.thinking_level.as_deref())?;
     let quota_cost = validate_quota_cost(log.quota_cost.as_ref())?;
+    let (telemetry_process_id, telemetry_sequence) = telemetry_fields(telemetry_position)?;
     sqlx::query(
         "INSERT INTO request_logs (request_id, started_at_ms, client_ip, config_revision, \
          gateway_api_key_id, ingress_protocol, operation, public_model, thinking_level, \
          provider_endpoint_id, credential_id, oauth_account_id, proxy_profile_id, status_code, \
          error_class, error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
          output_tokens, cache_read_tokens, quota_cost_unit, quota_cost_nanos, \
-         quota_cost_rate_card, quota_service_tier, is_stream) VALUES (?, ?, ?, ?, \
+         quota_cost_rate_card, quota_service_tier, telemetry_process_id, telemetry_sequence, \
+         is_stream) VALUES (?, ?, ?, ?, \
          (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, ?, \
          (SELECT id FROM provider_endpoints WHERE id = ?), \
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
-         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+         ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -54,10 +59,27 @@ pub(super) async fn insert_request_log(
     .bind(quota_cost.map(|cost| i64::try_from(cost.amount_nanos).expect("validated nano cost")))
     .bind(quota_cost.map(|cost| cost.rate_card.as_str()))
     .bind(quota_cost.map(|cost| cost.service_tier.as_str()))
+    .bind(telemetry_process_id)
+    .bind(telemetry_sequence)
     .bind(if log.is_stream { 1_i64 } else { 0_i64 })
     .execute(connection)
     .await?;
     Ok(())
+}
+
+fn telemetry_fields(
+    position: Option<RequestTelemetryPosition>,
+) -> Result<(Option<String>, Option<i64>), StorageError> {
+    let Some(position) = position else {
+        return Ok((None, None));
+    };
+    if position.sequence == 0 {
+        return Err(StorageError::CorruptTelemetry);
+    }
+    Ok((
+        Some(position.process_id.to_string()),
+        Some(to_i64(position.sequence)?),
+    ))
 }
 
 fn validate_quota_cost(

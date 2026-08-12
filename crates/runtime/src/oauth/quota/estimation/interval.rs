@@ -1,82 +1,86 @@
 use any2api_domain::{OAuthAccountId, QuotaCostUnit};
 use any2api_provider::api::OAuthQuotaWindow;
-use any2api_storage::api::OAuthQuotaRequestLogUsage;
 
 use super::{
-    OAuthQuotaEstimator,
-    robust::{self, CandidateDecision},
-    state::{QuotaCapacitySample, QuotaWindowState},
+    OAuthQuotaEstimator, learning,
+    state::{QuotaObservationAnchor, QuotaWindowState},
     transition,
 };
 use crate::{
     oauth::quota::types::{OAuthQuotaIntervalDiagnostic, OAuthQuotaIntervalStatus},
-    request_telemetry::{RequestTelemetry, RequestTelemetryCheckpoint},
+    request_telemetry::{
+        RequestTelemetry, RequestTelemetryCheckpoint, RequestTelemetryObservation,
+    },
 };
 
 const MIN_SAMPLE_DELTA_PERCENT: f64 = 0.5;
-const MAX_SAMPLES_PER_EPOCH: usize = 9;
-const NANOS_PER_CREDIT: f64 = 1_000_000_000.0;
 
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn observe(
     estimator: &OAuthQuotaEstimator,
     id: OAuthAccountId,
     window: &OAuthQuotaWindow,
     mut state: QuotaWindowState,
     expected_unit: QuotaCostUnit,
-    checkpoint: RequestTelemetryCheckpoint,
-    fetched_at_ms: u64,
+    observation: RequestTelemetryObservation,
     telemetry: Option<&RequestTelemetry>,
 ) -> QuotaWindowState {
-    let started_at_ms = state.baseline.fetched_at_ms;
-    let delta = window.used_percent - state.baseline.used_percent;
-    let mut ending_checkpoint = checkpoint.clone();
-    let mut loss = checkpoint_loss(&state.baseline.checkpoint, &checkpoint);
-    let mut diagnostic = diagnostic(
-        OAuthQuotaIntervalStatus::NoChange,
-        Some(started_at_ms),
-        fetched_at_ms,
-        Some(delta),
-        None,
-        0,
-        loss,
-    );
-    if fetched_at_ms <= started_at_ms || !delta.is_finite() {
-        diagnostic.status = OAuthQuotaIntervalStatus::Invalid;
-    } else if !state.baseline.checkpoint.covers_interval_to(&checkpoint) {
-        diagnostic.status = OAuthQuotaIntervalStatus::TelemetryIncomplete;
+    let sample_anchor = state.sample_anchor.clone();
+    let started_at_ms = sample_anchor.telemetry.observed_at_ms;
+    let ended_at_ms = observation.observed_at_ms;
+    let delta = window.used_percent - sample_anchor.used_percent;
+    let loss = checkpoint_loss(&sample_anchor.telemetry.checkpoint, &observation.checkpoint);
+    let mut reanchor_sample = true;
+    let diagnostic = if !delta.is_finite() {
+        state.competing_samples.clear();
+        diagnostic(
+            OAuthQuotaIntervalStatus::Invalid,
+            Some(started_at_ms),
+            ended_at_ms,
+            Some(delta),
+            None,
+            0,
+            loss,
+        )
+    } else if !covers_interval(&sample_anchor, &observation) {
+        state.competing_samples.clear();
+        diagnostic(
+            OAuthQuotaIntervalStatus::TelemetryIncomplete,
+            Some(started_at_ms),
+            ended_at_ms,
+            Some(delta),
+            None,
+            0,
+            loss,
+        )
     } else if delta < MIN_SAMPLE_DELTA_PERCENT {
-        diagnostic.status = OAuthQuotaIntervalStatus::NoChange;
+        reanchor_sample = false;
+        diagnostic(
+            OAuthQuotaIntervalStatus::NoChange,
+            Some(started_at_ms),
+            ended_at_ms,
+            Some(delta),
+            None,
+            0,
+            loss,
+        )
     } else {
-        let interval = estimate(
+        estimate(
             estimator,
             id,
-            &state,
+            &mut state,
             delta,
             expected_unit,
-            started_at_ms,
-            fetched_at_ms,
-            loss,
-            &checkpoint,
+            &sample_anchor,
+            &observation,
             telemetry,
         )
-        .await;
-        diagnostic = interval.diagnostic;
-        ending_checkpoint = interval.checkpoint;
-        loss = checkpoint_loss(&state.baseline.checkpoint, &ending_checkpoint);
-        apply_loss(&mut diagnostic, loss);
-        if let Some((capacity_credits, rate_cards)) = interval.sample {
-            state.samples.push(QuotaCapacitySample {
-                capacity_credits,
-                observed_at_ms: fetched_at_ms,
-                rate_cards,
-            });
-            if state.samples.len() > MAX_SAMPLES_PER_EPOCH {
-                state.samples.remove(0);
-            }
-        }
+        .await
+    };
+    let current_anchor = transition::anchor(window, observation);
+    if reanchor_sample {
+        state.sample_anchor = current_anchor.clone();
     }
-    state.baseline = transition::anchor(window, ending_checkpoint, fetched_at_ms);
+    state.last_observation = current_anchor;
     state.latest_interval = diagnostic;
     state
 }
@@ -85,135 +89,78 @@ pub(super) async fn observe(
 async fn estimate(
     estimator: &OAuthQuotaEstimator,
     id: OAuthAccountId,
-    state: &QuotaWindowState,
+    state: &mut QuotaWindowState,
     delta: f64,
     expected_unit: QuotaCostUnit,
-    started_at_ms: u64,
-    fetched_at_ms: u64,
-    loss: CheckpointLoss,
-    checkpoint: &RequestTelemetryCheckpoint,
+    sample_anchor: &QuotaObservationAnchor,
+    observation: &RequestTelemetryObservation,
     telemetry: Option<&RequestTelemetry>,
-) -> IntervalEstimation {
+) -> OAuthQuotaIntervalDiagnostic {
     let usage_result = estimator
         .repository
-        .oauth_quota_request_log_usage(id, started_at_ms, fetched_at_ms)
+        .oauth_quota_request_log_usage(id, sample_anchor.telemetry.position, observation.position)
         .await;
     let ending_checkpoint = match telemetry {
         Some(telemetry) => telemetry.quota_checkpoint().await,
-        None => checkpoint.clone(),
+        None => observation.checkpoint.clone(),
     };
-    if !checkpoint.covers_interval_to(&ending_checkpoint) {
-        return rejected(
+    let fence_loss = checkpoint_loss(&sample_anchor.telemetry.checkpoint, &observation.checkpoint);
+    if !observation
+        .checkpoint
+        .preserves_persisted_interval_to(&ending_checkpoint)
+    {
+        state.competing_samples.clear();
+        return diagnostic(
             OAuthQuotaIntervalStatus::TelemetryIncomplete,
-            delta,
-            started_at_ms,
-            fetched_at_ms,
-            loss,
-            ending_checkpoint,
+            Some(sample_anchor.telemetry.observed_at_ms),
+            observation.observed_at_ms,
+            Some(delta),
+            None,
+            0,
+            checkpoint_loss(&sample_anchor.telemetry.checkpoint, &ending_checkpoint),
         );
     }
     let usage = match usage_result {
         Ok(usage) => usage,
         Err(error) => {
+            state.competing_samples.clear();
             tracing::warn!(%error, %id, "quota interval RequestLog query failed");
-            return rejected(
+            return diagnostic(
                 OAuthQuotaIntervalStatus::Invalid,
-                delta,
-                started_at_ms,
-                fetched_at_ms,
-                loss,
-                ending_checkpoint,
+                Some(sample_anchor.telemetry.observed_at_ms),
+                observation.observed_at_ms,
+                Some(delta),
+                None,
+                0,
+                fence_loss,
             );
         }
     };
-    classify_usage(
+    let learned = learning::apply_usage(
         state,
         delta,
         expected_unit,
         usage,
-        started_at_ms,
-        fetched_at_ms,
-        loss,
-        ending_checkpoint,
+        observation.observed_at_ms,
+    );
+    diagnostic(
+        learned.status,
+        Some(sample_anchor.telemetry.observed_at_ms),
+        observation.observed_at_ms,
+        Some(delta),
+        Some(learned.local_cost_credits),
+        learned.unpriced_request_count,
+        fence_loss,
     )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn classify_usage(
-    state: &QuotaWindowState,
-    delta: f64,
-    expected_unit: QuotaCostUnit,
-    usage: OAuthQuotaRequestLogUsage,
-    started_at_ms: u64,
-    fetched_at_ms: u64,
-    loss: CheckpointLoss,
-    ending_checkpoint: RequestTelemetryCheckpoint,
-) -> IntervalEstimation {
-    let cost = usage.total_cost_nanos as f64 / NANOS_PER_CREDIT;
-    let unpriced = usage.unpriced_request_count;
-    let rate_cards = usage.rate_cards;
-    let base = |status, sample| IntervalEstimation {
-        diagnostic: diagnostic(
-            status,
-            Some(started_at_ms),
-            fetched_at_ms,
-            Some(delta),
-            Some(cost),
-            unpriced,
-            loss,
-        ),
-        sample,
-        checkpoint: ending_checkpoint.clone(),
-    };
-    if unpriced > 0 {
-        return base(OAuthQuotaIntervalStatus::UnpricedUsage, None);
-    }
-    if usage.unit != Some(expected_unit) || usage.priced_request_count == 0 || cost <= 0.0 {
-        return base(OAuthQuotaIntervalStatus::ExternalUsageSuspected, None);
-    }
-    let candidate = cost * 100.0 / delta;
-    if !candidate.is_finite() || candidate <= 0.0 {
-        return base(OAuthQuotaIntervalStatus::Invalid, None);
-    }
-    match robust::classify_candidate(&state.samples, candidate) {
-        CandidateDecision::Accept => base(
-            OAuthQuotaIntervalStatus::ValidSample,
-            Some((candidate, rate_cards)),
-        ),
-        CandidateDecision::ExternalUsage => {
-            base(OAuthQuotaIntervalStatus::ExternalUsageSuspected, None)
-        }
-        CandidateDecision::Outlier => base(OAuthQuotaIntervalStatus::OutlierRejected, None),
-    }
-}
-
-fn rejected(
-    status: OAuthQuotaIntervalStatus,
-    delta: f64,
-    started_at_ms: u64,
-    fetched_at_ms: u64,
-    loss: CheckpointLoss,
-    checkpoint: RequestTelemetryCheckpoint,
-) -> IntervalEstimation {
-    IntervalEstimation {
-        diagnostic: diagnostic(
-            status,
-            Some(started_at_ms),
-            fetched_at_ms,
-            Some(delta),
-            None,
-            0,
-            loss,
-        ),
-        sample: None,
-        checkpoint,
-    }
-}
-
-struct IntervalEstimation {
-    diagnostic: OAuthQuotaIntervalDiagnostic,
-    sample: Option<(f64, Vec<String>)>,
-    checkpoint: RequestTelemetryCheckpoint,
+fn covers_interval(start: &QuotaObservationAnchor, current: &RequestTelemetryObservation) -> bool {
+    start
+        .telemetry
+        .checkpoint
+        .covers_interval_to(&current.checkpoint)
+        && start.telemetry.position.process_id == current.position.process_id
+        && start.telemetry.position.sequence <= current.position.sequence
 }
 
 #[derive(Clone, Copy, Default)]
@@ -247,12 +194,6 @@ fn checkpoint_loss(
     }
 }
 
-fn apply_loss(diagnostic: &mut OAuthQuotaIntervalDiagnostic, loss: CheckpointLoss) {
-    diagnostic.queue_dropped_request_logs = loss.queue_dropped;
-    diagnostic.storage_failed_request_logs = loss.storage_failed;
-    diagnostic.pruned_request_logs = loss.pruned;
-}
-
 #[allow(clippy::too_many_arguments)]
 fn diagnostic(
     status: OAuthQuotaIntervalStatus,
@@ -263,10 +204,12 @@ fn diagnostic(
     unpriced_request_count: u64,
     loss: CheckpointLoss,
 ) -> OAuthQuotaIntervalDiagnostic {
+    let started_at = started_at_ms.map(seconds);
+    let ended_at = seconds(ended_at_ms).max(started_at.unwrap_or_default());
     OAuthQuotaIntervalDiagnostic {
         status,
-        started_at: started_at_ms.map(seconds),
-        ended_at: seconds(ended_at_ms),
+        started_at,
+        ended_at,
         delta_used_percent,
         local_cost_credits,
         unpriced_request_count,

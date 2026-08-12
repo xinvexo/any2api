@@ -67,8 +67,7 @@ async fn reset_rollover_and_identity_changes_start_clean_epochs() {
             Some(rollover.state),
             "identity-b".into(),
             QuotaCostUnit::CodexCredits,
-            checkpoint(0),
-            4_000,
+            telemetry_observation(checkpoint(0), 4_000, 3),
             None,
         )
         .await;
@@ -109,8 +108,7 @@ async fn restart_without_reset_identity_and_natural_rollover_start_new_epochs() 
             None,
             "identity-a".into(),
             QuotaCostUnit::CodexCredits,
-            checkpoint(0),
-            1_000,
+            telemetry_observation(checkpoint(0), 1_000, 0),
             None,
         )
         .await;
@@ -121,8 +119,7 @@ async fn restart_without_reset_identity_and_natural_rollover_start_new_epochs() 
             Some(first.state),
             "identity-a".into(),
             QuotaCostUnit::CodexCredits,
-            checkpoint(0),
-            2_000,
+            telemetry_observation(checkpoint(0), 2_000, 1),
             None,
         )
         .await;
@@ -134,8 +131,7 @@ async fn restart_without_reset_identity_and_natural_rollover_start_new_epochs() 
             Some(learned.state),
             "identity-a".into(),
             QuotaCostUnit::CodexCredits,
-            checkpoint(0),
-            18_001_000,
+            telemetry_observation(checkpoint(0), 18_001_000, 2),
             None,
         )
         .await;
@@ -155,8 +151,7 @@ async fn stable_reset_timestamp_is_stronger_than_elapsed_window_duration() {
             Some(first.state),
             "identity-a".into(),
             QuotaCostUnit::CodexCredits,
-            checkpoint(0),
-            18_001_000,
+            telemetry_observation(checkpoint(0), 18_001_000, 1),
             None,
         )
         .await;
@@ -201,7 +196,7 @@ async fn one_second_reset_timestamp_drift_keeps_epoch_and_learns_interval() {
             < 0.000_001
     );
     assert_eq!(
-        learned.state.windows[0].baseline.reset_at,
+        learned.state.windows[0].last_observation.reset_at,
         Some(1_789_041_127)
     );
 }
@@ -221,8 +216,7 @@ async fn changed_window_identity_starts_a_reset_boundary() {
             Some(first.state),
             "identity-a".into(),
             QuotaCostUnit::CodexCredits,
-            checkpoint(0),
-            2_000,
+            telemetry_observation(checkpoint(0), 2_000, 1),
             None,
         )
         .await;
@@ -265,6 +259,49 @@ async fn small_negative_jitter_does_not_reset_or_discard_samples() {
         jitter.estimates[0].latest_interval.status,
         OAuthQuotaIntervalStatus::NoChange
     );
+}
+
+#[tokio::test]
+async fn reset_during_small_delta_accumulation_discards_the_old_anchor() {
+    let repository = Arc::new(UsageRepository::default());
+    repository.push(priced(6.0));
+    let estimator = OAuthQuotaEstimator::new(repository.clone());
+    let first = observe(&estimator, None, 10.0, Some(100), checkpoint(0), 0).await;
+    let partial = observe(
+        &estimator,
+        Some(first.state),
+        10.2,
+        Some(100),
+        checkpoint(0),
+        1,
+    )
+    .await;
+    let old_epoch = partial.estimates[0].epoch;
+    let reset = observe(
+        &estimator,
+        Some(partial.state),
+        0.0,
+        Some(200),
+        checkpoint(0),
+        2,
+    )
+    .await;
+    assert!(reset.estimates[0].epoch > old_epoch);
+    assert_eq!(reset.state.windows[0].sample_anchor.used_percent, 0.0);
+    let learned = observe(
+        &estimator,
+        Some(reset.state),
+        0.6,
+        Some(200),
+        checkpoint(0),
+        3,
+    )
+    .await;
+    assert_eq!(learned.estimates[0].sample_count, 1);
+    let queries = repository.queries();
+    assert_eq!(queries.len(), 1);
+    assert_eq!(queries[0].0.sequence, 2);
+    assert_eq!(queries[0].1.sequence, 3);
 }
 
 #[tokio::test]

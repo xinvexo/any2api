@@ -56,6 +56,7 @@ impl RequestRecorderInner {
                     is_stream: state.is_stream,
                 },
                 attempts,
+                telemetry_position: None,
             }
         };
         self.telemetry.try_record(record, self.policy);

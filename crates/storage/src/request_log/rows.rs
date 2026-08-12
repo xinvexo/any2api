@@ -6,7 +6,8 @@ use any2api_domain::{
     ProtocolOperation, ProxyKind, QuotaCostUnit, QuotaServiceTier, RequestAttempt,
     RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision,
     RequestAttemptStreamTiming, RequestAttemptTransport, RequestLog, RequestQuotaCost,
-    RequestRoutingMode, RequestTransportResolverMode, RequestTransportTrafficClass, RetrySafety,
+    RequestRoutingMode, RequestTelemetryPosition, RequestTransportResolverMode,
+    RequestTransportTrafficClass, RetrySafety,
 };
 use sqlx::FromRow;
 
@@ -40,6 +41,8 @@ pub(super) struct RequestLogRow {
     quota_cost_nanos: Option<i64>,
     quota_cost_rate_card: Option<String>,
     quota_service_tier: Option<String>,
+    telemetry_process_id: Option<String>,
+    telemetry_sequence: Option<i64>,
     is_stream: i64,
 }
 
@@ -49,6 +52,27 @@ impl RequestLogRow {
             from_i64(self.started_at_ms)?,
             self.request_id.clone(),
         ))
+    }
+
+    pub(super) fn telemetry_position(
+        &self,
+    ) -> Result<Option<RequestTelemetryPosition>, StorageError> {
+        match (
+            self.telemetry_process_id.as_deref(),
+            self.telemetry_sequence,
+        ) {
+            (None, None) => Ok(None),
+            (Some(process_id), Some(sequence)) => Ok(Some(RequestTelemetryPosition {
+                process_id: process_id
+                    .parse()
+                    .map_err(|_| StorageError::CorruptTelemetry)?,
+                sequence: u64::try_from(sequence)
+                    .ok()
+                    .filter(|sequence| *sequence > 0)
+                    .ok_or(StorageError::CorruptTelemetry)?,
+            })),
+            _ => Err(StorageError::CorruptTelemetry),
+        }
     }
 }
 

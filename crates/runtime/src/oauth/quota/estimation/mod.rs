@@ -1,4 +1,5 @@
 mod interval;
+mod learning;
 mod projection;
 mod robust;
 pub(super) mod state;
@@ -15,7 +16,7 @@ use any2api_storage::api::OAuthQuotaEstimationRepository;
 
 use self::state::{QuotaEstimatorState, QuotaWindowKey};
 use super::types::{OAuthQuotaEstimate, OAuthQuotaIntervalStatus};
-use crate::request_telemetry::{RequestTelemetry, RequestTelemetryCheckpoint};
+use crate::request_telemetry::{RequestTelemetry, RequestTelemetryObservation};
 
 pub(super) struct OAuthQuotaEstimator {
     repository: Arc<dyn OAuthQuotaEstimationRepository>,
@@ -39,8 +40,7 @@ impl OAuthQuotaEstimator {
         previous: Option<QuotaEstimatorState>,
         credential_fingerprint: String,
         expected_unit: QuotaCostUnit,
-        checkpoint: RequestTelemetryCheckpoint,
-        fetched_at_ms: u64,
+        observation: RequestTelemetryObservation,
         telemetry: Option<&RequestTelemetry>,
     ) -> EstimationResult {
         let mut state =
@@ -61,17 +61,14 @@ impl OAuthQuotaEstimator {
             let key_changed =
                 previous.is_none() && state.windows.iter().any(|value| value.key.id == key.id);
             let window_state = match previous {
-                Some(previous)
-                    if !transition::must_reset(&previous, window, &checkpoint, fetched_at_ms) =>
-                {
+                Some(previous) if !transition::must_reset(&previous, window, &observation) => {
                     interval::observe(
                         self,
                         id,
                         window,
                         previous,
                         expected_unit,
-                        checkpoint.clone(),
-                        fetched_at_ms,
+                        observation.clone(),
                         telemetry,
                     )
                     .await
@@ -80,16 +77,14 @@ impl OAuthQuotaEstimator {
                     key,
                     state.allocate_epoch(),
                     window,
-                    checkpoint.clone(),
-                    fetched_at_ms,
+                    observation.clone(),
                     OAuthQuotaIntervalStatus::ResetBoundary,
                 ),
                 None => transition::new_window(
                     key,
                     state.allocate_epoch(),
                     window,
-                    checkpoint.clone(),
-                    fetched_at_ms,
+                    observation.clone(),
                     if identity_changed || key_changed {
                         OAuthQuotaIntervalStatus::ResetBoundary
                     } else {

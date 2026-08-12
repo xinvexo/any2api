@@ -3,7 +3,7 @@ mod sampling;
 
 use std::{collections::VecDeque, sync::Mutex};
 
-use any2api_domain::{OAuthAccountId, QuotaCostUnit};
+use any2api_domain::{OAuthAccountId, QuotaCostUnit, RequestTelemetryPosition};
 use any2api_provider::api::{
     OAuthQuotaRateLimit, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
@@ -14,13 +14,14 @@ use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::{OAuthQuotaEstimator, state::QuotaEstimatorState};
-use crate::request_telemetry::RequestTelemetryCheckpoint;
+use crate::request_telemetry::{RequestTelemetryCheckpoint, RequestTelemetryObservation};
 
 const RATE_CARD: &str = "openai_codex_credits_2026_08_11";
 
 #[derive(Default)]
 struct UsageRepository {
     usage: Mutex<VecDeque<Result<OAuthQuotaRequestLogUsage, StorageError>>>,
+    queries: Mutex<Vec<(RequestTelemetryPosition, RequestTelemetryPosition)>>,
 }
 
 impl UsageRepository {
@@ -34,6 +35,10 @@ impl UsageRepository {
             .unwrap()
             .push_back(Err(StorageError::CorruptTelemetry));
     }
+
+    fn queries(&self) -> Vec<(RequestTelemetryPosition, RequestTelemetryPosition)> {
+        self.queries.lock().unwrap().clone()
+    }
 }
 
 #[async_trait]
@@ -41,9 +46,13 @@ impl OAuthQuotaEstimationRepository for UsageRepository {
     async fn oauth_quota_request_log_usage(
         &self,
         _id: OAuthAccountId,
-        _interval_started_at_ms: u64,
-        _interval_ended_at_ms: u64,
+        interval_start: RequestTelemetryPosition,
+        interval_end: RequestTelemetryPosition,
     ) -> Result<OAuthQuotaRequestLogUsage, StorageError> {
+        self.queries
+            .lock()
+            .unwrap()
+            .push((interval_start, interval_end));
         self.usage
             .lock()
             .unwrap()
@@ -67,8 +76,7 @@ async fn observe(
             state,
             "identity-a".into(),
             QuotaCostUnit::CodexCredits,
-            checkpoint,
-            (index as u64 + 1) * 1_000,
+            indexed_observation(checkpoint, index),
             None,
         )
         .await
@@ -123,7 +131,7 @@ fn checkpoint_for(process_id: Uuid, generation: u64) -> RequestTelemetryCheckpoi
     RequestTelemetryCheckpoint {
         process_id,
         enabled: true,
-        coverage_generation: generation,
+        policy_generation: 0,
         queue_dropped_request_logs: generation,
         storage_failed_request_logs: 0,
         pruned_request_logs: 0,
@@ -134,9 +142,31 @@ fn storage_failed_checkpoint(generation: u64) -> RequestTelemetryCheckpoint {
     RequestTelemetryCheckpoint {
         process_id: Uuid::nil(),
         enabled: true,
-        coverage_generation: generation,
+        policy_generation: 0,
         queue_dropped_request_logs: 0,
         storage_failed_request_logs: generation,
         pruned_request_logs: 0,
+    }
+}
+
+fn indexed_observation(
+    checkpoint: RequestTelemetryCheckpoint,
+    index: usize,
+) -> RequestTelemetryObservation {
+    telemetry_observation(checkpoint, (index as u64 + 1) * 1_000, index as u64)
+}
+
+fn telemetry_observation(
+    checkpoint: RequestTelemetryCheckpoint,
+    observed_at_ms: u64,
+    sequence: u64,
+) -> RequestTelemetryObservation {
+    RequestTelemetryObservation {
+        observed_at_ms,
+        position: RequestTelemetryPosition {
+            process_id: checkpoint.process_id,
+            sequence,
+        },
+        checkpoint,
     }
 }

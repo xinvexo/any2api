@@ -246,6 +246,7 @@ fn record(
             is_stream: false,
         },
         attempts: Vec::new(),
+        telemetry_position: None,
     }
 }
 

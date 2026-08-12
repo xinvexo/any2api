@@ -1,4 +1,4 @@
-use any2api_domain::{OAuthAccountId, QuotaCostUnit};
+use any2api_domain::{OAuthAccountId, QuotaCostUnit, RequestTelemetryPosition};
 use async_trait::async_trait;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
@@ -17,8 +17,8 @@ pub trait OAuthQuotaEstimationRepository: Send + Sync {
     async fn oauth_quota_request_log_usage(
         &self,
         id: OAuthAccountId,
-        interval_started_at_ms: u64,
-        interval_ended_at_ms: u64,
+        interval_start: RequestTelemetryPosition,
+        interval_end: RequestTelemetryPosition,
     ) -> Result<OAuthQuotaRequestLogUsage, StorageError>;
 }
 
@@ -35,24 +35,31 @@ impl OAuthQuotaEstimationRepository for SqliteStore {
     async fn oauth_quota_request_log_usage(
         &self,
         id: OAuthAccountId,
-        interval_started_at_ms: u64,
-        interval_ended_at_ms: u64,
+        interval_start: RequestTelemetryPosition,
+        interval_end: RequestTelemetryPosition,
     ) -> Result<OAuthQuotaRequestLogUsage, StorageError> {
-        if interval_started_at_ms >= interval_ended_at_ms {
+        if interval_start.process_id != interval_end.process_id {
+            return Err(StorageError::CorruptTelemetry);
+        }
+        if interval_start.sequence > interval_end.sequence {
+            return Err(StorageError::CorruptTelemetry);
+        }
+        if interval_start.sequence == interval_end.sequence {
             return Ok(OAuthQuotaRequestLogUsage::default());
         }
         let rows = sqlx::query_as::<_, UsageRow>(
             "SELECT quota_cost_unit, quota_cost_rate_card, COUNT(*) AS request_count, \
              COALESCE(SUM(quota_cost_nanos), 0) AS total_cost_nanos \
              FROM request_logs \
-             WHERE oauth_account_id = ? AND (started_at_ms + latency_ms) >= ? \
-             AND (started_at_ms + latency_ms) < ? \
+             WHERE oauth_account_id = ? AND telemetry_process_id = ? \
+             AND telemetry_sequence > ? AND telemetry_sequence <= ? \
              GROUP BY quota_cost_unit, quota_cost_rate_card \
              ORDER BY quota_cost_unit ASC, quota_cost_rate_card ASC",
         )
         .bind(id.to_string())
-        .bind(to_i64(interval_started_at_ms)?)
-        .bind(to_i64(interval_ended_at_ms)?)
+        .bind(interval_start.process_id.to_string())
+        .bind(to_i64(interval_start.sequence)?)
+        .bind(to_i64(interval_end.sequence)?)
         .fetch_all(self.pool())
         .await?;
 

@@ -6,8 +6,8 @@ use std::sync::{
 use any2api_domain::{
     CompletedRequestLog, ConfigRevision, HttpAccessLog, HttpAccessLogExchange,
     HttpAccessLogOutcome, HttpAccessLogSummary, HttpBodyCapture, HttpProtocolVersion, LogPage,
-    LogPageCursor, ProtocolDialect, ProtocolOperation, RequestId, RequestLog, SettingKey,
-    SettingOverrides, SettingValue, SettingsConfiguration,
+    LogPageCursor, OAuthAccountId, ProtocolDialect, ProtocolOperation, RequestId, RequestLog,
+    SettingKey, SettingOverrides, SettingValue, SettingsConfiguration,
 };
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, GatewayApiKeyUsageSummary,
@@ -33,6 +33,7 @@ pub(super) struct BlockingRepository {
     pub(super) release_first: Notify,
     pub(super) usage_updates: Mutex<Vec<Vec<GatewayApiKeyLastUsedUpdate>>>,
     pub(super) access_logs: Mutex<Vec<HttpAccessLog>>,
+    pub(super) request_logs: Mutex<Vec<CompletedRequestLog>>,
 }
 
 #[async_trait]
@@ -166,7 +167,7 @@ impl UpstreamCredentialUsageRepository for BlockingRepository {
 impl RequestLogRepository for BlockingRepository {
     async fn append_request_logs(
         &self,
-        _records: &[CompletedRequestLog],
+        records: &[CompletedRequestLog],
         max_rows: u64,
     ) -> Result<RequestLogCleanupOutcome, StorageError> {
         self.request_append_max_rows
@@ -178,6 +179,10 @@ impl RequestLogRepository for BlockingRepository {
         if batch == 0 {
             self.release_first.notified().await;
         }
+        self.request_logs
+            .lock()
+            .expect("request logs")
+            .extend_from_slice(records);
         Ok(RequestLogCleanupOutcome::new(
             0,
             self.request_append_has_more.swap(false, Ordering::AcqRel),
@@ -292,7 +297,14 @@ pub(super) fn record(request_id: RequestId) -> CompletedRequestLog {
             is_stream: false,
         },
         attempts: Vec::new(),
+        telemetry_position: None,
     }
+}
+
+pub(super) fn oauth_record(request_id: RequestId, id: OAuthAccountId) -> CompletedRequestLog {
+    let mut record = record(request_id);
+    record.request.oauth_account_id = Some(id);
+    record
 }
 
 pub(super) fn access_log(path: &str) -> HttpAccessLog {

@@ -373,6 +373,7 @@ fn oauth_request_log(
             is_stream: false,
         },
         attempts: Vec::new(),
+        telemetry_position: None,
     }
 }
 

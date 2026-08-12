@@ -385,6 +385,7 @@ fn record(request_id: RequestId, started_at_ms: u64, with_attempt: bool) -> Comp
             is_stream: true,
         },
         attempts,
+        telemetry_position: None,
     }
 }
 

@@ -20,7 +20,6 @@ use tokio::{
 use uuid::Uuid;
 
 use super::{
-    RequestTelemetryCheckpoint,
     changes::LogChangeNotifier,
     event::{HttpAccessLogChangeNotification, TelemetryEnvelope, TelemetryEvent},
     gateway_usage::{
@@ -35,8 +34,6 @@ use crate::{
     lifecycle::ProcessLifecycle,
 };
 
-const QUOTA_CHECKPOINT_TIMEOUT: Duration = Duration::from_secs(5);
-
 #[derive(Debug, thiserror::Error)]
 pub enum RequestTelemetryControlError {
     #[error("request telemetry writer is unavailable")]
@@ -46,19 +43,20 @@ pub enum RequestTelemetryControlError {
 }
 
 pub struct RequestTelemetry {
-    request_logs: Option<Arc<dyn RequestLogRepository>>,
+    pub(super) request_logs: Option<Arc<dyn RequestLogRepository>>,
     http_access_logs: Option<Arc<dyn HttpAccessLogRepository>>,
     gateway_usage_repository: Option<Arc<dyn GatewayApiKeyUsageRepository>>,
     upstream_usage_repository: Option<Arc<dyn UpstreamCredentialUsageRepository>>,
-    sender: RwLock<Option<mpsc::Sender<TelemetryEnvelope>>>,
+    pub(super) sender: RwLock<Option<mpsc::Sender<TelemetryEnvelope>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
-    counters: TelemetryCounters,
-    policy: Arc<RwLock<RequestLogPolicy>>,
+    pub(super) counters: TelemetryCounters,
+    pub(super) policy: Arc<RwLock<RequestLogPolicy>>,
     prune_wakeup: Arc<Notify>,
     gateway_usage: Mutex<GatewayUsageTracker>,
     gateway_usage_debounce: GatewayUsageDebounce,
     changes: LogChangeNotifier,
-    process_id: Uuid,
+    pub(super) process_id: Uuid,
+    pub(super) quota_sequence: Mutex<u64>,
 }
 
 impl RequestTelemetry {
@@ -85,6 +83,7 @@ impl RequestTelemetry {
             gateway_usage_debounce: GatewayUsageDebounce::default(),
             changes: LogChangeNotifier::new(),
             process_id: Uuid::new_v4(),
+            quota_sequence: Mutex::new(0),
         }
     }
 
@@ -127,7 +126,6 @@ impl RequestTelemetry {
                 changes: changes.clone(),
                 prune_wakeup: Arc::clone(&prune_wakeup),
                 request_prune_wakeup,
-                process_id,
             },
         ));
         Self {
@@ -144,6 +142,7 @@ impl RequestTelemetry {
             gateway_usage_debounce: GatewayUsageDebounce::default(),
             changes,
             process_id,
+            quota_sequence: Mutex::new(0),
         }
     }
 
@@ -183,7 +182,7 @@ impl RequestTelemetry {
             *current = next;
             drop(current);
             if enabled_changed {
-                self.counters.mark_request_log_gap();
+                self.counters.request_log_policy_changed();
             }
             if cleanup_changed {
                 self.prune_wakeup.notify_one();
@@ -191,10 +190,18 @@ impl RequestTelemetry {
         }
     }
 
-    pub(crate) fn try_record(&self, record: CompletedRequestLog, policy: RequestLogPolicy) {
+    pub(crate) fn try_record(&self, mut record: CompletedRequestLog, policy: RequestLogPolicy) {
         if !policy.enabled {
+            if record.request.oauth_account_id.is_some() {
+                self.omit_oauth_record();
+            }
             return;
         }
+        if record.request.oauth_account_id.is_some() {
+            self.try_record_oauth(record, policy);
+            return;
+        }
+        record.telemetry_position = None;
         self.try_send_event(
             TelemetryEvent::RequestLog(Box::new(record)),
             policy.queue_capacity,
@@ -341,40 +348,7 @@ impl RequestTelemetry {
         }
     }
 
-    pub(crate) async fn quota_checkpoint(&self) -> RequestTelemetryCheckpoint {
-        let enabled = self
-            .policy
-            .read()
-            .expect("request telemetry policy")
-            .enabled;
-        let fallback = || self.counters.quota_checkpoint(self.process_id, false);
-        if self.request_logs.is_none() || !enabled {
-            return fallback();
-        }
-        let Some(sender) = self
-            .sender
-            .read()
-            .expect("request telemetry sender")
-            .clone()
-        else {
-            return fallback();
-        };
-        let Ok(permit) = sender.try_reserve() else {
-            return fallback();
-        };
-        let (reply, result) = tokio::sync::oneshot::channel();
-        self.counters.reserve_control_slot();
-        permit.send(TelemetryEnvelope::new(TelemetryEvent::QuotaCheckpoint {
-            reply,
-        }));
-        tokio::time::timeout(QUOTA_CHECKPOINT_TIMEOUT, result)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or_else(fallback)
-    }
-
-    fn try_send_event(&self, event: TelemetryEvent, capacity: usize, max_bytes: usize) {
+    pub(super) fn try_send_event(&self, event: TelemetryEvent, capacity: usize, max_bytes: usize) {
         let envelope = TelemetryEnvelope::new(event);
         let records = envelope.record_count;
         let queue_class = envelope.queue_class;

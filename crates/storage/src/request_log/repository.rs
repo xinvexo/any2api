@@ -56,7 +56,8 @@ impl RequestLogRepository for SqliteStore {
         }
         let mut transaction = self.begin_write().await?;
         for record in records {
-            insert_request_log(&mut transaction, &record.request).await?;
+            insert_request_log(&mut transaction, &record.request, record.telemetry_position)
+                .await?;
             for attempt in &record.attempts {
                 insert_request_attempt(&mut transaction, attempt).await?;
             }
@@ -114,7 +115,8 @@ impl RequestLogRepository for SqliteStore {
              credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
              error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
              output_tokens, cache_read_tokens, quota_cost_unit, quota_cost_nanos, \
-             quota_cost_rate_card, quota_service_tier, is_stream \
+             quota_cost_rate_card, quota_service_tier, telemetry_process_id, \
+             telemetry_sequence, is_stream \
              FROM request_logs WHERE request_id = ?",
         )
         .bind(request_id.to_string())
@@ -124,6 +126,7 @@ impl RequestLogRepository for SqliteStore {
             transaction.commit().await?;
             return Ok(None);
         };
+        let telemetry_position = row.telemetry_position()?;
         let request = parse_request_log(row)?;
         let rows = sqlx::query_as::<_, RequestAttemptRow>(
             "SELECT request_id, attempt_no, route_target_id, credential_id, oauth_account_id, \
@@ -145,7 +148,11 @@ impl RequestLogRepository for SqliteStore {
             .map(parse_request_attempt)
             .collect::<Result<Vec<_>, _>>()?;
         transaction.commit().await?;
-        Ok(Some(CompletedRequestLog { request, attempts }))
+        Ok(Some(CompletedRequestLog {
+            request,
+            attempts,
+            telemetry_position,
+        }))
     }
 
     async fn request_log_overview(

@@ -5,13 +5,14 @@ mod gateway_usage;
 mod metrics;
 mod observation;
 mod policy;
+mod quota_fence;
 mod recorder;
 mod telemetry;
 #[cfg(test)]
 mod tests;
 mod worker;
 
-pub(crate) use checkpoint::RequestTelemetryCheckpoint;
+pub(crate) use checkpoint::{RequestTelemetryCheckpoint, RequestTelemetryObservation};
 pub use event::HttpAccessLogChangeNotification;
 pub use metrics::RequestTelemetryMetrics;
 use observation::RequestObservation;

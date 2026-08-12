@@ -1,11 +1,12 @@
 use std::sync::{Arc, atomic::Ordering};
 
-use any2api_domain::{ConfigRevision, RequestId, SettingsConfiguration};
+use any2api_domain::{ConfigRevision, OAuthAccountId, RequestId, SettingsConfiguration};
 use any2api_storage::api::{RequestLogRepository, SqliteStore};
 use tempfile::tempdir;
 
 use super::support::{
-    BlockingRepository, logging_settings, logging_settings_with_request_max_rows, record, wait_for,
+    BlockingRepository, logging_settings, logging_settings_with_request_max_rows, oauth_record,
+    record, wait_for,
 };
 use crate::{lifecycle::ProcessLifecycle, request_telemetry::RequestTelemetry};
 
@@ -68,11 +69,12 @@ async fn full_logical_queue_drops_without_waiting_for_the_writer() {
         &lifecycle,
     ));
     let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
+    let oauth_account_id = OAuthAccountId::new();
 
-    telemetry.try_record(record(RequestId::new()), policy);
+    telemetry.try_record(oauth_record(RequestId::new(), oauth_account_id), policy);
     wait_for(|| repository.write_batches.load(Ordering::Acquire) == 1).await;
-    telemetry.try_record(record(RequestId::new()), policy);
-    telemetry.try_record(record(RequestId::new()), policy);
+    telemetry.try_record(oauth_record(RequestId::new(), oauth_account_id), policy);
+    telemetry.try_record(oauth_record(RequestId::new(), oauth_account_id), policy);
 
     let metrics = telemetry.metrics();
     assert_eq!(metrics.queued_records, 1);
@@ -82,7 +84,6 @@ async fn full_logical_queue_drops_without_waiting_for_the_writer() {
     repository.release_first.notify_waiters();
     let checkpoint = telemetry.quota_checkpoint().await;
     assert_eq!(checkpoint.queue_dropped_request_logs, 1);
-    assert_eq!(checkpoint.coverage_generation, 1);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
     let metrics = telemetry.metrics();
     assert_eq!(metrics.queued_records, 0);
@@ -145,7 +146,10 @@ async fn failed_request_log_batch_does_not_advance_change_epoch() {
     let changes = telemetry.subscribe_request_log_changes();
     let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
 
-    telemetry.try_record(record(RequestId::new()), policy);
+    telemetry.try_record(
+        oauth_record(RequestId::new(), OAuthAccountId::new()),
+        policy,
+    );
     wait_for(|| telemetry.metrics().dropped_records == 1).await;
 
     let metrics = telemetry.metrics();
@@ -160,7 +164,6 @@ async fn failed_request_log_batch_does_not_advance_change_epoch() {
     );
     let checkpoint = telemetry.quota_checkpoint().await;
     assert_eq!(checkpoint.storage_failed_request_logs, 1);
-    assert_eq!(checkpoint.coverage_generation, 1);
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }
 
@@ -284,7 +287,6 @@ async fn retention_deletions_advance_both_change_epochs() {
 
     let checkpoint = telemetry.quota_checkpoint().await;
     assert_eq!(checkpoint.pruned_request_logs, 2);
-    assert_eq!(checkpoint.coverage_generation, 1);
 
     telemetry.shutdown(std::time::Duration::from_secs(1)).await;
 }

@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::{
     configuration::{ConfigPublisher, PublishedSnapshot},
     oauth::{control_plane::OAuthControlPlanePacer, refresh::OAuthRefresher},
-    request_telemetry::RequestTelemetry,
+    request_telemetry::{RequestTelemetry, RequestTelemetryObservation},
 };
 
 use super::{
@@ -33,6 +33,7 @@ use super::{
 pub(super) struct QueriedQuota {
     pub(super) usage: OAuthQuotaUsage,
     pub(super) credential_fingerprint: String,
+    pub(super) telemetry_observation: RequestTelemetryObservation,
 }
 
 pub(in crate::oauth) struct OAuthQuotaService {
@@ -258,6 +259,7 @@ impl OAuthQuotaService {
         if !usage_response.status.is_success() {
             return Err(request.rejection(&usage_response));
         }
+        let telemetry_observation = self.telemetry.quota_observation().await;
         let mut usage =
             observation::resolve_usage(&request, usage_response, supplement_plan).await?;
         health::synchronize(
@@ -288,6 +290,7 @@ impl OAuthQuotaService {
         Ok(QueriedQuota {
             usage,
             credential_fingerprint,
+            telemetry_observation,
         })
     }
 

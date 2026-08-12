@@ -19,11 +19,3 @@ pub(super) fn unix_now() -> i64 {
         .and_then(|duration| i64::try_from(duration.as_secs()).ok())
         .unwrap_or_default()
 }
-
-pub(super) fn unix_now_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
-        .unwrap_or_default()
-}

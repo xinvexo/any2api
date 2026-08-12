@@ -7,16 +7,13 @@ use super::{
     persistence::StoredQuotaTelemetry,
     types::{OAuthQuotaError, OAuthQuotaSnapshot},
 };
-use crate::oauth::document;
-
 pub(super) async fn build(
     service: &OAuthQuotaService,
     id: OAuthAccountId,
     observation: QueriedQuota,
 ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
-    let fetched_at_ms = document::unix_now_millis();
+    let fetched_at_ms = observation.telemetry_observation.observed_at_ms;
     let fetched_at = i64::try_from(fetched_at_ms / 1_000).unwrap_or_default();
-    let checkpoint = service.telemetry.quota_checkpoint().await;
     let previous = match service.persistence.load(id).await {
         Ok(previous) => previous,
         Err(error) => {
@@ -42,8 +39,7 @@ pub(super) async fn build(
                 previous.and_then(|value| value.estimator_state),
                 observation.credential_fingerprint,
                 unit,
-                checkpoint,
-                fetched_at_ms,
+                observation.telemetry_observation.clone(),
                 Some(service.telemetry.as_ref()),
             )
             .await;
