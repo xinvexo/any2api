@@ -165,47 +165,99 @@ async fn stable_distribution_rejects_external_and_outlier_intervals() {
         assert_eq!(latest.latest_interval.status, expected);
         assert_eq!(latest.confidence, OAuthQuotaEstimateConfidence::Degraded);
         assert!((latest.estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001);
-        assert_eq!(state.unwrap().windows[0].competing_samples.len(), 1);
+        let window = &state.unwrap().windows[0];
+        if expected == OAuthQuotaIntervalStatus::ExternalUsageSuspected {
+            assert_eq!(window.low_streak, 1);
+            assert!(window.pending_high.is_none());
+        } else {
+            assert_eq!(window.low_streak, 0);
+            assert!(window.pending_high.is_some());
+        }
     }
 }
 
 #[tokio::test]
-async fn stable_estimator_relearns_four_consistent_candidates_on_either_side() {
-    for (replacement_cost, expected_capacity) in [(10.0, 100.0), (300.0, 3_000.0)] {
-        let repository = Arc::new(UsageRepository::default());
-        for cost in [100.0, 100.0, 100.0] {
-            repository.push(priced(cost));
+async fn two_consistent_high_candidates_revise_capacity_upward() {
+    let repository = Arc::new(UsageRepository::default());
+    for cost in [100.0, 100.0, 100.0, 300.0, 300.0] {
+        repository.push(priced(cost));
+    }
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let mut state = None;
+    for (index, percent) in (0..=5).map(|value| value as f64 * 10.0).enumerate() {
+        let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
+        if index == 4 {
+            assert_eq!(
+                result.estimates[0].latest_interval.status,
+                OAuthQuotaIntervalStatus::OutlierRejected
+            );
+            assert_eq!(result.estimates[0].sample_count, 3);
+            assert!(
+                (result.estimates[0].estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001
+            );
+            assert!(result.state.windows[0].pending_high.is_some());
         }
-        for _ in 0..4 {
-            repository.push(priced(replacement_cost));
+        if index == 5 {
+            assert_eq!(
+                result.estimates[0].latest_interval.status,
+                OAuthQuotaIntervalStatus::ValidSample
+            );
+            assert_eq!(result.estimates[0].sample_count, 2);
+            assert_eq!(result.estimates[0].fresh_sample_count, 2);
+            assert_eq!(
+                result.estimates[0].confidence,
+                OAuthQuotaEstimateConfidence::Learning
+            );
+            assert!(
+                (result.estimates[0].estimated_capacity_credits.unwrap() - 3_000.0).abs() < 0.001
+            );
+            assert!(result.state.windows[0].pending_high.is_none());
         }
-        let estimator = OAuthQuotaEstimator::new(repository);
-        let mut state = None;
-        for (index, percent) in (0..=7).map(|value| value as f64 * 10.0).enumerate() {
-            let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
-            if index == 6 {
-                assert_eq!(result.estimates[0].sample_count, 3);
-                assert_eq!(result.state.windows[0].competing_samples.len(), 3);
-            }
-            if index == 7 {
-                assert_eq!(result.estimates[0].sample_count, 4);
-                assert_eq!(
-                    result.estimates[0].latest_interval.status,
-                    OAuthQuotaIntervalStatus::ValidSample
-                );
-                assert_eq!(
-                    result.estimates[0].confidence,
-                    OAuthQuotaEstimateConfidence::Stable
-                );
-                assert!(
-                    (result.estimates[0].estimated_capacity_credits.unwrap() - expected_capacity)
-                        .abs()
-                        < 0.001
-                );
-                assert!(result.state.windows[0].competing_samples.is_empty());
-            }
-            state = Some(result.state);
+        state = Some(result.state);
+    }
+}
+
+#[tokio::test]
+async fn persistent_low_candidates_degrade_confidence_without_lowering_capacity() {
+    let repository = Arc::new(UsageRepository::default());
+    for cost in [100.0, 100.0, 100.0, 10.0, 10.0, 100.0] {
+        repository.push(priced(cost));
+    }
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let mut state = None;
+    for (index, percent) in (0..=6).map(|value| value as f64 * 10.0).enumerate() {
+        let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
+        if index == 4 || index == 5 {
+            assert_eq!(
+                result.estimates[0].latest_interval.status,
+                OAuthQuotaIntervalStatus::ExternalUsageSuspected
+            );
+            assert_eq!(result.estimates[0].sample_count, 3);
+            assert_eq!(
+                result.estimates[0].confidence,
+                OAuthQuotaEstimateConfidence::Degraded
+            );
+            assert!(
+                (result.estimates[0].estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001
+            );
+            assert_eq!(result.state.windows[0].low_streak, (index - 3) as u32);
         }
+        if index == 6 {
+            assert_eq!(
+                result.estimates[0].latest_interval.status,
+                OAuthQuotaIntervalStatus::ValidSample
+            );
+            assert_eq!(result.estimates[0].sample_count, 4);
+            assert_eq!(
+                result.estimates[0].confidence,
+                OAuthQuotaEstimateConfidence::Stable
+            );
+            assert!(
+                (result.estimates[0].estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001
+            );
+            assert_eq!(result.state.windows[0].low_streak, 0);
+        }
+        state = Some(result.state);
     }
 }
 
@@ -249,10 +301,10 @@ async fn one_high_outlier_is_cleared_by_normal_candidates_without_relearning() {
                 result.estimates[0].latest_interval.status,
                 OAuthQuotaIntervalStatus::OutlierRejected
             );
-            assert_eq!(result.state.windows[0].competing_samples.len(), 1);
+            assert!(result.state.windows[0].pending_high.is_some());
         }
         if index >= 5 {
-            assert!(result.state.windows[0].competing_samples.is_empty());
+            assert!(result.state.windows[0].pending_high.is_none());
         }
         final_estimate = Some(result.estimates[0].clone());
         state = Some(result.state);

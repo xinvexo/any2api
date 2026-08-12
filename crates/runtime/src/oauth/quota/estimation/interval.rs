@@ -34,7 +34,7 @@ pub(super) async fn observe(
     let mut reanchor_sample = true;
     let diagnostic = if !delta.is_finite() {
         learning::salvage_segment(&mut state);
-        state.competing_samples.clear();
+        state.pending_high = None;
         diagnostic(
             OAuthQuotaIntervalStatus::Invalid,
             Some(started_at_ms),
@@ -46,7 +46,7 @@ pub(super) async fn observe(
         )
     } else if !covers_interval(&sample_anchor, &observation) {
         learning::salvage_segment(&mut state);
-        state.competing_samples.clear();
+        state.pending_high = None;
         diagnostic(
             OAuthQuotaIntervalStatus::TelemetryIncomplete,
             Some(started_at_ms),
@@ -126,7 +126,7 @@ async fn probe(
         .preserves_persisted_interval_to(&ending_checkpoint)
     {
         learning::salvage_segment(state);
-        state.competing_samples.clear();
+        state.pending_high = None;
         return reanchored(diagnostic(
             OAuthQuotaIntervalStatus::TelemetryIncomplete,
             Some(started_at_ms),
@@ -141,7 +141,7 @@ async fn probe(
         Ok(usage) => usage,
         Err(error) => {
             learning::salvage_segment(state);
-            state.competing_samples.clear();
+            state.pending_high = None;
             tracing::warn!(%error, %id, "quota interval RequestLog query failed");
             return reanchored(diagnostic(
                 OAuthQuotaIntervalStatus::Invalid,
@@ -158,7 +158,7 @@ async fn probe(
     if usage.unpriced_request_count > 0 {
         let unpriced = usage.unpriced_request_count;
         learning::salvage_segment(state);
-        state.competing_samples.clear();
+        state.pending_high = None;
         return reanchored(diagnostic(
             OAuthQuotaIntervalStatus::UnpricedUsage,
             Some(started_at_ms),
@@ -171,7 +171,7 @@ async fn probe(
     }
     if usage.unit != Some(expected_unit) || usage.priced_request_count == 0 || cost_credits <= 0.0 {
         learning::salvage_segment(state);
-        state.competing_samples.clear();
+        learning::record_costless_delta(state);
         return reanchored(diagnostic(
             OAuthQuotaIntervalStatus::ExternalUsageSuspected,
             Some(started_at_ms),

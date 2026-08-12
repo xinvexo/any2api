@@ -211,7 +211,7 @@ function intervalStatusLabel(value: Estimate["latestInterval"]["status"]) {
     case "telemetry_incomplete": return "本地遥测不完整";
     case "unpriced_usage": return "存在未计价请求";
     case "external_usage_suspected": return "疑似外部消费";
-    case "outlier_rejected": return "异常样本已拒绝";
+    case "outlier_rejected": return "偏高样本待确认";
     case "invalid": return "区间无效";
   }
 }

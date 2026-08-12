@@ -67,6 +67,10 @@ fn project_window(
     }
 }
 
+/// Consecutive rejected-low candidates that keep confidence degraded until an
+/// in-band sample arrives; the capacity itself never follows lows (ADR-0143).
+const DEGRADED_LOW_STREAK: u32 = 2;
+
 fn confidence(
     state: &QuotaWindowState,
     relative_mad: Option<f64>,
@@ -75,7 +79,7 @@ fn confidence(
     if state.samples.is_empty() {
         return OAuthQuotaEstimateConfidence::Unknown;
     }
-    if degrades(state.latest_interval.status) {
+    if degrades(state.latest_interval.status) || state.low_streak >= DEGRADED_LOW_STREAK {
         return OAuthQuotaEstimateConfidence::Degraded;
     }
     if fresh_sample_count == 0 {

@@ -53,14 +53,15 @@ pub(super) fn new_window(
         sample_anchor: anchor,
         segment: None,
         samples: Vec::new(),
-        competing_samples: Vec::new(),
+        pending_high: None,
+        low_streak: 0,
         latest_interval: reset_diagnostic(status, observed_at_ms),
     }
 }
 
 /// A normal epoch boundary keeps the accepted samples as an inherited capacity
-/// prior; the competing cluster and segment progress belong to the finished
-/// epoch and are dropped.
+/// prior; the pending high candidate, low streak and segment progress belong
+/// to the finished epoch and are dropped.
 pub(super) fn rollover_window(
     previous: QuotaWindowState,
     epoch: u64,
@@ -77,7 +78,8 @@ pub(super) fn rollover_window(
         sample_anchor: anchor,
         segment: None,
         samples: previous.samples,
-        competing_samples: Vec::new(),
+        pending_high: None,
+        low_streak: 0,
         latest_interval: reset_diagnostic(OAuthQuotaIntervalStatus::ResetBoundary, observed_at_ms),
     }
 }

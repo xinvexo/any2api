@@ -1,9 +1,6 @@
 use any2api_storage::api::OAuthQuotaRequestLogUsage;
 
-use super::{
-    robust::{self, CandidateDecision},
-    state::{MAX_ACCEPTED_SAMPLES, MAX_COMPETING_SAMPLES, QuotaCapacitySample, QuotaWindowState},
-};
+use super::state::{MAX_ACCEPTED_SAMPLES, QuotaCapacitySample, QuotaWindowState};
 use crate::oauth::quota::types::OAuthQuotaIntervalStatus;
 
 pub(super) const NANOS_PER_CREDIT: f64 = 1_000_000_000.0;
@@ -14,11 +11,12 @@ pub(super) const NANOS_PER_CREDIT: f64 = 1_000_000_000.0;
 pub(super) const BOOTSTRAP_MINT_DELTA_PERCENT: f64 = 1.5;
 pub(super) const STANDARD_MINT_DELTA_PERCENT: f64 = 5.0;
 pub(super) const SALVAGE_DELTA_PERCENT: f64 = 1.5;
-/// A purely inherited prior has no current-epoch confirmation, so two
-/// consistent contradicting candidates may replace it; a confirmed model keeps
-/// the four-candidate requirement from ADR-0141.
-const CONFIRMED_REPLACEMENT_CANDIDATES: usize = 4;
-const INHERITED_REPLACEMENT_CANDIDATES: usize = 2;
+/// Candidates are lower bounds of the true capacity: external usage inflates
+/// the percent denominator without local cost, so contamination only pushes
+/// candidates down, while upward noise is bounded by accounting skew. The
+/// cluster therefore accepts within a fixed band, ignores lows, and only two
+/// mutually consistent high candidates may revise it upward.
+const CLUSTER_BAND_RATIO: f64 = 0.25;
 
 pub(super) struct LearningResult {
     pub(super) status: OAuthQuotaIntervalStatus,
@@ -44,7 +42,7 @@ pub(super) fn mint(
     let cost = usage.total_cost_nanos as f64 / NANOS_PER_CREDIT;
     let candidate = cost * 100.0 / delta_used_percent;
     if !candidate.is_finite() || candidate <= 0.0 {
-        state.competing_samples.clear();
+        state.pending_high = None;
         return LearningResult {
             status: OAuthQuotaIntervalStatus::Invalid,
             local_cost_credits: cost,
@@ -89,63 +87,54 @@ pub(super) fn salvage_segment(state: &mut QuotaWindowState) {
     );
 }
 
+/// Marks an interval whose official delta carried no explainable local cost;
+/// the strongest external-usage signal, so it advances the low streak without
+/// touching the cluster or the pending high candidate.
+pub(super) fn record_costless_delta(state: &mut QuotaWindowState) {
+    state.low_streak = state.low_streak.saturating_add(1);
+}
+
 fn classify_and_store(
     state: &mut QuotaWindowState,
     sample: QuotaCapacitySample,
 ) -> OAuthQuotaIntervalStatus {
-    match robust::classify_candidate(&state.samples, sample.capacity_credits) {
-        CandidateDecision::Accept => {
-            state.competing_samples.clear();
-            push_sample(&mut state.samples, sample, MAX_ACCEPTED_SAMPLES);
-            OAuthQuotaIntervalStatus::ValidSample
-        }
-        CandidateDecision::ExternalUsage => {
-            if promote_competing_cluster(state, sample) {
+    let Some(center) = super::robust::median(&state.samples) else {
+        accept(state, sample);
+        return OAuthQuotaIntervalStatus::ValidSample;
+    };
+    if sample.capacity_credits < center * (1.0 - CLUSTER_BAND_RATIO) {
+        state.low_streak = state.low_streak.saturating_add(1);
+        return OAuthQuotaIntervalStatus::ExternalUsageSuspected;
+    }
+    if sample.capacity_credits > center * (1.0 + CLUSTER_BAND_RATIO) {
+        match state.pending_high.take() {
+            Some(pending) if consistent_pair(&pending, &sample) => {
+                state.samples = vec![pending, sample];
+                state.low_streak = 0;
                 OAuthQuotaIntervalStatus::ValidSample
-            } else {
-                OAuthQuotaIntervalStatus::ExternalUsageSuspected
             }
-        }
-        CandidateDecision::Outlier => {
-            if promote_competing_cluster(state, sample) {
-                OAuthQuotaIntervalStatus::ValidSample
-            } else {
+            _ => {
+                state.pending_high = Some(sample);
                 OAuthQuotaIntervalStatus::OutlierRejected
             }
         }
+    } else {
+        accept(state, sample);
+        OAuthQuotaIntervalStatus::ValidSample
     }
 }
 
-fn promote_competing_cluster(state: &mut QuotaWindowState, sample: QuotaCapacitySample) -> bool {
-    let Some(center) = robust::median(&state.samples) else {
-        state.competing_samples.clear();
-        return false;
-    };
-    let candidate_is_low = sample.capacity_credits < center;
-    if state
-        .competing_samples
-        .first()
-        .is_some_and(|value| (value.capacity_credits < center) != candidate_is_low)
-    {
-        state.competing_samples.clear();
+fn accept(state: &mut QuotaWindowState, sample: QuotaCapacitySample) {
+    state.samples.push(sample);
+    if state.samples.len() > MAX_ACCEPTED_SAMPLES {
+        state.samples.remove(0);
     }
-    push_sample(&mut state.competing_samples, sample, MAX_COMPETING_SAMPLES);
-    let required = if state.fresh_sample_count() == 0 {
-        INHERITED_REPLACEMENT_CANDIDATES
-    } else {
-        CONFIRMED_REPLACEMENT_CANDIDATES
-    };
-    if state.competing_samples.len() >= required && robust::consistent(&state.competing_samples) {
-        state.samples = std::mem::take(&mut state.competing_samples);
-        true
-    } else {
-        false
-    }
+    state.pending_high = None;
+    state.low_streak = 0;
 }
 
-fn push_sample(samples: &mut Vec<QuotaCapacitySample>, sample: QuotaCapacitySample, limit: usize) {
-    samples.push(sample);
-    if samples.len() > limit {
-        samples.remove(0);
-    }
+fn consistent_pair(pending: &QuotaCapacitySample, sample: &QuotaCapacitySample) -> bool {
+    let low = pending.capacity_credits.min(sample.capacity_credits);
+    let high = pending.capacity_credits.max(sample.capacity_credits);
+    high <= low * (1.0 + CLUSTER_BAND_RATIO)
 }

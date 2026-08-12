@@ -7,7 +7,6 @@ use super::super::types::OAuthQuotaIntervalDiagnostic;
 
 const MAX_WINDOWS: usize = 64;
 pub(super) const MAX_ACCEPTED_SAMPLES: usize = 9;
-pub(super) const MAX_COMPETING_SAMPLES: usize = 4;
 const MAX_SAFE_TEXT_BYTES: usize = 4_096;
 const MAX_RATE_CARDS_PER_SAMPLE: usize = 16;
 const MAX_RATE_CARD_BYTES: usize = 128;
@@ -105,7 +104,13 @@ pub(super) struct QuotaWindowState {
     pub(super) sample_anchor: QuotaObservationAnchor,
     pub(super) segment: Option<QuotaSegmentProgress>,
     pub(super) samples: Vec<QuotaCapacitySample>,
-    pub(super) competing_samples: Vec<QuotaCapacitySample>,
+    /// Above-band candidate awaiting a second consistent high sample before
+    /// the cluster is revised upward; lower-bound semantics never revise the
+    /// cluster downward without a capacity-signature event.
+    pub(super) pending_high: Option<QuotaCapacitySample>,
+    /// Consecutive below-band or costless-delta candidates; degrades
+    /// confidence without touching the capacity cluster.
+    pub(super) low_streak: u32,
     pub(super) latest_interval: OAuthQuotaIntervalDiagnostic,
 }
 
@@ -136,11 +141,10 @@ impl QuotaWindowState {
                 .samples
                 .iter()
                 .all(|sample| sample_valid(sample, self.epoch))
-            && self.competing_samples.len() <= MAX_COMPETING_SAMPLES
             && self
-                .competing_samples
-                .iter()
-                .all(|sample| sample_valid(sample, self.epoch))
+                .pending_high
+                .as_ref()
+                .is_none_or(|sample| sample_valid(sample, self.epoch))
             && diagnostic_valid(&self.latest_interval)
     }
 }

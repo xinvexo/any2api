@@ -53,14 +53,14 @@ ADR-0141 已消除本机可证明的边界错配,但生产使用中估算仍然�
 
 ### 3. 跨 rollover 的可失效容量先验
 
-- 正常 epoch 边界(reset_at 变化、百分比大幅下降、自然滚动)**保留 accepted samples**,清空竞争
-  簇与区段进度。样本新增铸造时的 `epoch` 标记。
+- 正常 epoch 边界(reset_at 变化、百分比大幅下降、自然滚动)**保留 accepted samples**,清空
+  pending 高样本与区段进度。样本新增铸造时的 `epoch` 标记。
 - credential 身份指纹变化、窗口 ID/类型/时长变化仍清空全部样本;显式 reset credit 成功仍删除
   整个 snapshot 冷启动。
 - 置信度新增独立档位 `inherited`:样本集存在但没有当前 epoch 铸造的样本时展示,明确表达"沿用
   上期估算",不得宣称 `stable`。当前 epoch 出现一致新样本后按原规则恢复 `stable`/`learning`。
-- 先验失效:纯继承模型(无当前 epoch 样本)被 **2** 个自身一致的同侧竞争候选整体替换;有当前
-  epoch 样本确认的模型仍需 ADR-0141 的连续 4 个。单个异常值仍不触发重学习。
+- 先验修正遵循 `docs/adr/0143-directional-codex-capacity-learning.md` 的方向性规则:两个一致
+  高样本向上收养,低样本只降低置信度,向下依赖 capacity-signature 证据,与是否继承无关。
 
 ### 4. 展示与持久化
 

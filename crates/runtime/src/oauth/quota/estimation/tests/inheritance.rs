@@ -156,7 +156,7 @@ async fn rollover_salvages_accumulated_segment_and_fresh_sample_restores_stable(
 }
 
 #[tokio::test]
-async fn inherited_prior_is_replaced_by_two_consistent_contradicting_candidates() {
+async fn inherited_prior_is_not_lowered_by_contradicting_low_candidates() {
     let repository = Arc::new(UsageRepository::default());
     for cost in [100.0, 100.0, 100.0, 10.0, 10.0] {
         repository.push(priced(cost));
@@ -188,8 +188,9 @@ async fn inherited_prior_is_replaced_by_two_consistent_contradicting_candidates(
         OAuthQuotaIntervalStatus::ExternalUsageSuspected
     );
     assert_eq!(rejected.estimates[0].sample_count, 3);
+    assert_eq!(rejected.state.windows[0].low_streak, 1);
 
-    let replaced = observe(
+    let still_high = observe(
         &estimator,
         Some(rejected.state),
         20.0,
@@ -199,14 +200,76 @@ async fn inherited_prior_is_replaced_by_two_consistent_contradicting_candidates(
     )
     .await;
     assert_eq!(
-        replaced.estimates[0].latest_interval.status,
+        still_high.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::ExternalUsageSuspected
+    );
+    assert_eq!(still_high.estimates[0].sample_count, 3);
+    assert_eq!(still_high.estimates[0].fresh_sample_count, 0);
+    assert_eq!(
+        still_high.estimates[0].confidence,
+        OAuthQuotaEstimateConfidence::Degraded
+    );
+    assert!((still_high.estimates[0].estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001);
+    assert_eq!(still_high.state.windows[0].low_streak, 2);
+    assert!(still_high.state.valid());
+}
+
+#[tokio::test]
+async fn inherited_prior_is_corrected_upward_by_two_consistent_fresh_highs() {
+    let repository = Arc::new(UsageRepository::default());
+    for cost in [10.0, 10.0, 10.0, 100.0, 100.0] {
+        repository.push(priced(cost));
+    }
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let mut state = None;
+    for (index, percent) in [0.0, 10.0, 20.0, 30.0].into_iter().enumerate() {
+        let result = observe(&estimator, state, percent, Some(100), checkpoint(0), index).await;
+        state = Some(result.state);
+    }
+    let rollover = observe(&estimator, state, 0.0, Some(200), checkpoint(0), 4).await;
+    assert_eq!(rollover.estimates[0].sample_count, 3);
+    assert_eq!(
+        rollover.estimates[0].confidence,
+        OAuthQuotaEstimateConfidence::Inherited
+    );
+    assert!((rollover.estimates[0].estimated_capacity_credits.unwrap() - 100.0).abs() < 0.001);
+
+    let pending = observe(
+        &estimator,
+        Some(rollover.state),
+        10.0,
+        Some(200),
+        checkpoint(0),
+        5,
+    )
+    .await;
+    assert_eq!(
+        pending.estimates[0].latest_interval.status,
+        OAuthQuotaIntervalStatus::OutlierRejected
+    );
+    assert_eq!(pending.estimates[0].sample_count, 3);
+    assert!((pending.estimates[0].estimated_capacity_credits.unwrap() - 100.0).abs() < 0.001);
+    assert!(pending.state.windows[0].pending_high.is_some());
+
+    let adopted = observe(
+        &estimator,
+        Some(pending.state),
+        20.0,
+        Some(200),
+        checkpoint(0),
+        6,
+    )
+    .await;
+    assert_eq!(
+        adopted.estimates[0].latest_interval.status,
         OAuthQuotaIntervalStatus::ValidSample
     );
-    assert_eq!(replaced.estimates[0].sample_count, 2);
-    assert_eq!(replaced.estimates[0].fresh_sample_count, 2);
+    assert_eq!(adopted.estimates[0].sample_count, 2);
+    assert_eq!(adopted.estimates[0].fresh_sample_count, 2);
     assert_eq!(
-        replaced.estimates[0].confidence,
+        adopted.estimates[0].confidence,
         OAuthQuotaEstimateConfidence::Learning
     );
-    assert!((replaced.estimates[0].estimated_capacity_credits.unwrap() - 100.0).abs() < 0.001);
+    assert!((adopted.estimates[0].estimated_capacity_credits.unwrap() - 1_000.0).abs() < 0.001);
+    assert!(adopted.state.windows[0].pending_high.is_none());
 }
