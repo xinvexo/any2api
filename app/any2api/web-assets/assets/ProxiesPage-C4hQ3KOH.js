@@ -1,0 +1,1 @@
+import{t as e}from"./jsx-runtime-bzQ4Vb5N.js";import{t}from"./proxies-Di5gG18Q.js";var n=e();function r(){return(0,n.jsx)(t,{})}export{r as ProxiesPage};
