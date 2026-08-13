@@ -18,11 +18,11 @@ use tokio::{
 use tokio_rustls::TlsAcceptor;
 
 use crate::{
-    ReqwestTransportManager,
     api::{
         EndpointNetworkPolicy, TransportIsolationKey, TransportManager, TransportManagerConfig,
         TransportProxy, TransportRequest, TransportTrafficClass,
     },
+    client::ReqwestTransportManager,
     connection::tests::TestTlsIdentity,
 };
 

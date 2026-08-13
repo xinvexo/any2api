@@ -10,7 +10,7 @@ use any2api_domain::{
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    OpenAiResponsesAdapter, ProtocolRegistry,
+    OpenAiResponsesAdapter, api::ProtocolRegistry,
 };
 use any2api_provider::{CodexDriver, api::ProviderRegistry};
 use any2api_runtime::api::{
@@ -80,6 +80,7 @@ async fn rate_limited_request_waits_until_the_rolling_window_expires() {
                 ProviderKind::Codex,
                 "https://api.example.com/v1",
                 ProtocolDialect::OpenAiResponses,
+                None,
                 true,
             )
             .expect("endpoint draft"),

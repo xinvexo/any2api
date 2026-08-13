@@ -14,28 +14,51 @@ const PROVIDER_ROOT_EXPORTS: [&str; 4] = [
     "pub use grok::GrokDriver;",
     "pub use kimi::KimiDriver;",
 ];
+const PROTOCOL_ROOT_EXPORTS: [&str; 6] = [
+    "pub use anthropic_messages::AnthropicMessagesAdapter;",
+    "pub use openai_chat_completions::OpenAiChatCompletionsAdapter;",
+    "pub use openai_images::OpenAiImagesAdapter;",
+    "pub use openai_images_chat::ImagesToChatCompletionsBridge;",
+    "pub use openai_responses::OpenAiResponsesAdapter;",
+    "pub use openai_responses_chat::ResponsesToChatCompletionsBridge;",
+];
+const TRANSPORT_ROOT_EXPORTS: [&str; 0] = [];
 
 pub(crate) fn check(workspace: &Path) -> Result<()> {
     check_directory(&workspace.join("crates/runtime/src"))?;
-    check_provider_root_exports(&workspace.join("crates/provider/src/lib.rs"))
+    check_root_exports(
+        &workspace.join("crates/protocol/src/lib.rs"),
+        "Protocol",
+        &PROTOCOL_ROOT_EXPORTS,
+    )?;
+    check_root_exports(
+        &workspace.join("crates/provider/src/lib.rs"),
+        "Provider",
+        &PROVIDER_ROOT_EXPORTS,
+    )?;
+    check_root_exports(
+        &workspace.join("crates/transport/src/lib.rs"),
+        "Transport",
+        &TRANSPORT_ROOT_EXPORTS,
+    )
 }
 
-fn check_provider_root_exports(path: &Path) -> Result<()> {
+fn check_root_exports(path: &Path, adapter: &str, expected: &[&str]) -> Result<()> {
     let source =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
-    let actual = provider_root_exports(&source);
-    let mut expected = PROVIDER_ROOT_EXPORTS.to_vec();
+    let actual = root_exports(&source);
+    let mut expected = expected.to_vec();
     expected.sort_unstable();
     if actual != expected {
         bail!(
-            "Provider root must expose only Composition Root drivers; expected {expected:?}, found {actual:?}: {}",
+            "{adapter} root exports violate its stable api boundary; expected {expected:?}, found {actual:?}: {}",
             path.display()
         );
     }
     Ok(())
 }
 
-fn provider_root_exports(source: &str) -> Vec<&str> {
+fn root_exports(source: &str) -> Vec<&str> {
     let mut exports = source
         .lines()
         .map(str::trim)
@@ -130,16 +153,36 @@ mod tests {
     #[test]
     fn provider_root_exposes_only_composition_root_drivers() {
         assert_eq!(
-            provider_root_exports(
+            root_exports(
                 "pub use kimi::KimiDriver;\npub use grok::GrokDriver;\npub use claude::ClaudeDriver;\npub use codex::CodexDriver;\n"
             ),
             PROVIDER_ROOT_EXPORTS
         );
         assert_ne!(
-            provider_root_exports(
+            root_exports(
                 "pub use claude::ClaudeDriver;\npub use codex::CodexDriver;\npub use grok::GrokDriver;\npub use registry::ProviderRegistry;\n"
             ),
             PROVIDER_ROOT_EXPORTS
+        );
+    }
+
+    #[test]
+    fn protocol_and_transport_roots_do_not_expose_contract_types() {
+        assert_eq!(
+            root_exports("pub use openai_responses::OpenAiResponsesAdapter;\n"),
+            vec!["pub use openai_responses::OpenAiResponsesAdapter;"]
+        );
+        assert_eq!(
+            root_exports("pub(crate) use error::TransportError;\n"),
+            Vec::<&str>::new()
+        );
+        assert_ne!(
+            root_exports("pub use error::ProtocolError;\n"),
+            Vec::<&str>::new()
+        );
+        assert_ne!(
+            root_exports("pub use error::{\n    TransportError, TransportErrorStage,\n};\n"),
+            Vec::<&str>::new()
         );
     }
 }

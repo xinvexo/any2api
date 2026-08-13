@@ -195,7 +195,7 @@ impl ProviderEndpointWriteRequest {
     ) -> Result<(ConfigRevision, Option<u64>, ProviderEndpointDraft), AdminApiError> {
         let revision = parse_revision(self.expected_revision)?;
         let expected_config_version = self.expected_config_version;
-        let draft = ProviderEndpointDraft::with_upstream_protocol(
+        let draft = ProviderEndpointDraft::new(
             self.name,
             self.provider_kind,
             self.base_url,

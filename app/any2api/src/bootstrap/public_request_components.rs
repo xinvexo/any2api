@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use any2api_protocol::api::ProtocolRegistry;
 use any2api_protocol::{
     AnthropicMessagesAdapter, ImagesToChatCompletionsBridge, OpenAiChatCompletionsAdapter,
-    OpenAiImagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry,
-    ResponsesToChatCompletionsBridge,
+    OpenAiImagesAdapter, OpenAiResponsesAdapter, ResponsesToChatCompletionsBridge,
 };
 use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, api::ProviderRegistry};
 use any2api_runtime::api::{

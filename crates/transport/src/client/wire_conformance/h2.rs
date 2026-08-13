@@ -6,11 +6,11 @@ use tokio::{net::TcpListener, sync::oneshot};
 use tokio_rustls::TlsAcceptor;
 
 use crate::{
-    ReqwestTransportManager,
     api::{
         TransportIsolationKey, TransportManager, TransportManagerConfig, TransportProxy,
         TransportRequest, TransportTrafficClass,
     },
+    client::ReqwestTransportManager,
     client::tests::collect_body,
     connection::tests::TestTlsIdentity,
 };

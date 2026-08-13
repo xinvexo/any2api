@@ -7,8 +7,8 @@ use tokio::{
 };
 
 use crate::{
-    ReqwestTransportManager,
     api::{TransportManager, TransportProxy},
+    client::ReqwestTransportManager,
 };
 
 use super::support::{assert_fixture, fixture_request};

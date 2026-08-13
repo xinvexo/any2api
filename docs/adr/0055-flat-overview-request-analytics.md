@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-28
-- 修订：2026-08-03
+- 修订：2026-08-13
 - 决策者：maintainer
 - 调整：ADR-0039 的系统总览展示
 
@@ -28,7 +28,7 @@ RequestLog 已持久化最终请求的公开模型、状态与协议解析出的
   按 `public_model` 排序的前 12 项。其余模型合并为“其他”；`public_model IS NULL` 单独表示
   “未识别模型”，不能与“其他”合并身份。
 - 请求只按最终 RequestLog 计算一次，2xx 为成功，其余为失败；RequestAttempt 不进入图表。
-- Token 总量固定为 `input_tokens + output_tokens`。缓存读写 Token 是输入明细，不重复相加；缺失 Token
+- Token 总量固定为归一化 `input_tokens + output_tokens`。对 Claude，`input_tokens` 已包含普通输入、缓存创建和缓存读取三部分；`cache_read_tokens` 仍是输入明细，不重复相加。缺失 Token
   字段按零参与求和，同时返回至少一个 Token 字段存在的请求数，供 Web 显示 usage 覆盖度。
 - Token 累计通过十进制字符串传输，避免 JSON 进入 JavaScript 后超过安全整数；Storage 使用受校验的
   非负整数聚合，异常或溢出使本次统计查询失败，不能返回截断值。

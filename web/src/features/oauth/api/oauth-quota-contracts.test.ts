@@ -43,6 +43,10 @@ describe("OAuth quota contracts", () => {
           available_count: 2,
           expires_at: ["2026-07-30T00:00:00Z"],
         },
+        billing: null,
+        token_balance: null,
+        subscription_tier: null,
+        account_status: null,
         estimates: [{
           window_id: "primary",
           window_kind: "time",
@@ -212,6 +216,10 @@ describe("OAuth quota contracts", () => {
       credits: null,
       access: null,
       reset_credits: null,
+      billing: null,
+      token_balance: null,
+      subscription_tier: null,
+      account_status: null,
       estimates: [],
     });
 
@@ -241,6 +249,10 @@ describe("OAuth quota contracts", () => {
       credits: null,
       access: null,
       reset_credits: null,
+      billing: null,
+      token_balance: null,
+      subscription_tier: null,
+      account_status: null,
       estimates: [],
     });
 
@@ -262,6 +274,10 @@ describe("OAuth quota contracts", () => {
         credits: null,
         access: null,
         reset_credits: { available_count: -1, expires_at: [] },
+        billing: null,
+        token_balance: null,
+        subscription_tier: null,
+        account_status: null,
         estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
@@ -272,6 +288,7 @@ describe("OAuth quota contracts", () => {
         credits: null,
         access: null,
         reset_credits: null,
+        billing: null,
         token_balance: {
           source: "local",
           used: 0,
@@ -279,6 +296,8 @@ describe("OAuth quota contracts", () => {
           remaining: 1_000_000,
           window_seconds: 86_400,
         },
+        subscription_tier: null,
+        account_status: null,
         estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
@@ -289,6 +308,10 @@ describe("OAuth quota contracts", () => {
         credits: null,
         access: null,
         reset_credits: { available_count: 1, expires_at: "secret" },
+        billing: null,
+        token_balance: null,
+        subscription_tier: null,
+        account_status: null,
         estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
@@ -306,9 +329,34 @@ describe("OAuth quota contracts", () => {
           on_demand_cap_minor: null,
           is_unified_billing_user: true,
         },
+        token_balance: null,
+        subscription_tier: null,
+        account_status: null,
         estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
+  });
+
+  it("rejects omitted fields from the current nullable contract", () => {
+    for (const field of [
+      "billing",
+      "token_balance",
+      "subscription_tier",
+      "account_status",
+    ]) {
+      const payload = currentNullableSnapshot();
+      delete payload[field];
+      expect(() => parseOAuthQuotaSnapshot(payload)).toThrow(
+        "invalid OAuth quota response",
+      );
+    }
+
+    const rateLimit = currentNullableSnapshot();
+    rateLimit.rate_limit = { allowed: null, limit_reached: null, windows: [] };
+    delete (rateLimit.rate_limit as Record<string, unknown>).allowed;
+    expect(() => parseOAuthQuotaSnapshot(rateLimit)).toThrow(
+      "invalid OAuth quota response",
+    );
   });
 
   it("requires reset to confirm at least one window", () => {
@@ -320,6 +368,21 @@ describe("OAuth quota contracts", () => {
     );
   });
 });
+
+function currentNullableSnapshot(): Record<string, unknown> {
+  return {
+    fetched_at: 1_900_000_000,
+    rate_limit: null,
+    credits: null,
+    access: null,
+    reset_credits: null,
+    billing: null,
+    token_balance: null,
+    subscription_tier: null,
+    account_status: null,
+    estimates: [],
+  };
+}
 
 function claudeWindow(id: string, usedPercent: number, seconds: number) {
   return {

@@ -39,6 +39,7 @@ fn compiling_rejects_an_unregistered_provider_before_binding() {
             ProviderKind::Codex,
             "https://api.openai.com/v1",
             ProtocolDialect::OpenAiResponses,
+            None,
             true,
         )
         .expect("endpoint draft"),

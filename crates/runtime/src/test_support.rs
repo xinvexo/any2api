@@ -3,8 +3,8 @@ use std::{convert::Infallible, sync::Arc};
 use any2api_domain::ConfigRevision;
 use any2api_protocol::{
     AnthropicMessagesAdapter, ImagesToChatCompletionsBridge, OpenAiChatCompletionsAdapter,
-    OpenAiImagesAdapter, OpenAiResponsesAdapter, ProtocolRegistry,
-    ResponsesToChatCompletionsBridge,
+    OpenAiImagesAdapter, OpenAiResponsesAdapter, ResponsesToChatCompletionsBridge,
+    api::ProtocolRegistry,
 };
 use any2api_provider::{ClaudeDriver, CodexDriver, GrokDriver, KimiDriver, api::ProviderRegistry};
 use any2api_storage::api::{

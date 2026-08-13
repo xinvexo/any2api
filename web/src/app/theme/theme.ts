@@ -19,11 +19,12 @@ export function readThemeMode(): ThemeMode {
 
 export function applyTheme(mode: ThemeMode) {
   document.documentElement.dataset.theme = mode;
-  document.documentElement.dataset.themeMode = mode;
   document
     .querySelector('meta[name="theme-color"]')
     ?.setAttribute("content", THEME_COLOR[mode]);
+}
 
+export function persistThemeMode(mode: ThemeMode) {
   try {
     localStorage.setItem("any2api-theme", mode);
   } catch {

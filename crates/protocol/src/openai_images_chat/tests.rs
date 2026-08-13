@@ -7,8 +7,8 @@ use serde_json::{Value, json};
 
 use super::ImagesToChatCompletionsBridge;
 use crate::{
-    OpenAiChatCompletionsAdapter, OpenAiImagesAdapter, ProtocolError, ProtocolRegistry,
-    api::{IngressRequest, ProtocolAdapter, UpstreamResponse},
+    OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
+    api::{IngressRequest, ProtocolAdapter, ProtocolError, ProtocolRegistry, UpstreamResponse},
 };
 
 #[tokio::test]

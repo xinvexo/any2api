@@ -230,6 +230,7 @@ fn endpoint_draft(enabled: bool) -> ProviderEndpointDraft {
         ProviderKind::Codex,
         "https://api.example.com/v1",
         ProtocolDialect::OpenAiResponses,
+        None,
         enabled,
     )
     .expect("endpoint draft")

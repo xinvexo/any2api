@@ -9,8 +9,3 @@ mod profile;
 mod proxy;
 mod resolution;
 mod response_coding;
-
-pub use client::ReqwestTransportManager;
-pub use error::{
-    TransportConfigurationError, TransportError, TransportErrorStage, TransportFailureScope,
-};

@@ -181,6 +181,7 @@ mod tests {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
+                None,
                 true,
             )
             .expect("endpoint draft"),

@@ -135,6 +135,7 @@ async fn deleting_endpoint_keeps_a_shared_model_route_target() {
                 ProviderKind::Codex,
                 "https://second.example.com",
                 ProtocolDialect::OpenAiResponses,
+                None,
                 true,
             )
             .expect("second endpoint draft"),

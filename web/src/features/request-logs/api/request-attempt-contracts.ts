@@ -75,17 +75,17 @@ export function parseRequestAttempt(value: unknown): RequestAttempt {
     attemptNo: readPositiveInteger(record.attempt_no),
     routeTargetId: readNullableString(record.route_target_id),
     credentialId: readNullableString(record.credential_id),
-    credentialLabel: readOptionalNullableString(record.credential_label),
+    credentialLabel: readNullableDisplayString(record.credential_label),
     oauthAccountId: readNullableString(record.oauth_account_id),
-    oauthAccountLabel: readOptionalNullableString(record.oauth_account_label),
+    oauthAccountLabel: readNullableDisplayString(record.oauth_account_label),
     proxyProfileId: readNullableString(record.proxy_profile_id),
-    proxyProfileLabel: readOptionalNullableString(record.proxy_profile_label),
+    proxyProfileLabel: readNullableDisplayString(record.proxy_profile_label),
     routingMode: readNullableRoutingMode(record.routing_mode),
     failureScope: readNullableFailureScope(record.failure_scope),
     retryDecision: readNullableRetryDecision(record.retry_decision),
     startedAtMs: readNonNegativeInteger(record.started_at_ms),
     durationMs: readNonNegativeInteger(record.duration_ms),
-    errorMessage: readOptionalNullableString(record.error_message),
+    errorMessage: readNullableDisplayString(record.error_message),
     statusCode,
     outcome,
     transport: readNullable(record.transport, parseTransport),
@@ -203,8 +203,8 @@ function readNullableString(value: unknown): string | null {
   return value === null ? null : readString(value);
 }
 
-function readOptionalNullableString(value: unknown): string | null {
-  if (value === null || value === undefined) return null;
+function readNullableDisplayString(value: unknown): string | null {
+  if (value === null) return null;
   if (typeof value !== "string") throw invalidResponse();
   return value.trim() || null;
 }

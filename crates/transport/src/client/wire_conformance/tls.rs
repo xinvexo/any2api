@@ -3,8 +3,8 @@ use std::time::Duration;
 use tokio::{io::AsyncReadExt, net::TcpListener, sync::oneshot};
 
 use crate::{
-    ReqwestTransportManager,
     api::{TransportManager, TransportProxy},
+    client::ReqwestTransportManager,
 };
 
 use super::support::{assert_fixture, fixture_request};

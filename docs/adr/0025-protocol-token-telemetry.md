@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-22
+- 修订：2026-08-13
 - 决策者：maintainer
 
 ## 背景
@@ -12,9 +13,9 @@ RequestLog 已有 `first_token_ms`、输入/输出 Token 与缓存命中 Token �
 
 - `domain` 提供无协议知识的 `TokenUsage`，三个字段分别为可缺失的输入、输出与缓存命中 Token。ProtocolAdapter 在解码已知响应或事件时生成旁路遥测元数据，原始载荷仍按同协议透传。
 - Codex JSON 映射顶层 `usage.input_tokens`、`usage.output_tokens` 与 `usage.input_tokens_details.cached_tokens`。Codex SSE 只在 `response.completed` 或 `response.incomplete` 事件中从 `response.usage` 映射同样字段。
-- Claude JSON 映射顶层 `usage.input_tokens`、`usage.output_tokens` 与 `usage.cache_read_input_tokens`。Claude SSE 从 `message_start.message.usage` 和 `message_delta.usage` 取累计快照；新快照只覆盖其明确包含的字段，不把 start/delta 相加。
-- 缓存创建 Token 不进入 `TokenUsage`、RequestLog、SQLite 或管理 API。协议适配仍保持原始上游载荷的透明传递，但不采集 `cache_write_tokens` 或 `cache_creation_input_tokens`。
-- 只读取上述固定路径；不支持递归搜索、同名兼容别名或缓存 breakdown 再次求和。值必须是 `0..=9_007_199_254_740_991`（JavaScript `Number.MAX_SAFE_INTEGER`）的 JSON 整数，以保证 SQLite INTEGER 和 Web JSON 消费者都可无损表达；不合法遥测值按缺失处理，不得使数据面请求失败。
+- Claude JSON 读取顶层 `usage.input_tokens`、`usage.output_tokens`、`usage.cache_creation_input_tokens` 与 `usage.cache_read_input_tokens`。写入 `TokenUsage.input_tokens` 的是三个输入字段的归一化安全求和，`cache_read_input_tokens` 同时写入缓存读取明细。Claude SSE 从 `message_start.message.usage` 和 `message_delta.usage` 取累计快照；新快照只覆盖其明确包含的字段，不把 start/delta 相加。
+- 缓存创建 Token 不增加独立的 `TokenUsage`、RequestLog、SQLite 或管理 API 字段，但其已知数量必须折叠进归一化输入总量；原始上游载荷仍按同协议透明传递。
+- 只读取上述固定路径；不支持递归搜索、同名兼容别名或缓存 breakdown 再次求和。各个计数必须是 `0..=9_007_199_254_740_991`（JavaScript `Number.MAX_SAFE_INTEGER`）的 JSON 整数，以保证 SQLite INTEGER 和 Web JSON 消费者都可无损表达。Claude 缺失或 `null` 的可选缓存字段按零处理；出现非法、超界或求和溢出时，仅归一化输入字段按缺失处理，不得使数据面请求失败。
 - Codex 的内容首 Token 只识别官方有类型语义的非空模型输出 delta：文本、refusal、reasoning/reasoning summary、function/MCP/custom tool 参数、code interpreter code 与 audio transcript。Claude 只识别 `content_block_delta` 中非空的 `text_delta.text`、`thinking_delta.thinking` 或 `input_json_delta.partial_json`。
 - `response.created`、`response.in_progress`、`message_start`、ping、item/part start/stop、done 与签名增量都不是内容首 Token。Runtime 必须把内容标记与编码后帧一起排队，只在 GuardedBody 真正向下游 yield 该帧时记录从整个请求开始计算的 `first_token_ms`，并且 first-write-wins。
 - 非流式 JSON 只有完整响应时间，无法提供精确内容首 Token，因此 `first_token_ms` 保持 `NULL`。`/v1/messages/count_tokens` 不是生成操作，Runtime 按 `ProtocolOperation` 强制忽略根层 `input_tokens` 以及兼容上游可能夹带的任何 `usage`；`/v1/responses/compact` 只在上游正式返回顶层 `usage` 时采集。
@@ -29,6 +30,6 @@ RequestLog 已有 `first_token_ms`、输入/输出 Token 与缓存命中 Token �
 
 ## 验证
 
-- Protocol 测试覆盖 Codex/Claude JSON usage、SSE 终止 usage、Claude 累计快照、非空内容 delta、控制帧与损坏/超界遥测字段。
+- Protocol 测试覆盖 Codex/Claude JSON usage、Claude 缓存创建/读取归一化、SSE 终止 usage、Claude 累计快照、非空内容 delta、控制帧与损坏/超界/求和溢出遥测字段。
 - Runtime 测试覆盖 usage 按字段覆盖、TTFT first-write-wins、控制帧不计时、实际 yield 时计时、EOF/Drop 单次完成与 Count Tokens 不采集。
 - Storage/HTTP 契约覆盖非空遥测值往返，Web 测试覆盖有值展示和 `NULL` 占位。

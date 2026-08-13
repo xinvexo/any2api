@@ -44,6 +44,19 @@ test("degraded estimates remain available but are marked approximate", () => {
   expect(tooltip).not.toHaveTextContent("非上游余额");
 });
 
+test("stable estimates expose the detailed calculation on hover", () => {
+  render(<QuotaEstimate estimate={base} />);
+
+  fireEvent.mouseEnter(screen.getByText("$0.40/$1.00"));
+  const tooltip = screen.getByRole("tooltip");
+  expect(tooltip).toHaveTextContent("剩余 $0.60");
+  expect(tooltip).toHaveTextContent(
+    "区间本地消费 0.25 Credits · 官方使用率变化 1%",
+  );
+  expect(tooltip).toHaveTextContent("置信度 稳定");
+  expect(tooltip).toHaveTextContent("费率卡 openai_codex_credits_2026_08_11");
+});
+
 test("interval-reaching prune is reported as a telemetry gap", () => {
   render(<QuotaEstimate estimate={estimate({
     confidence: "degraded",

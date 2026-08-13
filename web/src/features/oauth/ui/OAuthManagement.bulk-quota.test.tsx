@@ -205,6 +205,10 @@ function quota(accountNumber: number, exhausted = false) {
     credits: null,
     access: null,
     reset_credits: { available_count: 1, expires_at: [] },
+    billing: null,
+    token_balance: null,
+    subscription_tier: null,
+    account_status: null,
     estimates: [],
   };
 }

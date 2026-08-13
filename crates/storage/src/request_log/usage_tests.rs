@@ -37,6 +37,7 @@ async fn usage_keeps_provider_and_oauth_sources_distinct_and_fills_window_slots(
                 ProviderKind::Codex,
                 "https://api.example.com/v1",
                 ProtocolDialect::OpenAiResponses,
+                None,
                 true,
             )
             .expect("endpoint draft"),

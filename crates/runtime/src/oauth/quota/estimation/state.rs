@@ -1,5 +1,5 @@
 use any2api_provider::api::{OAuthQuotaWindow, OAuthQuotaWindowKind};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::request_telemetry::RequestTelemetryObservation;
 
@@ -17,10 +17,12 @@ const MAX_SUBSCRIPTION_TIER_BYTES: usize = 128;
 /// record and each clean interval yields an unbiased capacity measurement
 /// (ADR-0144).
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(in crate::oauth::quota) struct QuotaEstimatorState {
     pub(super) credential_fingerprint: String,
     /// Part of the capacity signature: a plan change means the learned
     /// capacity no longer describes this account.
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub(super) subscription_tier: Option<String>,
     pub(super) next_epoch: u64,
     pub(super) windows: Vec<QuotaWindowState>,
@@ -65,9 +67,11 @@ impl QuotaEstimatorState {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct QuotaWindowKey {
     pub(super) id: String,
     pub(super) kind: OAuthQuotaWindowKind,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub(super) limit_window_seconds: Option<u64>,
 }
 
@@ -82,8 +86,10 @@ impl QuotaWindowKey {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct QuotaObservationAnchor {
     pub(super) used_percent: f64,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub(super) reset_at: Option<i64>,
     pub(super) telemetry: RequestTelemetryObservation,
 }
@@ -93,6 +99,7 @@ pub(super) struct QuotaObservationAnchor {
 /// weight because official percent quantization perturbs small denominators
 /// more than large ones.
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct QuotaCapacitySample {
     pub(super) capacity_credits: f64,
     pub(super) delta_used_percent: f64,
@@ -103,6 +110,7 @@ pub(super) struct QuotaCapacitySample {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct QuotaWindowState {
     pub(super) key: QuotaWindowKey,
     pub(super) epoch: u64,
@@ -178,4 +186,12 @@ fn diagnostic_valid(value: &OAuthQuotaIntervalDiagnostic) -> bool {
         && value
             .local_cost_credits
             .is_none_or(|cost| cost.is_finite() && cost >= 0.0)
+}
+
+fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }

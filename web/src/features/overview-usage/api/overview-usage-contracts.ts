@@ -1,8 +1,3 @@
-import type { OverviewUsageModelResponse } from "@/shared/api/generated/OverviewUsageModelResponse";
-import type { OverviewUsageResponse } from "@/shared/api/generated/OverviewUsageResponse";
-import type { OverviewUsageTimeBucketResponse } from "@/shared/api/generated/OverviewUsageTimeBucketResponse";
-import type { OverviewUsageTotalsResponse } from "@/shared/api/generated/OverviewUsageTotalsResponse";
-
 const OVERVIEW_USAGE_RANGES = ["1h", "24h", "7d", "30d"] as const;
 export type OverviewUsageRange = (typeof OVERVIEW_USAGE_RANGES)[number];
 
@@ -60,7 +55,7 @@ export function parseOverviewUsage(
   expectedRange?: OverviewUsageRange,
 ): OverviewUsage {
   if (!isRecord(value)) throw invalidResponse();
-  const wire = value as Partial<OverviewUsageResponse>;
+  const wire = value;
   const rangeValue = typeof wire.range === "string" ? wire.range : null;
   if (!isOverviewUsageRange(rangeValue)) {
     throw invalidResponse();
@@ -70,7 +65,7 @@ export function parseOverviewUsage(
   const generatedAtMs = readCount(wire.generated_at_ms);
   const rangeStartedAtMs = readCount(wire.range_started_at_ms);
   const rangeEndedAtMs = readCount(wire.range_ended_at_ms);
-  const retainedStartedAtMs = readOptionalCount(wire.retained_started_at_ms);
+  const retainedStartedAtMs = readNullableCount(wire.retained_started_at_ms);
   const retained = parseTotals(wire.retained);
   const selected = parseTotals(wire.selected);
   const timeBuckets = parseTimeBuckets(
@@ -105,7 +100,7 @@ export function parseOverviewUsage(
 
 function parseTotals(value: unknown): OverviewUsageTotals {
   if (!isRecord(value)) throw invalidResponse();
-  const wire = value as Partial<OverviewUsageTotalsResponse>;
+  const wire = value;
   const requestCount = readCount(wire.request_count);
   const successfulRequestCount = readCount(wire.successful_request_count);
   const failedRequestCount = readCount(wire.failed_request_count);
@@ -143,7 +138,7 @@ function parseTimeBuckets(
   if (value.length !== spec.bucketCount) throw invalidResponse();
   const buckets = value.map((entry, index) => {
     if (!isRecord(entry)) throw invalidResponse();
-    const wire = entry as Partial<OverviewUsageTimeBucketResponse>;
+    const wire = entry;
     const bucket = {
       startedAtMs: readCount(wire.started_at_ms),
       endedAtMs: readCount(wire.ended_at_ms),
@@ -177,7 +172,7 @@ function parseModels(value: unknown, selected: OverviewUsageTotals) {
   const seen = new Set<string>();
   const models = value.map((entry, index) => {
     if (!isRecord(entry)) throw invalidResponse();
-    const wire = entry as Partial<OverviewUsageModelResponse>;
+    const wire = entry;
     const publicModel = readNullableString(wire.public_model);
     if (typeof wire.is_other !== "boolean") throw invalidResponse();
     if (wire.is_other && (publicModel !== null || index !== value.length - 1)) {
@@ -221,8 +216,8 @@ function readCount(value: unknown) {
   return value;
 }
 
-function readOptionalCount(value: unknown) {
-  return value === null || value === undefined ? null : readCount(value);
+function readNullableCount(value: unknown) {
+  return value === null ? null : readCount(value);
 }
 
 function readTokenCount(value: unknown) {

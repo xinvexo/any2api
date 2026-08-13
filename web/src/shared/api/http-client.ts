@@ -136,10 +136,6 @@ function requiresAdminCsrf(path: string, method: string) {
   );
 }
 
-export function getJson<T>(path: string, options: JsonRequestOptions = {}) {
-  return requestJson<T>(path, options);
-}
-
 async function readApiError(response: Response, signal: AbortSignal): Promise<ApiError> {
   let value: unknown;
   try {

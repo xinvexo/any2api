@@ -53,6 +53,7 @@ async fn new_storage_uses_the_plaintext_schema_directly() {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
+                None,
                 true,
             )
             .expect("endpoint draft"),

@@ -6,7 +6,10 @@ use any2api_domain::{
     ProviderEndpointConfiguration, ProviderEndpointDraft, ProviderEndpointId, ProviderKind,
     PublicModelName, RouteTargetDraft, RouteTargetId, TransportMode,
 };
-use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry, api::RequestExecutionProfile};
+use any2api_protocol::{
+    OpenAiResponsesAdapter,
+    api::{ProtocolRegistry, RequestExecutionProfile},
+};
 use any2api_provider::{GrokDriver, api::ProviderRegistry};
 use any2api_storage::api::OAuthAccountDocument;
 
@@ -28,6 +31,7 @@ fn disabled_explicit_route_uses_the_synthetic_oauth_identity() {
             ProviderKind::Codex,
             "https://api.example.com",
             ProtocolDialect::OpenAiResponses,
+            None,
             true,
         )
         .expect("endpoint draft"),

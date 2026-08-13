@@ -5,7 +5,7 @@ use std::sync::Arc;
 use any2api_provider::api::{OAuthQuotaUsage, ProviderError};
 use any2api_storage::api::StorageError;
 use any2api_transport::api::TransportError;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 use crate::oauth::refresh::OAuthRefreshFailure;
@@ -40,11 +40,15 @@ pub enum OAuthQuotaIntervalStatus {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaIntervalDiagnostic {
     pub status: OAuthQuotaIntervalStatus,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub started_at: Option<i64>,
     pub ended_at: i64,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub delta_used_percent: Option<f64>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub local_cost_credits: Option<f64>,
     pub unpriced_request_count: u64,
     pub queue_dropped_request_logs: u64,
@@ -53,6 +57,14 @@ pub struct OAuthQuotaIntervalDiagnostic {
     /// Pruning history older than the interval anchor is harmless and not
     /// reported.
     pub interval_pruned: bool,
+}
+
+fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 #[derive(Clone, Debug, PartialEq)]

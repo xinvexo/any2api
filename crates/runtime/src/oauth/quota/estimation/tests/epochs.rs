@@ -3,8 +3,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::{
-    UsageRepository, checkpoint, checkpoint_for, observe, observe_identified, observe_usage,
-    priced, usage, usage_with_tier,
+    UsageRepository, checkpoint, checkpoint_for, learned_capacity_state, observe,
+    observe_identified, observe_usage, priced, usage, usage_with_tier,
 };
 use crate::oauth::quota::{
     estimation::OAuthQuotaEstimator,
@@ -18,17 +18,8 @@ use crate::oauth::quota::{
 async fn official_reset_discards_the_interval_but_keeps_learned_capacity() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let mut state = observe(&estimator, None, 60.0, None, checkpoint(), 0)
-        .await
-        .state;
-    repository.push(priced(150.0));
-    let learned = observe(&estimator, Some(state), 70.0, None, checkpoint(), 1).await;
-    assert_eq!(
-        learned.estimates[0].estimated_capacity_credits,
-        Some(1_500.0)
-    );
-    let epoch = learned.estimates[0].epoch;
-    state = learned.state;
+    let mut state = learned_capacity_state(&estimator, &repository, 60.0, None).await;
+    let epoch = state.windows[0].epoch;
 
     // Reset landed between polls; usage had already resumed: 70% → 3%.
     let reset = observe(&estimator, Some(state), 3.0, None, checkpoint(), 2).await;
@@ -63,13 +54,7 @@ async fn official_reset_discards_the_interval_but_keeps_learned_capacity() {
 async fn window_rollover_inherits_the_capacity_prior() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let mut state = observe(&estimator, None, 40.0, Some(1_000), checkpoint(), 0)
-        .await
-        .state;
-    repository.push(priced(150.0));
-    state = observe(&estimator, Some(state), 50.0, Some(1_000), checkpoint(), 1)
-        .await
-        .state;
+    let state = learned_capacity_state(&estimator, &repository, 40.0, Some(1_000)).await;
 
     let rolled = observe(&estimator, Some(state), 5.0, Some(19_000), checkpoint(), 2).await;
     let estimate = &rolled.estimates[0];
@@ -108,13 +93,7 @@ async fn one_minute_reset_timestamp_drift_keeps_the_epoch() {
 async fn credential_identity_change_restarts_capacity_learning() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
-        .await
-        .state;
-    repository.push(priced(150.0));
-    state = observe(&estimator, Some(state), 20.0, None, checkpoint(), 1)
-        .await
-        .state;
+    let state = learned_capacity_state(&estimator, &repository, 10.0, None).await;
 
     let switched = observe_identified(
         &estimator,
@@ -185,13 +164,7 @@ async fn subscription_tier_change_restarts_capacity_learning() {
 async fn changed_window_duration_starts_clean() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
-        .await
-        .state;
-    repository.push(priced(150.0));
-    state = observe(&estimator, Some(state), 20.0, None, checkpoint(), 1)
-        .await
-        .state;
+    let state = learned_capacity_state(&estimator, &repository, 10.0, None).await;
 
     let mut reshaped_window = super::window(25.0, None);
     reshaped_window.limit_window_seconds = Some(10_800);
@@ -214,13 +187,7 @@ async fn changed_window_duration_starts_clean() {
 async fn restart_keeps_the_prior_and_recovers_with_the_next_clean_interval() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let mut state = observe(&estimator, None, 10.0, Some(1_000), checkpoint(), 0)
-        .await
-        .state;
-    repository.push(priced(150.0));
-    state = observe(&estimator, Some(state), 20.0, Some(1_000), checkpoint(), 1)
-        .await
-        .state;
+    let mut state = learned_capacity_state(&estimator, &repository, 10.0, Some(1_000)).await;
 
     let successor = checkpoint_for(Uuid::from_u128(7));
     let restarted = observe(

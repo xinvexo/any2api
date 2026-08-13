@@ -4,7 +4,10 @@ use any2api_domain::{
     ConfigRevision, CredentialId, ProtocolDialect, ProtocolOperation, ProviderEndpointDraft,
     ProviderEndpointId, ProviderKind, PublicModelName, TransportMode,
 };
-use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry, api::RequestExecutionProfile};
+use any2api_protocol::{
+    OpenAiResponsesAdapter,
+    api::{ProtocolRegistry, RequestExecutionProfile},
+};
 use any2api_provider::{CodexDriver, api::ProviderRegistry};
 
 use super::{PublisherFixture, credential_draft, endpoint_draft, publisher_fixture};
@@ -94,7 +97,7 @@ async fn remote_compaction_excludes_responses_to_chat_bridge_targets() {
         .create_provider_endpoint(
             ConfigRevision::INITIAL,
             endpoint_id,
-            ProviderEndpointDraft::with_upstream_protocol(
+            ProviderEndpointDraft::new(
                 "Chat bridge",
                 ProviderKind::Codex,
                 "https://api.example.com/v1",

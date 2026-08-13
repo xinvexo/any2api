@@ -1,7 +1,7 @@
 use any2api_domain::{ProxyKind, ProxyProfile};
 use url::Url;
 
-use crate::{TransportError, TransportErrorStage, TransportFailureScope};
+use crate::error::{TransportError, TransportErrorStage, TransportFailureScope};
 
 fn proxy_configuration_error(message: &'static str) -> TransportError {
     TransportError::configuration(

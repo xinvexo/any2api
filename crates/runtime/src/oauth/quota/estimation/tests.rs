@@ -111,6 +111,28 @@ async fn observe_identified(
         .await
 }
 
+async fn learned_capacity_state(
+    estimator: &OAuthQuotaEstimator,
+    repository: &UsageRepository,
+    baseline_percent: f64,
+    reset_at: Option<i64>,
+) -> QuotaEstimatorState {
+    let state = observe(estimator, None, baseline_percent, reset_at, checkpoint(), 0)
+        .await
+        .state;
+    repository.push(priced(150.0));
+    observe(
+        estimator,
+        Some(state),
+        baseline_percent + 10.0,
+        reset_at,
+        checkpoint(),
+        1,
+    )
+    .await
+    .state
+}
+
 fn usage(percent: f64, reset_at: Option<i64>) -> OAuthQuotaUsage {
     usage_for_window(window(percent, reset_at))
 }

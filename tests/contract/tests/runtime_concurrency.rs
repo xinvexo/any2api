@@ -53,6 +53,7 @@ async fn published_credentials_reuse_rpm_windows_and_isolate_secret_generations(
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
+                None,
                 true,
             )
             .expect("endpoint draft"),

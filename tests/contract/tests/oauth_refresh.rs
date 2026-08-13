@@ -11,7 +11,7 @@ use any2api_domain::{
 };
 use any2api_protocol::{
     AnthropicMessagesAdapter, OpenAiChatCompletionsAdapter, OpenAiImagesAdapter,
-    OpenAiResponsesAdapter, ProtocolRegistry, ResponsesToChatCompletionsBridge,
+    OpenAiResponsesAdapter, ResponsesToChatCompletionsBridge, api::ProtocolRegistry,
 };
 use any2api_runtime::api::{
     ConfigPublisher, OAuthService, PublicRequest, PublicRequestService, PublicResponseBody,

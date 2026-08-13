@@ -329,45 +329,6 @@ async fn graceful_shutdown_flushes_all_queued_request_logs() {
 }
 
 #[tokio::test]
-#[ignore = "manual SQLite telemetry throughput benchmark"]
-async fn benchmark_batched_request_log_throughput() {
-    const RECORDS: u64 = 20_000;
-    let directory = tempdir().expect("temporary directory");
-    let repository = Arc::new(
-        SqliteStore::connect(&directory.path().join("request-log-benchmark.sqlite3"))
-            .await
-            .expect("storage"),
-    );
-    let settings = logging_settings_with_request_max_rows(25_000, Some(25_000));
-    let lifecycle = ProcessLifecycle::new();
-    let telemetry = RequestTelemetry::start(
-        Arc::clone(&repository),
-        ConfigRevision::INITIAL,
-        settings.logging(),
-        &lifecycle,
-    );
-    let policy = telemetry.policy(ConfigRevision::INITIAL, settings.logging());
-    let started_at_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Unix time")
-        .as_millis() as u64;
-    let started = std::time::Instant::now();
-    for _ in 0..RECORDS {
-        let mut log = record(RequestId::new());
-        log.request.started_at_ms = started_at_ms;
-        telemetry.try_record(log, policy);
-    }
-    wait_for(|| telemetry.metrics().persisted_records == RECORDS).await;
-    let elapsed = started.elapsed();
-    let records_per_second = RECORDS as f64 / elapsed.as_secs_f64();
-    eprintln!(
-        "persisted {RECORDS} request logs in {elapsed:?} ({records_per_second:.0} records/s)"
-    );
-    assert_eq!(telemetry.metrics().dropped_records, 0);
-    telemetry.shutdown(std::time::Duration::from_secs(10)).await;
-}
-
-#[tokio::test]
 async fn shutdown_timeout_aborts_and_joins_the_writer() {
     let repository = Arc::new(BlockingRepository::default());
     let settings = logging_settings(4);

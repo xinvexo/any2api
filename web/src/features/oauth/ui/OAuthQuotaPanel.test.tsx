@@ -349,6 +349,10 @@ function quota(availableCount: number) {
       available_count: availableCount,
       expires_at: availableCount > 0 ? ["2026-07-30T00:00:00Z"] : [],
     },
+    billing: null,
+    token_balance: null,
+    subscription_tier: null,
+    account_status: null,
     estimates: [],
   };
 }

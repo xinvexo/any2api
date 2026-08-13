@@ -185,7 +185,7 @@ export function RequestLogManagement() {
                 role="table"
                 aria-label="请求日志表格"
                 aria-rowcount={items.length + 1}
-                className="flex h-full min-w-[52rem] flex-col"
+                className="flex h-full min-w-[76rem] flex-col"
               >
                 <div
                   role="rowgroup"
@@ -207,15 +207,16 @@ export function RequestLogManagement() {
                         时间
                       </span>
                     </RequestLogHeader>
+                    <RequestLogHeader>客户端 IP</RequestLogHeader>
                     <RequestLogHeader>令牌</RequestLogHeader>
                     <RequestLogHeader>模型</RequestLogHeader>
                     <RequestLogHeader>思考</RequestLogHeader>
                     <RequestLogHeader>结果</RequestLogHeader>
-                    <RequestLogHeader>首字</RequestLogHeader>
+                    <RequestLogHeader>首 Token</RequestLogHeader>
                     <RequestLogHeader>总耗时</RequestLogHeader>
-                    <RequestLogHeader>输入</RequestLogHeader>
-                    <RequestLogHeader>输出</RequestLogHeader>
-                    <RequestLogHeader>命中</RequestLogHeader>
+                    <RequestLogHeader>输入 Token</RequestLogHeader>
+                    <RequestLogHeader>输出 Token</RequestLogHeader>
+                    <RequestLogHeader>缓存命中 Token</RequestLogHeader>
                     <RequestLogHeader>TPS</RequestLogHeader>
                   </div>
                 </div>

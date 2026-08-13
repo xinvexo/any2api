@@ -14,12 +14,12 @@ use tokio::{
 };
 
 use crate::{
-    ReqwestTransportManager,
     api::EndpointNetworkPolicy,
     api::{
         TransportIsolationKey, TransportManager, TransportManagerConfig, TransportProxy,
         TransportRequest, TransportResolverMode, TransportTrafficClass,
     },
+    client::ReqwestTransportManager,
     error::{TransportErrorStage, TransportFailureScope},
 };
 

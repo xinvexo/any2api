@@ -5,7 +5,10 @@ use any2api_domain::{
     ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProxyProfileId,
     PublicErrorCode, RequestsPerMinute, RetrySafety, RouteTargetId, SettingsConfiguration,
 };
-use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry, api::ProtocolAdapter};
+use any2api_protocol::{
+    OpenAiResponsesAdapter,
+    api::{ProtocolAdapter, ProtocolRegistry},
+};
 use any2api_transport::api::{
     BoxByteStream, TransportError, TransportErrorStage, TransportFailureScope,
 };

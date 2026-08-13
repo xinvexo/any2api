@@ -5,7 +5,7 @@ use any2api_domain::{
     ProviderCredential, ProviderCredentialDraft, ProviderEndpointId, ProxyProfile, ProxyProfileId,
     PublicErrorCode,
 };
-use any2api_protocol::{OpenAiResponsesAdapter, ProtocolRegistry};
+use any2api_protocol::{OpenAiResponsesAdapter, api::ProtocolRegistry};
 use any2api_provider::{CodexDriver, api::ProviderDriver};
 use any2api_transport::api::TransportProxy;
 

@@ -7,8 +7,8 @@ use serde_json::Value;
 
 use super::ResponsesToChatCompletionsBridge;
 use crate::{
-    OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter, ProtocolRegistry,
-    api::{IngressRequest, SseFrame, UpstreamResponse},
+    OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter,
+    api::{IngressRequest, ProtocolRegistry, SseFrame, UpstreamResponse},
 };
 
 mod buffered;

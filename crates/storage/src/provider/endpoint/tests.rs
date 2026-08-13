@@ -122,7 +122,7 @@ async fn accepted_and_optional_upstream_protocols_round_trip_without_storage_pai
         ConfigRevision::INITIAL,
         ConfigurationMutation::CreateProviderEndpoint {
             id: bridged_id,
-            draft: ProviderEndpointDraft::with_upstream_protocol(
+            draft: ProviderEndpointDraft::new(
                 "Responses through Chat",
                 ProviderKind::Codex,
                 "https://api.example.com/v1",
@@ -145,6 +145,7 @@ async fn accepted_and_optional_upstream_protocols_round_trip_without_storage_pai
                 ProviderKind::Codex,
                 "https://chat.example.com/v1",
                 ProtocolDialect::OpenAiChatCompletions,
+                None,
                 true,
             )
             .expect("direct draft"),
@@ -284,7 +285,7 @@ async fn openai_compatible_provider_kinds_round_trip_as_api_key_providers() {
             revision,
             ConfigurationMutation::CreateProviderEndpoint {
                 id,
-                draft: ProviderEndpointDraft::new(name, kind, url, dialect, true)
+                draft: ProviderEndpointDraft::new(name, kind, url, dialect, None, true)
                     .expect("provider draft"),
             },
         )
@@ -369,6 +370,7 @@ fn chat_draft(base_url: &str) -> ProviderEndpointDraft {
         ProviderKind::Codex,
         base_url,
         ProtocolDialect::OpenAiChatCompletions,
+        None,
         true,
     )
     .expect("Chat Completions endpoint draft")
@@ -380,6 +382,7 @@ fn codex_draft(base_url: &str) -> ProviderEndpointDraft {
         ProviderKind::Codex,
         base_url,
         ProtocolDialect::OpenAiResponses,
+        None,
         true,
     )
     .expect("endpoint draft")

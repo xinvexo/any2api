@@ -250,6 +250,10 @@ function quota() {
     credits: null,
     access: null,
     reset_credits: null,
+    billing: null,
+    token_balance: null,
+    subscription_tier: null,
+    account_status: null,
     estimates: [],
   };
 }

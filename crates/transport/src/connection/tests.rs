@@ -16,11 +16,11 @@ use tokio::{
 use tokio_rustls::TlsAcceptor;
 
 use crate::{
-    ReqwestTransportManager,
     api::{
         EndpointNetworkPolicy, ProxyCredentials, TransportManager, TransportManagerConfig,
         TransportProxy, TransportRequest, TransportResponse,
     },
+    client::ReqwestTransportManager,
     error::{TransportErrorStage, TransportFailureScope},
 };
 

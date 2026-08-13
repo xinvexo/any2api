@@ -226,6 +226,7 @@ mod tests {
                 kind,
                 "https://api.example.com",
                 dialect,
+                None,
                 true,
             )
             .expect("endpoint draft"),

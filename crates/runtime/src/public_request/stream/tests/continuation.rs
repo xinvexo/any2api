@@ -2,9 +2,8 @@ use std::{sync::Arc, time::Duration};
 
 use any2api_domain::{ModelRouteId, ProtocolDialect, ProtocolOperation, RouteTargetId};
 use any2api_protocol::{
-    OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter, ProtocolRegistry,
-    ResponsesToChatCompletionsBridge,
-    api::{DecodedRequest, IngressRequest, MAX_BRIDGE_CONTINUATION_STATE_BYTES},
+    OpenAiChatCompletionsAdapter, OpenAiResponsesAdapter, ResponsesToChatCompletionsBridge,
+    api::{DecodedRequest, IngressRequest, MAX_BRIDGE_CONTINUATION_STATE_BYTES, ProtocolRegistry},
 };
 use any2api_transport::api::BoxByteStream;
 use bytes::Bytes;
@@ -193,6 +192,51 @@ async fn aborting_a_task_that_owns_a_primed_body_drops_the_pending_lease() {
         ContinuationLookup::Missing
     ));
     assert_eq!(registry.continuation_bytes_for_test(), 0);
+}
+
+#[tokio::test]
+async fn failed_or_invalid_bridge_aborts_the_pending_continuation() {
+    let cases: [(&str, &'static [u8], bool); 2] = [
+        (
+            "failure event",
+            b"data: {\"error\":{\"message\":\"provider is overloaded\",\"type\":\"server_error\",\"param\":null,\"code\":\"overloaded\"}}\n\n",
+            false,
+        ),
+        (
+            "invalid tool identity",
+            b"data: {\"id\":\"chatcmpl_invalid\",\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"type\":\"function\",\"function\":{\"name\":\"broken\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
+            true,
+        ),
+    ];
+
+    for (name, terminal, expect_body_error) in cases {
+        let registry = AffinityRegistry::new();
+        let protocols = protocols();
+        let upstream: BoxByteStream = Box::pin(stream::iter([
+            Ok(Bytes::from_static(
+                b"data: {\"id\":\"chatcmpl_pending\",\"model\":\"upstream\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n",
+            )),
+            Ok(Bytes::from_static(terminal)),
+        ]));
+        let guarded = bridged_body(&protocols, Arc::clone(&registry), upstream)
+            .await
+            .prime()
+            .await
+            .unwrap_or_else(|error| panic!("{name} must commit after partial content: {error:?}"));
+        let response_id = pending_response_id(&guarded);
+        let mut body = guarded.into_stream();
+        let mut body_error = false;
+        while let Some(frame) = body.next().await {
+            body_error |= frame.is_err();
+        }
+
+        assert_eq!(body_error, expect_body_error, "{name}");
+        assert!(matches!(
+            registry.resolve_continuation(&response_id, CONTINUATION_TTL, |_| true),
+            ContinuationLookup::Missing
+        ));
+        assert_eq!(registry.continuation_bytes_for_test(), 0, "{name}");
+    }
 }
 
 #[tokio::test(start_paused = true)]

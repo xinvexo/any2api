@@ -50,6 +50,7 @@ async fn balancing_admin_exposes_only_aggregate_runtime_and_queue_policy() {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
+                None,
                 true,
             )
             .expect("endpoint draft"),

@@ -6,9 +6,11 @@ use bytes::Bytes;
 use futures_core::Stream;
 use http::{HeaderMap, Method, StatusCode, Uri};
 
+pub use crate::client::ReqwestTransportManager;
+pub use crate::error::{
+    TransportConfigurationError, TransportError, TransportErrorStage, TransportFailureScope,
+};
 pub use crate::{
-    ReqwestTransportManager, TransportConfigurationError, TransportError, TransportErrorStage,
-    TransportFailureScope,
     diagnostics::{TransportRequestDiagnostics, TransportResolverMode},
     isolation::{TransportIsolationKey, TransportTrafficClass},
     profile::{GENERIC_GATEWAY_TRANSPORT_PROFILE, TransportWireProfile},

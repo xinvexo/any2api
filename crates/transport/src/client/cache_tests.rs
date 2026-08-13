@@ -5,8 +5,8 @@ use bytes::Bytes;
 use http::{HeaderMap, Method, Uri};
 
 use crate::{
-    ReqwestTransportManager,
     api::{EndpointNetworkPolicy, TransportIsolationKey, TransportProxy, TransportRequest},
+    client::ReqwestTransportManager,
 };
 
 use super::tests::{network_proxy, test_isolation};

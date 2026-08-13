@@ -6,7 +6,6 @@ import {
   formatLatencyPair,
   formatLogTime,
   formatTokenCount,
-  formatTokenSummary,
   formatTps,
   isSuccessOutcome,
   outputTps,
@@ -24,7 +23,7 @@ import { cn } from "@/shared/lib/cn";
  */
 export const requestLogGridClass =
   "grid w-full items-center gap-x-2 px-1 " +
-  "[grid-template-columns:minmax(0,1.35fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.5fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.85fr)_minmax(0,0.55fr)_minmax(0,0.7fr)_minmax(0,0.7fr)]";
+  "[grid-template-columns:minmax(0,1.5fr)_minmax(0,0.95fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.55fr)_minmax(0,0.75fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1.15fr)_minmax(0,0.75fr)]";
 
 const cell = "min-w-0 px-1 py-2.5 text-left text-[12px]";
 const numCell = `${cell} tabular-nums text-secondary`;
@@ -66,10 +65,13 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
           aria-hidden="true"
         />
         <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-[11px] tabular-nums text-tertiary">
+          <p className="flex flex-wrap gap-x-2 text-[11px] tabular-nums text-tertiary">
             <time dateTime={new Date(log.startedAtMs).toISOString()}>
               {formatLogTime(log.startedAtMs)}
             </time>
+            <span className="min-w-0 max-w-full break-all" title={`客户端 IP ${log.clientIp}`}>
+              IP {log.clientIp}
+            </span>
           </p>
           <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-[11px]">
             <UpstreamSourceInline source={source} />
@@ -99,10 +101,15 @@ export function RequestLogCard({ log, expanded, onToggle }: RequestLogRowProps) 
               </span>
             </span>
             {success ? (
-              <span>
-                Tokens{" "}
-                <span className="font-medium text-secondary">{formatTokenSummary(log)}</span>
-              </span>
+              <>
+                <TokenMetric label="输入 Token" value={formatTokenCount(log.inputTokens)} />
+                <TokenMetric label="输出 Token" value={formatTokenCount(log.outputTokens)} />
+                <TokenMetric
+                  label="缓存命中 Token"
+                  value={formatTokenCount(log.cacheReadTokens)}
+                />
+                <TokenMetric label="TPS" value={formatTps(outputTps(log))} />
+              </>
             ) : log.errorMessage ? (
               <span className="min-w-0 truncate text-danger" title={log.errorMessage}>
                 {log.errorMessage}
@@ -169,6 +176,11 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
               {formatLogTime(log.startedAtMs)}
             </time>
           </div>
+        </div>
+        <div role="cell" className={`${cell} tabular-nums text-secondary`}>
+          <span className="block truncate" title={log.clientIp}>
+            {log.clientIp}
+          </span>
         </div>
         <div role="cell" className={cell}>
           <UpstreamSourceInline source={source} />
@@ -240,6 +252,15 @@ export function RequestLogTableRows({ log, expanded, onToggle }: RequestLogRowPr
         </div>
       ) : null}
     </div>
+  );
+}
+
+function TokenMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <span>
+      {label}{" "}
+      <span className="font-medium text-secondary">{value}</span>
+    </span>
   );
 }
 

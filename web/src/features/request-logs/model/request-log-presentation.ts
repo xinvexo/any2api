@@ -214,28 +214,3 @@ export function formatTps(value: number | null) {
   }
   return `${value.toFixed(2)} t/s`;
 }
-
-/**
- * Compact list tokens:
- * 输入/输出 · 命中 · TPS
- */
-export function formatTokenSummary(
-  log: Pick<
-    RequestLog,
-    | "inputTokens"
-    | "outputTokens"
-    | "cacheReadTokens"
-    | "latencyMs"
-    | "firstTokenMs"
-  >,
-) {
-  if (
-    log.inputTokens === null
-    && log.outputTokens === null
-    && log.cacheReadTokens === null
-  ) {
-    return "—";
-  }
-  const io = `${formatTokenCount(log.inputTokens)}/${formatTokenCount(log.outputTokens)}`;
-  return `${io} · ${formatTokenCount(log.cacheReadTokens)} · ${formatTps(outputTps(log))}`;
-}

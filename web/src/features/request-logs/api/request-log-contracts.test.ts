@@ -18,8 +18,11 @@ describe("request log contracts", () => {
           attempt_no: 1,
           route_target_id: "target-1",
           credential_id: "credential-1",
+          credential_label: "Primary credential",
           oauth_account_id: null,
+          oauth_account_label: null,
           proxy_profile_id: "proxy-1",
+          proxy_profile_label: "Primary proxy",
           routing_mode: "balanced",
           failure_scope: "authentication",
           retry_decision: "reselect",
@@ -85,8 +88,11 @@ describe("request log contracts", () => {
             attempt_no: 1,
             route_target_id: null,
             credential_id: null,
+            credential_label: null,
             oauth_account_id: "oauth-account-1",
+            oauth_account_label: "Primary OAuth",
             proxy_profile_id: null,
+            proxy_profile_label: null,
             routing_mode: "bound",
             failure_scope: null,
             retry_decision: null,
@@ -157,8 +163,11 @@ describe("request log contracts", () => {
           attempt_no: 1,
           route_target_id: null,
           credential_id: "credential-1",
+          credential_label: "Primary credential",
           oauth_account_id: null,
+          oauth_account_label: null,
           proxy_profile_id: "proxy-1",
+          proxy_profile_label: "Primary proxy",
           routing_mode: "balanced",
           failure_scope: "authentication",
           retry_decision: "terminal",
@@ -190,8 +199,11 @@ describe("request log contracts", () => {
           attempt_no: 1,
           route_target_id: null,
           credential_id: "credential-1",
+          credential_label: "Primary credential",
           oauth_account_id: null,
+          oauth_account_label: null,
           proxy_profile_id: "proxy-1",
+          proxy_profile_label: "Primary proxy",
           routing_mode: "bound",
           failure_scope: "exact_candidate",
           retry_decision: "terminal",
@@ -224,6 +236,24 @@ describe("request log contracts", () => {
     ).toThrow("invalid request log response");
     expect(() =>
       parseRequestLogList({ ...requestLogPage([]), cursor: null, next_cursor: "r1.next" }),
+    ).toThrow("invalid request log response");
+  });
+
+  it("rejects omitted fields from the current nullable contract", () => {
+    const omittedRequestField = request() as Record<string, unknown>;
+    delete omittedRequestField.credential_label;
+    expect(() => parseRequestLogList(requestLogPage([omittedRequestField]))).toThrow(
+      "invalid request log response",
+    );
+
+    const omittedAttemptField = attempt() as Record<string, unknown>;
+    delete omittedAttemptField.oauth_account_label;
+    expect(() =>
+      parseRequestLogDetail({
+        request: request(),
+        attempts: [omittedAttemptField],
+        telemetry: telemetry(),
+      })
     ).toThrow("invalid request log response");
   });
 
@@ -261,11 +291,15 @@ function request() {
     ingress_protocol: "openai_responses",
     operation: "responses",
     public_model: "codex-local",
+    thinking_level: null,
     provider_endpoint_id: "33333333-3333-4333-8333-333333333333",
     provider_endpoint_name: "frapi",
     credential_id: "44444444-4444-4444-8444-444444444444",
+    credential_label: "Primary credential",
     oauth_account_id: null,
+    oauth_account_label: null,
     proxy_profile_id: "00000000-0000-0000-0000-000000000000",
+    proxy_profile_label: "DIRECT",
     status_code: 200,
     outcome: "success",
     error_message: null,
@@ -276,6 +310,29 @@ function request() {
     output_tokens: 45,
     cache_read_tokens: 30,
     is_stream: true,
+  };
+}
+
+function attempt() {
+  return {
+    attempt_no: 1,
+    route_target_id: "target-1",
+    credential_id: "credential-1",
+    credential_label: "Primary credential",
+    oauth_account_id: null,
+    oauth_account_label: null,
+    proxy_profile_id: "proxy-1",
+    proxy_profile_label: "Primary proxy",
+    routing_mode: "balanced",
+    failure_scope: null,
+    retry_decision: null,
+    started_at_ms: 1,
+    duration_ms: 1,
+    error_message: null,
+    status_code: 200,
+    outcome: "success",
+    transport: null,
+    stream_timing: null,
   };
 }
 

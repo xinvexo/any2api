@@ -24,3 +24,10 @@ test("rejects token, time bucket, and model conservation mismatches", () => {
   modelMismatch.models[0].request_count = 2;
   expect(() => parseOverviewUsage(modelMismatch)).toThrow("invalid overview usage response");
 });
+
+test("rejects an omitted current nullable retention boundary", () => {
+  const omitted = structuredClone(overviewUsageWire()) as unknown as Record<string, unknown>;
+  delete omitted.retained_started_at_ms;
+
+  expect(() => parseOverviewUsage(omitted)).toThrow("invalid overview usage response");
+});

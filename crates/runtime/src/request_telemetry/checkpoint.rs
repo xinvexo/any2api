@@ -10,6 +10,7 @@ use uuid::Uuid;
 /// telemetry sequence deleted from this process's persisted rows, so cleanup
 /// of history older than an interval's anchor never invalidates it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RequestTelemetryCheckpoint {
     pub(crate) process_id: Uuid,
     pub(crate) enabled: bool,
@@ -54,6 +55,7 @@ impl RequestTelemetryCheckpoint {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RequestTelemetryObservation {
     pub(crate) observed_at_ms: u64,
     pub(crate) position: RequestTelemetryPosition,

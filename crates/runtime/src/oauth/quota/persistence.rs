@@ -6,7 +6,7 @@ use any2api_storage::api::{
     MAX_OAUTH_QUOTA_SNAPSHOT_BYTES, OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION,
     OAuthQuotaSnapshotRepository, StoredOAuthQuotaSnapshot,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use tokio::sync::watch;
 
 use super::{estimation::state::QuotaEstimatorState, types::OAuthQuotaError};
@@ -18,8 +18,10 @@ const MAX_SAFE_TEXT_BYTES: usize = 4_096;
 const MAX_CREDIT_BALANCE_BYTES: usize = 128;
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct PersistedSnapshotPayload {
     usage: OAuthQuotaUsage,
+    #[serde(deserialize_with = "deserialize_nullable")]
     estimator_state: Option<QuotaEstimatorState>,
 }
 
@@ -55,8 +57,7 @@ impl OAuthQuotaPersistence {
         else {
             return Ok(None);
         };
-        let payload: PersistedSnapshotPayload = serde_json::from_slice(&stored.payload)
-            .map_err(|_| OAuthQuotaError::InvalidPersistedSnapshot)?;
+        let payload = decode_payload(&stored.payload)?;
         validate_usage(&payload.usage)?;
         if payload
             .estimator_state
@@ -126,6 +127,18 @@ impl OAuthQuotaPersistence {
     }
 }
 
+fn decode_payload(payload: &[u8]) -> Result<PersistedSnapshotPayload, OAuthQuotaError> {
+    serde_json::from_slice(payload).map_err(|_| OAuthQuotaError::InvalidPersistedSnapshot)
+}
+
+fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
+}
+
 fn validate_usage(usage: &OAuthQuotaUsage) -> Result<(), OAuthQuotaError> {
     if usage.rate_limit.as_ref().is_some_and(|rate| {
         rate.windows.len() > MAX_WINDOWS
@@ -178,4 +191,81 @@ fn is_non_negative_decimal(value: &str) -> bool {
         }
     }
     digit_seen && !value.ends_with('.')
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::decode_payload;
+
+    fn current_payload() -> Value {
+        json!({
+            "usage": {
+                "rate_limit": null,
+                "credits": null,
+                "access": null,
+                "reset_credits": null,
+                "billing": null,
+                "token_balance": null,
+                "subscription_tier": null,
+                "account_status": null
+            },
+            "estimator_state": {
+                "credential_fingerprint": "fingerprint",
+                "subscription_tier": null,
+                "next_epoch": 1,
+                "windows": []
+            }
+        })
+    }
+
+    #[test]
+    fn current_snapshot_payload_decodes() {
+        let payload = serde_json::to_vec(&current_payload()).expect("serialize fixture");
+        decode_payload(&payload).expect("decode current payload");
+    }
+
+    #[test]
+    fn historical_root_fields_are_rejected() {
+        let mut payload = current_payload();
+        payload["usd_estimates"] = json!([]);
+        let payload = serde_json::to_vec(&payload).expect("serialize fixture");
+        assert!(decode_payload(&payload).is_err());
+    }
+
+    #[test]
+    fn unknown_nested_usage_fields_are_rejected() {
+        let mut payload = current_payload();
+        payload["usage"]["legacy_balance"] = json!(0);
+        let payload = serde_json::to_vec(&payload).expect("serialize fixture");
+        assert!(decode_payload(&payload).is_err());
+    }
+
+    #[test]
+    fn omitted_current_nullable_fields_are_rejected() {
+        let mut payload = current_payload();
+        payload
+            .as_object_mut()
+            .expect("root object")
+            .remove("estimator_state");
+        let payload = serde_json::to_vec(&payload).expect("serialize fixture");
+        assert!(decode_payload(&payload).is_err());
+
+        let mut payload = current_payload();
+        payload["usage"]
+            .as_object_mut()
+            .expect("usage object")
+            .remove("billing");
+        let payload = serde_json::to_vec(&payload).expect("serialize fixture");
+        assert!(decode_payload(&payload).is_err());
+    }
+
+    #[test]
+    fn historical_estimator_fields_are_rejected() {
+        let mut payload = current_payload();
+        payload["estimator_state"]["pending_high_candidate"] = json!(null);
+        let payload = serde_json::to_vec(&payload).expect("serialize fixture");
+        assert!(decode_payload(&payload).is_err());
+    }
 }

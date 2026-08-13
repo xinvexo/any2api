@@ -140,7 +140,7 @@ fn parse_endpoint(row: ProviderEndpointRow) -> Result<ProviderEndpoint, StorageE
         .transpose()?;
     let version =
         u64::try_from(row.config_version).map_err(|_| StorageError::CorruptConfiguration)?;
-    let draft = ProviderEndpointDraft::with_upstream_protocol(
+    let draft = ProviderEndpointDraft::new(
         row.name,
         provider_kind,
         row.base_url,

@@ -134,18 +134,18 @@ function parseRequestLog(value: unknown): RequestLog {
     ingressProtocol: readProtocol(record.ingress_protocol),
     operation: readOperation(record.operation),
     publicModel: readNullableString(record.public_model),
-    thinkingLevel: readOptionalNullableString(record.thinking_level),
+    thinkingLevel: readNullableDisplayString(record.thinking_level),
     providerEndpointId: readNullableString(record.provider_endpoint_id),
-    providerEndpointName: readOptionalNullableString(record.provider_endpoint_name),
+    providerEndpointName: readNullableDisplayString(record.provider_endpoint_name),
     credentialId: readNullableString(record.credential_id),
-    credentialLabel: readOptionalNullableString(record.credential_label),
+    credentialLabel: readNullableDisplayString(record.credential_label),
     oauthAccountId: readNullableString(record.oauth_account_id),
-    oauthAccountLabel: readOptionalNullableString(record.oauth_account_label),
+    oauthAccountLabel: readNullableDisplayString(record.oauth_account_label),
     proxyProfileId: readNullableString(record.proxy_profile_id),
-    proxyProfileLabel: readOptionalNullableString(record.proxy_profile_label),
+    proxyProfileLabel: readNullableDisplayString(record.proxy_profile_label),
     statusCode,
     outcome,
-    errorMessage: readOptionalNullableString(record.error_message),
+    errorMessage: readNullableDisplayString(record.error_message),
     attemptCount: readNonNegativeInteger(record.attempt_count),
     latencyMs: readNonNegativeInteger(record.latency_ms),
     firstTokenMs: readNullableInteger(record.first_token_ms),
@@ -226,9 +226,8 @@ function readCursor(value: unknown): string | null {
   return cursor;
 }
 
-/** Optional diagnostic text: null, omitted, or non-empty string. Empty string becomes null. */
-function readOptionalNullableString(value: unknown): string | null {
-  if (value === null || value === undefined) {
+function readNullableDisplayString(value: unknown): string | null {
+  if (value === null) {
     return null;
   }
   if (typeof value !== "string") {

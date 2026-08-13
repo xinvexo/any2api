@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use super::{
-    UsageRepository, checkpoint, costless, observe, priced, pruned_checkpoint,
-    telemetry_observation, unpriced,
+    UsageRepository, checkpoint, costless, learned_capacity_state, observe, priced,
+    pruned_checkpoint, telemetry_observation, unpriced,
 };
 use crate::oauth::quota::{
     estimation::OAuthQuotaEstimator,
@@ -192,13 +192,7 @@ async fn costless_official_delta_waits_for_the_local_cost_to_land() {
 async fn unpriced_usage_discards_the_interval_without_learning() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
-        .await
-        .state;
-    repository.push(priced(150.0));
-    state = observe(&estimator, Some(state), 20.0, None, checkpoint(), 1)
-        .await
-        .state;
+    let mut state = learned_capacity_state(&estimator, &repository, 10.0, None).await;
 
     repository.push(unpriced());
     let poisoned = observe(&estimator, Some(state), 30.0, None, checkpoint(), 2).await;
@@ -288,44 +282,38 @@ async fn wall_clock_rollback_does_not_change_sequence_interval_membership() {
     assert_eq!(queries[0].1.sequence, 9);
 }
 
-/// Scenario K companion: pruning that reaches into the open interval fails
-/// closed even when the interval query itself succeeded.
+/// Retention before the anchor is harmless, but pruning into the open interval
+/// fails closed even when the interval query itself succeeded.
 #[tokio::test]
-async fn prune_reaching_into_the_interval_invalidates_it() {
-    let repository = Arc::new(UsageRepository::default());
-    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let state = observe(&estimator, None, 10.0, None, checkpoint(), 2)
-        .await
-        .state;
+async fn pruning_only_invalidates_intervals_it_reaches_into() {
+    for (pruned_through, status, interval_pruned, capacity) in [
+        (
+            2,
+            OAuthQuotaIntervalStatus::ValidSample,
+            false,
+            Some(1_500.0),
+        ),
+        (3, OAuthQuotaIntervalStatus::TelemetryIncomplete, true, None),
+    ] {
+        let repository = Arc::new(UsageRepository::default());
+        let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
+        let state = observe(&estimator, None, 10.0, None, checkpoint(), 2)
+            .await
+            .state;
+        repository.push(priced(150.0));
 
-    repository.push(priced(150.0));
-    let result = observe(&estimator, Some(state), 20.0, None, pruned_checkpoint(3), 4).await;
-    assert_eq!(
-        result.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::TelemetryIncomplete
-    );
-    assert!(result.estimates[0].latest_interval.interval_pruned);
-    assert!(result.estimates[0].estimated_capacity_credits.is_none());
-}
-
-/// Scenario J companion: pruning history at or before the anchor is harmless.
-#[tokio::test]
-async fn prune_of_history_before_the_anchor_keeps_the_interval() {
-    let repository = Arc::new(UsageRepository::default());
-    let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let state = observe(&estimator, None, 10.0, None, checkpoint(), 2)
-        .await
-        .state;
-
-    repository.push(priced(150.0));
-    let result = observe(&estimator, Some(state), 20.0, None, pruned_checkpoint(2), 4).await;
-    assert_eq!(
-        result.estimates[0].latest_interval.status,
-        OAuthQuotaIntervalStatus::ValidSample
-    );
-    assert!(!result.estimates[0].latest_interval.interval_pruned);
-    assert_eq!(
-        result.estimates[0].estimated_capacity_credits,
-        Some(1_500.0)
-    );
+        let result = observe(
+            &estimator,
+            Some(state),
+            20.0,
+            None,
+            pruned_checkpoint(pruned_through),
+            4,
+        )
+        .await;
+        let estimate = &result.estimates[0];
+        assert_eq!(estimate.latest_interval.status, status);
+        assert_eq!(estimate.latest_interval.interval_pruned, interval_pruned);
+        assert_eq!(estimate.estimated_capacity_credits, capacity);
+    }
 }

@@ -275,6 +275,7 @@ pub struct CompletedRequestLog {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequestTelemetryPosition {
     pub process_id: Uuid,
     pub sequence: u64,

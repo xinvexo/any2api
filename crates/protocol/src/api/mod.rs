@@ -5,7 +5,7 @@ mod exchange;
 mod execution_profile;
 mod response;
 
-pub use crate::SseDecoder;
+pub use crate::sse::SseDecoder;
 pub use capability::*;
 pub(crate) use continuation::ResumableProtocolContinuation;
 pub use continuation::{

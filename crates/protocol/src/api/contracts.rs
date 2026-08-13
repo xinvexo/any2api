@@ -8,7 +8,8 @@ use bytes::Bytes;
 use http::{HeaderMap, Method, Uri};
 use serde_json::Value;
 
-pub use crate::{ProtocolError, ProtocolRegistry};
+pub use crate::error::ProtocolError;
+pub use crate::registry::ProtocolRegistry;
 
 use super::{
     continuation::BridgeContinuationState,

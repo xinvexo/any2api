@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::{
-    UsageRepository, checkpoint, observe, priced, queue_dropped_checkpoint,
+    UsageRepository, checkpoint, learned_capacity_state, observe, priced, queue_dropped_checkpoint,
     storage_failed_checkpoint,
 };
 use crate::oauth::quota::{
@@ -150,13 +150,7 @@ async fn storage_failure_during_accumulation_reanchors_instead_of_bridging() {
 async fn queue_drop_invalidates_the_open_interval() {
     let repository = Arc::new(UsageRepository::default());
     let estimator = OAuthQuotaEstimator::new(Arc::clone(&repository) as _);
-    let mut state = observe(&estimator, None, 10.0, None, checkpoint(), 0)
-        .await
-        .state;
-    repository.push(priced(150.0));
-    state = observe(&estimator, Some(state), 20.0, None, checkpoint(), 1)
-        .await
-        .state;
+    let state = learned_capacity_state(&estimator, &repository, 10.0, None).await;
 
     let dropped = observe(
         &estimator,

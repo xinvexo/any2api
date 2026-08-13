@@ -8,11 +8,11 @@ use http::{HeaderMap, Method, Uri};
 use tokio::net::TcpListener;
 
 use crate::{
-    ReqwestTransportManager,
     api::{
         EndpointNetworkPolicy, TransportManager, TransportManagerConfig, TransportProxy,
         TransportRequest,
     },
+    client::ReqwestTransportManager,
     error::{TransportErrorStage, TransportFailureScope},
 };
 

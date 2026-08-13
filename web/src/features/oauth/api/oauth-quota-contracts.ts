@@ -97,7 +97,7 @@ export function parseOAuthQuotaSnapshot(value: unknown): OAuthQuotaSnapshot {
     resetCredits: parseResetCredits(value.reset_credits),
     billing: parseBilling(value.billing),
     tokenBalance: parseTokenBalance(value.token_balance),
-    subscriptionTier: readOptionalString(value.subscription_tier),
+    subscriptionTier: readNullableString(value.subscription_tier),
     accountStatus: parseAccountStatus(value.account_status),
     estimates: parseOAuthQuotaEstimates(value.estimates),
   };
@@ -110,7 +110,7 @@ export function parseNullableOAuthQuotaSnapshot(
 }
 
 function parseTokenBalance(value: unknown): OAuthQuotaTokenBalance | null {
-  if (value === null || value === undefined) return null;
+  if (value === null) return null;
   if (!isRecord(value)) throw invalidResponse();
   const source = value.source;
   if (source !== "upstream") throw invalidResponse();
@@ -119,12 +119,12 @@ function parseTokenBalance(value: unknown): OAuthQuotaTokenBalance | null {
     used: readInteger(value.used, 0),
     limit: readInteger(value.limit, 0),
     remaining: readInteger(value.remaining, 0),
-    windowSeconds: readOptionalInteger(value.window_seconds, 1),
+    windowSeconds: readNullableInteger(value.window_seconds, 1),
   };
 }
 
 function parseAccountStatus(value: unknown): OAuthQuotaAccountStatus | null {
-  if (value === null || value === undefined) return null;
+  if (value === null) return null;
   if (
     !isRecord(value)
     || value.authentication !== "valid"
@@ -134,31 +134,31 @@ function parseAccountStatus(value: unknown): OAuthQuotaAccountStatus | null {
   }
   return {
     authentication: "valid",
-    userBlockedReason: readOptionalString(value.user_blocked_reason),
+    userBlockedReason: readNullableString(value.user_blocked_reason),
     teamBlockedReasons: value.team_blocked_reasons.map(readString),
     quotaExhaustion: parseQuotaExhaustion(value.quota_exhaustion),
   };
 }
 
 function parseQuotaExhaustion(value: unknown): OAuthQuotaExhaustion | null {
-  if (value === null || value === undefined) return null;
+  if (value === null) return null;
   if (!isRecord(value)) throw invalidResponse();
   return {
     observedAt: readInteger(value.observed_at, 0),
-    used: readOptionalInteger(value.used, 0),
-    limit: readOptionalInteger(value.limit, 0),
+    used: readNullableInteger(value.used, 0),
+    limit: readNullableInteger(value.limit, 0),
   };
 }
 
 function parseBilling(value: unknown): OAuthQuotaBilling | null {
-  if (value === null || value === undefined) return null;
+  if (value === null) return null;
   if (!isRecord(value) || value.currency !== "USD") throw invalidResponse();
   return {
     currency: "USD",
-    prepaidBalanceMinor: readOptionalSafeInteger(value.prepaid_balance_minor),
-    onDemandUsedMinor: readOptionalSafeInteger(value.on_demand_used_minor),
-    onDemandCapMinor: readOptionalSafeInteger(value.on_demand_cap_minor),
-    isUnifiedBillingUser: readOptionalBoolean(value.is_unified_billing_user),
+    prepaidBalanceMinor: readNullableSafeInteger(value.prepaid_balance_minor),
+    onDemandUsedMinor: readNullableSafeInteger(value.on_demand_used_minor),
+    onDemandCapMinor: readNullableSafeInteger(value.on_demand_cap_minor),
+    isUnifiedBillingUser: readNullableBoolean(value.is_unified_billing_user),
   };
 }
 
@@ -171,8 +171,8 @@ function parseRateLimit(value: unknown): OAuthQuotaRateLimit | null {
   if (value === null) return null;
   if (!isRecord(value) || !Array.isArray(value.windows)) throw invalidResponse();
   return {
-    allowed: readOptionalBoolean(value.allowed),
-    limitReached: readOptionalBoolean(value.limit_reached),
+    allowed: readNullableBoolean(value.allowed),
+    limitReached: readNullableBoolean(value.limit_reached),
     windows: value.windows.map(parseWindow),
   };
 }
@@ -183,9 +183,9 @@ function parseWindow(value: unknown): OAuthQuotaWindow {
     id: readString(value.id),
     kind: readWindowKind(value.kind),
     usedPercent: readNumber(value.used_percent, 0),
-    limitWindowSeconds: readOptionalInteger(value.limit_window_seconds, 0),
-    resetAfterSeconds: readOptionalInteger(value.reset_after_seconds, 0),
-    resetAt: readOptionalInteger(value.reset_at, 0),
+    limitWindowSeconds: readNullableInteger(value.limit_window_seconds, 0),
+    resetAfterSeconds: readNullableInteger(value.reset_after_seconds, 0),
+    resetAt: readNullableInteger(value.reset_at, 0),
   };
 }
 
@@ -218,8 +218,8 @@ function readString(value: unknown) {
   return value;
 }
 
-function readOptionalString(value: unknown) {
-  return value === null || value === undefined ? null : readString(value);
+function readNullableString(value: unknown) {
+  return value === null ? null : readString(value);
 }
 
 function readBoolean(value: unknown) {
@@ -227,8 +227,8 @@ function readBoolean(value: unknown) {
   return value;
 }
 
-function readOptionalBoolean(value: unknown) {
-  return value === null || value === undefined ? null : readBoolean(value);
+function readNullableBoolean(value: unknown) {
+  return value === null ? null : readBoolean(value);
 }
 
 function readNumber(value: unknown, minimum: number) {
@@ -244,12 +244,12 @@ function readInteger(value: unknown, minimum: number) {
   return number;
 }
 
-function readOptionalInteger(value: unknown, minimum: number) {
+function readNullableInteger(value: unknown, minimum: number) {
   return value === null ? null : readInteger(value, minimum);
 }
 
-function readOptionalSafeInteger(value: unknown) {
-  if (value === null || value === undefined) return null;
+function readNullableSafeInteger(value: unknown) {
+  if (value === null) return null;
   if (typeof value !== "number" || !Number.isSafeInteger(value)) throw invalidResponse();
   return value;
 }

@@ -16,11 +16,9 @@ mod stream_rejection;
 mod telemetry;
 
 pub use anthropic_messages::AnthropicMessagesAdapter;
-pub use error::ProtocolError;
+pub(crate) use error::ProtocolError;
 pub use openai_chat_completions::OpenAiChatCompletionsAdapter;
 pub use openai_images::OpenAiImagesAdapter;
 pub use openai_images_chat::ImagesToChatCompletionsBridge;
 pub use openai_responses::OpenAiResponsesAdapter;
 pub use openai_responses_chat::ResponsesToChatCompletionsBridge;
-pub use registry::ProtocolRegistry;
-pub use sse::SseDecoder;

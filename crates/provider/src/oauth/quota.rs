@@ -1,7 +1,7 @@
 use any2api_domain::{QuotaCostUnit, QuotaServiceTier, RequestQuotaCost, TokenUsage};
 
 use crate::OAuthRequestPlan;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OAuthQuotaRejection {
@@ -65,26 +65,35 @@ pub enum OAuthQuotaWindowKind {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaWindow {
     pub id: String,
     pub kind: OAuthQuotaWindowKind,
     pub used_percent: f64,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub limit_window_seconds: Option<u64>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub reset_after_seconds: Option<u64>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub reset_at: Option<i64>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaRateLimit {
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub allowed: Option<bool>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub limit_reached: Option<bool>,
     pub windows: Vec<OAuthQuotaWindow>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaCredits {
     pub has_credits: bool,
     pub unlimited: bool,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub balance: Option<String>,
 }
 
@@ -113,8 +122,11 @@ impl OAuthQuotaReachedType {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaAccessStatus {
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub spend_control_reached: Option<bool>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub reached_type: Option<OAuthQuotaReachedType>,
 }
 
@@ -193,22 +205,29 @@ impl OAuthQuotaCostRate {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaResetCredit {
     pub expires_at: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaResetCredits {
     pub available_count: u32,
     pub credits: Vec<OAuthQuotaResetCredit>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaBilling {
     pub currency: String,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub prepaid_balance_minor: Option<i64>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub on_demand_used_minor: Option<i64>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub on_demand_cap_minor: Option<i64>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub is_unified_billing_user: Option<bool>,
 }
 
@@ -219,11 +238,13 @@ pub enum OAuthQuotaTokenBalanceSource {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaTokenBalance {
     pub source: OAuthQuotaTokenBalanceSource,
     pub used: u64,
     pub limit: u64,
     pub remaining: u64,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub window_seconds: Option<u64>,
 }
 
@@ -234,17 +255,23 @@ pub enum OAuthQuotaAuthenticationStatus {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaExhaustion {
     pub observed_at: i64,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub used: Option<u64>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub limit: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaAccountStatus {
     pub authentication: OAuthQuotaAuthenticationStatus,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub user_blocked_reason: Option<String>,
     pub team_blocked_reasons: Vec<String>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub quota_exhaustion: Option<OAuthQuotaExhaustion>,
 }
 
@@ -256,15 +283,32 @@ pub struct OAuthQuotaSupplement {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthQuotaUsage {
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub rate_limit: Option<OAuthQuotaRateLimit>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub credits: Option<OAuthQuotaCredits>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub access: Option<OAuthQuotaAccessStatus>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub reset_credits: Option<OAuthQuotaResetCredits>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub billing: Option<OAuthQuotaBilling>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub token_balance: Option<OAuthQuotaTokenBalance>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub subscription_tier: Option<String>,
+    #[serde(deserialize_with = "deserialize_nullable")]
     pub account_status: Option<OAuthQuotaAccountStatus>,
+}
+
+fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer)
 }
 
 impl OAuthQuotaUsage {

@@ -22,23 +22,6 @@ impl ProviderEndpointDraft {
         provider_kind: ProviderKind,
         base_url: impl Into<String>,
         protocol_dialect: ProtocolDialect,
-        enabled: bool,
-    ) -> Result<Self, ProviderEndpointValidationError> {
-        Self::with_upstream_protocol(
-            name,
-            provider_kind,
-            base_url,
-            protocol_dialect,
-            None,
-            enabled,
-        )
-    }
-
-    pub fn with_upstream_protocol(
-        name: impl Into<String>,
-        provider_kind: ProviderKind,
-        base_url: impl Into<String>,
-        protocol_dialect: ProtocolDialect,
         upstream_protocol_dialect: Option<ProtocolDialect>,
         enabled: bool,
     ) -> Result<Self, ProviderEndpointValidationError> {
@@ -264,7 +247,7 @@ mod tests {
 
     #[test]
     fn upstream_protocol_is_optional_and_same_protocol_normalizes_to_none() {
-        let bridged = ProviderEndpointDraft::with_upstream_protocol(
+        let bridged = ProviderEndpointDraft::new(
             "Compatible",
             ProviderKind::Codex,
             "https://api.example.com",
@@ -278,7 +261,7 @@ mod tests {
             ProtocolDialect::OpenAiChatCompletions
         );
 
-        let direct = ProviderEndpointDraft::with_upstream_protocol(
+        let direct = ProviderEndpointDraft::new(
             "Direct",
             ProviderKind::Codex,
             "https://api.example.com",
@@ -299,6 +282,7 @@ mod tests {
                 ProviderKind::Codex,
                 "https://api.example.com",
                 ProtocolDialect::OpenAiResponses,
+                None,
                 true,
             )
             .expect("endpoint draft"),
@@ -309,6 +293,7 @@ mod tests {
             ProviderKind::Claude,
             "https://api.anthropic.com",
             ProtocolDialect::AnthropicMessages,
+            None,
             true,
         )
         .expect("changed kind draft");

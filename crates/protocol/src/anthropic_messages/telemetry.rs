@@ -1,20 +1,15 @@
-use any2api_domain::TokenUsage;
+use any2api_domain::{MAX_TOKEN_COUNT, TokenUsage};
 use serde_json::{Value, value::RawValue};
 
 use crate::{
     api::{ProtocolEventTelemetry, ProtocolResponseTelemetry, SseEventPayload},
     raw_json::{json_string, object_field_raw, top_fields},
-    telemetry::{raw_event_type, raw_non_empty_string, raw_token_usage, token_usage},
+    telemetry::{raw_event_type, raw_non_empty_string},
 };
 
 pub(super) fn response(value: &Value) -> ProtocolResponseTelemetry {
     ProtocolResponseTelemetry {
-        token_usage: token_usage(
-            value.get("usage"),
-            &["input_tokens"],
-            &["output_tokens"],
-            &["cache_read_input_tokens"],
-        ),
+        token_usage: structured_usage(value.get("usage")),
     }
 }
 
@@ -50,12 +45,82 @@ pub(super) fn event(payload: &SseEventPayload) -> ProtocolEventTelemetry {
 }
 
 fn usage(value: Option<&RawValue>) -> TokenUsage {
-    raw_token_usage(
-        value,
-        &["input_tokens"],
-        &["output_tokens"],
-        &["cache_read_input_tokens"],
+    let Some(value) = value else {
+        return TokenUsage::default();
+    };
+    let [input, output, cache_creation, cache_read] = top_fields(
+        value.get().as_bytes(),
+        [
+            "input_tokens",
+            "output_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+        ],
+    );
+    TokenUsage::new(
+        total_input(
+            raw_token(input),
+            raw_optional_token(cache_creation),
+            raw_optional_token(cache_read),
+        ),
+        raw_token(output),
+        raw_token(cache_read),
     )
+}
+
+fn structured_usage(value: Option<&Value>) -> TokenUsage {
+    let Some(value) = value else {
+        return TokenUsage::default();
+    };
+    let cache_read = value.get("cache_read_input_tokens");
+    TokenUsage::new(
+        total_input(
+            structured_token(value.get("input_tokens")),
+            structured_optional_token(value.get("cache_creation_input_tokens")),
+            structured_optional_token(cache_read),
+        ),
+        structured_token(value.get("output_tokens")),
+        structured_token(cache_read),
+    )
+}
+
+fn total_input(
+    input: Option<u64>,
+    cache_creation: Option<u64>,
+    cache_read: Option<u64>,
+) -> Option<u64> {
+    let total = input?
+        .checked_add(cache_creation?)?
+        .checked_add(cache_read?)?;
+    (total <= MAX_TOKEN_COUNT).then_some(total)
+}
+
+fn structured_token(value: Option<&Value>) -> Option<u64> {
+    value?.as_u64().filter(|value| *value <= MAX_TOKEN_COUNT)
+}
+
+fn structured_optional_token(value: Option<&Value>) -> Option<u64> {
+    match value {
+        None | Some(Value::Null) => Some(0),
+        Some(value) => structured_token(Some(value)),
+    }
+}
+
+fn raw_token(value: Option<&RawValue>) -> Option<u64> {
+    serde_json::from_str::<u64>(value?.get())
+        .ok()
+        .filter(|value| *value <= MAX_TOKEN_COUNT)
+}
+
+fn raw_optional_token(value: Option<&RawValue>) -> Option<u64> {
+    let Some(value) = value else {
+        return Some(0);
+    };
+    match serde_json::from_str::<Option<u64>>(value.get()) {
+        Ok(None) => Some(0),
+        Ok(Some(value)) if value <= MAX_TOKEN_COUNT => Some(value),
+        _ => None,
+    }
 }
 
 fn content_delta(delta: Option<&RawValue>) -> bool {
@@ -97,7 +162,7 @@ mod tests {
             br#"{"usage":{"input_tokens":20,"output_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3}}"#;
         assert_eq!(
             response(json).token_usage,
-            TokenUsage::new(Some(20), Some(9), Some(4))
+            TokenUsage::new(Some(27), Some(9), Some(4))
         );
 
         let start = Bytes::from_static(
@@ -106,13 +171,20 @@ mod tests {
         let delta = Bytes::from_static(
             b"event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":9}}\n\n",
         );
+        let cached_delta = Bytes::from_static(
+            b"event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"input_tokens\":20,\"output_tokens\":9,\"cache_read_input_tokens\":4,\"cache_creation_input_tokens\":3}}\n\n",
+        );
         assert_eq!(
             event(&start).token_usage,
-            TokenUsage::new(Some(20), Some(1), Some(4))
+            TokenUsage::new(Some(27), Some(1), Some(4))
         );
         assert_eq!(
             event(&delta).token_usage,
             TokenUsage::new(None, Some(9), None)
+        );
+        assert_eq!(
+            event(&cached_delta).token_usage,
+            TokenUsage::new(Some(27), Some(9), Some(4))
         );
     }
 
@@ -149,7 +221,32 @@ mod tests {
 
         assert_eq!(
             response(body).token_usage,
-            TokenUsage::new(Some(15), None, Some(3))
+            TokenUsage::new(None, None, Some(3))
+        );
+    }
+
+    #[test]
+    fn absent_or_null_cache_fields_contribute_zero_to_input_total() {
+        assert_eq!(
+            response(br#"{"usage":{"input_tokens":15,"output_tokens":2}}"#).token_usage,
+            TokenUsage::new(Some(15), Some(2), None)
+        );
+        assert_eq!(
+            response(
+                br#"{"usage":{"input_tokens":15,"output_tokens":2,"cache_creation_input_tokens":null,"cache_read_input_tokens":null}}"#,
+            )
+            .token_usage,
+            TokenUsage::new(Some(15), Some(2), None)
+        );
+    }
+
+    #[test]
+    fn input_total_above_the_safe_integer_limit_is_unknown() {
+        let body = br#"{"usage":{"input_tokens":9007199254740991,"output_tokens":1,"cache_creation_input_tokens":1,"cache_read_input_tokens":0}}"#;
+
+        assert_eq!(
+            response(body).token_usage,
+            TokenUsage::new(None, Some(1), Some(0))
         );
     }
 }
