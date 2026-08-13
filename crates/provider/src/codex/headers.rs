@@ -8,7 +8,7 @@ use crate::{
     api::ProviderRequestContext,
     header_policy::{ordered_names, project},
     request_header_policy::{
-        RequestHeaderOwnership::{BoundTurnState, CredentialOwned, Replayable},
+        RequestHeaderOwnership::{BoundTurnState, CredentialOwned, Replayable, SessionScoped},
         RequestHeaderRule, project_request, request_header_rules,
     },
 };
@@ -20,21 +20,21 @@ static REQUEST_HEADERS: LazyLock<Vec<RequestHeaderRule>> = LazyLock::new(|| {
         ("x-oai-attestation", CredentialOwned),
         ("user-agent", Replayable),
         ("originator", Replayable),
-        ("x-client-request-id", Replayable),
-        ("session-id", Replayable),
-        ("thread-id", Replayable),
-        ("x-codex-installation-id", Replayable),
-        ("x-codex-window-id", Replayable),
-        ("x-codex-turn-metadata", Replayable),
-        ("x-codex-parent-thread-id", Replayable),
+        ("x-client-request-id", SessionScoped),
+        ("session-id", SessionScoped),
+        ("thread-id", SessionScoped),
+        ("x-codex-installation-id", SessionScoped),
+        ("x-codex-window-id", SessionScoped),
+        ("x-codex-turn-metadata", SessionScoped),
+        ("x-codex-parent-thread-id", SessionScoped),
         ("x-codex-beta-features", Replayable),
-        ("x-openai-subagent", Replayable),
+        ("x-openai-subagent", SessionScoped),
         ("x-openai-memgen-request", Replayable),
         ("x-responsesapi-include-timing-metrics", Replayable),
         ("x-openai-internal-codex-responses-lite", Replayable),
-        ("x-openai-internal-codex-residency", Replayable),
-        ("traceparent", Replayable),
-        ("tracestate", Replayable),
+        ("x-openai-internal-codex-residency", SessionScoped),
+        ("traceparent", SessionScoped),
+        ("tracestate", SessionScoped),
     ])
 });
 
@@ -64,6 +64,7 @@ pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, 
             &[],
             context.allow_credential_bound,
             context.allow_turn_state,
+            context.allow_session_replay,
         ));
     }
     Ok(headers)
@@ -138,6 +139,7 @@ mod tests {
             client_headers: &client,
             oauth: true,
             allow_credential_bound: false,
+            allow_session_replay: true,
             allow_turn_state: false,
         };
         let projected = request(context).expect("headers");
@@ -152,6 +154,7 @@ mod tests {
 
         let owner = request(ProviderRequestContext {
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: true,
             ..context
         })
@@ -177,6 +180,7 @@ mod tests {
             client_headers: &client,
             oauth: true,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         };
 
@@ -216,6 +220,7 @@ mod tests {
             client_headers: &client,
             oauth: true,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         };
 

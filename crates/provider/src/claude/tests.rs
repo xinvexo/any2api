@@ -58,6 +58,7 @@ fn builds_messages_paths_and_anthropic_headers() {
             client_headers: &HeaderMap::new(),
             oauth: false,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         })
         .expect("identity headers");
@@ -235,6 +236,7 @@ fn builds_claude_oauth_headers_and_preserves_client_betas() {
             client_headers: &forwarded,
             oauth: true,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         })
         .expect("identity headers");

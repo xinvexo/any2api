@@ -12,6 +12,7 @@ use crate::{
 enum Projection {
     CredentialOwner,
     CredentialSwitched,
+    StickyCredentialSwitched,
     CrossDialect,
 }
 
@@ -42,6 +43,7 @@ fn assert_projection_contract(
     for projection in [
         Projection::CredentialOwner,
         Projection::CredentialSwitched,
+        Projection::StickyCredentialSwitched,
         Projection::CrossDialect,
     ] {
         let same_dialect = !matches!(projection, Projection::CrossDialect);
@@ -57,6 +59,7 @@ fn assert_projection_contract(
             oauth,
             allow_credential_bound: matches!(projection, Projection::CredentialOwner),
             allow_turn_state: matches!(projection, Projection::CredentialOwner),
+            allow_session_replay: !matches!(projection, Projection::StickyCredentialSwitched),
         };
         let actual = driver
             .prepare_request_headers(context)
@@ -132,15 +135,21 @@ fn golden(kind: ProviderKind, oauth: bool, projection: Projection) -> String {
     let value = match (kind, oauth, projection) {
         (ProviderKind::Codex, _, Projection::CredentialOwner) => CODEX_OWNER,
         (ProviderKind::Codex, _, Projection::CredentialSwitched) => CODEX_SWITCHED,
+        (ProviderKind::Codex, _, Projection::StickyCredentialSwitched) => CODEX_SWITCHED_STICKY,
         (ProviderKind::Codex, _, Projection::CrossDialect) => CODEX_CROSS,
         (ProviderKind::Claude, _, Projection::CredentialOwner) => CLAUDE_OWNER,
         (ProviderKind::Claude, _, Projection::CredentialSwitched) => CLAUDE_SWITCHED,
+        (ProviderKind::Claude, _, Projection::StickyCredentialSwitched) => CLAUDE_SWITCHED_STICKY,
         (ProviderKind::Claude, _, Projection::CrossDialect) => CLAUDE_CROSS,
         (ProviderKind::Grok, false, Projection::CredentialOwner) => GROK_OWNER,
         (ProviderKind::Grok, false, Projection::CredentialSwitched) => GROK_SWITCHED,
+        (ProviderKind::Grok, false, Projection::StickyCredentialSwitched) => GROK_SWITCHED_STICKY,
         (ProviderKind::Grok, false, Projection::CrossDialect) => GROK_CROSS,
         (ProviderKind::Grok, true, Projection::CredentialOwner) => GROK_OAUTH_OWNER,
         (ProviderKind::Grok, true, Projection::CredentialSwitched) => GROK_OAUTH_SWITCHED,
+        (ProviderKind::Grok, true, Projection::StickyCredentialSwitched) => {
+            GROK_OAUTH_SWITCHED_STICKY
+        }
         (ProviderKind::Grok, true, Projection::CrossDialect) => GROK_OAUTH_CROSS,
         (ProviderKind::Kimi, false, _) => "",
         (ProviderKind::Kimi, true, _) => panic!("Kimi has no OAuth operation"),
@@ -182,22 +191,28 @@ fn projection_name(projection: Projection) -> &'static str {
     match projection {
         Projection::CredentialOwner => "owner",
         Projection::CredentialSwitched => "switched",
+        Projection::StickyCredentialSwitched => "sticky-switched",
         Projection::CrossDialect => "cross-dialect",
     }
 }
 
 const CODEX_OWNER: &str = "openai-beta: client-beta\noriginator: client-origin\nsession-id: client-session\ntraceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-client-request-id: client-request\nx-codex-turn-state: client-turn\nx-oai-attestation: client-attestation";
 const CODEX_SWITCHED: &str = "openai-beta: client-beta\noriginator: client-origin\nsession-id: client-session\ntraceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-client-request-id: client-request";
+const CODEX_SWITCHED_STICKY: &str =
+    "openai-beta: client-beta\noriginator: client-origin\nuser-agent: client-agent/9";
 const CODEX_CROSS: &str = "originator: codex_cli_rs\nuser-agent: codex_cli_rs/0.145.0";
 
 const CLAUDE_OWNER: &str = "anthropic-beta: client-anthropic-beta\nanthropic-version: 2099-01-01\ntraceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-app: client-app\nx-claude-code-session-id: client-claude-session\nx-client-request-id: client-request\nx-stainless-retry-count: 7";
 const CLAUDE_SWITCHED: &str = "anthropic-beta: client-anthropic-beta\nanthropic-version: 2099-01-01\ntraceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-app: client-app\nx-claude-code-session-id: client-claude-session\nx-client-request-id: client-request\nx-stainless-retry-count: 7";
+const CLAUDE_SWITCHED_STICKY: &str = "anthropic-beta: client-anthropic-beta\nanthropic-version: 2099-01-01\nuser-agent: client-agent/9\nx-app: client-app";
 const CLAUDE_CROSS: &str =
     "anthropic-version: 2023-06-01\nuser-agent: claude-code/2.1.220\nx-app: cli";
 
 const GROK_OWNER: &str = "traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-conv-id: client-conv\nx-grok-req-id: client-grok-request";
 const GROK_SWITCHED: &str = "traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-conv-id: client-conv\nx-grok-req-id: client-grok-request";
+const GROK_SWITCHED_STICKY: &str = "user-agent: client-agent/9\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9";
 const GROK_CROSS: &str = "user-agent: {grok-user-agent}\nx-grok-client-identifier: grok-shell\nx-grok-client-version: 0.2.112";
 const GROK_OAUTH_OWNER: &str = "traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-authenticateresponse: authenticate-response\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-conv-id: client-conv\nx-grok-model-override: model-contract\nx-grok-req-id: client-grok-request\nx-xai-token-auth: xai-grok-cli";
 const GROK_OAUTH_SWITCHED: &str = "traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-authenticateresponse: authenticate-response\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-conv-id: client-conv\nx-grok-model-override: model-contract\nx-grok-req-id: client-grok-request\nx-xai-token-auth: xai-grok-cli";
+const GROK_OAUTH_SWITCHED_STICKY: &str = "user-agent: client-agent/9\nx-authenticateresponse: authenticate-response\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-model-override: model-contract\nx-xai-token-auth: xai-grok-cli";
 const GROK_OAUTH_CROSS: &str = "user-agent: {grok-user-agent}\nx-authenticateresponse: authenticate-response\nx-grok-client-identifier: grok-shell\nx-grok-client-mode: interactive\nx-grok-client-version: 0.2.112\nx-grok-model-override: model-contract\nx-xai-token-auth: xai-grok-cli";

@@ -251,6 +251,7 @@ fn provider_contract(kind: ProviderKind, driver: &dyn ProviderDriver) {
         client_headers: &client_headers,
         oauth: false,
         allow_credential_bound: true,
+        allow_session_replay: true,
         allow_turn_state: true,
     };
     let request_body = Bytes::from_static(br#"{"future_field":42}"#);

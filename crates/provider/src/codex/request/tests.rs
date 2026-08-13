@@ -18,6 +18,7 @@ fn context(oauth: bool, operation: ProtocolOperation) -> ProviderRequestContext<
         client_headers: &CLIENT_HEADERS,
         oauth,
         allow_credential_bound: true,
+        allow_session_replay: true,
         allow_turn_state: false,
     }
 }

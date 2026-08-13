@@ -341,6 +341,7 @@ fn builds_codex_oauth_headers_from_token_response() {
             client_headers: &http::HeaderMap::new(),
             oauth: true,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         })
         .expect("identity headers");

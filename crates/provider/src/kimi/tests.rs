@@ -87,6 +87,7 @@ fn emits_no_borrowed_persona_and_projects_only_kimi_response_headers() {
             oauth: false,
             allow_credential_bound: true,
             allow_turn_state: false,
+            allow_session_replay: true,
         })
         .expect("request headers");
     assert!(request.is_empty());

@@ -13,6 +13,7 @@ use any2api_provider::api::{
 };
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportIsolationKey, TransportProxy, TransportRequest,
+    TransportTrafficClass,
 };
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, header};
@@ -165,6 +166,11 @@ fn build_request<'a>(
         .as_str()
         .parse()
         .map_err(|_| internal_error())?;
+    // affinity.enabled selects the whole request-surface mode: sticky routing
+    // pairs with fingerprint isolation (per-credential pools, session headers
+    // dropped on switch); balanced routing pairs with the cache-continuous
+    // shared surface.
+    let affinity_enabled = snapshot.affinity_policy().enabled();
     let request_context = ProviderRequestContext {
         ingress_dialect,
         upstream_operation,
@@ -173,6 +179,7 @@ fn build_request<'a>(
         oauth: selected.permit.credential_id().oauth_account_id().is_some(),
         allow_credential_bound: header_policy.allow_credential_bound,
         allow_turn_state: header_policy.allow_turn_state,
+        allow_session_replay: header_policy.allow_credential_bound || !affinity_enabled,
     };
     encoded.body = driver
         .prepare_request_body(request_context, encoded.body)
@@ -220,7 +227,13 @@ fn build_request<'a>(
             uri: encoded.uri,
             headers,
             body: encoded.body,
-            isolation: TransportIsolationKey::shared_data_plane(),
+            isolation: if affinity_enabled {
+                selected
+                    .permit
+                    .transport_isolation(TransportTrafficClass::DataPlane)
+            } else {
+                TransportIsolationKey::shared_data_plane()
+            },
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
             read_timeout: execution_limits::read_timeout(

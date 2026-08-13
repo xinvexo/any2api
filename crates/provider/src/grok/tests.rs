@@ -259,6 +259,7 @@ fn parses_grok_oauth_and_builds_subscription_routing() {
             client_headers: &http::HeaderMap::new(),
             oauth: true,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         })
         .expect("identity headers");
@@ -281,6 +282,7 @@ fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
             client_headers: &client_headers,
             oauth: true,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         })
         .expect("UTF-8 Grok OAuth model header");
@@ -297,6 +299,7 @@ fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
             client_headers: &client_headers,
             oauth: true,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         })
         .expect_err("control bytes are not legal in an HTTP header");
@@ -316,6 +319,7 @@ fn grok_oauth_model_header_preserves_utf8_without_restricting_api_keys() {
             client_headers: &client_headers,
             oauth: false,
             allow_credential_bound: true,
+            allow_session_replay: true,
             allow_turn_state: false,
         })
         .expect("API Key model stays in the JSON request body");

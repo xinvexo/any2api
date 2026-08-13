@@ -72,6 +72,7 @@ pub(super) async fn data_case(
         client_headers: &decoded.client_headers,
         oauth: matches!(credential, DataCredential::OAuth(_)),
         allow_credential_bound: true,
+        allow_session_replay: true,
         allow_turn_state: true,
     };
     let body = driver

@@ -69,6 +69,7 @@ pub struct ProviderRequestContext<'a> {
     pub oauth: bool,
     pub allow_credential_bound: bool,
     pub allow_turn_state: bool,
+    pub allow_session_replay: bool,
 }
 
 pub trait ProviderDriver: Send + Sync {
@@ -363,6 +364,7 @@ impl fmt::Debug for ProviderRequestContext<'_> {
             .field("oauth", &self.oauth)
             .field("allow_credential_bound", &self.allow_credential_bound)
             .field("allow_turn_state", &self.allow_turn_state)
+            .field("allow_session_replay", &self.allow_session_replay)
             .finish()
     }
 }

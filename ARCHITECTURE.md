@@ -53,7 +53,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
 23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均使用带头部锚点的服务端 Keyset Cursor，只展示最近 3 天；禁止以会在持续写入时移动边界的 OFFSET 翻页。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 只在未固定历史 Cursor 的最新页重新读取；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
-25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建；客户端传入的设备、会话、请求关联和分布式追踪值属于可重放类并在切换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性。仅上游签发的账号绑定值（attestation、turn-state）在换号后删除。最终响应只归属于实际提交的最后一次 Attempt。
+25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、会话域、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建。客户端传入的设备、会话、请求关联和分布式追踪值属于会话域（`SessionScoped`）：`affinity.enabled` 关闭（均衡模式）时换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，换号的 Attempt 删除它们以避免跨账号关联。上游签发的账号绑定值（attestation、turn-state）在任何模式下换号即删。最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
@@ -1194,7 +1194,7 @@ TransportKey
 └─ transport_kind
 ```
 
-`transport_isolation` 是 Runtime 生成、Transport 只做相等性比较的强类型隔离身份。`traffic_class` 固定分为 `DataPlane`、`OAuthToken`、`OAuthQuota` 和 `Diagnostic`：公开推理请求、OAuth Token 交换、额度请求与管理诊断不得因为 Proxy 和 origin 相同而共享 Client、TCP/TLS 连接或 HTTP/2 stream namespace。数据面使用单一共享隔离身份：所有凭据的推理请求在同一代理与线路 profile 下复用同一个连接池——上游 prompt cache 的路由对连接路径有亲和性，按凭据拆分数据面连接会打断跨账号的缓存连续性（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`）。OAuth 控制面（Token、额度）仍按 `RoutingCredentialId + routing_generation + authentication_version` 形成代际隔离；尚未产生 OAuthAccount 的登录交换与不绑定 Credential 的代理测试使用单次临时隔离身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。
+`transport_isolation` 是 Runtime 生成、Transport 只做相等性比较的强类型隔离身份。`traffic_class` 固定分为 `DataPlane`、`OAuthToken`、`OAuthQuota` 和 `Diagnostic`：公开推理请求、OAuth Token 交换、额度请求与管理诊断不得因为 Proxy 和 origin 相同而共享 Client、TCP/TLS 连接或 HTTP/2 stream namespace。数据面隔离随 `affinity.enabled` 快照值切换：关闭（均衡模式）时所有凭据的推理请求使用单一共享隔离身份，在同一代理与线路 profile 下复用同一连接池——上游 prompt cache 的路由对连接路径有亲和性，按凭据拆分会打断跨账号的缓存连续性；开启（粘性模式）时会话钉死在单一凭据上，数据面按凭据代际隔离以避免多账号共用连接（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`）。OAuth 控制面（Token、额度）始终按 `RoutingCredentialId + routing_generation + authentication_version` 形成代际隔离；尚未产生 OAuthAccount 的登录交换与不绑定 Credential 的代理测试使用单次临时隔离身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。
 
 只有完整 TransportKey 相同的请求才共享连接池。不同 Credential、不同认证代际或不同 traffic class 必须得到不同 Client。每个 Client 从共享只读 trust roots 构造独立 Rustls `ClientConfig`，TLS session ticket/resumption store 不得跨 TransportKey clone 或复用；因此仅让 HTTP pool key 分离而继续共享 TLS resumption 不满足隔离要求。代理配置修改、Credential secret/token 轮换或账号重新启用后创建新一代 Client；Manager 首次观察到同一 Credential 的更高路由/认证代际时立即移除其较旧缓存引用，旧快照与已开始请求仍继续持有捕获的 Client，不强行中断。删除/禁用后没有新请求触发代际清理的 Client 仍由有界 LRU 与 idle timeout 排出，不允许旧代际 Client 被新代际请求重新命中。
 
@@ -1607,13 +1607,14 @@ Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态�
 
 上述合并结束后，Provider Driver 与 Transport 均不得覆盖或补写 `Accept-Encoding`。同方言直通请求按客户端原始值、顺序和多 Header 结构复制；客户端未发送时上游请求也不发送。Transport 在网络 I/O 前验证每个声明的 coding；当前只允许 `gzip`、`br`、`zstd` 与 `identity`（允许保留权重参数），任一空项、通配符或不支持 coding 都使整组 `Accept-Encoding` 不进入上游，禁止筛选部分 token 后改变客户端偏好。跨协议桥、OAuth 控制面和管理诊断不借用数据面客户端的协商值。响应解码能力独立于请求是否声明该 Header：上游意外返回已支持编码时仍统一增量解码。该行为属于 `generic-rustls-hyper-v3` 的版本化线路契约。
 
-同方言的客户端 Header 声明分为三类：
+同方言的客户端 Header 声明分为四类：
 
-- `Replayable`：不携带上游账号绑定语义的客户端字段，包括协议能力、通用 persona，以及会话、设备、请求关联与分布式追踪标识；换 Credential 的 Attempt 也照常投影。上游 prompt cache 按这些标识与请求前缀路由，删除它们会打断缓存连续性（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`）；
+- `Replayable`：不携带账号或会话关联值的协议能力与通用 persona 字段，可在任何 Attempt 重放；
+- `SessionScoped`：客户端传入的会话、设备、请求关联与分布式追踪标识。`affinity.enabled` 关闭（均衡模式）时换 Credential 的 Attempt 也照常投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会打断缓存连续性；开启（粘性模式）时换号后删除（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`）；
 - `CredentialOwned`：上游为特定账号签发或校验的值（如 `x-oai-attestation`、`anthropic-usage-limit`）。同 Credential 重试可继续投影，换号后必须删除，owner 不得跟随后续 Attempt 改写；
 - `BoundTurnState`：除了必须与上述 Credential owner 一致，还必须命中已有会话绑定。当前只有 `x-codex-turn-state`。
 
-Provider 默认值、ProtocolAdapter 重建字段和当前 Credential 认证不属于客户端值重放，不受该 owner 开关影响。所有分类声明位于各 Provider Driver 内；Runtime 只传递“当前 Attempt 是否仍属于原 Credential owner”与“是否命中现有绑定”事实，不按 Provider 分支。任何原始标识值都不记录、不持久化、不生成也不改写。完整决策见 `docs/adr/0125-credential-owned-request-headers.md`。
+Provider 默认值、ProtocolAdapter 重建字段和当前 Credential 认证不属于客户端值重放，不受该 owner 开关影响。所有分类声明位于各 Provider Driver 内；Runtime 只传递“当前 Attempt 是否仍属于原 Credential owner”“是否命中现有绑定”与“会话域标识是否允许跨号重放”事实，不按 Provider 分支。任何原始标识值都不记录、不持久化、不生成也不改写。完整决策见 `docs/adr/0125-credential-owned-request-headers.md` 与 `docs/adr/0149-restore-cache-continuous-request-surface.md`。
 
 Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央调度器不得新增按 Provider 扩张的 `match`。Kimi API Key 数据面只声明 Moonshot 官方 Chat Completions、`GET /models` 与 Bearer 认证，不发送 Codex/Grok persona Header，不声明 OAuth 或原生 Responses/Images 能力；Responses 接入只能通过已注册的通用 Responses → Chat Completions Bridge。`x-grok-model-override` 必须由最终上游模型重建，并把 Rust 模型字符串按 UTF-8 原始字节确定性写入 Header，禁止 percent/base64 等未定义的二次编码。xAI 官方 Grok Build 客户端使用相同的直接字符串 Header 路径；当前 `http`/Reqwest 栈允许 HTTP `obs-text` 字节，通用 `UpstreamModelName` 已排除控制字符，因此不得错误地把非 ASCII 模型限制为不可用。Driver 原始字符串边界仍须拒绝非法控制字节，并报告 `UnsupportedOAuthModel`，不能误报为上游 `InvalidResponse`。Claude OAuth 必须保留全部有界的客户端 `anthropic-beta` Header 行并去重追加 `oauth-2025-04-20`。`x-oai-attestation` 只允许作为当前 Credential owner 的原始不透明值投影，禁止生成、缓存、记录或在切换 Provider/凭据后重放。
 

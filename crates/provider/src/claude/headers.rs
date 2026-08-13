@@ -7,7 +7,7 @@ use crate::{
     api::ProviderRequestContext,
     header_policy::{ordered_names, project},
     request_header_policy::{
-        RequestHeaderOwnership::{CredentialOwned, Replayable},
+        RequestHeaderOwnership::{CredentialOwned, Replayable, SessionScoped},
         RequestHeaderPrefixRule, RequestHeaderRule, project_request, request_header_rules,
     },
 };
@@ -19,23 +19,23 @@ static REQUEST_HEADERS: LazyLock<Vec<RequestHeaderRule>> = LazyLock::new(|| {
         ("anthropic-mcp-client-capabilities", Replayable),
         ("user-agent", Replayable),
         ("x-app", Replayable),
-        ("x-client-request-id", Replayable),
-        ("x-claude-code-session-id", Replayable),
+        ("x-client-request-id", SessionScoped),
+        ("x-claude-code-session-id", SessionScoped),
         ("anthropic-usage-limit", CredentialOwned),
         ("anthropic-dangerous-direct-browser-access", Replayable),
         ("anthropic-client-platform", Replayable),
         ("x-anthropic-additional-protection", CredentialOwned),
-        ("x-claude-remote-container-id", Replayable),
-        ("x-claude-remote-session-id", Replayable),
-        ("x-claude-code-agent-id", Replayable),
-        ("x-claude-code-parent-agent-id", Replayable),
-        ("traceparent", Replayable),
-        ("tracestate", Replayable),
+        ("x-claude-remote-container-id", SessionScoped),
+        ("x-claude-remote-session-id", SessionScoped),
+        ("x-claude-code-agent-id", SessionScoped),
+        ("x-claude-code-parent-agent-id", SessionScoped),
+        ("traceparent", SessionScoped),
+        ("tracestate", SessionScoped),
     ])
 });
 
 static REQUEST_HEADER_PREFIXES: [RequestHeaderPrefixRule; 1] =
-    [RequestHeaderPrefixRule::new("x-stainless-", Replayable)];
+    [RequestHeaderPrefixRule::new("x-stainless-", SessionScoped)];
 
 static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
     ordered_names(&[
@@ -61,6 +61,7 @@ pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, 
             &REQUEST_HEADER_PREFIXES,
             context.allow_credential_bound,
             context.allow_turn_state,
+            context.allow_session_replay,
         ));
     }
     Ok(headers)
@@ -108,6 +109,7 @@ mod tests {
             client_headers: &client,
             oauth: false,
             allow_credential_bound: false,
+            allow_session_replay: true,
             allow_turn_state: false,
         };
 
@@ -123,6 +125,7 @@ mod tests {
 
         let owner = request(ProviderRequestContext {
             allow_credential_bound: true,
+            allow_session_replay: true,
             ..context
         })
         .expect("owner headers");

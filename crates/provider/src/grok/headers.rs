@@ -8,25 +8,25 @@ use crate::{
     api::ProviderRequestContext,
     header_policy::{ordered_names, project},
     request_header_policy::{
-        RequestHeaderOwnership::Replayable, RequestHeaderRule, project_request,
-        request_header_rules,
+        RequestHeaderOwnership::{Replayable, SessionScoped},
+        RequestHeaderRule, project_request, request_header_rules,
     },
 };
 
 static REQUEST_HEADERS: LazyLock<Vec<RequestHeaderRule>> = LazyLock::new(|| {
     request_header_rules(&[
-        ("x-grok-conv-id", Replayable),
-        ("x-grok-req-id", Replayable),
-        ("x-grok-session-id", Replayable),
-        ("x-grok-agent-id", Replayable),
-        ("x-grok-turn-id", Replayable),
+        ("x-grok-conv-id", SessionScoped),
+        ("x-grok-req-id", SessionScoped),
+        ("x-grok-session-id", SessionScoped),
+        ("x-grok-agent-id", SessionScoped),
+        ("x-grok-turn-id", SessionScoped),
         ("user-agent", Replayable),
         ("x-grok-client-mode", Replayable),
         ("x-grok-client-version", Replayable),
         ("x-grok-client-identifier", Replayable),
         ("x-grok-client-surface", Replayable),
-        ("traceparent", Replayable),
-        ("tracestate", Replayable),
+        ("traceparent", SessionScoped),
+        ("tracestate", SessionScoped),
     ])
 });
 
@@ -55,6 +55,7 @@ pub(crate) fn request(context: ProviderRequestContext<'_>) -> Result<HeaderMap, 
             &[],
             context.allow_credential_bound,
             context.allow_turn_state,
+            context.allow_session_replay,
         ));
     }
     if context.oauth {
@@ -110,6 +111,7 @@ mod tests {
             client_headers: &client,
             oauth: false,
             allow_credential_bound: false,
+            allow_session_replay: true,
             allow_turn_state: false,
         };
 
