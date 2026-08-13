@@ -59,9 +59,9 @@ export function QuotaEstimate({
         <span
           {...triggerProps}
           className="focus-ring shrink-0 cursor-help rounded-[3px] text-tertiary outline-none"
-          aria-label="本地额度估算：学习中"
+          aria-label="本地额度估算：容量校准中"
         >
-          学习中
+          容量校准中
         </span>
         <FloatingPopover
           open={hover !== null}
@@ -176,7 +176,7 @@ function QuotaTooltip({
         ) : null}
         {interval.unpricedRequestCount > 0 ? (
           <p className="text-warning">
-            未计价请求 {interval.unpricedRequestCount} 条，本区间未参与学习
+            未计价请求 {interval.unpricedRequestCount} 条，本区间未参与校准
           </p>
         ) : null}
         {losses ? <p className="text-warning">{losses}</p> : null}
@@ -207,7 +207,7 @@ function isApproximate(value: Estimate["confidence"]) {
 function confidenceLabel(value: Estimate["confidence"]) {
   switch (value) {
     case "unknown": return "无样本";
-    case "learning": return "学习中";
+    case "learning": return "容量校准中";
     case "stable": return "稳定";
     case "degraded": return "不完整";
   }

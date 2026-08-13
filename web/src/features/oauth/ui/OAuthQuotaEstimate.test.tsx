@@ -17,7 +17,7 @@ test("cold start stays visibly unknown until an interval sample exists", () => {
     },
   })} />);
 
-  const trigger = screen.getByText("学习中");
+  const trigger = screen.getByText("容量校准中");
   fireEvent.focus(trigger);
   expect(screen.getByRole("tooltip")).toHaveTextContent("需要两个可靠官方快照");
   expect(trigger).toHaveAttribute("aria-describedby");
@@ -87,7 +87,7 @@ test("a rollover prior keeps the estimate and shows per-epoch sample counts", ()
   const value = screen.getByText("$0.40/$1.00");
   fireEvent.mouseEnter(value);
   const tooltip = screen.getByRole("tooltip");
-  expect(tooltip).toHaveTextContent("证据状态 学习中");
+  expect(tooltip).toHaveTextContent("证据状态 容量校准中");
   expect(tooltip).toHaveTextContent("累计观测中");
   expect(tooltip).toHaveTextContent("容量样本 3 · 本窗口期 0");
 });
