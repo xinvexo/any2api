@@ -113,7 +113,7 @@ impl RequestLogRepository for SqliteStore {
              ingress_protocol, operation, public_model, thinking_level, provider_endpoint_id, \
              credential_id, oauth_account_id, proxy_profile_id, status_code, error_class, \
              error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
-             output_tokens, cache_read_tokens, quota_cost_unit, quota_cost_nanos, \
+             output_tokens, cache_read_tokens, cache_creation_tokens, quota_cost_unit, quota_cost_nanos, \
              quota_cost_rate_card, quota_service_tier, telemetry_process_id, \
              telemetry_sequence, is_stream \
              FROM request_logs WHERE request_id = ?",

@@ -5,6 +5,7 @@ pub struct TokenUsage {
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
     cache_read_tokens: Option<u64>,
+    cache_creation_tokens: Option<u64>,
 }
 
 impl TokenUsage {
@@ -18,7 +19,16 @@ impl TokenUsage {
             input_tokens: valid_count(input_tokens),
             output_tokens: valid_count(output_tokens),
             cache_read_tokens: valid_count(cache_read_tokens),
+            cache_creation_tokens: None,
         }
+    }
+
+    /// Cache-write tokens are an Anthropic-only usage dimension; other
+    /// protocols leave them absent.
+    #[must_use]
+    pub const fn with_cache_creation_tokens(mut self, cache_creation_tokens: Option<u64>) -> Self {
+        self.cache_creation_tokens = valid_count(cache_creation_tokens);
+        self
     }
 
     #[must_use]
@@ -36,6 +46,11 @@ impl TokenUsage {
         self.cache_read_tokens
     }
 
+    #[must_use]
+    pub const fn cache_creation_tokens(self) -> Option<u64> {
+        self.cache_creation_tokens
+    }
+
     pub fn merge(&mut self, update: Self) {
         if update.input_tokens.is_some() {
             self.input_tokens = update.input_tokens;
@@ -45,6 +60,9 @@ impl TokenUsage {
         }
         if update.cache_read_tokens.is_some() {
             self.cache_read_tokens = update.cache_read_tokens;
+        }
+        if update.cache_creation_tokens.is_some() {
+            self.cache_creation_tokens = update.cache_creation_tokens;
         }
     }
 }

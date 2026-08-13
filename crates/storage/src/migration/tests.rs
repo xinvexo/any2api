@@ -99,6 +99,7 @@ async fn full_migration_chain_bootstraps_all_current_invariants() {
             (27, "accumulated segment quota estimator state".to_owned()),
             (28, "single consumer quota estimator state".to_owned()),
             (29, "accumulate codex quota statistics".to_owned()),
+            (30, "add request log cache creation tokens".to_owned()),
         ]
     );
 

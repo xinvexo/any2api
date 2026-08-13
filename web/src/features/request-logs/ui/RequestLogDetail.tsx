@@ -138,6 +138,7 @@ export function RequestLogDetail({ requestId }: { requestId: string }) {
             <Detail label="输入 Token" value={formatMetric(request.inputTokens)} />
             <Detail label="输出 Token" value={formatMetric(request.outputTokens)} />
             <Detail label="缓存命中 Token" value={formatMetric(request.cacheReadTokens)} />
+            <Detail label="缓存写入 Token" value={formatMetric(request.cacheCreationTokens)} />
             <Detail label="TPS" value={formatTps(outputTps(request))} />
           </dl>
         </div>

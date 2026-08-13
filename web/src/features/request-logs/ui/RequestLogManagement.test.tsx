@@ -62,6 +62,7 @@ function requestLogs(): RequestLogList {
         inputTokens: 125,
         outputTokens: 25,
         cacheReadTokens: 100,
+      cacheCreationTokens: null,
         isStream: true,
       },
     ],

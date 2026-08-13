@@ -144,6 +144,7 @@ fn record(
             input_tokens: Some(1),
             output_tokens: Some(1),
             cache_read_tokens: None,
+            cache_creation_tokens: None,
             quota_cost: cost_nanos.map(|amount| {
                 RequestQuotaCost::new(
                     QuotaCostUnit::CodexCredits,

@@ -37,6 +37,7 @@ pub(super) struct RequestLogRow {
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
     cache_read_tokens: Option<i64>,
+    cache_creation_tokens: Option<i64>,
     quota_cost_unit: Option<String>,
     quota_cost_nanos: Option<i64>,
     quota_cost_rate_card: Option<String>,
@@ -142,6 +143,7 @@ pub(super) fn parse_request_log(row: RequestLogRow) -> Result<RequestLog, Storag
         input_tokens: from_optional_i64(row.input_tokens)?,
         output_tokens: from_optional_i64(row.output_tokens)?,
         cache_read_tokens: from_optional_i64(row.cache_read_tokens)?,
+        cache_creation_tokens: from_optional_i64(row.cache_creation_tokens)?,
         quota_cost: parse_quota_cost(
             row.quota_cost_unit,
             row.quota_cost_nanos,

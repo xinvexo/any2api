@@ -53,6 +53,7 @@ impl RequestRecorderInner {
                     input_tokens: token_usage.input_tokens(),
                     output_tokens: token_usage.output_tokens(),
                     cache_read_tokens: token_usage.cache_read_tokens(),
+                    cache_creation_tokens: token_usage.cache_creation_tokens(),
                     quota_cost,
                     is_stream: state.is_stream,
                 },

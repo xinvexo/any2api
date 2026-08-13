@@ -23,7 +23,7 @@ pub(super) async fn insert_request_log(
          gateway_api_key_id, ingress_protocol, operation, public_model, thinking_level, \
          provider_endpoint_id, credential_id, oauth_account_id, proxy_profile_id, status_code, \
          error_class, error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
-         output_tokens, cache_read_tokens, quota_cost_unit, quota_cost_nanos, \
+         output_tokens, cache_read_tokens, cache_creation_tokens, quota_cost_unit, quota_cost_nanos, \
          quota_cost_rate_card, quota_service_tier, telemetry_process_id, telemetry_sequence, \
          is_stream) VALUES (?, ?, ?, ?, \
          (SELECT id FROM gateway_api_keys WHERE id = ?), ?, ?, ?, ?, \
@@ -31,7 +31,7 @@ pub(super) async fn insert_request_log(
          (SELECT id FROM provider_credentials WHERE id = ?), \
          (SELECT id FROM oauth_accounts WHERE id = ?), \
          (SELECT id FROM proxy_profiles WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
-         ?, ?)",
+         ?, ?, ?)",
     )
     .bind(log.request_id.to_string())
     .bind(to_i64(log.started_at_ms)?)
@@ -55,6 +55,7 @@ pub(super) async fn insert_request_log(
     .bind(optional_i64(log.input_tokens)?)
     .bind(optional_i64(log.output_tokens)?)
     .bind(optional_i64(log.cache_read_tokens)?)
+    .bind(optional_i64(log.cache_creation_tokens)?)
     .bind(quota_cost.map(|cost| cost.unit.as_str()))
     .bind(quota_cost.map(|cost| i64::try_from(cost.amount_nanos).expect("validated nano cost")))
     .bind(quota_cost.map(|cost| cost.rate_card.as_str()))

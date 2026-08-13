@@ -55,6 +55,7 @@ test("keeps unavailable token telemetry distinct from real zero values", async (
       input_tokens: 0,
       output_tokens: null,
       cache_read_tokens: null,
+      cache_creation_tokens: null,
     }),
   );
 
@@ -62,7 +63,7 @@ test("keeps unavailable token telemetry distinct from real zero values", async (
 
   expect(await screen.findByText("0 ms")).toBeInTheDocument();
   expect(screen.getByText("0")).toBeInTheDocument();
-  expect(screen.getAllByText("未记录")).toHaveLength(2);
+  expect(screen.getAllByText("未记录")).toHaveLength(3);
 });
 
 test("renders a failed stream separately from its HTTP 200 handshake", async () => {
@@ -195,6 +196,7 @@ function request(overrides: Record<string, unknown> = {}) {
     input_tokens: 120,
     output_tokens: 45,
     cache_read_tokens: 30,
+    cache_creation_tokens: null,
     is_stream: true,
     ...overrides,
   };

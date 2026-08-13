@@ -91,6 +91,7 @@ function detail(
       inputTokens: 10,
       outputTokens: 5,
       cacheReadTokens: 0,
+      cacheCreationTokens: null,
       isStream: true,
     },
     attempts,

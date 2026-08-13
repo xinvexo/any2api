@@ -1,4 +1,11 @@
 [[exceptions]]
+path = "crates/storage/src/request_log/tests.rs"
+reason = "Request log CRUD fixtures still share one test support module"
+adr = "docs/adr/0025-protocol-token-telemetry.md"
+owner = "maintainer"
+expires_at = "2026-11-14"
+
+[[exceptions]]
 path = "crates/transport/src/client/tests.rs"
 reason = "Loopback HTTP/SOCKS5 fixtures and cache-generation lifecycle tests still share one test support module"
 adr = "docs/adr/0123-credential-scoped-transport-isolation.md"

@@ -376,6 +376,7 @@ fn oauth_request_log(
             input_tokens: None,
             output_tokens: None,
             cache_read_tokens: None,
+            cache_creation_tokens: None,
             quota_cost: None,
             is_stream: false,
         },

@@ -173,6 +173,7 @@ pub struct RequestLog {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub cache_read_tokens: Option<u64>,
+    pub cache_creation_tokens: Option<u64>,
     pub quota_cost: Option<RequestQuotaCost>,
     pub is_stream: bool,
 }

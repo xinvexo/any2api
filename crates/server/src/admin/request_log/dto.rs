@@ -118,6 +118,7 @@ struct RequestLogResponse {
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
     cache_read_tokens: Option<u64>,
+    cache_creation_tokens: Option<u64>,
     is_stream: bool,
 }
 
@@ -191,6 +192,7 @@ impl RequestLogResponse {
             input_tokens: value.input_tokens,
             output_tokens: value.output_tokens,
             cache_read_tokens: value.cache_read_tokens,
+            cache_creation_tokens: value.cache_creation_tokens,
             is_stream: value.is_stream,
         }
     }
@@ -269,6 +271,7 @@ mod tests {
                 input_tokens: Some(120),
                 output_tokens: Some(45),
                 cache_read_tokens: Some(30),
+                cache_creation_tokens: Some(11),
                 quota_cost: None,
                 is_stream: true,
             },
@@ -283,6 +286,7 @@ mod tests {
         assert_eq!(json["input_tokens"], 120);
         assert_eq!(json["output_tokens"], 45);
         assert_eq!(json["cache_read_tokens"], 30);
+        assert_eq!(json["cache_creation_tokens"], 11);
         assert!(json.get("cache_write_tokens").is_none());
         assert_eq!(json["thinking_level"], "high");
         assert_eq!(json["client_ip"], "203.0.113.8");

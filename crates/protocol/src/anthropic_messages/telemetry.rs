@@ -66,6 +66,7 @@ fn usage(value: Option<&RawValue>) -> TokenUsage {
         raw_token(output),
         raw_token(cache_read),
     )
+    .with_cache_creation_tokens(raw_token(cache_creation))
 }
 
 fn structured_usage(value: Option<&Value>) -> TokenUsage {
@@ -82,6 +83,7 @@ fn structured_usage(value: Option<&Value>) -> TokenUsage {
         structured_token(value.get("output_tokens")),
         structured_token(cache_read),
     )
+    .with_cache_creation_tokens(structured_token(value.get("cache_creation_input_tokens")))
 }
 
 fn total_input(
@@ -162,7 +164,7 @@ mod tests {
             br#"{"usage":{"input_tokens":20,"output_tokens":9,"cache_read_input_tokens":4,"cache_creation_input_tokens":3}}"#;
         assert_eq!(
             response(json).token_usage,
-            TokenUsage::new(Some(27), Some(9), Some(4))
+            TokenUsage::new(Some(27), Some(9), Some(4)).with_cache_creation_tokens(Some(3))
         );
 
         let start = Bytes::from_static(
@@ -176,7 +178,7 @@ mod tests {
         );
         assert_eq!(
             event(&start).token_usage,
-            TokenUsage::new(Some(27), Some(1), Some(4))
+            TokenUsage::new(Some(27), Some(1), Some(4)).with_cache_creation_tokens(Some(3))
         );
         assert_eq!(
             event(&delta).token_usage,
@@ -184,7 +186,7 @@ mod tests {
         );
         assert_eq!(
             event(&cached_delta).token_usage,
-            TokenUsage::new(Some(27), Some(9), Some(4))
+            TokenUsage::new(Some(27), Some(9), Some(4)).with_cache_creation_tokens(Some(3))
         );
     }
 
@@ -246,7 +248,7 @@ mod tests {
 
         assert_eq!(
             response(body).token_usage,
-            TokenUsage::new(None, Some(1), Some(0))
+            TokenUsage::new(None, Some(1), Some(0)).with_cache_creation_tokens(Some(1))
         );
     }
 }

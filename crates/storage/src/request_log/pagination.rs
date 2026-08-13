@@ -8,7 +8,7 @@ const REQUEST_LOG_PAGE_COLUMNS: &str = "request_id, started_at_ms, client_ip, co
     gateway_api_key_id, ingress_protocol, operation, public_model, thinking_level, \
     provider_endpoint_id, credential_id, oauth_account_id, proxy_profile_id, status_code, \
     error_class, error_message, attempt_count, latency_ms, first_token_ms, input_tokens, \
-    output_tokens, cache_read_tokens, quota_cost_unit, quota_cost_nanos, quota_cost_rate_card, \
+    output_tokens, cache_read_tokens, cache_creation_tokens, quota_cost_unit, quota_cost_nanos, quota_cost_rate_card, \
     quota_service_tier, telemetry_process_id, telemetry_sequence, is_stream";
 
 pub(super) async fn list(
