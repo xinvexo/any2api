@@ -1,5 +1,4 @@
 mod balancing;
-mod cache_locality;
 mod candidates;
 mod credential;
 mod epoch;
@@ -12,14 +11,10 @@ pub use balancing::{
     BalancingProviderSnapshot, BalancingQueueSnapshot, BalancingRuntimeSnapshot,
     BalancingTotalsSnapshot,
 };
-pub(crate) use cache_locality::{
-    CacheLocalityCompletion, CacheLocalityKey, CacheLocalityRegistry, CacheLocalityTarget,
-};
 pub(crate) use candidates::{
-    CandidateExclusions, CandidateHealthError, CandidateIdentity, CandidateRequirements,
-    OAuthRoute, RouteCandidate, RouteCandidateCache, RouteCandidateTiers,
-    active_candidate_path_bases, build_oauth_route_candidates, build_route_candidates,
-    oauth_route_id, resolved_oauth_route_id,
+    CandidateExclusions, CandidateHealthError, CandidateRequirements, OAuthRoute, RouteCandidate,
+    RouteCandidateCache, RouteCandidateTiers, active_candidate_path_bases,
+    build_oauth_route_candidates, build_route_candidates, oauth_route_id, resolved_oauth_route_id,
 };
 pub(crate) use credential::{
     RoutingCredential, RoutingCredentialCompileError, RoutingCredentialSpec, RoutingCredentials,

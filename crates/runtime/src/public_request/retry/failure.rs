@@ -45,19 +45,12 @@ impl RetryExecution<'_> {
         {
             let retry_delay = decision.delay().expect("OAuth retry has a delay");
             self.oauth_refresh_attempted = true;
-            match self.refresh_oauth(account_id, token_version).await {
-                Ok(true) => {
-                    decision =
-                        decision.with_delay(remaining_retry_delay(retry_delay, delay_started_at));
-                    return self
-                        .apply_retry_decision(attempt_no, failure_scope, failure, public, decision)
-                        .await;
-                }
-                Ok(false) => {}
-                Err(error) => {
-                    self.forget_cache_locality_for_failure(&failure);
-                    return Err(error);
-                }
+            if self.refresh_oauth(account_id, token_version).await? {
+                decision =
+                    decision.with_delay(remaining_retry_delay(retry_delay, delay_started_at));
+                return self
+                    .apply_retry_decision(attempt_no, failure_scope, failure, public, decision)
+                    .await;
             }
             decision = retry_decision(&failure, &self.budget, credential_id, false);
             if decision.delay().is_some() {
@@ -65,20 +58,8 @@ impl RetryExecution<'_> {
                     decision.with_delay(remaining_retry_delay(retry_delay, delay_started_at));
             }
         }
-        self.forget_cache_locality_for_failure(&failure);
         self.apply_retry_decision(attempt_no, failure_scope, failure, public, decision)
             .await
-    }
-
-    fn forget_cache_locality_for_failure(&self, failure: &AttemptFailure) {
-        if let (Some(key), Some(candidate)) = (
-            self.plan.cache_locality_key,
-            failure.cache_locality_failure_candidate(),
-        ) {
-            self.snapshot
-                .cache_locality_registry()
-                .forget_candidate(key, candidate);
-        }
     }
 
     fn note_rejected_refreshed_token(&mut self, failure: &AttemptFailure) {

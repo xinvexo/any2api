@@ -19,25 +19,23 @@ static REQUEST_HEADERS: LazyLock<Vec<RequestHeaderRule>> = LazyLock::new(|| {
         ("anthropic-mcp-client-capabilities", Replayable),
         ("user-agent", Replayable),
         ("x-app", Replayable),
-        ("x-client-request-id", CredentialOwned),
-        ("x-claude-code-session-id", CredentialOwned),
+        ("x-client-request-id", Replayable),
+        ("x-claude-code-session-id", Replayable),
         ("anthropic-usage-limit", CredentialOwned),
         ("anthropic-dangerous-direct-browser-access", Replayable),
         ("anthropic-client-platform", Replayable),
         ("x-anthropic-additional-protection", CredentialOwned),
-        ("x-claude-remote-container-id", CredentialOwned),
-        ("x-claude-remote-session-id", CredentialOwned),
-        ("x-claude-code-agent-id", CredentialOwned),
-        ("x-claude-code-parent-agent-id", CredentialOwned),
-        ("traceparent", CredentialOwned),
-        ("tracestate", CredentialOwned),
+        ("x-claude-remote-container-id", Replayable),
+        ("x-claude-remote-session-id", Replayable),
+        ("x-claude-code-agent-id", Replayable),
+        ("x-claude-code-parent-agent-id", Replayable),
+        ("traceparent", Replayable),
+        ("tracestate", Replayable),
     ])
 });
 
-static REQUEST_HEADER_PREFIXES: [RequestHeaderPrefixRule; 1] = [RequestHeaderPrefixRule::new(
-    "x-stainless-",
-    CredentialOwned,
-)];
+static REQUEST_HEADER_PREFIXES: [RequestHeaderPrefixRule; 1] =
+    [RequestHeaderPrefixRule::new("x-stainless-", Replayable)];
 
 static RESPONSE_HEADERS: LazyLock<Vec<HeaderName>> = LazyLock::new(|| {
     ordered_names(&[
@@ -80,11 +78,10 @@ mod tests {
     use super::request;
     use crate::api::ProviderRequestContext;
 
-    const OWNED_HEADERS: &[&str] = &[
+    const OWNED_HEADERS: &[&str] = &["anthropic-usage-limit", "x-anthropic-additional-protection"];
+    const REPLAYABLE_SESSION_HEADERS: &[&str] = &[
         "x-client-request-id",
         "x-claude-code-session-id",
-        "anthropic-usage-limit",
-        "x-anthropic-additional-protection",
         "x-claude-remote-container-id",
         "x-claude-remote-session-id",
         "x-claude-code-agent-id",
@@ -95,10 +92,13 @@ mod tests {
     ];
 
     #[test]
-    fn credential_owned_claude_headers_are_not_replayed_after_a_switch() {
+    fn claude_session_headers_survive_a_credential_switch() {
         let mut client = HeaderMap::new();
         for name in OWNED_HEADERS {
             client.insert(*name, HeaderValue::from_static("owned"));
+        }
+        for name in REPLAYABLE_SESSION_HEADERS {
+            client.insert(*name, HeaderValue::from_static("session"));
         }
         client.insert("anthropic-beta", HeaderValue::from_static("feature"));
         let context = ProviderRequestContext {
@@ -114,6 +114,9 @@ mod tests {
         let switched = request(context).expect("switched headers");
         for name in OWNED_HEADERS {
             assert!(!switched.contains_key(*name), "unexpected {name}");
+        }
+        for name in REPLAYABLE_SESSION_HEADERS {
+            assert_eq!(switched[*name], "session", "missing {name}");
         }
         assert_eq!(switched["anthropic-beta"], "feature");
         assert_eq!(switched["x-app"], "cli");

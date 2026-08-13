@@ -97,12 +97,6 @@ pub(in crate::public_request) async fn execute_stream_attempt(
             continuation_binding,
             attempt_recorder,
             quota_activity,
-            cache_locality: services.cache_locality_key.map(|key| {
-                services
-                    .snapshot
-                    .cache_locality_registry()
-                    .completion(key, &candidate)
-            }),
             status_code: status.as_u16(),
             precommit_budget,
             postcommit_idle_timeout: execution_limits::stream_timeout(

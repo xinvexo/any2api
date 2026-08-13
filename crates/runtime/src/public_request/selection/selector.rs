@@ -11,12 +11,12 @@ use super::super::{
     response::{internal_error, public_error},
 };
 use super::filter_recorder::RequestFilterRecorder;
-use super::{fixed, generation, tier};
+use super::{fixed, generation};
 #[cfg(test)]
 use crate::routing::{QueueCoordinator, QueuePolicy};
 use crate::{
     configuration::PublishedSnapshot,
-    routing::{CacheLocalityKey, CandidateExclusions, RouteCandidate},
+    routing::{CandidateExclusions, RouteCandidate},
 };
 
 pub(in crate::public_request) enum GenerationSelection {
@@ -96,7 +96,6 @@ pub(in crate::public_request) async fn select_candidate(
     fallback_on_rate_limit: bool,
     tiers: &BTreeMap<u16, Vec<RouteCandidate>>,
     exclusions: &CandidateExclusions,
-    cache_locality_key: Option<CacheLocalityKey>,
 ) -> Result<SelectedCandidate, PublicError> {
     let mut selector = CandidateSelector::new(
         snapshot,
@@ -108,27 +107,7 @@ pub(in crate::public_request) async fn select_candidate(
     generation::select_with_queue(
         snapshot.queue_coordinator(),
         snapshot.queue_policy(),
-        || {
-            if let Some(key) = cache_locality_key
-                && let Some(target) = snapshot.cache_locality_registry().lookup(key)
-            {
-                if let Some(selected) =
-                    tier::try_preferred(snapshot.reliability_policy(), tiers, exclusions, &target)
-                {
-                    return Ok(GenerationSelection::Acquired(selected));
-                }
-                if !tiers
-                    .values()
-                    .flatten()
-                    .any(|candidate| target.matches_candidate(candidate))
-                {
-                    snapshot
-                        .cache_locality_registry()
-                        .forget_target(key, &target);
-                }
-            }
-            selector.try_select()
-        },
+        || selector.try_select(),
     )
     .await
 }

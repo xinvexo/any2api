@@ -12,7 +12,7 @@ use any2api_provider::api::{
     ProviderDriver, ProviderError, ProviderRegistry, ProviderRequestContext,
 };
 use any2api_transport::api::{
-    EndpointNetworkPolicy, TransportProxy, TransportRequest, TransportTrafficClass,
+    EndpointNetworkPolicy, TransportIsolationKey, TransportProxy, TransportRequest,
 };
 use bytes::Bytes;
 use http::{HeaderMap, HeaderValue, header};
@@ -220,9 +220,7 @@ fn build_request<'a>(
             uri: encoded.uri,
             headers,
             body: encoded.body,
-            isolation: selected
-                .permit
-                .transport_isolation(TransportTrafficClass::DataPlane),
+            isolation: TransportIsolationKey::shared_data_plane(),
             network_policy: EndpointNetworkPolicy::new()
                 .with_strict_ssrf(snapshot.settings().upstream().strict_ssrf()),
             read_timeout: execution_limits::read_timeout(

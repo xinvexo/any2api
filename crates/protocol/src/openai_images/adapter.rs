@@ -82,7 +82,6 @@ impl ProtocolAdapter for OpenAiImagesAdapter {
             model: Some(model),
             stream: payload.stream,
             thinking_level: None,
-            prompt_cache_key: None,
             affinity,
             payload: AdapterPayload::Multipart(payload),
         })

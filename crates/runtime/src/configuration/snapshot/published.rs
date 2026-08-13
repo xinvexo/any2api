@@ -21,10 +21,9 @@ use crate::{
     proxy::ProxyAuthMaterials,
     registry::RuntimeRegistry,
     routing::{
-        CacheLocalityRegistry, CandidateRequirements, OAuthRoute, QueueCoordinator, QueuePolicy,
-        RouteCandidateCache, RouteCandidateTiers, RouteTierCursorBinding, RouteTierCursorBindings,
-        RoutingCredential, RoutingCredentials, build_oauth_route_candidates,
-        build_route_candidates,
+        CandidateRequirements, OAuthRoute, QueueCoordinator, QueuePolicy, RouteCandidateCache,
+        RouteCandidateTiers, RouteTierCursorBinding, RouteTierCursorBindings, RoutingCredential,
+        RoutingCredentials, build_oauth_route_candidates, build_route_candidates,
     },
 };
 
@@ -42,7 +41,6 @@ pub struct PublishedSnapshot {
     pub(super) gateway_api_key_index: HashMap<[u8; 32], GatewayApiKeyId>,
     pub(super) settings: SettingsConfiguration,
     pub(super) affinity_registry: Arc<AffinityRegistry>,
-    pub(super) cache_locality_registry: Arc<CacheLocalityRegistry>,
     pub(super) affinity_policy: AffinityPolicy,
     pub(super) routing_credentials: RoutingCredentials,
     pub(super) route_tier_cursors: RouteTierCursorBindings,
@@ -110,10 +108,6 @@ impl PublishedSnapshot {
 
     pub(crate) const fn affinity_registry(&self) -> &Arc<AffinityRegistry> {
         &self.affinity_registry
-    }
-
-    pub(crate) const fn cache_locality_registry(&self) -> &Arc<CacheLocalityRegistry> {
-        &self.cache_locality_registry
     }
 
     #[must_use]

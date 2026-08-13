@@ -5,7 +5,7 @@ use crate::{
     credential::{CredentialFilterKind, RateLimited},
     health::{HealthAcquireError, ReliabilityPolicy, TemporaryUnavailability},
     public_request::SelectedCandidate,
-    routing::{CacheLocalityTarget, CandidateExclusions, CandidateHealthError, RouteCandidate},
+    routing::{CandidateExclusions, CandidateHealthError, RouteCandidate},
 };
 
 pub(super) enum TierScan {
@@ -103,29 +103,6 @@ pub(super) fn scan(
             cooldown_retry_at,
         }
     }
-}
-
-pub(super) fn try_preferred(
-    policy: ReliabilityPolicy,
-    tiers: &std::collections::BTreeMap<u16, Vec<RouteCandidate>>,
-    exclusions: &CandidateExclusions,
-    target: &CacheLocalityTarget,
-) -> Option<Box<SelectedCandidate>> {
-    let candidate = tiers
-        .values()
-        .flatten()
-        .find(|candidate| target.matches_candidate(candidate) && exclusions.allows(candidate))?;
-    candidate.health_availability(&policy).ok()?;
-    let permit = candidate.binding.try_reserve().ok()?;
-    let (permit, health) = candidate
-        .acquire_health_with_rpm_reservation(policy, permit)
-        .ok()?;
-    candidate.record_selection();
-    Some(Box::new(SelectedCandidate {
-        candidate: candidate.clone(),
-        permit,
-        health,
-    }))
 }
 
 fn note_health_error(

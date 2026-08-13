@@ -23,8 +23,6 @@ mod request_encoding;
 #[cfg(test)]
 mod tests;
 
-const MAX_PROMPT_CACHE_KEY_BYTES: usize = 4 * 1024;
-
 pub(crate) fn decode_request(
     request: IngressRequest,
     dialect: ProtocolDialect,
@@ -62,7 +60,6 @@ pub(crate) fn decode_request(
     }
     let affinity = extract_affinity(operation, &headers, &payload)?;
     let thinking_level = extract_raw_thinking_level(dialect, &payload);
-    let prompt_cache_key = extract_prompt_cache_key(operation, &payload)?;
     let body_encoding = request_body_encoding(&headers)?;
     let execution_profile = request_execution_profile_raw(operation, &payload);
 
@@ -76,39 +73,9 @@ pub(crate) fn decode_request(
         model: Some(model),
         stream,
         thinking_level,
-        prompt_cache_key,
         affinity,
         payload: AdapterPayload::RawJson(payload),
     })
-}
-
-fn extract_prompt_cache_key(
-    operation: ProtocolOperation,
-    payload: &RawJsonPayload,
-) -> Result<Option<String>, ProtocolError> {
-    if !matches!(
-        operation,
-        ProtocolOperation::Responses | ProtocolOperation::ChatCompletions
-    ) {
-        return Ok(None);
-    }
-    let value = payload
-        .parse_field::<Option<String>>("prompt_cache_key")
-        .transpose()
-        .map_err(|_| {
-            ProtocolError::InvalidPayload("prompt_cache_key must be a string or null".into())
-        })?
-        .flatten()
-        .filter(|value| !value.is_empty());
-    if value
-        .as_ref()
-        .is_some_and(|value| value.len() > MAX_PROMPT_CACHE_KEY_BYTES)
-    {
-        return Err(ProtocolError::InvalidPayload(
-            "prompt_cache_key is too long".into(),
-        ));
-    }
-    Ok(value)
 }
 
 fn extract_affinity(

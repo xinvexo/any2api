@@ -144,20 +144,6 @@ impl AttemptFailure {
         }
     }
 
-    pub(in crate::public_request) fn cache_locality_failure_candidate(
-        &self,
-    ) -> Option<&RouteCandidate> {
-        match self {
-            Self::Transport { candidate, .. } | Self::StreamRejected { candidate, .. } => {
-                Some(candidate.as_ref())
-            }
-            Self::Upstream {
-                error, candidate, ..
-            } if error.classification().kind().is_retry_candidate() => Some(candidate.as_ref()),
-            Self::Upstream { .. } | Self::Public(_) => None,
-        }
-    }
-
     pub(in crate::public_request) fn bound(&self) -> bool {
         match self {
             Self::Transport { bound, .. }

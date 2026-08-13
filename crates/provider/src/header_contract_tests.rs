@@ -187,18 +187,17 @@ fn projection_name(projection: Projection) -> &'static str {
 }
 
 const CODEX_OWNER: &str = "openai-beta: client-beta\noriginator: client-origin\nsession-id: client-session\ntraceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-client-request-id: client-request\nx-codex-turn-state: client-turn\nx-oai-attestation: client-attestation";
-const CODEX_SWITCHED: &str =
-    "openai-beta: client-beta\noriginator: client-origin\nuser-agent: client-agent/9";
+const CODEX_SWITCHED: &str = "openai-beta: client-beta\noriginator: client-origin\nsession-id: client-session\ntraceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-client-request-id: client-request";
 const CODEX_CROSS: &str = "originator: codex_cli_rs\nuser-agent: codex_cli_rs/0.145.0";
 
 const CLAUDE_OWNER: &str = "anthropic-beta: client-anthropic-beta\nanthropic-version: 2099-01-01\ntraceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-app: client-app\nx-claude-code-session-id: client-claude-session\nx-client-request-id: client-request\nx-stainless-retry-count: 7";
-const CLAUDE_SWITCHED: &str = "anthropic-beta: client-anthropic-beta\nanthropic-version: 2099-01-01\nuser-agent: client-agent/9\nx-app: client-app";
+const CLAUDE_SWITCHED: &str = "anthropic-beta: client-anthropic-beta\nanthropic-version: 2099-01-01\ntraceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-app: client-app\nx-claude-code-session-id: client-claude-session\nx-client-request-id: client-request\nx-stainless-retry-count: 7";
 const CLAUDE_CROSS: &str =
     "anthropic-version: 2023-06-01\nuser-agent: claude-code/2.1.220\nx-app: cli";
 
 const GROK_OWNER: &str = "traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-conv-id: client-conv\nx-grok-req-id: client-grok-request";
-const GROK_SWITCHED: &str = "user-agent: client-agent/9\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9";
+const GROK_SWITCHED: &str = "traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-conv-id: client-conv\nx-grok-req-id: client-grok-request";
 const GROK_CROSS: &str = "user-agent: {grok-user-agent}\nx-grok-client-identifier: grok-shell\nx-grok-client-version: 0.2.112";
 const GROK_OAUTH_OWNER: &str = "traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-authenticateresponse: authenticate-response\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-conv-id: client-conv\nx-grok-model-override: model-contract\nx-grok-req-id: client-grok-request\nx-xai-token-auth: xai-grok-cli";
-const GROK_OAUTH_SWITCHED: &str = "user-agent: client-agent/9\nx-authenticateresponse: authenticate-response\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-model-override: model-contract\nx-xai-token-auth: xai-grok-cli";
+const GROK_OAUTH_SWITCHED: &str = "traceparent: 00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01\nuser-agent: client-agent/9\nx-authenticateresponse: authenticate-response\nx-grok-client-identifier: client-grok\nx-grok-client-mode: client-mode\nx-grok-client-surface: terminal\nx-grok-client-version: 9.9\nx-grok-conv-id: client-conv\nx-grok-model-override: model-contract\nx-grok-req-id: client-grok-request\nx-xai-token-auth: xai-grok-cli";
 const GROK_OAUTH_CROSS: &str = "user-agent: {grok-user-agent}\nx-authenticateresponse: authenticate-response\nx-grok-client-identifier: grok-shell\nx-grok-client-mode: interactive\nx-grok-client-version: 0.2.112\nx-grok-model-override: model-contract\nx-xai-token-auth: xai-grok-cli";

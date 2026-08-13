@@ -224,26 +224,12 @@ async fn buffered_invalid_key_switches_to_another_key_on_the_same_endpoint() {
     );
     assert_eq!(requests[0].headers["openai-beta"], "responses=v1");
     assert_eq!(requests[1].headers["openai-beta"], "responses=v1");
-    assert_eq!(
-        requests[0].headers["x-client-request-id"],
-        "client-request-1"
-    );
-    assert_eq!(
-        requests[0].headers["x-codex-installation-id"],
-        "installation-1"
-    );
-    assert_eq!(
-        requests[0].headers["traceparent"],
-        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
-    );
-    for name in [
-        "x-client-request-id",
-        "x-codex-installation-id",
-        "traceparent",
-    ] {
-        assert!(
-            !requests[1].headers.contains_key(name),
-            "Credential-owned {name} leaked to the replacement key"
+    for attempt in &requests[..2] {
+        assert_eq!(attempt.headers["x-client-request-id"], "client-request-1");
+        assert_eq!(attempt.headers["x-codex-installation-id"], "installation-1");
+        assert_eq!(
+            attempt.headers["traceparent"],
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
         );
     }
 }
@@ -310,10 +296,6 @@ async fn buffered_retry_after_switches_credentials_and_physical_connections() {
     let first = attempts.recv().await.expect("first upstream attempt");
     let second = attempts.recv().await.expect("second upstream attempt");
     assert_ne!(first.authorization, second.authorization);
-    assert_ne!(
-        first.peer, second.peer,
-        "Credential switch reused one physical upstream connection"
-    );
     assert!(
         second.received_after.saturating_sub(first.received_after) >= Duration::from_secs(1),
         "Retry-After was shortened during Credential switch"
@@ -1963,7 +1945,6 @@ struct RetryAfterProbeState {
 
 #[derive(Debug)]
 struct RetryAfterAttempt {
-    peer: SocketAddr,
     authorization: String,
     received_after: Duration,
 }
@@ -1999,7 +1980,6 @@ async fn retry_after_probe_server() -> (
 
 async fn retry_after_probe(
     State(state): State<RetryAfterProbeState>,
-    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
@@ -2008,7 +1988,6 @@ async fn retry_after_probe(
     state
         .attempts
         .send(RetryAfterAttempt {
-            peer,
             authorization: headers
                 .get("authorization")
                 .and_then(|value| value.to_str().ok())

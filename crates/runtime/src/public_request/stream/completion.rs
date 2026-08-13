@@ -31,16 +31,6 @@ impl GuardedBody {
         {
             health.success();
         }
-        if let Some(completion) = self.cache_locality.take() {
-            match &outcome {
-                StreamOutcome::Success => completion.success(),
-                StreamOutcome::Error { class, .. } if *class != ErrorClass::Internal => {
-                    completion.failure();
-                }
-                StreamOutcome::Error { .. } => {}
-                StreamOutcome::Cancelled => {}
-            }
-        }
         if let Some(mut recorder) = self.attempt_recorder.take() {
             match &outcome {
                 StreamOutcome::Success => recorder.success(self.status_code),
@@ -72,14 +62,6 @@ impl GuardedBody {
     }
 
     pub(super) fn release_guards(&mut self) {
-        self.release_guards_inner(true);
-    }
-
-    pub(super) fn release_guards_preserving_cache_locality(&mut self) {
-        self.release_guards_inner(false);
-    }
-
-    fn release_guards_inner(&mut self, invalidate_cache_locality: bool) {
         self.state = super::CommitState::Finished;
         self.cancellation.cancel();
         self.upstream = Box::pin(futures_util::stream::empty());
@@ -87,9 +69,6 @@ impl GuardedBody {
         self.health.take();
         self.permit.take();
         self.quota_activity.take();
-        if invalidate_cache_locality && let Some(completion) = self.cache_locality.take() {
-            completion.failure();
-        }
     }
 
     pub(super) fn finish_precommit_failure(&mut self) -> PublicError {
@@ -148,7 +127,7 @@ impl GuardedBody {
                 }
             }
         }
-        self.release_guards_inner(kind != PendingStreamErrorKind::Local);
+        self.release_guards();
         match kind {
             PendingStreamErrorKind::Timeout => public_error(
                 PublicErrorCode::GatewayTimeout,

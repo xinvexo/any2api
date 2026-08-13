@@ -26,6 +26,7 @@ pub struct TransportIsolationKey {
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 enum TransportIsolationOwner {
     RoutingCredential(RoutingCredentialId),
+    SharedDataPlane,
     Ephemeral(u64),
 }
 
@@ -42,6 +43,20 @@ impl TransportIsolationKey {
             routing_generation,
             authentication_version,
             traffic_class,
+        }
+    }
+
+    /// Shared data-plane scope: all credentials multiplex the same upstream
+    /// connection pool (per proxy/wire profile). Upstream prompt caches route
+    /// by connection path, so splitting pools per credential breaks cache
+    /// continuity across accounts.
+    #[must_use]
+    pub const fn shared_data_plane() -> Self {
+        Self {
+            owner: TransportIsolationOwner::SharedDataPlane,
+            routing_generation: 1,
+            authentication_version: 1,
+            traffic_class: TransportTrafficClass::DataPlane,
         }
     }
 
@@ -95,6 +110,7 @@ impl fmt::Debug for TransportIsolationKey {
                 "owner_kind",
                 &match self.owner {
                     TransportIsolationOwner::RoutingCredential(_) => "routing_credential",
+                    TransportIsolationOwner::SharedDataPlane => "shared_data_plane",
                     TransportIsolationOwner::Ephemeral(_) => "ephemeral",
                 },
             )

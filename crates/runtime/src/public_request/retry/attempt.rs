@@ -40,7 +40,6 @@ impl RetryExecution<'_> {
                 fallback_on_rate_limit: self.plan.fallback_on_rate_limit,
                 tiers: &self.plan.tiers,
                 exclusions: &self.exclusions,
-                cache_locality_key: self.plan.cache_locality_key,
             }),
         )
         .await;
@@ -83,7 +82,6 @@ impl RetryExecution<'_> {
             &affinity.selected.candidate,
             affinity.bound,
         );
-        let attempted_candidate = affinity.selected.candidate.clone();
         let timeout_marker = attempt_recorder.timeout_marker();
         let attempt_deadline = self.budget.deadline();
         let services = upstream::UpstreamServices {
@@ -92,7 +90,6 @@ impl RetryExecution<'_> {
             providers: self.services.providers,
             transport: self.services.transport,
             oauth_quota_activity: self.services.oauth.map(|services| services.quota_activity),
-            cache_locality_key: self.plan.cache_locality_key,
             attempt_deadline,
         };
         let attempt = if self.plan.decoded.stream {
@@ -128,11 +125,6 @@ impl RetryExecution<'_> {
         let result = match attempt {
             Ok(attempt) => attempt,
             Err(error) => {
-                if let Some(key) = self.plan.cache_locality_key {
-                    self.snapshot
-                        .cache_locality_registry()
-                        .forget_candidate(key, &attempted_candidate);
-                }
                 self.services.recorder.annotate_attempt(
                     attempt_no,
                     Some(RequestAttemptFailureScope::Unattributed),

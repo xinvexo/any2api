@@ -53,7 +53,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 22. 系统设置提供全局公开模型访问策略；显式 `"all"` 模式表示允许全部已发布模型，数组表示只允许精确匹配的公开模型，其中空数组表示不开放任何模型。该策略同时过滤 `/v1/models` 并在任何路由、RPM 预留或上游请求之前拒绝未放行模型。
 23. 系统提供独立 HTTP 系统日志：公开 `/v1` 代理请求、非本机或未知客户端访问、HTTP 4xx/5xx、Body 错误与取消必须保留；本机成功完成的管理 API、健康检查和 Web 资源等正常内部访问不写入，并在查询时过滤升级前已有的同类记录。日志同时保存两个不同字段：`path` 是客户端实际请求的 `request.uri().path()`，不含 query，且不使用路由模板、通配归一化或重写后的路径；`uri` 是 Axum 收到的完整 URI，包含 query。请求日志与系统日志管理列表均使用带头部锚点的服务端 Keyset Cursor，只展示最近 3 天；禁止以会在持续写入时移动边界的 OFFSET 翻页。日志 Writer 在 SQLite 批次提交、清理或保留删除成功后通过已认证管理 SSE 发送不含日志正文的失效通知，Web 只在未固定历史 Cursor 的最新页重新读取；固定定时轮询和客户端自报的日志排除 Header 均不存在。系统日志列表自身的 `GET /api/admin/system-logs` 仍按统一规则审计，但其记录不推进 `system_logs_changed`，避免事件驱动读取形成自激刷新闭环。
 24. 系统总览使用扁平分区而不是卡片嵌套，并从 RequestLog 展示日志保留窗口内的真实 Token 累计与可切换时间范围、时间/公开模型维度的调用图表；该历史观测不形成计费、余额或新的持久化计数器。Chart.js 必须位于 Overview 页面内部再次按需加载的图表子分块，页面状态和指标先行渲染，加载期间保持与最终图表等高的可访问骨架。图表定时数据刷新必须复用现有 Chart.js 实例并以无动画方式更新数据，只有主题配色变化或组件生命周期结束才重建或销毁实例。
-25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建；客户端传入的设备、会话、请求关联和分布式追踪值不得在切换 Credential 后重放，最终响应只归属于实际提交的最后一次 Attempt。
+25. 公开代理只按 Provider、协议方言与端点定义的显式白名单双向投影客户端和上游 Header；每个请求 Header 还必须声明可重放、Credential-owned 或已绑定 turn-state 语义。客户端认证、连接级 Header 与上游认证始终重建；客户端传入的设备、会话、请求关联和分布式追踪值属于可重放类并在切换 Credential 后继续投影——上游 prompt cache 按这些标识与请求前缀路由，删除它们会在换号时打断缓存连续性。仅上游签发的账号绑定值（attestation、turn-state）在换号后删除。最终响应只归属于实际提交的最后一次 Attempt。
 26. OpenAI API Key Endpoint 可以选择独立的 `openai_images` 方言，公开 `POST /v1/images/generations` 与 `POST /v1/images/edits`；生成使用 JSON，编辑同时接受 OpenAI 官方的 JSON 引用与 `multipart/form-data` 文件上传。Codex OAuthAccount、Claude、Grok 与 Kimi 不声明原生 Images 方言能力。
 27. 官方 GitHub Release 从 Actions 页面手动触发，并要求管理员输入不带 `v` 前缀的稳定 SemVer；`workflow_dispatch.inputs.version` 是该次 Release 唯一的产品版本真相来源，同时决定 Tag、资产名和编译进二进制的正式版本。Cargo package version 只属于 Rust 包元数据，不要求与该输入相等；工作流必须在打包前执行二进制 `--version` 并精确核对输入。首版只打包 Linux AMD64 GNU 二进制及其 SHA-256 文件。
 28. Web“设置”增加“关于”页签，显示当前版本和 GitHub 仓库地址，并提供显式检查与安装官方 Release 的操作；安装只接受固定仓库、固定平台资产并校验 SHA-256。管理员确认安装后，服务端以单个进程内任务执行下载、校验、替换和重启，浏览器请求取消不得取消该任务；Web 在任务运行中进入不可关闭的全屏更新状态，展示下载进度和安装/重启阶段，通过新进程公开的构建版本确认目标版本启动成功后自动刷新。更新任务明确失败时允许重试或返回；连续 90 秒无法确认任务或目标健康时进入不宣称失败的有界恢复状态，允许继续等待或返回；仍不在后台静默检查或自动安装。
@@ -67,7 +67,7 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 36. 实际进入 Transport 的 RequestAttempt 必须保存不含 Secret 的结构化线路诊断；流式 Attempt 还必须以 Attempt 起点为单调时钟基准记录首个完整上游 SSE frame、预提交 commit、首个向下游 Body yield 和取消四个 first-write-wins 时间点。诊断只用于本地可观测与回归，不能改变 retry、flush、backpressure、连接复用或路由行为。
 37. 官方客户端基线只能使用明确版本和哈希的发布物、合成凭据、临时客户端目录、清空后的进程环境与 loopback recorder 离线采集；每份基线必须记录 Provider、客户端入口、版本、平台、操作、日期、HTTP 条件和局限。仓库只保存脱敏后的 Header 顺序、Body 结构与 capture hash，不保存原始认证值、动态设备/会话/请求标识或完整提示正文。单一入口或平台的观测不能自动改写通用 Provider persona，更不能据此增加 TLS/HTTP2 随机化或伪装层。
 38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新和额度操作必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在同一全局出口同步起跑。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider Driver 投影的稳定主体身份，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。Codex `chatgpt_account_id` 只是所选个人账户或工作区的路由标识；Codex 稳定主体优先使用工作区标识与 `chatgpt_user_id`（兼容 `user_id`）组成的身份，缺少成员主体 claim 时才回落规范化邮箱，禁止单独用工作区标识合并同一 Team 工作区的不同成员。交互式登录也必须在同一发布锁内检查精确 Token 重复：稳定身份与 Token 证据指向不同历史记录时返回冲突，缺少稳定身份但只命中一条精确 Token 记录时复用该记录，不能创建新候选。完整决策见 `docs/adr/0132-provider-scoped-oauth-control-plane-pacing.md`、`docs/adr/0133-reject-duplicate-oauth-import-identities.md`、`docs/adr/0134-interactive-oauth-token-duplicate-guard.md` 与 `docs/adr/0147-codex-workspace-member-oauth-identity.md`。
-39. 公开请求的 `Content-Encoding` 只描述客户端到 any2api 的入口 hop，不能仅凭 Provider 类型或同方言推断选中的上游也支持同一请求压缩。当前只有固定官方 Codex OAuth 数据面明确允许把已解码、规范化后的同方言 Responses JSON 重新压缩为 zstd；Codex `ProviderCredential` 指向的官方或自定义 API Key Endpoint 都必须发送 identity JSON 并删除入口压缩元数据。跨协议请求同样发送 identity JSON。完整决策见 `docs/adr/0139-credential-surface-request-content-coding.md`。
+39. 公开请求的 `Content-Encoding` 只描述客户端到 any2api 的入口 hop。任何上游认证面当前都不重新压缩请求正文：所有上游请求发送 identity JSON 并删除入口压缩元数据，保证发往不同凭据的字节完全一致，上游 prompt cache 才能跨账号命中（ADR-0139 的 Codex OAuth zstd 重压缩由 `docs/adr/0149-restore-cache-continuous-request-surface.md` 停用）。
 40. Codex 本机额度统计只使用官方窗口使用率和本地 SQLite 中已经落库的 RequestLog：本地记录就是统计事实，不评估证据、置信度、样本质量或异常值。每个有限正 `Δused%` 且本地 Credits 为正的区间立即加入 `total_delta_used_percent`、`total_local_cost_credits` 与完成区间数，容量唯一按 `Σlocal Credits × 100 / ΣΔused%` 计算。官方额度观测与 RequestLog 使用同一进程内单调位置划分区间；观测在同一日志 Writer 排入 flush barrier 并等待其完成，SQL 只汇总同一进程 `(anchor.sequence, observation.sequence]` 的记录。显式 reset 命令不修改统计；只有下一次官方观测显示 `reset_at` 变化或使用率下降时才更新锚点并开始新窗口，全部历史累计保持不变。只有凭据身份、窗口 ID/类型/时长或已知订阅层级改变才清空累计。每条 RequestLog 在 Attempt 准备时从当前 PublishedSnapshot 的 `oauth.codex.rate_card` 冻结模型 Token→Credits 费率与卡片 ID，后续改价不得重算历史日志。完整决策见 `docs/adr/0145-configurable-codex-quota-rate-card.md` 与 `docs/adr/0146-cumulative-codex-quota-statistics.md`。
 
 ### 2.1 两类凭据的术语边界
@@ -307,8 +307,7 @@ flowchart LR
     ACCESS --> DECODE["ProtocolAdapter Decode"]
     DECODE --> ROUTER["Model Router"]
     ROUTER --> AFFINITY["Session Affinity"]
-    AFFINITY --> CACHE_LOCALITY["Prompt Cache Locality Hint"]
-    CACHE_LOCALITY --> SELECTOR["Select + Reserve RPM"]
+    AFFINITY --> SELECTOR["Select + Reserve RPM"]
     SELECTOR --> DRIVER["ProviderDriver Request Plan"]
     DRIVER --> TRANSPORT["TransportManager"]
     TRANSPORT --> UPSTREAM["Upstream API"]
@@ -332,7 +331,6 @@ flowchart LR
     SNAPSHOT --> TRANSPORT
 
     REGISTRY["Stable RuntimeRegistry"] --> AFFINITY
-    REGISTRY --> CACHE_LOCALITY
     REGISTRY --> SELECTOR
     REGISTRY --> TRANSPORT
     STATIC["Provider / Protocol Registries"] --> DECODE
@@ -389,7 +387,7 @@ any2api/
 │  │     ├─ proxy/              # 代理认证材料与连接探测
 │  │     ├─ public_request/     # 规划、选择、重试、上游执行与流式生命周期
 │  │     ├─ request_telemetry/  # 请求/Attempt 遥测与异步写入
-│  │     └─ routing/            # 候选、RPM、队列、轮询、缓存局部性与聚合观测
+│  │     └─ routing/            # 候选、RPM、队列、轮询与聚合观测
 │  ├─ storage/
 │  │  └─ src/
 │  │     ├─ api.rs              # 稳定 Storage 端口
@@ -615,7 +613,6 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 3. Decode
    - 识别具体 ProtocolDialect，而不是只识别 Provider 名称
    - 解析模型、流式模式和会话标识
-   - OpenAI Responses/Chat Completions 从正文提取有界 `prompt_cache_key`，只作为不记录日志的瞬态路由提示
 
 4. Route
    - 按同一 PublishedSnapshot revision 的全局公开模型允许列表检查模型
@@ -630,7 +627,6 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 
 6. SelectAndReserve
    - 过滤禁用、冷却、代理不可用的 Credential
-   - 未绑定请求若有缓存局部性提示，先对上次成功路径做一次无等待准入；不可用时立即回到普通调度
    - 按 Route + tier 的稳定轮询顺序尝试候选
    - 原子选择 Credential 并预留滚动 60 秒 RPM 名额
    - 健康预检查后的 Guard 竞争失败时，在上游 Attempt 前按唯一令牌精确回滚本次预留
@@ -1198,7 +1194,7 @@ TransportKey
 └─ transport_kind
 ```
 
-`transport_isolation` 是 Runtime 生成、Transport 只做相等性比较的强类型隔离身份。`traffic_class` 固定分为 `DataPlane`、`OAuthToken`、`OAuthQuota` 和 `Diagnostic`：公开推理请求、OAuth Token 交换、额度请求与管理诊断不得因为 Proxy 和 origin 相同而共享 Client、TCP/TLS 连接或 HTTP/2 stream namespace。持久化 Credential 使用 `RoutingCredentialId + routing_generation + authentication_version` 形成代际；尚未产生 OAuthAccount 的登录交换与不绑定 Credential 的代理测试使用单次临时隔离身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。
+`transport_isolation` 是 Runtime 生成、Transport 只做相等性比较的强类型隔离身份。`traffic_class` 固定分为 `DataPlane`、`OAuthToken`、`OAuthQuota` 和 `Diagnostic`：公开推理请求、OAuth Token 交换、额度请求与管理诊断不得因为 Proxy 和 origin 相同而共享 Client、TCP/TLS 连接或 HTTP/2 stream namespace。数据面使用单一共享隔离身份：所有凭据的推理请求在同一代理与线路 profile 下复用同一个连接池——上游 prompt cache 的路由对连接路径有亲和性，按凭据拆分数据面连接会打断跨账号的缓存连续性（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`）。OAuth 控制面（Token、额度）仍按 `RoutingCredentialId + routing_generation + authentication_version` 形成代际隔离；尚未产生 OAuthAccount 的登录交换与不绑定 Credential 的代理测试使用单次临时隔离身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。禁止把 API Key、OAuth Token、代理密码或客户端 Session ID 编入该身份。
 
 只有完整 TransportKey 相同的请求才共享连接池。不同 Credential、不同认证代际或不同 traffic class 必须得到不同 Client。每个 Client 从共享只读 trust roots 构造独立 Rustls `ClientConfig`，TLS session ticket/resumption store 不得跨 TransportKey clone 或复用；因此仅让 HTTP pool key 分离而继续共享 TLS resumption 不满足隔离要求。代理配置修改、Credential secret/token 轮换或账号重新启用后创建新一代 Client；Manager 首次观察到同一 Credential 的更高路由/认证代际时立即移除其较旧缓存引用，旧快照与已开始请求仍继续持有捕获的 Client，不强行中断。删除/禁用后没有新请求触发代际清理的 Client 仍由有界 LRU 与 idle timeout 排出，不允许旧代际 Client 被新代际请求重新命中。
 
@@ -1221,7 +1217,7 @@ Transport 在网络 I/O 前可从最终 Request、Proxy 与 Manager 配置生成
 - HTTP/SOCKS5 认证材料作为脱敏 sidecar 传入 Transport；`DIRECT` 必须没有代理认证；
 - Provider Authorization 逐请求注入，禁止放进 HTTP Client 默认 Header；
 - `TransportRequest` 必须显式携带 `transport_isolation`，不得提供会把不同调用者落入进程级共享池的默认值；
-- 同一个 `RoutingCredentialId + routing_generation + authentication_version` 在同一 traffic class 内允许复用；Credential、认证代际或 traffic class 任一不同都必须隔离 Client、连接池与 TLS resumption；
+- 同一 traffic class 内按 TransportKey 相等性复用：数据面共用共享身份；OAuth 控制面按 `RoutingCredentialId + routing_generation + authentication_version` 隔离，认证代际或 traffic class 任一不同都必须隔离 Client、连接池与 TLS resumption；
 - Client 禁用 Cookie Store；
 - Client 缓存使用 Weak 引用、代际清理或有界 LRU，禁止永久保存所有历史配置版本；
 - 等响应头超时归入 `AwaitHeaders`，完整收集响应体时的空闲超时归入 `ReadBody`；两者默认 `Ambiguous`。DIRECT 归因 Endpoint，无法证明代理或目标责任的代理路径使用 `Unattributed`；
@@ -1613,8 +1609,8 @@ Bridge 由 `ProtocolRegistry` 按 `(ingress_dialect, upstream_dialect)` 静态�
 
 同方言的客户端 Header 声明分为三类：
 
-- `Replayable`：不携带单次请求、会话、设备或账号关联值的协议能力与通用 persona 字段，可在预提交重试中重放；
-- `CredentialOwned`：客户端传入的 installation、session、conversation、thread、agent、request ID、`traceparent`/`tracestate`、attestation 以及可能携带同类关联值的 Provider 前缀 Header。Runtime 在逻辑请求首次选择成功后将其 owner 锁定为该 `RoutingCredentialId`；同 Credential 重试可继续投影，换号后必须删除，owner 不得跟随后续 Attempt 改写；
+- `Replayable`：不携带上游账号绑定语义的客户端字段，包括协议能力、通用 persona，以及会话、设备、请求关联与分布式追踪标识；换 Credential 的 Attempt 也照常投影。上游 prompt cache 按这些标识与请求前缀路由，删除它们会打断缓存连续性（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`）；
+- `CredentialOwned`：上游为特定账号签发或校验的值（如 `x-oai-attestation`、`anthropic-usage-limit`）。同 Credential 重试可继续投影，换号后必须删除，owner 不得跟随后续 Attempt 改写；
 - `BoundTurnState`：除了必须与上述 Credential owner 一致，还必须命中已有会话绑定。当前只有 `x-codex-turn-state`。
 
 Provider 默认值、ProtocolAdapter 重建字段和当前 Credential 认证不属于客户端值重放，不受该 owner 开关影响。所有分类声明位于各 Provider Driver 内；Runtime 只传递“当前 Attempt 是否仍属于原 Credential owner”与“是否命中现有绑定”事实，不按 Provider 分支。任何原始标识值都不记录、不持久化、不生成也不改写。完整决策见 `docs/adr/0125-credential-owned-request-headers.md`。
@@ -1623,7 +1619,7 @@ Codex、Claude、Grok 与 Kimi 分别维护独立的请求/响应契约，中央
 
 `x-codex-turn-state` 是上游服务端签发并与 Route Target/Credential 绑定的粘性状态。只有当前请求已经解析到同一 Credential 的现有会话绑定时才允许发送；没有绑定、绑定丢失或首次创建会话时必须删除，禁止把一个账号签发的状态令牌发送给另一个账号。响应中新的 `x-codex-turn-state` 只有在该 Attempt 最终提交时才能返回。
 
-公开请求 Body 若声明 `Content-Encoding: zstd`，只在 JSON 型 Codex/OpenAI 入口接受。Server 同时限制压缩前字节数和流式解压后的字节数；未知/重复编码、损坏帧或解压后超限使用当前协议错误 envelope 拒绝。ProtocolAdapter 解析解压后的 JSON。入口 `Content-Encoding` 是客户端到 any2api 的 hop 属性，不是对选中上游能力的声明；是否重新编码只能由 Provider Driver 根据当前实际认证面明确决定。当前只有固定官方 Codex OAuth 数据面在入口与上游同为 Responses 方言且客户端原本使用 zstd 时，才对最终规范化 Body 重新压缩并重建 `Content-Encoding`/`Content-Length` 语义。Codex API Key `ProviderCredential` 的 Base URL 是管理员可配置的兼容 Endpoint，不能假定支持 zstd，因此无论是否同方言都发送 identity JSON 并删除入口 `Content-Encoding`；跨协议请求同样发送 identity JSON。绝不转发与重编码正文失配的压缩元数据。完整决策见 `docs/adr/0139-credential-surface-request-content-coding.md`。
+公开请求 Body 若声明 `Content-Encoding: zstd`，只在 JSON 型 Codex/OpenAI 入口接受。Server 同时限制压缩前字节数和流式解压后的字节数；未知/重复编码、损坏帧或解压后超限使用当前协议错误 envelope 拒绝。ProtocolAdapter 解析解压后的 JSON。入口 `Content-Encoding` 是客户端到 any2api 的 hop 属性，不是对选中上游能力的声明。当前所有上游请求一律发送 identity JSON 并删除入口 `Content-Encoding`：不按认证面重新压缩，保证同一正文发往任何凭据的字节一致（见 `docs/adr/0149-restore-cache-continuous-request-surface.md`，取代 `docs/adr/0139-credential-surface-request-content-coding.md` 的 Codex OAuth zstd 重压缩）。绝不转发与重编码正文失配的压缩元数据。
 
 响应 Header 也不能使用宽泛 denylist。Driver 只投影最终 Attempt 的显式精确名称或受控 Provider 前缀；认证、Cookie、hop-by-hop 和正文校验 Header 始终删除。上游 `x-request-id`/`request-id`/`x-oai-request-id` 存在时原样保留；Codex 只有 `x-oai-request-id` 时还必须把同一上游值镜像为 `x-request-id`。any2api 为每个 HTTP 请求生成的本地追踪值始终写入 `x-any2api-request-id`。仅当响应没有可归一化的上游 `x-request-id` 时，Server 才用本地值补 `x-request-id`，因此本地错误仍同时具有两个关联字段。任意状态的上游响应若带 `gzip`、`br` 或 `zstd`，Transport 必须在 Protocol JSON/SSE 解码或 Provider 错误分类前按 Content-Encoding 逆序增量解码，并立即删除 `Content-Encoding`、`Content-Length`、`Content-Range`、`ETag`、`Digest` 与 `Content-MD5`；解压后的字节才计入 buffered/error response 上限并进入 stream frame parser。编码链最多四层，未知 token、空 token、损坏流或超过层数都作为 `ReadBody` 阶段的 Endpoint 响应失败，RetrySafety 为 `Ambiguous`。最终非成功响应仍透明返回上游状态、允许 Header 和解压后的原始内容字节，不做协议转换或 JSON 重序列化；ADR-0061 中保留压缩表示及 Content-Encoding 的旧决定由 ADR-0127 取代。正文被丢弃为空时仍不得生成替代 envelope。本地错误与成功响应重编码不得携带失配的 Content-Encoding。聚合 `/v1/models` 不透传某个账号的 `X-Models-Etag`，而应由当前 PublishedSnapshot 的公开目录生成本地 ETag。
 
@@ -1741,24 +1737,8 @@ TPM（Tokens Per Minute）不实现：输出 Token 事前未知，Provider 的�
 4. Credential + Model 是否冷却
 5. 实际代理是否可用
 6. 是否仍有 RPM 名额；未配置 RPM 时始终通过
-7. 未绑定且携带有效 `prompt_cache_key` 时，尝试同一作用域内上次成功的完整 AttemptPath
-8. 提示路径不能立即取得健康与 RPM Guard 时，从 Route + fallback tier 的稳定轮询游标开始选择
+7. 从 Route + fallback tier 的稳定轮询游标开始选择
 ```
-
-缓存局部性提示与会话绑定不同。它只适用于未绑定的 OpenAI Responses/Chat Completions 请求，键的作用域
-精确包含入口协议、操作、`ModelRouteId` 与客户端 `prompt_cache_key`；原始键进入 Runtime 后立即用进程级随机
-HMAC-SHA256 转换，禁止写入日志、SQLite、管理 DTO 或浏览器状态。命中后允许跨 fallback tier 对上次成功的
-完整 AttemptPath 做一次优先尝试，以避免普通轮询把同一缓存键持续打散到不同上游；该尝试仍使用现有健康
-检查与 RPM 原子预留，不单独等待、不占用第二套队列，也不推进普通轮询游标。提示目标不可立即执行时，
-同一请求立刻回到完整普通候选池，因此不会禁用或排除其他上游。
-
-提示只在 buffered 响应完整成功或流式响应成功终止后写入；带候选身份的传输、协议、预提交失败，以及
-认证、权限、额度、限流、模型/操作不可用和瞬态上游失败，以目标比较方式删除仍指向该失败路径的提示，
-避免冷却到期后把后续同键请求重新送回已失败路径。普通 InvalidRequest、any2api 本地后处理失败与客户端
-取消均不删除已有提示，因为这些结果不能证明路径失效；客户端取消也不建立新提示。提示使用有界、滑动
-过期的进程内表，配置代际变化后只有仍与当前完整候选身份匹配的记录可命中；进程重启清空全部提示。
-该机制不保证上游一定保留缓存，只保证 any2api 不主动破坏已观察到的缓存路径局部性。完整决策见
-`docs/adr/0148-prompt-cache-locality-soft-routing.md`。
 
 同一 tier 内的最小可执行单位是 `AttemptPath`：RouteTarget、ProtocolOperation、RoutingCredential
 generation、Endpoint config generation 与解析后的 EffectiveProxy config generation。按稳定完整候选环
@@ -2130,14 +2110,6 @@ Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定�
 关闭 `affinity.enabled` 不清空进程内已有绑定，只让新快照中的普通显式 Session 忽略它们；重新开启后，
 尚未过期的绑定可以继续命中。Response ID 的续接绑定仍照常创建、刷新和清理。
 由于关闭时普通显式 Session 已不再是当前策略的活动绑定，总览必须返回活动会话数 `0`，不得把保留的普通绑定或仍必须维护的 Continuation 索引算作活动会话。
-
-### 13.8 缓存局部性不是会话粘性
-
-`prompt_cache_key` 的缓存局部性提示不创建 `SessionBindingRuntime`，不固定必须可用的 Credential，也不改变
-`affinity.enabled` 的含义。关闭普通会话粘性后，显式 Session 仍被忽略；只有请求本身携带有效
-`prompt_cache_key` 时，未绑定选择才可以优先尝试上次成功路径。该路径不可用就立即恢复普通调度，且失败后
-删除提示，所以它没有“等待原 Credential”“绑定丢失”或“禁止切换”的会话语义。Continuation 仍优先执行
-第 13.2 节的强绑定规则，不读取缓存局部性提示。
 
 Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md` 与 `docs/adr/0066-active-session-overview.md`。
 

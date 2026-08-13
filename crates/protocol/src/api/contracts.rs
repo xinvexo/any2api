@@ -42,9 +42,6 @@ pub struct DecodedRequest {
     pub stream: bool,
     /// Optional thinking/reasoning level extracted from the request body.
     pub thinking_level: Option<String>,
-    /// Opaque OpenAI cache key used only for transient Runtime routing.
-    /// Its value must never be logged or exposed through management APIs.
-    pub prompt_cache_key: Option<String>,
     pub affinity: IngressAffinity,
     pub payload: AdapterPayload,
 }

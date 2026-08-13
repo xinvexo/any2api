@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use any2api_domain::{ProtocolDialect, RequestBodyEncoding};
+use any2api_domain::RequestBodyEncoding;
 use http::{HeaderMap, HeaderName};
 
 use crate::{
@@ -20,21 +20,21 @@ static REQUEST_HEADERS: LazyLock<Vec<RequestHeaderRule>> = LazyLock::new(|| {
         ("x-oai-attestation", CredentialOwned),
         ("user-agent", Replayable),
         ("originator", Replayable),
-        ("x-client-request-id", CredentialOwned),
-        ("session-id", CredentialOwned),
-        ("thread-id", CredentialOwned),
-        ("x-codex-installation-id", CredentialOwned),
-        ("x-codex-window-id", CredentialOwned),
-        ("x-codex-turn-metadata", CredentialOwned),
-        ("x-codex-parent-thread-id", CredentialOwned),
+        ("x-client-request-id", Replayable),
+        ("session-id", Replayable),
+        ("thread-id", Replayable),
+        ("x-codex-installation-id", Replayable),
+        ("x-codex-window-id", Replayable),
+        ("x-codex-turn-metadata", Replayable),
+        ("x-codex-parent-thread-id", Replayable),
         ("x-codex-beta-features", Replayable),
-        ("x-openai-subagent", CredentialOwned),
+        ("x-openai-subagent", Replayable),
         ("x-openai-memgen-request", Replayable),
         ("x-responsesapi-include-timing-metrics", Replayable),
         ("x-openai-internal-codex-responses-lite", Replayable),
-        ("x-openai-internal-codex-residency", CredentialOwned),
-        ("traceparent", CredentialOwned),
-        ("tracestate", CredentialOwned),
+        ("x-openai-internal-codex-residency", Replayable),
+        ("traceparent", Replayable),
+        ("tracestate", Replayable),
     ])
 });
 
@@ -84,13 +84,12 @@ pub(crate) fn response(upstream: &HeaderMap) -> HeaderMap {
 }
 
 pub(crate) fn supports_encoding(
-    context: ProviderRequestContext<'_>,
-    encoding: RequestBodyEncoding,
+    _context: ProviderRequestContext<'_>,
+    _encoding: RequestBodyEncoding,
 ) -> bool {
-    encoding == RequestBodyEncoding::Zstd
-        && context.oauth
-        && context.ingress_dialect == context.upstream_operation.dialect()
-        && context.upstream_operation.dialect() == ProtocolDialect::OpenAiResponses
+    // Request-body compression is disabled: identity bodies keep the wire
+    // bytes credential-invariant, which upstream prompt caching depends on.
+    false
 }
 
 #[cfg(test)]
@@ -101,24 +100,25 @@ mod tests {
     use super::{request, response, supports_encoding};
     use crate::api::ProviderRequestContext;
 
-    const OWNED_HEADERS: &[&str] = &[
-        "x-oai-attestation",
-        "x-client-request-id",
-        "session-id",
-        "thread-id",
-        "x-codex-installation-id",
-        "x-codex-window-id",
-        "x-codex-turn-metadata",
-        "x-codex-parent-thread-id",
-        "x-openai-subagent",
-        "x-openai-internal-codex-residency",
-        "traceparent",
-        "tracestate",
-    ];
+    const OWNED_HEADERS: &[&str] = &["x-oai-attestation"];
     const REPLAYABLE_HEADERS: &[(&str, &str)] = &[
         ("openai-beta", "responses=v1"),
         ("x-codex-beta-features", "remote_compaction_v2"),
         ("x-openai-internal-codex-responses-lite", "true"),
+        ("x-client-request-id", "client-request"),
+        ("session-id", "client-session"),
+        ("thread-id", "client-thread"),
+        ("x-codex-installation-id", "client-install"),
+        ("x-codex-window-id", "client-window"),
+        ("x-codex-turn-metadata", "client-turn-metadata"),
+        ("x-codex-parent-thread-id", "client-parent-thread"),
+        ("x-openai-subagent", "client-subagent"),
+        ("x-openai-internal-codex-residency", "client-residency"),
+        (
+            "traceparent",
+            "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+        ),
+        ("tracestate", "client-tracestate"),
     ];
 
     #[test]
@@ -207,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn request_zstd_is_limited_to_the_codex_oauth_responses_surface() {
+    fn request_body_compression_is_disabled_for_cache_stable_wire_bytes() {
         let client = HeaderMap::new();
         let oauth_responses = ProviderRequestContext {
             ingress_dialect: ProtocolDialect::OpenAiResponses,
@@ -219,35 +219,13 @@ mod tests {
             allow_turn_state: false,
         };
 
-        assert!(supports_encoding(
-            oauth_responses,
-            RequestBodyEncoding::Zstd
-        ));
         assert!(!supports_encoding(
-            ProviderRequestContext {
-                oauth: false,
-                ..oauth_responses
-            },
+            oauth_responses,
             RequestBodyEncoding::Zstd
         ));
         assert!(!supports_encoding(
             oauth_responses,
             RequestBodyEncoding::Identity
-        ));
-        assert!(!supports_encoding(
-            ProviderRequestContext {
-                ingress_dialect: ProtocolDialect::OpenAiChatCompletions,
-                ..oauth_responses
-            },
-            RequestBodyEncoding::Zstd
-        ));
-        assert!(!supports_encoding(
-            ProviderRequestContext {
-                ingress_dialect: ProtocolDialect::OpenAiChatCompletions,
-                upstream_operation: ProtocolOperation::ChatCompletions,
-                ..oauth_responses
-            },
-            RequestBodyEncoding::Zstd
         ));
     }
 }

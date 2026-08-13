@@ -332,7 +332,6 @@ async fn bridged_body_with_idle_timeout(
             continuation_binding,
             attempt_recorder: AttemptRecorder::disabled(),
             quota_activity: None,
-            cache_locality: None,
             status_code: 200,
             precommit_budget: PrecommitBudget::new(256 * 1024, Duration::from_secs(5)),
             postcommit_idle_timeout,

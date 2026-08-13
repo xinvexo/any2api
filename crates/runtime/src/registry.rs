@@ -15,7 +15,7 @@ use crate::{
     health::{HealthBindings, HealthRegistry},
     lifecycle::ProcessLifecycle,
     routing::{
-        BalancingRuntimeSnapshot, CacheLocalityRegistry, QueueCoordinator, RouteTierCursorBindings,
+        BalancingRuntimeSnapshot, QueueCoordinator, RouteTierCursorBindings,
         RouteTierCursorRegistry, RoutingCredentialSpec, RoutingCredentials, SchedulerEpoch,
         active_candidate_path_bases, balancing_snapshot,
     },
@@ -25,7 +25,6 @@ use crate::{
 pub struct RuntimeRegistry {
     scheduler_epoch: Arc<SchedulerEpoch>,
     affinity: Arc<AffinityRegistry>,
-    cache_locality: Arc<CacheLocalityRegistry>,
     affinity_sweeper_started: AtomicBool,
     credentials: RwLock<HashMap<RoutingCredentialId, Arc<CredentialRuntimeHandle>>>,
     route_tier_cursors: RouteTierCursorRegistry,
@@ -47,7 +46,6 @@ impl RuntimeRegistry {
         let scheduler_epoch = SchedulerEpoch::with_lifecycle(lifecycle.clone());
         Self {
             affinity: AffinityRegistry::with_scheduler_epoch(Arc::clone(&scheduler_epoch)),
-            cache_locality: CacheLocalityRegistry::new(),
             affinity_sweeper_started: AtomicBool::new(false),
             scheduler_epoch: Arc::clone(&scheduler_epoch),
             credentials: RwLock::new(HashMap::new()),
@@ -216,10 +214,6 @@ impl RuntimeRegistry {
 
     pub(crate) fn affinity_registry(&self) -> Arc<AffinityRegistry> {
         Arc::clone(&self.affinity)
-    }
-
-    pub(crate) fn cache_locality_registry(&self) -> Arc<CacheLocalityRegistry> {
-        Arc::clone(&self.cache_locality)
     }
 
     #[must_use]

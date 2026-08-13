@@ -8,25 +8,25 @@ use crate::{
     api::ProviderRequestContext,
     header_policy::{ordered_names, project},
     request_header_policy::{
-        RequestHeaderOwnership::{CredentialOwned, Replayable},
-        RequestHeaderRule, project_request, request_header_rules,
+        RequestHeaderOwnership::Replayable, RequestHeaderRule, project_request,
+        request_header_rules,
     },
 };
 
 static REQUEST_HEADERS: LazyLock<Vec<RequestHeaderRule>> = LazyLock::new(|| {
     request_header_rules(&[
-        ("x-grok-conv-id", CredentialOwned),
-        ("x-grok-req-id", CredentialOwned),
-        ("x-grok-session-id", CredentialOwned),
-        ("x-grok-agent-id", CredentialOwned),
-        ("x-grok-turn-id", CredentialOwned),
+        ("x-grok-conv-id", Replayable),
+        ("x-grok-req-id", Replayable),
+        ("x-grok-session-id", Replayable),
+        ("x-grok-agent-id", Replayable),
+        ("x-grok-turn-id", Replayable),
         ("user-agent", Replayable),
         ("x-grok-client-mode", Replayable),
         ("x-grok-client-version", Replayable),
         ("x-grok-client-identifier", Replayable),
         ("x-grok-client-surface", Replayable),
-        ("traceparent", CredentialOwned),
-        ("tracestate", CredentialOwned),
+        ("traceparent", Replayable),
+        ("tracestate", Replayable),
     ])
 });
 
@@ -83,7 +83,7 @@ mod tests {
     use super::request;
     use crate::api::ProviderRequestContext;
 
-    const OWNED_HEADERS: &[&str] = &[
+    const SESSION_HEADERS: &[&str] = &[
         "x-grok-conv-id",
         "x-grok-req-id",
         "x-grok-session-id",
@@ -94,10 +94,10 @@ mod tests {
     ];
 
     #[test]
-    fn credential_owned_grok_headers_are_not_replayed_after_a_switch() {
+    fn grok_session_headers_survive_a_credential_switch() {
         let mut client = HeaderMap::new();
-        for name in OWNED_HEADERS {
-            client.insert(*name, HeaderValue::from_static("owned"));
+        for name in SESSION_HEADERS {
+            client.insert(*name, HeaderValue::from_static("session"));
         }
         client.insert(
             "x-grok-client-surface",
@@ -114,19 +114,10 @@ mod tests {
         };
 
         let switched = request(context).expect("switched headers");
-        for name in OWNED_HEADERS {
-            assert!(!switched.contains_key(*name), "unexpected {name}");
+        for name in SESSION_HEADERS {
+            assert_eq!(switched[*name], "session", "missing {name}");
         }
         assert_eq!(switched["x-grok-client-surface"], "terminal");
         assert_eq!(switched["x-grok-client-identifier"], "grok-shell");
-
-        let owner = request(ProviderRequestContext {
-            allow_credential_bound: true,
-            ..context
-        })
-        .expect("owner headers");
-        for name in OWNED_HEADERS {
-            assert_eq!(owner[*name], "owned", "missing {name}");
-        }
     }
 }
