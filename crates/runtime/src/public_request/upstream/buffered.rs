@@ -134,10 +134,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let continuation_state = prepared.bridge_continuation_state();
     let mut response = prepared
         .encode_egress_response(decoded, public_model)
-        .map_err(|_| {
-            forget_cache_locality(&services, &candidate);
-            prepared.fail_after_upstream_success(status.as_u16(), internal_error())
-        })?;
+        .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
     response.headers = safe_headers;
     response.headers.insert(
         header::CONTENT_TYPE,
