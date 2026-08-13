@@ -31,9 +31,12 @@ export function CodexRateModelRow({
   const nameId = `${value.localId}-name`;
 
   return (
-    <section className="py-4" aria-label={`${modelLabel} 费率`}>
+    <section
+      className="min-w-0 rounded-[8px] border border-subtle bg-surface/35 p-3"
+      aria-label={`${modelLabel} 费率`}
+    >
       <div className="flex items-end gap-2">
-        <label htmlFor={nameId} className="min-w-0 w-full max-w-[22rem]">
+        <label htmlFor={nameId} className="min-w-0 flex-1">
           <span className="mb-1 block text-[11px] font-medium text-secondary">模型名称</span>
           <Select
             id={nameId}
@@ -68,8 +71,8 @@ export function CodexRateModelRow({
         </IconButton>
       </div>
 
-      <div className="mt-2 max-w-[40rem] rounded-[8px] bg-surface-muted/45 px-2.5 py-2">
-        <p className="mb-1.5 text-[11px] font-medium text-secondary">标准档</p>
+      <div className="mt-3 border-t border-subtle pt-3">
+        <p className="mb-2 text-[11px] font-medium text-secondary">标准档</p>
         <CodexRateTierFields
           localId={value.localId}
           modelLabel={modelLabel}
@@ -81,8 +84,8 @@ export function CodexRateModelRow({
         />
       </div>
 
-      <div className="mt-1.5 max-w-[40rem] rounded-[8px] bg-surface-muted/45 px-2.5 py-2">
-        <div className="mb-1.5 flex items-center justify-between gap-3">
+      <div className="mt-3 border-t border-subtle pt-3">
+        <div className="mb-2 flex items-center justify-between gap-3">
           <label
             htmlFor={`${value.localId}-fast-enabled`}
             className="text-[11px] font-medium text-secondary"

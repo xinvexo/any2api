@@ -29,7 +29,7 @@ export function CodexRateTierFields({
 }: CodexRateTierFieldsProps) {
   const tierLabel = tier === "standard" ? "标准" : "快速";
   return (
-    <div className="grid gap-1.5 sm:grid-cols-[repeat(3,minmax(7rem,12rem))]">
+    <div className="grid gap-1.5 sm:grid-cols-3">
       {FIELDS.map(({ key, label }) => {
         const error = errors[tierFieldKey(localId, tier, key)];
         const inputId = `${localId}-${tier}-${key}`;

@@ -78,18 +78,18 @@ export function CodexRateCardForm({
           </h2>
           <label htmlFor="codex-credits-per-usd" className="flex items-center gap-2">
             <span className="shrink-0 text-[11px] text-secondary">Credits / USD</span>
-          <input
-            id="codex-credits-per-usd"
-            className={controlClass(Boolean(errors.creditsPerUsd), "w-24 tabular-nums")}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            value={value.creditsPerUsd}
-            disabled={disabled}
-            aria-invalid={Boolean(errors.creditsPerUsd)}
-            aria-describedby={errors.creditsPerUsd ? "codex-credits-per-usd-error" : undefined}
-            onChange={(event) => onChange({ ...value, creditsPerUsd: event.target.value })}
-          />
+            <input
+              id="codex-credits-per-usd"
+              className={controlClass(Boolean(errors.creditsPerUsd), "w-24 tabular-nums")}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={value.creditsPerUsd}
+              disabled={disabled}
+              aria-invalid={Boolean(errors.creditsPerUsd)}
+              aria-describedby={errors.creditsPerUsd ? "codex-credits-per-usd-error" : undefined}
+              onChange={(event) => onChange({ ...value, creditsPerUsd: event.target.value })}
+            />
           </label>
         </div>
         {errors.creditsPerUsd ? (
@@ -113,7 +113,7 @@ export function CodexRateCardForm({
           </Button>
         </div>
         {errors.models ? <p className="mt-3 text-[12px] text-danger" role="alert">{errors.models}</p> : null}
-        <div className="mt-2 divide-y divide-subtle">
+        <div className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,32rem),1fr))] gap-3">
           {value.models.map((model) => (
             <CodexRateModelRow
               key={model.localId}
