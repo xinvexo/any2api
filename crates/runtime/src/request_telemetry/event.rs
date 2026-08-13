@@ -1,8 +1,7 @@
-use any2api_domain::{CompletedRequestLog, GatewayApiKeyId, HttpAccessLog, OAuthAccountId};
+use any2api_domain::{CompletedRequestLog, GatewayApiKeyId, HttpAccessLog};
 use any2api_storage::api::StorageError;
 use tokio::sync::oneshot;
 
-use super::RequestTelemetryCheckpoint;
 use super::metrics::TelemetryQueueClass;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,10 +29,8 @@ pub(super) enum TelemetryEvent {
     ClearHttpAccessLogs {
         reply: oneshot::Sender<Result<u64, StorageError>>,
     },
-    QuotaCheckpoint {
-        account: OAuthAccountId,
-        boundary: RequestTelemetryCheckpoint,
-        reply: oneshot::Sender<RequestTelemetryCheckpoint>,
+    QuotaFlush {
+        reply: oneshot::Sender<()>,
     },
 }
 
@@ -59,7 +56,7 @@ impl TelemetryEvent {
     pub(super) const fn record_count(&self) -> usize {
         match self {
             Self::RequestLog(_) | Self::HttpAccessLog { .. } | Self::GatewayKeyLastUsed { .. } => 1,
-            Self::ClearHttpAccessLogs { .. } | Self::QuotaCheckpoint { .. } => 0,
+            Self::ClearHttpAccessLogs { .. } | Self::QuotaFlush { .. } => 0,
         }
     }
 
@@ -82,14 +79,7 @@ impl TelemetryEvent {
             Self::GatewayKeyLastUsed { last_used_at, .. } => {
                 envelope.saturating_add(last_used_at.capacity())
             }
-            Self::ClearHttpAccessLogs { .. } | Self::QuotaCheckpoint { .. } => 0,
-        }
-    }
-
-    pub(super) fn quota_account(&self) -> Option<OAuthAccountId> {
-        match self {
-            Self::RequestLog(record) => record.request.oauth_account_id,
-            _ => None,
+            Self::ClearHttpAccessLogs { .. } | Self::QuotaFlush { .. } => 0,
         }
     }
 }

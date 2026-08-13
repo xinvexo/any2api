@@ -208,6 +208,10 @@ fn parses_codex_token_claims_without_logging_token_values() {
         .expect("token response");
     assert_eq!(token.account_id(), Some("account-123"));
     assert_eq!(token.email(), Some("person@example.com"));
+    assert!(driver.oauth_principal_identity(&token).is_some());
+    let identity_debug = format!("{:?}", driver.oauth_principal_identity(&token));
+    assert!(!identity_debug.contains("account-123"));
+    assert!(!identity_debug.contains("person@example.com"));
     assert!(!format!("{token:?}").contains("person@example.com"));
     let profile = driver
         .oauth_routing_profile(&token)
@@ -231,6 +235,67 @@ fn parses_codex_token_claims_without_logging_token_values() {
             .url
             .as_str(),
         "https://chatgpt.com/backend-api/codex/responses"
+    );
+}
+
+#[test]
+fn codex_principal_identity_uses_member_claim_not_workspace_alone() {
+    fn token(workspace: &str, member: &str) -> OAuthTokenMaterial {
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+            serde_json::json!({
+                "https://api.openai.com/auth": {
+                    "chatgpt_account_id": workspace,
+                    "chatgpt_user_id": member,
+                }
+            })
+            .to_string(),
+        );
+        OAuthTokenMaterial::new(
+            ProviderKind::Codex,
+            "access-token".into(),
+            None,
+            Some(format!("header.{payload}.signature")),
+            None,
+            Some(workspace.into()),
+            None,
+        )
+        .expect("token")
+    }
+
+    let driver = CodexDriver::new();
+    let first = token("workspace-a", "member-a");
+    let same_member = token("workspace-a", "member-a");
+    let other_member = token("workspace-a", "member-b");
+    let other_workspace = token("workspace-b", "member-a");
+    assert_eq!(
+        driver.oauth_principal_identity(&first),
+        driver.oauth_principal_identity(&same_member)
+    );
+    assert_ne!(
+        driver.oauth_principal_identity(&first),
+        driver.oauth_principal_identity(&other_member)
+    );
+    assert_ne!(
+        driver.oauth_principal_identity(&first),
+        driver.oauth_principal_identity(&other_workspace)
+    );
+
+    let legacy_payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
+        br#"{"https://api.openai.com/auth":{"chatgpt_account_id":"workspace-a","user_id":"member-a"}}"#,
+    );
+    let legacy = OAuthTokenMaterial::new(
+        ProviderKind::Codex,
+        "access-token-legacy".into(),
+        None,
+        Some(format!("header.{legacy_payload}.signature")),
+        None,
+        Some("workspace-a".into()),
+        None,
+    )
+    .expect("legacy token");
+    assert_eq!(
+        driver.oauth_principal_identity(&first),
+        driver.oauth_principal_identity(&legacy)
     );
 }
 

@@ -27,6 +27,7 @@ use crate::{
     affinity::{ContinuationBindingCommitter, ContinuationLease},
     health::AttemptHealth,
     oauth::OAuthQuotaActivityGuard,
+    routing::CacheLocalityCompletion,
 };
 
 #[derive(Clone, Debug, Default)]
@@ -57,6 +58,7 @@ pub(in crate::public_request) struct GuardedBodyParts {
     pub(in crate::public_request) continuation_binding: ContinuationBindingCommitter,
     pub(in crate::public_request) attempt_recorder: AttemptRecorder,
     pub(in crate::public_request) quota_activity: Option<OAuthQuotaActivityGuard>,
+    pub(in crate::public_request) cache_locality: Option<CacheLocalityCompletion>,
     pub(in crate::public_request) status_code: u16,
     pub(in crate::public_request) precommit_budget: PrecommitBudget,
     pub(in crate::public_request) postcommit_idle_timeout: Duration,
@@ -85,6 +87,7 @@ pub(in crate::public_request) struct GuardedBody {
     pub(super) pending_termination: StreamTermination,
     pub(super) attempt_recorder: Option<AttemptRecorder>,
     pub(super) quota_activity: Option<OAuthQuotaActivityGuard>,
+    pub(super) cache_locality: Option<CacheLocalityCompletion>,
     pub(super) request_recorder: RequestRecorder,
     pub(super) status_code: u16,
     pub(super) owns_request_completion: bool,
@@ -128,6 +131,7 @@ impl GuardedBody {
             continuation_binding,
             attempt_recorder,
             quota_activity,
+            cache_locality,
             status_code,
             precommit_budget,
             postcommit_idle_timeout,
@@ -157,6 +161,7 @@ impl GuardedBody {
             pending_termination: StreamTermination::None,
             attempt_recorder: Some(attempt_recorder),
             quota_activity,
+            cache_locality,
             request_recorder,
             status_code,
             owns_request_completion: false,
@@ -246,7 +251,7 @@ impl GuardedBody {
         if let Some(mut recorder) = self.attempt_recorder.take() {
             recorder.local_error(Some(self.status_code), error_class, message);
         }
-        self.release_guards();
+        self.release_guards_preserving_cache_locality();
     }
 
     pub(in crate::public_request) fn into_stream(mut self) -> PublicResponseStream {

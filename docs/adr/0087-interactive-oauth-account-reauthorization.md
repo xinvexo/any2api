@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-03
 - 决策人：项目维护者
-- 修订：ADR-0033、ADR-0078、ADR-0133
+- 修订：ADR-0033、ADR-0078、ADR-0133、ADR-0147
 
 ## 背景
 
@@ -13,13 +13,13 @@
 
 ## 决策
 
-1. 交互式 Token 交换完成后生成内部稳定身份投影：Provider account ID 存在时使用其精确值；只有 Token 没有 account ID 时才使用 trim 后大小写规范化的邮箱。身份包含 Provider，不能跨 Provider 匹配。
-2. 配置发布锁内读取当前 PublishedSnapshot，并用当前已编译 Token 材料匹配。account ID 身份只匹配同 account ID；邮箱身份只匹配同样没有 account ID 且邮箱相同的账号，禁止用邮箱覆盖一个已经有稳定 account ID 的记录。
+1. 交互式 Token 交换完成后由对应 Provider Driver 生成内部稳定主体身份投影。身份包含 Provider，不能跨 Provider 匹配。其他 Provider 保持 account ID 存在时使用精确值、否则使用 trim 后大小写规范化邮箱的规则；Codex 例外由 ADR-0147 定义，不能把工作区 ID 当作成员主体。
+2. 配置发布锁内读取当前 PublishedSnapshot，并用当前已编译 Token 材料及其 Driver 身份投影匹配。只有相同的稳定主体投影才允许重新授权；邮箱回落不能覆盖一个已有更强主体身份的记录。
 3. 恰好匹配一条时重新授权原 `OAuthAccount`：保留 `OAuthAccountId`、label、`requests_per_minute`、enabled 与 `account_generation`；替换 OAuth JSON、safe email、expiry，并只递增 `token_version`。写入使用锁内读取的 `token_version` CAS；新的认证健康与旧 Token 隔离，账号级额度/权限/模型健康继续复用，边界见 ADR-0095。
 4. 重新授权不自动扩大管理员选择的模型。新模型目录与原选择取交集；失效模型在同一事务中移除，只有交集变化时才递增 `config_version`。交集可以为空，继续表示不开放该账号的任何模型。
-5. 没有身份匹配时创建新账号，并在同一发布锁内生成 Provider 内唯一标签。无 account ID 且无邮箱的 Token 没有稳定身份，每次登录都按新账号处理。
+5. 没有身份匹配时创建新账号，并在同一发布锁内生成 Provider 内唯一标签。无法由 Driver 投影稳定主体且没有邮箱回落的 Token 没有稳定身份，每次登录都按新账号处理，除非 ADR-0134 的精确 Token 证据唯一命中已有记录。
 6. 匹配到多条记录时返回 `409 oauth_account_identity_conflict`，不任意挑选、不覆盖、不新增。管理员需先删除重复记录再重新登录。
-7. Provider JSON 导入继续保持原子、只创建且不静默覆盖现有账号；ADR-0133 之后，可由 Provider account ID、双方无 ID 时的规范化邮箱，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入会整批拒绝。历史重复记录仍会使之后的交互式重新授权明确冲突。
+7. Provider JSON 导入继续保持原子、只创建且不静默覆盖现有账号；ADR-0133 之后，可由 Provider Driver 的稳定主体投影、其规范化邮箱回落，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入会整批拒绝。历史重复记录仍会使之后的交互式重新授权明确冲突。
 8. 新建与重新授权都必须执行完整候选配置校验，成功后提交 SQLite、reconcile Runtime 并切换一次 PublishedSnapshot，之后才能返回安全元数据。响应、日志和浏览器状态不得包含身份原值之外的 Token 材料；内部身份值不进入 Debug 或错误消息。
 
 ## 后果
@@ -31,7 +31,7 @@
 
 ## 验证
 
-- 身份单元测试覆盖 account ID 优先、邮箱仅在双方无 ID 时回落、Provider 隔离和无身份情况。
+- 身份单元测试覆盖 Driver 投影、邮箱回落、Provider 隔离和无身份情况；Codex 另覆盖同一 Team 工作区的不同成员保持独立。
 - Storage 测试覆盖重新授权的 token-version CAS、文档替换、配置字段保留、模型交集持久化和重开数据库后一致性。
 - HTTP 契约连续完成两次同账号登录，中间修改 label、RPM、enabled 和模型；第二次返回相同 `OAuthAccountId`，只保留一条记录并写入新 Token，旧配置保持不变。
 - 契约覆盖同邮箱但不同稳定 account ID 不被覆盖，以及多条同身份记录返回明确冲突。

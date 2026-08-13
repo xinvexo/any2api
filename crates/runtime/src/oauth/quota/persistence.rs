@@ -25,7 +25,7 @@ struct PersistedSnapshotPayload {
     estimator_state: Option<QuotaEstimatorState>,
 }
 
-pub(super) struct StoredQuotaTelemetry {
+pub(super) struct StoredQuotaSnapshot {
     pub(super) usage: OAuthQuotaUsage,
     pub(super) estimator_state: Option<QuotaEstimatorState>,
     pub(super) fetched_at: i64,
@@ -48,7 +48,7 @@ impl OAuthQuotaPersistence {
     pub(super) async fn load(
         &self,
         id: OAuthAccountId,
-    ) -> Result<Option<StoredQuotaTelemetry>, OAuthQuotaError> {
+    ) -> Result<Option<StoredQuotaSnapshot>, OAuthQuotaError> {
         let Some(stored) = self
             .repository
             .load_oauth_quota_snapshot(id)
@@ -66,7 +66,7 @@ impl OAuthQuotaPersistence {
         {
             return Err(OAuthQuotaError::InvalidPersistedSnapshot);
         }
-        Ok(Some(StoredQuotaTelemetry {
+        Ok(Some(StoredQuotaSnapshot {
             usage: payload.usage,
             estimator_state: payload.estimator_state,
             fetched_at: stored.fetched_at,
@@ -76,20 +76,20 @@ impl OAuthQuotaPersistence {
     pub(super) async fn store(
         &self,
         id: OAuthAccountId,
-        telemetry: &StoredQuotaTelemetry,
+        snapshot: &StoredQuotaSnapshot,
     ) -> Result<(), OAuthQuotaError> {
-        validate_usage(&telemetry.usage)?;
-        if telemetry
+        validate_usage(&snapshot.usage)?;
+        if snapshot
             .estimator_state
             .as_ref()
             .is_some_and(|state| !state.valid())
-            || telemetry.fetched_at < 0
+            || snapshot.fetched_at < 0
         {
             return Err(OAuthQuotaError::InvalidPersistedSnapshot);
         }
         let payload = serde_json::to_vec(&PersistedSnapshotPayload {
-            usage: telemetry.usage.clone(),
-            estimator_state: telemetry.estimator_state.clone(),
+            usage: snapshot.usage.clone(),
+            estimator_state: snapshot.estimator_state.clone(),
         })
         .map_err(|_| OAuthQuotaError::InvalidPersistedSnapshot)?;
         if payload.len() > MAX_OAUTH_QUOTA_SNAPSHOT_BYTES {
@@ -99,18 +99,9 @@ impl OAuthQuotaPersistence {
             .upsert_oauth_quota_snapshot(&StoredOAuthQuotaSnapshot {
                 oauth_account_id: id,
                 schema_version: OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION,
-                fetched_at: telemetry.fetched_at,
+                fetched_at: snapshot.fetched_at,
                 payload,
             })
-            .await
-            .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?;
-        self.notify_changed();
-        Ok(())
-    }
-
-    pub(super) async fn delete(&self, id: OAuthAccountId) -> Result<(), OAuthQuotaError> {
-        self.repository
-            .delete_oauth_quota_snapshot(id)
             .await
             .map_err(|error| OAuthQuotaError::Persistence(Arc::new(error)))?;
         self.notify_changed();
@@ -214,7 +205,6 @@ mod tests {
             "estimator_state": {
                 "credential_fingerprint": "fingerprint",
                 "subscription_tier": null,
-                "next_epoch": 1,
                 "windows": []
             }
         })

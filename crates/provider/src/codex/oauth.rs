@@ -1,7 +1,6 @@
 //! OpenAI/Codex OAuth contract.
 
 use any2api_domain::{ProtocolDialect, ProviderKind};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use serde::Deserialize;
 use url::Url;
@@ -9,11 +8,16 @@ use url::Url;
 use crate::{
     ProviderError,
     api::{
-        OAuthGrant, OAuthRefreshRejection, OAuthRequestPlan, OAuthRoutingProfile,
-        OAuthTokenMaterial,
+        OAuthGrant, OAuthPrincipalIdentity, OAuthRefreshRejection, OAuthRequestPlan,
+        OAuthRoutingProfile, OAuthTokenMaterial,
     },
-    oauth::{expires_at_from_duration, form_headers, json_headers},
+    oauth::{
+        email_principal_identity, expires_at_from_duration, form_headers, json_headers,
+        workspace_member_principal_identity,
+    },
 };
+
+use super::claims::decode as decode_claims;
 
 const AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
@@ -162,6 +166,39 @@ pub(crate) fn routing_profile(
     )
 }
 
+pub(crate) fn principal_identity(token: &OAuthTokenMaterial) -> Option<OAuthPrincipalIdentity> {
+    if token.provider() != ProviderKind::Codex {
+        return None;
+    }
+    let id_claims = token
+        .id_token()
+        .map(|token| decode_claims(Some(token)))
+        .unwrap_or_default();
+    let access_claims = decode_claims(Some(token.access_token()));
+    let member_id = id_claims
+        .member_id
+        .clone()
+        .or(access_claims.member_id.clone());
+    let workspace_id = token
+        .account_id()
+        .or(id_claims.account_id.as_deref())
+        .or(access_claims.account_id.as_deref());
+    member_id
+        .as_deref()
+        .and_then(|member_id| {
+            workspace_member_principal_identity(ProviderKind::Codex, workspace_id, member_id)
+        })
+        .or_else(|| {
+            email_principal_identity(
+                ProviderKind::Codex,
+                token
+                    .email()
+                    .or(id_claims.email.as_deref())
+                    .or(access_claims.email.as_deref()),
+            )
+        })
+}
+
 /// Official `chatgpt_plan_type` from Codex ID Token claims (no local renaming).
 #[must_use]
 pub fn plan_label(token: &OAuthTokenMaterial) -> Option<String> {
@@ -206,45 +243,6 @@ struct CodexOAuthResponse {
     expires_in: i64,
     account_id: Option<String>,
     email: Option<String>,
-}
-
-#[derive(Default)]
-struct DecodedClaims {
-    account_id: Option<String>,
-    email: Option<String>,
-    plan: Option<String>,
-}
-
-fn decode_claims(id_token: Option<&str>) -> DecodedClaims {
-    let Some(payload) = id_token.and_then(|token| token.split('.').nth(1)) else {
-        return DecodedClaims::default();
-    };
-    let Ok(bytes) = URL_SAFE_NO_PAD.decode(payload) else {
-        return DecodedClaims::default();
-    };
-    #[derive(Deserialize)]
-    struct Claims {
-        email: Option<String>,
-        #[serde(rename = "https://api.openai.com/auth")]
-        auth: Option<AuthClaims>,
-    }
-    #[derive(Deserialize)]
-    struct AuthClaims {
-        chatgpt_account_id: Option<String>,
-        chatgpt_plan_type: Option<String>,
-    }
-    let Ok(claims) = serde_json::from_slice::<Claims>(&bytes) else {
-        return DecodedClaims::default();
-    };
-    let (account_id, plan) = claims
-        .auth
-        .map(|auth| (auth.chatgpt_account_id, auth.chatgpt_plan_type))
-        .unwrap_or_default();
-    DecodedClaims {
-        account_id,
-        email: claims.email,
-        plan,
-    }
 }
 
 fn models_for_plan(plan: Option<&str>) -> &'static [&'static str] {

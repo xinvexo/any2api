@@ -4,7 +4,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use any2api_domain::{CompletedRequestLog, HttpAccessLog, OAuthAccountId};
+use any2api_domain::{CompletedRequestLog, HttpAccessLog};
 use any2api_storage::api::{
     GatewayApiKeyLastUsedUpdate, GatewayApiKeyUsageRepository, HttpAccessLogCapacity,
     HttpAccessLogRepository, REQUEST_LOG_CLEANUP_BATCH_ROWS, RequestLogRepository,
@@ -13,7 +13,6 @@ use tokio::{
     sync::{Notify, mpsc},
     time::Instant,
 };
-use uuid::Uuid;
 
 use super::{
     RequestLogPolicy,
@@ -33,7 +32,6 @@ pub(super) struct WorkerState {
     pub(super) changes: LogChangeNotifier,
     pub(super) prune_wakeup: Arc<Notify>,
     pub(super) request_prune_wakeup: Arc<Notify>,
-    pub(super) process_id: Uuid,
 }
 
 #[derive(Default)]
@@ -194,13 +192,9 @@ async fn receive_event(
             }
             let _ = reply.send(result);
         }
-        TelemetryEvent::QuotaCheckpoint {
-            account,
-            boundary,
-            reply,
-        } => {
+        TelemetryEvent::QuotaFlush { reply } => {
             flush(batch, request_logs, http_access_logs, gateway_usage, state).await;
-            let _ = reply.send(state.counters.complete_quota_checkpoint(account, boundary));
+            let _ = reply.send(());
         }
     }
 }
@@ -235,12 +229,6 @@ async fn flush_request_logs(
         .read()
         .expect("request telemetry policy")
         .request_max_rows;
-    let quota_failed_accounts = batch
-        .records
-        .iter()
-        .filter(|record| record.telemetry_position.is_some())
-        .filter_map(|record| record.request.oauth_account_id)
-        .collect::<Vec<OAuthAccountId>>();
     match repository
         .append_request_logs(&batch.records, max_rows)
         .await
@@ -249,20 +237,15 @@ async fn flush_request_logs(
             state
                 .counters
                 .persisted(batch.records.len(), batch.owned_bytes, 0);
-            state
-                .counters
-                .request_logs_pruned(state.process_id, cleanup.pruned_positions());
             state.changes.request_logs_changed();
             if cleanup.has_more() {
                 state.request_prune_wakeup.notify_one();
             }
         }
         Err(error) => {
-            state.counters.request_logs_storage_failed(
-                batch.records.len(),
-                batch.owned_bytes,
-                &quota_failed_accounts,
-            );
+            state
+                .counters
+                .storage_failed(batch.records.len(), batch.owned_bytes, 0);
             tracing::warn!(%error, records = batch.records.len(), "request telemetry batch was dropped");
         }
     }
@@ -385,9 +368,6 @@ async fn prune_request_logs(request_logs: &dyn RequestLogRepository, state: &Wor
         .await
     {
         Ok(cleanup) => {
-            state
-                .counters
-                .request_logs_pruned(state.process_id, cleanup.pruned_positions());
             if cleanup.deleted_rows() > 0 {
                 state.changes.request_logs_changed();
             }

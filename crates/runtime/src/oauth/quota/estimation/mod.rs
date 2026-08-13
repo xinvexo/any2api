@@ -2,13 +2,11 @@
 //!
 //! Premise (ADR-0144): an OAuth account managed by any2api is consumed
 //! exclusively through any2api, so the local RequestLog stream is the
-//! complete consumption record. Between two official snapshots with a
-//! fence-complete local interval, `capacity = local_cost × 100 / Δused%`
-//! measures the account's absolute quota capacity directly; samples scatter
-//! around the true value with bounded endpoint noise and are aggregated with
-//! a Δ-weighted median.
+//! complete consumption record. Between two official snapshots,
+//! `capacity = local_cost × 100 / Δused%` measures the account's absolute
+//! quota capacity directly. Every positive local-cost/official-delta pair
+//! contributes to one cumulative ratio.
 
-mod aggregate;
 mod interval;
 mod projection;
 pub(super) mod state;
@@ -24,8 +22,8 @@ use any2api_provider::api::OAuthQuotaUsage;
 use any2api_storage::api::OAuthQuotaEstimationRepository;
 
 use self::state::{QuotaEstimatorState, QuotaWindowKey};
-use super::types::{OAuthQuotaEstimate, OAuthQuotaIntervalStatus};
-use crate::request_telemetry::{RequestTelemetry, RequestTelemetryObservation};
+use super::types::OAuthQuotaEstimate;
+use crate::request_telemetry::QuotaObservationBoundary;
 
 pub(super) struct OAuthQuotaEstimator {
     repository: Arc<dyn OAuthQuotaEstimationRepository>,
@@ -41,7 +39,6 @@ impl OAuthQuotaEstimator {
         Self { repository }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(super) async fn observe(
         &self,
         id: OAuthAccountId,
@@ -49,8 +46,7 @@ impl OAuthQuotaEstimator {
         previous: Option<QuotaEstimatorState>,
         credential_fingerprint: String,
         expected_unit: QuotaCostUnit,
-        observation: RequestTelemetryObservation,
-        telemetry: Option<&RequestTelemetry>,
+        observation: QuotaObservationBoundary,
     ) -> EstimationResult {
         let mut state =
             previous.unwrap_or_else(|| QuotaEstimatorState::new(credential_fingerprint.clone()));
@@ -79,38 +75,14 @@ impl OAuthQuotaEstimator {
         for window in current_windows {
             let key = QuotaWindowKey::from_window(window);
             let previous = state.windows.iter().find(|value| value.key == key).cloned();
-            let key_changed =
-                previous.is_none() && state.windows.iter().any(|value| value.key.id == key.id);
             let window_state = match previous {
-                Some(previous) if !transition::must_reset(&previous, window, &observation) => {
-                    interval::observe(
-                        self,
-                        id,
-                        window,
-                        previous,
-                        expected_unit,
-                        observation.clone(),
-                        telemetry,
-                    )
-                    .await
+                Some(previous) if !transition::official_reset(&previous, window) => {
+                    interval::observe(self, id, window, previous, expected_unit, &observation).await
                 }
-                Some(previous) => transition::rollover_window(
-                    previous,
-                    state.allocate_epoch(),
-                    window,
-                    observation.clone(),
-                ),
-                None => transition::new_window(
-                    key,
-                    state.allocate_epoch(),
-                    window,
-                    observation.clone(),
-                    if signature_changed || key_changed {
-                        OAuthQuotaIntervalStatus::ResetBoundary
-                    } else {
-                        OAuthQuotaIntervalStatus::AwaitingBaseline
-                    },
-                ),
+                Some(previous) => {
+                    transition::rollover_window(previous, window, observation.position)
+                }
+                None => transition::new_window(key, window, observation.position),
             };
             next_windows.push(window_state);
         }

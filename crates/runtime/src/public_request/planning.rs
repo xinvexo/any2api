@@ -10,7 +10,9 @@ use http::{Method, Uri};
 use super::{PublicRequest, response::invalid_request};
 use crate::{
     configuration::PublishedSnapshot,
-    routing::{CandidateRequirements, OAuthRoute, RouteCandidateTiers, oauth_route_id},
+    routing::{
+        CacheLocalityKey, CandidateRequirements, OAuthRoute, RouteCandidateTiers, oauth_route_id,
+    },
 };
 
 pub(super) struct PlannedRequest {
@@ -20,6 +22,7 @@ pub(super) struct PlannedRequest {
     pub(super) dialect: ProtocolDialect,
     pub(super) fallback_on_rate_limit: bool,
     pub(super) tiers: Arc<RouteCandidateTiers>,
+    pub(super) cache_locality_key: Option<CacheLocalityKey>,
 }
 
 pub(super) struct DecodedPublicRequest {
@@ -66,6 +69,7 @@ pub(super) fn plan(
         request.public_model,
         protocols,
         providers,
+        None,
     )
 }
 
@@ -83,15 +87,17 @@ pub(super) fn replan(
         public_model,
         protocols,
         providers,
+        planned.cache_locality_key,
     )
 }
 
 fn plan_decoded(
     snapshot: &PublishedSnapshot,
-    decoded: Arc<DecodedRequest>,
+    mut decoded: Arc<DecodedRequest>,
     public_model: PublicModelName,
     protocols: &ProtocolRegistry,
     providers: &ProviderRegistry,
+    existing_cache_locality_key: Option<CacheLocalityKey>,
 ) -> Result<PlannedRequest, PublicError> {
     if !snapshot.is_public_model_allowed(&public_model) {
         return Err(model_not_found(&public_model));
@@ -134,6 +140,19 @@ fn plan_decoded(
             tiers,
         )
     };
+    let cache_locality_key = existing_cache_locality_key.or_else(|| {
+        decoded.prompt_cache_key.as_deref().map(|raw| {
+            snapshot.cache_locality_registry().key(
+                decoded.dialect,
+                decoded.operation,
+                route_id,
+                raw,
+            )
+        })
+    });
+    if let Some(decoded) = Arc::get_mut(&mut decoded) {
+        decoded.prompt_cache_key = None;
+    }
     Ok(PlannedRequest {
         decoded,
         public_model: public_model.as_str().to_owned(),
@@ -141,6 +160,7 @@ fn plan_decoded(
         dialect,
         fallback_on_rate_limit,
         tiers,
+        cache_locality_key,
     })
 }
 

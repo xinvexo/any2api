@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId};
-use any2api_provider::api::{OAuthTokenMaterial, encode_oauth_account_document};
+use any2api_provider::api::{OAuthTokenMaterial, ProviderRegistry, encode_oauth_account_document};
 use any2api_storage::api::{ConfigurationMutation, OAuthAccountDocument};
 
 use super::{ConfigPublisher, OAuthAccountActivation, oauth_accounts::unique_label};
@@ -27,7 +27,11 @@ impl ConfigPublisher {
         let _guard = self.snapshots.acquire_publish().await;
         let current = self.snapshots.load();
         let expected = current.revision();
-        let (account_id, mutation) = login_mutation(current.as_ref(), activation)?;
+        let (account_id, mutation) = login_mutation(
+            current.as_ref(),
+            self.capabilities.provider_registry(),
+            activation,
+        )?;
         let (published, _) = self
             .publish_mutation_serialized(current, expected, mutation)
             .await?;
@@ -37,19 +41,31 @@ impl ConfigPublisher {
 
 fn login_mutation(
     current: &PublishedSnapshot,
+    providers: &ProviderRegistry,
     activation: OAuthAccountActivation,
 ) -> Result<(OAuthAccountId, ConfigurationMutation), ConfigPublishError> {
-    let identity = crate::configuration::OAuthImportIdentity::from_token(&activation.token);
+    let driver = providers.get(activation.provider_kind).ok_or(
+        crate::configuration::ConfigurationCapabilityError::MissingProviderDriver(
+            activation.provider_kind,
+        ),
+    )?;
+    let identity =
+        crate::configuration::OAuthImportIdentity::from_token(driver.as_ref(), &activation.token);
     let matches = current
         .oauth_accounts()
         .accounts()
         .iter()
         .filter_map(|account| {
             let token = current.oauth_token_material(account.id())?;
+            let driver = providers.get(token.provider())?;
+            let candidate = crate::configuration::OAuthImportIdentity::from_token(
+                driver.as_ref(),
+                token.as_ref(),
+            );
             Some((
                 account.id(),
-                identity.stable_matches(token.as_ref()),
-                identity.exact_token_matches(token.as_ref()),
+                identity.stable_matches(&candidate),
+                identity.exact_token_matches_identity(&candidate),
             ))
         });
     match resolve_login_match(matches)? {

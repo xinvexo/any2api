@@ -130,6 +130,7 @@ impl PreparedPublishedSnapshot {
             gateway_api_key_index,
             settings: self.settings,
             affinity_registry: runtime.affinity_registry(),
+            cache_locality_registry: runtime.cache_locality_registry(),
             affinity_policy: self.affinity_policy,
             routing_credentials,
             route_tier_cursors,

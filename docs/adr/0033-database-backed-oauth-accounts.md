@@ -52,7 +52,7 @@ SQLite transaction writes OAuthAccount metadata + Provider JSON
 
 Success responses use `Cache-Control: no-store` and contain only safe account metadata plus the new PublishedSnapshot revision. They never return token fields or trigger a browser download.
 
-Same-identity interactive reauthorization preserves the stable local account ID and administrator-owned label, RPM, enabled state and still-valid model selection. It replaces Token material through the current token-version CAS and never expands selected models implicitly. Stable Provider account ID takes precedence over email; email is only a fallback when both compared Token documents lack an account ID. Ambiguous duplicate identities fail closed. Detailed matching and conflict semantics are defined by ADR-0087.
+Same-identity interactive reauthorization preserves the stable local account ID and administrator-owned label, RPM, enabled state and still-valid model selection. It replaces Token material through the current token-version CAS and never expands selected models implicitly. Each Provider Driver owns its stable-principal projection; ADR-0147 separates the Codex workspace routing ID from the member identity, while other Providers retain account-ID-first and email-fallback semantics. Ambiguous duplicate identities fail closed. Detailed matching and conflict semantics are defined by ADR-0087 and ADR-0147.
 
 A single process worker scans all accounts approaching expiry, including `enabled=false` accounts. `oauth.refresh.scan_interval` and `oauth.refresh.lead_time` are hot-reload SettingRegistry values, and the lead time cannot be shorter than the scan interval. Startup and PublishedSnapshot revision changes wake the worker so it always rescans current accounts and settings.
 

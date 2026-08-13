@@ -1,19 +1,9 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 
-use any2api_domain::{OAuthAccountId, RequestTelemetryPosition, gateway_auth_rejected_capacity};
-use uuid::Uuid;
-
-use super::RequestTelemetryCheckpoint;
-
-/// Upper bound on per-account loss ledger entries; beyond it new losses are
-/// counted as unattributed, which fails closed for every account's coverage.
-const MAX_TRACKED_LOSS_ACCOUNTS: usize = 4_096;
+use any2api_domain::gateway_auth_rejected_capacity;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum TelemetryQueueClass {
@@ -27,12 +17,6 @@ pub struct RequestTelemetryMetrics {
     pub in_flight_records: usize,
     pub dropped_records: u64,
     pub persisted_records: u64,
-}
-
-#[derive(Clone, Copy, Default)]
-struct AccountLoss {
-    queue_dropped: u64,
-    storage_failed: u64,
 }
 
 #[derive(Clone, Default)]
@@ -52,10 +36,6 @@ struct Counters {
     in_flight_owned_bytes: AtomicUsize,
     dropped_records: AtomicU64,
     persisted_records: AtomicU64,
-    request_log_policy_generation: AtomicU64,
-    unattributed_lost_request_logs: AtomicU64,
-    pruned_through_sequence: AtomicU64,
-    account_losses: Mutex<HashMap<OAuthAccountId, AccountLoss>>,
 }
 
 impl TelemetryCounters {
@@ -125,12 +105,8 @@ impl TelemetryCounters {
         records: usize,
         owned_bytes: usize,
         class: TelemetryQueueClass,
-        quota_account: Option<OAuthAccountId>,
     ) {
         self.add_dropped(records);
-        if let Some(account) = quota_account {
-            self.queue_dropped_request_logs(account, records);
-        }
         subtract(&self.inner.queued_records, records);
         subtract(&self.inner.queued_owned_bytes, owned_bytes);
         subtract(&self.inner.queue_slots, 1);
@@ -138,11 +114,8 @@ impl TelemetryCounters {
         self.release_owned_bytes(owned_bytes, class);
     }
 
-    pub(super) fn rejected(&self, records: usize, quota_account: Option<OAuthAccountId>) {
+    pub(super) fn rejected(&self, records: usize) {
         self.add_dropped(records);
-        if let Some(account) = quota_account {
-            self.queue_dropped_request_logs(account, records);
-        }
     }
 
     pub(super) fn received(&self, records: usize, owned_bytes: usize, class: TelemetryQueueClass) {
@@ -182,91 +155,6 @@ impl TelemetryCounters {
         self.finish_owned_bytes(owned_bytes, rejected_owned_bytes);
     }
 
-    pub(super) fn request_logs_storage_failed(
-        &self,
-        records: usize,
-        owned_bytes: usize,
-        quota_failed_accounts: &[OAuthAccountId],
-    ) {
-        self.storage_failed(records, owned_bytes, 0);
-        for account in quota_failed_accounts {
-            self.account_loss(*account, |loss| {
-                loss.storage_failed = loss.storage_failed.saturating_add(1);
-            });
-        }
-    }
-
-    /// Records prune progress: the highest telemetry sequence among rows this
-    /// process persisted that have since been deleted. Deletions of rows from
-    /// other processes never affect the running estimator, whose intervals
-    /// fail closed across process boundaries anyway.
-    pub(super) fn request_logs_pruned(
-        &self,
-        process_id: Uuid,
-        pruned_positions: &[RequestTelemetryPosition],
-    ) {
-        let Some(highest) = pruned_positions
-            .iter()
-            .filter(|position| position.process_id == process_id)
-            .map(|position| position.sequence)
-            .max()
-        else {
-            return;
-        };
-        self.inner
-            .pruned_through_sequence
-            .fetch_max(highest, Ordering::AcqRel);
-    }
-
-    pub(super) fn request_log_policy_changed(&self) {
-        self.inner
-            .request_log_policy_generation
-            .fetch_add(1, Ordering::AcqRel);
-    }
-
-    pub(super) fn quota_checkpoint(
-        &self,
-        process_id: Uuid,
-        enabled: bool,
-        account: OAuthAccountId,
-    ) -> RequestTelemetryCheckpoint {
-        let account_loss = self
-            .inner
-            .account_losses
-            .lock()
-            .expect("telemetry account losses")
-            .get(&account)
-            .copied()
-            .unwrap_or_default();
-        RequestTelemetryCheckpoint {
-            process_id,
-            enabled,
-            policy_generation: self
-                .inner
-                .request_log_policy_generation
-                .load(Ordering::Acquire),
-            account_queue_dropped_request_logs: account_loss.queue_dropped,
-            account_storage_failed_request_logs: account_loss.storage_failed,
-            unattributed_lost_request_logs: self
-                .inner
-                .unattributed_lost_request_logs
-                .load(Ordering::Relaxed),
-            pruned_through_sequence: self.inner.pruned_through_sequence.load(Ordering::Acquire),
-        }
-    }
-
-    pub(super) fn complete_quota_checkpoint(
-        &self,
-        account: OAuthAccountId,
-        mut boundary: RequestTelemetryCheckpoint,
-    ) -> RequestTelemetryCheckpoint {
-        let current = self.quota_checkpoint(boundary.process_id, boundary.enabled, account);
-        boundary.account_storage_failed_request_logs = current.account_storage_failed_request_logs;
-        boundary.unattributed_lost_request_logs = current.unattributed_lost_request_logs;
-        boundary.pruned_through_sequence = current.pruned_through_sequence;
-        boundary
-    }
-
     pub(super) fn writer_stopped(&self) {
         let queued = self.inner.queued_records.swap(0, Ordering::AcqRel);
         let in_flight = self.inner.in_flight_records.swap(0, Ordering::AcqRel);
@@ -296,28 +184,6 @@ impl TelemetryCounters {
         self.inner
             .dropped_records
             .fetch_add(records as u64, Ordering::Relaxed);
-    }
-
-    pub(super) fn queue_dropped_request_logs(&self, account: OAuthAccountId, records: usize) {
-        self.account_loss(account, |loss| {
-            loss.queue_dropped = loss.queue_dropped.saturating_add(records as u64);
-        });
-    }
-
-    fn account_loss(&self, account: OAuthAccountId, update: impl FnOnce(&mut AccountLoss)) {
-        let mut losses = self
-            .inner
-            .account_losses
-            .lock()
-            .expect("telemetry account losses");
-        if losses.len() >= MAX_TRACKED_LOSS_ACCOUNTS && !losses.contains_key(&account) {
-            drop(losses);
-            self.inner
-                .unattributed_lost_request_logs
-                .fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        update(losses.entry(account).or_default());
     }
 
     fn release_gateway_auth_rejected_slot(&self, class: TelemetryQueueClass) {
@@ -408,7 +274,7 @@ mod tests {
         assert!(!counters.try_reserve(4, 400, 100, class));
 
         counters.enqueued(1, 100);
-        counters.send_failed(1, 100, class, None);
+        counters.send_failed(1, 100, class);
         assert!(counters.try_reserve(4, 400, 100, class));
         counters.enqueued(1, 100);
         counters.received(1, 100, class);

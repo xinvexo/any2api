@@ -1,7 +1,4 @@
-use any2api_runtime::api::{
-    OAuthQuotaEstimate, OAuthQuotaEstimateConfidence, OAuthQuotaIntervalDiagnostic,
-    OAuthQuotaIntervalStatus, OAuthQuotaWindowKind,
-};
+use any2api_runtime::api::{OAuthQuotaEstimate, OAuthQuotaWindowKind};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -10,17 +7,10 @@ pub(super) struct OAuthQuotaEstimateResponse {
     window_kind: &'static str,
     limit_window_seconds: Option<u64>,
     window_reset_at: Option<i64>,
-    epoch: u64,
-    epoch_started_at: i64,
-    confidence: &'static str,
     estimated_capacity_credits: Option<f64>,
     estimated_used_credits: Option<f64>,
     estimated_remaining_credits: Option<f64>,
-    sample_count: u32,
-    fresh_sample_count: u32,
-    relative_mad: Option<f64>,
-    latest_interval: OAuthQuotaIntervalDiagnosticResponse,
-    rate_cards: Vec<String>,
+    completed_interval_count: u32,
 }
 
 impl From<OAuthQuotaEstimate> for OAuthQuotaEstimateResponse {
@@ -30,69 +20,11 @@ impl From<OAuthQuotaEstimate> for OAuthQuotaEstimateResponse {
             window_kind: window_kind(value.window_kind),
             limit_window_seconds: value.limit_window_seconds,
             window_reset_at: value.window_reset_at,
-            epoch: value.epoch,
-            epoch_started_at: value.epoch_started_at,
-            confidence: confidence(value.confidence),
             estimated_capacity_credits: value.estimated_capacity_credits,
             estimated_used_credits: value.estimated_used_credits,
             estimated_remaining_credits: value.estimated_remaining_credits,
-            sample_count: value.sample_count,
-            fresh_sample_count: value.fresh_sample_count,
-            relative_mad: value.relative_mad,
-            latest_interval: value.latest_interval.into(),
-            rate_cards: value.rate_cards,
+            completed_interval_count: value.completed_interval_count,
         }
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct OAuthQuotaIntervalDiagnosticResponse {
-    status: &'static str,
-    started_at: Option<i64>,
-    ended_at: i64,
-    delta_used_percent: Option<f64>,
-    local_cost_credits: Option<f64>,
-    unpriced_request_count: u64,
-    queue_dropped_request_logs: u64,
-    storage_failed_request_logs: u64,
-    interval_pruned: bool,
-}
-
-impl From<OAuthQuotaIntervalDiagnostic> for OAuthQuotaIntervalDiagnosticResponse {
-    fn from(value: OAuthQuotaIntervalDiagnostic) -> Self {
-        Self {
-            status: interval_status(value.status),
-            started_at: value.started_at,
-            ended_at: value.ended_at,
-            delta_used_percent: value.delta_used_percent,
-            local_cost_credits: value.local_cost_credits,
-            unpriced_request_count: value.unpriced_request_count,
-            queue_dropped_request_logs: value.queue_dropped_request_logs,
-            storage_failed_request_logs: value.storage_failed_request_logs,
-            interval_pruned: value.interval_pruned,
-        }
-    }
-}
-
-fn confidence(value: OAuthQuotaEstimateConfidence) -> &'static str {
-    match value {
-        OAuthQuotaEstimateConfidence::Unknown => "unknown",
-        OAuthQuotaEstimateConfidence::Learning => "learning",
-        OAuthQuotaEstimateConfidence::Stable => "stable",
-        OAuthQuotaEstimateConfidence::Degraded => "degraded",
-    }
-}
-
-fn interval_status(value: OAuthQuotaIntervalStatus) -> &'static str {
-    match value {
-        OAuthQuotaIntervalStatus::AwaitingBaseline => "awaiting_baseline",
-        OAuthQuotaIntervalStatus::NoChange => "no_change",
-        OAuthQuotaIntervalStatus::Accumulating => "accumulating",
-        OAuthQuotaIntervalStatus::ValidSample => "valid_sample",
-        OAuthQuotaIntervalStatus::ResetBoundary => "reset_boundary",
-        OAuthQuotaIntervalStatus::TelemetryIncomplete => "telemetry_incomplete",
-        OAuthQuotaIntervalStatus::UnpricedUsage => "unpriced_usage",
-        OAuthQuotaIntervalStatus::Invalid => "invalid",
     }
 }
 

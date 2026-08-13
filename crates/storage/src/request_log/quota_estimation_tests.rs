@@ -32,19 +32,15 @@ async fn quota_usage_filters_account_and_interval_and_sums_frozen_costs() {
         .expect("append request logs");
 
     let usage = store
-        .oauth_quota_request_log_usage(id, position(1), position(4))
+        .oauth_quota_local_cost_nanos(id, position(1), position(4), QuotaCostUnit::CodexCredits)
         .await
         .expect("quota log usage");
 
-    assert_eq!(usage.unit, Some(QuotaCostUnit::CodexCredits));
-    assert_eq!(usage.total_cost_nanos, 350);
-    assert_eq!(usage.priced_request_count, 3);
-    assert_eq!(usage.unpriced_request_count, 0);
-    assert_eq!(usage.rate_cards, vec![RATE_CARD]);
+    assert_eq!(usage, 350);
 }
 
 #[tokio::test]
-async fn status_is_irrelevant_but_missing_frozen_cost_is_unpriced() {
+async fn status_is_irrelevant_and_only_local_cost_is_summed() {
     let (_directory, store, id) = store_with_account().await;
     let mut priced_failure = record(id, 1_250, 1, Some(100), position(1));
     priced_failure.request.status_code = 502;
@@ -60,12 +56,10 @@ async fn status_is_irrelevant_but_missing_frozen_cost_is_unpriced() {
         .expect("append mixed logs");
 
     let usage = store
-        .oauth_quota_request_log_usage(id, position(0), position(3))
+        .oauth_quota_local_cost_nanos(id, position(0), position(3), QuotaCostUnit::CodexCredits)
         .await
         .expect("quota log usage");
-    assert_eq!(usage.total_cost_nanos, 150);
-    assert_eq!(usage.priced_request_count, 2);
-    assert_eq!(usage.unpriced_request_count, 1);
+    assert_eq!(usage, 150);
 }
 
 #[tokio::test]
@@ -82,53 +76,11 @@ async fn request_after_official_observation_is_excluded_regardless_of_wall_clock
         .expect("append boundary logs");
 
     let usage = store
-        .oauth_quota_request_log_usage(id, position(0), position(1))
+        .oauth_quota_local_cost_nanos(id, position(0), position(1), QuotaCostUnit::CodexCredits)
         .await
         .expect("usage at official observation fence");
 
-    assert_eq!(usage.total_cost_nanos, 100);
-    assert_eq!(usage.priced_request_count, 1);
-}
-
-#[tokio::test]
-async fn prune_reports_the_highest_deleted_sequence_per_process() {
-    let (_directory, store, id) = store_with_account().await;
-    let other_process = RequestTelemetryPosition {
-        process_id: "99999999-9999-4999-8999-999999999999"
-            .parse()
-            .expect("process UUID"),
-        sequence: 40,
-    };
-    store
-        .append_request_logs(
-            &[
-                record(id, 100, 1, Some(100), position(1)),
-                record(id, 200, 1, Some(100), position(2)),
-                record(id, 300, 1, Some(100), other_process),
-                record(id, 5_000, 1, Some(100), position(3)),
-            ],
-            MAX_REQUEST_LOG_ROWS,
-        )
-        .await
-        .expect("append request logs");
-
-    let outcome = store
-        .prune_request_logs(1_000, MAX_REQUEST_LOG_ROWS, 100)
-        .await
-        .expect("retention prune");
-
-    assert_eq!(outcome.deleted_rows(), 3);
-    let mut positions = outcome.pruned_positions().to_vec();
-    positions.sort_by_key(|position| position.sequence);
-    assert_eq!(positions, vec![position(2), other_process]);
-
-    // Only the surviving row remains and later prunes report nothing.
-    let outcome = store
-        .prune_request_logs(1_000, MAX_REQUEST_LOG_ROWS, 100)
-        .await
-        .expect("second prune");
-    assert_eq!(outcome.deleted_rows(), 0);
-    assert!(outcome.pruned_positions().is_empty());
+    assert_eq!(usage, 100);
 }
 
 async fn store_with_account() -> (tempfile::TempDir, SqliteStore, OAuthAccountId) {

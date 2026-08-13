@@ -1,64 +1,78 @@
-mod accumulation;
-mod epochs;
-mod sampling;
-
 use std::{collections::VecDeque, sync::Mutex};
 
 use any2api_domain::{OAuthAccountId, QuotaCostUnit, RequestTelemetryPosition};
 use any2api_provider::api::{
     OAuthQuotaRateLimit, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
-use any2api_storage::api::{
-    OAuthQuotaEstimationRepository, OAuthQuotaRequestLogUsage, StorageError,
-};
+use any2api_storage::api::{OAuthQuotaEstimationRepository, StorageError};
 use async_trait::async_trait;
 use uuid::Uuid;
 
 use super::{OAuthQuotaEstimator, state::QuotaEstimatorState};
-use crate::request_telemetry::{RequestTelemetryCheckpoint, RequestTelemetryObservation};
-
-const RATE_CARD: &str = "openai_codex_credits_2026_08_11";
+use crate::request_telemetry::QuotaObservationBoundary;
 
 #[derive(Default)]
 struct UsageRepository {
-    usage: Mutex<VecDeque<Result<OAuthQuotaRequestLogUsage, StorageError>>>,
-    queries: Mutex<Vec<(RequestTelemetryPosition, RequestTelemetryPosition)>>,
+    costs: Mutex<VecDeque<Result<u64, StorageError>>>,
 }
 
 impl UsageRepository {
-    fn push(&self, usage: OAuthQuotaRequestLogUsage) {
-        self.usage.lock().unwrap().push_back(Ok(usage));
-    }
-
-    fn push_error(&self) {
-        self.usage
+    fn push_cost(&self, credits: f64) {
+        self.costs
             .lock()
-            .unwrap()
-            .push_back(Err(StorageError::CorruptTelemetry));
-    }
-
-    fn queries(&self) -> Vec<(RequestTelemetryPosition, RequestTelemetryPosition)> {
-        self.queries.lock().unwrap().clone()
+            .expect("usage costs")
+            .push_back(Ok((credits * 1_000_000_000.0) as u64));
     }
 }
 
 #[async_trait]
 impl OAuthQuotaEstimationRepository for UsageRepository {
-    async fn oauth_quota_request_log_usage(
+    async fn oauth_quota_local_cost_nanos(
         &self,
         _id: OAuthAccountId,
-        interval_start: RequestTelemetryPosition,
-        interval_end: RequestTelemetryPosition,
-    ) -> Result<OAuthQuotaRequestLogUsage, StorageError> {
-        self.queries
+        _interval_start: RequestTelemetryPosition,
+        _interval_end: RequestTelemetryPosition,
+        _unit: QuotaCostUnit,
+    ) -> Result<u64, StorageError> {
+        self.costs
             .lock()
-            .unwrap()
-            .push((interval_start, interval_end));
-        self.usage
-            .lock()
-            .unwrap()
+            .expect("usage costs")
             .pop_front()
-            .unwrap_or_else(|| Ok(priced(100.0)))
+            .unwrap_or(Ok(100_000_000_000))
+    }
+}
+
+fn usage(percent: f64, reset_at: Option<i64>, tier: Option<&str>) -> OAuthQuotaUsage {
+    OAuthQuotaUsage {
+        rate_limit: Some(OAuthQuotaRateLimit {
+            allowed: Some(true),
+            limit_reached: Some(false),
+            windows: vec![OAuthQuotaWindow {
+                id: "primary".into(),
+                kind: OAuthQuotaWindowKind::Time,
+                used_percent: percent,
+                limit_window_seconds: Some(18_000),
+                reset_after_seconds: None,
+                reset_at,
+            }],
+        }),
+        credits: None,
+        access: None,
+        reset_credits: None,
+        billing: None,
+        token_balance: None,
+        subscription_tier: tier.map(str::to_owned),
+        account_status: None,
+    }
+}
+
+fn observation(sequence: u64) -> QuotaObservationBoundary {
+    QuotaObservationBoundary {
+        observed_at_ms: sequence * 1_000,
+        position: RequestTelemetryPosition {
+            process_id: Uuid::nil(),
+            sequence,
+        },
     }
 }
 
@@ -67,186 +81,101 @@ async fn observe(
     state: Option<QuotaEstimatorState>,
     percent: f64,
     reset_at: Option<i64>,
-    checkpoint: RequestTelemetryCheckpoint,
-    index: usize,
-) -> super::EstimationResult {
-    observe_usage(
-        estimator,
-        state,
-        usage(percent, reset_at),
-        checkpoint,
-        index,
-    )
-    .await
-}
-
-async fn observe_usage(
-    estimator: &OAuthQuotaEstimator,
-    state: Option<QuotaEstimatorState>,
-    usage: OAuthQuotaUsage,
-    checkpoint: RequestTelemetryCheckpoint,
-    index: usize,
-) -> super::EstimationResult {
-    observe_identified(estimator, state, usage, "identity-a", checkpoint, index).await
-}
-
-async fn observe_identified(
-    estimator: &OAuthQuotaEstimator,
-    state: Option<QuotaEstimatorState>,
-    usage: OAuthQuotaUsage,
-    credential_fingerprint: &str,
-    checkpoint: RequestTelemetryCheckpoint,
-    index: usize,
+    sequence: u64,
 ) -> super::EstimationResult {
     estimator
         .observe(
             OAuthAccountId::from_uuid(Uuid::nil()),
-            &usage,
+            &usage(percent, reset_at, None),
             state,
-            credential_fingerprint.into(),
+            "identity-a".into(),
             QuotaCostUnit::CodexCredits,
-            indexed_observation(checkpoint, index),
-            None,
+            observation(sequence),
         )
         .await
 }
 
-async fn learned_capacity_state(
-    estimator: &OAuthQuotaEstimator,
-    repository: &UsageRepository,
-    baseline_percent: f64,
-    reset_at: Option<i64>,
-) -> QuotaEstimatorState {
-    let state = observe(estimator, None, baseline_percent, reset_at, checkpoint(), 0)
-        .await
-        .state;
-    repository.push(priced(150.0));
-    observe(
-        estimator,
-        Some(state),
-        baseline_percent + 10.0,
-        reset_at,
-        checkpoint(),
-        1,
-    )
-    .await
-    .state
+#[tokio::test]
+async fn first_local_interval_sets_capacity() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository.push_cost(10.0);
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let baseline = observe(&estimator, None, 10.0, Some(100), 1).await;
+    let result = observe(&estimator, Some(baseline.state), 20.0, Some(100), 2).await;
+    assert_eq!(result.estimates[0].completed_interval_count, 1);
+    assert_eq!(result.estimates[0].estimated_capacity_credits, Some(100.0));
 }
 
-fn usage(percent: f64, reset_at: Option<i64>) -> OAuthQuotaUsage {
-    usage_for_window(window(percent, reset_at))
+#[tokio::test]
+async fn every_recorded_interval_remains_in_cumulative_ratio() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository.push_cost(10.0);
+    repository.push_cost(20.0);
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let baseline = observe(&estimator, None, 0.0, Some(100), 1).await;
+    let first = observe(&estimator, Some(baseline.state), 10.0, Some(100), 2).await;
+    let second = observe(&estimator, Some(first.state), 20.0, Some(100), 3).await;
+    assert_eq!(second.estimates[0].completed_interval_count, 2);
+    assert_eq!(second.estimates[0].estimated_capacity_credits, Some(150.0));
 }
 
-fn window(percent: f64, reset_at: Option<i64>) -> OAuthQuotaWindow {
-    OAuthQuotaWindow {
-        id: "primary".into(),
-        kind: OAuthQuotaWindowKind::Time,
-        used_percent: percent,
-        limit_window_seconds: Some(18_000),
-        reset_after_seconds: None,
-        reset_at,
-    }
+#[tokio::test]
+async fn official_reset_reanchors_and_keeps_all_prior_totals() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository.push_cost(10.0);
+    repository.push_cost(20.0);
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let baseline = observe(&estimator, None, 80.0, Some(100), 1).await;
+    let first = observe(&estimator, Some(baseline.state), 90.0, Some(100), 2).await;
+    let reset = observe(&estimator, Some(first.state), 2.0, Some(200), 3).await;
+    assert_eq!(reset.estimates[0].completed_interval_count, 1);
+    assert_eq!(reset.estimates[0].estimated_capacity_credits, Some(100.0));
+    let after_reset = observe(&estimator, Some(reset.state), 12.0, Some(200), 4).await;
+    assert_eq!(after_reset.estimates[0].completed_interval_count, 2);
+    assert_eq!(
+        after_reset.estimates[0].estimated_capacity_credits,
+        Some(150.0)
+    );
 }
 
-fn usage_for_window(window: OAuthQuotaWindow) -> OAuthQuotaUsage {
-    OAuthQuotaUsage {
-        rate_limit: Some(OAuthQuotaRateLimit {
-            allowed: Some(true),
-            limit_reached: Some(false),
-            windows: vec![window],
-        }),
-        credits: None,
-        access: None,
-        reset_credits: None,
-        billing: None,
-        token_balance: None,
-        subscription_tier: None,
-        account_status: None,
-    }
+#[tokio::test]
+async fn identity_change_discards_old_capacity() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository.push_cost(10.0);
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let baseline = observe(&estimator, None, 10.0, Some(100), 1).await;
+    let first = observe(&estimator, Some(baseline.state), 20.0, Some(100), 2).await;
+    let changed = estimator
+        .observe(
+            OAuthAccountId::from_uuid(Uuid::nil()),
+            &usage(30.0, Some(100), Some("pro")),
+            Some(first.state),
+            "identity-b".into(),
+            QuotaCostUnit::CodexCredits,
+            observation(3),
+        )
+        .await;
+    assert_eq!(changed.estimates[0].completed_interval_count, 0);
+    assert_eq!(changed.estimates[0].estimated_capacity_credits, None);
 }
 
-fn usage_with_tier(percent: f64, reset_at: Option<i64>, tier: &str) -> OAuthQuotaUsage {
-    let mut usage = usage(percent, reset_at);
-    usage.subscription_tier = Some(tier.into());
-    usage
-}
-
-fn priced(credits: f64) -> OAuthQuotaRequestLogUsage {
-    OAuthQuotaRequestLogUsage {
-        unit: Some(QuotaCostUnit::CodexCredits),
-        total_cost_nanos: (credits * 1_000_000_000.0) as u64,
-        priced_request_count: 1,
-        unpriced_request_count: 0,
-        rate_cards: vec![RATE_CARD.into()],
-    }
-}
-
-fn costless() -> OAuthQuotaRequestLogUsage {
-    OAuthQuotaRequestLogUsage::default()
-}
-
-fn unpriced() -> OAuthQuotaRequestLogUsage {
-    OAuthQuotaRequestLogUsage {
-        unpriced_request_count: 1,
-        ..OAuthQuotaRequestLogUsage::default()
-    }
-}
-
-fn checkpoint() -> RequestTelemetryCheckpoint {
-    checkpoint_for(Uuid::nil())
-}
-
-fn checkpoint_for(process_id: Uuid) -> RequestTelemetryCheckpoint {
-    RequestTelemetryCheckpoint {
-        process_id,
-        enabled: true,
-        policy_generation: 0,
-        account_queue_dropped_request_logs: 0,
-        account_storage_failed_request_logs: 0,
-        unattributed_lost_request_logs: 0,
-        pruned_through_sequence: 0,
-    }
-}
-
-fn queue_dropped_checkpoint(dropped: u64) -> RequestTelemetryCheckpoint {
-    RequestTelemetryCheckpoint {
-        account_queue_dropped_request_logs: dropped,
-        ..checkpoint()
-    }
-}
-
-fn storage_failed_checkpoint(failed: u64) -> RequestTelemetryCheckpoint {
-    RequestTelemetryCheckpoint {
-        account_storage_failed_request_logs: failed,
-        ..checkpoint()
-    }
-}
-
-fn pruned_checkpoint(pruned_through_sequence: u64) -> RequestTelemetryCheckpoint {
-    RequestTelemetryCheckpoint {
-        pruned_through_sequence,
-        ..checkpoint()
-    }
-}
-
-fn indexed_observation(
-    checkpoint: RequestTelemetryCheckpoint,
-    index: usize,
-) -> RequestTelemetryObservation {
-    telemetry_observation(checkpoint, (index as u64 + 1) * 1_000, index as u64)
-}
-
-fn telemetry_observation(
-    checkpoint: RequestTelemetryCheckpoint,
-    observed_at_ms: u64,
-    sequence: u64,
-) -> RequestTelemetryObservation {
-    RequestTelemetryObservation {
-        observed_at_ms,
-        position: RequestTelemetryPosition {
-            process_id: checkpoint.process_id,
-            sequence,
-        },
-        checkpoint,
-    }
+#[tokio::test]
+async fn missing_local_cost_keeps_interval_open() {
+    let repository = std::sync::Arc::new(UsageRepository::default());
+    repository
+        .costs
+        .lock()
+        .expect("usage costs")
+        .push_back(Ok(0));
+    repository.push_cost(10.0);
+    let estimator = OAuthQuotaEstimator::new(repository);
+    let baseline = observe(&estimator, None, 0.0, Some(100), 1).await;
+    let waiting = observe(&estimator, Some(baseline.state), 10.0, Some(100), 2).await;
+    assert_eq!(waiting.estimates[0].completed_interval_count, 0);
+    let completed = observe(&estimator, Some(waiting.state), 20.0, Some(100), 3).await;
+    assert_eq!(completed.estimates[0].completed_interval_count, 1);
+    assert_eq!(
+        completed.estimates[0].estimated_capacity_credits,
+        Some(50.0)
+    );
 }

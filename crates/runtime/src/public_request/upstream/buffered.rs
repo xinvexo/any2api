@@ -17,6 +17,7 @@ use super::super::{
 use super::{
     UpstreamServices,
     failure::AttemptFailure,
+    forget_cache_locality,
     prepared::{AttemptInput, continuation_committer, prepare_input},
 };
 use crate::request_telemetry::AttemptRecorder;
@@ -93,6 +94,9 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         }
         Err(CollectBodyError::Public(error)) => {
             prepared.invalid_response(Some(status.as_u16()), error.telemetry_message());
+            if error.code() == PublicErrorCode::UpstreamError {
+                forget_cache_locality(&services, &candidate);
+            }
             return Err(AttemptFailure::Public(error));
         }
     };
@@ -105,6 +109,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
         Ok(decoded) => decoded,
         Err(_) => {
             prepared.invalid_response(Some(status.as_u16()), "upstream response was invalid");
+            forget_cache_locality(&services, &candidate);
             return Err(AttemptFailure::Public(public_error(
                 PublicErrorCode::UpstreamError,
                 "upstream response was invalid",
@@ -117,6 +122,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let continuation_id = prepared
         .continuation_id_from_response(&decoded)
         .map_err(|_| {
+            forget_cache_locality(&services, &candidate);
             prepared.fail_after_upstream_success(
                 status.as_u16(),
                 public_error(
@@ -128,7 +134,10 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     let continuation_state = prepared.bridge_continuation_state();
     let mut response = prepared
         .encode_egress_response(decoded, public_model)
-        .map_err(|_| prepared.fail_after_upstream_success(status.as_u16(), internal_error()))?;
+        .map_err(|_| {
+            forget_cache_locality(&services, &candidate);
+            prepared.fail_after_upstream_success(status.as_u16(), internal_error())
+        })?;
     response.headers = safe_headers;
     response.headers.insert(
         header::CONTENT_TYPE,
@@ -145,6 +154,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
             BridgeContinuationState::Stateless => None,
             BridgeContinuationState::Ready(state) => Some(state),
             BridgeContinuationState::Pending => {
+                forget_cache_locality(&services, &candidate);
                 return Err(prepared.fail_after_upstream_success(
                     status.as_u16(),
                     public_error(
@@ -160,6 +170,7 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
                 prepared.fail_after_upstream_success(status.as_u16(), affinity_error(error))
             })?;
     } else if !matches!(continuation_state, BridgeContinuationState::Stateless) {
+        forget_cache_locality(&services, &candidate);
         return Err(prepared.fail_after_upstream_success(
             status.as_u16(),
             public_error(
@@ -171,5 +182,11 @@ pub(in crate::public_request) async fn execute_buffered_attempt(
     commit_binding(binding_lease, target)
         .map_err(|error| prepared.fail_after_upstream_success(status.as_u16(), error))?;
     prepared.success(status.as_u16());
+    if let Some(key) = services.cache_locality_key {
+        services
+            .snapshot
+            .cache_locality_registry()
+            .remember_candidate(key, &candidate);
+    }
     Ok(response)
 }

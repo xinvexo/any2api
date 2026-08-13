@@ -161,7 +161,7 @@ test("keeps a command refresh alive when the virtualized panel unmounts", async 
   expect(client.getQueryData(oauthQueryKeys.quota("account-1"))).toBeDefined();
 });
 
-test("clears stale quota after reset refresh failure and recovers on refresh", async () => {
+test("keeps the last quota after reset refresh failure and recovers on refresh", async () => {
   const client = createClient();
   let quotaRefreshes = 0;
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -199,9 +199,8 @@ test("clears stale quota after reset refresh failure and recovers on refresh", a
   expect(
     await within(panel).findByText("额度已重置，但最新额度读取失败。"),
   ).toBeInTheDocument();
-  expect(within(panel).getByText("额度尚未刷新")).toBeInTheDocument();
-  expect(within(panel).queryByText("63%")).not.toBeInTheDocument();
-  expect(client.getQueryData(oauthQueryKeys.quota("account-1"))).toBeNull();
+  expect(within(panel).getByText("63%")).toBeInTheDocument();
+  expect(client.getQueryData(oauthQueryKeys.quota("account-1"))).toBeDefined();
 
   fireEvent.click(within(panel).getByRole("button", { name: "刷新额度" }));
   await waitFor(() =>

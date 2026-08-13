@@ -141,6 +141,9 @@ impl OAuthTokenMaterial {
         if self.account_id.is_none() {
             self.account_id.clone_from(&previous.account_id);
         }
+        if self.id_token.is_none() {
+            self.id_token.clone_from(&previous.id_token);
+        }
         if self.email.is_none() {
             self.email.clone_from(&previous.email);
         }

@@ -1,8 +1,8 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use any2api_domain::{
-    FallbackTier, ModelRouteConfiguration, ModelRouteId, OAuthAccountId, PublicModelName,
-    RoutingCredentialId, UpstreamModelName,
+    FallbackTier, ModelRouteConfiguration, ModelRouteId, OAuthAccountId, ProviderKind,
+    PublicModelName, RoutingCredentialId, UpstreamModelName,
 };
 use any2api_provider::api::OAuthTokenMaterial;
 
@@ -74,6 +74,23 @@ impl PublishedSnapshot {
             );
         }
         names
+    }
+
+    #[must_use]
+    pub fn codex_oauth_model_options(&self) -> BTreeSet<String> {
+        self.routing_credentials()
+            .iter()
+            .filter(|credential| {
+                credential.is_oauth() && credential.provider_kind() == ProviderKind::Codex
+            })
+            .flat_map(|credential| {
+                credential
+                    .models()
+                    .iter()
+                    .chain(credential.available_models())
+            })
+            .map(|model| model.as_str().to_owned())
+            .collect()
     }
 
     #[must_use]

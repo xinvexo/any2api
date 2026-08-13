@@ -92,7 +92,11 @@ impl ConfigPublisher {
         let _guard = self.snapshots.acquire_publish().await;
         let current = self.snapshots.load();
         let expected = current.revision();
-        validate_import_identities(current.as_ref(), &activations)?;
+        validate_import_identities(
+            current.as_ref(),
+            self.capabilities.provider_registry(),
+            &activations,
+        )?;
         let mut labels = current
             .oauth_accounts()
             .accounts()
@@ -235,16 +239,30 @@ impl ConfigPublisher {
 
 fn validate_import_identities(
     current: &PublishedSnapshot,
+    providers: &any2api_provider::api::ProviderRegistry,
     activations: &[OAuthAccountActivation],
 ) -> Result<(), ConfigPublishError> {
     let mut identities = OAuthImportIdentityIndex::default();
     for account in current.oauth_accounts().accounts() {
         if let Some(token) = current.oauth_token_material(account.id()) {
-            identities.include_existing(&OAuthImportIdentity::from_token(token.as_ref()));
+            let driver = providers.get(token.provider()).ok_or(
+                crate::configuration::ConfigurationCapabilityError::MissingProviderDriver(
+                    token.provider(),
+                ),
+            )?;
+            identities.include_existing(&OAuthImportIdentity::from_token(
+                driver.as_ref(),
+                token.as_ref(),
+            ));
         }
     }
     for activation in activations {
-        let identity = OAuthImportIdentity::from_token(&activation.token);
+        let driver = providers.get(activation.provider_kind).ok_or(
+            crate::configuration::ConfigurationCapabilityError::MissingProviderDriver(
+                activation.provider_kind,
+            ),
+        )?;
+        let identity = OAuthImportIdentity::from_token(driver.as_ref(), &activation.token);
         if !identities.insert_new(&identity) {
             return Err(ConfigPublishError::OAuthAccountIdentityConflict);
         }

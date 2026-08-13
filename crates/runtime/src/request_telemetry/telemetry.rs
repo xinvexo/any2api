@@ -126,7 +126,6 @@ impl RequestTelemetry {
                 changes: changes.clone(),
                 prune_wakeup: Arc::clone(&prune_wakeup),
                 request_prune_wakeup,
-                process_id,
             },
         ));
         Self {
@@ -179,12 +178,8 @@ impl RequestTelemetry {
         let mut current = self.policy.write().expect("request telemetry policy");
         if next.revision > current.revision {
             let cleanup_changed = next.cleanup_limits_differ(*current);
-            let enabled_changed = next.enabled != current.enabled;
             *current = next;
             drop(current);
-            if enabled_changed {
-                self.counters.request_log_policy_changed();
-            }
             if cleanup_changed {
                 self.prune_wakeup.notify_one();
             }
@@ -193,9 +188,6 @@ impl RequestTelemetry {
 
     pub(crate) fn try_record(&self, mut record: CompletedRequestLog, policy: RequestLogPolicy) {
         if !policy.enabled {
-            if let Some(account) = record.request.oauth_account_id {
-                self.omit_oauth_record(account);
-            }
             return;
         }
         if record.request.oauth_account_id.is_some() {
@@ -290,11 +282,6 @@ impl RequestTelemetry {
     }
 
     #[cfg(test)]
-    pub(crate) fn process_id_for_test(&self) -> Uuid {
-        self.process_id
-    }
-
-    #[cfg(test)]
     pub(crate) fn reconcile_policy_for_test(
         &self,
         revision: ConfigRevision,
@@ -359,23 +346,21 @@ impl RequestTelemetry {
         let records = envelope.record_count;
         let queue_class = envelope.queue_class;
         let owned_bytes = envelope.owned_bytes;
-        let quota_account = envelope.event.quota_account();
         let sender = self.sender.read().expect("request telemetry sender");
         let Some(sender) = sender.as_ref() else {
-            self.counters.rejected(records, quota_account);
+            self.counters.rejected(records);
             return;
         };
         if !self
             .counters
             .try_reserve(capacity, max_bytes, owned_bytes, queue_class)
         {
-            self.counters.rejected(records, quota_account);
+            self.counters.rejected(records);
             return;
         }
         self.counters.enqueued(records, owned_bytes);
         if sender.try_send(envelope).is_err() {
-            self.counters
-                .send_failed(records, owned_bytes, queue_class, quota_account);
+            self.counters.send_failed(records, owned_bytes, queue_class);
         }
     }
 }

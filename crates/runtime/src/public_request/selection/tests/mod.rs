@@ -1,3 +1,4 @@
+mod cache_locality;
 mod fairness;
 mod fixed;
 mod queue;

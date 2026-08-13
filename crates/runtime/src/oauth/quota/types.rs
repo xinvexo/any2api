@@ -5,7 +5,6 @@ use std::sync::Arc;
 use any2api_provider::api::{OAuthQuotaUsage, ProviderError};
 use any2api_storage::api::StorageError;
 use any2api_transport::api::TransportError;
-use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 use crate::oauth::refresh::OAuthRefreshFailure;
@@ -24,73 +23,16 @@ pub struct OAuthQuotaRateCard {
     pub credits_per_usd: u64,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OAuthQuotaEstimateConfidence {
-    Unknown,
-    Learning,
-    Stable,
-    Degraded,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OAuthQuotaIntervalStatus {
-    AwaitingBaseline,
-    NoChange,
-    Accumulating,
-    ValidSample,
-    ResetBoundary,
-    TelemetryIncomplete,
-    UnpricedUsage,
-    Invalid,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct OAuthQuotaIntervalDiagnostic {
-    pub status: OAuthQuotaIntervalStatus,
-    #[serde(deserialize_with = "deserialize_nullable")]
-    pub started_at: Option<i64>,
-    pub ended_at: i64,
-    #[serde(deserialize_with = "deserialize_nullable")]
-    pub delta_used_percent: Option<f64>,
-    #[serde(deserialize_with = "deserialize_nullable")]
-    pub local_cost_credits: Option<f64>,
-    pub unpriced_request_count: u64,
-    pub queue_dropped_request_logs: u64,
-    pub storage_failed_request_logs: u64,
-    /// Whether request-log pruning reached into this observation interval.
-    /// Pruning history older than the interval anchor is harmless and not
-    /// reported.
-    pub interval_pruned: bool,
-}
-
-fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    Option::<T>::deserialize(deserializer)
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct OAuthQuotaEstimate {
     pub window_id: String,
     pub window_kind: any2api_provider::api::OAuthQuotaWindowKind,
     pub limit_window_seconds: Option<u64>,
     pub window_reset_at: Option<i64>,
-    pub epoch: u64,
-    pub epoch_started_at: i64,
-    pub confidence: OAuthQuotaEstimateConfidence,
     pub estimated_capacity_credits: Option<f64>,
     pub estimated_used_credits: Option<f64>,
     pub estimated_remaining_credits: Option<f64>,
-    pub sample_count: u32,
-    pub fresh_sample_count: u32,
-    pub relative_mad: Option<f64>,
-    pub latest_interval: OAuthQuotaIntervalDiagnostic,
-    pub rate_cards: Vec<String>,
+    pub completed_interval_count: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

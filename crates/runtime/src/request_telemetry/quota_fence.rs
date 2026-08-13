@@ -1,27 +1,20 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use any2api_domain::{CompletedRequestLog, OAuthAccountId, RequestTelemetryPosition};
+use any2api_domain::{CompletedRequestLog, RequestTelemetryPosition};
 
 use super::{
-    RequestLogPolicy, RequestTelemetryCheckpoint, RequestTelemetryObservation,
+    RequestLogPolicy,
     event::{TelemetryEnvelope, TelemetryEvent},
     telemetry::RequestTelemetry,
 };
 
-const QUOTA_CHECKPOINT_TIMEOUT: Duration = Duration::from_secs(5);
+#[derive(Clone, Debug)]
+pub(crate) struct QuotaObservationBoundary {
+    pub(crate) observed_at_ms: u64,
+    pub(crate) position: RequestTelemetryPosition,
+}
 
 impl RequestTelemetry {
-    pub(super) fn omit_oauth_record(&self, account: OAuthAccountId) {
-        let mut sequence = self
-            .quota_sequence
-            .lock()
-            .expect("quota telemetry sequence");
-        *sequence = sequence
-            .checked_add(1)
-            .expect("quota telemetry sequence exhausted");
-        self.counters.queue_dropped_request_logs(account, 1);
-    }
-
     pub(super) fn try_record_oauth(
         &self,
         mut record: CompletedRequestLog,
@@ -45,25 +38,8 @@ impl RequestTelemetry {
         );
     }
 
-    pub(crate) async fn quota_checkpoint(
-        &self,
-        account: OAuthAccountId,
-    ) -> RequestTelemetryCheckpoint {
-        let receiver = {
-            let _sequence = self
-                .quota_sequence
-                .lock()
-                .expect("quota telemetry sequence");
-            self.enqueue_quota_checkpoint(account)
-        };
-        self.resolve_quota_checkpoint(account, receiver).await
-    }
-
-    pub(crate) async fn quota_observation(
-        &self,
-        account: OAuthAccountId,
-    ) -> RequestTelemetryObservation {
-        let (observed_at_ms, position, receiver) = {
+    pub(crate) async fn quota_observation(&self) -> QuotaObservationBoundary {
+        let (observed_at_ms, position) = {
             let sequence = self
                 .quota_sequence
                 .lock()
@@ -72,68 +48,28 @@ impl RequestTelemetry {
                 process_id: self.process_id,
                 sequence: *sequence,
             };
-            (
-                unix_time_ms(),
-                position,
-                self.enqueue_quota_checkpoint(account),
-            )
+            (unix_time_ms(), position)
         };
-        let checkpoint = self.resolve_quota_checkpoint(account, receiver).await;
-        RequestTelemetryObservation {
+        if let Some(receiver) = self.enqueue_quota_flush().await {
+            let _ = receiver.await;
+        }
+        QuotaObservationBoundary {
             observed_at_ms,
             position,
-            checkpoint,
         }
     }
 
-    fn enqueue_quota_checkpoint(
-        &self,
-        account: OAuthAccountId,
-    ) -> Option<tokio::sync::oneshot::Receiver<RequestTelemetryCheckpoint>> {
-        let enabled = self
-            .policy
-            .read()
-            .expect("request telemetry policy")
-            .enabled;
-        if self.request_logs.is_none() || !enabled {
-            return None;
-        }
+    async fn enqueue_quota_flush(&self) -> Option<tokio::sync::oneshot::Receiver<()>> {
         let sender = self
             .sender
             .read()
             .expect("request telemetry sender")
             .clone()?;
-        let permit = sender.try_reserve().ok()?;
+        let permit = sender.reserve().await.ok()?;
         let (reply, result) = tokio::sync::oneshot::channel();
-        let boundary = self
-            .counters
-            .quota_checkpoint(self.process_id, enabled, account);
         self.counters.reserve_control_slot();
-        permit.send(TelemetryEnvelope::new(TelemetryEvent::QuotaCheckpoint {
-            account,
-            boundary,
-            reply,
-        }));
+        permit.send(TelemetryEnvelope::new(TelemetryEvent::QuotaFlush { reply }));
         Some(result)
-    }
-
-    async fn resolve_quota_checkpoint(
-        &self,
-        account: OAuthAccountId,
-        receiver: Option<tokio::sync::oneshot::Receiver<RequestTelemetryCheckpoint>>,
-    ) -> RequestTelemetryCheckpoint {
-        let fallback = || {
-            self.counters
-                .quota_checkpoint(self.process_id, false, account)
-        };
-        let Some(receiver) = receiver else {
-            return fallback();
-        };
-        tokio::time::timeout(QUOTA_CHECKPOINT_TIMEOUT, receiver)
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or_else(fallback)
     }
 }
 

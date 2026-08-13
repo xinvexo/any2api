@@ -15,7 +15,7 @@ use crate::health::{HealthAcquireError, ReliabilityPolicy};
 use uuid::Uuid;
 
 #[tokio::test]
-async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
+async fn reset_preserves_statistics_until_the_next_official_window() {
     let context = QuotaTestContext::new(1, AuthenticationMode::Accepted).await;
     let mut changes = context.service.subscribe_quota_changes();
     let quota = context
@@ -51,15 +51,34 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         Some(quota.clone())
     );
     assert_eq!(context.transport.usage_calls(), 1);
-    let stored = context
+    let mut stored = context
         .storage
         .load_oauth_quota_snapshot(context.account_id)
         .await
         .expect("stored quota snapshot")
         .expect("persisted quota snapshot");
-    let payload: serde_json::Value =
+    let mut payload: serde_json::Value =
         serde_json::from_slice(&stored.payload).expect("quota snapshot payload");
-    assert_eq!(payload["estimator_state"]["windows"][0]["epoch"], 1);
+    payload["estimator_state"]["windows"][0]["total_delta_used_percent"] = serde_json::json!(10.0);
+    payload["estimator_state"]["windows"][0]["total_local_cost_credits"] = serde_json::json!(150.0);
+    payload["estimator_state"]["windows"][0]["completed_interval_count"] = serde_json::json!(1);
+    stored.payload = serde_json::to_vec(&payload).expect("seed cumulative statistics");
+    context
+        .storage
+        .upsert_oauth_quota_snapshot(&stored)
+        .await
+        .expect("persist cumulative statistics");
+    let accumulated = context
+        .service
+        .cached_quota(context.account_id)
+        .await
+        .expect("cached quota with cumulative statistics")
+        .expect("persisted quota with cumulative statistics");
+    assert_eq!(
+        accumulated.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
+    );
+    assert_eq!(accumulated.estimates[0].completed_interval_count, 1);
 
     let snapshot = context.snapshots.load();
     let generation = Arc::clone(
@@ -93,26 +112,34 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
         .await
         .expect("quota reset");
     assert_eq!(reset.windows_reset, 2);
-    changes.changed().await.expect("quota deletion change");
+    changes.changed().await.expect("pre-reset quota change");
     assert_eq!(*changes.borrow_and_update(), 2);
+    let before_new_window = context
+        .service
+        .cached_quota(context.account_id)
+        .await
+        .expect("cached quota after reset")
+        .expect("persisted pre-reset observation");
+    assert_eq!(before_new_window.estimates, accumulated.estimates);
     assert_eq!(
-        context
-            .service
-            .cached_quota(context.account_id)
-            .await
-            .expect("cleared cached quota"),
-        None
-    );
-    assert!(
-        context
-            .storage
-            .load_oauth_quota_snapshot(context.account_id)
-            .await
-            .expect("deleted quota snapshot lookup")
-            .is_none()
+        before_new_window.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
     );
     assert_eq!(generation.health().availability("gpt-5.5"), Ok(()));
     assert!(context.runtime.scheduler_epoch() > epoch_before);
+
+    let next_window = context
+        .service
+        .refresh_quota(context.account_id)
+        .await
+        .expect("post-reset quota refresh");
+    changes.changed().await.expect("new quota window change");
+    assert_eq!(*changes.borrow_and_update(), 3);
+    assert_eq!(next_window.estimates[0].completed_interval_count, 1);
+    assert_eq!(
+        next_window.estimates[0].estimated_capacity_credits,
+        Some(1_500.0)
+    );
 
     let captured = context.transport.captured();
     assert_eq!(
@@ -126,6 +153,8 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
             "/backend-api/wham/usage",
             "/backend-api/wham/rate-limit-reset-credits",
             "/backend-api/wham/rate-limit-reset-credits/consume",
+            "/backend-api/wham/usage",
+            "/backend-api/wham/rate-limit-reset-credits",
         ]
     );
     assert!(captured.iter().all(|request| {
@@ -135,7 +164,11 @@ async fn query_and_reset_use_direct_transport_and_clear_temporary_cooldowns() {
             && request.traffic_class == TransportTrafficClass::OAuthQuota
     }));
     let redeem_id = serde_json::from_slice::<serde_json::Value>(
-        &captured.last().expect("consume request").body,
+        &captured
+            .iter()
+            .find(|request| request.path == "/backend-api/wham/rate-limit-reset-credits/consume")
+            .expect("consume request")
+            .body,
     )
     .expect("consume body")["redeem_request_id"]
         .as_str()

@@ -60,12 +60,18 @@ impl SettingResponse {
             max_value: definition.max().map(SettingValue::to_json),
             allowed_values: (!definition.allowed_values().is_empty())
                 .then(|| definition.allowed_values().to_vec()),
-            options: (key == SettingKey::ModelsAllowed).then(|| {
-                snapshot
-                    .published_public_model_names()
-                    .into_iter()
-                    .collect()
-            }),
+            options: match key {
+                SettingKey::ModelsAllowed => Some(
+                    snapshot
+                        .published_public_model_names()
+                        .into_iter()
+                        .collect(),
+                ),
+                SettingKey::OAuthCodexRateCard => {
+                    Some(snapshot.codex_oauth_model_options().into_iter().collect())
+                }
+                _ => None,
+            },
             apply_mode: definition.apply_mode().as_str(),
             web_group: definition.web_group(),
             description: definition.description(),

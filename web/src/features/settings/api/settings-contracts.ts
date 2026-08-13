@@ -109,7 +109,7 @@ function parseSettingItem(value: unknown): SettingItem {
 }
 
 function readOptions(value: unknown, valueType: SettingValueType) {
-  if (valueType !== "model_access" && valueType !== "string_list") {
+  if (valueType !== "model_access" && valueType !== "string_list" && valueType !== "codex_rate_card") {
     if (value !== null) {
       throw invalidResponse();
     }

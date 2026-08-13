@@ -1,6 +1,7 @@
 use any2api_domain::{OAuthAccountDraft, OAuthAccountId, ProviderKind};
 use any2api_provider::api::{OAuthTokenMaterial, encode_oauth_account_document};
 use any2api_storage::api::{ConfigurationRepository, OAuthAccountDocument};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 use super::{TestContext, oauth_account_draft};
 use crate::configuration::{ConfigPublishError, OAuthAccountActivation};
@@ -142,7 +143,73 @@ async fn stable_and_exact_token_conflict_does_not_publish() {
     assert_eq!(context.runtime.scheduler_epoch(), epoch);
 }
 
+#[tokio::test]
+async fn codex_team_members_are_independent_and_same_member_reauthorizes() {
+    let context = TestContext::new().await;
+    let first_id = OAuthAccountId::new();
+    let first = codex_token("workspace-team", "member-a", "first@example.com");
+    context
+        .publisher
+        .activate_oauth_account(
+            first_id,
+            ProviderKind::Codex,
+            oauth_account_draft("Team member A"),
+            first.email().map(str::to_owned),
+            first.expires_at(),
+            Vec::new(),
+            document(&first),
+        )
+        .await
+        .expect("first Team member");
+
+    let second = codex_token("workspace-team", "member-b", "second@example.com");
+    let (published, second_id) = context
+        .publisher
+        .activate_oauth_login(codex_activation(OAuthAccountId::new(), second))
+        .await
+        .expect("second Team member creates an account");
+    assert_ne!(second_id, first_id);
+    assert_eq!(published.oauth_accounts().accounts().len(), 2);
+    assert_eq!(
+        published
+            .oauth_token_material(first_id)
+            .expect("member A token")
+            .account_id(),
+        Some("workspace-team")
+    );
+    assert_eq!(
+        published
+            .oauth_token_material(second_id)
+            .expect("member B token")
+            .account_id(),
+        Some("workspace-team")
+    );
+
+    let refreshed_member_a = codex_token("workspace-team", "member-a", "renamed@example.com");
+    let (published, reauthorized_id) = context
+        .publisher
+        .activate_oauth_login(codex_activation(OAuthAccountId::new(), refreshed_member_a))
+        .await
+        .expect("same Team member reauthorizes");
+    assert_eq!(reauthorized_id, first_id);
+    assert_eq!(published.oauth_accounts().accounts().len(), 2);
+}
+
 fn activation(id: OAuthAccountId, token: OAuthTokenMaterial) -> OAuthAccountActivation {
+    let document = document(&token);
+    OAuthAccountActivation {
+        id,
+        provider_kind: token.provider(),
+        preferred_label: token.email().map(str::to_owned),
+        safe_account_email: token.email().map(str::to_owned),
+        expires_at: token.expires_at(),
+        models: Vec::new(),
+        document,
+        token,
+    }
+}
+
+fn codex_activation(id: OAuthAccountId, token: OAuthTokenMaterial) -> OAuthAccountActivation {
     let document = document(&token);
     OAuthAccountActivation {
         id,
@@ -173,6 +240,30 @@ fn token(
         email.map(str::to_owned),
     )
     .expect("OAuth token")
+}
+
+fn codex_token(workspace: &str, member: &str, email: &str) -> OAuthTokenMaterial {
+    let payload = URL_SAFE_NO_PAD.encode(
+        serde_json::json!({
+            "email": email,
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": workspace,
+                "chatgpt_user_id": member,
+                "chatgpt_plan_type": "team"
+            }
+        })
+        .to_string(),
+    );
+    OAuthTokenMaterial::new(
+        ProviderKind::Codex,
+        format!("access-{member}"),
+        Some(format!("refresh-{member}")),
+        Some(format!("header.{payload}.signature")),
+        Some(1_900_000_000),
+        Some(workspace.to_owned()),
+        Some(email.to_owned()),
+    )
+    .expect("Codex OAuth token")
 }
 
 fn document(token: &OAuthTokenMaterial) -> OAuthAccountDocument {

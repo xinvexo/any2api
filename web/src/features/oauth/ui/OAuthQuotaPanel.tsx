@@ -61,7 +61,6 @@ export function OAuthQuotaPanel({
     retry: false,
     mutationFn: async () => {
       const result = await resetOAuthAccountQuota(accountId);
-      queryClient.setQueryData(quotaOptions.queryKey, null);
       try {
         await refreshOAuthAccountQuota(queryClient, accountId);
         return { ...result, quotaRefreshed: true };

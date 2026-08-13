@@ -4,7 +4,7 @@ use any2api_domain::{OAuthAccountId, QuotaCostUnit};
 
 use super::{
     coordinator::{OAuthQuotaService, QueriedQuota, current_rate_card},
-    persistence::StoredQuotaTelemetry,
+    persistence::StoredQuotaSnapshot,
     types::{OAuthQuotaError, OAuthQuotaSnapshot},
 };
 pub(super) async fn build(
@@ -12,15 +12,9 @@ pub(super) async fn build(
     id: OAuthAccountId,
     observation: QueriedQuota,
 ) -> Result<OAuthQuotaSnapshot, OAuthQuotaError> {
-    let fetched_at_ms = observation.telemetry_observation.observed_at_ms;
+    let fetched_at_ms = observation.boundary.observed_at_ms;
     let fetched_at = i64::try_from(fetched_at_ms / 1_000).unwrap_or_default();
-    let previous = match service.persistence.load(id).await {
-        Ok(previous) => previous,
-        Err(error) => {
-            tracing::warn!(oauth_account_id = %id, error = %error, "previous OAuth quota telemetry could not be loaded");
-            None
-        }
-    };
+    let previous = service.persistence.load(id).await?;
     let published = service.publisher.current_snapshot();
     let account = published
         .oauth_accounts()
@@ -39,8 +33,7 @@ pub(super) async fn build(
                 previous.and_then(|value| value.estimator_state),
                 observation.credential_fingerprint,
                 unit,
-                observation.telemetry_observation.clone(),
-                Some(service.telemetry.as_ref()),
+                observation.boundary.clone(),
             )
             .await;
         (Some(result.state), result.estimates)
@@ -49,7 +42,7 @@ pub(super) async fn build(
     };
     let rate_card = (driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
         .then(|| current_rate_card(&published));
-    let stored = StoredQuotaTelemetry {
+    let stored = StoredQuotaSnapshot {
         usage: observation.usage.clone(),
         estimator_state,
         fetched_at,

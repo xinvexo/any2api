@@ -16,7 +16,6 @@ import { useOAuthQuotaChangeEvent } from "../model/use-oauth-quota-change-event"
 import { OAuthAccounts } from "./OAuthAccounts";
 import { OAuthLoginDrawer } from "./OAuthLogin";
 import { OAuthImportDrawer } from "./OAuthImport";
-import { OAuthInvalidCleanupControl } from "./OAuthInvalidCleanupControl";
 import { OAuthProviderNav } from "./OAuthProviderNav";
 import { Button } from "@/shared/ui/Button";
 import { KindSplitLayout } from "@/shared/ui/KindSplitLayout";
@@ -33,7 +32,6 @@ export function OAuthManagement() {
   const selectedProvider = resolveSelectedProvider(searchParams.get("kind"));
   const [loginOpen, setLoginOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [invalidCleanupBusy, setInvalidCleanupBusy] = useState(false);
   const notifiedActivation = useRef<OAuthActivationResult | null>(null);
 
   useEffect(() => {
@@ -144,10 +142,7 @@ export function OAuthManagement() {
         variant="ghost"
         aria-label="刷新全部额度"
         disabled={
-          invalidCleanupBusy ||
-          quotaRefresh.pending ||
-          accounts.isFetching ||
-          kindAccounts.length === 0
+          quotaRefresh.pending || accounts.isFetching || kindAccounts.length === 0
         }
         onClick={() => void refreshAllQuotas()}
       >
@@ -157,16 +152,9 @@ export function OAuthManagement() {
         />
         {quotaRefresh.pending ? "刷新中" : "刷新额度"}
       </Button>
-      <OAuthInvalidCleanupControl
-        key={selectedProvider}
-        provider={selectedProvider}
-        accounts={kindAccounts}
-        disabled={quotaRefresh.pending || accounts.isFetching}
-        onBusyChange={setInvalidCleanupBusy}
-      />
       <Button
         variant="ghost"
-        disabled={invalidCleanupBusy || accounts.isFetching || !accounts.data}
+        disabled={accounts.isFetching || !accounts.data}
         onClick={() => void refreshAccounts()}
       >
         <RefreshCw size={14} className={accounts.isFetching ? "animate-spin" : undefined} />
@@ -174,7 +162,7 @@ export function OAuthManagement() {
       </Button>
       <Button
         variant="secondary"
-        disabled={invalidCleanupBusy || quotaRefresh.pending || !accounts.data}
+        disabled={quotaRefresh.pending || !accounts.data}
         onClick={openImport}
       >
         <Upload size={14} aria-hidden="true" />
@@ -182,7 +170,7 @@ export function OAuthManagement() {
       </Button>
       <Button
         variant="primary"
-        disabled={invalidCleanupBusy || quotaRefresh.pending || !accounts.data}
+        disabled={quotaRefresh.pending || !accounts.data}
         onClick={openLogin}
       >
         <LogIn size={14} aria-hidden="true" />
@@ -201,7 +189,7 @@ export function OAuthManagement() {
           <OAuthProviderNav
             selected={selectedProvider}
             counts={counts}
-            disabled={invalidCleanupBusy || quotaRefresh.pending}
+            disabled={quotaRefresh.pending}
             onSelect={selectProvider}
           />
         }
@@ -243,7 +231,7 @@ export function OAuthManagement() {
               provider={selectedProvider}
               accounts={kindAccounts}
               configRevision={accounts.data.configRevision}
-              quotaRefreshPending={quotaRefresh.pending || invalidCleanupBusy}
+              quotaRefreshPending={quotaRefresh.pending}
             />
           </div>
         )}

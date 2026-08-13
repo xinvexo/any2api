@@ -189,6 +189,59 @@ async fn duplicate_import_identities_fail_the_whole_batch() {
 }
 
 #[tokio::test]
+async fn codex_team_members_in_one_workspace_import_as_two_accounts() {
+    let context = ImportContext::new().await;
+    let body = json!({
+        "accounts": [
+            {
+                "name": "Team member A",
+                "type": "codex",
+                "access_token": "access-member-a",
+                "refresh_token": "refresh-member-a",
+                "id_token": jwt(json!({
+                    "email": "a@example.com",
+                    "https://api.openai.com/auth": {
+                        "chatgpt_account_id": "workspace-team",
+                        "chatgpt_user_id": "member-a"
+                    }
+                }))
+            },
+            {
+                "name": "Team member B",
+                "type": "codex",
+                "access_token": "access-member-b",
+                "refresh_token": "refresh-member-b",
+                "id_token": jwt(json!({
+                    "email": "b@example.com",
+                    "https://api.openai.com/auth": {
+                        "chatgpt_account_id": "workspace-team",
+                        "chatgpt_user_id": "member-b"
+                    }
+                }))
+            }
+        ]
+    });
+    let result = publish(
+        context.capabilities.provider_registry(),
+        &context.publisher,
+        vec![json_bytes(body)],
+    )
+    .await
+    .expect("two Team members import");
+
+    assert_eq!(result.accounts().len(), 2);
+    assert_eq!(
+        context
+            .snapshots
+            .load()
+            .oauth_accounts()
+            .for_provider(ProviderKind::Codex)
+            .count(),
+        2
+    );
+}
+
+#[tokio::test]
 async fn duplicate_token_against_an_existing_account_is_rejected() {
     let context = ImportContext::new().await;
     publish(
@@ -276,6 +329,13 @@ impl ImportContext {
 
 fn json_bytes(value: serde_json::Value) -> Bytes {
     Bytes::from(serde_json::to_vec(&value).expect("JSON"))
+}
+
+fn jwt(payload: serde_json::Value) -> String {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).expect("JWT payload"));
+    format!("header.{payload}.signature")
 }
 
 async fn assert_initial(context: &ImportContext) {

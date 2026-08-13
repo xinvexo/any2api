@@ -1,4 +1,5 @@
 mod device;
+mod identity;
 pub(crate) mod import;
 #[cfg(test)]
 mod import_tests;
@@ -10,6 +11,10 @@ mod token;
 mod token_tests;
 
 pub use device::{OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthLoginFlow};
+pub use identity::OAuthPrincipalIdentity;
+pub(crate) use identity::{
+    default_principal_identity, email_principal_identity, workspace_member_principal_identity,
+};
 pub use import::{
     MAX_OAUTH_IMPORT_ACCOUNTS_PER_DOCUMENT, OAuthImportParseError, OAuthImportedAccount,
     parse_oauth_import_document,

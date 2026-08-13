@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { useMemo } from "react";
 
 import type { CodexRateCardValue, SettingItem } from "../api/settings-contracts";
 import {
@@ -27,6 +28,18 @@ export function CodexRateCardForm({
   const defaultCard = item.defaultValue as CodexRateCardValue;
   const overrideCard = item.overrideValue as CodexRateCardValue | null;
   const effectiveCard = item.effectiveValue as CodexRateCardValue;
+  const modelOptions = useMemo(() => {
+    const names = new Set<string>([
+      ...(item.options ?? []),
+      ...Object.keys(defaultCard.models),
+      ...Object.keys(effectiveCard.models),
+      ...Object.keys(overrideCard?.models ?? {}),
+      ...value.models.map((model) => model.model.trim()).filter(Boolean),
+    ]);
+    return [...names].sort((left, right) => left.localeCompare(right));
+  }, [defaultCard.models, effectiveCard.models, item.options, overrideCard?.models, value.models]);
+  const selected = selectedModels(value);
+  const canAddModel = modelOptions.some((model) => !selected.has(model));
 
   function updateModel(localId: string, model: CodexRateCardDraft["models"][number]) {
     onChange({
@@ -40,10 +53,13 @@ export function CodexRateCardForm({
   }
 
   function addModel() {
+    const model = modelOptions.find((candidate) => !selected.has(candidate));
+    if (!model) return;
     const localId = nextLocalId(value);
+    const draft = createEmptyCodexRateModelDraft(localId);
     onChange({
       ...value,
-      models: [...value.models, createEmptyCodexRateModelDraft(localId)],
+      models: [...value.models, { ...draft, model }],
     });
   }
 
@@ -55,15 +71,16 @@ export function CodexRateCardForm({
         <p>生效 <span className="text-secondary">{summarizeCard(effectiveCard)}</span></p>
       </div>
 
-      <section className="border-b border-subtle py-5" aria-labelledby="codex-rate-exchange-heading">
-        <h2 id="codex-rate-exchange-heading" className="text-[14px] font-semibold tracking-tight">
-          美元换算
-        </h2>
-        <label htmlFor="codex-credits-per-usd" className="mt-3 block max-w-xs">
-          <span className="mb-1 block text-[11px] text-secondary">Credits / USD</span>
+      <section className="border-b border-subtle py-3" aria-labelledby="codex-rate-exchange-heading">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <h2 id="codex-rate-exchange-heading" className="shrink-0 text-[13px] font-semibold tracking-tight">
+            美元换算
+          </h2>
+          <label htmlFor="codex-credits-per-usd" className="flex items-center gap-2">
+            <span className="shrink-0 text-[11px] text-secondary">Credits / USD</span>
           <input
             id="codex-credits-per-usd"
-            className={controlClass(Boolean(errors.creditsPerUsd), "tabular-nums")}
+            className={controlClass(Boolean(errors.creditsPerUsd), "w-24 tabular-nums")}
             type="text"
             inputMode="numeric"
             pattern="[0-9]*"
@@ -73,15 +90,16 @@ export function CodexRateCardForm({
             aria-describedby={errors.creditsPerUsd ? "codex-credits-per-usd-error" : undefined}
             onChange={(event) => onChange({ ...value, creditsPerUsd: event.target.value })}
           />
-          {errors.creditsPerUsd ? (
-            <span id="codex-credits-per-usd-error" className="mt-1 block text-[10px] text-danger" role="alert">
-              {errors.creditsPerUsd}
-            </span>
-          ) : null}
-        </label>
+          </label>
+        </div>
+        {errors.creditsPerUsd ? (
+          <span id="codex-credits-per-usd-error" className="mt-1 block text-[10px] text-danger" role="alert">
+            {errors.creditsPerUsd}
+          </span>
+        ) : null}
       </section>
 
-      <section className="py-5" aria-labelledby="codex-model-rates-heading">
+      <section className="py-4" aria-labelledby="codex-model-rates-heading">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 id="codex-model-rates-heading" className="text-[14px] font-semibold tracking-tight">
@@ -89,7 +107,7 @@ export function CodexRateCardForm({
             </h2>
             <p className="mt-0.5 text-[11px] text-tertiary">Credits / 百万 Token</p>
           </div>
-          <Button variant="secondary" size="sm" disabled={disabled} onClick={addModel}>
+          <Button variant="secondary" size="sm" disabled={disabled || !canAddModel} onClick={addModel}>
             <Plus size={14} />
             添加模型
           </Button>
@@ -100,6 +118,8 @@ export function CodexRateCardForm({
             <CodexRateModelRow
               key={model.localId}
               value={model}
+              modelOptions={modelOptions}
+              selectedModels={selected}
               errors={errors}
               disabled={disabled}
               onChange={(next) => updateModel(model.localId, next)}
@@ -120,4 +140,8 @@ function nextLocalId(draft: CodexRateCardDraft) {
   let index = draft.models.length + 1;
   while (draft.models.some((model) => model.localId === `model-${index}`)) index += 1;
   return `model-${index}`;
+}
+
+function selectedModels(draft: CodexRateCardDraft) {
+  return new Set(draft.models.map((model) => model.model.trim()).filter(Boolean));
 }

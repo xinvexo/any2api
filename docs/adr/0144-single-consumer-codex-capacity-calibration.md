@@ -5,6 +5,7 @@
 - 决策者:maintainer
 - 影响范围:Codex quota estimator、RequestTelemetry coverage、OAuth quota snapshot payload、管理 DTO 与 Web 展示
 - 取代:ADR-0143 全部;ADR-0142 §2(打捞收割)与 §3 的 `inherited` 置信度;ADR-0141 §3(竞争簇)与 §1 的全局 prune 计数
+- 后续修订:ADR-0146 取代本 ADR 的 estimator、区间边界、reset、持久化与展示决策；本 ADR 仅保留为单消费者业务前提的历史记录
 
 ## 业务前提(核心约束)
 
@@ -85,7 +86,8 @@ sequence fence(ADR-0141 §1)原样保留:同进程 `(anchor.sequence, current.se
   是订阅属性,不随 5 小时窗口改变。`inherited` 置信度档位删除,继承状态由 `fresh_sample_count`
   表达。
 - 容量签名 = credential 指纹 + 窗口 key(id/kind/时长) + **subscription tier**(新增,tier 从
-  无到有不算变化)。签名变化清空样本重新引导;显式 reset credit 成功仍删除整个 snapshot。
+  无到有不算变化)。签名变化清空样本重新引导；显式 reset credit 的后续决策由 ADR-0146 修订为
+  结束开放区间但保留容量样本。
 
 ### 8. 置信度为派生值
 
@@ -100,7 +102,8 @@ sequence fence(ADR-0141 §1)原样保留:同进程 `(anchor.sequence, current.se
 
 Snapshot payload 升 v8(Migration 0028 按 0027 先例重建表,保留最后成功 usage,清空旧 estimator
 state)。管理 DTO 与 Web:状态/置信度枚举收窄,区间诊断的 `pruned_request_logs` 计数改为
-`interval_pruned` 布尔。Credits 仍为规范单位；美元等值换算后续由 ADR-0145 改为读取当前可配置费率卡。
+`interval_pruned` 布尔。普通 refresh 只追加观测并保留样本；snapshot 读取失败时不得以冷启动状态
+覆盖原记录。Credits 仍为规范单位；美元等值换算后续由 ADR-0145 改为读取当前可配置费率卡。
 
 ## 数学依据
 

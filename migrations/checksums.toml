@@ -27,3 +27,4 @@
 "0026_monotonic_oauth_quota_telemetry.sql" = "03d493ce91a10a0757e45511c702f40b17dfdd88524fd3d99939062ec7abdfd5"
 "0027_accumulated_segment_quota_estimator_state.sql" = "a676f3d964edee404fe47e6277064122c24b75c6bdc0d0f6e46fc9975c3ae82b"
 "0028_single_consumer_quota_estimator_state.sql" = "319aaab3eedb2775ec8a03c3797bc416b4285ec4058ff3aae93f32c9924e03ee"
+"0029_accumulate_codex_quota_statistics.sql" = "aaeaefc0e11eca93aaca72e9fd8b19608eff7bd215882682c23802586d5e98ef"

@@ -66,9 +66,9 @@ any2api 是一个面向个人使用、自托管、单节点运行的 AI API 聚�
 35. 通用 Transport wire profile 必须由本地 loopback conformance fixture 固定 TLS ClientHello 的稳定字段集合与真实顺序策略、HTTP/2 初始控制帧和 HTTP/1.1 原始请求头；依赖升级造成 fixture 差异时必须人工审核并提升 wire profile policy version。fixture 只描述 any2api 实际行为，不得被表述为官方客户端基线，也不得由 any2api 另加随机化来隐藏差异。
 36. 实际进入 Transport 的 RequestAttempt 必须保存不含 Secret 的结构化线路诊断；流式 Attempt 还必须以 Attempt 起点为单调时钟基准记录首个完整上游 SSE frame、预提交 commit、首个向下游 Body yield 和取消四个 first-write-wins 时间点。诊断只用于本地可观测与回归，不能改变 retry、flush、backpressure、连接复用或路由行为。
 37. 官方客户端基线只能使用明确版本和哈希的发布物、合成凭据、临时客户端目录、清空后的进程环境与 loopback recorder 离线采集；每份基线必须记录 Provider、客户端入口、版本、平台、操作、日期、HTTP 条件和局限。仓库只保存脱敏后的 Header 顺序、Body 结构与 capture hash，不保存原始认证值、动态设备/会话/请求标识或完整提示正文。单一入口或平台的观测不能自动改写通用 Provider persona，更不能据此增加 TLS/HTTP2 随机化或伪装层。
-38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新和额度操作必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在同一全局出口同步起跑。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider account ID、无 account ID 时的规范化邮箱，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。交互式登录也必须在同一发布锁内检查精确 Token 重复：稳定身份与 Token 证据指向不同历史记录时返回冲突，缺少稳定身份但只命中一条精确 Token 记录时复用该记录，不能创建新候选。完整决策见 `docs/adr/0132-provider-scoped-oauth-control-plane-pacing.md`、`docs/adr/0133-reject-duplicate-oauth-import-identities.md` 与 `docs/adr/0134-interactive-oauth-token-duplicate-guard.md`。
+38. 同一 Provider 的 OAuth 登录网络阶段、Token 刷新和额度操作必须共用进程内固定的最小请求起始间隔，避免批量导入、同时到期或批量额度刷新在同一全局出口同步起跑。该门闩只排列 Transport 调用的开始时刻，不持有响应生命周期、不限制数据面并发、不替代账号 singleflight/RPM/Retry-After，也不随机化身份或线路特征。Provider 专用 OAuth JSON 导入仍不覆盖或合并既有账号，但能够由 Provider Driver 投影的稳定主体身份，或同一 Provider 下任一 access/refresh/ID Token 完全相同证明为重复的输入，必须在发布锁内整批拒绝，禁止把同一官方身份复制成多条路由凭据。Codex `chatgpt_account_id` 只是所选个人账户或工作区的路由标识；Codex 稳定主体优先使用工作区标识与 `chatgpt_user_id`（兼容 `user_id`）组成的身份，缺少成员主体 claim 时才回落规范化邮箱，禁止单独用工作区标识合并同一 Team 工作区的不同成员。交互式登录也必须在同一发布锁内检查精确 Token 重复：稳定身份与 Token 证据指向不同历史记录时返回冲突，缺少稳定身份但只命中一条精确 Token 记录时复用该记录，不能创建新候选。完整决策见 `docs/adr/0132-provider-scoped-oauth-control-plane-pacing.md`、`docs/adr/0133-reject-duplicate-oauth-import-identities.md`、`docs/adr/0134-interactive-oauth-token-duplicate-guard.md` 与 `docs/adr/0147-codex-workspace-member-oauth-identity.md`。
 39. 公开请求的 `Content-Encoding` 只描述客户端到 any2api 的入口 hop，不能仅凭 Provider 类型或同方言推断选中的上游也支持同一请求压缩。当前只有固定官方 Codex OAuth 数据面明确允许把已解码、规范化后的同方言 Responses JSON 重新压缩为 zstd；Codex `ProviderCredential` 指向的官方或自定义 API Key Endpoint 都必须发送 identity JSON 并删除入口压缩元数据。跨协议请求同样发送 identity JSON。完整决策见 `docs/adr/0139-credential-surface-request-content-coding.md`。
-40. Codex 本机额度遥测的官方 observation 与本地 RequestLog 必须使用同一个 RequestTelemetry 进程内单调位置划分区间；墙钟只用于展示和诊断，不能决定样本归属。primary usage Body 完整接收后、任何 supplement/reset-credit 查询前立即建立 observation fence；fence 之前的 OAuth RequestLog 必须已持久化或留下明确 coverage gap，fence 之后的记录不得进入当前样本。小于 `0.5` 个百分点的干净官方增量只推进 reset 用的 last observation，不推进 sample anchor；干净区间在无样本时累计到 `3%`、已有样本时累计到 `5%`，再按 `capacity = local Credits × 100 / Δused%` 铸造样本。最多 9 个样本按 `Δused%` 加权中位数聚合；reset/rollover 保留容量样本，凭据身份、窗口形态或订阅层级变化清空样本。coverage gap、查询失败、未计价或无效区间重新锚定且不铸造样本；有官方增量但本地成本尚未落地时继续累计同一区间。每条 RequestLog 在 Attempt 准备时从当前 PublishedSnapshot 的 `oauth.codex.rate_card` 冻结模型 Token→Credits 费率与卡片 ID，后续改价不得重算历史日志。估算的 `confidence` 只是由样本数量、相对 MAD 和最近区间完整性派生的离散证据状态，不是上游声明的余额置信度或概率。完整决策见 `docs/adr/0141-monotonic-codex-quota-observation-and-relearning.md`、`docs/adr/0144-single-consumer-codex-capacity-calibration.md` 与 `docs/adr/0145-configurable-codex-quota-rate-card.md`。
+40. Codex 本机额度统计只使用官方窗口使用率和本地 SQLite 中已经落库的 RequestLog：本地记录就是统计事实，不评估证据、置信度、样本质量或异常值。每个有限正 `Δused%` 且本地 Credits 为正的区间立即加入 `total_delta_used_percent`、`total_local_cost_credits` 与完成区间数，容量唯一按 `Σlocal Credits × 100 / ΣΔused%` 计算。官方额度观测与 RequestLog 使用同一进程内单调位置划分区间；观测在同一日志 Writer 排入 flush barrier 并等待其完成，SQL 只汇总同一进程 `(anchor.sequence, observation.sequence]` 的记录。显式 reset 命令不修改统计；只有下一次官方观测显示 `reset_at` 变化或使用率下降时才更新锚点并开始新窗口，全部历史累计保持不变。只有凭据身份、窗口 ID/类型/时长或已知订阅层级改变才清空累计。每条 RequestLog 在 Attempt 准备时从当前 PublishedSnapshot 的 `oauth.codex.rate_card` 冻结模型 Token→Credits 费率与卡片 ID，后续改价不得重算历史日志。完整决策见 `docs/adr/0145-configurable-codex-quota-rate-card.md` 与 `docs/adr/0146-cumulative-codex-quota-statistics.md`。
 
 ### 2.1 两类凭据的术语边界
 
@@ -307,7 +307,8 @@ flowchart LR
     ACCESS --> DECODE["ProtocolAdapter Decode"]
     DECODE --> ROUTER["Model Router"]
     ROUTER --> AFFINITY["Session Affinity"]
-    AFFINITY --> SELECTOR["Select + Reserve RPM"]
+    AFFINITY --> CACHE_LOCALITY["Prompt Cache Locality Hint"]
+    CACHE_LOCALITY --> SELECTOR["Select + Reserve RPM"]
     SELECTOR --> DRIVER["ProviderDriver Request Plan"]
     DRIVER --> TRANSPORT["TransportManager"]
     TRANSPORT --> UPSTREAM["Upstream API"]
@@ -331,6 +332,7 @@ flowchart LR
     SNAPSHOT --> TRANSPORT
 
     REGISTRY["Stable RuntimeRegistry"] --> AFFINITY
+    REGISTRY --> CACHE_LOCALITY
     REGISTRY --> SELECTOR
     REGISTRY --> TRANSPORT
     STATIC["Provider / Protocol Registries"] --> DECODE
@@ -387,7 +389,7 @@ any2api/
 │  │     ├─ proxy/              # 代理认证材料与连接探测
 │  │     ├─ public_request/     # 规划、选择、重试、上游执行与流式生命周期
 │  │     ├─ request_telemetry/  # 请求/Attempt 遥测与异步写入
-│  │     └─ routing/            # 候选、RPM、队列、轮询与聚合观测
+│  │     └─ routing/            # 候选、RPM、队列、轮询、缓存局部性与聚合观测
 │  ├─ storage/
 │  │  └─ src/
 │  │     ├─ api.rs              # 稳定 Storage 端口
@@ -613,6 +615,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 3. Decode
    - 识别具体 ProtocolDialect，而不是只识别 Provider 名称
    - 解析模型、流式模式和会话标识
+   - OpenAI Responses/Chat Completions 从正文提取有界 `prompt_cache_key`，只作为不记录日志的瞬态路由提示
 
 4. Route
    - 按同一 PublishedSnapshot revision 的全局公开模型允许列表检查模型
@@ -627,6 +630,7 @@ any2api 借鉴 Nginx 的阶段流水线、Upstream Peer、连接池、故障切�
 
 6. SelectAndReserve
    - 过滤禁用、冷却、代理不可用的 Credential
+   - 未绑定请求若有缓存局部性提示，先对上次成功路径做一次无等待准入；不可用时立即回到普通调度
    - 按 Route + tier 的稳定轮询顺序尝试候选
    - 原子选择 Credential 并预留滚动 60 秒 RPM 名额
    - 健康预检查后的 Guard 竞争失败时，在上游 Attempt 前按唯一令牌精确回滚本次预留
@@ -864,7 +868,7 @@ Codex、Claude 和 Grok 账号都编译为 Provider 自有的固定路由 Profil
 
 `token_version` 是 OAuth 认证材料 CAS 与认证健康代际；`account_generation` 是账号级路由健康身份代际。定时刷新和已确认同一 Provider 身份的重新授权只增加 `token_version`，创建全新的 `auth_error` 状态，同时复用同一 `account_generation` 的额度、权限和模型冷却；从 disabled 重新 enabled 时增加 `account_generation` 并整体重置健康。完整决策见 `docs/adr/0095-split-authentication-and-routing-health-generations.md`。
 
-Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。选中 Codex OAuthAccount 的普通 Responses Attempt 在协议编码后、zstd 与上游 I/O 前应用固定出站 Profile：强制 `store=false`，删除 ChatGPT Codex 后端不支持的已登记字段，把字符串 input 与 `system` role 规范成该后端接受的等价形状，并补齐 reasoning include；该 Profile 不按 User-Agent 识别客户端、不修改 `stream`，也绝不应用于 Codex API Key 或 Responses Compact。Claude 固定路由基址为 `https://api.anthropic.com`，由 Driver 统一追加 `/v1` API 路径，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选，并使用 Driver 注册的文本模型目录。固定基址、方言、目录和 Provider Endpoint Profile 只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。完整决策见 `docs/adr/0115-codex-oauth-responses-request-profile.md`。
+Codex 固定路由基址为 `https://chatgpt.com/backend-api/codex`，有效上游方言为 OpenAI Responses；Driver 从 ID Token 的 `chatgpt_plan_type` 选择 free、team/business/go、plus 或 pro 紧凑模型目录，缺失或未知 plan 只能降到最小 free 目录，禁止猜测更高权限。`chatgpt_account_id` 表示 Token 当前选择的个人账户或工作区，继续用于数据面 `chatgpt-account-id` Header；`chatgpt_user_id`（兼容 `user_id`）才表示成员主体，两者不得混为 OAuthAccount 去重身份。选中 Codex OAuthAccount 的普通 Responses Attempt 在协议编码后、zstd 与上游 I/O 前应用固定出站 Profile：强制 `store=false`，删除 ChatGPT Codex 后端不支持的已登记字段，把字符串 input 与 `system` role 规范成该后端接受的等价形状，并补齐 reasoning include；该 Profile 不按 User-Agent 识别客户端、不修改 `stream`，也绝不应用于 Codex API Key 或 Responses Compact。Claude 固定路由基址为 `https://api.anthropic.com`，由 Driver 统一追加 `/v1` API 路径，有效上游方言为 Anthropic Messages，并使用 Driver 注册的 OAuth 模型目录。Grok 固定路由基址为 `https://cli-chat-proxy.grok.com/v1`，首版只提供 OpenAI Responses OAuth 候选，并使用 Driver 注册的文本模型目录。固定基址、方言、目录和 Provider Endpoint Profile 只存在于 Provider Driver/内部路由投影，不进入 Provider Endpoint 表或管理 DTO。完整决策见 `docs/adr/0115-codex-oauth-responses-request-profile.md` 与 `docs/adr/0147-codex-workspace-member-oauth-identity.md`。
 
 ### 9.5 内部 ModelRoute
 
@@ -1737,8 +1741,24 @@ TPM（Tokens Per Minute）不实现：输出 Token 事前未知，Provider 的�
 4. Credential + Model 是否冷却
 5. 实际代理是否可用
 6. 是否仍有 RPM 名额；未配置 RPM 时始终通过
-7. 从 Route + fallback tier 的稳定轮询游标开始选择
+7. 未绑定且携带有效 `prompt_cache_key` 时，尝试同一作用域内上次成功的完整 AttemptPath
+8. 提示路径不能立即取得健康与 RPM Guard 时，从 Route + fallback tier 的稳定轮询游标开始选择
 ```
+
+缓存局部性提示与会话绑定不同。它只适用于未绑定的 OpenAI Responses/Chat Completions 请求，键的作用域
+精确包含入口协议、操作、`ModelRouteId` 与客户端 `prompt_cache_key`；原始键进入 Runtime 后立即用进程级随机
+HMAC-SHA256 转换，禁止写入日志、SQLite、管理 DTO 或浏览器状态。命中后允许跨 fallback tier 对上次成功的
+完整 AttemptPath 做一次优先尝试，以避免普通轮询把同一缓存键持续打散到不同上游；该尝试仍使用现有健康
+检查与 RPM 原子预留，不单独等待、不占用第二套队列，也不推进普通轮询游标。提示目标不可立即执行时，
+同一请求立刻回到完整普通候选池，因此不会禁用或排除其他上游。
+
+提示只在 buffered 响应完整成功或流式响应成功终止后写入；带候选身份的传输、协议、预提交失败，以及
+认证、权限、额度、限流、模型/操作不可用和瞬态上游失败，以目标比较方式删除仍指向该失败路径的提示，
+避免冷却到期后把后续同键请求重新送回已失败路径。普通 InvalidRequest、any2api 本地后处理失败与客户端
+取消均不删除已有提示，因为这些结果不能证明路径失效；客户端取消也不建立新提示。提示使用有界、滑动
+过期的进程内表，配置代际变化后只有仍与当前完整候选身份匹配的记录可命中；进程重启清空全部提示。
+该机制不保证上游一定保留缓存，只保证 any2api 不主动破坏已观察到的缓存路径局部性。完整决策见
+`docs/adr/0148-prompt-cache-locality-soft-routing.md`。
 
 同一 tier 内的最小可执行单位是 `AttemptPath`：RouteTarget、ProtocolOperation、RoutingCredential
 generation、Endpoint config generation 与解析后的 EffectiveProxy config generation。按稳定完整候选环
@@ -2111,6 +2131,14 @@ Session Lock 和 Creating Lease 必须支持 RAII、请求取消和有界绑定�
 尚未过期的绑定可以继续命中。Response ID 的续接绑定仍照常创建、刷新和清理。
 由于关闭时普通显式 Session 已不再是当前策略的活动绑定，总览必须返回活动会话数 `0`，不得把保留的普通绑定或仍必须维护的 Continuation 索引算作活动会话。
 
+### 13.8 缓存局部性不是会话粘性
+
+`prompt_cache_key` 的缓存局部性提示不创建 `SessionBindingRuntime`，不固定必须可用的 Credential，也不改变
+`affinity.enabled` 的含义。关闭普通会话粘性后，显式 Session 仍被忽略；只有请求本身携带有效
+`prompt_cache_key` 时，未绑定选择才可以优先尝试上次成功路径。该路径不可用就立即恢复普通调度，且失败后
+删除提示，所以它没有“等待原 Credential”“绑定丢失”或“禁止切换”的会话语义。Continuation 仍优先执行
+第 13.2 节的强绑定规则，不读取缓存局部性提示。
+
 Codex JSON 成功响应的顶层 `id` 与 SSE `response.created.response.id` 必须在向客户端可见前完成续接绑定。`/v1/responses/compact` 只参与显式会话粘性，不根据响应创建续接标识；`/v1/messages/count_tokens` 不参与粘性。绑定目标不可用或固定等待超时时统一返回明确本地错误，不改换目标。完整决策见 `docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md` 与 `docs/adr/0066-active-session-overview.md`。
 
 ## 14. 重试、冷却与错误分类
@@ -2392,7 +2420,9 @@ Codex 本机额度费率使用同一注册表中的 `oauth.codex.rate_card`，�
 `codex_rate_card`：包含版本 ID、正整数 `credits_per_usd`，以及按精确模型名列出的 standard/fast
 输入、缓存输入和输出 nano-Credits/百万 Token。候选配置必须在事务内完整编译费率卡；请求从捕获的
 PublishedSnapshot 冻结 Token→Credits 费率到 RequestLog，调价只影响后续请求。额度管理响应携带当前
-展示汇率，Web 不保留独立定价常量。Web 在独立“额度费率”页面用结构化模型、档位和数值控件编辑，
+展示汇率，Web 不保留独立定价常量。Web 在独立“额度费率”页面用紧凑的结构化模型、档位和数值控件编辑，
+禁止把输入框拉伸到页面全宽。模型名称只能从下拉候选中选择；候选由当前费率卡模型与 PublishedSnapshot
+中 Codex OAuth 已选择或发现的精确上游模型名合并生成，不在前端硬编码，也不把动态候选误作后端 Schema 白名单。
 费率输入统一显示为 Credits/百万 Token，并在提交边界精确换算为 nano-Credits；内部版本 ID 不展示、
 不允许手工编辑，任何语义修改提交时自动产生新 ID。完整决策见
 `docs/adr/0145-configurable-codex-quota-rate-card.md`。
@@ -2614,7 +2644,7 @@ authorize/token Endpoint、Client ID 和 localhost Redirect URI，以及 Grok �
 Client ID，都由各自 Driver 固定。登录、刷新和数据面都使用 OAuthAccount 的 DIRECT 绑定并继承全局代理，
 失败禁止回退本机直连。
 
-交互式登录在 Token 交换完成后、配置发布锁内核对当前快照中的 Provider 账号身份。稳定 Provider account ID 优先；只有新旧 Token 都没有 account ID 时，才使用规范化邮箱作为回落身份。唯一匹配时保留原 `OAuthAccountId`、管理员标签、RPM 与 enabled，使用 `token_version` CAS 替换 OAuth JSON 和安全元数据，并只保留仍存在于新 Provider 模型目录中的既有选择，禁止重新登录自动扩大模型集合。若新 Token 没有稳定 account ID/邮箱，但与一条现有账号的同 Provider、同 Token 类型材料完全相同，也视为该凭据的重复登录并复用原账号；若稳定身份与精确 Token 分别命中不同记录，或精确 Token 命中多条记录，返回 `oauth_account_identity_conflict`，不猜测覆盖。没有匹配时才在同一发布锁内生成唯一标签并新建账号；出现多个相同身份记录时返回明确冲突，不覆盖任意一条，也不继续制造重复账号。重新授权与新建都必须在一个 SQLite 事务、一次 Runtime reconcile 和一次快照切换中完成；完整决策见 `docs/adr/0087-interactive-oauth-account-reauthorization.md` 与 `docs/adr/0134-interactive-oauth-token-duplicate-guard.md`。
+交互式登录在 Token 交换完成后、配置发布锁内核对当前快照中的 Provider 稳定主体身份。该身份由对应 Provider Driver 投影；Codex 使用工作区标识与 `chatgpt_user_id`/`user_id` 成员主体组成的身份，缺少成员 claim 时回落规范化邮箱，绝不单独使用共享工作区 ID。其他 Provider 保持 account ID 优先、无 account ID 时回落规范化邮箱。唯一匹配时保留原 `OAuthAccountId`、管理员标签、RPM 与 enabled，使用 `token_version` CAS 替换 OAuth JSON 和安全元数据，并只保留仍存在于新 Provider 模型目录中的既有选择，禁止重新登录自动扩大模型集合。若新 Token 没有稳定身份，但与一条现有账号的同 Provider、同 Token 类型材料完全相同，也视为该凭据的重复登录并复用原账号；若稳定身份与精确 Token 分别命中不同记录，或精确 Token 命中多条记录，返回 `oauth_account_identity_conflict`，不猜测覆盖。没有匹配时才在同一发布锁内生成唯一标签并新建账号；出现多个相同身份记录时返回明确冲突，不覆盖任意一条，也不继续制造重复账号。重新授权与新建都必须在一个 SQLite 事务、一次 Runtime reconcile 和一次快照切换中完成；完整决策见 `docs/adr/0087-interactive-oauth-account-reauthorization.md`、`docs/adr/0134-interactive-oauth-token-duplicate-guard.md` 与 `docs/adr/0147-codex-workspace-member-oauth-identity.md`。
 
 OAuth 刷新使用统一 SettingRegistry 中的热更新参数：
 
@@ -2657,19 +2687,19 @@ Codex OAuthAccount 支持管理面额度查询与 rate-limit reset credit 消费
 
 额度端点的 `403` 禁止按状态码直接宣称账号受限或封禁。Provider Driver 只能从同一次有界原始响应的声明字段或经过审计的 Provider 明确证据中把拒绝分类为“明确账号限制”“明确 Provider 出口拒绝”或“未分类”；首批 Codex 读取顶层 `code` 以及 `error.code/type` 的固定码表，并把正文同时包含官方客户端使用的 `Cloudflare` 与 `blocked` 标记视为边缘出口拒绝；Grok 只在声明字段中识别 `unauthorized:blocked-user`。未知码、普通 HTML/自然语言、畸形正文和没有上述组合证据的 `403` 保持未分类。禁止通过去掉 Authorization 或账号 ID 后重放受保护额度端点来推断出口状态：未认证请求本身可能被端点策略返回 `403`，二次请求既不能消除歧义，又增加延迟和边缘风控面。管理 API 分别使用 `oauth_account_restricted`、`oauth_provider_egress_restricted` 与 `oauth_quota_upstream_failed`，Web 必须明确区分“账号被上游限制”“当前网络/全局代理出口被 Provider 拒绝”和“无法确认的上游失败”。完整决策见 `docs/adr/0079-oauth-quota-rejection-and-provider-egress.md` 与 `docs/adr/0106-side-effect-free-oauth-quota-evidence.md`。
 
-额度查询只返回经过校验的使用率窗口、稳定窗口标识、窗口维度、Codex 真实 Credits、Codex 可用重置次数、安全到期时间、Grok billing 金额、账号诊断证据、可选上游 Token 余额、可选本机容量估算与抓取时间。通用额度模型使用窗口列表而不是固定主/次槽位，并允许 Provider 没有返回总可用状态时保持未知；不得为迁就 Codex 的上游响应形状丢弃 Claude 的额外模型窗口或伪造全局可用状态。Claude 使用率必须是有限非负数，重置时间必须是有效 RFC 3339；缺失的可选窗口保持缺失。Grok 金额必须是可安全表示的整数美元分；预付余额和按量上限/使用量独立展示，缺失字段保持未知，禁止从金额或有效周期猜测 included allowance 百分比。Codex 本机估算的规范单位是 Credits，不是上游余额或 API 美元；它必须携带 epoch、置信状态、样本数、离散度、最近 observation interval 状态、费率卡集合和未计价诊断。美元等值只能由额度响应携带的当前费率卡换算，Web 不得另存定价常量。
+额度查询只返回经过校验的使用率窗口、稳定窗口标识、窗口维度、Codex 真实 Credits、Codex 可用重置次数、安全到期时间、Grok billing 金额、账号诊断证据、可选上游 Token 余额、可选本机容量统计与抓取时间。通用额度模型使用窗口列表而不是固定主/次槽位，并允许 Provider 没有返回总可用状态时保持未知；不得为迁就 Codex 的上游响应形状丢弃 Claude 的额外模型窗口或伪造全局可用状态。Claude 使用率必须是有限非负数，重置时间必须是有效 RFC 3339；缺失的可选窗口保持缺失。Grok 金额必须是可安全表示的整数美元分；预付余额和按量上限/使用量独立展示，缺失字段保持未知，禁止从金额或有效周期猜测 included allowance 百分比。Codex 本机统计的规范单位是 Credits，不是上游余额或 API 美元；它只携带窗口标识、累计区间数和由累计总量计算的容量，不提供周期层级、最近区间、证据、置信度或诊断状态。美元等值只能由额度响应携带的当前费率卡换算，Web 不得另存定价常量。
 
-Grok Free Token 余额不主动抓取。管理额度刷新不得发送生成请求，因此 billing 与 subscription 没有提供可验证 Token 数字时保持未知。只有真实数据面响应包含 `subscription:free-usage-exhausted`，且正文同时包含通过安全整数校验的 `tokens (actual/limit)` 时，当前运行代际的内存耗尽观测才可以投影为 `source=upstream` 的 Token 已用、上限与零剩余；没有数字的明确耗尽仍只展示耗尽状态。查询到 Free、金额或账单周期都不能清除既有耗尽观测，只有后续成功数据面请求或其他明确可用证据可以清除。内存耗尽观测不进入 SQLite；最后一次成功的安全额度快照可以按版本化、有界的 Provider-neutral payload 写入独立 SQLite 表，但不进入 OAuth JSON、日志、PublishedSnapshot 或浏览器持久化，也不得用于启动时恢复耗尽健康。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`；Web 为一次确认生成 UUID v4 `redeem_request_id`，同次失败重试继续复用，Server 只校验并透传，Runtime 在额度复核、401 后重试和 consume 中始终使用同一个值，使上游能够按该键幂等处理。成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，并删除重置前的持久化快照；不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Claude 与 Grok 没有对应 reset credit，管理面不显示或调用重置操作。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`、`docs/adr/0045-grok-oauth-billing-quota.md`、`docs/adr/0046-claude-oauth-usage-quota.md`、`docs/adr/0106-side-effect-free-oauth-quota-evidence.md` 与 `docs/adr/0111-activity-driven-persistent-oauth-quota.md`。
+Grok Free Token 余额不主动抓取。管理额度刷新不得发送生成请求，因此 billing 与 subscription 没有提供可验证 Token 数字时保持未知。只有真实数据面响应包含 `subscription:free-usage-exhausted`，且正文同时包含通过安全整数校验的 `tokens (actual/limit)` 时，当前运行代际的内存耗尽观测才可以投影为 `source=upstream` 的 Token 已用、上限与零剩余；没有数字的明确耗尽仍只展示耗尽状态。查询到 Free、金额或账单周期都不能清除既有耗尽观测，只有后续成功数据面请求或其他明确可用证据可以清除。内存耗尽观测不进入 SQLite；最后一次成功的安全额度快照可以按版本化、有界的 Provider-neutral payload 写入独立 SQLite 表，但不进入 OAuth JSON、日志、PublishedSnapshot 或浏览器持久化，也不得用于启动时恢复耗尽健康。Codex 额度详情端点失败时可以保留同次 `/wham/usage` 中经过校验的数据，但不得猜测可用次数。Codex 重置是不可逆上游操作：Runtime 按账号串行化，执行前重新查询并确认 `available_count > 0`，并先把这次重置前观测按普通刷新持久化，使 consume 前的全部本地记录进入累计。Web 为一次确认生成 UUID v4 `redeem_request_id`，同次失败重试继续复用，Server 只校验并透传，Runtime 在额度复核、401 后重试和 consume 中始终使用同一个值，使上游能够按该键幂等处理。consume 成功后仅清除该 OAuthAccount 当前运行代际的临时额度/限流冷却并唤醒调度器，不清空或切换统计；下一次官方 quota 观测确认 `reset_at` 变化或使用率下降后才更新统计锚点并开始新窗口，全部历史累计保持不变。不清除认证错误、Endpoint/Proxy 熔断或其他账号状态。Claude 与 Grok 没有对应 reset credit，管理面不显示或调用重置操作。完整决策见 `docs/adr/0034-codex-oauth-quota-reset.md`、`docs/adr/0045-grok-oauth-billing-quota.md`、`docs/adr/0046-claude-oauth-usage-quota.md`、`docs/adr/0106-side-effect-free-oauth-quota-evidence.md`、`docs/adr/0111-activity-driven-persistent-oauth-quota.md` 与 `docs/adr/0146-cumulative-codex-quota-statistics.md`。
 
 额度管理 API 把缓存读取与权威刷新分开：`GET /api/admin/oauth/accounts/{id}/quota` 只读取 SQLite，未曾成功刷新时返回 `null`；`POST /api/admin/oauth/accounts/{id}/quota/refresh` 才执行 Provider 只读查询。手动、批量和自动 Worker 的并发 refresh 必须共享同一个账号级 singleflight；同时到达的调用只产生一条 Provider 查询链并取得同一成功或失败结果。Reset 与 refresh 使用同一账号级操作门闩串行，禁止重置完成后由更早开始的查询重新写回旧快照。手动刷新必须在快照成功持久化后才返回成功，失败保留上一份成功快照。单节点内以账号级操作提交顺序作为额度观测顺序，SQLite upsert 无条件保存后完成的成功查询；`fetched_at` 只表示展示时间，不参与新旧判定，因此同秒抓取和系统时钟回拨都不能拒绝当前结果。读取持久化快照不得同步路由健康；权威刷新仍按当前进程的配置代际应用 ADR-0070 的健康证据。额度查询与 reset 不进入数据面 Route 选择或预留本地数据面 RPM，但继续受全局代理、严格 SSRF、禁重定向、有界 Body、读取超时、账号级操作门闩、自动 Worker 的固定并发/账号最小间隔，以及与登录和 Token 刷新共用的 Provider 级请求起始间隔约束。
 
 真实公共请求只有在选中 OAuthAccount 且 Attempt 已进入 Transport 后才记录额度活动；buffered 请求在 Attempt 结算时记录，streaming 请求在 EOF、错误、断连或 Drop 时由同一资源 Guard 只记录一次。Guard 只负责调度已有的活动驱动额度刷新。Runtime 在最终请求准备阶段从请求捕获的 PublishedSnapshot 按精确模型与 `standard`/`fast` 速度档冻结版本化 Codex Credits 费率；RequestLog 完成时只要存在完整 input/output usage，就把输入、缓存输入和输出换算为整数 nano-Credits，与状态、取消、错误或 HTTP 结果无关。cache usage 缺失按零处理；未知模型、未知 tier 或缺 usage 保持未计价。费率在请求时冻结，禁止未来用新费率重算旧 Token；没有官方 Codex quota cache-write 倍率证据时不纳入 cache write。
 
-容量估算以同一 quota epoch 内的 sample anchor 与当前权威 observation 为区间，而不是要求从官方窗口起点拥有完整日志。RequestTelemetry 为每个完成的 OAuth RequestLog 在有界入队前分配当前进程内单调 sequence；请求启动时若日志 policy 已关闭，完成时仍推进 sequence 与遗漏计数但不持久化。primary usage Body 完整接收后、任何 supplement/reset-credit 查询前，通过与 RequestLog 入队共用的短临界区捕获当前 sequence、墙钟和 coverage checkpoint。barrier 入队时必须冻结 policy generation 与 queue-drop/omission counter，Worker 提交 fence 前已接受日志后只补齐这些日志的 storage-failure/prune counter，禁止 barrier 后的新 loss 被旧边界吸收。fence 之后完成的日志使用更大 sequence，即使在额度查询其余阶段已经落库也不得进入当前样本。样本 SQL 只读取同一 process ID 中 `(sample_anchor.sequence, current.sequence]` 的冻结 Credits；`started_at_ms + latency_ms` 继续用于日志展示，不再承担额度区间成员判断。首次 observation 同时建立 last observation 与 sample anchor；后续 last observation 每次推进，用于 reset/jitter 判断，而 `delta_used_percent = current - sample_anchor` 小于 `0.5` 个百分点的探测阈值且 coverage 完整时保留 sample anchor，使零增量、百分比量化和连续小增量可以累积。达到探测阈值后查询整个 sequence 区间：coverage 完整、没有未计价记录且成本为正的干净区间在无样本时累计到 `3.0` 个百分点、已有样本时累计到 `5.0` 个百分点，再生成 `capacity_sample = local_credits × 100 / delta_used_percent`；未达铸造阈值时保留 sample anchor 并报告 `accumulating`。官方百分比已变化但本地成本尚未落地时同样保持区间继续累计，避免把同一消费的成本和百分比拆开。gap、查询失败、未计价或无效区间直接重新锚定，不打捞或铸造残缺区间。查询后的 checkpoint 只检测 SQL 期间可能删除已持久化区间行的 prune；状态必须保存 observation fence 自身的 checkpoint，fence 后请求的队列/写入结果只由下一 interval 消费。barrier 不可用或超时返回不完整 observation。公开请求路径仍只做短临界区与有界 `try_send`，绝不等待 DB。跨进程、日志启停、丢弃、写失败或清理导致的相关区间直接标记不完整，不用低可信数值污染 estimator。
+本机容量统计以持久化锚点与当前官方额度观测划分区间。RequestTelemetry 只为实际入队的 OAuth RequestLog 分配当前进程内单调 sequence；日志策略关闭时不建立记录，也不伪造遗漏位置。primary usage Body 完整接收后、任何 supplement/reset-credit 查询前，在短临界区内捕获当前位置，并把 flush barrier 排入同一个日志 Writer；额度刷新等待 barrier 完成。区间 SQL 只汇总同一 process ID 中 `(anchor.sequence, observation.sequence]` 已落库 RequestLog 的冻结 Credits，barrier 之后的记录即使先落库也会因 sequence 大于观测边界而被排除。公开请求继续使用有界 `try_send`，不等待 SQLite。
 
-每个账号窗口显式维护 quota epoch。官方 `reset_at` 在两个连续 last observation 之间发生超过 60 秒的实质变化、`reset_at` 的有无状态变化、没有 reset identity 时跨过完整窗口、相邻使用率下降超过 `0.5` 个百分点、OAuth 稳定身份/`account_generation` 变化、无法证明同一 generation 或显式 reset credit 成功都会结束旧 epoch；reset 判断禁止拿可能跨多个小增量的 sample anchor 代替 last observation。同一窗口不超过 60 秒的相邻 `reset_at` 秒级漂移只更新 last observation，`50.0 → 49.8` 同样只作为 jitter，`70 → 3` 即使没抓到 0 也必须结束旧 epoch。普通 reset/rollover 丢弃开放区间并保留至多 9 个容量样本，因为容量属于订阅而非单个 5 小时窗口；凭据身份指纹、窗口 ID/类型/时长或已知订阅层级变化会清空样本，显式 reset credit 成功删除整个 snapshot。每个样本记录 `Δused%` 并以它作为权重，容量使用 `Δused%` 加权中位数聚合；较大的官方增量因百分比量化相对误差更小而获得更高权重，单个极端样本又不会直接拖动中心。`relative_mad` 只衡量样本围绕中心的相对离散程度并参与证据状态诊断，不拒绝样本。无样本为 `unknown`；最近区间为 telemetry gap、未计价或无效观测时为 `degraded`；至少 3 个样本且相对 MAD 不超过 20% 时为 `stable`；其余为 `learning`。`learning` 只是内部协议枚举，Web 统一显示“容量校准中”，不得描述为模型训练。样本的 epoch 仅用于展示当前窗口期样本数，不再形成独立 `inherited` 置信档位。Estimator state、双 observation anchor、checkpoint、当前 epoch 与容量样本随 v8 quota snapshot 持久化；进程重启保留容量先验，但跨进程区间 fail-closed，下一段同进程完整区间继续校准。所有估算与证据诊断只用于管理展示，不参与健康、路由、RPM、计费或任何运行态恢复。完整边界见 `docs/adr/0138-epoch-interval-codex-quota-telemetry.md`、`docs/adr/0140-codex-quota-reset-at-jitter-tolerance.md`、`docs/adr/0141-monotonic-codex-quota-observation-and-relearning.md` 与 `docs/adr/0144-single-consumer-codex-capacity-calibration.md`。
+第一次官方观测建立锚点。后续只要官方 `used_percent` 相对锚点是有限正增量，并且区间 SQL 返回正的本地 Credits，就立即把两者和完成区间数加入持久化累计，再推进锚点；本地已落库数字就是事实，不设置最小百分比阈值、样本列表、淘汰、证据状态、置信度、离散度、异常值判断或最近区间诊断。SQL 暂时返回零或查询失败时保持锚点，使后续观测继续覆盖同一序号区间；进程变化只重建锚点，保留既有累计。官方 `reset_at` 变化或 `used_percent` 下降只重建锚点，不清累计；reset 命令本身完全不改统计，只有下一次官方观测确认边界后才开始新窗口。只有凭据身份、窗口 ID/类型/时长或已知订阅层级改变才清累计。容量唯一按 `Σlocal Credits × 100 / ΣΔused%` 计算。Estimator v9 状态只持久化凭据指纹、可选订阅层级、窗口键、一个锚点、两个累计总量和完成区间数；Migration 0029 在 SQL 中把 v8 旧结构一次性汇总为 v9，生产 Rust 只接受 v9 当前结构。已有 snapshot 读取或校验失败时 refresh 必须失败并保留原记录。本机容量统计只用于管理展示，不参与健康、路由、RPM、计费或运行态恢复。完整决策见 `docs/adr/0145-configurable-codex-quota-rate-card.md` 与 `docs/adr/0146-cumulative-codex-quota-statistics.md`。
 
-活动由单个进程生命周期 Worker 按账号短 debounce 合并，并施加最小自动刷新间隔和最多 6 个并发；刷新中出现的新活动最多保留一个后续刷新。失败保留旧快照且不固定周期重试，只有后续真实活动再次调度。没有待处理活动时 Worker 不扫描账号或 SQLite，进程启动也不为闲置账号建立 quota 定时任务。成功 upsert 或 reset 删除快照后推进 quota change epoch；Token 刷新诊断写入、更新或失效后推进独立 refresh diagnostic epoch。受认证 `/api/admin/oauth/quota-events` SSE 只发送 `oauth_quota_changed` 或 `oauth_refresh_diagnostic_changed` 无业务 payload 失效事件，Web 随后分别重读 SQLite quota GET 或安全账号元数据，不由事件访问 Provider，也不在事件中携带诊断或 Secret。
+活动由单个进程生命周期 Worker 按账号短 debounce 合并，并施加最小自动刷新间隔和最多 6 个并发；刷新中出现的新活动最多保留一个后续刷新。失败保留旧快照且不固定周期重试，只有后续真实活动再次调度。没有待处理活动时 Worker 不扫描账号或 SQLite，进程启动也不为闲置账号建立 quota 定时任务。成功 upsert quota snapshot 后推进 quota change epoch；reset 命令不删除 snapshot，Web 在命令成功后显式刷新并以新的官方观测更新快照。Token 刷新诊断写入、更新或失效后推进独立 refresh diagnostic epoch。受认证 `/api/admin/oauth/quota-events` SSE 只发送 `oauth_quota_changed` 或 `oauth_refresh_diagnostic_changed` 无业务 payload 失效事件，Web 随后分别重读 SQLite quota GET 或安全账号元数据，不由事件访问 Provider，也不在事件中携带诊断或 Secret。
 
 明确的 `allowed=false`、`limit_reached=true`、权威 Token `remaining=0` 或 Provider 声明的耗尽诊断会同步到同一 OAuthAccount 当前 `account_generation` 的路由健康，在已知 reset 时刻或有界兜底探测前从路由候选排除，并跨仅替换认证材料的 Token refresh 保留；明确可用的后续额度查询可以提前清除。Codex 例外按同一权威快照组合：`credits.has_credits=true` 或 `credits.unlimited=true` 会覆盖普通 included rolling exhaustion，使账号继续路由；`spend_control.reached=true` 与 workspace owner/member credits depleted 或 usage limit reached 是更强的工作区硬停止，仍排除账号。未知字段、单个窗口达到 100%、Credits 的本地换算和本机美元估算均不得建立该状态。完整决策见 `docs/adr/0070-oauth-authentication-and-quota-routing-health.md`、`docs/adr/0095-split-authentication-and-routing-health-generations.md` 与 `docs/adr/0137-real-codex-credits-and-observed-quota-usd-estimates.md`。
 
@@ -3035,7 +3065,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 授权成功后新建独立 `OAuthAccount`，或在稳定账号身份唯一匹配时重新授权原账号；响应显示安全账号元数据、启用状态、可选 RPM 和已选模型，可在当前页面编辑这些账号属性或删除账号；
 - 当前 Provider 的完整账号集合按 `OAuthAccount.created_at` 升序展示，最早添加的账号在前、新建账号在末尾；创建时间相同时按稳定账号 ID 升序打破平局。该顺序只属于管理面展示，不改变数据面候选池与稳定轮询语义；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
-- Codex 账号可显式刷新上游额度窗口、购买 Credits 和 reset credit 次数；购买 Credits 的标签固定为 `Credits`，有限余额按 `oauth.codex.rate_card` 当前生效汇率换算成最多四位小数的美元等值，悬浮显示原始 Credits 和换算率，不与 reset credit 合并。5 小时/7 天窗口在对应百分比同一行展示 snapshot-interval estimator：cold start/无样本时显示“容量校准中”，有样本时只用紧凑 `$已用/$总量`。悬浮详情只展示紧凑的金额、Credits 换算、容量样本与最近观测区间；`confidence` 只作为离散证据状态标签，不展开概率解释、阈值算法、换算免责声明或内部费率卡 ID。美元值只是在 Web 由 Credits 派生的当前费率卡等值，不能标成上游余额。额度最后更新时间保留月、日和时分秒，不重复显示当前语境中多余的年份。只有同次查询确认 reset credit 剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
+- Codex 账号可显式刷新上游额度窗口、购买 Credits 和 reset credit 次数；购买 Credits 的标签固定为 `Credits`，有限余额按 `oauth.codex.rate_card` 当前生效汇率换算成最多四位小数的美元等值，悬浮显示原始 Credits 和换算率，不与 reset credit 合并。5 小时/7 天窗口在对应百分比同一行展示本机容量统计：尚无累计区间时显示“尚无本地统计”，有统计时只用紧凑 `$已用/$总量`。悬浮详情只展示金额、Credits 换算和累计区间数，不显示证据、置信度、样本质量、最近区间或近似符号；显式 reset 前形成的全部区间始终计入累计值。美元值只是在 Web 由 Credits 派生的当前费率卡等值，不能标成上游余额。额度最后更新时间保留月、日和时分秒，不重复显示当前语境中多余的年份。只有同次查询确认 reset credit 剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后保留现有快照并立即重新查询；只有该查询拿到的官方 reset 边界才能开始下一个窗口周期；
 - Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的当前套餐层级、included allowance 使用率、预付余额和按量使用信息；Free 的 Token 上限与剩余量只显示真实数据面耗尽响应中经过校验的 `actual/limit`，没有该证据时保持未知；两者都不显示重置操作；
 - Codex、Claude 与 Grok 页面均提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - 每个 OAuthAccount 卡片展示当前 `token_version` 最近一次 Token 刷新失败的触发来源、阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间与是否需要重新授权；成功换代或重新授权后该提示自动消失，页面不得展示原始上游正文或任何 Token；
@@ -3312,12 +3342,13 @@ Grok Free Tokens = Actual Data-Plane Exhaustion Evidence Only + Otherwise Unknow
 OAuth Quota Snapshot = SQLite Last Successful Safe Observation + Never Restores Routing Health
 OAuth Quota Auto Refresh = Actual OAuth Transport Activity + Per-Account Coalescing + No Idle Scan
 Codex Credits = Upstream hasCredits / unlimited / balance + Configured Versioned Credits Per USD Display + Never Conflated With Reset Credits
-Quota Estimate = Same-Epoch Snapshot Interval + Complete Frozen Credits + Δ-Weighted Median + Evidence Status + Display Only
+Quota Estimate = All Completed Local Intervals Across Official Resets + Σ Local Credits / Σ Δused% + Display Only
 Transport Isolation = RoutingCredentialId + Routing Generation + Authentication Version + Traffic Class
 Transport Traffic Class = DataPlane / OAuthToken / OAuthQuota / Diagnostic
 TLS Resumption Store = Per Transport Client / Never Cross Transport Isolation
 
 Session Binding ──> Fixed Credential + Route Target + Model + Dialect
+Prompt Cache Locality ──> HMAC-Keyed Soft Success Hint + Immediate Normal Fallback + Memory Only
 Bridge Continuation ──> Same Binding Record + Pending/Ready/Abort + Opaque Typed State
 Bridge Continuation Memory ──> 16 MiB Per Entry + 64 MiB Total Hard Cap
 All Session State ──> Memory Only

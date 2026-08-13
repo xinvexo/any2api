@@ -14,7 +14,7 @@ use super::{
 use crate::{
     affinity::{AffinityError, AffinityTarget, BindingLease, ContinuationLookup},
     configuration::PublishedSnapshot,
-    routing::{CandidateExclusions, RouteCandidate},
+    routing::{CacheLocalityKey, CandidateExclusions, RouteCandidate},
 };
 
 mod session;
@@ -38,6 +38,7 @@ pub(super) struct AffinitySelectionInput<'a> {
     pub(super) fallback_on_rate_limit: bool,
     pub(super) tiers: &'a BTreeMap<u16, Vec<RouteCandidate>>,
     pub(super) exclusions: &'a CandidateExclusions,
+    pub(super) cache_locality_key: Option<CacheLocalityKey>,
 }
 
 pub(super) async fn select(
@@ -143,6 +144,7 @@ async fn select_unbound(
         input.fallback_on_rate_limit,
         input.tiers,
         input.exclusions,
+        input.cache_locality_key,
     )
     .await?;
     Ok(finish_unbound(input, selected, binding_lease))

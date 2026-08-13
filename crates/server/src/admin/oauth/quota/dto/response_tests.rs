@@ -1,11 +1,8 @@
 use super::*;
-use any2api_runtime::api::{
-    OAuthQuotaEstimate, OAuthQuotaEstimateConfidence, OAuthQuotaIntervalDiagnostic,
-    OAuthQuotaIntervalStatus, OAuthQuotaUsage, OAuthQuotaWindowKind,
-};
+use any2api_runtime::api::{OAuthQuotaEstimate, OAuthQuotaUsage, OAuthQuotaWindowKind};
 
 #[test]
-fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
+fn serializes_real_codex_credits_and_capacity_estimate() {
     let response = OAuthQuotaResponse::from(OAuthQuotaSnapshot {
         fetched_at: 1_900_000_000,
         usage: OAuthQuotaUsage {
@@ -30,27 +27,10 @@ fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
             window_kind: OAuthQuotaWindowKind::Time,
             limit_window_seconds: Some(18_000),
             window_reset_at: Some(1_900_003_600),
-            epoch: 7,
-            epoch_started_at: 1_899_999_000,
-            confidence: OAuthQuotaEstimateConfidence::Stable,
             estimated_capacity_credits: Some(25.0),
             estimated_used_credits: Some(2.75),
             estimated_remaining_credits: Some(22.25),
-            sample_count: 3,
-            fresh_sample_count: 2,
-            relative_mad: Some(0.01),
-            latest_interval: OAuthQuotaIntervalDiagnostic {
-                status: OAuthQuotaIntervalStatus::ValidSample,
-                started_at: Some(1_899_999_700),
-                ended_at: 1_900_000_000,
-                delta_used_percent: Some(1.0),
-                local_cost_credits: Some(0.25),
-                unpriced_request_count: 0,
-                queue_dropped_request_logs: 0,
-                storage_failed_request_logs: 0,
-                interval_pruned: false,
-            },
-            rate_cards: vec!["openai_codex_credits_2026_08_11".to_owned()],
+            completed_interval_count: 3,
         }],
         rate_card: Some(OAuthQuotaRateCard {
             id: "openai_codex_credits_2026_08_11".to_owned(),
@@ -62,13 +42,8 @@ fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
     assert_eq!(value["credits"]["balance"], "17.50");
     assert_eq!(value["access"]["reached_type"], "rate_limit_reached");
     assert_eq!(value["estimates"][0]["estimated_capacity_credits"], 25.0);
-    assert_eq!(value["estimates"][0]["confidence"], "stable");
     assert_eq!(value["rate_card"]["credits_per_usd"], 25);
-    assert_eq!(value["estimates"][0]["fresh_sample_count"], 2);
-    assert_eq!(
-        value["estimates"][0]["latest_interval"]["status"],
-        "valid_sample"
-    );
+    assert_eq!(value["estimates"][0]["completed_interval_count"], 3);
 }
 
 #[test]

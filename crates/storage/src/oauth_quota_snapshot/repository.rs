@@ -4,7 +4,7 @@ use sqlx::FromRow;
 
 use crate::{error::StorageError, sqlite::SqliteStore};
 
-pub const OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION: u32 = 8;
+pub const OAUTH_QUOTA_SNAPSHOT_SCHEMA_VERSION: u32 = 9;
 pub const MAX_OAUTH_QUOTA_SNAPSHOT_BYTES: usize = 512 * 1024;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,8 +26,6 @@ pub trait OAuthQuotaSnapshotRepository: Send + Sync {
         &self,
         snapshot: &StoredOAuthQuotaSnapshot,
     ) -> Result<(), StorageError>;
-
-    async fn delete_oauth_quota_snapshot(&self, id: OAuthAccountId) -> Result<bool, StorageError>;
 }
 
 #[async_trait]
@@ -67,14 +65,6 @@ impl OAuthQuotaSnapshotRepository for SqliteStore {
         .execute(self.write_pool())
         .await?;
         Ok(())
-    }
-
-    async fn delete_oauth_quota_snapshot(&self, id: OAuthAccountId) -> Result<bool, StorageError> {
-        let result = sqlx::query("DELETE FROM oauth_quota_snapshots WHERE oauth_account_id = ?")
-            .bind(id.to_string())
-            .execute(self.write_pool())
-            .await?;
-        Ok(result.rows_affected() > 0)
     }
 }
 

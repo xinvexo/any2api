@@ -3,12 +3,14 @@ import { Trash2 } from "lucide-react";
 import type { CodexRateModelDraft } from "../model/codex-rate-card-draft";
 import { modelFieldKey } from "../model/codex-rate-card-draft";
 import { CodexRateTierFields } from "./CodexRateTierFields";
-import { controlClass } from "@/shared/ui/form-control";
 import { IconButton } from "@/shared/ui/IconButton";
+import { Select } from "@/shared/ui/Select";
 import { Switch } from "@/shared/ui/Switch";
 
 interface CodexRateModelRowProps {
   value: CodexRateModelDraft;
+  modelOptions: string[];
+  selectedModels: Set<string>;
   errors: Record<string, string>;
   disabled: boolean;
   onChange: (value: CodexRateModelDraft) => void;
@@ -17,6 +19,8 @@ interface CodexRateModelRowProps {
 
 export function CodexRateModelRow({
   value,
+  modelOptions,
+  selectedModels,
   errors,
   disabled,
   onChange,
@@ -28,18 +32,24 @@ export function CodexRateModelRow({
 
   return (
     <section className="py-4" aria-label={`${modelLabel} 费率`}>
-      <div className="flex items-start gap-2">
-        <label htmlFor={nameId} className="min-w-0 flex-1">
+      <div className="flex items-end gap-2">
+        <label htmlFor={nameId} className="min-w-0 w-full max-w-[22rem]">
           <span className="mb-1 block text-[11px] font-medium text-secondary">模型名称</span>
-          <input
+          <Select
             id={nameId}
-            className={controlClass(Boolean(nameError), "font-mono")}
-            type="text"
+            className="font-mono"
             value={value.model}
+            options={modelOptions.map((model) => ({
+              value: model,
+              label: model,
+              disabled: model !== value.model && selectedModels.has(model),
+            }))}
+            placeholder="选择模型"
+            invalid={Boolean(nameError)}
             disabled={disabled}
-            aria-invalid={Boolean(nameError)}
+            aria-label="模型名称"
             aria-describedby={nameError ? `${nameId}-error` : undefined}
-            onChange={(event) => onChange({ ...value, model: event.target.value })}
+            onValueChange={(model) => onChange({ ...value, model })}
           />
           {nameError ? (
             <span id={`${nameId}-error`} className="mt-1 block text-[10px] text-danger" role="alert">
@@ -58,8 +68,8 @@ export function CodexRateModelRow({
         </IconButton>
       </div>
 
-      <div className="mt-3 rounded-[10px] bg-surface-muted/60 px-3 py-3">
-        <p className="mb-2 text-[11px] font-medium text-secondary">标准档</p>
+      <div className="mt-2 max-w-[40rem] rounded-[8px] bg-surface-muted/45 px-2.5 py-2">
+        <p className="mb-1.5 text-[11px] font-medium text-secondary">标准档</p>
         <CodexRateTierFields
           localId={value.localId}
           modelLabel={modelLabel}
@@ -71,8 +81,8 @@ export function CodexRateModelRow({
         />
       </div>
 
-      <div className="mt-2 rounded-[10px] bg-surface-muted/60 px-3 py-3">
-        <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="mt-1.5 max-w-[40rem] rounded-[8px] bg-surface-muted/45 px-2.5 py-2">
+        <div className="mb-1.5 flex items-center justify-between gap-3">
           <label
             htmlFor={`${value.localId}-fast-enabled`}
             className="text-[11px] font-medium text-secondary"

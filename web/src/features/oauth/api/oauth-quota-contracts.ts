@@ -16,9 +16,6 @@ export type {
 } from "./oauth-quota-codex-contracts";
 export type {
   OAuthQuotaEstimate,
-  OAuthQuotaEstimateConfidence,
-  OAuthQuotaIntervalDiagnostic,
-  OAuthQuotaIntervalStatus,
 } from "./oauth-quota-estimate-contracts";
 
 export interface OAuthQuotaWindow {

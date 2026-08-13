@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-11
 - 决策人：maintainer
-- 修订：ADR-0044、ADR-0087
+- 修订：ADR-0044、ADR-0087、ADR-0147
 
 ## 背景
 
@@ -17,10 +17,10 @@
 
 1. 导入仍只创建，不覆盖、合并或重新授权既有 OAuthAccount。发现重复时整个 HTTP 导入批次返回 `409 oauth_account_identity_conflict`，SQLite revision、Runtime 和 PublishedSnapshot 均不变化。
 2. 每个规范化 `OAuthTokenMaterial` 在进入发布任务前产生短期、不可显示的导入身份键：
-   - 有非空 Provider account ID：`ProviderKind + exact account ID`；
-   - 没有 account ID 但有非空邮箱：`ProviderKind + trim/lowercase email`；
+   - 对应 Provider Driver 投影的稳定主体身份；Codex 按 ADR-0147 使用工作区与成员主体的组合，绝不单独使用工作区 ID；
+   - Driver 无法投影主体但有非空邮箱时，使用 `ProviderKind + trim/lowercase email` 回落；
    - 任何账号：额外加入 `ProviderKind + token kind + domain-separated SHA-256(exact access/refresh/ID token)` 短期键；任一完全相同的认证 Token 都能证明本次导入重复使用同一凭据。
-3. account ID 优先于邮箱。带 account ID 的账号不因邮箱相同而与无 ID 账号冲突；这延续 ADR-0087 的“不能用弱身份覆盖强身份”边界。不同 Token 不会被猜测为相同，但即使某一侧缺失稳定身份，完全相同的 access、refresh 或 ID token 仍属于可证明的重复凭据。
+3. Driver 主体身份优先于邮箱。已有强主体身份的账号不因邮箱相同而与邮箱回落账号冲突；不同 Token 不会被猜测为相同，但即使某一侧缺失稳定身份，完全相同的 access、refresh 或 ID token 仍属于可证明的重复凭据。
 4. Token digest 按 access、refresh、ID token 分别计算，包含 Provider、Token kind、长度边界和固定 domain separation；不持久化、不进入 DTO、错误、普通日志、`Debug` 或浏览器状态。它只用于同一发布临界区内的集合比较。
 5. `ConfigPublisher` 在取得串行发布锁并读取最新 PublishedSnapshot 后，同时比较全部待导入身份、当前已编译账号身份和同批其他输入。这样并发登录/导入不能在预检查与提交之间插入重复账号。
 6. 历史上已经存在的重复记录不在启动期自动删除、合并或改写，也不由生产代码执行数据迁移。交互式重新授权继续对多重命中 fail closed；管理员可以在运行实例中明确删除重复记录。

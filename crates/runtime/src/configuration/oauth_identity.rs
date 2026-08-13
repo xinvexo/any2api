@@ -1,20 +1,8 @@
 use std::collections::HashSet;
 
 use any2api_domain::ProviderKind;
-use any2api_provider::api::OAuthTokenMaterial;
+use any2api_provider::api::{OAuthPrincipalIdentity, OAuthTokenMaterial, ProviderDriver};
 use sha2::{Digest, Sha256};
-
-#[derive(Clone, Eq, Hash, PartialEq)]
-pub(crate) struct OAuthAccountIdentity {
-    provider: ProviderKind,
-    key: OAuthAccountIdentityKey,
-}
-
-#[derive(Clone, Eq, Hash, PartialEq)]
-enum OAuthAccountIdentityKey {
-    AccountId(String),
-    Email(String),
-}
 
 pub(crate) struct OAuthImportIdentity {
     keys: Vec<OAuthImportIdentityKey>,
@@ -22,7 +10,7 @@ pub(crate) struct OAuthImportIdentity {
 
 #[derive(Clone, Eq, Hash, PartialEq)]
 enum OAuthImportIdentityKey {
-    Stable(OAuthAccountIdentity),
+    Stable(OAuthPrincipalIdentity),
     Secret([u8; 32]),
 }
 
@@ -31,48 +19,10 @@ pub(crate) struct OAuthImportIdentityIndex {
     keys: HashSet<OAuthImportIdentityKey>,
 }
 
-impl OAuthAccountIdentity {
-    pub(crate) fn from_token(token: &OAuthTokenMaterial) -> Option<Self> {
-        let key = token
-            .account_id()
-            .and_then(normalize_account_id)
-            .map(OAuthAccountIdentityKey::AccountId)
-            .or_else(|| {
-                token
-                    .email()
-                    .and_then(normalize_email)
-                    .map(OAuthAccountIdentityKey::Email)
-            })?;
-        Some(Self {
-            provider: token.provider(),
-            key,
-        })
-    }
-
-    pub(crate) fn matches(&self, token: &OAuthTokenMaterial) -> bool {
-        if token.provider() != self.provider {
-            return false;
-        }
-        match &self.key {
-            OAuthAccountIdentityKey::AccountId(expected) => token
-                .account_id()
-                .and_then(normalize_account_id)
-                .is_some_and(|actual| actual == *expected),
-            OAuthAccountIdentityKey::Email(expected) => {
-                token.account_id().and_then(normalize_account_id).is_none()
-                    && token
-                        .email()
-                        .and_then(normalize_email)
-                        .is_some_and(|actual| actual == *expected)
-            }
-        }
-    }
-}
-
 impl OAuthImportIdentity {
-    pub(crate) fn from_token(token: &OAuthTokenMaterial) -> Self {
+    pub(crate) fn from_token(driver: &dyn ProviderDriver, token: &OAuthTokenMaterial) -> Self {
         let mut keys = Vec::with_capacity(4);
-        if let Some(identity) = OAuthAccountIdentity::from_token(token) {
+        if let Some(identity) = driver.oauth_principal_identity(token) {
             keys.push(OAuthImportIdentityKey::Stable(identity));
         }
         keys.push(OAuthImportIdentityKey::Secret(secret_digest(
@@ -97,15 +47,14 @@ impl OAuthImportIdentity {
         Self { keys }
     }
 
-    pub(crate) fn stable_matches(&self, token: &OAuthTokenMaterial) -> bool {
-        self.keys.iter().any(|key| match key {
-            OAuthImportIdentityKey::Stable(identity) => identity.matches(token),
-            OAuthImportIdentityKey::Secret(_) => false,
+    pub(crate) fn stable_matches(&self, candidate: &Self) -> bool {
+        self.keys.iter().any(|key| {
+            matches!(key, OAuthImportIdentityKey::Stable(_))
+                && candidate.keys.iter().any(|candidate| candidate == key)
         })
     }
 
-    pub(crate) fn exact_token_matches(&self, token: &OAuthTokenMaterial) -> bool {
-        let candidate = Self::from_token(token);
+    pub(crate) fn exact_token_matches_identity(&self, candidate: &Self) -> bool {
         self.keys.iter().any(|key| {
             matches!(key, OAuthImportIdentityKey::Secret(_))
                 && candidate.keys.iter().any(|candidate| candidate == key)
@@ -143,228 +92,6 @@ fn secret_digest(provider: ProviderKind, kind: &[u8], secret: &str) -> [u8; 32] 
     digest.finalize().into()
 }
 
-fn normalize_account_id(value: &str) -> Option<String> {
-    let value = value.trim();
-    (!value.is_empty()).then(|| value.to_owned())
-}
-
-fn normalize_email(value: &str) -> Option<String> {
-    let value = value.trim();
-    (!value.is_empty()).then(|| value.to_lowercase())
-}
-
 #[cfg(test)]
-mod tests {
-    use any2api_domain::ProviderKind;
-    use any2api_provider::api::OAuthTokenMaterial;
-
-    use super::{OAuthAccountIdentity, OAuthImportIdentity, OAuthImportIdentityIndex};
-
-    fn token(
-        provider: ProviderKind,
-        account_id: Option<&str>,
-        email: Option<&str>,
-    ) -> OAuthTokenMaterial {
-        token_with_access(provider, "access-token", account_id, email)
-    }
-
-    fn token_with_access(
-        provider: ProviderKind,
-        access_token: &str,
-        account_id: Option<&str>,
-        email: Option<&str>,
-    ) -> OAuthTokenMaterial {
-        OAuthTokenMaterial::new(
-            provider,
-            access_token.into(),
-            None,
-            None,
-            None,
-            account_id.map(str::to_owned),
-            email.map(str::to_owned),
-        )
-        .expect("token")
-    }
-
-    #[test]
-    fn account_id_takes_priority_over_email_and_provider_isolated() {
-        let identity = OAuthAccountIdentity::from_token(&token(
-            ProviderKind::Codex,
-            Some("account-a"),
-            Some("person@example.com"),
-        ))
-        .expect("identity");
-
-        assert!(identity.matches(&token(
-            ProviderKind::Codex,
-            Some("account-a"),
-            Some("renamed@example.com"),
-        )));
-        assert!(!identity.matches(&token(
-            ProviderKind::Codex,
-            Some("account-b"),
-            Some("person@example.com"),
-        )));
-        assert!(!identity.matches(&token(
-            ProviderKind::Grok,
-            Some("account-a"),
-            Some("person@example.com"),
-        )));
-    }
-
-    #[test]
-    fn email_only_matches_another_token_without_account_id() {
-        let identity = OAuthAccountIdentity::from_token(&token(
-            ProviderKind::Claude,
-            None,
-            Some(" Person@Example.COM "),
-        ))
-        .expect("identity");
-
-        assert!(identity.matches(&token(
-            ProviderKind::Claude,
-            None,
-            Some("person@example.com"),
-        )));
-        assert!(!identity.matches(&token(
-            ProviderKind::Claude,
-            Some("stable-id"),
-            Some("person@example.com"),
-        )));
-        assert!(
-            OAuthAccountIdentity::from_token(&token(ProviderKind::Claude, None, None)).is_none()
-        );
-    }
-
-    #[test]
-    fn import_identity_rejects_stable_or_exact_secret_duplicates() {
-        let stable = token(
-            ProviderKind::Codex,
-            Some("account-a"),
-            Some("person@example.com"),
-        );
-        let same_stable = token(
-            ProviderKind::Codex,
-            Some("account-a"),
-            Some("renamed@example.com"),
-        );
-        let mut index = OAuthImportIdentityIndex::default();
-        assert!(index.insert_new(&OAuthImportIdentity::from_token(&stable)));
-        assert!(!index.insert_new(&OAuthImportIdentity::from_token(&same_stable)));
-
-        let first = OAuthTokenMaterial::new(
-            ProviderKind::Claude,
-            "same-access".into(),
-            Some("same-refresh".into()),
-            None,
-            None,
-            None,
-            None,
-        )
-        .expect("first token");
-        let same_refresh = OAuthTokenMaterial::new(
-            ProviderKind::Claude,
-            "other-access".into(),
-            Some("same-refresh".into()),
-            None,
-            None,
-            None,
-            None,
-        )
-        .expect("second token");
-        assert!(index.insert_new(&OAuthImportIdentity::from_token(&first)));
-        assert!(!index.insert_new(&OAuthImportIdentity::from_token(&same_refresh)));
-    }
-
-    #[test]
-    fn import_identity_keeps_unproven_accounts_distinct() {
-        let first = token_with_access(
-            ProviderKind::Claude,
-            "access-a",
-            Some("account-a"),
-            Some("shared@example.com"),
-        );
-        let second = token_with_access(
-            ProviderKind::Claude,
-            "access-b",
-            Some("account-b"),
-            Some("shared@example.com"),
-        );
-        let third = token_with_access(
-            ProviderKind::Claude,
-            "access-c",
-            None,
-            Some("shared@example.com"),
-        );
-        let mut index = OAuthImportIdentityIndex::default();
-
-        assert!(index.insert_new(&OAuthImportIdentity::from_token(&first)));
-        assert!(index.insert_new(&OAuthImportIdentity::from_token(&second)));
-        assert!(index.insert_new(&OAuthImportIdentity::from_token(&third)));
-    }
-
-    #[test]
-    fn login_identity_can_match_exact_token_without_stable_identity() {
-        let existing = OAuthTokenMaterial::new(
-            ProviderKind::Claude,
-            "access-a".into(),
-            Some("refresh-a".into()),
-            Some("id-a".into()),
-            None,
-            Some("account-a".into()),
-            Some("person@example.com".into()),
-        )
-        .expect("existing token");
-        let incoming = [
-            OAuthTokenMaterial::new(
-                ProviderKind::Claude,
-                "access-a".into(),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .expect("same access token"),
-            OAuthTokenMaterial::new(
-                ProviderKind::Claude,
-                "different-access".into(),
-                Some("refresh-a".into()),
-                None,
-                None,
-                None,
-                None,
-            )
-            .expect("same refresh token"),
-            OAuthTokenMaterial::new(
-                ProviderKind::Claude,
-                "different-access".into(),
-                Some("different-refresh".into()),
-                Some("id-a".into()),
-                None,
-                None,
-                None,
-            )
-            .expect("same ID token"),
-        ];
-
-        for incoming in incoming {
-            let identity = OAuthImportIdentity::from_token(&incoming);
-            assert!(!identity.stable_matches(&existing));
-            assert!(identity.exact_token_matches(&existing));
-        }
-        let different_provider = OAuthImportIdentity::from_token(
-            &OAuthTokenMaterial::new(
-                ProviderKind::Grok,
-                "access-a".into(),
-                Some("refresh-a".into()),
-                Some("id-a".into()),
-                None,
-                None,
-                None,
-            )
-            .expect("different provider token"),
-        );
-        assert!(!different_provider.exact_token_matches(&existing));
-    }
-}
+#[path = "oauth_identity_tests.rs"]
+mod tests;

@@ -12,7 +12,16 @@ test("parses setting metadata and all value types", () => {
       item("scheduler.fallback_on_rate_limit", "boolean", false, null, null),
       item("models.allowed", "model_access", "all", ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
       item("network.trusted_proxy_cidrs", "string_list", [], ["127.0.0.1/32"], null),
-      item("oauth.codex.rate_card", "codex_rate_card", rateCard(), null, null),
+      item(
+        "oauth.codex.rate_card",
+        "codex_rate_card",
+        rateCard(),
+        null,
+        null,
+        null,
+        null,
+        ["gpt-5.6-sol", "gpt-5.6-terra"],
+      ),
     ],
   });
 
@@ -24,6 +33,7 @@ test("parses setting metadata and all value types", () => {
   expect(configuration.items[5]?.options).toBeNull();
   expect(configuration.items[5]?.effectiveValue).toEqual(["127.0.0.1/32"]);
   expect(configuration.items[6]?.effectiveValue).toEqual(rateCard());
+  expect(configuration.items[6]?.options).toEqual(["gpt-5.6-sol", "gpt-5.6-terra"]);
 });
 
 test("accepts empty setting description", () => {

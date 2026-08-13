@@ -12,8 +12,11 @@ use any2api_provider::api::ProviderRegistry;
 use any2api_transport::api::TransportManager;
 use tokio::time::Instant;
 
-use crate::configuration::PublishedSnapshot;
 use crate::oauth::OAuthQuotaActivity;
+use crate::{
+    configuration::PublishedSnapshot,
+    routing::{CacheLocalityKey, RouteCandidate},
+};
 
 #[derive(Clone, Copy)]
 pub(super) struct UpstreamServices<'a> {
@@ -22,5 +25,15 @@ pub(super) struct UpstreamServices<'a> {
     pub(super) providers: &'a ProviderRegistry,
     pub(super) transport: &'a dyn TransportManager,
     pub(super) oauth_quota_activity: Option<&'a OAuthQuotaActivity>,
+    pub(super) cache_locality_key: Option<CacheLocalityKey>,
     pub(super) attempt_deadline: Instant,
+}
+
+fn forget_cache_locality(services: &UpstreamServices<'_>, candidate: &RouteCandidate) {
+    if let Some(key) = services.cache_locality_key {
+        services
+            .snapshot
+            .cache_locality_registry()
+            .forget_candidate(key, candidate);
+    }
 }

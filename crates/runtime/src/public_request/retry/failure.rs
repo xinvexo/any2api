@@ -21,6 +21,14 @@ impl RetryExecution<'_> {
         credential_id: RoutingCredentialId,
         failure: AttemptFailure,
     ) -> Result<(), FinalFailure> {
+        if let (Some(key), Some(candidate)) = (
+            self.plan.cache_locality_key,
+            failure.cache_locality_failure_candidate(),
+        ) {
+            self.snapshot
+                .cache_locality_registry()
+                .forget_candidate(key, candidate);
+        }
         self.note_rejected_refreshed_token(&failure);
         let public = failure.final_failure();
         let can_refresh_oauth = !self.oauth_refresh_attempted

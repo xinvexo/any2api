@@ -116,8 +116,8 @@ jitter 容差内也只更新 last observation。区间出现 coverage gap、查�
 2. 没有可靠 `reset_at` 且相邻快照间隔达到或超过完整窗口时长；
 3. 当前 `used_percent` 比上一快照低超过 `0.5` 个百分点；`50.0 → 49.8` 属于容差内 jitter，
    `70 → 3`、`70 → 0` 必须进入新 epoch；
-4. OAuth 稳定身份指纹或 `account_generation` 变化；稳定账号 ID/邮箱缺失时，Token 版本变化也视为无法
-   证明同一身份并开启新 epoch；
+4. Provider Driver 投影的 OAuth 稳定主体指纹或 `account_generation` 变化；无法投影稳定主体时，Token
+   版本变化也视为无法证明同一身份并开启新 epoch；Codex 工作区与成员主体边界见 ADR-0147；
 5. 显式 reset credit 成功，直接删除旧 quota telemetry snapshot；下一次刷新冷启动新 epoch；
 6. 窗口 ID、类型或时长发生无法证明等价的变化。
 

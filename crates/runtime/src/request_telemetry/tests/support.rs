@@ -31,7 +31,6 @@ pub(super) struct BlockingRepository {
     pub(super) access_append_deletions: AtomicUsize,
     pub(super) fail_request_writes: AtomicBool,
     pub(super) release_first: Notify,
-    pub(super) prune_positions: Mutex<Vec<any2api_domain::RequestTelemetryPosition>>,
     pub(super) usage_updates: Mutex<Vec<Vec<GatewayApiKeyLastUsedUpdate>>>,
     pub(super) access_logs: Mutex<Vec<HttpAccessLog>>,
     pub(super) request_logs: Mutex<Vec<CompletedRequestLog>>,
@@ -187,7 +186,6 @@ impl RequestLogRepository for BlockingRepository {
         Ok(RequestLogCleanupOutcome::new(
             0,
             self.request_append_has_more.swap(false, Ordering::AcqRel),
-            Vec::new(),
         ))
     }
 
@@ -203,11 +201,6 @@ impl RequestLogRepository for BlockingRepository {
         Ok(RequestLogCleanupOutcome::new(
             self.request_prune_deletions.swap(0, Ordering::AcqRel) as u64,
             self.request_prune_has_more.swap(false, Ordering::AcqRel),
-            self.prune_positions
-                .lock()
-                .expect("prune positions")
-                .drain(..)
-                .collect(),
         ))
     }
 
@@ -251,24 +244,6 @@ pub(super) fn logging_settings_with_queue_limits(
         (
             SettingKey::LogsTelemetryQueueMaxBytes,
             SettingValue::Integer(queue_max_bytes),
-        ),
-    ])
-    .expect("logging overrides");
-    SettingsConfiguration::from_overrides(overrides).expect("logging settings")
-}
-
-pub(super) fn logging_settings_with_retention(
-    queue_capacity: u64,
-    retention_secs: u64,
-) -> SettingsConfiguration {
-    let overrides = SettingOverrides::from_entries([
-        (
-            SettingKey::LogsTelemetryQueueCapacity,
-            SettingValue::Integer(queue_capacity),
-        ),
-        (
-            SettingKey::LogsRequestRetention,
-            SettingValue::DurationSecs(retention_secs),
         ),
     ])
     .expect("logging overrides");

@@ -14,9 +14,9 @@ use crate::{
     ProviderError, ProviderSecret,
     api::{
         CapabilitySet, CredentialHeaders, CredentialTestPlan, EndpointPlan, OAuthGrant,
-        OAuthImportedAccount, OAuthLoginFlow, OAuthQuotaRejection, OAuthQuotaUsage,
-        OAuthRefreshRejection, OAuthRequestPlan, OAuthRoutingProfile, OAuthTokenMaterial,
-        ProviderDriver, ProviderRequestContext, UpstreamResponseMeta,
+        OAuthImportedAccount, OAuthLoginFlow, OAuthPrincipalIdentity, OAuthQuotaRejection,
+        OAuthQuotaUsage, OAuthRefreshRejection, OAuthRequestPlan, OAuthRoutingProfile,
+        OAuthTokenMaterial, ProviderDriver, ProviderRequestContext, UpstreamResponseMeta,
     },
     credential::api_key,
     upstream_error::openai as openai_error,
@@ -166,6 +166,13 @@ impl ProviderDriver for CodexDriver {
 
     fn parse_oauth_token_response(&self, body: &[u8]) -> Result<OAuthTokenMaterial, ProviderError> {
         codex_oauth::parse_token(body)
+    }
+
+    fn oauth_principal_identity(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Option<OAuthPrincipalIdentity> {
+        codex_oauth::principal_identity(token)
     }
 
     fn classify_oauth_refresh_rejection(

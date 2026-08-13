@@ -1,5 +1,4 @@
 mod changes;
-mod checkpoint;
 mod event;
 mod gateway_usage;
 mod metrics;
@@ -12,11 +11,11 @@ mod telemetry;
 mod tests;
 mod worker;
 
-pub(crate) use checkpoint::{RequestTelemetryCheckpoint, RequestTelemetryObservation};
 pub use event::HttpAccessLogChangeNotification;
 pub use metrics::RequestTelemetryMetrics;
 use observation::RequestObservation;
 pub(crate) use policy::RequestLogPolicy;
+pub(crate) use quota_fence::QuotaObservationBoundary;
 pub(crate) use recorder::{
     AttemptRecorder, AttemptTimeoutMarker, RequestRecorder, public_error_class,
 };

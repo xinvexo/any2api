@@ -37,6 +37,20 @@ test("edits the structured card and sends a new hidden ID", async () => {
   });
 });
 
+test("uses a model selector backed by setting options", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify(configuration(1, 25)), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  }));
+  renderPage();
+
+  const model = await screen.findByRole("combobox", { name: "模型名称" });
+  expect(model).toHaveAttribute("data-value", "gpt-5.6-sol");
+  fireEvent.click(model);
+  expect(screen.getByRole("option", { name: "gpt-5.6-terra" })).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "模型名称" })).not.toBeInTheDocument();
+});
+
 function renderPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -76,7 +90,7 @@ function configuration(revision: number, creditsPerUsd: number) {
       min_value: null,
       max_value: null,
       allowed_values: null,
-      options: null,
+      options: ["gpt-5.6-sol", "gpt-5.6-terra"],
       apply_mode: "hot_reload",
       web_group: "额度费率",
       description: "Codex rate card",

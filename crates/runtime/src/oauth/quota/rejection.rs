@@ -1,4 +1,4 @@
-//! Evidence-based OAuth quota rejection mapping from the original response.
+//! Structured OAuth quota rejection mapping from the original response.
 
 use std::time::Duration;
 

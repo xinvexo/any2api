@@ -78,7 +78,6 @@ async fn collapsed_gateway_updates_preserve_record_metrics() {
         changes: LogChangeNotifier::new(),
         prune_wakeup: Arc::new(Notify::new()),
         request_prune_wakeup: Arc::new(Notify::new()),
-        process_id: uuid::Uuid::new_v4(),
     };
     let (sender, receiver) = mpsc::channel(8);
     let id = GatewayApiKeyId::new();

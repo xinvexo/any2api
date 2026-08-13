@@ -19,8 +19,8 @@ pub use crate::oauth::{
 };
 pub use crate::oauth::{
     OAuthDeviceAuthorization, OAuthDeviceTokenPoll, OAuthGrant, OAuthLoginFlow,
-    OAuthRefreshRejection, OAuthRequestPlan, OAuthTokenMaterial, decode_oauth_account_document,
-    encode_oauth_account_document,
+    OAuthPrincipalIdentity, OAuthRefreshRejection, OAuthRequestPlan, OAuthTokenMaterial,
+    decode_oauth_account_document, encode_oauth_account_document,
 };
 pub use crate::oauth::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
@@ -211,6 +211,15 @@ pub trait ProviderDriver: Send + Sync {
     ) -> Result<OAuthTokenMaterial, ProviderError> {
         self.parse_oauth_token_response(body)?
             .merge_refresh_response(previous)
+    }
+
+    fn oauth_principal_identity(
+        &self,
+        token: &OAuthTokenMaterial,
+    ) -> Option<OAuthPrincipalIdentity> {
+        (token.provider() == self.kind())
+            .then(|| crate::oauth::default_principal_identity(token))
+            .flatten()
     }
 
     fn classify_oauth_refresh_rejection(

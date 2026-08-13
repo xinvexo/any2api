@@ -63,28 +63,6 @@ async fn repository_rejects_invalid_version_time_and_payload_size() {
     }
 }
 
-#[tokio::test]
-async fn delete_reports_whether_a_snapshot_changed() {
-    let (_directory, store, id) = store_with_account().await;
-    assert!(
-        !store
-            .delete_oauth_quota_snapshot(id)
-            .await
-            .expect("empty delete")
-    );
-    store
-        .upsert_oauth_quota_snapshot(&snapshot(id, 1, b"{}".to_vec()))
-        .await
-        .expect("snapshot");
-    assert!(store.delete_oauth_quota_snapshot(id).await.expect("delete"));
-    assert!(
-        !store
-            .delete_oauth_quota_snapshot(id)
-            .await
-            .expect("repeat delete")
-    );
-}
-
 fn snapshot(
     oauth_account_id: OAuthAccountId,
     fetched_at: i64,

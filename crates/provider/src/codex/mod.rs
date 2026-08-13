@@ -1,3 +1,4 @@
+mod claims;
 mod driver;
 mod headers;
 mod identity;

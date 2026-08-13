@@ -17,6 +17,7 @@ base64.workspace = true
 bytes.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
+hashlink.workspace = true
 hmac.workspace = true
 http.workspace = true
 secrecy.workspace = true

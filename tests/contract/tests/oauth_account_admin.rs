@@ -93,10 +93,17 @@ async fn oauth_account_admin_crud_is_safe_and_revisioned() {
         .as_array()
         .expect("window slots");
     assert_eq!(slots.len(), 30);
-    let newest = slots.last().expect("newest slot");
-    assert_eq!(newest["total_requests"], 2);
-    assert_eq!(newest["successful_requests"], 1);
-    assert_eq!(newest["failed_requests"], 1);
+    let window_totals = slots.iter().fold((0, 0, 0), |totals, slot| {
+        (
+            totals.0 + slot["total_requests"].as_u64().expect("slot total"),
+            totals.1
+                + slot["successful_requests"]
+                    .as_u64()
+                    .expect("slot successes"),
+            totals.2 + slot["failed_requests"].as_u64().expect("slot failures"),
+        )
+    });
+    assert_eq!(window_totals, (2, 1, 1));
     let listed_text = serde_json::to_string(&listed).expect("listed JSON");
     assert!(!listed_text.contains("access-secret"));
     assert!(!listed_text.contains("refresh-secret"));

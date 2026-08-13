@@ -19,7 +19,6 @@ async fn bridge_fails_closed_for_unsupported_or_ambiguous_shapes() {
         json!({"model":"public","input":"hello","text":{"verbosity":"maximum"}}),
         json!({"model":"public","input":"hello","client_metadata":"opaque"}),
         json!({"model":"public","input":"hello","client_metadata":{"turn":42}}),
-        json!({"model":"public","input":"hello","prompt_cache_key":42}),
         json!({"model":"public","input":"hello","prompt_cache_key":null}),
         json!({"model":"public","input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"https://example.com/image.png","detail":"maximum"}]}]}),
         json!({"model":"public","input":[

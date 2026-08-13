@@ -40,6 +40,7 @@ impl RetryExecution<'_> {
                 fallback_on_rate_limit: self.plan.fallback_on_rate_limit,
                 tiers: &self.plan.tiers,
                 exclusions: &self.exclusions,
+                cache_locality_key: self.plan.cache_locality_key,
             }),
         )
         .await;
@@ -90,6 +91,7 @@ impl RetryExecution<'_> {
             providers: self.services.providers,
             transport: self.services.transport,
             oauth_quota_activity: self.services.oauth.map(|services| services.quota_activity),
+            cache_locality_key: self.plan.cache_locality_key,
             attempt_deadline,
         };
         let attempt = if self.plan.decoded.stream {

@@ -47,16 +47,21 @@ impl QuotaTransport {
                 self.codex_reset_at,
             );
         }
+        let reset_completed = self.consume_calls.load(Ordering::Acquire) > 0;
         ok(Bytes::from(
             serde_json::json!({
                 "rate_limit": {
                     "allowed": true,
                     "limit_reached": false,
                     "primary_window": {
-                        "used_percent": 25.0,
+                        "used_percent": if reset_completed { 0.0 } else { 25.0 },
                         "limit_window_seconds": 18_000,
                         "reset_after_seconds": 60,
-                        "reset_at": self.codex_reset_at
+                        "reset_at": if reset_completed {
+                            self.codex_reset_at.saturating_add(18_000)
+                        } else {
+                            self.codex_reset_at
+                        }
                     },
                     "secondary_window": null
                 },

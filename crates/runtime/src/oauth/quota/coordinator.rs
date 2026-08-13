@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::{
     configuration::{ConfigPublisher, PublishedSnapshot},
     oauth::{control_plane::OAuthControlPlanePacer, refresh::OAuthRefresher},
-    request_telemetry::{RequestTelemetry, RequestTelemetryObservation},
+    request_telemetry::{QuotaObservationBoundary, RequestTelemetry},
 };
 
 use super::{
@@ -33,7 +33,7 @@ use super::{
 pub(super) struct QueriedQuota {
     pub(super) usage: OAuthQuotaUsage,
     pub(super) credential_fingerprint: String,
-    pub(super) telemetry_observation: RequestTelemetryObservation,
+    pub(super) boundary: QuotaObservationBoundary,
 }
 
 pub(in crate::oauth) struct OAuthQuotaService {
@@ -170,7 +170,8 @@ impl OAuthQuotaService {
         id: OAuthAccountId,
         redeem_request_id: Uuid,
     ) -> Result<OAuthQuotaResetOutcome, OAuthQuotaError> {
-        let quota = self.query_with_authentication_retry(id).await?;
+        let observation = self.query_with_authentication_retry(id).await?;
+        let quota = super::snapshot::build(self, id, observation).await?;
         if quota
             .usage
             .reset_credits
@@ -183,7 +184,6 @@ impl OAuthQuotaService {
             .reset_with_authentication_retry(id, &redeem_request_id)
             .await?;
         self.clear_temporary_cooldowns(id);
-        self.persistence.delete(id).await?;
         Ok(OAuthQuotaResetOutcome {
             windows_reset: result.windows_reset,
         })
@@ -238,7 +238,8 @@ impl OAuthQuotaService {
         let token = generation
             .oauth_token()
             .ok_or(OAuthQuotaError::TokenMaterialUnavailable)?;
-        let credential_fingerprint = identity::fingerprint(account, token.as_ref());
+        let credential_fingerprint =
+            identity::fingerprint(account, token.as_ref(), driver.as_ref());
         let plan = driver
             .oauth_quota_query_plan(token.as_ref())
             .map_err(OAuthQuotaError::Provider)?
@@ -262,7 +263,7 @@ impl OAuthQuotaService {
         if !usage_response.status.is_success() {
             return Err(request.rejection(&usage_response));
         }
-        let telemetry_observation = self.telemetry.quota_observation(id).await;
+        let boundary = self.telemetry.quota_observation().await;
         let mut usage =
             observation::resolve_usage(&request, usage_response, supplement_plan).await?;
         health::synchronize(
@@ -293,7 +294,7 @@ impl OAuthQuotaService {
         Ok(QueriedQuota {
             usage,
             credential_fingerprint,
-            telemetry_observation,
+            boundary,
         })
     }
 

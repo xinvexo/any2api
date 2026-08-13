@@ -69,7 +69,8 @@ Completions 已有与 Responses `text.verbosity` 同义的顶层 `verbosity`，�
   - 其他 `reasoning` 子字段、其他 `include` 值和任何未登记字段仍 fail-closed。该例外必须保持集中、可测试，不能扩张成通用未知字段过滤器。
 - Responses 与 Chat Completions 具有可靠同义字段时优先等价投影，不把它们误归为未知字段：
   - `text.verbosity` 仅接受 `low`、`medium`、`high`，并等价写入 Chat 顶层 `verbosity`；`text.format` 仍独立映射为 `response_format`，两者可以单独或同时出现。其他 `text` 子字段继续 fail-closed。
-  - `prompt_cache_key` 必须是字符串并原值写入 Chat 请求；它只影响上游缓存路由，不进入 Provider、Runtime 或会话分支，也不由 Bridge 生成或改写。
+  - `prompt_cache_key` 必须是字符串并原值写入 Chat 请求；Bridge 不生成或改写它。入口 Runtime 可以按
+    ADR-0148 将其作为不记录日志的瞬态缓存局部性提示使用，但它不进入 Provider 业务模型或会话绑定分支。
   - 用户消息 `input_image.detail` 缺省时保持缺省；非空时只接受 `auto`、`low`、`high`、`original` 并写入 Chat `image_url.detail`。其他值在上游提交前 fail-closed，禁止静默退回默认清晰度。
 - Responses 历史中的连续 `function_call` 必须合并为同一条 Chat assistant `tool_calls` 消息；前置 reasoning summary 若存在则附着到该 assistant 消息。只要同一输入中存在对应 `function_call_output`，任何夹在调用与输出之间的普通消息都必须暂存到相关 tool output 之后，保持严格的 `assistant(tool_calls) -> tool` 邻接。当前 input 中每个 `function_call.call_id` 都必须在同一 input 的唯一 `function_call_output.call_id` 集合中存在；缺失 output 的中断 call 在构造上游请求前 fail-closed。只有 output 的当前 input 可以响应 continuation 已保存的上一轮 assistant call，因此不反向要求每个 output 在当前 input 重复 call。该规则按 `call_id` 工作且不依赖 Provider 类型；缺失、重复或无法表示的调用身份继续 fail-closed。
 - Chat Completions 流式 `delta.tool_calls[]` 的非负整数 `index` 是跨 chunk 关联工具调用片段的唯一可靠键。缺失、负数或非整数必须在该 SSE 事件处 fail-closed；Bridge 禁止默认成 `0`、按出现顺序补号或继续生成可被误认为合法的 Responses function call。失败流不能转为 Ready continuation，Runtime 按既有 Guard/Lease 错误路径清理 Pending 状态。

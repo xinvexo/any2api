@@ -200,6 +200,49 @@ fn ambiguous_server_failure_is_terminal_even_for_an_unbound_request() {
 }
 
 #[test]
+fn cache_locality_forgets_path_failures_but_keeps_client_rejections() {
+    let candidate = candidate("cache-locality");
+    for kind in [
+        UpstreamErrorKind::Authentication,
+        UpstreamErrorKind::PermissionDenied,
+        UpstreamErrorKind::QuotaExhausted,
+        UpstreamErrorKind::RateLimited,
+        UpstreamErrorKind::ModelUnavailable,
+        UpstreamErrorKind::OperationUnavailable,
+        UpstreamErrorKind::Transient,
+    ] {
+        let failure = upstream_failure(
+            candidate.clone(),
+            false,
+            kind,
+            kind.default_retry_safety(),
+            UpstreamFailureAttribution::Unattributed,
+        );
+        assert!(
+            failure.cache_locality_failure_candidate().is_some(),
+            "{kind:?} must invalidate the failed cache-locality path"
+        );
+    }
+
+    for kind in [
+        UpstreamErrorKind::InvalidRequest,
+        UpstreamErrorKind::Unknown,
+    ] {
+        let failure = upstream_failure(
+            candidate.clone(),
+            false,
+            kind,
+            kind.default_retry_safety(),
+            UpstreamFailureAttribution::Unattributed,
+        );
+        assert!(
+            failure.cache_locality_failure_candidate().is_none(),
+            "{kind:?} must preserve a previously successful path"
+        );
+    }
+}
+
+#[test]
 fn oauth_authentication_gets_one_refresh_decision_before_reselection() {
     let mut candidate = candidate("oauth");
     let account_id = any2api_domain::OAuthAccountId::new();

@@ -139,12 +139,13 @@ async fn codex_quota_is_persisted_redacted_reset_and_announced() {
     assert_eq!(reset.status, StatusCode::OK);
     assert_eq!(reset.json, json!({"windows_reset": 2}));
     assert_eq!(transport.consumed.load(Ordering::Acquire), 1);
-    assert!(
-        request(app, Method::GET, &quota_uri, loopback)
-            .await
-            .json
-            .is_null()
-    );
+    let reset_observation_event = next_sse_event(&mut events).await;
+    assert!(reset_observation_event.contains("event: oauth_quota_changed"));
+    assert!(reset_observation_event.contains("data: 2"));
+    let after_reset = request(app, Method::GET, &quota_uri, loopback).await;
+    assert_eq!(after_reset.json["rate_limit"], persisted.json["rate_limit"]);
+    assert_eq!(after_reset.json["estimates"], persisted.json["estimates"]);
+    assert!(after_reset.json["fetched_at"].as_i64() >= persisted.json["fetched_at"].as_i64());
 }
 
 #[derive(Default)]

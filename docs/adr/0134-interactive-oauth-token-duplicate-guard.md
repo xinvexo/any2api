@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-11
 - 决策人：maintainer
-- 修订：ADR-0087、ADR-0133
+- 修订：ADR-0087、ADR-0133、ADR-0147
 
 ## 背景
 
@@ -25,9 +25,9 @@ access、refresh 或 ID Token，这已经足以证明它们是同一认证材料
    新建第二条相同凭据。
 3. 新 Token 的稳定身份与精确 Token 分别命中不同账号时，视为历史配置冲突并
    fail-closed；不按 Token、邮箱或 account ID 的任一弱优先级猜测覆盖。
-4. 稳定身份只匹配同 Provider account ID，或双方都没有 account ID 时的规范化邮箱。
-   不同 Token 且无法证明稳定身份相同的登录仍允许创建新账号，避免把共享邮箱或相似标签
-   错误合并。
+4. 稳定身份只匹配同 Provider Driver 投影的主体，或双方都没有强主体投影时的规范化邮箱。
+   Codex 工作区 ID 不能单独成为主体证据。不同 Token 且无法证明稳定身份相同的登录仍允许
+   创建新账号，避免把共享工作区、共享邮箱或相似标签错误合并。
 5. 所有复用、新建和冲突判断都在一次串行发布临界区中完成；新建或重新授权继续遵守
    SQLite 事务、Runtime reconcile、`PublishedSnapshot` 单次切换和 Token version CAS。
 
