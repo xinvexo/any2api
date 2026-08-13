@@ -1030,7 +1030,7 @@ request_logs
 
 默认不保存 Prompt、完整请求体、完整响应体、完整 `GatewayApiKey` 或上游凭据 Secret。
 
-`RequestLog.client_ip` 是必填字段，保存 Server 在公开请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。TCP 对端和 XFF 中每个地址进入信任匹配、loopback 判断或持久化前都先使用 Rust `IpAddr::to_canonical()` 规范化，使 `::ffff:a.b.c.d` 与原生 IPv4 具有同一语义。直连请求使用规范化 TCP 对端地址；只有该地址命中当前 PublishedSnapshot 的 `network.trusted_proxy_cidrs` 时才使用受校验的转发链，并从右向左剥离连续可信代理。无法取得规范地址的请求不能进入模型执行链。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。管理 Web 的请求日志桌面列表默认直接显示该规范客户端 IP；窄屏卡片也在摘要中显示，展开区与独立详情继续重复展示以便定位请求。
+`RequestLog.client_ip` 是必填字段，保存 Server 在公开请求入口按可信代理策略解析后的规范 IPv4/IPv6 字符串，不保存原始 `Forwarded`、`X-Forwarded-For` 或 `CF-Connecting-IP` 文本。TCP 对端和 XFF 中每个地址进入信任匹配、loopback 判断或持久化前都先使用 Rust `IpAddr::to_canonical()` 规范化，使 `::ffff:a.b.c.d` 与原生 IPv4 具有同一语义。直连请求使用规范化 TCP 对端地址；只有该地址命中当前 PublishedSnapshot 的 `network.trusted_proxy_cidrs` 时才使用受校验的转发链，并从右向左剥离连续可信代理。无法取得规范地址的请求不能进入模型执行链。该字段只通过已认证管理面的请求日志接口展示，不参与鉴权、调度、限速或路由。管理 Web 的请求日志桌面列表默认直接显示该规范客户端 IP，窄屏卡片也在摘要中显示；内联展开区不再重复该字段，脱离列表上下文的独立详情页仍展示以便定位请求。
 
 `input_tokens` 是 Provider 无关的归一化输入总量。对 Anthropic Messages，ProtocolAdapter 在上游明确提供这些字段时把 `input_tokens`、`cache_creation_input_tokens` 与 `cache_read_input_tokens` 相加后写入该字段；`cache_read_tokens` 仍只保存缓存读取明细，不能再次加入总量。缓存创建没有单独的 RequestLog/SQLite 字段，但其已知数量不能从归一化输入中丢失。
 

@@ -36,6 +36,8 @@ test("omits the attempt timeline for a direct single-attempt success", () => {
 
   renderPanel(value);
 
+  expect(screen.queryByText("客户端 IP")).not.toBeInTheDocument();
+  expect(screen.queryByText("203.0.113.8")).not.toBeInTheDocument();
   expect(screen.queryByText("Attempt 时间线")).not.toBeInTheDocument();
   expect(screen.queryByText("only-account")).not.toBeInTheDocument();
 });

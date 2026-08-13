@@ -17,13 +17,10 @@ import {
 import { RequestLogExpandedPanel } from "./RequestLogExpandedPanel";
 import { cn } from "@/shared/lib/cn";
 
-/**
- * Full-width balanced grid shared by header and body rows.
- * Every column takes a share of free space — no dead right gutter.
- */
+/** Content-weighted proportions shared by the header and rows. */
 export const requestLogGridClass =
   "grid w-full items-center gap-x-2 px-1 " +
-  "[grid-template-columns:minmax(0,1.5fr)_minmax(0,0.95fr)_minmax(0,1.15fr)_minmax(0,1fr)_minmax(0,0.55fr)_minmax(0,0.75fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_minmax(0,0.95fr)_minmax(0,0.95fr)_minmax(0,1.15fr)_minmax(0,0.75fr)]";
+  "[grid-template-columns:minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1.8fr)_minmax(0,1fr)_minmax(0,0.55fr)_minmax(0,0.7fr)_minmax(0,0.75fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.75fr)_minmax(0,1fr)_minmax(0,0.6fr)]";
 
 const cell = "min-w-0 px-1 py-2.5 text-left text-[12px]";
 const numCell = `${cell} tabular-nums text-secondary`;

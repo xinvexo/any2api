@@ -264,7 +264,10 @@ export function RequestLogManagement() {
 
 function RequestLogHeader({ children }: { children: ReactNode }) {
   return (
-    <div role="columnheader" className="min-w-0 px-1 py-2 text-left">
+    <div
+      role="columnheader"
+      className="min-w-0 whitespace-nowrap px-1 py-2 text-left"
+    >
       {children}
     </div>
   );
