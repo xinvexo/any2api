@@ -18,7 +18,7 @@ export interface CodexRateCardValue {
   }>;
 }
 
-interface CodexRateTierValue {
+export interface CodexRateTierValue {
   input_nanos_per_million: number;
   cached_input_nanos_per_million: number;
   output_nanos_per_million: number;

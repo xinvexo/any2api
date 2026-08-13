@@ -50,21 +50,6 @@ export function SettingControl({
       />
     );
   }
-  if (item.valueType === "codex_rate_card") {
-    return (
-      <textarea
-        className="focus-ring min-h-64 w-full resize-y rounded-[8px] border-0 bg-surface-muted px-3 py-2 font-mono text-[11px] leading-5 text-primary placeholder:text-tertiary disabled:cursor-not-allowed disabled:opacity-50"
-        value={typeof value === "string" ? value : ""}
-        aria-labelledby={labelledBy}
-        aria-describedby={describedBy}
-        aria-invalid={invalid}
-        disabled={disabled}
-        spellCheck={false}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    );
-  }
-
   if (item.valueType === "boolean") {
     const checked = value === true;
     return (

@@ -259,7 +259,7 @@ OAuth 虚拟网格位于管理壳显式分配的有界内容行时，必须占�
 
 负载均衡和会话粘性是路由策略，不作为一级管理对象或独立页面。固定规模的全局/Provider 调度汇总、进程活动请求/后台任务计数与当前策略下的活动显式会话数进入总览；前两者共用受认证的 `/api/admin/balancing` 查询与前端 Query cache，不再轮询公共健康端点。`scheduler.*` 与 `affinity.*` 统一进入“设置 → 路由策略”。总览不得请求或展示逐账号调度、逐 Credential 会话分布、Continuation 索引数或绑定样本。完整决策见 `docs/adr/0038-aggregate-only-balancing-dashboard.md`、`docs/adr/0039-overview-and-simplified-settings.md`、`docs/adr/0062-unified-session-affinity.md`、`docs/adr/0064-optional-session-affinity-toggle.md`、`docs/adr/0066-active-session-overview.md` 与 `docs/adr/0108-minimal-public-health-response.md`。
 
-设置页只保留“基础、路由策略、运行保护、日志、关于”五个一级页签。每个配置页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义。Web 只提供覆盖值编辑，不提供恢复默认入口。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。
+设置页只保留“基础、路由策略、运行保护、日志、关于”五个一级页签。每个配置页签默认只展开少量高频设置，其余设置保留在同页的“高级设置”折叠区；这只是渐进披露，不改变 SettingRegistry、默认值/覆盖值/生效值语义。Web 只提供覆盖值编辑，不提供恢复默认入口。代理只在代理页管理，不在系统设置中复制第二个全局代理入口。Codex 额度费率不进入通用设置页，主导航提供独立“额度费率”菜单和 `/quota-rates` deep link；该页面仍通过 SettingRegistry 读写同一个覆盖值，不建立第二套配置来源。
 
 样式按 `tokens.css`、`globals.css` 和局部组件职责拆分。React 页面只组合 feature，业务请求、状态和 Schema 分别进入 feature 的 `api`、`model` 与私有 UI 模块。
 
@@ -2392,7 +2392,9 @@ Codex 本机额度费率使用同一注册表中的 `oauth.codex.rate_card`，�
 `codex_rate_card`：包含版本 ID、正整数 `credits_per_usd`，以及按精确模型名列出的 standard/fast
 输入、缓存输入和输出 nano-Credits/百万 Token。候选配置必须在事务内完整编译费率卡；请求从捕获的
 PublishedSnapshot 冻结 Token→Credits 费率到 RequestLog，调价只影响后续请求。额度管理响应携带当前
-展示汇率，Web 不保留独立定价常量。完整决策见
+展示汇率，Web 不保留独立定价常量。Web 在独立“额度费率”页面用结构化模型、档位和数值控件编辑，
+费率输入统一显示为 Credits/百万 Token，并在提交边界精确换算为 nano-Credits；内部版本 ID 不展示、
+不允许手工编辑，任何语义修改提交时自动产生新 ID。完整决策见
 `docs/adr/0145-configurable-codex-quota-rate-card.md`。
 
 QueuePolicy 等快照级运行策略的更新必须作为候选配置发布的一部分：从同一事务候选配置编译生效值，提交后把该值显式传入新的 `PublishedSnapshot` 并原子切换；已捕获快照继续持有其策略。禁止先修改共享 Registry 值再等待其他发布顺带生效，也禁止让一个已开始的请求在等待中途混用两个配置 revision。Credential 的可选 RPM 固化在对应 Runtime Binding；不同 revision 共享滚动时间戳但分别使用各自限额，并在快照切换后由统一 epoch 唤醒。完整决策见 `docs/adr/0075-revision-scoped-runtime-bindings.md`。
@@ -3033,7 +3035,7 @@ Credential 管理使用独立操作：元数据编辑绝不接受 Secret；API K
 - 授权成功后新建独立 `OAuthAccount`，或在稳定账号身份唯一匹配时重新授权原账号；响应显示安全账号元数据、启用状态、可选 RPM 和已选模型，可在当前页面编辑这些账号属性或删除账号；
 - 当前 Provider 的完整账号集合按 `OAuthAccount.created_at` 升序展示，最早添加的账号在前、新建账号在末尾；创建时间相同时按稳定账号 ID 升序打破平局。该顺序只属于管理面展示，不改变数据面候选池与稳定轮询语义；
 - 当前 Provider 的完整账号集合使用共享响应式虚拟网格，不使用客户端分页；虚拟窗口之外的账号仍属于页面操作的数据集合；
-- Codex 账号可显式刷新上游额度窗口、购买 Credits 和 reset credit 次数；购买 Credits 的标签固定为 `Credits`，有限余额按 `oauth.codex.rate_card` 当前生效汇率换算成最多四位小数的美元等值，悬浮显示原始 Credits 和换算率，不与 reset credit 合并。5 小时/7 天窗口在对应百分比同一行展示 snapshot-interval estimator：cold start/无样本时显示“容量校准中”，有样本时只用紧凑 `$已用/$总量`。悬浮详情把 `confidence` 标为“证据状态”，并说明它由样本数、相对 MAD 与最近区间完整性派生，不是概率；同时展开样本数、最近区间、Credits 容量、时间、未计价记录与历史费率卡 ID。美元值只是在 Web 由 Credits 派生的当前费率卡等值，不能标成上游余额。额度最后更新时间保留月、日和时分秒，不重复显示当前语境中多余的年份。只有同次查询确认 reset credit 剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
+- Codex 账号可显式刷新上游额度窗口、购买 Credits 和 reset credit 次数；购买 Credits 的标签固定为 `Credits`，有限余额按 `oauth.codex.rate_card` 当前生效汇率换算成最多四位小数的美元等值，悬浮显示原始 Credits 和换算率，不与 reset credit 合并。5 小时/7 天窗口在对应百分比同一行展示 snapshot-interval estimator：cold start/无样本时显示“容量校准中”，有样本时只用紧凑 `$已用/$总量`。悬浮详情只展示紧凑的金额、Credits 换算、容量样本与最近观测区间；`confidence` 只作为离散证据状态标签，不展开概率解释、阈值算法、换算免责声明或内部费率卡 ID。美元值只是在 Web 由 Credits 派生的当前费率卡等值，不能标成上游余额。额度最后更新时间保留月、日和时分秒，不重复显示当前语境中多余的年份。只有同次查询确认 reset credit 剩余次数大于 0 时才显示可用的“重置额度”操作，提交前必须二次确认，成功后立即重新查询；
 - Claude 账号可显式刷新 Anthropic 返回的 5 小时、7 天及可选模型专属窗口；Grok 账号可显式刷新 xAI 返回的当前套餐层级、included allowance 使用率、预付余额和按量使用信息；Free 的 Token 上限与剩余量只显示真实数据面耗尽响应中经过校验的 `actual/limit`，没有该证据时保持未知；两者都不显示重置操作；
 - Codex、Claude 与 Grok 页面均提供“刷新全部额度”，覆盖当前完整 Provider 集合（包括禁用和未挂载账号），以有界并发执行并展示成功/失败汇总；滚动、响应式换列或行卸载不得取消整批操作；
 - 每个 OAuthAccount 卡片展示当前 `token_version` 最近一次 Token 刷新失败的触发来源、阶段、稳定原因、可选 HTTP 状态/网络归因、发生时间与是否需要重新授权；成功换代或重新授权后该提示自动消失，页面不得展示原始上游正文或任何 Token；

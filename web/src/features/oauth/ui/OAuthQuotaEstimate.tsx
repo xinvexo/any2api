@@ -137,7 +137,7 @@ function QuotaTooltip({
 
       {capacity === null || used === null || remaining === null ? (
         <p className="mt-1 text-secondary">
-          容量尚未形成：需要两个可靠官方快照和完整的本地遥测区间
+          容量尚未形成
         </p>
       ) : (
         <>
@@ -152,17 +152,13 @@ function QuotaTooltip({
             已用 {formatEstimateValue(used, rateCard)} · 剩余 {formatEstimateValue(remaining, rateCard)} · 总量 {formatEstimateValue(capacity, rateCard)}
           </p>
           <p className="text-[10px] tabular-nums text-tertiary">
-            Credits {formatCredits(used)} / {formatCredits(capacity)}{rateCard ? ` · ${rateCard.creditsPerUsd} Credits = $1（仅展示换算）` : ""}
+            Credits {formatCredits(used)} / {formatCredits(capacity)}{rateCard ? ` · ${rateCard.creditsPerUsd} Credits = $1` : ""}
           </p>
           <p className="text-[10px] tabular-nums text-tertiary">
             容量样本 {estimate.sampleCount} · 本窗口期 {estimate.freshSampleCount}
           </p>
         </>
       )}
-
-      <p className="mt-1 text-[10px] text-tertiary">
-        {evidenceExplanation(estimate)}
-      </p>
 
       <div className="mt-1.5 space-y-0.5 border-t border-subtle/60 pt-1.5 text-[10px] text-secondary">
         <p>
@@ -181,11 +177,6 @@ function QuotaTooltip({
         ) : null}
         {losses ? <p className="text-warning">{losses}</p> : null}
       </div>
-      {estimate.rateCards.length > 0 ? (
-        <p className="mt-1 truncate text-[10px] text-tertiary">
-          费率卡 {estimate.rateCards.join(", ")}
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -250,26 +241,6 @@ function formatEstimateValue(value: number, rateCard: OAuthQuotaRateCard | null)
   return rateCard
     ? formatEstimatedUsd(creditsToUsd(value, rateCard.creditsPerUsd))
     : `${formatCredits(value)} Credits`;
-}
-
-function evidenceExplanation(estimate: Estimate) {
-  switch (estimate.confidence) {
-    case "unknown":
-      return "尚无容量样本；这是证据状态，不是概率。";
-    case "learning":
-      if (estimate.sampleCount < 3) {
-        return `已有 ${estimate.sampleCount} 个容量样本，至少 3 个才标记稳定；不是概率。`;
-      }
-      return `样本一致性仍不足${formatSampleDifference(estimate.relativeMad)}；样本差异不高于 20% 才标记稳定。`;
-    case "stable":
-      return `${estimate.sampleCount} 个样本且一致性达标${formatSampleDifference(estimate.relativeMad)}；这是证据状态，不是概率。`;
-    case "degraded":
-      return "最近区间存在未计价、无效观测或遥测缺口；现有估算仅供参考。";
-  }
-}
-
-function formatSampleDifference(value: number | null) {
-  return value === null ? "" : `（样本差异 ${formatPercent(value * 100)}）`;
 }
 
 function formatEstimatedUsd(value: number) {

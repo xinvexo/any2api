@@ -29,6 +29,10 @@ export const appRoutes = [
       { path: "providers", element: page(() => import("@/pages/ProvidersPage"), "ProvidersPage") },
       { path: "oauth", element: page(() => import("@/pages/OAuthPage"), "OAuthPage") },
       {
+        path: "quota-rates",
+        element: page(() => import("@/pages/QuotaRatesPage"), "QuotaRatesPage"),
+      },
+      {
         path: "keys",
         element: page(() => import("@/pages/GatewayApiKeysPage"), "GatewayApiKeysPage"),
       },

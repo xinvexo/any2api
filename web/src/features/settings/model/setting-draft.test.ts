@@ -75,19 +75,6 @@ test("edits free-form trusted proxy addresses one per line or comma", () => {
   expect(isSettingDraftDirty(item, "10.0.0.0/8\n127.0.0.1/32")).toBe(false);
 });
 
-test("edits a structured Codex rate card and requires a new ID for changed rates", () => {
-  const item = rateCardItem();
-  const draft = createSettingDraft(item);
-  expect(typeof draft).toBe("string");
-  expect(validateSettingDraft(item, draft).error).toBeNull();
-
-  const changed = JSON.parse(String(draft));
-  changed.credits_per_usd = 30;
-  expect(validateSettingDraft(item, JSON.stringify(changed)).error).toMatch(/更换卡片 ID/);
-  changed.id = "openai_codex_credits_2026_08_13";
-  expect(validateSettingDraft(item, JSON.stringify(changed)).error).toBeNull();
-});
-
 function numericItem(): SettingItem {
   return {
     key: "scheduler.max_waiting_requests",
@@ -153,35 +140,5 @@ function trustedProxyItem(): SettingItem {
     applyMode: "hot_reload",
     webGroup: "远程管理",
     description: "Trusted reverse proxies",
-  };
-}
-
-function rateCardItem(): SettingItem {
-  const value = {
-    id: "openai_codex_credits_2026_08_11",
-    credits_per_usd: 25,
-    models: {
-      "gpt-5.6-sol": {
-        standard: {
-          input_nanos_per_million: 125_000_000_000,
-          cached_input_nanos_per_million: 12_500_000_000,
-          output_nanos_per_million: 750_000_000_000,
-        },
-      },
-    },
-  };
-  return {
-    key: "oauth.codex.rate_card",
-    valueType: "codex_rate_card",
-    defaultValue: value,
-    overrideValue: null,
-    effectiveValue: value,
-    minValue: null,
-    maxValue: null,
-    allowedValues: null,
-    options: null,
-    applyMode: "hot_reload",
-    webGroup: "Codex 额度估算",
-    description: "Codex rate card",
   };
 }

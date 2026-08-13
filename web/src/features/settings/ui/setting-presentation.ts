@@ -23,7 +23,6 @@ const labels: Record<string, string> = {
   "logs.telemetry_queue_max_bytes": "遥测在途内存上限",
   "oauth.refresh.scan_interval": "OAuth 刷新扫描间隔",
   "oauth.refresh.lead_time": "OAuth 提前刷新窗口",
-  "oauth.codex.rate_card": "Codex 额度费率卡",
   "upstream.read_timeout": "上游读取超时",
   "upstream.strict_ssrf": "严格 SSRF 本地 DNS",
   "stream.precommit.max_bytes": "SSE 单帧与预提交字节上限",

@@ -30,7 +30,10 @@ export function useSettingsEditor(webGroups?: readonly string[]) {
   const [drafts, setDrafts] = useState<PendingDrafts>({});
   const items = useMemo(() => {
     const allowed = webGroups ? new Set(webGroups) : null;
-    return (query.data?.items ?? []).filter((item) => !allowed || allowed.has(item.webGroup));
+    return (query.data?.items ?? []).filter((item) =>
+      item.valueType !== "codex_rate_card"
+      && (!allowed || allowed.has(item.webGroup))
+    );
   }, [query.data, webGroups]);
   const mutation = useMutation({
     mutationFn: applySettingChanges,

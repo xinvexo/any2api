@@ -1,8 +1,4 @@
-import {
-  parseCodexRateCardValue,
-  type SettingItem,
-  type SettingValue,
-} from "../api/settings-contracts";
+import type { SettingItem, SettingValue } from "../api/settings-contracts";
 
 export interface ModelAccessDraft {
   mode: "all" | "only";
@@ -38,12 +34,6 @@ export function createSettingDraftFromValue(
       return value.join("\n");
     }
     throw new Error("invalid string list setting");
-  }
-  if (item.valueType === "codex_rate_card") {
-    if (typeof value === "object" && value !== null) {
-      return JSON.stringify(value, null, 2);
-    }
-    throw new Error("invalid Codex rate card setting");
   }
   if (typeof value === "number") {
     return String(value);
@@ -82,22 +72,6 @@ export function validateSettingDraft(
         .filter(Boolean),
     )].sort();
     return { value: values, error: null };
-  }
-  if (item.valueType === "codex_rate_card") {
-    if (typeof draft !== "string") return invalid("费率卡格式不正确");
-    try {
-      const value = parseCodexRateCardValue(JSON.parse(draft) as unknown);
-      const effective = parseCodexRateCardValue(item.effectiveValue);
-      if (
-        value.id === effective.id
-        && !settingValuesEqual(value, effective)
-      ) {
-        return invalid("修改费率或汇率时必须更换卡片 ID");
-      }
-      return { value, error: null };
-    } catch {
-      return invalid("请输入有效的 JSON 费率卡");
-    }
   }
   if (item.valueType === "boolean") {
     return typeof draft === "boolean"

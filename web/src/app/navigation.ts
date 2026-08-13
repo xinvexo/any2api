@@ -1,4 +1,5 @@
 import {
+  BadgeDollarSign,
   Fingerprint,
   FileClock,
   Gauge,
@@ -20,6 +21,7 @@ export const navigationItems: NavigationItem[] = [
   { label: "系统总览", path: "/", icon: Gauge },
   { label: "上游提供", path: "/providers", icon: Server },
   { label: "认证文件", path: "/oauth", icon: Fingerprint },
+  { label: "额度费率", path: "/quota-rates", icon: BadgeDollarSign },
   { label: "网关密钥", path: "/keys", icon: KeyRound },
   { label: "出口代理", path: "/proxies", icon: Network },
   { label: "请求日志", path: "/logs", icon: ScrollText },

@@ -28,8 +28,8 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
             (None, None),
             &[],
             (
-                "Codex 额度估算",
-                "本地额度遥测使用的费率卡；模型费率单位为每百万 Token 的 nano-Credits。修改内容时必须更换卡片 ID。",
+                "额度费率",
+                "Codex 本地额度遥测使用的费率卡；模型费率单位为每百万 Token 的 nano-Credits。",
             ),
         ),
         _ => unreachable!(),

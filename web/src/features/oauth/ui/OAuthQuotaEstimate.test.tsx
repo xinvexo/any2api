@@ -19,7 +19,9 @@ test("cold start stays visibly unknown until an interval sample exists", () => {
 
   const trigger = screen.getByText("容量校准中");
   fireEvent.focus(trigger);
-  expect(screen.getByRole("tooltip")).toHaveTextContent("需要两个可靠官方快照");
+  const tooltip = screen.getByRole("tooltip");
+  expect(tooltip).toHaveTextContent("容量尚未形成");
+  expect(tooltip).not.toHaveTextContent("不是概率");
   expect(trigger).toHaveAttribute("aria-describedby");
 });
 
@@ -42,6 +44,7 @@ test("degraded estimates remain available but are marked approximate", () => {
   expect(tooltip).not.toHaveTextContent("样本相对 MAD");
   expect(tooltip).not.toHaveTextContent("Epoch");
   expect(tooltip).not.toHaveTextContent("非上游余额");
+  expect(tooltip).not.toHaveTextContent("现有估算仅供参考");
 });
 
 test("stable estimates expose the detailed calculation on hover", () => {
@@ -54,7 +57,9 @@ test("stable estimates expose the detailed calculation on hover", () => {
     "区间本地消费 0.25 Credits · 官方使用率变化 1%",
   );
   expect(tooltip).toHaveTextContent("证据状态 稳定");
-  expect(tooltip).toHaveTextContent("费率卡 openai_codex_credits_2026_08_11");
+  expect(tooltip).toHaveTextContent("25 Credits = $1");
+  expect(tooltip).not.toHaveTextContent("仅展示换算");
+  expect(tooltip).not.toHaveTextContent("费率卡");
 });
 
 test("interval-reaching prune is reported as a telemetry gap", () => {
