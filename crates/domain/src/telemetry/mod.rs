@@ -13,6 +13,7 @@ pub use http_access_log::{
 pub use log_page::{LogPage, LogPageCursor, LogPagePosition};
 pub use quota_cost::{
     MAX_QUOTA_RATE_CARD_CHARS, QuotaCostUnit, QuotaServiceTier, RequestQuotaCost,
+    RequestQuotaCostRate,
 };
 pub use request_attempt_diagnostics::{
     MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS, RequestAttemptStreamTiming, RequestAttemptTransport,

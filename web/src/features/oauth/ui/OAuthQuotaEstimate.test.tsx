@@ -5,7 +5,7 @@ import type { OAuthQuotaEstimate } from "../api/oauth-quota-contracts";
 import { QuotaEstimate } from "./OAuthQuotaEstimate";
 
 test("cold start stays visibly unknown until an interval sample exists", () => {
-  render(<QuotaEstimate estimate={estimate({
+  render(<QuotaEstimate rateCard={rateCard} estimate={estimate({
     confidence: "unknown",
     estimatedCapacityCredits: null,
     estimatedUsedCredits: null,
@@ -24,7 +24,7 @@ test("cold start stays visibly unknown until an interval sample exists", () => {
 });
 
 test("degraded estimates remain available but are marked approximate", () => {
-  render(<QuotaEstimate estimate={estimate({
+  render(<QuotaEstimate rateCard={rateCard} estimate={estimate({
     confidence: "degraded",
     latestInterval: {
       ...base.latestInterval,
@@ -37,7 +37,7 @@ test("degraded estimates remain available but are marked approximate", () => {
   fireEvent.mouseEnter(value);
   const tooltip = screen.getByRole("tooltip");
   expect(tooltip).toHaveTextContent("本地遥测不完整");
-  expect(tooltip).toHaveTextContent("置信度 已降级");
+  expect(tooltip).toHaveTextContent("证据状态 不完整");
   expect(tooltip).toHaveTextContent("遥测缺口：队列丢失 1");
   expect(tooltip).not.toHaveTextContent("样本相对 MAD");
   expect(tooltip).not.toHaveTextContent("Epoch");
@@ -45,7 +45,7 @@ test("degraded estimates remain available but are marked approximate", () => {
 });
 
 test("stable estimates expose the detailed calculation on hover", () => {
-  render(<QuotaEstimate estimate={base} />);
+  render(<QuotaEstimate estimate={base} rateCard={rateCard} />);
 
   fireEvent.mouseEnter(screen.getByText("$0.40/$1.00"));
   const tooltip = screen.getByRole("tooltip");
@@ -53,12 +53,12 @@ test("stable estimates expose the detailed calculation on hover", () => {
   expect(tooltip).toHaveTextContent(
     "区间本地消费 0.25 Credits · 官方使用率变化 1%",
   );
-  expect(tooltip).toHaveTextContent("置信度 稳定");
+  expect(tooltip).toHaveTextContent("证据状态 稳定");
   expect(tooltip).toHaveTextContent("费率卡 openai_codex_credits_2026_08_11");
 });
 
 test("interval-reaching prune is reported as a telemetry gap", () => {
-  render(<QuotaEstimate estimate={estimate({
+  render(<QuotaEstimate rateCard={rateCard} estimate={estimate({
     confidence: "degraded",
     latestInterval: {
       ...base.latestInterval,
@@ -75,7 +75,7 @@ test("interval-reaching prune is reported as a telemetry gap", () => {
 });
 
 test("a rollover prior keeps the estimate and shows per-epoch sample counts", () => {
-  render(<QuotaEstimate estimate={estimate({
+  render(<QuotaEstimate rateCard={rateCard} estimate={estimate({
     confidence: "learning",
     freshSampleCount: 0,
     latestInterval: {
@@ -87,7 +87,7 @@ test("a rollover prior keeps the estimate and shows per-epoch sample counts", ()
   const value = screen.getByText("$0.40/$1.00");
   fireEvent.mouseEnter(value);
   const tooltip = screen.getByRole("tooltip");
-  expect(tooltip).toHaveTextContent("置信度 学习中");
+  expect(tooltip).toHaveTextContent("证据状态 学习中");
   expect(tooltip).toHaveTextContent("累计观测中");
   expect(tooltip).toHaveTextContent("容量样本 3 · 本窗口期 0");
 });
@@ -118,6 +118,11 @@ const base: OAuthQuotaEstimate = {
     intervalPruned: false,
   },
   rateCards: ["openai_codex_credits_2026_08_11"],
+};
+
+const rateCard = {
+  id: "openai_codex_credits_2026_08_11",
+  creditsPerUsd: 25,
 };
 
 function estimate(overrides: Partial<OAuthQuotaEstimate>): OAuthQuotaEstimate {

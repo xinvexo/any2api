@@ -1,9 +1,9 @@
 //! Construction and persistence of a freshly queried OAuth quota snapshot.
 
-use any2api_domain::OAuthAccountId;
+use any2api_domain::{OAuthAccountId, QuotaCostUnit};
 
 use super::{
-    coordinator::{OAuthQuotaService, QueriedQuota},
+    coordinator::{OAuthQuotaService, QueriedQuota, current_rate_card},
     persistence::StoredQuotaTelemetry,
     types::{OAuthQuotaError, OAuthQuotaSnapshot},
 };
@@ -47,6 +47,8 @@ pub(super) async fn build(
     } else {
         (None, Vec::new())
     };
+    let rate_card = (driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
+        .then(|| current_rate_card(&published));
     let stored = StoredQuotaTelemetry {
         usage: observation.usage.clone(),
         estimator_state,
@@ -56,6 +58,7 @@ pub(super) async fn build(
     Ok(OAuthQuotaSnapshot {
         usage: observation.usage,
         estimates,
+        rate_card,
         fetched_at,
     })
 }

@@ -14,7 +14,14 @@ use crate::oauth::refresh::OAuthRefreshFailure;
 pub struct OAuthQuotaSnapshot {
     pub usage: OAuthQuotaUsage,
     pub estimates: Vec<OAuthQuotaEstimate>,
+    pub rate_card: Option<OAuthQuotaRateCard>,
     pub fetched_at: i64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OAuthQuotaRateCard {
+    pub id: String,
+    pub credits_per_usd: u64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

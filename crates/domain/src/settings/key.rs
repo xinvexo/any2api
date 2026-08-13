@@ -24,6 +24,7 @@ pub enum SettingKey {
     LogsTelemetryQueueMaxBytes,
     OAuthRefreshScanInterval,
     OAuthRefreshLeadTime,
+    OAuthCodexRateCard,
     UpstreamReadTimeout,
     UpstreamStrictSsrf,
     StreamPrecommitMaxBytes,
@@ -56,7 +57,7 @@ pub enum SettingKey {
 }
 
 impl SettingKey {
-    pub const ALL: [Self; 51] = [
+    pub const ALL: [Self; 52] = [
         Self::AdminRemoteEnabled,
         Self::AdminSessionIdleTimeout,
         Self::AdminSessionAbsoluteTimeout,
@@ -79,6 +80,7 @@ impl SettingKey {
         Self::LogsTelemetryQueueMaxBytes,
         Self::OAuthRefreshScanInterval,
         Self::OAuthRefreshLeadTime,
+        Self::OAuthCodexRateCard,
         Self::UpstreamReadTimeout,
         Self::UpstreamStrictSsrf,
         Self::StreamPrecommitMaxBytes,
@@ -134,6 +136,7 @@ impl SettingKey {
             Self::LogsTelemetryQueueMaxBytes => "logs.telemetry_queue_max_bytes",
             Self::OAuthRefreshScanInterval => "oauth.refresh.scan_interval",
             Self::OAuthRefreshLeadTime => "oauth.refresh.lead_time",
+            Self::OAuthCodexRateCard => "oauth.codex.rate_card",
             Self::UpstreamReadTimeout => "upstream.read_timeout",
             Self::UpstreamStrictSsrf => "upstream.strict_ssrf",
             Self::StreamPrecommitMaxBytes => "stream.precommit.max_bytes",

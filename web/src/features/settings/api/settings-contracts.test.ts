@@ -12,6 +12,7 @@ test("parses setting metadata and all value types", () => {
       item("scheduler.fallback_on_rate_limit", "boolean", false, null, null),
       item("models.allowed", "model_access", "all", ["gpt-b"], null, null, null, ["gpt-a", "gpt-b"]),
       item("network.trusted_proxy_cidrs", "string_list", [], ["127.0.0.1/32"], null),
+      item("oauth.codex.rate_card", "codex_rate_card", rateCard(), null, null),
     ],
   });
 
@@ -22,6 +23,7 @@ test("parses setting metadata and all value types", () => {
   expect(configuration.items[4]?.options).toEqual(["gpt-a", "gpt-b"]);
   expect(configuration.items[5]?.options).toBeNull();
   expect(configuration.items[5]?.effectiveValue).toEqual(["127.0.0.1/32"]);
+  expect(configuration.items[6]?.effectiveValue).toEqual(rateCard());
 });
 
 test("accepts empty setting description", () => {
@@ -65,11 +67,29 @@ test("rejects inconsistent bounds, values, and enum metadata", () => {
   })).toThrow("invalid settings response");
 });
 
+test("rejects malformed Codex rate cards at the settings boundary", () => {
+  const cachedAboveInput = rateCard();
+  cachedAboveInput.models["gpt-5.6-sol"].standard.cached_input_nanos_per_million =
+    cachedAboveInput.models["gpt-5.6-sol"].standard.input_nanos_per_million + 1;
+  expect(() => parseSettingsConfiguration({
+    config_revision: 1,
+    items: [item("oauth.codex.rate_card", "codex_rate_card", cachedAboveInput, null, null)],
+  })).toThrow("invalid settings response");
+
+  expect(() => parseSettingsConfiguration({
+    config_revision: 1,
+    items: [item("oauth.codex.rate_card", "codex_rate_card", {
+      ...rateCard(),
+      obsolete_rate: 1,
+    }, null, null)],
+  })).toThrow("invalid settings response");
+});
+
 function item(
   key: string,
   valueType: string,
-  defaultValue: boolean | number | string | string[] | null,
-  overrideValue: boolean | number | string | string[] | null,
+  defaultValue: boolean | number | string | string[] | Record<string, unknown> | null,
+  overrideValue: boolean | number | string | string[] | Record<string, unknown> | null,
   allowedValues: string[] | null,
   minValue: number | null = null,
   maxValue: number | null = null,
@@ -88,5 +108,21 @@ function item(
     apply_mode: "hot_reload",
     web_group: "Test",
     description: "Test setting",
+  };
+}
+
+function rateCard() {
+  return {
+    id: "openai_codex_credits_2026_08_11",
+    credits_per_usd: 25,
+    models: {
+      "gpt-5.6-sol": {
+        standard: {
+          input_nanos_per_million: 125_000_000_000,
+          cached_input_nanos_per_million: 12_500_000_000,
+          output_nanos_per_million: 750_000_000_000,
+        },
+      },
+    },
   };
 }

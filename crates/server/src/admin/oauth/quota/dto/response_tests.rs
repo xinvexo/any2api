@@ -52,6 +52,10 @@ fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
             },
             rate_cards: vec!["openai_codex_credits_2026_08_11".to_owned()],
         }],
+        rate_card: Some(OAuthQuotaRateCard {
+            id: "openai_codex_credits_2026_08_11".to_owned(),
+            credits_per_usd: 25,
+        }),
     });
     let value = serde_json::to_value(response).expect("quota response");
 
@@ -59,6 +63,7 @@ fn serializes_real_codex_credits_and_epoch_capacity_estimate() {
     assert_eq!(value["access"]["reached_type"], "rate_limit_reached");
     assert_eq!(value["estimates"][0]["estimated_capacity_credits"], 25.0);
     assert_eq!(value["estimates"][0]["confidence"], "stable");
+    assert_eq!(value["rate_card"]["credits_per_usd"], 25);
     assert_eq!(value["estimates"][0]["fresh_sample_count"], 2);
     assert_eq!(
         value["estimates"][0]["latest_interval"]["status"],
@@ -102,6 +107,7 @@ fn serializes_grok_billing_and_subscription_without_secrets() {
             }),
         },
         estimates: Vec::new(),
+        rate_card: None,
     });
     let value = serde_json::to_value(response).expect("quota response");
 

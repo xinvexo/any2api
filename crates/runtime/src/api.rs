@@ -22,9 +22,9 @@ pub use crate::oauth::{
     MAX_OAUTH_IMPORT_ACCOUNTS, OAuthActivationResult, OAuthDevicePollResult, OAuthError,
     OAuthImportError, OAuthImportFailureKind, OAuthImportResult, OAuthQuotaError,
     OAuthQuotaEstimate, OAuthQuotaEstimateConfidence, OAuthQuotaIntervalDiagnostic,
-    OAuthQuotaIntervalStatus, OAuthQuotaResetOutcome, OAuthQuotaSnapshot, OAuthRefreshFailure,
-    OAuthRefreshFailureReason, OAuthRefreshFailureScope, OAuthRefreshFailureStage,
-    OAuthRefreshTrigger, OAuthService, OAuthStartFlow, OAuthStartResult,
+    OAuthQuotaIntervalStatus, OAuthQuotaRateCard, OAuthQuotaResetOutcome, OAuthQuotaSnapshot,
+    OAuthRefreshFailure, OAuthRefreshFailureReason, OAuthRefreshFailureScope,
+    OAuthRefreshFailureStage, OAuthRefreshTrigger, OAuthService, OAuthStartFlow, OAuthStartResult,
 };
 pub use crate::proxy::ProxyPasswordSecret;
 pub use crate::proxy::{

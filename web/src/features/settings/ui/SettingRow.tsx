@@ -32,7 +32,9 @@ export function SettingRow({
     .filter(Boolean)
     .join(" ") || undefined;
   const restartHint = reloadLabel(item);
-  const wideControl = item.valueType === "model_access" || item.valueType === "string_list";
+  const wideControl = item.valueType === "model_access"
+    || item.valueType === "string_list"
+    || item.valueType === "codex_rate_card";
 
   return (
     <div

@@ -1,5 +1,5 @@
 use crate::settings::{
-    SettingDefinition, SettingKey,
+    CodexQuotaRateCard, SettingDefinition, SettingKey, SettingValue, SettingValueType,
     definition::{MAX_SETTING_DURATION_SECS, duration_definition},
 };
 
@@ -20,6 +20,17 @@ pub(super) fn definition(key: SettingKey) -> SettingDefinition {
             MAX_SETTING_DURATION_SECS,
             "OAuth 刷新",
             "在访问 Token 到期前提前触发刷新的时间窗口。",
+        ),
+        SettingKey::OAuthCodexRateCard => crate::settings::definition::definition(
+            key,
+            SettingValueType::CodexRateCard,
+            SettingValue::CodexRateCard(CodexQuotaRateCard::default()),
+            (None, None),
+            &[],
+            (
+                "Codex 额度估算",
+                "本地额度遥测使用的费率卡；模型费率单位为每百万 Token 的 nano-Credits。修改内容时必须更换卡片 ID。",
+            ),
         ),
         _ => unreachable!(),
     }

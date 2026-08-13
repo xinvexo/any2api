@@ -45,11 +45,13 @@ impl ConfigPublisher {
         match command {
             ConfigCommand::SetSettingOverride { key, value } => {
                 validate_model_allowlist(current, *key, value)?;
+                validate_rate_card_version(current, *key, value)?;
             }
             ConfigCommand::ApplySettingChanges { changes } => {
                 for change in changes {
                     if let SettingOverrideChange::Set { key, value } = change {
                         validate_model_allowlist(current, *key, value)?;
+                        validate_rate_card_version(current, *key, value)?;
                     }
                 }
             }
@@ -57,6 +59,23 @@ impl ConfigPublisher {
         }
         Ok(())
     }
+}
+
+fn validate_rate_card_version(
+    current: &PublishedSnapshot,
+    key: SettingKey,
+    value: &SettingValue,
+) -> Result<(), ConfigPublishError> {
+    let (SettingKey::OAuthCodexRateCard, SettingValue::CodexRateCard(next)) = (key, value) else {
+        return Ok(());
+    };
+    let current = current.settings().oauth().codex_rate_card();
+    if next.id() == current.id() && next != current {
+        return Err(ConfigPublishError::InvalidSetting(
+            SettingsValidationError::InvalidCombination,
+        ));
+    }
+    Ok(())
 }
 
 fn validate_model_allowlist(

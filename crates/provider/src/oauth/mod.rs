@@ -16,11 +16,10 @@ pub use import::{
 };
 pub use quota::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
-    OAuthQuotaBilling, OAuthQuotaCostRate, OAuthQuotaCredits, OAuthQuotaExhaustion,
-    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaRejection,
-    OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement,
-    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
-    OAuthQuotaWindowKind,
+    OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaQueryPlan,
+    OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaRejection, OAuthQuotaResetCredit,
+    OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement, OAuthQuotaTokenBalance,
+    OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 pub use refresh::OAuthRefreshRejection;
 pub use routing::OAuthRoutingProfile;

@@ -212,14 +212,6 @@ impl ProviderDriver for CodexDriver {
         codex_quota::query_plan(token).map(Some)
     }
 
-    fn oauth_quota_cost_rate(
-        &self,
-        model: &str,
-        service_tier: QuotaServiceTier,
-    ) -> Option<crate::api::OAuthQuotaCostRate> {
-        codex_quota::cost_rate(model, service_tier)
-    }
-
     fn oauth_quota_cost_unit(&self) -> Option<any2api_domain::QuotaCostUnit> {
         Some(any2api_domain::QuotaCostUnit::CodexCredits)
     }

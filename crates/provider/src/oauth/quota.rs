@@ -1,5 +1,3 @@
-use any2api_domain::{QuotaCostUnit, QuotaServiceTier, RequestQuotaCost, TokenUsage};
-
 use crate::OAuthRequestPlan;
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -138,69 +136,6 @@ impl OAuthQuotaAccessStatus {
                 Some(reached) => reached.is_workspace_hard_stop(),
                 None => false,
             }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct OAuthQuotaCostRate {
-    rate_card: &'static str,
-    unit: QuotaCostUnit,
-    service_tier: QuotaServiceTier,
-    input_nanos_per_million: u64,
-    cached_input_nanos_per_million: u64,
-    output_nanos_per_million: u64,
-}
-
-impl OAuthQuotaCostRate {
-    #[must_use]
-    pub const fn new(
-        rate_card: &'static str,
-        unit: QuotaCostUnit,
-        service_tier: QuotaServiceTier,
-        input_nanos_per_million: u64,
-        cached_input_nanos_per_million: u64,
-        output_nanos_per_million: u64,
-    ) -> Self {
-        Self {
-            rate_card,
-            unit,
-            service_tier,
-            input_nanos_per_million,
-            cached_input_nanos_per_million,
-            output_nanos_per_million,
-        }
-    }
-
-    #[must_use]
-    pub const fn rate_card(self) -> &'static str {
-        self.rate_card
-    }
-
-    #[must_use]
-    pub const fn service_tier(self) -> QuotaServiceTier {
-        self.service_tier
-    }
-
-    #[must_use]
-    pub fn estimate(self, usage: TokenUsage) -> Option<RequestQuotaCost> {
-        let input = usage.input_tokens()?;
-        let output = usage.output_tokens()?;
-        let cached = usage.cache_read_tokens().unwrap_or_default().min(input);
-        let uncached = input.saturating_sub(cached);
-        let numerator = u128::from(uncached)
-            .checked_mul(u128::from(self.input_nanos_per_million))?
-            .checked_add(
-                u128::from(cached).checked_mul(u128::from(self.cached_input_nanos_per_million))?,
-            )?
-            .checked_add(
-                u128::from(output).checked_mul(u128::from(self.output_nanos_per_million))?,
-            )?;
-        let rounded = numerator.checked_add(500_000)?.checked_div(1_000_000)?;
-        let amount_nanos = u64::try_from(rounded).ok()?;
-        if amount_nanos > i64::MAX as u64 {
-            return None;
-        }
-        RequestQuotaCost::new(self.unit, amount_nanos, self.rate_card, self.service_tier)
     }
 }
 

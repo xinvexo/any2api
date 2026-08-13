@@ -24,6 +24,7 @@ impl RequestRecorderInner {
             let token_usage = observation.token_usage();
             let quota_cost = state
                 .quota_cost_rate
+                .as_ref()
                 .and_then(|rate| rate.estimate(token_usage));
             let attempts = std::mem::take(&mut state.attempts);
             let error_class = final_error_class(&attempts, error_class);

@@ -23,6 +23,7 @@ mod commit_ack;
 mod gateway_usage;
 mod oauth_login;
 mod ordering;
+mod rate_card;
 
 #[tokio::test]
 async fn settings_publish_updates_request_telemetry_policy() {

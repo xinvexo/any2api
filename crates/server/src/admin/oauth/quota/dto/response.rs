@@ -2,9 +2,9 @@
 
 use any2api_runtime::api::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
-    OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaRateLimit,
-    OAuthQuotaReachedType, OAuthQuotaResetCredits, OAuthQuotaSnapshot, OAuthQuotaTokenBalance,
-    OAuthQuotaTokenBalanceSource, OAuthQuotaWindow, OAuthQuotaWindowKind,
+    OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaRateCard,
+    OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaResetCredits, OAuthQuotaSnapshot,
+    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 use serde::Serialize;
 
@@ -22,6 +22,7 @@ pub(in crate::admin::oauth::quota) struct OAuthQuotaResponse {
     subscription_tier: Option<String>,
     account_status: Option<OAuthQuotaAccountStatusResponse>,
     estimates: Vec<OAuthQuotaEstimateResponse>,
+    rate_card: Option<OAuthQuotaRateCardResponse>,
 }
 
 impl From<OAuthQuotaSnapshot> for OAuthQuotaResponse {
@@ -37,6 +38,22 @@ impl From<OAuthQuotaSnapshot> for OAuthQuotaResponse {
             subscription_tier: snapshot.usage.subscription_tier,
             account_status: snapshot.usage.account_status.map(Into::into),
             estimates: snapshot.estimates.into_iter().map(Into::into).collect(),
+            rate_card: snapshot.rate_card.map(Into::into),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct OAuthQuotaRateCardResponse {
+    id: String,
+    credits_per_usd: u64,
+}
+
+impl From<OAuthQuotaRateCard> for OAuthQuotaRateCardResponse {
+    fn from(value: OAuthQuotaRateCard) -> Self {
+        Self {
+            id: value.id,
+            credits_per_usd: value.credits_per_usd,
         }
     }
 }

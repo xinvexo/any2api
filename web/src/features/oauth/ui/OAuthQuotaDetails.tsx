@@ -22,7 +22,7 @@ export function OAuthQuotaDetails({
   const creditExpiry = showResetCredits ? formatCreditExpiries(quota) : null;
   const isGrok = provider === "grok";
   const hardStopMessage = codexHardStopMessage(quota);
-  const credits = quota.credits ? presentCodexCredits(quota.credits) : null;
+  const credits = quota.credits ? presentCodexCredits(quota.credits, quota.rateCard) : null;
 
   return (
     <div className="mt-2 space-y-2.5">
@@ -59,6 +59,7 @@ export function OAuthQuotaDetails({
           key={window.id}
           window={window}
           estimate={estimateForWindow(quota, window)}
+          rateCard={quota.rateCard}
         />
       ))}
       {windows.length === 0 && quota.tokenBalance === null ? (
@@ -190,9 +191,11 @@ function formatUsdMinor(value: number) {
 function QuotaWindowBar({
   window,
   estimate,
+  rateCard,
 }: {
   window: OAuthQuotaWindow;
   estimate: OAuthQuotaEstimate | null;
+  rateCard: OAuthQuotaSnapshot["rateCard"];
 }) {
   const used = Math.min(100, Math.max(0, window.usedPercent));
   const remaining = Math.max(0, 100 - used);
@@ -203,7 +206,7 @@ function QuotaWindowBar({
       <div className="flex items-baseline justify-between gap-2 text-[11px]">
         <span className="min-w-0 truncate text-secondary">{label}</span>
         <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums text-secondary">
-          {estimate ? <QuotaEstimate estimate={estimate} /> : null}
+          {estimate ? <QuotaEstimate estimate={estimate} rateCard={rateCard} /> : null}
           <span className={cn("font-semibold", remainingTone(remaining))}>
             {remaining.toFixed(0)}%
           </span>

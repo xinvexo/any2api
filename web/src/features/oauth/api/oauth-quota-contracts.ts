@@ -57,6 +57,11 @@ export interface OAuthQuotaTokenBalance {
   windowSeconds: number | null;
 }
 
+export interface OAuthQuotaRateCard {
+  id: string;
+  creditsPerUsd: number;
+}
+
 interface OAuthQuotaExhaustion {
   observedAt: number;
   used: number | null;
@@ -81,6 +86,7 @@ export interface OAuthQuotaSnapshot {
   subscriptionTier: string | null;
   accountStatus: OAuthQuotaAccountStatus | null;
   estimates: OAuthQuotaEstimate[];
+  rateCard: OAuthQuotaRateCard | null;
 }
 
 export interface OAuthQuotaResetResult {
@@ -100,6 +106,16 @@ export function parseOAuthQuotaSnapshot(value: unknown): OAuthQuotaSnapshot {
     subscriptionTier: readNullableString(value.subscription_tier),
     accountStatus: parseAccountStatus(value.account_status),
     estimates: parseOAuthQuotaEstimates(value.estimates),
+    rateCard: parseRateCard(value.rate_card),
+  };
+}
+
+function parseRateCard(value: unknown): OAuthQuotaRateCard | null {
+  if (value === null) return null;
+  if (!isRecord(value)) throw invalidResponse();
+  return {
+    id: readString(value.id),
+    creditsPerUsd: readInteger(value.credits_per_usd, 1),
   };
 }
 

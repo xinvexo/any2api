@@ -29,6 +29,6 @@ pub(crate) use activity::{OAuthQuotaActivity, OAuthQuotaActivityGuard};
 pub(in crate::oauth) use coordinator::OAuthQuotaService;
 pub use types::{
     OAuthQuotaError, OAuthQuotaEstimate, OAuthQuotaEstimateConfidence,
-    OAuthQuotaIntervalDiagnostic, OAuthQuotaIntervalStatus, OAuthQuotaResetOutcome,
-    OAuthQuotaSnapshot,
+    OAuthQuotaIntervalDiagnostic, OAuthQuotaIntervalStatus, OAuthQuotaRateCard,
+    OAuthQuotaResetOutcome, OAuthQuotaSnapshot,
 };

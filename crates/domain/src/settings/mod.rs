@@ -1,5 +1,6 @@
 mod admin_settings;
 mod affinity_settings;
+mod codex_rate_card;
 mod configuration;
 mod definition;
 mod definitions;
@@ -18,6 +19,10 @@ mod value;
 
 pub use admin_settings::AdminSettings;
 pub use affinity_settings::AffinitySettings;
+pub use codex_rate_card::{
+    CodexQuotaModelRates, CodexQuotaRateCard, CodexQuotaTierRate, MAX_CODEX_CREDITS_PER_USD,
+    MAX_CODEX_RATE_CARD_MODELS, MAX_CODEX_RATE_NANOS_PER_MILLION,
+};
 pub use configuration::{SettingOverrides, SettingsConfiguration};
 pub use definition::{SettingApplyMode, SettingDefinition, SettingValueType};
 pub use key::SettingKey;

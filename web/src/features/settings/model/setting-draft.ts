@@ -1,4 +1,8 @@
-import type { SettingItem, SettingValue } from "../api/settings-contracts";
+import {
+  parseCodexRateCardValue,
+  type SettingItem,
+  type SettingValue,
+} from "../api/settings-contracts";
 
 export interface ModelAccessDraft {
   mode: "all" | "only";
@@ -34,6 +38,12 @@ export function createSettingDraftFromValue(
       return value.join("\n");
     }
     throw new Error("invalid string list setting");
+  }
+  if (item.valueType === "codex_rate_card") {
+    if (typeof value === "object" && value !== null) {
+      return JSON.stringify(value, null, 2);
+    }
+    throw new Error("invalid Codex rate card setting");
   }
   if (typeof value === "number") {
     return String(value);
@@ -72,6 +82,22 @@ export function validateSettingDraft(
         .filter(Boolean),
     )].sort();
     return { value: values, error: null };
+  }
+  if (item.valueType === "codex_rate_card") {
+    if (typeof draft !== "string") return invalid("费率卡格式不正确");
+    try {
+      const value = parseCodexRateCardValue(JSON.parse(draft) as unknown);
+      const effective = parseCodexRateCardValue(item.effectiveValue);
+      if (
+        value.id === effective.id
+        && !settingValuesEqual(value, effective)
+      ) {
+        return invalid("修改费率或汇率时必须更换卡片 ID");
+      }
+      return { value, error: null };
+    } catch {
+      return invalid("请输入有效的 JSON 费率卡");
+    }
   }
   if (item.valueType === "boolean") {
     return typeof draft === "boolean"
@@ -115,12 +141,29 @@ export function isSettingDraftDirty(item: SettingItem, draft: SettingDraft) {
   return !settingValuesEqual(validation.value, item.effectiveValue);
 }
 
-function settingValuesEqual(left: SettingValue, right: SettingValue) {
+function settingValuesEqual(left: SettingValue, right: SettingValue): boolean {
   if (Array.isArray(left) || Array.isArray(right)) {
     return Array.isArray(left)
       && Array.isArray(right)
       && left.length === right.length
-      && left.every((value, index) => value === right[index]);
+      && left.every((value, index) => settingValuesEqual(value, right[index]));
+  }
+  if (
+    (typeof left === "object" && left !== null)
+    || (typeof right === "object" && right !== null)
+  ) {
+    if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
+      return false;
+    }
+    const leftRecord = left as unknown as Record<string, SettingValue>;
+    const rightRecord = right as unknown as Record<string, SettingValue>;
+    const leftKeys = Object.keys(leftRecord).sort();
+    const rightKeys = Object.keys(rightRecord).sort();
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key, index) =>
+        key === rightKeys[index]
+        && settingValuesEqual(leftRecord[key], rightRecord[key])
+      );
   }
   return left === right;
 }

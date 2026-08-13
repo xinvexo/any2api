@@ -4,9 +4,31 @@ type SettingValueType =
   | "duration_secs"
   | "enum"
   | "model_access"
-  | "string_list";
+  | "string_list"
+  | "codex_rate_card";
 type SettingApplyMode = "hot_reload" | "restart_required";
-export type SettingValue = boolean | number | string | string[];
+export type SettingValue = boolean | number | string | string[] | CodexRateCardValue;
+
+export interface CodexRateCardValue {
+  id: string;
+  credits_per_usd: number;
+  models: Record<string, {
+    standard: CodexRateTierValue;
+    fast?: CodexRateTierValue | null;
+  }>;
+}
+
+interface CodexRateTierValue {
+  input_nanos_per_million: number;
+  cached_input_nanos_per_million: number;
+  output_nanos_per_million: number;
+}
+
+const MAX_CODEX_RATE_CARD_ID_CHARS = 128;
+const MAX_CODEX_RATE_CARD_MODELS = 256;
+const MAX_CODEX_MODEL_NAME_CHARS = 255;
+const MAX_CODEX_CREDITS_PER_USD = 1_000_000;
+const MAX_CODEX_RATE_NANOS_PER_MILLION = 9_000_000_000_000_000;
 
 export interface SettingItem {
   key: string;
@@ -134,6 +156,9 @@ function readSettingValue(
   allowedValues: string[] | null,
   options: string[] | null,
 ): SettingValue {
+  if (valueType === "codex_rate_card") {
+    return parseCodexRateCardValue(value);
+  }
   if (valueType === "boolean") {
     return readBoolean(value);
   }
@@ -168,6 +193,83 @@ function readSettingValue(
     return values;
   }
   return readSafeNonNegativeInteger(value);
+}
+
+export function parseCodexRateCardValue(value: unknown): CodexRateCardValue {
+  if (!isRecord(value)
+    || Array.isArray(value)
+    || !isRecord(value.models)
+    || Array.isArray(value.models)
+    || !hasOnlyKeys(value, ["id", "credits_per_usd", "models"])
+  ) {
+    throw invalidResponse();
+  }
+  const id = readBoundedIdentifier(value.id, MAX_CODEX_RATE_CARD_ID_CHARS);
+  const creditsPerUsd = readSafePositiveInteger(value.credits_per_usd);
+  if (creditsPerUsd > MAX_CODEX_CREDITS_PER_USD) throw invalidResponse();
+  const entries = Object.entries(value.models);
+  if (entries.length === 0 || entries.length > MAX_CODEX_RATE_CARD_MODELS) {
+    throw invalidResponse();
+  }
+  const models: CodexRateCardValue["models"] = {};
+  for (const [model, raw] of entries) {
+    if (!isRecord(raw)
+      || !hasOnlyKeys(raw, ["standard", "fast"], ["standard"])
+      || !validBoundedIdentifier(model, MAX_CODEX_MODEL_NAME_CHARS)
+    ) {
+      throw invalidResponse();
+    }
+    models[model] = {
+      standard: readCodexRateTier(raw.standard),
+      fast: raw.fast === null || raw.fast === undefined ? raw.fast : readCodexRateTier(raw.fast),
+    };
+  }
+  return { id, credits_per_usd: creditsPerUsd, models };
+}
+
+function readCodexRateTier(value: unknown): CodexRateTierValue {
+  if (!isRecord(value) || !hasOnlyKeys(value, [
+    "input_nanos_per_million",
+    "cached_input_nanos_per_million",
+    "output_nanos_per_million",
+  ])) {
+    throw invalidResponse();
+  }
+  const tier = {
+    input_nanos_per_million: readSafePositiveInteger(value.input_nanos_per_million),
+    cached_input_nanos_per_million: readSafeNonNegativeInteger(value.cached_input_nanos_per_million),
+    output_nanos_per_million: readSafePositiveInteger(value.output_nanos_per_million),
+  };
+  if (tier.cached_input_nanos_per_million > tier.input_nanos_per_million
+    || Object.values(tier).some((rate) => rate > MAX_CODEX_RATE_NANOS_PER_MILLION)
+  ) {
+    throw invalidResponse();
+  }
+  return tier;
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  allowed: string[],
+  required: string[] = allowed,
+) {
+  const keys = Object.keys(value);
+  return required.every((key) => keys.includes(key))
+    && keys.every((key) => allowed.includes(key));
+}
+
+function readBoundedIdentifier(value: unknown, maximumCharacters: number) {
+  if (typeof value !== "string" || !validBoundedIdentifier(value, maximumCharacters)) {
+    throw invalidResponse();
+  }
+  return value;
+}
+
+function validBoundedIdentifier(value: string, maximumCharacters: number) {
+  return value.length > 0
+    && value.trim() === value
+    && [...value].length <= maximumCharacters
+    && !/\p{Cc}/u.test(value);
 }
 
 function validateRange(value: SettingValue | null, minValue: number | null, maxValue: number | null) {
@@ -231,6 +333,7 @@ function readValueType(value: unknown): SettingValueType {
     && value !== "enum"
     && value !== "model_access"
     && value !== "string_list"
+    && value !== "codex_rate_card"
   ) {
     throw invalidResponse();
   }
@@ -244,14 +347,30 @@ function readApplyMode(value: unknown): SettingApplyMode {
   return value;
 }
 
-function settingValuesEqual(left: SettingValue, right: SettingValue) {
+function settingValuesEqual(left: SettingValue, right: SettingValue): boolean {
   if (Array.isArray(left) || Array.isArray(right)) {
     return Array.isArray(left)
       && Array.isArray(right)
       && left.length === right.length
-      && left.every((value, index) => value === right[index]);
+      && left.every((value, index) => settingValuesEqual(value, right[index]));
+  }
+  if (isRecord(left) || isRecord(right)) {
+    if (!isRecord(left) || !isRecord(right)) return false;
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key, index) =>
+        key === rightKeys[index]
+        && settingValuesEqual(left[key] as SettingValue, right[key] as SettingValue)
+      );
   }
   return left === right;
+}
+
+function readSafePositiveInteger(value: unknown) {
+  const number = readSafeNonNegativeInteger(value);
+  if (number === 0) throw invalidResponse();
+  return number;
 }
 
 function invalidResponse() {

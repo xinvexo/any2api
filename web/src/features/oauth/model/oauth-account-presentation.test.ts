@@ -68,5 +68,9 @@ function quota(
     subscriptionTier: null,
     accountStatus: null,
     estimates: [],
+    rateCard: {
+      id: "openai_codex_credits_2026_08_11",
+      creditsPerUsd: 25,
+    },
   };
 }

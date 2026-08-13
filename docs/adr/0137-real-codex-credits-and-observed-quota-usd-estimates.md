@@ -4,8 +4,9 @@
 - 日期：2026-08-11
 - 决策者：maintainer
 - 修订：ADR-0034、ADR-0070、ADR-0111
-- 后续修订：ADR-0138 已替代本文的累计窗口 estimator、reset boundary 与 USD 持久化模型；Credits
-  上游字段、路由健康语义和 UI 美元等值决策仍有效。
+- 后续修订：ADR-0138 已替代本文的累计窗口 estimator、reset boundary 与 USD 持久化模型；ADR-0145
+  已把固定 Credits/USD 比例与 Provider 内模型费率改为 PublishedSnapshot 中的可配置版本化费率卡。
+  Credits 上游字段、路由健康语义和“只展示美元等值”的边界仍有效。
 
 ## 背景
 

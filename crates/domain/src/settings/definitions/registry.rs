@@ -26,9 +26,9 @@ pub(in crate::settings) fn definition(key: SettingKey) -> SettingDefinition {
         | SettingKey::LogsFileMaxTotalSize
         | SettingKey::LogsTelemetryQueueCapacity
         | SettingKey::LogsTelemetryQueueMaxBytes => logging::definition(key),
-        SettingKey::OAuthRefreshScanInterval | SettingKey::OAuthRefreshLeadTime => {
-            oauth::definition(key)
-        }
+        SettingKey::OAuthRefreshScanInterval
+        | SettingKey::OAuthRefreshLeadTime
+        | SettingKey::OAuthCodexRateCard => oauth::definition(key),
         SettingKey::UpstreamReadTimeout | SettingKey::UpstreamStrictSsrf => {
             upstream::definition(key)
         }

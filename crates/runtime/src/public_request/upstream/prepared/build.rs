@@ -1,12 +1,15 @@
 use std::{io::Write, time::Duration};
 
-use any2api_domain::{ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode};
+use any2api_domain::{
+    ProtocolDialect, ProtocolOperation, PublicError, PublicErrorCode, QuotaCostUnit,
+    RequestQuotaCostRate,
+};
 use any2api_payload_buffer::PayloadBuffer;
 use any2api_protocol::api::{
     DecodedRequest, ProtocolContinuationState, ProtocolError, ProtocolExchange, ProtocolRegistry,
 };
 use any2api_provider::api::{
-    OAuthQuotaCostRate, ProviderDriver, ProviderError, ProviderRegistry, ProviderRequestContext,
+    ProviderDriver, ProviderError, ProviderRegistry, ProviderRequestContext,
 };
 use any2api_transport::api::{
     EndpointNetworkPolicy, TransportProxy, TransportRequest, TransportTrafficClass,
@@ -32,7 +35,7 @@ struct BuiltRequest<'a> {
     upstream_operation: ProtocolOperation,
     exchange: ProtocolExchange,
     request: TransportRequest,
-    quota_cost_rate: Option<OAuthQuotaCostRate>,
+    quota_cost_rate: Option<RequestQuotaCostRate>,
 }
 
 pub(super) struct AttemptHeaderPolicy {
@@ -176,7 +179,14 @@ fn build_request<'a>(
         .map_err(provider_request_error)?;
     let quota_cost_rate = driver
         .oauth_quota_service_tier(request_context, &encoded.body)
-        .and_then(|tier| driver.oauth_quota_cost_rate(&candidate.upstream_model, tier));
+        .filter(|_| driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
+        .and_then(|tier| {
+            snapshot
+                .settings()
+                .oauth()
+                .codex_rate_card()
+                .cost_rate(&candidate.upstream_model, tier)
+        });
     let mut headers = driver
         .prepare_request_headers(request_context)
         .map_err(|_| internal_error())?;

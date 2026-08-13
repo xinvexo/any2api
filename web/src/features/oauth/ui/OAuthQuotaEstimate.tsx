@@ -1,6 +1,9 @@
 import { useId, useState, type FocusEvent, type MouseEvent } from "react";
 
-import type { OAuthQuotaEstimate as Estimate } from "../api/oauth-quota-contracts";
+import type {
+  OAuthQuotaEstimate as Estimate,
+  OAuthQuotaRateCard,
+} from "../api/oauth-quota-contracts";
 import { cn } from "@/shared/lib/cn";
 import {
   FloatingPopover,
@@ -9,14 +12,18 @@ import {
   type FloatingPopoverAnchor,
 } from "@/shared/ui/FloatingPopover";
 
-const CODEX_CREDITS_PER_USD_2026_08_11 = 25;
-
 interface HoverState {
   anchor: FloatingPopoverAnchor;
   bounds: DOMRect;
 }
 
-export function QuotaEstimate({ estimate }: { estimate: Estimate }) {
+export function QuotaEstimate({
+  estimate,
+  rateCard,
+}: {
+  estimate: Estimate;
+  rateCard: OAuthQuotaRateCard | null;
+}) {
   const tooltipId = useId();
   const [hover, setHover] = useState<HoverState | null>(null);
   const used = estimate.estimatedUsedCredits;
@@ -62,21 +69,21 @@ export function QuotaEstimate({ estimate }: { estimate: Estimate }) {
           bounds={hover?.bounds ?? null}
           id={tooltipId}
         >
-          <QuotaTooltip estimate={estimate} />
+          <QuotaTooltip estimate={estimate} rateCard={rateCard} />
         </FloatingPopover>
       </>
     );
   }
 
-  const usedUsd = formatEstimatedUsd(creditsToUsd(used));
-  const capacityUsd = formatEstimatedUsd(creditsToUsd(capacity));
+  const usedUsd = formatEstimateValue(used, rateCard);
+  const capacityUsd = formatEstimateValue(capacity, rateCard);
   const prefix = isApproximate(estimate.confidence) ? "≈" : "";
   return (
     <>
       <span
         {...triggerProps}
         className="focus-ring shrink-0 cursor-help rounded-[3px] border-b border-dotted border-current text-tertiary outline-none"
-        aria-label={`本地额度估算：已用 ${usedUsd}，总量 ${capacityUsd}，${confidenceLabel(estimate.confidence)}`}
+        aria-label={`本地额度估算：已用 ${usedUsd}，总量 ${capacityUsd}，证据状态 ${confidenceLabel(estimate.confidence)}`}
       >
         {prefix}{usedUsd}/{capacityUsd}
       </span>
@@ -86,13 +93,19 @@ export function QuotaEstimate({ estimate }: { estimate: Estimate }) {
         bounds={hover?.bounds ?? null}
         id={tooltipId}
       >
-        <QuotaTooltip estimate={estimate} />
+        <QuotaTooltip estimate={estimate} rateCard={rateCard} />
       </FloatingPopover>
     </>
   );
 }
 
-function QuotaTooltip({ estimate }: { estimate: Estimate }) {
+function QuotaTooltip({
+  estimate,
+  rateCard,
+}: {
+  estimate: Estimate;
+  rateCard: OAuthQuotaRateCard | null;
+}) {
   const interval = estimate.latestInterval;
   const capacity = estimate.estimatedCapacityCredits;
   const used = estimate.estimatedUsedCredits;
@@ -118,7 +131,7 @@ function QuotaTooltip({ estimate }: { estimate: Estimate }) {
             confidenceTone(estimate.confidence),
           )}
         >
-          置信度 {confidenceLabel(estimate.confidence)}
+          证据状态 {confidenceLabel(estimate.confidence)}
         </span>
       </div>
 
@@ -131,21 +144,25 @@ function QuotaTooltip({ estimate }: { estimate: Estimate }) {
           <p className="mt-1 flex items-baseline justify-between gap-3 tabular-nums">
             <span className="text-[13px] font-semibold tracking-tight text-primary">
               {isApproximate(estimate.confidence) ? "≈" : ""}
-              {formatEstimatedUsd(creditsToUsd(used))}/{formatEstimatedUsd(creditsToUsd(capacity))}
+              {formatEstimateValue(used, rateCard)}/{formatEstimateValue(capacity, rateCard)}
             </span>
-            <span className="shrink-0 text-[10px] text-tertiary">USD 等值</span>
+            <span className="shrink-0 text-[10px] text-tertiary">{rateCard ? "USD 等值" : "Credits"}</span>
           </p>
           <p className="mt-0.5 tabular-nums text-secondary">
-            已用 {formatEstimatedUsd(creditsToUsd(used))} · 剩余 {formatEstimatedUsd(creditsToUsd(remaining))} · 总量 {formatEstimatedUsd(creditsToUsd(capacity))}
+            已用 {formatEstimateValue(used, rateCard)} · 剩余 {formatEstimateValue(remaining, rateCard)} · 总量 {formatEstimateValue(capacity, rateCard)}
           </p>
           <p className="text-[10px] tabular-nums text-tertiary">
-            Credits {formatCredits(used)} / {formatCredits(capacity)} · 25 Credits = $1（仅展示换算）
+            Credits {formatCredits(used)} / {formatCredits(capacity)}{rateCard ? ` · ${rateCard.creditsPerUsd} Credits = $1（仅展示换算）` : ""}
           </p>
           <p className="text-[10px] tabular-nums text-tertiary">
             容量样本 {estimate.sampleCount} · 本窗口期 {estimate.freshSampleCount}
           </p>
         </>
       )}
+
+      <p className="mt-1 text-[10px] text-tertiary">
+        {evidenceExplanation(estimate)}
+      </p>
 
       <div className="mt-1.5 space-y-0.5 border-t border-subtle/60 pt-1.5 text-[10px] text-secondary">
         <p>
@@ -189,10 +206,10 @@ function isApproximate(value: Estimate["confidence"]) {
 
 function confidenceLabel(value: Estimate["confidence"]) {
   switch (value) {
-    case "unknown": return "未知";
+    case "unknown": return "无样本";
     case "learning": return "学习中";
     case "stable": return "稳定";
-    case "degraded": return "已降级";
+    case "degraded": return "不完整";
   }
 }
 
@@ -225,8 +242,34 @@ function intervalStatusTone(value: Estimate["latestInterval"]["status"]) {
   }
 }
 
-function creditsToUsd(credits: number) {
-  return credits / CODEX_CREDITS_PER_USD_2026_08_11;
+function creditsToUsd(credits: number, creditsPerUsd: number) {
+  return credits / creditsPerUsd;
+}
+
+function formatEstimateValue(value: number, rateCard: OAuthQuotaRateCard | null) {
+  return rateCard
+    ? formatEstimatedUsd(creditsToUsd(value, rateCard.creditsPerUsd))
+    : `${formatCredits(value)} Credits`;
+}
+
+function evidenceExplanation(estimate: Estimate) {
+  switch (estimate.confidence) {
+    case "unknown":
+      return "尚无容量样本；这是证据状态，不是概率。";
+    case "learning":
+      if (estimate.sampleCount < 3) {
+        return `已有 ${estimate.sampleCount} 个容量样本，至少 3 个才标记稳定；不是概率。`;
+      }
+      return `样本一致性仍不足${formatSampleDifference(estimate.relativeMad)}；样本差异不高于 20% 才标记稳定。`;
+    case "stable":
+      return `${estimate.sampleCount} 个样本且一致性达标${formatSampleDifference(estimate.relativeMad)}；这是证据状态，不是概率。`;
+    case "degraded":
+      return "最近区间存在未计价、无效观测或遥测缺口；现有估算仅供参考。";
+  }
+}
+
+function formatSampleDifference(value: number | null) {
+  return value === null ? "" : `（样本差异 ${formatPercent(value * 100)}）`;
 }
 
 function formatEstimatedUsd(value: number) {

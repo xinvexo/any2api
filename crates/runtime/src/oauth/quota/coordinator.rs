@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use any2api_domain::{OAuthAccountId, RoutingCredentialId};
+use any2api_domain::{OAuthAccountId, QuotaCostUnit, RoutingCredentialId};
 use any2api_provider::api::{
     OAuthQuotaExhaustion, OAuthQuotaResetResult, OAuthQuotaTokenBalance,
     OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, ProviderRegistry,
@@ -27,7 +27,7 @@ use super::{
     operation_gate::{OAuthQuotaCompletedOperation, OAuthQuotaOperationGates},
     persistence::OAuthQuotaPersistence,
     rejection::RequestContext,
-    types::{OAuthQuotaError, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
+    types::{OAuthQuotaError, OAuthQuotaRateCard, OAuthQuotaResetOutcome, OAuthQuotaSnapshot},
 };
 
 pub(super) struct QueriedQuota {
@@ -83,15 +83,17 @@ impl OAuthQuotaService {
         &self,
         id: OAuthAccountId,
     ) -> Result<Option<OAuthQuotaSnapshot>, OAuthQuotaError> {
-        if self
-            .publisher
-            .current_snapshot()
+        let published = self.publisher.current_snapshot();
+        let account = published
             .oauth_accounts()
             .get(id)
-            .is_none()
-        {
-            return Err(OAuthQuotaError::AccountNotFound);
-        }
+            .ok_or(OAuthQuotaError::AccountNotFound)?;
+        let driver = self
+            .providers
+            .get(account.provider_kind())
+            .ok_or(OAuthQuotaError::ProviderUnavailable)?;
+        let rate_card = (driver.oauth_quota_cost_unit() == Some(QuotaCostUnit::CodexCredits))
+            .then(|| current_rate_card(&published));
         Ok(self
             .persistence
             .load(id)
@@ -102,6 +104,7 @@ impl OAuthQuotaService {
                     stored.estimator_state.as_ref(),
                 ),
                 usage: stored.usage,
+                rate_card: rate_card.clone(),
                 fetched_at: stored.fetched_at,
             }))
     }
@@ -390,6 +393,14 @@ impl OAuthQuotaService {
         {
             binding.generation().health().clear_temporary_cooldowns();
         }
+    }
+}
+
+pub(super) fn current_rate_card(snapshot: &PublishedSnapshot) -> OAuthQuotaRateCard {
+    let card = snapshot.settings().oauth().codex_rate_card();
+    OAuthQuotaRateCard {
+        id: card.id().to_owned(),
+        credits_per_usd: card.credits_per_usd(),
     }
 }
 

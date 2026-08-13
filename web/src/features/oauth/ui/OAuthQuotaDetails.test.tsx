@@ -15,7 +15,7 @@ test("shows real Credits in dollars and the estimate beside its percentage", () 
 
   expect(screen.getByText("$9.9371")).toHaveAttribute(
     "title",
-    "248.4272780000 Credits · 25 Credits = $1",
+    "248.4272780000 Credits · 25 Credits = $1 · openai_codex_credits_2026_08_11",
   );
   const estimate = screen.getByText("$0.38/$1.00");
   expect(estimate.parentElement).toContainElement(screen.getByText("63%"));
@@ -46,6 +46,10 @@ const quota: OAuthQuotaSnapshot = {
   tokenBalance: null,
   subscriptionTier: null,
   accountStatus: null,
+  rateCard: {
+    id: "openai_codex_credits_2026_08_11",
+    creditsPerUsd: 25,
+  },
   estimates: [{
     windowId: "primary",
     windowKind: "time",

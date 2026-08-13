@@ -39,6 +39,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
       "熔断探测",
       "上游网络",
       "OAuth 刷新",
+      "Codex 额度估算",
       "流式预提交",
       "流式响应",
       "优雅停机",

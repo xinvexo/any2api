@@ -4,7 +4,7 @@ use ipnet::IpNet;
 use serde_json::{Value, json};
 use thiserror::Error;
 
-use super::{SettingKey, SettingValueType};
+use super::{CodexQuotaRateCard, SettingKey, SettingValueType};
 use crate::PublicModelName;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,6 +77,7 @@ pub enum SettingValue {
     FileLogLevel(FileLogLevel),
     ModelAccess(ModelAccess),
     StringList(Vec<String>),
+    CodexRateCard(CodexQuotaRateCard),
 }
 
 impl SettingValue {
@@ -104,6 +105,9 @@ impl SettingValue {
             }
             SettingValueType::ModelAccess => parse_model_access(value).map(Self::ModelAccess),
             SettingValueType::StringList => parse_string_list(value).map(Self::StringList),
+            SettingValueType::CodexRateCard => {
+                CodexQuotaRateCard::from_json(value).map(Self::CodexRateCard)
+            }
         }?;
         normalize_value(key, parsed)
     }
@@ -118,6 +122,7 @@ impl SettingValue {
             Self::ModelAccess(ModelAccess::All) => json!("all"),
             Self::ModelAccess(ModelAccess::Allowlist(value)) => json!(value),
             Self::StringList(value) => json!(value),
+            Self::CodexRateCard(value) => value.to_json(),
         }
     }
 
@@ -129,6 +134,7 @@ impl SettingValue {
             Self::RateLimitMode(_) | Self::FileLogLevel(_) => SettingValueType::Enum,
             Self::ModelAccess(_) => SettingValueType::ModelAccess,
             Self::StringList(_) => SettingValueType::StringList,
+            Self::CodexRateCard(_) => SettingValueType::CodexRateCard,
         }
     }
 
@@ -191,6 +197,10 @@ pub(super) fn normalize_value(
         }
         (SettingKey::NetworkTrustedProxyCidrs, SettingValue::StringList(values)) => {
             SettingValue::StringList(normalize_trusted_proxy_cidrs(values)?)
+        }
+        (SettingKey::OAuthCodexRateCard, SettingValue::CodexRateCard(value)) => {
+            value.validate()?;
+            SettingValue::CodexRateCard(value)
         }
         (_, value) => value,
     };

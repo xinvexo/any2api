@@ -24,11 +24,10 @@ pub use crate::oauth::{
 };
 pub use crate::oauth::{
     OAuthQuotaAccessStatus, OAuthQuotaAccountStatus, OAuthQuotaAuthenticationStatus,
-    OAuthQuotaBilling, OAuthQuotaCostRate, OAuthQuotaCredits, OAuthQuotaExhaustion,
-    OAuthQuotaQueryPlan, OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaRejection,
-    OAuthQuotaResetCredit, OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement,
-    OAuthQuotaTokenBalance, OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow,
-    OAuthQuotaWindowKind,
+    OAuthQuotaBilling, OAuthQuotaCredits, OAuthQuotaExhaustion, OAuthQuotaQueryPlan,
+    OAuthQuotaRateLimit, OAuthQuotaReachedType, OAuthQuotaRejection, OAuthQuotaResetCredit,
+    OAuthQuotaResetCredits, OAuthQuotaResetResult, OAuthQuotaSupplement, OAuthQuotaTokenBalance,
+    OAuthQuotaTokenBalanceSource, OAuthQuotaUsage, OAuthQuotaWindow, OAuthQuotaWindowKind,
 };
 pub use crate::registry::ProviderRegistry;
 
@@ -250,14 +249,6 @@ pub trait ProviderDriver: Send + Sync {
         _token: &OAuthTokenMaterial,
     ) -> Result<Option<OAuthQuotaQueryPlan>, ProviderError> {
         Ok(None)
-    }
-
-    fn oauth_quota_cost_rate(
-        &self,
-        _model: &str,
-        _service_tier: QuotaServiceTier,
-    ) -> Option<OAuthQuotaCostRate> {
-        None
     }
 
     fn oauth_quota_cost_unit(&self) -> Option<QuotaCostUnit> {

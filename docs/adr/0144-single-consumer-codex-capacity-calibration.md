@@ -100,7 +100,7 @@ sequence fence(ADR-0141 §1)原样保留:同进程 `(anchor.sequence, current.se
 
 Snapshot payload 升 v8(Migration 0028 按 0027 先例重建表,保留最后成功 usage,清空旧 estimator
 state)。管理 DTO 与 Web:状态/置信度枚举收窄,区间诊断的 `pruned_request_logs` 计数改为
-`interval_pruned` 布尔。Credits 仍为规范单位,UI 按 25 Credits = $1 换算展示。
+`interval_pruned` 布尔。Credits 仍为规范单位；美元等值换算后续由 ADR-0145 改为读取当前可配置费率卡。
 
 ## 数学依据
 

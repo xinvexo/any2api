@@ -242,6 +242,7 @@ test("shows only a real Grok exhaustion observation with its actual limit", asyn
           limit: 1_000_000,
         },
       },
+      rate_card: null,
       estimates: [],
     })),
   );
@@ -353,6 +354,10 @@ function quota(availableCount: number) {
     token_balance: null,
     subscription_tier: null,
     account_status: null,
+    rate_card: {
+      id: "openai_codex_credits_2026_08_11",
+      credits_per_usd: 25,
+    },
     estimates: [],
   };
 }

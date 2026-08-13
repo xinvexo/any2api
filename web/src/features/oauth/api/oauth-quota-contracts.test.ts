@@ -47,6 +47,10 @@ describe("OAuth quota contracts", () => {
         token_balance: null,
         subscription_tier: null,
         account_status: null,
+        rate_card: {
+          id: "openai_codex_credits_2026_08_11",
+          credits_per_usd: 25,
+        },
         estimates: [{
           window_id: "primary",
           window_kind: "time",
@@ -106,6 +110,10 @@ describe("OAuth quota contracts", () => {
       tokenBalance: null,
       subscriptionTier: null,
       accountStatus: null,
+      rateCard: {
+        id: "openai_codex_credits_2026_08_11",
+        creditsPerUsd: 25,
+      },
       estimates: [{
         windowId: "primary",
         windowKind: "time",
@@ -168,6 +176,7 @@ describe("OAuth quota contracts", () => {
           limit: 1_000_000,
         },
       },
+      rate_card: null,
       estimates: [],
     });
 
@@ -220,6 +229,7 @@ describe("OAuth quota contracts", () => {
       token_balance: null,
       subscription_tier: null,
       account_status: null,
+      rate_card: null,
       estimates: [],
     });
 
@@ -253,6 +263,7 @@ describe("OAuth quota contracts", () => {
       token_balance: null,
       subscription_tier: null,
       account_status: null,
+      rate_card: null,
       estimates: [],
     });
 
@@ -278,6 +289,7 @@ describe("OAuth quota contracts", () => {
         token_balance: null,
         subscription_tier: null,
         account_status: null,
+        rate_card: null,
         estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
@@ -298,6 +310,7 @@ describe("OAuth quota contracts", () => {
         },
         subscription_tier: null,
         account_status: null,
+        rate_card: null,
         estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
@@ -312,6 +325,7 @@ describe("OAuth quota contracts", () => {
         token_balance: null,
         subscription_tier: null,
         account_status: null,
+        rate_card: null,
         estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
@@ -332,6 +346,7 @@ describe("OAuth quota contracts", () => {
         token_balance: null,
         subscription_tier: null,
         account_status: null,
+        rate_card: null,
         estimates: [],
       }),
     ).toThrow("invalid OAuth quota response");
@@ -343,6 +358,7 @@ describe("OAuth quota contracts", () => {
       "token_balance",
       "subscription_tier",
       "account_status",
+      "rate_card",
     ]) {
       const payload = currentNullableSnapshot();
       delete payload[field];
@@ -380,6 +396,7 @@ function currentNullableSnapshot(): Record<string, unknown> {
     token_balance: null,
     subscription_tier: null,
     account_status: null,
+    rate_card: null,
     estimates: [],
   };
 }

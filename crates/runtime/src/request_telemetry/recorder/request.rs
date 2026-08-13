@@ -7,10 +7,9 @@ use std::{
 use any2api_domain::{
     ConfigRevision, CredentialId, ErrorClass, GatewayApiKeyId, OAuthAccountId, ProtocolOperation,
     ProviderEndpointId, ProxyProfileId, PublicErrorCode, RequestAttempt,
-    RequestAttemptFailureScope, RequestAttemptRetryDecision, RequestId, TokenUsage,
-    bound_error_message,
+    RequestAttemptFailureScope, RequestAttemptRetryDecision, RequestId, RequestQuotaCostRate,
+    TokenUsage, bound_error_message,
 };
-use any2api_provider::api::OAuthQuotaCostRate;
 
 use super::super::{RequestLogPolicy, RequestObservation, RequestTelemetry};
 use super::attempt::AttemptRecorder;
@@ -44,7 +43,7 @@ pub(super) struct RequestRecorderState {
     pub(super) final_target: Option<FinalTarget>,
     pub(super) attempts: Vec<RequestAttempt>,
     pub(super) observation: RequestObservation,
-    pub(super) quota_cost_rate: Option<OAuthQuotaCostRate>,
+    pub(super) quota_cost_rate: Option<RequestQuotaCostRate>,
     pub(super) finished: bool,
 }
 
@@ -185,7 +184,7 @@ impl RequestRecorder {
         }
     }
 
-    pub(super) fn observe_quota_cost_rate(&self, rate: Option<OAuthQuotaCostRate>) {
+    pub(super) fn observe_quota_cost_rate(&self, rate: Option<RequestQuotaCostRate>) {
         let Some(inner) = &self.inner else {
             return;
         };

@@ -254,6 +254,10 @@ function quota() {
     token_balance: null,
     subscription_tier: null,
     account_status: null,
+    rate_card: {
+      id: "openai_codex_credits_2026_08_11",
+      credits_per_usd: 25,
+    },
     estimates: [],
   };
 }

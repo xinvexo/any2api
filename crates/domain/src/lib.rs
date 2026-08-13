@@ -53,15 +53,16 @@ pub use routing::{
     RetrySafety, RouteTarget, RouteTargetDraft, RoutingCredentialId, UpstreamModelName,
 };
 pub use settings::{
-    AdminSettings, AffinitySettings, DEFAULT_TELEMETRY_QUEUE_MAX_BYTES, FileLogLevel,
-    LoggingSettings, MAX_FILE_LOG_RETENTION_SECS, MAX_FILE_LOG_TOTAL_SIZE,
-    MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS, MAX_REQUEST_LOG_RETENTION_SECS,
-    MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES, MAX_TELEMETRY_QUEUE_CAPACITY,
-    MAX_TELEMETRY_QUEUE_MAX_BYTES, MIN_TELEMETRY_QUEUE_MAX_BYTES, ModelAccess, ModelSettings,
-    OAuthSettings, RateLimitMode, ReliabilitySettings, SchedulerSettings, SettingApplyMode,
-    SettingDefinition, SettingKey, SettingOverrideChange, SettingOverrides, SettingValue,
-    SettingValueType, SettingsConfiguration, SettingsValidationError, ShutdownSettings,
-    StreamSettings, UpstreamSettings,
+    AdminSettings, AffinitySettings, CodexQuotaModelRates, CodexQuotaRateCard, CodexQuotaTierRate,
+    DEFAULT_TELEMETRY_QUEUE_MAX_BYTES, FileLogLevel, LoggingSettings, MAX_CODEX_CREDITS_PER_USD,
+    MAX_CODEX_RATE_CARD_MODELS, MAX_CODEX_RATE_NANOS_PER_MILLION, MAX_FILE_LOG_RETENTION_SECS,
+    MAX_FILE_LOG_TOTAL_SIZE, MAX_HTTP_ACCESS_LOG_EXCHANGE_BYTES, MAX_HTTP_ACCESS_LOG_ROWS,
+    MAX_REQUEST_LOG_RETENTION_SECS, MAX_REQUEST_LOG_ROWS, MAX_STREAM_PRECOMMIT_BYTES,
+    MAX_TELEMETRY_QUEUE_CAPACITY, MAX_TELEMETRY_QUEUE_MAX_BYTES, MIN_TELEMETRY_QUEUE_MAX_BYTES,
+    ModelAccess, ModelSettings, OAuthSettings, RateLimitMode, ReliabilitySettings,
+    SchedulerSettings, SettingApplyMode, SettingDefinition, SettingKey, SettingOverrideChange,
+    SettingOverrides, SettingValue, SettingValueType, SettingsConfiguration,
+    SettingsValidationError, ShutdownSettings, StreamSettings, UpstreamSettings,
 };
 pub use telemetry::{
     CompletedRequestLog, GATEWAY_AUTH_REJECTED_CAPACITY_DIVISOR, HttpAccessLog,
@@ -72,9 +73,9 @@ pub use telemetry::{
     MAX_TRANSPORT_WIRE_PROFILE_ID_CHARS, QuotaCostUnit, QuotaServiceTier, RequestAttempt,
     RequestAttemptFailureScope, RequestAttemptOutcome, RequestAttemptRetryDecision,
     RequestAttemptStreamTiming, RequestAttemptTransport, RequestLog, RequestQuotaCost,
-    RequestRoutingMode, RequestTelemetryPosition, RequestTransportResolverMode,
-    RequestTransportTrafficClass, TokenUsage, bound_error_message, bound_thinking_level,
-    gateway_auth_rejected_capacity,
+    RequestQuotaCostRate, RequestRoutingMode, RequestTelemetryPosition,
+    RequestTransportResolverMode, RequestTransportTrafficClass, TokenUsage, bound_error_message,
+    bound_thinking_level, gateway_auth_rejected_capacity,
 };
 pub use upstream_error::{
     MAX_RETRY_AFTER_SECONDS, MAX_UPSTREAM_ERROR_MESSAGE_BYTES, RetryAfterHint, UpstreamError,

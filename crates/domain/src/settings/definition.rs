@@ -54,6 +54,7 @@ pub enum SettingValueType {
     Enum,
     ModelAccess,
     StringList,
+    CodexRateCard,
 }
 
 impl SettingValueType {
@@ -65,6 +66,7 @@ impl SettingValueType {
             Self::Enum => "enum",
             Self::ModelAccess => "model_access",
             Self::StringList => "string_list",
+            Self::CodexRateCard => "codex_rate_card",
         }
     }
 }
