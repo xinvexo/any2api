@@ -2,7 +2,7 @@
 
 > 状态：Current<br>
 > 版本：1.0<br>
-> 最后更新：2026-08-12<br>
+> 最后更新：2026-08-14<br>
 > 用途：记录当前有效的需求、架构约束与实现边界。
 
 ## 1. 项目定位
@@ -363,13 +363,15 @@ any2api/
 │  │     └─ anthropic_messages/ # request/response/sse/error/headers
 │  ├─ provider/
 │  │  └─ src/
-│  │     ├─ api.rs              # ProviderDriver 与 CapabilitySet
+│  │     ├─ api.rs              # 稳定 Provider 端口与 CapabilitySet
+│  │     ├─ registry.rs         # ProviderDriver 静态注册表
 │  │     ├─ credential/         # Provider API Key 与 Secret 输入
 │  │     ├─ oauth/              # OAuth 通用契约、导入与路由材料
 │  │     ├─ upstream_error/     # HTTP 错误、OpenAI 错误与 Retry-After
-│  │     ├─ codex/              # driver/auth/oauth/errors/capabilities
-│  │     ├─ claude/             # driver/auth/oauth/errors/capabilities
-│  │     └─ grok/               # driver/auth/oauth/errors/capabilities
+│  │     ├─ codex/              # Driver、Headers、身份、OAuth/导入/额度与请求 Profile
+│  │     ├─ claude/             # Driver、Headers、身份、OAuth/导入/额度与错误
+│  │     ├─ grok/               # Driver、Headers、身份、OAuth/导入/额度与错误
+│  │     └─ kimi/               # API-key-only Driver、Headers 与上游错误
 │  ├─ transport/
 │  │  └─ src/
 │  │     ├─ api.rs              # 稳定 Transport 端口
@@ -494,7 +496,7 @@ e2e: Chromium 中的真实服务登录、deep link 与桌面/390px 响应式壳�
 - 对 `main.rs/lib.rs/mod.rs` 应用更低的行数阈值；“是否存在大段业务实现”保留为评审规则；
 - 检查迁移文件编号和 checksum；
 - 检查前端 feature 不能直接跨层导入其他 feature 的内部实现。
-- 检查 Runtime 生产代码只能导入 Adapter 的稳定 `api`，并固定 Provider crate 根只公开 Composition Root 所需的三个具体 Driver，禁止恢复 Adapter 类型的重复根导出。
+- 检查 Runtime 生产代码只能导入 Adapter 的稳定 `api`，并固定 Provider crate 根只公开 Composition Root 所需的四个具体 Driver，禁止恢复 Adapter 类型的重复根导出。
 
 契约测试不是按文件名猜测是否存在，而是枚举实际 Registry 中注册的每个 Provider/Protocol 实现并运行统一测试套件。
 
@@ -727,7 +729,7 @@ proxy_passwords
 provider_endpoints
 ├─ id
 ├─ name
-├─ provider_kind         # codex | claude | grok
+├─ provider_kind         # codex | claude | grok | kimi
 ├─ base_url
 ├─ protocol_dialect      # 客户端接受协议，必填
 ├─ upstream_protocol_dialect  # 内部转换协议，可空；空值表示与接受协议相同
@@ -1261,19 +1263,33 @@ provider/
 ├─ codex/
 │  ├─ mod.rs
 │  ├─ driver.rs
+│  ├─ headers.rs
+│  ├─ identity.rs
+│  ├─ claims.rs
 │  ├─ oauth.rs
-│  ├─ quota.rs
+│  ├─ import.rs
+│  ├─ quota/
+│  ├─ request/
 │  └─ tests.rs
 ├─ claude/
 │  ├─ mod.rs
 │  ├─ driver.rs
+│  ├─ headers.rs
+│  ├─ identity.rs
 │  ├─ oauth.rs
+│  ├─ import.rs
+│  ├─ quota/
 │  ├─ error.rs
 │  └─ tests.rs
 ├─ grok/
 │  ├─ mod.rs
 │  ├─ driver.rs
+│  ├─ headers.rs
+│  ├─ identity.rs
 │  ├─ oauth.rs
+│  ├─ import.rs
+│  ├─ quota/
+│  ├─ upstream_error.rs
 │  └─ tests.rs
 ├─ kimi/
 │  ├─ mod.rs
@@ -1281,7 +1297,14 @@ provider/
 │  ├─ headers.rs
 │  ├─ upstream_error.rs
 │  └─ tests.rs
-└─ <shared provider infrastructure>
+├─ api.rs
+├─ registry.rs
+├─ credential/
+├─ oauth/
+├─ upstream_error/
+├─ header_policy.rs
+├─ request_header_policy.rs
+└─ error.rs
 ```
 
 每个具体 Provider 的 Driver、OAuth、额度、错误差异和测试必须收拢在自己的 feature 目录下；`provider/src` 根目录只保留 Registry、稳定 API、共享 API Key/HTTP 错误工具等跨 Provider 基础设施。新增 Provider 不得继续增加 `provider_name_*.rs` 平铺文件，也不保留平铺模块的兼容转发层。
