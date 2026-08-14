@@ -58,38 +58,54 @@ pub struct TransportManagerConfig {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TransportRuntimeSnapshot {
-    cached_client_pools: usize,
-    client_pool_capacity: usize,
-    max_idle_per_host: usize,
+    cache_entries: usize,
+    cache_capacity: usize,
+    cache_hits: u64,
+    cache_misses: u64,
+    cache_evictions: u64,
 }
 
 impl TransportRuntimeSnapshot {
     #[must_use]
     pub const fn new(
-        cached_client_pools: usize,
-        client_pool_capacity: usize,
-        max_idle_per_host: usize,
+        cache_entries: usize,
+        cache_capacity: usize,
+        cache_hits: u64,
+        cache_misses: u64,
+        cache_evictions: u64,
     ) -> Self {
         Self {
-            cached_client_pools,
-            client_pool_capacity,
-            max_idle_per_host,
+            cache_entries,
+            cache_capacity,
+            cache_hits,
+            cache_misses,
+            cache_evictions,
         }
     }
 
     #[must_use]
-    pub const fn cached_client_pools(self) -> usize {
-        self.cached_client_pools
+    pub const fn cache_entries(self) -> usize {
+        self.cache_entries
     }
 
     #[must_use]
-    pub const fn client_pool_capacity(self) -> usize {
-        self.client_pool_capacity
+    pub const fn cache_capacity(self) -> usize {
+        self.cache_capacity
     }
 
     #[must_use]
-    pub const fn max_idle_per_host(self) -> usize {
-        self.max_idle_per_host
+    pub const fn cache_hits(self) -> u64 {
+        self.cache_hits
+    }
+
+    #[must_use]
+    pub const fn cache_misses(self) -> u64 {
+        self.cache_misses
+    }
+
+    #[must_use]
+    pub const fn cache_evictions(self) -> u64 {
+        self.cache_evictions
     }
 }
 

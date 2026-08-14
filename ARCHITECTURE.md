@@ -1209,6 +1209,8 @@ Transport 线路行为由单一 `generic-rustls-hyper-v3` profile 集中声明�
 
 Transport 在网络 I/O 前可从最终 Request、Proxy 与 Manager 配置生成结构化 `TransportRequestDiagnostics`：wire profile ID/version、timeout policy version、最终 upstream resolver mode、proxy kind、connect/read/pool idle timeout，以及不含 owner ID 的 isolation routing/authentication generation 与 traffic class。RequestAttempt 只在真正构造出 TransportRequest 后记录该快照；请求在解码、规划或 Header/Body 构建阶段失败时保持为空。该诊断不把 Client cache 命中等同于物理 TCP/H2 reuse，也不在底层没有证据时声称 TLS resumed。
 
+Transport 运行快照只报告 Manager 自身能够精确观测的 Client 缓存活动：当前条目、上限，以及本次进程生命周期内累计的命中、未命中与淘汰。缓存 Client 条目不等于当前物理 TCP/H2 连接；空闲连接超时不会删除仍可复用的 Client 条目。管理 API 和 Web 必须使用“Client 缓存”口径，禁止把条目数命名为实时连接池数量或伪造 Reqwest 未提供的活动连接数。
+
 `connect_timeout` 属于 Client/连接池代际，并在每次 `TransportManager::execute` 开始时捕获为绝对连接阶段 deadline；手工本地 DNS、Client 获取或构造、TCP、HTTP CONNECT/SOCKS5 握手与 TLS 都消耗同一个 deadline，任何子阶段都不得重置或延长它。同步 Client 构造不能被 Tokio timer 抢占，但其耗时仍计入该 deadline；构造返回后必须先检查 deadline，已经到期就返回连接前失败且禁止启动网络 I/O。连接池命中不会改变边界：直到固定请求 Body 首次被连接层消费前都受该 deadline 约束，超时返回连接前失败；Body 首次被消费后连接阶段结束并停止该 timer。
 
 `upstream.read_timeout` 属于请求快照，不进入 TransportKey。Transport 只在上述 Body 首次消费信号之后启动等待响应头的请求级 timeout，因此它不覆盖也不替代 DNS、TCP、代理握手或 TLS；Runtime 对需要完整收集的响应体按每次成功读取重置同一 timeout。成功 SSE 不叠加通用 body read timer：提交前继续使用 `stream.precommit.max_duration`，提交后切换为 `stream.postcommit.idle_timeout`，避免同一流同时存在两个含义不清的计时器。
@@ -2923,7 +2925,7 @@ oauth_token_refresh_failed
 
 普通 tracing/file log 与模型 RequestLog 中不得包含完整 `GatewayApiKey`、上游 Provider API Key、OAuth Token、代理密码、原始 Session ID 或 Prompt。HttpAccessLog 详情按第 9.9 节记录客户端实际发送和服务端实际返回的原始 HTTP 值，不做上述脱敏；它不会额外读取或记录仅存在于上游传输层的 Provider Secret。
 
-运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；系统总览只返回当前配置 revision、全局与 Provider 级聚合的 `in_flight`、RPM、等待者、Transport Client/连接池数量、熔断状态计数、遥测队列压力与日志丢弃数，以及 shutdown phase。两者都读取 PublishedSnapshot 和现有进程内 Runtime/Transport/Telemetry 快照，不建立第二套采集服务或持久化运行指标。
+运行指标通过两类现有管理视图暴露：Provider API Key / OAuthAccount 页面返回当前账号的实际代理、RPM 窗口已用/上限、`in_flight` 与有限运行状态；系统总览只返回当前配置 revision、全局与 Provider 级聚合的 `in_flight`、RPM、等待者、Transport Client 缓存活动、熔断状态计数、遥测队列压力与日志丢弃数，以及 shutdown phase。两者都读取 PublishedSnapshot 和现有进程内 Runtime/Transport/Telemetry 快照，不建立第二套采集服务或持久化运行指标。
 
 总览使用当前 PublishedSnapshot 与稳定 RuntimeRegistry 的只读内存快照。调度响应聚合全局和 Provider 级账号总数、启用数、启用 RPM 数、RPM 已用尽数、滚动窗口请求数、`in_flight`、固定等待者、成功选中次数、队列状态，以及前述固定规模的 Transport、熔断、遥测和停机指标。会话响应在总览场景只返回当前策略下 TTL 内的普通显式活动会话数与正在建立数；`affinity.enabled=false` 时两者均为 `0`。Web 必须把两项明确标为显式会话，关闭时展示策略状态而不是把 API 的零值伪装成活动计数；“建立中”必须说明它只覆盖首次绑定提交前的瞬时状态。Continuation 索引数、保留但当前不会命中的普通绑定、逐 Credential ID、标签、模型集合、模型健康、单账号过滤计数、逐 Credential 会话分布或绑定样本都不得返回。
 

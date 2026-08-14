@@ -24,9 +24,11 @@ export interface BalancingRuntime {
     shutdownPhase: "running" | "draining" | "forced";
   };
   transport: {
-    cachedClientPools: number;
-    clientPoolCapacity: number;
-    maxIdlePerHost: number;
+    cacheEntries: number;
+    cacheCapacity: number;
+    cacheHits: number;
+    cacheMisses: number;
+    cacheEvictions: number;
   } | null;
   breakers: {
     closed: number;
@@ -80,9 +82,11 @@ export function parseBalancingRuntime(value: unknown): BalancingRuntime {
 function parseTransport(value: unknown) {
   const item = record(value);
   return {
-    cachedClientPools: integer(item.cached_client_pools),
-    clientPoolCapacity: positive(item.client_pool_capacity),
-    maxIdlePerHost: integer(item.max_idle_per_host),
+    cacheEntries: integer(item.cache_entries),
+    cacheCapacity: positive(item.cache_capacity),
+    cacheHits: integer(item.cache_hits),
+    cacheMisses: integer(item.cache_misses),
+    cacheEvictions: integer(item.cache_evictions),
   };
 }
 

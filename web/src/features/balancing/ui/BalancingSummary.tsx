@@ -57,15 +57,15 @@ export function BalancingSummary({ runtime }: { runtime: BalancingRuntime }) {
 
       <dl className="grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="运行态观测">
         <Metric
-          label="Transport 缓存客户端池 / 容量"
+          label="Transport 缓存命中 / 未命中"
           value={
             runtime.transport
-              ? `${runtime.transport.cachedClientPools} / ${runtime.transport.clientPoolCapacity}`
-              : "不可用"
+              ? `${formatCount(runtime.transport.cacheHits)} / ${formatCount(runtime.transport.cacheMisses)}`
+              : "-"
           }
           note={
             runtime.transport
-              ? `每主机最大空闲连接 ${runtime.transport.maxIdlePerHost}`
+              ? `本次运行累计 · 当前条目 ${formatCount(runtime.transport.cacheEntries)} / ${formatCount(runtime.transport.cacheCapacity)} · 淘汰 ${formatCount(runtime.transport.cacheEvictions)}`
               : undefined
           }
         />

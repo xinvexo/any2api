@@ -11,7 +11,7 @@ use tokio::time::Instant;
 
 use super::{
     body_timeout::timeout_body,
-    cache::ClientCache,
+    cache::{ClientCache, ClientCacheSnapshot},
     construction::build_transport_client,
     deadline::await_response_headers,
     failure::{
@@ -134,10 +134,14 @@ impl ReqwestTransportManager {
 
     #[must_use]
     pub fn cached_client_count(&self) -> usize {
+        self.client_cache_snapshot().entries
+    }
+
+    fn client_cache_snapshot(&self) -> ClientCacheSnapshot {
         self.clients
             .lock()
             .expect("transport client cache lock poisoned")
-            .len()
+            .snapshot()
     }
 
     #[cfg(test)]
@@ -269,10 +273,13 @@ impl Default for ReqwestTransportManager {
 #[async_trait]
 impl TransportManager for ReqwestTransportManager {
     fn runtime_snapshot(&self) -> Option<TransportRuntimeSnapshot> {
+        let cache = self.client_cache_snapshot();
         Some(TransportRuntimeSnapshot::new(
-            self.cached_client_count(),
+            cache.entries,
             self.config.max_cached_clients,
-            self.config.pool_max_idle_per_host,
+            cache.hits,
+            cache.misses,
+            cache.evictions,
         ))
     }
 

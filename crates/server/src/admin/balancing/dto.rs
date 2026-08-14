@@ -68,17 +68,21 @@ struct ProcessResponse {
 
 #[derive(Debug, Serialize)]
 struct TransportResponse {
-    cached_client_pools: usize,
-    client_pool_capacity: usize,
-    max_idle_per_host: usize,
+    cache_entries: usize,
+    cache_capacity: usize,
+    cache_hits: u64,
+    cache_misses: u64,
+    cache_evictions: u64,
 }
 
 impl From<TransportRuntimeSnapshot> for TransportResponse {
     fn from(value: TransportRuntimeSnapshot) -> Self {
         Self {
-            cached_client_pools: value.cached_client_pools(),
-            client_pool_capacity: value.client_pool_capacity(),
-            max_idle_per_host: value.max_idle_per_host(),
+            cache_entries: value.cache_entries(),
+            cache_capacity: value.cache_capacity(),
+            cache_hits: value.cache_hits(),
+            cache_misses: value.cache_misses(),
+            cache_evictions: value.cache_evictions(),
         }
     }
 }

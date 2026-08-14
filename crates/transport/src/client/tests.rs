@@ -276,12 +276,11 @@ fn ephemeral_clients_do_not_evict_cached_clients() {
         .expect("cached client remains warm");
     assert!(Arc::ptr_eq(&warm, &reused));
     let runtime = manager.runtime_snapshot().expect("production snapshot");
-    assert_eq!(runtime.cached_client_pools(), 1);
-    assert_eq!(runtime.client_pool_capacity(), 1);
-    assert_eq!(
-        runtime.max_idle_per_host(),
-        TransportManagerConfig::default().pool_max_idle_per_host
-    );
+    assert_eq!(runtime.cache_entries(), 1);
+    assert_eq!(runtime.cache_capacity(), 1);
+    assert_eq!(runtime.cache_hits(), 1);
+    assert_eq!(runtime.cache_misses(), 1);
+    assert_eq!(runtime.cache_evictions(), 0);
 }
 
 #[test]

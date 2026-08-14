@@ -7,9 +7,11 @@ test("parses aggregate-only balancing runtime", () => {
 
   expect(parsed.process).toEqual({ activeRequests: 4, backgroundTasks: 6, shutdownPhase: "running" });
   expect(parsed.transport).toEqual({
-    cachedClientPools: 3,
-    clientPoolCapacity: 64,
-    maxIdlePerHost: 8,
+    cacheEntries: 3,
+    cacheCapacity: 64,
+    cacheHits: 1_280,
+    cacheMisses: 12,
+    cacheEvictions: 2,
   });
   expect(parsed.breakers).toEqual({ closed: 8, open: 1, halfOpen: 2 });
   expect(parsed.telemetry).toEqual({ queued: 4, inFlight: 1, capacity: 100_000, dropped: 7 });
@@ -52,9 +54,11 @@ function runtimeResponse() {
     scheduler_epoch: 8,
     process: { active_requests: 4, background_tasks: 6, shutdown_phase: "running" },
     transport: {
-      cached_client_pools: 3,
-      client_pool_capacity: 64,
-      max_idle_per_host: 8,
+      cache_entries: 3,
+      cache_capacity: 64,
+      cache_hits: 1_280,
+      cache_misses: 12,
+      cache_evictions: 2,
     },
     breakers: { closed: 8, open: 1, half_open: 2 },
     telemetry: { queued: 4, in_flight: 1, capacity: 100_000, dropped: 7 },
